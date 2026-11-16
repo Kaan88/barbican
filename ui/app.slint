@@ -622,6 +622,16 @@ export component AppWindow inherits Window {
     out property <length> bh: body.height;
     out property <bool> body-visible: logged-in && app == 0 && current-mail != "" && !composing && !show-settings && render-mode == 0 && !ev-open;
 
+    callback shortcut(string, bool, bool);
+    public function focus-keys() { kbd.focus(); }
+    public function focus-search() { search-box.focus(); }
+    kbd := FocusScope {
+    init => { self.focus(); }
+    key-pressed(e) => {
+        if (e.modifiers.control && e.text == "f") || (e.modifiers.control && e.text == "e") { search-box.focus(); return accept; }
+        root.shortcut(e.text, e.modifiers.shift, e.modifiers.control);
+        accept
+    }
     Rectangle {
         visible: !logged-in;
         VerticalLayout {
@@ -818,8 +828,8 @@ export component AppWindow inherits Window {
                             background: root.checked-count > 0 ? Theme.accent : transparent;
                         }
                     }
-                    LineEdit {
-                        placeholder-text: "Search mail…";
+                    search-box := LineEdit {
+                        placeholder-text: "Search mail…  /";
                         text <=> root.search;
                         accepted(t) => { root.do-search(t); }
                     }
@@ -855,6 +865,7 @@ export component AppWindow inherits Window {
                         clicked => {
                             root.current-mail = m.id;
                             root.open-mail(m.id);
+                            kbd.focus();
                         }
                         ctrl-clicked => { root.toggle-check(m.id); }
                         action(a) => { root.row-action(m.id, a); }
@@ -1910,5 +1921,6 @@ export component AppWindow inherits Window {
                 }
             }
         }
+    }
     }
 }

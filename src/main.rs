@@ -996,6 +996,67 @@ fn main() -> Result<(), slint::PlatformError> {
     ui.on_admin_delete(move |id| { let Some(c) = st.lock().unwrap().clone() else { return }; admin::delete_queued(&w.unwrap(), c, &id); });
     ui.set_admin_enabled(!admin::key().is_empty());
 
+    // ---------------- keyboard shortcuts (Bulwark's single-key set) ----------------
+    let (w, st, pf) = (ui.as_weak(), state.clone(), prefs.clone());
+    ui.on_shortcut(move |text, shift, ctrl| {
+        let u = w.unwrap();
+        let t = text.as_str();
+        // composer shortcuts
+        if u.get_composing() {
+            if ctrl && (t == "\r" || t == "\n") { u.invoke_send_now(); }
+            if ctrl && t == "s" { u.invoke_save_draft(false); }
+            if t == "\u{1b}" { u.invoke_save_draft(true); }
+            return;
+        }
+        if ctrl {
+            match t {
+                "1" | "2" | "3" | "4" => { let a = t.parse::<i32>().unwrap() - 1; u.set_app(a); u.invoke_app_changed(a); }
+                "n" => u.invoke_compose_new(),
+                "a" => u.invoke_select_all(),
+                "r" => u.invoke_act(if shift { "reply-all".into() } else { "reply".into() }),
+                "u" => u.invoke_act("unread".into()),
+                _ => {}
+            }
+            return;
+        }
+        if u.get_app() != 0 || u.get_show_settings() { if t == "\u{1b}" { u.set_show_settings(false); } return; }
+        let move_sel = |delta: i32, unread_only: bool| {
+            let m = u.get_mails();
+            let cur = u.get_current_mail();
+            let n = m.row_count() as i32;
+            let mut i = (0..n).find(|&i| m.row_data(i as usize).is_some_and(|x| x.id == cur)).unwrap_or(-1);
+            loop {
+                i += delta;
+                if i < 0 || i >= n { return; }
+                let r = m.row_data(i as usize).unwrap();
+                if !unread_only || r.unread { u.set_current_mail(r.id.clone()); u.invoke_open_mail(r.id); return; }
+            }
+        };
+        let _ = (&st, &pf);
+        match t {
+            "j" => move_sel(1, false),
+            "k" => move_sel(-1, false),
+            "\u{F701}" => move_sel(1, false),   // down arrow
+            "\u{F700}" => move_sel(-1, false),  // up arrow
+            "n" => move_sel(1, true),
+            "\u{1b}" => u.set_current_mail("".into()),
+            "r" => u.invoke_act("reply".into()),
+            "R" => u.invoke_act("reply-all".into()),
+            "f" => u.invoke_act("forward".into()),
+            "s" => u.invoke_act("star".into()),
+            "e" => u.invoke_act("archive".into()),
+            "#" | "\u{7f}" => u.invoke_act("delete".into()),
+            "u" => u.invoke_act("unread".into()),
+            "I" => u.invoke_act("read".into()),
+            "!" => u.invoke_act("spam".into()),
+            "c" => u.invoke_compose_new(),
+            "/" => u.invoke_focus_search(),
+            "G" => u.invoke_refresh(),
+            "z" => u.invoke_undo_toast(),
+            _ => { let _ = shift; }
+        }
+    });
+
     // ---------------- mail actions ----------------
     let w = ui.as_weak();
     ui.on_toggle_folder(move |id| mail::toggle_folder(&w.unwrap(), &id));
