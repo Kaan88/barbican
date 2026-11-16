@@ -1,4 +1,4 @@
-import { LineEdit, Button, ListView, ScrollView, TextEdit, ComboBox, CheckBox } from "std-widgets.slint";
+import { LineEdit, Button, ListView, ScrollView, TextEdit, ComboBox, CheckBox, Palette } from "std-widgets.slint";
 
 export struct Folder {
     id: string,
@@ -130,16 +130,28 @@ export struct Mail {
     tags: [color],
 }
 
-global Theme {
-    out property <color> bg: #0a0a0a;
-    out property <color> rail: #0f0f0f;
-    out property <color> side: #141414;
-    out property <color> line: #262626;
-    out property <color> text: #fafafa;
-    out property <color> dim: #adadad;
-    out property <color> accent: #f0577a;
-    out property <color> sel: #4a1424;
-    out property <color> hover: #1a1a1a;
+export global Theme {
+    in-out property <bool> dark: true;
+    // Bulwark tokens: dark (--color-*) and light (brand #c8234a, neutral greys)
+    out property <color> bg: dark ? #0a0a0a : #ffffff;
+    out property <color> rail: dark ? #0f0f0f : #f4f4f5;
+    out property <color> side: dark ? #141414 : #fafafa;
+    out property <color> line: dark ? #262626 : #e5e5e5;
+    out property <color> text: dark ? #fafafa : #0a0a0a;
+    out property <color> dim: dark ? #adadad : #6b6b6b;
+    out property <color> accent: dark ? #f0577a : #c8234a;
+    out property <color> on-accent: dark ? #16070c : #ffffff;
+    out property <color> sel: dark ? #4a1424 : #fde4ea;
+    out property <color> sel-text: dark ? #ffd5df : #8c1733;
+    out property <color> hover: dark ? #1a1a1a : #f0f0f0;
+    out property <color> popup: dark ? #1c1c1c : #ffffff;
+    out property <color> chip: dark ? #262626 : #ececec;
+    out property <color> raised: dark ? #181818 : #f4f4f5;
+    out property <color> zebra: dark ? #111111 : #fafafa;
+    out property <color> bubble: dark ? #1f1f22 : #f1f1f3;
+    out property <color> reader: dark ? #0a0a0a : #ffffff;
+    out property <color> muted-day: dark ? #5a5a5a : #a3a3a3;
+    out property <color> track: dark ? #3a3a3a : #d4d4d4;
     out property <string> icons: "Segoe Fluent Icons";
 }
 
@@ -168,7 +180,7 @@ component Switch inherits Rectangle {
     width: 36px;
     height: 20px;
     border-radius: 10px;
-    background: on ? Theme.accent : #3a3a3a;
+    background: on ? Theme.accent : Theme.track;
     TouchArea { clicked => { root.toggled(); } }
     Rectangle {
         x: on ? parent.width - 18px : 2px;
@@ -176,7 +188,7 @@ component Switch inherits Rectangle {
         width: 16px;
         height: 16px;
         border-radius: 8px;
-        background: on ? #16070c : #d4d4d4;
+        background: on ? Theme.on-accent : Theme.dim;
         animate x { duration: 120ms; }
     }
 }
@@ -254,7 +266,7 @@ component FolderRow inherits Rectangle {
         }
         Text {
             text: f.name;
-            color: selected ? #ffd5df : Theme.text;
+            color: selected ? Theme.sel-text : Theme.text;
             vertical-alignment: center;
             overflow: elide;
             horizontal-stretch: 1;
@@ -309,7 +321,7 @@ component PrimaryButton inherits Rectangle {
     border-radius: 6px;
     background: !enabled ? #5a2a36 : (pta.pressed ? #d94a6b : (pta.has-hover ? #f46d8c : Theme.accent));
     pta := TouchArea { enabled: root.enabled; clicked => { root.clicked(); } }
-    pl := Text { text: root.text; color: #16070c; font-weight: 700; horizontal-alignment: center; vertical-alignment: center; }
+    pl := Text { text: root.text; color: Theme.on-accent; font-weight: 700; horizontal-alignment: center; vertical-alignment: center; }
 }
 
 component HoverAction inherits Rectangle {
@@ -319,7 +331,7 @@ component HoverAction inherits Rectangle {
     width: 22px;
     height: 22px;
     border-radius: 4px;
-    background: hta.has-hover ? #2a2a2a : transparent;
+    background: hta.has-hover ? Theme.hover : transparent;
     hta := TouchArea { clicked => { root.clicked(); } }
     Icon { text: glyph; font-size: 12px; color: active ? #facc15 : (hta.has-hover ? Theme.text : Theme.dim); }
 }
@@ -400,7 +412,7 @@ component MailRow inherits VerticalLayout {
                         width: tc.preferred-width + 22px;
                         height: 16px;
                         border-radius: 4px;
-                        background: #262626;
+                        background: Theme.chip;
                         HorizontalLayout {
                             padding-left: 4px;
                             spacing: 3px;
@@ -449,6 +461,9 @@ export component AppWindow inherits Window {
     preferred-height: 900px;
     default-font-size: 13px;
     default-font-family: "Segoe UI";
+    init => { Palette.color-scheme = Theme.dark ? ColorScheme.dark : ColorScheme.light; }
+    changed theme-dark => { Palette.color-scheme = Theme.dark ? ColorScheme.dark : ColorScheme.light; }
+    property <bool> theme-dark: Theme.dark;
 
     in-out property <bool> logged-in: false;
     in property <bool> busy: false;
@@ -967,7 +982,7 @@ export component AppWindow inherits Window {
         // reader
         Rectangle {
             horizontal-stretch: 1;
-            background: #121213;
+            background: Theme.reader;
             VerticalLayout {
                 visible: root.current-mail == "";
                 alignment: center;
@@ -975,7 +990,7 @@ export component AppWindow inherits Window {
                 HorizontalLayout {
                     alignment: center;
                     Rectangle {
-                        width: 68px; height: 68px; border-radius: 34px; background: #1d1d1f;
+                        width: 68px; height: 68px; border-radius: 34px; background: Theme.chip;
                         Icon { text: "\u{E715}"; font-size: 28px; color: Theme.text; }
                     }
                 }
@@ -1005,7 +1020,7 @@ export component AppWindow inherits Window {
                     move-popup := PopupWindow {
                         x: -300px; y: 32px; width: 240px;
                         Rectangle {
-                            background: #1c1c1c; border-radius: 8px; border-width: 1px; border-color: Theme.line;
+                            background: Theme.popup; border-radius: 8px; border-width: 1px; border-color: Theme.line;
                             VerticalLayout {
                                 padding: 6px;
                                 for f in root.folders: Rectangle {
@@ -1024,7 +1039,7 @@ export component AppWindow inherits Window {
                     tag-popup := PopupWindow {
                         x: -200px; y: 32px; width: 200px;
                         Rectangle {
-                            background: #1c1c1c; border-radius: 8px; border-width: 1px; border-color: Theme.line;
+                            background: Theme.popup; border-radius: 8px; border-width: 1px; border-color: Theme.line;
                             VerticalLayout {
                                 padding: 6px;
                                 for t in root.tags: Rectangle {
@@ -1106,7 +1121,7 @@ export component AppWindow inherits Window {
                         width: pl.preferred-width + 16px;
                         height: 20px;
                         border-radius: 10px;
-                        background: pr.tone == "danger" ? #5c1622 : pr.tone == "warning" ? #5a4210 : pr.tone == "success" ? #14462a : #262626;
+                        background: pr.tone == "danger" ? #5c1622 : pr.tone == "warning" ? #5a4210 : pr.tone == "success" ? #14462a : Theme.chip;
                         pl := Text {
                             text: pr.label;
                             font-size: 10px;
@@ -1164,7 +1179,7 @@ export component AppWindow inherits Window {
                 }
                 if root.current-mail != "": Rectangle { height: 0px; }
                 body := Rectangle {
-                    background: root.render-mode == 2 ? white : #0a0a0a;
+                    background: root.render-mode == 2 ? white : Theme.reader;
                     border-radius: 0px;
                     vertical-stretch: 1;
                     clip: true;
@@ -1186,7 +1201,7 @@ export component AppWindow inherits Window {
                     if root.render-mode == 2: ScrollView {
                         VerticalLayout {
                             padding: 16px;
-                            TextInput { text: root.r-body; read-only: true; single-line: false; wrap: word-wrap; color: #111111; font-size: 14px; }
+                            TextInput { text: root.r-body; read-only: true; single-line: false; wrap: word-wrap; color: Theme.zebra; font-size: 14px; }
                         }
                     }
                 }
@@ -1253,7 +1268,7 @@ export component AppWindow inherits Window {
                         padding-left: m.role == "user" ? 48px : 10px;
                         padding-right: m.role == "user" ? 10px : 24px;
                         Rectangle {
-                            background: m.role == "user" ? Theme.sel : m.role == "assistant" ? #1f1f22 : transparent;
+                            background: m.role == "user" ? Theme.sel : m.role == "assistant" ? Theme.bubble : transparent;
                             border-radius: 8px;
                             VerticalLayout {
                                 padding: m.role == "tool" ? 2px : 10px;
@@ -1339,7 +1354,7 @@ export component AppWindow inherits Window {
                                 width: 20px; height: 20px; border-radius: 10px;
                                 background: d.today ? Theme.accent : (d.selected ? Theme.sel : (mdta.has-hover ? Theme.hover : transparent));
                             }
-                            Text { text: d.day; font-size: 11px; color: d.today ? #16070c : (d.in-month ? Theme.text : #5a5a5a); font-weight: d.busy ? 700 : 400; }
+                            Text { text: d.day; font-size: 11px; color: d.today ? Theme.on-accent : (d.in-month ? Theme.text : Theme.muted-day); font-weight: d.busy ? 700 : 400; }
                             mdta := TouchArea { clicked => { root.cal-nav(d.date); } }
                         }
                     }
@@ -1389,7 +1404,7 @@ export component AppWindow inherits Window {
                             height: grid.height / 6;
                             border-width: 0.5px;
                             border-color: Theme.line;
-                            background: c.in-month ? transparent : #0d0d0d;
+                            background: c.in-month ? transparent : Theme.zebra;
                             TouchArea { double-clicked => { root.cal-edit("", c.date, -1); } }
                             VerticalLayout {
                                 padding: 4px;
@@ -1400,7 +1415,7 @@ export component AppWindow inherits Window {
                                     Rectangle {
                                         width: 22px; height: 20px; border-radius: 10px;
                                         background: c.today ? Theme.accent : transparent;
-                                        Text { text: c.day; font-size: 11px; color: c.today ? #16070c : (c.in-month ? Theme.text : #5a5a5a); }
+                                        Text { text: c.day; font-size: 11px; color: c.today ? Theme.on-accent : (c.in-month ? Theme.text : Theme.muted-day); }
                                     }
                                 }
                                 for e in c.events: Rectangle {
@@ -1432,7 +1447,7 @@ export component AppWindow inherits Window {
                                 Rectangle {
                                     width: 30px; height: 30px; border-radius: 15px;
                                     background: d.today ? Theme.accent : transparent;
-                                    Text { text: d.day; color: d.today ? #16070c : Theme.text; font-size: 15px; font-weight: 700; }
+                                    Text { text: d.day; color: d.today ? Theme.on-accent : Theme.text; font-size: 15px; font-weight: 700; }
                                 }
                             }
                             for e in d.events: Rectangle {
@@ -1455,7 +1470,7 @@ export component AppWindow inherits Window {
                                 y: h * 56px;
                                 height: 56px;
                                 Text { x: 6px; y: -6px; text: (h < 10 ? "0" : "") + h + ":00"; color: Theme.dim; font-size: 10px; }
-                                Rectangle { x: 52px; height: 1px; y: 0; background: #1c1c1c; }
+                                Rectangle { x: 52px; height: 1px; y: 0; background: Theme.popup; }
                                 TouchArea {
                                     x: 52px;
                                     double-clicked => {
@@ -1676,7 +1691,7 @@ export component AppWindow inherits Window {
                             padding-left: 10px;
                             spacing: 8px;
                             Icon { text: sec.g; font-size: 12px; width: 16px; color: root.admin-section == sec.id ? Theme.accent : Theme.dim; }
-                            Text { text: sec.l; color: root.admin-section == sec.id ? #ffd5df : Theme.text; vertical-alignment: center; font-weight: root.admin-section == sec.id ? 600 : 400; }
+                            Text { text: sec.l; color: root.admin-section == sec.id ? Theme.sel-text : Theme.text; vertical-alignment: center; font-weight: root.admin-section == sec.id ? 600 : 400; }
                         }
                     }
                 }
@@ -1699,7 +1714,7 @@ export component AppWindow inherits Window {
                             color: Theme.text; font-weight: 600; vertical-alignment: center;
                         }
                         if root.admin-section != "overview": Rectangle {
-                            width: cnt.preferred-width + 14px; height: 18px; y: 13px; border-radius: 9px; background: #262626;
+                            width: cnt.preferred-width + 14px; height: 18px; y: 13px; border-radius: 9px; background: Theme.chip;
                             cnt := Text { text: root.admin-rows.length; color: Theme.dim; font-size: 10px; }
                         }
                         Text { text: root.admin-status; color: root.admin-status == "Loading…" ? Theme.dim : Theme.accent; vertical-alignment: center; horizontal-stretch: 1; overflow: elide; font-size: 12px; }
@@ -1721,7 +1736,7 @@ export component AppWindow inherits Window {
                             background: Theme.side;
                             border-radius: 10px;
                             border-width: 1px;
-                            border-color: tta2.has-hover ? #3a3a3a : Theme.line;
+                            border-color: tta2.has-hover ? Theme.track : Theme.line;
                             tta2 := TouchArea {
                                 clicked => {
                                     root.admin-section = i == 0 ? "domains" : i == 1 ? "accounts" : i == 2 ? "queue" : "reports";
@@ -1758,7 +1773,7 @@ export component AppWindow inherits Window {
                         VerticalLayout {
                             Rectangle {
                                 height: 32px;
-                                background: #181818;
+                                background: Theme.raised;
                                 HorizontalLayout {
                                     padding-left: 14px;
                                     padding-right: 14px;
@@ -1772,7 +1787,7 @@ export component AppWindow inherits Window {
                             ListView {
                                 for r[i] in root.admin-rows: Rectangle {
                                     height: 34px;
-                                    background: ara.has-hover ? Theme.hover : (mod(i, 2) == 1 ? #111111 : transparent);
+                                    background: ara.has-hover ? Theme.hover : (mod(i, 2) == 1 ? Theme.zebra : transparent);
                                     ara := TouchArea { }
                                     HorizontalLayout {
                                         padding-left: 14px;
@@ -1937,8 +1952,8 @@ export component AppWindow inherits Window {
                         HorizontalLayout {
                             alignment: center;
                             spacing: 6px;
-                            Icon { text: "\u{E724}"; color: #16070c; font-size: 12px; }
-                            Text { text: root.sending ? "Sending…" : "Send"; color: #16070c; font-weight: 700; vertical-alignment: center; }
+                            Icon { text: "\u{E724}"; color: Theme.on-accent; font-size: 12px; }
+                            Text { text: root.sending ? "Sending…" : "Send"; color: Theme.on-accent; font-weight: 700; vertical-alignment: center; }
                         }
                     }
                     ToolButton { glyph: "\u{E723}"; label: "Attach"; y: 2px; clicked => { root.attach-file(); } }
@@ -1956,9 +1971,9 @@ export component AppWindow inherits Window {
         width: tl.preferred-width;
         height: 40px;
         border-radius: 8px;
-        background: #262626;
+        background: Theme.chip;
         border-width: 1px;
-        border-color: #3a3a3a;
+        border-color: Theme.track;
         tl := HorizontalLayout {
             padding-left: 16px;
             padding-right: 8px;

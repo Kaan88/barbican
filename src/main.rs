@@ -397,6 +397,7 @@ fn main() -> Result<(), slint::PlatformError> {
     // (and gets system font fallback for CJK and other scripts).
     let _ = slint::BackendSelector::new().renderer_name("skia".into()).select();
     let ui = AppWindow::new()?;
+    apply_theme(&ui);
     {
         let (loaded, errors) = plugins::load_all();
         PLUGINS.with(|p| *p.borrow_mut() = loaded);
@@ -761,6 +762,7 @@ fn main() -> Result<(), slint::PlatformError> {
         drop(p);
         rs();
         if key == "desktop.renderMode" || key == "desktop.remoteImages" { render_current(&w.unwrap()); }
+        if key == "theme" { apply_theme(&w.unwrap()); }
     });
 
     // text edits are saved as typed, without rebuilding the page (keeps the caret)
@@ -1484,4 +1486,22 @@ fn finish_login(w: slint::Weak<AppWindow>, st: Shared, res: Result<jmap::Client,
             });
         }
     }
+}
+
+
+/// Bulwark's Appearance > Light or dark: "light" | "dark" | "system" (Windows app theme).
+pub fn apply_theme(ui: &AppWindow) {
+    let pref = settings::Settings::load().str("theme", "dark");
+    let dark = match pref.as_str() {
+        "light" => false,
+        "system" => {
+            // HKCU\Software\Microsoft\Windows\CurrentVersion\Themes\Personalize AppsUseLightTheme
+            let out = std::process::Command::new("reg")
+                .args(["query", r"HKCU\Software\Microsoft\Windows\CurrentVersion\Themes\Personalize", "/v", "AppsUseLightTheme"])
+                .output().ok().map(|o| String::from_utf8_lossy(&o.stdout).to_string()).unwrap_or_default();
+            !out.contains("0x1")
+        }
+        _ => true,
+    };
+    ui.global::<Theme>().set_dark(dark);
 }
