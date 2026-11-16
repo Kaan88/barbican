@@ -69,7 +69,7 @@ pub fn tools(client: &Client) -> Vec<Tool> {
         Tool { name: "delete_messages", write: true, desc: "Move emails to Trash.", schema: obj(json!({"ids": ids}), &["ids"]) },
         Tool { name: "mark_messages", write: true, desc: "Mark emails read/unread/flagged/unflagged.",
             schema: obj(json!({"ids": ids, "mark": {"type": "string", "enum": ["read", "unread", "flagged", "unflagged"]}}), &["ids", "mark"]) },
-        Tool { name: "tag_messages", write: true, desc: "Add or remove a tag (keyword) on emails, e.g. red, orange, yellow, green, blue, purple, pink, or any word.",
+        Tool { name: "tag_messages", write: true, desc: "Add or remove a tag on emails. Built-in tags: red, orange, yellow, green, blue, purple, pink; custom tag names also work.",
             schema: obj(json!({"ids": ids, "tag": {"type": "string"}, "remove": {"type": "boolean"}}), &["ids", "tag"]) },
         Tool { name: "create_folder", write: true, desc: "Create a mail folder, optionally inside a parent folder.",
             schema: obj(json!({"name": {"type": "string"}, "parent": {"type": "string"}}), &["name"]) },
@@ -256,7 +256,7 @@ fn exec(name: &str, a: &Value, c: &Client, ctx: &Ctx, host: &dyn Host) -> Result
             let tag: String = s(a, "tag").trim().chars().map(|ch| if ch.is_alphanumeric() || ch == '$' || ch == '_' || ch == '-' { ch } else { '_' }).collect();
             if tag.is_empty() { return Err("Empty tag.".into()); }
             let v = if a["remove"].as_bool() == Some(true) { Value::Null } else { json!(true) };
-            update_all(c, &id_list(a, ctx), json!({ format!("keywords/{tag}"): v }))
+            update_all(c, &id_list(a, ctx), json!({ format!("keywords/$label:{}", tag.to_lowercase()): v }))
         }
         "create_folder" => {
             let parent = if s(a, "parent").is_empty() { Value::Null } else { json!(find_folder(c, s(a, "parent"))?) };

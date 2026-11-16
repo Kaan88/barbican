@@ -649,32 +649,6 @@ fn main() -> Result<(), slint::PlatformError> {
         if key == "signout" { u.set_show_settings(false); u.invoke_sign_out(); }
     });
 
-    let w = ui.as_weak();
-    let cf = cfg.clone();
-    #[allow(unused_variables)]
-    ui.on_save_settings(move || {
-        let u = w.unwrap();
-        let c = ai::Config {
-            provider: u.get_ai_provider(),
-            base: u.get_ai_base().trim().to_string(),
-            key: u.get_ai_key().trim().to_string(),
-            model: u.get_ai_model().trim().to_string(),
-            lang: u.get_ai_lang().trim().to_string(),
-            show_clean_spam: u.get_spam_show_clean(),
-            actions: u.get_ai_actions(),
-            instructions: u.get_ai_instructions().to_string(),
-            prompts: u.get_ai_prompts().to_string(),
-            memory_on: u.get_ai_memory_on(),
-            hidden: u.get_ai_hidden(),
-            render_mode: u.get_render_mode(),
-            remote_images: u.get_auto_images(),
-        };
-        c.save();
-        ai::Config::set_memory(&u.get_ai_memory());
-        u.set_chips(chips_model(&c));
-        *cf.lock().unwrap() = c;
-        u.set_show_settings(false);
-    });
 
     let w = ui.as_weak();
     let cf = cfg.clone();
