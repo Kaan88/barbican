@@ -89,4 +89,36 @@ public sealed class DocLayoutTests
             File.WriteAllBytes(Path.Combine(outDir, $"doc-layout-{(OperatingSystem.IsWindows() ? "win" : "linux")}.png"), png.ToArray());
         }
     }
+
+    [Fact]
+    public void Text_contrast_darkens_glyph_edges_only()
+    {
+        var d = Doc.FromText("Contrast check: the quick brown fox");
+        long Ink(float k)
+        {
+            var layout = new DocLayout(new RichTextKitEngine(), TestFonts.Style with { TextContrast = k });
+            layout.Build(d, 400f);
+            using var bmp = new SKBitmap(400, 40);
+            using (var canvas = new SKCanvas(bmp))
+            {
+                canvas.Clear(SKColors.White);
+                layout.Paint(canvas, d, Sel.Caret(default));
+            }
+
+            long sum = 0;
+            for (var y = 0; y < bmp.Height; y++)
+            {
+                for (var x = 0; x < bmp.Width; x++)
+                {
+                    sum += 255 - bmp.GetPixel(x, y).Green;
+                }
+            }
+
+            return sum;
+        }
+
+        var plain = Ink(1f);
+        var boosted = Ink(1.6f);
+        Assert.InRange((double)boosted / plain, 1.05, 1.35);
+    }
 }

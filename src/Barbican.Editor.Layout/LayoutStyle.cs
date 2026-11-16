@@ -31,4 +31,11 @@ public sealed record LayoutStyle
     public SKFontHinting Hinting { get; init; } = SKFontHinting.Normal;
 
     public bool SubpixelPositioning { get; init; } = true;
+
+    /// <summary>
+    /// Coverage contrast, emulating DirectWrite's grayscale enhanced contrast so Skia text is as
+    /// dark as a XAML TextBlock: glyph alpha a becomes 1 - (1 - a)^k. 1 = Skia's own coverage.
+    /// Measured in spike S3 (docs/adr/0006).
+    /// </summary>
+    public float TextContrast { get; init; } = 1f;
 }

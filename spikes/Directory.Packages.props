@@ -1,0 +1,9 @@
+<Project>
+  <!-- The repo's central versions, plus what the spike harnesses need on top. The App head adds
+       its own WinAppSDK pin with spike S1; keep these in step with it when that lands. -->
+  <Import Project="$([MSBuild]::GetPathOfFileAbove('Directory.Packages.props', '$(MSBuildThisFileDirectory)../'))" />
+  <ItemGroup>
+    <PackageVersion Include="Microsoft.WindowsAppSDK" Version="2.6.5" />
+    <PackageVersion Include="Microsoft.Windows.SDK.BuildTools" Version="10.0.26100.4654" />
+  </ItemGroup>
+</Project>

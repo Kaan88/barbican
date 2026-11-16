@@ -131,22 +131,51 @@ public sealed class DocLayout
         return rects;
     }
 
+    /// <summary>
+    /// Paints the selection (behind the text, as rectangles) and then the text. With
+    /// <see cref="LayoutStyle.TextContrast"/> above 1 the text goes through a layer whose alpha
+    /// table applies the contrast curve; the selection stays outside it.
+    /// </summary>
     public void Paint(SKCanvas canvas, Doc doc, Sel sel)
     {
         ArgumentNullException.ThrowIfNull(canvas);
         ArgumentNullException.ThrowIfNull(doc);
-        var (s, e) = (sel.Start, sel.End);
-        for (var i = 0; i < _geo.Count; i++)
+        if (!sel.IsCollapsed)
         {
-            var g = _geo[i];
-            if (g.Text is null)
+            using var selPaint = new SKPaint { Color = _style.Selection, IsAntialias = false };
+            foreach (var r in SelectionRects(doc, sel))
             {
-                continue;
+                canvas.DrawRect(r.X, r.Y, r.Width, r.Height, selPaint);
             }
-
-            var a = i == s.B ? s.O : i > s.B ? 0 : int.MaxValue;
-            var z = i == e.B ? e.O : i < e.B ? doc.Blocks[i].Length : 0;
-            g.Text.Paint(canvas, g.TextX, g.TextY, a, z);
         }
+
+        using var layer = _style.TextContrast > 1f ? new SKPaint { ColorFilter = ContrastFilter(_style.TextContrast) } : null;
+        if (layer is not null)
+        {
+            canvas.SaveLayer(layer);
+        }
+
+        foreach (var g in _geo)
+        {
+            g.Text?.Paint(canvas, g.TextX, g.TextY, 0, 0);
+        }
+
+        if (layer is not null)
+        {
+            canvas.Restore();
+        }
+    }
+
+    private static SKColorFilter ContrastFilter(float k)
+    {
+        var table = new byte[256];
+        var identity = new byte[256];
+        for (var i = 0; i < 256; i++)
+        {
+            table[i] = (byte)Math.Round(255.0 * (1.0 - Math.Pow(1.0 - (i / 255.0), k)));
+            identity[i] = (byte)i;
+        }
+
+        return SKColorFilter.CreateTable(table, identity, identity, identity);
     }
 }

@@ -1,0 +1,5 @@
+<Project>
+  <!-- Spikes (M0) take the repo's strictness; they are not part of Barbican.slnx because they are
+       single-platform harnesses. Build each with tools/build.ps1 -Project <csproj>. -->
+  <Import Project="$([MSBuild]::GetPathOfFileAbove('Directory.Build.props', '$(MSBuildThisFileDirectory)../'))" />
+</Project>
