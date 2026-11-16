@@ -859,7 +859,8 @@ pub fn set_call(u: &AppWindow, c: Arc<Client>, method: &str, args: Value, what: 
         let w2 = w.clone();
         let _ = w.upgrade_in_event_loop(move |u| match res {
             Ok(()) => load(w2, c),
-            Err(e) => crate::mail::show_toast(&u, &format!("{what}: {e}"), false),
+            // re-read on failure too, so an optimistic change the server refused is undone
+            Err(e) => { crate::mail::show_toast(&u, &format!("{what}: {e}"), false); load(w2, c); }
         });
     });
 }
@@ -1060,4 +1061,24 @@ pub fn next_with(email: &str) -> Option<(String, String)> {
     let h12 = cal_prefs().h12;
     ST.with(|s| s.borrow().events.iter().filter(|o| o.end > now && with.contains(&o.id)).min_by_key(|o| o.start)
         .map(|o| (format!("{} {}", o.start.format("%a"), if o.all_day { "all day".to_string() } else { fmt_time(o.start, h12) }), o.title.clone())))
+}
+
+// ---------------- drag and drop (src/dnd.rs) ----------------
+
+/// An event's length (all-day events without one last a day; raw_event is above).
+pub fn duration_of(e: &Value) -> Duration { crate::recurrence::event_duration(e) }
+
+/// Apply a moved event to what is shown right away (the reload after the server write confirms).
+pub fn patch_local(id: &str, patch: &Value) {
+    RAW.with(|r| {
+        if let Some(e) = r.borrow_mut().iter_mut().find(|e| e["id"] == id) {
+            if let Some(o) = patch.as_object() { for (k, v) in o { e[k] = v.clone(); } }
+        }
+    });
+    let Some(e) = raw_event(id) else { return };
+    let Some(start) = e["start"].as_str().and_then(parse_local) else { return };
+    let end = start + duration_of(&e);
+    ST.with(|s| {
+        for o in s.borrow_mut().events.iter_mut().filter(|o| o.id == id) { o.start = start; o.end = end; }
+    });
 }

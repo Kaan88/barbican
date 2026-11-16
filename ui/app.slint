@@ -7,6 +7,9 @@ import { Theme, Icons, SIcon, Prefs } from "theme.slint";
 export { Theme, Icons, Prefs }
 // composer extras (p2-composer): recipient chips + autocomplete, palette
 import { CTheme } from "ctheme.slint";
+// productivity (p2-productivity): palette, shortcuts sheet, search suggestions, drag and drop, pane widths
+import { Pd, PTok, KeyRow, PaletteRow, SuggestRow, SearchChip, CommandPalette, ShortcutsSheet, SearchSuggest, SearchChips, DragGhost, ResizeHandle } from "productivity.slint";
+export { Pd, KeyRow, PaletteRow, SuggestRow, SearchChip }
 // reader extras (p2-reader): banners, view source, receipts, invitations
 import { RxBanners, RX, RxTheme, RxBannerData, RxAction } from "reader.slint";
 export { RX, RxTheme, RxBannerData, RxAction }
@@ -192,6 +195,10 @@ export struct Mail {
     code: string,
     row-tint: color,
     files: [string],
+    // a search hit: the server's subject and preview with the matched words marked (SearchSnippet/get)
+    hl: bool,
+    hl-subject: styled-text,
+    hl-preview: styled-text,
 }
 
 export struct STab {
@@ -316,10 +323,29 @@ component FolderRow inherits Rectangle {
     background: selected ? Theme.sel : ta.has-hover || (hl-id != "" && CtxHl.id == hl-id) ? Theme.tile2 : transparent;
     border-width: hl-id != "" && CtxHl.id == hl-id ? 1px : 0px;
     border-color: Theme.accent;
-    ta := TouchArea {
-        clicked => { root.clicked(); }
-        pointer-event(ev) => { if ev.button == PointerEventButton.right && ev.kind == PointerEventKind.up { root.context(self.absolute-position.x + self.mouse-x, self.absolute-position.y + self.mouse-y); } }
+    // drag and drop (src/dnd.rs): mail and folders drop here; a folder drags itself
+    property <bool> dnd-over: Pd.dnd-active && Pd.dnd-x >= self.absolute-position.x && Pd.dnd-x < self.absolute-position.x + self.width && Pd.dnd-y >= self.absolute-position.y && Pd.dnd-y < self.absolute-position.y + self.height;
+    property <string> dnd-zone: Pd.dnd-kind != "folder" ? "inside" : (Pd.dnd-y - self.absolute-position.y < self.height / 4 ? "before" : (Pd.dnd-y - self.absolute-position.y > self.height * 3 / 4 ? "after" : "inside"));
+    property <string> dnd-key: dnd-over && f.id != Pd.dnd-id && f.id != "__scheduled" && f.id != "__unified" ? "folder:" + dnd-zone + ":" + f.id : "";
+    changed dnd-key => {
+        if dnd-key != "" { Pd.dnd-target = dnd-key; }
+        else if Pd.dnd-target == "folder:inside:" + f.id || Pd.dnd-target == "folder:before:" + f.id || Pd.dnd-target == "folder:after:" + f.id { Pd.dnd-target = ""; }
     }
+    property <bool> dragging;
+    ta := TouchArea {
+        clicked => { if !root.dragging { root.clicked(); } }
+        moved => {
+            if self.pressed && !root.dragging && (abs(self.mouse-x - self.pressed-x) > 6px || abs(self.mouse-y - self.pressed-y) > 6px) { root.dragging = true; Pd.dnd-start("folder", f.id); }
+            if root.dragging { Pd.dnd-x = self.absolute-position.x + self.mouse-x; Pd.dnd-y = self.absolute-position.y + self.mouse-y; }
+        }
+        pointer-event(ev) => {
+            if ev.kind == PointerEventKind.down && ev.button == PointerEventButton.left { root.dragging = false; }
+            if ev.kind == PointerEventKind.up && ev.button == PointerEventButton.left && root.dragging { Pd.dnd-drop(); }
+            if ev.button == PointerEventButton.right && ev.kind == PointerEventKind.up { root.context(self.absolute-position.x + self.mouse-x, self.absolute-position.y + self.mouse-y); }
+        }
+    }
+    if dnd-key != "" && dnd-zone == "inside": Rectangle { border-width: 1.5px; border-color: Theme.accent; border-radius: root.border-radius; background: Theme.accent.with-alpha(0.12); }
+    if dnd-key != "" && dnd-zone != "inside": Rectangle { x: 8px + f.depth * 14px; width: parent.width - self.x - 8px; y: dnd-zone == "before" ? 0px : parent.height - 2px; height: 2px; border-radius: 1px; background: Theme.accent; }
     HorizontalLayout {
         padding-left: (Theme.nordic ? 16px : 11px) + f.depth * 14px;
         padding-right: Theme.nordic ? 12px : 9px;
@@ -378,6 +404,10 @@ component TagRow inherits Rectangle {
     border-width: hl-id != "" && CtxHl.id == hl-id ? 1px : 0px;
     border-color: Theme.accent;
     ta := TouchArea { clicked => { root.clicked(); } pointer-event(ev) => { if ev.button == PointerEventButton.right && ev.kind == PointerEventKind.up { root.context(self.absolute-position.x + self.mouse-x, self.absolute-position.y + self.mouse-y); } } }
+    // drag and drop: mail dropped on a tag gets the tag (src/dnd.rs)
+    property <bool> dnd-over: Pd.dnd-active && Pd.dnd-kind == "mail" && Pd.dnd-x >= self.absolute-position.x && Pd.dnd-x < self.absolute-position.x + self.width && Pd.dnd-y >= self.absolute-position.y && Pd.dnd-y < self.absolute-position.y + self.height;
+    changed dnd-over => { if dnd-over { Pd.dnd-target = "tag:" + t.id; } else if Pd.dnd-target == "tag:" + t.id { Pd.dnd-target = ""; } }
+    if dnd-over: Rectangle { border-width: 1.5px; border-color: Theme.accent; border-radius: root.border-radius; background: Theme.accent.with-alpha(0.12); }
     HorizontalLayout {
         padding-left: 16px;
         padding-right: 12px;
@@ -400,6 +430,10 @@ component TagTile inherits Rectangle {
     border-width: selected || (hl-id != "" && CtxHl.id == hl-id) ? 1.5px : 0px;
     border-color: Theme.tint-fg(t.color);
     ta := TouchArea { clicked => { root.clicked(); } pointer-event(ev) => { if ev.button == PointerEventButton.right && ev.kind == PointerEventKind.up { root.context(self.absolute-position.x + self.mouse-x, self.absolute-position.y + self.mouse-y); } } }
+    // drag and drop: mail dropped on a tag gets the tag (src/dnd.rs)
+    property <bool> dnd-over: Pd.dnd-active && Pd.dnd-kind == "mail" && Pd.dnd-x >= self.absolute-position.x && Pd.dnd-x < self.absolute-position.x + self.width && Pd.dnd-y >= self.absolute-position.y && Pd.dnd-y < self.absolute-position.y + self.height;
+    changed dnd-over => { if dnd-over { Pd.dnd-target = "tag:" + t.id; } else if Pd.dnd-target == "tag:" + t.id { Pd.dnd-target = ""; } }
+    if dnd-over: Rectangle { border-width: 1.5px; border-color: Theme.accent; border-radius: root.border-radius; background: Theme.accent.with-alpha(0.12); }
     VerticalLayout {
         padding: 10px;
         spacing: 2px;
@@ -609,6 +643,7 @@ component MailRow inherits VerticalLayout {
     callback context(length, length);
     property <bool> hl: CtxHl.id != "" && CtxHl.id == "mail:" + m.id;
     property <length> side: Theme.nordic ? 28px : 12px;
+    property <bool> dragging;
     if m.header != "": Rectangle {
         height: 30px;
         TouchArea { clicked => { root.header-clicked(); } }
@@ -631,8 +666,15 @@ component MailRow inherits VerticalLayout {
             border-width: root.hl ? 1px : (Theme.bento && root.selected ? 1px : 0px);
             border-color: root.hl ? Theme.accent : Theme.line;
             ta := TouchArea {
+                // drag a row (or the selection it is in) onto a folder or a tag (src/dnd.rs)
+                moved => {
+                    if self.pressed && !root.dragging && (abs(self.mouse-x - self.pressed-x) > 8px || abs(self.mouse-y - self.pressed-y) > 8px) { root.dragging = true; Pd.dnd-start("mail", m.id); }
+                    if root.dragging { Pd.dnd-x = self.absolute-position.x + self.mouse-x; Pd.dnd-y = self.absolute-position.y + self.mouse-y; }
+                }
                 pointer-event(ev) => {
-                    if ev.kind == PointerEventKind.up && ev.button == PointerEventButton.left {
+                    if ev.kind == PointerEventKind.down && ev.button == PointerEventButton.left { root.dragging = false; }
+                    if ev.kind == PointerEventKind.up && ev.button == PointerEventButton.left && root.dragging { Pd.dnd-drop(); }
+                    if ev.kind == PointerEventKind.up && ev.button == PointerEventButton.left && !root.dragging {
                         if ev.modifiers.control || ev.modifiers.shift { root.ctrl-clicked(); } else { root.clicked(); }
                     }
                     if ev.button == PointerEventButton.right && ev.kind == PointerEventKind.up { root.context(self.absolute-position.x + self.mouse-x, self.absolute-position.y + self.mouse-y); }
@@ -712,7 +754,7 @@ component MailRow inherits VerticalLayout {
                     }
                     HorizontalLayout {
                         spacing: 4px;
-                        Text {
+                        if !m.hl: Text {
                             text: m.subject;
                             color: Theme.text;
                             font-size: (Theme.nordic ? 14px : 13px) * Prefs.fs;
@@ -720,11 +762,24 @@ component MailRow inherits VerticalLayout {
                             overflow: elide;
                             horizontal-stretch: 1;
                         }
+                        // a search hit with the matched words marked (src/search_ui.rs)
+                        if m.hl: Rectangle {
+                            horizontal-stretch: 1;
+                            height: 18px * Prefs.fs;
+                            clip: true;
+                            StyledText { x: 0; y: 0; width: parent.width; text: m.hl-subject; default-color: Theme.text; default-font-size: (Theme.nordic ? 14px : 13px) * Prefs.fs; max-lines: 1; }
+                        }
                         if m.flagged && !ta.has-hover: VerticalLayout { alignment: center; SIcon { commands: Icons.star; size: 12px; weight: 1.8; tint: #fbbf24; fill: #fbbf24; } }
                     }
                     HorizontalLayout {
                         spacing: 4px;
-                        Text { text: m.preview; color: Theme.dim; font-size: (Theme.nordic ? 13px : 12px) * Prefs.fs; overflow: elide; horizontal-stretch: 1; }
+                        if !m.hl: Text { text: m.preview; color: Theme.dim; font-size: (Theme.nordic ? 13px : 12px) * Prefs.fs; overflow: elide; horizontal-stretch: 1; }
+                        if m.hl: Rectangle {
+                            horizontal-stretch: 1;
+                            height: 17px * Prefs.fs;
+                            clip: true;
+                            StyledText { x: 0; y: 0; width: parent.width; text: m.hl-preview; default-color: Theme.dim; default-font-size: (Theme.nordic ? 13px : 12px) * Prefs.fs; max-lines: 1; }
+                        }
                         for c in m.tags: VerticalLayout {
                             alignment: center;
                             Rectangle { visible: Prefs.tag-chips; width: Prefs.tag-chips ? 8px : 0px; height: 8px; border-radius: 4px; background: c; }
@@ -994,8 +1049,9 @@ export component AppWindow inherits Window {
     property <length> win-w: 1400px;
     changed width => { root.win-w = self.width; }
     property <bool> list-narrow: root.win-w < (Theme.nordic ? 1180px : 1150px) || ((root.chat-shown || root.composing) && root.win-w < 1500px);
-    property <length> list-w: Theme.nordic ? (root.list-narrow ? 330px : 390px) : (root.list-narrow ? 320px : 368px);
-    property <length> side-w: Theme.nordic ? 228px : 204px;
+    // a width the user dragged (Pd, src/dnd.rs) wins over the style's own
+    property <length> list-w: Pd.list-w > 0 ? Pd.list-w : Theme.nordic ? (root.list-narrow ? 330px : 390px) : (root.list-narrow ? 320px : 368px);
+    property <length> side-w: Pd.side-w > 0 ? Pd.side-w : Theme.nordic ? 228px : 204px;
     property <length> ctx-w: Theme.nordic ? 250px : 236px;
     property <length> chat-w: 300px;
     property <bool> chat-shown: root.chat-open && !root.ai-hidden;
@@ -1140,6 +1196,7 @@ export component AppWindow inherits Window {
     property <length> hov-x;
     property <length> hov-y;
     function cal-hover(e: CalEvent, on: bool, x: length, y: length) {
+        if on { Pd.hover-event = e.id; } else if Pd.hover-event == e.id { Pd.hover-event = ""; }
         if on && root.cal-hover-delay >= 0 {
             root.hov-ev = e; root.hov-x = x; root.hov-y = y;
             root.hov-shown = root.cal-hover-delay == 0;
@@ -1377,11 +1434,25 @@ export component AppWindow inherits Window {
     out property <bool> body-visible: logged-in && app == 0 && current-mail != "" && !composing && !show-settings && render-mode == 0 && !ev-open && !ctx-open && !CompX.sched-open;
 
     callback shortcut(string, bool, bool);
+    // the Theme tokens the productivity overlays (productivity.slint) draw with
+    property <PTok> ptok: {
+        dark: Theme.dark, bg: Theme.bg, side: Theme.side, popup: Theme.popup, line: Theme.line, text: Theme.text, dim: Theme.dim,
+        accent: Theme.accent, on-accent: Theme.on-accent, hover: Theme.hover, sel: Theme.sel, sel-text: Theme.sel-text, chip: Theme.chip,
+    };
     public function focus-keys() { kbd.focus(); }
     public function focus-search() { search-box.focus(); }
     kbd := FocusScope {
     init => { self.focus(); }
+    // the mail search box keeps its arrows for the suggestions under it (src/shortcuts.rs)
+    capture-key-pressed(e) => {
+        if Pd.search-focus && !e.modifiers.control && !e.modifiers.alt && (e.text == Key.UpArrow || e.text == Key.DownArrow || e.text == Key.Escape) {
+            if Pd.key-hook(e.text, e.modifiers.shift, false, false) { return accept; }
+        }
+        reject
+    }
     key-pressed(e) => {
+        // every app's keys, `?`, Ctrl+K (src/shortcuts.rs); what it leaves goes on below
+        if Pd.key-hook(e.text, e.modifiers.shift, e.modifiers.control, e.modifiers.alt) { return accept; }
         if (e.modifiers.control && e.text == "f") || (e.modifiers.control && e.text == "e") { search-box.focus(); return accept; }
         root.shortcut(e.text, e.modifiers.shift, e.modifiers.control);
         accept
@@ -1772,6 +1843,9 @@ export component AppWindow inherits Window {
                                     selection-background-color: Theme.sel;
                                     selection-foreground-color: Theme.sel-text;
                                     accepted => { root.do-search(self.text); }
+                                    // suggestions (recent searches, people) while the box has focus
+                                    edited => { Pd.search-edited(self.text); }
+                                    changed has-focus => { Pd.search-focus = self.has-focus; if self.has-focus { Pd.search-edited(self.text); } }
                                 }
                             }
                             if root.search == "": VerticalLayout {
@@ -1802,6 +1876,11 @@ export component AppWindow inherits Window {
                         QuickChip { label: "Starred"; on: root.sf-active && root.sf-starred; clicked => { root.sf-starred = !root.sf-starred; root.sf-apply(); } }
                         QuickChip { label: "Attachments"; on: root.sf-active && root.sf-attach; clicked => { root.sf-attach = !root.sf-attach; root.sf-apply(); } }
                     }
+                }
+                if Pd.chips.length > 0: HorizontalLayout {
+                    padding-left: Theme.nordic ? 28px : 20px;
+                    padding-right: Theme.nordic ? 24px : 16px;
+                    SearchChips { t: root.ptok; }
                 }
                 if root.sf-open: VerticalLayout {
                     padding-left: Theme.nordic ? 28px : 20px;
@@ -3064,6 +3143,23 @@ export component AppWindow inherits Window {
       }
     }
   
+    // pane grips on the folder | list and list | reader boundaries of the mail screen
+    if root.logged-in && root.app == 0 && !root.show-settings: ResizeHandle {
+        t: root.ptok;
+        x: Theme.shell-x + root.side-w + Theme.gap / 2 - self.width / 2;
+        y: Theme.nordic ? 14px : Theme.pad;
+        height: root.height - 2 * self.y;
+        value <=> Pd.side-w; current: root.side-w; min-value: 180px; max-value: 400px;
+        done => { Pd.panes-changed(); }
+    }
+    if root.logged-in && root.app == 0 && !root.show-settings: ResizeHandle {
+        t: root.ptok;
+        x: Theme.shell-x + root.side-w + Theme.gap + root.list-w + (Theme.nordic ? 1.5px : Theme.gap / 2) - self.width / 2;
+        y: Theme.nordic ? 14px : Theme.pad;
+        height: root.height - 2 * self.y;
+        value <=> Pd.list-w; current: root.list-w; min-value: 240px; max-value: 600px;
+        done => { Pd.panes-changed(); }
+    }
     if root.app == 1: Rectangle {
         x: Theme.shell-x;
         width: parent.width - Theme.shell-x;
@@ -3174,7 +3270,11 @@ export component AppWindow inherits Window {
                     HoverAction { glyph: "\u{E76B}"; y: 9px; clicked => { root.cal-nav("prev"); } }
                     HoverAction { glyph: "\u{E76C}"; y: 9px; clicked => { root.cal-nav("next"); } }
                     Text { text: root.cal-title; color: Theme.text; font-size: 15px; font-weight: 700; vertical-alignment: center; horizontal-stretch: 1; }
-                    LineEdit { placeholder-text: "Search events"; width: 200px; edited(t) => { root.cal-search(t); } }
+                    LineEdit {
+                        placeholder-text: "Search events"; width: 200px; edited(t) => { root.cal-search(t); }
+                        property <int> fr: Pd.focus-req;
+                        changed fr => { if root.app == 1 { self.focus(); } }
+                    }
                     ComboBox { width: 110px; model: CalX.view-names; current-index: root.cal-view; selected => { root.cal-set-view(self.current-index); } }
                 }
                 if root.cal-view != 4: Rectangle { height: 1px; background: Theme.line; }
@@ -3297,7 +3397,7 @@ export component AppWindow inherits Window {
                                     pointer-event(ev) => { if ev.button == PointerEventButton.right && ev.kind == PointerEventKind.up { root.ctx("slot", "@" + h, self.absolute-position.x + self.mouse-x, self.absolute-position.y + self.mouse-y); } }
                                 }
                             }
-                            for e in root.cal-events: Rectangle {
+                            for e in root.cal-events: evr := Rectangle {
                                 property <length> colw: (tg.visible-width - 52px) / root.cal-days.length;
                                 x: 52px + e.col * colw + e.lane * (colw / e.lanes) + 1px;
                                 y: e.top * 1px;
@@ -3305,8 +3405,49 @@ export component AppWindow inherits Window {
                                 height: max(e.height * 1px, 18px);
                                 border-radius: 4px;
                                 background: Prefs.cal-tinted ? e.color.with-alpha(0.3) : e.color;
+                                opacity: evr.dragging || evr.resizing ? 0.55 : 1;
+                                // drag and drop (src/dnd.rs): whole days across, 15 minutes (14px) up and down
+                                property <length> ddx;
+                                property <length> ddy;
+                                property <bool> dragging;
+                                property <bool> resizing;
+                                property <bool> dragged;
+                                property <int> dcol: evr.resizing ? 0 : Math.round(evr.ddx / evr.colw);
+                                property <int> dmin: Math.round(evr.ddy / 14px) * 15;
                                 if Prefs.cal-tinted: Rectangle { x: 0; width: 3px; background: e.color; border-radius: 2px; }
-                                TouchArea { clicked => { root.cal-edit(e.id, "", -1); } pointer-event(ev) => { if ev.button == PointerEventButton.right && ev.kind == PointerEventKind.up { root.ctx("event", e.id, self.absolute-position.x + self.mouse-x, self.absolute-position.y + self.mouse-y); } } changed has-hover => { root.cal-hover(e, self.has-hover, self.absolute-position.x, self.absolute-position.y + self.height + 2px); } }
+                                TouchArea {
+                                    clicked => { if !evr.dragged { root.cal-edit(e.id, "", -1); } }
+                                    moved => {
+                                        if self.pressed && !evr.dragging && (abs(self.mouse-x - self.pressed-x) > 5px || abs(self.mouse-y - self.pressed-y) > 5px) { evr.dragging = true; evr.dragged = true; }
+                                        if evr.dragging { evr.ddx = self.mouse-x - self.pressed-x; evr.ddy = self.mouse-y - self.pressed-y; }
+                                    }
+                                    pointer-event(ev) => {
+                                        if ev.kind == PointerEventKind.down && ev.button == PointerEventButton.left { evr.dragged = false; evr.ddx = 0; evr.ddy = 0; }
+                                        if ev.kind == PointerEventKind.up && ev.button == PointerEventButton.left && evr.dragging { evr.dragging = false; Pd.event-dropped(e.id, evr.dcol, evr.dmin, false); evr.ddx = 0; evr.ddy = 0; }
+                                        if ev.button == PointerEventButton.right && ev.kind == PointerEventKind.up { root.ctx("event", e.id, self.absolute-position.x + self.mouse-x, self.absolute-position.y + self.mouse-y); }
+                                    }
+                                    changed has-hover => { root.cal-hover(e, self.has-hover, self.absolute-position.x, self.absolute-position.y + self.height + 2px); }
+                                }
+                                TouchArea {
+                                    y: parent.height - 6px;
+                                    height: 6px;
+                                    mouse-cursor: row-resize;
+                                    moved => { if self.pressed { evr.resizing = true; evr.ddy = self.mouse-y - self.pressed-y; } }
+                                    pointer-event(ev) => {
+                                        if ev.kind == PointerEventKind.down && ev.button == PointerEventButton.left { evr.ddy = 0; }
+                                        if ev.kind == PointerEventKind.up && ev.button == PointerEventButton.left && evr.resizing { evr.resizing = false; Pd.event-dropped(e.id, 0, evr.dmin, true); evr.ddy = 0; }
+                                    }
+                                }
+                                if evr.dragging || evr.resizing: Rectangle {
+                                    x: evr.dcol * evr.colw;
+                                    y: evr.resizing ? 0px : evr.dmin * 56px / 60;
+                                    width: evr.width;
+                                    height: evr.resizing ? max(14px, evr.height + evr.dmin * 56px / 60) : evr.height;
+                                    border-radius: 6px;
+                                    border-width: 2px;
+                                    border-color: e.color;
+                                    background: e.color.with-alpha(0.22);
+                                }
                                 VerticalLayout {
                                     padding: 3px;
                                     padding-left: 7px;
@@ -3392,7 +3533,13 @@ export component AppWindow inherits Window {
                     }
                     HorizontalLayout {
                         padding-left: 10px; padding-right: 10px; padding-bottom: 8px;
-                        LineEdit { placeholder-text: "Search contacts"; edited(t) => { root.ct-search(t); } }
+                        LineEdit {
+                            placeholder-text: "Search contacts"; edited(t) => { root.ct-search(t); }
+                            property <int> fr: Pd.focus-req;
+                            changed fr => { if root.app == 2 { self.focus(); } }
+                            property <int> cr: Pd.clear-req;
+                            changed cr => { self.text = ""; }
+                        }
                     }
                     Rectangle { height: 1px; background: Theme.line; }
                     ListView {
@@ -3515,6 +3662,11 @@ export component AppWindow inherits Window {
                             Rectangle {
                                 height: 28px;
                                 property <bool> here: (n.kind == "root" && root.fl-cwd == "") || (n.kind != "root" && n.id == root.fl-cwd);
+                                // a dragged file drops on My files, a folder of the tree, or the trash
+                                property <string> dnd-key: n.kind == "trash" ? "file-trash" : "file:" + n.id;
+                                property <bool> dnd-over: (n.kind == "root" || n.kind == "folder" || n.kind == "trash") && Pd.dnd-active && Pd.dnd-kind == "file" && Pd.dnd-id != n.id && Pd.dnd-x >= self.absolute-position.x && Pd.dnd-x < self.absolute-position.x + self.width && Pd.dnd-y >= self.absolute-position.y && Pd.dnd-y < self.absolute-position.y + self.height;
+                                changed dnd-over => { if self.dnd-over { Pd.dnd-target = self.dnd-key; } else if Pd.dnd-target == self.dnd-key { Pd.dnd-target = ""; } }
+                                if self.dnd-over: Rectangle { border-width: 1.5px; border-color: Theme.accent; border-radius: 6px; background: Theme.accent.with-alpha(0.12); }
                                 background: here ? Theme.sel : (fnta.has-hover || (n.id != "" && CtxHl.id == "file:" + n.id) ? Theme.hover : transparent);
                                 fnta := TouchArea {
                                     clicked => { if n.kind == "root" { root.fl-open(""); } else { root.fl-activate(n.id); } }
@@ -3575,9 +3727,26 @@ export component AppWindow inherits Window {
              ListView {
                 for f in root.files: Rectangle {
                     height: 36px;
-                    background: fta.has-hover || CtxHl.id == "file:" + f.id ? Theme.hover : transparent;
+                    background: Pd.file-sel == f.id ? Theme.sel : fta.has-hover || CtxHl.id == "file:" + f.id ? Theme.hover : transparent;
                     opacity: f.cut ? 0.5 : 1;
-                    fta := TouchArea { double-clicked => { root.fl-activate(f.id); } pointer-event(ev) => { if ev.button == PointerEventButton.right && ev.kind == PointerEventKind.up { root.ctx("file", f.id, self.absolute-position.x + self.mouse-x, self.absolute-position.y + self.mouse-y); } } }
+                    // drag and drop (src/dnd.rs): a row drags; a folder row takes drops
+                    property <bool> dragging;
+                    property <bool> dnd-over: f.folder && !f.trashed && Pd.dnd-active && Pd.dnd-kind == "file" && Pd.dnd-id != f.id && Pd.dnd-x >= self.absolute-position.x && Pd.dnd-x < self.absolute-position.x + self.width && Pd.dnd-y >= self.absolute-position.y && Pd.dnd-y < self.absolute-position.y + self.height;
+                    changed dnd-over => { if self.dnd-over { Pd.dnd-target = "file:" + f.id; } else if Pd.dnd-target == "file:" + f.id { Pd.dnd-target = ""; } }
+                    if self.dnd-over: Rectangle { border-width: 1.5px; border-color: Theme.accent; border-radius: 6px; background: Theme.accent.with-alpha(0.12); }
+                    fta := TouchArea {
+                        double-clicked => { root.fl-activate(f.id); }
+                        clicked => { Pd.file-sel = f.id; }
+                        moved => {
+                            if self.pressed && !f.trashed && !parent.dragging && (abs(self.mouse-x - self.pressed-x) > 8px || abs(self.mouse-y - self.pressed-y) > 8px) { parent.dragging = true; Pd.dnd-start("file", f.id); }
+                            if parent.dragging { Pd.dnd-x = self.absolute-position.x + self.mouse-x; Pd.dnd-y = self.absolute-position.y + self.mouse-y; }
+                        }
+                        pointer-event(ev) => {
+                            if ev.kind == PointerEventKind.down && ev.button == PointerEventButton.left { parent.dragging = false; }
+                            if ev.kind == PointerEventKind.up && ev.button == PointerEventButton.left && parent.dragging { parent.dragging = false; Pd.dnd-drop(); }
+                            if ev.button == PointerEventButton.right && ev.kind == PointerEventKind.up { root.ctx("file", f.id, self.absolute-position.x + self.mouse-x, self.absolute-position.y + self.mouse-y); }
+                        }
+                    }
                     HorizontalLayout {
                         padding-left: 16px;
                         padding-right: 10px;
@@ -4045,6 +4214,17 @@ export component AppWindow inherits Window {
             }
         }
     }
+    // ---- productivity overlays (productivity.slint) ----
+    if root.logged-in && Pd.search-focus && !Pd.sugg-hidden && Pd.sugg-rows.length > 0 && root.app == 0 && !root.show-settings && !root.composing: SearchSuggest {
+        t: root.ptok;
+        x: search-box.absolute-position.x - 30px;
+        y: search-box.absolute-position.y + search-box.height + 12px;
+        width: max(search-box.width + 60px, 280px);
+    }
+    if Pd.dnd-active: DragGhost { t: root.ptok; }
+    if Pd.palette-open: CommandPalette { t: root.ptok; x: 0; y: 0; width: root.width; height: root.height; }
+    if Pd.keys-open: ShortcutsSheet { t: root.ptok; x: 0; y: 0; width: root.width; height: root.height; }
+
     ctx-popup := PopupWindow {
         close-policy: no-auto-close;
         x: 0; y: 0;

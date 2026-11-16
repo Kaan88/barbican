@@ -216,6 +216,29 @@ pub fn mailbox_info(id: &str) -> (String, String) {
 
 /// The active account's folders as Mailbox/get returned them.
 pub fn mailboxes() -> Vec<Value> { BOXES.with(|b| b.borrow().list.clone()) }
+/// The id of the active account's folder with this role (inbox, sent, drafts, trash, junk, ...).
+pub fn role_id(role: &str) -> Option<String> {
+    BOXES.with(|b| b.borrow().list.iter().find(|m| m["role"] == role).and_then(|m| m["id"].as_str().map(String::from)))
+}
+
+/// Senders (name, address) of the loaded list, newest first, once each: search suggestions.
+pub fn senders() -> Vec<(String, String)> {
+    LIST.with(|l| {
+        let mut seen = HashSet::new();
+        l.borrow().emails.iter().filter_map(|m| {
+            let f = &m["from"][0];
+            let e = f["email"].as_str()?.trim().to_string();
+            if e.is_empty() || !seen.insert(e.to_lowercase()) { return None; }
+            Some((f["name"].as_str().unwrap_or("").trim().to_string(), e))
+        }).collect()
+    })
+}
+
+/// The active account's folders as loaded (Mailbox/get objects), for the folder drag and drop.
+pub fn mailbox_list() -> Vec<Value> { BOXES.with(|b| b.borrow().list.clone()) }
+
+/// The loaded list's filter (what the search box ran), for SearchSnippet/get.
+pub fn list_filter() -> Value { LIST.with(|l| l.borrow().filter.clone()) }
 
 pub fn mailbox_role(id: &str) -> String {
     BOXES.with(|b| b.borrow().list.iter().find(|m| m["id"] == id).and_then(|m| m["role"].as_str()).unwrap_or("").to_string())
@@ -387,6 +410,9 @@ fn build_rows(st: &ListState) -> Vec<Mail> {
             if names.len() > 2 { v.push(format!("+{}", names.len() - 2).into()); }
             v
         } else { vec![] };
+        // a search hit: the server's highlighted subject and preview (SearchSnippet/get)
+        let hl = crate::search_ui::styled(&id, m["subject"].as_str().filter(|s| !s.is_empty()).unwrap_or("(no subject)"),
+            &if lp.show_preview { clean_preview(m["preview"].as_str().unwrap_or("")) } else { String::new() });
         Mail {
             initials: initials(&s).into(),
             color: tint(&s),
@@ -409,6 +435,9 @@ fn build_rows(st: &ListState) -> Vec<Mail> {
             code: code.into(),
             row_tint,
             files: ModelRc::new(VecModel::from(files)),
+            hl: hl.is_some(),
+            hl_subject: hl.as_ref().map(|h| h.0.clone()).unwrap_or_default(),
+            hl_preview: hl.map(|h| h.1).unwrap_or_default(),
         }
     }).collect()
 }
@@ -503,8 +532,8 @@ pub fn folder_filter(folder: &str, text: Option<&str>) -> Value {
     match (folder, text) {
         (crate::unified::FOLDER_ID, t) => json!({"unified": true, "text": t}),
         ("__scheduled", _) => json!({"scheduled": true}),
-        (f, Some(t)) if !f.is_empty() => json!({"operator": "AND", "conditions": [{"inMailbox": f}, {"text": t}]}),
-        (_, Some(t)) => json!({"text": t}),
+        // the query syntax (from:, has:attachment, before:, in:trash, ...) as JMAP conditions
+        (f, Some(t)) => crate::gsearch::mailbox_search_filter(t, Some(f), role_id),
         (f, None) => json!({"inMailbox": f}),
     }
 }
@@ -544,6 +573,8 @@ pub fn load_list(w: slint::Weak<AppWindow>, c: Arc<Client>, filter: Value) {
         l.unread_first = unread_first_size(&filter);
         (l.generation, l.unread_first)
     });
+    crate::search_ui::clear_snippets();
+    let snip_filter = filter.clone();
     let (gen, unread_first) = gen;
     let _ = w.upgrade_in_event_loop(|u| u.set_busy(true));
     let page = page_size();
@@ -556,7 +587,11 @@ pub fn load_list(w: slint::Weak<AppWindow>, c: Arc<Client>, filter: Value) {
                 if l.generation != gen { return; }
                 l.loading = false;
                 match res {
-                    Ok((p, section)) => { l.sync = states_of(&c, &p); l.emails = p.emails; l.total = p.total; l.threads = p.threads; l.section = section; }
+                    Ok((p, section)) => {
+                        l.sync = states_of(&c, &p); l.emails = p.emails; l.total = p.total; l.threads = p.threads; l.section = section;
+                        let ids: Vec<String> = l.emails.iter().filter_map(|m| m["id"].as_str().map(String::from)).collect();
+                        crate::search_ui::fetch_snippets(u.as_weak(), c.clone(), snip_filter.clone(), ids);
+                    }
                     Err(e) => { l.emails.clear(); l.total = 0; l.section = 0; l.sync = None; u.set_status(e.into()); }
                 }
             });
@@ -606,6 +641,8 @@ pub fn load_more(w: slint::Weak<AppWindow>, c: Arc<Client>) {
                     }
                     l.total = if l.unread_first.is_some() { p.total + l.section } else { p.total };
                     l.threads.extend(p.threads);
+                    let ids: Vec<String> = l.emails.iter().filter_map(|m| m["id"].as_str().map(String::from)).collect();
+                    crate::search_ui::fetch_snippets(u.as_weak(), c.clone(), l.filter.clone(), ids);
                 }
             });
             rebuild_list(&u);
@@ -812,13 +849,19 @@ pub fn confirm_action(u: &AppWindow, n: usize, action: &str) -> bool {
     true
 }
 
+/// "read!" / "unread!": the plain action, never toggled.
+pub fn forced(action: &str) -> Option<&str> {
+    match action { "read!" => Some("read"), "unread!" => Some("unread"), _ => None }
+}
+
 /// "star" / "read" toggle from the first selected message's state.
 pub fn resolve_toggle(ids: &[String], action: &str) -> String {
     let first = ids.first().and_then(|i| email(i));
     match action {
         "star" if first.as_ref().is_some_and(|m| m["keywords"]["$flagged"].as_bool() == Some(true)) => "unstar".to_string(),
         "read" if first.as_ref().is_some_and(|m| m["keywords"]["$seen"].as_bool() == Some(true)) => "unread".to_string(),
-        a => a.to_string(),
+        // a key that names one state (Ctrl+Q / Shift+I mark as read, u marks unread) never flips
+        a => forced(a).unwrap_or(a).to_string(),
     }
 }
 
@@ -987,6 +1030,15 @@ pub fn clean_preview(p: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn forced_read_never_toggles() {
+        assert_eq!(forced("read!"), Some("read"));
+        assert_eq!(forced("unread!"), Some("unread"));
+        assert_eq!(forced("read"), None);
+        assert_eq!(resolve_toggle(&["nope".into()], "read!"), "read");
+        assert_eq!(resolve_toggle(&["nope".into()], "unread!"), "unread");
+    }
 
     #[test]
     fn archive_paths() {

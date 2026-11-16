@@ -43,6 +43,12 @@ mod mdn;
 mod quick_rules;
 mod reader;
 mod zip;
+mod shortcuts;
+mod gsearch;
+mod palette;
+mod search_history;
+mod search_ui;
+mod dnd;
 
 use chrono::{DateTime, Local};
 use serde_json::{json, Value};
@@ -131,6 +137,9 @@ fn esc(s: &str) -> String {
 
 thread_local! { static DARK: std::cell::Cell<bool> = const { std::cell::Cell::new(true) }; }
 
+/// The app is drawn dark (UI thread).
+pub fn is_dark() -> bool { DARK.with(|d| d.get()) }
+
 fn wv_bg() -> (u8, u8, u8, u8) {
     if DARK.with(|d| d.get()) { (0x14, 0x14, 0x14, 255) } else { (255, 255, 255, 255) }
 }
@@ -211,7 +220,7 @@ fn rect(x: f32, y: f32, w: f32, h: f32) -> wry::Rect {
 
 fn sync_webview(ui: &AppWindow) {
     let r = rect(ui.get_bx(), ui.get_by(), ui.get_bw(), ui.get_bh());
-    let vis = ui.get_body_visible();
+    let vis = ui.get_body_visible() && !ui.global::<Pd>().get_overlay();
     // light renderer: re-layout when the reading pane width changes
     if ui.get_render_mode() == 1 && ui.get_current_mail() != "" {
         let w = ui.get_bw();
@@ -268,7 +277,7 @@ fn sync_webview(ui: &AppWindow) {
     });
 }
 
-type Shared = Arc<Mutex<Option<Arc<jmap::Client>>>>;
+pub(crate) type Shared = Arc<Mutex<Option<Arc<jmap::Client>>>>;
 
 pub fn config_dir() -> std::path::PathBuf {
     let base = std::env::var("APPDATA").unwrap_or_else(|_| ".".into());
@@ -372,7 +381,7 @@ fn compose_client(st: &Shared) -> Option<Arc<jmap::Client>> {
 }
 
 /// mail::apply, split per owning account so unified-inbox rows use their own client.
-fn apply_routed(u: &AppWindow, st: &Shared, ids: Vec<String>, action: &str) {
+pub(crate) fn apply_routed(u: &AppWindow, st: &Shared, ids: Vec<String>, action: &str) {
     if ids.is_empty() { return; }
     if action.starts_with("copy-code:") {
         if let Some(c) = st.lock().unwrap().clone() { mail::apply(u, c, ids, action); }
@@ -396,6 +405,19 @@ fn apply_routed(u: &AppWindow, st: &Shared, ids: Vec<String>, action: &str) {
     for ((o, _), ids) in groups {
         let c = match &o { Some(o) => unified::cached(o), None => st.lock().unwrap().clone() };
         if let Some(c) = c { mail::apply_confirmed(u, c, ids, &action, &selection); }
+    }
+}
+
+/// Move messages to a folder of the active account: other accounts' rows (and group inboxes)
+/// go to their own folder with the same role, else the same name (Bulwark move targets).
+pub(crate) fn move_ids(u: &AppWindow, st: &Shared, ids: Vec<String>, fid: &str) {
+    let ids: Vec<String> = ids.into_iter().filter(|i| !i.is_empty()).collect();
+    let (own, other): (Vec<String>, Vec<String>) = ids.into_iter()
+        .partition(|i| mail::owner(i).is_none_or(|o| o == unified::active_user()) && mail::shared_account(i).is_none());
+    if let Some(c) = st.lock().unwrap().clone() { mail::apply(u, c, own, &format!("move:{fid}")); }
+    if !other.is_empty() {
+        let (role, name) = mail::mailbox_info(fid);
+        apply_routed(u, st, other, &unified::moveto_action(&role, &name));
     }
 }
 
@@ -643,7 +665,7 @@ fn body_html(m: &Value) -> String {
 fn load_folder(ui: slint::Weak<AppWindow>, client: Arc<jmap::Client>, mailbox: Option<String>, text: Option<String>) {
     let filter = match (mailbox, text) {
         (Some(m), Some(t)) if m == unified::FOLDER_ID => mail::folder_filter(&m, Some(&t)),
-        (_, Some(t)) => json!({"text": t}),
+        (_, Some(t)) => gsearch::mailbox_search_filter(&t, None, mail::role_id),
         (Some(m), None) if m == "__scheduled" => json!({"scheduled": true}),
         (Some(m), None) if m == unified::FOLDER_ID => json!({"unified": true}),
         (Some(m), None) => json!({"inMailbox": m}),
@@ -807,6 +829,9 @@ fn main() -> Result<(), slint::PlatformError> {
     ui.on_do_search(move |text| {
         let Some(c) = st.lock().unwrap().clone() else { return };
         let u = w.unwrap();
+        // Enter on a highlighted suggestion runs that one instead
+        if search_ui::accept(&u) { return; }
+        search_ui::searched(&u, &text);
         u.set_current_mail("".into());
         if text.trim().is_empty() {
             load_folder(w.clone(), c, Some(u.get_current_folder().to_string()), None);
@@ -829,6 +854,7 @@ fn main() -> Result<(), slint::PlatformError> {
     let w = ui.as_weak();
     let st = state.clone();
     ui.on_open_mail(move |id| {
+        shortcuts::note_opened(&id);
         let Some(c) = client_for(&st, &id) else { return };
         READER_CLIENT.with(|r| *r.borrow_mut() = Some(c.clone()));
         let u = w.unwrap();
@@ -1551,7 +1577,7 @@ fn main() -> Result<(), slint::PlatformError> {
                 "n" => u.invoke_compose_new(),
                 "a" => u.invoke_select_all(),
                 "r" => u.invoke_act(if shift { "reply-all".into() } else { "reply".into() }),
-                "u" => u.invoke_act("unread".into()),
+                "u" => u.invoke_act("unread!".into()),
                 _ => {}
             }
             return;
@@ -1580,15 +1606,7 @@ fn main() -> Result<(), slint::PlatformError> {
             "\u{F700}" => move_sel(-1, false),  // up arrow
             "n" => move_sel(1, true),
             "\u{1b}" => u.set_current_mail("".into()),
-            "r" => u.invoke_act("reply".into()),
-            "R" => u.invoke_act("reply-all".into()),
-            "f" => u.invoke_act("forward".into()),
-            "s" => u.invoke_act("star".into()),
-            "e" => u.invoke_act("archive".into()),
-            "#" | "\u{7f}" => u.invoke_act("delete".into()),
-            "u" => u.invoke_act("unread".into()),
-            "I" => u.invoke_act("read".into()),
-            "!" => u.invoke_act("spam".into()),
+            _ if shortcuts::mail_key_action(t).is_some() => u.invoke_act(shortcuts::mail_key_action(t).unwrap_or_default().into()),
             "c" => u.invoke_compose_new(),
             "/" => u.invoke_focus_search(),
             "G" => u.invoke_refresh(),
@@ -1632,6 +1650,7 @@ fn main() -> Result<(), slint::PlatformError> {
         let active = !conds.is_empty();
         u.set_sf_active(active);
         u.set_sf_open(false);
+        search_ui::refresh_chips(&u);
         u.set_current_mail("".into());
         if !active { u.invoke_select_folder(u.get_current_folder()); return; }
         // scope like Bulwark's searchDefaultScope: everywhere but Spam/Trash, or the open folder
@@ -1658,6 +1677,7 @@ fn main() -> Result<(), slint::PlatformError> {
         u.set_sf_unread(false); u.set_sf_starred(false); u.set_sf_attach(false);
         u.set_sf_active(false);
         u.set_sf_open(false);
+        search_ui::refresh_chips(&u);
         u.invoke_select_folder(u.get_current_folder());
     });
 
@@ -1729,16 +1749,7 @@ fn main() -> Result<(), slint::PlatformError> {
     ui.on_move_to(move |fid| {
         let u = w.unwrap();
         let ids = { let ch = mail::checked_ids(); if ch.is_empty() { vec![u.get_current_mail().to_string()] } else { ch } };
-        let ids: Vec<String> = ids.into_iter().filter(|i| !i.is_empty()).collect();
-        // folder ids belong to the active account: other accounts' rows (and group inboxes)
-        // go to their own folder with the same role, else the same name (Bulwark move targets)
-        let (own, other): (Vec<String>, Vec<String>) = ids.into_iter()
-            .partition(|i| mail::owner(i).is_none_or(|o| o == unified::active_user()) && mail::shared_account(i).is_none());
-        if let Some(c) = st.lock().unwrap().clone() { mail::apply(&u, c, own, &format!("move:{fid}")); }
-        if !other.is_empty() {
-            let (role, name) = mail::mailbox_info(&fid);
-            apply_routed(&u, &st, other, &unified::moveto_action(&role, &name));
-        }
+        move_ids(&u, &st, ids, &fid);
     });
 
     let (w, st) = (ui.as_weak(), state.clone());
@@ -1833,6 +1844,20 @@ fn main() -> Result<(), slint::PlatformError> {
             let _ = w.upgrade_in_event_loop(move |u| mail::show_toast(&u, &msg, false));
         });
     });
+
+    // ---------------- productivity: shortcuts, command palette, search, drag and drop ----------------
+    palette::wire(&ui, state.clone());
+    search_ui::wire(&ui);
+    dnd::wire(&ui, state.clone());
+    let (w, st) = (ui.as_weak(), state.clone());
+    ui.global::<Pd>().on_key_hook(move |t, shift, ctrl, alt| {
+        let Some(u) = w.upgrade() else { return false };
+        shortcuts::handle(&u, &st, &t, shift, ctrl, alt)
+    });
+    let w = ui.as_weak();
+    ui.global::<Pd>().on_keys_set_tab(move |i| { if let Some(u) = w.upgrade() { shortcuts::show_help(&u, i.max(0) as usize); } });
+    let w = ui.as_weak();
+    ui.global::<Pd>().on_refocus(move || { if let Some(u) = w.upgrade() { u.invoke_focus_keys(); } });
 
     ui.show()?;
     if automation::enabled() {
@@ -2102,6 +2127,7 @@ pub fn apply_theme(ui: &AppWindow) {
     ui.global::<Theme>().set_dark(dark);
     // Settings > Appearance > Style: Bento (tiles) or Nordic (one surface)
     ui.global::<Theme>().set_style(if settings::Settings::load().str("uiStyle", "bento") == "nordic" { 1 } else { 0 });
+    search_ui::set_accent(ui.global::<Theme>().get_accent());
 }
 
 
@@ -2126,6 +2152,7 @@ pub fn apply_ui_prefs(ui: &AppWindow) {
     // Bulwark FONT_SIZE_SCALE on the 13px base
     ui.global::<Prefs>().set_font_size(13.0 * a.font_scale);
     ui.global::<Theme>().set_more_contrast(a.more_contrast);
+    search_ui::set_accent(ui.global::<Theme>().get_accent());
     ui.global::<Prefs>().set_reduce_motion(a.reduce_motion);
     ui.global::<Prefs>().set_large_targets(a.large_targets);
     // Bulwark focus outline widths: normal 2px, thick 3px, extra 5px

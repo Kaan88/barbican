@@ -455,6 +455,11 @@ pub fn rename(u: &AppWindow, c: Arc<Client>, id: &str, name: &str) {
     node_set(u, c, acc_of(&n), json!({"update": { raw_id(&n): {"name": name} }}), "");
 }
 
+/// Whether deleting `id` removes it for good (a shared drive item, or one already in the trash).
+pub fn deletes_permanently(id: &str) -> bool {
+    node(id).is_some_and(|n| shared(&n)) || is_trashed(id)
+}
+
 /// Delete: in the user's own drive the item goes to the trash; in a shared drive, or when it
 /// is already in the trash, it is removed for good (Bulwark deletesToTrash).
 pub fn delete(u: &AppWindow, c: Arc<Client>, id: &str) {

@@ -7,7 +7,7 @@
 //! Commands (logical pixels):
 //!   click X Y | rclick X Y | dclick X Y | move X Y | scroll X Y DY
 //!   type TEXT            (sent as key presses)
-//!   key Enter|Escape|Tab|Backspace|Delete|Up|Down|Left|Right|Home|End (with Ctrl+/Shift+/Alt+ prefixes)
+//!   key Enter|Escape|Tab|Backspace|Delete|Up|Down|Left|Right|Home|End|F2|F5|F9|F10 (with Ctrl+/Shift+/Alt+ prefixes)
 //!   drag X1 Y1 X2 Y2
 //!   shot PATH.png        (window contents; the WebView2 email body is a separate window and not included)
 //!   size                 (window size)
@@ -124,6 +124,7 @@ fn run(u: &AppWindow, line: &str) -> String {
                     "Delete" => Key::Delete.into(), "Up" => Key::UpArrow.into(), "Down" => Key::DownArrow.into(), "Left" => Key::LeftArrow.into(),
                     "Right" => Key::RightArrow.into(), "Home" => Key::Home.into(), "End" => Key::End.into(), "PageUp" => Key::PageUp.into(),
                     "PageDown" => Key::PageDown.into(), "Space" => " ".into(),
+                    "F2" => Key::F2.into(), "F5" => Key::F5.into(), "F9" => Key::F9.into(), "F10" => Key::F10.into(),
                     s if s.chars().count() == 1 => s.to_lowercase().into(),
                     _ => return None,
                 })
