@@ -1,0 +1,201 @@
+id,status,pages,kind,label,default,rust_read_by,rust_hits,csharp_read_by,notes
+S-settingsSyncDisabled,unwired,about,toggle,Settings sync,false,,,not ported,invert
+S-a11y.reset,wired,accessibility,button,Reset accessibility settings,null,main.rs;settings.rs,src/main.rs:1091,not ported,
+S-colorBlindPalette,wired,accessibility,toggle,Colour-blind-safe colours,false,a11y.rs,src/a11y.rs:9,not ported,
+S-confirmArchive,wired,accessibility,toggle,Confirm before archiving,false,a11y.rs,src/a11y.rs:16,not ported,
+S-confirmDelete,wired,accessibility,toggle,Confirm before deleting,false,a11y.rs,src/a11y.rs:16,not ported,
+S-contrast,wired,accessibility,select,Contrast,"""system""",a11y.rs;palette.rs,src/a11y.rs:8,not ported,
+S-focusRing,wired,accessibility,select,Focus outline,"""off""",a11y.rs,src/a11y.rs:11,not ported,
+S-fontSize,wired,accessibility,select,Text size,"""medium""",a11y.rs;settings.rs,src/a11y.rs:25,not ported,
+S-largeTargets,wired,accessibility,select,Large targets,"""system""",a11y.rs,src/a11y.rs:12,not ported,
+S-letterSpacing,wired,accessibility,select,Letter spacing,"""normal""",a11y.rs,src/a11y.rs:9,not ported,
+S-lineSpacing,wired,accessibility,select,Line spacing,"""normal""",a11y.rs,src/a11y.rs:9,not ported,
+S-mailFitWidth,wired,accessibility,toggle,Fit wide messages to the window,false,a11y.rs,src/a11y.rs:14,not ported,
+S-mailMinFontSize,wired,accessibility,select,Smallest text in messages,0,a11y.rs;settings.rs,src/a11y.rs:14,not ported,
+S-mailOverrideStyles,wired,accessibility,select,Use my font and colours in messages,"""never""",a11y.rs,src/a11y.rs:14,not ported,
+S-mailTextScale,wired,accessibility,select,Message text size,0,a11y.rs;settings.rs,src/a11y.rs:13,not ported,
+S-mailViewMode,wired,accessibility,select,Show messages as,"""html""",a11y.rs,src/a11y.rs:13,not ported,
+S-paragraphSpacing,wired,accessibility,select,Paragraph spacing,"""normal""",a11y.rs,src/a11y.rs:10,not ported,
+S-plainTextFont,wired,accessibility;reading,select,Plain text mail font | Font for plain text mail,"""sans""",a11y.rs;main.rs,src/a11y.rs:25,not ported,
+S-readingWidth,wired,accessibility,select,Reading width,"""full""",a11y.rs,src/a11y.rs:10,not ported,
+S-reduceMotion,wired,accessibility,select,Reduce motion,"""system""",a11y.rs;main.rs,src/a11y.rs:11,not ported,
+S-sendConfirmation,wired,accessibility,toggle,Confirm before sending,false,compose.rs;settings.rs,src/compose.rs:868,not ported,
+S-showRowActionButton,wired,accessibility,toggle,Actions button on each message,false,a11y.rs,src/a11y.rs:13,not ported,
+S-singleKeyShortcuts,wired,accessibility,toggle,Single-key shortcuts,true,a11y.rs,src/a11y.rs:12,not ported,
+S-toastDuration,wired,accessibility,select,Notification duration,5,a11y.rs;settings.rs,src/a11y.rs:15,not ported,
+S-underlineLinks,wired,accessibility,toggle,Underline links,false,a11y.rs,src/a11y.rs:8,not ported,
+S-unreadCountStyle,wired,accessibility,select,Unread counts,"""count""",a11y.rs,src/a11y.rs:16,not ported,
+S-visualAlerts,wired,accessibility,toggle,Visual alerts,false,a11y.rs,src/a11y.rs:16,not ported,
+S-wordSpacing,wired,accessibility,select,Word spacing,"""normal""",a11y.rs,src/a11y.rs:10,not ported,
+S-subAddressDelimiter,wired,account,select,Sub-address delimiter,null,compose.rs,src/compose.rs:169,not ported,
+S-colorfulSidebarIcons,wired,appearance,toggle,Colorful sidebar icons,false,mail.rs,src/mail.rs:117,not ported,
+S-compactSharedMailboxes,unwired,appearance,toggle,Compact shared mailboxes,false,,,not ported,
+S-composePlacement,wired,appearance,select,Compose button,null,settings.rs,src/settings.rs:53,not ported,
+S-density,wired,appearance,select,Density,"""regular""",mail.rs;settings.rs,src/mail.rs:70,not ported,
+S-enableUnifiedMailbox,wired,appearance,toggle,Unified mailbox,false,main.rs;unified.rs,src/main.rs:1005,not ported,
+S-includeGroupInUnified,wired,appearance,toggle,Include group inboxes,true,main.rs;unified.rs,src/main.rs:1013,not ported,
+S-interfaceLayout,wired,appearance,select,Interface layout,"""default""",mail.rs,src/mail.rs:584,not ported,
+S-keepAppsLoaded,unwired,appearance,toggle,Keep apps loaded,false,,,not ported,
+S-mailLayout,unwired,appearance,select,Mail layout,"""split""",,,not ported,
+S-proInterface,unwired,appearance,toggle,Pro interface (experimental),false,,,not ported,
+S-showFolderTotalCount,wired,appearance,toggle,Show total message count,true,mail.rs,src/mail.rs:118,not ported,
+S-showRailAccountList,unwired,appearance,toggle,Show account avatars on the navigation rail,false,,,not ported,
+S-showSharedMailAccounts,unwired,appearance,toggle,Show shared mail accounts,true,,,not ported,
+S-showToolbarLabels,wired,appearance,toggle,Show toolbar labels,true,main.rs,src/main.rs:2113,not ported,
+S-sidebarAccountSwitcher,unwired,appearance,toggle,Account switcher at the top of the sidebar,true,,,not ported,
+S-tintListRowsByAccount,wired,appearance,select,Tell accounts apart,false,mail.rs,src/mail.rs:408,not ported,
+S-toolbarPosition,unwired,appearance,select,Toolbar position,"""top""",,,not ported,
+S-uiStyle,wired,appearance,select,Style,"""bento""",main.rs,src/main.rs:1041,not ported,
+S-unifiedCrossAccount,wired,appearance,toggle,Across all accounts,false,main.rs;unified.rs,src/main.rs:1013,not ported,
+S-calendarDayEndHour,wired,calendar,select,Visible hours,20,cal_editor.rs;calendar.rs;settings.rs,src/calendar.rs:164,not ported,
+S-calendarFreeScroll,wired,calendar,toggle,Free scrolling,true,calendar.rs,src/calendar.rs:179,not ported,
+S-calendarHideNonWorkingDays,wired,calendar,toggle,Hide non-working days,false,calendar.rs,src/calendar.rs:173,not ported,
+S-calendarHoverPreview,wired,calendar,select,Event hover preview,"""delay-500ms""",calendar.rs,src/calendar.rs:180,not ported,
+S-calendarInvitationParsingEnabled,wired,calendar,toggle,Show invitations from mail,true,reader.rs,src/reader.rs:343,not ported,
+S-calendarLimitHours,wired,calendar,toggle,Limit visible hours,true,calendar.rs,src/calendar.rs:162,not ported,
+S-calendarMonthTimedEvents,wired,calendar,select,Timed events in month view,"""bar""",calendar.rs,src/calendar.rs:178,not ported,
+S-calendarTintedEvents,wired,calendar,toggle,Light event colors,true,calendar.rs,src/calendar.rs:176,not ported,
+S-enableCalendarTasks,wired,calendar,toggle,Tasks,true,calendar.rs;reminders.rs,src/calendar.rs:182,not ported,
+S-showBirthdayCalendar,wired,calendar,toggle,Contact birthday calendar,false,calendar.rs,src/calendar.rs:185,not ported,
+S-showTasksApp,wired,calendar,toggle,Tasks as their own app,false,calendar.rs,src/calendar.rs:184,not ported,
+S-showTasksOnCalendar,wired,calendar,toggle,Show tasks on calendar,true,calendar.rs,src/calendar.rs:183,not ported,
+S-showTimeInMonthView,wired,calendar,toggle,Show time in month view,false,calendar.rs,src/calendar.rs:175,not ported,
+S-showWeekNumbers,wired,calendar,toggle,Show week numbers,false,calendar.rs,src/calendar.rs:171,not ported,
+S-attachmentReminderEnabled,wired,composing,toggle,Attachment reminder,true,compose.rs,src/compose.rs:809,not ported,
+S-autoSelectReplyIdentity,wired,composing,toggle,Reply from the address it was sent to,false,compose.rs,src/compose.rs:307,not ported,
+S-emptySubjectWarningEnabled,wired,composing,toggle,Empty subject warning,true,compose.rs,src/compose.rs:798,not ported,
+S-mentionAddsRecipientTo,unwired,composing,select,Contacts in @ mentions,"""to""",,,not ported,
+S-placeholderWarningEnabled,wired,composing,toggle,Placeholder warning,true,compose.rs,src/compose.rs:801,not ported,
+S-plainTextMode,wired,composing,toggle,Plain text only,false,compose.rs,src/compose.rs:405,not ported,
+S-quickReplyEnabled,wired,composing,toggle,Quick reply,true,main.rs,src/main.rs:2112,not ported,
+S-recipientMentionsEnabled,unwired,composing,toggle,Mention recipients with @,true,,,not ported,
+S-replyIdentityMatch,wired,composing,select,Received address matching,"""domain""",compose.rs,src/compose.rs:307,not ported,
+S-replyUnderMessage,wired,composing,toggle,Replies under the message,true,compose.rs,src/compose.rs:426,not ported,
+S-rtlEditingSupport,unwired,composing,toggle,Right-to-left editing support,false,,,not ported,
+S-sendDelaySeconds,wired,composing,select,Undo send,5,compose.rs;settings.rs,src/compose.rs:879,not ported,
+S-signatureNewMailEnabled,wired,composing,toggle,Signature on new mail,true,compose.rs,src/compose.rs:333,not ported,
+S-signaturePosition,wired,composing,select,Signature position,"""below_quote""",compose.rs,src/compose.rs:339,not ported,
+S-signatureReplyForwardEnabled,wired,composing,toggle,Signature on replies & forwards,true,compose.rs,src/compose.rs:333,not ported,
+S-signatureSeparatorEnabled,wired,composing,toggle,Signature delimiter,true,compose.rs,src/compose.rs:336,not ported,
+S-writingLanguage,wired,composing,select,Writing language,"""auto""",main.rs;settings.rs;spell.rs,src/main.rs:1042,not ported,
+S-groupContactsByLetter,wired,contacts,toggle,Group by first letter,true,contacts.rs,src/contacts.rs:236,not ported,
+S-showContactsDirectory,wired,contacts,toggle,Show the directory,true,contacts_x.rs,src/contacts_x.rs:851,not ported,
+S-sortContactsByLastName,wired,contacts,toggle,Sort by last name,false,contacts.rs,src/contacts.rs:237,not ported,
+S-filenameCollapseSeparators,unwired,files,toggle,Collapse repeated separators,true,,,not ported,
+S-filenameLowercase,unwired,files,toggle,Lowercase,false,,,not ported,
+S-filenameSpaceReplacement,unwired,files,select,Spaces,"""keep""",,,not ported,
+S-filenameStripDiacritics,unwired,files,toggle,Strip diacritics,false,,,not ported,
+S-postExportAction,unwired,files,select,After export,"""keep""",,,not ported,
+S-dateFormat,wired,general,select,Date format,"""smart""",mail.rs,src/mail.rs:66,not ported,
+S-dateLocale,unwired,general,select,Date format region,"""auto""",,,not ported,
+S-firstDayOfWeek,wired,general,select,First day of week,1,calendar.rs;recurrence.rs;settings.rs,src/calendar.rs:170,not ported,
+S-showOnboardingOnNewDevices,unwired,general,toggle,Show on new devices,false,,,not ported,
+S-timeFormat,wired,general,select,Time format,"""24h""",calendar.rs;compose.rs;files.rs;mail.rs;schedule.rs;settings.rs,src/calendar.rs:177,not ported,
+S-timeZone,wired,general,info,Time zone,"""auto""",agent.rs;cal_editor.rs;cal_extra.rs;calendar.rs;contacts_x.rs;invite.rs;reminders.rs;vcard.rs,src/agent.rs:409,not ported,
+S-archiveMode,wired,message_list,select,Archive in,"""single""",mail.rs,src/mail.rs:990,not ported,
+S-clearSearchOnFolderChange,wired,message_list,toggle,Clear search when switching folders,false,main.rs,src/main.rs:846,not ported,
+S-confirmBulkDelete,wired,message_list,toggle,Confirm before deleting several messages,true,ctxmenu.rs;mail.rs,src/ctxmenu.rs:537,not ported,
+S-deleteAction,wired,message_list,select,Delete action,"""trash""",mail.rs,src/mail.rs:1029,not ported,
+S-disableThreading,wired,message_list,toggle,Group messages by conversation,false,main.rs;msgload.rs,src/main.rs:334,not ported,invert
+S-emailsPerPage,wired,message_list,select,Emails per page,50,mail.rs,src/mail.rs:68,not ported,
+S-groupListByDate,wired,message_list,toggle,Group by date,false,mail.rs,src/mail.rs:64,not ported,
+S-listColumns,unwired,message_list,toggle,Show the list as columns,false,,,not ported,
+S-messageListOrderScope,unwired,message_list,toggle,Apply to all folders,"""inbox""",,,not ported,
+S-mvInboxType,wired,message_list,select,Inbox type,"""unread-first""",mail.rs,src/mail.rs:584,not ported,
+S-mvUnreadSectionSize,wired,message_list,select,Unread messages shown,25,mail.rs;settings.rs,src/mail.rs:587,not ported,
+S-permanentlyDeleteJunk,wired,message_list,toggle,Permanently delete Junk,false,mail.rs,src/mail.rs:984,not ported,
+S-searchDefaultScope,wired,message_list,select,Search in,"""all""",main.rs,src/main.rs:1599,not ported,
+S-showAttachmentChips,wired,message_list,toggle,Show attachments in the list,true,mail.rs,src/mail.rs:70,not ported,
+S-showPreview,wired,message_list,toggle,Show preview text,true,mail.rs;settings.rs,src/mail.rs:65,not ported,
+S-showTagChips,wired,message_list,toggle,Show tags in the list,true,main.rs,src/main.rs:2114,not ported,
+S-showVerificationCodes,wired,message_list,toggle,Show verification codes,true,mail.rs,src/mail.rs:71,not ported,
+S-swipeLeftAction,unwired,message_list,select,Swipe left action (mobile),"""delete""",,,not ported,
+S-swipeRightAction,unwired,message_list,select,Swipe right action (mobile),"""archive""",,,not ported,
+S-tintListRowsByTag,wired,message_list,toggle,Tint list rows by tag color,false,mail.rs,src/mail.rs:72,not ported,
+S-calendarNotificationSound,wired,notifications,toggle,Sound for reminders,true,reminders.rs,src/reminders.rs:415,not ported,
+S-calendarNotificationsEnabled,wired,notifications,toggle,Event notifications,true,reminders.rs,src/reminders.rs:414,not ported,
+S-doNotDisturb,wired,notifications,toggle,Pause notifications,null,a11y.rs;main.rs;reminders.rs,src/a11y.rs:17,not ported,
+S-emailNotificationSound,wired,notifications,toggle,Sound for new mail,true,main.rs,src/main.rs:567,not ported,
+S-emailNotificationsEnabled,wired,notifications,toggle,Email notifications,true,main.rs,src/main.rs:562,not ported,
+S-faviconUnreadBadge,wired,notifications,toggle,Unread count on the taskbar icon,true,mail.rs,src/mail.rs:190,not ported,
+S-notificationSoundChoice,unwired,notifications,select,Tone,"""involved""",,,not ported,
+S-pushNotifyInboxOnly,wired,notifications,toggle,Inbox only,false,main.rs,src/main.rs:568,not ported,
+S-pushRelayUrl,unwired,notifications,select,Push relay,"""""",,,not ported,
+S-unreadBadgeAllAccounts,wired,notifications,toggle,Count unread mail in all accounts,true,mail.rs;main.rs;unified.rs,src/mail.rs:189,not ported,
+S-nestedTags,wired,organize,toggle,Nested tags,null,main.rs;tags.rs,src/main.rs:1025,not ported,
+S-avatars.refresh,wired,privacy,button,Refresh sender icons,null,main.rs,src/main.rs:1100,not ported,
+S-gravatarAvatars,wired,privacy,toggle,Gravatar photos,false,avatars.rs,src/avatars.rs:33,not ported,
+S-senderFavicons,wired,privacy,toggle,Sender pictures from the web,false,avatars.rs,src/avatars.rs:33,not ported,
+S-showAvatarsInJunk,wired,privacy,toggle,Show avatars in the Junk folder,false,avatars.rs,src/avatars.rs:33,not ported,
+S-attachmentImagePreviewsEnabled,wired,reading,toggle,Show image previews in attachments,true,attachments.rs,src/attachments.rs:60,not ported,
+S-emailAlwaysLightMode,wired,reading,toggle,Always show emails in light mode,false,main.rs,src/main.rs:233,not ported,
+S-hideInlineImageAttachments,wired,reading,toggle,Hide inline images from attachments,true,mail.rs;msgload.rs;reader.rs,src/mail.rs:73,not ported,
+S-mailAttachmentAction,wired,reading,select,Attachment click action,"""preview""",main.rs,src/main.rs:1747,not ported,
+S-markAsReadDelay,wired,reading,select,Mark as read,0,msgload.rs,src/msgload.rs:36,not ported,
+S-messageSpacing,wired,reading,select,Message spacing,"""auto""",main.rs,src/main.rs:255,not ported,
+S-returnToListAfterAction,wired,reading,toggle,"Return to list after delete, archive, move or mark unread",true,mail.rs,src/mail.rs:1011,not ported,
+S-debugMode,unwired,troubleshooting,toggle,Detailed logging,false,,,not ported,
+S-keyless-001,keyless,account,info,Email address,,,,not ported,no key: dropped by Rust settings.rs schema_rows
+S-keyless-002,keyless,account,info,Username,,,,not ported,no key: dropped by Rust settings.rs schema_rows
+S-keyless-003,keyless,account,info,Authentication,,,,not ported,no key: dropped by Rust settings.rs schema_rows
+S-keyless-004,keyless,account,info,JMAP server,,,,not ported,no key: dropped by Rust settings.rs schema_rows
+S-keyless-005,keyless,account,info,Storage usage,,,,not ported,no key: dropped by Rust settings.rs schema_rows
+S-keyless-006,keyless,account,info,Account type,,,,not ported,no key: dropped by Rust settings.rs schema_rows
+S-keyless-007,keyless,account,info,Your name,,,,not ported,no key: dropped by Rust settings.rs schema_rows
+S-keyless-008,keyless,account,text,Your name,,,,not ported,no key: dropped by Rust settings.rs schema_rows
+S-keyless-009,keyless,account,info,Your addresses,,,,not ported,no key: dropped by Rust settings.rs schema_rows
+S-keyless-010,keyless,account,info,Sub-addressing,,,,not ported,no key: dropped by Rust settings.rs schema_rows
+S-keyless-011,keyless,security,info,Two-step sign-in,,,,not ported,no key: dropped by Rust settings.rs schema_rows
+S-keyless-012,keyless,security,toggle,Two-step sign-in,,,,not ported,no key: dropped by Rust settings.rs schema_rows
+S-keyless-013,keyless,security,toggle,Lock with a PIN,,,,not ported,no key: dropped by Rust settings.rs schema_rows
+S-keyless-014,keyless,security,toggle,Unlock with Windows Hello,,,,not ported,no key: dropped by Rust settings.rs schema_rows
+S-keyless-015,keyless,security,select,Lock after,,,,not ported,no key: dropped by Rust settings.rs schema_rows
+S-keyless-016,keyless,security,info,Lock now,,,,not ported,no key: dropped by Rust settings.rs schema_rows
+S-keyless-017,keyless,security,info,PIN,,,,not ported,no key: dropped by Rust settings.rs schema_rows
+S-keyless-018,keyless,security,info,Passkey,,,,not ported,no key: dropped by Rust settings.rs schema_rows
+S-keyless-019,keyless,notifications,toggle,Turn on for this device,,,,not ported,no key: dropped by Rust settings.rs schema_rows
+S-keyless-020,keyless,general,info,Introductory tour,,,,not ported,no key: dropped by Rust settings.rs schema_rows
+S-keyless-021,keyless,general,info,Language,,,,not ported,no key: dropped by Rust settings.rs schema_rows
+S-keyless-022,keyless,general,info,Open email links in {appName},,,,not ported,no key: dropped by Rust settings.rs schema_rows
+S-keyless-023,keyless,general,info,Open calendar links in {appName},,,,not ported,no key: dropped by Rust settings.rs schema_rows
+S-keyless-024,keyless,general,select,How links open,,,,not ported,no key: dropped by Rust settings.rs schema_rows
+S-keyless-025,keyless,appearance,select,Light or dark,,,,not ported,no key: dropped by Rust settings.rs schema_rows
+S-keyless-026,keyless,appearance,info,Text size and motion,,,,not ported,no key: dropped by Rust settings.rs schema_rows
+S-keyless-027,keyless,accessibility,info,Density and toolbar labels,,,,not ported,no key: dropped by Rust settings.rs schema_rows
+S-keyless-028,keyless,accessibility,info,Theme and colour mode,,,,not ported,no key: dropped by Rust settings.rs schema_rows
+S-keyless-029,keyless,accessibility,info,Light background for messages,,,,not ported,no key: dropped by Rust settings.rs schema_rows
+S-keyless-030,keyless,accessibility,info,Keyboard shortcuts,,,,not ported,no key: dropped by Rust settings.rs schema_rows
+S-keyless-031,keyless,accessibility,info,Hover and swipe actions,,,,not ported,no key: dropped by Rust settings.rs schema_rows
+S-keyless-032,keyless,accessibility,info,Event previews in the calendar,,,,not ported,no key: dropped by Rust settings.rs schema_rows
+S-keyless-033,keyless,accessibility,info,Conversations and preview lines,,,,not ported,no key: dropped by Rust settings.rs schema_rows
+S-keyless-034,keyless,accessibility,info,Marking mail as read,,,,not ported,no key: dropped by Rust settings.rs schema_rows
+S-keyless-035,keyless,accessibility,info,Warnings before sending,,,,not ported,no key: dropped by Rust settings.rs schema_rows
+S-keyless-036,keyless,accessibility,info,Asking before deleting several messages,,,,not ported,no key: dropped by Rust settings.rs schema_rows
+S-keyless-037,keyless,accessibility,info,Do not disturb,,,,not ported,no key: dropped by Rust settings.rs schema_rows
+S-keyless-038,keyless,accessibility,info,Sounds and the unread badge,,,,not ported,no key: dropped by Rust settings.rs schema_rows
+S-keyless-039,keyless,message_list,select,Message list order,,,,not ported,no key: dropped by Rust settings.rs schema_rows
+S-keyless-040,keyless,composing,toggle,Check spelling and grammar while I type,,,,not ported,no key: dropped by Rust settings.rs schema_rows
+S-keyless-041,keyless,vacation,info,Reply automatically,,,,not ported,no key: dropped by Rust settings.rs schema_rows
+S-keyless-042,keyless,vacation,select,Reply to,,,,not ported,no key: dropped by Rust settings.rs schema_rows
+S-keyless-043,keyless,vacation,text,From (optional),,,,not ported,no key: dropped by Rust settings.rs schema_rows
+S-keyless-044,keyless,vacation,text,Until (optional),,,,not ported,no key: dropped by Rust settings.rs schema_rows
+S-keyless-045,keyless,vacation,text,Subject,,,,not ported,no key: dropped by Rust settings.rs schema_rows
+S-keyless-046,keyless,vacation,info,Forward messages,,,,not ported,no key: dropped by Rust settings.rs schema_rows
+S-keyless-047,keyless,vacation,text,Forward to,,,,not ported,no key: dropped by Rust settings.rs schema_rows
+S-keyless-048,keyless,vacation,toggle,Keep in inbox,,,,not ported,no key: dropped by Rust settings.rs schema_rows
+S-keyless-049,keyless,calendar,select,Calendar opens in,,,,not ported,no key: dropped by Rust settings.rs schema_rows
+S-keyless-050,keyless,calendar,select,Organize invitations as,,,,not ported,no key: dropped by Rust settings.rs schema_rows
+S-keyless-051,keyless,calendar,info,Working days,,,,not ported,no key: dropped by Rust settings.rs schema_rows
+S-keyless-052,keyless,contacts,info,Import contacts,,,,not ported,no key: dropped by Rust settings.rs schema_rows
+S-keyless-053,keyless,contacts,info,Export contacts,,,,not ported,no key: dropped by Rust settings.rs schema_rows
+S-keyless-054,keyless,files,select,Show files as,,,,not ported,no key: dropped by Rust settings.rs schema_rows
+S-keyless-055,keyless,files,select,Default sort,,,,not ported,no key: dropped by Rust settings.rs schema_rows
+S-keyless-056,keyless,files,select,Sort direction,,,,not ported,no key: dropped by Rust settings.rs schema_rows
+S-keyless-057,keyless,files,toggle,Show file icons,,,,not ported,no key: dropped by Rust settings.rs schema_rows
+S-keyless-058,keyless,files,toggle,Colored icons,,,,not ported,no key: dropped by Rust settings.rs schema_rows
+S-keyless-059,keyless,files,toggle,Show thumbnails,,,,not ported,no key: dropped by Rust settings.rs schema_rows
+S-keyless-060,keyless,files,toggle,Show hidden files,,,,not ported,no key: dropped by Rust settings.rs schema_rows
+S-keyless-061,keyless,about,info,Export settings,,,,not ported,no key: dropped by Rust settings.rs schema_rows
+S-keyless-062,keyless,about,text,Import settings,,,,not ported,no key: dropped by Rust settings.rs schema_rows
+S-keyless-063,keyless,about,info,Refresh cached data,,,,not ported,no key: dropped by Rust settings.rs schema_rows
+S-keyless-064,keyless,about,info,Reset settings,,,,not ported,no key: dropped by Rust settings.rs schema_rows
