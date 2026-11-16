@@ -88,6 +88,15 @@ pub fn load(w: slint::Weak<AppWindow>, c: Arc<Client>) {
     });
 }
 
+fn bare(k: &str) -> &str { k.strip_prefix("urn:uuid:").unwrap_or(k) }
+
+/// Whether `card` is a member of `group` (members keyed by uid, bare or urn:uuid:, or by id; Bulwark).
+fn is_member(group: &Value, card: &Value) -> bool {
+    let uid = card["uid"].as_str().map(bare).unwrap_or("");
+    let id = card["id"].as_str().unwrap_or("");
+    group["members"].as_object().is_some_and(|m| m.iter().any(|(k, v)| *v == Value::Bool(true) && (bare(k) == id || (!uid.is_empty() && bare(k) == uid))))
+}
+
 fn keywords(c: &Value) -> Vec<String> {
     c["keywords"].as_object().map(|o| o.iter().filter(|(_, v)| **v == Value::Bool(true)).map(|(k, _)| k.clone()).collect()).unwrap_or_default()
 }
@@ -99,7 +108,7 @@ fn in_filter(c: &Value, f: &str, groups: &[Value]) -> bool {
     if let Some(b) = f.strip_prefix("book:") { return c["addressBookIds"][b] == true; }
     if let Some(g) = f.strip_prefix("group:") {
         let Some(g) = groups.iter().find(|x| x["id"] == g) else { return false };
-        return c["uid"].as_str().is_some_and(|u| g["members"][u] == true);
+        return is_member(g, c);
     }
     true
 }
@@ -191,8 +200,7 @@ pub fn render(u: &AppWindow) {
 
 /// Members of a group (JSContact `members` keyed by the member cards' `uid`).
 fn members(g: &Value) -> Vec<Value> {
-    let uids: Vec<String> = g["members"].as_object().map(|m| m.iter().filter(|(_, v)| **v == Value::Bool(true)).map(|(k, _)| k.clone()).collect()).unwrap_or_default();
-    ST.with(|s| s.borrow().cards.iter().filter(|c| c["uid"].as_str().is_some_and(|u| uids.iter().any(|x| x == u))).cloned().collect())
+    ST.with(|s| s.borrow().cards.iter().filter(|c| is_member(g, c)).cloned().collect())
 }
 
 /// Show a group: its name and the members' addresses.
@@ -318,8 +326,8 @@ pub fn delete(u: &AppWindow, c: Arc<Client>) {
 pub fn groups_for(contact: &str) -> Vec<(String, String, bool)> {
     ST.with(|s| {
         let s = s.borrow();
-        let uid = s.cards.iter().find(|c| c["id"] == contact).and_then(|c| c["uid"].as_str().map(String::from)).unwrap_or_default();
-        s.groups.iter().map(|g| (g["id"].as_str().unwrap_or("").to_string(), full_name(g), !uid.is_empty() && g["members"][&uid] == true)).collect()
+        let card = s.cards.iter().find(|c| c["id"] == contact);
+        s.groups.iter().map(|g| (g["id"].as_str().unwrap_or("").to_string(), full_name(g), card.is_some_and(|c| is_member(g, c)))).collect()
     })
 }
 
@@ -327,8 +335,9 @@ pub fn keywords_of(contact: &str) -> Vec<String> {
     ST.with(|s| s.borrow().cards.iter().find(|c| c["id"] == contact).map(keywords).unwrap_or_default())
 }
 
+/// The key a group lists this contact under: its uid, else its id (Bulwark `contact.uid || id`).
 pub fn uid_of(contact: &str) -> Option<String> {
-    ST.with(|s| s.borrow().cards.iter().find(|c| c["id"] == contact).and_then(|c| c["uid"].as_str().map(String::from)))
+    ST.with(|s| s.borrow().cards.iter().find(|c| c["id"] == contact).map(|c| c["uid"].as_str().filter(|u| !u.is_empty()).unwrap_or(contact).to_string()))
 }
 
 pub fn group_name(id: &str) -> String {
@@ -383,25 +392,32 @@ pub fn create_group(u: &AppWindow, c: Arc<Client>, name: &str, first_member: Opt
 
 pub fn set_member(u: &AppWindow, c: Arc<Client>, group: &str, uid: &str, on: bool) {
     let mut patch = serde_json::Map::new();
-    patch.insert(format!("members/{}", ptr(uid)), if on { json!(true) } else { Value::Null });
+    // removing: drop the key the group actually uses (bare uid, urn:uuid: or id)
+    let keys: Vec<String> = if on { vec![uid.to_string()] } else {
+        ST.with(|s| s.borrow().groups.iter().find(|g| g["id"] == group).and_then(|g| g["members"].as_object().map(|m| m.keys().filter(|k| bare(k) == bare(uid)).cloned().collect())).unwrap_or_default())
+    };
+    for k in keys { patch.insert(format!("members/{}", ptr(&k)), if on { json!(true) } else { Value::Null }); }
     card_set(u, c, json!({"update": { group: Value::Object(patch) }}), if on { "Added to group" } else { "Removed from group" });
 }
 
+/// The card's whole keywords map with `k` set or cleared; Stalwart refuses a `keywords/x`
+/// patch when the card has no keywords yet, so Bulwark sends the whole map too.
+fn keywords_with(contact: &str, set: &[&str], clear: &[&str]) -> Value {
+    let mut m: serde_json::Map<String, Value> = ST.with(|s| s.borrow().cards.iter().find(|c| c["id"] == contact).and_then(|c| c["keywords"].as_object().cloned())).unwrap_or_default();
+    for k in clear { m.remove(*k); }
+    for k in set { m.insert(k.to_string(), json!(true)); }
+    if m.is_empty() { Value::Null } else { Value::Object(m) }
+}
+
 pub fn set_keyword(u: &AppWindow, c: Arc<Client>, contact: &str, k: &str, on: bool) {
-    let mut patch = serde_json::Map::new();
-    patch.insert(format!("keywords/{}", ptr(k)), if on { json!(true) } else { Value::Null });
-    card_set(u, c, json!({"update": { contact: Value::Object(patch) }}), if on { "Category added" } else { "Category removed" });
+    let kw = if on { keywords_with(contact, &[k], &[]) } else { keywords_with(contact, &[], &[k]) };
+    card_set(u, c, json!({"update": { contact: {"keywords": kw} }}), if on { "Category added" } else { "Category removed" });
 }
 
 /// Rename a category on every contact that has it (Bulwark renameKeyword).
 pub fn rename_keyword(u: &AppWindow, c: Arc<Client>, old: &str, new: &str) {
     let mut upd = serde_json::Map::new();
-    for id in with_keyword(old) {
-        let mut p = serde_json::Map::new();
-        p.insert(format!("keywords/{}", ptr(old)), Value::Null);
-        p.insert(format!("keywords/{}", ptr(new)), json!(true));
-        upd.insert(id, Value::Object(p));
-    }
+    for id in with_keyword(old) { let kw = keywords_with(&id, &[new], &[old]); upd.insert(id, json!({"keywords": kw})); }
     if upd.is_empty() { return; }
     ST.with(|s| { let mut s = s.borrow_mut(); if s.filter == format!("kw:{old}") { s.filter = format!("kw:{new}"); } });
     card_set(u, c, json!({"update": upd}), "Category renamed");
@@ -410,11 +426,7 @@ pub fn rename_keyword(u: &AppWindow, c: Arc<Client>, old: &str, new: &str) {
 /// Take a category off every contact (Bulwark deleteCategory).
 pub fn delete_keyword(u: &AppWindow, c: Arc<Client>, k: &str) {
     let mut upd = serde_json::Map::new();
-    for id in with_keyword(k) {
-        let mut p = serde_json::Map::new();
-        p.insert(format!("keywords/{}", ptr(k)), Value::Null);
-        upd.insert(id, Value::Object(p));
-    }
+    for id in with_keyword(k) { let kw = keywords_with(&id, &[], &[k]); upd.insert(id, json!({"keywords": kw})); }
     if upd.is_empty() { return; }
     if ST.with(|s| s.borrow().filter == format!("kw:{k}")) { set_filter(u, ""); }
     card_set(u, c, json!({"update": upd}), "Category deleted");
