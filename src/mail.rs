@@ -91,9 +91,13 @@ pub fn rebuild_folders(u: &AppWindow) {
                 let has_kids = ch.contains_key(id);
                 let collapsed = col.contains(id);
                 let (unread, total) = (m["unreadEmails"].as_i64().unwrap_or(0), m["totalEmails"].as_i64().unwrap_or(0));
+                let name = match role {
+                    "inbox" => "Inbox", "sent" => "Sent", "trash" => "Trash", "junk" => "Spam",
+                    "drafts" => "Drafts", "archive" => "Archive", _ => m["name"].as_str().unwrap_or(""),
+                };
                 out.push(Folder {
                     id: id.into(),
-                    name: m["name"].as_str().unwrap_or("").into(),
+                    name: name.into(),
                     icon: role_icon(role).into(),
                     depth: d,
                     unread: unread as i32,
@@ -104,6 +108,12 @@ pub fn rebuild_folders(u: &AppWindow) {
                     muted: m["isSubscribed"].as_bool() == Some(false),
                 });
                 if !collapsed { walk(id, d + 1, ch, col, out); }
+                if role == "drafts" && d == 0 {
+                    out.push(Folder {
+                        id: "__scheduled".into(), name: "Scheduled".into(), icon: "\u{E787}".into(), depth: 0,
+                        unread: 0, total: 0, color: rgb(0x60a5fa), count: "".into(), chevron: 0, muted: false,
+                    });
+                }
             }
         }
         let mut out = vec![];
@@ -257,7 +267,9 @@ pub fn load_list(w: slint::Weak<AppWindow>, c: Arc<Client>, filter: Value) {
     });
     let _ = w.upgrade_in_event_loop(|u| u.set_busy(true));
     std::thread::spawn(move || {
-        let res = c.list(filter, 0, PAGE);
+        let res = if filter["scheduled"] == true {
+            c.scheduled().map(|e| { let n = e.len(); (e, n, HashMap::new()) })
+        } else { c.list(filter, 0, PAGE) };
         let _ = w.upgrade_in_event_loop(move |u| {
             u.set_busy(false);
             LIST.with(|l| {
@@ -305,7 +317,9 @@ pub fn reload(w: slint::Weak<AppWindow>, c: Arc<Client>) {
     let (filter, n, gen) = LIST.with(|l| { let l = l.borrow(); (l.filter.clone(), l.emails.len().max(PAGE), l.generation) });
     if filter.is_null() { return; }
     std::thread::spawn(move || {
-        let res = c.list(filter, 0, n);
+        let res = if filter["scheduled"] == true {
+            c.scheduled().map(|e| { let n = e.len(); (e, n, HashMap::new()) })
+        } else { c.list(filter, 0, n) };
         let _ = w.upgrade_in_event_loop(move |u| {
             LIST.with(|l| {
                 let mut l = l.borrow_mut();

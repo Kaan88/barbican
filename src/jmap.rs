@@ -317,8 +317,42 @@ impl Client {
 
     pub fn move_to_role(&self, ids: &[String], role: &str) -> R<(usize, Vec<String>)> {
         let roles = self.role_ids()?;
-        let t = roles.get(role).ok_or_else(|| format!("This account has no {role} folder."))?;
-        self.move_to(ids, t)
+        let t = match roles.get(role) {
+            Some(t) => t.clone(),
+            // Bulwark creates the Archive folder the first time it is needed
+            None if role == "archive" => {
+                let r = self.call(json!([["Mailbox/set", {"accountId": self.account,
+                    "create": {"a": {"name": "Archive", "role": "archive", "parentId": null, "isSubscribed": true}}}, "m"]]))?;
+                created_id(&r[0][1], "a")?
+            }
+            None => return Err(format!("This account has no {role} folder.")),
+        };
+        self.move_to(ids, &t)
+    }
+
+    pub fn supports_delayed_send(&self) -> bool {
+        self.session["capabilities"]["urn:ietf:params:jmap:submission"]["maxDelayedSend"].as_u64().unwrap_or(0) > 0
+    }
+
+    /// Messages whose submission is still pending (scheduled / held sends).
+    pub fn scheduled(&self) -> R<Vec<Value>> {
+        let acc = self.account_for("urn:ietf:params:jmap:submission");
+        let r = self.call(json!([
+            ["EmailSubmission/query", {"accountId": acc, "filter": {"undoStatus": "pending"}}, "q"],
+            ["EmailSubmission/get", {"accountId": acc, "#ids": {"resultOf": "q", "name": "EmailSubmission/query", "path": "/ids"}}, "g"]
+        ]))?;
+        let subs = r[1][1]["list"].as_array().cloned().unwrap_or_default();
+        let ids: Vec<Value> = subs.iter().filter_map(|s| s["emailId"].as_str().map(|x| json!(x))).collect();
+        if ids.is_empty() { return Ok(vec![]); }
+        let r = self.call(json!([["Email/get", {"accountId": self.account, "ids": ids, "properties": EMAIL_LIST_PROPERTIES}, "e"]]))?;
+        let mut emails = r[0][1]["list"].as_array().cloned().unwrap_or_default();
+        for e in emails.iter_mut() {
+            if let Some(s) = subs.iter().find(|s| s["emailId"] == e["id"]) {
+                e["receivedAt"] = s["sendAt"].clone();
+                e["submissionId"] = s["id"].clone();
+            }
+        }
+        Ok(emails)
     }
 
     pub fn trash(&self, id: &str) -> R<()> {

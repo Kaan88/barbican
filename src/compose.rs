@@ -247,8 +247,32 @@ pub fn send(u: &AppWindow, c: Arc<Client>, prefs: &crate::settings::Settings) {
         if let Some(w) = pre_send_warning(&o, prefs) { u.set_c_status(w.into()); return; }
     }
     let delay = prefs.prefs.get("sendDelaySeconds").and_then(|v| v.as_u64()).unwrap_or(5);
-    o.hold_seconds = delay;
     let snapshot = ST.with(|s| s.borrow().clone());
+    if delay > 0 && !c.supports_delayed_send() {
+        // Bulwark-style undo window kept in the app: send when the timer runs out.
+        u.set_composing(false);
+        let id = format!("local-{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis()).unwrap_or(0));
+        PENDING.with(|p| *p.borrow_mut() = Some((id.clone(), o.clone(), snapshot)));
+        crate::mail::show_toast(u, &format!("Sending in {delay} s…"), true);
+        let w = u.as_weak();
+        slint::Timer::single_shot(std::time::Duration::from_secs(delay), move || {
+            let still = PENDING.with(|p| p.borrow().as_ref().is_some_and(|x| x.0 == id));
+            if !still { return; }
+            let Some((_, o, _)) = PENDING.with(|p| p.borrow_mut().take()) else { return };
+            let (w2, c2) = (w.clone(), c.clone());
+            std::thread::spawn(move || {
+                let res = c2.send_message(&o);
+                let w3 = w2.clone();
+                let _ = w2.upgrade_in_event_loop(move |u| match res {
+                    Ok(_) => crate::mail::show_toast(&u, "Message sent", false),
+                    Err(e) => crate::mail::show_toast(&u, &format!("Not sent: {e}"), false),
+                });
+                crate::mail::load_mailboxes(w3, c2, false);
+            });
+        });
+        return;
+    }
+    o.hold_seconds = delay;
     u.set_sending(true);
     u.set_c_status("".into());
     let w = u.as_weak();
@@ -281,7 +305,7 @@ pub fn undo_send(u: &AppWindow, c: Arc<Client>) {
     u.set_toast("".into());
     let w = u.as_weak();
     std::thread::spawn(move || {
-        let res = c.cancel_submission(&id);
+        let res = if id.starts_with("local-") { Ok(()) } else { c.cancel_submission(&id) };
         let _ = w.upgrade_in_event_loop(move |u| match res {
             Ok(()) => {
                 ST.with(|s| { *s.borrow_mut() = snap; s.borrow_mut().draft_id = None; });

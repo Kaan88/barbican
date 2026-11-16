@@ -294,6 +294,7 @@ fn body_html(m: &Value) -> String {
 fn load_folder(ui: slint::Weak<AppWindow>, client: Arc<jmap::Client>, mailbox: Option<String>, text: Option<String>) {
     let filter = match (mailbox, text) {
         (_, Some(t)) => json!({"text": t}),
+        (Some(m), None) if m == "__scheduled" => json!({"scheduled": true}),
         (Some(m), None) => json!({"inMailbox": m}),
         _ => json!({}),
     };
