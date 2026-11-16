@@ -468,7 +468,17 @@ pub const REMOTE_LIMIT: usize = 25;
 pub const ROWS_PER_KIND: usize = 5;
 
 /// Mail hits from the server: Email/query + Email/get (providers/mail.ts remote).
-pub fn search_mail(c: &crate::jmap::Client, p: &Parsed, roles: &std::collections::HashMap<String, String>, folder_name: impl Fn(&str) -> String) -> Result<Vec<Hit>, String> {
+/// The folder a mail hit opens in: the first of `prefer` (open folder, Inbox) it is in, else
+/// its first folder in id order (stable, unlike the map's order).
+pub fn hit_folder(m: &Value, prefer: &[String]) -> String {
+    let Some(o) = m["mailboxIds"].as_object() else { return String::new() };
+    if let Some(p) = prefer.iter().find(|p| !p.is_empty() && o.get(p.as_str()) == Some(&Value::Bool(true))) { return p.clone(); }
+    let mut keys: Vec<&String> = o.iter().filter(|(_, v)| **v == Value::Bool(true)).map(|(k, _)| k).collect();
+    keys.sort();
+    keys.first().map(|k| k.to_string()).unwrap_or_default()
+}
+
+pub fn search_mail(c: &crate::jmap::Client, p: &Parsed, roles: &std::collections::HashMap<String, String>, prefer: &[String], folder_name: impl Fn(&str) -> String) -> Result<Vec<Hit>, String> {
     let filter = global_mail_filter(p, |r| roles.get(r).cloned());
     let r = c.call(json!([
         ["Email/query", {"accountId": c.account, "filter": filter, "sort": crate::jmap::list_sort(), "limit": REMOTE_LIMIT}, "q"],
@@ -476,7 +486,7 @@ pub fn search_mail(c: &crate::jmap::Client, p: &Parsed, roles: &std::collections
             "properties": ["id", "subject", "from", "receivedAt", "mailboxIds", "preview"]}, "g"]
     ]))?;
     Ok(r[1][1]["list"].as_array().cloned().unwrap_or_default().iter().map(|m| {
-        let folder = m["mailboxIds"].as_object().and_then(|o| o.keys().next().cloned()).unwrap_or_default();
+        let folder = hit_folder(m, prefer);
         let from = crate::mail::sender(m);
         let fname = folder_name(&folder);
         Hit {
@@ -616,6 +626,16 @@ pub fn file_nodes(c: &crate::jmap::Client) -> Result<Vec<Value>, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn mail_hit_prefers_open_folder_then_inbox() {
+        let m = json!({"mailboxIds": {"zz": true, "inbox1": true, "cur": true}});
+        assert_eq!(hit_folder(&m, &["cur".into(), "inbox1".into()]), "cur");
+        assert_eq!(hit_folder(&m, &["other".into(), "inbox1".into()]), "inbox1");
+        assert_eq!(hit_folder(&m, &["".into(), "".into()]), "cur");
+        assert_eq!(hit_folder(&json!({"mailboxIds": {"b": true, "a": true}}), &[]), "a");
+        assert_eq!(hit_folder(&json!({}), &["x".into()]), "");
+    }
 
     #[test]
     fn parses_operators() {

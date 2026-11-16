@@ -686,7 +686,8 @@ pub fn set_call(u: &AppWindow, c: Arc<Client>, method: &str, args: Value, what: 
         let w2 = w.clone();
         let _ = w.upgrade_in_event_loop(move |u| match res {
             Ok(()) => load(w2, c),
-            Err(e) => crate::mail::show_toast(&u, &format!("{what}: {e}"), false),
+            // re-read on failure too, so an optimistic change the server refused is undone
+            Err(e) => { crate::mail::show_toast(&u, &format!("{what}: {e}"), false); load(w2, c); }
         });
     });
 }

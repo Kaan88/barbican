@@ -38,6 +38,11 @@ pub fn start(u: &AppWindow, kind: &str, id: &str) {
     pd.set_dnd_active(true);
 }
 
+/// Whether a message's only folder is already `f` (a move there would change nothing).
+pub fn already_in(m: &Value, f: &str) -> bool {
+    m["mailboxIds"].as_object().is_some_and(|o| o.len() == 1 && o.contains_key(f))
+}
+
 /// The messages a dragged row stands for: the selection when the row is in it, else the row.
 fn ids_for_mail(id: &str) -> Vec<String> {
     let checked = crate::mail::checked_ids();
@@ -55,6 +60,9 @@ pub fn drop(u: &AppWindow, st: &Shared) {
             let ids = ids_for_mail(&id);
             if let Some(f) = target.strip_prefix("folder:inside:") {
                 if f == "__scheduled" || f == crate::unified::FOLDER_ID { return; }
+                // nothing to do for messages already there
+                let ids: Vec<String> = ids.into_iter().filter(|i| !crate::mail::email(i).is_some_and(|m| already_in(&m, f))).collect();
+                if ids.is_empty() { return; }
                 crate::move_ids(u, st, ids, f);
             } else if let Some(t) = target.strip_prefix("tag:") {
                 // a drop adds the tag (Bulwark: dropping on a tag labels the messages)
@@ -85,7 +93,15 @@ pub fn drop(u: &AppWindow, st: &Shared) {
         }
         "file" => {
             let Some(c) = st.lock().unwrap().clone() else { return };
-            if target == "file-trash" { crate::files::delete(u, c, &id); return; }
+            if target == "file-trash" {
+                // a drop only ever moves to the trash; what would be removed for good needs Delete + confirm
+                if crate::files::deletes_permanently(&id) {
+                    crate::mail::show_toast(u, "This would be deleted for good. Select it and press Delete instead.", false);
+                } else {
+                    crate::files::delete(u, c, &id);
+                }
+                return;
+            }
             let Some(dest) = target.strip_prefix("file:") else { return };
             if dest == id { return; }
             // only where the Move to… menu would offer it: not into itself or below it
@@ -156,7 +172,9 @@ pub fn plan_folder_drop(list: &[Value], drag: &str, target: &str, zone: &str) ->
         let m = by_id[id];
         let mut p = serde_json::Map::new();
         let so = (i + 1) as i64;
-        if m["sortOrder"].as_i64() != Some(so) { p.insert("sortOrder".into(), json!(so)); }
+        // role folders sort by role first, so their sortOrder is never rewritten
+        let has_role = !m["role"].as_str().unwrap_or("").is_empty();
+        if !has_role && m["sortOrder"].as_i64() != Some(so) { p.insert("sortOrder".into(), json!(so)); }
         if id == drag && parent(m) != new_parent {
             p.insert("parentId".into(), if new_parent.is_empty() { Value::Null } else { json!(new_parent) });
         }
@@ -188,6 +206,15 @@ pub fn iso_minutes(m: i64) -> String {
     match (h, mm) { (0, mm) => format!("PT{mm}M"), (h, 0) => format!("PT{h}H"), (h, mm) => format!("PT{h}H{mm}M") }
 }
 
+/// CalendarEvent/set arguments for a moved event: with attendees the server sends them the
+/// new time (RFC 8984 / JMAP Calendars sendSchedulingMessages), like the answer path does.
+pub fn update_args(id: &str, patch: Value, e: &Value) -> Value {
+    let attendees = e["participants"].as_object().is_some_and(|p| !p.is_empty());
+    let mut a = json!({"update": {id: patch}});
+    if attendees { a["sendSchedulingMessages"] = json!(true); }
+    a
+}
+
 pub fn event_dropped(u: &AppWindow, st: &Shared, id: &str, days: i32, minutes: i32, resize: bool) {
     if days == 0 && minutes == 0 { return; }
     let Some(e) = crate::calendar::raw_event(id) else { return };
@@ -200,11 +227,13 @@ pub fn event_dropped(u: &AppWindow, st: &Shared, id: &str, days: i32, minutes: i
     let Some(start) = e["start"].as_str().and_then(|s| chrono::NaiveDateTime::parse_from_str(&s[..s.len().min(19)], "%Y-%m-%dT%H:%M:%S").ok()) else { return };
     let dur = crate::calendar::duration_of(&e);
     let (ns, nd) = moved_event(start, dur, days as i64, minutes as i64, resize);
+    // a drag that snaps back to where it was writes nothing
+    if ns == start && nd == dur { crate::calendar::render(u); return; }
     let patch = json!({"start": ns.format("%Y-%m-%dT%H:%M:%S").to_string(), "duration": iso_minutes(nd.num_minutes())});
     let Some(c) = st.lock().unwrap().clone() else { return };
     crate::calendar::patch_local(id, &patch);
     crate::calendar::render(u);
-    crate::calendar::set_call(u, c, "CalendarEvent/set", json!({"update": {id: patch}}), "Event not moved");
+    crate::calendar::set_call(u, c, "CalendarEvent/set", update_args(id, patch, &e), "Event not moved");
 }
 
 // ---------------- panes ----------------
@@ -260,6 +289,35 @@ mod tests {
     use super::*;
     use chrono::NaiveDate;
 
+    #[test]
+    fn mail_already_in_target_is_skipped() {
+        assert!(already_in(&json!({"mailboxIds": {"in": true}}), "in"));
+        assert!(!already_in(&json!({"mailboxIds": {"in": true}}), "a"));
+        // in two folders: the move still consolidates it
+        assert!(!already_in(&json!({"mailboxIds": {"in": true, "a": true}}), "in"));
+        assert!(!already_in(&json!({}), "in"));
+    }
+
+    #[test]
+    fn tiny_drag_snaps_back_to_no_change() {
+        let s = NaiveDate::from_ymd_opt(2026, 1, 5).unwrap().and_hms_opt(9, 0, 0).unwrap();
+        let d = chrono::Duration::minutes(60);
+        assert_eq!(moved_event(s, d, 0, 5, false), (s, d));
+        assert_eq!(moved_event(s, d, 0, -7, true), (s, d));
+        assert_ne!(moved_event(s, d, 0, 8, false), (s, d));
+    }
+
+    #[test]
+    fn move_notifies_attendees_only_when_there_are_some() {
+        let p = json!({"start": "2026-01-05T10:00:00"});
+        let a = update_args("e1", p.clone(), &json!({"participants": {"x": {"email": "a@b"}}}));
+        assert_eq!(a["sendSchedulingMessages"], true);
+        assert_eq!(a["update"]["e1"], p);
+        let a = update_args("e1", p.clone(), &json!({"participants": {}}));
+        assert!(a.get("sendSchedulingMessages").is_none());
+        assert!(update_args("e1", p, &json!({})).get("sendSchedulingMessages").is_none());
+    }
+
     fn tree() -> Vec<Value> {
         vec![
             json!({"id": "in", "name": "Inbox", "role": "inbox", "parentId": null, "sortOrder": 0}),
@@ -273,10 +331,9 @@ mod tests {
 
     #[test]
     fn reorder_among_siblings() {
-        // Gamma before Alpha: Inbox stays first (role folders lead), then Gamma, Alpha, Beta
+        // Gamma before Alpha: Inbox stays first (role folders lead) and its sortOrder is left alone
         let p = plan_folder_drop(&tree(), "c", "a", "before").unwrap();
         assert_eq!(p, vec![
-            ("in".to_string(), json!({"sortOrder": 1})),
             ("c".to_string(), json!({"sortOrder": 2})),
             ("a".to_string(), json!({"sortOrder": 3})),
             ("b".to_string(), json!({"sortOrder": 4})),

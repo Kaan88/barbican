@@ -174,6 +174,14 @@ pub fn fetch_snippets(w: slint::Weak<AppWindow>, c: Arc<crate::jmap::Client>, fi
     });
 }
 
+thread_local! { static ACCENT: std::cell::RefCell<String> = std::cell::RefCell::new("#c8234a".into()); }
+
+/// Hex form of a colour for markdown highlights.
+pub fn hex(c: slint::Color) -> String { format!("#{:02x}{:02x}{:02x}", c.red(), c.green(), c.blue()) }
+
+/// Highlights take Theme.accent; called whenever the theme or contrast changes.
+pub fn set_accent(c: slint::Color) { ACCENT.with(|a| *a.borrow_mut() = hex(c)); }
+
 /// A new list started: drop the old one's snippets.
 pub fn clear_snippets() { SNIP.with(|s| s.borrow_mut().clear()); }
 
@@ -182,7 +190,8 @@ pub fn styled(id: &str, subject: &str, preview: &str) -> Option<(slint::StyledTe
     SNIP.with(|s| {
         let s = s.borrow();
         let (subj, prev) = s.get(id)?;
-        let color = if crate::is_dark() { "#f0577a" } else { "#c8234a" };
+        let color = ACCENT.with(|a| a.borrow().clone());
+        let color = color.as_str();
         let (ps, pp) = (vec![(subject.to_string(), false)], vec![(preview.to_string(), false)]);
         let a = gsearch::snippet_markdown(if subj.is_empty() { &ps } else { subj }, color);
         let b = gsearch::snippet_markdown(if prev.is_empty() { &pp } else { prev }, color);

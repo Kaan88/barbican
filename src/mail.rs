@@ -843,13 +843,19 @@ pub fn confirm_action(u: &AppWindow, n: usize, action: &str) -> bool {
     true
 }
 
+/// "read!" / "unread!": the plain action, never toggled.
+pub fn forced(action: &str) -> Option<&str> {
+    match action { "read!" => Some("read"), "unread!" => Some("unread"), _ => None }
+}
+
 /// "star" / "read" toggle from the first selected message's state.
 pub fn resolve_toggle(ids: &[String], action: &str) -> String {
     let first = ids.first().and_then(|i| email(i));
     match action {
         "star" if first.as_ref().is_some_and(|m| m["keywords"]["$flagged"].as_bool() == Some(true)) => "unstar".to_string(),
         "read" if first.as_ref().is_some_and(|m| m["keywords"]["$seen"].as_bool() == Some(true)) => "unread".to_string(),
-        a => a.to_string(),
+        // a key that names one state (Ctrl+Q / Shift+I mark as read, u marks unread) never flips
+        a => forced(a).unwrap_or(a).to_string(),
     }
 }
 
@@ -1018,6 +1024,15 @@ pub fn clean_preview(p: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn forced_read_never_toggles() {
+        assert_eq!(forced("read!"), Some("read"));
+        assert_eq!(forced("unread!"), Some("unread"));
+        assert_eq!(forced("read"), None);
+        assert_eq!(resolve_toggle(&["nope".into()], "read!"), "read");
+        assert_eq!(resolve_toggle(&["nope".into()], "unread!"), "unread");
+    }
 
     #[test]
     fn archive_paths() {

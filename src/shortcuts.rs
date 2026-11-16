@@ -146,7 +146,7 @@ fn mail(ctx: Ctx, t: &str, l: &str, shift: bool, ctrl: bool, alt: bool) -> Actio
             ("f", true) => if ctx.has_mail { Mail("forward") } else { Swallow },
             ("e", false) => FocusSearch,
             // Windows desktop key for Mark as read
-            ("q", false) => Mail("read"),
+            ("q", false) => Mail("read!"),
             ("z", false) => Undo,
             _ => Pass,
         };
@@ -164,9 +164,17 @@ fn mail(ctx: Ctx, t: &str, l: &str, shift: bool, ctrl: bool, alt: bool) -> Actio
         "x" => if ctx.has_mail { ToggleSelect } else { Pass },
         // Bulwark's unadvertised alias of Shift+R
         "a" => if ctx.has_mail { Mail("reply-all") } else { Pass },
-        _ if t == BACKSPACE => if ctx.has_mail { Mail("delete") } else { Pass },
         _ => Pass,
     }
+}
+
+/// Single-key mail actions on an open message (the palette shows these as hints).
+pub fn mail_key_action(t: &str) -> Option<&'static str> {
+    Some(match t {
+        "r" => "reply", "R" | "a" => "reply-all", "f" => "forward", "s" => "star", "e" => "archive",
+        "#" | "\u{7f}" => "delete", "u" => "unread!", "I" => "read!", "!" => "spam",
+        _ => return None,
+    })
 }
 
 fn calendar(ctx: Ctx, t: &str, l: &str, shift: bool, ctrl: bool, alt: bool) -> Action {
@@ -653,7 +661,19 @@ fn files_key(u: &AppWindow, st: &crate::Shared, action: Action) -> bool {
         }
         Action::OpenItem => { pd.set_file_sel("".into()); crate::files::activate(u, c, &cur); }
         Action::Rename => crate::files::start_rename(u, &cur),
-        Action::Delete => { pd.set_file_sel("".into()); crate::files::delete(u, c, &cur); }
+        Action::Delete => {
+            // the permanent cases (shared drive, already in the trash) ask with a second press
+            if crate::files::deletes_permanently(&cur) {
+                let armed = DELETE_ARMED.with(|d| std::mem::take(&mut *d.borrow_mut()));
+                if armed != format!("file:{cur}") {
+                    DELETE_ARMED.with(|d| *d.borrow_mut() = format!("file:{cur}"));
+                    crate::mail::show_toast(u, "This is deleted for good. Press Delete again to confirm.", false);
+                    return true;
+                }
+            }
+            pd.set_file_sel("".into());
+            crate::files::delete(u, c, &cur);
+        }
         Action::Copy => crate::files::set_clipboard(u, &cur, false),
         Action::Cut => crate::files::set_clipboard(u, &cur, true),
         Action::Paste => crate::files::paste(u, c),
@@ -679,6 +699,18 @@ mod tests {
     use super::*;
 
     fn ctx() -> Ctx { Ctx { single_keys: true, has_mail: true, ..Default::default() } }
+
+    #[test]
+    fn mail_keys_never_flip_and_backspace_does_not_delete() {
+        assert_eq!(resolve(Place::Mail, ctx(), BACKSPACE, false, false, false), Action::Pass);
+        assert_eq!(mail_key_action("I"), Some("read!"));
+        assert_eq!(mail_key_action("u"), Some("unread!"));
+        // every single-key hint the palette shows for mail resolves to that command
+        for (k, a) in [("r", "reply"), ("a", "reply-all"), ("f", "forward"), ("e", "archive"), ("#", "delete"), ("s", "star"), ("!", "spam")] {
+            let via_table = match resolve(Place::Mail, ctx(), k, false, false, false) { Action::Mail(x) => Some(x), _ => mail_key_action(k) };
+            assert_eq!(via_table, Some(a), "{k}");
+        }
+    }
 
     #[test]
     fn palette_and_help_everywhere() {
@@ -730,7 +762,7 @@ mod tests {
         let none = Ctx { has_mail: false, ..ctx() };
         assert_eq!(resolve(Place::Mail, none, "f", false, true, false), Action::FocusSearch);
         assert_eq!(resolve(Place::Mail, none, "x", false, false, false), Action::Pass);
-        assert_eq!(resolve(Place::Mail, ctx(), "q", false, true, false), Action::Mail("read"));
+        assert_eq!(resolve(Place::Mail, ctx(), "q", false, true, false), Action::Mail("read!"));
         assert_eq!(resolve(Place::Mail, ctx(), "z", false, true, false), Action::Undo);
         assert_eq!(resolve(Place::Mail, ctx(), F9, false, false, false), Action::Refresh);
         assert_eq!(resolve(Place::Mail, ctx(), "M", true, true, false), Action::Compose);

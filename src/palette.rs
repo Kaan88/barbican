@@ -383,11 +383,12 @@ fn search(u: &AppWindow, text: &str) {
     };
     let roles: HashMap<String, String> = ["inbox", "trash", "junk", "sent", "drafts", "archive"].iter()
         .filter_map(|r| crate::mail::role_id(r).map(|id| (r.to_string(), id))).collect();
+    let prefer: Vec<String> = vec![u.get_current_folder().to_string(), roles.get("inbox").cloned().unwrap_or_default()];
     for kind in kinds {
-        let (c, p, w, names, roles) = (c.clone(), p.clone(), u.as_weak(), names.clone(), roles.clone());
+        let (c, p, w, names, roles, prefer) = (c.clone(), p.clone(), u.as_weak(), names.clone(), roles.clone(), prefer.clone());
         std::thread::spawn(move || {
             let res = match kind {
-                Scope::Mail => gsearch::search_mail(&c, &p, &roles, |id| names.get(id).cloned().unwrap_or_default()),
+                Scope::Mail => gsearch::search_mail(&c, &p, &roles, &prefer, |id| names.get(id).cloned().unwrap_or_default()),
                 Scope::Contacts => gsearch::search_contacts(&c, &p),
                 Scope::Calendar => gsearch::search_events(&c, &p),
                 _ => gsearch::file_nodes(&c).map(|n| gsearch::filter_files(&n, &p)),
@@ -557,8 +558,18 @@ fn open_hit(u: &AppWindow, st: &Shared, h: &Hit) {
                 u.set_current_folder(h.place.clone().into());
                 u.invoke_select_folder(h.place.clone().into());
             }
-            u.set_current_mail(h.id.clone().into());
-            u.invoke_open_mail(h.id.clone().into());
+            // open it once the folder's list has it (or right away when already listed)
+            let id = h.id.clone();
+            let id2 = id.clone();
+            let w = u.as_weak();
+            let listed = move || w.upgrade().is_some_and(|u| { let m = u.get_mails(); (0..m.row_count()).any(|i| m.row_data(i).is_some_and(|r| r.id == id.as_str())) });
+            let opened = std::rc::Rc::new(std::cell::Cell::new(false));
+            let o2 = opened.clone();
+            when_ready(u, listed, move |u| { o2.set(true); u.set_current_mail(id2.clone().into()); u.invoke_open_mail(id2.clone().into()); });
+            // not in the list at all (e.g. beyond the first page): open it anyway
+            if !opened.get() { let (w, id) = (u.as_weak(), h.id.clone()); slint::Timer::single_shot(std::time::Duration::from_secs(9), move || {
+                if let (false, Some(u)) = (opened.get(), w.upgrade()) { u.set_current_mail(id.clone().into()); u.invoke_open_mail(id.into()); }
+            }); }
         }
         Scope::Contacts => {
             if u.get_app() != 2 { go_app(u, 2); }

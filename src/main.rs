@@ -1460,7 +1460,7 @@ fn main() -> Result<(), slint::PlatformError> {
                 "n" => u.invoke_compose_new(),
                 "a" => u.invoke_select_all(),
                 "r" => u.invoke_act(if shift { "reply-all".into() } else { "reply".into() }),
-                "u" => u.invoke_act("unread".into()),
+                "u" => u.invoke_act("unread!".into()),
                 _ => {}
             }
             return;
@@ -1489,15 +1489,7 @@ fn main() -> Result<(), slint::PlatformError> {
             "\u{F700}" => move_sel(-1, false),  // up arrow
             "n" => move_sel(1, true),
             "\u{1b}" => u.set_current_mail("".into()),
-            "r" => u.invoke_act("reply".into()),
-            "R" => u.invoke_act("reply-all".into()),
-            "f" => u.invoke_act("forward".into()),
-            "s" => u.invoke_act("star".into()),
-            "e" => u.invoke_act("archive".into()),
-            "#" | "\u{7f}" => u.invoke_act("delete".into()),
-            "u" => u.invoke_act("unread".into()),
-            "I" => u.invoke_act("read".into()),
-            "!" => u.invoke_act("spam".into()),
+            _ if shortcuts::mail_key_action(t).is_some() => u.invoke_act(shortcuts::mail_key_action(t).unwrap_or_default().into()),
             "c" => u.invoke_compose_new(),
             "/" => u.invoke_focus_search(),
             "G" => u.invoke_refresh(),
@@ -2000,6 +1992,7 @@ pub fn apply_theme(ui: &AppWindow) {
     DARK.with(|d| d.set(dark));
     WV.with(|w| if let Some(v) = &*w.borrow() { let _ = v.set_background_color(wv_bg()); });
     ui.global::<Theme>().set_dark(dark);
+    search_ui::set_accent(ui.global::<Theme>().get_accent());
 }
 
 
@@ -2024,6 +2017,7 @@ pub fn apply_ui_prefs(ui: &AppWindow) {
     // Bulwark FONT_SIZE_SCALE on the 13px base
     ui.global::<Prefs>().set_font_size(13.0 * a.font_scale);
     ui.global::<Theme>().set_more_contrast(a.more_contrast);
+    search_ui::set_accent(ui.global::<Theme>().get_accent());
     ui.global::<Prefs>().set_reduce_motion(a.reduce_motion);
     ui.global::<Prefs>().set_large_targets(a.large_targets);
     // Bulwark focus outline widths: normal 2px, thick 3px, extra 5px
