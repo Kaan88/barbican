@@ -19,6 +19,10 @@ struct State {
     signatures: Vec<String>,
     kind_new: bool,
     sig_done: bool,
+    /// Composer markup source (for undo-send), and plain/receipt/tag options.
+    body_src: String,
+    plain: bool,
+    tags: Vec<bool>,
 }
 
 thread_local! {
@@ -98,6 +102,11 @@ fn reset(u: &AppWindow) {
     u.set_c_cc("".into());
     u.set_c_bcc("".into());
     u.set_c_show_ccbcc(false);
+    u.set_c_show_cc(false);
+    u.set_c_show_bcc(false);
+    u.set_c_read_receipt(false);
+    u.set_c_plain(false);
+    u.set_c_tag_on(ModelRc::new(VecModel::from(vec![false; crate::mail::TAGS.len()])));
     u.set_c_subject("".into());
     u.set_c_body("".into());
     u.set_c_status("".into());
@@ -150,7 +159,7 @@ pub fn open(u: &AppWindow, c: Arc<Client>, kind: Kind, m: Option<&Value>) {
                     }
                 }
                 u.set_c_to(to.join(", ").into());
-                if !cc.is_empty() { u.set_c_cc(cc.join(", ").into()); u.set_c_show_ccbcc(true); }
+                if !cc.is_empty() { u.set_c_cc(cc.join(", ").into()); u.set_c_show_ccbcc(true); u.set_c_show_cc(true); }
                 u.set_c_subject((if subj.to_lowercase().starts_with("re:") { subj.clone() } else { format!("Re: {subj}") }).into());
                 let quoted: String = text.lines().map(|l| format!("> {l}\n")).collect();
                 u.set_c_body(format!("\n\nOn {date}, {who} wrote:\n{quoted}").into());
@@ -182,6 +191,8 @@ pub fn open_draft(u: &AppWindow, c: Arc<Client>, m: &Value) {
     u.set_c_cc(join("cc").into());
     u.set_c_bcc(join("bcc").into());
     u.set_c_show_ccbcc(!join("cc").is_empty() || !join("bcc").is_empty());
+    u.set_c_show_cc(!join("cc").is_empty());
+    u.set_c_show_bcc(!join("bcc").is_empty());
     u.set_c_subject(m["subject"].as_str().unwrap_or("").into());
     u.set_c_body(text_of(m).into());
     let atts: Vec<Attachment> = m["attachments"].as_array().cloned().unwrap_or_default().iter().map(|a| Attachment {
@@ -210,8 +221,8 @@ fn outgoing(u: &AppWindow) -> Outgoing {
             cc: u.get_c_cc().to_string(),
             bcc: u.get_c_bcc().to_string(),
             subject: u.get_c_subject().to_string(),
-            text: u.get_c_body().to_string(),
-            html: None,
+            text: crate::markup::to_text(&u.get_c_body()),
+            html: (!u.get_c_plain()).then(|| crate::markup::to_html(&u.get_c_body())),
             attachments: s.attachments.clone(),
             in_reply_to: s.in_reply_to.clone(),
             references: s.references.clone(),
@@ -219,9 +230,23 @@ fn outgoing(u: &AppWindow) -> Outgoing {
             forwarding: s.forwarding,
             replaces_draft: s.draft_id.clone(),
             hold_seconds: 0,
-            read_receipt: false,
+            read_receipt: u.get_c_read_receipt(),
+            keywords: {
+                use slint::Model;
+                let on = u.get_c_tag_on();
+                crate::mail::TAGS.iter().enumerate().filter(|(i, _)| on.row_data(*i).unwrap_or(false)).map(|(_, t)| format!("$label:{}", t.0)).collect()
+            },
         }
     })
+}
+
+/// Toggle tag `i` (index into `mail::TAGS`) for the message being composed.
+pub fn toggle_tag(u: &AppWindow, i: i32) {
+    use slint::Model;
+    let on = u.get_c_tag_on();
+    let mut v: Vec<bool> = (0..crate::mail::TAGS.len()).map(|k| on.row_data(k).unwrap_or(false)).collect();
+    if let Some(x) = v.get_mut(i as usize) { *x = !*x; }
+    u.set_c_tag_on(ModelRc::new(VecModel::from(v)));
 }
 
 pub fn attach(u: &AppWindow, c: Arc<Client>) {
@@ -290,7 +315,7 @@ pub fn send(u: &AppWindow, c: Arc<Client>, prefs: &crate::settings::Settings) {
         u.set_c_status("Press Send again to send.".into());
         return;
     }
-    o.read_receipt = prefs.bool("requestReadReceiptDefault", false);
+    o.read_receipt = o.read_receipt || prefs.bool("requestReadReceiptDefault", false);
     if !warned {
         if let Some(w) = pre_send_warning(&o, prefs) { u.set_c_status(w.into()); return; }
         let draft = serde_json::json!({"to": o.to, "cc": o.cc, "bcc": o.bcc, "subject": o.subject, "text": o.text,
@@ -298,7 +323,14 @@ pub fn send(u: &AppWindow, c: Arc<Client>, prefs: &crate::settings::Settings) {
         if let Some(w) = crate::plugin_compose_check(&draft) { u.set_c_status(format!("{w} Press Send again to send anyway.").into()); return; }
     }
     let delay = prefs.prefs.get("sendDelaySeconds").and_then(|v| v.as_u64()).unwrap_or(5);
-    let snapshot = ST.with(|s| s.borrow().clone());
+    let snapshot = ST.with(|s| {
+        use slint::Model;
+        let mut x = s.borrow().clone();
+        x.body_src = u.get_c_body().to_string();
+        x.plain = u.get_c_plain();
+        x.tags = u.get_c_tag_on().iter().collect();
+        x
+    });
     if delay > 0 && !c.supports_delayed_send() {
         // Bulwark-style undo window kept in the app: send when the timer runs out.
         u.set_composing(false);
@@ -359,10 +391,17 @@ pub fn undo_send(u: &AppWindow, c: Arc<Client>) {
         let res = if id.starts_with("local-") { Ok(()) } else { c.cancel_submission(&id) };
         let _ = w.upgrade_in_event_loop(move |u| match res {
             Ok(()) => {
+                let (src, plain, tags) = (snap.body_src.clone(), snap.plain, snap.tags.clone());
+                let snap_body = snap.body_src.clone();
                 ST.with(|s| { *s.borrow_mut() = snap; s.borrow_mut().draft_id = None; });
+                u.set_c_plain(plain);
+                u.set_c_read_receipt(o.read_receipt);
+                u.set_c_tag_on(ModelRc::new(VecModel::from(tags)));
                 u.set_c_to(o.to.into()); u.set_c_cc(o.cc.clone().into()); u.set_c_bcc(o.bcc.clone().into());
                 u.set_c_show_ccbcc(!o.cc.is_empty() || !o.bcc.is_empty());
-                u.set_c_subject(o.subject.into()); u.set_c_body(o.text.into());
+                u.set_c_show_cc(!o.cc.is_empty());
+                u.set_c_show_bcc(!o.bcc.is_empty());
+                u.set_c_subject(o.subject.into()); u.set_c_body(src.into());
                 refresh_attachments(&u);
                 u.set_c_status("Sending was canceled.".into());
                 u.set_composing(true);

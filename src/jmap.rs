@@ -447,6 +447,7 @@ impl Client {
         let addrs = |s: &str| -> Vec<Value> { parse_addresses(s) };
         let mut kw = json!({"$seen": true});
         if draft { kw["$draft"] = json!(true); }
+        for k in &o.keywords { kw[k.as_str()] = json!(true); }
         let mut email = json!({
             "mailboxIds": { mailbox: true },
             "keywords": kw,
@@ -625,6 +626,8 @@ pub struct Outgoing {
     pub replaces_draft: Option<String>,
     pub hold_seconds: u64,
     pub read_receipt: bool,
+    /// Extra keywords (tags) to set on the message.
+    pub keywords: Vec<String>,
 }
 
 /// "Name <a@b>, c@d" -> [{name, email}]
