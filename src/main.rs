@@ -8,6 +8,7 @@ mod ai;
 mod calendar;
 mod compose;
 mod contacts;
+mod ctxmenu;
 mod files;
 mod jmap;
 mod lite;
@@ -1503,6 +1504,13 @@ fn main() -> Result<(), slint::PlatformError> {
             }
         });
     });
+
+    let w = ui.as_weak();
+    ui.on_ctx_request(move |k, id| ctxmenu::request(&w.unwrap(), &k, &id));
+    let (w, st) = (ui.as_weak(), state.clone());
+    ui.on_ctx_pick(move |a| ctxmenu::pick(&w.unwrap(), &st, &a));
+    let (w, st) = (ui.as_weak(), state.clone());
+    ui.on_prompt_ok(move |t| ctxmenu::prompt_ok(&w.unwrap(), &st, &t));
 
     let (w, st) = (ui.as_weak(), state.clone());
     ui.on_save_attachment(move |i| {
