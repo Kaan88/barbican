@@ -33,6 +33,7 @@ pub struct Cache {
     pub nr_action: i32,
     pub nr_action_value: String,
     pub nr_stop: bool,
+    pub sieve_ext: Vec<String>,
 }
 
 const NR_FIELDS: [&str; 7] = ["from", "to", "cc", "subject", "body", "attachment", "all"];
@@ -107,7 +108,11 @@ pub fn load(tab: &str, c: &Client, cache: &Shared) {
                     None => String::new(),
                 };
                 let p = crate::sieve::parse(&text);
+                let ext: Vec<String> = c.session["capabilities"]["urn:ietf:params:jmap:sieve"]["sieveExtensions"].as_array()
+                    .or(c.session["accounts"][&acc]["accountCapabilities"]["urn:ietf:params:jmap:sieve"]["sieveExtensions"].as_array())
+                    .map(|a| a.iter().filter_map(|x| x.as_str().map(String::from)).collect()).unwrap_or_default();
                 let mut k = cache.lock().unwrap();
+                k.sieve_ext = ext;
                 k.scripts = scripts;
                 k.rules = p.metadata["rules"].as_array().cloned().unwrap_or_default();
                 k.external = p.external;
@@ -286,7 +291,7 @@ pub fn edit(key: &str, value: &Value, cache: &Shared) -> Option<Box<dyn FnOnce(&
     if let Some(id) = key.strip_prefix("server.rule.toggle:") {
         let on = value.as_bool().unwrap_or(true);
         if let Some(r) = k.rules.iter_mut().find(|r| r["id"] == id) { r["enabled"] = json!(on); }
-        let (script, scripts) = (crate::sieve::generate(&k.rules, &k.external), k.scripts.clone());
+        let (script, scripts) = (crate::sieve::generate_with(&k.rules, &k.external, &k.sieve_ext), k.scripts.clone());
         return Some(Box::new(move |c: &Client| save_script(c, &script, &scripts)));
     }
     match key {
@@ -345,7 +350,7 @@ pub fn button(key: &str, cache: &Shared) -> Option<Box<dyn FnOnce(&Client, &Shar
         if field != "attachment" && field != "all" { r["conditions"][0]["value"] = if vals.len() == 1 { json!(vals[0]) } else { json!(vals) }; }
         let mut rules = k.rules.clone();
         rules.push(r);
-        let (script, scripts) = (crate::sieve::generate(&rules, &k.external), k.scripts.clone());
+        let (script, scripts) = (crate::sieve::generate_with(&rules, &k.external, &k.sieve_ext), k.scripts.clone());
         drop(k);
         return Some(Box::new(move |c: &Client, k: &Shared| {
             save_script(c, &script, &scripts)?;
@@ -360,7 +365,7 @@ pub fn button(key: &str, cache: &Shared) -> Option<Box<dyn FnOnce(&Client, &Shar
         if k.confirm_delete != id { k.confirm_delete = id; return Some(Box::new(|_, _| Ok(()))); }
         k.confirm_delete.clear();
         let rules: Vec<Value> = k.rules.iter().filter(|r| r["id"] != id.as_str()).cloned().collect();
-        let (script, scripts) = (crate::sieve::generate(&rules, &k.external), k.scripts.clone());
+        let (script, scripts) = (crate::sieve::generate_with(&rules, &k.external, &k.sieve_ext), k.scripts.clone());
         return Some(Box::new(move |c: &Client, _| save_script(c, &script, &scripts)));
     }
     if key == "server.tpl.create" {

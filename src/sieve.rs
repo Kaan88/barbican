@@ -109,15 +109,30 @@ fn actions(acts: &[Value], req: &mut Vec<&'static str>) -> Vec<String> {
     }).collect()
 }
 
+const SPAM_GUARD: &str = r#"not spamtest :percent :value "ge" :comparator "i;ascii-numeric" "50""#;
+
 /// Build the whole script: metadata block, require line, Bulwark rules, external rules.
 pub fn generate(rules: &[Value], external: &str) -> String {
+    generate_with(rules, external, &[])
+}
+
+/// As Bulwark: folder rules skip mail the server rates as spam, unless the rule opts in
+/// (`includeSpam`), when the server has the spamtestplus and relational extensions.
+pub fn generate_with(rules: &[Value], external: &str, server_ext: &[String]) -> String {
+    let guard_ok = ["spamtestplus", "relational"].iter().all(|e| server_ext.iter().any(|x| x == e));
     let mut req: Vec<&'static str> = vec![];
     let mut body = String::new();
     for r in rules.iter().filter(|r| r["enabled"] != false) {
-        let conds: Vec<String> = r["conditions"].as_array().cloned().unwrap_or_default().iter().map(|c| condition(c, &mut req)).collect();
+        let mut conds: Vec<String> = r["conditions"].as_array().cloned().unwrap_or_default().iter().map(|c| condition(c, &mut req)).collect();
         if conds.is_empty() { continue; }
-        let test = if conds.len() == 1 { conds[0].clone() }
+        let moves = r["actions"].as_array().is_some_and(|a| a.iter().any(|x| matches!(x["type"].as_str(), Some("move" | "copy"))));
+        let guarded = guard_ok && moves && r["includeSpam"] != true;
+        let mut test = if conds.len() == 1 { conds.remove(0) }
             else { format!("{}({})", if r["matchType"] == "any" { "anyof" } else { "allof" }, conds.join(", ")) };
+        if guarded {
+            req.extend(["spamtestplus", "relational", "comparator-i;ascii-numeric"]);
+            test = format!("allof({test}, {SPAM_GUARD})");
+        }
         let mut acts = actions(&r["actions"].as_array().cloned().unwrap_or_default(), &mut req);
         if r["stopProcessing"] == true { acts.push("stop;".into()); }
         body += &format!("\n# Rule: {}\nif {test} {{\n{}\n}}\n", r["name"].as_str().unwrap_or("Rule"), acts.iter().map(|a| format!("    {a}")).collect::<Vec<_>>().join("\n"));
@@ -163,5 +178,9 @@ mod tests {
         assert_eq!(p.metadata["rules"][0]["name"], "News");
         assert!(p.external.contains("# rule:[ext]"));
         assert!(!p.locked);
+        let ext = vec!["spamtestplus".to_string(), "relational".to_string()];
+        let g = super::generate_with(&[super::rule("N", "from", "contains", "x", "move", "F", false)], "", &ext);
+        assert!(g.contains(r#"if allof(header :contains "From" "x", not spamtest :percent :value "ge" :comparator "i;ascii-numeric" "50")"#), "{g}");
+        assert!(g.contains("\"comparator-i;ascii-numeric\""));
     }
 }
