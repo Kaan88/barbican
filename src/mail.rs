@@ -137,6 +137,12 @@ pub fn rebuild_folders(u: &AppWindow) {
             }
         }
         let mut out = vec![];
+        if crate::unified::enabled() {
+            out.push(Folder {
+                id: crate::unified::FOLDER_ID.into(), name: "All inboxes".into(), icon: "\u{E715}".into(), depth: 0,
+                unread: 0, total: 0, color: rgb(0xc8234a), count: "".into(), chevron: 0, muted: false,
+            });
+        }
         walk("", 0, &children, &b.collapsed, &mut out, colorful, totals);
         u.set_folders(ModelRc::new(VecModel::from(out)));
     });
@@ -278,6 +284,8 @@ fn build_rows(st: &ListState) -> Vec<Mail> {
             draft: kw["$draft"].as_bool() == Some(true),
             checked: st.checked.contains(&id),
             tags: ModelRc::new(VecModel::from(tags)),
+            account: m["__account"].as_str().unwrap_or("").into(),
+            account_color: m["__account"].as_str().map(|a| rgb(crate::unified::account_color(a))).unwrap_or(rgb(0)),
             id: id.into(),
         }
     }).collect()
@@ -297,6 +305,17 @@ pub fn rebuild_list(u: &AppWindow) {
     });
 }
 
+type Page = Result<(Vec<Value>, usize, HashMap<String, usize>), String>;
+
+/// First `n` messages of a list filter (scheduled and unified are virtual).
+fn fetch(c: &Client, filter: Value, n: usize) -> Page {
+    if filter["scheduled"] == true {
+        c.scheduled().map(|e| { let n = e.len(); (e, n, HashMap::new()) })
+    } else if filter["unified"] == true {
+        crate::unified::fetch(n.min(PAGE.max(page_size())))
+    } else { c.list(filter, 0, n) }
+}
+
 /// Load the first page of a list (folder, tag or search filter).
 pub fn load_list(w: slint::Weak<AppWindow>, c: Arc<Client>, filter: Value) {
     let gen = LIST.with(|l| {
@@ -310,9 +329,7 @@ pub fn load_list(w: slint::Weak<AppWindow>, c: Arc<Client>, filter: Value) {
     let _ = w.upgrade_in_event_loop(|u| u.set_busy(true));
     let page = page_size();
     std::thread::spawn(move || {
-        let res = if filter["scheduled"] == true {
-            c.scheduled().map(|e| { let n = e.len(); (e, n, HashMap::new()) })
-        } else { c.list(filter, 0, page) };
+        let res = fetch(&c, filter, page);
         let _ = w.upgrade_in_event_loop(move |u| {
             u.set_busy(false);
             LIST.with(|l| {
@@ -360,9 +377,7 @@ pub fn reload(w: slint::Weak<AppWindow>, c: Arc<Client>) {
     let (filter, n, gen) = LIST.with(|l| { let l = l.borrow(); (l.filter.clone(), l.emails.len().max(PAGE), l.generation) });
     if filter.is_null() { return; }
     std::thread::spawn(move || {
-        let res = if filter["scheduled"] == true {
-            c.scheduled().map(|e| { let n = e.len(); (e, n, HashMap::new()) })
-        } else { c.list(filter, 0, n) };
+        let res = fetch(&c, filter, n);
         let _ = w.upgrade_in_event_loop(move |u| {
             LIST.with(|l| {
                 let mut l = l.borrow_mut();
@@ -400,6 +415,11 @@ pub fn select_all(u: &AppWindow) {
 
 pub fn checked_ids() -> Vec<String> {
     LIST.with(|l| l.borrow().checked.iter().cloned().collect())
+}
+
+/// Remembered account a listed message belongs to (unified list), if any.
+pub fn owner(id: &str) -> Option<String> {
+    email(id).and_then(|m| m["__account"].as_str().map(String::from)).filter(|a| !a.is_empty())
 }
 
 pub fn email(id: &str) -> Option<Value> {
@@ -497,7 +517,7 @@ pub fn apply(u: &AppWindow, c: Arc<Client>, ids: Vec<String>, action: &str) {
         if let Err(e) = res {
             let _ = w.upgrade_in_event_loop(move |u| show_toast(&u, &e, false));
         }
-        load_mailboxes(w.clone(), c.clone(), false);
+        if crate::unified::is_active(&c) { load_mailboxes(w.clone(), c.clone(), false); }
         reload(w, c);
     });
 }
