@@ -139,6 +139,12 @@ impl Settings {
             if id == "backup" {
                 out.push(("admin".into(), "Stalwart admin".into(), "bottom".into(), "\u{E83D}".into(), 0));
             }
+            if id == "calendar" {
+                out.push(("calendars".into(), "Calendars".into(), "apps".into(), "\u{E8F1}".into(), 1));
+            }
+            if id == "contacts" {
+                out.push(("addressbooks".into(), "Address books".into(), "apps".into(), "\u{E82D}".into(), 1));
+            }
             if id == "addons" {
                 out.push(("ai".into(), "AI Assistant".into(), "apps".into(), "\u{E945}".into(), 1));
                 out.push(("spam".into(), "Spam Score".into(), "apps".into(), "\u{E7BA}".into(), 1));

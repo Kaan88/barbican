@@ -2670,7 +2670,13 @@ export component AppWindow inherits Window {
                             padding-top: r.kind == "section" ? 26px : 12px;
                             padding-bottom: r.kind == "section" ? 4px : 0px;
                             spacing: r.kind == "section" ? 4px : 10px;
-                            if r.kind == "section": Text { text: r.label; color: Theme.text; font-size: 17px; font-weight: 700; wrap: word-wrap; }
+                            if r.kind == "section": Rectangle {
+                                border-radius: 4px;
+                                background: r.key != "" && CtxHl.id == r.key ? Theme.hover : transparent;
+                                min-height: st.preferred-height;
+                                st := Text { width: 100%; text: r.label; color: Theme.text; font-size: 17px; font-weight: 700; wrap: word-wrap; }
+                                if r.key != "": TouchArea { pointer-event(ev) => { if ev.button == PointerEventButton.right && ev.kind == PointerEventKind.up { root.ctx("setting", r.key, self.absolute-position.x + self.mouse-x, self.absolute-position.y + self.mouse-y); } } }
+                            }
                             if r.kind == "section" && r.desc != "": Text { text: r.desc; color: Theme.dim; wrap: word-wrap; }
                             if r.kind == "textarea": Text { text: r.label; color: Theme.text; font-weight: 600; }
                             if r.kind == "textarea": TextEdit {

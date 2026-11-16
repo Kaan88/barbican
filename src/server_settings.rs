@@ -38,6 +38,23 @@ pub struct Cache {
     pub nr_action_value: String,
     pub nr_stop: bool,
     pub sieve_ext: Vec<String>,
+    pub calendars: Vec<Value>,
+    pub books: Vec<Value>,
+    pub new_cal: String,
+    pub new_book: String,
+}
+
+/// Bulwark's calendar colour presets (lib/shared-calendar-colors.ts CALENDAR_COLORS).
+pub const CAL_COLORS: [(&str, &str); 14] = [
+    ("#3b82f6", "Blue"), ("#ef4444", "Red"), ("#22c55e", "Green"), ("#f59e0b", "Amber"), ("#8b5cf6", "Violet"), ("#ec4899", "Pink"), ("#14b8a6", "Teal"),
+    ("#f97316", "Orange"), ("#06b6d4", "Cyan"), ("#84cc16", "Lime"), ("#6366f1", "Indigo"), ("#a855f7", "Purple"), ("#e11d48", "Rose"), ("#0ea5e9", "Sky"),
+];
+
+/// Calendars as the management page lists them: by sortOrder, then name.
+pub fn sorted_calendars(list: &[Value]) -> Vec<Value> {
+    let mut v = list.to_vec();
+    v.sort_by_key(|c| (c["sortOrder"].as_i64().unwrap_or(0), c["name"].as_str().unwrap_or("").to_lowercase()));
+    v
 }
 
 const NR_FIELDS: [&str; 7] = ["from", "to", "cc", "subject", "body", "attachment", "all"];
@@ -143,6 +160,20 @@ pub fn load(tab: &str, c: &Client, cache: &Shared) {
                 items.sort_by(|a, b| b["archivedAt"].as_str().unwrap_or("").cmp(a["archivedAt"].as_str().unwrap_or("")));
                 cache.lock().unwrap().archived = items;
             }
+            "calendars" => {
+                let acc = c.account_for("urn:ietf:params:jmap:calendars");
+                let r = c.call(json!([["Calendar/get", {"accountId": acc, "ids": null, "properties": ["id", "name", "color", "isDefault", "isVisible", "isSubscribed", "sortOrder", "myRights", "description"]}, "c"]]))?;
+                if r[0][0] == "error" { return Err(crate::jmap::method_error(&r[0][1])); }
+                cache.lock().unwrap().calendars = sorted_calendars(r[0][1]["list"].as_array().map(|a| a.as_slice()).unwrap_or(&[]));
+            }
+            "addressbooks" => {
+                let acc = c.account_for("urn:ietf:params:jmap:contacts");
+                let r = c.call(json!([["AddressBook/get", {"accountId": acc, "ids": null, "properties": ["id", "name", "isDefault", "isSubscribed", "sortOrder", "myRights", "description"]}, "a"]]))?;
+                if r[0][0] == "error" { return Err(crate::jmap::method_error(&r[0][1])); }
+                let mut v = r[0][1]["list"].as_array().cloned().unwrap_or_default();
+                v.sort_by_key(|b| (b["isDefault"] != true, b["name"].as_str().unwrap_or("").to_lowercase()));
+                cache.lock().unwrap().books = v;
+            }
             "account" => { cache.lock().unwrap().identities = c.identities()?; }
             "composing" => {
                 let ids = c.identities()?;
@@ -217,6 +248,46 @@ pub fn rows(tab: &str, cache: &Shared) -> Option<Vec<SRow>> {
                 let when = it["archivedAt"].as_str().and_then(|d| crate::mail::parse_time(&json!(d))).map(|t| t.format("%d %b %Y %H:%M").to_string()).unwrap_or_default();
                 let subj = it["subject"].as_str().filter(|s| !s.is_empty()).unwrap_or("(no subject)");
                 out.push(row("button", &format!("server.restore:{id}"), subj, &format!("{}  ·  deleted {when}", it["from"].as_str().unwrap_or("")), "Restore", false));
+            }
+        }
+        "calendars" => {
+            out.push(row("section", "", "Calendars", "Create, rename, colour, show or hide and delete your calendars. Right-click a calendar for more.", "", false));
+            out.push(row("text", "server.cal.newname", "New calendar", "Type a name, then press Create.", &k.new_cal, false));
+            out.push(row("button", "server.cal.create", "", "", "Create", false));
+            for cal in &k.calendars {
+                let id = cal["id"].as_str().unwrap_or("");
+                let name = cal["name"].as_str().unwrap_or("Calendar");
+                let mut desc = vec![];
+                if cal["isDefault"] == true { desc.push("Default"); }
+                if cal["isVisible"] == false { desc.push("Hidden"); }
+                out.push(row("section", &format!("calset:{id}"), name, &desc.join(" · "), "", false));
+                out.push(row("text", &format!("server.cal.rename:{id}"), "Name", "", name, false));
+                let color = cal["color"].as_str().unwrap_or("#3b82f6").to_lowercase();
+                let mut labels: Vec<&str> = CAL_COLORS.iter().map(|c| c.1).collect();
+                let idx = CAL_COLORS.iter().position(|c| c.0 == color).unwrap_or_else(|| { labels.push("Custom"); labels.len() - 1 });
+                let mut r = sel(&format!("server.cal.color:{id}"), "Colour", &labels, idx as i32);
+                r.text = s(&color);
+                out.push(r);
+                out.push(row("toggle", &format!("server.cal.visible:{id}"), "Show in calendar", "", "", cal["isVisible"] != false));
+                if cal["isDefault"] != true {
+                    out.push(row("button", &format!("server.cal.default:{id}"), "Default calendar", "New events go here.", "Set as default", false));
+                    out.push(row("button", &format!("server.cal.delete:{id}"), "", "Deletes the calendar and all its events.", if k.confirm_delete == id { "Click again to delete" } else { "Delete calendar" }, false));
+                }
+            }
+        }
+        "addressbooks" => {
+            out.push(row("section", "", "Address books", "Create, rename and delete your address books. Right-click an address book for more.", "", false));
+            out.push(row("text", "server.book.newname", "New address book", "Type a name, then press Create.", &k.new_book, false));
+            out.push(row("button", "server.book.create", "", "", "Create", false));
+            for b in &k.books {
+                let id = b["id"].as_str().unwrap_or("");
+                let name = b["name"].as_str().unwrap_or("Address book");
+                out.push(row("section", &format!("bookset:{id}"), name, if b["isDefault"] == true { "Default" } else { "" }, "", false));
+                out.push(row("text", &format!("server.book.rename:{id}"), "Name", "", name, false));
+                if b["isDefault"] != true {
+                    out.push(row("button", &format!("server.book.default:{id}"), "Default address book", "New contacts go here.", "Set as default", false));
+                    out.push(row("button", &format!("server.book.delete:{id}"), "", "Deletes the address book and its contacts.", if k.confirm_delete == id { "Click again to delete" } else { "Delete address book" }, false));
+                }
             }
         }
         "organize" => {
@@ -309,6 +380,22 @@ pub fn edit(key: &str, value: &Value, cache: &Shared) -> Option<Box<dyn FnOnce(&
         "server.tpl.body" => { k.tpl_body = value.as_str().unwrap_or("").into(); return None; }
         _ => {}
     }
+    if key == "server.cal.newname" { k.new_cal = value.as_str().unwrap_or("").to_string(); return None; }
+    if key == "server.book.newname" { k.new_book = value.as_str().unwrap_or("").to_string(); return None; }
+    if let Some(rest) = key.strip_prefix("server.cal.").or(key.strip_prefix("server.book.")) {
+        let book = key.starts_with("server.book.");
+        let (field, id) = rest.split_once(':')?;
+        let id = id.to_string();
+        let patch = match field {
+            "rename" => { let n = value.as_str().unwrap_or("").trim().to_string(); if n.is_empty() { return None; } json!({"name": n}) }
+            "color" => { let i = value.as_i64().unwrap_or(-1); if i < 0 || i as usize >= CAL_COLORS.len() { return None; } json!({"color": CAL_COLORS[i as usize].0}) }
+            "visible" => json!({"isVisible": value.as_bool().unwrap_or(true)}),
+            _ => return None,
+        };
+        let list = if book { &mut k.books } else { &mut k.calendars };
+        if let Some(x) = list.iter_mut().find(|x| x["id"] == id.as_str()) { for (pk, pv) in patch.as_object().unwrap() { x[pk] = pv.clone(); } }
+        return Some(Box::new(move |c: &Client| collection_set(c, book, json!({"update": { id: patch }}))));
+    }
     if key == "server.sieve.text" { k.script_text = value.as_str().unwrap_or("").to_string(); return None; }
     if key == "server.folder.newname" { k.new_folder = value.as_str().unwrap_or("").to_string(); return None; }
     if let Some(id) = key.strip_prefix("server.folder.rename:") {
@@ -348,6 +435,35 @@ pub fn button(key: &str, cache: &Shared) -> Option<Box<dyn FnOnce(&Client, &Shar
         if k.confirm_delete != id { k.confirm_delete = id; return Some(Box::new(|_, _| Ok(()))); }
         k.confirm_delete.clear();
         return Some(Box::new(move |c: &Client, _| c.delete_mailbox(&id)));
+    }
+    if key == "server.cal.create" || key == "server.book.create" {
+        let book = key == "server.book.create";
+        let name = { let k = cache.lock().unwrap(); if book { k.new_book.trim().to_string() } else { k.new_cal.trim().to_string() } };
+        if name.is_empty() { return None; }
+        return Some(Box::new(move |c: &Client, k: &Shared| {
+            let n = if book { k.lock().unwrap().books.len() } else { k.lock().unwrap().calendars.len() };
+            let obj = if book { json!({"name": name}) } else { json!({"name": name, "color": CAL_COLORS[n % CAL_COLORS.len()].0, "isVisible": true}) };
+            collection_set(c, book, json!({"create": {"n": obj}}))?;
+            let mut g = k.lock().unwrap();
+            if book { g.new_book.clear() } else { g.new_cal.clear() }
+            Ok(())
+        }));
+    }
+    if let Some(rest) = key.strip_prefix("server.cal.").or(key.strip_prefix("server.book.")) {
+        let book = key.starts_with("server.book.");
+        let (what, id) = rest.split_once(':')?;
+        let id = id.to_string();
+        match what {
+            "default" => return Some(Box::new(move |c: &Client, _| default_collection(c, book, &id))),
+            "delete" => {
+                let mut k = cache.lock().unwrap();
+                if k.confirm_delete != id { k.confirm_delete = id; return Some(Box::new(|_, _| Ok(()))); }
+                k.confirm_delete.clear();
+                let args = if book { json!({"destroy": [id], "onDestroyRemoveContents": true}) } else { json!({"destroy": [id], "onDestroyRemoveEvents": true}) };
+                return Some(Box::new(move |c: &Client, _| collection_set(c, book, args)));
+            }
+            _ => {}
+        }
     }
     if key == "server.rule.add" {
         let k = cache.lock().unwrap();
@@ -445,4 +561,25 @@ pub fn button(key: &str, cache: &Shared) -> Option<Box<dyn FnOnce(&Client, &Shar
         }));
     }
     None
+}
+
+/// Calendar/set or AddressBook/set with the account filled in; the first SetError is the error.
+pub fn collection_set(c: &Client, book: bool, mut args: Value) -> Result<(), String> {
+    let (method, cap) = if book { ("AddressBook/set", "urn:ietf:params:jmap:contacts") } else { ("Calendar/set", "urn:ietf:params:jmap:calendars") };
+    args["accountId"] = json!(c.account_for(cap));
+    let r = c.call(json!([[method, args, "s"]]))?;
+    if r[0][0] == "error" { return Err(crate::jmap::method_error(&r[0][1])); }
+    for k in ["notCreated", "notUpdated", "notDestroyed"] {
+        if let Some(e) = r[0][1][k].as_object().and_then(|m| m.values().next()) { return Err(crate::jmap::set_error(e)); }
+    }
+    Ok(())
+}
+
+/// Make a calendar / address book the default. Stalwart sets it through the
+/// `onSuccessSetIsDefault` argument (RFC 9553/8984 drafts); older servers take an isDefault patch.
+pub fn default_collection(c: &Client, book: bool, id: &str) -> Result<(), String> {
+    match collection_set(c, book, json!({"onSuccessSetIsDefault": id})) {
+        Ok(()) => Ok(()),
+        Err(_) => collection_set(c, book, json!({"update": { id: {"isDefault": true} }})),
+    }
 }

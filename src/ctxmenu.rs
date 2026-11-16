@@ -70,6 +70,10 @@ const G_UPLOAD: &str = "\u{E898}";
 const G_SETTINGS: &str = "\u{E713}";
 const G_MAYBE: &str = "\u{E9CE}";
 const G_CANCEL: &str = "\u{E711}";
+const G_COLOR: &str = "\u{E790}";
+const G_UP: &str = "\u{E74A}";
+const G_DOWN: &str = "\u{E74B}";
+const G_ERASE: &str = "\u{E75C}";
 const G_DEFAULT: &str = "\u{E735}";
 
 fn row_h(i: &CtxItem) -> f32 { match i.kind { 1 => 9.0, 2 => 24.0, _ => 28.0 } }
@@ -175,6 +179,39 @@ pub fn request(u: &AppWindow, kind: &str, id: &str) {
             v.push(it(G_PRINT, "Print", "", "print"));
             v
         }
+        "setting" if coll_id(id).is_some() => {
+            let (book, cid) = coll_id(id).unwrap();
+            t.kind = if book { "bookset".into() } else { "calset".into() };
+            t.id = cid.clone();
+            u.global::<crate::CtxHl>().set_id(format!("{}set:{cid}", if book { "book" } else { "cal" }).into());
+            match coll_row(u, book, &cid) {
+                None => vec![],
+                Some((name, default, hidden)) if !book => {
+                    let order = coll_order(u, false);
+                    let pos = order.iter().position(|x| *x == cid).unwrap_or(0);
+                    vec![
+                        header(&name),
+                        it(G_RENAME, "Rename", "", "rename"),
+                        sub(G_COLOR, "Colour", "sub:color"),
+                        it(G_EYE, if hidden { "Show calendar" } else { "Hide calendar" }, "", "toggle"),
+                        off(it(G_DEFAULT, "Set as default", "", "default"), !default),
+                        sep(),
+                        off(it(G_UP, "Move up", "", "up"), pos > 0),
+                        off(it(G_DOWN, "Move down", "", "down"), pos + 1 < order.len()),
+                        sep(),
+                        danger(G_ERASE, "Clear all events", "", "ask:clear"),
+                        off(danger(G_DELETE, "Delete calendar", "", "ask:delete"), !default),
+                    ]
+                }
+                Some((name, default, _)) => vec![
+                    header(&name),
+                    it(G_RENAME, "Rename", "", "rename"),
+                    off(it(G_DEFAULT, "Set as default", "", "default"), !default),
+                    sep(),
+                    off(danger(G_DELETE, "Delete address book", "", "ask:delete"), !default),
+                ],
+            }
+        }
         "folder" | "setting" => {
             let fid = if kind == "setting" { id.strip_prefix("server.folder.rename:").unwrap_or("").to_string() } else { id.to_string() };
             if fid.is_empty() || fid.starts_with("__") { vec![] } else {
@@ -279,6 +316,43 @@ pub fn request(u: &AppWindow, kind: &str, id: &str) {
     show(u, items);
 }
 
+/// A settings row key that names a calendar / address book on the management pages: (is book, id).
+fn coll_id(key: &str) -> Option<(bool, String)> {
+    for (p, book) in [("calset:", false), ("bookset:", true)] { if let Some(id) = key.strip_prefix(p) { return Some((book, id.into())); } }
+    let (book, rest) = if let Some(r) = key.strip_prefix("server.cal.") { (false, r) } else { (true, key.strip_prefix("server.book.")?) };
+    let (_, id) = rest.split_once(':')?;
+    Some((book, id.into()))
+}
+
+/// (name, is default, is hidden) from the page's section row.
+fn coll_row(u: &AppWindow, book: bool, id: &str) -> Option<(String, bool, bool)> {
+    let key = format!("{}set:{id}", if book { "book" } else { "cal" });
+    let m = u.get_settings_rows();
+    (0..m.row_count()).filter_map(|i| m.row_data(i)).find(|r| r.key == key).map(|r| (r.label.to_string(), r.desc.contains("Default"), r.desc.contains("Hidden")))
+}
+
+fn coll_order(u: &AppWindow, book: bool) -> Vec<String> {
+    let p = if book { "bookset:" } else { "calset:" };
+    let m = u.get_settings_rows();
+    (0..m.row_count()).filter_map(|i| m.row_data(i)).filter_map(|r| r.key.strip_prefix(p).map(String::from)).collect()
+}
+
+/// Run a calendar / address book change in the background, then reload the settings page and the app.
+fn coll_op(u: &AppWindow, st: &Shared, done: &'static str, f: impl FnOnce(&jmap::Client) -> Result<(), String> + Send + 'static) {
+    let Some(c) = client(st) else { return };
+    let w = u.as_weak();
+    std::thread::spawn(move || {
+        let res = f(&c);
+        let w2 = w.clone();
+        let _ = w.upgrade_in_event_loop(move |u| {
+            mail::show_toast(&u, &match res { Ok(()) => done.to_string(), Err(e) => e }, false);
+            if u.get_show_settings() { u.invoke_settings_open_tab(u.get_settings_tab()); }
+            calendar::load(w2.clone(), c.clone());
+            contacts::load(w2, c);
+        });
+    });
+}
+
 fn file_row(u: &AppWindow, id: &str) -> Option<crate::FileRow> {
     let m = u.get_files();
     (0..m.row_count()).filter_map(|i| m.row_data(i)).find(|f| f.id == id)
@@ -365,6 +439,15 @@ fn submenu(u: &AppWindow, t: &Target, which: &str) -> Vec<CtxItem> {
                 off(it(G_SEARCH, "Find emails from sender", "", "find-from"), single),
             ]);
         }
+        "color" => {
+            let cur = coll_color(u, &t.id);
+            for (hex, name) in crate::server_settings::CAL_COLORS {
+                let mut i = it("", name, "", &format!("color:{hex}"));
+                i.color = hex_color(hex);
+                i.checked = cur.as_deref() == Some(hex);
+                v.push(i);
+            }
+        }
         "due" => {
             v.push(it(G_CALENDAR, "Today", "", "due:0"));
             v.push(it(G_CALENDAR, "Tomorrow", "", "due:1"));
@@ -373,6 +456,18 @@ fn submenu(u: &AppWindow, t: &Target, which: &str) -> Vec<CtxItem> {
         _ => {}
     }
     v
+}
+
+pub fn hex_color(h: &str) -> slint::Color {
+    let n = u32::from_str_radix(h.trim_start_matches('#'), 16).unwrap_or(0x3b82f6);
+    slint::Color::from_rgb_u8((n >> 16) as u8, (n >> 8) as u8, n as u8)
+}
+
+/// The calendar's colour as the page's colour select shows it.
+fn coll_color(u: &AppWindow, id: &str) -> Option<String> {
+    let key = format!("server.cal.color:{id}");
+    let m = u.get_settings_rows();
+    (0..m.row_count()).filter_map(|i| m.row_data(i)).find(|r| r.key == key).map(|r| r.text.to_string())
 }
 
 fn confirm(label: &str, action: &str) -> Vec<CtxItem> {
@@ -459,6 +554,10 @@ pub fn prompt_ok(u: &AppWindow, st: &Shared, text: &str) {
         "rename-folder" => mailbox_op(u, c, "Folder renamed", move |c| c.rename_mailbox(&id, &name).map(|_| String::new())),
         "rename-cal" => calendar::set_call(u, c, "Calendar/set", json!({"update": {id: {"name": name}}}), "Calendar not renamed"),
         "new-task" => calendar::add_task(u, c, &name, &id),
+        "rename-calset" | "rename-book" => {
+            let book = action == "rename-book";
+            coll_op(u, st, "Renamed", move |c| crate::server_settings::collection_set(c, book, json!({"update": { id: {"name": name} }})));
+        }
         "new-file-folder" => files::new_folder(u, c, &name),
         _ => {}
     }
@@ -472,6 +571,9 @@ pub fn pick(u: &AppWindow, st: &Shared, action: &str) {
             ("folder", "empty") => "Delete all messages permanently",
             ("folder", _) => "Delete this folder",
             ("cal", _) => "Delete calendar and its events",
+            ("calset", "clear") => "Delete every event in this calendar",
+            ("calset", _) => "Delete calendar and its events",
+            ("bookset", _) => "Delete address book and its contacts",
             ("mail", _) => "Delete selected messages",
             _ => "Delete",
         };
@@ -625,8 +727,48 @@ pub fn pick(u: &AppWindow, st: &Shared, action: &str) {
                 "new-event" => { u.invoke_cal_edit("".into(), "".into(), -1); u.set_ev_calendar(idx as i32); }
                 "toggle" => u.invoke_cal_toggle(id.into()),
                 "rename" => prompt(u, "Rename calendar", &name, "rename-cal", id),
-                "default" => calendar::set_call(u, c, "Calendar/set", json!({"update": {id: {"isDefault": true}}}), "Could not set default"),
+                "default" => { let cid = id.to_string(); coll_op(u, st, "Default changed", move |c| crate::server_settings::default_collection(c, false, &cid)); }
                 "delete" => calendar::set_call(u, c, "Calendar/set", json!({"destroy": [id], "onDestroyRemoveEvents": true}), "Calendar not deleted"),
+                _ => {}
+            }
+        }
+        "calset" | "bookset" => {
+            let book = t.kind == "bookset";
+            let cid = id.to_string();
+            match action {
+                "rename" => prompt(u, if book { "Rename address book" } else { "Rename calendar" }, &coll_row(u, book, id).map(|r| r.0).unwrap_or_default(), if book { "rename-book" } else { "rename-calset" }, id),
+                "toggle" => {
+                    let show = coll_row(u, false, id).is_some_and(|r| r.2);
+                    coll_op(u, st, if show { "Calendar shown" } else { "Calendar hidden" }, move |c| crate::server_settings::collection_set(c, false, json!({"update": { cid: {"isVisible": show} }})));
+                }
+                "default" => coll_op(u, st, "Default changed", move |c| crate::server_settings::default_collection(c, book, &cid)),
+                "up" | "down" => {
+                    let mut order = coll_order(u, false);
+                    let Some(i) = order.iter().position(|x| *x == cid) else { return };
+                    let j = if action == "up" { i.wrapping_sub(1) } else { i + 1 };
+                    if j >= order.len() { return; }
+                    order.swap(i, j);
+                    let upd: serde_json::Map<String, Value> = order.iter().enumerate().map(|(n, x)| (x.clone(), json!({"sortOrder": n}))).collect();
+                    coll_op(u, st, "Order changed", move |c| crate::server_settings::collection_set(c, false, json!({"update": upd})));
+                }
+                "clear" => coll_op(u, st, "Events cleared", move |c| {
+                    let acc = c.account_for("urn:ietf:params:jmap:calendars");
+                    loop {
+                        let q = c.call(json!([["CalendarEvent/query", {"accountId": acc, "filter": {"inCalendar": cid}, "limit": c.max_set()}, "q"]]))?;
+                        let ids = q[0][1]["ids"].as_array().cloned().unwrap_or_default();
+                        if ids.is_empty() { return Ok(()); }
+                        let r = c.call(json!([["CalendarEvent/set", {"accountId": acc, "destroy": ids}, "d"]]))?;
+                        if r[0][1]["destroyed"].as_array().is_none_or(|a| a.is_empty()) { return Err("The server deleted nothing".into()); }
+                    }
+                }),
+                "delete" => {
+                    let args = if book { json!({"destroy": [cid], "onDestroyRemoveContents": true}) } else { json!({"destroy": [cid], "onDestroyRemoveEvents": true}) };
+                    coll_op(u, st, if book { "Address book deleted" } else { "Calendar deleted" }, move |c| crate::server_settings::collection_set(c, book, args));
+                }
+                a if a.starts_with("color:") => {
+                    let hex = a[6..].to_string();
+                    coll_op(u, st, "Colour changed", move |c| crate::server_settings::collection_set(c, false, json!({"update": { cid: {"color": hex} }})));
+                }
                 _ => {}
             }
         }
