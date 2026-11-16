@@ -860,6 +860,7 @@ fn main() -> Result<(), slint::PlatformError> {
         drop(p);
         rs();
         if key == "enableUnifiedMailbox" && on { unified::warm_up(); }
+        if key == "spellCheck" { rte::spell::reload(); if let Some(u) = wt.upgrade() { rte::refresh(&u); } }
         if let Some(u) = wt.upgrade() { apply_ui_prefs(&u); mail::rebuild_folders(&u); mail::rebuild_list(&u); }
     });
 
@@ -877,6 +878,7 @@ fn main() -> Result<(), slint::PlatformError> {
         rs();
         if key == "desktop.renderMode" || key == "desktop.remoteImages" { render_current(&w.unwrap()); }
         if key == "theme" { apply_theme(&w.unwrap()); }
+        if key == "writingLanguage" { rte::spell::reload(); }
         apply_ui_prefs(&w.unwrap());
         mail::rebuild_folders(&w.unwrap());
         mail::rebuild_list(&w.unwrap());

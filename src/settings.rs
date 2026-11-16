@@ -188,6 +188,12 @@ impl Settings {
                     let dflt = r["default"].as_bool().unwrap_or(false);
                     let v = self.bool(key, dflt);
                     out.push(toggle(key, label, desc, if invert { !v } else { v }));
+                    // desktop: local spell checking (Windows spell checker) next to Bulwark's proofreading add-on toggle
+                    if key == "proofreading" {
+                        out.push(toggle("spellCheck", "Underline misspelled words",
+                            "Checks spelling on this computer with the Windows spell checker, in your writing language. Right-click a word for suggestions. Nothing is sent anywhere.",
+                            self.bool("spellCheck", true)));
+                    }
                 }
                 "select" if !key.is_empty() => {
                     let opts: Vec<(Value, String)> = match option_override(key) {

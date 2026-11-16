@@ -357,6 +357,7 @@ pub fn request(u: &AppWindow, kind: &str, id: &str) {
                 v
             }
         },
+        "rte" => rte_items(u),
         "files-bg" => vec![
             it(G_NEW_FOLDER, "New folder", "", "new-folder"),
             it(G_UPLOAD, "Upload files", "", "upload"),
@@ -578,6 +579,7 @@ fn submenu(u: &AppWindow, t: &Target, which: &str) -> Vec<CtxItem> {
                 v.push(i);
             }
         }
+        "rte-format" | "rte-para" | "rte-table" | "rte-ai" => v = rte_sub(which),
         "due" => {
             v.push(it(G_CALENDAR, "Today", "", "due:0"));
             v.push(it(G_CALENDAR, "Tomorrow", "", "due:1"));
@@ -790,6 +792,7 @@ pub fn pick(u: &AppWindow, st: &Shared, action: &str) {
             }
             a => u.invoke_act(a.into()),
         },
+        "rte" => crate::rte::ctx_pick(u, action),
         "folder" => {
             let Some(c) = client(st) else { return };
             let fid = id.to_string();
@@ -1014,5 +1017,104 @@ pub fn pick(u: &AppWindow, st: &Shared, action: &str) {
             _ => {}
         },
         _ => {}
+    }
+}
+
+// ---- the composer's editor (Bulwark: composer-selection-menu plus the browser's own editing menu)
+
+/// Right-click menu of the rich-text editor: spelling, clipboard, formatting, link, table, image, AI.
+fn rte_items(u: &AppWindow) -> Vec<CtxItem> {
+    let c = crate::rte::ctx_info();
+    let mut v = vec![];
+    if let Some((word, sugg)) = &c.spell {
+        if sugg.is_empty() { v.push(off(it("", "No suggestions", "", ""), false)); }
+        for s in sugg.iter().take(5) { v.push(it("", s, "", &format!("spell:{s}"))); }
+        v.push(it(G_ADD, &format!("Add \u{201C}{word}\u{201D} to dictionary"), "", "spell-add"));
+        v.push(it("\u{E7BA}", "Ignore", "", "spell-ignore"));
+        v.push(sep());
+    }
+    v.extend([
+        off(it(G_CUT, "Cut", "Ctrl+X", "cut"), c.has_sel),
+        off(it(G_COPY, "Copy", "Ctrl+C", "copy"), c.has_sel),
+        it(G_PASTE, "Paste", "Ctrl+V", "paste"),
+        it(G_PASTE, "Paste as plain text", "Ctrl+Shift+V", "paste-plain"),
+        sep(),
+        it(G_SELECT_ALL, "Select all", "Ctrl+A", "select-all"),
+        sep(),
+        sub("\u{E8D2}", "Format", "sub:rte-format"),
+        sub("\u{E8E4}", "Paragraph", "sub:rte-para"),
+    ]);
+    if c.in_table { v.push(sub("\u{E80A}", "Table", "sub:rte-table")); }
+    v.push(sep());
+    match &c.link {
+        Some(_) => v.extend([
+            it(G_EDIT, "Edit link\u{2026}", "Ctrl+K", "link"),
+            it(G_OPEN, "Open link", "", "link-open"),
+            it(G_COPY, "Copy link address", "", "copy-link"),
+            it("\u{E711}", "Remove link", "", "link-remove"),
+        ]),
+        None => v.push(off(it("\u{E71B}", "Insert link\u{2026}", "Ctrl+K", "link"), !c.image)),
+    }
+    if c.image {
+        v.push(sep());
+        v.push(it("\u{E9A6}", "Original image size", "", "image-size:0"));
+        v.push(it("\u{E9A6}", "Small (240 px)", "", "image-size:240"));
+        v.push(it("\u{E9A6}", "Medium (480 px)", "", "image-size:480"));
+    }
+    if !u.get_ai_hidden() {
+        v.push(sep());
+        v.push(sub("\u{E945}", if c.has_sel { "Rewrite selection with AI" } else { "Rewrite with AI" }, "sub:rte-ai"));
+    }
+    v.push(sep());
+    v.push(off(it("\u{E7A7}", "Undo", "Ctrl+Z", "undo"), c.can_undo));
+    v.push(off(it("\u{E7A6}", "Redo", "Ctrl+Y", "redo"), c.can_redo));
+    v
+}
+
+fn rte_sub(which: &str) -> Vec<CtxItem> {
+    let c = crate::rte::ctx_info();
+    let chk = |mut i: CtxItem, on: bool| { i.checked = on; i };
+    match which {
+        "rte-format" => vec![
+            chk(it("", "Bold", "Ctrl+B", "bold"), c.bold),
+            chk(it("", "Italic", "Ctrl+I", "italic"), c.italic),
+            chk(it("", "Underline", "Ctrl+U", "underline"), c.underline),
+            chk(it("", "Strikethrough", "Ctrl+Shift+S", "strike"), c.strike),
+            chk(it("\u{E943}", "Inline code", "Ctrl+E", "code-inline"), c.code),
+            chk(it("\u{E7E6}", "Highlight", "Ctrl+Shift+H", "highlight"), c.highlight),
+            sep(),
+            it(G_ERASE, "Clear formatting", "Ctrl+\\", "clear"),
+        ],
+        "rte-para" => vec![
+            chk(it("", "Normal text", "Ctrl+Alt+0", "para"), c.block == "p"),
+            chk(it("", "Heading 1", "Ctrl+Alt+1", "h1"), c.block == "h1"),
+            chk(it("", "Heading 2", "Ctrl+Alt+2", "h2"), c.block == "h2"),
+            chk(it("", "Heading 3", "Ctrl+Alt+3", "h3"), c.block == "h3"),
+            sep(),
+            chk(it("\u{E8FD}", "Bulleted list", "Ctrl+Shift+8", "bullet"), c.block == "bullet"),
+            chk(it("", "Numbered list", "Ctrl+Shift+7", "numbered"), c.block == "ordered"),
+            chk(it("", "Quote", "Ctrl+Shift+B", "quote"), c.block == "quote"),
+            chk(it("\u{E943}", "Code block", "Ctrl+Alt+C", "code"), c.block == "code"),
+            sep(),
+            chk(it("\u{E8E4}", "Align left", "Ctrl+Shift+L", "align:left"), c.align == "left"),
+            chk(it("\u{E8E3}", "Center", "Ctrl+Shift+E", "align:center"), c.align == "center"),
+            chk(it("\u{E8E2}", "Align right", "Ctrl+Shift+R", "align:right"), c.align == "right"),
+            chk(it("", "Justify", "Ctrl+Shift+J", "align:justify"), c.align == "justify"),
+        ],
+        "rte-table" => vec![
+            it("", "Add row above", "", "table-op:row-above"),
+            it("", "Add row below", "", "table-op:row-below"),
+            it("", "Add column left", "", "table-op:col-left"),
+            it("", "Add column right", "", "table-op:col-right"),
+            sep(),
+            it("", "Delete row", "", "table-op:del-row"),
+            it("", "Delete column", "", "table-op:del-col"),
+            it("", "Toggle header row", "", "table-op:header"),
+            sep(),
+            danger(G_DELETE, "Delete table", "", "table-op:del-table"),
+        ],
+        "rte-ai" => ["Improve", "Shorten", "Formal", "Casual", "Fix spelling", "Translate"].iter()
+            .map(|a| it("", a, "", &format!("ai:{a}"))).collect(),
+        _ => vec![],
     }
 }
