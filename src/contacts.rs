@@ -176,7 +176,15 @@ pub fn save(u: &AppWindow, c: Arc<Client>) {
         let acc = c.account_for("urn:ietf:params:jmap:contacts");
         let res: Result<(), String> = if id.is_empty() {
             let book = ST.with(|s| s.borrow().books.iter().find(|b| b["isDefault"] == true).or(s.borrow().books.first()).and_then(|b| b["id"].as_str().map(String::from)));
-            let Some(book) = book else { let _ = w.upgrade_in_event_loop(|u| u.set_ct_status("No address book.".into())); return };
+            // a fresh account has no address book until a client creates one
+            let book = match book {
+                Some(b) => b,
+                None => match c.call(json!([["AddressBook/set", {"accountId": acc, "create": {"b": {"name": "Contacts"}}, "onSuccessSetIsDefault": "#b"}, "a"]]))
+                    .and_then(|r| r[0][1]["created"]["b"]["id"].as_str().map(String::from).ok_or_else(|| crate::jmap::set_error(&r[0][1]["notCreated"]["b"]))) {
+                    Ok(b) => b,
+                    Err(e) => { let _ = w.upgrade_in_event_loop(move |u| u.set_ct_status(format!("No address book: {e}").into())); return }
+                },
+            };
             let obj = card.as_object_mut().unwrap();
             obj.retain(|_, v| !v.is_null());
             obj.insert("@type".into(), json!("Card"));

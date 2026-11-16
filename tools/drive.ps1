@@ -4,7 +4,7 @@
 #   drive.ps1 dclick <x> <y>             double click
 #   drive.ps1 type  <text>               type text (SendKeys syntax)
 #   drive.ps1 rect                       print window rect
-param([string]$cmd, [string]$a1, [string]$a2)
+param([string]$cmd, [string]$a1, [string]$a2, [string]$a3)
 Add-Type -AssemblyName System.Windows.Forms, System.Drawing
 Add-Type @"
 using System; using System.Runtime.InteropServices;
@@ -42,4 +42,5 @@ switch ($cmd) {
   "click"  { Click $a1 $a2 1 }
   "dclick" { Click $a1 $a2 2 }
   "type"   { [System.Windows.Forms.SendKeys]::SendWait($a1) }
+  "clicktype" { Click $a1 $a2 1; Start-Sleep -Milliseconds 250; [System.Windows.Forms.SendKeys]::SendWait($a3) }
 }

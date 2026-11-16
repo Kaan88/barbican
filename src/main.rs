@@ -138,11 +138,13 @@ fn sync_webview(ui: &AppWindow) {
                 })
                 .build_as_child(&ui.window().window_handle())
             {
-                Ok(v) => *w = Some(v),
+                Ok(v) => { let _ = v.focus_parent(); *w = Some(v); }
                 Err(_) => {}
             }
         } else if let Some(v) = &*w {
             let _ = v.set_bounds(r);
+            // keep keyboard focus in the native UI while the email view is hidden
+            if WV_VISIBLE.with(|x| x.replace(vis)) != vis && !vis { let _ = v.focus_parent(); }
             let _ = v.set_visible(vis);
         }
     });
@@ -192,6 +194,7 @@ pub fn html_to_text(h: &str) -> String {
     res.trim().to_string()
 }
 
+thread_local! { static WV_VISIBLE: std::cell::Cell<bool> = const { std::cell::Cell::new(false) }; }
 thread_local! { static SERVER_DEBOUNCE: slint::Timer = slint::Timer::default(); }
 thread_local! { static TEMPLATES: std::cell::RefCell<Vec<Value>> = const { std::cell::RefCell::new(Vec::new()) }; }
 thread_local! { static THREAD_ID: std::cell::RefCell<Option<String>> = const { std::cell::RefCell::new(None) }; }
