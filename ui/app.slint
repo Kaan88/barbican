@@ -81,6 +81,9 @@ export struct FileRow {
     size: string,
     modified: string,
     renaming: bool,
+    starred: bool,
+    shared: bool,
+    cut: bool,
 }
 
 export struct AdminRow {
@@ -905,6 +908,9 @@ export component AppWindow inherits Window {
     callback fl-start-rename(string);
     callback fl-rename(string, string);
     callback fl-delete(string);
+    in-out property <[NavRow]> fl-nav;
+    in-out property <string> fl-cwd;
+    callback fl-toggle-folder(string);
     in property <bool> admin-enabled;
     in-out property <string> admin-section: "overview";
     in property <[string]> admin-cols;
@@ -2360,6 +2366,55 @@ export component AppWindow inherits Window {
         x: 45px;
         width: parent.width - 45px;
         background: Theme.bg;
+        HorizontalLayout {
+        // ---- sidebar: My files tree, Favorites, Recent, Shared with me (Bulwark files-sidebar) ----
+        Rectangle {
+            width: 220px;
+            background: Theme.side;
+            VerticalLayout {
+                HorizontalLayout {
+                    height: 44px;
+                    padding-left: 14px;
+                    padding-right: 8px;
+                    Text { text: "Files"; color: Theme.text; font-weight: 700; vertical-alignment: center; horizontal-stretch: 1; }
+                    HoverAction { y: 11px; glyph: "\u{E710}"; clicked => { root.ctx("files-bg", "", self.absolute-position.x, self.absolute-position.y + 24px); } }
+                }
+                ScrollView {
+                    VerticalLayout {
+                        alignment: start;
+                        padding-bottom: 12px;
+                        for n in root.fl-nav: VerticalLayout {
+                            if n.header != "": Rectangle {
+                                height: 30px;
+                                Text { x: 14px; text: n.header; color: Theme.dim; font-size: 11px; font-weight: 600; vertical-alignment: center; height: parent.height; }
+                            }
+                            Rectangle {
+                                height: 28px;
+                                property <bool> here: (n.kind == "root" && root.fl-cwd == "") || (n.kind != "root" && n.id == root.fl-cwd);
+                                background: here ? Theme.sel : (fnta.has-hover || (n.id != "" && CtxHl.id == "file:" + n.id) ? Theme.hover : transparent);
+                                fnta := TouchArea {
+                                    clicked => { if n.kind == "root" { root.fl-open(""); } else { root.fl-activate(n.id); } }
+                                    pointer-event(ev) => { if ev.button == PointerEventButton.right && ev.kind == PointerEventKind.up { if n.kind == "root" { root.fl-open(""); root.ctx("files-bg", "", self.absolute-position.x + self.mouse-x, self.absolute-position.y + self.mouse-y); } else { root.ctx("file", n.id, self.absolute-position.x + self.mouse-x, self.absolute-position.y + self.mouse-y); } } }
+                                }
+                                HorizontalLayout {
+                                    padding-left: 8px + n.depth * 14px;
+                                    padding-right: 10px;
+                                    spacing: 4px;
+                                    Rectangle {
+                                        width: 14px;
+                                        if n.count != "": Icon { text: n.count; font-size: 8px; color: Theme.dim; }
+                                        if n.count != "": TouchArea { clicked => { root.fl-toggle-folder(n.id); } }
+                                    }
+                                    Icon { text: n.icon; font-size: 12px; width: 18px; color: n.kind == "fav" ? #f59e0b : n.kind == "shared" ? Theme.accent : Theme.dim; }
+                                    Text { text: n.label; color: Theme.text; vertical-alignment: center; horizontal-stretch: 1; overflow: elide; font-weight: here ? 600 : 400; }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        Rectangle { width: 1px; background: Theme.line; }
         VerticalLayout {
             HorizontalLayout {
                 height: 44px;
@@ -2394,7 +2449,8 @@ export component AppWindow inherits Window {
              ListView {
                 for f in root.files: Rectangle {
                     height: 36px;
-                    background: fta.has-hover ? Theme.hover : transparent;
+                    background: fta.has-hover || CtxHl.id == "file:" + f.id ? Theme.hover : transparent;
+                    opacity: f.cut ? 0.5 : 1;
                     fta := TouchArea { double-clicked => { root.fl-activate(f.id); } pointer-event(ev) => { if ev.button == PointerEventButton.right && ev.kind == PointerEventKind.up { root.ctx("file", f.id, self.absolute-position.x + self.mouse-x, self.absolute-position.y + self.mouse-y); } } }
                     HorizontalLayout {
                         padding-left: 16px;
@@ -2402,6 +2458,8 @@ export component AppWindow inherits Window {
                         spacing: 10px;
                         Icon { text: f.folder ? "\u{E8B7}" : "\u{E7C3}"; color: f.folder ? #f59e0b : Theme.dim; width: 20px; }
                         if !f.renaming: Text { text: f.name; color: Theme.text; vertical-alignment: center; horizontal-stretch: 1; overflow: elide; }
+                        if f.starred: Icon { text: "\u{E735}"; font-size: 11px; color: #f59e0b; }
+                        if f.shared: Icon { text: "\u{E72D}"; font-size: 11px; color: Theme.dim; }
                         if f.renaming: LineEdit { text: f.name; horizontal-stretch: 1; accepted(t) => { root.fl-rename(f.id, t); } }
                         Text { text: f.size; color: Theme.dim; font-size: 11px; vertical-alignment: center; width: 90px; }
                         Text { text: f.modified; color: Theme.dim; font-size: 11px; vertical-alignment: center; width: 140px; }
@@ -2413,6 +2471,7 @@ export component AppWindow inherits Window {
             }
              if root.files.length == 0: Text { text: "This folder is empty"; color: Theme.dim; horizontal-alignment: center; }
             }
+        }
         }
     }
 

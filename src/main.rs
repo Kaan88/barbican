@@ -1249,6 +1249,8 @@ fn main() -> Result<(), slint::PlatformError> {
     ui.on_fl_new_folder(move |n| { let Some(c) = st.lock().unwrap().clone() else { return }; files::new_folder(&w.unwrap(), c, &n); });
     let w = ui.as_weak();
     ui.on_fl_start_rename(move |id| files::start_rename(&w.unwrap(), &id));
+    let w = ui.as_weak();
+    ui.on_fl_toggle_folder(move |id| files::toggle_expand(&w.unwrap(), &id));
     let (w, st) = (ui.as_weak(), state.clone());
     ui.on_fl_rename(move |id, n| { let Some(c) = st.lock().unwrap().clone() else { return }; files::rename(&w.unwrap(), c, &id, &n); });
     let (w, st) = (ui.as_weak(), state.clone());
@@ -1524,7 +1526,7 @@ fn main() -> Result<(), slint::PlatformError> {
 
     let w = ui.as_weak();
     let st_req = state.clone();
-    ui.on_ctx_request(move |k, id| { ctxmenu::set_mine(my_addrs(&st_req)); ctxmenu::request(&w.unwrap(), &k, &id) });
+    ui.on_ctx_request(move |k, id| { ctxmenu::set_mine(my_addrs(&st_req)); ctxmenu::set_client(st_req.lock().unwrap().clone()); ctxmenu::request(&w.unwrap(), &k, &id) });
     let w = ui.as_weak();
     ui.on_ctx_hover(move |a, i| ctxmenu::hover(&w.unwrap(), &a, i));
     let (w, st) = (ui.as_weak(), state.clone());

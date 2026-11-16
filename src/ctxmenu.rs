@@ -21,8 +21,11 @@ thread_local! {
     static HL: RefCell<String> = const { RefCell::new(String::new()) };
     /// The user's addresses, refreshed on every request (for RSVP).
     static MINE: RefCell<Vec<String>> = const { RefCell::new(Vec::new()) };
+    static CLIENT: RefCell<Option<Arc<jmap::Client>>> = const { RefCell::new(None) };
     /// Address book chosen for the next new contact ("New contact in this address book").
     pub static BOOK_FOR_NEW: RefCell<Option<String>> = const { RefCell::new(None) };
+    /// Names of the principals the file under the menu is shared with (filled in the background).
+    static SHARE_NAMES: RefCell<Vec<String>> = const { RefCell::new(Vec::new()) };
     /// Pending text prompt: (action, id).
     static PROMPT: RefCell<Option<(String, String)>> = const { RefCell::new(None) };
 }
@@ -79,6 +82,11 @@ const G_UP: &str = "\u{E74A}";
 const G_DOWN: &str = "\u{E74B}";
 const G_ERASE: &str = "\u{E75C}";
 const G_GROUP: &str = "\u{E716}";
+const G_SHARE: &str = "\u{E72D}";
+const G_CUT: &str = "\u{E8C6}";
+const G_PASTE: &str = "\u{E77F}";
+const G_HOME: &str = "\u{E80F}";
+const G_FOLDER: &str = "\u{E8B7}";
 const G_DEFAULT: &str = "\u{E735}";
 
 fn row_h(i: &CtxItem) -> f32 { match i.kind { 1 => 9.0, 2 => 24.0, _ => 28.0 } }
@@ -323,25 +331,42 @@ pub fn request(u: &AppWindow, kind: &str, id: &str) {
                 _ => vec![],
             }
         }
-        "file" => {
-            let f = file_row(u, id);
-            let is_folder = f.as_ref().is_some_and(|f| f.folder);
-            vec![
-                it(G_OPEN, "Open", "", "open"),
-                off(it(G_DOWNLOAD, "Download", "", "download"), !is_folder),
-                it(G_RENAME, "Rename", "F2", "rename"),
-                sep(),
-                danger(G_DELETE, "Delete", "Del", "ask:delete"),
-            ]
-        }
+        "file" => match files::node_info(id) {
+            None => vec![],
+            Some((name, is_folder, shared_in, may_share)) => {
+                let mut v = vec![
+                    header(&name),
+                    it(G_OPEN, "Open", "", "open"),
+                ];
+                if !is_folder { v.push(it(G_DOWNLOAD, "Download", "", "download")); }
+                if may_share || (is_folder && !shared_in) { v.push(sep()); }
+                if may_share { v.push(sub(G_SHARE, "Share", "sub:share")); }
+                if is_folder && !shared_in {
+                    v.push(if files::is_starred(id) { it(G_STARRED, "Unstar", "", "star") } else { it(G_STAR, "Star", "", "star") });
+                }
+                v.extend([
+                    sep(),
+                    it(G_RENAME, "Rename", "F2", "rename"),
+                    it(G_DUP, "Duplicate", "", "duplicate"),
+                    sub(G_MOVE, "Move to", "sub:file-move"),
+                    it(G_CUT, "Cut", "Ctrl+X", "cut"),
+                    it(G_COPY, "Copy", "Ctrl+C", "copy"),
+                    sep(),
+                    danger(G_DELETE, "Delete", "Del", "ask:delete"),
+                ]);
+                v
+            }
+        },
         "files-bg" => vec![
             it(G_NEW_FOLDER, "New folder", "", "new-folder"),
             it(G_UPLOAD, "Upload files", "", "upload"),
             sep(),
+            off(it(G_PASTE, "Paste", "Ctrl+V", "paste"), files::has_clipboard()),
             it(G_REFRESH, "Refresh", "", "refresh"),
         ],
         _ => vec![],
     };
+    if t.kind == "file" { fetch_share_names(u, &t.id); }
     TARGET.with(|x| *x.borrow_mut() = t);
     HL.with(|h| *h.borrow_mut() = u.global::<crate::CtxHl>().get_id().to_string());
     show(u, items);
@@ -398,6 +423,21 @@ fn group_items() -> Vec<CtxItem> {
 pub fn new_group_prompt(u: &AppWindow, member: Option<String>) {
     prompt(u, "New group", "", "new-group", &member.unwrap_or_default());
 }
+
+/// Resolve the names behind a file's shareWith principals for the Share flyout.
+fn fetch_share_names(u: &AppWindow, id: &str) {
+    SHARE_NAMES.with(|n| n.borrow_mut().clear());
+    let ids: Vec<String> = files::shares(id).into_iter().map(|s| s.0).collect();
+    if ids.is_empty() { return; }
+    let Some(c) = CLIENT.with(|c| c.borrow().clone()) else { return };
+    let w = u.as_weak();
+    std::thread::spawn(move || {
+        let names = files::principal_names(&c, &ids);
+        let _ = w.upgrade_in_event_loop(move |_| SHARE_NAMES.with(|n| *n.borrow_mut() = names));
+    });
+}
+
+pub fn set_client(c: Option<Arc<jmap::Client>>) { CLIENT.with(|x| *x.borrow_mut() = c); }
 
 fn file_row(u: &AppWindow, id: &str) -> Option<crate::FileRow> {
     let m = u.get_files();
@@ -484,6 +524,26 @@ fn submenu(u: &AppWindow, t: &Target, which: &str) -> Vec<CtxItem> {
                 off(it(G_COPY, "Copy sender address", "", "copy-sender"), single),
                 off(it(G_SEARCH, "Find emails from sender", "", "find-from"), single),
             ]);
+        }
+        "file-move" => {
+            for (k, label) in files::move_targets(&t.id) {
+                v.push(it(if k.is_empty() { G_HOME } else { G_FOLDER }, &label, "", &format!("moveto:{k}")));
+            }
+            if v.is_empty() { v.push(off(it("", "No other folders", "", ""), false)); }
+        }
+        "share" => {
+            v.push(it(G_ADD_CONTACT, "Share read-only…", "", "share-add:r"));
+            v.push(it(G_ADD_CONTACT, "Share with edit rights…", "", "share-add:w"));
+            let cur = files::shares(&t.id);
+            if !cur.is_empty() {
+                v.push(sep());
+                v.push(header("Shared with"));
+                let names = SHARE_NAMES.with(|n| n.borrow().clone());
+                for (i, (pid, write)) in cur.iter().enumerate() {
+                    let who = names.get(i).cloned().unwrap_or_else(|| pid.clone());
+                    v.push(it(G_DELETE, &format!("Stop sharing with {who}{}", if *write { " (edit)" } else { "" }), "", &format!("unshare:{pid}")));
+                }
+            }
         }
         "groups" => {
             for (gid, name, member) in contacts::groups_for(&t.id) {
@@ -633,6 +693,8 @@ pub fn prompt_ok(u: &AppWindow, st: &Shared, text: &str) {
             coll_op(u, st, "Renamed", move |c| crate::server_settings::collection_set(c, book, json!({"update": { id: {"name": name} }})));
         }
         "new-file-folder" => files::new_folder(u, c, &name),
+        "rename-file" => files::rename(u, c, &id, &name),
+        "share-r" | "share-w" => files::share(u, c, &id, &name, Some(action == "share-w")),
         _ => {}
     }
 }
@@ -645,6 +707,7 @@ pub fn pick(u: &AppWindow, st: &Shared, action: &str) {
             ("folder", "empty") => "Delete all messages permanently",
             ("folder", _) => "Delete this folder",
             ("cal", _) => "Delete calendar and its events",
+            ("file", _) => "Delete for good",
             ("calset", "clear") => "Delete every event in this calendar",
             ("calset", _) => "Delete calendar and its events",
             ("bookset", _) | ("ct-book", _) => "Delete address book and its contacts",
@@ -922,16 +985,31 @@ pub fn pick(u: &AppWindow, st: &Shared, action: &str) {
                 _ => {}
             }
         }
-        "file" => match action {
-            "open" => u.invoke_fl_activate(id.into()),
-            "download" => u.invoke_fl_download(id.into()),
-            "rename" => u.invoke_fl_start_rename(id.into()),
-            "delete" => u.invoke_fl_delete(id.into()),
-            _ => {}
-        },
+        "file" => {
+            let Some(c) = client(st) else { return };
+            match action {
+                "open" => u.invoke_fl_activate(id.into()),
+                "download" => u.invoke_fl_download(id.into()),
+                "rename" => {
+                    // a folder from the sidebar may not be listed in the folder on screen: rename by prompt
+                    if file_row(u, id).is_some() { u.invoke_fl_start_rename(id.into()); }
+                    else { prompt(u, "Rename", &files::node_info(id).map(|n| n.0).unwrap_or_default(), "rename-file", id); }
+                }
+                "delete" => u.invoke_fl_delete(id.into()),
+                "star" => files::toggle_star(u, id),
+                "duplicate" => files::duplicate(u, c, id),
+                "cut" => files::set_clipboard(u, id, true),
+                "copy" => files::set_clipboard(u, id, false),
+                a if a.starts_with("moveto:") => files::move_to(u, c, id, &a[7..]),
+                a if a.starts_with("share-add:") => prompt(u, if a.ends_with('w') { "Share with edit rights: user's email" } else { "Share read-only: user's email" }, "", if a.ends_with('w') { "share-w" } else { "share-r" }, id),
+                a if a.starts_with("unshare:") => files::share(u, c, id, &a[8..], None),
+                _ => {}
+            }
+        }
         "files-bg" => match action {
             "new-folder" => prompt(u, "New folder", "", "new-file-folder", ""),
             "upload" => u.invoke_fl_upload(),
+            "paste" => { if let Some(c) = client(st) { files::paste(u, c); } }
             "refresh" => { let ids = u.get_crumb_ids(); let last = ids.row_count().checked_sub(1).and_then(|i| ids.row_data(i)).unwrap_or_default(); u.invoke_fl_open(last); }
             _ => {}
         },
