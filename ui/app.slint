@@ -1259,6 +1259,13 @@ export component AppWindow inherits Window {
     public function focus-search() { search-box.focus(); }
     kbd := FocusScope {
     init => { self.focus(); }
+    // the mail search box keeps its arrows for the suggestions under it (src/shortcuts.rs)
+    capture-key-pressed(e) => {
+        if Pd.search-focus && !e.modifiers.control && !e.modifiers.alt && (e.text == Key.UpArrow || e.text == Key.DownArrow || e.text == Key.Escape) {
+            if Pd.key-hook(e.text, e.modifiers.shift, false, false) { return accept; }
+        }
+        reject
+    }
     key-pressed(e) => {
         // every app's keys, `?`, Ctrl+K (src/shortcuts.rs); what it leaves goes on below
         if Pd.key-hook(e.text, e.modifiers.shift, e.modifiers.control, e.modifiers.alt) { return accept; }

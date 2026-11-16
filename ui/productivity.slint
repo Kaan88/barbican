@@ -141,7 +141,8 @@ component Kbd inherits Rectangle {
     border-width: 1px;
     border-color: t.line;
     opacity: off ? 0.45 : 1;
-    kt := Text { text: key; color: t.text; font-size: 11px; font-weight: 600; font-family: "Segoe UI"; }
+    // a lone arrow or symbol reads better a little larger
+    kt := Text { text: key; color: t.text; font-size: key.character-count <= 1 ? 13px : 11px; font-weight: 600; font-family: "Segoe UI"; }
 }
 
 component Pill inherits Rectangle {
@@ -187,24 +188,37 @@ export component CommandPalette inherits Rectangle {
                 VerticalLayout { alignment: center; StrokeIcon { d: PIcon.search; tint: t.dim; } }
                 fs := FocusScope {
                     horizontal-stretch: 1;
-                    key-pressed(e) => {
+                    // before the field: it would take the arrows itself
+                    capture-key-pressed(e) => {
                         if e.text == Key.UpArrow { Pd.palette-move(-1); return accept; }
                         if e.text == Key.DownArrow { Pd.palette-move(1); return accept; }
                         if e.text == Key.Escape { Pd.palette-close(); return accept; }
                         if e.modifiers.control && (e.text == "k" || e.text == "K") { Pd.palette-close(); return accept; }
                         reject
                     }
-                    q := LineEdit {
+                    if q.text == "": Text {
+                        width: 100%;
+                        height: 100%;
+                        text: Pd.palette-mode == "search" ? "Search mail, contacts, calendar, files…" : "Type a command";
+                        color: t.dim;
+                        font-size: 15px;
+                        vertical-alignment: center;
+                    }
+                    q := TextInput {
                         width: 100%;
                         height: 100%;
                         font-size: 15px;
-                        placeholder-text: Pd.palette-mode == "search" ? "Search mail, contacts, calendar, files…" : "Type a command";
+                        color: t.text;
+                        vertical-alignment: center;
+                        single-line: true;
+                        selection-background-color: t.sel;
+                        selection-foreground-color: t.sel-text;
                         property <int> freq: Pd.palette-focus;
                         changed freq => { self.text = Pd.palette-query; self.focus(); }
                         property <int> treq: Pd.palette-text-req;
                         changed treq => { self.text = Pd.palette-query; self.focus(); }
                         init => { self.text = Pd.palette-query; self.focus(); }
-                        edited(v) => { Pd.palette-edited(v); }
+                        edited => { Pd.palette-edited(self.text); }
                         accepted => { Pd.palette-enter(); }
                     }
                 }
