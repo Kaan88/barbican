@@ -8,6 +8,14 @@ export struct DashBar {
     value: string,
     frac: float,
     color: color,
+    share: string,
+}
+
+// one hover point: time label, formatted value per series, y (0 top .. 1 bottom) per series
+export struct DashTip {
+    time: string,
+    vals: [string],
+    ys: [float],
 }
 
 export struct DashPanel {
@@ -30,6 +38,13 @@ export struct DashPanel {
     xlabels: [string],
     bars: [DashBar],
     note: string,
+    // hover data, series in legend order
+    tips: [DashTip],
+    tip-names: [string],
+    tip-colors: [color],
+    spark-tips: [DashTip],
+    fill-alpha: float,
+    xstep: int,
 }
 
 export struct DashCol {
@@ -57,6 +72,8 @@ component PanelView inherits Rectangle {
     property <color> accent: dark ? #f0577a : #c8234a;
     property <color> chip: dark ? #3a1621 : #fde4ea;
     property <color> track: dark ? #262626 : #e5e5e5;
+    property <color> pop: dark ? #1c1c1c : #ffffff;
+    property <color> pop-line: dark ? #262626 : #e5e5e5;
     height: p.height * 1px;
     border-radius: 12px;
     background: p.kind == 4 ? (dark ? #2a1219 : #fde4ea)
@@ -145,6 +162,39 @@ component PanelView inherits Rectangle {
             stroke-width: 1.3px;
             fill: transparent;
         }
+        if p.spark-tips.length > 0: Rectangle {
+            x: parent.width - 104px;
+            y: parent.height - 44px;
+            width: 90px;
+            height: 30px;
+            property <int> n: p.spark-tips.length;
+            property <int> idx: max(0, min(n - 1, round(sta.mouse-x / self.width * (n - 1))));
+            property <length> px: self.width * idx / max(1, n - 1);
+            sta := TouchArea { }
+            if sta.has-hover: Rectangle {
+                x: px - 3px;
+                y: self.height * p.spark-tips[idx].ys[0] - 3px;
+                width: 6px;
+                height: 6px;
+                border-radius: 3px;
+                background: accent;
+                border-width: 1px;
+                border-color: pop;
+            }
+            if sta.has-hover: Rectangle {
+                x: min(px - stl.preferred-width / 2 - 8px, parent.width + 6px - stl.preferred-width - 16px);
+                y: -30px;
+                width: stl.preferred-width + 16px;
+                height: 24px;
+                border-radius: 6px;
+                background: pop;
+                border-width: 1px;
+                border-color: pop-line;
+                drop-shadow-blur: 6px;
+                drop-shadow-color: #00000026;
+                stl := Text { text: p.spark-tips[idx].vals[0] + "  ·  " + p.spark-tips[idx].time; color: fg; font-size: 10px; }
+            }
+        }
     }
 
     // area / bar chart
@@ -177,7 +227,7 @@ component PanelView inherits Rectangle {
             viewbox-height: 100;
             fit: fill;
             commands: a;
-            fill: p.kind == 2 ? p.colors[i] : p.colors[i].transparentize(0.62);
+            fill: p.kind == 2 ? p.colors[i] : p.colors[i].transparentize(1 - p.fill-alpha);
             stroke: transparent;
         }
         for l[i] in p.lines: Path {
@@ -191,10 +241,63 @@ component PanelView inherits Rectangle {
             commands: l;
             fill: transparent;
             stroke: p.colors[i];
-            stroke-width: 1.5px;
+            stroke-width: 2px;
+        }
+        if p.tips.length > 0: Rectangle {
+            x: left;
+            y: top;
+            width: cw;
+            height: ch;
+            property <int> n: p.tips.length;
+            property <bool> barsm: p.kind == 2;
+            property <int> idx: barsm ? max(0, min(n - 1, floor(cta.mouse-x / self.width * n)))
+                : max(0, min(n - 1, round(cta.mouse-x / self.width * (n - 1))));
+            property <length> px: barsm ? self.width * (idx + 0.5) / n : self.width * idx / max(1, n - 1);
+            property <DashTip> t: p.tips[idx];
+            cta := TouchArea { }
+            if cta.has-hover && !barsm: Rectangle { x: px; y: 0; width: 1px; height: parent.height; background: dim.transparentize(0.4); }
+            if cta.has-hover && barsm: Rectangle { x: parent.width * idx / n; y: 0; width: parent.width / n; height: parent.height; background: grid.transparentize(0.75); }
+            for c[i] in cta.has-hover && !barsm ? p.tip-colors : []: Rectangle {
+                visible: t.ys[i] >= 0;
+                x: px - 4px;
+                y: parent.height * t.ys[i] - 4px;
+                width: 8px;
+                height: 8px;
+                border-radius: 4px;
+                background: c;
+                border-width: 1.5px;
+                border-color: pop;
+            }
+            if cta.has-hover: Rectangle {
+                property <length> tw: max(150px, tl.preferred-width + 24px);
+                x: px + 12px + tw > parent.width ? px - 12px - tw : px + 12px;
+                y: max(0px, min(cta.mouse-y - 20px, parent.height - self.height));
+                width: tw;
+                height: 34px + p.tip-names.length * 19px;
+                border-radius: 8px;
+                background: pop;
+                border-width: 1px;
+                border-color: pop-line;
+                drop-shadow-blur: 10px;
+                drop-shadow-color: #0000002e;
+                tl := VerticalLayout {
+                    x: 10px;
+                    y: 8px;
+                    width: parent.width - 20px;
+                    height: parent.height - 16px;
+                    spacing: 4px;
+                    Text { text: t.time; color: dim; font-size: 10px; }
+                    for nm[i] in p.tip-names: HorizontalLayout {
+                        spacing: 6px;
+                        Rectangle { width: 7px; height: 7px; y: 4px; border-radius: 4px; background: p.tip-colors[i]; }
+                        Text { text: nm; color: dim; font-size: 11px; horizontal-stretch: 1; }
+                        Text { text: t.vals[i]; color: fg; font-size: 11px; font-weight: 600; horizontal-alignment: right; }
+                    }
+                }
+            }
         }
         for xl[i] in p.xlabels: Text {
-            x: left + cw * i / max(1, p.xlabels.length - 1) - 30px;
+            x: left + (p.kind == 2 ? cw * (i * p.xstep + 0.5) / max(1, p.tips.length) : cw * i * p.xstep / max(1, p.tips.length - 1)) - 30px;
             y: parent.height - bottom + 6px;
             width: 60px;
             text: xl;
@@ -212,10 +315,11 @@ component PanelView inherits Rectangle {
         padding-bottom: 8px;
         spacing: 1px;
         alignment: start;
-        for b in p.bars: HorizontalLayout {
-            height: 21px;
+        for b in p.bars: Rectangle {
+          height: 21px;
+          bta := TouchArea { }
+          HorizontalLayout {
             spacing: 10px;
-            // one row per bar
             Text { text: b.label; color: fg; font-size: 11px; width: 84px; overflow: elide; vertical-alignment: center; }
             Rectangle {
                 horizontal-stretch: 1;
@@ -235,6 +339,27 @@ component PanelView inherits Rectangle {
                 }
             }
             Text { text: b.value; color: fg; font-size: 11px; width: 44px; horizontal-alignment: right; vertical-alignment: center; }
+          }
+          if bta.has-hover: Rectangle {
+            x: min(max(0px, bta.mouse-x - self.width / 2), parent.width - self.width);
+            y: -30px;
+            width: btl.preferred-width + 34px;
+            height: 26px;
+            border-radius: 8px;
+            background: pop;
+            border-width: 1px;
+            border-color: pop-line;
+            drop-shadow-blur: 8px;
+            drop-shadow-color: #0000002e;
+            btl := HorizontalLayout {
+                x: 10px;
+                spacing: 6px;
+                Rectangle { width: 7px; height: 7px; y: 9.5px; border-radius: 4px; background: b.color; }
+                Text { text: b.label; color: dim; font-size: 11px; vertical-alignment: center; }
+                Text { text: b.value; color: fg; font-size: 11px; font-weight: 600; vertical-alignment: center; }
+                Text { text: "(" + b.share + ")"; color: dim; font-size: 11px; vertical-alignment: center; }
+            }
+          }
         }
         if p.bars.length == 0: Text { text: "No data for this period."; color: dim; font-size: 11px; }
     }
