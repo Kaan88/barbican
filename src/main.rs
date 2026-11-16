@@ -7,6 +7,7 @@ mod automation;
 mod otp;
 mod agent;
 mod ai;
+mod bodycache;
 mod calendar;
 mod capture;
 mod compose;
@@ -15,6 +16,8 @@ mod ctxmenu;
 mod files;
 mod jmap;
 mod lite;
+mod mailview;
+mod reader;
 mod rte;
 mod mail;
 mod unified;
@@ -34,13 +37,8 @@ use std::sync::{Arc, Mutex};
 slint::include_modules!();
 
 thread_local! {
-    static WV: std::cell::RefCell<Option<wry::WebView>> = const { std::cell::RefCell::new(None) };
+    pub(crate) static WV: std::cell::RefCell<Option<wry::WebView>> = const { std::cell::RefCell::new(None) };
     static REPLY: std::cell::RefCell<Option<(String, String, Option<String>, String, String)>> = const { std::cell::RefCell::new(None) };
-    static PENDING: std::cell::RefCell<Option<String>> = const { std::cell::RefCell::new(None) };
-}
-
-fn csp(images: bool) -> String {
-    csp_with(images, None)
 }
 
 /// The reader's CSP; `script` (our own accessibility script) is allowed by its hash only.
@@ -76,7 +74,14 @@ fn has_remote_images(h: &str) -> bool {
 }
 
 fn render_current(u: &AppWindow) {
+    render_current_then(u, None);
+}
+
+/// Render the open message's body; `on_ready` runs when it is about to appear (with the
+/// WebView: once the new page is laid out, right before it is swapped in).
+fn render_current_then(u: &AppWindow, on_ready: Option<Box<dyn FnOnce()>>) {
     let mode = u.get_render_mode();
+    let mut on_ready = on_ready;
     CUR.with(|c| {
         let c = c.borrow();
         let Some(cur) = c.as_ref() else { return };
@@ -102,9 +107,43 @@ fn render_current(u: &AppWindow) {
                 let t = if cur.text.trim().is_empty() { cur.html.as_deref().map(html_to_text).unwrap_or_default() } else { cur.text.clone() };
                 u.set_r_body(t.into());
             }
-            _ => show_html(wrap_html_opts(&body, cur.allow)),
+            _ => {
+                let bg = doc_bg(&body);
+                let wk = u.as_weak();
+                let then = on_ready.take();
+                // the body area takes the page's colour as the page appears
+                let cb: Box<dyn FnOnce()> = Box::new(move || {
+                    if let Some(f) = then { f(); }
+                    if let Some(u) = wk.upgrade() { u.set_body_bg(mailview::color(bg)); }
+                });
+                mailview::show(&wrap_html_opts(&body, cur.allow), bg, Some(cb));
+            }
         }
     });
+    // the native renderers show the body at once
+    if let Some(f) = on_ready { f(); }
+}
+
+/// The colour a message page paints (its <html>/<body> background), so the shell, the body
+/// area and the page agree: plain text and the accessibility override follow the theme,
+/// HTML mail is on white.
+fn doc_bg(body: &str) -> &'static str {
+    let dark = DARK.with(|d| d.get()) && !settings::Settings::load().bool("emailAlwaysLightMode", false);
+    if (dark && a11y::A11y::load().override_active()) || themed_page(body) { "#0a0a0a" } else { "#ffffff" }
+}
+
+/// Whether a message page is shown in the dark reader's colours: dark theme (and not
+/// emailAlwaysLightMode), and plain text or HTML that sets no colours or backgrounds of its
+/// own (so a dark page cannot hide its text). Designed mail stays on white.
+fn themed_page(body: &str) -> bool {
+    if !DARK.with(|d| d.get()) || settings::Settings::load().bool("emailAlwaysLightMode", false) { return false; }
+    body.starts_with("<pre>") || html_uncolored(body)
+}
+
+/// HTML without colours, backgrounds or a stylesheet: simple prose (most personal mail).
+fn html_uncolored(h: &str) -> bool {
+    let l = h.to_ascii_lowercase();
+    !["color", "background", "<style", "<font", "<svg", "<body"].iter().any(|k| l.contains(k))
 }
 
 fn esc(s: &str) -> String {
@@ -115,13 +154,6 @@ thread_local! { static DARK: std::cell::Cell<bool> = const { std::cell::Cell::ne
 
 fn wv_bg() -> (u8, u8, u8, u8) {
     if DARK.with(|d| d.get()) { (0x0a, 0x0a, 0x0a, 255) } else { (255, 255, 255, 255) }
-}
-
-fn show_html(h: String) {
-    WV.with(|w| match &*w.borrow() {
-        Some(v) => { let _ = v.load_html(&h); }
-        None => PENDING.with(|p| *p.borrow_mut() = Some(h)),
-    });
 }
 
 /// Automation only: run JS in the email WebView; the result lands in WV_EVAL for `wv-result`.
@@ -157,54 +189,20 @@ fn wrap_html_opts(body: &str, images: bool) -> String {
         "always" => 16,
         _ => if !plain && full_bleed() { 0 } else { 16 },
     };
-    if plain && !p.bool("emailAlwaysLightMode", false) {
-        return format!("<!doctype html><html><head><meta charset=utf-8>{csp}<base target=_blank><style>html,body{{background:#0a0a0a;color:#e5e5e5}}body{{margin:{margin}px;font-family:'Segoe UI',sans-serif;font-size:14px;word-wrap:break-word}}pre{{white-space:pre-wrap;font-family:{pre_font};margin:0}}a{{color:#f0577a}}</style></head><body>{body}</body></html>");
+    if themed_page(body) {
+        // plain text, and HTML that sets no colours of its own, take the dark reader's colours
+        return format!("<!doctype html><html><head><meta charset=utf-8>{csp}<base target=_blank><style>html,body{{background:#0a0a0a;color:#e5e5e5}}body{{margin:{margin}px;font-family:'Segoe UI',sans-serif;font-size:14px;word-wrap:break-word}}pre{{white-space:pre-wrap;font-family:{pre_font};margin:0}}a{{color:#f0577a}}img{{max-width:100%;height:auto}}</style></head><body>{body}</body></html>");
     }
     format!("<!doctype html><html><head><meta charset=utf-8>{csp}<base target=_blank><style>body{{margin:{margin}px;font-family:'Segoe UI',sans-serif;font-size:14px;color:#111;background:#fff;word-wrap:break-word}}pre{{white-space:pre-wrap;font-family:{pre_font}}}img{{max-width:100%;height:auto}}</style></head><body>{body}</body></html>")
 }
 
-fn rect(x: f32, y: f32, w: f32, h: f32) -> wry::Rect {
-    wry::Rect {
-        position: wry::dpi::LogicalPosition::new(x as f64, y as f64).into(),
-        size: wry::dpi::LogicalSize::new(w.max(1.0) as f64, h.max(1.0) as f64).into(),
-    }
-}
-
 fn sync_webview(ui: &AppWindow) {
-    let r = rect(ui.get_bx(), ui.get_by(), ui.get_bw(), ui.get_bh());
-    let vis = ui.get_body_visible();
     // light renderer: re-layout when the reading pane width changes
     if ui.get_render_mode() == 1 && ui.get_current_mail() != "" {
         let w = ui.get_bw();
         if (LITE_W.with(|x| x.get()) - w).abs() > 4.0 && w > 50.0 { render_current(ui); }
     }
-    WV.with(|w| {
-        let mut w = w.borrow_mut();
-        if w.is_none() {
-
-
-            let html = PENDING.with(|p| p.borrow_mut().take()).unwrap_or_else(|| wrap_html(""));
-            match wry::WebViewBuilder::new()
-                .with_html(html)
-                .with_background_color(wv_bg())
-                .with_bounds(r)
-                .with_visible(vis)
-                .with_devtools(false)
-                .with_navigation_handler(|url| {
-                    if url.starts_with("http") { oauth::open_browser(&url); false } else { true }
-                })
-                .build_as_child(&ui.window().window_handle())
-            {
-                Ok(v) => { let _ = v.focus_parent(); *w = Some(v); }
-                Err(_) => {}
-            }
-        } else if let Some(v) = &*w {
-            let _ = v.set_bounds(r);
-            // keep keyboard focus in the native UI while the email view is hidden
-            if WV_VISIBLE.with(|x| x.replace(vis)) != vis && !vis { let _ = v.focus_parent(); }
-            let _ = v.set_visible(vis);
-        }
-    });
+    mailview::sync(ui);
 }
 
 type Shared = Arc<Mutex<Option<Arc<jmap::Client>>>>;
@@ -257,28 +255,6 @@ thread_local! { static SERVER_DEBOUNCE: slint::Timer = slint::Timer::default(); 
 thread_local! { static TEMPLATES: std::cell::RefCell<Vec<Value>> = const { std::cell::RefCell::new(Vec::new()) }; }
 thread_local! { static THREAD_ID: std::cell::RefCell<Option<String>> = const { std::cell::RefCell::new(None) }; }
 
-/// Load the open message's conversation (unless threading is turned off, like Bulwark's disableThreading).
-fn load_thread(w: slint::Weak<AppWindow>, c: Arc<jmap::Client>, id: String) {
-    if settings::Settings::load().bool("disableThreading", false) { return; }
-    std::thread::spawn(move || {
-        let Ok(mut list) = c.thread_emails(unified::real_id(&id)) else { return };
-        list.sort_by_key(|m| m["receivedAt"].as_str().unwrap_or("").to_string());
-        let tid = list.first().and_then(|m| m["threadId"].as_str().map(String::from));
-        let rows: Vec<ThreadMsg> = list.iter().map(|m| ThreadMsg {
-            id: unified::same_source(&id, m["id"].as_str().unwrap_or("")).into(),
-            sender: mail::sender(m).into(),
-            date: mail::parse_time(&m["receivedAt"]).map(|t| t.format("%d %b %H:%M").to_string()).unwrap_or_default().into(),
-            preview: mail::clean_preview(m["preview"].as_str().unwrap_or("")).into(),
-            current: m["id"] == unified::real_id(&id),
-            unread: m["keywords"]["$seen"].as_bool() != Some(true),
-        }).collect();
-        let _ = w.upgrade_in_event_loop(move |u| {
-            if u.get_current_mail().as_str() != id { return; }
-            THREAD_ID.with(|t| *t.borrow_mut() = tid);
-            u.set_thread_msgs(ModelRc::new(VecModel::from(rows)));
-        });
-    });
-}
 thread_local! {
     /// Client of the account the open message belongs to (unified inbox) and of the open composer.
     static READER_CLIENT: std::cell::RefCell<Option<Arc<jmap::Client>>> = const { std::cell::RefCell::new(None) };
@@ -649,6 +625,7 @@ fn main() -> Result<(), slint::PlatformError> {
         }
         oauth::forget();
         oauth::forget_account(&u.get_account());
+        bodycache::with(|b| b.clear());
         unified::clear();
         u.set_accounts(accounts_model());
         REMEMBER_OAUTH.store(false, std::sync::atomic::Ordering::SeqCst);
@@ -732,133 +709,8 @@ fn main() -> Result<(), slint::PlatformError> {
 
     let w = ui.as_weak();
     let st = state.clone();
-    ui.on_open_mail(move |id| {
-        let Some(c) = client_for(&st, &id) else { return };
-        READER_CLIENT.with(|r| *r.borrow_mut() = Some(c.clone()));
-        let u = w.unwrap();
-        if settings::Settings::load().prefs.get("markAsReadDelay").and_then(|v| v.as_i64()).unwrap_or(0) == 0 { mail::mark_read_local(&u, &id); }
-        u.set_plugin_rows(ModelRc::default());
-        // keep the conversation strip when moving within the same thread
-        let same_thread = mail::email(&id).and_then(|m| m["threadId"].as_str().map(String::from)) == THREAD_ID.with(|t| t.borrow().clone());
-        let shared = mail::shared_account(&id);
-        if !same_thread { u.set_thread_msgs(ModelRc::default()); }
-        u.set_attachments(ModelRc::default());
-        u.set_r_to("".into());
-        u.set_r_email("".into());
-        u.set_r_subject("".into());
-        u.set_spam_verdict("".into());
-        u.set_spam_detail("".into());
-        u.set_ai_result("".into());
-        REPLY.with(|r| *r.borrow_mut() = None);
-        u.set_r_from("".into());
-        u.set_r_date("".into());
-        CUR.with(|c| *c.borrow_mut() = None);
-        lite::clear();
-        u.set_images_blocked(false);
-        u.set_lite_height(0.0);
-        u.set_r_body("Loading…".into());
-        show_html(wrap_html("<p style=\"color:#888\">Loading…</p>"));
-        let w = w.clone();
-        let id = id.to_string();
-        std::thread::spawn(move || {
-            let real = unified::real_id(&id).to_string();
-            let res = c.email_body(&real).map(|mut m| {
-                inline_cid_images(&c, &mut m);
-                // a group inbox message: replies must not mark the login's own message of that id
-                if let Some(a) = &shared { m["__jmap"] = json!(a); }
-                m
-            });
-            // Bulwark markAsReadDelay (ms): 0 = instantly, N = after N ms if still open, -1 = never
-            let delay = settings::Settings::load().prefs.get("markAsReadDelay").and_then(|v| v.as_i64()).unwrap_or(0);
-            if delay >= 0 && res.as_ref().is_ok_and(|m| m["keywords"]["$seen"].as_bool() != Some(true)) {
-                let (c3, id3, w3, real3) = (c.clone(), id.clone(), w.clone(), real.clone());
-                std::thread::spawn(move || {
-                    std::thread::sleep(std::time::Duration::from_millis(delay as u64));
-                    let still = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
-                    let (s2, i2) = (still.clone(), id3.clone());
-                    let _ = w3.upgrade_in_event_loop(move |u| s2.store(u.get_current_mail().as_str() == i2, std::sync::atomic::Ordering::SeqCst));
-                    std::thread::sleep(std::time::Duration::from_millis(100));
-                    if delay == 0 || still.load(std::sync::atomic::Ordering::SeqCst) {
-                        let _ = c3.set_keyword(&[real3], "$seen", true);
-                        let _ = w3.upgrade_in_event_loop(move |u| mail::mark_read_local(&u, &id3));
-                    }
-                });
-            }
-            let c2 = c.clone();
-            let w2 = w.clone();
-            let _ = w.upgrade_in_event_loop(move |u| {
-                if u.get_current_mail().as_str() != id { return; }
-                match res {
-                    Ok(m) => {
-                        let f = &m["from"][0];
-                        if m["keywords"]["$draft"].as_bool() == Some(true) {
-                            compose::open_draft(&u, c2.clone(), &m);
-                        }
-                        let from = mail::sender(&m);
-                        let email = f["email"].as_str().unwrap_or("").to_string();
-                        u.set_r_email(email.clone().into());
-                        u.set_r_initials(initials(&from).into());
-                        u.set_r_color(mail::tint(&from));
-                        u.set_r_flagged(m["keywords"]["$flagged"].as_bool() == Some(true));
-                        let names = |k: &str| m[k].as_array().map(|a| a.iter().map(|x| {
-                            let e = x["email"].as_str().unwrap_or("");
-                            if e.eq_ignore_ascii_case(&c2.username) || MY_ADDRS.with(|a| a.borrow().iter().any(|x| x.eq_ignore_ascii_case(e))) { "me".to_string() } else { x["name"].as_str().filter(|n| !n.is_empty()).unwrap_or(e).to_string() }
-                        }).collect::<Vec<_>>().join(", ")).unwrap_or_default();
-                        let mut to = names("to");
-                        let cc = names("cc");
-                        if !cc.is_empty() { to = format!("{to}  ·  Cc: {cc}"); }
-                        u.set_r_to(to.into());
-                        let hide_inline = settings::Settings::load().bool("hideInlineImageAttachments", true);
-                        let atts: Vec<Value> = m["attachments"].as_array().cloned().unwrap_or_default().into_iter()
-                            .filter(|a| !(hide_inline && mail::is_inline_image(a)))
-                            .collect();
-                        let rows: Vec<Att> = atts.iter().enumerate().map(|(i, a)| Att {
-                            name: a["name"].as_str().unwrap_or("attachment").into(),
-                            size: human_size(a["size"].as_u64().unwrap_or(0)).into(),
-                            index: i as i32,
-                        }).collect();
-                        u.set_attachments(ModelRc::new(VecModel::from(rows)));
-                        CUR_MSG.with(|x| *x.borrow_mut() = Some((m.clone(), atts)));
-                        load_thread(w2.clone(), c2.clone(), id.clone());
-                        u.set_r_subject(SharedString::from(m["subject"].as_str().unwrap_or("(no subject)")));
-                        u.set_r_from(from.into());
-                        u.set_r_date(parse_time(&m["receivedAt"]).map(|t| t.format("%a %d %b %Y, %H:%M").to_string()).unwrap_or_default().into());
-                        {
-                            let (html, text) = body_text(&m);
-                            let is_html = m["htmlBody"].as_array().map(|a| a.iter().any(|p| p["type"] == "text/html")).unwrap_or(false);
-                            let html = (is_html && !html.is_empty()).then_some(html);
-                            let remote = html.as_deref().is_some_and(has_remote_images);
-                            let allow = u.get_auto_images();
-                            CUR.with(|c| *c.borrow_mut() = Some(Current { html, text, remote, allow }));
-                            render_current(&u);
-                        }
-                        let (_, text) = body_text(&m);
-                        let rt = (
-                            f["email"].as_str().unwrap_or("").to_string(),
-                            m["subject"].as_str().unwrap_or("").to_string(),
-                            m["messageId"][0].as_str().map(String::from),
-                            text,
-                            u.get_r_date().to_string() + ", " + &u.get_r_from(),
-                        );
-                        REPLY.with(|r| *r.borrow_mut() = Some(rt));
-                        let dis = disabled_plugins();
-                        let rows = PLUGINS.with(|p| plugins::email_details(&p.borrow(), &dis, &m));
-                        u.set_plugin_rows(ModelRc::new(VecModel::from(rows.into_iter().map(|(label, value, tone)| PRow { label: label.into(), value: value.into(), tone: tone.into() }).collect::<Vec<_>>())));
-                        let spam_plugin = PLUGINS.with(|p| p.borrow().iter().any(|x| x.id == "spam-score")) && !dis.iter().any(|d| d == "spam-score");
-                        let headers = m["headers"].as_array().cloned().unwrap_or_default();
-                        if let Some(sp) = spam::analyze(&headers).filter(|_| !spam_plugin) {
-                            if sp.verdict != "clean" || u.get_spam_show_clean() {
-                                u.set_spam_verdict(sp.verdict.into());
-                                u.set_spam_detail(sp.detail.into());
-                            }
-                        }
-                        load_mailboxes(w2, c2, false);
-                    }
-                    Err(e) => show_html(wrap_html(&esc(&format!("Could not load message: {e}")))),
-                }
-            });
-        });
-    });
+    reader::SHARED.with(|s| *s.borrow_mut() = Some(state.clone()));
+    ui.on_open_mail(move |id| reader::open(&w.unwrap(), &st, id.to_string()));
 
     let cfg = Arc::new(Mutex::new(ai::Config::load()));
     ui.set_spam_show_clean(cfg.lock().unwrap().show_clean_spam);
@@ -1649,7 +1501,7 @@ fn main() -> Result<(), slint::PlatformError> {
                 compose::open(&u, c, kind, Some(&msg));
             }
             "print" => {
-                let printed = u.get_render_mode() == 0 && WV.with(|v| v.borrow().as_ref().map(|v| v.print().is_ok()).unwrap_or(false));
+                let printed = u.get_render_mode() == 0 && mailview::print();
                 if !printed {
                     if let Some(h) = CUR.with(|c| c.borrow().as_ref().map(|c| c.html.clone().unwrap_or_else(|| format!("<pre>{}</pre>", esc(&c.text))))) {
                         let p = std::env::temp_dir().join("barbican-print.html");
@@ -1723,6 +1575,8 @@ fn main() -> Result<(), slint::PlatformError> {
     now_timer.start(slint::TimerMode::Repeated, std::time::Duration::from_secs(30), move || {
         if let Some(u) = w.upgrade() { set_now(&u); }
     });
+    let w = ui.as_weak();
+    ui.on_webview_sync(move || { if let Some(u) = w.upgrade() { mailview::sync(&u); } });
     let w = ui.as_weak();
     let timer = slint::Timer::default();
     timer.start(slint::TimerMode::Repeated, std::time::Duration::from_millis(50), move || {
@@ -1970,9 +1824,12 @@ pub fn apply_theme(ui: &AppWindow) {
 pub fn set_theme_dark(ui: &AppWindow, dark: bool) {
     // the email view paints this colour before a message loads; keep it in step with the
     // theme so opening a message does not flash white
-    DARK.with(|d| d.set(dark));
+    let changed = DARK.with(|d| d.replace(dark)) != dark;
     WV.with(|w| if let Some(v) = &*w.borrow() { let _ = v.set_background_color(wv_bg()); });
     ui.global::<Theme>().set_dark(dark);
+    // the open message's page follows (plain text and the reader are themed); swapped in, no reload
+    if changed && ui.get_current_mail() != "" { render_current(ui); }
+    if changed && ui.get_current_mail() == "" { ui.set_body_bg(mailview::color(mailview::reader_bg())); }
 }
 
 

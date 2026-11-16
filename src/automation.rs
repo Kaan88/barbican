@@ -21,6 +21,8 @@
 //!                        and meta.json land in DIR when it ends; `burst-status` says when.
 //!                        Analyse with tools/flicker.py)
 //!   theme dark|light     (switch the theme in memory only; the settings file is not written)
+//!   cache-clear          (empty the body cache, for cold-open measurements)
+//!   cache                (body cache size and whether the body view's shell is up)
 //!   load-images          (the reader's "Load images" button: re-render the open message)
 //!   discard-composer     (close the composer without saving, like its Discard button)
 //!   resize W H           (resize the window, logical px)
@@ -259,6 +261,11 @@ fn run_cmd(u: &AppWindow, line: &str) -> String {
                 Some(f) => match write_png(path, f.w, f.h, &f.rgba) { Ok(()) => format!("saved {}x{}", f.w, f.h), Err(e) => format!("error {e}") },
                 None => "error capture failed".into(),
             }
+        }
+        "cache-clear" => { crate::bodycache::with(|c| c.clear()); "ok".into() }
+        "cache" => {
+            let (n, b) = crate::bodycache::with(|c| (c.len(), c.bytes()));
+            format!("bodies {n} bytes {b} shell {}", crate::mailview::shell_ready())
         }
         "load-images" => { u.invoke_load_images(); "ok".into() }
         "discard-composer" => { u.invoke_discard_draft(); "ok".into() }

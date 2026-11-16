@@ -554,6 +554,7 @@ pub fn load_list(w: slint::Weak<AppWindow>, c: Arc<Client>, filter: Value) {
                 }
             });
             rebuild_list(&u);
+            crate::reader::prefetch_top(&u);
         });
     });
 }
@@ -636,6 +637,8 @@ pub fn sync(w: slint::Weak<AppWindow>, c: Arc<Client>) {
                     Ok(Some(d)) => {
                         let st = &mut *l;
                         crate::jmap::apply_list_delta(&mut st.emails, &mut st.total, &mut st.threads, &d);
+                        // cached bodies take the new keywords; what left the list or a changed thread is re-read
+                        crate::bodycache::with(|b| b.on_sync(&c.state_key(), d.emails.iter(), &d.removed, &d.destroyed_threads));
                         let ids: HashSet<String> = st.emails.iter().filter_map(|m| m["id"].as_str().map(String::from)).collect();
                         st.checked.retain(|i| ids.contains(i));
                         st.sync = Some(SyncStates { account: s.account.clone(), query: d.query_state, email: d.email_state, thread: d.thread_state });

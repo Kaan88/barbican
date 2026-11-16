@@ -1,7 +1,7 @@
 """Run the flicker scenarios against a Barbican started with BARBICAN_AUTOMATION=1 and print
 (and save) the tools/flicker.py summary of each.
 
-Usage: python tools/scenarios.py --port N --out RESULTS.json --dir FRAMES_DIR [--only a,b] [--label L]
+Usage: python tools/scenarios.py --port N --out RESULTS.json --dir FRAMES_DIR [--only a,b] [--modes light,dark] [--search TEXT]
 
 Each scenario: setup commands, then a frame burst (whole window incl. the WebView) while the
 action commands run. Coordinates are logical px for the default 1781x900 window with the
@@ -14,13 +14,14 @@ sys.path.insert(0, os.path.dirname(__file__))
 import flicker  # noqa: E402
 
 ROW = lambda i: f"click 450 {118 + 82 * i}"  # noqa: E731
-BASE = ["theme {mode}", "resize 1781 900", "render-mode 0", "discard-composer", "key Escape", "click 22 87", "key Escape", "sleep 0.5"]
+BASE = ["theme {mode}", "resize 1781 900", "render-mode 0", "discard-composer", "click 22 87", ROW(0), "sleep 0.3", "key Escape", "sleep 0.5"]
 READ = BASE + [ROW(0), "sleep 1.6"]
 
 # name: (setup, action, burst ms). Open/close transitions are separate bursts so that each
 # burst's start and end pictures are the two states the transition is between.
 SCENARIOS = {
-    "open_first":     (BASE + ["sleep 0.6"], [ROW(0)], 1800),
+    "open_first":     (BASE + ["cache-clear", "sleep 0.3"], [ROW(0)], 1800),
+    "open_again":     (BASE + ["sleep 0.3"], [ROW(0)], 1500),
     "switch_key":     (READ, ["key j"], 1800),
     "switch_click":   (READ, [ROW(2)], 1800),
     "switch_back":    (BASE + [ROW(1), "sleep 1.4", ROW(0), "sleep 1.6"], [ROW(1)], 1500),
@@ -84,6 +85,11 @@ def main():
     modes = opt("--modes", "light,dark").split(",")
     names = only.split(",") if only else list(SCENARIOS)
     d = Driver(port)
+    search = opt("--search")
+    if search:
+        # pin the list to messages other test runs do not keep adding to
+        for c in ["click 22 87", "click 420 24", f"type {search}", "key Enter", "sleep 2", ROW(0), "sleep 1"]:
+            d.cmd(c)
     res = json.load(open(out)) if os.path.exists(out) else {}
     for mode in modes:
         d.cmd(f"theme {mode}")
