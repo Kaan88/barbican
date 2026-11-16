@@ -154,6 +154,16 @@ export component Scrim inherits Rectangle {
     }
 }
 
+/// An incoming view (settings, an admin page): content is on screen at once, only its opacity
+/// settles from 0.45 to 1 over `Motion.view`. Input is live from the first frame.
+export component ViewIn inherits Rectangle {
+    opacity: 0.45;
+    animate opacity { duration: Motion.view; easing: Ease.enter; }
+    init => {
+        self.opacity = 1;
+    }
+}
+
 /// A tooltip surface: waits `Motion.tip-delay` on hover, then fades in. Removed instantly.
 export component Tip inherits Rectangle {
     opacity: 0;

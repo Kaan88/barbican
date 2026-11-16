@@ -2,7 +2,7 @@
 // sparklines and natively drawn charts. Chart geometry comes from Rust as SVG path
 // commands in a 1000 x 100 viewbox (y = 0 at the top).
 import { ScrollView } from "std-widgets.slint";
-import { Theme, Icons, SIcon } from "theme.slint";
+import { Theme, Icons, SIcon, Motion, Ease, PopIn, Tip } from "theme.slint";
 
 export struct DashBar {
     label: string,
@@ -122,7 +122,7 @@ component PanelView inherits Rectangle {
             width: 14px;
             ita := TouchArea { }
             Glyph { text: "\u{E946}"; font-size: 11px; color: dim; }
-            if ita.has-hover: Rectangle {
+            if ita.has-hover: Tip {
                 x: 18px;
                 y: -4px;
                 width: tip.preferred-width + 16px;
@@ -426,10 +426,12 @@ component PillTab inherits Rectangle {
     width: lbl.preferred-width + 22px;
     border-radius: Theme.nordic ? self.height / 2 : 12px;
     background: active ? Theme.sel : ta.has-hover ? Theme.tile2 : transparent;
+    animate background { duration: Motion.fast; easing: Ease.enter; }
     ta := TouchArea { clicked => { root.clicked(); } }
     lbl := Text {
         text: label;
         color: active ? Theme.sel-text : ta.has-hover ? Theme.text : Theme.dim;
+        animate color { duration: Motion.fast; easing: Ease.enter; }
         font-size: 12.5px;
         font-weight: 600;
     }
@@ -507,6 +509,7 @@ export component AdminDashboard inherits Rectangle {
                 y: 1px;
                 border-radius: Theme.nordic ? 18px : 13px;
                 background: rba.has-hover ? Theme.tile2 : (Theme.nordic ? Theme.tile2 : Theme.tile);
+                animate background { duration: Motion.fast; easing: Ease.enter; }
                 border-width: 1px;
                 border-color: Theme.line;
                 rba := TouchArea { clicked => { root.range-open = !root.range-open; } }
@@ -525,6 +528,7 @@ export component AdminDashboard inherits Rectangle {
                 y: 1px;
                 border-radius: Theme.round(self.height);
                 background: rfa.has-hover ? Theme.tile2 : (Theme.nordic ? Theme.tile2 : Theme.tile);
+                animate background { duration: Motion.fast; easing: Ease.enter; }
                 border-width: 1px;
                 border-color: Theme.line;
                 rfa := TouchArea { clicked => { root.load(root.tab, root.range); } }
@@ -556,7 +560,8 @@ export component AdminDashboard inherits Rectangle {
 
     if root.range-open: Rectangle {
         TouchArea { clicked => { root.range-open = false; } }
-        Rectangle {
+        PopIn {
+            transform-origin: { x: self.width, y: 0 };
             x: root.width - root.inset - 36px - 8px - 170px;
             y: root.inset + 44px;
             width: 170px;
@@ -573,6 +578,7 @@ export component AdminDashboard inherits Rectangle {
                     height: 30px;
                     border-radius: Theme.nordic ? 15px : 9px;
                     background: root.range == i ? Theme.sel : ia.has-hover ? Theme.hover : transparent;
+                    animate background { duration: Motion.fast; easing: Ease.enter; }
                     ia := TouchArea { clicked => { root.range = i; root.range-open = false; root.load(root.tab, root.range); } }
                     Text { x: 10px; text: r; color: root.range == i ? Theme.sel-text : Theme.text; font-size: 12.5px; font-weight: root.range == i ? 600 : 400; vertical-alignment: center; height: parent.height; }
                 }

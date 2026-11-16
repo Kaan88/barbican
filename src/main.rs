@@ -902,7 +902,7 @@ fn main() -> Result<(), slint::PlatformError> {
             let p = pf.lock().unwrap();
             let c = cf.lock().unwrap().clone();
             let adv = u.get_show_advanced_settings();
-            u.set_settings_tabs(p.tabs(adv));
+            listsync::sync_into(&u.get_settings_tabs(), p.tab_models(adv), |t| t.id.clone(), |a, b| a == b, |m| u.set_settings_tabs(m));
             let q = u.get_settings_query().to_string();
             let rows = if q.trim().is_empty() {
                 let tab = u.get_settings_tab().to_string();
@@ -916,7 +916,10 @@ fn main() -> Result<(), slint::PlatformError> {
                 u.set_settings_title(format!("Search: {q}").into());
                 p.search(q.trim(), &c, &acc(), adv)
             };
-            u.set_settings_rows(ModelRc::new(VecModel::from(rows)));
+            // in place: toggling a switch or typing keeps the other rows (and the scroll position)
+            listsync::sync_into(&u.get_settings_rows(), rows, |r| format!("{}{}{}", r.kind, r.key, r.label),
+                |a, b| a.kind == b.kind && a.key == b.key && a.label == b.label && a.desc == b.desc && a.index == b.index && a.on == b.on && a.text == b.text && listsync::rows_eq(&a.options, &b.options),
+                |m| u.set_settings_rows(m));
             u.set_ai_hidden(c.hidden);
             u.set_render_mode(c.render_mode);
             u.set_auto_images(c.remote_images);
