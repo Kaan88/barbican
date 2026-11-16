@@ -122,6 +122,22 @@ internal sealed partial class Scenario
         Check("shell-up (NavigateToString + postMessage 'shell')", up, $"{Clock.Ms(t0, Clock.Now):F0} ms after EnsureCoreWebView2Async started");
         if (!up)
         {
+            foreach (var js in new[] { "typeof window.__bb", "typeof window.chrome", "typeof (window.webkit && window.webkit.messageHandlers)", "document.readyState", "location.href" })
+            {
+                string r;
+                try
+                {
+                    r = await _shell.EvalAsync(js).WaitAsync(TimeSpan.FromSeconds(5));
+                }
+                catch (Exception e)
+                {
+                    r = e.GetType().Name;
+                }
+
+                _report.Notes.Add($"diagnostic {js} -> {r}");
+                Log($"diagnostic {js} -> {r}");
+            }
+
             return;
         }
 

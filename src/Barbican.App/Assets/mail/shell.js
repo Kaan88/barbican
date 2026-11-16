@@ -17,8 +17,13 @@
 // host blocks new windows and routes http(s) to the browser and mailto: to the composer.
 (function () {
   var cur = null, nxt = null, seq = 0;
+  // WebView2 (Windows) exposes chrome.webview; Uno's WebKitGTK view (Linux) exposes no shim, only
+  // the script message handler it registers as "unoWebView" (spike S2, docs/adr/0005).
   function post(m) {
-    try { window.chrome.webview.postMessage(m); } catch (e) { }
+    try {
+      if (window.chrome && window.chrome.webview) { window.chrome.webview.postMessage(m); return; }
+      window.webkit.messageHandlers.unoWebView.postMessage(m);
+    } catch (e) { }
   }
   // The view owns the OS keyboard focus once it was clicked: pass the app's shortcuts back.
   function kd(e) {
@@ -104,6 +109,7 @@
     print: function () { if (cur) cur.contentWindow.print(); }
   };
   try {
+    // Web messages from the host: WebView2 only (Uno 6.7 implements no PostWebMessageAs*).
     window.chrome.webview.addEventListener('message', function (e) {
       var m = e.data;
       if (typeof m === 'string') { try { m = JSON.parse(m); } catch (x) { return; } }

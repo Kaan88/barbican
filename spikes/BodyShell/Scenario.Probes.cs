@@ -99,21 +99,26 @@ internal sealed partial class Scenario
 
     private async Task ScriptProbesAsync()
     {
-        const string Evil = "<script>parent.chrome.webview.postMessage('evil-inline')</script>" +
-            "<img src=\"data:,\" onerror=\"parent.chrome.webview.postMessage('evil-handler')\">" +
-            "<a id=x href=\"javascript:parent.chrome.webview.postMessage('evil-href')\">x</a>";
+        // A script that ran leaves a mark in the shell (same origin) and posts a message, on either head.
+        static string Mark(string id) => $"parent.__evil=(parent.__evil||0)+1;try{{(parent.chrome&&parent.chrome.webview)?parent.chrome.webview.postMessage('{id}'):parent.webkit.messageHandlers.unoWebView.postMessage('{id}')}}catch(e){{}}";
+        var evil = $"<script>{Mark("evil-inline")}</script>" +
+            $"<img src=\"data:,\" onerror=\"{Mark("evil-handler")}\">" +
+            $"<a id=x href=\"javascript:{Mark("evil-href")}\">x</a>";
 
         // A frame without our script: sandbox without allow-scripts and script-src 'none'.
-        await ShowAsync(Page(Evil, images: false), "#ffffff", false, ShellHost.Transport.Script, A, "evil1");
+        await ShowAsync(Page(evil, images: false), "#ffffff", false, ShellHost.Transport.Script, A, "evil1");
         await _shell.EvalAsync("(function(){try{var f=document.querySelectorAll('iframe');f[f.length-1].contentDocument.getElementById('x').click()}catch(e){}})()");
         await Task.Delay(1000);
-        Check("mail scripts, inline handlers and javascript: links do not run (sandbox + CSP)", !SawMessage("evil"), SawMessage("evil") ? "a mail script ran" : "no script of the mail ran");
+        var marks = await _shell.EvalAsync("String(window.__evil||0)");
+        Check("mail scripts, inline handlers and javascript: links do not run (sandbox + CSP)", !SawMessage("evil") && marks == "\"0\"", $"messages: {(SawMessage("evil") ? "a mail script posted" : "none")}, marks in the shell: {marks}");
 
         // A frame with our hashed script (sandbox allows scripts): an unhashed inline script in the mail is still refused.
-        var dark = MailDocument.Dark("<div style=\"background:#fff;color:#111;padding:20px\">dark + injected script</div><script>parent.chrome.webview.postMessage('evil-csp')</script>", _darkJs);
+        var dark = MailDocument.Dark($"<div style=\"background:#fff;color:#111;padding:20px\">dark + injected script</div><script>{Mark("evil-csp")}</script>", _darkJs);
         var ms = await ShowAsync(dark, MailDocument.DarkBackground, true, ShellHost.Transport.Script, A, "evil2");
         await Task.Delay(1000);
-        Check("only the hashed script runs in a script-enabled frame", ms is not null && !SawMessage("evil-csp"), ms is null ? "dark page never became ready" : SawMessage("evil-csp") ? "the injected script ran" : $"dark pass ran (ready in {ms:F0} ms), injected script refused");
+        marks = await _shell.EvalAsync("String(window.__evil||0)");
+        var ran = SawMessage("evil-csp") || marks != "\"0\"";
+        Check("only the hashed script runs in a script-enabled frame", ms is not null && !ran, ms is null ? "dark page never became ready" : ran ? $"the injected script ran (marks {marks})" : $"dark pass ran (ready in {ms:F0} ms), injected script refused");
     }
 
     private async Task NavigationProbesAsync()
