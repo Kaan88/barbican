@@ -27,6 +27,16 @@ Still open:
 - IME is not verified with a real IME (the hidden automation channel cannot inject composition events); the pre-edit text covers the text after the caret instead of pushing it aside.
 - Images referenced as `cid:` in a re-opened draft show as placeholders.
 
+## Done: motion pass (design/MOTION.md)
+Rules: input is never gated by animation; feedback 80-120 ms, enter 120-180 ms ease-out, exit <= 100 ms or instant, view switch 110 ms fade of the incoming view; nothing over 200 ms; reduce motion (`Motion.reduce`) makes every duration 0; no continuous animations; lists update incrementally (`src/listsync.rs`) instead of replacing models. Tokens `Motion` / `Ease`, blocks `PopIn`, `Scrim`, `Tip`, `ViewIn` (calendar views), `PageIn` (settings, admin pages). Probe: `tools/motion.py` (+ `tools/motion-layout.json`, Bento 1400x900), automation `probe-start` / `probe-stop` / `every` / `motion reduce|rapid`.
+Measured after the merge (hidden window, Bento dark and Nordic light): input to first frame 7-10 ms median in every scenario, no frame gap over 14 ms inside an animation, idle 0 frames, reduce motion settles in about 20 ms.
+Still open:
+- Inserted and removed list rows do not animate; the selection highlight does not glide; skeletons only-after-150 ms are not done.
+- Context panel open/close and hover overlays on task rows, calendar list rows and the hover preview still snap.
+- `Settings::load` / `A11y::load` still read the file on the UI thread (`open_mail`, `rebuild_list`); `dashboard.rs` chart models are still replaced whole.
+- Calendar Tasks view hides the view switcher (no way back except the d / w / m keys): not part of the motion pass.
+- The probe counts a data-arrival repaint ~40 ms after an animation as a gap (app switch to calendar, calendar view switch): not a dropped frame.
+
 ## Next: distribution (Windows + Linux)
 - **CI release workflow** (GitHub Actions): on tag `v*`, build and test on `windows-latest` and `ubuntu-latest`, attach artifacts to a GitHub Release, generate checksums and sign them.
 - **Package types**
