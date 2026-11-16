@@ -536,10 +536,11 @@ component FileNavRow inherits Rectangle {
         pointer-event(ev) => { if ev.button == PointerEventButton.right && ev.kind == PointerEventKind.up { root.context(self.absolute-position.x + self.mouse-x, self.absolute-position.y + self.mouse-y); } }
     }
     HorizontalLayout {
-        padding-left: (Theme.nordic ? 10px : 6px) + max(0, n.depth - 1) * 14px;
+        // top-level rows line up with the section headers; tree folders sit one level (or more) deeper
+        padding-left: (Theme.nordic ? 6px : 1px) + (n.kind == "folder" ? n.depth * 14px : 0px);
         padding-right: Theme.nordic ? 12px : 9px;
         spacing: 6px;
-        Rectangle {
+        if n.kind == "folder": Rectangle {
             width: 16px;
             fca := TouchArea { enabled: n.count != ""; clicked => { root.chevron-clicked(); } }
             if n.count != "": SIcon { commands: n.count == "\u{E70D}" ? Icons.chevron-down : Icons.chevron-right; size: 11px; weight: 2.2; tint: fca.has-hover ? Theme.text : Theme.faint; }
@@ -3602,7 +3603,8 @@ export component AppWindow inherits Window {
                                         visible: n.kind == "keyword" || n.kind == "uncat";
                                         x: mod(n.depth, 2) * (parent.cw + 6px);
                                         y: floor(n.depth / 2) * (parent.ch + 6px);
-                                        width: parent.cw;
+                                        // a lone last chip on its row takes the full width
+                                        width: mod(root.ct-cats, 2) == 1 && n.depth == root.ct-cats - 1 ? parent.width : parent.cw;
                                         height: parent.ch;
                                         border-radius: self.height / 2;
                                         border-width: on ? 0px : 1px;
@@ -3618,8 +3620,9 @@ export component AppWindow inherits Window {
                                         HorizontalLayout {
                                             padding-left: 10px;
                                             padding-right: 8px;
-                                            spacing: 4px;
-                                            Text { text: n.label; color: on ? Theme.sel-text : Theme.body; font-size: 12px * Prefs.fs; font-weight: on ? 600 : 400; font-italic: n.kind == "uncat"; vertical-alignment: center; overflow: elide; horizontal-stretch: 1; }
+                                            spacing: 6px;
+                                            VerticalLayout { alignment: center; Rectangle { width: 8px; height: 8px; border-radius: 3px; background: n.kind == "uncat" ? Theme.track : Theme.faint; } }
+                                            Text { text: n.label; color: on ? Theme.sel-text : Theme.body; font-size: 12px * Prefs.fs; font-weight: on ? 600 : 400; vertical-alignment: center; overflow: elide; horizontal-stretch: 1; }
                                             Text { text: n.count; color: on ? Theme.sel-text : Theme.faint; font-size: 11px * Prefs.fs; vertical-alignment: center; }
                                         }
                                     }
@@ -3632,7 +3635,6 @@ export component AppWindow inherits Window {
                                             property <string> key: n.kind == "uncat" ? "uncat" : "kw:" + n.id;
                                             label: n.label;
                                             count: n.count;
-                                            italic: n.kind == "uncat";
                                             selected: root.ct-filter == key;
                                             dotted: true;
                                             dot: n.kind == "uncat" ? Theme.track : Theme.faint;
@@ -3680,7 +3682,7 @@ export component AppWindow inherits Window {
                             padding-right: 12px;
                             padding-bottom: Theme.nordic ? 14px : 10px;
                             Text { text: "Contacts"; color: Theme.text; font-size: (Theme.nordic ? 28px : 24px) * Prefs.fs; font-weight: Theme.nordic ? 800 : 700; letter-spacing: Theme.nordic ? -0.56px : -0.3px; horizontal-stretch: 1; vertical-alignment: bottom; }
-                            Text { text: root.contacts.length; color: Theme.dim; font-size: 12px * Prefs.fs; vertical-alignment: bottom; }
+                            VerticalLayout { alignment: end; padding-bottom: (Theme.nordic ? 5px : 4px) * Prefs.fs; Text { text: root.contacts.length; color: Theme.dim; font-size: 12px * Prefs.fs; } }
                         }
                         // search: tile-2 field (Bento), hairline pill (Nordic)
                         HorizontalLayout {
@@ -4115,9 +4117,13 @@ export component AppWindow inherits Window {
     // Bento: an Upload button and a places tile on the left, then the file list tile (title
     // with breadcrumbs, a toolbar, rows with squircle type tiles). Nordic: places on the ground,
     // the list in one rounded surface, pills and circles.
-    if root.app == 3: Rectangle {
+    if root.app == 3: fl-screen := Rectangle {
         x: Theme.shell-x;
         width: parent.width - Theme.shell-x;
+        // the list tile width; columns and toolbar labels drop out as it narrows
+        property <length> list-w: self.width - (Theme.nordic ? 228px : 220px) - Theme.gap - Theme.pad - (Theme.nordic ? 14px : 0px);
+        property <bool> narrow: list-w < 820px;
+        property <bool> tight: list-w < 640px;
         background: Theme.ground;
         HorizontalLayout {
             padding-top: Theme.pad;
@@ -4141,6 +4147,8 @@ export component AppWindow inherits Window {
                 Tile {
                     flat: Theme.nordic;
                     vertical-stretch: 1;
+                    max-height: fsb.preferred-height;
+                    visible: root.fl-nav.length > 0;
                     clip: true;
                     Flickable {
                         content-height: max(self.height, fsb.preferred-height);
@@ -4152,9 +4160,9 @@ export component AppWindow inherits Window {
                                 spacing: 2px;
                                 if n.header != "": Rectangle {
                                     height: 34px * Prefs.fs;
-                                    Text { x: Theme.nordic ? 16px : 11px; y: parent.height - self.height - 4px; text: n.header; color: Theme.dim; font-size: (Theme.nordic ? 12px : 11.5px) * Prefs.fs; font-weight: 700; }
+                                    Text { x: Theme.nordic ? 6px : 1px; y: parent.height - self.height - 4px; text: n.header; color: Theme.dim; font-size: (Theme.nordic ? 12px : 11.5px) * Prefs.fs; font-weight: 700; }
                                 }
-                                if n.kind == "trash": Rectangle { height: 9px; Rectangle { y: 4px; x: Theme.nordic ? 16px : 6px; width: parent.width - 2 * self.x; height: 1px; background: Theme.line; } }
+                                if n.kind == "trash": Rectangle { height: 9px; Rectangle { y: 4px; x: Theme.nordic ? 6px : 1px; width: parent.width - 2 * self.x; height: 1px; background: Theme.line; } }
                                 FileNavRow {
                                     n: n;
                                     selected: (n.kind == "root" && root.fl-cwd == "") || (n.kind != "root" && n.id == root.fl-cwd);
@@ -4169,6 +4177,7 @@ export component AppWindow inherits Window {
                         }
                     }
                 }
+                Rectangle { vertical-stretch: 1; }
             }
 
             // ---- the file list ----
@@ -4190,6 +4199,7 @@ export component AppWindow inherits Window {
                         padding-left: Theme.nordic ? 32px : 22px;
                         padding-right: Theme.nordic ? 24px : 16px;
                         spacing: 6px;
+                        if root.crumb-names.length == 0: Text { text: "My files"; color: Theme.text; font-size: (Theme.nordic ? 28px : 24px) * Prefs.fs; font-weight: Theme.nordic ? 800 : 700; letter-spacing: -0.4px; vertical-alignment: center; }
                         for n[i] in root.crumb-names: HorizontalLayout {
                             spacing: 6px;
                             if i > 0: VerticalLayout { alignment: center; SIcon { commands: Icons.chevron-right; size: 16px; weight: 2; tint: Theme.faint; } }
@@ -4206,7 +4216,7 @@ export component AppWindow inherits Window {
                         }
                         Rectangle { horizontal-stretch: 1; }
                         Text { text: root.files.length + (root.files.length == 1 ? " item" : " items"); color: Theme.dim; font-size: 12px * Prefs.fs; vertical-alignment: center; }
-                        VerticalLayout { alignment: center; IconBtn { icon: Icons.more; clicked => { root.ctx("files-bg", "", self.absolute-position.x - 160px, self.absolute-position.y + self.height + 4px); } } }
+                        VerticalLayout { alignment: center; IconBtn { icon: Icons.more; clicked => { root.ctx("files-bg", "", self.absolute-position.x + self.width - 260px, self.absolute-position.y + self.height + 4px); } } }
                     }
                     // toolbar: new folder, upload folder, upload; in the trash, empty it
                     HorizontalLayout {
@@ -4216,7 +4226,10 @@ export component AppWindow inherits Window {
                         padding-right: Theme.nordic ? 24px : 16px;
                         spacing: 8px;
                         if !root.fl-in-trash: Rectangle {
-                            width: 220px;
+                            min-width: 120px;
+                            preferred-width: 220px;
+                            max-width: 220px;
+                            horizontal-stretch: 1;
                             height: Prefs.large-targets ? 44px : (Theme.nordic ? 38px : 34px);
                             border-radius: Theme.nordic ? self.height / 2 : 12px;
                             background: Theme.nordic ? transparent : Theme.tile2;
@@ -4246,10 +4259,10 @@ export component AppWindow inherits Window {
                             }
                         }
                         if !root.fl-in-trash: ActionButton { icon: Icons.plus; label: "New folder"; clicked => { root.fl-new-folder(root.new-folder-name); root.new-folder-name = ""; } }
-                        if !root.fl-in-trash: ActionButton { icon: Icons.folder; label: "Upload folder"; clicked => { root.fl-upload-folder(); } }
+                        if !root.fl-in-trash && !fl-screen.tight: ActionButton { icon: Icons.folder; label: "Upload folder"; clicked => { root.fl-upload-folder(); } }
                         if root.fl-in-trash: Text { text: "Items in the trash can be restored to where they were."; color: Theme.dim; font-size: 12.5px * Prefs.fs; vertical-alignment: center; overflow: elide; }
                         Rectangle { horizontal-stretch: 1; }
-                        if root.fl-in-trash: ActionButton { icon: Icons.trash; label: "Empty trash"; clicked => { if root.files.length > 0 { root.ctx("files-empty", "", self.absolute-position.x - 140px, self.absolute-position.y + self.height + 4px); } } }
+                        if root.fl-in-trash && root.files.length > 0: ActionButton { icon: Icons.trash; label: "Empty trash"; clicked => { if root.files.length > 0 { root.ctx("files-empty", "", self.absolute-position.x - 140px, self.absolute-position.y + self.height + 4px); } } }
                         if !root.fl-in-trash: VerticalLayout { alignment: center; PrimaryButton { text: "Upload"; height: Prefs.large-targets ? 44px : (Theme.nordic ? 38px : 34px); clicked => { root.fl-upload(); } } }
                     }
                     // column heads
@@ -4260,8 +4273,8 @@ export component AppWindow inherits Window {
                         padding-right: (Theme.nordic ? 12px : 8px) + 12px + 3 * (Prefs.large-targets ? 32px : 24px) + 2 * 6px + 12px;
                         spacing: 12px;
                         Text { text: "Name"; color: Theme.dim; font-size: 11.5px * Prefs.fs; font-weight: 700; vertical-alignment: center; horizontal-stretch: 1; }
-                        Text { text: "Size"; color: Theme.dim; font-size: 11.5px * Prefs.fs; font-weight: 700; vertical-alignment: center; width: 90px; }
-                        Text { text: root.fl-in-trash ? "Deleted" : "Modified"; color: Theme.dim; font-size: 11.5px * Prefs.fs; font-weight: 700; vertical-alignment: center; width: 140px; }
+                        if !fl-screen.narrow: Text { text: "Size"; color: Theme.dim; font-size: 11.5px * Prefs.fs; font-weight: 700; vertical-alignment: center; width: 90px; }
+                        if !fl-screen.tight: Text { text: root.fl-in-trash ? "Deleted" : "Modified"; color: Theme.dim; font-size: 11.5px * Prefs.fs; font-weight: 700; vertical-alignment: center; width: 140px; }
                     }
                     Rectangle { height: 1px; background: Theme.line; }
                     Rectangle {
@@ -4334,8 +4347,8 @@ export component AppWindow inherits Window {
                                                 }
                                             }
                                         }
-                                        Text { text: f.size; color: Theme.dim; font-size: 12px * Prefs.fs; vertical-alignment: center; width: 90px; }
-                                        Text { text: f.modified; color: Theme.dim; font-size: 12px * Prefs.fs; vertical-alignment: center; width: 140px; }
+                                        if !fl-screen.narrow: Text { text: f.size; color: Theme.dim; font-size: 12px * Prefs.fs; vertical-alignment: center; width: 90px; }
+                                        if !fl-screen.tight: Text { text: f.modified; color: Theme.dim; font-size: 12px * Prefs.fs; vertical-alignment: center; width: 140px; }
                                         HorizontalLayout {
                                             spacing: 6px;
                                             if !f.trashed: VerticalLayout { alignment: center; HoverAction { icon: Icons.download; clicked => { root.fl-download(f.id); } } }

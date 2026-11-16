@@ -391,7 +391,7 @@ pub fn request(u: &AppWindow, kind: &str, id: &str) {
         // the Empty trash button: ask first, as Bulwark does
         "files-empty" => { t.kind = "files-bg".into(); confirm("Delete everything in the trash", "do:empty-trash") }
         "files-bg" if u.get_fl_in_trash() => vec![
-            danger(G_DELETE, "Empty trash", "", "ask:empty-trash"),
+            off(danger(G_DELETE, "Empty trash", "", "ask:empty-trash"), u.get_files().row_count() > 0),
             it(G_REFRESH, "Refresh", "", "refresh"),
         ],
         "files-bg" => vec![
