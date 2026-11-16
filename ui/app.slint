@@ -1,4 +1,7 @@
 import { AdminDashboard, DashRow, DashPanel, DashCol, DashBar } from "dashboard.slint";
+// distribution: update prompt (src/desktop.rs)
+import { UpdateBanner, UpdateState } from "update-banner.slint";
+export { UpdateState }
 export { DashRow, DashPanel, DashCol, DashBar }
 import { LineEdit, Button, ListView, ScrollView, TextEdit, ComboBox, CheckBox, Palette } from "std-widgets.slint";
 
@@ -3212,6 +3215,9 @@ export component AppWindow inherits Window {
             HoverAction { glyph: "\u{E711}"; y: 9px; clicked => { root.toast = ""; } }
         }
     }
+
+    // distribution: "Barbican x.y is ready" (src/desktop.rs, ui/update-banner.slint)
+    UpdateBanner { x: 16px; y: parent.height - self.height - 16px; dark: Theme.dark; tile: Theme.popup; line: Theme.line; text: Theme.text; dim: Theme.dim; }
 
     if show-settings: Rectangle {
         x: 45px;

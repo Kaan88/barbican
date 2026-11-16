@@ -760,15 +760,9 @@ fn remove_local(ids: &[String]) {
 /// tag:<id>, untag:<id>, move:<mailboxId>.
 thread_local! { pub static CONFIRM_BULK: std::cell::Cell<bool> = const { std::cell::Cell::new(false) }; }
 
-/// Put text on the Windows clipboard (clip.exe reads stdin).
+/// Put text on the clipboard (platform layer).
 pub fn copy_to_clipboard(text: &str) -> bool {
-    use std::io::Write;
-    let mut cmd = std::process::Command::new("clip.exe");
-    #[cfg(windows)]
-    { use std::os::windows::process::CommandExt; cmd.creation_flags(0x0800_0000); }
-    let Ok(mut child) = cmd.stdin(std::process::Stdio::piped()).spawn() else { return false };
-    let ok = child.stdin.take().is_some_and(|mut s| s.write_all(text.as_bytes()).is_ok());
-    ok && child.wait().is_ok_and(|s| s.success())
+    crate::platform::copy_text(text)
 }
 
 pub fn apply(u: &AppWindow, c: Arc<Client>, ids: Vec<String>, action: &str) {

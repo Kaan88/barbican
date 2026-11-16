@@ -155,6 +155,10 @@ impl Settings {
         for t in self.schema["tabs"].as_array().unwrap() {
             let id = t["id"].as_str().unwrap_or("");
             out.push((id.into(), t["label"].as_str().unwrap_or("").into(), t["group"].as_str().unwrap_or("").into(), t["icon"].as_str().unwrap_or("").into(), 0));
+            // distribution: the desktop app's own page (Bulwark desktop-app-settings.tsx)
+            if id == "general" {
+                out.push(("desktop".into(), "Desktop app".into(), "top".into(), "\u{E7F4}".into(), 0));
+            }
             if id == "backup" {
                 out.push(("admin".into(), "Stalwart admin".into(), "bottom".into(), "\u{E83D}".into(), 0));
             }
@@ -210,7 +214,7 @@ impl Settings {
                     // desktop: local spell checking (Windows spell checker) next to Bulwark's proofreading add-on toggle
                     if key == "proofreading" {
                         out.push(toggle("spellCheck", "Underline misspelled words",
-                            "Checks spelling on this computer with the Windows spell checker, in your writing language. Right-click a word for suggestions. Nothing is sent anywhere.",
+                            &format!("Checks spelling on this computer with {}, in your writing language. Right-click a word for suggestions. Nothing is sent anywhere.", crate::platform::spell_engine_name()),
                             self.bool("spellCheck", true)));
                     }
                 }
@@ -266,7 +270,7 @@ impl Settings {
                 out.push(row("section", "", "AI service", "Nothing goes to the AI service until you ask the assistant something."));
                 out.push(select("ai.provider", "Service", "", &["OpenAI-compatible (OpenAI, Ollama, LM Studio, vLLM)", "Anthropic"], cfg.provider));
                 out.push(text("text", "ai.base", "API address", "Ends in /v1.", &cfg.base));
-                out.push(text("password", "ai.key", "API key", "Kept in Windows Credential Manager. Ollama needs any non-empty key.", &cfg.key));
+                out.push(text("password", "ai.key", "API key", &format!("Kept in {}. Ollama needs any non-empty key.", crate::platform::keystore_name()), &cfg.key));
                 out.push(text("text", "ai.model", "Model", "Leave empty to use the default model.", &cfg.model));
                 out.push(toggle("ai.visible", "Show the assistant next to messages", "The assistant panel and the quick actions above an open message.", !cfg.hidden));
                 out.push(select("ai.actions", "Actions", "Let the assistant archive, move and mark messages, add events and contacts, and open replies for you. Ask me first shows each action for your OK; Automatic does it right away. Sending always asks.", &["Off", "Ask me first", "Automatic"], cfg.actions));
@@ -308,7 +312,7 @@ impl Settings {
             }
             "admin" => {
                 out.push(row("section", "", "Stalwart admin", "Enter an administrator API key (or admin access token) to open the Stalwart admin tab: dashboard, accounts, domains, delivery queue, logs and DMARC reports."));
-                out.push(text("password", "admin.key", "Admin API key", "Kept in Windows Credential Manager. Leave empty to hide the admin tab.", &crate::admin::key()));
+                out.push(text("password", "admin.key", "Admin API key", &format!("Kept in {}. Leave empty to hide the admin tab.", crate::platform::keystore_name()), &crate::admin::key()));
             }
             "spam" => {
                 out.push(row("section", "", "Spam Score", "Shows the spam analysis of a message from its spam headers."));
@@ -349,6 +353,8 @@ impl Settings {
                     out.push(row("section", "", "Rendering", "How the content of an email is drawn."));
                     out.push(select("desktop.renderMode", "Show email content with", "WebView2 uses the Edge engine. Blitz is a light native Rust engine that never loads anything from the network.", &["WebView2 (full HTML)", "Blitz (light, native)", "Plain text"], cfg.render_mode));
                 }
+                // Desktop app page, and Updates under About (src/desktop.rs)
+                out.extend(crate::desktop::settings_rows(tab, self));
                 if tab == "privacy" {
                     out.insert(0, row("section", "", "Remote content", "Images and other content loaded from the internet can tell senders when you read their mail."));
                     out.insert(1, select("desktop.remoteImages", "Load remote images", "", &["Ask first (blocked until you choose)", "Always load"], if cfg.remote_images { 1 } else { 0 }));

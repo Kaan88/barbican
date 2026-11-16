@@ -24,6 +24,12 @@ mod settings;
 mod sieve;
 mod templates;
 mod spam;
+// distribution: platform layer, tray, notifications, updater
+mod desktop;
+mod icon;
+mod notify;
+mod platform;
+mod updater;
 
 use chrono::{DateTime, Local};
 use serde_json::{json, Value};
@@ -177,6 +183,10 @@ fn sync_webview(ui: &AppWindow) {
         let w = ui.get_bw();
         if (LITE_W.with(|x| x.get()) - w).abs() > 4.0 && w > 50.0 { render_current(ui); }
     }
+    if WV_UNAVAILABLE.with(|x| x.get()) {
+        if ui.get_render_mode() == 0 { ui.set_render_mode(1); if ui.get_current_mail() != "" { render_current(ui); } }
+        return;
+    }
     WV.with(|w| {
         let mut w = w.borrow_mut();
         if w.is_none() {
@@ -195,7 +205,8 @@ fn sync_webview(ui: &AppWindow) {
                 .build_as_child(&ui.window().window_handle())
             {
                 Ok(v) => { let _ = v.focus_parent(); *w = Some(v); }
-                Err(_) => {}
+                // Linux on Wayland: no child web view, so the native Blitz renderer shows mail
+                Err(_) => if cfg!(target_os = "linux") { WV_UNAVAILABLE.with(|x| x.set(true)); },
             }
         } else if let Some(v) = &*w {
             let _ = v.set_bounds(r);
@@ -209,8 +220,7 @@ fn sync_webview(ui: &AppWindow) {
 type Shared = Arc<Mutex<Option<Arc<jmap::Client>>>>;
 
 pub fn config_dir() -> std::path::PathBuf {
-    let base = std::env::var("APPDATA").unwrap_or_else(|_| ".".into());
-    std::path::Path::new(&base).join("Barbican")
+    platform::config_dir()
 }
 
 fn config_path() -> std::path::PathBuf {
@@ -251,6 +261,7 @@ pub fn html_to_text(h: &str) -> String {
 }
 
 thread_local! { static WV_VISIBLE: std::cell::Cell<bool> = const { std::cell::Cell::new(false) }; }
+thread_local! { static WV_UNAVAILABLE: std::cell::Cell<bool> = const { std::cell::Cell::new(false) }; }
 thread_local! { static RESET_ARMED: std::cell::Cell<bool> = const { std::cell::Cell::new(false) }; }
 thread_local! { static SERVER_DEBOUNCE: slint::Timer = slint::Timer::default(); }
 thread_local! { static TEMPLATES: std::cell::RefCell<Vec<Value>> = const { std::cell::RefCell::new(Vec::new()) }; }
@@ -446,10 +457,14 @@ fn schedule_refresh(w: slint::Weak<AppWindow>, c: Arc<jmap::Client>, types: std:
 
 static NOTIFIED: Mutex<Option<std::collections::HashSet<String>>> = Mutex::new(None);
 
-/// Desktop notification for newly arrived unread inbox mail (Bulwark: emailNotificationsEnabled).
+/// Desktop notification for newly arrived unread inbox mail (Bulwark: emailNotificationsEnabled,
+/// lib/desktop/mail-notifications.ts): mail that arrives together is told about once, one
+/// message with Archive / Mark as read / Delete, several as a count that opens the Inbox.
 fn check_new_mail(c: Arc<jmap::Client>, w: Option<slint::Weak<AppWindow>>) {
     let prefs = settings::Settings::load();
     if !prefs.bool("emailNotificationsEnabled", true) { return; }
+    // Bulwark: Do not disturb keeps every notification quiet
+    let dnd = prefs.bool("doNotDisturb", false);
     // Bulwark emailNotificationSound (default on) and pushNotifyInboxOnly (default off: every
     // folder except Junk, Trash, Sent and Drafts)
     let sound = prefs.bool("emailNotificationSound", true);
@@ -467,19 +482,23 @@ fn check_new_mail(c: Arc<jmap::Client>, w: Option<slint::Weak<AppWindow>>) {
         let mut guard = NOTIFIED.lock().unwrap();
         let first_run = guard.is_none();
         let seen = guard.get_or_insert_with(Default::default);
-        let mut arrived = false;
+        let mut batch = vec![];
         for m in list.iter().rev() {
             let id = m["id"].as_str().unwrap_or("").to_string();
-            if seen.insert(id) && !first_run {
-                arrived = true;
-                let mut n = notify_rust::Notification::new();
-                if sound { n.sound_name("Mail"); }
-                let _ = n
-                    .appname("Barbican")
-                    .summary(&mail::sender(m))
-                    .body(&format!("{}\n{}", m["subject"].as_str().unwrap_or("(no subject)"), mail::clean_preview(m["preview"].as_str().unwrap_or(""))))
-                    .show();
+            if seen.insert(id.clone()) && !first_run {
+                batch.push(notify::NewMail {
+                    id,
+                    sender: mail::sender(m),
+                    subject: m["subject"].as_str().unwrap_or("").to_string(),
+                    preview: mail::clean_preview(m["preview"].as_str().unwrap_or("")),
+                });
             }
+        }
+        drop(guard);
+        let arrived = !batch.is_empty();
+        batch.reverse();
+        if !dnd {
+            if let Some(n) = notify::mail_note(&batch, &c.username, sound, roles.contains_key("archive")) { notify::show(n); }
         }
         // Settings > Accessibility > Visual alerts: flash the taskbar button
         if arrived && a11y::A11y::load().visual_alerts {
@@ -583,6 +602,8 @@ fn load_mailboxes(ui: slint::Weak<AppWindow>, client: Arc<jmap::Client>, select_
 }
 
 fn main() -> Result<(), slint::PlatformError> {
+    // an update the user approved ("Install next time") installs before anything else
+    if updater::on_start() { return Ok(()); }
     // Skia: the same text/graphics engine Chrome uses, so text matches Bulwark in the browser
     // (and gets system font fallback for CJK and other scripts).
     let _ = slint::BackendSelector::new().renderer_name("skia".into()).select();
@@ -597,6 +618,7 @@ fn main() -> Result<(), slint::PlatformError> {
         PLUGIN_ERRORS.with(|e| *e.borrow_mut() = errors);
     }
     let state: Shared = Arc::new(Mutex::new(None));
+    desktop::init(&ui, state.clone());
 
     if let Ok(s) = std::fs::read_to_string(config_path()) {
         let mut l = s.lines();
@@ -988,6 +1010,7 @@ fn main() -> Result<(), slint::PlatformError> {
             }
         }
         if key == "spellCheck" { rte::spell::reload(); if let Some(u) = wt.upgrade() { rte::refresh(&u); } }
+        if key.starts_with("desktop.") { desktop::setting_changed(&key, on); }
         if let Some(u) = wt.upgrade() { apply_ui_prefs(&u); mail::rebuild_folders(&u); mail::rebuild_list(&u); }
     });
 
@@ -1006,6 +1029,7 @@ fn main() -> Result<(), slint::PlatformError> {
         if key == "desktop.renderMode" || key == "desktop.remoteImages" { render_current(&w.unwrap()); }
         if key == "theme" { apply_theme(&w.unwrap()); }
         if key == "writingLanguage" { rte::spell::reload(); }
+        if key == "desktop.updateChannel" { desktop::setting_changed(&key, true); }
         apply_ui_prefs(&w.unwrap());
         mail::rebuild_folders(&w.unwrap());
         mail::rebuild_list(&w.unwrap());
@@ -1039,6 +1063,7 @@ fn main() -> Result<(), slint::PlatformError> {
             });
             return;
         }
+        if desktop::settings_button(&u, &key) { return; }
         if key == "signout" { u.set_show_settings(false); u.invoke_sign_out(); }
         if key == "a11y.reset" {
             pf2.lock().unwrap().set("a11y.reset", Value::Null, &mut cf2.lock().unwrap());
@@ -1710,7 +1735,8 @@ fn main() -> Result<(), slint::PlatformError> {
         });
     });
 
-    ui.show()?;
+    // "Start in the tray" at sign-in leaves the window closed
+    if !desktop::start_hidden() { ui.show()?; }
     if automation::enabled() {
         ui.window().set_position(slint::PhysicalPosition::new(-6000, 0));
     }
@@ -1727,7 +1753,8 @@ fn main() -> Result<(), slint::PlatformError> {
     timer.start(slint::TimerMode::Repeated, std::time::Duration::from_millis(50), move || {
         if let Some(u) = w.upgrade() { sync_webview(&u); }
     });
-    slint::run_event_loop()?;
+    // the window can be closed to the tray: the loop runs until Quit
+    slint::run_event_loop_until_quit()?;
     // refresh tokens may rotate while the app runs: keep the newest one
     if REMEMBER_OAUTH.load(std::sync::atomic::Ordering::SeqCst) {
         if let Some(c) = state.lock().unwrap().clone() { remember_session(&c, serde_json::json!({"kind": "oauth"}), &c.base, ""); }
@@ -1948,18 +1975,13 @@ fn finish_login(w: slint::Weak<AppWindow>, st: Shared, res: Result<jmap::Client,
 }
 
 
-/// Bulwark's Appearance > Light or dark: "light" | "dark" | "system" (Windows app theme).
+/// Bulwark's Appearance > Light or dark: "light" | "dark" | "system" (the system's app theme).
 pub fn apply_theme(ui: &AppWindow) {
     let pref = settings::Settings::load().str("theme", "dark");
     let dark = match pref.as_str() {
         "light" => false,
-        "system" => {
-            // HKCU\Software\Microsoft\Windows\CurrentVersion\Themes\Personalize AppsUseLightTheme
-            let out = std::process::Command::new("reg")
-                .args(["query", r"HKCU\Software\Microsoft\Windows\CurrentVersion\Themes\Personalize", "/v", "AppsUseLightTheme"])
-                .output().ok().map(|o| String::from_utf8_lossy(&o.stdout).to_string()).unwrap_or_default();
-            !out.contains("0x1")
-        }
+        // Windows app theme or the XDG portal colour scheme (platform layer)
+        "system" => platform::system_dark().unwrap_or(true),
         _ => true,
     };
     // the email view paints this colour before a message loads; keep it in step with the

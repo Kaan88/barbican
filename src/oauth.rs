@@ -155,7 +155,7 @@ fn client_id(m: &Meta, redirect: &str, fallback: &str) -> String {
 }
 
 pub fn open_browser(url: &str) {
-    let _ = std::process::Command::new("rundll32").args(["url.dll,FileProtocolHandler", url]).spawn();
+    crate::platform::open_url(url);
 }
 
 /// Run the interactive browser sign-in. Blocks until the browser comes back (5 minutes max).
