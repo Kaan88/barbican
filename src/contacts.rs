@@ -24,6 +24,28 @@ fn full_name(c: &Value) -> String {
     first(c, "emails", "address").unwrap_or_else(|| "(no name)".into())
 }
 
+/// Name the list is ordered and letter-grouped by (Bulwark getContactSortName): with
+/// sortContactsByLastName the surname leads ("Smith, Alice").
+fn sort_name(c: &Value, by_last: bool) -> String {
+    let display = full_name(c);
+    if !by_last { return display; }
+    if let Some(comps) = c["name"]["components"].as_array().filter(|a| !a.is_empty()) {
+        let pick = |kinds: &[&str]| comps.iter()
+            .filter(|x| x["kind"].as_str().is_some_and(|k| kinds.contains(&k)))
+            .filter_map(|x| x["value"].as_str().filter(|v| !v.is_empty())).collect::<Vec<_>>().join(" ");
+        let surname = pick(&["surname", "surname2"]);
+        if !surname.is_empty() {
+            let rest = pick(&["given", "given2", "middle", "additional"]);
+            return if rest.is_empty() { surname } else { format!("{surname}, {rest}") };
+        }
+    }
+    if let Some(full) = c["name"]["full"].as_str().filter(|f| *f == display) {
+        let words: Vec<&str> = full.split_whitespace().collect();
+        if words.len() > 1 { return format!("{}, {}", words[words.len() - 1], words[..words.len() - 1].join(" ")); }
+    }
+    display
+}
+
 fn first(c: &Value, map: &str, field: &str) -> Option<String> {
     c[map].as_object().and_then(|o| o.values().find_map(|v| v[field].as_str().map(String::from)))
 }
@@ -65,16 +87,20 @@ pub fn load(w: slint::Weak<AppWindow>, c: Arc<Client>) {
 }
 
 pub fn render(u: &AppWindow) {
-    let by_letter = crate::settings::Settings::load().bool("groupContactsByLetter", true);
+    let p = crate::settings::Settings::load();
+    let by_letter = p.bool("groupContactsByLetter", true);
+    let by_last = p.bool("sortContactsByLastName", false);
     ST.with(|s| {
         let s = s.borrow();
         let q = s.query.to_lowercase();
         let mut last = String::new();
-        let rows: Vec<ContactRow> = s.cards.iter().filter(|c| {
+        let mut shown: Vec<(String, &Value)> = s.cards.iter().filter(|c| {
             q.is_empty() || full_name(c).to_lowercase().contains(&q) || all(c, "emails", "address").iter().any(|e| e.to_lowercase().contains(&q))
-        }).map(|c| {
+        }).map(|c| (sort_name(c, by_last), c)).collect();
+        shown.sort_by_key(|(k, _)| k.to_lowercase());
+        let rows: Vec<ContactRow> = shown.into_iter().map(|(key, c)| {
             let name = full_name(c);
-            let letter = name.chars().next().map(|ch| if ch.is_alphabetic() { ch.to_uppercase().to_string() } else { "#".into() }).unwrap_or_default();
+            let letter = key.trim().chars().next().map(|ch| if ch.is_alphabetic() { ch.to_uppercase().to_string() } else { "#".into() }).unwrap_or_default();
             let header = if by_letter && letter != last { last = letter.clone(); letter } else { String::new() };
             ContactRow {
                 id: c["id"].as_str().unwrap_or("").into(),
