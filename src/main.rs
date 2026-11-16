@@ -1703,4 +1703,5 @@ pub fn apply_ui_prefs(ui: &AppWindow) {
     };
     ui.global::<Prefs>().set_hover_actions(slint::ModelRc::new(slint::VecModel::from(hover)));
     calendar::render(ui);
+    contacts::render(ui);
 }
