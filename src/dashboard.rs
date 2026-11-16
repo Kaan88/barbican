@@ -267,7 +267,15 @@ impl Ctx<'_> {
                 p.good = match pol { Pol::Up => up, Pol::Down => !up, Pol::Neutral => true };
             }
         }
-        let s = d.series(names, 20);
+        let mut s = d.series(names, 20);
+        if d.kind(names) == Kind::Gauge {
+            // a gauge holds its level between samples: carry it over empty buckets (and
+            // back to the start) instead of drawing spikes down to zero
+            let raw = d.series_opt(names, 20);
+            let first = raw.iter().flatten().next().copied().unwrap_or(0.0);
+            let mut last = first;
+            s = raw.iter().map(|v| { if let Some(x) = v { last = *x; } last }).collect();
+        }
         if s.iter().any(|v| *v != 0.0) {
             let max = s.iter().cloned().fold(0.0, f64::max) * 1.1;
             p.spark = line(&s, max).into();

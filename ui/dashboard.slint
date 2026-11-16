@@ -298,7 +298,12 @@ component PanelView inherits Rectangle {
                 }
             }
         }
+        // thin the ticks further when the chart is too narrow for them (12h labels are wider)
+        property <length> xgap: cw * p.xstep / max(1, p.kind == 2 ? p.tips.length : p.tips.length - 1);
+        property <length> xlw: p.xlabels.length > 0 ? p.xlabels[0].character-count * 5px + 8px : 0px;
+        property <int> xskip: max(1, ceil(xlw / max(1px, xgap)));
         for xl[i] in p.xlabels: Text {
+            visible: mod(i, xskip) == 0;
             x: left + (p.kind == 2 ? cw * (i * p.xstep + 0.5) / max(1, p.tips.length) : cw * i * p.xstep / max(1, p.tips.length - 1)) - 30px;
             y: parent.height - bottom + 6px;
             width: 60px;
