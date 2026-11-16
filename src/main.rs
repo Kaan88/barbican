@@ -14,6 +14,7 @@ mod oauth;
 mod plugins;
 mod server_settings;
 mod settings;
+mod sieve;
 mod templates;
 mod spam;
 
@@ -760,8 +761,13 @@ fn main() -> Result<(), slint::PlatformError> {
         rs();
     });
 
-    let (w, pf, cf, rs) = (ui.as_weak(), prefs.clone(), cfg.clone(), refresh_settings.clone());
+    let (w, pf, cf, rs, srv3, sw3) = (ui.as_weak(), prefs.clone(), cfg.clone(), refresh_settings.clone(), server_cache.clone(), server_write.clone());
     ui.on_settings_set_select(move |key, idx| {
+        if key.starts_with("server.") {
+            if let Some(job) = server_settings::edit(&key, &serde_json::json!(idx), &srv3) { sw3(job, 10); }
+            rs();
+            return;
+        }
         let mut p = pf.lock().unwrap();
         let v = p.select_value(&key, idx);
         p.set(&key, v, &mut cf.lock().unwrap());

@@ -23,6 +23,60 @@ pub struct Cache {
     pub tpl_name: String,
     pub tpl_subject: String,
     pub tpl_body: String,
+    pub rules: Vec<Value>,
+    pub external: String,
+    pub rules_locked: bool,
+    pub nr_name: String,
+    pub nr_field: i32,
+    pub nr_cmp: i32,
+    pub nr_value: String,
+    pub nr_action: i32,
+    pub nr_action_value: String,
+    pub nr_stop: bool,
+}
+
+const NR_FIELDS: [&str; 7] = ["from", "to", "cc", "subject", "body", "attachment", "all"];
+const NR_FIELD_LABELS: [&str; 7] = ["From", "To", "Cc", "Subject", "Message text", "Has an attachment", "Every message"];
+const NR_CMPS: [&str; 6] = ["contains", "not_contains", "is", "starts_with", "ends_with", "domain_is"];
+const NR_CMP_LABELS: [&str; 6] = ["contains", "does not contain", "is exactly", "starts with", "ends with", "domain is"];
+const NR_ACTS: [&str; 7] = ["move", "copy", "mark_read", "star", "add_label", "forward", "discard"];
+const NR_ACT_LABELS: [&str; 7] = ["Move to folder", "Copy to folder", "Mark as read", "Star", "Add tag", "Forward to", "Delete"];
+
+fn sel(key: &str, label: &str, opts: &[&str], idx: i32) -> SRow {
+    let mut r = row("select", key, label, "", "", false);
+    r.options = ModelRc::new(VecModel::from(opts.iter().map(|o| SharedString::from(*o)).collect::<Vec<_>>()));
+    r.index = idx;
+    r
+}
+
+/// Validate, upload and activate a Sieve script (shared by the rule editor and the raw editor).
+pub fn save_script(c: &Client, text: &str, scripts: &[Value]) -> Result<(), String> {
+    let acc = c.account_for("urn:ietf:params:jmap:sieve");
+    let (blob, _) = c.upload(text.as_bytes().to_vec(), "application/sieve")?;
+    let v = c.call(json!([["SieveScript/validate", {"accountId": acc, "blobId": blob}, "v"]]))?;
+    if let Some(err) = v[0][1]["error"].as_object() {
+        return Err(format!("Not saved: {}", err.get("description").and_then(|d| d.as_str()).unwrap_or("invalid script")));
+    }
+    let existing = scripts.iter().find(|x| x["isActive"] == true).or(scripts.first()).and_then(|x| x["id"].as_str().map(String::from));
+    let r = match existing {
+        Some(id) => c.call(json!([["SieveScript/set", {"accountId": acc, "update": { id.clone(): {"blobId": blob} }, "onSuccessActivateScript": id}, "s"]]))?,
+        None => c.call(json!([["SieveScript/set", {"accountId": acc, "create": {"n": {"name": "barbican", "blobId": blob}}, "onSuccessActivateScript": "#n"}, "s"]]))?,
+    };
+    if r[0][1]["updated"].is_object() || r[0][1]["created"].is_object() { Ok(()) } else {
+        Err(format!("Not saved: {}", crate::jmap::set_error(r[0][1]["notUpdated"].as_object().and_then(|o| o.values().next())
+            .or(r[0][1]["notCreated"].as_object().and_then(|o| o.values().next())).unwrap_or(&Value::Null))))
+    }
+}
+
+fn rule_summary(r: &Value) -> String {
+    let c = &r["conditions"][0];
+    let f = NR_FIELDS.iter().position(|x| c["field"] == *x).map(|i| NR_FIELD_LABELS[i]).unwrap_or("If");
+    let cmp = NR_CMPS.iter().position(|x| c["comparator"] == *x).map(|i| NR_CMP_LABELS[i]).unwrap_or("");
+    let v = c["value"].as_str().map(String::from).unwrap_or_else(|| c["value"].to_string());
+    let a = &r["actions"][0];
+    let act = NR_ACTS.iter().position(|x| a["type"] == *x).map(|i| NR_ACT_LABELS[i]).unwrap_or("act");
+    let more = r["conditions"].as_array().map(|x| x.len()).unwrap_or(1) + r["actions"].as_array().map(|x| x.len()).unwrap_or(1);
+    format!("{f} {cmp} {v} → {act} {}{}", a["value"].as_str().unwrap_or(""), if more > 2 { "  (+more)" } else { "" })
 }
 
 const ARCHIVE_USING: [&str; 2] = ["urn:ietf:params:jmap:core", "urn:stalwart:jmap"];
@@ -52,8 +106,12 @@ pub fn load(tab: &str, c: &Client, cache: &Shared) {
                     Some(b) => String::from_utf8_lossy(&c.download(b, "script.sieve", "application/sieve")?).to_string(),
                     None => String::new(),
                 };
+                let p = crate::sieve::parse(&text);
                 let mut k = cache.lock().unwrap();
                 k.scripts = scripts;
+                k.rules = p.metadata["rules"].as_array().cloned().unwrap_or_default();
+                k.external = p.external;
+                k.rules_locked = p.locked;
                 k.script_text = text;
             }
             "organize" => { cache.lock().unwrap().mailboxes = c.mailboxes()?; }
@@ -109,6 +167,31 @@ pub fn rows(tab: &str, cache: &Shared) -> Option<Vec<SRow>> {
             out.push(row("section", "", "Filters", "Rules the server applies to incoming mail, written in Sieve (RFC 5228).", "", false));
             let active = k.scripts.iter().find(|x| x["isActive"] == true).and_then(|x| x["name"].as_str()).unwrap_or("none");
             out.push(row("value", "", "Active script", &format!("{} script(s) on the server", k.scripts.len()), active, false));
+            out.push(row("section", "", "Rules", "Rules are shared with Bulwark. Rules made by other apps are kept as they are.", "", false));
+            if k.rules_locked {
+                out.push(row("value", "", "Edit these rules in Bulwark", "They use options this editor does not support yet (vacation, active periods). The script below still works.", "", false));
+            } else {
+                if k.rules.is_empty() { out.push(row("value", "", "No rules yet", "", "", false)); }
+                for r in &k.rules {
+                    let id = r["id"].as_str().unwrap_or("");
+                    out.push(row("toggle", &format!("server.rule.toggle:{id}"), r["name"].as_str().unwrap_or("Rule"), &rule_summary(r), "", r["enabled"] != false));
+                    out.push(row("button", &format!("server.rule.delete:{id}"), "", "", if k.confirm_delete == id { "Click again to delete" } else { "Delete rule" }, false));
+                }
+                out.push(row("section", "", "New rule", "", "", false));
+                out.push(row("text", "server.nr.name", "Name", "", &k.nr_name, false));
+                out.push(sel("server.nr.field", "When", &NR_FIELD_LABELS, k.nr_field));
+                if k.nr_field < 5 {
+                    out.push(sel("server.nr.cmp", "Condition", &NR_CMP_LABELS, k.nr_cmp));
+                    out.push(row("text", "server.nr.value", "Value", "Separate several values with commas.", &k.nr_value, false));
+                }
+                out.push(sel("server.nr.action", "Then", &NR_ACT_LABELS, k.nr_action));
+                if matches!(k.nr_action, 0 | 1 | 4 | 5) {
+                    out.push(row("text", "server.nr.avalue", match k.nr_action { 4 => "Tag", 5 => "Forward to address", _ => "Folder" }, "", &k.nr_action_value, false));
+                }
+                out.push(row("toggle", "server.nr.stop", "Stop processing more rules", "", "", k.nr_stop));
+                out.push(row("button", "server.rule.add", "", &k.script_status, "Add rule", false));
+            }
+            out.push(row("section", "", "Script", "The Sieve script the server runs (advanced).", "", false));
             out.push(row("textarea", "server.sieve.text", "Script", "Example:  require \"fileinto\";  if address :is \"from\" \"news@example.com\" { fileinto \"Newsletters\"; }", &k.script_text, false));
             out.push(row("button", "server.sieve.save", "Save and activate", &k.script_status, "Save", false));
         }
@@ -191,6 +274,22 @@ pub fn edit(key: &str, value: &Value, cache: &Shared) -> Option<Box<dyn FnOnce(&
         }));
     }
     match key {
+        "server.nr.name" => { k.nr_name = value.as_str().unwrap_or("").into(); return None; }
+        "server.nr.value" => { k.nr_value = value.as_str().unwrap_or("").into(); return None; }
+        "server.nr.avalue" => { k.nr_action_value = value.as_str().unwrap_or("").into(); return None; }
+        "server.nr.field" => { k.nr_field = value.as_i64().unwrap_or(0) as i32; return None; }
+        "server.nr.cmp" => { k.nr_cmp = value.as_i64().unwrap_or(0) as i32; return None; }
+        "server.nr.action" => { k.nr_action = value.as_i64().unwrap_or(0) as i32; return None; }
+        "server.nr.stop" => { k.nr_stop = value.as_bool().unwrap_or(false); return None; }
+        _ => {}
+    }
+    if let Some(id) = key.strip_prefix("server.rule.toggle:") {
+        let on = value.as_bool().unwrap_or(true);
+        if let Some(r) = k.rules.iter_mut().find(|r| r["id"] == id) { r["enabled"] = json!(on); }
+        let (script, scripts) = (crate::sieve::generate(&k.rules, &k.external), k.scripts.clone());
+        return Some(Box::new(move |c: &Client| save_script(c, &script, &scripts)));
+    }
+    match key {
         "server.tpl.name" => { k.tpl_name = value.as_str().unwrap_or("").into(); return None; }
         "server.tpl.subject" => { k.tpl_subject = value.as_str().unwrap_or("").into(); return None; }
         "server.tpl.body" => { k.tpl_body = value.as_str().unwrap_or("").into(); return None; }
@@ -235,6 +334,34 @@ pub fn button(key: &str, cache: &Shared) -> Option<Box<dyn FnOnce(&Client, &Shar
         if k.confirm_delete != id { k.confirm_delete = id; return Some(Box::new(|_, _| Ok(()))); }
         k.confirm_delete.clear();
         return Some(Box::new(move |c: &Client, _| c.delete_mailbox(&id)));
+    }
+    if key == "server.rule.add" {
+        let k = cache.lock().unwrap();
+        if k.nr_field < 5 && k.nr_value.trim().is_empty() { drop(k); cache.lock().unwrap().script_status = "Add a value for the condition.".into(); return Some(Box::new(|_, _| Ok(()))); }
+        let field = NR_FIELDS[k.nr_field.clamp(0, 6) as usize];
+        let cmp = NR_CMPS[k.nr_cmp.clamp(0, 5) as usize];
+        let vals: Vec<String> = k.nr_value.split(',').map(|v| v.trim().to_string()).filter(|v| !v.is_empty()).collect();
+        let mut r = crate::sieve::rule(&k.nr_name, field, cmp, "", NR_ACTS[k.nr_action.clamp(0, 6) as usize], &k.nr_action_value, k.nr_stop);
+        if field != "attachment" && field != "all" { r["conditions"][0]["value"] = if vals.len() == 1 { json!(vals[0]) } else { json!(vals) }; }
+        let mut rules = k.rules.clone();
+        rules.push(r);
+        let (script, scripts) = (crate::sieve::generate(&rules, &k.external), k.scripts.clone());
+        drop(k);
+        return Some(Box::new(move |c: &Client, k: &Shared| {
+            save_script(c, &script, &scripts)?;
+            let mut g = k.lock().unwrap();
+            g.nr_name.clear(); g.nr_value.clear(); g.nr_action_value.clear(); g.script_status = "Rule added.".into();
+            Ok(())
+        }));
+    }
+    if let Some(id) = key.strip_prefix("server.rule.delete:") {
+        let id = id.to_string();
+        let mut k = cache.lock().unwrap();
+        if k.confirm_delete != id { k.confirm_delete = id; return Some(Box::new(|_, _| Ok(()))); }
+        k.confirm_delete.clear();
+        let rules: Vec<Value> = k.rules.iter().filter(|r| r["id"] != id.as_str()).cloned().collect();
+        let (script, scripts) = (crate::sieve::generate(&rules, &k.external), k.scripts.clone());
+        return Some(Box::new(move |c: &Client, _| save_script(c, &script, &scripts)));
     }
     if key == "server.tpl.create" {
         let (n, s, b) = { let k = cache.lock().unwrap(); (k.tpl_name.trim().to_string(), k.tpl_subject.clone(), k.tpl_body.clone()) };
