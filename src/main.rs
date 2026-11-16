@@ -12,6 +12,7 @@ mod compose;
 mod contacts;
 mod ctxmenu;
 mod files;
+mod glance;
 mod jmap;
 mod lite;
 mod rte;
@@ -113,7 +114,7 @@ fn esc(s: &str) -> String {
 thread_local! { static DARK: std::cell::Cell<bool> = const { std::cell::Cell::new(true) }; }
 
 fn wv_bg() -> (u8, u8, u8, u8) {
-    if DARK.with(|d| d.get()) { (0x0a, 0x0a, 0x0a, 255) } else { (255, 255, 255, 255) }
+    if DARK.with(|d| d.get()) { (0x14, 0x14, 0x14, 255) } else { (255, 255, 255, 255) }
 }
 
 fn show_html(h: String) {
@@ -157,7 +158,7 @@ fn wrap_html_opts(body: &str, images: bool) -> String {
         _ => if !plain && full_bleed() { 0 } else { 16 },
     };
     if plain && !p.bool("emailAlwaysLightMode", false) {
-        return format!("<!doctype html><html><head><meta charset=utf-8>{csp}<base target=_blank><style>html,body{{background:#0a0a0a;color:#e5e5e5}}body{{margin:{margin}px;font-family:'Segoe UI',sans-serif;font-size:14px;word-wrap:break-word}}pre{{white-space:pre-wrap;font-family:{pre_font};margin:0}}a{{color:#f0577a}}</style></head><body>{body}</body></html>");
+        return format!("<!doctype html><html><head><meta charset=utf-8>{csp}<base target=_blank><style>html,body{{background:#141414;color:#d4d4d4}}body{{margin:{margin}px;font-family:'Segoe UI',sans-serif;font-size:14px;word-wrap:break-word}}pre{{white-space:pre-wrap;font-family:{pre_font};margin:0}}a{{color:#f0577a}}</style></head><body>{body}</body></html>");
     }
     format!("<!doctype html><html><head><meta charset=utf-8>{csp}<base target=_blank><style>body{{margin:{margin}px;font-family:'Segoe UI',sans-serif;font-size:14px;color:#111;background:#fff;word-wrap:break-word}}pre{{white-space:pre-wrap;font-family:{pre_font}}}img{{max-width:100%;height:auto}}</style></head><body>{body}</body></html>")
 }
@@ -695,6 +696,7 @@ fn main() -> Result<(), slint::PlatformError> {
         let Some(c) = st.lock().unwrap().clone() else { return };
         let u = w.unwrap();
         u.set_current_mail("".into());
+        glance::title(&u);
         // Bulwark clearSearchOnFolderChange (default off): keep the query and re-run it in the new folder
         let q = u.get_search().trim().to_string();
         if !q.is_empty() && id != "__scheduled" && !settings::Settings::load().bool("clearSearchOnFolderChange", false) {
@@ -748,6 +750,7 @@ fn main() -> Result<(), slint::PlatformError> {
         u.set_spam_verdict("".into());
         u.set_spam_detail("".into());
         u.set_ai_result("".into());
+        glance::clear_sender(&u);
         REPLY.with(|r| *r.borrow_mut() = None);
         u.set_r_from("".into());
         u.set_r_date("".into());
@@ -796,6 +799,7 @@ fn main() -> Result<(), slint::PlatformError> {
                         let from = mail::sender(&m);
                         let email = f["email"].as_str().unwrap_or("").to_string();
                         u.set_r_email(email.clone().into());
+                        glance::sender(w2.clone(), c2.clone(), email.clone(), id.clone());
                         u.set_r_initials(initials(&from).into());
                         u.set_r_color(mail::tint(&from));
                         u.set_r_flagged(m["keywords"]["$flagged"].as_bool() == Some(true));
@@ -1004,7 +1008,7 @@ fn main() -> Result<(), slint::PlatformError> {
         drop(p);
         rs();
         if key == "desktop.renderMode" || key == "desktop.remoteImages" { render_current(&w.unwrap()); }
-        if key == "theme" { apply_theme(&w.unwrap()); }
+        if key == "theme" || key == "uiStyle" { apply_theme(&w.unwrap()); }
         if key == "writingLanguage" { rte::spell::reload(); }
         apply_ui_prefs(&w.unwrap());
         mail::rebuild_folders(&w.unwrap());
@@ -1581,6 +1585,7 @@ fn main() -> Result<(), slint::PlatformError> {
         let Some(c) = st.lock().unwrap().clone() else { return };
         let u = w.unwrap();
         u.set_current_mail("".into());
+        glance::title(&u);
         mail::load_list(w.clone(), c, json!({"hasKeyword": format!("$label:{id}")}));
     });
 
@@ -1931,10 +1936,13 @@ fn finish_login(w: slint::Weak<AppWindow>, st: Shared, res: Result<jmap::Client,
             {
                 let (w3, c3) = (w2.clone(), c.clone());
                 std::thread::spawn(move || {
-                    let addrs: Vec<String> = c3.identities().unwrap_or_default().iter().filter_map(|i| i["email"].as_str().map(String::from)).collect();
-                    let _ = w3.upgrade_in_event_loop(move |_| MY_ADDRS.with(|a| *a.borrow_mut() = addrs));
+                    let ids = c3.identities().unwrap_or_default();
+                    let addrs: Vec<String> = ids.iter().filter_map(|i| i["email"].as_str().map(String::from)).collect();
+                    let _ = w3.upgrade_in_event_loop(move |u| { MY_ADDRS.with(|a| *a.borrow_mut() = addrs); glance::set_name(&u, &ids); });
                 });
             }
+            // today's events and open tasks for the mail screen's summary tiles
+            calendar::load(w2.clone(), c.clone());
             check_new_mail(c.clone(), None);
             start_push(w2, c);
         }
@@ -1967,6 +1975,8 @@ pub fn apply_theme(ui: &AppWindow) {
     DARK.with(|d| d.set(dark));
     WV.with(|w| if let Some(v) = &*w.borrow() { let _ = v.set_background_color(wv_bg()); });
     ui.global::<Theme>().set_dark(dark);
+    // Settings > Appearance > Style: Bento (tiles) or Nordic (one surface)
+    ui.global::<Theme>().set_style(if settings::Settings::load().str("uiStyle", "bento") == "nordic" { 1 } else { 0 });
 }
 
 

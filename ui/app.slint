@@ -1,6 +1,8 @@
 import { AdminDashboard, DashRow, DashPanel, DashCol, DashBar } from "dashboard.slint";
 export { DashRow, DashPanel, DashCol, DashBar }
 import { LineEdit, Button, ListView, ScrollView, TextEdit, ComboBox, CheckBox, Palette } from "std-widgets.slint";
+import { Theme, Icons, SIcon, Prefs } from "theme.slint";
+export { Theme, Icons, Prefs }
 
 export struct Folder {
     id: string,
@@ -181,35 +183,6 @@ export struct Mail {
     files: [string],
 }
 
-export global Theme {
-    in-out property <bool> dark: true;
-    // Settings > Accessibility > Contrast "More" (Bulwark data-contrast="more")
-    in-out property <bool> more-contrast: false;
-    // Bulwark tokens: dark (--color-*) and light (brand #c8234a, neutral greys)
-    out property <color> bg: dark ? #0a0a0a : #ffffff;
-    out property <color> rail: dark ? #0f0f0f : #f4f4f5;
-    out property <color> side: dark ? #141414 : #fafafa;
-    out property <color> line: more-contrast ? (dark ? #9ca3af : #4b5563) : (dark ? #262626 : #e5e5e5);
-    out property <color> text: more-contrast ? (dark ? #ffffff : #000000) : (dark ? #fafafa : #0a0a0a);
-    out property <color> dim: more-contrast ? (dark ? #e5e7eb : #1f2937) : (dark ? #adadad : #6b6b6b);
-    out property <color> accent: more-contrast ? (dark ? #93c5fd : #1d4ed8) : (dark ? #f0577a : #c8234a);
-    out property <color> on-accent: more-contrast ? (dark ? #000000 : #ffffff) : (dark ? #16070c : #ffffff);
-    // keyboard focus outline (Bulwark --focus-ring-color)
-    out property <color> ring: more-contrast ? (dark ? #ffffff : #000000) : (dark ? #f0577a : #c8234a);
-    out property <color> sel: dark ? #4a1424 : #fde4ea;
-    out property <color> sel-text: dark ? #ffd5df : #8c1733;
-    out property <color> hover: dark ? #1a1a1a : #f0f0f0;
-    out property <color> popup: dark ? #1c1c1c : #ffffff;
-    out property <color> chip: dark ? #262626 : #ececec;
-    out property <color> raised: dark ? #181818 : #f4f4f5;
-    out property <color> zebra: dark ? #111111 : #fafafa;
-    out property <color> bubble: dark ? #1f1f22 : #f1f1f3;
-    out property <color> reader: dark ? #0a0a0a : #ffffff;
-    out property <color> muted-day: dark ? #5a5a5a : #a3a3a3;
-    out property <color> track: dark ? #3a3a3a : #d4d4d4;
-    out property <string> icons: "Segoe Fluent Icons";
-}
-
 export struct STab {
     id: string,
     label: string,
@@ -256,87 +229,115 @@ component Icon inherits Text {
     horizontal-alignment: center;
 }
 
+/// Initials on a tint tile: a squircle in Bento, a circle in Nordic (BNMail / NordMail avatars).
 component Avatar inherits Rectangle {
     in property <string> label;
     in property <color> tint;
     width: 34px;
     height: 34px;
-    border-radius: 17px;
-    background: tint;
+    border-radius: Theme.round(self.height);
+    background: Theme.tint-bg(root.tint);
     Text {
-        text: label;
-        color: white;
-        font-size: 12px;
-        font-weight: 600;
+        text: root.label;
+        color: Theme.tint-fg(root.tint);
+        font-size: max(9px, root.height * 0.33);
+        font-weight: 700;
+        horizontal-alignment: center;
+        vertical-alignment: center;
     }
 }
 
+/// The Barbican mark: three rounded bars in the accent (100 / 70 / 40 %), a 34 x 34 drawing.
+component Mark inherits Rectangle {
+    in property <length> size: 32px;
+    width: size;
+    height: size;
+    property <float> k: self.size / 34px;
+    Rectangle { x: 3px * k; y: 12px * k; width: 7px * k; height: 19px * k; border-radius: 3.5px * k; background: Theme.accent; }
+    Rectangle { x: 13.5px * k; y: 3px * k; width: 7px * k; height: 28px * k; border-radius: 3.5px * k; background: Theme.accent; opacity: 0.7; }
+    Rectangle { x: 24px * k; y: 8px * k; width: 7px * k; height: 23px * k; border-radius: 3.5px * k; background: Theme.accent; opacity: 0.4; }
+}
+
+/// A Bento tile (tile colour, 1px line, rounded). Nordic screens pass `flat` to drop the tile.
+component Tile inherits Rectangle {
+    in property <bool> flat: false;
+    background: flat ? transparent : Theme.tile;
+    border-width: flat ? 0px : 1px;
+    border-color: Theme.line;
+    border-radius: flat ? 0px : Theme.r-tile;
+}
+
+/// An app on the rail: line icon, selected = sel tint (squircle 42 in Bento, circle 46 in Nordic).
 component RailButton inherits Rectangle {
-    in property <string> glyph;
+    in property <string> icon;
     in property <bool> active;
+    in property <string> tip;
     callback clicked;
-    width: Prefs.large-targets ? 44px : 34px;
-    height: Prefs.large-targets ? 44px : 34px;
-    border-radius: 6px;
-    background: active ? Theme.sel : ta.has-hover ? Theme.hover : transparent;
+    width: Prefs.large-targets ? 48px : (Theme.nordic ? 46px : 42px);
+    height: self.width;
+    border-radius: Theme.nordic ? self.height / 2 : 14px;
+    background: active ? Theme.sel : ta.has-hover ? Theme.tile2 : transparent;
+    accessible-role: button;
+    accessible-label: root.tip;
+    accessible-action-default => { root.clicked(); }
     ta := TouchArea { clicked => { root.clicked(); } }
-    Icon {
-        text: glyph;
-        color: active ? Theme.accent : Theme.dim;
+    SIcon {
+        commands: root.icon;
+        size: Theme.nordic ? 21px : 20px;
+        weight: Theme.nordic ? 1.6 : 1.7;
+        tint: root.active ? Theme.sel-text : ta.has-hover ? Theme.text : Theme.faint;
     }
 }
 
+/// A folder in the sidebar. Bento: 16px line icon, squircle selection (BNMail); Nordic: no icon,
+/// pill selection (NordMail). Subfolders indent; a chevron on the right folds them.
 component FolderRow inherits Rectangle {
     in property <Folder> f;
     in property <bool> selected;
+    in property <bool> colorful;
     callback clicked;
     callback chevron-clicked;
     callback context(length, length);
-    height: Prefs.large-targets ? 44px : 24px;
     in property <string> hl-id;
-    background: selected ? Theme.sel : ta.has-hover || (hl-id != "" && CtxHl.id == hl-id) ? Theme.hover : transparent;
+    height: Prefs.large-targets ? 44px : (Theme.nordic ? 41px : 36px) * Prefs.fs;
+    border-radius: Theme.nordic ? min(self.height / 2, Theme.r-nav) : Theme.r-nav;
+    property <color> fg: selected ? Theme.sel-text : Theme.body;
+    background: selected ? Theme.sel : ta.has-hover || (hl-id != "" && CtxHl.id == hl-id) ? Theme.tile2 : transparent;
+    border-width: hl-id != "" && CtxHl.id == hl-id ? 1px : 0px;
+    border-color: Theme.accent;
     ta := TouchArea {
         clicked => { root.clicked(); }
         pointer-event(ev) => { if ev.button == PointerEventButton.right && ev.kind == PointerEventKind.up { root.context(self.absolute-position.x + self.mouse-x, self.absolute-position.y + self.mouse-y); } }
     }
-    Rectangle {
-        x: 0;
-        width: 3px;
-        background: selected ? Theme.accent : transparent;
-    }
     HorizontalLayout {
-        padding-left: 8px + f.depth * 12px;
-        padding-right: 8px;
-        spacing: 6px;
-        Rectangle {
-            width: 12px;
-            if f.chevron != 0: Icon {
-                text: f.chevron == 1 ? "\u{E70D}" : "\u{E76C}";
-                font-size: 8px;
-            }
-            TouchArea { enabled: f.chevron != 0; clicked => { root.chevron-clicked(); } }
-        }
-        Icon {
-            text: f.icon;
-            font-size: 13px;
-            width: 16px;
-            color: f.color;
+        padding-left: (Theme.nordic ? 16px : 11px) + f.depth * 14px;
+        padding-right: Theme.nordic ? 12px : 9px;
+        spacing: 10px;
+        if Theme.bento: VerticalLayout {
+            alignment: center;
+            SIcon { commands: Icons.for-glyph(f.icon); size: 16px; weight: 1.8; tint: root.colorful && !root.selected ? f.color : root.fg; }
         }
         Text {
             text: f.name;
-            color: selected ? Theme.sel-text : Theme.text;
+            color: root.fg;
             vertical-alignment: center;
             overflow: elide;
             horizontal-stretch: 1;
-            font-weight: selected ? 600 : 400;
+            font-size: (Theme.nordic ? 14.5px : 13.5px) * Prefs.fs;
+            font-weight: selected ? (Theme.nordic ? 700 : 600) : (Theme.nordic ? 500 : 400);
         }
-        if f.muted: Icon { text: "\u{E7ED}"; font-size: 10px; }
+        if f.muted: Icon { text: "\u{E7ED}"; font-size: 10px; color: Theme.faint; }
         Text {
             text: f.count;
-            color: f.unread > 0 ? Theme.text : Theme.dim;
-            font-size: 11px;
-            font-weight: f.unread > 0 ? 700 : 400;
+            color: f.unread > 0 || root.selected ? root.fg : Theme.faint;
+            font-size: (Theme.nordic ? 12.5px : 12px) * Prefs.fs;
+            font-weight: Theme.nordic ? 500 : 700;
             vertical-alignment: center;
+        }
+        if f.chevron != 0: Rectangle {
+            width: 18px;
+            cta := TouchArea { clicked => { root.chevron-clicked(); } }
+            SIcon { commands: f.chevron == 1 ? Icons.chevron-down : Icons.chevron-right; size: 12px; weight: 2; tint: cta.has-hover ? Theme.text : Theme.faint; }
         }
     }
 }
@@ -353,72 +354,171 @@ component TagIcon inherits Path {
     commands: "M12.6 2.6 A2 2 0 0 0 11.2 2 H4 A2 2 0 0 0 2 4 V11.2 A2 2 0 0 0 2.6 12.6 L11.3 21.3 A2.4 2.4 0 0 0 14.7 21.3 L21.3 14.7 A2.4 2.4 0 0 0 21.3 11.3 Z";
 }
 
+/// A tag in the Nordic sidebar: a small squircle in the tag colour, then the name (NordMail labels).
 component TagRow inherits Rectangle {
     in property <Tag> t;
     in property <bool> selected;
     callback clicked;
     callback context(length, length);
-    height: Prefs.large-targets ? 44px : 24px;
+    height: Prefs.large-targets ? 44px : 37px * Prefs.fs;
     in property <string> hl-id;
-    background: selected ? Theme.sel : ta.has-hover || (hl-id != "" && CtxHl.id == hl-id) ? Theme.hover : transparent;
+    border-radius: min(self.height / 2, Theme.r-nav);
+    background: selected ? Theme.sel : ta.has-hover || (hl-id != "" && CtxHl.id == hl-id) ? Theme.tile2 : transparent;
+    border-width: hl-id != "" && CtxHl.id == hl-id ? 1px : 0px;
+    border-color: Theme.accent;
     ta := TouchArea { clicked => { root.clicked(); } pointer-event(ev) => { if ev.button == PointerEventButton.right && ev.kind == PointerEventKind.up { root.context(self.absolute-position.x + self.mouse-x, self.absolute-position.y + self.mouse-y); } } }
     HorizontalLayout {
-        padding-left: 26px;
-        padding-right: 8px;
-        spacing: 8px;
-        VerticalLayout { alignment: center; width: 16px; TagIcon { tint: t.color; } }
-        Text { text: t.name; color: Theme.text; vertical-alignment: center; horizontal-stretch: 1; overflow: elide; }
-        Text { text: t.count; color: Theme.dim; font-size: 11px; vertical-alignment: center; }
+        padding-left: 16px;
+        padding-right: 12px;
+        spacing: 12px;
+        VerticalLayout { alignment: center; Rectangle { width: 10px; height: 10px; border-radius: 4px; background: t.color; } }
+        Text { text: t.name; color: selected ? Theme.sel-text : Theme.body; font-size: 14px * Prefs.fs; font-weight: selected ? 700 : 400; vertical-alignment: center; horizontal-stretch: 1; overflow: elide; }
+        Text { text: t.count; color: Theme.faint; font-size: 12px * Prefs.fs; vertical-alignment: center; }
     }
 }
 
+/// A tag as a tint tile with its count (BNMail labels grid).
+component TagTile inherits Rectangle {
+    in property <Tag> t;
+    in property <bool> selected;
+    callback clicked;
+    callback context(length, length);
+    in property <string> hl-id;
+    border-radius: 16px;
+    background: Theme.tint-bg(t.color);
+    border-width: selected || (hl-id != "" && CtxHl.id == hl-id) ? 1.5px : 0px;
+    border-color: Theme.tint-fg(t.color);
+    ta := TouchArea { clicked => { root.clicked(); } pointer-event(ev) => { if ev.button == PointerEventButton.right && ev.kind == PointerEventKind.up { root.context(self.absolute-position.x + self.mouse-x, self.absolute-position.y + self.mouse-y); } } }
+    VerticalLayout {
+        padding: 10px;
+        spacing: 2px;
+        Text { text: t.name; color: Theme.tint-fg(t.color); font-size: 12px * Prefs.fs; font-weight: 600; overflow: elide; }
+        Text { text: t.count == "" ? "0" : t.count; color: Theme.tint-fg(t.color); font-size: 19px * Prefs.fs; font-weight: 800; }
+    }
+}
+
+/// The accent button (radius 12–15 in Bento, a pill in Nordic).
 component PrimaryButton inherits Rectangle {
     in property <string> text;
     in property <bool> enabled: true;
     callback clicked;
     height: Prefs.large-targets ? 44px : 32px;
     min-width: pl.preferred-width + 28px;
-    border-radius: 6px;
-    background: !enabled ? #5a2a36 : (pta.pressed ? #d94a6b : (pta.has-hover ? #f46d8c : Theme.accent));
+    border-radius: min(self.height / 2, Theme.nordic ? 999px : 12px);
+    background: !enabled ? Theme.accent.with-alpha(0.4) : (pta.pressed ? Theme.accent.darker(0.12) : (pta.has-hover ? Theme.accent.brighter(0.1) : Theme.accent));
     pta := TouchArea { enabled: root.enabled; clicked => { root.clicked(); } }
     pl := Text { text: root.text; color: Theme.on-accent; font-weight: 700; horizontal-alignment: center; vertical-alignment: center; }
 }
 
-component HoverAction inherits Rectangle {
-    in property <string> glyph;
+/// A secondary action: tile-2 squircle with a line icon and label (BNMail reader actions) or a
+/// bordered pill with the label only (NordMail). `icon-only` drops the label.
+component ActionButton inherits Rectangle {
+    in property <string> icon;
+    in property <string> label;
+    in property <bool> icon-only: false;
     in property <bool> active;
     callback clicked;
-    width: Prefs.large-targets ? 32px : 22px;
-    height: Prefs.large-targets ? 32px : 22px;
-    border-radius: 4px;
-    background: hta.has-hover ? Theme.hover : transparent;
-    hta := TouchArea { clicked => { root.clicked(); } }
-    Icon { text: glyph; font-size: 12px; color: active ? #facc15 : (hta.has-hover ? Theme.text : Theme.dim); }
+    property <bool> show-label: !icon-only && label != "";
+    property <bool> show-icon: icon != "" && (Theme.bento || !show-label);
+    height: Prefs.large-targets ? 44px : (Theme.nordic ? 38px : 34px);
+    width: max(self.height, al.preferred-width);
+    border-radius: Theme.nordic ? self.height / 2 : 12px;
+    border-width: 1px;
+    border-color: Theme.line;
+    background: active ? Theme.sel : ata.pressed ? Theme.track : ata.has-hover ? (Theme.nordic ? Theme.tile2 : Theme.hover) : (Theme.nordic ? transparent : Theme.tile2);
+    ata := TouchArea { clicked => { root.clicked(); } }
+    al := HorizontalLayout {
+        padding-left: root.show-label ? (Theme.nordic ? 16px : 12px) : 0px;
+        padding-right: root.show-label ? (Theme.nordic ? 16px : 12px) : 0px;
+        spacing: 6px;
+        alignment: center;
+        if root.show-icon: VerticalLayout {
+            alignment: center;
+            SIcon { commands: root.icon; size: root.show-label ? 14px : 16px; weight: 2; tint: root.active ? Theme.sel-text : Theme.text; }
+        }
+        if root.show-label: Text {
+            text: root.label;
+            color: root.active ? Theme.sel-text : (Theme.nordic ? Theme.body : Theme.text);
+            font-size: (Theme.nordic ? 13px : 12.5px) * Prefs.fs;
+            font-weight: 600;
+            vertical-alignment: center;
+        }
+    }
 }
 
-export global Prefs {
-    in-out property <bool> toolbar-labels: true;
-    in-out property <bool> tag-chips: true;
-    in-out property <length> font-size: 13px;
-    in-out property <bool> cal-tinted: false;
-    // timeFormat 12h: the hour column reads "2:00 PM"
-    in-out property <bool> cal-h12: false;
-    // list hover actions, Barbican action names (delete, star, read, archive, spam)
-    in-out property <[string]> hover-actions: ["delete", "star", "read", "archive"];
-    // reader body gutter (messageSpacing)
-    in-out property <length> reader-gutter: 20px;
-    // Settings > Accessibility
-    in-out property <bool> reduce-motion: false;
-    in-out property <bool> large-targets: false;
-    // focus outline width (0 = off, Bulwark's default)
-    in-out property <length> focus-ring: 0px;
-    // a button on each row that opens its actions (showRowActionButton)
-    in-out property <bool> row-action: false;
-    // hover actions as a floating group in a corner (hoverActionsMode) and which corner
-    in-out property <bool> hover-floating: false;
-    in-out property <bool> hover-left: false;
-    in-out property <bool> hover-bottom: false;
+/// A quiet icon button (no border): squircle / circle hover.
+component IconBtn inherits Rectangle {
+    in property <string> icon;
+    in property <color> tint: Theme.dim;
+    in property <bool> active;
+    in property <length> icon-size: 16px;
+    callback clicked;
+    width: Prefs.large-targets ? 40px : 30px;
+    height: self.width;
+    border-radius: Theme.round(self.height);
+    background: active ? Theme.sel : ita.has-hover ? Theme.tile2 : transparent;
+    ita := TouchArea { clicked => { root.clicked(); } }
+    SIcon { commands: root.icon; size: root.icon-size; weight: 1.9; tint: root.active ? Theme.sel-text : ita.has-hover ? Theme.text : root.tint; }
 }
+
+/// A filter chip: on = text on ground colours, off = hairline (BNMail chips, BNTokens).
+component QuickChip inherits Rectangle {
+    in property <string> label;
+    in property <bool> on;
+    callback clicked;
+    height: Prefs.large-targets ? 40px : 28px;
+    width: ql.preferred-width + 24px;
+    border-radius: self.height / 2;
+    background: on ? Theme.text : qta.has-hover ? Theme.tile2 : transparent;
+    border-width: on ? 0px : 1px;
+    border-color: Theme.line;
+    qta := TouchArea { clicked => { root.clicked(); } }
+    ql := Text { text: root.label; color: root.on ? Theme.ground : Theme.dim; font-size: 12px * Prefs.fs; font-weight: 600; }
+}
+
+/// A tinted summary tile above the content (BNMail: Today / Waiting on / Travel).
+component SummaryTile inherits Rectangle {
+    in property <string> label;
+    in property <string> value;
+    in property <string> sub;
+    in property <color> bg;
+    in property <color> fg;
+    callback clicked;
+    border-radius: Theme.r-summary;
+    background: bg;
+    sta := TouchArea { clicked => { root.clicked(); } mouse-cursor: pointer; }
+    VerticalLayout {
+        padding-top: 14px;
+        padding-bottom: 14px;
+        padding-left: 16px;
+        padding-right: 16px;
+        spacing: 0px;
+        Text { text: root.label; color: root.fg; opacity: 0.85; font-size: 11.5px * Prefs.fs; font-weight: 600; overflow: elide; }
+        Text { text: root.value; color: root.fg; font-size: 19px * Prefs.fs; font-weight: 800; overflow: elide; }
+        Text { text: root.sub; color: root.fg; opacity: 0.85; font-size: 12px * Prefs.fs; overflow: elide; }
+    }
+}
+
+component HoverAction inherits Rectangle {
+    in property <string> glyph;
+    in property <string> icon;
+    in property <bool> active;
+    callback clicked;
+    width: Prefs.large-targets ? 32px : 24px;
+    height: Prefs.large-targets ? 32px : 24px;
+    border-radius: Theme.round(self.height);
+    background: hta.has-hover ? Theme.hover : transparent;
+    hta := TouchArea { clicked => { root.clicked(); } }
+    if root.icon == "": Icon { text: glyph; font-size: 12px; color: active ? #fbbf24 : (hta.has-hover ? Theme.text : Theme.dim); }
+    if root.icon != "": SIcon {
+        commands: root.icon;
+        size: 15px;
+        weight: 1.9;
+        tint: root.active ? #fbbf24 : (hta.has-hover ? Theme.text : Theme.dim);
+        fill: root.active ? #fbbf24 : transparent;
+    }
+}
+
 
 component ToolButton inherits Rectangle {
     in property <string> glyph;
@@ -444,8 +544,8 @@ component ContextMenuRow inherits Rectangle {
     in property <bool> open-sub;
     callback picked(string);
     callback hovered();
-    height: it.kind == 1 ? 9px : it.kind == 2 ? 24px : 28px;
-    border-radius: 4px;
+    height: it.kind == 1 ? 9px : it.kind == 2 ? 24px : 30px;
+    border-radius: Theme.nordic ? 15px : 9px;
     background: it.kind == 0 && it.enabled && (cta.has-hover || open-sub) ? (it.danger ? #ef444433 : Theme.hover) : transparent;
     if it.kind == 1: Rectangle { x: 4px; width: parent.width - 8px; height: 1px; background: Theme.line; }
     if it.kind == 2: Text { x: 10px; width: parent.width - 20px; text: it.label; color: Theme.dim; font-size: 11px; font-weight: 600; vertical-alignment: center; overflow: elide; }
@@ -470,11 +570,11 @@ component ContextMenu inherits Rectangle {
     callback picked(string);
     callback hovered(string, int);
     background: Theme.popup;
-    border-radius: 8px;
+    border-radius: Theme.r-popup;
     border-width: 1px;
     border-color: Theme.line;
-    drop-shadow-blur: 12px;
-    drop-shadow-color: #00000066;
+    drop-shadow-blur: 16px;
+    drop-shadow-color: #00000055;
     Flickable {
         content-height: col.preferred-height;
         col := VerticalLayout {
@@ -484,6 +584,9 @@ component ContextMenu inherits Rectangle {
     }
 }
 
+/// A message in the list. Bento (BNMail): avatar squircle, rounded row inset 8px, selected =
+/// tile-2 with a hairline. Nordic (NordMail): unread dot instead of an avatar, full-width row,
+/// selected = tile-2 with an accent bar on the left.
 component MailRow inherits VerticalLayout {
     in property <Mail> m;
     in property <length> row-height: 82px;
@@ -493,164 +596,185 @@ component MailRow inherits VerticalLayout {
     callback action(string);
     callback header-clicked;
     callback context(length, length);
+    property <bool> hl: CtxHl.id != "" && CtxHl.id == "mail:" + m.id;
+    property <length> side: Theme.nordic ? 28px : 12px;
     if m.header != "": Rectangle {
-        height: 32px;
+        height: 30px;
         TouchArea { clicked => { root.header-clicked(); } }
         HorizontalLayout {
-            padding-left: 16px;
-            spacing: 8px;
-            Icon { text: "\u{E70D}"; font-size: 9px; width: 12px; }
-            Text { text: m.header; color: Theme.text; font-weight: 600; vertical-alignment: center; }
+            padding-left: Theme.nordic ? 28px : 20px;
+            padding-top: 6px;
+            spacing: 6px;
+            Text { text: m.header; color: Theme.faint; font-size: 11.5px * Prefs.fs; font-weight: 700; vertical-alignment: center; }
+            VerticalLayout { alignment: center; SIcon { commands: Icons.chevron-down; size: 11px; weight: 2.2; tint: Theme.faint; } }
+            Rectangle { horizontal-stretch: 1; }
         }
-        Rectangle { y: parent.height - 1px; height: 1px; background: Theme.line; }
     }
     Rectangle {
-        height: root.row-height + ((m.code != "" || m.files.length > 0) ? 22px : 0px);
-        background: selected || m.checked ? Theme.sel : ta.has-hover || (CtxHl.id != "" && CtxHl.id == "mail:" + m.id) ? Theme.hover : m.row-tint;
-        border-width: CtxHl.id != "" && CtxHl.id == "mail:" + m.id ? 1px : 0px;
-        border-color: Theme.accent;
-        ta := TouchArea {
-            pointer-event(ev) => {
-                if ev.kind == PointerEventKind.up && ev.button == PointerEventButton.left {
-                    if ev.modifiers.control || ev.modifiers.shift { root.ctrl-clicked(); } else { root.clicked(); }
+        height: root.row-height + ((m.code != "" || m.files.length > 0) ? 24px : 0px) + (Theme.nordic ? 6px : 0px);
+        row := Rectangle {
+            x: Theme.nordic ? 0px : 8px;
+            width: parent.width - 2 * self.x;
+            border-radius: Theme.r-row;
+            background: root.selected ? Theme.tile2 : m.checked ? Theme.sel : ta.has-hover || root.hl ? Theme.tile2 : m.row-tint;
+            border-width: root.hl ? 1px : (Theme.bento && root.selected ? 1px : 0px);
+            border-color: root.hl ? Theme.accent : Theme.line;
+            ta := TouchArea {
+                pointer-event(ev) => {
+                    if ev.kind == PointerEventKind.up && ev.button == PointerEventButton.left {
+                        if ev.modifiers.control || ev.modifiers.shift { root.ctrl-clicked(); } else { root.clicked(); }
+                    }
+                    if ev.button == PointerEventButton.right && ev.kind == PointerEventKind.up { root.context(self.absolute-position.x + self.mouse-x, self.absolute-position.y + self.mouse-y); }
                 }
-                if ev.button == PointerEventButton.right && ev.kind == PointerEventKind.up { root.context(self.absolute-position.x + self.mouse-x, self.absolute-position.y + self.mouse-y); }
             }
-        }
-        if m.tags.length > 0: Rectangle {
-            x: 0; width: 3px; background: m.tags[0];
-        }
-        HorizontalLayout {
-            padding: 10px;
-            padding-left: 10px;
-            padding-right: 12px;
-            spacing: 12px;
-            VerticalLayout {
-                alignment: center;
-                Avatar { label: m.initials; tint: m.color; }
+            // Nordic selection bar; a tag's colour otherwise
+            if Theme.nordic && root.selected: Rectangle { x: 0; width: 3px; background: Theme.accent; }
+            if m.tags.length > 0 && !(Theme.nordic && root.selected): Rectangle {
+                x: Theme.nordic ? 0px : 3px;
+                y: Theme.nordic ? 0px : 14px;
+                width: 3px;
+                height: Theme.nordic ? parent.height : parent.height - 28px;
+                border-radius: Theme.nordic ? 0px : 1.5px;
+                background: m.tags[0];
             }
-            VerticalLayout {
-                spacing: 3px;
-                alignment: center;
-                HorizontalLayout {
-                    spacing: 6px;
-                    if m.account != "": VerticalLayout {
-                        alignment: center;
-                        Rectangle {
-                            width: 8px;
-                            height: 8px;
-                            border-radius: 4px;
-                            background: m.account-color;
-                        }
-                    }
-                    Text {
-                        text: m.draft ? "Draft" : m.sender;
-                        color: m.draft ? #ef4444 : (m.unread ? Theme.text : Theme.dim);
-                        font-weight: m.unread ? 700 : 600;
-                        overflow: elide;
-                        horizontal-stretch: 1;
-                    }
-                    if m.threads > 1: Rectangle {
-                        width: tc.preferred-width + 22px;
-                        height: 16px;
-                        border-radius: 4px;
-                        background: Theme.chip;
-                        HorizontalLayout {
-                            padding-left: 4px;
-                            spacing: 3px;
-                            Icon { text: "\u{E8BD}"; font-size: 9px; }
-                            tc := Text { text: m.threads; color: Theme.dim; font-size: 10px; vertical-alignment: center; }
-                        }
-                    }
-                    if m.answered: Icon { text: "\u{E97A}"; font-size: 11px; }
-                    if m.attach: Icon { text: "\u{E723}"; font-size: 11px; }
-                    if !ta.has-hover || Prefs.hover-floating: Text { text: m.time; color: Theme.dim; font-size: 11px; }
-                    if Prefs.row-action: HoverAction {
-                        glyph: "\u{E712}";
-                        clicked => { root.context(self.absolute-position.x, self.absolute-position.y + self.height); }
-                    }
-                    if ta.has-hover && !Prefs.hover-floating: HorizontalLayout {
-                        spacing: 0px;
-                        for a in Prefs.hover-actions: HoverAction {
-                            glyph: a == "delete" ? "\u{E74D}" : a == "star" ? (m.flagged ? "\u{E735}" : "\u{E734}") : a == "read" ? (m.unread ? "\u{E8C3}" : "\u{E715}") : a == "archive" ? "\u{E7B8}" : a == "spam" ? "\u{E8F8}" : "\u{E8EC}";
-                            active: a == "star" && m.flagged;
-                            clicked => { root.action(a); }
-                        }
-                    }
-                }
-                HorizontalLayout {
-                    spacing: 4px;
-                    Text {
-                        text: m.subject;
-                        color: Theme.text;
-                        font-weight: m.unread ? 700 : 400;
-                        overflow: elide;
-                        horizontal-stretch: 1;
-                    }
-                    if m.flagged && !ta.has-hover: Icon { text: "\u{E735}"; font-size: 11px; color: #facc15; }
-                }
-                HorizontalLayout {
-                    spacing: 4px;
-                    Text { text: m.preview; color: Theme.dim; overflow: elide; horizontal-stretch: 1; }
-                    for c in m.tags: Rectangle { visible: Prefs.tag-chips; width: Prefs.tag-chips ? 8px : 0px; height: 8px; border-radius: 4px; background: c; y: 4px; }
-                }
-                if m.code != "" || m.files.length > 0: HorizontalLayout {
-                    spacing: 4px;
+            HorizontalLayout {
+                padding-top: Theme.nordic ? 14px : 10px;
+                padding-bottom: Theme.nordic ? 14px : 10px;
+                padding-left: root.side;
+                padding-right: Theme.nordic ? 24px : 12px;
+                spacing: Theme.nordic ? 8px : 11px;
+                if Theme.bento: VerticalLayout {
                     alignment: start;
-                    if m.code != "": Rectangle {
-                        height: 18px;
-                        width: codet.preferred-width + 30px;
-                        border-radius: 4px;
-                        background: codeta.has-hover ? Theme.hover : Theme.chip;
-                        border-width: 1px;
-                        border-color: Theme.accent;
-                        codeta := TouchArea { clicked => { root.action("copy-code:" + m.code); } }
-                        HorizontalLayout {
-                            padding-left: 6px;
-                            spacing: 4px;
-                            Icon { text: "\u{E8C8}"; font-size: 9px; }
-                            codet := Text { text: m.code; color: Theme.text; font-size: 11px; font-weight: 700; vertical-alignment: center; }
+                    Avatar { label: m.initials; tint: m.color; width: 38px; height: 38px; }
+                }
+                if Theme.nordic: VerticalLayout {
+                    alignment: start;
+                    padding-top: 7px * Prefs.fs;
+                    Rectangle { width: 7px; height: 7px; border-radius: 3.5px; background: m.unread ? Theme.accent : transparent; }
+                }
+                VerticalLayout {
+                    spacing: Theme.nordic ? 3px : 1px;
+                    alignment: start;
+                    HorizontalLayout {
+                        spacing: 6px;
+                        if m.account != "": VerticalLayout {
+                            alignment: center;
+                            Rectangle { width: 8px; height: 8px; border-radius: 4px; background: m.account-color; }
+                        }
+                        Text {
+                            text: m.draft ? "Draft" : m.sender;
+                            color: m.draft ? Theme.accent : Theme.text;
+                            font-size: (Theme.nordic ? 14px : 13.5px) * Prefs.fs;
+                            font-weight: m.unread ? 700 : 500;
+                            overflow: elide;
+                            horizontal-stretch: 1;
+                            vertical-alignment: center;
+                        }
+                        if m.threads > 1: Rectangle {
+                            width: tc.preferred-width + 12px;
+                            height: 17px;
+                            border-radius: 8.5px;
+                            background: Theme.track;
+                            tc := Text { text: m.threads; color: Theme.dim; font-size: 10.5px; font-weight: 700; }
+                        }
+                        if m.answered: VerticalLayout { alignment: center; SIcon { commands: Icons.reply; size: 13px; weight: 2; tint: Theme.faint; } }
+                        if m.attach: VerticalLayout { alignment: center; SIcon { commands: Icons.clip; size: 13px; weight: 2; tint: Theme.faint; } }
+                        if !ta.has-hover || Prefs.hover-floating: Text {
+                            text: m.time;
+                            color: Theme.nordic ? Theme.dim : (m.unread ? Theme.accent : Theme.faint);
+                            font-size: (Theme.nordic ? 12px : 11.5px) * Prefs.fs;
+                            font-weight: Theme.nordic ? 400 : 600;
+                            vertical-alignment: center;
+                        }
+                        if Prefs.row-action: HoverAction {
+                            icon: Icons.more;
+                            clicked => { root.context(self.absolute-position.x, self.absolute-position.y + self.height); }
+                        }
+                        if ta.has-hover && !Prefs.hover-floating: HorizontalLayout {
+                            spacing: 0px;
+                            for a in Prefs.hover-actions: HoverAction {
+                                icon: a == "delete" ? Icons.trash : a == "star" ? Icons.star : a == "read" ? Icons.mail : a == "archive" ? Icons.archive : a == "spam" ? Icons.alert : Icons.tag;
+                                active: a == "star" && m.flagged;
+                                clicked => { root.action(a); }
+                            }
                         }
                     }
-                    for f in m.files: Rectangle {
-                        height: 18px;
-                        width: min(ft.preferred-width + 26px, 160px);
-                        border-radius: 4px;
-                        background: Theme.chip;
-                        HorizontalLayout {
-                            padding-left: 6px;
-                            padding-right: 6px;
-                            spacing: 4px;
-                            Icon { text: "\u{E723}"; font-size: 9px; }
-                            ft := Text { text: f; color: Theme.dim; font-size: 10px; vertical-alignment: center; overflow: elide; }
+                    HorizontalLayout {
+                        spacing: 4px;
+                        Text {
+                            text: m.subject;
+                            color: Theme.text;
+                            font-size: (Theme.nordic ? 14px : 13px) * Prefs.fs;
+                            font-weight: m.unread ? 700 : 500;
+                            overflow: elide;
+                            horizontal-stretch: 1;
+                        }
+                        if m.flagged && !ta.has-hover: VerticalLayout { alignment: center; SIcon { commands: Icons.star; size: 12px; weight: 1.8; tint: #fbbf24; fill: #fbbf24; } }
+                    }
+                    HorizontalLayout {
+                        spacing: 4px;
+                        Text { text: m.preview; color: Theme.dim; font-size: (Theme.nordic ? 13px : 12px) * Prefs.fs; overflow: elide; horizontal-stretch: 1; }
+                        for c in m.tags: VerticalLayout {
+                            alignment: center;
+                            Rectangle { visible: Prefs.tag-chips; width: Prefs.tag-chips ? 8px : 0px; height: 8px; border-radius: 4px; background: c; }
+                        }
+                    }
+                    if m.code != "" || m.files.length > 0: HorizontalLayout {
+                        spacing: 4px;
+                        alignment: start;
+                        padding-top: 4px;
+                        if m.code != "": Rectangle {
+                            height: 20px;
+                            width: codet.preferred-width + 30px;
+                            border-radius: 10px;
+                            background: codeta.has-hover ? Theme.sel : Theme.rose-bg;
+                            codeta := TouchArea { clicked => { root.action("copy-code:" + m.code); } }
+                            HorizontalLayout {
+                                padding-left: 8px;
+                                spacing: 4px;
+                                Icon { text: "\u{E8C8}"; font-size: 9px; color: Theme.rose-fg; }
+                                codet := Text { text: m.code; color: Theme.rose-fg; font-size: 11px; font-weight: 700; vertical-alignment: center; }
+                            }
+                        }
+                        for f in m.files: Rectangle {
+                            height: 20px;
+                            width: min(ft.preferred-width + 30px, 160px);
+                            border-radius: 10px;
+                            background: Theme.track;
+                            HorizontalLayout {
+                                padding-left: 7px;
+                                padding-right: 8px;
+                                spacing: 4px;
+                                VerticalLayout { alignment: center; SIcon { commands: Icons.clip; size: 11px; weight: 2; tint: Theme.dim; } }
+                                ft := Text { text: f; color: Theme.dim; font-size: 10.5px; vertical-alignment: center; overflow: elide; }
+                            }
                         }
                     }
                 }
             }
-        }
-        // Bulwark hoverActionsMode "floating": the actions float in a corner of the row
-        if ta.has-hover && Prefs.hover-floating: Rectangle {
-            x: Prefs.hover-left ? 8px : parent.width - self.width - 8px;
-            y: Prefs.hover-bottom ? parent.height - self.height - 4px : 4px;
-            width: fl.preferred-width + 4px;
-            height: fl.preferred-height + 4px;
-            border-radius: 6px;
-            background: Theme.popup;
-            border-width: 1px;
-            border-color: Theme.line;
-            drop-shadow-blur: 6px;
-            drop-shadow-color: #00000040;
-            fl := HorizontalLayout {
-                x: 2px; y: 2px;
-                spacing: 0px;
-                for a in Prefs.hover-actions: HoverAction {
-                    glyph: a == "delete" ? "\u{E74D}" : a == "star" ? (m.flagged ? "\u{E735}" : "\u{E734}") : a == "read" ? (m.unread ? "\u{E8C3}" : "\u{E715}") : a == "archive" ? "\u{E7B8}" : a == "spam" ? "\u{E8F8}" : "\u{E8EC}";
-                    active: a == "star" && m.flagged;
-                    clicked => { root.action(a); }
+            // Bulwark hoverActionsMode "floating": the actions float in a corner of the row
+            if ta.has-hover && Prefs.hover-floating: Rectangle {
+                x: Prefs.hover-left ? 8px : parent.width - self.width - 8px;
+                y: Prefs.hover-bottom ? parent.height - self.height - 4px : 4px;
+                width: fl.preferred-width + 4px;
+                height: fl.preferred-height + 4px;
+                border-radius: Theme.round(self.height);
+                background: Theme.popup;
+                border-width: 1px;
+                border-color: Theme.line;
+                drop-shadow-blur: 6px;
+                drop-shadow-color: #00000040;
+                fl := HorizontalLayout {
+                    x: 2px; y: 2px;
+                    spacing: 0px;
+                    for a in Prefs.hover-actions: HoverAction {
+                        icon: a == "delete" ? Icons.trash : a == "star" ? Icons.star : a == "read" ? Icons.mail : a == "archive" ? Icons.archive : a == "spam" ? Icons.alert : Icons.tag;
+                        active: a == "star" && m.flagged;
+                        clicked => { root.action(a); }
+                    }
                 }
             }
         }
-        Rectangle { y: parent.height - 1px; height: 1px; background: Theme.line; }
     }
 }
 
@@ -747,7 +871,7 @@ component MenuItem inherits Rectangle {
     in property <color> swatch: transparent;
     callback clicked;
     height: 30px;
-    border-radius: 4px;
+    border-radius: Theme.nordic ? 15px : 9px;
     background: mta.has-hover && enabled ? Theme.hover : transparent;
     mta := TouchArea { enabled: root.enabled; clicked => { root.clicked(); } }
     HorizontalLayout {
@@ -763,7 +887,7 @@ component MenuItem inherits Rectangle {
 
 component MenuPanel inherits Rectangle {
     background: Theme.popup;
-    border-radius: 8px;
+    border-radius: Theme.r-popup;
     border-width: 1px;
     border-color: Theme.line;
     drop-shadow-blur: 12px;
@@ -817,7 +941,7 @@ export component AppWindow inherits Window {
     preferred-height: 900px;
     default-font-size: Prefs.font-size;
     default-font-family: "Segoe UI";
-    init => { Palette.color-scheme = Theme.dark ? ColorScheme.dark : ColorScheme.light; }
+    init => { Palette.color-scheme = Theme.dark ? ColorScheme.dark : ColorScheme.light; root.win-w = self.width; }
     changed theme-dark => { Palette.color-scheme = Theme.dark ? ColorScheme.dark : ColorScheme.light; }
     property <bool> theme-dark: Theme.dark;
 
@@ -834,6 +958,41 @@ export component AppWindow inherits Window {
     in property <string> r-from;
     in property <string> r-date;
     in property <string> r-body;
+    // ---- mail glance (src/glance.rs): list header, summary tiles, storage, sender panel ----
+    in property <string> list-title: "Inbox";
+    in property <int> list-unread;
+    in property <string> list-sub;
+    in property <bool> sum-has-cal;
+    in property <int> sum-today;
+    in property <string> sum-today-next;
+    in property <int> sum-flagged;
+    in property <string> sum-flagged-who;
+    in property <bool> sum-has-tasks;
+    in property <int> sum-tasks;
+    in property <string> sum-tasks-next;
+    in property <string> quota-text;
+    in property <float> quota-frac: -1;
+    in property <string> sx-org;
+    in property <string> sx-phone;
+    in property <[PRow]> sx-recent;
+    in property <[PRow]> sx-files;
+    in property <string> sx-next;
+    in property <string> sx-next-title;
+    // the context panel (sender details) beside the reader collapses first when space runs out
+    // the window width, copied in a changed handler: a binding on `width` would loop through the layout
+    property <length> win-w: 1400px;
+    changed width => { root.win-w = self.width; }
+    property <bool> list-narrow: root.win-w < (Theme.nordic ? 1180px : 1150px) || ((root.chat-shown || root.composing) && root.win-w < 1500px);
+    property <length> list-w: Theme.nordic ? (root.list-narrow ? 330px : 390px) : (root.list-narrow ? 320px : 368px);
+    property <length> side-w: Theme.nordic ? 228px : 204px;
+    property <length> ctx-w: Theme.nordic ? 250px : 236px;
+    property <length> chat-w: 300px;
+    property <bool> chat-shown: root.chat-open && !root.ai-hidden;
+    property <length> fixed-w: Theme.shell-x + root.side-w + root.list-w + (Theme.nordic ? 14px + 2px : 2 * Theme.gap + Theme.pad);
+    property <bool> sender-shown: !root.chat-shown && root.current-mail != "" && !root.composing && root.win-w - root.fixed-w - root.ctx-w - Theme.gap >= 440px;
+    // the reader's inner width (for the action bar), from the same arithmetic
+    property <length> reader-w: root.win-w - root.fixed-w - (root.chat-shown ? root.chat-w + Theme.gap : root.sender-shown ? root.ctx-w + Theme.gap : 0px) - (Theme.nordic ? 88px : 54px);
+    property <bool> has-summary: Theme.bento && !root.composing && root.reader-w >= 330px;
     in-out property <string> server;
     in-out property <string> user;
     in-out property <string> search;
@@ -872,7 +1031,8 @@ export component AppWindow inherits Window {
     in-out property <bool> ai-memory-on: true;
     in-out property <string> ai-memory;
     in-out property <bool> ai-hidden;
-    in-out property <bool> chat-open: true;
+    // the assistant opens from the rail; the sender panel is the default context beside the reader
+    in-out property <bool> chat-open: false;
     in property <[ChatMsg]> chat;
     in property <bool> chat-busy;
     in property <[string]> chips;
@@ -1273,193 +1433,361 @@ export component AppWindow inherits Window {
         }
     }
 
+    // ======== shell (design/mockups BNMail / NordMail) ========
+    // Bento: rail, folders, list, reader and context are separate tiles on the ground (14px
+    // padding, 12px gaps). Nordic: rail and folders sit on the ground; list, reader and context
+    // share one rounded surface split by hairlines.
     Rectangle {
       visible: logged-in;
+      background: Theme.ground;
       HorizontalLayout {
-        // icon rail
-        Rectangle {
-            width: 44px;
-            background: Theme.rail;
+        padding: Theme.pad;
+        spacing: Theme.gap;
+        // ---- rail ----
+        Tile {
+            flat: Theme.nordic;
+            width: Theme.rail-w;
             VerticalLayout {
-                padding-top: 10px;
-                padding-bottom: 10px;
-                spacing: 8px;
-                alignment: start;
+                padding-top: Theme.nordic ? 26px : 16px;
+                padding-bottom: Theme.nordic ? 26px : 16px;
+                spacing: Theme.nordic ? 12px : 8px;
+                HorizontalLayout { alignment: center; Mark { size: Theme.nordic ? 34px : 32px; } }
+                Rectangle { height: Theme.nordic ? 2px : 2px; }
+                HorizontalLayout { alignment: center; RailButton { icon: Icons.mail; tip: "Mail"; active: root.app == 0 && !root.show-settings; clicked => { root.show-settings = false; root.app = 0; root.app-changed(0); } } }
+                HorizontalLayout { alignment: center; RailButton { icon: Icons.cal; tip: "Calendar"; active: root.app == 1 && !root.show-settings; clicked => { root.show-settings = false; root.app = 1; root.app-changed(1); } } }
+                HorizontalLayout { alignment: center; RailButton { icon: Icons.users; tip: "Contacts"; active: root.app == 2 && !root.show-settings; clicked => { root.show-settings = false; root.app = 2; root.app-changed(2); } } }
+                HorizontalLayout { alignment: center; RailButton { icon: Icons.folder; tip: "Files"; active: root.app == 3 && !root.show-settings; clicked => { root.show-settings = false; root.app = 3; root.app-changed(3); } } }
+                if !root.ai-hidden: HorizontalLayout { alignment: center; RailButton { icon: Icons.spark; tip: "Assistant"; active: root.chat-open; clicked => { root.show-settings = false; root.app = 0; root.chat-open = !root.chat-open; } } }
+                if root.admin-enabled: HorizontalLayout { alignment: center; RailButton { icon: Icons.shield; tip: "Admin"; active: root.app == 4 && !root.show-settings; clicked => { root.show-settings = false; root.app = 4; root.app-changed(4); } } }
+                Rectangle { vertical-stretch: 1; }
+                HorizontalLayout { alignment: center; RailButton { icon: Icons.settings; tip: "Settings"; active: root.show-settings; clicked => { root.open-settings(); } } }
                 HorizontalLayout {
                     alignment: center;
-                    Image { source: @image-url("barbican.svg"); width: 30px; height: 30px; }
+                    me := Avatar {
+                        label: root.initials;
+                        tint: Theme.nordic ? Theme.accent : #f0577a;
+                        width: Theme.nordic ? 40px : 38px;
+                        height: self.width;
+                        border-radius: Theme.nordic ? self.height / 2 : 14px;
+                        background: Theme.nordic ? Theme.sel : Theme.rose-bg;
+                        mea := TouchArea { clicked => { acct-popup.show(); } mouse-cursor: pointer; }
+                        acct-popup := PopupWindow {
+                            x: parent.width + 10px;
+                            y: parent.height - (root.accounts.length * 32px + 32px + 58px);
+                            width: 260px;
+                            Rectangle {
+                                background: Theme.popup; border-radius: Theme.r-popup; border-width: 1px; border-color: Theme.line;
+                                drop-shadow-blur: 16px; drop-shadow-color: #00000055;
+                                VerticalLayout {
+                                    padding: 6px;
+                                    Text { text: "Signed in as"; color: Theme.dim; font-size: 11px; font-weight: 700; height: 24px; vertical-alignment: center; x: 10px; }
+                                    for a in root.accounts: Rectangle {
+                                        height: 32px; border-radius: Theme.nordic ? 16px : 9px;
+                                        background: aca.has-hover ? Theme.hover : transparent;
+                                        aca := TouchArea { clicked => { if a != root.account { root.switch-account(a); } } }
+                                        HorizontalLayout {
+                                            padding-left: 10px; spacing: 8px;
+                                            VerticalLayout { alignment: center; width: 14px; if a == root.account: SIcon { commands: Icons.check; size: 14px; weight: 2.2; tint: Theme.accent; } }
+                                            Text { text: a; color: Theme.text; font-weight: a == root.account ? 600 : 400; vertical-alignment: center; overflow: elide; }
+                                        }
+                                    }
+                                    Rectangle { height: 9px; Rectangle { height: 1px; background: Theme.line; } }
+                                    Rectangle {
+                                        height: 32px; border-radius: Theme.nordic ? 16px : 9px;
+                                        background: ada.has-hover ? Theme.hover : transparent;
+                                        ada := TouchArea { clicked => { root.add-account(); } }
+                                        HorizontalLayout {
+                                            padding-left: 10px; spacing: 8px;
+                                            VerticalLayout { alignment: center; SIcon { commands: Icons.plus; size: 14px; weight: 2; tint: Theme.text; } }
+                                            Text { text: "Add account"; color: Theme.text; vertical-alignment: center; }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
                 }
-                Rectangle { height: 14px; }
-                HorizontalLayout { alignment: center; RailButton { glyph: "\u{E715}"; active: root.app == 0; clicked => { root.show-settings = false; root.app = 0; root.app-changed(0); } } }
-                HorizontalLayout { alignment: center; RailButton { glyph: "\u{E787}"; active: root.app == 1; clicked => { root.show-settings = false; root.app = 1; root.app-changed(1); } } }
-                HorizontalLayout { alignment: center; RailButton { glyph: "\u{E716}"; active: root.app == 2; clicked => { root.show-settings = false; root.app = 2; root.app-changed(2); } } }
-                HorizontalLayout { alignment: center; RailButton { glyph: "\u{E8B7}"; active: root.app == 3; clicked => { root.show-settings = false; root.app = 3; root.app-changed(3); } } }
-                if root.admin-enabled: HorizontalLayout { alignment: center; RailButton { glyph: "\u{E83D}"; active: root.app == 4; clicked => { root.show-settings = false; root.app = 4; root.app-changed(4); } } }
-                if !root.ai-hidden: HorizontalLayout { alignment: center; RailButton { glyph: "\u{E945}"; active: root.chat-open; clicked => { root.show-settings = false; root.app = 0; root.chat-open = !root.chat-open; } } }
-            }
-            VerticalLayout {
-                padding-bottom: 10px;
-                spacing: 8px;
-                alignment: end;
-                HorizontalLayout { alignment: center; RailButton { glyph: "\u{E713}"; clicked => { root.open-settings(); } } }
-                HorizontalLayout { alignment: center; Avatar { label: root.initials; tint: #e07a10; width: 28px; height: 28px; border-radius: 14px; } }
             }
         }
-        Rectangle { width: 1px; background: Theme.line; }
 
-        // folder sidebar
-        Rectangle {
-            width: 220px;
-            background: Theme.side;
-            VerticalLayout {
+        // ---- folder sidebar ----
+        VerticalLayout {
+            width: root.side-w;
+            padding-top: Theme.nordic ? 30px : 0px;
+            padding-bottom: Theme.nordic ? 22px : 0px;
+            padding-left: Theme.nordic ? 14px : 0px;
+            padding-right: Theme.nordic ? 14px : 0px;
+            spacing: Theme.nordic ? 0px : 12px;
+            // Compose: a 52px accent squircle (Bento) or a 50px pill (Nordic)
+            Rectangle {
+                height: Prefs.large-targets ? 54px : (Theme.nordic ? 50px : 52px);
+                border-radius: Theme.nordic ? self.height / 2 : 20px;
+                background: cta.pressed ? Theme.accent.darker(0.12) : cta.has-hover ? Theme.accent.brighter(0.1) : Theme.accent;
+                cta := TouchArea { clicked => { root.compose-new(); } }
                 HorizontalLayout {
-                    padding: 10px;
+                    alignment: center;
                     spacing: 8px;
-                    Avatar { label: root.initials; tint: #e07a10; width: 30px; height: 30px; border-radius: 15px; }
-                    Text { text: root.account; color: Theme.text; font-weight: 600; vertical-alignment: center; overflow: elide; horizontal-stretch: 1; }
-                    Icon {
-                        text: "\u{E70D}"; font-size: 9px; width: 14px;
-                        TouchArea { clicked => { acct-popup.show(); } }
-                    }
-                    acct-popup := PopupWindow {
-                        x: -40px; y: 34px; width: 230px;
-                        Rectangle {
-                            background: Theme.popup; border-radius: 8px; border-width: 1px; border-color: Theme.line;
-                            VerticalLayout {
-                                padding: 6px;
-                                for a in root.accounts: Rectangle {
-                                    height: 30px; border-radius: 4px;
-                                    background: aca.has-hover ? Theme.hover : transparent;
-                                    aca := TouchArea { clicked => { if a != root.account { root.switch-account(a); } } }
-                                    HorizontalLayout {
-                                        padding-left: 8px; spacing: 8px;
-                                        Icon { text: a == root.account ? "\u{E73E}" : ""; font-size: 11px; width: 14px; color: Theme.accent; }
-                                        Text { text: a; color: Theme.text; vertical-alignment: center; overflow: elide; }
-                                    }
-                                }
-                                Rectangle { height: 1px; background: Theme.line; }
-                                Rectangle {
-                                    height: 30px; border-radius: 4px;
-                                    background: ada.has-hover ? Theme.hover : transparent;
-                                    ada := TouchArea { clicked => { root.add-account(); } }
-                                    HorizontalLayout {
-                                        padding-left: 8px; spacing: 8px;
-                                        Icon { text: "\u{E710}"; font-size: 11px; width: 14px; }
-                                        Text { text: "Add account"; color: Theme.text; vertical-alignment: center; }
-                                    }
-                                }
-                            }
-                        }
-                    }
+                    if Theme.bento: VerticalLayout { alignment: center; SIcon { commands: Icons.pen; size: 16px; weight: 2.2; tint: Theme.on-accent; } }
+                    Text { text: Theme.nordic ? "New message" : "Compose"; color: Theme.on-accent; font-weight: 700; font-size: 14.5px * Prefs.fs; vertical-alignment: center; }
                 }
-                Rectangle {
-                    height: 50px;
-                    Rectangle {
-                        x: 8px; y: 6px; width: parent.width - 16px; height: 36px;
-                        border-radius: 18px;
-                        background: cta.has-hover ? #f46d8c : Theme.accent;
-                        cta := TouchArea { clicked => { root.compose-new(); } }
-                        HorizontalLayout {
-                            padding-left: 16px;
-                            spacing: 8px;
-                            Icon { text: "\u{E70F}"; color: white; width: 16px; }
-                            Text { text: "Compose"; color: white; font-weight: 600; font-size: 14px; vertical-alignment: center; }
-                        }
-                    }
-                }
-                ScrollView {
-                    VerticalLayout {
-                        alignment: start;
-                        Rectangle {
-                            height: 30px;
-                            fh := TouchArea { clicked => { root.folders-collapsed = !root.folders-collapsed; } }
-                            HorizontalLayout {
-                                padding-left: 10px;
-                                padding-right: 12px;
-                                spacing: 6px;
-                                Icon { text: root.folders-collapsed ? "\u{E76C}" : "\u{E70D}"; font-size: 8px; width: 12px; }
-                                Text { text: "Folders"; color: Theme.text; font-weight: 700; vertical-alignment: center; horizontal-stretch: 1; }
-                                Icon { text: "\u{E713}"; font-size: 11px; TouchArea { clicked => { root.settings-tab = "organize"; root.open-settings(); } } }
-                            }
-                        }
-                        if !root.folders-collapsed: VerticalLayout {
-                            for f in root.folders: FolderRow {
-                                f: f;
-                                selected: f.id == root.current-folder && root.current-tag == "";
-                                clicked => {
-                                    root.current-tag = "";
-                                    root.current-folder = f.id;
-                                    root.select-folder(f.id);
+            }
+            if Theme.nordic: Rectangle { height: 22px; }
+            // folders
+            Tile {
+                flat: Theme.nordic;
+                vertical-stretch: 1;
+                max-height: fcol.preferred-height + (Theme.nordic ? 0px : 22px);
+                min-height: 120px;
+                VerticalLayout {
+                    padding: Theme.nordic ? 0px : 10px;
+                    padding-bottom: Theme.nordic ? 0px : 10px;
+                    Flickable {
+                        content-height: fcol.preferred-height;
+                        fcol := VerticalLayout {
+                            alignment: start;
+                            spacing: Theme.nordic ? 4px : 2px;
+                            Rectangle {
+                                height: 26px;
+                                fh := TouchArea { clicked => { root.folders-collapsed = !root.folders-collapsed; } }
+                                HorizontalLayout {
+                                    padding-left: Theme.nordic ? 16px : 11px;
+                                    padding-right: Theme.nordic ? 12px : 6px;
+                                    spacing: 6px;
+                                    Text { text: "Folders"; color: Theme.dim; font-size: 12px * Prefs.fs; font-weight: 700; vertical-alignment: center; }
+                                    VerticalLayout { alignment: center; SIcon { commands: root.folders-collapsed ? Icons.chevron-right : Icons.chevron-down; size: 11px; weight: 2.2; tint: Theme.faint; } }
+                                    Rectangle { horizontal-stretch: 1; }
+                                    IconBtn { icon: Icons.settings; icon-size: 13px; width: 22px; tint: Theme.faint; clicked => { root.settings-tab = "organize"; root.open-settings(); } }
                                 }
-                                chevron-clicked => { root.toggle-folder(f.id); }
-                                hl-id: "folder:" + f.id;
-                                context(x, y) => { root.ctx("folder", f.id, x, y); }
                             }
-                        }
-                        Rectangle { height: 10px; }
-                        Rectangle {
-                            height: 30px;
-                            TouchArea { clicked => { root.tags-collapsed = !root.tags-collapsed; } }
-                            HorizontalLayout {
-                                padding-left: 10px;
-                                padding-right: 12px;
-                                spacing: 6px;
-                                Icon { text: root.tags-collapsed ? "\u{E76C}" : "\u{E70D}"; font-size: 8px; width: 12px; }
-                                Text { text: "Tags"; color: Theme.text; font-weight: 700; vertical-alignment: center; horizontal-stretch: 1; }
-                                Icon { text: "\u{E713}"; font-size: 11px; TouchArea { clicked => { root.settings-tab = "organize"; root.open-settings(); } } }
-                            }
-                        }
-                        if !root.tags-collapsed: VerticalLayout {
-                            for t in root.tags: TagRow {
-                                t: t;
-                                selected: t.id == root.current-tag;
-                                clicked => { root.current-tag = t.id; root.select-tag(t.id); }
-                                hl-id: "tag:" + t.id;
-                                context(x, y) => { root.ctx("tag", t.id, x, y); }
+                            if !root.folders-collapsed: VerticalLayout {
+                                spacing: Theme.nordic ? 4px : 2px;
+                                for f in root.folders: FolderRow {
+                                    f: f;
+                                    colorful: f.color != #a3a3a3;
+                                    selected: f.id == root.current-folder && root.current-tag == "";
+                                    clicked => {
+                                        root.current-tag = "";
+                                        root.current-folder = f.id;
+                                        root.select-folder(f.id);
+                                    }
+                                    chevron-clicked => { root.toggle-folder(f.id); }
+                                    hl-id: "folder:" + f.id;
+                                    context(x, y) => { root.ctx("folder", f.id, x, y); }
+                                }
                             }
                         }
                     }
                 }
             }
-        }
-        Rectangle { width: 1px; background: Theme.line; }
-
-        // message list
-        Rectangle {
-            width: 330px;
-            background: Theme.bg;
-            VerticalLayout {
-                HorizontalLayout {
-                    padding: 8px;
-                    spacing: 6px;
-                    height: 44px;
+            // tags: tint tiles in a 2-column grid (Bento) or coloured squircle rows (Nordic)
+            if root.tags.length > 0: Tile {
+                flat: Theme.nordic;
+                VerticalLayout {
+                    padding: Theme.nordic ? 0px : 12px;
+                    padding-top: Theme.nordic ? 18px : 8px;
+                    spacing: Theme.nordic ? 2px : 6px;
                     Rectangle {
-                        width: 24px;
-                        sa := TouchArea { clicked => { root.select-all(); } }
-                        Rectangle {
-                            width: 14px; height: 14px; border-radius: 3px;
-                            border-width: 1px; border-color: Theme.dim;
-                            background: root.checked-count > 0 ? Theme.accent : transparent;
+                        height: 26px;
+                        TouchArea { clicked => { root.tags-collapsed = !root.tags-collapsed; } }
+                        HorizontalLayout {
+                            padding-left: Theme.nordic ? 16px : 0px;
+                            padding-right: Theme.nordic ? 12px : 0px;
+                            spacing: 6px;
+                            Text { text: "Tags"; color: Theme.dim; font-size: 12px * Prefs.fs; font-weight: 700; vertical-alignment: center; }
+                            VerticalLayout { alignment: center; SIcon { commands: root.tags-collapsed ? Icons.chevron-right : Icons.chevron-down; size: 11px; weight: 2.2; tint: Theme.faint; } }
+                            Rectangle { horizontal-stretch: 1; }
+                            IconBtn { icon: Icons.settings; icon-size: 13px; width: 22px; tint: Theme.faint; clicked => { root.settings-tab = "organize"; root.open-settings(); } }
                         }
                     }
-                    search-box := LineEdit {
-                        placeholder-text: "Search mail…  /";
-                        text <=> root.search;
-                        accepted(t) => { root.do-search(t); }
+                    if !root.tags-collapsed && Theme.bento: Rectangle {
+                        property <length> cw: (self.width - 8px) / 2;
+                        property <length> ch: 58px * Prefs.fs;
+                        height: ceil(root.tags.length / 2) * (self.ch + 8px) - 8px;
+                        for t[i] in root.tags: TagTile {
+                            x: mod(i, 2) * (parent.cw + 8px);
+                            y: floor(i / 2) * (parent.ch + 8px);
+                            width: parent.cw;
+                            height: parent.ch;
+                            t: t;
+                            selected: t.id == root.current-tag;
+                            clicked => { root.current-tag = t.id; root.select-tag(t.id); }
+                            hl-id: "tag:" + t.id;
+                            context(x, y) => { root.ctx("tag", t.id, x, y); }
+                        }
                     }
-                    Rectangle {
-                        width: 26px;
-                        fta2 := TouchArea { clicked => { root.sf-open = !root.sf-open; } }
-                        Icon { text: "\u{E71C}"; font-size: 12px; color: root.sf-active ? Theme.accent : (fta2.has-hover ? Theme.text : Theme.dim); }
+                    if !root.tags-collapsed && Theme.nordic: VerticalLayout {
+                        spacing: 2px;
+                        for t in root.tags: TagRow {
+                            t: t;
+                            selected: t.id == root.current-tag;
+                            clicked => { root.current-tag = t.id; root.select-tag(t.id); }
+                            hl-id: "tag:" + t.id;
+                            context(x, y) => { root.ctx("tag", t.id, x, y); }
+                        }
                     }
+                }
+            }
+            Rectangle { vertical-stretch: 0.001; min-height: 0px; }
+            // storage (JMAP quota): a meter tile (Bento) or one quiet line (Nordic)
+            if root.quota-text != "" && Theme.bento: Tile {
+                border-radius: 20px;
+                VerticalLayout {
+                    padding-top: 12px;
+                    padding-bottom: 12px;
+                    padding-left: 14px;
+                    padding-right: 14px;
+                    spacing: 8px;
+                    HorizontalLayout {
+                        Text { text: "Storage"; color: Theme.dim; font-size: 12px * Prefs.fs; horizontal-stretch: 1; }
+                        Text { text: root.quota-text; color: Theme.dim; font-size: 12px * Prefs.fs; }
+                    }
+                    if root.quota-frac >= 0: Rectangle {
+                        height: 6px;
+                        border-radius: 3px;
+                        background: Theme.track;
+                        Rectangle { x: 0; width: max(6px, parent.width * root.quota-frac); height: 6px; border-radius: 3px; background: Theme.accent; }
+                    }
+                }
+            }
+            if root.quota-text != "" && Theme.nordic: Text {
+                x: 16px;
+                text: root.quota-text + (root.quota-frac >= 0 ? " used" : "");
+                color: Theme.dim;
+                font-size: 12px * Prefs.fs;
+            }
+        }
+
+        // ---- list, reader and context: tiles (Bento) or one surface (Nordic) ----
+        HorizontalLayout {
+            padding: Theme.nordic ? 14px : 0px;
+            padding-left: 0px;
+            horizontal-stretch: 1;
+        surface := Rectangle {
+            background: Theme.nordic ? Theme.tile : transparent;
+            border-width: Theme.nordic ? 1px : 0px;
+            border-color: Theme.line;
+            border-radius: Theme.nordic ? 28px : 0px;
+            clip: Theme.nordic;
+        HorizontalLayout {
+        padding: Theme.nordic ? 1px : 0px;
+        spacing: 0px;
+
+        // ---- message list ----
+        Rectangle {
+            width: root.list-w;
+            background: Theme.nordic ? transparent : Theme.tile;
+            border-width: Theme.nordic ? 0px : 1px;
+            border-color: Theme.line;
+            border-radius: Theme.nordic ? 0px : Theme.r-pane;
+            clip: true;
+            VerticalLayout {
+                // header: title + new count, greeting line, search, quick filters
+                VerticalLayout {
+                    vertical-stretch: 0;
+                    padding-top: Theme.nordic ? 28px : 20px;
+                    padding-left: Theme.nordic ? 28px : 20px;
+                    padding-right: Theme.nordic ? 24px : 16px;
+                    padding-bottom: Theme.nordic ? 16px : 10px;
+                    spacing: Theme.nordic ? 4px : 12px;
+                    HorizontalLayout {
+                        spacing: 6px;
+                        Text {
+                            text: root.list-title;
+                            color: Theme.text;
+                            font-size: (Theme.nordic ? 28px : 25px) * Prefs.fs;
+                            font-weight: Theme.nordic ? 800 : 700;
+                            letter-spacing: Theme.nordic ? -0.56px : -0.5px;
+                            overflow: elide;
+                            horizontal-stretch: 1;
+                            vertical-alignment: center;
+                        }
+                        if Theme.bento && root.list-unread > 0: VerticalLayout {
+                            alignment: center;
+                            Rectangle {
+                                height: 24px;
+                                width: npl.preferred-width + 20px;
+                                border-radius: 12px;
+                                background: Theme.rose-bg;
+                                npl := Text { text: root.list-unread + " new"; color: Theme.rose-fg; font-size: 12px * Prefs.fs; font-weight: 700; }
+                            }
+                        }
+                        VerticalLayout {
+                            alignment: center;
+                            IconBtn {
+                                icon: Icons.check;
+                                active: root.checked-count > 0;
+                                clicked => { root.select-all(); }
+                            }
+                        }
+                        VerticalLayout { alignment: center; IconBtn { icon: Icons.refresh; clicked => { root.refresh(); } } }
+                    }
+                    Text {
+                        text: root.search != "" ? "Results for “" + root.search + "”" : root.list-sub;
+                        color: Theme.dim;
+                        font-size: (Theme.nordic ? 13px : 12.5px) * Prefs.fs;
+                        overflow: elide;
+                    }
+                    if Theme.nordic: Rectangle { height: 10px; vertical-stretch: 0; }
+                    // search: tile-2 field with a "/" hint (Bento), hairline pill (Nordic)
                     Rectangle {
-                        width: 26px;
-                        rta := TouchArea { clicked => { root.refresh(); } }
-                        Icon { text: "\u{E72C}"; font-size: 12px; color: rta.has-hover ? Theme.text : Theme.dim; }
+                        height: Prefs.large-targets ? 44px : (Theme.nordic ? 40px : 38px);
+                        border-radius: Theme.nordic ? self.height / 2 : 14px;
+                        background: Theme.nordic ? transparent : Theme.tile2;
+                        border-width: search-box.has-focus ? max(1px, Prefs.focus-ring) : 1px;
+                        border-color: search-box.has-focus ? Theme.ring : Theme.line;
+                        HorizontalLayout {
+                            padding-left: Theme.nordic ? 16px : 12px;
+                            padding-right: 6px;
+                            spacing: 8px;
+                            VerticalLayout { alignment: center; SIcon { commands: Icons.search; size: 15px; weight: 2; tint: Theme.dim; } }
+                            Rectangle {
+                                horizontal-stretch: 1;
+                                if root.search == "": Text { x: 0; width: parent.width; height: parent.height; text: "Search mail"; color: Theme.faint; font-size: 13px * Prefs.fs; vertical-alignment: center; }
+                                search-box := TextInput {
+                                    y: (parent.height - self.height) / 2;
+                                    width: parent.width;
+                                    text <=> root.search;
+                                    color: Theme.text;
+                                    font-size: 13px * Prefs.fs;
+                                    single-line: true;
+                                    selection-background-color: Theme.sel;
+                                    selection-foreground-color: Theme.sel-text;
+                                    accepted => { root.do-search(self.text); }
+                                }
+                            }
+                            if root.search == "": VerticalLayout {
+                                alignment: center;
+                                Rectangle {
+                                    width: 18px; height: 17px; border-radius: 5px; border-width: 1px; border-color: Theme.line;
+                                    Text { text: "/"; color: Theme.faint; font-size: 11px; }
+                                }
+                            }
+                            VerticalLayout {
+                                alignment: center;
+                                IconBtn {
+                                    icon: Icons.opt;
+                                    width: 28px;
+                                    icon-size: 15px;
+                                    active: root.sf-open || root.sf-active;
+                                    clicked => { root.sf-open = !root.sf-open; }
+                                }
+                            }
+                        }
+                    }
+                    // quick filters over the search filters (Bento chips)
+                    if Theme.bento: HorizontalLayout {
+                        spacing: 6px;
+                        alignment: start;
+                        QuickChip { label: "All"; on: !root.sf-active; clicked => { root.sf-clear(); } }
+                        QuickChip { label: "Unread"; on: root.sf-active && root.sf-unread; clicked => { root.sf-unread = !root.sf-unread; root.sf-apply(); } }
+                        QuickChip { label: "Starred"; on: root.sf-active && root.sf-starred; clicked => { root.sf-starred = !root.sf-starred; root.sf-apply(); } }
+                        QuickChip { label: "Attachments"; on: root.sf-active && root.sf-attach; clicked => { root.sf-attach = !root.sf-attach; root.sf-apply(); } }
                     }
                 }
                 if root.sf-open: VerticalLayout {
-                    padding: 10px;
+                    padding-left: Theme.nordic ? 28px : 20px;
+                    padding-right: Theme.nordic ? 24px : 16px;
+                    padding-bottom: 10px;
                     spacing: 6px;
                     LineEdit { placeholder-text: "From"; text <=> root.sf-from; }
                     LineEdit { placeholder-text: "To"; text <=> root.sf-to; }
@@ -1477,23 +1805,25 @@ export component AppWindow inherits Window {
                         PrimaryButton { text: "Search"; clicked => { root.sf-apply(); } }
                     }
                 }
-                if root.checked-count > 0: HorizontalLayout {
-                    padding-left: 8px;
-                    padding-right: 8px;
-                    height: 34px;
-                    spacing: 2px;
-                    Text { text: root.checked-count + " selected"; color: Theme.text; vertical-alignment: center; horizontal-stretch: 1; }
-                    HoverAction { glyph: "\u{E7B8}"; clicked => { root.bulk("archive"); } }
-                    HoverAction { glyph: "\u{E74D}"; clicked => { root.bulk("delete"); } }
-                    HoverAction { glyph: "\u{E8C3}"; clicked => { root.bulk("read"); } }
-                    HoverAction { glyph: "\u{E715}"; clicked => { root.bulk("unread"); } }
-                    HoverAction { glyph: "\u{E734}"; clicked => { root.bulk("star"); } }
-                    HoverAction { glyph: "\u{E8F8}"; clicked => { root.bulk("spam"); } }
-                    HoverAction { glyph: "\u{E711}"; clicked => { root.bulk("clear"); } }
+                if root.checked-count > 0: Rectangle {
+                    height: 40px;
+                    HorizontalLayout {
+                        padding-left: Theme.nordic ? 28px : 20px;
+                        padding-right: Theme.nordic ? 20px : 12px;
+                        spacing: 2px;
+                        Text { text: root.checked-count + " selected"; color: Theme.text; font-weight: 600; vertical-alignment: center; horizontal-stretch: 1; }
+                        VerticalLayout { alignment: center; HoverAction { icon: Icons.archive; clicked => { root.bulk("archive"); } } }
+                        VerticalLayout { alignment: center; HoverAction { icon: Icons.trash; clicked => { root.bulk("delete"); } } }
+                        VerticalLayout { alignment: center; HoverAction { glyph: "\u{E8C3}"; clicked => { root.bulk("read"); } } }
+                        VerticalLayout { alignment: center; HoverAction { icon: Icons.mail; clicked => { root.bulk("unread"); } } }
+                        VerticalLayout { alignment: center; HoverAction { icon: Icons.star; clicked => { root.bulk("star"); } } }
+                        VerticalLayout { alignment: center; HoverAction { icon: Icons.alert; clicked => { root.bulk("spam"); } } }
+                        VerticalLayout { alignment: center; HoverAction { icon: Icons.close; clicked => { root.bulk("clear"); } } }
+                    }
                 }
-                Rectangle { height: 1px; background: Theme.line; }
                 if root.busy: Text { text: "Loading…"; color: Theme.dim; horizontal-alignment: center; height: 24px; vertical-alignment: center; }
                 mail-list := ListView {
+                    vertical-stretch: 1;
                     changed content-y => {
                         if root.has-more && !root.busy && (self.content-height + self.content-y - self.visible-height) < 300px { root.load-more(); }
                     }
@@ -1512,13 +1842,13 @@ export component AppWindow inherits Window {
                     }
                 }
                 if !root.busy && root.mails.length > 0: Rectangle {
-                    height: 50px;
+                    height: 44px;
                     Text {
                         text: root.has-more ? "Loading more…" : "No more emails to load";
                         TouchArea { pointer-event(ev) => { if ev.button == PointerEventButton.right && ev.kind == PointerEventKind.up { root.ctx("list", "", self.absolute-position.x + self.mouse-x, self.absolute-position.y + self.mouse-y); } } }
-                        color: Theme.dim;
+                        color: Theme.faint;
                         font-size: 12px;
-                }
+                    }
                 }
                 if !root.busy && root.mails.length == 0: Rectangle {
                     height: 80px;
@@ -1527,12 +1857,50 @@ export component AppWindow inherits Window {
                 }
             }
         }
-        Rectangle { width: 1px; background: Theme.line; }
+        Rectangle { width: Theme.nordic ? 1px : Theme.gap; background: Theme.nordic ? Theme.line : transparent; }
 
+        // ---- reader column: summary tiles (Bento) above the reader ----
+        VerticalLayout {
+            horizontal-stretch: 1;
+            spacing: Theme.gap;
+            if root.has-summary: HorizontalLayout {
+                spacing: 12px;
+                height: max(78px, sumt.preferred-height);
+                sumt := SummaryTile {
+                    label: "Today";
+                    value: !root.sum-has-cal ? "No calendar" : root.sum-today == 0 ? "No events" : root.sum-today == 1 ? "1 event" : root.sum-today + " events";
+                    sub: root.sum-today-next != "" ? root.sum-today-next : (root.sum-has-cal ? "Nothing else today" : "");
+                    bg: Theme.rose-bg;
+                    fg: Theme.rose-fg;
+                    clicked => { root.show-settings = false; root.app = 1; root.app-changed(1); }
+                }
+                SummaryTile {
+                    label: "Flagged";
+                    value: root.sum-flagged == 1 ? "1 message" : root.sum-flagged + " messages";
+                    sub: root.sum-flagged-who != "" ? root.sum-flagged-who : "Nothing flagged";
+                    bg: Theme.amber-bg;
+                    fg: Theme.amber-fg;
+                    clicked => { root.sf-starred = true; root.sf-apply(); }
+                }
+                if root.sum-has-tasks: SummaryTile {
+                    label: "To do";
+                    value: root.sum-tasks == 1 ? "1 task" : root.sum-tasks + " tasks";
+                    sub: root.sum-tasks-next != "" ? root.sum-tasks-next : "All done";
+                    bg: Theme.mint-bg;
+                    fg: Theme.mint-fg;
+                    clicked => { root.show-settings = false; root.app = 1; root.app-changed(1); }
+                }
+            }
         // reader
         Rectangle {
-            horizontal-stretch: 1;
-            background: Theme.reader;
+            vertical-stretch: 1;
+            // the action bar adapts to reader-w; the window minimum must not come from it
+            min-width: 240px;
+            min-height: 200px;
+            background: Theme.nordic ? transparent : Theme.tile;
+            border-width: Theme.nordic ? 0px : 1px;
+            border-color: Theme.line;
+            border-radius: Theme.nordic ? 0px : Theme.r-pane;
             VerticalLayout {
                 visible: root.current-mail == "";
                 alignment: center;
@@ -1540,8 +1908,9 @@ export component AppWindow inherits Window {
                 HorizontalLayout {
                     alignment: center;
                     Rectangle {
-                        width: 68px; height: 68px; border-radius: 34px; background: Theme.chip;
-                        Icon { text: "\u{E715}"; font-size: 28px; color: Theme.text; }
+                        width: 68px; height: 68px; border-radius: Theme.round(68px); background: Theme.tile2;
+                        border-width: 1px; border-color: Theme.line;
+                        SIcon { commands: Icons.inbox; size: 28px; weight: 1.6; tint: Theme.dim; }
                     }
                 }
                 Text { text: "No conversation selected"; color: Theme.text; font-size: 17px; font-weight: 700; horizontal-alignment: center; }
@@ -1549,38 +1918,47 @@ export component AppWindow inherits Window {
             }
             VerticalLayout {
                 visible: root.current-mail != "";
-                padding: 0px;
+                padding-top: Theme.nordic ? 30px : 22px;
+                padding-bottom: Theme.nordic ? 24px : 18px;
+                padding-left: Theme.nordic ? 44px : 26px;
+                padding-right: Theme.nordic ? 44px : 26px;
                 spacing: 0px;
-                HorizontalLayout {
-                    height: 40px;
-                    padding-left: 12px;
-                    padding-right: 8px;
-                    spacing: 2px;
-                    ToolButton { glyph: "\u{E97A}"; label: "Reply"; clicked => { root.act("reply"); } }
-                    ToolButton { glyph: "\u{EE35}"; label: "Reply all"; clicked => { root.act("reply-all"); } }
-                    ToolButton { glyph: "\u{E72D}"; label: "Forward"; clicked => { root.act("forward"); } }
+                // actions: the main ones always, the rest inline when the reader is wide enough
+                acts := HorizontalLayout {
+                    property <bool> roomy: root.reader-w > (Theme.nordic ? 720px : 600px);
+                    property <bool> labels: Prefs.toolbar-labels && root.reader-w > (Theme.nordic ? 345px : 385px);
+                    // very narrow: Delete and Star move into More too
+                    property <bool> tight: root.reader-w < 250px;
+                    spacing: 6px;
+                    ActionButton { icon: Icons.reply; label: "Reply"; icon-only: !acts.labels; clicked => { root.act("reply"); } }
+                    if acts.roomy: ActionButton { icon: Icons.reply-all; label: "Reply all"; icon-only: Theme.bento || !acts.labels; clicked => { root.act("reply-all"); } }
+                    ActionButton { icon: Icons.fwd; label: "Forward"; icon-only: !acts.labels; clicked => { root.act("forward"); } }
+                    ActionButton { icon: Icons.archive; label: "Archive"; icon-only: !acts.labels; clicked => { root.act("archive"); } }
+                    if acts.roomy || (Theme.bento && !acts.tight): ActionButton { icon: Icons.trash; label: "Delete"; icon-only: Theme.bento || !acts.labels; clicked => { root.act("delete"); } }
+                    if acts.roomy: ActionButton { icon: Icons.move; label: "Move"; icon-only: Theme.bento || !acts.labels; clicked => { move-popup.show(); } }
+                    if acts.roomy: ActionButton { icon: Icons.tag; label: "Tag"; icon-only: true; clicked => { tag-popup.show(); } }
                     Rectangle { horizontal-stretch: 1; }
-                    ToolButton { glyph: "\u{E7B8}"; label: "Archive"; clicked => { root.act("archive"); } }
-                    ToolButton { glyph: "\u{E74D}"; label: "Delete"; clicked => { root.act("delete"); } }
-                    ToolButton { glyph: "\u{E8DE}"; label: "Move"; clicked => { move-popup.show(); } }
-                    ToolButton { glyph: "\u{E8EC}"; label: "Tag"; clicked => { tag-popup.show(); } }
-                    ToolButton { glyph: "\u{E8F8}"; label: "Report spam"; clicked => { root.act("spam"); } }
-                    ToolButton { glyph: "\u{E715}"; label: "Unread"; clicked => { root.act("unread"); } }
-                    ToolButton { glyph: "\u{E749}"; label: "Print"; clicked => { root.act("print"); } }
+                    if !acts.tight: ActionButton {
+                        icon: Icons.star;
+                        label: root.r-flagged ? "Starred" : "Star";
+                        icon-only: true;
+                        active: root.r-flagged;
+                        clicked => { root.act("star"); }
+                    }
+                    ActionButton { icon: Icons.more; label: "More"; icon-only: true; clicked => { more-popup.show(); } }
                     move-popup := PopupWindow {
-                        x: -300px; y: 32px; width: 240px;
-                        Rectangle {
-                            background: Theme.popup; border-radius: 8px; border-width: 1px; border-color: Theme.line;
+                        x: acts.width - 260px; y: 40px; width: 240px;
+                        MenuPanel {
                             VerticalLayout {
                                 padding: 6px;
                                 for f in root.folders: Rectangle {
                                     visible: f.id != "__scheduled";
-                                    height: f.id == "__scheduled" ? 0px : 26px; border-radius: 4px;
+                                    height: f.id == "__scheduled" ? 0px : 30px; border-radius: Theme.nordic ? 15px : 9px;
                                     background: mta.has-hover ? Theme.hover : transparent;
                                     mta := TouchArea { clicked => { root.move-to(f.id); } }
                                     HorizontalLayout {
-                                        padding-left: 8px + f.depth * 12px; spacing: 8px;
-                                        Icon { text: f.icon; font-size: 12px; width: 16px; color: f.color; }
+                                        padding-left: 10px + f.depth * 12px; spacing: 8px;
+                                        VerticalLayout { alignment: center; SIcon { commands: Icons.for-glyph(f.icon); size: 15px; weight: 1.8; tint: Theme.dim; } }
                                         Text { text: f.name; color: Theme.text; vertical-alignment: center; }
                                     }
                                 }
@@ -1588,147 +1966,152 @@ export component AppWindow inherits Window {
                         }
                     }
                     tag-popup := PopupWindow {
-                        x: -200px; y: 32px; width: 200px;
-                        Rectangle {
-                            background: Theme.popup; border-radius: 8px; border-width: 1px; border-color: Theme.line;
+                        x: acts.width - 220px; y: 40px; width: 200px;
+                        MenuPanel {
                             VerticalLayout {
                                 padding: 6px;
                                 for t in root.tags: Rectangle {
-                                    height: 26px; border-radius: 4px;
+                                    height: 30px; border-radius: Theme.nordic ? 15px : 9px;
                                     background: tgta.has-hover ? Theme.hover : transparent;
                                     tgta := TouchArea { clicked => { root.tag-toggle(t.id); } }
                                     HorizontalLayout {
-                                        padding-left: 8px; spacing: 8px;
-                                        Icon { text: "\u{E8EC}"; font-size: 12px; width: 16px; color: t.color; }
+                                        padding-left: 10px; spacing: 10px;
+                                        VerticalLayout { alignment: center; Rectangle { width: 10px; height: 10px; border-radius: 4px; background: t.color; } }
                                         Text { text: t.name; color: Theme.text; vertical-alignment: center; }
                                     }
                                 }
                             }
                         }
                     }
-                }
-                Rectangle { height: 1px; background: Theme.line; }
-                HorizontalLayout {
-                    padding: 16px;
-                    padding-bottom: 8px;
-                    spacing: 8px;
-                    Text { text: root.r-subject; color: Theme.text; font-size: 18px; font-weight: 700; wrap: word-wrap; horizontal-stretch: 1; }
-                    Icon {
-                        text: root.r-flagged ? "\u{E735}" : "\u{E734}";
-                        color: root.r-flagged ? #facc15 : Theme.dim;
-                        TouchArea { clicked => { root.act("star"); } }
-                    }
-                }
-                Rectangle { height: 1px; background: Theme.line; }
-                HorizontalLayout {
-                    padding: 16px;
-                    padding-top: 12px;
-                    padding-bottom: 12px;
-                    spacing: 10px;
-                    Avatar { label: root.r-initials; tint: root.r-color; }
-                    VerticalLayout {
-                        spacing: 2px;
-                        horizontal-stretch: 1;
-                        HorizontalLayout {
-                            spacing: 6px;
-                            Text { text: root.r-from; color: Theme.text; font-weight: 700; overflow: elide; TouchArea { pointer-event(ev) => { if ev.button == PointerEventButton.right && ev.kind == PointerEventKind.up { root.ctx("addr", root.r-email, self.absolute-position.x + self.mouse-x, self.absolute-position.y + self.mouse-y); } } } }
-                            Text { text: "<" + root.r-email + ">"; color: Theme.dim; font-size: 11px; vertical-alignment: center; overflow: elide; horizontal-stretch: 1; TouchArea { pointer-event(ev) => { if ev.button == PointerEventButton.right && ev.kind == PointerEventKind.up { root.ctx("addr", root.r-email, self.absolute-position.x + self.mouse-x, self.absolute-position.y + self.mouse-y); } } } }
+                    more-popup := PopupWindow {
+                        x: acts.width - 220px; y: 40px; width: 220px;
+                        MenuPanel {
+                            VerticalLayout {
+                                padding: 6px;
+                                if !acts.roomy: MenuItem { text: "Reply all"; clicked => { root.act("reply-all"); } }
+                                if !acts.roomy && (Theme.nordic || acts.tight): MenuItem { text: "Delete"; clicked => { root.act("delete"); } }
+                                if acts.tight: MenuItem { text: root.r-flagged ? "Remove star" : "Star"; clicked => { root.act("star"); } }
+                                if !acts.roomy: MenuItem { text: "Move to…"; clicked => { move-popup.show(); } }
+                                if !acts.roomy: MenuItem { text: "Tag…"; clicked => { tag-popup.show(); } }
+                                MenuItem { text: "Report spam"; clicked => { root.act("spam"); } }
+                                MenuItem { text: "Mark as unread"; clicked => { root.act("unread"); } }
+                                MenuItem { text: "Print"; clicked => { root.act("print"); } }
+                            }
                         }
-                        Text { text: "To: " + root.r-to; color: Theme.dim; font-size: 11px; overflow: elide; TouchArea { pointer-event(ev) => { if ev.button == PointerEventButton.right && ev.kind == PointerEventKind.up { root.ctx("addr-to", root.r-to, self.absolute-position.x + self.mouse-x, self.absolute-position.y + self.mouse-y); } } } }
                     }
-                    Text { text: root.r-date; color: Theme.dim; font-size: 11px; vertical-alignment: center; }
-                    HoverAction { glyph: "\u{E97A}"; clicked => { root.act("reply"); } }
-                    HoverAction { glyph: "\u{EE35}"; clicked => { root.act("reply-all"); } }
-                    HoverAction { glyph: "\u{E72D}"; clicked => { root.act("forward"); } }
+                }
+                Rectangle { height: Theme.nordic ? 30px : 20px; }
+                Text {
+                    text: root.r-subject;
+                    color: Theme.text;
+                    font-size: (Theme.nordic ? 34px : 27px) * Prefs.fs;
+                    font-weight: 700;
+                    letter-spacing: Theme.nordic ? -0.85px : -0.54px;
+                    wrap: word-wrap;
+                    max-height: 3 * self.font-size * 1.25;
+                    overflow: elide;
+                }
+                Rectangle { height: Theme.nordic ? 18px : 14px; }
+                // "Mira Okafor to you and Jonas · Today 09:42" (right-click a name for its menu)
+                HorizontalLayout {
+                    spacing: 0px;
+                    Text {
+                        text: root.r-from;
+                        color: Theme.dim;
+                        font-size: (Theme.nordic ? 13.5px : 12.5px) * Prefs.fs;
+                        font-weight: 600;
+                        overflow: elide;
+                        TouchArea { pointer-event(ev) => { if ev.button == PointerEventButton.right && ev.kind == PointerEventKind.up { root.ctx("addr", root.r-email, self.absolute-position.x + self.mouse-x, self.absolute-position.y + self.mouse-y); } } }
+                    }
+                    Text {
+                        text: (root.r-to != "" ? " to " + root.r-to : "") + (root.r-date != "" ? " · " + root.r-date : "");
+                        color: Theme.dim;
+                        font-size: (Theme.nordic ? 13.5px : 12.5px) * Prefs.fs;
+                        overflow: elide;
+                        horizontal-stretch: 1;
+                        TouchArea { pointer-event(ev) => { if ev.button == PointerEventButton.right && ev.kind == PointerEventKind.up { root.ctx("addr-to", root.r-to, self.absolute-position.x + self.mouse-x, self.absolute-position.y + self.mouse-y); } } }
+                    }
                 }
                 if root.thread-msgs.length > 1: VerticalLayout {
-                    padding-left: 16px;
-                    padding-right: 16px;
-                    padding-bottom: 8px;
+                    vertical-stretch: 0;
+                    padding-top: 12px;
                     spacing: 2px;
-                    Text { text: "Conversation · " + root.thread-msgs.length + " messages"; color: Theme.dim; font-size: 11px; font-weight: 600; }
+                    Text { text: "Conversation · " + root.thread-msgs.length + " messages"; color: Theme.dim; font-size: 11.5px; font-weight: 700; }
+                    Flickable {
+                    vertical-stretch: 0;
+                    height: min(root.thread-msgs.length, 5) * 32px;
+                    content-height: thl.preferred-height;
+                    thl := VerticalLayout {
+                    spacing: 2px;
                     for t in root.thread-msgs: Rectangle {
-                        height: 26px;
-                        border-radius: 4px;
-                        background: t.current ? Theme.sel : (tma.has-hover ? Theme.hover : transparent);
+                        height: 30px;
+                        border-radius: Theme.nordic ? 15px : 10px;
+                        background: t.current ? Theme.sel : (tma.has-hover ? Theme.tile2 : transparent);
                         tma := TouchArea { clicked => { if !t.current { root.current-mail = t.id; root.open-mail(t.id); } } pointer-event(ev) => { if ev.button == PointerEventButton.right && ev.kind == PointerEventKind.up { root.ctx("thread", t.id, self.absolute-position.x + self.mouse-x, self.absolute-position.y + self.mouse-y); } } }
                         HorizontalLayout {
-                            padding-left: 8px;
-                            padding-right: 8px;
+                            padding-left: 10px;
+                            padding-right: 10px;
                             spacing: 10px;
-                            Rectangle { width: 6px; height: 6px; y: 10px; border-radius: 3px; background: t.unread ? Theme.accent : transparent; }
-                            Text { text: t.sender; color: Theme.text; font-weight: t.current ? 700 : 600; width: 160px; overflow: elide; vertical-alignment: center; font-size: 12px; }
-                            Text { text: t.preview; color: Theme.dim; overflow: elide; vertical-alignment: center; horizontal-stretch: 1; font-size: 12px; }
-                            Text { text: t.date; color: Theme.dim; vertical-alignment: center; font-size: 11px; }
+                            VerticalLayout { alignment: center; Rectangle { width: 6px; height: 6px; border-radius: 3px; background: t.unread ? Theme.accent : transparent; } }
+                            Text { text: t.sender; color: t.current ? Theme.sel-text : Theme.text; font-weight: t.current ? 700 : 600; width: 150px; overflow: elide; vertical-alignment: center; font-size: 12px; }
+                            Text { text: t.preview; color: t.current ? Theme.sel-text : Theme.dim; overflow: elide; vertical-alignment: center; horizontal-stretch: 1; font-size: 12px; }
+                            Text { text: t.date; color: t.current ? Theme.sel-text : Theme.dim; vertical-alignment: center; font-size: 11px; }
                         }
                     }
+                    }
+                    }
                 }
+                if root.plugin-rows.length > 0 || root.spam-verdict != "": Rectangle { height: 10px; }
                 for pr in root.plugin-rows: HorizontalLayout {
-                    padding-left: 16px;
-                    padding-right: 16px;
                     padding-bottom: 6px;
                     spacing: 8px;
                     Rectangle {
-                        width: pl.preferred-width + 16px;
-                        height: 20px;
-                        border-radius: 10px;
-                        background: pr.tone == "danger" ? #5c1622 : pr.tone == "warning" ? #5a4210 : pr.tone == "success" ? #14462a : Theme.chip;
-                        pl := Text {
-                            text: pr.label;
-                            font-size: 10px;
-                            font-weight: 700;
-                            color: pr.tone == "danger" ? #ff8fa3 : pr.tone == "warning" ? #ffd27a : pr.tone == "success" ? #7ee2a8 : Theme.text;
-                        }
-                    }
-                    Text { text: pr.value; color: Theme.dim; font-size: 11px; vertical-alignment: center; overflow: elide; horizontal-stretch: 1; }
-                }
-                if root.attachments.length > 0: HorizontalLayout {
-                    padding-left: 16px;
-                    padding-right: 16px;
-                    padding-bottom: 8px;
-                    spacing: 6px;
-                    alignment: start;
-                    for a in root.attachments: Rectangle {
-                        height: 26px;
-                        width: al.preferred-width;
-                        border-radius: 6px;
-                        border-width: 1px;
-                        border-color: Theme.line;
-                        background: ata.has-hover ? Theme.hover : transparent;
-                        ata := TouchArea { clicked => { root.open-attachment(a.index); } pointer-event(ev) => { if ev.button == PointerEventButton.right && ev.kind == PointerEventKind.up { root.ctx("att", a.index, self.absolute-position.x + self.mouse-x, self.absolute-position.y + self.mouse-y); } } }
-                        al := HorizontalLayout {
-                            padding-left: 8px; padding-right: 4px; spacing: 6px;
-                            Icon { text: "\u{E723}"; font-size: 11px; color: Theme.accent; }
-                            Text { text: a.name; color: Theme.text; font-size: 11px; vertical-alignment: center; max-width: 180px; overflow: elide; }
-                            Text { text: a.size; color: Theme.dim; font-size: 10px; vertical-alignment: center; }
-                            HoverAction { glyph: "\u{E896}"; clicked => { root.save-attachment(a.index); } }
-                        }
-                    }
-                }
-                if root.spam-verdict != "": HorizontalLayout {
-                    spacing: 10px;
-                    Rectangle {
-                        width: badge.preferred-width + 18px;
+                        width: pl.preferred-width + 18px;
                         height: 22px;
                         border-radius: 11px;
-                        background: root.spam-verdict == "spam" ? #5c1622 : root.spam-verdict == "suspicious" ? #5a4210 : #14462a;
+                        background: pr.tone == "danger" ? Theme.rose-bg : pr.tone == "warning" ? Theme.amber-bg : pr.tone == "success" ? Theme.mint-bg : Theme.track;
+                        pl := Text {
+                            text: pr.label;
+                            font-size: 10.5px;
+                            font-weight: 700;
+                            color: pr.tone == "danger" ? Theme.rose-fg : pr.tone == "warning" ? Theme.amber-fg : pr.tone == "success" ? Theme.mint-fg : Theme.text;
+                        }
+                    }
+                    Text { text: pr.value; color: Theme.dim; font-size: 11.5px; vertical-alignment: center; overflow: elide; horizontal-stretch: 1; }
+                }
+                if root.spam-verdict != "": HorizontalLayout {
+                    padding-bottom: 6px;
+                    spacing: 10px;
+                    Rectangle {
+                        width: badge.preferred-width + 20px;
+                        height: 22px;
+                        border-radius: 11px;
+                        background: root.spam-verdict == "spam" ? Theme.rose-bg : root.spam-verdict == "suspicious" ? Theme.amber-bg : Theme.mint-bg;
                         badge := Text {
                             text: root.spam-verdict == "spam" ? "Spam" : root.spam-verdict == "suspicious" ? "Suspicious" : "Clean";
-                            color: root.spam-verdict == "spam" ? #ff8fa3 : root.spam-verdict == "suspicious" ? #ffd27a : #7ee2a8;
+                            color: root.spam-verdict == "spam" ? Theme.rose-fg : root.spam-verdict == "suspicious" ? Theme.amber-fg : Theme.mint-fg;
                             font-size: 11px;
                             font-weight: 700;
                         }
                     }
-                    Text { text: root.spam-detail; color: Theme.dim; font-size: 11px; vertical-alignment: center; overflow: elide; horizontal-stretch: 1; }
+                    Text { text: root.spam-detail; color: Theme.dim; font-size: 11.5px; vertical-alignment: center; overflow: elide; horizontal-stretch: 1; }
                 }
-                Rectangle { height: 1px; background: Theme.line; }
-                if root.images-blocked: HorizontalLayout {
-                    spacing: 8px;
-                    Icon { text: "\u{E91B}"; width: 16px; }
-                    Text { text: "Remote images were blocked to protect your privacy."; color: Theme.dim; vertical-alignment: center; horizontal-stretch: 1; overflow: elide; }
-                    Button { text: "Load images"; clicked => { root.load-images(); } }
+                if root.images-blocked: Rectangle {
+                    height: 44px;
+                    border-radius: 14px;
+                    background: Theme.tile2;
+                    border-width: 1px;
+                    border-color: Theme.line;
+                    HorizontalLayout {
+                        padding-left: 14px;
+                        padding-right: 6px;
+                        spacing: 10px;
+                        VerticalLayout { alignment: center; SIcon { commands: Icons.image; size: 16px; weight: 1.8; tint: Theme.accent; } }
+                        Text { text: "Remote images were blocked to protect your privacy."; color: Theme.body; font-size: 12.5px; vertical-alignment: center; horizontal-stretch: 1; overflow: elide; }
+                        VerticalLayout { alignment: center; ActionButton { label: "Load images"; clicked => { root.load-images(); } } }
+                    }
                 }
-                if root.current-mail != "": Rectangle { height: 0px; }
+                Rectangle { height: Theme.nordic ? 18px : 14px; }
                 body := Rectangle {
                     background: root.render-mode == 2 ? white : Theme.reader;
                     border-radius: 0px;
@@ -1764,19 +2147,91 @@ export component AppWindow inherits Window {
                         }
                     }
                 }
-                Rectangle { height: 1px; background: Theme.line; }
-                if root.pref-quick-reply: HorizontalLayout {
-                    padding: 12px;
-                    spacing: 10px;
-                    Avatar { label: root.initials; tint: #e07a10; width: 30px; height: 30px; border-radius: 15px; }
-                    LineEdit {
-                        placeholder-text: "Reply to " + root.r-email + "…";
-                        text <=> root.quick-text;
-                        accepted(t) => { root.quick-reply(t); }
+                // attachments: tile-2 cards with a tinted type badge (BNMail) / quiet pills (NordMail)
+                if root.attachments.length > 0: Flickable {
+                    height: 66px;
+                    content-width: attl.preferred-width;
+                    attl := HorizontalLayout {
+                        padding-top: 12px;
+                        spacing: 8px;
+                        alignment: start;
+                        for a in root.attachments: Rectangle {
+                            height: Theme.nordic ? 50px : 54px;
+                            width: al.preferred-width;
+                            border-radius: Theme.nordic ? 18px : 16px;
+                            border-width: Theme.nordic ? 0px : 1px;
+                            border-color: Theme.line;
+                            background: ata.has-hover ? Theme.hover : Theme.tile2;
+                            ata := TouchArea { clicked => { root.open-attachment(a.index); } pointer-event(ev) => { if ev.button == PointerEventButton.right && ev.kind == PointerEventKind.up { root.ctx("att", a.index, self.absolute-position.x + self.mouse-x, self.absolute-position.y + self.mouse-y); } } }
+                            al := HorizontalLayout {
+                                padding-left: Theme.nordic ? 18px : 10px;
+                                padding-right: 8px;
+                                spacing: 10px;
+                                if Theme.bento: VerticalLayout {
+                                    alignment: center;
+                                    Rectangle {
+                                        width: 32px; height: 32px; border-radius: 10px; background: Theme.rose-bg;
+                                        SIcon { commands: Icons.file; size: 16px; weight: 1.8; tint: Theme.rose-fg; }
+                                    }
+                                }
+                                if Theme.nordic: Text { text: "FILE"; color: Theme.accent; font-size: 11px; font-weight: 800; vertical-alignment: center; }
+                                if Theme.bento: VerticalLayout {
+                                    alignment: center;
+                                    Text { text: a.name; color: Theme.text; font-size: 13px * Prefs.fs; font-weight: 600; max-width: 200px; overflow: elide; }
+                                    Text { text: a.size; color: Theme.dim; font-size: 11.5px * Prefs.fs; }
+                                }
+                                if Theme.nordic: Text { text: a.name; color: Theme.text; font-size: 13.5px * Prefs.fs; font-weight: 600; max-width: 200px; overflow: elide; vertical-alignment: center; }
+                                if Theme.nordic: Text { text: a.size; color: Theme.dim; font-size: 12.5px * Prefs.fs; vertical-alignment: center; }
+                                VerticalLayout { alignment: center; HoverAction { icon: Icons.download; clicked => { root.save-attachment(a.index); } } }
+                            }
+                        }
                     }
-                    if root.quick-text != "": PrimaryButton { text: "Send";  clicked => { root.quick-reply(root.quick-text); } }
                 }
+                if root.pref-quick-reply: Rectangle { height: 14px; }
+                // quick reply: tile-2 bar with an accent Send (BNMail) / hairline pill (NordMail)
+                if root.pref-quick-reply: Rectangle {
+                    height: Theme.nordic ? 58px : 54px;
+                    border-radius: Theme.nordic ? 26px : 20px;
+                    background: Theme.nordic ? transparent : Theme.tile2;
+                    border-width: qr.has-focus ? max(1px, Prefs.focus-ring) : 1px;
+                    border-color: qr.has-focus ? Theme.ring : Theme.line;
+                    HorizontalLayout {
+                        padding: Theme.nordic ? 8px : 6px;
+                        padding-left: Theme.nordic ? 20px : 16px;
+                        spacing: 8px;
+                        Rectangle {
+                            horizontal-stretch: 1;
+                            if root.quick-text == "": Text { x: 0; width: parent.width; height: parent.height; text: Theme.nordic ? "Write a reply…" : "Reply to " + (root.r-from != "" ? root.r-from : root.r-email) + "…"; color: Theme.faint; font-size: (Theme.nordic ? 14.5px : 14px) * Prefs.fs; vertical-alignment: center; overflow: elide; }
+                            qr := TextInput {
+                                y: (parent.height - self.height) / 2;
+                                width: parent.width;
+                                text <=> root.quick-text;
+                                color: Theme.text;
+                                font-size: (Theme.nordic ? 14.5px : 14px) * Prefs.fs;
+                                single-line: true;
+                                selection-background-color: Theme.sel;
+                                selection-foreground-color: Theme.sel-text;
+                                accepted => { if self.text != "" { root.quick-reply(self.text); } }
+                            }
+                        }
+                        Rectangle {
+                            width: sendl.preferred-width + (Theme.nordic ? 44px : 40px);
+                            border-radius: Theme.nordic ? 20px : 15px;
+                            background: root.quick-text == "" ? Theme.accent.with-alpha(0.55) : qsa.pressed ? Theme.accent.darker(0.12) : qsa.has-hover ? Theme.accent.brighter(0.1) : Theme.accent;
+                            qsa := TouchArea { clicked => { if root.quick-text != "" { root.quick-reply(root.quick-text); } } }
+                            sendl := Text { text: "Send"; color: Theme.on-accent; font-size: 13.5px * Prefs.fs; font-weight: 700; }
+                        }
+                    }
                 }
+            }
+            // ---- composer: replaces the reading pane (inset so the tile's rounded edge shows) ----
+            Rectangle {
+                x: Theme.nordic ? 0px : 1px;
+                y: Theme.nordic ? 0px : 1px;
+                width: parent.width - 2 * self.x;
+                height: parent.height - 2 * self.y;
+                border-radius: Theme.nordic ? 0px : Theme.r-pane - 1px;
+                clip: true;
             // ---- composer: replaces the reading pane (Bulwark layout) ----
             if root.composing: cmp := Rectangle {
                 background: Theme.reader;
@@ -2294,109 +2749,278 @@ export component AppWindow inherits Window {
                 }
             }
             }
+        }
+        }
 
-        Rectangle { width: root.chat-open && !root.ai-hidden ? 1px : 0px; background: Theme.line; }
+        // ---- context beside the content: the assistant when open, else the sender ----
+        if root.chat-shown || root.sender-shown: Rectangle { width: Theme.nordic ? 1px : Theme.gap; background: Theme.nordic ? Theme.line : transparent; }
         Rectangle {
-            width: root.chat-open && !root.ai-hidden ? 400px : 0px;
-            visible: root.chat-open && !root.ai-hidden;
-            background: Theme.side;
+            width: root.chat-shown ? root.chat-w : 0px;
+            // hidden it is 0px wide: its wrapped text must not set the window's minimum height
+            min-height: 0px;
+            visible: root.chat-shown;
             VerticalLayout {
-                HorizontalLayout {
-                    padding: 10px;
-                    spacing: 8px;
-                    height: 48px;
-                    Icon { text: "\u{E945}"; color: Theme.accent; width: 18px; }
-                    Text { text: "AI assistant"; color: Theme.text; font-weight: 700; font-size: 14px; vertical-alignment: center; horizontal-stretch: 1; }
-                    Button { text: "New chat"; enabled: !root.chat-busy; clicked => { root.chat-new(); } }
-                    Rectangle {
-                        width: 28px;
-                        clx := TouchArea { clicked => { root.chat-open = false; } }
-                        Icon { text: "\u{E711}"; font-size: 11px; color: clx.has-hover ? Theme.text : Theme.dim; }
-                    }
-                }
-                Rectangle { height: 1px; background: Theme.line; }
-                if root.chat.length == 0: VerticalLayout {
-                    padding: 16px;
-                    spacing: 6px;
-                    vertical-stretch: 1;
-                    alignment: start;
-                    Text { text: "Ask about your mail, calendar and contacts, or have me act on them."; color: Theme.dim; wrap: word-wrap; }
-                    Rectangle { height: 4px; }
-                    for c in root.chips: Rectangle {
-                        height: 32px;
-                        border-radius: 16px;
-                        border-width: 1px;
-                        border-color: Theme.line;
-                        background: chta.has-hover ? Theme.hover : transparent;
-                        chta := TouchArea { clicked => { root.chat-send(c); } }
+                spacing: Theme.gap;
+                // header: a rose tile (Bento, BNCompose assistant) / a plain heading (Nordic)
+                Rectangle {
+                    background: Theme.nordic ? transparent : Theme.rose-bg;
+                    border-radius: Theme.nordic ? 0px : Theme.r-tile;
+                    VerticalLayout {
+                        padding-top: Theme.nordic ? 28px : 14px;
+                        padding-bottom: Theme.nordic ? 12px : 14px;
+                        padding-left: Theme.nordic ? 22px : 18px;
+                        padding-right: Theme.nordic ? 14px : 10px;
+                        spacing: 6px;
                         HorizontalLayout {
-                            padding-left: 14px;
-                            Text { text: c; color: Theme.text; vertical-alignment: center; }
+                            spacing: 8px;
+                            VerticalLayout { alignment: center; SIcon { commands: Icons.spark; size: 16px; weight: 1.9; tint: Theme.nordic ? Theme.accent : Theme.rose-fg; } }
+                            Text { text: "Assistant"; color: Theme.nordic ? Theme.text : Theme.rose-fg; font-weight: Theme.nordic ? 800 : 700; font-size: (Theme.nordic ? 17px : 14px) * Prefs.fs; vertical-alignment: center; horizontal-stretch: 1; }
+                            VerticalLayout { alignment: center; ActionButton { label: "New chat"; icon: Icons.plus; icon-only: false; clicked => { if !root.chat-busy { root.chat-new(); } } } }
+                            VerticalLayout { alignment: center; IconBtn { icon: Icons.close; tint: Theme.nordic ? Theme.dim : Theme.rose-fg; clicked => { root.chat-open = false; } } }
                         }
+                        Text { text: "Ask about your mail, calendar and contacts, or have me act on them."; color: Theme.nordic ? Theme.dim : Theme.rose-fg; font-size: 12.5px * Prefs.fs; wrap: word-wrap; }
                     }
                 }
-                chat-list := ListView {
-                    vertical-stretch: root.chat.length == 0 ? 0 : 1;
-                    for m in root.chat: HorizontalLayout {
-                        padding-top: m.role == "tool" ? 1px : 6px;
-                        padding-bottom: m.role == "tool" ? 1px : 6px;
-                        padding-left: m.role == "user" ? 48px : 10px;
-                        padding-right: m.role == "user" ? 10px : 24px;
-                        Rectangle {
-                            background: m.role == "user" ? Theme.sel : m.role == "assistant" ? Theme.bubble : transparent;
-                            border-radius: 8px;
+                Rectangle {
+                    vertical-stretch: 1;
+                    background: Theme.nordic ? transparent : Theme.tile;
+                    border-width: Theme.nordic ? 0px : 1px;
+                    border-color: Theme.line;
+                    border-radius: Theme.nordic ? 0px : Theme.r-tile;
+                    clip: true;
+                    VerticalLayout {
+                        padding: Theme.nordic ? 0px : 4px;
+                        if root.chat.length == 0: VerticalLayout {
+                            padding: Theme.nordic ? 22px : 12px;
+                            spacing: 8px;
+                            vertical-stretch: 1;
+                            alignment: start;
+                            for c in root.chips: Rectangle {
+                                height: chl.preferred-height + 18px;
+                                border-radius: Theme.nordic ? self.height / 2 : 14px;
+                                border-width: 1px;
+                                border-color: Theme.line;
+                                background: chta.has-hover ? Theme.hover : Theme.nordic ? transparent : Theme.tile2;
+                                chta := TouchArea { clicked => { root.chat-send(c); } }
+                                HorizontalLayout {
+                                    padding-left: 14px;
+                                    padding-right: 14px;
+                                    chl := Text { text: c; color: Theme.text; font-size: 13px * Prefs.fs; vertical-alignment: center; wrap: word-wrap; }
+                                }
+                            }
+                        }
+                        chat-list := ListView {
+                            vertical-stretch: root.chat.length == 0 ? 0 : 1;
+                            for m in root.chat: HorizontalLayout {
+                                padding-top: m.role == "tool" ? 1px : 5px;
+                                padding-bottom: m.role == "tool" ? 1px : 5px;
+                                padding-left: m.role == "user" ? 40px : 10px;
+                                padding-right: m.role == "user" ? 10px : 22px;
+                                Rectangle {
+                                    background: m.role == "user" ? Theme.sel : m.role == "assistant" ? Theme.tile2 : transparent;
+                                    border-width: m.role == "assistant" ? 1px : 0px;
+                                    border-color: Theme.line;
+                                    border-top-left-radius: 16px;
+                                    border-top-right-radius: 16px;
+                                    border-bottom-left-radius: m.role == "user" ? 16px : 4px;
+                                    border-bottom-right-radius: m.role == "user" ? 4px : 16px;
+                                    VerticalLayout {
+                                        padding: m.role == "tool" ? 2px : 10px;
+                                        padding-left: m.role == "tool" ? 2px : 12px;
+                                        padding-right: m.role == "tool" ? 2px : 12px;
+                                        TextInput {
+                                            text: m.text;
+                                            read-only: true;
+                                            wrap: word-wrap;
+                                            single-line: false;
+                                            color: m.role == "user" ? Theme.sel-text : m.role == "tool" ? Theme.faint : m.role == "error" ? Theme.rose-fg : Theme.body;
+                                            font-size: m.role == "tool" ? 11px : 13px;
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        if root.confirm-text != "": Rectangle {
+                            background: Theme.amber-bg;
+                            border-radius: 16px;
                             VerticalLayout {
-                                padding: m.role == "tool" ? 2px : 10px;
-                                TextInput {
-                                    text: m.text;
-                                    read-only: true;
-                                    wrap: word-wrap;
-                                    single-line: false;
-                                    color: m.role == "tool" ? Theme.dim : m.role == "error" ? #ff8fa3 : Theme.text;
-                                    font-size: m.role == "tool" ? 11px : 13px;
+                                padding: 12px;
+                                spacing: 8px;
+                                Text { text: "The assistant wants to:"; color: Theme.amber-fg; font-size: 11.5px; font-weight: 700; }
+                                Text { text: root.confirm-text; color: Theme.text; wrap: word-wrap; }
+                                HorizontalLayout {
+                                    spacing: 8px;
+                                    alignment: end;
+                                    ActionButton { label: "Deny"; clicked => { root.confirm-action(false); } }
+                                    PrimaryButton { text: "Allow";  clicked => { root.confirm-action(true); } }
+                                }
+                            }
+                        }
+                        HorizontalLayout {
+                            padding: Theme.nordic ? 14px : 8px;
+                            padding-top: 8px;
+                            spacing: 6px;
+                            if root.chat-busy: Text { text: "Working…"; color: Theme.dim; vertical-alignment: center; horizontal-stretch: 1; }
+                            if root.chat-busy: ActionButton { label: "Stop"; clicked => { root.chat-stop(); } }
+                            if !root.chat-busy: Rectangle {
+                                height: 40px;
+                                horizontal-stretch: 1;
+                                border-radius: Theme.nordic ? 20px : 14px;
+                                background: Theme.nordic ? transparent : Theme.tile2;
+                                border-width: chi.has-focus ? max(1px, Prefs.focus-ring) : 1px;
+                                border-color: chi.has-focus ? Theme.ring : Theme.line;
+                                HorizontalLayout {
+                                    padding-left: 12px;
+                                    padding-right: 4px;
+                                    spacing: 6px;
+                                    Rectangle {
+                                        horizontal-stretch: 1;
+                                        if root.chat-input == "": Text { x: 0; width: parent.width; height: parent.height; text: "Ask anything — / for saved prompts"; color: Theme.faint; font-size: 13px * Prefs.fs; vertical-alignment: center; overflow: elide; }
+                                        chi := TextInput {
+                                            y: (parent.height - self.height) / 2;
+                                            width: parent.width;
+                                            text <=> root.chat-input;
+                                            color: Theme.text;
+                                            font-size: 13px * Prefs.fs;
+                                            single-line: true;
+                                            accepted => { root.chat-send(self.text); }
+                                        }
+                                    }
+                                    VerticalLayout {
+                                        alignment: center;
+                                        Rectangle {
+                                            width: 32px; height: 32px;
+                                            border-radius: Theme.round(32px);
+                                            background: csa.has-hover ? Theme.accent.brighter(0.1) : Theme.accent;
+                                            csa := TouchArea { clicked => { root.chat-send(root.chat-input); } }
+                                            SIcon { commands: Icons.send; size: 15px; weight: 2; tint: Theme.on-accent; }
+                                        }
+                                    }
                                 }
                             }
                         }
                     }
                 }
-                if root.confirm-text != "": Rectangle {
-                    background: #2a1a1f;
-                    border-width: 1px;
-                    border-color: Theme.accent;
-                    border-radius: 8px;
-                    VerticalLayout {
-                        padding: 12px;
-                        spacing: 8px;
-                        Text { text: "The assistant wants to:"; color: Theme.dim; font-size: 11px; }
-                        Text { text: root.confirm-text; color: Theme.text; wrap: word-wrap; }
-                        HorizontalLayout {
-                            spacing: 8px;
-                            alignment: end;
-                            Button { text: "Deny"; clicked => { root.confirm-action(false); } }
-                            PrimaryButton { text: "Allow";  clicked => { root.confirm-action(true); } }
+            }
+        }
+        // the sender: avatar, name, organisation, address, then recent mail, files and the next event
+        if root.sender-shown: Rectangle {
+            width: root.ctx-w;
+            background: Theme.nordic ? transparent : Theme.tile;
+            border-width: Theme.nordic ? 0px : 1px;
+            border-color: Theme.line;
+            border-radius: Theme.nordic ? 0px : Theme.r-pane;
+            clip: true;
+            Flickable {
+                content-height: max(self.height, sx.preferred-height);
+                sx := VerticalLayout {
+                    alignment: start;
+                    padding-top: Theme.nordic ? 30px : 22px;
+                    padding-bottom: Theme.nordic ? 30px : 22px;
+                    padding-left: Theme.nordic ? 22px : 18px;
+                    padding-right: Theme.nordic ? 22px : 18px;
+                    spacing: Theme.nordic ? 16px : 14px;
+                    HorizontalLayout {
+                        alignment: start;
+                        Avatar {
+                            label: root.r-initials;
+                            tint: root.r-color;
+                            width: Theme.nordic ? 64px : 60px;
+                            height: self.width;
+                            border-radius: Theme.nordic ? self.height / 2 : 22px;
+                            TouchArea { pointer-event(ev) => { if ev.button == PointerEventButton.right && ev.kind == PointerEventKind.up { root.ctx("addr", root.r-email, self.absolute-position.x + self.mouse-x, self.absolute-position.y + self.mouse-y); } } }
                         }
                     }
-                }
-                HorizontalLayout {
-                    padding: 10px;
-                    spacing: 6px;
-                    if root.chat-busy: Text { text: "Working…"; color: Theme.dim; vertical-alignment: center; horizontal-stretch: 1; }
-                    if root.chat-busy: Button { text: "Stop"; clicked => { root.chat-stop(); } }
-                    if !root.chat-busy: LineEdit {
-                        placeholder-text: "Ask anything — / for saved prompts";
-                        text <=> root.chat-input;
-                        accepted(t) => { root.chat-send(t); }
+                    VerticalLayout {
+                        spacing: 1px;
+                        Text { text: root.r-from; color: Theme.text; font-size: (Theme.nordic ? 17px : 16px) * Prefs.fs; font-weight: Theme.nordic ? 800 : 700; wrap: word-wrap; }
+                        if root.sx-org != "": Text { text: root.sx-org; color: Theme.dim; font-size: (Theme.nordic ? 13px : 12.5px) * Prefs.fs; wrap: word-wrap; }
                     }
-                    if !root.chat-busy: PrimaryButton { text: "Send";  clicked => { root.chat-send(root.chat-input); } }
+                    VerticalLayout {
+                        spacing: Theme.nordic ? 8px : 6px;
+                        Text {
+                            text: root.r-email;
+                            color: Theme.body;
+                            font-size: (Theme.nordic ? 13px : 12.5px) * Prefs.fs;
+                            overflow: elide;
+                            TouchArea { pointer-event(ev) => { if ev.button == PointerEventButton.right && ev.kind == PointerEventKind.up { root.ctx("addr", root.r-email, self.absolute-position.x + self.mouse-x, self.absolute-position.y + self.mouse-y); } } }
+                        }
+                        if root.sx-phone != "": Text { text: root.sx-phone; color: Theme.body; font-size: (Theme.nordic ? 13px : 12.5px) * Prefs.fs; overflow: elide; }
+                    }
+                    HorizontalLayout {
+                        spacing: 6px;
+                        Rectangle {
+                            horizontal-stretch: 1;
+                            height: Prefs.large-targets ? 44px : 32px;
+                            border-radius: Theme.nordic ? self.height / 2 : 11px;
+                            border-width: 1px;
+                            border-color: Theme.line;
+                            background: mga.has-hover ? Theme.hover : Theme.nordic ? transparent : Theme.tile2;
+                            mga := TouchArea { clicked => { root.compose-new(); root.c-to = root.r-email; } }
+                            Text { text: "Message"; color: Theme.text; font-size: 12px * Prefs.fs; font-weight: 600; }
+                        }
+                        Rectangle {
+                            horizontal-stretch: 1;
+                            height: Prefs.large-targets ? 44px : 32px;
+                            border-radius: Theme.nordic ? self.height / 2 : 11px;
+                            border-width: 1px;
+                            border-color: Theme.line;
+                            background: fma.has-hover ? Theme.hover : Theme.nordic ? transparent : Theme.tile2;
+                            fma := TouchArea { clicked => { root.search = "from:" + root.r-email; root.do-search(root.search); } }
+                            Text { text: "All mail"; color: Theme.text; font-size: 12px * Prefs.fs; font-weight: 600; }
+                        }
+                    }
+                    if root.sx-recent.length > 0: Rectangle { height: 1px; background: Theme.line; }
+                    if root.sx-recent.length > 0: Text { text: "Recent"; color: Theme.dim; font-size: (Theme.nordic ? 12px : 11.5px) * Prefs.fs; font-weight: 700; }
+                    if root.sx-recent.length > 0: VerticalLayout {
+                        spacing: 2px;
+                        for r in root.sx-recent: Rectangle {
+                            height: srl.preferred-height + 8px;
+                            border-radius: 8px;
+                            background: rra.has-hover ? Theme.tile2 : transparent;
+                            rra := TouchArea { clicked => { root.current-mail = r.tone; root.open-mail(r.tone); } mouse-cursor: pointer; }
+                            srl := HorizontalLayout {
+                                Text { text: r.label + " · " + r.value; color: Theme.body; font-size: (Theme.nordic ? 13px : 12.5px) * Prefs.fs; overflow: elide; vertical-alignment: center; }
+                            }
+                        }
+                    }
+                    if root.sx-files.length > 0: Rectangle { height: 1px; background: Theme.line; }
+                    if root.sx-files.length > 0: Text { text: "Shared files"; color: Theme.dim; font-size: (Theme.nordic ? 12px : 11.5px) * Prefs.fs; font-weight: 700; }
+                    if root.sx-files.length > 0: VerticalLayout {
+                        spacing: 6px;
+                        for f in root.sx-files: Rectangle {
+                            height: fl2.preferred-height + 16px;
+                            border-radius: Theme.nordic ? self.height / 2 : 12px;
+                            background: sfa.has-hover ? Theme.hover : Theme.tile2;
+                            sfa := TouchArea { clicked => { root.current-mail = f.tone; root.open-mail(f.tone); } mouse-cursor: pointer; }
+                            fl2 := HorizontalLayout {
+                                padding-left: 10px;
+                                padding-right: 10px;
+                                spacing: 6px;
+                                Text { text: f.label; color: Theme.text; font-size: 12.5px * Prefs.fs; overflow: elide; horizontal-stretch: 1; vertical-alignment: center; }
+                                Text { text: f.value; color: Theme.faint; font-size: 11px * Prefs.fs; vertical-alignment: center; }
+                            }
+                        }
+                    }
+                    if root.sx-next != "": Rectangle { height: 1px; background: Theme.line; }
+                    if root.sx-next != "": Text { text: "Coming up"; color: Theme.dim; font-size: (Theme.nordic ? 12px : 11.5px) * Prefs.fs; font-weight: 700; }
+                    if root.sx-next != "": HorizontalLayout {
+                        spacing: 6px;
+                        Text { text: root.sx-next; color: Theme.amber-fg; font-size: 13px * Prefs.fs; font-weight: 700; }
+                        Text { text: root.sx-next-title; color: Theme.body; font-size: 13px * Prefs.fs; overflow: elide; horizontal-stretch: 1; }
+                    }
                 }
             }
         }
         }
+        }
+        }
+      }
     }
   
     if root.app == 1: Rectangle {
-        x: 45px;
-        width: parent.width - 45px;
+        x: Theme.shell-x;
+        width: parent.width - Theme.shell-x;
         background: Theme.bg;
         HorizontalLayout {
             Rectangle {
@@ -2645,8 +3269,8 @@ export component AppWindow inherits Window {
     }
 
     if root.app == 2: Rectangle {
-        x: 45px;
-        width: parent.width - 45px;
+        x: Theme.shell-x;
+        width: parent.width - Theme.shell-x;
         background: Theme.bg;
         HorizontalLayout {
             // ---- sidebar: all, address books, groups, categories (Bulwark contacts-sidebar) ----
@@ -2797,8 +3421,8 @@ export component AppWindow inherits Window {
     }
 
     if root.app == 3: Rectangle {
-        x: 45px;
-        width: parent.width - 45px;
+        x: Theme.shell-x;
+        width: parent.width - Theme.shell-x;
         background: Theme.bg;
         HorizontalLayout {
         // ---- sidebar: My files tree, Favorites, Recent, Shared with me (Bulwark files-sidebar) ----
@@ -2922,8 +3546,8 @@ export component AppWindow inherits Window {
     }
 
     if root.app == 4: Rectangle {
-        x: 45px;
-        width: parent.width - 45px;
+        x: Theme.shell-x;
+        width: parent.width - Theme.shell-x;
         background: Theme.bg;
         HorizontalLayout {
             Rectangle {
@@ -3192,15 +3816,17 @@ export component AppWindow inherits Window {
     }
     if root.toast != "": Rectangle {
         x: (parent.width - self.width) / 2;
-        y: parent.height - 64px;
+        y: parent.height - 68px;
         width: tl.preferred-width;
-        height: 40px;
-        border-radius: 8px;
-        background: Theme.chip;
+        height: 44px;
+        border-radius: Theme.nordic ? 22px : 16px;
+        background: Theme.popup;
         border-width: 1px;
-        border-color: Theme.track;
+        border-color: Theme.line;
+        drop-shadow-blur: 16px;
+        drop-shadow-color: #00000055;
         tl := HorizontalLayout {
-            padding-left: 16px;
+            padding-left: 18px;
             padding-right: 8px;
             spacing: 12px;
             Text { text: root.toast; color: Theme.text; vertical-alignment: center; }
@@ -3209,13 +3835,13 @@ export component AppWindow inherits Window {
                 ut := TouchArea { clicked => { root.undo-toast(); } }
                 Text { text: "Undo"; color: Theme.accent; font-weight: 700; }
             }
-            HoverAction { glyph: "\u{E711}"; y: 9px; clicked => { root.toast = ""; } }
+            VerticalLayout { alignment: center; HoverAction { icon: Icons.close; clicked => { root.toast = ""; } } }
         }
     }
 
     if show-settings: Rectangle {
-        x: 45px;
-        width: parent.width - 45px;
+        x: Theme.shell-x;
+        width: parent.width - Theme.shell-x;
         background: Theme.bg;
         TouchArea { }
         HorizontalLayout {
@@ -3363,12 +3989,13 @@ export component AppWindow inherits Window {
         background: #00000080;
         TouchArea { clicked => { root.prompt-open = false; } }
         Rectangle {
-            width: 340px; height: 132px;
-            background: Theme.popup; border-radius: 10px; border-width: 1px; border-color: Theme.line;
+            width: 360px; height: 144px;
+            background: Theme.popup; border-radius: Theme.r-tile; border-width: 1px; border-color: Theme.line;
+            drop-shadow-blur: 24px; drop-shadow-color: #00000066;
             TouchArea {}
             VerticalLayout {
-                padding: 16px; spacing: 10px;
-                Text { text: root.prompt-title; color: Theme.text; font-weight: 700; }
+                padding: 20px; spacing: 12px;
+                Text { text: root.prompt-title; color: Theme.text; font-size: 15px; font-weight: 700; }
                 LineEdit { text <=> root.prompt-text; accepted(t) => { root.prompt-open = false; root.prompt-ok(t); } init => { self.focus(); self.select-all(); } }
                 HorizontalLayout {
                     alignment: end; spacing: 8px;

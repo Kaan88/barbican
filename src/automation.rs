@@ -11,6 +11,8 @@
 //!   drag X1 Y1 X2 Y2
 //!   shot PATH.png        (window contents; the WebView2 email body is a separate window and not included)
 //!   size                 (window size)
+//!   resize W H           (resize the off-screen window)
+//!   ui bento|nordic dark|light [more|normal]   (style, theme and contrast in memory only, never saved)
 //!   wv-eval JS / wv-result (run JS in the email WebView, then read its JSON result)
 //!   pick PATH[|PATH...]  (answer the next file-open picker with these files instead of a dialog)
 use crate::AppWindow;
@@ -156,6 +158,22 @@ fn run(u: &AppWindow, line: &str) -> String {
             "ok".into()
         }
         "size" => { let s = win.size(); format!("{} {} scale {}", s.width, s.height, win.scale_factor()) }
+        // resize the (off-screen) window, in logical pixels, to check narrow layouts
+        "resize" => { win.set_size(slint::LogicalSize::new(pos(&args, 0).max(400.0), pos(&args, 1).max(300.0))); "ok".into() }
+        // switch the look in memory only (nothing is saved): ui bento|nordic dark|light [more|normal]
+        "ui" => {
+            let t = u.global::<crate::Theme>();
+            for w in &args {
+                match *w {
+                    "bento" => t.set_style(0), "nordic" => t.set_style(1),
+                    "dark" => t.set_dark(true), "light" => t.set_dark(false),
+                    "more" => t.set_more_contrast(true), "normal" => t.set_more_contrast(false),
+                    "" => {}
+                    other => return format!("unknown ui option {other}"),
+                }
+            }
+            format!("style {} dark {} more-contrast {}", if t.get_style() == 1 { "nordic" } else { "bento" }, t.get_dark(), t.get_more_contrast())
+        }
         "shot" => {
             let path = a.get(1).copied().unwrap_or("shot.png");
             match win.take_snapshot() {
