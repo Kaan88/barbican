@@ -97,6 +97,20 @@ pub fn set_process_app_id() {
     }
 }
 
+/// Paint the title bar and frame border in the app's ground colour (Windows 11; older
+/// versions ignore the attributes). Colours are 0xRRGGBB.
+pub fn set_chrome(hwnd: isize, caption: u32, text: u32) {
+    // raw binding: enabling the windows crate's Dwm feature overflows cmd's line limit for rustc
+    #[link(name = "dwmapi")]
+    extern "system" { fn DwmSetWindowAttribute(hwnd: *mut core::ffi::c_void, attr: u32, v: *const core::ffi::c_void, size: u32) -> i32; }
+    let bgr = |c: u32| ((c & 0xff) << 16) | (c & 0xff00) | ((c >> 16) & 0xff);
+    unsafe {
+        for (attr, c) in [(34u32, bgr(caption)), (35, bgr(caption)), (36, bgr(text))] {
+            let _ = DwmSetWindowAttribute(hwnd as *mut _, attr, &c as *const u32 as *const _, 4);
+        }
+    }
+}
+
 /// The unread overlay on the taskbar button (None clears it). `rgba` is a square icon.
 pub fn set_overlay(hwnd: isize, rgba: Option<(&[u8], u32)>, label: &str) {
     use windows::Win32::System::Com::*;

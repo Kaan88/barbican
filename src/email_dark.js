@@ -7,7 +7,7 @@
 // sender's colours. The page starts with <html class="barbican-dark-pending"> (body hidden, with
 // a 1.5 s failsafe) so the light original never flashes. Runs once on DOMContentLoaded.
 (function () {
-  var CANVAS = { r: 10, g: 10, b: 10, a: 1 };
+  var CANVAS = { r: 20, g: 20, b: 20, a: 1 };
   var PENDING = 'barbican-dark-pending';
   var WHITE = { r: 255, g: 255, b: 255, a: 1 };
   var SIDES = ['top', 'right', 'bottom', 'left'];

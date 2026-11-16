@@ -9,7 +9,7 @@ pub const SCRIPT: &str = include_str!("email_dark.js");
 /// Class on <html> that keeps the body hidden until the script ran (1.5 s failsafe).
 pub const PENDING_CLASS: &str = "barbican-dark-pending";
 /// The canvas the converted mail sits on (the reader's dark background; white maps near it).
-pub const BACKGROUND: &str = "#0a0a0a";
+pub const BACKGROUND: &str = "#141414";
 const TEXT: &str = "#e6e6e6";
 const LINK: &str = "#8ab4f8";
 
@@ -30,6 +30,13 @@ pub fn has_native_dark(html: &str) -> bool {
 
 /// `color-scheme` of the page: dark only for a mail with its own dark styles shown dark.
 pub fn color_scheme(dark: bool, native: bool) -> &'static str { if dark && native { "dark" } else { "light" } }
+
+/// Thin overlay-style scrollbar matching the app (8 px, rounded thumb, no track, no arrows) instead of
+/// Chromium's 16 px classic one. `dark` picks the thumb colour for a dark or a light page.
+pub fn scrollbar_css(dark: bool) -> String {
+    let (thumb, hover) = if dark { ("#3a3a3a", "#525252") } else { ("#c4c4c8", "#a1a1a6") };
+    format!("::-webkit-scrollbar{{width:12px;height:12px;background:transparent}}::-webkit-scrollbar-track,::-webkit-scrollbar-corner{{background:transparent}}::-webkit-scrollbar-button{{display:none;width:0;height:0}}::-webkit-scrollbar-thumb{{background:{thumb};border-radius:6px;border:3px solid transparent;background-clip:content-box;min-height:36px}}::-webkit-scrollbar-thumb:hover{{background:{hover};background-clip:content-box}}")
+}
 
 /// The fallback colours and the pending rules (Bulwark emailDarkModeCss).
 pub fn css() -> String {
@@ -137,7 +144,7 @@ mod tests {
     fn css_hides_until_the_pass_ran() {
         let c = css();
         assert!(c.contains("html.barbican-dark-pending body{visibility:hidden"));
-        assert!(c.contains("body{color:#e6e6e6;background:#0a0a0a}"));
+        assert!(c.contains("body{color:#e6e6e6;background:#141414}"));
         // the script looks for the same canvas colour and pending class
         assert!(SCRIPT.contains("{ r: 10, g: 10, b: 10, a: 1 }"));
         assert!(SCRIPT.contains(&format!("'{PENDING_CLASS}'")));

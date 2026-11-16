@@ -382,6 +382,15 @@ component RailButton inherits Rectangle {
         weight: Theme.nordic ? 1.6 : 1.7;
         tint: root.active ? Theme.sel-text : ta.has-hover ? Theme.text : Theme.faint;
     }
+    if tip != "" && ta.has-hover: Tip {
+        x: parent.width + 8px;
+        y: (parent.height - self.height) / 2;
+        width: rtt.preferred-width + 16px;
+        height: 26px;
+        border-radius: Theme.nordic ? 13px : 8px;
+        background: Theme.text;
+        rtt := Text { text: root.tip; color: Theme.bg; font-size: 11.5px; font-weight: 600; vertical-alignment: center; horizontal-alignment: center; }
+    }
 }
 
 /// A folder in the sidebar. Bento: 16px line icon, squircle selection (BNMail); Nordic: no icon,
@@ -473,7 +482,7 @@ component PeopleCta inherits Rectangle {
     accessible-role: button;
     accessible-label: root.text;
     accessible-action-default => { if root.enabled { root.clicked(); } }
-    pca := TouchArea { enabled: root.enabled; clicked => { root.clicked(); } mouse-cursor: pointer; }
+    pca := TouchArea { enabled: root.enabled; clicked => { root.clicked(); } }
     HorizontalLayout {
         alignment: center;
         spacing: 8px;
@@ -503,7 +512,7 @@ component PeopleBtn inherits Rectangle {
     accessible-role: button;
     accessible-label: root.text;
     accessible-action-default => { if root.enabled { root.clicked(); } }
-    pba := TouchArea { enabled: root.enabled; clicked => { root.clicked(); } mouse-cursor: pointer; }
+    pba := TouchArea { enabled: root.enabled; clicked => { root.clicked(); } }
     pbl := HorizontalLayout {
         alignment: center;
         spacing: 6px;
@@ -623,7 +632,7 @@ component PeopleLine inherits Rectangle {
     accessible-role: button;
     accessible-label: root.label;
     accessible-action-default => { root.clicked(); }
-    pla := TouchArea { clicked => { root.clicked(); } mouse-cursor: pointer; }
+    pla := TouchArea { clicked => { root.clicked(); } }
     pll := HorizontalLayout {
         padding-left: Theme.nordic ? 6px : 10px;
         padding-right: Theme.nordic ? 6px : 10px;
@@ -879,7 +888,7 @@ component SummaryTile inherits Rectangle {
     callback clicked;
     border-radius: Theme.r-summary;
     background: bg;
-    sta := TouchArea { clicked => { root.clicked(); } mouse-cursor: pointer; }
+    sta := TouchArea { clicked => { root.clicked(); } }
     // press / hover feedback: a veil of the text colour over the tint
     Rectangle {
         border-radius: Theme.r-summary;

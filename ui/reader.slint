@@ -88,7 +88,7 @@ component RxButton inherits Rectangle {
     border-width: a.style == 0 ? 1px : 0px;
     border-color: RxTheme.line;
     opacity: a.enabled ? 1 : 0.5;
-    ta := TouchArea { enabled: a.enabled; mouse-cursor: pointer; clicked => { root.clicked(); } }
+    ta := TouchArea { enabled: a.enabled; clicked => { root.clicked(); } }
     bl := Text {
         text: a.label;
         font-family: "Segoe UI";

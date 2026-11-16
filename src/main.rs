@@ -246,7 +246,7 @@ fn page(body: &str, images: bool, recolor: bool) -> (String, bool, &'static str)
     // the accessibility override paints its own page colour (a11y.rs)
     let bg = if dark && a.override_active() { "#0a0a0a" } else if themed { mailview::reader_bg() } else if recolor { dark_mail::BACKGROUND } else { "#ffffff" };
     let csp = csp_with(images, script.as_deref());
-    let extra = format!("<style>{}</style>{}", a.mail_css(dark), script.map(|s| format!("<script>{s}</script>")).unwrap_or_default());
+    let extra = format!("<style>{}{}</style>{}", dark_mail::scrollbar_css(bg != "#ffffff"), a.mail_css(dark), script.map(|s| format!("<script>{s}</script>")).unwrap_or_default());
     let csp = format!("{csp}{extra}");
     // Bulwark plainTextFont: sans (default) or mono for text/plain bodies
     let pre_font = if p.str("plainTextFont", "sans") == "mono" { "ui-monospace,Consolas,'Cascadia Mono',monospace" } else { "inherit" };
@@ -2086,6 +2086,16 @@ pub fn set_theme_dark(ui: &AppWindow, dark: bool) {
     let changed = DARK.with(|d| d.replace(dark)) != dark;
     WV.with(|w| if let Some(v) = &*w.borrow() { let _ = v.set_background_color(wv_bg()); });
     ui.global::<Theme>().set_dark(dark);
+    #[cfg(windows)]
+    {
+        use slint::winit_030::{winit::raw_window_handle::{HasWindowHandle, RawWindowHandle}, WinitWindowAccessor};
+        let hwnd = ui.window().with_winit_window(|w| match w.window_handle().map(|h| h.as_raw()) {
+            Ok(RawWindowHandle::Win32(h)) => Some(h.hwnd.get()),
+            _ => None,
+        }).flatten();
+        // title bar and frame in the ground colour instead of the default caption grey
+        if let Some(h) = hwnd { if dark { platform::win::set_chrome(h, 0x0a0a0a, 0xfafafa) } else { platform::win::set_chrome(h, 0xf4f4f5, 0x0a0a0a) } }
+    }
     // the open message's page follows (plain text and the reader are themed); swapped in, no reload
     if changed && ui.get_current_mail() != "" { render_current(ui); }
     if changed && ui.get_current_mail() == "" { ui.set_body_bg(mailview::color(mailview::reader_bg())); mailview::theme_changed(); }

@@ -31,7 +31,7 @@ component BannerButton inherits Rectangle {
     accessible-label: label;
     accessible-action-default => { root.clicked(); }
     t := Text { text: root.label; color: root.ink; font-size: 12px; font-weight: 600; font-family: "Segoe UI"; }
-    ta := TouchArea { mouse-cursor: pointer; clicked => { root.clicked(); } }
+    ta := TouchArea { clicked => { root.clicked(); } }
 }
 
 export component UpdateBanner inherits Rectangle {
@@ -108,7 +108,7 @@ export component UpdateBanner inherits Rectangle {
                     stroke-width: 1.6px;
                     commands: "M1 1 9 9 M9 1 1 9";
                 }
-                close-ta := TouchArea { mouse-cursor: pointer; clicked => { UpdateState.dismiss(); } }
+                close-ta := TouchArea { clicked => { UpdateState.dismiss(); } }
             }
         }
         HorizontalLayout {
