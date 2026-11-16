@@ -309,6 +309,9 @@ fn apply_routed(u: &AppWindow, st: &Shared, ids: Vec<String>, action: &str) {
 
 thread_local! { static MY_ADDRS: std::cell::RefCell<Vec<String>> = const { std::cell::RefCell::new(Vec::new()) }; }
 
+/// The identities' addresses loaded at sign-in (UI thread).
+pub fn my_addrs_cached() -> Vec<String> { MY_ADDRS.with(|a| a.borrow().clone()) }
+
 /// The user's own addresses (login and identities), for "is this me" checks.
 pub fn my_addrs(st: &Shared) -> Vec<String> {
     let mut v = MY_ADDRS.with(|a| a.borrow().clone());

@@ -1320,7 +1320,8 @@
      "label": "Unread messages shown",
      "desc": "How many of your newest unread messages the Unread first section shows",
      "key": "mvUnreadSectionSize",
-     "options": []
+     "options": [],
+     "default": 25
     },
     {
      "kind": "toggle",

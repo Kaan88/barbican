@@ -104,7 +104,67 @@ fn reply_identity(ids: &[Value], received: &[String]) -> Option<usize> {
     None
 }
 
-fn load_identities(u: &AppWindow, c: Arc<Client>, received: Vec<String>) {
+/// Addresses in Delivered-To and the like (Bulwark deliveryAddresses), in header priority.
+fn delivery_addresses(m: &Value) -> Vec<String> {
+    const NAMES: [&str; 4] = ["delivered-to", "x-original-to", "x-delivered-to", "x-original-delivered-to"];
+    let headers = m["headers"].as_array().cloned().unwrap_or_default();
+    let mut out: Vec<String> = vec![];
+    for n in NAMES {
+        for h in headers.iter().filter(|h| h["name"].as_str().is_some_and(|x| x.eq_ignore_ascii_case(n))) {
+            let v = h["value"].as_str().unwrap_or("");
+            let addr = v.split_once('<').and_then(|(_, r)| r.split_once('>')).map(|(a, _)| a.to_string())
+                .or_else(|| v.split(|c: char| c.is_whitespace() || ",;\"'".contains(c)).find(|t| t.contains('@')).map(String::from));
+            if let Some(a) = addr.map(|a| a.trim().trim_end_matches('.').to_string()).filter(|a| a.contains('@')) {
+                if !out.iter().any(|x| x.eq_ignore_ascii_case(&a)) { out.push(a); }
+            }
+        }
+    }
+    out
+}
+
+/// What decides a reply's From (Bulwark email-composer + lib/reply-identity).
+#[derive(Default, Clone)]
+pub struct ReplyFrom {
+    /// The original's sender, when the user sent it (keep sending as that identity).
+    self_sent: Option<String>,
+    /// To/Cc/Bcc of the original.
+    recipients: Vec<String>,
+    /// Delivered-To and friends.
+    delivered: Vec<String>,
+    /// Forwards never take the catch-all match.
+    forward: bool,
+}
+
+fn domain_of(e: &str) -> String { e.rsplit_once('@').map(|(_, d)| d.to_lowercase()).unwrap_or_default() }
+
+/// Bulwark resolveReplyFrom's catch-all step (replyIdentityMatch "domain"): an address on one
+/// of the user's domains that is no identity picks the first identity on that domain.
+fn catch_all_identity(emails: &[String], received: &[String]) -> Option<usize> {
+    let owned: Vec<String> = emails.iter().map(|e| domain_of(e)).filter(|d| !d.is_empty()).collect();
+    let hit = received.iter().find(|r| {
+        let r = r.trim().to_lowercase();
+        !emails.contains(&r) && owned.contains(&domain_of(&r))
+    })?;
+    emails.iter().position(|e| domain_of(e) == domain_of(hit)).or(Some(0))
+}
+
+/// Identity index for a reply/forward, in Bulwark's order: the identity that sent a self-sent
+/// original; one of the user's own identities in To/Cc/Bcc, then Delivered-To; with
+/// autoSelectReplyIdentity (not on forwards) a catch-all address on a user's domain
+/// (replyIdentityMatch "domain"); else None (the default identity).
+fn resolve_reply_identity(ids: &[Value], r: &ReplyFrom, auto: bool, match_mode: &str) -> Option<usize> {
+    let emails: Vec<String> = ids.iter().map(|i| i["email"].as_str().unwrap_or("").trim().to_lowercase()).collect();
+    if let Some(s) = &r.self_sent {
+        if let Some(i) = reply_identity(ids, std::slice::from_ref(s)) { return Some(i); }
+    }
+    if let Some(i) = reply_identity(ids, &r.recipients) { return Some(i); }
+    if auto && !r.forward && match_mode == "domain" {
+        if let Some(i) = catch_all_identity(&emails, &r.recipients).or_else(|| catch_all_identity(&emails, &r.delivered)) { return Some(i); }
+    }
+    reply_identity(ids, &r.delivered)
+}
+
+fn load_identities(u: &AppWindow, c: Arc<Client>, reply: ReplyFrom) {
     let w = u.as_weak();
     std::thread::spawn(move || {
         let ids = c.identities().unwrap_or_default();
@@ -122,7 +182,8 @@ fn load_identities(u: &AppWindow, c: Arc<Client>, received: Vec<String>) {
             u.set_c_identities(ModelRc::new(VecModel::from(model)));
             // default to the identity of the signed-in address, as Bulwark does
             let me = c.username.to_lowercase();
-            let idx = reply_identity(&ids, &received)
+            let p = crate::settings::Settings::load();
+            let idx = resolve_reply_identity(&ids, &reply, p.bool("autoSelectReplyIdentity", false), &p.str("replyIdentityMatch", "domain"))
                 .or_else(|| ids.iter().position(|i| i["email"].as_str().is_some_and(|e| e.to_lowercase() == me)))
                 .unwrap_or(0);
             u.set_c_from_index(idx as i32);
@@ -185,14 +246,23 @@ pub fn open(u: &AppWindow, c: Arc<Client>, kind: ComposeKind, m: Option<&Value>)
     reset(u);
     CLIENT.with(|x| *x.borrow_mut() = Some(c.clone()));
     ST.with(|s| s.borrow_mut().kind_new = matches!(kind, ComposeKind::New));
-    // replies come from the own identity the message was sent to (not forwards, like Bulwark)
-    let received: Vec<String> = match (&kind, m) {
-        (ComposeKind::Reply | ComposeKind::ReplyAll, Some(m)) => ["to", "cc", "bcc"].iter()
-            .flat_map(|k| m[*k].as_array().cloned().unwrap_or_default())
-            .filter_map(|x| x["email"].as_str().map(String::from)).collect(),
-        _ => vec![],
+    // replies and forwards come from the identity the message reached (Bulwark)
+    let reply = match (&kind, m) {
+        (ComposeKind::Reply | ComposeKind::ReplyAll | ComposeKind::Forward, Some(m)) => {
+            let sender = m["from"][0]["email"].as_str().unwrap_or("").to_string();
+            let mine = crate::my_addrs_cached();
+            ReplyFrom {
+                self_sent: mine.iter().any(|a| a.eq_ignore_ascii_case(&sender)).then_some(sender),
+                recipients: ["to", "cc", "bcc"].iter()
+                    .flat_map(|k| m[*k].as_array().cloned().unwrap_or_default())
+                    .filter_map(|x| x["email"].as_str().map(String::from)).collect(),
+                delivered: delivery_addresses(m),
+                forward: matches!(kind, ComposeKind::Forward),
+            }
+        }
+        _ => ReplyFrom::default(),
     };
-    load_identities(u, c.clone(), received);
+    load_identities(u, c.clone(), reply);
     if let Some(m) = m {
         let me = c.username.to_lowercase();
         let subj = m["subject"].as_str().unwrap_or("").to_string();
@@ -262,7 +332,7 @@ pub fn open_draft(u: &AppWindow, c: Arc<Client>, m: &Value) {
     reset(u);
     CLIENT.with(|x| *x.borrow_mut() = Some(c.clone()));
     ST.with(|s| s.borrow_mut().sig_done = true);
-    load_identities(u, c, vec![]);
+    load_identities(u, c, ReplyFrom::default());
     let join = |k: &str| m[k].as_array().map(|a| a.iter().map(|x| {
         let (n, e) = (x["name"].as_str().unwrap_or(""), x["email"].as_str().unwrap_or(""));
         if n.is_empty() { e.to_string() } else { format!("\"{n}\" <{e}>") }
@@ -557,5 +627,48 @@ pub fn discard(u: &AppWindow, c: Arc<Client>) {
             crate::mail::load_mailboxes(w.clone(), c.clone(), false);
             crate::mail::reload(w, c);
         });
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    fn ids() -> Vec<Value> {
+        vec![json!({"email": "me@a.com"}), json!({"email": "info@b.org"}), json!({"email": "me+news@a.com"})]
+    }
+
+    #[test]
+    fn reply_identity_order() {
+        let r = |rec: &[&str], del: &[&str], fwd: bool| ReplyFrom {
+            self_sent: None, recipients: rec.iter().map(|s| s.to_string()).collect(),
+            delivered: del.iter().map(|s| s.to_string()).collect(), forward: fwd,
+        };
+        // own identity in the recipients, always
+        assert_eq!(resolve_reply_identity(&ids(), &r(&["x@y.z", "INFO@b.org"], &[], false), false, "exact"), Some(1));
+        // sub-address tag: the untagged identity wins
+        assert_eq!(resolve_reply_identity(&ids(), &r(&["me+shop@a.com"], &[], false), false, "exact"), Some(0));
+        // catch-all on a user's domain only with the setting and domain matching
+        assert_eq!(resolve_reply_identity(&ids(), &r(&["sales@b.org"], &[], false), true, "domain"), Some(1));
+        assert_eq!(resolve_reply_identity(&ids(), &r(&["sales@b.org"], &[], false), true, "exact"), None);
+        assert_eq!(resolve_reply_identity(&ids(), &r(&["sales@b.org"], &[], false), false, "domain"), None);
+        // never on a forward
+        assert_eq!(resolve_reply_identity(&ids(), &r(&["sales@b.org"], &[], true), true, "domain"), None);
+        // Delivered-To after the headers
+        assert_eq!(resolve_reply_identity(&ids(), &r(&["list@x.net"], &["info@b.org"], false), false, "exact"), Some(1));
+        // self-sent: keep the sending identity
+        let s = ReplyFrom { self_sent: Some("info@b.org".into()), recipients: vec!["me@a.com".into()], ..Default::default() };
+        assert_eq!(resolve_reply_identity(&ids(), &s, false, "exact"), Some(1));
+    }
+
+    #[test]
+    fn delivered_to_headers() {
+        let m = json!({"headers": [
+            {"name": "X-Original-To", "value": " a@b.c"},
+            {"name": "Delivered-To", "value": "Someone <d@e.f>"},
+            {"name": "delivered-to", "value": "a@b.c"},
+        ]});
+        assert_eq!(delivery_addresses(&m), vec!["d@e.f".to_string(), "a@b.c".to_string()]);
     }
 }

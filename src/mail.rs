@@ -18,6 +18,10 @@ struct ListState {
     checked: HashSet<String>,
     loading: bool,
     generation: u64,
+    /// Rows at the top that are the unread-first section (0 = not an unread-first list).
+    section: usize,
+    /// Unread-first section size for this list, when the Inbox shows unread first.
+    unread_first: Option<usize>,
 }
 
 #[derive(Default)]
@@ -167,6 +171,14 @@ pub fn rebuild_folders(u: &AppWindow) {
         }
         u.set_folders(ModelRc::new(VecModel::from(out)));
     });
+    // tag colours follow the colour-blind-safe palette setting too
+    let tags = u.get_tags();
+    for i in 0..tags.row_count() {
+        if let Some(mut t) = tags.row_data(i) {
+            let c = tag_color(&t.id);
+            if t.color != c { t.color = c; tags.set_row_data(i, t); }
+        }
+    }
 }
 
 pub fn toggle_folder(u: &AppWindow, id: &str) {
@@ -305,10 +317,13 @@ fn build_rows(st: &ListState) -> Vec<Mail> {
     let unified = st.filter["unified"] == true;
     let mark = if unified { account_mark() } else { "none" };
     let mut last = String::new();
-    st.emails.iter().map(|m| {
+    st.emails.iter().enumerate().map(|(i, m)| {
         let t = parse_time(&m["receivedAt"]);
         let g = t.as_ref().map(group_label).unwrap_or_default();
-        let header = if lp.group_by_date && g != last { last = g.clone(); g } else { String::new() };
+        let header = if st.unread_first.is_some() {
+            // Bulwark unread-first Inbox: the unread section, then everything else
+            if i == 0 && st.section > 0 { "Unread".to_string() } else if i == st.section { "Everything else".to_string() } else { String::new() }
+        } else if lp.group_by_date && g != last { last = g.clone(); g } else { String::new() };
         let s = sender(m);
         let kw = &m["keywords"];
         let id = m["id"].as_str().unwrap_or("").to_string();
@@ -378,10 +393,46 @@ pub fn rebuild_list(u: &AppWindow) {
     });
 }
 
-type Page = Result<(Vec<Value>, usize, HashMap<String, usize>), String>;
+type Rows = (Vec<Value>, usize, HashMap<String, usize>);
+type Page = Result<Rows, String>;
+
+/// Bulwark's unread-first Inbox (Mountain View layout, mvInboxType "unread-first"): the
+/// newest `mvUnreadSectionSize` unread messages on top, then the read ones. UI thread only.
+fn unread_first_size(filter: &Value) -> Option<usize> {
+    let p = crate::settings::Settings::load();
+    if p.str("interfaceLayout", "default") != "mountain-view" || p.str("mvInboxType", "unread-first") != "unread-first" { return None; }
+    let mb = filter["inMailbox"].as_str()?;
+    if filter.as_object()?.len() != 1 || mailbox_role(mb) != "inbox" { return None; }
+    Some(unread_section_size(p.int("mvUnreadSectionSize", 25)))
+}
+
+/// Bulwark UNREAD_SECTION_SIZES (default 25).
+pub fn unread_section_size(v: i64) -> usize {
+    match v { 5 | 10 | 15 | 20 | 25 | 50 => v as usize, _ => 25 }
+}
+
+fn and(a: &Value, b: Value) -> Value { json!({"operator": "AND", "conditions": [a, b]}) }
+
+/// The unread section and the first `n` read messages; returns the page and the section length.
+fn fetch_unread_first(c: &Client, filter: &Value, size: usize, n: usize) -> Result<(Rows, usize), String> {
+    let (sec, _, mut threads) = c.list(and(filter, json!({"notKeyword": "$seen"})), 0, size)?;
+    let (rest, rest_total, th) = c.list(and(filter, json!({"hasKeyword": "$seen"})), 0, n)?;
+    threads.extend(th);
+    let k = sec.len();
+    let mut all = sec;
+    all.extend(rest);
+    Ok(((all, k + rest_total, threads), k))
+}
 
 /// First `n` messages of a list filter (scheduled and unified are virtual). For the unified
 /// list `loaded` holds the rows already shown, so a reload asks each source for as many.
+fn fetch_list(c: &Client, filter: Value, n: usize, loaded: &[Value], unread_first: Option<usize>) -> Result<(Rows, usize), String> {
+    match unread_first {
+        Some(size) => fetch_unread_first(c, &filter, size, n),
+        None => fetch(c, filter, n, loaded).map(|p| (p, 0)),
+    }
+}
+
 fn fetch(c: &Client, filter: Value, n: usize, loaded: &[Value]) -> Page {
     if filter["scheduled"] == true {
         c.scheduled().map(|e| { let n = e.len(); (e, n, HashMap::new()) })
@@ -436,12 +487,14 @@ pub fn load_list(w: slint::Weak<AppWindow>, c: Arc<Client>, filter: Value) {
         l.filter = filter.clone();
         l.checked.clear();
         l.loading = true;
-        l.generation
+        l.unread_first = unread_first_size(&filter);
+        (l.generation, l.unread_first)
     });
+    let (gen, unread_first) = gen;
     let _ = w.upgrade_in_event_loop(|u| u.set_busy(true));
     let page = page_size();
     std::thread::spawn(move || {
-        let res = fetch(&c, filter, page, &[]);
+        let res = fetch_list(&c, filter, page, &[], unread_first);
         let _ = w.upgrade_in_event_loop(move |u| {
             u.set_busy(false);
             LIST.with(|l| {
@@ -449,8 +502,8 @@ pub fn load_list(w: slint::Weak<AppWindow>, c: Arc<Client>, filter: Value) {
                 if l.generation != gen { return; }
                 l.loading = false;
                 match res {
-                    Ok((emails, total, threads)) => { l.emails = emails; l.total = total; l.threads = threads; }
-                    Err(e) => { l.emails.clear(); l.total = 0; u.set_status(e.into()); }
+                    Ok(((emails, total, threads), section)) => { l.emails = emails; l.total = total; l.threads = threads; l.section = section; }
+                    Err(e) => { l.emails.clear(); l.total = 0; l.section = 0; u.set_status(e.into()); }
                 }
             });
             rebuild_list(&u);
@@ -464,12 +517,17 @@ pub fn load_more(w: slint::Weak<AppWindow>, c: Arc<Client>) {
         if l.loading || l.emails.len() >= l.total { return None; }
         l.loading = true;
         let unified = (l.filter["unified"] == true).then(|| crate::unified::positions(&l.emails));
-        Some((l.filter.clone(), l.emails.len(), l.generation, unified))
+        // unread-first: the next page continues the read list after the unread section
+        let (filter, pos) = if l.unread_first.is_some() {
+            (and(&l.filter, json!({"hasKeyword": "$seen"})), l.emails.len().saturating_sub(l.section))
+        } else { (l.filter.clone(), l.emails.len()) };
+        let sec = l.section;
+        Some((filter, pos, l.generation, unified.map(|u| (u, sec))))
     }) else { return };
     std::thread::spawn(move || {
         // unified: each source continues after its own loaded rows (Bulwark positionsByAccount)
         let res = match unified {
-            Some(pos) => crate::unified::fetch(unified_text(&filter), &pos, &HashMap::new(), page_size()),
+            Some((pos, _)) => crate::unified::fetch(unified_text(&filter), &pos, &HashMap::new(), page_size()),
             None => c.list(filter, pos, page_size()),
         };
         let _ = w.upgrade_in_event_loop(move |u| {
@@ -486,7 +544,7 @@ pub fn load_more(w: slint::Weak<AppWindow>, c: Arc<Client>) {
                         let have: HashSet<String> = l.emails.iter().filter_map(|m| m["id"].as_str().map(String::from)).collect();
                         l.emails.extend(emails.into_iter().filter(|m| !have.contains(m["id"].as_str().unwrap_or(""))));
                     }
-                    l.total = total;
+                    l.total = if l.unread_first.is_some() { total + l.section } else { total };
                     l.threads.extend(threads);
                 }
             });
@@ -497,22 +555,23 @@ pub fn load_more(w: slint::Weak<AppWindow>, c: Arc<Client>) {
 
 /// Re-fetch what is loaded (after push or an action), keeping the scroll depth.
 pub fn reload(w: slint::Weak<AppWindow>, c: Arc<Client>) {
-    let (filter, n, gen, loaded) = LIST.with(|l| {
+    let (filter, n, gen, loaded, unread_first) = LIST.with(|l| {
         let l = l.borrow();
         let loaded = if l.filter["unified"] == true { l.emails.clone() } else { vec![] };
-        (l.filter.clone(), l.emails.len().max(PAGE), l.generation, loaded)
+        let n = l.emails.len().saturating_sub(l.section).max(PAGE);
+        (l.filter.clone(), n, l.generation, loaded, l.unread_first)
     });
     if filter.is_null() { return; }
     std::thread::spawn(move || {
-        let res = fetch(&c, filter, n, &loaded);
+        let res = fetch_list(&c, filter, n, &loaded, unread_first);
         let _ = w.upgrade_in_event_loop(move |u| {
             LIST.with(|l| {
                 let mut l = l.borrow_mut();
                 if l.generation != gen { return; }
-                if let Ok((emails, total, threads)) = res {
+                if let Ok(((emails, total, threads), section)) = res {
                     let ids: HashSet<String> = emails.iter().filter_map(|m| m["id"].as_str().map(String::from)).collect();
                     l.checked.retain(|i| ids.contains(i));
-                    l.emails = emails; l.total = total; l.threads = threads;
+                    l.emails = emails; l.total = total; l.threads = threads; l.section = section;
                 }
             });
             rebuild_list(&u);
@@ -582,6 +641,9 @@ fn remove_local(ids: &[String]) {
     LIST.with(|l| {
         let mut l = l.borrow_mut();
         let before = l.emails.len();
+        // rows leaving the unread-first section shrink it
+        let in_section = l.emails.iter().take(l.section).filter(|m| ids.iter().any(|i| m["id"] == i.as_str())).count();
+        l.section -= in_section;
         l.emails.retain(|m| !ids.iter().any(|i| m["id"] == i.as_str()));
         let removed = before - l.emails.len();
         l.total = l.total.saturating_sub(removed);

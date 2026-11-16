@@ -61,6 +61,35 @@ struct CalPrefs {
     time_in_month: bool,
     tinted: bool,
     h12: bool,
+    /// calendarMonthTimedEvents: 0 bar, 1 coloured text, 2 dot and text
+    month_timed: i32,
+    /// calendarFreeScroll
+    free_scroll: bool,
+    /// calendarHoverPreview delay in ms; -1 = off
+    hover_delay: i32,
+    /// calendarNarrowWeekAllDays
+    narrow_all_days: bool,
+}
+
+thread_local! {
+    /// The calendar pane is under 1000px wide (from the window, see `cal-narrow`).
+    static NARROW: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+/// Days the week view shows: all seven, or three at a time in a narrow pane (Bulwark,
+/// like Google Calendar) unless calendarNarrowWeekAllDays.
+fn week_days_shown() -> i64 {
+    if NARROW.with(|n| n.get()) && !cal_prefs().narrow_all_days { 3 } else { 7 }
+}
+
+/// Bulwark calendarHoverPreview values.
+fn hover_delay(v: &str) -> i32 {
+    match v { "off" => -1, "instant" => 0, "delay-1s" => 1000, "delay-2s" => 2000, _ => 500 }
+}
+
+/// Bulwark calendarMonthTimedEvents values.
+fn month_timed(v: &str) -> i32 {
+    match v { "text" => 1, "dot" => 2, _ => 0 }
 }
 
 fn cal_prefs() -> CalPrefs {
@@ -81,6 +110,10 @@ fn cal_prefs() -> CalPrefs {
         time_in_month: p.bool("showTimeInMonthView", false),
         tinted: p.bool("calendarTintedEvents", false),
         h12: p.str("timeFormat", "24h") == "12h",
+        month_timed: month_timed(&p.str("calendarMonthTimedEvents", "bar")),
+        free_scroll: p.bool("calendarFreeScroll", true),
+        hover_delay: hover_delay(&p.str("calendarHoverPreview", "delay-500ms")),
+        narrow_all_days: p.bool("calendarNarrowWeekAllDays", false),
     }
 }
 
@@ -98,6 +131,7 @@ fn range() -> (NaiveDate, NaiveDate) {
     let (a, view) = (anchor(), ST.with(|s| s.borrow().view));
     match view {
         0 => (a, a + Duration::days(1)),
+        1 if week_days_shown() < 7 => (a, a + Duration::days(week_days_shown())),
         1 => { let s = week_start(a); (s, s + Duration::days(7)) }
         _ => {
             let first = a.with_day(1).unwrap();
@@ -250,10 +284,13 @@ impl RawSet for State { fn events_raw_set(&mut self, v: Vec<Value>) { RAW.with(|
 // ---------------- rendering ----------------
 
 pub fn render(u: &AppWindow) {
+    NARROW.with(|n| n.set(u.get_cal_narrow()));
     let today = Local::now().date_naive();
     let a = anchor();
     let (from, to) = range();
     let cp = cal_prefs();
+    u.set_cal_hover_delay(cp.hover_delay);
+    u.set_cal_free_scroll(cp.free_scroll);
     {
         let ws = week_start(today);
         let names: Vec<slint::SharedString> = (0..7).map(|i| (ws + Duration::days(i)).format("%a").to_string().into()).collect();
@@ -306,6 +343,9 @@ pub fn render(u: &AppWindow) {
                     let mut e = ev(o, &s.calendars, 0, 0.0, 0.0, 1, cp.h12);
                     // Bulwark: only the start time, and only with showTimeInMonthView
                     e.time = if cp.time_in_month && !o.all_day && o.start.date() == d { fmt_time(o.start, cp.h12).into() } else { "".into() };
+                    // calendarMonthTimedEvents: all-day and multi-day events stay bars
+                    let timed = !o.all_day && (o.end - o.start).num_hours() < 24;
+                    e.style = if timed { cp.month_timed } else { 0 };
                     e
                 }).collect();
                 CalCell {
@@ -363,19 +403,23 @@ fn ev(o: &Occ, cals: &[Value], col: i32, top: f32, h: f32, lanes: i32, h12: bool
         color: color_for(cals, &o.calendar),
         col, top, height: h, lane: 0, lanes,
         date: o.start.format("%Y-%m-%d").to_string().into(),
+        style: 0,
     }
 }
 
 // ---------------- navigation ----------------
 
 pub fn nav(u: &AppWindow, c: Arc<Client>, how: &str) {
+    NARROW.with(|n| n.set(u.get_cal_narrow()));
     ST.with(|s| {
         let mut s = s.borrow_mut();
         let a = s.anchor.unwrap_or_else(|| Local::now().date_naive());
         s.anchor = Some(match how {
             "today" => Local::now().date_naive(),
-            "prev" => match s.view { 0 => a - Duration::days(1), 1 => a - Duration::days(7), _ => (a.with_day(1).unwrap() - Duration::days(1)).with_day(1).unwrap() },
-            "next" => match s.view { 0 => a + Duration::days(1), 1 => a + Duration::days(7), _ => (a.with_day(28).unwrap() + Duration::days(7)).with_day(1).unwrap() },
+            "prev" => match s.view { 0 => a - Duration::days(1), 1 => a - Duration::days(week_days_shown()), _ => (a.with_day(1).unwrap() - Duration::days(1)).with_day(1).unwrap() },
+            "next" => match s.view { 0 => a + Duration::days(1), 1 => a + Duration::days(week_days_shown()), _ => (a.with_day(28).unwrap() + Duration::days(7)).with_day(1).unwrap() },
+            // the pane changed width (cal-narrow): same dates, drawn again
+            "rerender" => a,
             "mini-prev" => (a.with_day(1).unwrap() - Duration::days(1)).with_day(1).unwrap(),
             "mini-next" => (a.with_day(28).unwrap() + Duration::days(7)).with_day(1).unwrap(),
             d => NaiveDate::parse_from_str(d, "%Y-%m-%d").unwrap_or(a),

@@ -40,6 +40,8 @@ export struct CalEvent {
     lane: int,
     lanes: int,
     date: string,
+    // month view look of a timed event (calendarMonthTimedEvents): 0 bar, 1 coloured text, 2 dot and text
+    style: int,
 }
 
 export struct CalCell {
@@ -920,6 +922,32 @@ export component AppWindow inherits Window {
     in property <[CalEvent]> cal-events;
     callback cal-nav(string);
     callback cal-set-view(int);
+    // event hover preview (calendarHoverPreview): delay in ms, -1 = off
+    in property <int> cal-hover-delay: 500;
+    // calendarFreeScroll: the wheel moves through months in the month view
+    in property <bool> cal-free-scroll: true;
+    // a calendar pane under 1000px wide (week view shows three days unless calendarNarrowWeekAllDays)
+    out property <bool> cal-narrow: root.width - 266px < 1000px;
+    changed cal-narrow => { if root.app == 1 { root.cal-nav("rerender"); } }
+    property <CalEvent> hov-ev;
+    property <bool> hov-on;
+    property <bool> hov-shown;
+    property <length> hov-x;
+    property <length> hov-y;
+    function cal-hover(e: CalEvent, on: bool, x: length, y: length) {
+        if on && root.cal-hover-delay >= 0 {
+            root.hov-ev = e; root.hov-x = x; root.hov-y = y;
+            root.hov-shown = root.cal-hover-delay == 0;
+            root.hov-on = true;
+        } else if !on && root.hov-ev.id == e.id {
+            root.hov-on = false; root.hov-shown = false;
+        }
+    }
+    hov-timer := Timer {
+        interval: max(1, root.cal-hover-delay) * 1ms;
+        running: root.hov-on && !root.hov-shown;
+        triggered => { root.hov-shown = true; }
+    }
     callback cal-toggle(string);
     callback cal-search(string);
     callback cal-edit(string, string, int);
@@ -2361,7 +2389,15 @@ export component AppWindow inherits Window {
                             border-width: 0.5px;
                             border-color: Theme.line;
                             background: c.in-month ? transparent : Theme.zebra;
-                            TouchArea { double-clicked => { root.cal-edit("", c.date, -1); } pointer-event(ev) => { if ev.button == PointerEventButton.right && ev.kind == PointerEventKind.up { root.ctx("slot", c.date, self.absolute-position.x + self.mouse-x, self.absolute-position.y + self.mouse-y); } } }
+                            TouchArea {
+                                double-clicked => { root.cal-edit("", c.date, -1); }
+                                pointer-event(ev) => { if ev.button == PointerEventButton.right && ev.kind == PointerEventKind.up { root.ctx("slot", c.date, self.absolute-position.x + self.mouse-x, self.absolute-position.y + self.mouse-y); } }
+                                scroll-event(ev) => {
+                                    if !root.cal-free-scroll || ev.delta-y == 0 { return reject; }
+                                    root.cal-nav(ev.delta-y < 0 ? "next" : "prev");
+                                    accept
+                                }
+                            }
                             VerticalLayout {
                                 padding: 4px;
                                 spacing: 2px;
@@ -2377,13 +2413,19 @@ export component AppWindow inherits Window {
                                 for e in c.events: Rectangle {
                                     height: 18px;
                                     border-radius: 3px;
-                                    background: Prefs.cal-tinted ? e.color.with-alpha(0.25) : e.color;
-                                    TouchArea { clicked => { root.cal-edit(e.id, "", -1); } pointer-event(ev) => { if ev.button == PointerEventButton.right && ev.kind == PointerEventKind.up { root.ctx("event", e.id, self.absolute-position.x + self.mouse-x, self.absolute-position.y + self.mouse-y); } } }
+                                    background: e.style != 0 ? (cmta.has-hover ? Theme.hover : transparent) : Prefs.cal-tinted ? e.color.with-alpha(0.25) : e.color;
+                                    cmta := TouchArea { clicked => { root.cal-edit(e.id, "", -1); } pointer-event(ev) => { if ev.button == PointerEventButton.right && ev.kind == PointerEventKind.up { root.ctx("event", e.id, self.absolute-position.x + self.mouse-x, self.absolute-position.y + self.mouse-y); } } changed has-hover => { root.cal-hover(e, self.has-hover, self.absolute-position.x, self.absolute-position.y + self.height + 2px); } }
                                     HorizontalLayout {
                                         padding-left: 4px;
                                         spacing: 4px;
-                                        if Prefs.cal-tinted: Rectangle { width: 3px; background: e.color; }
-                                        Text { text: (e.time != "" ? e.time + " " : "") + e.title; color: Prefs.cal-tinted ? Theme.text : #ffffff; font-size: 10px; vertical-alignment: center; overflow: elide; }
+                                        if Prefs.cal-tinted && e.style == 0: Rectangle { width: 3px; background: e.color; }
+                                        if e.style == 2: VerticalLayout { alignment: center; Rectangle { width: 7px; height: 7px; border-radius: 3.5px; background: e.color; } }
+                                        Text {
+                                            text: (e.time != "" ? e.time + " " : "") + e.title;
+                                            color: e.style == 1 ? e.color : e.style == 2 ? Theme.text : Prefs.cal-tinted ? Theme.text : #ffffff;
+                                            font-weight: e.style == 1 ? 600 : 400;
+                                            font-size: 10px; vertical-alignment: center; overflow: elide;
+                                        }
                                     }
                                 }
                                 if c.more != "": Text { text: c.more; color: Theme.dim; font-size: 10px; }
@@ -2445,7 +2487,7 @@ export component AppWindow inherits Window {
                                 border-radius: 4px;
                                 background: Prefs.cal-tinted ? e.color.with-alpha(0.3) : e.color;
                                 if Prefs.cal-tinted: Rectangle { x: 0; width: 3px; background: e.color; border-radius: 2px; }
-                                TouchArea { clicked => { root.cal-edit(e.id, "", -1); } pointer-event(ev) => { if ev.button == PointerEventButton.right && ev.kind == PointerEventKind.up { root.ctx("event", e.id, self.absolute-position.x + self.mouse-x, self.absolute-position.y + self.mouse-y); } } }
+                                TouchArea { clicked => { root.cal-edit(e.id, "", -1); } pointer-event(ev) => { if ev.button == PointerEventButton.right && ev.kind == PointerEventKind.up { root.ctx("event", e.id, self.absolute-position.x + self.mouse-x, self.absolute-position.y + self.mouse-y); } } changed has-hover => { root.cal-hover(e, self.has-hover, self.absolute-position.x, self.absolute-position.y + self.height + 2px); } }
                                 VerticalLayout {
                                     padding: 3px;
                                     padding-left: 7px;
@@ -2895,6 +2937,30 @@ export component AppWindow inherits Window {
         }
     }
 
+    // calendar event hover preview (Bulwark calendarHoverPreview)
+    if root.app == 1 && root.hov-on && root.hov-shown: Rectangle {
+        x: min(root.hov-x, root.width - self.width - 8px);
+        y: min(root.hov-y, root.height - self.height - 8px);
+        width: 260px;
+        height: hovl.preferred-height;
+        border-radius: 8px;
+        background: Theme.popup;
+        border-width: 1px;
+        border-color: Theme.line;
+        drop-shadow-blur: 12px;
+        drop-shadow-color: #00000055;
+        hovl := VerticalLayout {
+            padding: 10px;
+            spacing: 4px;
+            HorizontalLayout {
+                spacing: 8px;
+                VerticalLayout { alignment: center; Rectangle { width: 10px; height: 10px; border-radius: 3px; background: root.hov-ev.color; } }
+                Text { text: root.hov-ev.title; color: Theme.text; font-weight: 700; wrap: word-wrap; horizontal-stretch: 1; }
+            }
+            Text { text: root.hov-ev.date + (root.hov-ev.time != "" ? "  " + root.hov-ev.time : ""); color: Theme.dim; font-size: 11px; }
+            if root.hov-ev.location != "": Text { text: root.hov-ev.location; color: Theme.dim; font-size: 11px; wrap: word-wrap; }
+        }
+    }
     if root.toast != "": Rectangle {
         x: (parent.width - self.width) / 2;
         y: parent.height - 64px;

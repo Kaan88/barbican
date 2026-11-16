@@ -36,7 +36,8 @@ fn key_for_label(label: &str) -> Option<&'static str> {
 fn option_override(key: &str) -> Option<Vec<(Value, &'static str)>> {
     Some(match key {
         "sendDelaySeconds" => vec![(json!(0), "Off"), (json!(5), "5 seconds"), (json!(10), "10 seconds"), (json!(20), "20 seconds"), (json!(30), "30 seconds")],
-        "mvUnreadSectionSize" => vec![(json!(3), "3"), (json!(5), "5"), (json!(10), "10"), (json!(20), "20")],
+        // Bulwark UNREAD_SECTION_SIZES
+        "mvUnreadSectionSize" => vec![(json!(5), "5 messages"), (json!(10), "10 messages"), (json!(15), "15 messages"), (json!(20), "20 messages"), (json!(25), "25 messages"), (json!(50), "50 messages")],
         "composePlacement" => vec![(json!("sidebar"), "In the sidebar"), (json!("rail"), "On the navigation rail"), (json!("floating"), "Floating button")],
         "theme" => vec![(json!("light"), "Light"), (json!("dark"), "Dark"), (json!("system"), "System")],
         // Bulwark FONT_SIZES
