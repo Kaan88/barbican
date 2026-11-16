@@ -119,8 +119,7 @@ pub fn open(u: &AppWindow, c: Arc<Client>, folder: &str) {
         let res: Result<Vec<Value>, String> = (|| {
             let mut nodes = vec![];
             for (i, acc) in accounts.iter().enumerate() {
-                let q = match c.call(json!([["FileNode/query", {"accountId": acc, "limit": 20000}, "q"]])) { Ok(q) => q, Err(e) if i == 0 => return Err(e), Err(_) => continue };
-                let ids: Vec<Value> = q[0][1]["ids"].as_array().cloned().unwrap_or_default();
+                let ids = match c.query_all("FileNode/query", acc, json!({})) { Ok(q) => q, Err(e) if i == 0 => return Err(e), Err(_) => continue };
                 for chunk in ids.chunks(c.max_get()) {
                     let g = c.call(json!([["FileNode/get", {"accountId": acc, "ids": chunk, "properties": PROPS}, "g"]]))?;
                     for mut n in g[0][1]["list"].as_array().cloned().unwrap_or_default() {

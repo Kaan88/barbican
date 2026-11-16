@@ -506,11 +506,11 @@ pub fn undo_send(u: &AppWindow, c: Arc<Client>) {
     u.set_toast("".into());
     let w = u.as_weak();
     std::thread::spawn(move || {
-        let res = if id.starts_with("local-") { Ok(()) } else { c.cancel_submission(&id) };
+        let res = if id.starts_with("local-") { Ok(None) } else { c.cancel_submission(&id) };
         let _ = w.upgrade_in_event_loop(move |u| match res {
-            Ok(()) => {
+            Ok(restored) => {
                 let (doc, plain, tags) = (snap.body_doc.clone().unwrap_or_default(), snap.plain, snap.tags.clone());
-                ST.with(|s| { *s.borrow_mut() = snap; s.borrow_mut().draft_id = None; });
+                ST.with(|s| { *s.borrow_mut() = snap; s.borrow_mut().draft_id = restored; });
                 u.set_c_plain(plain);
                 u.set_c_read_receipt(o.read_receipt);
                 u.set_c_tag_on(ModelRc::new(VecModel::from(tags)));
@@ -554,8 +554,9 @@ pub fn discard(u: &AppWindow, c: Arc<Client>) {
         let w = u.as_weak();
         std::thread::spawn(move || {
             let _ = c.destroy(&[id]);
-            crate::mail::load_mailboxes(w.clone(), c.clone(), false);
-            crate::mail::reload(w, c);
+            // the list and folder state live on the UI thread
+            let w2 = w.clone();
+            let _ = w.upgrade_in_event_loop(move |_| { crate::mail::load_mailboxes(w2.clone(), c.clone(), false); crate::mail::sync(w2, c); });
         });
     }
 }

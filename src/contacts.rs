@@ -61,17 +61,11 @@ pub fn load(w: slint::Weak<AppWindow>, c: Arc<Client>) {
     std::thread::spawn(move || {
         let acc = c.account_for("urn:ietf:params:jmap:contacts");
         let res: Result<(Vec<Value>, Vec<Value>), String> = (|| {
-            let r = c.call(json!([
-                ["AddressBook/get", {"accountId": acc, "ids": null}, "a"],
-                ["ContactCard/query", {"accountId": acc, "limit": 5000}, "q"],
-            ]))?;
+            let r = c.call(json!([["AddressBook/get", {"accountId": acc, "ids": null}, "a"]]))?;
             let books = r[0][1]["list"].as_array().cloned().unwrap_or_default();
-            let ids: Vec<Value> = r[1][1]["ids"].as_array().cloned().unwrap_or_default();
-            let mut cards = vec![];
-            for chunk in ids.chunks(c.max_get()) {
-                let g = c.call(json!([["ContactCard/get", {"accountId": acc, "ids": chunk}, "g"]]))?;
-                cards.extend(g[0][1]["list"].as_array().cloned().unwrap_or_default());
-            }
+            // every card, paged past the server's query cap, fetched in maxObjectsInGet chunks
+            let ids = c.query_all("ContactCard/query", &acc, json!({}))?;
+            let cards = c.get_all("ContactCard/get", &acc, &ids, None)?;
             Ok((books, cards))
         })();
         let _ = w.upgrade_in_event_loop(move |u| match res {

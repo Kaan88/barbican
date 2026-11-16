@@ -18,12 +18,26 @@ struct ListState {
     checked: HashSet<String>,
     loading: bool,
     generation: u64,
+    /// States of what is loaded, for Email/queryChanges + Email/changes + Thread/changes.
+    sync: Option<SyncStates>,
+    syncing: bool,
+    sync_again: bool,
+}
+
+#[derive(Clone, PartialEq, Debug)]
+struct SyncStates { account: String, query: String, email: String, thread: String }
+
+fn states_of(c: &Client, p: &crate::jmap::ListPage) -> Option<SyncStates> {
+    Some(SyncStates { account: c.account.clone(), query: p.query_state.clone()?, email: p.email_state.clone()?, thread: p.thread_state.clone()? })
+        .filter(|_| p.can_calculate_changes)
 }
 
 #[derive(Default)]
 struct BoxState {
     list: Vec<Value>,
     collapsed: HashSet<String>,
+    /// (account, Mailbox state) of `list`, for Mailbox/changes.
+    state: Option<(String, String)>,
 }
 
 thread_local! {
@@ -168,14 +182,23 @@ pub fn mailbox_role(id: &str) -> String {
     BOXES.with(|b| b.borrow().list.iter().find(|m| m["id"] == id).and_then(|m| m["role"].as_str()).unwrap_or("").to_string())
 }
 
+/// Load the folder tree. Called on the UI thread with a known Mailbox state, it asks only for
+/// what changed (Mailbox/changes) instead of re-reading every folder.
 pub fn load_mailboxes(w: slint::Weak<AppWindow>, c: Arc<Client>, select_inbox: bool) {
+    let since = if select_inbox { None } else {
+        BOXES.with(|b| { let b = b.borrow(); b.state.clone().filter(|(a, _)| *a == c.account).map(|(_, s)| (s, b.list.clone())) })
+    };
     std::thread::spawn(move || {
-        let Ok(list) = c.mailboxes() else { return };
+        let delta = since.and_then(|(s, have)| c.mailbox_delta(&s, &have).ok().flatten());
+        let (list, state) = match delta {
+            Some((list, state)) => (list, Some(state)),
+            None => match c.mailboxes_with_state() { Ok(x) => x, Err(_) => return },
+        };
         let counts = tag_counts(&c);
         let w2 = w.clone();
         let _ = w.upgrade_in_event_loop(move |u| {
             let inbox = list.iter().find(|m| m["role"] == "inbox").and_then(|m| m["id"].as_str()).map(String::from);
-            BOXES.with(|b| b.borrow_mut().list = list);
+            BOXES.with(|b| { let mut b = b.borrow_mut(); b.list = list; b.state = state.map(|s| (c.account.clone(), s)); });
             rebuild_folders(&u);
             set_tags(&u, &counts);
             if select_inbox {
@@ -339,15 +362,18 @@ pub fn rebuild_list(u: &AppWindow) {
     });
 }
 
-type Page = Result<(Vec<Value>, usize, HashMap<String, usize>), String>;
+type Page = Result<crate::jmap::ListPage, String>;
+
+fn is_virtual(filter: &Value) -> bool { filter["scheduled"] == true || filter["unified"] == true }
 
 /// First `n` messages of a list filter (scheduled and unified are virtual).
 fn fetch(c: &Client, filter: Value, n: usize) -> Page {
+    let plain = |(emails, total, threads)| crate::jmap::ListPage { emails, total, threads, ..Default::default() };
     if filter["scheduled"] == true {
-        c.scheduled().map(|e| { let n = e.len(); (e, n, HashMap::new()) })
+        c.scheduled().map(|e| { let n = e.len(); plain((e, n, HashMap::new())) })
     } else if filter["unified"] == true {
-        crate::unified::fetch(n.min(PAGE.max(page_size())))
-    } else { c.list(filter, 0, n) }
+        crate::unified::fetch(n.min(PAGE.max(page_size()))).map(plain)
+    } else { c.list_page(filter, 0, None, n) }
 }
 
 /// Load the first page of a list (folder, tag or search filter).
@@ -371,8 +397,8 @@ pub fn load_list(w: slint::Weak<AppWindow>, c: Arc<Client>, filter: Value) {
                 if l.generation != gen { return; }
                 l.loading = false;
                 match res {
-                    Ok((emails, total, threads)) => { l.emails = emails; l.total = total; l.threads = threads; }
-                    Err(e) => { l.emails.clear(); l.total = 0; u.set_status(e.into()); }
+                    Ok(p) => { l.sync = states_of(&c, &p); l.emails = p.emails; l.total = p.total; l.threads = p.threads; }
+                    Err(e) => { l.emails.clear(); l.total = 0; l.sync = None; u.set_status(e.into()); }
                 }
             });
             rebuild_list(&u);
@@ -381,24 +407,29 @@ pub fn load_list(w: slint::Weak<AppWindow>, c: Arc<Client>, filter: Value) {
 }
 
 pub fn load_more(w: slint::Weak<AppWindow>, c: Arc<Client>) {
-    let Some((filter, pos, gen)) = LIST.with(|l| {
+    let Some((filter, pos, anchor, gen)) = LIST.with(|l| {
         let mut l = l.borrow_mut();
         if l.loading || l.emails.len() >= l.total { return None; }
         l.loading = true;
-        Some((l.filter.clone(), l.emails.len(), l.generation))
+        let anchor = l.emails.last().and_then(|m| m["id"].as_str()).map(String::from);
+        Some((l.filter.clone(), l.emails.len(), anchor, l.generation))
     }) else { return };
     std::thread::spawn(move || {
-        let res = c.list(filter, pos, page_size());
+        // anchored after the last loaded message (RFC 8620 §5.5), so new mail cannot shift the page
+        let res = c.list_page(filter, pos, anchor.as_deref(), page_size());
         let _ = w.upgrade_in_event_loop(move |u| {
             LIST.with(|l| {
                 let mut l = l.borrow_mut();
                 if l.generation != gen { return; }
                 l.loading = false;
-                if let Ok((emails, total, threads)) = res {
+                if let Ok(p) = res {
+                    // a page of another list state: the rows no longer form one snapshot, so the
+                    // next sync re-queries in full
+                    if l.sync.as_ref().map(|s| Some(&s.query)) != Some(p.query_state.as_ref()) { l.sync = None; }
                     let have: HashSet<String> = l.emails.iter().filter_map(|m| m["id"].as_str().map(String::from)).collect();
-                    l.emails.extend(emails.into_iter().filter(|m| !have.contains(m["id"].as_str().unwrap_or(""))));
-                    l.total = total;
-                    l.threads.extend(threads);
+                    l.emails.extend(p.emails.into_iter().filter(|m| !have.contains(m["id"].as_str().unwrap_or(""))));
+                    l.total = p.total;
+                    l.threads.extend(p.threads);
                 }
             });
             rebuild_list(&u);
@@ -406,7 +437,51 @@ pub fn load_more(w: slint::Weak<AppWindow>, c: Arc<Client>) {
     });
 }
 
-/// Re-fetch what is loaded (after push or an action), keeping the scroll depth.
+/// Bring the loaded list up to date (after push or an action): only what changed
+/// (Email/queryChanges, Email/changes, Thread/changes) when the states allow it, else a reload.
+/// Must run on the UI thread.
+pub fn sync(w: slint::Weak<AppWindow>, c: Arc<Client>) {
+    enum Start { Skip, Full, Delta(Value, SyncStates, u64) }
+    let start = LIST.with(|l| {
+        let mut l = l.borrow_mut();
+        if l.filter.is_null() { return Start::Skip; }
+        if l.syncing { l.sync_again = true; return Start::Skip; }
+        match l.sync.clone() {
+            Some(s) if s.account == c.account && !is_virtual(&l.filter) => { l.syncing = true; Start::Delta(l.filter.clone(), s, l.generation) }
+            _ => Start::Full,
+        }
+    });
+    let (filter, s, gen) = match start { Start::Skip => return, Start::Full => return reload(w, c), Start::Delta(f, s, g) => (f, s, g) };
+    std::thread::spawn(move || {
+        let res = c.list_delta(&filter, &s.query, &s.email, &s.thread);
+        let w2 = w.clone();
+        let _ = w.upgrade_in_event_loop(move |u| {
+            let (full, again) = LIST.with(|l| {
+                let mut l = l.borrow_mut();
+                l.syncing = false;
+                let again = std::mem::take(&mut l.sync_again);
+                if l.generation != gen { return (false, again); }
+                // the list was reloaded or paged meanwhile: start over from its new states
+                if l.sync.as_ref() != Some(&s) { return (false, true); }
+                match res {
+                    Ok(Some(d)) => {
+                        let st = &mut *l;
+                        crate::jmap::apply_list_delta(&mut st.emails, &mut st.total, &mut st.threads, &d);
+                        let ids: HashSet<String> = st.emails.iter().filter_map(|m| m["id"].as_str().map(String::from)).collect();
+                        st.checked.retain(|i| ids.contains(i));
+                        st.sync = Some(SyncStates { account: s.account.clone(), query: d.query_state, email: d.email_state, thread: d.thread_state });
+                        (false, again)
+                    }
+                    _ => (true, false),
+                }
+            });
+            rebuild_list(&u);
+            if full { reload(w2, c) } else if again { sync(w2, c) }
+        });
+    });
+}
+
+/// Re-fetch what is loaded, keeping the scroll depth.
 pub fn reload(w: slint::Weak<AppWindow>, c: Arc<Client>) {
     let (filter, n, gen) = LIST.with(|l| { let l = l.borrow(); (l.filter.clone(), l.emails.len().max(PAGE), l.generation) });
     if filter.is_null() { return; }
@@ -416,10 +491,11 @@ pub fn reload(w: slint::Weak<AppWindow>, c: Arc<Client>) {
             LIST.with(|l| {
                 let mut l = l.borrow_mut();
                 if l.generation != gen { return; }
-                if let Ok((emails, total, threads)) = res {
-                    let ids: HashSet<String> = emails.iter().filter_map(|m| m["id"].as_str().map(String::from)).collect();
+                if let Ok(p) = res {
+                    let ids: HashSet<String> = p.emails.iter().filter_map(|m| m["id"].as_str().map(String::from)).collect();
                     l.checked.retain(|i| ids.contains(i));
-                    l.emails = emails; l.total = total; l.threads = threads;
+                    l.sync = states_of(&c, &p);
+                    l.emails = p.emails; l.total = p.total; l.threads = p.threads;
                 }
             });
             rebuild_list(&u);
@@ -586,11 +662,14 @@ pub fn apply(u: &AppWindow, c: Arc<Client>, ids: Vec<String>, action: &str) {
                 a => Err(format!("Unknown action {a}")),
             }
         })();
+        let failed = res.is_err();
         if let Err(e) = res {
             let _ = w.upgrade_in_event_loop(move |u| show_toast(&u, &e, false));
         }
         if crate::unified::is_active(&c) { load_mailboxes(w.clone(), c.clone(), false); }
-        reload(w, c);
+        // LIST lives on the UI thread; after a failure the optimistic change is undone in full
+        let w2 = w.clone();
+        let _ = w.upgrade_in_event_loop(move |_| if failed { reload(w2, c) } else { sync(w2, c) });
     });
 }
 

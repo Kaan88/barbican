@@ -206,13 +206,12 @@ pub fn load(w: slint::Weak<AppWindow>, c: Arc<Client>) {
             let cals = c.call(json!([["Calendar/get", {"accountId": acc, "ids": null, "properties": ["id", "name", "color", "isDefault", "isVisible", "sortOrder", "myRights"]}, "c"]]))?;
             let cals = cals[0][1]["list"].as_array().cloned().unwrap_or_default();
             // series overlapping the range (recurring series start earlier, so no lower bound for them)
-            let q = c.call(json!([
-                ["CalendarEvent/query", {"accountId": acc, "timeZone": tz, "limit": 5000}, "q"],
-                ["CalendarEvent/get", {"accountId": acc, "#ids": {"resultOf": "q", "name": "CalendarEvent/query", "path": "/ids"},
-                    "properties": ["id", "@type", "title", "start", "duration", "timeZone", "showWithoutTime", "calendarIds", "locations",
-                        "recurrenceRules", "recurrenceOverrides", "description", "status", "due", "progress", "percentComplete", "uid", "participants", "updated", "excludedRecurrenceIds"]}, "g"]
-            ]))?;
-            Ok((cals, q[1][1]["list"].as_array().cloned().unwrap_or_default()))
+            // every id (paged), then the events in maxObjectsInGet chunks: one back-referenced
+            // CalendarEvent/get of 5000 ids is over Stalwart's limit (requestTooLarge)
+            let ids = c.query_all("CalendarEvent/query", &acc, json!({"timeZone": tz}))?;
+            let props = json!(["id", "@type", "title", "start", "duration", "timeZone", "showWithoutTime", "calendarIds", "locations",
+                "recurrenceRules", "recurrenceOverrides", "description", "status", "due", "progress", "percentComplete", "uid", "participants", "updated", "excludedRecurrenceIds"]);
+            Ok((cals, c.get_all("CalendarEvent/get", &acc, &ids, Some(&props))?))
         })();
         let _ = w.upgrade_in_event_loop(move |u| match res {
             Ok((cals, events)) => {

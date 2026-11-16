@@ -331,28 +331,61 @@ fn sanitize_name(n: &str) -> String {
 
 static SESSION_GEN: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 
-/// Live updates: listen to the JMAP event stream and refresh on state changes.
+/// Data types the app follows over push (RFC 8620 §7.3 `types`).
+const PUSH_TYPES: [&str; 5] = ["Email", "Mailbox", "Thread", "EmailDelivery", "EmailSubmission"];
+
+/// Live updates: listen to the JMAP event stream and sync what a StateChange names.
+/// The stream is re-opened with exponential backoff (2 s .. 5 min, with jitter) after it drops
+/// or goes silent; after a reconnect everything is synced once, since changes may have been missed.
 fn start_push(w: slint::Weak<AppWindow>, c: Arc<jmap::Client>) {
     let gen = SESSION_GEN.fetch_add(1, std::sync::atomic::Ordering::SeqCst) + 1;
-    std::thread::spawn(move || loop {
-        if SESSION_GEN.load(std::sync::atomic::Ordering::SeqCst) != gen { return; }
-        let (w2, c2) = (w.clone(), c.clone());
-        let res = c.watch(&|_| {
-            if SESSION_GEN.load(std::sync::atomic::Ordering::SeqCst) != gen { return; }
-            let (w3, c3) = (w2.clone(), c2.clone());
-            let _ = w2.upgrade_in_event_loop(move |_| schedule_refresh(w3, c3));
-        });
-        if res.is_err() { std::thread::sleep(std::time::Duration::from_secs(20)); }
+    let live = move || SESSION_GEN.load(std::sync::atomic::Ordering::SeqCst) == gen;
+    std::thread::spawn(move || {
+        let mut backoff = 2u64;
+        let mut first = true;
+        loop {
+            if !live() { return; }
+            let started = std::time::Instant::now();
+            let _ = c.watch(&PUSH_TYPES, &mut |ev| {
+                if !live() { return false; }
+                let types: std::collections::HashSet<String> = match ev {
+                    jmap::PushEvent::Open if !first => PUSH_TYPES.iter().map(|t| t.to_string()).collect(),
+                    jmap::PushEvent::State(v) => jmap::changed_types(&v, &c.account).into_keys().collect(),
+                    _ => Default::default(),
+                };
+                first = false;
+                if !types.is_empty() {
+                    let (w2, c2) = (w.clone(), c.clone());
+                    let _ = w.upgrade_in_event_loop(move |_| schedule_refresh(w2, c2, types));
+                }
+                true
+            });
+            if !live() { return; }
+            if started.elapsed() > std::time::Duration::from_secs(120) { backoff = 2; }
+            let nanos = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.subsec_nanos() as u64).unwrap_or(0);
+            let wait = backoff * 1000 + nanos % (backoff * 500);
+            std::thread::sleep(std::time::Duration::from_millis(wait));
+            backoff = (backoff * 2).min(300);
+        }
     });
 }
 
-thread_local! { static REFRESH: slint::Timer = slint::Timer::default(); }
+thread_local! {
+    static REFRESH: slint::Timer = slint::Timer::default();
+    static PUSHED: std::cell::RefCell<std::collections::HashSet<String>> = std::cell::RefCell::new(Default::default());
+}
 
-fn schedule_refresh(w: slint::Weak<AppWindow>, c: Arc<jmap::Client>) {
+/// Coalesce pushes for 700 ms, then sync only what changed: folders (Mailbox/changes), the list
+/// (Email/queryChanges + Email/changes), new-mail notifications, the Scheduled view.
+fn schedule_refresh(w: slint::Weak<AppWindow>, c: Arc<jmap::Client>, types: std::collections::HashSet<String>) {
+    PUSHED.with(|p| p.borrow_mut().extend(types));
     REFRESH.with(|t| t.start(slint::TimerMode::SingleShot, std::time::Duration::from_millis(700), move || {
-        mail::load_mailboxes(w.clone(), c.clone(), false);
-        mail::reload(w.clone(), c.clone());
-        check_new_mail(c.clone());
+        let types = PUSHED.with(|p| std::mem::take(&mut *p.borrow_mut()));
+        let has = |t: &str| types.contains(t);
+        if has("Mailbox") || has("Email") || has("Thread") { mail::load_mailboxes(w.clone(), c.clone(), false); }
+        let scheduled = w.upgrade().is_some_and(|u| u.get_current_folder() == "__scheduled");
+        if has("Email") || has("Thread") || (scheduled && has("EmailSubmission")) { mail::sync(w.clone(), c.clone()); }
+        if has("Email") || has("EmailDelivery") { check_new_mail(c.clone()); }
     }));
 }
 
