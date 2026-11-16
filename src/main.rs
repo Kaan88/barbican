@@ -91,6 +91,12 @@ fn esc(s: &str) -> String {
     s.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;")
 }
 
+thread_local! { static DARK: std::cell::Cell<bool> = const { std::cell::Cell::new(true) }; }
+
+fn wv_bg() -> (u8, u8, u8, u8) {
+    if DARK.with(|d| d.get()) { (0x0a, 0x0a, 0x0a, 255) } else { (255, 255, 255, 255) }
+}
+
 fn show_html(h: String) {
     WV.with(|w| match &*w.borrow() {
         Some(v) => { let _ = v.load_html(&h); }
@@ -133,6 +139,7 @@ fn sync_webview(ui: &AppWindow) {
             let html = PENDING.with(|p| p.borrow_mut().take()).unwrap_or_else(|| wrap_html(""));
             match wry::WebViewBuilder::new()
                 .with_html(html)
+                .with_background_color(wv_bg())
                 .with_bounds(r)
                 .with_visible(vis)
                 .with_devtools(false)
@@ -1685,6 +1692,10 @@ pub fn apply_theme(ui: &AppWindow) {
         }
         _ => true,
     };
+    // the email view paints this colour before a message loads; keep it in step with the
+    // theme so opening a message does not flash white
+    DARK.with(|d| d.set(dark));
+    WV.with(|w| if let Some(v) = &*w.borrow() { let _ = v.set_background_color(wv_bg()); });
     ui.global::<Theme>().set_dark(dark);
 }
 
