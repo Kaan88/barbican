@@ -46,17 +46,22 @@ fn load_identities(u: &AppWindow, c: Arc<Client>) {
     let w = u.as_weak();
     std::thread::spawn(move || {
         let ids = c.identities().unwrap_or_default();
+        let ids2 = ids.clone();
         let sigs: Vec<String> = ids.iter().map(|i| i["textSignature"].as_str().unwrap_or("").to_string()).collect();
         let list: Vec<String> = ids.iter().map(|i| {
             let (n, e) = (i["name"].as_str().unwrap_or(""), i["email"].as_str().unwrap_or(""));
             if n.is_empty() { e.to_string() } else { format!("{n} <{e}>") }
         }).collect();
         let _ = w.upgrade_in_event_loop(move |u| {
+            let ids = ids2;
             ST.with(|s| { let mut s = s.borrow_mut(); s.identities = list.clone(); s.signatures = sigs.clone(); });
             apply_signature(&u);
             let model: Vec<SharedString> = list.iter().map(|x| x.as_str().into()).collect();
             u.set_c_identities(ModelRc::new(VecModel::from(model)));
-            if u.get_c_from_index() as usize >= list.len() { u.set_c_from_index(0); }
+            // default to the identity of the signed-in address, as Bulwark does
+            let me = c.username.to_lowercase();
+            let idx = ids.iter().position(|i| i["email"].as_str().is_some_and(|e| e.to_lowercase() == me)).unwrap_or(0);
+            u.set_c_from_index(idx as i32);
         });
     });
 }
