@@ -1,6 +1,7 @@
 #![cfg_attr(not(test), windows_subsystem = "windows")]
 
 mod admin;
+mod dashboard;
 mod automation;
 mod otp;
 mod agent;

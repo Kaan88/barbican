@@ -1,0 +1,390 @@
+// Admin dashboard modelled on Stalwart's WebUI dashboard: pill tabs, stat cards with
+// sparklines and natively drawn charts. Chart geometry comes from Rust as SVG path
+// commands in a 1000 x 100 viewbox (y = 0 at the top).
+import { ScrollView } from "std-widgets.slint";
+
+export struct DashBar {
+    label: string,
+    value: string,
+    frac: float,
+    color: color,
+}
+
+export struct DashPanel {
+    // 0 stat card, 1 area/line chart, 2 bar chart, 3 horizontal bar list, 4 highlight
+    kind: int,
+    title: string,
+    icon: string,
+    info: string,
+    value: string,
+    change: string,
+    good: bool,
+    spark: string,
+    tone: int,
+    height: int,
+    names: [string],
+    colors: [color],
+    areas: [string],
+    lines: [string],
+    ylabels: [string],
+    xlabels: [string],
+    bars: [DashBar],
+    note: string,
+}
+
+export struct DashCol {
+    weight: float,
+    panels: [DashPanel],
+}
+
+export struct DashRow {
+    cols: [DashCol],
+}
+
+component Glyph inherits Text {
+    font-family: "Segoe Fluent Icons";
+    font-size: 14px;
+    vertical-alignment: center;
+    horizontal-alignment: center;
+}
+
+component PanelView inherits Rectangle {
+    in property <DashPanel> p;
+    in property <bool> dark;
+    property <color> fg: dark ? #f5f2ee : #1c1917;
+    property <color> dim: dark ? #a8a29e : #78716c;
+    property <color> grid: dark ? #2a2622 : #ece7e1;
+    property <color> accent: dark ? #f0577a : #d6335f;
+    property <color> chip: dark ? #3a1621 : #fde4ea;
+    property <color> track: dark ? #2e2925 : #ece7e1;
+    height: p.height * 1px;
+    border-radius: 12px;
+    background: p.kind == 4 ? (dark ? #2a1219 : #fde4ea)
+        : p.tone == 1 ? (dark ? #1d1a17 : #efe9e3)
+        : p.tone == 2 ? (dark ? #241e17 : #ecdcc8)
+        : (dark ? #171513 : #fffdfa);
+    border-width: 1px;
+    border-color: dark ? #26221f : #00000000;
+    clip: true;
+
+    // header shared by every kind
+    hdr := HorizontalLayout {
+        x: 14px;
+        y: 12px;
+        width: parent.width - 28px;
+        height: 28px;
+        spacing: 8px;
+        if p.icon != "": Rectangle {
+            width: 26px;
+            height: 26px;
+            y: 1px;
+            border-radius: 7px;
+            background: chip;
+            Glyph { text: p.icon; font-size: 13px; color: accent; }
+        }
+        Text {
+            text: p.title;
+            color: fg;
+            font-size: p.kind == 0 ? 12px : 14px;
+            font-weight: p.kind == 0 ? 500 : 700;
+            vertical-alignment: center;
+            overflow: elide;
+        }
+        if p.info != "": Rectangle {
+            width: 14px;
+            ita := TouchArea { }
+            Glyph { text: "\u{E946}"; font-size: 11px; color: dim; }
+            if ita.has-hover: Rectangle {
+                x: 18px;
+                y: -4px;
+                width: tip.preferred-width + 16px;
+                height: 24px;
+                border-radius: 6px;
+                background: dark ? #3a3633 : #292524;
+                tip := Text { text: p.info; color: #fafaf9; font-size: 11px; }
+            }
+        }
+        Rectangle { horizontal-stretch: 1; }
+        for n[i] in (p.kind == 1 || p.kind == 2) ? p.names : []: HorizontalLayout {
+            spacing: 5px;
+            Rectangle { width: 7px; height: 7px; y: 10px; border-radius: 4px; background: p.colors[i]; }
+            Text { text: n; color: dim; font-size: 11px; vertical-alignment: center; }
+        }
+    }
+
+    // stat card
+    if p.kind == 0: Rectangle {
+        Text {
+            x: 14px;
+            y: 46px;
+            text: p.value;
+            color: fg;
+            font-size: 22px;
+            font-weight: 700;
+        }
+        if p.change != "": Rectangle {
+            x: 14px;
+            y: parent.height - 32px;
+            height: 20px;
+            width: chg.preferred-width + 16px;
+            border-radius: 10px;
+            background: p.good ? (dark ? #12301f : #dcf3e4) : (dark ? #3a1418 : #fde2e2);
+            chg := Text { text: p.change; color: p.good ? (dark ? #6ee7a0 : #15803d) : (dark ? #fca5a5 : #b91c1c); font-size: 10px; font-weight: 600; }
+        }
+        if p.spark != "": Path {
+            x: parent.width - 104px;
+            y: parent.height - 44px;
+            width: 90px;
+            height: 30px;
+            viewbox-width: 1000;
+            viewbox-height: 100;
+            commands: p.spark;
+            stroke: accent;
+            stroke-width: 1.3px;
+            fill: transparent;
+        }
+    }
+
+    // area / bar chart
+    if p.kind == 1 || p.kind == 2: Rectangle {
+        property <length> left: 52px;
+        property <length> top: 50px;
+        property <length> bottom: 26px;
+        property <length> cw: self.width - left - 18px;
+        property <length> ch: self.height - top - bottom;
+        for yl[i] in p.ylabels: Rectangle {
+            property <length> yy: top + ch * i / max(1, p.ylabels.length - 1);
+            Rectangle { x: left; y: yy; width: cw; height: 1px; background: grid; }
+            Text {
+                x: 0;
+                y: yy - 7px;
+                width: left - 8px;
+                height: 14px;
+                text: yl;
+                color: dim;
+                font-size: 9px;
+                horizontal-alignment: right;
+            }
+        }
+        for a[i] in p.areas: Path {
+            x: left;
+            y: top;
+            width: cw;
+            height: ch;
+            viewbox-width: 1000;
+            viewbox-height: 100;
+            commands: a;
+            fill: p.kind == 2 ? p.colors[i] : p.colors[i].transparentize(0.62);
+            stroke: transparent;
+        }
+        for l[i] in p.lines: Path {
+            x: left;
+            y: top;
+            width: cw;
+            height: ch;
+            viewbox-width: 1000;
+            viewbox-height: 100;
+            commands: l;
+            fill: transparent;
+            stroke: p.colors[i];
+            stroke-width: 1.5px;
+        }
+        for xl[i] in p.xlabels: Text {
+            x: left + cw * i / max(1, p.xlabels.length - 1) - 30px;
+            y: parent.height - bottom + 6px;
+            width: 60px;
+            text: xl;
+            color: dim;
+            font-size: 9px;
+            horizontal-alignment: center;
+        }
+    }
+
+    // horizontal bar list
+    if p.kind == 3: VerticalLayout {
+        padding-left: 14px;
+        padding-right: 14px;
+        padding-top: 48px;
+        padding-bottom: 10px;
+        spacing: 2px;
+        alignment: start;
+        for b in p.bars: HorizontalLayout {
+            height: 21px;
+            spacing: 10px;
+            Text { text: b.label; color: fg; font-size: 11px; width: 84px; overflow: elide; vertical-alignment: center; }
+            Rectangle {
+                horizontal-stretch: 1;
+                Rectangle {
+                    x: 0;
+                    height: 6px;
+                    width: parent.width;
+                    border-radius: 3px;
+                    background: track;
+                }
+                Rectangle {
+                    x: 0;
+                    height: 6px;
+                    width: max(b.frac > 0 ? 4px : 0px, parent.width * b.frac);
+                    border-radius: 3px;
+                    background: b.color;
+                }
+            }
+            Text { text: b.value; color: fg; font-size: 11px; width: 44px; horizontal-alignment: right; vertical-alignment: center; }
+        }
+        if p.bars.length == 0: Text { text: "No data for this period."; color: dim; font-size: 11px; }
+    }
+
+    // highlight card
+    if p.kind == 4: VerticalLayout {
+        padding-left: 14px;
+        padding-right: 14px;
+        padding-top: 46px;
+        spacing: 4px;
+        alignment: start;
+        Text { text: p.value; color: fg; font-size: 34px; font-weight: 800; }
+        Text { text: p.note; color: dim; font-size: 11px; wrap: word-wrap; }
+    }
+}
+
+component PillTab inherits Rectangle {
+    in property <string> label;
+    in property <bool> active;
+    in property <bool> dark;
+    callback clicked;
+    height: 26px;
+    width: lbl.preferred-width + 20px;
+    border-radius: 7px;
+    background: active ? (dark ? #2b2724 : #ffffff) : ta.has-hover ? (dark ? #221f1c : #e7e1da) : transparent;
+    drop-shadow-blur: active && !dark ? 2px : 0px;
+    drop-shadow-color: #0000001a;
+    ta := TouchArea { clicked => { root.clicked(); } }
+    lbl := Text {
+        text: label;
+        color: active ? (dark ? #fafaf9 : #1c1917) : (dark ? #a8a29e : #57534e);
+        font-size: 11px;
+        font-weight: active ? 600 : 400;
+    }
+}
+
+export component AdminDashboard inherits Rectangle {
+    in property <bool> dark;
+    in property <[DashRow]> rows;
+    in property <string> status;
+    in-out property <int> tab: 0;
+    in-out property <int> range: 1;
+    callback load(int, int);
+    property <[string]> tabs: ["Overview", "Network", "Delivery", "Security", "Message Authentication", "Encryption", "Performance", "Storage", "Search Index", "Tasks", "Cache"];
+    property <[string]> ranges: ["Last hour", "Last 24 hours", "Last 7 days", "Last 30 days"];
+    property <bool> range-open;
+    background: dark ? #0e0d0c : #f6f3ef;
+
+    VerticalLayout {
+        padding: 16px;
+        padding-bottom: 0px;
+        spacing: 12px;
+        HorizontalLayout {
+            height: 34px;
+            spacing: 10px;
+            Rectangle {
+                width: pills.preferred-width;
+                height: 34px;
+                border-radius: 9px;
+                background: dark ? #181614 : #ede8e2;
+                pills := HorizontalLayout {
+                    padding: 4px;
+                    spacing: 2px;
+                    for t[i] in root.tabs: PillTab {
+                        label: t;
+                        active: root.tab == i;
+                        dark: root.dark;
+                        clicked => { root.tab = i; root.load(root.tab, root.range); }
+                    }
+                }
+            }
+            Text {
+                text: root.status;
+                color: dark ? #a8a29e : #78716c;
+                font-size: 11px;
+                vertical-alignment: center;
+                horizontal-stretch: 1;
+                overflow: elide;
+            }
+            rb := Rectangle {
+                width: rl.preferred-width;
+                height: 30px;
+                y: 2px;
+                border-radius: 8px;
+                background: dark ? #181614 : #fffdfa;
+                border-width: 1px;
+                border-color: dark ? #2b2724 : #e7e1da;
+                TouchArea { clicked => { root.range-open = !root.range-open; } }
+                rl := HorizontalLayout {
+                    padding-left: 10px;
+                    padding-right: 10px;
+                    spacing: 7px;
+                    Glyph { text: "\u{E787}"; font-size: 11px; color: dark ? #a8a29e : #57534e; }
+                    Text { text: root.ranges[root.range]; color: dark ? #fafaf9 : #1c1917; font-size: 11px; vertical-alignment: center; }
+                    Glyph { text: "\u{E70D}"; font-size: 9px; color: dark ? #a8a29e : #57534e; }
+                }
+            }
+            Rectangle {
+                width: 30px;
+                height: 30px;
+                y: 2px;
+                border-radius: 8px;
+                background: rfa.has-hover ? (dark ? #221f1c : #ede8e2) : (dark ? #181614 : #fffdfa);
+                border-width: 1px;
+                border-color: dark ? #2b2724 : #e7e1da;
+                rfa := TouchArea { clicked => { root.load(root.tab, root.range); } }
+                Glyph { text: "\u{E72C}"; font-size: 12px; color: dark ? #fafaf9 : #1c1917; }
+            }
+        }
+        sv := ScrollView {
+            vertical-stretch: 1;
+            viewport-width: self.visible-width;
+            viewport-height: content.preferred-height;
+            content := VerticalLayout {
+                width: sv.visible-width;
+                spacing: 12px;
+                padding-bottom: 16px;
+                for r in root.rows: HorizontalLayout {
+                    spacing: 12px;
+                    for c in r.cols: VerticalLayout {
+                        horizontal-stretch: c.weight;
+                        preferred-width: 0px;
+                        min-width: 0px;
+                        spacing: 12px;
+                        alignment: start;
+                        for p in c.panels: PanelView { p: p; dark: root.dark; }
+                    }
+                }
+            }
+        }
+    }
+
+    if root.range-open: Rectangle {
+        TouchArea { clicked => { root.range-open = false; } }
+        Rectangle {
+            x: root.width - 16px - 30px - 10px - 150px;
+            y: 54px;
+            width: 150px;
+            height: 4 * 28px + 8px;
+            border-radius: 8px;
+            background: dark ? #1c1a18 : #ffffff;
+            border-width: 1px;
+            border-color: dark ? #2b2724 : #e7e1da;
+            drop-shadow-blur: 8px;
+            drop-shadow-color: #00000026;
+            VerticalLayout {
+                padding: 4px;
+                for r[i] in root.ranges: Rectangle {
+                    height: 28px;
+                    border-radius: 6px;
+                    background: root.range == i ? (dark ? #3a1621 : #fde4ea) : ia.has-hover ? (dark ? #221f1c : #f3efea) : transparent;
+                    ia := TouchArea { clicked => { root.range = i; root.range-open = false; root.load(root.tab, root.range); } }
+                    Text { x: 10px; text: r; color: dark ? #fafaf9 : #1c1917; font-size: 11px; vertical-alignment: center; height: parent.height; }
+                }
+            }
+        }
+    }
+}

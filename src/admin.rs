@@ -95,6 +95,10 @@ fn s(v: &Value) -> String {
 
 /// Load an admin section: overview, accounts, domains, queue, logs, reports.
 pub fn load(u: &AppWindow, c: std::sync::Arc<crate::jmap::Client>, section: &str) {
+    if section == "overview" {
+        crate::dashboard::load(u, c, u.get_dash_tab().max(0) as usize, u.get_dash_range().clamp(0, 3) as usize);
+        return;
+    }
     let w = u.as_weak();
     let section = section.to_string();
     u.set_admin_status("Loading…".into());
@@ -148,6 +152,12 @@ pub fn load(u: &AppWindow, c: std::sync::Arc<crate::jmap::Client>, section: &str
                          when(&x["expiresAt"]),
                      ])).collect(), vec![])
                 }
+                "tasks" => {
+                    let (_, l) = a.list("Task", 200, None)?;
+                    let (c, r) = auto_columns(&l);
+                    (c, r, vec![])
+                }
+                "cluster" | "actions" => return Err("This section is not available in Barbican yet — use Stalwart's web admin.".into()),
                 _ => {
                     let mut tiles = vec![];
                     for (label, ty) in [("Domains", "Domain"), ("Accounts", "Account"), ("Queued messages", "QueuedMessage"), ("DMARC reports", "DmarcExternalReport")] {
