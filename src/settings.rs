@@ -15,8 +15,14 @@ pub struct Account {
 }
 
 pub struct Settings {
-    schema: Value,
+    /// Parsed once per process: settings are loaded on hot paths (every message opened).
+    schema: std::sync::Arc<Value>,
     pub prefs: Map<String, Value>,
+}
+
+fn schema() -> std::sync::Arc<Value> {
+    static S: std::sync::OnceLock<std::sync::Arc<Value>> = std::sync::OnceLock::new();
+    S.get_or_init(|| std::sync::Arc::new(serde_json::from_str(SCHEMA).expect("settings schema"))).clone()
 }
 
 fn path() -> std::path::PathBuf {
@@ -93,13 +99,13 @@ impl Settings {
             .and_then(|t| serde_json::from_str::<Value>(&t).ok())
             .and_then(|v| v.as_object().cloned())
             .unwrap_or_default();
-        Settings { schema: serde_json::from_str(SCHEMA).expect("settings schema"), prefs }
+        Settings { schema: schema(), prefs }
     }
 
     /// Settings over the given values (no file), for tests and previews.
     #[allow(dead_code)]
     pub fn with_prefs(prefs: Map<String, Value>) -> Settings {
-        Settings { schema: serde_json::from_str(SCHEMA).expect("settings schema"), prefs }
+        Settings { schema: schema(), prefs }
     }
 
     fn save(&self) {
@@ -502,7 +508,7 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
         #[allow(unused_unsafe)]
         unsafe { std::env::set_var("APPDATA", &dir); }
-        let mut s = Settings { schema: serde_json::from_str(SCHEMA).unwrap(), prefs: Default::default() };
+        let mut s = Settings { schema: schema(), prefs: Default::default() };
 
         // Bulwark-shaped: flat settings object.
         s.import(&json!({"theme": "dark", "showPreview": false})).unwrap();

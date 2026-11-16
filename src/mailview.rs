@@ -17,8 +17,11 @@ thread_local! {
     /// The last script that could not run yet (the shell was still loading).
     static PENDING_JS: RefCell<Option<String>> = const { RefCell::new(None) };
     static DOC_SEQ: Cell<u64> = const { Cell::new(0) };
-    /// Native updates to run when document N is ready, right before it is revealed.
-    static ON_READY: RefCell<Option<(u64, Box<dyn FnOnce()>)>> = const { RefCell::new(None) };
+    /// Native updates to run when document N is ready, right before it is revealed; false means
+    /// the document is no longer wanted.
+    static ON_READY: RefCell<Option<(u64, Box<dyn FnOnce() -> bool>)>> = const { RefCell::new(None) };
+    /// The pending document is slow (large mail): the loading bar is on until it is ready.
+    static SLOW: Cell<bool> = const { Cell::new(false) };
     static READY_TIMER: slint::Timer = slint::Timer::default();
     /// Whether the WebView child window is shown.
     static SHOWN: Cell<bool> = const { Cell::new(false) };
@@ -32,22 +35,30 @@ thread_local! {
 }
 
 /// The shell's script: show(seq, html, bg, sandbox) loads a hidden frame and reports
-/// `ready:seq` once it is laid out; reveal(seq) swaps it in and drops the old one.
+/// `ready:seq` once it is laid out; reveal(seq) swaps it in and drops the old one;
+/// cancel(seq) drops a pending frame; dim(on) fades the frame on screen while the next loads.
+///
+/// Links: every link and form of a message is retargeted to a new window before it is shown
+/// (wry only sees main-frame navigations, so a `target=_self/_top/_parent` link would otherwise
+/// navigate the frame itself, or do nothing); new windows open in the browser or the composer.
 const SHELL_JS: &str = r#"(function(){
 var cur=null,nxt=null,seq=0;
 function post(m){try{window.ipc.postMessage(m)}catch(e){}}
+function fix(d){try{var a=d.querySelectorAll('a,area,form');for(var i=0;i<a.length;i++)a[i].setAttribute('target','_blank')}catch(e){}}
 window.__bb={
 show:function(s,html,bg,sb){seq=s;if(nxt){nxt.remove();nxt=null}
 var f=document.createElement('iframe');if(sb!==null)f.setAttribute('sandbox',sb);f.setAttribute('title','Message');
 f.style.cssText='position:absolute;left:0;top:0;width:100%;height:100%;border:0;margin:0;visibility:hidden;background:'+bg;
-f._bg=bg;nxt=f;var done=false,t0=Date.now();
+f._bg=bg;nxt=f;var done=false;
 function ready(){if(done||seq!==s)return;done=true;post('ready:'+s)}
-f.addEventListener('load',ready);f.srcdoc=html;document.body.appendChild(f);
+f.addEventListener('load',function(){try{fix(f.contentDocument)}catch(e){}ready()});f.srcdoc=html;document.body.appendChild(f);
 (function poll(){if(done||seq!==s)return;var d=null;try{d=f.contentDocument}catch(e){}
-if(d&&d.URL==='about:srcdoc'&&d.readyState!=='loading'&&d.body){requestAnimationFrame(ready);return}
-if(Date.now()-t0>1500){ready();return}requestAnimationFrame(poll)})();},
+if(d&&d.URL==='about:srcdoc'&&d.readyState!=='loading'&&d.body){fix(d);requestAnimationFrame(ready);return}
+requestAnimationFrame(poll)})();},
 reveal:function(s){if(s!==seq||!nxt)return;var f=nxt;nxt=null;document.documentElement.style.background=f._bg;
 f.style.visibility='visible';if(cur)cur.remove();cur=f},
+cancel:function(s){seq=s;if(nxt){nxt.remove();nxt=null}},
+dim:function(on){if(cur)cur.style.opacity=on?'0.4':''},
 clear:function(bg){seq++;if(nxt){nxt.remove();nxt=null}if(cur){cur.remove();cur=null}document.documentElement.style.background=bg},
 print:function(){if(cur)cur.contentWindow.print()}
 };post('shell')})();"#;
@@ -102,7 +113,7 @@ pub fn shell_html() -> String {
     let bg = reader_bg();
     format!(
         "<!doctype html><html style=\"background:{bg}\"><head><meta charset=utf-8>\
-<meta http-equiv=\"Content-Security-Policy\" content=\"default-src 'none'; style-src 'unsafe-inline' *; font-src * data:; img-src * data:; script-src 'unsafe-inline'; frame-src 'self' about: data:; object-src 'none'; form-action 'none'\">\
+<meta http-equiv=\"Content-Security-Policy\" content=\"default-src 'none'; style-src 'unsafe-inline' *; font-src * data:; img-src * data:; script-src 'unsafe-inline'; frame-src 'self' about:; object-src 'none'; form-action 'none'\">\
 <style>html,body{{margin:0;padding:0;height:100%;overflow:hidden}}</style></head><body><script>{SHELL_JS}</script></body></html>"
     )
 }
@@ -124,10 +135,11 @@ fn run_js(js: String) {
 }
 
 /// Show a document (a full HTML page) in the body view, swapping it in once laid out.
-/// `on_ready` runs on the UI thread right before the swap (or after 600 ms at the latest).
-pub fn show(doc: &str, bg: &str, on_ready: Option<Box<dyn FnOnce()>>) -> u64 {
+/// `script`: the page carries our own (hashed) script, the only kind its frame may run.
+/// `on_ready` runs on the UI thread right before the swap. A page that takes long (a large
+/// mail) turns the loading bar on and is still only shown once laid out, never half parsed.
+pub fn show(doc: &str, bg: &str, script: bool, on_ready: Option<Box<dyn FnOnce() -> bool>>) -> u64 {
     let seq = DOC_SEQ.with(|s| { s.set(s.get() + 1); s.get() });
-    let script = doc.contains("<script>");
     let js = format!(
         "window.__bb&&__bb.show({seq},{},{},{})",
         serde_json::to_string(doc).unwrap_or_default(),
@@ -138,23 +150,59 @@ pub fn show(doc: &str, bg: &str, on_ready: Option<Box<dyn FnOnce()>>) -> u64 {
     NEXT_BG.with(|b| *b.borrow_mut() = bg.to_string());
     crate::automation::mark(&format!("doc {seq}"));
     run_js(js);
-    // never wait on the WebView for long: a stalled or hidden view still gets its header
-    READY_TIMER.with(|t| t.start(slint::TimerMode::SingleShot, Duration::from_millis(600), move || ready(seq, false)));
+    READY_TIMER.with(|t| t.start(slint::TimerMode::SingleShot, Duration::from_millis(600), move || slow(seq)));
     seq
+}
+
+/// Document `seq` is not ready after 600 ms. With the shell up it is still parsing (a large
+/// mail): show the loading bar and wait for it (the shell reports it at its load event at the
+/// latest), with a last resort for a view that never answers. Without a shell there is nothing
+/// to wait for.
+fn slow(seq: u64) {
+    if DOC_SEQ.with(|s| s.get()) != seq { return; }
+    if !SHELL_READY.with(|r| r.get()) { ready(seq, false); return; }
+    SLOW.with(|s| s.set(true));
+    if let Some(u) = ui() { u.set_r_loading(true); }
+    READY_TIMER.with(|t| t.start(slint::TimerMode::SingleShot, Duration::from_millis(8000), move || ready(seq, false)));
+}
+
+pub(crate) fn ui() -> Option<AppWindow> { UI.with(|u| u.borrow().as_ref().and_then(|w| w.upgrade())) }
+
+/// Drop the document that is loading, if any (another message is being opened): it must not
+/// be revealed under that message's header.
+pub fn cancel_pending() {
+    let seq = DOC_SEQ.with(|s| { s.set(s.get() + 1); s.get() });
+    ON_READY.with(|r| *r.borrow_mut() = None);
+    READY_TIMER.with(|t| t.stop());
+    SLOW.with(|s| s.set(false));
+    run_js(format!("window.__bb&&__bb.cancel({seq})"));
+}
+
+/// Fade the message on screen (it stays until the next one is ready) while the next loads.
+pub fn dim(on: bool) {
+    run_js(format!("window.__bb&&__bb.dim({on})"));
 }
 
 /// Document `seq` is laid out (or the wait timed out): update the native side, then reveal it.
 fn ready(seq: u64, from_view: bool) {
     if DOC_SEQ.with(|s| s.get()) != seq { return; }
     if from_view { READY_TIMER.with(|t| t.stop()); }
+    READY_TIMER.with(|t| t.stop());
     let cb = ON_READY.with(|r| {
         let mut r = r.borrow_mut();
         if r.as_ref().is_some_and(|(s, _)| *s == seq) { r.take().map(|(_, f)| f) } else { None }
     });
-    if let Some(f) = cb { f(); }
-    // a capture taken before this page is out of date
-    if !SHOWN.with(|x| x.get()) {
-        if let Some(u) = UI.with(|u| u.borrow().as_ref().and_then(|w| w.upgrade())) { u.set_body_snap_on(false); }
+    if SLOW.with(|s| s.replace(false)) {
+        if let Some(u) = ui() { u.set_r_loading(false); }
+    }
+    // the native side refused it (the message it belongs to is no longer the open one)
+    if let Some(f) = cb { if !f() { cancel_pending(); return; } }
+    if let Some(u) = ui() {
+        // a capture taken before this page is out of date
+        if !SHOWN.with(|x| x.get()) { u.set_body_snap_on(false); }
+        // the header just changed (thread strip, attachments): put the view at the body's new
+        // place before the page shows, not one frame later
+        crate::sync_webview(&u);
     }
     page_bg(&NEXT_BG.with(|b| b.borrow().clone()));
     crate::automation::mark(&format!("reveal {seq}"));
@@ -163,6 +211,7 @@ fn ready(seq: u64, from_view: bool) {
 
 /// The theme changed with no message open: the empty view takes the reader's new colour.
 pub fn theme_changed() {
+    SLOW.with(|s| s.set(false));
     run_js(format!("window.__bb&&__bb.clear('{}')", reader_bg()));
     page_bg(reader_bg());
 }
@@ -173,6 +222,10 @@ pub fn clear() {
     crate::CUR.with(|c| *c.borrow_mut() = None);
     crate::lite::clear();
     ON_READY.with(|r| *r.borrow_mut() = None);
+    READY_TIMER.with(|t| t.stop());
+    SLOW.with(|s| s.set(false));
+    // an empty reader is not loading anything
+    if let Some(u) = ui() { u.set_r_loading(false); }
     run_js(format!("window.__bb&&__bb.clear('{}')", reader_bg()));
     page_bg(reader_bg());
 }
@@ -188,6 +241,10 @@ fn on_ipc(msg: &str) {
     } else if let Some(n) = msg.strip_prefix("ready:").and_then(|n| n.parse::<u64>().ok()) {
         ready(n, true);
     }
+}
+
+fn is_mailto(url: &str) -> bool {
+    url.get(..7).is_some_and(|p| p.eq_ignore_ascii_case("mailto:"))
 }
 
 fn rect(x: f32, y: f32, w: f32, h: f32) -> wry::Rect {
@@ -223,12 +280,16 @@ fn build(ui: &AppWindow) -> Option<wry::WebView> {
             slint::Timer::single_shot(Duration::ZERO, move || on_ipc(&m));
         })
         .with_navigation_handler(|url| {
-            // the shell itself is the only page; anything else opens in the browser
-            if url.starts_with("http") || url.starts_with("mailto:") { crate::oauth::open_browser(&url); false } else { true }
+            // the shell itself is the only page; web links open in the browser, mailto: in the composer
+            if url.starts_with("http") { crate::oauth::open_browser(&url); false }
+            else if is_mailto(&url) { slint::Timer::single_shot(Duration::ZERO, move || crate::reader::mailto(&url)); false }
+            else { true }
         })
         .with_new_window_req_handler(|url, _| {
-            // links in a message (they target a new window): open them in the browser
-            if url.starts_with("http://") || url.starts_with("https://") || url.starts_with("mailto:") { crate::oauth::open_browser(&url); }
+            // links in a message (all retargeted to a new window): web links open in the
+            // browser, mailto: in the composer
+            if url.starts_with("http://") || url.starts_with("https://") { crate::oauth::open_browser(&url); }
+            else if is_mailto(&url) { slint::Timer::single_shot(Duration::ZERO, move || crate::reader::mailto(&url)); }
             wry::NewWindowResponse::Deny
         })
         .build_as_child(&ui.window().window_handle())

@@ -271,7 +271,6 @@ fn run_cmd(u: &AppWindow, line: &str) -> String {
         }
         "load-images" => { u.invoke_load_images(); "ok".into() }
         "discard-composer" => { u.invoke_discard_draft(); "ok".into() }
-        "resize" => { win.set_size(slint::LogicalSize::new(pos(&args, 0), pos(&args, 1))); "ok".into() }
         "render-mode" => { u.set_render_mode(pos(&args, 0) as i32); u.invoke_rerender(); "ok".into() }
         "theme" => { crate::set_theme_dark(u, args.first().copied() != Some("light")); "ok".into() }
         "size" => { let s = win.size(); format!("{} {} scale {}", s.width, s.height, win.scale_factor()) }

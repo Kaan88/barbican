@@ -50,10 +50,24 @@ fn csp_with(images: bool, script: Option<&str>) -> String {
         Some(s) => format!("'sha256-{}'", base64::engine::general_purpose::STANDARD.encode(sha2::Sha256::digest(s.as_bytes()))),
         None => "'none'".into(),
     };
+    // with remote content blocked, a remote stylesheet or font is a tracking beacon like an image
+    let (style, font, img) = if images { ("'unsafe-inline' *", "* data:", "* data:") } else { ("'unsafe-inline'", "data:", "data:") };
     format!(
-        "<meta http-equiv=\"Content-Security-Policy\" content=\"default-src 'none'; style-src 'unsafe-inline' *; font-src * data:; img-src {}; script-src {scripts}; object-src 'none'; frame-src 'none'; form-action 'none'\">",
-        if images { "* data:" } else { "data:" }
+        "<meta http-equiv=\"Content-Security-Policy\" content=\"default-src 'none'; style-src {style}; font-src {font}; img-src {img}; script-src {scripts}; object-src 'none'; frame-src 'none'; form-action 'none'\">"
     )
+}
+
+#[cfg(test)]
+mod csp_tests {
+    #[test]
+    fn blocked_remote_content_includes_stylesheets_and_fonts() {
+        let c = super::csp_with(false, None);
+        assert!(c.contains("style-src 'unsafe-inline';") && c.contains("font-src data:;") && c.contains("img-src data:;"), "{c}");
+        assert!(c.contains("script-src 'none'"));
+        let c = super::csp_with(true, Some("x"));
+        assert!(c.contains("style-src 'unsafe-inline' *;") && c.contains("font-src * data:;") && c.contains("img-src * data:;"));
+        assert!(c.contains("script-src 'sha256-"));
+    }
 }
 
 /// The open message's body, kept so it can be re-rendered (mode change, resize, "Load images").
@@ -80,7 +94,9 @@ fn render_current(u: &AppWindow) {
 
 /// Render the open message's body; `on_ready` runs when it is about to appear (with the
 /// WebView: once the new page is laid out, right before it is swapped in).
-fn render_current_then(u: &AppWindow, on_ready: Option<Box<dyn FnOnce()>>) {
+/// `on_ready` returning false means the page is no longer wanted (another message was opened
+/// meanwhile): it is dropped instead of revealed.
+fn render_current_then(u: &AppWindow, on_ready: Option<Box<dyn FnOnce() -> bool>>) {
     let mode = u.get_render_mode();
     let mut on_ready = on_ready;
     CUR.with(|c| {
@@ -113,16 +129,18 @@ fn render_current_then(u: &AppWindow, on_ready: Option<Box<dyn FnOnce()>>) {
                 let wk = u.as_weak();
                 let then = on_ready.take();
                 // the body area takes the page's colour as the page appears
-                let cb: Box<dyn FnOnce()> = Box::new(move || {
-                    if let Some(f) = then { f(); }
+                let cb: Box<dyn FnOnce() -> bool> = Box::new(move || {
+                    if let Some(f) = then { if !f() { return false; } }
                     if let Some(u) = wk.upgrade() { u.set_body_bg(mailview::color(bg)); }
+                    true
                 });
-                mailview::show(&wrap_html_opts(&body, cur.allow), bg, Some(cb));
+                let (doc, script) = wrap_html_doc(&body, cur.allow);
+                mailview::show(&doc, bg, script, Some(cb));
             }
         }
     });
     // the native renderers show the body at once
-    if let Some(f) = on_ready { f(); }
+    if let Some(f) = on_ready { let _ = f(); }
 }
 
 /// The colour a message page paints (its <html>/<body> background), so the shell, the body
@@ -173,10 +191,17 @@ fn wrap_html(body: &str) -> String {
 }
 
 fn wrap_html_opts(body: &str, images: bool) -> String {
+    wrap_html_doc(body, images).0
+}
+
+/// A message page, and whether it carries our accessibility script (then, and only then, its
+/// frame may run scripts: the CSP admits that one script by its hash).
+fn wrap_html_doc(body: &str, images: bool) -> (String, bool) {
     let p = settings::Settings::load();
     // Settings > Accessibility: spacing, width, links, motion, text size and fitting
-    let a = a11y::A11y::load();
+    let a = a11y::A11y::from(&p, a11y::System::detect());
     let script = a.mail_script();
+    let has_script = script.is_some();
     let csp = csp_with(images, script.as_deref());
     let extra = format!("<style>{}</style>{}", a.mail_css(DARK.with(|d| d.get()) && !p.bool("emailAlwaysLightMode", false)),
         script.map(|s| format!("<script>{s}</script>")).unwrap_or_default());
@@ -193,9 +218,9 @@ fn wrap_html_opts(body: &str, images: bool) -> String {
     };
     if themed_page(body) {
         // plain text, and HTML that sets no colours of its own, take the dark reader's colours
-        return format!("<!doctype html><html><head><meta charset=utf-8>{csp}<base target=_blank><style>html,body{{background:#141414;color:#d4d4d4}}body{{margin:{margin}px;font-family:'Segoe UI',sans-serif;font-size:14px;word-wrap:break-word}}pre{{white-space:pre-wrap;font-family:{pre_font};margin:0}}a{{color:#f0577a}}img{{max-width:100%;height:auto}}</style></head><body>{body}</body></html>");
+        return (format!("<!doctype html><html><head><meta charset=utf-8>{csp}<base target=_blank><style>html,body{{background:#141414;color:#d4d4d4}}body{{margin:{margin}px;font-family:'Segoe UI',sans-serif;font-size:14px;word-wrap:break-word}}pre{{white-space:pre-wrap;font-family:{pre_font};margin:0}}a{{color:#f0577a}}img{{max-width:100%;height:auto}}</style></head><body>{body}</body></html>"), has_script);
     }
-    format!("<!doctype html><html><head><meta charset=utf-8>{csp}<base target=_blank><style>body{{margin:{margin}px;font-family:'Segoe UI',sans-serif;font-size:14px;color:#111;background:#fff;word-wrap:break-word}}pre{{white-space:pre-wrap;font-family:{pre_font}}}img{{max-width:100%;height:auto}}</style></head><body>{body}</body></html>")
+    (format!("<!doctype html><html><head><meta charset=utf-8>{csp}<base target=_blank><style>body{{margin:{margin}px;font-family:'Segoe UI',sans-serif;font-size:14px;color:#111;background:#fff;word-wrap:break-word}}pre{{white-space:pre-wrap;font-family:{pre_font}}}img{{max-width:100%;height:auto}}</style></head><body>{body}</body></html>"), has_script)
 }
 
 fn sync_webview(ui: &AppWindow) {
@@ -354,7 +379,7 @@ pub fn plugin_compose_check(draft: &serde_json::Value) -> Option<String> {
 
 thread_local! {
     /// The open message and its listed attachments.
-    static CUR_MSG: std::cell::RefCell<Option<(Value, Vec<Value>)>> = const { std::cell::RefCell::new(None) };
+    static CUR_MSG: std::cell::RefCell<Option<(Arc<Value>, Vec<Value>)>> = const { std::cell::RefCell::new(None) };
 }
 
 fn sanitize_name(n: &str) -> String {
@@ -1130,7 +1155,7 @@ fn main() -> Result<(), slint::PlatformError> {
         let Some(c) = login_for(&st, &w.unwrap().get_current_mail()) else { return };
         COMPOSE_CLIENT.with(|r| *r.borrow_mut() = Some(c.clone()));
         let Some((m, _)) = CUR_MSG.with(|x| x.borrow().clone()) else { return };
-        compose::open(&w.unwrap(), c, compose::ComposeKind::Reply, Some(&m));
+        compose::open(&w.unwrap(), c, compose::ComposeKind::Reply, Some(&*m));
     });
 
     rte::wire(&ui);
@@ -1341,8 +1366,8 @@ fn main() -> Result<(), slint::PlatformError> {
         let Some(c) = st.lock().unwrap().clone() else { return };
         let Some((m, _)) = CUR_MSG.with(|x| x.borrow().clone()) else { return };
         let u = w.unwrap();
-        if text.trim().is_empty() { compose::open(&u, c, compose::ComposeKind::Reply, Some(&m)); return; }
-        compose::open(&u, c.clone(), compose::ComposeKind::Reply, Some(&m));
+        if text.trim().is_empty() { compose::open(&u, c, compose::ComposeKind::Reply, Some(&*m)); return; }
+        compose::open(&u, c.clone(), compose::ComposeKind::Reply, Some(&*m));
         rte::with(|e| { e.set_caret(rte::model::Pos::new(0, 0)); e.insert_text(&text); });
         u.set_composing(false);
         compose::send(&u, c, &pf.lock().unwrap());
@@ -1502,7 +1527,7 @@ fn main() -> Result<(), slint::PlatformError> {
                 COMPOSE_CLIENT.with(|r| *r.borrow_mut() = Some(c.clone()));
                 let Some((msg, _)) = CUR_MSG.with(|x| x.borrow().clone()) else { return };
                 let kind = if a == "forward" { compose::ComposeKind::Forward } else { compose::ComposeKind::ReplyAll };
-                compose::open(&u, c, kind, Some(&msg));
+                compose::open(&u, c, kind, Some(&*msg));
             }
             "print" => {
                 let printed = u.get_render_mode() == 0 && mailview::print();
