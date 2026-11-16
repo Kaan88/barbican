@@ -53,6 +53,14 @@
         <TextBlock x:Name="Status" Text="ready" VerticalAlignment="Center" HorizontalAlignment="Right" AutomationProperties.AutomationId="Status" />
       </Grid>
       <wv:WebView2 x:Name="Web" Grid.Row="3" AutomationProperties.AutomationId="Web" />
+      <Button Grid.Row="3" Content="Over web" AutomationProperties.AutomationId="BtnOverWeb" HorizontalAlignment="Right" VerticalAlignment="Top" Margin="8">
+        <Button.Flyout>
+          <MenuFlyout ShouldConstrainToRootBounds="True">
+            <MenuFlyoutItem Text="First over web" AutomationProperties.AutomationId="OverFirst" Click="Ctx_Click" />
+            <MenuFlyoutItem Text="Second over web" AutomationProperties.AutomationId="OverSecond" Click="Ctx_Click" />
+          </MenuFlyout>
+        </Button.Flyout>
+      </Button>
     </Grid>
   </Grid>
 </Window>

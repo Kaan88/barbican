@@ -38,8 +38,20 @@ internal static class Uia
                         .Where(e => { try { var r = e.BoundingRectangle; return r.Contains(px, py) && Acts(e); } catch { return false; } })
                         .OrderBy(e => e.BoundingRectangle.Width * e.BoundingRectangle.Height)
                         .FirstOrDefault();
-                    if (best == null) return "nothing clickable";
+                    if (best == null)
+                    {
+                        // text boxes: a click is a focus; XAML does that (UIA SetFocus could activate the window)
+                        var edit = root.FindAllDescendants().FirstOrDefault(e => { try { return e.BoundingRectangle.Contains(px, py) && e.Properties.ControlType.ValueOrDefault == FlaUI.Core.Definitions.ControlType.Edit && e.Properties.AutomationId.ValueOrDefault is { Length: > 0 }; } catch { return false; } });
+                        return edit != null ? "focus:" + edit.Properties.AutomationId.Value : "nothing clickable";
+                    }
                     return Do(best, line[4..]);
+                }
+                case "uia-append":
+                {
+                    var el = root.FindFirstDescendant(cf => cf.ByAutomationId(a[1]));
+                    if (el == null || !el.Patterns.Value.IsSupported) return "no value pattern";
+                    el.Patterns.Value.Pattern.SetValue((el.Patterns.Value.Pattern.Value.ValueOrDefault ?? "") + (a.Length > 2 ? a[2] : ""));
+                    return "ok";
                 }
                 case "uia-invoke": case "uia-select": case "uia-text": case "uia-toggle":
                 {
@@ -48,9 +60,12 @@ internal static class Uia
                     if (a[0] == "uia-text") { if (!el.Patterns.Value.IsSupported) return "no value pattern"; el.Patterns.Value.Pattern.SetValue(a.Length > 2 ? a[2] : ""); return "ok"; }
                     return Do(el, line[4..]);
                 }
+                case "uia-find":
+                    return string.Join(" | ", root.FindAllDescendants().Where(e => (e.Properties.Name.ValueOrDefault ?? "").Contains(a[1], StringComparison.OrdinalIgnoreCase))
+                        .Select(e => $"{e.Properties.ControlType.ValueOrDefault}:{e.Properties.AutomationId.ValueOrDefault}:{e.Properties.Name.ValueOrDefault}:{e.BoundingRectangle}:{(e.Patterns.Invoke.IsSupported ? "I" : "")}"));
                 case "uia-tree":
-                    return string.Join(" | ", root.FindAllDescendants().Take(400).Select(e => $"{e.Properties.ControlType.ValueOrDefault}:{e.Properties.AutomationId.ValueOrDefault}:{e.Properties.Name.ValueOrDefault}:{(e.Patterns.Invoke.IsSupported ? "I" : "")}{(e.Patterns.SelectionItem.IsSupported ? "S" : "")}{(e.Patterns.Value.IsSupported ? "V" : "")}{(e.Patterns.Toggle.IsSupported ? "T" : "")}")
-                        .Where(x => !x.StartsWith("Pane::", StringComparison.Ordinal)).Take(60));
+                    return string.Join(" | ", root.FindAllDescendants().Take(4000).Select(e => $"{e.Properties.ControlType.ValueOrDefault}:{e.Properties.AutomationId.ValueOrDefault}:{e.Properties.Name.ValueOrDefault}:{(e.Patterns.Invoke.IsSupported ? "I" : "")}{(e.Patterns.SelectionItem.IsSupported ? "S" : "")}{(e.Patterns.Value.IsSupported ? "V" : "")}{(e.Patterns.Toggle.IsSupported ? "T" : "")}")
+                        .Where(x => !x.StartsWith("Pane::", StringComparison.Ordinal)).Take(int.Parse(Environment.GetEnvironmentVariable("S4_TREE") ?? "60")));
                 default: return "unknown command " + a[0];
             }
         }

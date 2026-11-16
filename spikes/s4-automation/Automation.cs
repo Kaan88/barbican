@@ -49,21 +49,50 @@ internal static class Automation
                     string reply;
                     try
                     {
-                        // UIA-client commands run here, on the server thread: a UIA client call into our own UI thread
-                        // from the UI thread would deadlock; from this thread it is an ordinary cross-thread provider call.
-                        // click/dclick resolve through UIA too (in-proc peers lack patterns on item containers); peer-click keeps the XAML path.
-                        var plain = false;
-                        if (line.StartsWith("click ", StringComparison.Ordinal)) { line = "uia-" + line; plain = true; }
-                        else if (line.StartsWith("peer-click ", StringComparison.Ordinal)) line = line[5..];
-                        var t = line.StartsWith("uia-", StringComparison.Ordinal) ? Task.Run(() => Uia.Run(line, hwnd, win)) : OnUi(() => Run(line));
+                        var t = Dispatch(line);
                         reply = t.Wait(TimeSpan.FromSeconds(20)) ? t.Result : "timeout";
-                        if (plain && reply.StartsWith("ok ", StringComparison.Ordinal)) reply = "ok";
                     }
                     catch (Exception e) { reply = "error " + (e.InnerException ?? e).Message; }
                     o.WriteLine(reply.Replace('\n', ' ').Replace('\r', ' '));
                 }
             }
         }) { IsBackground = true, Name = "automation" }.Start();
+    }
+
+    /// <summary>
+    /// Routes one line. UIA-client commands run on this (server) thread: a UIA client call into our own UI thread
+    /// from the UI thread would deadlock, from here it is an ordinary cross-thread provider call. click/dclick resolve
+    /// through UIA (in-proc peers lack patterns on item containers); peer-click keeps the XAML-peer path (needed for
+    /// elements drawn over the WebView2, which UIA clients cannot see). Text boxes: a click focuses through XAML, type
+    /// appends through the Value pattern of the XAML-focused element.
+    /// </summary>
+    static async Task<string> Dispatch(string line)
+    {
+        var plain = false;
+        if (line.StartsWith("click ", StringComparison.Ordinal)) { line = "uia-" + line; plain = true; }
+        else if (line.StartsWith("peer-click ", StringComparison.Ordinal)) line = line[5..];
+        string reply;
+        if (line.StartsWith("type ", StringComparison.Ordinal))
+        {
+            var id = await OnUi(() => Task.FromResult(FocusedId()));
+            reply = string.IsNullOrEmpty(id) ? "nothing focused" : await Task.Run(() => Uia.Run($"uia-append {id} {line[5..]}", hwnd, win));
+        }
+        else if (line.StartsWith("uia-", StringComparison.Ordinal))
+        {
+            reply = await Task.Run(() => Uia.Run(line, hwnd, win));
+            if (reply.StartsWith("focus:", StringComparison.Ordinal)) { var id = reply[6..]; reply = await OnUi(() => Task.FromResult(FocusById(id))); }
+        }
+        else reply = await OnUi(() => Run(line));
+        if (plain && reply.StartsWith("ok ", StringComparison.Ordinal)) reply = "ok";
+        return reply;
+    }
+
+    static string FocusedId() => FocusManager.GetFocusedElement(Root.XamlRoot) is FrameworkElement fe ? AutomationProperties.GetAutomationId(fe) : "";
+
+    static string FocusById(string id)
+    {
+        var el = ById(Root, id) as Control;
+        return el != null && el.Focus(FocusState.Programmatic) ? "ok" : "focus failed " + id;
     }
 
     static Task<string> OnUi(Func<Task<string>> f)
@@ -100,7 +129,6 @@ internal static class Automation
             case "rclick": return await RClick(P(0), P(1));
             case "move": return "ok";   // hover cannot be injected in-process (Layer C); accepted as a no-op so scripts run
             case "scroll": return Scroll(P(0), P(1), P(2));
-            case "type": return Type(arg);
             case "key": return KeyRouter.Handle(arg, Root) ? "ok" : "unknown key " + arg;
             case "invoke": return Pattern(arg, p => { (p.GetPattern(PatternInterface.Invoke) as IInvokeProvider)?.Invoke(); return p.GetPattern(PatternInterface.Invoke) != null; });
             case "select": return Pattern(arg, p => { (p.GetPattern(PatternInterface.SelectionItem) as ISelectionItemProvider)?.Select(); return p.GetPattern(PatternInterface.SelectionItem) != null; });

@@ -117,3 +117,41 @@ placeholders (see CLAUDE.md); never write real values here.
   275 rows and 136 distinct non-empty `key` values. The catalogue stream (`spec/settings.csv`)
   should reconcile the number. Where: `src/Barbican.Core/Settings/settings-schema.json`,
   `tests/Barbican.Core.Tests/Settings/SettingsSchemaTests.cs`.
+
+## Spikes S4 and S5 (stream: port-s45)
+- **S4 conclusions rest on one machine and one off-screen position.** What: WGC cadence of 20.8 ms (48 fps) for the
+  window parked at x = -12000 on a 144 Hz display, the UIA click path, the in-window flyout rule and the black
+  `PrintWindow` result. Why: the 20.8 ms quantum is unexplained (DWM, WGC pacing or panel) and it is coarser than the
+  plan's 16 ms input-to-frame bar; the plan's feel gates may need re-stating or a 60 Hz/virtual display. Where:
+  `docs/adr/0004-hidden-automation.md` (Open issues), `spikes/s4-automation/Capture.cs`, `Probe.cs`.
+- **Deviation from the plan: clicks use a UIA client, not in-process AutomationPeers.** What: `Uia.cs` (FlaUI.UIA3) runs on
+  the server thread; peers made by `CreatePeerForElement` lack patterns on `ListViewItem` and `TextBox`. Why: judgement call;
+  it adds FlaUI to the AUTOMATION configuration and has a blind spot (XAML over a WebView2 is invisible to UIA clients, so
+  `peer-click`/`invoke ID` remain). Check the choice and that FlaUI never reaches the release app. Where: `Uia.cs`,
+  `Automation.cs` (`Dispatch`), ADR 0004 item 3.
+- **Hard rule discovered: every popup must be `ShouldConstrainToRootBounds="True"`.** What: default flyouts open in a separate
+  `PopupWindowSiteBridge` HWND that is outside the app capture and was seen at the edge of the user's real screen. Why:
+  security/privacy of hidden automation and a UX constraint on every menu. Verified only for `MenuFlyout`; `ComboBox`,
+  `ToolTip`, `AutoSuggestBox`, `TeachingTip`, `CommandBarFlyout` and `ContentDialog` are untested. Where: ADR 0004 item 4,
+  `spikes/s4-automation/MainWindow.xaml`.
+- **Disclosure: the first smoke run showed an unconstrained flyout strip (about 118 px wide) at the left edge of the user's
+  screen for a few seconds.** No input was sent and the foreground window did not change; it happened before the constraint was
+  set. Fixed in the spike. Why listed: the standing rule is "hidden only". Where: ADR 0004 Open issues.
+- **Window position and process start were verified, not exhaustively.** The foreground-window check
+  (`spikes/s4-automation/check-focus.ps1`) samples every 40 ms for about 2.4 s per run (2 runs); a shorter focus flash between
+  samples would be missed. `STARTUPINFO` hidden launch worked; launch through other shells/`cmd start` is untested.
+- **Probe semantics are an interpretation.** What: `start` = WGC `SystemRelativeTime` (present time, observed 3 to 6 ms after
+  arrival), `end` = max(start, arrival); `render` in `motion.py` is therefore 0, not the Rust render time. Why: the gates'
+  definitions (`input -> first changed frame`, gap > 25 ms) were mapped, not re-derived. Where: `Probe.cs`, ADR 0004 item 7.
+- **S5 stores secrets under new names and migrates by explicit import** (`Barbican.Next/<profile>/<name>`, `CRED_PERSIST_LOCAL_MACHINE`
+  instead of the Rust `ENTERPRISE`, UTF-8 JSON instead of UTF-16LE). Why: judgement call to protect the Rust sign-in and avoid
+  roaming refresh tokens; the user may prefer roaming or reusing the Rust names. Where: `docs/adr/0005-credential-migration.md`.
+- **S5 read real Credential Manager blobs in memory (structure only).** What: `spikes/s5-credentials/read-format.ps1` loads the
+  four `*.Barbican` generic credentials via `CredEnumerateW`, zeroes the buffers and prints names, type, persistence, size,
+  encoding and JSON key names, never values; it enumerates only those four exact names. Why listed: it is the one step that
+  touched secrets; check the script prints nothing sensitive (blob lengths of the two plain-string entries were looked at
+  once and left out of the ADR). Where: `spikes/s5-credentials/read-format.ps1`.
+- **Linux format of the Rust credentials is source-only.** Derived from `keyring 3.6.3` `secret_service.rs`, not observed.
+  Where: ADR 0005.
+- **Spike code is not production code.** `spikes/` is outside `Barbican.slnx` and the strictness rules (`Nullable` off, no
+  analyzers, `DllImport`, FlaUI). Reuse the ideas, not the files. Where: `spikes/s4-automation/`, `spikes/s5-credentials/`.
