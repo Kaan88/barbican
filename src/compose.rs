@@ -289,7 +289,7 @@ pub fn open(u: &AppWindow, c: Arc<Client>, kind: ComposeKind, m: Option<&Value>)
                     blob_id: a["blobId"].as_str().unwrap_or("").into(), name: a["name"].as_str().unwrap_or("attachment").into(),
                     mime: a["type"].as_str().unwrap_or("application/octet-stream").into(), size: a["size"].as_u64().unwrap_or(0) as usize,
                 }).collect();
-                ST.with(|s| { let mut s = s.borrow_mut(); s.attachments = atts; s.forwarding = true; s.answering = m["id"].as_str().map(String::from); });
+                ST.with(|s| { let mut s = s.borrow_mut(); s.attachments = atts; s.forwarding = true; s.answering = m["id"].as_str().filter(|_| m["__jmap"].is_null()).map(String::from); });
             }
             ComposeKind::Reply | ComposeKind::ReplyAll => {
                 let src = if m["replyTo"].as_array().is_some_and(|a| !a.is_empty()) { &m["replyTo"] } else { &m["from"] };
@@ -314,7 +314,7 @@ pub fn open(u: &AppWindow, c: Arc<Client>, kind: ComposeKind, m: Option<&Value>)
                 rte::set_doc(u, Doc { blocks });
                 ST.with(|s| {
                     let mut s = s.borrow_mut();
-                    s.answering = m["id"].as_str().map(String::from);
+                    s.answering = m["id"].as_str().filter(|_| m["__jmap"].is_null()).map(String::from);
                     s.in_reply_to = msgid.into_iter().collect();
                     s.references = refs;
                 });

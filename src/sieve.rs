@@ -91,6 +91,23 @@ fn skip_string(s: &[u8], mut i: usize) -> usize {
     s.len()
 }
 fn skip_hash(s: &[u8], mut i: usize) -> usize { while i < s.len() && s[i] != b'\n' { i += 1; } i }
+/// RFC 5228 multi-line string at `i` ("text:" ... a line holding only "."): its end, if one starts here.
+fn skip_text(s: &[u8], i: usize) -> Option<usize> {
+    if !s[i..].starts_with(b"text:") || (i > 0 && (s[i - 1].is_ascii_alphanumeric() || s[i - 1] == b'_')) { return None; }
+    let mut j = i + 5;
+    // rest of the "text:" line (spaces or a comment), then lines up to a lone "."
+    while j < s.len() && s[j] != b'\n' { j += 1; }
+    while j < s.len() {
+        let line_start = j + 1;
+        let mut k = line_start;
+        while k < s.len() && s[k] != b'\n' { k += 1; }
+        let line = &s[line_start.min(s.len())..k];
+        let line = line.strip_suffix(b"\r").unwrap_or(line);
+        if line == b"." { return Some(k); }
+        j = k;
+    }
+    Some(s.len())
+}
 fn skip_block_comment(s: &[u8], i: usize) -> usize {
     (i + 2..s.len().saturating_sub(1)).find(|&j| s[j] == b'*' && s[j + 1] == b'/').map(|j| j + 2).unwrap_or(s.len())
 }
@@ -100,6 +117,7 @@ fn skip_statement(s: &[u8], mut i: usize) -> usize {
             b'"' => { i = skip_string(s, i); continue; }
             b'#' => { i = skip_hash(s, i); continue; }
             b'/' if s.get(i + 1) == Some(&b'*') => { i = skip_block_comment(s, i); continue; }
+            b't' if skip_text(s, i).is_some() => { i = skip_text(s, i).unwrap_or(s.len()); continue; }
             b';' => return i + 1,
             _ => i += 1,
         }
@@ -113,6 +131,7 @@ fn skip_balanced(s: &[u8], mut i: usize, open: u8, close: u8) -> usize {
         if c == b'"' { i = skip_string(s, i); continue; }
         if c == b'#' { i = skip_hash(s, i); continue; }
         if c == b'/' && s.get(i + 1) == Some(&b'*') { i = skip_block_comment(s, i); continue; }
+        if let Some(j) = (c == b't').then(|| skip_text(s, i)).flatten() { i = j; continue; }
         i += 1;
         if c == open { depth += 1; } else if c == close { depth -= 1; if depth == 0 { return i; } }
     }
@@ -132,6 +151,27 @@ fn skip_if(s: &[u8], mut i: usize) -> usize {
     skip_balanced(s, i, b'{', b'}')
 }
 
+/// An `if` with its `elsif` / `else` branches: one block.
+fn skip_if_chain(s: &[u8], content: &str, i: usize) -> usize {
+    let mut end = skip_if(s, i);
+    loop {
+        let mut j = end;
+        while j < s.len() && s[j].is_ascii_whitespace() { j += 1; }
+        let w = j;
+        while j < s.len() && (s[j].is_ascii_alphanumeric() || s[j] == b'_') { j += 1; }
+        match &content[w..j] {
+            "elsif" => end = skip_if(s, j),
+            "else" => {
+                let mut k = j;
+                while k < s.len() && s[k] != b'{' { k += 1; }
+                if k >= s.len() { return end; }
+                end = skip_balanced(s, k, b'{', b'}');
+            }
+            _ => return end,
+        }
+    }
+}
+
 fn scan_top_level(content: &str) -> Vec<Block> {
     let s = content.as_bytes();
     let mut blocks = vec![];
@@ -145,7 +185,7 @@ fn scan_top_level(content: &str) -> Vec<Block> {
         let start = i;
         while i < s.len() && (s[i].is_ascii_alphanumeric() || s[i] == b'_') { i += 1; }
         let kind = match &content[start..i] { "require" => "require", "if" => "if", "vacation" => "vacation", _ => "other" };
-        i = if kind == "if" { skip_if(s, i) } else { skip_statement(s, i) };
+        i = if kind == "if" { skip_if_chain(s, content, i) } else { skip_statement(s, i) };
         let end = i.min(s.len());
         blocks.push(Block { kind, raw: content[seg..end].to_string(), statement: content[start..end].to_string() });
         seg = end;
@@ -605,6 +645,18 @@ mod tests {
 
     const FROM_T: &str = r#"anyof(currentdate :zone "+0000" :value "gt" "date" "2026-10-05", allof(currentdate :zone "+0000" :is "date" "2026-10-05", currentdate :zone "+0000" :value "ge" "time" "06:00:00"))"#;
     const UNTIL_T: &str = r#"anyof(currentdate :zone "+0000" :value "lt" "date" "2026-10-16", allof(currentdate :zone "+0000" :is "date" "2026-10-16", currentdate :zone "+0000" :value "le" "time" "16:00:00"))"#;
+
+    #[test]
+    fn external_keeps_elsif_else_and_text_strings() {
+        let ext = "if header :contains \"subject\" \"a\" { fileinto \"A\"; } elsif header :contains \"subject\" \"b\" { fileinto \"B\"; } else { keep; }\nreject text:\nNo; thanks.\n# not a comment\n.\n;\nkeep;";
+        let script = format!("/* @metadata:begin\n{{\"version\":1,\"rules\":[]}}\n@metadata:end */\n{}\n{}", super::EXTERNAL, ext);
+        let p = super::parse(&script);
+        assert!(p.external.contains("else { keep; }"), "{}", p.external);
+        assert!(p.external.contains("reject text:\nNo; thanks.\n# not a comment\n.\n;"), "{}", p.external);
+        let blocks = super::scan_top_level(ext);
+        assert_eq!(blocks.len(), 3);
+        assert!(blocks[0].raw.trim_end().ends_with("else { keep; }"));
+    }
 
     #[test]
     fn vacation_only_scripts() {

@@ -250,15 +250,15 @@ thread_local! { static THREAD_ID: std::cell::RefCell<Option<String>> = const { s
 fn load_thread(w: slint::Weak<AppWindow>, c: Arc<jmap::Client>, id: String) {
     if settings::Settings::load().bool("disableThreading", false) { return; }
     std::thread::spawn(move || {
-        let Ok(mut list) = c.thread_emails(&id) else { return };
+        let Ok(mut list) = c.thread_emails(unified::real_id(&id)) else { return };
         list.sort_by_key(|m| m["receivedAt"].as_str().unwrap_or("").to_string());
         let tid = list.first().and_then(|m| m["threadId"].as_str().map(String::from));
         let rows: Vec<ThreadMsg> = list.iter().map(|m| ThreadMsg {
-            id: m["id"].as_str().unwrap_or("").into(),
+            id: unified::same_source(&id, m["id"].as_str().unwrap_or("")).into(),
             sender: mail::sender(m).into(),
             date: mail::parse_time(&m["receivedAt"]).map(|t| t.format("%d %b %H:%M").to_string()).unwrap_or_default().into(),
             preview: mail::clean_preview(m["preview"].as_str().unwrap_or("")).into(),
-            current: m["id"] == id.as_str(),
+            current: m["id"] == unified::real_id(&id),
             unread: m["keywords"]["$seen"].as_bool() != Some(true),
         }).collect();
         let _ = w.upgrade_in_event_loop(move |u| {
@@ -274,12 +274,19 @@ thread_local! {
     static COMPOSE_CLIENT: std::cell::RefCell<Option<Arc<jmap::Client>>> = const { std::cell::RefCell::new(None) };
 }
 
-/// Client that owns a listed message: another account's client for unified-inbox rows, else the active one.
-fn client_for(st: &Shared, id: &str) -> Option<Arc<jmap::Client>> {
+/// Login that owns a listed message: another account's client for unified-inbox rows, else the active one.
+fn login_for(st: &Shared, id: &str) -> Option<Arc<jmap::Client>> {
     if let Some(o) = mail::owner(id) {
         if o != unified::active_user() { return unified::cached(&o); }
     }
     st.lock().unwrap().clone()
+}
+
+/// Client that reads a listed message: its login, addressing the shared/group account the
+/// row came from (unified inbox) when there is one.
+fn client_for(st: &Shared, id: &str) -> Option<Arc<jmap::Client>> {
+    let c = login_for(st, id)?;
+    Some(match mail::shared_account(id) { Some(a) => Arc::new(c.scoped(&a)), None => c })
 }
 
 /// The open message's client (falls back to the active one).
@@ -294,6 +301,15 @@ fn compose_client(st: &Shared) -> Option<Arc<jmap::Client>> {
 
 /// mail::apply, split per owning account so unified-inbox rows use their own client.
 fn apply_routed(u: &AppWindow, st: &Shared, ids: Vec<String>, action: &str) {
+    if ids.is_empty() { return; }
+    if action.starts_with("copy-code:") {
+        if let Some(c) = st.lock().unwrap().clone() { mail::apply(u, c, ids, action); }
+        return;
+    }
+    // confirm and resolve toggles once for the whole selection, then run it per source
+    if !mail::confirm_action(u, ids.len(), action) { return; }
+    let action = mail::resolve_toggle(&ids, action);
+    let selection = ids.clone();
     // one group per login and, for group inboxes, per shared JMAP account
     let mut groups: Vec<((Option<String>, Option<String>), Vec<String>)> = vec![];
     for id in ids {
@@ -303,7 +319,7 @@ fn apply_routed(u: &AppWindow, st: &Shared, ids: Vec<String>, action: &str) {
     }
     for ((o, _), ids) in groups {
         let c = match &o { Some(o) => unified::cached(o), None => st.lock().unwrap().clone() };
-        if let Some(c) = c { mail::apply(u, c, ids, action); }
+        if let Some(c) = c { mail::apply_confirmed(u, c, ids, &action, &selection); }
     }
 }
 
@@ -675,6 +691,7 @@ fn main() -> Result<(), slint::PlatformError> {
         u.set_plugin_rows(ModelRc::default());
         // keep the conversation strip when moving within the same thread
         let same_thread = mail::email(&id).and_then(|m| m["threadId"].as_str().map(String::from)) == THREAD_ID.with(|t| t.borrow().clone());
+        let shared = mail::shared_account(&id);
         if !same_thread { u.set_thread_msgs(ModelRc::default()); }
         u.set_attachments(ModelRc::default());
         u.set_r_to("".into());
@@ -695,11 +712,17 @@ fn main() -> Result<(), slint::PlatformError> {
         let w = w.clone();
         let id = id.to_string();
         std::thread::spawn(move || {
-            let res = c.email_body(&id).map(|mut m| { inline_cid_images(&c, &mut m); m });
+            let real = unified::real_id(&id).to_string();
+            let res = c.email_body(&real).map(|mut m| {
+                inline_cid_images(&c, &mut m);
+                // a group inbox message: replies must not mark the login's own message of that id
+                if let Some(a) = &shared { m["__jmap"] = json!(a); }
+                m
+            });
             // Bulwark markAsReadDelay (ms): 0 = instantly, N = after N ms if still open, -1 = never
             let delay = settings::Settings::load().prefs.get("markAsReadDelay").and_then(|v| v.as_i64()).unwrap_or(0);
             if delay >= 0 && res.as_ref().is_ok_and(|m| m["keywords"]["$seen"].as_bool() != Some(true)) {
-                let (c3, id3, w3) = (c.clone(), id.clone(), w.clone());
+                let (c3, id3, w3, real3) = (c.clone(), id.clone(), w.clone(), real.clone());
                 std::thread::spawn(move || {
                     std::thread::sleep(std::time::Duration::from_millis(delay as u64));
                     let still = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
@@ -707,7 +730,7 @@ fn main() -> Result<(), slint::PlatformError> {
                     let _ = w3.upgrade_in_event_loop(move |u| s2.store(u.get_current_mail().as_str() == i2, std::sync::atomic::Ordering::SeqCst));
                     std::thread::sleep(std::time::Duration::from_millis(100));
                     if delay == 0 || still.load(std::sync::atomic::Ordering::SeqCst) {
-                        let _ = c3.set_keyword(&[id3.clone()], "$seen", true);
+                        let _ = c3.set_keyword(&[real3], "$seen", true);
                         let _ = w3.upgrade_in_event_loop(move |u| mail::mark_read_local(&u, &id3));
                     }
                 });
@@ -747,7 +770,7 @@ fn main() -> Result<(), slint::PlatformError> {
                         }).collect();
                         u.set_attachments(ModelRc::new(VecModel::from(rows)));
                         CUR_MSG.with(|x| *x.borrow_mut() = Some((m.clone(), atts)));
-                        load_thread(w2.clone(), c2.clone(), m["id"].as_str().unwrap_or("").to_string());
+                        load_thread(w2.clone(), c2.clone(), id.clone());
                         u.set_r_subject(SharedString::from(m["subject"].as_str().unwrap_or("(no subject)")));
                         u.set_r_from(from.into());
                         u.set_r_date(parse_time(&m["receivedAt"]).map(|t| t.format("%a %d %b %Y, %H:%M").to_string()).unwrap_or_default().into());
@@ -1122,7 +1145,9 @@ fn main() -> Result<(), slint::PlatformError> {
         let prompt = expand_prompt(&text, &conf, c.has("urn:ietf:params:jmap:calendars"));
         u.set_chat_input("".into());
         let ctx = agent::Ctx {
-            open_message: Some(u.get_current_mail().to_string()).filter(|s| !s.is_empty()),
+            open_message: Some(u.get_current_mail().to_string()).filter(|s| !s.is_empty())
+                .filter(|s| mail::shared_account(s).is_none() && mail::owner(s).is_none_or(|o| o == unified::active_user()))
+                .map(|s| unified::real_id(&s).to_string()),
             open_subject: u.get_r_subject().to_string(),
         };
         hist.lock().unwrap().push(agent::Msg::User(prompt));
@@ -1195,7 +1220,7 @@ fn main() -> Result<(), slint::PlatformError> {
 
     let (w, st) = (ui.as_weak(), state.clone());
     ui.on_reply(move || {
-        let Some(c) = reader_client(&st) else { return };
+        let Some(c) = login_for(&st, &w.unwrap().get_current_mail()) else { return };
         COMPOSE_CLIENT.with(|r| *r.borrow_mut() = Some(c.clone()));
         let Some((m, _)) = CUR_MSG.with(|x| x.borrow().clone()) else { return };
         compose::open(&w.unwrap(), c, compose::ComposeKind::Reply, Some(&m));
@@ -1558,7 +1583,7 @@ fn main() -> Result<(), slint::PlatformError> {
         match a.as_str() {
             "reply" => u.invoke_reply(),
             "reply-all" | "forward" => {
-                let Some(c) = reader_client(&st) else { return };
+                let Some(c) = login_for(&st, &id) else { return };
                 COMPOSE_CLIENT.with(|r| *r.borrow_mut() = Some(c.clone()));
                 let Some((msg, _)) = CUR_MSG.with(|x| x.borrow().clone()) else { return };
                 let kind = if a == "forward" { compose::ComposeKind::Forward } else { compose::ComposeKind::ReplyAll };

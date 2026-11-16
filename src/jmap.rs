@@ -2,11 +2,12 @@ use base64::Engine;
 use serde_json::{json, Value};
 use serde_json::Map;
 use std::collections::HashMap;
+use std::sync::Arc;
 
 pub struct Client {
     http: reqwest::blocking::Client,
-    auth: std::sync::Mutex<String>,
-    oauth: Option<std::sync::Mutex<crate::oauth::Tokens>>,
+    auth: Arc<std::sync::Mutex<String>>,
+    oauth: Option<Arc<std::sync::Mutex<crate::oauth::Tokens>>>,
     api: String,
     pub base: String,
     pub account: String,
@@ -71,9 +72,20 @@ impl Client {
         let username = s["username"].as_str().unwrap_or(user).to_string();
         let caps = s["capabilities"].as_object().map(|o| o.keys().cloned().collect()).unwrap_or_default();
         Ok(Client {
-            http, auth: std::sync::Mutex::new(auth), oauth: oauth.map(std::sync::Mutex::new),
+            http, auth: Arc::new(std::sync::Mutex::new(auth)), oauth: oauth.map(|t| Arc::new(std::sync::Mutex::new(t))),
             api, base: base.to_string(), account, username, caps, session: s,
         })
+    }
+
+    /// The same login addressing another JMAP account it can reach (a shared/group mail
+    /// account): every method then reads and writes that account. Auth (and OAuth renewal)
+    /// is shared with `self`.
+    pub fn scoped(&self, account: &str) -> Client {
+        Client {
+            http: self.http.clone(), auth: self.auth.clone(), oauth: self.oauth.clone(), api: self.api.clone(),
+            base: self.base.clone(), account: account.to_string(), username: self.username.clone(),
+            caps: self.caps.clone(), session: self.session.clone(),
+        }
     }
 
     /// Current OAuth tokens (for remembering the session).
@@ -577,7 +589,11 @@ impl Client {
     // ------------------------------------------------------------------
 
     /// Blocks reading the event stream; calls `on_change` with each StateChange.
-    pub fn watch(&self, on_change: &dyn Fn(&Value)) -> R<()> {
+    pub fn watch(&self, on_change: &dyn Fn(&Value)) -> R<()> { self.watch_while(&|| true, on_change) }
+
+    /// Like `watch`, but returns once `live()` is false (checked on every line of the stream,
+    /// pings included).
+    pub fn watch_while(&self, live: &dyn Fn() -> bool, on_change: &dyn Fn(&Value)) -> R<()> {
         let t = self.url_template("eventSourceUrl").ok_or("No push support.")?;
         let url = t.replace("{types}", "*").replace("{closeafter}", "no").replace("{ping}", "60");
         let auth = self.auth.lock().unwrap().clone();
@@ -589,6 +605,7 @@ impl Client {
         let mut data = String::new();
         for line in std::io::BufRead::lines(reader) {
             let line = line.map_err(e)?;
+            if !live() { return Ok(()); }
             if line.is_empty() {
                 if event == "state" || (event.is_empty() && data.contains("StateChange")) {
                     if let Ok(v) = serde_json::from_str::<Value>(&data) { on_change(&v); }

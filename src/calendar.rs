@@ -127,6 +127,11 @@ fn fmt_time(t: NaiveDateTime, h12: bool) -> String {
     if h12 { t.format("%-I:%M %p").to_string() } else { t.format("%H:%M").to_string() }
 }
 
+/// The day columns of the Day / Week view: every date of the range [from, to).
+fn day_columns(from: NaiveDate, to: NaiveDate) -> Vec<NaiveDate> {
+    (0..(to - from).num_days().max(1)).map(|i| from + Duration::days(i)).collect()
+}
+
 fn range() -> (NaiveDate, NaiveDate) {
     let (a, view) = (anchor(), ST.with(|s| s.borrow().view));
     match view {
@@ -356,7 +361,8 @@ pub fn render(u: &AppWindow) {
             }).collect();
             u.set_cal_cells(ModelRc::new(VecModel::from(cells)));
         } else {
-            let mut dates: Vec<NaiveDate> = if s.view == 0 { vec![from] } else { (0..7).map(|i| from + Duration::days(i)).collect() };
+            // one column per day of the loaded range (three in a narrow pane)
+            let mut dates: Vec<NaiveDate> = day_columns(from, to);
             if s.view == 1 && cp.hide_non_working {
                 let kept: Vec<NaiveDate> = dates.iter().copied().filter(|d| cp.working.contains(&d.weekday().num_days_from_sunday())).collect();
                 if !kept.is_empty() { dates = kept; }
@@ -558,6 +564,13 @@ pub fn delete(u: &AppWindow, c: Arc<Client>) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn day_columns_follow_range() {
+        let d = NaiveDate::from_ymd_opt(2026, 11, 16).unwrap();
+        assert_eq!(day_columns(d, d + Duration::days(3)).len(), 3);
+        assert_eq!(day_columns(d, d + Duration::days(7)).last(), Some(&(d + Duration::days(6))));
+        assert_eq!(day_columns(d, d + Duration::days(1)), vec![d]);
+    }
     #[test]
     fn expands_weekly_and_count() {
         let e = json!({"start": "2026-11-03T10:00:00", "duration": "PT1H30M", "recurrenceRules": [{"frequency": "weekly", "count": 3}]});

@@ -20,8 +20,39 @@ static POOL: Mutex<Option<HashMap<String, Arc<Client>>>> = Mutex::new(None);
 static ACTIVE: Mutex<String> = Mutex::new(String::new());
 /// Inbox unread count per source key, from the last fetch or count refresh.
 static UNREAD: Mutex<Option<HashMap<String, i64>>> = Mutex::new(None);
-/// Users whose push stream is being watched for the unified view (other than the active one).
-static WATCHING: Mutex<Option<HashSet<String>>> = Mutex::new(None);
+/// Users whose push stream is being watched for the unified view (other than the active one),
+/// with the token of the watcher thread that owns it (an older thread for the same user stops).
+static WATCHING: Mutex<Option<HashMap<String, u64>>> = Mutex::new(None);
+static WATCH_TOKEN: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+/// Logins whose connect failed recently (not retried on every call).
+static FAILED: Mutex<Option<HashMap<String, std::time::Instant>>> = Mutex::new(None);
+const RETRY_AFTER: std::time::Duration = std::time::Duration::from_secs(60);
+
+// ---------------- row ids ----------------
+// Several sources share short JMAP ids ("b", "c", …), so a unified row is keyed by its
+// login, the shared JMAP account it was read from (empty for the login's own) and its id.
+const ROW_ACCT: char = '\u{1c}';
+const ROW_ID: char = '\u{1d}';
+
+/// The list id of a unified row.
+pub fn row_id(user: &str, shared: Option<&str>, id: &str) -> String {
+    format!("{user}{ROW_ACCT}{}{ROW_ID}{id}", shared.unwrap_or(""))
+}
+
+/// (login, shared JMAP account, server id) of a unified row id; None for a plain id.
+pub fn parse_row(id: &str) -> Option<(&str, Option<&str>, &str)> {
+    let (prefix, real) = id.rsplit_once(ROW_ID)?;
+    let (user, acct) = prefix.split_once(ROW_ACCT)?;
+    Some((user, Some(acct).filter(|a| !a.is_empty()), real))
+}
+
+/// The server id of a list id (unified rows carry their source in front).
+pub fn real_id(id: &str) -> &str { parse_row(id).map(|r| r.2).unwrap_or(id) }
+
+/// Another message of the same source as the row `like` (thread members).
+pub fn same_source(like: &str, id: &str) -> String {
+    match parse_row(like) { Some((u, a, _)) => row_id(u, a, id), None => id.to_string() }
+}
 /// Bumped on sign-out so old watch threads stop.
 static WATCH_GEN: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 
@@ -61,8 +92,17 @@ pub fn is_active(c: &Client) -> bool {
 /// Client for a remembered user, connecting it (blocking) if needed.
 pub fn client(user: &str) -> Option<Arc<Client>> {
     if let Some(c) = POOL.lock().unwrap().as_ref().and_then(|p| p.get(user).cloned()) { return Some(c); }
+    // a login that just failed is not retried on every refresh (each try waits for the timeout)
+    if FAILED.lock().unwrap().as_ref().and_then(|f| f.get(user)).is_some_and(|t| t.elapsed() < RETRY_AFTER) { return None; }
     let v = crate::oauth::accounts().into_iter().find(|a| a["user"].as_str() == Some(user))?;
-    let c = Arc::new(connect(&v).ok()?);
+    let c = match connect(&v) {
+        Ok(c) => Arc::new(c),
+        Err(_) => {
+            FAILED.lock().unwrap().get_or_insert_with(HashMap::new).insert(user.to_string(), std::time::Instant::now());
+            return None;
+        }
+    };
+    if let Some(f) = FAILED.lock().unwrap().as_mut() { f.remove(user); }
     POOL.lock().unwrap().get_or_insert_with(HashMap::new).entry(user.to_string()).or_insert(c.clone());
     Some(c)
 }
@@ -92,6 +132,7 @@ pub fn clear() {
     ACTIVE.lock().unwrap().clear();
     UNREAD.lock().unwrap().take();
     WATCHING.lock().unwrap().take();
+    FAILED.lock().unwrap().take();
     WATCH_GEN.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
 }
 
@@ -169,7 +210,21 @@ pub fn sources() -> Vec<Source> {
         }
         v
     })).collect();
-    handles.into_iter().flat_map(|h| h.join().unwrap_or_default()).collect()
+    dedupe(handles.into_iter().flat_map(|h| h.join().unwrap_or_default()).collect())
+}
+
+/// Bulwark dedupeUnifiedAccounts, per account: a JMAP account reachable through several
+/// logins (a group shared with two of them, or a login's own account shared with another)
+/// is read once. Accounts are identified by server and JMAP id (Stalwart reuses short ids
+/// on every server); a login's own account always wins, then the first login reaching it.
+fn dedupe(srcs: Vec<Source>) -> Vec<Source> {
+    let key = |s: &Source| (s.client.base.trim_end_matches('/').to_lowercase(), s.account.clone());
+    dedupe_by(srcs, |s| s.shared, key)
+}
+
+fn dedupe_by<T, K: std::hash::Hash + Eq>(items: Vec<T>, shared: impl Fn(&T) -> bool, key: impl Fn(&T) -> K) -> Vec<T> {
+    let mut seen: HashSet<K> = items.iter().filter(|s| !shared(s)).map(&key).collect();
+    items.into_iter().filter(|s| !shared(s) || seen.insert(key(s))).collect()
 }
 
 const MAILBOX_PROPS: [&str; 7] = ["id", "name", "role", "parentId", "unreadEmails", "totalEmails", "myRights"];
@@ -208,16 +263,24 @@ fn source_page(src: &Source, text: Option<&str>, position: usize, limit: usize) 
     ]))?;
     let total = r[0][1]["total"].as_u64().unwrap_or(0) as usize;
     let mut emails = r[1][1]["list"].as_array().cloned().unwrap_or_default();
+    let shared = src.shared.then_some(src.account.as_str());
     let threads = r[2][1]["list"].as_array().map(|l| l.iter().filter_map(|t| {
-        Some((t["id"].as_str()?.to_string(), t["emailIds"].as_array()?.len()))
+        Some((row_id(&src.user, shared, t["id"].as_str()?), t["emailIds"].as_array()?.len()))
     }).collect()).unwrap_or_default();
     let key = src.key();
-    for m in emails.iter_mut() {
-        m["__account"] = json!(src.user);
-        m["__src"] = json!(key);
-        if src.shared { m["__jmap"] = json!(src.account); }
-    }
+    for m in emails.iter_mut() { tag_row(m, &src.user, shared, &key); }
     Ok((emails, total, threads, unread))
+}
+
+/// Give a fetched message its unified row id (the server id stays in `__id`) and source.
+fn tag_row(m: &mut Value, user: &str, shared: Option<&str>, key: &str) {
+    let real = m["id"].as_str().unwrap_or("").to_string();
+    m["__id"] = json!(real);
+    m["id"] = json!(row_id(user, shared, &real));
+    if let Some(t) = m["threadId"].as_str().map(|t| row_id(user, shared, t)) { m["__tkey"] = json!(t); }
+    m["__account"] = json!(user);
+    m["__src"] = json!(key);
+    if let Some(a) = shared { m["__jmap"] = json!(a); }
 }
 
 fn ts(m: &Value) -> i64 {
@@ -299,20 +362,27 @@ pub fn unread_total(active_inbox_unread: i64) -> i64 {
 /// refresh the unified list and its count on changes.
 pub fn watch(user: &str, w: slint::Weak<crate::AppWindow>) {
     if user == active_user() { return; }
+    let token = WATCH_TOKEN.fetch_add(1, std::sync::atomic::Ordering::SeqCst) + 1;
     {
         let mut g = WATCHING.lock().unwrap();
-        if !g.get_or_insert_with(HashSet::new).insert(user.to_string()) { return; }
+        let g = g.get_or_insert_with(HashMap::new);
+        if g.contains_key(user) { return; }
+        g.insert(user.to_string(), token);
     }
     let gen = WATCH_GEN.load(std::sync::atomic::Ordering::SeqCst);
     let user = user.to_string();
-    std::thread::spawn(move || loop {
+    std::thread::spawn(move || { loop {
+        // this thread owns the watch only while its token is the registered one: after sign-out,
+        // the login becoming active, or a newer watcher, it stops
         let live = || WATCH_GEN.load(std::sync::atomic::Ordering::SeqCst) == gen
-            && WATCHING.lock().unwrap().as_ref().is_some_and(|s| s.contains(&user));
+            && WATCHING.lock().unwrap().as_ref().and_then(|s| s.get(&user)) == Some(&token)
+            && enabled() && cross_account();
         let Some(c) = cached(&user) else { break };
         if !live() { break; }
         let w2 = w.clone();
-        let res = c.watch(&|_| {
-            if !live() || !enabled() || !cross_account() { return; }
+        // the stream is read line by line (a ping at least every minute), so a stopped
+        // watcher closes its connection within a minute
+        let res = c.watch_while(&live, &|_| {
             let w3 = w2.clone();
             std::thread::spawn(move || {
                 refresh_counts();
@@ -321,6 +391,9 @@ pub fn watch(user: &str, w: slint::Weak<crate::AppWindow>) {
         });
         if !live() { break; }
         if res.is_err() { std::thread::sleep(std::time::Duration::from_secs(20)); }
+    }
+        // free the slot (unless a newer watcher holds it) so the login can be watched again
+        if let Some(g) = WATCHING.lock().unwrap().as_mut() { if g.get(&user) == Some(&token) { g.remove(&user); } }
     });
 }
 
@@ -391,6 +464,45 @@ mod tests {
         merge_sorted(&mut v);
         let ids: Vec<String> = v.iter().map(|m| format!("{}{}", m["__src"].as_str().unwrap(), m["id"].as_str().unwrap())).collect();
         assert_eq!(ids, ["yc", "xa", "yb", "ya"]);
+    }
+
+    #[test]
+    fn row_ids_keep_sources_apart() {
+        let own = row_id("me@x", None, "b");
+        let grp = row_id("me@x", Some("g1"), "b");
+        assert_ne!(own, grp);
+        assert_eq!(parse_row(&own), Some(("me@x", None, "b")));
+        assert_eq!(parse_row(&grp), Some(("me@x", Some("g1"), "b")));
+        assert_eq!(real_id(&grp), "b");
+        assert_eq!(real_id("plain"), "plain");
+        assert_eq!(parse_row("plain"), None);
+        assert_eq!(same_source(&grp, "c"), row_id("me@x", Some("g1"), "c"));
+        assert_eq!(same_source("plain", "c"), "c");
+        // the same id from two sources stays two rows
+        let mut a = json!({"id": "b", "threadId": "t"});
+        let mut g = json!({"id": "b", "threadId": "t"});
+        tag_row(&mut a, "me@x", None, "me@x");
+        tag_row(&mut g, "me@x", Some("g1"), "me@x#g1");
+        assert_ne!(a["id"], g["id"]);
+        assert_ne!(a["__tkey"], g["__tkey"]);
+        assert_eq!(g["__id"], "b");
+        assert_eq!(g["__jmap"], "g1");
+    }
+
+    #[test]
+    fn dedupe_reads_each_account_once() {
+        // (login, server, account, shared)
+        let v = vec![
+            ("b", "s1", "G", true),   // group via login b
+            ("a", "s1", "A", false),  // a's own
+            ("b", "s1", "B", false),  // b's own
+            ("b", "s1", "A", true),   // a's account shared with b: a's own wins
+            ("a", "s1", "G", true),   // the same group via login a: dropped
+            ("c", "s2", "G", true),   // same id on another server: kept
+        ];
+        let out = dedupe_by(v, |x| x.3, |x| (x.1, x.2));
+        let got: Vec<(&str, &str)> = out.iter().map(|x| (x.0, x.2)).collect();
+        assert_eq!(got, vec![("b", "G"), ("a", "A"), ("b", "B"), ("c", "G")]);
     }
 
     #[test]

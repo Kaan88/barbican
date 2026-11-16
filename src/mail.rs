@@ -207,8 +207,15 @@ pub fn load_mailboxes(w: slint::Weak<AppWindow>, c: Arc<Client>, select_inbox: b
     std::thread::spawn(move || {
         let Ok(list) = c.mailboxes() else { return };
         let counts = tag_counts(&c);
-        // other accounts' inbox counts for the "All inboxes" badge
-        if crate::unified::enabled() && crate::unified::is_active(&c) { crate::unified::refresh_counts(); }
+        // other accounts' inbox counts for the "All inboxes" badge: on their own thread, so a
+        // slow or unreachable login never holds up this account's folders
+        if crate::unified::enabled() && crate::unified::is_active(&c) {
+            let w3 = w.clone();
+            std::thread::spawn(move || {
+                crate::unified::refresh_counts();
+                let _ = w3.upgrade_in_event_loop(|u| rebuild_folders(&u));
+            });
+        }
         let w2 = w.clone();
         let _ = w.upgrade_in_event_loop(move |u| {
             let inbox = list.iter().find(|m| m["role"] == "inbox").and_then(|m| m["id"].as_str()).map(String::from);
@@ -355,7 +362,7 @@ fn build_rows(st: &ListState) -> Vec<Mail> {
             unread: kw["$seen"].as_bool() != Some(true),
             attach: m["hasAttachment"].as_bool().unwrap_or(false),
             header: header.into(),
-            threads: st.threads.get(m["threadId"].as_str().unwrap_or("")).copied().unwrap_or(1) as i32,
+            threads: st.threads.get(m["__tkey"].as_str().or(m["threadId"].as_str()).unwrap_or("")).copied().unwrap_or(1) as i32,
             flagged: kw["$flagged"].as_bool() == Some(true),
             answered: kw["$answered"].as_bool() == Some(true),
             draft: kw["$draft"].as_bool() == Some(true),
@@ -607,13 +614,20 @@ pub fn checked_ids() -> Vec<String> {
 }
 
 /// Shared JMAP account a listed message belongs to (unified list with group inboxes), if any.
+/// (Unified rows carry their source in the id itself, so this holds for rows that are not,
+/// or no longer, in the list too: thread members, a row removed meanwhile.)
 pub fn shared_account(id: &str) -> Option<String> {
-    email(id).and_then(|m| m["__jmap"].as_str().map(String::from))
+    crate::unified::parse_row(id).and_then(|r| r.1).map(String::from)
 }
 
 /// Remembered account a listed message belongs to (unified list), if any.
 pub fn owner(id: &str) -> Option<String> {
-    email(id).and_then(|m| m["__account"].as_str().map(String::from)).filter(|a| !a.is_empty())
+    crate::unified::parse_row(id).map(|r| r.0.to_string()).filter(|a| !a.is_empty())
+}
+
+/// Server ids of list ids (unified rows carry their source in front).
+pub fn real_ids(ids: &[String]) -> Vec<String> {
+    ids.iter().map(|i| crate::unified::real_id(i).to_string()).collect()
 }
 
 /// The message after `cur` in the list that is not among `ids` (else the one before it).
@@ -676,44 +690,61 @@ pub fn apply(u: &AppWindow, c: Arc<Client>, ids: Vec<String>, action: &str) {
         show_toast(u, &if ok { format!("Copied {code}") } else { "Could not copy the code.".to_string() }, false);
         return;
     }
-    // confirmBulkDelete (several messages), and Settings > Accessibility > Confirm before
-    // deleting / archiving (also single messages)
+    if !confirm_action(u, ids.len(), action) { return; }
+    let action = resolve_toggle(&ids, action);
+    apply_confirmed(u, c, ids.clone(), &action, &ids);
+}
+
+/// confirmBulkDelete (several messages), and Settings > Accessibility > Confirm before
+/// deleting / archiving (also single messages): asks once for the whole selection of `n`
+/// messages (Press ... again) and returns whether to go ahead now.
+pub fn confirm_action(u: &AppWindow, n: usize, action: &str) -> bool {
     let a11y = crate::a11y::A11y::load();
     let ask = match action {
-        "delete" => (ids.len() > 1 && crate::settings::Settings::load().bool("confirmBulkDelete", true)) || a11y.confirm_delete,
+        "delete" => (n > 1 && crate::settings::Settings::load().bool("confirmBulkDelete", true)) || a11y.confirm_delete,
         "archive" => a11y.confirm_archive,
         _ => false,
     };
     if ask && !CONFIRM_BULK.with(|x| x.get()) {
         CONFIRM_BULK.with(|x| x.set(true));
-        let what = if ids.len() > 1 { format!("{} messages", ids.len()) } else { "this message".into() };
+        let what = if n > 1 { format!("{n} messages") } else { "this message".into() };
         let (verb, key) = if action == "archive" { ("Archive", "Archive") } else { ("Delete", "Delete") };
         show_toast(u, &format!("{verb} {what}? Press {key} again to confirm."), false);
-        let w = u.as_weak();
-        slint::Timer::single_shot(std::time::Duration::from_secs(6), move || { CONFIRM_BULK.with(|x| x.set(false)); let _ = w; });
-        return;
+        slint::Timer::single_shot(std::time::Duration::from_secs(6), move || CONFIRM_BULK.with(|x| x.set(false)));
+        return false;
     }
     CONFIRM_BULK.with(|x| x.set(false));
+    true
+}
+
+/// "star" / "read" toggle from the first selected message's state.
+pub fn resolve_toggle(ids: &[String], action: &str) -> String {
+    let first = ids.first().and_then(|i| email(i));
+    match action {
+        "star" if first.as_ref().is_some_and(|m| m["keywords"]["$flagged"].as_bool() == Some(true)) => "unstar".to_string(),
+        "read" if first.as_ref().is_some_and(|m| m["keywords"]["$seen"].as_bool() == Some(true)) => "unread".to_string(),
+        a => a.to_string(),
+    }
+}
+
+/// Run an already confirmed and resolved action on `ids`, all of one source (`c`, and the
+/// shared account their row ids name). `selection` is everything the user acted on (the
+/// next message to open skips all of it).
+pub fn apply_confirmed(u: &AppWindow, c: Arc<Client>, ids: Vec<String>, action: &str, selection: &[String]) {
+    if ids.is_empty() { return; }
     let w = u.as_weak();
     let action = action.to_string();
     // in Trash delete is permanent; in Junk only with permanentlyDeleteJunk (Bulwark)
     let current_role = mailbox_role(&u.get_current_folder());
     let junk_permanent = crate::settings::Settings::load().bool("permanentlyDeleteJunk", false);
     let permanent = action == "delete" && (current_role == "trash" || (current_role == "junk" && junk_permanent));
-    // resolve toggles from current state
-    let first = email(&ids[0]);
     // rows of a shared/group account (unified inbox) go out with that account's id
-    let shared = first.as_ref().and_then(|m| m["__jmap"].as_str().map(String::from));
-    let action = match action.as_str() {
-        "star" if first.as_ref().is_some_and(|m| m["keywords"]["$flagged"].as_bool() == Some(true)) => "unstar".to_string(),
-        "read" if first.as_ref().is_some_and(|m| m["keywords"]["$seen"].as_bool() == Some(true)) => "unread".to_string(),
-        a => a.to_string(),
-    };
-    let next_snapshot = next_after(u.get_current_mail().as_str(), &ids);
+    let shared = shared_account(&ids[0]);
+    let next_snapshot = next_after(u.get_current_mail().as_str(), selection);
     // Bulwark archiveMode: one Archive folder, or a folder per year / month inside it
     let archive_mode = crate::settings::Settings::load().str("archiveMode", "single");
     let received: Vec<(String, String)> = if action == "archive" && archive_mode != "single" {
-        ids.iter().map(|i| (i.clone(), email(i).and_then(|m| m["receivedAt"].as_str().map(String::from)).unwrap_or_default())).collect()
+        ids.iter().map(|i| (crate::unified::real_id(i).to_string(), email(i).and_then(|m| m["receivedAt"].as_str().map(String::from)).unwrap_or_default())).collect()
     } else { vec![] };
     // optimistic local change
     match action.as_str() {
@@ -740,6 +771,8 @@ pub fn apply(u: &AppWindow, c: Arc<Client>, ids: Vec<String>, action: &str) {
     }
     rebuild_list(u);
     if let Some(next) = open_next { u.invoke_open_mail(next.into()); }
+    // the server knows the messages by their own ids
+    let ids = real_ids(&ids);
     std::thread::spawn(move || {
         let res: Result<(), String> = (|| {
             let check = |r: (usize, Vec<String>)| if r.1.is_empty() { Ok(()) } else { Err(r.1.join("; ")) };
