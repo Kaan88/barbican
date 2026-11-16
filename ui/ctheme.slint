@@ -1,0 +1,30 @@
+// Colours for the composer extras (recipient chips, schedule dialog, scheduled banner).
+// The neutral tokens are copied from the app's Theme by Rust (src/ctheme.rs) whenever the
+// theme changes, so these files never import app.slint. The four meaning tints follow the
+// design language (design/README.md): rose = today/action, mint = waiting/done,
+// sky = travel/work, amber = attention.
+export global CTheme {
+    in-out property <bool> dark: true;
+    in-out property <color> text: #fafafa;
+    in-out property <color> dim: #adadad;
+    in-out property <color> line: #262626;
+    in-out property <color> popup: #1c1c1c;
+    in-out property <color> hover: #1a1a1a;
+    in-out property <color> raised: #181818;
+    in-out property <color> chip: #262626;
+    in-out property <color> accent: #f0577a;
+    in-out property <color> on-accent: #16070c;
+    in-out property <color> sel: #4a1424;
+    in-out property <color> sel-text: #ffd5df;
+    in-out property <color> ring: #f0577a;
+    in-out property <color> bg: #0a0a0a;
+    in-out property <string> icons: "Segoe Fluent Icons";
+    out property <color> rose-bg: dark ? #f0577a24 : #fde4ea;
+    out property <color> rose-fg: dark ? #ffb3c4 : #8c1733;
+    out property <color> mint-bg: dark ? #34d39921 : #dcf5e8;
+    out property <color> mint-fg: dark ? #86efc4 : #17603f;
+    out property <color> sky-bg: dark ? #60a5fa24 : #dfeafd;
+    out property <color> sky-fg: dark ? #a8cbff : #1e3f8a;
+    out property <color> amber-bg: dark ? #fbbf2421 : #fdf1d3;
+    out property <color> amber-fg: dark ? #fcd679 : #7a4a06;
+}

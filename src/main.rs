@@ -24,6 +24,11 @@ mod settings;
 mod sieve;
 mod templates;
 mod spam;
+// composer extras (p2-composer)
+mod autosave;
+mod chips;
+mod ctheme;
+mod recipients;
 
 use chrono::{DateTime, Local};
 use serde_json::{json, Value};
@@ -591,6 +596,7 @@ fn main() -> Result<(), slint::PlatformError> {
     apply_ui_prefs(&ui);
     automation::start(&ui);
     rte::wire_drop(&ui);
+    chips::wire(&ui);
     {
         let (loaded, errors) = plugins::load_all();
         PLUGINS.with(|p| *p.borrow_mut() = loaded);
@@ -1967,6 +1973,7 @@ pub fn apply_theme(ui: &AppWindow) {
     DARK.with(|d| d.set(dark));
     WV.with(|w| if let Some(v) = &*w.borrow() { let _ = v.set_background_color(wv_bg()); });
     ui.global::<Theme>().set_dark(dark);
+    ctheme::sync(ui);
 }
 
 
@@ -1991,6 +1998,7 @@ pub fn apply_ui_prefs(ui: &AppWindow) {
     // Bulwark FONT_SIZE_SCALE on the 13px base
     ui.global::<Prefs>().set_font_size(13.0 * a.font_scale);
     ui.global::<Theme>().set_more_contrast(a.more_contrast);
+    ctheme::sync(ui);
     ui.global::<Prefs>().set_reduce_motion(a.reduce_motion);
     ui.global::<Prefs>().set_large_targets(a.large_targets);
     // Bulwark focus outline widths: normal 2px, thick 3px, extra 5px

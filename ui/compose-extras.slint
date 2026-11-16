@@ -1,0 +1,14 @@
+// Composer extras (p2-composer): the draft save state shown in the composer header.
+import { CTheme } from "ctheme.slint";
+
+export global CompX {
+    // "Saving…", "Draft saved 09:51", "Draft not saved" (src/compose.rs, src/autosave.rs)
+    in-out property <string> saved;
+}
+
+export component SaveState inherits Text {
+    text: CompX.saved;
+    color: CTheme.dim;
+    font-size: 12px;
+    vertical-alignment: center;
+}

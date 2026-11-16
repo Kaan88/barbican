@@ -1,0 +1,234 @@
+// Recipient fields of the composer: chips that wrap, a text input for the next address and
+// an autocomplete list (Bulwark email-composer.tsx RecipientInput + AutocompleteDropdown).
+// Logic lives in src/chips.rs; field 0 = To, 1 = Cc, 2 = Bcc.
+import { CTheme } from "ctheme.slint";
+
+export struct RChip {
+    label: string,
+    // "Name <address>", or the group's member list
+    full: string,
+    initials: string,
+    // 0 person, 1 contact group, 2 not a valid address
+    kind: int,
+    // armed by Backspace: the next Backspace removes it
+    selected: bool,
+}
+
+export struct RSugg {
+    name: string,
+    detail: string,
+    initials: string,
+    group: bool,
+}
+
+export global Rcpt {
+    in-out property <[RChip]> to;
+    in-out property <[RChip]> cc;
+    in-out property <[RChip]> bcc;
+    in-out property <string> to-input;
+    in-out property <string> cc-input;
+    in-out property <string> bcc-input;
+    in-out property <[RSugg]> suggestions;
+    // the highlighted suggestion (-1: none)
+    in-out property <int> highlight: -1;
+    // the field the list belongs to (-1: closed)
+    in-out property <int> active: -1;
+    // where the list opens (window coordinates of the field's input row)
+    in-out property <length> pop-x;
+    in-out property <length> pop-y;
+    in-out property <length> pop-w;
+    // the field text changed (c-to / c-cc / c-bcc): rebuild its chips
+    callback sync(int);
+    callback edited(int, string);
+    // a key in a field: true when it was handled (the field does not see it)
+    callback key(int, string, bool, bool) -> bool;
+    callback remove(int, int);
+    callback edit-chip(int, int);
+    callback blurred(int);
+    callback pick(int);
+}
+
+component RecipientChip inherits Rectangle {
+    in property <RChip> c;
+    callback remove();
+    callback edit();
+    property <color> fg: c.kind == 2 ? CTheme.amber-fg : c.kind == 1 ? CTheme.mint-fg : CTheme.sky-fg;
+    height: 24px;
+    horizontal-stretch: 0;
+    border-radius: 12px;
+    background: c.kind == 2 ? CTheme.amber-bg : c.kind == 1 ? CTheme.mint-bg : CTheme.sky-bg;
+    border-width: c.selected ? 2px : 0px;
+    border-color: CTheme.ring;
+    ta := TouchArea {
+        double-clicked => { root.edit(); }
+    }
+    Tooltip {
+        Rectangle {
+            background: CTheme.popup;
+            border-radius: 8px;
+            border-width: 1px;
+            border-color: CTheme.line;
+            HorizontalLayout {
+                padding: 7px;
+                Text { text: c.kind == 2 ? "Not a valid email address: " + c.full : c.full; color: CTheme.text; font-size: 12px; }
+            }
+        }
+    }
+    HorizontalLayout {
+        padding-left: 3px;
+        padding-right: 4px;
+        spacing: 6px;
+        VerticalLayout {
+            alignment: center;
+            Rectangle {
+                width: 18px;
+                height: 18px;
+                border-radius: c.kind == 1 ? 6px : 9px;
+                background: root.fg;
+                Text {
+                    text: c.kind == 2 ? "!" : c.initials;
+                    color: CTheme.bg;
+                    font-size: 9px;
+                    font-weight: 700;
+                }
+            }
+        }
+        Text {
+            text: c.label;
+            color: root.fg;
+            font-size: 12.5px;
+            font-weight: 600;
+            vertical-alignment: center;
+            max-width: 240px;
+            overflow: elide;
+        }
+        Rectangle {
+            width: 16px;
+            height: 16px;
+            y: (parent.height - self.height) / 2;
+            border-radius: 8px;
+            background: xa.has-hover ? CTheme.hover : transparent;
+            Text { text: "\u{E711}"; font-family: CTheme.icons; font-size: 8px; color: root.fg; }
+            xa := TouchArea { clicked => { root.remove(); } }
+        }
+    }
+}
+
+export component RecipientField inherits Rectangle {
+    in property <int> field;
+    in property <[RChip]> chips;
+    in-out property <string> input;
+    in property <string> placeholder;
+    min-height: 28px;
+    function anchor() {
+        Rcpt.pop-x = fs.absolute-position.x;
+        Rcpt.pop-y = root.absolute-position.y + root.height + 2px;
+        Rcpt.pop-w = max(280px, min(420px, root.width));
+    }
+    FlexboxLayout {
+        spacing: 4px;
+        padding-top: 3px;
+        padding-bottom: 3px;
+        alignment: stretch;
+        cross-axis-alignment: center;
+        for c[i] in root.chips: RecipientChip {
+            c: c;
+            remove => { Rcpt.remove(root.field, i); }
+            edit => { Rcpt.edit-chip(root.field, i); ti.focus(); }
+        }
+        fs := FocusScope {
+            min-width: 140px;
+            height: 24px;
+            horizontal-stretch: 1;
+            capture-key-pressed(e) => {
+                if !ti.has-focus { return reject; }
+                root.anchor();
+                if Rcpt.key(root.field, e.text, e.modifiers.shift, e.modifiers.control) { return accept; }
+                reject
+            }
+            if root.input == "" && root.chips.length == 0: Text {
+                x: 0;
+                text: root.placeholder;
+                color: CTheme.dim;
+                vertical-alignment: center;
+                height: parent.height;
+            }
+            ti := TextInput {
+                text <=> root.input;
+                color: CTheme.text;
+                vertical-alignment: center;
+                single-line: true;
+                edited => {
+                    root.anchor();
+                    Rcpt.edited(root.field, self.text);
+                }
+                changed has-focus => {
+                    if !self.has-focus { Rcpt.blurred(root.field); }
+                }
+            }
+        }
+    }
+}
+
+// The suggestion list, drawn over the composer below the field being typed in.
+export component RecipientSuggest inherits Rectangle {
+    in property <[RSugg]> items;
+    in property <int> highlight;
+    background: CTheme.popup;
+    border-radius: 14px;
+    border-width: 1px;
+    border-color: CTheme.line;
+    drop-shadow-blur: 18px;
+    drop-shadow-color: #00000059;
+    drop-shadow-offset-y: 8px;
+    height: lay.preferred-height;
+    TouchArea { }
+    lay := VerticalLayout {
+        padding: 5px;
+        spacing: 1px;
+        for s[i] in root.items: Rectangle {
+            height: 40px;
+            border-radius: 10px;
+            background: i == root.highlight ? CTheme.sel : sa.has-hover ? CTheme.hover : transparent;
+            sa := TouchArea { clicked => { Rcpt.pick(i); } }
+            HorizontalLayout {
+                padding-left: 8px;
+                padding-right: 10px;
+                spacing: 10px;
+                VerticalLayout {
+                    alignment: center;
+                    Rectangle {
+                        width: 26px;
+                        height: 26px;
+                        border-radius: s.group ? 8px : 13px;
+                        background: s.group ? CTheme.mint-bg : CTheme.sky-bg;
+                        Text {
+                            text: s.group ? "\u{E716}" : s.initials;
+                            font-family: s.group ? CTheme.icons : "";
+                            color: s.group ? CTheme.mint-fg : CTheme.sky-fg;
+                            font-size: s.group ? 12px : 10px;
+                            font-weight: 700;
+                        }
+                    }
+                }
+                VerticalLayout {
+                    alignment: center;
+                    spacing: 0px;
+                    Text {
+                        text: s.name;
+                        color: i == root.highlight ? CTheme.sel-text : CTheme.text;
+                        font-size: 13px;
+                        font-weight: 600;
+                        overflow: elide;
+                    }
+                    if s.detail != "": Text {
+                        text: s.detail;
+                        color: i == root.highlight ? CTheme.sel-text : CTheme.dim;
+                        font-size: 11.5px;
+                        overflow: elide;
+                    }
+                }
+            }
+        }
+    }
+}

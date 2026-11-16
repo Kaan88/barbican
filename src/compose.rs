@@ -233,6 +233,7 @@ fn apply_signature(u: &AppWindow) {
         (s.signatures.get(u.get_c_from_index() as usize).cloned().unwrap_or_default(), s.kind_new, s.sig_done)
     });
     if done || (text.trim().is_empty() && rte::html::html_text(&html).trim().is_empty()) { return; }
+    let unedited = crate::autosave::unedited(u);
     let enabled = if new { prefs.bool("signatureNewMailEnabled", true) } else { prefs.bool("signatureReplyForwardEnabled", true) };
     if !enabled { return; }
     let mut sig: Vec<Block> = vec![];
@@ -255,10 +256,15 @@ fn apply_signature(u: &AppWindow) {
     for b in rte::doc().blocks { if let Kind::Image(img) = &b.kind { rte::register_image(img); } }
     rte::refresh(u);
     ST.with(|s| s.borrow_mut().sig_done = true);
+    // the signature a message starts with is no edit (Bulwark: no draft for it)
+    if unedited { crate::autosave::rebase(u); }
 }
 
 fn reset(u: &AppWindow) {
+    crate::autosave::reset();
+    u.global::<crate::CompX>().set_saved("".into());
     ST.with(|s| { let ids = s.borrow().identities.clone(); *s.borrow_mut() = State { identities: ids, ..Default::default() }; });
+    crate::chips::reset(u);
     u.set_c_to("".into());
     u.set_c_cc("".into());
     u.set_c_bcc("".into());
@@ -280,6 +286,7 @@ fn reset(u: &AppWindow) {
 pub fn open(u: &AppWindow, c: Arc<Client>, kind: ComposeKind, m: Option<&Value>) {
     reset(u);
     CLIENT.with(|x| *x.borrow_mut() = Some(c.clone()));
+    crate::chips::prefetch(u, c.clone());
     ST.with(|s| s.borrow_mut().kind_new = matches!(kind, ComposeKind::New));
     // replies and forwards come from the identity the message reached (Bulwark)
     let reply = match (&kind, m) {
@@ -364,12 +371,14 @@ pub fn open(u: &AppWindow, c: Arc<Client>, kind: ComposeKind, m: Option<&Value>)
     u.invoke_tpl_refresh();
     if m.is_some() { rte::focus(u); } else { u.set_rte_focus_on_open(false); }
     u.set_composing(true);
+    crate::autosave::start(u, false);
 }
 
 /// Re-open a saved draft for editing.
 pub fn open_draft(u: &AppWindow, c: Arc<Client>, m: &Value) {
     reset(u);
     CLIENT.with(|x| *x.borrow_mut() = Some(c.clone()));
+    crate::chips::prefetch(u, c.clone());
     ST.with(|s| s.borrow_mut().sig_done = true);
     load_identities(u, c, ReplyFrom::default());
     let join = |k: &str| m[k].as_array().map(|a| a.iter().map(|x| {
@@ -418,6 +427,7 @@ pub fn open_draft(u: &AppWindow, c: Arc<Client>, m: &Value) {
     refresh_attachments(u);
     rte::focus(u);
     u.set_composing(true);
+    crate::autosave::start(u, true);
 }
 
 fn outgoing(u: &AppWindow) -> Outgoing {
@@ -427,9 +437,10 @@ fn outgoing(u: &AppWindow) -> Outgoing {
         let from_email = from.rsplit_once('<').map(|(_, e)| e.trim_end_matches('>').to_string()).unwrap_or(from);
         Outgoing {
             from: from_email,
-            to: u.get_c_to().to_string(),
-            cc: u.get_c_cc().to_string(),
-            bcc: u.get_c_bcc().to_string(),
+            // contact groups go out as their members, IDN domains in ASCII form
+            to: crate::recipients::expand_for_send(&u.get_c_to()),
+            cc: crate::recipients::expand_for_send(&u.get_c_cc()),
+            bcc: crate::recipients::expand_for_send(&u.get_c_bcc()),
             subject: u.get_c_subject().to_string(),
             text: rte::to_text(),
             html: (!u.get_c_plain()).then(rte::to_html),
@@ -452,6 +463,31 @@ fn outgoing(u: &AppWindow) -> Outgoing {
             },
         }
     })
+}
+
+/// A cheap fingerprint of the composer (editor version and the fields), to notice changes.
+pub fn cheap_key(u: &AppWindow) -> u64 {
+    use std::hash::{Hash, Hasher};
+    use slint::Model;
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    rte::with(|e| e.version).hash(&mut h);
+    (u.get_c_to().as_str(), u.get_c_cc().as_str(), u.get_c_bcc().as_str(), u.get_c_subject().as_str()).hash(&mut h);
+    (u.get_c_from_index(), u.get_c_plain(), u.get_c_read_receipt()).hash(&mut h);
+    u.get_c_tag_on().iter().collect::<Vec<_>>().hash(&mut h);
+    ST.with(|s| s.borrow().attachments.iter().map(|a| (a.name.clone(), a.size)).collect::<Vec<_>>()).hash(&mut h);
+    h.finish()
+}
+
+/// What a draft would hold, hashed (Bulwark compares this before each autosave). Blob ids
+/// stay out of it: they change with every saved version.
+pub fn content_key(u: &AppWindow) -> u64 {
+    use std::hash::{Hash, Hasher};
+    let o = outgoing(u);
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    (&o.from, &o.to, &o.cc, &o.bcc, &o.subject, o.html.as_ref().unwrap_or(&o.text)).hash(&mut h);
+    o.attachments.iter().map(|a| (&a.name, &a.mime, a.size)).collect::<Vec<_>>().hash(&mut h);
+    (&o.keywords, o.read_receipt).hash(&mut h);
+    h.finish()
 }
 
 /// Toggle tag `i` (index into `mail::TAGS`) for the message being composed.
@@ -607,8 +643,21 @@ fn pre_send_warning(o: &Outgoing, prefs: &crate::settings::Settings) -> Option<S
 }
 
 pub fn send(u: &AppWindow, c: Arc<Client>, prefs: &crate::settings::Settings) {
+    if crate::autosave::in_flight() {
+        // the draft is being saved: send once it is, so the send replaces that draft
+        crate::autosave::queue(crate::autosave::Queued::Send);
+        return;
+    }
     if !u.get_c_plain() && rte::inline_images().iter().any(|i| i.1.is_none()) {
         u.set_c_status("Wait for the images to finish uploading.".into());
+        return;
+    }
+    crate::chips::commit_all(u);
+    let all = crate::recipients::parse_list(&format!("{}, {}, {}", u.get_c_to(), u.get_c_cc(), u.get_c_bcc()));
+    let bad = crate::recipients::invalid_addresses(&all);
+    if !bad.is_empty() {
+        // Bulwark validation.invalid_recipients: never send a malformed mailbox
+        u.set_c_status(format!("Not a valid address: {}", bad.join(", ")).into());
         return;
     }
     let mut o = outgoing(u);
@@ -665,11 +714,14 @@ pub fn send(u: &AppWindow, c: Arc<Client>, prefs: &crate::settings::Settings) {
     u.set_sending(true);
     u.set_c_status("".into());
     let w = u.as_weak();
+    let gen = crate::autosave::begin();
     std::thread::spawn(move || {
         let res = c.send_message(&o);
         let w2 = w.clone();
         let _ = w.upgrade_in_event_loop(move |u| {
+            let queued = crate::autosave::finish(gen, None);
             u.set_sending(false);
+            if res.is_err() { run_queued(&u, queued); }
             match res {
                 Ok(sub) => {
                     u.set_composing(false);
@@ -710,6 +762,7 @@ pub fn undo_send(u: &AppWindow, c: Arc<Client>) {
                 refresh_attachments(&u);
                 u.set_c_status("Sending was canceled.".into());
                 u.set_composing(true);
+                crate::autosave::start(&u, ST.with(|s| s.borrow().draft_id.is_some()));
             }
             Err(e) => crate::mail::show_toast(&u, &format!("Too late to undo: {e}"), false),
         });
@@ -717,26 +770,96 @@ pub fn undo_send(u: &AppWindow, c: Arc<Client>) {
 }
 
 pub fn save_draft(u: &AppWindow, c: Arc<Client>, close: bool) {
+    crate::chips::commit_all(u);
+    if crate::autosave::in_flight() {
+        crate::autosave::queue(crate::autosave::Queued::Save(close));
+        if close { u.set_composing(false); }
+        return;
+    }
+    let has_draft = ST.with(|s| s.borrow().draft_id.is_some());
+    if close && !has_draft && crate::autosave::unedited(u) {
+        // closed before anything was typed: nothing is kept (Bulwark)
+        u.set_composing(false);
+        return;
+    }
+    if has_draft && crate::autosave::is_saved(u) {
+        // autosave already stored all of it
+        u.set_c_status("Draft saved".into());
+        if close { u.set_composing(false); crate::mail::show_toast(u, "Draft saved", false); }
+        return;
+    }
+    run_save(u, c, false, close);
+}
+
+/// The debounced save while typing (src/autosave.rs decided it is due).
+pub fn autosave_now(u: &AppWindow) {
+    let Some(c) = CLIENT.with(|c| c.borrow().clone()) else { return };
+    // images still uploading have no blob yet: wait for them
+    if !u.get_c_plain() && rte::inline_images().iter().any(|i| i.1.is_none()) { return; }
+    if crate::recipients::parse_list(&format!("{},{},{}", u.get_c_to(), u.get_c_cc(), u.get_c_bcc())).is_empty()
+        && u.get_c_subject().trim().is_empty() && rte::to_text().trim().is_empty() && ST.with(|s| s.borrow().attachments.is_empty()) {
+        return;
+    }
+    run_save(u, c, true, false);
+}
+
+fn run_save(u: &AppWindow, c: Arc<Client>, auto: bool, close: bool) {
     let o = outgoing(u);
+    let key = content_key(u);
+    let first = o.replaces_draft.is_none();
+    let gen = crate::autosave::begin();
+    let x = u.global::<crate::CompX>();
+    x.set_saved("Saving…".into());
+    if !auto { u.set_c_status("Saving…".into()); }
     let w = u.as_weak();
-    u.set_c_status("Saving…".into());
     std::thread::spawn(move || {
         let res = c.save_draft(&o, o.replaces_draft.as_deref());
         let w2 = w.clone();
-        let _ = w.upgrade_in_event_loop(move |u| match res {
-            Ok(id) => {
-                ST.with(|s| s.borrow_mut().draft_id = Some(id));
-                u.set_c_status("Draft saved".into());
-                if close { u.set_composing(false); crate::mail::show_toast(&u, "Draft saved", false); }
+        let c2 = c.clone();
+        let _ = w.upgrade_in_event_loop(move |u| {
+            let mine = crate::autosave::gen() == gen;
+            let x = u.global::<crate::CompX>();
+            match &res {
+                Ok(id) if mine => {
+                    ST.with(|s| s.borrow_mut().draft_id = Some(id.clone()));
+                    x.set_saved(format!("Draft saved {}", chrono::Local::now().format("%H:%M")).into());
+                    if !auto { u.set_c_status("Draft saved".into()); }
+                    if close { u.set_composing(false); crate::mail::show_toast(&u, "Draft saved", false); }
+                }
+                Ok(_) => {}
+                Err(e) if mine => {
+                    x.set_saved("Draft not saved".into());
+                    if !auto || close { u.set_c_status(e.clone().into()); }
+                    if close { u.set_composing(true); }
+                }
+                Err(_) => {}
             }
-            Err(e) => u.set_c_status(e.into()),
+            let queued = crate::autosave::finish(gen, res.as_ref().ok().map(|_| key));
+            run_queued(&u, queued);
+            if first || !auto { crate::mail::load_mailboxes(w2, c2, false); }
         });
-        crate::mail::load_mailboxes(w2, c, false);
     });
 }
 
+/// What waited for a save: send, an explicit save, or a discard of the draft.
+fn run_queued(u: &AppWindow, q: Option<crate::autosave::Queued>) {
+    use crate::autosave::Queued;
+    match q {
+        Some(Queued::Send) => u.invoke_send_now(),
+        Some(Queued::Save(close)) => u.invoke_save_draft(close),
+        Some(Queued::Discard) => u.invoke_discard_draft(),
+        None => {}
+    }
+}
+
 pub fn discard(u: &AppWindow, c: Arc<Client>) {
-    let draft = ST.with(|s| s.borrow().draft_id.clone());
+    if crate::autosave::in_flight() {
+        // a save is creating the draft: remove it once it exists
+        crate::autosave::queue(crate::autosave::Queued::Discard);
+        u.set_composing(false);
+        return;
+    }
+    let draft = ST.with(|s| s.borrow_mut().draft_id.take());
     u.set_composing(false);
     if let Some(id) = draft {
         let w = u.as_weak();

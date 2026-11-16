@@ -155,6 +155,8 @@ fn run(u: &AppWindow, line: &str) -> String {
             PICK.with(|p| *p.borrow_mut() = Some(v));
             "ok".into()
         }
+        // recipient chips, typed text and suggestions of the composer (read-only probe)
+        "chips" => crate::chips::describe(u),
         "size" => { let s = win.size(); format!("{} {} scale {}", s.width, s.height, win.scale_factor()) }
         "shot" => {
             let path = a.get(1).copied().unwrap_or("shot.png");
