@@ -4065,7 +4065,7 @@ export component AppWindow inherits Window {
     }
   
     // pane grips on the folder | list and list | reader boundaries of the mail screen
-    if root.logged-in && root.app == 0 && !root.show-settings: ResizeHandle {
+    if root.logged-in && root.app == 0 && !root.show-settings && root.side-shown: ResizeHandle {
         t: root.ptok;
         x: Theme.shell-x + root.side-w + Theme.gap / 2 - self.width / 2;
         y: Theme.nordic ? 14px : Theme.pad;
@@ -4075,7 +4075,7 @@ export component AppWindow inherits Window {
     }
     if root.logged-in && root.app == 0 && !root.show-settings: ResizeHandle {
         t: root.ptok;
-        x: Theme.shell-x + root.side-w + Theme.gap + root.list-w + (Theme.nordic ? 1.5px : Theme.gap / 2) - self.width / 2;
+        x: Theme.shell-x + (root.side-shown ? root.side-w + Theme.gap : 0px) + root.list-w + (Theme.nordic ? 1.5px : Theme.gap / 2) - self.width / 2;
         y: Theme.nordic ? 14px : Theme.pad;
         height: root.height - 2 * self.y;
         value <=> Pd.list-w; current: root.list-w; min-value: 240px; max-value: 600px;
