@@ -13,6 +13,7 @@ mod files;
 mod jmap;
 mod lite;
 mod markup;
+mod rte;
 mod mail;
 mod unified;
 mod oauth;

@@ -18,6 +18,9 @@ notify-rust = "4"
 iana-time-zone = "0.1"
 rfd = { version = "0.15", default-features = false, features = ["common-controls-v6"] }
 keyring = { version = "3", features = ["windows-native"] }
+parley = "=0.11.1"
+arboard = "3.7"
+image = { version = "0.25", default-features = false, features = ["png", "jpeg", "gif", "webp", "bmp"] }
 
 blitz-html = "=0.3.0-beta.4"
 blitz-dom = "=0.3.0-beta.4"
