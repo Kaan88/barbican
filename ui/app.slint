@@ -1,7 +1,7 @@
 import { AdminDashboard, DashRow, DashPanel, DashCol, DashBar } from "dashboard.slint";
 export { DashRow, DashPanel, DashCol, DashBar }
 import { LineEdit, Button, ListView, ScrollView, TextEdit, ComboBox, CheckBox, Palette } from "std-widgets.slint";
-import { Theme, Icons, SIcon, Prefs, Motion, Ease, PopIn, Scrim, Tip } from "theme.slint";
+import { Theme, Icons, SIcon, Prefs, Motion, Ease, PopIn, ViewIn, Scrim, Tip } from "theme.slint";
 export { Theme, Icons, Prefs, Motion }
 
 export struct Folder {
@@ -847,7 +847,7 @@ component CalChip inherits Rectangle {
     accessible-role: button;
     accessible-label: e.title + (e.time != "" ? ", " + e.time : "") + (e.invite ? ", invitation" : "");
     accessible-action-default => { root.clicked(); }
-    if cta.has-hover: Rectangle { background: Theme.text.with-alpha(0.06); border-radius: parent.border-radius; }
+    Rectangle { background: cta.pressed ? Theme.text.with-alpha(0.12) : cta.has-hover ? Theme.text.with-alpha(0.06) : transparent; border-radius: parent.border-radius; animate background { duration: Motion.fast; easing: Ease.enter; } }
     cta := TouchArea {
         clicked => { root.clicked(); }
         double-clicked => { root.double-clicked(); }
@@ -3848,6 +3848,7 @@ export component AppWindow inherits Window {
                                     width: parent.width - 2px; height: parent.height - 2px;
                                     border-radius: Theme.nordic ? 14px : 9px;
                                     background: d.today ? Theme.accent : d.selected ? (Theme.nordic ? Theme.sel : Theme.tile2) : mdta.has-hover ? Theme.hover : transparent;
+                                    animate background { duration: Motion.fast; easing: Ease.enter; }
                                 }
                                 Text {
                                     text: d.day;
@@ -4079,7 +4080,7 @@ export component AppWindow inherits Window {
                             }
 
                             // ---- month ----
-                            if root.cal-view == 2: VerticalLayout {
+                            if root.cal-view == 2: ViewIn { VerticalLayout {
                                 vertical-stretch: 1;
                                 HorizontalLayout {
                                     height: 26px;
@@ -4162,10 +4163,10 @@ export component AppWindow inherits Window {
                                         }
                                     }
                                 }
-                            }
+                            } }
 
                             // ---- day / week ----
-                            if root.cal-view != 2: VerticalLayout {
+                            if root.cal-view != 2: ViewIn { VerticalLayout {
                                 vertical-stretch: 1;
                                 // day heads: "Mon 16" (Bento) or weekday over a big date, today in an accent circle (Nordic)
                                 HorizontalLayout {
@@ -4258,7 +4259,7 @@ export component AppWindow inherits Window {
                                     }
                                     init => { self.content-y = -max(0, root.pref-day-start - root.cal-hour-from) * self.hh-px; }
                                 }
-                            }
+                            } }
                         }
                         // Nordic: the context panel inside the surface, after a hairline
                         if Theme.nordic && root.cal-ctx-on: Rectangle { width: 1px; background: Theme.line; }
@@ -4520,6 +4521,7 @@ export component AppWindow inherits Window {
                                         height: (Prefs.large-targets ? 56px : 52px) * Prefs.fs;
                                         border-radius: Theme.nordic ? self.height / 2 : 16px;
                                         background: on ? Theme.sel : (cra.has-hover || CtxHl.id == "contact:" + c.id ? Theme.tile2 : transparent);
+                                        animate background { duration: Motion.list; easing: Ease.enter; }
                                         accessible-role: list-item;
                                         accessible-label: c.name;
                                         accessible-action-default => { root.ct-group = ""; root.ct-select(c.id); }
@@ -5074,6 +5076,7 @@ export component AppWindow inherits Window {
                                     height: (Prefs.large-targets ? 56px : 52px) * Prefs.fs;
                                     border-radius: Theme.nordic ? self.height / 2 : 16px;
                                     background: fra.has-hover || CtxHl.id == "file:" + f.id ? Theme.tile2 : transparent;
+                                    animate background { duration: Motion.fast; easing: Ease.enter; }
                                     border-width: CtxHl.id == "file:" + f.id ? 1px : 0px;
                                     border-color: Theme.accent;
                                     opacity: f.cut ? 0.5 : 1;

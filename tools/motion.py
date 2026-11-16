@@ -132,6 +132,19 @@ def scenarios(L):
     S["app-switch"] = ([f"move {L['idle_x']} {L['idle_y']}", "sleep 0.3"],
                        [f"click {L['rail_x']} {L['rail_cal_y']}", "sleep 0.8", f"click {L['rail_x']} {L['rail_mail_y']}", "sleep 0.8"],
                        [])
+    # PIM: calendar views, chips, mini calendar, event dialog (opened and closed with Escape: nothing saved)
+    cal = L.get("cal")
+    if cal:
+        go = [f"click {L['rail_x']} {L['rail_cal_y']}", "sleep 1.5"]
+        back = [f"click {L['rail_x']} {L['rail_mail_y']}", "sleep 0.5"]
+        S["cal-views"] = ([*go, f"move {L['idle_x']} {L['idle_y']}"],
+                          [f"click {cal['week']}", "sleep 0.6", f"click {cal['month']}", "sleep 0.6", f"click {cal['day']}", "sleep 0.6"],
+                          [])
+        S["cal-nav"] = ([], [f"click {cal['next']}", "sleep 0.3", f"click {cal['next']}", "sleep 0.3", f"click {cal['prev']}", "sleep 0.3", f"click {cal['prev']}", "sleep 0.5"], [])
+        S["cal-hover"] = ([f"move {L['idle_x']} {L['idle_y']}", "sleep 0.3"],
+                          [f"every 60 6 move {cal['sweep']}", "sleep 0.8"], [f"move {L['idle_x']} {L['idle_y']}"])
+        S["cal-dialog"] = ([],
+                           [f"click {cal['new']}", "sleep 0.6", f"click {cal['cancel']}", "sleep 0.6"], [])
     return S
 
 
