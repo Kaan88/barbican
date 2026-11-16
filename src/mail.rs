@@ -230,7 +230,7 @@ fn build_rows(st: &ListState) -> Vec<Mail> {
             color: tint(&s),
             sender: s.into(),
             subject: m["subject"].as_str().filter(|s| !s.is_empty()).unwrap_or("(no subject)").into(),
-            preview: m["preview"].as_str().filter(|s| !s.trim().is_empty()).unwrap_or("No preview available").replace('\n', " ").into(),
+            preview: clean_preview(m["preview"].as_str().unwrap_or("")).into(),
             time: t.as_ref().map(time_label).unwrap_or_default().into(),
             unread: kw["$seen"].as_bool() != Some(true),
             attach: m["hasAttachment"].as_bool().unwrap_or(false),
@@ -461,4 +461,15 @@ pub fn mark_read_local(u: &AppWindow, id: &str) {
             if m.id == id { if m.unread { m.unread = false; model.set_row_data(i, m); } break; }
         }
     }
+}
+
+/// Previews often pad with invisible characters (zero-width, soft hyphen, combining grapheme
+/// joiner, Hangul fillers) that browsers draw as nothing; drop them and collapse whitespace.
+pub fn clean_preview(p: &str) -> String {
+    let invisible = |c: char| matches!(c as u32,
+        0x00AD | 0x034F | 0x061C | 0x115F | 0x1160 | 0x17B4 | 0x17B5 | 0x180B..=0x180F | 0x200B..=0x200F |
+        0x202A..=0x202E | 0x2060..=0x206F | 0x3164 | 0xFE00..=0xFE0F | 0xFEFF | 0xFFA0 | 0xE0000..=0xE007F);
+    let t: String = p.chars().filter(|c| !invisible(*c)).map(|c| if c.is_whitespace() { ' ' } else { c }).collect();
+    let t = t.split_whitespace().collect::<Vec<_>>().join(" ");
+    if t.is_empty() { "No preview available".into() } else { t }
 }

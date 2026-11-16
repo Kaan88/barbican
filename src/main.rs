@@ -342,6 +342,9 @@ fn load_mailboxes(ui: slint::Weak<AppWindow>, client: Arc<jmap::Client>, select_
 }
 
 fn main() -> Result<(), slint::PlatformError> {
+    // Skia: the same text/graphics engine Chrome uses, so text matches Bulwark in the browser
+    // (and gets system font fallback for CJK and other scripts).
+    let _ = slint::BackendSelector::new().renderer_name("skia".into()).select();
     let ui = AppWindow::new()?;
     {
         let (loaded, errors) = plugins::load_all();
