@@ -2,16 +2,17 @@
 
 mod agent;
 mod ai;
+mod compose;
 mod jmap;
 mod lite;
+mod mail;
 mod oauth;
 mod settings;
 mod spam;
 
-use chrono::{DateTime, Datelike, Local};
-use serde_json::Value;
-use slint::{ComponentHandle, Color, Model, ModelRc, SharedString, VecModel};
-use std::collections::HashMap;
+use chrono::{DateTime, Local};
+use serde_json::{json, Value};
+use slint::{ComponentHandle, Model, ModelRc, SharedString, VecModel};
 use std::sync::{Arc, Mutex};
 
 slint::include_modules!();
@@ -181,6 +182,73 @@ pub fn html_to_text(h: &str) -> String {
     res.trim().to_string()
 }
 
+thread_local! {
+    /// The open message and its listed attachments.
+    static CUR_MSG: std::cell::RefCell<Option<(Value, Vec<Value>)>> = const { std::cell::RefCell::new(None) };
+}
+
+fn sanitize_name(n: &str) -> String {
+    let bad = ['<', '>', ':', '"', '/', '\\', '|', '?', '*'];
+    let s: String = n.chars().map(|c| if bad.contains(&c) || c.is_control() { '_' } else { c }).collect();
+    let s = s.trim().trim_matches('.').to_string();
+    if s.is_empty() { "attachment".into() } else { s }
+}
+
+static SESSION_GEN: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+/// Live updates: listen to the JMAP event stream and refresh on state changes.
+fn start_push(w: slint::Weak<AppWindow>, c: Arc<jmap::Client>) {
+    let gen = SESSION_GEN.fetch_add(1, std::sync::atomic::Ordering::SeqCst) + 1;
+    std::thread::spawn(move || loop {
+        if SESSION_GEN.load(std::sync::atomic::Ordering::SeqCst) != gen { return; }
+        let (w2, c2) = (w.clone(), c.clone());
+        let res = c.watch(&|_| {
+            if SESSION_GEN.load(std::sync::atomic::Ordering::SeqCst) != gen { return; }
+            let (w3, c3) = (w2.clone(), c2.clone());
+            let _ = w2.upgrade_in_event_loop(move |_| schedule_refresh(w3, c3));
+        });
+        if res.is_err() { std::thread::sleep(std::time::Duration::from_secs(20)); }
+    });
+}
+
+thread_local! { static REFRESH: slint::Timer = slint::Timer::default(); }
+
+fn schedule_refresh(w: slint::Weak<AppWindow>, c: Arc<jmap::Client>) {
+    REFRESH.with(|t| t.start(slint::TimerMode::SingleShot, std::time::Duration::from_millis(700), move || {
+        mail::load_mailboxes(w.clone(), c.clone(), false);
+        mail::reload(w.clone(), c.clone());
+    }));
+}
+
+fn human_size(n: u64) -> String {
+    if n >= 1_000_000 { format!("{:.1} MB", n as f64 / 1e6) } else if n >= 1000 { format!("{} KB", n / 1000) } else { format!("{n} B") }
+}
+
+/// Replace cid: references in the HTML body with data: URIs of the inline parts.
+fn inline_cid_images(c: &jmap::Client, m: &mut Value) {
+    use base64::Engine;
+    let parts: Vec<Value> = m["attachments"].as_array().cloned().unwrap_or_default().into_iter()
+        .filter(|a| a["cid"].is_string() && a["type"].as_str().is_some_and(|t| t.starts_with("image/"))).collect();
+    if parts.is_empty() { return; }
+    let Some(html_parts) = m["htmlBody"].as_array().cloned() else { return };
+    for hp in html_parts {
+        let Some(pid) = hp["partId"].as_str() else { continue };
+        let Some(mut html) = m["bodyValues"][pid]["value"].as_str().map(String::from) else { continue };
+        if !html.contains("cid:") { continue; }
+        for p in &parts {
+            let cid = p["cid"].as_str().unwrap_or("").trim_matches(['<', '>']);
+            if !html.contains(&format!("cid:{cid}")) { continue; }
+            let (blob, mime) = (p["blobId"].as_str().unwrap_or(""), p["type"].as_str().unwrap_or("image/png"));
+            if p["size"].as_u64().unwrap_or(0) > 5_000_000 { continue; }
+            if let Ok(bytes) = c.download(blob, p["name"].as_str().unwrap_or("image"), mime) {
+                let uri = format!("data:{mime};base64,{}", base64::engine::general_purpose::STANDARD.encode(bytes));
+                html = html.replace(&format!("cid:{cid}"), &uri);
+            }
+        }
+        m["bodyValues"][pid]["value"] = json!(html);
+    }
+}
+
 fn email_for_ai() -> Option<String> {
     REPLY.with(|r| r.borrow().as_ref().map(|(_, subj, _, text, who)| format!("From: {who}\nSubject: {subj}\n\n{text}")))
 }
@@ -190,119 +258,17 @@ fn initials(s: &str) -> String {
     if letters.is_empty() { "?".into() } else { letters.to_uppercase() }
 }
 
-fn tint(s: &str) -> Color {
-    const P: [u32; 6] = [0xe07a10, 0x22a55a, 0x6366f1, 0x84b31a, 0xd9467a, 0x0ea5b7];
-    let h = s.bytes().fold(7u32, |a, b| a.wrapping_mul(31).wrapping_add(b as u32));
-    Color::from_argb_encoded(0xff000000 | P[(h as usize) % P.len()])
-}
 
-fn role_icon(role: &str) -> &'static str {
-    match role {
-        "inbox" => "\u{E715}",
-        "drafts" => "\u{E70B}",
-        "sent" => "\u{E724}",
-        "archive" => "\u{E7B8}",
-        "junk" => "\u{E8F8}",
-        "trash" => "\u{E74D}",
-        _ => "\u{E8B7}",
-    }
-}
 
-fn role_rank(role: &str) -> i64 {
-    match role {
-        "inbox" => 0, "drafts" => 1, "sent" => 2, "archive" => 3, "junk" => 4, "trash" => 5, _ => 10,
-    }
-}
 
-fn build_folders(list: &[Value]) -> Vec<Folder> {
-    let mut children: HashMap<String, Vec<&Value>> = HashMap::new();
-    for m in list {
-        let p = m["parentId"].as_str().unwrap_or("").to_string();
-        children.entry(p).or_default().push(m);
-    }
-    for v in children.values_mut() {
-        v.sort_by_key(|m| {
-            (
-                role_rank(m["role"].as_str().unwrap_or("")),
-                m["sortOrder"].as_i64().unwrap_or(0),
-                m["name"].as_str().unwrap_or("").to_lowercase(),
-            )
-        });
-    }
-    fn walk(p: &str, d: i32, ch: &HashMap<String, Vec<&Value>>, out: &mut Vec<Folder>) {
-        if let Some(kids) = ch.get(p) {
-            for m in kids {
-                let id = m["id"].as_str().unwrap_or("");
-                out.push(Folder {
-                    id: id.into(),
-                    name: m["name"].as_str().unwrap_or("").into(),
-                    icon: role_icon(m["role"].as_str().unwrap_or("")).into(),
-                    depth: d,
-                    unread: m["unreadEmails"].as_i64().unwrap_or(0) as i32,
-                    total: m["totalEmails"].as_i64().unwrap_or(0) as i32,
-                });
-                walk(id, d + 1, ch, out);
-            }
-        }
-    }
-    let mut out = vec![];
-    walk("", 0, &children, &mut out);
-    out
-}
 
-fn group_label(t: &DateTime<Local>) -> String {
-    let today = Local::now().date_naive();
-    let days = (today - t.date_naive()).num_days();
-    match days {
-        0 => "Today".into(),
-        1 => "Yesterday".into(),
-        2..=6 => t.format("%A").to_string(),
-        _ if t.year() == today.year() => t.format("%B").to_string(),
-        _ => t.format("%B %Y").to_string(),
-    }
-}
 
-fn time_label(t: &DateTime<Local>) -> String {
-    let days = (Local::now().date_naive() - t.date_naive()).num_days();
-    match days {
-        0 => t.format("%H:%M").to_string(),
-        1..=6 => t.format("%a %H:%M").to_string(),
-        _ => t.format("%d %b").to_string(),
-    }
-}
 
 fn parse_time(v: &Value) -> Option<DateTime<Local>> {
     DateTime::parse_from_rfc3339(v.as_str()?).ok().map(|d| d.with_timezone(&Local))
 }
 
-fn sender(v: &Value) -> String {
-    let f = &v["from"][0];
-    f["name"].as_str().filter(|s| !s.is_empty()).or(f["email"].as_str()).unwrap_or("(unknown)").to_string()
-}
 
-fn build_mails(list: &[Value]) -> Vec<Mail> {
-    let mut last = String::new();
-    list.iter()
-        .map(|m| {
-            let t = parse_time(&m["receivedAt"]);
-            let g = t.as_ref().map(group_label).unwrap_or_default();
-            let header = if g != last { last = g.clone(); g } else { String::new() };
-            let s = sender(m);
-            Mail {
-                id: m["id"].as_str().unwrap_or("").into(),
-                initials: initials(&s).into(),
-                color: tint(&s),
-                sender: s.into(),
-                subject: m["subject"].as_str().filter(|s| !s.is_empty()).unwrap_or("(no subject)").into(),
-                preview: m["preview"].as_str().unwrap_or("No preview available").replace('\n', " ").into(),
-                time: t.as_ref().map(time_label).unwrap_or_default().into(),
-                unread: m["keywords"]["$seen"].as_bool() != Some(true),
-                attach: m["hasAttachment"].as_bool().unwrap_or(false),
-                header: header.into(),
-            }
-        })
-        .collect()
-}
 
 fn body_text(m: &Value) -> (String, String) {
     let collect = |key: &str| -> String {
@@ -326,35 +292,16 @@ fn body_html(m: &Value) -> String {
 }
 
 fn load_folder(ui: slint::Weak<AppWindow>, client: Arc<jmap::Client>, mailbox: Option<String>, text: Option<String>) {
-    let _ = ui.upgrade_in_event_loop(|u| u.set_busy(true));
-    std::thread::spawn(move || {
-        let res = client.emails(mailbox.as_deref(), text.as_deref());
-        let _ = ui.upgrade_in_event_loop(move |u| {
-            u.set_busy(false);
-            match res {
-                Ok(list) => u.set_mails(ModelRc::new(VecModel::from(build_mails(&list)))),
-                Err(e) => u.set_status(e.into()),
-            }
-        });
-    });
+    let filter = match (mailbox, text) {
+        (_, Some(t)) => json!({"text": t}),
+        (Some(m), None) => json!({"inMailbox": m}),
+        _ => json!({}),
+    };
+    mail::load_list(ui, client, filter);
 }
 
 fn load_mailboxes(ui: slint::Weak<AppWindow>, client: Arc<jmap::Client>, select_inbox: bool) {
-    std::thread::spawn(move || {
-        let Ok(list) = client.mailboxes() else { return };
-        let inbox = list.iter().find(|m| m["role"] == "inbox").and_then(|m| m["id"].as_str()).map(String::from);
-        let folders = build_folders(&list);
-        let ui2 = ui.clone();
-        let _ = ui.upgrade_in_event_loop(move |u| {
-            u.set_folders(ModelRc::new(VecModel::from(folders)));
-            if select_inbox {
-                if let Some(id) = inbox {
-                    u.set_current_folder(id.clone().into());
-                    load_folder(ui2, client, Some(id), None);
-                }
-            }
-        });
-    });
+    mail::load_mailboxes(ui, client, select_inbox);
 }
 
 fn main() -> Result<(), slint::PlatformError> {
@@ -405,6 +352,7 @@ fn main() -> Result<(), slint::PlatformError> {
     let st = state.clone();
     ui.on_sign_out(move || {
         let u = w.unwrap();
+        SESSION_GEN.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
         if let Some(c) = st.lock().unwrap().take() {
             if let Some(t) = c.tokens() { std::thread::spawn(move || oauth::revoke(&c.base, &t)); }
         }
@@ -480,16 +428,10 @@ fn main() -> Result<(), slint::PlatformError> {
     ui.on_open_mail(move |id| {
         let Some(c) = st.lock().unwrap().clone() else { return };
         let u = w.unwrap();
-        // mark read locally
-        let model = u.get_mails();
-        for i in 0..model.row_count() {
-            if let Some(mut m) = model.row_data(i) {
-                if m.id == id {
-                    if m.unread { m.unread = false; model.set_row_data(i, m); }
-                    break;
-                }
-            }
-        }
+        mail::mark_read_local(&u, &id);
+        u.set_attachments(ModelRc::default());
+        u.set_r_to("".into());
+        u.set_r_email("".into());
         u.set_r_subject("".into());
         u.set_spam_verdict("".into());
         u.set_spam_detail("".into());
@@ -506,7 +448,7 @@ fn main() -> Result<(), slint::PlatformError> {
         let w = w.clone();
         let id = id.to_string();
         std::thread::spawn(move || {
-            let res = c.email_body(&id);
+            let res = c.email_body(&id).map(|mut m| { inline_cid_images(&c, &mut m); m });
             let c2 = c.clone();
             let w2 = w.clone();
             let _ = w.upgrade_in_event_loop(move |u| {
@@ -514,11 +456,33 @@ fn main() -> Result<(), slint::PlatformError> {
                 match res {
                     Ok(m) => {
                         let f = &m["from"][0];
-                        let from = match (f["name"].as_str(), f["email"].as_str()) {
-                            (Some(n), Some(e)) if !n.is_empty() => format!("{n} <{e}>"),
-                            (_, Some(e)) => e.to_string(),
-                            _ => "(unknown)".into(),
-                        };
+                        if m["keywords"]["$draft"].as_bool() == Some(true) {
+                            compose::open_draft(&u, c2.clone(), &m);
+                        }
+                        let from = mail::sender(&m);
+                        let email = f["email"].as_str().unwrap_or("").to_string();
+                        u.set_r_email(email.clone().into());
+                        u.set_r_initials(initials(&from).into());
+                        u.set_r_color(mail::tint(&from));
+                        u.set_r_flagged(m["keywords"]["$flagged"].as_bool() == Some(true));
+                        let names = |k: &str| m[k].as_array().map(|a| a.iter().map(|x| {
+                            let e = x["email"].as_str().unwrap_or("");
+                            if e.eq_ignore_ascii_case(&c2.username) { "me".to_string() } else { x["name"].as_str().filter(|n| !n.is_empty()).unwrap_or(e).to_string() }
+                        }).collect::<Vec<_>>().join(", ")).unwrap_or_default();
+                        let mut to = names("to");
+                        let cc = names("cc");
+                        if !cc.is_empty() { to = format!("{to}  ·  Cc: {cc}"); }
+                        u.set_r_to(to.into());
+                        let atts: Vec<Value> = m["attachments"].as_array().cloned().unwrap_or_default().into_iter()
+                            .filter(|a| !(a["cid"].is_string() && a["disposition"] != "attachment" && a["type"].as_str().is_some_and(|t| t.starts_with("image/"))))
+                            .collect();
+                        let rows: Vec<Att> = atts.iter().enumerate().map(|(i, a)| Att {
+                            name: a["name"].as_str().unwrap_or("attachment").into(),
+                            size: human_size(a["size"].as_u64().unwrap_or(0)).into(),
+                            index: i as i32,
+                        }).collect();
+                        u.set_attachments(ModelRc::new(VecModel::from(rows)));
+                        CUR_MSG.with(|x| *x.borrow_mut() = Some((m.clone(), atts)));
                         u.set_r_subject(SharedString::from(m["subject"].as_str().unwrap_or("(no subject)")));
                         u.set_r_from(from.into());
                         u.set_r_date(parse_time(&m["receivedAt"]).map(|t| t.format("%a %d %b %Y, %H:%M").to_string()).unwrap_or_default().into());
@@ -558,8 +522,6 @@ fn main() -> Result<(), slint::PlatformError> {
     let cfg = Arc::new(Mutex::new(ai::Config::load()));
     ui.set_spam_show_clean(cfg.lock().unwrap().show_clean_spam);
 
-    let w = ui.as_weak();
-    let cf = cfg.clone();
     let prefs = Arc::new(Mutex::new(settings::Settings::load()));
     ui.set_show_advanced_settings(prefs.lock().unwrap().bool("showAdvancedSettings", false));
     let st_acc = state.clone();
@@ -814,81 +776,168 @@ fn main() -> Result<(), slint::PlatformError> {
         w.unwrap().set_confirm_text("".into());
     });
 
-    let w = ui.as_weak();
+    let (w, st) = (ui.as_weak(), state.clone());
     ui.on_compose_new(move || {
-        let u = w.unwrap();
-        REPLY.with(|r| *r.borrow_mut() = None);
-        u.set_can_undo(false); u.set_c_to("".into()); u.set_c_subject("".into()); u.set_c_body("".into()); u.set_c_status("".into());
-        u.set_composing(true);
+        let Some(c) = st.lock().unwrap().clone() else { return };
+        compose::open(&w.unwrap(), c, compose::Kind::New, None);
     });
 
-    let w = ui.as_weak();
+    let (w, st) = (ui.as_weak(), state.clone());
     ui.on_reply(move || {
-        let u = w.unwrap();
-        let Some((to, subj, _, text, who)) = REPLY.with(|r| r.borrow().clone()) else { return };
-        let subj = if subj.to_lowercase().starts_with("re:") { subj } else { format!("Re: {subj}") };
-        let quoted: String = text.lines().map(|l| format!("> {l}
-")).collect();
-        u.set_c_to(to.into());
-        u.set_c_subject(subj.into());
-        u.set_c_body(format!("
+        let Some(c) = st.lock().unwrap().clone() else { return };
+        let Some((m, _)) = CUR_MSG.with(|x| x.borrow().clone()) else { return };
+        compose::open(&w.unwrap(), c, compose::Kind::Reply, Some(&m));
+    });
 
-On {who} wrote:
-{quoted}").into());
-        u.set_c_status("".into());
-        u.set_can_undo(false);
-        u.set_composing(true);
+    let (w, st, pf) = (ui.as_weak(), state.clone(), prefs.clone());
+    ui.on_send_now(move || {
+        let Some(c) = st.lock().unwrap().clone() else { return };
+        compose::send(&w.unwrap(), c, &pf.lock().unwrap());
+    });
+
+    let (w, st) = (ui.as_weak(), state.clone());
+    ui.on_undo_toast(move || {
+        let Some(c) = st.lock().unwrap().clone() else { return };
+        compose::undo_send(&w.unwrap(), c);
+    });
+
+    let (w, st) = (ui.as_weak(), state.clone());
+    ui.on_attach_file(move || {
+        let Some(c) = st.lock().unwrap().clone() else { return };
+        compose::attach(&w.unwrap(), c);
     });
 
     let w = ui.as_weak();
-    let st = state.clone();
-    ui.on_send_mail(move |to, subject, body| {
+    ui.on_remove_attachment(move |i| compose::remove_attachment(&w.unwrap(), i));
+
+    let (w, st) = (ui.as_weak(), state.clone());
+    ui.on_save_draft(move |close| {
+        let Some(c) = st.lock().unwrap().clone() else { return };
+        compose::save_draft(&w.unwrap(), c, close);
+    });
+
+    let (w, st) = (ui.as_weak(), state.clone());
+    ui.on_discard_draft(move || {
+        let Some(c) = st.lock().unwrap().clone() else { return };
+        compose::discard(&w.unwrap(), c);
+    });
+
+    // ---------------- mail actions ----------------
+    let w = ui.as_weak();
+    ui.on_toggle_folder(move |id| mail::toggle_folder(&w.unwrap(), &id));
+
+    let (w, st) = (ui.as_weak(), state.clone());
+    ui.on_select_tag(move |id| {
         let Some(c) = st.lock().unwrap().clone() else { return };
         let u = w.unwrap();
-        let irt = if u.get_c_subject().starts_with("Re: ") { REPLY.with(|r| r.borrow().as_ref().and_then(|x| x.2.clone())) } else { None };
-        u.set_sending(true);
-        u.set_c_status("".into());
-        let w = w.clone();
-        let (to, subject, body) = (to.to_string(), subject.to_string(), body.to_string());
-        std::thread::spawn(move || {
-            let res = c.send(&to, &subject, &body, irt.as_deref());
-            let w2 = w.clone();
-            let ok = res.is_ok();
-            let _ = w.upgrade_in_event_loop(move |u| {
-                u.set_sending(false);
-                match res {
-                    Ok(()) => u.set_composing(false),
-                    Err(e) => u.set_c_status(e.into()),
-                }
-            });
-            if ok { load_mailboxes(w2, c, false); }
-        });
+        u.set_current_mail("".into());
+        mail::load_list(w.clone(), c, json!({"hasKeyword": format!("$label:{id}")}));
+    });
+
+    let (w, st) = (ui.as_weak(), state.clone());
+    ui.on_row_action(move |id, a| {
+        let Some(c) = st.lock().unwrap().clone() else { return };
+        mail::apply(&w.unwrap(), c, vec![id.to_string()], &a);
     });
 
     let w = ui.as_weak();
-    let st = state.clone();
-    ui.on_delete_mail(move || {
+    ui.on_toggle_check(move |id| mail::toggle_check(&w.unwrap(), &id));
+    let w = ui.as_weak();
+    ui.on_select_all(move || mail::select_all(&w.unwrap()));
+
+    let (w, st) = (ui.as_weak(), state.clone());
+    ui.on_bulk(move |a| {
+        let u = w.unwrap();
+        if a == "clear" { mail::select_all(&u); return; }
+        let Some(c) = st.lock().unwrap().clone() else { return };
+        mail::apply(&u, c, mail::checked_ids(), &a);
+    });
+
+    let (w, st) = (ui.as_weak(), state.clone());
+    ui.on_load_more(move || {
+        let Some(c) = st.lock().unwrap().clone() else { return };
+        mail::load_more(w.clone(), c);
+    });
+
+    let (w, st) = (ui.as_weak(), state.clone());
+    ui.on_move_to(move |fid| {
+        let Some(c) = st.lock().unwrap().clone() else { return };
+        let u = w.unwrap();
+        let ids = { let ch = mail::checked_ids(); if ch.is_empty() { vec![u.get_current_mail().to_string()] } else { ch } };
+        mail::apply(&u, c, ids.into_iter().filter(|i| !i.is_empty()).collect(), &format!("move:{fid}"));
+    });
+
+    let (w, st) = (ui.as_weak(), state.clone());
+    ui.on_tag_toggle(move |tid| {
         let Some(c) = st.lock().unwrap().clone() else { return };
         let u = w.unwrap();
         let id = u.get_current_mail().to_string();
+        let ids = { let ch = mail::checked_ids(); if ch.is_empty() { vec![id.clone()] } else { ch } };
+        if ids.iter().all(|i| i.is_empty()) { return; }
+        let has = mail::email(&ids[0]).is_some_and(|m| m["keywords"][format!("$label:{tid}")].as_bool() == Some(true));
+        mail::apply(&u, c, ids, &format!("{}:{tid}", if has { "untag" } else { "tag" }));
+    });
+
+    let (w, st) = (ui.as_weak(), state.clone());
+    ui.on_act(move |a| {
+        let u = w.unwrap();
+        let id = u.get_current_mail().to_string();
         if id.is_empty() { return; }
-        let model = u.get_mails();
-        if let Some(vm) = model.as_any().downcast_ref::<VecModel<Mail>>() {
-            if let Some(i) = (0..vm.row_count()).find(|&i| vm.row_data(i).map(|m| m.id == id).unwrap_or(false)) {
-                let removed = vm.remove(i);
-                if !removed.header.is_empty() {
-                    if let Some(mut next) = vm.row_data(i) {
-                        if next.header.is_empty() { next.header = removed.header; vm.set_row_data(i, next); }
+        match a.as_str() {
+            "reply" => u.invoke_reply(),
+            "reply-all" | "forward" => {
+                let Some(c) = st.lock().unwrap().clone() else { return };
+                let Some((msg, _)) = CUR_MSG.with(|x| x.borrow().clone()) else { return };
+                let kind = if a == "forward" { compose::Kind::Forward } else { compose::Kind::ReplyAll };
+                compose::open(&u, c, kind, Some(&msg));
+            }
+            "print" => {
+                let printed = u.get_render_mode() == 0 && WV.with(|v| v.borrow().as_ref().map(|v| v.print().is_ok()).unwrap_or(false));
+                if !printed {
+                    if let Some(h) = CUR.with(|c| c.borrow().as_ref().map(|c| c.html.clone().unwrap_or_else(|| format!("<pre>{}</pre>", esc(&c.text))))) {
+                        let p = std::env::temp_dir().join("barbican-print.html");
+                        let page = wrap_html_opts(&format!("<h2>{}</h2>{h}<script>print()</script>", esc(&u.get_r_subject())), false)
+                            .replace("script-src 'none'", "script-src 'unsafe-inline'");
+                        let _ = std::fs::write(&p, page);
+                        oauth::open_browser(&p.to_string_lossy());
                     }
                 }
             }
+            other => {
+                let Some(c) = st.lock().unwrap().clone() else { return };
+                if other == "star" { u.set_r_flagged(!u.get_r_flagged()); }
+                mail::apply(&u, c, vec![id], other);
+            }
         }
-        u.set_current_mail("".into());
+    });
+
+    let st = state.clone();
+    ui.on_open_attachment(move |i| {
+        let Some(c) = st.lock().unwrap().clone() else { return };
+        let Some(a) = CUR_MSG.with(|x| x.borrow().as_ref().and_then(|(_, atts)| atts.get(i as usize).cloned())) else { return };
+        std::thread::spawn(move || {
+            let name = sanitize_name(a["name"].as_str().unwrap_or("attachment"));
+            if let Ok(bytes) = c.download(a["blobId"].as_str().unwrap_or(""), &name, a["type"].as_str().unwrap_or("")) {
+                let dir = std::env::temp_dir().join("Barbican");
+                let _ = std::fs::create_dir_all(&dir);
+                let p = dir.join(&name);
+                if std::fs::write(&p, bytes).is_ok() { oauth::open_browser(&p.to_string_lossy()); }
+            }
+        });
+    });
+
+    let (w, st) = (ui.as_weak(), state.clone());
+    ui.on_save_attachment(move |i| {
+        let Some(c) = st.lock().unwrap().clone() else { return };
+        let Some(a) = CUR_MSG.with(|x| x.borrow().as_ref().and_then(|(_, atts)| atts.get(i as usize).cloned())) else { return };
+        let name = sanitize_name(a["name"].as_str().unwrap_or("attachment"));
+        let Some(path) = rfd::FileDialog::new().set_file_name(&name).save_file() else { return };
         let w = w.clone();
         std::thread::spawn(move || {
-            let res = c.trash(&id);
-            if let Err(e) = res { let _ = w.upgrade_in_event_loop(move |u| u.set_status(e.into())); }
-            else { load_mailboxes(w, c, false); }
+            let res = c.download(a["blobId"].as_str().unwrap_or(""), &name, a["type"].as_str().unwrap_or(""))
+                .and_then(|b| std::fs::write(&path, b).map_err(|e| e.to_string()));
+            let msg = match res { Ok(()) => format!("Saved {name}"), Err(e) => format!("Could not save: {e}") };
+            let _ = w.upgrade_in_event_loop(move |u| mail::show_toast(&u, &msg, false));
         });
     });
 
@@ -1038,7 +1087,8 @@ fn finish_login(w: slint::Weak<AppWindow>, st: Shared, res: Result<jmap::Client,
                 u.set_initials(initials(&name).into());
                 u.set_logged_in(true);
             });
-            load_mailboxes(w2, c, true);
+            load_mailboxes(w2.clone(), c.clone(), true);
+            start_push(w2, c);
         }
         Err(e) => {
             let _ = w.upgrade_in_event_loop(move |u| {

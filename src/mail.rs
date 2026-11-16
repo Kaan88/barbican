@@ -1,0 +1,450 @@
+//! Mail view state (folders, tags, message list with paging and selection) and actions.
+//! State lives on the UI thread; network work runs on background threads.
+use crate::jmap::Client;
+use crate::{AppWindow, Folder, Mail, Tag};
+use chrono::{DateTime, Datelike, Local};
+use serde_json::{json, Value};
+use slint::{Color, ComponentHandle, Model, ModelRc, VecModel};
+use std::cell::RefCell;
+use std::collections::{HashMap, HashSet};
+use std::sync::Arc;
+
+#[derive(Default)]
+struct ListState {
+    filter: Value,
+    emails: Vec<Value>,
+    threads: HashMap<String, usize>,
+    total: usize,
+    checked: HashSet<String>,
+    loading: bool,
+    generation: u64,
+}
+
+#[derive(Default)]
+struct BoxState {
+    list: Vec<Value>,
+    collapsed: HashSet<String>,
+}
+
+thread_local! {
+    static LIST: RefCell<ListState> = RefCell::new(ListState::default());
+    static BOXES: RefCell<BoxState> = RefCell::new(BoxState::default());
+}
+
+pub const PAGE: usize = 50;
+
+pub const TAGS: [(&str, &str, u32); 7] = [
+    ("red", "Red", 0xef4444), ("orange", "Orange", 0xf97316), ("yellow", "Yellow", 0xeab308),
+    ("green", "Green", 0x22c55e), ("blue", "Blue", 0x3b82f6), ("purple", "Purple", 0xa855f7), ("pink", "Pink", 0xec4899),
+];
+
+fn rgb(c: u32) -> Color {
+    Color::from_argb_encoded(0xff000000 | c)
+}
+
+fn tag_color(id: &str) -> Color {
+    TAGS.iter().find(|t| t.0 == id).map(|t| rgb(t.2)).unwrap_or(rgb(0x9ca3af))
+}
+
+// ---------------- folders ----------------
+
+fn role_icon(role: &str) -> &'static str {
+    match role {
+        "inbox" => "\u{E715}", "drafts" => "\u{E70B}", "sent" => "\u{E724}", "archive" => "\u{E7B8}",
+        "junk" => "\u{E8F8}", "trash" => "\u{E74D}", _ => "\u{E8B7}",
+    }
+}
+
+fn role_color(role: &str) -> Color {
+    rgb(match role {
+        "inbox" => 0x818cf8, "drafts" => 0xa78bfa, "sent" => 0x34d399, "archive" => 0xf59e0b,
+        "junk" => 0xf87171, "trash" => 0xa1a1aa, _ => 0xd4d4d4,
+    })
+}
+
+fn role_rank(role: &str) -> i64 {
+    match role { "inbox" => 0, "drafts" => 1, "sent" => 2, "archive" => 3, "junk" => 4, "trash" => 5, _ => 10 }
+}
+
+fn count_text(role: &str, unread: i64, total: i64) -> String {
+    if unread > 0 && total > unread && role != "inbox" && role != "" { format!("{unread} / {total}") }
+    else if unread > 0 { unread.to_string() }
+    else if total > 0 && matches!(role, "drafts" | "sent" | "junk" | "") { total.to_string() }
+    else { String::new() }
+}
+
+pub fn rebuild_folders(u: &AppWindow) {
+    BOXES.with(|b| {
+        let b = b.borrow();
+        let mut children: HashMap<String, Vec<&Value>> = HashMap::new();
+        for m in &b.list {
+            children.entry(m["parentId"].as_str().unwrap_or("").to_string()).or_default().push(m);
+        }
+        for v in children.values_mut() {
+            v.sort_by_key(|m| (role_rank(m["role"].as_str().unwrap_or("")), m["sortOrder"].as_i64().unwrap_or(0), m["name"].as_str().unwrap_or("").to_lowercase()));
+        }
+        fn walk(p: &str, d: i32, ch: &HashMap<String, Vec<&Value>>, col: &HashSet<String>, out: &mut Vec<Folder>) {
+            let Some(kids) = ch.get(p) else { return };
+            for m in kids {
+                let id = m["id"].as_str().unwrap_or("");
+                let role = m["role"].as_str().unwrap_or("");
+                let has_kids = ch.contains_key(id);
+                let collapsed = col.contains(id);
+                let (unread, total) = (m["unreadEmails"].as_i64().unwrap_or(0), m["totalEmails"].as_i64().unwrap_or(0));
+                out.push(Folder {
+                    id: id.into(),
+                    name: m["name"].as_str().unwrap_or("").into(),
+                    icon: role_icon(role).into(),
+                    depth: d,
+                    unread: unread as i32,
+                    total: total as i32,
+                    color: role_color(role),
+                    count: count_text(role, unread, total).into(),
+                    chevron: if has_kids { if collapsed { 2 } else { 1 } } else { 0 },
+                    muted: m["isSubscribed"].as_bool() == Some(false),
+                });
+                if !collapsed { walk(id, d + 1, ch, col, out); }
+            }
+        }
+        let mut out = vec![];
+        walk("", 0, &children, &b.collapsed, &mut out);
+        u.set_folders(ModelRc::new(VecModel::from(out)));
+    });
+}
+
+pub fn toggle_folder(u: &AppWindow, id: &str) {
+    BOXES.with(|b| {
+        let mut b = b.borrow_mut();
+        if !b.collapsed.remove(id) { b.collapsed.insert(id.to_string()); }
+    });
+    rebuild_folders(u);
+}
+
+pub fn mailbox_role(id: &str) -> String {
+    BOXES.with(|b| b.borrow().list.iter().find(|m| m["id"] == id).and_then(|m| m["role"].as_str()).unwrap_or("").to_string())
+}
+
+pub fn load_mailboxes(w: slint::Weak<AppWindow>, c: Arc<Client>, select_inbox: bool) {
+    std::thread::spawn(move || {
+        let Ok(list) = c.mailboxes() else { return };
+        let counts = tag_counts(&c);
+        let w2 = w.clone();
+        let _ = w.upgrade_in_event_loop(move |u| {
+            let inbox = list.iter().find(|m| m["role"] == "inbox").and_then(|m| m["id"].as_str()).map(String::from);
+            BOXES.with(|b| b.borrow_mut().list = list);
+            rebuild_folders(&u);
+            set_tags(&u, &counts);
+            if select_inbox {
+                if let Some(id) = inbox {
+                    u.set_current_folder(id.clone().into());
+                    load_list(w2, c, json!({"inMailbox": id}));
+                }
+            }
+        });
+    });
+}
+
+// ---------------- tags ----------------
+
+fn tag_counts(c: &Client) -> HashMap<String, usize> {
+    let calls: Vec<Value> = TAGS.iter().enumerate().map(|(i, t)| json!(["Email/query", {
+        "accountId": c.account, "filter": {"hasKeyword": format!("$label:{}", t.0)}, "limit": 0, "calculateTotal": true
+    }, format!("t{i}")])).collect();
+    match c.request(Value::Array(calls)) {
+        Ok(r) => TAGS.iter().zip(r.iter()).map(|(t, x)| (t.0.to_string(), x[1]["total"].as_u64().unwrap_or(0) as usize)).collect(),
+        Err(_) => HashMap::new(),
+    }
+}
+
+fn set_tags(u: &AppWindow, counts: &HashMap<String, usize>) {
+    let v: Vec<Tag> = TAGS.iter().map(|t| Tag {
+        id: t.0.into(), name: t.1.into(), color: rgb(t.2),
+        count: counts.get(t.0).filter(|n| **n > 0).map(|n| n.to_string()).unwrap_or_default().into(),
+    }).collect();
+    u.set_tags(ModelRc::new(VecModel::from(v)));
+}
+
+// ---------------- list ----------------
+
+fn initials(s: &str) -> String {
+    let letters: String = s.chars().filter(|c| c.is_alphanumeric()).take(2).collect();
+    if letters.is_empty() { "?".into() } else { letters.to_uppercase() }
+}
+
+pub fn tint(s: &str) -> Color {
+    const P: [u32; 6] = [0xe07a10, 0x22a55a, 0x6366f1, 0x84b31a, 0xd9467a, 0x0ea5b7];
+    let h = s.bytes().fold(7u32, |a, b| a.wrapping_mul(31).wrapping_add(b as u32));
+    rgb(P[(h as usize) % P.len()])
+}
+
+fn group_label(t: &DateTime<Local>) -> String {
+    let today = Local::now().date_naive();
+    match (today - t.date_naive()).num_days() {
+        0 => "Today".into(),
+        1 => "Yesterday".into(),
+        2..=6 => t.format("%A").to_string(),
+        _ if t.year() == today.year() => t.format("%B").to_string(),
+        _ => t.format("%B %Y").to_string(),
+    }
+}
+
+fn time_label(t: &DateTime<Local>) -> String {
+    match (Local::now().date_naive() - t.date_naive()).num_days() {
+        0 => t.format("%H:%M").to_string(),
+        1..=6 => t.format("%a %H:%M").to_string(),
+        _ => t.format("%d %b").to_string(),
+    }
+}
+
+pub fn parse_time(v: &Value) -> Option<DateTime<Local>> {
+    DateTime::parse_from_rfc3339(v.as_str()?).ok().map(|d| d.with_timezone(&Local))
+}
+
+pub fn sender(v: &Value) -> String {
+    let f = &v["from"][0];
+    f["name"].as_str().filter(|s| !s.is_empty()).or(f["email"].as_str()).unwrap_or("(unknown)").to_string()
+}
+
+fn build_rows(st: &ListState) -> Vec<Mail> {
+    let mut last = String::new();
+    st.emails.iter().map(|m| {
+        let t = parse_time(&m["receivedAt"]);
+        let g = t.as_ref().map(group_label).unwrap_or_default();
+        let header = if g != last { last = g.clone(); g } else { String::new() };
+        let s = sender(m);
+        let kw = &m["keywords"];
+        let id = m["id"].as_str().unwrap_or("").to_string();
+        let tags: Vec<Color> = kw.as_object().map(|o| o.keys().filter_map(|k| k.strip_prefix("$label:")).map(tag_color).collect()).unwrap_or_default();
+        Mail {
+            initials: initials(&s).into(),
+            color: tint(&s),
+            sender: s.into(),
+            subject: m["subject"].as_str().filter(|s| !s.is_empty()).unwrap_or("(no subject)").into(),
+            preview: m["preview"].as_str().filter(|s| !s.trim().is_empty()).unwrap_or("No preview available").replace('\n', " ").into(),
+            time: t.as_ref().map(time_label).unwrap_or_default().into(),
+            unread: kw["$seen"].as_bool() != Some(true),
+            attach: m["hasAttachment"].as_bool().unwrap_or(false),
+            header: header.into(),
+            threads: st.threads.get(m["threadId"].as_str().unwrap_or("")).copied().unwrap_or(1) as i32,
+            flagged: kw["$flagged"].as_bool() == Some(true),
+            answered: kw["$answered"].as_bool() == Some(true),
+            draft: kw["$draft"].as_bool() == Some(true),
+            checked: st.checked.contains(&id),
+            tags: ModelRc::new(VecModel::from(tags)),
+            id: id.into(),
+        }
+    }).collect()
+}
+
+pub fn rebuild_list(u: &AppWindow) {
+    LIST.with(|l| {
+        let l = l.borrow();
+        u.set_mails(ModelRc::new(VecModel::from(build_rows(&l))));
+        u.set_has_more(l.emails.len() < l.total);
+        u.set_checked_count(l.checked.len() as i32);
+    });
+}
+
+/// Load the first page of a list (folder, tag or search filter).
+pub fn load_list(w: slint::Weak<AppWindow>, c: Arc<Client>, filter: Value) {
+    let gen = LIST.with(|l| {
+        let mut l = l.borrow_mut();
+        l.generation += 1;
+        l.filter = filter.clone();
+        l.checked.clear();
+        l.loading = true;
+        l.generation
+    });
+    let _ = w.upgrade_in_event_loop(|u| u.set_busy(true));
+    std::thread::spawn(move || {
+        let res = c.list(filter, 0, PAGE);
+        let _ = w.upgrade_in_event_loop(move |u| {
+            u.set_busy(false);
+            LIST.with(|l| {
+                let mut l = l.borrow_mut();
+                if l.generation != gen { return; }
+                l.loading = false;
+                match res {
+                    Ok((emails, total, threads)) => { l.emails = emails; l.total = total; l.threads = threads; }
+                    Err(e) => { l.emails.clear(); l.total = 0; u.set_status(e.into()); }
+                }
+            });
+            rebuild_list(&u);
+        });
+    });
+}
+
+pub fn load_more(w: slint::Weak<AppWindow>, c: Arc<Client>) {
+    let Some((filter, pos, gen)) = LIST.with(|l| {
+        let mut l = l.borrow_mut();
+        if l.loading || l.emails.len() >= l.total { return None; }
+        l.loading = true;
+        Some((l.filter.clone(), l.emails.len(), l.generation))
+    }) else { return };
+    std::thread::spawn(move || {
+        let res = c.list(filter, pos, PAGE);
+        let _ = w.upgrade_in_event_loop(move |u| {
+            LIST.with(|l| {
+                let mut l = l.borrow_mut();
+                if l.generation != gen { return; }
+                l.loading = false;
+                if let Ok((emails, total, threads)) = res {
+                    let have: HashSet<String> = l.emails.iter().filter_map(|m| m["id"].as_str().map(String::from)).collect();
+                    l.emails.extend(emails.into_iter().filter(|m| !have.contains(m["id"].as_str().unwrap_or(""))));
+                    l.total = total;
+                    l.threads.extend(threads);
+                }
+            });
+            rebuild_list(&u);
+        });
+    });
+}
+
+/// Re-fetch what is loaded (after push or an action), keeping the scroll depth.
+pub fn reload(w: slint::Weak<AppWindow>, c: Arc<Client>) {
+    let (filter, n, gen) = LIST.with(|l| { let l = l.borrow(); (l.filter.clone(), l.emails.len().max(PAGE), l.generation) });
+    if filter.is_null() { return; }
+    std::thread::spawn(move || {
+        let res = c.list(filter, 0, n);
+        let _ = w.upgrade_in_event_loop(move |u| {
+            LIST.with(|l| {
+                let mut l = l.borrow_mut();
+                if l.generation != gen { return; }
+                if let Ok((emails, total, threads)) = res {
+                    let ids: HashSet<String> = emails.iter().filter_map(|m| m["id"].as_str().map(String::from)).collect();
+                    l.checked.retain(|i| ids.contains(i));
+                    l.emails = emails; l.total = total; l.threads = threads;
+                }
+            });
+            rebuild_list(&u);
+        });
+    });
+}
+
+pub fn toggle_check(u: &AppWindow, id: &str) {
+    LIST.with(|l| {
+        let mut l = l.borrow_mut();
+        if !l.checked.remove(id) { l.checked.insert(id.to_string()); }
+    });
+    rebuild_list(u);
+}
+
+pub fn select_all(u: &AppWindow) {
+    LIST.with(|l| {
+        let mut l = l.borrow_mut();
+        if l.checked.is_empty() {
+            l.checked = l.emails.iter().filter_map(|m| m["id"].as_str().map(String::from)).collect();
+        } else {
+            l.checked.clear();
+        }
+    });
+    rebuild_list(u);
+}
+
+pub fn checked_ids() -> Vec<String> {
+    LIST.with(|l| l.borrow().checked.iter().cloned().collect())
+}
+
+pub fn email(id: &str) -> Option<Value> {
+    LIST.with(|l| l.borrow().emails.iter().find(|m| m["id"] == id).cloned())
+}
+
+/// Update a message locally (optimistic UI).
+fn patch_local(ids: &[String], f: impl Fn(&mut Value)) {
+    LIST.with(|l| {
+        for m in l.borrow_mut().emails.iter_mut() {
+            if ids.iter().any(|i| m["id"] == i.as_str()) { f(m); }
+        }
+    });
+}
+
+fn remove_local(ids: &[String]) {
+    LIST.with(|l| {
+        let mut l = l.borrow_mut();
+        let before = l.emails.len();
+        l.emails.retain(|m| !ids.iter().any(|i| m["id"] == i.as_str()));
+        let removed = before - l.emails.len();
+        l.total = l.total.saturating_sub(removed);
+        for i in ids { l.checked.remove(i); }
+    });
+}
+
+/// Apply an action to messages: delete, archive, spam, notspam, star, unstar, read, unread,
+/// tag:<id>, untag:<id>, move:<mailboxId>.
+pub fn apply(u: &AppWindow, c: Arc<Client>, ids: Vec<String>, action: &str) {
+    if ids.is_empty() { return; }
+    let w = u.as_weak();
+    let action = action.to_string();
+    // in Trash or Junk, delete is permanent (Bulwark's default)
+    let current_role = mailbox_role(&u.get_current_folder());
+    let permanent = action == "delete" && (current_role == "trash" || (current_role == "junk"));
+    // resolve toggles from current state
+    let first = email(&ids[0]);
+    let action = match action.as_str() {
+        "star" if first.as_ref().is_some_and(|m| m["keywords"]["$flagged"].as_bool() == Some(true)) => "unstar".to_string(),
+        "read" if first.as_ref().is_some_and(|m| m["keywords"]["$seen"].as_bool() == Some(true)) => "unread".to_string(),
+        a => a.to_string(),
+    };
+    // optimistic local change
+    match action.as_str() {
+        "star" => patch_local(&ids, |m| m["keywords"]["$flagged"] = json!(true)),
+        "unstar" => patch_local(&ids, |m| { if let Some(o) = m["keywords"].as_object_mut() { o.remove("$flagged"); } }),
+        "read" => patch_local(&ids, |m| m["keywords"]["$seen"] = json!(true)),
+        "unread" => patch_local(&ids, |m| { if let Some(o) = m["keywords"].as_object_mut() { o.remove("$seen"); } }),
+        a if a.starts_with("tag:") => { let k = format!("$label:{}", &a[4..]); patch_local(&ids, |m| m["keywords"][k.as_str()] = json!(true)) }
+        a if a.starts_with("untag:") => { let k = format!("$label:{}", &a[6..]); patch_local(&ids, |m| { if let Some(o) = m["keywords"].as_object_mut() { o.remove(&k); } }) }
+        "delete" | "archive" | "spam" | "notspam" => remove_local(&ids),
+        a if a.starts_with("move:") => remove_local(&ids),
+        _ => {}
+    }
+    if ["delete", "archive", "spam", "notspam"].contains(&action.as_str()) || action.starts_with("move:") {
+        if ids.iter().any(|i| *i == u.get_current_mail().as_str()) { u.set_current_mail("".into()); }
+    }
+    rebuild_list(u);
+    std::thread::spawn(move || {
+        let res: Result<(), String> = (|| {
+            let check = |r: (usize, Vec<String>)| if r.1.is_empty() { Ok(()) } else { Err(r.1.join("; ")) };
+            match action.as_str() {
+                "delete" if permanent => c.destroy(&ids).map(|_| ()),
+                "delete" => check(c.move_to_role(&ids, "trash")?),
+                "archive" => check(c.move_to_role(&ids, "archive")?),
+                "spam" => c.mark_spam(&ids, true),
+                "notspam" => c.mark_spam(&ids, false),
+                "star" => check(c.set_keyword(&ids, "$flagged", true)?),
+                "unstar" => check(c.set_keyword(&ids, "$flagged", false)?),
+                "read" => check(c.set_keyword(&ids, "$seen", true)?),
+                "unread" => check(c.set_keyword(&ids, "$seen", false)?),
+                a if a.starts_with("tag:") => check(c.set_keyword(&ids, &format!("$label:{}", &a[4..]), true)?),
+                a if a.starts_with("untag:") => check(c.set_keyword(&ids, &format!("$label:{}", &a[6..]), false)?),
+                a if a.starts_with("move:") => check(c.move_to(&ids, &a[5..])?),
+                a => Err(format!("Unknown action {a}")),
+            }
+        })();
+        if let Err(e) = res {
+            let _ = w.upgrade_in_event_loop(move |u| show_toast(&u, &e, false));
+        }
+        load_mailboxes(w.clone(), c.clone(), false);
+        reload(w, c);
+    });
+}
+
+pub fn show_toast(u: &AppWindow, text: &str, undo: bool) {
+    u.set_toast(text.into());
+    u.set_toast_undo(undo);
+    let w = u.as_weak();
+    let t = text.to_string();
+    slint::Timer::single_shot(std::time::Duration::from_secs(if undo { 12 } else { 6 }), move || {
+        if let Some(u) = w.upgrade() { if u.get_toast().as_str() == t { u.set_toast("".into()); } }
+    });
+}
+
+/// Mark the row as read locally (reader opened it).
+pub fn mark_read_local(u: &AppWindow, id: &str) {
+    patch_local(&[id.to_string()], |m| m["keywords"]["$seen"] = json!(true));
+    let model = u.get_mails();
+    for i in 0..model.row_count() {
+        if let Some(mut m) = model.row_data(i) {
+            if m.id == id { if m.unread { m.unread = false; model.set_row_data(i, m); } break; }
+        }
+    }
+}
