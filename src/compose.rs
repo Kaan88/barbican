@@ -425,7 +425,7 @@ pub fn toggle_tag(u: &AppWindow, i: i32) {
 }
 
 pub fn attach(u: &AppWindow, c: Arc<Client>) {
-    let Some(files) = rfd::FileDialog::new().pick_files() else { return };
+    let Some(files) = crate::automation::pick_files() else { return };
     attach_files(u, c, files);
 }
 

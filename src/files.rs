@@ -365,7 +365,7 @@ fn create_in(c: &Client, draft: bool, acc: &str, parent: Option<&str>, name: &st
 
 pub fn upload(u: &AppWindow, c: Arc<Client>) {
     if ST.with(|s| s.borrow().cwd == TRASH_LOC) { crate::mail::show_toast(u, "Nothing can be added to the trash.", false); return; }
-    let Some(files) = rfd::FileDialog::new().pick_files() else { return };
+    let Some(files) = crate::automation::pick_files() else { return };
     let (cwd, draft) = ST.with(|s| (s.borrow().cwd.clone(), s.borrow().draft18));
     let (acc, parent) = target(&cwd);
     let w = u.as_weak();
