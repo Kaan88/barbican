@@ -29,6 +29,7 @@ public partial class SpikeApp : Application
         // painting the page; the hidden automation window needs it to keep rendering (S4 note).
         Environment.SetEnvironmentVariable("WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS", "--disable-features=CalculateNativeWinOcclusion --disable-background-timer-throttling");
 
+        Console.WriteLine("[spike] launched");
         var root = new SpikeRoot();
         _window = new Window { Title = "Barbican body shell spike", Content = root };
 #if WINDOWS
@@ -37,7 +38,21 @@ public partial class SpikeApp : Application
         _window.Activate();
 #endif
         var scenario = new Scenario(root, _window, outDir);
-        root.Loaded += (_, _) => _ = RunAndExitAsync(scenario);
+        root.Loaded += (_, _) =>
+        {
+            Console.WriteLine("[spike] root loaded");
+            _ = RunAndExitAsync(scenario);
+        };
+        _ = WatchdogAsync(scenario);
+    }
+
+    /// <summary>A probe that never answers must not hang the run: write what is known and exit.</summary>
+    private static async Task WatchdogAsync(Scenario scenario)
+    {
+        await Task.Delay(TimeSpan.FromSeconds(180));
+        Console.WriteLine("[spike] watchdog: 180 s passed, writing the partial report");
+        await scenario.WriteReportAsync("watchdog: run exceeded 180 s; last step: " + scenario.Step);
+        Environment.Exit(3);
     }
 
     private static async Task RunAndExitAsync(Scenario scenario)

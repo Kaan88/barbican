@@ -62,11 +62,30 @@ internal sealed partial class Scenario
             _capture?.Dispose();
         }
 
-        var json = JsonSerializer.Serialize(_report, ShellJson.Default.SpikeReport);
-        await File.WriteAllTextAsync(Path.Combine(_outDir, "report.json"), json);
+        await WriteReportAsync(null);
         var ok = _report.Checks.TrueForAll(c => c.Pass) && _report.Phases.TrueForAll(p => p.Pass);
         Log($"done: {_report.Checks.Count(c => c.Pass)}/{_report.Checks.Count} checks, {_report.Phases.Count(p => p.Pass)}/{_report.Phases.Count} phases pass");
         return ok ? 0 : 2;
+    }
+
+    /// <summary>The step running now (for the watchdog's report).</summary>
+    public string Step { get; private set; } = "start";
+
+    public async Task WriteReportAsync(string? note)
+    {
+        if (note is not null)
+        {
+            _report.Notes.Add(note);
+        }
+
+        var json = JsonSerializer.Serialize(_report, ShellJson.Default.SpikeReport);
+        await File.WriteAllTextAsync(Path.Combine(_outDir, "report.json"), json);
+    }
+
+    private void Begin(string step)
+    {
+        Step = step;
+        Log("step: " + step);
     }
 
     private static void Log(string s) => Console.WriteLine("[spike] " + s);
@@ -96,6 +115,7 @@ internal sealed partial class Scenario
         };
 
         var t0 = Clock.Now;
+        Begin("EnsureCoreWebView2Async + NavigateToString(shell)");
         await _shell.InitializeAsync(MailDocument.Shell(shellJs, Rgb(SpikeRoot.TileColor)), SpikeRoot.TileColor);
         _report.Notes.AddRange(_shell.SetupNotes.Select(n => "setup: " + n));
         var up = await Wait(shellUp.Task, 20_000);
@@ -105,6 +125,7 @@ internal sealed partial class Scenario
             return;
         }
 
+        Begin("API probes");
         await ProbeApisAsync();
         _capture = CreateCapture();
         _report.Capture = _capture?.Name ?? "none";
@@ -113,12 +134,18 @@ internal sealed partial class Scenario
             return;
         }
 
+        Begin("switch phase");
         await SwitchPhaseAsync();
+        Begin("dark phase");
         await DarkPhaseAsync();
+        Begin("menu phases");
         await AirspaceFlyoutPhaseAsync();
+        Begin("dialog phase");
         await AirspaceDialogPhaseAsync();
+        Begin("in-tree overlay phase");
         await AirspaceCustomOverlayPhaseAsync();
 #if !WINDOWS
+        Begin("Linux stand-in phase");
         await LinuxStandinPhaseAsync();
 #endif
     }
