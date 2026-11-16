@@ -2136,7 +2136,7 @@ export component AppWindow inherits Window {
                             if root.rte-link-open: Rectangle {
                                 x: max(0px, min(parent.width - 340px, root.rte-caret-x - 20px));
                                 y: root.rte-caret-y + root.rte-caret-h + 6px;
-                                width: 340px; height: 112px;
+                                width: 340px; height: 150px;
                                 border-radius: 8px;
                                 background: Theme.popup;
                                 border-width: 1px; border-color: Theme.line;
@@ -2152,16 +2152,16 @@ export component AppWindow inherits Window {
                                         Text { text: "URL"; color: Theme.dim; width: 36px; vertical-alignment: center; font-size: 12px; }
                                         link-url := LineEdit { text <=> root.rte-link-url; placeholder-text: "https://"; init => { self.focus(); } accepted => { root.rte-cmd("link-apply"); cmp.focus-ed(); } }
                                     }
+                                    // actions sit in the popover itself (Bulwark), not in a bar at the bottom of the composer
+                                    HorizontalLayout { spacing: 4px; alignment: end;
+                                        Text { text: "Enter applies, Esc cancels"; color: Theme.dim; font-size: 11px; vertical-alignment: center; horizontal-stretch: 1; }
+                                        VerticalLayout { alignment: center; BarButton { label: "Remove"; chevron: false; clicked => { root.rte-cmd("link-remove"); cmp.focus-ed(); } } }
+                                        VerticalLayout { alignment: center; BarButton { label: "Cancel"; chevron: false; clicked => { root.rte-link-open = false; cmp.focus-ed(); } } }
+                                        VerticalLayout { alignment: center; BarButton { label: "Apply"; chevron: false; clicked => { root.rte-cmd("link-apply"); cmp.focus-ed(); } } }
+                                    }
                                 }
                             }
                         }
-                    }
-                    if root.rte-link-open: HorizontalLayout {
-                        padding-left: 12px; padding-right: 12px; padding-bottom: 6px; spacing: 6px; alignment: end;
-                        Text { text: "Press Enter to apply, Esc to cancel"; color: Theme.dim; font-size: 11px; vertical-alignment: center; horizontal-stretch: 1; }
-                        VerticalLayout { alignment: center; BarButton { label: "Remove link"; chevron: false; clicked => { root.rte-cmd("link-remove"); cmp.focus-ed(); } } }
-                        VerticalLayout { alignment: center; BarButton { label: "Cancel"; chevron: false; clicked => { root.rte-link-open = false; cmp.focus-ed(); } } }
-                        VerticalLayout { alignment: center; BarButton { label: "Apply"; chevron: false; clicked => { root.rte-cmd("link-apply"); cmp.focus-ed(); } } }
                     }
                     if root.c-attachments.length > 0: HorizontalLayout {
                         padding-left: 12px;

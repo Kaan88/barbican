@@ -1092,8 +1092,11 @@ pub fn parse_addresses(s: &str) -> Vec<Value> {
     let mut cur = String::new();
     let mut quoted = false;
     let mut angle = false;
-    for ch in s.chars() {
+    let mut chars = s.chars();
+    while let Some(ch) = chars.next() {
         match ch {
+            // a quoted-pair inside a display name (`"Doo, \"J\"" <j@d.o>`)
+            '\\' if quoted => { cur.push(ch); if let Some(n) = chars.next() { cur.push(n); } }
             '"' => { quoted = !quoted; cur.push(ch); }
             '<' => { angle = true; cur.push(ch); }
             '>' => { angle = false; cur.push(ch); }
@@ -1107,7 +1110,12 @@ pub fn parse_addresses(s: &str) -> Vec<Value> {
         if p.is_empty() { return None; }
         if let (Some(a), Some(b)) = (p.rfind('<'), p.rfind('>')) {
             let email = p[a + 1..b].trim();
-            let name = p[..a].trim().trim_matches('"').trim();
+            let raw = p[..a].trim();
+            let name = match raw.strip_prefix('"').and_then(|r| r.strip_suffix('"')) {
+                Some(q) => { let mut o = String::new(); let mut it = q.chars(); while let Some(c) = it.next() { o.push(if c == '\\' { it.next().unwrap_or(c) } else { c }); } o }
+                None => raw.to_string(),
+            };
+            let name = name.trim();
             if email.contains('@') {
                 return Some(if name.is_empty() { json!({"email": email}) } else { json!({"name": name, "email": email}) });
             }
