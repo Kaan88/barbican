@@ -305,6 +305,12 @@ impl Client {
     /// Whether the server is Stalwart (its `urn:stalwart:jmap` capability).
     pub fn is_stalwart(&self) -> bool { self.has("urn:stalwart:jmap") }
 
+    /// Who owns cached sync states: server, user and account. Account ids alone repeat across
+    /// servers (Stalwart's are short sequential ids), and a state must never cross accounts.
+    pub fn state_key(&self) -> String { format!("{}
+{}
+{}", self.base, self.username, self.account) }
+
     /// `X/set` with `update`, split by maxObjectsInSet; returns (updated, failed descriptions).
     pub fn update(&self, method: &str, account: &str, patches: Vec<(String, Value)>) -> R<(usize, Vec<String>)> {
         let mut ok = 0;
@@ -427,7 +433,11 @@ impl Client {
                 let gone: std::collections::HashSet<&String> = destroyed.iter().collect();
                 let fetch_full: Vec<Value> = created.iter().filter(|i| !gone.contains(i)).map(|i| json!(i)).collect();
                 let partial = props.as_ref().filter(|p| !p.is_empty() && p.iter().all(|x| MAILBOX_PROPERTIES.contains(&x.as_str())));
-                let fetch_upd: Vec<Value> = updated.iter().filter(|i| !gone.contains(i) && !created.contains(i)).map(|i| json!(i)).collect();
+                let upd: Vec<&String> = updated.iter().filter(|i| !gone.contains(i) && !created.contains(i)).collect();
+                // a counts-only fetch is merged into a cached folder; one the cache lacks is
+                // fetched whole, or it would join the tree with no name, parent or role
+                let (fetch_upd, missing) = split_known(&upd, have, partial.is_some());
+                let fetch_full: Vec<Value> = fetch_full.into_iter().chain(missing).collect();
                 let mut fetched = self.get_all("Mailbox/get", &self.account, &fetch_full, Some(&json!(MAILBOX_PROPERTIES)))?;
                 let upd_props = match partial {
                     Some(p) => { let mut p = p.clone(); p.push("id".into()); json!(p) }
@@ -678,16 +688,7 @@ impl Client {
     /// submission extension. Stalwart advertises 30 days while its MTA refuses holds past its
     /// futureRelease limit (7 days by default), as Bulwark notes.
     pub fn max_delayed_send(&self) -> u64 {
-        let cap = self.account_cap("urn:ietf:params:jmap:submission");
-        let max = cap["maxDelayedSend"].as_u64().unwrap_or(0);
-        let has = |k: &str| k.eq_ignore_ascii_case("FUTURERELEASE");
-        let future = match &cap["submissionExtensions"] {
-            Value::Object(o) => o.keys().any(|k| has(k)),
-            Value::Array(a) => a.iter().any(|k| k.as_str().is_some_and(has)),
-            _ => true,
-        };
-        if !future { return 0; }
-        if self.is_stalwart() && max == 30 * 86400 { 7 * 86400 } else { max }
+        delayed_send_limit(&self.account_cap("urn:ietf:params:jmap:submission"), self.is_stalwart())
     }
 
     pub fn supports_delayed_send(&self) -> bool {
@@ -753,11 +754,13 @@ impl Client {
             .replace("{name}", &enc(if name.is_empty() { "file" } else { name }))
             .replace("{type}", &enc(if mime.is_empty() { "application/octet-stream" } else { mime }));
         self.renew_if_due();
-        // big attachments: no overall deadline, only one per read (reqwest blocking semantics)
-        let mut resp = self.http.get(&url).header("Authorization", self.auth_header()).timeout(std::time::Duration::from_secs(120)).send().map_err(e)?;
+        // no per-request timeout: in reqwest it is a total deadline that also covers reading the
+        // body, which a big attachment on a slow link overruns. The client's blocking timeout
+        // bounds each wait (headers, every body read) with no overall cap.
+        let mut resp = self.http.get(&url).header("Authorization", self.auth_header()).send().map_err(e)?;
         if resp.status() == 401 && self.oauth.is_some() {
             self.renew()?;
-            resp = self.http.get(&url).header("Authorization", self.auth_header()).timeout(std::time::Duration::from_secs(120)).send().map_err(e)?;
+            resp = self.http.get(&url).header("Authorization", self.auth_header()).send().map_err(e)?;
         }
         if !resp.status().is_success() { return Err(format!("Download failed ({})", resp.status())); }
         Ok(resp.bytes().map_err(e)?.to_vec())
@@ -780,8 +783,11 @@ impl Client {
         self.renew_if_due();
         // RFC 8620 §6.1 maxConcurrentUpload
         let _p = self.uploads.enter();
+        // a request timeout is a total deadline covering the body; scale it with the size
+        // (at least 5 min, allowing ~32 KB/s) so slow links can still upload big files
+        let limit = std::time::Duration::from_secs(300u64.max(len as u64 / 32_000));
         let send = |data: Vec<u8>| self.http.post(&url).header("Authorization", self.auth_header()).header("Content-Type", mime)
-            .timeout(std::time::Duration::from_secs(300)).body(data).send().map_err(e);
+            .timeout(limit).body(data).send().map_err(e);
         let mut resp = send(data.clone())?;
         if resp.status() == 401 && self.oauth.is_some() {
             self.renew()?;
@@ -937,14 +943,29 @@ impl Client {
         if r[1][1]["list"][0]["undoStatus"].as_str().is_some_and(|s| s != "canceled") {
             return Err("The message has already been sent.".into());
         }
-        let email = r[1][1]["list"][0]["emailId"].as_str().map(String::from);
+        let Some(eid) = r[1][1]["list"][0]["emailId"].as_str().map(String::from) else { return Ok(None) };
+        // the canceled submission record is housekeeping only: a failed destroy leaves a
+        // harmless canceled entry, so its result does not decide the undo
         let _ = self.call(json!([["EmailSubmission/set", {"accountId": acc, "destroy": [id]}, "d"]]));
-        if let (Some(eid), true) = (&email, acc == self.account) {
-            if let Some(drafts) = self.role_ids()?.get("drafts") {
-                let _ = self.update("Email/set", &self.account, vec![(eid.clone(), json!({"mailboxIds": { drafts: true }, "keywords/$draft": true}))]);
+        if acc == self.account && self.restore_draft(&eid) { return Ok(Some(eid)); }
+        // could not turn it back into a draft (or it lives in another account): remove the
+        // never-sent copy so it cannot pass for sent mail; the composer still holds the content
+        // and saves it as a new draft
+        let _ = self.call(json!([["Email/set", {"accountId": acc, "destroy": [eid]}, "x"]]));
+        Ok(None)
+    }
+
+    /// Move a message back to Drafts with `$draft`; retried once with fresh folder roles.
+    fn restore_draft(&self, eid: &str) -> bool {
+        for fresh in [false, true] {
+            if fresh { self.roles.lock().unwrap().take(); }
+            let Ok(roles) = self.role_ids() else { continue };
+            let Some(drafts) = roles.get("drafts") else { continue };
+            if let Ok((_, bad)) = self.update("Email/set", &self.account, vec![(eid.to_string(), json!({"mailboxIds": { drafts: true }, "keywords/$draft": true}))]) {
+                if bad.is_empty() { return true; }
             }
         }
-        Ok(email)
+        false
     }
 
     // ------------------------------------------------------------------
@@ -1233,6 +1254,27 @@ pub fn went_back(since: &str, new: &str) -> bool {
 
 /// Apply a /changes result to a cached object list: drop `destroyed`, then merge each fetched
 /// object into the one with its id (a partial fetch updates only its properties) or append it.
+/// `maxDelayedSend` of a submission capability, or 0 unless FUTURERELEASE is listed in
+/// `submissionExtensions` (as Bulwark's hasDelayedSend: a missing list means no extension).
+fn delayed_send_limit(cap: &Value, stalwart: bool) -> u64 {
+    let max = cap["maxDelayedSend"].as_u64().unwrap_or(0);
+    let has = |k: &str| k.eq_ignore_ascii_case("FUTURERELEASE");
+    let future = match &cap["submissionExtensions"] {
+        Value::Object(o) => o.keys().any(|k| has(k)),
+        Value::Array(a) => a.iter().any(|k| k.as_str().is_some_and(has)),
+        _ => false,
+    };
+    if !future { return 0; }
+    if stalwart && max == 30 * 86400 { 7 * 86400 } else { max }
+}
+
+/// Updated ids to fetch with the changed properties only (`partial`) and those to fetch whole:
+/// an id missing from `have` always needs every property.
+fn split_known(ids: &[&String], have: &[Value], partial: bool) -> (Vec<Value>, Vec<Value>) {
+    let (known, missing): (Vec<&&String>, Vec<&&String>) = ids.iter().partition(|i| !partial || have.iter().any(|m| m["id"] == i.as_str()));
+    (known.into_iter().map(|i| json!(i)).collect(), missing.into_iter().map(|i| json!(i)).collect())
+}
+
 pub fn apply_object_delta(have: &[Value], destroyed: &[String], fetched: &[Value]) -> Vec<Value> {
     let mut out: Vec<Value> = have.iter().filter(|m| !destroyed.iter().any(|d| m["id"] == d.as_str())).cloned().collect();
     for f in fetched {
@@ -1572,5 +1614,26 @@ mod tests {
         assert_eq!(a.len(), 3);
         assert_eq!(a[0]["name"], "Doe, Jane");
         assert_eq!(a[2]["email"], "c@z.org");
+    }
+
+    #[test]
+    fn delayed_send_needs_futurerelease() {
+        assert_eq!(delayed_send_limit(&json!({"maxDelayedSend": 600}), false), 0);
+        assert_eq!(delayed_send_limit(&json!({"maxDelayedSend": 600, "submissionExtensions": {}}), false), 0);
+        assert_eq!(delayed_send_limit(&json!({"maxDelayedSend": 600, "submissionExtensions": {"FUTURERELEASE": []}}), false), 600);
+        assert_eq!(delayed_send_limit(&json!({"maxDelayedSend": 600, "submissionExtensions": ["futurerelease"]}), false), 600);
+        assert_eq!(delayed_send_limit(&json!({"maxDelayedSend": 2592000, "submissionExtensions": {"FUTURERELEASE": []}}), true), 7 * 86400);
+    }
+
+    #[test]
+    fn counts_only_update_of_unknown_folder_fetches_it_whole() {
+        let have = vec![json!({"id": "a", "name": "Inbox"})];
+        let (a, b) = (String::from("a"), String::from("z"));
+        let (part, full) = split_known(&[&a, &b], &have, true);
+        assert_eq!(part, vec![json!("a")]);
+        assert_eq!(full, vec![json!("z")]);
+        let (part, full) = split_known(&[&a, &b], &have, false);
+        assert_eq!(part.len(), 2);
+        assert!(full.is_empty());
     }
 }

@@ -28,7 +28,7 @@ struct ListState {
 struct SyncStates { account: String, query: String, email: String, thread: String }
 
 fn states_of(c: &Client, p: &crate::jmap::ListPage) -> Option<SyncStates> {
-    Some(SyncStates { account: c.account.clone(), query: p.query_state.clone()?, email: p.email_state.clone()?, thread: p.thread_state.clone()? })
+    Some(SyncStates { account: c.state_key(), query: p.query_state.clone()?, email: p.email_state.clone()?, thread: p.thread_state.clone()? })
         .filter(|_| p.can_calculate_changes)
 }
 
@@ -36,7 +36,7 @@ fn states_of(c: &Client, p: &crate::jmap::ListPage) -> Option<SyncStates> {
 struct BoxState {
     list: Vec<Value>,
     collapsed: HashSet<String>,
-    /// (account, Mailbox state) of `list`, for Mailbox/changes.
+    /// (Client::state_key, Mailbox state) of `list`, for Mailbox/changes.
     state: Option<(String, String)>,
 }
 
@@ -186,19 +186,24 @@ pub fn mailbox_role(id: &str) -> String {
 /// what changed (Mailbox/changes) instead of re-reading every folder.
 pub fn load_mailboxes(w: slint::Weak<AppWindow>, c: Arc<Client>, select_inbox: bool) {
     let since = if select_inbox { None } else {
-        BOXES.with(|b| { let b = b.borrow(); b.state.clone().filter(|(a, _)| *a == c.account).map(|(_, s)| (s, b.list.clone())) })
+        BOXES.with(|b| { let b = b.borrow(); b.state.clone().filter(|(a, _)| *a == c.state_key()).map(|(_, s)| (s, b.list.clone())) })
     };
     std::thread::spawn(move || {
+        let base = since.as_ref().map(|(s, _)| (c.state_key(), s.clone()));
         let delta = since.and_then(|(s, have)| c.mailbox_delta(&s, &have).ok().flatten());
-        let (list, state) = match delta {
-            Some((list, state)) => (list, Some(state)),
-            None => match c.mailboxes_with_state() { Ok(x) => x, Err(_) => return },
+        let (list, state, base) = match delta {
+            Some((list, state)) => (list, Some(state), base),
+            None => match c.mailboxes_with_state() { Ok((l, s)) => (l, s, None), Err(_) => return },
         };
         let counts = tag_counts(&c);
         let w2 = w.clone();
         let _ = w.upgrade_in_event_loop(move |u| {
             let inbox = list.iter().find(|m| m["role"] == "inbox").and_then(|m| m["id"].as_str()).map(String::from);
-            BOXES.with(|b| { let mut b = b.borrow_mut(); b.list = list; b.state = state.map(|s| (c.account.clone(), s)); });
+            // a delta was merged into the list it started from; if another load replaced that
+            // list meanwhile, the merge is stale and the newer list stays
+            let stale = base.is_some() && BOXES.with(|b| b.borrow().state != base);
+            if stale { return; }
+            BOXES.with(|b| { let mut b = b.borrow_mut(); b.list = list; b.state = state.map(|s| (c.state_key(), s)); });
             rebuild_folders(&u);
             set_tags(&u, &counts);
             if select_inbox {
@@ -383,6 +388,9 @@ pub fn load_list(w: slint::Weak<AppWindow>, c: Arc<Client>, filter: Value) {
         l.generation += 1;
         l.filter = filter.clone();
         l.checked.clear();
+        // the rows and states still belong to the previous list: a sync before the first page
+        // arrives must not run the new filter against them
+        l.sync = None;
         l.loading = true;
         l.generation
     });
@@ -447,7 +455,7 @@ pub fn sync(w: slint::Weak<AppWindow>, c: Arc<Client>) {
         if l.filter.is_null() { return Start::Skip; }
         if l.syncing { l.sync_again = true; return Start::Skip; }
         match l.sync.clone() {
-            Some(s) if s.account == c.account && !is_virtual(&l.filter) => { l.syncing = true; Start::Delta(l.filter.clone(), s, l.generation) }
+            Some(s) if s.account == c.state_key() && !is_virtual(&l.filter) => { l.syncing = true; Start::Delta(l.filter.clone(), s, l.generation) }
             _ => Start::Full,
         }
     });
