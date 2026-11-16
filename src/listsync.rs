@@ -139,6 +139,22 @@ where
     }
 }
 
+/// Positional sync for small lists with no natural key (weekday names, breadcrumbs, week
+/// numbers): same length -> only the rows that differ get `set_row_data`; a different length
+/// -> rows are pushed / popped at the end. Nothing is notified when nothing changed.
+pub fn sync_seq<T: Clone + PartialEq + 'static>(current: &ModelRc<T>, new: Vec<T>, install: impl FnOnce(ModelRc<T>)) {
+    let Some(vm) = current.as_any().downcast_ref::<VecModel<T>>() else {
+        install(ModelRc::new(VecModel::from(new)));
+        return;
+    };
+    while vm.row_count() > new.len() { vm.remove(vm.row_count() - 1); }
+    for (i, row) in new.into_iter().enumerate() {
+        if i < vm.row_count() {
+            if vm.row_data(i).as_ref() != Some(&row) { vm.set_row_data(i, row); }
+        } else { vm.push(row); }
+    }
+}
+
 /// Two nested models (a row's `[color]` or `[string]`) hold the same rows. Slint's own `==` on
 /// `ModelRc` only compares identity, so rows rebuilt from data would always look changed.
 pub fn rows_eq<T: PartialEq + Clone + 'static>(a: &ModelRc<T>, b: &ModelRc<T>) -> bool {

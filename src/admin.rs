@@ -116,7 +116,7 @@ pub fn load(u: &AppWindow, c: std::sync::Arc<crate::jmap::Client>, section: &str
     let cur = u.get_admin_sub().to_string();
     let sub = if sl.iter().any(|(k, _)| *k == cur) { cur } else { sl.first().map(|(k, _)| k.to_string()).unwrap_or_default() };
     u.set_admin_sub(sub.clone().into());
-    u.set_admin_subs(ModelRc::new(VecModel::from(sl.iter().map(|(k, l)| row(k, [l.to_string(), String::new(), String::new(), String::new()])).collect::<Vec<_>>())));
+    crate::listsync::sync_into(&u.get_admin_subs(), sl.iter().map(|(k, l)| row(k, [l.to_string(), String::new(), String::new(), String::new()])).collect::<Vec<_>>(), |r| r.id.clone(), |a, b| a == b, |m| u.set_admin_subs(m));
     u.set_admin_note("".into());
     // a different page: drop the previous page's rows/columns so they never show under the new title
     {
@@ -258,9 +258,10 @@ pub fn load(u: &AppWindow, c: std::sync::Arc<crate::jmap::Client>, section: &str
                     let (cols, rows) = if !rows.is_empty() && rows.iter().all(|r| r.c1.is_empty() && r.c2.is_empty()) {
                         LAST.with(|l| auto_columns(&l.borrow()))
                     } else { (cols, rows) };
-                    u.set_admin_cols(ModelRc::new(VecModel::from(cols.into_iter().map(Into::into).collect::<Vec<slint::SharedString>>())));
-                    u.set_admin_rows(ModelRc::new(VecModel::from(rows)));
-                    u.set_admin_tiles(ModelRc::new(VecModel::from(tiles.into_iter().map(|(a, b)| AdminRow { id: "".into(), c1: a.into(), c2: b.into(), c3: "".into(), c4: "".into() }).collect::<Vec<_>>())));
+                    // incremental: a refresh keeps the hovered row and the scroll position
+                    crate::listsync::sync_into(&u.get_admin_cols(), cols.into_iter().map(Into::into).collect::<Vec<slint::SharedString>>(), |c| c.clone(), |a, b| a == b, |m| u.set_admin_cols(m));
+                    crate::listsync::sync_into(&u.get_admin_rows(), rows, |r| format!("{}{}", r.id, r.c1), |a, b| a == b, |m| u.set_admin_rows(m));
+                    crate::listsync::sync_into(&u.get_admin_tiles(), tiles.into_iter().map(|(a, b)| AdminRow { id: "".into(), c1: a.into(), c2: b.into(), c3: "".into(), c4: "".into() }).collect::<Vec<_>>(), |r| r.c1.clone(), |a, b| a == b, |m| u.set_admin_tiles(m));
                     u.set_admin_note(note.into());
                     u.set_admin_status("".into());
                 }

@@ -16,6 +16,11 @@ thread_local! {
     static FIRST_NAME: RefCell<String> = const { RefCell::new(String::new()) };
 }
 
+/// Fill a panel list in place (rows with the same message + label are not touched).
+fn sync_rows(cur: &ModelRc<PRow>, rows: Vec<PRow>, install: impl FnOnce(ModelRc<PRow>)) {
+    crate::listsync::sync_into(cur, rows, |r| (r.tone.clone(), r.label.clone()), |a, b| a == b, install);
+}
+
 fn prow(label: &str, value: &str, tone: &str) -> PRow {
     PRow { label: label.into(), value: value.into(), tone: tone.into() }
 }
@@ -167,8 +172,8 @@ pub fn sender(w: slint::Weak<AppWindow>, c: Arc<Client>, email: String, current:
                 let subject = m["subject"].as_str().filter(|s| !s.trim().is_empty()).unwrap_or("(no subject)");
                 rows.push(prow(subject, &date, id));
             }
-            u.set_sx_recent(ModelRc::new(VecModel::from(rows)));
-            u.set_sx_files(ModelRc::new(VecModel::from(files)));
+            sync_rows(&u.get_sx_recent(), rows, |m| u.set_sx_recent(m));
+            sync_rows(&u.get_sx_files(), files, |m| u.set_sx_files(m));
             if let Some(card) = card {
                 let org = crate::contacts::first(&card, "organizations", "name").unwrap_or_default();
                 let title = crate::contacts::first(&card, "titles", "name").unwrap_or_default();
@@ -214,8 +219,8 @@ pub fn contact(w: slint::Weak<AppWindow>, c: Arc<Client>, email: String) {
                 let subject = m["subject"].as_str().filter(|s| !s.trim().is_empty()).unwrap_or("(no subject)");
                 rows.push(prow(subject, &date, id));
             }
-            u.set_cx_recent(ModelRc::new(VecModel::from(rows)));
-            u.set_cx_files(ModelRc::new(VecModel::from(files)));
+            sync_rows(&u.get_cx_recent(), rows, |m| u.set_cx_recent(m));
+            sync_rows(&u.get_cx_files(), files, |m| u.set_cx_files(m));
         });
     });
 }

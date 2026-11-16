@@ -3,7 +3,7 @@
 use crate::jmap::Client;
 use crate::{AppWindow, ContactRow, NavRow};
 use serde_json::{json, Value};
-use slint::{ComponentHandle, ModelRc, VecModel};
+use slint::ComponentHandle;
 use std::cell::RefCell;
 use std::sync::Arc;
 
@@ -226,7 +226,7 @@ fn render_nav(u: &AppWindow) {
         r.depth = ncat as i32 - 1;
         v.push(r);
         u.set_ct_cats(ncat as i32);
-        u.set_ct_nav(ModelRc::new(VecModel::from(v)));
+        crate::listsync::sync_into(&u.get_ct_nav(), v, |r| format!("{}|{}", r.kind, r.id), |a, b| a == b, |m| u.set_ct_nav(m));
     });
 }
 
@@ -245,7 +245,7 @@ pub fn render(u: &AppWindow) {
             ContactRow { id: format!("dir:{}", p["id"].as_str().unwrap_or("")).into(), initials: name.split_whitespace().filter_map(|w| w.chars().next()).take(2).collect::<String>().to_uppercase().into(),
                 color: crate::mail::tint(&name), email: p["email"].as_str().unwrap_or(p["type"].as_str().unwrap_or("")).into(), name: name.into(), header: "".into() }
         }).collect();
-        u.set_contacts(ModelRc::new(VecModel::from(rows)));
+        crate::listsync::sync_into(&u.get_contacts(), rows, |r| r.id.clone(), |a, b| a == b, |m| u.set_contacts(m));
         return;
     }
     ST.with(|s| {
@@ -269,14 +269,14 @@ pub fn render(u: &AppWindow) {
                 header: header.into(),
             }
         }).collect();
-        u.set_contacts(ModelRc::new(VecModel::from(rows)));
+        crate::listsync::sync_into(&u.get_contacts(), rows, |r| r.id.clone(), |a, b| a == b, |m| u.set_contacts(m));
         let groups: Vec<ContactRow> = s.groups.iter().map(|g| {
             let name = full_name(g);
             let n = g["members"].as_object().map(|m| m.len()).unwrap_or(0);
             ContactRow { id: g["id"].as_str().unwrap_or("").into(), initials: "\u{E716}".into(), color: crate::mail::tint(&name),
                 email: format!("{n} member{}", if n == 1 { "" } else { "s" }).into(), name: name.into(), header: "".into() }
         }).collect();
-        u.set_contact_groups(ModelRc::new(VecModel::from(groups)));
+        crate::listsync::sync_into(&u.get_contact_groups(), groups, |r| r.id.clone(), |a, b| a == b, |m| u.set_contact_groups(m));
     });
 }
 
