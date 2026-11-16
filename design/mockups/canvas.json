@@ -1,0 +1,36 @@
+{
+  "v": 3,
+  "createdOnFiles": {"v": 1, "at": "2026-11-16T14:10:00Z"},
+  "title": "Barbican Identity Explorations",
+  "launch": {"view": "canvas", "page": "bn"},
+  "pages": [{"id": "explore", "name": "Ten directions"}, {"id": "bn", "name": "Bento × Nordic"}],
+  "boards": {
+    "Main.dc.html": {"x": 0, "y": 0, "w": 1440, "h": 900, "title": "01 Fortress — Barbican brutalism"},
+    "InkPaper.dc.html": {"x": 1520, "y": 0, "w": 1440, "h": 900, "title": "02 Ink & Paper — editorial"},
+    "Aurora.dc.html": {"x": 3040, "y": 0, "w": 1440, "h": 900, "title": "03 Aurora Glass — liquid glass"},
+    "NeoBrutal.dc.html": {"x": 4560, "y": 0, "w": 1440, "h": 900, "title": "04 Neo-Brutal Pop"},
+    "Focus.dc.html": {"x": 6080, "y": 0, "w": 1440, "h": 900, "title": "05 Calm Focus — keyboard-first"},
+    "Bento.dc.html": {"x": 0, "y": 1020, "w": 1440, "h": 900, "title": "06 Bento Soft"},
+    "Terminal.dc.html": {"x": 1520, "y": 1020, "w": 1440, "h": 900, "title": "07 Terminal Noir"},
+    "Nordic.dc.html": {"x": 3040, "y": 1020, "w": 1440, "h": 900, "title": "08 Nordic Light"},
+    "Riso.dc.html": {"x": 4560, "y": 1020, "w": 1440, "h": 900, "title": "09 Riso Print"},
+    "Swiss.dc.html": {"x": 6080, "y": 1020, "w": 1440, "h": 900, "title": "10 Swiss Grid"},
+    "BNMail.dc.html": {"x": 0, "y": 0, "w": 1440, "h": 900, "title": "Mail — dark", "page": "bn"},
+    "BNMailLight.dc.html": {"x": 1520, "y": 0, "w": 1440, "h": 900, "title": "Mail — light", "page": "bn"},
+    "BNCompose.dc.html": {"x": 3040, "y": 0, "w": 1440, "h": 900, "title": "Compose — dark", "page": "bn"},
+    "BNCalendar.dc.html": {"x": 0, "y": 1020, "w": 1440, "h": 900, "title": "Calendar — dark", "page": "bn"},
+    "BNContacts.dc.html": {"x": 1520, "y": 1020, "w": 1440, "h": 900, "title": "Contacts — light", "page": "bn"},
+    "BNDashboard.dc.html": {"x": 3040, "y": 1020, "w": 1440, "h": 900, "title": "Admin dashboard — dark", "page": "bn"},
+    "BNTokens.dc.html": {"x": 0, "y": 2040, "w": 1440, "h": 1320, "title": "Design language — tokens", "page": "bn"},
+    "NordMail.dc.html": {"x": 0, "y": 3780, "w": 1440, "h": 900, "title": "Nordic style — Mail, dark", "page": "bn"},
+    "NordMailLight.dc.html": {"x": 1520, "y": 3780, "w": 1440, "h": 900, "title": "Nordic style — Mail, light", "page": "bn"},
+    "NordCalendar.dc.html": {"x": 3040, "y": 3780, "w": 1440, "h": 900, "title": "Nordic style — Calendar, light", "page": "bn"}
+  },
+  "order": ["Main.dc.html", "InkPaper.dc.html", "Aurora.dc.html", "NeoBrutal.dc.html", "Focus.dc.html", "Bento.dc.html", "Terminal.dc.html", "Nordic.dc.html", "Riso.dc.html", "Swiss.dc.html", "BNMail.dc.html", "BNMailLight.dc.html", "BNCompose.dc.html", "BNCalendar.dc.html", "BNContacts.dc.html", "BNDashboard.dc.html", "BNTokens.dc.html", "NordMail.dc.html", "NordMailLight.dc.html", "NordCalendar.dc.html"],
+  "notes": {
+    "heading": {"x": 0, "y": -300, "text": "Barbican — ten identity directions, same layout", "kind": "title1", "maxW": 7520, "page": "explore"},
+    "bnheading": {"x": 0, "y": -300, "text": "Bento × Nordic, in Barbican's own language", "kind": "title1", "maxW": 4480, "page": "bn"},
+    "nordheading": {"x": 0, "y": 3480, "text": "Nordic style, same colours", "kind": "title1", "maxW": 4480, "page": "bn"}
+  },
+  "designSystems": []
+}

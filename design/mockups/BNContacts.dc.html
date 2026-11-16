@@ -1,0 +1,146 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Barbican — Contacts</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&amp;display=swap">
+<style>
+body{margin:0}
+a{color:#c8234a}a:hover{color:#8c1733}
+</style>
+</helmet>
+<div style="width: 1440px; height: 900px; display: flex; gap: 12px; padding: 14px; box-sizing: border-box; overflow: hidden; font-family: 'Segoe UI Variable Text', 'Segoe UI', Inter, system-ui, sans-serif; color: {{t.text}}; background: {{t.ground}}">
+
+  <nav aria-label="Apps" style="width: 64px; flex-shrink: 0; background: {{t.tile}}; border: 1px solid {{t.line}}; border-radius: 24px; display: flex; flex-direction: column; align-items: center; padding: 16px 0; gap: 8px; box-sizing: border-box">
+    <svg width="32" height="32" viewBox="0 0 34 34" role="img" aria-label="Barbican"><rect x="3" y="12" width="7" height="19" rx="3.5" fill="{{t.accent}}"></rect><rect x="13.5" y="3" width="7" height="28" rx="3.5" fill="{{t.accent}}" opacity="0.7"></rect><rect x="24" y="8" width="7" height="23" rx="3.5" fill="{{t.accent}}" opacity="0.4"></rect></svg>
+    <div style="height: 10px"></div>
+    <sc-for list="{{rail}}" as="r" hint-placeholder-count="6">
+      <button aria-label="{{r.label}}" style="{{r.style}}"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="{{r.icon}}"></path></svg></button>
+    </sc-for>
+  </nav>
+
+  <aside style="width: 220px; flex-shrink: 0; display: flex; flex-direction: column; gap: 12px">
+    <button style="height: 52px; border: 0; border-radius: 20px; background: {{t.accent}}; color: {{t.onAccent}}; font: 700 14.5px 'Segoe UI', Inter, sans-serif; cursor: pointer">+ New contact</button>
+    <div style="background: {{t.tile}}; border: 1px solid {{t.line}}; border-radius: 24px; padding: 10px; display: flex; flex-direction: column; gap: 2px">
+      <sc-for list="{{books}}" as="b" hint-placeholder-count="3">
+        <a href="#" style="{{b.style}}"><span style="flex: 1">{{b.name}}</span><span style="font-size: 12px; font-weight: 700">{{b.n}}</span></a>
+      </sc-for>
+    </div>
+    <div style="background: {{t.tile}}; border: 1px solid {{t.line}}; border-radius: 24px; padding: 12px; display: flex; flex-direction: column; gap: 8px">
+      <div style="display: flex; font-size: 11.5px; font-weight: 700; color: {{t.dim}}"><span style="flex: 1">Groups</span><span>+</span></div>
+      <sc-for list="{{groups}}" as="g" hint-placeholder-count="3">
+        <a href="#" style="display: flex; align-items: center; gap: 10px; padding: 9px 10px; border-radius: 14px; background: {{g.bg}}; color: {{g.fg}}; text-decoration: none; font-weight: 600; font-size: 13px"><span style="flex: 1">{{g.name}}</span><span style="font-size: 12px">{{g.n}}</span></a>
+      </sc-for>
+    </div>
+    <div style="background: {{t.tile}}; border: 1px solid {{t.line}}; border-radius: 24px; padding: 12px; display: flex; flex-wrap: wrap; gap: 6px">
+      <div style="width: 100%; font-size: 11.5px; font-weight: 700; color: {{t.dim}}">Categories</div>
+      <sc-for list="{{cats}}" as="c" hint-placeholder-count="5">
+        <a href="#" style="padding: 5px 10px; border-radius: 99px; border: 1px solid {{t.line}}; background: {{t.tile2}}; color: {{t.body}}; text-decoration: none; font-size: 12px">{{c}}</a>
+      </sc-for>
+    </div>
+  </aside>
+
+  <section aria-label="Contacts" style="width: 330px; flex-shrink: 0; background: {{t.tile}}; border: 1px solid {{t.line}}; border-radius: 26px; display: flex; flex-direction: column; overflow: hidden; padding: 18px 10px 0">
+    <div style="display: flex; align-items: baseline; padding: 0 12px 10px"><h1 style="margin: 0; font-weight: 700; font-size: 24px; flex: 1">Contacts</h1><span style="font-size: 12px; color: {{t.dim}}">248</span></div>
+    <label style="display: flex; align-items: center; gap: 8px; height: 38px; padding: 0 12px; margin: 0 6px 8px; border-radius: 14px; background: {{t.tile2}}; border: 1px solid {{t.line}}"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="{{t.dim}}" stroke-width="2" aria-hidden="true"><path d="M11 19a8 8 0 1 0 0-16 8 8 0 0 0 0 16z M21 21l-4.35-4.35"></path></svg><input aria-label="Search contacts" placeholder="Search people" style="border: 0; background: transparent; color: {{t.text}}; font: 13px 'Segoe UI', Inter, sans-serif; width: 100%; outline: none"></label>
+    <sc-for list="{{people}}" as="p" hint-placeholder-count="9">
+      <sc-if value="{{p.letter}}" hint-placeholder-val="{{ false }}"><div style="font-size: 11.5px; font-weight: 800; color: {{t.accent}}; padding: 10px 14px 4px">{{p.letter}}</div></sc-if>
+      <div style="{{p.rowStyle}}">
+        <div aria-hidden="true" style="width: 36px; height: 36px; border-radius: 13px; background: {{p.bg}}; color: {{p.fg}}; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 12.5px; flex-shrink: 0">{{p.ini}}</div>
+        <div style="flex: 1; min-width: 0"><div style="font-weight: 600; font-size: 13.5px">{{p.name}}</div><div style="font-size: 12px; color: {{t.dim}}; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">{{p.sub}}</div></div>
+      </div>
+    </sc-for>
+  </section>
+
+  <main style="flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 12px">
+    <div style="background: {{t.tile}}; border: 1px solid {{t.line}}; border-radius: 26px; padding: 24px 26px; display: flex; gap: 20px; align-items: center">
+      <div aria-hidden="true" style="width: 88px; height: 88px; border-radius: 30px; background: {{t.roseBg}}; color: {{t.roseFg}}; display: flex; align-items: center; justify-content: center; font-weight: 800; font-size: 30px">MO</div>
+      <div style="flex: 1">
+        <h2 style="margin: 0; font-weight: 800; font-size: 28px; letter-spacing: -0.02em">Mira Okafor</h2>
+        <div style="font-size: 14px; color: {{t.dim}}; margin-top: 2px">Creative lead · Studio North · Amsterdam</div>
+        <div style="display: flex; gap: 6px; margin-top: 10px"><span style="padding: 4px 10px; border-radius: 99px; background: {{t.skyBg}}; color: {{t.skyFg}}; font-size: 12px; font-weight: 600">Work</span><span style="padding: 4px 10px; border-radius: 99px; background: {{t.mintBg}}; color: {{t.mintFg}}; font-size: 12px; font-weight: 600">Design team</span></div>
+      </div>
+      <div style="display: flex; gap: 8px">
+        <button style="height: 40px; padding: 0 16px; border-radius: 14px; border: 0; background: {{t.accent}}; color: {{t.onAccent}}; font: 700 13px 'Segoe UI', Inter, sans-serif">Email</button>
+        <button style="height: 40px; padding: 0 16px; border-radius: 14px; border: 1px solid {{t.line}}; background: {{t.tile2}}; color: {{t.text}}; font: 600 13px 'Segoe UI', Inter, sans-serif">Invite</button>
+        <button style="height: 40px; padding: 0 16px; border-radius: 14px; border: 1px solid {{t.line}}; background: {{t.tile2}}; color: {{t.text}}; font: 600 13px 'Segoe UI', Inter, sans-serif">Edit</button>
+      </div>
+    </div>
+    <div style="flex: 1; min-height: 0; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); grid-template-rows: repeat(2, minmax(0, 1fr)); gap: 12px">
+      <div style="background: {{t.tile}}; border: 1px solid {{t.line}}; border-radius: 24px; padding: 18px; display: flex; flex-direction: column; gap: 10px; font-size: 13.5px">
+        <div style="font-size: 11.5px; font-weight: 700; color: {{t.dim}}">Contact</div>
+        <div><div style="font-size: 11.5px; color: {{t.dim}}">Work email</div>mira@studio-north.eu</div>
+        <div><div style="font-size: 11.5px; color: {{t.dim}}">Phone</div>+31 20 555 0182</div>
+        <div><div style="font-size: 11.5px; color: {{t.dim}}">Local time</div>10:42, Amsterdam (+1 h)</div>
+      </div>
+      <div style="grid-column: span 2; background: {{t.tile}}; border: 1px solid {{t.line}}; border-radius: 24px; padding: 18px; display: flex; flex-direction: column; gap: 8px">
+        <div style="font-size: 11.5px; font-weight: 700; color: {{t.dim}}">Recent mail</div>
+        <sc-for list="{{recent}}" as="r" hint-placeholder-count="4">
+          <div style="display: flex; gap: 10px; padding: 8px 10px; border-radius: 14px; background: {{t.tile2}}; font-size: 13px"><span style="flex: 1; font-weight: {{r.w}}">{{r.s}}</span><span style="color: {{t.dim}}; font-size: 12px">{{r.d}}</span></div>
+        </sc-for>
+      </div>
+      <div style="border-radius: 24px; padding: 18px; background: {{t.amberBg}}; color: {{t.amberFg}}; display: flex; flex-direction: column; gap: 6px">
+        <div style="font-size: 11.5px; font-weight: 700">Next meeting</div>
+        <div style="font-weight: 800; font-size: 20px">Design review</div>
+        <div style="font-size: 13px">Thu 18 Nov · 14:00 · Room 4B</div>
+        <div style="flex: 1"></div>
+        <div style="font-size: 12px">You haven't replied yet</div>
+      </div>
+      <div style="background: {{t.tile}}; border: 1px solid {{t.line}}; border-radius: 24px; padding: 18px; display: flex; flex-direction: column; gap: 8px">
+        <div style="font-size: 11.5px; font-weight: 700; color: {{t.dim}}">Shared files</div>
+        <div style="padding: 9px 10px; border-radius: 14px; background: {{t.tile2}}; font-size: 13px">Agenda-v3.pdf</div>
+        <div style="padding: 9px 10px; border-radius: 14px; background: {{t.tile2}}; font-size: 13px">Directions-A1.pdf</div>
+        <div style="padding: 9px 10px; border-radius: 14px; background: {{t.tile2}}; font-size: 13px">Moodboard.png</div>
+      </div>
+      <div style="background: {{t.tile}}; border: 1px solid {{t.line}}; border-radius: 24px; padding: 18px; display: flex; flex-direction: column; gap: 8px">
+        <div style="font-size: 11.5px; font-weight: 700; color: {{t.dim}}">Notes</div>
+        <div style="font-size: 13.5px; line-height: 1.6; color: {{t.body}}">Prefers large-format prints for reviews. Vegetarian. Birthday 3 March.</div>
+      </div>
+    </div>
+  </main>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"dark":{"editor":"boolean","default":false},"$preview":{"width":1440,"height":900}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const dark = this.props.dark ?? false;
+    const t = dark ? {
+      ground: '#0a0a0a', tile: '#141414', tile2: '#1a1a1a', line: '#262626', text: '#fafafa', body: '#d4d4d4', dim: '#a3a3a3', faint: '#737373',
+      accent: '#f0577a', onAccent: '#16070c', sel: '#4a1424', selText: '#ffd5df',
+      roseBg: 'rgba(240,87,122,0.14)', roseFg: '#ffb3c4', mintBg: 'rgba(52,211,153,0.13)', mintFg: '#86efc4', skyBg: 'rgba(96,165,250,0.14)', skyFg: '#a8cbff', amberBg: 'rgba(251,191,36,0.13)', amberFg: '#fcd679'
+    } : {
+      ground: '#f4f4f5', tile: '#ffffff', tile2: '#fafafa', line: '#e5e5e5', text: '#0a0a0a', body: '#2b2b2b', dim: '#6b6b6b', faint: '#8a8a8a',
+      accent: '#c8234a', onAccent: '#ffffff', sel: '#fde4ea', selText: '#8c1733',
+      roseBg: '#fde4ea', roseFg: '#8c1733', mintBg: '#dcf5e8', mintFg: '#17603f', skyBg: '#dfeafd', skyFg: '#1e3f8a', amberBg: '#fdf1d3', amberFg: '#7a4a06'
+    };
+    const I = {
+      mail: 'M4 4h16v16H4z M22 6l-10 7L2 6', cal: 'M3 4h18v18H3z M16 2v4 M8 2v4 M3 10h18',
+      users: 'M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2 M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8z',
+      folder: 'M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z', spark: 'M12 3l1.9 5.8L20 11l-6.1 2.2L12 19l-1.9-5.8L4 11l6.1-2.2z',
+      shield: 'M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z'
+    };
+    const rail = [['Mail', I.mail], ['Calendar', I.cal], ['Contacts', I.users, true], ['Files', I.folder], ['Assistant', I.spark], ['Admin', I.shield]].map(([label, icon, on]) => ({
+      label, icon, style: 'width: 42px; height: 42px; border-radius: 14px; border: 0; display: flex; align-items: center; justify-content: center; cursor: pointer;' + (on ? 'background: ' + t.sel + '; color: ' + t.selText + ';' : 'background: transparent; color: ' + t.faint + ';')
+    }));
+    const books = [['All contacts', '248', true], ['Personal', '96'], ['Work', '152']].map(([name, n, on]) => ({
+      name, n, style: 'display: flex; padding: 9px 11px; border-radius: 14px; text-decoration: none; font-size: 13.5px;' + (on ? 'background: ' + t.sel + '; color: ' + t.selText + '; font-weight: 600;' : 'color: ' + t.body + ';')
+    }));
+    const groups = [['Design team', '6', t.roseBg, t.roseFg], ['Family', '9', t.amberBg, t.amberFg], ['Book club', '5', t.mintBg, t.mintFg]].map(([name, n, bg, fg]) => ({ name, n, bg, fg }));
+    const cats = ['Clients', 'Suppliers', 'Friends', 'VIP', 'No category'];
+    const tints = [[t.roseBg, t.roseFg], [t.skyBg, t.skyFg], [t.mintBg, t.mintFg], [t.amberBg, t.amberFg]];
+    const people = [['Ada Kasım', 'Sister · Family', 'A'], ['Arjen de Boer', 'Studio North'], ['Hetzner Support', 'support@hetzner.com', 'H'], ['Jonas Weber', 'Finance · example', 'J'], ['Lena Vos', 'Studio North', 'L'], ['Mira Okafor', 'Creative lead · Studio North', 'M', true], ['Mehmet Yılmaz', 'Accountant'], ['Stalwart Labs', 'hello@stalw.art', 'S']].map(([name, sub, letter, sel], i) => ({
+      name, sub, letter: letter || '', bg: tints[i % 4][0], fg: tints[i % 4][1], ini: name.split(' ').map(w => w[0]).join('').slice(0, 2),
+      rowStyle: 'display: flex; gap: 11px; align-items: center; padding: 8px 12px; margin: 0 2px; border-radius: 16px;' + (sel ? 'background: ' + t.sel + ';' : '')
+    }));
+    const recent = [['Design review moved to Thursday', 'Today', 700], ['Fwd: font licences', 'Wed', 500], ['Moodboard round 2', '4 Nov', 500], ['Kick-off notes', '28 Oct', 500]].map(([s, d, w]) => ({ s, d, w }));
+    return { t, rail, books, groups, cats, people, recent };
+  }
+}
+</script>
+</body>
+</html>

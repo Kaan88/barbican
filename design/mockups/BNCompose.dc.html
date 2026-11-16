@@ -1,0 +1,149 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Barbican — Compose</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&amp;display=swap">
+<style>
+body{margin:0}
+a{color:#f0577a}a:hover{color:#ff8aa5}
+</style>
+</helmet>
+<div style="width: 1440px; height: 900px; display: flex; gap: 12px; padding: 14px; box-sizing: border-box; overflow: hidden; font-family: 'Segoe UI Variable Text', 'Segoe UI', Inter, system-ui, sans-serif; color: {{t.text}}; background: {{t.ground}}">
+
+  <nav aria-label="Apps" style="width: 64px; flex-shrink: 0; background: {{t.tile}}; border: 1px solid {{t.line}}; border-radius: 24px; display: flex; flex-direction: column; align-items: center; padding: 16px 0; gap: 8px; box-sizing: border-box">
+    <svg width="32" height="32" viewBox="0 0 34 34" role="img" aria-label="Barbican"><rect x="3" y="12" width="7" height="19" rx="3.5" fill="{{t.accent}}"></rect><rect x="13.5" y="3" width="7" height="28" rx="3.5" fill="{{t.accent}}" opacity="0.7"></rect><rect x="24" y="8" width="7" height="23" rx="3.5" fill="{{t.accent}}" opacity="0.4"></rect></svg>
+    <div style="height: 10px"></div>
+    <sc-for list="{{rail}}" as="r" hint-placeholder-count="6">
+      <button aria-label="{{r.label}}" style="{{r.style}}"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="{{r.icon}}"></path></svg></button>
+    </sc-for>
+  </nav>
+
+  <section aria-label="Messages" style="width: 320px; flex-shrink: 0; background: {{t.tile}}; border: 1px solid {{t.line}}; border-radius: 26px; display: flex; flex-direction: column; overflow: hidden; padding-top: 18px">
+    <div style="display: flex; align-items: baseline; padding: 0 20px 10px"><h1 style="margin: 0; font-weight: 700; font-size: 22px; flex: 1">Inbox</h1><span style="font-size: 12px; color: {{t.dim}}">12 new</span></div>
+    <sc-for list="{{mails}}" as="m" hint-placeholder-count="8">
+      <div style="{{m.rowStyle}}">
+        <div aria-hidden="true" style="width: 34px; height: 34px; border-radius: 12px; background: {{m.bg}}; color: {{m.fg}}; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 12px; flex-shrink: 0">{{m.ini}}</div>
+        <div style="flex: 1; min-width: 0"><div style="font-weight: {{m.weight}}; font-size: 13px">{{m.from}}</div><div style="font-size: 12px; color: {{t.dim}}; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">{{m.subject}}</div></div>
+      </div>
+    </sc-for>
+  </section>
+
+  <main style="flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 12px">
+    <div style="background: {{t.tile}}; border: 1px solid {{t.line}}; border-radius: 26px; display: flex; flex-direction: column; flex: 1; min-height: 0; overflow: hidden">
+      <div style="display: flex; align-items: center; padding: 16px 18px 10px 24px; gap: 8px">
+        <h2 style="margin: 0; font-weight: 700; font-size: 19px; flex: 1">Re: Design review moved to Thursday</h2>
+        <span style="font-size: 12px; color: {{t.dim}}">Draft saved 09:51</span>
+        <button aria-label="Pop out" style="width: 32px; height: 32px; border-radius: 11px; border: 1px solid {{t.line}}; background: {{t.tile2}}; color: {{t.dim}}; display: flex; align-items: center; justify-content: center"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M15 3h6v6 M10 14 21 3 M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path></svg></button>
+        <button aria-label="Close" style="width: 32px; height: 32px; border-radius: 11px; border: 1px solid {{t.line}}; background: {{t.tile2}}; color: {{t.dim}}; display: flex; align-items: center; justify-content: center"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M18 6 6 18 M6 6l12 12"></path></svg></button>
+      </div>
+      <div style="padding: 0 24px; display: flex; flex-direction: column">
+        <div style="display: flex; align-items: center; gap: 12px; height: 44px; border-bottom: 1px solid {{t.line}}; font-size: 13.5px"><span style="width: 56px; color: {{t.dim}}">From</span><span style="padding: 4px 10px; border-radius: 99px; background: {{t.tile2}}; border: 1px solid {{t.line}}">Kaan Kasım &lt;mail@example.com&gt;</span><span style="flex: 1"></span><span style="font-size: 12px; color: {{t.dim}}">matched from the address Mira wrote to</span></div>
+        <div style="display: flex; align-items: center; gap: 8px; height: 48px; border-bottom: 1px solid {{t.line}}; font-size: 13.5px"><span style="width: 56px; color: {{t.dim}}">To</span>
+          <span style="display: flex; align-items: center; gap: 6px; padding: 3px 10px 3px 3px; border-radius: 99px; background: {{t.roseBg}}; color: {{t.roseFg}}; font-weight: 600"><span style="width: 22px; height: 22px; border-radius: 50%; background: {{t.accent}}; color: {{t.onAccent}}; font-size: 10px; display: flex; align-items: center; justify-content: center">MO</span>Mira Okafor</span>
+          <span style="display: flex; align-items: center; gap: 6px; padding: 3px 10px 3px 3px; border-radius: 99px; background: {{t.skyBg}}; color: {{t.skyFg}}; font-weight: 600"><span style="width: 22px; height: 22px; border-radius: 50%; background: {{t.skyFg}}; color: {{t.ground}}; font-size: 10px; display: flex; align-items: center; justify-content: center">JW</span>Jonas Weber</span>
+          <span style="flex: 1"></span><span style="font-size: 12.5px; color: {{t.dim}}">Cc</span><span style="font-size: 12.5px; color: {{t.dim}}">Bcc</span></div>
+        <div style="display: flex; align-items: center; gap: 12px; height: 44px; border-bottom: 1px solid {{t.line}}; font-size: 14px"><span style="width: 56px; color: {{t.dim}}; font-size: 13.5px">Subject</span><span style="font-weight: 600">Re: Design review moved to Thursday</span></div>
+      </div>
+      <div style="margin: 12px 24px 0; padding: 5px; border-radius: 16px; background: {{t.tile2}}; border: 1px solid {{t.line}}; display: flex; align-items: center; gap: 2px; width: fit-content">
+        <sc-for list="{{tools}}" as="b" hint-placeholder-count="16">
+          <button aria-label="{{b.label}}" style="{{b.style}}">{{b.glyph}}</button>
+        </sc-for>
+      </div>
+      <div style="padding: 20px 28px; flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 12px; font-size: 15px; line-height: 1.65; color: {{t.body}}">
+        <p style="margin: 0">Hi Mira,</p>
+        <p style="margin: 0">Thursday works. I'll bring the <strong style="color: {{t.text}}">three directions</strong> as A1 prints, plus a tokens sheet for the one we like most:</p>
+        <ul style="margin: 0; padding-left: 22px; display: flex; flex-direction: column; gap: 4px">
+          <li>Bento × Nordic, <em>dark and light</em></li>
+          <li>Fortress, for the brand story</li>
+          <li>Calm Focus, for power users<span style="display: inline-block; width: 2px; height: 18px; background: {{t.accent}}; vertical-align: middle; margin-left: 2px"></span></li>
+        </ul>
+        <div style="position: relative; width: fit-content; margin-left: 210px; margin-top: -4px; padding: 4px; border-radius: 13px; background: {{t.popup}}; border: 1px solid {{t.line}}; box-shadow: 0 12px 30px rgba(0,0,0,0.35); display: flex; gap: 2px">
+          <button style="height: 28px; padding: 0 9px; border-radius: 9px; border: 0; background: {{t.sel}}; color: {{t.selText}}; font: 700 12.5px 'Segoe UI', Inter, sans-serif">B</button>
+          <button style="height: 28px; padding: 0 9px; border-radius: 9px; border: 0; background: transparent; color: {{t.text}}; font: italic 600 12.5px Georgia, serif">I</button>
+          <button style="height: 28px; padding: 0 9px; border-radius: 9px; border: 0; background: transparent; color: {{t.text}}; font: 600 12.5px 'Segoe UI', Inter, sans-serif; text-decoration: underline">U</button>
+          <button style="height: 28px; padding: 0 9px; border-radius: 9px; border: 0; background: transparent; color: {{t.text}}; font: 600 12px 'Segoe UI', Inter, sans-serif">Link</button>
+          <button style="height: 28px; padding: 0 9px; border-radius: 9px; border: 0; background: transparent; color: {{t.accent}}; font: 600 12px 'Segoe UI', Inter, sans-serif">Rewrite ✦</button>
+        </div>
+        <div style="padding: 10px 14px; border-left: 3px solid {{t.line}}; border-radius: 4px; color: {{t.dim}}; font-size: 13px">On Tue 16 Nov, Mira Okafor wrote: The client asked to push the review by two days… <a href="#" style="color: {{t.accent}}">Show quote</a></div>
+      </div>
+      <div style="padding: 0 24px 12px; display: flex; gap: 8px">
+        <span style="display: flex; align-items: center; gap: 8px; padding: 7px 12px; border-radius: 13px; background: {{t.tile2}}; border: 1px solid {{t.line}}; font-size: 12.5px"><span style="font-weight: 800; font-size: 10px; color: {{t.accent}}">PDF</span>Directions-A1.pdf · 8.2 MB</span>
+        <span style="display: flex; align-items: center; gap: 8px; padding: 7px 12px; border-radius: 13px; background: {{t.tile2}}; border: 1px solid {{t.line}}; font-size: 12.5px"><span style="font-weight: 800; font-size: 10px; color: {{t.mintFg}}">PNG</span>tokens.png · 640 KB</span>
+      </div>
+      <div style="display: flex; align-items: center; gap: 6px; padding: 12px 16px; border-top: 1px solid {{t.line}}">
+        <sc-for list="{{bottom}}" as="b" hint-placeholder-count="5">
+          <button style="height: 36px; padding: 0 12px; border-radius: 12px; border: 0; background: transparent; color: {{t.body}}; font: 600 13px 'Segoe UI', Inter, sans-serif; cursor: pointer; display: flex; align-items: center; gap: 6px"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="{{b.icon}}"></path></svg>{{b.label}}</button>
+        </sc-for>
+        <span style="flex: 1"></span>
+        <span style="font-size: 12px; color: {{t.dim}}">Spelling: English (UK) · 0 issues</span>
+        <div style="display: flex; border-radius: 15px; overflow: hidden">
+          <button style="height: 42px; padding: 0 20px; border: 0; background: {{t.accent}}; color: {{t.onAccent}}; font: 700 14px 'Segoe UI', Inter, sans-serif; cursor: pointer">Send</button>
+          <button aria-label="Send options" style="height: 42px; width: 36px; border: 0; border-left: 1px solid rgba(0,0,0,0.2); background: {{t.accent}}; color: {{t.onAccent}}; cursor: pointer">▾</button>
+        </div>
+      </div>
+    </div>
+  </main>
+
+  <aside aria-label="Assistant" style="width: 300px; flex-shrink: 0; display: flex; flex-direction: column; gap: 12px">
+    <div style="border-radius: 24px; padding: 16px 18px; background: {{t.roseBg}}; color: {{t.roseFg}}">
+      <div style="display: flex; align-items: center; gap: 8px; font-weight: 700; font-size: 14px"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l1.9 5.8L20 11l-6.1 2.2L12 19l-1.9-5.8L4 11l6.1-2.2z"></path></svg>Assistant</div>
+      <div style="font-size: 12.5px; margin-top: 6px; line-height: 1.5">Works on the selection, or on the whole draft when nothing is selected.</div>
+    </div>
+    <div style="background: {{t.tile}}; border: 1px solid {{t.line}}; border-radius: 24px; padding: 14px; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px">
+      <sc-for list="{{ai}}" as="a" hint-placeholder-count="6">
+        <button style="height: 58px; border-radius: 16px; border: 1px solid {{t.line}}; background: {{t.tile2}}; color: {{t.text}}; font: 600 13px 'Segoe UI', Inter, sans-serif; text-align: left; padding: 0 12px; cursor: pointer">{{a.label}}<div style="font-weight: 400; font-size: 11.5px; color: {{t.dim}}; margin-top: 2px">{{a.hint}}</div></button>
+      </sc-for>
+    </div>
+    <div style="flex: 1; min-height: 0; background: {{t.tile}}; border: 1px solid {{t.line}}; border-radius: 24px; padding: 14px; display: flex; flex-direction: column; gap: 10px">
+      <div style="align-self: flex-end; max-width: 85%; padding: 9px 12px; border-radius: 16px 16px 4px 16px; background: {{t.sel}}; color: {{t.selText}}; font-size: 13px">Make it a bit warmer, keep it short</div>
+      <div style="max-width: 92%; padding: 10px 12px; border-radius: 16px 16px 16px 4px; background: {{t.tile2}}; border: 1px solid {{t.line}}; font-size: 13px; line-height: 1.55; color: {{t.body}}">Here's a warmer version: “Thursday is perfect, thanks for moving it. I'll bring the three directions as A1 prints…”<div style="display: flex; gap: 6px; margin-top: 8px"><button style="height: 28px; padding: 0 10px; border-radius: 9px; border: 0; background: {{t.accent}}; color: {{t.onAccent}}; font: 700 12px 'Segoe UI', Inter, sans-serif">Replace</button><button style="height: 28px; padding: 0 10px; border-radius: 9px; border: 1px solid {{t.line}}; background: transparent; color: {{t.text}}; font: 600 12px 'Segoe UI', Inter, sans-serif">Insert below</button></div></div>
+      <div style="flex: 1"></div>
+      <input aria-label="Ask the assistant" placeholder="Ask about this draft…" style="height: 40px; border-radius: 14px; border: 1px solid {{t.line}}; background: {{t.tile2}}; color: {{t.text}}; padding: 0 12px; font: 13px 'Segoe UI', Inter, sans-serif; outline: none">
+    </div>
+  </aside>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"dark":{"editor":"boolean","default":true},"$preview":{"width":1440,"height":900}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const dark = this.props.dark ?? true;
+    const t = dark ? {
+      ground: '#0a0a0a', tile: '#141414', tile2: '#1a1a1a', popup: '#1c1c1c', line: '#262626', text: '#fafafa', body: '#d4d4d4', dim: '#a3a3a3', faint: '#737373',
+      accent: '#f0577a', onAccent: '#16070c', sel: '#4a1424', selText: '#ffd5df',
+      roseBg: 'rgba(240,87,122,0.14)', roseFg: '#ffb3c4', mintBg: 'rgba(52,211,153,0.13)', mintFg: '#86efc4', skyBg: 'rgba(96,165,250,0.14)', skyFg: '#a8cbff', amberBg: 'rgba(251,191,36,0.13)', amberFg: '#fcd679'
+    } : {
+      ground: '#f4f4f5', tile: '#ffffff', tile2: '#fafafa', popup: '#ffffff', line: '#e5e5e5', text: '#0a0a0a', body: '#2b2b2b', dim: '#6b6b6b', faint: '#8a8a8a',
+      accent: '#c8234a', onAccent: '#ffffff', sel: '#fde4ea', selText: '#8c1733',
+      roseBg: '#fde4ea', roseFg: '#8c1733', mintBg: '#dcf5e8', mintFg: '#17603f', skyBg: '#dfeafd', skyFg: '#1e3f8a', amberBg: '#fdf1d3', amberFg: '#7a4a06'
+    };
+    const I = {
+      mail: 'M4 4h16v16H4z M22 6l-10 7L2 6', cal: 'M3 4h18v18H3z M16 2v4 M8 2v4 M3 10h18',
+      users: 'M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2 M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8z',
+      folder: 'M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z', spark: 'M12 3l1.9 5.8L20 11l-6.1 2.2L12 19l-1.9-5.8L4 11l6.1-2.2z',
+      shield: 'M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z', clip: 'M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48',
+      tpl: 'M4 4h16v6H4z M4 14h7v6H4z M15 14h5v6h-5z', opt: 'M4 21v-7 M4 10V3 M12 21v-9 M12 8V3 M20 21v-5 M20 12V3 M1 14h6 M9 8h6 M17 16h6',
+      tag: 'M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z M7 7h.01', clock: 'M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20z M12 6v6l4 2'
+    };
+    const rail = [['Mail', I.mail, true], ['Calendar', I.cal], ['Contacts', I.users], ['Files', I.folder], ['Assistant', I.spark], ['Admin', I.shield]].map(([label, icon, on]) => ({
+      label, icon, style: 'width: 42px; height: 42px; border-radius: 14px; border: 0; display: flex; align-items: center; justify-content: center; cursor: pointer;' + (on ? 'background: ' + t.sel + '; color: ' + t.selText + ';' : 'background: transparent; color: ' + t.faint + ';')
+    }));
+    const tints = [[t.roseBg, t.roseFg], [t.skyBg, t.skyFg], [t.mintBg, t.mintFg], [t.amberBg, t.amberFg]];
+    const mails = [['Mira Okafor', 'Design review moved to Thursday', true, true], ['Stalwart Labs', 'Stalwart 0.16 is out', true], ['TAP Air Portugal', 'Your boarding pass · LIS → AMS', true], ['Jonas Weber', 'Re: Quarterly numbers'], ['Hetzner Online', 'Invoice 2026-11'], ['Ada Kasım', 'Dinner on Sunday?'], ['The Browser', 'Five essays worth your weekend'], ['GitHub', '[barbican] CI passed on main']]
+      .map(([from, subject, unread, sel], i) => ({ from, subject, weight: unread ? 700 : 500, bg: tints[i % 4][0], fg: tints[i % 4][1], ini: from.split(' ').map(w => w[0]).join('').slice(0, 2),
+        rowStyle: 'display: flex; gap: 10px; align-items: center; padding: 9px 12px; margin: 0 8px; border-radius: 16px;' + (sel ? 'background: ' + t.tile2 + '; box-shadow: inset 0 0 0 1px ' + t.line + ';' : '') }));
+    const tb = (glyph, label, on, extra) => ({ glyph, label, style: 'min-width: 30px; height: 30px; padding: 0 7px; border-radius: 10px; border: 0; cursor: pointer; font: 600 12.5px Segoe UI, Inter, sans-serif;' + (extra || '') + (on ? 'background: ' + t.sel + '; color: ' + t.selText + ';' : 'background: transparent; color: ' + t.body + ';') });
+    const tools = [tb('Aa', 'Text size'), tb('B', 'Bold', true, 'font-weight: 800;'), tb('I', 'Italic', false, 'font-style: italic; font-family: Georgia, serif;'), tb('U', 'Underline', false, 'text-decoration: underline;'), tb('S', 'Strikethrough', false, 'text-decoration: line-through;'), tb('H1', 'Heading 1'), tb('H2', 'Heading 2'), tb('•', 'Bulleted list', true), tb('1.', 'Numbered list'), tb('❝', 'Quote'), tb('</>', 'Code'), tb('⇤', 'Align left'), tb('Link', 'Link'), tb('▦', 'Table'), tb('↶', 'Undo'), tb('↷', 'Redo')];
+    const bottom = [['Attach', I.clip], ['Templates', I.tpl], ['Options', I.opt], ['Tags', I.tag], ['Schedule', I.clock]].map(([label, icon]) => ({ label, icon }));
+    const ai = [['Improve', 'Clearer, same length'], ['Shorten', 'About half as long'], ['Formal', 'For clients'], ['Casual', 'For colleagues'], ['Fix spelling', 'Keeps your wording'], ['Translate', 'Into Turkish']].map(([label, hint]) => ({ label, hint }));
+    return { t, rail, mails, tools, bottom, ai };
+  }
+}
+</script>
+</body>
+</html>
