@@ -99,6 +99,9 @@ impl Settings {
         for t in self.schema["tabs"].as_array().unwrap() {
             let id = t["id"].as_str().unwrap_or("");
             out.push((id.into(), t["label"].as_str().unwrap_or("").into(), t["group"].as_str().unwrap_or("").into(), t["icon"].as_str().unwrap_or("").into(), 0));
+            if id == "backup" {
+                out.push(("admin".into(), "Stalwart admin".into(), "bottom".into(), "\u{E83D}".into(), 0));
+            }
             if id == "addons" {
                 out.push(("ai".into(), "AI Assistant".into(), "apps".into(), "\u{E945}".into(), 1));
                 out.push(("spam".into(), "Spam Score".into(), "apps".into(), "\u{E7BA}".into(), 1));
@@ -214,6 +217,10 @@ impl Settings {
                 }
                 out.push(text("button", "plugins.folder", "Plugins folder", &crate::plugins::dir().display().to_string(), "Open folder"));
             }
+            "admin" => {
+                out.push(row("section", "", "Stalwart admin", "Enter an administrator API key (or admin access token) to open the Stalwart admin tab: dashboard, accounts, domains, delivery queue, logs and DMARC reports."));
+                out.push(text("password", "admin.key", "Admin API key", "Kept in Windows Credential Manager. Leave empty to hide the admin tab.", &crate::admin::key()));
+            }
             "spam" => {
                 out.push(row("section", "", "Spam Score", "Shows the spam analysis of a message from its spam headers."));
                 out.push(toggle("spam.showClean", "Show for clean mail too", "When off, the badge only appears on suspicious or spam mail.", cfg.show_clean_spam));
@@ -272,6 +279,7 @@ impl Settings {
             "ai.prompts" => cfg.prompts = value.as_str().unwrap_or("").into(),
             "ai.memory" => cfg.memory_on = value.as_bool().unwrap_or(true),
             "ai.memoryText" => { Config::set_memory(value.as_str().unwrap_or("")); return; }
+            "admin.key" => { crate::admin::set_key(value.as_str().unwrap_or("")); return; }
             "ai.lang" => cfg.lang = value.as_str().unwrap_or("").into(),
             "spam.showClean" => cfg.show_clean_spam = value.as_bool().unwrap_or(true),
             "desktop.renderMode" => cfg.render_mode = value.as_i64().unwrap_or(0) as i32,

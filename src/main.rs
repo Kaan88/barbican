@@ -1,5 +1,6 @@
 #![cfg_attr(not(test), windows_subsystem = "windows")]
 
+mod admin;
 mod agent;
 mod ai;
 mod calendar;
@@ -684,13 +685,14 @@ fn main() -> Result<(), slint::PlatformError> {
     });
 
     // text edits are saved as typed, without rebuilding the page (keeps the caret)
-    let (pf, cf, srv, sw) = (prefs.clone(), cfg.clone(), server_cache.clone(), server_write.clone());
+    let (pf, cf, srv, sw, wk) = (prefs.clone(), cfg.clone(), server_cache.clone(), server_write.clone(), ui.as_weak());
     ui.on_settings_set_text(move |key, t| {
         if key.starts_with("server.") {
             if let Some(job) = server_settings::edit(&key, &serde_json::json!(t.to_string()), &srv) { sw(job, 900); }
             return;
         }
         pf.lock().unwrap().set(&key, serde_json::json!(t.to_string()), &mut cf.lock().unwrap());
+        if key == "admin.key" { if let Some(u) = wk.upgrade() { u.set_admin_enabled(!t.trim().is_empty()); } }
     });
 
     let (w, st, srv, lsp) = (ui.as_weak(), state.clone(), server_cache.clone(), load_server_page.clone());
@@ -934,6 +936,7 @@ fn main() -> Result<(), slint::PlatformError> {
             1 => { calendar::render(&u); calendar::load(w.clone(), c); }
             2 => contacts::load(w.clone(), c),
             3 => files::open(&u, c, ""),
+            4 => admin::load(&u, c, &u.get_admin_section()),
             _ => {}
         }
     });
@@ -986,6 +989,12 @@ fn main() -> Result<(), slint::PlatformError> {
     ui.on_fl_rename(move |id, n| { let Some(c) = st.lock().unwrap().clone() else { return }; files::rename(&w.unwrap(), c, &id, &n); });
     let (w, st) = (ui.as_weak(), state.clone());
     ui.on_fl_delete(move |id| { let Some(c) = st.lock().unwrap().clone() else { return }; files::delete(&w.unwrap(), c, &id); });
+
+    let (w, st) = (ui.as_weak(), state.clone());
+    ui.on_admin_load(move |sec| { let Some(c) = st.lock().unwrap().clone() else { return }; admin::load(&w.unwrap(), c, &sec); });
+    let (w, st) = (ui.as_weak(), state.clone());
+    ui.on_admin_delete(move |id| { let Some(c) = st.lock().unwrap().clone() else { return }; admin::delete_queued(&w.unwrap(), c, &id); });
+    ui.set_admin_enabled(!admin::key().is_empty());
 
     // ---------------- mail actions ----------------
     let w = ui.as_weak();

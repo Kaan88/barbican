@@ -83,6 +83,14 @@ export struct FileRow {
     renaming: bool,
 }
 
+export struct AdminRow {
+    id: string,
+    c1: string,
+    c2: string,
+    c3: string,
+    c4: string,
+}
+
 export struct Att {
     name: string,
     size: string,
@@ -553,6 +561,14 @@ export component AppWindow inherits Window {
     callback fl-start-rename(string);
     callback fl-rename(string, string);
     callback fl-delete(string);
+    in property <bool> admin-enabled;
+    in-out property <string> admin-section: "overview";
+    in property <[string]> admin-cols;
+    in property <[AdminRow]> admin-rows;
+    in property <[AdminRow]> admin-tiles;
+    in property <string> admin-status;
+    callback admin-load(string);
+    callback admin-delete(string);
     in property <[PRow]> plugin-rows;
     in-out property <string> c-cc;
     in-out property <string> c-bcc;
@@ -692,6 +708,7 @@ export component AppWindow inherits Window {
                 HorizontalLayout { alignment: center; RailButton { glyph: "\u{E787}"; active: root.app == 1; clicked => { root.app = 1; root.app-changed(1); } } }
                 HorizontalLayout { alignment: center; RailButton { glyph: "\u{E716}"; active: root.app == 2; clicked => { root.app = 2; root.app-changed(2); } } }
                 HorizontalLayout { alignment: center; RailButton { glyph: "\u{E8B7}"; active: root.app == 3; clicked => { root.app = 3; root.app-changed(3); } } }
+                if root.admin-enabled: HorizontalLayout { alignment: center; RailButton { glyph: "\u{E83D}"; active: root.app == 4; clicked => { root.app = 4; root.app-changed(4); } } }
                 if !root.ai-hidden: HorizontalLayout { alignment: center; RailButton { glyph: "\u{E945}"; active: root.chat-open; clicked => { root.chat-open = !root.chat-open; } } }
             }
             VerticalLayout {
@@ -1503,6 +1520,82 @@ export component AppWindow inherits Window {
                 }
             }
             if root.files.length == 0: Text { text: "This folder is empty"; color: Theme.dim; horizontal-alignment: center; vertical-stretch: 1; }
+        }
+    }
+
+    if root.app == 4: Rectangle {
+        x: 45px;
+        width: parent.width - 45px;
+        background: Theme.bg;
+        HorizontalLayout {
+            Rectangle {
+                width: 200px;
+                background: Theme.side;
+                VerticalLayout {
+                    padding-top: 10px;
+                    alignment: start;
+                    Text { x: 16px; text: "Stalwart admin"; color: Theme.text; font-weight: 700; height: 30px; vertical-alignment: center; }
+                    for sec in [{id: "overview", l: "Overview"}, {id: "accounts", l: "Accounts"}, {id: "domains", l: "Domains"}, {id: "queue", l: "Delivery queue"}, {id: "logs", l: "Logs"}, {id: "reports", l: "DMARC reports"}]: Rectangle {
+                        height: 28px;
+                        x: 8px;
+                        width: parent.width - 16px;
+                        border-radius: 6px;
+                        background: root.admin-section == sec.id ? Theme.sel : (asa.has-hover ? Theme.hover : transparent);
+                        asa := TouchArea { clicked => { root.admin-section = sec.id; root.admin-load(sec.id); } }
+                        Text { x: 10px; text: sec.l; color: Theme.text; vertical-alignment: center; height: parent.height; }
+                    }
+                }
+            }
+            Rectangle { width: 1px; background: Theme.line; }
+            VerticalLayout {
+                padding: 18px;
+                spacing: 10px;
+                HorizontalLayout {
+                    Text { text: root.admin-status; color: Theme.accent; horizontal-stretch: 1; vertical-alignment: center; }
+                    Button { text: "Refresh"; clicked => { root.admin-load(root.admin-section); } }
+                }
+                if root.admin-section == "overview": HorizontalLayout {
+                    spacing: 12px;
+                    alignment: start;
+                    for t in root.admin-tiles: Rectangle {
+                        width: 180px;
+                        height: 90px;
+                        background: Theme.side;
+                        border-radius: 10px;
+                        border-width: 1px;
+                        border-color: Theme.line;
+                        VerticalLayout {
+                            padding: 14px;
+                            Text { text: t.c1; color: Theme.dim; font-size: 12px; }
+                            Text { text: t.c2; color: Theme.text; font-size: 26px; font-weight: 700; overflow: elide; }
+                        }
+                    }
+                }
+                if root.admin-section != "overview": VerticalLayout {
+                    HorizontalLayout {
+                        height: 26px;
+                        spacing: 8px;
+                        for c in root.admin-cols: Text { text: c; color: Theme.dim; font-size: 11px; horizontal-stretch: 1; vertical-alignment: center; }
+                        Rectangle { width: root.admin-section == "queue" ? 26px : 0px; }
+                    }
+                    Rectangle { height: 1px; background: Theme.line; }
+                    ListView {
+                        for r in root.admin-rows: Rectangle {
+                            height: 30px;
+                            background: ara.has-hover ? Theme.hover : transparent;
+                            ara := TouchArea { }
+                            HorizontalLayout {
+                                spacing: 8px;
+                                Text { text: r.c1; color: Theme.text; font-size: 12px; horizontal-stretch: 1; overflow: elide; vertical-alignment: center; }
+                                Text { text: r.c2; color: Theme.dim; font-size: 12px; horizontal-stretch: 1; overflow: elide; vertical-alignment: center; }
+                                Text { text: r.c3; color: Theme.dim; font-size: 12px; horizontal-stretch: 1; overflow: elide; vertical-alignment: center; }
+                                Text { text: r.c4; color: Theme.dim; font-size: 12px; horizontal-stretch: 1; overflow: elide; vertical-alignment: center; }
+                                if root.admin-section == "queue": HoverAction { glyph: "\u{E74D}"; y: 4px; clicked => { root.admin-delete(r.id); } }
+                            }
+                        }
+                    }
+                }
+            }
         }
     }
 
