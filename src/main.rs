@@ -10,6 +10,10 @@ mod ai;
 mod calendar;
 mod compose;
 mod contacts;
+mod contacts_x;
+mod contact_merge;
+mod vcard;
+mod pim;
 mod ctxmenu;
 mod files;
 mod jmap;
@@ -1040,6 +1044,7 @@ fn main() -> Result<(), slint::PlatformError> {
             return;
         }
         if key == "signout" { u.set_show_settings(false); u.invoke_sign_out(); }
+        if contacts_x::settings_button(&u, st.lock().unwrap().clone(), &key) { return; }
         if key == "a11y.reset" {
             pf2.lock().unwrap().set("a11y.reset", Value::Null, &mut cf2.lock().unwrap());
             apply_ui_prefs(&u);
@@ -1368,6 +1373,7 @@ fn main() -> Result<(), slint::PlatformError> {
     ui.on_ct_save(move || { let Some(c) = st.lock().unwrap().clone() else { return }; contacts::save(&w.unwrap(), c); });
     let (w, st) = (ui.as_weak(), state.clone());
     ui.on_ct_delete(move || { let Some(c) = st.lock().unwrap().clone() else { return }; contacts::delete(&w.unwrap(), c); });
+    contacts_x::wire(&ui, state.clone());
     let (w, st) = (ui.as_weak(), state.clone());
     ui.on_ct_email(move || {
         let Some(c) = st.lock().unwrap().clone() else { return };
@@ -1967,6 +1973,7 @@ pub fn apply_theme(ui: &AppWindow) {
     DARK.with(|d| d.set(dark));
     WV.with(|w| if let Some(v) = &*w.borrow() { let _ = v.set_background_color(wv_bg()); });
     ui.global::<Theme>().set_dark(dark);
+    ui.global::<PimTheme>().set_dark(dark);
 }
 
 
@@ -1991,6 +1998,7 @@ pub fn apply_ui_prefs(ui: &AppWindow) {
     // Bulwark FONT_SIZE_SCALE on the 13px base
     ui.global::<Prefs>().set_font_size(13.0 * a.font_scale);
     ui.global::<Theme>().set_more_contrast(a.more_contrast);
+    ui.global::<PimTheme>().set_more_contrast(a.more_contrast);
     ui.global::<Prefs>().set_reduce_motion(a.reduce_motion);
     ui.global::<Prefs>().set_large_targets(a.large_targets);
     // Bulwark focus outline widths: normal 2px, thick 3px, extra 5px

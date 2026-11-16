@@ -13,6 +13,8 @@
 //!   size                 (window size)
 //!   wv-eval JS / wv-result (run JS in the email WebView, then read its JSON result)
 //!   pick PATH[|PATH...]  (answer the next file-open picker with these files instead of a dialog)
+//!   savepick PATH        (answer the next save-as dialog with this path)
+//!   pim WHAT             (read-only state of the PIM screens: contacts, fields, dupes, files, filters)
 use crate::AppWindow;
 use slint::platform::{Key, PointerEventButton, WindowEvent};
 use slint::{ComponentHandle, LogicalPosition, SharedString};
@@ -22,6 +24,7 @@ use std::sync::mpsc;
 
 thread_local! {
     static PICK: std::cell::RefCell<Option<Vec<std::path::PathBuf>>> = const { std::cell::RefCell::new(None) };
+    static SAVE: std::cell::RefCell<Option<std::path::PathBuf>> = const { std::cell::RefCell::new(None) };
 }
 
 /// Files for a file-open picker: the paths queued by the `pick` command when automation is on,
@@ -31,6 +34,17 @@ pub fn pick_files() -> Option<Vec<std::path::PathBuf>> {
         if let Some(v) = PICK.with(|p| p.borrow_mut().take()) { return Some(v); }
     }
     rfd::FileDialog::new().pick_files()
+}
+
+/// A save-as path: the one queued by the `savepick` command when automation is on,
+/// otherwise the native dialog.
+pub fn save_file(name: &str, filter: &str, exts: &[&str]) -> Option<std::path::PathBuf> {
+    if enabled() {
+        if let Some(p) = SAVE.with(|p| p.borrow_mut().take()) { return Some(p); }
+    }
+    let mut d = rfd::FileDialog::new().set_file_name(name);
+    if !exts.is_empty() { d = d.add_filter(filter, exts); }
+    d.save_file()
 }
 
 pub fn enabled() -> bool {
@@ -155,6 +169,13 @@ fn run(u: &AppWindow, line: &str) -> String {
             PICK.with(|p| *p.borrow_mut() = Some(v));
             "ok".into()
         }
+        "savepick" => {
+            let p = a.get(1).copied().unwrap_or("");
+            SAVE.with(|s| *s.borrow_mut() = if p.is_empty() { None } else { Some(p.into()) });
+            "ok".into()
+        }
+        // read-only probes of the PIM screens
+        "pim" => crate::pim::probe(u, a.get(1).copied().unwrap_or("")),
         "size" => { let s = win.size(); format!("{} {} scale {}", s.width, s.height, win.scale_factor()) }
         "shot" => {
             let path = a.get(1).copied().unwrap_or("shot.png");

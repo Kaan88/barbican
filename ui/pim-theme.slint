@@ -1,0 +1,119 @@
+// Tokens for the PIM screens (contacts depth, files depth, filter / identity / vacation
+// editors). Same values as Theme in app.slint plus the design language's meaning tints
+// (design/README.md, BNTokens: rose today, mint waiting/done, sky travel/work, amber
+// attention). Rust keeps `dark` and `more-contrast` in step with Theme (main.rs apply_theme
+// and apply_ui_prefs). When the redesign moves Theme into its own file, these can alias it.
+export global PimTheme {
+    in-out property <bool> dark: true;
+    in-out property <bool> more-contrast: false;
+    out property <color> bg: dark ? #0a0a0a : #f4f4f5;
+    out property <color> tile: dark ? #141414 : #ffffff;
+    out property <color> tile2: dark ? #1a1a1a : #fafafa;
+    out property <color> popup: dark ? #1c1c1c : #ffffff;
+    out property <color> line: more-contrast ? (dark ? #9ca3af : #4b5563) : (dark ? #262626 : #e5e5e5);
+    out property <color> text: more-contrast ? (dark ? #ffffff : #000000) : (dark ? #fafafa : #0a0a0a);
+    out property <color> body: dark ? #d4d4d4 : #2b2b2b;
+    out property <color> dim: more-contrast ? (dark ? #e5e7eb : #1f2937) : (dark ? #a3a3a3 : #6b6b6b);
+    out property <color> accent: more-contrast ? (dark ? #93c5fd : #1d4ed8) : (dark ? #f0577a : #c8234a);
+    out property <color> on-accent: more-contrast ? (dark ? #000000 : #ffffff) : (dark ? #16070c : #ffffff);
+    out property <color> sel: dark ? #4a1424 : #fde4ea;
+    out property <color> sel-text: dark ? #ffd5df : #8c1733;
+    out property <color> hover: dark ? #1f1f1f : #f0f0f0;
+    out property <color> chip: dark ? #262626 : #ececec;
+    out property <color> scrim: dark ? #000000a0 : #00000060;
+    // meaning tints
+    out property <color> rose-bg: dark ? #f0577a24 : #fde4ea;
+    out property <color> rose-fg: dark ? #ffb3c4 : #8c1733;
+    out property <color> mint-bg: dark ? #34d39921 : #dcf5e8;
+    out property <color> mint-fg: dark ? #86efc4 : #17603f;
+    out property <color> sky-bg: dark ? #60a5fa24 : #dfeafd;
+    out property <color> sky-fg: dark ? #a8cbff : #1e3f8a;
+    out property <color> amber-bg: dark ? #fbbf2421 : #fdf1d3;
+    out property <color> amber-fg: dark ? #fcd679 : #7a4a06;
+    out property <string> icons: "Segoe Fluent Icons";
+    out property <string> font: "Segoe UI";
+}
+
+// A rounded tile (Bento): 1px line, radius 20.
+export component PimTile inherits Rectangle {
+    background: PimTheme.tile;
+    border-radius: 20px;
+    border-width: 1px;
+    border-color: PimTheme.line;
+}
+
+export component PimIcon inherits Text {
+    font-family: PimTheme.icons;
+    font-size: 14px;
+    color: PimTheme.dim;
+    vertical-alignment: center;
+    horizontal-alignment: center;
+}
+
+// Pill button: primary (accent) or quiet (chip). 12px radius per the design tokens.
+export component PimButton inherits Rectangle {
+    in property <string> text;
+    in property <string> icon;
+    in property <bool> primary;
+    in property <bool> danger;
+    in property <bool> enabled: true;
+    callback clicked;
+    height: 32px;
+    min-width: pl.preferred-width + (icon != "" ? 44px : 28px);
+    border-radius: 12px;
+    opacity: enabled ? 1 : 0.5;
+    background: primary ? (ta.pressed ? PimTheme.accent.darker(0.15) : ta.has-hover ? PimTheme.accent.brighter(0.1) : PimTheme.accent)
+        : danger ? (ta.has-hover ? PimTheme.rose-bg.darker(0.1) : PimTheme.rose-bg)
+        : (ta.has-hover ? PimTheme.hover : PimTheme.chip);
+    ta := TouchArea { enabled: root.enabled; clicked => { root.clicked(); } }
+    HorizontalLayout {
+        padding-left: 14px; padding-right: 14px; spacing: 6px;
+        alignment: center;
+        if icon != "": PimIcon { text: icon; font-size: 12px; color: primary ? PimTheme.on-accent : danger ? PimTheme.rose-fg : PimTheme.text; }
+        pl := Text {
+            text: root.text;
+            font-family: PimTheme.font;
+            color: primary ? PimTheme.on-accent : danger ? PimTheme.rose-fg : PimTheme.text;
+            font-weight: primary ? 700 : 600;
+            vertical-alignment: center;
+        }
+    }
+}
+
+// Small round icon button.
+export component PimIconButton inherits Rectangle {
+    in property <string> icon;
+    in property <string> tip;
+    in property <bool> enabled: true;
+    callback clicked;
+    width: 28px; height: 28px;
+    border-radius: 14px;
+    opacity: enabled ? 1 : 0.4;
+    background: ta.has-hover ? PimTheme.hover : transparent;
+    ta := TouchArea { enabled: root.enabled; clicked => { root.clicked(); } }
+    PimIcon { text: icon; font-size: 12px; color: ta.has-hover ? PimTheme.text : PimTheme.dim; }
+}
+
+// A tinted chip (meaning tint by name: rose, mint, sky, amber; anything else neutral).
+export component PimChip inherits Rectangle {
+    in property <string> text;
+    in property <string> tint;
+    height: 22px;
+    min-width: ct.preferred-width + 16px;
+    border-radius: 11px;
+    background: tint == "rose" ? PimTheme.rose-bg : tint == "mint" ? PimTheme.mint-bg : tint == "sky" ? PimTheme.sky-bg : tint == "amber" ? PimTheme.amber-bg : PimTheme.chip;
+    ct := Text {
+        text: root.text;
+        font-size: 11px;
+        font-weight: 600;
+        color: tint == "rose" ? PimTheme.rose-fg : tint == "mint" ? PimTheme.mint-fg : tint == "sky" ? PimTheme.sky-fg : tint == "amber" ? PimTheme.amber-fg : PimTheme.dim;
+        horizontal-alignment: center; vertical-alignment: center;
+    }
+}
+
+// Section caption inside a tile.
+export component PimCaption inherits Text {
+    color: PimTheme.dim;
+    font-size: 11px;
+    font-weight: 700;
+}

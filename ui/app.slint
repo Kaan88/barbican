@@ -1,6 +1,10 @@
 import { AdminDashboard, DashRow, DashPanel, DashCol, DashBar } from "dashboard.slint";
 export { DashRow, DashPanel, DashCol, DashBar }
 import { LineEdit, Button, ListView, ScrollView, TextEdit, ComboBox, CheckBox, Palette } from "std-widgets.slint";
+// p2-pim: contacts / files / filters depth (new UI lives in its own files)
+import { PimTheme } from "pim-theme.slint";
+import { CtX, CtLine, CtField, CtDupe, ContactCardView, ContactEditor, ContactDupes, ContactImportDialog } from "pim-contacts.slint";
+export { PimTheme, CtX, CtLine, CtField, CtDupe }
 
 export struct Folder {
     id: string,
@@ -2699,6 +2703,8 @@ export component AppWindow inherits Window {
                         spacing: 6px;
                         Text { text: "Contacts"; color: Theme.text; font-weight: 700; vertical-alignment: center; horizontal-stretch: 1; }
                         HoverAction { glyph: "\u{E710}"; clicked => { root.ct-new(); } }
+                        HoverAction { glyph: "\u{E8B5}"; clicked => { CtX.import-file(); } }
+                        HoverAction { glyph: "\u{EDE1}"; clicked => { CtX.export-all(); } }
                     }
                     HorizontalLayout {
                         padding-left: 10px; padding-right: 10px; padding-bottom: 8px;
@@ -2731,9 +2737,9 @@ export component AppWindow inherits Window {
             }
             Rectangle { width: 1px; background: Theme.line; }
             Rectangle {
-                if root.ct-id == "" && root.ct-group == "" && !root.ct-editing: VerticalLayout {
+                if root.ct-id == "" && root.ct-group == "" && !root.ct-editing && root.ct-filter != "dupes:": VerticalLayout {
                     alignment: center;
-                    Text { text: "Select a contact"; color: Theme.dim; horizontal-alignment: center; }
+                    Text { text: CtX.dir-status != "" && root.ct-filter == "directory:" ? CtX.dir-status : "Select a contact"; color: Theme.dim; horizontal-alignment: center; wrap: word-wrap; }
                 }
                 if root.ct-group != "" && root.ct-id == "" && !root.ct-editing: VerticalLayout {
                     padding: 28px;
@@ -2745,55 +2751,19 @@ export component AppWindow inherits Window {
                     Text { text: "Members"; color: Theme.dim; font-size: 11px; font-weight: 700; }
                     Text { text: root.ct-notes == "" ? "No members" : root.ct-notes; color: Theme.text; wrap: word-wrap; }
                 }
-                if root.ct-id != "" && !root.ct-editing: VerticalLayout {
-                    padding: 28px;
-                    spacing: 10px;
-                    alignment: start;
-                    HorizontalLayout {
-                        spacing: 14px;
-                        Avatar { label: root.ct-initials; tint: Theme.accent; width: 56px; height: 56px; border-radius: 28px; }
-                        VerticalLayout {
-                            alignment: center;
-                            Text { text: root.ct-name; color: Theme.text; font-size: 20px; font-weight: 700; }
-                            Text { text: root.ct-title + (root.ct-title != "" && root.ct-company != "" ? " · " : "") + root.ct-company; color: Theme.dim; }
-                        }
-                    }
-                    HorizontalLayout {
-                        spacing: 6px;
-                        alignment: start;
-                        PrimaryButton { text: "Write email";  enabled: root.ct-emails != ""; clicked => { root.ct-email(); } }
-                        Button { text: "Edit"; clicked => { root.ct-editing = true; } }
-                        Button { text: "Delete"; clicked => { root.ct-delete(); } }
-                    }
-                    Rectangle { height: 1px; background: Theme.line; }
-                    for f in [{l: "Email", v: root.ct-emails}, {l: "Phone", v: root.ct-phones}, {l: "Address", v: root.ct-address}, {l: "Birthday", v: root.ct-birthday}, {l: "Notes", v: root.ct-notes}]: HorizontalLayout {
-                        visible: f.v != "";
-                        spacing: 12px;
-                        Text { text: f.l; color: Theme.dim; width: 90px; }
-                        Text { text: f.v; color: Theme.text; wrap: word-wrap; horizontal-stretch: 1; }
-                    }
+                if root.ct-id != "" && !root.ct-editing: ContactCardView {
+                    name: root.ct-name;
+                    initials: root.ct-initials;
+                    can-email: root.ct-emails != "";
+                    write-email => { root.ct-email(); }
+                    edit => { root.ct-editing = true; }
+                    delete => { root.ct-delete(); }
                 }
-                if root.ct-editing: VerticalLayout {
-                    padding: 28px;
-                    spacing: 8px;
-                    alignment: start;
-                    Text { text: root.ct-id == "" ? "New contact" : "Edit contact"; color: Theme.text; font-size: 17px; font-weight: 700; }
-                    LineEdit { placeholder-text: "Full name"; text <=> root.ct-name; }
-                    LineEdit { placeholder-text: "Emails (comma separated)"; text <=> root.ct-emails; }
-                    LineEdit { placeholder-text: "Phones (comma separated)"; text <=> root.ct-phones; }
-                    HorizontalLayout { spacing: 8px; LineEdit { placeholder-text: "Company"; text <=> root.ct-company; } LineEdit { placeholder-text: "Job title"; text <=> root.ct-title; } }
-                    LineEdit { placeholder-text: "Address"; text <=> root.ct-address; }
-                    LineEdit { placeholder-text: "Birthday YYYY-MM-DD"; text <=> root.ct-birthday; }
-                    TextEdit { height: 80px; text <=> root.ct-notes; wrap: word-wrap; }
-                    HorizontalLayout {
-                        spacing: 8px;
-                        Text { text: root.ct-status; color: Theme.accent; vertical-alignment: center; horizontal-stretch: 1; }
-                        Button { text: "Cancel"; clicked => { root.ct-editing = false; root.ct-select(root.ct-id); } }
-                        PrimaryButton { text: "Save";  clicked => { root.ct-save(); } }
-                    }
-                }
+                if root.ct-editing: ContactEditor { }
+                if root.ct-filter == "dupes:" && !root.ct-editing && root.ct-id == "": ContactDupes { }
             }
         }
+        if CtX.import-open: ContactImportDialog { }
     }
 
     if root.app == 3: Rectangle {
