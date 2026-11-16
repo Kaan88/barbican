@@ -100,6 +100,13 @@ export struct ThreadMsg {
     unread: bool,
 }
 
+export struct TaskRow {
+    id: string,
+    title: string,
+    due: string,
+    done: bool,
+}
+
 export struct Att {
     name: string,
     size: string,
@@ -602,6 +609,11 @@ export component AppWindow inherits Window {
     in-out property <string> ev-status;
     callback ev-save();
     callback ev-delete();
+    in property <[TaskRow]> cal-tasks;
+    in-out property <string> task-new;
+    in-out property <string> task-due;
+    callback task-add(string, string);
+    callback task-toggle(string);
     in property <[ContactRow]> contacts;
     in property <[ContactRow]> contact-groups;
     in-out property <string> ct-group;
@@ -1365,6 +1377,24 @@ export component AppWindow inherits Window {
                             mdta := TouchArea { clicked => { root.cal-nav(d.date); } }
                         }
                     }
+                    Rectangle { height: 8px; }
+                    Text { text: "Tasks"; color: Theme.text; font-weight: 700; }
+                    for t in root.cal-tasks: Rectangle {
+                        height: 24px;
+                        HorizontalLayout {
+                            spacing: 8px;
+                            Rectangle {
+                                width: 14px; height: 14px; y: 5px; border-radius: 7px;
+                                border-width: 1px; border-color: t.done ? Theme.accent : Theme.dim;
+                                background: t.done ? Theme.accent : transparent;
+                                TouchArea { clicked => { root.task-toggle(t.id); } }
+                            }
+                            Text { text: t.title; color: t.done ? Theme.dim : Theme.text; vertical-alignment: center; overflow: elide; horizontal-stretch: 1; }
+                            Text { text: t.due; color: Theme.dim; font-size: 10px; vertical-alignment: center; }
+                        }
+                    }
+                    LineEdit { placeholder-text: "Add a task"; text <=> root.task-new; accepted(t) => { root.task-add(t, root.task-due); root.task-new = ""; root.task-due = ""; } }
+                    if root.task-new != "": LineEdit { placeholder-text: "Due YYYY-MM-DD (optional)"; text <=> root.task-due; accepted(t) => { root.task-add(root.task-new, t); root.task-new = ""; root.task-due = ""; } }
                     Rectangle { height: 8px; }
                     Text { text: "Calendars"; color: Theme.text; font-weight: 700; }
                     for c in root.calendars: Rectangle {

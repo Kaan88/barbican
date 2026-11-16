@@ -165,10 +165,10 @@ pub fn load(w: slint::Weak<AppWindow>, c: Arc<Client>) {
             let cals = cals[0][1]["list"].as_array().cloned().unwrap_or_default();
             // series overlapping the range (recurring series start earlier, so no lower bound for them)
             let q = c.call(json!([
-                ["CalendarEvent/query", {"accountId": acc, "filter": {"before": format!("{}T00:00:00", to)}, "timeZone": tz, "limit": 2000}, "q"],
+                ["CalendarEvent/query", {"accountId": acc, "timeZone": tz, "limit": 5000}, "q"],
                 ["CalendarEvent/get", {"accountId": acc, "#ids": {"resultOf": "q", "name": "CalendarEvent/query", "path": "/ids"},
                     "properties": ["id", "@type", "title", "start", "duration", "timeZone", "showWithoutTime", "calendarIds", "locations",
-                        "recurrenceRules", "recurrenceOverrides", "description", "status"]}, "g"]
+                        "recurrenceRules", "recurrenceOverrides", "description", "status", "due", "progress", "percentComplete", "uid"]}, "g"]
             ]))?;
             Ok((cals, q[1][1]["list"].as_array().cloned().unwrap_or_default()))
         })();
@@ -177,7 +177,7 @@ pub fn load(w: slint::Weak<AppWindow>, c: Arc<Client>) {
                 let (f, t) = (from.and_hms_opt(0, 0, 0).unwrap(), to.and_hms_opt(0, 0, 0).unwrap());
                 let mut occ = vec![];
                 for e in &events {
-                    if e["@type"] == "Task" { continue; }
+                    if is_task(e) { continue; }
                     for (s, en) in expand(e, f, t) {
                         occ.push(Occ {
                             id: e["id"].as_str().unwrap_or("").into(),
@@ -193,6 +193,7 @@ pub fn load(w: slint::Weak<AppWindow>, c: Arc<Client>) {
                 ST.with(|s| { let mut s = s.borrow_mut(); s.calendars = cals; s.events = occ; });
                 ST.with(|s| s.borrow_mut().events_raw_set(events));
                 render(&u);
+                render_tasks(&u);
             }
             Err(e) => crate::mail::show_toast(&u, &format!("Calendar: {e}"), false),
         });
@@ -460,4 +461,63 @@ mod tests {
         let occ = expand(&e, f, NaiveDate::from_ymd_opt(2026, 11, 15).unwrap().and_hms_opt(0, 0, 0).unwrap());
         assert_eq!(occ.len(), 4);
     }
+}
+
+
+// ---------------- tasks (JSCalendar Task via CalendarEvent, like Bulwark) ----------------
+
+/// Bulwark's isTaskObject: @type Task, or task-only fields on a CalDAV VTODO.
+fn is_task(e: &Value) -> bool {
+    e["@type"].as_str().is_some_and(|t| t.eq_ignore_ascii_case("task"))
+        || (e["@type"] != "Event" && (e["progress"].is_string() || !e["due"].is_null() || e.get("percentComplete").is_some()))
+}
+
+pub fn render_tasks(u: &AppWindow) {
+    let mut tasks: Vec<Value> = RAW.with(|r| r.borrow().iter().filter(|e| is_task(e)).cloned().collect());
+    tasks.sort_by_key(|t| (t["progress"] == "completed", t["due"].as_str().unwrap_or("9999").to_string()));
+    let rows: Vec<crate::TaskRow> = tasks.iter().map(|t| crate::TaskRow {
+        id: t["id"].as_str().unwrap_or("").into(),
+        title: t["title"].as_str().filter(|x| !x.is_empty()).unwrap_or("(untitled task)").into(),
+        due: t["due"].as_str().map(|d| d[..10.min(d.len())].to_string()).unwrap_or_default().into(),
+        done: t["progress"] == "completed",
+    }).collect();
+    u.set_cal_tasks(ModelRc::new(VecModel::from(rows)));
+}
+
+pub fn add_task(u: &AppWindow, c: Arc<Client>, title: &str, due: &str) {
+    let title = title.trim().to_string();
+    if title.is_empty() { return; }
+    let cal = ST.with(|s| { let s = s.borrow(); s.calendars.iter().find(|c| c["isDefault"] == true).or(s.calendars.first()).and_then(|c| c["id"].as_str().map(String::from)) });
+    let Some(cal) = cal else { crate::mail::show_toast(u, "No calendar to add the task to.", false); return };
+    let mut b = [0u8; 16];
+    let _ = getrandom::getrandom(&mut b);
+    let uid: String = b.iter().map(|x| format!("{x:02x}")).collect();
+    let mut task = json!({"@type": "Task", "uid": uid, "title": title, "calendarIds": { cal: true }, "progress": "needs-action"});
+    let due = due.trim();
+    if due.len() == 10 { task["due"] = json!(format!("{due}T00:00:00")); task["timeZone"] = json!(crate::agent::local_tz()); }
+    let w = u.as_weak();
+    std::thread::spawn(move || {
+        let acc = c.account_for("urn:ietf:params:jmap:calendars");
+        let res = c.call(json!([["CalendarEvent/set", {"accountId": acc, "sendSchedulingMessages": false, "create": {"t": task}}, "s"]]))
+            .and_then(|r| if r[0][1]["created"]["t"].is_object() { Ok(()) } else { Err(crate::jmap::set_error(&r[0][1]["notCreated"]["t"])) });
+        let w2 = w.clone();
+        let _ = w.upgrade_in_event_loop(move |u| match res {
+            Ok(()) => load(w2, c),
+            Err(e) => crate::mail::show_toast(&u, &format!("Task not added: {e}"), false),
+        });
+    });
+}
+
+pub fn toggle_task(u: &AppWindow, c: Arc<Client>, id: &str) {
+    let done = RAW.with(|r| r.borrow().iter().find(|e| e["id"] == id).map(|e| e["progress"] == "completed")).unwrap_or(false);
+    let progress = if done { "needs-action" } else { "completed" };
+    RAW.with(|r| if let Some(e) = r.borrow_mut().iter_mut().find(|e| e["id"] == id) { e["progress"] = json!(progress); });
+    render_tasks(u);
+    let (w, id) = (u.as_weak(), id.to_string());
+    std::thread::spawn(move || {
+        let acc = c.account_for("urn:ietf:params:jmap:calendars");
+        if let Err(e) = c.update("CalendarEvent/set", &acc, vec![(id, json!({"progress": progress}))]).and_then(|(_, b)| if b.is_empty() { Ok(()) } else { Err(b.join("; ")) }) {
+            let _ = w.upgrade_in_event_loop(move |u| crate::mail::show_toast(&u, &format!("Task not updated: {e}"), false));
+        }
+    });
 }

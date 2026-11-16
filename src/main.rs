@@ -1034,6 +1034,10 @@ fn main() -> Result<(), slint::PlatformError> {
     let w = ui.as_weak();
     ui.on_cal_edit(move |id, date, hour| calendar::edit(&w.unwrap(), &id, &date, hour));
     let (w, st) = (ui.as_weak(), state.clone());
+    ui.on_task_add(move |t, d| { let Some(c) = st.lock().unwrap().clone() else { return }; calendar::add_task(&w.unwrap(), c, &t, &d); });
+    let (w, st) = (ui.as_weak(), state.clone());
+    ui.on_task_toggle(move |id| { let Some(c) = st.lock().unwrap().clone() else { return }; calendar::toggle_task(&w.unwrap(), c, &id); });
+    let (w, st) = (ui.as_weak(), state.clone());
     ui.on_ev_save(move || { let Some(c) = st.lock().unwrap().clone() else { return }; calendar::save(&w.unwrap(), c); });
     let (w, st) = (ui.as_weak(), state.clone());
     ui.on_ev_delete(move || { let Some(c) = st.lock().unwrap().clone() else { return }; calendar::delete(&w.unwrap(), c); });
