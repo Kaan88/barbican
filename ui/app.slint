@@ -135,6 +135,8 @@ export struct Mail {
     checked: bool,
     draft: bool,
     tags: [color],
+    account: string,
+    account-color: color,
 }
 
 export global Theme {
@@ -414,6 +416,15 @@ component MailRow inherits VerticalLayout {
                 alignment: center;
                 HorizontalLayout {
                     spacing: 6px;
+                    if m.account != "": VerticalLayout {
+                        alignment: center;
+                        Rectangle {
+                            width: 8px;
+                            height: 8px;
+                            border-radius: 4px;
+                            background: m.account-color;
+                        }
+                    }
                     Text {
                         text: m.draft ? "Draft" : m.sender;
                         color: m.draft ? #ef4444 : (m.unread ? Theme.text : Theme.dim);

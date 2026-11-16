@@ -11,6 +11,7 @@ mod files;
 mod jmap;
 mod lite;
 mod mail;
+mod unified;
 mod oauth;
 mod plugins;
 mod server_settings;
@@ -224,6 +225,43 @@ fn load_thread(w: slint::Weak<AppWindow>, c: Arc<jmap::Client>, id: String) {
         });
     });
 }
+thread_local! {
+    /// Client of the account the open message belongs to (unified inbox) and of the open composer.
+    static READER_CLIENT: std::cell::RefCell<Option<Arc<jmap::Client>>> = const { std::cell::RefCell::new(None) };
+    static COMPOSE_CLIENT: std::cell::RefCell<Option<Arc<jmap::Client>>> = const { std::cell::RefCell::new(None) };
+}
+
+/// Client that owns a listed message: another account's client for unified-inbox rows, else the active one.
+fn client_for(st: &Shared, id: &str) -> Option<Arc<jmap::Client>> {
+    if let Some(o) = mail::owner(id) {
+        if o != unified::active_user() { return unified::cached(&o); }
+    }
+    st.lock().unwrap().clone()
+}
+
+/// The open message's client (falls back to the active one).
+fn reader_client(st: &Shared) -> Option<Arc<jmap::Client>> {
+    READER_CLIENT.with(|r| r.borrow().clone()).or_else(|| st.lock().unwrap().clone())
+}
+
+/// The composer's client (a reply from the unified inbox sends from that account).
+fn compose_client(st: &Shared) -> Option<Arc<jmap::Client>> {
+    COMPOSE_CLIENT.with(|r| r.borrow().clone()).or_else(|| st.lock().unwrap().clone())
+}
+
+/// mail::apply, split per owning account so unified-inbox rows use their own client.
+fn apply_routed(u: &AppWindow, st: &Shared, ids: Vec<String>, action: &str) {
+    let mut groups: Vec<(Option<String>, Vec<String>)> = vec![];
+    for id in ids {
+        let o = mail::owner(&id).filter(|o| *o != unified::active_user());
+        match groups.iter_mut().find(|g| g.0 == o) { Some(g) => g.1.push(id), None => groups.push((o, vec![id])) }
+    }
+    for (o, ids) in groups {
+        let c = match &o { Some(o) => unified::cached(o), None => st.lock().unwrap().clone() };
+        if let Some(c) = c { mail::apply(u, c, ids, action); }
+    }
+}
+
 thread_local! { static MY_ADDRS: std::cell::RefCell<Vec<String>> = const { std::cell::RefCell::new(Vec::new()) }; }
 
 thread_local! {
@@ -390,6 +428,7 @@ fn load_folder(ui: slint::Weak<AppWindow>, client: Arc<jmap::Client>, mailbox: O
     let filter = match (mailbox, text) {
         (_, Some(t)) => json!({"text": t}),
         (Some(m), None) if m == "__scheduled" => json!({"scheduled": true}),
+        (Some(m), None) if m == unified::FOLDER_ID => json!({"unified": true}),
         (Some(m), None) => json!({"inMailbox": m}),
         _ => json!({}),
     };
@@ -465,6 +504,7 @@ fn main() -> Result<(), slint::PlatformError> {
         }
         oauth::forget();
         oauth::forget_account(&u.get_account());
+        unified::clear();
         u.set_accounts(accounts_model());
         REMEMBER_OAUTH.store(false, std::sync::atomic::Ordering::SeqCst);
         u.set_current_mail("".into());
@@ -540,7 +580,8 @@ fn main() -> Result<(), slint::PlatformError> {
     let w = ui.as_weak();
     let st = state.clone();
     ui.on_open_mail(move |id| {
-        let Some(c) = st.lock().unwrap().clone() else { return };
+        let Some(c) = client_for(&st, &id) else { return };
+        READER_CLIENT.with(|r| *r.borrow_mut() = Some(c.clone()));
         let u = w.unwrap();
         if settings::Settings::load().prefs.get("markAsReadDelay").and_then(|v| v.as_i64()).unwrap_or(0) == 0 { mail::mark_read_local(&u, &id); }
         u.set_plugin_rows(ModelRc::default());
@@ -769,6 +810,7 @@ fn main() -> Result<(), slint::PlatformError> {
         p.set(&key, serde_json::json!(on), &mut cf.lock().unwrap());
         drop(p);
         rs();
+        if key == "enableUnifiedMailbox" && on { unified::warm_up(); }
         if let Some(u) = wt.upgrade() { apply_ui_prefs(&u); mail::rebuild_folders(&u); mail::rebuild_list(&u); }
     });
 
@@ -1030,31 +1072,33 @@ fn main() -> Result<(), slint::PlatformError> {
     let (w, st) = (ui.as_weak(), state.clone());
     ui.on_compose_new(move || {
         let Some(c) = st.lock().unwrap().clone() else { return };
+        COMPOSE_CLIENT.with(|r| *r.borrow_mut() = None);
         compose::open(&w.unwrap(), c, compose::Kind::New, None);
     });
 
     let (w, st) = (ui.as_weak(), state.clone());
     ui.on_reply(move || {
-        let Some(c) = st.lock().unwrap().clone() else { return };
+        let Some(c) = reader_client(&st) else { return };
+        COMPOSE_CLIENT.with(|r| *r.borrow_mut() = Some(c.clone()));
         let Some((m, _)) = CUR_MSG.with(|x| x.borrow().clone()) else { return };
         compose::open(&w.unwrap(), c, compose::Kind::Reply, Some(&m));
     });
 
     let (w, st, pf) = (ui.as_weak(), state.clone(), prefs.clone());
     ui.on_send_now(move || {
-        let Some(c) = st.lock().unwrap().clone() else { return };
+        let Some(c) = compose_client(&st) else { return };
         compose::send(&w.unwrap(), c, &pf.lock().unwrap());
     });
 
     let (w, st) = (ui.as_weak(), state.clone());
     ui.on_undo_toast(move || {
-        let Some(c) = st.lock().unwrap().clone() else { return };
+        let Some(c) = compose_client(&st) else { return };
         compose::undo_send(&w.unwrap(), c);
     });
 
     let (w, st) = (ui.as_weak(), state.clone());
     ui.on_attach_file(move || {
-        let Some(c) = st.lock().unwrap().clone() else { return };
+        let Some(c) = compose_client(&st) else { return };
         compose::attach(&w.unwrap(), c);
     });
 
@@ -1063,13 +1107,13 @@ fn main() -> Result<(), slint::PlatformError> {
 
     let (w, st) = (ui.as_weak(), state.clone());
     ui.on_save_draft(move |close| {
-        let Some(c) = st.lock().unwrap().clone() else { return };
+        let Some(c) = compose_client(&st) else { return };
         compose::save_draft(&w.unwrap(), c, close);
     });
 
     let (w, st) = (ui.as_weak(), state.clone());
     ui.on_discard_draft(move || {
-        let Some(c) = st.lock().unwrap().clone() else { return };
+        let Some(c) = compose_client(&st) else { return };
         compose::discard(&w.unwrap(), c);
     });
 
@@ -1318,8 +1362,7 @@ fn main() -> Result<(), slint::PlatformError> {
 
     let (w, st) = (ui.as_weak(), state.clone());
     ui.on_row_action(move |id, a| {
-        let Some(c) = st.lock().unwrap().clone() else { return };
-        mail::apply(&w.unwrap(), c, vec![id.to_string()], &a);
+        apply_routed(&w.unwrap(), &st, vec![id.to_string()], &a);
     });
 
     let w = ui.as_weak();
@@ -1331,8 +1374,7 @@ fn main() -> Result<(), slint::PlatformError> {
     ui.on_bulk(move |a| {
         let u = w.unwrap();
         if a == "clear" { mail::select_all(&u); return; }
-        let Some(c) = st.lock().unwrap().clone() else { return };
-        mail::apply(&u, c, mail::checked_ids(), &a);
+        apply_routed(&u, &st, mail::checked_ids(), &a);
     });
 
     let (w, st) = (ui.as_weak(), state.clone());
@@ -1343,21 +1385,22 @@ fn main() -> Result<(), slint::PlatformError> {
 
     let (w, st) = (ui.as_weak(), state.clone());
     ui.on_move_to(move |fid| {
-        let Some(c) = st.lock().unwrap().clone() else { return };
         let u = w.unwrap();
         let ids = { let ch = mail::checked_ids(); if ch.is_empty() { vec![u.get_current_mail().to_string()] } else { ch } };
+        // folder ids belong to the active account: other accounts' rows are left alone
+        let ids: Vec<String> = ids.into_iter().filter(|i| mail::owner(i).is_none_or(|o| o == unified::active_user())).collect();
+        let Some(c) = st.lock().unwrap().clone() else { return };
         mail::apply(&u, c, ids.into_iter().filter(|i| !i.is_empty()).collect(), &format!("move:{fid}"));
     });
 
     let (w, st) = (ui.as_weak(), state.clone());
     ui.on_tag_toggle(move |tid| {
-        let Some(c) = st.lock().unwrap().clone() else { return };
         let u = w.unwrap();
         let id = u.get_current_mail().to_string();
         let ids = { let ch = mail::checked_ids(); if ch.is_empty() { vec![id.clone()] } else { ch } };
         if ids.iter().all(|i| i.is_empty()) { return; }
         let has = mail::email(&ids[0]).is_some_and(|m| m["keywords"][format!("$label:{tid}")].as_bool() == Some(true));
-        mail::apply(&u, c, ids, &format!("{}:{tid}", if has { "untag" } else { "tag" }));
+        apply_routed(&u, &st, ids, &format!("{}:{tid}", if has { "untag" } else { "tag" }));
     });
 
     let (w, st) = (ui.as_weak(), state.clone());
@@ -1368,7 +1411,8 @@ fn main() -> Result<(), slint::PlatformError> {
         match a.as_str() {
             "reply" => u.invoke_reply(),
             "reply-all" | "forward" => {
-                let Some(c) = st.lock().unwrap().clone() else { return };
+                let Some(c) = reader_client(&st) else { return };
+                COMPOSE_CLIENT.with(|r| *r.borrow_mut() = Some(c.clone()));
                 let Some((msg, _)) = CUR_MSG.with(|x| x.borrow().clone()) else { return };
                 let kind = if a == "forward" { compose::Kind::Forward } else { compose::Kind::ReplyAll };
                 compose::open(&u, c, kind, Some(&msg));
@@ -1386,16 +1430,15 @@ fn main() -> Result<(), slint::PlatformError> {
                 }
             }
             other => {
-                let Some(c) = st.lock().unwrap().clone() else { return };
                 if other == "star" { u.set_r_flagged(!u.get_r_flagged()); }
-                mail::apply(&u, c, vec![id], other);
+                apply_routed(&u, &st, vec![id], other);
             }
         }
     });
 
     let st = state.clone();
     ui.on_open_attachment(move |i| {
-        let Some(c) = st.lock().unwrap().clone() else { return };
+        let Some(c) = reader_client(&st) else { return };
         let Some(a) = CUR_MSG.with(|x| x.borrow().as_ref().and_then(|(_, atts)| atts.get(i as usize).cloned())) else { return };
         std::thread::spawn(move || {
             let name = sanitize_name(a["name"].as_str().unwrap_or("attachment"));
@@ -1589,6 +1632,8 @@ fn finish_login(w: slint::Weak<AppWindow>, st: Shared, res: Result<jmap::Client,
         Ok(c) => {
             let c = Arc::new(c);
             *st.lock().unwrap() = Some(c.clone());
+            unified::set_active(&user, c.clone());
+            if unified::enabled() { unified::warm_up(); }
             let p = config_path();
             let _ = std::fs::create_dir_all(p.parent().unwrap());
             let _ = std::fs::write(&p, format!("{server}\n{user}\n"));
