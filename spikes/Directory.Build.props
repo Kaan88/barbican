@@ -1,0 +1,17 @@
+<Project>
+  <!--
+    Spikes (PORT-PLAN.md §5 M0) are measurement harnesses, not product code: they take the repo's
+    strictness (imported below) with a few rules relaxed that only cost time in throwaway code.
+    Nothing under spikes/ is referenced by src/; what a spike proves is ported into src/ by the
+    milestone that owns it, under the full rules.
+  -->
+  <Import Project="$([MSBuild]::GetPathOfFileAbove('Directory.Build.props', '$(MSBuildThisFileDirectory)../'))" />
+  <PropertyGroup>
+    <!-- MA0051 long methods (scenario scripts read top to bottom), CA1031 catch-all (a failed probe
+         is recorded, not fatal), CA1303/CA1305/CA1307/CA1310/MA0011/MA0074/MA0076 culture rules
+         (report text), MA0006 (ordinal == on literal ids), CA1859, VSTHRD200, CA1812 (types created by XAML or reflection), CA5394 (no security use of Random). -->
+    <NoWarn>$(NoWarn);MA0051;CA1031;CA1303;CA1305;CA1307;CA1310;MA0011;MA0074;MA0076;CA1812;CA5394;MA0006;CA1859;VSTHRD200</NoWarn>
+    <!-- Uno0001 (API not implemented in Uno) is the data the spike collects: reported, not fatal. -->
+    <WarningsNotAsErrors>$(WarningsNotAsErrors);Uno0001</WarningsNotAsErrors>
+  </PropertyGroup>
+</Project>
