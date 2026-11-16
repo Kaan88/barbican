@@ -1,5 +1,6 @@
 #![cfg_attr(not(test), windows_subsystem = "windows")]
 
+mod a11y;
 mod admin;
 mod dashboard;
 mod automation;
@@ -38,8 +39,19 @@ thread_local! {
 }
 
 fn csp(images: bool) -> String {
+    csp_with(images, None)
+}
+
+/// The reader's CSP; `script` (our own accessibility script) is allowed by its hash only.
+fn csp_with(images: bool, script: Option<&str>) -> String {
+    use base64::Engine;
+    use sha2::Digest;
+    let scripts = match script {
+        Some(s) => format!("'sha256-{}'", base64::engine::general_purpose::STANDARD.encode(sha2::Sha256::digest(s.as_bytes()))),
+        None => "'none'".into(),
+    };
     format!(
-        "<meta http-equiv=\"Content-Security-Policy\" content=\"default-src 'none'; style-src 'unsafe-inline' *; font-src * data:; img-src {}; script-src 'none'; object-src 'none'; frame-src 'none'; form-action 'none'\">",
+        "<meta http-equiv=\"Content-Security-Policy\" content=\"default-src 'none'; style-src 'unsafe-inline' *; font-src * data:; img-src {}; script-src {scripts}; object-src 'none'; frame-src 'none'; form-action 'none'\">",
         if images { "* data:" } else { "data:" }
     )
 }
@@ -68,9 +80,12 @@ fn render_current(u: &AppWindow) {
         let c = c.borrow();
         let Some(cur) = c.as_ref() else { return };
         u.set_images_blocked(cur.remote && !cur.allow && mode != 2);
+        // Settings > Accessibility > Show messages as: plain text drops the layout
+        let plain_view = a11y::A11y::load().plain_view;
         let body = match &cur.html {
-            Some(h) => h.clone(),
-            None => format!("<pre>{}</pre>", esc(&cur.text)),
+            Some(h) if !plain_view => h.clone(),
+            Some(h) if cur.text.trim().is_empty() => format!("<pre>{}</pre>", esc(&html_to_text(h))),
+            _ => format!("<pre>{}</pre>", esc(&cur.text)),
         };
         match mode {
             1 => {
@@ -113,8 +128,14 @@ fn wrap_html(body: &str) -> String {
 }
 
 fn wrap_html_opts(body: &str, images: bool) -> String {
-    let csp = csp(images);
     let p = settings::Settings::load();
+    // Settings > Accessibility: spacing, width, links, motion, text size and fitting
+    let a = a11y::A11y::load();
+    let script = a.mail_script();
+    let csp = csp_with(images, script.as_deref());
+    let extra = format!("<style>{}</style>{}", a.mail_css(DARK.with(|d| d.get()) && !p.bool("emailAlwaysLightMode", false)),
+        script.map(|s| format!("<script>{s}</script>")).unwrap_or_default());
+    let csp = format!("{csp}{extra}");
     let plain = body.starts_with("<pre>");
     // Bulwark plainTextFont: sans (default) or mono for text/plain bodies
     let pre_font = if p.str("plainTextFont", "sans") == "mono" { "ui-monospace,Consolas,'Cascadia Mono',monospace" } else { "inherit" };
@@ -354,14 +375,14 @@ fn schedule_refresh(w: slint::Weak<AppWindow>, c: Arc<jmap::Client>) {
     REFRESH.with(|t| t.start(slint::TimerMode::SingleShot, std::time::Duration::from_millis(700), move || {
         mail::load_mailboxes(w.clone(), c.clone(), false);
         mail::reload(w.clone(), c.clone());
-        check_new_mail(c.clone());
+        check_new_mail(c.clone(), Some(w.clone()));
     }));
 }
 
 static NOTIFIED: Mutex<Option<std::collections::HashSet<String>>> = Mutex::new(None);
 
 /// Desktop notification for newly arrived unread inbox mail (Bulwark: emailNotificationsEnabled).
-fn check_new_mail(c: Arc<jmap::Client>) {
+fn check_new_mail(c: Arc<jmap::Client>, w: Option<slint::Weak<AppWindow>>) {
     let prefs = settings::Settings::load();
     if !prefs.bool("emailNotificationsEnabled", true) { return; }
     // Bulwark emailNotificationSound (default on) and pushNotifyInboxOnly (default off: every
@@ -381,9 +402,11 @@ fn check_new_mail(c: Arc<jmap::Client>) {
         let mut guard = NOTIFIED.lock().unwrap();
         let first_run = guard.is_none();
         let seen = guard.get_or_insert_with(Default::default);
+        let mut arrived = false;
         for m in list.iter().rev() {
             let id = m["id"].as_str().unwrap_or("").to_string();
             if seen.insert(id) && !first_run {
+                arrived = true;
                 let mut n = notify_rust::Notification::new();
                 if sound { n.sound_name("Mail"); }
                 let _ = n
@@ -391,6 +414,15 @@ fn check_new_mail(c: Arc<jmap::Client>) {
                     .summary(&mail::sender(m))
                     .body(&format!("{}\n{}", m["subject"].as_str().unwrap_or("(no subject)"), mail::clean_preview(m["preview"].as_str().unwrap_or(""))))
                     .show();
+            }
+        }
+        // Settings > Accessibility > Visual alerts: flash the taskbar button
+        if arrived && a11y::A11y::load().visual_alerts {
+            if let Some(w) = w {
+                let _ = w.upgrade_in_event_loop(|u| {
+                    use slint::winit_030::{winit::window::UserAttentionType, WinitWindowAccessor};
+                    u.window().with_winit_window(|ww| ww.request_user_attention(Some(UserAttentionType::Informational)));
+                });
             }
         }
     });
@@ -932,6 +964,14 @@ fn main() -> Result<(), slint::PlatformError> {
             return;
         }
         if key == "signout" { u.set_show_settings(false); u.invoke_sign_out(); }
+        if key == "a11y.reset" {
+            pf2.lock().unwrap().set("a11y.reset", Value::Null, &mut cf2.lock().unwrap());
+            apply_ui_prefs(&u);
+            mail::rebuild_folders(&u);
+            mail::rebuild_list(&u);
+            mail::show_toast(&u, "Accessibility settings reset", false);
+            u.invoke_settings_search(u.get_settings_query());
+        }
         if key == "plugins.folder" { oauth::open_browser(&plugins::dir().to_string_lossy()); }
         if key == "backup.export" {
             if let Some(path) = rfd::FileDialog::new().set_file_name("barbican-settings.json").add_filter("JSON", &["json"]).save_file() {
@@ -1321,6 +1361,9 @@ fn main() -> Result<(), slint::PlatformError> {
             }
         };
         let _ = (&st, &pf);
+        // Settings > Accessibility > Single-key shortcuts (Ctrl/Alt ones keep working)
+        let single = t.chars().count() == 1 && t.chars().next().is_some_and(|ch| ch.is_ascii_graphic());
+        if single && !a11y::A11y::load().single_keys { return; }
         match t {
             "j" => move_sel(1, false),
             "k" => move_sel(-1, false),
@@ -1768,7 +1811,7 @@ fn finish_login(w: slint::Weak<AppWindow>, st: Shared, res: Result<jmap::Client,
                     let _ = w3.upgrade_in_event_loop(move |_| MY_ADDRS.with(|a| *a.borrow_mut() = addrs));
                 });
             }
-            check_new_mail(c.clone());
+            check_new_mail(c.clone(), None);
             start_push(w2, c);
         }
         Err(e) => {
@@ -1820,7 +1863,20 @@ pub fn apply_ui_prefs(ui: &AppWindow) {
     ui.set_pref_quick_reply(p.bool("quickReplyEnabled", true));
     ui.global::<Prefs>().set_toolbar_labels(p.bool("showToolbarLabels", true));
     ui.global::<Prefs>().set_tag_chips(p.bool("showTagChips", true));
-    ui.global::<Prefs>().set_font_size(match p.str("fontSize", "medium").as_str() { "small" => 12.0, "large" => 15.0, "x-large" | "extra-large" => 17.0, _ => 13.0 });
+    let a = a11y::A11y::load();
+    // Bulwark FONT_SIZE_SCALE on the 13px base
+    ui.global::<Prefs>().set_font_size(13.0 * a.font_scale);
+    ui.global::<Theme>().set_more_contrast(a.more_contrast);
+    ui.global::<Prefs>().set_reduce_motion(a.reduce_motion);
+    ui.global::<Prefs>().set_large_targets(a.large_targets);
+    // Bulwark focus outline widths: normal 2px, thick 3px, extra 5px
+    ui.global::<Prefs>().set_focus_ring([0.0, 2.0, 3.0, 5.0][a.focus_ring.clamp(0, 3) as usize]);
+    ui.global::<Prefs>().set_row_action(a.show_row_action);
+    // Bulwark hoverActionsMode (inline | floating) and hoverActionsCorner
+    let corner = p.str("hoverActionsCorner", "top-right");
+    ui.global::<Prefs>().set_hover_floating(p.str("hoverActionsMode", "inline") == "floating");
+    ui.global::<Prefs>().set_hover_left(corner.ends_with("left"));
+    ui.global::<Prefs>().set_hover_bottom(corner.starts_with("bottom"));
     ui.set_pref_day_start(p.int("calendarDayStartHour", 8).clamp(0, 23) as i32);
     // Bulwark hoverActions (delete, star, markRead, archive, tag, spam), in the user's order
     let hover: Vec<slint::SharedString> = match p.prefs.get("hoverActions").and_then(|v| v.as_array()) {
@@ -1830,6 +1886,8 @@ pub fn apply_ui_prefs(ui: &AppWindow) {
         None => ["delete", "star", "read", "archive"].into_iter().map(slint::SharedString::from).collect(),
     };
     ui.global::<Prefs>().set_hover_actions(slint::ModelRc::new(slint::VecModel::from(hover)));
+    // the open message picks up reading and accessibility changes
+    if ui.get_current_mail() != "" { render_current(ui); }
     calendar::render(ui);
     contacts::render(ui);
 }

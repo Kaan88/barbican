@@ -68,7 +68,7 @@ fn rgb(c: u32) -> Color {
 }
 
 fn tag_color(id: &str) -> Color {
-    TAGS.iter().find(|t| t.0 == id).map(|t| rgb(t.2)).unwrap_or(rgb(0x9ca3af))
+    rgb(crate::a11y::color(TAGS.iter().find(|t| t.0 == id).map(|t| t.2).unwrap_or(0x9ca3af)))
 }
 
 // ---------------- folders ----------------
@@ -81,10 +81,10 @@ fn role_icon(role: &str) -> &'static str {
 }
 
 fn role_color(role: &str) -> Color {
-    rgb(match role {
+    rgb(crate::a11y::color(match role {
         "inbox" => 0x818cf8, "drafts" => 0xa78bfa, "sent" => 0x34d399, "archive" => 0xf59e0b,
         "junk" => 0xf87171, "trash" => 0xa1a1aa, _ => 0xd4d4d4,
-    })
+    }))
 }
 
 fn role_rank(role: &str) -> i64 {
@@ -102,6 +102,7 @@ pub fn rebuild_folders(u: &AppWindow) {
     let prefs = crate::settings::Settings::load();
     let colorful = prefs.bool("colorfulSidebarIcons", true);
     let totals = prefs.bool("showFolderTotalCount", true);
+    let style = crate::a11y::A11y::from(&prefs, crate::a11y::System::default()).unread_style;
     BOXES.with(|b| {
         let b = b.borrow();
         let mut children: HashMap<String, Vec<&Value>> = HashMap::new();
@@ -156,6 +157,14 @@ pub fn rebuild_folders(u: &AppWindow) {
             });
         }
         walk("", 0, &children, &b.collapsed, &mut out, colorful, totals);
+        // Settings > Accessibility > Unread counts: a number, a dot, or nothing
+        if style != "count" {
+            for f in out.iter_mut() {
+                if f.unread > 0 {
+                    f.count = if style == "dot" { "\u{25CF}".into() } else { "".into() };
+                }
+            }
+        }
         u.set_folders(ModelRc::new(VecModel::from(out)));
     });
 }
@@ -215,7 +224,7 @@ fn tag_counts(c: &Client) -> HashMap<String, usize> {
 
 fn set_tags(u: &AppWindow, counts: &HashMap<String, usize>) {
     let v: Vec<Tag> = TAGS.iter().map(|t| Tag {
-        id: t.0.into(), name: t.1.into(), color: rgb(t.2),
+        id: t.0.into(), name: t.1.into(), color: rgb(crate::a11y::color(t.2)),
         count: counts.get(t.0).filter(|n| **n > 0).map(|n| n.to_string()).unwrap_or_default().into(),
     }).collect();
     u.set_tags(ModelRc::new(VecModel::from(v)));
@@ -305,7 +314,7 @@ fn build_rows(st: &ListState) -> Vec<Mail> {
         let id = m["id"].as_str().unwrap_or("").to_string();
         let tags: Vec<Color> = kw.as_object().map(|o| o.keys().filter_map(|k| k.strip_prefix("$label:")).map(tag_color).collect()).unwrap_or_default();
         let acct = m["__account"].as_str().filter(|_| unified).unwrap_or("");
-        let acct_color = if acct.is_empty() { None } else { Some(rgb(crate::unified::account_color(acct))) };
+        let acct_color = if acct.is_empty() { None } else { Some(rgb(crate::a11y::color(crate::unified::account_color(acct)))) };
         let row_tint = if let (true, Some(c)) = (mark == "tint", acct_color) { c.with_alpha(0.10) } else if lp.tint_rows { tags.first().map(|c| c.with_alpha(0.12)).unwrap_or(Color::from_argb_u8(0, 0, 0, 0)) } else { Color::from_argb_u8(0, 0, 0, 0) };
         // one-time codes only for fresh mail (Bulwark: received within the last day)
         let fresh = t.as_ref().is_some_and(|t| { let age = Local::now().signed_duration_since(*t); age.num_minutes() >= -5 && age.num_hours() <= 24 });
@@ -602,9 +611,19 @@ pub fn apply(u: &AppWindow, c: Arc<Client>, ids: Vec<String>, action: &str) {
         show_toast(u, &if ok { format!("Copied {code}") } else { "Could not copy the code.".to_string() }, false);
         return;
     }
-    if action == "delete" && ids.len() > 1 && crate::settings::Settings::load().bool("confirmBulkDelete", true) && !CONFIRM_BULK.with(|x| x.get()) {
+    // confirmBulkDelete (several messages), and Settings > Accessibility > Confirm before
+    // deleting / archiving (also single messages)
+    let a11y = crate::a11y::A11y::load();
+    let ask = match action {
+        "delete" => (ids.len() > 1 && crate::settings::Settings::load().bool("confirmBulkDelete", true)) || a11y.confirm_delete,
+        "archive" => a11y.confirm_archive,
+        _ => false,
+    };
+    if ask && !CONFIRM_BULK.with(|x| x.get()) {
         CONFIRM_BULK.with(|x| x.set(true));
-        show_toast(u, &format!("Delete {} messages? Press Delete again to confirm.", ids.len()), false);
+        let what = if ids.len() > 1 { format!("{} messages", ids.len()) } else { "this message".into() };
+        let (verb, key) = if action == "archive" { ("Archive", "Archive") } else { ("Delete", "Delete") };
+        show_toast(u, &format!("{verb} {what}? Press {key} again to confirm."), false);
         let w = u.as_weak();
         slint::Timer::single_shot(std::time::Duration::from_secs(6), move || { CONFIRM_BULK.with(|x| x.set(false)); let _ = w; });
         return;
@@ -693,7 +712,10 @@ pub fn show_toast(u: &AppWindow, text: &str, undo: bool) {
     u.set_toast_undo(undo);
     let w = u.as_weak();
     let t = text.to_string();
-    slint::Timer::single_shot(std::time::Duration::from_secs(if undo { 12 } else { 6 }), move || {
+    // Settings > Accessibility > Notification duration (0 keeps it until closed)
+    let secs = crate::a11y::A11y::load().toast_secs;
+    if secs == 0 { return; }
+    slint::Timer::single_shot(std::time::Duration::from_secs(secs), move || {
         if let Some(u) = w.upgrade() { if u.get_toast().as_str() == t { u.set_toast("".into()); } }
     });
 }

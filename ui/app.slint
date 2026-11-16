@@ -179,15 +179,19 @@ export struct Mail {
 
 export global Theme {
     in-out property <bool> dark: true;
+    // Settings > Accessibility > Contrast "More" (Bulwark data-contrast="more")
+    in-out property <bool> more-contrast: false;
     // Bulwark tokens: dark (--color-*) and light (brand #c8234a, neutral greys)
     out property <color> bg: dark ? #0a0a0a : #ffffff;
     out property <color> rail: dark ? #0f0f0f : #f4f4f5;
     out property <color> side: dark ? #141414 : #fafafa;
-    out property <color> line: dark ? #262626 : #e5e5e5;
-    out property <color> text: dark ? #fafafa : #0a0a0a;
-    out property <color> dim: dark ? #adadad : #6b6b6b;
-    out property <color> accent: dark ? #f0577a : #c8234a;
-    out property <color> on-accent: dark ? #16070c : #ffffff;
+    out property <color> line: more-contrast ? (dark ? #9ca3af : #4b5563) : (dark ? #262626 : #e5e5e5);
+    out property <color> text: more-contrast ? (dark ? #ffffff : #000000) : (dark ? #fafafa : #0a0a0a);
+    out property <color> dim: more-contrast ? (dark ? #e5e7eb : #1f2937) : (dark ? #adadad : #6b6b6b);
+    out property <color> accent: more-contrast ? (dark ? #93c5fd : #1d4ed8) : (dark ? #f0577a : #c8234a);
+    out property <color> on-accent: more-contrast ? (dark ? #000000 : #ffffff) : (dark ? #16070c : #ffffff);
+    // keyboard focus outline (Bulwark --focus-ring-color)
+    out property <color> ring: more-contrast ? (dark ? #ffffff : #000000) : (dark ? #f0577a : #c8234a);
     out property <color> sel: dark ? #4a1424 : #fde4ea;
     out property <color> sel-text: dark ? #ffd5df : #8c1733;
     out property <color> hover: dark ? #1a1a1a : #f0f0f0;
@@ -236,7 +240,7 @@ component Switch inherits Rectangle {
         height: 16px;
         border-radius: 8px;
         background: on ? Theme.on-accent : Theme.dim;
-        animate x { duration: 120ms; }
+        animate x { duration: Prefs.reduce-motion ? 0ms : 120ms; }
     }
 }
 
@@ -267,8 +271,8 @@ component RailButton inherits Rectangle {
     in property <string> glyph;
     in property <bool> active;
     callback clicked;
-    width: 34px;
-    height: 34px;
+    width: Prefs.large-targets ? 44px : 34px;
+    height: Prefs.large-targets ? 44px : 34px;
     border-radius: 6px;
     background: active ? Theme.sel : ta.has-hover ? Theme.hover : transparent;
     ta := TouchArea { clicked => { root.clicked(); } }
@@ -284,7 +288,7 @@ component FolderRow inherits Rectangle {
     callback clicked;
     callback chevron-clicked;
     callback context(length, length);
-    height: 24px;
+    height: Prefs.large-targets ? 44px : 24px;
     in property <string> hl-id;
     background: selected ? Theme.sel : ta.has-hover || (hl-id != "" && CtxHl.id == hl-id) ? Theme.hover : transparent;
     ta := TouchArea {
@@ -350,7 +354,7 @@ component TagRow inherits Rectangle {
     in property <bool> selected;
     callback clicked;
     callback context(length, length);
-    height: 24px;
+    height: Prefs.large-targets ? 44px : 24px;
     in property <string> hl-id;
     background: selected ? Theme.sel : ta.has-hover || (hl-id != "" && CtxHl.id == hl-id) ? Theme.hover : transparent;
     ta := TouchArea { clicked => { root.clicked(); } pointer-event(ev) => { if ev.button == PointerEventButton.right && ev.kind == PointerEventKind.up { root.context(self.absolute-position.x + self.mouse-x, self.absolute-position.y + self.mouse-y); } } }
@@ -368,7 +372,7 @@ component PrimaryButton inherits Rectangle {
     in property <string> text;
     in property <bool> enabled: true;
     callback clicked;
-    height: 32px;
+    height: Prefs.large-targets ? 44px : 32px;
     min-width: pl.preferred-width + 28px;
     border-radius: 6px;
     background: !enabled ? #5a2a36 : (pta.pressed ? #d94a6b : (pta.has-hover ? #f46d8c : Theme.accent));
@@ -380,8 +384,8 @@ component HoverAction inherits Rectangle {
     in property <string> glyph;
     in property <bool> active;
     callback clicked;
-    width: 22px;
-    height: 22px;
+    width: Prefs.large-targets ? 32px : 22px;
+    height: Prefs.large-targets ? 32px : 22px;
     border-radius: 4px;
     background: hta.has-hover ? Theme.hover : transparent;
     hta := TouchArea { clicked => { root.clicked(); } }
@@ -397,6 +401,17 @@ export global Prefs {
     in-out property <[string]> hover-actions: ["delete", "star", "read", "archive"];
     // reader body gutter (messageSpacing)
     in-out property <length> reader-gutter: 20px;
+    // Settings > Accessibility
+    in-out property <bool> reduce-motion: false;
+    in-out property <bool> large-targets: false;
+    // focus outline width (0 = off, Bulwark's default)
+    in-out property <length> focus-ring: 0px;
+    // a button on each row that opens its actions (showRowActionButton)
+    in-out property <bool> row-action: false;
+    // hover actions as a floating group in a corner (hoverActionsMode) and which corner
+    in-out property <bool> hover-floating: false;
+    in-out property <bool> hover-left: false;
+    in-out property <bool> hover-bottom: false;
 }
 
 component ToolButton inherits Rectangle {
@@ -404,8 +419,8 @@ component ToolButton inherits Rectangle {
     in property <string> label;
     in property <bool> show-label: Prefs.toolbar-labels;
     callback clicked;
-    height: 28px;
-    width: lay.preferred-width;
+    height: Prefs.large-targets ? 44px : 28px;
+    width: max(lay.preferred-width, Prefs.large-targets ? 44px : 0px);
     border-radius: 6px;
     background: tta.has-hover ? Theme.hover : transparent;
     tta := TouchArea { clicked => { root.clicked(); } }
@@ -543,8 +558,12 @@ component MailRow inherits VerticalLayout {
                     }
                     if m.answered: Icon { text: "\u{E97A}"; font-size: 11px; }
                     if m.attach: Icon { text: "\u{E723}"; font-size: 11px; }
-                    if !ta.has-hover: Text { text: m.time; color: Theme.dim; font-size: 11px; }
-                    if ta.has-hover: HorizontalLayout {
+                    if !ta.has-hover || Prefs.hover-floating: Text { text: m.time; color: Theme.dim; font-size: 11px; }
+                    if Prefs.row-action: HoverAction {
+                        glyph: "\u{E712}";
+                        clicked => { root.context(self.absolute-position.x, self.absolute-position.y + self.height); }
+                    }
+                    if ta.has-hover && !Prefs.hover-floating: HorizontalLayout {
                         spacing: 0px;
                         for a in Prefs.hover-actions: HoverAction {
                             glyph: a == "delete" ? "\u{E74D}" : a == "star" ? (m.flagged ? "\u{E735}" : "\u{E734}") : a == "read" ? (m.unread ? "\u{E8C3}" : "\u{E715}") : a == "archive" ? "\u{E7B8}" : a == "spam" ? "\u{E8F8}" : "\u{E8EC}";
@@ -600,6 +619,28 @@ component MailRow inherits VerticalLayout {
                             ft := Text { text: f; color: Theme.dim; font-size: 10px; vertical-alignment: center; overflow: elide; }
                         }
                     }
+                }
+            }
+        }
+        // Bulwark hoverActionsMode "floating": the actions float in a corner of the row
+        if ta.has-hover && Prefs.hover-floating: Rectangle {
+            x: Prefs.hover-left ? 8px : parent.width - self.width - 8px;
+            y: Prefs.hover-bottom ? parent.height - self.height - 4px : 4px;
+            width: fl.preferred-width + 4px;
+            height: fl.preferred-height + 4px;
+            border-radius: 6px;
+            background: Theme.popup;
+            border-width: 1px;
+            border-color: Theme.line;
+            drop-shadow-blur: 6px;
+            drop-shadow-color: #00000040;
+            fl := HorizontalLayout {
+                x: 2px; y: 2px;
+                spacing: 0px;
+                for a in Prefs.hover-actions: HoverAction {
+                    glyph: a == "delete" ? "\u{E74D}" : a == "star" ? (m.flagged ? "\u{E735}" : "\u{E734}") : a == "read" ? (m.unread ? "\u{E8C3}" : "\u{E715}") : a == "archive" ? "\u{E7B8}" : a == "spam" ? "\u{E8F8}" : "\u{E8EC}";
+                    active: a == "star" && m.flagged;
+                    clicked => { root.action(a); }
                 }
             }
         }
@@ -704,7 +745,7 @@ component BarButton inherits Rectangle {
     in property <string> label;
     in property <bool> chevron: true;
     callback clicked;
-    height: 28px;
+    height: Prefs.large-targets ? 44px : 28px;
     width: bl.preferred-width;
     border-radius: 6px;
     background: bta.has-hover ? Theme.hover : transparent;
@@ -723,8 +764,11 @@ component BareField inherits Rectangle {
     in-out property <string> text;
     in property <string> placeholder;
     height: 20px;
+    border-width: ti.has-focus ? Prefs.focus-ring : 0px;
+    border-color: Theme.ring;
+    border-radius: 2px;
     if text == "": Text { x: 0; text: placeholder; color: Theme.dim; vertical-alignment: center; height: parent.height; }
-    TextInput {
+    ti := TextInput {
         text <=> root.text;
         color: Theme.text;
         vertical-alignment: center;
