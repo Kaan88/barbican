@@ -1,0 +1,12 @@
+[Desktop Entry]
+Type=Application
+Name=Barbican
+GenericName=Mail client
+Comment=Mail, calendar and contacts for Stalwart
+Exec=barbican %u
+Icon=barbican
+Terminal=false
+Categories=Network;Email;Office;
+MimeType=x-scheme-handler/mailto;
+StartupWMClass=barbican
+X-GNOME-UsesNotifications=true

@@ -21,6 +21,9 @@
 //!   and only in a build with `--features automation-writes`: release builds cannot write)
 //!   cal-dump TEXT        (the loaded calendar events whose title contains TEXT, as JSON; read-only)
 //!   pim WHAT             (read-only state of the PIM screens: contacts, fields, dupes, files, filters)
+//!   notes | note-mail N | note-activate ACTION CONTEXT   (notifications are recorded, not
+//!                        shown, in automation runs; activate takes the toast-click path)
+//!   desktop | update-check | tray open|compose|check|quit | close   (badge, updater, tray menu, X)
 use crate::AppWindow;
 use slint::platform::{Key, PointerEventButton, WindowEvent};
 use slint::{ComponentHandle, LogicalPosition, SharedString};
@@ -192,6 +195,34 @@ fn run(u: &AppWindow, line: &str) -> String {
         "cal-dump" => crate::calendar::dump(a.get(1).copied().unwrap_or("")),
         // read-only probes of the PIM screens
         "pim" => crate::pim::probe(u, a.get(1).copied().unwrap_or("")),
+        // distribution probes: notifications are recorded (not shown) in automation runs
+        "notes" => serde_json::to_string(&crate::notify::SHOWN.lock().unwrap().iter().map(|n| serde_json::json!({
+            "id": n.id, "group": n.group, "title": n.title, "body": n.body, "context": n.context,
+            "actions": n.actions.iter().map(|a| a.0.clone()).collect::<Vec<_>>()})).collect::<Vec<_>>()).unwrap_or_default(),
+        // "note-mail N": record the notification the Nth listed message would get on arrival
+        "note-mail" => {
+            use slint::Model;
+            let i: usize = args.first().and_then(|v| v.parse().ok()).unwrap_or(0);
+            let Some(m) = u.get_mails().row_data(i) else { return "no such row".into() };
+            let mail = crate::notify::NewMail { id: m.id.to_string(), sender: m.sender.to_string(), subject: m.subject.to_string(), preview: m.preview.to_string() };
+            if let Some(n) = crate::notify::mail_note(&[mail], "automation", false, true) { crate::notify::show(n); }
+            "ok".into()
+        }
+        // "note-activate ACTION CONTEXT": the same path a click or a button on a toast takes
+        "note-activate" => {
+            crate::notify::activate(crate::notify::Activation { action: args.first().copied().unwrap_or("open").into(), context: args.get(1).copied().unwrap_or("").into() });
+            "ok".into()
+        }
+        "desktop" => {
+            let n = crate::desktop::inbox_unread(u);
+            let st = crate::updater::state();
+            format!("unread {n} | tooltip {} | update {:?} {} | kind {:?} | visible {}", crate::desktop::tooltip(n), st.status, st.target, crate::updater::current_kind(), win.is_visible())
+        }
+        "update-check" => { crate::updater::check(true); "ok".into() }
+        // the window's close button (X): quits, or hides to the tray with close to tray on
+        "close" => { win.dispatch_event(WindowEvent::CloseRequested); "ok".into() }
+        // "tray open|compose|check|quit": what the tray menu items do
+        "tray" => { crate::desktop::tray_command(args.first().copied().unwrap_or("")); "ok".into() }
         "size" => { let s = win.size(); format!("{} {} scale {}", s.width, s.height, win.scale_factor()) }
         // resize the (off-screen) window, in logical pixels, to check narrow layouts
         "resize" => { win.set_size(slint::LogicalSize::new(pos(&args, 0).max(400.0), pos(&args, 1).max(300.0))); "ok".into() }

@@ -118,17 +118,10 @@ mod sys {
     }
 }
 
+// Linux: hunspell through the platform layer (nothing underlined without it)
 #[cfg(not(windows))]
 mod sys {
-    pub struct Checker;
-    pub fn user_locale() -> String { String::new() }
-    pub fn create(_: &str) -> Option<Checker> { None }
-    impl Checker {
-        pub fn check(&self, _: &str) -> Vec<(u32, u32)> { vec![] }
-        pub fn suggest(&self, _: &str) -> Vec<String> { vec![] }
-        pub fn add(&self, _: &str) {}
-        pub fn ignore(&self, _: &str) {}
-    }
+    pub use crate::platform::hunspell::{create, user_locale, Checker};
 }
 
 struct State {

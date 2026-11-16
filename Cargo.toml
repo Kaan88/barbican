@@ -19,8 +19,10 @@ libloading = "0.8"
 png = "0.17"
 notify-rust = "4"
 iana-time-zone = "0.1"
-rfd = { version = "0.15", default-features = false, features = ["common-controls-v6"] }
-keyring = { version = "3", features = ["windows-native"] }
+# signed update manifests (src/updater.rs)
+ed25519-dalek = { version = "2", default-features = false, features = ["std"] }
+# app, tray and badge icons drawn from ui/barbican.svg (already in the tree through Slint)
+resvg = { version = "0.48", default-features = false }
 parley = "=0.11.1"
 idna = "1.1"
 arboard = "3.7"
@@ -33,8 +35,23 @@ blitz-traits = "=0.3.0-beta.4"
 anyrender = "0.14"
 anyrender_vello_cpu = "0.18"
 
+# Platform layer (src/platform): Windows uses WebView2, Credential Manager, the registry
+# theme, ISpellChecker and WinRT toasts; Linux uses WebKitGTK (wry), Secret Service,
+# the XDG portal colour scheme, hunspell and freedesktop notifications.
 [target.'cfg(windows)'.dependencies]
-windows = { version = "0.62", features = ["Win32_Foundation", "Win32_Globalization", "Win32_System_Com"] }
+windows = { version = "0.62", features = ["Win32_Foundation", "Win32_Globalization", "Win32_System_Com", "Win32_System_Registry", "Win32_System_Threading",
+    "Win32_UI_Shell", "Win32_UI_WindowsAndMessaging", "Win32_Graphics_Gdi", "Foundation", "Data_Xml_Dom", "UI_Notifications"] }
+keyring = { version = "3", features = ["windows-native"] }
+rfd = { version = "0.15", default-features = false, features = ["common-controls-v6"] }
+tray-icon = { version = "0.25", default-features = false }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+keyring = { version = "3", features = ["async-secret-service", "async-io", "crypto-rust"] }
+rfd = { version = "0.15", default-features = false, features = ["gtk3"] }
+# StatusNotifierItem over D-Bus (no libappindicator needed)
+tray-icon = { version = "0.25", default-features = false, features = ["ksni"] }
+# wry's WebKitGTK view lives in GTK: initialised once and pumped from the Slint loop
+gtk = "0.18"
 
 [build-dependencies]
 slint-build = "1.8"
@@ -42,3 +59,31 @@ slint-build = "1.8"
 [features]
 # the automation channel's writing test commands (rx-import / rx-find / rx-destroy); test builds only
 automation-writes = []
+
+# .deb (cargo deb, .github/workflows/release.yml). The install-kind marker tells the updater
+# that apt owns these files, so it only says a new version exists.
+[package.metadata.deb]
+name = "barbican"
+maintainer = "Barbican"
+copyright = "Barbican contributors"
+extended-description = "Native mail, calendar and contacts client for Stalwart (JMAP)."
+section = "mail"
+priority = "optional"
+depends = "$auto, libwebkit2gtk-4.1-0, libgtk-3-0"
+recommends = "hunspell"
+assets = [
+    ["target/release/barbican", "usr/lib/barbican/barbican", "755"],
+    ["packaging/linux/install-kind", "usr/lib/barbican/install-kind", "644"],
+    ["packaging/linux/barbican.desktop", "usr/share/applications/barbican.desktop", "644"],
+    ["packaging/icons/barbican-256.png", "usr/share/icons/hicolor/256x256/apps/barbican.png", "644"],
+    ["packaging/icons/barbican-128.png", "usr/share/icons/hicolor/128x128/apps/barbican.png", "644"],
+    ["packaging/icons/barbican-64.png", "usr/share/icons/hicolor/64x64/apps/barbican.png", "644"],
+    ["packaging/icons/barbican-48.png", "usr/share/icons/hicolor/48x48/apps/barbican.png", "644"],
+    ["packaging/icons/barbican-32.png", "usr/share/icons/hicolor/32x32/apps/barbican.png", "644"],
+    ["packaging/icons/barbican.svg", "usr/share/icons/hicolor/scalable/apps/barbican.svg", "644"],
+]
+maintainer-scripts = "packaging/linux/debian"
+
+[package.metadata.wix]
+# per-user MSI from wix/main.wxs
+eula = false
