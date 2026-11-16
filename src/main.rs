@@ -8,6 +8,7 @@ mod otp;
 mod agent;
 mod ai;
 mod calendar;
+mod capture;
 mod compose;
 mod contacts;
 mod ctxmenu;
@@ -1962,6 +1963,11 @@ pub fn apply_theme(ui: &AppWindow) {
         }
         _ => true,
     };
+    set_theme_dark(ui, dark);
+}
+
+/// Switch the app between dark and light (in memory; `apply_theme` reads the setting).
+pub fn set_theme_dark(ui: &AppWindow, dark: bool) {
     // the email view paints this colour before a message loads; keep it in step with the
     // theme so opening a message does not flash white
     DARK.with(|d| d.set(dark));

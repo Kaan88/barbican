@@ -13,6 +13,18 @@
 //!   size                 (window size)
 //!   wv-eval JS / wv-result (run JS in the email WebView, then read its JSON result)
 //!   pick PATH[|PATH...]  (answer the next file-open picker with these files instead of a dialog)
+//!   wshot PATH.png       (whole window INCLUDING the WebView2 email body, via PrintWindow)
+//!   burst MS EVERY DIR [STEP]
+//!                        (frame-burst probe: capture the whole window, WebView included, every
+//!                        EVERY ms for MS ms in the background, downscaled by STEP (default 2);
+//!                        every command run meanwhile is logged with its time. Frames, events.txt
+//!                        and meta.json land in DIR when it ends; `burst-status` says when.
+//!                        Analyse with tools/flicker.py)
+//!   theme dark|light     (switch the theme in memory only; the settings file is not written)
+//!   load-images          (the reader's "Load images" button: re-render the open message)
+//!   discard-composer     (close the composer without saving, like its Discard button)
+//!   resize W H           (resize the window, logical px)
+//!   render-mode N        (0 WebView, 1 light renderer, 2 plain text; in memory only)
 use crate::AppWindow;
 use slint::platform::{Key, PointerEventButton, WindowEvent};
 use slint::{ComponentHandle, LogicalPosition, SharedString};
@@ -61,7 +73,87 @@ fn pos(a: &[&str], i: usize) -> f32 {
     a.get(i).and_then(|v| v.parse().ok()).unwrap_or(0.0)
 }
 
+/// A running frame burst: its start and the commands (and app marks) seen meanwhile.
+struct Burst {
+    start: std::time::Instant,
+    events: Vec<(f64, String)>,
+    done: bool,
+    frames: usize,
+}
+
+static BURST: std::sync::Mutex<Option<Burst>> = std::sync::Mutex::new(None);
+
+/// Record an app-side event (e.g. "body swapped") on the running burst's timeline.
+pub fn mark(what: &str) {
+    if let Some(b) = BURST.lock().unwrap().as_mut().filter(|b| !b.done) {
+        let t = b.start.elapsed().as_secs_f64() * 1000.0;
+        b.events.push((t, format!("mark {what}")));
+    }
+}
+
+fn start_burst(u: &AppWindow, args: &[&str]) -> String {
+    let ms: u64 = args.first().and_then(|v| v.parse().ok()).unwrap_or(1500);
+    let every: u64 = args.get(1).and_then(|v| v.parse().ok()).unwrap_or(16).max(1);
+    let dir = args.get(2).copied().unwrap_or("burst").to_string();
+    let step: u32 = args.get(3).and_then(|v| v.parse().ok()).unwrap_or(2);
+    if BURST.lock().unwrap().as_ref().is_some_and(|b| !b.done) { return "busy".into(); }
+    let _ = std::fs::create_dir_all(&dir);
+    if let Ok(rd) = std::fs::read_dir(&dir) {
+        for e in rd.flatten() {
+            let n = e.file_name().to_string_lossy().to_string();
+            if n.ends_with(".png") || n == "events.txt" || n == "meta.json" { let _ = std::fs::remove_file(e.path()); }
+        }
+    }
+    let hwnd = crate::capture::hwnd_of(u.window());
+    let scale = u.window().scale_factor();
+    let meta = serde_json::json!({
+        "ms": ms, "every": every, "step": step, "scale": scale,
+        "body": [u.get_bx(), u.get_by(), u.get_bw(), u.get_bh()],
+        "size": [u.window().size().width, u.window().size().height],
+    });
+    let start = std::time::Instant::now();
+    *BURST.lock().unwrap() = Some(Burst { start, events: vec![], done: false, frames: 0 });
+    std::thread::spawn(move || {
+        let mut frames: Vec<(f64, crate::capture::Frame)> = vec![];
+        let mut n = 0u64;
+        while start.elapsed().as_millis() < ms as u128 {
+            let t = start.elapsed().as_secs_f64() * 1000.0;
+            if let Some(f) = crate::capture::grab(hwnd, None, step) { frames.push((t, f)); }
+            n += 1;
+            let next = std::time::Duration::from_millis(n * every);
+            if let Some(d) = next.checked_sub(start.elapsed()) { std::thread::sleep(d); }
+        }
+        for (i, (t, f)) in frames.iter().enumerate() {
+            let _ = crate::capture::write_png(&format!("{dir}/f{i:04}_{:07.1}.png", t), f.w, f.h, &f.rgba);
+        }
+        let mut b = BURST.lock().unwrap();
+        let events = b.as_ref().map(|b| b.events.clone()).unwrap_or_default();
+        let log: String = events.iter().map(|(t, e)| format!("{t:.1}	{e}
+")).collect();
+        let _ = std::fs::write(format!("{dir}/events.txt"), log);
+        let _ = std::fs::write(format!("{dir}/meta.json"), meta.to_string());
+        if let Some(b) = b.as_mut() { b.done = true; b.frames = frames.len(); }
+    });
+    "ok".into()
+}
+
 fn run(u: &AppWindow, line: &str) -> String {
+    let logged = !line.starts_with("burst");
+    if logged {
+        if let Some(b) = BURST.lock().unwrap().as_mut().filter(|b| !b.done) {
+            b.events.push((b.start.elapsed().as_secs_f64() * 1000.0, format!("cmd {}", line.trim())));
+        }
+    }
+    let r = run_cmd(u, line);
+    if logged {
+        if let Some(b) = BURST.lock().unwrap().as_mut().filter(|b| !b.done) {
+            b.events.push((b.start.elapsed().as_secs_f64() * 1000.0, format!("done {}", line.trim())));
+        }
+    }
+    r
+}
+
+fn run_cmd(u: &AppWindow, line: &str) -> String {
     let a: Vec<&str> = line.trim().splitn(2, ' ').collect();
     let args: Vec<&str> = a.get(1).map(|s| s.split(' ').collect()).unwrap_or_default();
     let win = u.window();
@@ -155,6 +247,24 @@ fn run(u: &AppWindow, line: &str) -> String {
             PICK.with(|p| *p.borrow_mut() = Some(v));
             "ok".into()
         }
+        "burst" => start_burst(u, &args),
+        "burst-status" => match BURST.lock().unwrap().as_ref() {
+            Some(b) if b.done => format!("done {} frames", b.frames),
+            Some(_) => "running".into(),
+            None => "none".into(),
+        },
+        "wshot" => {
+            let path = a.get(1).copied().unwrap_or("wshot.png");
+            match crate::capture::grab(crate::capture::hwnd_of(win), None, 1) {
+                Some(f) => match write_png(path, f.w, f.h, &f.rgba) { Ok(()) => format!("saved {}x{}", f.w, f.h), Err(e) => format!("error {e}") },
+                None => "error capture failed".into(),
+            }
+        }
+        "load-images" => { u.invoke_load_images(); "ok".into() }
+        "discard-composer" => { u.invoke_discard_draft(); "ok".into() }
+        "resize" => { win.set_size(slint::LogicalSize::new(pos(&args, 0), pos(&args, 1))); "ok".into() }
+        "render-mode" => { u.set_render_mode(pos(&args, 0) as i32); u.invoke_rerender(); "ok".into() }
+        "theme" => { crate::set_theme_dark(u, args.first().copied() != Some("light")); "ok".into() }
         "size" => { let s = win.size(); format!("{} {} scale {}", s.width, s.height, win.scale_factor()) }
         "shot" => {
             let path = a.get(1).copied().unwrap_or("shot.png");
