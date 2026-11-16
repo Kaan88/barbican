@@ -146,9 +146,13 @@ pub fn rebuild_folders(u: &AppWindow) {
         }
         let mut out = vec![];
         if crate::unified::enabled() {
+            // Bulwark: the unified inbox carries the summed unread count of every inbox it merges
+            let own = b.list.iter().find(|m| m["role"] == "inbox").and_then(|m| m["unreadEmails"].as_i64()).unwrap_or(0);
+            let unread = crate::unified::unread_total(own);
             out.push(Folder {
                 id: crate::unified::FOLDER_ID.into(), name: "All inboxes".into(), icon: "\u{E715}".into(), depth: 0,
-                unread: 0, total: 0, color: rgb(0xc8234a), count: "".into(), chevron: 0, muted: false,
+                unread: unread as i32, total: 0, color: if colorful { rgb(0xc8234a) } else { rgb(0xa3a3a3) },
+                count: if unread > 0 { unread.to_string().into() } else { "".into() }, chevron: 0, muted: false,
             });
         }
         walk("", 0, &children, &b.collapsed, &mut out, colorful, totals);
@@ -164,6 +168,13 @@ pub fn toggle_folder(u: &AppWindow, id: &str) {
     rebuild_folders(u);
 }
 
+/// Role and name of a folder of the active account.
+pub fn mailbox_info(id: &str) -> (String, String) {
+    BOXES.with(|b| b.borrow().list.iter().find(|m| m["id"] == id)
+        .map(|m| (m["role"].as_str().unwrap_or("").to_string(), m["name"].as_str().unwrap_or("").to_string()))
+        .unwrap_or_default())
+}
+
 pub fn mailbox_role(id: &str) -> String {
     BOXES.with(|b| b.borrow().list.iter().find(|m| m["id"] == id).and_then(|m| m["role"].as_str()).unwrap_or("").to_string())
 }
@@ -172,6 +183,8 @@ pub fn load_mailboxes(w: slint::Weak<AppWindow>, c: Arc<Client>, select_inbox: b
     std::thread::spawn(move || {
         let Ok(list) = c.mailboxes() else { return };
         let counts = tag_counts(&c);
+        // other accounts' inbox counts for the "All inboxes" badge
+        if crate::unified::enabled() && crate::unified::is_active(&c) { crate::unified::refresh_counts(); }
         let w2 = w.clone();
         let _ = w.upgrade_in_event_loop(move |u| {
             let inbox = list.iter().find(|m| m["role"] == "inbox").and_then(|m| m["id"].as_str()).map(String::from);
@@ -265,8 +278,23 @@ pub fn sender(v: &Value) -> String {
     f["name"].as_str().filter(|s| !s.is_empty()).or(f["email"].as_str()).unwrap_or("(unknown)").to_string()
 }
 
+/// How unified rows show their account: Bulwark's tintListRowsByAccount (a bool there;
+/// Barbican's select stores dot / tint / none). The dot needs two or more accounts.
+fn account_mark() -> &'static str {
+    let p = crate::settings::Settings::load();
+    let mark = match p.prefs.get("tintListRowsByAccount") {
+        Some(Value::Bool(true)) => "tint",
+        Some(Value::String(s)) if s == "tint" => "tint",
+        Some(Value::String(s)) if s == "none" => "none",
+        _ => "dot",
+    };
+    if mark == "dot" && !(p.bool("showAccountDot", true) && crate::unified::several_accounts()) { "none" } else { mark }
+}
+
 fn build_rows(st: &ListState) -> Vec<Mail> {
     let lp = list_prefs();
+    let unified = st.filter["unified"] == true;
+    let mark = if unified { account_mark() } else { "none" };
     let mut last = String::new();
     st.emails.iter().map(|m| {
         let t = parse_time(&m["receivedAt"]);
@@ -276,7 +304,9 @@ fn build_rows(st: &ListState) -> Vec<Mail> {
         let kw = &m["keywords"];
         let id = m["id"].as_str().unwrap_or("").to_string();
         let tags: Vec<Color> = kw.as_object().map(|o| o.keys().filter_map(|k| k.strip_prefix("$label:")).map(tag_color).collect()).unwrap_or_default();
-        let row_tint = if lp.tint_rows { tags.first().map(|c| c.with_alpha(0.12)).unwrap_or(Color::from_argb_u8(0, 0, 0, 0)) } else { Color::from_argb_u8(0, 0, 0, 0) };
+        let acct = m["__account"].as_str().filter(|_| unified).unwrap_or("");
+        let acct_color = if acct.is_empty() { None } else { Some(rgb(crate::unified::account_color(acct))) };
+        let row_tint = if let (true, Some(c)) = (mark == "tint", acct_color) { c.with_alpha(0.10) } else if lp.tint_rows { tags.first().map(|c| c.with_alpha(0.12)).unwrap_or(Color::from_argb_u8(0, 0, 0, 0)) } else { Color::from_argb_u8(0, 0, 0, 0) };
         // one-time codes only for fresh mail (Bulwark: received within the last day)
         let fresh = t.as_ref().is_some_and(|t| { let age = Local::now().signed_duration_since(*t); age.num_minutes() >= -5 && age.num_hours() <= 24 });
         let code = if lp.codes && fresh {
@@ -304,8 +334,8 @@ fn build_rows(st: &ListState) -> Vec<Mail> {
             draft: kw["$draft"].as_bool() == Some(true),
             checked: st.checked.contains(&id),
             tags: ModelRc::new(VecModel::from(tags)),
-            account: m["__account"].as_str().unwrap_or("").into(),
-            account_color: m["__account"].as_str().map(|a| rgb(crate::unified::account_color(a))).unwrap_or(rgb(0)),
+            account: if mark == "dot" { acct.into() } else { "".into() },
+            account_color: acct_color.unwrap_or(rgb(0)),
             id: id.into(),
             code: code.into(),
             row_tint,
@@ -341,13 +371,52 @@ pub fn rebuild_list(u: &AppWindow) {
 
 type Page = Result<(Vec<Value>, usize, HashMap<String, usize>), String>;
 
-/// First `n` messages of a list filter (scheduled and unified are virtual).
-fn fetch(c: &Client, filter: Value, n: usize) -> Page {
+/// First `n` messages of a list filter (scheduled and unified are virtual). For the unified
+/// list `loaded` holds the rows already shown, so a reload asks each source for as many.
+fn fetch(c: &Client, filter: Value, n: usize, loaded: &[Value]) -> Page {
     if filter["scheduled"] == true {
         c.scheduled().map(|e| { let n = e.len(); (e, n, HashMap::new()) })
     } else if filter["unified"] == true {
-        crate::unified::fetch(n.min(PAGE.max(page_size())))
+        let limits = crate::unified::positions(loaded).into_iter().map(|(k, v)| (k, v.max(page_size()))).collect();
+        crate::unified::fetch(unified_text(&filter), &HashMap::new(), &limits, page_size())
     } else { c.list(filter, 0, n) }
+}
+
+fn unified_text(filter: &Value) -> Option<String> {
+    filter["text"].as_str().map(str::trim).filter(|t| !t.is_empty()).map(String::from)
+}
+
+/// The list filter for a folder (virtual folders included), optionally searched.
+pub fn folder_filter(folder: &str, text: Option<&str>) -> Value {
+    let text = text.map(str::trim).filter(|t| !t.is_empty());
+    match (folder, text) {
+        (crate::unified::FOLDER_ID, t) => json!({"unified": true, "text": t}),
+        ("__scheduled", _) => json!({"scheduled": true}),
+        (f, Some(t)) if !f.is_empty() => json!({"operator": "AND", "conditions": [{"inMailbox": f}, {"text": t}]}),
+        (_, Some(t)) => json!({"text": t}),
+        (f, None) => json!({"inMailbox": f}),
+    }
+}
+
+/// Whether the shown list is the unified one.
+pub fn showing_unified() -> bool { LIST.with(|l| l.borrow().filter["unified"] == true) }
+
+/// Empty the list (the unified folder was turned off while it was open).
+pub fn clear_list(u: &AppWindow) {
+    LIST.with(|l| {
+        let mut l = l.borrow_mut();
+        let generation = l.generation + 1;
+        *l = ListState { generation, ..Default::default() };
+    });
+    rebuild_list(u);
+}
+
+/// Another account's push stream changed: refresh the badge and, if open, the unified list.
+pub fn on_unified_push(u: &AppWindow) {
+    rebuild_folders(u);
+    if showing_unified() {
+        if let Some(c) = crate::unified::cached(&crate::unified::active_user()) { reload(u.as_weak(), c); }
+    }
 }
 
 /// Load the first page of a list (folder, tag or search filter).
@@ -363,7 +432,7 @@ pub fn load_list(w: slint::Weak<AppWindow>, c: Arc<Client>, filter: Value) {
     let _ = w.upgrade_in_event_loop(|u| u.set_busy(true));
     let page = page_size();
     std::thread::spawn(move || {
-        let res = fetch(&c, filter, page);
+        let res = fetch(&c, filter, page, &[]);
         let _ = w.upgrade_in_event_loop(move |u| {
             u.set_busy(false);
             LIST.with(|l| {
@@ -381,22 +450,33 @@ pub fn load_list(w: slint::Weak<AppWindow>, c: Arc<Client>, filter: Value) {
 }
 
 pub fn load_more(w: slint::Weak<AppWindow>, c: Arc<Client>) {
-    let Some((filter, pos, gen)) = LIST.with(|l| {
+    let Some((filter, pos, gen, unified)) = LIST.with(|l| {
         let mut l = l.borrow_mut();
         if l.loading || l.emails.len() >= l.total { return None; }
         l.loading = true;
-        Some((l.filter.clone(), l.emails.len(), l.generation))
+        let unified = (l.filter["unified"] == true).then(|| crate::unified::positions(&l.emails));
+        Some((l.filter.clone(), l.emails.len(), l.generation, unified))
     }) else { return };
     std::thread::spawn(move || {
-        let res = c.list(filter, pos, page_size());
+        // unified: each source continues after its own loaded rows (Bulwark positionsByAccount)
+        let res = match unified {
+            Some(pos) => crate::unified::fetch(unified_text(&filter), &pos, &HashMap::new(), page_size()),
+            None => c.list(filter, pos, page_size()),
+        };
         let _ = w.upgrade_in_event_loop(move |u| {
             LIST.with(|l| {
                 let mut l = l.borrow_mut();
                 if l.generation != gen { return; }
                 l.loading = false;
                 if let Ok((emails, total, threads)) = res {
-                    let have: HashSet<String> = l.emails.iter().filter_map(|m| m["id"].as_str().map(String::from)).collect();
-                    l.emails.extend(emails.into_iter().filter(|m| !have.contains(m["id"].as_str().unwrap_or(""))));
+                    if l.filter["unified"] == true {
+                        // merge cursor: rows from every source, re-ordered by time
+                        l.emails.extend(emails);
+                        crate::unified::merge_sorted(&mut l.emails);
+                    } else {
+                        let have: HashSet<String> = l.emails.iter().filter_map(|m| m["id"].as_str().map(String::from)).collect();
+                        l.emails.extend(emails.into_iter().filter(|m| !have.contains(m["id"].as_str().unwrap_or(""))));
+                    }
                     l.total = total;
                     l.threads.extend(threads);
                 }
@@ -408,10 +488,14 @@ pub fn load_more(w: slint::Weak<AppWindow>, c: Arc<Client>) {
 
 /// Re-fetch what is loaded (after push or an action), keeping the scroll depth.
 pub fn reload(w: slint::Weak<AppWindow>, c: Arc<Client>) {
-    let (filter, n, gen) = LIST.with(|l| { let l = l.borrow(); (l.filter.clone(), l.emails.len().max(PAGE), l.generation) });
+    let (filter, n, gen, loaded) = LIST.with(|l| {
+        let l = l.borrow();
+        let loaded = if l.filter["unified"] == true { l.emails.clone() } else { vec![] };
+        (l.filter.clone(), l.emails.len().max(PAGE), l.generation, loaded)
+    });
     if filter.is_null() { return; }
     std::thread::spawn(move || {
-        let res = fetch(&c, filter, n);
+        let res = fetch(&c, filter, n, &loaded);
         let _ = w.upgrade_in_event_loop(move |u| {
             LIST.with(|l| {
                 let mut l = l.borrow_mut();
@@ -449,6 +533,11 @@ pub fn select_all(u: &AppWindow) {
 
 pub fn checked_ids() -> Vec<String> {
     LIST.with(|l| l.borrow().checked.iter().cloned().collect())
+}
+
+/// Shared JMAP account a listed message belongs to (unified list with group inboxes), if any.
+pub fn shared_account(id: &str) -> Option<String> {
+    email(id).and_then(|m| m["__jmap"].as_str().map(String::from))
 }
 
 /// Remembered account a listed message belongs to (unified list), if any.
@@ -529,6 +618,8 @@ pub fn apply(u: &AppWindow, c: Arc<Client>, ids: Vec<String>, action: &str) {
     let permanent = action == "delete" && (current_role == "trash" || (current_role == "junk" && junk_permanent));
     // resolve toggles from current state
     let first = email(&ids[0]);
+    // rows of a shared/group account (unified inbox) go out with that account's id
+    let shared = first.as_ref().and_then(|m| m["__jmap"].as_str().map(String::from));
     let action = match action.as_str() {
         "star" if first.as_ref().is_some_and(|m| m["keywords"]["$flagged"].as_bool() == Some(true)) => "unstar".to_string(),
         "read" if first.as_ref().is_some_and(|m| m["keywords"]["$seen"].as_bool() == Some(true)) => "unread".to_string(),
@@ -544,11 +635,11 @@ pub fn apply(u: &AppWindow, c: Arc<Client>, ids: Vec<String>, action: &str) {
         a if a.starts_with("tag:") => { let k = format!("$label:{}", &a[4..]); patch_local(&ids, |m| m["keywords"][k.as_str()] = json!(true)) }
         a if a.starts_with("untag:") => { let k = format!("$label:{}", &a[6..]); patch_local(&ids, |m| { if let Some(o) = m["keywords"].as_object_mut() { o.remove(&k); } }) }
         "delete" | "archive" | "spam" | "notspam" => remove_local(&ids),
-        a if a.starts_with("move:") => remove_local(&ids),
+        a if a.starts_with("move:") || a.starts_with("moveto:") => remove_local(&ids),
         _ => {}
     }
     let mut open_next: Option<String> = None;
-    if ["delete", "archive", "spam", "notspam"].contains(&action.as_str()) || action.starts_with("move:") {
+    if ["delete", "archive", "spam", "notspam"].contains(&action.as_str()) || action.starts_with("move:") || action.starts_with("moveto:") {
         let cur = u.get_current_mail().to_string();
         if ids.iter().any(|i| *i == cur) {
             // returnToListAfterAction off: open the next message (Bulwark), else go back to the list
@@ -563,6 +654,7 @@ pub fn apply(u: &AppWindow, c: Arc<Client>, ids: Vec<String>, action: &str) {
     std::thread::spawn(move || {
         let res: Result<(), String> = (|| {
             let check = |r: (usize, Vec<String>)| if r.1.is_empty() { Ok(()) } else { Err(r.1.join("; ")) };
+            if let Some(acct) = &shared { return crate::unified::shared_apply(&c, acct, &ids, &action); }
             match action.as_str() {
                 "delete" if permanent => c.destroy(&ids).map(|_| ()),
                 "delete" => {
@@ -583,6 +675,8 @@ pub fn apply(u: &AppWindow, c: Arc<Client>, ids: Vec<String>, action: &str) {
                 a if a.starts_with("tag:") => check(c.set_keyword(&ids, &format!("$label:{}", &a[4..]), true)?),
                 a if a.starts_with("untag:") => check(c.set_keyword(&ids, &format!("$label:{}", &a[6..]), false)?),
                 a if a.starts_with("move:") => check(c.move_to(&ids, &a[5..])?),
+                // another account's rows: the folder with the same role or name there
+                a if a.starts_with("moveto:") => { let t = crate::unified::resolve_moveto(&c, &c.account, &a[7..])?; check(c.move_to(&ids, &t)?) }
                 a => Err(format!("Unknown action {a}")),
             }
         })();

@@ -273,12 +273,14 @@ fn compose_client(st: &Shared) -> Option<Arc<jmap::Client>> {
 
 /// mail::apply, split per owning account so unified-inbox rows use their own client.
 fn apply_routed(u: &AppWindow, st: &Shared, ids: Vec<String>, action: &str) {
-    let mut groups: Vec<(Option<String>, Vec<String>)> = vec![];
+    // one group per login and, for group inboxes, per shared JMAP account
+    let mut groups: Vec<((Option<String>, Option<String>), Vec<String>)> = vec![];
     for id in ids {
         let o = mail::owner(&id).filter(|o| *o != unified::active_user());
-        match groups.iter_mut().find(|g| g.0 == o) { Some(g) => g.1.push(id), None => groups.push((o, vec![id])) }
+        let key = (o, mail::shared_account(&id));
+        match groups.iter_mut().find(|g| g.0 == key) { Some(g) => g.1.push(id), None => groups.push((key, vec![id])) }
     }
-    for (o, ids) in groups {
+    for ((o, _), ids) in groups {
         let c = match &o { Some(o) => unified::cached(o), None => st.lock().unwrap().clone() };
         if let Some(c) = c { mail::apply(u, c, ids, action); }
     }
@@ -467,6 +469,7 @@ fn body_html(m: &Value) -> String {
 
 fn load_folder(ui: slint::Weak<AppWindow>, client: Arc<jmap::Client>, mailbox: Option<String>, text: Option<String>) {
     let filter = match (mailbox, text) {
+        (Some(m), Some(t)) if m == unified::FOLDER_ID => mail::folder_filter(&m, Some(&t)),
         (_, Some(t)) => json!({"text": t}),
         (Some(m), None) if m == "__scheduled" => json!({"scheduled": true}),
         (Some(m), None) if m == unified::FOLDER_ID => json!({"unified": true}),
@@ -596,7 +599,7 @@ fn main() -> Result<(), slint::PlatformError> {
         // Bulwark clearSearchOnFolderChange (default off): keep the query and re-run it in the new folder
         let q = u.get_search().trim().to_string();
         if !q.is_empty() && id != "__scheduled" && !settings::Settings::load().bool("clearSearchOnFolderChange", false) {
-            mail::load_list(w.clone(), c, json!({"operator": "AND", "conditions": [{"inMailbox": id.to_string()}, {"text": q}]}));
+            mail::load_list(w.clone(), c, mail::folder_filter(&id, Some(&q)));
             return;
         }
         u.set_search("".into());
@@ -612,7 +615,9 @@ fn main() -> Result<(), slint::PlatformError> {
         if text.trim().is_empty() {
             load_folder(w.clone(), c, Some(u.get_current_folder().to_string()), None);
         } else {
-            load_folder(w.clone(), c, None, Some(text.to_string()));
+            // in All inboxes the search stays within the merged inboxes (Bulwark searchUnifiedEmails)
+            let f = u.get_current_folder().to_string();
+            load_folder(w.clone(), c, (f == unified::FOLDER_ID).then_some(f), Some(text.to_string()));
         }
     });
 
@@ -859,7 +864,23 @@ fn main() -> Result<(), slint::PlatformError> {
         p.set(&key, serde_json::json!(on), &mut cf.lock().unwrap());
         drop(p);
         rs();
-        if key == "enableUnifiedMailbox" && on { unified::warm_up(); }
+        if key == "enableUnifiedMailbox" && on { unified::warm_up(Some(wt.clone())); }
+        if let Some(u) = wt.upgrade() {
+            let open = u.get_current_folder() == unified::FOLDER_ID;
+            if key == "enableUnifiedMailbox" && !on && open {
+                // the folder is gone: clear its list and fall back to the Inbox
+                mail::clear_list(&u);
+                u.set_current_mail("".into());
+                if let Some(c) = unified::cached(&unified::active_user()) { mail::load_mailboxes(wt.clone(), c, true); }
+            } else if open && (key == "unifiedCrossAccount" || key == "includeGroupInUnified") {
+                if key == "unifiedCrossAccount" && on { unified::warm_up(Some(wt.clone())); }
+                if let Some(c) = unified::cached(&unified::active_user()) { load_folder(wt.clone(), c, Some(unified::FOLDER_ID.into()), None); }
+            }
+            if key == "unifiedCrossAccount" || key == "includeGroupInUnified" {
+                let w2 = wt.clone();
+                std::thread::spawn(move || { unified::refresh_counts(); let _ = w2.upgrade_in_event_loop(|u| mail::rebuild_folders(&u)); });
+            }
+        }
         if let Some(u) = wt.upgrade() { apply_ui_prefs(&u); mail::rebuild_folders(&u); mail::rebuild_list(&u); }
     });
 
@@ -1455,10 +1476,16 @@ fn main() -> Result<(), slint::PlatformError> {
     ui.on_move_to(move |fid| {
         let u = w.unwrap();
         let ids = { let ch = mail::checked_ids(); if ch.is_empty() { vec![u.get_current_mail().to_string()] } else { ch } };
-        // folder ids belong to the active account: other accounts' rows are left alone
-        let ids: Vec<String> = ids.into_iter().filter(|i| mail::owner(i).is_none_or(|o| o == unified::active_user())).collect();
-        let Some(c) = st.lock().unwrap().clone() else { return };
-        mail::apply(&u, c, ids.into_iter().filter(|i| !i.is_empty()).collect(), &format!("move:{fid}"));
+        let ids: Vec<String> = ids.into_iter().filter(|i| !i.is_empty()).collect();
+        // folder ids belong to the active account: other accounts' rows (and group inboxes)
+        // go to their own folder with the same role, else the same name (Bulwark move targets)
+        let (own, other): (Vec<String>, Vec<String>) = ids.into_iter()
+            .partition(|i| mail::owner(i).is_none_or(|o| o == unified::active_user()) && mail::shared_account(i).is_none());
+        if let Some(c) = st.lock().unwrap().clone() { mail::apply(&u, c, own, &format!("move:{fid}")); }
+        if !other.is_empty() {
+            let (role, name) = mail::mailbox_info(&fid);
+            apply_routed(&u, &st, other, &unified::moveto_action(&role, &name));
+        }
     });
 
     let (w, st) = (ui.as_weak(), state.clone());
@@ -1716,7 +1743,7 @@ fn finish_login(w: slint::Weak<AppWindow>, st: Shared, res: Result<jmap::Client,
             let c = Arc::new(c);
             *st.lock().unwrap() = Some(c.clone());
             unified::set_active(&user, c.clone());
-            if unified::enabled() { unified::warm_up(); }
+            if unified::enabled() { unified::warm_up(Some(w.clone())); }
             let p = config_path();
             let _ = std::fs::create_dir_all(p.parent().unwrap());
             let _ = std::fs::write(&p, format!("{server}\n{user}\n"));
