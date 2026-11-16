@@ -11,6 +11,7 @@ mod contacts;
 mod files;
 mod jmap;
 mod lite;
+mod markup;
 mod mail;
 mod unified;
 mod oauth;
@@ -1121,6 +1122,15 @@ fn main() -> Result<(), slint::PlatformError> {
         let Some((m, _)) = CUR_MSG.with(|x| x.borrow().clone()) else { return };
         compose::open(&w.unwrap(), c, compose::Kind::Reply, Some(&m));
     });
+
+    let w = ui.as_weak();
+    ui.on_c_fmt(move |kind, a, b| {
+        let u = w.unwrap();
+        let (text, anchor, cursor) = markup::apply(&u.get_c_body(), &kind, a, b);
+        FmtResult { text: text.into(), anchor, cursor }
+    });
+    let w = ui.as_weak();
+    ui.on_c_toggle_tag(move |i| compose::toggle_tag(&w.unwrap(), i));
 
     let (w, st, pf) = (ui.as_weak(), state.clone(), prefs.clone());
     ui.on_send_now(move || {
