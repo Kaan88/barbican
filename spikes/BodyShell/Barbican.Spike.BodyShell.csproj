@@ -30,5 +30,9 @@
     <!-- The shell and the dark pass are the App's assets, used as they are. -->
     <Content Include="../../src/Barbican.App/Assets/mail/*.js" Link="Assets/mail/%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
+  <ItemGroup Condition="$(TargetFramework.EndsWith('-desktop'))">
+    <PackageReference Include="Microsoft.Extensions.Logging.Console" />
+    <PackageReference Include="Uno.UI.Adapter.Microsoft.Extensions.Logging" />
+  </ItemGroup>
   <Import Project="../../eng/Uno.WebView2Name.targets" />
 </Project>
