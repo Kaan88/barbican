@@ -58,7 +58,7 @@ struct Ed {
 
 #[derive(Default)]
 #[allow(dead_code)]
-struct Retro { rule: Value, plan: Vec<(String, Vec<String>, String)> }
+struct Retro { rule: Value, plan: Vec<(String, Vec<String>, String)>, gen: u64, state: String }
 
 thread_local! {
     static CACHE: RefCell<Option<Cache>> = const { RefCell::new(None) };
@@ -108,7 +108,8 @@ fn valid_email(e: &str) -> bool {
     !l.is_empty() && d.contains('.') && !e.contains(char::is_whitespace) && !d.starts_with('.') && !d.ends_with('.')
 }
 
-fn header_ok(h: &str) -> bool { !h.is_empty() && h.bytes().all(|b| (0x21..=0x39).contains(&b) || (0x3b..=0x7e).contains(&b)) }
+/// The header names the Sieve generator writes (it skips rules with any other name, sieve.rs).
+fn header_ok(h: &str) -> bool { !h.is_empty() && h.chars().all(|ch| ch.is_ascii_alphanumeric() || ch == '_' || ch == '-') }
 
 /// The rule as Bulwark stores it, from the form; Err with what to fix.
 #[allow(clippy::too_many_arguments)]
@@ -138,6 +139,9 @@ pub fn build_rule(base: &Value, id: Option<&str>, name: &str, any: bool, conds: 
                 let cmp = if comparators(&c.field).contains(&c.cmp.as_str()) { c.cmp.clone() } else { comparators(&c.field).first().unwrap_or(&"contains").to_string() };
                 // a regular expression is one value: commas in it are not separators
                 let vals: Vec<String> = if cmp == "regex" { vec![c.value.trim().to_string()] } else { c.value.split(',').map(|v| v.trim().to_string()).filter(|v| !v.is_empty()).collect() };
+                if cmp == "regex" && !vals[0].is_empty() {
+                    if let Err(e) = regex::Regex::new(&vals[0]) { return Err(format!("\"{}\" is not a valid regular expression: {}", vals[0], e.to_string().lines().last().unwrap_or("").trim())); }
+                }
                 if vals.iter().all(|v| v.is_empty()) { return Err(format!("Add a value for \"{}\"", FIELDS.iter().find(|f| f.0 == c.field).map(|f| f.1).unwrap_or("the condition"))); }
                 o.insert("comparator".into(), json!(cmp));
                 o.insert("value".into(), if vals.len() == 1 { json!(vals[0]) } else { json!(vals) });
@@ -429,18 +433,55 @@ pub fn plan_count(steps: &[(String, Vec<String>, String)]) -> usize {
 
 fn ptr(k: &str) -> String { k.replace('~', "~0").replace('/', "~1") }
 
-fn apply_steps(c: &Client, steps: &[(String, Vec<String>, String)]) -> Result<usize, String> {
+/// The Email/set patch for one plan step (move replaces the folders, as Sieve's fileinto does).
+pub fn step_patch(kind: &str, arg: &str) -> Value {
+    match kind {
+        "keyword" => json!({ format!("keywords/{}", ptr(arg)): true }),
+        "move" => json!({"mailboxIds": { arg: true }}),
+        _ => json!({ format!("mailboxIds/{}", ptr(arg)): true }),
+    }
+}
+
+#[derive(Debug, PartialEq)]
+pub enum Applied { Done(usize), Stale(usize), Failed(usize, String) }
+
+/// Apply the plan in Email/set calls of at most `max` updates, each guarded by `ifInState`
+/// (RFC 8620 §5.3) chained from the previous call's newState. `send` posts one method call
+/// and returns its [name, args] response. Counts updated messages; stops on the first error.
+pub fn apply_with(mut send: impl FnMut(Value) -> Result<Value, String>, account: &str, mut state: String,
+    steps: &[(String, Vec<String>, String)], max: usize) -> Applied {
+    let mut done: std::collections::HashSet<String> = Default::default();
     let mut bad = vec![];
     for (kind, ids, arg) in steps {
-        let patch = match kind.as_str() {
-            "keyword" => json!({ format!("keywords/{}", ptr(arg)): true }),
-            "move" => json!({"mailboxIds": { arg.clone(): true }}),
-            _ => json!({ format!("mailboxIds/{}", ptr(arg)): true }),
-        };
-        let (_, b) = c.update("Email/set", &c.account, ids.iter().map(|i| (i.clone(), patch.clone())).collect())?;
-        bad.extend(b);
+        let patch = step_patch(kind, arg);
+        for chunk in ids.chunks(max.max(1)) {
+            let upd: Map<String, Value> = chunk.iter().map(|i| (i.clone(), patch.clone())).collect();
+            let mut a = json!({"accountId": account, "update": upd});
+            if !state.is_empty() { a["ifInState"] = json!(state); }
+            let r = match send(json!(["Email/set", a, "a"])) { Ok(r) => r, Err(e) => return Applied::Failed(done.len(), e) };
+            if r[0] == "error" {
+                if r[1]["type"] == "stateMismatch" { return Applied::Stale(done.len()); }
+                return Applied::Failed(done.len(), crate::jmap::method_error(&r[1]));
+            }
+            if let Some(o) = r[1]["updated"].as_object() { done.extend(o.keys().cloned()); }
+            if let Some(nu) = r[1]["notUpdated"].as_object() { bad.extend(nu.iter().map(|(id, e)| format!("{id}: {}", e["type"].as_str().unwrap_or("error")))); }
+            state = r[1]["newState"].as_str().unwrap_or("").to_string();
+        }
     }
-    if bad.is_empty() { Ok(plan_count(steps)) } else { Err(bad.join("; ")) }
+    if bad.is_empty() { Applied::Done(done.len()) } else { Applied::Failed(done.len(), bad.join("; ")) }
+}
+
+/// Whether a scan's result still belongs to the open dialog (no later run started).
+pub fn current(now: u64, gen: u64, open: bool) -> bool { open && now == gen }
+
+pub fn applied_text(r: &Applied, total: usize) -> String {
+    let s = |n: usize| if n == 1 { "" } else { "s" };
+    match r {
+        Applied::Done(n) => format!("Rule applied to {n} message{}", s(*n)),
+        Applied::Stale(0) => "Your mail changed since the check; nothing was applied. Run the rule again.".into(),
+        Applied::Stale(n) => format!("Applied to {n} of {total} message{}; your mail changed meanwhile, run the rule again for the rest.", s(total)),
+        Applied::Failed(n, e) => format!("Applied to {n} of {total} message{}: {e}", s(total)),
+    }
 }
 
 // ---------------- UI ----------------
@@ -498,7 +539,7 @@ fn open_editor(u: &AppWindow, cache: &Cache, id: Option<&str>) {
 }
 
 /// Write the rules (with the script's metadata kept) in the background, then reload the page.
-fn save_rules(u: &AppWindow, c: Arc<Client>, cache: Cache, reload: Reload, rules: Vec<Value>, done: &'static str, close: bool) {
+fn save_rules(u: &AppWindow, c: Arc<Client>, cache: Cache, reload: Reload, rules: Vec<Value>, before: Vec<Value>, done: &'static str, close: bool) {
     let (script, scripts) = {
         let k = cache.lock().unwrap();
         (crate::sieve::generate_meta(&crate::sieve::with_rules(&k.filter_meta, &rules), &k.external, &k.sieve_ext), k.scripts.clone())
@@ -507,7 +548,8 @@ fn save_rules(u: &AppWindow, c: Arc<Client>, cache: Cache, reload: Reload, rules
     u.global::<FilterX>().set_busy(true);
     std::thread::spawn(move || {
         let res = crate::server_settings::save_script(&c, &script, &scripts);
-        if res.is_ok() { cache.lock().unwrap().rules = rules; }
+        { let mut k = cache.lock().unwrap(); if res.is_ok() { k.rules = rules; } else { k.rules = before; } }
+        let ok = res.is_ok();
         let _ = w.upgrade_in_event_loop(move |u| {
             let g = u.global::<FilterX>();
             g.set_busy(false);
@@ -515,7 +557,8 @@ fn save_rules(u: &AppWindow, c: Arc<Client>, cache: Cache, reload: Reload, rules
                 Ok(()) => { if close { g.set_open(false); } crate::mail::show_toast(&u, done, false); }
                 Err(e) => { if close { g.set_status(e.clone().into()); } else { crate::mail::show_toast(&u, &e, false); } }
             }
-            reload("filters".into());
+            // on failure the cache is back to the server's list; reload only shows what was saved
+            if ok { reload("filters".into()); } else if !close { reload("filters".into()); }
         });
     });
 }
@@ -527,28 +570,35 @@ fn run_rule(u: &AppWindow, c: Arc<Client>, cache: &Cache, id: &str) {
     g.set_retro_can_apply(false);
     g.set_retro_busy(false);
     g.set_retro_open(true);
+    let gen = RETRO.with(|r| { let mut r = r.borrow_mut(); let gen = r.gen + 1; *r = Retro { gen, ..Default::default() }; gen });
     if let Some(why) = retro_unsupported(&rule) { g.set_retro_text(why.into()); return; }
     g.set_retro_text("Looking through your Inbox…".into());
     let w = u.as_weak();
     std::thread::spawn(move || {
-        let res: Result<Vec<(String, Vec<String>, String)>, String> = (|| {
+        let rule2 = rule.clone();
+        let res: Result<(Vec<(String, Vec<String>, String)>, String), String> = (|| {
+            // the Email state before looking: Apply sends it as ifInState, so nothing changed in between
+            let st = c.call(json!([["Email/get", {"accountId": c.account, "ids": []}, "s"]]))?;
+            let state = st[0][1]["state"].as_str().unwrap_or("").to_string();
             let inbox = c.role_ids()?.get("inbox").cloned().ok_or("No Inbox")?;
             let ids = c.query_all("Email/query", &c.account, json!({"filter": query_filter(&rule, &inbox)}))?;
             let props = json!(retro_properties(&rule).into_iter().chain(["id".to_string()]).collect::<Vec<_>>());
             let recs = c.get_all("Email/get", &c.account, &ids, Some(&props))?;
             let msgs: Vec<Value> = recs.iter().map(retro_message).collect();
-            Ok(plan(&rule, &msgs))
+            Ok((plan(&rule, &msgs), state))
         })();
         let _ = w.upgrade_in_event_loop(move |u| {
             let g = u.global::<FilterX>();
+            // a later run (or a closed dialog) owns the dialog now: drop this result
+            if !current(RETRO.with(|r| r.borrow().gen), gen, g.get_retro_open()) { return; }
             match res {
-                Ok(steps) => {
+                Ok((steps, state)) => {
                     let n = plan_count(&steps);
                     g.set_retro_text(if n == 0 { "No message in your Inbox would change.".into() } else {
                         format!("{n} message{} in your Inbox match{} and would be changed as the rule says. Forward, reject and discard never run on old mail.", if n == 1 { "" } else { "s" }, if n == 1 { "es" } else { "" }).into()
                     });
                     g.set_retro_can_apply(n > 0);
-                    RETRO.with(|r| *r.borrow_mut() = Retro { rule: Value::Null, plan: steps });
+                    RETRO.with(|r| *r.borrow_mut() = Retro { rule: rule2, plan: steps, gen, state });
                 }
                 Err(e) => g.set_retro_text(format!("Could not check your Inbox: {e}").into()),
             }
@@ -610,9 +660,10 @@ pub fn wire(ui: &AppWindow, st: ClientSlot, cache: Cache, reload: Reload) {
         match built {
             Err(e) => g.set_status(e.into()),
             Ok((rule, id)) => {
-                let mut rules = k.lock().unwrap().rules.clone();
+                let before = k.lock().unwrap().rules.clone();
+                let mut rules = before.clone();
                 match id.and_then(|id| rules.iter().position(|r| r["id"] == id.as_str())) { Some(i) => rules[i] = rule, None => rules.push(rule) }
-                save_rules(&u, c, k.clone(), rl.clone(), rules, "Rule saved", true);
+                save_rules(&u, c, k.clone(), rl.clone(), rules, before, "Rule saved", true);
             }
         }
     });
@@ -623,7 +674,7 @@ pub fn wire(ui: &AppWindow, st: ClientSlot, cache: Cache, reload: Reload) {
         let next = moved(&rules, &id, dir);
         if next.iter().map(|r| r["id"].clone()).eq(rules.iter().map(|r| r["id"].clone())) { return; }
         k.lock().unwrap().rules = next.clone();
-        save_rules(&w.unwrap(), c, k.clone(), rl.clone(), next, "Rule order saved", false);
+        save_rules(&w.unwrap(), c, k.clone(), rl.clone(), next, rules, "Rule order saved", false);
     });
     let (w, s, k, rl) = (ui.as_weak(), st.clone(), cache.clone(), reload.clone());
     g.on_delete(move |id| {
@@ -632,8 +683,9 @@ pub fn wire(ui: &AppWindow, st: ClientSlot, cache: Cache, reload: Reload) {
         if g.get_confirm() != id { g.set_confirm(id); return; }
         g.set_confirm("".into());
         let Some(c) = client(&s) else { return };
-        let rules: Vec<Value> = k.lock().unwrap().rules.iter().filter(|r| r["id"] != id.as_str()).cloned().collect();
-        save_rules(&u, c, k.clone(), rl.clone(), rules, "Rule deleted", false);
+        let before = k.lock().unwrap().rules.clone();
+        let rules: Vec<Value> = before.iter().filter(|r| r["id"] != id.as_str()).cloned().collect();
+        save_rules(&u, c, k.clone(), rl.clone(), rules, before, "Rule deleted", false);
     });
     let (w, s, k) = (ui.as_weak(), st.clone(), cache.clone());
     g.on_run(move |id| { if let Some(c) = client(&s) { run_rule(&w.unwrap(), c, &k, &id); } });
@@ -641,17 +693,21 @@ pub fn wire(ui: &AppWindow, st: ClientSlot, cache: Cache, reload: Reload) {
     g.on_retro_apply(move || {
         let u = w.unwrap();
         let Some(c) = client(&s) else { return };
-        let steps = RETRO.with(|r| r.borrow().plan.clone());
+        if !u.global::<FilterX>().get_retro_open() { return; }
+        let (steps, state, rule) = RETRO.with(|r| { let r = r.borrow(); (r.plan.clone(), r.state.clone(), r.rule.clone()) });
+        if steps.is_empty() || rule.is_null() { return; }
+        let total = plan_count(&steps);
         u.global::<FilterX>().set_retro_busy(true);
         let w = u.as_weak();
         std::thread::spawn(move || {
-            let res = apply_steps(&c, &steps);
+            let acc = c.account.clone();
+            let res = apply_with(|call| c.request(json!([call])).map(|mut v| v.pop().unwrap_or(Value::Null)), &acc, state, &steps, c.max_set());
             let _ = w.upgrade_in_event_loop(move |u| {
                 let g = u.global::<FilterX>();
                 g.set_retro_busy(false);
                 g.set_retro_open(false);
-                crate::mail::show_toast(&u, &match res { Ok(n) => format!("Rule applied to {n} message{}", if n == 1 { "" } else { "s" }), Err(e) => format!("Not applied everywhere: {e}") }, false);
-                RETRO.with(|r| *r.borrow_mut() = Retro::default());
+                crate::mail::show_toast(&u, &applied_text(&res, total), false);
+                RETRO.with(|r| { let gen = r.borrow().gen; *r.borrow_mut() = Retro { gen, ..Default::default() }; });
             });
         });
     });
@@ -774,5 +830,63 @@ mod tests {
         assert!(retro_unsupported(&json!({"conditions": [{"field": "from", "comparator": "contains", "value": "x"}], "actions": [{"type": "forward", "value": "a@b.c"}]})).is_some());
         assert!(retro_unsupported(&json!({"activeFrom": "2026-01-01T00:00:00Z", "conditions": [{"field": "from", "comparator": "contains", "value": "x"}], "actions": [{"type": "star"}]})).is_some());
         assert!(retro_unsupported(&json!({"conditions": [{"field": "from", "comparator": "contains", "value": "x"}], "actions": [{"type": "move", "value": "X"}]})).is_some());
+    }
+
+    #[test]
+    fn stale_scan_is_dropped() {
+        assert!(current(2, 2, true));
+        assert!(!current(3, 2, true)); // rule B started after rule A
+        assert!(!current(2, 2, false)); // dialog closed
+    }
+
+    #[test]
+    fn apply_patches_and_if_in_state() {
+        assert_eq!(step_patch("copy", "a/b~c"), json!({"mailboxIds/a~1b~0c": true}));
+        assert_eq!(step_patch("keyword", "$label:x/y"), json!({"keywords/$label:x~1y": true}));
+        assert_eq!(step_patch("move", "m1"), json!({"mailboxIds": {"m1": true}}));
+        let steps = vec![("keyword".to_string(), vec!["e1".into(), "e2".into(), "e3".into()], "$seen".to_string()),
+            ("copy".to_string(), vec!["e1".into()], "m2".to_string())];
+        let mut sent = vec![];
+        let r = apply_with(|c| { sent.push(c.clone()); let n = sent.len();
+            let ids: Vec<String> = c[1]["update"].as_object().unwrap().keys().cloned().collect();
+            Ok(json!(["Email/set", {"updated": ids.iter().map(|i| (i.clone(), Value::Null)).collect::<Map<_,_>>(), "newState": format!("s{n}")}, "a"])) }, "A", "s0".into(), &steps, 2);
+        assert_eq!(r, Applied::Done(3));
+        assert_eq!(sent.len(), 3);
+        assert_eq!(sent[0][1]["ifInState"], "s0");
+        assert_eq!(sent[1][1]["ifInState"], "s1");
+        assert_eq!(sent[2][1]["ifInState"], "s2");
+        assert_eq!(sent[2][1]["update"]["e1"], json!({"mailboxIds/m2": true}));
+        // the state moved on: stop and say how much was done
+        let mut n = 0;
+        let r = apply_with(|_| { n += 1; Ok(if n == 1 { json!(["Email/set", {"updated": {"e1": null, "e2": null}, "newState": "s1"}, "a"]) } else { json!(["error", {"type": "stateMismatch"}, "a"]) }) }, "A", "s0".into(), &steps, 2);
+        assert_eq!(r, Applied::Stale(2));
+        assert!(applied_text(&r, 3).contains("2 of 3"));
+        let r = apply_with(|_| Err("network down".into()), "A", "s0".into(), &steps, 2);
+        assert_eq!(applied_text(&r, 3), "Applied to 0 of 3 messages: network down");
+    }
+
+    #[test]
+    fn invalid_regex_is_refused() {
+        let acts = vec![Act { kind: "mark_read".into(), ..Default::default() }];
+        let bad = vec![Cond { field: "subject".into(), cmp: "regex".into(), value: "([a-z".into(), ..Default::default() }];
+        assert!(build_rule(&Value::Null, None, "R", false, &bad, &acts, &folders(), false, false, "", "").unwrap_err().contains("not a valid regular expression"));
+    }
+
+    #[test]
+    fn odd_header_names_stay_quoted() {
+        let acts = vec![Act { kind: "mark_read".into(), ..Default::default() }];
+        // names the generator would silently skip are refused in the editor
+        for bad in ["X-A\"b", "X\\c", "X.Y", "X Y", "X:Y"] {
+            let conds = vec![Cond { field: "header".into(), cmp: "contains".into(), value: "v".into(), header: bad.into() }];
+            assert!(build_rule(&Value::Null, None, "R", false, &conds, &acts, &folders(), false, false, "", "").is_err(), "{bad}");
+        }
+        let conds = vec![Cond { field: "header".into(), cmp: "contains".into(), value: "v\"x\\y".into(), header: "X-Spam_Flag".into() }];
+        let r = build_rule(&Value::Null, None, "R", false, &conds, &acts, &folders(), false, false, "", "").unwrap();
+        let script = crate::sieve::generate_meta(&json!({"version": 1, "rules": [r.clone()]}), "", &[]);
+        assert!(script.contains(r#"if header :contains "X-Spam_Flag" "v\"x\\y" {"#), "{script}");
+        let p = retro_properties(&r);
+        assert!(p.contains(&"header:X-Spam_Flag:asText:all".to_string()) && p.contains(&"header:X-Spam_Flag:all".to_string()), "{p:?}");
+        let m = retro_message(&json!({"id": "e", "header:X-Spam_Flag:asText:all": ["v\"x\\y"], "header:X-Spam_Flag:all": [" v\"x\\y"]}));
+        assert_eq!(m["headers"]["x-spam_flag"], json!(["v\"x\\y"]));
     }
 }

@@ -565,6 +565,7 @@ dependencies = [
  "notify-rust",
  "parley 0.11.1",
  "png 0.17.16",
+ "regex",
  "reqwest",
  "rfd",
  "serde_json",
