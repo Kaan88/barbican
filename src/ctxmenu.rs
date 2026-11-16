@@ -92,10 +92,21 @@ const G_DEFAULT: &str = "\u{E735}";
 // must match ContextMenuRow heights in ui/app.slint
 fn row_h(i: &CtxItem) -> f32 { match i.kind { 1 => 9.0, 2 => 24.0, _ => 30.0 } }
 
+/// Update a menu's rows in place by position: unchanged rows are not touched, the tail is
+/// inserted or removed (menus are short and have no stable ids, separators repeat).
+fn fill(cur: &ModelRc<CtxItem>, items: Vec<CtxItem>, install: impl FnOnce(ModelRc<CtxItem>)) {
+    let Some(vm) = cur.as_any().downcast_ref::<VecModel<CtxItem>>() else { return install(ModelRc::new(VecModel::from(items))) };
+    let n = vm.row_count();
+    for (i, it) in items.iter().enumerate() {
+        if i < n { if vm.row_data(i).as_ref() != Some(it) { vm.set_row_data(i, it.clone()); } } else { vm.push(it.clone()); }
+    }
+    for i in (items.len()..n).rev() { vm.remove(i); }
+}
+
 fn show(u: &AppWindow, items: Vec<CtxItem>) {
     let h: f32 = items.iter().map(row_h).sum::<f32>() + 10.0;
     u.set_ctx_h(h);
-    u.set_ctx_items(ModelRc::new(VecModel::from(items)));
+    fill(&u.get_ctx_items(), items, |m| u.set_ctx_items(m));
 }
 
 fn reopen(u: &AppWindow, items: Vec<CtxItem>) {
@@ -129,7 +140,7 @@ pub fn hover(u: &AppWindow, action: &str, index: i32) {
     let y: f32 = 4.0 + (0..idx).filter_map(|i| m.row_data(i)).map(|r| row_h(&r)).sum::<f32>();
     u.set_ctx_sub_h(items.iter().map(row_h).sum::<f32>() + 10.0);
     u.set_ctx_sub_y(y);
-    u.set_ctx_sub_items(ModelRc::new(VecModel::from(items)));
+    fill(&u.get_ctx_sub_items(), items, |m| u.set_ctx_sub_items(m));
     u.set_ctx_sub_action(action.into());
 }
 
