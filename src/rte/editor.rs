@@ -18,6 +18,8 @@ pub struct Editor {
     pub goal_x: Option<f32>,
     /// Bumped on every change (drives relayout and "dirty" checks).
     pub version: u64,
+    /// Plain text only: no markdown-style input rules.
+    pub plain: bool,
 }
 
 impl Default for Editor {
@@ -30,7 +32,7 @@ impl Editor {
     pub fn new(doc: Doc) -> Self {
         let mut d = doc;
         d.fix();
-        Editor { doc: d, sel: Sel::default(), stored: None, undo: vec![], redo: vec![], last: None, goal_x: None, version: 1 }
+        Editor { doc: d, sel: Sel::default(), stored: None, undo: vec![], redo: vec![], last: None, goal_x: None, version: 1, plain: false }
     }
 
     /// Replace the whole document (opening the composer); clears history.
@@ -188,7 +190,7 @@ impl Editor {
         };
         self.sel = Sel::caret(p);
         self.goal_x = None;
-        if typing { self.input_rules(text.chars().next().unwrap()); }
+        if typing && !self.plain { self.input_rules(text.chars().next().unwrap()); }
     }
 
     /// Markdown-style shortcuts applied as you type.

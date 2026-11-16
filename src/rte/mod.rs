@@ -467,6 +467,7 @@ fn clipboard_fragment(h: &str) -> String {
 }
 
 fn paste(u: &AppWindow, plain_only: bool) {
+    let plain_only = plain_only || u.get_c_plain();
     let Ok(mut cb) = arboard::Clipboard::new() else { return };
     let in_code = with(|e| e.focus_block().kind == Kind::Code);
     if !plain_only && !in_code {
@@ -512,6 +513,7 @@ fn key(t: &str, k: slint::platform::Key) -> bool { let s: SharedString = k.into(
 
 /// Keyboard input from the editor's FocusScope. Returns true when handled.
 pub fn on_key(u: &AppWindow, text: &str, ctrl: bool, shift: bool, alt: bool) -> bool {
+    with(|e| e.plain = u.get_c_plain());
     let handled = handle_key(u, text, ctrl, shift, alt);
     if handled { refresh(u); u.invoke_rte_scroll_to_caret(); }
     handled
@@ -603,6 +605,8 @@ fn handle_key(u: &AppWindow, text: &str, ctrl: bool, shift: bool, alt: bool) -> 
     if ctrl && !altgr {
         let lower = t.to_lowercase();
         let c = lower.as_str();
+        // plain text only: editing shortcuts work, formatting ones do nothing
+        if u.get_c_plain() && !matches!((c, alt), ("a" | "z" | "y" | "c" | "x" | "v", false)) { return true; }
         match (c, shift, alt) {
             ("a", false, false) => with(|e| e.select_all()),
             ("b", false, false) => with(|e| e.toggle_mark(Mark::Bold)),
@@ -720,8 +724,16 @@ fn open_link_editor(u: &AppWindow) {
 /// Toolbar and menu commands.
 pub fn on_cmd(u: &AppWindow, cmd: &str) {
     let (name, arg) = cmd.split_once(':').unwrap_or((cmd, ""));
+    with(|e| e.plain = u.get_c_plain());
+    // plain text only takes no formatting (menus and the context menu included)
+    if u.get_c_plain() && !matches!(name, "relayout" | "undo" | "redo" | "copy" | "cut" | "paste" | "paste-plain" | "select-all" | "plain-mode") { return; }
     match name {
         "relayout" => {}
+        // switching one message to plain text drops its formatting (Bulwark togglePlainTextMode)
+        "plain-mode" => {
+            let blocks = html::import_text(&to_text());
+            with(|e| { e.plain = true; e.checkpoint(editor::EditKind::Other); e.doc = Doc { blocks }; e.doc.fix(); let last = e.doc.blocks.len() - 1; let end = e.doc.blocks[last].text().len(); e.set_caret(Pos::new(last, end)); e.version += 1; });
+        }
         "bold" => with(|e| e.toggle_mark(Mark::Bold)),
         "italic" => with(|e| e.toggle_mark(Mark::Italic)),
         "underline" => with(|e| e.toggle_mark(Mark::Underline)),

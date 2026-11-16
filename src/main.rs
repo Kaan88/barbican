@@ -123,6 +123,16 @@ fn show_html(h: String) {
     });
 }
 
+/// Automation only: run JS in the email WebView; the result lands in WV_EVAL for `wv-result`.
+pub static WV_EVAL: Mutex<Option<String>> = Mutex::new(None);
+pub fn wv_eval(js: &str) -> bool {
+    *WV_EVAL.lock().unwrap() = None;
+    WV.with(|w| match &*w.borrow() {
+        Some(v) => v.evaluate_script_with_callback(js, |r| { *WV_EVAL.lock().unwrap() = Some(r); }).is_ok(),
+        None => false,
+    })
+}
+
 fn wrap_html(body: &str) -> String {
     wrap_html_opts(body, false)
 }
@@ -494,6 +504,8 @@ fn inline_cid_images(c: &jmap::Client, m: &mut Value) {
         let Some(pid) = hp["partId"].as_str() else { continue };
         let Some(mut html) = m["bodyValues"][pid]["value"].as_str().map(String::from) else { continue };
         if !html.contains("cid:") { continue; }
+        // keep the cid: original: a reply/forward quotes it and sends the parts inline again
+        m["__cidBodyValues"][pid] = json!(html.clone());
         for p in &parts {
             let cid = p["cid"].as_str().unwrap_or("").trim_matches(['<', '>']);
             if !html.contains(&format!("cid:{cid}")) { continue; }
@@ -1407,6 +1419,8 @@ fn main() -> Result<(), slint::PlatformError> {
         if u.get_composing() {
             if ctrl && (t == "\r" || t == "\n") { u.invoke_send_now(); }
             if ctrl && t == "s" { u.invoke_save_draft(false); }
+            // Esc in the link popover cancels the popover, not the whole message
+            if t == "\u{1b}" && u.get_rte_link_open() { u.set_rte_link_open(false); rte::focus(&u); return; }
             if t == "\u{1b}" { u.invoke_save_draft(true); }
             return;
         }

@@ -11,6 +11,7 @@
 //!   drag X1 Y1 X2 Y2
 //!   shot PATH.png        (window contents; the WebView2 email body is a separate window and not included)
 //!   size                 (window size)
+//!   wv-eval JS / wv-result (run JS in the email WebView, then read its JSON result)
 use crate::AppWindow;
 use slint::platform::{Key, PointerEventButton, WindowEvent};
 use slint::{ComponentHandle, LogicalPosition, SharedString};
@@ -132,6 +133,9 @@ fn run(u: &AppWindow, line: &str) -> String {
             // dump the composer's HTML export (for checking the round trip)
             crate::rte::to_html().replace('\n', " ")
         }
+        // run JS in the email WebView (not captured by `shot`); fetch the JSON result with wv-result
+        "wv-eval" => if crate::wv_eval(a.get(1).copied().unwrap_or("")) { "ok".into() } else { "no webview".into() },
+        "wv-result" => crate::WV_EVAL.lock().unwrap().clone().unwrap_or_else(|| "pending".into()).replace(['\n', '\r'], " "),
         "size" => { let s = win.size(); format!("{} {} scale {}", s.width, s.height, win.scale_factor()) }
         "shot" => {
             let path = a.get(1).copied().unwrap_or("shot.png");

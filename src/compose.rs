@@ -25,6 +25,8 @@ struct State {
     body_doc: Option<Doc>,
     plain: bool,
     tags: Vec<bool>,
+    /// Inline (cid) parts of the quoted original of a reply/forward, sent again when the quote keeps them.
+    quoted_inline: Vec<(String, Attachment)>,
 }
 
 thread_local! {
@@ -52,7 +54,8 @@ pub fn upload_inline(u: &AppWindow, cid: String, bytes: Vec<u8>, mime: String, _
 
 /// The quoted original of `m` as HTML (cleaned) and text.
 fn quoted_of(m: &Value) -> (String, String) {
-    let (html, text) = crate::body_text(m);
+    let (_, text) = crate::body_text(m);
+    let html = cid_html(m);
     if !html.trim().is_empty() {
         let h = rte::html::clean_quoted_html(&html);
         let t = if text.trim().is_empty() { rte::html::html_text(&h) } else { text };
@@ -61,6 +64,37 @@ fn quoted_of(m: &Value) -> (String, String) {
         let h = text.lines().map(|l| format!("<div>{}</div>", if l.is_empty() { "<br>".into() } else { rte::html::esc(l) })).collect::<String>();
         (h, text)
     }
+}
+
+/// Bulwark formatRecipient: the bare address when there is no distinct name, otherwise
+/// `Name <email>`, quoting (and escaping) the name only when it holds a special character.
+pub fn format_recipient(name: &str, email: &str) -> String {
+    let n = name.trim();
+    if n.is_empty() || n.eq_ignore_ascii_case(email) { return email.to_string(); }
+    if n.contains([',', '<', '>', '"', '@', ';', ':']) {
+        format!("\"{}\" <{email}>", n.replace('\\', "\\\\").replace('"', "\\\""))
+    } else {
+        format!("{n} <{email}>")
+    }
+}
+
+/// The HTML body with its original cid: image references (the reader swaps them for data: URIs).
+fn cid_html(m: &Value) -> String {
+    m["htmlBody"].as_array().map(|parts| parts.iter().filter_map(|p| {
+        let pid = p["partId"].as_str()?;
+        m["__cidBodyValues"][pid].as_str().or(m["bodyValues"][pid]["value"].as_str()).map(String::from)
+    }).collect::<Vec<_>>().join("\n")).unwrap_or_default()
+}
+
+/// The cid parts of `m` that `html` references (Bulwark collectInlineImageCids).
+fn inline_parts(m: &Value, html: &str) -> Vec<(String, Attachment)> {
+    m["attachments"].as_array().map(|a| a.iter().filter_map(|a| {
+        let cid = a["cid"].as_str()?.trim_matches(['<', '>']).to_string();
+        html.contains(&format!("cid:{cid}")).then(|| (cid, Attachment {
+            blob_id: a["blobId"].as_str().unwrap_or("").into(), name: a["name"].as_str().unwrap_or("image").into(),
+            mime: a["type"].as_str().unwrap_or("application/octet-stream").into(), size: a["size"].as_u64().unwrap_or(0) as usize,
+        }))
+    }).collect()).unwrap_or_default()
 }
 
 pub enum ComposeKind { New, Reply, ReplyAll, Forward }
@@ -267,7 +301,7 @@ pub fn open(u: &AppWindow, c: Arc<Client>, kind: ComposeKind, m: Option<&Value>)
     if let Some(m) = m {
         let me = c.username.to_lowercase();
         let subj = m["subject"].as_str().unwrap_or("").to_string();
-        let who = format!("{} <{}>", crate::mail::sender(m), m["from"][0]["email"].as_str().unwrap_or(""));
+        let who = { let (n, e) = (crate::mail::sender(m), m["from"][0]["email"].as_str().unwrap_or("")); if n.eq_ignore_ascii_case(e) || e.is_empty() { n } else { format!("{n} <{e}>") } };
         let date = crate::mail::parse_time(&m["receivedAt"]).map(|t| t.format("%a %d %b %Y, %H:%M").to_string()).unwrap_or_default();
         let (qhtml, qtext) = quoted_of(m);
         let msgid = m["messageId"][0].as_str().map(String::from);
@@ -275,21 +309,23 @@ pub fn open(u: &AppWindow, c: Arc<Client>, kind: ComposeKind, m: Option<&Value>)
         if let Some(id) = &msgid { refs.push(id.clone()); }
         let addr = |x: &Value| -> String {
             let (n, e) = (x["name"].as_str().unwrap_or(""), x["email"].as_str().unwrap_or(""));
-            if n.is_empty() { e.to_string() } else { format!("\"{n}\" <{e}>") }
+            format_recipient(n, e)
         };
         match kind {
             ComposeKind::Forward => {
+                let inline = inline_parts(m, &qhtml);
                 u.set_c_subject((if subj.to_lowercase().starts_with("fwd:") { subj.clone() } else { format!("Fwd: {subj}") }).into());
                 let blocks = vec![Block::para(""), Block::para("---------- Forwarded message ----------"),
                     Block::para(&format!("From: {who}\nDate: {date}\nSubject: {subj}")),
                     Block::new(Kind::Quoted { html: qhtml, text: qtext, open: true, cite: false })];
                 rte::set_doc(u, Doc { blocks });
                 // carry the original attachments
-                let atts: Vec<Attachment> = m["attachments"].as_array().cloned().unwrap_or_default().iter().map(|a| Attachment {
+                let atts: Vec<Attachment> = m["attachments"].as_array().cloned().unwrap_or_default().iter()
+                    .filter(|a| !inline.iter().any(|(_, i)| a["blobId"].as_str() == Some(i.blob_id.as_str()))).map(|a| Attachment {
                     blob_id: a["blobId"].as_str().unwrap_or("").into(), name: a["name"].as_str().unwrap_or("attachment").into(),
                     mime: a["type"].as_str().unwrap_or("application/octet-stream").into(), size: a["size"].as_u64().unwrap_or(0) as usize,
                 }).collect();
-                ST.with(|s| { let mut s = s.borrow_mut(); s.attachments = atts; s.forwarding = true; s.answering = m["id"].as_str().filter(|_| m["__jmap"].is_null()).map(String::from); });
+                ST.with(|s| { let mut s = s.borrow_mut(); s.attachments = atts; s.quoted_inline = inline; s.forwarding = true; s.answering = m["id"].as_str().filter(|_| m["__jmap"].is_null()).map(String::from); });
             }
             ComposeKind::Reply | ComposeKind::ReplyAll => {
                 let src = if m["replyTo"].as_array().is_some_and(|a| !a.is_empty()) { &m["replyTo"] } else { &m["from"] };
@@ -309,6 +345,7 @@ pub fn open(u: &AppWindow, c: Arc<Client>, kind: ComposeKind, m: Option<&Value>)
                 u.set_c_to(to.join(", ").into());
                 if !cc.is_empty() { u.set_c_cc(cc.join(", ").into()); u.set_c_show_ccbcc(true); u.set_c_show_cc(true); }
                 u.set_c_subject((if subj.to_lowercase().starts_with("re:") { subj.clone() } else { format!("Re: {subj}") }).into());
+                let inline = inline_parts(m, &qhtml);
                 let blocks = vec![Block::para(""), Block::para(&format!("On {date}, {who} wrote:")),
                     Block::new(Kind::Quoted { html: qhtml, text: qtext, open: false, cite: true })];
                 rte::set_doc(u, Doc { blocks });
@@ -317,6 +354,7 @@ pub fn open(u: &AppWindow, c: Arc<Client>, kind: ComposeKind, m: Option<&Value>)
                     s.answering = m["id"].as_str().filter(|_| m["__jmap"].is_null()).map(String::from);
                     s.in_reply_to = msgid.into_iter().collect();
                     s.references = refs;
+                    s.quoted_inline = inline;
                 });
             }
             ComposeKind::New => {}
@@ -336,7 +374,7 @@ pub fn open_draft(u: &AppWindow, c: Arc<Client>, m: &Value) {
     load_identities(u, c, ReplyFrom::default());
     let join = |k: &str| m[k].as_array().map(|a| a.iter().map(|x| {
         let (n, e) = (x["name"].as_str().unwrap_or(""), x["email"].as_str().unwrap_or(""));
-        if n.is_empty() { e.to_string() } else { format!("\"{n}\" <{e}>") }
+        format_recipient(n, e)
     }).collect::<Vec<_>>().join(", ")).unwrap_or_default();
     u.set_c_to(join("to").into());
     u.set_c_cc(join("cc").into());
@@ -396,7 +434,8 @@ fn outgoing(u: &AppWindow) -> Outgoing {
             text: rte::to_text(),
             html: (!u.get_c_plain()).then(rte::to_html),
             inline: if u.get_c_plain() { vec![] } else {
-                rte::inline_images().into_iter().filter_map(|(cid, blob, mime, name, size)| Some((cid, Attachment { blob_id: blob?, name, mime, size }))).collect()
+                rte::inline_images().into_iter().filter_map(|(cid, blob, mime, name, size)| Some((cid, Attachment { blob_id: blob?, name, mime, size })))
+                    .chain(s.quoted_inline.iter().cloned()).collect()
             },
             attachments: s.attachments.clone(),
             in_reply_to: s.in_reply_to.clone(),
@@ -714,6 +753,32 @@ pub fn discard(u: &AppWindow, c: Arc<Client>) {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn recipients_round_trip() {
+        assert_eq!(format_recipient("", "a@b.c"), "a@b.c");
+        assert_eq!(format_recipient("a@b.c", "a@b.c"), "a@b.c");
+        assert_eq!(format_recipient("Jane Doe", "j@d.o"), "Jane Doe <j@d.o>");
+        let odd = format_recipient("Doe, \"J\"", "j@d.o");
+        assert_eq!(odd, "\"Doe, \\\"J\\\"\" <j@d.o>");
+        let back = crate::jmap::parse_addresses(&format!("{odd}, x@y.z"));
+        assert_eq!(back.len(), 2);
+        assert_eq!(back[0]["name"], "Doe, \"J\"");
+        assert_eq!(back[0]["email"], "j@d.o");
+    }
+
+    #[test]
+    fn quoted_inline_parts_use_cid_html() {
+        let m = json!({"htmlBody": [{"partId": "1"}], "bodyValues": {"1": {"value": "<img src=\"data:image/png;base64,AA\">"}},
+            "__cidBodyValues": {"1": "<img src=\"cid:i1@x\">"},
+            "attachments": [{"cid": "<i1@x>", "blobId": "B1", "type": "image/png", "name": "a.png", "size": 3}, {"blobId": "B2", "name": "doc.pdf"}]});
+        let h = cid_html(&m);
+        assert!(h.contains("cid:i1@x"));
+        let p = inline_parts(&m, &h);
+        assert_eq!(p.len(), 1);
+        assert_eq!(p[0].0, "i1@x");
+        assert_eq!(p[0].1.blob_id, "B1");
+    }
 
     fn ids() -> Vec<Value> {
         vec![json!({"email": "me@a.com"}), json!({"email": "info@b.org"}), json!({"email": "me+news@a.com"})]
