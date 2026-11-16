@@ -528,20 +528,25 @@ pub fn import_text(text: &str) -> Vec<Block> {
 // ---------------------------------------------------------------- export
 
 pub fn esc(s: &str) -> String {
-    let mut out = String::with_capacity(s.len());
     let mut prev_space = true;
+    esc_run(s, &mut prev_space)
+}
+
+/// Escape text for HTML, keeping runs of spaces visible (`prev_space` carries across runs).
+fn esc_run(s: &str, prev_space: &mut bool) -> String {
+    let mut out = String::with_capacity(s.len());
     for c in s.chars() {
         match c {
             '&' => out.push_str("&amp;"),
             '<' => out.push_str("&lt;"),
             '>' => out.push_str("&gt;"),
             '"' => out.push_str("&quot;"),
-            '\n' => { out.push_str("<br>"); prev_space = true; continue; }
-            ' ' if prev_space => { out.push_str("&nbsp;"); prev_space = false; continue; }
-            '\t' => { out.push_str("&nbsp;&nbsp;&nbsp;&nbsp;"); prev_space = false; continue; }
+            '\n' => { out.push_str("<br>"); *prev_space = true; continue; }
+            ' ' if *prev_space => { out.push_str("&nbsp;"); *prev_space = false; continue; }
+            '\t' => { out.push_str("&nbsp;&nbsp;&nbsp;&nbsp;"); *prev_space = false; continue; }
             c => out.push(c),
         }
-        prev_space = c == ' ';
+        *prev_space = c == ' ';
     }
     out
 }
@@ -553,11 +558,12 @@ const CODE_STYLE: &str = "font-family:Consolas,'Courier New',monospace;backgroun
 
 pub fn runs_html(runs: &[Run], in_code: bool) -> String {
     let mut h = String::new();
+    let mut prev_space = true;
     for r in runs {
         let m = &r.marks;
         let mut t = if in_code {
             r.text.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;")
-        } else { esc(&r.text) };
+        } else { esc_run(&r.text, &mut prev_space) };
         if m.code && !in_code { t = format!("<code style=\"{CODE_STYLE}\">{t}</code>"); }
         if m.strike { t = format!("<s>{t}</s>"); }
         if m.underline { t = format!("<u>{t}</u>"); }
@@ -791,7 +797,7 @@ mod tests {
         let d2 = Doc { blocks: import(&html) };
         assert_eq!(d1.blocks.iter().map(|b| (&b.kind, b.indent, b.text())).collect::<Vec<_>>(),
                    d2.blocks.iter().map(|b| (&b.kind, b.indent, b.text())).collect::<Vec<_>>());
-        assert!(html.contains("<strong>bold</strong>"));
+        assert!(html.contains("<strong>bold</strong> and <em>"));
         assert!(html.contains("<ol"));
     }
 
