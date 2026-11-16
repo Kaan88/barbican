@@ -808,3 +808,98 @@ mod tests {
         assert!(h.contains("a&lt;b&gt;&amp; &nbsp;c"));
     }
 }
+
+// ---------------------------------------------------------------- quoted originals
+
+/// Clean an original message's HTML for quoting: drop document wrappers, head,
+/// styles and scripts so the quote cannot restyle the reply.
+pub fn clean_quoted_html(h: &str) -> String {
+    let mut s = h.to_string();
+    for tag in ["script", "style", "head", "title"] {
+        loop {
+            let lower = s.to_ascii_lowercase();
+            let Some(a) = lower.find(&format!("<{tag}")) else { break };
+            let close = format!("</{tag}>");
+            let b = lower[a..].find(&close).map(|e| a + e + close.len()).unwrap_or(s.len());
+            s.replace_range(a..b, "");
+        }
+    }
+    let lower = s.to_ascii_lowercase();
+    // keep only the <body> content
+    if let Some(a) = lower.find("<body") {
+        if let Some(gt) = lower[a..].find('>') {
+            let start = a + gt + 1;
+            let end = lower.rfind("</body>").filter(|&e| e >= start).unwrap_or(s.len());
+            s = s[start..end].to_string();
+        }
+    }
+    for t in ["<!doctype", "<html", "</html", "<meta", "<?xml"] {
+        loop {
+            let lower = s.to_ascii_lowercase();
+            let Some(a) = lower.find(t) else { break };
+            let b = s[a..].find('>').map(|e| a + e + 1).unwrap_or(s.len());
+            s.replace_range(a..b, "");
+        }
+    }
+    s.trim().to_string()
+}
+
+/// Plain text of an HTML fragment (for the collapsed quote and text/plain).
+pub fn html_text(h: &str) -> String {
+    let d = Doc { blocks: import(h) };
+    to_text(&d)
+}
+
+/// Import a whole message body (drafts): a top-level `<blockquote type="cite">`
+/// becomes the collapsible quoted block again.
+pub fn import_with_quotes(h: &str) -> Vec<Block> {
+    let lower = h.to_ascii_lowercase();
+    let Some(a) = lower.find("<blockquote type=\"cite\"") else { return import(h) };
+    let Some(gt) = lower[a..].find('>') else { return import(h) };
+    let inner_start = a + gt + 1;
+    // matching close tag
+    let mut depth = 1;
+    let mut i = inner_start;
+    let mut end = None;
+    while i < lower.len() {
+        let rest = &lower[i..];
+        let o = rest.find("<blockquote");
+        let c = rest.find("</blockquote");
+        match (o, c) {
+            (Some(o), Some(c)) if o < c => { depth += 1; i += o + 11; }
+            (_, Some(c)) => { depth -= 1; if depth == 0 { end = Some(i + c); break; } i += c + 12; }
+            _ => break,
+        }
+    }
+    let Some(end) = end else { return import(h) };
+    let after = lower[end..].find('>').map(|e| end + e + 1).unwrap_or(lower.len());
+    let mut blocks = import(&h[..a]);
+    while blocks.last().is_some_and(|b| b.kind == Kind::Para && b.is_empty()) && blocks.len() > 1 { blocks.pop(); }
+    let inner = h[inner_start..end].to_string();
+    blocks.push(Block::new(Kind::Quoted { text: html_text(&inner), html: inner, open: false, cite: true }));
+    let tail = import(&h[after..]);
+    if !(tail.len() == 1 && tail[0].is_empty()) { blocks.extend(tail); }
+    blocks
+}
+
+#[cfg(test)]
+mod quote_tests {
+    use super::*;
+    #[test]
+    fn quoted_round_trip() {
+        let mut d = Doc { blocks: vec![Block::para("Thanks!"), Block::para("On Mon, A wrote:"),
+            Block::new(Kind::Quoted { html: "<p>orig <b>x</b></p><blockquote>older</blockquote>".into(), text: "orig x".into(), open: false, cite: true })] };
+        d.fix();
+        let h = export(&d);
+        let b = import_with_quotes(&h);
+        assert_eq!(b[0].text(), "Thanks!");
+        assert_eq!(b[1].text(), "On Mon, A wrote:");
+        assert!(matches!(&b[2].kind, Kind::Quoted { html, .. } if html.contains("<blockquote>older</blockquote>")));
+        assert!(to_text(&d).contains("> orig x"));
+    }
+    #[test]
+    fn clean_quote() {
+        let h = clean_quoted_html("<!DOCTYPE html><html><head><style>p{color:red}</style></head><body><p>hi</p><script>x()</script></body></html>");
+        assert_eq!(h, "<p>hi</p>");
+    }
+}

@@ -464,7 +464,16 @@ impl Client {
         let text_part = json!({"partId": "t", "type": "text/plain"});
         let body = if let Some(html) = &o.html {
             values["h"] = json!({"value": html});
-            json!({"type": "multipart/alternative", "subParts": [text_part, {"partId": "h", "type": "text/html"}]})
+            let html_part = json!({"partId": "h", "type": "text/html"});
+            let used: Vec<&(String, Attachment)> = o.inline.iter().filter(|(cid, _)| html.contains(&format!("cid:{cid}"))).collect();
+            let html_part = if used.is_empty() { html_part } else {
+                let mut parts = vec![html_part];
+                for (cid, a) in used {
+                    parts.push(json!({"blobId": a.blob_id, "type": a.mime, "name": a.name, "disposition": "inline", "cid": cid}));
+                }
+                json!({"type": "multipart/related", "subParts": parts})
+            };
+            json!({"type": "multipart/alternative", "subParts": [text_part, html_part]})
         } else { text_part };
         email["bodyValues"] = values;
         if o.attachments.is_empty() {
@@ -619,6 +628,8 @@ pub struct Outgoing {
     pub text: String,
     pub html: Option<String>,
     pub attachments: Vec<Attachment>,
+    /// Inline images referenced from the HTML part as `cid:` (content id, blob).
+    pub inline: Vec<(String, Attachment)>,
     pub in_reply_to: Vec<String>,
     pub references: Vec<String>,
     pub answering: Option<String>,

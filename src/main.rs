@@ -12,7 +12,6 @@ mod ctxmenu;
 mod files;
 mod jmap;
 mod lite;
-mod markup;
 mod rte;
 mod mail;
 mod unified;
@@ -955,10 +954,14 @@ fn main() -> Result<(), slint::PlatformError> {
                     Ok(text) if action == "Draft reply" => {
                         let Some((to, subj, _, orig, who)) = REPLY.with(|r| r.borrow().clone()) else { return };
                         let subj = if subj.to_lowercase().starts_with("re:") { subj } else { format!("Re: {subj}") };
-                        let quoted: String = orig.lines().map(|l| format!("> {l}\n")).collect();
                         u.set_c_to(to.into());
                         u.set_c_subject(subj.into());
-                        u.set_c_body(format!("{text}\n\nOn {who} wrote:\n{quoted}").into());
+                        let qhtml: String = orig.lines().map(|l| format!("<div>{}</div>", if l.is_empty() { "<br>".to_string() } else { rte::html::esc(l) })).collect();
+                        let mut blocks = rte::html::import_text(text.trim_end());
+                        blocks.push(rte::model::Block::para(""));
+                        blocks.push(rte::model::Block::para(&format!("On {who} wrote:")));
+                        blocks.push(rte::model::Block::new(rte::model::Kind::Quoted { html: qhtml, text: orig.clone(), open: false, cite: true }));
+                        rte::set_doc(&u, rte::model::Doc { blocks });
                         u.set_c_status("".into());
                         u.set_can_undo(false);
                         u.set_composing(true);
@@ -976,7 +979,7 @@ fn main() -> Result<(), slint::PlatformError> {
     let cf = cfg.clone();
     ui.on_ai_compose(move |action| {
         let u = w.unwrap();
-        let draft = u.get_c_body().to_string();
+        let (draft, whole) = rte::ai_source();
         if draft.trim().is_empty() { u.set_c_status("Write something first.".into()); return; }
         let c = cf.lock().unwrap().clone();
         let prompt = ai::compose_prompt(&action, &draft, &c.lang);
@@ -990,7 +993,7 @@ fn main() -> Result<(), slint::PlatformError> {
                 match res {
                     Ok(text) => {
                         UNDO.with(|x| *x.borrow_mut() = Some(draft));
-                        u.set_c_body(text.into());
+                        rte::ai_replace(&u, &text, whole);
                         u.set_can_undo(true);
                     }
                     Err(e) => u.set_c_status(e.into()),
@@ -1002,7 +1005,7 @@ fn main() -> Result<(), slint::PlatformError> {
     let w = ui.as_weak();
     ui.on_ai_undo(move || {
         let u = w.unwrap();
-        if let Some(prev) = UNDO.with(|x| x.borrow_mut().take()) { u.set_c_body(prev.into()); }
+        if UNDO.with(|x| x.borrow_mut().take()).is_some() { rte::undo(&u); }
         u.set_can_undo(false);
     });
 
@@ -1114,7 +1117,7 @@ fn main() -> Result<(), slint::PlatformError> {
     ui.on_compose_new(move || {
         let Some(c) = st.lock().unwrap().clone() else { return };
         COMPOSE_CLIENT.with(|r| *r.borrow_mut() = None);
-        compose::open(&w.unwrap(), c, compose::Kind::New, None);
+        compose::open(&w.unwrap(), c, compose::ComposeKind::New, None);
     });
 
     let (w, st) = (ui.as_weak(), state.clone());
@@ -1122,15 +1125,10 @@ fn main() -> Result<(), slint::PlatformError> {
         let Some(c) = reader_client(&st) else { return };
         COMPOSE_CLIENT.with(|r| *r.borrow_mut() = Some(c.clone()));
         let Some((m, _)) = CUR_MSG.with(|x| x.borrow().clone()) else { return };
-        compose::open(&w.unwrap(), c, compose::Kind::Reply, Some(&m));
+        compose::open(&w.unwrap(), c, compose::ComposeKind::Reply, Some(&m));
     });
 
-    let w = ui.as_weak();
-    ui.on_c_fmt(move |kind, a, b| {
-        let u = w.unwrap();
-        let (text, anchor, cursor) = markup::apply(&u.get_c_body(), &kind, a, b);
-        FmtResult { text: text.into(), anchor, cursor }
-    });
+    rte::wire(&ui);
     let w = ui.as_weak();
     ui.on_c_toggle_tag(move |i| compose::toggle_tag(&w.unwrap(), i));
 
@@ -1218,7 +1216,7 @@ fn main() -> Result<(), slint::PlatformError> {
         // a group mails every member; a contact its first address
         let to = if u.get_ct_group() != "" && u.get_ct_id() == "" { u.get_ct_emails().to_string() }
                  else { u.get_ct_emails().split(',').next().unwrap_or("").trim().to_string() };
-        compose::open(&u, c, compose::Kind::New, None);
+        compose::open(&u, c, compose::ComposeKind::New, None);
         u.set_c_to(to.into());
     });
     let (w, st) = (ui.as_weak(), state.clone());
@@ -1310,10 +1308,9 @@ fn main() -> Result<(), slint::PlatformError> {
         let Some(c) = st.lock().unwrap().clone() else { return };
         let Some((m, _)) = CUR_MSG.with(|x| x.borrow().clone()) else { return };
         let u = w.unwrap();
-        if text.trim().is_empty() { compose::open(&u, c, compose::Kind::Reply, Some(&m)); return; }
-        compose::open(&u, c.clone(), compose::Kind::Reply, Some(&m));
-        let body = format!("{}{}", text, u.get_c_body());
-        u.set_c_body(body.into());
+        if text.trim().is_empty() { compose::open(&u, c, compose::ComposeKind::Reply, Some(&m)); return; }
+        compose::open(&u, c.clone(), compose::ComposeKind::Reply, Some(&m));
+        rte::with(|e| { e.set_caret(rte::model::Pos::new(0, 0)); e.insert_text(&text); });
         u.set_composing(false);
         compose::send(&u, c, &pf.lock().unwrap());
         u.set_quick_text("".into());
@@ -1393,8 +1390,8 @@ fn main() -> Result<(), slint::PlatformError> {
         let Some(t) = TEMPLATES.with(|x| x.borrow().get(i as usize - 1).cloned()) else { return };
         if u.get_c_subject().trim().is_empty() { u.set_c_subject(t["subject"].as_str().unwrap_or("").into()); }
         let body = t["body"].as_str().unwrap_or("");
-        let body = if t["isHTML"] == true { html_to_text(body) } else { body.to_string() };
-        u.set_c_body(format!("{body}{}", u.get_c_body()).into());
+        let blocks = if t["isHTML"] == true { rte::html::import(body) } else { rte::html::import_text(body) };
+        rte::insert_blocks(&u, blocks);
         u.set_tpl_index(0);
     });
 
@@ -1464,7 +1461,7 @@ fn main() -> Result<(), slint::PlatformError> {
                 let Some(c) = reader_client(&st) else { return };
                 COMPOSE_CLIENT.with(|r| *r.borrow_mut() = Some(c.clone()));
                 let Some((msg, _)) = CUR_MSG.with(|x| x.borrow().clone()) else { return };
-                let kind = if a == "forward" { compose::Kind::Forward } else { compose::Kind::ReplyAll };
+                let kind = if a == "forward" { compose::ComposeKind::Forward } else { compose::ComposeKind::ReplyAll };
                 compose::open(&u, c, kind, Some(&msg));
             }
             "print" => {
@@ -1571,7 +1568,7 @@ impl agent::Host for UiHost {
         let _ = self.w.upgrade_in_event_loop(move |u| {
             u.set_c_to(to.into());
             u.set_c_subject(subject.into());
-            u.set_c_body(body.into());
+            rte::set_doc(&u, rte::model::Doc { blocks: rte::html::import_text(&body) });
             u.set_c_status("".into());
             u.set_can_undo(false);
             u.set_composing(true);
