@@ -24,6 +24,10 @@ pub struct Parsed {
 
 pub fn parse(script: &str) -> Parsed {
     let Some(b) = script.find(BEGIN) else {
+        // Stalwart writes a bare vacation script (no metadata): Bulwark reads it as the auto-reply
+        if let Some(v) = vacation_only(script) {
+            return Parsed { metadata: json!({"version": 1, "rules": [], "vacation": v}), external: String::new(), locked: false };
+        }
         let ext = script.trim();
         return Parsed { metadata: json!({"version": 1, "rules": []}), external: strip_requires(ext), locked: false };
     };
@@ -31,10 +35,207 @@ pub fn parse(script: &str) -> Parsed {
     let json_txt = script[b + BEGIN.len()..e].replace("*\\/", "*/");
     let parsed: Option<Value> = serde_json::from_str(json_txt.trim()).ok();
     let rest = &script[(e + END.len()).min(script.len())..];
-    let external = rest.find(EXTERNAL).map(|i| rest[i + EXTERNAL.len()..].trim().to_string()).unwrap_or_default();
     let locked = parsed.as_ref().is_none_or(|m| !metadata_ok(m));
     let metadata = parsed.unwrap_or(json!({"version": 1, "rules": []}));
+    let external = external_blocks(rest, &metadata);
     Parsed { metadata, external, locked }
+}
+
+/// Everything after the metadata that is not Bulwark's own output, as Bulwark's parser finds it:
+/// every top-level block is scanned (not only what follows the External header), so rules
+/// written by hand between the generated blocks survive a save. Blocks that are Bulwark's
+/// ("# Rule: <name>" of a metadata rule, "# Vacation auto-reply", the vacation forwarding
+/// block while it is on) are dropped; the require tokens are kept ("include" only when an
+/// external block uses it).
+fn external_blocks(rest: &str, meta: &Value) -> String {
+    let rest: String = rest.lines().filter(|l| l.trim() != EXTERNAL).collect::<Vec<_>>().join("\n");
+    let names: Vec<String> = meta["rules"].as_array().map(|a| a.iter().map(|r| collapse_ws(r["name"].as_str().unwrap_or("")).trim().to_string()).collect()).unwrap_or_default();
+    let forward_on = meta["vacationForward"]["enabled"] == true;
+    let mut requires: Vec<String> = vec![];
+    let mut kept: Vec<String> = vec![];
+    for b in scan_top_level(&rest) {
+        if b.kind == "require" {
+            for t in require_tokens(&b.statement) { if !requires.contains(&t) { requires.push(t); } }
+            continue;
+        }
+        let raw = b.raw.as_str();
+        let rule_name = raw.lines().find_map(|l| {
+            let t = l.trim_start();
+            let t = t.strip_prefix('#')?.trim_start();
+            t.strip_prefix("Rule:").map(|n| collapse_ws(n).trim().to_string())
+        });
+        if rule_name.is_some_and(|n| names.contains(&n)) { continue; }
+        if raw.lines().any(|l| l.trim_start().strip_prefix('#').is_some_and(|c| c.trim_start().to_lowercase().starts_with("vacation auto-reply"))) { continue; }
+        if forward_on && raw.lines().any(|l| l.trim() == VACATION_FORWARD_MARKER) { continue; }
+        kept.push(raw.trim().to_string());
+    }
+    if !kept.iter().any(|k| has_word(k, "include")) { requires.retain(|r| r != "include"); }
+    let mut out = String::new();
+    if !requires.is_empty() && !kept.is_empty() {
+        out.push_str(&format!("require [{}];\n", requires.iter().map(|r| format!("\"{r}\"")).collect::<Vec<_>>().join(", ")));
+    }
+    out.push_str(&kept.join("\n\n"));
+    out.trim().to_string()
+}
+
+/// A top-level statement of a Sieve script, with the comments before it (Bulwark scanTopLevel).
+struct Block { kind: &'static str, raw: String, statement: String }
+
+fn skip_string(s: &[u8], mut i: usize) -> usize {
+    i += 1;
+    while i < s.len() {
+        if s[i] == b'\\' { i += 2; continue; }
+        if s[i] == b'"' { return i + 1; }
+        i += 1;
+    }
+    s.len()
+}
+fn skip_hash(s: &[u8], mut i: usize) -> usize { while i < s.len() && s[i] != b'\n' { i += 1; } i }
+fn skip_block_comment(s: &[u8], i: usize) -> usize {
+    (i + 2..s.len().saturating_sub(1)).find(|&j| s[j] == b'*' && s[j + 1] == b'/').map(|j| j + 2).unwrap_or(s.len())
+}
+fn skip_statement(s: &[u8], mut i: usize) -> usize {
+    while i < s.len() {
+        match s[i] {
+            b'"' => { i = skip_string(s, i); continue; }
+            b'#' => { i = skip_hash(s, i); continue; }
+            b'/' if s.get(i + 1) == Some(&b'*') => { i = skip_block_comment(s, i); continue; }
+            b';' => return i + 1,
+            _ => i += 1,
+        }
+    }
+    i
+}
+fn skip_balanced(s: &[u8], mut i: usize, open: u8, close: u8) -> usize {
+    let mut depth = 0i32;
+    while i < s.len() {
+        let c = s[i];
+        if c == b'"' { i = skip_string(s, i); continue; }
+        if c == b'#' { i = skip_hash(s, i); continue; }
+        if c == b'/' && s.get(i + 1) == Some(&b'*') { i = skip_block_comment(s, i); continue; }
+        i += 1;
+        if c == open { depth += 1; } else if c == close { depth -= 1; if depth == 0 { return i; } }
+    }
+    i
+}
+fn skip_if(s: &[u8], mut i: usize) -> usize {
+    while i < s.len() && s[i] != b'{' {
+        match s[i] {
+            b'"' => { i = skip_string(s, i); continue; }
+            b'(' => { i = skip_balanced(s, i, b'(', b')'); continue; }
+            b'#' => { i = skip_hash(s, i); continue; }
+            b'/' if s.get(i + 1) == Some(&b'*') => { i = skip_block_comment(s, i); continue; }
+            _ => i += 1,
+        }
+    }
+    if i >= s.len() { return i; }
+    skip_balanced(s, i, b'{', b'}')
+}
+
+fn scan_top_level(content: &str) -> Vec<Block> {
+    let s = content.as_bytes();
+    let mut blocks = vec![];
+    let (mut i, mut seg) = (0usize, 0usize);
+    while i < s.len() {
+        while i < s.len() && s[i].is_ascii_whitespace() { i += 1; }
+        if i >= s.len() { break; }
+        if s[i] == b'#' { i = skip_hash(s, i); continue; }
+        if s[i] == b'/' && s.get(i + 1) == Some(&b'*') { i = skip_block_comment(s, i); continue; }
+        if !(s[i].is_ascii_alphabetic() || s[i] == b'_') { i += 1; continue; }
+        let start = i;
+        while i < s.len() && (s[i].is_ascii_alphanumeric() || s[i] == b'_') { i += 1; }
+        let kind = match &content[start..i] { "require" => "require", "if" => "if", "vacation" => "vacation", _ => "other" };
+        i = if kind == "if" { skip_if(s, i) } else { skip_statement(s, i) };
+        let end = i.min(s.len());
+        blocks.push(Block { kind, raw: content[seg..end].to_string(), statement: content[start..end].to_string() });
+        seg = end;
+    }
+    blocks
+}
+
+fn require_tokens(stmt: &str) -> Vec<String> {
+    let body = stmt.trim_start().strip_prefix("require").unwrap_or("").trim().trim_end_matches(';').trim();
+    let mut out = vec![];
+    let mut rest = body;
+    while let Some(a) = rest.find('"') {
+        let Some(b) = rest[a + 1..].find('"') else { break };
+        out.push(rest[a + 1..a + 1 + b].to_string());
+        rest = &rest[a + 2 + b..];
+    }
+    out
+}
+
+/// `word` as a whole word (JS \bword\b).
+fn has_word(s: &str, word: &str) -> bool {
+    let w = |c: char| c.is_ascii_alphanumeric() || c == '_';
+    s.match_indices(word).any(|(i, _)| !s[..i].chars().next_back().is_some_and(w) && !s[i + word.len()..].chars().next().is_some_and(w))
+}
+
+fn unescape_sieve(s: &str) -> String {
+    let mut out = String::new();
+    let mut it = s.chars();
+    while let Some(c) = it.next() { if c == '\\' { if let Some(n) = it.next() { out.push(n); } } else { out.push(c); } }
+    out
+}
+
+/// Quoted strings of a script: (start of the opening quote, raw inner text).
+fn quoted(s: &str) -> Vec<(usize, String)> {
+    let b = s.as_bytes();
+    let mut out = vec![];
+    let mut i = 0;
+    while i < b.len() {
+        if b[i] == b'"' {
+            let end = skip_string(b, i);
+            let close = if end <= b.len() && end > i + 1 && b[end - 1] == b'"' { end - 1 } else { end };
+            out.push((i, s[i + 1..close.max(i + 1)].to_string()));
+            i = end;
+        } else { i += 1; }
+    }
+    out
+}
+
+/// Bulwark detectVacationOnlyScript: a script without metadata that is only a vacation action
+/// (as Stalwart's own auto-reply writes it) reads as the auto-reply {isEnabled, subject, textBody}.
+pub fn vacation_only(content: &str) -> Option<Value> {
+    if !has_word(content, "vacation") { return None; }
+    // drop require lines, then # and /* */ comments (as Bulwark's regexes do)
+    let no_req: String = content.lines().filter(|l| {
+        let t = l.trim();
+        !(t.starts_with("require") && t[7..].trim_start().starts_with('[') && t.ends_with(';'))
+    }).collect::<Vec<_>>().join("\n");
+    let no_hash: String = no_req.lines().map(|l| l.split_once('#').map(|(a, _)| a).unwrap_or(l)).collect::<Vec<_>>().join("\n");
+    let mut stripped = String::new();
+    let mut rest = no_hash.as_str();
+    while let Some(a) = rest.find("/*") {
+        stripped.push_str(&rest[..a]);
+        rest = match rest[a + 2..].find("*/") { Some(b) => &rest[a + 2 + b + 2..], None => { stripped.push_str(&rest[a..]); "" } };
+    }
+    stripped.push_str(rest);
+    let stripped = stripped.trim().to_string();
+    let strings = quoted(&stripped);
+    let mut structural = String::new();
+    let mut last = 0;
+    for (start, inner) in &strings {
+        structural.push_str(&stripped[last..*start]);
+        structural.push_str("\"\"");
+        last = (start + inner.len() + 2).min(stripped.len());
+    }
+    structural.push_str(&stripped[last.min(stripped.len())..]);
+    if ["if", "elsif", "else"].iter().any(|w| has_word(&structural, w)) || !has_word(&structural, "vacation") { return None; }
+    let subject = stripped.find(":subject").and_then(|i| {
+        let after = stripped[i + 8..].trim_start();
+        after.starts_with('"').then(|| quoted(after).first().map(|q| unescape_sieve(&q.1))).flatten()
+    }).unwrap_or_default();
+    // a MIME body: the text after the Content-Transfer-Encoding header's blank line
+    let mime = stripped.find("Content-Transfer-Encoding:").and_then(|i| {
+        let after = &stripped[i..];
+        let nl = after.find('\n')?;
+        let body = after[nl + 1..].strip_prefix("\r\n").or_else(|| after[nl + 1..].strip_prefix('\n'))?;
+        let q = body.find('"')?;
+        body[q..].contains(';').then(|| body[..q].trim().to_string())
+    });
+    let text = mime.unwrap_or_else(|| strings.last().map(|q| unescape_sieve(&q.1)).unwrap_or_default());
+    Some(json!({"isEnabled": true, "subject": subject, "textBody": text}))
 }
 
 /// What Bulwark's parser accepts as its own metadata, limited to the keys this editor writes back.
@@ -404,6 +605,36 @@ mod tests {
 
     const FROM_T: &str = r#"anyof(currentdate :zone "+0000" :value "gt" "date" "2026-10-05", allof(currentdate :zone "+0000" :is "date" "2026-10-05", currentdate :zone "+0000" :value "ge" "time" "06:00:00"))"#;
     const UNTIL_T: &str = r#"anyof(currentdate :zone "+0000" :value "lt" "date" "2026-10-16", allof(currentdate :zone "+0000" :is "date" "2026-10-16", currentdate :zone "+0000" :value "le" "time" "16:00:00"))"#;
+
+    #[test]
+    fn vacation_only_scripts() {
+        let s = "require [\"vacation\"];\n# auto\nvacation :days 1 :subject \"Away \\\"now\\\"\" \"I am out.\";\n";
+        let p = super::parse(s);
+        assert_eq!(p.metadata["vacation"], json!({"isEnabled": true, "subject": "Away \"now\"", "textBody": "I am out."}));
+        assert!(p.external.is_empty() && !p.locked);
+        // with a test it is a rule, not the auto-reply
+        assert!(super::vacation_only("if true { vacation \"x\"; }").is_none());
+        // a word "if" inside a string does not count
+        assert_eq!(super::vacation_only("vacation \"if you need me\";").unwrap()["textBody"], "if you need me");
+        assert!(super::vacation_only("keep;").is_none());
+    }
+
+    #[test]
+    fn hand_written_blocks_between_generated_ones_survive() {
+        let meta = json!({"version": 1, "rules": [super::rule("News", "from", "contains", "n@", "move", "N", false)], "vacation": {"isEnabled": true, "subject": "", "textBody": "away"}});
+        let g = super::generate_meta(&meta, "", &[]);
+        // someone adds a block between the vacation and the rules, and one at the end
+        let edited = g.replacen("\n# Rule: News", "\n# mine\nif header :contains \"subject\" \"x\" { discard; }\n\n# Rule: News", 1)
+            + "\nif true { keep; }\n";
+        let p = super::parse(&edited);
+        assert!(p.external.contains("# mine\nif header :contains \"subject\" \"x\" { discard; }"), "{}", p.external);
+        assert!(p.external.contains("if true { keep; }"));
+        assert!(!p.external.contains("# Rule: News") && !p.external.contains("Vacation auto-reply"));
+        // saving again keeps them exactly once
+        let again = super::generate_meta(&p.metadata, &p.external, &[]);
+        assert_eq!(again.matches("# mine").count(), 1);
+        assert_eq!(super::parse(&again).external, p.external);
+    }
 
     #[test]
     fn roundtrip_matches_bulwark_shape() {
