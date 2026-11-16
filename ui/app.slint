@@ -88,6 +88,8 @@ export struct FileRow {
     starred: bool,
     shared: bool,
     cut: bool,
+    // an item listed in the Files trash
+    trashed: bool,
 }
 
 export struct AdminRow {
@@ -1011,6 +1013,10 @@ export component AppWindow inherits Window {
     callback fl-start-rename(string);
     callback fl-rename(string, string);
     callback fl-delete(string);
+    callback fl-upload-folder();
+    callback fl-restore(string);
+    callback fl-empty-trash();
+    in property <bool> fl-in-trash;
     in-out property <[NavRow]> fl-nav;
     in-out property <string> fl-cwd;
     callback fl-toggle-folder(string);
@@ -2726,9 +2732,11 @@ export component AppWindow inherits Window {
                     }
                 }
                 Rectangle { horizontal-stretch: 1; }
-                LineEdit { placeholder-text: "New folder name"; width: 180px; text <=> root.new-folder-name; accepted(t) => { root.fl-new-folder(t); root.new-folder-name = ""; } }
-                Button { text: "New folder"; clicked => { root.fl-new-folder(root.new-folder-name); root.new-folder-name = ""; } }
-                PrimaryButton { text: "Upload";  clicked => { root.fl-upload(); } }
+                if !root.fl-in-trash: LineEdit { placeholder-text: "New folder name"; width: 180px; text <=> root.new-folder-name; accepted(t) => { root.fl-new-folder(t); root.new-folder-name = ""; } }
+                if !root.fl-in-trash: Button { text: "New folder"; clicked => { root.fl-new-folder(root.new-folder-name); root.new-folder-name = ""; } }
+                if !root.fl-in-trash: Button { text: "Upload folder"; clicked => { root.fl-upload-folder(); } }
+                if !root.fl-in-trash: PrimaryButton { text: "Upload";  clicked => { root.fl-upload(); } }
+                if root.fl-in-trash: Button { text: "Empty trash"; enabled: root.files.length > 0; clicked => { root.fl-empty-trash(); } }
             }
             Rectangle { height: 1px; background: Theme.line; }
             HorizontalLayout {
@@ -2759,13 +2767,15 @@ export component AppWindow inherits Window {
                         if f.renaming: LineEdit { text: f.name; horizontal-stretch: 1; accepted(t) => { root.fl-rename(f.id, t); } }
                         Text { text: f.size; color: Theme.dim; font-size: 11px; vertical-alignment: center; width: 90px; }
                         Text { text: f.modified; color: Theme.dim; font-size: 11px; vertical-alignment: center; width: 140px; }
-                        HoverAction { glyph: "\u{E896}"; y: 7px; clicked => { root.fl-download(f.id); } }
-                        HoverAction { glyph: "\u{E8AC}"; y: 7px; clicked => { root.fl-start-rename(f.id); } }
+                        if !f.trashed: HoverAction { glyph: "\u{E896}"; y: 7px; clicked => { root.fl-download(f.id); } }
+                        if !f.trashed: HoverAction { glyph: "\u{E8AC}"; y: 7px; clicked => { root.fl-start-rename(f.id); } }
+                        // in the trash: restore, and delete for good
+                        if f.trashed: HoverAction { glyph: "\u{E7A7}"; y: 7px; clicked => { root.fl-restore(f.id); } }
                         HoverAction { glyph: "\u{E74D}"; y: 7px; clicked => { root.fl-delete(f.id); } }
                     }
                 }
             }
-             if root.files.length == 0: Text { text: "This folder is empty"; color: Theme.dim; horizontal-alignment: center; }
+             if root.files.length == 0: Text { text: root.fl-in-trash ? "The trash is empty" : "This folder is empty"; color: Theme.dim; horizontal-alignment: center; }
             }
         }
         }

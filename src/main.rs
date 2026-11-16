@@ -1320,6 +1320,12 @@ fn main() -> Result<(), slint::PlatformError> {
     ui.on_fl_rename(move |id, n| { let Some(c) = st.lock().unwrap().clone() else { return }; files::rename(&w.unwrap(), c, &id, &n); });
     let (w, st) = (ui.as_weak(), state.clone());
     ui.on_fl_delete(move |id| { let Some(c) = st.lock().unwrap().clone() else { return }; files::delete(&w.unwrap(), c, &id); });
+    let (w, st) = (ui.as_weak(), state.clone());
+    ui.on_fl_upload_folder(move || { let Some(c) = st.lock().unwrap().clone() else { return }; files::upload_folder(&w.unwrap(), c); });
+    let (w, st) = (ui.as_weak(), state.clone());
+    ui.on_fl_restore(move |id| { let Some(c) = st.lock().unwrap().clone() else { return }; files::restore(&w.unwrap(), c, &id); });
+    let (w, st) = (ui.as_weak(), state.clone());
+    ui.on_fl_empty_trash(move || { let Some(c) = st.lock().unwrap().clone() else { return }; files::empty_trash(&w.unwrap(), c); });
 
     let (w, st) = (ui.as_weak(), state.clone());
     ui.on_admin_load(move |sec| { let Some(c) = st.lock().unwrap().clone() else { return }; admin::load(&w.unwrap(), c, &sec); });
