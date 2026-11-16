@@ -781,22 +781,22 @@ fn is_fill_in(inner: &str, ascii_bracket: bool) -> bool {
 }
 
 /// Composer checks Bulwark runs before sending (attachment reminder, empty subject, placeholders).
-fn pre_send_warning(o: &Outgoing, prefs: &crate::settings::Settings) -> Option<String> {
+fn pre_send_warning(o: &Outgoing, prefs: &crate::settings::Settings, verb: &str) -> Option<String> {
     if prefs.bool("emptySubjectWarningEnabled", true) && o.subject.trim().is_empty() {
-        return Some("The subject is empty. Press Send again to send anyway.".into());
+        return Some(format!("The subject is empty. Press Send again to {verb} anyway."));
     }
     if prefs.bool("placeholderWarningEnabled", true) {
         // only what the user wrote: not the quoted original
         let body: String = o.text.lines().filter(|l| !l.starts_with('>')).collect::<Vec<_>>().join("\n");
         let found = find_placeholders(&o.subject, &body);
         if !found.is_empty() {
-            return Some(format!("Still to fill in: {}. Press Send again to send anyway.", found.join(", ")));
+            return Some(format!("Still to fill in: {}. Press Send again to {verb} anyway.", found.join(", ")));
         }
     }
     if prefs.bool("attachmentReminderEnabled", true) && o.attachments.is_empty() {
         let body: String = o.text.lines().filter(|l| !l.starts_with('>')).collect::<Vec<_>>().join(" ").to_lowercase();
         if ["attached", "attachment", "enclosed", "anbei", "ekte", "ek'te", "pièce jointe", "adjunto"].iter().any(|k| body.contains(k)) {
-            return Some("You mention an attachment but none is attached. Press Send again to send anyway.".into());
+            return Some(format!("You mention an attachment but none is attached. Press Send again to {verb} anyway."));
         }
     }
     None
@@ -811,7 +811,22 @@ pub fn send_scheduled(u: &AppWindow, c: Arc<Client>, prefs: &crate::settings::Se
     send_at(u, c, prefs, Some(at));
 }
 
+thread_local! {
+    /// The send time a pre-send warning was raised for (None = send now): confirming the
+    /// warning repeats that intent instead of falling back to an immediate send.
+    static ARMED: std::cell::Cell<Option<Option<i64>>> = const { std::cell::Cell::new(None) };
+}
+
+fn is_warning(s: &str) -> bool { s.ends_with("send anyway.") || s.ends_with("schedule anyway.") }
+
 fn send_at(u: &AppWindow, c: Arc<Client>, prefs: &crate::settings::Settings, at: Option<i64>) {
+    let mut at = at;
+    if at.is_none() && is_warning(&u.get_c_status()) {
+        // "Press Send again" after a scheduling attempt keeps scheduling
+        if let Some(Some(t)) = ARMED.with(|a| a.get()) {
+            if t > chrono::Local::now().timestamp_millis() { at = Some(t); }
+        }
+    }
     if crate::autosave::in_flight() {
         // the draft is being saved: send once it is, so the send replaces that draft
         crate::autosave::queue(match at { Some(t) => crate::autosave::Queued::Schedule(t), None => crate::autosave::Queued::Send });
@@ -834,7 +849,8 @@ fn send_at(u: &AppWindow, c: Arc<Client>, prefs: &crate::settings::Settings, at:
         u.set_c_status("Add at least one recipient.".into());
         return;
     }
-    let warned = u.get_c_status().ends_with("send anyway.");
+    let warned = is_warning(&u.get_c_status());
+    let verb = if at.is_some() { "schedule" } else { "send" };
     // picking a time is the confirmation for a scheduled send
     if at.is_none() && prefs.bool("sendConfirmation", false) && !warned && !u.get_c_status().ends_with("to send.") {
         u.set_c_status("Press Send again to send.".into());
@@ -842,10 +858,10 @@ fn send_at(u: &AppWindow, c: Arc<Client>, prefs: &crate::settings::Settings, at:
     }
     o.read_receipt = o.read_receipt || prefs.bool("requestReadReceiptDefault", false);
     if !warned {
-        if let Some(w) = pre_send_warning(&o, prefs) { u.set_c_status(w.into()); return; }
+        if let Some(w) = pre_send_warning(&o, prefs, verb) { ARMED.with(|a| a.set(Some(at))); u.set_c_status(w.into()); return; }
         let draft = serde_json::json!({"to": o.to, "cc": o.cc, "bcc": o.bcc, "subject": o.subject, "text": o.text,
             "attachments": o.attachments.iter().map(|a| a.name.clone()).collect::<Vec<_>>()});
-        if let Some(w) = crate::plugin_compose_check(&draft) { u.set_c_status(format!("{w} Press Send again to send anyway.").into()); return; }
+        if let Some(w) = crate::plugin_compose_check(&draft) { ARMED.with(|a| a.set(Some(at))); u.set_c_status(format!("{w} Press Send again to {verb} anyway.").into()); return; }
     }
     let delay = prefs.prefs.get("sendDelaySeconds").and_then(|v| v.as_u64()).unwrap_or(5);
     let snapshot = ST.with(|s| {

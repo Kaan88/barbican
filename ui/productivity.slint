@@ -533,6 +533,9 @@ export component ResizeHandle inherits Rectangle {
     in property <length> max-value;
     callback done();
     width: 8px;
+    // window coordinates: the handle itself moves while the pane grows
+    property <length> press-x;
+    property <length> start-v;
     Rectangle {
         x: (root.width - self.width) / 2;
         width: 2px;
@@ -543,10 +546,11 @@ export component ResizeHandle inherits Rectangle {
         mouse-cursor: col-resize;
         moved => {
             if self.pressed {
-                root.value = max(root.min-value, min(root.max-value, (root.value > 0 ? root.value : root.current) + (self.mouse-x - self.pressed-x)));
+                root.value = max(root.min-value, min(root.max-value, root.start-v + (self.absolute-position.x + self.mouse-x - root.press-x)));
             }
         }
         pointer-event(ev) => {
+            if ev.kind == PointerEventKind.down && ev.button == PointerEventButton.left { root.press-x = self.absolute-position.x + self.mouse-x; root.start-v = root.value > 0 ? root.value : root.current; }
             if ev.kind == PointerEventKind.up && ev.button == PointerEventButton.left { root.done(); }
         }
         double-clicked => { root.value = 0; root.done(); }

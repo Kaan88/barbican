@@ -235,6 +235,14 @@ pub fn edit_chip(u: &AppWindow, f: i32, i: i32) {
     set_field(u, f, &list);
 }
 
+/// Leaving a field with suggestions open: partial text ("sa") stays in the input instead of
+/// becoming an invalid chip; anything that is an address (or a list) is committed.
+pub fn blur_commits(input: &str, suggestions_open: bool) -> bool {
+    if input.trim().is_empty() { return false; }
+    if !suggestions_open || input.contains([',', ';']) { return true; }
+    r::is_valid_email(&r::parse_recipient(input).email)
+}
+
 /// Focus left field `f`: commit its text, unless a suggestion was clicked meanwhile.
 pub fn blurred(u: &AppWindow, f: i32) {
     let mark = ST.with(|s| s.borrow().picked);
@@ -242,7 +250,8 @@ pub fn blurred(u: &AppWindow, f: i32) {
     slint::Timer::single_shot(std::time::Duration::from_millis(180), move || {
         let Some(u) = w.upgrade() else { return };
         if ST.with(|s| s.borrow().picked) != mark { return; }
-        commit(&u, f);
+        let open = ST.with(|s| s.borrow().field == f && !s.borrow().results.is_empty());
+        if blur_commits(&get_input(&u, f), open) { commit(&u, f); }
         disarm(&u, f);
         if ST.with(|s| s.borrow().field == f) { close(&u); }
     });
@@ -425,6 +434,15 @@ pub fn describe(u: &AppWindow) -> String {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn blur_keeps_partial_text_while_suggestions_are_open() {
+        assert!(!super::blur_commits("sa", true));
+        assert!(super::blur_commits("sa", false));
+        assert!(super::blur_commits("a@b.com", true));
+        assert!(super::blur_commits("Ann <a@b.com>", true));
+        assert!(!super::blur_commits("  ", false));
+    }
+
     use super::*;
 
     #[test]
