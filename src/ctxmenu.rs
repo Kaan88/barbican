@@ -17,20 +17,21 @@ struct Target {
 
 thread_local! {
     static TARGET: RefCell<Target> = RefCell::new(Target::default());
+    /// The user's addresses, refreshed on every request (for RSVP).
+    static MINE: RefCell<Vec<String>> = const { RefCell::new(Vec::new()) };
     /// Pending text prompt: (action, id).
     static PROMPT: RefCell<Option<(String, String)>> = const { RefCell::new(None) };
 }
 
 // ---- item builders ----
 fn it(icon: &str, label: &str, hint: &str, action: &str) -> CtxItem {
-    CtxItem { icon: icon.into(), label: label.into(), hint: hint.into(), action: action.into(), kind: 0, sub: false, danger: false, enabled: true, checked: false }
+    CtxItem { icon: icon.into(), label: label.into(), hint: hint.into(), action: action.into(), kind: 0, sub: false, danger: false, enabled: true, checked: false, color: Default::default() }
 }
 fn sub(icon: &str, label: &str, action: &str) -> CtxItem { CtxItem { sub: true, ..it(icon, label, "", action) } }
 fn danger(icon: &str, label: &str, hint: &str, action: &str) -> CtxItem { CtxItem { danger: true, ..it(icon, label, hint, action) } }
 fn off(mut i: CtxItem, enabled: bool) -> CtxItem { i.enabled = enabled; i }
 fn sep() -> CtxItem { CtxItem { kind: 1, ..it("", "", "", "") } }
 fn header(label: &str) -> CtxItem { CtxItem { kind: 2, ..it("", label, "", "") } }
-fn back() -> CtxItem { it(G_BACK, "Back", "", "back") }
 
 const G_REPLY: &str = "\u{E97A}";
 const G_REPLY_ALL: &str = "\u{EE35}";
@@ -50,7 +51,7 @@ const G_PRINT: &str = "\u{E749}";
 const G_DOWNLOAD: &str = "\u{E896}";
 const G_COPY: &str = "\u{E8C8}";
 const G_SEARCH: &str = "\u{E721}";
-const G_BACK: &str = "\u{E72B}";
+#[allow(dead_code)]
 const G_ADD: &str = "\u{E710}";
 const G_RENAME: &str = "\u{E8AC}";
 const G_NEW_FOLDER: &str = "\u{E8F4}";
@@ -67,10 +68,14 @@ const G_EMPTY: &str = "\u{E894}";
 const G_SELECT_ALL: &str = "\u{E8B3}";
 const G_UPLOAD: &str = "\u{E898}";
 const G_SETTINGS: &str = "\u{E713}";
+const G_MAYBE: &str = "\u{E9CE}";
+const G_CANCEL: &str = "\u{E711}";
 const G_DEFAULT: &str = "\u{E735}";
 
+fn row_h(i: &CtxItem) -> f32 { match i.kind { 1 => 9.0, 2 => 24.0, _ => 28.0 } }
+
 fn show(u: &AppWindow, items: Vec<CtxItem>) {
-    let h: f32 = items.iter().map(|i| match i.kind { 1 => 9.0, 2 => 24.0, _ => 28.0 }).sum::<f32>() + 10.0;
+    let h: f32 = items.iter().map(row_h).sum::<f32>() + 10.0;
     u.set_ctx_h(h);
     u.set_ctx_items(ModelRc::new(VecModel::from(items)));
 }
@@ -95,7 +100,25 @@ fn first_addr(s: &str) -> String {
     jmap::parse_addresses(s).first().and_then(|a| a["email"].as_str().map(String::from)).unwrap_or_else(|| s.trim().to_string())
 }
 
+/// Hover (or click) on a menu row: a "sub:" row opens its flyout beside it, any other row closes it.
+pub fn hover(u: &AppWindow, action: &str, index: i32) {
+    let Some(w) = action.strip_prefix("sub:") else { u.set_ctx_sub_action("".into()); return };
+    if u.get_ctx_sub_action().as_str() == action { return; }
+    let t = TARGET.with(|x| x.borrow().clone());
+    let items = submenu(u, &t, w);
+    let m = u.get_ctx_items();
+    let idx = if index >= 0 { index as usize } else { (0..m.row_count()).find(|&i| m.row_data(i).is_some_and(|r| r.action == action)).unwrap_or(0) };
+    let y: f32 = 4.0 + (0..idx).filter_map(|i| m.row_data(i)).map(|r| row_h(&r)).sum::<f32>();
+    u.set_ctx_sub_h(items.iter().map(row_h).sum::<f32>() + 10.0);
+    u.set_ctx_sub_y(y);
+    u.set_ctx_sub_items(ModelRc::new(VecModel::from(items)));
+    u.set_ctx_sub_action(action.into());
+}
+
+pub fn set_mine(v: Vec<String>) { MINE.with(|m| *m.borrow_mut() = v); }
+
 pub fn request(u: &AppWindow, kind: &str, id: &str) {
+    u.global::<crate::CtxHl>().set_id(id.into());
     let mut t = Target { kind: kind.into(), id: id.into(), ids: vec![id.into()] };
     let items: Vec<CtxItem> = match kind {
         "mail" => {
@@ -171,13 +194,25 @@ pub fn request(u: &AppWindow, kind: &str, id: &str) {
             it(G_READ, "Mark folder as read", "", "folder-read"),
             it(G_SELECT_ALL, "Select all", "Ctrl+A", "select-all"),
         ],
-        "event" => vec![
-            it(G_EDIT, "Edit", "", "edit"),
-            it(G_DUP, "Duplicate", "", "duplicate"),
-            it(G_COPY, "Copy title", "", "copy-title"),
-            sep(),
-            danger(G_DELETE, "Delete", "Del", "ask:delete"),
-        ],
+        "event" => {
+            let mut v = vec![];
+            if let Some((_, status)) = calendar::my_participation(id, &MINE.with(|m| m.borrow().clone())) {
+                if status != "accepted" { v.push(it(G_CHECK, "Accept", "", "rsvp:accepted")); }
+                if status != "tentative" { v.push(it(G_MAYBE, "Maybe", "", "rsvp:tentative")); }
+                if status != "declined" { v.push(it(G_CANCEL, "Decline", "", "rsvp:declined")); }
+                v.push(sep());
+            }
+            v.extend([
+                it(G_EDIT, "Edit", "", "edit"),
+                it(G_DUP, "Duplicate", "", "duplicate"),
+                sep(),
+                it(G_DOWNLOAD, "Export as .ics", "", "export-ics"),
+                it(G_COPY, "Copy title", "", "copy-title"),
+                sep(),
+                danger(G_DELETE, "Delete", "Del", "ask:delete"),
+            ]);
+            v
+        }
         "slot" => vec![
             it(G_CALENDAR, "New event", "", "new-event"),
             it(G_CALENDAR, "New all-day event", "", "new-allday"),
@@ -261,7 +296,7 @@ fn mail_items(u: &AppWindow, t: &Target) -> Vec<CtxItem> {
         off(it(G_FORWARD, "Forward", "F", "forward"), n == 1),
         sep(),
         it(G_ARCHIVE, "Archive", "E", "archive"),
-        danger(G_DELETE, "Delete", "Del", "delete"),
+        if n > 1 && crate::settings::Settings::load().bool("confirmBulkDelete", true) { danger(G_DELETE, "Delete", "Del", "ask:delete") } else { danger(G_DELETE, "Delete", "Del", "delete") },
         sub(G_MOVE, "Move to", "sub:move"),
         sep(),
         if kw(&first, "$seen") { it(G_UNREAD, "Mark as unread", "U", "unread") } else { it(G_READ, "Mark as read", "U", "read") },
@@ -298,10 +333,9 @@ fn folder_items(u: &AppWindow, id: &str) -> Vec<CtxItem> {
 }
 
 fn submenu(u: &AppWindow, t: &Target, which: &str) -> Vec<CtxItem> {
-    let mut v = vec![back(), sep()];
+    let mut v = vec![];
     match which {
         "move" => {
-            v.push(header("Move to"));
             let m = u.get_folders();
             for f in (0..m.row_count()).filter_map(|i| m.row_data(i)) {
                 if f.id.starts_with("__") || f.id == u.get_current_folder() { continue; }
@@ -310,11 +344,11 @@ fn submenu(u: &AppWindow, t: &Target, which: &str) -> Vec<CtxItem> {
             }
         }
         "tag" => {
-            v.push(header("Tag"));
             let first = mail::email(&t.ids[0]);
             let m = u.get_tags();
             for tg in (0..m.row_count()).filter_map(|i| m.row_data(i)) {
                 let mut i = it(G_TAG, &tg.name, "", &format!("tagt:{}", tg.id));
+                i.color = tg.color;
                 i.checked = kw(&first, &format!("$label:{}", tg.id));
                 v.push(i);
             }
@@ -433,23 +467,15 @@ pub fn prompt_ok(u: &AppWindow, st: &Shared, text: &str) {
 pub fn pick(u: &AppWindow, st: &Shared, action: &str) {
     if action.is_empty() { return; }
     let t = TARGET.with(|x| x.borrow().clone());
-    if action == "back" {
-        let items = match t.kind.as_str() {
-            "mail" => mail_items(u, &t),
-            "task" => { request(u, "task", &t.id); u.get_ctx_items().iter().collect() }
-            _ => return,
-        };
-        reopen(u, items);
-        return;
-    }
-    if let Some(w) = action.strip_prefix("sub:") { reopen(u, submenu(u, &t, w)); return; }
     if let Some(a) = action.strip_prefix("ask:") {
         let label = match (t.kind.as_str(), a) {
             ("folder", "empty") => "Delete all messages permanently",
             ("folder", _) => "Delete this folder",
             ("cal", _) => "Delete calendar and its events",
+            ("mail", _) => "Delete selected messages",
             _ => "Delete",
         };
+        u.global::<crate::CtxHl>().set_id(t.id.clone().into());
         reopen(u, confirm(label, &format!("do:{a}")));
         return;
     }
@@ -482,6 +508,8 @@ pub fn pick(u: &AppWindow, st: &Shared, action: &str) {
                     let has = kw(&mail::email(&t.ids[0]), &format!("$label:{tid}"));
                     format!("{}:{tid}", if has { "untag" } else { "tag" })
                 } else { a.to_string() };
+                // the menu asked once already (or bulk confirm is off): don't ask again in mail::apply
+                if a == "delete" && t.ids.len() > 1 { mail::CONFIRM_BULK.with(|x| x.set(true)); }
                 // explicit read/unread/star/unstar: mail::apply toggles "read"/"star" from state, so pass resolved forms
                 crate::apply_routed(u, st, t.ids.clone(), &a);
             }
@@ -553,6 +581,17 @@ pub fn pick(u: &AppWindow, st: &Shared, action: &str) {
                 "edit" => u.invoke_cal_edit(id.into(), "".into(), -1),
                 "duplicate" => { u.invoke_cal_edit(id.into(), "".into(), -1); u.set_ev_id("".into()); u.set_ev_title(format!("{} (copy)", u.get_ev_title()).into()); }
                 "copy-title" => u.invoke_copy_text(calendar::event_title(id).into()),
+                "export-ics" => {
+                    let Some((name, text)) = calendar::event_ics(id) else { return };
+                    let Some(path) = rfd::FileDialog::new().set_file_name(&name).add_filter("iCalendar", &["ics"]).save_file() else { return };
+                    let msg = match std::fs::write(&path, text) { Ok(()) => "Event exported".to_string(), Err(e) => format!("Could not export: {e}") };
+                    mail::show_toast(u, &msg, false);
+                }
+                r if r.starts_with("rsvp:") => {
+                    let Some((pid, _)) = calendar::my_participation(id, &crate::my_addrs(st)) else { return };
+                    calendar::rsvp(u, c, id, &pid, &r[5..]);
+                    mail::show_toast(u, match &r[5..] { "accepted" => "Invitation accepted", "tentative" => "Answered maybe", _ => "Invitation declined" }, false);
+                }
                 "delete" => { u.set_ev_id(id.into()); calendar::delete(u, c); }
                 _ => {}
             }

@@ -285,6 +285,13 @@ fn apply_routed(u: &AppWindow, st: &Shared, ids: Vec<String>, action: &str) {
 
 thread_local! { static MY_ADDRS: std::cell::RefCell<Vec<String>> = const { std::cell::RefCell::new(Vec::new()) }; }
 
+/// The user's own addresses (login and identities), for "is this me" checks.
+pub fn my_addrs(st: &Shared) -> Vec<String> {
+    let mut v = MY_ADDRS.with(|a| a.borrow().clone());
+    if let Some(c) = st.lock().unwrap().as_ref() { v.push(c.username.clone()); }
+    v
+}
+
 thread_local! {
     /// Loaded native plugins (UI thread only).
     static PLUGINS: std::cell::RefCell<Vec<plugins::Plugin>> = const { std::cell::RefCell::new(Vec::new()) };
@@ -1506,7 +1513,10 @@ fn main() -> Result<(), slint::PlatformError> {
     });
 
     let w = ui.as_weak();
-    ui.on_ctx_request(move |k, id| ctxmenu::request(&w.unwrap(), &k, &id));
+    let st_req = state.clone();
+    ui.on_ctx_request(move |k, id| { ctxmenu::set_mine(my_addrs(&st_req)); ctxmenu::request(&w.unwrap(), &k, &id) });
+    let w = ui.as_weak();
+    ui.on_ctx_hover(move |a, i| ctxmenu::hover(&w.unwrap(), &a, i));
     let (w, st) = (ui.as_weak(), state.clone());
     ui.on_ctx_pick(move |a| ctxmenu::pick(&w.unwrap(), &st, &a));
     let (w, st) = (ui.as_weak(), state.clone());
