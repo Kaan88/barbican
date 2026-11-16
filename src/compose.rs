@@ -2,7 +2,7 @@
 //! attachments (upload), drafts, and undo-send via EmailSubmission HOLDFOR.
 use crate::jmap::{Attachment, Client, Outgoing};
 use crate::rte::{self, model::{Block, Doc, Kind}};
-use crate::{AppWindow, Att};
+use crate::{AppWindow, CmpAtt};
 use serde_json::Value;
 use slint::{ComponentHandle, ModelRc, SharedString, VecModel};
 use std::cell::RefCell;
@@ -104,10 +104,19 @@ fn text_of(m: &Value) -> String {
     if text.trim().is_empty() { crate::html_to_text(&html) } else { text }
 }
 
+/// The short type badge on a composer attachment chip: the extension, upper case, at most 4 letters.
+fn file_badge(name: &str) -> String {
+    match name.rsplit_once('.') {
+        Some((_, e)) if !e.is_empty() && e.len() <= 4 && e.chars().all(|c| c.is_ascii_alphanumeric()) => e.to_ascii_uppercase(),
+        _ => "FILE".into(),
+    }
+}
+
 fn refresh_attachments(u: &AppWindow) {
     ST.with(|s| {
-        let rows: Vec<Att> = s.borrow().attachments.iter().enumerate().map(|(i, a)| Att {
+        let rows: Vec<CmpAtt> = s.borrow().attachments.iter().enumerate().map(|(i, a)| CmpAtt {
             name: a.name.as_str().into(), size: crate::human_size(a.size as u64).into(), index: i as i32,
+            ext: file_badge(&a.name).into(),
         }).collect();
         u.set_c_attachments(ModelRc::new(VecModel::from(rows)));
     });
@@ -272,6 +281,7 @@ fn reset(u: &AppWindow) {
     u.set_c_subject("".into());
     rte::set_doc(u, Doc::default());
     u.set_c_status("".into());
+    u.set_c_saved_at("".into());
     u.set_can_undo(false);
     refresh_attachments(u);
 }
@@ -727,6 +737,7 @@ pub fn save_draft(u: &AppWindow, c: Arc<Client>, close: bool) {
             Ok(id) => {
                 ST.with(|s| s.borrow_mut().draft_id = Some(id));
                 u.set_c_status("Draft saved".into());
+                u.set_c_saved_at(chrono::Local::now().format("%H:%M").to_string().into());
                 if close { u.set_composing(false); crate::mail::show_toast(&u, "Draft saved", false); }
             }
             Err(e) => u.set_c_status(e.into()),

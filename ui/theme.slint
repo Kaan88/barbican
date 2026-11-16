@@ -22,8 +22,8 @@ export global Theme {
     out property <color> faint: more-contrast ? (dark ? #d1d5db : #374151) : (dark ? #737373 : #8a8a8a);
     out property <color> accent: more-contrast ? (dark ? #93c5fd : #1d4ed8) : (dark ? #f0577a : #c8234a);
     out property <color> on-accent: more-contrast ? (dark ? #000000 : #ffffff) : (dark ? #16070c : #ffffff);
-    out property <color> sel: dark ? #4a1424 : #fde4ea;
-    out property <color> sel-text: dark ? #ffd5df : #8c1733;
+    out property <color> sel: more-contrast ? (dark ? #1e3a8a : #dbeafe) : (dark ? #4a1424 : #fde4ea);
+    out property <color> sel-text: more-contrast ? (dark ? #ffffff : #000000) : (dark ? #ffd5df : #8c1733);
     out property <color> popup: dark ? #1c1c1c : #ffffff;
     // meaning tints (bg/fg pairs): rose today, mint waiting/done, sky travel/work, amber attention
     out property <color> rose-bg: dark ? #f0577a24 : #fde4ea;
