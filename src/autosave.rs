@@ -30,7 +30,31 @@ struct S {
     key: u64,
     changed: Option<Instant>,
     in_flight: bool,
+    /// content key of the save in flight (None for a send)
+    flight_key: Option<u64>,
     queued: Option<Queued>,
+}
+
+/// What the save still in flight from a composer that was just replaced must do once it
+/// finishes, so nothing the user wrote or asked for is lost.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum Leftover {
+    /// save the old composer's last content (snapshotted at the reset) over the new draft
+    Save,
+    /// remove the draft that save creates (a discard was queued behind it)
+    Discard,
+}
+
+/// Pure decision for `reset_leftover` (for tests): `unsaved` = the old composer holds content
+/// the save in flight does not carry. A queued send is not carried over into a send nobody
+/// sees: it is kept as a draft instead.
+pub fn leftover_for(queued: Option<Queued>, unsaved: bool) -> Option<Leftover> {
+    match queued {
+        Some(Queued::Discard) => Some(Leftover::Discard),
+        Some(Queued::Save(_) | Queued::Send | Queued::Schedule(_)) => Some(Leftover::Save),
+        None if unsaved => Some(Leftover::Save),
+        None => None,
+    }
 }
 
 thread_local! { static ST: RefCell<S> = RefCell::new(S::default()); }
@@ -38,6 +62,22 @@ thread_local! { static ST: RefCell<S> = RefCell::new(S::default()); }
 /// Whether an autosave is due (pure, for tests).
 pub fn due(key: u64, baseline: Option<u64>, saved: Option<u64>, quiet: Duration, in_flight: bool) -> bool {
     !in_flight && Some(key) != baseline && Some(key) != saved && quiet >= QUIET
+}
+
+/// A new composer replaces one whose save is still in flight: returns that save's generation
+/// and what it must still do (see `Leftover`), then resets. `key` is the old composer's
+/// content now. None when nothing is in flight (plain reset).
+pub fn reset_leftover(key: u64) -> Option<(u64, Leftover)> {
+    let r = ST.with(|s| {
+        let s = s.borrow();
+        if !s.in_flight { return None; }
+        let unsaved = Some(key) != s.saved && Some(key) != s.flight_key && Some(key) != s.baseline;
+        // a send in flight (no key) carries the content itself
+        let unsaved = unsaved && s.flight_key.is_some();
+        leftover_for(s.queued, unsaved).map(|l| (s.gen, l))
+    });
+    reset();
+    r
 }
 
 /// A new composer: forget everything about the previous one.
@@ -119,7 +159,10 @@ pub fn in_flight() -> bool { ST.with(|s| s.borrow().in_flight) }
 pub fn queue(q: Queued) { ST.with(|s| s.borrow_mut().queued = Some(q)); }
 
 /// A save or send starts: returns the generation to hand to `finish`.
-pub fn begin() -> u64 { ST.with(|s| { let mut s = s.borrow_mut(); s.in_flight = true; s.gen }) }
+pub fn begin() -> u64 { ST.with(|s| { let mut s = s.borrow_mut(); s.in_flight = true; s.flight_key = None; s.gen }) }
+
+/// A draft save of content `key` starts.
+pub fn begin_save(key: u64) -> u64 { let g = begin(); ST.with(|s| s.borrow_mut().flight_key = Some(key)); g }
 
 pub fn gen() -> u64 { ST.with(|s| s.borrow().gen) }
 
@@ -130,6 +173,7 @@ pub fn finish(gen: u64, saved_key: Option<u64>) -> Option<Queued> {
         let mut s = s.borrow_mut();
         if s.gen != gen { return None; }
         s.in_flight = false;
+        s.flight_key = None;
         if saved_key.is_some() { s.saved = saved_key; }
         s.queued.take()
     })
@@ -169,6 +213,34 @@ mod tests {
         // a save from the previous composer changes nothing
         assert_eq!(finish(g2, Some(9)), None);
         assert!(!in_flight());
+    }
+
+    #[test]
+    fn reopen_during_a_save_keeps_the_queued_work() {
+        // queue, then reset, then finish: the queued save survives as a leftover
+        reset();
+        let g = begin_save(5);
+        queue(Queued::Save(false));
+        let left = reset_leftover(5);
+        assert_eq!(left, Some((g, Leftover::Save)));
+        assert_eq!(finish(g, Some(5)), None);
+        // typed after the save started, nothing queued: still saved
+        reset();
+        let g = begin_save(5);
+        assert_eq!(reset_leftover(6), Some((g, Leftover::Save)));
+        // the save in flight already carries everything: nothing more to do
+        reset();
+        begin_save(5);
+        assert_eq!(reset_leftover(5), None);
+        // a discard queued behind it removes the draft the save creates
+        reset();
+        let g = begin_save(5);
+        queue(Queued::Discard);
+        assert_eq!(reset_leftover(7), Some((g, Leftover::Discard)));
+        // nothing in flight: a plain reset
+        reset();
+        assert_eq!(reset_leftover(1), None);
+        assert_eq!(leftover_for(Some(Queued::Send), false), Some(Leftover::Save));
     }
 }
 

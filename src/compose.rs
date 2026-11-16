@@ -264,8 +264,25 @@ fn apply_signature(u: &AppWindow) {
     if unedited { crate::autosave::rebase(u); }
 }
 
+/// Work left for a save still in flight from a replaced composer: generation, what to do, the
+/// old composer's content (taken at the reset) and its key.
+type Orphan = (u64, crate::autosave::Leftover, Outgoing, u64);
+
+thread_local! { static ORPHANS: RefCell<Vec<Orphan>> = const { RefCell::new(vec![]) }; }
+
 fn reset(u: &AppWindow) {
-    crate::autosave::reset();
+    // a save still in flight belongs to the composer being replaced: what is typed since, or
+    // a save or discard queued behind it, must not be lost with the reset (see run_save)
+    if crate::autosave::in_flight() {
+        crate::chips::commit_all(u);
+        let key = content_key(u);
+        if let Some((gen, left)) = crate::autosave::reset_leftover(key) {
+            let o = outgoing(u);
+            ORPHANS.with(|x| x.borrow_mut().push((gen, left, o, key)));
+        }
+    } else {
+        crate::autosave::reset();
+    }
     u.global::<crate::CompX>().set_saved("".into());
     ST.with(|s| { let ids = s.borrow().identities.clone(); *s.borrow_mut() = State { identities: ids, ..Default::default() }; });
     crate::chips::reset(u);
@@ -849,7 +866,7 @@ fn run_save(u: &AppWindow, c: Arc<Client>, auto: bool, close: bool) {
     let o = outgoing(u);
     let key = content_key(u);
     let first = o.replaces_draft.is_none();
-    let gen = crate::autosave::begin();
+    let gen = crate::autosave::begin_save(key);
     let x = u.global::<crate::CompX>();
     x.set_saved("Saving…".into());
     if !auto { u.set_c_status("Saving…".into()); }
@@ -878,9 +895,40 @@ fn run_save(u: &AppWindow, c: Arc<Client>, auto: bool, close: bool) {
             }
             let queued = crate::autosave::finish(gen, res.as_ref().ok().map(|_| key));
             run_queued(&u, queued);
+            if !mine { finish_orphan(&u, gen, res.as_ref().ok().cloned(), &c2); }
             if first || !auto { crate::mail::load_mailboxes(w2, c2, false); }
         });
     });
+}
+
+/// The save of a composer that was replaced while it ran finished (`saved`: the draft it made):
+/// save the content the user had at the reset over it, or remove it when a discard waited.
+fn finish_orphan(u: &AppWindow, gen: u64, saved: Option<String>, c: &Arc<Client>) {
+    let Some((_, left, mut o, _)) = ORPHANS.with(|x| {
+        let mut x = x.borrow_mut();
+        x.iter().position(|o| o.0 == gen).map(|i| x.remove(i))
+    }) else { return };
+    use crate::autosave::Leftover;
+    let w = u.as_weak();
+    let c = c.clone();
+    match left {
+        Leftover::Discard => {
+            let Some(id) = saved.or(o.replaces_draft.clone()) else { return };
+            std::thread::spawn(move || { let _ = c.destroy(&[id]); crate::mail::load_mailboxes(w, c, false); });
+        }
+        Leftover::Save => {
+            if saved.is_some() { o.replaces_draft = saved; }
+            std::thread::spawn(move || {
+                let res = c.save_draft(&o, o.replaces_draft.as_deref());
+                let w2 = w.clone();
+                let _ = w.upgrade_in_event_loop(move |u| match res {
+                    Ok(_) => crate::mail::show_toast(&u, "Draft saved", false),
+                    Err(e) => crate::mail::show_toast(&u, &format!("Draft not saved: {e}"), false),
+                });
+                crate::mail::load_mailboxes(w2, c, false);
+            });
+        }
+    }
 }
 
 /// What waited for a save: send, an explicit save, or a discard of the draft.

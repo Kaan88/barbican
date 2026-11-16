@@ -198,11 +198,14 @@ fn sync_webview(ui: &AppWindow) {
                 .with_visible(vis)
                 .with_devtools(false)
                 .with_navigation_handler(|url| {
-                    // mailto: links open Barbican's composer, not the OS mail handler
-                    if mailto::parse(&url).is_some() { mailto::request(url); return false; }
+                    // A top-level navigation is never a click on a mail link (<base target=_blank>
+                    // sends those to the new-window handler below); it comes from the message itself
+                    // (<meta http-equiv=refresh>), so a mailto: here is dropped, not opened.
+                    if mailto::parse(&url).is_some() { return false; }
                     if url.starts_with("http") { oauth::open_browser(&url); false } else { true }
                 })
-                // links open in a new window (<base target=_blank>): route them the same way
+                // links open in a new window (<base target=_blank>): clicked mailto: links open
+                // Barbican's composer, web links the browser
                 .with_new_window_req_handler(|url, _| {
                     if mailto::parse(&url).is_some() { mailto::request(url); }
                     else if url.starts_with("http://") || url.starts_with("https://") { oauth::open_browser(&url); }
@@ -630,6 +633,8 @@ fn main() -> Result<(), slint::PlatformError> {
             true
         }));
         instance::listen();
+        // Barbican moved or updated into a new folder: point the registration at this exe
+        mailto::repair_registration();
         if let Some(l) = link { mailto::request(l); }
     }
 
@@ -1079,6 +1084,11 @@ fn main() -> Result<(), slint::PlatformError> {
         if key == "mailapp.register" {
             // user-triggered only: writes the HKCU registration (or the Linux .desktop file)
             match mailto::register_default() { Ok(m) => mail::show_toast(&u, &m, false), Err(e) => mail::show_toast(&u, &e, false) }
+            u.invoke_settings_search(u.get_settings_query());
+        }
+        if key == "mailapp.unregister" {
+            // user-triggered only: removes what mailapp.register wrote
+            match mailto::unregister() { Ok(m) => mail::show_toast(&u, &m, false), Err(e) => mail::show_toast(&u, &e, false) }
             u.invoke_settings_search(u.get_settings_query());
         }
         if key == "a11y.reset" {
@@ -1773,6 +1783,7 @@ fn main() -> Result<(), slint::PlatformError> {
         if let Some(u) = w.upgrade() { sync_webview(&u); }
     });
     slint::run_event_loop()?;
+    instance::cleanup();
     // refresh tokens may rotate while the app runs: keep the newest one
     if REMEMBER_OAUTH.load(std::sync::atomic::Ordering::SeqCst) {
         if let Some(c) = state.lock().unwrap().clone() { remember_session(&c, serde_json::json!({"kind": "oauth"}), &c.base, ""); }

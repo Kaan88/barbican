@@ -91,7 +91,7 @@ component DialogField inherits Rectangle {
 
 // Modal: one click for the usual times, or any date and time typed below.
 export component ScheduleDialog inherits Rectangle {
-    background: #00000073;
+    background: CTheme.scrim;
     TouchArea { clicked => { CompX.sched-cancel(); } }
     FocusScope {
         capture-key-pressed(e) => {
@@ -108,7 +108,7 @@ export component ScheduleDialog inherits Rectangle {
             border-width: 1px;
             border-color: CTheme.line;
             drop-shadow-blur: 30px;
-            drop-shadow-color: #0000005c;
+            drop-shadow-color: CTheme.shadow;
             drop-shadow-offset-y: 12px;
             TouchArea { }
             lay := VerticalLayout {

@@ -25,30 +25,49 @@ pub fn mailto_arg(args: &[String]) -> Option<String> {
     args.iter().map(|a| a.trim().trim_matches('"').to_string()).find(|a| crate::mailto::parse(a).is_some())
 }
 
-fn read_endpoint() -> Option<(u16, String)> {
+/// Where a running instance listens: port, the token a client proves itself with, and the
+/// greeting the server proves itself with.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Endpoint { pub port: u16, pub token: String, pub greet: String, pub pid: u32 }
+
+fn read_endpoint() -> Option<Endpoint> {
     let v: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(file()).ok()?).ok()?;
-    Some((v["port"].as_u64()? as u16, v["token"].as_str()?.to_string()))
+    Some(Endpoint {
+        port: v["port"].as_u64()? as u16,
+        token: v["token"].as_str()?.to_string(),
+        greet: v["greet"].as_str()?.to_string(),
+        pid: v["pid"].as_u64().unwrap_or(0) as u32,
+    })
 }
 
-/// Send `url` to the instance listening on `port`; true when it took it.
-pub fn send(port: u16, token: &str, url: &str) -> bool {
-    let addr = SocketAddr::from(([127, 0, 0, 1], port));
-    let Ok(mut s) = TcpStream::connect_timeout(&addr, Duration::from_millis(1500)) else { return false };
-    let _ = s.set_read_timeout(Some(Duration::from_secs(5)));
-    if writeln!(s, "{token}\n{}", url.replace(['\r', '\n'], "")).is_err() { return false; }
+/// Send `url` to the instance at `e`; true when it took it. The server speaks first: when the
+/// port now belongs to another program (Barbican crashed and left a stale file), its first
+/// line is not our greeting and nothing, neither token nor link, is sent to it.
+pub fn send(e: &Endpoint, url: &str) -> bool {
+    let addr = SocketAddr::from(([127, 0, 0, 1], e.port));
+    let Ok(s) = TcpStream::connect_timeout(&addr, Duration::from_millis(800)) else { return false };
+    let _ = s.set_read_timeout(Some(Duration::from_secs(2)));
+    let Ok(mut w) = s.try_clone() else { return false };
+    let mut r = BufReader::new(s);
+    let mut hello = String::new();
+    if r.read_line(&mut hello).is_err() || hello.trim() != e.greet { return false; }
+    let _ = r.get_ref().set_read_timeout(Some(Duration::from_secs(5)));
+    if writeln!(w, "{}\n{}", e.token, url.replace(['\r', '\n'], "")).is_err() { return false; }
     let mut line = String::new();
-    BufReader::new(s).read_line(&mut line).is_ok() && line.trim() == "ok"
+    r.read_line(&mut line).is_ok() && line.trim() == "ok"
 }
 
 /// Hand `url` to a running Barbican; true when one took it (this process can exit).
 pub fn forward(url: &str) -> bool {
-    match read_endpoint() { Some((port, token)) => send(port, &token, url), None => false }
+    read_endpoint().is_some_and(|e| send(&e, url))
 }
 
-fn token() -> String {
+/// 128 random bits as hex; None when the system has no randomness to give (then this
+/// instance does not listen: a guessable token would let any local program inject links).
+fn random_hex() -> Option<String> {
     let mut b = [0u8; 16];
-    let _ = getrandom::getrandom(&mut b);
-    b.iter().map(|x| format!("{x:02x}")).collect()
+    getrandom::getrandom(&mut b).ok()?;
+    Some(b.iter().map(|x| format!("{x:02x}")).collect())
 }
 
 /// Read one handoff from a connection: the URL when the token matches.
@@ -62,29 +81,61 @@ pub fn read_request(stream: impl Read, token: &str) -> Option<String> {
     crate::mailto::parse(&url).is_some().then_some(url)
 }
 
-/// Serve handoffs from later launches: each link goes to `on_link`.
-pub fn serve(listener: TcpListener, token: String, on_link: impl Fn(String) + Send + 'static) {
+/// Connections handled at once; more are closed straight away.
+const MAX_CONNS: usize = 8;
+
+/// Serve handoffs from later launches: each link goes to `on_link`. Every connection gets its
+/// own thread and a short deadline, so idle connections cannot hold up the next launch.
+pub fn serve(listener: TcpListener, token: String, greet: String, on_link: impl Fn(String) + Send + Sync + 'static) {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::Arc;
+    let on_link = Arc::new(on_link);
+    let busy = Arc::new(AtomicUsize::new(0));
+    let (token, greet) = (Arc::new(token), Arc::new(greet));
     std::thread::spawn(move || {
         for mut stream in listener.incoming().flatten() {
-            let _ = stream.set_read_timeout(Some(Duration::from_secs(3)));
-            let Ok(read) = stream.try_clone() else { continue };
-            match read_request(read, &token) {
-                Some(url) => { on_link(url); let _ = writeln!(stream, "ok"); }
-                None => { let _ = writeln!(stream, "no"); }
-            }
+            if busy.load(Ordering::SeqCst) >= MAX_CONNS { continue; }
+            busy.fetch_add(1, Ordering::SeqCst);
+            let (on_link, busy, token, greet) = (on_link.clone(), busy.clone(), token.clone(), greet.clone());
+            std::thread::spawn(move || {
+                let _ = stream.set_read_timeout(Some(Duration::from_secs(2)));
+                let _ = stream.set_write_timeout(Some(Duration::from_secs(2)));
+                if writeln!(stream, "{greet}").is_ok() {
+                    if let Ok(read) = stream.try_clone() {
+                        match read_request(read, &token) {
+                            // the link is kept until it opens (mailto::dispatch waits for a sign-in)
+                            Some(url) => { on_link(url); let _ = writeln!(stream, "ok"); }
+                            None => { let _ = writeln!(stream, "no"); }
+                        }
+                    }
+                }
+                busy.fetch_sub(1, Ordering::SeqCst);
+            });
         }
     });
 }
 
+thread_local! { static MINE: std::cell::RefCell<Option<Endpoint>> = const { std::cell::RefCell::new(None) }; }
+
 /// Listen for links from later launches and record where (this instance becomes the target).
 pub fn listen() {
+    let (Some(token), Some(greet)) = (random_hex(), random_hex()) else { return };
+    let greet = format!("barbican {greet}");
     let Ok(listener) = TcpListener::bind(("127.0.0.1", 0)) else { return };
     let Ok(port) = listener.local_addr().map(|a| a.port()) else { return };
-    let token = token();
     let _ = std::fs::create_dir_all(crate::config_dir());
-    let data = serde_json::json!({"port": port, "token": token, "pid": std::process::id()});
+    let pid = std::process::id();
+    let data = serde_json::json!({"port": port, "token": token, "greet": greet, "pid": pid});
     if std::fs::write(file(), data.to_string()).is_err() { return; }
-    serve(listener, token, crate::mailto::request);
+    MINE.with(|m| *m.borrow_mut() = Some(Endpoint { port, token: token.clone(), greet: greet.clone(), pid }));
+    serve(listener, token, greet, crate::mailto::request);
+}
+
+/// Clean exit: remove the file when it still points at this instance (a later instance may
+/// have taken over).
+pub fn cleanup() {
+    let Some(mine) = MINE.with(|m| m.borrow().clone()) else { return };
+    if read_endpoint().as_ref() == Some(&mine) { let _ = std::fs::remove_file(file()); }
 }
 
 #[cfg(test)]
@@ -106,9 +157,33 @@ mod tests {
         let l = TcpListener::bind(("127.0.0.1", 0)).unwrap();
         let port = l.local_addr().unwrap().port();
         let (tx, rx) = std::sync::mpsc::channel();
-        serve(l, "secret".into(), move |u| { let _ = tx.send(u); });
-        assert!(!send(port, "wrong", "mailto:a@x.io"));
-        assert!(send(port, "secret", "mailto:a@x.io?subject=Hand%20off"));
+        let tx = std::sync::Mutex::new(tx);
+        serve(l, "secret".into(), "barbican hi".into(), move |u| { let _ = tx.lock().unwrap().send(u); });
+        let e = |token: &str, greet: &str| Endpoint { port, token: token.into(), greet: greet.into(), pid: 0 };
+        assert!(!send(&e("wrong", "barbican hi"), "mailto:a@x.io"));
+        // a server that does not greet as expected gets nothing
+        assert!(!send(&e("secret", "barbican other"), "mailto:a@x.io"));
+        assert!(rx.try_recv().is_err());
+        // idle connections do not block a real handoff
+        let idle: Vec<_> = (0..3).map(|_| TcpStream::connect(("127.0.0.1", port)).unwrap()).collect();
+        assert!(send(&e("secret", "barbican hi"), "mailto:a@x.io?subject=Hand%20off"));
         assert_eq!(rx.recv_timeout(Duration::from_secs(3)).unwrap(), "mailto:a@x.io?subject=Hand%20off");
+        drop(idle);
+    }
+
+    #[test]
+    fn foreign_program_on_a_stale_port_gets_nothing() {
+        let l = TcpListener::bind(("127.0.0.1", 0)).unwrap();
+        let port = l.local_addr().unwrap().port();
+        let got = std::thread::spawn(move || {
+            let (mut s, _) = l.accept().unwrap();
+            let _ = s.set_read_timeout(Some(Duration::from_millis(1500)));
+            let _ = writeln!(s, "HTTP/1.1 400 Bad Request");
+            let mut buf = vec![];
+            let _ = s.read_to_end(&mut buf);
+            buf
+        });
+        assert!(!send(&Endpoint { port, token: "secret".into(), greet: "barbican hi".into(), pid: 0 }, "mailto:a@x.io?body=private"));
+        assert!(got.join().unwrap().is_empty());
     }
 }

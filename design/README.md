@@ -10,3 +10,13 @@ The `.dc.html` files here are the board sources: plain HTML with inline styles; 
   - Nordic: rail + folders on the ground, list/reader/context in one rounded surface split by hairlines, pills and circles, no summary tiles.
 - Both have a context panel beside content (sender in mail, guests in calendar, assistant in compose).
 - Icons: 1.6–1.8px stroke line icons (paths in `I`), Segoe UI text.
+
+## Merge note: composer extras (branch p2-composer)
+
+The recipient chips, the schedule-send dialog and the Scheduled banner (`ui/recipients.slint`,
+`ui/compose-extras.slint`) read colours from a separate `CTheme` global (`ui/ctheme.slint`) so
+they never import app.slint. `src/ctheme.rs::sync` copies the neutral `Theme` tokens into it;
+the rose/mint/sky/amber tints, `shadow` and `scrim` are defined in `ctheme.slint` itself.
+When the design branches add Theme tokens or the Bento/Nordic style switch, either extend
+`ctheme::sync` to copy them, or (preferred, after the merge) replace `CTheme` with `Theme` in
+those two files and delete `ctheme.slint` / `ctheme.rs`.

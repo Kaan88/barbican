@@ -169,7 +169,19 @@ fn angle_run_closes(v: &[char], from: usize) -> bool {
 /// RFC 5322 group (`Team: a@x, b@y;`). An unclosed `<` does not swallow the rest.
 pub fn split_recipients(value: &str, seps: &str) -> Vec<String> {
     let v: Vec<char> = value.chars().collect();
+    match split_pass(&v, seps, usize::MAX) {
+        Ok(out) => out,
+        // a ':' that no ';' closes was not a group (`Support: a@x, b@y`, an unquoted name
+        // with a colon): split again with colons from there on taken as plain text
+        Err(open) => split_pass(&v, seps, open).unwrap_or_default(),
+    }
+}
+
+/// One split; colons at or after `no_group_from` never open a group. Err(index of the
+/// colon) when a group is still open at the end.
+fn split_pass(v: &[char], seps: &str, no_group_from: usize) -> Result<Vec<String>, usize> {
     let mut out = vec![];
+    let mut group_at = 0usize;
     let mut cur = String::new();
     let (mut quoted, mut angle, mut group) = (false, false, false);
     let push = |cur: &mut String, out: &mut Vec<String>| { let t = cur.trim(); if !t.is_empty() { out.push(t.to_string()); } cur.clear(); };
@@ -180,15 +192,16 @@ pub fn split_recipients(value: &str, seps: &str) -> Vec<String> {
         if ch == '"' { quoted = !quoted; cur.push(ch); }
         else if ch == '<' && !quoted { angle = true; cur.push(ch); }
         else if ch == '>' && !quoted { angle = false; cur.push(ch); }
-        else if seps.contains(ch) && angle && !quoted && !group && !angle_run_closes(&v, i) { angle = false; push(&mut cur, &mut out); }
-        else if ch == ':' && !quoted && !angle { group = true; cur.push(ch); }
+        else if seps.contains(ch) && angle && !quoted && !group && !angle_run_closes(v, i) { angle = false; push(&mut cur, &mut out); }
+        else if ch == ':' && !quoted && !angle && !group && i < no_group_from { group = true; group_at = i; cur.push(ch); }
         else if ch == ';' && group && !quoted && !angle { group = false; cur.push(ch); }
         else if seps.contains(ch) && !quoted && !angle && !group { push(&mut cur, &mut out); }
         else { cur.push(ch); }
         i += 1;
     }
+    if group { return Err(group_at); }
     push(&mut cur, &mut out);
-    out
+    Ok(out)
 }
 
 fn top_level_colon(v: &str) -> Option<usize> {
@@ -453,6 +466,9 @@ mod tests {
     fn split_and_parse() {
         assert_eq!(split_recipients("\"Doe, John\" <j@d.o>, x@y.z", ","), vec!["\"Doe, John\" <j@d.o>", "x@y.z"]);
         assert_eq!(split_recipients("Team: a@x.io, b@y.io;, c@z.io", ","), vec!["Team: a@x.io, b@y.io;", "c@z.io"]);
+        // a colon no ';' closes is not a group
+        assert_eq!(split_recipients("Support: help@x.io, bob@y.io", ","), vec!["Support: help@x.io", "bob@y.io"]);
+        assert_eq!(split_recipients("Team: a@x.io;, Re: Jo <jo@x.io>, b@y.io", ","), vec!["Team: a@x.io;", "Re: Jo <jo@x.io>", "b@y.io"]);
         // an unclosed < does not swallow the rest
         assert_eq!(split_recipients("Jo <jo@x.io, b@y.io", ","), vec!["Jo <jo@x.io", "b@y.io"]);
         assert_eq!(split_recipients("\"Sup\\\", ceo@c.ex, x\" <s@a.b>", ","), vec!["\"Sup\\\", ceo@c.ex, x\" <s@a.b>"]);

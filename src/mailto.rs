@@ -62,7 +62,8 @@ fn split(v: &str) -> Vec<String> { crate::recipients::split_recipients(&strip_co
 pub fn parse(raw: &str) -> Option<Mailto> {
     let raw = raw.trim();
     if raw.len() < 7 || !raw[..7].eq_ignore_ascii_case("mailto:") { return None; }
-    let rest = &raw[7..];
+    // RFC 3986: a fragment is not part of the address or the fields
+    let rest = raw[7..].split('#').next().unwrap_or("");
     let (path, query) = rest.split_once('?').unwrap_or((rest, ""));
     let params: Vec<(String, String)> = query.split('&').filter(|p| !p.is_empty()).map(|p| {
         let (k, v) = p.split_once('=').unwrap_or((p, ""));
@@ -105,13 +106,34 @@ pub fn request(url: String) {
     let _ = slint::invoke_from_event_loop(move || dispatch(&url));
 }
 
+/// Links kept while nobody is signed in (the oldest are dropped past this).
+const MAX_PENDING: usize = 5;
+
+thread_local! { static RETRYING: std::cell::Cell<bool> = const { std::cell::Cell::new(false) }; }
+
+/// Keep a link that cannot open yet; the oldest go when too many wait (pure, for tests).
+pub fn keep_pending(list: &mut Vec<Mailto>, m: Mailto) {
+    list.push(m);
+    while list.len() > MAX_PENDING { list.remove(0); }
+}
+
+/// What to tell the user while a link waits for a sign-in.
+pub fn sign_in_message(m: &Mailto) -> String {
+    match m.to.first() {
+        Some(who) => format!("Sign in to write to {who}."),
+        None => "Sign in to write this message.".into(),
+    }
+}
+
 fn dispatch(url: &str) {
     let Some(m) = parse(url) else { return };
     let Some(u) = WINDOW.with(|w| w.borrow().as_ref().and_then(|w| w.upgrade())) else { return };
     if !try_open(&u, &m) {
-        // not signed in yet (the session is still being restored): try again for a minute
-        PENDING.with(|p| p.borrow_mut().push(m));
-        retry(0);
+        // nobody signed in (or the session is still being restored): keep the link and open
+        // it as soon as someone is, however long that takes
+        crate::mail::show_toast(&u, &sign_in_message(&m), false);
+        PENDING.with(|p| keep_pending(&mut p.borrow_mut(), m));
+        if !RETRYING.with(|r| r.replace(true)) { retry(); }
     }
 }
 
@@ -119,13 +141,14 @@ fn try_open(u: &AppWindow, m: &Mailto) -> bool {
     HANDLER.with(|h| h.borrow().as_ref().is_some_and(|f| f(u, m)))
 }
 
-fn retry(n: u32) {
-    if n > 60 { PENDING.with(|p| p.borrow_mut().clear()); return; }
+fn retry() {
     slint::Timer::single_shot(std::time::Duration::from_secs(1), move || {
-        let Some(u) = WINDOW.with(|w| w.borrow().as_ref().and_then(|w| w.upgrade())) else { return };
-        let Some(m) = PENDING.with(|p| p.borrow().first().cloned()) else { return };
-        if try_open(&u, &m) { PENDING.with(|p| { p.borrow_mut().remove(0); }); if PENDING.with(|p| p.borrow().is_empty()) { return; } }
-        retry(n + 1);
+        let u = WINDOW.with(|w| w.borrow().as_ref().and_then(|w| w.upgrade()));
+        let m = PENDING.with(|p| p.borrow().first().cloned());
+        let (Some(u), Some(m)) = (u, m) else { RETRYING.with(|r| r.set(false)); return };
+        // one link per second: each opens its own composer (the one before is saved)
+        if try_open(&u, &m) { PENDING.with(|p| { p.borrow_mut().remove(0); }); }
+        retry();
     });
 }
 
@@ -175,6 +198,7 @@ pub fn windows_plan(exe: &str) -> Vec<(String, String, String)> {
 
 /// Quote a path for a .desktop Exec line (Desktop Entry spec: reserved characters escaped
 /// inside double quotes).
+#[cfg_attr(windows, allow(dead_code))]
 fn desktop_quote(p: &str) -> String {
     let mut s = String::from("\"");
     for c in p.chars() {
@@ -186,6 +210,7 @@ fn desktop_quote(p: &str) -> String {
 }
 
 /// The barbican.desktop file that makes Barbican a handler for mailto: links on Linux.
+#[cfg_attr(windows, allow(dead_code))]
 pub fn desktop_entry(exe: &str) -> String {
     format!("[Desktop Entry]\nType=Application\nName=Barbican\nComment=Mail, calendar and contacts for Stalwart\nExec={} %u\nIcon=barbican\nTerminal=false\nCategories=Network;Email;\nMimeType=x-scheme-handler/mailto;\nStartupNotify=true\n", desktop_quote(exe))
 }
@@ -193,6 +218,22 @@ pub fn desktop_entry(exe: &str) -> String {
 /// Register Barbican as the default mail app (Settings button). Returns what to tell the user.
 pub fn register_default() -> Result<String, String> {
     let exe = std::env::current_exe().map_err(|e| e.to_string())?.to_string_lossy().to_string();
+    let r = write_registration(&exe, true);
+    refresh_default();
+    r
+}
+
+#[cfg(not(windows))]
+fn desktop_dir() -> Result<std::path::PathBuf, String> {
+    let base = std::env::var("XDG_DATA_HOME").map(std::path::PathBuf::from)
+        .or_else(|_| std::env::var("HOME").map(|h| std::path::Path::new(&h).join(".local/share")))
+        .map_err(|_| "No home folder.".to_string())?;
+    Ok(base.join("applications"))
+}
+
+/// Write the registration for `exe`; `interactive` also opens Windows' Default apps page.
+fn write_registration(exe: &str, interactive: bool) -> Result<String, String> {
+    let exe = exe.to_string();
     #[cfg(windows)]
     {
         use std::os::windows::process::CommandExt;
@@ -204,15 +245,13 @@ pub fn register_default() -> Result<String, String> {
             if !out.status.success() { return Err(format!("Could not write {key}: {}", String::from_utf8_lossy(&out.stderr).trim())); }
         }
         // Windows asks the user to confirm the default themselves
-        crate::oauth::open_browser("ms-settings:defaultapps?registeredAppUser=Barbican");
+        if interactive { crate::oauth::open_browser("ms-settings:defaultapps?registeredAppUser=Barbican"); }
         Ok("Barbican is registered for mailto: links. Choose it as the email app in the Windows settings that just opened.".into())
     }
     #[cfg(not(windows))]
     {
-        let base = std::env::var("XDG_DATA_HOME").map(std::path::PathBuf::from)
-            .or_else(|_| std::env::var("HOME").map(|h| std::path::Path::new(&h).join(".local/share")))
-            .map_err(|_| "No home folder.".to_string())?;
-        let dir = base.join("applications");
+        let _ = interactive;
+        let dir = desktop_dir()?;
         std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
         std::fs::write(dir.join("barbican.desktop"), desktop_entry(&exe)).map_err(|e| e.to_string())?;
         let _ = std::process::Command::new("update-desktop-database").arg(&dir).status();
@@ -221,8 +260,118 @@ pub fn register_default() -> Result<String, String> {
     }
 }
 
+thread_local! {
+    /// (is the default, a registration of ours exists), cached: the settings rows are rebuilt
+    /// on every search keystroke and each answer costs a `reg` / `xdg-mime` run
+    static STATUS: std::cell::Cell<Option<(bool, bool)>> = const { std::cell::Cell::new(None) };
+}
+
+fn status() -> (bool, bool) {
+    if let Some(v) = STATUS.with(|c| c.get()) { return v; }
+    let v = (query_default(), registered_command().is_some());
+    STATUS.with(|c| c.set(Some(v)));
+    v
+}
+
+/// Whether mailto: links open Barbican now.
+pub fn is_default() -> bool { status().0 }
+
+/// Whether a registration of ours exists (Settings then offers to remove it).
+pub fn is_registered() -> bool { status().1 }
+
+/// Forget the cached answers (after registering or removing).
+pub fn refresh_default() { STATUS.with(|c| c.set(None)); }
+
+/// HKCU keys, or values (key, value name; "" for the whole key), that `unregister` removes:
+/// exactly what `windows_plan` wrote.
+pub fn windows_unplan() -> Vec<(String, String)> {
+    vec![
+        (format!(r"HKCU\Software\Classes\{PROG_ID}"), "".into()),
+        (r"HKCU\Software\Clients\Mail\Barbican".into(), "".into()),
+        (r"HKCU\Software\RegisteredApplications".into(), "Barbican".into()),
+    ]
+}
+
+/// Remove the registration (Settings button, user-triggered). Returns what to tell the user.
+pub fn unregister() -> Result<String, String> {
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        for (key, name) in windows_unplan() {
+            let mut c = std::process::Command::new("reg");
+            c.arg("delete").arg(&key);
+            if !name.is_empty() { c.args(["/v", &name]); }
+            // a key that is already gone is fine
+            c.arg("/f").creation_flags(0x0800_0000).output().map_err(|e| e.to_string())?;
+        }
+        refresh_default();
+        Ok("Barbican no longer handles mailto: links.".into())
+    }
+    #[cfg(not(windows))]
+    {
+        let dir = desktop_dir()?;
+        let _ = std::fs::remove_file(dir.join("barbican.desktop"));
+        let _ = std::process::Command::new("update-desktop-database").arg(&dir).status();
+        refresh_default();
+        Ok("Barbican no longer handles mailto: links.".into())
+    }
+}
+
+/// Whether a registered command line still starts `exe` (pure, for tests): false when it
+/// names another file, e.g. after Barbican was moved or updated into a new folder.
+pub fn command_matches(registered: &str, exe: &str) -> bool {
+    let t = registered.trim();
+    let path = match t.strip_prefix('"') {
+        Some(rest) => rest.split('"').next().unwrap_or(""),
+        None => t.split_whitespace().next().unwrap_or(""),
+    };
+    if cfg!(windows) { path.eq_ignore_ascii_case(exe) } else { path == exe }
+}
+
+/// At startup: Barbican is the default but its registration names an old path (moved or
+/// updated). Writes it again for this exe. Acts only when the user made Barbican the default
+/// before; never in automation runs.
+pub fn repair_registration() {
+    if crate::automation::enabled() { return; }
+    std::thread::spawn(|| {
+        if !query_default() { return; }
+        let Ok(exe) = std::env::current_exe() else { return };
+        let exe = exe.to_string_lossy().to_string();
+        if registered_command().is_some_and(|c| !command_matches(&c, &exe)) { let _ = write_registration(&exe, false); }
+    });
+}
+
+fn registered_command() -> Option<String> {
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        let o = std::process::Command::new("reg")
+            .args(["query", &format!(r"HKCU\Software\Classes\{PROG_ID}\shell\open\command"), "/ve"])
+            .creation_flags(0x0800_0000).output().ok()?;
+        if !o.status.success() { return None; }
+        String::from_utf8_lossy(&o.stdout).lines().find_map(|l| l.split_once("REG_SZ").map(|(_, v)| v.trim().to_string()))
+    }
+    #[cfg(not(windows))]
+    {
+        let s = std::fs::read_to_string(desktop_dir().ok()?.join("barbican.desktop")).ok()?;
+        let exec = s.lines().find_map(|l| l.strip_prefix("Exec="))?.to_string();
+        Some(desktop_unquote(&exec))
+    }
+}
+
+/// Undo `desktop_quote` on an Exec line (the path keeps its surrounding quotes).
+#[cfg_attr(windows, allow(dead_code))]
+pub fn desktop_unquote(exec: &str) -> String {
+    let mut out = String::new();
+    let mut it = exec.chars();
+    while let Some(c) = it.next() {
+        if c == '\\' { if let Some(n) = it.next() { out.push(n); } } else { out.push(c); }
+    }
+    out
+}
+
 /// Whether mailto: links open Barbican now (read-only check of the user's choice).
-pub fn is_default() -> bool {
+fn query_default() -> bool {
     #[cfg(windows)]
     {
         use std::os::windows::process::CommandExt;
@@ -280,5 +429,32 @@ mod tests {
         let d = desktop_entry("/opt/bar bican/$bin");
         assert!(d.contains("MimeType=x-scheme-handler/mailto;\n"));
         assert!(d.contains("Exec=\"/opt/bar bican/\\$bin\" %u\n"));
+        let exec = d.lines().find_map(|l| l.strip_prefix("Exec=")).unwrap();
+        assert!(command_matches(&desktop_unquote(exec), "/opt/bar bican/$bin"));
+        // removal touches only what registration wrote
+        let un = windows_unplan();
+        assert!(un.iter().all(|(k, _)| k.starts_with(r"HKCU\Software\")));
+        assert!(un.iter().all(|(k, n)| plan.iter().any(|(a, b, _)| a.starts_with(k.as_str()) && (n.is_empty() || b == n))));
+    }
+
+    #[test]
+    fn moved_exe_is_detected() {
+        let cmd = r#""C:\Old\barbican.exe" "%1""#;
+        assert!(command_matches(cmd, r"C:\Old\barbican.exe"));
+        assert!(!command_matches(cmd, r"C:\New\barbican.exe"));
+        assert!(command_matches("/usr/bin/barbican %u", "/usr/bin/barbican"));
+    }
+
+    #[test]
+    fn fragments_and_pending() {
+        assert_eq!(parse("mailto:a@x.io#x").unwrap().to, vec!["a@x.io"]);
+        assert_eq!(parse("mailto:a@x.io?subject=Hi#frag").unwrap().subject, "Hi");
+        // an encoded # stays
+        assert_eq!(parse("mailto:a@x.io?subject=%23one").unwrap().subject, "#one");
+        let mut list = vec![];
+        for i in 0..8 { keep_pending(&mut list, Mailto { subject: i.to_string(), ..Default::default() }); }
+        assert_eq!(list.len(), MAX_PENDING);
+        assert_eq!(list[0].subject, "3");
+        assert_eq!(sign_in_message(&parse("mailto:a@x.io").unwrap()), "Sign in to write to a@x.io.");
     }
 }

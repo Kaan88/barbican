@@ -348,6 +348,9 @@ impl Settings {
                     } else {
                         out.push(text("button", "mailapp.register", "Use Barbican for mailto: links", if cfg!(windows) { "Registers Barbican for your Windows account, then opens Default apps so you can choose it." } else { "Adds barbican.desktop and sets it as the mailto: handler." }, "Set as default"));
                     }
+                    if crate::mailto::is_registered() {
+                        out.push(text("button", "mailapp.unregister", "Stop handling mailto: links", "Removes Barbican's registration for mailto: links from this account.", "Remove"));
+                    }
                 }
                 if tab == "calendar" {
                     out.insert(1.min(out.len()), sel_pref("calendarDayStartHour", "Day starts at", "Where the day and week views open."));

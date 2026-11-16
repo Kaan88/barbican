@@ -995,19 +995,39 @@ impl Client {
         };
         let c = self.call(json!([["EmailSubmission/set", {"accountId": acc, "update": { id: {"undoStatus": "canceled"} }}, "c"]]))?;
         if let Some(err) = c[0][1]["notUpdated"].get(id) { return Err(set_error(err)); }
-        // the canceled record is housekeeping only (counts against the submission limit)
-        let _ = self.call(json!([["EmailSubmission/set", {"accountId": acc, "destroy": [id]}, "d"]]));
-        match create(Some(at_ms)) {
+        let res = match create(Some(at_ms)) {
             Ok(n) => Ok(n),
             Err(e) => {
-                let back = old_at.filter(|t| *t > chrono::Utc::now().timestamp_millis());
-                if back.is_some() && create(back).is_ok() {
-                    return Err(format!("Nothing was changed: {e}. The message is still scheduled."));
+                let mut out = Err(format!("Reschedule failed and the message is no longer scheduled: {e}"));
+                for step in reschedule_fallbacks(old_at, chrono::Utc::now().timestamp_millis()) {
+                    match step {
+                        RescheduleFallback::Recreate(t) => if create(Some(t)).is_ok() {
+                            out = Err(format!("Nothing was changed: {e}. The message is still scheduled."));
+                            break;
+                        },
+                        RescheduleFallback::RestoreDraft => {
+                            // the message lives in the submission's account (RFC 8621 §7)
+                            if self.restore_draft_in(&acc, &email_id) {
+                                out = Err(format!("Reschedule failed: {e}. The message is back in Drafts."));
+                            }
+                        }
+                    }
                 }
-                if acc == self.account { self.restore_draft(&email_id); }
-                Err(format!("Reschedule failed and the message is no longer scheduled: {e}"))
+                out
             }
-        }
+        };
+        // the canceled record is housekeeping only (counts against the submission limit)
+        let _ = self.call(json!([["EmailSubmission/set", {"accountId": acc, "destroy": [id]}, "d"]]));
+        res
+    }
+
+    /// `restore_draft` for a message in account `acc`, which need not be the mail account.
+    fn restore_draft_in(&self, acc: &str, eid: &str) -> bool {
+        if acc == self.account { return self.restore_draft(eid); }
+        let Ok(r) = self.call(json!([["Mailbox/query", {"accountId": acc, "filter": {"role": "drafts"}}, "q"]])) else { return false };
+        let Some(drafts) = r[0][1]["ids"][0].as_str().map(str::to_string) else { return false };
+        self.update("Email/set", acc, vec![(eid.to_string(), json!({"mailboxIds": { drafts: true }, "keywords/$draft": true}))])
+            .is_ok_and(|(_, bad)| bad.is_empty())
     }
 
     /// Undo a held submission (RFC 8621 §7.5 undoStatus). The canceled record is destroyed (it
@@ -1036,7 +1056,7 @@ impl Client {
     }
 
     /// Move a message back to Drafts with `$draft`; retried once with fresh folder roles.
-    fn restore_draft(&self, eid: &str) -> bool {
+    pub(crate) fn restore_draft(&self, eid: &str) -> bool {
         for fresh in [false, true] {
             if fresh { self.roles.lock().unwrap().take(); }
             let Ok(roles) = self.role_ids() else { continue };
@@ -1343,6 +1363,20 @@ pub fn went_back(since: &str, new: &str) -> bool {
     matches!((stalwart_change_id(since), stalwart_change_id(new)), (Some(a), Some(b)) if b < a)
 }
 
+/// What `reschedule_submission` tries when the new submission cannot be created, in order.
+#[derive(Debug, PartialEq)]
+pub enum RescheduleFallback { Recreate(i64), RestoreDraft }
+
+/// Fallback order (pure, for tests): put it back at its old time while that is still ahead
+/// (a time already past would send it at once, which nobody asked for), else back to Drafts
+/// so the message never stays in Sent looking sent.
+pub fn reschedule_fallbacks(old_at: Option<i64>, now: i64) -> Vec<RescheduleFallback> {
+    let mut v = vec![];
+    if let Some(t) = old_at.filter(|t| *t > now + 1000) { v.push(RescheduleFallback::Recreate(t)); }
+    v.push(RescheduleFallback::RestoreDraft);
+    v
+}
+
 /// Apply a /changes result to a cached object list: drop `destroyed`, then merge each fetched
 /// object into the one with its id (a partial fetch updates only its properties) or append it.
 /// HOLDFOR seconds for a release at `at_ms` (Unix ms), checked against the server's
@@ -1534,6 +1568,15 @@ pub const BODY_PROPERTIES: [&str; 9] = ["partId", "blobId", "size", "name", "typ
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn reschedule_fallback_order() {
+        use RescheduleFallback::*;
+        assert_eq!(reschedule_fallbacks(Some(10_000), 0), vec![Recreate(10_000), RestoreDraft]);
+        // the old time has passed (or is about to): straight back to Drafts
+        assert_eq!(reschedule_fallbacks(Some(10_000), 10_000), vec![RestoreDraft]);
+        assert_eq!(reschedule_fallbacks(None, 0), vec![RestoreDraft]);
+    }
 
     fn ids(v: &[Value]) -> Vec<&str> { v.iter().map(|m| m["id"].as_str().unwrap()).collect() }
     fn em(id: &str) -> Value { json!({"id": id, "threadId": format!("t{id}"), "keywords": {}}) }
