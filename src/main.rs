@@ -306,17 +306,29 @@ static NOTIFIED: Mutex<Option<std::collections::HashSet<String>>> = Mutex::new(N
 fn check_new_mail(c: Arc<jmap::Client>) {
     let prefs = settings::Settings::load();
     if !prefs.bool("emailNotificationsEnabled", true) { return; }
+    // Bulwark emailNotificationSound (default on) and pushNotifyInboxOnly (default off: every
+    // folder except Junk, Trash, Sent and Drafts)
+    let sound = prefs.bool("emailNotificationSound", true);
+    let inbox_only = prefs.bool("pushNotifyInboxOnly", false);
     std::thread::spawn(move || {
         let Ok(roles) = c.role_ids() else { return };
         let Some(inbox) = roles.get("inbox") else { return };
-        let Ok((list, _, _)) = c.list(json!({"operator": "AND", "conditions": [{"inMailbox": inbox}, {"notKeyword": "$seen"}]}), 0, 10) else { return };
+        let place = if inbox_only {
+            json!({"inMailbox": inbox})
+        } else {
+            let skip: Vec<String> = ["junk", "trash", "sent", "drafts"].iter().filter_map(|r| roles.get(*r).cloned()).collect();
+            json!({"inMailboxOtherThan": skip})
+        };
+        let Ok((list, _, _)) = c.list(json!({"operator": "AND", "conditions": [place, {"notKeyword": "$seen"}]}), 0, 10) else { return };
         let mut guard = NOTIFIED.lock().unwrap();
         let first_run = guard.is_none();
         let seen = guard.get_or_insert_with(Default::default);
         for m in list.iter().rev() {
             let id = m["id"].as_str().unwrap_or("").to_string();
             if seen.insert(id) && !first_run {
-                let _ = notify_rust::Notification::new()
+                let mut n = notify_rust::Notification::new();
+                if sound { n.sound_name("Mail"); }
+                let _ = n
                     .appname("Barbican")
                     .summary(&mail::sender(m))
                     .body(&format!("{}\n{}", m["subject"].as_str().unwrap_or("(no subject)"), mail::clean_preview(m["preview"].as_str().unwrap_or(""))))
