@@ -313,7 +313,11 @@ internal sealed partial class Scenario
         {
             if (p.Child is FrameworkElement fe && fe.ActualWidth > 0)
             {
+#if WINDOWS
                 return (Bounds(fe), p.IsConstrainedToRootBounds);
+#else
+                return (Bounds(fe), true);
+#endif
             }
         }
 

@@ -128,11 +128,12 @@ internal sealed partial class Scenario
         await ShowAsync(Page($"<a id=l href=\"http://127.0.0.1:{beacon.Port}/link\">link</a>", images: false), "#ffffff", false, ShellHost.Transport.Script, A, "nav");
         await _shell.EvalAsync("(function(){var f=document.querySelectorAll('iframe');f[f.length-1].contentDocument.getElementById('l').click()})()");
         await Task.Delay(800);
+        _report.Notes.Add($"after the link click: beacon [{string.Join(", ", beacon.Hits)}], blocked [{string.Join("; ", _shell.Blocked.Skip(before))}]");
         await _shell.EvalAsync($"location.href='http://127.0.0.1:{beacon.Port}/top'");
         await Task.Delay(800);
         var blocked = _shell.Blocked.Skip(before).ToList();
         var shellAlive = await _shell.EvalAsync("typeof window.__bb");
-        Check("link clicks and top-level navigations are blocked (routed, not loaded)", beacon.Hits.Count == 0 && shellAlive == "\"object\"", $"blocked: [{string.Join("; ", blocked)}], beacon hits {beacon.Hits.Count}, shell still loaded: {shellAlive}");
+        Check("link clicks and top-level navigations are blocked (routed, not loaded)", beacon.Hits.Count == 0 && shellAlive == "\"object\"", $"blocked: [{string.Join("; ", blocked)}], beacon hits {beacon.Hits.Count} [{string.Join(", ", beacon.Hits)}], shell still loaded: {shellAlive}");
     }
 
     private static string Page(string body, bool images) =>
