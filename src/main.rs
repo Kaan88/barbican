@@ -336,24 +336,23 @@ const PUSH_TYPES: [&str; 5] = ["Email", "Mailbox", "Thread", "EmailDelivery", "E
 
 /// Live updates: listen to the JMAP event stream and sync what a StateChange names.
 /// The stream is re-opened with exponential backoff (2 s .. 5 min, with jitter) after it drops
-/// or goes silent; after a reconnect everything is synced once, since changes may have been missed.
+/// or goes silent. Each time it opens everything is synced once (cheap: /changes deltas), since
+/// changes made before it was listening (or while it was down) are never pushed.
 fn start_push(w: slint::Weak<AppWindow>, c: Arc<jmap::Client>) {
     let gen = SESSION_GEN.fetch_add(1, std::sync::atomic::Ordering::SeqCst) + 1;
     let live = move || SESSION_GEN.load(std::sync::atomic::Ordering::SeqCst) == gen;
     std::thread::spawn(move || {
         let mut backoff = 2u64;
-        let mut first = true;
         loop {
             if !live() { return; }
             let started = std::time::Instant::now();
             let _ = c.watch(&PUSH_TYPES, &mut |ev| {
                 if !live() { return false; }
                 let types: std::collections::HashSet<String> = match ev {
-                    jmap::PushEvent::Open if !first => PUSH_TYPES.iter().map(|t| t.to_string()).collect(),
+                    jmap::PushEvent::Open => PUSH_TYPES.iter().map(|t| t.to_string()).collect(),
                     jmap::PushEvent::State(v) => jmap::changed_types(&v, &c.account).into_keys().collect(),
                     _ => Default::default(),
                 };
-                first = false;
                 if !types.is_empty() {
                     let (w2, c2) = (w.clone(), c.clone());
                     let _ = w.upgrade_in_event_loop(move |_| schedule_refresh(w2, c2, types));

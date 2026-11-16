@@ -75,6 +75,21 @@ fn fetch_session(http: &reqwest::blocking::Client, base: &str, auth: &str) -> Re
     Ok((status, resp.json().map_err(e)?))
 }
 
+/// With BARBICAN_JMAP_TRACE=<file>, append each request's method names and the response
+/// method names (no arguments, no data) for diagnosing sync behaviour.
+fn trace(calls: &Value, resp: &Value) {
+    let Ok(path) = std::env::var("BARBICAN_JMAP_TRACE") else { return };
+    let names = |a: &Value| a.as_array().map(|a| a.iter().filter_map(|c| {
+        let n = c[0].as_str()?;
+        Some(match c[1]["limit"].as_u64() { Some(l) => format!("{n}(limit={l})"), None => n.to_string() })
+    }).collect::<Vec<_>>().join(",")).unwrap_or_default();
+    let errs: Vec<String> = resp["methodResponses"].as_array().into_iter().flatten().filter(|r| r[0] == "error").map(|r| r[1]["type"].to_string()).collect();
+    let t = chrono::Local::now().format("%H:%M:%S%.3f");
+    let line = format!("{t} {} -> {}{}
+", names(calls), names(&resp["methodResponses"]), if errs.is_empty() { String::new() } else { format!(" errors={}", errs.join(",")) });
+    if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(path) { use std::io::Write; let _ = f.write_all(line.as_bytes()); }
+}
+
 /// Methods that change nothing and can be sent again safely after a 429/503.
 fn read_only(calls: &Value) -> bool {
     calls.as_array().is_some_and(|a| a.iter().all(|c| c[0].as_str().is_some_and(|m|
@@ -221,6 +236,7 @@ impl Client {
             _ => {}
         }
         let v: Value = resp.json().map_err(e)?;
+        trace(calls, &v);
         let known = self.live.read().unwrap()["state"].as_str().map(String::from);
         if let (Some(now), Some(known)) = (v["sessionState"].as_str(), known) {
             if now != known { let _ = self.refresh_session(); }
@@ -960,6 +976,12 @@ impl Client {
         for line in std::io::BufRead::lines(reader) {
             let line = line.map_err(e)?;
             if let Some(ev) = parser.line(&line) {
+                if let Ok(path) = std::env::var("BARBICAN_JMAP_TRACE") {
+                    let what = match &ev { PushEvent::State(v) => format!("state {}", v["changed"]), PushEvent::Ping => "ping".into(), e => format!("{e:?}") };
+                    if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(path) {
+                        use std::io::Write; let _ = writeln!(f, "{} PUSH {what}", chrono::Local::now().format("%H:%M:%S%.3f"));
+                    }
+                }
                 if !on_event(ev) { return Ok(()); }
             }
         }
