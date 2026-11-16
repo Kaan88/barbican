@@ -174,12 +174,18 @@ pub fn request(u: &AppWindow, kind: &str, id: &str) {
                 ]
             }
         }
-        "att" => vec![
-            it(G_OPEN, "Open", "", "open"),
-            it(G_DOWNLOAD, "Save as…", "", "save"),
-            sep(),
-            it(G_COPY, "Copy file name", "", "copy-name"),
-        ],
+        "att" => {
+            let mut v = vec![
+                it(G_OPEN, "Open", "", "open"),
+                it(G_DOWNLOAD, "Save as…", "", "save"),
+            ];
+            // reader extras: open an attached message, Save to Files, Download all (.zip)
+            v.extend(crate::reader::att_items(id));
+            v.push(sep());
+            v.push(it(G_COPY, "Copy file name", "", "copy-name"));
+            v
+        }
+        "reader" => crate::reader::menu(u),
         "body" => {
             let mut v = vec![];
             if id == "plain" {
@@ -558,11 +564,14 @@ fn submenu(u: &AppWindow, t: &Target, which: &str) -> Vec<CtxItem> {
                 off(it(G_OPEN, "Open", "Enter", "open"), single),
                 off(it(G_PRINT, "Print", "", "print"), single),
                 off(it(G_DOWNLOAD, "Download (.eml)", "", "eml"), single),
+                off(it("\u{E943}", "View source", "", "rx:source"), single),
+                off(it(G_FORWARD, "Forward as attachment", "", "rx:fwd-att"), single),
                 sep(),
                 off(it(G_COPY, "Copy sender address", "", "copy-sender"), single),
                 off(it(G_SEARCH, "Find emails from sender", "", "find-from"), single),
             ]);
         }
+        r if r.starts_with("rx-") => v = crate::reader::submenu(u, r, &t.id),
         "file-move" => {
             for (k, label) in files::move_targets(&t.id) {
                 v.push(it(if k.is_empty() { G_HOME } else { G_FOLDER }, &label, "", &format!("moveto:{k}")));
@@ -767,6 +776,7 @@ pub fn pick(u: &AppWindow, st: &Shared, action: &str) {
     match t.kind.as_str() {
         "mail" | "thread" => match action {
             "reply" | "reply-all" | "forward" | "print" => on_open_mail(u, id, action),
+            a if a.starts_with("rx:") => on_open_mail(u, id, a),
             "open" => on_open_mail(u, id, ""),
             "eml" => {
                 let Some(c) = crate::client_for(st, id) else { return };
@@ -811,6 +821,8 @@ pub fn pick(u: &AppWindow, st: &Shared, action: &str) {
             }
             _ => {}
         },
+        "reader" => crate::reader::pick(u, st, action, id),
+        "att" if action.starts_with("rx") => crate::reader::pick(u, st, action, id),
         "att" => {
             let i: i32 = id.parse().unwrap_or(0);
             match action {

@@ -1,5 +1,7 @@
 import { AdminDashboard, DashRow, DashPanel, DashCol, DashBar } from "dashboard.slint";
 export { DashRow, DashPanel, DashCol, DashBar }
+import { RxBanners, RX, RxTheme, RxBannerData, RxAction } from "reader.slint";
+export { RX, RxTheme, RxBannerData, RxAction }
 import { LineEdit, Button, ListView, ScrollView, TextEdit, ComboBox, CheckBox, Palette } from "std-widgets.slint";
 
 export struct Folder {
@@ -1567,6 +1569,7 @@ export component AppWindow inherits Window {
                     ToolButton { glyph: "\u{E8F8}"; label: "Report spam"; clicked => { root.act("spam"); } }
                     ToolButton { glyph: "\u{E715}"; label: "Unread"; clicked => { root.act("unread"); } }
                     ToolButton { glyph: "\u{E749}"; label: "Print"; clicked => { root.act("print"); } }
+                    ToolButton { glyph: "\u{E712}"; label: "More"; clicked => { root.ctx("reader", root.current-mail, self.absolute-position.x, self.absolute-position.y + self.height + 2px); } }
                     move-popup := PopupWindow {
                         x: -300px; y: 32px; width: 240px;
                         Rectangle {
@@ -1704,6 +1707,18 @@ export component AppWindow inherits Window {
                             HoverAction { glyph: "\u{E896}"; clicked => { root.save-attachment(a.index); } }
                         }
                     }
+                    if root.attachments.length > 1: Rectangle {
+                        height: 26px;
+                        width: dal.preferred-width;
+                        border-radius: 6px;
+                        background: dla.has-hover ? Theme.hover : transparent;
+                        dla := TouchArea { clicked => { RX.action("att", "zip"); } }
+                        dal := HorizontalLayout {
+                            padding-left: 8px; padding-right: 8px; spacing: 6px;
+                            Icon { text: "\u{E896}"; font-size: 11px; color: Theme.accent; }
+                            Text { text: "Download all"; color: Theme.text; font-size: 11px; vertical-alignment: center; }
+                        }
+                    }
                 }
                 if root.spam-verdict != "": HorizontalLayout {
                     spacing: 10px;
@@ -1721,6 +1736,7 @@ export component AppWindow inherits Window {
                     }
                     Text { text: root.spam-detail; color: Theme.dim; font-size: 11px; vertical-alignment: center; overflow: elide; horizontal-stretch: 1; }
                 }
+                RxBanners { }
                 Rectangle { height: 1px; background: Theme.line; }
                 if root.images-blocked: HorizontalLayout {
                     spacing: 8px;

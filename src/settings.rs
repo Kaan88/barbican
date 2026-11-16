@@ -52,6 +52,8 @@ fn option_override(key: &str) -> Option<Vec<(Value, &'static str)>> {
         "hoverActionsCorner" => vec![(json!("top-right"), "Top right"), (json!("top-left"), "Top left"), (json!("bottom-right"), "Bottom right"), (json!("bottom-left"), "Bottom left")],
         "calendarDayStartHour" => (0..13).map(|h| (json!(h), ["0:00","1:00","2:00","3:00","4:00","5:00","6:00","7:00","8:00","9:00","10:00","11:00","12:00"][h as usize])).collect(),
         "calendarDayEndHour" => (13..=24).map(|h| (json!(h), ["13:00","14:00","15:00","16:00","17:00","18:00","19:00","20:00","21:00","22:00","23:00","24:00"][(h - 13) as usize])).collect(),
+        // Bulwark ReadReceiptResponse (privacy-settings.tsx)
+        "readReceiptResponse" => vec![(json!("ask"), "Ask each time"), (json!("always"), "Always send"), (json!("never"), "Never send")],
         "writingLanguage" => vec![(json!("auto"), "Detect automatically"), (json!("en"), "English"), (json!("de"), "German"), (json!("fr"), "French"), (json!("es"), "Spanish"), (json!("tr"), "Turkish")],
         _ => return None,
     })
@@ -352,6 +354,8 @@ impl Settings {
                 if tab == "privacy" {
                     out.insert(0, row("section", "", "Remote content", "Images and other content loaded from the internet can tell senders when you read their mail."));
                     out.insert(1, select("desktop.remoteImages", "Load remote images", "", &["Ask first (blocked until you choose)", "Always load"], if cfg.remote_images { 1 } else { 0 }));
+                    out.push(row("section", "", "Read receipts", ""));
+                    out.push(sel_pref("readReceiptResponse", "Respond to read-receipt requests", "What to do when an incoming message asks for a read receipt."));
                 }
             }
         }
