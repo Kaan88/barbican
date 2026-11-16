@@ -1,0 +1,9 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- ViewModels and Presentation logic without UI (PORT-PLAN.md §4.2), plus the design-token
+       equality tests (generated tokens == theme.slint values, PORT-PLAN.md §2.2).
+       Shared test settings: tests/Directory.Build.props. -->
+  <ItemGroup>
+    <ProjectReference Include="../../src/Barbican.Presentation/Barbican.Presentation.csproj" />
+    <ProjectReference Include="../../tools/Barbican.GenTokens/Barbican.GenTokens.csproj" />
+  </ItemGroup>
+</Project>
