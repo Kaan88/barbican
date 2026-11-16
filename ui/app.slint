@@ -1918,7 +1918,9 @@ export component AppWindow inherits Window {
                                 horizontal-stretch: 1;
                                 if root.search == "": Text { x: 0; width: parent.width; height: parent.height; text: "Search mail"; color: Theme.faint; font-size: 13px * Prefs.fs; vertical-alignment: center; }
                                 search-box := TextInput {
-                                    y: (parent.height - self.height) / 2;
+                                    // full height, centred: the typed text sits where the placeholder does
+                                    height: parent.height;
+                                    vertical-alignment: center;
                                     width: parent.width;
                                     text <=> root.search;
                                     color: Theme.text;

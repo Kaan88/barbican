@@ -441,6 +441,9 @@ pub fn render(u: &AppWindow) {
         let nums: Vec<slint::SharedString> = (0..6).map(|w| (mini_first + Duration::days(w * 7 + 3)).iso_week().week().to_string().into()).collect();
         u.set_cal_week_nums(ModelRc::new(VecModel::from(nums)));
     }
+    // the agenda and tasks views read the calendar state themselves: they render after the
+    // borrow below is released (a nested borrow panics)
+    let mut deferred: Option<(i32, Vec<Occ>, Vec<Value>)> = None;
     ST.with(|s| {
         let mut s = s.borrow_mut();
         let q = s.query.to_lowercase();
@@ -502,8 +505,8 @@ pub fn render(u: &AppWindow) {
                 }).collect();
                 u.set_cal_cells(ModelRc::new(VecModel::from(cells)));
             }
-            3 => crate::cal_extra::render_agenda(u, &visible, from, to, &s.calendars, cp.h12),
-            4 => crate::cal_extra::render_tasks_view(u),
+            3 => deferred = Some((3, visible.clone(), s.calendars.clone())),
+            4 => deferred = Some((4, vec![], vec![])),
             _ => {
                 // one column per day of the loaded range (three in a narrow pane)
                 let mut dates: Vec<NaiveDate> = day_columns(from, to);
@@ -544,6 +547,11 @@ pub fn render(u: &AppWindow) {
             }
         }
     });
+    match deferred {
+        Some((3, visible, cals)) => crate::cal_extra::render_agenda(u, &visible, from, to, &cals, cp.h12),
+        Some((4, _, _)) => crate::cal_extra::render_tasks_view(u),
+        _ => {}
+    }
 }
 
 /// Whether an occurrence shows on day `d` (an all-day or multi-day one on each day it covers).
