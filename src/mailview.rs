@@ -52,9 +52,9 @@ clear:function(bg){seq++;if(nxt){nxt.remove();nxt=null}if(cur){cur.remove();cur=
 print:function(){if(cur)cur.contentWindow.print()}
 };post('shell')})();"#;
 
-/// The reader's background in the current theme (Theme.reader).
+/// The reader's background in the current theme (Theme.reader, the tile colour).
 pub fn reader_bg() -> &'static str {
-    if crate::DARK.with(|d| d.get()) { "#0a0a0a" } else { "#ffffff" }
+    if crate::DARK.with(|d| d.get()) { "#141414" } else { "#ffffff" }
 }
 
 fn parse_hex(c: &str) -> (u8, u8, u8) {
@@ -237,7 +237,8 @@ fn build(ui: &AppWindow) -> Option<wry::WebView> {
 
 /// Whether the reader itself is on screen (so a capture of the body belongs there).
 fn reader_shown(ui: &AppWindow) -> bool {
-    has_message(ui) && ui.get_app() == 0
+    // settings and the composer replace the reader: the view goes at once, not after a frame
+    has_message(ui) && ui.get_app() == 0 && !ui.get_show_settings() && !ui.get_composing()
 }
 
 /// A message is open in the WebView renderer.
@@ -278,11 +279,13 @@ fn after_render() {
 /// Keep the WebView's place, size and visibility in step with the layout.
 pub fn sync(ui: &AppWindow) {
     let want = ui.get_body_visible();
-    if UI.with(|u| u.borrow().is_none()) {
-        UI.with(|u| *u.borrow_mut() = Some(ui.as_weak()));
-        let _ = ui.window().set_rendering_notifier(|state, _| {
+    if UI.with(|u| u.borrow().is_none()) { UI.with(|u| *u.borrow_mut() = Some(ui.as_weak())); }
+    // registering fails until the window has a renderer: retry until it takes
+    if !NOTIFIER.with(|n| n.get()) {
+        let ok = ui.window().set_rendering_notifier(|state, _| {
             if matches!(state, slint::RenderingState::AfterRendering) { after_render(); }
-        });
+        }).is_ok();
+        NOTIFIER.with(|n| n.set(ok));
     }
     WV.with(|w| {
         let mut w = w.borrow_mut();
@@ -292,8 +295,16 @@ pub fn sync(ui: &AppWindow) {
             if w.is_none() { return; }
         }
         let Some(v) = &*w else { return };
-        let _ = v.set_bounds(place(ui));
         let shown = SHOWN.with(|x| x.get());
+        let now = (ui.get_bx(), ui.get_by(), ui.get_bw(), ui.get_bh());
+        // the layout moved the body as it went away (composer, another screen): the view must
+        // not follow it there for a frame, and a capture of the old place is of no use
+        let moved = shown && !want && AT.with(|a| a.get()) != now;
+        // a shown view only moves with a body that stays (hiding parks it)
+        if want || !shown {
+            let _ = v.set_bounds(place(ui));
+            if want { AT.with(|a| a.set(now)); }
+        }
         if want {
             HIDE_PENDING.with(|h| h.set(false));
             set_shown(ui, v, true);
@@ -307,11 +318,13 @@ pub fn sync(ui: &AppWindow) {
         } else if shown && !HIDE_PENDING.with(|h| h.get()) {
             SNAP_TIMER.with(|t| t.stop());
             // the capture also covers the first frame back (app switch, composer, settings)
-            let frozen = has_message(ui) && SHELL_READY.with(|r| r.get()) && freeze(ui);
+            let frozen = !moved && has_message(ui) && SHELL_READY.with(|r| r.get()) && freeze(ui);
             if frozen && reader_shown(ui) {
                 // hide once the frame with the capture in its place is on screen
                 HIDE_PENDING.with(|h| h.set(true));
                 ui.window().request_redraw();
+                // should no frame come (nothing to draw), hide anyway: a body over the overlay is worse
+                slint::Timer::single_shot(Duration::from_millis(120), || { after_render(); });
             } else {
                 if !frozen { ui.set_body_snap_on(false); }
                 set_shown(ui, v, false);
@@ -327,7 +340,17 @@ pub fn sync(ui: &AppWindow) {
     });
 }
 
-thread_local! { static CLEARED: Cell<bool> = const { Cell::new(true) }; }
+thread_local! {
+    static CLEARED: Cell<bool> = const { Cell::new(true) };
+    static NOTIFIER: Cell<bool> = const { Cell::new(false) };
+    /// Where the shown view was last placed (logical x, y, w, h).
+    static AT: Cell<(f32, f32, f32, f32)> = const { Cell::new((0.0, 0.0, 0.0, 0.0)) };
+}
 
 /// Automation: the probe asks whether the shell is up.
 pub fn shell_ready() -> bool { SHELL_READY.with(|r| r.get()) }
+
+/// Automation: whether the after-render hook is in place, and whether the view is on screen.
+pub fn state() -> String {
+    format!("notifier {} shown {} hide-pending {}", NOTIFIER.with(|n| n.get()), SHOWN.with(|x| x.get()), HIDE_PENDING.with(|h| h.get()))
+}

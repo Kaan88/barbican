@@ -1,7 +1,7 @@
 """Run the flicker scenarios against a Barbican started with BARBICAN_AUTOMATION=1 and print
 (and save) the tools/flicker.py summary of each.
 
-Usage: python tools/scenarios.py --port N --out RESULTS.json --dir FRAMES_DIR [--only a,b] [--modes light,dark] [--search TEXT]
+Usage: python tools/scenarios.py --port N --out RESULTS.json --dir FRAMES_DIR [--only a,b] [--modes light,dark] [--search TEXT] [--layout bento]
 
 Each scenario: setup commands, then a frame burst (whole window incl. the WebView) while the
 action commands run. Coordinates are logical px for the default 1781x900 window with the
@@ -43,6 +43,38 @@ SCENARIOS = {
 }
 
 
+# The Bento/Nordic design (default window 1400x900): the same scenarios on its coordinates.
+def bento():
+    row = lambda i: f"click 490 {288 + 82 * i}"  # noqa: E731
+    base = ["theme {mode}", "resize 1400 900", "render-mode 0", "discard-composer", "click 46 100", row(0), "sleep 0.3", "key Escape", "sleep 0.5"]
+    read = base + [row(0), "sleep 1.6"]
+    return {
+        "open_first":     (base + ["cache-clear", "sleep 0.3"], [row(0)], 1800),
+        "open_again":     (base + ["sleep 0.3"], [row(0)], 1500),
+        "switch_key":     (read, ["key j"], 1800),
+        "switch_click":   (read, [row(2)], 1800),
+        "switch_back":    (base + [row(1), "sleep 1.4", row(0), "sleep 1.6"], [row(1)], 1500),
+        "close_reader":   (read, ["key Escape"], 1200),
+        "thread_switch":  (base + [row(0), "sleep 2.2"], ["click 900 300"], 1800),
+        "ctx_menu":       (read, ["rclick 780 246", "sleep 0.6", "key Escape"], 1500),
+        "composer_open":  (read, ["click 750 151"], 1500),
+        "composer_close": (read + ["click 750 151", "sleep 1.2"], ["discard-composer"], 1500),
+        "settings_open":  (read, ["click 46 803"], 1500),
+        "settings_close": (read + ["click 46 803", "sleep 1.2"], ["key Escape"], 1500),
+        "app_to_cal":     (read, ["click 46 151"], 1500),
+        "app_back":       (read + ["click 46 151", "sleep 1.2"], ["click 46 100"], 1500),
+        "theme_flip":     (read, ["theme {other}"], 1500),
+        "resize":         (read, ["resize 1250 820"], 1500),
+        "star_toggle":    (read, ["type s", "sleep 0.9", "type s"], 2200),
+        "list_refresh":   (read, ["type G"], 2000),
+        "images_toggle":  (read, ["load-images"], 1500),
+        "light_switch":   (base + ["render-mode 1", row(0), "sleep 1.6"], ["key j"], 1800),
+    }
+
+
+LAYOUT = None
+
+
 class Driver:
     def __init__(self, port):
         self.s = socket.create_connection(("127.0.0.1", port), timeout=30)
@@ -72,7 +104,7 @@ def run(d, name, mode, frames_dir):
         time.sleep(0.2)
     while not d.cmd("burst-status").startswith(("done", "none")):
         time.sleep(0.2)
-    return flicker.analyse(out)
+    return flicker.analyse(out, layout=LAYOUT)
 
 
 def main():
@@ -83,6 +115,11 @@ def main():
     frames_dir = opt("--dir", "frames")
     only = opt("--only")
     modes = opt("--modes", "light,dark").split(",")
+    if opt("--layout") == "bento":
+        global LAYOUT
+        LAYOUT = "bento"
+        SCENARIOS.clear()
+        SCENARIOS.update(bento())
     names = only.split(",") if only else list(SCENARIOS)
     d = Driver(port)
     search = opt("--search")

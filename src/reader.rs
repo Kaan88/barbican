@@ -113,8 +113,10 @@ pub fn open(u: &AppWindow, st: &Shared, id: String) {
 fn prefill(u: &AppWindow, id: &str) {
     let Some(m) = mail::email(id) else { return };
     let from = mail::sender(&m);
+    let email = m["from"][0]["email"].as_str().unwrap_or("");
+    if u.get_r_email().as_str() != email { glance::clear_sender(u); }
     u.set_r_from(from.clone().into());
-    u.set_r_email(m["from"][0]["email"].as_str().unwrap_or("").into());
+    u.set_r_email(email.into());
     u.set_r_initials(initials(&from).into());
     u.set_r_color(mail::tint(&from));
     u.set_r_subject(m["subject"].as_str().unwrap_or("(no subject)").into());
@@ -209,6 +211,9 @@ fn present(u: &AppWindow, c: &Arc<jmap::Client>, id: &str, m: Arc<Value>, thread
         if u.get_current_mail().as_str() != id2 { return; }
         LOADING.with(|t| t.stop());
         u.set_r_loading(false);
+        // the sender panel: only a different sender empties it (it refills from the server)
+        if u.get_r_email().as_str() != email { glance::clear_sender(&u); }
+        glance::sender(u.as_weak(), c2.clone(), email.clone(), id2.clone());
         u.set_r_email(email.into());
         u.set_r_initials(initials(&from).into());
         u.set_r_color(mail::tint(&from));

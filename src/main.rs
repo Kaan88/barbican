@@ -14,6 +14,7 @@ mod compose;
 mod contacts;
 mod ctxmenu;
 mod files;
+mod glance;
 mod jmap;
 mod lite;
 mod mailview;
@@ -129,7 +130,8 @@ fn render_current_then(u: &AppWindow, on_ready: Option<Box<dyn FnOnce()>>) {
 /// HTML mail is on white.
 fn doc_bg(body: &str) -> &'static str {
     let dark = DARK.with(|d| d.get()) && !settings::Settings::load().bool("emailAlwaysLightMode", false);
-    if (dark && a11y::A11y::load().override_active()) || themed_page(body) { "#0a0a0a" } else { "#ffffff" }
+    // the accessibility override paints its own page colour (a11y.rs)
+    if dark && a11y::A11y::load().override_active() { "#0a0a0a" } else if themed_page(body) { mailview::reader_bg() } else { "#ffffff" }
 }
 
 /// Whether a message page is shown in the dark reader's colours: dark theme (and not
@@ -153,7 +155,7 @@ fn esc(s: &str) -> String {
 thread_local! { static DARK: std::cell::Cell<bool> = const { std::cell::Cell::new(true) }; }
 
 fn wv_bg() -> (u8, u8, u8, u8) {
-    if DARK.with(|d| d.get()) { (0x0a, 0x0a, 0x0a, 255) } else { (255, 255, 255, 255) }
+    if DARK.with(|d| d.get()) { (0x14, 0x14, 0x14, 255) } else { (255, 255, 255, 255) }
 }
 
 /// Automation only: run JS in the email WebView; the result lands in WV_EVAL for `wv-result`.
@@ -191,7 +193,7 @@ fn wrap_html_opts(body: &str, images: bool) -> String {
     };
     if themed_page(body) {
         // plain text, and HTML that sets no colours of its own, take the dark reader's colours
-        return format!("<!doctype html><html><head><meta charset=utf-8>{csp}<base target=_blank><style>html,body{{background:#0a0a0a;color:#e5e5e5}}body{{margin:{margin}px;font-family:'Segoe UI',sans-serif;font-size:14px;word-wrap:break-word}}pre{{white-space:pre-wrap;font-family:{pre_font};margin:0}}a{{color:#f0577a}}img{{max-width:100%;height:auto}}</style></head><body>{body}</body></html>");
+        return format!("<!doctype html><html><head><meta charset=utf-8>{csp}<base target=_blank><style>html,body{{background:#141414;color:#d4d4d4}}body{{margin:{margin}px;font-family:'Segoe UI',sans-serif;font-size:14px;word-wrap:break-word}}pre{{white-space:pre-wrap;font-family:{pre_font};margin:0}}a{{color:#f0577a}}img{{max-width:100%;height:auto}}</style></head><body>{body}</body></html>");
     }
     format!("<!doctype html><html><head><meta charset=utf-8>{csp}<base target=_blank><style>body{{margin:{margin}px;font-family:'Segoe UI',sans-serif;font-size:14px;color:#111;background:#fff;word-wrap:break-word}}pre{{white-space:pre-wrap;font-family:{pre_font}}}img{{max-width:100%;height:auto}}</style></head><body>{body}</body></html>")
 }
@@ -673,6 +675,7 @@ fn main() -> Result<(), slint::PlatformError> {
         let Some(c) = st.lock().unwrap().clone() else { return };
         let u = w.unwrap();
         u.set_current_mail("".into());
+        glance::title(&u);
         // Bulwark clearSearchOnFolderChange (default off): keep the query and re-run it in the new folder
         let q = u.get_search().trim().to_string();
         if !q.is_empty() && id != "__scheduled" && !settings::Settings::load().bool("clearSearchOnFolderChange", false) {
@@ -857,7 +860,7 @@ fn main() -> Result<(), slint::PlatformError> {
         drop(p);
         rs();
         if key == "desktop.renderMode" || key == "desktop.remoteImages" { render_current(&w.unwrap()); }
-        if key == "theme" { apply_theme(&w.unwrap()); }
+        if key == "theme" || key == "uiStyle" { apply_theme(&w.unwrap()); }
         if key == "writingLanguage" { rte::spell::reload(); }
         apply_ui_prefs(&w.unwrap());
         mail::rebuild_folders(&w.unwrap());
@@ -1434,6 +1437,7 @@ fn main() -> Result<(), slint::PlatformError> {
         let Some(c) = st.lock().unwrap().clone() else { return };
         let u = w.unwrap();
         u.set_current_mail("".into());
+        glance::title(&u);
         mail::load_list(w.clone(), c, json!({"hasKeyword": format!("$label:{id}")}));
     });
 
@@ -1786,10 +1790,13 @@ fn finish_login(w: slint::Weak<AppWindow>, st: Shared, res: Result<jmap::Client,
             {
                 let (w3, c3) = (w2.clone(), c.clone());
                 std::thread::spawn(move || {
-                    let addrs: Vec<String> = c3.identities().unwrap_or_default().iter().filter_map(|i| i["email"].as_str().map(String::from)).collect();
-                    let _ = w3.upgrade_in_event_loop(move |_| MY_ADDRS.with(|a| *a.borrow_mut() = addrs));
+                    let ids = c3.identities().unwrap_or_default();
+                    let addrs: Vec<String> = ids.iter().filter_map(|i| i["email"].as_str().map(String::from)).collect();
+                    let _ = w3.upgrade_in_event_loop(move |u| { MY_ADDRS.with(|a| *a.borrow_mut() = addrs); glance::set_name(&u, &ids); });
                 });
             }
+            // today's events and open tasks for the mail screen's summary tiles
+            calendar::load(w2.clone(), c.clone());
             check_new_mail(c.clone(), None);
             start_push(w2, c);
         }
@@ -1830,6 +1837,8 @@ pub fn set_theme_dark(ui: &AppWindow, dark: bool) {
     // the open message's page follows (plain text and the reader are themed); swapped in, no reload
     if changed && ui.get_current_mail() != "" { render_current(ui); }
     if changed && ui.get_current_mail() == "" { ui.set_body_bg(mailview::color(mailview::reader_bg())); mailview::theme_changed(); }
+    // Settings > Appearance > Style: Bento (tiles) or Nordic (one surface)
+    ui.global::<Theme>().set_style(if settings::Settings::load().str("uiStyle", "bento") == "nordic" { 1 } else { 0 });
 }
 
 

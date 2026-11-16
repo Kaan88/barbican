@@ -520,6 +520,23 @@
      ]
     },
     {
+     "kind": "select",
+     "label": "Style",
+     "desc": "Bento puts every panel on its own tile with summary tiles above your mail. Nordic keeps one calm surface with pill buttons and round avatars.",
+     "key": "uiStyle",
+     "default": "bento",
+     "options": [
+      [
+       "bento",
+       "Bento"
+      ],
+      [
+       "nordic",
+       "Nordic"
+      ]
+     ]
+    },
+    {
      "kind": "section",
      "label": "Text & motion",
      "desc": ""
@@ -651,7 +668,7 @@
      "label": "Colorful sidebar icons",
      "desc": "Give folder and tag icons colors (blue Inbox, red Spam, green Sent and so on). Turn this off for gray icons.",
      "key": "colorfulSidebarIcons",
-     "default": true
+     "default": false
     },
     {
      "kind": "toggle",

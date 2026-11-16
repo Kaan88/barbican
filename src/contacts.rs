@@ -48,7 +48,7 @@ fn sort_name(c: &Value, by_last: bool) -> String {
     display
 }
 
-fn first(c: &Value, map: &str, field: &str) -> Option<String> {
+pub(crate) fn first(c: &Value, map: &str, field: &str) -> Option<String> {
     c[map].as_object().and_then(|o| o.values().find_map(|v| v[field].as_str().map(String::from)))
 }
 

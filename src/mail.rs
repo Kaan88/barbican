@@ -118,7 +118,7 @@ fn count_text(role: &str, unread: i64, total: i64) -> String {
 
 pub fn rebuild_folders(u: &AppWindow) {
     let prefs = crate::settings::Settings::load();
-    let colorful = prefs.bool("colorfulSidebarIcons", true);
+    let colorful = prefs.bool("colorfulSidebarIcons", false);
     let totals = prefs.bool("showFolderTotalCount", true);
     let style = crate::a11y::A11y::from(&prefs, crate::a11y::System::default()).unread_style;
     BOXES.with(|b| {
@@ -185,6 +185,7 @@ pub fn rebuild_folders(u: &AppWindow) {
         }
         u.set_folders(ModelRc::new(VecModel::from(out)));
     });
+    crate::glance::title(u);
     // Bulwark faviconUnreadBadge: the Inbox unread count where the taskbar shows it (the title)
     let inbox_unread = BOXES.with(|b| b.borrow().list.iter().find(|m| m["role"] == "inbox").and_then(|m| m["unreadEmails"].as_i64()).unwrap_or(0));
     u.set_window_title(if prefs.bool("faviconUnreadBadge", true) && inbox_unread > 0 { format!("({inbox_unread}) Barbican") } else { "Barbican".into() }.into());
@@ -223,6 +224,7 @@ pub fn load_mailboxes(w: slint::Weak<AppWindow>, c: Arc<Client>, select_inbox: b
     let since = if select_inbox { None } else {
         BOXES.with(|b| { let b = b.borrow(); b.state.clone().filter(|(a, _)| *a == c.state_key()).map(|(_, s)| (s, b.list.clone())) })
     };
+    crate::glance::refresh(w.clone(), c.clone());
     std::thread::spawn(move || {
         let base = since.as_ref().map(|(s, _)| (c.state_key(), s.clone()));
         let delta = since.and_then(|(s, have)| c.mailbox_delta(&s, &have).ok().flatten());
@@ -253,6 +255,7 @@ pub fn load_mailboxes(w: slint::Weak<AppWindow>, c: Arc<Client>, select_inbox: b
             if select_inbox {
                 if let Some(id) = inbox {
                     u.set_current_folder(id.clone().into());
+                    crate::glance::title(&u);
                     load_list(w2, c, json!({"inMailbox": id}));
                 }
             }
@@ -288,7 +291,8 @@ fn initials(s: &str) -> String {
 }
 
 pub fn tint(s: &str) -> Color {
-    const P: [u32; 6] = [0xe07a10, 0x22a55a, 0x6366f1, 0x84b31a, 0xd9467a, 0x0ea5b7];
+    // the palette's tint hues (rose, sky, mint, amber): Theme.tint-bg/-fg turn them into avatar pairs
+    const P: [u32; 4] = [0xf0577a, 0x60a5fa, 0x34d399, 0xfbbf24];
     let h = s.bytes().fold(7u32, |a, b| a.wrapping_mul(31).wrapping_add(b as u32));
     rgb(P[(h as usize) % P.len()])
 }

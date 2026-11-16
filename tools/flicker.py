@@ -1,7 +1,7 @@
 """Analyse a frame burst recorded by the automation `burst` command (see src/automation.rs).
 
 Usage:
-  python tools/flicker.py DIR [--frames] [--json]
+  python tools/flicker.py DIR [--frames] [--json] [--bento]   (--bento: the Bento/Nordic layout)
 
 DIR holds f####_<ms>.png frames (whole window incl. the WebView2 email body), events.txt
 (commands and app marks with their time) and meta.json (scale, downscale step, body rect).
@@ -60,7 +60,12 @@ def regions(meta, shape):
         x1, y1 = int(min(W, (x + w) * k)), int(min(H, (y + h) * k))
         return (y0, y1, x0, x1) if x1 > x0 + 1 and y1 > y0 + 1 else None
 
-    regs = {"head": r(bx + 8, 50, bw - 70, 40), "from": r(bx + 52, 100, bw * 0.55, 26), "list": r(bx - 330, 45, 320, H / k - 90), "pane": r(bx, 0, bw, H / k)}
+    if meta.get("layout") == "bento":
+        # Bento/Nordic design: subject and sender line above the conversation strip, the list
+        # in its own tile left of the reader tile
+        regs = {"head": r(bx, 185, bw, 42), "from": r(bx, 236, bw * 0.8, 22), "list": r(bx - 397, 230, 350, H / k - 290), "pane": r(bx - 25, 113, bw + 50, H / k - 128)}
+    else:
+        regs = {"head": r(bx + 8, 50, bw - 70, 40), "from": r(bx + 52, 100, bw * 0.55, 26), "list": r(bx - 330, 45, 320, H / k - 90), "pane": r(bx, 0, bw, H / k)}
     tiles = {}
     for i in range(4):
         for j in range(3):
@@ -85,8 +90,10 @@ def ink(c):
     return float((np.abs(c - np.median(c)) > 25).mean())
 
 
-def analyse(d, show_frames=False):
+def analyse(d, show_frames=False, layout=None):
     meta, frames, events = load(d)
+    if layout:
+        meta["layout"] = layout
     if not frames:
         return {"error": "no frames"}
     L = [lum(p) for _, p in frames]
@@ -180,5 +187,5 @@ def analyse(d, show_frames=False):
 
 if __name__ == "__main__":
     a = [x for x in sys.argv[1:] if not x.startswith("--")]
-    res = analyse(a[0], "--frames" in sys.argv)
+    res = analyse(a[0], "--frames" in sys.argv, "bento" if "--bento" in sys.argv else None)
     print(json.dumps(res) if "--json" in sys.argv else " ".join(f"{k}={v}" for k, v in res.items()))

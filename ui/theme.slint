@@ -1,0 +1,197 @@
+// Barbican design tokens (design/mockups, design/README.md): palette, tints, shape and type
+// per style, the line-icon set and the stroke icon. Imported by app.slint and dashboard.slint.
+
+export global Theme {
+    in-out property <bool> dark: true;
+    // Settings > Accessibility > Contrast "More" (Bulwark data-contrast="more")
+    in-out property <bool> more-contrast: false;
+    // Settings > Appearance > Style: 0 Bento (every panel its own tile), 1 Nordic (one surface, pills and circles)
+    in-out property <int> style: 0;
+    out property <bool> bento: style != 1;
+    out property <bool> nordic: style == 1;
+
+    // ---- palette (design/mockups BNTokens: one palette, dark first) ----
+    out property <color> ground: dark ? #0a0a0a : #f4f4f5;
+    out property <color> tile: dark ? #141414 : #ffffff;
+    out property <color> tile2: dark ? #1a1a1a : (nordic ? #f7f7f8 : #fafafa);
+    out property <color> line: more-contrast ? (dark ? #9ca3af : #4b5563) : (dark ? #262626 : #e5e5e5);
+    out property <color> track: dark ? #2e2e2e : #ececec;
+    out property <color> text: more-contrast ? (dark ? #ffffff : #000000) : (dark ? #fafafa : #0a0a0a);
+    out property <color> body: more-contrast ? (dark ? #ffffff : #000000) : (dark ? #d4d4d4 : #2b2b2b);
+    out property <color> dim: more-contrast ? (dark ? #e5e7eb : #1f2937) : (dark ? #a3a3a3 : #6b6b6b);
+    out property <color> faint: more-contrast ? (dark ? #d1d5db : #374151) : (dark ? #737373 : #8a8a8a);
+    out property <color> accent: more-contrast ? (dark ? #93c5fd : #1d4ed8) : (dark ? #f0577a : #c8234a);
+    out property <color> on-accent: more-contrast ? (dark ? #000000 : #ffffff) : (dark ? #16070c : #ffffff);
+    out property <color> sel: dark ? #4a1424 : #fde4ea;
+    out property <color> sel-text: dark ? #ffd5df : #8c1733;
+    out property <color> popup: dark ? #1c1c1c : #ffffff;
+    // meaning tints (bg/fg pairs): rose today, mint waiting/done, sky travel/work, amber attention
+    out property <color> rose-bg: dark ? #f0577a24 : #fde4ea;
+    out property <color> rose-fg: dark ? #ffb3c4 : #8c1733;
+    out property <color> mint-bg: dark ? #34d39921 : #dcf5e8;
+    out property <color> mint-fg: dark ? #86efc4 : #17603f;
+    out property <color> sky-bg: dark ? #60a5fa24 : #dfeafd;
+    out property <color> sky-fg: dark ? #a8cbff : #1e3f8a;
+    out property <color> amber-bg: dark ? #fbbf2421 : #fdf1d3;
+    out property <color> amber-fg: dark ? #fcd679 : #7a4a06;
+    // tint-bg / tint-fg turn a colour into a tile pair: the four tint hues (what mail::tint hands
+    // out per sender: rose, sky, mint, amber) map exactly, any other colour (tags) gets the same treatment
+    public pure function tint-bg(c: color) -> color {
+        if c == #f0577a { return rose-bg; }
+        if c == #34d399 { return mint-bg; }
+        if c == #60a5fa { return sky-bg; }
+        if c == #fbbf24 { return amber-bg; }
+        return dark ? c.with-alpha(0.15) : c.mix(#ffffff, 0.16);
+    }
+    public pure function tint-fg(c: color) -> color {
+        if c == #f0577a { return rose-fg; }
+        if c == #34d399 { return mint-fg; }
+        if c == #60a5fa { return sky-fg; }
+        if c == #fbbf24 { return amber-fg; }
+        return dark ? c.mix(#ffffff, 0.5) : c.mix(#000000, 0.55);
+    }
+
+    // ---- older names, mapped onto the palette so screens not yet restyled keep working ----
+    out property <color> bg: ground;
+    out property <color> rail: ground;
+    out property <color> side: tile;
+    out property <color> hover: dark ? #1f1f1f : #f2f2f3;
+    out property <color> chip: dark ? #262626 : #ececec;
+    out property <color> raised: dark ? #1a1a1a : #f4f4f5;
+    out property <color> zebra: dark ? #111111 : #fafafa;
+    out property <color> bubble: tile2;
+    out property <color> reader: tile;
+    out property <color> muted-day: dark ? #5a5a5a : #a3a3a3;
+    // keyboard focus outline (Bulwark --focus-ring-color)
+    out property <color> ring: more-contrast ? (dark ? #ffffff : #000000) : accent;
+    out property <string> icons: "Segoe Fluent Icons";
+
+    // ---- shape and spacing (style dependent) ----
+    // window ground padding and the gap between tiles (Nordic: rail and folders sit on the ground)
+    out property <length> pad: nordic ? 0px : 14px;
+    out property <length> gap: nordic ? 0px : 12px;
+    // rail column width, and where an app's content starts (x of everything right of the rail)
+    out property <length> rail-w: nordic ? 76px : 64px;
+    out property <length> shell-x: nordic ? 76px : 14px + 64px + 12px;
+    // tiles: side panels (rail, folders), panes (list, reader, context; the Nordic surface), summary tiles
+    out property <length> r-tile: 24px;
+    out property <length> r-pane: nordic ? 28px : 26px;
+    out property <length> r-summary: 22px;
+    // controls (Nordic: every control is a pill, so use min(height / 2, r-…))
+    out property <length> r-button: nordic ? 999px : 12px;
+    out property <length> r-field: nordic ? 999px : 14px;
+    out property <length> r-row: nordic ? 0px : 18px;
+    out property <length> r-nav: nordic ? 22px : 14px;
+    out property <length> r-chip: 99px;
+    out property <length> r-popup: nordic ? 16px : 14px;
+    // squircle (Bento) or circle (Nordic) for an avatar or icon button of this size
+    public pure function round(size: length) -> length {
+        return nordic ? size / 2 : size * 0.37;
+    }
+
+    // ---- type scale (BNTokens): title 28/800, section 19/700, body 14.5/400 (line 1.7), meta 12/600 ----
+    out property <length> fs-title: 28px;
+    out property <length> fs-section: 19px;
+    out property <length> fs-body: 14.5px;
+    out property <length> fs-meta: 12px;
+}
+
+/// Line icons from the mockups (`I` in design/mockups/*.dc.html): SVG path data in a 24 x 24 box.
+export global Icons {
+    out property <string> mail: "M4 4h16v16H4z M22 6l-10 7L2 6";
+    out property <string> cal: "M3 4h18v18H3z M16 2v4 M8 2v4 M3 10h18";
+    out property <string> users: "M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2 M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8z";
+    out property <string> folder: "M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z";
+    out property <string> spark: "M12 3l1.9 5.8L20 11l-6.1 2.2L12 19l-1.9-5.8L4 11l6.1-2.2z";
+    out property <string> shield: "M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z";
+    out property <string> inbox: "M22 12h-6l-2 3h-4l-2-3H2 M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z";
+    out property <string> file: "M14 2H6v20h12V8z M14 2v6h6";
+    out property <string> clock: "M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20z M12 6v6l4 2";
+    out property <string> send: "M22 2 11 13 M22 2l-7 20-4-9-9-4 20-7z";
+    out property <string> archive: "M21 8v13H3V8 M1 3h22v5H1z M10 12h4";
+    out property <string> alert: "M12 9v4 M12 17h.01 M10.3 3.9 1.8 18h20.4L13.7 3.9a2 2 0 0 0-3.4 0z";
+    out property <string> trash: "M3 6h18 M19 6l-1 14H6L5 6 M8 6V4h8v2";
+    out property <string> reply: "M9 17l-5-5 5-5 M20 18v-2a4 4 0 0 0-4-4H4";
+    out property <string> fwd: "M15 17l5-5-5-5 M4 18v-2a4 4 0 0 1 4-4h12";
+    out property <string> clip: "M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48";
+    out property <string> tpl: "M4 4h16v6H4z M4 14h7v6H4z M15 14h5v6h-5z";
+    out property <string> opt: "M4 21v-7 M4 10V3 M12 21v-9 M12 8V3 M20 21v-5 M20 12V3 M1 14h6 M9 8h6 M17 16h6";
+    out property <string> tag: "M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z M7 7h.01";
+    out property <string> search: "M11 19a8 8 0 1 0 0-16 8 8 0 0 0 0 16z M21 21l-4.35-4.35";
+    out property <string> pen: "M12 20h9 M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z";
+    out property <string> close: "M18 6 6 18 M6 6l12 12";
+    out property <string> external: "M15 3h6v6 M10 14 21 3 M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6";
+    // same family (24 box, line), for actions the mockups do not draw
+    out property <string> settings: "M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6z M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z";
+    out property <string> star: "M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01z";
+    out property <string> reply-all: "M7 17l-5-5 5-5 M12 17l-5-5 5-5 M22 18v-2a4 4 0 0 0-4-4H7";
+    out property <string> move: "M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z M9 13h7 M13 10l3 3-3 3";
+    out property <string> print: "M6 9V2h12v7 M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2 M6 14h12v8H6z";
+    out property <string> unread: "M4 4h16v16H4z M22 6l-10 7L2 6";
+    out property <string> refresh: "M23 4v6h-6 M1 20v-6h6 M3.51 9a9 9 0 0 1 14.85-3.36L23 10 M1 14l4.64 4.36A9 9 0 0 0 20.49 15";
+    out property <string> filter: "M22 3H2l8 9.46V19l4 2v-8.54z";
+    out property <string> check: "M20 6 9 17l-5-5";
+    out property <string> plus: "M12 5v14 M5 12h14";
+    out property <string> chevron-down: "M6 9l6 6 6-6";
+    out property <string> chevron-right: "M9 18l6-6-6-6";
+    out property <string> more: "M12 13a1 1 0 1 0 0-2 1 1 0 0 0 0 2z M19 13a1 1 0 1 0 0-2 1 1 0 0 0 0 2z M5 13a1 1 0 1 0 0-2 1 1 0 0 0 0 2z";
+    out property <string> download: "M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4 M7 10l5 5 5-5 M12 15V3";
+    out property <string> image: "M3 3h18v18H3z M8.5 10a1.5 1.5 0 1 0 0-3 1.5 1.5 0 0 0 0 3z M21 15l-5-5L5 21";
+    out property <string> phone: "M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z";
+    out property <string> back: "M19 12H5 M12 19l-7-7 7-7";
+    // the folder icon for the Segoe glyph Rust gives each mailbox role (mail::role_icon)
+    public pure function for-glyph(g: string) -> string {
+        if g == "\u{E715}" { return inbox; }
+        if g == "\u{E70B}" { return file; }
+        if g == "\u{E724}" { return send; }
+        if g == "\u{E7B8}" { return archive; }
+        if g == "\u{E8F8}" { return alert; }
+        if g == "\u{E74D}" { return trash; }
+        if g == "\u{E787}" { return clock; }
+        return folder;
+    }
+}
+
+/// A line icon: `commands` takes one of the Icons paths (24 x 24 box), drawn at `size` with a
+/// `weight` stroke as the mockups' SVGs do (stroke-width 1.6–2.2 in the 24 box, round caps).
+export component SIcon inherits Path {
+    in property <length> size: 20px;
+    in property <color> tint: Theme.dim;
+    in property <float> weight: 1.7;
+    width: size;
+    height: size;
+    viewbox-x: 0;
+    viewbox-y: 0;
+    viewbox-width: 24;
+    viewbox-height: 24;
+    fill: transparent;
+    stroke: tint;
+    stroke-width: size * weight / 24;
+    stroke-line-cap: round;
+}
+
+export global Prefs {
+    in-out property <bool> toolbar-labels: true;
+    in-out property <bool> tag-chips: true;
+    in-out property <length> font-size: 13px;
+    // the user's text scale, for the design's px sizes (13.5px * Prefs.fs)
+    out property <float> fs: font-size / 13px;
+    in-out property <bool> cal-tinted: false;
+    // timeFormat 12h: the hour column reads "2:00 PM"
+    in-out property <bool> cal-h12: false;
+    // list hover actions, Barbican action names (delete, star, read, archive, spam)
+    in-out property <[string]> hover-actions: ["delete", "star", "read", "archive"];
+    // reader body gutter (messageSpacing)
+    in-out property <length> reader-gutter: 20px;
+    // Settings > Accessibility
+    in-out property <bool> reduce-motion: false;
+    in-out property <bool> large-targets: false;
+    // focus outline width (0 = off, Bulwark's default)
+    in-out property <length> focus-ring: 0px;
+    // a button on each row that opens its actions (showRowActionButton)
+    in-out property <bool> row-action: false;
+    // hover actions as a floating group in a corner (hoverActionsMode) and which corner
+    in-out property <bool> hover-floating: false;
+    in-out property <bool> hover-left: false;
+    in-out property <bool> hover-bottom: false;
+}

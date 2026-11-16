@@ -605,6 +605,7 @@ pub fn render_tasks(u: &AppWindow) {
         done: t["progress"] == "completed",
     }).collect();
     u.set_cal_tasks(ModelRc::new(VecModel::from(rows)));
+    crate::glance::calendar(u);
 }
 
 pub fn add_task(u: &AppWindow, c: Arc<Client>, title: &str, due: &str) {
@@ -820,4 +821,60 @@ pub fn event_ics(id: &str) -> Option<(String, String)> {
     l.extend(["END:VEVENT".into(), "END:VCALENDAR".into()]);
     let title = e["title"].as_str().filter(|t| !t.is_empty()).unwrap_or("event");
     Some((format!("{}.ics", crate::sanitize_name(title)), l.iter().map(|x| ics_fold(x)).collect()))
+}
+
+// ---------------- mail glance (summary tiles, sender panel) ----------------
+
+/// Today's events for the mail summary tile: how many, and the next one still to come
+/// ("Stand-up 10:30"). None until the calendar has loaded a range that covers today.
+pub fn glance_today() -> Option<(usize, String)> {
+    let today = Local::now().date_naive();
+    let (from, to) = range();
+    if today < from || today >= to { return None; }
+    let now = Local::now().naive_local();
+    let h12 = cal_prefs().h12;
+    ST.with(|s| {
+        let s = s.borrow();
+        if s.calendars.is_empty() { return None; }
+        let on: Vec<&Occ> = s.events.iter()
+            .filter(|o| !s.hidden.contains(&o.calendar))
+            .filter(|o| o.start.date() <= today && (o.end.date() > today || o.start.date() == today))
+            .collect();
+        let next = on.iter().find(|o| o.end > now && !o.all_day).or(on.iter().find(|o| o.all_day))
+            .map(|o| if o.all_day { o.title.clone() } else { format!("{} {}", o.title, fmt_time(o.start, h12)) })
+            .unwrap_or_default();
+        Some((on.len(), next))
+    })
+}
+
+/// Open tasks for the summary tile: how many, and the first by due date ("Title · 2026-11-20").
+pub fn glance_tasks() -> Option<(usize, String)> {
+    if ST.with(|s| s.borrow().calendars.is_empty()) { return None; }
+    let mut open: Vec<Value> = RAW.with(|r| r.borrow().iter().filter(|e| is_task(e) && e["progress"] != "completed").cloned().collect());
+    open.sort_by_key(|t| t["due"].as_str().unwrap_or("9999").to_string());
+    let next = open.first().map(|t| {
+        let title = t["title"].as_str().filter(|x| !x.is_empty()).unwrap_or("(untitled task)");
+        match t["due"].as_str().and_then(|d| NaiveDate::parse_from_str(&d[..10.min(d.len())], "%Y-%m-%d").ok()) {
+            Some(d) => format!("{title} · {}", d.format("%a %-d %b")),
+            None => title.to_string(),
+        }
+    }).unwrap_or_default();
+    Some((open.len(), next))
+}
+
+/// The next loaded event (from now) with this address among its participants: ("Thu 14:00", title).
+pub fn next_with(email: &str) -> Option<(String, String)> {
+    if email.is_empty() { return None; }
+    let e = email.to_lowercase();
+    let with: HashSet<String> = RAW.with(|r| r.borrow().iter().filter(|ev| {
+        ev["participants"].as_object().is_some_and(|ps| ps.values().any(|p| {
+            p["email"].as_str().is_some_and(|x| x.eq_ignore_ascii_case(&e))
+                || p["sendTo"]["imip"].as_str().is_some_and(|x| x.to_lowercase().trim_start_matches("mailto:") == e)
+        }))
+    }).filter_map(|ev| ev["id"].as_str().map(String::from)).collect());
+    if with.is_empty() { return None; }
+    let now = Local::now().naive_local();
+    let h12 = cal_prefs().h12;
+    ST.with(|s| s.borrow().events.iter().filter(|o| o.end > now && with.contains(&o.id)).min_by_key(|o| o.start)
+        .map(|o| (format!("{} {}", o.start.format("%a"), if o.all_day { "all day".to_string() } else { fmt_time(o.start, h12) }), o.title.clone())))
 }
