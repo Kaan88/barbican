@@ -536,6 +536,21 @@ export component AppWindow inherits Window {
     callback open-attachment(int);
     callback save-attachment(int);
     callback undo-toast();
+    in-out property <bool> sf-open;
+    in-out property <string> sf-from;
+    in-out property <string> sf-to;
+    in-out property <string> sf-subject;
+    in-out property <string> sf-body;
+    in-out property <string> sf-after;
+    in-out property <string> sf-before;
+    in-out property <string> sf-min;
+    in-out property <string> sf-max;
+    in-out property <bool> sf-unread;
+    in-out property <bool> sf-starred;
+    in-out property <bool> sf-attach;
+    in property <bool> sf-active;
+    callback sf-apply();
+    callback sf-clear();
     in property <length> mail-row-height: 82px;
     in-out property <string> quick-text;
     in-out property <int> app: 0;
@@ -872,8 +887,32 @@ export component AppWindow inherits Window {
                     }
                     Rectangle {
                         width: 26px;
+                        fta2 := TouchArea { clicked => { root.sf-open = !root.sf-open; } }
+                        Icon { text: "\u{E71C}"; font-size: 12px; color: root.sf-active ? Theme.accent : (fta2.has-hover ? Theme.text : Theme.dim); }
+                    }
+                    Rectangle {
+                        width: 26px;
                         rta := TouchArea { clicked => { root.refresh(); } }
                         Icon { text: "\u{E72C}"; font-size: 12px; color: rta.has-hover ? Theme.text : Theme.dim; }
+                    }
+                }
+                if root.sf-open: VerticalLayout {
+                    padding: 10px;
+                    spacing: 6px;
+                    LineEdit { placeholder-text: "From"; text <=> root.sf-from; }
+                    LineEdit { placeholder-text: "To"; text <=> root.sf-to; }
+                    LineEdit { placeholder-text: "Subject"; text <=> root.sf-subject; }
+                    LineEdit { placeholder-text: "Has the words"; text <=> root.sf-body; }
+                    HorizontalLayout { spacing: 6px; LineEdit { placeholder-text: "After YYYY-MM-DD"; text <=> root.sf-after; } LineEdit { placeholder-text: "Before YYYY-MM-DD"; text <=> root.sf-before; } }
+                    HorizontalLayout { spacing: 6px; LineEdit { placeholder-text: "Min KB"; text <=> root.sf-min; } LineEdit { placeholder-text: "Max KB"; text <=> root.sf-max; } }
+                    CheckBox { text: "Unread"; checked <=> root.sf-unread; }
+                    CheckBox { text: "Starred"; checked <=> root.sf-starred; }
+                    CheckBox { text: "Has attachment"; checked <=> root.sf-attach; }
+                    HorizontalLayout {
+                        spacing: 6px;
+                        alignment: end;
+                        Button { text: "Clear"; clicked => { root.sf-clear(); } }
+                        PrimaryButton { text: "Search"; clicked => { root.sf-apply(); } }
                     }
                 }
                 if root.checked-count > 0: HorizontalLayout {

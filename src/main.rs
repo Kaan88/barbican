@@ -1150,6 +1150,57 @@ fn main() -> Result<(), slint::PlatformError> {
         u.set_quick_text("".into());
     });
 
+    // ---------------- search filters (Bulwark SearchFilters) ----------------
+    let (w, st) = (ui.as_weak(), state.clone());
+    ui.on_sf_apply(move || {
+        let Some(c) = st.lock().unwrap().clone() else { return };
+        let u = w.unwrap();
+        let mut conds: Vec<serde_json::Value> = vec![];
+        let q = u.get_search().to_string();
+        if !q.trim().is_empty() { conds.push(json!({"text": q.trim()})); }
+        for (v, k) in [(u.get_sf_from(), "from"), (u.get_sf_to(), "to"), (u.get_sf_subject(), "subject"), (u.get_sf_body(), "body")] {
+            if !v.trim().is_empty() { conds.push(json!({ k: v.trim() })); }
+        }
+        let day = |s: &str| if s.trim().len() == 10 { Some(format!("{}T00:00:00Z", s.trim())) } else { None };
+        if let Some(d) = day(&u.get_sf_after()) { conds.push(json!({"after": d})); }
+        if let Some(d) = day(&u.get_sf_before()) { conds.push(json!({"before": d})); }
+        if let Ok(n) = u.get_sf_min().trim().parse::<u64>() { conds.push(json!({"minSize": n * 1024})); }
+        if let Ok(n) = u.get_sf_max().trim().parse::<u64>() { conds.push(json!({"maxSize": n * 1024})); }
+        if u.get_sf_unread() { conds.push(json!({"notKeyword": "$seen"})); }
+        if u.get_sf_starred() { conds.push(json!({"hasKeyword": "$flagged"})); }
+        if u.get_sf_attach() { conds.push(json!({"hasAttachment": true})); }
+        let active = !conds.is_empty();
+        u.set_sf_active(active);
+        u.set_sf_open(false);
+        u.set_current_mail("".into());
+        if !active { u.invoke_select_folder(u.get_current_folder()); return; }
+        // scope like Bulwark's searchDefaultScope: everywhere but Spam/Trash, or the open folder
+        let scope = settings::Settings::load().str("searchDefaultScope", "all");
+        let (w2, c2) = (w.clone(), c.clone());
+        let folder = u.get_current_folder().to_string();
+        std::thread::spawn(move || {
+            let mut conds = conds;
+            if scope == "current" || scope == "folder" {
+                conds.push(json!({"inMailbox": folder}));
+            } else if let Ok(roles) = c2.role_ids() {
+                let skip: Vec<String> = ["junk", "trash"].iter().filter_map(|r| roles.get(*r).cloned()).collect();
+                if !skip.is_empty() { conds.push(json!({"inMailboxOtherThan": skip})); }
+            }
+            let f = json!({"operator": "AND", "conditions": conds});
+            mail::load_list(w2, c2, f);
+        });
+    });
+    let w = ui.as_weak();
+    ui.on_sf_clear(move || {
+        let u = w.unwrap();
+        for f in [AppWindow::set_sf_from, AppWindow::set_sf_to, AppWindow::set_sf_subject, AppWindow::set_sf_body,
+                  AppWindow::set_sf_after, AppWindow::set_sf_before, AppWindow::set_sf_min, AppWindow::set_sf_max] { f(&u, "".into()); }
+        u.set_sf_unread(false); u.set_sf_starred(false); u.set_sf_attach(false);
+        u.set_sf_active(false);
+        u.set_sf_open(false);
+        u.invoke_select_folder(u.get_current_folder());
+    });
+
     // ---------------- mail actions ----------------
     let w = ui.as_weak();
     ui.on_toggle_folder(move |id| mail::toggle_folder(&w.unwrap(), &id));
