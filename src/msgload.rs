@@ -137,8 +137,9 @@ pub fn open(u: &AppWindow, st: &Shared, id: String) {
             if !WAITING.with(|w| w.get()) { return; }
             let Some(u) = wk.upgrade() else { return };
             if u.get_current_mail().is_empty() { return; }
+            // the message on screen stays whole (header, strip, banners) under the bar, dimmed:
+            // nothing collapses and nothing jumps until the new one swaps in
             u.set_r_loading(true);
-            prefill(&u, u.get_current_mail().as_str());
             mailview::dim(true);
         }));
     }

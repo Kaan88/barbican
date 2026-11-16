@@ -1266,7 +1266,7 @@ component MailRow inherits VerticalLayout {
     property <length> act-w: root.act-n * root.act-bw + 4px;
     property <length> act-h: root.act-bw + 4px;
     property <length> act-x: Prefs.hover-floating ? (Prefs.hover-left ? 8px : row.width - root.act-w - 8px) : row.width - root.act-w - (Theme.nordic ? 18px : 6px);
-    property <length> act-y: Prefs.hover-floating ? (Prefs.hover-bottom ? row.height - root.act-h - 4px : 4px) : (Theme.nordic ? 14px : 10px) + 9px * Prefs.fs - root.act-h / 2;
+    property <length> act-y: Prefs.hover-floating ? (Prefs.hover-bottom ? row.height - root.act-h - 4px : 4px) : (Theme.nordic ? 14px : 10px) + 36px * Prefs.fs - root.act-h / 2;
     property <bool> act-on: ta.has-hover && !root.dragging && root.act-n > 0;
     property <bool> act-over: root.act-on && ta.mouse-x >= root.act-x && ta.mouse-x < root.act-x + root.act-w && ta.mouse-y >= root.act-y && ta.mouse-y < root.act-y + root.act-h;
     property <int> act-hi: root.act-over ? floor((ta.mouse-x - root.act-x - 2px) / root.act-bw) : -1;
@@ -1441,6 +1441,15 @@ component MailRow inherits VerticalLayout {
             }
             // hover actions (Bulwark hoverActionsMode): an overlay on the time/count corner (inline) or a
             // floating pill; painted only, the row's TouchArea does the hit test
+            // the subject and preview fade out under the pill instead of being cut by it; the top line
+            // (name, count, time) is never covered
+            if root.act-on && !Prefs.hover-floating: Rectangle {
+                x: root.act-x - 26px;
+                y: root.act-y;
+                width: 26px + 12px;
+                height: root.act-h;
+                background: @linear-gradient(90deg, transparent 0%, (root.selected || !m.checked ? Theme.tile2 : Theme.sel) 70%);
+            }
             if root.act-on: Rectangle {
                 x: root.act-x;
                 y: root.act-y;
@@ -2955,7 +2964,8 @@ export component AppWindow inherits Window {
                         TouchArea { pointer-event(ev) => { if ev.button == PointerEventButton.right && ev.kind == PointerEventKind.up { root.ctx("addr-to", root.r-to, self.absolute-position.x + self.mouse-x, self.absolute-position.y + self.mouse-y); } } }
                     }
                 }
-                if root.thread-msgs.length > 1: FadeV {
+                // arrives with the message (no fade-in after the body has already moved)
+                if root.thread-msgs.length > 1: VerticalLayout {
                     vertical-stretch: 0;
                     padding-top: 12px;
                     spacing: 2px;

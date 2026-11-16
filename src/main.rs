@@ -145,7 +145,9 @@ fn render_current_then(u: &AppWindow, on_ready: Option<Box<dyn FnOnce() -> bool>
     CUR.with(|c| {
         let c = c.borrow();
         let Some(cur) = c.as_ref() else { return };
-        u.set_images_blocked(cur.remote && !cur.allow && mode != 2);
+        // with the WebView the banner changes with the page (in the swap), not before it
+        let blocked = cur.remote && !cur.allow && mode != 2;
+        if mode != 0 { u.set_images_blocked(blocked); }
         // Settings > Accessibility > Show messages as: plain text drops the layout
         let plain_view = a11y::A11y::load().plain_view;
         let body = match &cur.html {
@@ -174,7 +176,7 @@ fn render_current_then(u: &AppWindow, on_ready: Option<Box<dyn FnOnce() -> bool>
                 // the body area takes the page's colour as the page appears
                 let cb: Box<dyn FnOnce() -> bool> = Box::new(move || {
                     if let Some(f) = then { if !f() { return false; } }
-                    if let Some(u) = wk.upgrade() { u.set_body_bg(mailview::color(bg)); }
+                    if let Some(u) = wk.upgrade() { u.set_body_bg(mailview::color(bg)); u.set_images_blocked(blocked); }
                     true
                 });
                 mailview::show(&doc, bg, script, Some(cb));

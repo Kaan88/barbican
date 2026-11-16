@@ -72,8 +72,11 @@ f.addEventListener('load',function(){try{fix(f.contentDocument)}catch(e){}ready(
 (function poll(){if(done||seq!==s)return;var d=null;try{d=f.contentDocument}catch(e){}
 if(d&&d.URL==='about:srcdoc'&&d.readyState!=='loading'&&d.body&&!d.documentElement.classList.contains('barbican-dark-pending')){fix(d);requestAnimationFrame(ready);return}
 requestAnimationFrame(poll)})();},
-reveal:function(s){if(s!==seq||!nxt)return;var f=nxt;nxt=null;document.documentElement.style.background=f._bg;
-f.style.visibility='visible';if(cur)cur.remove();cur=f},
+reveal:function(s,ms){if(s!==seq||!nxt)return;var f=nxt;nxt=null;document.documentElement.style.background=f._bg;
+if(ms>0){f.style.opacity='0';f.style.transition='opacity '+ms+'ms cubic-bezier(.2,0,0,1)'}
+f.style.visibility='visible';if(cur)cur.remove();cur=f;
+if(ms>0)requestAnimationFrame(function(){f.style.opacity='1'})},
+hold:function(){if(cur)cur.style.visibility='hidden'},
 cancel:function(s){seq=s;if(nxt){nxt.remove();nxt=null}},
 dim:function(on){if(cur)cur.style.opacity=on?'0.4':''},
 clear:function(bg){seq++;if(nxt){nxt.remove();nxt=null}if(cur){cur.remove();cur=null}document.documentElement.style.background=bg},
@@ -213,12 +216,32 @@ fn ready(seq: u64, from_view: bool) {
         if let Some(u) = ui() { u.set_r_loading(false); }
     }
     // the native side refused it (the message it belongs to is no longer the open one)
+    let before = ui().map(|u| (u.get_by(), u.get_bh()));
     if let Some(f) = cb { if !f() { cancel_pending(); return; } }
     if let Some(u) = ui() {
         // a capture taken before this page is out of date
         if !SHOWN.with(|x| x.get()) { u.set_body_snap_on(false); }
-        // the header just changed (thread strip, attachments): put the view at the body's new
-        // place before the page shows, not one frame later
+        let after = (u.get_by(), u.get_bh());
+        let reflow = SHOWN.with(|x| x.get()) && before.is_some_and(|b| (b.0 - after.0).abs() > 0.5 || (b.1 - after.1).abs() > 0.5);
+        if reflow {
+            // The new header changes where the body goes. The window move, the native frame and
+            // the page's own frame are three separate commits, so the old page must not be on
+            // screen while they land (it would sit displaced under the new header, with a white
+            // band where it was resized): take it away (the host is painted in the page colour),
+            // move the view, and show the new page a couple of frames later, fading in.
+            page_bg(&NEXT_BG.with(|b| b.borrow().clone()));
+            run_js("window.__bb&&__bb.hold()".into());
+            crate::sync_webview(&u);
+            let m = u.global::<crate::Motion>();
+            let fade = if m.get_reduce() || m.get_rapid() { 0 } else { 90 };
+            slint::Timer::single_shot(Duration::from_millis(24), move || {
+                if DOC_SEQ.with(|s| s.get()) != seq { return; }
+                crate::automation::mark(&format!("reveal {seq}"));
+                run_js(format!("window.__bb&&__bb.reveal({seq},{fade})"));
+                mark_dirty();
+            });
+            return;
+        }
         crate::sync_webview(&u);
     }
     page_bg(&NEXT_BG.with(|b| b.borrow().clone()));
