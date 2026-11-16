@@ -77,6 +77,7 @@ const G_UPLOAD: &str = "\u{E898}";
 const G_SETTINGS: &str = "\u{E713}";
 const G_MAYBE: &str = "\u{E9CE}";
 const G_CANCEL: &str = "\u{E711}";
+const G_CLOCK: &str = "\u{E823}";
 const G_COLOR: &str = "\u{E790}";
 const G_UP: &str = "\u{E74A}";
 const G_DOWN: &str = "\u{E74B}";
@@ -488,6 +489,15 @@ fn mail_items(u: &AppWindow, t: &Target) -> Vec<CtxItem> {
     let junk = mail::mailbox_role(&u.get_current_folder()) == "junk";
     let mut v = vec![];
     if n > 1 { v.push(header(&format!("{n} selected"))); }
+    // Scheduled view (Bulwark message-actions.ts): reschedule, cancel and edit, cancel send
+    if u.get_current_folder() == "__scheduled" && first.as_ref().is_some_and(|m| m["submissionId"].is_string()) {
+        v.extend([
+            off(it(G_CLOCK, "Reschedule", "", "sched:reschedule"), n == 1),
+            off(it(G_EDIT, "Cancel and edit", "", "sched:edit"), n == 1),
+            off(danger(G_CANCEL, "Cancel send", "", "sched:cancel"), n == 1),
+            sep(),
+        ]);
+    }
     v.extend([
         off(it(G_REPLY, "Reply", "R", "reply"), n == 1),
         off(it(G_REPLY_ALL, "Reply all", "Shift+R", "reply-all"), n == 1),
@@ -766,6 +776,10 @@ pub fn pick(u: &AppWindow, st: &Shared, action: &str) {
     let id = t.id.as_str();
     match t.kind.as_str() {
         "mail" | "thread" => match action {
+            s if s.starts_with("sched:") => {
+                let Some(c) = crate::client_for(st, id) else { return };
+                crate::schedule::action(u, c, id, &s[6..]);
+            }
             "reply" | "reply-all" | "forward" | "print" => on_open_mail(u, id, action),
             "open" => on_open_mail(u, id, ""),
             "eml" => {

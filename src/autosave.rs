@@ -14,7 +14,7 @@ const TICK: Duration = Duration::from_millis(500);
 
 /// What waits for the save in flight.
 #[derive(Clone, Copy, Debug, PartialEq)]
-pub enum Queued { Send, Save(bool), Discard }
+pub enum Queued { Send, Schedule(i64), Save(bool), Discard }
 
 #[derive(Default)]
 struct S {

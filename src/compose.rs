@@ -455,6 +455,7 @@ fn outgoing(u: &AppWindow) -> Outgoing {
             forwarding: s.forwarding,
             replaces_draft: s.draft_id.clone(),
             hold_seconds: 0,
+            send_at: None,
             read_receipt: u.get_c_read_receipt(),
             keywords: {
                 use slint::Model;
@@ -643,9 +644,18 @@ fn pre_send_warning(o: &Outgoing, prefs: &crate::settings::Settings) -> Option<S
 }
 
 pub fn send(u: &AppWindow, c: Arc<Client>, prefs: &crate::settings::Settings) {
+    send_at(u, c, prefs, None);
+}
+
+/// Schedule send: the server holds the message until `at` (Unix ms).
+pub fn send_scheduled(u: &AppWindow, c: Arc<Client>, prefs: &crate::settings::Settings, at: i64) {
+    send_at(u, c, prefs, Some(at));
+}
+
+fn send_at(u: &AppWindow, c: Arc<Client>, prefs: &crate::settings::Settings, at: Option<i64>) {
     if crate::autosave::in_flight() {
         // the draft is being saved: send once it is, so the send replaces that draft
-        crate::autosave::queue(crate::autosave::Queued::Send);
+        crate::autosave::queue(match at { Some(t) => crate::autosave::Queued::Schedule(t), None => crate::autosave::Queued::Send });
         return;
     }
     if !u.get_c_plain() && rte::inline_images().iter().any(|i| i.1.is_none()) {
@@ -666,7 +676,8 @@ pub fn send(u: &AppWindow, c: Arc<Client>, prefs: &crate::settings::Settings) {
         return;
     }
     let warned = u.get_c_status().ends_with("send anyway.");
-    if prefs.bool("sendConfirmation", false) && !warned && !u.get_c_status().ends_with("to send.") {
+    // picking a time is the confirmation for a scheduled send
+    if at.is_none() && prefs.bool("sendConfirmation", false) && !warned && !u.get_c_status().ends_with("to send.") {
         u.set_c_status("Press Send again to send.".into());
         return;
     }
@@ -686,6 +697,33 @@ pub fn send(u: &AppWindow, c: Arc<Client>, prefs: &crate::settings::Settings) {
         x.tags = u.get_c_tag_on().iter().collect();
         x
     });
+    if let Some(t) = at {
+        o.send_at = Some(t);
+        u.set_sending(true);
+        u.set_c_status("".into());
+        let w = u.as_weak();
+        let gen = crate::autosave::begin();
+        std::thread::spawn(move || {
+            let res = c.send_message(&o);
+            let w2 = w.clone();
+            let _ = w.upgrade_in_event_loop(move |u| {
+                let queued = crate::autosave::finish(gen, None);
+                u.set_sending(false);
+                match res {
+                    Ok(_) => {
+                        u.set_composing(false);
+                        let when = chrono::DateTime::from_timestamp_millis(t).map(|d| d.with_timezone(&chrono::Local))
+                            .map(|d| crate::schedule::label(d, crate::settings::Settings::load().str("timeFormat", "24h") == "12h", chrono::Local::now()))
+                            .unwrap_or_default();
+                        crate::mail::show_toast(&u, &format!("Scheduled to send at {when}"), false);
+                    }
+                    Err(e) => { u.set_c_status(e.into()); run_queued(&u, queued); }
+                }
+            });
+            crate::mail::load_mailboxes(w2, c, false);
+        });
+        return;
+    }
     if delay > 0 && !c.supports_delayed_send() {
         // Bulwark-style undo window kept in the app: send when the timer runs out.
         u.set_composing(false);
@@ -846,6 +884,10 @@ fn run_queued(u: &AppWindow, q: Option<crate::autosave::Queued>) {
     use crate::autosave::Queued;
     match q {
         Some(Queued::Send) => u.invoke_send_now(),
+        Some(Queued::Schedule(t)) => {
+            let Some(c) = CLIENT.with(|c| c.borrow().clone()) else { return };
+            send_scheduled(u, c, &crate::settings::Settings::load(), t);
+        }
         Some(Queued::Save(close)) => u.invoke_save_draft(close),
         Some(Queued::Discard) => u.invoke_discard_draft(),
         None => {}

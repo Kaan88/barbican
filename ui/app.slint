@@ -4,8 +4,8 @@ import { LineEdit, Button, ListView, ScrollView, TextEdit, ComboBox, CheckBox, P
 // composer extras (p2-composer): recipient chips + autocomplete, palette
 import { CTheme } from "ctheme.slint";
 import { Rcpt, RChip, RSugg, RecipientField, RecipientSuggest } from "recipients.slint";
-import { CompX, SaveState } from "compose-extras.slint";
-export { CTheme, Rcpt, RChip, RSugg, CompX }
+import { CompX, SaveState, SPreset, ScheduleDialog, ScheduledBar } from "compose-extras.slint";
+export { CTheme, Rcpt, RChip, RSugg, CompX, SPreset }
 
 export struct Folder {
     id: string,
@@ -1206,7 +1206,7 @@ export component AppWindow inherits Window {
     out property <length> by: body.absolute-position.y;
     out property <length> bw: body.width;
     out property <length> bh: body.height;
-    out property <bool> body-visible: logged-in && app == 0 && current-mail != "" && !composing && !show-settings && render-mode == 0 && !ev-open && !ctx-open;
+    out property <bool> body-visible: logged-in && app == 0 && current-mail != "" && !composing && !show-settings && render-mode == 0 && !ev-open && !ctx-open && !CompX.sched-open;
 
     callback shortcut(string, bool, bool);
     public function focus-keys() { kbd.focus(); }
@@ -1560,6 +1560,8 @@ export component AppWindow inherits Window {
                 visible: root.current-mail != "";
                 padding: 0px;
                 spacing: 0px;
+                // Scheduled view: when it goes out, Reschedule / Cancel and edit / Cancel send
+                if root.current-folder == "__scheduled" && CompX.sched-banner != "": ScheduledBar { }
                 HorizontalLayout {
                     height: 40px;
                     padding-left: 12px;
@@ -2294,7 +2296,7 @@ export component AppWindow inherits Window {
                                 }
                                 send-pop := PopupWindow { x: 116px - 210px; y: -76px; width: 210px;
                                     MenuPanel { VerticalLayout { padding: 4px;
-                                        MenuItem { glyph: "\u{E823}"; text: "Schedule send (soon)"; enabled: false; }
+                                        MenuItem { glyph: "\u{E823}"; text: "Schedule send…"; clicked => { CompX.sched-open-compose(); } }
                                         MenuItem { glyph: "\u{E74E}"; text: "Save draft"; clicked => { root.save-draft(false); } }
                                     } }
                                 }
@@ -3441,4 +3443,6 @@ export component AppWindow inherits Window {
             picked(a) => { root.ctx-pick(a); root.ctx-close(); }
         }
     }
+    // schedule send / reschedule (src/schedule.rs), over everything
+    if CompX.sched-open: ScheduleDialog { x: 0; y: 0; width: root.width; height: root.height; }
 }

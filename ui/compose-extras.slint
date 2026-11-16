@@ -1,9 +1,34 @@
-// Composer extras (p2-composer): the draft save state shown in the composer header.
+// Composer extras (p2-composer): the draft save state in the composer header, the Schedule
+// send dialog (Bulwark schedule-send-dialog.tsx, shared with Reschedule) and the banner of a
+// message in the Scheduled view. Logic: src/compose.rs, src/autosave.rs, src/schedule.rs.
 import { CTheme } from "ctheme.slint";
 
+export struct SPreset {
+    label: string,
+    when: string,
+}
+
 export global CompX {
-    // "Saving…", "Draft saved 09:51", "Draft not saved" (src/compose.rs, src/autosave.rs)
+    // "Saving…", "Draft saved 09:51", "Draft not saved"
     in-out property <string> saved;
+    // schedule dialog
+    in-out property <bool> sched-open;
+    in-out property <string> sched-title: "Schedule send";
+    in-out property <string> sched-confirm: "Schedule send";
+    in-out property <[SPreset]> sched-presets;
+    in-out property <string> sched-date;
+    in-out property <string> sched-time;
+    in-out property <string> sched-error;
+    in-out property <bool> sched-busy;
+    // "Scheduled to send at …" for the message open in the Scheduled view
+    in-out property <string> sched-banner;
+    // a preset (index) or the typed date and time (-1)
+    callback sched-choose(int);
+    callback sched-cancel();
+    // the composer's Schedule send (menu, Ctrl+Shift+Enter)
+    callback sched-open-compose();
+    // banner and menu actions on the open scheduled message: reschedule, edit, cancel
+    callback sched-action(string);
 }
 
 export component SaveState inherits Text {
@@ -11,4 +36,173 @@ export component SaveState inherits Text {
     color: CTheme.dim;
     font-size: 12px;
     vertical-alignment: center;
+}
+
+component PillButton inherits Rectangle {
+    in property <string> text;
+    in property <bool> primary;
+    in property <color> fg: CTheme.text;
+    callback clicked();
+    height: 32px;
+    min-width: lbl.preferred-width + 28px;
+    border-radius: 12px;
+    background: primary ? (ta.has-hover ? CTheme.accent.darker(0.1) : CTheme.accent) : (ta.has-hover ? CTheme.hover : transparent);
+    border-width: primary ? 0px : 1px;
+    border-color: CTheme.line;
+    ta := TouchArea { clicked => { root.clicked(); } }
+    lbl := Text {
+        text: root.text;
+        color: primary ? CTheme.on-accent : root.fg;
+        font-size: 13px;
+        font-weight: 600;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+    }
+}
+
+component DialogField inherits Rectangle {
+    in property <string> placeholder;
+    in-out property <string> text;
+    in property <bool> invalid;
+    callback accepted();
+    height: 36px;
+    border-radius: 12px;
+    background: CTheme.raised;
+    border-width: ti.has-focus || invalid ? 1.5px : 1px;
+    border-color: invalid ? CTheme.amber-fg : ti.has-focus ? CTheme.ring : CTheme.line;
+    public function focus-input() { ti.focus(); }
+    if root.text == "": Text {
+        x: 12px;
+        text: root.placeholder;
+        color: CTheme.dim;
+        vertical-alignment: center;
+        height: parent.height;
+    }
+    ti := TextInput {
+        x: 12px;
+        width: parent.width - 24px;
+        text <=> root.text;
+        color: CTheme.text;
+        single-line: true;
+        vertical-alignment: center;
+        accepted => { root.accepted(); }
+    }
+}
+
+// Modal: one click for the usual times, or any date and time typed below.
+export component ScheduleDialog inherits Rectangle {
+    background: #00000073;
+    TouchArea { clicked => { CompX.sched-cancel(); } }
+    FocusScope {
+        capture-key-pressed(e) => {
+            if e.text == Key.Escape { CompX.sched-cancel(); return accept; }
+            reject
+        }
+        tile := Rectangle {
+            width: min(400px, root.width - 32px);
+            height: lay.preferred-height;
+            x: (root.width - self.width) / 2;
+            y: (root.height - self.height) / 2;
+            background: CTheme.popup;
+            border-radius: 24px;
+            border-width: 1px;
+            border-color: CTheme.line;
+            drop-shadow-blur: 30px;
+            drop-shadow-color: #0000005c;
+            drop-shadow-offset-y: 12px;
+            TouchArea { }
+            lay := VerticalLayout {
+                padding: 20px;
+                spacing: 12px;
+                HorizontalLayout {
+                    spacing: 12px;
+                    VerticalLayout {
+                        alignment: center;
+                        Rectangle {
+                            width: 36px;
+                            height: 36px;
+                            border-radius: 12px;
+                            background: CTheme.mint-bg;
+                            Text { text: "\u{E823}"; font-family: CTheme.icons; font-size: 16px; color: CTheme.mint-fg; }
+                        }
+                    }
+                    VerticalLayout {
+                        alignment: center;
+                        Text { text: CompX.sched-title; color: CTheme.text; font-size: 17px; font-weight: 700; }
+                        Text { text: "Pick when to send it."; color: CTheme.dim; font-size: 12.5px; }
+                    }
+                }
+                VerticalLayout {
+                    spacing: 2px;
+                    for p[i] in CompX.sched-presets: Rectangle {
+                        height: 40px;
+                        border-radius: 12px;
+                        background: pa.has-hover ? CTheme.hover : transparent;
+                        pa := TouchArea { enabled: !CompX.sched-busy; clicked => { CompX.sched-choose(i); } }
+                        HorizontalLayout {
+                            padding-left: 12px;
+                            padding-right: 12px;
+                            Text { text: p.label; color: CTheme.text; font-size: 13.5px; vertical-alignment: center; horizontal-stretch: 1; }
+                            Text { text: p.when; color: CTheme.dim; font-size: 12.5px; vertical-alignment: center; }
+                        }
+                    }
+                }
+                Rectangle { height: 1px; background: CTheme.line; }
+                Text { text: "Or choose a date and time"; color: CTheme.dim; font-size: 12px; }
+                HorizontalLayout {
+                    spacing: 8px;
+                    date := DialogField {
+                        horizontal-stretch: 3;
+                        placeholder: "YYYY-MM-DD";
+                        text <=> CompX.sched-date;
+                        invalid: CompX.sched-error != "";
+                        accepted => { CompX.sched-choose(-1); }
+                    }
+                    DialogField {
+                        horizontal-stretch: 2;
+                        placeholder: "HH:MM";
+                        text <=> CompX.sched-time;
+                        invalid: CompX.sched-error != "";
+                        accepted => { CompX.sched-choose(-1); }
+                    }
+                }
+                if CompX.sched-error != "": Text {
+                    text: CompX.sched-error;
+                    color: CTheme.amber-fg;
+                    font-size: 12.5px;
+                    wrap: word-wrap;
+                }
+                HorizontalLayout {
+                    alignment: end;
+                    spacing: 8px;
+                    PillButton { text: "Cancel"; clicked => { CompX.sched-cancel(); } }
+                    PillButton { text: CompX.sched-confirm; primary: true; clicked => { if !CompX.sched-busy { CompX.sched-choose(-1); } } }
+                }
+            }
+        }
+    }
+    init => { date.focus-input(); }
+}
+
+// Above the open message in the Scheduled view: when it goes out, and what can be done.
+export component ScheduledBar inherits Rectangle {
+    height: 52px;
+    Rectangle {
+        x: 12px;
+        y: 6px;
+        width: parent.width - 24px;
+        height: 40px;
+        border-radius: 14px;
+        background: CTheme.mint-bg;
+        HorizontalLayout {
+            padding-left: 12px;
+            padding-right: 4px;
+            spacing: 8px;
+            Text { text: "\u{E823}"; font-family: CTheme.icons; font-size: 14px; color: CTheme.mint-fg; vertical-alignment: center; }
+            Text { text: CompX.sched-banner; color: CTheme.mint-fg; font-size: 13px; font-weight: 600; vertical-alignment: center; horizontal-stretch: 1; overflow: elide; }
+            VerticalLayout { alignment: center; PillButton { text: "Reschedule"; fg: CTheme.mint-fg; clicked => { CompX.sched-action("reschedule"); } } }
+            VerticalLayout { alignment: center; PillButton { text: "Cancel and edit"; fg: CTheme.mint-fg; clicked => { CompX.sched-action("edit"); } } }
+            VerticalLayout { alignment: center; PillButton { text: "Cancel send"; fg: CTheme.mint-fg; clicked => { CompX.sched-action("cancel"); } } }
+        }
+    }
 }

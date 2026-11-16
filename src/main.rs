@@ -29,6 +29,7 @@ mod autosave;
 mod chips;
 mod ctheme;
 mod recipients;
+mod schedule;
 
 use chrono::{DateTime, Local};
 use serde_json::{json, Value};
@@ -742,6 +743,7 @@ fn main() -> Result<(), slint::PlatformError> {
         READER_CLIENT.with(|r| *r.borrow_mut() = Some(c.clone()));
         let u = w.unwrap();
         if settings::Settings::load().prefs.get("markAsReadDelay").and_then(|v| v.as_i64()).unwrap_or(0) == 0 { mail::mark_read_local(&u, &id); }
+        schedule::banner(&u, mail::email(&id).as_ref());
         u.set_plugin_rows(ModelRc::default());
         // keep the conversation strip when moving within the same thread
         let same_thread = mail::email(&id).and_then(|m| m["threadId"].as_str().map(String::from)) == THREAD_ID.with(|t| t.borrow().clone());
@@ -1284,6 +1286,7 @@ fn main() -> Result<(), slint::PlatformError> {
     });
 
     rte::wire(&ui);
+    schedule::wire(&ui, state.clone(), prefs.clone());
     let w = ui.as_weak();
     ui.on_c_toggle_tag(move |i| compose::toggle_tag(&w.unwrap(), i));
 
@@ -1427,6 +1430,8 @@ fn main() -> Result<(), slint::PlatformError> {
         let t = text.as_str();
         // composer shortcuts
         if u.get_composing() {
+            // Mod+Shift+Enter: Schedule send (Bulwark); Mod+Enter: send
+            if ctrl && shift && (t == "\r" || t == "\n") { u.global::<CompX>().invoke_sched_open_compose(); return; }
             if ctrl && (t == "\r" || t == "\n") { u.invoke_send_now(); }
             if ctrl && t == "s" { u.invoke_save_draft(false); }
             // Esc in the link popover cancels the popover, not the whole message
