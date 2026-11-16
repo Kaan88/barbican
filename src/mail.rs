@@ -34,7 +34,10 @@ thread_local! {
 pub const PAGE: usize = 50;
 
 /// Bulwark list settings read from prefs (Settings > Message list / General).
-struct ListPrefs { group_by_date: bool, show_preview: bool, date_format: String, h12: bool, per_page: usize }
+struct ListPrefs {
+    group_by_date: bool, show_preview: bool, date_format: String, h12: bool, per_page: usize,
+    attachment_chips: bool, codes: bool, tint_rows: bool, hide_inline_images: bool,
+}
 
 fn list_prefs() -> ListPrefs {
     let p = crate::settings::Settings::load();
@@ -45,6 +48,11 @@ fn list_prefs() -> ListPrefs {
         date_format: p.str("dateFormat", "smart"),
         h12: p.str("timeFormat", "24h") == "12h",
         per_page: p.prefs.get("emailsPerPage").and_then(|v| v.as_u64()).unwrap_or(50).clamp(10, 200) as usize,
+        // Bulwark shows attachment chips only in the regular and comfortable densities
+        attachment_chips: p.bool("showAttachmentChips", true) && matches!(p.str("density", "regular").as_str(), "regular" | "comfortable"),
+        codes: p.bool("showVerificationCodes", true),
+        tint_rows: p.bool("tintListRowsByTag", false),
+        hide_inline_images: p.bool("hideInlineImageAttachments", true),
     }
 }
 
@@ -268,6 +276,18 @@ fn build_rows(st: &ListState) -> Vec<Mail> {
         let kw = &m["keywords"];
         let id = m["id"].as_str().unwrap_or("").to_string();
         let tags: Vec<Color> = kw.as_object().map(|o| o.keys().filter_map(|k| k.strip_prefix("$label:")).map(tag_color).collect()).unwrap_or_default();
+        let row_tint = if lp.tint_rows { tags.first().map(|c| c.with_alpha(0.12)).unwrap_or(Color::from_argb_u8(0, 0, 0, 0)) } else { Color::from_argb_u8(0, 0, 0, 0) };
+        // one-time codes only for fresh mail (Bulwark: received within the last day)
+        let fresh = t.as_ref().is_some_and(|t| { let age = Local::now().signed_duration_since(*t); age.num_minutes() >= -5 && age.num_hours() <= 24 });
+        let code = if lp.codes && fresh {
+            crate::otp::find(m["subject"].as_str().unwrap_or(""), m["preview"].as_str().unwrap_or("")).unwrap_or_default()
+        } else { String::new() };
+        let files: Vec<slint::SharedString> = if lp.attachment_chips {
+            let names: Vec<String> = attachment_names(m, lp.hide_inline_images);
+            let mut v: Vec<slint::SharedString> = names.iter().take(2).map(|n| n.as_str().into()).collect();
+            if names.len() > 2 { v.push(format!("+{}", names.len() - 2).into()); }
+            v
+        } else { vec![] };
         Mail {
             initials: initials(&s).into(),
             color: tint(&s),
@@ -287,8 +307,22 @@ fn build_rows(st: &ListState) -> Vec<Mail> {
             account: m["__account"].as_str().unwrap_or("").into(),
             account_color: m["__account"].as_str().map(|a| rgb(crate::unified::account_color(a))).unwrap_or(rgb(0)),
             id: id.into(),
+            code: code.into(),
+            row_tint,
+            files: ModelRc::new(VecModel::from(files)),
         }
     }).collect()
+}
+
+/// An image the body references by cid (not a real attachment).
+pub fn is_inline_image(a: &Value) -> bool {
+    a["cid"].is_string() && a["disposition"] != "attachment" && a["type"].as_str().is_some_and(|t| t.starts_with("image/"))
+}
+
+/// File names of a message's attachments; with `hide_inline` the inline images (cid-referenced
+/// pictures in the body) are left out, like Bulwark's hideInlineImageAttachments.
+pub fn attachment_names(m: &Value, hide_inline: bool) -> Vec<String> {
+    m["attachments"].as_array().map(|a| a.iter().filter(|p| !(hide_inline && is_inline_image(p))).map(|p| p["name"].as_str().filter(|n| !n.is_empty()).unwrap_or("attachment").to_string()).collect()).unwrap_or_default()
 }
 
 pub fn rebuild_list(u: &AppWindow) {
@@ -422,6 +456,17 @@ pub fn owner(id: &str) -> Option<String> {
     email(id).and_then(|m| m["__account"].as_str().map(String::from)).filter(|a| !a.is_empty())
 }
 
+/// The message after `cur` in the list that is not among `ids` (else the one before it).
+fn next_after(cur: &str, ids: &[String]) -> Option<String> {
+    LIST.with(|l| {
+        let l = l.borrow();
+        let pos = l.emails.iter().position(|m| m["id"] == cur)?;
+        let keep = |m: &&Value| !ids.iter().any(|i| m["id"] == i.as_str());
+        l.emails[pos + 1..].iter().find(keep).or_else(|| l.emails[..pos].iter().rev().find(keep))
+            .and_then(|m| m["id"].as_str().map(String::from))
+    })
+}
+
 pub fn email(id: &str) -> Option<Value> {
     LIST.with(|l| l.borrow().emails.iter().find(|m| m["id"] == id).cloned())
 }
@@ -450,8 +495,24 @@ fn remove_local(ids: &[String]) {
 /// tag:<id>, untag:<id>, move:<mailboxId>.
 thread_local! { static CONFIRM_BULK: std::cell::Cell<bool> = const { std::cell::Cell::new(false) }; }
 
+/// Put text on the Windows clipboard (clip.exe reads stdin).
+pub fn copy_to_clipboard(text: &str) -> bool {
+    use std::io::Write;
+    let mut cmd = std::process::Command::new("clip.exe");
+    #[cfg(windows)]
+    { use std::os::windows::process::CommandExt; cmd.creation_flags(0x0800_0000); }
+    let Ok(mut child) = cmd.stdin(std::process::Stdio::piped()).spawn() else { return false };
+    let ok = child.stdin.take().is_some_and(|mut s| s.write_all(text.as_bytes()).is_ok());
+    ok && child.wait().is_ok_and(|s| s.success())
+}
+
 pub fn apply(u: &AppWindow, c: Arc<Client>, ids: Vec<String>, action: &str) {
     if ids.is_empty() { return; }
+    if let Some(code) = action.strip_prefix("copy-code:") {
+        let ok = copy_to_clipboard(code);
+        show_toast(u, &if ok { format!("Copied {code}") } else { "Could not copy the code.".to_string() }, false);
+        return;
+    }
     if action == "delete" && ids.len() > 1 && crate::settings::Settings::load().bool("confirmBulkDelete", true) && !CONFIRM_BULK.with(|x| x.get()) {
         CONFIRM_BULK.with(|x| x.set(true));
         show_toast(u, &format!("Delete {} messages? Press Delete again to confirm.", ids.len()), false);
@@ -462,9 +523,10 @@ pub fn apply(u: &AppWindow, c: Arc<Client>, ids: Vec<String>, action: &str) {
     CONFIRM_BULK.with(|x| x.set(false));
     let w = u.as_weak();
     let action = action.to_string();
-    // in Trash or Junk, delete is permanent (Bulwark's default)
+    // in Trash delete is permanent; in Junk only with permanentlyDeleteJunk (Bulwark)
     let current_role = mailbox_role(&u.get_current_folder());
-    let permanent = action == "delete" && (current_role == "trash" || (current_role == "junk"));
+    let junk_permanent = crate::settings::Settings::load().bool("permanentlyDeleteJunk", false);
+    let permanent = action == "delete" && (current_role == "trash" || (current_role == "junk" && junk_permanent));
     // resolve toggles from current state
     let first = email(&ids[0]);
     let action = match action.as_str() {
@@ -472,6 +534,7 @@ pub fn apply(u: &AppWindow, c: Arc<Client>, ids: Vec<String>, action: &str) {
         "read" if first.as_ref().is_some_and(|m| m["keywords"]["$seen"].as_bool() == Some(true)) => "unread".to_string(),
         a => a.to_string(),
     };
+    let next_snapshot = next_after(u.get_current_mail().as_str(), &ids);
     // optimistic local change
     match action.as_str() {
         "star" => patch_local(&ids, |m| m["keywords"]["$flagged"] = json!(true)),
@@ -484,10 +547,19 @@ pub fn apply(u: &AppWindow, c: Arc<Client>, ids: Vec<String>, action: &str) {
         a if a.starts_with("move:") => remove_local(&ids),
         _ => {}
     }
+    let mut open_next: Option<String> = None;
     if ["delete", "archive", "spam", "notspam"].contains(&action.as_str()) || action.starts_with("move:") {
-        if ids.iter().any(|i| *i == u.get_current_mail().as_str()) { u.set_current_mail("".into()); }
+        let cur = u.get_current_mail().to_string();
+        if ids.iter().any(|i| *i == cur) {
+            // returnToListAfterAction off: open the next message (Bulwark), else go back to the list
+            if !crate::settings::Settings::load().bool("returnToListAfterAction", true) {
+                open_next = next_snapshot.clone();
+            }
+            u.set_current_mail("".into());
+        }
     }
     rebuild_list(u);
+    if let Some(next) = open_next { u.invoke_open_mail(next.into()); }
     std::thread::spawn(move || {
         let res: Result<(), String> = (|| {
             let check = |r: (usize, Vec<String>)| if r.1.is_empty() { Ok(()) } else { Err(r.1.join("; ")) };
