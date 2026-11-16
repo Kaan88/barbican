@@ -831,9 +831,11 @@ export component AppWindow inherits Window {
         root.ctx-x = x;
         root.ctx-y = y;
         root.ctx-request(kind, id);
-        if root.ctx-items.length > 0 { ctx-popup.show(); }
+        if root.ctx-items.length > 0 { root.ctx-open = true; ctx-popup.show(); }
     }
-    public function ctx-show() { ctx-popup.show(); }
+    public function ctx-show() { root.ctx-open = true; ctx-popup.show(); }
+    // the WebView2 body is a separate HWND above Slint: hide it while a menu is open
+    in-out property <bool> ctx-open;
     public function copy-text(t: string) { clip-buf.text = t; clip-buf.select-all(); clip-buf.copy(); }
     in-out property <bool> prompt-open;
     in-out property <string> prompt-title;
@@ -852,7 +854,7 @@ export component AppWindow inherits Window {
     out property <length> by: body.absolute-position.y;
     out property <length> bw: body.width;
     out property <length> bh: body.height;
-    out property <bool> body-visible: logged-in && app == 0 && current-mail != "" && !composing && !show-settings && render-mode == 0 && !ev-open;
+    out property <bool> body-visible: logged-in && app == 0 && current-mail != "" && !composing && !show-settings && render-mode == 0 && !ev-open && !ctx-open;
 
     callback shortcut(string, bool, bool);
     public function focus-keys() { kbd.focus(); }
@@ -2422,14 +2424,18 @@ export component AppWindow inherits Window {
             }
         }
     }
+    if root.ctx-open: TouchArea {
+        pointer-event(ev) => { if ev.kind == PointerEventKind.down { ctx-popup.close(); root.ctx-open = false; } }
+    }
     ctx-popup := PopupWindow {
+        close-policy: no-auto-close;
         x: max(0px, min(root.ctx-x, root.width - 252px));
         y: max(0px, min(root.ctx-y, root.height - root.ctx-h - 4px));
         width: 248px;
         height: root.ctx-h;
         ContextMenu {
             items: root.ctx-items;
-            picked(a) => { ctx-popup.close(); root.ctx-pick(a); }
+            picked(a) => { ctx-popup.close(); root.ctx-open = false; root.ctx-pick(a); }
         }
     }
 }
