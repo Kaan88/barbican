@@ -51,20 +51,20 @@ component Glyph inherits Text {
 component PanelView inherits Rectangle {
     in property <DashPanel> p;
     in property <bool> dark;
-    property <color> fg: dark ? #f5f2ee : #1c1917;
-    property <color> dim: dark ? #a8a29e : #78716c;
-    property <color> grid: dark ? #2a2622 : #ece7e1;
-    property <color> accent: dark ? #f0577a : #d6335f;
+    property <color> fg: dark ? #fafafa : #0a0a0a;
+    property <color> dim: dark ? #adadad : #6b6b6b;
+    property <color> grid: dark ? #262626 : #e5e5e5;
+    property <color> accent: dark ? #f0577a : #c8234a;
     property <color> chip: dark ? #3a1621 : #fde4ea;
-    property <color> track: dark ? #2e2925 : #ece7e1;
+    property <color> track: dark ? #262626 : #e5e5e5;
     height: p.height * 1px;
     border-radius: 12px;
     background: p.kind == 4 ? (dark ? #2a1219 : #fde4ea)
-        : p.tone == 1 ? (dark ? #1d1a17 : #efe9e3)
-        : p.tone == 2 ? (dark ? #241e17 : #ecdcc8)
-        : (dark ? #171513 : #fffdfa);
+        : p.tone == 1 ? (dark ? #141414 : #fafafa)
+        : p.tone == 2 ? (dark ? #141414 : #fafafa)
+        : (dark ? #141414 : #ffffff);
     border-width: 1px;
-    border-color: dark ? #26221f : #00000000;
+    border-color: dark ? #262626 : #e5e5e5;
     clip: true;
 
     // header shared by every kind
@@ -100,8 +100,8 @@ component PanelView inherits Rectangle {
                 width: tip.preferred-width + 16px;
                 height: 24px;
                 border-radius: 6px;
-                background: dark ? #3a3633 : #292524;
-                tip := Text { text: p.info; color: #fafaf9; font-size: 11px; }
+                background: dark ? #262626 : #262626;
+                tip := Text { text: p.info; color: #fafafa; font-size: 11px; }
             }
         }
         Rectangle { horizontal-stretch: 1; }
@@ -259,13 +259,13 @@ component PillTab inherits Rectangle {
     height: 26px;
     width: lbl.preferred-width + 20px;
     border-radius: 7px;
-    background: active ? (dark ? #2b2724 : #ffffff) : ta.has-hover ? (dark ? #221f1c : #e7e1da) : transparent;
+    background: active ? (dark ? #262626 : #ffffff) : ta.has-hover ? (dark ? #1a1a1a : #e5e5e5) : transparent;
     drop-shadow-blur: active && !dark ? 2px : 0px;
     drop-shadow-color: #0000001a;
     ta := TouchArea { clicked => { root.clicked(); } }
     lbl := Text {
         text: label;
-        color: active ? (dark ? #fafaf9 : #1c1917) : (dark ? #a8a29e : #57534e);
+        color: active ? (dark ? #fafafa : #0a0a0a) : (dark ? #adadad : #6b6b6b);
         font-size: 11px;
         font-weight: active ? 600 : 400;
     }
@@ -281,7 +281,7 @@ export component AdminDashboard inherits Rectangle {
     property <[string]> tabs: ["Overview", "Network", "Delivery", "Security", "Message Authentication", "Encryption", "Performance", "Storage", "Search Index", "Tasks", "Cache"];
     property <[string]> ranges: ["Last hour", "Last 24 hours", "Last 7 days", "Last 30 days"];
     property <bool> range-open;
-    background: dark ? #0e0d0c : #f6f3ef;
+    background: dark ? #0a0a0a : #ffffff;
 
     VerticalLayout {
         padding: 16px;
@@ -294,7 +294,7 @@ export component AdminDashboard inherits Rectangle {
                 width: pills.preferred-width;
                 height: 34px;
                 border-radius: 9px;
-                background: dark ? #181614 : #ede8e2;
+                background: dark ? #141414 : #f0f0f0;
                 pills := HorizontalLayout {
                     padding: 4px;
                     spacing: 2px;
@@ -308,7 +308,7 @@ export component AdminDashboard inherits Rectangle {
             }
             Text {
                 text: root.status;
-                color: dark ? #a8a29e : #78716c;
+                color: dark ? #adadad : #6b6b6b;
                 font-size: 11px;
                 vertical-alignment: center;
                 horizontal-stretch: 1;
@@ -319,17 +319,17 @@ export component AdminDashboard inherits Rectangle {
                 height: 30px;
                 y: 2px;
                 border-radius: 8px;
-                background: dark ? #181614 : #fffdfa;
+                background: dark ? #141414 : #ffffff;
                 border-width: 1px;
-                border-color: dark ? #2b2724 : #e7e1da;
+                border-color: dark ? #262626 : #e5e5e5;
                 TouchArea { clicked => { root.range-open = !root.range-open; } }
                 rl := HorizontalLayout {
                     padding-left: 10px;
                     padding-right: 10px;
                     spacing: 7px;
-                    Glyph { text: "\u{E787}"; font-size: 11px; color: dark ? #a8a29e : #57534e; }
-                    Text { text: root.ranges[root.range]; color: dark ? #fafaf9 : #1c1917; font-size: 11px; vertical-alignment: center; }
-                    Glyph { text: "\u{E70D}"; font-size: 9px; color: dark ? #a8a29e : #57534e; }
+                    Glyph { text: "\u{E787}"; font-size: 11px; color: dark ? #adadad : #6b6b6b; }
+                    Text { text: root.ranges[root.range]; color: dark ? #fafafa : #0a0a0a; font-size: 11px; vertical-alignment: center; }
+                    Glyph { text: "\u{E70D}"; font-size: 9px; color: dark ? #adadad : #6b6b6b; }
                 }
             }
             Rectangle {
@@ -337,11 +337,11 @@ export component AdminDashboard inherits Rectangle {
                 height: 30px;
                 y: 2px;
                 border-radius: 8px;
-                background: rfa.has-hover ? (dark ? #221f1c : #ede8e2) : (dark ? #181614 : #fffdfa);
+                background: rfa.has-hover ? (dark ? #1a1a1a : #f0f0f0) : (dark ? #141414 : #ffffff);
                 border-width: 1px;
-                border-color: dark ? #2b2724 : #e7e1da;
+                border-color: dark ? #262626 : #e5e5e5;
                 rfa := TouchArea { clicked => { root.load(root.tab, root.range); } }
-                Glyph { text: "\u{E72C}"; font-size: 12px; color: dark ? #fafaf9 : #1c1917; }
+                Glyph { text: "\u{E72C}"; font-size: 12px; color: dark ? #fafafa : #0a0a0a; }
             }
         }
         sv := ScrollView {
@@ -375,9 +375,9 @@ export component AdminDashboard inherits Rectangle {
             width: 150px;
             height: 4 * 28px + 8px;
             border-radius: 8px;
-            background: dark ? #1c1a18 : #ffffff;
+            background: dark ? #1c1c1c : #ffffff;
             border-width: 1px;
-            border-color: dark ? #2b2724 : #e7e1da;
+            border-color: dark ? #262626 : #e5e5e5;
             drop-shadow-blur: 8px;
             drop-shadow-color: #00000026;
             VerticalLayout {
@@ -385,9 +385,9 @@ export component AdminDashboard inherits Rectangle {
                 for r[i] in root.ranges: Rectangle {
                     height: 28px;
                     border-radius: 6px;
-                    background: root.range == i ? (dark ? #3a1621 : #fde4ea) : ia.has-hover ? (dark ? #221f1c : #f3efea) : transparent;
+                    background: root.range == i ? (dark ? #3a1621 : #fde4ea) : ia.has-hover ? (dark ? #1a1a1a : #f0f0f0) : transparent;
                     ia := TouchArea { clicked => { root.range = i; root.range-open = false; root.load(root.tab, root.range); } }
-                    Text { x: 10px; text: r; color: dark ? #fafaf9 : #1c1917; font-size: 11px; vertical-alignment: center; height: parent.height; }
+                    Text { x: 10px; text: r; color: dark ? #fafafa : #0a0a0a; font-size: 11px; vertical-alignment: center; height: parent.height; }
                 }
             }
         }
