@@ -1,5 +1,7 @@
 import { AdminDashboard, DashRow, DashPanel, DashCol, DashBar } from "dashboard.slint";
 export { DashRow, DashPanel, DashCol, DashBar }
+import { CalPal, CalX, CalTint, CalOverlays, AgendaView, TasksView, CalSidebarExtra, CxAttendee, CxSuggest, CxAlert, CxSlot, CxReminder, CxMissed, CxAgendaRow, CxTask, CxSub } from "calendar_ext.slint";
+export { CalX, CxAttendee, CxSuggest, CxAlert, CxSlot, CxReminder, CxMissed, CxAgendaRow, CxTask, CxSub }
 import { LineEdit, Button, ListView, ScrollView, TextEdit, ComboBox, CheckBox, Palette } from "std-widgets.slint";
 import { Theme, Icons, SIcon, Prefs } from "theme.slint";
 export { Theme, Icons, Prefs }
@@ -124,6 +126,7 @@ export struct TaskRow {
     title: string,
     due: string,
     done: bool,
+    overdue: bool,
 }
 
 export struct Att {
@@ -1106,6 +1109,8 @@ export component AppWindow inherits Window {
     in-out property <int> app: 0;
     callback app-changed(int);
     in property <int> cal-view: 1;
+    // the Theme tokens the calendar extras (calendar_ext.slint) draw with
+    property <CalPal> cal-pal: { dark: Theme.dark, bg: Theme.bg, tile: Theme.side, line: Theme.line, text: Theme.text, dim: Theme.dim, accent: Theme.accent, on-accent: Theme.on-accent, hover: Theme.hover, popup: Theme.popup, chip: Theme.chip, sel: Theme.sel, sel-text: Theme.sel-text };
     in property <[string]> cal-weekdays: ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
     in property <[string]> cal-week-nums;
     in property <bool> cal-show-weeknums: false;
@@ -1469,6 +1474,8 @@ export component AppWindow inherits Window {
                 HorizontalLayout { alignment: center; RailButton { icon: Icons.cal; tip: "Calendar"; active: root.app == 1 && !root.show-settings; clicked => { root.show-settings = false; root.app = 1; root.app-changed(1); } } }
                 HorizontalLayout { alignment: center; RailButton { icon: Icons.users; tip: "Contacts"; active: root.app == 2 && !root.show-settings; clicked => { root.show-settings = false; root.app = 2; root.app-changed(2); } } }
                 HorizontalLayout { alignment: center; RailButton { icon: Icons.folder; tip: "Files"; active: root.app == 3 && !root.show-settings; clicked => { root.show-settings = false; root.app = 3; root.app-changed(3); } } }
+                // Tasks as its own app (Settings › Calendar › tasks in the rail; calendar_ext.slint)
+                if CalX.tasks-app && CalX.tasks-enabled: HorizontalLayout { alignment: center; RailButton { icon: Icons.check; tip: "Tasks"; active: root.app == 1 && root.cal-view == 4 && !root.show-settings; clicked => { root.show-settings = false; root.app = 1; root.app-changed(1); root.cal-set-view(4); } } }
                 if !root.ai-hidden: HorizontalLayout { alignment: center; RailButton { icon: Icons.spark; tip: "Assistant"; active: root.chat-open; clicked => { root.show-settings = false; root.app = 0; root.chat-open = !root.chat-open; } } }
                 if root.admin-enabled: HorizontalLayout { alignment: center; RailButton { icon: Icons.shield; tip: "Admin"; active: root.app == 4 && !root.show-settings; clicked => { root.show-settings = false; root.app = 4; root.app-changed(4); } } }
                 Rectangle { vertical-stretch: 1; }
@@ -3105,8 +3112,8 @@ export component AppWindow inherits Window {
                         }
                     }
                     Rectangle { height: 8px; }
-                    Text { text: "Tasks"; color: Theme.text; font-weight: 700; }
-                    for t in root.cal-tasks: Rectangle {
+                    if CalX.tasks-enabled && !CalX.tasks-app: Text { text: "Tasks"; color: Theme.text; font-weight: 700; }
+                    if CalX.tasks-enabled && !CalX.tasks-app: VerticalLayout { for t in root.cal-tasks: Rectangle {
                         height: 24px;
                         border-radius: 4px;
                         background: CtxHl.id == "task:" + t.id ? Theme.hover : transparent;
@@ -3120,11 +3127,21 @@ export component AppWindow inherits Window {
                                 TouchArea { clicked => { root.task-toggle(t.id); } }
                             }
                             Text { text: t.title; color: t.done ? Theme.dim : Theme.text; vertical-alignment: center; overflow: elide; horizontal-stretch: 1; }
-                            Text { text: t.due; color: Theme.dim; font-size: 10px; vertical-alignment: center; }
+                            Rectangle {
+                                width: tdue.preferred-width + (t.overdue ? 10px : 0px); height: 16px; y: 4px; border-radius: 8px;
+                                background: t.overdue ? CalTint.bg(Theme.dark, 3) : transparent;
+                                tdue := Text { text: t.due; color: t.overdue ? CalTint.fg(Theme.dark, 3) : Theme.dim; font-size: 10px; font-weight: t.overdue ? 600 : 400; vertical-alignment: center; }
+                            }
                         }
                     }
-                    LineEdit { placeholder-text: "Add a task"; text <=> root.task-new; accepted(t) => { root.task-add(t, root.task-due); root.task-new = ""; root.task-due = ""; } }
-                    if root.task-new != "": LineEdit { placeholder-text: "Due YYYY-MM-DD (optional)"; text <=> root.task-due; accepted(t) => { root.task-add(root.task-new, t); root.task-new = ""; root.task-due = ""; } }
+                    if CalX.sidebar-more > 0: Rectangle {
+                        height: 22px;
+                        Text { x: 22px; text: "Show all (" + CalX.sidebar-more + " more)"; color: Theme.accent; font-size: 12px; vertical-alignment: center; }
+                        TouchArea { mouse-cursor: pointer; clicked => { root.cal-set-view(4); } }
+                    }
+                    }
+                    if CalX.tasks-enabled && !CalX.tasks-app: LineEdit { placeholder-text: "Add a task"; text <=> root.task-new; accepted(t) => { root.task-add(t, root.task-due); root.task-new = ""; root.task-due = ""; } }
+                    if CalX.tasks-enabled && !CalX.tasks-app && root.task-new != "": LineEdit { placeholder-text: "Due YYYY-MM-DD (optional)"; text <=> root.task-due; accepted(t) => { root.task-add(root.task-new, t); root.task-new = ""; root.task-due = ""; } }
                     Rectangle { height: 8px; }
                     Text { text: "Calendars"; color: Theme.text; font-weight: 700; }
                     for c in root.calendars: Rectangle {
@@ -3142,12 +3159,13 @@ export component AppWindow inherits Window {
                             Text { text: c.name; color: Theme.text; vertical-alignment: center; overflow: elide; }
                         }
                     }
+                    CalSidebarExtra { pal: root.cal-pal; }
                 }
                 }
             }
             Rectangle { width: 1px; background: Theme.line; }
             VerticalLayout {
-                HorizontalLayout {
+                if root.cal-view != 4: HorizontalLayout {
                     height: 40px;
                     padding-left: 12px;
                     padding-right: 12px;
@@ -3157,9 +3175,11 @@ export component AppWindow inherits Window {
                     HoverAction { glyph: "\u{E76C}"; y: 9px; clicked => { root.cal-nav("next"); } }
                     Text { text: root.cal-title; color: Theme.text; font-size: 15px; font-weight: 700; vertical-alignment: center; horizontal-stretch: 1; }
                     LineEdit { placeholder-text: "Search events"; width: 200px; edited(t) => { root.cal-search(t); } }
-                    ComboBox { width: 100px; model: ["Day", "Week", "Month"]; current-index: root.cal-view; selected => { root.cal-set-view(self.current-index); } }
+                    ComboBox { width: 110px; model: CalX.view-names; current-index: root.cal-view; selected => { root.cal-set-view(self.current-index); } }
                 }
-                Rectangle { height: 1px; background: Theme.line; }
+                if root.cal-view != 4: Rectangle { height: 1px; background: Theme.line; }
+                if root.cal-view == 3: AgendaView { pal: root.cal-pal; vertical-stretch: 1; }
+                if root.cal-view == 4: TasksView { pal: root.cal-pal; vertical-stretch: 1; new-task => { CalX.task-open(""); } }
                 if root.cal-view == 2: VerticalLayout {
                     HorizontalLayout {
                         height: 24px;
@@ -3182,7 +3202,8 @@ export component AppWindow inherits Window {
                             border-color: Theme.line;
                             background: c.in-month ? transparent : Theme.zebra;
                             TouchArea {
-                                double-clicked => { root.cal-edit("", c.date, -1); }
+                                clicked => { CalX.quick(c.date, -1, 0, self.absolute-position.x + self.mouse-x, self.absolute-position.y + self.mouse-y); }
+                                double-clicked => { CalX.qc-open = false; root.cal-edit("", c.date, -1); }
                                 pointer-event(ev) => { if ev.button == PointerEventButton.right && ev.kind == PointerEventKind.up { root.ctx("slot", c.date, self.absolute-position.x + self.mouse-x, self.absolute-position.y + self.mouse-y); } }
                                 scroll-event(ev) => {
                                     if !root.cal-free-scroll || ev.delta-y == 0 { return reject; }
@@ -3225,10 +3246,13 @@ export component AppWindow inherits Window {
                         }
                     }
                 }
-                if root.cal-view != 2: VerticalLayout {
+                if root.cal-view < 2: VerticalLayout {
+                    vertical-stretch: 1;
                     HorizontalLayout {
                         padding-left: 52px;
+                        vertical-stretch: 0;
                         for d in root.cal-days: VerticalLayout {
+                            alignment: start;
                             spacing: 2px;
                             padding-bottom: 4px;
                             Text { text: d.date; color: d.today ? Theme.accent : Theme.dim; font-size: 11px; horizontal-alignment: center; }
@@ -3264,8 +3288,11 @@ export component AppWindow inherits Window {
                                 Rectangle { x: 52px; height: 1px; y: 0; background: Theme.popup; }
                                 TouchArea {
                                     x: 52px;
+                                    property <int> daycol: floor(self.mouse-x / ((tg.visible-width - 52px) / max(1, root.cal-days.length)));
+                                    clicked => { CalX.quick("#" + self.daycol, h, self.mouse-y >= 28px ? 30 : 0, self.absolute-position.x + self.mouse-x, self.absolute-position.y + self.mouse-y); }
                                     double-clicked => {
-                                        root.cal-edit("", "", h);
+                                        CalX.qc-open = false;
+                                        root.cal-edit("#" + self.daycol, "", h);
                                     }
                                     pointer-event(ev) => { if ev.button == PointerEventButton.right && ev.kind == PointerEventKind.up { root.ctx("slot", "@" + h, self.absolute-position.x + self.mouse-x, self.absolute-position.y + self.mouse-y); } }
                                 }
@@ -3784,49 +3811,23 @@ export component AppWindow inherits Window {
         }
     }
 
-    if root.ev-open: Rectangle {
-        background: #000000a0;
-        TouchArea { }
-        Rectangle {
-            width: min(520px, parent.width - 40px);
-            height: evl.preferred-height;
-            background: Theme.side;
-            border-radius: 10px;
-            border-width: 1px;
-            border-color: Theme.line;
-            evl := VerticalLayout {
-                padding: 18px;
-                spacing: 8px;
-                Text { text: root.ev-id == "" ? "New event" : "Edit event"; color: Theme.text; font-size: 16px; font-weight: 700; }
-                LineEdit { placeholder-text: "Title"; text <=> root.ev-title; }
-                HorizontalLayout {
-                    spacing: 8px;
-                    LineEdit { placeholder-text: "YYYY-MM-DD"; text <=> root.ev-date; }
-                    if !root.ev-all-day: LineEdit { placeholder-text: "Start HH:MM"; width: 90px; text <=> root.ev-start; }
-                    if !root.ev-all-day: LineEdit { placeholder-text: "End HH:MM"; width: 90px; text <=> root.ev-end; }
-                }
-                CheckBox { text: "All day"; checked <=> root.ev-all-day; }
-                HorizontalLayout {
-                    spacing: 8px;
-                    Text { text: "Repeat"; color: Theme.dim; vertical-alignment: center; width: 70px; }
-                    ComboBox { model: ["Does not repeat", "Every day", "Every week", "Every month", "Every year"]; current-index <=> root.ev-repeat; }
-                }
-                HorizontalLayout {
-                    spacing: 8px;
-                    Text { text: "Calendar"; color: Theme.dim; vertical-alignment: center; width: 70px; }
-                    ComboBox { model: root.ev-calendars; current-index <=> root.ev-calendar; }
-                }
-                LineEdit { placeholder-text: "Location"; text <=> root.ev-location; }
-                TextEdit { height: 90px; text <=> root.ev-description; wrap: word-wrap; }
-                HorizontalLayout {
-                    spacing: 8px;
-                    Text { text: root.ev-status; color: Theme.accent; vertical-alignment: center; horizontal-stretch: 1; overflow: elide; }
-                    if root.ev-id != "": Button { text: "Delete"; clicked => { root.ev-delete(); } }
-                    Button { text: "Cancel"; clicked => { root.ev-open = false; } }
-                    PrimaryButton { text: "Save";  clicked => { root.ev-save(); } }
-                }
-            }
-        }
+    CalOverlays {
+        pal: root.cal-pal;
+        ev-open <=> root.ev-open;
+        ev-id: root.ev-id;
+        ev-title <=> root.ev-title;
+        ev-date <=> root.ev-date;
+        ev-start <=> root.ev-start;
+        ev-end <=> root.ev-end;
+        ev-all-day <=> root.ev-all-day;
+        ev-location <=> root.ev-location;
+        ev-description <=> root.ev-description;
+        ev-repeat <=> root.ev-repeat;
+        ev-calendar <=> root.ev-calendar;
+        ev-calendars: root.ev-calendars;
+        ev-status: root.ev-status;
+        ev-save => { root.ev-save(); }
+        ev-delete => { root.ev-delete(); }
     }
 
     // calendar event hover preview (Bulwark calendarHoverPreview)

@@ -19,6 +19,7 @@
 //!   rx-banners           (the open message's reader banners as JSON)
 //!   rx-import PATH / rx-find TEXT / rx-destroy ID...  (test messages; only on the test account,
 //!   and only in a build with `--features automation-writes`: release builds cannot write)
+//!   cal-dump TEXT        (the loaded calendar events whose title contains TEXT, as JSON; read-only)
 use crate::AppWindow;
 use slint::platform::{Key, PointerEventButton, WindowEvent};
 use slint::{ComponentHandle, LogicalPosition, SharedString};
@@ -183,6 +184,7 @@ fn run(u: &AppWindow, line: &str) -> String {
         "rx-find" => crate::reader::automation_find(a.get(1).copied().unwrap_or("").trim()),
         #[cfg(feature = "automation-writes")]
         "rx-destroy" => crate::reader::automation_destroy(a.get(1).copied().unwrap_or("")),
+        "cal-dump" => crate::calendar::dump(a.get(1).copied().unwrap_or("")),
         "size" => { let s = win.size(); format!("{} {} scale {}", s.width, s.height, win.scale_factor()) }
         // resize the (off-screen) window, in logical pixels, to check narrow layouts
         "resize" => { win.set_size(slint::LogicalSize::new(pos(&args, 0).max(400.0), pos(&args, 1).max(300.0))); "ok".into() }

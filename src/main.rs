@@ -9,6 +9,10 @@ mod otp;
 mod agent;
 mod ai;
 mod calendar;
+mod cal_editor;
+mod cal_extra;
+mod recurrence;
+mod reminders;
 mod compose;
 mod contacts;
 mod ctxmenu;
@@ -448,6 +452,13 @@ static SESSION_GEN: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64:
 /// Data types the app follows over push (RFC 8620 §7.3 `types`).
 const PUSH_TYPES: [&str; 5] = ["Email", "Mailbox", "Thread", "EmailDelivery", "EmailSubmission"];
 
+/// The push types of a login: mail, plus calendar objects where it has calendars.
+fn push_types(c: &jmap::Client) -> Vec<&'static str> {
+    let mut v = PUSH_TYPES.to_vec();
+    if c.has(calendar::CAL) { v.extend(["CalendarEvent", "Calendar"]); }
+    v
+}
+
 /// Live updates: listen to the JMAP event stream and sync what a StateChange names.
 /// The stream is re-opened with exponential backoff (2 s .. 5 min, with jitter) after it drops
 /// or goes silent. Each time it opens everything is synced once (cheap: /changes deltas), since
@@ -460,10 +471,11 @@ fn start_push(w: slint::Weak<AppWindow>, c: Arc<jmap::Client>) {
         loop {
             if !live() { return; }
             let started = std::time::Instant::now();
-            let _ = c.watch(&PUSH_TYPES, &mut |ev| {
+            let types_wanted = push_types(&c);
+            let _ = c.watch(&types_wanted, &mut |ev| {
                 if !live() { return false; }
                 let types: std::collections::HashSet<String> = match ev {
-                    jmap::PushEvent::Open => PUSH_TYPES.iter().map(|t| t.to_string()).collect(),
+                    jmap::PushEvent::Open => types_wanted.iter().map(|t| t.to_string()).collect(),
                     jmap::PushEvent::State(v) => jmap::changed_types(&v, &c.account).into_keys().collect(),
                     _ => Default::default(),
                 };
@@ -499,6 +511,10 @@ fn schedule_refresh(w: slint::Weak<AppWindow>, c: Arc<jmap::Client>, types: std:
         let scheduled = w.upgrade().is_some_and(|u| u.get_current_folder() == "__scheduled");
         if has("Email") || has("Thread") || (scheduled && has("EmailSubmission")) { mail::sync(w.clone(), c.clone()); }
         if has("Email") || has("EmailDelivery") { check_new_mail(c.clone(), Some(w.clone())); }
+        if has("CalendarEvent") || has("Calendar") {
+            reminders::changed(w.clone(), c.clone());
+            if w.upgrade().is_some_and(|u| u.get_app() == 1) { calendar::load(w.clone(), c.clone()); }
+        }
     }));
 }
 
@@ -676,6 +692,7 @@ fn main() -> Result<(), slint::PlatformError> {
         mailto::repair_registration();
         if let Some(l) = link { mailto::request(l); }
     }
+    cal_extra::wire(&ui, state.clone());
 
     if let Ok(s) = std::fs::read_to_string(config_path()) {
         let mut l = s.lines();
@@ -2047,6 +2064,11 @@ fn finish_login(w: slint::Weak<AppWindow>, st: Shared, res: Result<jmap::Client,
             // today's events and open tasks for the mail screen's summary tiles
             calendar::load(w2.clone(), c.clone());
             check_new_mail(c.clone(), None);
+            {
+                // calendar reminders for this login (Bulwark useCalendarAlerts)
+                let c4 = c.clone();
+                let _ = w2.upgrade_in_event_loop(move |u| reminders::start(&u, c4));
+            }
             start_push(w2, c);
         }
         Err(e) => {
