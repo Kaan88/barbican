@@ -276,21 +276,7 @@ pub fn load(w: slint::Weak<AppWindow>, c: Arc<Client>) {
         let _ = w.upgrade_in_event_loop(move |u| match res {
             Ok((cals, events)) => {
                 let (f, t) = (from.and_hms_opt(0, 0, 0).unwrap(), to.and_hms_opt(0, 0, 0).unwrap());
-                let mut occ = vec![];
-                for e in &events {
-                    if is_task(e) { continue; }
-                    for (s, en) in expand(e, f, t) {
-                        occ.push(Occ {
-                            id: e["id"].as_str().unwrap_or("").into(),
-                            title: e["title"].as_str().filter(|x| !x.is_empty()).unwrap_or("(no title)").into(),
-                            start: s, end: en,
-                            all_day: e["showWithoutTime"] == true,
-                            calendar: e["calendarIds"].as_object().and_then(|o| o.keys().next().cloned()).unwrap_or_default(),
-                            location: e["locations"].as_object().and_then(|o| o.values().next()).and_then(|l| l["name"].as_str()).unwrap_or("").into(),
-                        });
-                    }
-                }
-                occ.sort_by_key(|o| o.start);
+                let occ = occurrences(&events, f, t);
                 ST.with(|s| { let mut s = s.borrow_mut(); s.calendars = cals; s.events = occ; });
                 ST.with(|s| s.borrow_mut().events_raw_set(events));
                 render(&u);
@@ -302,6 +288,26 @@ pub fn load(w: slint::Weak<AppWindow>, c: Arc<Client>) {
 }
 
 thread_local! { static RAW: RefCell<Vec<Value>> = const { RefCell::new(Vec::new()) }; }
+
+/// Every (non-task) occurrence between f and t, sorted by start.
+fn occurrences(events: &[Value], f: NaiveDateTime, t: NaiveDateTime) -> Vec<Occ> {
+    let mut occ = vec![];
+    for e in events {
+        if is_task(e) { continue; }
+        for (s, en) in expand(e, f, t) {
+            occ.push(Occ {
+                id: e["id"].as_str().unwrap_or("").into(),
+                title: e["title"].as_str().filter(|x| !x.is_empty()).unwrap_or("(no title)").into(),
+                start: s, end: en,
+                all_day: e["showWithoutTime"] == true,
+                calendar: e["calendarIds"].as_object().and_then(|o| o.keys().next().cloned()).unwrap_or_default(),
+                location: e["locations"].as_object().and_then(|o| o.values().next()).and_then(|l| l["name"].as_str()).unwrap_or("").into(),
+            });
+        }
+    }
+    occ.sort_by_key(|o| o.start);
+    occ
+}
 
 trait RawSet { fn events_raw_set(&mut self, v: Vec<Value>); }
 impl RawSet for State { fn events_raw_set(&mut self, v: Vec<Value>) { RAW.with(|r| *r.borrow_mut() = v); } }
@@ -319,7 +325,9 @@ pub fn render(u: &AppWindow) {
     {
         let ws = week_start(today);
         let names: Vec<slint::SharedString> = (0..7).map(|i| (ws + Duration::days(i)).format("%a").to_string().into()).collect();
+        let short: Vec<slint::SharedString> = names.iter().map(|n| n.chars().next().map(|c| c.to_string()).unwrap_or_default().into()).collect();
         u.set_cal_weekdays(ModelRc::new(VecModel::from(names)));
+        u.set_cal_weekdays_short(ModelRc::new(VecModel::from(short)));
         u.set_cal_show_weeknums(cp.week_numbers);
         u.set_cal_hour_from(cp.hour_from);
         u.set_cal_hour_to(cp.hour_to);
@@ -441,6 +449,7 @@ fn ev(o: &Occ, cals: &[Value], col: i32, top: f32, h: f32, lanes: i32, h12: bool
         style: 0,
         invite: PENDING.with(|p| p.borrow().contains(&o.id)),
         past: o.end <= Local::now().naive_local(),
+        when: when_text(o, h12).into(),
     }
 }
 
@@ -946,9 +955,16 @@ fn summary(u: &AppWindow) {
     let view = ST.with(|s| s.borrow().view);
     ST.with(|s| {
         let s = s.borrow();
-        let visible: Vec<&Occ> = s.events.iter().filter(|o| !s.hidden.contains(&o.calendar)).collect();
+        // from the raw events, not the loaded range: right straight after a view / range change
+        // (before the fetch is back), and "next up" is the next event overall, not only in this view
+        let (f, t) = (from.and_hms_opt(0, 0, 0).unwrap(), to.and_hms_opt(0, 0, 0).unwrap());
+        let (in_range, ahead) = RAW.with(|r| {
+            let r = r.borrow();
+            (occurrences(&r, f, t), occurrences(&r, now - Duration::days(1), now + Duration::days(366)))
+        });
+        let visible: Vec<&Occ> = in_range.iter().filter(|o| !s.hidden.contains(&o.calendar)).collect();
         // next up
-        let next = visible.iter().filter(|o| !o.all_day && o.start >= now).min_by_key(|o| o.start);
+        let next = ahead.iter().filter(|o| !s.hidden.contains(&o.calendar) && !o.all_day && o.start >= now).min_by_key(|o| o.start);
         u.set_cal_sum_next(match next {
             Some(o) => {
                 let m = (o.start - now).num_minutes();
@@ -956,10 +972,9 @@ fn summary(u: &AppWindow) {
                 CalSum { label: format!("Next up · {when}").into(), value: o.title.as_str().into(),
                     sub: if o.location.is_empty() { fmt_time(o.start, h12) } else { format!("{} · {}", fmt_time(o.start, h12), o.location) }.into(), id: o.id.as_str().into() }
             }
-            None => CalSum { label: "Next up".into(), value: "Nothing coming".into(), sub: "No more events in this view".into(), id: "".into() },
+            None => CalSum { label: "Next up".into(), value: "Nothing coming".into(), sub: "No upcoming events".into(), id: "".into() },
         });
         // what the range holds
-        let (f, t) = (from.and_hms_opt(0, 0, 0).unwrap(), to.and_hms_opt(0, 0, 0).unwrap());
         let inr: Vec<&&Occ> = visible.iter().filter(|o| o.start < t && o.end > f).collect();
         let mins: i64 = inr.iter().filter(|o| !o.all_day).map(|o| (o.end.min(t) - o.start.max(f)).num_minutes().max(0)).sum();
         let label = match view { 0 => "This day", 1 => "This week", _ => "This month" };
@@ -969,7 +984,7 @@ fn summary(u: &AppWindow) {
         u.set_cal_side_line(format!("{wk}{}{}", plural(inr.len(), "event", "events"), if mins > 0 { format!(" · {} scheduled", dur_text(mins)) } else { String::new() }).into());
         // invitations still to answer (upcoming ones)
         let pend = PENDING.with(|p| p.borrow().clone());
-        let mut inv: Vec<&&Occ> = visible.iter().filter(|o| o.end > now && pend.contains(&o.id)).collect();
+        let mut inv: Vec<&Occ> = ahead.iter().filter(|o| !s.hidden.contains(&o.calendar) && o.end > now && pend.contains(&o.id)).collect();
         inv.sort_by_key(|o| o.start);
         let mut seen = HashSet::new();
         inv.retain(|o| seen.insert(o.id.clone()));
@@ -1009,7 +1024,10 @@ fn detail(u: &AppWindow) {
         match &s.selected {
             Some(id) => {
                 let all: Vec<&Occ> = s.events.iter().filter(|o| &o.id == id).collect();
-                all.iter().find(|o| o.end > now).or(all.last()).map(|o| (*o).clone())
+                all.iter().find(|o| o.end > now).or(all.last()).map(|o| (*o).clone()).or_else(|| {
+                    // chosen from a summary tile: may lie outside the loaded range
+                    RAW.with(|r| occurrences(&r.borrow(), now - Duration::days(1), now + Duration::days(366))).into_iter().find(|o| &o.id == id)
+                })
             }
             // nothing chosen: the next event to come, else the last one that has ended
             None => {
@@ -1027,6 +1045,8 @@ fn detail(u: &AppWindow) {
     let (cal_name, color) = ST.with(|s| {
         let s = s.borrow();
         let n = s.calendars.iter().find(|c| c["id"] == o.calendar.as_str()).and_then(|c| c["name"].as_str()).unwrap_or("Calendar").to_string();
+        // "Stalwart Calendar (mail@example.com)": the account part is noise in the panel header
+        let n = match n.rfind(" (") { Some(i) if n.ends_with(')') && i > 0 => n[..i].to_string(), _ => n };
         (n, color_for(&s.calendars, &o.calendar))
     });
     let my = participation_in(&raw, &mine);

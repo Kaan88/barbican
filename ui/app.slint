@@ -47,6 +47,8 @@ export struct CalEvent {
     // design meaning tints: an unanswered invitation (amber, outlined), an event that has ended
     invite: bool,
     past: bool,
+    // "Tue 17 Nov · 10:00 – 11:00", as in the context panel (hover preview)
+    when: string,
 }
 
 /// A calendar summary tile (BNCalendar: Next up / This week / Invitations); `id` is the event it opens.
@@ -590,8 +592,8 @@ component CalChip inherits Rectangle {
     border-radius: compact ? 6px : (Theme.nordic ? 14px : 12px);
     background: e.invite ? Theme.amber-bg : solid ? e.color : Theme.tint-bg(e.color);
     border-width: e.invite || selected ? 1.5px : 0px;
-    border-color: selected && !e.invite ? Theme.text : root.fg;
-    opacity: e.past && !selected ? 0.6 : 1.0;
+    border-color: selected && solid && !e.invite ? Theme.text : root.fg;
+    opacity: e.past ? 0.6 : 1.0;
     clip: true;
     accessible-role: button;
     accessible-label: e.title + (e.time != "" ? ", " + e.time : "") + (e.invite ? ", invitation" : "");
@@ -1354,6 +1356,7 @@ export component AppWindow inherits Window {
     callback app-changed(int);
     in property <int> cal-view: 1;
     in property <[string]> cal-weekdays: ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+    in property <[string]> cal-weekdays-short: ["M", "T", "W", "T", "F", "S", "S"];
     in property <[string]> cal-week-nums;
     in property <bool> cal-show-weeknums: false;
     in property <int> cal-hour-from: 0;
@@ -1381,6 +1384,9 @@ export component AppWindow inherits Window {
     out property <length> cal-gutter: Theme.nordic ? 52px : 48px;
     out property <length> cal-hour-h: Theme.nordic ? 54px : 52px;
     // the grid's own width (Bulwark: under 1000px; here under 600px, the grid now shares the row with the context panel)
+    // width of the grid surface: drives the compact header (smaller title, short search) in tight windows
+    out property <length> cal-grid-w: root.width - Theme.shell-x - Theme.pad - (Theme.nordic ? 14px : Theme.pad) - root.cal-side-w - Theme.gap - (root.cal-ctx-on ? 292px : 0px);
+    out property <bool> cal-tight: root.cal-grid-w < 900px;
     out property <bool> cal-narrow: root.width - Theme.shell-x - Theme.pad - root.cal-side-w - Theme.gap - (root.cal-ctx-on ? 292px : 0px) - 56px < 600px;
     in-out property <string> cal-q;
     in property <CalSum> cal-sum-next;
@@ -3346,8 +3352,10 @@ export component AppWindow inherits Window {
                         }
                         HorizontalLayout {
                             if root.cal-show-weeknums: Rectangle { width: 22px; }
-                            for d in root.cal-weekdays: Text {
+                            for d in root.cal-weekdays-short: Text {
                                 text: d;
+                                min-width: 0px;
+                                preferred-width: 0px;
                                 color: Theme.faint;
                                 font-size: (Theme.nordic ? 12px : 11.5px) * Prefs.fs;
                                 horizontal-alignment: center;
@@ -3524,16 +3532,16 @@ export component AppWindow inherits Window {
                 if Theme.bento: HorizontalLayout {
                     spacing: 12px;
                     height: max(78px, cst.preferred-height);
-                    cst := SummaryTile {
+                    cst := SummaryTile { horizontal-stretch: 1; preferred-width: 0px; min-width: 0px;
                         label: root.cal-sum-next.label; value: root.cal-sum-next.value; sub: root.cal-sum-next.sub;
                         bg: Theme.rose-bg; fg: Theme.rose-fg;
                         clicked => { if root.cal-sum-next.id != "" { root.cal-select(root.cal-sum-next.id); } }
                     }
-                    SummaryTile {
+                    SummaryTile { horizontal-stretch: 1; preferred-width: 0px; min-width: 0px;
                         label: root.cal-sum-range.label; value: root.cal-sum-range.value; sub: root.cal-sum-range.sub;
                         bg: Theme.mint-bg; fg: Theme.mint-fg;
                     }
-                    SummaryTile {
+                    SummaryTile { horizontal-stretch: 1; preferred-width: 0px; min-width: 0px;
                         label: root.cal-sum-inv.label; value: root.cal-sum-inv.value; sub: root.cal-sum-inv.sub;
                         bg: Theme.amber-bg; fg: Theme.amber-fg;
                         clicked => { if root.cal-sum-inv.id != "" { root.cal-select(root.cal-sum-inv.id); } }
@@ -3563,7 +3571,7 @@ export component AppWindow inherits Window {
                                 Text {
                                     text: root.cal-title;
                                     color: Theme.text;
-                                    font-size: (Theme.nordic ? 28px : 21px) * Prefs.fs;
+                                    font-size: (Theme.nordic ? (root.cal-tight ? 22px : 28px) : 21px) * Prefs.fs;
                                     font-weight: Theme.nordic ? 800 : 700;
                                     letter-spacing: Theme.nordic ? -0.5px : 0px;
                                     vertical-alignment: center;
@@ -3577,7 +3585,7 @@ export component AppWindow inherits Window {
                                 VerticalLayout {
                                     alignment: center;
                                     Rectangle {
-                                        width: root.cal-narrow ? 120px : 180px;
+                                        width: root.cal-narrow || root.cal-tight ? 112px : 180px;
                                         height: Prefs.large-targets ? 40px : (Theme.nordic ? 36px : 32px);
                                         border-radius: Theme.nordic ? self.height / 2 : 12px;
                                         background: Theme.tile2;
@@ -3725,15 +3733,15 @@ export component AppWindow inherits Window {
                                     }
                                 }
                                 if Theme.bento: Rectangle { height: 1px; background: Theme.line; }
-                                tg := ScrollView {
+                                tg := Flickable {
                                     vertical-stretch: 1;
                                     property <length> hh-px: root.cal-hour-h;
                                     content-height: (root.cal-hour-to - root.cal-hour-from) * self.hh-px + 10px;
                                     Rectangle {
                                         y: 8px;
                                         height: (root.cal-hour-to - root.cal-hour-from) * tg.hh-px;
-                                        width: tg.visible-width;
-                                        property <length> colw: (tg.visible-width - root.cal-gutter) / max(1, root.cal-days.length);
+                                        width: tg.width;
+                                        property <length> colw: (tg.width - root.cal-gutter) / max(1, root.cal-days.length);
                                         for hh in (root.cal-hour-to - root.cal-hour-from): Rectangle {
                                             property <int> h: hh + root.cal-hour-from;
                                             y: hh * tg.hh-px;
@@ -3780,7 +3788,7 @@ export component AppWindow inherits Window {
                                             width: parent.width - root.cal-gutter + 5px;
                                             height: 10px;
                                             Rectangle { x: 5px; y: 4px; width: parent.width - 5px; height: 2px; background: Theme.accent; }
-                                            if Theme.bento: Rectangle { x: i * (tg.visible-width - root.cal-gutter) / max(1, root.cal-days.length); y: 0; width: 10px; height: 10px; border-radius: 5px; background: Theme.accent; }
+                                            if Theme.bento: Rectangle { x: i * (tg.width - root.cal-gutter) / max(1, root.cal-days.length); y: 0; width: 10px; height: 10px; border-radius: 5px; background: Theme.accent; }
                                         }
                                     }
                                     init => { self.content-y = -max(0, root.pref-day-start - root.cal-hour-from) * self.hh-px; }
@@ -4368,7 +4376,7 @@ export component AppWindow inherits Window {
                 }
                 Text { text: root.hov-ev.title; color: Theme.text; font-size: 13.5px * Prefs.fs; font-weight: 700; wrap: word-wrap; horizontal-stretch: 1; }
             }
-            Text { text: root.hov-ev.date + (root.hov-ev.time != "" ? " · " + root.hov-ev.time : ""); color: Theme.dim; font-size: 12px * Prefs.fs; }
+            Text { text: root.hov-ev.when; color: Theme.dim; font-size: 12px * Prefs.fs; }
             if root.hov-ev.location != "": Text { text: root.hov-ev.location; color: Theme.body; font-size: 12px * Prefs.fs; wrap: word-wrap; }
         }
     }
