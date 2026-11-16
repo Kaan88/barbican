@@ -185,9 +185,11 @@ pub fn rebuild_folders(u: &AppWindow) {
         }
         u.set_folders(ModelRc::new(VecModel::from(out)));
     });
-    // Bulwark faviconUnreadBadge: the Inbox unread count where the taskbar shows it (the title)
+    // Bulwark faviconUnreadBadge: the Inbox unread count where the taskbar shows it (the title);
+    // with unreadBadgeAllAccounts (default on) every signed-in account's inbox counts
     let inbox_unread = BOXES.with(|b| b.borrow().list.iter().find(|m| m["role"] == "inbox").and_then(|m| m["unreadEmails"].as_i64()).unwrap_or(0));
-    u.set_window_title(if prefs.bool("faviconUnreadBadge", true) && inbox_unread > 0 { format!("({inbox_unread}) Barbican") } else { "Barbican".into() }.into());
+    let others = if prefs.bool("unreadBadgeAllAccounts", true) { crate::unified::other_logins_unread() } else { 0 };
+    u.set_window_title(badge_title(prefs.bool("faviconUnreadBadge", true), inbox_unread + others).into());
     // tag colours follow the colour-blind-safe palette setting too
     let tags = u.get_tags();
     for i in 0..tags.row_count() {
@@ -196,6 +198,11 @@ pub fn rebuild_folders(u: &AppWindow) {
             if t.color != c { t.color = c; tags.set_row_data(i, t); }
         }
     }
+}
+
+/// The window title with the unread badge: "(3) Barbican".
+pub fn badge_title(on: bool, unread: i64) -> String {
+    if on && unread > 0 { format!("({unread}) Barbican") } else { "Barbican".into() }
 }
 
 pub fn toggle_folder(u: &AppWindow, id: &str) {
@@ -231,6 +238,8 @@ pub fn load_mailboxes(w: slint::Weak<AppWindow>, c: Arc<Client>, select_inbox: b
             None => match c.mailboxes_with_state() { Ok((l, s)) => (l, s, None), Err(_) => return },
         };
         let counts = tag_counts(&c);
+        // the other signed-in accounts' inboxes for the title badge (unreadBadgeAllAccounts)
+        if crate::unified::is_active(&c) { crate::unified::refresh_other_logins(w.clone(), select_inbox); }
         // other accounts' inbox counts for the "All inboxes" badge: on their own thread, so a
         // slow or unreachable login never holds up this account's folders
         if crate::unified::enabled() && crate::unified::is_active(&c) {
@@ -980,6 +989,13 @@ pub fn clean_preview(p: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn unread_badge_title() {
+        assert_eq!(badge_title(true, 5), "(5) Barbican");
+        assert_eq!(badge_title(true, 0), "Barbican");
+        assert_eq!(badge_title(false, 5), "Barbican");
+    }
 
     #[test]
     fn archive_paths() {

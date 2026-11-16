@@ -11,6 +11,7 @@
 //!   drag X1 Y1 X2 Y2
 //!   shot PATH.png        (window contents; the WebView2 email body is a separate window and not included)
 //!   size                 (window size)
+//!   title | from         (window title with the unread badge; the composer's From override)
 //!   wv-eval JS / wv-result (run JS in the email WebView, then read its JSON result)
 //!   pick PATH[|PATH...]  (answer the next file-open picker with these files instead of a dialog)
 use crate::AppWindow;
@@ -156,6 +157,9 @@ fn run(u: &AppWindow, line: &str) -> String {
             "ok".into()
         }
         "size" => { let s = win.size(); format!("{} {} scale {}", s.width, s.height, win.scale_factor()) }
+        // read-only probes: the window title (unread badge) and the composer's sender
+        "title" => u.get_window_title().to_string(),
+        "from" => format!("custom={} name={} email={} identity={}", u.get_c_from_custom(), u.get_c_from_name(), u.get_c_from_email(), u.get_c_from_index()),
         "shot" => {
             let path = a.get(1).copied().unwrap_or("shot.png");
             match win.take_snapshot() {

@@ -132,6 +132,13 @@ impl Settings {
         let _ = std::fs::remove_file(crate::config_dir().join("settings.json"));
     }
 
+    /// Store one value (None removes it) and save, outside the settings page's own controls.
+    pub fn put(key: &str, value: Option<Value>) {
+        let mut s = Settings::load();
+        match value { Some(v) => { s.prefs.insert(key.into(), v); } None => { s.prefs.remove(key); } }
+        s.save();
+    }
+
     pub fn bool(&self, key: &str, default: bool) -> bool {
         self.prefs.get(key).and_then(|v| v.as_bool()).unwrap_or(default)
     }

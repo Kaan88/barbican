@@ -1,6 +1,7 @@
 #![cfg_attr(not(test), windows_subsystem = "windows")]
 
 mod a11y;
+mod attachments;
 mod admin;
 mod dashboard;
 mod automation;
@@ -752,6 +753,7 @@ fn main() -> Result<(), slint::PlatformError> {
         let shared = mail::shared_account(&id);
         if !same_thread { u.set_thread_msgs(ModelRc::default()); }
         u.set_attachments(ModelRc::default());
+        u.set_att_cards(ModelRc::default());
         u.set_r_to("".into());
         u.set_r_email("".into());
         u.set_r_subject("".into());
@@ -827,6 +829,7 @@ fn main() -> Result<(), slint::PlatformError> {
                             index: i as i32,
                         }).collect();
                         u.set_attachments(ModelRc::new(VecModel::from(rows)));
+                        attachments::show(&u, c2.clone(), &id, &atts);
                         CUR_MSG.with(|x| *x.borrow_mut() = Some((m.clone(), atts)));
                         load_thread(w2.clone(), c2.clone(), id.clone());
                         u.set_r_subject(SharedString::from(m["subject"].as_str().unwrap_or("(no subject)")));
@@ -1290,6 +1293,14 @@ fn main() -> Result<(), slint::PlatformError> {
     rte::wire(&ui);
     let w = ui.as_weak();
     ui.on_c_toggle_tag(move |i| compose::toggle_tag(&w.unwrap(), i));
+    let w = ui.as_weak();
+    ui.on_c_from_edit(move || compose::start_from_override(&w.unwrap()));
+    // the share of the pane a docked reply takes, once dragged (Bulwark replyDockShare)
+    ui.set_dock_share(settings::Settings::load().prefs.get("replyDockShare").and_then(|v| v.as_f64()).filter(|f| *f > 0.1 && *f < 0.95).unwrap_or(-1.0) as f32);
+    ui.on_dock_share_save(|share| {
+        let v = (share > 0.1 && share < 0.95).then(|| json!((share as f64 * 1000.0).round() / 1000.0));
+        settings::Settings::put("replyDockShare", v);
+    });
 
     let (w, st, pf) = (ui.as_weak(), state.clone(), prefs.clone());
     ui.on_send_now(move || {
@@ -1736,6 +1747,13 @@ fn main() -> Result<(), slint::PlatformError> {
     let timer = slint::Timer::default();
     timer.start(slint::TimerMode::Repeated, std::time::Duration::from_millis(50), move || {
         if let Some(u) = w.upgrade() { sync_webview(&u); }
+    });
+    // Bulwark unreadBadgeAllAccounts: the other signed-in accounts' inbox counts for the
+    // title badge, refreshed now and then (the active account's come with its push)
+    let w = ui.as_weak();
+    let badge_timer = slint::Timer::default();
+    badge_timer.start(slint::TimerMode::Repeated, std::time::Duration::from_secs(120), move || {
+        if w.upgrade().is_some_and(|u| u.get_logged_in()) { unified::refresh_other_logins(w.clone(), false); }
     });
     slint::run_event_loop()?;
     // refresh tokens may rotate while the app runs: keep the newest one

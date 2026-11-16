@@ -842,10 +842,11 @@ impl Client {
         let mut kw = json!({"$seen": true});
         if draft { kw["$draft"] = json!(true); }
         for k in o.keywords.iter().filter(|k| valid_keyword(k)) { kw[k.to_lowercase().as_str()] = json!(true); }
+        let from = header_from(o, ident, &self.username);
         let mut email = json!({
             "mailboxIds": { mailbox: true },
             "keywords": kw,
-            "from": [{"name": ident["name"], "email": ident["email"]}],
+            "from": [from.clone()],
             "to": addrs(&o.to), "subject": o.subject,
         });
         if !o.cc.trim().is_empty() { email["cc"] = json!(addrs(&o.cc)); }
@@ -853,7 +854,7 @@ impl Client {
         if let Some(rt) = ident["replyTo"].as_array().filter(|a| !a.is_empty()) { email["replyTo"] = json!(rt); }
         if !o.in_reply_to.is_empty() { email["inReplyTo"] = json!(o.in_reply_to); }
         if !o.references.is_empty() { email["references"] = json!(o.references); }
-        if o.read_receipt { email["header:Disposition-Notification-To:asAddresses"] = json!([{"email": ident["email"]}]); }
+        if o.read_receipt { email["header:Disposition-Notification-To:asAddresses"] = json!([{"email": from["email"]}]); }
         let mut values = json!({"t": {"value": o.text}});
         let text_part = json!({"partId": "t", "type": "text/plain"});
         let body = if let Some(html) = &o.html {
@@ -882,17 +883,17 @@ impl Client {
         Ok(email)
     }
 
-    fn pick_identity(&self, from: &str) -> R<Value> {
+    /// The identity a message goes out through. With a From override (Bulwark
+    /// sendEmail): an identity whose address is the override itself, else the composer's
+    /// identity `from`, else one covering the override as a wildcard (`*@domain`, RFC 8621 §6).
+    fn pick_identity_for(&self, from: &str, from_override: Option<&str>) -> R<Value> {
         let ids = self.identities()?;
-        let f = from.trim().to_lowercase();
-        ids.iter().find(|i| !f.is_empty() && i["email"].as_str().is_some_and(|e| e.to_lowercase() == f))
-            .or_else(|| ids.iter().find(|i| i["id"].as_str() == Some(from)))
-            .or(ids.first()).cloned().ok_or_else(|| "No sending identity on this account.".into())
+        choose_identity(&ids, from, from_override).cloned().ok_or_else(|| "No sending identity on this account.".into())
     }
 
     /// Save or replace a draft. Returns the new draft id.
     pub fn save_draft(&self, o: &Outgoing, replace: Option<&str>) -> R<String> {
-        let ident = self.pick_identity(&o.from)?;
+        let ident = self.pick_identity_for(&o.from, o.from_override.as_ref().map(|f| f.1.as_str()))?;
         let roles = self.role_ids()?;
         let drafts = roles.get("drafts").ok_or("No Drafts folder.")?;
         let email = self.build_email(o, &ident, drafts, true)?;
@@ -908,33 +909,35 @@ impl Client {
         if parse_addresses(&o.to).is_empty() && parse_addresses(&o.cc).is_empty() && parse_addresses(&o.bcc).is_empty() {
             return Err("Add at least one recipient.".into());
         }
-        let ident = self.pick_identity(&o.from)?;
+        let ident = self.pick_identity_for(&o.from, o.from_override.as_ref().map(|f| f.1.as_str()))?;
         let ident_id = ident["id"].as_str().unwrap_or("").to_string();
         let roles = self.role_ids()?;
         let drafts = roles.get("drafts").ok_or("No Drafts folder.")?.clone();
         let sent = roles.get("sent").ok_or("No Sent folder.")?.clone();
         let email = self.build_email(o, &ident, &drafts, true)?;
         let sub_acc = self.account_for("urn:ietf:params:jmap:submission");
-        let mut sub = json!({"emailId": "#d", "identityId": ident_id});
-        if o.hold_seconds > 0 {
-            let max = self.max_delayed_send();
-            if max > 0 {
-                sub["envelope"] = json!({
-                    "mailFrom": {"email": ident["email"], "parameters": {"HOLDFOR": o.hold_seconds.min(max).to_string()}},
-                    "rcptTo": parse_addresses(&format!("{},{},{}", o.to, o.cc, o.bcc)).iter().map(|a| json!({"email": a["email"]})).collect::<Vec<_>>()
-                });
-            }
-        }
+        let rcpts: Vec<String> = parse_addresses(&format!("{},{},{}", o.to, o.cc, o.bcc)).iter().filter_map(|a| a["email"].as_str().map(String::from)).collect();
+        let hold = (o.hold_seconds > 0).then(|| self.max_delayed_send()).filter(|m| *m > 0).map(|m| o.hold_seconds.min(m));
+        // the MAIL FROM the server derives from the identity, and the one asked for: the From
+        // override, so the Return-Path does not give the identity's address away (Bulwark #1009)
+        let identity_mail_from = header_from(&Outgoing { from_override: None, ..o.clone() }, &ident, &self.username)["email"].as_str().unwrap_or("").to_string();
+        let mail_from = o.from_override.as_ref().map(|f| f.1.trim().to_string()).filter(|e| e.contains('@')).unwrap_or_else(|| identity_mail_from.clone());
+        let submission = |email_id: &str, mail_from: &str| -> Value {
+            let mut sub = json!({"emailId": email_id, "identityId": ident_id});
+            if let Some(env) = submission_envelope(mail_from, &identity_mail_from, hold, &rcpts) { sub["envelope"] = env; }
+            sub
+        };
+        let on_success = json!({"#s": {
+            format!("mailboxIds/{drafts}"): null,
+            format!("mailboxIds/{sent}"): true,
+            "keywords/$draft": null
+        }});
         let mut calls = vec![
             json!(["Email/set", {"accountId": self.account, "create": {"d": email}, "destroy": o.replaces_draft.iter().collect::<Vec<_>>()}, "e"]),
             json!(["EmailSubmission/set", {
                 "accountId": sub_acc,
-                "create": {"s": sub},
-                "onSuccessUpdateEmail": {"#s": {
-                    format!("mailboxIds/{drafts}"): null,
-                    format!("mailboxIds/{sent}"): true,
-                    "keywords/$draft": null
-                }}
+                "create": {"s": submission("#d", &mail_from)},
+                "onSuccessUpdateEmail": on_success
             }, "s"]),
         ];
         if let Some(orig) = &o.answering {
@@ -942,8 +945,22 @@ impl Client {
             calls.push(json!(["Email/set", {"accountId": self.account, "update": { orig: { format!("keywords/{kw}"): true } }}, "a"]));
         }
         let r = self.call(Value::Array(calls))?;
-        created_id(&r[0][1], "d")?;
-        let sid = created_id(&r[1][1], "s")?;
+        let draft_copy = created_id(&r[0][1], "d")?;
+        let sid = match created_id(&r[1][1], "s") {
+            Ok(sid) => sid,
+            // a server that only takes the identity's own address as MAIL FROM (RFC 8621
+            // §7.5 forbiddenMailFrom; Stalwart answers forbiddenFrom): the copy in Drafts is
+            // submitted once more with the identity's address (Bulwark sendEmail)
+            Err(_) if mail_from_refused(&r[1][1]["notCreated"]["s"]) && !mail_from.eq_ignore_ascii_case(&identity_mail_from) => {
+                let r2 = self.call(json!([["EmailSubmission/set", {
+                    "accountId": sub_acc,
+                    "create": {"s": submission(&draft_copy, &identity_mail_from)},
+                    "onSuccessUpdateEmail": on_success
+                }, "s"]]))?;
+                created_id(&r2[0][1], "s")?
+            }
+            Err(e) => return Err(e),
+        };
         Ok((o.hold_seconds > 0).then_some(sid))
     }
 
@@ -1084,6 +1101,58 @@ pub struct Outgoing {
     pub read_receipt: bool,
     /// Extra keywords (tags) to set on the message.
     pub keywords: Vec<String>,
+    /// Bulwark's From override ("Edit sender…", or the catch-all reply rewrite): the header
+    /// From as (name, email), sent through the identity `from`. Also asked for as MAIL FROM.
+    pub from_override: Option<(String, String)>,
+}
+
+/// The header From of a message: the override when there is one, else the identity
+/// (a wildcard identity names no address: the login stands in, as in Bulwark).
+pub fn header_from(o: &Outgoing, ident: &Value, username: &str) -> Value {
+    if let Some((name, email)) = o.from_override.as_ref().filter(|f| f.1.trim().contains('@')) {
+        let name = name.trim();
+        return if name.is_empty() { json!({"email": email.trim()}) } else { json!({"name": name, "email": email.trim()}) };
+    }
+    let e = ident["email"].as_str().unwrap_or("");
+    let email = if e.contains('*') || !e.contains('@') { username } else { e };
+    match ident["name"].as_str().filter(|n| !n.trim().is_empty()) {
+        Some(n) => json!({"name": n, "email": email}),
+        None => json!({"email": email}),
+    }
+}
+
+/// Whether identity address `pattern` is a wildcard covering `addr` (`*@example.com`).
+pub fn wildcard_covers(pattern: &str, addr: &str) -> bool {
+    let (p, a) = (pattern.trim().to_lowercase(), addr.trim().to_lowercase());
+    match (p.split_once('@'), a.split_once('@')) {
+        (Some(("*", pd)), Some((al, ad))) => !al.is_empty() && pd == ad,
+        _ => false,
+    }
+}
+
+/// Bulwark's identity choice for a send: the override's own identity, the composer's
+/// (by address or id), one covering the override as a wildcard, else the first.
+pub fn choose_identity<'a>(ids: &'a [Value], from: &str, from_override: Option<&str>) -> Option<&'a Value> {
+    let eq = |i: &&Value, a: &str| { let a = a.trim(); !a.is_empty() && i["email"].as_str().is_some_and(|e| e.trim().eq_ignore_ascii_case(a)) };
+    from_override.and_then(|o| ids.iter().find(|i| eq(i, o)))
+        .or_else(|| ids.iter().find(|i| eq(i, from)))
+        .or_else(|| ids.iter().find(|i| i["id"].as_str() == Some(from)))
+        .or_else(|| from_override.and_then(|o| ids.iter().find(|i| i["email"].as_str().is_some_and(|e| wildcard_covers(e, o)))))
+        .or(ids.first())
+}
+
+/// The submission envelope (RFC 8621 §7): only when MAIL FROM differs from the identity's
+/// address or carries HOLDFOR; otherwise the server derives it.
+pub fn submission_envelope(mail_from: &str, identity_mail_from: &str, hold: Option<u64>, rcpts: &[String]) -> Option<Value> {
+    if hold.is_none() && mail_from.eq_ignore_ascii_case(identity_mail_from) { return None; }
+    let mut from = json!({"email": mail_from});
+    if let Some(h) = hold { from["parameters"] = json!({"HOLDFOR": h.to_string()}); }
+    Some(json!({"mailFrom": from, "rcptTo": rcpts.iter().map(|r| json!({"email": r})).collect::<Vec<_>>()}))
+}
+
+/// A submission refused for its MAIL FROM (forbiddenMailFrom, or Stalwart's forbiddenFrom).
+pub fn mail_from_refused(err: &Value) -> bool {
+    matches!(err["type"].as_str(), Some("forbiddenMailFrom" | "forbiddenFrom"))
 }
 
 /// "Name <a@b>, c@d" -> [{name, email}]
@@ -1459,6 +1528,42 @@ pub const BODY_PROPERTIES: [&str; 9] = ["partId", "blobId", "size", "name", "typ
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn from_override_header_identity_and_envelope() {
+        let ident = json!({"id": "i1", "name": "Me", "email": "me@a.com"});
+        let o = Outgoing { from: "me@a.com".into(), ..Default::default() };
+        assert_eq!(header_from(&o, &ident, "me@a.com"), json!({"name": "Me", "email": "me@a.com"}));
+        let o2 = Outgoing { from_override: Some(("Sales".into(), " sales@a.com ".into())), ..o.clone() };
+        assert_eq!(header_from(&o2, &ident, "me@a.com"), json!({"name": "Sales", "email": "sales@a.com"}));
+        let o3 = Outgoing { from_override: Some(("".into(), "sales@a.com".into())), ..o.clone() };
+        assert_eq!(header_from(&o3, &ident, "me@a.com"), json!({"email": "sales@a.com"}));
+        // an override without an address is ignored; a wildcard identity falls back to the login
+        let o4 = Outgoing { from_override: Some(("X".into(), "nope".into())), ..o.clone() };
+        assert_eq!(header_from(&o4, &ident, "me@a.com")["email"], "me@a.com");
+        assert_eq!(header_from(&o, &json!({"email": "*@a.com"}), "login@a.com"), json!({"email": "login@a.com"}));
+
+        assert!(wildcard_covers("*@A.com", "x@a.com"));
+        assert!(!wildcard_covers("*@a.com", "x@b.com"));
+        assert!(!wildcard_covers("me@a.com", "x@a.com"));
+        let ids = vec![json!({"id": "1", "email": "me@a.com"}), json!({"id": "2", "email": "*@b.org"}), json!({"id": "3", "email": "info@a.com"})];
+        assert_eq!(choose_identity(&ids, "me@a.com", Some("info@a.com")).unwrap()["id"], "3");
+        assert_eq!(choose_identity(&ids, "me@a.com", Some("sales@a.com")).unwrap()["id"], "1");
+        assert_eq!(choose_identity(&ids, "", Some("x@b.org")).unwrap()["id"], "2");
+        assert_eq!(choose_identity(&ids, "3", None).unwrap()["id"], "3");
+        assert_eq!(choose_identity(&ids, "", None).unwrap()["id"], "1");
+
+        let r = vec!["t@x.y".to_string()];
+        assert_eq!(submission_envelope("me@a.com", "ME@a.com", None, &r), None);
+        let e = submission_envelope("sales@a.com", "me@a.com", None, &r).unwrap();
+        assert_eq!(e["mailFrom"], json!({"email": "sales@a.com"}));
+        assert_eq!(e["rcptTo"], json!([{"email": "t@x.y"}]));
+        let h = submission_envelope("me@a.com", "me@a.com", Some(5), &r).unwrap();
+        assert_eq!(h["mailFrom"]["parameters"]["HOLDFOR"], "5");
+        assert!(mail_from_refused(&json!({"type": "forbiddenFrom"})));
+        assert!(mail_from_refused(&json!({"type": "forbiddenMailFrom"})));
+        assert!(!mail_from_refused(&json!({"type": "overQuota"})));
+    }
 
     fn ids(v: &[Value]) -> Vec<&str> { v.iter().map(|m| m["id"].as_str().unwrap()).collect() }
     fn em(id: &str) -> Value { json!({"id": id, "threadId": format!("t{id}"), "keywords": {}}) }
