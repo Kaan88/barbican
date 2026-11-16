@@ -112,6 +112,8 @@ export global Motion {
     out property <duration> list: rapid ? 0ms : fast;
     // enter: menus, popups, flyouts, tooltips, dialogs, toasts (120–180 ms, ease-out)
     out property <duration> enter: 150ms * k;
+    // late content (async panels) arriving while keys repeat: instant, so it never flashes per step
+    out property <duration> late: rapid ? 0ms : enter;
     // exit, for the few things that animate out at all (≤ 100 ms, ease-in)
     out property <duration> exit: 90ms * k;
     // the incoming view after an app or view switch (content is there on the first frame)

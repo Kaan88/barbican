@@ -771,13 +771,13 @@ component QuickChip inherits Rectangle {
 /// Content that arrives after the screen is already up (async data): fades in when created,
 /// never moves anything or delays input; removed instantly. `dur` 0 = instant.
 component FadeV inherits VerticalLayout {
-    in property <duration> dur: Motion.enter;
+    in property <duration> dur: Motion.late;
     opacity: 0;
     animate opacity { duration: root.dur; easing: Ease.enter; }
     init => { self.opacity = 1; }
 }
 component FadeH inherits HorizontalLayout {
-    in property <duration> dur: Motion.enter;
+    in property <duration> dur: Motion.late;
     opacity: 0;
     animate opacity { duration: root.dur; easing: Ease.enter; }
     init => { self.opacity = 1; }
