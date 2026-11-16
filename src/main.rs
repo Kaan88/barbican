@@ -1,6 +1,7 @@
 #![cfg_attr(not(test), windows_subsystem = "windows")]
 
 mod admin;
+mod automation;
 mod agent;
 mod ai;
 mod calendar;
@@ -406,6 +407,7 @@ fn main() -> Result<(), slint::PlatformError> {
     let ui = AppWindow::new()?;
     apply_theme(&ui);
     apply_ui_prefs(&ui);
+    automation::start(&ui);
     {
         let (loaded, errors) = plugins::load_all();
         PLUGINS.with(|p| *p.borrow_mut() = loaded);
@@ -1422,6 +1424,9 @@ fn main() -> Result<(), slint::PlatformError> {
     });
 
     ui.show()?;
+    if automation::enabled() {
+        ui.window().set_position(slint::PhysicalPosition::new(-6000, 0));
+    }
     let w = ui.as_weak();
     let timer = slint::Timer::default();
     timer.start(slint::TimerMode::Repeated, std::time::Duration::from_millis(50), move || {
