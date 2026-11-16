@@ -277,10 +277,28 @@ pub fn open_draft(u: &AppWindow, c: Arc<Client>, m: &Value) {
     let (html, _) = crate::body_text(m);
     let blocks = if html.trim().is_empty() { rte::html::import_text(&text_of(m)) } else { rte::html::import_with_quotes(&rte::html::clean_quoted_html(&html)) };
     rte::set_doc(u, Doc { blocks });
-    let atts: Vec<Attachment> = m["attachments"].as_array().cloned().unwrap_or_default().iter().map(|a| Attachment {
+    // inline images referenced by cid stay in the body (fetched for display), not in the attachment list
+    let all = m["attachments"].as_array().cloned().unwrap_or_default();
+    // the reader already turned cid: references into data: URIs, so inline parts are matched in order
+    let has_data_imgs = html.contains("src=\"data:image/");
+    let is_inline = |a: &Value| a["cid"].as_str().is_some_and(|c| html.contains(&format!("cid:{c}")))
+        || (has_data_imgs && a["cid"].is_string() && a["disposition"] == "inline" && a["type"].as_str().is_some_and(|t| t.starts_with("image/")));
+    let atts: Vec<Attachment> = all.iter().filter(|a| !is_inline(a)).map(|a| Attachment {
         blob_id: a["blobId"].as_str().unwrap_or("").into(), name: a["name"].as_str().unwrap_or("attachment").into(),
         mime: a["type"].as_str().unwrap_or("application/octet-stream").into(), size: a["size"].as_u64().unwrap_or(0) as usize,
     }).collect();
+    for a in all.iter().filter(|a| is_inline(a)) {
+        let (cid, blob) = (a["cid"].as_str().unwrap_or("").to_string(), a["blobId"].as_str().unwrap_or("").to_string());
+        let (name, mime) = (a["name"].as_str().unwrap_or("image").to_string(), a["type"].as_str().unwrap_or("image/png").to_string());
+        if !html.contains(&format!("cid:{cid}")) { rte::adopt_data_image(&cid, &blob, &mime, &name); continue; }
+        rte::set_image_info(&cid, &blob, &mime, &name);
+        let Some(c2) = CLIENT.with(|x| x.borrow().clone()) else { continue };
+        let w = u.as_weak();
+        std::thread::spawn(move || {
+            let Ok(bytes) = c2.download(&blob, &name, &mime) else { return };
+            let _ = w.upgrade_in_event_loop(move |u| rte::set_image_bytes(&u, &cid, bytes));
+        });
+    }
     ST.with(|s| {
         let mut s = s.borrow_mut();
         s.attachments = atts;

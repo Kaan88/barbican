@@ -119,6 +119,41 @@ pub fn set_image_blob(cid: &str, blob: &str) {
     });
 }
 
+/// Fill in the attachment data of an inline image of a re-opened draft.
+pub fn set_image_info(cid: &str, blob: &str, mime: &str, name: &str) {
+    with(|e| {
+        for b in &mut e.doc.blocks {
+            if let Kind::Image(i) = &mut b.kind {
+                if i.cid.as_deref() == Some(cid) { i.blob_id = Some(blob.into()); i.mime = mime.into(); i.name = name.into(); }
+            }
+        }
+    });
+}
+
+/// Give the next data: image of a re-opened draft its original cid attachment back.
+pub fn adopt_data_image(cid: &str, blob: &str, mime: &str, name: &str) {
+    with(|e| {
+        for b in &mut e.doc.blocks {
+            if let Kind::Image(i) = &mut b.kind {
+                if i.cid.is_none() && i.src.starts_with("data:") {
+                    let old = image_key(i);
+                    i.cid = Some(cid.into()); i.blob_id = Some(blob.into()); i.mime = mime.into(); i.name = name.into();
+                    let new = image_key(i);
+                    IMAGES.with(|m| { let mut m = m.borrow_mut(); if let Some(x) = m.get(&old).cloned() { m.insert(new, x); } });
+                    return;
+                }
+            }
+        }
+    });
+}
+
+/// Show the downloaded bytes of an inline image.
+pub fn set_image_bytes(u: &AppWindow, cid: &str, bytes: Vec<u8>) {
+    let Some(x) = decode_image(&bytes) else { return };
+    IMAGES.with(|m| m.borrow_mut().insert(format!("cid:{cid}"), x));
+    refresh(u);
+}
+
 fn new_cid() -> String {
     let mut r = [0u8; 8];
     let _ = getrandom::getrandom(&mut r);
