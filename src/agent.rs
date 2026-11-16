@@ -358,7 +358,7 @@ fn exec(name: &str, a: &Value, c: &Client, ctx: &Ctx, host: &dyn Host) -> Result
                 None => String::new(),
             };
             let p = crate::sieve::parse(&text);
-            if p.locked { return Err("These rules use options only Bulwark can edit (vacation or active periods); change them in Bulwark.".into()); }
+            if p.locked { return Err("The filter script looks edited by hand (Bulwark would not rewrite it either); change it in the script editor.".into()); }
             let mut rules = p.metadata["rules"].as_array().cloned().unwrap_or_default();
             if name == "add_filter_rule" {
                 let field = s(a, "field");
@@ -379,7 +379,7 @@ fn exec(name: &str, a: &Value, c: &Client, ctx: &Ctx, host: &dyn Host) -> Result
             let ext: Vec<String> = c.session["capabilities"]["urn:ietf:params:jmap:sieve"]["sieveExtensions"].as_array()
                 .or(c.session["accounts"][&sacc]["accountCapabilities"]["urn:ietf:params:jmap:sieve"]["sieveExtensions"].as_array())
                 .map(|x| x.iter().filter_map(|v| v.as_str().map(String::from)).collect()).unwrap_or_default();
-            crate::server_settings::save_script(c, &crate::sieve::generate_with(&rules, &p.external, &ext), &scripts)?;
+            crate::server_settings::save_script(c, &crate::sieve::generate_meta(&crate::sieve::with_rules(&p.metadata, &rules), &p.external, &ext), &scripts)?;
             Ok(if name == "add_filter_rule" { "Rule added.".into() } else { "Rule removed.".into() })
         }
         "change_setting" => {

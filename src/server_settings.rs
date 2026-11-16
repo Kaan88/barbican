@@ -26,6 +26,10 @@ pub struct Cache {
     pub rules: Vec<Value>,
     pub external: String,
     pub rules_locked: bool,
+    /// The filter script's whole metadata (vacation, forward, audience kept on save).
+    pub filter_meta: Value,
+    pub nr_from: String,
+    pub nr_until: String,
     pub nr_name: String,
     pub nr_field: i32,
     pub nr_cmp: i32,
@@ -117,6 +121,7 @@ pub fn load(tab: &str, c: &Client, cache: &Shared) {
                 k.rules = p.metadata["rules"].as_array().cloned().unwrap_or_default();
                 k.external = p.external;
                 k.rules_locked = p.locked;
+                k.filter_meta = p.metadata;
                 k.script_text = text;
             }
             "organize" => { cache.lock().unwrap().mailboxes = c.mailboxes()?; }
@@ -174,7 +179,7 @@ pub fn rows(tab: &str, cache: &Shared) -> Option<Vec<SRow>> {
             out.push(row("value", "", "Active script", &format!("{} script(s) on the server", k.scripts.len()), active, false));
             out.push(row("section", "", "Rules", "Rules are shared with Bulwark. Rules made by other apps are kept as they are.", "", false));
             if k.rules_locked {
-                out.push(row("value", "", "Edit these rules in Bulwark", "They use options this editor does not support yet (vacation, active periods). The script below still works.", "", false));
+                out.push(row("value", "", "Edit these rules in Bulwark", "Bulwark would treat this script as edited by hand (unknown version or options, or a date it cannot read). The script below still works.", "", false));
             } else {
                 if k.rules.is_empty() { out.push(row("value", "", "No rules yet", "", "", false)); }
                 for r in &k.rules {
@@ -193,6 +198,8 @@ pub fn rows(tab: &str, cache: &Shared) -> Option<Vec<SRow>> {
                 if matches!(k.nr_action, 0 | 1 | 4 | 5) {
                     out.push(row("text", "server.nr.avalue", match k.nr_action { 4 => "Tag", 5 => "Forward to address", _ => "Folder" }, "", &k.nr_action_value, false));
                 }
+                out.push(row("text", "server.nr.from", "Active from (YYYY-MM-DD)", "Optional. The rule only acts from this day on (00:00 local time).", &k.nr_from, false));
+                out.push(row("text", "server.nr.until", "Active until (YYYY-MM-DD)", "Optional. The rule stops acting after this day (23:59 local time).", &k.nr_until, false));
                 out.push(row("toggle", "server.nr.stop", "Stop processing more rules", "", "", k.nr_stop));
                 out.push(row("button", "server.rule.add", "", &k.script_status, "Add rule", false));
             }
@@ -285,13 +292,15 @@ pub fn edit(key: &str, value: &Value, cache: &Shared) -> Option<Box<dyn FnOnce(&
         "server.nr.field" => { k.nr_field = value.as_i64().unwrap_or(0) as i32; return None; }
         "server.nr.cmp" => { k.nr_cmp = value.as_i64().unwrap_or(0) as i32; return None; }
         "server.nr.action" => { k.nr_action = value.as_i64().unwrap_or(0) as i32; return None; }
+        "server.nr.from" => { k.nr_from = value.as_str().unwrap_or("").into(); return None; }
+        "server.nr.until" => { k.nr_until = value.as_str().unwrap_or("").into(); return None; }
         "server.nr.stop" => { k.nr_stop = value.as_bool().unwrap_or(false); return None; }
         _ => {}
     }
     if let Some(id) = key.strip_prefix("server.rule.toggle:") {
         let on = value.as_bool().unwrap_or(true);
         if let Some(r) = k.rules.iter_mut().find(|r| r["id"] == id) { r["enabled"] = json!(on); }
-        let (script, scripts) = (crate::sieve::generate_with(&k.rules, &k.external, &k.sieve_ext), k.scripts.clone());
+        let (script, scripts) = (crate::sieve::generate_meta(&crate::sieve::with_rules(&k.filter_meta, &k.rules), &k.external, &k.sieve_ext), k.scripts.clone());
         return Some(Box::new(move |c: &Client| save_script(c, &script, &scripts)));
     }
     match key {
@@ -348,14 +357,26 @@ pub fn button(key: &str, cache: &Shared) -> Option<Box<dyn FnOnce(&Client, &Shar
         let vals: Vec<String> = k.nr_value.split(',').map(|v| v.trim().to_string()).filter(|v| !v.is_empty()).collect();
         let mut r = crate::sieve::rule(&k.nr_name, field, cmp, "", NR_ACTS[k.nr_action.clamp(0, 6) as usize], &k.nr_action_value, k.nr_stop);
         if field != "attachment" && field != "all" { r["conditions"][0]["value"] = if vals.len() == 1 { json!(vals[0]) } else { json!(vals) }; }
+        let period = crate::sieve::day_boundary(&k.nr_from, false).and_then(|f| Ok((f, crate::sieve::day_boundary(&k.nr_until, true)?)));
+        let period = match period {
+            Ok((Some(f), Some(u))) if u <= f => Err("The period ends before it starts.".to_string()),
+            p => p,
+        };
+        match period {
+            Ok((f, u)) => {
+                if let Some(f) = f { r["activeFrom"] = json!(f); }
+                if let Some(u) = u { r["activeUntil"] = json!(u); }
+            }
+            Err(e) => { drop(k); cache.lock().unwrap().script_status = e; return Some(Box::new(|_, _| Ok(()))); }
+        }
         let mut rules = k.rules.clone();
         rules.push(r);
-        let (script, scripts) = (crate::sieve::generate_with(&rules, &k.external, &k.sieve_ext), k.scripts.clone());
+        let (script, scripts) = (crate::sieve::generate_meta(&crate::sieve::with_rules(&k.filter_meta, &rules), &k.external, &k.sieve_ext), k.scripts.clone());
         drop(k);
         return Some(Box::new(move |c: &Client, k: &Shared| {
             save_script(c, &script, &scripts)?;
             let mut g = k.lock().unwrap();
-            g.nr_name.clear(); g.nr_value.clear(); g.nr_action_value.clear(); g.script_status = "Rule added.".into();
+            g.nr_name.clear(); g.nr_value.clear(); g.nr_action_value.clear(); g.nr_from.clear(); g.nr_until.clear(); g.script_status = "Rule added.".into();
             Ok(())
         }));
     }
@@ -365,7 +386,7 @@ pub fn button(key: &str, cache: &Shared) -> Option<Box<dyn FnOnce(&Client, &Shar
         if k.confirm_delete != id { k.confirm_delete = id; return Some(Box::new(|_, _| Ok(()))); }
         k.confirm_delete.clear();
         let rules: Vec<Value> = k.rules.iter().filter(|r| r["id"] != id.as_str()).cloned().collect();
-        let (script, scripts) = (crate::sieve::generate_with(&rules, &k.external, &k.sieve_ext), k.scripts.clone());
+        let (script, scripts) = (crate::sieve::generate_meta(&crate::sieve::with_rules(&k.filter_meta, &rules), &k.external, &k.sieve_ext), k.scripts.clone());
         return Some(Box::new(move |c: &Client, _| save_script(c, &script, &scripts)));
     }
     if key == "server.tpl.create" {
