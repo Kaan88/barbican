@@ -1,0 +1,14 @@
+<Application x:Class="Barbican.App.BarbicanApp"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+  <Application.Resources>
+    <ResourceDictionary>
+      <ResourceDictionary.MergedDictionaries>
+        <XamlControlsResources xmlns="using:Microsoft.UI.Xaml.Controls" />
+        <!-- Generated from the design tokens (tools/build.ps1 gen-tokens); never edited by hand. -->
+        <ResourceDictionary Source="ms-appx:///Themes/Tokens.xaml" />
+        <ResourceDictionary Source="ms-appx:///Themes/Shape.Bento.xaml" />
+      </ResourceDictionary.MergedDictionaries>
+    </ResourceDictionary>
+  </Application.Resources>
+</Application>

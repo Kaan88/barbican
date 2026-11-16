@@ -3,6 +3,7 @@
     <Project Path="src/Barbican.Core/Barbican.Core.csproj" />
     <Project Path="src/Barbican.Presentation/Barbican.Presentation.csproj" />
     <Project Path="src/Barbican.Platform/Barbican.Platform.csproj" />
+    <Project Path="src/Barbican.App/Barbican.App.csproj" />
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/Barbican.Core.Tests/Barbican.Core.Tests.csproj" />

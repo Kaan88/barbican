@@ -1,0 +1,16 @@
+<Project>
+  <!--
+    Spike S1 finding (docs/adr/0004-uno-single-project.md). On the Uno desktop head,
+    Uno.WinUI.Runtime.Skia.Win32 brings the WebView2Aot package, whose assembly declares the root
+    namespace "WebView2" (WebView2.Utilities). C# looks at global-namespace members before the
+    file's using directives, so the simple name WebView2 (Microsoft.UI.Xaml.Controls.WebView2)
+    becomes that namespace (CS0118) in code that compiles fine on WinUI. Its types are only used
+    inside the Uno runtime, so the assembly is removed from compilation; it is still deployed.
+  -->
+  <Target Name="BarbicanHideWebView2AotFromCompile" AfterTargets="ResolveAssemblyReferences"
+          Condition="'$(TargetFramework)' != '' and $(TargetFramework.EndsWith('-desktop'))">
+    <ItemGroup>
+      <ReferencePath Remove="@(ReferencePath)" Condition="'%(Filename)' == 'WebView2' and '%(ReferencePath.NuGetPackageId)' == 'WebView2Aot'" />
+    </ItemGroup>
+  </Target>
+</Project>

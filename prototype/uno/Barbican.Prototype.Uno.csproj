@@ -1,0 +1,53 @@
+<Project Sdk="Uno.Sdk">
+  <!--
+    Spike S1 (docs/adr/0004-uno-single-project.md): the WinUI prototype's own files (../winui),
+    compiled unchanged by an Uno single project for both heads. Reference only: outside the
+    solution and the strictness rules, like the prototype itself.
+      tools/build.ps1 build -Project prototype/uno/Barbican.Prototype.Uno.csproj -Head win|desktop
+  -->
+  <PropertyGroup>
+    <TargetFrameworks>net10.0-windows10.0.26100.0;net10.0-desktop</TargetFrameworks>
+    <TargetFrameworks Condition="'$(BarbicanHead)' == 'win'">net10.0-windows10.0.26100.0</TargetFrameworks>
+    <TargetFrameworks Condition="'$(BarbicanHead)' == 'desktop'">net10.0-desktop</TargetFrameworks>
+    <OutputType>Exe</OutputType>
+    <UnoSingleProject>true</UnoSingleProject>
+    <RootNamespace>Barbican</RootNamespace>
+    <AssemblyName>BarbicanPrototypeUno</AssemblyName>
+    <ApplicationTitle>Barbican prototype (Uno)</ApplicationTitle>
+    <ApplicationId>org.barbican.prototype</ApplicationId>
+    <Nullable>disable</Nullable>
+    <UnoFeatures>SkiaRenderer;WebView</UnoFeatures>
+    <UnoDisableHotDesign>true</UnoDisableHotDesign>
+    <UnoDisableMCPSupport>true</UnoDisableMCPSupport>
+    <WinAppSdkVersion>2.6.5</WinAppSdkVersion>
+    <WindowsPackageType>None</WindowsPackageType>
+    <WindowsAppSDKSelfContained>true</WindowsAppSDKSelfContained>
+    <DefaultLanguage>en-US</DefaultLanguage>
+    <ApplicationManifest>../winui/app.manifest</ApplicationManifest>
+    <EnableDefaultPageItems>false</EnableDefaultPageItems>
+    <EnableDefaultApplicationDefinition>false</EnableDefaultApplicationDefinition>
+  </PropertyGroup>
+  <ItemGroup>
+    <ApplicationDefinition Include="../winui/App.xaml" Link="App.xaml" />
+    <Page Include="../winui/MainWindow.xaml" Link="MainWindow.xaml" />
+    <Compile Include="../winui/*.cs" Link="%(Filename)%(Extension)" />
+  </ItemGroup>
+
+  <!-- The one source change the desktop head needs (S1 finding): Uno's Windows.Graphics.SizeInt32
+       has no (width, height) constructor. The file is patched into obj/ at build time, so the
+       prototype itself stays unchanged. -->
+  <Target Name="PatchPrototypeForUnoDesktop" BeforeTargets="CoreCompile;UnoGenerateXamlSources;GenerateMSBuildEditorConfigFileCore"
+          Condition="$(TargetFramework.EndsWith('-desktop'))">
+    <PropertyGroup>
+      <_ProtoMain>$([System.IO.File]::ReadAllText('$(MSBuildProjectDirectory)/../winui/MainWindow.xaml.cs'))</_ProtoMain>
+      <_ProtoMain>$(_ProtoMain.Replace('new Windows.Graphics.SizeInt32(1560, 960)', 'new Windows.Graphics.SizeInt32 { Width = 1560, Height = 960 }'))</_ProtoMain>
+      <_ProtoMainPatched>$(IntermediateOutputPath)MainWindow.patched.cs</_ProtoMainPatched>
+    </PropertyGroup>
+    <WriteLinesToFile File="$(_ProtoMainPatched)" Lines="$([MSBuild]::Escape($(_ProtoMain)))" Overwrite="true" WriteOnlyWhenDifferent="true" />
+    <ItemGroup>
+      <Compile Remove="@(Compile)" Condition="'%(Filename)%(Extension)' == 'MainWindow.xaml.cs'" />
+      <Compile Include="$(_ProtoMainPatched)" />
+    </ItemGroup>
+  </Target>
+  <Import Project="../../eng/Uno.WebView2Name.targets" />
+</Project>
