@@ -429,3 +429,13 @@ pub fn delete_keyword(u: &AppWindow, c: Arc<Client>, k: &str) {
     if ST.with(|s| s.borrow().filter == format!("kw:{k}")) { set_filter(u, ""); }
     card_set(u, c, json!({"update": upd}), "Category deleted");
 }
+
+/// Whether a card is loaded (the palette waits for this before showing a found contact).
+pub fn has_card(id: &str) -> bool {
+    ST.with(|s| s.borrow().cards.iter().any(|c| c["id"] == id))
+}
+
+/// (name, first address) of every loaded card with an address, for search suggestions.
+pub fn people() -> Vec<(String, String)> {
+    ST.with(|s| s.borrow().cards.iter().filter_map(|c| first(c, "emails", "address").map(|e| (full_name(c), e))).collect())
+}

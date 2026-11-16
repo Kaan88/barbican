@@ -1,0 +1,534 @@
+// Productivity: command palette (Ctrl+K) and Search everything, the `?` keyboard shortcuts
+// sheet, search suggestions and chips, drag and drop, resizable panes.
+// Drawn in the design language of design/README.md (rounded tiles, pills, stroke icons,
+// meaning tints) with the app's Theme tokens, handed in as a PTok (app.slint `ptok`).
+
+import { LineEdit, ScrollView } from "std-widgets.slint";
+
+export struct KeyRow { header: string, desc: string, keys: [string], off: bool }
+export struct PaletteRow { header: string, icon: string, label: string, hint: string, sub: string, action: string }
+export struct SuggestRow { header: string, icon: string, label: string, sub: string, removable: bool }
+export struct SearchChip { key: string, label: string, value: string }
+
+/// The Theme tokens these components draw with (app.slint binds them once, from Theme).
+export struct PTok {
+    dark: bool,
+    bg: color,
+    side: color,
+    popup: color,
+    line: color,
+    text: color,
+    dim: color,
+    accent: color,
+    on-accent: color,
+    hover: color,
+    sel: color,
+    sel-text: color,
+    chip: color,
+}
+
+/// State shared with Rust (src/shortcuts.rs, palette.rs, search_ui.rs, dnd.rs).
+export global Pd {
+    // ---- an overlay of ours is open: the WebView2 email body hides meanwhile
+    out property <bool> overlay: palette-open || keys-open;
+    callback refocus();
+
+    // ---- keys (kbd FocusScope hook, before the older handler)
+    callback key-hook(string, bool, bool, bool) -> bool;
+    // bumped to focus the open app's search field (calendar, contacts)
+    in-out property <int> focus-req;
+    // bumped to clear the contacts search field
+    in-out property <int> clear-req;
+    // the event under the pointer in the calendar (`e` edits it)
+    in-out property <string> hover-event;
+    // the highlighted row in Files (arrow keys)
+    in-out property <string> file-sel;
+
+    // ---- the `?` sheet
+    in-out property <bool> keys-open;
+    in property <[KeyRow]> keys-rows;
+    in property <[string]> keys-tabs;
+    in property <int> keys-tab;
+    in property <bool> keys-single-off;
+    callback keys-set-tab(int);
+
+    // ---- command palette / search everything
+    in-out property <bool> palette-open;
+    in property <string> palette-mode: "commands";
+    in-out property <string> palette-query;
+    in property <string> palette-scope: "all";
+    in property <[PaletteRow]> palette-rows;
+    in-out property <int> palette-active;
+    in property <string> palette-empty;
+    in property <string> palette-status;
+    in property <int> palette-focus;
+    // bumped when Rust rewrote the query (a scope chip, a recent search)
+    in property <int> palette-text-req;
+    callback palette-edited(string);
+    callback palette-move(int);
+    callback palette-enter();
+    callback palette-run(int);
+    callback palette-close();
+    callback palette-set-scope(string);
+    callback open-search-everything();
+
+    // ---- mail search box
+    in property <[SuggestRow]> sugg-rows;
+    in-out property <int> sugg-active: -1;
+    in-out property <bool> sugg-hidden: true;
+    // the mail search box has focus (its arrows then walk the suggestions)
+    in-out property <bool> search-focus;
+    in property <[SearchChip]> chips;
+    callback search-edited(string);
+    callback sugg-pick(int);
+    callback sugg-remove(int);
+    callback chip-remove(string);
+
+    // ---- drag and drop
+    in-out property <bool> dnd-active;
+    in property <string> dnd-kind;
+    in property <string> dnd-id;
+    in property <string> dnd-label;
+    in-out property <length> dnd-x;
+    in-out property <length> dnd-y;
+    in-out property <string> dnd-target;
+    callback dnd-start(string, string);
+    callback dnd-drop();
+    callback dnd-cancel();
+    callback event-dropped(string, int, int, bool);
+
+    // ---- panes (px, kept in panes.json)
+    in-out property <length> side-w: 220px;
+    in-out property <length> list-w: 330px;
+    callback panes-changed();
+}
+
+/// A 24-box stroke icon (design/mockups `I`).
+export component StrokeIcon inherits Path {
+    in property <string> d;
+    in property <color> tint;
+    width: 16px;
+    height: 16px;
+    viewbox-width: 24;
+    viewbox-height: 24;
+    commands: d;
+    fill: transparent;
+    stroke: tint;
+    stroke-width: 1.7px;
+    stroke-line-cap: round;
+    stroke-line-join: round;
+}
+
+/// The mockup icon paths these components use.
+export global PIcon {
+    out property <string> search: "M11 19a8 8 0 1 0 0-16 8 8 0 0 0 0 16z M21 21l-4.35-4.35";
+    out property <string> close: "M18 6 6 18 M6 6l12 12";
+    out property <string> clock: "M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20z M12 6v6l4 2";
+    out property <string> user: "M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2 M12 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8z";
+    out property <string> keyboard: "M2 6h20v12H2z M6 10h.01 M10 10h.01 M14 10h.01 M18 10h.01 M7 14h10";
+    out property <string> move: "M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z M9 13h7 M13 10l3 3-3 3";
+}
+
+/// A key cap: "Ctrl + K" drawn as one rounded chip.
+component Kbd inherits Rectangle {
+    in property <string> key;
+    in property <PTok> t;
+    in property <bool> off;
+    height: 22px;
+    width: kt.preferred-width + 14px;
+    border-radius: 7px;
+    background: t.chip;
+    border-width: 1px;
+    border-color: t.line;
+    opacity: off ? 0.45 : 1;
+    kt := Text { text: key; color: t.text; font-size: 11px; font-weight: 600; font-family: "Segoe UI"; }
+}
+
+component Pill inherits Rectangle {
+    in property <string> label;
+    in property <bool> active;
+    in property <PTok> t;
+    callback clicked;
+    height: 28px;
+    width: pl.preferred-width + 24px;
+    border-radius: 14px;
+    background: active ? t.sel : (pta.has-hover ? t.hover : transparent);
+    border-width: active ? 0px : 1px;
+    border-color: t.line;
+    pta := TouchArea { clicked => { root.clicked(); } }
+    pl := Text { text: label; color: active ? t.sel-text : t.text; font-size: 12px; font-weight: 600; }
+}
+
+/// Ctrl+K: the command palette, and Search everything (mode "search").
+export component CommandPalette inherits Rectangle {
+    in property <PTok> t;
+    background: t.dark ? #000000a0 : #0000004d;
+    TouchArea { clicked => { Pd.palette-close(); } }
+    tile := Rectangle {
+        x: (parent.width - self.width) / 2;
+        y: max(16px, parent.height * 0.12);
+        width: min(Pd.palette-mode == "search" ? 680px : 580px, parent.width - 32px);
+        height: min(col.preferred-height, parent.height * 0.76);
+        border-radius: 18px;
+        background: t.popup;
+        border-width: 1px;
+        border-color: t.line;
+        drop-shadow-blur: 28px;
+        drop-shadow-offset-y: 10px;
+        drop-shadow-color: #00000066;
+        clip: true;
+        TouchArea { }
+        col := VerticalLayout {
+            HorizontalLayout {
+                height: 54px;
+                padding-left: 18px;
+                padding-right: 14px;
+                spacing: 10px;
+                VerticalLayout { alignment: center; StrokeIcon { d: PIcon.search; tint: t.dim; } }
+                fs := FocusScope {
+                    horizontal-stretch: 1;
+                    key-pressed(e) => {
+                        if e.text == Key.UpArrow { Pd.palette-move(-1); return accept; }
+                        if e.text == Key.DownArrow { Pd.palette-move(1); return accept; }
+                        if e.text == Key.Escape { Pd.palette-close(); return accept; }
+                        if e.modifiers.control && (e.text == "k" || e.text == "K") { Pd.palette-close(); return accept; }
+                        reject
+                    }
+                    q := LineEdit {
+                        width: 100%;
+                        height: 100%;
+                        font-size: 15px;
+                        placeholder-text: Pd.palette-mode == "search" ? "Search mail, contacts, calendar, files…" : "Type a command";
+                        property <int> freq: Pd.palette-focus;
+                        changed freq => { self.text = Pd.palette-query; self.focus(); }
+                        property <int> treq: Pd.palette-text-req;
+                        changed treq => { self.text = Pd.palette-query; self.focus(); }
+                        init => { self.text = Pd.palette-query; self.focus(); }
+                        edited(v) => { Pd.palette-edited(v); }
+                        accepted => { Pd.palette-enter(); }
+                    }
+                }
+                if Pd.palette-status != "": Text { text: Pd.palette-status; color: t.dim; font-size: 11px; vertical-alignment: center; max-width: 220px; overflow: elide; }
+                VerticalLayout {
+                    alignment: center;
+                    Kbd { key: "Esc"; t: t; }
+                }
+            }
+            Rectangle { height: 1px; background: t.line; }
+            if Pd.palette-mode == "search": HorizontalLayout {
+                padding: 10px;
+                padding-left: 16px;
+                spacing: 6px;
+                alignment: start;
+                for s[i] in [{id: "all", l: "All"}, {id: "mail", l: "Mail"}, {id: "contacts", l: "Contacts"}, {id: "calendar", l: "Calendar"}, {id: "files", l: "Files"}]: Pill {
+                    t: t;
+                    label: s.l;
+                    active: Pd.palette-scope == s.id;
+                    clicked => { Pd.palette-set-scope(s.id); }
+                }
+            }
+            if Pd.palette-mode == "search": Rectangle { height: 1px; background: t.line; }
+            if Pd.palette-empty != "": Text {
+                text: Pd.palette-empty;
+                color: t.dim;
+                horizontal-alignment: center;
+                wrap: word-wrap;
+                height: self.preferred-height + 40px;
+                vertical-alignment: center;
+            }
+            list := ScrollView {
+                vertical-stretch: 1;
+                preferred-height: inner.preferred-height;
+                property <int> act: Pd.palette-active;
+                // keep the highlighted row in view (rows are about 40px, headers add 28px)
+                changed act => {
+                    let top = act * 42px;
+                    if top < -self.content-y { self.content-y = -top; }
+                    else if top + 84px > -self.content-y + self.visible-height { self.content-y = -(top + 84px - self.visible-height); }
+                }
+                inner := VerticalLayout {
+                    padding: 6px;
+                    padding-bottom: 8px;
+                    for r[i] in Pd.palette-rows: VerticalLayout {
+                        if r.header != "": Rectangle {
+                            height: 28px;
+                            Text { x: 12px; y: 10px; text: r.header; color: t.dim; font-size: 11px; font-weight: 700; }
+                        }
+                        if r.label != "": Rectangle {
+                            height: r.sub != "" ? 48px : 40px;
+                            border-radius: 12px;
+                            background: i == Pd.palette-active ? t.hover : transparent;
+                            rta := TouchArea {
+                                changed has-hover => { if self.has-hover { Pd.palette-active = i; } }
+                                clicked => { Pd.palette-run(i); }
+                            }
+                            HorizontalLayout {
+                                padding-left: 12px;
+                                padding-right: 12px;
+                                spacing: 12px;
+                                VerticalLayout {
+                                    alignment: center;
+                                    Rectangle {
+                                        width: 28px; height: 28px; border-radius: 9px;
+                                        background: i == Pd.palette-active ? t.sel : t.chip;
+                                        StrokeIcon { d: r.icon; tint: i == Pd.palette-active ? t.sel-text : t.dim; width: 15px; height: 15px; }
+                                    }
+                                }
+                                VerticalLayout {
+                                    alignment: center;
+                                    horizontal-stretch: 1;
+                                    spacing: 1px;
+                                    Text { text: r.label; color: t.text; font-size: 13px; overflow: elide; }
+                                    if r.sub != "": Text { text: r.sub; color: t.dim; font-size: 11px; overflow: elide; }
+                                }
+                                if r.hint != "": VerticalLayout {
+                                    alignment: center;
+                                    HorizontalLayout {
+                                        spacing: 4px;
+                                        if Pd.palette-mode == "commands": Kbd { key: r.hint; t: t; }
+                                        if Pd.palette-mode != "commands": Text { text: r.hint; color: t.dim; font-size: 11px; }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// `?`: the keyboard shortcuts of each app (keyboard-shortcuts-modal.tsx).
+export component ShortcutsSheet inherits Rectangle {
+    in property <PTok> t;
+    background: t.dark ? #000000a0 : #0000004d;
+    TouchArea { clicked => { Pd.keys-open = false; Pd.refocus(); } }
+    Rectangle {
+        x: (parent.width - self.width) / 2;
+        y: max(16px, (parent.height - self.height) / 2);
+        width: min(760px, parent.width - 32px);
+        height: min(parent.height - 32px, 680px);
+        border-radius: 24px;
+        background: t.popup;
+        border-width: 1px;
+        border-color: t.line;
+        drop-shadow-blur: 28px;
+        drop-shadow-offset-y: 10px;
+        drop-shadow-color: #00000066;
+        clip: true;
+        TouchArea { }
+        VerticalLayout {
+            padding: 24px;
+            padding-bottom: 16px;
+            spacing: 14px;
+            HorizontalLayout {
+                spacing: 12px;
+                VerticalLayout {
+                    alignment: center;
+                    Rectangle {
+                        width: 36px; height: 36px; border-radius: 13px;
+                        background: t.dark ? #60a5fa24 : #dfeafd;
+                        StrokeIcon { d: PIcon.keyboard; tint: t.dark ? #a8cbff : #1e3f8a; width: 18px; height: 18px; }
+                    }
+                }
+                VerticalLayout {
+                    alignment: center;
+                    horizontal-stretch: 1;
+                    Text { text: "Keyboard shortcuts"; color: t.text; font-size: 19px; font-weight: 700; }
+                    Text { text: "Press ? anytime to show this help"; color: t.dim; font-size: 12px; }
+                }
+                VerticalLayout {
+                    alignment: center;
+                    Rectangle {
+                        width: 32px; height: 32px; border-radius: 12px;
+                        background: cta.has-hover ? t.hover : transparent;
+                        cta := TouchArea { clicked => { Pd.keys-open = false; Pd.refocus(); } }
+                        StrokeIcon { d: PIcon.close; tint: t.dim; }
+                    }
+                }
+            }
+            HorizontalLayout {
+                spacing: 6px;
+                alignment: start;
+                for name[i] in Pd.keys-tabs: Pill { t: t; label: name; active: i == Pd.keys-tab; clicked => { Pd.keys-set-tab(i); } }
+            }
+            if Pd.keys-single-off: Rectangle {
+                height: sot.preferred-height + 20px;
+                border-radius: 14px;
+                background: t.dark ? #fbbf2421 : #fdf1d3;
+                sot := Text {
+                    x: 14px; width: parent.width - 28px;
+                    text: "Single-key shortcuts are off. Shortcuts with Ctrl or Alt still work, and so do Delete, Enter, Escape and the arrow keys. You can turn single-key shortcuts back on in Settings > Accessibility.";
+                    color: t.dark ? #fcd679 : #7a4a06; font-size: 12px; wrap: word-wrap;
+                }
+            }
+            ScrollView {
+                vertical-stretch: 1;
+                VerticalLayout {
+                    padding-right: 8px;
+                    for r in Pd.keys-rows: Rectangle {
+                        height: r.header != "" ? 40px : 34px;
+                        if r.header != "": Text {
+                            x: 0; y: 14px;
+                            text: r.header; color: t.dim; font-size: 12px; font-weight: 700;
+                        }
+                        if r.header == "": Rectangle {
+                            border-radius: 10px;
+                            background: rha.has-hover ? t.hover : transparent;
+                            rha := TouchArea { }
+                            HorizontalLayout {
+                                padding-left: 10px;
+                                padding-right: 10px;
+                                spacing: 8px;
+                                Text { text: r.desc; color: r.off ? t.dim : t.text; font-size: 13px; vertical-alignment: center; horizontal-stretch: 1; overflow: elide; }
+                                for k[j] in r.keys: HorizontalLayout {
+                                    spacing: 6px;
+                                    if j > 0: Text { text: "or"; color: t.dim; font-size: 11px; vertical-alignment: center; }
+                                    VerticalLayout { alignment: center; Kbd { key: k; t: t; off: r.off; } }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// The suggestions under the mail search box (search-suggestions.tsx).
+export component SearchSuggest inherits Rectangle {
+    in property <PTok> t;
+    height: sl.preferred-height;
+    border-radius: 14px;
+    background: t.popup;
+    border-width: 1px;
+    border-color: t.line;
+    drop-shadow-blur: 16px;
+    drop-shadow-offset-y: 6px;
+    drop-shadow-color: #00000055;
+    sl := VerticalLayout {
+        padding: 6px;
+        for s[i] in Pd.sugg-rows: VerticalLayout {
+            if s.header != "": Rectangle { height: 24px; Text { x: 8px; text: s.header; color: t.dim; font-size: 11px; font-weight: 700; } }
+            Rectangle {
+                height: s.sub != "" ? 42px : 32px;
+                border-radius: 10px;
+                background: i == Pd.sugg-active || sta.has-hover ? t.hover : transparent;
+                sta := TouchArea { clicked => { Pd.sugg-pick(i); } }
+                HorizontalLayout {
+                    padding-left: 8px;
+                    padding-right: 4px;
+                    spacing: 10px;
+                    VerticalLayout { alignment: center; StrokeIcon { d: s.removable ? PIcon.clock : PIcon.user; tint: t.dim; width: 14px; height: 14px; } }
+                    VerticalLayout {
+                        alignment: center;
+                        horizontal-stretch: 1;
+                        Text { text: s.label; color: t.text; font-size: 12px; overflow: elide; }
+                        if s.sub != "": Text { text: s.sub; color: t.dim; font-size: 11px; overflow: elide; }
+                    }
+                    if s.removable && (sta.has-hover || i == Pd.sugg-active): VerticalLayout {
+                        alignment: center;
+                        Rectangle {
+                            width: 24px; height: 24px; border-radius: 8px;
+                            background: rma.has-hover ? t.chip : transparent;
+                            rma := TouchArea { clicked => { Pd.sugg-remove(i); } }
+                            StrokeIcon { d: PIcon.close; tint: t.dim; width: 12px; height: 12px; }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// One removable chip per active search filter (search-chips.tsx); "Clear all" from two.
+export component SearchChips inherits Rectangle {
+    in property <PTok> t;
+    height: cl.preferred-height;
+    cl := HorizontalLayout {
+        padding-left: 10px;
+        padding-right: 10px;
+        padding-bottom: 8px;
+        spacing: 6px;
+        alignment: start;
+        for c in Pd.chips: Rectangle {
+            height: 24px;
+            width: chl.preferred-width;
+            border-radius: 12px;
+            background: t.dark ? #f0577a24 : #fde4ea;
+            chl := HorizontalLayout {
+                padding-left: 10px;
+                padding-right: 4px;
+                spacing: 4px;
+                Text { text: c.label; color: t.dark ? #ffb3c4 : #8c1733; font-size: 11px; font-weight: 700; vertical-alignment: center; }
+                if c.value != "": Text { text: c.value; color: t.dark ? #ffb3c4 : #8c1733; font-size: 11px; vertical-alignment: center; max-width: 110px; overflow: elide; }
+                VerticalLayout {
+                    alignment: center;
+                    Rectangle {
+                        width: 18px; height: 18px; border-radius: 9px;
+                        background: xa.has-hover ? (t.dark ? #f0577a40 : #f9c9d5) : transparent;
+                        xa := TouchArea { clicked => { Pd.chip-remove(c.key); } }
+                        StrokeIcon { d: PIcon.close; tint: t.dark ? #ffb3c4 : #8c1733; width: 10px; height: 10px; }
+                    }
+                }
+            }
+        }
+        if Pd.chips.length > 1: Text {
+            text: "Clear all";
+            color: caa.has-hover ? t.text : t.dim;
+            font-size: 11px;
+            vertical-alignment: center;
+            caa := TouchArea { clicked => { Pd.chip-remove(""); } }
+        }
+    }
+}
+
+/// What is being dragged, next to the pointer.
+export component DragGhost inherits Rectangle {
+    in property <PTok> t;
+    x: Pd.dnd-x + 14px;
+    y: Pd.dnd-y + 10px;
+    width: min(gl.preferred-width, 300px);
+    height: 32px;
+    border-radius: 16px;
+    background: t.popup;
+    border-width: 1px;
+    border-color: Pd.dnd-target != "" ? t.accent : t.line;
+    drop-shadow-blur: 14px;
+    drop-shadow-offset-y: 4px;
+    drop-shadow-color: #00000055;
+    gl := HorizontalLayout {
+        padding-left: 12px;
+        padding-right: 14px;
+        spacing: 8px;
+        VerticalLayout { alignment: center; StrokeIcon { d: PIcon.move; tint: Pd.dnd-target != "" ? t.accent : t.dim; width: 14px; height: 14px; } }
+        Text { text: Pd.dnd-label; color: t.text; font-size: 12px; vertical-alignment: center; overflow: elide; }
+    }
+}
+
+/// The 1px line between two panes; drag it to resize the pane on its left, double-click to
+/// put the default back (resize-handle.tsx).
+export component ResizeHandle inherits Rectangle {
+    in property <PTok> t;
+    in-out property <length> value;
+    in property <length> min-value;
+    in property <length> max-value;
+    in property <length> default-value;
+    callback done();
+    width: 1px;
+    background: ha.pressed || ha.has-hover ? t.accent : t.line;
+    ha := TouchArea {
+        x: -3px;
+        width: 7px;
+        mouse-cursor: col-resize;
+        moved => {
+            if self.pressed {
+                root.value = max(root.min-value, min(root.max-value, root.value + (self.mouse-x - self.pressed-x)));
+            }
+        }
+        pointer-event(ev) => {
+            if ev.kind == PointerEventKind.up { root.done(); }
+        }
+        double-clicked => { root.value = root.default-value; root.done(); }
+    }
+}

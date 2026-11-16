@@ -821,3 +821,31 @@ pub fn event_ics(id: &str) -> Option<(String, String)> {
     let title = e["title"].as_str().filter(|t| !t.is_empty()).unwrap_or("event");
     Some((format!("{}.ics", crate::sanitize_name(title)), l.iter().map(|x| ics_fold(x)).collect()))
 }
+
+// ---------------- drag and drop (src/dnd.rs) ----------------
+
+/// The loaded event (as fetched) with this id.
+pub fn raw_event(id: &str) -> Option<Value> {
+    RAW.with(|r| r.borrow().iter().find(|e| e["id"] == id).cloned())
+}
+
+/// An event's length (all-day events without one last a day).
+pub fn duration_of(e: &Value) -> Duration {
+    let d = parse_duration(e["duration"].as_str().unwrap_or("PT1H"));
+    if d.num_seconds() <= 0 && e["showWithoutTime"] == true { Duration::days(1) } else { d }
+}
+
+/// Apply a moved event to what is shown right away (the reload after the server write confirms).
+pub fn patch_local(id: &str, patch: &Value) {
+    RAW.with(|r| {
+        if let Some(e) = r.borrow_mut().iter_mut().find(|e| e["id"] == id) {
+            if let Some(o) = patch.as_object() { for (k, v) in o { e[k] = v.clone(); } }
+        }
+    });
+    let Some(e) = raw_event(id) else { return };
+    let Some(start) = e["start"].as_str().and_then(parse_local) else { return };
+    let end = start + duration_of(&e);
+    ST.with(|s| {
+        for o in s.borrow_mut().events.iter_mut().filter(|o| o.id == id) { o.start = start; o.end = end; }
+    });
+}
