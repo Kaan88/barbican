@@ -85,6 +85,31 @@ impl Settings {
         let _ = std::fs::write(path(), Value::Object(self.prefs.clone()).to_string());
     }
 
+    /// Everything worth backing up: Bulwark-keyed prefs plus the desktop/assistant settings file.
+    pub fn export(&self) -> Value {
+        let desktop: Value = std::fs::read_to_string(crate::config_dir().join("settings.json")).ok()
+            .and_then(|t| serde_json::from_str(&t).ok()).unwrap_or(json!({}));
+        json!({"app": "barbican", "version": 1, "settings": Value::Object(self.prefs.clone()), "desktop": desktop})
+    }
+
+    /// Accepts Barbican exports and Bulwark's own settings export (a flat settings object).
+    pub fn import(&mut self, v: &Value) -> Result<(), String> {
+        let prefs = if v["app"] == "barbican" { v["settings"].clone() } else if v["settings"].is_object() { v["settings"].clone() } else { v.clone() };
+        let Some(obj) = prefs.as_object() else { return Err("This file has no settings.".into()) };
+        self.prefs = obj.clone();
+        self.save();
+        if v["desktop"].is_object() {
+            let _ = std::fs::write(crate::config_dir().join("settings.json"), v["desktop"].to_string());
+        }
+        Ok(())
+    }
+
+    pub fn reset(&mut self) {
+        self.prefs.clear();
+        self.save();
+        let _ = std::fs::remove_file(crate::config_dir().join("settings.json"));
+    }
+
     pub fn bool(&self, key: &str, default: bool) -> bool {
         self.prefs.get(key).and_then(|v| v.as_bool()).unwrap_or(default)
     }
@@ -216,6 +241,13 @@ impl Settings {
                     out.push(text("value", "", "Could not load", &e, ""));
                 }
                 out.push(text("button", "plugins.folder", "Plugins folder", &crate::plugins::dir().display().to_string(), "Open folder"));
+            }
+            "backup" => {
+                out.push(row("section", "", "Backup", "Save your settings to a file, or bring them back on another computer."));
+                out.push(text("button", "backup.export", "Export settings", "Downloads a JSON file with your Barbican and Bulwark settings (API keys are not included).", "Export"));
+                out.push(text("button", "backup.import", "Import settings", "Replaces your settings with the ones in a file you exported.", "Import"));
+                out.push(row("section", "", "Fix problems", ""));
+                out.push(text("button", "backup.reset", "Reset settings", "Puts every setting back to its default. Your mail is not touched.", "Reset"));
             }
             "admin" => {
                 out.push(row("section", "", "Stalwart admin", "Enter an administrator API key (or admin access token) to open the Stalwart admin tab: dashboard, accounts, domains, delivery queue, logs and DMARC reports."));

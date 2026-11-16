@@ -82,6 +82,16 @@ pub fn tools(client: &Client) -> Vec<Tool> {
         Tool { name: "set_vacation", write: true, desc: "Turn the out-of-office auto-reply on or off and set its text and dates.",
             schema: obj(json!({"enabled": {"type": "boolean"}, "subject": {"type": "string"}, "body": {"type": "string"},
                 "from_date": {"type": "string", "description": "ISO datetime"}, "to_date": {"type": "string", "description": "ISO datetime"}}), &["enabled"]) },
+        Tool { name: "read_attachment", write: false,
+            desc: "Read the text of an email attachment (text, CSV, HTML, calendar .ics, contact .vcf, JSON, XML). Use id \"current\" for the open message; name picks the attachment (first one if empty).",
+            schema: obj(json!({"id": {"type": "string"}, "name": {"type": "string"}}), &["id"]) },
+        Tool { name: "list_filters", write: false, desc: "Show the user's mail filter rules (the active Sieve script).", schema: obj(json!({}), &[]) },
+        Tool { name: "update_filters", write: true,
+            desc: "Replace the user's filter rules with a complete Sieve script (RFC 5228). Read list_filters first and keep existing rules unless told otherwise. The server validates it.",
+            schema: obj(json!({"script": {"type": "string"}}), &["script"]) },
+        Tool { name: "change_setting", write: true,
+            desc: "Change one app setting by its Bulwark key, e.g. density (extra-compact|compact|regular|comfortable), theme (light|dark|system), showPreview (bool), groupListByDate (bool), timeFormat (12h|24h), dateFormat (smart|relative|full), markAsReadDelay (ms, -1 never), emailsPerPage, sendDelaySeconds.",
+            schema: obj(json!({"key": {"type": "string"}, "value": {}}), &["key", "value"]) },
         Tool { name: "remember", write: false, desc: "Save a short note about the user's preferences for future chats.",
             schema: obj(json!({"note": {"type": "string"}}), &["note"]) },
     ];
@@ -159,6 +169,8 @@ fn describe(name: &str, a: &Value, n: usize) -> String {
         "tag_messages" => format!("{} tag \"{}\" on {n} message(s)", if a["remove"].as_bool() == Some(true) { "Remove" } else { "Add" }, s(a, "tag")),
         "create_folder" => format!("Create folder \"{}\"", s(a, "name")),
         "send_email" => format!("Send email to {}\nSubject: {}\n\n{}", s(a, "to"), s(a, "subject"), clip(s(a, "body"), 600)),
+        "update_filters" => format!("Replace your mail filters with this Sieve script:\n{}", clip(s(a, "script"), 600)),
+        "change_setting" => format!("Change setting {} to {}", s(a, "key"), a["value"]),
         "set_vacation" => format!("{} out-of-office reply{}", if a["enabled"].as_bool() == Some(true) { "Turn on" } else { "Turn off" },
             if s(a, "subject").is_empty() { String::new() } else { format!(": {}", s(a, "subject")) }),
         "create_event" => format!("Create event \"{}\" at {}", s(a, "title"), s(a, "start")),
@@ -306,6 +318,54 @@ fn exec(name: &str, a: &Value, c: &Client, ctx: &Ctx, host: &dyn Host) -> Result
             }
             let r = c.call(json!([["VacationResponse/set", {"accountId": acc, "update": {"singleton": p}}, "v"]]))?;
             if r[0][1]["updated"].is_object() { Ok("Out-of-office updated.".into()) } else { Err(format!("Not updated: {}", r[0][1]["notUpdated"])) }
+        }
+        "read_attachment" => {
+            let id = resolve_id(s(a, "id"), ctx)?;
+            let r = c.call(json!([["Email/get", {"accountId": acc, "ids": [id], "properties": ["attachments"],
+                "bodyProperties": ["partId", "blobId", "size", "name", "type", "charset"]}, "g"]]))?;
+            let atts = r[0][1]["list"][0]["attachments"].as_array().cloned().unwrap_or_default();
+            if atts.is_empty() { return Err("The message has no attachments.".into()); }
+            let want = s(a, "name").to_lowercase();
+            let att = atts.iter().find(|x| !want.is_empty() && x["name"].as_str().is_some_and(|n| n.to_lowercase().contains(&want))).unwrap_or(&atts[0]);
+            let mime = s(att, "type").to_lowercase();
+            let name = s(att, "name").to_string();
+            let texty = mime.starts_with("text/") || ["json", "xml", "calendar", "vcard", "csv"].iter().any(|k| mime.contains(k))
+                || [".txt", ".csv", ".ics", ".vcf", ".json", ".xml", ".md", ".html", ".htm", ".log"].iter().any(|e| name.to_lowercase().ends_with(e));
+            if !texty { return Ok(format!("{name} ({mime}) is not a text file; only text-based attachments can be read.")); }
+            let bytes = c.download(s(att, "blobId"), &name, &mime)?;
+            let mut t = String::from_utf8_lossy(&bytes).to_string();
+            if mime.contains("html") { t = crate::html_to_text(&t); }
+            Ok(format!("Attachment {name} ({mime}):\n<email>\n{}\n</email>", clip(&t, 30000)))
+        }
+        "list_filters" => {
+            let sacc = c.account_for("urn:ietf:params:jmap:sieve");
+            let r = c.call(json!([["SieveScript/get", {"accountId": sacc, "ids": null, "properties": ["id", "name", "blobId", "isActive"]}, "s"]]))?;
+            let list = r[0][1]["list"].as_array().cloned().unwrap_or_default();
+            let Some(active) = list.iter().find(|x| x["isActive"] == true).or(list.first()) else { return Ok("No filters yet.".into()) };
+            let text = String::from_utf8_lossy(&c.download(s(active, "blobId"), "script.sieve", "application/sieve")?).to_string();
+            Ok(format!("Active script \"{}\":\n{text}", s(active, "name")))
+        }
+        "update_filters" => {
+            let sacc = c.account_for("urn:ietf:params:jmap:sieve");
+            let (blob, _) = c.upload(s(a, "script").as_bytes().to_vec(), "application/sieve")?;
+            let v = c.call(json!([["SieveScript/validate", {"accountId": sacc, "blobId": blob}, "v"]]))?;
+            if let Some(e) = v[0][1]["error"].as_object() { return Err(format!("Invalid script: {}", e.get("description").and_then(|d| d.as_str()).unwrap_or("rejected"))); }
+            let r = c.call(json!([["SieveScript/get", {"accountId": sacc, "ids": null, "properties": ["id", "isActive"]}, "s"]]))?;
+            let list = r[0][1]["list"].as_array().cloned().unwrap_or_default();
+            let existing = list.iter().find(|x| x["isActive"] == true).or(list.first()).and_then(|x| x["id"].as_str().map(String::from));
+            let r = match existing {
+                Some(id) => c.call(json!([["SieveScript/set", {"accountId": sacc, "update": { id.clone(): {"blobId": blob} }, "onSuccessActivateScript": id}, "u"]]))?,
+                None => c.call(json!([["SieveScript/set", {"accountId": sacc, "create": {"n": {"name": "barbican", "blobId": blob}}, "onSuccessActivateScript": "#n"}, "u"]]))?,
+            };
+            if r[0][1]["updated"].is_object() || r[0][1]["created"].is_object() { Ok("Filters saved and active.".into()) } else { Err("The server did not save the filters.".into()) }
+        }
+        "change_setting" => {
+            let key = s(a, "key").to_string();
+            if key.is_empty() || key.starts_with("ai.") || key.starts_with("admin") { return Err("That setting can't be changed by the assistant.".into()); }
+            let mut st = crate::settings::Settings::load();
+            let mut cfg = Config::load();
+            st.set(&key, a["value"].clone(), &mut cfg);
+            Ok(format!("Setting {key} changed. Some settings apply after reopening the view."))
         }
         "remember" => {
             let note = s(a, "note").trim().replace('\n', " ");

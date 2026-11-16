@@ -195,6 +195,7 @@ pub fn html_to_text(h: &str) -> String {
 }
 
 thread_local! { static WV_VISIBLE: std::cell::Cell<bool> = const { std::cell::Cell::new(false) }; }
+thread_local! { static RESET_ARMED: std::cell::Cell<bool> = const { std::cell::Cell::new(false) }; }
 thread_local! { static SERVER_DEBOUNCE: slint::Timer = slint::Timer::default(); }
 thread_local! { static TEMPLATES: std::cell::RefCell<Vec<Value>> = const { std::cell::RefCell::new(Vec::new()) }; }
 thread_local! { static THREAD_ID: std::cell::RefCell<Option<String>> = const { std::cell::RefCell::new(None) }; }
@@ -781,7 +782,7 @@ fn main() -> Result<(), slint::PlatformError> {
         if key == "admin.key" { if let Some(u) = wk.upgrade() { u.set_admin_enabled(!t.trim().is_empty()); } }
     });
 
-    let (w, st, srv, lsp) = (ui.as_weak(), state.clone(), server_cache.clone(), load_server_page.clone());
+    let (w, st, srv, lsp, pf2, cf2) = (ui.as_weak(), state.clone(), server_cache.clone(), load_server_page.clone(), prefs.clone(), cfg.clone());
     ui.on_settings_button(move |key| {
         let u = w.unwrap();
         if key.starts_with("server.") {
@@ -800,6 +801,36 @@ fn main() -> Result<(), slint::PlatformError> {
         }
         if key == "signout" { u.set_show_settings(false); u.invoke_sign_out(); }
         if key == "plugins.folder" { oauth::open_browser(&plugins::dir().to_string_lossy()); }
+        if key == "backup.export" {
+            if let Some(path) = rfd::FileDialog::new().set_file_name("barbican-settings.json").add_filter("JSON", &["json"]).save_file() {
+                let data = serde_json::to_string_pretty(&pf2.lock().unwrap().export()).unwrap_or_default();
+                let msg = match std::fs::write(&path, data) { Ok(()) => "Settings exported".to_string(), Err(e) => format!("Export failed: {e}") };
+                mail::show_toast(&u, &msg, false);
+            }
+        }
+        if key == "backup.import" {
+            if let Some(path) = rfd::FileDialog::new().add_filter("JSON", &["json"]).pick_file() {
+                let res = std::fs::read_to_string(&path).map_err(|e| e.to_string())
+                    .and_then(|t| serde_json::from_str::<Value>(&t).map_err(|e| e.to_string()))
+                    .and_then(|v| pf2.lock().unwrap().import(&v));
+                match res {
+                    Ok(()) => { *cf2.lock().unwrap() = ai::Config::load(); apply_theme(&u); mail::show_toast(&u, "Settings imported", false); u.invoke_settings_search(u.get_settings_query()); }
+                    Err(e) => mail::show_toast(&u, &format!("Import failed: {e}"), false),
+                }
+            }
+        }
+        if key == "backup.reset" {
+            if RESET_ARMED.with(|x| x.replace(true)) {
+                RESET_ARMED.with(|x| x.set(false));
+                pf2.lock().unwrap().reset();
+                *cf2.lock().unwrap() = ai::Config::load();
+                apply_theme(&u);
+                mail::show_toast(&u, "Settings reset to defaults", false);
+                u.invoke_settings_search(u.get_settings_query());
+            } else {
+                mail::show_toast(&u, "Press Reset again to put every setting back to its default.", false);
+            }
+        }
     });
 
 
