@@ -1829,7 +1829,7 @@ pub fn set_theme_dark(ui: &AppWindow, dark: bool) {
     ui.global::<Theme>().set_dark(dark);
     // the open message's page follows (plain text and the reader are themed); swapped in, no reload
     if changed && ui.get_current_mail() != "" { render_current(ui); }
-    if changed && ui.get_current_mail() == "" { ui.set_body_bg(mailview::color(mailview::reader_bg())); }
+    if changed && ui.get_current_mail() == "" { ui.set_body_bg(mailview::color(mailview::reader_bg())); mailview::theme_changed(); }
 }
 
 

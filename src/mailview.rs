@@ -26,6 +26,9 @@ thread_local! {
     /// A hide waiting for the frame that shows the capture in its place.
     static HIDE_PENDING: Cell<bool> = const { Cell::new(false) };
     static UI: RefCell<Option<slint::Weak<AppWindow>>> = const { RefCell::new(None) };
+    /// The host window's current background, and the page colour of each pending document.
+    static HOST_BG: RefCell<String> = const { RefCell::new(String::new()) };
+    static NEXT_BG: RefCell<String> = const { RefCell::new(String::new()) };
 }
 
 /// The shell's script: show(seq, html, bg, sandbox) loads a hidden frame and reports
@@ -63,6 +66,34 @@ fn parse_hex(c: &str) -> (u8, u8, u8) {
 pub fn color(c: &str) -> slint::Color {
     let (r, g, b) = parse_hex(c);
     slint::Color::from_rgb_u8(r, g, b)
+}
+
+/// Paint the WebView's host window (wry's container HWND) in `c`. A host window has no
+/// background of its own, so while the WebView resizes or moves the newly uncovered strip
+/// shows whatever was there (often white) for a frame; in the page's colour it is invisible.
+#[cfg(windows)]
+fn paint_host(v: &wry::WebView, c: &str) {
+    use windows::Win32::Foundation::{COLORREF, HWND};
+    use windows::Win32::Graphics::Gdi::{CreateSolidBrush, DeleteObject, HGDIOBJ};
+    use windows::Win32::UI::WindowsAndMessaging::{SetClassLongPtrW, GCLP_HBRBACKGROUND};
+    use wry::WebViewExtWindows;
+    if HOST_BG.with(|h| h.borrow().as_str() == c) { return; }
+    HOST_BG.with(|h| *h.borrow_mut() = c.to_string());
+    let (r, g, b) = parse_hex(c);
+    let hwnd = HWND(v.hwnd().0 as _);
+    unsafe {
+        let brush = CreateSolidBrush(COLORREF(r as u32 | (g as u32) << 8 | (b as u32) << 16));
+        let old = SetClassLongPtrW(hwnd, GCLP_HBRBACKGROUND, brush.0 as isize);
+        if old != 0 { let _ = DeleteObject(HGDIOBJ(old as _)); }
+    }
+}
+
+#[cfg(not(windows))]
+fn paint_host(_: &wry::WebView, _: &str) {}
+
+/// The page colour changed (a message was swapped in, the view cleared, the theme changed).
+fn page_bg(c: &str) {
+    WV.with(|w| if let Some(v) = &*w.borrow() { paint_host(v, c); });
 }
 
 pub fn shell_html() -> String {
@@ -104,6 +135,7 @@ pub fn show(doc: &str, bg: &str, on_ready: Option<Box<dyn FnOnce()>>) -> u64 {
         serde_json::to_string(sandbox(script)).unwrap_or_default()
     );
     ON_READY.with(|r| *r.borrow_mut() = on_ready.map(|f| (seq, f)));
+    NEXT_BG.with(|b| *b.borrow_mut() = bg.to_string());
     crate::automation::mark(&format!("doc {seq}"));
     run_js(js);
     // never wait on the WebView for long: a stalled or hidden view still gets its header
@@ -124,8 +156,15 @@ fn ready(seq: u64, from_view: bool) {
     if !SHOWN.with(|x| x.get()) {
         if let Some(u) = UI.with(|u| u.borrow().as_ref().and_then(|w| w.upgrade())) { u.set_body_snap_on(false); }
     }
+    page_bg(&NEXT_BG.with(|b| b.borrow().clone()));
     crate::automation::mark(&format!("reveal {seq}"));
     run_js(format!("window.__bb&&__bb.reveal({seq})"));
+}
+
+/// The theme changed with no message open: the empty view takes the reader's new colour.
+pub fn theme_changed() {
+    run_js(format!("window.__bb&&__bb.clear('{}')", reader_bg()));
+    page_bg(reader_bg());
 }
 
 /// Empty the view (the reader closed), in the reader's colour.
@@ -135,6 +174,7 @@ pub fn clear() {
     crate::lite::clear();
     ON_READY.with(|r| *r.borrow_mut() = None);
     run_js(format!("window.__bb&&__bb.clear('{}')", reader_bg()));
+    page_bg(reader_bg());
 }
 
 pub fn print() -> bool {
@@ -248,7 +288,7 @@ pub fn sync(ui: &AppWindow) {
         let mut w = w.borrow_mut();
         if w.is_none() {
             *w = build(ui);
-            if let Some(v) = &*w { let _ = v.focus_parent(); }
+            if let Some(v) = &*w { let _ = v.focus_parent(); HOST_BG.with(|h| h.borrow_mut().clear()); paint_host(v, reader_bg()); }
             if w.is_none() { return; }
         }
         let Some(v) = &*w else { return };

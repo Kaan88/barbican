@@ -95,7 +95,11 @@ def main():
         d.cmd(f"theme {mode}")
         time.sleep(0.5)
         for n in names:
-            r = run(d, n, mode, frames_dir)
+            # a starved capture thread (machine under load) gives a handful of frames: retry
+            for _ in range(3):
+                r = run(d, n, mode, frames_dir)
+                if r["frames"] >= SCENARIOS[n][2] / 40:
+                    break
             res[f"{mode}/{n}"] = r
             print(f"{mode:5} {n:15} " + " ".join(f"{k}={v}" for k, v in r.items()), flush=True)
             json.dump(res, open(out, "w"), indent=1)
