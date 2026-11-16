@@ -171,6 +171,9 @@ pub fn rebuild_folders(u: &AppWindow) {
         }
         u.set_folders(ModelRc::new(VecModel::from(out)));
     });
+    // Bulwark faviconUnreadBadge: the Inbox unread count where the taskbar shows it (the title)
+    let inbox_unread = BOXES.with(|b| b.borrow().list.iter().find(|m| m["role"] == "inbox").and_then(|m| m["unreadEmails"].as_i64()).unwrap_or(0));
+    u.set_window_title(if prefs.bool("faviconUnreadBadge", true) && inbox_unread > 0 { format!("({inbox_unread}) Barbican") } else { "Barbican".into() }.into());
     // tag colours follow the colour-blind-safe palette setting too
     let tags = u.get_tags();
     for i in 0..tags.row_count() {
@@ -707,6 +710,11 @@ pub fn apply(u: &AppWindow, c: Arc<Client>, ids: Vec<String>, action: &str) {
         a => a.to_string(),
     };
     let next_snapshot = next_after(u.get_current_mail().as_str(), &ids);
+    // Bulwark archiveMode: one Archive folder, or a folder per year / month inside it
+    let archive_mode = crate::settings::Settings::load().str("archiveMode", "single");
+    let received: Vec<(String, String)> = if action == "archive" && archive_mode != "single" {
+        ids.iter().map(|i| (i.clone(), email(i).and_then(|m| m["receivedAt"].as_str().map(String::from)).unwrap_or_default())).collect()
+    } else { vec![] };
     // optimistic local change
     match action.as_str() {
         "star" => patch_local(&ids, |m| m["keywords"]["$flagged"] = json!(true)),
@@ -746,6 +754,7 @@ pub fn apply(u: &AppWindow, c: Arc<Client>, ids: Vec<String>, action: &str) {
                         _ => check(c.move_to_role(&ids, "trash")?),
                     }
                 }
+                "archive" if !received.is_empty() => archive_dated(&c, &received, &archive_mode),
                 "archive" => check(c.move_to_role(&ids, "archive")?),
                 "spam" => c.mark_spam(&ids, true),
                 "notspam" => c.mark_spam(&ids, false),
@@ -767,6 +776,46 @@ pub fn apply(u: &AppWindow, c: Arc<Client>, ids: Vec<String>, action: &str) {
         if crate::unified::is_active(&c) { load_mailboxes(w.clone(), c.clone(), false); }
         reload(w, c);
     });
+}
+
+/// Folder path under Archive for a message received at `received` (Bulwark archiveEmails:
+/// the local year, and for "month" the two-digit month inside it).
+pub fn archive_path(received: &str, mode: &str) -> Vec<String> {
+    let Some(t) = parse_time(&json!(received)) else { return vec![] };
+    match mode {
+        "year" => vec![t.year().to_string()],
+        "month" => vec![t.year().to_string(), format!("{:02}", t.month())],
+        _ => vec![],
+    }
+}
+
+/// Archive into year / month folders under the Archive folder, creating them as needed.
+fn archive_dated(c: &Client, received: &[(String, String)], mode: &str) -> Result<(), String> {
+    let mut boxes = c.mailboxes()?;
+    let archive = boxes.iter().find(|m| m["role"] == "archive").and_then(|m| m["id"].as_str().map(String::from))
+        .ok_or("There is no Archive folder.")?;
+    let mut groups: Vec<(String, Vec<String>)> = vec![];
+    for (id, at) in received {
+        let mut parent = archive.clone();
+        for name in archive_path(at, mode) {
+            let found = boxes.iter().find(|m| m["parentId"].as_str() == Some(parent.as_str()) && m["name"] == name.as_str())
+                .and_then(|m| m["id"].as_str().map(String::from));
+            parent = match found {
+                Some(f) => f,
+                None => {
+                    let new = c.create_mailbox(&name, Some(&parent))?;
+                    boxes.push(json!({"id": new, "name": name, "parentId": parent}));
+                    new
+                }
+            };
+        }
+        match groups.iter_mut().find(|g| g.0 == parent) { Some(g) => g.1.push(id.clone()), None => groups.push((parent, vec![id.clone()])) }
+    }
+    for (target, ids) in groups {
+        let (_, bad) = c.move_to(&ids, &target)?;
+        if !bad.is_empty() { return Err(bad.join("; ")); }
+    }
+    Ok(())
 }
 
 pub fn show_toast(u: &AppWindow, text: &str, undo: bool) {
@@ -802,4 +851,20 @@ pub fn clean_preview(p: &str) -> String {
     let t: String = p.chars().filter(|c| !invisible(*c)).map(|c| if c.is_whitespace() { ' ' } else { c }).collect();
     let t = t.split_whitespace().collect::<Vec<_>>().join(" ");
     if t.is_empty() { "No preview available".into() } else { t }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn archive_paths() {
+        // local time of the message: mid-year dates are safe in any time zone
+        assert_eq!(archive_path("2024-06-15T12:00:00Z", "year"), vec!["2024"]);
+        assert_eq!(archive_path("2024-06-15T12:00:00Z", "month"), vec!["2024", "06"]);
+        assert!(archive_path("2024-06-15T12:00:00Z", "single").is_empty());
+        assert!(archive_path("nonsense", "year").is_empty());
+        assert_eq!(unread_section_size(50), 50);
+        assert_eq!(unread_section_size(7), 25);
+    }
 }

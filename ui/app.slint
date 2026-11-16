@@ -780,7 +780,9 @@ component BareField inherits Rectangle {
 
 
 export component AppWindow inherits Window {
-    title: "Barbican";
+    // "(3) Barbican" with faviconUnreadBadge
+    in property <string> window-title: "Barbican";
+    title: root.window-title;
     icon: @image-url("barbican.svg");
     background: Theme.bg;
     preferred-width: 1400px;

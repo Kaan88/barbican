@@ -232,7 +232,8 @@ fn reset(u: &AppWindow) {
     u.set_c_show_cc(false);
     u.set_c_show_bcc(false);
     u.set_c_read_receipt(false);
-    u.set_c_plain(false);
+    // Bulwark plainTextMode: every message starts (and stays) plain text
+    u.set_c_plain(crate::settings::Settings::load().bool("plainTextMode", false));
     u.set_c_tag_on(ModelRc::new(VecModel::from(vec![false; crate::mail::TAGS.len()])));
     u.set_c_subject("".into());
     rte::set_doc(u, Doc::default());
@@ -474,10 +475,88 @@ pub fn mime_for(name: &str) -> &'static str {
     }
 }
 
-/// Composer checks Bulwark runs before sending (attachment reminder, empty subject).
+/// Bulwark lib/placeholder-check findUnfilledPlaceholders (English words): template fields
+/// ({{name}}), bracketed fill-ins ([TIME], [Your Name], [insert date]), TODO-style markers
+/// and circle stand-ins (〇〇). The subject is only checked for template fields.
+pub fn find_placeholders(subject: &str, body: &str) -> Vec<String> {
+    let mut found: Vec<String> = vec![];
+    let mut add = |s: &str| { if !found.iter().any(|f| f == s) { found.push(s.to_string()); } };
+    fn templates(t: &str, add: &mut dyn FnMut(&str)) {
+        let mut rest = t;
+        while let Some(i) = rest.find("{{") {
+            let after = &rest[i + 2..];
+            let Some(j) = after.find("}}") else { break };
+            let inner = &after[..j];
+            let name = inner.split(':').next().unwrap_or("").trim();
+            if !inner.contains('\n') && !inner.contains('{') && !name.is_empty() && name.chars().all(|c| c.is_alphanumeric() || "_.-".contains(c)) {
+                add(&rest[i..i + 2 + j + 2]);
+            }
+            rest = &after[j + 2..];
+        }
+    }
+    templates(subject, &mut add);
+    templates(body, &mut add);
+    // brackets: plain, full-width and lenticular
+    let chars: Vec<(usize, char)> = body.char_indices().collect();
+    let mut k = 0;
+    while k < chars.len() {
+        let (start, c) = chars[k];
+        if matches!(c, '[' | '［' | '【') {
+            if let Some(e) = (k + 1..chars.len().min(k + 45)).find(|&e| matches!(chars[e].1, ']' | '］' | '】' | '[' | '［' | '【' | '\n')) {
+                if matches!(chars[e].1, ']' | '］' | '】') {
+                    let end = chars[e].0 + chars[e].1.len_utf8();
+                    let inner: String = chars[k + 1..e].iter().map(|x| x.1).collect();
+                    let link = body[end..].starts_with('(');
+                    if !link && is_fill_in(&inner, c == '[') { add(&body[start..end]); k = e + 1; continue; }
+                }
+            }
+        }
+        k += 1;
+    }
+    for w in body.split(|c: char| !(c.is_alphanumeric() || c == '_')) {
+        if ["TODO", "TBD", "TBA", "TBC", "FIXME", "XXX"].contains(&w) { add(w); }
+    }
+    let circles: String = body.chars().filter(|c| matches!(c, '〇' | '○' | '◯')).collect();
+    if circles.chars().count() >= 2 {
+        // only runs of two or more
+        let mut run = String::new();
+        for ch in body.chars().chain(std::iter::once(' ')) {
+            if matches!(ch, '〇' | '○' | '◯') { run.push(ch); } else { if run.chars().count() >= 2 { add(&run.clone()); } run.clear(); }
+        }
+    }
+    found
+}
+
+/// [CAPS], [Title Words] (1-3 capitalised words) or a prompt like [your name] / [insert date].
+fn is_fill_in(inner: &str, ascii_bracket: bool) -> bool {
+    let n = inner.chars().count();
+    let caps = ascii_bracket && (2..=30).contains(&n)
+        && inner.chars().next().is_some_and(|c| c.is_uppercase() || c.is_ascii_digit())
+        && inner.chars().last().is_some_and(|c| c.is_uppercase() || c.is_ascii_digit())
+        && inner.chars().all(|c| c.is_uppercase() || c.is_ascii_digit() || " _./-".contains(c))
+        && inner.chars().filter(|c| c.is_uppercase()).count() >= 2;
+    let words: Vec<&str> = inner.split(' ').collect();
+    let title = ascii_bracket && (1..=3).contains(&words.len()) && words.iter().all(|w| {
+        let mut cs = w.chars();
+        cs.next().is_some_and(|c| c.is_uppercase()) && cs.clone().count() >= 1 && cs.all(|c| c.is_lowercase() || "'’-".contains(c))
+    });
+    let lower = inner.to_lowercase();
+    let prompt = n <= 46 && ["your ", "insert ", "enter ", "add "].iter().any(|p| lower.starts_with(p) && lower.len() > p.len());
+    caps || title || prompt
+}
+
+/// Composer checks Bulwark runs before sending (attachment reminder, empty subject, placeholders).
 fn pre_send_warning(o: &Outgoing, prefs: &crate::settings::Settings) -> Option<String> {
     if prefs.bool("emptySubjectWarningEnabled", true) && o.subject.trim().is_empty() {
         return Some("The subject is empty. Press Send again to send anyway.".into());
+    }
+    if prefs.bool("placeholderWarningEnabled", true) {
+        // only what the user wrote: not the quoted original
+        let body: String = o.text.lines().filter(|l| !l.starts_with('>')).collect::<Vec<_>>().join("\n");
+        let found = find_placeholders(&o.subject, &body);
+        if !found.is_empty() {
+            return Some(format!("Still to fill in: {}. Press Send again to send anyway.", found.join(", ")));
+        }
     }
     if prefs.bool("attachmentReminderEnabled", true) && o.attachments.is_empty() {
         let body: String = o.text.lines().filter(|l| !l.starts_with('>')).collect::<Vec<_>>().join(" ").to_lowercase();
@@ -660,6 +739,16 @@ mod tests {
         // self-sent: keep the sending identity
         let s = ReplyFrom { self_sent: Some("info@b.org".into()), recipients: vec!["me@a.com".into()], ..Default::default() };
         assert_eq!(resolve_reply_identity(&ids(), &s, false, "exact"), Some(1));
+    }
+
+    #[test]
+    fn placeholders() {
+        let f = |s: &str, b: &str| find_placeholders(s, b);
+        assert_eq!(f("Hi {{ name }}", "Meet at [TIME] with [Your Name], TODO: agenda"), vec!["{{ name }}", "[TIME]", "[Your Name]", "TODO"]);
+        assert_eq!(f("", "see [insert date here] and 〇〇様"), vec!["[insert date here]", "〇〇"]);
+        // ordinary brackets, links and lowercase words are text
+        assert!(f("", "[Yours truly] [Anlage 2] [link](http://x) [A] todo xxxl").is_empty());
+        assert!(f("{{bad name}}", "").is_empty());
     }
 
     #[test]
