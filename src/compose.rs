@@ -246,7 +246,7 @@ pub fn remove_attachment(u: &AppWindow, i: i32) {
     refresh_attachments(u);
 }
 
-fn mime_for(name: &str) -> &'static str {
+pub fn mime_for(name: &str) -> &'static str {
     match name.rsplit('.').next().unwrap_or("").to_lowercase().as_str() {
         "pdf" => "application/pdf", "png" => "image/png", "jpg" | "jpeg" => "image/jpeg", "gif" => "image/gif",
         "webp" => "image/webp", "svg" => "image/svg+xml", "txt" => "text/plain", "csv" => "text/csv", "html" | "htm" => "text/html",

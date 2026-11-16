@@ -2,7 +2,10 @@
 
 mod agent;
 mod ai;
+mod calendar;
 mod compose;
+mod contacts;
+mod files;
 mod jmap;
 mod lite;
 mod mail;
@@ -921,6 +924,68 @@ fn main() -> Result<(), slint::PlatformError> {
         let Some(c) = st.lock().unwrap().clone() else { return };
         compose::discard(&w.unwrap(), c);
     });
+
+    // ---------------- apps ----------------
+    let (w, st) = (ui.as_weak(), state.clone());
+    ui.on_app_changed(move |app| {
+        let Some(c) = st.lock().unwrap().clone() else { return };
+        let u = w.unwrap();
+        match app {
+            1 => { calendar::render(&u); calendar::load(w.clone(), c); }
+            2 => contacts::load(w.clone(), c),
+            3 => files::open(&u, c, ""),
+            _ => {}
+        }
+    });
+    let (w, st) = (ui.as_weak(), state.clone());
+    ui.on_cal_nav(move |how| { let Some(c) = st.lock().unwrap().clone() else { return }; calendar::nav(&w.unwrap(), c, &how); });
+    let (w, st) = (ui.as_weak(), state.clone());
+    ui.on_cal_set_view(move |v| { let Some(c) = st.lock().unwrap().clone() else { return }; calendar::set_view(&w.unwrap(), c, v); });
+    let w = ui.as_weak();
+    ui.on_cal_toggle(move |id| calendar::toggle_calendar(&w.unwrap(), &id));
+    let w = ui.as_weak();
+    ui.on_cal_search(move |q| calendar::search(&w.unwrap(), &q));
+    let w = ui.as_weak();
+    ui.on_cal_edit(move |id, date, hour| calendar::edit(&w.unwrap(), &id, &date, hour));
+    let (w, st) = (ui.as_weak(), state.clone());
+    ui.on_ev_save(move || { let Some(c) = st.lock().unwrap().clone() else { return }; calendar::save(&w.unwrap(), c); });
+    let (w, st) = (ui.as_weak(), state.clone());
+    ui.on_ev_delete(move || { let Some(c) = st.lock().unwrap().clone() else { return }; calendar::delete(&w.unwrap(), c); });
+
+    let w = ui.as_weak();
+    ui.on_ct_search(move |q| contacts::search(&w.unwrap(), &q));
+    let w = ui.as_weak();
+    ui.on_ct_select(move |id| { let u = w.unwrap(); u.set_ct_editing(false); contacts::select(&u, &id); });
+    let w = ui.as_weak();
+    ui.on_ct_new(move || { let u = w.unwrap(); contacts::select(&u, ""); u.set_ct_id("".into()); u.set_ct_editing(true); });
+    let (w, st) = (ui.as_weak(), state.clone());
+    ui.on_ct_save(move || { let Some(c) = st.lock().unwrap().clone() else { return }; contacts::save(&w.unwrap(), c); });
+    let (w, st) = (ui.as_weak(), state.clone());
+    ui.on_ct_delete(move || { let Some(c) = st.lock().unwrap().clone() else { return }; contacts::delete(&w.unwrap(), c); });
+    let (w, st) = (ui.as_weak(), state.clone());
+    ui.on_ct_email(move || {
+        let Some(c) = st.lock().unwrap().clone() else { return };
+        let u = w.unwrap();
+        let to = u.get_ct_emails().split(',').next().unwrap_or("").trim().to_string();
+        compose::open(&u, c, compose::Kind::New, None);
+        u.set_c_to(to.into());
+    });
+    let (w, st) = (ui.as_weak(), state.clone());
+    ui.on_fl_open(move |id| { let Some(c) = st.lock().unwrap().clone() else { return }; files::open(&w.unwrap(), c, &id); });
+    let (w, st) = (ui.as_weak(), state.clone());
+    ui.on_fl_activate(move |id| { let Some(c) = st.lock().unwrap().clone() else { return }; files::activate(&w.unwrap(), c, &id); });
+    let (w, st) = (ui.as_weak(), state.clone());
+    ui.on_fl_download(move |id| { let Some(c) = st.lock().unwrap().clone() else { return }; files::download(&w.unwrap(), c, &id); });
+    let (w, st) = (ui.as_weak(), state.clone());
+    ui.on_fl_upload(move || { let Some(c) = st.lock().unwrap().clone() else { return }; files::upload(&w.unwrap(), c); });
+    let (w, st) = (ui.as_weak(), state.clone());
+    ui.on_fl_new_folder(move |n| { let Some(c) = st.lock().unwrap().clone() else { return }; files::new_folder(&w.unwrap(), c, &n); });
+    let w = ui.as_weak();
+    ui.on_fl_start_rename(move |id| files::start_rename(&w.unwrap(), &id));
+    let (w, st) = (ui.as_weak(), state.clone());
+    ui.on_fl_rename(move |id, n| { let Some(c) = st.lock().unwrap().clone() else { return }; files::rename(&w.unwrap(), c, &id, &n); });
+    let (w, st) = (ui.as_weak(), state.clone());
+    ui.on_fl_delete(move |id| { let Some(c) = st.lock().unwrap().clone() else { return }; files::delete(&w.unwrap(), c, &id); });
 
     // ---------------- mail actions ----------------
     let w = ui.as_weak();

@@ -371,10 +371,12 @@ fn exec(name: &str, a: &Value, c: &Client, ctx: &Ctx, host: &dyn Host) -> Result
     }
 }
 
+pub fn local_tz() -> String {
+    iana_time_zone::get_timezone().unwrap_or_else(|_| "UTC".into())
+}
+
 fn iana_time_zone() -> Option<String> {
-    // Windows: map via the registry-less fallback of a fixed offset; JSCalendar accepts "Etc/GMT±N".
-    let off = Local::now().offset().local_minus_utc() / 3600;
-    Some(if off == 0 { "UTC".into() } else { format!("Etc/GMT{}{}", if off > 0 { "-" } else { "+" }, off.abs()) })
+    Some(local_tz())
 }
 
 pub fn system_prompt(cfg: &Config, c: &Client, ctx: &Ctx) -> String {

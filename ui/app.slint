@@ -26,6 +26,63 @@ export struct PRow {
     tone: string,
 }
 
+export struct CalEvent {
+    id: string,
+    title: string,
+    time: string,
+    location: string,
+    color: color,
+    col: int,
+    top: float,
+    height: float,
+    lane: int,
+    lanes: int,
+    date: string,
+}
+
+export struct CalCell {
+    day: int,
+    date: string,
+    in-month: bool,
+    today: bool,
+    events: [CalEvent],
+    more: string,
+}
+
+export struct CalItem {
+    id: string,
+    name: string,
+    color: color,
+    visible: bool,
+}
+
+export struct MiniDay {
+    day: int,
+    in-month: bool,
+    today: bool,
+    selected: bool,
+    date: string,
+    busy: bool,
+}
+
+export struct ContactRow {
+    id: string,
+    name: string,
+    email: string,
+    initials: string,
+    color: color,
+    header: string,
+}
+
+export struct FileRow {
+    id: string,
+    name: string,
+    folder: bool,
+    size: string,
+    modified: string,
+    renaming: bool,
+}
+
 export struct Att {
     name: string,
     size: string,
@@ -436,6 +493,66 @@ export component AppWindow inherits Window {
     callback open-attachment(int);
     callback save-attachment(int);
     callback undo-toast();
+    in-out property <int> app: 0;
+    callback app-changed(int);
+    in property <int> cal-view: 1;
+    in property <string> cal-title;
+    in property <string> mini-title;
+    in property <[MiniDay]> mini-month;
+    in property <[CalItem]> calendars;
+    in property <[CalCell]> cal-cells;
+    in property <[CalCell]> cal-days;
+    in property <[CalEvent]> cal-events;
+    callback cal-nav(string);
+    callback cal-set-view(int);
+    callback cal-toggle(string);
+    callback cal-search(string);
+    callback cal-edit(string, string, int);
+    in-out property <bool> ev-open;
+    in-out property <string> ev-id;
+    in-out property <string> ev-title;
+    in-out property <string> ev-date;
+    in-out property <string> ev-start;
+    in-out property <string> ev-end;
+    in-out property <bool> ev-all-day;
+    in-out property <string> ev-location;
+    in-out property <string> ev-description;
+    in-out property <int> ev-repeat;
+    in-out property <int> ev-calendar;
+    in property <[string]> ev-calendars;
+    in-out property <string> ev-status;
+    callback ev-save();
+    callback ev-delete();
+    in property <[ContactRow]> contacts;
+    in-out property <string> ct-id;
+    in-out property <bool> ct-editing;
+    in-out property <string> ct-name;
+    in-out property <string> ct-emails;
+    in-out property <string> ct-phones;
+    in-out property <string> ct-company;
+    in-out property <string> ct-title;
+    in-out property <string> ct-address;
+    in-out property <string> ct-notes;
+    in-out property <string> ct-birthday;
+    in-out property <string> ct-status;
+    callback ct-search(string);
+    callback ct-select(string);
+    callback ct-new();
+    callback ct-save();
+    callback ct-delete();
+    callback ct-email();
+    in property <[FileRow]> files;
+    in property <[string]> crumb-ids;
+    in property <[string]> crumb-names;
+    in-out property <string> new-folder-name;
+    callback fl-open(string);
+    callback fl-activate(string);
+    callback fl-download(string);
+    callback fl-upload();
+    callback fl-new-folder(string);
+    callback fl-start-rename(string);
+    callback fl-rename(string, string);
+    callback fl-delete(string);
     in property <[PRow]> plugin-rows;
     in-out property <string> c-cc;
     in-out property <string> c-bcc;
@@ -487,7 +604,7 @@ export component AppWindow inherits Window {
     out property <length> by: body.absolute-position.y;
     out property <length> bw: body.width;
     out property <length> bh: body.height;
-    out property <bool> body-visible: logged-in && current-mail != "" && !composing && !show-settings && render-mode == 0;
+    out property <bool> body-visible: logged-in && app == 0 && current-mail != "" && !composing && !show-settings && render-mode == 0 && !ev-open;
 
     Rectangle {
         visible: !logged-in;
@@ -571,10 +688,10 @@ export component AppWindow inherits Window {
                     Image { source: @image-url("barbican.svg"); width: 30px; height: 30px; }
                 }
                 Rectangle { height: 14px; }
-                HorizontalLayout { alignment: center; RailButton { glyph: "\u{E715}"; active: true; } }
-                HorizontalLayout { alignment: center; RailButton { glyph: "\u{E787}"; } }
-                HorizontalLayout { alignment: center; RailButton { glyph: "\u{E716}"; } }
-                HorizontalLayout { alignment: center; RailButton { glyph: "\u{E8B7}"; } }
+                HorizontalLayout { alignment: center; RailButton { glyph: "\u{E715}"; active: root.app == 0; clicked => { root.app = 0; root.app-changed(0); } } }
+                HorizontalLayout { alignment: center; RailButton { glyph: "\u{E787}"; active: root.app == 1; clicked => { root.app = 1; root.app-changed(1); } } }
+                HorizontalLayout { alignment: center; RailButton { glyph: "\u{E716}"; active: root.app == 2; clicked => { root.app = 2; root.app-changed(2); } } }
+                HorizontalLayout { alignment: center; RailButton { glyph: "\u{E8B7}"; active: root.app == 3; clicked => { root.app = 3; root.app-changed(3); } } }
                 if !root.ai-hidden: HorizontalLayout { alignment: center; RailButton { glyph: "\u{E945}"; active: root.chat-open; clicked => { root.chat-open = !root.chat-open; } } }
             }
             VerticalLayout {
@@ -1047,6 +1164,393 @@ export component AppWindow inherits Window {
         }
     }
   
+    if root.app == 1: Rectangle {
+        x: 45px;
+        width: parent.width - 45px;
+        background: Theme.bg;
+        HorizontalLayout {
+            Rectangle {
+                width: 220px;
+                background: Theme.side;
+                VerticalLayout {
+                    padding: 10px;
+                    spacing: 8px;
+                    alignment: start;
+                    HorizontalLayout {
+                        Text { text: "Calendar"; color: Theme.text; font-weight: 700; horizontal-stretch: 1; vertical-alignment: center; }
+                        HoverAction { glyph: "\u{E710}"; clicked => { root.cal-edit("", "", -1); } }
+                    }
+                    HorizontalLayout {
+                        HoverAction { glyph: "\u{E76B}"; clicked => { root.cal-nav("mini-prev"); } }
+                        Text { text: root.mini-title; color: Theme.text; font-weight: 600; horizontal-alignment: center; vertical-alignment: center; horizontal-stretch: 1; }
+                        HoverAction { glyph: "\u{E76C}"; clicked => { root.cal-nav("mini-next"); } }
+                    }
+                    HorizontalLayout {
+                        for d in ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]: Text { text: d; color: Theme.dim; font-size: 10px; horizontal-alignment: center; width: 28px; }
+                    }
+                    Rectangle {
+                        height: 6 * 22px;
+                        for d[i] in root.mini-month: Rectangle {
+                            x: mod(i, 7) * 28px;
+                            y: floor(i / 7) * 22px;
+                            width: 28px;
+                            height: 22px;
+                            Rectangle {
+                                width: 20px; height: 20px; border-radius: 10px;
+                                background: d.today ? Theme.accent : (d.selected ? Theme.sel : (mdta.has-hover ? Theme.hover : transparent));
+                            }
+                            Text { text: d.day; font-size: 11px; color: d.today ? #16070c : (d.in-month ? Theme.text : #5a5a5a); font-weight: d.busy ? 700 : 400; }
+                            mdta := TouchArea { clicked => { root.cal-nav(d.date); } }
+                        }
+                    }
+                    Rectangle { height: 8px; }
+                    Text { text: "Calendars"; color: Theme.text; font-weight: 700; }
+                    for c in root.calendars: Rectangle {
+                        height: 26px;
+                        ctta := TouchArea { clicked => { root.cal-toggle(c.id); } }
+                        HorizontalLayout {
+                            spacing: 8px;
+                            Rectangle {
+                                width: 14px; height: 14px; y: 6px; border-radius: 3px;
+                                background: c.visible ? c.color : transparent;
+                                border-width: 1px; border-color: c.color;
+                            }
+                            Text { text: c.name; color: Theme.text; vertical-alignment: center; overflow: elide; }
+                        }
+                    }
+                }
+            }
+            Rectangle { width: 1px; background: Theme.line; }
+            VerticalLayout {
+                HorizontalLayout {
+                    height: 40px;
+                    padding-left: 12px;
+                    padding-right: 12px;
+                    spacing: 6px;
+                    Button { text: "Today"; clicked => { root.cal-nav("today"); } }
+                    HoverAction { glyph: "\u{E76B}"; y: 9px; clicked => { root.cal-nav("prev"); } }
+                    HoverAction { glyph: "\u{E76C}"; y: 9px; clicked => { root.cal-nav("next"); } }
+                    Text { text: root.cal-title; color: Theme.text; font-size: 15px; font-weight: 700; vertical-alignment: center; horizontal-stretch: 1; }
+                    LineEdit { placeholder-text: "Search events"; width: 200px; edited(t) => { root.cal-search(t); } }
+                    ComboBox { width: 100px; model: ["Day", "Week", "Month"]; current-index: root.cal-view; selected => { root.cal-set-view(self.current-index); } }
+                }
+                Rectangle { height: 1px; background: Theme.line; }
+                if root.cal-view == 2: VerticalLayout {
+                    HorizontalLayout {
+                        height: 24px;
+                        for d in ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]: Text { text: d; color: Theme.dim; font-size: 11px; horizontal-alignment: center; vertical-alignment: center; }
+                    }
+                    grid := Rectangle {
+                        vertical-stretch: 1;
+                        for c[i] in root.cal-cells: Rectangle {
+                            x: mod(i, 7) * grid.width / 7;
+                            y: floor(i / 7) * grid.height / 6;
+                            width: grid.width / 7;
+                            height: grid.height / 6;
+                            border-width: 0.5px;
+                            border-color: Theme.line;
+                            background: c.in-month ? transparent : #0d0d0d;
+                            TouchArea { double-clicked => { root.cal-edit("", c.date, -1); } }
+                            VerticalLayout {
+                                padding: 4px;
+                                spacing: 2px;
+                                alignment: start;
+                                HorizontalLayout {
+                                    alignment: start;
+                                    Rectangle {
+                                        width: 22px; height: 20px; border-radius: 10px;
+                                        background: c.today ? Theme.accent : transparent;
+                                        Text { text: c.day; font-size: 11px; color: c.today ? #16070c : (c.in-month ? Theme.text : #5a5a5a); }
+                                    }
+                                }
+                                for e in c.events: Rectangle {
+                                    height: 18px;
+                                    border-radius: 3px;
+                                    background: e.color.with-alpha(0.25);
+                                    TouchArea { clicked => { root.cal-edit(e.id, "", -1); } }
+                                    HorizontalLayout {
+                                        padding-left: 4px;
+                                        spacing: 4px;
+                                        Rectangle { width: 3px; background: e.color; }
+                                        Text { text: (e.time != "" ? e.time + " " : "") + e.title; color: Theme.text; font-size: 10px; vertical-alignment: center; overflow: elide; }
+                                    }
+                                }
+                                if c.more != "": Text { text: c.more; color: Theme.dim; font-size: 10px; }
+                            }
+                        }
+                    }
+                }
+                if root.cal-view != 2: VerticalLayout {
+                    HorizontalLayout {
+                        padding-left: 52px;
+                        for d in root.cal-days: VerticalLayout {
+                            spacing: 2px;
+                            padding-bottom: 4px;
+                            Text { text: d.date; color: d.today ? Theme.accent : Theme.dim; font-size: 11px; horizontal-alignment: center; }
+                            HorizontalLayout {
+                                alignment: center;
+                                Rectangle {
+                                    width: 30px; height: 30px; border-radius: 15px;
+                                    background: d.today ? Theme.accent : transparent;
+                                    Text { text: d.day; color: d.today ? #16070c : Theme.text; font-size: 15px; font-weight: 700; }
+                                }
+                            }
+                            for e in d.events: Rectangle {
+                                height: 18px;
+                                border-radius: 3px;
+                                background: e.color.with-alpha(0.3);
+                                TouchArea { clicked => { root.cal-edit(e.id, "", -1); } }
+                                Text { text: e.title; color: Theme.text; font-size: 10px; overflow: elide; x: 4px; width: parent.width - 8px; }
+                            }
+                        }
+                    }
+                    Rectangle { height: 1px; background: Theme.line; }
+                    tg := ScrollView {
+                        vertical-stretch: 1;
+                        content-height: 24 * 56px;
+                        Rectangle {
+                            height: 24 * 56px;
+                            width: tg.visible-width;
+                            for h in 24: Rectangle {
+                                y: h * 56px;
+                                height: 56px;
+                                Text { x: 6px; y: -6px; text: (h < 10 ? "0" : "") + h + ":00"; color: Theme.dim; font-size: 10px; }
+                                Rectangle { x: 52px; height: 1px; y: 0; background: #1c1c1c; }
+                                TouchArea {
+                                    x: 52px;
+                                    double-clicked => {
+                                        root.cal-edit("", "", h);
+                                    }
+                                }
+                            }
+                            for e in root.cal-events: Rectangle {
+                                property <length> colw: (tg.visible-width - 52px) / root.cal-days.length;
+                                x: 52px + e.col * colw + e.lane * (colw / e.lanes) + 1px;
+                                y: e.top * 1px;
+                                width: colw / e.lanes - 3px;
+                                height: max(e.height * 1px, 18px);
+                                border-radius: 4px;
+                                background: e.color.with-alpha(0.3);
+                                Rectangle { x: 0; width: 3px; background: e.color; border-radius: 2px; }
+                                TouchArea { clicked => { root.cal-edit(e.id, "", -1); } }
+                                VerticalLayout {
+                                    padding: 3px;
+                                    padding-left: 7px;
+                                    alignment: start;
+                                    Text { text: e.title; color: Theme.text; font-size: 11px; font-weight: 600; overflow: elide; }
+                                    Text { text: e.time + (e.location != "" ? "  · " + e.location : ""); color: Theme.dim; font-size: 10px; overflow: elide; }
+                                }
+                            }
+                        }
+                        init => { self.content-y = -8 * 56px; }
+                    }
+                }
+            }
+        }
+    }
+
+    if root.app == 2: Rectangle {
+        x: 45px;
+        width: parent.width - 45px;
+        background: Theme.bg;
+        HorizontalLayout {
+            Rectangle {
+                width: 320px;
+                background: Theme.side;
+                VerticalLayout {
+                    HorizontalLayout {
+                        padding: 10px;
+                        spacing: 6px;
+                        Text { text: "Contacts"; color: Theme.text; font-weight: 700; vertical-alignment: center; horizontal-stretch: 1; }
+                        HoverAction { glyph: "\u{E710}"; clicked => { root.ct-new(); } }
+                    }
+                    HorizontalLayout {
+                        padding-left: 10px; padding-right: 10px; padding-bottom: 8px;
+                        LineEdit { placeholder-text: "Search contacts"; edited(t) => { root.ct-search(t); } }
+                    }
+                    Rectangle { height: 1px; background: Theme.line; }
+                    ListView {
+                        for c in root.contacts: VerticalLayout {
+                            if c.header != "": Rectangle {
+                                height: 24px;
+                                Text { x: 14px; text: c.header; color: Theme.accent; font-weight: 700; font-size: 11px; }
+                            }
+                            Rectangle {
+                                height: 46px;
+                                background: c.id == root.ct-id ? Theme.sel : (cta2.has-hover ? Theme.hover : transparent);
+                                cta2 := TouchArea { clicked => { root.ct-select(c.id); } }
+                                HorizontalLayout {
+                                    padding-left: 12px; spacing: 10px;
+                                    VerticalLayout { alignment: center; Avatar { label: c.initials; tint: c.color; width: 30px; height: 30px; border-radius: 15px; } }
+                                    VerticalLayout {
+                                        alignment: center;
+                                        Text { text: c.name; color: Theme.text; font-weight: 600; overflow: elide; }
+                                        Text { text: c.email; color: Theme.dim; font-size: 11px; overflow: elide; }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            Rectangle { width: 1px; background: Theme.line; }
+            Rectangle {
+                if root.ct-id == "" && !root.ct-editing: VerticalLayout {
+                    alignment: center;
+                    Text { text: "Select a contact"; color: Theme.dim; horizontal-alignment: center; }
+                }
+                if root.ct-id != "" && !root.ct-editing: VerticalLayout {
+                    padding: 28px;
+                    spacing: 10px;
+                    alignment: start;
+                    HorizontalLayout {
+                        spacing: 14px;
+                        Avatar { label: root.ct-name == "" ? "?" : root.ct-name; tint: Theme.accent; width: 56px; height: 56px; border-radius: 28px; }
+                        VerticalLayout {
+                            alignment: center;
+                            Text { text: root.ct-name; color: Theme.text; font-size: 20px; font-weight: 700; }
+                            Text { text: root.ct-title + (root.ct-title != "" && root.ct-company != "" ? " · " : "") + root.ct-company; color: Theme.dim; }
+                        }
+                    }
+                    HorizontalLayout {
+                        spacing: 6px;
+                        alignment: start;
+                        Button { text: "Write email"; primary: true; enabled: root.ct-emails != ""; clicked => { root.ct-email(); } }
+                        Button { text: "Edit"; clicked => { root.ct-editing = true; } }
+                        Button { text: "Delete"; clicked => { root.ct-delete(); } }
+                    }
+                    Rectangle { height: 1px; background: Theme.line; }
+                    for f in [{l: "Email", v: root.ct-emails}, {l: "Phone", v: root.ct-phones}, {l: "Address", v: root.ct-address}, {l: "Birthday", v: root.ct-birthday}, {l: "Notes", v: root.ct-notes}]: HorizontalLayout {
+                        visible: f.v != "";
+                        spacing: 12px;
+                        Text { text: f.l; color: Theme.dim; width: 90px; }
+                        Text { text: f.v; color: Theme.text; wrap: word-wrap; horizontal-stretch: 1; }
+                    }
+                }
+                if root.ct-editing: VerticalLayout {
+                    padding: 28px;
+                    spacing: 8px;
+                    alignment: start;
+                    Text { text: root.ct-id == "" ? "New contact" : "Edit contact"; color: Theme.text; font-size: 17px; font-weight: 700; }
+                    LineEdit { placeholder-text: "Full name"; text <=> root.ct-name; }
+                    LineEdit { placeholder-text: "Emails (comma separated)"; text <=> root.ct-emails; }
+                    LineEdit { placeholder-text: "Phones (comma separated)"; text <=> root.ct-phones; }
+                    HorizontalLayout { spacing: 8px; LineEdit { placeholder-text: "Company"; text <=> root.ct-company; } LineEdit { placeholder-text: "Job title"; text <=> root.ct-title; } }
+                    LineEdit { placeholder-text: "Address"; text <=> root.ct-address; }
+                    LineEdit { placeholder-text: "Birthday YYYY-MM-DD"; text <=> root.ct-birthday; }
+                    TextEdit { height: 80px; text <=> root.ct-notes; wrap: word-wrap; }
+                    HorizontalLayout {
+                        spacing: 8px;
+                        Text { text: root.ct-status; color: Theme.accent; vertical-alignment: center; horizontal-stretch: 1; }
+                        Button { text: "Cancel"; clicked => { root.ct-editing = false; root.ct-select(root.ct-id); } }
+                        Button { text: "Save"; primary: true; clicked => { root.ct-save(); } }
+                    }
+                }
+            }
+        }
+    }
+
+    if root.app == 3: Rectangle {
+        x: 45px;
+        width: parent.width - 45px;
+        background: Theme.bg;
+        VerticalLayout {
+            HorizontalLayout {
+                height: 44px;
+                padding-left: 14px;
+                padding-right: 12px;
+                spacing: 4px;
+                for n[i] in root.crumb-names: HorizontalLayout {
+                    spacing: 4px;
+                    if i > 0: Icon { text: "\u{E76C}"; font-size: 8px; }
+                    Text {
+                        text: n; color: i == root.crumb-names.length - 1 ? Theme.text : Theme.dim; font-weight: 700; vertical-alignment: center;
+                        TouchArea { clicked => { root.fl-open(root.crumb-ids[i]); } }
+                    }
+                }
+                Rectangle { horizontal-stretch: 1; }
+                LineEdit { placeholder-text: "New folder name"; width: 180px; text <=> root.new-folder-name; accepted(t) => { root.fl-new-folder(t); root.new-folder-name = ""; } }
+                Button { text: "New folder"; clicked => { root.fl-new-folder(root.new-folder-name); root.new-folder-name = ""; } }
+                Button { text: "Upload"; primary: true; clicked => { root.fl-upload(); } }
+            }
+            Rectangle { height: 1px; background: Theme.line; }
+            HorizontalLayout {
+                height: 28px;
+                padding-left: 50px;
+                padding-right: 140px;
+                Text { text: "Name"; color: Theme.dim; font-size: 11px; vertical-alignment: center; horizontal-stretch: 1; }
+                Text { text: "Size"; color: Theme.dim; font-size: 11px; vertical-alignment: center; width: 90px; }
+                Text { text: "Modified"; color: Theme.dim; font-size: 11px; vertical-alignment: center; width: 140px; }
+            }
+            ListView {
+                for f in root.files: Rectangle {
+                    height: 36px;
+                    background: fta.has-hover ? Theme.hover : transparent;
+                    fta := TouchArea { double-clicked => { root.fl-activate(f.id); } }
+                    HorizontalLayout {
+                        padding-left: 16px;
+                        padding-right: 10px;
+                        spacing: 10px;
+                        Icon { text: f.folder ? "\u{E8B7}" : "\u{E7C3}"; color: f.folder ? #f59e0b : Theme.dim; width: 20px; }
+                        if !f.renaming: Text { text: f.name; color: Theme.text; vertical-alignment: center; horizontal-stretch: 1; overflow: elide; }
+                        if f.renaming: LineEdit { text: f.name; horizontal-stretch: 1; accepted(t) => { root.fl-rename(f.id, t); } }
+                        Text { text: f.size; color: Theme.dim; font-size: 11px; vertical-alignment: center; width: 90px; }
+                        Text { text: f.modified; color: Theme.dim; font-size: 11px; vertical-alignment: center; width: 140px; }
+                        HoverAction { glyph: "\u{E896}"; y: 7px; clicked => { root.fl-download(f.id); } }
+                        HoverAction { glyph: "\u{E8AC}"; y: 7px; clicked => { root.fl-start-rename(f.id); } }
+                        HoverAction { glyph: "\u{E74D}"; y: 7px; clicked => { root.fl-delete(f.id); } }
+                    }
+                }
+            }
+            if root.files.length == 0: Text { text: "This folder is empty"; color: Theme.dim; horizontal-alignment: center; vertical-stretch: 1; }
+        }
+    }
+
+    if root.ev-open: Rectangle {
+        background: #000000a0;
+        TouchArea { }
+        Rectangle {
+            width: min(520px, parent.width - 40px);
+            height: evl.preferred-height;
+            background: Theme.side;
+            border-radius: 10px;
+            border-width: 1px;
+            border-color: Theme.line;
+            evl := VerticalLayout {
+                padding: 18px;
+                spacing: 8px;
+                Text { text: root.ev-id == "" ? "New event" : "Edit event"; color: Theme.text; font-size: 16px; font-weight: 700; }
+                LineEdit { placeholder-text: "Title"; text <=> root.ev-title; }
+                HorizontalLayout {
+                    spacing: 8px;
+                    LineEdit { placeholder-text: "YYYY-MM-DD"; text <=> root.ev-date; }
+                    if !root.ev-all-day: LineEdit { placeholder-text: "Start HH:MM"; width: 90px; text <=> root.ev-start; }
+                    if !root.ev-all-day: LineEdit { placeholder-text: "End HH:MM"; width: 90px; text <=> root.ev-end; }
+                }
+                CheckBox { text: "All day"; checked <=> root.ev-all-day; }
+                HorizontalLayout {
+                    spacing: 8px;
+                    Text { text: "Repeat"; color: Theme.dim; vertical-alignment: center; width: 70px; }
+                    ComboBox { model: ["Does not repeat", "Every day", "Every week", "Every month", "Every year"]; current-index <=> root.ev-repeat; }
+                }
+                HorizontalLayout {
+                    spacing: 8px;
+                    Text { text: "Calendar"; color: Theme.dim; vertical-alignment: center; width: 70px; }
+                    ComboBox { model: root.ev-calendars; current-index <=> root.ev-calendar; }
+                }
+                LineEdit { placeholder-text: "Location"; text <=> root.ev-location; }
+                TextEdit { height: 90px; text <=> root.ev-description; wrap: word-wrap; }
+                HorizontalLayout {
+                    spacing: 8px;
+                    Text { text: root.ev-status; color: Theme.accent; vertical-alignment: center; horizontal-stretch: 1; overflow: elide; }
+                    if root.ev-id != "": Button { text: "Delete"; clicked => { root.ev-delete(); } }
+                    Button { text: "Cancel"; clicked => { root.ev-open = false; } }
+                    Button { text: "Save"; primary: true; clicked => { root.ev-save(); } }
+                }
+            }
+        }
+    }
+
     if composing: Rectangle {
         background: #000000a0;
         TouchArea { }
