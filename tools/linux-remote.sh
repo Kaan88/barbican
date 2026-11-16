@@ -2,6 +2,10 @@
 # Runs ON the Linux VM, sent by tools/linux.ps1 (not meant to be run on Windows).
 #   linux-remote.sh setup
 #   linux-remote.sh run <branch> <sha> <build|test|gen-tokens> [tools/build.sh args...]
+#   linux-remote.sh setup-ui                 packages for running the app head under Xvfb (WebKitGTK)
+#   linux-remote.sh xrun <branch> <sha> <project> <out-name> [timeout-s]
+#        build <project> for net10.0-desktop, run it under its own Xvfb display (never a real
+#        screen), results in ~/barbican-out/<out-name> (BARBICAN_SPIKE_OUT)
 # One VM job at a time (flock on ~/.barbican-vm.lock), so two agents never fight over the
 # shared checkout in ~/barbican. Builds go through tools/build.sh with one slot and -m:2.
 set -euo pipefail
@@ -44,6 +48,47 @@ case "$mode" in
     [ -d "$clone/.git" ] || git clone -q "$repo_url" "$clone"
     echo "[vm] setup done"
     ;;
+  setup-ui)
+    # Uno Skia X11 + the WebView2 control (a GTK WebKit.WebView) + a virtual display. Installed
+    # with apt only when missing (passwordless sudo on the VM); listed in docs/adr/0005.
+    missing=""
+    for pkg in xvfb xauth libwebkit2gtk-4.1-0 libgtk-3-0 libfontconfig1 fonts-dejavu-core; do
+      dpkg -s "$pkg" >/dev/null 2>&1 || missing="$missing $pkg"
+    done
+    if [ -n "$missing" ]; then
+      echo "[vm] installing:$missing"
+      sudo -n apt-get install -y --no-install-recommends $missing
+    fi
+    echo "[vm] setup-ui done"
+    ;;
+  xrun)
+    branch=$1 sha=$2 project=$3 outname=$4 limit=${5:-300}
+    [ -d "$clone/.git" ] || git clone -q "$repo_url" "$clone"
+    cd "$clone"
+    git fetch -q origin "+refs/heads/$branch:refs/remotes/origin/$branch"
+    git checkout -q --force --detach "$sha"
+    echo "[vm] $(git log -1 --format='%h %s') ($branch)"
+    BARBICAN_BUILD_SLOTS=1 BARBICAN_MSBUILD_CPU=2 bash tools/build.sh build --project "$project" -- -p:BarbicanHead=desktop
+    name=$(basename "$project" .csproj)
+    dll=$(ls -t "$(dirname "$project")"/bin/Debug/net10.0-desktop/"$name".dll 2>/dev/null | head -1)
+    [ -n "$dll" ] || { echo "[vm] no build output for $name" >&2; exit 4; }
+    out="$HOME/barbican-out/$outname"
+    rm -rf "$out"; mkdir -p "$out"
+    disp=:97
+    Xvfb $disp -screen 0 1280x800x24 -nolisten tcp >"$out/xvfb.log" 2>&1 &
+    xpid=$!
+    trap 'kill $xpid 2>/dev/null || true' EXIT
+    sleep 1
+    export DOTNET_ROOT="$HOME/.dotnet" PATH="$HOME/.dotnet:$PATH"
+    set +e
+    DISPLAY=$disp GDK_BACKEND=x11 BARBICAN_SPIKE_OUT="$out" timeout "$limit" nice -n 10 dotnet "$dll" >"$out/stdout.txt" 2>"$out/stderr.txt"
+    code=$?
+    set -e
+    echo "[vm] exit $code"
+    grep -E '^\[spike\]' "$out/stdout.txt" || tail -20 "$out/stdout.txt"
+    tail -5 "$out/stderr.txt"
+    exit 0
+    ;;
   run)
     branch=$1 sha=$2 target=$3
     shift 3
@@ -59,7 +104,7 @@ case "$mode" in
     BARBICAN_BUILD_SLOTS=1 BARBICAN_MSBUILD_CPU=2 bash tools/build.sh "$target" "$@"
     ;;
   *)
-    echo "usage: linux-remote.sh setup | run <branch> <sha> <target> [args]" >&2
+    echo "usage: linux-remote.sh setup | setup-ui | run <branch> <sha> <target> [args] | xrun <branch> <sha> <project> <out> [timeout]" >&2
     exit 2
     ;;
 esac
