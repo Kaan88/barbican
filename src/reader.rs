@@ -21,6 +21,31 @@ pub const SOURCE_DISPLAY_LIMIT: usize = 2 * 1024 * 1024;
 const FILES_CAP: &str = "urn:ietf:params:jmap:filenode";
 const SIEVE_CAP: &str = "urn:ietf:params:jmap:sieve";
 
+// ---------------------------------------------------------------- large pages
+
+/// Pages up to this size go to the WebView as a string (NavigateToString's limit is 2 MB).
+pub const INLINE_HTML_MAX: usize = 1_500_000;
+
+/// Write a large reader page to this process's own file in the temp folder and return its
+/// file:// URL (the page keeps its CSP; one file per process, overwritten by the next page).
+pub fn page_file(html: &str) -> Result<String, String> {
+    let dir = std::env::temp_dir().join("Barbican");
+    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    let path = dir.join(format!("reader-{}.html", std::process::id()));
+    std::fs::write(&path, html).map_err(|e| e.to_string())?;
+    Ok(file_url(&path.to_string_lossy()))
+}
+
+/// A file:// URL of a local path (Windows separators turned, unsafe characters escaped).
+pub fn file_url(path: &str) -> String {
+    let p = path.replace('\\', "/");
+    let enc: String = p.chars().map(|c| match c {
+        ' ' => "%20".to_string(), '#' => "%23".to_string(), '%' => "%25".to_string(), '?' => "%3F".to_string(),
+        c => c.to_string(),
+    }).collect();
+    if enc.starts_with('/') { format!("file://{enc}") } else { format!("file:///{enc}") }
+}
+
 // ---------------------------------------------------------------- headers
 
 /// The first header `name` (case-insensitive) of a JMAP `headers` list, unfolded and trimmed.
@@ -1255,6 +1280,12 @@ mod tests {
         assert_eq!(folder_tree(&nodes), vec![("c".into(), "archive".into(), 0), ("a".into(), "Work".into(), 0), ("b".into(), "2026".into(), 1)]);
         assert_eq!(file_node(true, Some("a"), "x.pdf", "B", "application/pdf"), json!({"@type": "File", "parentId": "a", "name": "x.pdf", "blobId": "B", "mediaType": "application/pdf"}));
         assert_eq!(file_node(false, None, "x", "B", "t"), json!({"parentId": null, "name": "x", "blobId": "B", "type": "t"}));
+    }
+
+    #[test]
+    fn file_urls() {
+        assert_eq!(file_url(r"C:\Users\a b\Temp\Barbican\reader-1.html"), "file:///C:/Users/a%20b/Temp/Barbican/reader-1.html");
+        assert_eq!(file_url("/tmp/x#1.html"), "file:///tmp/x%231.html");
     }
 
     #[test]

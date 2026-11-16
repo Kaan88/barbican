@@ -124,6 +124,12 @@ fn wv_bg() -> (u8, u8, u8, u8) {
 
 fn show_html(h: String) {
     WV.with(|w| match &*w.borrow() {
+        // WebView2's NavigateToString takes at most 2 MB: a bigger page (a long message, its
+        // source) is loaded from a file of this process in the temp folder instead
+        Some(v) if h.len() > reader::INLINE_HTML_MAX => match reader::page_file(&h) {
+            Ok(url) => { let _ = v.load_url(&url); }
+            Err(_) => { let _ = v.load_html(&wrap_html(&esc("This message is too large to show here. Save it as .eml to read it."))); }
+        },
         Some(v) => { let _ = v.load_html(&h); }
         None => PENDING.with(|p| *p.borrow_mut() = Some(h)),
     });

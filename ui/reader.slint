@@ -77,7 +77,9 @@ component RxButton inherits Rectangle {
     height: 30px;
     min-width: bl.preferred-width + (a.style == 2 ? 8px : 24px);
     border-radius: 12px;
-    background: a.style == 1 ? (ta.has-hover && a.enabled ? RxTheme.fg(tone).darker(0.08) : RxTheme.fg(tone))
+    // primary: the tint's strong colour; on a neutral banner the rose accent (action colour)
+    property <color> strong: tone == "neutral" ? RxTheme.accent : RxTheme.fg(tone);
+    background: a.style == 1 ? (ta.has-hover && a.enabled ? root.strong.darker(0.08) : root.strong)
         : a.style == 0 && ta.has-hover && a.enabled ? RxTheme.hover : transparent;
     border-width: a.style == 0 ? 1px : 0px;
     border-color: RxTheme.line;
@@ -88,7 +90,7 @@ component RxButton inherits Rectangle {
         font-family: "Segoe UI";
         font-size: 12.5px;
         font-weight: 600;
-        color: a.style == 1 ? (RxTheme.dark ? #111111 : #ffffff) : a.style == 2 ? RxTheme.fg(tone) : RxTheme.text;
+        color: a.style == 1 ? (tone == "neutral" ? RxTheme.on-accent : RxTheme.dark ? #111111 : #ffffff) : a.style == 2 ? RxTheme.fg(tone) : RxTheme.text;
         horizontal-alignment: center;
         vertical-alignment: center;
     }
