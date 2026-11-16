@@ -381,9 +381,10 @@ impl Client {
         let mut state = r[0][1]["state"].as_str().map(String::from);
         // Stalwart may cut ids:null at maxObjectsInGet: page through Mailbox/query then.
         if list.len() >= self.max_get() {
-            let ids = self.query_all("Mailbox/query", &self.account, json!({}))?;
+            // the state first: a delta from it can only repeat, never miss, what the pages read
             let r = self.call(json!([["Mailbox/get", {"accountId": self.account, "ids": [], "properties": ["id"]}, "s"]]))?;
             state = r[0][1]["state"].as_str().map(String::from);
+            let ids = self.query_all("Mailbox/query", &self.account, json!({}))?;
             list = self.get_all("Mailbox/get", &self.account, &ids, Some(&json!(MAILBOX_PROPERTIES)))?;
         }
         self.remember_roles(&list);
