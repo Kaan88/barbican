@@ -34,7 +34,7 @@ pub fn parse_rgb(s: &str) -> Option<u32> {
 }
 
 #[derive(Clone, Debug)]
-pub struct PText { pub x: f32, pub y: f32, pub w: f32, pub h: f32, pub text: String, pub role: Role, pub size: f32, pub weight: i32, pub italic: bool, pub mono: bool, pub right: bool }
+pub struct PText { pub x: f32, pub y: f32, pub w: f32, pub h: f32, pub text: String, pub role: Role, pub size: f32, pub weight: i32, pub italic: bool, pub font: i32, pub right: bool }
 #[derive(Clone, Debug)]
 pub struct PBox { pub x: f32, pub y: f32, pub w: f32, pub h: f32, pub role: Role, pub border: f32, pub border_role: Role, pub radius: f32 }
 #[derive(Clone, Debug)]
@@ -94,6 +94,7 @@ fn build_text_layout(text: &str, runs: &[Run], kind: &Kind, align: Align, width:
         let mut b = lcx.ranged_builder(fcx, t, 1.0, true);
         let (size, weight, mono, lh) = match kind {
             Kind::Heading(l) => (base * heading_scale(*l), 700.0, false, 1.3),
+            Kind::Cell { header: true, .. } => (base, 700.0, false, 1.5),
             Kind::Code => (base * 0.93, 400.0, true, 1.45),
             _ => (base, 400.0, false, 1.5),
         };
@@ -381,7 +382,7 @@ impl View {
                         if let Some(line) = l.lines().next() {
                             let m = line.metrics();
                             let size = base;
-                            p.texts.push(PText { x: g.tx - 40.0, y: g.ty + m.baseline - size * 1.07, w: 34.0, h: size * 1.4, text: marker, role: Role::Text, size, weight: 400, italic: false, mono: false, right: true });
+                            p.texts.push(PText { x: g.tx - 40.0, y: g.ty + m.baseline - size * 1.07, w: 34.0, h: size * 1.4, text: marker, role: Role::Text, size, weight: 400, italic: false, font: 0, right: true });
                         }
                     }
                 }
@@ -396,7 +397,8 @@ impl View {
                     let label = if *open { if *cite { "Hide quoted text" } else { "Hide forwarded message" } } else if *cite { "Show quoted text" } else { "Show forwarded message" };
                     let selected = (has_sel && in_sel) || (!has_sel && sel.focus.b == i);
                     p.back.push(PBox { x: 0.0, y: hy, w: 180.0, h: hh, role: Role::CodeBg, border: 1.0, border_role: if selected { Role::Accent } else { Role::Line }, radius: 6.0 });
-                    p.texts.push(PText { x: 10.0, y: hy + 4.0, w: 170.0, h: 18.0, text: format!("{}  {label}", if *open { "▾" } else { "▸" }), role: Role::Dim, size: base * 0.9, weight: 500, italic: false, mono: false, right: false });
+                    p.texts.push(PText { x: 10.0, y: hy + 7.0, w: 14.0, h: 14.0, text: if *open { "\u{E70D}" } else { "\u{E76C}" }.into(), role: Role::Dim, size: 10.0, weight: 400, italic: false, font: 2, right: false });
+                    p.texts.push(PText { x: 28.0, y: hy + 4.0, w: 150.0, h: 18.0, text: label.into(), role: Role::Dim, size: base * 0.9, weight: 500, italic: false, font: 0, right: false });
                     if *open && *cite { p.back.push(PBox { x: 2.0, y: g.ty, w: 2.0, h: g.y + g.h - g.ty, role: Role::Line, border: 0.0, border_role: Role::Line, radius: 1.0 }); }
                 }
                 _ => {}
@@ -494,8 +496,8 @@ fn paint_layout(p: &mut Painted, l: &Layout<u32>, full: &str, runs: &[Run], ox: 
             if mk.code && !block_mono {
                 p.back.push(PBox { x: x - 2.0, y: top - 1.0, w: w + 4.0, h: m.ascent + m.descent + m.leading + 2.0, role: Role::CodeBg, border: 0.0, border_role: Role::Line, radius: 3.0 });
             }
-            let weight = if mk.bold || matches!(kind, Kind::Heading(_)) { 700 } else { 400 };
-            p.texts.push(PText { x, y: top, w: w + 4.0, h: m.ascent + m.descent + m.leading, text, role, size, weight, italic: mk.italic, mono: block_mono || mk.code, right: false });
+            let weight = if mk.bold || matches!(kind, Kind::Heading(_) | Kind::Cell { header: true, .. }) { 700 } else { 400 };
+            p.texts.push(PText { x, y: top, w: w + 4.0, h: m.ascent + m.descent + m.leading, text, role, size, weight, italic: mk.italic, font: if block_mono || mk.code { 1 } else { 0 }, right: false });
             let th = (m.underline_size).max(1.0);
             if mk.underline || mk.link.is_some() {
                 p.back.push(PBox { x, y: base_line - m.underline_offset, w, h: th, role, border: 0.0, border_role: Role::Line, radius: 0.0 });

@@ -39,6 +39,12 @@ pub fn set_doc(u: &AppWindow, doc: Doc) {
     refresh(u);
 }
 
+/// Put the keyboard focus into the editor (now, and when the composer appears).
+pub fn focus(u: &AppWindow) {
+    u.set_rte_focus_on_open(true);
+    u.set_rte_focus_req(u.get_rte_focus_req() + 1);
+}
+
 pub fn doc() -> Doc { with(|e| e.doc.clone()) }
 pub fn is_empty() -> bool { with(|e| e.doc.is_empty()) }
 pub fn to_html() -> String { with(|e| html::export(&e.doc)) }
@@ -182,7 +188,7 @@ pub fn refresh(u: &AppWindow) {
     });
     let texts: Vec<RteText> = p.texts.into_iter().map(|t| {
         let (role, color) = role_color(t.role);
-        RteText { x: t.x, y: t.y, w: t.w, h: t.h, text: t.text.into(), role, color, size: t.size, weight: t.weight, italic: t.italic, mono: t.mono, right: t.right }
+        RteText { x: t.x, y: t.y, w: t.w, h: t.h, text: t.text.into(), role, color, size: t.size, weight: t.weight, italic: t.italic, font: t.font, right: t.right }
     }).collect();
     let boxes = |v: Vec<layout::PBox>| -> Vec<RteBox> {
         v.into_iter().map(|b| {

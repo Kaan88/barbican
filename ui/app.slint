@@ -572,7 +572,7 @@ component MailRow inherits VerticalLayout {
 }
 
 // ---- rich-text composer: painted document pushed from Rust (src/rte)
-export struct RteText { x: length, y: length, w: length, h: length, text: string, role: int, color: color, size: length, weight: int, italic: bool, mono: bool, right: bool }
+export struct RteText { x: length, y: length, w: length, h: length, text: string, role: int, color: color, size: length, weight: int, italic: bool, font: int, right: bool }
 export struct RteBox { x: length, y: length, w: length, h: length, role: int, color: color, border: length, border-role: int, border-color: color, radius: length }
 export struct RteImage { x: length, y: length, w: length, h: length, img: image, selected: bool, label: string }
 export struct RteState { bold: bool, italic: bool, underline: bool, strike: bool, code: bool, color: string, highlight: bool, size: int, block: string, align: string, in-table: bool, link: string, has-sel: bool, can-undo: bool, can-redo: bool }
@@ -937,6 +937,7 @@ export component AppWindow inherits Window {
     in-out property <string> rte-link-text;
     in-out property <int> rte-scroll-req;
     in-out property <int> rte-focus-req;
+    in-out property <bool> rte-focus-on-open;
     callback rte-key(string, bool, bool, bool) -> bool;
     callback rte-pointer(string, length, length, bool);
     callback rte-cmd(string);
@@ -1608,6 +1609,7 @@ export component AppWindow inherits Window {
                 }
                 property <int> freq: root.rte-focus-req;
                 changed freq => { rte-fs.focus(); }
+                init => { if root.rte-focus-on-open { rte-fs.focus(); } }
                 rte-fs := FocusScope {
                     x: 0px; y: 0px; width: 1px; height: 1px;
                     key-pressed(e) => {
@@ -1807,7 +1809,7 @@ export component AppWindow inherits Window {
                                 font-size: t.size;
                                 font-weight: t.weight;
                                 font-italic: t.italic;
-                                font-family: t.mono ? "Consolas" : "Segoe UI";
+                                font-family: t.font == 1 ? "Consolas" : t.font == 2 ? Theme.icons : "Segoe UI";
                                 horizontal-alignment: t.right ? right : left;
                                 vertical-alignment: top;
                                 wrap: no-wrap;

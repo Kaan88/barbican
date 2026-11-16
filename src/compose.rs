@@ -253,6 +253,7 @@ pub fn open(u: &AppWindow, c: Arc<Client>, kind: ComposeKind, m: Option<&Value>)
     }
     refresh_attachments(u);
     u.invoke_tpl_refresh();
+    if m.is_some() { rte::focus(u); } else { u.set_rte_focus_on_open(false); }
     u.set_composing(true);
 }
 
@@ -288,6 +289,7 @@ pub fn open_draft(u: &AppWindow, c: Arc<Client>, m: &Value) {
         s.references = m["references"].as_array().map(|a| a.iter().filter_map(|x| x.as_str().map(String::from)).collect()).unwrap_or_default();
     });
     refresh_attachments(u);
+    rte::focus(u);
     u.set_composing(true);
 }
 
