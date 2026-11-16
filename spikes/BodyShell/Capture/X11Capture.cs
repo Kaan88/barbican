@@ -16,7 +16,7 @@ internal sealed partial class X11Capture : IFrameSource
     private readonly nuint _root;
     private readonly int _width;
     private readonly int _height;
-    private readonly object _gate = new();
+    private readonly Lock _gate = new();
     private CancellationTokenSource? _cts;
     private Task? _loop;
 
@@ -105,12 +105,12 @@ internal sealed partial class X11Capture : IFrameSource
 
                 var bytes = new byte[stride * _height];
                 Marshal.Copy(data, bytes, 0, bytes.Length);
-                XFree(data);
+                _ = XFree(data);
                 return new CapturedFrame(t, _width, _height, stride, bytes);
             }
             finally
             {
-                XFree(img);
+                _ = XFree(img);
             }
         }
     }

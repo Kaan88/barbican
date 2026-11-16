@@ -21,8 +21,9 @@ internal sealed partial class Scenario
         Check("srcdoc frame ready:N via ExecuteScriptAsync show()", ms is not null, ms is null ? "no ready within 10 s" : $"{ms:F0} ms to ready");
 
         var big = MailDocument.Solid(ColorB, "B (web message, 3 MB) " + new string('x', 3_000_000));
-        double? msBig = null;
         string detail;
+#if WINDOWS
+        double? msBig = null;
         try
         {
             msBig = await ShowAsync(big, ColorB, false, ShellHost.Transport.Message, B, "B");
@@ -33,7 +34,23 @@ internal sealed partial class Scenario
             detail = e.GetType().Name + ": " + e.Message;
         }
 
-        Check("PostWebMessageAsJson show() of a page over NavigateToString's 2 MB", msBig is not null, detail);
+        Check("web message show() of a page over NavigateToString's 2 MB", msBig is not null, detail);
+#else
+        _report.Notes.Add("PostWebMessageAsJson/AsString are not implemented in Uno 6.7 (Uno0001): no native-to-page web messages on Linux; the shell takes commands through ExecuteScriptAsync only");
+#endif
+
+        double? msBigScript = null;
+        try
+        {
+            msBigScript = await ShowAsync(big.Replace("web message", "script", StringComparison.Ordinal), ColorB, false, ShellHost.Transport.Script, B, "B");
+            detail = msBigScript is null ? "no ready within 10 s" : $"{msBigScript:F0} ms to ready";
+        }
+        catch (Exception e)
+        {
+            detail = e.GetType().Name + ": " + e.Message;
+        }
+
+        Check("ExecuteScriptAsync show() of the same 3 MB page", msBigScript is not null, detail);
 
         await BeaconProbesAsync();
         await ScriptProbesAsync();

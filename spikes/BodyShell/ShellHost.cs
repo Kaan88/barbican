@@ -1,6 +1,8 @@
 using System.Globalization;
 using System.Text.Json;
+#if WINDOWS
 using Microsoft.Web.WebView2.Core;
+#endif
 using Windows.UI;
 
 namespace Barbican.Spike.BodyShell;
@@ -113,7 +115,7 @@ internal sealed class ShellHost
 
     public void Dim(bool on) => Run($"window.__bb&&__bb.dim({(on ? "true" : "false")})");
 
-    public Task<string> EvalAsync(string js) => _view.ExecuteScriptAsync(js).AsTask();
+    public async Task<string> EvalAsync(string js) => await _view.ExecuteScriptAsync(js) ?? string.Empty;
 
     private static string Json(string s) => JsonSerializer.Serialize(s, ShellJson.Default.String);
 
@@ -171,6 +173,13 @@ internal sealed class ShellHost
             throw new InvalidOperationException("the shell is not up yet");
         }
 
+#if WINDOWS
         _view.CoreWebView2.PostWebMessageAsJson(json);
+#else
+        // Uno 6.7 implements neither PostWebMessageAsJson nor PostWebMessageAsString (Uno0001):
+        // on Linux everything goes to the shell through ExecuteScriptAsync.
+        _ = json;
+        throw new NotSupportedException("PostWebMessageAs* is not implemented in Uno");
+#endif
     }
 }

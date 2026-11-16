@@ -129,7 +129,12 @@ internal sealed partial class Scenario
         var at = new Point(SpikeRoot.BodyLeft + 200, SpikeRoot.BodyTop + 150);
         var popup = new Popup { ShouldConstrainToRootBounds = true, XamlRoot = _root.XamlRoot, HorizontalOffset = at.X, VerticalOffset = at.Y, Child = panel };
         popup.IsOpen = true;
+#if WINDOWS
         var constrained = popup.IsConstrainedToRootBounds;
+#else
+        // Uno draws every popup inside the window (the property is not implemented there).
+        var constrained = _root.XamlRoot is not null;
+#endif
         if (!constrained)
         {
             // Same dispatcher turn as the open: closed before it is ever composed.
@@ -189,6 +194,7 @@ internal sealed partial class Scenario
             Background = new SolidColorBrush(PopupColor),
         };
         _ = dialog.ShowAsync();
+#if WINDOWS
         if (VisualTreeHelper.GetOpenPopupsForXamlRoot(_root.XamlRoot).Any(p => !p.IsConstrainedToRootBounds))
         {
             // Same turn as the open: a windowed dialog would show on the real screen.
@@ -196,6 +202,7 @@ internal sealed partial class Scenario
             Check("ContentDialog stays in the window", false, "windowed popup; closed at once");
             return;
         }
+#endif
 
         await Task.Delay(700);
         FrameworkElement? box = null;

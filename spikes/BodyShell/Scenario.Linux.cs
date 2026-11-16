@@ -3,6 +3,7 @@ using System.Runtime.InteropServices.WindowsRuntime;
 using Barbican.Spike.BodyShell.Capture;
 using Microsoft.UI.Xaml.Controls.Primitives;
 using Microsoft.UI.Xaml.Media.Imaging;
+using Windows.Foundation;
 
 namespace Barbican.Spike.BodyShell;
 
