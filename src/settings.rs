@@ -52,6 +52,8 @@ fn option_override(key: &str) -> Option<Vec<(Value, &'static str)>> {
         "hoverActionsCorner" => vec![(json!("top-right"), "Top right"), (json!("top-left"), "Top left"), (json!("bottom-right"), "Bottom right"), (json!("bottom-left"), "Bottom left")],
         "calendarDayStartHour" => (0..13).map(|h| (json!(h), ["0:00","1:00","2:00","3:00","4:00","5:00","6:00","7:00","8:00","9:00","10:00","11:00","12:00"][h as usize])).collect(),
         "calendarDayEndHour" => (13..=24).map(|h| (json!(h), ["13:00","14:00","15:00","16:00","17:00","18:00","19:00","20:00","21:00","22:00","23:00","24:00"][(h - 13) as usize])).collect(),
+        // Bulwark ReadReceiptResponse (privacy-settings.tsx)
+        "readReceiptResponse" => vec![(json!("ask"), "Ask each time"), (json!("always"), "Always send"), (json!("never"), "Never send")],
         "writingLanguage" => vec![(json!("auto"), "Detect automatically"), (json!("en"), "English"), (json!("de"), "German"), (json!("fr"), "French"), (json!("es"), "Spanish"), (json!("tr"), "Turkish")],
         _ => return None,
     })
@@ -132,6 +134,13 @@ impl Settings {
         let _ = std::fs::remove_file(crate::config_dir().join("settings.json"));
     }
 
+    /// Store one value (None removes it) and save, outside the settings page's own controls.
+    pub fn put(key: &str, value: Option<Value>) {
+        let mut s = Settings::load();
+        match value { Some(v) => { s.prefs.insert(key.into(), v); } None => { s.prefs.remove(key); } }
+        s.save();
+    }
+
     pub fn bool(&self, key: &str, default: bool) -> bool {
         self.prefs.get(key).and_then(|v| v.as_bool()).unwrap_or(default)
     }
@@ -155,6 +164,10 @@ impl Settings {
         for t in self.schema["tabs"].as_array().unwrap() {
             let id = t["id"].as_str().unwrap_or("");
             out.push((id.into(), t["label"].as_str().unwrap_or("").into(), t["group"].as_str().unwrap_or("").into(), t["icon"].as_str().unwrap_or("").into(), 0));
+            // distribution: the desktop app's own page (Bulwark desktop-app-settings.tsx)
+            if id == "general" {
+                out.push(("desktop".into(), "Desktop app".into(), "top".into(), "\u{E7F4}".into(), 0));
+            }
             if id == "backup" {
                 out.push(("admin".into(), "Stalwart admin".into(), "bottom".into(), "\u{E83D}".into(), 0));
             }
@@ -210,7 +223,7 @@ impl Settings {
                     // desktop: local spell checking (Windows spell checker) next to Bulwark's proofreading add-on toggle
                     if key == "proofreading" {
                         out.push(toggle("spellCheck", "Underline misspelled words",
-                            "Checks spelling on this computer with the Windows spell checker, in your writing language. Right-click a word for suggestions. Nothing is sent anywhere.",
+                            &format!("Checks spelling on this computer with {}, in your writing language. Right-click a word for suggestions. Nothing is sent anywhere.", crate::platform::spell_engine_name()),
                             self.bool("spellCheck", true)));
                     }
                 }
@@ -229,6 +242,9 @@ impl Settings {
                 }
                 "text" if !key.is_empty() => out.push(text("text", key, label, desc, &self.str(key, r["default"].as_str().unwrap_or("")))),
                 "button" if !key.is_empty() => out.push(text("button", key, label, desc, r["text"].as_str().unwrap_or("Reset"))),
+                // Contacts > Import / Export (Bulwark contact-import-dialog, contact-export)
+                "info" if label == "Import contacts" => out.push(text("button", "contacts.import", label, "Adds the contacts in a vCard (.vcf) file. Contacts whose email address you already have can be skipped.", "Import…")),
+                "info" if label == "Export contacts" => out.push(text("button", "contacts.export", label, "Saves every contact as a vCard 4.0 file, photos included.", "Export…")),
                 // Calendar > Working days (Bulwark calendarWorkingDays: 0 = Sunday .. 6 = Saturday)
                 "info" if label == "Working days" => {
                     out.push(row("section", "", label, desc));
@@ -266,7 +282,7 @@ impl Settings {
                 out.push(row("section", "", "AI service", "Nothing goes to the AI service until you ask the assistant something."));
                 out.push(select("ai.provider", "Service", "", &["OpenAI-compatible (OpenAI, Ollama, LM Studio, vLLM)", "Anthropic"], cfg.provider));
                 out.push(text("text", "ai.base", "API address", "Ends in /v1.", &cfg.base));
-                out.push(text("password", "ai.key", "API key", "Kept in Windows Credential Manager. Ollama needs any non-empty key.", &cfg.key));
+                out.push(text("password", "ai.key", "API key", &format!("Kept in {}. Ollama needs any non-empty key.", crate::platform::keystore_name()), &cfg.key));
                 out.push(text("text", "ai.model", "Model", "Leave empty to use the default model.", &cfg.model));
                 out.push(toggle("ai.visible", "Show the assistant next to messages", "The assistant panel and the quick actions above an open message.", !cfg.hidden));
                 out.push(select("ai.actions", "Actions", "Let the assistant archive, move and mark messages, add events and contacts, and open replies for you. Ask me first shows each action for your OK; Automatic does it right away. Sending always asks.", &["Off", "Ask me first", "Automatic"], cfg.actions));
@@ -308,7 +324,7 @@ impl Settings {
             }
             "admin" => {
                 out.push(row("section", "", "Stalwart admin", "Enter an administrator API key (or admin access token) to open the Stalwart admin tab: dashboard, accounts, domains, delivery queue, logs and DMARC reports."));
-                out.push(text("password", "admin.key", "Admin API key", "Kept in Windows Credential Manager. Leave empty to hide the admin tab.", &crate::admin::key()));
+                out.push(text("password", "admin.key", "Admin API key", &format!("Kept in {}. Leave empty to hide the admin tab.", crate::platform::keystore_name()), &crate::admin::key()));
             }
             "spam" => {
                 out.push(row("section", "", "Spam Score", "Shows the spam analysis of a message from its spam headers."));
@@ -341,6 +357,16 @@ impl Settings {
                     out.push(row("section", "", "Sending", ""));
                     out.push(toggle("sendConfirmation", "Confirm before sending", "Press Send twice to send, so a message doesn't go out by accident.", self.bool("sendConfirmation", false)));
                     out.push(toggle("requestReadReceiptDefault", "Ask for a read receipt", "New messages ask the recipient to confirm they read them.", self.bool("requestReadReceiptDefault", false)));
+                    // Bulwark protocol-handler-settings / desktop "Default mail app"
+                    out.push(row("section", "", "Default mail app", "mailto: links in messages always open here. Make Barbican the app for mailto: links in other programs too."));
+                    if crate::mailto::is_default() {
+                        out.push(text("value", "", "mailto: links", "", "Open in Barbican"));
+                    } else {
+                        out.push(text("button", "mailapp.register", "Use Barbican for mailto: links", if cfg!(windows) { "Registers Barbican for your Windows account, then opens Default apps so you can choose it." } else { "Adds barbican.desktop and sets it as the mailto: handler." }, "Set as default"));
+                    }
+                    if crate::mailto::is_registered() {
+                        out.push(text("button", "mailapp.unregister", "Stop handling mailto: links", "Removes Barbican's registration for mailto: links from this account.", "Remove"));
+                    }
                 }
                 if tab == "calendar" {
                     out.insert(1.min(out.len()), sel_pref("calendarDayStartHour", "Day starts at", "Where the day and week views open."));
@@ -349,9 +375,13 @@ impl Settings {
                     out.push(row("section", "", "Rendering", "How the content of an email is drawn."));
                     out.push(select("desktop.renderMode", "Show email content with", "WebView2 uses the Edge engine. Blitz is a light native Rust engine that never loads anything from the network.", &["WebView2 (full HTML)", "Blitz (light, native)", "Plain text"], cfg.render_mode));
                 }
+                // Desktop app page, and Updates under About (src/desktop.rs)
+                out.extend(crate::desktop::settings_rows(tab, self));
                 if tab == "privacy" {
                     out.insert(0, row("section", "", "Remote content", "Images and other content loaded from the internet can tell senders when you read their mail."));
                     out.insert(1, select("desktop.remoteImages", "Load remote images", "", &["Ask first (blocked until you choose)", "Always load"], if cfg.remote_images { 1 } else { 0 }));
+                    out.push(row("section", "", "Read receipts", ""));
+                    out.push(sel_pref("readReceiptResponse", "Respond to read-receipt requests", "What to do when an incoming message asks for a read receipt."));
                 }
             }
         }
@@ -548,4 +578,11 @@ pub fn h12() -> bool {
         .and_then(|t| serde_json::from_str::<Value>(&t).ok())
         .map(|v| v["timeFormat"].as_str() == Some("12h"))
         .unwrap_or(false)
+}
+
+/// Write one Bulwark-keyed pref (a value with no settings row, such as sharedCalendarColors).
+pub fn set_pref(key: &str, value: Value) {
+    let mut s = Settings::load();
+    s.prefs.insert(key.into(), value);
+    s.save();
 }

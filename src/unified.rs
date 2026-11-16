@@ -77,6 +77,8 @@ pub fn connect(v: &Value) -> Result<Client, String> {
 /// Register the active session's client under its remembered user.
 pub fn set_active(user: &str, c: Arc<Client>) {
     *ACTIVE.lock().unwrap() = user.to_string();
+    // the badge's other accounts change with the active one
+    OTHER_AT.lock().unwrap().take();
     POOL.lock().unwrap().get_or_insert_with(HashMap::new).insert(user.to_string(), c);
     // the previous active login now needs its own watcher; the new one has main's
     if let Some(w) = WATCHING.lock().unwrap().as_mut() { w.remove(user); }
@@ -126,9 +128,56 @@ pub fn warm_up(w: Option<slint::Weak<crate::AppWindow>>) {
     }
 }
 
+/// Inbox unread of every other remembered login (own accounts, not shared ones), from the last
+/// refresh: what Bulwark's useOtherAccountsUnread adds to the badge with unreadBadgeAllAccounts.
+static OTHER_UNREAD: Mutex<Option<HashMap<String, i64>>> = Mutex::new(None);
+static OTHER_AT: Mutex<Option<std::time::Instant>> = Mutex::new(None);
+const OTHER_EVERY: std::time::Duration = std::time::Duration::from_secs(60);
+
+/// Sum of the other logins' inbox unread counts (`counts` by login), leaving out `active`.
+pub fn sum_other_logins(counts: &HashMap<String, i64>, active: &str) -> i64 {
+    counts.iter().filter(|(u, _)| u.as_str() != active).map(|(_, n)| (*n).max(0)).sum()
+}
+
+/// Unread in the inboxes of the signed-in accounts that are not on screen (last refresh).
+pub fn other_logins_unread() -> i64 {
+    let active = active_user();
+    OTHER_UNREAD.lock().unwrap().as_ref().map(|m| sum_other_logins(m, &active)).unwrap_or(0)
+}
+
+/// Re-read the other logins' inbox counts in the background (at most once a minute unless
+/// `force`), then redraw the badge. Read-only: one Mailbox/get per login.
+pub fn refresh_other_logins(w: slint::Weak<crate::AppWindow>, force: bool) {
+    if !several_accounts() || !crate::settings::Settings::load().bool("unreadBadgeAllAccounts", true) { return; }
+    {
+        let mut at = OTHER_AT.lock().unwrap();
+        if !force && at.is_some_and(|t| t.elapsed() < OTHER_EVERY) { return; }
+        *at = Some(std::time::Instant::now());
+    }
+    let gen = WATCH_GEN.load(std::sync::atomic::Ordering::SeqCst);
+    std::thread::spawn(move || {
+        let active = active_user();
+        let users: Vec<String> = crate::oauth::accounts().iter().filter_map(|a| a["user"].as_str().map(String::from)).filter(|u| *u != active).collect();
+        let handles: Vec<_> = users.into_iter().map(|user| std::thread::spawn(move || {
+            let n = client(&user).and_then(|c| mailboxes_of(&c, &c.account).ok()).and_then(|b| inbox_of(&b).map(|i| i["unreadEmails"].as_i64().unwrap_or(0)));
+            (user, n)
+        })).collect();
+        let mut m = HashMap::new();
+        for h in handles {
+            if let Ok((u, Some(n))) = h.join() { m.insert(u, n); }
+        }
+        // signed out meanwhile: the counts belong to nobody
+        if WATCH_GEN.load(std::sync::atomic::Ordering::SeqCst) != gen { return; }
+        *OTHER_UNREAD.lock().unwrap() = Some(m);
+        let _ = w.upgrade_in_event_loop(|u| crate::mail::rebuild_folders(&u));
+    });
+}
+
 /// Drop every pooled client (sign-out).
 pub fn clear() {
     *POOL.lock().unwrap() = None;
+    OTHER_UNREAD.lock().unwrap().take();
+    OTHER_AT.lock().unwrap().take();
     ACTIVE.lock().unwrap().clear();
     UNREAD.lock().unwrap().take();
     WATCHING.lock().unwrap().take();
@@ -454,6 +503,14 @@ pub fn shared_apply(c: &Client, account: &str, ids: &[String], action: &str) -> 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn other_logins_badge_sum() {
+        let m: HashMap<String, i64> = [("a@x".to_string(), 3), ("b@y".to_string(), 4), ("c@z".to_string(), -1)].into_iter().collect();
+        assert_eq!(sum_other_logins(&m, "a@x"), 4);
+        assert_eq!(sum_other_logins(&m, "nobody"), 7);
+        assert_eq!(sum_other_logins(&HashMap::new(), "a@x"), 0);
+    }
 
     #[test]
     fn merge_orders_by_parsed_time_and_dedupes() {

@@ -1,8 +1,32 @@
 import { AdminDashboard, DashRow, DashPanel, DashCol, DashBar } from "dashboard.slint";
+// distribution: update prompt (src/desktop.rs)
+import { UpdateBanner, UpdateState } from "update-banner.slint";
+export { UpdateState }
 export { DashRow, DashPanel, DashCol, DashBar }
+import { CalPal, CalX, CalTint, CalOverlays, AgendaView, TasksView, CalSidebarExtra, CxAttendee, CxSuggest, CxAlert, CxSlot, CxReminder, CxMissed, CxAgendaRow, CxTask, CxSub } from "calendar_ext.slint";
+export { CalX, CxAttendee, CxSuggest, CxAlert, CxSlot, CxReminder, CxMissed, CxAgendaRow, CxTask, CxSub }
 import { LineEdit, Button, ListView, ScrollView, TextEdit, ComboBox, CheckBox, Palette } from "std-widgets.slint";
 import { Theme, Icons, SIcon, Prefs } from "theme.slint";
 export { Theme, Icons, Prefs }
+// composer extras (p2-composer): recipient chips + autocomplete, palette
+import { CTheme } from "ctheme.slint";
+// productivity (p2-productivity): palette, shortcuts sheet, search suggestions, drag and drop, pane widths
+import { Pd, PTok, KeyRow, PaletteRow, SuggestRow, SearchChip, CommandPalette, ShortcutsSheet, SearchSuggest, SearchChips, DragGhost, ResizeHandle } from "productivity.slint";
+export { Pd, KeyRow, PaletteRow, SuggestRow, SearchChip }
+// reader extras (p2-reader): banners, view source, receipts, invitations
+import { RxBanners, RX, RxTheme, RxBannerData, RxAction } from "reader.slint";
+export { RX, RxTheme, RxBannerData, RxAction }
+import { Rcpt, RChip, RSugg, RecipientField, RecipientSuggest } from "recipients.slint";
+import { CompX, SaveState, SPreset, ScheduleDialog, ScheduledBar } from "compose-extras.slint";
+export { CTheme, Rcpt, RChip, RSugg, CompX, SPreset }
+// p2-pim: contacts / files / filters depth (new UI lives in its own files)
+import { PimTheme } from "pim-theme.slint";
+import { CtX, CtLine, CtField, CtDupe, ContactCardView, ContactEditor, ContactDupes, ContactImportDialog } from "pim-contacts.slint";
+import { FilterX, FCond, FAct, FilterRuleRow, FilterRuleEditor, FilterRetroDialog } from "pim-filters.slint";
+export { PimTheme, CtX, CtLine, CtField, CtDupe, FilterX, FCond, FAct }
+// mail extras (p2-mailextras): attachment cards, From override, reply under the message
+import { MxTok, AttCard, FromOverride, AttCards, ReplyDockBar, ReplyDockHandle } from "mailextras.slint";
+export { AttCard }
 
 export struct Folder {
     id: string,
@@ -22,6 +46,9 @@ export struct Tag {
     name: string,
     color: color,
     count: string,
+    // nestedTags: level in the tree and the chevron (0 none, 1 open, 2 closed)
+    depth: int,
+    chevron: int,
 }
 
 export struct PRow {
@@ -159,6 +186,7 @@ export struct TaskRow {
     title: string,
     due: string,
     done: bool,
+    overdue: bool,
 }
 
 export struct Att {
@@ -232,6 +260,13 @@ export struct Mail {
     code: string,
     row-tint: color,
     files: [string],
+    // a search hit: the server's subject and preview with the matched words marked (SearchSnippet/get)
+    hl: bool,
+    hl-subject: styled-text,
+    hl-preview: styled-text,
+    // sender picture (src/avatars.rs): 0 initials, 1 photo, 2 logo
+    avatar: image,
+    avatar-kind: int,
 }
 
 export struct STab {
@@ -284,11 +319,17 @@ component Icon inherits Text {
 component Avatar inherits Rectangle {
     in property <string> label;
     in property <color> tint;
+    // a sender picture (src/avatars.rs): 0 initials, 1 photo, 2 logo on white
+    in property <image> img;
+    in property <int> kind;
     width: 34px;
     height: 34px;
     border-radius: Theme.round(self.height);
-    background: Theme.tint-bg(root.tint);
-    Text {
+    background: kind == 2 ? #ffffff : kind == 1 ? transparent : Theme.tint-bg(root.tint);
+    clip: kind != 0;
+    if kind == 1: Image { width: root.width; height: root.height; source: root.img; image-fit: cover; }
+    if kind == 2: Image { x: root.width * 0.16; y: root.height * 0.16; width: root.width * 0.68; height: root.height * 0.68; source: root.img; image-fit: contain; }
+    if kind == 0: Text {
         text: root.label;
         color: Theme.tint-fg(root.tint);
         font-size: max(9px, root.height * 0.33);
@@ -356,10 +397,29 @@ component FolderRow inherits Rectangle {
     background: selected ? Theme.sel : ta.has-hover || (hl-id != "" && CtxHl.id == hl-id) ? Theme.tile2 : transparent;
     border-width: hl-id != "" && CtxHl.id == hl-id ? 1px : 0px;
     border-color: Theme.accent;
-    ta := TouchArea {
-        clicked => { root.clicked(); }
-        pointer-event(ev) => { if ev.button == PointerEventButton.right && ev.kind == PointerEventKind.up { root.context(self.absolute-position.x + self.mouse-x, self.absolute-position.y + self.mouse-y); } }
+    // drag and drop (src/dnd.rs): mail and folders drop here; a folder drags itself
+    property <bool> dnd-over: Pd.dnd-active && Pd.dnd-x >= self.absolute-position.x && Pd.dnd-x < self.absolute-position.x + self.width && Pd.dnd-y >= self.absolute-position.y && Pd.dnd-y < self.absolute-position.y + self.height;
+    property <string> dnd-zone: Pd.dnd-kind != "folder" ? "inside" : (Pd.dnd-y - self.absolute-position.y < self.height / 4 ? "before" : (Pd.dnd-y - self.absolute-position.y > self.height * 3 / 4 ? "after" : "inside"));
+    property <string> dnd-key: dnd-over && f.id != Pd.dnd-id && f.id != "__scheduled" && f.id != "__unified" ? "folder:" + dnd-zone + ":" + f.id : "";
+    changed dnd-key => {
+        if dnd-key != "" { Pd.dnd-target = dnd-key; }
+        else if Pd.dnd-target == "folder:inside:" + f.id || Pd.dnd-target == "folder:before:" + f.id || Pd.dnd-target == "folder:after:" + f.id { Pd.dnd-target = ""; }
     }
+    property <bool> dragging;
+    ta := TouchArea {
+        clicked => { if !root.dragging { root.clicked(); } }
+        moved => {
+            if self.pressed && !root.dragging && (abs(self.mouse-x - self.pressed-x) > 6px || abs(self.mouse-y - self.pressed-y) > 6px) { root.dragging = true; Pd.dnd-start("folder", f.id); }
+            if root.dragging { Pd.dnd-x = self.absolute-position.x + self.mouse-x; Pd.dnd-y = self.absolute-position.y + self.mouse-y; }
+        }
+        pointer-event(ev) => {
+            if ev.kind == PointerEventKind.down && ev.button == PointerEventButton.left { root.dragging = false; }
+            if ev.kind == PointerEventKind.up && ev.button == PointerEventButton.left && root.dragging { Pd.dnd-drop(); }
+            if ev.button == PointerEventButton.right && ev.kind == PointerEventKind.up { root.context(self.absolute-position.x + self.mouse-x, self.absolute-position.y + self.mouse-y); }
+        }
+    }
+    if dnd-key != "" && dnd-zone == "inside": Rectangle { border-width: 1.5px; border-color: Theme.accent; border-radius: root.border-radius; background: Theme.accent.with-alpha(0.12); }
+    if dnd-key != "" && dnd-zone != "inside": Rectangle { x: 8px + f.depth * 14px; width: parent.width - self.x - 8px; y: dnd-zone == "before" ? 0px : parent.height - 2px; height: 2px; border-radius: 1px; background: Theme.accent; }
     HorizontalLayout {
         padding-left: (Theme.nordic ? 16px : 11px) + f.depth * 14px;
         padding-right: Theme.nordic ? 12px : 9px;
@@ -583,6 +643,11 @@ component FileNavRow inherits Rectangle {
     accessible-role: button;
     accessible-label: root.n.label;
     accessible-action-default => { root.clicked(); }
+    // a dragged file drops on My files, a folder of the tree, or the trash
+    property <string> dnd-key: n.kind == "trash" ? "file-trash" : "file:" + n.id;
+    property <bool> dnd-over: (n.kind == "root" || n.kind == "folder" || n.kind == "trash") && Pd.dnd-active && Pd.dnd-kind == "file" && Pd.dnd-id != n.id && Pd.dnd-x >= self.absolute-position.x && Pd.dnd-x < self.absolute-position.x + self.width && Pd.dnd-y >= self.absolute-position.y && Pd.dnd-y < self.absolute-position.y + self.height;
+    changed dnd-over => { if self.dnd-over { Pd.dnd-target = self.dnd-key; } else if Pd.dnd-target == self.dnd-key { Pd.dnd-target = ""; } }
+    if self.dnd-over: Rectangle { border-width: 1.5px; border-color: Theme.accent; border-radius: root.border-radius; background: Theme.accent.with-alpha(0.12); }
     fna := TouchArea {
         clicked => { root.clicked(); }
         pointer-event(ev) => { if ev.button == PointerEventButton.right && ev.kind == PointerEventKind.up { root.context(self.absolute-position.x + self.mouse-x, self.absolute-position.y + self.mouse-y); } }
@@ -635,6 +700,7 @@ component TagRow inherits Rectangle {
     in property <Tag> t;
     in property <bool> selected;
     callback clicked;
+    callback chevron-clicked;
     callback context(length, length);
     height: Prefs.large-targets ? 44px : 37px * Prefs.fs;
     in property <string> hl-id;
@@ -643,10 +709,20 @@ component TagRow inherits Rectangle {
     border-width: hl-id != "" && CtxHl.id == hl-id ? 1px : 0px;
     border-color: Theme.accent;
     ta := TouchArea { clicked => { root.clicked(); } pointer-event(ev) => { if ev.button == PointerEventButton.right && ev.kind == PointerEventKind.up { root.context(self.absolute-position.x + self.mouse-x, self.absolute-position.y + self.mouse-y); } } }
+    // drag and drop: mail dropped on a tag gets the tag (src/dnd.rs)
+    property <bool> dnd-over: Pd.dnd-active && Pd.dnd-kind == "mail" && Pd.dnd-x >= self.absolute-position.x && Pd.dnd-x < self.absolute-position.x + self.width && Pd.dnd-y >= self.absolute-position.y && Pd.dnd-y < self.absolute-position.y + self.height;
+    changed dnd-over => { if dnd-over { Pd.dnd-target = "tag:" + t.id; } else if Pd.dnd-target == "tag:" + t.id { Pd.dnd-target = ""; } }
+    if dnd-over: Rectangle { border-width: 1.5px; border-color: Theme.accent; border-radius: root.border-radius; background: Theme.accent.with-alpha(0.12); }
     HorizontalLayout {
-        padding-left: 16px;
+        padding-left: 16px + t.depth * 14px - (t.chevron != 0 ? 16px : 0px);
         padding-right: 12px;
         spacing: 12px;
+        // nestedTags: fold a tag's children
+        if t.chevron != 0: Rectangle {
+            width: 12px;
+            cha := TouchArea { clicked => { root.chevron-clicked(); } }
+            SIcon { commands: t.chevron == 2 ? Icons.chevron-right : Icons.chevron-down; size: 11px; weight: 2.2; tint: cha.has-hover ? Theme.text : Theme.faint; }
+        }
         VerticalLayout { alignment: center; Rectangle { width: 10px; height: 10px; border-radius: 4px; background: t.color; } }
         Text { text: t.name; color: selected ? Theme.sel-text : Theme.body; font-size: 14px * Prefs.fs; font-weight: selected ? 700 : 400; vertical-alignment: center; horizontal-stretch: 1; overflow: elide; }
         Text { text: t.count; color: Theme.faint; font-size: 12px * Prefs.fs; vertical-alignment: center; }
@@ -658,6 +734,7 @@ component TagTile inherits Rectangle {
     in property <Tag> t;
     in property <bool> selected;
     callback clicked;
+    callback chevron-clicked;
     callback context(length, length);
     in property <string> hl-id;
     border-radius: 16px;
@@ -665,11 +742,21 @@ component TagTile inherits Rectangle {
     border-width: selected || (hl-id != "" && CtxHl.id == hl-id) ? 1.5px : 0px;
     border-color: Theme.tint-fg(t.color);
     ta := TouchArea { clicked => { root.clicked(); } pointer-event(ev) => { if ev.button == PointerEventButton.right && ev.kind == PointerEventKind.up { root.context(self.absolute-position.x + self.mouse-x, self.absolute-position.y + self.mouse-y); } } }
+    // drag and drop: mail dropped on a tag gets the tag (src/dnd.rs)
+    property <bool> dnd-over: Pd.dnd-active && Pd.dnd-kind == "mail" && Pd.dnd-x >= self.absolute-position.x && Pd.dnd-x < self.absolute-position.x + self.width && Pd.dnd-y >= self.absolute-position.y && Pd.dnd-y < self.absolute-position.y + self.height;
+    changed dnd-over => { if dnd-over { Pd.dnd-target = "tag:" + t.id; } else if Pd.dnd-target == "tag:" + t.id { Pd.dnd-target = ""; } }
+    if dnd-over: Rectangle { border-width: 1.5px; border-color: Theme.accent; border-radius: root.border-radius; background: Theme.accent.with-alpha(0.12); }
     VerticalLayout {
         padding: 10px;
         spacing: 2px;
         Text { text: t.name; color: Theme.tint-fg(t.color); font-size: 12px * Prefs.fs; font-weight: 600; overflow: elide; }
         Text { text: t.count == "" ? "0" : t.count; color: Theme.tint-fg(t.color); font-size: 19px * Prefs.fs; font-weight: 800; }
+    }
+    // nestedTags: fold a tag's children
+    if t.chevron != 0: Rectangle {
+        x: parent.width - 28px; y: 6px; width: 22px; height: 22px;
+        tca := TouchArea { clicked => { root.chevron-clicked(); } }
+        SIcon { commands: t.chevron == 2 ? Icons.chevron-right : Icons.chevron-down; size: 12px; weight: 2.2; tint: tca.has-hover ? Theme.text : Theme.tint-fg(t.color); }
     }
 }
 
@@ -821,21 +908,62 @@ component CalChip inherits Rectangle {
     callback clicked;
     callback double-clicked;
     callback context(length, length);
+    // drag and drop (src/dnd.rs): whole day columns across, 15 minutes up and down, and a resize
+    // grip at the bottom; dropped(columns, minutes, resize)
+    in property <bool> draggable;
+    in property <length> colw: 100px;
+    in property <length> hour-px: 56px;
+    callback dropped(int, int, bool);
+    property <length> ddx;
+    property <length> ddy;
+    property <bool> dragging;
+    property <bool> resizing;
+    property <bool> dragged;
+    property <int> dcol: root.resizing ? 0 : Math.round(root.ddx / root.colw);
+    property <int> dmin: Math.round(root.ddy / (root.hour-px / 4)) * 15;
     property <color> fg: e.invite ? Theme.amber-fg : solid ? #ffffff : Theme.tint-fg(e.color);
     border-radius: compact ? 6px : (Theme.nordic ? 14px : 12px);
     background: e.invite ? Theme.amber-bg : solid ? e.color : Theme.tint-bg(e.color);
     border-width: e.invite || selected ? 1.5px : 0px;
     border-color: selected && solid && !e.invite ? Theme.text : root.fg;
-    opacity: e.past ? 0.6 : 1.0;
-    clip: true;
+    opacity: root.dragging || root.resizing ? 0.55 : (e.past ? 0.6 : 1.0);
+    clip: !root.draggable;
     accessible-role: button;
     accessible-label: e.title + (e.time != "" ? ", " + e.time : "") + (e.invite ? ", invitation" : "");
     accessible-action-default => { root.clicked(); }
     if cta.has-hover: Rectangle { background: Theme.text.with-alpha(0.06); border-radius: parent.border-radius; }
     cta := TouchArea {
-        clicked => { root.clicked(); }
+        clicked => { if !root.dragged { root.clicked(); } }
         double-clicked => { root.double-clicked(); }
-        pointer-event(ev) => { if ev.button == PointerEventButton.right && ev.kind == PointerEventKind.up { root.context(self.absolute-position.x + self.mouse-x, self.absolute-position.y + self.mouse-y); } }
+        moved => {
+            if root.draggable && self.pressed && !root.dragging && (abs(self.mouse-x - self.pressed-x) > 5px || abs(self.mouse-y - self.pressed-y) > 5px) { root.dragging = true; root.dragged = true; }
+            if root.dragging { root.ddx = self.mouse-x - self.pressed-x; root.ddy = self.mouse-y - self.pressed-y; }
+        }
+        pointer-event(ev) => {
+            if ev.kind == PointerEventKind.down && ev.button == PointerEventButton.left { root.dragged = false; root.ddx = 0; root.ddy = 0; }
+            if ev.kind == PointerEventKind.up && ev.button == PointerEventButton.left && root.dragging { root.dragging = false; root.dropped(root.dcol, root.dmin, false); root.ddx = 0; root.ddy = 0; }
+            if ev.button == PointerEventButton.right && ev.kind == PointerEventKind.up { root.context(self.absolute-position.x + self.mouse-x, self.absolute-position.y + self.mouse-y); }
+        }
+    }
+    if root.draggable: TouchArea {
+        y: parent.height - 6px;
+        height: 6px;
+        mouse-cursor: row-resize;
+        moved => { if self.pressed { root.resizing = true; root.ddy = self.mouse-y - self.pressed-y; } }
+        pointer-event(ev) => {
+            if ev.kind == PointerEventKind.down && ev.button == PointerEventButton.left { root.ddy = 0; }
+            if ev.kind == PointerEventKind.up && ev.button == PointerEventButton.left && root.resizing { root.resizing = false; root.dropped(0, root.dmin, true); root.ddy = 0; }
+        }
+    }
+    if root.dragging || root.resizing: Rectangle {
+        x: root.dcol * root.colw;
+        y: root.resizing ? 0px : root.dmin * root.hour-px / 60;
+        width: root.width;
+        height: root.resizing ? max(14px, root.height + root.dmin * root.hour-px / 60) : root.height;
+        border-radius: root.border-radius;
+        border-width: 2px;
+        border-color: root.fg;
+        background: root.fg.with-alpha(0.22);
     }
     if compact: HorizontalLayout {
         padding-left: 6px;
@@ -1088,6 +1216,7 @@ component MailRow inherits VerticalLayout {
     callback context(length, length);
     property <bool> hl: CtxHl.id != "" && CtxHl.id == "mail:" + m.id;
     property <length> side: Theme.nordic ? 28px : 12px;
+    property <bool> dragging;
     if m.header != "": Rectangle {
         height: 30px;
         TouchArea { clicked => { root.header-clicked(); } }
@@ -1110,8 +1239,15 @@ component MailRow inherits VerticalLayout {
             border-width: root.hl ? 1px : (Theme.bento && root.selected ? 1px : 0px);
             border-color: root.hl ? Theme.accent : Theme.line;
             ta := TouchArea {
+                // drag a row (or the selection it is in) onto a folder or a tag (src/dnd.rs)
+                moved => {
+                    if self.pressed && !root.dragging && (abs(self.mouse-x - self.pressed-x) > 8px || abs(self.mouse-y - self.pressed-y) > 8px) { root.dragging = true; Pd.dnd-start("mail", m.id); }
+                    if root.dragging { Pd.dnd-x = self.absolute-position.x + self.mouse-x; Pd.dnd-y = self.absolute-position.y + self.mouse-y; }
+                }
                 pointer-event(ev) => {
-                    if ev.kind == PointerEventKind.up && ev.button == PointerEventButton.left {
+                    if ev.kind == PointerEventKind.down && ev.button == PointerEventButton.left { root.dragging = false; }
+                    if ev.kind == PointerEventKind.up && ev.button == PointerEventButton.left && root.dragging { Pd.dnd-drop(); }
+                    if ev.kind == PointerEventKind.up && ev.button == PointerEventButton.left && !root.dragging {
                         if ev.modifiers.control || ev.modifiers.shift { root.ctrl-clicked(); } else { root.clicked(); }
                     }
                     if ev.button == PointerEventButton.right && ev.kind == PointerEventKind.up { root.context(self.absolute-position.x + self.mouse-x, self.absolute-position.y + self.mouse-y); }
@@ -1135,7 +1271,7 @@ component MailRow inherits VerticalLayout {
                 spacing: Theme.nordic ? 8px : 11px;
                 if Theme.bento: VerticalLayout {
                     alignment: start;
-                    Avatar { label: m.initials; tint: m.color; width: 38px; height: 38px; }
+                    Avatar { label: m.initials; tint: m.color; img: m.avatar; kind: m.avatar-kind; width: 38px; height: 38px; }
                 }
                 if Theme.nordic: VerticalLayout {
                     alignment: start;
@@ -1191,7 +1327,7 @@ component MailRow inherits VerticalLayout {
                     }
                     HorizontalLayout {
                         spacing: 4px;
-                        Text {
+                        if !m.hl: Text {
                             text: m.subject;
                             color: Theme.text;
                             font-size: (Theme.nordic ? 14px : 13px) * Prefs.fs;
@@ -1199,11 +1335,24 @@ component MailRow inherits VerticalLayout {
                             overflow: elide;
                             horizontal-stretch: 1;
                         }
+                        // a search hit with the matched words marked (src/search_ui.rs)
+                        if m.hl: Rectangle {
+                            horizontal-stretch: 1;
+                            height: 18px * Prefs.fs;
+                            clip: true;
+                            StyledText { x: 0; y: 0; width: parent.width; text: m.hl-subject; default-color: Theme.text; default-font-size: (Theme.nordic ? 14px : 13px) * Prefs.fs; max-lines: 1; }
+                        }
                         if m.flagged && !ta.has-hover: VerticalLayout { alignment: center; SIcon { commands: Icons.star; size: 12px; weight: 1.8; tint: #fbbf24; fill: #fbbf24; } }
                     }
                     HorizontalLayout {
                         spacing: 4px;
-                        Text { text: m.preview; color: Theme.dim; font-size: (Theme.nordic ? 13px : 12px) * Prefs.fs; overflow: elide; horizontal-stretch: 1; }
+                        if !m.hl: Text { text: m.preview; color: Theme.dim; font-size: (Theme.nordic ? 13px : 12px) * Prefs.fs; overflow: elide; horizontal-stretch: 1; }
+                        if m.hl: Rectangle {
+                            horizontal-stretch: 1;
+                            height: 17px * Prefs.fs;
+                            clip: true;
+                            StyledText { x: 0; y: 0; width: parent.width; text: m.hl-preview; default-color: Theme.dim; default-font-size: (Theme.nordic ? 13px : 12px) * Prefs.fs; max-lines: 1; }
+                        }
                         for c in m.tags: VerticalLayout {
                             alignment: center;
                             Rectangle { visible: Prefs.tag-chips; width: Prefs.tag-chips ? 8px : 0px; height: 8px; border-radius: 4px; background: c; }
@@ -1470,7 +1619,7 @@ export component AppWindow inherits Window {
     preferred-height: 900px;
     default-font-size: Prefs.font-size;
     default-font-family: "Segoe UI";
-    init => { Palette.color-scheme = Theme.dark ? ColorScheme.dark : ColorScheme.light; root.win-w = self.width; }
+    init => { Palette.color-scheme = Theme.dark ? ColorScheme.dark : ColorScheme.light; root.win-w = self.width; root.dock-pane = self.height; }
     changed theme-dark => { Palette.color-scheme = Theme.dark ? ColorScheme.dark : ColorScheme.light; }
     property <bool> theme-dark: Theme.dark;
 
@@ -1512,8 +1661,9 @@ export component AppWindow inherits Window {
     property <length> win-w: 1400px;
     changed width => { root.win-w = self.width; }
     property <bool> list-narrow: root.win-w < (Theme.nordic ? 1180px : 1150px) || ((root.chat-shown || root.composing) && root.win-w < 1500px);
-    property <length> list-w: Theme.nordic ? (root.list-narrow ? 330px : 390px) : (root.list-narrow ? 320px : 368px);
-    property <length> side-w: Theme.nordic ? 228px : 204px;
+    // a width the user dragged (Pd, src/dnd.rs) wins over the style's own
+    property <length> list-w: Pd.list-w > 0 ? Pd.list-w : Theme.nordic ? (root.list-narrow ? 330px : 390px) : (root.list-narrow ? 320px : 368px);
+    property <length> side-w: Pd.side-w > 0 ? Pd.side-w : Theme.nordic ? 228px : 204px;
     property <length> ctx-w: Theme.nordic ? 250px : 236px;
     property <length> chat-w: 300px;
     property <bool> chat-shown: (root.chat-open || (root.composing && !root.c-ai-closed && root.win-w >= 1280px)) && !root.ai-hidden;
@@ -1581,6 +1731,8 @@ export component AppWindow inherits Window {
     in property <string> r-to;
     in property <string> r-initials;
     in property <color> r-color: #6366f1;
+    in property <image> r-avatar;
+    in property <int> r-avatar-kind;
     in property <bool> r-flagged;
     in property <[Att]> attachments;
     in-out property <string> toast;
@@ -1588,6 +1740,8 @@ export component AppWindow inherits Window {
     in-out property <bool> folders-collapsed;
     in-out property <bool> tags-collapsed;
     callback toggle-folder(string);
+    callback toggle-tag-open(string);
+    callback tag-new();
     callback select-tag(string);
     callback row-action(string, string);
     callback toggle-check(string);
@@ -1632,6 +1786,8 @@ export component AppWindow inherits Window {
     in-out property <int> app: 0;
     callback app-changed(int);
     in property <int> cal-view: 1;
+    // the Theme tokens the calendar extras (calendar_ext.slint) draw with
+    property <CalPal> cal-pal: { dark: Theme.dark, bg: Theme.ground, tile: Theme.tile, line: Theme.line, text: Theme.text, dim: Theme.dim, accent: Theme.accent, on-accent: Theme.on-accent, hover: Theme.hover, popup: Theme.popup, chip: Theme.chip, sel: Theme.sel, sel-text: Theme.sel-text };
     in property <[string]> cal-weekdays: ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
     in property <[string]> cal-weekdays-short: ["M", "T", "W", "T", "F", "S", "S"];
     in property <[string]> cal-week-nums;
@@ -1683,6 +1839,7 @@ export component AppWindow inherits Window {
     property <length> hov-x;
     property <length> hov-y;
     function cal-hover(e: CalEvent, on: bool, x: length, y: length) {
+        if on { Pd.hover-event = e.id; } else if Pd.hover-event == e.id { Pd.hover-event = ""; }
         if on && root.cal-hover-delay >= 0 {
             root.hov-ev = e; root.hov-x = x; root.hov-y = y;
             root.hov-shown = root.cal-hover-delay == 0;
@@ -1852,6 +2009,46 @@ export component AppWindow inherits Window {
     in property <[string]> c-identities;
     in-out property <int> c-from-index;
     in property <[CmpAtt]> c-attachments;
+    // ---- mail extras (ui/mailextras.slint) ----
+    // the Theme tokens the extras draw with
+    property <MxTok> mx-tok: {
+        dark: Theme.dark, text: Theme.text, dim: Theme.dim, line: Theme.line, accent: Theme.accent,
+        on-accent: Theme.on-accent, hover: Theme.hover, chip: Theme.chip, popup: Theme.popup,
+        surface: Theme.reader, sel: Theme.sel, sel-text: Theme.sel-text, ring: Theme.ring,
+        focus: Prefs.focus-ring, big: Prefs.large-targets,
+    };
+    // From override (Bulwark "Edit sender…" and the catch-all reply rewrite)
+    in-out property <bool> c-from-custom;
+    in-out property <string> c-from-name;
+    in-out property <string> c-from-email;
+    callback c-from-edit();
+    // attachment preview cards (attachmentImagePreviewsEnabled)
+    in property <[AttCard]> att-cards;
+    in property <string> att-summary;
+    // replyUnderMessage: a reply or forward docks under its message (Bulwark reply-dock).
+    // The pane is the window's height; under 700px (or with less than the reply's minimum
+    // left) the reply takes the pane under the reader's toolbar and folds away to show the
+    // message. dock-share is the user's dragged share (<= 0: the default 60 %), dock-above the
+    // reader's chrome above the message text when the reply opened.
+    in-out property <bool> reply-docked;
+    in-out property <bool> dock-folded;
+    in-out property <float> dock-share: -1;
+    in-out property <length> dock-above;
+    callback dock-share-save(float);
+    // followed with a change handler, not a binding: the spacer under the message is part of
+    // the window's own layout
+    out property <length> dock-pane: 900px;
+    changed height => { root.dock-pane = self.height; }
+    out property <bool> dock-takeover: root.dock-pane < 700px || root.dock-pane - 92px - 80px < 320px;
+    out property <length> dock-max: max(320px, root.dock-pane - 92px - 80px);
+    out property <length> dock-h: max(320px, min(root.dock-max,
+        root.dock-share > 0 ? root.dock-pane * root.dock-share
+        : root.dock-above > 0px ? min(root.dock-pane * 0.6, max(root.dock-pane / 2, root.dock-pane - root.dock-above - 100px))
+        : root.dock-pane * 0.6));
+    // where a reply that takes the pane starts: under the reader's action row
+    out property <length> dock-top: (Theme.nordic ? 30px : 22px) + (Prefs.large-targets ? 44px : (Theme.nordic ? 38px : 34px)) + 8px;
+    // the message stays readable above a docked reply (or a folded one)
+    out property <bool> dock-shows-body: root.reply-docked && (!root.dock-takeover || root.dock-folded);
     callback attach-file();
     callback remove-attachment(int);
     callback save-draft(bool);
@@ -1925,20 +2122,38 @@ export component AppWindow inherits Window {
     changed composing => { if composing { app = 0; show-settings = false; } else { c-ai-closed = false; } }
     in property <bool> sending: false;
     in-out property <string> c-to;
+    // recipient chips follow the field text (src/chips.rs)
+    changed c-to => { Rcpt.sync(0); }
+    changed c-cc => { Rcpt.sync(1); }
+    changed c-bcc => { Rcpt.sync(2); }
     in-out property <string> c-subject;
     in property <string> c-status;
     out property <length> bx: body.absolute-position.x;
     out property <length> by: body.absolute-position.y;
     out property <length> bw: body.width;
     out property <length> bh: body.height;
-    out property <bool> body-visible: logged-in && app == 0 && current-mail != "" && !composing && !show-settings && render-mode == 0 && !ev-open && !ctx-open;
+    out property <bool> body-visible: logged-in && app == 0 && current-mail != "" && (!composing || dock-shows-body) && !show-settings && render-mode == 0 && !ev-open && !ctx-open && !CompX.sched-open;
 
     callback shortcut(string, bool, bool);
+    // the Theme tokens the productivity overlays (productivity.slint) draw with
+    property <PTok> ptok: {
+        dark: Theme.dark, bg: Theme.bg, side: Theme.side, popup: Theme.popup, line: Theme.line, text: Theme.text, dim: Theme.dim,
+        accent: Theme.accent, on-accent: Theme.on-accent, hover: Theme.hover, sel: Theme.sel, sel-text: Theme.sel-text, chip: Theme.chip,
+    };
     public function focus-keys() { kbd.focus(); }
     public function focus-search() { search-box.focus(); }
     kbd := FocusScope {
     init => { self.focus(); }
+    // the mail search box keeps its arrows for the suggestions under it (src/shortcuts.rs)
+    capture-key-pressed(e) => {
+        if Pd.search-focus && !e.modifiers.control && !e.modifiers.alt && (e.text == Key.UpArrow || e.text == Key.DownArrow || e.text == Key.Escape) {
+            if Pd.key-hook(e.text, e.modifiers.shift, false, false) { return accept; }
+        }
+        reject
+    }
     key-pressed(e) => {
+        // every app's keys, `?`, Ctrl+K (src/shortcuts.rs); what it leaves goes on below
+        if Pd.key-hook(e.text, e.modifiers.shift, e.modifiers.control, e.modifiers.alt) { return accept; }
         if (e.modifiers.control && e.text == "f") || (e.modifiers.control && e.text == "e") { search-box.focus(); return accept; }
         if e.text == Key.Escape && root.admin-dlg != "" && root.admin-dlg != "running" { root.admin-dlg = ""; return accept; }
         root.shortcut(e.text, e.modifiers.shift, e.modifiers.control);
@@ -2036,6 +2251,8 @@ export component AppWindow inherits Window {
                 HorizontalLayout { alignment: center; RailButton { icon: Icons.cal; tip: "Calendar"; active: root.app == 1 && !root.show-settings; clicked => { root.show-settings = false; root.app = 1; root.app-changed(1); } } }
                 HorizontalLayout { alignment: center; RailButton { icon: Icons.users; tip: "Contacts"; active: root.app == 2 && !root.show-settings; clicked => { root.show-settings = false; root.app = 2; root.app-changed(2); } } }
                 HorizontalLayout { alignment: center; RailButton { icon: Icons.folder; tip: "Files"; active: root.app == 3 && !root.show-settings; clicked => { root.show-settings = false; root.app = 3; root.app-changed(3); } } }
+                // Tasks as its own app (Settings › Calendar › tasks in the rail; calendar_ext.slint)
+                if CalX.tasks-app && CalX.tasks-enabled: HorizontalLayout { alignment: center; RailButton { icon: Icons.check; tip: "Tasks"; active: root.app == 1 && root.cal-view == 4 && !root.show-settings; clicked => { root.show-settings = false; root.app = 1; root.app-changed(1); root.cal-set-view(4); } } }
                 if !root.ai-hidden: HorizontalLayout { alignment: center; RailButton { icon: Icons.spark; tip: "Assistant"; active: root.chat-shown && root.app == 0 && !root.show-settings; clicked => { if root.app != 0 || root.show-settings { root.show-settings = false; root.app = 0; root.chat-open = true; root.c-ai-closed = false; } else if root.chat-shown { root.chat-open = false; if root.composing { root.c-ai-closed = true; } } else { root.chat-open = true; root.c-ai-closed = false; } } } }
                 if root.admin-enabled: HorizontalLayout { alignment: center; RailButton { icon: Icons.shield; tip: "Admin"; active: root.app == 4 && !root.show-settings; clicked => { root.show-settings = false; root.app = 4; root.app-changed(4); } } }
                 Rectangle { vertical-stretch: 1; }
@@ -2175,6 +2392,7 @@ export component AppWindow inherits Window {
                             Text { text: "Tags"; color: Theme.dim; font-size: 12px * Prefs.fs; font-weight: 700; vertical-alignment: center; }
                             VerticalLayout { alignment: center; SIcon { commands: root.tags-collapsed ? Icons.chevron-right : Icons.chevron-down; size: 11px; weight: 2.2; tint: Theme.faint; } }
                             Rectangle { horizontal-stretch: 1; }
+                            IconBtn { icon: Icons.plus; icon-size: 13px; width: 22px; tint: Theme.faint; clicked => { root.tag-new(); } }
                             IconBtn { icon: Icons.settings; icon-size: 13px; width: 22px; tint: Theme.faint; clicked => { root.settings-tab = "organize"; root.open-settings(); } }
                         }
                     }
@@ -2190,6 +2408,7 @@ export component AppWindow inherits Window {
                             t: t;
                             selected: t.id == root.current-tag;
                             clicked => { root.current-tag = t.id; root.select-tag(t.id); }
+                            chevron-clicked => { root.toggle-tag-open(t.id); }
                             hl-id: "tag:" + t.id;
                             context(x, y) => { root.ctx("tag", t.id, x, y); }
                         }
@@ -2200,6 +2419,7 @@ export component AppWindow inherits Window {
                             t: t;
                             selected: t.id == root.current-tag;
                             clicked => { root.current-tag = t.id; root.select-tag(t.id); }
+                            chevron-clicked => { root.toggle-tag-open(t.id); }
                             hl-id: "tag:" + t.id;
                             context(x, y) => { root.ctx("tag", t.id, x, y); }
                         }
@@ -2323,7 +2543,9 @@ export component AppWindow inherits Window {
                                 horizontal-stretch: 1;
                                 if root.search == "": Text { x: 0; width: parent.width; height: parent.height; text: "Search mail"; color: Theme.faint; font-size: 13px * Prefs.fs; vertical-alignment: center; }
                                 search-box := TextInput {
-                                    y: (parent.height - self.height) / 2;
+                                    // full height, centred: the typed text sits where the placeholder does
+                                    height: parent.height;
+                                    vertical-alignment: center;
                                     width: parent.width;
                                     text <=> root.search;
                                     color: Theme.text;
@@ -2332,6 +2554,9 @@ export component AppWindow inherits Window {
                                     selection-background-color: Theme.sel;
                                     selection-foreground-color: Theme.sel-text;
                                     accepted => { root.do-search(self.text); }
+                                    // suggestions (recent searches, people) while the box has focus
+                                    edited => { Pd.search-edited(self.text); }
+                                    changed has-focus => { Pd.search-focus = self.has-focus; if self.has-focus { Pd.search-edited(self.text); } }
                                 }
                             }
                             if root.search == "": VerticalLayout {
@@ -2362,6 +2587,11 @@ export component AppWindow inherits Window {
                         QuickChip { label: "Starred"; on: root.sf-active && root.sf-starred; clicked => { root.sf-starred = !root.sf-starred; root.sf-apply(); } }
                         QuickChip { label: "Attachments"; on: root.sf-active && root.sf-attach; clicked => { root.sf-attach = !root.sf-attach; root.sf-apply(); } }
                     }
+                }
+                if Pd.chips.length > 0: HorizontalLayout {
+                    padding-left: Theme.nordic ? 28px : 20px;
+                    padding-right: Theme.nordic ? 24px : 16px;
+                    SearchChips { t: root.ptok; }
                 }
                 if root.sf-open: VerticalLayout {
                     padding-left: Theme.nordic ? 28px : 20px;
@@ -2502,6 +2732,8 @@ export component AppWindow inherits Window {
                 padding-left: Theme.nordic ? 44px : 26px;
                 padding-right: Theme.nordic ? 44px : 26px;
                 spacing: 0px;
+                // Scheduled view: when it goes out, Reschedule / Cancel and edit / Cancel send
+                if root.current-folder == "__scheduled" && CompX.sched-banner != "": ScheduledBar { }
                 // actions: the main ones always, the rest inline when the reader is wide enough
                 acts := HorizontalLayout {
                     property <bool> roomy: root.reader-w > (Theme.nordic ? 720px : 600px);
@@ -2575,6 +2807,8 @@ export component AppWindow inherits Window {
                                 MenuItem { text: "Report spam"; clicked => { root.act("spam"); } }
                                 MenuItem { text: "Mark as unread"; clicked => { root.act("unread"); } }
                                 MenuItem { text: "Print"; clicked => { root.act("print"); } }
+                                // view source, forward as attachment, save .eml, quick rules… (src/reader.rs)
+                                MenuItem { text: "More actions…"; clicked => { root.ctx("reader", root.current-mail, acts.absolute-position.x + acts.width - 220px, acts.absolute-position.y + 40px); } }
                             }
                         }
                     }
@@ -2675,6 +2909,7 @@ export component AppWindow inherits Window {
                     }
                     Text { text: root.spam-detail; color: Theme.dim; font-size: 11.5px; vertical-alignment: center; overflow: elide; horizontal-stretch: 1; }
                 }
+                RxBanners { }
                 if root.images-blocked: Rectangle {
                     height: 44px;
                     border-radius: 14px;
@@ -2726,8 +2961,33 @@ export component AppWindow inherits Window {
                         }
                     }
                 }
+                // attachment previews (attachmentImagePreviewsEnabled, ui/mailextras.slint)
+                if root.att-cards.length > 0: AttCards {
+                    padding-top: 12px;
+                    tok: root.mx-tok;
+                    cards: root.att-cards;
+                    summary: root.att-summary;
+                    open(i) => { root.open-attachment(i); }
+                    save(i) => { root.save-attachment(i); }
+                    context(i, x, y) => { root.ctx("att", i, x, y); }
+                }
+                if root.att-cards.length > 0 && root.attachments.length > 1: HorizontalLayout {
+                    alignment: start;
+                    Rectangle {
+                        height: 30px;
+                        width: dacl.preferred-width;
+                        border-radius: 15px;
+                        background: daca.has-hover ? Theme.hover : transparent;
+                        daca := TouchArea { clicked => { RX.action("att", "zip"); } }
+                        dacl := HorizontalLayout {
+                            padding-left: 10px; padding-right: 12px; spacing: 8px;
+                            VerticalLayout { alignment: center; SIcon { commands: Icons.download; size: 14px; weight: 1.8; tint: Theme.accent; } }
+                            Text { text: "Download all"; color: Theme.text; font-size: 12.5px * Prefs.fs; font-weight: 600; vertical-alignment: center; }
+                        }
+                    }
+                }
                 // attachments: tile-2 cards with a tinted type badge (BNMail) / quiet pills (NordMail)
-                if root.attachments.length > 0: Flickable {
+                if root.attachments.length > 0 && root.att-cards.length == 0: Flickable {
                     height: 66px;
                     content-width: attl.preferred-width;
                     attl := HorizontalLayout {
@@ -2764,11 +3024,30 @@ export component AppWindow inherits Window {
                                 VerticalLayout { alignment: center; HoverAction { icon: Icons.download; clicked => { root.save-attachment(a.index); } } }
                             }
                         }
+                        // Download all as .zip (src/reader.rs)
+                        if root.attachments.length > 1: Rectangle {
+                            height: Theme.nordic ? 50px : 54px;
+                            width: dal.preferred-width;
+                            border-radius: Theme.nordic ? 18px : 16px;
+                            background: dla.has-hover ? Theme.hover : transparent;
+                            dla := TouchArea { clicked => { RX.action("att", "zip"); } }
+                            dal := HorizontalLayout {
+                                padding-left: 12px; padding-right: 12px; spacing: 8px;
+                                VerticalLayout { alignment: center; SIcon { commands: Icons.download; size: 16px; weight: 1.8; tint: Theme.accent; } }
+                                Text { text: "Download all"; color: Theme.text; font-size: 12.5px * Prefs.fs; font-weight: 600; vertical-alignment: center; }
+                            }
+                        }
                     }
                 }
-                if root.pref-quick-reply: Rectangle { height: 14px; }
+                // the room a docked reply takes under the message (replyUnderMessage)
+                if root.composing && root.reply-docked: Rectangle {
+                    min-height: 0px;
+                    preferred-height: root.dock-takeover ? (root.dock-folded ? 34px : 0px) : root.dock-h;
+                    vertical-stretch: 0;
+                }
+                if root.pref-quick-reply && !(root.composing && root.reply-docked): Rectangle { height: 14px; }
                 // quick reply: tile-2 bar with an accent Send (BNMail) / hairline pill (NordMail)
-                if root.pref-quick-reply: Rectangle {
+                if root.pref-quick-reply && !(root.composing && root.reply-docked): Rectangle {
                     height: Theme.nordic ? 58px : 54px;
                     border-radius: Theme.nordic ? 26px : 20px;
                     background: Theme.nordic ? transparent : Theme.tile2;
@@ -2819,6 +3098,10 @@ export component AppWindow inherits Window {
                 property <bool> tight: self.width < 600px;
                 // room for the "Proofreading off" note beside the labelled buttons
                 property <bool> roomy: self.width >= 780px;
+                // docked under its message (replyUnderMessage), or the whole pane
+                y: !root.reply-docked ? 0px : root.dock-takeover ? (root.dock-folded ? parent.height - 34px : root.dock-top) : parent.height - root.dock-h;
+                height: !root.reply-docked ? parent.height : root.dock-takeover ? (root.dock-folded ? 34px : parent.height - root.dock-top) : root.dock-h;
+                clip: root.reply-docked;
                 function fmt(k: string) {
                     root.rte-cmd(k);
                     self.focus-ed();
@@ -2888,7 +3171,14 @@ export component AppWindow inherits Window {
                 TouchArea { }
                 VerticalLayout {
                     padding: 0px;
+                    padding-top: root.reply-docked && !root.dock-takeover ? 9px : 0px;
                     spacing: 0px;
+                    if root.reply-docked && root.dock-takeover: ReplyDockBar {
+                        tok: root.mx-tok;
+                        folded: root.dock-folded;
+                        subject: root.r-subject;
+                        toggled => { root.dock-folded = !root.dock-folded; }
+                    }
                     // header (BNCompose: 19px title, draft state, square pop-out / close buttons)
                     HorizontalLayout {
                         padding-top: 16px;
@@ -2897,7 +3187,7 @@ export component AppWindow inherits Window {
                         padding-right: 18px;
                         spacing: 8px;
                         Text { text: root.c-subject == "" ? "New message" : root.c-subject; color: Theme.text; font-size: Theme.fs-section * Prefs.fs; font-weight: 700; vertical-alignment: center; horizontal-stretch: 1; overflow: elide; }
-                        if root.c-status == "Saving…" || root.c-saved-at != "": Text { text: root.c-status == "Saving…" ? "Saving…" : "Draft saved " + root.c-saved-at; color: Theme.dim; font-size: 12px * Prefs.fs; vertical-alignment: center; }
+                        SaveState { }
                         VerticalLayout { alignment: center; CmpHeadButton { icon: Icons.check; tip: "Save draft"; clicked => { root.save-draft(false); } } }
                         if !root.ai-hidden: VerticalLayout { alignment: center; CmpHeadButton { icon: Icons.spark; tip: "Assistant"; active: root.chat-shown; clicked => { if root.chat-shown { root.chat-open = false; root.c-ai-closed = true; } else { root.chat-open = true; root.c-ai-closed = false; } } } }
                         VerticalLayout { alignment: center; CmpHeadButton { icon: Icons.external; tip: "Pop out"; clicked => { root.toast = "Pop-out window is not available yet."; } } }
@@ -2917,7 +3207,13 @@ export component AppWindow inherits Window {
                                 VerticalLayout {
                                     alignment: center;
                                     horizontal-stretch: 1;
-                                    HorizontalLayout {
+                                    if root.c-from-custom: FromOverride {
+                                        tok: root.mx-tok;
+                                        name <=> root.c-from-name;
+                                        email <=> root.c-from-email;
+                                        use-identity => { root.c-from-custom = false; }
+                                    }
+                                    if !root.c-from-custom: HorizontalLayout {
                                         alignment: start;
                                         Rectangle {
                                             height: 28px;
@@ -2944,37 +3240,39 @@ export component AppWindow inherits Window {
                                     VerticalLayout {
                                         padding: 4px;
                                         for id[i] in root.c-identities: MenuItem { text: id; checkable: true; checked: i == root.c-from-index; clicked => { root.c-from-index = i; } }
+                                        Rectangle { height: 1px; background: Theme.line; }
+                                        MenuItem { text: "Edit sender…"; glyph: "\u{E70F}"; clicked => { root.c-from-edit(); } }
                                     }
                                 }
                             }
                         }
                         // To
                         Rectangle {
-                            height: 48px;
+                            min-height: 48px;
                             HorizontalLayout {
                                 spacing: 8px;
-                                Text { text: "To"; color: Theme.dim; font-size: 13.5px * Prefs.fs; width: 60px; vertical-alignment: center; }
-                                VerticalLayout { alignment: center; horizontal-stretch: 1; BareField { placeholder: "Recipient email addresses"; text <=> root.c-to; } }
-                                VerticalLayout { alignment: center; FmtButton { label: "Cc"; active: root.c-show-cc; clicked => { root.c-show-cc = !root.c-show-cc; } } }
-                                VerticalLayout { alignment: center; FmtButton { label: "Bcc"; active: root.c-show-bcc; clicked => { root.c-show-bcc = !root.c-show-bcc; } } }
+                                Text { text: "To"; color: Theme.dim; font-size: 13.5px * Prefs.fs; width: 60px; height: 48px; vertical-alignment: center; }
+                                VerticalLayout { alignment: center; horizontal-stretch: 1; RecipientField { field: 0; placeholder: "Recipient email addresses"; chips: Rcpt.to; input <=> Rcpt.to-input; } }
+                                VerticalLayout { alignment: start; padding-top: 10px; FmtButton { label: "Cc"; active: root.c-show-cc; clicked => { root.c-show-cc = !root.c-show-cc; } } }
+                                VerticalLayout { alignment: start; padding-top: 10px; FmtButton { label: "Bcc"; active: root.c-show-bcc; clicked => { root.c-show-bcc = !root.c-show-bcc; } } }
                             }
                             Rectangle { y: parent.height - 1px; height: 1px; background: Theme.line; }
                         }
                         if root.c-show-cc: Rectangle {
-                            height: 44px;
+                            min-height: 44px;
                             HorizontalLayout {
                                 spacing: 12px;
-                                Text { text: "Cc"; color: Theme.dim; font-size: 13.5px * Prefs.fs; width: 56px; vertical-alignment: center; }
-                                VerticalLayout { alignment: center; BareField { placeholder: "Cc recipients"; text <=> root.c-cc; } }
+                                Text { text: "Cc"; color: Theme.dim; font-size: 13.5px * Prefs.fs; width: 56px; height: 44px; vertical-alignment: center; }
+                                VerticalLayout { alignment: center; RecipientField { field: 1; placeholder: "Cc recipients"; chips: Rcpt.cc; input <=> Rcpt.cc-input; } }
                             }
                             Rectangle { y: parent.height - 1px; height: 1px; background: Theme.line; }
                         }
                         if root.c-show-bcc: Rectangle {
-                            height: 44px;
+                            min-height: 44px;
                             HorizontalLayout {
                                 spacing: 12px;
-                                Text { text: "Bcc"; color: Theme.dim; font-size: 13.5px * Prefs.fs; width: 56px; vertical-alignment: center; }
-                                VerticalLayout { alignment: center; BareField { placeholder: "Bcc recipients"; text <=> root.c-bcc; } }
+                                Text { text: "Bcc"; color: Theme.dim; font-size: 13.5px * Prefs.fs; width: 56px; height: 44px; vertical-alignment: center; }
+                                VerticalLayout { alignment: center; RecipientField { field: 2; placeholder: "Bcc recipients"; chips: Rcpt.bcc; input <=> Rcpt.bcc-input; } }
                             }
                             Rectangle { y: parent.height - 1px; height: 1px; background: Theme.line; }
                         }
@@ -3393,13 +3691,32 @@ export component AppWindow inherits Window {
                                 }
                                 send-pop := PopupWindow { x: parent.width - 220px; y: -84px; width: 220px;
                                     MenuPanel { VerticalLayout { padding: 4px;
-                                        MenuItem { glyph: "\u{E823}"; text: "Schedule send (soon)"; enabled: false; }
+                                        MenuItem { glyph: "\u{E823}"; text: "Schedule send…"; clicked => { CompX.sched-open-compose(); } }
                                         MenuItem { glyph: "\u{E74E}"; text: "Save draft"; clicked => { root.save-draft(false); } }
                                     } }
                                 }
                             }
                         }
                     }
+                }
+                // recipient suggestions (src/chips.rs), over everything below the field
+                if Rcpt.active >= 0 && Rcpt.suggestions.length > 0: RecipientSuggest {
+                    x: Rcpt.pop-x - cmp.absolute-position.x;
+                    y: Rcpt.pop-y - cmp.absolute-position.y;
+                    width: Rcpt.pop-w;
+                    items: Rcpt.suggestions;
+                    highlight: Rcpt.highlight;
+                }
+                // the divider above a reply that shares the pane: drag to resize, double-click resets
+                if root.reply-docked && !root.dock-takeover: ReplyDockHandle {
+                    y: 0px;
+                    tok: root.mx-tok;
+                    current: root.dock-h;
+                    min-h: 320px;
+                    max-h: root.dock-max;
+                    resized(h) => { root.dock-share = h / root.dock-pane; }
+                    done => { root.dock-share-save(root.dock-share); }
+                    reset => { root.dock-share = -1; root.dock-share-save(-1); }
                 }
             }
             }
@@ -3621,6 +3938,8 @@ export component AppWindow inherits Window {
                         Avatar {
                             label: root.r-initials;
                             tint: root.r-color;
+                            img: root.r-avatar;
+                            kind: root.r-avatar-kind;
                             width: Theme.nordic ? 64px : 60px;
                             height: self.width;
                             border-radius: Theme.nordic ? self.height / 2 : 22px;
@@ -3714,6 +4033,23 @@ export component AppWindow inherits Window {
       }
     }
   
+    // pane grips on the folder | list and list | reader boundaries of the mail screen
+    if root.logged-in && root.app == 0 && !root.show-settings: ResizeHandle {
+        t: root.ptok;
+        x: Theme.shell-x + root.side-w + Theme.gap / 2 - self.width / 2;
+        y: Theme.nordic ? 14px : Theme.pad;
+        height: root.height - 2 * self.y;
+        value <=> Pd.side-w; current: root.side-w; min-value: 180px; max-value: 400px;
+        done => { Pd.panes-changed(); }
+    }
+    if root.logged-in && root.app == 0 && !root.show-settings: ResizeHandle {
+        t: root.ptok;
+        x: Theme.shell-x + root.side-w + Theme.gap + root.list-w + (Theme.nordic ? 1.5px : Theme.gap / 2) - self.width / 2;
+        y: Theme.nordic ? 14px : Theme.pad;
+        height: root.height - 2 * self.y;
+        value <=> Pd.list-w; current: root.list-w; min-value: 240px; max-value: 600px;
+        done => { Pd.panes-changed(); }
+    }
     // ======== calendar (design/mockups BNCalendar / NordCalendar) ========
     // Bento: sidebar tiles (new event, mini month, calendars, tasks), summary tiles above the grid
     // tile, the event context panel as its own tile. Nordic: the sidebar sits on the ground; grid
@@ -3848,8 +4184,8 @@ export component AppWindow inherits Window {
                         }
                     }
                 }
-                // tasks
-                Tile {
+                // tasks (Settings > Calendar > tasks: off, or as its own app in the rail)
+                if CalX.tasks-enabled && !CalX.tasks-app: Tile {
                     flat: Theme.nordic;
                     vertical-stretch: 1;
                     min-height: 110px;
@@ -3897,9 +4233,14 @@ export component AppWindow inherits Window {
                                         VerticalLayout {
                                             spacing: 0px;
                                             Text { text: t.title; color: t.done ? Theme.faint : Theme.text; font-size: 13px * Prefs.fs; wrap: word-wrap; }
-                                            if t.due != "" || t.done: Text { text: t.done ? "Done" : t.due; color: Theme.dim; font-size: 11.5px * Prefs.fs; }
+                                            if t.due != "" || t.done: Text { text: t.done ? "Done" : t.due; color: t.overdue && !t.done ? Theme.rose-fg : Theme.dim; font-weight: t.overdue && !t.done ? 700 : 400; font-size: 11.5px * Prefs.fs; }
                                         }
                                     }
+                                }
+                                if CalX.sidebar-more > 0: Rectangle {
+                                    height: 22px;
+                                    Text { x: 26px; text: "Show all (" + CalX.sidebar-more + " more)"; color: Theme.accent; font-size: 12px * Prefs.fs; vertical-alignment: center; }
+                                    TouchArea { mouse-cursor: pointer; clicked => { root.cal-set-view(4); } }
                                 }
                             }
                         }
@@ -3931,6 +4272,7 @@ export component AppWindow inherits Window {
                         if root.task-new != "": LineEdit { placeholder-text: "Due YYYY-MM-DD (optional)"; text <=> root.task-due; accepted(t) => { root.task-add(root.task-new, t); root.task-new = ""; root.task-due = ""; } }
                     }
                 }
+                CalSidebarExtra { pal: root.cal-pal; }
                 if Theme.nordic && root.cal-side-line != "": Text {
                     x: 6px;
                     text: root.cal-side-line;
@@ -3982,7 +4324,7 @@ export component AppWindow inherits Window {
                             padding-right: Theme.nordic ? 27px : 19px;
                             spacing: 0px;
                             // header: range title, today / prev / next, search, view switch
-                            HorizontalLayout {
+                            if root.cal-view != 4: HorizontalLayout {
                                 spacing: Theme.nordic ? 10px : 8px;
                                 padding-bottom: Theme.nordic ? 18px : 10px;
                                 Text {
@@ -4021,14 +4363,20 @@ export component AppWindow inherits Window {
                                                     vertical-alignment: center;
                                                     single-line: true;
                                                     edited => { root.cal-q = self.text; root.cal-search(self.text); }
+                                                    property <int> fr: Pd.focus-req;
+                                                    changed fr => { if root.app == 1 { self.focus(); } }
                                                 }
                                                 if root.cal-q == "": Text { x: 0; width: parent.width; height: parent.height; text: "Search events"; color: Theme.faint; font-size: 12.5px * Prefs.fs; vertical-alignment: center; }
                                             }
                                         }
                                     }
                                 }
-                                VerticalLayout { alignment: center; Segmented { items: ["Day", "Week", "Month"]; current: root.cal-view; selected(i) => { root.cal-set-view(i); } } }
+                                VerticalLayout { alignment: center; Segmented { items: CalX.view-names; current: root.cal-view; selected(i) => { root.cal-set-view(i); } } }
                             }
+
+                            // ---- agenda and tasks (ui/calendar_ext.slint) ----
+                            if root.cal-view == 3: AgendaView { pal: root.cal-pal; vertical-stretch: 1; }
+                            if root.cal-view == 4: TasksView { pal: root.cal-pal; vertical-stretch: 1; new-task => { CalX.task-open(""); } }
 
                             // ---- month ----
                             if root.cal-view == 2: VerticalLayout {
@@ -4056,7 +4404,8 @@ export component AppWindow inherits Window {
                                         if floor(i / 7) > 0: Rectangle { x: 0; y: 0; width: parent.width; height: 1px; background: Theme.line; }
                                         if mod(i, 7) > 0: Rectangle { x: 0; y: 0; width: 1px; height: parent.height; background: Theme.line; }
                                         mcta := TouchArea {
-                                            double-clicked => { root.cal-edit("", c.date, -1); }
+                                            clicked => { CalX.quick(c.date, -1, 0, self.absolute-position.x + self.mouse-x, self.absolute-position.y + self.mouse-y); }
+                                            double-clicked => { CalX.qc-open = false; root.cal-edit("", c.date, -1); }
                                             pointer-event(ev) => { if ev.button == PointerEventButton.right && ev.kind == PointerEventKind.up { root.ctx("slot", c.date, self.absolute-position.x + self.mouse-x, self.absolute-position.y + self.mouse-y); } }
                                             scroll-event(ev) => {
                                                 if !root.cal-free-scroll || ev.delta-y == 0 { return reject; }
@@ -4117,7 +4466,7 @@ export component AppWindow inherits Window {
                             }
 
                             // ---- day / week ----
-                            if root.cal-view != 2: VerticalLayout {
+                            if root.cal-view < 2: VerticalLayout {
                                 vertical-stretch: 1;
                                 // day heads: "Mon 16" (Bento) or weekday over a big date, today in an accent circle (Nordic)
                                 HorizontalLayout {
@@ -4180,12 +4529,18 @@ export component AppWindow inherits Window {
                                             TouchArea {
                                                 x: root.cal-gutter;
                                                 width: parent.width - root.cal-gutter;
-                                                double-clicked => { root.cal-edit("", "", h); }
+                                                property <int> daycol: floor(self.mouse-x / (self.width / max(1, root.cal-days.length)));
+                                                clicked => { CalX.quick("#" + self.daycol, h, self.mouse-y >= self.height / 2 ? 30 : 0, self.absolute-position.x + self.mouse-x, self.absolute-position.y + self.mouse-y); }
+                                                double-clicked => { CalX.qc-open = false; root.cal-edit("#" + self.daycol, "", h); }
                                                 pointer-event(ev) => { if ev.button == PointerEventButton.right && ev.kind == PointerEventKind.up { root.ctx("slot", "@" + h, self.absolute-position.x + self.mouse-x, self.absolute-position.y + self.mouse-y); } }
                                             }
                                         }
                                         for e in root.cal-events: CalChip {
                                             property <length> inset: Theme.nordic ? 4px : 3px;
+                                            draggable: true;
+                                            colw: parent.colw;
+                                            hour-px: tg.hh-px;
+                                            dropped(c, m, r) => { Pd.event-dropped(e.id, c, m, r); }
                                             x: root.cal-gutter + e.col * parent.colw + e.lane * (parent.colw / e.lanes) + self.inset;
                                             y: e.top * tg.hh-px / 56 + 2px;
                                             width: parent.colw / e.lanes - 2 * self.inset;
@@ -4420,6 +4775,8 @@ export component AppWindow inherits Window {
                             padding-bottom: Theme.nordic ? 14px : 10px;
                             Text { text: "Contacts"; color: Theme.text; font-size: (Theme.nordic ? 28px : 24px) * Prefs.fs; font-weight: Theme.nordic ? 800 : 700; letter-spacing: Theme.nordic ? -0.56px : -0.3px; horizontal-stretch: 1; vertical-alignment: bottom; }
                             VerticalLayout { alignment: end; padding-bottom: (Theme.nordic ? 5px : 4px) * Prefs.fs; Text { text: root.contacts.length; color: Theme.dim; font-size: 12px * Prefs.fs; } }
+                            VerticalLayout { alignment: end; IconBtn { icon: Icons.download; icon-size: 14px; width: Prefs.large-targets ? 40px : 26px; tint: Theme.dim; clicked => { CtX.import-file(); } } }
+                            VerticalLayout { alignment: end; IconBtn { icon: Icons.external; icon-size: 14px; width: Prefs.large-targets ? 40px : 26px; tint: Theme.dim; clicked => { CtX.export-all(); } } }
                         }
                         // search: tile-2 field (Bento), hairline pill (Nordic)
                         HorizontalLayout {
@@ -4451,6 +4808,10 @@ export component AppWindow inherits Window {
                                             selection-foreground-color: Theme.sel-text;
                                             accessible-label: "Search contacts";
                                             edited => { root.ct-search(self.text); }
+                                            property <int> fr: Pd.focus-req;
+                                            changed fr => { if root.app == 2 { self.focus(); } }
+                                            property <int> cr: Pd.clear-req;
+                                            changed cr => { root.ct-q = ""; }
                                         }
                                     }
                                     if root.ct-q != "": VerticalLayout { alignment: center; IconBtn { icon: Icons.close; icon-size: 12px; width: Prefs.large-targets ? 40px : 24px; clicked => { root.ct-q = ""; root.ct-search(""); } } }
@@ -4510,7 +4871,7 @@ export component AppWindow inherits Window {
                 Rectangle {
                     horizontal-stretch: 1;
                     // nothing chosen
-                    if root.ct-id == "" && root.ct-group == "" && !root.ct-editing: Tile {
+                    if root.ct-id == "" && root.ct-group == "" && !root.ct-editing && root.ct-filter != "dupes:": Tile {
                         flat: Theme.nordic;
                         border-radius: Theme.nordic ? 0px : Theme.r-pane;
                         VerticalLayout {
@@ -4528,241 +4889,19 @@ export component AppWindow inherits Window {
                                     SIcon { commands: Icons.users; size: 26px; weight: 1.6; tint: Theme.faint; }
                                 }
                             }
-                            Text { text: "Select a contact"; color: Theme.text; font-size: 15px * Prefs.fs; font-weight: 600; horizontal-alignment: center; }
+                            Text { text: CtX.dir-status != "" && root.ct-filter == "directory:" ? CtX.dir-status : "Select a contact"; color: Theme.text; font-size: 15px * Prefs.fs; font-weight: 600; horizontal-alignment: center; }
                             Text { text: root.contacts.length + (root.contacts.length == 1 ? " person" : " people") + " in this view"; color: Theme.dim; font-size: 12.5px * Prefs.fs; horizontal-alignment: center; }
                         }
                     }
 
-                    // a contact (Bento): header tile, then 3 x 2 detail tiles
-                    if root.ct-id != "" && !root.ct-editing && Theme.bento: VerticalLayout {
-                        spacing: Theme.gap;
-                        Tile {
-                            border-radius: Theme.r-pane;
-                            vertical-stretch: 0;
-                            HorizontalLayout {
-                                padding-top: 24px;
-                                padding-bottom: 24px;
-                                padding-left: 26px;
-                                padding-right: 26px;
-                                spacing: 20px;
-                                VerticalLayout {
-                                    alignment: center;
-                                    Rectangle {
-                                        width: 88px;
-                                        height: 88px;
-                                        border-radius: 30px;
-                                        background: Theme.rose-bg;
-                                        TouchArea { pointer-event(ev) => { if ev.button == PointerEventButton.right && ev.kind == PointerEventKind.up { root.ctx("contact", root.ct-id, self.absolute-position.x + self.mouse-x, self.absolute-position.y + self.mouse-y); } } }
-                                        Text { text: root.ct-initials; color: Theme.rose-fg; font-size: 30px; font-weight: 800; }
-                                    }
-                                }
-                                VerticalLayout {
-                                    alignment: center;
-                                    horizontal-stretch: 1;
-                                    spacing: 2px;
-                                    Text { text: root.ct-name == "" ? "(no name)" : root.ct-name; color: Theme.text; font-size: 28px * Prefs.fs; font-weight: 800; letter-spacing: -0.56px; overflow: elide; }
-                                    Text {
-                                        text: root.ct-title != "" || root.ct-company != "" ? root.ct-title + (root.ct-title != "" && root.ct-company != "" ? " · " : "") + root.ct-company : root.ct-emails;
-                                        color: Theme.dim;
-                                        font-size: 14px * Prefs.fs;
-                                        overflow: elide;
-                                    }
-                                }
-                                VerticalLayout {
-                                    alignment: center;
-                                    HorizontalLayout {
-                                        spacing: 8px;
-                                        PeopleBtn { text: "Email"; primary: true; enabled: root.ct-emails != ""; clicked => { root.ct-email(); } }
-                                        PeopleBtn { text: "Edit"; clicked => { root.ct-editing = true; } }
-                                        PeopleBtn { text: "Delete"; clicked => { root.ct-delete(); } }
-                                    }
-                                }
-                            }
-                        }
-                        ctg := VerticalLayout {
-                            spacing: Theme.gap;
-                            vertical-stretch: 1;
-                            property <length> cw: (self.width - 2 * Theme.gap) / 3;
-                            HorizontalLayout {
-                                spacing: Theme.gap;
-                                vertical-stretch: 1;
-                                preferred-height: 200px;
-                                // contact details
-                                Tile {
-                                    width: ctg.cw;
-                                    clip: true;
-                                    VerticalLayout {
-                                        padding: 18px;
-                                        spacing: 0px;
-                                        alignment: start;
-                                        Text { text: "Contact"; color: Theme.dim; font-size: 11.5px * Prefs.fs; font-weight: 700; }
-                                        Rectangle { height: 10px; }
-                                        for f in [{l: "Email", v: root.ct-emails}, {l: "Phone", v: root.ct-phones}, {l: "Address", v: root.ct-address}, {l: "Birthday", v: root.ct-birthday}]: VerticalLayout {
-                                            if f.v != "": Text { text: f.l; color: Theme.dim; font-size: 11.5px * Prefs.fs; }
-                                            if f.v != "": Text { text: f.v; color: Theme.text; font-size: 13.5px * Prefs.fs; wrap: word-wrap; }
-                                            if f.v != "": Rectangle { height: 10px; }
-                                        }
-                                        if root.ct-emails == "" && root.ct-phones == "" && root.ct-address == "" && root.ct-birthday == "": Text { text: "No details yet"; color: Theme.faint; font-size: 13px * Prefs.fs; }
-                                    }
-                                }
-                                // recent mail from them (two columns wide)
-                                Tile {
-                                    horizontal-stretch: 1;
-                                    clip: true;
-                                    VerticalLayout {
-                                        padding: 18px;
-                                        spacing: 8px;
-                                        alignment: start;
-                                        Text { text: "Recent mail"; color: Theme.dim; font-size: 11.5px * Prefs.fs; font-weight: 700; }
-                                        for r in root.cx-recent: PeopleLine {
-                                            label: r.label;
-                                            value: r.value;
-                                            clicked => { root.show-settings = false; root.app = 0; root.app-changed(0); root.current-mail = r.tone; root.open-mail(r.tone); }
-                                        }
-                                        if root.cx-recent.length == 0: Text { text: root.ct-emails == "" ? "No email address" : "No mail from this contact"; color: Theme.faint; font-size: 13px * Prefs.fs; }
-                                    }
-                                }
-                            }
-                            HorizontalLayout {
-                                spacing: Theme.gap;
-                                vertical-stretch: 1;
-                                preferred-height: 200px;
-                                // next event with them
-                                nmt := Rectangle {
-                                    width: ctg.cw;
-                                    border-radius: Theme.r-tile;
-                                    background: root.cx-next != "" ? Theme.amber-bg : Theme.tile;
-                                    border-width: root.cx-next != "" ? 0px : 1px;
-                                    border-color: Theme.line;
-                                    clip: true;
-                                    property <color> fg: root.cx-next != "" ? Theme.amber-fg : Theme.dim;
-                                    VerticalLayout {
-                                        padding: 18px;
-                                        spacing: 6px;
-                                        Text { text: "Next meeting"; color: nmt.fg; font-size: 11.5px * Prefs.fs; font-weight: 700; }
-                                        if root.cx-next != "": Text { text: root.cx-next-title; color: nmt.fg; font-size: 20px * Prefs.fs; font-weight: 800; wrap: word-wrap; }
-                                        if root.cx-next != "": Text { text: root.cx-next; color: nmt.fg; font-size: 13px * Prefs.fs; }
-                                        if root.cx-next == "": Text { text: "Nothing planned together"; color: Theme.faint; font-size: 13px * Prefs.fs; }
-                                        Rectangle { vertical-stretch: 1; }
-                                    }
-                                }
-                                // files they sent
-                                Tile {
-                                    width: ctg.cw;
-                                    clip: true;
-                                    VerticalLayout {
-                                        padding: 18px;
-                                        spacing: 8px;
-                                        alignment: start;
-                                        Text { text: "Shared files"; color: Theme.dim; font-size: 11.5px * Prefs.fs; font-weight: 700; }
-                                        for r in root.cx-files: PeopleLine {
-                                            label: r.label;
-                                            clicked => { root.show-settings = false; root.app = 0; root.app-changed(0); root.current-mail = r.tone; root.open-mail(r.tone); }
-                                        }
-                                        if root.cx-files.length == 0: Text { text: "No attachments from them"; color: Theme.faint; font-size: 13px * Prefs.fs; }
-                                    }
-                                }
-                                // notes
-                                Tile {
-                                    horizontal-stretch: 1;
-                                    clip: true;
-                                    VerticalLayout {
-                                        padding: 18px;
-                                        spacing: 8px;
-                                        alignment: start;
-                                        Text { text: "Notes"; color: Theme.dim; font-size: 11.5px * Prefs.fs; font-weight: 700; }
-                                        Text { text: root.ct-notes == "" ? "No notes" : root.ct-notes; color: root.ct-notes == "" ? Theme.faint : Theme.body; font-size: 13.5px * Prefs.fs; wrap: word-wrap; }
-                                    }
-                                }
-                            }
-                        }
-                    }
-
-                    // a contact (Nordic): detail column and a context column split by a hairline
-                    if root.ct-id != "" && !root.ct-editing && Theme.nordic: HorizontalLayout {
-                        Flickable {
-                            horizontal-stretch: 1;
-                            content-height: max(self.height, ndl.preferred-height);
-                            ndl := VerticalLayout {
-                                alignment: start;
-                                padding-top: 30px;
-                                padding-bottom: 24px;
-                                padding-left: 44px;
-                                padding-right: 44px;
-                                spacing: 0px;
-                                HorizontalLayout {
-                                    spacing: 20px;
-                                    Avatar {
-                                        label: root.ct-initials;
-                                        tint: Theme.accent;
-                                        width: 88px;
-                                        height: 88px;
-                                        background: Theme.sel;
-                                        TouchArea { pointer-event(ev) => { if ev.button == PointerEventButton.right && ev.kind == PointerEventKind.up { root.ctx("contact", root.ct-id, self.absolute-position.x + self.mouse-x, self.absolute-position.y + self.mouse-y); } } }
-                                    }
-                                    VerticalLayout {
-                                        alignment: center;
-                                        spacing: 2px;
-                                        Text { text: root.ct-name == "" ? "(no name)" : root.ct-name; color: Theme.text; font-size: 28px * Prefs.fs; font-weight: 800; letter-spacing: -0.56px; wrap: word-wrap; }
-                                        if root.ct-title != "" || root.ct-company != "": Text { text: root.ct-title + (root.ct-title != "" && root.ct-company != "" ? " · " : "") + root.ct-company; color: Theme.dim; font-size: 14px * Prefs.fs; wrap: word-wrap; }
-                                    }
-                                }
-                                Rectangle { height: 18px; }
-                                HorizontalLayout {
-                                    alignment: start;
-                                    spacing: 8px;
-                                    PeopleBtn { text: "Email"; primary: true; enabled: root.ct-emails != ""; clicked => { root.ct-email(); } }
-                                    PeopleBtn { text: "Edit"; clicked => { root.ct-editing = true; } }
-                                    PeopleBtn { text: "Delete"; clicked => { root.ct-delete(); } }
-                                }
-                                Rectangle { height: 18px; }
-                                Rectangle { height: 1px; background: Theme.line; }
-                                Rectangle { height: 18px; }
-                                for f in [{l: "Email", v: root.ct-emails}, {l: "Phone", v: root.ct-phones}, {l: "Address", v: root.ct-address}, {l: "Birthday", v: root.ct-birthday}, {l: "Notes", v: root.ct-notes}]: VerticalLayout {
-                                    if f.v != "": HorizontalLayout {
-                                        spacing: 16px;
-                                        padding-bottom: 14px;
-                                        Text { text: f.l; color: Theme.dim; width: 96px; font-size: 13px * Prefs.fs; }
-                                        Text { text: f.v; color: Theme.text; font-size: 14px * Prefs.fs; wrap: word-wrap; horizontal-stretch: 1; }
-                                    }
-                                }
-                            }
-                        }
-                        Rectangle { width: 1px; background: Theme.line; }
-                        Flickable {
-                            width: 260px;
-                            content-height: max(self.height, nctx.preferred-height);
-                            nctx := VerticalLayout {
-                                alignment: start;
-                                padding-top: 30px;
-                                padding-bottom: 30px;
-                                padding-left: 22px;
-                                padding-right: 22px;
-                                spacing: 10px;
-                                Text { text: "Next meeting"; color: Theme.dim; font-size: 12px * Prefs.fs; font-weight: 700; }
-                                if root.cx-next != "": VerticalLayout {
-                                    spacing: 2px;
-                                    Text { text: root.cx-next-title; color: Theme.text; font-size: 15px * Prefs.fs; font-weight: 700; wrap: word-wrap; }
-                                    Text { text: root.cx-next; color: Theme.dim; font-size: 13px * Prefs.fs; }
-                                }
-                                if root.cx-next == "": Text { text: "Nothing planned together"; color: Theme.faint; font-size: 13px * Prefs.fs; }
-                                Rectangle { height: 7px; Rectangle { y: 6px; height: 1px; background: Theme.line; } }
-                                Text { text: "Recent mail"; color: Theme.dim; font-size: 12px * Prefs.fs; font-weight: 700; }
-                                for r in root.cx-recent: PeopleLine {
-                                    label: r.label;
-                                    value: r.value;
-                                    clicked => { root.show-settings = false; root.app = 0; root.app-changed(0); root.current-mail = r.tone; root.open-mail(r.tone); }
-                                }
-                                if root.cx-recent.length == 0: Text { text: root.ct-emails == "" ? "No email address" : "No mail from this contact"; color: Theme.faint; font-size: 13px * Prefs.fs; wrap: word-wrap; }
-                                if root.cx-files.length > 0: Rectangle { height: 7px; Rectangle { y: 6px; height: 1px; background: Theme.line; } }
-                                if root.cx-files.length > 0: Text { text: "Shared files"; color: Theme.dim; font-size: 12px * Prefs.fs; font-weight: 700; }
-                                for r in root.cx-files: PeopleLine {
-                                    label: r.label;
-                                    icon: Icons.clip;
-                                    clicked => { root.show-settings = false; root.app = 0; root.app-changed(0); root.current-mail = r.tone; root.open-mail(r.tone); }
-                                }
-                            }
-                        }
+                    // a contact: photo or initials, typed entries, actions (src/contacts_x.rs, ui/pim-contacts.slint)
+                    if root.ct-id != "" && !root.ct-editing: ContactCardView {
+                        name: root.ct-name;
+                        initials: root.ct-initials;
+                        can-email: root.ct-emails != "";
+                        write-email => { root.ct-email(); }
+                        edit => { root.ct-editing = true; }
+                        delete => { root.ct-delete(); }
                     }
 
                     // a group: name, member count, members
@@ -4804,45 +4943,8 @@ export component AppWindow inherits Window {
                     }
 
                     // the editor (new or existing contact)
-                    if root.ct-editing: Tile {
-                        flat: Theme.nordic;
-                        border-radius: Theme.nordic ? 0px : Theme.r-pane;
-                        Flickable {
-                            content-height: max(self.height, edl.preferred-height);
-                            edl := VerticalLayout {
-                                alignment: start;
-                                padding-top: Theme.nordic ? 30px : 24px;
-                                padding-bottom: 24px;
-                                padding-left: Theme.nordic ? 44px : 26px;
-                                padding-right: Theme.nordic ? 44px : 26px;
-                                spacing: 14px;
-                                Text { text: root.ct-id == "" ? "New contact" : "Edit contact"; color: Theme.text; font-size: (Theme.nordic ? 28px : 24px) * Prefs.fs; font-weight: Theme.nordic ? 800 : 700; letter-spacing: -0.4px; }
-                                PeopleField { label: "Full name"; placeholder: "Name"; text <=> root.ct-name; }
-                                HorizontalLayout {
-                                    spacing: 12px;
-                                    PeopleField { label: "Email"; placeholder: "Comma separated"; text <=> root.ct-emails; horizontal-stretch: 1; }
-                                    PeopleField { label: "Phone"; placeholder: "Comma separated"; text <=> root.ct-phones; horizontal-stretch: 1; }
-                                }
-                                HorizontalLayout {
-                                    spacing: 12px;
-                                    PeopleField { label: "Company"; placeholder: "Organisation"; text <=> root.ct-company; }
-                                    PeopleField { label: "Job title"; placeholder: "Title"; text <=> root.ct-title; }
-                                }
-                                HorizontalLayout {
-                                    spacing: 12px;
-                                    PeopleField { label: "Address"; placeholder: "Street, city"; text <=> root.ct-address; horizontal-stretch: 2; }
-                                    PeopleField { label: "Birthday"; placeholder: "YYYY-MM-DD"; text <=> root.ct-birthday; horizontal-stretch: 1; }
-                                }
-                                PeopleField { label: "Notes"; placeholder: "Anything worth remembering"; multi: true; text <=> root.ct-notes; }
-                                HorizontalLayout {
-                                    spacing: 8px;
-                                    Text { text: root.ct-status; color: Theme.accent; font-size: 13px * Prefs.fs; vertical-alignment: center; horizontal-stretch: 1; wrap: word-wrap; }
-                                    PeopleBtn { text: "Cancel"; clicked => { root.ct-editing = false; root.ct-select(root.ct-id); } }
-                                    PeopleBtn { text: "Save"; primary: true; clicked => { root.ct-save(); } }
-                                }
-                            }
-                        }
-                    }
+                    if root.ct-editing: ContactEditor { }
+                    if root.ct-filter == "dupes:" && !root.ct-editing && root.ct-id == "": ContactDupes { }
                 }
             }
             }
@@ -5025,16 +5127,29 @@ export component AppWindow inherits Window {
                                 Rectangle {
                                     height: (Prefs.large-targets ? 56px : 52px) * Prefs.fs;
                                     border-radius: Theme.nordic ? self.height / 2 : 16px;
-                                    background: fra.has-hover || CtxHl.id == "file:" + f.id ? Theme.tile2 : transparent;
+                                    background: Pd.file-sel == f.id ? Theme.sel : fra.has-hover || CtxHl.id == "file:" + f.id ? Theme.tile2 : transparent;
                                     border-width: CtxHl.id == "file:" + f.id ? 1px : 0px;
                                     border-color: Theme.accent;
                                     opacity: f.cut ? 0.5 : 1;
+                                    // drag and drop (src/dnd.rs): a row drags; a folder row takes drops
+                                    property <bool> dragging;
+                                    property <bool> dnd-over: f.folder && !f.trashed && Pd.dnd-active && Pd.dnd-kind == "file" && Pd.dnd-id != f.id && Pd.dnd-x >= self.absolute-position.x && Pd.dnd-x < self.absolute-position.x + self.width && Pd.dnd-y >= self.absolute-position.y && Pd.dnd-y < self.absolute-position.y + self.height;
+                                    changed dnd-over => { if self.dnd-over { Pd.dnd-target = "file:" + f.id; } else if Pd.dnd-target == "file:" + f.id { Pd.dnd-target = ""; } }
+                                    if self.dnd-over: Rectangle { border-width: 1.5px; border-color: Theme.accent; border-radius: parent.border-radius; background: Theme.accent.with-alpha(0.12); }
                                     accessible-role: list-item;
                                     accessible-label: f.name;
                                     accessible-action-default => { root.fl-activate(f.id); }
                                     fra := TouchArea {
                                         double-clicked => { root.fl-activate(f.id); }
-                                        pointer-event(ev) => { if ev.button == PointerEventButton.right && ev.kind == PointerEventKind.up { root.ctx("file", f.id, self.absolute-position.x + self.mouse-x, self.absolute-position.y + self.mouse-y); } }
+                                        clicked => { Pd.file-sel = f.id; }
+                                        moved => {
+                                            if self.pressed && !f.trashed && !parent.dragging && (abs(self.mouse-x - self.pressed-x) > 8px || abs(self.mouse-y - self.pressed-y) > 8px) { parent.dragging = true; Pd.dnd-start("file", f.id); }
+                                            if parent.dragging { Pd.dnd-x = self.absolute-position.x + self.mouse-x; Pd.dnd-y = self.absolute-position.y + self.mouse-y; }
+                                        }
+                                        pointer-event(ev) => {
+                                            if ev.kind == PointerEventKind.down && ev.button == PointerEventButton.left { parent.dragging = false; }
+                                            if ev.kind == PointerEventKind.up && ev.button == PointerEventButton.left && parent.dragging { parent.dragging = false; Pd.dnd-drop(); }
+                                            if ev.button == PointerEventButton.right && ev.kind == PointerEventKind.up { root.ctx("file", f.id, self.absolute-position.x + self.mouse-x, self.absolute-position.y + self.mouse-y); } }
                                     }
                                     HorizontalLayout {
                                         padding-left: 12px;
@@ -5386,54 +5501,23 @@ export component AppWindow inherits Window {
         }
     }
 
-    // event editor: a tile-coloured dialog in the calendar's language (radius 24 Bento / 28 Nordic)
-    if root.ev-open: Rectangle {
-        background: #000000a0;
-        TouchArea { }
-        Rectangle {
-            width: min(520px, parent.width - 40px);
-            height: evl.preferred-height;
-            background: Theme.tile;
-            border-radius: Theme.nordic ? 28px : 24px;
-            border-width: 1px;
-            border-color: Theme.line;
-            drop-shadow-blur: 24px;
-            drop-shadow-color: #00000066;
-            evl := VerticalLayout {
-                padding: Theme.nordic ? 26px : 22px;
-                spacing: 10px;
-                Text { text: root.ev-id == "" ? "New event" : "Edit event"; color: Theme.text; font-size: (Theme.nordic ? 22px : 19px) * Prefs.fs; font-weight: Theme.nordic ? 800 : 700; }
-                Rectangle { height: 2px; }
-                LineEdit { placeholder-text: "Title"; text <=> root.ev-title; }
-                HorizontalLayout {
-                    spacing: 8px;
-                    LineEdit { placeholder-text: "YYYY-MM-DD"; text <=> root.ev-date; }
-                    if !root.ev-all-day: LineEdit { placeholder-text: "Start HH:MM"; width: 100px; text <=> root.ev-start; }
-                    if !root.ev-all-day: LineEdit { placeholder-text: "End HH:MM"; width: 100px; text <=> root.ev-end; }
-                }
-                CheckBox { text: "All day"; checked <=> root.ev-all-day; }
-                HorizontalLayout {
-                    spacing: 8px;
-                    Text { text: "Repeat"; color: Theme.dim; font-size: 12px * Prefs.fs; font-weight: 700; vertical-alignment: center; width: 76px; }
-                    ComboBox { model: ["Does not repeat", "Every day", "Every week", "Every month", "Every year"]; current-index <=> root.ev-repeat; }
-                }
-                HorizontalLayout {
-                    spacing: 8px;
-                    Text { text: "Calendar"; color: Theme.dim; font-size: 12px * Prefs.fs; font-weight: 700; vertical-alignment: center; width: 76px; }
-                    ComboBox { model: root.ev-calendars; current-index <=> root.ev-calendar; }
-                }
-                LineEdit { placeholder-text: "Location"; text <=> root.ev-location; }
-                TextEdit { height: 90px; text <=> root.ev-description; wrap: word-wrap; }
-                Rectangle { height: 4px; }
-                HorizontalLayout {
-                    spacing: 8px;
-                    Text { text: root.ev-status; color: Theme.accent; vertical-alignment: center; horizontal-stretch: 1; overflow: elide; }
-                    if root.ev-id != "": ActionButton { icon: Icons.trash; label: "Delete"; clicked => { root.ev-delete(); } }
-                    ActionButton { label: "Cancel"; clicked => { root.ev-open = false; } }
-                    VerticalLayout { alignment: center; PrimaryButton { text: "Save"; height: Prefs.large-targets ? 44px : (Theme.nordic ? 38px : 34px); clicked => { root.ev-save(); } } }
-                }
-            }
-        }
+    CalOverlays {
+        pal: root.cal-pal;
+        ev-open <=> root.ev-open;
+        ev-id: root.ev-id;
+        ev-title <=> root.ev-title;
+        ev-date <=> root.ev-date;
+        ev-start <=> root.ev-start;
+        ev-end <=> root.ev-end;
+        ev-all-day <=> root.ev-all-day;
+        ev-location <=> root.ev-location;
+        ev-description <=> root.ev-description;
+        ev-repeat <=> root.ev-repeat;
+        ev-calendar <=> root.ev-calendar;
+        ev-calendars: root.ev-calendars;
+        ev-status: root.ev-status;
+        ev-save => { root.ev-save(); }
+        ev-delete => { root.ev-delete(); }
     }
 
     // calendar event hover preview (Bulwark calendarHoverPreview), drawn as a popup with the event's tint
@@ -5472,7 +5556,8 @@ export component AppWindow inherits Window {
 
     if root.toast != "": Rectangle {
         x: (parent.width - self.width) / 2;
-        y: parent.height - 68px;
+        // the quick-reply bar under an open message: the toast (Undo send) sits above it
+        y: parent.height - 68px - (root.logged-in && root.app == 0 && root.current-mail != "" && root.pref-quick-reply && !root.composing && !root.show-settings ? 60px : 0px);
         width: tl.preferred-width;
         height: 44px;
         border-radius: Theme.nordic ? 22px : 16px;
@@ -5501,6 +5586,9 @@ export component AppWindow inherits Window {
             VerticalLayout { alignment: center; HoverAction { icon: Icons.close; clicked => { root.toast = ""; } } }
         }
     }
+
+    // distribution: "Barbican x.y is ready" (src/desktop.rs, ui/update-banner.slint)
+    UpdateBanner { x: 56px; y: parent.height - self.height - 16px; dark: Theme.dark; tile: Theme.popup; line: Theme.line; text: Theme.text; dim: Theme.dim; }
 
     if show-settings: Rectangle {
         x: Theme.shell-x;
@@ -5667,7 +5755,8 @@ export component AppWindow inherits Window {
                                 edited(t) => { root.settings-set-text(r.key, t); }
                             }
                             if r.kind == "textarea" && r.desc != "": Text { text: r.desc; color: Theme.dim; font-size: 11px; wrap: word-wrap; }
-                            if r.kind != "section" && r.kind != "textarea": HorizontalLayout {
+                            if r.kind == "rule": FilterRuleRow { key: r.key; label: r.label; desc: r.desc; on: r.on; toggled(on) => { root.settings-set-toggle("server.rule.toggle:" + r.key, on); } }
+                            if r.kind != "section" && r.kind != "textarea" && r.kind != "rule": HorizontalLayout {
                                 spacing: 16px;
                                 VerticalLayout {
                                     alignment: center;
@@ -5733,6 +5822,20 @@ export component AppWindow inherits Window {
             }
         }
     }
+    // ---- productivity overlays (productivity.slint) ----
+    if root.logged-in && Pd.search-focus && !Pd.sugg-hidden && Pd.sugg-rows.length > 0 && root.app == 0 && !root.show-settings && !root.composing: SearchSuggest {
+        t: root.ptok;
+        x: search-box.absolute-position.x - 30px;
+        y: search-box.absolute-position.y + search-box.height + 12px;
+        width: max(search-box.width + 60px, 280px);
+    }
+    if Pd.dnd-active: DragGhost { t: root.ptok; }
+    if Pd.palette-open: CommandPalette { t: root.ptok; x: 0; y: 0; width: root.width; height: root.height; }
+    if Pd.keys-open: ShortcutsSheet { t: root.ptok; x: 0; y: 0; width: root.width; height: root.height; }
+
+    if CtX.import-open: ContactImportDialog { }
+    if FilterX.open: FilterRuleEditor { }
+    if FilterX.retro-open: FilterRetroDialog { }
     ctx-popup := PopupWindow {
         close-policy: no-auto-close;
         x: 0; y: 0;
@@ -5778,4 +5881,6 @@ export component AppWindow inherits Window {
             picked(a) => { root.ctx-pick(a); root.ctx-close(); }
         }
     }
+    // schedule send / reschedule (src/schedule.rs), over everything
+    if CompX.sched-open: ScheduleDialog { x: 0; y: 0; width: root.width; height: root.height; }
 }

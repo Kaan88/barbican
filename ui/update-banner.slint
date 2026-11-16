@@ -1,0 +1,141 @@
+// The update prompt (Bulwark app-update-prompt.tsx / desktop_updates.shell_ready_*):
+// a rounded tile in the bottom-left corner, over the folder column so the email view
+// (a native child window) never covers it. Mint = done/ready, amber = attention
+// (design/README.md). Colours come in from Theme so light and dark follow the app.
+
+export global UpdateState {
+    // 0 hidden, 1 ready to install, 2 available (this install can't update itself)
+    in-out property <int> mode: 0;
+    in-out property <string> version;
+    in-out property <string> detail;
+    callback restart();
+    callback later();
+    callback download();
+    callback dismiss();
+}
+
+component BannerButton inherits Rectangle {
+    in property <string> label;
+    in property <bool> primary;
+    in property <color> fill;
+    in property <color> ink;
+    in property <color> line;
+    callback clicked;
+    height: 30px;
+    width: t.preferred-width + 24px;
+    border-radius: 15px;
+    background: primary ? fill : (ta.has-hover ? line : transparent);
+    border-width: primary ? 0px : 1px;
+    border-color: line;
+    accessible-role: button;
+    accessible-label: label;
+    accessible-action-default => { root.clicked(); }
+    t := Text { text: root.label; color: root.ink; font-size: 12px; font-weight: 600; font-family: "Segoe UI"; }
+    ta := TouchArea { mouse-cursor: pointer; clicked => { root.clicked(); } }
+}
+
+export component UpdateBanner inherits Rectangle {
+    in property <bool> dark: true;
+    in property <color> tile;
+    in property <color> line;
+    in property <color> text;
+    in property <color> dim;
+    // design tokens: mint (ready) and amber (attention) tints
+    property <color> tint-bg: UpdateState.mode == 1 ? (dark ? rgba(52, 211, 153, 0.13) : #dcf5e8) : (dark ? rgba(251, 191, 36, 0.13) : #fdf1d3);
+    property <color> tint-fg: UpdateState.mode == 1 ? (dark ? #86efc4 : #17603f) : (dark ? #fcd679 : #7a4a06);
+    visible: UpdateState.mode != 0;
+    width: 300px;
+    height: col.preferred-height;
+    border-radius: 24px;
+    background: tile;
+    border-width: 1px;
+    border-color: line;
+    drop-shadow-blur: 16px;
+    drop-shadow-color: dark ? #00000080 : #0000001f;
+    drop-shadow-offset-y: 4px;
+    accessible-role: groupbox;
+    accessible-label: UpdateState.mode == 1 ? "Barbican " + UpdateState.version + " is ready to install" : "Barbican " + UpdateState.version + " is available";
+    // swallow clicks so they don't reach the list underneath
+    TouchArea { }
+    col := VerticalLayout {
+        padding: 16px;
+        spacing: 12px;
+        HorizontalLayout {
+            spacing: 12px;
+            Rectangle {
+                width: 36px;
+                height: 36px;
+                border-radius: 12px;
+                background: root.tint-bg;
+                // arrow into a tray (stroke icon, 1.7px)
+                Path {
+                    width: 18px;
+                    height: 18px;
+                    viewbox-width: 24;
+                    viewbox-height: 24;
+                    stroke: root.tint-fg;
+                    stroke-width: 1.7px;
+                    commands: "M12 4v10 M7.5 9.5 12 14l4.5-4.5 M5 16v3h14v-3";
+                }
+            }
+            VerticalLayout {
+                alignment: center;
+                spacing: 2px;
+                Text {
+                    text: UpdateState.mode == 1 ? "Barbican " + UpdateState.version + " is ready" : "Barbican " + UpdateState.version + " is available";
+                    color: root.text;
+                    font-size: 13px;
+                    font-weight: 600;
+                    font-family: "Segoe UI";
+                    wrap: word-wrap;
+                }
+                Text { text: UpdateState.detail; color: root.dim; font-size: 12px; font-family: "Segoe UI"; wrap: word-wrap; }
+            }
+            Rectangle {
+                width: 24px;
+                height: 24px;
+                border-radius: 12px;
+                background: close-ta.has-hover ? root.line : transparent;
+                accessible-role: button;
+                accessible-label: "Close";
+                accessible-action-default => { UpdateState.dismiss(); }
+                Path {
+                    width: 10px;
+                    height: 10px;
+                    viewbox-width: 10;
+                    viewbox-height: 10;
+                    stroke: root.dim;
+                    stroke-width: 1.6px;
+                    commands: "M1 1 9 9 M9 1 1 9";
+                }
+                close-ta := TouchArea { mouse-cursor: pointer; clicked => { UpdateState.dismiss(); } }
+            }
+        }
+        HorizontalLayout {
+            alignment: end;
+            spacing: 8px;
+            if UpdateState.mode == 1: BannerButton {
+                label: "Install next time";
+                ink: root.text;
+                line: root.line;
+                clicked => { UpdateState.later(); }
+            }
+            if UpdateState.mode == 1: BannerButton {
+                label: "Restart now";
+                primary: true;
+                fill: root.tint-fg;
+                ink: root.dark ? #0a0a0a : #ffffff;
+                line: root.line;
+                clicked => { UpdateState.restart(); }
+            }
+            if UpdateState.mode == 2: BannerButton {
+                label: "Download";
+                primary: true;
+                fill: root.tint-fg;
+                ink: root.dark ? #0a0a0a : #ffffff;
+                line: root.line;
+                clicked => { UpdateState.download(); }
+            }
+        }
+    }
+}

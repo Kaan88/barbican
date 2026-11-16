@@ -77,6 +77,7 @@ const G_UPLOAD: &str = "\u{E898}";
 const G_SETTINGS: &str = "\u{E713}";
 const G_MAYBE: &str = "\u{E9CE}";
 const G_CANCEL: &str = "\u{E711}";
+const G_CLOCK: &str = "\u{E823}";
 const G_COLOR: &str = "\u{E790}";
 const G_UP: &str = "\u{E74A}";
 const G_DOWN: &str = "\u{E74B}";
@@ -175,12 +176,18 @@ pub fn request(u: &AppWindow, kind: &str, id: &str) {
                 ]
             }
         }
-        "att" => vec![
-            it(G_OPEN, "Open", "", "open"),
-            it(G_DOWNLOAD, "Save as…", "", "save"),
-            sep(),
-            it(G_COPY, "Copy file name", "", "copy-name"),
-        ],
+        "att" => {
+            let mut v = vec![
+                it(G_OPEN, "Open", "", "open"),
+                it(G_DOWNLOAD, "Save as…", "", "save"),
+            ];
+            // reader extras: open an attached message, Save to Files, Download all (.zip)
+            v.extend(crate::reader::att_items(id));
+            v.push(sep());
+            v.push(it(G_COPY, "Copy file name", "", "copy-name"));
+            v
+        }
+        "reader" => crate::reader::menu(u),
         "body" => {
             let mut v = vec![];
             if id == "plain" {
@@ -234,12 +241,24 @@ pub fn request(u: &AppWindow, kind: &str, id: &str) {
                 folder_items(u, &fid)
             }
         }
-        "tag" => vec![
-            it(G_OPEN, "Show messages", "", "open"),
-            it(G_READ, "Mark all as read", "", "tag-read"),
-            sep(),
-            it(G_SETTINGS, "Manage tags…", "", "manage"),
-        ],
+        "tag" => {
+            let mut v = vec![
+                it(G_OPEN, "Show messages", "", "open"),
+                it(G_READ, "Mark all as read", "", "tag-read"),
+                sep(),
+                it(G_ADD, "New tag…", "", "new-tag"),
+            ];
+            // nestedTags: a tag inside this one
+            if crate::tags::nested() && crate::tags::valid_id(&format!("{id}/x")) { v.push(it(G_ADD, "New tag inside…", "", "new-subtag")); }
+            v.extend([
+                it(G_RENAME, "Rename…", "", "rename-tag"),
+                sub(G_COLOR, "Colour", "color"),
+                danger(G_DELETE, "Delete tag", "", "ask:delete-tag"),
+                sep(),
+                it(G_SETTINGS, "Manage tags…", "", "manage"),
+            ]);
+            v
+        }
         "list" => vec![
             it(G_REFRESH, "Refresh", "", "refresh"),
             it(G_READ, "Mark folder as read", "", "folder-read"),
@@ -489,6 +508,15 @@ fn mail_items(u: &AppWindow, t: &Target) -> Vec<CtxItem> {
     let junk = mail::mailbox_role(&u.get_current_folder()) == "junk";
     let mut v = vec![];
     if n > 1 { v.push(header(&format!("{n} selected"))); }
+    // Scheduled view (Bulwark message-actions.ts): reschedule, cancel and edit, cancel send
+    if u.get_current_folder() == "__scheduled" && first.as_ref().is_some_and(|m| m["submissionId"].is_string()) {
+        v.extend([
+            off(it(G_CLOCK, "Reschedule", "", "sched:reschedule"), n == 1),
+            off(it(G_EDIT, "Cancel and edit", "", "sched:edit"), n == 1),
+            off(danger(G_CANCEL, "Cancel send", "", "sched:cancel"), n == 1),
+            sep(),
+        ]);
+    }
     v.extend([
         off(it(G_REPLY, "Reply", "R", "reply"), n == 1),
         off(it(G_REPLY_ALL, "Reply all", "Shift+R", "reply-all"), n == 1),
@@ -519,6 +547,8 @@ fn folder_items(u: &AppWindow, id: &str) -> Vec<CtxItem> {
         sep(),
         it(G_NEW_FOLDER, "New subfolder", "", "new-sub"),
         off(it(G_RENAME, "Rename", "", "rename"), role.is_empty()),
+        // Bulwark mail import: .eml and .mbox files into this folder (Email/import)
+        it(G_UPLOAD, "Import messages (.eml, .mbox)…", "", "import"),
     ];
     if role == "trash" || role == "junk" {
         v.push(sep());
@@ -559,11 +589,14 @@ fn submenu(u: &AppWindow, t: &Target, which: &str) -> Vec<CtxItem> {
                 off(it(G_OPEN, "Open", "Enter", "open"), single),
                 off(it(G_PRINT, "Print", "", "print"), single),
                 off(it(G_DOWNLOAD, "Download (.eml)", "", "eml"), single),
+                off(it("\u{E943}", "View source", "", "rx:source"), single),
+                off(it(G_FORWARD, "Forward as attachment", "", "rx:fwd-att"), single),
                 sep(),
                 off(it(G_COPY, "Copy sender address", "", "copy-sender"), single),
                 off(it(G_SEARCH, "Find emails from sender", "", "find-from"), single),
             ]);
         }
+        r if r.starts_with("rx-") => v = crate::reader::submenu(u, r, &t.id),
         "file-move" => {
             for (k, label) in files::move_targets(&t.id) {
                 v.push(it(if k.is_empty() { G_HOME } else { G_FOLDER }, &label, "", &format!("moveto:{k}")));
@@ -607,6 +640,15 @@ fn submenu(u: &AppWindow, t: &Target, which: &str) -> Vec<CtxItem> {
             v.push(it(G_UNREAD, "To", "", "email:to"));
             v.push(it(G_UNREAD, "Cc", "", "email:cc"));
             v.push(it(G_UNREAD, "Bcc", "", "email:bcc"));
+        }
+        "color" if t.kind == "tag" => {
+            let cur = crate::tags::defs().into_iter().find(|d| d.id == t.id).map(|d| d.color);
+            for name in crate::tags::PALETTE {
+                let mut i = it("", &format!("{}{}", name[..1].to_uppercase(), &name[1..]), "", &format!("color:{name}"));
+                i.color = slint::Color::from_argb_encoded(0xff000000 | crate::tags::color_rgb(name));
+                i.checked = cur.as_deref() == Some(name);
+                v.push(i);
+            }
         }
         "color" => {
             let cur = if t.kind == "cal" { calendar::calendar_color(&t.id) } else { coll_color(u, &t.id) };
@@ -688,7 +730,8 @@ fn mark_read_query(u: &AppWindow, c: Arc<jmap::Client>, filter: Value) {
             let msg = match res { Ok(n) => format!("Marked {n} as read"), Err(e) => format!("Could not mark as read: {e}") };
             mail::show_toast(&u, &msg, false);
             mail::load_mailboxes(w2.clone(), c.clone(), false);
-            mail::reload(w2, c);
+            // only what changed (Email/queryChanges + Email/changes), not the whole list
+            mail::sync(w2, c);
         });
     });
 }
@@ -702,10 +745,35 @@ fn mailbox_op(u: &AppWindow, c: Arc<jmap::Client>, done: &'static str, f: impl F
         let _ = w.upgrade_in_event_loop(move |u| {
             mail::show_toast(&u, &match res { Ok(s) if s.is_empty() => done.to_string(), Ok(s) => s, Err(e) => e }, false);
             mail::load_mailboxes(w2.clone(), c.clone(), false);
-            mail::reload(w2, c);
+            // the delta sync falls back to a full reload when the list's states are gone
+            // (a deleted folder that was on screen)
+            mail::sync(w2, c);
             if u.get_show_settings() && u.get_settings_tab() == "organize" { u.invoke_settings_open_tab("organize".into()); }
         });
     });
+}
+
+/// "New tag" (or a tag inside `parent`, with nestedTags).
+pub fn new_tag_prompt(u: &AppWindow, parent: Option<&str>) {
+    let title = match parent.and_then(|p| crate::tags::defs().into_iter().find(|d| d.id == p)) {
+        Some(p) => format!("New tag inside {}", p.label),
+        None => "New tag".to_string(),
+    };
+    prompt(u, &title, "", "new-tag", parent.unwrap_or(""));
+}
+
+/// Change the user's tags, save them and redraw the tag list and the rows' colours.
+fn edit_tags(u: &AppWindow, f: impl FnOnce(&mut Vec<crate::tags::TagDef>) -> Result<String, String>) {
+    let mut defs = crate::tags::defs();
+    match f(&mut defs) {
+        Ok(msg) => {
+            crate::tags::save(&defs);
+            mail::rebuild_tags(u);
+            mail::rebuild_list(u);
+            if !msg.is_empty() { mail::show_toast(u, &msg, false); }
+        }
+        Err(e) => mail::show_toast(u, &e, false),
+    }
 }
 
 fn prompt(u: &AppWindow, title: &str, text: &str, action: &str, id: &str) {
@@ -719,6 +787,14 @@ pub fn prompt_ok(u: &AppWindow, st: &Shared, text: &str) {
     let Some((action, id)) = PROMPT.with(|p| p.borrow_mut().take()) else { return };
     let name = text.trim().to_string();
     if name.is_empty() { return; }
+    match action.as_str() {
+        "new-tag" => {
+            let parent = (!id.is_empty()).then_some(id.as_str());
+            return edit_tags(u, |d| crate::tags::add(d, parent, &name).map(|_| "Tag created".to_string()));
+        }
+        "rename-tag" => return edit_tags(u, |d| crate::tags::rename(d, &id, &name).map(|_| String::new())),
+        _ => {}
+    }
     let Some(c) = client(st) else { return };
     match action.as_str() {
         "new-sub" => mailbox_op(u, c, "Folder created", move |c| c.create_mailbox(&name, Some(&id)).map(|_| String::new())),
@@ -756,6 +832,7 @@ pub fn pick(u: &AppWindow, st: &Shared, action: &str) {
             ("calset", _) => "Delete calendar and its events",
             ("bookset", _) | ("ct-book", _) => "Delete address book and its contacts",
             ("group", _) => "Delete group",
+            ("tag", _) => "Delete this tag (messages keep it)",
             ("mail", _) => "Delete selected messages",
             _ => "Delete",
         };
@@ -767,7 +844,12 @@ pub fn pick(u: &AppWindow, st: &Shared, action: &str) {
     let id = t.id.as_str();
     match t.kind.as_str() {
         "mail" | "thread" => match action {
+            s if s.starts_with("sched:") => {
+                let Some(c) = crate::client_for(st, id) else { return };
+                crate::schedule::action(u, c, id, &s[6..]);
+            }
             "reply" | "reply-all" | "forward" | "print" => on_open_mail(u, id, action),
+            a if a.starts_with("rx:") => on_open_mail(u, id, a),
             "open" => on_open_mail(u, id, ""),
             "eml" => {
                 let Some(c) = crate::client_for(st, id) else { return };
@@ -812,6 +894,8 @@ pub fn pick(u: &AppWindow, st: &Shared, action: &str) {
             }
             _ => {}
         },
+        "reader" => crate::reader::pick(u, st, action, id),
+        "att" if action.starts_with("rx") => crate::reader::pick(u, st, action, id),
         "att" => {
             let i: i32 = id.parse().unwrap_or(0);
             match action {
@@ -842,6 +926,7 @@ pub fn pick(u: &AppWindow, st: &Shared, action: &str) {
                 "folder-read" => mark_read_query(u, c, json!({"inMailbox": fid, "notKeyword": "$seen"})),
                 "refresh" => u.invoke_refresh(),
                 "new-sub" => prompt(u, "New subfolder", "", "new-sub", id),
+                "import" => crate::mailimport::start(u, c, &fid),
                 "rename" => prompt(u, "Rename folder", &folder(u, id).map(|f| f.name.to_string()).unwrap_or_default(), "rename-folder", id),
                 "empty" => mailbox_op(u, c, "Folder emptied", move |c| c.empty_mailbox(&fid).map(|n| format!("Deleted {n} messages"))),
                 "delete" => mailbox_op(u, c, "Folder deleted", move |c| c.delete_mailbox(&fid).map(|_| String::new())),
@@ -852,6 +937,14 @@ pub fn pick(u: &AppWindow, st: &Shared, action: &str) {
             "open" => { u.set_current_tag(id.into()); u.invoke_select_tag(id.into()); }
             "tag-read" => { if let Some(c) = client(st) { mark_read_query(u, c, json!({"hasKeyword": format!("$label:{id}"), "notKeyword": "$seen"})); } }
             "manage" => { u.set_settings_tab("organize".into()); u.invoke_open_settings(); }
+            "new-tag" => new_tag_prompt(u, None),
+            "new-subtag" => new_tag_prompt(u, Some(id)),
+            "rename-tag" => {
+                let label = crate::tags::defs().into_iter().find(|d| d.id == id).map(|d| d.label).unwrap_or_default();
+                prompt(u, "Rename tag", &label, "rename-tag", id);
+            }
+            "delete-tag" => edit_tags(u, |d| crate::tags::remove(d, id).map(|_| "Tag deleted".to_string())),
+            a if a.starts_with("color:") => { let c = a[6..].to_string(); edit_tags(u, |d| { crate::tags::set_color(d, id, &c); Ok(String::new()) }); }
             _ => {}
         },
         "list" => match action {
@@ -913,7 +1006,7 @@ pub fn pick(u: &AppWindow, st: &Shared, action: &str) {
                 "rename" => prompt(u, "Rename calendar", &name, "rename-cal", id),
                 "default" => { let cid = id.to_string(); coll_op(u, st, "Default changed", move |c| crate::server_settings::default_collection(c, false, &cid)); }
                 "delete" => calendar::set_call(u, c, "Calendar/set", json!({"destroy": [id], "onDestroyRemoveEvents": true}), "Calendar not deleted"),
-                a if a.starts_with("color:") => calendar::set_call(u, c, "Calendar/set", json!({"update": {id: {"color": &a[6..]}}}), "Colour not changed"),
+                a if a.starts_with("color:") => calendar::set_color(u, c, id, &a[6..]),
                 _ => {}
             }
         }

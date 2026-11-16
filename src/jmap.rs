@@ -842,10 +842,11 @@ impl Client {
         let mut kw = json!({"$seen": true});
         if draft { kw["$draft"] = json!(true); }
         for k in o.keywords.iter().filter(|k| valid_keyword(k)) { kw[k.to_lowercase().as_str()] = json!(true); }
+        let from = header_from(o, ident, &self.username);
         let mut email = json!({
             "mailboxIds": { mailbox: true },
             "keywords": kw,
-            "from": [{"name": ident["name"], "email": ident["email"]}],
+            "from": [from.clone()],
             "to": addrs(&o.to), "subject": o.subject,
         });
         if !o.cc.trim().is_empty() { email["cc"] = json!(addrs(&o.cc)); }
@@ -853,7 +854,7 @@ impl Client {
         if let Some(rt) = ident["replyTo"].as_array().filter(|a| !a.is_empty()) { email["replyTo"] = json!(rt); }
         if !o.in_reply_to.is_empty() { email["inReplyTo"] = json!(o.in_reply_to); }
         if !o.references.is_empty() { email["references"] = json!(o.references); }
-        if o.read_receipt { email["header:Disposition-Notification-To:asAddresses"] = json!([{"email": ident["email"]}]); }
+        if o.read_receipt { email["header:Disposition-Notification-To:asAddresses"] = json!([{"email": from["email"]}]); }
         let mut values = json!({"t": {"value": o.text}});
         let text_part = json!({"partId": "t", "type": "text/plain"});
         let body = if let Some(html) = &o.html {
@@ -882,17 +883,20 @@ impl Client {
         Ok(email)
     }
 
-    fn pick_identity(&self, from: &str) -> R<Value> {
+    /// The identity a message goes out through. With a From override (Bulwark
+    /// sendEmail): an identity whose address is the override itself, else the composer's
+    /// identity `from`, else one covering the override as a wildcard (`*@domain`, RFC 8621 §6).
+    fn pick_identity_for(&self, from: &str, from_override: Option<&str>) -> R<Value> {
         let ids = self.identities()?;
-        let f = from.trim().to_lowercase();
-        ids.iter().find(|i| !f.is_empty() && i["email"].as_str().is_some_and(|e| e.to_lowercase() == f))
-            .or_else(|| ids.iter().find(|i| i["id"].as_str() == Some(from)))
-            .or(ids.first()).cloned().ok_or_else(|| "No sending identity on this account.".into())
+        choose_identity(&ids, from, from_override).cloned().ok_or_else(|| match from_override.filter(|o| o.contains('@')) {
+            Some(o) => format!("No identity of this account may send as {}.", o.trim()),
+            None => "No sending identity on this account.".into(),
+        })
     }
 
     /// Save or replace a draft. Returns the new draft id.
     pub fn save_draft(&self, o: &Outgoing, replace: Option<&str>) -> R<String> {
-        let ident = self.pick_identity(&o.from)?;
+        let ident = self.pick_identity_for(&o.from, o.from_override.as_ref().map(|f| f.1.as_str()))?;
         let roles = self.role_ids()?;
         let drafts = roles.get("drafts").ok_or("No Drafts folder.")?;
         let email = self.build_email(o, &ident, drafts, true)?;
@@ -908,33 +912,40 @@ impl Client {
         if parse_addresses(&o.to).is_empty() && parse_addresses(&o.cc).is_empty() && parse_addresses(&o.bcc).is_empty() {
             return Err("Add at least one recipient.".into());
         }
-        let ident = self.pick_identity(&o.from)?;
+        let ident = self.pick_identity_for(&o.from, o.from_override.as_ref().map(|f| f.1.as_str()))?;
         let ident_id = ident["id"].as_str().unwrap_or("").to_string();
         let roles = self.role_ids()?;
         let drafts = roles.get("drafts").ok_or("No Drafts folder.")?.clone();
         let sent = roles.get("sent").ok_or("No Sent folder.")?.clone();
         let email = self.build_email(o, &ident, &drafts, true)?;
         let sub_acc = self.account_for("urn:ietf:params:jmap:submission");
-        let mut sub = json!({"emailId": "#d", "identityId": ident_id});
-        if o.hold_seconds > 0 {
-            let max = self.max_delayed_send();
-            if max > 0 {
-                sub["envelope"] = json!({
-                    "mailFrom": {"email": ident["email"], "parameters": {"HOLDFOR": o.hold_seconds.min(max).to_string()}},
-                    "rcptTo": parse_addresses(&format!("{},{},{}", o.to, o.cc, o.bcc)).iter().map(|a| json!({"email": a["email"]})).collect::<Vec<_>>()
-                });
-            }
-        }
+        let rcpts: Vec<String> = parse_addresses(&format!("{},{},{}", o.to, o.cc, o.bcc)).iter().filter_map(|a| a["email"].as_str().map(String::from)).collect();
+        // HOLDFOR: a scheduled time (Schedule send), else the undo-send delay (RFC 4865 FUTURERELEASE)
+        let max = self.max_delayed_send();
+        let hold: Option<u64> = match o.send_at {
+            Some(at) => Some(scheduled_hold(at, chrono::Utc::now().timestamp_millis(), max)?),
+            None => (o.hold_seconds > 0 && max > 0).then(|| o.hold_seconds.min(max)),
+        };
+        // the MAIL FROM the server derives from the identity, and the one asked for: the From
+        // override, so the Return-Path does not give the identity's address away (Bulwark #1009)
+        let identity_mail_from = header_from(&Outgoing { from_override: None, ..o.clone() }, &ident, &self.username)["email"].as_str().unwrap_or("").to_string();
+        let mail_from = o.from_override.as_ref().map(|f| f.1.trim().to_string()).filter(|e| e.contains('@')).unwrap_or_else(|| identity_mail_from.clone());
+        let submission = |email_id: &str, mail_from: &str| -> Value {
+            let mut sub = json!({"emailId": email_id, "identityId": ident_id});
+            if let Some(env) = submission_envelope(mail_from, &identity_mail_from, hold, &rcpts) { sub["envelope"] = env; }
+            sub
+        };
+        let on_success = json!({"#s": {
+            format!("mailboxIds/{drafts}"): null,
+            format!("mailboxIds/{sent}"): true,
+            "keywords/$draft": null
+        }});
         let mut calls = vec![
             json!(["Email/set", {"accountId": self.account, "create": {"d": email}, "destroy": o.replaces_draft.iter().collect::<Vec<_>>()}, "e"]),
             json!(["EmailSubmission/set", {
                 "accountId": sub_acc,
-                "create": {"s": sub},
-                "onSuccessUpdateEmail": {"#s": {
-                    format!("mailboxIds/{drafts}"): null,
-                    format!("mailboxIds/{sent}"): true,
-                    "keywords/$draft": null
-                }}
+                "create": {"s": submission("#d", &mail_from)},
+                "onSuccessUpdateEmail": on_success
             }, "s"]),
         ];
         if let Some(orig) = &o.answering {
@@ -942,9 +953,104 @@ impl Client {
             calls.push(json!(["Email/set", {"accountId": self.account, "update": { orig: { format!("keywords/{kw}"): true } }}, "a"]));
         }
         let r = self.call(Value::Array(calls))?;
-        created_id(&r[0][1], "d")?;
-        let sid = created_id(&r[1][1], "s")?;
-        Ok((o.hold_seconds > 0).then_some(sid))
+        let draft_copy = created_id(&r[0][1], "d")?;
+        let sid = match created_id(&r[1][1], "s") {
+            Ok(sid) => sid,
+            // a server that only takes the identity's own address as MAIL FROM (RFC 8621
+            // §7.5 forbiddenMailFrom; Stalwart answers forbiddenFrom): the copy in Drafts is
+            // submitted once more with the identity's address (Bulwark sendEmail)
+            Err(_) if mail_from_refused(&r[1][1]["notCreated"]["s"]) && !mail_from.eq_ignore_ascii_case(&identity_mail_from) => {
+                let r2 = self.call(json!([["EmailSubmission/set", {
+                    "accountId": sub_acc,
+                    "create": {"s": submission(&draft_copy, &identity_mail_from)},
+                    "onSuccessUpdateEmail": on_success
+                }, "s"]]))?;
+                created_id(&r2[0][1], "s")?
+            }
+            Err(e) => return Err(e),
+        };
+        Ok(hold.is_some_and(|h| h > 0).then_some(sid))
+    }
+
+    /// Move a scheduled submission to another time (Bulwark rescheduleEmailSubmission): cancel
+    /// the original first (servers may allow one active submission per message), then submit
+    /// the same message again with HOLDFOR for the new time and the original envelope. When
+    /// that fails the original is put back at its old time; when even that fails the message
+    /// goes back to Drafts so it does not sit in Sent looking sent.
+    pub fn reschedule_submission(&self, id: &str, at_ms: i64) -> R<String> {
+        let acc = self.account_for("urn:ietf:params:jmap:submission");
+        let max = self.max_delayed_send();
+        scheduled_hold(at_ms, chrono::Utc::now().timestamp_millis(), max)?;
+        let r = self.call(json!([["EmailSubmission/get", {"accountId": acc, "ids": [id], "properties": ["emailId", "identityId", "envelope", "sendAt", "undoStatus"]}, "g"]]))?;
+        let orig = r[0][1]["list"][0].clone();
+        if orig.is_null() { return Err("This message is no longer scheduled.".into()); }
+        if orig["undoStatus"].as_str() != Some("pending") {
+            return Err(if orig["undoStatus"] == "final" { "This message was already sent." } else { "This message is no longer scheduled." }.into());
+        }
+        let email_id = orig["emailId"].as_str().ok_or("This message is no longer scheduled.")?.to_string();
+        let ident_id = orig["identityId"].as_str().unwrap_or("").to_string();
+        let old_at = orig["sendAt"].as_str().and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok()).map(|d| d.timestamp_millis());
+        // the envelope it had, else one from the recipients of the message
+        let (from, rcpt) = match orig["envelope"]["rcptTo"].as_array().filter(|a| !a.is_empty()) {
+            Some(rc) => (orig["envelope"]["mailFrom"]["email"].as_str().unwrap_or("").to_string(), rc.iter().map(|x| json!({"email": x["email"]})).collect::<Vec<_>>()),
+            None => {
+                let e = self.call(json!([["Email/get", {"accountId": acc, "ids": [email_id], "properties": ["from", "to", "cc", "bcc"]}, "e"]]))?;
+                let m = &e[0][1]["list"][0];
+                let rc: Vec<Value> = ["to", "cc", "bcc"].iter().flat_map(|k| m[*k].as_array().cloned().unwrap_or_default()).map(|x| json!({"email": x["email"]})).collect();
+                (m["from"][0]["email"].as_str().unwrap_or("").to_string(), rc)
+            }
+        };
+        let from = if from.is_empty() { self.username.clone() } else { from };
+        let roles = self.role_ids()?;
+        let sent = roles.get("sent").cloned();
+        let create = |until: Option<i64>| -> R<String> {
+            let mut mail_from = json!({"email": from});
+            if let Some(t) = until {
+                let secs = ((t - chrono::Utc::now().timestamp_millis()) as f64 / 1000.0).ceil().max(1.0) as u64;
+                mail_from["parameters"] = json!({"HOLDFOR": secs.to_string()});
+            }
+            let mut args = json!({"accountId": acc, "create": {"n": {"emailId": email_id, "identityId": ident_id, "envelope": {"mailFrom": mail_from, "rcptTo": rcpt}}}});
+            if let Some(sent) = &sent {
+                args["onSuccessUpdateEmail"] = json!({"#n": {"mailboxIds": { sent.as_str(): true }, "keywords/$draft": null}});
+            }
+            let r = self.call(json!([["EmailSubmission/set", args, "s"]]))?;
+            created_id(&r[0][1], "n")
+        };
+        let c = self.call(json!([["EmailSubmission/set", {"accountId": acc, "update": { id: {"undoStatus": "canceled"} }}, "c"]]))?;
+        if let Some(err) = c[0][1]["notUpdated"].get(id) { return Err(set_error(err)); }
+        let res = match create(Some(at_ms)) {
+            Ok(n) => Ok(n),
+            Err(e) => {
+                let mut out = Err(format!("Reschedule failed and the message is no longer scheduled: {e}"));
+                for step in reschedule_fallbacks(old_at, chrono::Utc::now().timestamp_millis()) {
+                    match step {
+                        RescheduleFallback::Recreate(t) => if create(Some(t)).is_ok() {
+                            out = Err(format!("Nothing was changed: {e}. The message is still scheduled."));
+                            break;
+                        },
+                        RescheduleFallback::RestoreDraft => {
+                            // the message lives in the submission's account (RFC 8621 §7)
+                            if self.restore_draft_in(&acc, &email_id) {
+                                out = Err(format!("Reschedule failed: {e}. The message is back in Drafts."));
+                            }
+                        }
+                    }
+                }
+                out
+            }
+        };
+        // the canceled record is housekeeping only (counts against the submission limit)
+        let _ = self.call(json!([["EmailSubmission/set", {"accountId": acc, "destroy": [id]}, "d"]]));
+        res
+    }
+
+    /// `restore_draft` for a message in account `acc`, which need not be the mail account.
+    fn restore_draft_in(&self, acc: &str, eid: &str) -> bool {
+        if acc == self.account { return self.restore_draft(eid); }
+        let Ok(r) = self.call(json!([["Mailbox/query", {"accountId": acc, "filter": {"role": "drafts"}}, "q"]])) else { return false };
+        let Some(drafts) = r[0][1]["ids"][0].as_str().map(str::to_string) else { return false };
+        self.update("Email/set", acc, vec![(eid.to_string(), json!({"mailboxIds": { drafts: true }, "keywords/$draft": true}))])
+            .is_ok_and(|(_, bad)| bad.is_empty())
     }
 
     /// Undo a held submission (RFC 8621 §7.5 undoStatus). The canceled record is destroyed (it
@@ -973,7 +1079,7 @@ impl Client {
     }
 
     /// Move a message back to Drafts with `$draft`; retried once with fresh folder roles.
-    fn restore_draft(&self, eid: &str) -> bool {
+    pub(crate) fn restore_draft(&self, eid: &str) -> bool {
         for fresh in [false, true] {
             if fresh { self.roles.lock().unwrap().take(); }
             let Ok(roles) = self.role_ids() else { continue };
@@ -1081,9 +1187,64 @@ pub struct Outgoing {
     pub forwarding: bool,
     pub replaces_draft: Option<String>,
     pub hold_seconds: u64,
+    /// Scheduled send: release time (Unix ms). The hold is worked out right before the request.
+    pub send_at: Option<i64>,
     pub read_receipt: bool,
     /// Extra keywords (tags) to set on the message.
     pub keywords: Vec<String>,
+    /// Bulwark's From override ("Edit sender…", or the catch-all reply rewrite): the header
+    /// From as (name, email), sent through the identity `from`. Also asked for as MAIL FROM.
+    pub from_override: Option<(String, String)>,
+}
+
+/// The header From of a message: the override when there is one, else the identity
+/// (a wildcard identity names no address: the login stands in, as in Bulwark).
+pub fn header_from(o: &Outgoing, ident: &Value, username: &str) -> Value {
+    if let Some((name, email)) = o.from_override.as_ref().filter(|f| f.1.trim().contains('@')) {
+        let name = name.trim();
+        return if name.is_empty() { json!({"email": email.trim()}) } else { json!({"name": name, "email": email.trim()}) };
+    }
+    let e = ident["email"].as_str().unwrap_or("");
+    let email = if e.contains('*') || !e.contains('@') { username } else { e };
+    match ident["name"].as_str().filter(|n| !n.trim().is_empty()) {
+        Some(n) => json!({"name": n, "email": email}),
+        None => json!({"email": email}),
+    }
+}
+
+/// Whether identity address `pattern` is a wildcard covering `addr` (`*@example.com`).
+pub fn wildcard_covers(pattern: &str, addr: &str) -> bool {
+    let (p, a) = (pattern.trim().to_lowercase(), addr.trim().to_lowercase());
+    match (p.split_once('@'), a.split_once('@')) {
+        (Some(("*", pd)), Some((al, ad))) => !al.is_empty() && pd == ad,
+        _ => false,
+    }
+}
+
+/// Bulwark's identity choice for a send: the override's own identity, the composer's
+/// (by address or id), one covering the override as a wildcard, else the first; with an
+/// override nothing matches, none (the override must not go out under an unrelated identity).
+pub fn choose_identity<'a>(ids: &'a [Value], from: &str, from_override: Option<&str>) -> Option<&'a Value> {
+    let eq = |i: &&Value, a: &str| { let a = a.trim(); !a.is_empty() && i["email"].as_str().is_some_and(|e| e.trim().eq_ignore_ascii_case(a)) };
+    from_override.and_then(|o| ids.iter().find(|i| eq(i, o)))
+        .or_else(|| ids.iter().find(|i| eq(i, from)))
+        .or_else(|| ids.iter().find(|i| i["id"].as_str() == Some(from)))
+        .or_else(|| from_override.and_then(|o| ids.iter().find(|i| i["email"].as_str().is_some_and(|e| wildcard_covers(e, o)))))
+        .or_else(|| if from_override.is_some_and(|o| o.contains('@')) { None } else { ids.first() })
+}
+
+/// The submission envelope (RFC 8621 §7): only when MAIL FROM differs from the identity's
+/// address or carries HOLDFOR; otherwise the server derives it.
+pub fn submission_envelope(mail_from: &str, identity_mail_from: &str, hold: Option<u64>, rcpts: &[String]) -> Option<Value> {
+    if hold.is_none() && mail_from.eq_ignore_ascii_case(identity_mail_from) { return None; }
+    let mut from = json!({"email": mail_from});
+    if let Some(h) = hold { from["parameters"] = json!({"HOLDFOR": h.to_string()}); }
+    Some(json!({"mailFrom": from, "rcptTo": rcpts.iter().map(|r| json!({"email": r})).collect::<Vec<_>>()}))
+}
+
+/// A submission refused for its MAIL FROM (forbiddenMailFrom, or Stalwart's forbiddenFrom).
+pub fn mail_from_refused(err: &Value) -> bool {
+    matches!(err["type"].as_str(), Some("forbiddenMailFrom" | "forbiddenFrom"))
 }
 
 /// "Name <a@b>, c@d" -> [{name, email}]
@@ -1278,8 +1439,32 @@ pub fn went_back(since: &str, new: &str) -> bool {
     matches!((stalwart_change_id(since), stalwart_change_id(new)), (Some(a), Some(b)) if b < a)
 }
 
+/// What `reschedule_submission` tries when the new submission cannot be created, in order.
+#[derive(Debug, PartialEq)]
+pub enum RescheduleFallback { Recreate(i64), RestoreDraft }
+
+/// Fallback order (pure, for tests): put it back at its old time while that is still ahead
+/// (a time already past would send it at once, which nobody asked for), else back to Drafts
+/// so the message never stays in Sent looking sent.
+pub fn reschedule_fallbacks(old_at: Option<i64>, now: i64) -> Vec<RescheduleFallback> {
+    let mut v = vec![];
+    if let Some(t) = old_at.filter(|t| *t > now + 1000) { v.push(RescheduleFallback::Recreate(t)); }
+    v.push(RescheduleFallback::RestoreDraft);
+    v
+}
+
 /// Apply a /changes result to a cached object list: drop `destroyed`, then merge each fetched
 /// object into the one with its id (a partial fetch updates only its properties) or append it.
+/// HOLDFOR seconds for a release at `at_ms` (Unix ms), checked against the server's
+/// maxDelayedSend `max` (0: the server cannot hold messages).
+pub fn scheduled_hold(at_ms: i64, now_ms: i64, max: u64) -> R<u64> {
+    if max == 0 { return Err("Scheduled send is not supported for this account.".into()); }
+    let secs = ((at_ms - now_ms) as f64 / 1000.0).ceil() as i64;
+    if secs <= 0 { return Err("Choose a future date and time.".into()); }
+    if secs as u64 > max { return Err("This time is later than the server allows.".into()); }
+    Ok(secs as u64)
+}
+
 /// `maxDelayedSend` of a submission capability, or 0 unless FUTURERELEASE is listed in
 /// `submissionExtensions` (as Bulwark's hasDelayedSend: a missing list means no extension).
 fn delayed_send_limit(cap: &Value, stalwart: bool) -> u64 {
@@ -1459,6 +1644,56 @@ pub const BODY_PROPERTIES: [&str; 9] = ["partId", "blobId", "size", "name", "typ
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn reschedule_fallback_order() {
+        use RescheduleFallback::*;
+        assert_eq!(reschedule_fallbacks(Some(10_000), 0), vec![Recreate(10_000), RestoreDraft]);
+        // the old time has passed (or is about to): straight back to Drafts
+        assert_eq!(reschedule_fallbacks(Some(10_000), 10_000), vec![RestoreDraft]);
+        assert_eq!(reschedule_fallbacks(None, 0), vec![RestoreDraft]);
+    }
+
+    #[test]
+    fn from_override_header_identity_and_envelope() {
+        let ident = json!({"id": "i1", "name": "Me", "email": "me@a.com"});
+        let o = Outgoing { from: "me@a.com".into(), ..Default::default() };
+        assert_eq!(header_from(&o, &ident, "me@a.com"), json!({"name": "Me", "email": "me@a.com"}));
+        let o2 = Outgoing { from_override: Some(("Sales".into(), " sales@a.com ".into())), ..o.clone() };
+        assert_eq!(header_from(&o2, &ident, "me@a.com"), json!({"name": "Sales", "email": "sales@a.com"}));
+        let o3 = Outgoing { from_override: Some(("".into(), "sales@a.com".into())), ..o.clone() };
+        assert_eq!(header_from(&o3, &ident, "me@a.com"), json!({"email": "sales@a.com"}));
+        // an override without an address is ignored; a wildcard identity falls back to the login
+        let o4 = Outgoing { from_override: Some(("X".into(), "nope".into())), ..o.clone() };
+        assert_eq!(header_from(&o4, &ident, "me@a.com")["email"], "me@a.com");
+        assert_eq!(header_from(&o, &json!({"email": "*@a.com"}), "login@a.com"), json!({"email": "login@a.com"}));
+
+        assert!(wildcard_covers("*@A.com", "x@a.com"));
+        assert!(!wildcard_covers("*@a.com", "x@b.com"));
+        assert!(!wildcard_covers("me@a.com", "x@a.com"));
+        let ids = vec![json!({"id": "1", "email": "me@a.com"}), json!({"id": "2", "email": "*@b.org"}), json!({"id": "3", "email": "info@a.com"})];
+        assert_eq!(choose_identity(&ids, "me@a.com", Some("info@a.com")).unwrap()["id"], "3");
+        assert_eq!(choose_identity(&ids, "me@a.com", Some("sales@a.com")).unwrap()["id"], "1");
+        assert_eq!(choose_identity(&ids, "", Some("x@b.org")).unwrap()["id"], "2");
+        assert_eq!(choose_identity(&ids, "3", None).unwrap()["id"], "3");
+        assert_eq!(choose_identity(&ids, "", None).unwrap()["id"], "1");
+        // an override no identity covers, with no composer identity: refused, not the first
+        assert!(choose_identity(&ids, "", Some("x@other.net")).is_none());
+        assert!(choose_identity(&ids, "gone@a.com", Some("x@other.net")).is_none());
+        // an override without an address is ignored
+        assert_eq!(choose_identity(&ids, "", Some("nope")).unwrap()["id"], "1");
+
+        let r = vec!["t@x.y".to_string()];
+        assert_eq!(submission_envelope("me@a.com", "ME@a.com", None, &r), None);
+        let e = submission_envelope("sales@a.com", "me@a.com", None, &r).unwrap();
+        assert_eq!(e["mailFrom"], json!({"email": "sales@a.com"}));
+        assert_eq!(e["rcptTo"], json!([{"email": "t@x.y"}]));
+        let h = submission_envelope("me@a.com", "me@a.com", Some(5), &r).unwrap();
+        assert_eq!(h["mailFrom"]["parameters"]["HOLDFOR"], "5");
+        assert!(mail_from_refused(&json!({"type": "forbiddenFrom"})));
+        assert!(mail_from_refused(&json!({"type": "forbiddenMailFrom"})));
+        assert!(!mail_from_refused(&json!({"type": "overQuota"})));
+    }
 
     fn ids(v: &[Value]) -> Vec<&str> { v.iter().map(|m| m["id"].as_str().unwrap()).collect() }
     fn em(id: &str) -> Value { json!({"id": id, "threadId": format!("t{id}"), "keywords": {}}) }
@@ -1647,6 +1882,11 @@ mod tests {
         assert_eq!(delayed_send_limit(&json!({"maxDelayedSend": 600}), false), 0);
         assert_eq!(delayed_send_limit(&json!({"maxDelayedSend": 600, "submissionExtensions": {}}), false), 0);
         assert_eq!(delayed_send_limit(&json!({"maxDelayedSend": 600, "submissionExtensions": {"FUTURERELEASE": []}}), false), 600);
+        // scheduled send: seconds left, rounded up, within the limit
+        assert_eq!(scheduled_hold(10_500, 0, 600), Ok(11));
+        assert!(scheduled_hold(0, 10, 600).is_err());
+        assert!(scheduled_hold(700_000, 0, 600).is_err());
+        assert!(scheduled_hold(10_000, 0, 0).is_err());
         assert_eq!(delayed_send_limit(&json!({"maxDelayedSend": 600, "submissionExtensions": ["futurerelease"]}), false), 600);
         assert_eq!(delayed_send_limit(&json!({"maxDelayedSend": 2592000, "submissionExtensions": {"FUTURERELEASE": []}}), true), 7 * 86400);
     }

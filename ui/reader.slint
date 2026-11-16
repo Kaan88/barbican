@@ -1,0 +1,149 @@
+// Reader extras (Bulwark email-viewer banners): newsletter unsubscribe, read-receipt request,
+// calendar invitation, truncated body, message source and attached message. Rust fills
+// RX.banners for the open message (src/reader.rs); a button calls RX.action(banner, action).
+//
+// Design language (design/README.md): a banner is a tinted tile (radius 18, no shadow) in the
+// tint of its meaning (rose today, mint done/waiting, sky travel/work, amber attention), with
+// a squircle icon chip, Segoe UI text and 12 px rounded buttons. RxTheme maps onto the
+// app's Theme tokens (ui/theme.slint).
+
+import { Theme } from "theme.slint";
+
+export global RxTheme {
+    // every colour follows the app's Theme (ui/theme.slint), so light/dark, more contrast and the
+    // automation `ui` switch apply here too
+    out property <bool> dark: Theme.dark;
+    out property <bool> more-contrast: Theme.more-contrast;
+    out property <color> text: Theme.text;
+    out property <color> dim: Theme.dim;
+    out property <color> line: Theme.line;
+    out property <color> tile: Theme.tile;
+    out property <color> hover: Theme.hover;
+    out property <color> accent: Theme.accent;
+    out property <color> on-accent: Theme.on-accent;
+    // meaning tints (bg/fg pairs)
+    out property <color> rose-bg: Theme.rose-bg;
+    out property <color> rose-fg: Theme.rose-fg;
+    out property <color> mint-bg: Theme.mint-bg;
+    out property <color> mint-fg: Theme.mint-fg;
+    out property <color> sky-bg: Theme.sky-bg;
+    out property <color> sky-fg: Theme.sky-fg;
+    out property <color> amber-bg: Theme.amber-bg;
+    out property <color> amber-fg: Theme.amber-fg;
+    out property <color> neutral-bg: Theme.track;
+    public pure function bg(tone: string) -> color {
+        if tone == "rose" { return rose-bg; }
+        if tone == "mint" { return mint-bg; }
+        if tone == "sky" { return sky-bg; }
+        if tone == "amber" { return amber-bg; }
+        return neutral-bg;
+    }
+    public pure function fg(tone: string) -> color {
+        if tone == "rose" { return rose-fg; }
+        if tone == "mint" { return mint-fg; }
+        if tone == "sky" { return sky-fg; }
+        if tone == "amber" { return amber-fg; }
+        return dim;
+    }
+}
+
+export struct RxAction {
+    id: string,
+    label: string,
+    // 0 secondary (outlined), 1 primary (filled in the tint), 2 link-like (text only)
+    style: int,
+    enabled: bool,
+}
+
+export struct RxBannerData {
+    id: string,
+    tone: string,
+    icon: string,
+    kicker: string,
+    title: string,
+    detail: string,
+    // a second detail line (invitation: where / organizer)
+    extra: string,
+    actions: [RxAction],
+}
+
+export global RX {
+    in-out property <[RxBannerData]> banners;
+    // the WebView2 body is a native window above Slint: true while a banner needs the space
+    in-out property <bool> busy;
+    callback action(string, string);
+}
+
+component RxButton inherits Rectangle {
+    in property <RxAction> a;
+    in property <string> tone;
+    callback clicked;
+    height: 30px;
+    min-width: bl.preferred-width + (a.style == 2 ? 8px : 24px);
+    border-radius: 12px;
+    // primary: the tint's strong colour; on a neutral banner the rose accent (action colour)
+    property <color> strong: tone == "neutral" ? RxTheme.accent : RxTheme.fg(tone);
+    background: a.style == 1 ? (ta.has-hover && a.enabled ? root.strong.darker(0.08) : root.strong)
+        : a.style == 0 && ta.has-hover && a.enabled ? RxTheme.hover : transparent;
+    border-width: a.style == 0 ? 1px : 0px;
+    border-color: RxTheme.line;
+    opacity: a.enabled ? 1 : 0.5;
+    ta := TouchArea { enabled: a.enabled; mouse-cursor: pointer; clicked => { root.clicked(); } }
+    bl := Text {
+        text: a.label;
+        font-family: "Segoe UI";
+        font-size: 12.5px;
+        font-weight: 600;
+        color: a.style == 1 ? (tone == "neutral" ? RxTheme.on-accent : RxTheme.dark ? #111111 : #ffffff) : a.style == 2 ? RxTheme.fg(tone) : RxTheme.text;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+    }
+}
+
+/// One banner: icon chip, kicker, title, detail lines and its buttons under the text
+/// (Bulwark's read-receipt banner row).
+export component RxBanner inherits Rectangle {
+    in property <RxBannerData> b;
+    callback act(string);
+    border-radius: 18px;
+    background: RxTheme.bg(b.tone);
+    HorizontalLayout {
+        padding: 12px;
+        padding-right: 14px;
+        spacing: 12px;
+        VerticalLayout {
+            alignment: start;
+            Rectangle {
+                width: 34px;
+                height: 34px;
+                border-radius: 12px;
+                background: RxTheme.fg(b.tone).with-alpha(0.16);
+                Text { text: b.icon; font-family: "Segoe Fluent Icons"; font-size: 15px; color: RxTheme.fg(b.tone); horizontal-alignment: center; vertical-alignment: center; }
+            }
+        }
+        VerticalLayout {
+            horizontal-stretch: 1;
+            spacing: 2px;
+            alignment: center;
+            if b.kicker != "": Text { text: b.kicker; font-family: "Segoe UI"; font-size: 11px; font-weight: 700; color: RxTheme.fg(b.tone); }
+            if b.title != "": Text { text: b.title; font-family: "Segoe UI"; font-size: 13px; font-weight: 600; color: RxTheme.text; wrap: word-wrap; }
+            if b.detail != "": Text { text: b.detail; font-family: "Segoe UI"; font-size: 12px; color: RxTheme.dim; wrap: word-wrap; }
+            if b.extra != "": Text { text: b.extra; font-family: "Segoe UI"; font-size: 12px; color: RxTheme.dim; wrap: word-wrap; }
+            if b.actions.length > 0: HorizontalLayout {
+                padding-top: 6px;
+                spacing: 6px;
+                alignment: start;
+                for a in b.actions: RxButton { a: a; tone: b.tone; clicked => { root.act(a.id); } }
+            }
+        }
+    }
+}
+
+/// The banners of the open message, stacked.
+export component RxBanners inherits VerticalLayout {
+    padding-left: 16px;
+    padding-right: 16px;
+    padding-bottom: RX.banners.length > 0 ? 10px : 0px;
+    spacing: 8px;
+    for b in RX.banners: RxBanner { b: b; act(a) => { RX.action(b.id, a); } }
+}

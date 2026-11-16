@@ -1,6 +1,11 @@
 #![cfg_attr(not(test), windows_subsystem = "windows")]
 
 mod a11y;
+mod auth;
+mod attachments;
+mod avatars;
+mod tags;
+mod mailimport;
 mod admin;
 mod dashboard;
 mod automation;
@@ -8,8 +13,17 @@ mod otp;
 mod agent;
 mod ai;
 mod calendar;
+mod cal_editor;
+mod cal_extra;
+mod recurrence;
+mod reminders;
 mod compose;
 mod contacts;
+mod contacts_x;
+mod filters_x;
+mod contact_merge;
+mod vcard;
+mod pim;
 mod ctxmenu;
 mod files;
 mod glance;
@@ -25,6 +39,33 @@ mod settings;
 mod sieve;
 mod templates;
 mod spam;
+// composer extras (p2-composer)
+mod autosave;
+mod chips;
+mod instance;
+mod mailto;
+mod recipients;
+mod schedule;
+mod dark_mail;
+mod invite;
+mod mdn;
+mod quick_rules;
+mod reader;
+mod zip;
+mod shortcuts;
+mod gsearch;
+mod palette;
+mod search_history;
+mod search_ui;
+mod dnd;
+// distribution: platform layer, tray, notifications, updater
+mod desktop;
+mod icon;
+mod notify;
+mod platform;
+mod updater;
+#[cfg(test)]
+mod release_manifest;
 
 use chrono::{DateTime, Local};
 use serde_json::{json, Value};
@@ -52,8 +93,8 @@ fn csp_with(images: bool, script: Option<&str>) -> String {
         None => "'none'".into(),
     };
     format!(
-        "<meta http-equiv=\"Content-Security-Policy\" content=\"default-src 'none'; style-src 'unsafe-inline' *; font-src * data:; img-src {}; script-src {scripts}; object-src 'none'; frame-src 'none'; form-action 'none'\">",
-        if images { "* data:" } else { "data:" }
+        "<meta http-equiv=\"Content-Security-Policy\" content=\"default-src 'none'; style-src 'unsafe-inline' http: https:; font-src http: https: data:; img-src {}; script-src {scripts}; object-src 'none'; frame-src 'none'; form-action 'none'\">",
+        if images { "http: https: data:" } else { "data:" }
     )
 }
 
@@ -102,7 +143,7 @@ fn render_current(u: &AppWindow) {
                 let t = if cur.text.trim().is_empty() { cur.html.as_deref().map(html_to_text).unwrap_or_default() } else { cur.text.clone() };
                 u.set_r_body(t.into());
             }
-            _ => show_html(wrap_html_opts(&body, cur.allow)),
+            _ => show_html(wrap_html_full(&body, cur.allow, true)),
         }
     });
 }
@@ -113,13 +154,19 @@ fn esc(s: &str) -> String {
 
 thread_local! { static DARK: std::cell::Cell<bool> = const { std::cell::Cell::new(true) }; }
 
+/// The app is drawn dark (UI thread).
+pub fn is_dark() -> bool { DARK.with(|d| d.get()) }
+
 fn wv_bg() -> (u8, u8, u8, u8) {
     if DARK.with(|d| d.get()) { (0x14, 0x14, 0x14, 255) } else { (255, 255, 255, 255) }
 }
 
 fn show_html(h: String) {
     WV.with(|w| match &*w.borrow() {
-        Some(v) => { let _ = v.load_html(&h); }
+        // WebView2's NavigateToString takes at most 2 MB: a bigger page (a long message, its
+        // source) is served from memory through the app's own scheme (never a file: origin)
+        Some(v) if h.len() > reader::INLINE_HTML_MAX => { let url = reader::page_url(&h); let _ = v.load_url(&url); }
+        Some(v) => { reader::drop_page(); let _ = v.load_html(&h); }
         None => PENDING.with(|p| *p.borrow_mut() = Some(h)),
     });
 }
@@ -139,10 +186,22 @@ fn wrap_html(body: &str) -> String {
 }
 
 fn wrap_html_opts(body: &str, images: bool) -> String {
+    wrap_html_full(body, images, false)
+}
+
+/// The reader page. `recolor`: an HTML mail shown while the app is dark gets Bulwark's dark
+/// conversion (dark_mail.rs, email_dark.js) unless "Always show emails in light mode" or the
+/// accessibility colour override is on.
+fn wrap_html_full(body: &str, images: bool, recolor: bool) -> String {
     let p = settings::Settings::load();
     // Settings > Accessibility: spacing, width, links, motion, text size and fitting
     let a = a11y::A11y::load();
-    let script = a.mail_script();
+    let recolor = recolor && DARK.with(|d| d.get()) && !p.bool("emailAlwaysLightMode", false) && !a.override_active() && !body.starts_with("<pre>");
+    let script = match (a.mail_script(), recolor) {
+        (Some(s), true) => Some(format!("{s}\n{}", dark_mail::SCRIPT)),
+        (None, true) => Some(dark_mail::SCRIPT.to_string()),
+        (s, false) => s,
+    };
     let csp = csp_with(images, script.as_deref());
     let extra = format!("<style>{}</style>{}", a.mail_css(DARK.with(|d| d.get()) && !p.bool("emailAlwaysLightMode", false)),
         script.map(|s| format!("<script>{s}</script>")).unwrap_or_default());
@@ -160,6 +219,12 @@ fn wrap_html_opts(body: &str, images: bool) -> String {
     if plain && !p.bool("emailAlwaysLightMode", false) {
         return format!("<!doctype html><html><head><meta charset=utf-8>{csp}<base target=_blank><style>html,body{{background:#141414;color:#d4d4d4}}body{{margin:{margin}px;font-family:'Segoe UI',sans-serif;font-size:14px;word-wrap:break-word}}pre{{white-space:pre-wrap;font-family:{pre_font};margin:0}}a{{color:#f0577a}}</style></head><body>{body}</body></html>");
     }
+    if recolor {
+        // the mail's own dark styles follow the app's theme, not the OS (resolveColorSchemeMedia)
+        let scheme = dark_mail::color_scheme(true, dark_mail::has_native_dark(body));
+        let body = dark_mail::resolve_color_scheme_media(body, true);
+        return format!("<!doctype html><html class=\"{}\" style=\"color-scheme:{scheme}\"><head><meta charset=utf-8>{csp}<base target=_blank><style>body{{margin:{margin}px;font-family:'Segoe UI',sans-serif;font-size:14px;word-wrap:break-word}}pre{{white-space:pre-wrap;font-family:{pre_font}}}img{{max-width:100%;height:auto}}{}</style></head><body>{body}</body></html>", dark_mail::PENDING_CLASS, dark_mail::css());
+    }
     format!("<!doctype html><html><head><meta charset=utf-8>{csp}<base target=_blank><style>body{{margin:{margin}px;font-family:'Segoe UI',sans-serif;font-size:14px;color:#111;background:#fff;word-wrap:break-word}}pre{{white-space:pre-wrap;font-family:{pre_font}}}img{{max-width:100%;height:auto}}</style></head><body>{body}</body></html>")
 }
 
@@ -172,11 +237,15 @@ fn rect(x: f32, y: f32, w: f32, h: f32) -> wry::Rect {
 
 fn sync_webview(ui: &AppWindow) {
     let r = rect(ui.get_bx(), ui.get_by(), ui.get_bw(), ui.get_bh());
-    let vis = ui.get_body_visible();
+    let vis = ui.get_body_visible() && !ui.global::<Pd>().get_overlay();
     // light renderer: re-layout when the reading pane width changes
     if ui.get_render_mode() == 1 && ui.get_current_mail() != "" {
         let w = ui.get_bw();
         if (LITE_W.with(|x| x.get()) - w).abs() > 4.0 && w > 50.0 { render_current(ui); }
+    }
+    if WV_UNAVAILABLE.with(|x| x.get()) {
+        if ui.get_render_mode() == 0 { ui.set_render_mode(1); if ui.get_current_mail() != "" { render_current(ui); } }
+        return;
     }
     WV.with(|w| {
         let mut w = w.borrow_mut();
@@ -190,13 +259,36 @@ fn sync_webview(ui: &AppWindow) {
                 .with_bounds(r)
                 .with_visible(vis)
                 .with_devtools(false)
+                .with_custom_protocol(reader::PAGE_SCHEME.into(), |_id, req| {
+                    let (status, body) = match reader::serve_page(req.uri().path()) {
+                        Some(b) => (200, std::borrow::Cow::Owned(b.to_vec())),
+                        None => (404, std::borrow::Cow::Borrowed(&b""[..])),
+                    };
+                    wry::http::Response::builder().status(status)
+                        .header("Content-Type", "text/html; charset=utf-8")
+                        .header("Cache-Control", "no-store")
+                        .body(body).unwrap()
+                })
                 .with_navigation_handler(|url| {
+                    // A top-level navigation is never a click on a mail link (<base target=_blank>
+                    // sends those to the new-window handler below); it comes from the message itself
+                    // (<meta http-equiv=refresh>), so a mailto: here is dropped, not opened.
+                    if mailto::parse(&url).is_some() { return false; }
+                    if let Some(ok) = reader::allow_navigation(&url) { return ok; }
                     if url.starts_with("http") { oauth::open_browser(&url); false } else { true }
+                })
+                // links open in a new window (<base target=_blank>): clicked mailto: links open
+                // Barbican's composer, web links the browser
+                .with_new_window_req_handler(|url, _| {
+                    if mailto::parse(&url).is_some() { mailto::request(url); }
+                    else if url.starts_with("http://") || url.starts_with("https://") { oauth::open_browser(&url); }
+                    wry::NewWindowResponse::Deny
                 })
                 .build_as_child(&ui.window().window_handle())
             {
                 Ok(v) => { let _ = v.focus_parent(); *w = Some(v); }
-                Err(_) => {}
+                // Linux on Wayland: no child web view, so the native Blitz renderer shows mail
+                Err(_) => if cfg!(target_os = "linux") { WV_UNAVAILABLE.with(|x| x.set(true)); },
             }
         } else if let Some(v) = &*w {
             let _ = v.set_bounds(r);
@@ -207,11 +299,10 @@ fn sync_webview(ui: &AppWindow) {
     });
 }
 
-type Shared = Arc<Mutex<Option<Arc<jmap::Client>>>>;
+pub(crate) type Shared = Arc<Mutex<Option<Arc<jmap::Client>>>>;
 
 pub fn config_dir() -> std::path::PathBuf {
-    let base = std::env::var("APPDATA").unwrap_or_else(|_| ".".into());
-    std::path::Path::new(&base).join("Barbican")
+    platform::config_dir()
 }
 
 fn config_path() -> std::path::PathBuf {
@@ -252,6 +343,7 @@ pub fn html_to_text(h: &str) -> String {
 }
 
 thread_local! { static WV_VISIBLE: std::cell::Cell<bool> = const { std::cell::Cell::new(false) }; }
+thread_local! { static WV_UNAVAILABLE: std::cell::Cell<bool> = const { std::cell::Cell::new(false) }; }
 thread_local! { static RESET_ARMED: std::cell::Cell<bool> = const { std::cell::Cell::new(false) }; }
 thread_local! { static SERVER_DEBOUNCE: slint::Timer = slint::Timer::default(); }
 thread_local! { static TEMPLATES: std::cell::RefCell<Vec<Value>> = const { std::cell::RefCell::new(Vec::new()) }; }
@@ -279,6 +371,15 @@ fn load_thread(w: slint::Weak<AppWindow>, c: Arc<jmap::Client>, id: String) {
         });
     });
 }
+/// Reload the open message's conversation strip: a reply was just sent from it, or push
+/// reported mail changes (the sent reply joins the thread). UI thread.
+pub fn refresh_open_thread(u: &AppWindow) {
+    let id = u.get_current_mail().to_string();
+    if id.is_empty() || u.get_app() != 0 { return; }
+    let Some(c) = READER_CLIENT.with(|r| r.borrow().clone()) else { return };
+    load_thread(u.as_weak(), c, id);
+}
+
 thread_local! {
     /// Client of the account the open message belongs to (unified inbox) and of the open composer.
     static READER_CLIENT: std::cell::RefCell<Option<Arc<jmap::Client>>> = const { std::cell::RefCell::new(None) };
@@ -311,7 +412,7 @@ fn compose_client(st: &Shared) -> Option<Arc<jmap::Client>> {
 }
 
 /// mail::apply, split per owning account so unified-inbox rows use their own client.
-fn apply_routed(u: &AppWindow, st: &Shared, ids: Vec<String>, action: &str) {
+pub(crate) fn apply_routed(u: &AppWindow, st: &Shared, ids: Vec<String>, action: &str) {
     if ids.is_empty() { return; }
     if action.starts_with("copy-code:") {
         if let Some(c) = st.lock().unwrap().clone() { mail::apply(u, c, ids, action); }
@@ -335,6 +436,19 @@ fn apply_routed(u: &AppWindow, st: &Shared, ids: Vec<String>, action: &str) {
     for ((o, _), ids) in groups {
         let c = match &o { Some(o) => unified::cached(o), None => st.lock().unwrap().clone() };
         if let Some(c) = c { mail::apply_confirmed(u, c, ids, &action, &selection); }
+    }
+}
+
+/// Move messages to a folder of the active account: other accounts' rows (and group inboxes)
+/// go to their own folder with the same role, else the same name (Bulwark move targets).
+pub(crate) fn move_ids(u: &AppWindow, st: &Shared, ids: Vec<String>, fid: &str) {
+    let ids: Vec<String> = ids.into_iter().filter(|i| !i.is_empty()).collect();
+    let (own, other): (Vec<String>, Vec<String>) = ids.into_iter()
+        .partition(|i| mail::owner(i).is_none_or(|o| o == unified::active_user()) && mail::shared_account(i).is_none());
+    if let Some(c) = st.lock().unwrap().clone() { mail::apply(u, c, own, &format!("move:{fid}")); }
+    if !other.is_empty() {
+        let (role, name) = mail::mailbox_info(fid);
+        apply_routed(u, st, other, &unified::moveto_action(&role, &name));
     }
 }
 
@@ -391,6 +505,13 @@ static SESSION_GEN: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64:
 /// Data types the app follows over push (RFC 8620 §7.3 `types`).
 const PUSH_TYPES: [&str; 5] = ["Email", "Mailbox", "Thread", "EmailDelivery", "EmailSubmission"];
 
+/// The push types of a login: mail, plus calendar objects where it has calendars.
+fn push_types(c: &jmap::Client) -> Vec<&'static str> {
+    let mut v = PUSH_TYPES.to_vec();
+    if c.has(calendar::CAL) { v.extend(["CalendarEvent", "Calendar"]); }
+    v
+}
+
 /// Live updates: listen to the JMAP event stream and sync what a StateChange names.
 /// The stream is re-opened with exponential backoff (2 s .. 5 min, with jitter) after it drops
 /// or goes silent. Each time it opens everything is synced once (cheap: /changes deltas), since
@@ -403,10 +524,11 @@ fn start_push(w: slint::Weak<AppWindow>, c: Arc<jmap::Client>) {
         loop {
             if !live() { return; }
             let started = std::time::Instant::now();
-            let _ = c.watch(&PUSH_TYPES, &mut |ev| {
+            let types_wanted = push_types(&c);
+            let _ = c.watch(&types_wanted, &mut |ev| {
                 if !live() { return false; }
                 let types: std::collections::HashSet<String> = match ev {
-                    jmap::PushEvent::Open => PUSH_TYPES.iter().map(|t| t.to_string()).collect(),
+                    jmap::PushEvent::Open => types_wanted.iter().map(|t| t.to_string()).collect(),
                     jmap::PushEvent::State(v) => jmap::changed_types(&v, &c.account).into_keys().collect(),
                     _ => Default::default(),
                 };
@@ -441,16 +563,25 @@ fn schedule_refresh(w: slint::Weak<AppWindow>, c: Arc<jmap::Client>, types: std:
         if has("Mailbox") || has("Email") || has("Thread") { mail::load_mailboxes(w.clone(), c.clone(), false); }
         let scheduled = w.upgrade().is_some_and(|u| u.get_current_folder() == "__scheduled");
         if has("Email") || has("Thread") || (scheduled && has("EmailSubmission")) { mail::sync(w.clone(), c.clone()); }
+        if has("Email") || has("Thread") { if let Some(u) = w.upgrade() { refresh_open_thread(&u); } }
         if has("Email") || has("EmailDelivery") { check_new_mail(c.clone(), Some(w.clone())); }
+        if has("CalendarEvent") || has("Calendar") {
+            reminders::changed(w.clone(), c.clone());
+            if w.upgrade().is_some_and(|u| u.get_app() == 1) { calendar::load(w.clone(), c.clone()); }
+        }
     }));
 }
 
 static NOTIFIED: Mutex<Option<std::collections::HashSet<String>>> = Mutex::new(None);
 
-/// Desktop notification for newly arrived unread inbox mail (Bulwark: emailNotificationsEnabled).
+/// Desktop notification for newly arrived unread inbox mail (Bulwark: emailNotificationsEnabled,
+/// lib/desktop/mail-notifications.ts): mail that arrives together is told about once, one
+/// message with Archive / Mark as read / Delete, several as a count that opens the Inbox.
 fn check_new_mail(c: Arc<jmap::Client>, w: Option<slint::Weak<AppWindow>>) {
     let prefs = settings::Settings::load();
     if !prefs.bool("emailNotificationsEnabled", true) { return; }
+    // Bulwark: Do not disturb keeps every notification quiet
+    let dnd = prefs.bool("doNotDisturb", false);
     // Bulwark emailNotificationSound (default on) and pushNotifyInboxOnly (default off: every
     // folder except Junk, Trash, Sent and Drafts)
     let sound = prefs.bool("emailNotificationSound", true);
@@ -468,19 +599,23 @@ fn check_new_mail(c: Arc<jmap::Client>, w: Option<slint::Weak<AppWindow>>) {
         let mut guard = NOTIFIED.lock().unwrap();
         let first_run = guard.is_none();
         let seen = guard.get_or_insert_with(Default::default);
-        let mut arrived = false;
+        let mut batch = vec![];
         for m in list.iter().rev() {
             let id = m["id"].as_str().unwrap_or("").to_string();
-            if seen.insert(id) && !first_run {
-                arrived = true;
-                let mut n = notify_rust::Notification::new();
-                if sound { n.sound_name("Mail"); }
-                let _ = n
-                    .appname("Barbican")
-                    .summary(&mail::sender(m))
-                    .body(&format!("{}\n{}", m["subject"].as_str().unwrap_or("(no subject)"), mail::clean_preview(m["preview"].as_str().unwrap_or(""))))
-                    .show();
+            if seen.insert(id.clone()) && !first_run {
+                batch.push(notify::NewMail {
+                    id,
+                    sender: mail::sender(m),
+                    subject: m["subject"].as_str().unwrap_or("").to_string(),
+                    preview: mail::clean_preview(m["preview"].as_str().unwrap_or("")),
+                });
             }
+        }
+        drop(guard);
+        let arrived = !batch.is_empty();
+        batch.reverse();
+        if !dnd {
+            if let Some(n) = notify::mail_note(&batch, &c.username, sound, roles.contains_key("archive")) { notify::show(n); }
         }
         // Settings > Accessibility > Visual alerts: flash the taskbar button
         if arrived && a11y::A11y::load().visual_alerts {
@@ -570,7 +705,7 @@ fn body_html(m: &Value) -> String {
 fn load_folder(ui: slint::Weak<AppWindow>, client: Arc<jmap::Client>, mailbox: Option<String>, text: Option<String>) {
     let filter = match (mailbox, text) {
         (Some(m), Some(t)) if m == unified::FOLDER_ID => mail::folder_filter(&m, Some(&t)),
-        (_, Some(t)) => json!({"text": t}),
+        (_, Some(t)) => gsearch::mailbox_search_filter(&t, None, mail::role_id),
         (Some(m), None) if m == "__scheduled" => json!({"scheduled": true}),
         (Some(m), None) if m == unified::FOLDER_ID => json!({"unified": true}),
         (Some(m), None) => json!({"inMailbox": m}),
@@ -584,20 +719,47 @@ fn load_mailboxes(ui: slint::Weak<AppWindow>, client: Arc<jmap::Client>, select_
 }
 
 fn main() -> Result<(), slint::PlatformError> {
+    // an update the user approved ("Install next time") installs before anything else
+    // (only when no other Barbican runs: the installer would replace it while it is open)
+    if platform::first_instance() && updater::on_start() { return Ok(()); }
     // Skia: the same text/graphics engine Chrome uses, so text matches Bulwark in the browser
     // (and gets system font fallback for CJK and other scripts).
     let _ = slint::BackendSelector::new().renderer_name("skia".into()).select();
+    // a mailto: link from the OS while Barbican already runs: hand it over and quit
+    let link = instance::mailto_arg(&std::env::args().skip(1).collect::<Vec<_>>());
+    if link.as_deref().is_some_and(instance::forward) { return Ok(()); }
     let ui = AppWindow::new()?;
     apply_theme(&ui);
     apply_ui_prefs(&ui);
     automation::start(&ui);
+    avatars::set_window(ui.as_weak());
     rte::wire_drop(&ui);
+    chips::wire(&ui);
     {
         let (loaded, errors) = plugins::load_all();
         PLUGINS.with(|p| *p.borrow_mut() = loaded);
         PLUGIN_ERRORS.with(|e| *e.borrow_mut() = errors);
     }
     let state: Shared = Arc::new(Mutex::new(None));
+    {
+        // mailto: links (clicked in a message, or handed over by the OS) open the composer
+        let st = state.clone();
+        mailto::install(&ui, Box::new(move |u, m| {
+            if st.lock().unwrap().is_none() { return false; }
+            // keep what an open composer holds before it is replaced
+            if u.get_composing() && !autosave::unedited(u) { u.invoke_save_draft(false); }
+            u.invoke_compose_new();
+            if !u.get_composing() { return false; }
+            mailto::fill(u, m);
+            true
+        }));
+        instance::listen();
+        // Barbican moved or updated into a new folder: point the registration at this exe
+        mailto::repair_registration();
+        if let Some(l) = link { mailto::request(l); }
+    }
+    cal_extra::wire(&ui, state.clone());
+    desktop::init(&ui, state.clone());
 
     if let Ok(s) = std::fs::read_to_string(config_path()) {
         let mut l = s.lines();
@@ -712,6 +874,9 @@ fn main() -> Result<(), slint::PlatformError> {
     ui.on_do_search(move |text| {
         let Some(c) = st.lock().unwrap().clone() else { return };
         let u = w.unwrap();
+        // Enter on a highlighted suggestion runs that one instead
+        if search_ui::accept(&u) { return; }
+        search_ui::searched(&u, &text);
         u.set_current_mail("".into());
         if text.trim().is_empty() {
             load_folder(w.clone(), c, Some(u.get_current_folder().to_string()), None);
@@ -734,16 +899,19 @@ fn main() -> Result<(), slint::PlatformError> {
     let w = ui.as_weak();
     let st = state.clone();
     ui.on_open_mail(move |id| {
+        shortcuts::note_opened(&id);
         let Some(c) = client_for(&st, &id) else { return };
         READER_CLIENT.with(|r| *r.borrow_mut() = Some(c.clone()));
         let u = w.unwrap();
         if settings::Settings::load().prefs.get("markAsReadDelay").and_then(|v| v.as_i64()).unwrap_or(0) == 0 { mail::mark_read_local(&u, &id); }
+        schedule::banner(&u, mail::email(&id).as_ref());
         u.set_plugin_rows(ModelRc::default());
         // keep the conversation strip when moving within the same thread
         let same_thread = mail::email(&id).and_then(|m| m["threadId"].as_str().map(String::from)) == THREAD_ID.with(|t| t.borrow().clone());
         let shared = mail::shared_account(&id);
         if !same_thread { u.set_thread_msgs(ModelRc::default()); }
         u.set_attachments(ModelRc::default());
+        u.set_att_cards(ModelRc::default());
         u.set_r_to("".into());
         u.set_r_email("".into());
         u.set_r_subject("".into());
@@ -755,6 +923,7 @@ fn main() -> Result<(), slint::PlatformError> {
         u.set_r_from("".into());
         u.set_r_date("".into());
         CUR.with(|c| *c.borrow_mut() = None);
+        reader::clear(&u);
         lite::clear();
         u.set_images_blocked(false);
         u.set_lite_height(0.0);
@@ -802,6 +971,7 @@ fn main() -> Result<(), slint::PlatformError> {
                         glance::sender(w2.clone(), c2.clone(), email.clone(), id.clone());
                         u.set_r_initials(initials(&from).into());
                         u.set_r_color(mail::tint(&from));
+                        mail::set_reader_avatar(&u, Some(&m), &crate::avatars::host_of(&c2.base));
                         u.set_r_flagged(m["keywords"]["$flagged"].as_bool() == Some(true));
                         let names = |k: &str| m[k].as_array().map(|a| a.iter().map(|x| {
                             let e = x["email"].as_str().unwrap_or("");
@@ -821,6 +991,7 @@ fn main() -> Result<(), slint::PlatformError> {
                             index: i as i32,
                         }).collect();
                         u.set_attachments(ModelRc::new(VecModel::from(rows)));
+                        attachments::show(&u, c2.clone(), &id, &atts);
                         CUR_MSG.with(|x| *x.borrow_mut() = Some((m.clone(), atts)));
                         load_thread(w2.clone(), c2.clone(), id.clone());
                         u.set_r_subject(SharedString::from(m["subject"].as_str().unwrap_or("(no subject)")));
@@ -844,6 +1015,8 @@ fn main() -> Result<(), slint::PlatformError> {
                             u.get_r_date().to_string() + ", " + &u.get_r_from(),
                         );
                         REPLY.with(|r| *r.borrow_mut() = Some(rt));
+                        // banners (unsubscribe, read receipt, invitation, long body) and their loads
+                        reader::loaded(&u, c2.clone(), &m, &id);
                         let dis = disabled_plugins();
                         let rows = PLUGINS.with(|p| plugins::email_details(&p.borrow(), &dis, &m));
                         u.set_plugin_rows(ModelRc::new(VecModel::from(rows.into_iter().map(|(label, value, tone)| PRow { label: label.into(), value: value.into(), tone: tone.into() }).collect::<Vec<_>>())));
@@ -922,6 +1095,11 @@ fn main() -> Result<(), slint::PlatformError> {
         })
     };
 
+    {
+        let lsp = load_server_page.clone();
+        let reload: filters_x::Reload = Arc::new(move |tab: String| lsp(tab));
+        filters_x::wire(&ui, state.clone(), server_cache.clone(), reload);
+    }
     let (w, rs, lsp) = (ui.as_weak(), refresh_settings.clone(), load_server_page.clone());
     ui.on_open_settings(move || {
         let u = w.unwrap();
@@ -992,7 +1170,9 @@ fn main() -> Result<(), slint::PlatformError> {
             }
         }
         if key == "spellCheck" { rte::spell::reload(); if let Some(u) = wt.upgrade() { rte::refresh(&u); } }
-        if let Some(u) = wt.upgrade() { apply_ui_prefs(&u); mail::rebuild_folders(&u); mail::rebuild_list(&u); }
+        if key.starts_with("desktop.") { desktop::setting_changed(&key, on); }
+        if key == "unreadBadgeAllAccounts" && on { unified::refresh_other_logins(wt.clone(), true); }
+        if let Some(u) = wt.upgrade() { apply_ui_prefs(&u); mail::rebuild_folders(&u); mail::rebuild_list(&u); mail::refresh_avatars(&u); if key == "nestedTags" { mail::rebuild_tags(&u); } }
     });
 
     let (w, pf, cf, rs, srv3, sw3) = (ui.as_weak(), prefs.clone(), cfg.clone(), refresh_settings.clone(), server_cache.clone(), server_write.clone());
@@ -1010,6 +1190,7 @@ fn main() -> Result<(), slint::PlatformError> {
         if key == "desktop.renderMode" || key == "desktop.remoteImages" { render_current(&w.unwrap()); }
         if key == "theme" || key == "uiStyle" { apply_theme(&w.unwrap()); }
         if key == "writingLanguage" { rte::spell::reload(); }
+        if key == "desktop.updateChannel" { desktop::setting_changed(&key, true); }
         apply_ui_prefs(&w.unwrap());
         mail::rebuild_folders(&w.unwrap());
         mail::rebuild_list(&w.unwrap());
@@ -1043,7 +1224,20 @@ fn main() -> Result<(), slint::PlatformError> {
             });
             return;
         }
+        if desktop::settings_button(&u, &key) { return; }
         if key == "signout" { u.set_show_settings(false); u.invoke_sign_out(); }
+        if key == "mailapp.register" {
+            // user-triggered only: writes the HKCU registration (or the Linux .desktop file)
+            match mailto::register_default() { Ok(m) => mail::show_toast(&u, &m, false), Err(e) => mail::show_toast(&u, &e, false) }
+            u.invoke_settings_search(u.get_settings_query());
+        }
+        if key == "mailapp.unregister" {
+            // user-triggered only: removes what mailapp.register wrote
+            match mailto::unregister() { Ok(m) => mail::show_toast(&u, &m, false), Err(e) => mail::show_toast(&u, &e, false) }
+            u.invoke_settings_search(u.get_settings_query());
+        }
+        if contacts_x::settings_button(&u, st.lock().unwrap().clone(), &key) { return; }
+        if key == "filters.new" { u.global::<FilterX>().invoke_new_rule(); return; }
         if key == "a11y.reset" {
             pf2.lock().unwrap().set("a11y.reset", Value::Null, &mut cf2.lock().unwrap());
             apply_ui_prefs(&u);
@@ -1053,6 +1247,7 @@ fn main() -> Result<(), slint::PlatformError> {
             u.invoke_settings_search(u.get_settings_query());
         }
         if key == "plugins.folder" { oauth::open_browser(&plugins::dir().to_string_lossy()); }
+        if key == "avatars.refresh" { avatars::refresh(); mail::refresh_avatars(&u); mail::show_toast(&u, "Sender icons will be fetched again", false); }
         if key == "backup.export" {
             if let Some(path) = rfd::FileDialog::new().set_file_name("barbican-settings.json").add_filter("JSON", &["json"]).save_file() {
                 let data = serde_json::to_string_pretty(&pf2.lock().unwrap().export()).unwrap_or_default();
@@ -1184,7 +1379,8 @@ fn main() -> Result<(), slint::PlatformError> {
 
     ui.on_lite_click(move |x, y| {
         if let Some(href) = lite::link_at(x, y) {
-            if href.starts_with("http://") || href.starts_with("https://") || href.starts_with("mailto:") { oauth::open_browser(&href); }
+            if mailto::parse(&href).is_some() { mailto::request(href); }
+            else if href.starts_with("http://") || href.starts_with("https://") { oauth::open_browser(&href); }
         }
     });
     let cancel = Arc::new(std::sync::atomic::AtomicBool::new(false));
@@ -1282,8 +1478,21 @@ fn main() -> Result<(), slint::PlatformError> {
     });
 
     rte::wire(&ui);
+    schedule::wire(&ui, state.clone(), prefs.clone());
     let w = ui.as_weak();
     ui.on_c_toggle_tag(move |i| compose::toggle_tag(&w.unwrap(), i));
+    let w = ui.as_weak();
+    ui.on_c_from_edit(move || compose::start_from_override(&w.unwrap()));
+    let w = ui.as_weak();
+    ui.on_toggle_tag_open(move |id| mail::toggle_tag_open(&w.unwrap(), &id));
+    let w = ui.as_weak();
+    ui.on_tag_new(move || ctxmenu::new_tag_prompt(&w.unwrap(), None));
+    // the share of the pane a docked reply takes, once dragged (Bulwark replyDockShare)
+    ui.set_dock_share(settings::Settings::load().prefs.get("replyDockShare").and_then(|v| v.as_f64()).filter(|f| *f > 0.1 && *f < 0.95).unwrap_or(-1.0) as f32);
+    ui.on_dock_share_save(|share| {
+        let v = (share > 0.1 && share < 0.95).then(|| json!((share as f64 * 1000.0).round() / 1000.0));
+        settings::Settings::put("replyDockShare", v);
+    });
 
     let (w, st, pf) = (ui.as_weak(), state.clone(), prefs.clone());
     ui.on_send_now(move || {
@@ -1308,7 +1517,7 @@ fn main() -> Result<(), slint::PlatformError> {
 
     let (w, st) = (ui.as_weak(), state.clone());
     ui.on_save_draft(move |close| {
-        let Some(c) = compose_client(&st) else { return };
+        let Some(c) = compose_client(&st) else { compose::note_save_failed(); return };
         compose::save_draft(&w.unwrap(), c, close);
     });
 
@@ -1385,6 +1594,7 @@ fn main() -> Result<(), slint::PlatformError> {
     ui.on_ct_save(move || { let Some(c) = st.lock().unwrap().clone() else { return }; contacts::save(&w.unwrap(), c); });
     let (w, st) = (ui.as_weak(), state.clone());
     ui.on_ct_delete(move || { let Some(c) = st.lock().unwrap().clone() else { return }; contacts::delete(&w.unwrap(), c); });
+    contacts_x::wire(&ui, state.clone());
     let (w, st) = (ui.as_weak(), state.clone());
     ui.on_ct_email(move || {
         let Some(c) = st.lock().unwrap().clone() else { return };
@@ -1438,6 +1648,8 @@ fn main() -> Result<(), slint::PlatformError> {
         let t = text.as_str();
         // composer shortcuts
         if u.get_composing() {
+            // Mod+Shift+Enter: Schedule send (Bulwark); Mod+Enter: send
+            if ctrl && shift && (t == "\r" || t == "\n") { u.global::<CompX>().invoke_sched_open_compose(); return; }
             if ctrl && (t == "\r" || t == "\n") { u.invoke_send_now(); }
             if ctrl && t == "s" { u.invoke_save_draft(false); }
             // Esc in the link popover cancels the popover, not the whole message
@@ -1451,7 +1663,7 @@ fn main() -> Result<(), slint::PlatformError> {
                 "n" => u.invoke_compose_new(),
                 "a" => u.invoke_select_all(),
                 "r" => u.invoke_act(if shift { "reply-all".into() } else { "reply".into() }),
-                "u" => u.invoke_act("unread".into()),
+                "u" => u.invoke_act("unread!".into()),
                 _ => {}
             }
             return;
@@ -1480,15 +1692,7 @@ fn main() -> Result<(), slint::PlatformError> {
             "\u{F700}" => move_sel(-1, false),  // up arrow
             "n" => move_sel(1, true),
             "\u{1b}" => u.set_current_mail("".into()),
-            "r" => u.invoke_act("reply".into()),
-            "R" => u.invoke_act("reply-all".into()),
-            "f" => u.invoke_act("forward".into()),
-            "s" => u.invoke_act("star".into()),
-            "e" => u.invoke_act("archive".into()),
-            "#" | "\u{7f}" => u.invoke_act("delete".into()),
-            "u" => u.invoke_act("unread".into()),
-            "I" => u.invoke_act("read".into()),
-            "!" => u.invoke_act("spam".into()),
+            _ if shortcuts::mail_key_action(t).is_some() => u.invoke_act(shortcuts::mail_key_action(t).unwrap_or_default().into()),
             "c" => u.invoke_compose_new(),
             "/" => u.invoke_focus_search(),
             "G" => u.invoke_refresh(),
@@ -1532,6 +1736,7 @@ fn main() -> Result<(), slint::PlatformError> {
         let active = !conds.is_empty();
         u.set_sf_active(active);
         u.set_sf_open(false);
+        search_ui::refresh_chips(&u);
         u.set_current_mail("".into());
         if !active { u.invoke_select_folder(u.get_current_folder()); return; }
         // scope like Bulwark's searchDefaultScope: everywhere but Spam/Trash, or the open folder
@@ -1558,6 +1763,7 @@ fn main() -> Result<(), slint::PlatformError> {
         u.set_sf_unread(false); u.set_sf_starred(false); u.set_sf_attach(false);
         u.set_sf_active(false);
         u.set_sf_open(false);
+        search_ui::refresh_chips(&u);
         u.invoke_select_folder(u.get_current_folder());
     });
 
@@ -1629,16 +1835,7 @@ fn main() -> Result<(), slint::PlatformError> {
     ui.on_move_to(move |fid| {
         let u = w.unwrap();
         let ids = { let ch = mail::checked_ids(); if ch.is_empty() { vec![u.get_current_mail().to_string()] } else { ch } };
-        let ids: Vec<String> = ids.into_iter().filter(|i| !i.is_empty()).collect();
-        // folder ids belong to the active account: other accounts' rows (and group inboxes)
-        // go to their own folder with the same role, else the same name (Bulwark move targets)
-        let (own, other): (Vec<String>, Vec<String>) = ids.into_iter()
-            .partition(|i| mail::owner(i).is_none_or(|o| o == unified::active_user()) && mail::shared_account(i).is_none());
-        if let Some(c) = st.lock().unwrap().clone() { mail::apply(&u, c, own, &format!("move:{fid}")); }
-        if !other.is_empty() {
-            let (role, name) = mail::mailbox_info(&fid);
-            apply_routed(&u, &st, other, &unified::moveto_action(&role, &name));
-        }
+        move_ids(&u, &st, ids, &fid);
     });
 
     let (w, st) = (ui.as_weak(), state.clone());
@@ -1677,6 +1874,7 @@ fn main() -> Result<(), slint::PlatformError> {
                     }
                 }
             }
+            a if a.starts_with("rx:") => reader::pick(&u, &st, a, ""),
             other => {
                 apply_routed(&u, &st, vec![id], other);
             }
@@ -1685,6 +1883,10 @@ fn main() -> Result<(), slint::PlatformError> {
 
     let (st, wa) = (state.clone(), ui.as_weak());
     ui.on_open_attachment(move |i| {
+        // an attached message (message/rfc822, .eml) opens in the reader through Email/parse
+        if let (Some(u), Some(c), Some(a)) = (wa.upgrade(), reader_client(&st), CUR_MSG.with(|x| x.borrow().as_ref().and_then(|(_, atts)| atts.get(i as usize).cloned()))) {
+            if reader::is_message_attachment(&a) { reader::open_eml(&u, c, a); return; }
+        }
         // Bulwark mailAttachmentAction: preview (open) or download (save)
         if settings::Settings::load().str("mailAttachmentAction", "preview") == "download" {
             if let Some(u) = wa.upgrade() { u.invoke_save_attachment(i); }
@@ -1712,6 +1914,7 @@ fn main() -> Result<(), slint::PlatformError> {
     ui.on_ctx_pick(move |a| ctxmenu::pick(&w.unwrap(), &st, &a));
     let (w, st) = (ui.as_weak(), state.clone());
     ui.on_prompt_ok(move |t| ctxmenu::prompt_ok(&w.unwrap(), &st, &t));
+    reader::wire(&ui, state.clone());
 
     let (w, st) = (ui.as_weak(), state.clone());
     ui.on_save_attachment(move |i| {
@@ -1728,7 +1931,22 @@ fn main() -> Result<(), slint::PlatformError> {
         });
     });
 
-    ui.show()?;
+    // ---------------- productivity: shortcuts, command palette, search, drag and drop ----------------
+    palette::wire(&ui, state.clone());
+    search_ui::wire(&ui);
+    dnd::wire(&ui, state.clone());
+    let (w, st) = (ui.as_weak(), state.clone());
+    ui.global::<Pd>().on_key_hook(move |t, shift, ctrl, alt| {
+        let Some(u) = w.upgrade() else { return false };
+        shortcuts::handle(&u, &st, &t, shift, ctrl, alt)
+    });
+    let w = ui.as_weak();
+    ui.global::<Pd>().on_keys_set_tab(move |i| { if let Some(u) = w.upgrade() { shortcuts::show_help(&u, i.max(0) as usize); } });
+    let w = ui.as_weak();
+    ui.global::<Pd>().on_refocus(move || { if let Some(u) = w.upgrade() { u.invoke_focus_keys(); } });
+
+    // "Start in the tray" at sign-in leaves the window closed
+    if !desktop::start_hidden() { ui.show()?; }
     if automation::enabled() {
         ui.window().set_position(slint::PhysicalPosition::new(-6000, 0));
     }
@@ -1745,7 +1963,16 @@ fn main() -> Result<(), slint::PlatformError> {
     timer.start(slint::TimerMode::Repeated, std::time::Duration::from_millis(50), move || {
         if let Some(u) = w.upgrade() { sync_webview(&u); }
     });
-    slint::run_event_loop()?;
+    // Bulwark unreadBadgeAllAccounts: the other signed-in accounts' inbox counts for the
+    // title badge, refreshed now and then (the active account's come with its push)
+    let w = ui.as_weak();
+    let badge_timer = slint::Timer::default();
+    badge_timer.start(slint::TimerMode::Repeated, std::time::Duration::from_secs(120), move || {
+        if w.upgrade().is_some_and(|u| u.get_logged_in()) { unified::refresh_other_logins(w.clone(), false); }
+    });
+    // the window can be closed to the tray: the loop runs until Quit
+    slint::run_event_loop_until_quit()?;
+    instance::cleanup();
     // refresh tokens may rotate while the app runs: keep the newest one
     if REMEMBER_OAUTH.load(std::sync::atomic::Ordering::SeqCst) {
         if let Some(c) = state.lock().unwrap().clone() { remember_session(&c, serde_json::json!({"kind": "oauth"}), &c.base, ""); }
@@ -1960,6 +2187,11 @@ fn finish_login(w: slint::Weak<AppWindow>, st: Shared, res: Result<jmap::Client,
             // today's events and open tasks for the mail screen's summary tiles
             calendar::load(w2.clone(), c.clone());
             check_new_mail(c.clone(), None);
+            {
+                // calendar reminders for this login (Bulwark useCalendarAlerts)
+                let c4 = c.clone();
+                let _ = w2.upgrade_in_event_loop(move |u| reminders::start(&u, c4));
+            }
             start_push(w2, c);
         }
         Err(e) => {
@@ -1972,18 +2204,13 @@ fn finish_login(w: slint::Weak<AppWindow>, st: Shared, res: Result<jmap::Client,
 }
 
 
-/// Bulwark's Appearance > Light or dark: "light" | "dark" | "system" (Windows app theme).
+/// Bulwark's Appearance > Light or dark: "light" | "dark" | "system" (the system's app theme).
 pub fn apply_theme(ui: &AppWindow) {
     let pref = settings::Settings::load().str("theme", "dark");
     let dark = match pref.as_str() {
         "light" => false,
-        "system" => {
-            // HKCU\Software\Microsoft\Windows\CurrentVersion\Themes\Personalize AppsUseLightTheme
-            let out = std::process::Command::new("reg")
-                .args(["query", r"HKCU\Software\Microsoft\Windows\CurrentVersion\Themes\Personalize", "/v", "AppsUseLightTheme"])
-                .output().ok().map(|o| String::from_utf8_lossy(&o.stdout).to_string()).unwrap_or_default();
-            !out.contains("0x1")
-        }
+        // Windows app theme or the XDG portal colour scheme (platform layer)
+        "system" => platform::system_dark().unwrap_or(true),
         _ => true,
     };
     // the email view paints this colour before a message loads; keep it in step with the
@@ -1993,6 +2220,7 @@ pub fn apply_theme(ui: &AppWindow) {
     ui.global::<Theme>().set_dark(dark);
     // Settings > Appearance > Style: Bento (tiles) or Nordic (one surface)
     ui.global::<Theme>().set_style(if settings::Settings::load().str("uiStyle", "bento") == "nordic" { 1 } else { 0 });
+    search_ui::set_accent(ui.global::<Theme>().get_accent());
 }
 
 
@@ -2017,6 +2245,7 @@ pub fn apply_ui_prefs(ui: &AppWindow) {
     // Bulwark FONT_SIZE_SCALE on the 13px base
     ui.global::<Prefs>().set_font_size(13.0 * a.font_scale);
     ui.global::<Theme>().set_more_contrast(a.more_contrast);
+    search_ui::set_accent(ui.global::<Theme>().get_accent());
     ui.global::<Prefs>().set_reduce_motion(a.reduce_motion);
     ui.global::<Prefs>().set_large_targets(a.large_targets);
     // Bulwark focus outline widths: normal 2px, thick 3px, extra 5px

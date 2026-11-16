@@ -17,7 +17,59 @@ struct State {
     filter: String,
 }
 
-thread_local! { static ST: RefCell<State> = RefCell::new(State::default()); }
+thread_local! {
+    static ST: RefCell<State> = RefCell::new(State::default());
+    /// The client the contacts were loaded with (photos, directory).
+    static CLIENT: RefCell<Option<Arc<Client>>> = const { RefCell::new(None) };
+    static THEN: RefCell<Vec<Box<dyn FnOnce(&AppWindow)>>> = RefCell::new(vec![]);
+}
+
+pub fn cards() -> Vec<Value> { ST.with(|s| s.borrow().cards.clone()) }
+pub fn groups() -> Vec<Value> { ST.with(|s| s.borrow().groups.clone()) }
+pub fn books() -> Vec<Value> { ST.with(|s| s.borrow().books.clone()) }
+pub fn display_name(c: &Value) -> String { full_name(c) }
+pub fn current_filter() -> String { ST.with(|s| s.borrow().filter.clone()) }
+pub fn client() -> Option<Arc<Client>> { CLIENT.with(|c| c.borrow().clone()) }
+
+/// The cards the list shows (filter and search applied).
+pub fn shown_cards() -> Vec<Value> {
+    let dupes = crate::contacts_x::dupe_ids();
+    ST.with(|s| {
+        let s = s.borrow();
+        let q = s.query.to_lowercase();
+        s.cards.iter().filter(|c| in_filter_x(c, &s.filter, &s.groups, &dupes)).filter(|c| {
+            q.is_empty() || full_name(c).to_lowercase().contains(&q) || all(c, "emails", "address").iter().any(|e| e.to_lowercase().contains(&q))
+        }).cloned().collect()
+    })
+}
+
+/// The default address book: the loaded list's, else the server's.
+pub fn default_book_for(c: &Client) -> Option<String> {
+    default_book().or_else(|| {
+        let acc = c.account_for("urn:ietf:params:jmap:contacts");
+        c.call(json!([["AddressBook/get", {"accountId": acc, "ids": null, "properties": ["id", "isDefault"]}, "g"]])).ok().and_then(|r| {
+            let l = r[0][1]["list"].as_array().cloned().unwrap_or_default();
+            l.iter().find(|b| b["isDefault"] == true).or(l.first()).and_then(|b| b["id"].as_str().map(String::from))
+        })
+    })
+}
+
+/// Reload, then run `then` once the new cards are in.
+pub fn reload_then(u: &AppWindow, c: Arc<Client>, then: impl FnOnce(&AppWindow) + 'static) {
+    THEN.with(|t| t.borrow_mut().push(Box::new(then)));
+    load(u.as_weak(), c);
+}
+
+pub fn reload_then_select(u: &AppWindow, c: Arc<Client>, id: &str) {
+    let id = id.to_string();
+    reload_then(u, c, move |u| { u.set_ct_id(id.as_str().into()); select(u, &id); });
+}
+
+fn in_filter_x(c: &Value, f: &str, groups: &[Value], dupes: &std::collections::HashSet<String>) -> bool {
+    if f == "dupes:" { return c["id"].as_str().is_some_and(|i| dupes.contains(i)); }
+    if f == "directory:" { return false; }
+    in_filter(c, f, groups)
+}
 
 fn full_name(c: &Value) -> String {
     if let Some(f) = c["name"]["full"].as_str().filter(|s| !s.is_empty()) { return f.to_string(); }
@@ -58,6 +110,8 @@ fn all(c: &Value, map: &str, field: &str) -> Vec<String> {
 
 pub fn load(w: slint::Weak<AppWindow>, c: Arc<Client>) {
     if !c.has("urn:ietf:params:jmap:contacts") { return; }
+    crate::contacts_x::set_has_principals(c.has("urn:ietf:params:jmap:principals"));
+    CLIENT.with(|x| *x.borrow_mut() = Some(c.clone()));
     std::thread::spawn(move || {
         let acc = c.account_for("urn:ietf:params:jmap:contacts");
         let res: Result<(Vec<Value>, Vec<Value>), String> = (|| {
@@ -76,6 +130,8 @@ pub fn load(w: slint::Weak<AppWindow>, c: Arc<Client>) {
                 cards.sort_by_key(|x| full_name(x).to_lowercase());
                 ST.with(|s| { let mut s = s.borrow_mut(); s.books = books; s.cards = cards; s.groups = groups; });
                 render(&u);
+                if current_filter() == "dupes:" { crate::contacts_x::render_dupes(&u); }
+                for f in THEN.with(|t| std::mem::take(&mut *t.borrow_mut())) { f(&u); }
             }
             Err(e) => crate::mail::show_toast(&u, &format!("Contacts: {e}"), false),
         });
@@ -119,6 +175,9 @@ pub fn all_keywords() -> Vec<(String, usize)> {
 pub fn set_filter(u: &AppWindow, f: &str) {
     ST.with(|s| s.borrow_mut().filter = f.to_string());
     u.set_ct_filter(f.into());
+    if f == "dupes:" || f == "directory:" { u.set_ct_id("".into()); }
+    if f == "dupes:" { crate::contacts_x::render_dupes(u); }
+    if f == "directory:" { if let Some(c) = client() { crate::contacts_x::load_directory(u, c); } }
     render(u);
 }
 
@@ -151,6 +210,11 @@ fn render_nav(u: &AppWindow) {
         if s.groups.is_empty() { v.push(nav("section", "groups", "", "", 0, "Groups")); }
         let uncat = s.cards.iter().filter(|c| keywords(c).is_empty()).count();
         drop(s);
+        // duplicates (Bulwark contact-duplicates-view) and the server directory
+        let dupes = crate::contacts_x::dupe_ids().len();
+        let mut tools_header = "Tools";
+        if dupes > 0 || current_filter() == "dupes:" { v.push(nav("dupes", "", "Duplicates", "\u{E8C8}", dupes, tools_header)); tools_header = ""; }
+        if crate::contacts_x::directory_enabled() { v.push(nav("directory", "", "Directory", "\u{E716}", crate::contacts_x::directory().len(), tools_header)); }
         let kws = all_keywords();
         let ncat = kws.len() + 1;
         for (i, (k, n)) in kws.into_iter().enumerate() {
@@ -171,11 +235,24 @@ pub fn render(u: &AppWindow) {
     let p = crate::settings::Settings::load();
     let by_letter = p.bool("groupContactsByLetter", true);
     let by_last = p.bool("sortContactsByLastName", false);
+    let dupes = crate::contacts_x::dupe_ids();
+    if current_filter() == "directory:" {
+        let q = ST.with(|s| s.borrow().query.to_lowercase());
+        let rows: Vec<ContactRow> = crate::contacts_x::directory().iter().filter(|p| {
+            q.is_empty() || p["name"].as_str().unwrap_or("").to_lowercase().contains(&q) || p["email"].as_str().unwrap_or("").to_lowercase().contains(&q)
+        }).map(|p| {
+            let name = p["name"].as_str().unwrap_or("").to_string();
+            ContactRow { id: format!("dir:{}", p["id"].as_str().unwrap_or("")).into(), initials: name.split_whitespace().filter_map(|w| w.chars().next()).take(2).collect::<String>().to_uppercase().into(),
+                color: crate::mail::tint(&name), email: p["email"].as_str().unwrap_or(p["type"].as_str().unwrap_or("")).into(), name: name.into(), header: "".into() }
+        }).collect();
+        u.set_contacts(ModelRc::new(VecModel::from(rows)));
+        return;
+    }
     ST.with(|s| {
         let s = s.borrow();
         let q = s.query.to_lowercase();
         let mut last = String::new();
-        let mut shown: Vec<(String, &Value)> = s.cards.iter().filter(|c| in_filter(c, &s.filter, &s.groups)).filter(|c| {
+        let mut shown: Vec<(String, &Value)> = s.cards.iter().filter(|c| in_filter_x(c, &s.filter, &s.groups, &dupes)).filter(|c| {
             q.is_empty() || full_name(c).to_lowercase().contains(&q) || all(c, "emails", "address").iter().any(|e| e.to_lowercase().contains(&q))
         }).map(|c| (sort_name(c, by_last), c)).collect();
         shown.sort_by_key(|(k, _)| k.to_lowercase());
@@ -226,7 +303,18 @@ pub fn search(u: &AppWindow, q: &str) {
 
 /// Show a contact in the detail pane (also used to start editing).
 pub fn select(u: &AppWindow, id: &str) {
+    if let Some(pid) = id.strip_prefix("dir:") {
+        u.set_ct_id(id.into());
+        let p = crate::contacts_x::directory().into_iter().find(|p| p["id"] == pid);
+        let name = p.as_ref().and_then(|p| p["name"].as_str()).unwrap_or("").to_string();
+        u.set_ct_initials(name.split_whitespace().filter_map(|w| w.chars().next()).take(2).collect::<String>().to_uppercase().into());
+        u.set_ct_name(name.into());
+        u.set_ct_emails(p.as_ref().and_then(|p| p["email"].as_str()).unwrap_or("").into());
+        crate::contacts_x::show_principal(u, pid);
+        return;
+    }
     let card = ST.with(|s| s.borrow().cards.iter().find(|c| c["id"] == id).cloned());
+    crate::contacts_x::show(u, card.as_ref(), client());
     u.set_ct_id(id.into());
     match card {
         Some(c) => {
@@ -439,4 +527,14 @@ pub fn delete_keyword(u: &AppWindow, c: Arc<Client>, k: &str) {
     if upd.is_empty() { return; }
     if ST.with(|s| s.borrow().filter == format!("kw:{k}")) { set_filter(u, ""); }
     card_set(u, c, json!({"update": upd}), "Category deleted");
+}
+
+/// Whether a card is loaded (the palette waits for this before showing a found contact).
+pub fn has_card(id: &str) -> bool {
+    ST.with(|s| s.borrow().cards.iter().any(|c| c["id"] == id))
+}
+
+/// (name, first address) of every loaded card with an address, for search suggestions.
+pub fn people() -> Vec<(String, String)> {
+    ST.with(|s| s.borrow().cards.iter().filter_map(|c| first(c, "emails", "address").map(|e| (full_name(c), e))).collect())
 }

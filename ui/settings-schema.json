@@ -188,10 +188,25 @@
      "desc": ""
     },
     {
-     "kind": "info",
+     "kind": "toggle",
+     "label": "Sender pictures from the web",
+     "desc": "Show the website icon of a sender's company, and the brand logo (BIMI) of mail that passed DMARC for its sender. Asks the icon service and the sender's domain, so it is off until you turn it on.",
+     "key": "senderFavicons",
+     "default": false
+    },
+    {
+     "kind": "toggle",
+     "label": "Gravatar photos",
+     "desc": "Show the photo a sender set up on Gravatar. Asks gravatar.com about each sender's address (as a hash).",
+     "key": "gravatarAvatars",
+     "default": false
+    },
+    {
+     "kind": "button",
      "label": "Refresh sender icons",
      "desc": "Fetch the website icons again, for example when a sender changed theirs",
-     "key": ""
+     "key": "avatars.refresh",
+     "text": "Refresh"
     },
     {
      "kind": "toggle",

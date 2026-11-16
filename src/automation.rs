@@ -7,14 +7,24 @@
 //! Commands (logical pixels):
 //!   click X Y | rclick X Y | dclick X Y | move X Y | scroll X Y DY
 //!   type TEXT            (sent as key presses)
-//!   key Enter|Escape|Tab|Backspace|Delete|Up|Down|Left|Right|Home|End (with Ctrl+/Shift+/Alt+ prefixes)
+//!   key Enter|Escape|Tab|Backspace|Delete|Up|Down|Left|Right|Home|End|F2|F5|F9|F10 (with Ctrl+/Shift+/Alt+ prefixes)
 //!   drag X1 Y1 X2 Y2
 //!   shot PATH.png        (window contents; the WebView2 email body is a separate window and not included)
 //!   size                 (window size)
 //!   resize W H           (resize the off-screen window)
 //!   ui bento|nordic dark|light [more|normal]   (style, theme and contrast in memory only, never saved)
+//!   title | from         (window title with the unread badge; the composer's From override)
 //!   wv-eval JS / wv-result (run JS in the email WebView, then read its JSON result)
 //!   pick PATH[|PATH...]  (answer the next file-open picker with these files instead of a dialog)
+//!   save PATH / savepick PATH (answer the next save-file dialog with this path)
+//!   rx-banners           (the open message's reader banners as JSON)
+//!   rx-import PATH / rx-find TEXT / rx-destroy ID...  (test messages; only on the test account,
+//!   and only in a build with `--features automation-writes`: release builds cannot write)
+//!   cal-dump TEXT        (the loaded calendar events whose title contains TEXT, as JSON; read-only)
+//!   pim WHAT             (read-only state of the PIM screens: contacts, fields, dupes, files, filters)
+//!   notes | note-mail N | note-activate ACTION CONTEXT   (notifications are recorded, not
+//!                        shown, in automation runs; activate takes the toast-click path)
+//!   desktop | update-check | tray open|compose|check|quit | close   (badge, updater, tray menu, X)
 use crate::AppWindow;
 use slint::platform::{Key, PointerEventButton, WindowEvent};
 use slint::{ComponentHandle, LogicalPosition, SharedString};
@@ -24,6 +34,7 @@ use std::sync::mpsc;
 
 thread_local! {
     static PICK: std::cell::RefCell<Option<Vec<std::path::PathBuf>>> = const { std::cell::RefCell::new(None) };
+    static SAVE: std::cell::RefCell<Option<std::path::PathBuf>> = const { std::cell::RefCell::new(None) };
 }
 
 /// Files for a file-open picker: the paths queued by the `pick` command when automation is on,
@@ -33,6 +44,16 @@ pub fn pick_files() -> Option<Vec<std::path::PathBuf>> {
         if let Some(v) = PICK.with(|p| p.borrow_mut().take()) { return Some(v); }
     }
     rfd::FileDialog::new().pick_files()
+}
+
+/// A save-as path: the one queued by the `save`/`savepick` command when automation is on,
+/// otherwise the native dialog.
+pub fn save_file(name: &str, filter: &str, exts: &[&str]) -> Option<std::path::PathBuf> {
+    // automation: only a queued path; none queued saves nothing, so no dialog opens on screen
+    if enabled() { return SAVE.with(|p| p.borrow_mut().take()); }
+    let mut d = rfd::FileDialog::new().set_file_name(name);
+    if !exts.is_empty() { d = d.add_filter(filter, exts); }
+    d.save_file()
 }
 
 pub fn enabled() -> bool {
@@ -111,6 +132,7 @@ fn run(u: &AppWindow, line: &str) -> String {
                     "Delete" => Key::Delete.into(), "Up" => Key::UpArrow.into(), "Down" => Key::DownArrow.into(), "Left" => Key::LeftArrow.into(),
                     "Right" => Key::RightArrow.into(), "Home" => Key::Home.into(), "End" => Key::End.into(), "PageUp" => Key::PageUp.into(),
                     "PageDown" => Key::PageDown.into(), "Space" => " ".into(),
+                    "F2" => Key::F2.into(), "F5" => Key::F5.into(), "F9" => Key::F9.into(), "F10" => Key::F10.into(),
                     s if s.chars().count() == 1 => s.to_lowercase().into(),
                     _ => return None,
                 })
@@ -157,6 +179,51 @@ fn run(u: &AppWindow, line: &str) -> String {
             PICK.with(|p| *p.borrow_mut() = Some(v));
             "ok".into()
         }
+        // recipient chips, typed text and suggestions of the composer (read-only probe)
+        "chips" => crate::chips::describe(u),
+        "save" | "savepick" => {
+            let p = a.get(1).copied().unwrap_or("").trim();
+            SAVE.with(|s| *s.borrow_mut() = (!p.is_empty()).then(|| p.into()));
+            "ok".into()
+        }
+        "rx-banners" => crate::reader::probe(),
+        #[cfg(feature = "automation-writes")]
+        "rx-import" => crate::reader::automation_import(a.get(1).copied().unwrap_or("").trim()),
+        #[cfg(feature = "automation-writes")]
+        "rx-find" => crate::reader::automation_find(a.get(1).copied().unwrap_or("").trim()),
+        #[cfg(feature = "automation-writes")]
+        "rx-destroy" => crate::reader::automation_destroy(a.get(1).copied().unwrap_or("")),
+        "cal-dump" => crate::calendar::dump(a.get(1).copied().unwrap_or("")),
+        // read-only probes of the PIM screens
+        "pim" => crate::pim::probe(u, a.get(1).copied().unwrap_or("")),
+        // distribution probes: notifications are recorded (not shown) in automation runs
+        "notes" => serde_json::to_string(&crate::notify::SHOWN.lock().unwrap().iter().map(|n| serde_json::json!({
+            "id": n.id, "group": n.group, "title": n.title, "body": n.body, "context": n.context,
+            "actions": n.actions.iter().map(|a| a.0.clone()).collect::<Vec<_>>()})).collect::<Vec<_>>()).unwrap_or_default(),
+        // "note-mail N": record the notification the Nth listed message would get on arrival
+        "note-mail" => {
+            use slint::Model;
+            let i: usize = args.first().and_then(|v| v.parse().ok()).unwrap_or(0);
+            let Some(m) = u.get_mails().row_data(i) else { return "no such row".into() };
+            let mail = crate::notify::NewMail { id: m.id.to_string(), sender: m.sender.to_string(), subject: m.subject.to_string(), preview: m.preview.to_string() };
+            if let Some(n) = crate::notify::mail_note(&[mail], "automation", false, true) { crate::notify::show(n); }
+            "ok".into()
+        }
+        // "note-activate ACTION CONTEXT": the same path a click or a button on a toast takes
+        "note-activate" => {
+            crate::notify::activate(crate::notify::Activation { action: args.first().copied().unwrap_or("open").into(), context: args.get(1).copied().unwrap_or("").into() });
+            "ok".into()
+        }
+        "desktop" => {
+            let n = crate::desktop::inbox_unread(u);
+            let st = crate::updater::state();
+            format!("unread {n} | tooltip {} | update {:?} {} | kind {:?} | visible {}", crate::desktop::tooltip(n), st.status, st.target, crate::updater::current_kind(), win.is_visible())
+        }
+        "update-check" => { crate::updater::check(true); "ok".into() }
+        // the window's close button (X): quits, or hides to the tray with close to tray on
+        "close" => { win.dispatch_event(WindowEvent::CloseRequested); "ok".into() }
+        // "tray open|compose|check|quit": what the tray menu items do
+        "tray" => { crate::desktop::tray_command(args.first().copied().unwrap_or("")); "ok".into() }
         "size" => { let s = win.size(); format!("{} {} scale {}", s.width, s.height, win.scale_factor()) }
         // resize the (off-screen) window, in logical pixels, to check narrow layouts
         "resize" => { win.set_size(slint::LogicalSize::new(pos(&args, 0).max(400.0), pos(&args, 1).max(300.0))); "ok".into() }
@@ -174,6 +241,9 @@ fn run(u: &AppWindow, line: &str) -> String {
             }
             format!("style {} dark {} more-contrast {}", if t.get_style() == 1 { "nordic" } else { "bento" }, t.get_dark(), t.get_more_contrast())
         }
+        // read-only probes: the window title (unread badge) and the composer's sender
+        "title" => u.get_window_title().to_string(),
+        "from" => format!("custom={} name={} email={} identity={}", u.get_c_from_custom(), u.get_c_from_name(), u.get_c_from_email(), u.get_c_from_index()),
         "shot" => {
             let path = a.get(1).copied().unwrap_or("shot.png");
             match win.take_snapshot() {

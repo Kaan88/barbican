@@ -1,9 +1,13 @@
-//! Calendar app: JMAP for Calendars (CalendarEvent / Calendar), Day / Week / Month views,
-//! mini month, calendar visibility, client-side recurrence expansion (like Bulwark's
-//! recurrence-expansion fallback when the server doesn't expand), event create/edit/delete.
+//! Calendar app: JMAP for Calendars (CalendarEvent / Calendar), Day / Week / Month / Agenda /
+//! Tasks views, mini month, calendar visibility, client-side recurrence expansion on each
+//! event's own clock (recurrence.rs, like Bulwark's expansion fallback), calendars shared with
+//! the user from other accounts (with per-viewer colours, Bulwark sharedCalendarColors), the
+//! contact birthday calendar and task chips. The editor lives in cal_editor.rs, reminders in
+//! reminders.rs, agenda / tasks / import / subscriptions in cal_extra.rs.
 use crate::jmap::Client;
+use crate::recurrence::{self, parse_local};
 use crate::{AppWindow, CalCell, CalDetail, CalEvent, CalGuest, CalItem, CalSum, MiniDay};
-use chrono::{Datelike, Duration, Local, NaiveDate, NaiveDateTime, NaiveTime, Timelike, Weekday};
+use chrono::{Datelike, Duration, Local, NaiveDate, NaiveDateTime, Timelike};
 use serde_json::{json, Value};
 use slint::{Color, ComponentHandle, ModelRc, VecModel};
 use std::cell::RefCell;
@@ -11,40 +15,51 @@ use std::collections::HashSet;
 use std::sync::Arc;
 
 pub const HOUR_PX: f32 = 56.0;
+pub const CAL: &str = "urn:ietf:params:jmap:calendars";
+pub const BIRTHDAY_CAL: &str = "__birthday-calendar__";
 
 #[derive(Default)]
 struct State {
     anchor: Option<NaiveDate>,
-    view: i32, // 0 day, 1 week, 2 month
+    view: i32, // 0 day, 1 week, 2 month, 3 agenda, 4 tasks
     calendars: Vec<Value>,
     hidden: HashSet<String>,
     events: Vec<Occ>,
     query: String,
-    editing: Option<Value>,
+    /// the day columns on screen (day/week), for a click on column N
+    columns: Vec<NaiveDate>,
     // the event shown in the context panel (design: guests / details beside the grid)
     selected: Option<String>,
 }
 
-#[derive(Clone)]
-struct Occ {
-    id: String,
-    title: String,
-    start: NaiveDateTime,
-    end: NaiveDateTime,
-    all_day: bool,
-    calendar: String,
-    location: String,
+/// One thing on the grid: an occurrence of an event, a task's due date or a birthday.
+#[derive(Clone, Debug)]
+pub struct Occ {
+    /// What the views hand back: the event id, "id|recurrenceId" for an occurrence of a series,
+    /// "task:ID" or "bday:KEY".
+    pub id: String,
+    /// the event it comes from, and the occurrence's recurrence id
+    #[allow(dead_code)]
+    pub base: String,
+    #[allow(dead_code)]
+    pub rid: Option<String>,
+    pub title: String,
+    pub start: NaiveDateTime,
+    pub end: NaiveDateTime,
+    pub all_day: bool,
+    pub calendar: String,
+    pub location: String,
+    /// 0 event, 1 task, 2 birthday
+    pub kind: u8,
+    pub done: bool,
 }
 
-thread_local! { static ST: RefCell<State> = RefCell::new(State::default()); }
+thread_local! {
+    static ST: RefCell<State> = RefCell::new(State::default());
+    static RAW: RefCell<Vec<Value>> = const { RefCell::new(Vec::new()) };
+}
 
 const PALETTE: [u32; 8] = [0x3b82f6, 0x22c55e, 0xf97316, 0xa855f7, 0xec4899, 0x14b8a6, 0xeab308, 0xef4444];
-
-fn color_for(cals: &[Value], id: &str) -> Color {
-    let i = cals.iter().position(|c| c["id"] == id).unwrap_or(0);
-    let hex = cals.get(i).and_then(|c| c["color"].as_str()).and_then(|s| u32::from_str_radix(s.trim_start_matches('#'), 16).ok());
-    snap(Color::from_argb_encoded(0xff000000 | hex.unwrap_or(PALETTE[i % PALETTE.len()])))
-}
 
 /// Calendar colours drawn as the design's meaning tints: reds and pinks become rose, oranges and
 /// yellows amber, greens and teals mint, blues sky (Theme.tint-bg/fg map these four exactly).
@@ -65,9 +80,32 @@ fn snap(c: Color) -> Color {
     Color::from_argb_encoded(0xff000000 | hex)
 }
 
+pub fn hex_color(s: &str) -> Option<Color> {
+    let s = s.trim().trim_start_matches('#');
+    let s = if s.len() == 3 { s.chars().flat_map(|c| [c, c]).collect::<String>() } else { s.to_string() };
+    (s.len() == 6).then(|| u32::from_str_radix(&s, 16).ok()).flatten().map(|v| Color::from_argb_encoded(0xff000000 | v))
+}
+
+/// Bulwark sharedCalendarColorKey: `${localAccount}|${account}|${id}`.
+pub fn shared_color_key(user: &str, account: &str, id: &str) -> String { format!("{user}|{account}|{id}") }
+
+fn color_for(cals: &[Value], id: &str) -> Color {
+    if id == BIRTHDAY_CAL {
+        return hex_color(&crate::settings::Settings::load().str("birthdayCalendarColor", "#eab308")).unwrap_or(Color::from_rgb_u8(0xea, 0xb3, 0x08));
+    }
+    let i = cals.iter().position(|c| c["id"] == id).unwrap_or(0);
+    let c = cals.get(i);
+    if let Some(over) = c.and_then(|c| c["_color"].as_str()).and_then(hex_color) { return over; }
+    snap(c.and_then(|c| c["color"].as_str()).and_then(hex_color).unwrap_or_else(|| Color::from_argb_encoded(0xff000000 | PALETTE[i % PALETTE.len()])))
+}
+
+pub fn calendar_color_of(id: &str) -> Color { ST.with(|s| color_for(&s.borrow().calendars, id)) }
+
 fn anchor() -> NaiveDate {
     ST.with(|s| s.borrow().anchor).unwrap_or_else(|| Local::now().date_naive())
 }
+
+pub fn view() -> i32 { ST.with(|s| s.borrow().view) }
 
 /// Calendar display prefs (Bulwark keys: firstDayOfWeek, showWeekNumbers, calendarLimitHours,
 /// calendarDayStartHour/EndHour, calendarHideNonWorkingDays + calendarWorkingDays,
@@ -90,6 +128,11 @@ struct CalPrefs {
     hover_delay: i32,
     /// calendarNarrowWeekAllDays
     narrow_all_days: bool,
+    /// enableCalendarTasks, showTasksOnCalendar, showTasksApp, showBirthdayCalendar
+    tasks: bool,
+    tasks_on_calendar: bool,
+    tasks_app: bool,
+    birthdays: bool,
 }
 
 thread_local! {
@@ -135,6 +178,10 @@ fn cal_prefs() -> CalPrefs {
         free_scroll: p.bool("calendarFreeScroll", true),
         hover_delay: hover_delay(&p.str("calendarHoverPreview", "delay-500ms")),
         narrow_all_days: p.bool("calendarNarrowWeekAllDays", false),
+        tasks: p.bool("enableCalendarTasks", true),
+        tasks_on_calendar: p.bool("showTasksOnCalendar", true),
+        tasks_app: p.bool("showTasksApp", false),
+        birthdays: p.bool("showBirthdayCalendar", false),
     }
 }
 
@@ -144,14 +191,18 @@ fn week_start(d: NaiveDate) -> NaiveDate {
     d - Duration::days(((dow + 7 - first) % 7) as i64)
 }
 
-fn fmt_time(t: NaiveDateTime, h12: bool) -> String {
+pub fn fmt_time(t: NaiveDateTime, h12: bool) -> String {
     if h12 { t.format("%-I:%M %p").to_string() } else { t.format("%H:%M").to_string() }
 }
+
+pub fn h12() -> bool { crate::settings::Settings::load().str("timeFormat", "24h") == "12h" }
 
 /// The day columns of the Day / Week view: every date of the range [from, to).
 fn day_columns(from: NaiveDate, to: NaiveDate) -> Vec<NaiveDate> {
     (0..(to - from).num_days().max(1)).map(|i| from + Duration::days(i)).collect()
 }
+
+pub const AGENDA_DAYS: i64 = 30;
 
 fn range() -> (NaiveDate, NaiveDate) {
     let (a, view) = (anchor(), ST.with(|s| s.borrow().view));
@@ -159,6 +210,7 @@ fn range() -> (NaiveDate, NaiveDate) {
         0 => (a, a + Duration::days(1)),
         1 if week_days_shown() < 7 => (a, a + Duration::days(week_days_shown())),
         1 => { let s = week_start(a); (s, s + Duration::days(7)) }
+        3 => (a, a + Duration::days(AGENDA_DAYS)),
         _ => {
             let first = a.with_day(1).unwrap();
             let s = week_start(first);
@@ -167,150 +219,225 @@ fn range() -> (NaiveDate, NaiveDate) {
     }
 }
 
-// ---------------- duration / recurrence ----------------
+// ---------------- ids across accounts ----------------
 
-fn parse_duration(s: &str) -> Duration {
-    // ISO 8601 PnDTnHnMnS / PnW
-    let mut total = 0i64;
-    let mut num = String::new();
-    let mut in_time = false;
-    for ch in s.chars() {
-        match ch {
-            'P' => {}
-            'T' => in_time = true,
-            '0'..='9' => num.push(ch),
-            _ => {
-                let n: i64 = num.parse().unwrap_or(0);
-                num.clear();
-                total += match (ch, in_time) {
-                    ('W', _) => n * 7 * 86400, ('D', _) => n * 86400, ('H', true) => n * 3600,
-                    ('M', true) => n * 60, ('S', true) => n, _ => 0,
-                };
-            }
-        }
-    }
-    Duration::seconds(total)
+/// Ids of other accounts (calendars shared with the user) carry their account: "ACC~id".
+pub fn ns(primary: &str, acc: &str, id: &str) -> String {
+    if acc == primary || acc.is_empty() { id.to_string() } else { format!("{acc}~{id}") }
 }
 
-fn parse_local(s: &str) -> Option<NaiveDateTime> {
-    NaiveDateTime::parse_from_str(&s[..s.len().min(19)], "%Y-%m-%dT%H:%M:%S").ok()
+/// (account, server id) of a namespaced id; the primary account for a plain one.
+pub fn split_ns(id: &str) -> (Option<String>, String) {
+    match id.split_once('~') { Some((a, i)) => (Some(a.to_string()), i.to_string()), None => (None, id.to_string()) }
 }
 
-fn weekday(s: &str) -> Option<Weekday> {
-    Some(match s { "mo" => Weekday::Mon, "tu" => Weekday::Tue, "we" => Weekday::Wed, "th" => Weekday::Thu, "fr" => Weekday::Fri, "sa" => Weekday::Sat, "su" => Weekday::Sun, _ => return None })
+/// The server account and id of an event or calendar id as the app holds it.
+pub fn server_ref(c: &Client, id: &str) -> (String, String) {
+    let (a, i) = split_ns(id);
+    (a.unwrap_or_else(|| c.account_for(CAL)), i)
 }
 
-/// Expand an event into occurrences overlapping [from, to).
-fn expand(e: &Value, from: NaiveDateTime, to: NaiveDateTime) -> Vec<(NaiveDateTime, NaiveDateTime)> {
-    let Some(start) = e["start"].as_str().and_then(parse_local) else { return vec![] };
-    let dur = parse_duration(e["duration"].as_str().unwrap_or("PT1H"));
-    let dur = if dur.num_seconds() <= 0 && e["showWithoutTime"] == true { Duration::days(1) } else { dur };
-    let excluded: HashSet<String> = e["recurrenceOverrides"].as_object().map(|o| o.iter()
-        .filter(|(_, v)| v["excluded"] == true).map(|(k, _)| k[..19.min(k.len())].to_string()).collect()).unwrap_or_default();
-    let rules = e["recurrenceRules"].as_array().cloned().unwrap_or_default();
-    let mut out = vec![];
-    let push = |s: NaiveDateTime, out: &mut Vec<(NaiveDateTime, NaiveDateTime)>| {
-        if s < to && s + dur > from && !excluded.contains(&s.format("%Y-%m-%dT%H:%M:%S").to_string()) { out.push((s, s + dur)); }
-    };
-    if rules.is_empty() { push(start, &mut out); return out; }
-    for r in rules {
-        let freq = r["frequency"].as_str().unwrap_or("weekly");
-        let interval = r["interval"].as_i64().unwrap_or(1).max(1);
-        let count = r["count"].as_i64();
-        let until = r["until"].as_str().and_then(parse_local);
-        let by_day: Vec<Weekday> = r["byDay"].as_array().map(|a| a.iter().filter_map(|d| d["day"].as_str().and_then(weekday)).collect()).unwrap_or_default();
-        let mut n = 0i64;
-        let mut cur = start;
-        let mut guard = 0;
-        while guard < 5000 {
-            guard += 1;
-            if until.is_some_and(|u| cur > u) || cur >= to { break; }
-            let candidates: Vec<NaiveDateTime> = if freq == "weekly" && !by_day.is_empty() {
-                let ws = cur.date() - Duration::days(cur.date().weekday().num_days_from_monday() as i64);
-                let mut v: Vec<NaiveDateTime> = by_day.iter().map(|wd| (ws + Duration::days(wd.num_days_from_monday() as i64)).and_time(start.time())).filter(|d| *d >= start).collect();
-                v.sort();
-                v
-            } else { vec![cur] };
-            for c in candidates {
-                if until.is_some_and(|u| c > u) { break; }
-                if count.is_some_and(|k| n >= k) { break; }
-                n += 1;
-                push(c, &mut out);
-            }
-            if count.is_some_and(|k| n >= k) { break; }
-            cur = match freq {
-                "daily" => cur + Duration::days(interval),
-                "weekly" => cur + Duration::weeks(interval),
-                "monthly" => {
-                    let m = cur.month0() as i64 + interval;
-                    let (y, m) = (cur.year() + (m / 12) as i32, (m % 12) as u32 + 1);
-                    NaiveDate::from_ymd_opt(y, m, start.day()).map(|d| d.and_time(start.time())).unwrap_or(cur + Duration::days(31))
-                }
-                "yearly" => NaiveDate::from_ymd_opt(cur.year() + interval as i32, start.month(), start.day()).map(|d| d.and_time(start.time())).unwrap_or(cur + Duration::days(366)),
-                _ => cur + Duration::days(interval),
-            };
+/// An event's calendarIds with the namespace taken off (for writing to its account).
+pub fn server_calendar_ids(ids: &Value) -> Value {
+    let m: serde_json::Map<String, Value> = ids.as_object().map(|o| o.iter().map(|(k, v)| (split_ns(k).1, v.clone())).collect()).unwrap_or_default();
+    Value::Object(m)
+}
+
+/// The base event id of an id the views hand back ("id|recurrenceId" for an occurrence).
+pub fn base_id(id: &str) -> &str { id.split('|').next().unwrap_or(id) }
+
+/// The recurrence id in an id the views hand back.
+pub fn rid_of(id: &str) -> Option<&str> { id.split_once('|').map(|(_, r)| r) }
+
+/// The calendar accounts this login reaches: the primary one, then accounts shared with it.
+pub fn calendar_accounts(c: &Client) -> Vec<(String, String, bool)> {
+    let primary = c.account_for(CAL);
+    let mut out = vec![(primary.clone(), c.session["accounts"][&primary]["name"].as_str().unwrap_or("").to_string(), true)];
+    if let Some(accs) = c.session["accounts"].as_object() {
+        for (id, a) in accs {
+            if id == &primary || a["accountCapabilities"].get(CAL).is_none() { continue; }
+            out.push((id.clone(), a["name"].as_str().unwrap_or(id).to_string(), false));
         }
     }
     out
 }
 
+pub const EVENT_PROPS: [&str; 34] = ["id", "@type", "uid", "title", "description", "start", "duration", "timeZone", "showWithoutTime", "calendarIds",
+    "locations", "virtualLocations", "recurrenceRules", "excludedRecurrenceRules", "recurrenceOverrides", "recurrenceId", "status", "freeBusyStatus",
+    "privacy", "participants", "organizerCalendarAddress", "replyTo", "isOrigin", "alerts", "useDefaultAlerts", "due", "progress", "percentComplete",
+    "priority", "updated", "excludedRecurrenceIds", "keywords", "color", "sequence"];
+
 // ---------------- loading ----------------
 
 pub fn load(w: slint::Weak<AppWindow>, c: Arc<Client>) {
-    if !c.has("urn:ietf:params:jmap:calendars") { return; }
-    let (from, to) = range();
+    if !c.has(CAL) { return; }
     std::thread::spawn(move || {
-        let acc = c.account_for("urn:ietf:params:jmap:calendars");
         let tz = crate::agent::local_tz();
+        let primary = c.account_for(CAL);
         let res: Result<(Vec<Value>, Vec<Value>), String> = (|| {
-            let cals = c.call(json!([["Calendar/get", {"accountId": acc, "ids": null, "properties": ["id", "name", "color", "isDefault", "isVisible", "sortOrder", "myRights"]}, "c"]]))?;
-            let cals = cals[0][1]["list"].as_array().cloned().unwrap_or_default();
-            // series overlapping the range (recurring series start earlier, so no lower bound for them)
-            // every id (paged), then the events in maxObjectsInGet chunks: one back-referenced
-            // CalendarEvent/get of 5000 ids is over Stalwart's limit (requestTooLarge)
-            let ids = c.query_all("CalendarEvent/query", &acc, json!({"timeZone": tz}))?;
-            let props = json!(["id", "@type", "title", "start", "duration", "timeZone", "showWithoutTime", "calendarIds", "locations",
-                "recurrenceRules", "recurrenceOverrides", "description", "status", "due", "progress", "percentComplete", "uid", "participants", "updated", "excludedRecurrenceIds"]);
-            Ok((cals, c.get_all("CalendarEvent/get", &acc, &ids, Some(&props))?))
+            let mut cals = vec![];
+            let mut events = vec![];
+            let colors = crate::settings::Settings::load().prefs.get("sharedCalendarColors").cloned().unwrap_or(json!({}));
+            for (acc, name, is_primary) in calendar_accounts(&c) {
+                let r = c.request(json!([["Calendar/get", {"accountId": acc, "ids": null, "properties": ["id", "name", "color", "isDefault", "isVisible", "sortOrder", "myRights",
+                    "defaultAlertsWithTime", "defaultAlertsWithoutTime", "isSubscribed", "includeInAvailability"]}, "c"]]))?;
+                if r.first().is_none_or(|x| x[0] == "error") {
+                    if is_primary { return Err(crate::jmap::method_error(&r.first().map(|x| x[1].clone()).unwrap_or(json!({})))); }
+                    continue;
+                }
+                let mut list = r[0][1]["list"].as_array().cloned().unwrap_or_default();
+                list.sort_by_key(|x| (x["sortOrder"].as_i64().unwrap_or(0), x["name"].as_str().unwrap_or("").to_lowercase()));
+                for mut cal in list {
+                    let raw = cal["id"].as_str().unwrap_or("").to_string();
+                    cal["_rid"] = json!(raw);
+                    cal["_acc"] = json!(acc);
+                    cal["id"] = json!(ns(&primary, &acc, &raw));
+                    if !is_primary {
+                        cal["_shared"] = json!(true);
+                        cal["_owner"] = json!(name);
+                        if let Some(col) = colors[shared_color_key(&c.username, &acc, &raw)].as_str() { cal["_color"] = json!(col); }
+                    }
+                    cals.push(cal);
+                }
+                // every id (paged), then the events in maxObjectsInGet chunks: one back-referenced
+                // CalendarEvent/get of 5000 ids is over Stalwart's limit (requestTooLarge)
+                let ids = match c.query_all("CalendarEvent/query", &acc, json!({"timeZone": tz})) {
+                    Ok(ids) => ids,
+                    Err(e) if is_primary => return Err(e),
+                    Err(_) => continue,
+                };
+                let props = json!(EVENT_PROPS.to_vec());
+                let got = match c.get_all("CalendarEvent/get", &acc, &ids, Some(&props)) {
+                    Ok(v) => v,
+                    Err(e) if is_primary => return Err(e),
+                    Err(_) => continue,
+                };
+                for mut e in got {
+                    namespace_event(&mut e, &primary, &acc);
+                    events.push(e);
+                }
+            }
+            Ok((cals, events))
         })();
+        let people = if crate::settings::Settings::load().bool("showBirthdayCalendar", false) { crate::cal_extra::fetch_people(&c).ok() } else { None };
+        let w2 = w.clone();
+        let c2 = c.clone();
         let _ = w.upgrade_in_event_loop(move |u| match res {
             Ok((cals, events)) => {
-                let (f, t) = (from.and_hms_opt(0, 0, 0).unwrap(), to.and_hms_opt(0, 0, 0).unwrap());
-                let occ = occurrences(&events, f, t);
-                ST.with(|s| { let mut s = s.borrow_mut(); s.calendars = cals; s.events = occ; });
-                ST.with(|s| s.borrow_mut().events_raw_set(events));
-                render(&u);
+                if let Some(p) = people { crate::cal_extra::set_people(p); }
+                ST.with(|s| s.borrow_mut().calendars = cals);
+                RAW.with(|r| *r.borrow_mut() = events);
+                rebuild(&u);
                 render_tasks(&u);
+                crate::cal_extra::after_load(&u, w2, c2);
             }
             Err(e) => crate::mail::show_toast(&u, &format!("Calendar: {e}"), false),
         });
     });
 }
 
-thread_local! { static RAW: RefCell<Vec<Value>> = const { RefCell::new(Vec::new()) }; }
-
-/// Every (non-task) occurrence between f and t, sorted by start.
-fn occurrences(events: &[Value], f: NaiveDateTime, t: NaiveDateTime) -> Vec<Occ> {
-    let mut occ = vec![];
-    for e in events {
-        if is_task(e) { continue; }
-        for (s, en) in expand(e, f, t) {
-            occ.push(Occ {
-                id: e["id"].as_str().unwrap_or("").into(),
-                title: e["title"].as_str().filter(|x| !x.is_empty()).unwrap_or("(no title)").into(),
-                start: s, end: en,
-                all_day: e["showWithoutTime"] == true,
-                calendar: e["calendarIds"].as_object().and_then(|o| o.keys().next().cloned()).unwrap_or_default(),
-                location: e["locations"].as_object().and_then(|o| o.values().next()).and_then(|l| l["name"].as_str()).unwrap_or("").into(),
-            });
+/// Give an event of another account namespaced ids (its own and its calendars').
+pub fn namespace_event(e: &mut Value, primary: &str, acc: &str) {
+    let raw = e["id"].as_str().unwrap_or("").to_string();
+    e["_rid"] = json!(raw);
+    e["_acc"] = json!(acc);
+    e["id"] = json!(ns(primary, acc, &raw));
+    if acc != primary {
+        if let Some(o) = e["calendarIds"].as_object() {
+            let m: serde_json::Map<String, Value> = o.iter().map(|(k, v)| (ns(primary, acc, k), v.clone())).collect();
+            e["calendarIds"] = Value::Object(m);
         }
     }
-    occ.sort_by_key(|o| o.start);
+}
+
+/// Every event (not task / birthday) occurrence between f and t, sorted by start.
+fn occurrences(events: &[Value], f: NaiveDateTime, t: NaiveDateTime) -> Vec<Occ> {
+    let end = if t.time() == chrono::NaiveTime::MIN { t.date() } else { t.date() + Duration::days(1) };
+    let mut occ: Vec<Occ> = occurrences_in(events, f.date(), end).into_iter().filter(|o| o.kind == 0).collect();
+    occ.retain(|o| o.end > f && o.start < t);
     occ
 }
 
-trait RawSet { fn events_raw_set(&mut self, v: Vec<Value>); }
-impl RawSet for State { fn events_raw_set(&mut self, v: Vec<Value>) { RAW.with(|r| *r.borrow_mut() = v); } }
+pub fn first_calendar(e: &Value) -> String {
+    e["calendarIds"].as_object().and_then(|o| o.iter().find(|(_, v)| **v == true).map(|(k, _)| k.clone()).or_else(|| o.keys().next().cloned())).unwrap_or_default()
+}
+
+pub fn location_of(e: &Value) -> String {
+    e["locations"].as_object().and_then(|o| o.values().find_map(|l| l["name"].as_str().filter(|n| !n.is_empty())))
+        .or_else(|| e["virtualLocations"].as_object().and_then(|o| o.values().find_map(|l| l["uri"].as_str())))
+        .unwrap_or("").to_string()
+}
+
+/// The occurrences of every loaded event, task and birthday in [from, to) on the local clock.
+pub fn occurrences_in(events: &[Value], from: NaiveDate, to: NaiveDate) -> Vec<Occ> {
+    let (f, t) = (from.and_hms_opt(0, 0, 0).unwrap(), to.and_hms_opt(0, 0, 0).unwrap());
+    let mut occ = vec![];
+    let cp = cal_prefs();
+    for e in events {
+        if is_task(e) {
+            if !(cp.tasks && cp.tasks_on_calendar) { continue; }
+            let Some(due) = e["due"].as_str().and_then(parse_local) else { continue };
+            let due = if e["showWithoutTime"] == true { due } else { recurrence::zone_to_local(due, e["timeZone"].as_str()) };
+            let day = due.date().and_hms_opt(0, 0, 0).unwrap();
+            if day < f || day >= t { continue; }
+            let done = e["progress"] == "completed";
+            occ.push(Occ {
+                id: format!("task:{}", e["id"].as_str().unwrap_or("")), base: e["id"].as_str().unwrap_or("").into(), rid: None,
+                title: format!("{} {}", if done { "\u{2713}" } else { "\u{25CB}" }, e["title"].as_str().filter(|x| !x.is_empty()).unwrap_or("(untitled task)")),
+                start: day, end: day + Duration::days(1), all_day: true, calendar: first_calendar(e), location: String::new(), kind: 1, done,
+            });
+            continue;
+        }
+        let all_day = e["showWithoutTime"] == true;
+        let zone = if all_day { None } else { e["timeZone"].as_str().filter(|z| !z.is_empty()) };
+        // the window on the event's own clock, a day wider for zones far from the user's
+        let (zf, zt) = (recurrence::local_to_zone(f, zone) - Duration::days(1), recurrence::local_to_zone(t, zone) + Duration::days(1));
+        let id = e["id"].as_str().unwrap_or("").to_string();
+        let title = e["title"].as_str().filter(|x| !x.is_empty()).unwrap_or("(no title)").to_string();
+        let location = location_of(e);
+        let calendar = first_calendar(e);
+        for o in recurrence::occurrences(e, zf, zt) {
+            let (s, en) = if all_day { (o.start, o.end) } else { (recurrence::zone_to_local(o.start, zone), recurrence::zone_to_local(o.end, zone)) };
+            if !(s < t && en > f) && !(s == en && s >= f && s < t) { continue; }
+            let p = o.patch.as_ref();
+            occ.push(Occ {
+                id: match &o.rid { Some(r) => format!("{id}|{r}"), None => id.clone() },
+                base: id.clone(), rid: o.rid.clone(),
+                title: p.and_then(|p| p["title"].as_str()).filter(|x| !x.is_empty()).map(String::from).unwrap_or_else(|| title.clone()),
+                start: s, end: en, all_day,
+                calendar: calendar.clone(),
+                location: p.filter(|p| p.get("locations").is_some()).map(location_of).unwrap_or_else(|| location.clone()),
+                kind: 0, done: false,
+            });
+        }
+    }
+    if cp.birthdays {
+        occ.extend(crate::cal_extra::birthday_occurrences(from, to));
+    }
+    occ.sort_by_key(|o| (o.start, !o.all_day));
+    occ
+}
+
+/// Recompute the occurrences of the range on screen from the loaded events and draw.
+pub fn rebuild(u: &AppWindow) {
+    NARROW.with(|n| n.set(u.get_cal_narrow()));
+    let (from, to) = range();
+    let occ = RAW.with(|r| occurrences_in(&r.borrow(), from, to));
+    ST.with(|s| s.borrow_mut().events = occ);
+    render(u);
+}
+
+/// The loaded events whose title contains `q`, as one line of JSON (automation probe).
+pub fn dump(q: &str) -> String {
+    let q = q.to_lowercase();
+    RAW.with(|r| Value::Array(r.borrow().iter().filter(|e| e["title"].as_str().is_some_and(|t| t.to_lowercase().contains(&q))).cloned().collect()).to_string())
+}
+
+pub fn with_raw<T>(f: impl FnOnce(&[Value]) -> T) -> T { RAW.with(|r| f(&r.borrow())) }
+pub fn raw_event(id: &str) -> Option<Value> { RAW.with(|r| r.borrow().iter().find(|e| e["id"] == id).cloned()) }
+pub fn calendars() -> Vec<Value> { ST.with(|s| s.borrow().calendars.clone()) }
+pub fn calendar(id: &str) -> Option<Value> { ST.with(|s| s.borrow().calendars.iter().find(|c| c["id"] == id).cloned()) }
+pub fn hidden() -> HashSet<String> { ST.with(|s| s.borrow().hidden.clone()) }
 
 // ---------------- rendering ----------------
 
@@ -322,6 +449,14 @@ pub fn render(u: &AppWindow) {
     let cp = cal_prefs();
     u.set_cal_hover_delay(cp.hover_delay);
     u.set_cal_free_scroll(cp.free_scroll);
+    {
+        let x = u.global::<crate::CalX>();
+        x.set_tasks_enabled(cp.tasks);
+        x.set_tasks_app(cp.tasks && cp.tasks_app);
+        let mut names: Vec<slint::SharedString> = ["Day", "Week", "Month", "Agenda"].into_iter().map(Into::into).collect();
+        if cp.tasks && !cp.tasks_app { names.push("Tasks".into()); }
+        x.set_view_names(ModelRc::new(VecModel::from(names)));
+    }
     {
         let ws = week_start(today);
         let names: Vec<slint::SharedString> = (0..7).map(|i| (ws + Duration::days(i)).format("%a").to_string().into()).collect();
@@ -338,13 +473,16 @@ pub fn render(u: &AppWindow) {
         u.set_cal_week_nums(ModelRc::new(VecModel::from(nums)));
     }
     PENDING.with(|p| *p.borrow_mut() = pending_ids(&crate::my_addrs_cached()));
+    // the agenda and tasks views read the calendar state themselves: they render after the
+    // borrow below is released (a nested borrow panics)
+    let mut deferred: Option<(i32, Vec<Occ>, Vec<Value>)> = None;
     ST.with(|s| {
-        let s = s.borrow();
+        let mut s = s.borrow_mut();
         let q = s.query.to_lowercase();
-        let visible: Vec<&Occ> = s.events.iter()
+        let visible: Vec<Occ> = s.events.iter()
             .filter(|o| !s.hidden.contains(&o.calendar))
             .filter(|o| q.is_empty() || o.title.to_lowercase().contains(&q) || o.location.to_lowercase().contains(&q))
-            .collect();
+            .cloned().collect();
         u.set_cal_view(s.view);
         u.set_cal_title(match s.view {
             0 => {
@@ -357,84 +495,108 @@ pub fn render(u: &AppWindow) {
                 if from.month() == last.month() { format!("{} – {}", from.day(), last.format("%-d %B")) }
                 else { format!("{} – {}", from.format("%-d %B"), last.format("%-d %B")) }
             }
+            3 => format!("{} – {}", from.format("%b %-d"), (to - Duration::days(1)).format("%b %-d, %Y")),
+            4 => "Tasks".to_string(),
             _ => a.format("%B %Y").to_string(),
         }.into());
-        // calendars list
-        let cals: Vec<CalItem> = s.calendars.iter().map(|c| {
+        // calendars list (and the birthday calendar while it is on)
+        let mut cals: Vec<CalItem> = s.calendars.iter().map(|c| {
             let id = c["id"].as_str().unwrap_or("");
-            CalItem { id: id.into(), name: c["name"].as_str().unwrap_or("Calendar").into(), color: color_for(&s.calendars, id), visible: !s.hidden.contains(id) }
+            let name = c["name"].as_str().unwrap_or("Calendar");
+            let name = match c["_owner"].as_str() { Some(o) if !o.is_empty() => format!("{name} ({o})"), _ => name.to_string() };
+            CalItem { id: id.into(), name: name.into(), color: color_for(&s.calendars, id), visible: !s.hidden.contains(id) }
         }).collect();
+        if cp.birthdays {
+            cals.push(CalItem { id: BIRTHDAY_CAL.into(), name: "Birthdays".into(), color: color_for(&s.calendars, BIRTHDAY_CAL), visible: !s.hidden.contains(BIRTHDAY_CAL) });
+        }
         u.set_calendars(ModelRc::new(VecModel::from(cals)));
         // mini month
         let first = a.with_day(1).unwrap();
         let ms = week_start(first);
         let mini: Vec<MiniDay> = (0..42).map(|i| {
             let d = ms + Duration::days(i);
-            MiniDay { day: d.day() as i32, in_month: d.month() == a.month(), today: d == today, selected: d >= from && d < to && s.view != 2,
-                date: d.format("%Y-%m-%d").to_string().into(), busy: visible.iter().any(|o| o.start.date() <= d && o.end.date() >= d) }
+            MiniDay { day: d.day() as i32, in_month: d.month() == a.month(), today: d == today, selected: d >= from && d < to && s.view != 2 && s.view != 3,
+                date: d.format("%Y-%m-%d").to_string().into(), busy: visible.iter().any(|o| o.kind == 0 && o.start.date() <= d && o.end.date() >= d) }
         }).collect();
         u.set_mini_month(ModelRc::new(VecModel::from(mini)));
         u.set_mini_title(a.format("%B %Y").to_string().into());
-        if s.view == 2 {
-            let cells: Vec<CalCell> = (0..42).map(|i| {
-                let d = from + Duration::days(i);
-                let evs: Vec<&&Occ> = visible.iter().filter(|o| o.start.date() <= d && (o.end - Duration::seconds(1)).date() >= d).collect();
-                let items: Vec<CalEvent> = evs.iter().take(4).map(|o| {
-                    let mut e = ev(o, &s.calendars, 0, 0.0, 0.0, 1, cp.h12);
-                    // Bulwark: only the start time, and only with showTimeInMonthView
-                    e.time = if cp.time_in_month && !o.all_day && o.start.date() == d { fmt_time(o.start, cp.h12).into() } else { "".into() };
-                    // calendarMonthTimedEvents: all-day and multi-day events stay bars
-                    let timed = !o.all_day && (o.end - o.start).num_hours() < 24;
-                    e.style = if timed { cp.month_timed } else { 0 };
-                    e
+        match s.view {
+            2 => {
+                let cells: Vec<CalCell> = (0..42).map(|i| {
+                    let d = from + Duration::days(i);
+                    let evs: Vec<&Occ> = visible.iter().filter(|o| covers(o, d)).collect();
+                    let items: Vec<CalEvent> = evs.iter().take(4).map(|o| {
+                        let mut e = ev(o, &s.calendars, 0, 0.0, 0.0, 1, cp.h12);
+                        // Bulwark: only the start time, and only with showTimeInMonthView
+                        e.time = if cp.time_in_month && !o.all_day && o.start.date() == d { fmt_time(o.start, cp.h12).into() } else { "".into() };
+                        // calendarMonthTimedEvents: all-day and multi-day events stay bars
+                        let timed = !o.all_day && (o.end - o.start).num_hours() < 24;
+                        e.style = if timed { cp.month_timed } else { 0 };
+                        e
+                    }).collect();
+                    CalCell {
+                        day: d.day() as i32, date: d.format("%Y-%m-%d").to_string().into(), in_month: d.month() == a.month(), today: d == today,
+                        events: ModelRc::new(VecModel::from(items)),
+                        more: if evs.len() > 4 { format!("+{} more", evs.len() - 4).into() } else { "".into() },
+                    }
                 }).collect();
-                CalCell {
-                    day: d.day() as i32, date: d.format("%Y-%m-%d").to_string().into(), in_month: d.month() == a.month(), today: d == today,
-                    events: ModelRc::new(VecModel::from(items)),
-                    more: if evs.len() > 4 { format!("+{} more", evs.len() - 4).into() } else { "".into() },
-                }
-            }).collect();
-            u.set_cal_cells(ModelRc::new(VecModel::from(cells)));
-        } else {
-            // one column per day of the loaded range (three in a narrow pane)
-            let mut dates: Vec<NaiveDate> = day_columns(from, to);
-            if s.view == 1 && cp.hide_non_working {
-                let kept: Vec<NaiveDate> = dates.iter().copied().filter(|d| cp.working.contains(&d.weekday().num_days_from_sunday())).collect();
-                if !kept.is_empty() { dates = kept; }
+                u.set_cal_cells(ModelRc::new(VecModel::from(cells)));
             }
-            let heads: Vec<CalCell> = dates.iter().enumerate().map(|(i, &d)| {
-                let all: Vec<CalEvent> = visible.iter().filter(|o| (o.all_day || (o.end - o.start).num_hours() >= 24) && o.start.date() <= d && (o.end - Duration::seconds(1)).date() >= d)
-                    .map(|o| ev(o, &s.calendars, i as i32, 0.0, 0.0, 1, cp.h12)).collect();
-                CalCell { day: d.day() as i32, date: d.format("%a").to_string().into(), in_month: true, today: d == today,
-                    events: ModelRc::new(VecModel::from(all)), more: "".into() }
-            }).collect();
-            u.set_cal_days(ModelRc::new(VecModel::from(heads)));
-            // timed events with simple overlap columns
-            let mut timed: Vec<CalEvent> = vec![];
-            let off = cp.hour_from as f32 * HOUR_PX;
-            for (i, &d) in dates.iter().enumerate() {
-                let day_ev: Vec<&&Occ> = visible.iter().filter(|o| !o.all_day && (o.end - o.start).num_hours() < 24 && o.start.date() == d).collect();
-                let mut lanes: Vec<NaiveDateTime> = vec![];
-                let mut placed: Vec<(usize, &&Occ)> = vec![];
-                for o in &day_ev {
-                    let lane = lanes.iter().position(|end| *end <= o.start).unwrap_or_else(|| { lanes.push(o.start); lanes.len() - 1 });
-                    lanes[lane] = o.end;
-                    placed.push((lane, o));
+            3 => deferred = Some((3, visible.clone(), s.calendars.clone())),
+            4 => deferred = Some((4, vec![], vec![])),
+            _ => {
+                // one column per day of the loaded range (three in a narrow pane)
+                let mut dates: Vec<NaiveDate> = day_columns(from, to);
+                if s.view == 1 && cp.hide_non_working {
+                    let kept: Vec<NaiveDate> = dates.iter().copied().filter(|d| cp.working.contains(&d.weekday().num_days_from_sunday())).collect();
+                    if !kept.is_empty() { dates = kept; }
                 }
-                let n = lanes.len().max(1);
-                for (lane, o) in placed {
-                    let top = (o.start.time().num_seconds_from_midnight() as f32 / 3600.0) * HOUR_PX - off;
-                    let h = ((o.end - o.start).num_minutes().max(20) as f32 / 60.0) * HOUR_PX;
-                    let mut e = ev(o, &s.calendars, i as i32, top, h, n as i32, cp.h12);
-                    e.lane = lane as i32;
-                    timed.push(e);
+                s.columns = dates.clone();
+                let heads: Vec<CalCell> = dates.iter().enumerate().map(|(i, &d)| {
+                    let all: Vec<CalEvent> = visible.iter().filter(|o| (o.all_day || (o.end - o.start).num_hours() >= 24) && covers(o, d))
+                        .map(|o| ev(o, &s.calendars, i as i32, 0.0, 0.0, 1, cp.h12)).collect();
+                    CalCell { day: d.day() as i32, date: d.format("%a").to_string().into(), in_month: true, today: d == today,
+                        events: ModelRc::new(VecModel::from(all)), more: "".into() }
+                }).collect();
+                u.set_cal_days(ModelRc::new(VecModel::from(heads)));
+                // timed events with simple overlap columns
+                let mut timed: Vec<CalEvent> = vec![];
+                let off = cp.hour_from as f32 * HOUR_PX;
+                for (i, &d) in dates.iter().enumerate() {
+                    let day_ev: Vec<&Occ> = visible.iter().filter(|o| !o.all_day && (o.end - o.start).num_hours() < 24 && o.start.date() == d).collect();
+                    let mut lanes: Vec<NaiveDateTime> = vec![];
+                    let mut placed: Vec<(usize, &Occ)> = vec![];
+                    for o in &day_ev {
+                        let lane = lanes.iter().position(|end| *end <= o.start).unwrap_or_else(|| { lanes.push(o.start); lanes.len() - 1 });
+                        lanes[lane] = o.end;
+                        placed.push((lane, o));
+                    }
+                    let n = lanes.len().max(1);
+                    for (lane, o) in placed {
+                        let top = (o.start.time().num_seconds_from_midnight() as f32 / 3600.0) * HOUR_PX - off;
+                        let h = ((o.end - o.start).num_minutes().max(20) as f32 / 60.0) * HOUR_PX;
+                        let mut e = ev(o, &s.calendars, i as i32, top, h, n as i32, cp.h12);
+                        e.lane = lane as i32;
+                        timed.push(e);
+                    }
                 }
+                u.set_cal_events(ModelRc::new(VecModel::from(timed)));
             }
-            u.set_cal_events(ModelRc::new(VecModel::from(timed)));
         }
     });
     summary(u);
     detail(u);
+    match deferred {
+        Some((3, visible, cals)) => crate::cal_extra::render_agenda(u, &visible, from, to, &cals, cp.h12),
+        Some((4, _, _)) => crate::cal_extra::render_tasks_view(u),
+        _ => {}
+    }
+}
+
+/// Whether an occurrence shows on day `d` (an all-day or multi-day one on each day it covers).
+fn covers(o: &Occ, d: NaiveDate) -> bool {
+    let last = if o.end > o.start { (o.end - Duration::seconds(1)).date() } else { o.start.date() };
+    o.start.date() <= d && last >= d
 }
 
 fn ev(o: &Occ, cals: &[Value], col: i32, top: f32, h: f32, lanes: i32, h12: bool) -> CalEvent {
@@ -453,31 +615,38 @@ fn ev(o: &Occ, cals: &[Value], col: i32, top: f32, h: f32, lanes: i32, h12: bool
     }
 }
 
+/// The date of day column `col` on screen (day / week view).
+pub fn column_date(col: i32) -> Option<NaiveDate> {
+    ST.with(|s| s.borrow().columns.get(col.max(0) as usize).copied())
+}
+
 // ---------------- navigation ----------------
 
 pub fn nav(u: &AppWindow, c: Arc<Client>, how: &str) {
     NARROW.with(|n| n.set(u.get_cal_narrow()));
-    ST.with(|s| {
+    let reload = ST.with(|s| {
         let mut s = s.borrow_mut();
         let a = s.anchor.unwrap_or_else(|| Local::now().date_naive());
         s.anchor = Some(match how {
             "today" => Local::now().date_naive(),
-            "prev" => match s.view { 0 => a - Duration::days(1), 1 => a - Duration::days(week_days_shown()), _ => (a.with_day(1).unwrap() - Duration::days(1)).with_day(1).unwrap() },
-            "next" => match s.view { 0 => a + Duration::days(1), 1 => a + Duration::days(week_days_shown()), _ => (a.with_day(28).unwrap() + Duration::days(7)).with_day(1).unwrap() },
+            "prev" => match s.view { 0 => a - Duration::days(1), 1 => a - Duration::days(week_days_shown()), 3 => a - Duration::days(AGENDA_DAYS), _ => (a.with_day(1).unwrap() - Duration::days(1)).with_day(1).unwrap() },
+            "next" => match s.view { 0 => a + Duration::days(1), 1 => a + Duration::days(week_days_shown()), 3 => a + Duration::days(AGENDA_DAYS), _ => (a.with_day(28).unwrap() + Duration::days(7)).with_day(1).unwrap() },
             // the pane changed width (cal-narrow): same dates, drawn again
             "rerender" => a,
             "mini-prev" => (a.with_day(1).unwrap() - Duration::days(1)).with_day(1).unwrap(),
             "mini-next" => (a.with_day(28).unwrap() + Duration::days(7)).with_day(1).unwrap(),
             d => NaiveDate::parse_from_str(d, "%Y-%m-%d").unwrap_or(a),
         });
+        // the events are all loaded; only a first visit or an explicit refresh fetches
+        RAW.with(|r| r.borrow().is_empty())
     });
-    render(u);
-    load(u.as_weak(), c);
+    rebuild(u);
+    if reload { load(u.as_weak(), c); }
 }
 
 pub fn set_view(u: &AppWindow, c: Arc<Client>, v: i32) {
     ST.with(|s| s.borrow_mut().view = v);
-    render(u);
+    rebuild(u);
     load(u.as_weak(), c);
 }
 
@@ -491,119 +660,42 @@ pub fn search(u: &AppWindow, q: &str) {
     render(u);
 }
 
-// ---------------- editing ----------------
+// ---------------- editing (cal_editor.rs) ----------------
 
-/// Open the event dialog: `id` empty for a new event at `date` (and optional hour).
+/// Open the event dialog: `id` empty for a new event at `date` (and optional hour); "#N" for a
+/// new event in day column N; "task:ID" opens the task editor.
 pub fn edit(u: &AppWindow, id: &str, date: &str, hour: i32) {
-    let raw = RAW.with(|r| r.borrow().iter().find(|e| e["id"] == id).cloned());
-    let names: Vec<slint::SharedString> = ST.with(|s| s.borrow().calendars.iter().map(|c| c["name"].as_str().unwrap_or("Calendar").into()).collect());
-    u.set_ev_calendars(ModelRc::new(VecModel::from(names)));
-    match raw {
-        Some(e) => {
-            let start = e["start"].as_str().and_then(parse_local).unwrap_or_else(|| Local::now().naive_local());
-            let dur = parse_duration(e["duration"].as_str().unwrap_or("PT1H"));
-            u.set_ev_id(id.into());
-            u.set_ev_title(e["title"].as_str().unwrap_or("").into());
-            u.set_ev_date(start.format("%Y-%m-%d").to_string().into());
-            u.set_ev_start(start.format("%H:%M").to_string().into());
-            u.set_ev_end((start + dur).format("%H:%M").to_string().into());
-            u.set_ev_all_day(e["showWithoutTime"] == true);
-            u.set_ev_location(e["locations"].as_object().and_then(|o| o.values().next()).and_then(|l| l["name"].as_str()).unwrap_or("").into());
-            u.set_ev_description(e["description"].as_str().unwrap_or("").into());
-            let freq = e["recurrenceRules"][0]["frequency"].as_str().unwrap_or("");
-            u.set_ev_repeat(match freq { "daily" => 1, "weekly" => 2, "monthly" => 3, "yearly" => 4, _ => 0 });
-            let cal = e["calendarIds"].as_object().and_then(|o| o.keys().next().cloned()).unwrap_or_default();
-            u.set_ev_calendar(ST.with(|s| s.borrow().calendars.iter().position(|c| c["id"] == cal.as_str()).unwrap_or(0) as i32));
-            ST.with(|s| s.borrow_mut().editing = Some(e));
-        }
-        None => {
-            let h = if hour >= 0 { hour } else { (Local::now().hour() as i32 + 1).min(23) };
-            u.set_ev_id("".into());
-            u.set_ev_title("".into());
-            u.set_ev_date((if date.is_empty() { anchor().format("%Y-%m-%d").to_string() } else { date.to_string() }).into());
-            u.set_ev_start(format!("{h:02}:00").into());
-            u.set_ev_end(format!("{:02}:00", (h + 1).min(23)).into());
-            u.set_ev_all_day(false);
-            u.set_ev_location("".into());
-            u.set_ev_description("".into());
-            u.set_ev_repeat(0);
-            u.set_ev_calendar(ST.with(|s| s.borrow().calendars.iter().position(|c| c["isDefault"] == true).unwrap_or(0) as i32));
-            ST.with(|s| s.borrow_mut().editing = None);
-        }
+    if let Some(t) = id.strip_prefix("task:") { crate::cal_extra::open_task(u, t); return; }
+    if let Some(col) = id.strip_prefix('#') {
+        let d = col.parse().ok().and_then(column_date).unwrap_or_else(anchor);
+        crate::cal_editor::open_new(u, d, hour, 0, false, "");
+        return;
     }
-    u.set_ev_status("".into());
-    u.set_ev_open(true);
+    if id.is_empty() {
+        let d = NaiveDate::parse_from_str(date, "%Y-%m-%d").unwrap_or_else(|_| anchor());
+        crate::cal_editor::open_new(u, d, hour, 0, false, "");
+        return;
+    }
+    crate::cal_editor::open_existing(u, id);
 }
 
-pub fn save(u: &AppWindow, c: Arc<Client>) {
-    let date = NaiveDate::parse_from_str(u.get_ev_date().trim(), "%Y-%m-%d");
-    let st = NaiveTime::parse_from_str(u.get_ev_start().trim(), "%H:%M");
-    let en = NaiveTime::parse_from_str(u.get_ev_end().trim(), "%H:%M");
-    let (Ok(date), Ok(st), Ok(en)) = (date, st, en) else { u.set_ev_status("Use YYYY-MM-DD and HH:MM.".into()); return };
-    let all_day = u.get_ev_all_day();
-    let start = date.and_time(if all_day { NaiveTime::MIN } else { st });
-    let mins = if all_day { 24 * 60 } else { let m = (en - st).num_minutes(); if m <= 0 { m + 24 * 60 } else { m } };
-    let cal_id = ST.with(|s| s.borrow().calendars.get(u.get_ev_calendar() as usize).and_then(|c| c["id"].as_str().map(String::from))).unwrap_or_default();
-    let mut ev = json!({
-        "@type": "Event",
-        "title": u.get_ev_title().to_string(),
-        "start": start.format("%Y-%m-%dT%H:%M:%S").to_string(),
-        "duration": if all_day { "P1D".to_string() } else { format!("PT{}H{}M", mins / 60, mins % 60) },
-        "showWithoutTime": all_day,
-        "calendarIds": { cal_id.clone(): true },
-        "description": u.get_ev_description().to_string(),
-    });
-    if !all_day { ev["timeZone"] = json!(crate::agent::local_tz()); } else { ev["timeZone"] = Value::Null; }
-    let loc = u.get_ev_location().to_string();
-    ev["locations"] = if loc.trim().is_empty() { Value::Null } else { json!({"l1": {"@type": "Location", "name": loc}}) };
-    ev["recurrenceRules"] = match u.get_ev_repeat() {
-        1 => json!([{"@type": "RecurrenceRule", "frequency": "daily"}]),
-        2 => json!([{"@type": "RecurrenceRule", "frequency": "weekly"}]),
-        3 => json!([{"@type": "RecurrenceRule", "frequency": "monthly"}]),
-        4 => json!([{"@type": "RecurrenceRule", "frequency": "yearly"}]),
-        _ => Value::Null,
-    };
-    let id = u.get_ev_id().to_string();
-    let w = u.as_weak();
-    u.set_ev_status("Saving…".into());
-    std::thread::spawn(move || {
-        let acc = c.account_for("urn:ietf:params:jmap:calendars");
-        let res: Result<(), String> = if id.is_empty() {
-            if ev["recurrenceRules"].is_null() { ev.as_object_mut().unwrap().remove("recurrenceRules"); }
-            if ev["locations"].is_null() { ev.as_object_mut().unwrap().remove("locations"); }
-            if ev["timeZone"].is_null() { ev.as_object_mut().unwrap().remove("timeZone"); }
-            c.call(json!([["CalendarEvent/set", {"accountId": acc, "create": {"e": ev}}, "s"]]))
-                .and_then(|r| if r[0][1]["created"]["e"].is_object() { Ok(()) } else { Err(crate::jmap::set_error(&r[0][1]["notCreated"]["e"])) })
-        } else {
-            ev.as_object_mut().unwrap().remove("@type");
-            c.update("CalendarEvent/set", &acc, vec![(id, ev)]).and_then(|(_, bad)| if bad.is_empty() { Ok(()) } else { Err(bad.join("; ")) })
-        };
-        let w2 = w.clone();
-        let _ = w.upgrade_in_event_loop(move |u| match res {
-            Ok(()) => { u.set_ev_open(false); load(w2, c); }
-            Err(e) => u.set_ev_status(e.into()),
-        });
-    });
-}
+pub fn save(u: &AppWindow, c: Arc<Client>) { crate::cal_editor::save(u, c); }
 
-pub fn delete(u: &AppWindow, c: Arc<Client>) {
-    let id = u.get_ev_id().to_string();
-    if id.is_empty() { u.set_ev_open(false); return; }
-    let w = u.as_weak();
-    std::thread::spawn(move || {
-        let acc = c.account_for("urn:ietf:params:jmap:calendars");
-        let res = c.call(json!([["CalendarEvent/set", {"accountId": acc, "destroy": [id]}, "d"]]));
-        let w2 = w.clone();
-        let _ = w.upgrade_in_event_loop(move |u| match res {
-            Ok(_) => { u.set_ev_open(false); load(w2, c); }
-            Err(e) => u.set_ev_status(e.into()),
-        });
-    });
-}
+pub fn delete(u: &AppWindow, c: Arc<Client>) { crate::cal_editor::delete(u, c); }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn sidebar_tasks_capped_and_overdue() {
+        let open: Vec<Value> = (0..9).map(|_| json!({"progress": "needs-action"})).chain([json!({"progress": "completed"})]).collect();
+        assert_eq!(sidebar_tasks(&open), (SIDEBAR_TASKS, 3));
+        assert_eq!(sidebar_tasks(&open[..2]), (2, 0));
+        assert!(task_overdue("2026-11-09", false, "2026-11-16"));
+        assert!(!task_overdue("2026-11-16", false, "2026-11-16"));
+        assert!(!task_overdue("2026-11-09", true, "2026-11-16"));
+        assert!(!task_overdue("", false, "2026-11-16"));
+    }
     #[test]
     fn day_columns_follow_range() {
         let d = NaiveDate::from_ymd_opt(2026, 11, 16).unwrap();
@@ -612,17 +704,36 @@ mod tests {
         assert_eq!(day_columns(d, d + Duration::days(1)), vec![d]);
     }
     #[test]
-    fn expands_weekly_and_count() {
-        let e = json!({"start": "2026-11-03T10:00:00", "duration": "PT1H30M", "recurrenceRules": [{"frequency": "weekly", "count": 3}]});
-        let f = NaiveDate::from_ymd_opt(2026, 11, 1).unwrap().and_hms_opt(0, 0, 0).unwrap();
-        let t = NaiveDate::from_ymd_opt(2026, 12, 31).unwrap().and_hms_opt(0, 0, 0).unwrap();
-        let occ = expand(&e, f, t);
-        assert_eq!(occ.len(), 3);
-        assert_eq!(occ[2].0.format("%Y-%m-%d %H:%M").to_string(), "2026-11-17 10:00");
-        assert_eq!((occ[0].1 - occ[0].0).num_minutes(), 90);
-        let e = json!({"start": "2026-11-02T09:00:00", "duration": "PT1H", "recurrenceRules": [{"frequency": "weekly", "byDay": [{"day": "mo"}, {"day": "we"}]}]});
-        let occ = expand(&e, f, NaiveDate::from_ymd_opt(2026, 11, 15).unwrap().and_hms_opt(0, 0, 0).unwrap());
-        assert_eq!(occ.len(), 4);
+    fn occurrences_carry_recurrence_ids_and_skip_tasks() {
+        let evs = vec![
+            json!({"id": "e1", "@type": "Event", "title": "Weekly", "start": "2026-11-03T10:00:00", "duration": "PT1H30M", "recurrenceRules": [{"frequency": "weekly", "count": 3}], "calendarIds": {"a": true}}),
+            json!({"id": "e2", "@type": "Event", "title": "", "start": "2026-11-05T00:00:00", "duration": "P2D", "showWithoutTime": true, "calendarIds": {"a": true}}),
+        ];
+        let f = NaiveDate::from_ymd_opt(2026, 11, 1).unwrap();
+        let o = occurrences_in(&evs, f, f + Duration::days(60));
+        let weekly: Vec<&Occ> = o.iter().filter(|x| x.base == "e1").collect();
+        assert_eq!(weekly.len(), 3);
+        assert_eq!(weekly[2].id, "e1|2026-11-17T10:00:00");
+        assert_eq!((weekly[0].end - weekly[0].start).num_minutes(), 90);
+        let allday = o.iter().find(|x| x.base == "e2").unwrap();
+        assert_eq!(allday.title, "(no title)");
+        assert!(covers(allday, NaiveDate::from_ymd_opt(2026, 11, 6).unwrap()));
+        assert!(!covers(allday, NaiveDate::from_ymd_opt(2026, 11, 7).unwrap()));
+    }
+    #[test]
+    fn namespaced_ids() {
+        assert_eq!(ns("p", "p", "a"), "a");
+        assert_eq!(ns("p", "x", "a"), "x~a");
+        assert_eq!(split_ns("x~a"), (Some("x".into()), "a".into()));
+        assert_eq!(split_ns("a"), (None, "a".into()));
+        let mut e = json!({"id": "e", "calendarIds": {"c": true}});
+        namespace_event(&mut e, "p", "x");
+        assert_eq!(e["id"], "x~e");
+        assert_eq!(e["calendarIds"]["x~c"], true);
+        assert_eq!(server_calendar_ids(&e["calendarIds"]), json!({"c": true}));
+        assert_eq!(base_id("e|2026-01-01T00:00:00"), "e");
+        assert_eq!(rid_of("e|2026-01-01T00:00:00"), Some("2026-01-01T00:00:00"));
+        assert_eq!(hex_color("#fff"), Some(Color::from_rgb_u8(255, 255, 255)));
     }
 }
 
@@ -630,45 +741,86 @@ mod tests {
 // ---------------- tasks (JSCalendar Task via CalendarEvent, like Bulwark) ----------------
 
 /// Bulwark's isTaskObject: @type Task, or task-only fields on a CalDAV VTODO.
-fn is_task(e: &Value) -> bool {
+pub fn is_task(e: &Value) -> bool {
     e["@type"].as_str().is_some_and(|t| t.eq_ignore_ascii_case("task"))
         || (e["@type"] != "Event" && (e["progress"].is_string() || !e["due"].is_null() || e.get("percentComplete").is_some()))
 }
 
+/// How many tasks the sidebar lists (Bulwark shows a few and links to the Tasks view).
+pub const SIDEBAR_TASKS: usize = 6;
+
+/// (rows to show, open tasks left out) for tasks sorted open-first.
+pub fn sidebar_tasks(sorted: &[Value]) -> (usize, usize) {
+    let open = sorted.iter().filter(|t| t["progress"] != "completed").count();
+    let shown = open.min(SIDEBAR_TASKS);
+    (shown, open - shown)
+}
+
+/// A due date (YYYY-MM-DD) before today on a task not yet done.
+pub fn task_overdue(due: &str, done: bool, today: &str) -> bool { !done && !due.is_empty() && due < today }
+
 pub fn render_tasks(u: &AppWindow) {
     let mut tasks: Vec<Value> = RAW.with(|r| r.borrow().iter().filter(|e| is_task(e)).cloned().collect());
     tasks.sort_by_key(|t| (t["progress"] == "completed", t["due"].as_str().unwrap_or("9999").to_string()));
-    let rows: Vec<crate::TaskRow> = tasks.iter().map(|t| crate::TaskRow {
-        id: t["id"].as_str().unwrap_or("").into(),
-        title: t["title"].as_str().filter(|x| !x.is_empty()).unwrap_or("(untitled task)").into(),
-        due: t["due"].as_str().map(|d| d[..10.min(d.len())].to_string()).unwrap_or_default().into(),
-        done: t["progress"] == "completed",
+    let today = chrono::Local::now().format("%Y-%m-%d").to_string();
+    let (shown, more) = sidebar_tasks(&tasks);
+    let rows: Vec<crate::TaskRow> = tasks.iter().take(shown).map(|t| {
+        let due = t["due"].as_str().map(|d| d[..10.min(d.len())].to_string()).unwrap_or_default();
+        let done = t["progress"] == "completed";
+        crate::TaskRow {
+            id: t["id"].as_str().unwrap_or("").into(),
+            title: t["title"].as_str().filter(|x| !x.is_empty()).unwrap_or("(untitled task)").into(),
+            overdue: task_overdue(&due, done, &today),
+            due: due.into(),
+            done,
+        }
     }).collect();
     u.set_cal_open_tasks(rows.iter().filter(|t| !t.done).count() as i32);
     u.set_cal_tasks(ModelRc::new(VecModel::from(rows)));
     crate::glance::calendar(u);
+    u.global::<crate::CalX>().set_sidebar_more(more as i32);
+    if view() == 4 { crate::cal_extra::render_tasks_view(u); }
+}
+
+pub fn new_uid() -> String {
+    let mut b = [0u8; 16];
+    let _ = getrandom::getrandom(&mut b);
+    let h: String = b.iter().map(|x| format!("{x:02x}")).collect();
+    format!("{}-{}-{}-{}-{}", &h[..8], &h[8..12], &h[12..16], &h[16..20], &h[20..])
+}
+
+/// Where a new task goes (Bulwark defaultTaskList): the default calendar of the user's own
+/// account, else its first one.
+pub fn default_task_list() -> Option<String> {
+    ST.with(|s| {
+        let s = s.borrow();
+        let own: Vec<&Value> = s.calendars.iter().filter(|c| c["_shared"] != true && !crate::cal_extra::is_subscription(c["id"].as_str().unwrap_or(""))).collect();
+        own.iter().find(|c| c["isDefault"] == true).or(own.first()).and_then(|c| c["id"].as_str().map(String::from))
+    })
 }
 
 pub fn add_task(u: &AppWindow, c: Arc<Client>, title: &str, due: &str) {
     let title = title.trim().to_string();
     if title.is_empty() { return; }
-    let cal = ST.with(|s| { let s = s.borrow(); s.calendars.iter().find(|c| c["isDefault"] == true).or(s.calendars.first()).and_then(|c| c["id"].as_str().map(String::from)) });
-    let Some(cal) = cal else { crate::mail::show_toast(u, "No calendar to add the task to.", false); return };
-    let mut b = [0u8; 16];
-    let _ = getrandom::getrandom(&mut b);
-    let uid: String = b.iter().map(|x| format!("{x:02x}")).collect();
-    let mut task = json!({"@type": "Task", "uid": uid, "title": title, "calendarIds": { cal: true }, "progress": "needs-action"});
+    let Some(cal) = default_task_list() else { crate::mail::show_toast(u, "No calendar to add the task to.", false); return };
+    let mut task = json!({"@type": "Task", "uid": new_uid(), "title": title, "progress": "needs-action"});
     let due = due.trim();
-    if due.len() == 10 { task["due"] = json!(format!("{due}T00:00:00")); task["timeZone"] = json!(crate::agent::local_tz()); }
-    let w = u.as_weak();
+    if due.len() == 10 { task["due"] = json!(format!("{due}T00:00:00")); task["showWithoutTime"] = json!(true); }
+    create_in(u, c, &cal, task, "Task not added");
+}
+
+/// Create one CalendarEvent (event or task) in calendar `cal` (namespaced id), then reload.
+pub fn create_in(u: &AppWindow, c: Arc<Client>, cal: &str, mut obj: Value, what: &str) {
+    let (acc, raw_cal) = server_ref(&c, cal);
+    obj["calendarIds"] = json!({ raw_cal: true });
+    let (w, what) = (u.as_weak(), what.to_string());
     std::thread::spawn(move || {
-        let acc = c.account_for("urn:ietf:params:jmap:calendars");
-        let res = c.call(json!([["CalendarEvent/set", {"accountId": acc, "sendSchedulingMessages": false, "create": {"t": task}}, "s"]]))
+        let res = c.call(json!([["CalendarEvent/set", {"accountId": acc, "sendSchedulingMessages": false, "create": {"t": obj}}, "s"]]))
             .and_then(|r| if r[0][1]["created"]["t"].is_object() { Ok(()) } else { Err(crate::jmap::set_error(&r[0][1]["notCreated"]["t"])) });
         let w2 = w.clone();
         let _ = w.upgrade_in_event_loop(move |u| match res {
             Ok(()) => load(w2, c),
-            Err(e) => crate::mail::show_toast(&u, &format!("Task not added: {e}"), false),
+            Err(e) => crate::mail::show_toast(&u, &format!("{what}: {e}"), false),
         });
     });
 }
@@ -678,10 +830,11 @@ pub fn toggle_task(u: &AppWindow, c: Arc<Client>, id: &str) {
     let progress = if done { "needs-action" } else { "completed" };
     RAW.with(|r| if let Some(e) = r.borrow_mut().iter_mut().find(|e| e["id"] == id) { e["progress"] = json!(progress); });
     render_tasks(u);
+    rebuild(u);
     let (w, id) = (u.as_weak(), id.to_string());
     std::thread::spawn(move || {
-        let acc = c.account_for("urn:ietf:params:jmap:calendars");
-        if let Err(e) = c.update("CalendarEvent/set", &acc, vec![(id, json!({"progress": progress}))]).and_then(|(_, b)| if b.is_empty() { Ok(()) } else { Err(b.join("; ")) }) {
+        let (acc, sid) = server_ref(&c, &id);
+        if let Err(e) = c.update("CalendarEvent/set", &acc, vec![(sid, json!({"progress": progress}))]).and_then(|(_, b)| if b.is_empty() { Ok(()) } else { Err(b.join("; ")) }) {
             let _ = w.upgrade_in_event_loop(move |u| crate::mail::show_toast(&u, &format!("Task not updated: {e}"), false));
         }
     });
@@ -690,6 +843,7 @@ pub fn toggle_task(u: &AppWindow, c: Arc<Client>, id: &str) {
 // ---------------- context-menu helpers ----------------
 
 pub fn event_title(id: &str) -> String {
+    let id = base_id(id);
     RAW.with(|r| r.borrow().iter().find(|e| e["id"] == id).and_then(|e| e["title"].as_str().map(String::from))).unwrap_or_default()
 }
 
@@ -708,15 +862,43 @@ pub fn calendar_info(id: &str) -> Option<(usize, String, bool, bool)> {
 }
 
 pub fn calendar_color(id: &str) -> Option<String> {
-    ST.with(|s| s.borrow().calendars.iter().find(|c| c["id"] == id).and_then(|c| c["color"].as_str().map(|x| x.to_lowercase())))
+    ST.with(|s| s.borrow().calendars.iter().find(|c| c["id"] == id).and_then(|c| c["_color"].as_str().or(c["color"].as_str()).map(|x| x.to_lowercase())))
 }
 
-/// Run a CalendarEvent/Calendar set call in the background, then reload.
+/// A calendar's colour: on the server for the user's own calendars; for one shared with the
+/// user only for them (Bulwark sharedCalendarColors, keyed by login, account and calendar).
+pub fn set_color(u: &AppWindow, c: Arc<Client>, id: &str, color: &str) {
+    let Some(cal) = calendar(id) else { return };
+    if cal["_shared"] == true {
+        let key = shared_color_key(&c.username, cal["_acc"].as_str().unwrap_or(""), cal["_rid"].as_str().unwrap_or(""));
+        let mut map = crate::settings::Settings::load().prefs.get("sharedCalendarColors").cloned().unwrap_or(json!({}));
+        if !map.is_object() { map = json!({}); }
+        map[key] = json!(color);
+        crate::settings::set_pref("sharedCalendarColors", map);
+        ST.with(|s| if let Some(x) = s.borrow_mut().calendars.iter_mut().find(|x| x["id"] == id) { x["_color"] = json!(color); });
+        rebuild(u);
+        return;
+    }
+    set_call(u, c, "Calendar/set", json!({"update": {id: {"color": color}}}), "Colour not changed");
+}
+
+/// Run a CalendarEvent/Calendar set call in the background, then reload. Ids in
+/// update/destroy may be namespaced: the call goes to their account.
 pub fn set_call(u: &AppWindow, c: Arc<Client>, method: &str, args: Value, what: &str) {
     let (w, method, what) = (u.as_weak(), method.to_string(), what.to_string());
     std::thread::spawn(move || {
-        let acc = c.account_for("urn:ietf:params:jmap:calendars");
         let mut a = args;
+        // the account of the first id named, and server ids for all of them
+        let first = a["update"].as_object().and_then(|o| o.keys().next().cloned())
+            .or_else(|| a["destroy"].as_array().and_then(|d| d.first()).and_then(|x| x.as_str().map(String::from)));
+        let acc = first.as_deref().map(|f| server_ref(&c, f).0).unwrap_or_else(|| c.account_for(CAL));
+        if let Some(o) = a["update"].as_object() {
+            let m: serde_json::Map<String, Value> = o.iter().map(|(k, v)| (split_ns(k).1, v.clone())).collect();
+            a["update"] = Value::Object(m);
+        }
+        if let Some(d) = a["destroy"].as_array() {
+            a["destroy"] = Value::Array(d.iter().filter_map(|x| x.as_str()).map(|x| json!(split_ns(x).1)).collect());
+        }
         a["accountId"] = json!(acc);
         let res = c.call(json!([[method, a, "s"]])).and_then(|r| {
             let o = &r[0][1];
@@ -728,16 +910,17 @@ pub fn set_call(u: &AppWindow, c: Arc<Client>, method: &str, args: Value, what: 
         let w2 = w.clone();
         let _ = w.upgrade_in_event_loop(move |u| match res {
             Ok(()) => load(w2, c),
-            Err(e) => crate::mail::show_toast(&u, &format!("{what}: {e}"), false),
+            // re-read on failure too, so an optimistic change the server refused is undone
+            Err(e) => { crate::mail::show_toast(&u, &format!("{what}: {e}"), false); load(w2, c); }
         });
     });
 }
 
 pub fn set_task_due(u: &AppWindow, c: Arc<Client>, id: &str, due: chrono::NaiveDate) {
     let d = format!("{}T00:00:00", due.format("%Y-%m-%d"));
-    RAW.with(|r| if let Some(e) = r.borrow_mut().iter_mut().find(|e| e["id"] == id) { e["due"] = json!(d); });
+    RAW.with(|r| if let Some(e) = r.borrow_mut().iter_mut().find(|e| e["id"] == id) { e["due"] = json!(d); e["showWithoutTime"] = json!(true); });
     render_tasks(u);
-    set_call(u, c, "CalendarEvent/set", json!({"update": {id: {"due": d, "timeZone": crate::agent::local_tz()}}}), "Task not updated");
+    set_call(u, c, "CalendarEvent/set", json!({"update": {id: {"due": d, "showWithoutTime": true}}}), "Task not updated");
 }
 
 pub fn task_has_due(id: &str) -> bool {
@@ -753,6 +936,7 @@ pub fn clear_task_due(u: &AppWindow, c: Arc<Client>, id: &str) {
 pub fn delete_task(u: &AppWindow, c: Arc<Client>, id: &str) {
     RAW.with(|r| r.borrow_mut().retain(|e| e["id"] != id));
     render_tasks(u);
+    rebuild(u);
     set_call(u, c, "CalendarEvent/set", json!({"destroy": [id]}), "Task not deleted");
 }
 
@@ -761,23 +945,30 @@ pub fn delete_task(u: &AppWindow, c: Arc<Client>, id: &str) {
 /// The user's own participant in an event and its answer (Bulwark getUserParticipantId):
 /// matched by calendarAddress / email against the login and identities.
 pub fn my_participation(id: &str, mine: &[String]) -> Option<(String, String)> {
+    let id = base_id(id);
     RAW.with(|r| r.borrow().iter().find(|e| e["id"] == id).and_then(|e| participation_in(e, mine)))
-}
-
-fn participant_addr(p: &Value) -> Option<String> {
-    p["calendarAddress"].as_str().or(p["sendTo"]["imip"].as_str()).map(|a| a.trim_start_matches("mailto:").to_string()).or(p["email"].as_str().map(String::from))
 }
 
 fn participation_in(e: &Value, mine: &[String]) -> Option<(String, String)> {
     let ps = e["participants"].as_object()?;
-    let is_me = |p: &Value| participant_addr(p).is_some_and(|a| mine.iter().any(|m| m.eq_ignore_ascii_case(&a)));
+    let is_me = |p: &Value| {
+        let addr = participant_email(p);
+        !addr.is_empty() && mine.iter().any(|m| m.eq_ignore_ascii_case(&addr))
+    };
     // organizers don't answer their own events
     let (pid, p) = ps.iter().find(|(_, p)| is_me(p) && p["roles"]["owner"] != true)?;
     Some((pid.clone(), p["participationStatus"].as_str().unwrap_or("needs-action").to_string()))
 }
 
+/// A participant's address (calendarAddress, the retired sendTo.imip, or email), without mailto:.
+pub fn participant_email(p: &Value) -> String {
+    p["calendarAddress"].as_str().or(p["sendTo"]["imip"].as_str()).or(p["email"].as_str())
+        .map(|a| a.trim().trim_start_matches("mailto:").trim_start_matches("MAILTO:").to_string()).unwrap_or_default()
+}
+
 /// Answer an invitation: patch the participant's participationStatus and let the server send the iTIP REPLY.
 pub fn rsvp(u: &AppWindow, c: Arc<Client>, id: &str, pid: &str, status: &str) {
+    let id = base_id(id).to_string();
     let esc = pid.replace('~', "~0").replace('/', "~1");
     RAW.with(|r| if let Some(e) = r.borrow_mut().iter_mut().find(|e| e["id"] == id) { e["participants"][pid]["participationStatus"] = json!(status); });
     let mut patch = serde_json::Map::new();
@@ -807,6 +998,7 @@ fn ics_local(s: &str) -> String { s.replace(['-', ':'], "").chars().take(15).col
 
 /// One event as an iCalendar file (Bulwark downloadEventICS).
 pub fn event_ics(id: &str) -> Option<(String, String)> {
+    let id = base_id(id);
     let e = RAW.with(|r| r.borrow().iter().find(|e| e["id"] == id).cloned())?;
     let mut l: Vec<String> = vec!["BEGIN:VCALENDAR".into(), "VERSION:2.0".into(), "PRODID:-//Barbican//EN".into(), "CALSCALE:GREGORIAN".into(), "BEGIN:VEVENT".into()];
     l.push(format!("UID:{}", e["uid"].as_str().unwrap_or(id)));
@@ -817,7 +1009,7 @@ pub fn event_ics(id: &str) -> Option<(String, String)> {
     if all_day {
         l.push(format!("DTSTART;VALUE=DATE:{}", ics_local(start).chars().take(8).collect::<String>()));
         if let Some(st) = parse_local(start) {
-            let d = parse_duration(e["duration"].as_str().unwrap_or("P1D"));
+            let d = recurrence::event_duration(&e);
             let end = (st + if d.num_days() < 1 { Duration::days(1) } else { d }).date();
             l.push(format!("DTEND;VALUE=DATE:{}", end.format("%Y%m%d")));
         }
@@ -844,14 +1036,15 @@ pub fn event_ics(id: &str) -> Option<(String, String)> {
                 if !d.is_empty() { parts.push(format!("BYDAY={}", d.join(","))); }
             }
             if let Some(md) = r["byMonthDay"].as_array() { parts.push(format!("BYMONTHDAY={}", md.iter().map(|x| x.to_string()).collect::<Vec<_>>().join(","))); }
+            if let Some(m) = r["byMonth"].as_array() { parts.push(format!("BYMONTH={}", m.iter().filter_map(|x| x.as_str()).collect::<Vec<_>>().join(","))); }
             l.push(format!("RRULE:{}", parts.join(";")));
         }
     }
     if let Some(ps) = e["participants"].as_object() {
         for p in ps.values() {
-            let addr = p["calendarAddress"].as_str().or(p["sendTo"]["imip"].as_str()).map(String::from).or(p["email"].as_str().map(|a| format!("mailto:{a}")));
-            let Some(addr) = addr else { continue };
-            let addr = if addr.starts_with("mailto:") { addr } else { format!("mailto:{addr}") };
+            let addr = participant_email(p);
+            if addr.is_empty() { continue; }
+            let addr = format!("mailto:{addr}");
             let cn = p["name"].as_str().filter(|n| !n.is_empty()).map(|n| format!(";CN=\"{}\"", n.replace('"', ""))).unwrap_or_default();
             if p["roles"]["owner"] == true { l.push(format!("ORGANIZER{cn}:{addr}")); }
             if p["roles"]["attendee"] == true || p["roles"]["owner"] != true {
@@ -984,7 +1177,7 @@ fn summary(u: &AppWindow) {
         u.set_cal_side_line(format!("{wk}{}{}", plural(inr.len(), "event", "events"), if mins > 0 { format!(" · {} scheduled", dur_text(mins)) } else { String::new() }).into());
         // invitations still to answer (upcoming ones)
         let pend = PENDING.with(|p| p.borrow().clone());
-        let mut inv: Vec<&Occ> = ahead.iter().filter(|o| !s.hidden.contains(&o.calendar) && o.end > now && pend.contains(&o.id)).collect();
+        let mut inv: Vec<&Occ> = ahead.iter().filter(|o| !s.hidden.contains(&o.calendar) && o.end > now && pend.contains(&o.base)).collect();
         inv.sort_by_key(|o| o.start);
         let mut seen = HashSet::new();
         inv.retain(|o| seen.insert(o.id.clone()));
@@ -1041,7 +1234,7 @@ fn detail(u: &AppWindow) {
         u.set_cal_guests(ModelRc::new(VecModel::from(Vec::<CalGuest>::new())));
         return;
     };
-    let raw = RAW.with(|r| r.borrow().iter().find(|e| e["id"] == o.id.as_str()).cloned()).unwrap_or(Value::Null);
+    let raw = RAW.with(|r| r.borrow().iter().find(|e| e["id"] == o.base.as_str()).cloned()).unwrap_or(Value::Null);
     let (cal_name, color) = ST.with(|s| {
         let s = s.borrow();
         let n = s.calendars.iter().find(|c| c["id"] == o.calendar.as_str()).and_then(|c| c["name"].as_str()).unwrap_or("Calendar").to_string();
@@ -1056,7 +1249,7 @@ fn detail(u: &AppWindow) {
         let mut list: Vec<&Value> = ps.values().collect();
         list.sort_by_key(|p| (p["roles"]["owner"] != true, p["name"].as_str().unwrap_or("").to_lowercase()));
         for p in list {
-            let addr = participant_addr(p).unwrap_or_default();
+            let addr = Some(participant_email(p)).unwrap_or_default();
             let me = !addr.is_empty() && mine.iter().any(|m| m.eq_ignore_ascii_case(&addr));
             let name = p["name"].as_str().filter(|n| !n.trim().is_empty()).map(String::from).unwrap_or_else(|| addr.clone());
             if p["roles"]["owner"] == true && organizer.is_empty() { organizer = if me { "you".into() } else { name.clone() }; }
@@ -1102,4 +1295,24 @@ pub fn rsvp_selected(u: &AppWindow, c: Arc<Client>, status: &str, mine: &[String
     let Some((pid, _)) = my_participation(&id, mine) else { return };
     rsvp(u, c, &id, &pid, status);
     render(u);
+}
+
+// ---------------- drag and drop (src/dnd.rs) ----------------
+
+/// An event's length (all-day events without one last a day; raw_event is above).
+pub fn duration_of(e: &Value) -> Duration { crate::recurrence::event_duration(e) }
+
+/// Apply a moved event to what is shown right away (the reload after the server write confirms).
+pub fn patch_local(id: &str, patch: &Value) {
+    RAW.with(|r| {
+        if let Some(e) = r.borrow_mut().iter_mut().find(|e| e["id"] == id) {
+            if let Some(o) = patch.as_object() { for (k, v) in o { e[k] = v.clone(); } }
+        }
+    });
+    let Some(e) = raw_event(id) else { return };
+    let Some(start) = e["start"].as_str().and_then(parse_local) else { return };
+    let end = start + duration_of(&e);
+    ST.with(|s| {
+        for o in s.borrow_mut().events.iter_mut().filter(|o| o.id == id) { o.start = start; o.end = end; }
+    });
 }

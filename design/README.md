@@ -18,3 +18,11 @@ The `.dc.html` files here are the board sources: plain HTML with inline styles; 
 - `Theme.style` is 0 Bento / 1 Nordic (`Theme.bento`, `Theme.nordic`); set from the `uiStyle` setting
   (Settings › Appearance › Style). Older token names (`bg`, `side`, `hover`, `reader`, …) map onto the palette.
 - Hidden test channel: `ui bento|nordic dark|light [more|normal]` switches the look in memory only; `resize W H`.
+
+## Parity extras (branch parity-round2)
+
+The composer extras (`ui/recipients.slint`, `ui/compose-extras.slint`) read colours from `CTheme`
+(`ui/ctheme.slint`) and the reader banners (`ui/reader.slint`) from `RxTheme`. Both are thin
+aliases whose every token is bound to `Theme` in `ui/theme.slint` (no Rust sync), so style,
+dark/light and more-contrast follow automatically. New parity UI files should import `Theme`
+from `theme.slint` directly.
