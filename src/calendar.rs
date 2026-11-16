@@ -521,3 +521,58 @@ pub fn toggle_task(u: &AppWindow, c: Arc<Client>, id: &str) {
         }
     });
 }
+
+// ---------------- context-menu helpers ----------------
+
+pub fn event_title(id: &str) -> String {
+    RAW.with(|r| r.borrow().iter().find(|e| e["id"] == id).and_then(|e| e["title"].as_str().map(String::from))).unwrap_or_default()
+}
+
+pub fn task_done(id: &str) -> bool {
+    RAW.with(|r| r.borrow().iter().find(|e| e["id"] == id).map(|e| e["progress"] == "completed")).unwrap_or(false)
+}
+
+/// (index in the editor's calendar list, name, visible, is default)
+pub fn calendar_info(id: &str) -> Option<(usize, String, bool, bool)> {
+    ST.with(|s| {
+        let s = s.borrow();
+        let i = s.calendars.iter().position(|c| c["id"] == id)?;
+        let c = &s.calendars[i];
+        Some((i, c["name"].as_str().unwrap_or("Calendar").to_string(), !s.hidden.contains(id), c["isDefault"] == true))
+    })
+}
+
+/// Run a CalendarEvent/Calendar set call in the background, then reload.
+pub fn set_call(u: &AppWindow, c: Arc<Client>, method: &str, args: Value, what: &str) {
+    let (w, method, what) = (u.as_weak(), method.to_string(), what.to_string());
+    std::thread::spawn(move || {
+        let acc = c.account_for("urn:ietf:params:jmap:calendars");
+        let mut a = args;
+        a["accountId"] = json!(acc);
+        let res = c.call(json!([[method, a, "s"]])).and_then(|r| {
+            let o = &r[0][1];
+            for k in ["notCreated", "notUpdated", "notDestroyed"] {
+                if let Some(m) = o[k].as_object() { if let Some(e) = m.values().next() { return Err(crate::jmap::set_error(e)); } }
+            }
+            Ok(())
+        });
+        let w2 = w.clone();
+        let _ = w.upgrade_in_event_loop(move |u| match res {
+            Ok(()) => load(w2, c),
+            Err(e) => crate::mail::show_toast(&u, &format!("{what}: {e}"), false),
+        });
+    });
+}
+
+pub fn set_task_due(u: &AppWindow, c: Arc<Client>, id: &str, due: chrono::NaiveDate) {
+    let d = format!("{}T00:00:00", due.format("%Y-%m-%d"));
+    RAW.with(|r| if let Some(e) = r.borrow_mut().iter_mut().find(|e| e["id"] == id) { e["due"] = json!(d); });
+    render_tasks(u);
+    set_call(u, c, "CalendarEvent/set", json!({"update": {id: {"due": d, "timeZone": crate::agent::local_tz()}}}), "Task not updated");
+}
+
+pub fn delete_task(u: &AppWindow, c: Arc<Client>, id: &str) {
+    RAW.with(|r| r.borrow_mut().retain(|e| e["id"] != id));
+    render_tasks(u);
+    set_call(u, c, "CalendarEvent/set", json!({"destroy": [id]}), "Task not deleted");
+}
