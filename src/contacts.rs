@@ -245,7 +245,7 @@ pub fn render(u: &AppWindow) {
             ContactRow { id: format!("dir:{}", p["id"].as_str().unwrap_or("")).into(), initials: name.split_whitespace().filter_map(|w| w.chars().next()).take(2).collect::<String>().to_uppercase().into(),
                 color: crate::mail::tint(&name), email: p["email"].as_str().unwrap_or(p["type"].as_str().unwrap_or("")).into(), name: name.into(), header: "".into() }
         }).collect();
-        u.set_contacts(ModelRc::new(VecModel::from(rows)));
+        crate::listsync::sync_into(&u.get_contacts(), rows, |r| r.id.clone(), |a, b| a == b, |m| u.set_contacts(m));
         return;
     }
     ST.with(|s| {

@@ -8,6 +8,12 @@ use slint::{ModelRc, SharedString, VecModel};
 
 const SCHEMA: &str = include_str!("../ui/settings-schema.json");
 
+static LATEST: std::sync::Mutex<Option<Map<String, Value>>> = std::sync::Mutex::new(None);
+#[cfg(not(test))]
+static SAVE_SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+#[cfg(not(test))]
+static WRITE: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
 pub struct Account {
     pub email: String,
     pub server: String,
@@ -97,10 +103,12 @@ fn text(kind: &str, key: &str, label: &str, desc: &str, value: &str) -> SRow {
 
 impl Settings {
     pub fn load() -> Settings {
-        let prefs = std::fs::read_to_string(path()).ok()
+        // a save that is still being written in the background is newer than the file
+        let pending = LATEST.lock().ok().and_then(|l| l.clone());
+        let prefs = pending.unwrap_or_else(|| std::fs::read_to_string(path()).ok()
             .and_then(|t| serde_json::from_str::<Value>(&t).ok())
             .and_then(|v| v.as_object().cloned())
-            .unwrap_or_default();
+            .unwrap_or_default());
         Settings { schema: schema(), prefs }
     }
 
@@ -110,9 +118,42 @@ impl Settings {
         Settings { schema: schema(), prefs }
     }
 
+    /// Blocks until a pending background save has landed (call before the process exits).
+    pub fn flush() {
+        #[cfg(not(test))]
+        {
+            let _w = WRITE.lock();
+            let pending = LATEST.lock().ok().and_then(|mut l| l.take());
+            if let Some(p) = pending {
+                let _ = std::fs::create_dir_all(crate::config_dir());
+                let _ = std::fs::write(path(), Value::Object(p).to_string());
+            }
+        }
+    }
+
+    /// Writes the settings file off the UI thread. `LATEST` serves `load` until the write lands
+    /// and the newest save always wins. Tests write synchronously.
     fn save(&self) {
-        let _ = std::fs::create_dir_all(crate::config_dir());
-        let _ = std::fs::write(path(), Value::Object(self.prefs.clone()).to_string());
+        #[cfg(test)]
+        {
+            let _ = std::fs::create_dir_all(crate::config_dir());
+            let _ = std::fs::write(path(), Value::Object(self.prefs.clone()).to_string());
+        }
+        #[cfg(not(test))]
+        {
+            let seq = SAVE_SEQ.fetch_add(1, std::sync::atomic::Ordering::SeqCst) + 1;
+            if let Ok(mut l) = LATEST.lock() { *l = Some(self.prefs.clone()); }
+            let prefs = self.prefs.clone();
+            std::thread::spawn(move || {
+                let _w = WRITE.lock();
+                if SAVE_SEQ.load(std::sync::atomic::Ordering::SeqCst) != seq { return; } // superseded
+                let _ = std::fs::create_dir_all(crate::config_dir());
+                let _ = std::fs::write(path(), Value::Object(prefs).to_string());
+                if SAVE_SEQ.load(std::sync::atomic::Ordering::SeqCst) == seq {
+                    if let Ok(mut l) = LATEST.lock() { *l = None; }
+                }
+            });
+        }
     }
 
     /// Everything worth backing up: Bulwark-keyed prefs plus the desktop/assistant settings file.
@@ -192,6 +233,10 @@ impl Settings {
     }
 
     pub fn tabs(&self, advanced: bool) -> ModelRc<STab> {
+        ModelRc::new(VecModel::from(self.tab_models(advanced)))
+    }
+
+    pub fn tab_models(&self, advanced: bool) -> Vec<STab> {
         let mut v = vec![];
         let mut last = String::new();
         for (id, label, group, icon, indent) in self.tab_list() {
@@ -203,7 +248,7 @@ impl Settings {
             } else { String::new() };
             v.push(STab { id: s(&id), label: s(&label), icon: s(&icon), header: s(&header), indent });
         }
-        ModelRc::new(VecModel::from(v))
+        v
     }
 
     pub fn title(&self, tab: &str) -> String {
@@ -580,6 +625,7 @@ mod tests {
 /// Bulwark's timeFormat pref ("12h" | "24h"), read straight from prefs.json so hot paths
 /// (admin tables, dashboard tooltips) need not parse the schema.
 pub fn h12() -> bool {
+    if let Some(p) = LATEST.lock().ok().and_then(|l| l.clone()) { return p.get("timeFormat").and_then(|v| v.as_str()) == Some("12h"); }
     std::fs::read_to_string(path()).ok()
         .and_then(|t| serde_json::from_str::<Value>(&t).ok())
         .map(|v| v["timeFormat"].as_str() == Some("12h"))
