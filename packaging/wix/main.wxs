@@ -1,0 +1,69 @@
+<?xml version="1.0" encoding="windows-1252"?>
+<!--
+  Barbican per-user MSI (WiX 3, built by `cargo wix` in .github/workflows/release.yml).
+  Per-user so the updater (src/updater.rs, msiexec /i /passive) can upgrade it without
+  elevation. Installs to %LOCALAPPDATA%\Programs\Barbican, adds a Start menu shortcut and
+  registers the toast app id Barbican.Mail (src/platform/win.rs APP_ID) so notifications
+  carry Barbican's name and icon. Start at login is not set here: it is a user setting.
+-->
+<?if $(sys.BUILDARCH) = x64 ?>
+    <?define Win64 = "yes" ?>
+<?else ?>
+    <?define Win64 = "no" ?>
+<?endif ?>
+
+<Wix xmlns="http://schemas.microsoft.com/wix/2006/wi">
+    <Product Id="*" Name="Barbican" UpgradeCode="6B1D3A52-8C1E-4E0B-9C7A-0F4E2B9D5A11"
+             Manufacturer="Barbican" Language="1033" Codepage="1252" Version="$(var.Version)">
+        <Package Id="*" Keywords="Installer" Description="Barbican mail for Stalwart"
+                 Manufacturer="Barbican" InstallerVersion="450" Languages="1033" Compressed="yes"
+                 InstallScope="perUser" InstallPrivileges="limited" SummaryCodepage="1252" />
+
+        <MajorUpgrade Schedule="afterInstallInitialize" AllowSameVersionUpgrades="yes"
+                      DowngradeErrorMessage="A newer version of Barbican is already installed." />
+        <Media Id="1" Cabinet="media1.cab" EmbedCab="yes" />
+        <Property Id="ARPPRODUCTICON" Value="BarbicanIcon" />
+        <Icon Id="BarbicanIcon" SourceFile="packaging\icons\barbican.ico" />
+
+        <Directory Id="TARGETDIR" Name="SourceDir">
+            <Directory Id="LocalAppDataFolder">
+                <Directory Id="ProgramsDir" Name="Programs">
+                    <Directory Id="APPLICATIONFOLDER" Name="Barbican" />
+                </Directory>
+            </Directory>
+            <Directory Id="ProgramMenuFolder" />
+        </Directory>
+
+        <DirectoryRef Id="APPLICATIONFOLDER">
+            <Component Id="MainExe" Guid="*">
+                <RegistryValue Root="HKCU" Key="Software\Barbican\Install" Name="exe" Type="string" Value="1" KeyPath="yes" />
+                <File Id="BarbicanExe" Name="barbican.exe" Source="$(var.CargoTargetBinDir)\barbican.exe" />
+                <File Id="InstallKind" Name="install-kind" Source="packaging\msi\install-kind" />
+                <RemoveFolder Id="RemoveAppFolder" On="uninstall" />
+                <RemoveFolder Id="RemoveProgramsDir" Directory="ProgramsDir" On="uninstall" />
+            </Component>
+        </DirectoryRef>
+
+        <DirectoryRef Id="ProgramMenuFolder">
+            <Component Id="Shortcut" Guid="*">
+                <Shortcut Id="StartMenuShortcut" Name="Barbican" Description="Mail, calendar and contacts"
+                          Target="[APPLICATIONFOLDER]barbican.exe" WorkingDirectory="APPLICATIONFOLDER" Icon="BarbicanIcon">
+                    <ShortcutProperty Key="System.AppUserModel.ID" Value="Barbican.Mail" />
+                </Shortcut>
+                <RegistryValue Root="HKCU" Key="Software\Barbican\Install" Name="shortcut" Type="integer" Value="1" KeyPath="yes" />
+            </Component>
+            <Component Id="ToastAppId" Guid="*">
+                <RegistryKey Root="HKCU" Key="Software\Classes\AppUserModelId\Barbican.Mail" ForceDeleteOnUninstall="yes">
+                    <RegistryValue Name="DisplayName" Type="string" Value="Barbican" KeyPath="yes" />
+                    <RegistryValue Name="IconUri" Type="string" Value="[APPLICATIONFOLDER]barbican.exe" />
+                </RegistryKey>
+            </Component>
+        </DirectoryRef>
+
+        <Feature Id="Complete" Title="Barbican" Level="1">
+            <ComponentRef Id="MainExe" />
+            <ComponentRef Id="Shortcut" />
+            <ComponentRef Id="ToastAppId" />
+        </Feature>
+    </Product>
+</Wix>

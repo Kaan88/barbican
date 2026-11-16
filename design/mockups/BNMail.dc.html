@@ -1,0 +1,167 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Barbican — Mail</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&amp;display=swap">
+<style>
+body{margin:0}
+a{color:#f0577a}a:hover{color:#ff8aa5}
+</style>
+</helmet>
+<div style="width: 1440px; height: 900px; display: flex; gap: 12px; padding: 14px; box-sizing: border-box; overflow: hidden; font-family: 'Segoe UI Variable Text', 'Segoe UI', Inter, system-ui, sans-serif; color: {{t.text}}; background: {{t.ground}}">
+
+  <nav aria-label="Apps" style="width: 64px; flex-shrink: 0; background: {{t.tile}}; border: 1px solid {{t.line}}; border-radius: 24px; display: flex; flex-direction: column; align-items: center; padding: 16px 0; gap: 8px; box-sizing: border-box">
+    <svg width="32" height="32" viewBox="0 0 34 34" role="img" aria-label="Barbican"><rect x="3" y="12" width="7" height="19" rx="3.5" fill="{{t.accent}}"></rect><rect x="13.5" y="3" width="7" height="28" rx="3.5" fill="{{t.accent}}" opacity="0.7"></rect><rect x="24" y="8" width="7" height="23" rx="3.5" fill="{{t.accent}}" opacity="0.4"></rect></svg>
+    <div style="height: 10px"></div>
+    <sc-for list="{{rail}}" as="r" hint-placeholder-count="6">
+      <button aria-label="{{r.label}}" style="{{r.style}}"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="{{r.icon}}"></path></svg></button>
+    </sc-for>
+    <div style="flex: 1"></div>
+    <div aria-hidden="true" style="width: 38px; height: 38px; border-radius: 14px; background: {{t.roseBg}}; color: {{t.roseFg}}; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 13px">KK</div>
+  </nav>
+
+  <aside style="width: 204px; flex-shrink: 0; display: flex; flex-direction: column; gap: 12px">
+    <button style="height: 52px; border: 0; border-radius: 20px; background: {{t.accent}}; color: {{t.onAccent}}; font: 700 14.5px 'Segoe UI', Inter, sans-serif; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 8px"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M12 20h9 M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"></path></svg>Compose</button>
+    <div style="background: {{t.tile}}; border: 1px solid {{t.line}}; border-radius: 24px; padding: 10px; display: flex; flex-direction: column; gap: 2px">
+      <sc-for list="{{folders}}" as="f" hint-placeholder-count="7">
+        <a href="#" style="{{f.style}}"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="{{f.icon}}"></path></svg><span style="flex: 1">{{f.name}}</span><span style="font-size: 12px; font-weight: 700">{{f.count}}</span></a>
+      </sc-for>
+    </div>
+    <div style="background: {{t.tile}}; border: 1px solid {{t.line}}; border-radius: 24px; padding: 12px; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px">
+      <sc-for list="{{labels}}" as="l" hint-placeholder-count="4">
+        <a href="#" style="padding: 10px; border-radius: 16px; background: {{l.bg}}; color: {{l.fg}}; text-decoration: none; font-weight: 600; font-size: 12px">{{l.name}}<div style="font-weight: 800; font-size: 19px; margin-top: 2px">{{l.n}}</div></a>
+      </sc-for>
+    </div>
+    <div style="flex: 1"></div>
+    <div style="background: {{t.tile}}; border: 1px solid {{t.line}}; border-radius: 20px; padding: 12px 14px; font-size: 12px; color: {{t.dim}}">
+      <div style="display: flex"><span style="flex: 1">Storage</span><span>2.4 of 10 GB</span></div>
+      <div style="height: 6px; border-radius: 3px; background: {{t.track}}; margin-top: 8px"><div style="width: 24%; height: 6px; border-radius: 3px; background: {{t.accent}}"></div></div>
+    </div>
+  </aside>
+
+  <section aria-label="Messages" style="width: 368px; flex-shrink: 0; background: {{t.tile}}; border: 1px solid {{t.line}}; border-radius: 26px; display: flex; flex-direction: column; overflow: hidden">
+    <div style="padding: 20px 20px 10px; display: flex; flex-direction: column; gap: 12px">
+      <div style="display: flex; align-items: baseline"><h1 style="margin: 0; font-weight: 700; font-size: 25px; letter-spacing: -0.02em; flex: 1">Inbox</h1><span style="padding: 4px 10px; border-radius: 99px; background: {{t.roseBg}}; color: {{t.roseFg}}; font-weight: 700; font-size: 12px">12 new</span></div>
+      <div style="font-size: 12.5px; color: {{t.dim}}">Good morning, Sam. Three things need you today.</div>
+      <label style="display: flex; align-items: center; gap: 8px; height: 38px; padding: 0 12px; border-radius: 14px; background: {{t.tile2}}; border: 1px solid {{t.line}}"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="{{t.dim}}" stroke-width="2" aria-hidden="true"><path d="M11 19a8 8 0 1 0 0-16 8 8 0 0 0 0 16z M21 21l-4.35-4.35"></path></svg><input aria-label="Search mail" placeholder="Search mail" style="border: 0; background: transparent; color: {{t.text}}; font: 13px 'Segoe UI', Inter, sans-serif; width: 100%; outline: none"><span style="font-size: 11px; color: {{t.faint}}; border: 1px solid {{t.line}}; border-radius: 5px; padding: 0 5px">/</span></label>
+      <div style="display: flex; gap: 6px">
+        <sc-for list="{{chips}}" as="c" hint-placeholder-count="3">
+          <button style="{{c.style}}">{{c.name}}</button>
+        </sc-for>
+      </div>
+    </div>
+    <sc-for list="{{mails}}" as="m" hint-placeholder-count="7">
+      <div style="{{m.rowStyle}}">
+        <div aria-hidden="true" style="width: 38px; height: 38px; border-radius: 14px; background: {{m.bg}}; color: {{m.fg}}; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 12.5px; flex-shrink: 0">{{m.ini}}</div>
+        <div style="flex: 1; min-width: 0">
+          <div style="display: flex; gap: 6px; align-items: center"><span style="flex: 1; font-weight: {{m.weight}}; font-size: 13.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">{{m.from}}</span><span style="font-size: 11.5px; color: {{m.timeColor}}; font-weight: 600">{{m.time}}</span></div>
+          <div style="font-size: 13px; font-weight: {{m.weight}}; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 1px">{{m.subject}}</div>
+          <div style="font-size: 12px; color: {{t.dim}}; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 1px">{{m.preview}}</div>
+        </div>
+      </div>
+    </sc-for>
+  </section>
+
+  <main style="flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 12px">
+    <div style="display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px">
+      <div style="border-radius: 22px; padding: 14px 16px; background: {{t.roseBg}}; color: {{t.roseFg}}"><div style="font-size: 11.5px; font-weight: 600; opacity: 0.85">Today</div><div style="font-weight: 800; font-size: 19px; margin-top: 2px">3 meetings</div><div style="font-size: 12px; opacity: 0.85">Stand-up 10:30</div></div>
+      <div style="border-radius: 22px; padding: 14px 16px; background: {{t.mintBg}}; color: {{t.mintFg}}"><div style="font-size: 11.5px; font-weight: 600; opacity: 0.85">Waiting on</div><div style="font-weight: 800; font-size: 19px; margin-top: 2px">2 replies</div><div style="font-size: 12px; opacity: 0.85">Jonas, Hetzner</div></div>
+      <div style="border-radius: 22px; padding: 14px 16px; background: {{t.skyBg}}; color: {{t.skyFg}}"><div style="font-size: 11.5px; font-weight: 600; opacity: 0.85">Travel</div><div style="font-weight: 800; font-size: 19px; margin-top: 2px">LIS → AMS</div><div style="font-size: 12px; opacity: 0.85">Thu 07:25</div></div>
+    </div>
+    <div style="flex: 1; min-height: 0; background: {{t.tile}}; border: 1px solid {{t.line}}; border-radius: 26px; padding: 22px 26px; box-sizing: border-box; display: flex; flex-direction: column; gap: 14px">
+      <div style="display: flex; gap: 6px">
+        <sc-for list="{{actions}}" as="a" hint-placeholder-count="4">
+          <button aria-label="{{a.label}}" style="height: 34px; padding: 0 12px; border-radius: 12px; border: 1px solid {{t.line}}; background: {{t.tile2}}; color: {{t.text}}; font: 600 12.5px 'Segoe UI', Inter, sans-serif; cursor: pointer; display: flex; align-items: center; gap: 6px"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="{{a.icon}}"></path></svg>{{a.label}}</button>
+        </sc-for>
+      </div>
+      <h2 style="margin: 6px 0 0; font-weight: 700; font-size: 27px; line-height: 1.2; letter-spacing: -0.02em; text-wrap: balance">Design review moved to Thursday</h2>
+      <div style="font-size: 12.5px; color: {{t.dim}}">Mira Okafor to you and Jonas Weber · Today 09:42</div>
+      <div style="border-radius: 16px; padding: 12px 14px; background: {{t.tile2}}; border: 1px solid {{t.line}}; display: flex; gap: 10px; font-size: 13px; line-height: 1.5"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="{{t.accent}}" stroke-width="1.8" stroke-linejoin="round" aria-hidden="true" style="flex-shrink: 0; margin-top: 2px"><path d="M12 3l1.9 5.8L20 11l-6.1 2.2L12 19l-1.9-5.8L4 11l6.1-2.2z"></path></svg><span>Review is now <strong>Thu 14:00, room 4B</strong>. Bring large printouts. <a href="#" style="color: {{t.accent}}">Add to calendar</a></span></div>
+      <div style="font-size: 14.5px; line-height: 1.7; color: {{t.body}}; display: flex; flex-direction: column; gap: 10px">
+        <p style="margin: 0">Hi both,</p>
+        <p style="margin: 0">The client asked to push the review by two days, so we are now on Thursday at 14:00 in room 4B. I've attached the updated agenda: the identity work goes first, then the onboarding flow.</p>
+        <p style="margin: 0">Could you bring printouts of the three directions? Large format if the plotter is free. — Mira</p>
+      </div>
+      <div style="display: flex; gap: 10px; align-items: center; padding: 10px 14px; border-radius: 16px; background: {{t.tile2}}; border: 1px solid {{t.line}}; width: fit-content"><span style="width: 32px; height: 32px; border-radius: 10px; background: {{t.roseBg}}; color: {{t.roseFg}}; font-weight: 800; font-size: 10px; display: flex; align-items: center; justify-content: center">PDF</span><div><div style="font-weight: 600; font-size: 13px">Agenda-v3.pdf</div><div style="font-size: 11.5px; color: {{t.dim}}">214 KB</div></div></div>
+      <div style="flex: 1"></div>
+      <div style="display: flex; gap: 8px; align-items: center; padding: 6px 6px 6px 16px; border-radius: 20px; background: {{t.tile2}}; border: 1px solid {{t.line}}">
+        <input aria-label="Quick reply" placeholder="Reply to Mira…" style="flex: 1; border: 0; background: transparent; color: {{t.text}}; font: 14px 'Segoe UI', Inter, sans-serif; outline: none">
+        <button style="height: 40px; padding: 0 20px; border: 0; border-radius: 15px; background: {{t.accent}}; color: {{t.onAccent}}; font: 700 13.5px 'Segoe UI', Inter, sans-serif; cursor: pointer">Send</button>
+      </div>
+    </div>
+  </main>
+
+  <aside aria-label="About the sender" style="width: 236px; flex-shrink: 0; background: {{t.tile}}; border: 1px solid {{t.line}}; border-radius: 26px; padding: 22px 18px; box-sizing: border-box; display: flex; flex-direction: column; gap: 14px">
+    <div aria-hidden="true" style="width: 60px; height: 60px; border-radius: 22px; background: {{t.roseBg}}; color: {{t.roseFg}}; display: flex; align-items: center; justify-content: center; font-weight: 800; font-size: 19px">MO</div>
+    <div><div style="font-weight: 700; font-size: 16px">Mira Okafor</div><div style="font-size: 12.5px; color: {{t.dim}}">Studio North · Creative lead</div></div>
+    <div style="font-size: 12.5px; display: flex; flex-direction: column; gap: 6px; color: {{t.body}}"><span>mira@studio-north.eu</span><span>Amsterdam · 10:42 local</span></div>
+    <div style="display: flex; gap: 6px"><button style="flex: 1; height: 32px; border-radius: 11px; border: 1px solid {{t.line}}; background: {{t.tile2}}; color: {{t.text}}; font: 600 12px 'Segoe UI', Inter, sans-serif">Message</button><button style="flex: 1; height: 32px; border-radius: 11px; border: 1px solid {{t.line}}; background: {{t.tile2}}; color: {{t.text}}; font: 600 12px 'Segoe UI', Inter, sans-serif">Meet</button></div>
+    <div style="height: 1px; background: {{t.line}}"></div>
+    <div style="font-size: 11.5px; font-weight: 700; color: {{t.dim}}">Recent with Mira</div>
+    <div style="font-size: 12.5px; display: flex; flex-direction: column; gap: 9px; color: {{t.body}}"><span>Fwd: font licences · Wed</span><span>Moodboard round 2 · 4 Nov</span><span>Kick-off notes · 28 Oct</span></div>
+    <div style="height: 1px; background: {{t.line}}"></div>
+    <div style="font-size: 11.5px; font-weight: 700; color: {{t.dim}}">Shared files</div>
+    <div style="display: flex; flex-direction: column; gap: 6px; font-size: 12.5px"><span style="padding: 8px 10px; border-radius: 12px; background: {{t.tile2}}">Agenda-v3.pdf</span><span style="padding: 8px 10px; border-radius: 12px; background: {{t.tile2}}">Directions.pdf</span></div>
+  </aside>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"dark":{"editor":"boolean","default":true},"$preview":{"width":1440,"height":900}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const dark = this.props.dark ?? true;
+    const t = dark ? {
+      ground: '#0a0a0a', tile: '#141414', tile2: '#1a1a1a', line: '#262626', track: '#2e2e2e', text: '#fafafa', body: '#d4d4d4', dim: '#a3a3a3', faint: '#737373',
+      accent: '#f0577a', onAccent: '#16070c', sel: '#4a1424', selText: '#ffd5df',
+      roseBg: 'rgba(240,87,122,0.14)', roseFg: '#ffb3c4', mintBg: 'rgba(52,211,153,0.13)', mintFg: '#86efc4', skyBg: 'rgba(96,165,250,0.14)', skyFg: '#a8cbff', amberBg: 'rgba(251,191,36,0.13)', amberFg: '#fcd679'
+    } : {
+      ground: '#f4f4f5', tile: '#ffffff', tile2: '#fafafa', line: '#e5e5e5', track: '#ececec', text: '#0a0a0a', body: '#2b2b2b', dim: '#6b6b6b', faint: '#8a8a8a',
+      accent: '#c8234a', onAccent: '#ffffff', sel: '#fde4ea', selText: '#8c1733',
+      roseBg: '#fde4ea', roseFg: '#8c1733', mintBg: '#dcf5e8', mintFg: '#17603f', skyBg: '#dfeafd', skyFg: '#1e3f8a', amberBg: '#fdf1d3', amberFg: '#7a4a06'
+    };
+    const I = {
+      mail: 'M4 4h16v16H4z M22 6l-10 7L2 6', cal: 'M3 4h18v18H3z M16 2v4 M8 2v4 M3 10h18',
+      users: 'M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2 M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8z',
+      folder: 'M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z', spark: 'M12 3l1.9 5.8L20 11l-6.1 2.2L12 19l-1.9-5.8L4 11l6.1-2.2z',
+      shield: 'M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z',
+      inbox: 'M22 12h-6l-2 3h-4l-2-3H2 M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z',
+      file: 'M14 2H6v20h12V8z M14 2v6h6', clock: 'M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20z M12 6v6l4 2', send: 'M22 2 11 13 M22 2l-7 20-4-9-9-4 20-7z',
+      archive: 'M21 8v13H3V8 M1 3h22v5H1z M10 12h4', alert: 'M12 9v4 M12 17h.01 M10.3 3.9 1.8 18h20.4L13.7 3.9a2 2 0 0 0-3.4 0z', trash: 'M3 6h18 M19 6l-1 14H6L5 6 M8 6V4h8v2',
+      reply: 'M9 17l-5-5 5-5 M20 18v-2a4 4 0 0 0-4-4H4', fwd: 'M15 17l5-5-5-5 M4 18v-2a4 4 0 0 1 4-4h12'
+    };
+    const rail = [['Mail', I.mail, true], ['Calendar', I.cal], ['Contacts', I.users], ['Files', I.folder], ['Assistant', I.spark], ['Admin', I.shield]].map(([label, icon, on]) => ({
+      label, icon, style: 'width: 42px; height: 42px; border-radius: 14px; border: 0; display: flex; align-items: center; justify-content: center; cursor: pointer;' + (on ? 'background: ' + t.sel + '; color: ' + t.selText + ';' : 'background: transparent; color: ' + t.faint + ';')
+    }));
+    const folders = [['Inbox', I.inbox, '12', true], ['Drafts', I.file, '3'], ['Scheduled', I.clock, ''], ['Sent', I.send, ''], ['Archive', I.archive, ''], ['Spam', I.alert, '4'], ['Trash', I.trash, '']].map(([name, icon, count, on]) => ({
+      name, icon, count, style: 'display: flex; align-items: center; gap: 10px; padding: 9px 11px; border-radius: 14px; text-decoration: none; font-size: 13.5px;' + (on ? 'background: ' + t.sel + '; color: ' + t.selText + '; font-weight: 600;' : 'color: ' + t.body + ';')
+    }));
+    const labels = [['Work', '18', t.roseBg, t.roseFg], ['Family', '4', t.amberBg, t.amberFg], ['Receipts', '31', t.mintBg, t.mintFg], ['Travel', '2', t.skyBg, t.skyFg]].map(([name, n, bg, fg]) => ({ name, n, bg, fg }));
+    const chips = [['Focused', true], ['Other'], ['Newsletters']].map(([name, on]) => ({
+      name, style: 'height: 28px; padding: 0 12px; border-radius: 99px; font: 600 12px Segoe UI, Inter, sans-serif; cursor: pointer;' + (on ? 'border: 0; background: ' + t.text + '; color: ' + t.ground + ';' : 'border: 1px solid ' + t.line + '; background: transparent; color: ' + t.dim + ';')
+    }));
+    const tints = [[t.roseBg, t.roseFg], [t.skyBg, t.skyFg], [t.mintBg, t.mintFg], [t.amberBg, t.amberFg]];
+    const mails = [
+      ['Mira Okafor', 'Design review moved to Thursday', 'Room 4B is booked from 14:00…', '09:42', true, true],
+      ['Stalwart Labs', 'Stalwart 0.16 is out', 'FileNode sharing, a faster full-text index…', '08:15', true],
+      ['TAP Air Portugal', 'Your boarding pass · LIS → AMS', 'Flight TP668 departs at 07:25…', '07:58', true],
+      ['Jonas Weber', 'Re: Quarterly numbers', 'One question on the churn figure…', 'Mon'],
+      ['Hetzner Online', 'Invoice 2026-11', 'Your invoice of €38.17 is available…', 'Mon'],
+      ['Ada Kasım', 'Dinner on Sunday?', 'Mum says 7 is fine…', 'Fri'],
+      ['The Browser', 'Five essays worth your weekend', 'On slowness, on maps…', 'Fri']
+    ].map(([from, subject, preview, time, unread, sel], i) => ({
+      from, subject, preview, time, weight: unread ? 700 : 500, bg: tints[i % 4][0], fg: tints[i % 4][1],
+      timeColor: unread ? t.accent : t.faint, ini: from.split(' ').map(w => w[0]).join('').slice(0, 2),
+      rowStyle: 'display: flex; gap: 11px; padding: 10px 12px; margin: 0 8px; border-radius: 18px;' + (sel ? 'background: ' + t.tile2 + '; box-shadow: inset 0 0 0 1px ' + t.line + ';' : '')
+    }));
+    const actions = [['Reply', I.reply], ['Forward', I.fwd], ['Archive', I.archive], ['Snooze', I.clock]].map(([label, icon]) => ({ label, icon }));
+    return { t, rail, folders, labels, chips, mails, actions };
+  }
+}
+</script>
+</body>
+</html>

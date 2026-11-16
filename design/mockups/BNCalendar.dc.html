@@ -1,0 +1,158 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Barbican — Calendar</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&amp;display=swap">
+<style>
+body{margin:0}
+a{color:#f0577a}a:hover{color:#ff8aa5}
+</style>
+</helmet>
+<div style="width: 1440px; height: 900px; display: flex; gap: 12px; padding: 14px; box-sizing: border-box; overflow: hidden; font-family: 'Segoe UI Variable Text', 'Segoe UI', Inter, system-ui, sans-serif; color: {{t.text}}; background: {{t.ground}}">
+
+  <nav aria-label="Apps" style="width: 64px; flex-shrink: 0; background: {{t.tile}}; border: 1px solid {{t.line}}; border-radius: 24px; display: flex; flex-direction: column; align-items: center; padding: 16px 0; gap: 8px; box-sizing: border-box">
+    <svg width="32" height="32" viewBox="0 0 34 34" role="img" aria-label="Barbican"><rect x="3" y="12" width="7" height="19" rx="3.5" fill="{{t.accent}}"></rect><rect x="13.5" y="3" width="7" height="28" rx="3.5" fill="{{t.accent}}" opacity="0.7"></rect><rect x="24" y="8" width="7" height="23" rx="3.5" fill="{{t.accent}}" opacity="0.4"></rect></svg>
+    <div style="height: 10px"></div>
+    <sc-for list="{{rail}}" as="r" hint-placeholder-count="6">
+      <button aria-label="{{r.label}}" style="{{r.style}}"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="{{r.icon}}"></path></svg></button>
+    </sc-for>
+  </nav>
+
+  <aside style="width: 250px; flex-shrink: 0; display: flex; flex-direction: column; gap: 12px">
+    <button style="height: 52px; border: 0; border-radius: 20px; background: {{t.accent}}; color: {{t.onAccent}}; font: 700 14.5px 'Segoe UI', Inter, sans-serif; cursor: pointer">+ New event</button>
+    <div style="background: {{t.tile}}; border: 1px solid {{t.line}}; border-radius: 24px; padding: 14px">
+      <div style="display: flex; align-items: center; font-weight: 700; font-size: 14px; margin-bottom: 8px"><span style="flex: 1">November 2026</span><span style="color: {{t.dim}}">‹ ›</span></div>
+      <div style="display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 2px; font-size: 11.5px; text-align: center">
+        <sc-for list="{{dow}}" as="d" hint-placeholder-count="7"><span style="color: {{t.faint}}; padding: 3px 0">{{d}}</span></sc-for>
+        <sc-for list="{{month}}" as="d" hint-placeholder-count="35"><span style="{{d.style}}">{{d.n}}</span></sc-for>
+      </div>
+    </div>
+    <div style="background: {{t.tile}}; border: 1px solid {{t.line}}; border-radius: 24px; padding: 14px; display: flex; flex-direction: column; gap: 6px">
+      <div style="font-size: 11.5px; font-weight: 700; color: {{t.dim}}; margin-bottom: 2px">Calendars</div>
+      <sc-for list="{{cals}}" as="c" hint-placeholder-count="4">
+        <label style="display: flex; align-items: center; gap: 10px; font-size: 13px"><span style="width: 14px; height: 14px; border-radius: 5px; background: {{c.color}}"></span>{{c.name}}</label>
+      </sc-for>
+    </div>
+    <div style="flex: 1; min-height: 0; background: {{t.tile}}; border: 1px solid {{t.line}}; border-radius: 24px; padding: 14px; display: flex; flex-direction: column; gap: 8px">
+      <div style="font-size: 11.5px; font-weight: 700; color: {{t.dim}}">Tasks · 3 due this week</div>
+      <sc-for list="{{tasks}}" as="k" hint-placeholder-count="4">
+        <div style="display: flex; gap: 10px; align-items: flex-start; font-size: 13px"><span style="{{k.box}}"></span><div style="flex: 1"><div style="{{k.text}}">{{k.name}}</div><div style="font-size: 11.5px; color: {{t.dim}}">{{k.due}}</div></div></div>
+      </sc-for>
+    </div>
+  </aside>
+
+  <main style="flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 12px">
+    <div style="display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px">
+      <div style="border-radius: 22px; padding: 14px 16px; background: {{t.roseBg}}; color: {{t.roseFg}}"><div style="font-size: 11.5px; font-weight: 600; opacity: 0.85">Next up · in 48 min</div><div style="font-weight: 800; font-size: 18px; margin-top: 2px">Stand-up</div><div style="font-size: 12px; opacity: 0.85">10:30 · Room 2</div></div>
+      <div style="border-radius: 22px; padding: 14px 16px; background: {{t.mintBg}}; color: {{t.mintFg}}"><div style="font-size: 11.5px; font-weight: 600; opacity: 0.85">Focus time this week</div><div style="font-weight: 800; font-size: 18px; margin-top: 2px">9 h 30 m</div><div style="font-size: 12px; opacity: 0.85">2 h more than last week</div></div>
+      <div style="border-radius: 22px; padding: 14px 16px; background: {{t.amberBg}}; color: {{t.amberFg}}"><div style="font-size: 11.5px; font-weight: 600; opacity: 0.85">Invitations</div><div style="font-weight: 800; font-size: 18px; margin-top: 2px">1 to answer</div><div style="font-size: 12px; opacity: 0.85">Design review · Thu</div></div>
+    </div>
+    <div style="flex: 1; min-height: 0; background: {{t.tile}}; border: 1px solid {{t.line}}; border-radius: 26px; padding: 16px 20px; box-sizing: border-box; display: flex; flex-direction: column">
+      <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 10px">
+        <h1 style="margin: 0; font-weight: 700; font-size: 21px; flex: 1">16 – 22 November</h1>
+        <div style="display: flex; padding: 3px; border-radius: 12px; background: {{t.tile2}}; border: 1px solid {{t.line}}; font-size: 12.5px; font-weight: 600"><span style="padding: 5px 10px; color: {{t.dim}}">Day</span><span style="padding: 5px 10px; border-radius: 9px; background: {{t.sel}}; color: {{t.selText}}">Week</span><span style="padding: 5px 10px; color: {{t.dim}}">Month</span><span style="padding: 5px 10px; color: {{t.dim}}">Agenda</span></div>
+      </div>
+      <div style="display: grid; grid-template-columns: 48px repeat(7, minmax(0, 1fr)); font-size: 12px; color: {{t.dim}}; padding-bottom: 6px; border-bottom: 1px solid {{t.line}}">
+        <span></span>
+        <sc-for list="{{days}}" as="d" hint-placeholder-count="7"><span style="{{d.style}}">{{d.label}}</span></sc-for>
+      </div>
+      <div style="position: relative; flex: 1; min-height: 0">
+        <sc-for list="{{hours}}" as="h" hint-placeholder-count="10">
+          <div style="position: absolute; left: 0; right: 0; top: {{h.top}}px; height: 1px; background: {{t.line}}"><span style="position: absolute; left: 0; top: -8px; font-size: 11px; color: {{t.faint}}; background: {{t.tile}}; padding-right: 6px">{{h.label}}</span></div>
+        </sc-for>
+        <div style="position: absolute; left: 48px; right: 0; top: 140px; height: 2px; background: {{t.accent}}"><span style="position: absolute; left: -5px; top: -4px; width: 10px; height: 10px; border-radius: 50%; background: {{t.accent}}"></span></div>
+        <sc-for list="{{events}}" as="e" hint-placeholder-count="8">
+          <div style="{{e.style}}"><div style="font-weight: 700; font-size: 12px; line-height: 1.25">{{e.title}}</div><div style="font-size: 11px; opacity: 0.85">{{e.time}}</div></div>
+        </sc-for>
+      </div>
+    </div>
+  </main>
+
+  <aside aria-label="Event details" style="width: 280px; flex-shrink: 0; background: {{t.tile}}; border: 1px solid {{t.line}}; border-radius: 26px; padding: 20px 18px; box-sizing: border-box; display: flex; flex-direction: column; gap: 14px">
+    <div style="border-radius: 18px; padding: 14px; background: {{t.amberBg}}; color: {{t.amberFg}}"><div style="font-size: 11.5px; font-weight: 700">Invitation from Mira Okafor</div><div style="font-weight: 800; font-size: 18px; margin-top: 4px">Design review</div><div style="font-size: 12.5px; margin-top: 2px">Thu 18 Nov · 14:00 – 15:30</div></div>
+    <div style="display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px">
+      <button style="height: 36px; border-radius: 12px; border: 0; background: {{t.accent}}; color: {{t.onAccent}}; font: 700 12.5px 'Segoe UI', Inter, sans-serif">Accept</button>
+      <button style="height: 36px; border-radius: 12px; border: 1px solid {{t.line}}; background: {{t.tile2}}; color: {{t.text}}; font: 600 12.5px 'Segoe UI', Inter, sans-serif">Maybe</button>
+      <button style="height: 36px; border-radius: 12px; border: 1px solid {{t.line}}; background: {{t.tile2}}; color: {{t.text}}; font: 600 12.5px 'Segoe UI', Inter, sans-serif">Decline</button>
+    </div>
+    <div style="font-size: 13px; line-height: 1.6; color: {{t.body}}; display: flex; flex-direction: column; gap: 4px"><span>Room 4B, Studio North</span><span>Repeats: never</span><span>Reminder: 15 min before</span></div>
+    <div style="height: 1px; background: {{t.line}}"></div>
+    <div style="font-size: 11.5px; font-weight: 700; color: {{t.dim}}">Guests · 4</div>
+    <sc-for list="{{guests}}" as="g" hint-placeholder-count="4">
+      <div style="display: flex; align-items: center; gap: 10px; font-size: 13px"><span style="width: 30px; height: 30px; border-radius: 11px; background: {{g.bg}}; color: {{g.fg}}; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 11px">{{g.ini}}</span><span style="flex: 1">{{g.name}}</span><span style="font-size: 11.5px; color: {{g.statusColor}}">{{g.status}}</span></div>
+    </sc-for>
+    <div style="flex: 1"></div>
+    <div style="font-size: 12px; color: {{t.dim}}">Free at 14:00 on Thu: no conflicts.</div>
+  </aside>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"dark":{"editor":"boolean","default":true},"$preview":{"width":1440,"height":900}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const dark = this.props.dark ?? true;
+    const t = dark ? {
+      ground: '#0a0a0a', tile: '#141414', tile2: '#1a1a1a', line: '#262626', text: '#fafafa', body: '#d4d4d4', dim: '#a3a3a3', faint: '#737373',
+      accent: '#f0577a', onAccent: '#16070c', sel: '#4a1424', selText: '#ffd5df',
+      roseBg: 'rgba(240,87,122,0.14)', roseFg: '#ffb3c4', mintBg: 'rgba(52,211,153,0.13)', mintFg: '#86efc4', skyBg: 'rgba(96,165,250,0.14)', skyFg: '#a8cbff', amberBg: 'rgba(251,191,36,0.13)', amberFg: '#fcd679', violetBg: 'rgba(167,139,250,0.15)', violetFg: '#cbbcff'
+    } : {
+      ground: '#f4f4f5', tile: '#ffffff', tile2: '#fafafa', line: '#e5e5e5', text: '#0a0a0a', body: '#2b2b2b', dim: '#6b6b6b', faint: '#8a8a8a',
+      accent: '#c8234a', onAccent: '#ffffff', sel: '#fde4ea', selText: '#8c1733',
+      roseBg: '#fde4ea', roseFg: '#8c1733', mintBg: '#dcf5e8', mintFg: '#17603f', skyBg: '#dfeafd', skyFg: '#1e3f8a', amberBg: '#fdf1d3', amberFg: '#7a4a06', violetBg: '#ece6ff', violetFg: '#4b3596'
+    };
+    const I = {
+      mail: 'M4 4h16v16H4z M22 6l-10 7L2 6', cal: 'M3 4h18v18H3z M16 2v4 M8 2v4 M3 10h18',
+      users: 'M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2 M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8z',
+      folder: 'M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z', spark: 'M12 3l1.9 5.8L20 11l-6.1 2.2L12 19l-1.9-5.8L4 11l6.1-2.2z',
+      shield: 'M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z'
+    };
+    const rail = [['Mail', I.mail], ['Calendar', I.cal, true], ['Contacts', I.users], ['Files', I.folder], ['Assistant', I.spark], ['Admin', I.shield]].map(([label, icon, on]) => ({
+      label, icon, style: 'width: 42px; height: 42px; border-radius: 14px; border: 0; display: flex; align-items: center; justify-content: center; cursor: pointer;' + (on ? 'background: ' + t.sel + '; color: ' + t.selText + ';' : 'background: transparent; color: ' + t.faint + ';')
+    }));
+    const dow = ['M', 'T', 'W', 'T', 'F', 'S', 'S'];
+    const month = [];
+    for (let i = 0; i < 35; i++) {
+      const n = i < 6 ? 26 + i : i - 5;
+      const out = i < 6 || n > 30;
+      const today = !out && n === 16;
+      const week = !out && n >= 16 && n <= 22;
+      month.push({ n: out && n > 30 ? n - 30 : n, style: 'padding: 5px 0; border-radius: 9px;' + (today ? 'background: ' + t.accent + '; color: ' + t.onAccent + '; font-weight: 800;' : week ? 'background: ' + t.tile2 + '; color: ' + t.text + ';' : out ? 'color: ' + t.faint + ';' : 'color: ' + t.body + ';') });
+    }
+    const cals = [['Personal', t.roseFg], ['Work', t.skyFg], ['Family', t.amberFg], ['Holidays · TR', t.mintFg]].map(([name, color]) => ({ name, color }));
+    const tasks = [['Send A1 prints to the plotter', 'Wed', false], ['Renew domain example.org', 'Fri', false], ['Book train to Haarlem', 'Done', true], ['Review Q4 budget', 'Next week', false]].map(([name, due, done]) => ({
+      name, due, box: 'width: 16px; height: 16px; border-radius: 6px; flex-shrink: 0; margin-top: 1px;' + (done ? 'background: ' + t.accent + ';' : 'border: 1.5px solid ' + t.faint + ';'),
+      text: done ? 'text-decoration: line-through; color: ' + t.faint + ';' : ''
+    }));
+    const days = ['Mon 16', 'Tue 17', 'Wed 18', 'Thu 19', 'Fri 20', 'Sat 21', 'Sun 22'].map((label, i) => ({ label, style: 'text-align: center; font-weight: 600;' + (i === 0 ? 'color: ' + t.accent + ';' : '') }));
+    const H = 52;
+    const hours = []; for (let h = 8; h <= 18; h++) hours.push({ label: String(h).padStart(2, '0') + ':00', top: (h - 8) * H });
+    const kinds = { w: [t.skyBg, t.skyFg], p: [t.roseBg, t.roseFg], f: [t.amberBg, t.amberFg], m: [t.mintBg, t.mintFg], v: [t.violetBg, t.violetFg] };
+    const colW = '((100% - 48px) / 7)';
+    const events = [
+      [0, 10.5, 0.5, 'Stand-up', '10:30', 'w'], [0, 13, 1, 'Lunch with Ada', '13:00', 'f'], [0, 15, 2, 'Focus: identity', '15:00 – 17:00', 'm'],
+      [1, 9, 1.5, 'Q4 numbers with Jonas', '09:00', 'w'], [1, 14, 1, 'Dentist', '14:00', 'p'],
+      [2, 10.5, 0.5, 'Stand-up', '10:30', 'w'], [2, 11, 3, 'Focus: Barbican release', '11:00 – 14:00', 'm'],
+      [3, 7.9, 1.1, 'Flight TP668', '07:25 LIS → AMS', 'v'], [3, 14, 1.5, 'Design review', '14:00 · invite', 'f'],
+      [4, 10.5, 0.5, 'Stand-up', '10:30', 'w'], [4, 16, 2, 'Drinks, Studio North', '16:00', 'p'],
+      [6, 12, 2, 'Sunday dinner', '12:00', 'f']
+    ].map(([d, start, len, title, time, k]) => ({
+      title, time,
+      style: 'position: absolute; box-sizing: border-box; overflow: hidden; border-radius: 12px; padding: 5px 8px;' +
+        'left: calc(48px + ' + colW + ' * ' + d + ' + 3px); width: calc(' + colW + ' - 6px);' +
+        'top: ' + Math.max(0, (start - 8) * H + 2) + 'px; height: ' + (len * H - 4) + 'px;' +
+        'background: ' + kinds[k][0] + '; color: ' + kinds[k][1] + ';' + (title === 'Design review' ? 'border: 1.5px dashed ' + kinds[k][1] + ';' : '')
+    }));
+    const guests = [['Mira Okafor', 'Organizer', t.roseBg, t.roseFg, t.dim], ['Jonas Weber', 'Accepted', t.skyBg, t.skyFg, t.mintFg], ['You', 'No reply', t.sel, t.selText, t.amberFg], ['Lena Vos', 'Maybe', t.mintBg, t.mintFg, t.dim]].map(([name, status, bg, fg, statusColor]) => ({
+      name, status, bg, fg, statusColor, ini: name.split(' ').map(w => w[0]).join('').slice(0, 2)
+    }));
+    return { t, rail, dow, month, cals, tasks, days, hours, events, guests };
+  }
+}
+</script>
+</body>
+</html>
