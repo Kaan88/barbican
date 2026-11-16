@@ -4,7 +4,7 @@
 //! 1000 x 100 viewbox; the % change compares the first and second half of the window,
 //! as the WebUI does.
 use crate::admin::Admin;
-use crate::{AppWindow, DashBar, DashCol, DashPanel, DashRow};
+use crate::{AppWindow, DashBar, DashCol, DashPanel, DashRow, DashTip};
 use serde_json::{json, Value};
 use slint::{Color, ComponentHandle, ModelRc, SharedString, VecModel};
 use std::collections::HashMap;
@@ -38,10 +38,11 @@ impl Data {
         self.samples.iter().find(|s| names.contains(&s.metric.as_str())).map(|s| s.kind).unwrap_or(Kind::Counter)
     }
 
-    /// Per-bucket values for the metrics (summed across names).
-    fn series(&self, names: &[&str], n: usize) -> Vec<f64> {
+    /// Per-bucket values like the WebUI's bucketValues: counters summed, histograms
+    /// sum/count, gauges averaged; None for a bucket without samples.
+    fn series_opt(&self, names: &[&str], n: usize) -> Vec<Option<f64>> {
         let sub = Data { from: self.from, to: self.to, buckets: n, samples: vec![], extra: HashMap::new() };
-        let mut out = vec![0.0; n];
+        let mut out: Vec<Option<f64>> = vec![None; n];
         for name in names {
             let mut c = vec![0.0; n];
             let mut s = vec![0.0; n];
@@ -52,17 +53,21 @@ impl Data {
                 kind = x.kind;
                 c[i] += x.count; s[i] += x.sum; k[i] += 1;
             }
-            let mut last = 0.0;
             for i in 0..n {
+                if k[i] == 0 { continue; }
                 let v = match kind {
-                    Kind::Counter => c[i],
-                    Kind::Histogram => if c[i] > 0.0 { s[i] / c[i] } else { 0.0 },
-                    Kind::Gauge => if k[i] > 0 { last = c[i] / k[i] as f64; last } else { last },
+                    Kind::Counter => Some(c[i]),
+                    Kind::Histogram => if c[i] > 0.0 { Some(s[i] / c[i]) } else { None },
+                    Kind::Gauge => Some(c[i] / k[i] as f64),
                 };
-                out[i] += v;
+                if let Some(v) = v { out[i] = Some(out[i].unwrap_or(0.0) + v); }
             }
         }
         out
+    }
+
+    fn series(&self, names: &[&str], n: usize) -> Vec<f64> {
+        self.series_opt(names, n).into_iter().map(|v| v.unwrap_or(0.0)).collect()
     }
 
     /// The headline figure: counter total, gauge latest value, histogram mean.
@@ -92,39 +97,47 @@ impl Data {
 
 fn fmt(v: f64, u: Unit) -> String {
     match u {
+        // formatSize(compact): 1024-based, one decimal below 9.95
         Unit::Bytes => {
             let units = ["B", "KB", "MB", "GB", "TB"];
-            let mut x = v;
-            let mut i = 0;
-            while x >= 1024.0 && i < units.len() - 1 { x /= 1024.0; i += 1; }
-            if i == 0 { format!("{x:.0} B") } else if x >= 100.0 { format!("{x:.0} {}", units[i]) } else { format!("{x:.1} {}", units[i]) }
-        }
-        Unit::Ms => if v >= 1000.0 { format!("{:.2} s", v / 1000.0) } else if v >= 10.0 { format!("{v:.0} ms") } else { format!("{v:.1} ms") },
-        Unit::Pct => format!("{v:.1}%"),
-        Unit::Count => {
-            if v >= 1e6 { return format!("{:.1}M", v / 1e6); }
-            let n = v.round() as i64;
-            let s = n.abs().to_string();
-            let mut o = String::new();
-            for (i, ch) in s.chars().enumerate() {
-                if i > 0 && (s.len() - i) % 3 == 0 { o.push(','); }
-                o.push(ch);
+            for i in (0..units.len()).rev() {
+                let x = v.abs() / 1024f64.powi(i as i32);
+                let digits = if x < 9.95 && i > 0 { 1 } else { 0 };
+                let r = (x * 10f64.powi(digits)).round() / 10f64.powi(digits);
+                if r >= 1.0 || i == 0 { return format!("{} {}", if digits == 1 { format!("{r:.1}") } else { format!("{r:.0}") }, units[i]); }
             }
-            if n < 0 { format!("-{o}") } else { o }
+            "0 B".into()
+        }
+        // formatElapsed
+        Unit::Ms => {
+            if v <= 0.0 { return "0 ms".into(); }
+            if v.round() < 1000.0 { return format!("{:.0} ms", v.round()); }
+            let sec = (v / 100.0).round() / 10.0;
+            if sec < 60.0 { return format!("{sec:.1} s"); }
+            let ts = (v / 1000.0).floor().max(60.0) as i64;
+            let (m, s) = (ts / 60, ts % 60);
+            if m < 60 { return if s > 0 { format!("{m} m {s} s") } else { format!("{m} m") }; }
+            let (h, m) = (m / 60, m % 60);
+            if m > 0 { format!("{h} h {m} m") } else { format!("{h} h") }
+        }
+        Unit::Pct => format!("{v:.1}%"),
+        // formatCompactNumber
+        Unit::Count => {
+            if v.fract() == 0.0 && v.abs() < 1000.0 { return format!("{v:.0}"); }
+            let (x, suf) = if v.abs() >= 1e9 { (v / 1e9, "B") } else if v.abs() >= 1e6 { (v / 1e6, "M") } else if v.abs() >= 1e3 { (v / 1e3, "K") } else { (v, "") };
+            let t = format!("{x:.1}");
+            format!("{}{suf}", t.strip_suffix(".0").unwrap_or(&t))
         }
     }
 }
 
-fn axis(v: f64, u: Unit) -> String {
-    match u { Unit::Count if v < 10.0 && v.fract() != 0.0 => format!("{v:.1}"), _ => fmt(v, u) }
-}
-
-/// A "nice" axis maximum.
+/// Recharts-style nice ticks: 5 ticks from 0 with a "nice" step.
 fn nice(m: f64) -> f64 {
     if m <= 0.0 { return 4.0; }
-    let p = 10f64.powf(m.log10().floor());
-    for f in [1.0, 2.0, 2.5, 4.0, 5.0, 8.0, 10.0] { if f * p >= m { return f * p; } }
-    10.0 * p
+    let raw = m / 4.0;
+    let p = 10f64.powf(raw.log10().floor());
+    for f in [1.0, 2.0, 2.5, 3.0, 4.0, 5.0, 6.0, 8.0, 10.0] { if f * p >= raw - 1e-9 { return 4.0 * f * p; } }
+    40.0 * p
 }
 
 fn pt(i: usize, n: usize, v: f64, max: f64) -> (f64, f64) {
@@ -132,26 +145,68 @@ fn pt(i: usize, n: usize, v: f64, max: f64) -> (f64, f64) {
     (x, 100.0 - (v / max).clamp(0.0, 1.0) * 100.0)
 }
 
-/// Smooth curve through the points (cubic segments with horizontal tangents, no overshoot).
-fn curve(vals: &[f64], max: f64, first: &str, rev: bool) -> String {
-    let n = vals.len();
-    let mut pts: Vec<(f64, f64)> = (0..n).map(|i| pt(i, n, vals[i], max)).collect();
-    if rev { pts.reverse(); }
-    let mut o = String::new();
-    for (i, (x, y)) in pts.iter().enumerate() {
-        if i == 0 { o += &format!("{first} {x:.1} {y:.2}"); continue; }
-        let (px, py) = pts[i - 1];
-        let mx = (px + x) / 2.0;
-        o += &format!(" C {mx:.1} {py:.2} {mx:.1} {y:.2} {x:.1} {y:.2}");
+/// d3 curveMonotoneX through the points; `first` is the opening command (M or L).
+fn monotone(pts: &[(f64, f64)], first: &str) -> String {
+    let n = pts.len();
+    if n == 0 { return String::new(); }
+    let mut o = format!("{first} {:.1} {:.2}", pts[0].0, pts[0].1);
+    if n == 1 { return o; }
+    if n == 2 { return o + &format!(" L {:.1} {:.2}", pts[1].0, pts[1].1); }
+    let sign = |x: f64| if x < 0.0 { -1.0 } else { 1.0 };
+    // slopes at interior points (d3 slope3), ends use slope2
+    let mut t = vec![0.0; n];
+    for i in 1..n - 1 {
+        let (x0, y0) = pts[i - 1]; let (x1, y1) = pts[i]; let (x2, y2) = pts[i + 1];
+        let h0 = x1 - x0; let h1 = x2 - x1;
+        let s0 = if h0 != 0.0 { (y1 - y0) / h0 } else { 0.0 };
+        let s1 = if h1 != 0.0 { (y2 - y1) / h1 } else { 0.0 };
+        let pp = (s0 * h1 + s1 * h0) / (h0 + h1);
+        t[i] = (sign(s0) + sign(s1)) * s0.abs().min(s1.abs()).min(0.5 * pp.abs());
+        if !t[i].is_finite() { t[i] = 0.0; }
+    }
+    let slope2 = |i: usize, ti: f64, dir: f64| -> f64 {
+        let (xa, ya) = pts[i]; let (xb, yb) = pts[(i as isize + dir as isize) as usize];
+        let h = xb - xa;
+        if h != 0.0 { (3.0 * (yb - ya) / h - ti) / 2.0 } else { ti }
+    };
+    t[0] = slope2(0, t[1], 1.0);
+    t[n - 1] = { let (xa, ya) = pts[n - 2]; let (xb, yb) = pts[n - 1]; let h = xb - xa; if h != 0.0 { (3.0 * (yb - ya) / h - t[n - 2]) / 2.0 } else { t[n - 2] } };
+    for i in 1..n {
+        let (x0, y0) = pts[i - 1]; let (x1, y1) = pts[i];
+        let dx = (x1 - x0) / 3.0;
+        o += &format!(" C {:.1} {:.2} {:.1} {:.2} {x1:.1} {y1:.2}", x0 + dx, y0 + dx * t[i - 1], x1 - dx, y1 - dx * t[i]);
     }
     o
 }
 
-fn line(vals: &[f64], max: f64) -> String { curve(vals, max, "M", false) }
+fn points(vals: &[f64], max: f64) -> Vec<(f64, f64)> {
+    let n = vals.len();
+    (0..n).map(|i| pt(i, n, vals[i], max)).collect()
+}
+
+/// Line through the non-null points (Recharts connectNulls).
+fn line_opt(vals: &[Option<f64>], max: f64) -> String {
+    let n = vals.len();
+    let pts: Vec<(f64, f64)> = (0..n).filter_map(|i| vals[i].map(|v| pt(i, n, v, max))).collect();
+    if pts.is_empty() { return "M 0 100 L 1000 100".into(); }
+    monotone(&pts, "M")
+}
+
+fn line(vals: &[f64], max: f64) -> String { monotone(&points(vals, max), "M") }
+
+/// Area under a connectNulls line down to the baseline.
+fn area_opt(vals: &[Option<f64>], max: f64) -> String {
+    let n = vals.len();
+    let pts: Vec<(f64, f64)> = (0..n).filter_map(|i| vals[i].map(|v| pt(i, n, v, max))).collect();
+    if pts.len() < 2 { return "M 0 100 L 0 100".into(); }
+    format!("{} L {:.1} 100 L {:.1} 100 Z", monotone(&pts, "M"), pts[pts.len() - 1].0, pts[0].0)
+}
 
 /// Band between a series top and its base (the series below it in the stack).
 fn band(top: &[f64], base: &[f64], max: f64) -> String {
-    format!("{} {} Z", curve(top, max, "M", false), curve(base, max, "L", true))
+    let mut b = points(base, max);
+    b.reverse();
+    format!("{} {} Z", monotone(&points(top, max), "M"), monotone(&b, "L"))
 }
 
 fn bars(top: &[f64], base: &[f64], max: f64) -> String {
@@ -177,6 +232,7 @@ fn blank(kind: i32, title: &str, icon: &str, height: i32) -> DashPanel {
         kind, title: title.into(), icon: icon.into(), height, info: "".into(), value: "".into(), change: "".into(),
         good: true, spark: "".into(), tone: 0, names: ss(vec![]), colors: ModelRc::default(), areas: ss(vec![]), lines: ss(vec![]),
         ylabels: ss(vec![]), xlabels: ss(vec![]), bars: ModelRc::default(), note: "".into(),
+        tips: ModelRc::default(), tip_names: ss(vec![]), tip_colors: ModelRc::default(), spark_tips: ModelRc::default(), fill_alpha: 0.35, xstep: 1,
     }
 }
 
@@ -195,42 +251,75 @@ impl Ctx<'_> {
         p.value = fmt(d.value(names), u).into();
         if let Some(c) = d.change(names) {
             let up = c >= 0.0;
-            p.change = format!("{} {}%", if up { "\u{2197}\u{FE0E}" } else { "\u{2198}\u{FE0E}" }, fmt(c.abs(), Unit::Count)).into();
+            p.change = format!("{} {}%", if up { "\u{2191}" } else { "\u{2193}" }, format!("{:.1}", (c.abs() * 10.0).round() / 10.0).trim_end_matches(".0")).into();
             p.good = match pol { Pol::Up => up, Pol::Down => !up, Pol::Neutral => true };
         }
         let s = d.series(names, 20);
         if s.iter().any(|v| *v != 0.0) {
-            let max = s.iter().cloned().fold(0.0, f64::max);
-            p.spark = line(&s, max * 1.1).into();
+            let max = s.iter().cloned().fold(0.0, f64::max) * 1.1;
+            p.spark = line(&s, max).into();
+            let span = (d.to - d.from) as f64 / 20.0;
+            p.spark_tips = ModelRc::new(VecModel::from(s.iter().enumerate().map(|(i, v)| DashTip {
+                time: self.when(d.from + (span * (i as f64 + 0.5)) as i64).into(),
+                vals: ss(vec![fmt(*v, u)]),
+                ys: ModelRc::new(VecModel::from(vec![(1.0 - v / max) as f32])),
+            }).collect::<Vec<_>>()));
         }
         p
     }
 
-    fn xlabels(&self) -> Vec<String> {
-        let d = self.d;
-        let n = 8;
-        (0..n).map(|i| {
-            let t = d.from + (d.to - d.from) * i / (n - 1);
-            let dt = chrono::DateTime::from_timestamp(t, 0).unwrap_or_default().with_timezone(&chrono::Local);
-            match self.range { 0 | 1 => dt.format("%H:%M").to_string(), _ => dt.format("%d %b").to_string() }
-        }).collect()
+    /// WebUI formatTimeTick: time of day for intraday ranges, else month/day.
+    fn when(&self, t: i64) -> String {
+        let dt = chrono::DateTime::from_timestamp(t, 0).unwrap_or_default().with_timezone(&chrono::Local);
+        match self.range { 0 | 1 => dt.format("%H:%M").to_string(), _ => dt.format("%m/%d %H:%M").to_string() }
     }
 
-    /// Stacked area (kind 1), stacked bars (kind 2) or plain lines (kind 5 → drawn as kind 1 without fill).
+    fn tick(&self, t: i64) -> String {
+        let dt = chrono::DateTime::from_timestamp(t, 0).unwrap_or_default().with_timezone(&chrono::Local);
+        match self.range { 0 | 1 => dt.format("%H:%M").to_string(), _ => dt.format("%m/%d").to_string() }
+    }
+
+    /// Bucket centre timestamps (bucketTimestamps).
+    fn centres(&self) -> Vec<i64> {
+        let d = self.d;
+        let w = (d.to - d.from) as f64 / d.buckets as f64;
+        (0..d.buckets).map(|i| d.from + (w * (i as f64 + 0.5)) as i64).collect()
+    }
+
+    /// style 0: area (stacked when several series, nulls carried forward like the WebUI),
+    /// 1: bars, 2: lines (connectNulls).
     fn chart(&self, title: &str, series: &[(&str, &[&str])], u: Unit, style: u8, height: i32) -> DashPanel {
         let d = self.d;
         let n = d.buckets;
-        let stacked = style != 2;
-        let raw: Vec<Vec<f64>> = series.iter().map(|(_, m)| d.series(m, n)).collect();
+        let stacked = style == 0 && series.len() > 1 || style == 1;
+        let raw: Vec<Vec<Option<f64>>> = series.iter().map(|(_, m)| d.series_opt(m, n)).collect();
+        // stacked charts carry the last seen value over empty buckets (0 before the first)
+        let filled: Vec<Vec<f64>> = raw.iter().map(|r| {
+            let mut last = 0.0;
+            r.iter().map(|v| match v { Some(x) => { last = *x; *x } None => if style == 0 { last } else { 0.0 } }).collect()
+        }).collect();
         let mut tops: Vec<Vec<f64>> = vec![];
         let mut acc = vec![0.0; n];
-        for r in &raw {
-            if stacked { for i in 0..n { acc[i] += r[i]; } tops.push(acc.clone()); } else { tops.push(r.clone()); }
-        }
-        let max = nice(tops.iter().flatten().cloned().fold(0.0, f64::max) * 1.05);
+        for f in &filled { for i in 0..n { acc[i] += f[i]; } tops.push(acc.clone()); }
+        let peak = if stacked { tops.last().map(|t| t.iter().cloned().fold(0.0, f64::max)).unwrap_or(0.0) }
+            else { raw.iter().flatten().flatten().cloned().fold(0.0, f64::max) };
+        let max = nice(peak);
         let mut p = blank(if style == 1 { 2 } else { 1 }, title, "", height);
+        let colors: Vec<Color> = (0..series.len()).map(|i| col(PALETTE[i % 5])).collect();
         p.names = ss(series.iter().map(|(l, _)| l.to_string()).collect());
-        p.colors = ModelRc::new(VecModel::from((0..series.len()).map(|i| col(PALETTE[i % 5])).collect::<Vec<_>>()));
+        p.colors = ModelRc::new(VecModel::from(colors.clone()));
+        p.tip_names = p.names.clone();
+        p.tip_colors = p.colors.clone();
+        let ys: Vec<Vec<f32>> = (0..n).map(|i| (0..series.len()).map(|s| {
+            let v = if stacked { Some(tops[s][i]) } else { raw[s][i] };
+            v.map(|v| (1.0 - (v / max).clamp(0.0, 1.0)) as f32).unwrap_or(-1.0)
+        }).collect()).collect();
+        let times = self.centres();
+        p.tips = ModelRc::new(VecModel::from((0..n).map(|i| DashTip {
+            time: self.when(times[i]).into(),
+            vals: ss((0..series.len()).map(|s| if stacked { fmt(filled[s][i], u) } else { raw[s][i].map(|v| fmt(v, u)).unwrap_or("—".into()) }).collect()),
+            ys: ModelRc::new(VecModel::from(ys[i].clone())),
+        }).collect::<Vec<_>>()));
         match style {
             1 => {
                 let mut base = vec![0.0; n];
@@ -238,38 +327,40 @@ impl Ctx<'_> {
                 for t in &tops { a.push(bars(t, &base, max)); base = t.clone(); }
                 p.areas = ss(a);
             }
-            2 => { p.lines = ss(tops.iter().map(|t| line(t, max)).collect()); }
+            2 => { p.lines = ss(raw.iter().map(|r| line_opt(r, max)).collect()); }
+            _ if !stacked => {
+                p.fill_alpha = 0.14;
+                p.areas = ss(raw.iter().map(|r| area_opt(r, max)).collect());
+                p.lines = ss(raw.iter().map(|r| line_opt(r, max)).collect());
+            }
             _ => {
-                // paint the top of the stack first so lower series sit over it
-                let idx: Vec<usize> = (0..tops.len()).rev().collect();
-                let mut cols = vec![];
-                let mut names = vec![];
-                let (mut a, mut l) = (vec![], vec![]);
-                for i in idx {
-                    let zero = vec![0.0; n];
-                    a.push(band(&tops[i], if i == 0 { &zero } else { &tops[i - 1] }, max));
-                    l.push(line(&tops[i], max));
-                    cols.push(col(PALETTE[i % 5]));
-                    names.push(series[i].0.to_string());
-                }
-                p.areas = ss(a);
-                p.lines = ss(l);
-                p.colors = ModelRc::new(VecModel::from(cols));
-                p.names = ss(names);
+                let zero = vec![0.0; n];
+                p.fill_alpha = 0.35;
+                p.areas = ss((0..tops.len()).map(|i| band(&tops[i], if i == 0 { &zero } else { &tops[i - 1] }, max)).collect());
+                p.lines = ss(tops.iter().map(|t| line(t, max)).collect());
             }
         }
-        p.ylabels = ss((0..5).map(|i| axis(max * (4 - i) as f64 / 4.0, u)).collect());
-        p.xlabels = ss(self.xlabels());
+        p.ylabels = ss((0..5).map(|i| fmt(max * (4 - i) as f64 / 4.0, u)).collect());
+        // about a dozen ticks at bucket centres (minTickGap thinning)
+        let step = (n as f64 / 12.0).ceil().max(1.0) as usize;
+        p.xlabels = ss((0..n).step_by(step).map(|i| self.tick(times[i])).collect());
+        p.xstep = step as i32;
         p
     }
 
     fn hbars(&self, title: &str, icon: &str, items: &[(&str, &[&str])], u: Unit, height: i32) -> DashPanel {
+        // rankingEntries: sorted by value, largest first
+        let mut items: Vec<(&str, &[&str])> = items.to_vec();
+        items.sort_by(|a, b| self.d.value(b.1).partial_cmp(&self.d.value(a.1)).unwrap_or(std::cmp::Ordering::Equal));
+        let items = &items[..];
         let vals: Vec<f64> = items.iter().map(|(_, m)| self.d.value(m)).collect();
         let max = vals.iter().cloned().fold(0.0, f64::max);
+        let total: f64 = vals.iter().sum();
         let mut p = blank(3, title, icon, height);
         p.bars = ModelRc::new(VecModel::from(items.iter().zip(&vals).enumerate().map(|(i, ((l, _), v))| DashBar {
             label: (*l).into(), value: fmt(*v, u).into(), frac: if max > 0.0 { (*v / max) as f32 } else { 0.0 },
             color: col([PINK, TEAL, AMBER, BLUE, VIOLET, PINK][i % 6]),
+            share: if total > 0.0 { format!("{:.1}%", v / total * 100.0) } else { "0.0%".into() }.into(),
         }).collect::<Vec<_>>()));
         p
     }
