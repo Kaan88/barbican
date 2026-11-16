@@ -113,6 +113,18 @@ export struct Att {
     index: int,
 }
 
+/// A sidebar row (contacts / files navigation). kind "section" is a header-only row.
+export struct NavRow {
+    kind: string,
+    id: string,
+    label: string,
+    icon: string,
+    count: string,
+    color: color,
+    depth: int,
+    header: string, // section title shown above the row
+}
+
 export struct CtxItem {
     icon: string,
     label: string,
@@ -468,8 +480,8 @@ component MailRow inherits VerticalLayout {
     }
     Rectangle {
         height: root.row-height + ((m.code != "" || m.files.length > 0) ? 22px : 0px);
-        background: selected || m.checked ? Theme.sel : ta.has-hover || (CtxHl.id != "" && CtxHl.id == m.id) ? Theme.hover : m.row-tint;
-        border-width: CtxHl.id != "" && CtxHl.id == m.id ? 1px : 0px;
+        background: selected || m.checked ? Theme.sel : ta.has-hover || (CtxHl.id != "" && CtxHl.id == "mail:" + m.id) ? Theme.hover : m.row-tint;
+        border-width: CtxHl.id != "" && CtxHl.id == "mail:" + m.id ? 1px : 0px;
         border-color: Theme.accent;
         ta := TouchArea {
             pointer-event(ev) => {
@@ -858,6 +870,10 @@ export component AppWindow inherits Window {
     in property <[ContactRow]> contacts;
     in property <[ContactRow]> contact-groups;
     in-out property <string> ct-group;
+    in-out property <[NavRow]> ct-nav;
+    in-out property <string> ct-filter;
+    callback ct-nav-select(string, string);
+    callback ct-new-group();
     callback ct-select-group(string);
     in-out property <string> ct-id;
     in-out property <bool> ct-editing;
@@ -958,6 +974,10 @@ export component AppWindow inherits Window {
     in-out property <length> ctx-sub-y;
     in-out property <length> ctx-sub-h;
     callback ctx-hover(string, int);
+    property <length> ctx-menu-x: max(0px, min(root.ctx-x, root.width - 252px));
+    property <length> ctx-menu-y: max(0px, min(root.ctx-y, root.height - min(root.ctx-h, root.height - 8px) - 4px));
+    property <length> ctx-sub-x: root.ctx-menu-x + 248px + 244px > root.width ? max(0px, root.ctx-menu-x - 244px) : root.ctx-menu-x + 244px;
+    property <length> ctx-sub-top: max(0px, min(root.ctx-menu-y + root.ctx-sub-y - 4px, root.height - min(root.ctx-sub-h, root.height - 8px) - 4px));
     public function ctx-close() { ctx-popup.close(); root.ctx-open = false; root.ctx-sub-action = ""; CtxHl.id = ""; }
     public function ctx(kind: string, id: string, x: length, y: length) {
         root.ctx-x = x;
@@ -1183,7 +1203,7 @@ export component AppWindow inherits Window {
                                     root.select-folder(f.id);
                                 }
                                 chevron-clicked => { root.toggle-folder(f.id); }
-                                hl-id: f.id;
+                                hl-id: "folder:" + f.id;
                                 context(x, y) => { root.ctx("folder", f.id, x, y); }
                             }
                         }
@@ -1205,7 +1225,7 @@ export component AppWindow inherits Window {
                                 t: t;
                                 selected: t.id == root.current-tag;
                                 clicked => { root.current-tag = t.id; root.select-tag(t.id); }
-                                hl-id: t.id;
+                                hl-id: "tag:" + t.id;
                                 context(x, y) => { root.ctx("tag", t.id, x, y); }
                             }
                         }
@@ -2011,7 +2031,7 @@ export component AppWindow inherits Window {
                     for t in root.cal-tasks: Rectangle {
                         height: 24px;
                         border-radius: 4px;
-                        background: CtxHl.id == t.id ? Theme.hover : transparent;
+                        background: CtxHl.id == "task:" + t.id ? Theme.hover : transparent;
                         TouchArea { pointer-event(ev) => { if ev.button == PointerEventButton.right && ev.kind == PointerEventKind.up { root.ctx("task", t.id, self.absolute-position.x + self.mouse-x, self.absolute-position.y + self.mouse-y); } } }
                         HorizontalLayout {
                             spacing: 8px;
@@ -2032,7 +2052,7 @@ export component AppWindow inherits Window {
                     for c in root.calendars: Rectangle {
                         height: 26px;
                         border-radius: 4px;
-                        background: CtxHl.id == c.id ? Theme.hover : transparent;
+                        background: CtxHl.id == "cal:" + c.id ? Theme.hover : transparent;
                         ctta := TouchArea { clicked => { root.cal-toggle(c.id); } pointer-event(ev) => { if ev.button == PointerEventButton.right && ev.kind == PointerEventKind.up { root.ctx("cal", c.id, self.absolute-position.x + self.mouse-x, self.absolute-position.y + self.mouse-y); } } }
                         HorizontalLayout {
                             spacing: 8px;
@@ -2189,6 +2209,47 @@ export component AppWindow inherits Window {
         width: parent.width - 45px;
         background: Theme.bg;
         HorizontalLayout {
+            // ---- sidebar: all, address books, groups, categories (Bulwark contacts-sidebar) ----
+            Rectangle {
+                width: 210px;
+                background: Theme.side;
+                ScrollView {
+                    VerticalLayout {
+                        padding-top: 8px;
+                        padding-bottom: 12px;
+                        alignment: start;
+                        for n in root.ct-nav: VerticalLayout {
+                            if n.header != "": Rectangle {
+                                height: 30px;
+                                HorizontalLayout {
+                                    padding-left: 14px;
+                                    padding-right: 8px;
+                                    Text { text: n.header; color: Theme.dim; font-size: 11px; font-weight: 600; vertical-alignment: center; horizontal-stretch: 1; }
+                                    if n.header == "Groups": HoverAction { y: 4px; glyph: "\u{E710}"; clicked => { root.ct-new-group(); } }
+                                }
+                            }
+                            if n.kind != "section": Rectangle {
+                                height: 28px;
+                                property <string> key: n.kind == "all" ? "" : n.kind == "uncat" ? "uncat" : n.kind == "keyword" ? "kw:" + n.id : n.kind + ":" + n.id;
+                                background: root.ct-filter == key ? Theme.sel : (cnta.has-hover || CtxHl.id == "ctnav:" + n.kind + ":" + n.id ? Theme.hover : transparent);
+                                cnta := TouchArea {
+                                    clicked => { root.ct-nav-select(n.kind, n.id); }
+                                    pointer-event(ev) => { if ev.button == PointerEventButton.right && ev.kind == PointerEventKind.up && (n.kind == "group" || n.kind == "keyword" || n.kind == "book") { root.ctx("ctnav", n.kind + ":" + n.id, self.absolute-position.x + self.mouse-x, self.absolute-position.y + self.mouse-y); } }
+                                }
+                                HorizontalLayout {
+                                    padding-left: 10px;
+                                    padding-right: 10px;
+                                    spacing: 8px;
+                                    Icon { text: n.icon; font-size: 12px; width: 16px; color: Theme.dim; }
+                                    Text { text: n.label; color: Theme.text; vertical-alignment: center; horizontal-stretch: 1; overflow: elide; font-italic: n.kind == "uncat"; font-weight: root.ct-filter == key ? 600 : 400; }
+                                    Text { text: n.count; color: Theme.dim; font-size: 11px; vertical-alignment: center; }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            Rectangle { width: 1px; background: Theme.line; }
             Rectangle {
                 width: 320px;
                 background: Theme.side;
@@ -2203,21 +2264,6 @@ export component AppWindow inherits Window {
                         padding-left: 10px; padding-right: 10px; padding-bottom: 8px;
                         LineEdit { placeholder-text: "Search contacts"; edited(t) => { root.ct-search(t); } }
                     }
-                    if root.contact-groups.length > 0: VerticalLayout {
-                        Text { x: 14px; text: "Groups"; color: Theme.dim; font-size: 11px; font-weight: 700; height: 22px; vertical-alignment: center; }
-                        for g in root.contact-groups: Rectangle {
-                            height: 34px;
-                            background: g.id == root.ct-group ? Theme.sel : (gta.has-hover ? Theme.hover : transparent);
-                            gta := TouchArea { clicked => { root.ct-editing = false; root.ct-select-group(g.id); } pointer-event(ev) => { if ev.button == PointerEventButton.right && ev.kind == PointerEventKind.up { root.ctx("group", g.id, self.absolute-position.x + self.mouse-x, self.absolute-position.y + self.mouse-y); } } }
-                            HorizontalLayout {
-                                padding-left: 14px; spacing: 10px;
-                                Icon { text: "\u{E716}"; color: g.color; width: 18px; }
-                                Text { text: g.name; color: Theme.text; font-weight: 600; vertical-alignment: center; horizontal-stretch: 1; overflow: elide; }
-                                Text { text: g.email; color: Theme.dim; font-size: 11px; vertical-alignment: center; }
-                                Rectangle { width: 8px; }
-                            }
-                        }
-                    }
                     Rectangle { height: 1px; background: Theme.line; }
                     ListView {
                         for c in root.contacts: VerticalLayout {
@@ -2227,7 +2273,7 @@ export component AppWindow inherits Window {
                             }
                             Rectangle {
                                 height: 46px;
-                                background: c.id == root.ct-id ? Theme.sel : (cta2.has-hover ? Theme.hover : transparent);
+                                background: c.id == root.ct-id ? Theme.sel : (cta2.has-hover || CtxHl.id == "contact:" + c.id ? Theme.hover : transparent);
                                 cta2 := TouchArea { clicked => { root.ct-group = ""; root.ct-select(c.id); } pointer-event(ev) => { if ev.button == PointerEventButton.right && ev.kind == PointerEventKind.up { root.ctx("contact", c.id, self.absolute-position.x + self.mouse-x, self.absolute-position.y + self.mouse-y); } } }
                                 HorizontalLayout {
                                     padding-left: 12px; spacing: 10px;
@@ -2672,7 +2718,7 @@ export component AppWindow inherits Window {
                             spacing: r.kind == "section" ? 4px : 10px;
                             if r.kind == "section": Rectangle {
                                 border-radius: 4px;
-                                background: r.key != "" && CtxHl.id == r.key ? Theme.hover : transparent;
+                                background: r.key != "" && CtxHl.id == "setting:" + r.key ? Theme.hover : transparent;
                                 min-height: st.preferred-height;
                                 st := Text { width: 100%; text: r.label; color: Theme.text; font-size: 17px; font-weight: 700; wrap: word-wrap; }
                                 if r.key != "": TouchArea { pointer-event(ev) => { if ev.button == PointerEventButton.right && ev.kind == PointerEventKind.up { root.ctx("setting", r.key, self.absolute-position.x + self.mouse-x, self.absolute-position.y + self.mouse-y); } } }
@@ -2757,7 +2803,14 @@ export component AppWindow inherits Window {
         width: root.width;
         height: root.height;
         TouchArea {
-            pointer-event(ev) => { if ev.kind == PointerEventKind.down { root.ctx-close(); } }
+            // only a press outside both menus closes (a flyout press can fall through to here)
+            pointer-event(ev) => {
+                if ev.kind == PointerEventKind.down {
+                    if self.mouse-x >= cm.x && self.mouse-x < cm.x + cm.width && self.mouse-y >= cm.y && self.mouse-y < cm.y + cm.height { return; }
+                    if root.ctx-sub-action != "" && self.mouse-x >= root.ctx-sub-x && self.mouse-x < root.ctx-sub-x + 248px && self.mouse-y >= root.ctx-sub-top && self.mouse-y < root.ctx-sub-top + min(root.ctx-sub-h, root.height - 8px) { return; }
+                    root.ctx-close();
+                }
+            }
         }
         FocusScope {
             init => { self.focus(); }
@@ -2770,8 +2823,8 @@ export component AppWindow inherits Window {
             }
         }
         cm := ContextMenu {
-            x: max(0px, min(root.ctx-x, root.width - 252px));
-            y: max(0px, min(root.ctx-y, root.height - self.height - 4px));
+            x: root.ctx-menu-x;
+            y: root.ctx-menu-y;
             width: 248px;
             height: min(root.ctx-h, root.height - 8px);
             items: root.ctx-items;
@@ -2780,12 +2833,13 @@ export component AppWindow inherits Window {
             hovered(a, i) => { root.ctx-hover(a, i); }
         }
         if root.ctx-sub-action != "": ContextMenu {
-            x: cm.x + cm.width + 244px > root.width ? max(0px, cm.x - 244px) : cm.x + cm.width - 4px;
-            y: max(0px, min(cm.y + root.ctx-sub-y - 4px, root.height - self.height - 4px));
+            x: root.ctx-sub-x;
+            y: root.ctx-sub-top;
             width: 248px;
             height: min(root.ctx-sub-h, root.height - 8px);
             items: root.ctx-sub-items;
-            picked(a) => { root.ctx-close(); root.ctx-pick(a); }
+            // pick before closing: closing removes this flyout (and would drop the rest of this handler)
+            picked(a) => { root.ctx-pick(a); root.ctx-close(); }
         }
     }
 }

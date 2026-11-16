@@ -1,7 +1,7 @@
 //! Contacts app: JMAP for Contacts (AddressBook / ContactCard, JSContact RFC 9553).
 //! List grouped by letter, search, detail, create / edit / delete, write an email.
 use crate::jmap::Client;
-use crate::{AppWindow, ContactRow};
+use crate::{AppWindow, ContactRow, NavRow};
 use serde_json::{json, Value};
 use slint::{ComponentHandle, ModelRc, VecModel};
 use std::cell::RefCell;
@@ -13,6 +13,8 @@ struct State {
     groups: Vec<Value>,
     books: Vec<Value>,
     query: String,
+    /// Sidebar selection (Bulwark ContactCategory): "" all, "book:ID", "group:ID", "kw:NAME", "uncat".
+    filter: String,
 }
 
 thread_local! { static ST: RefCell<State> = RefCell::new(State::default()); }
@@ -86,7 +88,72 @@ pub fn load(w: slint::Weak<AppWindow>, c: Arc<Client>) {
     });
 }
 
+fn keywords(c: &Value) -> Vec<String> {
+    c["keywords"].as_object().map(|o| o.iter().filter(|(_, v)| **v == Value::Bool(true)).map(|(k, _)| k.clone()).collect()).unwrap_or_default()
+}
+
+fn in_filter(c: &Value, f: &str, groups: &[Value]) -> bool {
+    if f.is_empty() { return true; }
+    if f == "uncat" { return keywords(c).is_empty(); }
+    if let Some(k) = f.strip_prefix("kw:") { return keywords(c).iter().any(|x| x == k); }
+    if let Some(b) = f.strip_prefix("book:") { return c["addressBookIds"][b] == true; }
+    if let Some(g) = f.strip_prefix("group:") {
+        let Some(g) = groups.iter().find(|x| x["id"] == g) else { return false };
+        return c["uid"].as_str().is_some_and(|u| g["members"][u] == true);
+    }
+    true
+}
+
+/// Every category (keyword) in use, with its contact count, by name.
+pub fn all_keywords() -> Vec<(String, usize)> {
+    ST.with(|s| {
+        let mut m: std::collections::BTreeMap<String, usize> = Default::default();
+        for c in &s.borrow().cards { for k in keywords(c) { *m.entry(k).or_default() += 1; } }
+        m.into_iter().collect()
+    })
+}
+
+pub fn set_filter(u: &AppWindow, f: &str) {
+    ST.with(|s| s.borrow_mut().filter = f.to_string());
+    u.set_ct_filter(f.into());
+    render(u);
+}
+
+fn nav(kind: &str, id: &str, label: &str, icon: &str, count: usize, header: &str) -> NavRow {
+    NavRow { kind: kind.into(), id: id.into(), label: label.into(), icon: icon.into(), count: if count > 0 || kind != "section" { count.to_string().into() } else { "".into() }, color: Default::default(), depth: 0, header: header.into() }
+}
+
+/// The sidebar: all contacts, address books, groups, categories (Bulwark contacts-sidebar).
+fn render_nav(u: &AppWindow) {
+    ST.with(|s| {
+        let s = s.borrow();
+        let mut v = vec![nav("all", "", "All contacts", "\u{E77B}", s.cards.len(), "")];
+        let mut first = true;
+        for b in &s.books {
+            let id = b["id"].as_str().unwrap_or("");
+            let n = s.cards.iter().filter(|c| c["addressBookIds"][id] == true).count();
+            let name = b["name"].as_str().unwrap_or("Address book");
+            v.push(nav("book", id, name, "\u{E82D}", n, if first { "Address books" } else { "" }));
+            first = false;
+        }
+        let mut first = true;
+        for g in &s.groups {
+            let id = g["id"].as_str().unwrap_or("");
+            let n = g["members"].as_object().map(|m| m.values().filter(|x| **x == Value::Bool(true)).count()).unwrap_or(0);
+            v.push(nav("group", id, &full_name(g), "\u{E716}", n, if first { "Groups" } else { "" }));
+            first = false;
+        }
+        if first { v.push(nav("section", "groups", "", "", 0, "Groups")); }
+        let uncat = s.cards.iter().filter(|c| keywords(c).is_empty()).count();
+        v.push(nav("uncat", "", "No category", "\u{E8EC}", uncat, "Categories"));
+        drop(s);
+        for (k, n) in all_keywords() { v.push(nav("keyword", &k, &k, "\u{E8EC}", n, "")); }
+        u.set_ct_nav(ModelRc::new(VecModel::from(v)));
+    });
+}
+
 pub fn render(u: &AppWindow) {
+    render_nav(u);
     let p = crate::settings::Settings::load();
     let by_letter = p.bool("groupContactsByLetter", true);
     let by_last = p.bool("sortContactsByLastName", false);
@@ -94,7 +161,7 @@ pub fn render(u: &AppWindow) {
         let s = s.borrow();
         let q = s.query.to_lowercase();
         let mut last = String::new();
-        let mut shown: Vec<(String, &Value)> = s.cards.iter().filter(|c| {
+        let mut shown: Vec<(String, &Value)> = s.cards.iter().filter(|c| in_filter(c, &s.filter, &s.groups)).filter(|c| {
             q.is_empty() || full_name(c).to_lowercase().contains(&q) || all(c, "emails", "address").iter().any(|e| e.to_lowercase().contains(&q))
         }).map(|c| (sort_name(c, by_last), c)).collect();
         shown.sort_by_key(|(k, _)| k.to_lowercase());
@@ -196,12 +263,13 @@ pub fn save(u: &AppWindow, c: Arc<Client>) {
     });
     let bday = u.get_ct_birthday().trim().to_string();
     card["anniversaries"] = if bday.len() == 10 { json!({"b1": {"@type": "Anniversary", "kind": "birth", "date": {"@type": "Timestamp", "utc": format!("{bday}T00:00:00Z")}}}) } else { Value::Null };
+    let chosen_book = crate::ctxmenu::BOOK_FOR_NEW.with(|b| b.borrow_mut().take()).filter(|_| id.is_empty());
     let w = u.as_weak();
     u.set_ct_status("Saving…".into());
     std::thread::spawn(move || {
         let acc = c.account_for("urn:ietf:params:jmap:contacts");
         let res: Result<(), String> = if id.is_empty() {
-            let book = ST.with(|s| s.borrow().books.iter().find(|b| b["isDefault"] == true).or(s.borrow().books.first()).and_then(|b| b["id"].as_str().map(String::from)));
+            let book = chosen_book.or_else(|| ST.with(|s| s.borrow().books.iter().find(|b| b["isDefault"] == true).or(s.borrow().books.first()).and_then(|b| b["id"].as_str().map(String::from))));
             // a fresh account has no address book until a client creates one
             let book = match book {
                 Some(b) => b,
@@ -242,4 +310,112 @@ pub fn delete(u: &AppWindow, c: Arc<Client>) {
             Err(e) => u.set_ct_status(e.into()),
         });
     });
+}
+
+// ---------------- groups & categories (context menus, sidebar) ----------------
+
+/// The groups (id, name) and whether the contact is a member of each.
+pub fn groups_for(contact: &str) -> Vec<(String, String, bool)> {
+    ST.with(|s| {
+        let s = s.borrow();
+        let uid = s.cards.iter().find(|c| c["id"] == contact).and_then(|c| c["uid"].as_str().map(String::from)).unwrap_or_default();
+        s.groups.iter().map(|g| (g["id"].as_str().unwrap_or("").to_string(), full_name(g), !uid.is_empty() && g["members"][&uid] == true)).collect()
+    })
+}
+
+pub fn keywords_of(contact: &str) -> Vec<String> {
+    ST.with(|s| s.borrow().cards.iter().find(|c| c["id"] == contact).map(keywords).unwrap_or_default())
+}
+
+pub fn uid_of(contact: &str) -> Option<String> {
+    ST.with(|s| s.borrow().cards.iter().find(|c| c["id"] == contact).and_then(|c| c["uid"].as_str().map(String::from)))
+}
+
+pub fn group_name(id: &str) -> String {
+    ST.with(|s| s.borrow().groups.iter().find(|g| g["id"] == id).map(full_name).unwrap_or_default())
+}
+
+/// (name, is default) of an address book.
+pub fn book_info(id: &str) -> Option<(String, bool)> {
+    ST.with(|s| s.borrow().books.iter().find(|b| b["id"] == id).map(|b| (b["name"].as_str().unwrap_or("Address book").to_string(), b["isDefault"] == true)))
+}
+
+fn default_book() -> Option<String> {
+    ST.with(|s| { let s = s.borrow(); s.books.iter().find(|b| b["isDefault"] == true).or(s.books.first()).and_then(|b| b["id"].as_str().map(String::from)) })
+}
+
+/// Contacts carrying a category.
+fn with_keyword(k: &str) -> Vec<String> {
+    ST.with(|s| s.borrow().cards.iter().filter(|c| keywords(c).iter().any(|x| x == k)).filter_map(|c| c["id"].as_str().map(String::from)).collect())
+}
+
+fn ptr(k: &str) -> String { k.replace('~', "~0").replace('/', "~1") }
+
+/// A ContactCard/set call in the background, then reload the contacts.
+pub fn card_set(u: &AppWindow, c: Arc<Client>, args: Value, done: &'static str) {
+    let w = u.as_weak();
+    std::thread::spawn(move || {
+        let acc = c.account_for("urn:ietf:params:jmap:contacts");
+        let mut a = args;
+        a["accountId"] = json!(acc);
+        let res = c.call(json!([["ContactCard/set", a, "s"]])).and_then(|r| {
+            if r[0][0] == "error" { return Err(crate::jmap::method_error(&r[0][1])); }
+            for k in ["notCreated", "notUpdated", "notDestroyed"] {
+                if let Some(e) = r[0][1][k].as_object().and_then(|m| m.values().next()) { return Err(crate::jmap::set_error(e)); }
+            }
+            Ok(())
+        });
+        let w2 = w.clone();
+        let _ = w.upgrade_in_event_loop(move |u| {
+            crate::mail::show_toast(&u, &match res { Ok(()) => done.to_string(), Err(e) => e }, false);
+            load(w2, c);
+        });
+    });
+}
+
+/// New group (JSContact Card of kind "group") in the default address book, optionally with a first member.
+pub fn create_group(u: &AppWindow, c: Arc<Client>, name: &str, first_member: Option<String>) {
+    let Some(book) = default_book() else { crate::mail::show_toast(u, "No address book to put the group in", false); return };
+    let mut g = json!({"@type": "Card", "version": "1.0", "kind": "group", "name": {"full": name}, "addressBookIds": { book: true }, "members": {}});
+    if let Some(m) = first_member { g["members"][m] = json!(true); }
+    card_set(u, c, json!({"create": {"g": g}}), "Group created");
+}
+
+pub fn set_member(u: &AppWindow, c: Arc<Client>, group: &str, uid: &str, on: bool) {
+    let mut patch = serde_json::Map::new();
+    patch.insert(format!("members/{}", ptr(uid)), if on { json!(true) } else { Value::Null });
+    card_set(u, c, json!({"update": { group: Value::Object(patch) }}), if on { "Added to group" } else { "Removed from group" });
+}
+
+pub fn set_keyword(u: &AppWindow, c: Arc<Client>, contact: &str, k: &str, on: bool) {
+    let mut patch = serde_json::Map::new();
+    patch.insert(format!("keywords/{}", ptr(k)), if on { json!(true) } else { Value::Null });
+    card_set(u, c, json!({"update": { contact: Value::Object(patch) }}), if on { "Category added" } else { "Category removed" });
+}
+
+/// Rename a category on every contact that has it (Bulwark renameKeyword).
+pub fn rename_keyword(u: &AppWindow, c: Arc<Client>, old: &str, new: &str) {
+    let mut upd = serde_json::Map::new();
+    for id in with_keyword(old) {
+        let mut p = serde_json::Map::new();
+        p.insert(format!("keywords/{}", ptr(old)), Value::Null);
+        p.insert(format!("keywords/{}", ptr(new)), json!(true));
+        upd.insert(id, Value::Object(p));
+    }
+    if upd.is_empty() { return; }
+    ST.with(|s| { let mut s = s.borrow_mut(); if s.filter == format!("kw:{old}") { s.filter = format!("kw:{new}"); } });
+    card_set(u, c, json!({"update": upd}), "Category renamed");
+}
+
+/// Take a category off every contact (Bulwark deleteCategory).
+pub fn delete_keyword(u: &AppWindow, c: Arc<Client>, k: &str) {
+    let mut upd = serde_json::Map::new();
+    for id in with_keyword(k) {
+        let mut p = serde_json::Map::new();
+        p.insert(format!("keywords/{}", ptr(k)), Value::Null);
+        upd.insert(id, Value::Object(p));
+    }
+    if upd.is_empty() { return; }
+    if ST.with(|s| s.borrow().filter == format!("kw:{k}")) { set_filter(u, ""); }
+    card_set(u, c, json!({"update": upd}), "Category deleted");
 }

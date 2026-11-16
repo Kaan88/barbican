@@ -1210,6 +1210,16 @@ fn main() -> Result<(), slint::PlatformError> {
     let w = ui.as_weak();
     ui.on_ct_select_group(move |id| contacts::select_group(&w.unwrap(), &id));
     let w = ui.as_weak();
+    ui.on_ct_nav_select(move |kind, id| {
+        let u = w.unwrap();
+        let f = match kind.as_str() { "all" => String::new(), "uncat" => "uncat".into(), "keyword" => format!("kw:{id}"), k => format!("{k}:{id}") };
+        contacts::set_filter(&u, &f);
+        u.set_ct_editing(false);
+        if kind == "group" { contacts::select_group(&u, &id); } else { u.set_ct_group("".into()); }
+    });
+    let w = ui.as_weak();
+    ui.on_ct_new_group(move || ctxmenu::new_group_prompt(&w.unwrap(), None));
+    let w = ui.as_weak();
     ui.on_ct_select(move |id| { let u = w.unwrap(); u.set_ct_editing(false); contacts::select(&u, &id); });
     let w = ui.as_weak();
     ui.on_ct_new(move || { let u = w.unwrap(); contacts::select(&u, ""); u.set_ct_id("".into()); u.set_ct_editing(true); });

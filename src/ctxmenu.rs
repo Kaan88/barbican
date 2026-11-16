@@ -17,8 +17,12 @@ struct Target {
 
 thread_local! {
     static TARGET: RefCell<Target> = RefCell::new(Target::default());
+    /// The highlighted row of the open menu, kept for a confirmation step.
+    static HL: RefCell<String> = const { RefCell::new(String::new()) };
     /// The user's addresses, refreshed on every request (for RSVP).
     static MINE: RefCell<Vec<String>> = const { RefCell::new(Vec::new()) };
+    /// Address book chosen for the next new contact ("New contact in this address book").
+    pub static BOOK_FOR_NEW: RefCell<Option<String>> = const { RefCell::new(None) };
     /// Pending text prompt: (action, id).
     static PROMPT: RefCell<Option<(String, String)>> = const { RefCell::new(None) };
 }
@@ -74,6 +78,7 @@ const G_COLOR: &str = "\u{E790}";
 const G_UP: &str = "\u{E74A}";
 const G_DOWN: &str = "\u{E74B}";
 const G_ERASE: &str = "\u{E75C}";
+const G_GROUP: &str = "\u{E716}";
 const G_DEFAULT: &str = "\u{E735}";
 
 fn row_h(i: &CtxItem) -> f32 { match i.kind { 1 => 9.0, 2 => 24.0, _ => 28.0 } }
@@ -122,7 +127,7 @@ pub fn hover(u: &AppWindow, action: &str, index: i32) {
 pub fn set_mine(v: Vec<String>) { MINE.with(|m| *m.borrow_mut() = v); }
 
 pub fn request(u: &AppWindow, kind: &str, id: &str) {
-    u.global::<crate::CtxHl>().set_id(id.into());
+    u.global::<crate::CtxHl>().set_id(format!("{kind}:{id}").into());
     let mut t = Target { kind: kind.into(), id: id.into(), ids: vec![id.into()] };
     let items: Vec<CtxItem> = match kind {
         "mail" => {
@@ -183,7 +188,7 @@ pub fn request(u: &AppWindow, kind: &str, id: &str) {
             let (book, cid) = coll_id(id).unwrap();
             t.kind = if book { "bookset".into() } else { "calset".into() };
             t.id = cid.clone();
-            u.global::<crate::CtxHl>().set_id(format!("{}set:{cid}", if book { "book" } else { "cal" }).into());
+            u.global::<crate::CtxHl>().set_id(format!("setting:{}set:{cid}", if book { "book" } else { "cal" }).into());
             match coll_row(u, book, &cid) {
                 None => vec![],
                 Some((name, default, hidden)) if !book => {
@@ -283,16 +288,41 @@ pub fn request(u: &AppWindow, kind: &str, id: &str) {
             it(G_UNREAD, "Send email", "", "email"),
             it(G_EDIT, "Edit", "", "edit"),
             sep(),
+            sub(G_GROUP, "Add to group", "sub:groups"),
+            sub(G_TAG, "Categories", "sub:cats"),
+            sep(),
             it(G_COPY, "Copy email address", "", "copy-email"),
             sep(),
             danger(G_DELETE, "Delete", "Del", "ask:delete"),
         ],
-        "group" => vec![
-            it(G_OPEN, "Open", "", "open"),
-            it(G_UNREAD, "Send email to group", "", "email"),
-            sep(),
-            danger(G_DELETE, "Delete group", "", "ask:delete"),
-        ],
+        "group" => group_items(),
+        "ctnav" => {
+            let (k, nid) = id.split_once(':').unwrap_or(("", ""));
+            t.kind = format!("ct-{k}");
+            t.id = nid.to_string();
+            match k {
+                "group" => { t.kind = "group".into(); group_items() }
+                "keyword" => vec![
+                    header(nid),
+                    it(G_OPEN, "Show contacts", "", "open"),
+                    it(G_RENAME, "Rename category", "", "rename"),
+                    sep(),
+                    danger(G_DELETE, "Delete category", "", "delete"),
+                ],
+                "book" => match contacts::book_info(nid) {
+                    None => vec![],
+                    Some((name, default)) => vec![
+                        header(&name),
+                        it(G_ADD_CONTACT, "New contact in this address book", "", "new-contact"),
+                        it(G_RENAME, "Rename", "", "rename"),
+                        off(it(G_DEFAULT, "Set as default", "", "default"), !default),
+                        sep(),
+                        off(danger(G_DELETE, "Delete address book", "", "ask:delete"), !default),
+                    ],
+                },
+                _ => vec![],
+            }
+        }
         "file" => {
             let f = file_row(u, id);
             let is_folder = f.as_ref().is_some_and(|f| f.folder);
@@ -313,6 +343,7 @@ pub fn request(u: &AppWindow, kind: &str, id: &str) {
         _ => vec![],
     };
     TARGET.with(|x| *x.borrow_mut() = t);
+    HL.with(|h| *h.borrow_mut() = u.global::<crate::CtxHl>().get_id().to_string());
     show(u, items);
 }
 
@@ -351,6 +382,21 @@ fn coll_op(u: &AppWindow, st: &Shared, done: &'static str, f: impl FnOnce(&jmap:
             contacts::load(w2, c);
         });
     });
+}
+
+fn group_items() -> Vec<CtxItem> {
+    vec![
+        it(G_OPEN, "Open", "", "open"),
+        it(G_RENAME, "Rename group", "", "rename"),
+        sub(G_UNREAD, "Send email to group", "sub:group-mail"),
+        sep(),
+        danger(G_DELETE, "Delete group", "", "ask:delete"),
+    ]
+}
+
+/// Ask for a name, then create a contact group (with `member` in it when given).
+pub fn new_group_prompt(u: &AppWindow, member: Option<String>) {
+    prompt(u, "New group", "", "new-group", &member.unwrap_or_default());
 }
 
 fn file_row(u: &AppWindow, id: &str) -> Option<crate::FileRow> {
@@ -438,6 +484,30 @@ fn submenu(u: &AppWindow, t: &Target, which: &str) -> Vec<CtxItem> {
                 off(it(G_COPY, "Copy sender address", "", "copy-sender"), single),
                 off(it(G_SEARCH, "Find emails from sender", "", "find-from"), single),
             ]);
+        }
+        "groups" => {
+            for (gid, name, member) in contacts::groups_for(&t.id) {
+                let mut i = it(G_GROUP, &name, "", &format!("grp:{gid}"));
+                i.checked = member;
+                v.push(i);
+            }
+            if !v.is_empty() { v.push(sep()); }
+            v.push(it(G_ADD, "New group…", "", "grp-new"));
+        }
+        "cats" => {
+            let mine = contacts::keywords_of(&t.id);
+            for (k, _) in contacts::all_keywords() {
+                let mut i = it(G_TAG, &k, "", &format!("kw:{k}"));
+                i.checked = mine.contains(&k);
+                v.push(i);
+            }
+            if !v.is_empty() { v.push(sep()); }
+            v.push(it(G_ADD, "New category…", "", "kw-new"));
+        }
+        "group-mail" => {
+            v.push(it(G_UNREAD, "To", "", "email:to"));
+            v.push(it(G_UNREAD, "Cc", "", "email:cc"));
+            v.push(it(G_UNREAD, "Bcc", "", "email:bcc"));
         }
         "color" => {
             let cur = coll_color(u, &t.id);
@@ -554,6 +624,10 @@ pub fn prompt_ok(u: &AppWindow, st: &Shared, text: &str) {
         "rename-folder" => mailbox_op(u, c, "Folder renamed", move |c| c.rename_mailbox(&id, &name).map(|_| String::new())),
         "rename-cal" => calendar::set_call(u, c, "Calendar/set", json!({"update": {id: {"name": name}}}), "Calendar not renamed"),
         "new-task" => calendar::add_task(u, c, &name, &id),
+        "new-group" => contacts::create_group(u, c, &name, if id.is_empty() { None } else { Some(id) }),
+        "rename-group" => contacts::card_set(u, c, json!({"update": { id: {"name": {"full": name}} }}), "Group renamed"),
+        "new-kw" => contacts::set_keyword(u, c, &id, &name, true),
+        "rename-kw" => contacts::rename_keyword(u, c, &id, &name),
         "rename-calset" | "rename-book" => {
             let book = action == "rename-book";
             coll_op(u, st, "Renamed", move |c| crate::server_settings::collection_set(c, book, json!({"update": { id: {"name": name} }})));
@@ -573,11 +647,12 @@ pub fn pick(u: &AppWindow, st: &Shared, action: &str) {
             ("cal", _) => "Delete calendar and its events",
             ("calset", "clear") => "Delete every event in this calendar",
             ("calset", _) => "Delete calendar and its events",
-            ("bookset", _) => "Delete address book and its contacts",
+            ("bookset", _) | ("ct-book", _) => "Delete address book and its contacts",
+            ("group", _) => "Delete group",
             ("mail", _) => "Delete selected messages",
             _ => "Delete",
         };
-        u.global::<crate::CtxHl>().set_id(t.id.clone().into());
+        u.global::<crate::CtxHl>().set_id(HL.with(|h| h.borrow().clone()).into());
         reopen(u, confirm(label, &format!("do:{a}")));
         return;
     }
@@ -772,6 +847,38 @@ pub fn pick(u: &AppWindow, st: &Shared, action: &str) {
                 _ => {}
             }
         }
+        "contact" if action.starts_with("grp") || action.starts_with("kw") => {
+            let Some(c) = client(st) else { return };
+            let uid = contacts::uid_of(id).unwrap_or_default();
+            if action == "grp-new" { new_group_prompt(u, Some(uid)); return; }
+            if action == "kw-new" { prompt(u, "New category", "", "new-kw", id); return; }
+            if let Some(g) = action.strip_prefix("grp:") {
+                let on = !contacts::groups_for(id).iter().any(|x| x.0 == g && x.2);
+                contacts::set_member(u, c, g, &uid, on);
+            } else if let Some(k) = action.strip_prefix("kw:") {
+                let on = !contacts::keywords_of(id).iter().any(|x| x == k);
+                contacts::set_keyword(u, c, id, k, on);
+            }
+        }
+        "ct-keyword" => {
+            let Some(c) = client(st) else { return };
+            match action {
+                "open" => { contacts::set_filter(u, &format!("kw:{id}")); u.set_ct_group("".into()); }
+                "rename" => prompt(u, "Rename category", id, "rename-kw", id),
+                "delete" => contacts::delete_keyword(u, c, id),
+                _ => {}
+            }
+        }
+        "ct-book" => {
+            let book = id.to_string();
+            match action {
+                "new-contact" => { u.invoke_ct_new(); BOOK_FOR_NEW.with(|b| *b.borrow_mut() = Some(book)); }
+                "rename" => prompt(u, "Rename address book", &contacts::book_info(id).map(|b| b.0).unwrap_or_default(), "rename-book", id),
+                "default" => coll_op(u, st, "Default changed", move |c| crate::server_settings::default_collection(c, true, &book)),
+                "delete" => coll_op(u, st, "Address book deleted", move |c| crate::server_settings::collection_set(c, true, json!({"destroy": [book], "onDestroyRemoveContents": true}))),
+                _ => {}
+            }
+        }
         "contact" => {
             u.set_ct_group("".into());
             u.set_ct_editing(false);
@@ -791,7 +898,14 @@ pub fn pick(u: &AppWindow, st: &Shared, action: &str) {
             u.set_ct_editing(false);
             u.invoke_ct_select_group(id.into());
             match action {
-                "email" => u.invoke_ct_email(),
+                "email" | "email:to" => u.invoke_ct_email(),
+                "email:cc" | "email:bcc" => {
+                    let to = u.get_ct_emails();
+                    u.invoke_compose_new();
+                    if action == "email:cc" { u.set_c_cc(to); } else { u.set_c_bcc(to); }
+                }
+                "rename" => prompt(u, "Rename group", &contacts::group_name(id), "rename-group", id),
+                "open" => contacts::set_filter(u, &format!("group:{id}")),
                 "delete" => {
                     let Some(c) = client(st) else { return };
                     let (w, id) = (u.as_weak(), id.to_string());
