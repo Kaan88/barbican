@@ -58,11 +58,8 @@ pub fn sorted_calendars(list: &[Value]) -> Vec<Value> {
 }
 
 const NR_FIELDS: [&str; 7] = ["from", "to", "cc", "subject", "body", "attachment", "all"];
-const NR_FIELD_LABELS: [&str; 7] = ["From", "To", "Cc", "Subject", "Message text", "Has an attachment", "Every message"];
 const NR_CMPS: [&str; 6] = ["contains", "not_contains", "is", "starts_with", "ends_with", "domain_is"];
-const NR_CMP_LABELS: [&str; 6] = ["contains", "does not contain", "is exactly", "starts with", "ends with", "domain is"];
 const NR_ACTS: [&str; 7] = ["move", "copy", "mark_read", "star", "add_label", "forward", "discard"];
-const NR_ACT_LABELS: [&str; 7] = ["Move to folder", "Copy to folder", "Mark as read", "Star", "Add tag", "Forward to", "Delete"];
 
 fn sel(key: &str, label: &str, opts: &[&str], idx: i32) -> SRow {
     let mut r = row("select", key, label, "", "", false);
@@ -90,16 +87,6 @@ pub fn save_script(c: &Client, text: &str, scripts: &[Value]) -> Result<(), Stri
     }
 }
 
-fn rule_summary(r: &Value) -> String {
-    let c = &r["conditions"][0];
-    let f = NR_FIELDS.iter().position(|x| c["field"] == *x).map(|i| NR_FIELD_LABELS[i]).unwrap_or("If");
-    let cmp = NR_CMPS.iter().position(|x| c["comparator"] == *x).map(|i| NR_CMP_LABELS[i]).unwrap_or("");
-    let v = c["value"].as_str().map(String::from).unwrap_or_else(|| c["value"].to_string());
-    let a = &r["actions"][0];
-    let act = NR_ACTS.iter().position(|x| a["type"] == *x).map(|i| NR_ACT_LABELS[i]).unwrap_or("act");
-    let more = r["conditions"].as_array().map(|x| x.len()).unwrap_or(1) + r["actions"].as_array().map(|x| x.len()).unwrap_or(1);
-    format!("{f} {cmp} {v} → {act} {}{}", a["value"].as_str().unwrap_or(""), if more > 2 { "  (+more)" } else { "" })
-}
 
 const ARCHIVE_USING: [&str; 2] = ["urn:ietf:params:jmap:core", "urn:stalwart:jmap"];
 
@@ -140,6 +127,10 @@ pub fn load(tab: &str, c: &Client, cache: &Shared) {
                 k.rules_locked = p.locked;
                 k.filter_meta = p.metadata;
                 k.script_text = text;
+                drop(k);
+                // folders for the rule editor's move / copy targets
+                let boxes = c.mailboxes().unwrap_or_default();
+                cache.lock().unwrap().mailboxes = boxes;
             }
             "organize" => { cache.lock().unwrap().mailboxes = c.mailboxes()?; }
             "recover" => {
@@ -213,26 +204,13 @@ pub fn rows(tab: &str, cache: &Shared) -> Option<Vec<SRow>> {
                 out.push(row("value", "", "Edit these rules in Bulwark", "Bulwark would treat this script as edited by hand (unknown version or options, or a date it cannot read). The script below still works.", "", false));
             } else {
                 if k.rules.is_empty() { out.push(row("value", "", "No rules yet", "", "", false)); }
+                // one row per rule (ui/pim-filters.slint FilterRuleRow): on/off, edit, reorder,
+                // run on existing mail, delete; rules run top to bottom
                 for r in &k.rules {
                     let id = r["id"].as_str().unwrap_or("");
-                    out.push(row("toggle", &format!("server.rule.toggle:{id}"), r["name"].as_str().unwrap_or("Rule"), &rule_summary(r), "", r["enabled"] != false));
-                    out.push(row("button", &format!("server.rule.delete:{id}"), "", "", if k.confirm_delete == id { "Click again to delete" } else { "Delete rule" }, false));
+                    out.push(row("rule", id, r["name"].as_str().unwrap_or("Rule"), &crate::filters_x::summary(r), "", r["enabled"] != false));
                 }
-                out.push(row("section", "", "New rule", "", "", false));
-                out.push(row("text", "server.nr.name", "Name", "", &k.nr_name, false));
-                out.push(sel("server.nr.field", "When", &NR_FIELD_LABELS, k.nr_field));
-                if k.nr_field < 5 {
-                    out.push(sel("server.nr.cmp", "Condition", &NR_CMP_LABELS, k.nr_cmp));
-                    out.push(row("text", "server.nr.value", "Value", "Separate several values with commas.", &k.nr_value, false));
-                }
-                out.push(sel("server.nr.action", "Then", &NR_ACT_LABELS, k.nr_action));
-                if matches!(k.nr_action, 0 | 1 | 4 | 5) {
-                    out.push(row("text", "server.nr.avalue", match k.nr_action { 4 => "Tag", 5 => "Forward to address", _ => "Folder" }, "", &k.nr_action_value, false));
-                }
-                out.push(row("text", "server.nr.from", "Active from (YYYY-MM-DD)", "Optional. The rule only acts from this day on (00:00 local time).", &k.nr_from, false));
-                out.push(row("text", "server.nr.until", "Active until (YYYY-MM-DD)", "Optional. The rule stops acting after this day (23:59 local time).", &k.nr_until, false));
-                out.push(row("toggle", "server.nr.stop", "Stop processing more rules", "", "", k.nr_stop));
-                out.push(row("button", "server.rule.add", "", &k.script_status, "Add rule", false));
+                out.push(row("button", "filters.new", "New rule", "Conditions on the sender, recipients, subject, any header, size, body or attachments; one or more actions.", "New rule…", false));
             }
             out.push(row("section", "", "Script", "The Sieve script the server runs (advanced).", "", false));
             out.push(row("textarea", "server.sieve.text", "Script", "Example:  require \"fileinto\";  if address :is \"from\" \"news@example.com\" { fileinto \"Newsletters\"; }", &k.script_text, false));

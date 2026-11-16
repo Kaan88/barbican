@@ -4,7 +4,8 @@ import { LineEdit, Button, ListView, ScrollView, TextEdit, ComboBox, CheckBox, P
 // p2-pim: contacts / files / filters depth (new UI lives in its own files)
 import { PimTheme } from "pim-theme.slint";
 import { CtX, CtLine, CtField, CtDupe, ContactCardView, ContactEditor, ContactDupes, ContactImportDialog } from "pim-contacts.slint";
-export { PimTheme, CtX, CtLine, CtField, CtDupe }
+import { FilterX, FCond, FAct, FilterRuleRow, FilterRuleEditor, FilterRetroDialog } from "pim-filters.slint";
+export { PimTheme, CtX, CtLine, CtField, CtDupe, FilterX, FCond, FAct }
 
 export struct Folder {
     id: string,
@@ -2763,7 +2764,6 @@ export component AppWindow inherits Window {
                 if root.ct-filter == "dupes:" && !root.ct-editing && root.ct-id == "": ContactDupes { }
             }
         }
-        if CtX.import-open: ContactImportDialog { }
     }
 
     if root.app == 3: Rectangle {
@@ -3283,7 +3283,8 @@ export component AppWindow inherits Window {
                                 edited(t) => { root.settings-set-text(r.key, t); }
                             }
                             if r.kind == "textarea" && r.desc != "": Text { text: r.desc; color: Theme.dim; font-size: 11px; wrap: word-wrap; }
-                            if r.kind != "section" && r.kind != "textarea": HorizontalLayout {
+                            if r.kind == "rule": FilterRuleRow { key: r.key; label: r.label; desc: r.desc; on: r.on; toggled(on) => { root.settings-set-toggle("server.rule.toggle:" + r.key, on); } }
+                            if r.kind != "section" && r.kind != "textarea" && r.kind != "rule": HorizontalLayout {
                                 spacing: 16px;
                                 VerticalLayout {
                                     alignment: center;
@@ -3348,6 +3349,9 @@ export component AppWindow inherits Window {
             }
         }
     }
+    if CtX.import-open: ContactImportDialog { }
+    if FilterX.open: FilterRuleEditor { }
+    if FilterX.retro-open: FilterRetroDialog { }
     ctx-popup := PopupWindow {
         close-policy: no-auto-close;
         x: 0; y: 0;

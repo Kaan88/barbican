@@ -11,6 +11,7 @@ mod calendar;
 mod compose;
 mod contacts;
 mod contacts_x;
+mod filters_x;
 mod contact_merge;
 mod vcard;
 mod pim;
@@ -922,6 +923,11 @@ fn main() -> Result<(), slint::PlatformError> {
         })
     };
 
+    {
+        let lsp = load_server_page.clone();
+        let reload: filters_x::Reload = Arc::new(move |tab: String| lsp(tab));
+        filters_x::wire(&ui, state.clone(), server_cache.clone(), reload);
+    }
     let (w, rs, lsp) = (ui.as_weak(), refresh_settings.clone(), load_server_page.clone());
     ui.on_open_settings(move || {
         let u = w.unwrap();
@@ -1045,6 +1051,7 @@ fn main() -> Result<(), slint::PlatformError> {
         }
         if key == "signout" { u.set_show_settings(false); u.invoke_sign_out(); }
         if contacts_x::settings_button(&u, st.lock().unwrap().clone(), &key) { return; }
+        if key == "filters.new" { u.global::<FilterX>().invoke_new_rule(); return; }
         if key == "a11y.reset" {
             pf2.lock().unwrap().set("a11y.reset", Value::Null, &mut cf2.lock().unwrap());
             apply_ui_prefs(&u);

@@ -22,6 +22,7 @@ pub fn probe(u: &AppWindow, what: &str) -> String {
             "rows": g.get_dupes().iter().map(|d| json!([d.group, d.id.to_string(), d.name.to_string(), d.keep])).collect::<Vec<_>>()}),
         "import" => json!({"open": g.get_import_open(), "summary": g.get_import_summary().to_string(), "dupes": g.get_import_dupes(), "busy": g.get_import_busy()}),
         "nav" => json!(u.get_ct_nav().iter().map(|n| json!([n.kind.to_string(), n.id.to_string(), n.label.to_string(), n.count.to_string()])).collect::<Vec<_>>()),
+        "filters" => return crate::filters_x::probe(u),
         other => return format!("unknown probe {other}"),
     };
     v.to_string()
