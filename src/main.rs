@@ -871,7 +871,7 @@ fn main() -> Result<(), slint::PlatformError> {
 
     // ---------------- assistant chat ----------------
     let history: Arc<Mutex<Vec<agent::Msg>>> = Arc::new(Mutex::new(
-        std::fs::read_to_string(config_dir().join("chat.json")).ok()
+        std::fs::read_to_string(chat_path()).ok()
             .and_then(|s| serde_json::from_str::<Value>(&s).ok())
             .map(|v| agent::from_json(&v)).unwrap_or_default(),
     ));
@@ -929,7 +929,7 @@ fn main() -> Result<(), slint::PlatformError> {
             let keep = h.len().saturating_sub(80);
             let mut h: Vec<_> = h.split_off(keep);
             while matches!(h.first(), Some(agent::Msg::Results(_)) | Some(agent::Msg::Assistant { .. })) { h.remove(0); }
-            let _ = std::fs::write(config_dir().join("chat.json"), agent::to_json(&h).to_string());
+            let _ = std::fs::write(chat_path(), agent::to_json(&h).to_string());
             *hist.lock().unwrap() = h;
             let _ = w.upgrade_in_event_loop(move |u| {
                 u.set_chat_busy(false);
@@ -942,11 +942,20 @@ fn main() -> Result<(), slint::PlatformError> {
         });
     });
 
+    let (w, hist) = (ui.as_weak(), history.clone());
+    ui.on_chat_reload(move || {
+        let h = std::fs::read_to_string(chat_path()).ok()
+            .and_then(|s| serde_json::from_str::<Value>(&s).ok())
+            .map(|v| agent::from_json(&v)).unwrap_or_default();
+        w.unwrap().set_chat(display_chat(&h));
+        *hist.lock().unwrap() = h;
+    });
+
     let w = ui.as_weak();
     let hist = history.clone();
     ui.on_chat_new(move || {
         hist.lock().unwrap().clear();
-        let _ = std::fs::remove_file(config_dir().join("chat.json"));
+        let _ = std::fs::remove_file(chat_path());
         w.unwrap().set_chat(display_chat(&[]));
     });
 
@@ -1498,8 +1507,10 @@ fn finish_login(w: slint::Weak<AppWindow>, st: Shared, res: Result<jmap::Client,
             let _ = std::fs::write(&p, format!("{server}\n{user}\n"));
             if let Some(v) = remember { remember_session(&c, v, &server, &user); }
             let name = c.username.clone();
+            *CHAT_USER.lock().unwrap() = name.clone();
             let w2 = w.clone();
             let _ = w.upgrade_in_event_loop(move |u| {
+                u.invoke_chat_reload();
                 u.set_busy(false);
                 u.set_status("".into());
                 u.set_account(name.clone().into());
@@ -1542,4 +1553,14 @@ pub fn apply_theme(ui: &AppWindow) {
         _ => true,
     };
     ui.global::<Theme>().set_dark(dark);
+}
+
+
+static CHAT_USER: Mutex<String> = Mutex::new(String::new());
+
+/// The assistant's chat history is kept per account (chat-<account>.json).
+fn chat_path() -> std::path::PathBuf {
+    let u = CHAT_USER.lock().unwrap().clone();
+    let safe: String = u.chars().map(|c| if c.is_alphanumeric() || c == '.' || c == '@' || c == '-' { c } else { '_' }).collect();
+    config_dir().join(if safe.is_empty() { "chat.json".to_string() } else { format!("chat-{safe}.json") })
 }

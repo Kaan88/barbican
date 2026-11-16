@@ -621,6 +621,7 @@ export component AppWindow inherits Window {
     in-out property <string> ct-id;
     in-out property <bool> ct-editing;
     in-out property <string> ct-name;
+    in property <string> ct-initials;
     in-out property <string> ct-emails;
     in-out property <string> ct-phones;
     in-out property <string> ct-company;
@@ -689,6 +690,7 @@ export component AppWindow inherits Window {
     in property <image> lite-image;
     in property <length> lite-height;
     callback chat-new();
+    callback chat-reload();
     callback chat-stop();
     callback confirm-action(bool);
     public function scroll-chat() {
@@ -1043,7 +1045,8 @@ export component AppWindow inherits Window {
                             VerticalLayout {
                                 padding: 6px;
                                 for f in root.folders: Rectangle {
-                                    height: 26px; border-radius: 4px;
+                                    visible: f.id != "__scheduled";
+                                    height: f.id == "__scheduled" ? 0px : 26px; border-radius: 4px;
                                     background: mta.has-hover ? Theme.hover : transparent;
                                     mta := TouchArea { clicked => { root.move-to(f.id); } }
                                     HorizontalLayout {
@@ -1622,7 +1625,7 @@ export component AppWindow inherits Window {
                     alignment: start;
                     HorizontalLayout {
                         spacing: 14px;
-                        Avatar { label: root.ct-name == "" ? "?" : root.ct-name; tint: Theme.accent; width: 56px; height: 56px; border-radius: 28px; }
+                        Avatar { label: root.ct-initials; tint: Theme.accent; width: 56px; height: 56px; border-radius: 28px; }
                         VerticalLayout {
                             alignment: center;
                             Text { text: root.ct-name; color: Theme.text; font-size: 20px; font-weight: 700; }

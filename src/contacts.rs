@@ -124,7 +124,9 @@ pub fn select(u: &AppWindow, id: &str) {
     u.set_ct_id(id.into());
     match card {
         Some(c) => {
-            u.set_ct_name(full_name(&c).into());
+            let n = full_name(&c);
+            u.set_ct_initials(n.split_whitespace().filter_map(|w| w.chars().find(|ch| ch.is_alphanumeric())).take(2).collect::<String>().to_uppercase().into());
+            u.set_ct_name(n.into());
             u.set_ct_emails(all(&c, "emails", "address").join(", ").into());
             u.set_ct_phones(all(&c, "phones", "number").join(", ").into());
             u.set_ct_company(first(&c, "organizations", "name").unwrap_or_default().into());

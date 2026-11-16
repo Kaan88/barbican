@@ -281,6 +281,10 @@ fn pre_send_warning(o: &Outgoing, prefs: &crate::settings::Settings) -> Option<S
 
 pub fn send(u: &AppWindow, c: Arc<Client>, prefs: &crate::settings::Settings) {
     let mut o = outgoing(u);
+    if crate::jmap::parse_addresses(&format!("{},{},{}", o.to, o.cc, o.bcc)).is_empty() {
+        u.set_c_status("Add at least one recipient.".into());
+        return;
+    }
     let warned = u.get_c_status().ends_with("send anyway.");
     if !warned {
         if let Some(w) = pre_send_warning(&o, prefs) { u.set_c_status(w.into()); return; }
