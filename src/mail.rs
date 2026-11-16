@@ -33,6 +33,23 @@ thread_local! {
 
 pub const PAGE: usize = 50;
 
+/// Bulwark list settings read from prefs (Settings > Message list / General).
+struct ListPrefs { group_by_date: bool, show_preview: bool, date_format: String, h12: bool, per_page: usize }
+
+fn list_prefs() -> ListPrefs {
+    let p = crate::settings::Settings::load();
+    ListPrefs {
+        // Bulwark's default is false; Barbican kept its date groups until the user turns them off
+        group_by_date: p.bool("groupListByDate", true),
+        show_preview: p.bool("showPreview", true),
+        date_format: p.str("dateFormat", "smart"),
+        h12: p.str("timeFormat", "24h") == "12h",
+        per_page: p.prefs.get("emailsPerPage").and_then(|v| v.as_u64()).unwrap_or(50).clamp(10, 200) as usize,
+    }
+}
+
+pub fn page_size() -> usize { list_prefs().per_page }
+
 pub const TAGS: [(&str, &str, u32); 7] = [
     ("red", "Red", 0xef4444), ("orange", "Orange", 0xf97316), ("yellow", "Yellow", 0xeab308),
     ("green", "Green", 0x22c55e), ("blue", "Blue", 0x3b82f6), ("purple", "Purple", 0xa855f7), ("pink", "Pink", 0xec4899),
@@ -198,6 +215,22 @@ fn group_label(t: &DateTime<Local>) -> String {
     }
 }
 
+fn time_label_with(t: &DateTime<Local>, lp: &ListPrefs) -> String {
+    let hm = if lp.h12 { t.format("%-I:%M %p").to_string() } else { t.format("%H:%M").to_string() };
+    let days = (Local::now().date_naive() - t.date_naive()).num_days();
+    match lp.date_format.as_str() {
+        "relative" => match days {
+            0 => hm,
+            1 => "Yesterday".into(),
+            2..=6 => format!("{days} days ago"),
+            _ => t.format("%d %b").to_string(),
+        },
+        "full" => format!("{} {hm}", t.format("%d/%m/%Y")),
+        _ => match days { 0 => hm, 1..=6 => format!("{} {hm}", t.format("%a")), _ => t.format("%d %b").to_string() },
+    }
+}
+
+#[allow(dead_code)]
 fn time_label(t: &DateTime<Local>) -> String {
     match (Local::now().date_naive() - t.date_naive()).num_days() {
         0 => t.format("%H:%M").to_string(),
@@ -216,11 +249,12 @@ pub fn sender(v: &Value) -> String {
 }
 
 fn build_rows(st: &ListState) -> Vec<Mail> {
+    let lp = list_prefs();
     let mut last = String::new();
     st.emails.iter().map(|m| {
         let t = parse_time(&m["receivedAt"]);
         let g = t.as_ref().map(group_label).unwrap_or_default();
-        let header = if g != last { last = g.clone(); g } else { String::new() };
+        let header = if lp.group_by_date && g != last { last = g.clone(); g } else { String::new() };
         let s = sender(m);
         let kw = &m["keywords"];
         let id = m["id"].as_str().unwrap_or("").to_string();
@@ -230,8 +264,8 @@ fn build_rows(st: &ListState) -> Vec<Mail> {
             color: tint(&s),
             sender: s.into(),
             subject: m["subject"].as_str().filter(|s| !s.is_empty()).unwrap_or("(no subject)").into(),
-            preview: clean_preview(m["preview"].as_str().unwrap_or("")).into(),
-            time: t.as_ref().map(time_label).unwrap_or_default().into(),
+            preview: if lp.show_preview { clean_preview(m["preview"].as_str().unwrap_or("")).into() } else { "".into() },
+            time: t.as_ref().map(|t| time_label_with(t, &lp)).unwrap_or_default().into(),
             unread: kw["$seen"].as_bool() != Some(true),
             attach: m["hasAttachment"].as_bool().unwrap_or(false),
             header: header.into(),
@@ -266,10 +300,11 @@ pub fn load_list(w: slint::Weak<AppWindow>, c: Arc<Client>, filter: Value) {
         l.generation
     });
     let _ = w.upgrade_in_event_loop(|u| u.set_busy(true));
+    let page = page_size();
     std::thread::spawn(move || {
         let res = if filter["scheduled"] == true {
             c.scheduled().map(|e| { let n = e.len(); (e, n, HashMap::new()) })
-        } else { c.list(filter, 0, PAGE) };
+        } else { c.list(filter, 0, page) };
         let _ = w.upgrade_in_event_loop(move |u| {
             u.set_busy(false);
             LIST.with(|l| {
@@ -294,7 +329,7 @@ pub fn load_more(w: slint::Weak<AppWindow>, c: Arc<Client>) {
         Some((l.filter.clone(), l.emails.len(), l.generation))
     }) else { return };
     std::thread::spawn(move || {
-        let res = c.list(filter, pos, PAGE);
+        let res = c.list(filter, pos, page_size());
         let _ = w.upgrade_in_event_loop(move |u| {
             LIST.with(|l| {
                 let mut l = l.borrow_mut();
@@ -385,8 +420,18 @@ fn remove_local(ids: &[String]) {
 
 /// Apply an action to messages: delete, archive, spam, notspam, star, unstar, read, unread,
 /// tag:<id>, untag:<id>, move:<mailboxId>.
+thread_local! { static CONFIRM_BULK: std::cell::Cell<bool> = const { std::cell::Cell::new(false) }; }
+
 pub fn apply(u: &AppWindow, c: Arc<Client>, ids: Vec<String>, action: &str) {
     if ids.is_empty() { return; }
+    if action == "delete" && ids.len() > 1 && crate::settings::Settings::load().bool("confirmBulkDelete", true) && !CONFIRM_BULK.with(|x| x.get()) {
+        CONFIRM_BULK.with(|x| x.set(true));
+        show_toast(u, &format!("Delete {} messages? Press Delete again to confirm.", ids.len()), false);
+        let w = u.as_weak();
+        slint::Timer::single_shot(std::time::Duration::from_secs(6), move || { CONFIRM_BULK.with(|x| x.set(false)); let _ = w; });
+        return;
+    }
+    CONFIRM_BULK.with(|x| x.set(false));
     let w = u.as_weak();
     let action = action.to_string();
     // in Trash or Junk, delete is permanent (Bulwark's default)
@@ -420,7 +465,14 @@ pub fn apply(u: &AppWindow, c: Arc<Client>, ids: Vec<String>, action: &str) {
             let check = |r: (usize, Vec<String>)| if r.1.is_empty() { Ok(()) } else { Err(r.1.join("; ")) };
             match action.as_str() {
                 "delete" if permanent => c.destroy(&ids).map(|_| ()),
-                "delete" => check(c.move_to_role(&ids, "trash")?),
+                "delete" => {
+                    // Bulwark's deleteAction: trash | trash-read | permanent
+                    match crate::settings::Settings::load().str("deleteAction", "trash").as_str() {
+                        "permanent" => c.destroy(&ids).map(|_| ()),
+                        "trash-and-read" => { check(c.set_keyword(&ids, "$seen", true)?)?; check(c.move_to_role(&ids, "trash")?) }
+                        _ => check(c.move_to_role(&ids, "trash")?),
+                    }
+                }
                 "archive" => check(c.move_to_role(&ids, "archive")?),
                 "spam" => c.mark_spam(&ids, true),
                 "notspam" => c.mark_spam(&ids, false),

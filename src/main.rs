@@ -473,7 +473,7 @@ fn main() -> Result<(), slint::PlatformError> {
     ui.on_open_mail(move |id| {
         let Some(c) = st.lock().unwrap().clone() else { return };
         let u = w.unwrap();
-        mail::mark_read_local(&u, &id);
+        if settings::Settings::load().prefs.get("markAsReadDelay").and_then(|v| v.as_i64()).unwrap_or(0) == 0 { mail::mark_read_local(&u, &id); }
         u.set_plugin_rows(ModelRc::default());
         u.set_attachments(ModelRc::default());
         u.set_r_to("".into());
@@ -495,6 +495,22 @@ fn main() -> Result<(), slint::PlatformError> {
         let id = id.to_string();
         std::thread::spawn(move || {
             let res = c.email_body(&id).map(|mut m| { inline_cid_images(&c, &mut m); m });
+            // Bulwark markAsReadDelay (ms): 0 = instantly, N = after N ms if still open, -1 = never
+            let delay = settings::Settings::load().prefs.get("markAsReadDelay").and_then(|v| v.as_i64()).unwrap_or(0);
+            if delay >= 0 && res.as_ref().is_ok_and(|m| m["keywords"]["$seen"].as_bool() != Some(true)) {
+                let (c3, id3, w3) = (c.clone(), id.clone(), w.clone());
+                std::thread::spawn(move || {
+                    std::thread::sleep(std::time::Duration::from_millis(delay as u64));
+                    let still = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+                    let (s2, i2) = (still.clone(), id3.clone());
+                    let _ = w3.upgrade_in_event_loop(move |u| s2.store(u.get_current_mail().as_str() == i2, std::sync::atomic::Ordering::SeqCst));
+                    std::thread::sleep(std::time::Duration::from_millis(100));
+                    if delay == 0 || still.load(std::sync::atomic::Ordering::SeqCst) {
+                        let _ = c3.set_keyword(&[id3.clone()], "$seen", true);
+                        let _ = w3.upgrade_in_event_loop(move |u| mail::mark_read_local(&u, &id3));
+                    }
+                });
+            }
             let c2 = c.clone();
             let w2 = w.clone();
             let _ = w.upgrade_in_event_loop(move |u| {

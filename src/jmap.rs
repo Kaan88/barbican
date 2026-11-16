@@ -271,7 +271,7 @@ impl Client {
 
     /// A full message for the reader, and mark it read.
     pub fn email_body(&self, id: &str) -> R<Value> {
-        self.email_full(id, true)
+        self.email_full(id, false)
     }
 
     pub fn email_full(&self, id: &str, mark_seen: bool) -> R<Value> {
