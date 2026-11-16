@@ -11,6 +11,19 @@ const PERSONALIZE: &str = r"Software\Microsoft\Windows\CurrentVersion\Themes\Per
 /// shortcut with this id and registers it under HKCU\Software\Classes\AppUserModelId.
 pub const APP_ID: &str = "Barbican.Mail";
 
+/// Hold the per-session "Barbican is running" mutex for the life of the process. False when
+/// another Barbican already holds it (the update installer must not run under it).
+pub fn first_instance() -> bool {
+    use windows::Win32::Foundation::{GetLastError, ERROR_ALREADY_EXISTS};
+    use windows::Win32::System::Threading::CreateMutexW;
+    let name = wide(r"Local\Barbican.Instance");
+    // the handle is leaked on purpose: Windows releases it when the process ends
+    match unsafe { CreateMutexW(None, false, PCWSTR(name.as_ptr())) } {
+        Ok(_) => { let e = unsafe { GetLastError() }; e != ERROR_ALREADY_EXISTS }
+        Err(_) => true,
+    }
+}
+
 fn wide(s: &str) -> Vec<u16> {
     s.encode_utf16().chain(std::iter::once(0)).collect()
 }

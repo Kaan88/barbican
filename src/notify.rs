@@ -240,6 +240,15 @@ mod tests {
     }
 
     #[test]
+    fn toast_xml_escapes() {
+        let n = mail_note(&[m("e1", "Tom & <Jerry>", "a < b & \"c\"")], "acc", true, true).unwrap();
+        let x = toast_xml(&n);
+        assert!(x.contains("<text>Tom &amp; &lt;Jerry&gt;</text>"));
+        assert!(x.contains("a &lt; b &amp; &quot;c&quot;"));
+        assert!(!x.contains("<Jerry>") && !x.contains("& <"));
+    }
+
+    #[test]
     fn batch_opens_inbox() {
         let n = mail_note(&[m("e2", "Bo", "Second"), m("e1", "Ada", "First")], "acc", true, true).unwrap();
         assert_eq!(n.title, "2 new messages");

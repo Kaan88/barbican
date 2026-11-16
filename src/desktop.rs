@@ -15,6 +15,8 @@ thread_local! {
     static UPDATE_REV: Cell<u64> = const { Cell::new(u64::MAX) };
     /// Versions whose prompt the user closed this session.
     static DISMISSED: RefCell<Vec<String>> = const { RefCell::new(Vec::new()) };
+    /// After a draft could not be saved, quitting again within a minute closes without it.
+    static QUIT_ANYWAY_UNTIL: Cell<Option<std::time::Instant>> = const { Cell::new(None) };
     static TIMERS: RefCell<Vec<slint::Timer>> = const { RefCell::new(Vec::new()) };
 }
 
@@ -145,18 +147,23 @@ pub fn quit_saving_draft(u: &AppWindow, then: fn() -> Result<(), String>) {
         Ok(()) => { slint::quit_event_loop().ok(); }
         Err(e) => if let Some(u) = app() { crate::mail::show_toast(&u, &e, false); },
     };
-    if !u.get_composing() { finish(); return; }
+    let anyway = QUIT_ANYWAY_UNTIL.with(|q| q.get()).is_some_and(|t| std::time::Instant::now() < t);
+    // nothing typed: no draft is made on the server
+    if !u.get_composing() || anyway || crate::compose::composer_blank(u) { finish(); return; }
+    let fails = crate::compose::save_failures();
     u.invoke_save_draft(true);
     let tries = std::rc::Rc::new(Cell::new(0));
     let timer = std::rc::Rc::new(slint::Timer::default());
     let t2 = timer.clone();
-    timer.start(slint::TimerMode::Repeated, std::time::Duration::from_millis(200), move || {
+    timer.start(slint::TimerMode::Repeated, std::time::Duration::from_millis(100), move || {
         tries.set(tries.get() + 1);
         let Some(u) = app() else { t2.stop(); return };
         if !u.get_composing() { t2.stop(); finish(); }
-        else if tries.get() > 50 {
+        // a failed save is reported at once; a save that hangs gives up after 15 s
+        else if crate::compose::save_failures() != fails || tries.get() > 150 {
             t2.stop();
-            crate::mail::show_toast(&u, "Your draft could not be saved, so Barbican stays open.", false);
+            QUIT_ANYWAY_UNTIL.with(|q| q.set(Some(std::time::Instant::now() + std::time::Duration::from_secs(60))));
+            crate::mail::show_toast(&u, "Your draft could not be saved. Quit again to close without saving it.", false);
         }
     });
 }

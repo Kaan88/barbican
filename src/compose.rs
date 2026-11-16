@@ -33,6 +33,32 @@ thread_local! {
     static ST: RefCell<State> = RefCell::new(State::default());
     static PENDING: RefCell<Option<(String, Outgoing, State)>> = const { RefCell::new(None) };
     static CLIENT: RefCell<Option<Arc<Client>>> = const { RefCell::new(None) };
+    /// Counts failed draft saves (and saves that could not start), so a waiting quit knows at once.
+    static SAVE_FAILS: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
+}
+
+pub fn save_failures() -> u64 { SAVE_FAILS.with(|f| f.get()) }
+
+/// A draft save could not even start (no account): counted like a failed one.
+pub fn note_save_failed() { SAVE_FAILS.with(|f| f.set(f.get() + 1)); }
+
+/// Nothing worth keeping: no recipients, subject or attachments, and a body that is empty
+/// apart from the signature Barbican put there.
+pub fn is_blank(fields: &[&str], body: &str, signatures: &[&str], attachments: usize) -> bool {
+    if attachments > 0 || fields.iter().any(|f| !f.trim().is_empty()) { return false; }
+    let mut rest = body.to_string();
+    for s in signatures.iter().map(|s| s.trim()).filter(|s| !s.is_empty()) { rest = rest.replace(s, ""); }
+    rest.chars().all(|c| c.is_whitespace() || c == '-')
+}
+
+/// Whether the open composer holds anything worth saving as a draft on quit.
+pub fn composer_blank(u: &AppWindow) -> bool {
+    ST.with(|s| {
+        let s = s.borrow();
+        let sigs: Vec<&str> = s.signatures.iter().map(|(t, _)| t.as_str()).collect();
+        let (to, cc, bcc, subject) = (u.get_c_to(), u.get_c_cc(), u.get_c_bcc(), u.get_c_subject());
+        is_blank(&[&to, &cc, &bcc, &subject], &rte::to_text(), &sigs, s.attachments.len() + rte::inline_images().len())
+    })
 }
 
 /// Upload an inline image in the background and record its blob id in the document.
@@ -729,7 +755,7 @@ pub fn save_draft(u: &AppWindow, c: Arc<Client>, close: bool) {
                 u.set_c_status("Draft saved".into());
                 if close { u.set_composing(false); crate::mail::show_toast(&u, "Draft saved", false); }
             }
-            Err(e) => u.set_c_status(e.into()),
+            Err(e) => { note_save_failed(); u.set_c_status(e.into()); }
         });
         crate::mail::load_mailboxes(w2, c, false);
     });
@@ -751,6 +777,17 @@ pub fn discard(u: &AppWindow, c: Arc<Client>) {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn blank_drafts() {
+        use super::is_blank;
+        assert!(is_blank(&["", " ", "", ""], "", &[], 0));
+        // only the signature Barbican inserted
+        assert!(is_blank(&["", "", "", ""], "\n\n-- \nAda Lovelace\nExample Ltd\n", &["Ada Lovelace\nExample Ltd"], 0));
+        assert!(!is_blank(&["ada@example.org", "", "", ""], "", &[], 0));
+        assert!(!is_blank(&["", "", "", "Hi"], "", &[], 0));
+        assert!(!is_blank(&["", "", "", ""], "Hello\n-- \nAda", &["Ada"], 0));
+        assert!(!is_blank(&["", "", "", ""], "", &[], 1));
+    }
     use super::*;
     use serde_json::json;
 

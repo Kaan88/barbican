@@ -3,6 +3,9 @@
 //!   cargo run --release --example release_manifest -- <version> <dist-dir> <download-base-url> <notes-url>
 //!       writes <dist-dir>/<channel>.json and, when BARBICAN_UPDATE_SIGNING_KEY (base64 32-byte
 //!       Ed25519 seed) is set, <channel>.json.sig, plus SHA256SUMS for every file in the folder.
+//!       A stable release writes both stable.json and beta.json (beta testers get it too).
+//!   cargo run --release --example release_manifest -- msi-version <tag>
+//!       prints the MSI ProductVersion for a tag (1.2.0-beta.1 -> 1.2.301, 1.2.0 -> 1.2.999).
 //!   cargo run --release --example release_manifest -- keygen
 //!       prints a new seed (keep it secret) and its public key (BARBICAN_UPDATE_PUBKEY).
 #[path = "../src/release_manifest.rs"]
@@ -22,6 +25,13 @@ fn main() {
         println!("public key (BARBICAN_UPDATE_PUBKEY):        {}", public_key(&s).unwrap());
         return;
     }
+    if args.first().map(String::as_str) == Some("msi-version") {
+        match msi_version(args.get(1).map(String::as_str).unwrap_or("")) {
+            Ok(v) => println!("{v}"),
+            Err(e) => { eprintln!("{e}"); std::process::exit(1); }
+        }
+        return;
+    }
     if args.len() < 4 { eprintln!("usage: release_manifest <version> <dist-dir> <base-url> <notes-url> | keygen"); std::process::exit(2); }
     let (version, dir, base, notes) = (&args[0], std::path::Path::new(&args[1]), args[2].trim_end_matches('/'), &args[3]);
     let mut files: Vec<_> = std::fs::read_dir(dir).expect("dist dir").flatten().filter(|e| e.path().is_file()).map(|e| e.path()).collect();
@@ -39,14 +49,16 @@ fn main() {
         }
     }
     std::fs::write(dir.join("SHA256SUMS"), &sums).expect("write sums");
-    let channel = channel_for(version);
-    let body = build(version, channel, notes, &assets);
-    std::fs::write(dir.join(format!("{channel}.json")), &body).expect("write manifest");
-    match std::env::var("BARBICAN_UPDATE_SIGNING_KEY").ok().filter(|k| !k.trim().is_empty()) {
-        Some(k) => {
-            std::fs::write(dir.join(format!("{channel}.json.sig")), sign(&k, body.as_bytes()).expect("sign")).expect("write sig");
-            println!("signed {channel}.json with {} asset(s)", assets.len());
+    let key = std::env::var("BARBICAN_UPDATE_SIGNING_KEY").ok().filter(|k| !k.trim().is_empty());
+    for channel in channels_for(version) {
+        let body = build(version, channel, notes, &assets);
+        std::fs::write(dir.join(format!("{channel}.json")), &body).expect("write manifest");
+        match &key {
+            Some(k) => {
+                std::fs::write(dir.join(format!("{channel}.json.sig")), sign(k, body.as_bytes()).expect("sign")).expect("write sig");
+                println!("signed {channel}.json with {} asset(s)", assets.len());
+            }
+            None => println!("BARBICAN_UPDATE_SIGNING_KEY not set: {channel}.json written unsigned (apps will not accept it)"),
         }
-        None => println!("BARBICAN_UPDATE_SIGNING_KEY not set: {channel}.json written unsigned (apps will not accept it)"),
     }
 }

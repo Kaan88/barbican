@@ -51,6 +51,15 @@ fn xdg_dir(var: &str, fallback: &str) -> PathBuf {
 }
 
 /// Where secrets are kept, for setting descriptions.
+/// Whether this is the only Barbican running in this session (Windows: a named mutex held
+/// until exit). Elsewhere always true for now.
+pub fn first_instance() -> bool {
+    #[cfg(windows)]
+    { win::first_instance() }
+    #[cfg(not(windows))]
+    { true }
+}
+
 pub fn keystore_name() -> &'static str {
     if cfg!(windows) { "Windows Credential Manager" } else { "your system keyring (Secret Service)" }
 }

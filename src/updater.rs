@@ -150,6 +150,51 @@ pub struct Manifest {
     pub channel: String,
     pub notes_url: String,
     pub assets: Vec<(String, Asset)>,
+    /// Unix seconds: when the release tool signed it, and after when it is no longer trusted.
+    pub published: u64,
+    pub expires: u64,
+}
+
+pub fn now_secs() -> u64 {
+    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0)
+}
+
+/// Against replay and freeze attacks: an expired manifest, or one older (by version or by
+/// signing time) than one this install already accepted, is refused.
+pub fn check_fresh(m: &Manifest, now: u64, seen: Option<&Seen>) -> Result<(), String> {
+    if m.expires == 0 || m.expires < now { return Err("The update information has expired.".into()); }
+    if let Some(s) = seen {
+        let older = Version::parse(&s.version).is_some_and(|sv| m.version < sv) || m.published < s.published;
+        if older { return Err("The update information is older than what this computer has seen.".into()); }
+    }
+    Ok(())
+}
+
+/// The newest manifest accepted per channel (kept beside, not inside, the downloads folder,
+/// which is deleted after an install).
+#[derive(Debug, Clone, PartialEq)]
+pub struct Seen {
+    pub version: String,
+    pub published: u64,
+}
+
+fn seen_file(channel: &str) -> PathBuf {
+    updates_dir().with_file_name(format!("update-seen-{channel}.json"))
+}
+
+pub fn load_seen(f: &Path) -> Option<Seen> {
+    let v: Value = serde_json::from_str(&std::fs::read_to_string(f).ok()?).ok()?;
+    Some(Seen { version: v["version"].as_str()?.into(), published: v["published"].as_u64()? })
+}
+
+fn save_seen(f: &Path, s: &Seen) {
+    if let Some(d) = f.parent() { let _ = std::fs::create_dir_all(d); }
+    let _ = std::fs::write(f, json!({"version": s.version, "published": s.published}).to_string());
+}
+
+/// Only https links from a manifest are ever opened or fetched.
+fn https_only(u: &str) -> String {
+    if u.starts_with("https://") && !u.chars().any(|c| c.is_whitespace() || c.is_control()) { u.into() } else { String::new() }
 }
 
 /// Verify the signature over the exact bytes, then read them. Nothing unsigned is trusted.
@@ -173,11 +218,14 @@ pub fn verify_manifest(bytes: &[u8], sig_b64: &str, pubkey_b64: &str, channel: &
             let sha = a["sha256"].as_str().unwrap_or("").to_lowercase();
             if sha.len() != 64 || !sha.chars().all(|c| c.is_ascii_hexdigit()) { continue; }
             let url = a["url"].as_str().unwrap_or("");
-            if !url.starts_with("https://") && !url.starts_with("http://127.0.0.1") { continue; }
+            if https_only(url).is_empty() { continue; }
             assets.push((k.clone(), Asset { url: url.into(), sha256: sha, size: a["size"].as_u64().unwrap_or(0) }));
         }
     }
-    Ok(Manifest { version, version_text, channel: ch.into(), notes_url: v["notes_url"].as_str().unwrap_or("").into(), assets })
+    Ok(Manifest {
+        version, version_text, channel: ch.into(), notes_url: https_only(v["notes_url"].as_str().unwrap_or("")), assets,
+        published: v["published"].as_u64().unwrap_or(0), expires: v["expires"].as_u64().unwrap_or(0),
+    })
 }
 
 // ---------------- state ----------------
@@ -306,6 +354,9 @@ fn run_check(_manual: bool) {
         let body = fetch(&c, &url)?;
         let sig = String::from_utf8(fetch(&c, &format!("{url}.sig"))?).map_err(|_| "bad signature")?;
         let m = verify_manifest(&body, &sig, &key, ch)?;
+        let sf = seen_file(ch);
+        check_fresh(&m, now_secs(), load_seen(&sf).as_ref())?;
+        save_seen(&sf, &Seen { version: m.version_text.clone(), published: m.published });
         let kind = current_kind();
         let cur = Version::parse(VERSION).ok_or("bad own version")?;
         match decide(&cur, &m.version, ch, kind) {
@@ -352,7 +403,10 @@ pub fn download(c: &reqwest::blocking::Client, a: &Asset, dir: &Path, version: &
     let (mut got, mut last) = (0u64, 255u8);
     let mut buf = vec![0u8; 64 * 1024];
     loop {
-        let n = r.read(&mut buf).map_err(|e| e.to_string())?;
+        let n = match r.read(&mut buf) {
+            Ok(n) => n,
+            Err(e) => { drop(f); let _ = std::fs::remove_file(&part); return Err(e.to_string()); }
+        };
         if n == 0 { break; }
         h.update(&buf[..n]);
         f.write_all(&buf[..n]).map_err(|e| e.to_string())?;
@@ -481,17 +535,43 @@ pub fn install_now() -> Result<(), String> {
     install(&p)
 }
 
-/// The command that installs an MSI and starts Barbican again (built here so it can be tested).
-pub fn msi_command(msi: &str, exe: &str) -> Vec<String> {
-    vec!["/C".into(), format!("msiexec /i \"{msi}\" /passive /norestart && start \"\" \"{exe}\"")]
+/// The installer helper: waits until this Barbican (`BARBICAN_PID`) has exited so no file is
+/// in use, runs msiexec on `BARBICAN_MSI`, then starts `BARBICAN_EXE` again (the new one, or
+/// the old one when the install failed or was cancelled; a reboot-required result 3010 also
+/// relaunches). The paths come in as environment variables, never spliced into the script,
+/// so nothing in them is run as a command.
+pub const MSI_SCRIPT: &str = "$ErrorActionPreference='SilentlyContinue'; \
+Wait-Process -Id ([int]$env:BARBICAN_PID) -Timeout 120; \
+$p = Start-Process -FilePath msiexec.exe -ArgumentList @('/i', ('\"' + $env:BARBICAN_MSI + '\"'), '/passive', '/norestart') -Wait -PassThru; \
+Start-Process -FilePath $env:BARBICAN_EXE";
+
+/// Program, arguments and environment of the helper (built here so it can be tested).
+pub fn msi_command(msi: &str, exe: &str, pid: u32) -> (String, Vec<String>, Vec<(String, String)>) {
+    ("powershell.exe".into(),
+     ["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-WindowStyle", "Hidden", "-Command", MSI_SCRIPT].map(String::from).to_vec(),
+     vec![("BARBICAN_MSI".into(), msi.into()), ("BARBICAN_EXE".into(), exe.into()), ("BARBICAN_PID".into(), pid.to_string())])
+}
+
+/// pending.json is not signed, so the file it names is only run when it lies inside the
+/// updates folder, has the package's extension and no quote or shell character.
+pub fn pending_path_ok(path: &Path, dir: &Path, kind: &str) -> bool {
+    let ext = match kind { "Msi" => "msi", "AppImage" => "AppImage", _ => return false };
+    let text = path.to_string_lossy();
+    if text.chars().any(|c| matches!(c, '"' | '%' | '&' | '|' | '<' | '>' | '^' | '`' | '$' | ';') || c.is_control()) { return false; }
+    let (Ok(p), Ok(d)) = (path.canonicalize(), dir.canonicalize()) else { return false };
+    p.starts_with(&d) && p.extension().is_some_and(|e| e == ext) && p.is_file()
 }
 
 fn install(p: &Pending) -> Result<(), String> {
+    if !pending_path_ok(Path::new(&p.path), &updates_dir(), &p.kind) {
+        return Err("The downloaded update is not where Barbican put it. Check again.".into());
+    }
     match p.kind.as_str() {
         "Msi" => {
             let exe = std::env::current_exe().map_err(|e| e.to_string())?;
-            let mut cmd = std::process::Command::new("cmd");
-            cmd.args(msi_command(&p.path, &exe.display().to_string()));
+            let (prog, args, env) = msi_command(&p.path, &exe.display().to_string(), std::process::id());
+            let mut cmd = std::process::Command::new(prog);
+            cmd.args(args).envs(env);
             #[cfg(windows)]
             { use std::os::windows::process::CommandExt; cmd.creation_flags(0x0800_0000); }
             cmd.spawn().map(|_| ()).map_err(|e| e.to_string())
@@ -595,7 +675,7 @@ mod tests {
     const SHA: &str = "a3f1c5b6e8d9a0b1c2d3e4f5a6b7c8d9e0f1a2b3c4d5e6f7a8b9c0d1e2f3a4b5";
 
     fn manifest(channel: &str) -> String {
-        json!({"version": "2.0.0", "channel": channel, "notes_url": "https://example.org/r/v2.0.0", "assets": {
+        json!({"version": "2.0.0", "channel": channel, "notes_url": "https://example.org/r/v2.0.0", "published": 100, "expires": 200, "assets": {
             "windows-x86_64-msi": {"url": "https://example.org/b.msi", "sha256": SHA, "size": 10},
             "linux-x86_64-appimage": {"url": "ftp://example.org/b.AppImage", "sha256": SHA, "size": 10},
             "linux-x86_64-deb": {"url": "https://example.org/b.deb", "sha256": "nothex", "size": 10}}}).to_string()
@@ -608,6 +688,14 @@ mod tests {
         let m = verify_manifest(body.as_bytes(), &signed(&sk, &body), &pk, "stable").unwrap();
         assert_eq!(m.version, v("2.0.0"));
         assert_eq!(m.notes_url, "https://example.org/r/v2.0.0");
+        assert_eq!((m.published, m.expires), (100, 200));
+        // links that are not https are dropped, even when signed
+        for bad in ["file:///C:/Windows/system32/calc.exe", "ms-settings:", "http://127.0.0.1/x", "https://a b"] {
+            let body = manifest("stable").replace("https://example.org/r/v2.0.0", bad);
+            assert_eq!(verify_manifest(body.as_bytes(), &signed(&sk, &body), &pk, "stable").unwrap().notes_url, "");
+        }
+        let body = manifest("stable").replace("https://example.org/b.msi", "http://127.0.0.1:9/b.msi");
+        assert!(verify_manifest(body.as_bytes(), &signed(&sk, &body), &pk, "stable").unwrap().assets.is_empty());
         // only https assets with a real hash are kept
         assert_eq!(m.assets.len(), 1);
         assert_eq!(m.assets[0].0, "windows-x86_64-msi");
@@ -660,8 +748,56 @@ mod tests {
 
     #[test]
     fn msi_cmd() {
-        let c = msi_command(r"C:\u\b.msi", r"C:\p\barbican.exe");
-        assert_eq!(c[1], r#"msiexec /i "C:\u\b.msi" /passive /norestart && start "" "C:\p\barbican.exe""#);
+        // paths with spaces and quotes stay data: they only travel as environment values
+        let (prog, args, env) = msi_command(r#"C:\u s\b".msi"#, r"C:\p q\barbican.exe", 42);
+        assert_eq!(prog, "powershell.exe");
+        assert_eq!(args.last().unwrap(), MSI_SCRIPT);
+        assert!(!args.iter().any(|a| a.contains("b\".msi") || a.contains("p q")));
+        assert_eq!(env, vec![("BARBICAN_MSI".to_string(), r#"C:\u s\b".msi"#.to_string()),
+            ("BARBICAN_EXE".to_string(), r"C:\p q\barbican.exe".to_string()), ("BARBICAN_PID".to_string(), "42".to_string())]);
+        // waits for this process before installing, relaunches afterwards
+        assert!(MSI_SCRIPT.find("Wait-Process").unwrap() < MSI_SCRIPT.find("msiexec").unwrap());
+        assert!(MSI_SCRIPT.rfind("BARBICAN_EXE").unwrap() > MSI_SCRIPT.find("msiexec").unwrap());
+    }
+
+    #[test]
+    fn pending_paths() {
+        let dir = std::env::temp_dir().join(format!("barbican-pp-test-{}", std::process::id()));
+        std::fs::create_dir_all(dir.join("2.0.0")).unwrap();
+        let good = dir.join("2.0.0").join("Barbican 2.0.0.msi");
+        std::fs::write(&good, b"x").unwrap();
+        std::fs::write(dir.join("evil.exe"), b"x").unwrap();
+        assert!(pending_path_ok(&good, &dir, "Msi"));
+        assert!(!pending_path_ok(&good, &dir, "Zip"));
+        assert!(!pending_path_ok(&good, &dir, "AppImage"));
+        assert!(!pending_path_ok(&dir.join("evil.exe"), &dir, "Msi"));
+        assert!(!pending_path_ok(&dir.join("missing.msi"), &dir, "Msi"));
+        assert!(!pending_path_ok(Path::new(r#"C:\x" & calc & ".msi"#), &dir, "Msi"));
+        let outside = std::env::temp_dir().join(format!("barbican-pp-out-{}.msi", std::process::id()));
+        std::fs::write(&outside, b"x").unwrap();
+        assert!(!pending_path_ok(&outside, &dir, "Msi"));
+        assert!(!pending_path_ok(&dir.join("2.0.0").join("..").join("..").join(outside.file_name().unwrap()), &dir, "Msi"));
+        let _ = std::fs::remove_file(&outside);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn freshness() {
+        let m = |ver: &str, published: u64, expires: u64| Manifest { version: v(ver), version_text: ver.into(), channel: "stable".into(),
+            notes_url: String::new(), assets: vec![], published, expires };
+        assert!(check_fresh(&m("2.0.0", 100, 1000), 500, None).is_ok());
+        assert!(check_fresh(&m("2.0.0", 100, 1000), 1001, None).is_err());
+        assert!(check_fresh(&m("2.0.0", 100, 0), 500, None).is_err());
+        let seen = Seen { version: "2.1.0".into(), published: 200 };
+        // an older but validly signed manifest is a replay
+        assert!(check_fresh(&m("2.0.0", 300, 1000), 500, Some(&seen)).is_err());
+        assert!(check_fresh(&m("2.1.0", 150, 1000), 500, Some(&seen)).is_err());
+        assert!(check_fresh(&m("2.1.0", 200, 1000), 500, Some(&seen)).is_ok());
+        assert!(check_fresh(&m("2.2.0", 250, 1000), 500, Some(&seen)).is_ok());
+        let f = std::env::temp_dir().join(format!("barbican-seen-{}.json", std::process::id()));
+        save_seen(&f, &seen);
+        assert_eq!(load_seen(&f), Some(seen));
+        let _ = std::fs::remove_file(&f);
     }
 
     #[test]
@@ -698,6 +834,45 @@ mod tests {
         assert_eq!(std::fs::read(&got).unwrap(), payload);
         assert!(download(&c, &Asset { url, sha256: SHA.into(), size: payload.len() as u64 }, &dir.join("bad"), "2.0.0", Kind::Msi, |_| {}).is_err());
         assert!(!dir.join("bad").join("2.0.0").join("Barbican.part").exists());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A server that sends more than the manifest's size, or closes early: both refused,
+    /// nothing left behind.
+    #[test]
+    fn download_size_limits() {
+        use sha2::Digest;
+        use std::io::{Read, Write};
+        let payload = vec![b'z'; 100_000];
+        let sha: String = sha2::Sha256::digest(&payload).iter().map(|b| format!("{b:02x}")).collect();
+        let l = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = l.local_addr().unwrap().port();
+        let p2 = payload.clone();
+        std::thread::spawn(move || {
+            for (i, s) in l.incoming().flatten().take(2).enumerate() {
+                let mut s = s;
+                let mut buf = [0u8; 2048];
+                let _ = s.read(&mut buf);
+                if i == 0 {
+                    // twice the promised size, no length header
+                    let _ = write!(s, "HTTP/1.1 200 OK\r\nConnection: close\r\n\r\n");
+                    let _ = s.write_all(&p2);
+                    let _ = s.write_all(&p2);
+                } else {
+                    // announced in full, cut short
+                    let _ = write!(s, "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n", p2.len());
+                    let _ = s.write_all(&p2[..1000]);
+                }
+            }
+        });
+        let dir = std::env::temp_dir().join(format!("barbican-dl-size-{}", std::process::id()));
+        let c = http().unwrap();
+        let a = Asset { url: format!("http://127.0.0.1:{port}/Barbican.msi"), sha256: sha, size: payload.len() as u64 };
+        assert!(download(&c, &a, &dir.join("over"), "2.0.0", Kind::Msi, |_| {}).is_err());
+        assert!(!dir.join("over").join("2.0.0").join("Barbican.msi").exists());
+        assert!(!dir.join("over").join("2.0.0").join("Barbican.part").exists());
+        assert!(download(&c, &a, &dir.join("short"), "2.0.0", Kind::Msi, |_| {}).is_err());
+        assert!(!dir.join("short").join("2.0.0").join("Barbican.msi").exists());
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

@@ -14,6 +14,11 @@
 #                                         https://updates.example.org/{channel}.json
 #                                         (the release assets of a private repo are not public:
 #                                         mirror <channel>.json(.sig) somewhere the app can reach)
+#   vars.BARBICAN_UPDATE_ASSET_BASE       public base URL the packages are mirrored to, as
+#                                         <base>/<tag>/<file> (required for updates while
+#                                         the repo is private: release assets 404 without a token)
+#                                         Manifests expire after 180 days: release, or re-run
+#                                         the manifest tool, more often than that.
 #   vars.BARBICAN_RELEASES_URL            page "Download" opens
 #   secrets.WINDOWS_CERT_PFX_BASE64 / secrets.WINDOWS_CERT_PASSWORD
 #                                         Authenticode: signs barbican.exe and the MSI
@@ -50,9 +55,9 @@ jobs:
           sed -i "0,/^version = \".*\"/s//version = \"${v}\"/" Cargo.toml
           grep -m1 '^version' Cargo.toml
       - name: Test
-        run: cargo test --release
+        run: cargo test --release -j 4
       - name: Build
-        run: cargo build --release
+        run: cargo build --release -j 4
       - name: Sign barbican.exe (hook)
         if: env.HAS_CERT == 'true'
         env:
@@ -63,13 +68,25 @@ jobs:
           [IO.File]::WriteAllBytes("$env:RUNNER_TEMP\cert.pfx", [Convert]::FromBase64String($env:CERT))
           $st = Get-ChildItem "C:\Program Files (x86)\Windows Kits\10\bin\*\x64\signtool.exe" | Select-Object -Last 1
           & $st.FullName sign /f "$env:RUNNER_TEMP\cert.pfx" /p $env:CERT_PASSWORD /fd SHA256 /tr http://timestamp.digicert.com /td SHA256 target\release\barbican.exe
+      - name: WiX 3 toolset
+        shell: pwsh
+        run: |
+          if (-not (Get-Command candle.exe -ErrorAction SilentlyContinue)) {
+            if (-not (Test-Path "${env:ProgramFiles(x86)}\WiX Toolset v3.14\bin\candle.exe")) { choco install wixtoolset --version 3.14.1 -y --no-progress }
+            $bin = (Get-ChildItem "${env:ProgramFiles(x86)}\WiX Toolset v3*\bin\candle.exe" | Select-Object -Last 1).DirectoryName
+            "WIX=$(Split-Path $bin)\" >> $env:GITHUB_ENV
+            $bin >> $env:GITHUB_PATH
+          }
       - name: MSI
         shell: pwsh
         run: |
           cargo install cargo-wix --locked
           New-Item -ItemType Directory -Force dist | Out-Null
           $v = $env:GITHUB_REF_NAME.TrimStart('v')
-          cargo wix --no-build --nocapture --output "dist\Barbican-$v-x86_64.msi"
+          # MSI versions are numeric only: 1.2.0-beta.1 -> 1.2.301, 1.2.0 -> 1.2.999 (src/release_manifest.rs)
+          $mv = cargo run --release -j 4 --example release_manifest -- msi-version $env:GITHUB_REF_NAME
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+          cargo wix --no-build --nocapture --install-version $mv --output "dist\Barbican-$v-x86_64.msi"
       - name: Sign MSI (hook)
         if: env.HAS_CERT == 'true'
         env:
@@ -107,9 +124,9 @@ jobs:
           v="${GITHUB_REF_NAME#v}"
           sed -i "0,/^version = \".*\"/s//version = \"${v}\"/" Cargo.toml
       - name: Test
-        run: cargo test --release
+        run: cargo test --release -j 4
       - name: Build
-        run: cargo build --release
+        run: cargo build --release -j 4
       - name: .deb
         run: |
           cargo install cargo-deb --locked
@@ -147,10 +164,19 @@ jobs:
       - name: Checksums and signed update manifest
         env:
           BARBICAN_UPDATE_SIGNING_KEY: ${{ secrets.BARBICAN_UPDATE_SIGNING_KEY }}
+          ASSET_BASE: ${{ vars.BARBICAN_UPDATE_ASSET_BASE }}
         run: |
           sudo apt-get update
           sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev libxkbcommon-dev libfontconfig1-dev pkg-config
-          base="https://github.com/${GITHUB_REPOSITORY}/releases/download/${GITHUB_REF_NAME}"
+          # The repo is private, so its release assets are not downloadable without a token:
+          # set vars.BARBICAN_UPDATE_ASSET_BASE to the public mirror the packages are copied to
+          # (one folder per tag). Without it the manifest points at the release, which only
+          # works once the repo or a mirror is public.
+          if [ -n "${ASSET_BASE}" ]; then base="${ASSET_BASE%/}/${GITHUB_REF_NAME}"
+          else
+            base="https://github.com/${GITHUB_REPOSITORY}/releases/download/${GITHUB_REF_NAME}"
+            echo "::warning::BARBICAN_UPDATE_ASSET_BASE not set: update downloads will 404 while the repository is private"
+          fi
           notes="https://github.com/${GITHUB_REPOSITORY}/releases/tag/${GITHUB_REF_NAME}"
           cargo run --release --example release_manifest -- "${GITHUB_REF_NAME}" dist "$base" "$notes"
           cat dist/SHA256SUMS

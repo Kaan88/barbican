@@ -605,7 +605,8 @@ fn load_mailboxes(ui: slint::Weak<AppWindow>, client: Arc<jmap::Client>, select_
 
 fn main() -> Result<(), slint::PlatformError> {
     // an update the user approved ("Install next time") installs before anything else
-    if updater::on_start() { return Ok(()); }
+    // (only when no other Barbican runs: the installer would replace it while it is open)
+    if platform::first_instance() && updater::on_start() { return Ok(()); }
     // Skia: the same text/graphics engine Chrome uses, so text matches Bulwark in the browser
     // (and gets system font fallback for CJK and other scripts).
     let _ = slint::BackendSelector::new().renderer_name("skia".into()).select();
@@ -1331,7 +1332,7 @@ fn main() -> Result<(), slint::PlatformError> {
 
     let (w, st) = (ui.as_weak(), state.clone());
     ui.on_save_draft(move |close| {
-        let Some(c) = compose_client(&st) else { return };
+        let Some(c) = compose_client(&st) else { compose::note_save_failed(); return };
         compose::save_draft(&w.unwrap(), c, close);
     });
 
