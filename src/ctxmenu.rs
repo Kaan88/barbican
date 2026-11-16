@@ -331,6 +331,16 @@ pub fn request(u: &AppWindow, kind: &str, id: &str) {
                 _ => vec![],
             }
         }
+        // an item in the Files trash: put back, or delete for good
+        "file" if files::is_trashed(id) => match files::node_info(id) {
+            None => vec![],
+            Some((name, ..)) => vec![
+                header(&name),
+                it(G_REFRESH, "Restore", "", "restore"),
+                sep(),
+                danger(G_DELETE, "Delete forever", "Del", "ask:delete"),
+            ],
+        },
         "file" => match files::node_info(id) {
             None => vec![],
             Some((name, is_folder, shared_in, may_share)) => {
@@ -357,9 +367,14 @@ pub fn request(u: &AppWindow, kind: &str, id: &str) {
                 v
             }
         },
+        "files-bg" if u.get_fl_in_trash() => vec![
+            it(G_DELETE, "Empty trash", "", "empty-trash"),
+            it(G_REFRESH, "Refresh", "", "refresh"),
+        ],
         "files-bg" => vec![
             it(G_NEW_FOLDER, "New folder", "", "new-folder"),
             it(G_UPLOAD, "Upload files", "", "upload"),
+            it(G_UPLOAD, "Upload folder", "", "upload-folder"),
             sep(),
             off(it(G_PASTE, "Paste", "Ctrl+V", "paste"), files::has_clipboard()),
             it(G_REFRESH, "Refresh", "", "refresh"),
@@ -996,6 +1011,7 @@ pub fn pick(u: &AppWindow, st: &Shared, action: &str) {
                     else { prompt(u, "Rename", &files::node_info(id).map(|n| n.0).unwrap_or_default(), "rename-file", id); }
                 }
                 "delete" => u.invoke_fl_delete(id.into()),
+                "restore" => files::restore(u, c, id),
                 "star" => files::toggle_star(u, id),
                 "duplicate" => files::duplicate(u, c, id),
                 "cut" => files::set_clipboard(u, id, true),
@@ -1009,6 +1025,8 @@ pub fn pick(u: &AppWindow, st: &Shared, action: &str) {
         "files-bg" => match action {
             "new-folder" => prompt(u, "New folder", "", "new-file-folder", ""),
             "upload" => u.invoke_fl_upload(),
+            "upload-folder" => u.invoke_fl_upload_folder(),
+            "empty-trash" => u.invoke_fl_empty_trash(),
             "paste" => { if let Some(c) = client(st) { files::paste(u, c); } }
             "refresh" => { let ids = u.get_crumb_ids(); let last = ids.row_count().checked_sub(1).and_then(|i| ids.row_data(i)).unwrap_or_default(); u.invoke_fl_open(last); }
             _ => {}

@@ -1,5 +1,6 @@
 #![cfg_attr(not(test), windows_subsystem = "windows")]
 
+mod a11y;
 mod admin;
 mod dashboard;
 mod automation;
@@ -38,8 +39,19 @@ thread_local! {
 }
 
 fn csp(images: bool) -> String {
+    csp_with(images, None)
+}
+
+/// The reader's CSP; `script` (our own accessibility script) is allowed by its hash only.
+fn csp_with(images: bool, script: Option<&str>) -> String {
+    use base64::Engine;
+    use sha2::Digest;
+    let scripts = match script {
+        Some(s) => format!("'sha256-{}'", base64::engine::general_purpose::STANDARD.encode(sha2::Sha256::digest(s.as_bytes()))),
+        None => "'none'".into(),
+    };
     format!(
-        "<meta http-equiv=\"Content-Security-Policy\" content=\"default-src 'none'; style-src 'unsafe-inline' *; font-src * data:; img-src {}; script-src 'none'; object-src 'none'; frame-src 'none'; form-action 'none'\">",
+        "<meta http-equiv=\"Content-Security-Policy\" content=\"default-src 'none'; style-src 'unsafe-inline' *; font-src * data:; img-src {}; script-src {scripts}; object-src 'none'; frame-src 'none'; form-action 'none'\">",
         if images { "* data:" } else { "data:" }
     )
 }
@@ -68,9 +80,12 @@ fn render_current(u: &AppWindow) {
         let c = c.borrow();
         let Some(cur) = c.as_ref() else { return };
         u.set_images_blocked(cur.remote && !cur.allow && mode != 2);
+        // Settings > Accessibility > Show messages as: plain text drops the layout
+        let plain_view = a11y::A11y::load().plain_view;
         let body = match &cur.html {
-            Some(h) => h.clone(),
-            None => format!("<pre>{}</pre>", esc(&cur.text)),
+            Some(h) if !plain_view => h.clone(),
+            Some(h) if cur.text.trim().is_empty() => format!("<pre>{}</pre>", esc(&html_to_text(h))),
+            _ => format!("<pre>{}</pre>", esc(&cur.text)),
         };
         match mode {
             1 => {
@@ -113,8 +128,14 @@ fn wrap_html(body: &str) -> String {
 }
 
 fn wrap_html_opts(body: &str, images: bool) -> String {
-    let csp = csp(images);
     let p = settings::Settings::load();
+    // Settings > Accessibility: spacing, width, links, motion, text size and fitting
+    let a = a11y::A11y::load();
+    let script = a.mail_script();
+    let csp = csp_with(images, script.as_deref());
+    let extra = format!("<style>{}</style>{}", a.mail_css(DARK.with(|d| d.get()) && !p.bool("emailAlwaysLightMode", false)),
+        script.map(|s| format!("<script>{s}</script>")).unwrap_or_default());
+    let csp = format!("{csp}{extra}");
     let plain = body.starts_with("<pre>");
     // Bulwark plainTextFont: sans (default) or mono for text/plain bodies
     let pre_font = if p.str("plainTextFont", "sans") == "mono" { "ui-monospace,Consolas,'Cascadia Mono',monospace" } else { "inherit" };
@@ -229,15 +250,15 @@ thread_local! { static THREAD_ID: std::cell::RefCell<Option<String>> = const { s
 fn load_thread(w: slint::Weak<AppWindow>, c: Arc<jmap::Client>, id: String) {
     if settings::Settings::load().bool("disableThreading", false) { return; }
     std::thread::spawn(move || {
-        let Ok(mut list) = c.thread_emails(&id) else { return };
+        let Ok(mut list) = c.thread_emails(unified::real_id(&id)) else { return };
         list.sort_by_key(|m| m["receivedAt"].as_str().unwrap_or("").to_string());
         let tid = list.first().and_then(|m| m["threadId"].as_str().map(String::from));
         let rows: Vec<ThreadMsg> = list.iter().map(|m| ThreadMsg {
-            id: m["id"].as_str().unwrap_or("").into(),
+            id: unified::same_source(&id, m["id"].as_str().unwrap_or("")).into(),
             sender: mail::sender(m).into(),
             date: mail::parse_time(&m["receivedAt"]).map(|t| t.format("%d %b %H:%M").to_string()).unwrap_or_default().into(),
             preview: mail::clean_preview(m["preview"].as_str().unwrap_or("")).into(),
-            current: m["id"] == id.as_str(),
+            current: m["id"] == unified::real_id(&id),
             unread: m["keywords"]["$seen"].as_bool() != Some(true),
         }).collect();
         let _ = w.upgrade_in_event_loop(move |u| {
@@ -253,12 +274,19 @@ thread_local! {
     static COMPOSE_CLIENT: std::cell::RefCell<Option<Arc<jmap::Client>>> = const { std::cell::RefCell::new(None) };
 }
 
-/// Client that owns a listed message: another account's client for unified-inbox rows, else the active one.
-fn client_for(st: &Shared, id: &str) -> Option<Arc<jmap::Client>> {
+/// Login that owns a listed message: another account's client for unified-inbox rows, else the active one.
+fn login_for(st: &Shared, id: &str) -> Option<Arc<jmap::Client>> {
     if let Some(o) = mail::owner(id) {
         if o != unified::active_user() { return unified::cached(&o); }
     }
     st.lock().unwrap().clone()
+}
+
+/// Client that reads a listed message: its login, addressing the shared/group account the
+/// row came from (unified inbox) when there is one.
+fn client_for(st: &Shared, id: &str) -> Option<Arc<jmap::Client>> {
+    let c = login_for(st, id)?;
+    Some(match mail::shared_account(id) { Some(a) => Arc::new(c.scoped(&a)), None => c })
 }
 
 /// The open message's client (falls back to the active one).
@@ -273,18 +301,32 @@ fn compose_client(st: &Shared) -> Option<Arc<jmap::Client>> {
 
 /// mail::apply, split per owning account so unified-inbox rows use their own client.
 fn apply_routed(u: &AppWindow, st: &Shared, ids: Vec<String>, action: &str) {
-    let mut groups: Vec<(Option<String>, Vec<String>)> = vec![];
+    if ids.is_empty() { return; }
+    if action.starts_with("copy-code:") {
+        if let Some(c) = st.lock().unwrap().clone() { mail::apply(u, c, ids, action); }
+        return;
+    }
+    // confirm and resolve toggles once for the whole selection, then run it per source
+    if !mail::confirm_action(u, ids.len(), action) { return; }
+    let action = mail::resolve_toggle(&ids, action);
+    let selection = ids.clone();
+    // one group per login and, for group inboxes, per shared JMAP account
+    let mut groups: Vec<((Option<String>, Option<String>), Vec<String>)> = vec![];
     for id in ids {
         let o = mail::owner(&id).filter(|o| *o != unified::active_user());
-        match groups.iter_mut().find(|g| g.0 == o) { Some(g) => g.1.push(id), None => groups.push((o, vec![id])) }
+        let key = (o, mail::shared_account(&id));
+        match groups.iter_mut().find(|g| g.0 == key) { Some(g) => g.1.push(id), None => groups.push((key, vec![id])) }
     }
-    for (o, ids) in groups {
+    for ((o, _), ids) in groups {
         let c = match &o { Some(o) => unified::cached(o), None => st.lock().unwrap().clone() };
-        if let Some(c) = c { mail::apply(u, c, ids, action); }
+        if let Some(c) = c { mail::apply_confirmed(u, c, ids, &action, &selection); }
     }
 }
 
 thread_local! { static MY_ADDRS: std::cell::RefCell<Vec<String>> = const { std::cell::RefCell::new(Vec::new()) }; }
+
+/// The identities' addresses loaded at sign-in (UI thread).
+pub fn my_addrs_cached() -> Vec<String> { MY_ADDRS.with(|a| a.borrow().clone()) }
 
 /// The user's own addresses (login and identities), for "is this me" checks.
 pub fn my_addrs(st: &Shared) -> Vec<String> {
@@ -384,14 +426,14 @@ fn schedule_refresh(w: slint::Weak<AppWindow>, c: Arc<jmap::Client>, types: std:
         if has("Mailbox") || has("Email") || has("Thread") { mail::load_mailboxes(w.clone(), c.clone(), false); }
         let scheduled = w.upgrade().is_some_and(|u| u.get_current_folder() == "__scheduled");
         if has("Email") || has("Thread") || (scheduled && has("EmailSubmission")) { mail::sync(w.clone(), c.clone()); }
-        if has("Email") || has("EmailDelivery") { check_new_mail(c.clone()); }
+        if has("Email") || has("EmailDelivery") { check_new_mail(c.clone(), Some(w.clone())); }
     }));
 }
 
 static NOTIFIED: Mutex<Option<std::collections::HashSet<String>>> = Mutex::new(None);
 
 /// Desktop notification for newly arrived unread inbox mail (Bulwark: emailNotificationsEnabled).
-fn check_new_mail(c: Arc<jmap::Client>) {
+fn check_new_mail(c: Arc<jmap::Client>, w: Option<slint::Weak<AppWindow>>) {
     let prefs = settings::Settings::load();
     if !prefs.bool("emailNotificationsEnabled", true) { return; }
     // Bulwark emailNotificationSound (default on) and pushNotifyInboxOnly (default off: every
@@ -411,9 +453,11 @@ fn check_new_mail(c: Arc<jmap::Client>) {
         let mut guard = NOTIFIED.lock().unwrap();
         let first_run = guard.is_none();
         let seen = guard.get_or_insert_with(Default::default);
+        let mut arrived = false;
         for m in list.iter().rev() {
             let id = m["id"].as_str().unwrap_or("").to_string();
             if seen.insert(id) && !first_run {
+                arrived = true;
                 let mut n = notify_rust::Notification::new();
                 if sound { n.sound_name("Mail"); }
                 let _ = n
@@ -421,6 +465,15 @@ fn check_new_mail(c: Arc<jmap::Client>) {
                     .summary(&mail::sender(m))
                     .body(&format!("{}\n{}", m["subject"].as_str().unwrap_or("(no subject)"), mail::clean_preview(m["preview"].as_str().unwrap_or(""))))
                     .show();
+            }
+        }
+        // Settings > Accessibility > Visual alerts: flash the taskbar button
+        if arrived && a11y::A11y::load().visual_alerts {
+            if let Some(w) = w {
+                let _ = w.upgrade_in_event_loop(|u| {
+                    use slint::winit_030::{winit::window::UserAttentionType, WinitWindowAccessor};
+                    u.window().with_winit_window(|ww| ww.request_user_attention(Some(UserAttentionType::Informational)));
+                });
             }
         }
     });
@@ -499,6 +552,7 @@ fn body_html(m: &Value) -> String {
 
 fn load_folder(ui: slint::Weak<AppWindow>, client: Arc<jmap::Client>, mailbox: Option<String>, text: Option<String>) {
     let filter = match (mailbox, text) {
+        (Some(m), Some(t)) if m == unified::FOLDER_ID => mail::folder_filter(&m, Some(&t)),
         (_, Some(t)) => json!({"text": t}),
         (Some(m), None) if m == "__scheduled" => json!({"scheduled": true}),
         (Some(m), None) if m == unified::FOLDER_ID => json!({"unified": true}),
@@ -628,7 +682,7 @@ fn main() -> Result<(), slint::PlatformError> {
         // Bulwark clearSearchOnFolderChange (default off): keep the query and re-run it in the new folder
         let q = u.get_search().trim().to_string();
         if !q.is_empty() && id != "__scheduled" && !settings::Settings::load().bool("clearSearchOnFolderChange", false) {
-            mail::load_list(w.clone(), c, json!({"operator": "AND", "conditions": [{"inMailbox": id.to_string()}, {"text": q}]}));
+            mail::load_list(w.clone(), c, mail::folder_filter(&id, Some(&q)));
             return;
         }
         u.set_search("".into());
@@ -644,7 +698,9 @@ fn main() -> Result<(), slint::PlatformError> {
         if text.trim().is_empty() {
             load_folder(w.clone(), c, Some(u.get_current_folder().to_string()), None);
         } else {
-            load_folder(w.clone(), c, None, Some(text.to_string()));
+            // in All inboxes the search stays within the merged inboxes (Bulwark searchUnifiedEmails)
+            let f = u.get_current_folder().to_string();
+            load_folder(w.clone(), c, (f == unified::FOLDER_ID).then_some(f), Some(text.to_string()));
         }
     });
 
@@ -667,6 +723,7 @@ fn main() -> Result<(), slint::PlatformError> {
         u.set_plugin_rows(ModelRc::default());
         // keep the conversation strip when moving within the same thread
         let same_thread = mail::email(&id).and_then(|m| m["threadId"].as_str().map(String::from)) == THREAD_ID.with(|t| t.borrow().clone());
+        let shared = mail::shared_account(&id);
         if !same_thread { u.set_thread_msgs(ModelRc::default()); }
         u.set_attachments(ModelRc::default());
         u.set_r_to("".into());
@@ -687,11 +744,17 @@ fn main() -> Result<(), slint::PlatformError> {
         let w = w.clone();
         let id = id.to_string();
         std::thread::spawn(move || {
-            let res = c.email_body(&id).map(|mut m| { inline_cid_images(&c, &mut m); m });
+            let real = unified::real_id(&id).to_string();
+            let res = c.email_body(&real).map(|mut m| {
+                inline_cid_images(&c, &mut m);
+                // a group inbox message: replies must not mark the login's own message of that id
+                if let Some(a) = &shared { m["__jmap"] = json!(a); }
+                m
+            });
             // Bulwark markAsReadDelay (ms): 0 = instantly, N = after N ms if still open, -1 = never
             let delay = settings::Settings::load().prefs.get("markAsReadDelay").and_then(|v| v.as_i64()).unwrap_or(0);
             if delay >= 0 && res.as_ref().is_ok_and(|m| m["keywords"]["$seen"].as_bool() != Some(true)) {
-                let (c3, id3, w3) = (c.clone(), id.clone(), w.clone());
+                let (c3, id3, w3, real3) = (c.clone(), id.clone(), w.clone(), real.clone());
                 std::thread::spawn(move || {
                     std::thread::sleep(std::time::Duration::from_millis(delay as u64));
                     let still = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
@@ -699,7 +762,7 @@ fn main() -> Result<(), slint::PlatformError> {
                     let _ = w3.upgrade_in_event_loop(move |u| s2.store(u.get_current_mail().as_str() == i2, std::sync::atomic::Ordering::SeqCst));
                     std::thread::sleep(std::time::Duration::from_millis(100));
                     if delay == 0 || still.load(std::sync::atomic::Ordering::SeqCst) {
-                        let _ = c3.set_keyword(&[id3.clone()], "$seen", true);
+                        let _ = c3.set_keyword(&[real3], "$seen", true);
                         let _ = w3.upgrade_in_event_loop(move |u| mail::mark_read_local(&u, &id3));
                     }
                 });
@@ -739,7 +802,7 @@ fn main() -> Result<(), slint::PlatformError> {
                         }).collect();
                         u.set_attachments(ModelRc::new(VecModel::from(rows)));
                         CUR_MSG.with(|x| *x.borrow_mut() = Some((m.clone(), atts)));
-                        load_thread(w2.clone(), c2.clone(), m["id"].as_str().unwrap_or("").to_string());
+                        load_thread(w2.clone(), c2.clone(), id.clone());
                         u.set_r_subject(SharedString::from(m["subject"].as_str().unwrap_or("(no subject)")));
                         u.set_r_from(from.into());
                         u.set_r_date(parse_time(&m["receivedAt"]).map(|t| t.format("%a %d %b %Y, %H:%M").to_string()).unwrap_or_default().into());
@@ -891,7 +954,23 @@ fn main() -> Result<(), slint::PlatformError> {
         p.set(&key, serde_json::json!(on), &mut cf.lock().unwrap());
         drop(p);
         rs();
-        if key == "enableUnifiedMailbox" && on { unified::warm_up(); }
+        if key == "enableUnifiedMailbox" && on { unified::warm_up(Some(wt.clone())); }
+        if let Some(u) = wt.upgrade() {
+            let open = u.get_current_folder() == unified::FOLDER_ID;
+            if key == "enableUnifiedMailbox" && !on && open {
+                // the folder is gone: clear its list and fall back to the Inbox
+                mail::clear_list(&u);
+                u.set_current_mail("".into());
+                if let Some(c) = unified::cached(&unified::active_user()) { mail::load_mailboxes(wt.clone(), c, true); }
+            } else if open && (key == "unifiedCrossAccount" || key == "includeGroupInUnified") {
+                if key == "unifiedCrossAccount" && on { unified::warm_up(Some(wt.clone())); }
+                if let Some(c) = unified::cached(&unified::active_user()) { load_folder(wt.clone(), c, Some(unified::FOLDER_ID.into()), None); }
+            }
+            if key == "unifiedCrossAccount" || key == "includeGroupInUnified" {
+                let w2 = wt.clone();
+                std::thread::spawn(move || { unified::refresh_counts(); let _ = w2.upgrade_in_event_loop(|u| mail::rebuild_folders(&u)); });
+            }
+        }
         if let Some(u) = wt.upgrade() { apply_ui_prefs(&u); mail::rebuild_folders(&u); mail::rebuild_list(&u); }
     });
 
@@ -943,6 +1022,14 @@ fn main() -> Result<(), slint::PlatformError> {
             return;
         }
         if key == "signout" { u.set_show_settings(false); u.invoke_sign_out(); }
+        if key == "a11y.reset" {
+            pf2.lock().unwrap().set("a11y.reset", Value::Null, &mut cf2.lock().unwrap());
+            apply_ui_prefs(&u);
+            mail::rebuild_folders(&u);
+            mail::rebuild_list(&u);
+            mail::show_toast(&u, "Accessibility settings reset", false);
+            u.invoke_settings_search(u.get_settings_query());
+        }
         if key == "plugins.folder" { oauth::open_browser(&plugins::dir().to_string_lossy()); }
         if key == "backup.export" {
             if let Some(path) = rfd::FileDialog::new().set_file_name("barbican-settings.json").add_filter("JSON", &["json"]).save_file() {
@@ -1090,7 +1177,9 @@ fn main() -> Result<(), slint::PlatformError> {
         let prompt = expand_prompt(&text, &conf, c.has("urn:ietf:params:jmap:calendars"));
         u.set_chat_input("".into());
         let ctx = agent::Ctx {
-            open_message: Some(u.get_current_mail().to_string()).filter(|s| !s.is_empty()),
+            open_message: Some(u.get_current_mail().to_string()).filter(|s| !s.is_empty())
+                .filter(|s| mail::shared_account(s).is_none() && mail::owner(s).is_none_or(|o| o == unified::active_user()))
+                .map(|s| unified::real_id(&s).to_string()),
             open_subject: u.get_r_subject().to_string(),
         };
         hist.lock().unwrap().push(agent::Msg::User(prompt));
@@ -1163,7 +1252,7 @@ fn main() -> Result<(), slint::PlatformError> {
 
     let (w, st) = (ui.as_weak(), state.clone());
     ui.on_reply(move || {
-        let Some(c) = reader_client(&st) else { return };
+        let Some(c) = login_for(&st, &w.unwrap().get_current_mail()) else { return };
         COMPOSE_CLIENT.with(|r| *r.borrow_mut() = Some(c.clone()));
         let Some((m, _)) = CUR_MSG.with(|x| x.borrow().clone()) else { return };
         compose::open(&w.unwrap(), c, compose::ComposeKind::Reply, Some(&m));
@@ -1288,6 +1377,12 @@ fn main() -> Result<(), slint::PlatformError> {
     ui.on_fl_rename(move |id, n| { let Some(c) = st.lock().unwrap().clone() else { return }; files::rename(&w.unwrap(), c, &id, &n); });
     let (w, st) = (ui.as_weak(), state.clone());
     ui.on_fl_delete(move |id| { let Some(c) = st.lock().unwrap().clone() else { return }; files::delete(&w.unwrap(), c, &id); });
+    let (w, st) = (ui.as_weak(), state.clone());
+    ui.on_fl_upload_folder(move || { let Some(c) = st.lock().unwrap().clone() else { return }; files::upload_folder(&w.unwrap(), c); });
+    let (w, st) = (ui.as_weak(), state.clone());
+    ui.on_fl_restore(move |id| { let Some(c) = st.lock().unwrap().clone() else { return }; files::restore(&w.unwrap(), c, &id); });
+    let (w, st) = (ui.as_weak(), state.clone());
+    ui.on_fl_empty_trash(move || { let Some(c) = st.lock().unwrap().clone() else { return }; files::empty_trash(&w.unwrap(), c); });
 
     let (w, st) = (ui.as_weak(), state.clone());
     ui.on_admin_load(move |sec| { let Some(c) = st.lock().unwrap().clone() else { return }; admin::load(&w.unwrap(), c, &sec); });
@@ -1332,6 +1427,9 @@ fn main() -> Result<(), slint::PlatformError> {
             }
         };
         let _ = (&st, &pf);
+        // Settings > Accessibility > Single-key shortcuts (Ctrl/Alt ones keep working)
+        let single = t.chars().count() == 1 && t.chars().next().is_some_and(|ch| ch.is_ascii_graphic());
+        if single && !a11y::A11y::load().single_keys { return; }
         match t {
             "j" => move_sel(1, false),
             "k" => move_sel(-1, false),
@@ -1487,10 +1585,16 @@ fn main() -> Result<(), slint::PlatformError> {
     ui.on_move_to(move |fid| {
         let u = w.unwrap();
         let ids = { let ch = mail::checked_ids(); if ch.is_empty() { vec![u.get_current_mail().to_string()] } else { ch } };
-        // folder ids belong to the active account: other accounts' rows are left alone
-        let ids: Vec<String> = ids.into_iter().filter(|i| mail::owner(i).is_none_or(|o| o == unified::active_user())).collect();
-        let Some(c) = st.lock().unwrap().clone() else { return };
-        mail::apply(&u, c, ids.into_iter().filter(|i| !i.is_empty()).collect(), &format!("move:{fid}"));
+        let ids: Vec<String> = ids.into_iter().filter(|i| !i.is_empty()).collect();
+        // folder ids belong to the active account: other accounts' rows (and group inboxes)
+        // go to their own folder with the same role, else the same name (Bulwark move targets)
+        let (own, other): (Vec<String>, Vec<String>) = ids.into_iter()
+            .partition(|i| mail::owner(i).is_none_or(|o| o == unified::active_user()) && mail::shared_account(i).is_none());
+        if let Some(c) = st.lock().unwrap().clone() { mail::apply(&u, c, own, &format!("move:{fid}")); }
+        if !other.is_empty() {
+            let (role, name) = mail::mailbox_info(&fid);
+            apply_routed(&u, &st, other, &unified::moveto_action(&role, &name));
+        }
     });
 
     let (w, st) = (ui.as_weak(), state.clone());
@@ -1511,7 +1615,7 @@ fn main() -> Result<(), slint::PlatformError> {
         match a.as_str() {
             "reply" => u.invoke_reply(),
             "reply-all" | "forward" => {
-                let Some(c) = reader_client(&st) else { return };
+                let Some(c) = login_for(&st, &id) else { return };
                 COMPOSE_CLIENT.with(|r| *r.borrow_mut() = Some(c.clone()));
                 let Some((msg, _)) = CUR_MSG.with(|x| x.borrow().clone()) else { return };
                 let kind = if a == "forward" { compose::ComposeKind::Forward } else { compose::ComposeKind::ReplyAll };
@@ -1748,7 +1852,7 @@ fn finish_login(w: slint::Weak<AppWindow>, st: Shared, res: Result<jmap::Client,
             let c = Arc::new(c);
             *st.lock().unwrap() = Some(c.clone());
             unified::set_active(&user, c.clone());
-            if unified::enabled() { unified::warm_up(); }
+            if unified::enabled() { unified::warm_up(Some(w.clone())); }
             let p = config_path();
             let _ = std::fs::create_dir_all(p.parent().unwrap());
             let _ = std::fs::write(&p, format!("{server}\n{user}\n"));
@@ -1773,7 +1877,7 @@ fn finish_login(w: slint::Weak<AppWindow>, st: Shared, res: Result<jmap::Client,
                     let _ = w3.upgrade_in_event_loop(move |_| MY_ADDRS.with(|a| *a.borrow_mut() = addrs));
                 });
             }
-            check_new_mail(c.clone());
+            check_new_mail(c.clone(), None);
             start_push(w2, c);
         }
         Err(e) => {
@@ -1825,7 +1929,20 @@ pub fn apply_ui_prefs(ui: &AppWindow) {
     ui.set_pref_quick_reply(p.bool("quickReplyEnabled", true));
     ui.global::<Prefs>().set_toolbar_labels(p.bool("showToolbarLabels", true));
     ui.global::<Prefs>().set_tag_chips(p.bool("showTagChips", true));
-    ui.global::<Prefs>().set_font_size(match p.str("fontSize", "medium").as_str() { "small" => 12.0, "large" => 15.0, "x-large" | "extra-large" => 17.0, _ => 13.0 });
+    let a = a11y::A11y::load();
+    // Bulwark FONT_SIZE_SCALE on the 13px base
+    ui.global::<Prefs>().set_font_size(13.0 * a.font_scale);
+    ui.global::<Theme>().set_more_contrast(a.more_contrast);
+    ui.global::<Prefs>().set_reduce_motion(a.reduce_motion);
+    ui.global::<Prefs>().set_large_targets(a.large_targets);
+    // Bulwark focus outline widths: normal 2px, thick 3px, extra 5px
+    ui.global::<Prefs>().set_focus_ring([0.0, 2.0, 3.0, 5.0][a.focus_ring.clamp(0, 3) as usize]);
+    ui.global::<Prefs>().set_row_action(a.show_row_action);
+    // Bulwark hoverActionsMode (inline | floating) and hoverActionsCorner
+    let corner = p.str("hoverActionsCorner", "top-right");
+    ui.global::<Prefs>().set_hover_floating(p.str("hoverActionsMode", "inline") == "floating");
+    ui.global::<Prefs>().set_hover_left(corner.ends_with("left"));
+    ui.global::<Prefs>().set_hover_bottom(corner.starts_with("bottom"));
     ui.set_pref_day_start(p.int("calendarDayStartHour", 8).clamp(0, 23) as i32);
     // Bulwark hoverActions (delete, star, markRead, archive, tag, spam), in the user's order
     let hover: Vec<slint::SharedString> = match p.prefs.get("hoverActions").and_then(|v| v.as_array()) {
@@ -1835,6 +1952,8 @@ pub fn apply_ui_prefs(ui: &AppWindow) {
         None => ["delete", "star", "read", "archive"].into_iter().map(slint::SharedString::from).collect(),
     };
     ui.global::<Prefs>().set_hover_actions(slint::ModelRc::new(slint::VecModel::from(hover)));
+    // the open message picks up reading and accessibility changes
+    if ui.get_current_mail() != "" { render_current(ui); }
     calendar::render(ui);
     contacts::render(ui);
 }

@@ -63,6 +63,71 @@ fn parent_key(n: &Value) -> String {
 
 fn node(k: &str) -> Option<Value> { ST.with(|s| s.borrow().nodes.iter().find(|n| key(n) == k).cloned()) }
 
+// ---------------- trash (Bulwark lib/files-trash.ts) ----------------
+//
+// Stalwart keeps no deleted FileNodes, so the trash is a folder the app manages: `.Trash` at
+// the root of the user's own drive, hidden from every listing. Each delete puts its items in a
+// folder of its own inside it, named `<ms since epoch>~<parent id>`, so Restore knows where
+// they came from and two deleted files of the same name never clash.
+
+pub const TRASH_NAME: &str = ".Trash";
+/// The trash as a place in the Files view (no JMAP id contains "*").
+pub const TRASH_LOC: &str = "*trash";
+
+/// The name of the folder one delete's items go into.
+pub fn trash_batch_name(parent: Option<&str>, deleted_ms: i64) -> String { format!("{deleted_ms}~{}", parent.unwrap_or("")) }
+
+/// When a batch was deleted (ms) and from which folder (None: the root); None for other names.
+pub fn parse_trash_batch(name: &str) -> Option<(i64, Option<String>)> {
+    let (ms, parent) = name.split_once('~')?;
+    if ms.len() < 10 || !ms.bytes().all(|b| b.is_ascii_digit()) { return None; }
+    if !parent.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-') { return None; }
+    Some((ms.parse().ok()?, (!parent.is_empty()).then(|| parent.to_string())))
+}
+
+fn trash_folder(s: &State) -> Option<&Value> {
+    s.nodes.iter().find(|n| !shared(n) && parent_key(n).is_empty() && is_dir(n) && n["name"] == TRASH_NAME)
+}
+
+/// The trash folder and everything in it (keys), kept out of normal listings.
+fn trash_subtree(s: &State) -> HashSet<String> {
+    let mut ids = HashSet::new();
+    let Some(t) = trash_folder(s) else { return ids };
+    ids.insert(key(t));
+    loop {
+        let before = ids.len();
+        for n in &s.nodes { if ids.contains(&parent_key(n)) { ids.insert(key(n)); } }
+        if ids.len() == before { return ids; }
+    }
+}
+
+/// What the trash holds: (item, its batch key if any, deleted at ms, the folder it came from).
+fn trashed_items(s: &State) -> Vec<(Value, Option<String>, Option<i64>, Option<String>)> {
+    let Some(t) = trash_folder(s) else { return vec![] };
+    let tk = key(t);
+    let mut out = vec![];
+    for child in s.nodes.iter().filter(|n| parent_key(n) == tk) {
+        match is_dir(child).then(|| parse_trash_batch(child["name"].as_str().unwrap_or(""))).flatten() {
+            Some((ms, from)) => {
+                let bk = key(child);
+                for n in s.nodes.iter().filter(|n| parent_key(n) == bk) { out.push((n.clone(), Some(bk.clone()), Some(ms), from.clone())); }
+            }
+            None => out.push((child.clone(), None, None, None)),
+        }
+    }
+    out
+}
+
+/// Whether a node sits in the trash (an item of it, not the trash folder itself).
+pub fn is_trashed(k: &str) -> bool { ST.with(|s| { let s = s.borrow(); trash_subtree(&s).contains(k) && trash_folder(&s).is_none_or(|t| key(t) != k) }) }
+
+/// A name not taken among `used` (Bulwark getUniqueName: "name (2).ext").
+pub fn unique_name(name: &str, used: &HashSet<String>) -> String {
+    if !used.contains(name) { return name.to_string(); }
+    let (stem, ext) = match name.rfind('.') { Some(i) if i > 0 => (&name[..i], &name[i..]), _ => (name, "") };
+    (2..).map(|i| format!("{stem} ({i}){ext}")).find(|n| !used.contains(n)).unwrap()
+}
+
 /// Favourites and recent files live on this device (Bulwark: files-favorites / files-recent-files).
 fn local() -> Value {
     std::fs::read_to_string(crate::config_dir().join("files.json")).ok().and_then(|t| serde_json::from_str(&t).ok()).unwrap_or(json!({}))
@@ -153,15 +218,23 @@ pub fn render(u: &AppWindow) {
     let recent = prefs_list("filesRecent");
     ST.with(|s| {
         let s = s.borrow();
-        let mut rows: Vec<&Value> = s.nodes.iter().filter(|n| parent_key(n) == s.cwd && (!s.cwd.is_empty() || !shared(n))).collect();
+        let hidden = trash_subtree(&s);
+        let in_trash = s.cwd == TRASH_LOC;
+        let trashed = if in_trash { trashed_items(&s) } else { vec![] };
+        let mut rows: Vec<&Value> = if in_trash { trashed.iter().map(|t| &t.0).collect() } else {
+            s.nodes.iter().filter(|n| parent_key(n) == s.cwd && (!s.cwd.is_empty() || !shared(n)) && !hidden.contains(&key(n))).collect()
+        };
         rows.sort_by_key(|n| (!is_dir(n), n["name"].as_str().unwrap_or("").to_lowercase()));
+        let deleted_at = |n: &Value| trashed.iter().find(|t| key(&t.0) == key(n)).and_then(|t| t.2)
+            .and_then(chrono::DateTime::from_timestamp_millis).map(|t| t.with_timezone(&chrono::Local).format("Deleted %d %b %Y %H:%M").to_string());
         let cut: Vec<String> = s.clipboard.as_ref().filter(|c| c.1).map(|c| c.0.clone()).unwrap_or_default();
         let out: Vec<FileRow> = rows.iter().map(|n| FileRow {
+            trashed: in_trash,
             id: key(n).into(),
             name: n["name"].as_str().unwrap_or("").into(),
             folder: is_dir(n),
             size: if is_dir(n) { "".into() } else { crate::human_size(n["size"].as_u64().unwrap_or(0)).into() },
-            modified: n["modified"].as_str().and_then(|d| crate::mail::parse_time(&json!(d))).map(|t| t.format("%d %b %Y %H:%M").to_string()).unwrap_or_default().into(),
+            modified: deleted_at(n).or_else(|| n["modified"].as_str().and_then(|d| crate::mail::parse_time(&json!(d))).map(|t| t.format("%d %b %Y %H:%M").to_string())).unwrap_or_default().into(),
             renaming: s.rename.as_deref() == Some(key(n).as_str()),
             starred: favs.contains(&key(n)),
             shared: n["shareWith"].as_object().is_some_and(|m| !m.is_empty()) || shared(n),
@@ -179,6 +252,7 @@ pub fn render(u: &AppWindow) {
             cur = parent_key(n);
         }
         let in_shared = s.nodes.iter().find(|n| key(n) == s.cwd).is_some_and(shared);
+        if in_trash { crumbs.push((TRASH_LOC.into(), "Trash".into())); }
         crumbs.push(("".into(), if in_shared { "Shared with me".into() } else { "My files".into() }));
         crumbs.reverse();
         let ids: Vec<SharedString> = crumbs.iter().map(|c| c.0.as_str().into()).collect();
@@ -189,7 +263,7 @@ pub fn render(u: &AppWindow) {
         // ---- sidebar (Bulwark files-sidebar): My files tree, Favorites, Recent, Shared with me ----
         let mut v = vec![nav("root", "", "My files", "\u{E8B7}", 0, "")];
         fn tree(s: &State, parent: &str, depth: i32, v: &mut Vec<NavRow>) {
-            let mut kids: Vec<&Value> = s.nodes.iter().filter(|n| !shared(n) && is_dir(n) && parent_key(n) == parent).collect();
+            let mut kids: Vec<&Value> = s.nodes.iter().filter(|n| !shared(n) && is_dir(n) && parent_key(n) == parent && !(parent.is_empty() && n["name"] == TRASH_NAME)).collect();
             kids.sort_by_key(|n| n["name"].as_str().unwrap_or("").to_lowercase());
             for n in kids {
                 let k = key(n);
@@ -204,13 +278,13 @@ pub fn render(u: &AppWindow) {
         tree(&s, "", 1, &mut v);
         let mut first = true;
         for f in &favs {
-            let Some(n) = s.nodes.iter().find(|n| key(n) == *f) else { continue };
+            let Some(n) = s.nodes.iter().find(|n| key(n) == *f && !hidden.contains(f)) else { continue };
             v.push(nav("fav", f, n["name"].as_str().unwrap_or(""), "\u{E735}", 0, if first { "Favorites" } else { "" }));
             first = false;
         }
         let mut first = true;
         for f in &recent {
-            let Some(n) = s.nodes.iter().find(|n| key(n) == *f) else { continue };
+            let Some(n) = s.nodes.iter().find(|n| key(n) == *f && !hidden.contains(f)) else { continue };
             v.push(nav("recent", f, n["name"].as_str().unwrap_or(""), "\u{E81C}", 0, if first { "Recent" } else { "" }));
             first = false;
         }
@@ -222,8 +296,14 @@ pub fn render(u: &AppWindow) {
             v.push(nav("shared", &key(n), n["name"].as_str().unwrap_or(""), if is_dir(n) { "\u{E8B7}" } else { "\u{E7C3}" }, 0, if first { "Shared with me" } else { "" }));
             first = false;
         }
+        // Bulwark's Trash section, with how many items it holds
+        let mut t = nav("trash", TRASH_LOC, "Trash", "\u{E74D}", 0, "");
+        let n = trashed_items(&s).len();
+        if n > 0 { t.label = format!("Trash ({n})").into(); }
+        v.push(t);
         u.set_fl_nav(ModelRc::new(VecModel::from(v)));
         u.set_fl_cwd(s.cwd.clone().into());
+        u.set_fl_in_trash(in_trash);
     });
 }
 
@@ -234,7 +314,10 @@ pub fn toggle_expand(u: &AppWindow, k: &str) {
 }
 
 pub fn activate(u: &AppWindow, c: Arc<Client>, id: &str) {
+    if id == TRASH_LOC { open(u, c, id); return; }
     let Some(n) = node(id) else { return };
+    // a folder in the trash is not browsed into: restore it first (Bulwark)
+    if is_trashed(id) && is_dir(&n) { return; }
     note_recent(id);
     if is_dir(&n) { open(u, c, id); return; }
     let name = crate::sanitize_name(n["name"].as_str().unwrap_or("file"));
@@ -281,6 +364,7 @@ fn create_in(c: &Client, draft: bool, acc: &str, parent: Option<&str>, name: &st
 }
 
 pub fn upload(u: &AppWindow, c: Arc<Client>) {
+    if ST.with(|s| s.borrow().cwd == TRASH_LOC) { crate::mail::show_toast(u, "Nothing can be added to the trash.", false); return; }
     let Some(files) = rfd::FileDialog::new().pick_files() else { return };
     let (cwd, draft) = ST.with(|s| (s.borrow().cwd.clone(), s.borrow().draft18));
     let (acc, parent) = target(&cwd);
@@ -302,6 +386,7 @@ pub fn upload(u: &AppWindow, c: Arc<Client>) {
 }
 
 pub fn new_folder(u: &AppWindow, c: Arc<Client>, name: &str) {
+    if ST.with(|s| s.borrow().cwd == TRASH_LOC) { crate::mail::show_toast(u, "Nothing can be added to the trash.", false); return; }
     let name = name.trim().to_string();
     if name.is_empty() { return; }
     let (cwd, draft) = ST.with(|s| (s.borrow().cwd.clone(), s.borrow().draft18));
@@ -349,10 +434,133 @@ pub fn rename(u: &AppWindow, c: Arc<Client>, id: &str, name: &str) {
     node_set(u, c, acc_of(&n), json!({"update": { raw_id(&n): {"name": name} }}), "");
 }
 
+/// Delete: in the user's own drive the item goes to the trash; in a shared drive, or when it
+/// is already in the trash, it is removed for good (Bulwark deletesToTrash).
 pub fn delete(u: &AppWindow, c: Arc<Client>, id: &str) {
     let Some(n) = node(id) else { return };
     ST.with(|s| { let mut s = s.borrow_mut(); if let Some(cb) = s.clipboard.as_mut() { cb.0.retain(|x| x != id); } });
-    node_set(u, c, acc_of(&n), json!({"destroy": [raw_id(&n)], "onDestroyRemoveChildren": true}), "");
+    if shared(&n) { node_set(u, c, acc_of(&n), json!({"destroy": [raw_id(&n)], "onDestroyRemoveChildren": true}), ""); return; }
+    if is_trashed(id) { purge(u, c, id); return; }
+    let (trash, draft) = ST.with(|s| { let s = s.borrow(); (trash_folder(&s).map(raw_id), s.draft18) });
+    let acc = acc_of(&n);
+    let parent = n["parentId"].as_str().filter(|p| !p.is_empty()).map(String::from);
+    let cwd = ST.with(|s| s.borrow().cwd.clone());
+    let w = u.as_weak();
+    let item = raw_id(&n);
+    std::thread::spawn(move || {
+        let res: Result<(), String> = (|| {
+            let trash = match trash { Some(t) => t, None => create_in(&c, draft, &acc, None, TRASH_NAME, None)? };
+            let batch = create_in(&c, draft, &acc, Some(&trash), &trash_batch_name(parent.as_deref(), chrono::Utc::now().timestamp_millis()), None)?;
+            let r = c.call(json!([["FileNode/set", {"accountId": acc, "update": {item.clone(): {"parentId": batch}}}, "s"]]))?;
+            if let Some(e) = r[0][1]["notUpdated"].as_object().and_then(|m| m.values().next()) {
+                let _ = c.call(json!([["FileNode/set", {"accountId": acc, "destroy": [batch]}, "d"]]));
+                return Err(crate::jmap::set_error(e));
+            }
+            Ok(())
+        })();
+        let _ = w.upgrade_in_event_loop(move |u| {
+            match res { Ok(()) => crate::mail::show_toast(&u, "Moved to the trash", false), Err(e) => crate::mail::show_toast(&u, &e, false) }
+            open(&u, c, &cwd);
+        });
+    });
+}
+
+/// Batches (keys) left empty once `gone` leave the trash.
+fn emptied_batches(s: &State, gone: &[String]) -> Vec<String> {
+    let mut out = vec![];
+    for (_, b, _, _) in trashed_items(s).iter().filter(|t| gone.contains(&key(&t.0))) {
+        let Some(b) = b else { continue };
+        if out.contains(b) { continue; }
+        if s.nodes.iter().filter(|n| parent_key(n) == *b).all(|n| gone.contains(&key(n))) { out.push(b.clone()); }
+    }
+    out
+}
+
+/// Delete an item of the trash for good, and its batch folder when that empties.
+pub fn purge(u: &AppWindow, c: Arc<Client>, id: &str) {
+    let Some(n) = node(id) else { return };
+    let mut destroy = vec![raw_id(&n)];
+    ST.with(|s| { let s = s.borrow(); destroy.extend(emptied_batches(&s, &[id.to_string()]).iter().filter_map(|b| s.nodes.iter().find(|x| key(x) == *b).map(raw_id))); });
+    node_set(u, c, acc_of(&n), json!({"destroy": destroy, "onDestroyRemoveChildren": true}), "Deleted for good");
+}
+
+/// Put a trashed item back where it came from (the root when that folder is gone or itself
+/// in the trash), under a free name.
+pub fn restore(u: &AppWindow, c: Arc<Client>, id: &str) {
+    let plan = ST.with(|s| {
+        let s = s.borrow();
+        let (n, _, _, from) = trashed_items(&s).into_iter().find(|t| key(&t.0) == id)?;
+        let hidden = trash_subtree(&s);
+        let target = from.filter(|f| s.nodes.iter().any(|x| !shared(x) && key(x) == *f && is_dir(x) && !hidden.contains(f)));
+        let tk = target.clone().unwrap_or_default();
+        let used: HashSet<String> = s.nodes.iter().filter(|x| !shared(x) && parent_key(x) == tk && !hidden.contains(&key(x)))
+            .filter_map(|x| x["name"].as_str().map(String::from)).collect();
+        let name = n["name"].as_str().unwrap_or("").to_string();
+        let free = unique_name(&name, &used);
+        let mut patch = json!({"parentId": target});
+        if free != name { patch["name"] = json!(free); }
+        let batches: Vec<String> = emptied_batches(&s, &[id.to_string()]).iter().filter_map(|b| s.nodes.iter().find(|x| key(x) == *b).map(raw_id)).collect();
+        let mut args = json!({"update": {raw_id(&n): patch}});
+        if !batches.is_empty() { args["destroy"] = json!(batches); }
+        Some((acc_of(&n), args))
+    });
+    let Some((acc, args)) = plan else { return };
+    node_set(u, c, acc, args, "Restored");
+}
+
+/// Delete everything in the trash for good: the folder goes with all of it (the next delete
+/// makes a new one).
+pub fn empty_trash(u: &AppWindow, c: Arc<Client>) {
+    let Some((acc, id)) = ST.with(|s| { let s = s.borrow(); trash_folder(&s).map(|t| (acc_of(t), raw_id(t))) }) else { return };
+    node_set(u, c, acc, json!({"destroy": [id], "onDestroyRemoveChildren": true}), "Trash emptied");
+}
+
+/// Upload a folder from disk with everything in it into the folder on screen, recreating its
+/// subfolders (Bulwark uploadFolder).
+pub fn upload_folder(u: &AppWindow, c: Arc<Client>) {
+    let Some(root) = rfd::FileDialog::new().pick_folder() else { return };
+    let (cwd, draft) = ST.with(|s| (s.borrow().cwd.clone(), s.borrow().draft18));
+    if cwd == TRASH_LOC { crate::mail::show_toast(u, "Nothing can be added to the trash.", false); return; }
+    let (acc, parent) = target(&cwd);
+    let w = u.as_weak();
+    crate::mail::show_toast(u, "Uploading folder…", false);
+    std::thread::spawn(move || {
+        let (mut done, mut failed) = (0usize, vec![]);
+        let res: Result<(), String> = (|| {
+            let top = root.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_else(|| "Folder".into());
+            let top_id = create_in(&c, draft, &acc, parent.as_deref(), &top, None)?;
+            // breadth-first: each directory is created before what is inside it
+            let mut queue = vec![(root.clone(), top_id)];
+            while let Some((dir, id)) = queue.pop() {
+                let mut entries: Vec<_> = std::fs::read_dir(&dir).map_err(|e| e.to_string())?.filter_map(|e| e.ok()).collect();
+                entries.sort_by_key(|e| e.file_name());
+                for e in entries {
+                    let name = e.file_name().to_string_lossy().to_string();
+                    let Ok(ft) = e.file_type() else { continue };
+                    if ft.is_symlink() { continue; }
+                    if ft.is_dir() {
+                        match create_in(&c, draft, &acc, Some(&id), &name, None) {
+                            Ok(sub) => queue.push((e.path(), sub)),
+                            Err(err) => failed.push(format!("{name}: {err}")),
+                        }
+                    } else {
+                        let t = crate::compose::mime_for(&name);
+                        let r = std::fs::read(e.path()).map_err(|x| x.to_string())
+                            .and_then(|b| c.upload_to(&acc, b, t))
+                            .and_then(|(blob, _)| create_in(&c, draft, &acc, Some(&id), &name, Some((&blob, t))));
+                        match r { Ok(_) => done += 1, Err(err) => failed.push(format!("{name}: {err}")) }
+                    }
+                }
+            }
+            Ok(())
+        })();
+        let msg = match (res, failed.first()) {
+            (Err(e), _) => format!("Upload failed: {e}"),
+            (Ok(()), Some(f)) => format!("Uploaded {done} files; {} failed ({f})", failed.len()),
+            (Ok(()), None) => format!("Uploaded {done} files"),
+        };
+        let _ = w.upgrade_in_event_loop(move |u| { crate::mail::show_toast(&u, &msg, false); open(&u, c, &cwd); });
+    });
 }
 
 // ---------------- move, cut / copy / paste, duplicate ----------------
@@ -370,7 +578,7 @@ pub fn move_targets(k: &str) -> Vec<(String, String)> {
             kids.sort_by_key(|n| n["name"].as_str().unwrap_or("").to_lowercase());
             for n in kids {
                 let k = key(n);
-                if k == skip { continue; }
+                if k == skip || (parent.is_empty() && !shared(n) && n["name"] == TRASH_NAME) { continue; }
                 if k != cur_parent { out.push((k.clone(), format!("{}{}", "   ".repeat(depth), n["name"].as_str().unwrap_or("")))); }
                 walk(s, acc, &k, depth + 1, skip, cur_parent, out);
             }
@@ -535,4 +743,44 @@ pub fn principal_names(c: &Client, ids: &[String]) -> Vec<String> {
     let acc = c.account_for("urn:ietf:params:jmap:principals");
     let r = c.call(json!([["Principal/get", {"accountId": acc, "ids": ids, "properties": ["id", "name", "email"]}, "g"]])).ok();
     ids.iter().map(|id| r.as_ref().and_then(|r| r[0][1]["list"].as_array().and_then(|l| l.iter().find(|p| p["id"] == id.as_str())).and_then(|p| p["email"].as_str().or(p["name"].as_str()).map(String::from))).unwrap_or_else(|| id.clone())).collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn trash_batch_names() {
+        assert_eq!(trash_batch_name(Some("b12"), 1730112000000), "1730112000000~b12");
+        assert_eq!(trash_batch_name(None, 1730112000000), "1730112000000~");
+        assert_eq!(parse_trash_batch("1730112000000~b12"), Some((1730112000000, Some("b12".into()))));
+        assert_eq!(parse_trash_batch("1730112000000~"), Some((1730112000000, None)));
+        assert_eq!(parse_trash_batch("report.pdf"), None);
+        assert_eq!(parse_trash_batch("123~x"), None);
+        assert_eq!(parse_trash_batch("1730112000000~a/b"), None);
+    }
+
+    #[test]
+    fn trash_listing_and_names() {
+        let n = |id: &str, parent: Option<&str>, name: &str, dir: bool| {
+            let mut v = json!({"id": id, "parentId": parent, "name": name, "_key": id, "_acc": "a", "_shared": false});
+            if !dir { v["blobId"] = json!("b"); }
+            v
+        };
+        let s = State { nodes: vec![
+            n("t", None, ".Trash", true), n("bt", Some("t"), "1730112000000~d", true), n("f", Some("bt"), "a.txt", false),
+            n("loose", Some("t"), "stray.txt", false), n("d", None, "Docs", true), n("g", Some("d"), "keep.txt", false),
+        ], ..Default::default() };
+        let sub = trash_subtree(&s);
+        assert!(sub.contains("t") && sub.contains("bt") && sub.contains("f") && sub.contains("loose"));
+        assert!(!sub.contains("d") && !sub.contains("g"));
+        let items = trashed_items(&s);
+        assert_eq!(items.len(), 2);
+        let f = items.iter().find(|t| t.0["id"] == "f").unwrap();
+        assert_eq!((f.1.as_deref(), f.2, f.3.as_deref()), (Some("bt"), Some(1730112000000), Some("d")));
+        assert_eq!(emptied_batches(&s, &["f".into()]), vec!["bt".to_string()]);
+        let used: HashSet<String> = ["a.txt".to_string(), "a (2).txt".to_string()].into();
+        assert_eq!(unique_name("a.txt", &used), "a (3).txt");
+        assert_eq!(unique_name("b", &used), "b");
+    }
 }

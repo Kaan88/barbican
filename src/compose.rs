@@ -104,7 +104,67 @@ fn reply_identity(ids: &[Value], received: &[String]) -> Option<usize> {
     None
 }
 
-fn load_identities(u: &AppWindow, c: Arc<Client>, received: Vec<String>) {
+/// Addresses in Delivered-To and the like (Bulwark deliveryAddresses), in header priority.
+fn delivery_addresses(m: &Value) -> Vec<String> {
+    const NAMES: [&str; 4] = ["delivered-to", "x-original-to", "x-delivered-to", "x-original-delivered-to"];
+    let headers = m["headers"].as_array().cloned().unwrap_or_default();
+    let mut out: Vec<String> = vec![];
+    for n in NAMES {
+        for h in headers.iter().filter(|h| h["name"].as_str().is_some_and(|x| x.eq_ignore_ascii_case(n))) {
+            let v = h["value"].as_str().unwrap_or("");
+            let addr = v.split_once('<').and_then(|(_, r)| r.split_once('>')).map(|(a, _)| a.to_string())
+                .or_else(|| v.split(|c: char| c.is_whitespace() || ",;\"'".contains(c)).find(|t| t.contains('@')).map(String::from));
+            if let Some(a) = addr.map(|a| a.trim().trim_end_matches('.').to_string()).filter(|a| a.contains('@')) {
+                if !out.iter().any(|x| x.eq_ignore_ascii_case(&a)) { out.push(a); }
+            }
+        }
+    }
+    out
+}
+
+/// What decides a reply's From (Bulwark email-composer + lib/reply-identity).
+#[derive(Default, Clone)]
+pub struct ReplyFrom {
+    /// The original's sender, when the user sent it (keep sending as that identity).
+    self_sent: Option<String>,
+    /// To/Cc/Bcc of the original.
+    recipients: Vec<String>,
+    /// Delivered-To and friends.
+    delivered: Vec<String>,
+    /// Forwards never take the catch-all match.
+    forward: bool,
+}
+
+fn domain_of(e: &str) -> String { e.rsplit_once('@').map(|(_, d)| d.to_lowercase()).unwrap_or_default() }
+
+/// Bulwark resolveReplyFrom's catch-all step (replyIdentityMatch "domain"): an address on one
+/// of the user's domains that is no identity picks the first identity on that domain.
+fn catch_all_identity(emails: &[String], received: &[String]) -> Option<usize> {
+    let owned: Vec<String> = emails.iter().map(|e| domain_of(e)).filter(|d| !d.is_empty()).collect();
+    let hit = received.iter().find(|r| {
+        let r = r.trim().to_lowercase();
+        !emails.contains(&r) && owned.contains(&domain_of(&r))
+    })?;
+    emails.iter().position(|e| domain_of(e) == domain_of(hit)).or(Some(0))
+}
+
+/// Identity index for a reply/forward, in Bulwark's order: the identity that sent a self-sent
+/// original; one of the user's own identities in To/Cc/Bcc, then Delivered-To; with
+/// autoSelectReplyIdentity (not on forwards) a catch-all address on a user's domain
+/// (replyIdentityMatch "domain"); else None (the default identity).
+fn resolve_reply_identity(ids: &[Value], r: &ReplyFrom, auto: bool, match_mode: &str) -> Option<usize> {
+    let emails: Vec<String> = ids.iter().map(|i| i["email"].as_str().unwrap_or("").trim().to_lowercase()).collect();
+    if let Some(s) = &r.self_sent {
+        if let Some(i) = reply_identity(ids, std::slice::from_ref(s)) { return Some(i); }
+    }
+    if let Some(i) = reply_identity(ids, &r.recipients) { return Some(i); }
+    if auto && !r.forward && match_mode == "domain" {
+        if let Some(i) = catch_all_identity(&emails, &r.recipients).or_else(|| catch_all_identity(&emails, &r.delivered)) { return Some(i); }
+    }
+    reply_identity(ids, &r.delivered)
+}
+
+fn load_identities(u: &AppWindow, c: Arc<Client>, reply: ReplyFrom) {
     let w = u.as_weak();
     std::thread::spawn(move || {
         let ids = c.identities().unwrap_or_default();
@@ -122,7 +182,8 @@ fn load_identities(u: &AppWindow, c: Arc<Client>, received: Vec<String>) {
             u.set_c_identities(ModelRc::new(VecModel::from(model)));
             // default to the identity of the signed-in address, as Bulwark does
             let me = c.username.to_lowercase();
-            let idx = reply_identity(&ids, &received)
+            let p = crate::settings::Settings::load();
+            let idx = resolve_reply_identity(&ids, &reply, p.bool("autoSelectReplyIdentity", false), &p.str("replyIdentityMatch", "domain"))
                 .or_else(|| ids.iter().position(|i| i["email"].as_str().is_some_and(|e| e.to_lowercase() == me)))
                 .unwrap_or(0);
             u.set_c_from_index(idx as i32);
@@ -171,7 +232,8 @@ fn reset(u: &AppWindow) {
     u.set_c_show_cc(false);
     u.set_c_show_bcc(false);
     u.set_c_read_receipt(false);
-    u.set_c_plain(false);
+    // Bulwark plainTextMode: every message starts (and stays) plain text
+    u.set_c_plain(crate::settings::Settings::load().bool("plainTextMode", false));
     u.set_c_tag_on(ModelRc::new(VecModel::from(vec![false; crate::mail::TAGS.len()])));
     u.set_c_subject("".into());
     rte::set_doc(u, Doc::default());
@@ -185,14 +247,23 @@ pub fn open(u: &AppWindow, c: Arc<Client>, kind: ComposeKind, m: Option<&Value>)
     reset(u);
     CLIENT.with(|x| *x.borrow_mut() = Some(c.clone()));
     ST.with(|s| s.borrow_mut().kind_new = matches!(kind, ComposeKind::New));
-    // replies come from the own identity the message was sent to (not forwards, like Bulwark)
-    let received: Vec<String> = match (&kind, m) {
-        (ComposeKind::Reply | ComposeKind::ReplyAll, Some(m)) => ["to", "cc", "bcc"].iter()
-            .flat_map(|k| m[*k].as_array().cloned().unwrap_or_default())
-            .filter_map(|x| x["email"].as_str().map(String::from)).collect(),
-        _ => vec![],
+    // replies and forwards come from the identity the message reached (Bulwark)
+    let reply = match (&kind, m) {
+        (ComposeKind::Reply | ComposeKind::ReplyAll | ComposeKind::Forward, Some(m)) => {
+            let sender = m["from"][0]["email"].as_str().unwrap_or("").to_string();
+            let mine = crate::my_addrs_cached();
+            ReplyFrom {
+                self_sent: mine.iter().any(|a| a.eq_ignore_ascii_case(&sender)).then_some(sender),
+                recipients: ["to", "cc", "bcc"].iter()
+                    .flat_map(|k| m[*k].as_array().cloned().unwrap_or_default())
+                    .filter_map(|x| x["email"].as_str().map(String::from)).collect(),
+                delivered: delivery_addresses(m),
+                forward: matches!(kind, ComposeKind::Forward),
+            }
+        }
+        _ => ReplyFrom::default(),
     };
-    load_identities(u, c.clone(), received);
+    load_identities(u, c.clone(), reply);
     if let Some(m) = m {
         let me = c.username.to_lowercase();
         let subj = m["subject"].as_str().unwrap_or("").to_string();
@@ -218,7 +289,7 @@ pub fn open(u: &AppWindow, c: Arc<Client>, kind: ComposeKind, m: Option<&Value>)
                     blob_id: a["blobId"].as_str().unwrap_or("").into(), name: a["name"].as_str().unwrap_or("attachment").into(),
                     mime: a["type"].as_str().unwrap_or("application/octet-stream").into(), size: a["size"].as_u64().unwrap_or(0) as usize,
                 }).collect();
-                ST.with(|s| { let mut s = s.borrow_mut(); s.attachments = atts; s.forwarding = true; s.answering = m["id"].as_str().map(String::from); });
+                ST.with(|s| { let mut s = s.borrow_mut(); s.attachments = atts; s.forwarding = true; s.answering = m["id"].as_str().filter(|_| m["__jmap"].is_null()).map(String::from); });
             }
             ComposeKind::Reply | ComposeKind::ReplyAll => {
                 let src = if m["replyTo"].as_array().is_some_and(|a| !a.is_empty()) { &m["replyTo"] } else { &m["from"] };
@@ -243,7 +314,7 @@ pub fn open(u: &AppWindow, c: Arc<Client>, kind: ComposeKind, m: Option<&Value>)
                 rte::set_doc(u, Doc { blocks });
                 ST.with(|s| {
                     let mut s = s.borrow_mut();
-                    s.answering = m["id"].as_str().map(String::from);
+                    s.answering = m["id"].as_str().filter(|_| m["__jmap"].is_null()).map(String::from);
                     s.in_reply_to = msgid.into_iter().collect();
                     s.references = refs;
                 });
@@ -262,7 +333,7 @@ pub fn open_draft(u: &AppWindow, c: Arc<Client>, m: &Value) {
     reset(u);
     CLIENT.with(|x| *x.borrow_mut() = Some(c.clone()));
     ST.with(|s| s.borrow_mut().sig_done = true);
-    load_identities(u, c, vec![]);
+    load_identities(u, c, ReplyFrom::default());
     let join = |k: &str| m[k].as_array().map(|a| a.iter().map(|x| {
         let (n, e) = (x["name"].as_str().unwrap_or(""), x["email"].as_str().unwrap_or(""));
         if n.is_empty() { e.to_string() } else { format!("\"{n}\" <{e}>") }
@@ -404,10 +475,88 @@ pub fn mime_for(name: &str) -> &'static str {
     }
 }
 
-/// Composer checks Bulwark runs before sending (attachment reminder, empty subject).
+/// Bulwark lib/placeholder-check findUnfilledPlaceholders (English words): template fields
+/// ({{name}}), bracketed fill-ins ([TIME], [Your Name], [insert date]), TODO-style markers
+/// and circle stand-ins (〇〇). The subject is only checked for template fields.
+pub fn find_placeholders(subject: &str, body: &str) -> Vec<String> {
+    let mut found: Vec<String> = vec![];
+    let mut add = |s: &str| { if !found.iter().any(|f| f == s) { found.push(s.to_string()); } };
+    fn templates(t: &str, add: &mut dyn FnMut(&str)) {
+        let mut rest = t;
+        while let Some(i) = rest.find("{{") {
+            let after = &rest[i + 2..];
+            let Some(j) = after.find("}}") else { break };
+            let inner = &after[..j];
+            let name = inner.split(':').next().unwrap_or("").trim();
+            if !inner.contains('\n') && !inner.contains('{') && !name.is_empty() && name.chars().all(|c| c.is_alphanumeric() || "_.-".contains(c)) {
+                add(&rest[i..i + 2 + j + 2]);
+            }
+            rest = &after[j + 2..];
+        }
+    }
+    templates(subject, &mut add);
+    templates(body, &mut add);
+    // brackets: plain, full-width and lenticular
+    let chars: Vec<(usize, char)> = body.char_indices().collect();
+    let mut k = 0;
+    while k < chars.len() {
+        let (start, c) = chars[k];
+        if matches!(c, '[' | '［' | '【') {
+            if let Some(e) = (k + 1..chars.len().min(k + 45)).find(|&e| matches!(chars[e].1, ']' | '］' | '】' | '[' | '［' | '【' | '\n')) {
+                if matches!(chars[e].1, ']' | '］' | '】') {
+                    let end = chars[e].0 + chars[e].1.len_utf8();
+                    let inner: String = chars[k + 1..e].iter().map(|x| x.1).collect();
+                    let link = body[end..].starts_with('(');
+                    if !link && is_fill_in(&inner, c == '[') { add(&body[start..end]); k = e + 1; continue; }
+                }
+            }
+        }
+        k += 1;
+    }
+    for w in body.split(|c: char| !(c.is_alphanumeric() || c == '_')) {
+        if ["TODO", "TBD", "TBA", "TBC", "FIXME", "XXX"].contains(&w) { add(w); }
+    }
+    let circles: String = body.chars().filter(|c| matches!(c, '〇' | '○' | '◯')).collect();
+    if circles.chars().count() >= 2 {
+        // only runs of two or more
+        let mut run = String::new();
+        for ch in body.chars().chain(std::iter::once(' ')) {
+            if matches!(ch, '〇' | '○' | '◯') { run.push(ch); } else { if run.chars().count() >= 2 { add(&run.clone()); } run.clear(); }
+        }
+    }
+    found
+}
+
+/// [CAPS], [Title Words] (1-3 capitalised words) or a prompt like [your name] / [insert date].
+fn is_fill_in(inner: &str, ascii_bracket: bool) -> bool {
+    let n = inner.chars().count();
+    let caps = ascii_bracket && (2..=30).contains(&n)
+        && inner.chars().next().is_some_and(|c| c.is_uppercase() || c.is_ascii_digit())
+        && inner.chars().last().is_some_and(|c| c.is_uppercase() || c.is_ascii_digit())
+        && inner.chars().all(|c| c.is_uppercase() || c.is_ascii_digit() || " _./-".contains(c))
+        && inner.chars().filter(|c| c.is_uppercase()).count() >= 2;
+    let words: Vec<&str> = inner.split(' ').collect();
+    let title = ascii_bracket && (1..=3).contains(&words.len()) && words.iter().all(|w| {
+        let mut cs = w.chars();
+        cs.next().is_some_and(|c| c.is_uppercase()) && cs.clone().count() >= 1 && cs.all(|c| c.is_lowercase() || "'’-".contains(c))
+    });
+    let lower = inner.to_lowercase();
+    let prompt = n <= 46 && ["your ", "insert ", "enter ", "add "].iter().any(|p| lower.starts_with(p) && lower.len() > p.len());
+    caps || title || prompt
+}
+
+/// Composer checks Bulwark runs before sending (attachment reminder, empty subject, placeholders).
 fn pre_send_warning(o: &Outgoing, prefs: &crate::settings::Settings) -> Option<String> {
     if prefs.bool("emptySubjectWarningEnabled", true) && o.subject.trim().is_empty() {
         return Some("The subject is empty. Press Send again to send anyway.".into());
+    }
+    if prefs.bool("placeholderWarningEnabled", true) {
+        // only what the user wrote: not the quoted original
+        let body: String = o.text.lines().filter(|l| !l.starts_with('>')).collect::<Vec<_>>().join("\n");
+        let found = find_placeholders(&o.subject, &body);
+        if !found.is_empty() {
+            return Some(format!("Still to fill in: {}. Press Send again to send anyway.", found.join(", ")));
+        }
     }
     if prefs.bool("attachmentReminderEnabled", true) && o.attachments.is_empty() {
         let body: String = o.text.lines().filter(|l| !l.starts_with('>')).collect::<Vec<_>>().join(" ").to_lowercase();
@@ -558,5 +707,58 @@ pub fn discard(u: &AppWindow, c: Arc<Client>) {
             let w2 = w.clone();
             let _ = w.upgrade_in_event_loop(move |_| { crate::mail::load_mailboxes(w2.clone(), c.clone(), false); crate::mail::sync(w2, c); });
         });
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    fn ids() -> Vec<Value> {
+        vec![json!({"email": "me@a.com"}), json!({"email": "info@b.org"}), json!({"email": "me+news@a.com"})]
+    }
+
+    #[test]
+    fn reply_identity_order() {
+        let r = |rec: &[&str], del: &[&str], fwd: bool| ReplyFrom {
+            self_sent: None, recipients: rec.iter().map(|s| s.to_string()).collect(),
+            delivered: del.iter().map(|s| s.to_string()).collect(), forward: fwd,
+        };
+        // own identity in the recipients, always
+        assert_eq!(resolve_reply_identity(&ids(), &r(&["x@y.z", "INFO@b.org"], &[], false), false, "exact"), Some(1));
+        // sub-address tag: the untagged identity wins
+        assert_eq!(resolve_reply_identity(&ids(), &r(&["me+shop@a.com"], &[], false), false, "exact"), Some(0));
+        // catch-all on a user's domain only with the setting and domain matching
+        assert_eq!(resolve_reply_identity(&ids(), &r(&["sales@b.org"], &[], false), true, "domain"), Some(1));
+        assert_eq!(resolve_reply_identity(&ids(), &r(&["sales@b.org"], &[], false), true, "exact"), None);
+        assert_eq!(resolve_reply_identity(&ids(), &r(&["sales@b.org"], &[], false), false, "domain"), None);
+        // never on a forward
+        assert_eq!(resolve_reply_identity(&ids(), &r(&["sales@b.org"], &[], true), true, "domain"), None);
+        // Delivered-To after the headers
+        assert_eq!(resolve_reply_identity(&ids(), &r(&["list@x.net"], &["info@b.org"], false), false, "exact"), Some(1));
+        // self-sent: keep the sending identity
+        let s = ReplyFrom { self_sent: Some("info@b.org".into()), recipients: vec!["me@a.com".into()], ..Default::default() };
+        assert_eq!(resolve_reply_identity(&ids(), &s, false, "exact"), Some(1));
+    }
+
+    #[test]
+    fn placeholders() {
+        let f = |s: &str, b: &str| find_placeholders(s, b);
+        assert_eq!(f("Hi {{ name }}", "Meet at [TIME] with [Your Name], TODO: agenda"), vec!["{{ name }}", "[TIME]", "[Your Name]", "TODO"]);
+        assert_eq!(f("", "see [insert date here] and 〇〇様"), vec!["[insert date here]", "〇〇"]);
+        // ordinary brackets, links and lowercase words are text
+        assert!(f("", "[Yours truly] [Anlage 2] [link](http://x) [A] todo xxxl").is_empty());
+        assert!(f("{{bad name}}", "").is_empty());
+    }
+
+    #[test]
+    fn delivered_to_headers() {
+        let m = json!({"headers": [
+            {"name": "X-Original-To", "value": " a@b.c"},
+            {"name": "Delivered-To", "value": "Someone <d@e.f>"},
+            {"name": "delivered-to", "value": "a@b.c"},
+        ]});
+        assert_eq!(delivery_addresses(&m), vec!["d@e.f".to_string(), "a@b.c".to_string()]);
     }
 }

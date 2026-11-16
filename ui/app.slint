@@ -40,6 +40,8 @@ export struct CalEvent {
     lane: int,
     lanes: int,
     date: string,
+    // month view look of a timed event (calendarMonthTimedEvents): 0 bar, 1 coloured text, 2 dot and text
+    style: int,
 }
 
 export struct CalCell {
@@ -86,6 +88,8 @@ export struct FileRow {
     starred: bool,
     shared: bool,
     cut: bool,
+    // an item listed in the Files trash
+    trashed: bool,
 }
 
 export struct AdminRow {
@@ -179,15 +183,19 @@ export struct Mail {
 
 export global Theme {
     in-out property <bool> dark: true;
+    // Settings > Accessibility > Contrast "More" (Bulwark data-contrast="more")
+    in-out property <bool> more-contrast: false;
     // Bulwark tokens: dark (--color-*) and light (brand #c8234a, neutral greys)
     out property <color> bg: dark ? #0a0a0a : #ffffff;
     out property <color> rail: dark ? #0f0f0f : #f4f4f5;
     out property <color> side: dark ? #141414 : #fafafa;
-    out property <color> line: dark ? #262626 : #e5e5e5;
-    out property <color> text: dark ? #fafafa : #0a0a0a;
-    out property <color> dim: dark ? #adadad : #6b6b6b;
-    out property <color> accent: dark ? #f0577a : #c8234a;
-    out property <color> on-accent: dark ? #16070c : #ffffff;
+    out property <color> line: more-contrast ? (dark ? #9ca3af : #4b5563) : (dark ? #262626 : #e5e5e5);
+    out property <color> text: more-contrast ? (dark ? #ffffff : #000000) : (dark ? #fafafa : #0a0a0a);
+    out property <color> dim: more-contrast ? (dark ? #e5e7eb : #1f2937) : (dark ? #adadad : #6b6b6b);
+    out property <color> accent: more-contrast ? (dark ? #93c5fd : #1d4ed8) : (dark ? #f0577a : #c8234a);
+    out property <color> on-accent: more-contrast ? (dark ? #000000 : #ffffff) : (dark ? #16070c : #ffffff);
+    // keyboard focus outline (Bulwark --focus-ring-color)
+    out property <color> ring: more-contrast ? (dark ? #ffffff : #000000) : (dark ? #f0577a : #c8234a);
     out property <color> sel: dark ? #4a1424 : #fde4ea;
     out property <color> sel-text: dark ? #ffd5df : #8c1733;
     out property <color> hover: dark ? #1a1a1a : #f0f0f0;
@@ -236,7 +244,7 @@ component Switch inherits Rectangle {
         height: 16px;
         border-radius: 8px;
         background: on ? Theme.on-accent : Theme.dim;
-        animate x { duration: 120ms; }
+        animate x { duration: Prefs.reduce-motion ? 0ms : 120ms; }
     }
 }
 
@@ -267,8 +275,8 @@ component RailButton inherits Rectangle {
     in property <string> glyph;
     in property <bool> active;
     callback clicked;
-    width: 34px;
-    height: 34px;
+    width: Prefs.large-targets ? 44px : 34px;
+    height: Prefs.large-targets ? 44px : 34px;
     border-radius: 6px;
     background: active ? Theme.sel : ta.has-hover ? Theme.hover : transparent;
     ta := TouchArea { clicked => { root.clicked(); } }
@@ -284,7 +292,7 @@ component FolderRow inherits Rectangle {
     callback clicked;
     callback chevron-clicked;
     callback context(length, length);
-    height: 24px;
+    height: Prefs.large-targets ? 44px : 24px;
     in property <string> hl-id;
     background: selected ? Theme.sel : ta.has-hover || (hl-id != "" && CtxHl.id == hl-id) ? Theme.hover : transparent;
     ta := TouchArea {
@@ -350,7 +358,7 @@ component TagRow inherits Rectangle {
     in property <bool> selected;
     callback clicked;
     callback context(length, length);
-    height: 24px;
+    height: Prefs.large-targets ? 44px : 24px;
     in property <string> hl-id;
     background: selected ? Theme.sel : ta.has-hover || (hl-id != "" && CtxHl.id == hl-id) ? Theme.hover : transparent;
     ta := TouchArea { clicked => { root.clicked(); } pointer-event(ev) => { if ev.button == PointerEventButton.right && ev.kind == PointerEventKind.up { root.context(self.absolute-position.x + self.mouse-x, self.absolute-position.y + self.mouse-y); } } }
@@ -368,7 +376,7 @@ component PrimaryButton inherits Rectangle {
     in property <string> text;
     in property <bool> enabled: true;
     callback clicked;
-    height: 32px;
+    height: Prefs.large-targets ? 44px : 32px;
     min-width: pl.preferred-width + 28px;
     border-radius: 6px;
     background: !enabled ? #5a2a36 : (pta.pressed ? #d94a6b : (pta.has-hover ? #f46d8c : Theme.accent));
@@ -380,8 +388,8 @@ component HoverAction inherits Rectangle {
     in property <string> glyph;
     in property <bool> active;
     callback clicked;
-    width: 22px;
-    height: 22px;
+    width: Prefs.large-targets ? 32px : 22px;
+    height: Prefs.large-targets ? 32px : 22px;
     border-radius: 4px;
     background: hta.has-hover ? Theme.hover : transparent;
     hta := TouchArea { clicked => { root.clicked(); } }
@@ -397,6 +405,17 @@ export global Prefs {
     in-out property <[string]> hover-actions: ["delete", "star", "read", "archive"];
     // reader body gutter (messageSpacing)
     in-out property <length> reader-gutter: 20px;
+    // Settings > Accessibility
+    in-out property <bool> reduce-motion: false;
+    in-out property <bool> large-targets: false;
+    // focus outline width (0 = off, Bulwark's default)
+    in-out property <length> focus-ring: 0px;
+    // a button on each row that opens its actions (showRowActionButton)
+    in-out property <bool> row-action: false;
+    // hover actions as a floating group in a corner (hoverActionsMode) and which corner
+    in-out property <bool> hover-floating: false;
+    in-out property <bool> hover-left: false;
+    in-out property <bool> hover-bottom: false;
 }
 
 component ToolButton inherits Rectangle {
@@ -404,8 +423,8 @@ component ToolButton inherits Rectangle {
     in property <string> label;
     in property <bool> show-label: Prefs.toolbar-labels;
     callback clicked;
-    height: 28px;
-    width: lay.preferred-width;
+    height: Prefs.large-targets ? 44px : 28px;
+    width: max(lay.preferred-width, Prefs.large-targets ? 44px : 0px);
     border-radius: 6px;
     background: tta.has-hover ? Theme.hover : transparent;
     tta := TouchArea { clicked => { root.clicked(); } }
@@ -543,8 +562,12 @@ component MailRow inherits VerticalLayout {
                     }
                     if m.answered: Icon { text: "\u{E97A}"; font-size: 11px; }
                     if m.attach: Icon { text: "\u{E723}"; font-size: 11px; }
-                    if !ta.has-hover: Text { text: m.time; color: Theme.dim; font-size: 11px; }
-                    if ta.has-hover: HorizontalLayout {
+                    if !ta.has-hover || Prefs.hover-floating: Text { text: m.time; color: Theme.dim; font-size: 11px; }
+                    if Prefs.row-action: HoverAction {
+                        glyph: "\u{E712}";
+                        clicked => { root.context(self.absolute-position.x, self.absolute-position.y + self.height); }
+                    }
+                    if ta.has-hover && !Prefs.hover-floating: HorizontalLayout {
                         spacing: 0px;
                         for a in Prefs.hover-actions: HoverAction {
                             glyph: a == "delete" ? "\u{E74D}" : a == "star" ? (m.flagged ? "\u{E735}" : "\u{E734}") : a == "read" ? (m.unread ? "\u{E8C3}" : "\u{E715}") : a == "archive" ? "\u{E7B8}" : a == "spam" ? "\u{E8F8}" : "\u{E8EC}";
@@ -600,6 +623,28 @@ component MailRow inherits VerticalLayout {
                             ft := Text { text: f; color: Theme.dim; font-size: 10px; vertical-alignment: center; overflow: elide; }
                         }
                     }
+                }
+            }
+        }
+        // Bulwark hoverActionsMode "floating": the actions float in a corner of the row
+        if ta.has-hover && Prefs.hover-floating: Rectangle {
+            x: Prefs.hover-left ? 8px : parent.width - self.width - 8px;
+            y: Prefs.hover-bottom ? parent.height - self.height - 4px : 4px;
+            width: fl.preferred-width + 4px;
+            height: fl.preferred-height + 4px;
+            border-radius: 6px;
+            background: Theme.popup;
+            border-width: 1px;
+            border-color: Theme.line;
+            drop-shadow-blur: 6px;
+            drop-shadow-color: #00000040;
+            fl := HorizontalLayout {
+                x: 2px; y: 2px;
+                spacing: 0px;
+                for a in Prefs.hover-actions: HoverAction {
+                    glyph: a == "delete" ? "\u{E74D}" : a == "star" ? (m.flagged ? "\u{E735}" : "\u{E734}") : a == "read" ? (m.unread ? "\u{E8C3}" : "\u{E715}") : a == "archive" ? "\u{E7B8}" : a == "spam" ? "\u{E8F8}" : "\u{E8EC}";
+                    active: a == "star" && m.flagged;
+                    clicked => { root.action(a); }
                 }
             }
         }
@@ -704,7 +749,7 @@ component BarButton inherits Rectangle {
     in property <string> label;
     in property <bool> chevron: true;
     callback clicked;
-    height: 28px;
+    height: Prefs.large-targets ? 44px : 28px;
     width: bl.preferred-width;
     border-radius: 6px;
     background: bta.has-hover ? Theme.hover : transparent;
@@ -723,8 +768,11 @@ component BareField inherits Rectangle {
     in-out property <string> text;
     in property <string> placeholder;
     height: 20px;
+    border-width: ti.has-focus ? Prefs.focus-ring : 0px;
+    border-color: Theme.ring;
+    border-radius: 2px;
     if text == "": Text { x: 0; text: placeholder; color: Theme.dim; vertical-alignment: center; height: parent.height; }
-    TextInput {
+    ti := TextInput {
         text <=> root.text;
         color: Theme.text;
         vertical-alignment: center;
@@ -734,7 +782,9 @@ component BareField inherits Rectangle {
 
 
 export component AppWindow inherits Window {
-    title: "Barbican";
+    // "(3) Barbican" with faviconUnreadBadge
+    in property <string> window-title: "Barbican";
+    title: root.window-title;
     icon: @image-url("barbican.svg");
     background: Theme.bg;
     preferred-width: 1400px;
@@ -876,6 +926,32 @@ export component AppWindow inherits Window {
     in property <[CalEvent]> cal-events;
     callback cal-nav(string);
     callback cal-set-view(int);
+    // event hover preview (calendarHoverPreview): delay in ms, -1 = off
+    in property <int> cal-hover-delay: 500;
+    // calendarFreeScroll: the wheel moves through months in the month view
+    in property <bool> cal-free-scroll: true;
+    // a calendar pane under 1000px wide (week view shows three days unless calendarNarrowWeekAllDays)
+    out property <bool> cal-narrow: root.width - 266px < 1000px;
+    changed cal-narrow => { if root.app == 1 { root.cal-nav("rerender"); } }
+    property <CalEvent> hov-ev;
+    property <bool> hov-on;
+    property <bool> hov-shown;
+    property <length> hov-x;
+    property <length> hov-y;
+    function cal-hover(e: CalEvent, on: bool, x: length, y: length) {
+        if on && root.cal-hover-delay >= 0 {
+            root.hov-ev = e; root.hov-x = x; root.hov-y = y;
+            root.hov-shown = root.cal-hover-delay == 0;
+            root.hov-on = true;
+        } else if !on && root.hov-ev.id == e.id {
+            root.hov-on = false; root.hov-shown = false;
+        }
+    }
+    hov-timer := Timer {
+        interval: max(1, root.cal-hover-delay) * 1ms;
+        running: root.hov-on && !root.hov-shown;
+        triggered => { root.hov-shown = true; }
+    }
     callback cal-toggle(string);
     callback cal-search(string);
     callback cal-edit(string, string, int);
@@ -937,6 +1013,10 @@ export component AppWindow inherits Window {
     callback fl-start-rename(string);
     callback fl-rename(string, string);
     callback fl-delete(string);
+    callback fl-upload-folder();
+    callback fl-restore(string);
+    callback fl-empty-trash();
+    in property <bool> fl-in-trash;
     in-out property <[NavRow]> fl-nav;
     in-out property <string> fl-cwd;
     callback fl-toggle-folder(string);
@@ -2317,7 +2397,15 @@ export component AppWindow inherits Window {
                             border-width: 0.5px;
                             border-color: Theme.line;
                             background: c.in-month ? transparent : Theme.zebra;
-                            TouchArea { double-clicked => { root.cal-edit("", c.date, -1); } pointer-event(ev) => { if ev.button == PointerEventButton.right && ev.kind == PointerEventKind.up { root.ctx("slot", c.date, self.absolute-position.x + self.mouse-x, self.absolute-position.y + self.mouse-y); } } }
+                            TouchArea {
+                                double-clicked => { root.cal-edit("", c.date, -1); }
+                                pointer-event(ev) => { if ev.button == PointerEventButton.right && ev.kind == PointerEventKind.up { root.ctx("slot", c.date, self.absolute-position.x + self.mouse-x, self.absolute-position.y + self.mouse-y); } }
+                                scroll-event(ev) => {
+                                    if !root.cal-free-scroll || ev.delta-y == 0 { return reject; }
+                                    root.cal-nav(ev.delta-y < 0 ? "next" : "prev");
+                                    accept
+                                }
+                            }
                             VerticalLayout {
                                 padding: 4px;
                                 spacing: 2px;
@@ -2333,13 +2421,19 @@ export component AppWindow inherits Window {
                                 for e in c.events: Rectangle {
                                     height: 18px;
                                     border-radius: 3px;
-                                    background: Prefs.cal-tinted ? e.color.with-alpha(0.25) : e.color;
-                                    TouchArea { clicked => { root.cal-edit(e.id, "", -1); } pointer-event(ev) => { if ev.button == PointerEventButton.right && ev.kind == PointerEventKind.up { root.ctx("event", e.id, self.absolute-position.x + self.mouse-x, self.absolute-position.y + self.mouse-y); } } }
+                                    background: e.style != 0 ? (cmta.has-hover ? Theme.hover : transparent) : Prefs.cal-tinted ? e.color.with-alpha(0.25) : e.color;
+                                    cmta := TouchArea { clicked => { root.cal-edit(e.id, "", -1); } pointer-event(ev) => { if ev.button == PointerEventButton.right && ev.kind == PointerEventKind.up { root.ctx("event", e.id, self.absolute-position.x + self.mouse-x, self.absolute-position.y + self.mouse-y); } } changed has-hover => { root.cal-hover(e, self.has-hover, self.absolute-position.x, self.absolute-position.y + self.height + 2px); } }
                                     HorizontalLayout {
                                         padding-left: 4px;
                                         spacing: 4px;
-                                        if Prefs.cal-tinted: Rectangle { width: 3px; background: e.color; }
-                                        Text { text: (e.time != "" ? e.time + " " : "") + e.title; color: Prefs.cal-tinted ? Theme.text : #ffffff; font-size: 10px; vertical-alignment: center; overflow: elide; }
+                                        if Prefs.cal-tinted && e.style == 0: Rectangle { width: 3px; background: e.color; }
+                                        if e.style == 2: VerticalLayout { alignment: center; Rectangle { width: 7px; height: 7px; border-radius: 3.5px; background: e.color; } }
+                                        Text {
+                                            text: (e.time != "" ? e.time + " " : "") + e.title;
+                                            color: e.style == 1 ? e.color : e.style == 2 ? Theme.text : Prefs.cal-tinted ? Theme.text : #ffffff;
+                                            font-weight: e.style == 1 ? 600 : 400;
+                                            font-size: 10px; vertical-alignment: center; overflow: elide;
+                                        }
                                     }
                                 }
                                 if c.more != "": Text { text: c.more; color: Theme.dim; font-size: 10px; }
@@ -2401,7 +2495,7 @@ export component AppWindow inherits Window {
                                 border-radius: 4px;
                                 background: Prefs.cal-tinted ? e.color.with-alpha(0.3) : e.color;
                                 if Prefs.cal-tinted: Rectangle { x: 0; width: 3px; background: e.color; border-radius: 2px; }
-                                TouchArea { clicked => { root.cal-edit(e.id, "", -1); } pointer-event(ev) => { if ev.button == PointerEventButton.right && ev.kind == PointerEventKind.up { root.ctx("event", e.id, self.absolute-position.x + self.mouse-x, self.absolute-position.y + self.mouse-y); } } }
+                                TouchArea { clicked => { root.cal-edit(e.id, "", -1); } pointer-event(ev) => { if ev.button == PointerEventButton.right && ev.kind == PointerEventKind.up { root.ctx("event", e.id, self.absolute-position.x + self.mouse-x, self.absolute-position.y + self.mouse-y); } } changed has-hover => { root.cal-hover(e, self.has-hover, self.absolute-position.x, self.absolute-position.y + self.height + 2px); } }
                                 VerticalLayout {
                                     padding: 3px;
                                     padding-left: 7px;
@@ -2638,9 +2732,11 @@ export component AppWindow inherits Window {
                     }
                 }
                 Rectangle { horizontal-stretch: 1; }
-                LineEdit { placeholder-text: "New folder name"; width: 180px; text <=> root.new-folder-name; accepted(t) => { root.fl-new-folder(t); root.new-folder-name = ""; } }
-                Button { text: "New folder"; clicked => { root.fl-new-folder(root.new-folder-name); root.new-folder-name = ""; } }
-                PrimaryButton { text: "Upload";  clicked => { root.fl-upload(); } }
+                if !root.fl-in-trash: LineEdit { placeholder-text: "New folder name"; width: 180px; text <=> root.new-folder-name; accepted(t) => { root.fl-new-folder(t); root.new-folder-name = ""; } }
+                if !root.fl-in-trash: Button { text: "New folder"; clicked => { root.fl-new-folder(root.new-folder-name); root.new-folder-name = ""; } }
+                if !root.fl-in-trash: Button { text: "Upload folder"; clicked => { root.fl-upload-folder(); } }
+                if !root.fl-in-trash: PrimaryButton { text: "Upload";  clicked => { root.fl-upload(); } }
+                if root.fl-in-trash: Button { text: "Empty trash"; enabled: root.files.length > 0; clicked => { root.fl-empty-trash(); } }
             }
             Rectangle { height: 1px; background: Theme.line; }
             HorizontalLayout {
@@ -2671,13 +2767,15 @@ export component AppWindow inherits Window {
                         if f.renaming: LineEdit { text: f.name; horizontal-stretch: 1; accepted(t) => { root.fl-rename(f.id, t); } }
                         Text { text: f.size; color: Theme.dim; font-size: 11px; vertical-alignment: center; width: 90px; }
                         Text { text: f.modified; color: Theme.dim; font-size: 11px; vertical-alignment: center; width: 140px; }
-                        HoverAction { glyph: "\u{E896}"; y: 7px; clicked => { root.fl-download(f.id); } }
-                        HoverAction { glyph: "\u{E8AC}"; y: 7px; clicked => { root.fl-start-rename(f.id); } }
+                        if !f.trashed: HoverAction { glyph: "\u{E896}"; y: 7px; clicked => { root.fl-download(f.id); } }
+                        if !f.trashed: HoverAction { glyph: "\u{E8AC}"; y: 7px; clicked => { root.fl-start-rename(f.id); } }
+                        // in the trash: restore, and delete for good
+                        if f.trashed: HoverAction { glyph: "\u{E7A7}"; y: 7px; clicked => { root.fl-restore(f.id); } }
                         HoverAction { glyph: "\u{E74D}"; y: 7px; clicked => { root.fl-delete(f.id); } }
                     }
                 }
             }
-             if root.files.length == 0: Text { text: "This folder is empty"; color: Theme.dim; horizontal-alignment: center; }
+             if root.files.length == 0: Text { text: root.fl-in-trash ? "The trash is empty" : "This folder is empty"; color: Theme.dim; horizontal-alignment: center; }
             }
         }
         }
@@ -2851,6 +2949,30 @@ export component AppWindow inherits Window {
         }
     }
 
+    // calendar event hover preview (Bulwark calendarHoverPreview)
+    if root.app == 1 && root.hov-on && root.hov-shown: Rectangle {
+        x: min(root.hov-x, root.width - self.width - 8px);
+        y: min(root.hov-y, root.height - self.height - 8px);
+        width: 260px;
+        height: hovl.preferred-height;
+        border-radius: 8px;
+        background: Theme.popup;
+        border-width: 1px;
+        border-color: Theme.line;
+        drop-shadow-blur: 12px;
+        drop-shadow-color: #00000055;
+        hovl := VerticalLayout {
+            padding: 10px;
+            spacing: 4px;
+            HorizontalLayout {
+                spacing: 8px;
+                VerticalLayout { alignment: center; Rectangle { width: 10px; height: 10px; border-radius: 3px; background: root.hov-ev.color; } }
+                Text { text: root.hov-ev.title; color: Theme.text; font-weight: 700; wrap: word-wrap; horizontal-stretch: 1; }
+            }
+            Text { text: root.hov-ev.date + (root.hov-ev.time != "" ? "  " + root.hov-ev.time : ""); color: Theme.dim; font-size: 11px; }
+            if root.hov-ev.location != "": Text { text: root.hov-ev.location; color: Theme.dim; font-size: 11px; wrap: word-wrap; }
+        }
+    }
     if root.toast != "": Rectangle {
         x: (parent.width - self.width) / 2;
         y: parent.height - 64px;

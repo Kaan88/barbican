@@ -2,11 +2,12 @@ use base64::Engine;
 use serde_json::{json, Value};
 use serde_json::Map;
 use std::collections::HashMap;
+use std::sync::Arc;
 
 pub struct Client {
     http: reqwest::blocking::Client,
-    auth: std::sync::Mutex<String>,
-    oauth: Option<std::sync::Mutex<crate::oauth::Tokens>>,
+    auth: Arc<std::sync::Mutex<String>>,
+    oauth: Option<Arc<std::sync::Mutex<crate::oauth::Tokens>>>,
     pub base: String,
     pub account: String,
     pub username: String,
@@ -16,8 +17,9 @@ pub struct Client {
     /// The current session: re-fetched when a response's `sessionState` differs (RFC 8620 §3.4).
     live: std::sync::RwLock<Value>,
     /// maxConcurrentRequests / maxConcurrentUpload (RFC 8620 §2).
-    requests: Gate,
-    uploads: Gate,
+    /// Shared with `scoped` clients of the same login.
+    requests: Arc<Gate>,
+    uploads: Arc<Gate>,
     /// Mailbox role -> id, refreshed by every Mailbox/get of the whole tree.
     roles: std::sync::Mutex<Option<(std::time::Instant, HashMap<String, String>)>>,
 }
@@ -154,14 +156,29 @@ impl Client {
         let username = s["username"].as_str().unwrap_or(user).to_string();
         let caps = s["capabilities"].as_object().map(|o| o.keys().cloned().collect()).unwrap_or_default();
         let core = &s["capabilities"]["urn:ietf:params:jmap:core"];
-        let gate = |k: &str, d: u64| Gate::new(core[k].as_u64().unwrap_or(d) as usize);
+        let gate = |k: &str, d: u64| Arc::new(Gate::new(core[k].as_u64().unwrap_or(d) as usize));
         Ok(Client {
-            http, auth: std::sync::Mutex::new(auth), oauth: oauth.map(std::sync::Mutex::new),
+            http, auth: Arc::new(std::sync::Mutex::new(auth)), oauth: oauth.map(|t| Arc::new(std::sync::Mutex::new(t))),
             base: base.to_string(), account, username, caps,
             requests: gate("maxConcurrentRequests", 4), uploads: gate("maxConcurrentUpload", 4),
             live: std::sync::RwLock::new(s.clone()), session: s,
             roles: std::sync::Mutex::new(None),
         })
+    }
+
+    /// The same login addressing another JMAP account it can reach (a shared/group mail
+    /// account): every method then reads and writes that account. Auth (and OAuth renewal)
+    /// is shared with `self`.
+    pub fn scoped(&self, account: &str) -> Client {
+        Client {
+            http: self.http.clone(), auth: self.auth.clone(), oauth: self.oauth.clone(),
+            base: self.base.clone(), account: account.to_string(), username: self.username.clone(),
+            caps: self.caps.clone(), session: self.session.clone(),
+            live: std::sync::RwLock::new(self.live.read().unwrap().clone()),
+            requests: self.requests.clone(), uploads: self.uploads.clone(),
+            // the role map is per account
+            roles: std::sync::Mutex::new(None),
+        }
     }
 
     /// Current OAuth tokens (for remembering the session).
@@ -973,7 +990,8 @@ impl Client {
     // ------------------------------------------------------------------
 
     /// Blocks reading the event stream (RFC 8620 §7.3) for the given data types, calling
-    /// `on_event` with each event; it returns `false` to stop. `ping` asks the server for a
+    /// `on_event` with each event (pings included, so a stopped caller notices within 30 s);
+    /// it returns `false` to stop. `ping` asks the server for a
     /// keep-alive every 30 s (Stalwart's minimum) and a read that stays silent for 75 s counts as a
     /// dead connection, so the caller can reconnect. OAuth tokens are renewed on 401.
     pub fn watch(&self, types: &[&str], on_event: &mut dyn FnMut(PushEvent) -> bool) -> R<()> {

@@ -36,16 +36,29 @@ fn key_for_label(label: &str) -> Option<&'static str> {
 fn option_override(key: &str) -> Option<Vec<(Value, &'static str)>> {
     Some(match key {
         "sendDelaySeconds" => vec![(json!(0), "Off"), (json!(5), "5 seconds"), (json!(10), "10 seconds"), (json!(20), "20 seconds"), (json!(30), "30 seconds")],
-        "mvUnreadSectionSize" => vec![(json!(3), "3"), (json!(5), "5"), (json!(10), "10"), (json!(20), "20")],
+        // Bulwark UNREAD_SECTION_SIZES
+        "mvUnreadSectionSize" => vec![(json!(5), "5 messages"), (json!(10), "10 messages"), (json!(15), "15 messages"), (json!(20), "20 messages"), (json!(25), "25 messages"), (json!(50), "50 messages")],
         "composePlacement" => vec![(json!("sidebar"), "In the sidebar"), (json!("rail"), "On the navigation rail"), (json!("floating"), "Floating button")],
         "theme" => vec![(json!("light"), "Light"), (json!("dark"), "Dark"), (json!("system"), "System")],
-        "fontSize" => vec![(json!("small"), "Small"), (json!("medium"), "Medium"), (json!("large"), "Large"), (json!("x-large"), "Extra large")],
+        // Bulwark FONT_SIZES
+        "fontSize" => vec![(json!("small"), "Small (87%)"), (json!("medium"), "Normal (100%)"), (json!("large"), "Large (112%)"), (json!("x-large"), "Larger (125%)"),
+            (json!("xx-large"), "Extra large (150%)"), (json!("xxx-large"), "Huge (175%)"), (json!("huge"), "Maximum (200%)")],
+        // Bulwark MAIL_TEXT_SCALES, MAIL_MIN_FONT_SIZES, TOAST_DURATIONS
+        "mailTextScale" => vec![(json!(0.0), "Same as the app"), (json!(0.875), "87%"), (json!(1.0), "100%"), (json!(1.125), "112%"),
+            (json!(1.25), "125%"), (json!(1.5), "150%"), (json!(1.75), "175%"), (json!(2.0), "200%")],
+        "mailMinFontSize" => vec![(json!(0), "No minimum"), (json!(12), "12 px"), (json!(14), "14 px"), (json!(16), "16 px"), (json!(18), "18 px")],
+        "toastDuration" => vec![(json!(5), "5 seconds"), (json!(10), "10 seconds"), (json!(20), "20 seconds"), (json!(60), "1 minute"), (json!(0), "Until I close them")],
+        "hoverActionsMode" => vec![(json!("inline"), "In the row"), (json!("floating"), "Floating in a corner")],
+        "hoverActionsCorner" => vec![(json!("top-right"), "Top right"), (json!("top-left"), "Top left"), (json!("bottom-right"), "Bottom right"), (json!("bottom-left"), "Bottom left")],
         "calendarDayStartHour" => (0..13).map(|h| (json!(h), ["0:00","1:00","2:00","3:00","4:00","5:00","6:00","7:00","8:00","9:00","10:00","11:00","12:00"][h as usize])).collect(),
         "calendarDayEndHour" => (13..=24).map(|h| (json!(h), ["13:00","14:00","15:00","16:00","17:00","18:00","19:00","20:00","21:00","22:00","23:00","24:00"][(h - 13) as usize])).collect(),
         "writingLanguage" => vec![(json!("auto"), "Detect automatically"), (json!("en"), "English"), (json!("de"), "German"), (json!("fr"), "French"), (json!("es"), "Spanish"), (json!("tr"), "Turkish")],
         _ => return None,
     })
 }
+
+/// Bulwark ALL_HOVER_ACTIONS that Barbican's rows can run (the tag picker needs a menu).
+pub const HOVER_ACTIONS: [(&str, &str); 5] = [("delete", "Delete"), ("star", "Star"), ("markRead", "Mark as read"), ("archive", "Archive"), ("spam", "Spam")];
 
 fn s(v: &str) -> SharedString {
     SharedString::from(v)
@@ -80,6 +93,12 @@ impl Settings {
             .and_then(|t| serde_json::from_str::<Value>(&t).ok())
             .and_then(|v| v.as_object().cloned())
             .unwrap_or_default();
+        Settings { schema: serde_json::from_str(SCHEMA).expect("settings schema"), prefs }
+    }
+
+    /// Settings over the given values (no file), for tests and previews.
+    #[allow(dead_code)]
+    pub fn with_prefs(prefs: Map<String, Value>) -> Settings {
         Settings { schema: serde_json::from_str(SCHEMA).expect("settings schema"), prefs }
     }
 
@@ -203,6 +222,18 @@ impl Settings {
                     out.push(select(key, label, desc, &labels, idx as i32));
                 }
                 "text" if !key.is_empty() => out.push(text("text", key, label, desc, &self.str(key, r["default"].as_str().unwrap_or("")))),
+                "button" if !key.is_empty() => out.push(text("button", key, label, desc, r["text"].as_str().unwrap_or("Reset"))),
+                // Calendar > Working days (Bulwark calendarWorkingDays: 0 = Sunday .. 6 = Saturday)
+                "info" if label == "Working days" => {
+                    out.push(row("section", "", label, desc));
+                    let days = self.working_days();
+                    let first = self.int("firstDayOfWeek", 1).clamp(0, 6);
+                    for i in 0..7 {
+                        let d = (first + i) % 7;
+                        let name = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"][d as usize];
+                        out.push(toggle(&format!("workday:{d}"), name, "", days.contains(&d)));
+                    }
+                }
                 _ => {}
             }
         }
@@ -288,6 +319,18 @@ impl Settings {
                 if tab == "appearance" {
                     out.insert(1.min(out.len()), sel_pref("fontSize", "Text size", "Size of text across the app."));
                 }
+                if tab == "message_list" {
+                    // Bulwark hoverActions / hoverActionsMode / hoverActionsCorner
+                    out.push(row("section", "", "Hover actions", "The buttons that appear on a message when the pointer is over it."));
+                    let on = self.hover_actions();
+                    for (id, name) in HOVER_ACTIONS {
+                        out.push(toggle(&format!("hoverAction:{id}"), name, "", on.iter().any(|a| a == id)));
+                    }
+                    out.push(sel_pref("hoverActionsMode", "Show them", "In the row replaces the time; floating shows them over a corner of the row."));
+                    if self.str("hoverActionsMode", "inline") == "floating" {
+                        out.push(sel_pref("hoverActionsCorner", "Corner", ""));
+                    }
+                }
                 if tab == "composing" {
                     out.push(row("section", "", "Sending", ""));
                     out.push(toggle("sendConfirmation", "Confirm before sending", "Press Send twice to send, so a message doesn't go out by accident.", self.bool("sendConfirmation", false)));
@@ -353,6 +396,34 @@ impl Settings {
             "spam.showClean" => cfg.show_clean_spam = value.as_bool().unwrap_or(true),
             "desktop.renderMode" => cfg.render_mode = value.as_i64().unwrap_or(0) as i32,
             "desktop.remoteImages" => cfg.remote_images = value.as_i64() == Some(1),
+            k if k.starts_with("hoverAction:") => {
+                let id = &k[12..];
+                let mut list = self.hover_actions();
+                list.retain(|a| a != id);
+                if value.as_bool() == Some(true) {
+                    // keep Bulwark's order
+                    list.push(id.to_string());
+                    list.sort_by_key(|a| HOVER_ACTIONS.iter().position(|h| h.0 == a).unwrap_or(99));
+                }
+                self.prefs.insert("hoverActions".into(), json!(list));
+                self.save();
+                return;
+            }
+            k if k.starts_with("workday:") => {
+                let d: i64 = k[8..].parse().unwrap_or(-1);
+                let mut days = self.working_days();
+                days.retain(|x| *x != d);
+                if value.as_bool() == Some(true) { days.push(d); }
+                days.sort();
+                self.prefs.insert("calendarWorkingDays".into(), json!(days));
+                self.save();
+                return;
+            }
+            "a11y.reset" => {
+                for k in crate::a11y::reset_keys() { self.prefs.remove(k); }
+                self.save();
+                return;
+            }
             k if k.starts_with("plugin:") => {
                 let id = &k[7..];
                 let mut list: Vec<Value> = self.prefs.get("disabledPlugins").and_then(|v| v.as_array().cloned()).unwrap_or_default();
@@ -369,6 +440,22 @@ impl Settings {
             }
         }
         cfg.save();
+    }
+
+    /// Bulwark hoverActions (default delete, star, markRead, archive).
+    pub fn hover_actions(&self) -> Vec<String> {
+        match self.prefs.get("hoverActions").and_then(|v| v.as_array()) {
+            Some(a) => a.iter().filter_map(|x| x.as_str().map(String::from)).collect(),
+            None => ["delete", "star", "markRead", "archive"].iter().map(|s| s.to_string()).collect(),
+        }
+    }
+
+    /// Bulwark calendarWorkingDays (default Monday to Friday).
+    pub fn working_days(&self) -> Vec<i64> {
+        match self.prefs.get("calendarWorkingDays").and_then(|v| v.as_array()) {
+            Some(a) => a.iter().filter_map(|x| x.as_i64()).filter(|d| (0..7).contains(d)).collect(),
+            None => vec![1, 2, 3, 4, 5],
+        }
     }
 
     pub fn is_inverted(&self, key: &str) -> bool {
