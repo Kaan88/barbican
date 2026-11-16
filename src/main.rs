@@ -309,6 +309,10 @@ fn apply_routed(u: &AppWindow, st: &Shared, ids: Vec<String>, action: &str) {
     // confirm and resolve toggles once for the whole selection, then run it per source
     if !mail::confirm_action(u, ids.len(), action) { return; }
     let action = mail::resolve_toggle(&ids, action);
+    // keep the reader's star in step when the open message is starred from any menu or key
+    if matches!(action.as_str(), "star" | "unstar") && ids.iter().any(|i| i.as_str() == u.get_current_mail().as_str()) {
+        u.set_r_flagged(action == "star");
+    }
     let selection = ids.clone();
     // one group per login and, for group inboxes, per shared JMAP account
     let mut groups: Vec<((Option<String>, Option<String>), Vec<String>)> = vec![];
@@ -1642,7 +1646,6 @@ fn main() -> Result<(), slint::PlatformError> {
                 }
             }
             other => {
-                if other == "star" { u.set_r_flagged(!u.get_r_flagged()); }
                 apply_routed(&u, &st, vec![id], other);
             }
         }
@@ -1697,6 +1700,14 @@ fn main() -> Result<(), slint::PlatformError> {
     if automation::enabled() {
         ui.window().set_position(slint::PhysicalPosition::new(-6000, 0));
     }
+    // the calendar's current-time line
+    let set_now = |u: &AppWindow| { use chrono::Timelike; let n = chrono::Local::now(); u.set_now_minutes((n.hour() * 60 + n.minute()) as i32); };
+    set_now(&ui);
+    let w = ui.as_weak();
+    let now_timer = slint::Timer::default();
+    now_timer.start(slint::TimerMode::Repeated, std::time::Duration::from_secs(30), move || {
+        if let Some(u) = w.upgrade() { set_now(&u); }
+    });
     let w = ui.as_weak();
     let timer = slint::Timer::default();
     timer.start(slint::TimerMode::Repeated, std::time::Duration::from_millis(50), move || {

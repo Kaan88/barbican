@@ -286,9 +286,11 @@ pub fn request(u: &AppWindow, kind: &str, id: &str) {
                 it(G_CALENDAR, "New event in this calendar", "", "new-event"),
                 it(G_EYE, if visible { "Hide calendar" } else { "Show calendar" }, "", "toggle"),
                 it(G_RENAME, "Rename", "", "rename"),
+                sub(G_COLOR, "Colour", "sub:color"),
                 off(it(G_DEFAULT, "Set as default", "", "default"), !default),
                 sep(),
-                danger(G_DELETE, "Delete calendar", "", "ask:delete"),
+                // Bulwark never offers to delete the default calendar
+                off(danger(G_DELETE, "Delete calendar", "", "ask:delete"), !default),
             ],
         },
         "contact" => vec![
@@ -309,7 +311,7 @@ pub fn request(u: &AppWindow, kind: &str, id: &str) {
             t.kind = format!("ct-{k}");
             t.id = nid.to_string();
             match k {
-                "group" => { t.kind = "group".into(); group_items() }
+                "group" => { t.kind = "group".into(); let mut v = vec![header(&contacts::group_name(nid))]; v.extend(group_items()); v }
                 "keyword" => vec![
                     header(nid),
                     it(G_OPEN, "Show contacts", "", "open"),
@@ -341,6 +343,24 @@ pub fn request(u: &AppWindow, kind: &str, id: &str) {
                 danger(G_DELETE, "Delete forever", "Del", "ask:delete"),
             ],
         },
+        // the files sidebar's Favorites and Recent entries (Bulwark files-sidebar menus)
+        "file-fav" | "file-recent" => match files::node_info(id) {
+            None => vec![],
+            Some((name, is_folder, _, _)) => {
+                let fav = kind == "file-fav";
+                t.kind = "file".into();
+                u.global::<crate::CtxHl>().set_id(format!("file:{id}").into());
+                let mut v = vec![header(&name), it(G_OPEN, "Open", "", "open")];
+                if fav {
+                    v.extend([sep(), it(G_STARRED, "Unstar", "", "star")]);
+                } else {
+                    v.push(it(G_SEARCH, "Show in folder", "", "reveal"));
+                    if !is_folder { v.push(it(G_DOWNLOAD, "Download", "", "download")); }
+                    v.extend([sep(), it("\u{E711}", "Remove from recent", "", "unrecent")]);
+                }
+                v
+            }
+        },
         "file" => match files::node_info(id) {
             None => vec![],
             Some((name, is_folder, shared_in, may_share)) => {
@@ -368,8 +388,10 @@ pub fn request(u: &AppWindow, kind: &str, id: &str) {
             }
         },
         "rte" => rte_items(u),
+        // the Empty trash button: ask first, as Bulwark does
+        "files-empty" => { t.kind = "files-bg".into(); confirm("Delete everything in the trash", "do:empty-trash") }
         "files-bg" if u.get_fl_in_trash() => vec![
-            it(G_DELETE, "Empty trash", "", "empty-trash"),
+            danger(G_DELETE, "Empty trash", "", "ask:empty-trash"),
             it(G_REFRESH, "Refresh", "", "refresh"),
         ],
         "files-bg" => vec![
@@ -586,7 +608,7 @@ fn submenu(u: &AppWindow, t: &Target, which: &str) -> Vec<CtxItem> {
             v.push(it(G_UNREAD, "Bcc", "", "email:bcc"));
         }
         "color" => {
-            let cur = coll_color(u, &t.id);
+            let cur = if t.kind == "cal" { calendar::calendar_color(&t.id) } else { coll_color(u, &t.id) };
             for (hex, name) in crate::server_settings::CAL_COLORS {
                 let mut i = it("", name, "", &format!("color:{hex}"));
                 i.color = hex_color(hex);
@@ -599,6 +621,7 @@ fn submenu(u: &AppWindow, t: &Target, which: &str) -> Vec<CtxItem> {
             v.push(it(G_CALENDAR, "Today", "", "due:0"));
             v.push(it(G_CALENDAR, "Tomorrow", "", "due:1"));
             v.push(it(G_CALENDAR, "Next week", "", "due:7"));
+            if calendar::task_has_due(&t.id) { v.push(it(G_CALENDAR, "No due date", "", "due:none")); }
         }
         _ => {}
     }
@@ -724,7 +747,10 @@ pub fn pick(u: &AppWindow, st: &Shared, action: &str) {
             ("folder", "empty") => "Delete all messages permanently",
             ("folder", _) => "Delete this folder",
             ("cal", _) => "Delete calendar and its events",
+            // a file outside the trash only moves there; trashed and shared items go for good
+            ("file", _) if !files::is_trashed(&t.id) && !files::is_shared(&t.id) => "Move to trash",
             ("file", _) => "Delete for good",
+            ("files-bg", "empty-trash") => "Delete everything in the trash",
             ("calset", "clear") => "Delete every event in this calendar",
             ("calset", _) => "Delete calendar and its events",
             ("bookset", _) | ("ct-book", _) => "Delete address book and its contacts",
@@ -869,6 +895,7 @@ pub fn pick(u: &AppWindow, st: &Shared, action: &str) {
             match action {
                 "toggle" => u.invoke_task_toggle(id.into()),
                 "delete" => calendar::delete_task(u, c, id),
+                "due:none" => calendar::clear_task_due(u, c, id),
                 d if d.starts_with("due:") => {
                     let n: i64 = d[4..].parse().unwrap_or(0);
                     calendar::set_task_due(u, c, id, chrono::Local::now().date_naive() + chrono::Duration::days(n));
@@ -885,6 +912,7 @@ pub fn pick(u: &AppWindow, st: &Shared, action: &str) {
                 "rename" => prompt(u, "Rename calendar", &name, "rename-cal", id),
                 "default" => { let cid = id.to_string(); coll_op(u, st, "Default changed", move |c| crate::server_settings::default_collection(c, false, &cid)); }
                 "delete" => calendar::set_call(u, c, "Calendar/set", json!({"destroy": [id], "onDestroyRemoveEvents": true}), "Calendar not deleted"),
+                a if a.starts_with("color:") => calendar::set_call(u, c, "Calendar/set", json!({"update": {id: {"color": &a[6..]}}}), "Colour not changed"),
                 _ => {}
             }
         }
@@ -1016,6 +1044,8 @@ pub fn pick(u: &AppWindow, st: &Shared, action: &str) {
                 "delete" => u.invoke_fl_delete(id.into()),
                 "restore" => files::restore(u, c, id),
                 "star" => files::toggle_star(u, id),
+                "unrecent" => files::remove_recent(u, id),
+                "reveal" => { if let Some(p) = files::parent_of(id) { files::open(u, c, &p); } }
                 "duplicate" => files::duplicate(u, c, id),
                 "cut" => files::set_clipboard(u, id, true),
                 "copy" => files::set_clipboard(u, id, false),

@@ -119,6 +119,8 @@ fn trashed_items(s: &State) -> Vec<(Value, Option<String>, Option<i64>, Option<S
 }
 
 /// Whether a node sits in the trash (an item of it, not the trash folder itself).
+pub fn is_shared(k: &str) -> bool { node(k).is_some_and(|n| shared(&n)) }
+
 pub fn is_trashed(k: &str) -> bool { ST.with(|s| { let s = s.borrow(); trash_subtree(&s).contains(k) && trash_folder(&s).is_none_or(|t| key(t) != k) }) }
 
 /// A name not taken among `used` (Bulwark getUniqueName: "name (2).ext").
@@ -144,6 +146,11 @@ fn set_prefs_list(name: &str, v: &[String]) {
     let _ = std::fs::write(crate::config_dir().join("files.json"), l.to_string());
 }
 
+/// The time part of a date, following the timeFormat setting (12h or 24h).
+fn clock() -> &'static str {
+    if crate::settings::Settings::load().str("timeFormat", "24h") == "12h" { "%-I:%M %p" } else { "%H:%M" }
+}
+
 pub fn is_starred(k: &str) -> bool { prefs_list("filesFavorites").iter().any(|x| x == k) }
 
 /// Star / unstar a folder (Bulwark keeps favourites on the device, `files-favorites`).
@@ -152,6 +159,19 @@ pub fn toggle_star(u: &AppWindow, k: &str) {
     if let Some(i) = v.iter().position(|x| x == k) { v.remove(i); } else { v.push(k.to_string()); }
     set_prefs_list("filesFavorites", &v);
     render(u);
+}
+
+/// Drop an entry from the sidebar's Recent list.
+pub fn remove_recent(u: &AppWindow, k: &str) {
+    let mut v = prefs_list("filesRecent");
+    v.retain(|x| x != k);
+    set_prefs_list("filesRecent", &v);
+    render(u);
+}
+
+/// The folder a node sits in (for "Show in folder").
+pub fn parent_of(k: &str) -> Option<String> {
+    ST.with(|s| s.borrow().nodes.iter().find(|n| key(n) == k).map(parent_key))
 }
 
 fn note_recent(k: &str) {
@@ -225,8 +245,9 @@ pub fn render(u: &AppWindow) {
             s.nodes.iter().filter(|n| parent_key(n) == s.cwd && (!s.cwd.is_empty() || !shared(n)) && !hidden.contains(&key(n))).collect()
         };
         rows.sort_by_key(|n| (!is_dir(n), n["name"].as_str().unwrap_or("").to_lowercase()));
+        let ck = clock();
         let deleted_at = |n: &Value| trashed.iter().find(|t| key(&t.0) == key(n)).and_then(|t| t.2)
-            .and_then(chrono::DateTime::from_timestamp_millis).map(|t| t.with_timezone(&chrono::Local).format("Deleted %d %b %Y %H:%M").to_string());
+            .and_then(chrono::DateTime::from_timestamp_millis).map(|t| t.with_timezone(&chrono::Local).format(&format!("Deleted %d %b %Y {ck}")).to_string());
         let cut: Vec<String> = s.clipboard.as_ref().filter(|c| c.1).map(|c| c.0.clone()).unwrap_or_default();
         let out: Vec<FileRow> = rows.iter().map(|n| FileRow {
             trashed: in_trash,
@@ -234,7 +255,7 @@ pub fn render(u: &AppWindow) {
             name: n["name"].as_str().unwrap_or("").into(),
             folder: is_dir(n),
             size: if is_dir(n) { "".into() } else { crate::human_size(n["size"].as_u64().unwrap_or(0)).into() },
-            modified: deleted_at(n).or_else(|| n["modified"].as_str().and_then(|d| crate::mail::parse_time(&json!(d))).map(|t| t.format("%d %b %Y %H:%M").to_string())).unwrap_or_default().into(),
+            modified: deleted_at(n).or_else(|| n["modified"].as_str().and_then(|d| crate::mail::parse_time(&json!(d))).map(|t| t.format(&format!("%d %b %Y {ck}")).to_string())).unwrap_or_default().into(),
             renaming: s.rename.as_deref() == Some(key(n).as_str()),
             starred: favs.contains(&key(n)),
             shared: n["shareWith"].as_object().is_some_and(|m| !m.is_empty()) || shared(n),

@@ -401,6 +401,8 @@ export global Prefs {
     in-out property <bool> tag-chips: true;
     in-out property <length> font-size: 13px;
     in-out property <bool> cal-tinted: false;
+    // timeFormat 12h: the hour column reads "2:00 PM"
+    in-out property <bool> cal-h12: false;
     // list hover actions, Barbican action names (delete, star, read, archive, spam)
     in-out property <[string]> hover-actions: ["delete", "star", "read", "archive"];
     // reader body gutter (messageSpacing)
@@ -446,7 +448,7 @@ component ContextMenuRow inherits Rectangle {
     border-radius: 4px;
     background: it.kind == 0 && it.enabled && (cta.has-hover || open-sub) ? (it.danger ? #ef444433 : Theme.hover) : transparent;
     if it.kind == 1: Rectangle { x: 4px; width: parent.width - 8px; height: 1px; background: Theme.line; }
-    if it.kind == 2: Text { x: 10px; text: it.label; color: Theme.dim; font-size: 11px; font-weight: 600; vertical-alignment: center; }
+    if it.kind == 2: Text { x: 10px; width: parent.width - 20px; text: it.label; color: Theme.dim; font-size: 11px; font-weight: 600; vertical-alignment: center; overflow: elide; }
     cta := TouchArea { enabled: it.kind == 0 && it.enabled; clicked => { if it.sub { root.hovered(); } else { root.picked(it.action); } } changed has-hover => { if self.has-hover { root.hovered(); } } }
     if it.kind == 0: HorizontalLayout {
         padding-left: 8px;
@@ -941,6 +943,8 @@ export component AppWindow inherits Window {
     in property <bool> cal-show-weeknums: false;
     in property <int> cal-hour-from: 0;
     in property <int> cal-hour-to: 24;
+    // minutes since local midnight, for the current-time line in the day and week views
+    in property <int> now-minutes: -1;
     in property <string> cal-title;
     in property <string> mini-title;
     in property <[MiniDay]> mini-month;
@@ -2591,7 +2595,7 @@ export component AppWindow inherits Window {
                                 property <int> h: hh + root.cal-hour-from;
                                 y: hh * 56px;
                                 height: 56px;
-                                Text { x: 6px; y: -6px; text: (h < 10 ? "0" : "") + h + ":00"; color: Theme.dim; font-size: 10px; }
+                                Text { x: 6px; y: -6px; text: Prefs.cal-h12 ? (Math.mod(h, 12) == 0 ? 12 : Math.mod(h, 12)) + ":00 " + (h < 12 ? "AM" : "PM") : (h < 10 ? "0" : "") + h + ":00"; color: Theme.dim; font-size: 10px; }
                                 Rectangle { x: 52px; height: 1px; y: 0; background: Theme.popup; }
                                 TouchArea {
                                     x: 52px;
@@ -2618,6 +2622,17 @@ export component AppWindow inherits Window {
                                     Text { text: e.title; color: Prefs.cal-tinted ? Theme.text : #ffffff; font-size: 11px; font-weight: 600; overflow: elide; }
                                     Text { text: e.time + (e.location != "" ? "  · " + e.location : ""); color: Prefs.cal-tinted ? Theme.dim : #ffffffcc; font-size: 10px; overflow: elide; }
                                 }
+                            }
+                            // Bulwark's now indicator: a dot and a line across today's column
+                            for d[i] in root.cal-days: Rectangle {
+                                property <length> colw: (tg.visible-width - 52px) / root.cal-days.length;
+                                visible: d.today && root.now-minutes >= root.cal-hour-from * 60 && root.now-minutes <= root.cal-hour-to * 60;
+                                x: 52px + i * colw - 5px;
+                                y: (root.now-minutes - root.cal-hour-from * 60) * 56px / 60 - 5px;
+                                width: colw + 5px;
+                                height: 10px;
+                                Rectangle { x: 0; y: 0; width: 10px; height: 10px; border-radius: 5px; background: #ef4444; }
+                                Rectangle { x: 5px; y: 4px; width: parent.width - 5px; height: 2px; background: #ef4444; }
                             }
                         }
                         init => { self.content-y = -max(0, root.pref-day-start - root.cal-hour-from) * 56px; }
@@ -2811,7 +2826,7 @@ export component AppWindow inherits Window {
                                 background: here ? Theme.sel : (fnta.has-hover || (n.id != "" && CtxHl.id == "file:" + n.id) ? Theme.hover : transparent);
                                 fnta := TouchArea {
                                     clicked => { if n.kind == "root" { root.fl-open(""); } else { root.fl-activate(n.id); } }
-                                    pointer-event(ev) => { if ev.button == PointerEventButton.right && ev.kind == PointerEventKind.up { if n.kind == "root" { root.fl-open(""); root.ctx("files-bg", "", self.absolute-position.x + self.mouse-x, self.absolute-position.y + self.mouse-y); } else { root.ctx("file", n.id, self.absolute-position.x + self.mouse-x, self.absolute-position.y + self.mouse-y); } } }
+                                    pointer-event(ev) => { if ev.button == PointerEventButton.right && ev.kind == PointerEventKind.up { if n.kind == "root" { root.fl-open(""); root.ctx("files-bg", "", self.absolute-position.x + self.mouse-x, self.absolute-position.y + self.mouse-y); } else { root.ctx(n.kind == "fav" ? "file-fav" : n.kind == "recent" ? "file-recent" : "file", n.id, self.absolute-position.x + self.mouse-x, self.absolute-position.y + self.mouse-y); } } }
                                 }
                                 HorizontalLayout {
                                     padding-left: 8px + n.depth * 14px;
@@ -2851,7 +2866,7 @@ export component AppWindow inherits Window {
                 if !root.fl-in-trash: Button { text: "New folder"; clicked => { root.fl-new-folder(root.new-folder-name); root.new-folder-name = ""; } }
                 if !root.fl-in-trash: Button { text: "Upload folder"; clicked => { root.fl-upload-folder(); } }
                 if !root.fl-in-trash: PrimaryButton { text: "Upload";  clicked => { root.fl-upload(); } }
-                if root.fl-in-trash: Button { text: "Empty trash"; enabled: root.files.length > 0; clicked => { root.fl-empty-trash(); } }
+                if root.fl-in-trash: Button { text: "Empty trash"; enabled: root.files.length > 0; clicked => { root.ctx("files-empty", "", self.absolute-position.x - 140px, self.absolute-position.y + self.height + 4px); } }
             }
             Rectangle { height: 1px; background: Theme.line; }
             HorizontalLayout {
@@ -2876,16 +2891,24 @@ export component AppWindow inherits Window {
                         padding-right: 10px;
                         spacing: 10px;
                         Icon { text: f.folder ? "\u{E8B7}" : "\u{E7C3}"; color: f.folder ? #f59e0b : Theme.dim; width: 20px; }
-                        if !f.renaming: Text { text: f.name; color: Theme.text; vertical-alignment: center; horizontal-stretch: 1; overflow: elide; }
-                        if f.starred: Icon { text: "\u{E735}"; font-size: 11px; color: #f59e0b; }
-                        if f.shared: Icon { text: "\u{E72D}"; font-size: 11px; color: Theme.dim; }
-                        if f.renaming: LineEdit { text: f.name; horizontal-stretch: 1; accepted(t) => { root.fl-rename(f.id, t); } }
+                        // Bulwark: the star and shared marks sit right after the name
+                        if !f.renaming: HorizontalLayout {
+                            horizontal-stretch: 1;
+                            alignment: start;
+                            spacing: 6px;
+                            Text { text: f.name; color: Theme.text; vertical-alignment: center; overflow: elide; }
+                            if f.starred: Icon { text: "\u{E735}"; font-size: 11px; color: #f59e0b; }
+                            if f.shared: Icon { text: "\u{E72D}"; font-size: 11px; color: Theme.dim; }
+                        }
+                        if f.renaming: LineEdit { text: f.name; horizontal-stretch: 1; init => { self.focus(); self.select-all(); } accepted(t) => { root.fl-rename(f.id, t); } }
                         Text { text: f.size; color: Theme.dim; font-size: 11px; vertical-alignment: center; width: 90px; }
                         Text { text: f.modified; color: Theme.dim; font-size: 11px; vertical-alignment: center; width: 140px; }
                         if !f.trashed: HoverAction { glyph: "\u{E896}"; y: 7px; clicked => { root.fl-download(f.id); } }
                         if !f.trashed: HoverAction { glyph: "\u{E8AC}"; y: 7px; clicked => { root.fl-start-rename(f.id); } }
                         // in the trash: restore, and delete for good
                         if f.trashed: HoverAction { glyph: "\u{E7A7}"; y: 7px; clicked => { root.fl-restore(f.id); } }
+                        // keep the size and date columns under their headers (one action fewer here)
+                        if f.trashed: Rectangle { width: Prefs.large-targets ? 32px : 22px; }
                         HoverAction { glyph: "\u{E74D}"; y: 7px; clicked => { root.fl-delete(f.id); } }
                     }
                 }
