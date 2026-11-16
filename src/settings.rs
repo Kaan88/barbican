@@ -120,6 +120,15 @@ impl Settings {
         self.prefs.get(key).and_then(|v| v.as_str()).unwrap_or(default).to_string()
     }
 
+    /// Numeric pref; tolerates numbers stored as strings.
+    pub fn int(&self, key: &str, default: i64) -> i64 {
+        match self.prefs.get(key) {
+            Some(Value::Number(n)) => n.as_i64().or_else(|| n.as_f64().map(|f| f as i64)).unwrap_or(default),
+            Some(Value::String(s)) => s.trim().parse().unwrap_or(default),
+            _ => default,
+        }
+    }
+
     fn tab_list(&self) -> Vec<(String, String, String, String, i32)> {
         // id, label, group, icon, indent
         let mut out = vec![];

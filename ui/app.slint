@@ -347,6 +347,7 @@ export global Prefs {
     in-out property <bool> toolbar-labels: true;
     in-out property <bool> tag-chips: true;
     in-out property <length> font-size: 13px;
+    in-out property <bool> cal-tinted: false;
 }
 
 component ToolButton inherits Rectangle {
@@ -595,6 +596,11 @@ export component AppWindow inherits Window {
     in-out property <int> app: 0;
     callback app-changed(int);
     in property <int> cal-view: 1;
+    in property <[string]> cal-weekdays: ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+    in property <[string]> cal-week-nums;
+    in property <bool> cal-show-weeknums: false;
+    in property <int> cal-hour-from: 0;
+    in property <int> cal-hour-to: 24;
     in property <string> cal-title;
     in property <string> mini-title;
     in property <[MiniDay]> mini-month;
@@ -1410,12 +1416,19 @@ export component AppWindow inherits Window {
                         HoverAction { glyph: "\u{E76C}"; clicked => { root.cal-nav("mini-next"); } }
                     }
                     HorizontalLayout {
-                        for d in ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]: Text { text: d; color: Theme.dim; font-size: 10px; horizontal-alignment: center; width: 28px; }
+                        alignment: start;
+                        if root.cal-show-weeknums: Rectangle { width: 22px; }
+                        for d in root.cal-weekdays: Text { text: d; color: Theme.dim; font-size: 10px; horizontal-alignment: center; width: 28px; }
                     }
-                    Rectangle {
+                    mini := Rectangle {
                         height: 6 * 22px;
+                        property <length> wn-w: root.cal-show-weeknums ? 22px : 0px;
+                        if root.cal-show-weeknums: Rectangle {
+                            x: 0; y: 0; width: 22px; height: 6 * 22px;
+                            for w[j] in root.cal-week-nums: Text { x: 0; y: j * 22px; width: 22px; height: 22px; text: w; color: Theme.dim; font-size: 9px; horizontal-alignment: center; vertical-alignment: center; }
+                        }
                         for d[i] in root.mini-month: Rectangle {
-                            x: mod(i, 7) * 28px;
+                            x: mini.wn-w + mod(i, 7) * 28px;
                             y: floor(i / 7) * 22px;
                             width: 28px;
                             height: 22px;
@@ -1480,14 +1493,20 @@ export component AppWindow inherits Window {
                 if root.cal-view == 2: VerticalLayout {
                     HorizontalLayout {
                         height: 24px;
-                        for d in ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]: Text { text: d; color: Theme.dim; font-size: 11px; horizontal-alignment: center; vertical-alignment: center; }
+                        if root.cal-show-weeknums: Rectangle { width: 28px; }
+                        for d in root.cal-weekdays: Text { text: d; color: Theme.dim; font-size: 11px; horizontal-alignment: center; vertical-alignment: center; }
                     }
                     grid := Rectangle {
                         vertical-stretch: 1;
+                        property <length> wn-w: root.cal-show-weeknums ? 28px : 0px;
+                        if root.cal-show-weeknums: Rectangle {
+                            x: 0; y: 0; width: 28px; height: grid.height;
+                            for w[j] in root.cal-week-nums: Text { x: 0; y: j * grid.height / 6 + 4px; width: 28px; text: w; color: Theme.dim; font-size: 10px; horizontal-alignment: center; }
+                        }
                         for c[i] in root.cal-cells: Rectangle {
-                            x: mod(i, 7) * grid.width / 7;
+                            x: grid.wn-w + mod(i, 7) * (grid.width - grid.wn-w) / 7;
                             y: floor(i / 7) * grid.height / 6;
-                            width: grid.width / 7;
+                            width: (grid.width - grid.wn-w) / 7;
                             height: grid.height / 6;
                             border-width: 0.5px;
                             border-color: Theme.line;
@@ -1508,13 +1527,13 @@ export component AppWindow inherits Window {
                                 for e in c.events: Rectangle {
                                     height: 18px;
                                     border-radius: 3px;
-                                    background: e.color.with-alpha(0.25);
+                                    background: Prefs.cal-tinted ? e.color.with-alpha(0.25) : e.color;
                                     TouchArea { clicked => { root.cal-edit(e.id, "", -1); } }
                                     HorizontalLayout {
                                         padding-left: 4px;
                                         spacing: 4px;
-                                        Rectangle { width: 3px; background: e.color; }
-                                        Text { text: (e.time != "" ? e.time + " " : "") + e.title; color: Theme.text; font-size: 10px; vertical-alignment: center; overflow: elide; }
+                                        if Prefs.cal-tinted: Rectangle { width: 3px; background: e.color; }
+                                        Text { text: (e.time != "" ? e.time + " " : "") + e.title; color: Prefs.cal-tinted ? Theme.text : #ffffff; font-size: 10px; vertical-alignment: center; overflow: elide; }
                                     }
                                 }
                                 if c.more != "": Text { text: c.more; color: Theme.dim; font-size: 10px; }
@@ -1540,21 +1559,22 @@ export component AppWindow inherits Window {
                             for e in d.events: Rectangle {
                                 height: 18px;
                                 border-radius: 3px;
-                                background: e.color.with-alpha(0.3);
+                                background: Prefs.cal-tinted ? e.color.with-alpha(0.3) : e.color;
                                 TouchArea { clicked => { root.cal-edit(e.id, "", -1); } }
-                                Text { text: e.title; color: Theme.text; font-size: 10px; overflow: elide; x: 4px; width: parent.width - 8px; }
+                                Text { text: e.title; color: Prefs.cal-tinted ? Theme.text : #ffffff; font-size: 10px; overflow: elide; x: 4px; width: parent.width - 8px; }
                             }
                         }
                     }
                     Rectangle { height: 1px; background: Theme.line; }
                     tg := ScrollView {
                         vertical-stretch: 1;
-                        content-height: 24 * 56px;
+                        content-height: (root.cal-hour-to - root.cal-hour-from) * 56px;
                         Rectangle {
-                            height: 24 * 56px;
+                            height: (root.cal-hour-to - root.cal-hour-from) * 56px;
                             width: tg.visible-width;
-                            for h in 24: Rectangle {
-                                y: h * 56px;
+                            for hh in (root.cal-hour-to - root.cal-hour-from): Rectangle {
+                                property <int> h: hh + root.cal-hour-from;
+                                y: hh * 56px;
                                 height: 56px;
                                 Text { x: 6px; y: -6px; text: (h < 10 ? "0" : "") + h + ":00"; color: Theme.dim; font-size: 10px; }
                                 Rectangle { x: 52px; height: 1px; y: 0; background: Theme.popup; }
@@ -1572,19 +1592,19 @@ export component AppWindow inherits Window {
                                 width: colw / e.lanes - 3px;
                                 height: max(e.height * 1px, 18px);
                                 border-radius: 4px;
-                                background: e.color.with-alpha(0.3);
-                                Rectangle { x: 0; width: 3px; background: e.color; border-radius: 2px; }
+                                background: Prefs.cal-tinted ? e.color.with-alpha(0.3) : e.color;
+                                if Prefs.cal-tinted: Rectangle { x: 0; width: 3px; background: e.color; border-radius: 2px; }
                                 TouchArea { clicked => { root.cal-edit(e.id, "", -1); } }
                                 VerticalLayout {
                                     padding: 3px;
                                     padding-left: 7px;
                                     alignment: start;
-                                    Text { text: e.title; color: Theme.text; font-size: 11px; font-weight: 600; overflow: elide; }
-                                    Text { text: e.time + (e.location != "" ? "  · " + e.location : ""); color: Theme.dim; font-size: 10px; overflow: elide; }
+                                    Text { text: e.title; color: Prefs.cal-tinted ? Theme.text : #ffffff; font-size: 11px; font-weight: 600; overflow: elide; }
+                                    Text { text: e.time + (e.location != "" ? "  · " + e.location : ""); color: Prefs.cal-tinted ? Theme.dim : #ffffffcc; font-size: 10px; overflow: elide; }
                                 }
                             }
                         }
-                        init => { self.content-y = -root.pref-day-start * 56px; }
+                        init => { self.content-y = -max(0, root.pref-day-start - root.cal-hour-from) * 56px; }
                     }
                 }
             }
