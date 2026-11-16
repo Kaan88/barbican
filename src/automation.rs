@@ -120,6 +120,18 @@ fn run(u: &AppWindow, line: &str) -> String {
             win.dispatch_event(WindowEvent::PointerReleased { position: LogicalPosition::new(x1, y1), button: PointerEventButton::Left });
             "ok".into()
         }
+        "rte-image" => {
+            // insert an image file into the composer (as paste/drop would)
+            let path = a.get(1).copied().unwrap_or("");
+            match std::fs::read(path) {
+                Ok(b) => { let name = path.rsplit(['/', '\\']).next().unwrap_or("image").to_string(); crate::rte::insert_image_bytes(u, b, crate::compose::mime_for(&name), &name); "ok".into() }
+                Err(e) => format!("error {e}"),
+            }
+        }
+        "rte-html" => {
+            // dump the composer's HTML export (for checking the round trip)
+            crate::rte::to_html().replace('\n', " ")
+        }
         "size" => { let s = win.size(); format!("{} {} scale {}", s.width, s.height, win.scale_factor()) }
         "shot" => {
             let path = a.get(1).copied().unwrap_or("shot.png");

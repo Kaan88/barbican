@@ -337,6 +337,16 @@ pub fn toggle_tag(u: &AppWindow, i: i32) {
 
 pub fn attach(u: &AppWindow, c: Arc<Client>) {
     let Some(files) = rfd::FileDialog::new().pick_files() else { return };
+    attach_files(u, c, files);
+}
+
+/// Attach files dropped on the composer.
+pub fn attach_paths(u: &AppWindow, files: Vec<std::path::PathBuf>) {
+    let Some(c) = CLIENT.with(|c| c.borrow().clone()) else { return };
+    attach_files(u, c, files);
+}
+
+fn attach_files(u: &AppWindow, c: Arc<Client>, files: Vec<std::path::PathBuf>) {
     let w = u.as_weak();
     u.set_c_status("Uploading…".into());
     std::thread::spawn(move || {

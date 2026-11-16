@@ -480,6 +480,7 @@ fn main() -> Result<(), slint::PlatformError> {
     apply_theme(&ui);
     apply_ui_prefs(&ui);
     automation::start(&ui);
+    rte::wire_drop(&ui);
     {
         let (loaded, errors) = plugins::load_all();
         PLUGINS.with(|p| *p.borrow_mut() = loaded);

@@ -560,3 +560,24 @@ pub fn wire(ui: &AppWindow) {
     let w = ui.as_weak();
     ui.on_rte_cmd(move |cmd| on_cmd(&w.unwrap(), &cmd));
 }
+
+/// Files dropped on the window while composing: images go inline, other files are attached.
+pub fn wire_drop(ui: &AppWindow) {
+    use slint::winit_030::{winit::event::WindowEvent, EventResult, WinitWindowAccessor};
+    let w = ui.as_weak();
+    ui.window().on_winit_window_event(move |_, ev| {
+        if let WindowEvent::DroppedFile(path) = ev {
+            let Some(u) = w.upgrade() else { return EventResult::Propagate };
+            if !u.get_composing() { return EventResult::Propagate; }
+            let name = path.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_else(|| "file".into());
+            let mime = crate::compose::mime_for(&name);
+            if mime.starts_with("image/") && mime != "image/svg+xml" && !u.get_c_plain() {
+                if let Ok(b) = std::fs::read(path) { insert_image_bytes(&u, b, mime, &name); }
+            } else {
+                crate::compose::attach_paths(&u, vec![path.clone()]);
+            }
+            return EventResult::PreventDefault;
+        }
+        EventResult::Propagate
+    });
+}

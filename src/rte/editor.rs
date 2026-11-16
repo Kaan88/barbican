@@ -551,6 +551,9 @@ impl Editor {
             np.b
         };
         self.doc.blocks.insert(at, Block::new(Kind::Image(img)));
+        // always leave an empty paragraph after the image to keep typing in
+        let next_empty = self.doc.blocks.get(at + 1).is_some_and(|b| b.kind == Kind::Para && b.is_empty());
+        if !next_empty { self.doc.blocks.insert(at + 1, Block::new(Kind::Para)); }
         self.doc.fix();
         self.sel = Sel::caret(self.doc.clamp(Pos::new(at + 1, 0)));
     }
@@ -800,6 +803,20 @@ mod tests {
         assert_eq!(e.doc.blocks.iter().filter(|b| b.kind.is_cell()).count(), 3);
         e.table_op("del-table");
         assert!(e.doc.blocks.iter().all(|b| !b.kind.is_cell()));
+    }
+
+    #[test]
+    fn image_insert_keeps_following_text() {
+        let mut e = ed("");
+        e.doc.blocks.push(Block::para("On Mon, X wrote:"));
+        e.set_caret(Pos::new(0, 0));
+        e.insert_image(ImageData { cid: Some("a@b".into()), ..Default::default() });
+        typ(&mut e, "hi");
+        assert!(matches!(e.doc.blocks[0].kind, Kind::Image(_)));
+        assert_eq!(texts(&e)[1..].to_vec(), vec!["hi", "On Mon, X wrote:"]);
+        e.set_caret(Pos::new(1, 0));
+        e.backspace(false);
+        assert!(!e.doc.blocks.iter().any(|b| matches!(b.kind, Kind::Image(_))));
     }
 
     #[test]
