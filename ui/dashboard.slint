@@ -27,6 +27,8 @@ export struct DashPanel {
     value: string,
     change: string,
     good: bool,
+    // change rounds to 0%: neutral grey badge
+    flat: bool,
     spark: string,
     tone: int,
     height: int,
@@ -146,8 +148,8 @@ component PanelView inherits Rectangle {
             height: 20px;
             width: chg.preferred-width + 16px;
             border-radius: 10px;
-            background: p.good ? (dark ? #12301f : #dcf3e4) : (dark ? #3a1418 : #fde2e2);
-            chg := Text { text: p.change; color: p.good ? (dark ? #6ee7a0 : #15803d) : (dark ? #fca5a5 : #b91c1c); font-size: 10px; font-weight: 600; }
+            background: p.flat ? (dark ? #262626 : #f0f0f0) : p.good ? (dark ? #12301f : #dcf3e4) : (dark ? #3a1418 : #fde2e2);
+            chg := Text { text: p.change; color: p.flat ? dim : p.good ? (dark ? #6ee7a0 : #15803d) : (dark ? #fca5a5 : #b91c1c); font-size: 10px; font-weight: 600; }
         }
         if p.spark != "": Path {
             x: parent.width - 104px;
@@ -296,7 +298,12 @@ component PanelView inherits Rectangle {
                 }
             }
         }
+        // thin the ticks further when the chart is too narrow for them (12h labels are wider)
+        property <length> xgap: cw * p.xstep / max(1, p.kind == 2 ? p.tips.length : p.tips.length - 1);
+        property <length> xlw: p.xlabels.length > 0 ? p.xlabels[0].character-count * 5px + 8px : 0px;
+        property <int> xskip: max(1, ceil(xlw / max(1px, xgap)));
         for xl[i] in p.xlabels: Text {
+            visible: mod(i, xskip) == 0;
             x: left + (p.kind == 2 ? cw * (i * p.xstep + 0.5) / max(1, p.tips.length) : cw * i * p.xstep / max(1, p.tips.length - 1)) - 30px;
             y: parent.height - bottom + 6px;
             width: 60px;
@@ -315,10 +322,8 @@ component PanelView inherits Rectangle {
         padding-bottom: 8px;
         spacing: 1px;
         alignment: start;
-        for b in p.bars: Rectangle {
-          height: 21px;
-          bta := TouchArea { }
-          HorizontalLayout {
+        for b in p.bars: HorizontalLayout {
+            height: 21px;
             spacing: 10px;
             Text { text: b.label; color: fg; font-size: 11px; width: 84px; overflow: elide; vertical-alignment: center; }
             Rectangle {
@@ -339,10 +344,27 @@ component PanelView inherits Rectangle {
                 }
             }
             Text { text: b.value; color: fg; font-size: 11px; width: 44px; horizontal-alignment: right; vertical-alignment: center; }
-          }
-          if bta.has-hover: Rectangle {
-            x: min(max(0px, bta.mouse-x - self.width / 2), parent.width - self.width);
-            y: -30px;
+        }
+        if p.bars.length == 0: Text { text: "No data for this period."; color: dim; font-size: 11px; }
+    }
+
+    // bar list hover: one overlay above every row, so the tooltip sits below the hovered
+    // row (above it only when there is no room) and never hides the row above
+    if p.kind == 3 && p.bars.length > 0: Rectangle {
+        x: 14px;
+        y: 44px;
+        width: parent.width - 28px;
+        height: p.bars.length * 22px - 1px;
+        property <int> idx: max(0, min(p.bars.length - 1, floor(lta.mouse-y / 22px)));
+        property <DashBar> b: p.bars[idx];
+        lta := TouchArea { }
+        if lta.has-hover: Rectangle {
+            property <length> below: idx * 22px + 25px;
+            property <bool> room: 44px + below + self.height <= root.height - 2px;
+            // no room under the last rows: sit on the hovered row beside the cursor instead
+            x: room ? min(max(0px, lta.mouse-x - self.width / 2), parent.width - self.width)
+                : lta.mouse-x + 14px + self.width <= parent.width ? lta.mouse-x + 14px : max(0px, lta.mouse-x - 14px - self.width);
+            y: room ? below : idx * 22px - 2.5px;
             width: btl.preferred-width + 34px;
             height: 26px;
             border-radius: 8px;
@@ -359,16 +381,14 @@ component PanelView inherits Rectangle {
                 Text { text: b.value; color: fg; font-size: 11px; font-weight: 600; vertical-alignment: center; }
                 Text { text: "(" + b.share + ")"; color: dim; font-size: 11px; vertical-alignment: center; }
             }
-          }
         }
-        if p.bars.length == 0: Text { text: "No data for this period."; color: dim; font-size: 11px; }
     }
 
     // highlight card
     if p.kind == 4: VerticalLayout {
         padding-left: 14px;
         padding-right: 14px;
-        padding-top: 46px;
+        padding-top: 43px;
         spacing: 4px;
         alignment: start;
         Text { text: p.value; color: fg; font-size: 34px; font-weight: 800; }

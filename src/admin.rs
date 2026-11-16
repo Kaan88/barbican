@@ -82,10 +82,11 @@ fn row(id: &str, c: [String; 4]) -> AdminRow {
     AdminRow { id: id.into(), c1: c1.into(), c2: c2.into(), c3: c3.into(), c4: c4.into() }
 }
 
-/// ISO timestamps in local time, e.g. "15 Nov 2026 13:38".
+/// ISO timestamps in local time, e.g. "15 Nov 2026 13:38" (or "1:38 PM" with timeFormat 12h).
 fn when(v: &Value) -> String {
+    let f = if crate::settings::h12() { "%d %b %Y %-I:%M %p" } else { "%d %b %Y %H:%M" };
     v.as_str().and_then(|t| chrono::DateTime::parse_from_rfc3339(t).ok())
-        .map(|d| d.with_timezone(&chrono::Local).format("%d %b %Y %H:%M").to_string())
+        .map(|d| d.with_timezone(&chrono::Local).format(f).to_string())
         .unwrap_or_else(|| s(v))
 }
 

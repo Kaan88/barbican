@@ -111,6 +111,12 @@ fn fmt(v: f64, u: Unit) -> String {
         // formatElapsed
         Unit::Ms => {
             if v <= 0.0 { return "0 ms".into(); }
+            // sub-10 ms keeps two decimals so fast stores do not read "0 ms" and the
+            // y axis of a sub-millisecond chart is not "1 ms, 1 ms, 0 ms, 0 ms, 0 ms"
+            if v < 9.995 {
+                let t = format!("{v:.2}");
+                return format!("{} ms", t.trim_end_matches('0').trim_end_matches('.'));
+            }
             if v.round() < 1000.0 { return format!("{:.0} ms", v.round()); }
             let sec = (v / 100.0).round() / 10.0;
             if sec < 60.0 { return format!("{sec:.1} s"); }
@@ -230,7 +236,7 @@ fn ss(v: Vec<String>) -> ModelRc<SharedString> { ModelRc::new(VecModel::from(v.i
 fn blank(kind: i32, title: &str, icon: &str, height: i32) -> DashPanel {
     DashPanel {
         kind, title: title.into(), icon: icon.into(), height, info: "".into(), value: "".into(), change: "".into(),
-        good: true, spark: "".into(), tone: 0, names: ss(vec![]), colors: ModelRc::default(), areas: ss(vec![]), lines: ss(vec![]),
+        good: true, flat: false, spark: "".into(), tone: 0, names: ss(vec![]), colors: ModelRc::default(), areas: ss(vec![]), lines: ss(vec![]),
         ylabels: ss(vec![]), xlabels: ss(vec![]), bars: ModelRc::default(), note: "".into(),
         tips: ModelRc::default(), tip_names: ss(vec![]), tip_colors: ModelRc::default(), spark_tips: ModelRc::default(), fill_alpha: 0.35, xstep: 1,
     }
@@ -240,7 +246,7 @@ fn blank(kind: i32, title: &str, icon: &str, height: i32) -> DashPanel {
 #[derive(Clone, Copy)]
 enum Pol { Up, Down, Neutral }
 
-struct Ctx<'a> { d: &'a Data, range: usize }
+struct Ctx<'a> { d: &'a Data, range: usize, h12: bool }
 
 impl Ctx<'_> {
     fn card(&self, title: &str, icon: &str, info: &str, names: &[&str], u: Unit, pol: Pol, tone: i32) -> DashPanel {
@@ -251,10 +257,25 @@ impl Ctx<'_> {
         p.value = fmt(d.value(names), u).into();
         if let Some(c) = d.change(names) {
             let up = c >= 0.0;
-            p.change = format!("{} {}%", if up { "\u{2191}" } else { "\u{2193}" }, format!("{:.1}", (c.abs() * 10.0).round() / 10.0).trim_end_matches(".0")).into();
-            p.good = match pol { Pol::Up => up, Pol::Down => !up, Pol::Neutral => true };
+            let mag = (c.abs() * 10.0).round() / 10.0;
+            if mag == 0.0 {
+                // no movement: neutral grey badge without an arrow
+                p.change = "0%".into();
+                p.flat = true;
+            } else {
+                p.change = format!("{} {}%", if up { "\u{2191}" } else { "\u{2193}" }, format!("{:.1}", mag).trim_end_matches(".0")).into();
+                p.good = match pol { Pol::Up => up, Pol::Down => !up, Pol::Neutral => true };
+            }
         }
-        let s = d.series(names, 20);
+        let mut s = d.series(names, 20);
+        if d.kind(names) == Kind::Gauge {
+            // a gauge holds its level between samples: carry it over empty buckets (and
+            // back to the start) instead of drawing spikes down to zero
+            let raw = d.series_opt(names, 20);
+            let first = raw.iter().flatten().next().copied().unwrap_or(0.0);
+            let mut last = first;
+            s = raw.iter().map(|v| { if let Some(x) = v { last = *x; } last }).collect();
+        }
         if s.iter().any(|v| *v != 0.0) {
             let max = s.iter().cloned().fold(0.0, f64::max) * 1.1;
             p.spark = line(&s, max).into();
@@ -271,12 +292,13 @@ impl Ctx<'_> {
     /// WebUI formatTimeTick: time of day for intraday ranges, else month/day.
     fn when(&self, t: i64) -> String {
         let dt = chrono::DateTime::from_timestamp(t, 0).unwrap_or_default().with_timezone(&chrono::Local);
-        match self.range { 0 | 1 => dt.format("%H:%M").to_string(), _ => dt.format("%m/%d %H:%M").to_string() }
+        let hm = if self.h12 { "%-I:%M %p" } else { "%H:%M" };
+        match self.range { 0 | 1 => dt.format(hm).to_string(), _ => dt.format(&format!("%m/%d {hm}")).to_string() }
     }
 
     fn tick(&self, t: i64) -> String {
         let dt = chrono::DateTime::from_timestamp(t, 0).unwrap_or_default().with_timezone(&chrono::Local);
-        match self.range { 0 | 1 => dt.format("%H:%M").to_string(), _ => dt.format("%m/%d").to_string() }
+        match self.range { 0 | 1 => dt.format(if self.h12 { "%-I:%M %p" } else { "%H:%M" }).to_string(), _ => dt.format("%m/%d").to_string() }
     }
 
     /// Bucket centre timestamps (bucketTimestamps).
@@ -566,10 +588,11 @@ fn layout(tab: usize, x: &Ctx) -> Vec<DashRow> {
         ],
         _ => vec![
             row(vec![
-                (1.0, vec![x.ratio("Hit rate", "\u{E945}", &["cache.hit"], &["cache.miss"], "Lookups served from the cache.")]),
-                (1.0, vec![{ let mut p = x.card("Cache Hits", "\u{E73E}", "Cache hits", &["cache.hit"], Count, Up, 0); p.height = 112; p }]),
-                (1.0, vec![{ let mut p = x.card("Cache Misses", "\u{E711}", "Cache misses", &["cache.miss"], Count, Down, 1); p.height = 112; p }]),
-                (1.0, vec![{ let mut p = x.card("Cache Size", im, "Memory used by caches", &["cache.size"], Bytes, Neutral, 2); p.height = 112; p }]),
+                // same 110px height as the stat cards on every other tab
+                (1.0, vec![{ let mut p = x.ratio("Hit rate", "\u{E945}", &["cache.hit"], &["cache.miss"], "Lookups served from the cache."); p.height = 110; p }]),
+                (1.0, vec![x.card("Cache Hits", "\u{E73E}", "Cache hits", &["cache.hit"], Count, Up, 0)]),
+                (1.0, vec![x.card("Cache Misses", "\u{E711}", "Cache misses", &["cache.miss"], Count, Down, 1)]),
+                (1.0, vec![x.card("Cache Size", im, "Memory used by caches", &["cache.size"], Bytes, Neutral, 2)]),
             ]),
             row(vec![
                 (2.0, vec![x.chart("Lookups", &[("hit", &["cache.hit"]), ("miss", &["cache.miss"])], Count, 0, 300)]),
@@ -617,6 +640,7 @@ pub fn load(u: &AppWindow, c: std::sync::Arc<crate::jmap::Client>, tab: usize, r
     let w = u.as_weak();
     u.set_dash_status("Loading…".into());
     std::thread::spawn(move || {
+        let h12 = crate::settings::h12();
         let res = (|| -> Result<(Data, usize), String> {
             let a = Admin::new(&c).ok_or("Add a Stalwart admin API key in Settings → Admin.")?;
             let to = chrono::Utc::now().timestamp();
@@ -637,17 +661,52 @@ pub fn load(u: &AppWindow, c: std::sync::Arc<crate::jmap::Client>, tab: usize, r
             if u.get_dash_tab() as usize != tab || u.get_dash_range() as usize != range { return; }
             match res {
                 Ok((d, range)) => {
-                    let rows = layout(tab, &Ctx { d: &d, range });
+                    let rows = layout(tab, &Ctx { d: &d, range, h12 });
                     u.set_dash_rows(ModelRc::new(VecModel::from(rows)));
                     u.set_dash_status(if d.samples.is_empty() { "No metrics recorded for this period.".into() } else { "".into() });
                 }
                 Err(e) => {
                     let msg = if e.contains("unknownMethod") || e.contains("Unknown method") { "Metrics are not available on this server (Enterprise feature).".to_string() } else { e };
                     let d = Data { from: 0, to: 1, buckets: 2, samples: vec![], extra: HashMap::new() };
-                    u.set_dash_rows(ModelRc::new(VecModel::from(layout(tab, &Ctx { d: &d, range })))) ;
+                    u.set_dash_rows(ModelRc::new(VecModel::from(layout(tab, &Ctx { d: &d, range, h12 })))) ;
                     u.set_dash_status(msg.into());
                 }
             }
         });
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn flat_data() -> Data {
+        let s = |t| Sample { metric: "m".into(), kind: Kind::Counter, t, count: 5.0, sum: 0.0 };
+        Data { from: 0, to: 3600, buckets: 4, samples: vec![s(100), s(2000)], extra: HashMap::new() }
+    }
+
+    #[test]
+    fn zero_change_is_neutral() {
+        let d = flat_data();
+        let p = Ctx { d: &d, range: 0, h12: false }.card("t", "", "", &["m"], Unit::Count, Pol::Up, 0);
+        assert_eq!(p.change.as_str(), "0%");
+        assert!(p.flat);
+    }
+
+    #[test]
+    fn time_labels_follow_time_format() {
+        let d = flat_data();
+        let t = 13 * 3600 + 5 * 60;
+        let h24 = Ctx { d: &d, range: 0, h12: false }.when(t);
+        let h12 = Ctx { d: &d, range: 0, h12: true }.when(t);
+        assert!(!h24.contains('M'), "{h24}");
+        assert!(h12.ends_with("AM") || h12.ends_with("PM"), "{h12}");
+    }
+
+    #[test]
+    fn sub_millisecond_ticks_are_distinct() {
+        let ticks: Vec<String> = (0..5).map(|i| fmt(1.0 * i as f64 / 4.0, Unit::Ms)).collect();
+        assert_eq!(ticks, ["0 ms", "0.25 ms", "0.5 ms", "0.75 ms", "1 ms"]);
+        assert_eq!(fmt(12.4, Unit::Ms), "12 ms");
+    }
 }
