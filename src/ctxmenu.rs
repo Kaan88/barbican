@@ -1030,7 +1030,7 @@ fn rte_items(u: &AppWindow) -> Vec<CtxItem> {
         if sugg.is_empty() { v.push(off(it("", "No suggestions", "", ""), false)); }
         for s in sugg.iter().take(5) { v.push(it("", s, "", &format!("spell:{s}"))); }
         v.push(it(G_ADD, &format!("Add \u{201C}{word}\u{201D} to dictionary"), "", "spell-add"));
-        v.push(it("\u{E7BA}", "Ignore", "", "spell-ignore"));
+        v.push(it("", "Ignore", "", "spell-ignore"));
         v.push(sep());
     }
     v.extend([

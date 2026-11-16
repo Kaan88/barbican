@@ -6,10 +6,10 @@
 
 ## Done: native rich-text composer (src/rte)
 What you see is what is sent. Document model (paragraph, H1–H3, quote, code block, nested bullet/numbered lists, tables, images, the collapsible quoted original), marks (bold, italic, underline, strike, code, link, colour, highlight, font size), undo/redo, tolerant HTML import and email-safe HTML export (inline styles, Bulwark's spacing) plus text/plain. Layout with parley, the text engine Slint itself uses, so runs measure exactly as drawn. Caret, selection, click/drag/double/triple click, keyboard navigation, TipTap shortcuts, Markdown input rules, clipboard (HTML, text, images, image files), dropped files, inline `cid:` images, link popover and bubble, table menu, floating selection toolbar, rich signatures and templates, AI rewrite of the selection.
+Also done: right-click menu (spelling suggestions, clipboard, Format/Paragraph/Table flyouts, link actions, image size, AI rewrite, undo/redo); spell checking with the Windows spell checker (ISpellChecker) in the writing language, dotted red underlines, Add to dictionary / Ignore, setting "Underline misspelled words" (`spellCheck`, on by default); image resize handles (corners, aspect kept, `width` attribute plus CSS width in the sent HTML); HTML source view (`</>` in the toolbar; the quoted original stays out of it and is kept); IME pre-edit: the editor's FocusScope holds a TextInput at the caret that receives the composition events (Slint draws the pre-edit text there and places the candidate window), while `capture-key-pressed` keeps every key press for the editor.
 Still open:
-- IME composition (pre-edit) display: committed text is inserted, but Slint only enables IME for its own TextInput.
-- Spell-check underlines (Windows spell-check API / Hunspell) and a source view for HTML.
-- Image resize handles; images referenced as `cid:` in a re-opened draft show as placeholders.
+- IME is not verified with a real IME (the hidden automation channel cannot inject composition events); the pre-edit text covers the text after the caret instead of pushing it aside.
+- Images referenced as `cid:` in a re-opened draft show as placeholders.
 
 ## Next: distribution (Windows + Linux)
 - **CI release workflow** (GitHub Actions): on tag `v*`, build and test on `windows-latest` and `ubuntu-latest`, attach artifacts to a GitHub Release, generate checksums and sign them.
