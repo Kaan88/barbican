@@ -306,14 +306,15 @@ fn build_rows(st: &ListState) -> Vec<Mail> {
     }).collect()
 }
 
+/// An image the body references by cid (not a real attachment).
+pub fn is_inline_image(a: &Value) -> bool {
+    a["cid"].is_string() && a["disposition"] != "attachment" && a["type"].as_str().is_some_and(|t| t.starts_with("image/"))
+}
+
 /// File names of a message's attachments; with `hide_inline` the inline images (cid-referenced
 /// pictures in the body) are left out, like Bulwark's hideInlineImageAttachments.
 pub fn attachment_names(m: &Value, hide_inline: bool) -> Vec<String> {
-    m["attachments"].as_array().map(|a| a.iter().filter(|p| {
-        let inline = p["disposition"].as_str() == Some("inline") && p["cid"].is_string()
-            && p["type"].as_str().is_some_and(|t| t.starts_with("image/"));
-        !(hide_inline && inline)
-    }).map(|p| p["name"].as_str().filter(|n| !n.is_empty()).unwrap_or("attachment").to_string()).collect()).unwrap_or_default()
+    m["attachments"].as_array().map(|a| a.iter().filter(|p| !(hide_inline && is_inline_image(p))).map(|p| p["name"].as_str().filter(|n| !n.is_empty()).unwrap_or("attachment").to_string()).collect()).unwrap_or_default()
 }
 
 pub fn rebuild_list(u: &AppWindow) {

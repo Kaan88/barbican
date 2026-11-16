@@ -103,10 +103,21 @@ fn wrap_html(body: &str) -> String {
 
 fn wrap_html_opts(body: &str, images: bool) -> String {
     let csp = csp(images);
-    if body.starts_with("<pre>") && !settings::Settings::load().bool("emailAlwaysLightMode", false) {
-        return format!("<!doctype html><html><head><meta charset=utf-8>{csp}<base target=_blank><style>html,body{{background:#0a0a0a;color:#e5e5e5}}body{{margin:16px;font-family:'Segoe UI',sans-serif;font-size:14px;word-wrap:break-word}}pre{{white-space:pre-wrap;font-family:inherit;margin:0}}a{{color:#f0577a}}</style></head><body>{body}</body></html>");
+    let p = settings::Settings::load();
+    let plain = body.starts_with("<pre>");
+    // Bulwark plainTextFont: sans (default) or mono for text/plain bodies
+    let pre_font = if p.str("plainTextFont", "sans") == "mono" { "ui-monospace,Consolas,'Cascadia Mono',monospace" } else { "inherit" };
+    // Bulwark messageSpacing: auto drops the gutter for full-bleed HTML layouts, edge always, always never
+    let full_bleed = || { let l = body.to_ascii_lowercase(); l.contains("<style") && (l.contains("width=\"100%\"") || l.contains("width:100%") || l.contains("width: 100%")) };
+    let margin = match p.str("messageSpacing", "auto").as_str() {
+        "edge" => 0,
+        "always" => 16,
+        _ => if !plain && full_bleed() { 0 } else { 16 },
+    };
+    if plain && !p.bool("emailAlwaysLightMode", false) {
+        return format!("<!doctype html><html><head><meta charset=utf-8>{csp}<base target=_blank><style>html,body{{background:#0a0a0a;color:#e5e5e5}}body{{margin:{margin}px;font-family:'Segoe UI',sans-serif;font-size:14px;word-wrap:break-word}}pre{{white-space:pre-wrap;font-family:{pre_font};margin:0}}a{{color:#f0577a}}</style></head><body>{body}</body></html>");
     }
-    format!("<!doctype html><html><head><meta charset=utf-8>{csp}<base target=_blank><style>body{{margin:16px;font-family:'Segoe UI',sans-serif;font-size:14px;color:#111;background:#fff;word-wrap:break-word}}pre{{white-space:pre-wrap;font-family:inherit}}img{{max-width:100%;height:auto}}</style></head><body>{body}</body></html>")
+    format!("<!doctype html><html><head><meta charset=utf-8>{csp}<base target=_blank><style>body{{margin:{margin}px;font-family:'Segoe UI',sans-serif;font-size:14px;color:#111;background:#fff;word-wrap:break-word}}pre{{white-space:pre-wrap;font-family:{pre_font}}}img{{max-width:100%;height:auto}}</style></head><body>{body}</body></html>")
 }
 
 fn rect(x: f32, y: f32, w: f32, h: f32) -> wry::Rect {
@@ -612,8 +623,9 @@ fn main() -> Result<(), slint::PlatformError> {
                         let cc = names("cc");
                         if !cc.is_empty() { to = format!("{to}  ·  Cc: {cc}"); }
                         u.set_r_to(to.into());
+                        let hide_inline = settings::Settings::load().bool("hideInlineImageAttachments", true);
                         let atts: Vec<Value> = m["attachments"].as_array().cloned().unwrap_or_default().into_iter()
-                            .filter(|a| !(a["cid"].is_string() && a["disposition"] != "attachment" && a["type"].as_str().is_some_and(|t| t.starts_with("image/"))))
+                            .filter(|a| !(hide_inline && mail::is_inline_image(a)))
                             .collect();
                         let rows: Vec<Att> = atts.iter().enumerate().map(|(i, a)| Att {
                             name: a["name"].as_str().unwrap_or("attachment").into(),
@@ -1398,8 +1410,13 @@ fn main() -> Result<(), slint::PlatformError> {
         }
     });
 
-    let st = state.clone();
+    let (st, wa) = (state.clone(), ui.as_weak());
     ui.on_open_attachment(move |i| {
+        // Bulwark mailAttachmentAction: preview (open) or download (save)
+        if settings::Settings::load().str("mailAttachmentAction", "preview") == "download" {
+            if let Some(u) = wa.upgrade() { u.invoke_save_attachment(i); }
+            return;
+        }
         let Some(c) = st.lock().unwrap().clone() else { return };
         let Some(a) = CUR_MSG.with(|x| x.borrow().as_ref().and_then(|(_, atts)| atts.get(i as usize).cloned())) else { return };
         std::thread::spawn(move || {
