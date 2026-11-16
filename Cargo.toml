@@ -20,7 +20,7 @@ rfd = { version = "0.15", default-features = false, features = ["common-controls
 keyring = { version = "3", features = ["windows-native"] }
 parley = "=0.11.1"
 arboard = "3.7"
-image = { version = "0.25", default-features = false, features = ["png", "jpeg", "gif", "webp", "bmp"] }
+image = { version = "0.25", default-features = false, features = ["png", "jpeg", "gif", "webp", "bmp", "ico"] }
 
 blitz-html = "=0.3.0-beta.4"
 blitz-dom = "=0.3.0-beta.4"
@@ -30,7 +30,7 @@ anyrender = "0.14"
 anyrender_vello_cpu = "0.18"
 
 [target.'cfg(windows)'.dependencies]
-windows = { version = "0.62", features = ["Win32_Foundation", "Win32_Globalization", "Win32_System_Com"] }
+windows = { version = "0.62", features = ["Win32_Foundation", "Win32_Globalization", "Win32_System_Com", "Win32_NetworkManagement_Dns"] }
 
 [build-dependencies]
 slint-build = "1.8"

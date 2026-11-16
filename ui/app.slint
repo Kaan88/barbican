@@ -1,7 +1,7 @@
 import { AdminDashboard, DashRow, DashPanel, DashCol, DashBar } from "dashboard.slint";
 export { DashRow, DashPanel, DashCol, DashBar }
 import { LineEdit, Button, ListView, ScrollView, TextEdit, ComboBox, CheckBox, Palette } from "std-widgets.slint";
-import { MxTok, AttCard, FromOverride, AttCards, ReplyDockBar, ReplyDockHandle } from "mailextras.slint";
+import { MxTok, AttCard, FromOverride, AttCards, ReplyDockBar, ReplyDockHandle, SenderAvatar } from "mailextras.slint";
 export { AttCard }
 
 export struct Folder {
@@ -22,6 +22,9 @@ export struct Tag {
     name: string,
     color: color,
     count: string,
+    // nestedTags: level in the tree and the chevron (0 none, 1 open, 2 closed)
+    depth: int,
+    chevron: int,
 }
 
 export struct PRow {
@@ -181,6 +184,9 @@ export struct Mail {
     code: string,
     row-tint: color,
     files: [string],
+    // sender picture (src/avatars.rs): 0 initials, 1 photo, 2 logo
+    avatar: image,
+    avatar-kind: int,
 }
 
 export global Theme {
@@ -359,15 +365,21 @@ component TagRow inherits Rectangle {
     in property <Tag> t;
     in property <bool> selected;
     callback clicked;
+    callback chevron-clicked;
     callback context(length, length);
     height: Prefs.large-targets ? 44px : 24px;
     in property <string> hl-id;
     background: selected ? Theme.sel : ta.has-hover || (hl-id != "" && CtxHl.id == hl-id) ? Theme.hover : transparent;
     ta := TouchArea { clicked => { root.clicked(); } pointer-event(ev) => { if ev.button == PointerEventButton.right && ev.kind == PointerEventKind.up { root.context(self.absolute-position.x + self.mouse-x, self.absolute-position.y + self.mouse-y); } } }
     HorizontalLayout {
-        padding-left: 26px;
+        padding-left: 26px + t.depth * 14px - (t.chevron != 0 ? 14px : 0px);
         padding-right: 8px;
         spacing: 8px;
+        if t.chevron != 0: Rectangle {
+            width: 12px;
+            TouchArea { clicked => { root.chevron-clicked(); } }
+            Icon { text: t.chevron == 2 ? "\u{E76C}" : "\u{E70D}"; font-size: 8px; }
+        }
         VerticalLayout { alignment: center; width: 16px; TagIcon { tint: t.color; } }
         Text { text: t.name; color: Theme.text; vertical-alignment: center; horizontal-stretch: 1; overflow: elide; }
         Text { text: t.count; color: Theme.dim; font-size: 11px; vertical-alignment: center; }
@@ -529,7 +541,7 @@ component MailRow inherits VerticalLayout {
             spacing: 12px;
             VerticalLayout {
                 alignment: center;
-                Avatar { label: m.initials; tint: m.color; }
+                SenderAvatar { label: m.initials; tint: m.color; img: m.avatar; kind: m.avatar-kind; }
             }
             VerticalLayout {
                 spacing: 3px;
@@ -889,6 +901,8 @@ export component AppWindow inherits Window {
     in property <string> r-to;
     in property <string> r-initials;
     in property <color> r-color: #6366f1;
+    in property <image> r-avatar;
+    in property <int> r-avatar-kind;
     in property <bool> r-flagged;
     in property <[Att]> attachments;
     in-out property <string> toast;
@@ -896,6 +910,8 @@ export component AppWindow inherits Window {
     in-out property <bool> folders-collapsed;
     in-out property <bool> tags-collapsed;
     callback toggle-folder(string);
+    callback toggle-tag-open(string);
+    callback tag-new();
     callback select-tag(string);
     callback row-action(string, string);
     callback toggle-check(string);
@@ -1446,6 +1462,7 @@ export component AppWindow inherits Window {
                                 spacing: 6px;
                                 Icon { text: root.tags-collapsed ? "\u{E76C}" : "\u{E70D}"; font-size: 8px; width: 12px; }
                                 Text { text: "Tags"; color: Theme.text; font-weight: 700; vertical-alignment: center; horizontal-stretch: 1; }
+                                Icon { text: "\u{E710}"; font-size: 11px; TouchArea { clicked => { root.tag-new(); } } }
                                 Icon { text: "\u{E713}"; font-size: 11px; TouchArea { clicked => { root.settings-tab = "organize"; root.open-settings(); } } }
                             }
                         }
@@ -1454,6 +1471,7 @@ export component AppWindow inherits Window {
                                 t: t;
                                 selected: t.id == root.current-tag;
                                 clicked => { root.current-tag = t.id; root.select-tag(t.id); }
+                                chevron-clicked => { root.toggle-tag-open(t.id); }
                                 hl-id: "tag:" + t.id;
                                 context(x, y) => { root.ctx("tag", t.id, x, y); }
                             }
@@ -1665,7 +1683,7 @@ export component AppWindow inherits Window {
                     padding-top: 12px;
                     padding-bottom: 12px;
                     spacing: 10px;
-                    Avatar { label: root.r-initials; tint: root.r-color; }
+                    SenderAvatar { label: root.r-initials; tint: root.r-color; img: root.r-avatar; kind: root.r-avatar-kind; }
                     VerticalLayout {
                         spacing: 2px;
                         horizontal-stretch: 1;

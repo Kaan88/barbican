@@ -2,6 +2,9 @@
 
 mod a11y;
 mod attachments;
+mod avatars;
+mod tags;
+mod mailimport;
 mod admin;
 mod dashboard;
 mod automation;
@@ -601,6 +604,7 @@ fn main() -> Result<(), slint::PlatformError> {
     apply_theme(&ui);
     apply_ui_prefs(&ui);
     automation::start(&ui);
+    avatars::set_window(ui.as_weak());
     rte::wire_drop(&ui);
     {
         let (loaded, errors) = plugins::load_all();
@@ -810,6 +814,7 @@ fn main() -> Result<(), slint::PlatformError> {
                         u.set_r_email(email.clone().into());
                         u.set_r_initials(initials(&from).into());
                         u.set_r_color(mail::tint(&from));
+                        mail::set_reader_avatar(&u, Some(&m));
                         u.set_r_flagged(m["keywords"]["$flagged"].as_bool() == Some(true));
                         let names = |k: &str| m[k].as_array().map(|a| a.iter().map(|x| {
                             let e = x["email"].as_str().unwrap_or("");
@@ -1001,7 +1006,8 @@ fn main() -> Result<(), slint::PlatformError> {
             }
         }
         if key == "spellCheck" { rte::spell::reload(); if let Some(u) = wt.upgrade() { rte::refresh(&u); } }
-        if let Some(u) = wt.upgrade() { apply_ui_prefs(&u); mail::rebuild_folders(&u); mail::rebuild_list(&u); }
+        if key == "unreadBadgeAllAccounts" && on { unified::refresh_other_logins(wt.clone(), true); }
+        if let Some(u) = wt.upgrade() { apply_ui_prefs(&u); mail::rebuild_folders(&u); mail::rebuild_list(&u); mail::refresh_avatars(&u); if key == "nestedTags" { mail::rebuild_tags(&u); } }
     });
 
     let (w, pf, cf, rs, srv3, sw3) = (ui.as_weak(), prefs.clone(), cfg.clone(), refresh_settings.clone(), server_cache.clone(), server_write.clone());
@@ -1062,6 +1068,7 @@ fn main() -> Result<(), slint::PlatformError> {
             u.invoke_settings_search(u.get_settings_query());
         }
         if key == "plugins.folder" { oauth::open_browser(&plugins::dir().to_string_lossy()); }
+        if key == "avatars.refresh" { avatars::refresh(); mail::refresh_avatars(&u); mail::show_toast(&u, "Sender icons will be fetched again", false); }
         if key == "backup.export" {
             if let Some(path) = rfd::FileDialog::new().set_file_name("barbican-settings.json").add_filter("JSON", &["json"]).save_file() {
                 let data = serde_json::to_string_pretty(&pf2.lock().unwrap().export()).unwrap_or_default();
@@ -1295,6 +1302,10 @@ fn main() -> Result<(), slint::PlatformError> {
     ui.on_c_toggle_tag(move |i| compose::toggle_tag(&w.unwrap(), i));
     let w = ui.as_weak();
     ui.on_c_from_edit(move || compose::start_from_override(&w.unwrap()));
+    let w = ui.as_weak();
+    ui.on_toggle_tag_open(move |id| mail::toggle_tag_open(&w.unwrap(), &id));
+    let w = ui.as_weak();
+    ui.on_tag_new(move || ctxmenu::new_tag_prompt(&w.unwrap(), None));
     // the share of the pane a docked reply takes, once dragged (Bulwark replyDockShare)
     ui.set_dock_share(settings::Settings::load().prefs.get("replyDockShare").and_then(|v| v.as_f64()).filter(|f| *f > 0.1 && *f < 0.95).unwrap_or(-1.0) as f32);
     ui.on_dock_share_save(|share| {

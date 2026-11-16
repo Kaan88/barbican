@@ -233,12 +233,24 @@ pub fn request(u: &AppWindow, kind: &str, id: &str) {
                 folder_items(u, &fid)
             }
         }
-        "tag" => vec![
-            it(G_OPEN, "Show messages", "", "open"),
-            it(G_READ, "Mark all as read", "", "tag-read"),
-            sep(),
-            it(G_SETTINGS, "Manage tags…", "", "manage"),
-        ],
+        "tag" => {
+            let mut v = vec![
+                it(G_OPEN, "Show messages", "", "open"),
+                it(G_READ, "Mark all as read", "", "tag-read"),
+                sep(),
+                it(G_ADD, "New tag…", "", "new-tag"),
+            ];
+            // nestedTags: a tag inside this one
+            if crate::tags::nested() && crate::tags::valid_id(&format!("{id}/x")) { v.push(it(G_ADD, "New tag inside…", "", "new-subtag")); }
+            v.extend([
+                it(G_RENAME, "Rename…", "", "rename-tag"),
+                sub(G_COLOR, "Colour", "color"),
+                danger(G_DELETE, "Delete tag", "", "ask:delete-tag"),
+                sep(),
+                it(G_SETTINGS, "Manage tags…", "", "manage"),
+            ]);
+            v
+        }
         "list" => vec![
             it(G_REFRESH, "Refresh", "", "refresh"),
             it(G_READ, "Mark folder as read", "", "folder-read"),
@@ -518,6 +530,8 @@ fn folder_items(u: &AppWindow, id: &str) -> Vec<CtxItem> {
         sep(),
         it(G_NEW_FOLDER, "New subfolder", "", "new-sub"),
         off(it(G_RENAME, "Rename", "", "rename"), role.is_empty()),
+        // Bulwark mail import: .eml and .mbox files into this folder (Email/import)
+        it(G_UPLOAD, "Import messages (.eml, .mbox)…", "", "import"),
     ];
     if role == "trash" || role == "junk" {
         v.push(sep());
@@ -606,6 +620,15 @@ fn submenu(u: &AppWindow, t: &Target, which: &str) -> Vec<CtxItem> {
             v.push(it(G_UNREAD, "To", "", "email:to"));
             v.push(it(G_UNREAD, "Cc", "", "email:cc"));
             v.push(it(G_UNREAD, "Bcc", "", "email:bcc"));
+        }
+        "color" if t.kind == "tag" => {
+            let cur = crate::tags::defs().into_iter().find(|d| d.id == t.id).map(|d| d.color);
+            for name in crate::tags::PALETTE {
+                let mut i = it("", &format!("{}{}", name[..1].to_uppercase(), &name[1..]), "", &format!("color:{name}"));
+                i.color = slint::Color::from_argb_encoded(0xff000000 | crate::tags::color_rgb(name));
+                i.checked = cur.as_deref() == Some(name);
+                v.push(i);
+            }
         }
         "color" => {
             let cur = if t.kind == "cal" { calendar::calendar_color(&t.id) } else { coll_color(u, &t.id) };
@@ -710,6 +733,29 @@ fn mailbox_op(u: &AppWindow, c: Arc<jmap::Client>, done: &'static str, f: impl F
     });
 }
 
+/// "New tag" (or a tag inside `parent`, with nestedTags).
+pub fn new_tag_prompt(u: &AppWindow, parent: Option<&str>) {
+    let title = match parent.and_then(|p| crate::tags::defs().into_iter().find(|d| d.id == p)) {
+        Some(p) => format!("New tag inside {}", p.label),
+        None => "New tag".to_string(),
+    };
+    prompt(u, &title, "", "new-tag", parent.unwrap_or(""));
+}
+
+/// Change the user's tags, save them and redraw the tag list and the rows' colours.
+fn edit_tags(u: &AppWindow, f: impl FnOnce(&mut Vec<crate::tags::TagDef>) -> Result<String, String>) {
+    let mut defs = crate::tags::defs();
+    match f(&mut defs) {
+        Ok(msg) => {
+            crate::tags::save(&defs);
+            mail::rebuild_tags(u);
+            mail::rebuild_list(u);
+            if !msg.is_empty() { mail::show_toast(u, &msg, false); }
+        }
+        Err(e) => mail::show_toast(u, &e, false),
+    }
+}
+
 fn prompt(u: &AppWindow, title: &str, text: &str, action: &str, id: &str) {
     PROMPT.with(|p| *p.borrow_mut() = Some((action.into(), id.into())));
     u.set_prompt_title(title.into());
@@ -721,6 +767,14 @@ pub fn prompt_ok(u: &AppWindow, st: &Shared, text: &str) {
     let Some((action, id)) = PROMPT.with(|p| p.borrow_mut().take()) else { return };
     let name = text.trim().to_string();
     if name.is_empty() { return; }
+    match action.as_str() {
+        "new-tag" => {
+            let parent = (!id.is_empty()).then_some(id.as_str());
+            return edit_tags(u, |d| crate::tags::add(d, parent, &name).map(|_| "Tag created".to_string()));
+        }
+        "rename-tag" => return edit_tags(u, |d| crate::tags::rename(d, &id, &name).map(|_| String::new())),
+        _ => {}
+    }
     let Some(c) = client(st) else { return };
     match action.as_str() {
         "new-sub" => mailbox_op(u, c, "Folder created", move |c| c.create_mailbox(&name, Some(&id)).map(|_| String::new())),
@@ -758,6 +812,7 @@ pub fn pick(u: &AppWindow, st: &Shared, action: &str) {
             ("calset", _) => "Delete calendar and its events",
             ("bookset", _) | ("ct-book", _) => "Delete address book and its contacts",
             ("group", _) => "Delete group",
+            ("tag", _) => "Delete this tag (messages keep it)",
             ("mail", _) => "Delete selected messages",
             _ => "Delete",
         };
@@ -844,6 +899,7 @@ pub fn pick(u: &AppWindow, st: &Shared, action: &str) {
                 "folder-read" => mark_read_query(u, c, json!({"inMailbox": fid, "notKeyword": "$seen"})),
                 "refresh" => u.invoke_refresh(),
                 "new-sub" => prompt(u, "New subfolder", "", "new-sub", id),
+                "import" => crate::mailimport::start(u, c, &fid),
                 "rename" => prompt(u, "Rename folder", &folder(u, id).map(|f| f.name.to_string()).unwrap_or_default(), "rename-folder", id),
                 "empty" => mailbox_op(u, c, "Folder emptied", move |c| c.empty_mailbox(&fid).map(|n| format!("Deleted {n} messages"))),
                 "delete" => mailbox_op(u, c, "Folder deleted", move |c| c.delete_mailbox(&fid).map(|_| String::new())),
@@ -854,6 +910,14 @@ pub fn pick(u: &AppWindow, st: &Shared, action: &str) {
             "open" => { u.set_current_tag(id.into()); u.invoke_select_tag(id.into()); }
             "tag-read" => { if let Some(c) = client(st) { mark_read_query(u, c, json!({"hasKeyword": format!("$label:{id}"), "notKeyword": "$seen"})); } }
             "manage" => { u.set_settings_tab("organize".into()); u.invoke_open_settings(); }
+            "new-tag" => new_tag_prompt(u, None),
+            "new-subtag" => new_tag_prompt(u, Some(id)),
+            "rename-tag" => {
+                let label = crate::tags::defs().into_iter().find(|d| d.id == id).map(|d| d.label).unwrap_or_default();
+                prompt(u, "Rename tag", &label, "rename-tag", id);
+            }
+            "delete-tag" => edit_tags(u, |d| crate::tags::remove(d, id).map(|_| "Tag deleted".to_string())),
+            a if a.starts_with("color:") => { let c = a[6..].to_string(); edit_tags(u, |d| { crate::tags::set_color(d, id, &c); Ok(String::new()) }); }
             _ => {}
         },
         "list" => match action {

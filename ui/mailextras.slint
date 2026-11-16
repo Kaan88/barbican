@@ -275,3 +275,23 @@ export component ReplyDockHandle inherits Rectangle {
         }
     }
 }
+
+/// A sender's picture: the photo (Gravatar), a logo on white (favicon, BIMI), or the initials
+/// on the sender's tint. kind: 0 initials, 1 photo, 2 logo.
+export component SenderAvatar inherits Rectangle {
+    in property <string> label;
+    in property <color> tint;
+    in property <image> img;
+    in property <int> kind;
+    in property <length> size: 34px;
+    width: size;
+    height: size;
+    border-radius: size / 2;
+    clip: true;
+    background: kind == 2 ? #ffffff : kind == 1 ? transparent : tint;
+    border-width: kind == 2 ? 1px : 0px;
+    border-color: #00000014;
+    if kind == 0: Text { text: root.label; color: white; font-size: root.size * 0.353; font-weight: 600; }
+    if kind == 1: Image { width: root.size; height: root.size; source: root.img; image-fit: cover; }
+    if kind == 2: Image { x: root.size * 0.16; y: root.size * 0.16; width: root.size * 0.68; height: root.size * 0.68; source: root.img; image-fit: contain; }
+}

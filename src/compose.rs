@@ -314,7 +314,7 @@ fn reset(u: &AppWindow) {
     u.set_c_read_receipt(false);
     // Bulwark plainTextMode: every message starts (and stays) plain text
     u.set_c_plain(crate::settings::Settings::load().bool("plainTextMode", false));
-    u.set_c_tag_on(ModelRc::new(VecModel::from(vec![false; crate::mail::TAGS.len()])));
+    { use slint::Model; u.set_c_tag_on(ModelRc::new(VecModel::from(vec![false; u.get_tags().row_count()]))); }
     u.set_c_subject("".into());
     rte::set_doc(u, Doc::default());
     u.set_c_status("".into());
@@ -516,7 +516,9 @@ fn outgoing(u: &AppWindow) -> Outgoing {
             keywords: {
                 use slint::Model;
                 let on = u.get_c_tag_on();
-                crate::mail::TAGS.iter().enumerate().filter(|(i, _)| on.row_data(*i).unwrap_or(false)).map(|(_, t)| format!("$label:{}", t.0)).collect()
+                // the composer's tag menu lists the sidebar's tags, in that order
+                let tags = u.get_tags();
+                (0..tags.row_count()).filter(|i| on.row_data(*i).unwrap_or(false)).filter_map(|i| tags.row_data(i)).map(|t| format!("$label:{}", t.id)).collect()
             },
             from_override: (u.get_c_from_custom() && u.get_c_from_email().contains('@'))
                 .then(|| (u.get_c_from_name().trim().to_string(), u.get_c_from_email().trim().to_string())),
@@ -524,11 +526,11 @@ fn outgoing(u: &AppWindow) -> Outgoing {
     })
 }
 
-/// Toggle tag `i` (index into `mail::TAGS`) for the message being composed.
+/// Toggle tag `i` (a row of the sidebar's tag list) for the message being composed.
 pub fn toggle_tag(u: &AppWindow, i: i32) {
     use slint::Model;
     let on = u.get_c_tag_on();
-    let mut v: Vec<bool> = (0..crate::mail::TAGS.len()).map(|k| on.row_data(k).unwrap_or(false)).collect();
+    let mut v: Vec<bool> = (0..u.get_tags().row_count()).map(|k| on.row_data(k).unwrap_or(false)).collect();
     if let Some(x) = v.get_mut(i as usize) { *x = !*x; }
     u.set_c_tag_on(ModelRc::new(VecModel::from(v)));
 }
