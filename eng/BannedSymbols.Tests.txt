@@ -1,0 +1,5 @@
+# Test projects: never real input on the user's machine (PORT-PLAN.md §4.4). Hidden automation only.
+# tools/check-rules.ps1 / tools/check-rules.sh also grep sources for SendInput, keybd_event and mouse_event.
+T:FlaUI.Core.Input.Mouse;Real pointer input is forbidden outside throwaway VMs
+T:FlaUI.Core.Input.Keyboard;Real keyboard input is forbidden outside throwaway VMs
+T:Windows.UI.Input.Preview.Injection.InputInjector;Real input injection is forbidden

@@ -1,0 +1,4 @@
+# Read by MSBuild for every build in this repo and every worktree (PORT-PLAN.md §6.3).
+# The machine froze under parallel builds: cap the node count and never leave nodes behind.
+-maxCpuCount:4
+-nodeReuse:false

@@ -1,0 +1,2591 @@
+{
+ "tabs": [
+  {
+   "id": "account",
+   "label": "Account",
+   "group": "top",
+   "icon": "",
+   "rows": [
+    {
+     "kind": "section",
+     "label": "Account",
+     "desc": "View your account information"
+    },
+    {
+     "kind": "info",
+     "label": "Email address",
+     "desc": "",
+     "key": ""
+    },
+    {
+     "kind": "info",
+     "label": "Username",
+     "desc": "",
+     "key": ""
+    },
+    {
+     "kind": "info",
+     "label": "Authentication",
+     "desc": "",
+     "key": ""
+    },
+    {
+     "kind": "info",
+     "label": "JMAP server",
+     "desc": "",
+     "key": ""
+    },
+    {
+     "kind": "info",
+     "label": "Storage usage",
+     "desc": "{used} of {total} used",
+     "key": ""
+    },
+    {
+     "kind": "info",
+     "label": "Account type",
+     "desc": "",
+     "key": ""
+    },
+    {
+     "kind": "section",
+     "label": "Logged-in accounts",
+     "desc": ""
+    },
+    {
+     "kind": "section",
+     "label": "Shared with me",
+     "desc": "Group and shared accounts you can manage. Select one to edit its filters, vacation responder, calendars, and contacts."
+    },
+    {
+     "kind": "info",
+     "label": "Your name",
+     "desc": "People see this name next to your address when you send them mail.",
+     "key": ""
+    },
+    {
+     "kind": "text",
+     "label": "Your name",
+     "desc": "People see this name next to your address when you send them mail.",
+     "key": ""
+    },
+    {
+     "kind": "section",
+     "label": "Email addresses",
+     "desc": "The addresses you can send from, each with its own name and signature."
+    },
+    {
+     "kind": "info",
+     "label": "Your addresses",
+     "desc": "",
+     "key": ""
+    },
+    {
+     "kind": "info",
+     "label": "Sub-addressing",
+     "desc": "Use tags like user+tag@domain.com to organize incoming mail",
+     "key": ""
+    },
+    {
+     "kind": "select",
+     "label": "Sub-address delimiter",
+     "desc": "Character separating your username from a sub-address tag. Match the delimiter your mail server uses (e.g. user{delimiter}tag@domain.com).",
+     "key": "subAddressDelimiter",
+     "options": [
+      [
+       "delim",
+       "{delimiter}  (user{delimiter}tag@domain.com)"
+      ],
+      [
+       "CUSTOM_DELIMITER_SENTINEL",
+       "Custom…"
+      ]
+     ]
+    }
+   ]
+  },
+  {
+   "id": "security",
+   "label": "Password & sign-in",
+   "group": "top",
+   "icon": "",
+   "rows": [
+    {
+     "kind": "info",
+     "label": "Two-step sign-in",
+     "desc": "Add an extra layer of security with a time-based one-time password",
+     "key": ""
+    },
+    {
+     "kind": "toggle",
+     "label": "Two-step sign-in",
+     "desc": "Add an extra layer of security with a time-based one-time password",
+     "key": ""
+    },
+    {
+     "kind": "section",
+     "label": "Account security",
+     "desc": "Manage your password, two-factor authentication, and security settings"
+    },
+    {
+     "kind": "section",
+     "label": "Encryption",
+     "desc": ""
+    },
+    {
+     "kind": "section",
+     "label": "App lock",
+     "desc": "Asks for a PIN after a time without use, in every window. While it's locked, the app can't read the mail stored on this device until someone enters the PIN."
+    },
+    {
+     "kind": "toggle",
+     "label": "Lock with a PIN",
+     "desc": "The PIN stays on this device.",
+     "key": ""
+    },
+    {
+     "kind": "toggle",
+     "label": "Unlock with Windows Hello",
+     "desc": "Use your face, fingerprint or Windows PIN. The app's PIN keeps working.",
+     "key": ""
+    },
+    {
+     "kind": "select",
+     "label": "Lock after",
+     "desc": "Time without use in any window.",
+     "key": "",
+     "options": []
+    },
+    {
+     "kind": "info",
+     "label": "Lock now",
+     "desc": "Locks all windows at once.",
+     "key": ""
+    },
+    {
+     "kind": "info",
+     "label": "PIN",
+     "desc": "If you forget it, the only way back is to remove the data on this device and sign in again. Your mail on the server stays. Messages still waiting to be sent on this device are lost.",
+     "key": ""
+    },
+    {
+     "kind": "info",
+     "label": "Passkey",
+     "desc": "Unlock with a passkey or security key that can protect the key. Not all can, and the PIN keeps working.",
+     "key": ""
+    }
+   ]
+  },
+  {
+   "id": "privacy",
+   "label": "Privacy & security",
+   "group": "top",
+   "icon": "",
+   "rows": [
+    {
+     "kind": "section",
+     "label": "Sender pictures",
+     "desc": ""
+    },
+    {
+     "kind": "toggle",
+     "label": "Sender pictures from the web",
+     "desc": "Show the website icon of a sender's company, and the brand logo (BIMI) of mail that passed DMARC for its sender. Asks the icon service and the sender's domain, so it is off until you turn it on.",
+     "key": "senderFavicons",
+     "default": false
+    },
+    {
+     "kind": "toggle",
+     "label": "Gravatar photos",
+     "desc": "Show the photo a sender set up on Gravatar. Asks gravatar.com about each sender's address (as a hash).",
+     "key": "gravatarAvatars",
+     "default": false
+    },
+    {
+     "kind": "button",
+     "label": "Refresh sender icons",
+     "desc": "Fetch the website icons again, for example when a sender changed theirs",
+     "key": "avatars.refresh",
+     "text": "Refresh"
+    },
+    {
+     "kind": "toggle",
+     "label": "Show avatars in the Junk folder",
+     "desc": "Show profile images and favicons for senders in the junk folder. Disabled by default to avoid lending visual legitimacy to phishing attempts.",
+     "key": "showAvatarsInJunk",
+     "default": false
+    },
+    {
+     "kind": "section",
+     "label": "Notifications",
+     "desc": ""
+    }
+   ]
+  },
+  {
+   "id": "notifications",
+   "label": "Notifications",
+   "group": "top",
+   "icon": "",
+   "rows": [
+    {
+     "kind": "section",
+     "label": "Do not disturb",
+     "desc": ""
+    },
+    {
+     "kind": "toggle",
+     "label": "Pause notifications",
+     "desc": "No sounds, pop-ups or spoken announcements for new mail until you turn this off again.",
+     "key": "doNotDisturb"
+    },
+    {
+     "kind": "section",
+     "label": "New mail",
+     "desc": "Configure notifications for incoming emails"
+    },
+    {
+     "kind": "toggle",
+     "label": "Email notifications",
+     "desc": "Show notifications when new emails arrive",
+     "key": "emailNotificationsEnabled",
+     "default": true
+    },
+    {
+     "kind": "toggle",
+     "label": "Sound for new mail",
+     "desc": "Play an audio alert when new emails arrive",
+     "key": "emailNotificationSound",
+     "default": true
+    },
+    {
+     "kind": "toggle",
+     "label": "Inbox only",
+     "desc": "Only notify for mail that lands in the Inbox; skip mail a filter files into another folder",
+     "key": "pushNotifyInboxOnly",
+     "default": false
+    },
+    {
+     "kind": "toggle",
+     "label": "Unread count on the taskbar icon",
+     "desc": "So you see new mail while you work in another app.",
+     "key": "faviconUnreadBadge",
+     "default": true
+    },
+    {
+     "kind": "toggle",
+     "label": "Count unread mail in all accounts",
+     "desc": "The number on the taskbar icon and in the tray adds up the inboxes of every signed-in account.",
+     "key": "unreadBadgeAllAccounts",
+     "default": true
+    },
+    {
+     "kind": "section",
+     "label": "Calendar notifications",
+     "desc": "Configure notifications for calendar events"
+    },
+    {
+     "kind": "toggle",
+     "label": "Event notifications",
+     "desc": "Show alerts for upcoming calendar events",
+     "key": "calendarNotificationsEnabled",
+     "default": true
+    },
+    {
+     "kind": "toggle",
+     "label": "Sound for reminders",
+     "desc": "Play an audio alert for calendar reminders",
+     "key": "calendarNotificationSound",
+     "default": true
+    },
+    {
+     "kind": "section",
+     "label": "Sound",
+     "desc": "Choose which sound to play for notifications"
+    },
+    {
+     "kind": "select",
+     "label": "Tone",
+     "desc": "Select a notification tone and click the speaker icon to preview it",
+     "key": "notificationSoundChoice",
+     "options": [],
+     "default": "involved"
+    },
+    {
+     "kind": "section",
+     "label": "Notifications when {appName} is closed",
+     "desc": "Receive system notifications for new mail when this site is closed. Delivered via the Bulwark push relay; the relay never sees mail content."
+    },
+    {
+     "kind": "toggle",
+     "label": "Turn on for this device",
+     "desc": "",
+     "key": ""
+    },
+    {
+     "kind": "select",
+     "label": "Push relay",
+     "desc": "The push relay has been set by your administrator and cannot be changed.",
+     "key": "pushRelayUrl",
+     "options": [
+      [
+       "option.url",
+       "option.label"
+      ]
+     ],
+     "default": ""
+    },
+    {
+     "kind": "section",
+     "label": "Registered devices",
+     "desc": "Every device registered to receive background notifications for this account. Revoking one stops it receiving immediately."
+    }
+   ]
+  },
+  {
+   "id": "general",
+   "label": "General",
+   "group": "top",
+   "icon": "",
+   "rows": [
+    {
+     "kind": "section",
+     "label": "Getting started",
+     "desc": ""
+    },
+    {
+     "kind": "info",
+     "label": "Introductory tour",
+     "desc": "Replay the guided walkthrough of the interface",
+     "key": ""
+    },
+    {
+     "kind": "toggle",
+     "label": "Show on new devices",
+     "desc": "Replay the welcome banner and tour the first time you sign in on a new device, even if you've already completed them elsewhere",
+     "key": "showOnboardingOnNewDevices",
+     "default": false
+    },
+    {
+     "kind": "section",
+     "label": "Language, region & time",
+     "desc": "Language, date format, time format, and other regional preferences"
+    },
+    {
+     "kind": "info",
+     "label": "Language",
+     "desc": "Choose your preferred language",
+     "key": ""
+    },
+    {
+     "kind": "select",
+     "label": "Date format",
+     "desc": "How dates are shown in the email list",
+     "key": "dateFormat",
+     "options": [
+      [
+       "smart",
+       "Smart"
+      ],
+      [
+       "relative",
+       "Relative"
+      ],
+      [
+       "full",
+       "Always full date"
+      ]
+     ],
+     "default": "smart"
+    },
+    {
+     "kind": "select",
+     "label": "Date format region",
+     "desc": "How numeric dates are ordered (day, month, year)",
+     "key": "dateLocale",
+     "options": [
+      [
+       "auto",
+       "Automatic"
+      ],
+      [
+       "iso",
+       "ISO 8601"
+      ],
+      [
+       "en-GB",
+       "Day/Month/Year"
+      ],
+      [
+       "en-US",
+       "Month/Day/Year"
+      ]
+     ],
+     "default": "auto"
+    },
+    {
+     "kind": "select",
+     "label": "Time format",
+     "desc": "Choose between 12-hour or 24-hour clock",
+     "key": "timeFormat",
+     "options": [
+      [
+       "12h",
+       "12-hour"
+      ],
+      [
+       "24h",
+       "24-hour"
+      ]
+     ],
+     "default": "24h"
+    },
+    {
+     "kind": "info",
+     "label": "Time zone",
+     "desc": "Show the times of mail and appointments in this time zone. If you don't choose one, your computer's time zone is used.",
+     "key": "timeZone",
+     "default": "auto"
+    },
+    {
+     "kind": "select",
+     "label": "First day of week",
+     "desc": "First day of the week in calendars",
+     "key": "firstDayOfWeek",
+     "options": [
+      [
+       "1",
+       "Monday"
+      ],
+      [
+       "6",
+       "Saturday"
+      ],
+      [
+       "0",
+       "Sunday"
+      ]
+     ],
+     "default": 1
+    },
+    {
+     "kind": "section",
+     "label": "Default apps",
+     "desc": "Choose whether email and calendar links open in {appName}."
+    },
+    {
+     "kind": "info",
+     "label": "Open email links in {appName}",
+     "desc": "Clicking an email address on a website starts a new message in {appName}.",
+     "key": ""
+    },
+    {
+     "kind": "info",
+     "label": "Open calendar links in {appName}",
+     "desc": "Clicking a calendar link on a website adds the calendar in {appName}.",
+     "key": ""
+    },
+    {
+     "kind": "select",
+     "label": "How links open",
+     "desc": "Choose whether {appName} opens mailto: and webcal: links in a new tab or reuses an open session. The active-session option needs notification permission so you can click a fallback notification to bring {appName} to the front if the browser blocks focus.",
+     "key": "",
+     "options": [
+      [
+       "new-tab",
+       "Always open a new tab"
+      ],
+      [
+       "active-session",
+       "Open in active session if possible"
+      ]
+     ]
+    }
+   ]
+  },
+  {
+   "id": "appearance",
+   "label": "Appearance",
+   "group": "top",
+   "icon": "",
+   "rows": [
+    {
+     "kind": "section",
+     "label": "Appearance",
+     "desc": "Change how {appName} looks."
+    },
+    {
+     "kind": "select",
+     "label": "Light or dark",
+     "desc": "System follows your device's setting",
+     "key": "",
+     "options": [
+      [
+       "light",
+       "Light"
+      ],
+      [
+       "dark",
+       "Dark"
+      ],
+      [
+       "system",
+       "System"
+      ]
+     ]
+    },
+    {
+     "kind": "select",
+     "label": "Style",
+     "desc": "Bento puts every panel on its own tile with summary tiles above your mail. Nordic keeps one calm surface with pill buttons and round avatars.",
+     "key": "uiStyle",
+     "default": "bento",
+     "options": [
+      [
+       "bento",
+       "Bento"
+      ],
+      [
+       "nordic",
+       "Nordic"
+      ]
+     ]
+    },
+    {
+     "kind": "section",
+     "label": "Text & motion",
+     "desc": ""
+    },
+    {
+     "kind": "select",
+     "label": "Density",
+     "desc": "Control spacing and padding across the UI",
+     "key": "density",
+     "options": [
+      [
+       "extra-compact",
+       "Extra compact"
+      ],
+      [
+       "compact",
+       "Compact"
+      ],
+      [
+       "regular",
+       "Regular"
+      ],
+      [
+       "comfortable",
+       "Comfortable"
+      ]
+     ],
+     "default": "regular"
+    },
+    {
+     "kind": "info",
+     "label": "Text size and motion",
+     "desc": "Text size, fonts, spacing and reduced motion are on the Accessibility page.",
+     "key": ""
+    },
+    {
+     "kind": "section",
+     "label": "Themes",
+     "desc": "Choose from themes deployed by your administrator and built-in presets."
+    },
+    {
+     "kind": "section",
+     "label": "Layout",
+     "desc": ""
+    },
+    {
+     "kind": "select",
+     "label": "Interface layout",
+     "desc": "Where search, navigation and toolbars sit",
+     "key": "interfaceLayout",
+     "options": [
+      [
+       "default",
+       "Default"
+      ],
+      [
+       "mountain-view",
+       "Search bar on top"
+      ]
+     ],
+     "default": "default"
+    },
+    {
+     "kind": "select",
+     "label": "Mail layout",
+     "desc": "Where the message list and the open message go on the screen.",
+     "key": "mailLayout",
+     "options": [
+      [
+       "split",
+       "Split pane"
+      ],
+      [
+       "focus",
+       "Focused list"
+      ],
+      [
+       "horizontal",
+       "Reading pane at bottom"
+      ]
+     ],
+     "default": "split"
+    },
+    {
+     "kind": "select",
+     "label": "Toolbar position",
+     "desc": "Where to show email action buttons (Reply, Archive, Delete, etc.)",
+     "key": "toolbarPosition",
+     "options": [
+      [
+       "top",
+       "Top"
+      ],
+      [
+       "below-subject",
+       "Below subject"
+      ]
+     ],
+     "default": "top"
+    },
+    {
+     "kind": "toggle",
+     "label": "Show toolbar labels",
+     "desc": "Display text labels next to toolbar icons. Disable to save space once you are familiar with the icons.",
+     "key": "showToolbarLabels",
+     "default": true
+    },
+    {
+     "kind": "section",
+     "label": "Sidebar",
+     "desc": ""
+    },
+    {
+     "kind": "select",
+     "label": "Compose button",
+     "desc": "Where the Compose button sits on a computer. Phones always show it over the message list.",
+     "key": "composePlacement",
+     "options": []
+    },
+    {
+     "kind": "toggle",
+     "label": "Account switcher at the top of the sidebar",
+     "desc": "Show the account switcher above the folders. Turn this off to switch accounts with your avatar on the navigation rail.",
+     "key": "sidebarAccountSwitcher",
+     "default": true
+    },
+    {
+     "kind": "toggle",
+     "label": "Colorful sidebar icons",
+     "desc": "Give folder and tag icons colors (blue Inbox, red Spam, green Sent and so on). Turn this off for gray icons.",
+     "key": "colorfulSidebarIcons",
+     "default": false
+    },
+    {
+     "kind": "toggle",
+     "label": "Show total message count",
+     "desc": "Show the total message count next to folders and tags, alongside the unread count. Disable to show only unread counts.",
+     "key": "showFolderTotalCount",
+     "default": true
+    },
+    {
+     "kind": "toggle",
+     "label": "Show account avatars on the navigation rail",
+     "desc": "Display individual account circles at the bottom of the navigation rail for quick switching, with a sign-out button below.",
+     "key": "showRailAccountList",
+     "default": false
+    },
+    {
+     "kind": "section",
+     "label": "Multiple accounts",
+     "desc": "How your accounts and shared mailboxes appear together."
+    },
+    {
+     "kind": "toggle",
+     "label": "Unified mailbox",
+     "desc": "Show combined folders (Inbox, Sent, etc.) for the active account and its shared folders. The section only appears when there is something to combine: \"Across all accounts\" is on with more than one account connected, a group inbox is included below, or All mail, Unread or Starred is on. Those three are separate options that only show up once your admin turns them on.",
+     "key": "enableUnifiedMailbox",
+     "default": false
+    },
+    {
+     "kind": "toggle",
+     "label": "Across all accounts",
+     "desc": "Merge the unified mailbox across every connected account instead of staying within the active account.",
+     "key": "unifiedCrossAccount",
+     "default": false
+    },
+    {
+     "kind": "toggle",
+     "label": "Include group inboxes",
+     "desc": "Also merge shared/group inboxes into the unified view.",
+     "key": "includeGroupInUnified",
+     "default": true
+    },
+    {
+     "kind": "select",
+     "label": "Tell accounts apart",
+     "desc": "In the unified views, mark each message with the color of the account it came from.",
+     "key": "tintListRowsByAccount",
+     "options": [
+      [
+       "dot",
+       "Colored dot"
+      ],
+      [
+       "tint",
+       "Tinted row"
+      ],
+      [
+       "none",
+       "Nothing"
+      ]
+     ],
+     "default": false
+    },
+    {
+     "kind": "toggle",
+     "label": "Show shared mail accounts",
+     "desc": "List the folders of mailboxes shared with you under Shared in the sidebar. Turn off to hide them all, or hide single accounts below. Their calendars and contacts stay.",
+     "key": "showSharedMailAccounts",
+     "default": true
+    },
+    {
+     "kind": "toggle",
+     "label": "Compact shared mailboxes",
+     "desc": "Show each shared mailbox as one row that opens its inbox, with its folders below it. Empty ones such as Drafts or Trash are left out.",
+     "key": "compactSharedMailboxes",
+     "default": false
+    },
+    {
+     "kind": "section",
+     "label": "Experimental",
+     "desc": ""
+    },
+    {
+     "kind": "toggle",
+     "label": "Pro interface (experimental)",
+     "desc": "Desktop-only power-user layout with multi-tab message browsing and cross-account workflows. The standard interface is unaffected; you can switch back at any time.",
+     "key": "proInterface",
+     "default": false
+    },
+    {
+     "kind": "section",
+     "label": "Provided by your administrator",
+     "desc": "These apps are set up for everyone and cannot be changed."
+    },
+    {
+     "kind": "section",
+     "label": "Sidebar apps",
+     "desc": "Manage custom apps and links in your sidebar"
+    },
+    {
+     "kind": "toggle",
+     "label": "Keep apps loaded",
+     "desc": "Keep inline apps running in the background when switching between them to avoid reloading",
+     "key": "keepAppsLoaded",
+     "default": false
+    }
+   ]
+  },
+  {
+   "id": "accessibility",
+   "label": "Accessibility",
+   "group": "top",
+   "icon": "",
+   "rows": [
+    {
+     "kind": "section",
+     "label": "Presets",
+     "desc": "Each preset changes several settings at once. Afterwards they are normal settings you can change one by one, and you can combine presets."
+    },
+    {
+     "kind": "section",
+     "label": "Text and reading",
+     "desc": ""
+    },
+    {
+     "kind": "select",
+     "label": "Text size",
+     "desc": "Scales all text in the app. 100% is the normal size.",
+     "key": "fontSize",
+     "options": [
+      [
+       "size",
+       "t(`text_size.${size"
+      ]
+     ],
+     "default": "medium"
+    },
+    {
+     "kind": "select",
+     "label": "Plain text mail font",
+     "desc": "For messages sent without formatting.",
+     "key": "plainTextFont",
+     "options": [
+      [
+       "sans",
+       "Same as above"
+      ],
+      [
+       "mono",
+       "Monospace"
+      ]
+     ],
+     "default": "sans"
+    },
+    {
+     "kind": "select",
+     "label": "Line spacing",
+     "desc": "Space between lines of text.",
+     "key": "lineSpacing",
+     "options": [
+      [
+       "normal",
+       "Normal"
+      ],
+      [
+       "relaxed",
+       "More"
+      ],
+      [
+       "loose",
+       "Most"
+      ]
+     ],
+     "default": "normal"
+    },
+    {
+     "kind": "select",
+     "label": "Letter spacing",
+     "desc": "Space between letters.",
+     "key": "letterSpacing",
+     "options": [
+      [
+       "normal",
+       "Normal"
+      ],
+      [
+       "wide",
+       "Wide"
+      ],
+      [
+       "wider",
+       "Wider"
+      ]
+     ],
+     "default": "normal"
+    },
+    {
+     "kind": "select",
+     "label": "Word spacing",
+     "desc": "Space between words.",
+     "key": "wordSpacing",
+     "options": [
+      [
+       "normal",
+       "Normal"
+      ],
+      [
+       "wide",
+       "Wide"
+      ]
+     ],
+     "default": "normal"
+    },
+    {
+     "kind": "select",
+     "label": "Paragraph spacing",
+     "desc": "Space after each paragraph.",
+     "key": "paragraphSpacing",
+     "options": [
+      [
+       "normal",
+       "Normal"
+      ],
+      [
+       "wide",
+       "Wide"
+      ]
+     ],
+     "default": "normal"
+    },
+    {
+     "kind": "select",
+     "label": "Reading width",
+     "desc": "Keeps lines in messages to about 80 characters, so your eyes don't have to travel as far.",
+     "key": "readingWidth",
+     "options": [
+      [
+       "full",
+       "Full width"
+      ],
+      [
+       "comfortable",
+       "About 80 characters"
+      ]
+     ],
+     "default": "full"
+    },
+    {
+     "kind": "info",
+     "label": "Density and toolbar labels",
+     "desc": "How close together list rows are, and whether toolbar buttons show their names, is set on the Appearance page.",
+     "key": ""
+    },
+    {
+     "kind": "section",
+     "label": "Colour and contrast",
+     "desc": ""
+    },
+    {
+     "kind": "select",
+     "label": "Contrast",
+     "desc": "More contrast makes text, borders and the focus outline darker or lighter on any theme, and underlines links. System follows your device.",
+     "key": "contrast",
+     "options": [
+      [
+       "system",
+       "System"
+      ],
+      [
+       "more",
+       "More"
+      ],
+      [
+       "normal",
+       "Normal"
+      ]
+     ],
+     "default": "system"
+    },
+    {
+     "kind": "toggle",
+     "label": "Underline links",
+     "desc": "Underlines links in the app and in messages, so they don't depend on colour.",
+     "key": "underlineLinks",
+     "default": false
+    },
+    {
+     "kind": "toggle",
+     "label": "Colour-blind-safe colours",
+     "desc": "Uses tag, folder and calendar colours that stay distinct with red-green or blue-yellow colour blindness.",
+     "key": "colorBlindPalette",
+     "default": false
+    },
+    {
+     "kind": "info",
+     "label": "Theme and colour mode",
+     "desc": "Light, dark and the themes are on the Appearance page.",
+     "key": ""
+    },
+    {
+     "kind": "info",
+     "label": "Light background for messages",
+     "desc": "Showing messages on a light background in dark mode is set on the Reading page.",
+     "key": ""
+    },
+    {
+     "kind": "section",
+     "label": "Motion",
+     "desc": ""
+    },
+    {
+     "kind": "select",
+     "label": "Reduce motion",
+     "desc": "Turns off sliding panels, transitions and smooth scrolling, also inside messages. System follows your device.",
+     "key": "reduceMotion",
+     "default": "system",
+     "options": [
+      [
+       "system",
+       "System"
+      ],
+      [
+       "on",
+       "On"
+      ],
+      [
+       "off",
+       "Off"
+      ]
+     ]
+    },
+    {
+     "kind": "section",
+     "label": "Keyboard and focus",
+     "desc": ""
+    },
+    {
+     "kind": "toggle",
+     "label": "Single-key shortcuts",
+     "desc": "Shortcuts such as j, k, e and # that use one key. Turn them off if you use speech input or press keys by accident. Shortcuts with Ctrl or Alt keep working.",
+     "key": "singleKeyShortcuts",
+     "default": true
+    },
+    {
+     "kind": "info",
+     "label": "Keyboard shortcuts",
+     "desc": "All shortcuts for the app you're in.",
+     "key": ""
+    },
+    {
+     "kind": "select",
+     "label": "Focus outline",
+     "desc": "The outline around the button, link or field the keyboard is on.",
+     "key": "focusRing",
+     "options": [
+      [
+       "off",
+       "Off"
+      ],
+      [
+       "normal",
+       "Normal"
+      ],
+      [
+       "thick",
+       "Thick"
+      ],
+      [
+       "extra",
+       "Extra thick"
+      ]
+     ],
+     "default": "off"
+    },
+    {
+     "kind": "section",
+     "label": "Pointer and touch",
+     "desc": ""
+    },
+    {
+     "kind": "select",
+     "label": "Large targets",
+     "desc": "Makes buttons, checkboxes and other controls at least 44 pixels. System turns this on for touch screens.",
+     "key": "largeTargets",
+     "default": "system",
+     "options": [
+      [
+       "system",
+       "System"
+      ],
+      [
+       "on",
+       "On"
+      ],
+      [
+       "off",
+       "Off"
+      ]
+     ]
+    },
+    {
+     "kind": "toggle",
+     "label": "Actions button on each message",
+     "desc": "Shows a button on each row that opens the message's actions, so you don't need to hover or right-click.",
+     "key": "showRowActionButton",
+     "default": false
+    },
+    {
+     "kind": "info",
+     "label": "Hover and swipe actions",
+     "desc": "Which actions appear on message rows.",
+     "key": ""
+    },
+    {
+     "kind": "info",
+     "label": "Event previews in the calendar",
+     "desc": "Whether pointing at an event shows its details is set on the Calendar page.",
+     "key": ""
+    },
+    {
+     "kind": "section",
+     "label": "Mail",
+     "desc": ""
+    },
+    {
+     "kind": "select",
+     "label": "Show messages as",
+     "desc": "Plain text drops a message's layout, colours and pictures. You can switch each message in the reader.",
+     "key": "mailViewMode",
+     "options": [
+      [
+       "html",
+       "Formatted"
+      ],
+      [
+       "plain",
+       "Plain text"
+      ]
+     ],
+     "default": "html"
+    },
+    {
+     "kind": "select",
+     "label": "Message text size",
+     "desc": "Text size inside messages. It stays the same for every message.",
+     "key": "mailTextScale",
+     "options": [],
+     "default": 0
+    },
+    {
+     "kind": "select",
+     "label": "Smallest text in messages",
+     "desc": "Enlarges text that a message sets smaller than this.",
+     "key": "mailMinFontSize",
+     "options": [],
+     "default": 0
+    },
+    {
+     "kind": "select",
+     "label": "Use my font and colours in messages",
+     "desc": "Replaces the sender's font, size and colours with yours. This can change how newsletters look.",
+     "key": "mailOverrideStyles",
+     "options": [
+      [
+       "never",
+       "Never"
+      ],
+      [
+       "high-contrast",
+       "With more contrast"
+      ],
+      [
+       "always",
+       "Always"
+      ]
+     ],
+     "default": "never"
+    },
+    {
+     "kind": "toggle",
+     "label": "Fit wide messages to the window",
+     "desc": "Shrinks messages that are wider than the reading pane instead of scrolling sideways.",
+     "key": "mailFitWidth",
+     "default": false
+    },
+    {
+     "kind": "info",
+     "label": "Conversations and preview lines",
+     "desc": "Grouping by conversation and the preview line under each message are set on the Message list page.",
+     "key": ""
+    },
+    {
+     "kind": "info",
+     "label": "Marking mail as read",
+     "desc": "When a message counts as read, and where you go after deleting or moving it, is set on the Reading page.",
+     "key": ""
+    },
+    {
+     "kind": "section",
+     "label": "Timing and mistakes",
+     "desc": ""
+    },
+    {
+     "kind": "select",
+     "label": "Notification duration",
+     "desc": "How long messages such as \"Moved to Archive\" with their Undo button stay on screen.",
+     "key": "toastDuration",
+     "options": [],
+     "default": 5
+    },
+    {
+     "kind": "toggle",
+     "label": "Confirm before sending",
+     "desc": "Asks before a message is sent.",
+     "key": "sendConfirmation",
+     "default": false
+    },
+    {
+     "kind": "toggle",
+     "label": "Confirm before deleting",
+     "desc": "Asks before a message is deleted, also for single messages.",
+     "key": "confirmDelete",
+     "default": false
+    },
+    {
+     "kind": "toggle",
+     "label": "Confirm before archiving",
+     "desc": "Asks before a message is archived.",
+     "key": "confirmArchive",
+     "default": false
+    },
+    {
+     "kind": "info",
+     "label": "Warnings before sending",
+     "desc": "Undo send, and the warnings about a missing subject, a forgotten attachment or placeholder text.",
+     "key": ""
+    },
+    {
+     "kind": "info",
+     "label": "Asking before deleting several messages",
+     "desc": "This is set on the Message list page.",
+     "key": ""
+    },
+    {
+     "kind": "section",
+     "label": "Alerts and distractions",
+     "desc": ""
+    },
+    {
+     "kind": "toggle",
+     "label": "Visual alerts",
+     "desc": "Flashes the window title slowly when new mail or a reminder arrives, and keeps reminders on screen until you close them.",
+     "key": "visualAlerts",
+     "default": false
+    },
+    {
+     "kind": "select",
+     "label": "Unread counts",
+     "desc": "How folders and the navigation bar show unread mail.",
+     "key": "unreadCountStyle",
+     "options": [
+      [
+       "count",
+       "Number"
+      ],
+      [
+       "dot",
+       "Dot"
+      ],
+      [
+       "hidden",
+       "Hidden"
+      ]
+     ],
+     "default": "count"
+    },
+    {
+     "kind": "info",
+     "label": "Do not disturb",
+     "desc": "Pause notifications and set quiet hours on the Notifications page.",
+     "key": ""
+    },
+    {
+     "kind": "info",
+     "label": "Sounds and the unread badge",
+     "desc": "Notification sounds and the unread count on the taskbar icon are set on the Notifications page.",
+     "key": ""
+    },
+    {
+     "kind": "section",
+     "label": "Screen readers",
+     "desc": ""
+    },
+    {
+     "kind": "section",
+     "label": "Reset",
+     "desc": ""
+    },
+    {
+     "kind": "button",
+     "label": "Reset accessibility settings",
+     "desc": "Puts every setting on this page back to its default, or to the one your organisation set. Shared settings such as conversation view stay as they are.",
+     "key": "a11y.reset",
+     "text": "Reset"
+    }
+   ]
+  },
+  {
+   "id": "message_list",
+   "label": "Message list",
+   "group": "mail",
+   "icon": "",
+   "rows": [
+    {
+     "kind": "section",
+     "label": "Message list",
+     "desc": "What the list shows, and what a click or swipe does."
+    },
+    {
+     "kind": "toggle",
+     "label": "Group messages by conversation",
+     "desc": "Show replies together as one conversation instead of as separate messages.",
+     "key": "disableThreading",
+     "invert": true,
+     "default": false
+    },
+    {
+     "kind": "toggle",
+     "label": "Group by date",
+     "desc": "Show messages under date headers such as Today, Yesterday and Last week. Only applies while the list is sorted by date.",
+     "key": "groupListByDate",
+     "default": false
+    },
+    {
+     "kind": "toggle",
+     "label": "Show preview text",
+     "desc": "Display inline preview text inside the focused one-line message list",
+     "key": "showPreview",
+     "default": true
+    },
+    {
+     "kind": "toggle",
+     "label": "Show the list as columns",
+     "desc": "Draw one-line rows as a table with From, Subject, Date and Size columns under a header.",
+     "key": "listColumns",
+     "default": false
+    },
+    {
+     "kind": "select",
+     "label": "Inbox type",
+     "desc": "Unread first shows your newest unread messages in a section above the rest of the inbox",
+     "key": "mvInboxType",
+     "options": [
+      [
+       "default",
+       "Default"
+      ],
+      [
+       "unread-first",
+       "Unread first"
+      ]
+     ],
+     "default": "unread-first"
+    },
+    {
+     "kind": "select",
+     "label": "Unread messages shown",
+     "desc": "How many of your newest unread messages the Unread first section shows",
+     "key": "mvUnreadSectionSize",
+     "options": [],
+     "default": 25
+    },
+    {
+     "kind": "toggle",
+     "label": "Tint list rows by tag color",
+     "desc": "Shade each message row with its first tag color. Disable to keep rows plain; tag dots and chips still show the color.",
+     "key": "tintListRowsByTag",
+     "default": false
+    },
+    {
+     "kind": "toggle",
+     "label": "Show verification codes",
+     "desc": "Offer the code from sign-in and confirmation emails for one-click copying, in the list for a day and in the message",
+     "key": "showVerificationCodes",
+     "default": true
+    },
+    {
+     "kind": "toggle",
+     "label": "Show attachments in the list",
+     "desc": "Show attached files under each message, to open them from the list. Compact and extra compact rows show only the paperclip.",
+     "key": "showAttachmentChips",
+     "default": true
+    },
+    {
+     "kind": "toggle",
+     "label": "Show tags in the list",
+     "desc": "Show tag badges next to the sender or subject in the message list",
+     "key": "showTagChips",
+     "default": true
+    },
+    {
+     "kind": "section",
+     "label": "Quick actions",
+     "desc": ""
+    },
+    {
+     "kind": "select",
+     "label": "Swipe right action (mobile)",
+     "desc": "On touch devices, the action performed when you swipe a message to the right in the list.",
+     "key": "swipeRightAction",
+     "options": [
+      [
+       "none",
+       "None"
+      ],
+      [
+       "archive",
+       "Archive"
+      ],
+      [
+       "delete",
+       "Delete"
+      ],
+      [
+       "markRead",
+       "Toggle read"
+      ],
+      [
+       "star",
+       "Toggle star"
+      ],
+      [
+       "spam",
+       "Mark as spam"
+      ]
+     ],
+     "default": "archive"
+    },
+    {
+     "kind": "select",
+     "label": "Swipe left action (mobile)",
+     "desc": "On touch devices, the action performed when you swipe a message to the left in the list.",
+     "key": "swipeLeftAction",
+     "options": [
+      [
+       "none",
+       "None"
+      ],
+      [
+       "archive",
+       "Archive"
+      ],
+      [
+       "delete",
+       "Delete"
+      ],
+      [
+       "markRead",
+       "Toggle read"
+      ],
+      [
+       "star",
+       "Toggle star"
+      ],
+      [
+       "spam",
+       "Mark as spam"
+      ]
+     ],
+     "default": "delete"
+    },
+    {
+     "kind": "section",
+     "label": "Deleting & archiving",
+     "desc": ""
+    },
+    {
+     "kind": "select",
+     "label": "Delete action",
+     "desc": "What happens when you delete an email",
+     "key": "deleteAction",
+     "options": [
+      [
+       "trash",
+       "Move to Trash"
+      ],
+      [
+       "trash-and-read",
+       "Move to Trash and mark as read"
+      ],
+      [
+       "permanent",
+       "Delete permanently"
+      ]
+     ],
+     "default": "trash"
+    },
+    {
+     "kind": "select",
+     "label": "Archive in",
+     "desc": "How to organize emails when archiving",
+     "key": "archiveMode",
+     "options": [
+      [
+       "single",
+       "A single folder"
+      ],
+      [
+       "year",
+       "A folder per year"
+      ],
+      [
+       "month",
+       "A folder per month"
+      ]
+     ],
+     "default": "single"
+    },
+    {
+     "kind": "toggle",
+     "label": "Confirm before deleting several messages",
+     "desc": "Ask before moving several selected messages to Trash. Permanent deletion always asks.",
+     "key": "confirmBulkDelete",
+     "default": true
+    },
+    {
+     "kind": "toggle",
+     "label": "Permanently delete Junk",
+     "desc": "Permanently delete emails from the Junk/Spam folder instead of moving them to Trash",
+     "key": "permanentlyDeleteJunk",
+     "default": false
+    },
+    {
+     "kind": "section",
+     "label": "Loading & search",
+     "desc": ""
+    },
+    {
+     "kind": "select",
+     "label": "Emails per page",
+     "desc": "Number of emails to load at once",
+     "key": "emailsPerPage",
+     "options": [
+      [
+       "10",
+       "10 emails"
+      ],
+      [
+       "25",
+       "25 emails"
+      ],
+      [
+       "50",
+       "50 emails"
+      ],
+      [
+       "100",
+       "100 emails"
+      ]
+     ],
+     "default": 50
+    },
+    {
+     "kind": "select",
+     "label": "Search in",
+     "desc": "Where a new search looks. You can still pick another folder in the search filters.",
+     "key": "searchDefaultScope",
+     "options": [
+      [
+       "all",
+       "All folders except Spam and Trash"
+      ],
+      [
+       "folder",
+       "The open folder"
+      ]
+     ],
+     "default": "all"
+    },
+    {
+     "kind": "toggle",
+     "label": "Clear search when switching folders",
+     "desc": "Clicking a folder (Inbox, Sent, …) clears the active search and browses that folder. When off, the search stays applied and re-runs in the folder you switch to.",
+     "key": "clearSearchOnFolderChange",
+     "default": false
+    },
+    {
+     "kind": "select",
+     "label": "Message list order",
+     "desc": "How messages are ordered in the list. The server does the ordering, so it covers the whole folder, not just the loaded messages.",
+     "key": "",
+     "options": [
+      [
+       "p",
+       "t(`preset.${p"
+      ],
+      [
+       "custom",
+       "Custom"
+      ]
+     ]
+    },
+    {
+     "kind": "toggle",
+     "label": "Apply to all folders",
+     "desc": "When off, the order applies to the Inbox only; other folders stay chronological.",
+     "key": "messageListOrderScope",
+     "default": "inbox"
+    }
+   ]
+  },
+  {
+   "id": "reading",
+   "label": "Reading",
+   "group": "mail",
+   "icon": "",
+   "rows": [
+    {
+     "kind": "section",
+     "label": "Reading",
+     "desc": "The open message."
+    },
+    {
+     "kind": "select",
+     "label": "Mark as read",
+     "desc": "When to mark emails as read when opened",
+     "key": "markAsReadDelay",
+     "options": [
+      [
+       "0",
+       "Instantly"
+      ],
+      [
+       "3000",
+       "After 3 seconds"
+      ],
+      [
+       "5000",
+       "After 5 seconds"
+      ],
+      [
+       "-1",
+       "Never"
+      ]
+     ],
+     "default": 0
+    },
+    {
+     "kind": "toggle",
+     "label": "Return to list after delete, archive, move or mark unread",
+     "desc": "After deleting, archiving, moving, reporting as spam or marking the open message unread, go back to the message list instead of opening the next message.",
+     "key": "returnToListAfterAction",
+     "default": true
+    },
+    {
+     "kind": "section",
+     "label": "Message display",
+     "desc": ""
+    },
+    {
+     "kind": "select",
+     "label": "Message spacing",
+     "desc": "Padding around the message body in the reader",
+     "key": "messageSpacing",
+     "options": [
+      [
+       "auto",
+       "Auto (recommended)"
+      ],
+      [
+       "always",
+       "Always add spacing"
+      ],
+      [
+       "edge",
+       "Edge to edge"
+      ]
+     ],
+     "default": "auto"
+    },
+    {
+     "kind": "select",
+     "label": "Font for plain text mail",
+     "desc": "Set together with the other fonts on the Accessibility page.",
+     "key": "plainTextFont",
+     "default": "sans",
+     "options": [
+      [
+       "sans",
+       "Same as the app"
+      ],
+      [
+       "mono",
+       "Monospace"
+      ]
+     ]
+    },
+    {
+     "kind": "toggle",
+     "label": "Always show emails in light mode",
+     "desc": "Render email content in light mode even when the app is in dark mode, avoiding dark mode conversion issues",
+     "key": "emailAlwaysLightMode",
+     "default": false
+    },
+    {
+     "kind": "section",
+     "label": "Attachments",
+     "desc": ""
+    },
+    {
+     "kind": "select",
+     "label": "Attachment click action",
+     "desc": "Choose whether clicking a file attachment previews it or downloads it immediately",
+     "key": "mailAttachmentAction",
+     "options": [
+      [
+       "preview",
+       "Preview when possible"
+      ],
+      [
+       "download",
+       "Download immediately"
+      ]
+     ],
+     "default": "preview"
+    },
+    {
+     "kind": "toggle",
+     "label": "Show image previews in attachments",
+     "desc": "Render image attachments as thumbnail cards instead of generic file icons",
+     "key": "attachmentImagePreviewsEnabled",
+     "default": true
+    },
+    {
+     "kind": "toggle",
+     "label": "Hide inline images from attachments",
+     "desc": "Images embedded in the message body are not listed as separate attachments",
+     "key": "hideInlineImageAttachments",
+     "default": true
+    }
+   ]
+  },
+  {
+   "id": "composing",
+   "label": "Composing",
+   "group": "mail",
+   "icon": "",
+   "rows": [
+    {
+     "kind": "section",
+     "label": "Composing",
+     "desc": "Writing, replying and sending."
+    },
+    {
+     "kind": "toggle",
+     "label": "Plain text only",
+     "desc": "Disable the rich text editor and send all emails as plain text only, including replies and forwards",
+     "key": "plainTextMode",
+     "default": false
+    },
+    {
+     "kind": "toggle",
+     "label": "Mention recipients with @",
+     "desc": "Typing @ in the message offers its recipients and inserts the chosen one's first name. Enter or Tab picks the highlighted name.",
+     "key": "recipientMentionsEnabled",
+     "default": true
+    },
+    {
+     "kind": "select",
+     "label": "Contacts in @ mentions",
+     "desc": "Typing @ also offers your contacts and people from the directory. Picking someone who isn't a recipient yet adds them to the message.",
+     "key": "mentionAddsRecipientTo",
+     "options": [
+      [
+       "to",
+       "Add to To"
+      ],
+      [
+       "cc",
+       "Add to Cc"
+      ],
+      [
+       "off",
+       "Only offer recipients"
+      ]
+     ],
+     "default": "to"
+    },
+    {
+     "kind": "toggle",
+     "label": "Right-to-left editing support",
+     "desc": "Adds a direction button to the composer toolbar so you can set paragraphs left-to-right or right-to-left",
+     "key": "rtlEditingSupport",
+     "default": false
+    },
+    {
+     "kind": "section",
+     "label": "Replying",
+     "desc": ""
+    },
+    {
+     "kind": "toggle",
+     "label": "Replies under the message",
+     "desc": "A reply or forward opens under its message, which stays readable above it. When off, it takes the whole reading pane, like a new message.",
+     "key": "replyUnderMessage",
+     "default": true
+    },
+    {
+     "kind": "toggle",
+     "label": "Quick reply",
+     "desc": "Show the quick reply box below messages.",
+     "key": "quickReplyEnabled",
+     "default": true
+    },
+    {
+     "kind": "toggle",
+     "label": "Reply from the address it was sent to",
+     "desc": "Reply from the address the mail was sent to. Useful if you have several addresses.",
+     "key": "autoSelectReplyIdentity",
+     "default": false
+    },
+    {
+     "kind": "select",
+     "label": "Received address matching",
+     "desc": "Which received addresses count as yours. Exact address only picks one of your configured identities. Same domain also treats any other address on one of your identity domains as a catch-all alias and rewrites the From header to it. Choose exact address if those addresses are distribution lists rather than aliases.",
+     "key": "replyIdentityMatch",
+     "options": [
+      [
+       "exact",
+       "Exact address only"
+      ],
+      [
+       "domain",
+       "Any address on my domains"
+      ]
+     ],
+     "default": "domain"
+    },
+    {
+     "kind": "select",
+     "label": "Signature position",
+     "desc": "Where to insert your signature in replies and forwards. Above the quoted text reads naturally as a closing for the reply; below keeps the original message contiguous.",
+     "key": "signaturePosition",
+     "options": [
+      [
+       "above_quote",
+       "Before quoted text"
+      ],
+      [
+       "below_quote",
+       "After quoted text"
+      ]
+     ],
+     "default": "below_quote"
+    },
+    {
+     "kind": "toggle",
+     "label": "Signature on new mail",
+     "desc": "Automatically insert your signature when composing a new message. Turn off to start every new message without one.",
+     "key": "signatureNewMailEnabled",
+     "default": true
+    },
+    {
+     "kind": "toggle",
+     "label": "Signature on replies & forwards",
+     "desc": "Automatically append your signature when replying to or forwarding a message. Turn off to send them without one.",
+     "key": "signatureReplyForwardEnabled",
+     "default": true
+    },
+    {
+     "kind": "toggle",
+     "label": "Signature delimiter",
+     "desc": "Prefix the signature with the standard \"-- \" delimiter line (RFC 3676). Turn off if you'd rather flow straight from your message into the signature.",
+     "key": "signatureSeparatorEnabled",
+     "default": true
+    },
+    {
+     "kind": "section",
+     "label": "Before sending",
+     "desc": ""
+    },
+    {
+     "kind": "select",
+     "label": "Undo send",
+     "desc": "Gives you a few seconds to take a message back after you press Send.",
+     "key": "sendDelaySeconds",
+     "options": [],
+     "default": 5
+    },
+    {
+     "kind": "toggle",
+     "label": "Attachment reminder",
+     "desc": "Warn before sending when your message mentions attachments but none are attached",
+     "key": "attachmentReminderEnabled",
+     "default": true
+    },
+    {
+     "kind": "toggle",
+     "label": "Empty subject warning",
+     "desc": "Ask for confirmation before sending a message with no subject.",
+     "key": "emptySubjectWarningEnabled",
+     "default": true
+    },
+    {
+     "kind": "toggle",
+     "label": "Placeholder warning",
+     "desc": "Ask for confirmation before sending a message that still has placeholders like [TIME] or [Your Name], template fields left empty, or unfinished text like TODO or TBD.",
+     "key": "placeholderWarningEnabled",
+     "default": true
+    },
+    {
+     "kind": "section",
+     "label": "Signatures",
+     "desc": "Added at the end of the messages you write. Each address has its own."
+    },
+    {
+     "kind": "section",
+     "label": "Email templates",
+     "desc": "Create reusable email templates with placeholder variables"
+    },
+    {
+     "kind": "section",
+     "label": "Export & import",
+     "desc": "Back up your templates or transfer them to another device"
+    },
+    {
+     "kind": "section",
+     "label": "Proofreading",
+     "desc": "Underline spelling and grammar mistakes while you write, with suggestions to fix them."
+    },
+    {
+     "kind": "toggle",
+     "label": "Check spelling and grammar while I type",
+     "desc": "The text you write goes to the proofreading add-on and the service it uses, without your signature or quoted messages. Nothing is sent while a message is set to be signed or encrypted.",
+     "key": ""
+    },
+    {
+     "kind": "select",
+     "label": "Writing language",
+     "desc": "The language you usually write in. Proofreading and spell check use it.",
+     "key": "writingLanguage",
+     "options": [
+      [
+       "auto",
+       "Detect automatically"
+      ]
+     ],
+     "default": "auto"
+    }
+   ]
+  },
+  {
+   "id": "organize",
+   "label": "Folders & tags",
+   "group": "mail",
+   "icon": "",
+   "rows": [
+    {
+     "kind": "section",
+     "label": "Your folders",
+     "desc": "Click a folder icon to customize it"
+    },
+    {
+     "kind": "section",
+     "label": "Standard folder roles",
+     "desc": "Assign which folders are used for standard mailbox roles like Inbox, Sent, Trash, etc."
+    },
+    {
+     "kind": "section",
+     "label": "Email tags",
+     "desc": "Make tags to sort your messages. The tags are saved with your messages on the server."
+    },
+    {
+     "kind": "toggle",
+     "label": "Nested tags",
+     "desc": "Nest tags underneath other tags and show them as a tree in the sidebar.",
+     "key": "nestedTags"
+    }
+   ]
+  },
+  {
+   "id": "filters",
+   "label": "Filters",
+   "group": "mail",
+   "icon": "",
+   "rows": [
+    {
+     "kind": "section",
+     "label": "Email filters",
+     "desc": "Create rules to automatically sort, label, and manage incoming emails"
+    }
+   ]
+  },
+  {
+   "id": "vacation",
+   "label": "Out of office",
+   "group": "mail",
+   "icon": "",
+   "rows": [
+    {
+     "kind": "section",
+     "label": "Out of office",
+     "desc": "Automatically handle incoming emails while you're away"
+    },
+    {
+     "kind": "info",
+     "label": "Reply automatically",
+     "desc": "",
+     "key": ""
+    },
+    {
+     "kind": "select",
+     "label": "Reply to",
+     "desc": "",
+     "key": "",
+     "options": [
+      [
+       "all",
+       "Everyone"
+      ],
+      [
+       "internal",
+       "Only my organisation ({domains})"
+      ],
+      [
+       "external",
+       "Only people outside my organisation"
+      ]
+     ]
+    },
+    {
+     "kind": "text",
+     "label": "From (optional)",
+     "desc": "Leave it empty to start right away.",
+     "key": ""
+    },
+    {
+     "kind": "text",
+     "label": "Until (optional)",
+     "desc": "Leave it empty to keep replying until you turn it off.",
+     "key": ""
+    },
+    {
+     "kind": "section",
+     "label": "Your reply",
+     "desc": ""
+    },
+    {
+     "kind": "text",
+     "label": "Subject",
+     "desc": "Subject line of the auto-reply",
+     "key": ""
+    },
+    {
+     "kind": "section",
+     "label": "Preview",
+     "desc": ""
+    },
+    {
+     "kind": "section",
+     "label": "Forwarding",
+     "desc": "Passes incoming messages on to another address, with or without the auto-reply, within the period above (without an end date, until switched off). Spam is not forwarded."
+    },
+    {
+     "kind": "info",
+     "label": "Forward messages",
+     "desc": "",
+     "key": ""
+    },
+    {
+     "kind": "text",
+     "label": "Forward to",
+     "desc": "",
+     "key": ""
+    },
+    {
+     "kind": "toggle",
+     "label": "Keep in inbox",
+     "desc": "Otherwise the message is only forwarded: it is not kept in this mailbox, and no filter rule runs on it.",
+     "key": ""
+    }
+   ]
+  },
+  {
+   "id": "recover",
+   "label": "Recover deleted items",
+   "group": "mail",
+   "icon": "",
+   "rows": [
+    {
+     "kind": "section",
+     "label": "Recover deleted items",
+     "desc": "Mail you deleted for good, for example by emptying Trash, that the server still keeps. Select messages and restore them."
+    }
+   ]
+  },
+  {
+   "id": "calendar",
+   "label": "Calendar",
+   "group": "apps",
+   "icon": "",
+   "rows": [
+    {
+     "kind": "section",
+     "label": "Calendar settings",
+     "desc": ""
+    },
+    {
+     "kind": "select",
+     "label": "Calendar opens in",
+     "desc": "",
+     "key": "",
+     "options": [
+      [
+       "month",
+       "Month"
+      ],
+      [
+       "week",
+       "Week"
+      ],
+      [
+       "day",
+       "Day"
+      ],
+      [
+       "agenda",
+       "Agenda"
+      ]
+     ]
+    },
+    {
+     "kind": "select",
+     "label": "Organize invitations as",
+     "desc": "The calendar address used as organizer when you invite people to events.",
+     "key": "",
+     "options": [
+      [
+       "i.id",
+       "i.name && i.name !== address ? `${i.name"
+      ]
+     ]
+    },
+    {
+     "kind": "toggle",
+     "label": "Show invitations from mail",
+     "desc": "Detect calendar invitations in email attachments and show calendar actions",
+     "key": "calendarInvitationParsingEnabled",
+     "default": true
+    },
+    {
+     "kind": "toggle",
+     "label": "Show time in month view",
+     "desc": "Display event times in the month calendar view. On small screens this shows full event entries instead of dots.",
+     "key": "showTimeInMonthView",
+     "default": false
+    },
+    {
+     "kind": "toggle",
+     "label": "Light event colors",
+     "desc": "Show events as a light tint of their calendar color with a colored bar at the start, as in Outlook and on printouts, instead of solid blocks.",
+     "key": "calendarTintedEvents",
+     "default": true
+    },
+    {
+     "kind": "select",
+     "label": "Timed events in month view",
+     "desc": "How events with a start time look in the month view. All-day and multi-day events stay bars.",
+     "key": "calendarMonthTimedEvents",
+     "options": [
+      [
+       "bar",
+       "Bar"
+      ],
+      [
+       "text",
+       "Colored text"
+      ],
+      [
+       "dot",
+       "Dot and text"
+      ]
+     ],
+     "default": "bar"
+    },
+    {
+     "kind": "toggle",
+     "label": "Show week numbers",
+     "desc": "Display week numbers in the mini-calendar",
+     "key": "showWeekNumbers",
+     "default": false
+    },
+    {
+     "kind": "toggle",
+     "label": "Limit visible hours",
+     "desc": "Show only these hours in the day and week views. Events outside them stay reachable from the arrows at the top and bottom of each day.",
+     "key": "calendarLimitHours",
+     "default": true
+    },
+    {
+     "kind": "select",
+     "label": "Visible hours",
+     "desc": "",
+     "key": "calendarDayEndHour",
+     "options": [],
+     "default": 20
+    },
+    {
+     "kind": "toggle",
+     "label": "Hide non-working days",
+     "desc": "Leave the days you don't work out of the week view. Their events still show in the month, day and agenda views.",
+     "key": "calendarHideNonWorkingDays",
+     "default": false
+    },
+    {
+     "kind": "info",
+     "label": "Working days",
+     "desc": "",
+     "key": ""
+    },
+    {
+     "kind": "toggle",
+     "label": "Free scrolling",
+     "desc": "Scroll continuously through months, weeks and days instead of one period at a time",
+     "key": "calendarFreeScroll",
+     "default": true
+    },
+    {
+     "kind": "select",
+     "label": "Event hover preview",
+     "desc": "Show a detail popover when hovering over calendar events",
+     "key": "calendarHoverPreview",
+     "options": [
+      [
+       "instant",
+       "Instant"
+      ],
+      [
+       "delay-500ms",
+       "0.5-second delay"
+      ],
+      [
+       "delay-1s",
+       "1-second delay"
+      ],
+      [
+       "delay-2s",
+       "2-second delay"
+      ],
+      [
+       "off",
+       "Disabled"
+      ]
+     ],
+     "default": "delay-500ms"
+    },
+    {
+     "kind": "toggle",
+     "label": "Contact birthday calendar",
+     "desc": "Show a virtual calendar with birthdays from your contacts",
+     "key": "showBirthdayCalendar",
+     "default": false
+    },
+    {
+     "kind": "toggle",
+     "label": "Tasks",
+     "desc": "Show a tasks view in the calendar for managing to-dos",
+     "key": "enableCalendarTasks",
+     "default": true
+    },
+    {
+     "kind": "toggle",
+     "label": "Show tasks on calendar",
+     "desc": "Display tasks on the month, week and day calendar views",
+     "key": "showTasksOnCalendar",
+     "default": true
+    },
+    {
+     "kind": "toggle",
+     "label": "Tasks as their own app",
+     "desc": "Give tasks their own icon in the app bar instead of a view in the calendar",
+     "key": "showTasksApp",
+     "default": false
+    },
+    {
+     "kind": "section",
+     "label": "Calendar management",
+     "desc": "Create, rename, and customize your calendars."
+    }
+   ]
+  },
+  {
+   "id": "contacts",
+   "label": "Contacts",
+   "group": "apps",
+   "icon": "",
+   "rows": [
+    {
+     "kind": "section",
+     "label": "Contact list",
+     "desc": "How contacts are listed, and contact files to import or export"
+    },
+    {
+     "kind": "toggle",
+     "label": "Group by first letter",
+     "desc": "Show alphabetical section headers in the contact list",
+     "key": "groupContactsByLetter",
+     "default": true
+    },
+    {
+     "kind": "toggle",
+     "label": "Sort by last name",
+     "desc": "Order the contact list by surname so family members appear together",
+     "key": "sortContactsByLastName",
+     "default": false
+    },
+    {
+     "kind": "toggle",
+     "label": "Show the directory",
+     "desc": "List the accounts and groups on your mail server under Directory in Contacts",
+     "key": "showContactsDirectory",
+     "default": true
+    },
+    {
+     "kind": "info",
+     "label": "Import contacts",
+     "desc": "Import contacts from a vCard (.vcf) file",
+     "key": ""
+    },
+    {
+     "kind": "info",
+     "label": "Export contacts",
+     "desc": "Export all contacts as a vCard (.vcf) file",
+     "key": ""
+    },
+    {
+     "kind": "section",
+     "label": "Address books",
+     "desc": "Rename or delete your address books"
+    },
+    {
+     "kind": "section",
+     "label": "Categories",
+     "desc": "Rename or delete contact categories"
+    }
+   ]
+  },
+  {
+   "id": "files",
+   "label": "Files",
+   "group": "apps",
+   "icon": "",
+   "rows": [
+    {
+     "kind": "section",
+     "label": "Display",
+     "desc": "Configure how files and folders are displayed"
+    },
+    {
+     "kind": "select",
+     "label": "Show files as",
+     "desc": "Choose between grid and list layout",
+     "key": "",
+     "options": [
+      [
+       "list",
+       "List"
+      ],
+      [
+       "grid",
+       "Grid"
+      ]
+     ]
+    },
+    {
+     "kind": "select",
+     "label": "Default sort",
+     "desc": "Choose the default sorting for files",
+     "key": "",
+     "options": [
+      [
+       "name",
+       "Name"
+      ],
+      [
+       "size",
+       "Size"
+      ],
+      [
+       "modified",
+       "Modified"
+      ]
+     ]
+    },
+    {
+     "kind": "select",
+     "label": "Sort direction",
+     "desc": "Choose ascending or descending order",
+     "key": "",
+     "options": [
+      [
+       "asc",
+       "Ascending"
+      ],
+      [
+       "desc",
+       "Descending"
+      ]
+     ]
+    },
+    {
+     "kind": "section",
+     "label": "Icons",
+     "desc": "Configure file icon appearance"
+    },
+    {
+     "kind": "toggle",
+     "label": "Show file icons",
+     "desc": "Display icons next to files and folders",
+     "key": ""
+    },
+    {
+     "kind": "toggle",
+     "label": "Colored icons",
+     "desc": "Use colorful icons instead of monochrome",
+     "key": ""
+    },
+    {
+     "kind": "toggle",
+     "label": "Show thumbnails",
+     "desc": "Display image previews instead of icons for image files",
+     "key": ""
+    },
+    {
+     "kind": "section",
+     "label": "Behavior",
+     "desc": "Configure file browser behavior"
+    },
+    {
+     "kind": "toggle",
+     "label": "Show hidden files",
+     "desc": "Display files and folders that start with a dot",
+     "key": ""
+    },
+    {
+     "kind": "section",
+     "label": "Downloads",
+     "desc": "Customize how downloaded emails and attachments are named."
+    },
+    {
+     "kind": "select",
+     "label": "Spaces",
+     "desc": "Replace spaces in the resulting filename with another character.",
+     "key": "filenameSpaceReplacement",
+     "options": [
+      [
+       "keep",
+       "Keep spaces"
+      ],
+      [
+       "underscore",
+       "Replace with _"
+      ],
+      [
+       "dash",
+       "Replace with -"
+      ]
+     ],
+     "default": "keep"
+    },
+    {
+     "kind": "toggle",
+     "label": "Lowercase",
+     "desc": "Force the entire filename to lowercase.",
+     "key": "filenameLowercase",
+     "default": false
+    },
+    {
+     "kind": "toggle",
+     "label": "Strip diacritics",
+     "desc": "Convert accented letters to their ASCII equivalents (ä → a, é → e). Useful for tools that mangle Unicode filenames.",
+     "key": "filenameStripDiacritics",
+     "default": false
+    },
+    {
+     "kind": "toggle",
+     "label": "Collapse repeated separators",
+     "desc": "Collapse runs of spaces, underscores, or dashes to a single character.",
+     "key": "filenameCollapseSeparators",
+     "default": true
+    },
+    {
+     "kind": "select",
+     "label": "After export",
+     "desc": "Optionally move the email after exporting it as .eml.",
+     "key": "postExportAction",
+     "options": [
+      [
+       "keep",
+       "Keep in mailbox"
+      ],
+      [
+       "archive",
+       "Move to archive"
+      ],
+      [
+       "trash",
+       "Move to trash"
+      ]
+     ],
+     "default": "keep"
+    }
+   ]
+  },
+  {
+   "id": "addons",
+   "label": "Add-ons",
+   "group": "apps",
+   "icon": "",
+   "rows": [
+    {
+     "kind": "section",
+     "label": "Plugins",
+     "desc": "Plugins are not available in the demo."
+    }
+   ]
+  },
+  {
+   "id": "backup",
+   "label": "Backup & import",
+   "group": "bottom",
+   "icon": "",
+   "rows": []
+  },
+  {
+   "id": "troubleshooting",
+   "label": "Troubleshooting",
+   "group": "bottom",
+   "icon": "",
+   "rows": [
+    {
+     "kind": "section",
+     "label": "Debug mode",
+     "desc": "Enable detailed logging for troubleshooting"
+    },
+    {
+     "kind": "toggle",
+     "label": "Detailed logging",
+     "desc": "Enable detailed logging for troubleshooting",
+     "key": "debugMode",
+     "default": false
+    }
+   ]
+  },
+  {
+   "id": "about",
+   "label": "About",
+   "group": "bottom",
+   "icon": "",
+   "rows": [
+    {
+     "kind": "section",
+     "label": "Settings backup",
+     "desc": "Export your settings to a file and import them on your other devices."
+    },
+    {
+     "kind": "toggle",
+     "label": "Settings sync",
+     "desc": "Other devices signed in to this account get the same settings.",
+     "key": "settingsSyncDisabled",
+     "invert": true,
+     "default": false
+    },
+    {
+     "kind": "info",
+     "label": "Export settings",
+     "desc": "Download a copy of your settings",
+     "key": ""
+    },
+    {
+     "kind": "text",
+     "label": "Import settings",
+     "desc": "Restore settings from a file",
+     "key": ""
+    },
+    {
+     "kind": "section",
+     "label": "Fix problems",
+     "desc": "When a view looks stale or wrong, or you want to start over."
+    },
+    {
+     "kind": "info",
+     "label": "Refresh cached data",
+     "desc": "Reload contacts, calendars and folders from the server. You stay signed in.",
+     "key": ""
+    },
+    {
+     "kind": "info",
+     "label": "Reset settings",
+     "desc": "Restore all settings to default values",
+     "key": ""
+    }
+   ]
+  }
+ ]
+}

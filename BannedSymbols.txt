@@ -1,0 +1,4 @@
+# Banned in every project (PORT-PLAN.md §4.1). Format: Roslyn BannedApiAnalyzers documentation IDs.
+# Layer lists: eng/BannedSymbols.Core.txt, eng/BannedSymbols.Presentation.txt, eng/BannedSymbols.Tests.txt.
+M:System.Threading.Thread.Sleep(System.Int32);Blocks a thread. Use await Task.Delay with a TimeProvider and a CancellationToken
+M:System.Threading.Thread.Sleep(System.TimeSpan);Blocks a thread. Use await Task.Delay with a TimeProvider and a CancellationToken

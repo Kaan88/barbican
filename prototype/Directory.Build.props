@@ -1,0 +1,5 @@
+<Project>
+  <!-- The prototype is reference code: it does not take the repo's strictness (no import of the
+       parent Directory.Build.props) and is not part of Barbican.slnx. Build it on Windows with
+       tools/build.ps1 -Project prototype/winui/Barbican.csproj. -->
+</Project>

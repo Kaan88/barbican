@@ -1,0 +1,21 @@
+<Project>
+  <!-- Central package management: every version lives here; projects reference packages without one. -->
+  <PropertyGroup>
+    <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
+    <CentralPackageTransitivePinningEnabled>true</CentralPackageTransitivePinningEnabled>
+  </PropertyGroup>
+
+  <!-- Analyzers for every project (PORT-PLAN.md §4.1). -->
+  <ItemGroup>
+    <GlobalPackageReference Include="Microsoft.CodeAnalysis.BannedApiAnalyzers" Version="5.6.0" />
+    <GlobalPackageReference Include="Microsoft.VisualStudio.Threading.Analyzers" Version="18.12.1" />
+    <GlobalPackageReference Include="Meziantou.Analyzer" Version="3.0.341" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Tests -->
+    <PackageVersion Include="xunit.v3" Version="4.0.3" />
+    <!-- Presentation -->
+    <PackageVersion Include="CommunityToolkit.Mvvm" Version="8.4.2" />
+  </ItemGroup>
+</Project>

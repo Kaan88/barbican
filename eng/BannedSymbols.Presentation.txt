@@ -1,0 +1,9 @@
+# Barbican.Presentation: no IO, no wall clock, no HTTP. Go through Core services and TimeProvider.
+T:System.IO.File;No file IO in Presentation: go through a Core service
+T:System.IO.Directory;No file IO in Presentation: go through a Core service
+P:System.DateTime.Now;Use the injected TimeProvider
+P:System.DateTime.UtcNow;Use the injected TimeProvider
+P:System.DateTimeOffset.Now;Use the injected TimeProvider
+P:System.DateTimeOffset.UtcNow;Use the injected TimeProvider
+M:System.Net.Http.HttpClient.#ctor;No HTTP in Presentation
+M:System.Net.Http.HttpClient.#ctor(System.Net.Http.HttpMessageHandler);No HTTP in Presentation

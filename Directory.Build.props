@@ -1,0 +1,44 @@
+<Project>
+  <!--
+    Strictness for every project in the repo (PORT-PLAN.md §4.1). Projects under prototype/ opt out
+    with their own Directory.Build.props. Do not weaken a rule here to make a change build: fix the
+    code, or suppress one diagnostic locally with a justification comment.
+  -->
+  <PropertyGroup>
+    <Nullable>enable</Nullable>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <MSBuildTreatWarningsAsErrors>true</MSBuildTreatWarningsAsErrors>
+    <AnalysisLevel>latest-recommended</AnalysisLevel>
+    <EnforceCodeStyleInBuild>true</EnforceCodeStyleInBuild>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <LangVersion>latest</LangVersion>
+    <Deterministic>true</Deterministic>
+    <Features>strict</Features>
+    <!-- IDE0005 (unused usings) only runs in the build when docs are generated. CS1591 would demand
+         XML docs on every public member, which is not the rule here. -->
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <NoWarn>$(NoWarn);CS1591</NoWarn>
+    <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
+
+    <Company>Barbican</Company>
+    <Product>Barbican</Product>
+    <Copyright>Barbican authors</Copyright>
+    <RepositoryUrl>https://github.com/Kaan88/barbican</RepositoryUrl>
+  </PropertyGroup>
+
+  <!-- Which layer a project belongs to, for the banned-API lists (BannedSymbols.txt + eng/). -->
+  <PropertyGroup>
+    <BarbicanRoot>$(MSBuildThisFileDirectory)</BarbicanRoot>
+    <_BarbicanProjectDir>$([System.String]::Copy('$(MSBuildProjectDirectory)').Replace('\', '/'))/</_BarbicanProjectDir>
+    <BarbicanLayer Condition="'$(MSBuildProjectName)' == 'Barbican.Core'">Core</BarbicanLayer>
+    <BarbicanLayer Condition="'$(MSBuildProjectName)' == 'Barbican.Presentation'">Presentation</BarbicanLayer>
+    <BarbicanLayer Condition="$(_BarbicanProjectDir.Contains('/tests/'))">Tests</BarbicanLayer>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <AdditionalFiles Include="$(BarbicanRoot)BannedSymbols.txt" />
+    <AdditionalFiles Include="$(BarbicanRoot)eng/BannedSymbols.Core.txt" Condition="'$(BarbicanLayer)' == 'Core'" />
+    <AdditionalFiles Include="$(BarbicanRoot)eng/BannedSymbols.Presentation.txt" Condition="'$(BarbicanLayer)' == 'Presentation'" />
+    <AdditionalFiles Include="$(BarbicanRoot)eng/BannedSymbols.Tests.txt" Condition="'$(BarbicanLayer)' == 'Tests'" />
+  </ItemGroup>
+</Project>

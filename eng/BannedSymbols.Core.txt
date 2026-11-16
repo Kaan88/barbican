@@ -1,0 +1,9 @@
+# Barbican.Core: time comes from an injected TimeProvider; HTTP only through the JMAP transport.
+P:System.DateTime.Now;Use the injected TimeProvider
+P:System.DateTime.UtcNow;Use the injected TimeProvider
+P:System.DateTime.Today;Use the injected TimeProvider
+P:System.DateTimeOffset.Now;Use the injected TimeProvider
+P:System.DateTimeOffset.UtcNow;Use the injected TimeProvider
+M:System.Net.Http.HttpClient.#ctor;Only Core/Jmap/Transport creates HttpClient (one per origin); suppress RS0030 there with a reason
+M:System.Net.Http.HttpClient.#ctor(System.Net.Http.HttpMessageHandler);Only Core/Jmap/Transport creates HttpClient (one per origin); suppress RS0030 there with a reason
+M:System.Net.Http.HttpClient.#ctor(System.Net.Http.HttpMessageHandler,System.Boolean);Only Core/Jmap/Transport creates HttpClient (one per origin); suppress RS0030 there with a reason

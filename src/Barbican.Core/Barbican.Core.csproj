@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Platform-agnostic logic: no UI types (PORT-PLAN.md §3.2, §3.3). -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <RootNamespace>Barbican.Core</RootNamespace>
+    <IsAotCompatible>true</IsAotCompatible>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Verbatim copy of the Rust app's ui/settings-schema.json (Bulwark's settings keys). -->
+    <EmbeddedResource Include="Settings/settings-schema.json" LogicalName="Barbican.Core.Settings.settings-schema.json" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Barbican.Core.Tests" />
+  </ItemGroup>
+</Project>

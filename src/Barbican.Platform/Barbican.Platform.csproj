@@ -1,0 +1,13 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Platform service interfaces (ISecretStore, INotifier, ITray, …; PORT-PLAN.md §3.2, §3.9).
+       Implementations live in Barbican.Platform.Windows / .Linux, added with the spikes and M8/M9. -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <RootNamespace>Barbican.Platform</RootNamespace>
+    <IsAotCompatible>true</IsAotCompatible>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../Barbican.Core/Barbican.Core.csproj" />
+  </ItemGroup>
+</Project>

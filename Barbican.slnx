@@ -1,0 +1,14 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/Barbican.Core/Barbican.Core.csproj" />
+    <Project Path="src/Barbican.Presentation/Barbican.Presentation.csproj" />
+    <Project Path="src/Barbican.Platform/Barbican.Platform.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/Barbican.Core.Tests/Barbican.Core.Tests.csproj" />
+    <Project Path="tests/Barbican.Presentation.Tests/Barbican.Presentation.Tests.csproj" />
+  </Folder>
+  <Folder Name="/tools/">
+    <Project Path="tools/Barbican.GenTokens/Barbican.GenTokens.csproj" />
+  </Folder>
+</Solution>

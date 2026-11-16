@@ -1,0 +1,7 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- The Core spec suite: ported Rust tests first ([RustTest]), then new tests (PORT-PLAN.md §2.4, §4.2).
+       Shared test settings: tests/Directory.Build.props. -->
+  <ItemGroup>
+    <ProjectReference Include="../../src/Barbican.Core/Barbican.Core.csproj" />
+  </ItemGroup>
+</Project>

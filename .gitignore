@@ -1,0 +1,19 @@
+# build output
+bin/
+obj/
+artifacts/
+TestResults/
+*.user
+*.suo
+.vs/
+.vscode/
+.idea/
+*.binlog
+
+# local-only data: real account mapping, VM address, private links (never committed; repo is public)
+.local/*
+!.local/README.md
+
+# python
+__pycache__/
+*.pyc
