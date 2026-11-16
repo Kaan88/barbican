@@ -677,6 +677,30 @@ impl Editor {
         self.sel = Sel::caret(p);
     }
 
+    /// Set the display size of the image block `b` (0 = natural). `undo` records one undo step
+    /// (the first change of a resize drag); later steps of the same drag pass false.
+    pub fn resize_image(&mut self, b: usize, w: u32, h: u32, undo: bool) -> bool {
+        if !matches!(self.doc.blocks.get(b).map(|x| &x.kind), Some(Kind::Image(_))) { return false; }
+        if undo { self.checkpoint(EditKind::Other); } else { self.version += 1; }
+        if let Some(Kind::Image(img)) = self.doc.blocks.get_mut(b).map(|x| &mut x.kind) { img.width = w; img.height = h; }
+        true
+    }
+
+    /// Replace the whole document as one undo step (HTML source view); `undo` false updates in place.
+    pub fn replace_doc(&mut self, doc: Doc, undo: bool) {
+        if undo { self.checkpoint(EditKind::Other); } else { self.version += 1; }
+        self.doc = doc;
+        self.doc.fix();
+        self.sel.anchor = self.doc.clamp(self.sel.anchor);
+        self.sel.focus = self.doc.clamp(self.sel.focus);
+    }
+
+    /// Replace the text between two positions of one block (spelling suggestions).
+    pub fn replace_range(&mut self, a: Pos, b: Pos, text: &str) {
+        self.select(a, b);
+        self.insert_text(text);
+    }
+
     pub fn toggle_quoted(&mut self, b: usize) {
         if let Some(Kind::Quoted { open, .. }) = self.doc.blocks.get_mut(b).map(|x| &mut x.kind) { *open = !*open; self.version += 1; }
     }
@@ -829,5 +853,21 @@ mod tests {
         assert_eq!(e.doc.blocks[0].text(), "better draft");
         assert!(e.doc.blocks.iter().any(|b| matches!(b.kind, Kind::Quoted { .. })));
         assert!(e.doc.blocks.iter().any(|b| b.text() == "On Mon, X wrote:"));
+    }
+
+    #[test]
+    fn image_resize_and_replace_range() {
+        let mut e = ed("ab");
+        e.insert_image(ImageData { src: "https://x.org/a.png".into(), ..Default::default() });
+        let b = e.doc.blocks.iter().position(|x| matches!(x.kind, Kind::Image(_))).unwrap();
+        assert!(e.resize_image(b, 200, 100, true));
+        assert!(e.resize_image(b, 220, 110, false));
+        assert!(matches!(&e.doc.blocks[b].kind, Kind::Image(i) if i.width == 220 && i.height == 110));
+        e.undo();
+        assert!(matches!(&e.doc.blocks[b].kind, Kind::Image(i) if i.width == 0), "one undo step per drag");
+        assert!(!e.resize_image(0, 1, 1, true), "not an image");
+        let mut e = ed("I wrte this");
+        e.replace_range(Pos::new(0, 2), Pos::new(0, 6), "write");
+        assert_eq!(texts(&e), vec!["I write this"]);
     }
 }

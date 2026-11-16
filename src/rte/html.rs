@@ -318,7 +318,9 @@ fn image_from(attrs: &[(String, String)]) -> Option<ImageData> {
     if src.is_empty() { return None; }
     let mut img = ImageData {
         src: src.clone(), alt: attr(attrs, "alt").unwrap_or("").into(),
-        width: attr(attrs, "width").and_then(|w| w.trim_end_matches("px").parse().ok()).unwrap_or(0),
+        width: attr(attrs, "width").and_then(|w| w.trim().trim_end_matches("px").parse().ok())
+            .or_else(|| style_prop(attrs, "width").and_then(|w| w.trim().strip_suffix("px")?.trim().parse::<f32>().ok()).map(|w| w as u32))
+            .unwrap_or(0),
         height: attr(attrs, "height").and_then(|w| w.trim_end_matches("px").parse().ok()).unwrap_or(0),
         ..Default::default()
     };
@@ -682,8 +684,12 @@ pub fn export(doc: &Doc) -> String {
             }
             Kind::Image(img) => {
                 let mut attrs = format!("src=\"{}\" alt=\"{}\"", esc_attr(&image_src(img)), esc_attr(&img.alt));
-                if img.width > 0 { attrs.push_str(&format!(" width=\"{}\"", img.width)); }
-                h.push_str(&format!("<div style=\"{al}\"><img {attrs} style=\"max-width:100%;height:auto\"></div>"));
+                let mut style = String::new();
+                if img.width > 0 {
+                    attrs.push_str(&format!(" width=\"{}\"", img.width));
+                    style = format!("width:{}px;", img.width);
+                }
+                h.push_str(&format!("<div style=\"{al}\"><img {attrs} style=\"{style}max-width:100%;height:auto\"></div>"));
                 i += 1;
             }
             Kind::Quoted { html, cite, .. } => {
@@ -907,5 +913,146 @@ mod quote_tests {
     fn clean_quote() {
         let h = clean_quoted_html("<!DOCTYPE html><html><head><style>p{color:red}</style></head><body><p>hi</p><script>x()</script></body></html>");
         assert_eq!(h, "<p>hi</p>");
+    }
+}
+// ---------------------------------------------------------------- HTML source view
+
+const WRAP_OPEN: &str = "<div style=\"font-family:'Segoe UI',-apple-system,Roboto,Helvetica,Arial,sans-serif;font-size:14px;line-height:1.5\">";
+
+/// Index of the first quoted block (reply/forward original): the source view edits what comes before it.
+pub fn editable_end(doc: &Doc) -> usize {
+    doc.blocks.iter().position(|b| matches!(b.kind, Kind::Quoted { .. })).unwrap_or(doc.blocks.len())
+}
+
+/// The editable part of the document as readable HTML: one block per line, without the wrapper div.
+pub fn source(doc: &Doc) -> String {
+    let d = Doc { blocks: doc.blocks[..editable_end(doc)].to_vec() };
+    if d.blocks.is_empty() { return String::new(); }
+    let h = export(&d);
+    let inner = h.strip_prefix(WRAP_OPEN).and_then(|x| x.strip_suffix("</div>")).unwrap_or(&h);
+    pretty(inner)
+}
+
+/// Line breaks after block-level tags (the importer ignores whitespace between blocks).
+pub fn pretty(h: &str) -> String {
+    let mut out = String::with_capacity(h.len() + h.len() / 16);
+    let lower = h.to_ascii_lowercase();
+    let ends = ["</p>", "</h1>", "</h2>", "</h3>", "</li>", "</ul>", "</ol>", "</tr>", "</table>", "</blockquote>", "</pre>", "</div>"];
+    let opens = ["<ul", "<ol", "<table", "<tr"];
+    let mut i = 0;
+    while i < h.len() {
+        let rest = &lower[i..];
+        if let Some(e) = ends.iter().find(|e| rest.starts_with(**e)) {
+            out.push_str(&h[i..i + e.len()]);
+            out.push('\n');
+            i += e.len();
+            continue;
+        }
+        if rest.starts_with("<hr") || opens.iter().any(|o| rest.starts_with(o) && rest[o.len()..].starts_with([' ', '>'])) {
+            if let Some(gt) = rest.find('>') {
+                out.push_str(&h[i..i + gt + 1]);
+                out.push('\n');
+                i += gt + 1;
+                continue;
+            }
+        }
+        let ch = h[i..].chars().next().unwrap();
+        out.push(ch);
+        i += ch.len_utf8();
+    }
+    while out.ends_with('\n') { out.pop(); }
+    out
+}
+
+/// The document after editing the source: the new editable part plus the untouched quoted tail.
+pub fn apply_source(doc: &Doc, src: &str) -> Doc {
+    let mut blocks = import(src);
+    if blocks.is_empty() { blocks.push(Block::new(Kind::Para)); }
+    // The source only carries src/alt/size: keep the attachment data (uploaded blob, bytes,
+    // type, name) of the images that were already in the document.
+    let old: Vec<&ImageData> = doc.blocks[..editable_end(doc)].iter()
+        .filter_map(|b| match &b.kind { Kind::Image(i) => Some(i), _ => None }).collect();
+    for b in &mut blocks {
+        if let Kind::Image(img) = &mut b.kind {
+            let same = old.iter().find(|o| match &img.cid { Some(c) => o.cid.as_ref() == Some(c), None => o.cid.is_none() && o.src == img.src });
+            if let Some(o) = same {
+                if img.blob_id.is_none() { img.blob_id = o.blob_id.clone(); }
+                if img.mime.is_empty() { img.mime = o.mime.clone(); }
+                if img.name.is_empty() { img.name = o.name.clone(); }
+                if img.bytes.is_none() { img.bytes = o.bytes.clone(); }
+            }
+        }
+    }
+    blocks.extend(doc.blocks[editable_end(doc)..].iter().cloned());
+    let mut d = Doc { blocks };
+    d.fix();
+    d
+}
+
+#[cfg(test)]
+mod source_tests {
+    use super::*;
+
+    #[test]
+    fn source_round_trip() {
+        let mut bold = Block::para("");
+        bold.runs.push(Run { text: "Hello ".into(), marks: Marks::default() });
+        bold.runs.push(Run { text: "world".into(), marks: Marks { bold: true, ..Default::default() } });
+        let mut d = Doc { blocks: vec![
+            bold, Block::with_text(Kind::Heading(2), "Title", Marks::default()),
+            Block::with_text(Kind::Bullet, "one", Marks::default()), Block::with_text(Kind::Bullet, "two", Marks::default()),
+            Block::new(Kind::Quoted { html: "<p>orig</p>".into(), text: "orig".into(), open: false, cite: true }),
+        ] };
+        d.fix();
+        let s = source(&d);
+        assert!(!s.contains("orig"), "the quote stays out of the source view");
+        assert!(s.lines().count() >= 4, "one block per line: {s}");
+        let back = apply_source(&d, &s);
+        let texts: Vec<String> = back.blocks.iter().map(|b| b.text()).collect();
+        assert_eq!(&texts[..4], &["Hello world", "Title", "one", "two"]);
+        assert!(back.blocks[0].runs.iter().any(|r| r.marks.bold && r.text == "world"));
+        assert_eq!(back.blocks[1].kind, Kind::Heading(2));
+        assert_eq!(back.blocks.iter().filter(|b| matches!(b.kind, Kind::Quoted { .. })).count(), 1);
+        // edited source
+        let e = apply_source(&d, "<p>New <i>text</i></p>\n<p>Second</p>");
+        assert_eq!(e.blocks[0].text(), "New text");
+        assert_eq!(e.blocks[1].text(), "Second");
+        assert_eq!(e.blocks.iter().filter(|b| matches!(b.kind, Kind::Quoted { .. })).count(), 1);
+    }
+
+    #[test]
+    fn source_edit_keeps_inline_image_data() {
+        let img = ImageData {
+            src: "cid:img1@x".into(), cid: Some("img1@x".into()), blob_id: Some("B123".into()),
+            mime: "image/png".into(), name: "shot.png".into(), width: 100, height: 50,
+            bytes: Some(Arc::new(vec![1, 2, 3])), alt: String::new(),
+        };
+        let mut d = Doc { blocks: vec![Block::para("Hi"), Block::new(Kind::Image(img)), Block::para("")] };
+        d.fix();
+        let s = source(&d);
+        assert!(s.contains("cid:img1@x"), "{s}");
+        let e = apply_source(&d, &s.replacen("Hi", "Hi there", 1));
+        let back = e.blocks.iter().find_map(|b| match &b.kind { Kind::Image(i) => Some(i.clone()), _ => None }).expect("image kept");
+        assert_eq!(back.blob_id.as_deref(), Some("B123"));
+        assert_eq!(back.mime, "image/png");
+        assert_eq!(back.name, "shot.png");
+        assert_eq!(back.bytes.as_deref().map(|b| b.len()), Some(3));
+        assert_eq!(e.blocks[0].text(), "Hi there");
+    }
+
+    #[test]
+    fn image_width_round_trip() {
+        let img = ImageData { src: "https://x.org/a.png".into(), width: 240, height: 120, ..Default::default() };
+        let d = Doc { blocks: vec![Block::new(Kind::Image(img))] };
+        let h = export(&d);
+        assert!(h.contains("width=\"240\""), "{h}");
+        assert!(h.contains("width:240px"), "{h}");
+        let b = import(&h);
+        let Kind::Image(i) = &b[0].kind else { panic!("{b:?}") };
+        assert_eq!(i.width, 240);
+        // a CSS width alone is understood too
+        let b = import("<img src=\"https://x.org/a.png\" style=\"width: 300px; height:auto\">");
+        let Kind::Image(i) = &b[0].kind else { panic!() };
+        assert_eq!(i.width, 300);
     }
 }

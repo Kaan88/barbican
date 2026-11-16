@@ -971,6 +971,7 @@ fn main() -> Result<(), slint::PlatformError> {
                 std::thread::spawn(move || { unified::refresh_counts(); let _ = w2.upgrade_in_event_loop(|u| mail::rebuild_folders(&u)); });
             }
         }
+        if key == "spellCheck" { rte::spell::reload(); if let Some(u) = wt.upgrade() { rte::refresh(&u); } }
         if let Some(u) = wt.upgrade() { apply_ui_prefs(&u); mail::rebuild_folders(&u); mail::rebuild_list(&u); }
     });
 
@@ -988,6 +989,7 @@ fn main() -> Result<(), slint::PlatformError> {
         rs();
         if key == "desktop.renderMode" || key == "desktop.remoteImages" { render_current(&w.unwrap()); }
         if key == "theme" { apply_theme(&w.unwrap()); }
+        if key == "writingLanguage" { rte::spell::reload(); }
         apply_ui_prefs(&w.unwrap());
         mail::rebuild_folders(&w.unwrap());
         mail::rebuild_list(&w.unwrap());
@@ -1107,6 +1109,7 @@ fn main() -> Result<(), slint::PlatformError> {
     let cf = cfg.clone();
     ui.on_ai_compose(move |action| {
         let u = w.unwrap();
+        if u.get_ai_busy() { return; } // one rewrite at a time (toolbar and right-click menu)
         let (draft, whole) = rte::ai_source();
         if draft.trim().is_empty() { u.set_c_status("Write something first.".into()); return; }
         let c = cf.lock().unwrap().clone();
@@ -1388,6 +1391,11 @@ fn main() -> Result<(), slint::PlatformError> {
     ui.on_admin_load(move |sec| { let Some(c) = st.lock().unwrap().clone() else { return }; admin::load(&w.unwrap(), c, &sec); });
     let (w, st) = (ui.as_weak(), state.clone());
     ui.on_admin_delete(move |id| { let Some(c) = st.lock().unwrap().clone() else { return }; admin::delete_queued(&w.unwrap(), c, &id); });
+    let w = ui.as_weak();
+    ui.on_admin_action_open(move |id| admin::action_open(&w.unwrap(), &id));
+    ui.on_admin_action_edit(move |k, v| admin::action_edit(&k, &v));
+    let (w, st) = (ui.as_weak(), state.clone());
+    ui.on_admin_action_execute(move || { let Some(c) = st.lock().unwrap().clone() else { return }; admin::action_execute(&w.unwrap(), c); });
     ui.set_admin_enabled(!admin::key().is_empty());
 
     // ---------------- keyboard shortcuts (Bulwark's single-key set) ----------------

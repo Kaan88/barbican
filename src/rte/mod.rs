@@ -6,12 +6,13 @@ pub mod editor;
 pub mod html;
 pub mod layout;
 pub mod model;
+pub mod spell;
 
 use crate::{AppWindow, RteBox, RteImage, RteState, RteText};
 use editor::Editor;
 use layout::{Painted, Role, View};
 use model::*;
-use slint::{Color, ComponentHandle, ModelRc, SharedString, VecModel};
+use slint::{Color, ComponentHandle, Model, ModelRc, SharedString, VecModel};
 use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -25,6 +26,15 @@ thread_local! {
     static CLICKS: Cell<(Option<Instant>, f32, f32, u32)> = const { Cell::new((None, 0.0, 0.0, 0)) };
     static DRAG_ANCHOR: Cell<Option<Pos>> = const { Cell::new(None) };
     static DRAG_WORD: Cell<bool> = const { Cell::new(false) };
+    /// Misspelled words as painted: (block, start, end).
+    static SPELL_HITS: RefCell<Vec<(usize, usize, usize)>> = const { RefCell::new(Vec::new()) };
+    /// The misspelled word under the last right-click: (block, start, end, word).
+    static CTX_SPELL: RefCell<Option<(usize, usize, usize, String)>> = const { RefCell::new(None) };
+    /// Image resize drag: (block, left corner, start x, start w, start h, first step).
+    static RESIZE: Cell<Option<(usize, bool, f32, f32, f32, bool)>> = const { Cell::new(None) };
+    static SOURCE_EDITED: Cell<bool> = const { Cell::new(false) };
+    /// The document as the source view last showed or produced it.
+    static SOURCE_DOC: RefCell<Option<Doc>> = const { RefCell::new(None) };
 }
 
 // ---------------------------------------------------------------- document access
@@ -36,13 +46,35 @@ pub fn set_doc(u: &AppWindow, doc: Doc) {
     for b in &doc.blocks { if let Kind::Image(img) = &b.kind { register_image(img); } }
     with(|e| { e.load(doc); e.set_caret(Pos::new(0, 0)); });
     UP.with(|x| x.set(false));
+    close_source(u);
     refresh(u);
 }
 
-/// Put the keyboard focus into the editor (now, and when the composer appears).
+/// Leave the HTML source view and forget its state (a new message is opened).
+pub fn close_source(u: &AppWindow) {
+    u.set_rte_source_open(false);
+    u.set_rte_source("".into());
+    SOURCE_EDITED.with(|s| s.set(false));
+    SOURCE_DOC.with(|s| *s.borrow_mut() = None);
+}
+
+/// Put the keyboard focus into the editor (now, and when the composer appears);
+/// into the source text while the HTML source view is open.
 pub fn focus(u: &AppWindow) {
+    if u.get_rte_source_open() { u.set_rte_source_focus_req(u.get_rte_source_focus_req() + 1); return; }
     u.set_rte_focus_on_open(true);
     u.set_rte_focus_req(u.get_rte_focus_req() + 1);
+}
+
+/// While the source view is open, show changes made outside it (toolbar, undo, AI,
+/// signature) so that the next keystroke there does not revert them.
+fn sync_source(u: &AppWindow) {
+    if !u.get_rte_source_open() { return; }
+    let doc = with(|e| e.doc.clone());
+    if SOURCE_DOC.with(|s| s.borrow().as_ref() == Some(&doc)) { return; }
+    u.set_rte_source(html::source(&doc).into());
+    SOURCE_DOC.with(|s| *s.borrow_mut() = Some(doc));
+    SOURCE_EDITED.with(|s| s.set(false));
 }
 
 pub fn doc() -> Doc { with(|e| e.doc.clone()) }
@@ -210,6 +242,7 @@ fn state(e: &Editor) -> RteState {
 
 /// Lay out, paint and push everything to the UI.
 pub fn refresh(u: &AppWindow) {
+    sync_source(u);
     let width = u.get_rte_width().max(80.0);
     let base = u.get_rte_base_size().max(9.0);
     let up = UP.with(|x| x.get());
@@ -218,7 +251,9 @@ pub fn refresh(u: &AppWindow) {
         VIEW.with(|v| {
             let mut v = v.borrow_mut();
             v.build(&e.doc, width, base, &image_dims);
-            (v.paint(&e.doc, &e.sel, up, base), state(&e), e.doc.is_empty())
+            let mut p = v.paint(&e.doc, &e.sel, up, base);
+            p.front.extend(spell_marks(&e, &v));
+            (p, state(&e), e.doc.is_empty())
         })
     });
     let texts: Vec<RteText> = p.texts.into_iter().map(|t| {
@@ -239,7 +274,15 @@ pub fn refresh(u: &AppWindow) {
     u.set_rte_texts(ModelRc::new(VecModel::from(texts)));
     u.set_rte_back(ModelRc::new(VecModel::from(boxes(p.back))));
     u.set_rte_front(ModelRc::new(VecModel::from(boxes(p.front))));
-    u.set_rte_imgs(ModelRc::new(VecModel::from(imgs)));
+    // update the image rows in place when their number is unchanged, so a resize handle being
+    // dragged is not recreated under the pointer
+    let cur = u.get_rte_imgs();
+    match cur.as_any().downcast_ref::<VecModel<RteImage>>() {
+        Some(m) if m.row_count() == imgs.len() => {
+            for (i, im) in imgs.into_iter().enumerate() { if m.row_data(i).as_ref() != Some(&im) { m.set_row_data(i, im); } }
+        }
+        _ => u.set_rte_imgs(ModelRc::new(VecModel::from(imgs))),
+    }
     u.set_rte_height(p.height);
     u.set_rte_caret_x(p.caret.0);
     u.set_rte_caret_y(p.caret.1);
@@ -251,6 +294,154 @@ pub fn refresh(u: &AppWindow) {
     }
     u.set_rte_state(st);
     u.set_rte_blink(true);
+}
+
+// ---------------------------------------------------------------- spelling, context menu, image resize, source view
+
+/// Squiggles under misspelled words; also remembers them for the right-click menu.
+fn spell_marks(e: &Editor, v: &View) -> Vec<layout::PBox> {
+    let mut out = vec![];
+    let mut hits = vec![];
+    let caret = e.sel.is_collapsed().then_some(e.sel.focus);
+    for (i, b) in e.doc.blocks.iter().enumerate() {
+        if !matches!(b.kind, Kind::Para | Kind::Heading(_) | Kind::Quote | Kind::Bullet | Kind::Ordered | Kind::Cell { .. }) || b.is_empty() { continue; }
+        let text = b.text();
+        for (s, en) in spell::misspelled(&text) {
+            // the word being typed is not flagged until the caret leaves it
+            if caret.is_some_and(|c| c.b == i && c.o >= s && c.o <= en) { continue; }
+            let m = b.marks_at(s + 1);
+            if m.code || m.link.is_some() { continue; }
+            hits.push((i, s, en));
+            for (x, y, w, h) in v.range_rects(i, s, en) {
+                let base = y + h * 0.84;
+                let mut k = 0.0;
+                while k < w - 1.0 {
+                    let off = if ((k / 2.0) as i32) % 2 == 0 { 0.0 } else { 1.2 };
+                    out.push(layout::PBox { x: x + k, y: base + off, w: 2.2, h: 1.3, role: Role::Rgb(0xe5484d), border: 0.0, border_role: Role::None, radius: 0.0 });
+                    k += 2.0;
+                }
+            }
+        }
+    }
+    SPELL_HITS.with(|h| *h.borrow_mut() = hits);
+    out
+}
+
+/// What the editor's right-click menu needs to know.
+#[derive(Default)]
+pub struct CtxInfo {
+    pub has_sel: bool,
+    pub in_table: bool,
+    pub image: bool,
+    pub link: Option<String>,
+    pub spell: Option<(String, Vec<String>)>,
+    pub can_undo: bool,
+    pub can_redo: bool,
+    pub bold: bool,
+    pub italic: bool,
+    pub underline: bool,
+    pub strike: bool,
+    pub code: bool,
+    pub highlight: bool,
+    pub block: String,
+    pub align: String,
+}
+
+pub fn ctx_info() -> CtxInfo {
+    let spell = CTX_SPELL.with(|c| c.borrow().clone()).map(|(_, _, _, w)| { let s = spell::suggestions(&w); (w, s) });
+    with(|e| {
+        let st = state(e);
+        CtxInfo {
+            has_sel: st.has_sel, in_table: st.in_table, image: matches!(e.focus_block().kind, Kind::Image(_)),
+            link: e.current_link(), spell, can_undo: st.can_undo, can_redo: st.can_redo,
+            bold: st.bold, italic: st.italic, underline: st.underline, strike: st.strike, code: st.code, highlight: st.highlight,
+            block: st.block.to_string(), align: st.align.to_string(),
+        }
+    })
+}
+
+/// A pick from the editor's right-click menu.
+pub fn ctx_pick(u: &AppWindow, action: &str) {
+    let spelled = CTX_SPELL.with(|c| c.borrow_mut().take());
+    if let Some(s) = action.strip_prefix("spell:") {
+        if let Some((b, a, en, _)) = spelled { with(|e| e.replace_range(Pos::new(b, a), Pos::new(b, en), s)); }
+        refresh(u);
+    } else if action == "spell-add" || action == "spell-ignore" {
+        if let Some((_, _, _, w)) = spelled { if action == "spell-add" { spell::add(&w) } else { spell::ignore(&w) } }
+        refresh(u);
+    } else if let Some(a) = action.strip_prefix("ai:") {
+        if !u.get_ai_busy() { u.invoke_ai_compose(a.into()); }
+    } else if action == "copy-link" {
+        if let Some(l) = with(|e| e.current_link()) { u.set_rte_link_url(l.into()); }
+        on_cmd(u, "copy-link");
+    } else {
+        on_cmd(u, action);
+    }
+    focus(u);
+}
+
+/// Right button pressed on the editor: move the caret there unless the click is inside the
+/// selection (so the menu acts on it), and find the misspelled word under the pointer.
+fn right_down(u: &AppWindow, x: f32, y: f32) {
+    let (pos, up) = VIEW.with(|v| with(|e| v.borrow().hit(&e.doc, x, y)));
+    let inside = with(|e| !e.sel.is_collapsed() && pos >= e.sel.start() && pos <= e.sel.end());
+    if !inside {
+        UP.with(|c| c.set(up));
+        with(|e| { e.goal_x = None; e.set_caret(pos); });
+    }
+    let hit = SPELL_HITS.with(|h| h.borrow().iter().copied().find(|&(b, s, en)| b == pos.b && pos.o >= s && pos.o <= en));
+    let word = hit.and_then(|(b, s, en)| with(|e| e.doc.blocks.get(b).map(|blk| blk.text()).and_then(|t| t.get(s..en).map(String::from))));
+    CTX_SPELL.with(|c| *c.borrow_mut() = hit.zip(word).map(|((b, s, en), w)| (b, s, en, w)));
+    if u.get_rte_link_open() { u.set_rte_link_open(false); }
+    refresh(u);
+}
+
+/// Image resize from a corner handle: corner is "nw" | "ne" | "sw" | "se"; the aspect ratio is kept.
+fn resize(u: &AppWindow, kind: &str, x: f32) {
+    if let Some(corner) = kind.strip_prefix("rs-down-") {
+        let b = with(|e| e.sel.focus.b);
+        let Some((_, _, w, h)) = VIEW.with(|v| v.borrow().image_rect(b)) else { return };
+        RESIZE.with(|r| r.set(Some((b, corner.ends_with('w'), x, w, h, true))));
+        return;
+    }
+    if kind == "rs-up" { RESIZE.with(|r| r.set(None)); return; }
+    let Some((b, left, x0, w0, h0, first)) = RESIZE.with(|r| r.get()) else { return };
+    let max = VIEW.with(|v| v.borrow().width).max(24.0);
+    let w = new_width(w0, if left { x0 - x } else { x - x0 }, max);
+    let h = (w * h0 / w0.max(1.0)).round().max(1.0);
+    if with(|e| e.resize_image(b, w as u32, h as u32, first)) {
+        RESIZE.with(|r| r.set(Some((b, left, x0, w0, h0, false))));
+        refresh(u);
+    }
+}
+
+/// Width after dragging a corner by dx (min 24 px, max the editor width).
+pub fn new_width(w0: f32, dx: f32, max: f32) -> f32 { (w0 + dx).round().clamp(24.0, max.max(24.0)) }
+
+/// HTML source view: open (export the editable part), edit (re-import live), close.
+fn source_cmd(u: &AppWindow, name: &str, arg: &str) {
+    match name {
+        "source-toggle" => {
+            if u.get_rte_source_open() {
+                close_source(u);
+                focus(u);
+            } else {
+                let doc = with(|e| e.doc.clone());
+                u.set_rte_source(html::source(&doc).into());
+                SOURCE_DOC.with(|s| *s.borrow_mut() = Some(doc));
+                SOURCE_EDITED.with(|s| s.set(false));
+                u.set_rte_source_open(true);
+            }
+        }
+        "source-edit" => {
+            let first = !SOURCE_EDITED.with(|s| s.replace(true));
+            let d = with(|e| html::apply_source(&e.doc, arg));
+            for b in &d.blocks { if let Kind::Image(img) = &b.kind { register_image(img); } }
+            with(|e| e.replace_doc(d, first));
+            SOURCE_DOC.with(|s| *s.borrow_mut() = Some(with(|e| e.doc.clone())));
+        }
+        _ => {}
+    }
 }
 
 // ---------------------------------------------------------------- clipboard
@@ -511,6 +702,8 @@ pub fn on_pointer(u: &AppWindow, kind: &str, x: f32, y: f32, shift: bool) {
             u.invoke_rte_scroll_to_caret();
         }
         "up" => { DRAG_ANCHOR.with(|d| d.set(None)); }
+        "rdown" => right_down(u, x, y),
+        k if k.starts_with("rs-") => resize(u, k, x),
         _ => {}
     }
 }
@@ -582,6 +775,13 @@ pub fn on_cmd(u: &AppWindow, cmd: &str) {
         "paste" => paste(u, false),
         "paste-plain" => paste(u, true),
         "select-all" => with(|e| e.select_all()),
+        "image-size" => {
+            let b = with(|e| e.sel.focus.b);
+            let w: u32 = arg.parse().unwrap_or(0);
+            let h = match (w, VIEW.with(|v| v.borrow().image_rect(b))) { (0, _) | (_, None) => 0, (w, Some((_, _, iw, ih))) => (w as f32 * ih / iw.max(1.0)).round() as u32 };
+            with(|e| e.resize_image(b, w, h, true));
+        }
+        "source-toggle" | "source-edit" => source_cmd(u, name, arg),
         _ => return,
     }
     refresh(u);

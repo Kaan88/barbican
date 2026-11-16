@@ -291,6 +291,18 @@ impl View {
         Some((l, c))
     }
 
+    /// Line boxes (x, y, w, h) covering the byte range s..e of block b, in content coordinates.
+    pub fn range_rects(&self, b: usize, s: usize, e: usize) -> Vec<(f32, f32, f32, f32)> {
+        let Some(g) = self.geo.get(b) else { return vec![] };
+        let Some(l) = &g.layout else { return vec![] };
+        if g.empty || s >= e { return vec![]; }
+        let sl = Selection::new(Cursor::from_byte_index(l, s, Affinity::Downstream), Cursor::from_byte_index(l, e, Affinity::Upstream));
+        sl.geometry(l).into_iter().map(|(bb, _)| (g.tx + bb.x0 as f32, g.ty + bb.y0 as f32, (bb.x1 - bb.x0) as f32, (bb.y1 - bb.y0) as f32)).collect()
+    }
+
+    /// Image rectangle (x, y, w, h) of block b, if it is an image.
+    pub fn image_rect(&self, b: usize) -> Option<(f32, f32, f32, f32)> { self.geo.get(b)?.img }
+
     /// Caret rectangle (x, y, h) in content coordinates.
     pub fn caret_rect(&self, doc: &Doc, p: Pos, up: bool) -> (f32, f32, f32) {
         let Some(g) = self.geo.get(p.b) else { return (0.0, 0.0, 18.0) };
