@@ -1935,6 +1935,8 @@ fn finish_login(w: slint::Weak<AppWindow>, st: Shared, res: Result<jmap::Client,
             if let Some(v) = remember { remember_session(&c, v, &server, &user); }
             let name = c.username.clone();
             *CHAT_USER.lock().unwrap() = name.clone();
+            // host of the server URL for the admin nav subtitle
+            let host = server.trim().trim_start_matches("https://").trim_start_matches("http://").split(['/', ':']).next().unwrap_or("").to_string();
             let w2 = w.clone();
             let _ = w.upgrade_in_event_loop(move |u| {
                 u.invoke_chat_reload();
@@ -1943,6 +1945,7 @@ fn finish_login(w: slint::Weak<AppWindow>, st: Shared, res: Result<jmap::Client,
                 u.set_status("".into());
                 u.set_account(name.clone().into());
                 u.set_initials(initials(&name).into());
+                u.set_server_host(host.into());
                 u.set_logged_in(true);
             });
             load_mailboxes(w2.clone(), c.clone(), true);
