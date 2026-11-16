@@ -1341,6 +1341,13 @@ fn main() -> Result<(), slint::PlatformError> {
     ui.on_cal_search(move |q| calendar::search(&w.unwrap(), &q));
     let w = ui.as_weak();
     ui.on_cal_edit(move |id, date, hour| calendar::edit(&w.unwrap(), &id, &date, hour));
+    let w = ui.as_weak();
+    ui.on_cal_select(move |id| calendar::select(&w.unwrap(), &id));
+    let (w, st) = (ui.as_weak(), state.clone());
+    ui.on_cal_rsvp(move |status| {
+        let Some(c) = st.lock().unwrap().clone() else { return };
+        calendar::rsvp_selected(&w.unwrap(), c, &status, &my_addrs(&st));
+    });
     let (w, st) = (ui.as_weak(), state.clone());
     ui.on_task_add(move |t, d| { let Some(c) = st.lock().unwrap().clone() else { return }; calendar::add_task(&w.unwrap(), c, &t, &d); });
     let (w, st) = (ui.as_weak(), state.clone());

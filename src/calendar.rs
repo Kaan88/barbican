@@ -2,7 +2,7 @@
 //! mini month, calendar visibility, client-side recurrence expansion (like Bulwark's
 //! recurrence-expansion fallback when the server doesn't expand), event create/edit/delete.
 use crate::jmap::Client;
-use crate::{AppWindow, CalCell, CalEvent, CalItem, MiniDay};
+use crate::{AppWindow, CalCell, CalDetail, CalEvent, CalGuest, CalItem, CalSum, MiniDay};
 use chrono::{Datelike, Duration, Local, NaiveDate, NaiveDateTime, NaiveTime, Timelike, Weekday};
 use serde_json::{json, Value};
 use slint::{Color, ComponentHandle, ModelRc, VecModel};
@@ -21,6 +21,8 @@ struct State {
     events: Vec<Occ>,
     query: String,
     editing: Option<Value>,
+    // the event shown in the context panel (design: guests / details beside the grid)
+    selected: Option<String>,
 }
 
 #[derive(Clone)]
@@ -41,7 +43,26 @@ const PALETTE: [u32; 8] = [0x3b82f6, 0x22c55e, 0xf97316, 0xa855f7, 0xec4899, 0x1
 fn color_for(cals: &[Value], id: &str) -> Color {
     let i = cals.iter().position(|c| c["id"] == id).unwrap_or(0);
     let hex = cals.get(i).and_then(|c| c["color"].as_str()).and_then(|s| u32::from_str_radix(s.trim_start_matches('#'), 16).ok());
-    Color::from_argb_encoded(0xff000000 | hex.unwrap_or(PALETTE[i % PALETTE.len()]))
+    snap(Color::from_argb_encoded(0xff000000 | hex.unwrap_or(PALETTE[i % PALETTE.len()])))
+}
+
+/// Calendar colours drawn as the design's meaning tints: reds and pinks become rose, oranges and
+/// yellows amber, greens and teals mint, blues sky (Theme.tint-bg/fg map these four exactly).
+/// Purples, greys and anything else keep their own colour and get the generic tint treatment.
+fn snap(c: Color) -> Color {
+    let (r, g, b) = (c.red() as f32 / 255.0, c.green() as f32 / 255.0, c.blue() as f32 / 255.0);
+    let (mx, mn) = (r.max(g).max(b), r.min(g).min(b));
+    if mx - mn < 0.15 { return c; }
+    let d = mx - mn;
+    let h = if mx == r { 60.0 * (((g - b) / d).rem_euclid(6.0)) } else if mx == g { 60.0 * ((b - r) / d + 2.0) } else { 60.0 * ((r - g) / d + 4.0) };
+    let hex = match h as i32 {
+        0..=14 | 320..=360 => 0xf0577a,
+        15..=69 => 0xfbbf24,
+        70..=189 => 0x34d399,
+        190..=254 => 0x60a5fa,
+        _ => return c,
+    };
+    Color::from_argb_encoded(0xff000000 | hex)
 }
 
 fn anchor() -> NaiveDate {
@@ -108,7 +129,7 @@ fn cal_prefs() -> CalPrefs {
         hide_non_working: p.bool("calendarHideNonWorkingDays", false),
         working,
         time_in_month: p.bool("showTimeInMonthView", false),
-        tinted: p.bool("calendarTintedEvents", false),
+        tinted: p.bool("calendarTintedEvents", true),
         h12: p.str("timeFormat", "24h") == "12h",
         month_timed: month_timed(&p.str("calendarMonthTimedEvents", "bar")),
         free_scroll: p.bool("calendarFreeScroll", true),
@@ -255,21 +276,7 @@ pub fn load(w: slint::Weak<AppWindow>, c: Arc<Client>) {
         let _ = w.upgrade_in_event_loop(move |u| match res {
             Ok((cals, events)) => {
                 let (f, t) = (from.and_hms_opt(0, 0, 0).unwrap(), to.and_hms_opt(0, 0, 0).unwrap());
-                let mut occ = vec![];
-                for e in &events {
-                    if is_task(e) { continue; }
-                    for (s, en) in expand(e, f, t) {
-                        occ.push(Occ {
-                            id: e["id"].as_str().unwrap_or("").into(),
-                            title: e["title"].as_str().filter(|x| !x.is_empty()).unwrap_or("(no title)").into(),
-                            start: s, end: en,
-                            all_day: e["showWithoutTime"] == true,
-                            calendar: e["calendarIds"].as_object().and_then(|o| o.keys().next().cloned()).unwrap_or_default(),
-                            location: e["locations"].as_object().and_then(|o| o.values().next()).and_then(|l| l["name"].as_str()).unwrap_or("").into(),
-                        });
-                    }
-                }
-                occ.sort_by_key(|o| o.start);
+                let occ = occurrences(&events, f, t);
                 ST.with(|s| { let mut s = s.borrow_mut(); s.calendars = cals; s.events = occ; });
                 ST.with(|s| s.borrow_mut().events_raw_set(events));
                 render(&u);
@@ -281,6 +288,26 @@ pub fn load(w: slint::Weak<AppWindow>, c: Arc<Client>) {
 }
 
 thread_local! { static RAW: RefCell<Vec<Value>> = const { RefCell::new(Vec::new()) }; }
+
+/// Every (non-task) occurrence between f and t, sorted by start.
+fn occurrences(events: &[Value], f: NaiveDateTime, t: NaiveDateTime) -> Vec<Occ> {
+    let mut occ = vec![];
+    for e in events {
+        if is_task(e) { continue; }
+        for (s, en) in expand(e, f, t) {
+            occ.push(Occ {
+                id: e["id"].as_str().unwrap_or("").into(),
+                title: e["title"].as_str().filter(|x| !x.is_empty()).unwrap_or("(no title)").into(),
+                start: s, end: en,
+                all_day: e["showWithoutTime"] == true,
+                calendar: e["calendarIds"].as_object().and_then(|o| o.keys().next().cloned()).unwrap_or_default(),
+                location: e["locations"].as_object().and_then(|o| o.values().next()).and_then(|l| l["name"].as_str()).unwrap_or("").into(),
+            });
+        }
+    }
+    occ.sort_by_key(|o| o.start);
+    occ
+}
 
 trait RawSet { fn events_raw_set(&mut self, v: Vec<Value>); }
 impl RawSet for State { fn events_raw_set(&mut self, v: Vec<Value>) { RAW.with(|r| *r.borrow_mut() = v); } }
@@ -298,7 +325,9 @@ pub fn render(u: &AppWindow) {
     {
         let ws = week_start(today);
         let names: Vec<slint::SharedString> = (0..7).map(|i| (ws + Duration::days(i)).format("%a").to_string().into()).collect();
+        let short: Vec<slint::SharedString> = names.iter().map(|n| n.chars().next().map(|c| c.to_string()).unwrap_or_default().into()).collect();
         u.set_cal_weekdays(ModelRc::new(VecModel::from(names)));
+        u.set_cal_weekdays_short(ModelRc::new(VecModel::from(short)));
         u.set_cal_show_weeknums(cp.week_numbers);
         u.set_cal_hour_from(cp.hour_from);
         u.set_cal_hour_to(cp.hour_to);
@@ -308,6 +337,7 @@ pub fn render(u: &AppWindow) {
         let nums: Vec<slint::SharedString> = (0..6).map(|w| (mini_first + Duration::days(w * 7 + 3)).iso_week().week().to_string().into()).collect();
         u.set_cal_week_nums(ModelRc::new(VecModel::from(nums)));
     }
+    PENDING.with(|p| *p.borrow_mut() = pending_ids(&crate::my_addrs_cached()));
     ST.with(|s| {
         let s = s.borrow();
         let q = s.query.to_lowercase();
@@ -318,10 +348,15 @@ pub fn render(u: &AppWindow) {
         u.set_cal_view(s.view);
         u.set_cal_title(match s.view {
             0 => {
-                let t = a.format("%A, %B %-d, %Y").to_string();
+                let t = a.format("%A %-d %B").to_string();
                 if cp.week_numbers { format!("{t}  ·  Week {}", a.iso_week().week()) } else { t }
             }
-            1 => format!("{} – {}", from.format("%b %-d"), (to - Duration::days(1)).format("%b %-d, %Y")),
+            // design: "16 – 22 November", "30 November – 6 December"
+            1 => {
+                let last = to - Duration::days(1);
+                if from.month() == last.month() { format!("{} – {}", from.day(), last.format("%-d %B")) }
+                else { format!("{} – {}", from.format("%-d %B"), last.format("%-d %B")) }
+            }
             _ => a.format("%B %Y").to_string(),
         }.into());
         // calendars list
@@ -398,6 +433,8 @@ pub fn render(u: &AppWindow) {
             u.set_cal_events(ModelRc::new(VecModel::from(timed)));
         }
     });
+    summary(u);
+    detail(u);
 }
 
 fn ev(o: &Occ, cals: &[Value], col: i32, top: f32, h: f32, lanes: i32, h12: bool) -> CalEvent {
@@ -410,6 +447,9 @@ fn ev(o: &Occ, cals: &[Value], col: i32, top: f32, h: f32, lanes: i32, h12: bool
         col, top, height: h, lane: 0, lanes,
         date: o.start.format("%Y-%m-%d").to_string().into(),
         style: 0,
+        invite: PENDING.with(|p| p.borrow().contains(&o.id)),
+        past: o.end <= Local::now().naive_local(),
+        when: when_text(o, h12).into(),
     }
 }
 
@@ -604,6 +644,7 @@ pub fn render_tasks(u: &AppWindow) {
         due: t["due"].as_str().map(|d| d[..10.min(d.len())].to_string()).unwrap_or_default().into(),
         done: t["progress"] == "completed",
     }).collect();
+    u.set_cal_open_tasks(rows.iter().filter(|t| !t.done).count() as i32);
     u.set_cal_tasks(ModelRc::new(VecModel::from(rows)));
     crate::glance::calendar(u);
 }
@@ -720,18 +761,19 @@ pub fn delete_task(u: &AppWindow, c: Arc<Client>, id: &str) {
 /// The user's own participant in an event and its answer (Bulwark getUserParticipantId):
 /// matched by calendarAddress / email against the login and identities.
 pub fn my_participation(id: &str, mine: &[String]) -> Option<(String, String)> {
-    RAW.with(|r| {
-        let r = r.borrow();
-        let e = r.iter().find(|e| e["id"] == id)?;
-        let ps = e["participants"].as_object()?;
-        let is_me = |p: &Value| {
-            let addr = p["calendarAddress"].as_str().or(p["sendTo"]["imip"].as_str()).map(|a| a.trim_start_matches("mailto:").to_string()).or(p["email"].as_str().map(String::from));
-            addr.is_some_and(|a| mine.iter().any(|m| m.eq_ignore_ascii_case(&a)))
-        };
-        // organizers don't answer their own events
-        let (pid, p) = ps.iter().find(|(_, p)| is_me(p) && p["roles"]["owner"] != true)?;
-        Some((pid.clone(), p["participationStatus"].as_str().unwrap_or("needs-action").to_string()))
-    })
+    RAW.with(|r| r.borrow().iter().find(|e| e["id"] == id).and_then(|e| participation_in(e, mine)))
+}
+
+fn participant_addr(p: &Value) -> Option<String> {
+    p["calendarAddress"].as_str().or(p["sendTo"]["imip"].as_str()).map(|a| a.trim_start_matches("mailto:").to_string()).or(p["email"].as_str().map(String::from))
+}
+
+fn participation_in(e: &Value, mine: &[String]) -> Option<(String, String)> {
+    let ps = e["participants"].as_object()?;
+    let is_me = |p: &Value| participant_addr(p).is_some_and(|a| mine.iter().any(|m| m.eq_ignore_ascii_case(&a)));
+    // organizers don't answer their own events
+    let (pid, p) = ps.iter().find(|(_, p)| is_me(p) && p["roles"]["owner"] != true)?;
+    Some((pid.clone(), p["participationStatus"].as_str().unwrap_or("needs-action").to_string()))
 }
 
 /// Answer an invitation: patch the participant's participationStatus and let the server send the iTIP REPLY.
@@ -877,4 +919,187 @@ pub fn next_with(email: &str) -> Option<(String, String)> {
     let h12 = cal_prefs().h12;
     ST.with(|s| s.borrow().events.iter().filter(|o| o.end > now && with.contains(&o.id)).min_by_key(|o| o.start)
         .map(|o| (format!("{} {}", o.start.format("%a"), if o.all_day { "all day".to_string() } else { fmt_time(o.start, h12) }), o.title.clone())))
+}
+
+// ---------------- design: summary tiles, meaning tints, the event context panel ----------------
+
+thread_local! {
+    /// Events with an invitation the user has not answered (drawn amber with a border).
+    static PENDING: RefCell<HashSet<String>> = RefCell::new(HashSet::new());
+}
+
+fn pending_ids(mine: &[String]) -> HashSet<String> {
+    if mine.is_empty() { return HashSet::new(); }
+    RAW.with(|r| r.borrow().iter()
+        .filter(|e| participation_in(e, mine).is_some_and(|(_, st)| st == "needs-action"))
+        .filter_map(|e| e["id"].as_str().map(String::from)).collect())
+}
+
+fn dur_text(mins: i64) -> String {
+    match (mins / 60, mins % 60) { (0, m) => format!("{m} m"), (h, 0) => format!("{h} h"), (h, m) => format!("{h} h {m} m") }
+}
+
+fn plural(n: usize, one: &str, many: &str) -> String { if n == 1 { format!("1 {one}") } else { format!("{n} {many}") } }
+
+fn when_text(o: &Occ, h12: bool) -> String {
+    let day = o.start.format("%a %-d %b").to_string();
+    if o.all_day { format!("{day} · all day") } else { format!("{day} · {} – {}", fmt_time(o.start, h12), fmt_time(o.end, h12)) }
+}
+
+/// The three Bento summary tiles (and the Nordic sidebar line), from the loaded range only:
+/// the next event to come, what this day / week / month holds, and unanswered invitations.
+fn summary(u: &AppWindow) {
+    let now = Local::now().naive_local();
+    let (from, to) = range();
+    let h12 = cal_prefs().h12;
+    let view = ST.with(|s| s.borrow().view);
+    ST.with(|s| {
+        let s = s.borrow();
+        // from the raw events, not the loaded range: right straight after a view / range change
+        // (before the fetch is back), and "next up" is the next event overall, not only in this view
+        let (f, t) = (from.and_hms_opt(0, 0, 0).unwrap(), to.and_hms_opt(0, 0, 0).unwrap());
+        let (in_range, ahead) = RAW.with(|r| {
+            let r = r.borrow();
+            (occurrences(&r, f, t), occurrences(&r, now - Duration::days(1), now + Duration::days(366)))
+        });
+        let visible: Vec<&Occ> = in_range.iter().filter(|o| !s.hidden.contains(&o.calendar)).collect();
+        // next up
+        let next = ahead.iter().filter(|o| !s.hidden.contains(&o.calendar) && !o.all_day && o.start >= now).min_by_key(|o| o.start);
+        u.set_cal_sum_next(match next {
+            Some(o) => {
+                let m = (o.start - now).num_minutes();
+                let when = if m < 60 { format!("in {} min", m.max(1)) } else if o.start.date() == now.date() { format!("in {}", dur_text(m - m % 60)) } else { o.start.format("%a %-d %b").to_string() };
+                CalSum { label: format!("Next up · {when}").into(), value: o.title.as_str().into(),
+                    sub: if o.location.is_empty() { fmt_time(o.start, h12) } else { format!("{} · {}", fmt_time(o.start, h12), o.location) }.into(), id: o.id.as_str().into() }
+            }
+            None => CalSum { label: "Next up".into(), value: "Nothing coming".into(), sub: "No upcoming events".into(), id: "".into() },
+        });
+        // what the range holds
+        let inr: Vec<&&Occ> = visible.iter().filter(|o| o.start < t && o.end > f).collect();
+        let mins: i64 = inr.iter().filter(|o| !o.all_day).map(|o| (o.end.min(t) - o.start.max(f)).num_minutes().max(0)).sum();
+        let label = match view { 0 => "This day", 1 => "This week", _ => "This month" };
+        u.set_cal_sum_range(CalSum { label: label.into(), value: plural(inr.len(), "event", "events").into(),
+            sub: if mins > 0 { format!("{} scheduled", dur_text(mins)) } else { "Nothing timed".to_string() }.into(), id: "".into() });
+        let wk = if view == 1 { format!("Week {} · ", from.iso_week().week()) } else { String::new() };
+        u.set_cal_side_line(format!("{wk}{}{}", plural(inr.len(), "event", "events"), if mins > 0 { format!(" · {} scheduled", dur_text(mins)) } else { String::new() }).into());
+        // invitations still to answer (upcoming ones)
+        let pend = PENDING.with(|p| p.borrow().clone());
+        let mut inv: Vec<&Occ> = ahead.iter().filter(|o| !s.hidden.contains(&o.calendar) && o.end > now && pend.contains(&o.id)).collect();
+        inv.sort_by_key(|o| o.start);
+        let mut seen = HashSet::new();
+        inv.retain(|o| seen.insert(o.id.clone()));
+        u.set_cal_sum_inv(match inv.first() {
+            Some(o) => CalSum { label: "Invitations".into(), value: format!("{} to answer", inv.len()).into(),
+                sub: format!("{} · {}", o.title, o.start.format("%a")).into(), id: o.id.as_str().into() },
+            None => CalSum { label: "Invitations".into(), value: "None to answer".into(), sub: "You're all caught up".into(), id: "".into() },
+        });
+    });
+}
+
+/// Show an event in the context panel (empty id: back to the automatic choice).
+pub fn select(u: &AppWindow, id: &str) {
+    ST.with(|s| s.borrow_mut().selected = if id.is_empty() { None } else { Some(id.to_string()) });
+    // only the panel: the grid models stay, so a double click on the same event still opens it
+    detail(u);
+}
+
+fn guest_status(p: &Value) -> (&'static str, i32) {
+    if p["roles"]["owner"] == true { return ("Organizer", 0); }
+    match p["participationStatus"].as_str().unwrap_or("needs-action") {
+        "accepted" => ("Accepted", 1),
+        "declined" => ("Declined", 0),
+        "tentative" => ("Maybe", 0),
+        "delegated" => ("Delegated", 0),
+        _ => ("No reply", 2),
+    }
+}
+
+/// Fill the context panel: the selected event, or else the next one to come in the loaded range.
+fn detail(u: &AppWindow) {
+    let now = Local::now().naive_local();
+    let h12 = cal_prefs().h12;
+    let mine = crate::my_addrs_cached();
+    let pick: Option<Occ> = ST.with(|s| {
+        let s = s.borrow();
+        match &s.selected {
+            Some(id) => {
+                let all: Vec<&Occ> = s.events.iter().filter(|o| &o.id == id).collect();
+                all.iter().find(|o| o.end > now).or(all.last()).map(|o| (*o).clone()).or_else(|| {
+                    // chosen from a summary tile: may lie outside the loaded range
+                    RAW.with(|r| occurrences(&r.borrow(), now - Duration::days(1), now + Duration::days(366))).into_iter().find(|o| &o.id == id)
+                })
+            }
+            // nothing chosen: the next event to come, else the last one that has ended
+            None => {
+                let vis = || s.events.iter().filter(|o| !s.hidden.contains(&o.calendar));
+                vis().filter(|o| o.end > now).min_by_key(|o| o.start).or_else(|| vis().max_by_key(|o| o.end)).cloned()
+            }
+        }
+    });
+    let Some(o) = pick else {
+        u.set_cal_has_sel(false);
+        u.set_cal_guests(ModelRc::new(VecModel::from(Vec::<CalGuest>::new())));
+        return;
+    };
+    let raw = RAW.with(|r| r.borrow().iter().find(|e| e["id"] == o.id.as_str()).cloned()).unwrap_or(Value::Null);
+    let (cal_name, color) = ST.with(|s| {
+        let s = s.borrow();
+        let n = s.calendars.iter().find(|c| c["id"] == o.calendar.as_str()).and_then(|c| c["name"].as_str()).unwrap_or("Calendar").to_string();
+        // "Stalwart Calendar (mail@example.com)": the account part is noise in the panel header
+        let n = match n.rfind(" (") { Some(i) if n.ends_with(')') && i > 0 => n[..i].to_string(), _ => n };
+        (n, color_for(&s.calendars, &o.calendar))
+    });
+    let my = participation_in(&raw, &mine);
+    let mut guests: Vec<CalGuest> = vec![];
+    let mut organizer = String::new();
+    if let Some(ps) = raw["participants"].as_object() {
+        let mut list: Vec<&Value> = ps.values().collect();
+        list.sort_by_key(|p| (p["roles"]["owner"] != true, p["name"].as_str().unwrap_or("").to_lowercase()));
+        for p in list {
+            let addr = participant_addr(p).unwrap_or_default();
+            let me = !addr.is_empty() && mine.iter().any(|m| m.eq_ignore_ascii_case(&addr));
+            let name = p["name"].as_str().filter(|n| !n.trim().is_empty()).map(String::from).unwrap_or_else(|| addr.clone());
+            if p["roles"]["owner"] == true && organizer.is_empty() { organizer = if me { "you".into() } else { name.clone() }; }
+            let (status, tone) = guest_status(p);
+            let shown = if me { "You".to_string() } else { name.clone() };
+            let ini: String = shown.split(|c: char| c.is_whitespace() || c == '@' || c == '.').filter(|w| !w.is_empty()).take(2)
+                .filter_map(|w| w.chars().next()).flat_map(|c| c.to_uppercase()).collect();
+            guests.push(CalGuest { name: shown.into(), email: addr.as_str().into(), initials: ini.into(), status: status.into(), tone, me, color: crate::mail::tint(&addr) });
+        }
+    }
+    let repeat = match raw["recurrenceRules"][0]["frequency"].as_str() {
+        Some("daily") => "Repeats every day", Some("weekly") => "Repeats every week", Some("monthly") => "Repeats every month",
+        Some("yearly") => "Repeats every year", Some(_) => "Repeats", None => "Does not repeat",
+    };
+    // other visible events at the same time (an overlap check on what is loaded, not a free/busy lookup)
+    let clash: Vec<String> = ST.with(|s| {
+        let s = s.borrow();
+        s.events.iter().filter(|x| !s.hidden.contains(&x.calendar) && x.id != o.id && !x.all_day && !o.all_day && x.start < o.end && x.end > o.start)
+            .map(|x| x.title.clone()).collect()
+    });
+    let conflict = match clash.len() {
+        0 if o.all_day => String::new(),
+        0 => "No other events at this time.".to_string(),
+        1 => format!("Overlaps with {}.", clash[0]),
+        n => format!("Overlaps with {} and {} more.", clash[0], n - 1),
+    };
+    let desc = raw["description"].as_str().unwrap_or("").trim().lines().map(str::trim).filter(|l| !l.is_empty()).take(3).collect::<Vec<_>>().join(" ");
+    u.set_cal_sel(CalDetail {
+        id: o.id.as_str().into(), title: o.title.as_str().into(), when: when_text(&o, h12).into(),
+        date: o.start.format("%A %-d %B").to_string().into(),
+        time: if o.all_day { "All day".to_string() } else { format!("{} – {}", fmt_time(o.start, h12), fmt_time(o.end, h12)) }.into(),
+        location: o.location.as_str().into(), calendar: cal_name.into(), color, repeat: repeat.into(),
+        status: my.map(|(_, st)| st).unwrap_or_default().into(), organizer: organizer.into(), conflict: conflict.into(),
+        description: desc.into(), past: o.end <= now,
+    });
+    u.set_cal_guests(ModelRc::new(VecModel::from(guests)));
+    u.set_cal_has_sel(true);
+}
+
+/// Answer the invitation shown in the context panel.
+pub fn rsvp_selected(u: &AppWindow, c: Arc<Client>, status: &str, mine: &[String]) {
+    let id = u.get_cal_sel().id.to_string();
+    let Some((pid, _)) = my_participation(&id, mine) else { return };
+    rsvp(u, c, &id, &pid, status);
+    render(u);
 }

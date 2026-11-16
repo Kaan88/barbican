@@ -2130,7 +2130,7 @@
      "label": "Light event colors",
      "desc": "Show events as a light tint of their calendar color with a colored bar at the start, as in Outlook and on printouts, instead of solid blocks.",
      "key": "calendarTintedEvents",
-     "default": false
+     "default": true
     },
     {
      "kind": "select",
