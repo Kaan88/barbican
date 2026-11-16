@@ -14,6 +14,7 @@ mod oauth;
 mod plugins;
 mod server_settings;
 mod settings;
+mod templates;
 mod spam;
 
 use chrono::{DateTime, Local};
@@ -192,6 +193,7 @@ pub fn html_to_text(h: &str) -> String {
 }
 
 thread_local! { static SERVER_DEBOUNCE: slint::Timer = slint::Timer::default(); }
+thread_local! { static TEMPLATES: std::cell::RefCell<Vec<Value>> = const { std::cell::RefCell::new(Vec::new()) }; }
 thread_local! { static THREAD_ID: std::cell::RefCell<Option<String>> = const { std::cell::RefCell::new(None) }; }
 
 /// Load the open message's conversation (unless threading is turned off, like Bulwark's disableThreading).
@@ -1201,6 +1203,34 @@ fn main() -> Result<(), slint::PlatformError> {
         u.set_sf_active(false);
         u.set_sf_open(false);
         u.invoke_select_folder(u.get_current_folder());
+    });
+
+    // templates in the composer
+    let (w, st) = (ui.as_weak(), state.clone());
+    ui.on_tpl_refresh(move || {
+        let Some(c) = st.lock().unwrap().clone() else { return };
+        let w = w.clone();
+        std::thread::spawn(move || {
+            let list = templates::list(&c).unwrap_or_default();
+            let _ = w.upgrade_in_event_loop(move |u| {
+                TEMPLATES.with(|t| *t.borrow_mut() = list.clone());
+                let mut names: Vec<slint::SharedString> = vec!["Insert template…".into()];
+                names.extend(list.iter().map(|t| t["name"].as_str().unwrap_or("(unnamed)").into()));
+                u.set_tpl_names(ModelRc::new(VecModel::from(names)));
+                u.set_tpl_index(0);
+            });
+        });
+    });
+    let w = ui.as_weak();
+    ui.on_tpl_insert(move |i| {
+        let u = w.unwrap();
+        if i <= 0 { return; }
+        let Some(t) = TEMPLATES.with(|x| x.borrow().get(i as usize - 1).cloned()) else { return };
+        if u.get_c_subject().trim().is_empty() { u.set_c_subject(t["subject"].as_str().unwrap_or("").into()); }
+        let body = t["body"].as_str().unwrap_or("");
+        let body = if t["isHTML"] == true { html_to_text(body) } else { body.to_string() };
+        u.set_c_body(format!("{body}{}", u.get_c_body()).into());
+        u.set_tpl_index(0);
     });
 
     // ---------------- mail actions ----------------

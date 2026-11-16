@@ -165,6 +165,7 @@ pub fn open(u: &AppWindow, c: Arc<Client>, kind: Kind, m: Option<&Value>) {
         }
     }
     refresh_attachments(u);
+    u.invoke_tpl_refresh();
     u.set_composing(true);
 }
 

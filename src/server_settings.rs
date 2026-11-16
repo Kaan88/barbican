@@ -19,6 +19,10 @@ pub struct Cache {
     pub confirm_delete: String,
     pub error: String,
     pub archived: Vec<Value>,
+    pub templates: Vec<Value>,
+    pub tpl_name: String,
+    pub tpl_subject: String,
+    pub tpl_body: String,
 }
 
 const ARCHIVE_USING: [&str; 2] = ["urn:ietf:params:jmap:core", "urn:stalwart:jmap"];
@@ -71,7 +75,14 @@ pub fn load(tab: &str, c: &Client, cache: &Shared) {
                 items.sort_by(|a, b| b["archivedAt"].as_str().unwrap_or("").cmp(a["archivedAt"].as_str().unwrap_or("")));
                 cache.lock().unwrap().archived = items;
             }
-            "account" | "composing" => { cache.lock().unwrap().identities = c.identities()?; }
+            "account" => { cache.lock().unwrap().identities = c.identities()?; }
+            "composing" => {
+                let ids = c.identities()?;
+                let tpls = crate::templates::list(c).unwrap_or_default();
+                let mut k = cache.lock().unwrap();
+                k.identities = ids;
+                k.templates = tpls;
+            }
             _ => {}
         }
         Ok(())
@@ -143,6 +154,18 @@ pub fn rows(tab: &str, cache: &Shared) -> Option<Vec<SRow>> {
                     out.push(row("textarea", &format!("server.identity.textSignature:{id}"), &format!("Signature for {email}"), "Added to new messages, replies and forwards per the options above.", i["textSignature"].as_str().unwrap_or(""), false));
                 }
             }
+            if tab == "composing" {
+                out.push(row("section", "", "Email templates", "Reusable messages, shared with Bulwark (kept in your Inbox's metadata). Insert them from the composer.", "", false));
+                for t in &k.templates {
+                    let id = t["id"].as_str().unwrap_or("");
+                    out.push(row("button", &format!("server.tpl.delete:{id}"), t["name"].as_str().unwrap_or("(unnamed)"),
+                        t["subject"].as_str().unwrap_or(""), if k.confirm_delete == id { "Click again to delete" } else { "Delete" }, false));
+                }
+                out.push(row("text", "server.tpl.name", "New template name", "", &k.tpl_name, false));
+                out.push(row("text", "server.tpl.subject", "Subject", "", &k.tpl_subject, false));
+                out.push(row("textarea", "server.tpl.body", "Text", "", &k.tpl_body, false));
+                out.push(row("button", "server.tpl.create", "", "", "Save template", false));
+            }
             return Some(out);
         }
         _ => return None,
@@ -166,6 +189,12 @@ pub fn edit(key: &str, value: &Value, cache: &Shared) -> Option<Box<dyn FnOnce(&
             let (_, bad) = c.update("VacationResponse/set", &acc, vec![("singleton".into(), json!({ f: v }))])?;
             if bad.is_empty() { Ok(()) } else { Err(bad.join("; ")) }
         }));
+    }
+    match key {
+        "server.tpl.name" => { k.tpl_name = value.as_str().unwrap_or("").into(); return None; }
+        "server.tpl.subject" => { k.tpl_subject = value.as_str().unwrap_or("").into(); return None; }
+        "server.tpl.body" => { k.tpl_body = value.as_str().unwrap_or("").into(); return None; }
+        _ => {}
     }
     if key == "server.sieve.text" { k.script_text = value.as_str().unwrap_or("").to_string(); return None; }
     if key == "server.folder.newname" { k.new_folder = value.as_str().unwrap_or("").to_string(); return None; }
@@ -206,6 +235,23 @@ pub fn button(key: &str, cache: &Shared) -> Option<Box<dyn FnOnce(&Client, &Shar
         if k.confirm_delete != id { k.confirm_delete = id; return Some(Box::new(|_, _| Ok(()))); }
         k.confirm_delete.clear();
         return Some(Box::new(move |c: &Client, _| c.delete_mailbox(&id)));
+    }
+    if key == "server.tpl.create" {
+        let (n, s, b) = { let k = cache.lock().unwrap(); (k.tpl_name.trim().to_string(), k.tpl_subject.clone(), k.tpl_body.clone()) };
+        if n.is_empty() { return None; }
+        return Some(Box::new(move |c: &Client, k: &Shared| {
+            crate::templates::create(c, &n, &s, &b)?;
+            let mut g = k.lock().unwrap();
+            g.tpl_name.clear(); g.tpl_subject.clear(); g.tpl_body.clear();
+            Ok(())
+        }));
+    }
+    if let Some(id) = key.strip_prefix("server.tpl.delete:") {
+        let id = id.to_string();
+        let mut k = cache.lock().unwrap();
+        if k.confirm_delete != id { k.confirm_delete = id; return Some(Box::new(|_, _| Ok(()))); }
+        k.confirm_delete.clear();
+        return Some(Box::new(move |c: &Client, _| crate::templates::delete(c, &id)));
     }
     if let Some(id) = key.strip_prefix("server.restore:") {
         let id = id.to_string();

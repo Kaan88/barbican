@@ -551,6 +551,10 @@ export component AppWindow inherits Window {
     callback open-attachment(int);
     callback save-attachment(int);
     callback undo-toast();
+    in property <[string]> tpl-names: ["Insert template…"];
+    in-out property <int> tpl-index;
+    callback tpl-refresh();
+    callback tpl-insert(int);
     in-out property <bool> sf-open;
     in-out property <string> sf-from;
     in-out property <string> sf-to;
@@ -1957,6 +1961,7 @@ export component AppWindow inherits Window {
                         }
                     }
                     ToolButton { glyph: "\u{E723}"; label: "Attach"; y: 2px; clicked => { root.attach-file(); } }
+                    if root.tpl-names.length > 1: ComboBox { width: 190px; model: root.tpl-names; current-index <=> root.tpl-index; selected => { root.tpl-insert(self.current-index); } }
                     Text { text: root.c-status; color: Theme.accent; vertical-alignment: center; horizontal-stretch: 1; overflow: elide; }
                     ToolButton { glyph: "\u{E74E}"; label: "Save draft"; y: 2px; clicked => { root.save-draft(false); } }
                     ToolButton { glyph: "\u{E74D}"; label: "Discard"; y: 2px; clicked => { root.discard-draft(); } }
@@ -2061,7 +2066,10 @@ export component AppWindow inherits Window {
                     Text { x: 18px; text: root.settings-title; color: Theme.text; font-weight: 600; vertical-alignment: center; height: parent.height; }
                     Rectangle { y: parent.height - 1px; height: 1px; background: Theme.line; }
                 }
-                ListView {
+                ScrollView {
+                  VerticalLayout {
+                    alignment: start;
+                    padding-bottom: 40px;
                     for r in root.settings-rows: HorizontalLayout {
                         alignment: center;
                         VerticalLayout {
@@ -2085,6 +2093,7 @@ export component AppWindow inherits Window {
                                     alignment: center;
                                     spacing: 3px;
                                     horizontal-stretch: 1;
+                                    width: min(560px, root.width - 300px) - (r.kind == "toggle" ? 52px : r.kind == "value" ? 256px : 236px);
                                     Text { text: r.label; color: Theme.text; font-weight: 600; wrap: word-wrap; }
                                     if r.desc != "": Text { text: r.desc; color: Theme.dim; font-size: 11px; wrap: word-wrap; }
                                 }
@@ -2117,6 +2126,7 @@ export component AppWindow inherits Window {
                             if r.kind != "section": Rectangle { height: 1px; background: Theme.line; }
                         }
                     }
+                  }
                 }
             }
         }
