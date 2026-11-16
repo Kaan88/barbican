@@ -419,8 +419,8 @@ pub fn wire(ui: &AppWindow) {
 pub fn describe(u: &AppWindow) -> String {
     let g = u.global::<Rcpt>();
     let f = |m: ModelRc<RChip>| m.iter().map(|c| format!("{}{}", if c.kind == 2 { "!" } else if c.kind == 1 { "#" } else { "" }, c.full)).collect::<Vec<_>>().join(" | ");
-    format!("to=[{}] cc=[{}] bcc=[{}] input={:?} sugg={} hl={}", f(g.get_to()), f(g.get_cc()), f(g.get_bcc()), g.get_to_input().as_str(),
-        g.get_suggestions().iter().map(|s| s.name.to_string()).collect::<Vec<_>>().join(","), g.get_highlight())
+    format!("to=[{}] cc=[{}] bcc=[{}] input={:?} sugg={} hl={} {}", f(g.get_to()), f(g.get_cc()), f(g.get_bcc()), g.get_to_input().as_str(),
+        g.get_suggestions().iter().map(|s| s.name.to_string()).collect::<Vec<_>>().join(","), g.get_highlight(), crate::autosave::describe(u))
 }
 
 #[cfg(test)]

@@ -171,3 +171,9 @@ mod tests {
         assert!(!in_flight());
     }
 }
+
+/// Test hook (automation `chips` probe): the autosave state.
+pub fn describe(u: &AppWindow) -> String {
+    let k = crate::compose::content_key(u);
+    ST.with(|s| { let s = s.borrow(); format!("autosave key={k:x} base={:x?} saved={:x?} flight={}", s.baseline, s.saved, s.in_flight) })
+}

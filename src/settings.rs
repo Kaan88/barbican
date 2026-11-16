@@ -341,6 +341,13 @@ impl Settings {
                     out.push(row("section", "", "Sending", ""));
                     out.push(toggle("sendConfirmation", "Confirm before sending", "Press Send twice to send, so a message doesn't go out by accident.", self.bool("sendConfirmation", false)));
                     out.push(toggle("requestReadReceiptDefault", "Ask for a read receipt", "New messages ask the recipient to confirm they read them.", self.bool("requestReadReceiptDefault", false)));
+                    // Bulwark protocol-handler-settings / desktop "Default mail app"
+                    out.push(row("section", "", "Default mail app", "mailto: links in messages always open here. Make Barbican the app for mailto: links in other programs too."));
+                    if crate::mailto::is_default() {
+                        out.push(text("value", "", "mailto: links", "", "Open in Barbican"));
+                    } else {
+                        out.push(text("button", "mailapp.register", "Use Barbican for mailto: links", if cfg!(windows) { "Registers Barbican for your Windows account, then opens Default apps so you can choose it." } else { "Adds barbican.desktop and sets it as the mailto: handler." }, "Set as default"));
+                    }
                 }
                 if tab == "calendar" {
                     out.insert(1.min(out.len()), sel_pref("calendarDayStartHour", "Day starts at", "Where the day and week views open."));

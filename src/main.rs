@@ -27,6 +27,8 @@ mod spam;
 // composer extras (p2-composer)
 mod autosave;
 mod chips;
+mod instance;
+mod mailto;
 mod ctheme;
 mod recipients;
 mod schedule;
@@ -196,7 +198,15 @@ fn sync_webview(ui: &AppWindow) {
                 .with_visible(vis)
                 .with_devtools(false)
                 .with_navigation_handler(|url| {
+                    // mailto: links open Barbican's composer, not the OS mail handler
+                    if mailto::parse(&url).is_some() { mailto::request(url); return false; }
                     if url.starts_with("http") { oauth::open_browser(&url); false } else { true }
+                })
+                // links open in a new window (<base target=_blank>): route them the same way
+                .with_new_window_req_handler(|url, _| {
+                    if mailto::parse(&url).is_some() { mailto::request(url); }
+                    else if url.starts_with("http://") || url.starts_with("https://") { oauth::open_browser(&url); }
+                    wry::NewWindowResponse::Deny
                 })
                 .build_as_child(&ui.window().window_handle())
             {
@@ -592,6 +602,9 @@ fn main() -> Result<(), slint::PlatformError> {
     // Skia: the same text/graphics engine Chrome uses, so text matches Bulwark in the browser
     // (and gets system font fallback for CJK and other scripts).
     let _ = slint::BackendSelector::new().renderer_name("skia".into()).select();
+    // a mailto: link from the OS while Barbican already runs: hand it over and quit
+    let link = instance::mailto_arg(&std::env::args().skip(1).collect::<Vec<_>>());
+    if link.as_deref().is_some_and(instance::forward) { return Ok(()); }
     let ui = AppWindow::new()?;
     apply_theme(&ui);
     apply_ui_prefs(&ui);
@@ -604,6 +617,21 @@ fn main() -> Result<(), slint::PlatformError> {
         PLUGIN_ERRORS.with(|e| *e.borrow_mut() = errors);
     }
     let state: Shared = Arc::new(Mutex::new(None));
+    {
+        // mailto: links (clicked in a message, or handed over by the OS) open the composer
+        let st = state.clone();
+        mailto::install(&ui, Box::new(move |u, m| {
+            if st.lock().unwrap().is_none() { return false; }
+            // keep what an open composer holds before it is replaced
+            if u.get_composing() && !autosave::unedited(u) { u.invoke_save_draft(false); }
+            u.invoke_compose_new();
+            if !u.get_composing() { return false; }
+            mailto::fill(u, m);
+            true
+        }));
+        instance::listen();
+        if let Some(l) = link { mailto::request(l); }
+    }
 
     if let Ok(s) = std::fs::read_to_string(config_path()) {
         let mut l = s.lines();
@@ -1048,6 +1076,11 @@ fn main() -> Result<(), slint::PlatformError> {
             return;
         }
         if key == "signout" { u.set_show_settings(false); u.invoke_sign_out(); }
+        if key == "mailapp.register" {
+            // user-triggered only: writes the HKCU registration (or the Linux .desktop file)
+            match mailto::register_default() { Ok(m) => mail::show_toast(&u, &m, false), Err(e) => mail::show_toast(&u, &e, false) }
+            u.invoke_settings_search(u.get_settings_query());
+        }
         if key == "a11y.reset" {
             pf2.lock().unwrap().set("a11y.reset", Value::Null, &mut cf2.lock().unwrap());
             apply_ui_prefs(&u);
@@ -1188,7 +1221,8 @@ fn main() -> Result<(), slint::PlatformError> {
 
     ui.on_lite_click(move |x, y| {
         if let Some(href) = lite::link_at(x, y) {
-            if href.starts_with("http://") || href.starts_with("https://") || href.starts_with("mailto:") { oauth::open_browser(&href); }
+            if mailto::parse(&href).is_some() { mailto::request(href); }
+            else if href.starts_with("http://") || href.starts_with("https://") { oauth::open_browser(&href); }
         }
     });
     let cancel = Arc::new(std::sync::atomic::AtomicBool::new(false));

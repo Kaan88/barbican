@@ -210,8 +210,9 @@ fn load_identities(u: &AppWindow, c: Arc<Client>, reply: ReplyFrom) {
         }).collect();
         let _ = w.upgrade_in_event_loop(move |u| {
             let ids = ids2;
+            // the From and signature the composer starts with are no edit of the user's
+            let unedited = crate::autosave::unedited(&u);
             ST.with(|s| { let mut s = s.borrow_mut(); s.identities = list.clone(); s.signatures = sigs.clone(); });
-            apply_signature(&u);
             let model: Vec<SharedString> = list.iter().map(|x| x.as_str().into()).collect();
             u.set_c_identities(ModelRc::new(VecModel::from(model)));
             // default to the identity of the signed-in address, as Bulwark does
@@ -221,6 +222,9 @@ fn load_identities(u: &AppWindow, c: Arc<Client>, reply: ReplyFrom) {
                 .or_else(|| ids.iter().position(|i| i["email"].as_str().is_some_and(|e| e.to_lowercase() == me)))
                 .unwrap_or(0);
             u.set_c_from_index(idx as i32);
+            // the signature of the identity just picked
+            apply_signature(&u);
+            if unedited { crate::autosave::rebase(&u); }
         });
     });
 }
