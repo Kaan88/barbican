@@ -2862,6 +2862,9 @@ export component AppWindow inherits Window {
             // ---- composer: replaces the reading pane (Bulwark layout) ----
             if root.composing: cmp := Rectangle {
                 background: Theme.reader;
+                // content is there on the first frame: a short fade from 60%, never gating input
+                opacity: 0.6;
+                animate opacity { duration: Motion.view; easing: Ease.enter; }
                 // narrow: the less used formatting moves into a "more" menu; tight: the bar shows icons only
                 property <bool> narrow: self.width < (Prefs.large-targets ? 1000px : 800px);
                 property <bool> tight: self.width < 600px;
@@ -2886,7 +2889,7 @@ export component AppWindow inherits Window {
                 }
                 property <int> freq: root.rte-focus-req;
                 changed freq => { self.focus-ed(); }
-                init => { if root.rte-focus-on-open { ime-ti.focus(); } }
+                init => { self.opacity = 1; if root.rte-focus-on-open { ime-ti.focus(); } }
                 rte-fs := FocusScope {
                     x: 0px; y: 0px; width: 1px; height: 1px;
                     // Alt+letter: the TextInput's `edited` for that key runs during the same
@@ -3243,7 +3246,7 @@ export component AppWindow inherits Window {
                                 background: Theme.text;
                             }
                             // floating selection toolbar
-                            if root.rte-state.has-sel && root.rte-sel-x >= 0 && !rte-ta.pressed && !root.rte-link-open && !root.c-plain: Rectangle {
+                            if root.rte-state.has-sel && root.rte-sel-x >= 0 && !rte-ta.pressed && !root.rte-link-open && !root.c-plain: PopIn {
                                 x: max(0px, min(parent.width - self.width, root.rte-sel-x - self.width / 2));
                                 y: root.rte-sel-y >= 44px ? root.rte-sel-y - 42px : root.rte-sel-y + root.rte-caret-h + 8px;
                                 width: selb.preferred-width; height: Prefs.large-targets ? 44px : 36px;
@@ -3277,7 +3280,7 @@ export component AppWindow inherits Window {
                                 }
                             }
                             // link bubble when the caret is in a link
-                            if root.rte-state.link != "" && !root.rte-state.has-sel && !root.rte-link-open && ime-ti.has-focus: Rectangle {
+                            if root.rte-state.link != "" && !root.rte-state.has-sel && !root.rte-link-open && ime-ti.has-focus: PopIn {
                                 x: max(0px, min(parent.width - 330px, root.rte-caret-x - 20px));
                                 y: root.rte-caret-y + root.rte-caret-h + 6px;
                                 width: 330px; height: Prefs.large-targets ? 44px : 36px;
@@ -3296,7 +3299,7 @@ export component AppWindow inherits Window {
                                 }
                             }
                             // link editor popover
-                            if root.rte-link-open: Rectangle {
+                            if root.rte-link-open: PopIn {
                                 x: max(0px, min(parent.width - 360px, root.rte-caret-x - 20px));
                                 y: root.rte-caret-y + root.rte-caret-h + 6px;
                                 width: 380px; height: lkv.preferred-height;
@@ -3338,6 +3341,9 @@ export component AppWindow inherits Window {
                         spacing: 8px;
                         alignment: start;
                         for a in root.c-attachments: Rectangle {
+                            opacity: 0;
+                            animate opacity { duration: Motion.fast; easing: Ease.enter; }
+                            init => { self.opacity = 1; }
                             height: 34px;
                             width: cal.preferred-width;
                             border-radius: Theme.nordic ? self.height / 2 : 13px;
@@ -3461,6 +3467,9 @@ export component AppWindow inherits Window {
             // hidden it is 0px wide: its wrapped text must not set the window's minimum height
             min-height: 0px;
             visible: root.chat-shown;
+            // content fades in (layout snaps; closing is instant): no per-frame relayout of the reader
+            opacity: root.chat-shown ? 1 : 0;
+            animate opacity { duration: root.chat-shown ? Motion.enter : 0ms; easing: Ease.enter; }
             VerticalLayout {
                 spacing: Theme.gap;
                 // header: a rose tile (Bento, BNCompose assistant) / a plain heading (Nordic)

@@ -112,13 +112,26 @@ fn file_badge(name: &str) -> String {
     }
 }
 
+/// Update the tag toggles in place (one flipped row, not a new model).
+fn set_tag_on(u: &AppWindow, v: Vec<bool>) {
+    use slint::Model;
+    let cur = u.get_c_tag_on();
+    match cur.as_any().downcast_ref::<VecModel<bool>>() {
+        Some(vm) if vm.row_count() == v.len() => {
+            for (i, x) in v.into_iter().enumerate() { if vm.row_data(i) != Some(x) { vm.set_row_data(i, x); } }
+        }
+        _ => u.set_c_tag_on(ModelRc::new(VecModel::from(v))),
+    }
+}
+
 fn refresh_attachments(u: &AppWindow) {
     ST.with(|s| {
         let rows: Vec<CmpAtt> = s.borrow().attachments.iter().enumerate().map(|(i, a)| CmpAtt {
             name: a.name.as_str().into(), size: crate::human_size(a.size as u64).into(), index: i as i32,
             ext: file_badge(&a.name).into(),
         }).collect();
-        u.set_c_attachments(ModelRc::new(VecModel::from(rows)));
+        crate::listsync::sync_into(&u.get_c_attachments(), rows,
+            |r| format!("{}\u{1}{}", r.name, r.size), |a, b| a == b, |m| u.set_c_attachments(m));
     });
 }
 
@@ -222,7 +235,8 @@ fn load_identities(u: &AppWindow, c: Arc<Client>, reply: ReplyFrom) {
             ST.with(|s| { let mut s = s.borrow_mut(); s.identities = list.clone(); s.signatures = sigs.clone(); });
             apply_signature(&u);
             let model: Vec<SharedString> = list.iter().map(|x| x.as_str().into()).collect();
-            u.set_c_identities(ModelRc::new(VecModel::from(model)));
+            crate::listsync::sync_into(&u.get_c_identities(), model,
+                |r| r.to_string(), |a, b| a == b, |m| u.set_c_identities(m));
             // default to the identity of the signed-in address, as Bulwark does
             let me = c.username.to_lowercase();
             let p = crate::settings::Settings::load();
@@ -277,7 +291,7 @@ fn reset(u: &AppWindow) {
     u.set_c_read_receipt(false);
     // Bulwark plainTextMode: every message starts (and stays) plain text
     u.set_c_plain(crate::settings::Settings::load().bool("plainTextMode", false));
-    u.set_c_tag_on(ModelRc::new(VecModel::from(vec![false; crate::mail::TAGS.len()])));
+    set_tag_on(u, vec![false; crate::mail::TAGS.len()]);
     u.set_c_subject("".into());
     rte::set_doc(u, Doc::default());
     u.set_c_status("".into());
@@ -470,7 +484,7 @@ pub fn toggle_tag(u: &AppWindow, i: i32) {
     let on = u.get_c_tag_on();
     let mut v: Vec<bool> = (0..crate::mail::TAGS.len()).map(|k| on.row_data(k).unwrap_or(false)).collect();
     if let Some(x) = v.get_mut(i as usize) { *x = !*x; }
-    u.set_c_tag_on(ModelRc::new(VecModel::from(v)));
+    set_tag_on(u, v);
 }
 
 pub fn attach(u: &AppWindow, c: Arc<Client>) {
@@ -711,7 +725,7 @@ pub fn undo_send(u: &AppWindow, c: Arc<Client>) {
                 ST.with(|s| { *s.borrow_mut() = snap; s.borrow_mut().draft_id = restored; });
                 u.set_c_plain(plain);
                 u.set_c_read_receipt(o.read_receipt);
-                u.set_c_tag_on(ModelRc::new(VecModel::from(tags)));
+                set_tag_on(&u, tags);
                 u.set_c_to(o.to.into()); u.set_c_cc(o.cc.clone().into()); u.set_c_bcc(o.bcc.clone().into());
                 u.set_c_show_ccbcc(!o.cc.is_empty() || !o.bcc.is_empty());
                 u.set_c_show_cc(!o.cc.is_empty());
