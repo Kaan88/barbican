@@ -228,15 +228,46 @@ pub fn answer(c: &crate::jmap::Client, ev: &Value, mine: &[String], status: &str
             let cals = c.call(json!([["Calendar/get", {"accountId": acc, "ids": null, "properties": ["id", "isDefault", "myRights"]}, "c"]]))?;
             let list = cals[0][1]["list"].as_array().cloned().unwrap_or_default();
             let cal = list.iter().find(|x| x["isDefault"] == true).or(list.first()).and_then(|x| x["id"].as_str()).ok_or("No calendar to add the event to.")?.to_string();
-            let r = c.call(json!([["CalendarEvent/set", {"accountId": acc, "create": {"e": importable(ev, &cal)}}, "s"]]))?;
-            let id = r[0][1]["created"]["e"]["id"].as_str().map(String::from).ok_or_else(|| crate::jmap::set_error(&r[0][1]["notCreated"]["e"]))?;
-            (id, pid)
+            // one call: the copy is created with the answer already in it and the server sends the
+            // reply, so a failure leaves nothing behind in the calendar
+            let mut e = importable(ev, &cal);
+            if let Some(p) = e["participants"].get_mut(&pid) { p["participationStatus"] = json!(status); }
+            let r = c.call(json!([["CalendarEvent/set", {"accountId": acc, "create": {"e": e}, "sendSchedulingMessages": true}, "s"]]))?;
+            if r[0][0] == "error" { return Err(crate::jmap::method_error(&r[0][1])); }
+            return r[0][1]["created"]["e"]["id"].as_str().map(String::from).ok_or_else(|| crate::jmap::set_error(&r[0][1]["notCreated"]["e"]));
         }
     };
     let r = c.call(json!([["CalendarEvent/set", {"accountId": acc, "update": { eid.clone(): rsvp_patch(&pid, status) }, "sendSchedulingMessages": true}, "s"]]))?;
-    if let Some(e) = r[0][1]["notUpdated"].get(&eid) { return Err(crate::jmap::set_error(e)); }
     if r[0][0] == "error" { return Err(crate::jmap::method_error(&r[0][1])); }
+    if let Some(e) = r[0][1]["notUpdated"].get(&eid) { return Err(crate::jmap::set_error(e)); }
     Ok(eid)
+}
+
+/// How far the message can be trusted to come from who the calendar data names (Bulwark
+/// getInvitationTrustAssessment): `Some((warning, text))` for a caution (false) or a warning
+/// (true), None when trusted. `from` is the message's From address, `auth` its topmost
+/// Authentication-Results, `mine` the account's own addresses (mail between them is internal).
+pub fn trust(ev: &Value, method: &Method, from: Option<&str>, auth: &[crate::auth::AuthResult], has_auth: bool, mine: &[String]) -> Option<(bool, String)> {
+    let sender = from.map(norm_addr).filter(|s| !s.is_empty());
+    let from_attendee = matches!(method, Method::Reply | Method::Counter | Method::Refresh);
+    let expected = if from_attendee {
+        ev["participants"].as_object().and_then(|o| o.values().find(|p| p["roles"]["owner"] != true && p["participationStatus"].as_str().is_some_and(|s| s != "needs-action")).and_then(participant_email))
+    } else { organizer(ev).map(|o| o.1).filter(|e| !e.is_empty()) }.map(|e| norm_addr(&e));
+    let verified = sender.as_deref().is_some_and(|s| crate::auth::aligned_pass(auth, s));
+    let failed = crate::auth::failure(auth, verified);
+    let mismatch = matches!((&sender, &expected), (Some(s), Some(e)) if s != e);
+    let sd = sender.as_deref().and_then(crate::auth::domain_of);
+    let internal = !has_auth && sd.as_ref().is_some_and(|d| mine.iter().any(|m| crate::auth::domain_of(m).as_ref() == Some(d)));
+    let (s, e) = (sender.clone().unwrap_or_default(), expected.clone().unwrap_or_default());
+    let mismatch_text = if from_attendee { format!("This response was sent from {s}, while the attendee answering in the calendar data is {e}") }
+        else { format!("This invitation was sent from {s}, while the organizer listed in the calendar data is {e}") };
+    if mismatch && (failed || !verified) { return Some((true, format!("{mismatch_text}, and the message could not be verified."))); }
+    if failed { return Some((true, "Mail authentication checks for this invitation failed. Treat calendar actions with caution.".into())); }
+    if mismatch { return Some((false, format!("{mismatch_text}."))); }
+    if *method != Method::Unknown && !internal && !verified {
+        return Some((false, "This invitation does not include verified mail authentication. Confirm the details with the organizer if anything looks unusual.".into()));
+    }
+    None
 }
 
 #[cfg(test)]
@@ -302,6 +333,23 @@ mod tests {
         assert_eq!(when(&two, "X"), "Tue 17 Nov 2026 – Wed 18 Nov 2026");
         assert_eq!(location(&ev()), "Room 4");
         assert_eq!(status_label("tentative"), "Tentative");
+    }
+
+    #[test]
+    fn trust_assessment() {
+        use crate::auth::parse;
+        let e = ev();
+        let good = parse("mx; dkim=pass header.d=acme.com; dmarc=pass");
+        assert_eq!(trust(&e, &Method::Request, Some("olga@acme.com"), &good, true, &[]), None);
+        let (warn, t) = trust(&e, &Method::Request, Some("olga@evil.net"), &parse("mx; spf=pass smtp.mailfrom=x@evil.net"), true, &[]).unwrap();
+        assert!(!warn, "an aligned pass for a different sender is a caution: {t}");
+        assert!(t.contains("olga@evil.net") && t.contains("olga@acme.com"));
+        let (warn, t) = trust(&e, &Method::Request, Some("olga@evil.net"), &parse("mx; spf=none"), true, &[]).unwrap();
+        assert!(warn && t.ends_with("could not be verified."), "spoofed organizer");
+        assert!(trust(&e, &Method::Request, Some("olga@acme.com"), &parse("mx; dmarc=fail"), true, &[]).unwrap().0);
+        let (warn, _) = trust(&e, &Method::Request, Some("olga@acme.com"), &[], false, &[]).unwrap();
+        assert!(!warn, "no authentication at all is a caution");
+        assert_eq!(trust(&e, &Method::Request, Some("olga@acme.com"), &[], false, &["me@acme.com".into()]), None, "internal mail");
     }
 
     #[test]

@@ -1,6 +1,7 @@
 #![cfg_attr(not(test), windows_subsystem = "windows")]
 
 mod a11y;
+mod auth;
 mod admin;
 mod dashboard;
 mod automation;
@@ -57,8 +58,8 @@ fn csp_with(images: bool, script: Option<&str>) -> String {
         None => "'none'".into(),
     };
     format!(
-        "<meta http-equiv=\"Content-Security-Policy\" content=\"default-src 'none'; style-src 'unsafe-inline' *; font-src * data:; img-src {}; script-src {scripts}; object-src 'none'; frame-src 'none'; form-action 'none'\">",
-        if images { "* data:" } else { "data:" }
+        "<meta http-equiv=\"Content-Security-Policy\" content=\"default-src 'none'; style-src 'unsafe-inline' http: https:; font-src http: https: data:; img-src {}; script-src {scripts}; object-src 'none'; frame-src 'none'; form-action 'none'\">",
+        if images { "http: https: data:" } else { "data:" }
     )
 }
 
@@ -125,12 +126,9 @@ fn wv_bg() -> (u8, u8, u8, u8) {
 fn show_html(h: String) {
     WV.with(|w| match &*w.borrow() {
         // WebView2's NavigateToString takes at most 2 MB: a bigger page (a long message, its
-        // source) is loaded from a file of this process in the temp folder instead
-        Some(v) if h.len() > reader::INLINE_HTML_MAX => match reader::page_file(&h) {
-            Ok(url) => { let _ = v.load_url(&url); }
-            Err(_) => { let _ = v.load_html(&wrap_html(&esc("This message is too large to show here. Save it as .eml to read it."))); }
-        },
-        Some(v) => { let _ = v.load_html(&h); }
+        // source) is served from memory through the app's own scheme (never a file: origin)
+        Some(v) if h.len() > reader::INLINE_HTML_MAX => { let url = reader::page_url(&h); let _ = v.load_url(&url); }
+        Some(v) => { reader::drop_page(); let _ = v.load_html(&h); }
         None => PENDING.with(|p| *p.borrow_mut() = Some(h)),
     });
 }
@@ -219,7 +217,18 @@ fn sync_webview(ui: &AppWindow) {
                 .with_bounds(r)
                 .with_visible(vis)
                 .with_devtools(false)
+                .with_custom_protocol(reader::PAGE_SCHEME.into(), |_id, req| {
+                    let (status, body) = match reader::serve_page(req.uri().path()) {
+                        Some(b) => (200, std::borrow::Cow::Owned(b.to_vec())),
+                        None => (404, std::borrow::Cow::Borrowed(&b""[..])),
+                    };
+                    wry::http::Response::builder().status(status)
+                        .header("Content-Type", "text/html; charset=utf-8")
+                        .header("Cache-Control", "no-store")
+                        .body(body).unwrap()
+                })
                 .with_navigation_handler(|url| {
+                    if let Some(ok) = reader::allow_navigation(&url) { return ok; }
                     if url.starts_with("http") { oauth::open_browser(&url); false } else { true }
                 })
                 .build_as_child(&ui.window().window_handle())

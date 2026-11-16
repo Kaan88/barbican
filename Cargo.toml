@@ -35,3 +35,7 @@ windows = { version = "0.62", features = ["Win32_Foundation", "Win32_Globalizati
 
 [build-dependencies]
 slint-build = "1.8"
+
+[features]
+# the automation channel's writing test commands (rx-import / rx-find / rx-destroy); test builds only
+automation-writes = []

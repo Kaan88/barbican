@@ -26,24 +26,48 @@ const SIEVE_CAP: &str = "urn:ietf:params:jmap:sieve";
 /// Pages up to this size go to the WebView as a string (NavigateToString's limit is 2 MB).
 pub const INLINE_HTML_MAX: usize = 1_500_000;
 
-/// Write a large reader page to this process's own file in the temp folder and return its
-/// file:// URL (the page keeps its CSP; one file per process, overwritten by the next page).
-pub fn page_file(html: &str) -> Result<String, String> {
-    let dir = std::env::temp_dir().join("Barbican");
-    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
-    let path = dir.join(format!("reader-{}.html", std::process::id()));
-    std::fs::write(&path, html).map_err(|e| e.to_string())?;
-    Ok(file_url(&path.to_string_lossy()))
+/// The custom scheme a large page is served from (WebView2 maps it to http://barbican.localhost/).
+/// The page is served from memory, never from a file: a file:// origin would let the mail's own
+/// CSS reach file:/SMB URLs (an NTLM leak) and leave the mail's plaintext in the temp folder.
+pub const PAGE_SCHEME: &str = "barbican";
+const PAGE_ORIGIN: &str = "http://barbican.localhost/";
+
+/// The large page being shown: (its one-off path, the bytes) and the URL the next navigation
+/// may go to (taken once by `allow_navigation`).
+static BIG_PAGE: std::sync::Mutex<Option<(String, Arc<Vec<u8>>)>> = std::sync::Mutex::new(None);
+static BIG_NAV: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);
+
+/// Keep a large reader page in memory and return the URL to load it from (a fresh random path
+/// per page, so a link in a mail cannot guess it).
+pub fn page_url(html: &str) -> String {
+    let mut r = [0u8; 12];
+    let _ = getrandom::getrandom(&mut r);
+    let path = format!("reader/{}.html", r.iter().map(|b| format!("{b:02x}")).collect::<String>());
+    *BIG_PAGE.lock().unwrap() = Some((path.clone(), Arc::new(html.as_bytes().to_vec())));
+    let url = format!("{PAGE_ORIGIN}{path}");
+    *BIG_NAV.lock().unwrap() = Some(url.clone());
+    url
 }
 
-/// A file:// URL of a local path (Windows separators turned, unsafe characters escaped).
-pub fn file_url(path: &str) -> String {
-    let p = path.replace('\\', "/");
-    let enc: String = p.chars().map(|c| match c {
-        ' ' => "%20".to_string(), '#' => "%23".to_string(), '%' => "%25".to_string(), '?' => "%3F".to_string(),
-        c => c.to_string(),
-    }).collect();
-    if enc.starts_with('/') { format!("file://{enc}") } else { format!("file:///{enc}") }
+/// Forget the large page (a new message is opening).
+pub fn drop_page() { *BIG_PAGE.lock().unwrap() = None; *BIG_NAV.lock().unwrap() = None; }
+
+/// The custom-scheme handler: the current large page at its path, nothing else.
+pub fn serve_page(path: &str) -> Option<Arc<Vec<u8>>> {
+    let p = path.trim_start_matches('/');
+    BIG_PAGE.lock().unwrap().as_ref().filter(|(q, _)| q == p).map(|(_, b)| b.clone())
+}
+
+/// Navigation filter for the reader: our own large-page URL is let through once (when it was
+/// just asked for); file: is always refused. `None` = not ours, the usual rules apply.
+pub fn allow_navigation(url: &str) -> Option<bool> {
+    let l = url.to_ascii_lowercase();
+    if l.starts_with("file:") { return Some(false); }
+    if l.starts_with(PAGE_ORIGIN) || l.starts_with("https://barbican.localhost/") || l.starts_with("barbican:") {
+        let mut n = BIG_NAV.lock().unwrap();
+        return Some(if n.as_deref() == Some(url) { *n = None; true } else { false });
+    }
+    None
 }
 
 // ---------------------------------------------------------------- headers
@@ -161,26 +185,55 @@ pub fn unsubscribe_mailto(url: &str) -> Option<(String, Option<String>, Option<S
 }
 
 /// RFC 8058 §4 wants a DKIM signature over the list headers before a one-click POST: the
-/// receiving server's (topmost) Authentication-Results must report dkim=pass.
-pub fn dkim_pass(headers: &[Value]) -> bool {
-    headers_all(headers, "Authentication-Results").first().is_some_and(|ar| {
-        ar.to_ascii_lowercase().split(';').any(|p| p.trim().starts_with("dkim=pass"))
-    })
+/// receiving server's (topmost) Authentication-Results must report a DKIM pass whose signing
+/// domain (header.d) aligns with the From domain, so a stranger's own valid signature does not
+/// count. (Whether that signature covers List-Unsubscribe is not in the results; an aligned
+/// signature from the sender is the closest the client can check.)
+pub fn dkim_pass(headers: &[Value], from: &str) -> bool {
+    let Some(d) = crate::auth::domain_of(from) else { return false };
+    crate::auth::aligned_dkim_pass(&crate::auth::topmost(headers), &d)
+}
+
+/// Whether an address is on the public internet (not loopback, private, link-local, CGNAT,
+/// unique-local, multicast or unspecified): a mail's link must not reach the user's own network.
+pub fn public_ip(ip: std::net::IpAddr) -> bool {
+    use std::net::IpAddr;
+    match ip {
+        IpAddr::V4(v) => {
+            let o = v.octets();
+            !(v.is_loopback() || v.is_private() || v.is_link_local() || v.is_unspecified() || v.is_broadcast() || v.is_multicast()
+                || v.is_documentation() || o[0] == 0 || (o[0] == 100 && (64..128).contains(&o[1])) || o[0] >= 240)
+        }
+        IpAddr::V6(v) => {
+            if let Some(m) = v.to_ipv4_mapped() { return public_ip(IpAddr::V4(m)); }
+            let s = v.segments();
+            !(v.is_loopback() || v.is_unspecified() || v.is_multicast() || (s[0] & 0xfe00) == 0xfc00 || (s[0] & 0xffc0) == 0xfe80)
+        }
+    }
 }
 
 /// The RFC 8058 POST: `List-Unsubscribe=One-Click` as a form body, no cookies or credentials.
+/// Only https, only to a public address (resolved once and pinned, so DNS cannot swap it for
+/// an internal one), and no redirects (RFC 8058 senders answer the POST themselves).
 pub fn one_click_post(url: &str) -> Result<(), String> {
     if !url.to_ascii_lowercase().starts_with("https://") { return Err("One-click unsubscribe needs an https link.".into()); }
-    post_form(url)
+    let u = reqwest::Url::parse(url).map_err(|_| "The link is not a web address.".to_string())?;
+    let host = u.host_str().ok_or("The link is not a web address.")?.trim_matches(['[', ']']).to_string();
+    let port = u.port_or_known_default().unwrap_or(443);
+    let addrs: Vec<std::net::SocketAddr> = std::net::ToSocketAddrs::to_socket_addrs(&(host.as_str(), port)).map_err(|e| e.to_string())?.collect();
+    if addrs.is_empty() || addrs.iter().any(|a| !public_ip(a.ip())) { return Err("The unsubscribe link points into a private network.".into()); }
+    post_form(url, Some((&host, addrs[0])))
 }
 
-fn post_form(url: &str) -> Result<(), String> {
-    let http = reqwest::blocking::Client::builder()
-        .redirect(reqwest::redirect::Policy::limited(5))
+fn post_form(url: &str, pin: Option<(&str, std::net::SocketAddr)>) -> Result<(), String> {
+    let mut b = reqwest::blocking::Client::builder()
+        .redirect(reqwest::redirect::Policy::none())
         .timeout(std::time::Duration::from_secs(20))
-        .user_agent("Barbican")
-        .build().map_err(|e| e.to_string())?;
+        .user_agent("Barbican");
+    if let Some((h, a)) = pin { b = b.resolve(h, a); }
+    let http = b.build().map_err(|e| e.to_string())?;
     let r = http.post(url).header("Content-Type", "application/x-www-form-urlencoded").body("List-Unsubscribe=One-Click").send().map_err(|e| e.to_string())?;
+    if r.status().is_redirection() { return Err("The sender's server redirected the request; open the link in a browser instead.".into()); }
     if r.status().is_success() { Ok(()) } else { Err(format!("The sender's server answered {}.", r.status())) }
 }
 
@@ -265,13 +318,19 @@ struct Invite {
     step: Step,
     status: String,
     organizer_me: bool,
+    /// The owning login's own addresses (the answer goes out as that login).
+    mine: Vec<String>,
+    /// Bulwark's trust assessment: (warning, text) when the sender is not vouched for.
+    trust: Option<(bool, String)>,
 }
 
 #[derive(Default)]
 enum View {
     #[default]
     Message,
-    Source { full: String, cut: bool, stash: Option<crate::Current> },
+    /// `raw` is the message exactly as downloaded (Save .eml writes it byte for byte);
+    /// `full` its text for display and Copy.
+    Source { raw: Arc<Vec<u8>>, full: String, cut: bool, stash: Option<crate::Current> },
     Eml { subject: String },
 }
 
@@ -298,6 +357,7 @@ thread_local! {
     static ST: RefCell<State> = RefCell::new(State::default());
     static SHARED: RefCell<Option<Shared>> = const { RefCell::new(None) };
     /// Test messages made through the automation channel (example-org only), for clean-up.
+    #[cfg(feature = "automation-writes")]
     static TEST_IDS: RefCell<Vec<String>> = const { RefCell::new(Vec::new()) };
 }
 
@@ -324,21 +384,23 @@ pub fn loaded(u: &AppWindow, c: Arc<Client>, m: &Value, id: &str) {
     let shared = mail::shared_account(id).is_some();
     let response = prefs.str("readReceiptResponse", "ask");
     let other_login = mail::owner(id).is_some_and(|o| o != crate::unified::active_user());
-    let offer = !shared && crate::mdn::should_offer(m, &roles, &response);
-    // "Always send" is the active login's setting; another login's message asks instead
-    let auto = offer && response == "always" && !other_login;
+    let offer = !shared && crate::mdn::should_offer(m, &roles, &response) && !crate::mdn::sent_this_run(id);
+    // "Always send" is the active login's setting; another login's message asks instead, and so
+    // does a receipt asked for an address other than the Return-Path (RFC 8098 §2.1)
+    let auto = offer && response == "always" && !other_login && crate::mdn::auto_send_ok(m);
     let unsub = header(&headers, "List-Unsubscribe").and_then(|h| parse_unsubscribe(&h, header(&headers, "List-Unsubscribe-Post").as_deref()));
     let invite_part = (prefs.bool("calendarInvitationParsingEnabled", true) && c.has(invite::CAP)).then(|| invite::find_part(m)).flatten();
     ST.with(|s| {
         let mut s = s.borrow_mut();
         *s = State { id: id.to_string(), msg: m.clone(), client: Some(c.clone()), unsub, mdn: offer && !auto, trunc: displayed_truncated(m), ..Default::default() };
         if invite_part.is_some() {
-            s.invite = Some(Invite { loading: true, error: None, ev: Value::Null, method: Method::Unknown, step: Step::Idle, status: String::new(), organizer_me: false });
+            s.invite = Some(Invite { loading: true, error: None, ev: Value::Null, method: Method::Unknown, step: Step::Idle, status: String::new(), organizer_me: false, mine: vec![], trust: None });
         }
     });
     refresh(u);
     if auto {
-        let (c2, m2, w) = (c.clone(), m.clone(), u.as_weak());
+        let (c2, mut m2, w) = (c.clone(), m.clone(), u.as_weak());
+        m2["id"] = json!(crate::unified::real_id(id));
         std::thread::spawn(move || {
             if let Err(e) = crate::mdn::send(&c2, &m2, true) {
                 let _ = w.upgrade_in_event_loop(move |u| mail::show_toast(&u, &format!("Read receipt could not be sent: {e}"), false));
@@ -348,8 +410,16 @@ pub fn loaded(u: &AppWindow, c: Arc<Client>, m: &Value, id: &str) {
     if let Some(part) = invite_part {
         let (c2, w, id2) = (c.clone(), u.as_weak(), id.to_string());
         let blob = part["blobId"].as_str().unwrap_or("").to_string();
-        let mine = crate::my_addrs_cached().into_iter().chain([c.username.clone()]).collect::<Vec<_>>();
+        // the message's own login answers: its addresses, not the active login's
+        let active = crate::my_addrs_cached();
+        let from = m["from"][0]["email"].as_str().map(String::from);
+        let auth = crate::auth::topmost(&headers);
+        let has_auth = !headers_all(&headers, "Authentication-Results").is_empty();
         std::thread::spawn(move || {
+            let mut mine = if other_login {
+                c2.identities().unwrap_or_default().iter().filter_map(|i| i["email"].as_str().map(String::from)).collect()
+            } else { active };
+            mine.push(c2.username.clone());
             let res = invite::parse(&c2, &blob).and_then(|(ev, m)| {
                 // the stored copy carries the answer already given
                 let stored = ev["uid"].as_str().and_then(|uid| invite::stored(&c2, uid).ok().flatten());
@@ -361,7 +431,13 @@ pub fn loaded(u: &AppWindow, c: Arc<Client>, m: &Value, id: &str) {
                 ST.with(|s| if let Some(inv) = s.borrow_mut().invite.as_mut() {
                     inv.loading = false;
                     match res {
-                        Ok((ev, m, status)) => { inv.organizer_me = invite::i_organize(&ev, &mine); inv.ev = ev; inv.method = m; inv.status = status; }
+                        Ok((ev, m, status)) => {
+                            inv.organizer_me = invite::i_organize(&ev, &mine);
+                            // a message the user sent is not assessed (Bulwark: !userIsSender)
+                            let from_me = from.as_deref().is_some_and(|f| mine.iter().any(|x| x.eq_ignore_ascii_case(f)));
+                            inv.trust = if from_me { None } else { invite::trust(&ev, &m, from.as_deref(), &auth, has_auth, &mine) };
+                            inv.ev = ev; inv.method = m; inv.status = status; inv.mine = mine;
+                        }
                         Err(e) => inv.error = Some(e),
                     }
                 });
@@ -479,6 +555,8 @@ fn invite_banner(inv: &Invite) -> RxBannerData {
             extra.push(format!("{who} responded {}", invite::status_label(&st).to_lowercase()));
         }
     }
+    let tone = match &inv.trust { Some(_) if answerable || inv.method == Method::Cancel => "amber", _ => tone };
+    if let Some((warn, t)) = &inv.trust { extra.insert(0, format!("{}{t}", if *warn { "Warning: " } else { "" })); }
     let busy = inv.step == Step::Busy;
     let actions = if answerable {
         let b = |id: &str, label: &str, st: &str| if busy { act_off(id, label, 0) } else { act(id, label, if inv.status == st { 1 } else { 0 }) };
@@ -537,10 +615,9 @@ fn banner_action(u: &AppWindow, st: &Shared, b: &str, a: &str) {
         ("unsub", "dismiss") => set_step(u, |s| s.unsub_hidden = true),
         ("unsub", "confirm") => unsubscribe(u, st),
         ("invite", status) if matches!(status, "accepted" | "tentative" | "declined") => {
-            let ev = ST.with(|s| s.borrow().invite.as_ref().map(|i| i.ev.clone()));
-            let Some(ev) = ev else { return };
-            let Some(c) = st.lock().unwrap().clone() else { return };
-            let mine = crate::my_addrs(st);
+            // the login the message belongs to answers (the unified inbox mixes logins)
+            let got = ST.with(|s| { let s = s.borrow(); s.invite.as_ref().map(|i| (i.ev.clone(), i.mine.clone())).zip(s.client.clone()) });
+            let Some(((ev, mine), c)) = got else { return };
             let status = status.to_string();
             set_step(u, |s| if let Some(i) = s.invite.as_mut() { i.step = Step::Busy; });
             let w = u.as_weak();
@@ -569,7 +646,7 @@ fn unsubscribe(u: &AppWindow, st: &Shared) {
     if un.prefers_http() {
         let url = un.http.clone().unwrap_or_default();
         if !valid_unsub_url(&url) { set_step(u, |s| s.unsub_step = Step::Failed("The link is not a web address.".into())); return; }
-        if un.one_click && dkim_pass(&headers) {
+        if un.one_click && dkim_pass(&headers, m["from"][0]["email"].as_str().unwrap_or("")) {
             set_step(u, |s| s.unsub_step = Step::Busy);
             let w = u.as_weak();
             std::thread::spawn(move || {
@@ -657,11 +734,11 @@ fn view_source(u: &AppWindow) {
     mail::show_toast(u, "Loading the source…", false);
     let w = u.as_weak();
     std::thread::spawn(move || {
-        let res = c.download(&blob, "message.eml", "message/rfc822").map(|b| String::from_utf8_lossy(&b).to_string());
+        let res = c.download(&blob, "message.eml", "message/rfc822").map(|b| (String::from_utf8_lossy(&b).to_string(), Arc::new(b)));
         let _ = w.upgrade_in_event_loop(move |u| {
             if !is_open(&id) { return; }
             match res {
-                Ok(full) => {
+                Ok((full, raw)) => {
                     if u.get_toast().as_str() == "Loading the source…" { u.set_toast("".into()); }
                     let (shown, cut) = source_shown(&full);
                     let html = format!("<pre style=\"font-family:Consolas,'Cascadia Mono',monospace;font-size:12px;white-space:pre-wrap;word-break:break-all;margin:0\">{}</pre>", crate::esc(shown));
@@ -671,7 +748,7 @@ fn view_source(u: &AppWindow) {
                         let mut s = s.borrow_mut();
                         // a second "View source" keeps the message's own body stashed
                         let stash = match std::mem::take(&mut s.view) { View::Source { stash: old, .. } => old, _ => stash };
-                        s.view = View::Source { full, cut, stash };
+                        s.view = View::Source { raw, full, cut, stash };
                     });
                     crate::CUR.with(|c| *c.borrow_mut() = Some(crate::Current { html: Some(html), text: shown, remote: false, allow: false }));
                     crate::render_current(&u);
@@ -780,10 +857,11 @@ fn save_eml(u: &AppWindow, st: &Shared) {
     let Some(path) = crate::automation::save_file(&name) else { return };
     let blob = m["blobId"].as_str().unwrap_or("").to_string();
     // the copy shown in the source view saves without a second download
-    let have = ST.with(|s| if let View::Source { full, cut: false, .. } = &s.borrow().view { Some(full.clone()) } else { None });
+    // (the raw bytes, not the text: an 8-bit message must stay byte-identical for its signatures)
+    let have = ST.with(|s| if let View::Source { raw, .. } = &s.borrow().view { Some(raw.clone()) } else { None });
     let w = u.as_weak();
     std::thread::spawn(move || {
-        let res = match have { Some(t) => Ok(t.into_bytes()), None => c.download(&blob, &name, "message/rfc822") }
+        let res = match have { Some(t) => Ok(t.to_vec()), None => c.download(&blob, &name, "message/rfc822") }
             .and_then(|b| std::fs::write(&path, b).map_err(|e| e.to_string()));
         let msg = match res { Ok(()) => format!("Saved {name}"), Err(e) => format!("Could not save: {e}") };
         let _ = w.upgrade_in_event_loop(move |u| mail::show_toast(&u, &msg, false));
@@ -873,6 +951,18 @@ pub fn folder_tree(nodes: &[Value]) -> Vec<(String, String, i32)> {
     out
 }
 
+/// The Blob/copy (RFC 8620 §6.3) that brings a blob from the mail account into the Files
+/// account; None when they are the same account.
+pub fn blob_copy_request(from: &str, to: &str, blob: &str) -> Option<Value> {
+    (from != to).then(|| json!([["Blob/copy", {"fromAccountId": from, "accountId": to, "blobIds": [blob]}, "b"]]))
+}
+
+/// The new blob id from a Blob/copy response (a method error or notCopied is an error).
+pub fn copied_blob(r: &Value, blob: &str) -> Result<String, String> {
+    if r[0][0] == "error" { return Err(crate::jmap::method_error(&r[0][1])); }
+    r[0][1]["copied"][blob].as_str().map(String::from).ok_or_else(|| crate::jmap::set_error(&r[0][1]["notCopied"][blob]))
+}
+
 /// File an attachment into a Files folder by blob id (no download or upload); from another
 /// account (a shared mailbox) it is copied over first with Blob/copy (RFC 8620 §6.3).
 fn save_to_files(u: &AppWindow, st: &Shared, index: i32, folder: &str) {
@@ -882,13 +972,15 @@ fn save_to_files(u: &AppWindow, st: &Shared, index: i32, folder: &str) {
     let Some((acc, draft, folders)) = ST.with(|s| s.borrow().files.clone()) else { return };
     let folder_name = if folder.is_empty() { "My files".to_string() } else { folders.iter().find(|f| f.0 == folder).map(|f| f.1.clone()).unwrap_or_default() };
     let parent = (!folder.is_empty()).then(|| folder.to_string());
+    let mail_acc = mail::shared_account(&id);
     let w = u.as_weak();
     std::thread::spawn(move || {
         let res: Result<(), String> = (|| {
             let mut blob = a["blobId"].as_str().ok_or("The attachment has no content.")?.to_string();
-            if c.account != acc {
-                let r = c.call(json!([["Blob/copy", {"fromAccountId": c.account, "accountId": acc, "blobIds": [blob]}, "b"]]))?;
-                blob = r[0][1]["copied"][&blob].as_str().map(String::from).ok_or_else(|| crate::jmap::set_error(&r[0][1]["notCopied"][&blob]))?;
+            // the blob lives in the account the message is in (a shared mailbox's own account)
+            let from = mail_acc.clone().unwrap_or_else(|| c.account.clone());
+            if let Some(req) = blob_copy_request(&from, &acc, &blob) {
+                blob = copied_blob(&Value::Array(c.call(req)?), &blob)?;
             }
             let name = a["name"].as_str().filter(|n| !n.trim().is_empty()).unwrap_or("attachment").to_string();
             let mime = a["type"].as_str().unwrap_or("application/octet-stream").to_string();
@@ -1121,8 +1213,10 @@ pub fn probe() -> String {
 }
 
 /// The test account the automation channel may write to.
+#[cfg(feature = "automation-writes")]
 pub const TEST_ACCOUNT: &str = "mail@example.org";
 
+#[cfg(feature = "automation-writes")]
 fn test_client() -> Result<Arc<Client>, String> {
     let c = SHARED.with(|s| s.borrow().as_ref().and_then(|st| st.lock().unwrap().clone())).ok_or("not signed in")?;
     if !c.username.eq_ignore_ascii_case(TEST_ACCOUNT) { return Err(format!("refused: the active account is not {TEST_ACCOUNT}")); }
@@ -1130,6 +1224,7 @@ fn test_client() -> Result<Arc<Client>, String> {
 }
 
 /// `rx-import PATH`: import an .eml into the test account's Inbox (Email/import, nothing sent).
+#[cfg(feature = "automation-writes")]
 pub fn automation_import(path: &str) -> String {
     let res = (|| -> Result<String, String> {
         let c = test_client()?;
@@ -1145,6 +1240,7 @@ pub fn automation_import(path: &str) -> String {
 }
 
 /// `rx-find TEXT`: ids of the test account's messages whose subject contains TEXT (read-only).
+#[cfg(feature = "automation-writes")]
 pub fn automation_find(text: &str) -> String {
     let res = (|| -> Result<Vec<String>, String> {
         let c = test_client()?;
@@ -1155,6 +1251,7 @@ pub fn automation_find(text: &str) -> String {
 }
 
 /// `rx-destroy ID…`: delete test messages for good (test account only).
+#[cfg(feature = "automation-writes")]
 pub fn automation_destroy(ids: &str) -> String {
     let res = (|| -> Result<usize, String> {
         let c = test_client()?;
@@ -1203,14 +1300,62 @@ mod tests {
     }
 
     #[test]
+    fn blob_copy_between_accounts() {
+        assert!(blob_copy_request("a1", "a1", "B").is_none());
+        let r = blob_copy_request("shared9", "a1", "B").unwrap();
+        assert_eq!(r[0][0], "Blob/copy");
+        assert_eq!(r[0][1], json!({"fromAccountId": "shared9", "accountId": "a1", "blobIds": ["B"]}));
+        assert_eq!(copied_blob(&json!([["Blob/copy", {"copied": {"B": "B2"}}, "b"]]), "B").unwrap(), "B2");
+        assert!(copied_blob(&json!([["Blob/copy", {"copied": null, "notCopied": {"B": {"type": "blobNotFound"}}}, "b"]]), "B").is_err());
+        assert!(copied_blob(&json!([["error", {"type": "accountNotFound"}, "b"]]), "B").is_err());
+    }
+
+    #[test]
     fn dkim_gate() {
         let pass = vec![json!({"name": "Authentication-Results", "value": " mx.x.org; dkim=pass header.d=news.example; spf=pass"}),
             json!({"name": "Authentication-Results", "value": " evil; dkim=fail"})];
-        assert!(dkim_pass(&pass));
-        let fail = vec![json!({"name": "Authentication-Results", "value": " mx.x.org; dkim=fail; spf=pass"})];
-        assert!(!dkim_pass(&fail));
-        assert!(!dkim_pass(&[]));
+        assert!(dkim_pass(&pass, "list@news.example"));
+        assert!(!dkim_pass(&pass, "ceo@bank.example"), "a pass for another domain does not vouch for From");
+        let fail = vec![json!({"name": "Authentication-Results", "value": " mx.x.org; dkim=fail header.d=news.example; spf=pass"})];
+        assert!(!dkim_pass(&fail, "list@news.example"));
+        assert!(!dkim_pass(&[], "list@news.example"));
         assert!(one_click_post("http://insecure.example/u").is_err());
+    }
+
+    #[test]
+    fn one_click_refuses_private_networks() {
+        for u in ["https://127.0.0.1/u", "https://localhost/u", "https://10.1.2.3/u", "https://192.168.1.1/u", "https://[::1]/u", "https://169.254.169.254/latest"] {
+            assert!(one_click_post(u).is_err(), "{u}");
+        }
+        assert!(public_ip("93.184.216.34".parse().unwrap()));
+        assert!(!public_ip("100.64.0.1".parse().unwrap()));
+        assert!(!public_ip("::ffff:127.0.0.1".parse().unwrap()));
+        assert!(!public_ip("fd00::1".parse().unwrap()));
+    }
+
+    #[test]
+    fn one_click_does_not_follow_redirects() {
+        use std::io::{Read, Write};
+        let l = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = l.local_addr().unwrap().port();
+        let srv = std::thread::spawn(move || {
+            let (mut s, _) = l.accept().unwrap();
+            let mut buf = vec![0u8; 4096];
+            let _ = s.read(&mut buf);
+            s.write_all(b"HTTP/1.1 302 Found
+
+Location: http://127.0.0.1:1/x
+
+Content-Length: 0
+
+Connection: close
+
+
+
+").unwrap();
+        });
+        assert!(post_form(&format!("http://127.0.0.1:{port}/u"), None).unwrap_err().contains("redirected"));
+        srv.join().unwrap();
     }
 
     #[test]
@@ -1231,7 +1376,7 @@ mod tests {
             s.write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 0\r\nConnection: close\r\n\r\n").unwrap();
             got
         });
-        post_form(&format!("http://127.0.0.1:{port}/unsub?u=1")).unwrap();
+        post_form(&format!("http://127.0.0.1:{port}/unsub?u=1"), None).unwrap();
         let req = srv.join().unwrap();
         assert!(req.starts_with("POST /unsub?u=1 HTTP/1.1"));
         assert!(req.to_lowercase().contains("content-type: application/x-www-form-urlencoded"));
@@ -1283,9 +1428,20 @@ mod tests {
     }
 
     #[test]
-    fn file_urls() {
-        assert_eq!(file_url(r"C:\Users\a b\Temp\Barbican\reader-1.html"), "file:///C:/Users/a%20b/Temp/Barbican/reader-1.html");
-        assert_eq!(file_url("/tmp/x#1.html"), "file:///tmp/x%231.html");
+    fn big_page_served_once_and_file_refused() {
+        let url = page_url("<p>hi</p>");
+        assert!(url.starts_with("http://barbican.localhost/reader/"));
+        let path = url.trim_start_matches("http://barbican.localhost");
+        assert_eq!(serve_page(path).unwrap().as_slice(), b"<p>hi</p>");
+        assert_eq!(serve_page("/reader/guess.html"), None);
+        assert_eq!(allow_navigation("http://barbican.localhost/reader/guess.html"), Some(false));
+        assert_eq!(allow_navigation(&url), Some(true));
+        assert_eq!(allow_navigation(&url), Some(false), "a link to it later is refused");
+        assert_eq!(allow_navigation("file://attacker/share/x.html"), Some(false));
+        assert_eq!(allow_navigation("FILE:///C:/x"), Some(false));
+        assert_eq!(allow_navigation("https://example.com/"), None);
+        drop_page();
+        assert_eq!(serve_page(path), None);
     }
 
     #[test]

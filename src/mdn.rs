@@ -131,18 +131,53 @@ pub fn build(o: &MdnOptions, now: chrono::DateTime<chrono::Utc>, token: &str) ->
     lines.join("\r\n")
 }
 
-/// The address a message asks the receipt to go to (Disposition-Notification-To), from the
-/// raw JMAP `headers` list: the first `<addr>` of the first such header, else its text.
-pub fn requested_by(headers: &[Value]) -> Option<String> {
-    let raw = crate::reader::header(headers, "Disposition-Notification-To")?;
+/// The first address of an address-list header value: `Name <a@x>, b@y` gives `a@x`. Commas
+/// inside quotes or angle brackets do not split; None if the first entry is not an address.
+pub fn first_address(raw: &str) -> Option<String> {
     let line: String = raw.chars().take(1000).collect();
-    let addr = match (line.find('<'), line.find('>')) {
-        (Some(a), Some(b)) if b > a + 1 => line[a + 1..b].to_string(),
-        _ => line.clone(),
+    let (mut q, mut ang, mut end) = (false, false, line.len());
+    for (i, ch) in line.char_indices() {
+        match ch {
+            '"' => q = !q,
+            '<' if !q => ang = true,
+            '>' if !q => ang = false,
+            ',' if !q && !ang => { end = i; break; }
+            _ => {}
+        }
+    }
+    let first = &line[..end];
+    let addr = match (first.find('<'), first.rfind('>')) {
+        (Some(a), Some(b)) if b > a + 1 => &first[a + 1..b],
+        _ => first,
     };
-    let addr = addr.trim().to_string();
-    (!addr.is_empty() && addr.contains('@')).then_some(addr)
+    let addr = addr.trim();
+    let ok = addr.matches('@').count() == 1 && !addr.starts_with('@') && !addr.ends_with('@')
+        && !addr.contains(|c: char| c.is_whitespace() || matches!(c, '<' | '>' | ',' | '"' | ';'));
+    ok.then(|| addr.to_string())
 }
+
+/// The address a message asks the receipt to go to (Disposition-Notification-To, RFC 8098):
+/// the first address of the first such header.
+pub fn requested_by(headers: &[Value]) -> Option<String> {
+    first_address(&crate::reader::header(headers, "Disposition-Notification-To")?)
+}
+
+/// Whether a receipt may go out without asking (RFC 8098 §2.1): only when the address it is
+/// requested for is the message's Return-Path (else, with no Return-Path, its From). Anything
+/// else could be a third party tracking when mail is opened, so the user is asked.
+pub fn auto_send_ok(m: &Value) -> bool {
+    let headers = m["headers"].as_array().map(|a| a.as_slice()).unwrap_or(&[]);
+    let Some(to) = requested_by(headers) else { return false };
+    let origin = crate::reader::header(headers, "Return-Path").and_then(|r| first_address(&r))
+        .or_else(|| m["from"][0]["email"].as_str().map(String::from));
+    origin.is_some_and(|o| o.eq_ignore_ascii_case(&to))
+}
+
+/// Messages a receipt went out for in this run: `$MDNSent` is the durable record, this keeps a
+/// failed flag write from sending a second receipt on the next open.
+static SENT: std::sync::Mutex<Vec<String>> = std::sync::Mutex::new(Vec::new());
+
+pub fn sent_this_run(id: &str) -> bool { SENT.lock().unwrap().iter().any(|x| x == crate::unified::real_id(id)) }
 
 /// Whether the open message should offer a receipt (Bulwark shouldOfferReadReceipt): it asks for
 /// one, has none sent yet, the user does not answer "never", it is not a draft and sits in a
@@ -200,14 +235,40 @@ pub fn send(c: &crate::jmap::Client, m: &Value, automatic: bool) -> Result<(), S
         let _ = c.call(json!([["Email/set", {"accountId": c.account, "destroy": [eid]}, "x"]]));
         return Err(format!("Not sent: {e}"));
     }
-    // the receipt is out; failing to flag that must not read as a failed send
-    let _ = c.set_keyword(&[m["id"].as_str().unwrap_or("").to_string()], "$mdnsent", true);
+    // the receipt is out; failing to flag that must not read as a failed send, but it is
+    // remembered for this run so the message does not ask (or auto-send) again
+    let id = crate::unified::real_id(m["id"].as_str().unwrap_or("")).to_string();
+    SENT.lock().unwrap().push(id.clone());
+    if let Err(e) = c.set_keyword(&[id], "$mdnsent", true) { eprintln!("read receipt sent, $MDNSent not set: {e}"); }
     Ok(())
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn dnt_addresses() {
+        assert_eq!(first_address("a@x.org, b@y.org"), Some("a@x.org".into()));
+        assert_eq!(first_address("\"Doe, Jane\" <jane@x.org>, b@y"), Some("jane@x.org".into()));
+        assert_eq!(first_address("<a@x>"), Some("a@x".into()));
+        assert_eq!(first_address("Jane Doe"), None);
+        assert_eq!(first_address("a@b@c"), None);
+        assert_eq!(first_address(""), None);
+    }
+
+    #[test]
+    fn auto_send_only_to_the_return_path() {
+        let m = |dnt: &str, rp: Option<&str>| {
+            let mut h = vec![json!({"name": "Disposition-Notification-To", "value": dnt})];
+            if let Some(r) = rp { h.push(json!({"name": "Return-Path", "value": r})); }
+            json!({"headers": h, "from": [{"email": "boss@corp.com"}]})
+        };
+        assert!(auto_send_ok(&m("Boss <boss@corp.com>", Some("<BOSS@corp.com>"))));
+        assert!(!auto_send_ok(&m("tracker@spy.net", Some("<boss@corp.com>"))), "a third party is asked for");
+        assert!(auto_send_ok(&m("boss@corp.com", None)), "no Return-Path: From counts");
+        assert!(!auto_send_ok(&m("tracker@spy.net", None)));
+    }
 
     fn now() -> chrono::DateTime<chrono::Utc> { chrono::DateTime::parse_from_rfc3339("2026-05-28T14:23:00Z").unwrap().with_timezone(&chrono::Utc) }
 

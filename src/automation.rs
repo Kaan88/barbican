@@ -15,7 +15,8 @@
 //!   pick PATH[|PATH...]  (answer the next file-open picker with these files instead of a dialog)
 //!   save PATH            (answer the next save-file dialog with this path)
 //!   rx-banners           (the open message's reader banners as JSON)
-//!   rx-import PATH / rx-find TEXT / rx-destroy ID...  (test messages; only on the test account)
+//!   rx-import PATH / rx-find TEXT / rx-destroy ID...  (test messages; only on the test account,
+//!   and only in a build with `--features automation-writes`: release builds cannot write)
 use crate::AppWindow;
 use slint::platform::{Key, PointerEventButton, WindowEvent};
 use slint::{ComponentHandle, LogicalPosition, SharedString};
@@ -172,8 +173,11 @@ fn run(u: &AppWindow, line: &str) -> String {
             "ok".into()
         }
         "rx-banners" => crate::reader::probe(),
+        #[cfg(feature = "automation-writes")]
         "rx-import" => crate::reader::automation_import(a.get(1).copied().unwrap_or("").trim()),
+        #[cfg(feature = "automation-writes")]
         "rx-find" => crate::reader::automation_find(a.get(1).copied().unwrap_or("").trim()),
+        #[cfg(feature = "automation-writes")]
         "rx-destroy" => crate::reader::automation_destroy(a.get(1).copied().unwrap_or("")),
         "size" => { let s = win.size(); format!("{} {} scale {}", s.width, s.height, win.scale_factor()) }
         "shot" => {

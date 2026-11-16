@@ -212,6 +212,19 @@ pub fn apply(rules: &[Value], candidate: &Value) -> Outcome {
     Outcome::Merged(out, name)
 }
 
+/// What saving `candidate` into the parsed script does: Err for a hand-edited script (it is
+/// never rewritten), Ok(Err(toast)) when nothing needs saving, else the new rules and the toast.
+#[allow(clippy::type_complexity)]
+pub fn plan(p: &crate::sieve::Parsed, candidate: &Value) -> Result<Result<(Vec<Value>, String), String>, String> {
+    if p.locked { return Err("Your filters were edited by hand. Change them in Settings › Filters.".into()); }
+    let rules = p.metadata["rules"].as_array().cloned().unwrap_or_default();
+    Ok(match apply(&rules, candidate) {
+        Outcome::Covered(n) => Err(format!("Already covered by \"{n}\"")),
+        Outcome::Created(r) => Ok((r, format!("Rule \"{}\" created", candidate["name"].as_str().unwrap_or("")))),
+        Outcome::Merged(r, n) => Ok((r, format!("Added to rule \"{n}\""))),
+    })
+}
+
 /// Read the active script, apply the rule and save it back (as the rule editor does).
 pub fn save(c: &crate::jmap::Client, candidate: &Value) -> Result<String, String> {
     let sacc = c.account_for("urn:ietf:params:jmap:sieve");
@@ -222,12 +235,9 @@ pub fn save(c: &crate::jmap::Client, candidate: &Value) -> Result<String, String
         None => String::new(),
     };
     let p = crate::sieve::parse(&text);
-    if p.locked { return Err("Your filters were edited by hand. Change them in Settings › Filters.".into()); }
-    let rules = p.metadata["rules"].as_array().cloned().unwrap_or_default();
-    let (rules, msg) = match apply(&rules, candidate) {
-        Outcome::Covered(n) => return Ok(format!("Already covered by \"{n}\"")),
-        Outcome::Created(r) => (r, format!("Rule \"{}\" created", candidate["name"].as_str().unwrap_or(""))),
-        Outcome::Merged(r, n) => (r, format!("Added to rule \"{n}\"")),
+    let (rules, msg) = match plan(&p, candidate)? {
+        Err(covered) => return Ok(covered),
+        Ok(x) => x,
     };
     let ext: Vec<String> = c.session["capabilities"]["urn:ietf:params:jmap:sieve"]["sieveExtensions"].as_array()
         .or(c.session["accounts"][&sacc]["accountCapabilities"]["urn:ietf:params:jmap:sieve"]["sieveExtensions"].as_array())
@@ -239,6 +249,22 @@ pub fn save(c: &crate::jmap::Client, candidate: &Value) -> Result<String, String
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn hand_edited_script_is_refused() {
+        let cand = json!({"name": "x", "conditions": [], "actions": []});
+        let hand = crate::sieve::parse("/* @metadata:begin
+{\"version\": 9, \"rules\": []}
+@metadata:end */
+if true { stop; }");
+        assert!(plan(&hand, &cand).unwrap_err().contains("edited by hand"));
+        let broken = crate::sieve::parse("/* @metadata:begin
+not json
+@metadata:end */");
+        assert!(plan(&broken, &cand).is_err());
+        let fresh = crate::sieve::parse("");
+        assert!(plan(&fresh, &cand).unwrap().is_ok(), "an empty script takes the rule");
+    }
 
     fn subj(s: &[&str]) -> Subject {
         Subject { senders: s.iter().map(|x| x.to_string()).collect(), domain: Some("acme.com".into()), list_id: Some("news.acme.com".into()) }
