@@ -86,9 +86,12 @@ pub fn tools(client: &Client) -> Vec<Tool> {
             desc: "Read the text of an email attachment (text, CSV, HTML, calendar .ics, contact .vcf, JSON, XML). Use id \"current\" for the open message; name picks the attachment (first one if empty).",
             schema: obj(json!({"id": {"type": "string"}, "name": {"type": "string"}}), &["id"]) },
         Tool { name: "list_filters", write: false, desc: "Show the user's mail filter rules (the active Sieve script).", schema: obj(json!({}), &[]) },
-        Tool { name: "update_filters", write: true,
-            desc: "Replace the user's filter rules with a complete Sieve script (RFC 5228). Read list_filters first and keep existing rules unless told otherwise. The server validates it.",
-            schema: obj(json!({"script": {"type": "string"}}), &["script"]) },
+        Tool { name: "add_filter_rule", write: true,
+            desc: "Add a mail filter rule (kept compatible with Bulwark). field: from|to|cc|subject|body|attachment|all. comparator: contains|not_contains|is|starts_with|ends_with|domain_is. action: move|copy|mark_read|star|add_label|forward|discard. action_value: folder name, tag, or address as needed.",
+            schema: obj(json!({"name": {"type": "string"}, "field": {"type": "string"}, "comparator": {"type": "string"}, "value": {"type": "string"},
+                "action": {"type": "string"}, "action_value": {"type": "string"}, "stop": {"type": "boolean"}}), &["name", "field", "action"]) },
+        Tool { name: "remove_filter_rule", write: true, desc: "Remove a mail filter rule by its name (see list_filters).",
+            schema: obj(json!({"name": {"type": "string"}}), &["name"]) },
         Tool { name: "change_setting", write: true,
             desc: "Change one app setting by its Bulwark key, e.g. density (extra-compact|compact|regular|comfortable), theme (light|dark|system), showPreview (bool), groupListByDate (bool), timeFormat (12h|24h), dateFormat (smart|relative|full), markAsReadDelay (ms, -1 never), emailsPerPage, sendDelaySeconds.",
             schema: obj(json!({"key": {"type": "string"}, "value": {}}), &["key", "value"]) },
@@ -169,7 +172,8 @@ fn describe(name: &str, a: &Value, n: usize) -> String {
         "tag_messages" => format!("{} tag \"{}\" on {n} message(s)", if a["remove"].as_bool() == Some(true) { "Remove" } else { "Add" }, s(a, "tag")),
         "create_folder" => format!("Create folder \"{}\"", s(a, "name")),
         "send_email" => format!("Send email to {}\nSubject: {}\n\n{}", s(a, "to"), s(a, "subject"), clip(s(a, "body"), 600)),
-        "update_filters" => format!("Replace your mail filters with this Sieve script:\n{}", clip(s(a, "script"), 600)),
+        "add_filter_rule" => format!("Add filter rule \"{}\": {} {} \"{}\" → {} {}", s(a, "name"), s(a, "field"), s(a, "comparator"), s(a, "value"), s(a, "action"), s(a, "action_value")),
+        "remove_filter_rule" => format!("Remove filter rule \"{}\"", s(a, "name")),
         "change_setting" => format!("Change setting {} to {}", s(a, "key"), a["value"]),
         "set_vacation" => format!("{} out-of-office reply{}", if a["enabled"].as_bool() == Some(true) { "Turn on" } else { "Turn off" },
             if s(a, "subject").is_empty() { String::new() } else { format!(": {}", s(a, "subject")) }),
@@ -345,19 +349,38 @@ fn exec(name: &str, a: &Value, c: &Client, ctx: &Ctx, host: &dyn Host) -> Result
             let text = String::from_utf8_lossy(&c.download(s(active, "blobId"), "script.sieve", "application/sieve")?).to_string();
             Ok(format!("Active script \"{}\":\n{text}", s(active, "name")))
         }
-        "update_filters" => {
+        "add_filter_rule" | "remove_filter_rule" => {
             let sacc = c.account_for("urn:ietf:params:jmap:sieve");
-            let (blob, _) = c.upload(s(a, "script").as_bytes().to_vec(), "application/sieve")?;
-            let v = c.call(json!([["SieveScript/validate", {"accountId": sacc, "blobId": blob}, "v"]]))?;
-            if let Some(e) = v[0][1]["error"].as_object() { return Err(format!("Invalid script: {}", e.get("description").and_then(|d| d.as_str()).unwrap_or("rejected"))); }
-            let r = c.call(json!([["SieveScript/get", {"accountId": sacc, "ids": null, "properties": ["id", "isActive"]}, "s"]]))?;
-            let list = r[0][1]["list"].as_array().cloned().unwrap_or_default();
-            let existing = list.iter().find(|x| x["isActive"] == true).or(list.first()).and_then(|x| x["id"].as_str().map(String::from));
-            let r = match existing {
-                Some(id) => c.call(json!([["SieveScript/set", {"accountId": sacc, "update": { id.clone(): {"blobId": blob} }, "onSuccessActivateScript": id}, "u"]]))?,
-                None => c.call(json!([["SieveScript/set", {"accountId": sacc, "create": {"n": {"name": "barbican", "blobId": blob}}, "onSuccessActivateScript": "#n"}, "u"]]))?,
+            let r = c.call(json!([["SieveScript/get", {"accountId": sacc, "ids": null, "properties": ["id", "name", "blobId", "isActive"]}, "s"]]))?;
+            let scripts = r[0][1]["list"].as_array().cloned().unwrap_or_default();
+            let text = match scripts.iter().find(|x| x["isActive"] == true).or(scripts.first()).and_then(|x| x["blobId"].as_str()) {
+                Some(b) => String::from_utf8_lossy(&c.download(b, "script.sieve", "application/sieve")?).to_string(),
+                None => String::new(),
             };
-            if r[0][1]["updated"].is_object() || r[0][1]["created"].is_object() { Ok("Filters saved and active.".into()) } else { Err("The server did not save the filters.".into()) }
+            let p = crate::sieve::parse(&text);
+            if p.locked { return Err("These rules use options only Bulwark can edit (vacation or active periods); change them in Bulwark.".into()); }
+            let mut rules = p.metadata["rules"].as_array().cloned().unwrap_or_default();
+            if name == "add_filter_rule" {
+                let field = s(a, "field");
+                let mut rule = crate::sieve::rule(s(a, "name"), field, if s(a, "comparator").is_empty() { "contains" } else { s(a, "comparator") },
+                    "", s(a, "action"), s(a, "action_value"), a["stop"] == true);
+                let vals: Vec<String> = s(a, "value").split(',').map(|v| v.trim().to_string()).filter(|v| !v.is_empty()).collect();
+                if field != "attachment" && field != "all" {
+                    if vals.is_empty() { return Err("The rule needs a value to match.".into()); }
+                    rule["conditions"][0]["value"] = if vals.len() == 1 { json!(vals[0]) } else { json!(vals) };
+                }
+                rules.push(rule);
+            } else {
+                let before = rules.len();
+                let want = s(a, "name").to_lowercase();
+                rules.retain(|r| r["name"].as_str().map(|n| n.to_lowercase()) != Some(want.clone()));
+                if rules.len() == before { return Err(format!("No rule named \"{}\".", s(a, "name"))); }
+            }
+            let ext: Vec<String> = c.session["capabilities"]["urn:ietf:params:jmap:sieve"]["sieveExtensions"].as_array()
+                .or(c.session["accounts"][&sacc]["accountCapabilities"]["urn:ietf:params:jmap:sieve"]["sieveExtensions"].as_array())
+                .map(|x| x.iter().filter_map(|v| v.as_str().map(String::from)).collect()).unwrap_or_default();
+            crate::server_settings::save_script(c, &crate::sieve::generate_with(&rules, &p.external, &ext), &scripts)?;
+            Ok(if name == "add_filter_rule" { "Rule added.".into() } else { "Rule removed.".into() })
         }
         "change_setting" => {
             let key = s(a, "key").to_string();

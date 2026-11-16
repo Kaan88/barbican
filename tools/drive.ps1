@@ -14,6 +14,7 @@ public class W {
   [DllImport("user32.dll")] public static extern bool SetCursorPos(int x, int y);
   [DllImport("user32.dll")] public static extern void mouse_event(uint f, uint x, uint y, uint d, IntPtr e);
   [DllImport("user32.dll")] public static extern bool SetProcessDPIAware();
+  [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();
   public struct RECT { public int L, T, R, B; }
 }
 "@
@@ -25,7 +26,14 @@ $r = New-Object W+RECT
 [W]::GetWindowRect($h, [ref]$r) | Out-Null
 [W]::SetForegroundWindow($h) | Out-Null
 Start-Sleep -Milliseconds 150
+# Safety: never send input unless Barbican is the foreground window.
+function Guard() {
+  [W]::SetForegroundWindow($h) | Out-Null
+  Start-Sleep -Milliseconds 120
+  if ([W]::GetForegroundWindow() -ne $h) { Write-Output "ABORT: Barbican is not the foreground window; no input sent"; exit 2 }
+}
 function Click($x, $y, $n) {
+  Guard
   [W]::SetCursorPos($r.L + [int]$x, $r.T + [int]$y) | Out-Null
   for ($i = 0; $i -lt $n; $i++) { [W]::mouse_event(2, 0, 0, 0, [IntPtr]::Zero); [W]::mouse_event(4, 0, 0, 0, [IntPtr]::Zero); Start-Sleep -Milliseconds 60 }
 }
@@ -41,6 +49,6 @@ switch ($cmd) {
   }
   "click"  { Click $a1 $a2 1 }
   "dclick" { Click $a1 $a2 2 }
-  "type"   { [System.Windows.Forms.SendKeys]::SendWait($a1) }
-  "clicktype" { Click $a1 $a2 1; Start-Sleep -Milliseconds 250; [System.Windows.Forms.SendKeys]::SendWait($a3) }
+  "type"   { Guard; [System.Windows.Forms.SendKeys]::SendWait($a1) }
+  "clicktype" { Click $a1 $a2 1; Start-Sleep -Milliseconds 250; Guard; [System.Windows.Forms.SendKeys]::SendWait($a3) }
 }
