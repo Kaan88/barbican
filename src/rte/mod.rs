@@ -595,7 +595,9 @@ fn handle_key(u: &AppWindow, text: &str, ctrl: bool, shift: bool, alt: bool) -> 
     }
     if key(t, K::Escape) || t == "\u{1b}" {
         if u.get_rte_link_open() { u.set_rte_link_open(false); return true; }
-        return false;
+        // a selection (and its floating toolbar) is dismissed first; only a second Esc closes the message
+        let collapsed = with(|e| { if e.sel.is_collapsed() { false } else { let f = e.sel.focus; e.set_caret(f); true } });
+        return collapsed;
     }
     if key(t, K::Insert) {
         if shift { paste(u, false); return true; }

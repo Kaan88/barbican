@@ -281,6 +281,7 @@ fn reset(u: &AppWindow) {
     u.set_c_subject("".into());
     rte::set_doc(u, Doc::default());
     u.set_c_status("".into());
+    u.set_c_saved_at("".into());
     u.set_can_undo(false);
     refresh_attachments(u);
 }
@@ -736,6 +737,7 @@ pub fn save_draft(u: &AppWindow, c: Arc<Client>, close: bool) {
             Ok(id) => {
                 ST.with(|s| s.borrow_mut().draft_id = Some(id));
                 u.set_c_status("Draft saved".into());
+                u.set_c_saved_at(chrono::Local::now().format("%H:%M").to_string().into());
                 if close { u.set_composing(false); crate::mail::show_toast(&u, "Draft saved", false); }
             }
             Err(e) => u.set_c_status(e.into()),
