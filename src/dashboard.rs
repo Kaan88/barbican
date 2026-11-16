@@ -132,16 +132,26 @@ fn pt(i: usize, n: usize, v: f64, max: f64) -> (f64, f64) {
     (x, 100.0 - (v / max).clamp(0.0, 1.0) * 100.0)
 }
 
-fn line(vals: &[f64], max: f64) -> String {
+/// Smooth curve through the points (cubic segments with horizontal tangents, no overshoot).
+fn curve(vals: &[f64], max: f64, first: &str, rev: bool) -> String {
     let n = vals.len();
-    vals.iter().enumerate().map(|(i, v)| { let (x, y) = pt(i, n, *v, max); format!("{} {x:.1} {y:.2}", if i == 0 { "M" } else { "L" }) })
-        .collect::<Vec<_>>().join(" ")
+    let mut pts: Vec<(f64, f64)> = (0..n).map(|i| pt(i, n, vals[i], max)).collect();
+    if rev { pts.reverse(); }
+    let mut o = String::new();
+    for (i, (x, y)) in pts.iter().enumerate() {
+        if i == 0 { o += &format!("{first} {x:.1} {y:.2}"); continue; }
+        let (px, py) = pts[i - 1];
+        let mx = (px + x) / 2.0;
+        o += &format!(" C {mx:.1} {py:.2} {mx:.1} {y:.2} {x:.1} {y:.2}");
+    }
+    o
 }
 
-fn area(vals: &[f64], max: f64) -> String {
-    let n = vals.len();
-    let last = if n <= 1 { 0.0 } else { 1000.0 };
-    format!("{} L {last} 100 L 0 100 Z", line(vals, max))
+fn line(vals: &[f64], max: f64) -> String { curve(vals, max, "M", false) }
+
+/// Band between a series top and its base (the series below it in the stack).
+fn band(top: &[f64], base: &[f64], max: f64) -> String {
+    format!("{} {} Z", curve(top, max, "M", false), curve(base, max, "L", true))
 }
 
 fn bars(top: &[f64], base: &[f64], max: f64) -> String {
@@ -185,7 +195,7 @@ impl Ctx<'_> {
         p.value = fmt(d.value(names), u).into();
         if let Some(c) = d.change(names) {
             let up = c >= 0.0;
-            p.change = format!("{} {}%", if up { "\u{2197}" } else { "\u{2198}" }, fmt(c.abs(), Unit::Count)).into();
+            p.change = format!("{} {}%", if up { "\u{2197}\u{FE0E}" } else { "\u{2198}\u{FE0E}" }, fmt(c.abs(), Unit::Count)).into();
             p.good = match pol { Pol::Up => up, Pol::Down => !up, Pol::Neutral => true };
         }
         let s = d.series(names, 20);
@@ -236,7 +246,8 @@ impl Ctx<'_> {
                 let mut names = vec![];
                 let (mut a, mut l) = (vec![], vec![]);
                 for i in idx {
-                    a.push(area(&tops[i], max));
+                    let zero = vec![0.0; n];
+                    a.push(band(&tops[i], if i == 0 { &zero } else { &tops[i - 1] }, max));
                     l.push(line(&tops[i], max));
                     cols.push(col(PALETTE[i % 5]));
                     names.push(series[i].0.to_string());
@@ -265,7 +276,7 @@ impl Ctx<'_> {
 
     fn ratio(&self, title: &str, icon: &str, good: &[&str], bad: &[&str], note: &str) -> DashPanel {
         let (g, b) = (self.d.value(good), self.d.value(bad));
-        let mut p = blank(4, title, icon, 124);
+        let mut p = blank(4, title, icon, 112);
         p.value = if g + b > 0.0 { fmt(g / (g + b) * 100.0, Unit::Pct) } else { "—".into() }.into();
         p.note = note.into();
         p
@@ -323,7 +334,7 @@ fn layout(tab: usize, x: &Ctx) -> Vec<DashRow> {
                 (1.0, vec![
                     x.ratio("Clean mail", "\u{E83D}", &["message-ingest.ham"], &["message-ingest.spam"], "Share of inbound messages classified as ham during the period."),
                     x.hbars("Rejections", "\u{F140}", &[("Blocked IPs", &["security.ip-blocked"]), ("Failed logins", &["auth.failed"]), ("Spam", &["message-ingest.spam"]),
-                        ("Unknown recipient", &["smtp.mailbox-does-not-exist"]), ("Relay denied", &["smtp.relay-not-allowed"]), ("Rate limited", &["smtp.rate-limit-exceeded"])], Count, 170),
+                        ("Unknown recipient", &["smtp.mailbox-does-not-exist"]), ("Relay denied", &["smtp.relay-not-allowed"]), ("Rate limited", &["smtp.rate-limit-exceeded"])], Count, 182),
                 ]),
             ]),
             row(vec![
@@ -353,7 +364,7 @@ fn layout(tab: usize, x: &Ctx) -> Vec<DashRow> {
                 x.card("Delivery Time", "\u{E916}", "Average time from submission to delivery", &["delivery.total-time"], Ms, Down, 2),
             ]),
             row(vec![
-                (2.0, vec![x.chart("Messages", &[("received", &["queue.message-queued"]), ("sent", &["delivery.delivered"])], Count, 0, 300)]),
+                (2.0, vec![x.chart("Messages", &[("received", &["queue.message-queued"]), ("sent", &["queue.authenticated-message-queued"])], Count, 0, 300)]),
                 (1.0, vec![x.hbars("Outgoing", is, &[("Received", &["queue.message-queued"]), ("Submitted", &["queue.authenticated-message-queued"]),
                     ("Delivered", &["delivery.delivered"]), ("DSNs sent", &["queue.dsn-queued"]), ("Reports sent", &["queue.report-queued"])], Count, 300)]),
             ]),
@@ -465,9 +476,9 @@ fn layout(tab: usize, x: &Ctx) -> Vec<DashRow> {
         _ => vec![
             row(vec![
                 (1.0, vec![x.ratio("Hit rate", "\u{E945}", &["cache.hit"], &["cache.miss"], "Lookups served from the cache.")]),
-                (1.0, vec![{ let mut p = x.card("Cache Hits", "\u{E73E}", "Cache hits", &["cache.hit"], Count, Up, 0); p.height = 124; p }]),
-                (1.0, vec![{ let mut p = x.card("Cache Misses", "\u{E711}", "Cache misses", &["cache.miss"], Count, Down, 1); p.height = 124; p }]),
-                (1.0, vec![{ let mut p = x.card("Cache Size", im, "Memory used by caches", &["cache.size"], Bytes, Neutral, 2); p.height = 124; p }]),
+                (1.0, vec![{ let mut p = x.card("Cache Hits", "\u{E73E}", "Cache hits", &["cache.hit"], Count, Up, 0); p.height = 112; p }]),
+                (1.0, vec![{ let mut p = x.card("Cache Misses", "\u{E711}", "Cache misses", &["cache.miss"], Count, Down, 1); p.height = 112; p }]),
+                (1.0, vec![{ let mut p = x.card("Cache Size", im, "Memory used by caches", &["cache.size"], Bytes, Neutral, 2); p.height = 112; p }]),
             ]),
             row(vec![
                 (2.0, vec![x.chart("Lookups", &[("hit", &["cache.hit"]), ("miss", &["cache.miss"])], Count, 0, 300)]),

@@ -106,9 +106,10 @@ component PanelView inherits Rectangle {
         }
         Rectangle { horizontal-stretch: 1; }
         for n[i] in (p.kind == 1 || p.kind == 2) ? p.names : []: HorizontalLayout {
+            horizontal-stretch: 0;
             spacing: 5px;
             Rectangle { width: 7px; height: 7px; y: 10px; border-radius: 4px; background: p.colors[i]; }
-            Text { text: n; color: dim; font-size: 11px; vertical-alignment: center; }
+            Text { text: n; color: dim; font-size: 11px; vertical-alignment: center; horizontal-stretch: 0; }
         }
     }
 
@@ -138,6 +139,7 @@ component PanelView inherits Rectangle {
             height: 30px;
             viewbox-width: 1000;
             viewbox-height: 100;
+            fit: fill;
             commands: p.spark;
             stroke: accent;
             stroke-width: 1.3px;
@@ -173,6 +175,7 @@ component PanelView inherits Rectangle {
             height: ch;
             viewbox-width: 1000;
             viewbox-height: 100;
+            fit: fill;
             commands: a;
             fill: p.kind == 2 ? p.colors[i] : p.colors[i].transparentize(0.62);
             stroke: transparent;
@@ -184,6 +187,7 @@ component PanelView inherits Rectangle {
             height: ch;
             viewbox-width: 1000;
             viewbox-height: 100;
+            fit: fill;
             commands: l;
             fill: transparent;
             stroke: p.colors[i];
@@ -204,13 +208,14 @@ component PanelView inherits Rectangle {
     if p.kind == 3: VerticalLayout {
         padding-left: 14px;
         padding-right: 14px;
-        padding-top: 48px;
-        padding-bottom: 10px;
-        spacing: 2px;
+        padding-top: 44px;
+        padding-bottom: 8px;
+        spacing: 1px;
         alignment: start;
         for b in p.bars: HorizontalLayout {
             height: 21px;
             spacing: 10px;
+            // one row per bar
             Text { text: b.label; color: fg; font-size: 11px; width: 84px; overflow: elide; vertical-alignment: center; }
             Rectangle {
                 horizontal-stretch: 1;
@@ -341,8 +346,8 @@ export component AdminDashboard inherits Rectangle {
         }
         sv := ScrollView {
             vertical-stretch: 1;
-            viewport-width: self.visible-width;
-            viewport-height: content.preferred-height;
+            content-width: self.visible-width;
+            content-height: content.preferred-height;
             content := VerticalLayout {
                 width: sv.visible-width;
                 spacing: 12px;
