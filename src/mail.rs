@@ -214,6 +214,9 @@ pub fn mailbox_info(id: &str) -> (String, String) {
         .unwrap_or_default())
 }
 
+/// The active account's folders as Mailbox/get returned them.
+pub fn mailboxes() -> Vec<Value> { BOXES.with(|b| b.borrow().list.clone()) }
+
 pub fn mailbox_role(id: &str) -> String {
     BOXES.with(|b| b.borrow().list.iter().find(|m| m["id"] == id).and_then(|m| m["role"].as_str()).unwrap_or("").to_string())
 }

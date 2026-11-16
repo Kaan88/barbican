@@ -1,6 +1,7 @@
 #![cfg_attr(not(test), windows_subsystem = "windows")]
 
 mod a11y;
+mod auth;
 mod admin;
 mod dashboard;
 mod automation;
@@ -30,9 +31,14 @@ mod autosave;
 mod chips;
 mod instance;
 mod mailto;
-mod ctheme;
 mod recipients;
 mod schedule;
+mod dark_mail;
+mod invite;
+mod mdn;
+mod quick_rules;
+mod reader;
+mod zip;
 
 use chrono::{DateTime, Local};
 use serde_json::{json, Value};
@@ -60,8 +66,8 @@ fn csp_with(images: bool, script: Option<&str>) -> String {
         None => "'none'".into(),
     };
     format!(
-        "<meta http-equiv=\"Content-Security-Policy\" content=\"default-src 'none'; style-src 'unsafe-inline' *; font-src * data:; img-src {}; script-src {scripts}; object-src 'none'; frame-src 'none'; form-action 'none'\">",
-        if images { "* data:" } else { "data:" }
+        "<meta http-equiv=\"Content-Security-Policy\" content=\"default-src 'none'; style-src 'unsafe-inline' http: https:; font-src http: https: data:; img-src {}; script-src {scripts}; object-src 'none'; frame-src 'none'; form-action 'none'\">",
+        if images { "http: https: data:" } else { "data:" }
     )
 }
 
@@ -110,7 +116,7 @@ fn render_current(u: &AppWindow) {
                 let t = if cur.text.trim().is_empty() { cur.html.as_deref().map(html_to_text).unwrap_or_default() } else { cur.text.clone() };
                 u.set_r_body(t.into());
             }
-            _ => show_html(wrap_html_opts(&body, cur.allow)),
+            _ => show_html(wrap_html_full(&body, cur.allow, true)),
         }
     });
 }
@@ -127,7 +133,10 @@ fn wv_bg() -> (u8, u8, u8, u8) {
 
 fn show_html(h: String) {
     WV.with(|w| match &*w.borrow() {
-        Some(v) => { let _ = v.load_html(&h); }
+        // WebView2's NavigateToString takes at most 2 MB: a bigger page (a long message, its
+        // source) is served from memory through the app's own scheme (never a file: origin)
+        Some(v) if h.len() > reader::INLINE_HTML_MAX => { let url = reader::page_url(&h); let _ = v.load_url(&url); }
+        Some(v) => { reader::drop_page(); let _ = v.load_html(&h); }
         None => PENDING.with(|p| *p.borrow_mut() = Some(h)),
     });
 }
@@ -147,10 +156,22 @@ fn wrap_html(body: &str) -> String {
 }
 
 fn wrap_html_opts(body: &str, images: bool) -> String {
+    wrap_html_full(body, images, false)
+}
+
+/// The reader page. `recolor`: an HTML mail shown while the app is dark gets Bulwark's dark
+/// conversion (dark_mail.rs, email_dark.js) unless "Always show emails in light mode" or the
+/// accessibility colour override is on.
+fn wrap_html_full(body: &str, images: bool, recolor: bool) -> String {
     let p = settings::Settings::load();
     // Settings > Accessibility: spacing, width, links, motion, text size and fitting
     let a = a11y::A11y::load();
-    let script = a.mail_script();
+    let recolor = recolor && DARK.with(|d| d.get()) && !p.bool("emailAlwaysLightMode", false) && !a.override_active() && !body.starts_with("<pre>");
+    let script = match (a.mail_script(), recolor) {
+        (Some(s), true) => Some(format!("{s}\n{}", dark_mail::SCRIPT)),
+        (None, true) => Some(dark_mail::SCRIPT.to_string()),
+        (s, false) => s,
+    };
     let csp = csp_with(images, script.as_deref());
     let extra = format!("<style>{}</style>{}", a.mail_css(DARK.with(|d| d.get()) && !p.bool("emailAlwaysLightMode", false)),
         script.map(|s| format!("<script>{s}</script>")).unwrap_or_default());
@@ -167,6 +188,12 @@ fn wrap_html_opts(body: &str, images: bool) -> String {
     };
     if plain && !p.bool("emailAlwaysLightMode", false) {
         return format!("<!doctype html><html><head><meta charset=utf-8>{csp}<base target=_blank><style>html,body{{background:#141414;color:#d4d4d4}}body{{margin:{margin}px;font-family:'Segoe UI',sans-serif;font-size:14px;word-wrap:break-word}}pre{{white-space:pre-wrap;font-family:{pre_font};margin:0}}a{{color:#f0577a}}</style></head><body>{body}</body></html>");
+    }
+    if recolor {
+        // the mail's own dark styles follow the app's theme, not the OS (resolveColorSchemeMedia)
+        let scheme = dark_mail::color_scheme(true, dark_mail::has_native_dark(body));
+        let body = dark_mail::resolve_color_scheme_media(body, true);
+        return format!("<!doctype html><html class=\"{}\" style=\"color-scheme:{scheme}\"><head><meta charset=utf-8>{csp}<base target=_blank><style>body{{margin:{margin}px;font-family:'Segoe UI',sans-serif;font-size:14px;word-wrap:break-word}}pre{{white-space:pre-wrap;font-family:{pre_font}}}img{{max-width:100%;height:auto}}{}</style></head><body>{body}</body></html>", dark_mail::PENDING_CLASS, dark_mail::css());
     }
     format!("<!doctype html><html><head><meta charset=utf-8>{csp}<base target=_blank><style>body{{margin:{margin}px;font-family:'Segoe UI',sans-serif;font-size:14px;color:#111;background:#fff;word-wrap:break-word}}pre{{white-space:pre-wrap;font-family:{pre_font}}}img{{max-width:100%;height:auto}}</style></head><body>{body}</body></html>")
 }
@@ -198,11 +225,22 @@ fn sync_webview(ui: &AppWindow) {
                 .with_bounds(r)
                 .with_visible(vis)
                 .with_devtools(false)
+                .with_custom_protocol(reader::PAGE_SCHEME.into(), |_id, req| {
+                    let (status, body) = match reader::serve_page(req.uri().path()) {
+                        Some(b) => (200, std::borrow::Cow::Owned(b.to_vec())),
+                        None => (404, std::borrow::Cow::Borrowed(&b""[..])),
+                    };
+                    wry::http::Response::builder().status(status)
+                        .header("Content-Type", "text/html; charset=utf-8")
+                        .header("Cache-Control", "no-store")
+                        .body(body).unwrap()
+                })
                 .with_navigation_handler(|url| {
                     // A top-level navigation is never a click on a mail link (<base target=_blank>
                     // sends those to the new-window handler below); it comes from the message itself
                     // (<meta http-equiv=refresh>), so a mailto: here is dropped, not opened.
                     if mailto::parse(&url).is_some() { return false; }
+                    if let Some(ok) = reader::allow_navigation(&url) { return ok; }
                     if url.starts_with("http") { oauth::open_browser(&url); false } else { true }
                 })
                 // links open in a new window (<base target=_blank>): clicked mailto: links open
@@ -796,6 +834,7 @@ fn main() -> Result<(), slint::PlatformError> {
         u.set_r_from("".into());
         u.set_r_date("".into());
         CUR.with(|c| *c.borrow_mut() = None);
+        reader::clear(&u);
         lite::clear();
         u.set_images_blocked(false);
         u.set_lite_height(0.0);
@@ -885,6 +924,8 @@ fn main() -> Result<(), slint::PlatformError> {
                             u.get_r_date().to_string() + ", " + &u.get_r_from(),
                         );
                         REPLY.with(|r| *r.borrow_mut() = Some(rt));
+                        // banners (unsubscribe, read receipt, invitation, long body) and their loads
+                        reader::loaded(&u, c2.clone(), &m, &id);
                         let dis = disabled_plugins();
                         let rows = PLUGINS.with(|p| plugins::email_details(&p.borrow(), &dis, &m));
                         u.set_plugin_rows(ModelRc::new(VecModel::from(rows.into_iter().map(|(label, value, tone)| PRow { label: label.into(), value: value.into(), tone: tone.into() }).collect::<Vec<_>>())));
@@ -1719,6 +1760,7 @@ fn main() -> Result<(), slint::PlatformError> {
                     }
                 }
             }
+            a if a.starts_with("rx:") => reader::pick(&u, &st, a, ""),
             other => {
                 apply_routed(&u, &st, vec![id], other);
             }
@@ -1727,6 +1769,10 @@ fn main() -> Result<(), slint::PlatformError> {
 
     let (st, wa) = (state.clone(), ui.as_weak());
     ui.on_open_attachment(move |i| {
+        // an attached message (message/rfc822, .eml) opens in the reader through Email/parse
+        if let (Some(u), Some(c), Some(a)) = (wa.upgrade(), reader_client(&st), CUR_MSG.with(|x| x.borrow().as_ref().and_then(|(_, atts)| atts.get(i as usize).cloned()))) {
+            if reader::is_message_attachment(&a) { reader::open_eml(&u, c, a); return; }
+        }
         // Bulwark mailAttachmentAction: preview (open) or download (save)
         if settings::Settings::load().str("mailAttachmentAction", "preview") == "download" {
             if let Some(u) = wa.upgrade() { u.invoke_save_attachment(i); }
@@ -1754,6 +1800,7 @@ fn main() -> Result<(), slint::PlatformError> {
     ui.on_ctx_pick(move |a| ctxmenu::pick(&w.unwrap(), &st, &a));
     let (w, st) = (ui.as_weak(), state.clone());
     ui.on_prompt_ok(move |t| ctxmenu::prompt_ok(&w.unwrap(), &st, &t));
+    reader::wire(&ui, state.clone());
 
     let (w, st) = (ui.as_weak(), state.clone());
     ui.on_save_attachment(move |i| {
@@ -2033,7 +2080,6 @@ pub fn apply_theme(ui: &AppWindow) {
     ui.global::<Theme>().set_dark(dark);
     // Settings > Appearance > Style: Bento (tiles) or Nordic (one surface)
     ui.global::<Theme>().set_style(if settings::Settings::load().str("uiStyle", "bento") == "nordic" { 1 } else { 0 });
-    ctheme::sync(ui);
 }
 
 
@@ -2058,7 +2104,6 @@ pub fn apply_ui_prefs(ui: &AppWindow) {
     // Bulwark FONT_SIZE_SCALE on the 13px base
     ui.global::<Prefs>().set_font_size(13.0 * a.font_scale);
     ui.global::<Theme>().set_more_contrast(a.more_contrast);
-    ctheme::sync(ui);
     ui.global::<Prefs>().set_reduce_motion(a.reduce_motion);
     ui.global::<Prefs>().set_large_targets(a.large_targets);
     // Bulwark focus outline widths: normal 2px, thick 3px, extra 5px

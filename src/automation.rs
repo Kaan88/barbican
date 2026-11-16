@@ -15,6 +15,10 @@
 //!   ui bento|nordic dark|light [more|normal]   (style, theme and contrast in memory only, never saved)
 //!   wv-eval JS / wv-result (run JS in the email WebView, then read its JSON result)
 //!   pick PATH[|PATH...]  (answer the next file-open picker with these files instead of a dialog)
+//!   save PATH            (answer the next save-file dialog with this path)
+//!   rx-banners           (the open message's reader banners as JSON)
+//!   rx-import PATH / rx-find TEXT / rx-destroy ID...  (test messages; only on the test account,
+//!   and only in a build with `--features automation-writes`: release builds cannot write)
 use crate::AppWindow;
 use slint::platform::{Key, PointerEventButton, WindowEvent};
 use slint::{ComponentHandle, LogicalPosition, SharedString};
@@ -24,6 +28,14 @@ use std::sync::mpsc;
 
 thread_local! {
     static PICK: std::cell::RefCell<Option<Vec<std::path::PathBuf>>> = const { std::cell::RefCell::new(None) };
+    static SAVE: std::cell::RefCell<Option<std::path::PathBuf>> = const { std::cell::RefCell::new(None) };
+}
+
+/// Where to save a file: the path queued by the `save` command when automation is on (none
+/// queued: nothing is saved, so no dialog opens on screen), otherwise the native dialog.
+pub fn save_file(name: &str) -> Option<std::path::PathBuf> {
+    if enabled() { return SAVE.with(|p| p.borrow_mut().take()); }
+    rfd::FileDialog::new().set_file_name(name).save_file()
 }
 
 /// Files for a file-open picker: the paths queued by the `pick` command when automation is on,
@@ -159,6 +171,18 @@ fn run(u: &AppWindow, line: &str) -> String {
         }
         // recipient chips, typed text and suggestions of the composer (read-only probe)
         "chips" => crate::chips::describe(u),
+        "save" => {
+            let p = a.get(1).copied().unwrap_or("").trim();
+            SAVE.with(|s| *s.borrow_mut() = (!p.is_empty()).then(|| p.into()));
+            "ok".into()
+        }
+        "rx-banners" => crate::reader::probe(),
+        #[cfg(feature = "automation-writes")]
+        "rx-import" => crate::reader::automation_import(a.get(1).copied().unwrap_or("").trim()),
+        #[cfg(feature = "automation-writes")]
+        "rx-find" => crate::reader::automation_find(a.get(1).copied().unwrap_or("").trim()),
+        #[cfg(feature = "automation-writes")]
+        "rx-destroy" => crate::reader::automation_destroy(a.get(1).copied().unwrap_or("")),
         "size" => { let s = win.size(); format!("{} {} scale {}", s.width, s.height, win.scale_factor()) }
         // resize the (off-screen) window, in logical pixels, to check narrow layouts
         "resize" => { win.set_size(slint::LogicalSize::new(pos(&args, 0).max(400.0), pos(&args, 1).max(300.0))); "ok".into() }

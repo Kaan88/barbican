@@ -19,12 +19,10 @@ The `.dc.html` files here are the board sources: plain HTML with inline styles; 
   (Settings › Appearance › Style). Older token names (`bg`, `side`, `hover`, `reader`, …) map onto the palette.
 - Hidden test channel: `ui bento|nordic dark|light [more|normal]` switches the look in memory only; `resize W H`.
 
-## Merge note: composer extras (branch p2-composer)
+## Parity extras (branch parity-round2)
 
-The recipient chips, the schedule-send dialog and the Scheduled banner (`ui/recipients.slint`,
-`ui/compose-extras.slint`) read colours from a separate `CTheme` global (`ui/ctheme.slint`) so
-they never import app.slint. `src/ctheme.rs::sync` copies the neutral `Theme` tokens into it;
-the rose/mint/sky/amber tints, `shadow` and `scrim` are defined in `ctheme.slint` itself.
-When the design branches add Theme tokens or the Bento/Nordic style switch, either extend
-`ctheme::sync` to copy them, or (preferred, after the merge) replace `CTheme` with `Theme` in
-those two files and delete `ctheme.slint` / `ctheme.rs`.
+The composer extras (`ui/recipients.slint`, `ui/compose-extras.slint`) read colours from `CTheme`
+(`ui/ctheme.slint`) and the reader banners (`ui/reader.slint`) from `RxTheme`. Both are thin
+aliases whose every token is bound to `Theme` in `ui/theme.slint` (no Rust sync), so style,
+dark/light and more-contrast follow automatically. New parity UI files should import `Theme`
+from `theme.slint` directly.

@@ -1,33 +1,34 @@
+import { Theme } from "theme.slint";
+
 // Colours for the composer extras (recipient chips, schedule dialog, scheduled banner).
-// The neutral tokens are copied from the app's Theme by Rust (src/ctheme.rs) whenever the
-// theme changes, so these files never import app.slint. The four meaning tints follow the
+// Every token maps onto the app's Theme (ui/theme.slint), so these files never import app.slint. The four meaning tints follow the
 // design language (design/README.md): rose = today/action, mint = waiting/done,
 // sky = travel/work, amber = attention.
 export global CTheme {
-    in-out property <bool> dark: true;
-    in-out property <color> text: #fafafa;
-    in-out property <color> dim: #adadad;
-    in-out property <color> line: #262626;
-    in-out property <color> popup: #1c1c1c;
-    in-out property <color> hover: #1a1a1a;
-    in-out property <color> raised: #181818;
-    in-out property <color> chip: #262626;
-    in-out property <color> accent: #f0577a;
-    in-out property <color> on-accent: #16070c;
-    in-out property <color> sel: #4a1424;
-    in-out property <color> sel-text: #ffd5df;
-    in-out property <color> ring: #f0577a;
-    in-out property <color> bg: #0a0a0a;
-    in-out property <string> icons: "Segoe Fluent Icons";
+    out property <bool> dark: Theme.dark;
+    out property <color> text: Theme.text;
+    out property <color> dim: Theme.dim;
+    out property <color> line: Theme.line;
+    out property <color> popup: Theme.popup;
+    out property <color> hover: Theme.hover;
+    out property <color> raised: Theme.raised;
+    out property <color> chip: Theme.chip;
+    out property <color> accent: Theme.accent;
+    out property <color> on-accent: Theme.on-accent;
+    out property <color> sel: Theme.sel;
+    out property <color> sel-text: Theme.sel-text;
+    out property <color> ring: Theme.ring;
+    out property <color> bg: Theme.bg;
+    out property <string> icons: Theme.icons;
     // shadows and the dialog scrim
     out property <color> shadow: #00000059;
     out property <color> scrim: #00000073;
-    out property <color> rose-bg: dark ? #f0577a24 : #fde4ea;
-    out property <color> rose-fg: dark ? #ffb3c4 : #8c1733;
-    out property <color> mint-bg: dark ? #34d39921 : #dcf5e8;
-    out property <color> mint-fg: dark ? #86efc4 : #17603f;
-    out property <color> sky-bg: dark ? #60a5fa24 : #dfeafd;
-    out property <color> sky-fg: dark ? #a8cbff : #1e3f8a;
-    out property <color> amber-bg: dark ? #fbbf2421 : #fdf1d3;
-    out property <color> amber-fg: dark ? #fcd679 : #7a4a06;
+    out property <color> rose-bg: Theme.rose-bg;
+    out property <color> rose-fg: Theme.rose-fg;
+    out property <color> mint-bg: Theme.mint-bg;
+    out property <color> mint-fg: Theme.mint-fg;
+    out property <color> sky-bg: Theme.sky-bg;
+    out property <color> sky-fg: Theme.sky-fg;
+    out property <color> amber-bg: Theme.amber-bg;
+    out property <color> amber-fg: Theme.amber-fg;
 }

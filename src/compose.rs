@@ -395,6 +395,20 @@ pub fn open(u: &AppWindow, c: Arc<Client>, kind: ComposeKind, m: Option<&Value>)
     crate::autosave::start(u, false);
 }
 
+/// Forward `m` as a message/rfc822 attachment (Bulwark lib/forward-as-attachment.ts): the
+/// message's own blob is attached by blobId (no download or upload), the body starts empty.
+/// False when the message has no blob to attach.
+pub fn open_forward_as_attachment(u: &AppWindow, c: Arc<Client>, m: &Value, name: &str, subject: &str) -> bool {
+    let Some(blob) = m["blobId"].as_str().filter(|b| !b.is_empty()).map(String::from) else { return false };
+    open(u, c, ComposeKind::Forward, Some(m));
+    u.set_c_subject(subject.into());
+    rte::set_doc(u, Doc { blocks: vec![Block::para("")] });
+    let att = Attachment { blob_id: blob, name: name.into(), mime: "message/rfc822".into(), size: m["size"].as_u64().unwrap_or(0) as usize };
+    ST.with(|s| { let mut s = s.borrow_mut(); s.attachments = vec![att]; s.quoted_inline.clear(); });
+    refresh_attachments(u);
+    true
+}
+
 /// Re-open a saved draft for editing.
 pub fn open_draft(u: &AppWindow, c: Arc<Client>, m: &Value) {
     reset(u);

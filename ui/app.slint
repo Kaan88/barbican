@@ -5,6 +5,9 @@ import { Theme, Icons, SIcon, Prefs } from "theme.slint";
 export { Theme, Icons, Prefs }
 // composer extras (p2-composer): recipient chips + autocomplete, palette
 import { CTheme } from "ctheme.slint";
+// reader extras (p2-reader): banners, view source, receipts, invitations
+import { RxBanners, RX, RxTheme, RxBannerData, RxAction } from "reader.slint";
+export { RX, RxTheme, RxBannerData, RxAction }
 import { Rcpt, RChip, RSugg, RecipientField, RecipientSuggest } from "recipients.slint";
 import { CompX, SaveState, SPreset, ScheduleDialog, ScheduledBar } from "compose-extras.slint";
 export { CTheme, Rcpt, RChip, RSugg, CompX, SPreset }
@@ -2007,6 +2010,8 @@ export component AppWindow inherits Window {
                                 MenuItem { text: "Report spam"; clicked => { root.act("spam"); } }
                                 MenuItem { text: "Mark as unread"; clicked => { root.act("unread"); } }
                                 MenuItem { text: "Print"; clicked => { root.act("print"); } }
+                                // view source, forward as attachment, save .eml, quick rules… (src/reader.rs)
+                                MenuItem { text: "More actions…"; clicked => { root.ctx("reader", root.current-mail, acts.absolute-position.x + acts.width - 220px, acts.absolute-position.y + 40px); } }
                             }
                         }
                     }
@@ -2107,6 +2112,7 @@ export component AppWindow inherits Window {
                     }
                     Text { text: root.spam-detail; color: Theme.dim; font-size: 11.5px; vertical-alignment: center; overflow: elide; horizontal-stretch: 1; }
                 }
+                RxBanners { }
                 if root.images-blocked: Rectangle {
                     height: 44px;
                     border-radius: 14px;
@@ -2194,6 +2200,19 @@ export component AppWindow inherits Window {
                                 if Theme.nordic: Text { text: a.name; color: Theme.text; font-size: 13.5px * Prefs.fs; font-weight: 600; max-width: 200px; overflow: elide; vertical-alignment: center; }
                                 if Theme.nordic: Text { text: a.size; color: Theme.dim; font-size: 12.5px * Prefs.fs; vertical-alignment: center; }
                                 VerticalLayout { alignment: center; HoverAction { icon: Icons.download; clicked => { root.save-attachment(a.index); } } }
+                            }
+                        }
+                        // Download all as .zip (src/reader.rs)
+                        if root.attachments.length > 1: Rectangle {
+                            height: Theme.nordic ? 50px : 54px;
+                            width: dal.preferred-width;
+                            border-radius: Theme.nordic ? 18px : 16px;
+                            background: dla.has-hover ? Theme.hover : transparent;
+                            dla := TouchArea { clicked => { RX.action("att", "zip"); } }
+                            dal := HorizontalLayout {
+                                padding-left: 12px; padding-right: 12px; spacing: 8px;
+                                VerticalLayout { alignment: center; SIcon { commands: Icons.download; size: 16px; weight: 1.8; tint: Theme.accent; } }
+                                Text { text: "Download all"; color: Theme.text; font-size: 12.5px * Prefs.fs; font-weight: 600; vertical-alignment: center; }
                             }
                         }
                     }
