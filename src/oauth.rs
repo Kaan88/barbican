@@ -133,7 +133,7 @@ fn client_id(m: &Meta, redirect: &str, fallback: &str) -> String {
     if let Some(id) = cache[reg.as_str()].as_str() { return id.to_string(); }
     let body = json!({
         "client_name": "Barbican",
-        "redirect_uris": [redirect, "http://127.0.0.1/callback", "http://localhost/callback"],
+        "redirect_uris": [redirect, "http://127.0.0.1:8791/callback", "http://127.0.0.1/callback"],
         "grant_types": ["authorization_code", "refresh_token"],
         "response_types": ["code"],
         "token_endpoint_auth_method": "none",
