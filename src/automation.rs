@@ -13,6 +13,7 @@
 //!   size                 (window size)
 //!   wv-eval JS / wv-result (run JS in the email WebView, then read its JSON result)
 //!   pick PATH[|PATH...]  (answer the next file-open picker with these files instead of a dialog)
+//!   cal-dump TEXT        (the loaded calendar events whose title contains TEXT, as JSON; read-only)
 use crate::AppWindow;
 use slint::platform::{Key, PointerEventButton, WindowEvent};
 use slint::{ComponentHandle, LogicalPosition, SharedString};
@@ -155,6 +156,7 @@ fn run(u: &AppWindow, line: &str) -> String {
             PICK.with(|p| *p.borrow_mut() = Some(v));
             "ok".into()
         }
+        "cal-dump" => crate::calendar::dump(a.get(1).copied().unwrap_or("")),
         "size" => { let s = win.size(); format!("{} {} scale {}", s.width, s.height, win.scale_factor()) }
         "shot" => {
             let path = a.get(1).copied().unwrap_or("shot.png");

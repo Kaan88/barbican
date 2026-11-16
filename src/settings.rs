@@ -549,3 +549,10 @@ pub fn h12() -> bool {
         .map(|v| v["timeFormat"].as_str() == Some("12h"))
         .unwrap_or(false)
 }
+
+/// Write one Bulwark-keyed pref (a value with no settings row, such as sharedCalendarColors).
+pub fn set_pref(key: &str, value: Value) {
+    let mut s = Settings::load();
+    s.prefs.insert(key.into(), value);
+    s.save();
+}

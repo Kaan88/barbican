@@ -1,0 +1,1305 @@
+// Calendar depth (Bulwark parity): the full event editor (guests, reminders, time zone, end
+// date, show as / visibility, custom recurrence, find a time), the "this / following / all"
+// dialog, quick create, reminders and the missed-reminders dialog, the agenda and tasks views,
+// the task editor, .ics import and webcal subscriptions.
+// Colours come from the app's Theme through CalPal (set once in app.slint), so this file follows
+// whatever the theme tokens are; the meaning tints (rose today, mint done, sky work, amber
+// attention) follow design/README.md.
+import { LineEdit, Button, ComboBox, CheckBox, ScrollView, TextEdit } from "std-widgets.slint";
+
+export struct CalPal {
+    dark: bool,
+    bg: color,
+    tile: color,
+    line: color,
+    text: color,
+    dim: color,
+    accent: color,
+    on-accent: color,
+    hover: color,
+    popup: color,
+    chip: color,
+    sel: color,
+    sel-text: color,
+}
+
+export struct CxAttendee {
+    name: string,
+    email: string,
+    initials: string,
+    // participation: "Organizer", "Accepted", "Maybe", "Declined", "No reply"
+    status: string,
+    // 0 dim, 1 mint, 2 amber, 3 rose, 4 sky
+    tone: int,
+    // free/busy for the event's time: "Free", "Busy", "Tentative", "No busy times", "Not found", ""
+    avail: string,
+    avail-tone: int,
+    organizer: bool,
+}
+
+export struct CxSuggest { name: string, email: string, initials: string, group: bool }
+export struct CxAlert { value: string, unit: int, action: int }
+export struct CxSlot { label: string, sub: string }
+export struct CxReminder { key: string, title: string, when: string, calendar: string, color: color }
+export struct CxMissed { title: string, when: string }
+export struct CxAgendaRow {
+    header: string,
+    today: bool,
+    id: string,
+    title: string,
+    time: string,
+    location: string,
+    color: color,
+    // 0 event, 1 task, 2 read-only (birthday, subscription)
+    kind: int,
+    done: bool,
+    empty: bool,
+}
+export struct CxTask {
+    id: string,
+    title: string,
+    notes: string,
+    due: string,
+    // 0 dim, 1 today (accent), 2 overdue (rose)
+    due-tone: int,
+    done: bool,
+    // 0 none, 1 high, 2 medium, 3 low
+    priority: int,
+    list: string,
+    color: color,
+}
+export struct CxSub { id: string, name: string, color: color, info: string }
+
+export global CalTint {
+    pure public function bg(dark: bool, tone: int) -> color {
+        if tone == 1 { return dark ? #34d39921 : #dcf5e8; }
+        if tone == 2 { return dark ? #fbbf2421 : #fdf1d3; }
+        if tone == 3 { return dark ? #f0577a24 : #fde4ea; }
+        if tone == 4 { return dark ? #60a5fa24 : #dfeafd; }
+        return dark ? #ffffff10 : #0000000a;
+    }
+    pure public function fg(dark: bool, tone: int) -> color {
+        if tone == 1 { return dark ? #86efc4 : #17603f; }
+        if tone == 2 { return dark ? #fcd679 : #7a4a06; }
+        if tone == 3 { return dark ? #ffb3c4 : #8c1733; }
+        if tone == 4 { return dark ? #a8cbff : #1e3f8a; }
+        return dark ? #a3a3a3 : #6b6b6b;
+    }
+}
+
+export global CalX {
+    // ---- settings-driven switches ----
+    in-out property <bool> tasks-enabled: true;
+    in-out property <bool> tasks-app: false;
+    in-out property <[string]> view-names: ["Day", "Week", "Month", "Agenda", "Tasks"];
+
+    // ---- event editor: what the window's ev-* fields don't hold ----
+    in-out property <string> ed-end-date;
+    in-out property <bool> ed-readonly;
+    in-out property <string> ed-readonly-why;
+    in-out property <string> ed-tz;
+    in-out property <string> ed-tz-query;
+    in-out property <[string]> ed-tz-matches;
+    in-out property <bool> ed-tz-open;
+    in-out property <string> ed-your-time;
+    in-out property <[CxAttendee]> ed-attendees;
+    in-out property <string> ed-att-query;
+    in-out property <[CxSuggest]> ed-att-suggest;
+    in-out property <bool> ed-send-invites: true;
+    in-out property <bool> ed-organizer: true;
+    in-out property <string> ed-organizer-name;
+    in-out property <bool> ed-alerts-default: true;
+    in-out property <string> ed-default-alerts;
+    in-out property <[CxAlert]> ed-alerts;
+    in-out property <int> ed-alerts-kept;
+    in-out property <int> ed-freebusy;
+    in-out property <int> ed-privacy;
+    in-out property <bool> ed-privacy-editable: true;
+    in-out property <string> ed-custom-label: "Custom…";
+    in-out property <bool> ed-find-open;
+    in-out property <bool> ed-find-busy;
+    in-out property <string> ed-find-status;
+    in-out property <[CxSlot]> ed-find-slots;
+    in-out property <string> ed-series-note;
+    callback ed-att-query-changed(string);
+    callback ed-att-add(string);
+    callback ed-att-pick(int);
+    callback ed-att-remove(string);
+    callback ed-alert-add();
+    callback ed-alert-remove(int);
+    callback ed-alert-set(int, string, int, int);
+    callback ed-alerts-customize();
+    callback ed-alerts-use-default();
+    callback ed-tz-query-changed(string);
+    callback ed-tz-pick(string);
+    callback ed-times-changed(string);
+    callback ed-find();
+    callback ed-pick-slot(int);
+
+    // ---- custom recurrence ----
+    in-out property <bool> rr-open;
+    in-out property <int> rr-freq: 1;
+    in-out property <string> rr-interval: "1";
+    in-out property <[bool]> rr-days: [false, false, false, false, false, false, false];
+    in-out property <int> rr-mode;
+    in-out property <string> rr-month-day: "1";
+    in-out property <int> rr-nth;
+    in-out property <int> rr-nth-day;
+    in-out property <int> rr-month;
+    in-out property <int> rr-ends;
+    in-out property <string> rr-until;
+    in-out property <string> rr-count: "12";
+    in-out property <string> rr-summary;
+    callback rr-begin();
+    callback rr-changed();
+    callback rr-toggle-day(int);
+    callback rr-save();
+    callback rr-cancel();
+
+    // ---- "this / following / all" ----
+    in-out property <bool> scope-open;
+    in-out property <bool> scope-delete;
+    in-out property <string> scope-title;
+    in-out property <int> scope-choice;
+    callback scope-go(int);
+
+    // ---- quick create ----
+    in-out property <bool> qc-open;
+    in-out property <length> qc-x;
+    in-out property <length> qc-y;
+    in-out property <string> qc-title;
+    in-out property <string> qc-label;
+    in-out property <int> qc-calendar;
+    in-out property <[string]> qc-calendars;
+    callback quick(string, int, int, length, length);
+    callback qc-save();
+    callback qc-more();
+
+    // ---- reminders ----
+    in-out property <[CxReminder]> reminders;
+    in-out property <bool> missed-open;
+    in-out property <[CxMissed]> missed;
+    callback reminder-act(string, string);
+    callback missed-done(bool);
+
+    // ---- agenda ----
+    in-out property <[CxAgendaRow]> agenda;
+    callback agenda-open(string, int);
+
+    // ---- tasks view ----
+    in-out property <[CxTask]> tasks;
+    in-out property <int> task-filter;
+    in-out property <[int]> task-counts: [0, 0, 0, 0];
+    in-out property <string> task-quick;
+    in-out property <string> task-quick-due;
+    callback task-filter-set(int);
+    callback task-quick-changed(string);
+    callback task-quick-add(string);
+    callback task-open(string);
+    callback task-toggle(string);
+
+    // ---- task editor ----
+    in-out property <bool> te-open;
+    in-out property <string> te-id;
+    in-out property <string> te-title;
+    in-out property <string> te-notes;
+    in-out property <string> te-due-date;
+    in-out property <string> te-due-time;
+    in-out property <bool> te-has-time;
+    in-out property <int> te-priority;
+    in-out property <int> te-progress;
+    in-out property <int> te-list;
+    in-out property <[string]> te-lists;
+    in-out property <int> te-alert;
+    in-out property <int> te-repeat;
+    in-out property <string> te-status;
+    callback te-save();
+    callback te-delete();
+
+    // ---- .ics import ----
+    in-out property <bool> imp-open;
+    in-out property <string> imp-file;
+    in-out property <string> imp-info;
+    in-out property <int> imp-calendar;
+    in-out property <[string]> imp-calendars;
+    in-out property <bool> imp-busy;
+    in-out property <bool> imp-ready;
+    in-out property <string> imp-status;
+    callback imp-begin();
+    callback imp-choose();
+    callback imp-run();
+
+    // ---- webcal subscriptions ----
+    in-out property <[CxSub]> subs;
+    in-out property <bool> sub-open;
+    in-out property <string> sub-id;
+    in-out property <string> sub-url;
+    in-out property <string> sub-name;
+    in-out property <int> sub-color;
+    in-out property <int> sub-interval: 2;
+    in-out property <bool> sub-busy;
+    in-out property <string> sub-status;
+    in-out property <[color]> sub-colors: [#3b82f6, #22c55e, #f97316, #a855f7, #ec4899, #14b8a6, #eab308, #ef4444];
+    callback sub-begin(string);
+    callback sub-save();
+    callback sub-remove(string);
+    callback sub-refresh(string);
+}
+
+// ---------------- small parts ----------------
+
+component Glyph inherits Text {
+    font-family: "Segoe Fluent Icons";
+    font-size: 13px;
+    vertical-alignment: center;
+    horizontal-alignment: center;
+}
+
+export component CxButton inherits Rectangle {
+    in property <CalPal> pal;
+    in property <string> text;
+    in property <string> glyph;
+    in property <bool> primary;
+    in property <bool> danger;
+    in property <bool> enabled: true;
+    callback clicked;
+    height: 32px;
+    min-width: lay.preferred-width;
+    border-radius: 12px;
+    background: !enabled ? (primary ? root.pal.accent.with-alpha(0.4) : transparent)
+        : primary ? (ta.pressed ? root.pal.accent.darker(0.15) : ta.has-hover ? root.pal.accent.brighter(0.08) : root.pal.accent)
+        : ta.has-hover ? root.pal.hover : root.pal.tile;
+    border-width: primary ? 0px : 1px;
+    border-color: root.pal.line;
+    ta := TouchArea { enabled: root.enabled; clicked => { root.clicked(); } }
+    lay := HorizontalLayout {
+        padding-left: 14px;
+        padding-right: 14px;
+        spacing: 6px;
+        alignment: center;
+        if root.glyph != "": Glyph { text: root.glyph; font-size: 12px; color: primary ? root.pal.on-accent : danger ? CalTint.fg(root.pal.dark, 3) : root.pal.text; }
+        Text {
+            text: root.text;
+            vertical-alignment: center;
+            font-weight: primary ? 700 : 600;
+            font-size: 12.5px;
+            color: !root.enabled ? root.pal.dim : primary ? root.pal.on-accent : danger ? CalTint.fg(root.pal.dark, 3) : root.pal.text;
+        }
+    }
+}
+
+component IconBtn inherits Rectangle {
+    in property <CalPal> pal;
+    in property <string> glyph;
+    in property <string> tip;
+    callback clicked;
+    width: 26px;
+    height: 26px;
+    border-radius: 9px;
+    background: ta.has-hover ? root.pal.hover : transparent;
+    ta := TouchArea { clicked => { root.clicked(); } }
+    Glyph { text: root.glyph; font-size: 11px; color: ta.has-hover ? root.pal.text : root.pal.dim; }
+}
+
+component Label inherits Text {
+    in property <CalPal> pal;
+    color: root.pal.dim;
+    font-size: 11.5px;
+    font-weight: 700;
+    vertical-alignment: center;
+}
+
+component Pill inherits Rectangle {
+    in property <CalPal> pal;
+    in property <string> text;
+    in property <int> tone;
+    in property <bool> active;
+    callback clicked;
+    height: 28px;
+    width: pl.preferred-width + 24px;
+    border-radius: 14px;
+    background: active ? root.pal.sel : (ta.has-hover ? root.pal.hover : CalTint.bg(root.pal.dark, tone));
+    ta := TouchArea { clicked => { root.clicked(); } }
+    pl := Text {
+        text: root.text;
+        color: active ? root.pal.sel-text : CalTint.fg(root.pal.dark, tone);
+        font-size: 12px;
+        font-weight: 600;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+    }
+}
+
+// a modal tile over a dimmed backdrop
+component Modal inherits Rectangle {
+    in property <CalPal> pal;
+    in property <length> max-w: 520px;
+    in property <length> inner-h;
+    callback dismiss;
+    background: #00000099;
+    TouchArea { clicked => { root.dismiss(); } }
+    tile := Rectangle {
+        width: min(root.max-w, root.width - 32px);
+        height: min(root.inner-h, root.height - 32px);
+        background: root.pal.tile;
+        border-radius: 26px;
+        border-width: 1px;
+        border-color: root.pal.line;
+        drop-shadow-blur: 24px;
+        drop-shadow-color: #00000066;
+        clip: true;
+        TouchArea { }
+        @children
+    }
+}
+
+// ---------------- event editor ----------------
+
+export component EventEditor inherits Rectangle {
+    in property <CalPal> pal;
+    in property <string> ev-id;
+    in-out property <string> title;
+    in-out property <string> date;
+    in-out property <string> start;
+    in-out property <string> end;
+    in-out property <bool> all-day;
+    in-out property <string> location;
+    in-out property <string> description;
+    in-out property <int> repeat;
+    in-out property <int> calendar;
+    in property <[string]> calendars;
+    in property <string> status;
+    callback save();
+    callback delete();
+    callback cancel();
+    background: #00000099;
+    TouchArea { }
+    tile := Rectangle {
+        width: min(780px, root.width - 32px);
+        height: min(body.preferred-height + 140px, root.height - 32px);
+        background: root.pal.tile;
+        border-radius: 26px;
+        border-width: 1px;
+        border-color: root.pal.line;
+        drop-shadow-blur: 24px;
+        drop-shadow-color: #00000066;
+        clip: true;
+        TouchArea { }
+        VerticalLayout {
+            // ---- header ----
+            HorizontalLayout {
+                padding: 20px;
+                padding-bottom: 8px;
+                spacing: 10px;
+                Text {
+                    text: CalX.ed-readonly ? "Event" : root.ev-id == "" ? "New event" : "Edit event";
+                    color: root.pal.text;
+                    font-size: 18px;
+                    font-weight: 700;
+                    vertical-alignment: center;
+                    horizontal-stretch: 1;
+                }
+                if CalX.ed-series-note != "": Pill { pal: root.pal; tone: 4; text: CalX.ed-series-note; }
+                IconBtn { pal: root.pal; glyph: "\u{E711}"; y: 3px; clicked => { root.cancel(); } }
+            }
+            if CalX.ed-readonly: Rectangle {
+                height: 34px;
+                HorizontalLayout {
+                    padding-left: 20px;
+                    padding-right: 20px;
+                    Rectangle {
+                        border-radius: 12px;
+                        background: CalTint.bg(root.pal.dark, 2);
+                        Text { x: 12px; text: CalX.ed-readonly-why; color: CalTint.fg(root.pal.dark, 2); font-size: 12px; vertical-alignment: center; height: parent.height; }
+                    }
+                }
+            }
+            ScrollView {
+                vertical-stretch: 1;
+                body := VerticalLayout {
+                    padding-left: 20px;
+                    padding-right: 20px;
+                    padding-bottom: 12px;
+                    spacing: 10px;
+                    LineEdit { placeholder-text: "Add title"; text <=> root.title; font-size: 16px; read-only: CalX.ed-readonly; }
+
+                    // ---- when ----
+                    Label { pal: root.pal; text: "When"; }
+                    HorizontalLayout {
+                        spacing: 8px;
+                        LineEdit {
+                            placeholder-text: "YYYY-MM-DD"; width: 120px; text <=> root.date; read-only: CalX.ed-readonly;
+                            edited => { CalX.ed-times-changed("start"); }
+                        }
+                        if !root.all-day: LineEdit {
+                            placeholder-text: "HH:MM"; width: 74px; text <=> root.start; read-only: CalX.ed-readonly;
+                            edited => { CalX.ed-times-changed("start"); }
+                        }
+                        Text { text: "–"; color: root.pal.dim; vertical-alignment: center; }
+                        LineEdit {
+                            placeholder-text: "YYYY-MM-DD"; width: 120px; text <=> CalX.ed-end-date; read-only: CalX.ed-readonly;
+                            edited => { CalX.ed-times-changed("end"); }
+                        }
+                        if !root.all-day: LineEdit {
+                            placeholder-text: "HH:MM"; width: 74px; text <=> root.end; read-only: CalX.ed-readonly;
+                            edited => { CalX.ed-times-changed("end"); }
+                        }
+                        CheckBox { text: "All day"; checked <=> root.all-day; enabled: !CalX.ed-readonly; toggled => { CalX.ed-times-changed("allday"); } }
+                        Rectangle { horizontal-stretch: 1; }
+                    }
+                    if !root.all-day: HorizontalLayout {
+                        spacing: 8px;
+                        Pill {
+                            pal: root.pal;
+                            tone: 4;
+                            text: "\u{1F310}  " + (CalX.ed-tz == "" ? "Floating time" : CalX.ed-tz);
+                            clicked => { if !CalX.ed-readonly { CalX.ed-tz-open = !CalX.ed-tz-open; } }
+                        }
+                        if CalX.ed-your-time != "": Text { text: CalX.ed-your-time; color: root.pal.dim; font-size: 12px; vertical-alignment: center; }
+                        Rectangle { horizontal-stretch: 1; }
+                    }
+                    if !root.all-day && CalX.ed-tz-open: VerticalLayout {
+                        spacing: 4px;
+                        LineEdit {
+                            placeholder-text: "Search time zones (city or region)";
+                            text <=> CalX.ed-tz-query;
+                            edited(t) => { CalX.ed-tz-query-changed(t); }
+                            accepted => { if CalX.ed-tz-matches.length > 0 { CalX.ed-tz-pick(CalX.ed-tz-matches[0]); } }
+                        }
+                        for z in CalX.ed-tz-matches: Rectangle {
+                            height: 28px;
+                            border-radius: 10px;
+                            background: zta.has-hover ? root.pal.hover : transparent;
+                            zta := TouchArea { clicked => { CalX.ed-tz-pick(z); } }
+                            Text { x: 10px; text: z; color: root.pal.text; vertical-alignment: center; height: parent.height; }
+                        }
+                    }
+
+                    // ---- repeat ----
+                    HorizontalLayout {
+                        spacing: 8px;
+                        Label { pal: root.pal; text: "Repeat"; width: 84px; }
+                        ComboBox {
+                            enabled: !CalX.ed-readonly;
+                            model: ["Does not repeat", "Every day", "Every week", "Every month", "Every year", CalX.ed-custom-label];
+                            current-index <=> root.repeat;
+                            selected => { if self.current-index == 5 { CalX.rr-begin(); } }
+                        }
+                        if root.repeat == 5 && !CalX.rr-open && !CalX.ed-readonly: CxButton { pal: root.pal; text: "Edit"; clicked => { CalX.rr-begin(); } }
+                        Rectangle { horizontal-stretch: 1; }
+                    }
+                    if CalX.rr-open: Rectangle {
+                        border-radius: 18px;
+                        background: CalTint.bg(root.pal.dark, 4);
+                        height: rrl.preferred-height;
+                        rrl := VerticalLayout {
+                            padding: 12px;
+                            spacing: 8px;
+                            HorizontalLayout {
+                                spacing: 8px;
+                                Text { text: "Every"; color: root.pal.text; vertical-alignment: center; }
+                                LineEdit { width: 60px; text <=> CalX.rr-interval; edited => { CalX.rr-changed(); } }
+                                ComboBox { model: ["days", "weeks", "months", "years"]; current-index <=> CalX.rr-freq; selected => { CalX.rr-changed(); } }
+                                Rectangle { horizontal-stretch: 1; }
+                            }
+                            if CalX.rr-freq == 1: HorizontalLayout {
+                                spacing: 4px;
+                                for d[i] in ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]: Rectangle {
+                                    height: 30px;
+                                    border-radius: 10px;
+                                    border-width: 1px;
+                                    border-color: CalX.rr-days[i] ? root.pal.accent : root.pal.line;
+                                    background: CalX.rr-days[i] ? root.pal.sel : (dta.has-hover ? root.pal.hover : root.pal.tile);
+                                    dta := TouchArea { clicked => { CalX.rr-toggle-day(i); } }
+                                    Text { text: d; font-size: 12px; font-weight: 600; color: CalX.rr-days[i] ? root.pal.sel-text : root.pal.dim; }
+                                }
+                            }
+                            if CalX.rr-freq == 3: HorizontalLayout {
+                                spacing: 8px;
+                                Text { text: "In"; color: root.pal.text; vertical-alignment: center; }
+                                ComboBox {
+                                    model: ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+                                    current-index <=> CalX.rr-month;
+                                    selected => { CalX.rr-changed(); }
+                                }
+                                Rectangle { horizontal-stretch: 1; }
+                            }
+                            if CalX.rr-freq >= 2: HorizontalLayout {
+                                spacing: 8px;
+                                ComboBox { width: 120px; model: ["On day", "On the"]; current-index <=> CalX.rr-mode; selected => { CalX.rr-changed(); } }
+                                if CalX.rr-mode == 0: LineEdit { width: 60px; text <=> CalX.rr-month-day; edited => { CalX.rr-changed(); } }
+                                if CalX.rr-mode == 1: ComboBox { width: 110px; model: ["first", "second", "third", "fourth", "last"]; current-index <=> CalX.rr-nth; selected => { CalX.rr-changed(); } }
+                                if CalX.rr-mode == 1: ComboBox {
+                                    width: 130px;
+                                    model: ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
+                                    current-index <=> CalX.rr-nth-day;
+                                    selected => { CalX.rr-changed(); }
+                                }
+                                Rectangle { horizontal-stretch: 1; }
+                            }
+                            HorizontalLayout {
+                                spacing: 8px;
+                                Text { text: "Ends"; color: root.pal.text; vertical-alignment: center; }
+                                ComboBox { width: 120px; model: ["Never", "On date", "After"]; current-index <=> CalX.rr-ends; selected => { CalX.rr-changed(); } }
+                                if CalX.rr-ends == 1: LineEdit { width: 120px; placeholder-text: "YYYY-MM-DD"; text <=> CalX.rr-until; edited => { CalX.rr-changed(); } }
+                                if CalX.rr-ends == 2: LineEdit { width: 60px; text <=> CalX.rr-count; edited => { CalX.rr-changed(); } }
+                                if CalX.rr-ends == 2: Text { text: "occurrences"; color: root.pal.dim; vertical-alignment: center; }
+                                Rectangle { horizontal-stretch: 1; }
+                            }
+                            HorizontalLayout {
+                                spacing: 8px;
+                                Text { text: CalX.rr-summary; color: CalTint.fg(root.pal.dark, 4); font-size: 12px; vertical-alignment: center; horizontal-stretch: 1; overflow: elide; }
+                                CxButton { pal: root.pal; text: "Cancel"; clicked => { CalX.rr-cancel(); } }
+                                CxButton { pal: root.pal; text: "Done"; primary: true; clicked => { CalX.rr-save(); } }
+                            }
+                        }
+                    }
+
+                    // ---- calendar, show as, visibility ----
+                    HorizontalLayout {
+                        spacing: 8px;
+                        Label { pal: root.pal; text: "Calendar"; width: 84px; }
+                        ComboBox { enabled: !CalX.ed-readonly; model: root.calendars; current-index <=> root.calendar; }
+                    }
+                    HorizontalLayout {
+                        spacing: 8px;
+                        Label { pal: root.pal; text: "Show as"; width: 84px; }
+                        ComboBox { width: 120px; enabled: !CalX.ed-readonly; model: ["Busy", "Free"]; current-index <=> CalX.ed-freebusy; }
+                        if CalX.ed-privacy-editable: Label { pal: root.pal; text: "Visibility"; }
+                        if CalX.ed-privacy-editable: ComboBox { width: 120px; enabled: !CalX.ed-readonly; model: ["Public", "Private", "Secret"]; current-index <=> CalX.ed-privacy; }
+                        Rectangle { horizontal-stretch: 1; }
+                    }
+                    LineEdit { placeholder-text: "Add location or link"; text <=> root.location; read-only: CalX.ed-readonly; }
+
+                    // ---- guests ----
+                    HorizontalLayout {
+                        spacing: 8px;
+                        Label { pal: root.pal; text: "Guests" + (CalX.ed-attendees.length > 0 ? " · " + CalX.ed-attendees.length : ""); horizontal-stretch: 1; }
+                        if CalX.ed-attendees.length > 0 && CalX.ed-organizer && !CalX.ed-readonly: CxButton {
+                            pal: root.pal; glyph: "\u{E916}"; text: CalX.ed-find-busy ? "Checking…" : "Suggest times";
+                            enabled: !CalX.ed-find-busy;
+                            clicked => { CalX.ed-find(); }
+                        }
+                    }
+                    if CalX.ed-organizer-name != "": Text { text: "Organized by " + CalX.ed-organizer-name; color: root.pal.dim; font-size: 12px; }
+                    for a in CalX.ed-attendees: Rectangle {
+                        height: 38px;
+                        HorizontalLayout {
+                            spacing: 10px;
+                            VerticalLayout {
+                                alignment: center;
+                                Rectangle {
+                                    width: 30px; height: 30px; border-radius: 11px;
+                                    background: CalTint.bg(root.pal.dark, a.organizer ? 3 : 4);
+                                    Text { text: a.initials; color: CalTint.fg(root.pal.dark, a.organizer ? 3 : 4); font-size: 11px; font-weight: 700; }
+                                }
+                            }
+                            VerticalLayout {
+                                alignment: center;
+                                horizontal-stretch: 1;
+                                Text { text: a.name != "" ? a.name : a.email; color: root.pal.text; font-size: 13px; overflow: elide; }
+                                if a.name != "": Text { text: a.email; color: root.pal.dim; font-size: 11px; overflow: elide; }
+                            }
+                            if a.avail != "": VerticalLayout { alignment: center; Pill { pal: root.pal; tone: a.avail-tone; text: a.avail; } }
+                            Text { text: a.status; color: CalTint.fg(root.pal.dark, a.tone); font-size: 11.5px; vertical-alignment: center; }
+                            if CalX.ed-organizer && !CalX.ed-readonly && !a.organizer: IconBtn { pal: root.pal; glyph: "\u{E711}"; y: 6px; clicked => { CalX.ed-att-remove(a.email); } }
+                        }
+                    }
+                    if CalX.ed-organizer && !CalX.ed-readonly: VerticalLayout {
+                        spacing: 4px;
+                        LineEdit {
+                            placeholder-text: "Add guests by name or email";
+                            text <=> CalX.ed-att-query;
+                            edited(t) => { CalX.ed-att-query-changed(t); }
+                            accepted(t) => { CalX.ed-att-add(t); }
+                        }
+                        for s[i] in CalX.ed-att-suggest: Rectangle {
+                            height: 34px;
+                            border-radius: 10px;
+                            background: sta.has-hover ? root.pal.hover : transparent;
+                            sta := TouchArea { clicked => { CalX.ed-att-pick(i); } }
+                            HorizontalLayout {
+                                padding-left: 8px;
+                                spacing: 10px;
+                                VerticalLayout {
+                                    alignment: center;
+                                    Rectangle {
+                                        width: 24px; height: 24px; border-radius: 9px;
+                                        background: CalTint.bg(root.pal.dark, s.group ? 1 : 4);
+                                        Text { text: s.initials; color: CalTint.fg(root.pal.dark, s.group ? 1 : 4); font-size: 10px; font-weight: 700; }
+                                    }
+                                }
+                                Text { text: s.name; color: root.pal.text; vertical-alignment: center; overflow: elide; }
+                                Text { text: s.email; color: root.pal.dim; font-size: 11.5px; vertical-alignment: center; overflow: elide; horizontal-stretch: 1; }
+                            }
+                        }
+                        if CalX.ed-attendees.length > 0: CheckBox { text: "Send invitations and updates to guests"; checked <=> CalX.ed-send-invites; }
+                    }
+                    if CalX.ed-find-open: Rectangle {
+                        border-radius: 18px;
+                        background: CalTint.bg(root.pal.dark, 1);
+                        height: fl.preferred-height;
+                        fl := VerticalLayout {
+                            padding: 12px;
+                            spacing: 6px;
+                            HorizontalLayout {
+                                Text { text: "Suggested times"; color: CalTint.fg(root.pal.dark, 1); font-weight: 700; font-size: 12.5px; horizontal-stretch: 1; vertical-alignment: center; }
+                                IconBtn { pal: root.pal; glyph: "\u{E711}"; clicked => { CalX.ed-find-open = false; } }
+                            }
+                            if CalX.ed-find-status != "": Text { text: CalX.ed-find-status; color: root.pal.text; font-size: 12px; wrap: word-wrap; }
+                            for s[i] in CalX.ed-find-slots: Rectangle {
+                                height: 32px;
+                                border-radius: 10px;
+                                background: slta.has-hover ? root.pal.hover : root.pal.tile;
+                                slta := TouchArea { clicked => { CalX.ed-pick-slot(i); } }
+                                HorizontalLayout {
+                                    padding-left: 10px;
+                                    padding-right: 10px;
+                                    spacing: 8px;
+                                    Text { text: s.label; color: root.pal.text; font-weight: 600; font-size: 12.5px; vertical-alignment: center; horizontal-stretch: 1; }
+                                    Text { text: s.sub; color: root.pal.dim; font-size: 11.5px; vertical-alignment: center; }
+                                }
+                            }
+                        }
+                    }
+
+                    // ---- reminders ----
+                    HorizontalLayout {
+                        Label { pal: root.pal; text: "Reminders"; horizontal-stretch: 1; }
+                        if !CalX.ed-readonly && CalX.ed-alerts-default: CxButton { pal: root.pal; text: "Customize"; clicked => { CalX.ed-alerts-customize(); } }
+                        if !CalX.ed-readonly && !CalX.ed-alerts-default: CxButton { pal: root.pal; text: "Use calendar defaults"; clicked => { CalX.ed-alerts-use-default(); } }
+                    }
+                    if CalX.ed-alerts-default: Text { text: CalX.ed-default-alerts; color: root.pal.dim; font-size: 12.5px; wrap: word-wrap; }
+                    if !CalX.ed-alerts-default: VerticalLayout {
+                        spacing: 6px;
+                        if CalX.ed-alerts.length == 0: Text { text: "No reminders"; color: root.pal.dim; font-size: 12.5px; }
+                        for al[i] in CalX.ed-alerts: HorizontalLayout {
+                            spacing: 8px;
+                            if al.unit != 0: LineEdit {
+                                width: 64px;
+                                text: al.value;
+                                read-only: CalX.ed-readonly;
+                                edited(t) => { CalX.ed-alert-set(i, t, al.unit, al.action); }
+                            }
+                            ComboBox {
+                                enabled: !CalX.ed-readonly;
+                                model: ["At time of event", "minutes before", "hours before", "days before", "weeks before"];
+                                current-index: al.unit;
+                                selected => { CalX.ed-alert-set(i, al.value, self.current-index, al.action); }
+                            }
+                            ComboBox {
+                                width: 140px;
+                                enabled: !CalX.ed-readonly;
+                                model: ["Notification", "Email"];
+                                current-index: al.action;
+                                selected => { CalX.ed-alert-set(i, al.value, al.unit, self.current-index); }
+                            }
+                            if !CalX.ed-readonly: IconBtn { pal: root.pal; glyph: "\u{E74D}"; y: 3px; clicked => { CalX.ed-alert-remove(i); } }
+                            Rectangle { horizontal-stretch: 1; }
+                        }
+                        if CalX.ed-alerts-kept > 0: Text { text: CalX.ed-alerts-kept + " other reminder(s) are kept as they are"; color: root.pal.dim; font-size: 11.5px; }
+                        if !CalX.ed-readonly: HorizontalLayout {
+                            CxButton { pal: root.pal; glyph: "\u{E710}"; text: "Add reminder"; clicked => { CalX.ed-alert-add(); } }
+                            Rectangle { horizontal-stretch: 1; }
+                        }
+                    }
+
+                    // ---- description ----
+                    Label { pal: root.pal; text: "Description"; }
+                    TextEdit { height: 96px; text <=> root.description; wrap: word-wrap; read-only: CalX.ed-readonly; }
+                }
+            }
+            // ---- footer ----
+            Rectangle { height: 1px; background: root.pal.line; }
+            HorizontalLayout {
+                padding: 16px;
+                padding-left: 20px;
+                padding-right: 20px;
+                spacing: 8px;
+                Text { text: root.status; color: root.pal.accent; vertical-alignment: center; horizontal-stretch: 1; overflow: elide; }
+                if root.ev-id != "" && !CalX.ed-readonly: CxButton { pal: root.pal; danger: true; glyph: "\u{E74D}"; text: "Delete"; clicked => { root.delete(); } }
+                CxButton { pal: root.pal; text: CalX.ed-readonly ? "Close" : "Cancel"; clicked => { root.cancel(); } }
+                if !CalX.ed-readonly: CxButton { pal: root.pal; primary: true; text: "Save"; clicked => { root.save(); } }
+            }
+        }
+    }
+}
+
+// ---------------- "this / following / all" ----------------
+
+component ScopeDialog inherits Modal {
+    max-w: 420px;
+    inner-h: sl.preferred-height;
+    dismiss => { CalX.scope-open = false; }
+    sl := VerticalLayout {
+        padding: 22px;
+        spacing: 10px;
+        HorizontalLayout {
+            spacing: 12px;
+            Rectangle {
+                width: 40px; height: 40px; border-radius: 14px;
+                background: CalTint.bg(root.pal.dark, CalX.scope-delete ? 3 : 4);
+                Glyph { text: CalX.scope-delete ? "\u{E74D}" : "\u{E8EE}"; color: CalTint.fg(root.pal.dark, CalX.scope-delete ? 3 : 4); font-size: 16px; }
+            }
+            VerticalLayout {
+                alignment: center;
+                Text { text: CalX.scope-delete ? "Delete recurring event" : "Edit recurring event"; color: root.pal.text; font-size: 16px; font-weight: 700; }
+                Text { text: CalX.scope-title; color: root.pal.dim; font-size: 12px; overflow: elide; }
+            }
+        }
+        for o[i] in ["This event", "This and following events", "All events"]: Rectangle {
+            height: 40px;
+            border-radius: 14px;
+            border-width: 1px;
+            border-color: CalX.scope-choice == i ? root.pal.accent : transparent;
+            background: CalX.scope-choice == i ? root.pal.sel : (ota.has-hover ? root.pal.hover : transparent);
+            ota := TouchArea { clicked => { CalX.scope-choice = i; } }
+            HorizontalLayout {
+                padding-left: 12px;
+                spacing: 10px;
+                VerticalLayout {
+                    alignment: center;
+                    Rectangle {
+                        width: 16px; height: 16px; border-radius: 8px;
+                        border-width: CalX.scope-choice == i ? 5px : 1.5px;
+                        border-color: CalX.scope-choice == i ? root.pal.accent : root.pal.dim;
+                    }
+                }
+                Text { text: o; color: CalX.scope-choice == i ? root.pal.sel-text : root.pal.text; vertical-alignment: center; }
+            }
+        }
+        HorizontalLayout {
+            spacing: 8px;
+            alignment: end;
+            CxButton { pal: root.pal; text: "Cancel"; clicked => { CalX.scope-open = false; } }
+            CxButton { pal: root.pal; primary: true; text: CalX.scope-delete ? "Delete" : "Save"; clicked => { CalX.scope-go(CalX.scope-choice); } }
+        }
+    }
+}
+
+// ---------------- quick create ----------------
+
+component QuickCreate inherits Rectangle {
+    in property <CalPal> pal;
+    TouchArea { clicked => { CalX.qc-open = false; } }
+    card := Rectangle {
+        x: max(12px, min(CalX.qc-x, root.width - self.width - 12px));
+        y: max(12px, min(CalX.qc-y, root.height - self.height - 12px));
+        width: 340px;
+        height: ql.preferred-height;
+        background: root.pal.tile;
+        border-radius: 22px;
+        border-width: 1px;
+        border-color: root.pal.line;
+        drop-shadow-blur: 20px;
+        drop-shadow-color: #00000066;
+        TouchArea { }
+        ql := VerticalLayout {
+            padding: 16px;
+            spacing: 10px;
+            title-in := LineEdit {
+                placeholder-text: "Add title";
+                text <=> CalX.qc-title;
+                accepted => { CalX.qc-save(); }
+                init => { self.focus(); }
+            }
+            HorizontalLayout {
+                spacing: 8px;
+                Glyph { text: "\u{E823}"; color: root.pal.dim; }
+                Text { text: CalX.qc-label; color: root.pal.text; font-size: 12.5px; vertical-alignment: center; wrap: word-wrap; horizontal-stretch: 1; }
+            }
+            ComboBox { model: CalX.qc-calendars; current-index <=> CalX.qc-calendar; }
+            HorizontalLayout {
+                spacing: 8px;
+                CxButton { pal: root.pal; text: "More options"; clicked => { CalX.qc-more(); } }
+                Rectangle { horizontal-stretch: 1; }
+                CxButton { pal: root.pal; primary: true; text: "Save"; clicked => { CalX.qc-save(); } }
+            }
+        }
+    }
+}
+
+// ---------------- reminders ----------------
+
+component ReminderStack inherits Rectangle {
+    in property <CalPal> pal;
+    width: 340px;
+    height: rl.preferred-height;
+    rl := VerticalLayout {
+        spacing: 10px;
+        for r in CalX.reminders: Rectangle {
+            height: rcl.preferred-height;
+            border-radius: 22px;
+            background: root.pal.tile;
+            border-width: 1px;
+            border-color: root.pal.line;
+            drop-shadow-blur: 18px;
+            drop-shadow-color: #00000055;
+            Rectangle {
+                border-radius: 22px;
+                background: CalTint.bg(root.pal.dark, 3);
+            }
+            rcl := VerticalLayout {
+                padding: 14px;
+                spacing: 6px;
+                HorizontalLayout {
+                    spacing: 10px;
+                    Rectangle {
+                        width: 30px; height: 30px; border-radius: 11px;
+                        background: r.color;
+                        Glyph { text: "\u{EA8F}"; color: #ffffff; font-size: 13px; }
+                    }
+                    VerticalLayout {
+                        horizontal-stretch: 1;
+                        Text { text: r.title; color: CalTint.fg(root.pal.dark, 3); font-weight: 800; font-size: 14px; overflow: elide; }
+                        Text { text: r.when + (r.calendar != "" ? " · " + r.calendar : ""); color: CalTint.fg(root.pal.dark, 3); font-size: 12px; overflow: elide; }
+                    }
+                    IconBtn { pal: root.pal; glyph: "\u{E711}"; clicked => { CalX.reminder-act(r.key, "dismiss"); } }
+                }
+                HorizontalLayout {
+                    spacing: 6px;
+                    CxButton { pal: root.pal; text: "Snooze 5 min"; clicked => { CalX.reminder-act(r.key, "snooze:5"); } }
+                    CxButton { pal: root.pal; text: "10 min"; clicked => { CalX.reminder-act(r.key, "snooze:10"); } }
+                    Rectangle { horizontal-stretch: 1; }
+                    CxButton { pal: root.pal; primary: true; text: "Open"; clicked => { CalX.reminder-act(r.key, "open"); } }
+                }
+            }
+        }
+    }
+}
+
+component MissedDialog inherits Modal {
+    max-w: 460px;
+    inner-h: ml.preferred-height;
+    dismiss => { CalX.missed-done(false); }
+    ml := VerticalLayout {
+        padding: 22px;
+        spacing: 10px;
+        Text { text: "Reminders you missed"; color: root.pal.text; font-size: 17px; font-weight: 700; }
+        Text { text: "These came due while Barbican was closed or the computer was asleep."; color: root.pal.dim; font-size: 12.5px; wrap: word-wrap; }
+        ScrollView {
+            height: min(mll.preferred-height, 320px);
+            mll := VerticalLayout {
+                spacing: 6px;
+                for m in CalX.missed: Rectangle {
+                    height: 48px;
+                    border-radius: 16px;
+                    background: CalTint.bg(root.pal.dark, 2);
+                    VerticalLayout {
+                        padding-left: 14px;
+                        alignment: center;
+                        Text { text: m.title; color: CalTint.fg(root.pal.dark, 2); font-weight: 700; overflow: elide; }
+                        Text { text: m.when; color: CalTint.fg(root.pal.dark, 2); font-size: 11.5px; overflow: elide; }
+                    }
+                }
+            }
+        }
+        HorizontalLayout {
+            spacing: 8px;
+            alignment: end;
+            CxButton { pal: root.pal; text: "Open calendar"; clicked => { CalX.missed-done(true); } }
+            CxButton { pal: root.pal; primary: true; text: "Done"; clicked => { CalX.missed-done(false); } }
+        }
+    }
+}
+
+// ---------------- task editor ----------------
+
+component TaskEditor inherits Modal {
+    max-w: 520px;
+    inner-h: tl.preferred-height;
+    dismiss => { CalX.te-open = false; }
+    tl := VerticalLayout {
+        padding: 22px;
+        spacing: 10px;
+        Text { text: CalX.te-id == "" ? "New task" : "Edit task"; color: root.pal.text; font-size: 17px; font-weight: 700; }
+        LineEdit { placeholder-text: "Title"; text <=> CalX.te-title; }
+        TextEdit { height: 70px; text <=> CalX.te-notes; wrap: word-wrap; }
+        Label { pal: root.pal; text: "Due"; }
+        HorizontalLayout {
+            spacing: 8px;
+            LineEdit { width: 130px; placeholder-text: "YYYY-MM-DD"; text <=> CalX.te-due-date; }
+            CheckBox { text: "Include time"; checked <=> CalX.te-has-time; }
+            if CalX.te-has-time: LineEdit { width: 80px; placeholder-text: "HH:MM"; text <=> CalX.te-due-time; }
+            Rectangle { horizontal-stretch: 1; }
+        }
+        HorizontalLayout {
+            spacing: 8px;
+            Label { pal: root.pal; text: "Repeat"; width: 80px; }
+            ComboBox { model: ["Does not repeat", "Every day", "Every week", "Every month", "Every year"]; current-index <=> CalX.te-repeat; }
+        }
+        HorizontalLayout {
+            spacing: 8px;
+            Label { pal: root.pal; text: "Priority"; width: 80px; }
+            ComboBox { model: ["None", "High", "Medium", "Low"]; current-index <=> CalX.te-priority; }
+        }
+        HorizontalLayout {
+            spacing: 8px;
+            Label { pal: root.pal; text: "Status"; width: 80px; }
+            ComboBox { model: ["Needs action", "In progress", "Completed", "Cancelled"]; current-index <=> CalX.te-progress; }
+        }
+        HorizontalLayout {
+            spacing: 8px;
+            Label { pal: root.pal; text: "List"; width: 80px; }
+            ComboBox { model: CalX.te-lists; current-index <=> CalX.te-list; }
+        }
+        HorizontalLayout {
+            spacing: 8px;
+            Label { pal: root.pal; text: "Reminder"; width: 80px; }
+            ComboBox {
+                model: ["None", "At due time", "5 minutes before", "15 minutes before", "30 minutes before", "1 hour before", "1 day before"];
+                current-index <=> CalX.te-alert;
+            }
+        }
+        HorizontalLayout {
+            spacing: 8px;
+            Text { text: CalX.te-status; color: root.pal.accent; vertical-alignment: center; horizontal-stretch: 1; overflow: elide; }
+            if CalX.te-id != "": CxButton { pal: root.pal; danger: true; glyph: "\u{E74D}"; text: "Delete"; clicked => { CalX.te-delete(); } }
+            CxButton { pal: root.pal; text: "Cancel"; clicked => { CalX.te-open = false; } }
+            CxButton { pal: root.pal; primary: true; text: "Save"; clicked => { CalX.te-save(); } }
+        }
+    }
+}
+
+// ---------------- .ics import ----------------
+
+component ImportDialog inherits Modal {
+    max-w: 480px;
+    inner-h: il.preferred-height;
+    dismiss => { if !CalX.imp-busy { CalX.imp-open = false; } }
+    il := VerticalLayout {
+        padding: 22px;
+        spacing: 10px;
+        Text { text: "Import events"; color: root.pal.text; font-size: 17px; font-weight: 700; }
+        Text { text: "Add the events of an iCalendar (.ics) file to one of your calendars. Events already there are skipped."; color: root.pal.dim; font-size: 12.5px; wrap: word-wrap; }
+        HorizontalLayout {
+            spacing: 8px;
+            Rectangle {
+                horizontal-stretch: 1;
+                height: 32px;
+                border-radius: 12px;
+                background: root.pal.bg;
+                border-width: 1px;
+                border-color: root.pal.line;
+                Text { x: 12px; width: parent.width - 24px; text: CalX.imp-file == "" ? "No file chosen" : CalX.imp-file; color: CalX.imp-file == "" ? root.pal.dim : root.pal.text; overflow: elide; vertical-alignment: center; height: parent.height; }
+            }
+            CxButton { pal: root.pal; glyph: "\u{E8E5}"; text: "Choose file…"; enabled: !CalX.imp-busy; clicked => { CalX.imp-choose(); } }
+        }
+        if CalX.imp-info != "": Rectangle {
+            height: 34px;
+            border-radius: 12px;
+            background: CalTint.bg(root.pal.dark, 4);
+            Text { x: 12px; text: CalX.imp-info; color: CalTint.fg(root.pal.dark, 4); font-size: 12.5px; vertical-alignment: center; height: parent.height; }
+        }
+        HorizontalLayout {
+            spacing: 8px;
+            Label { pal: root.pal; text: "Into"; width: 50px; }
+            ComboBox { model: CalX.imp-calendars; current-index <=> CalX.imp-calendar; }
+        }
+        HorizontalLayout {
+            spacing: 8px;
+            Text { text: CalX.imp-status; color: root.pal.accent; vertical-alignment: center; horizontal-stretch: 1; wrap: word-wrap; }
+            CxButton { pal: root.pal; text: "Close"; enabled: !CalX.imp-busy; clicked => { CalX.imp-open = false; } }
+            CxButton { pal: root.pal; primary: true; text: CalX.imp-busy ? "Importing…" : "Import"; enabled: CalX.imp-ready && !CalX.imp-busy; clicked => { CalX.imp-run(); } }
+        }
+    }
+}
+
+// ---------------- webcal subscriptions ----------------
+
+component SubscribeDialog inherits Modal {
+    max-w: 480px;
+    inner-h: bl.preferred-height;
+    dismiss => { if !CalX.sub-busy { CalX.sub-open = false; } }
+    bl := VerticalLayout {
+        padding: 22px;
+        spacing: 10px;
+        Text { text: CalX.sub-id == "" ? "Subscribe to a calendar" : "Subscription"; color: root.pal.text; font-size: 17px; font-weight: 700; }
+        Text { text: "A read-only copy of an online calendar (webcal:// or https:// .ics link), refreshed on a schedule."; color: root.pal.dim; font-size: 12.5px; wrap: word-wrap; }
+        Label { pal: root.pal; text: "Calendar address"; }
+        LineEdit { placeholder-text: "webcal://example.com/calendar.ics"; text <=> CalX.sub-url; }
+        Label { pal: root.pal; text: "Name"; }
+        LineEdit { placeholder-text: "Holidays"; text <=> CalX.sub-name; }
+        Label { pal: root.pal; text: "Colour"; }
+        HorizontalLayout {
+            spacing: 8px;
+            for c[i] in CalX.sub-colors: Rectangle {
+                width: 26px; height: 26px; border-radius: 9px;
+                background: c;
+                border-width: CalX.sub-color == i ? 2px : 0px;
+                border-color: root.pal.text;
+                TouchArea { clicked => { CalX.sub-color = i; } }
+            }
+            Rectangle { horizontal-stretch: 1; }
+        }
+        HorizontalLayout {
+            spacing: 8px;
+            Label { pal: root.pal; text: "Refresh"; width: 70px; }
+            ComboBox { model: ["Every 15 minutes", "Every 30 minutes", "Every hour", "Every 6 hours", "Every day"]; current-index <=> CalX.sub-interval; }
+        }
+        HorizontalLayout {
+            spacing: 8px;
+            Text { text: CalX.sub-status; color: root.pal.accent; vertical-alignment: center; horizontal-stretch: 1; wrap: word-wrap; }
+            if CalX.sub-id != "": CxButton { pal: root.pal; danger: true; text: "Unsubscribe"; enabled: !CalX.sub-busy; clicked => { CalX.sub-remove(CalX.sub-id); } }
+            CxButton { pal: root.pal; text: "Cancel"; enabled: !CalX.sub-busy; clicked => { CalX.sub-open = false; } }
+            CxButton { pal: root.pal; primary: true; text: CalX.sub-busy ? "Working…" : CalX.sub-id == "" ? "Subscribe" : "Save"; enabled: !CalX.sub-busy; clicked => { CalX.sub-save(); } }
+        }
+    }
+}
+
+// ---------------- everything that floats over the window ----------------
+
+export component CalOverlays inherits Rectangle {
+    in property <CalPal> pal;
+    // the window's event editor fields
+    in-out property <bool> ev-open;
+    in property <string> ev-id;
+    in-out property <string> ev-title;
+    in-out property <string> ev-date;
+    in-out property <string> ev-start;
+    in-out property <string> ev-end;
+    in-out property <bool> ev-all-day;
+    in-out property <string> ev-location;
+    in-out property <string> ev-description;
+    in-out property <int> ev-repeat;
+    in-out property <int> ev-calendar;
+    in property <[string]> ev-calendars;
+    in property <string> ev-status;
+    callback ev-save();
+    callback ev-delete();
+
+    if root.ev-open: EventEditor {
+        pal: root.pal;
+        ev-id: root.ev-id;
+        title <=> root.ev-title;
+        date <=> root.ev-date;
+        start <=> root.ev-start;
+        end <=> root.ev-end;
+        all-day <=> root.ev-all-day;
+        location <=> root.ev-location;
+        description <=> root.ev-description;
+        repeat <=> root.ev-repeat;
+        calendar <=> root.ev-calendar;
+        calendars: root.ev-calendars;
+        status: root.ev-status;
+        save => { root.ev-save(); }
+        delete => { root.ev-delete(); }
+        cancel => { root.ev-open = false; CalX.rr-open = false; }
+    }
+    if CalX.qc-open: QuickCreate { pal: root.pal; }
+    if CalX.te-open: TaskEditor { pal: root.pal; }
+    if CalX.imp-open: ImportDialog { pal: root.pal; }
+    if CalX.sub-open: SubscribeDialog { pal: root.pal; }
+    if CalX.scope-open: ScopeDialog { pal: root.pal; }
+    if CalX.missed-open: MissedDialog { pal: root.pal; }
+    if CalX.reminders.length > 0: ReminderStack {
+        pal: root.pal;
+        x: root.width - self.width - 16px;
+        y: 16px;
+    }
+}
+
+// ---------------- agenda view ----------------
+
+export component AgendaView inherits Rectangle {
+    in property <CalPal> pal;
+    ScrollView {
+        VerticalLayout {
+            padding: 16px;
+            padding-top: 8px;
+            spacing: 4px;
+            alignment: start;
+            if CalX.agenda.length == 0: Rectangle {
+                height: 120px;
+                Text { text: "Nothing planned in this period."; color: root.pal.dim; }
+            }
+            for r in CalX.agenda: VerticalLayout {
+                if r.header != "": Rectangle {
+                    height: 40px;
+                    HorizontalLayout {
+                        padding-top: 12px;
+                        spacing: 8px;
+                        if r.today: Rectangle {
+                            width: tdt.preferred-width + 20px;
+                            height: 24px;
+                            border-radius: 12px;
+                            background: CalTint.bg(root.pal.dark, 3);
+                            tdt := Text { text: r.header; color: CalTint.fg(root.pal.dark, 3); font-weight: 700; font-size: 12.5px; }
+                        }
+                        if !r.today: Text { text: r.header; color: root.pal.text; font-weight: 700; font-size: 13px; vertical-alignment: center; }
+                        Rectangle { horizontal-stretch: 1; }
+                    }
+                }
+                if r.empty: Text { x: 0; text: "Nothing planned"; color: root.pal.dim; font-size: 12px; height: 26px; vertical-alignment: center; }
+                if !r.empty && r.id != "": Rectangle {
+                    height: 44px;
+                    border-radius: 14px;
+                    background: ata.has-hover ? root.pal.hover : transparent;
+                    ata := TouchArea { clicked => { CalX.agenda-open(r.id, r.kind); } }
+                    HorizontalLayout {
+                        padding-left: 10px;
+                        padding-right: 10px;
+                        spacing: 12px;
+                        Text { width: 120px; text: r.time; color: root.pal.dim; font-size: 12px; vertical-alignment: center; overflow: elide; }
+                        VerticalLayout {
+                            alignment: center;
+                            Rectangle {
+                                width: 10px; height: 10px;
+                                border-radius: r.kind == 1 ? 5px : 3px;
+                                background: r.kind == 1 && !r.done ? transparent : r.color;
+                                border-width: r.kind == 1 ? 1.5px : 0px;
+                                border-color: r.color;
+                            }
+                        }
+                        VerticalLayout {
+                            alignment: center;
+                            horizontal-stretch: 1;
+                            Text { text: r.title; color: r.done ? root.pal.dim : root.pal.text; font-weight: 600; overflow: elide; }
+                            if r.location != "": Text { text: r.location; color: root.pal.dim; font-size: 11.5px; overflow: elide; }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+// ---------------- tasks view ----------------
+
+export component TasksView inherits Rectangle {
+    in property <CalPal> pal;
+    callback new-task();
+    VerticalLayout {
+        HorizontalLayout {
+            height: 48px;
+            padding-left: 16px;
+            padding-right: 16px;
+            spacing: 8px;
+            Text { text: "Tasks"; color: root.pal.text; font-size: 18px; font-weight: 700; vertical-alignment: center; }
+            Rectangle { width: 8px; }
+            for f[i] in ["All", "Pending", "Overdue", "Completed"]: VerticalLayout {
+                alignment: center;
+                Pill {
+                    pal: root.pal;
+                    tone: i == 2 && CalX.task-counts[2] > 0 ? 3 : 0;
+                    active: CalX.task-filter == i;
+                    text: f + (CalX.task-counts[i] > 0 ? "  " + CalX.task-counts[i] : "");
+                    clicked => { CalX.task-filter-set(i); }
+                }
+            }
+            Rectangle { horizontal-stretch: 1; }
+            VerticalLayout { alignment: center; CxButton { pal: root.pal; primary: true; glyph: "\u{E710}"; text: "New task"; clicked => { root.new-task(); } } }
+        }
+        Rectangle { height: 1px; background: root.pal.line; }
+        HorizontalLayout {
+            padding: 12px;
+            padding-left: 16px;
+            padding-right: 16px;
+            spacing: 8px;
+            LineEdit {
+                placeholder-text: "Add a task… (a date at the end, like \"tomorrow\" or \"fri\", sets the due date)";
+                text <=> CalX.task-quick;
+                edited(t) => { CalX.task-quick-changed(t); }
+                accepted(t) => { CalX.task-quick-add(t); }
+            }
+            if CalX.task-quick-due != "": VerticalLayout { alignment: center; Pill { pal: root.pal; tone: 4; text: CalX.task-quick-due; } }
+        }
+        ScrollView {
+            vertical-stretch: 1;
+            VerticalLayout {
+                padding-left: 12px;
+                padding-right: 12px;
+                padding-bottom: 12px;
+                alignment: start;
+                if CalX.tasks.length == 0: Rectangle {
+                    height: 120px;
+                    Text { text: CalX.task-filter == 3 ? "No completed tasks." : CalX.task-filter == 2 ? "Nothing overdue." : "No tasks. Add one above."; color: root.pal.dim; }
+                }
+                for t in CalX.tasks: Rectangle {
+                    height: t.notes != "" ? 56px : 44px;
+                    border-radius: 14px;
+                    background: tta.has-hover ? root.pal.hover : transparent;
+                    tta := TouchArea { clicked => { CalX.task-open(t.id); } }
+                    HorizontalLayout {
+                        padding-left: 10px;
+                        padding-right: 10px;
+                        spacing: 12px;
+                        VerticalLayout {
+                            alignment: center;
+                            Rectangle {
+                                width: 18px; height: 18px; border-radius: 9px;
+                                border-width: 1.5px;
+                                border-color: t.done ? CalTint.fg(root.pal.dark, 1) : root.pal.dim;
+                                background: t.done ? CalTint.bg(root.pal.dark, 1) : transparent;
+                                if t.done: Glyph { text: "\u{E73E}"; font-size: 10px; color: CalTint.fg(root.pal.dark, 1); }
+                                TouchArea { clicked => { CalX.task-toggle(t.id); } }
+                            }
+                        }
+                        VerticalLayout {
+                            alignment: center;
+                            horizontal-stretch: 1;
+                            Text { text: t.title; color: t.done ? root.pal.dim : root.pal.text; font-weight: 600; overflow: elide; }
+                            if t.notes != "": Text { text: t.notes; color: root.pal.dim; font-size: 11.5px; overflow: elide; }
+                        }
+                        if t.priority > 0: VerticalLayout {
+                            alignment: center;
+                            Glyph { text: "\u{E7C1}"; font-size: 11px; color: t.priority == 1 ? CalTint.fg(root.pal.dark, 3) : t.priority == 2 ? CalTint.fg(root.pal.dark, 2) : root.pal.dim; }
+                        }
+                        if t.due != "": VerticalLayout { alignment: center; Pill { pal: root.pal; tone: t.due-tone == 2 ? 3 : t.due-tone == 1 ? 4 : 0; text: t.due; } }
+                        HorizontalLayout {
+                            spacing: 6px;
+                            width: 130px;
+                            VerticalLayout { alignment: center; Rectangle { width: 8px; height: 8px; border-radius: 4px; background: t.color; } }
+                            Text { text: t.list; color: root.pal.dim; font-size: 11.5px; vertical-alignment: center; overflow: elide; }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+// ---------------- sidebar: import, subscribe, subscriptions ----------------
+
+export component CalSidebarExtra inherits VerticalLayout {
+    in property <CalPal> pal;
+    spacing: 4px;
+    if CalX.subs.length > 0: Text { text: "Subscriptions"; color: root.pal.text; font-weight: 700; }
+    for s in CalX.subs: Rectangle {
+        height: 26px;
+        border-radius: 8px;
+        background: sta.has-hover ? root.pal.hover : transparent;
+        sta := TouchArea { clicked => { CalX.sub-begin(s.id); } }
+        HorizontalLayout {
+            spacing: 8px;
+            VerticalLayout { alignment: center; Rectangle { width: 14px; height: 14px; border-radius: 5px; background: s.color; } }
+            Text { text: s.name; color: root.pal.text; vertical-alignment: center; overflow: elide; horizontal-stretch: 1; }
+            if sta.has-hover: IconBtn { pal: root.pal; glyph: "\u{E72C}"; y: 0px; clicked => { CalX.sub-refresh(s.id); } }
+        }
+    }
+    Rectangle { height: 4px; }
+    Rectangle {
+        height: 28px;
+        border-radius: 10px;
+        background: ita.has-hover ? root.pal.hover : transparent;
+        ita := TouchArea { clicked => { CalX.imp-begin(); } }
+        HorizontalLayout {
+            padding-left: 4px;
+            spacing: 8px;
+            Glyph { text: "\u{E8B5}"; color: root.pal.dim; font-size: 12px; width: 14px; }
+            Text { text: "Import .ics file…"; color: root.pal.text; vertical-alignment: center; }
+        }
+    }
+    Rectangle {
+        height: 28px;
+        border-radius: 10px;
+        background: bta.has-hover ? root.pal.hover : transparent;
+        bta := TouchArea { clicked => { CalX.sub-begin(""); } }
+        HorizontalLayout {
+            padding-left: 4px;
+            spacing: 8px;
+            Glyph { text: "\u{E71B}"; color: root.pal.dim; font-size: 12px; width: 14px; }
+            Text { text: "Subscribe to calendar…"; color: root.pal.text; vertical-alignment: center; }
+        }
+    }
+}

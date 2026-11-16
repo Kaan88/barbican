@@ -912,7 +912,7 @@ pub fn pick(u: &AppWindow, st: &Shared, action: &str) {
                 "rename" => prompt(u, "Rename calendar", &name, "rename-cal", id),
                 "default" => { let cid = id.to_string(); coll_op(u, st, "Default changed", move |c| crate::server_settings::default_collection(c, false, &cid)); }
                 "delete" => calendar::set_call(u, c, "Calendar/set", json!({"destroy": [id], "onDestroyRemoveEvents": true}), "Calendar not deleted"),
-                a if a.starts_with("color:") => calendar::set_call(u, c, "Calendar/set", json!({"update": {id: {"color": &a[6..]}}}), "Colour not changed"),
+                a if a.starts_with("color:") => calendar::set_color(u, c, id, &a[6..]),
                 _ => {}
             }
         }
