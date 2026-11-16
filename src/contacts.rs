@@ -131,26 +131,37 @@ fn render_nav(u: &AppWindow) {
     ST.with(|s| {
         let s = s.borrow();
         let mut v = vec![nav("all", "", "All contacts", "\u{E77B}", s.cards.len(), "")];
-        let mut first = true;
-        for b in &s.books {
+        // `depth` is the row's index within its section (the Bento sidebar tints groups and
+        // lays categories out as a two-column chip grid by it)
+        for (i, b) in s.books.iter().enumerate() {
             let id = b["id"].as_str().unwrap_or("");
             let n = s.cards.iter().filter(|c| c["addressBookIds"][id] == true).count();
             let name = b["name"].as_str().unwrap_or("Address book");
-            v.push(nav("book", id, name, "\u{E82D}", n, if first { "Address books" } else { "" }));
-            first = false;
+            let mut r = nav("book", id, name, "\u{E82D}", n, if i == 0 { "Address books" } else { "" });
+            r.depth = i as i32;
+            v.push(r);
         }
-        let mut first = true;
-        for g in &s.groups {
+        for (i, g) in s.groups.iter().enumerate() {
             let id = g["id"].as_str().unwrap_or("");
             let n = g["members"].as_object().map(|m| m.values().filter(|x| **x == Value::Bool(true)).count()).unwrap_or(0);
-            v.push(nav("group", id, &full_name(g), "\u{E716}", n, if first { "Groups" } else { "" }));
-            first = false;
+            let mut r = nav("group", id, &full_name(g), "\u{E716}", n, if i == 0 { "Groups" } else { "" });
+            r.depth = i as i32;
+            v.push(r);
         }
-        if first { v.push(nav("section", "groups", "", "", 0, "Groups")); }
+        if s.groups.is_empty() { v.push(nav("section", "groups", "", "", 0, "Groups")); }
         let uncat = s.cards.iter().filter(|c| keywords(c).is_empty()).count();
-        v.push(nav("uncat", "", "No category", "\u{E8EC}", uncat, "Categories"));
         drop(s);
-        for (k, n) in all_keywords() { v.push(nav("keyword", &k, &k, "\u{E8EC}", n, "")); }
+        let kws = all_keywords();
+        let ncat = kws.len() + 1;
+        for (i, (k, n)) in kws.into_iter().enumerate() {
+            let mut r = nav("keyword", &k, &k, "\u{E8EC}", n, if i == 0 { "Categories" } else { "" });
+            r.depth = i as i32;
+            v.push(r);
+        }
+        let mut r = nav("uncat", "", "No category", "\u{E8EC}", uncat, if ncat == 1 { "Categories" } else { "" });
+        r.depth = ncat as i32 - 1;
+        v.push(r);
+        u.set_ct_cats(ncat as i32);
         u.set_ct_nav(ModelRc::new(VecModel::from(v)));
     });
 }

@@ -342,6 +342,229 @@ component FolderRow inherits Rectangle {
     }
 }
 
+// ---- people screens: Contacts and Files (design/mockups BNContacts; Files derived from it) ----
+
+/// The big primary action at the top of a sidebar ("+ New contact", "Upload"): 52px, radius 20
+/// in Bento; a 50px pill in Nordic.
+component PeopleCta inherits Rectangle {
+    in property <string> text;
+    in property <string> icon;
+    in property <bool> enabled: true;
+    callback clicked;
+    height: Prefs.large-targets ? 56px : (Theme.nordic ? 50px : 52px);
+    border-radius: Theme.nordic ? self.height / 2 : 20px;
+    background: !enabled ? Theme.accent.with-alpha(0.4) : pca.pressed ? Theme.accent.darker(0.12) : pca.has-hover ? Theme.accent.brighter(0.1) : Theme.accent;
+    accessible-role: button;
+    accessible-label: root.text;
+    accessible-action-default => { if root.enabled { root.clicked(); } }
+    pca := TouchArea { enabled: root.enabled; clicked => { root.clicked(); } mouse-cursor: pointer; }
+    HorizontalLayout {
+        alignment: center;
+        spacing: 8px;
+        if root.icon != "": VerticalLayout { alignment: center; SIcon { commands: root.icon; size: 16px; weight: 2.2; tint: Theme.on-accent; } }
+        Text { text: root.text; color: Theme.on-accent; font-size: 14.5px * Prefs.fs; font-weight: 700; vertical-alignment: center; }
+    }
+}
+
+/// A detail-header button (BNContacts Email / Invite / Edit): 40px, radius 14 (Bento) or a pill
+/// (Nordic); `primary` is the accent one, the rest tile-2 with a hairline.
+component PeopleBtn inherits Rectangle {
+    in property <string> text;
+    in property <string> icon;
+    in property <bool> primary;
+    in property <bool> enabled: true;
+    callback clicked;
+    height: Prefs.large-targets ? 44px : 40px;
+    width: pbl.preferred-width + (Theme.nordic ? 36px : 32px);
+    border-radius: Theme.nordic ? self.height / 2 : 14px;
+    border-width: primary ? 0px : 1px;
+    border-color: Theme.line;
+    opacity: enabled ? 1 : 0.45;
+    background: primary ? (pba.has-hover ? Theme.accent.brighter(0.1) : Theme.accent)
+        : pba.pressed ? Theme.track : pba.has-hover ? Theme.hover : (Theme.nordic ? transparent : Theme.tile2);
+    accessible-role: button;
+    accessible-label: root.text;
+    accessible-action-default => { if root.enabled { root.clicked(); } }
+    pba := TouchArea { enabled: root.enabled; clicked => { root.clicked(); } mouse-cursor: pointer; }
+    pbl := HorizontalLayout {
+        alignment: center;
+        spacing: 6px;
+        if root.icon != "": VerticalLayout { alignment: center; SIcon { commands: root.icon; size: 14px; weight: 2; tint: root.primary ? Theme.on-accent : Theme.text; } }
+        Text { text: root.text; color: root.primary ? Theme.on-accent : Theme.text; font-size: 13px * Prefs.fs; font-weight: root.primary ? 700 : 600; vertical-alignment: center; }
+    }
+}
+
+/// A row in the contacts sidebar. Plain (address books: sel tint when chosen), a tint tile
+/// (Bento groups) or a coloured dot row (Nordic groups and categories).
+component PeopleNav inherits Rectangle {
+    in property <string> label;
+    in property <string> count;
+    in property <bool> selected;
+    in property <bool> tinted;
+    in property <color> tint-bg;
+    in property <color> tint-fg;
+    in property <bool> dotted;
+    in property <color> dot;
+    in property <bool> italic;
+    in property <string> hl-id;
+    callback clicked;
+    callback context(length, length);
+    property <bool> hl: hl-id != "" && CtxHl.id == hl-id;
+    height: Prefs.large-targets ? 44px : (Theme.nordic ? 40px : 36px) * Prefs.fs;
+    border-radius: Theme.nordic ? self.height / 2 : 14px;
+    property <color> fg: tinted ? tint-fg : selected ? Theme.sel-text : Theme.body;
+    background: tinted ? tint-bg : selected ? Theme.sel : (pna.has-hover || hl) ? Theme.tile2 : transparent;
+    border-width: hl || (tinted && (selected || pna.has-hover)) ? 1.5px : 0px;
+    border-color: tinted ? tint-fg : Theme.accent;
+    accessible-role: button;
+    accessible-label: root.label;
+    accessible-action-default => { root.clicked(); }
+    pna := TouchArea {
+        clicked => { root.clicked(); }
+        pointer-event(ev) => { if ev.button == PointerEventButton.right && ev.kind == PointerEventKind.up { root.context(self.absolute-position.x + self.mouse-x, self.absolute-position.y + self.mouse-y); } }
+    }
+    HorizontalLayout {
+        padding-left: Theme.nordic ? 16px : (tinted ? 10px : 11px);
+        padding-right: Theme.nordic ? 12px : (tinted ? 10px : 11px);
+        spacing: Theme.nordic ? 12px : 10px;
+        if root.dotted: VerticalLayout { alignment: center; Rectangle { width: 10px; height: 10px; border-radius: 4px; background: root.dot; } }
+        Text {
+            text: root.label;
+            color: root.fg;
+            font-size: (Theme.nordic ? 14px : (root.tinted ? 13px : 13.5px)) * Prefs.fs;
+            font-weight: root.selected || root.tinted ? (Theme.nordic ? 700 : 600) : (Theme.nordic ? 500 : 400);
+            font-italic: root.italic;
+            vertical-alignment: center;
+            horizontal-stretch: 1;
+            overflow: elide;
+        }
+        Text { text: root.count; color: root.tinted || root.selected ? root.fg : Theme.faint; font-size: 12px * Prefs.fs; font-weight: Theme.nordic ? 500 : 700; vertical-alignment: center; }
+    }
+}
+
+/// A labelled input (contact editor): tile-2 field with a hairline (Bento) or a hairline pill
+/// (Nordic); `multi` makes a wrapping box for notes.
+component PeopleField inherits VerticalLayout {
+    in property <string> label;
+    in-out property <string> text;
+    in property <string> placeholder;
+    in property <bool> multi;
+    // equal columns when fields share a row, whatever their labels
+    preferred-width: 120px;
+    horizontal-stretch: 1;
+    spacing: 5px;
+    Text { text: root.label; color: Theme.dim; font-size: 11.5px * Prefs.fs; font-weight: 700; }
+    Rectangle {
+        height: root.multi ? 110px : (Prefs.large-targets ? 44px : 38px);
+        border-radius: root.multi ? (Theme.nordic ? 18px : 14px) : (Theme.nordic ? self.height / 2 : 14px);
+        background: Theme.nordic ? transparent : Theme.tile2;
+        border-width: pfi.has-focus ? max(1.5px, Prefs.focus-ring) : 1px;
+        border-color: pfi.has-focus ? Theme.ring : Theme.line;
+        clip: true;
+        property <length> px: Theme.nordic && !root.multi ? 16px : 12px;
+        if root.text == "": Text {
+            x: parent.px;
+            y: root.multi ? 10px : 0px;
+            width: parent.width - 2 * parent.px;
+            height: root.multi ? self.preferred-height : parent.height;
+            text: root.placeholder;
+            color: Theme.faint;
+            font-size: 13px * Prefs.fs;
+            vertical-alignment: center;
+        }
+        pfi := TextInput {
+            x: parent.px;
+            y: root.multi ? 10px : (parent.height - self.height) / 2;
+            width: parent.width - 2 * parent.px;
+            height: root.multi ? parent.height - 20px : self.preferred-height;
+            text <=> root.text;
+            color: Theme.text;
+            font-size: 13px * Prefs.fs;
+            single-line: !root.multi;
+            wrap: root.multi ? word-wrap : no-wrap;
+            selection-background-color: Theme.sel;
+            selection-foreground-color: Theme.sel-text;
+            accessible-label: root.label;
+        }
+    }
+}
+
+/// A line in a detail tile (recent mail, shared files): a tile-2 strip (Bento) or a hover row
+/// (Nordic) with a label and a dim right-hand value.
+component PeopleLine inherits Rectangle {
+    in property <string> label;
+    in property <string> value;
+    in property <string> icon;
+    callback clicked;
+    height: max(Prefs.large-targets ? 40px : 34px, pll.preferred-height + 16px);
+    border-radius: Theme.nordic ? 10px : 14px;
+    background: pla.has-hover ? (Theme.nordic ? Theme.tile2 : Theme.hover) : (Theme.nordic ? transparent : Theme.tile2);
+    accessible-role: button;
+    accessible-label: root.label;
+    accessible-action-default => { root.clicked(); }
+    pla := TouchArea { clicked => { root.clicked(); } mouse-cursor: pointer; }
+    pll := HorizontalLayout {
+        padding-left: Theme.nordic ? 6px : 10px;
+        padding-right: Theme.nordic ? 6px : 10px;
+        spacing: 10px;
+        if root.icon != "": VerticalLayout { alignment: center; SIcon { commands: root.icon; size: 14px; weight: 1.9; tint: Theme.dim; } }
+        Text { text: root.label; color: Theme.text; font-size: 13px * Prefs.fs; vertical-alignment: center; overflow: elide; horizontal-stretch: 1; }
+        if root.value != "": Text { text: root.value; color: Theme.dim; font-size: 12px * Prefs.fs; vertical-alignment: center; }
+    }
+}
+
+/// A place in the Files sidebar: indented tree row with a fold chevron; line icon in Bento,
+/// none in Nordic (like FolderRow).
+component FileNavRow inherits Rectangle {
+    in property <NavRow> n;
+    in property <bool> selected;
+    callback clicked;
+    callback chevron-clicked;
+    callback context(length, length);
+    property <bool> hl: n.id != "" && CtxHl.id == "file:" + n.id;
+    height: Prefs.large-targets ? 44px : (Theme.nordic ? 40px : 34px) * Prefs.fs;
+    border-radius: Theme.nordic ? self.height / 2 : 14px;
+    property <color> fg: selected ? Theme.sel-text : Theme.body;
+    background: selected ? Theme.sel : (fna.has-hover || hl) ? Theme.tile2 : transparent;
+    border-width: hl ? 1px : 0px;
+    border-color: Theme.accent;
+    accessible-role: button;
+    accessible-label: root.n.label;
+    accessible-action-default => { root.clicked(); }
+    fna := TouchArea {
+        clicked => { root.clicked(); }
+        pointer-event(ev) => { if ev.button == PointerEventButton.right && ev.kind == PointerEventKind.up { root.context(self.absolute-position.x + self.mouse-x, self.absolute-position.y + self.mouse-y); } }
+    }
+    HorizontalLayout {
+        padding-left: (Theme.nordic ? 10px : 6px) + max(0, n.depth - 1) * 14px;
+        padding-right: Theme.nordic ? 12px : 9px;
+        spacing: 6px;
+        Rectangle {
+            width: 16px;
+            fca := TouchArea { enabled: n.count != ""; clicked => { root.chevron-clicked(); } }
+            if n.count != "": SIcon { commands: n.count == "\u{E70D}" ? Icons.chevron-down : Icons.chevron-right; size: 11px; weight: 2.2; tint: fca.has-hover ? Theme.text : Theme.faint; }
+        }
+        if Theme.bento: VerticalLayout {
+            alignment: center;
+            SIcon {
+                commands: n.kind == "fav" ? Icons.star : n.kind == "recent" ? Icons.clock : n.kind == "shared" ? Icons.users : n.kind == "trash" ? Icons.trash : Icons.folder;
+                size: 15px;
+                weight: 1.8;
+                tint: n.kind == "fav" && !root.selected ? Theme.amber-fg : root.fg;
+            }
+        }
+        Text {
+            text: n.label;
+            color: root.fg;
+            vertical-alignment: center;
+            overflow: elide;
+            horizontal-stretch: 1;
+            font-size: (Theme.nordic ? 14px : 13.5px) * Prefs.fs;
+            font-weight: root.selected ? (Theme.nordic ? 700 : 600) : (Theme.nordic ? 500 : 400);
+        }
+    }
+}
+
 component TagIcon inherits Path {
     in property <color> tint;
     width: 14px;
@@ -1189,6 +1412,14 @@ export component AppWindow inherits Window {
     callback ct-save();
     callback ct-delete();
     callback ct-email();
+    // contact detail tiles (glance::contact): recent mail, files they sent, next event; categories count
+    in property <int> ct-cats;
+    in property <string> cx-email;
+    in property <[PRow]> cx-recent;
+    in property <[PRow]> cx-files;
+    in property <string> cx-next;
+    in property <string> cx-next-title;
+    property <string> ct-q;
     in property <[FileRow]> files;
     in property <[string]> crumb-ids;
     in property <[string]> crumb-names;
@@ -3268,84 +3499,147 @@ export component AppWindow inherits Window {
         }
     }
 
+    // ======== contacts (design/mockups BNContacts) ========
+    // Bento: sidebar tiles (books, groups as tint tiles, categories as chips), the people list
+    // tile, then a header tile and a grid of detail tiles. Nordic: sidebar on the ground; list
+    // and detail share one rounded surface; the detail has a context column (next event,
+    // recent mail, shared files) behind a hairline.
     if root.app == 2: Rectangle {
         x: Theme.shell-x;
         width: parent.width - Theme.shell-x;
-        background: Theme.bg;
+        background: Theme.ground;
         HorizontalLayout {
-            // ---- sidebar: all, address books, groups, categories (Bulwark contacts-sidebar) ----
-            Rectangle {
-                width: 210px;
-                background: Theme.side;
-                ScrollView {
-                    VerticalLayout {
-                        padding-top: 8px;
-                        padding-bottom: 12px;
+            padding-top: Theme.pad;
+            padding-bottom: Theme.pad;
+            padding-right: Theme.pad;
+            spacing: Theme.gap;
+            // ---- sidebar: new contact, address books, groups, categories ----
+            VerticalLayout {
+                width: Theme.nordic ? 228px : 220px;
+                padding-top: Theme.nordic ? 30px : 0px;
+                padding-left: Theme.nordic ? 14px : 0px;
+                padding-right: Theme.nordic ? 14px : 0px;
+                padding-bottom: Theme.nordic ? 22px : 0px;
+                spacing: Theme.nordic ? 22px : 12px;
+                PeopleCta { text: "New contact"; icon: Icons.plus; clicked => { root.ct-new(); } }
+                Flickable {
+                    vertical-stretch: 1;
+                    content-height: max(self.height, csb.preferred-height);
+                    csb := VerticalLayout {
                         alignment: start;
-                        for n in root.ct-nav: VerticalLayout {
-                            if n.header != "": Rectangle {
-                                height: 30px;
-                                HorizontalLayout {
-                                    padding-left: 14px;
-                                    padding-right: 8px;
-                                    Text { text: n.header; color: Theme.dim; font-size: 11px; font-weight: 600; vertical-alignment: center; horizontal-stretch: 1; }
-                                    if n.header == "Groups": HoverAction { y: 4px; glyph: "\u{E710}"; clicked => { root.ct-new-group(); } }
-                                }
-                            }
-                            if n.kind != "section": Rectangle {
-                                height: 28px;
-                                property <string> key: n.kind == "all" ? "" : n.kind == "uncat" ? "uncat" : n.kind == "keyword" ? "kw:" + n.id : n.kind + ":" + n.id;
-                                background: root.ct-filter == key ? Theme.sel : (cnta.has-hover || CtxHl.id == "ctnav:" + n.kind + ":" + n.id ? Theme.hover : transparent);
-                                cnta := TouchArea {
-                                    clicked => { root.ct-nav-select(n.kind, n.id); }
-                                    pointer-event(ev) => { if ev.button == PointerEventButton.right && ev.kind == PointerEventKind.up && (n.kind == "group" || n.kind == "keyword" || n.kind == "book") { root.ctx("ctnav", n.kind + ":" + n.id, self.absolute-position.x + self.mouse-x, self.absolute-position.y + self.mouse-y); } }
-                                }
-                                HorizontalLayout {
-                                    padding-left: 10px;
-                                    padding-right: 10px;
-                                    spacing: 8px;
-                                    Icon { text: n.icon; font-size: 12px; width: 16px; color: Theme.dim; }
-                                    Text { text: n.label; color: Theme.text; vertical-alignment: center; horizontal-stretch: 1; overflow: elide; font-italic: n.kind == "uncat"; font-weight: root.ct-filter == key ? 600 : 400; }
-                                    Text { text: n.count; color: Theme.dim; font-size: 11px; vertical-alignment: center; }
+                        spacing: Theme.nordic ? 18px : 12px;
+                        // address books (and everyone)
+                        Tile {
+                            flat: Theme.nordic;
+                            VerticalLayout {
+                                padding: Theme.nordic ? 0px : 10px;
+                                spacing: 0px;
+                                for n in root.ct-nav: VerticalLayout {
+                                    padding-top: n.kind == "book" ? (Theme.nordic ? 4px : 2px) : 0px;
+                                    if n.kind == "all" || n.kind == "book": PeopleNav {
+                                        property <string> key: n.kind == "all" ? "" : n.kind + ":" + n.id;
+                                        label: n.label;
+                                        count: n.count;
+                                        selected: root.ct-filter == key && root.ct-group == "";
+                                        hl-id: "ctnav:" + n.kind + ":" + n.id;
+                                        clicked => { root.ct-nav-select(n.kind, n.id); }
+                                        context(x, y) => { if n.kind == "book" { root.ctx("ctnav", n.kind + ":" + n.id, x, y); } }
+                                    }
                                 }
                             }
                         }
-                    }
-                }
-            }
-            Rectangle { width: 1px; background: Theme.line; }
-            Rectangle {
-                width: 320px;
-                background: Theme.side;
-                VerticalLayout {
-                    HorizontalLayout {
-                        padding: 10px;
-                        spacing: 6px;
-                        Text { text: "Contacts"; color: Theme.text; font-weight: 700; vertical-alignment: center; horizontal-stretch: 1; }
-                        HoverAction { glyph: "\u{E710}"; clicked => { root.ct-new(); } }
-                    }
-                    HorizontalLayout {
-                        padding-left: 10px; padding-right: 10px; padding-bottom: 8px;
-                        LineEdit { placeholder-text: "Search contacts"; edited(t) => { root.ct-search(t); } }
-                    }
-                    Rectangle { height: 1px; background: Theme.line; }
-                    ListView {
-                        for c in root.contacts: VerticalLayout {
-                            if c.header != "": Rectangle {
-                                height: 24px;
-                                Text { x: 14px; text: c.header; color: Theme.accent; font-weight: 700; font-size: 11px; }
-                            }
-                            Rectangle {
-                                height: 46px;
-                                background: c.id == root.ct-id ? Theme.sel : (cta2.has-hover || CtxHl.id == "contact:" + c.id ? Theme.hover : transparent);
-                                cta2 := TouchArea { clicked => { root.ct-group = ""; root.ct-select(c.id); } pointer-event(ev) => { if ev.button == PointerEventButton.right && ev.kind == PointerEventKind.up { root.ctx("contact", c.id, self.absolute-position.x + self.mouse-x, self.absolute-position.y + self.mouse-y); } } }
+                        // groups: tint tiles (Bento) or dot rows (Nordic)
+                        Tile {
+                            flat: Theme.nordic;
+                            VerticalLayout {
+                                padding: Theme.nordic ? 0px : 12px;
+                                spacing: 0px;
                                 HorizontalLayout {
-                                    padding-left: 12px; spacing: 10px;
-                                    VerticalLayout { alignment: center; Avatar { label: c.initials; tint: c.color; width: 30px; height: 30px; border-radius: 15px; } }
-                                    VerticalLayout {
-                                        alignment: center;
-                                        Text { text: c.name; color: Theme.text; font-weight: 600; overflow: elide; }
-                                        Text { text: c.email; color: Theme.dim; font-size: 11px; overflow: elide; }
+                                    padding-left: Theme.nordic ? 16px : 0px;
+                                    padding-right: Theme.nordic ? 8px : 0px;
+                                    padding-bottom: Theme.nordic ? 2px : 6px;
+                                    Text { text: "Groups"; color: Theme.dim; font-size: (Theme.nordic ? 12px : 11.5px) * Prefs.fs; font-weight: 700; vertical-alignment: center; horizontal-stretch: 1; }
+                                    IconBtn { icon: Icons.plus; icon-size: 13px; width: Prefs.large-targets ? 40px : 22px; tint: Theme.dim; clicked => { root.ct-new-group(); } }
+                                }
+                                for n in root.ct-nav: VerticalLayout {
+                                    padding-top: n.kind == "group" && n.depth > 0 ? (Theme.nordic ? 2px : 8px) : 0px;
+                                    if n.kind == "group": PeopleNav {
+                                        property <int> k: mod(n.depth, 4);
+                                        label: n.label;
+                                        count: n.count;
+                                        selected: root.ct-filter == "group:" + n.id;
+                                        tinted: Theme.bento;
+                                        tint-bg: k == 0 ? Theme.rose-bg : k == 1 ? Theme.amber-bg : k == 2 ? Theme.mint-bg : Theme.sky-bg;
+                                        tint-fg: k == 0 ? Theme.rose-fg : k == 1 ? Theme.amber-fg : k == 2 ? Theme.mint-fg : Theme.sky-fg;
+                                        dotted: Theme.nordic;
+                                        dot: self.tint-fg;
+                                        hl-id: "ctnav:group:" + n.id;
+                                        clicked => { root.ct-nav-select(n.kind, n.id); }
+                                        context(x, y) => { root.ctx("ctnav", "group:" + n.id, x, y); }
+                                    }
+                                    if n.kind == "section" && n.id == "groups": HorizontalLayout {
+                                        padding-left: Theme.nordic ? 16px : 0px;
+                                        Text { text: "No groups yet"; color: Theme.faint; font-size: 12.5px * Prefs.fs; }
+                                    }
+                                }
+                            }
+                        }
+                        // categories: a two-column chip grid (Bento) or dot rows (Nordic)
+                        Tile {
+                            flat: Theme.nordic;
+                            VerticalLayout {
+                                padding: Theme.nordic ? 0px : 12px;
+                                spacing: Theme.nordic ? 2px : 8px;
+                                HorizontalLayout { padding-left: Theme.nordic ? 16px : 0px; Text { text: "Categories"; color: Theme.dim; font-size: (Theme.nordic ? 12px : 11.5px) * Prefs.fs; font-weight: 700; height: 22px; vertical-alignment: center; } }
+                                if Theme.bento: Rectangle {
+                                    property <length> cw: (self.width - 6px) / 2;
+                                    property <length> ch: (Prefs.large-targets ? 40px : 28px) * Prefs.fs;
+                                    height: ceil(root.ct-cats / 2) * (self.ch + 6px) - 6px;
+                                    for n in root.ct-nav: Rectangle {
+                                        property <string> key: n.kind == "uncat" ? "uncat" : "kw:" + n.id;
+                                        property <bool> on: root.ct-filter == key;
+                                        property <bool> hl: CtxHl.id == "ctnav:" + n.kind + ":" + n.id;
+                                        visible: n.kind == "keyword" || n.kind == "uncat";
+                                        x: mod(n.depth, 2) * (parent.cw + 6px);
+                                        y: floor(n.depth / 2) * (parent.ch + 6px);
+                                        width: parent.cw;
+                                        height: parent.ch;
+                                        border-radius: self.height / 2;
+                                        border-width: on ? 0px : 1px;
+                                        border-color: hl ? Theme.accent : Theme.line;
+                                        background: on ? Theme.sel : cca.has-hover ? Theme.hover : Theme.tile2;
+                                        accessible-role: button;
+                                        accessible-label: n.label;
+                                        accessible-action-default => { root.ct-nav-select(n.kind, n.id); }
+                                        cca := TouchArea {
+                                            clicked => { root.ct-nav-select(n.kind, n.id); }
+                                            pointer-event(ev) => { if ev.button == PointerEventButton.right && ev.kind == PointerEventKind.up && n.kind == "keyword" { root.ctx("ctnav", "keyword:" + n.id, self.absolute-position.x + self.mouse-x, self.absolute-position.y + self.mouse-y); } }
+                                        }
+                                        HorizontalLayout {
+                                            padding-left: 10px;
+                                            padding-right: 8px;
+                                            spacing: 4px;
+                                            Text { text: n.label; color: on ? Theme.sel-text : Theme.body; font-size: 12px * Prefs.fs; font-weight: on ? 600 : 400; font-italic: n.kind == "uncat"; vertical-alignment: center; overflow: elide; horizontal-stretch: 1; }
+                                            Text { text: n.count; color: on ? Theme.sel-text : Theme.faint; font-size: 11px * Prefs.fs; vertical-alignment: center; }
+                                        }
+                                    }
+                                }
+                                if Theme.nordic: VerticalLayout {
+                                    spacing: 0px;
+                                    for n in root.ct-nav: VerticalLayout {
+                                        padding-top: (n.kind == "keyword" || n.kind == "uncat") && n.depth > 0 ? 2px : 0px;
+                                        if n.kind == "keyword" || n.kind == "uncat": PeopleNav {
+                                            property <string> key: n.kind == "uncat" ? "uncat" : "kw:" + n.id;
+                                            label: n.label;
+                                            count: n.count;
+                                            italic: n.kind == "uncat";
+                                            selected: root.ct-filter == key;
+                                            dotted: true;
+                                            dot: n.kind == "uncat" ? Theme.track : Theme.faint;
+                                            hl-id: "ctnav:" + n.kind + ":" + n.id;
+                                            clicked => { root.ct-nav-select(n.kind, n.id); }
+                                            context(x, y) => { if n.kind == "keyword" { root.ctx("ctnav", "keyword:" + n.id, x, y); } }
+                                        }
                                     }
                                 }
                             }
@@ -3353,195 +3647,730 @@ export component AppWindow inherits Window {
                     }
                 }
             }
-            Rectangle { width: 1px; background: Theme.line; }
+
+            // ---- people list and detail: tiles (Bento) or one surface (Nordic) ----
+            HorizontalLayout {
+                padding: Theme.nordic ? 14px : 0px;
+                padding-left: 0px;
+                horizontal-stretch: 1;
             Rectangle {
-                if root.ct-id == "" && root.ct-group == "" && !root.ct-editing: VerticalLayout {
-                    alignment: center;
-                    Text { text: "Select a contact"; color: Theme.dim; horizontal-alignment: center; }
-                }
-                if root.ct-group != "" && root.ct-id == "" && !root.ct-editing: VerticalLayout {
-                    padding: 28px;
-                    spacing: 10px;
-                    alignment: start;
-                    Text { text: root.ct-name; color: Theme.text; font-size: 20px; font-weight: 700; }
-                    HorizontalLayout { alignment: start; PrimaryButton { text: "Email group"; enabled: root.ct-emails != ""; clicked => { root.ct-email(); } } }
-                    Rectangle { height: 1px; background: Theme.line; }
-                    Text { text: "Members"; color: Theme.dim; font-size: 11px; font-weight: 700; }
-                    Text { text: root.ct-notes == "" ? "No members" : root.ct-notes; color: Theme.text; wrap: word-wrap; }
-                }
-                if root.ct-id != "" && !root.ct-editing: VerticalLayout {
-                    padding: 28px;
-                    spacing: 10px;
-                    alignment: start;
-                    HorizontalLayout {
-                        spacing: 14px;
-                        Avatar { label: root.ct-initials; tint: Theme.accent; width: 56px; height: 56px; border-radius: 28px; }
-                        VerticalLayout {
-                            alignment: center;
-                            Text { text: root.ct-name; color: Theme.text; font-size: 20px; font-weight: 700; }
-                            Text { text: root.ct-title + (root.ct-title != "" && root.ct-company != "" ? " · " : "") + root.ct-company; color: Theme.dim; }
+                background: Theme.nordic ? Theme.tile : transparent;
+                border-width: Theme.nordic ? 1px : 0px;
+                border-color: Theme.line;
+                border-radius: Theme.nordic ? 28px : 0px;
+                clip: Theme.nordic;
+            HorizontalLayout {
+                padding: Theme.nordic ? 1px : 0px;
+                spacing: Theme.gap;
+                // ---- the people list ----
+                Rectangle {
+                    width: Theme.nordic ? 340px : 330px;
+                    background: Theme.nordic ? transparent : Theme.tile;
+                    border-width: Theme.nordic ? 0px : 1px;
+                    border-color: Theme.line;
+                    border-radius: Theme.nordic ? 0px : Theme.r-pane;
+                    clip: true;
+                    VerticalLayout {
+                        padding-top: Theme.nordic ? 28px : 18px;
+                        padding-left: Theme.nordic ? 14px : 10px;
+                        padding-right: Theme.nordic ? 14px : 10px;
+                        spacing: 0px;
+                        HorizontalLayout {
+                            padding-left: Theme.nordic ? 14px : 12px;
+                            padding-right: 12px;
+                            padding-bottom: Theme.nordic ? 14px : 10px;
+                            Text { text: "Contacts"; color: Theme.text; font-size: (Theme.nordic ? 28px : 24px) * Prefs.fs; font-weight: Theme.nordic ? 800 : 700; letter-spacing: Theme.nordic ? -0.56px : -0.3px; horizontal-stretch: 1; vertical-alignment: bottom; }
+                            Text { text: root.contacts.length; color: Theme.dim; font-size: 12px * Prefs.fs; vertical-alignment: bottom; }
+                        }
+                        // search: tile-2 field (Bento), hairline pill (Nordic)
+                        HorizontalLayout {
+                            padding-left: 6px;
+                            padding-right: 6px;
+                            padding-bottom: 8px;
+                            Rectangle {
+                                height: Prefs.large-targets ? 44px : 38px;
+                                border-radius: Theme.nordic ? self.height / 2 : 14px;
+                                background: Theme.nordic ? transparent : Theme.tile2;
+                                border-width: csi.has-focus ? max(1.5px, Prefs.focus-ring) : 1px;
+                                border-color: csi.has-focus ? Theme.ring : Theme.line;
+                                HorizontalLayout {
+                                    padding-left: Theme.nordic ? 16px : 12px;
+                                    padding-right: 6px;
+                                    spacing: 8px;
+                                    VerticalLayout { alignment: center; SIcon { commands: Icons.search; size: 15px; weight: 2; tint: Theme.dim; } }
+                                    Rectangle {
+                                        horizontal-stretch: 1;
+                                        if root.ct-q == "": Text { x: 0; width: parent.width; height: parent.height; text: "Search people"; color: Theme.faint; font-size: 13px * Prefs.fs; vertical-alignment: center; }
+                                        csi := TextInput {
+                                            y: (parent.height - self.height) / 2;
+                                            width: parent.width;
+                                            text <=> root.ct-q;
+                                            color: Theme.text;
+                                            font-size: 13px * Prefs.fs;
+                                            single-line: true;
+                                            selection-background-color: Theme.sel;
+                                            selection-foreground-color: Theme.sel-text;
+                                            accessible-label: "Search contacts";
+                                            edited => { root.ct-search(self.text); }
+                                        }
+                                    }
+                                    if root.ct-q != "": VerticalLayout { alignment: center; IconBtn { icon: Icons.close; icon-size: 12px; width: Prefs.large-targets ? 40px : 24px; clicked => { root.ct-q = ""; root.ct-search(""); } } }
+                                }
+                            }
+                        }
+                        ListView {
+                            vertical-stretch: 1;
+                            for c in root.contacts: VerticalLayout {
+                                if c.header != "": Rectangle {
+                                    height: 30px * Prefs.fs;
+                                    Text { x: 14px; y: 10px * Prefs.fs; text: c.header; color: Theme.accent; font-weight: 800; font-size: 11.5px * Prefs.fs; }
+                                }
+                                HorizontalLayout {
+                                    padding-left: Theme.nordic ? 0px : 2px;
+                                    padding-right: Theme.nordic ? 0px : 2px;
+                                    crow := Rectangle {
+                                        property <bool> on: c.id == root.ct-id;
+                                        height: (Prefs.large-targets ? 56px : 52px) * Prefs.fs;
+                                        border-radius: Theme.nordic ? self.height / 2 : 16px;
+                                        background: on ? Theme.sel : (cra.has-hover || CtxHl.id == "contact:" + c.id ? Theme.tile2 : transparent);
+                                        accessible-role: list-item;
+                                        accessible-label: c.name;
+                                        accessible-action-default => { root.ct-group = ""; root.ct-select(c.id); }
+                                        cra := TouchArea {
+                                            clicked => { root.ct-group = ""; root.ct-select(c.id); }
+                                            pointer-event(ev) => { if ev.button == PointerEventButton.right && ev.kind == PointerEventKind.up { root.ctx("contact", c.id, self.absolute-position.x + self.mouse-x, self.absolute-position.y + self.mouse-y); } }
+                                        }
+                                        HorizontalLayout {
+                                            padding-left: 12px;
+                                            padding-right: 12px;
+                                            spacing: 11px;
+                                            VerticalLayout { alignment: center; Avatar { label: c.initials; tint: c.color; width: 36px; height: 36px; } }
+                                            VerticalLayout {
+                                                alignment: center;
+                                                Text { text: c.name; color: crow.on ? Theme.sel-text : Theme.text; font-size: 13.5px * Prefs.fs; font-weight: 600; overflow: elide; }
+                                                Text { text: c.email; color: Theme.dim; font-size: 12px * Prefs.fs; overflow: elide; }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
                         }
                     }
-                    HorizontalLayout {
-                        spacing: 6px;
-                        alignment: start;
-                        PrimaryButton { text: "Write email";  enabled: root.ct-emails != ""; clicked => { root.ct-email(); } }
-                        Button { text: "Edit"; clicked => { root.ct-editing = true; } }
-                        Button { text: "Delete"; clicked => { root.ct-delete(); } }
-                    }
-                    Rectangle { height: 1px; background: Theme.line; }
-                    for f in [{l: "Email", v: root.ct-emails}, {l: "Phone", v: root.ct-phones}, {l: "Address", v: root.ct-address}, {l: "Birthday", v: root.ct-birthday}, {l: "Notes", v: root.ct-notes}]: HorizontalLayout {
-                        visible: f.v != "";
-                        spacing: 12px;
-                        Text { text: f.l; color: Theme.dim; width: 90px; }
-                        Text { text: f.v; color: Theme.text; wrap: word-wrap; horizontal-stretch: 1; }
+                    if root.contacts.length == 0: Text {
+                        y: 170px;
+                        width: parent.width;
+                        horizontal-alignment: center;
+                        text: root.ct-q != "" ? "No one matches “" + root.ct-q + "”" : "No contacts here";
+                        color: Theme.dim;
+                        font-size: 13px * Prefs.fs;
                     }
                 }
-                if root.ct-editing: VerticalLayout {
-                    padding: 28px;
-                    spacing: 8px;
-                    alignment: start;
-                    Text { text: root.ct-id == "" ? "New contact" : "Edit contact"; color: Theme.text; font-size: 17px; font-weight: 700; }
-                    LineEdit { placeholder-text: "Full name"; text <=> root.ct-name; }
-                    LineEdit { placeholder-text: "Emails (comma separated)"; text <=> root.ct-emails; }
-                    LineEdit { placeholder-text: "Phones (comma separated)"; text <=> root.ct-phones; }
-                    HorizontalLayout { spacing: 8px; LineEdit { placeholder-text: "Company"; text <=> root.ct-company; } LineEdit { placeholder-text: "Job title"; text <=> root.ct-title; } }
-                    LineEdit { placeholder-text: "Address"; text <=> root.ct-address; }
-                    LineEdit { placeholder-text: "Birthday YYYY-MM-DD"; text <=> root.ct-birthday; }
-                    TextEdit { height: 80px; text <=> root.ct-notes; wrap: word-wrap; }
-                    HorizontalLayout {
-                        spacing: 8px;
-                        Text { text: root.ct-status; color: Theme.accent; vertical-alignment: center; horizontal-stretch: 1; }
-                        Button { text: "Cancel"; clicked => { root.ct-editing = false; root.ct-select(root.ct-id); } }
-                        PrimaryButton { text: "Save";  clicked => { root.ct-save(); } }
+                if Theme.nordic: Rectangle { width: 1px; background: Theme.line; }
+
+                // ---- detail ----
+                Rectangle {
+                    horizontal-stretch: 1;
+                    // nothing chosen
+                    if root.ct-id == "" && root.ct-group == "" && !root.ct-editing: Tile {
+                        flat: Theme.nordic;
+                        border-radius: Theme.nordic ? 0px : Theme.r-pane;
+                        VerticalLayout {
+                            alignment: center;
+                            spacing: 10px;
+                            HorizontalLayout {
+                                alignment: center;
+                                Rectangle {
+                                    width: 64px;
+                                    height: 64px;
+                                    border-radius: Theme.round(self.height);
+                                    background: Theme.tile2;
+                                    border-width: 1px;
+                                    border-color: Theme.line;
+                                    SIcon { commands: Icons.users; size: 26px; weight: 1.6; tint: Theme.faint; }
+                                }
+                            }
+                            Text { text: "Select a contact"; color: Theme.text; font-size: 15px * Prefs.fs; font-weight: 600; horizontal-alignment: center; }
+                            Text { text: root.contacts.length + (root.contacts.length == 1 ? " person" : " people") + " in this view"; color: Theme.dim; font-size: 12.5px * Prefs.fs; horizontal-alignment: center; }
+                        }
+                    }
+
+                    // a contact (Bento): header tile, then 3 x 2 detail tiles
+                    if root.ct-id != "" && !root.ct-editing && Theme.bento: VerticalLayout {
+                        spacing: Theme.gap;
+                        Tile {
+                            border-radius: Theme.r-pane;
+                            vertical-stretch: 0;
+                            HorizontalLayout {
+                                padding-top: 24px;
+                                padding-bottom: 24px;
+                                padding-left: 26px;
+                                padding-right: 26px;
+                                spacing: 20px;
+                                VerticalLayout {
+                                    alignment: center;
+                                    Rectangle {
+                                        width: 88px;
+                                        height: 88px;
+                                        border-radius: 30px;
+                                        background: Theme.rose-bg;
+                                        TouchArea { pointer-event(ev) => { if ev.button == PointerEventButton.right && ev.kind == PointerEventKind.up { root.ctx("contact", root.ct-id, self.absolute-position.x + self.mouse-x, self.absolute-position.y + self.mouse-y); } } }
+                                        Text { text: root.ct-initials; color: Theme.rose-fg; font-size: 30px; font-weight: 800; }
+                                    }
+                                }
+                                VerticalLayout {
+                                    alignment: center;
+                                    horizontal-stretch: 1;
+                                    spacing: 2px;
+                                    Text { text: root.ct-name == "" ? "(no name)" : root.ct-name; color: Theme.text; font-size: 28px * Prefs.fs; font-weight: 800; letter-spacing: -0.56px; overflow: elide; }
+                                    Text {
+                                        text: root.ct-title != "" || root.ct-company != "" ? root.ct-title + (root.ct-title != "" && root.ct-company != "" ? " · " : "") + root.ct-company : root.ct-emails;
+                                        color: Theme.dim;
+                                        font-size: 14px * Prefs.fs;
+                                        overflow: elide;
+                                    }
+                                }
+                                VerticalLayout {
+                                    alignment: center;
+                                    HorizontalLayout {
+                                        spacing: 8px;
+                                        PeopleBtn { text: "Email"; primary: true; enabled: root.ct-emails != ""; clicked => { root.ct-email(); } }
+                                        PeopleBtn { text: "Edit"; clicked => { root.ct-editing = true; } }
+                                        PeopleBtn { text: "Delete"; clicked => { root.ct-delete(); } }
+                                    }
+                                }
+                            }
+                        }
+                        ctg := VerticalLayout {
+                            spacing: Theme.gap;
+                            vertical-stretch: 1;
+                            property <length> cw: (self.width - 2 * Theme.gap) / 3;
+                            HorizontalLayout {
+                                spacing: Theme.gap;
+                                vertical-stretch: 1;
+                                preferred-height: 200px;
+                                // contact details
+                                Tile {
+                                    width: ctg.cw;
+                                    clip: true;
+                                    VerticalLayout {
+                                        padding: 18px;
+                                        spacing: 0px;
+                                        alignment: start;
+                                        Text { text: "Contact"; color: Theme.dim; font-size: 11.5px * Prefs.fs; font-weight: 700; }
+                                        Rectangle { height: 10px; }
+                                        for f in [{l: "Email", v: root.ct-emails}, {l: "Phone", v: root.ct-phones}, {l: "Address", v: root.ct-address}, {l: "Birthday", v: root.ct-birthday}]: VerticalLayout {
+                                            if f.v != "": Text { text: f.l; color: Theme.dim; font-size: 11.5px * Prefs.fs; }
+                                            if f.v != "": Text { text: f.v; color: Theme.text; font-size: 13.5px * Prefs.fs; wrap: word-wrap; }
+                                            if f.v != "": Rectangle { height: 10px; }
+                                        }
+                                        if root.ct-emails == "" && root.ct-phones == "" && root.ct-address == "" && root.ct-birthday == "": Text { text: "No details yet"; color: Theme.faint; font-size: 13px * Prefs.fs; }
+                                    }
+                                }
+                                // recent mail from them (two columns wide)
+                                Tile {
+                                    horizontal-stretch: 1;
+                                    clip: true;
+                                    VerticalLayout {
+                                        padding: 18px;
+                                        spacing: 8px;
+                                        alignment: start;
+                                        Text { text: "Recent mail"; color: Theme.dim; font-size: 11.5px * Prefs.fs; font-weight: 700; }
+                                        for r in root.cx-recent: PeopleLine {
+                                            label: r.label;
+                                            value: r.value;
+                                            clicked => { root.show-settings = false; root.app = 0; root.app-changed(0); root.current-mail = r.tone; root.open-mail(r.tone); }
+                                        }
+                                        if root.cx-recent.length == 0: Text { text: root.ct-emails == "" ? "No email address" : "No mail from this contact"; color: Theme.faint; font-size: 13px * Prefs.fs; }
+                                    }
+                                }
+                            }
+                            HorizontalLayout {
+                                spacing: Theme.gap;
+                                vertical-stretch: 1;
+                                preferred-height: 200px;
+                                // next event with them
+                                nmt := Rectangle {
+                                    width: ctg.cw;
+                                    border-radius: Theme.r-tile;
+                                    background: root.cx-next != "" ? Theme.amber-bg : Theme.tile;
+                                    border-width: root.cx-next != "" ? 0px : 1px;
+                                    border-color: Theme.line;
+                                    clip: true;
+                                    property <color> fg: root.cx-next != "" ? Theme.amber-fg : Theme.dim;
+                                    VerticalLayout {
+                                        padding: 18px;
+                                        spacing: 6px;
+                                        Text { text: "Next meeting"; color: nmt.fg; font-size: 11.5px * Prefs.fs; font-weight: 700; }
+                                        if root.cx-next != "": Text { text: root.cx-next-title; color: nmt.fg; font-size: 20px * Prefs.fs; font-weight: 800; wrap: word-wrap; }
+                                        if root.cx-next != "": Text { text: root.cx-next; color: nmt.fg; font-size: 13px * Prefs.fs; }
+                                        if root.cx-next == "": Text { text: "Nothing planned together"; color: Theme.faint; font-size: 13px * Prefs.fs; }
+                                        Rectangle { vertical-stretch: 1; }
+                                    }
+                                }
+                                // files they sent
+                                Tile {
+                                    width: ctg.cw;
+                                    clip: true;
+                                    VerticalLayout {
+                                        padding: 18px;
+                                        spacing: 8px;
+                                        alignment: start;
+                                        Text { text: "Shared files"; color: Theme.dim; font-size: 11.5px * Prefs.fs; font-weight: 700; }
+                                        for r in root.cx-files: PeopleLine {
+                                            label: r.label;
+                                            clicked => { root.show-settings = false; root.app = 0; root.app-changed(0); root.current-mail = r.tone; root.open-mail(r.tone); }
+                                        }
+                                        if root.cx-files.length == 0: Text { text: "No attachments from them"; color: Theme.faint; font-size: 13px * Prefs.fs; }
+                                    }
+                                }
+                                // notes
+                                Tile {
+                                    horizontal-stretch: 1;
+                                    clip: true;
+                                    VerticalLayout {
+                                        padding: 18px;
+                                        spacing: 8px;
+                                        alignment: start;
+                                        Text { text: "Notes"; color: Theme.dim; font-size: 11.5px * Prefs.fs; font-weight: 700; }
+                                        Text { text: root.ct-notes == "" ? "No notes" : root.ct-notes; color: root.ct-notes == "" ? Theme.faint : Theme.body; font-size: 13.5px * Prefs.fs; wrap: word-wrap; }
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    // a contact (Nordic): detail column and a context column split by a hairline
+                    if root.ct-id != "" && !root.ct-editing && Theme.nordic: HorizontalLayout {
+                        Flickable {
+                            horizontal-stretch: 1;
+                            content-height: max(self.height, ndl.preferred-height);
+                            ndl := VerticalLayout {
+                                alignment: start;
+                                padding-top: 30px;
+                                padding-bottom: 24px;
+                                padding-left: 44px;
+                                padding-right: 44px;
+                                spacing: 0px;
+                                HorizontalLayout {
+                                    spacing: 20px;
+                                    Avatar {
+                                        label: root.ct-initials;
+                                        tint: Theme.accent;
+                                        width: 88px;
+                                        height: 88px;
+                                        background: Theme.sel;
+                                        TouchArea { pointer-event(ev) => { if ev.button == PointerEventButton.right && ev.kind == PointerEventKind.up { root.ctx("contact", root.ct-id, self.absolute-position.x + self.mouse-x, self.absolute-position.y + self.mouse-y); } } }
+                                    }
+                                    VerticalLayout {
+                                        alignment: center;
+                                        spacing: 2px;
+                                        Text { text: root.ct-name == "" ? "(no name)" : root.ct-name; color: Theme.text; font-size: 28px * Prefs.fs; font-weight: 800; letter-spacing: -0.56px; wrap: word-wrap; }
+                                        if root.ct-title != "" || root.ct-company != "": Text { text: root.ct-title + (root.ct-title != "" && root.ct-company != "" ? " · " : "") + root.ct-company; color: Theme.dim; font-size: 14px * Prefs.fs; wrap: word-wrap; }
+                                    }
+                                }
+                                Rectangle { height: 18px; }
+                                HorizontalLayout {
+                                    alignment: start;
+                                    spacing: 8px;
+                                    PeopleBtn { text: "Email"; primary: true; enabled: root.ct-emails != ""; clicked => { root.ct-email(); } }
+                                    PeopleBtn { text: "Edit"; clicked => { root.ct-editing = true; } }
+                                    PeopleBtn { text: "Delete"; clicked => { root.ct-delete(); } }
+                                }
+                                Rectangle { height: 18px; }
+                                Rectangle { height: 1px; background: Theme.line; }
+                                Rectangle { height: 18px; }
+                                for f in [{l: "Email", v: root.ct-emails}, {l: "Phone", v: root.ct-phones}, {l: "Address", v: root.ct-address}, {l: "Birthday", v: root.ct-birthday}, {l: "Notes", v: root.ct-notes}]: VerticalLayout {
+                                    if f.v != "": HorizontalLayout {
+                                        spacing: 16px;
+                                        padding-bottom: 14px;
+                                        Text { text: f.l; color: Theme.dim; width: 96px; font-size: 13px * Prefs.fs; }
+                                        Text { text: f.v; color: Theme.text; font-size: 14px * Prefs.fs; wrap: word-wrap; horizontal-stretch: 1; }
+                                    }
+                                }
+                            }
+                        }
+                        Rectangle { width: 1px; background: Theme.line; }
+                        Flickable {
+                            width: 260px;
+                            content-height: max(self.height, nctx.preferred-height);
+                            nctx := VerticalLayout {
+                                alignment: start;
+                                padding-top: 30px;
+                                padding-bottom: 30px;
+                                padding-left: 22px;
+                                padding-right: 22px;
+                                spacing: 10px;
+                                Text { text: "Next meeting"; color: Theme.dim; font-size: 12px * Prefs.fs; font-weight: 700; }
+                                if root.cx-next != "": VerticalLayout {
+                                    spacing: 2px;
+                                    Text { text: root.cx-next-title; color: Theme.text; font-size: 15px * Prefs.fs; font-weight: 700; wrap: word-wrap; }
+                                    Text { text: root.cx-next; color: Theme.dim; font-size: 13px * Prefs.fs; }
+                                }
+                                if root.cx-next == "": Text { text: "Nothing planned together"; color: Theme.faint; font-size: 13px * Prefs.fs; }
+                                Rectangle { height: 7px; Rectangle { y: 6px; height: 1px; background: Theme.line; } }
+                                Text { text: "Recent mail"; color: Theme.dim; font-size: 12px * Prefs.fs; font-weight: 700; }
+                                for r in root.cx-recent: PeopleLine {
+                                    label: r.label;
+                                    value: r.value;
+                                    clicked => { root.show-settings = false; root.app = 0; root.app-changed(0); root.current-mail = r.tone; root.open-mail(r.tone); }
+                                }
+                                if root.cx-recent.length == 0: Text { text: root.ct-emails == "" ? "No email address" : "No mail from this contact"; color: Theme.faint; font-size: 13px * Prefs.fs; wrap: word-wrap; }
+                                if root.cx-files.length > 0: Rectangle { height: 7px; Rectangle { y: 6px; height: 1px; background: Theme.line; } }
+                                if root.cx-files.length > 0: Text { text: "Shared files"; color: Theme.dim; font-size: 12px * Prefs.fs; font-weight: 700; }
+                                for r in root.cx-files: PeopleLine {
+                                    label: r.label;
+                                    icon: Icons.clip;
+                                    clicked => { root.show-settings = false; root.app = 0; root.app-changed(0); root.current-mail = r.tone; root.open-mail(r.tone); }
+                                }
+                            }
+                        }
+                    }
+
+                    // a group: name, member count, members
+                    if root.ct-group != "" && root.ct-id == "" && !root.ct-editing: Tile {
+                        flat: Theme.nordic;
+                        border-radius: Theme.nordic ? 0px : Theme.r-pane;
+                        Flickable {
+                            content-height: max(self.height, gvl.preferred-height);
+                            gvl := VerticalLayout {
+                                alignment: start;
+                                padding-top: Theme.nordic ? 30px : 24px;
+                                padding-bottom: 24px;
+                                padding-left: Theme.nordic ? 44px : 26px;
+                                padding-right: Theme.nordic ? 44px : 26px;
+                                spacing: 18px;
+                                HorizontalLayout {
+                                    spacing: 20px;
+                                    Rectangle {
+                                        width: 88px;
+                                        height: 88px;
+                                        border-radius: Theme.nordic ? self.height / 2 : 30px;
+                                        background: Theme.nordic ? Theme.sel : Theme.mint-bg;
+                                        SIcon { commands: Icons.users; size: 34px; weight: 1.6; tint: Theme.nordic ? Theme.sel-text : Theme.mint-fg; }
+                                    }
+                                    VerticalLayout {
+                                        alignment: center;
+                                        spacing: 2px;
+                                        horizontal-stretch: 1;
+                                        Text { text: root.ct-name; color: Theme.text; font-size: 28px * Prefs.fs; font-weight: 800; letter-spacing: -0.56px; overflow: elide; }
+                                        Text { text: "Group"; color: Theme.dim; font-size: 14px * Prefs.fs; }
+                                    }
+                                    VerticalLayout { alignment: center; PeopleBtn { text: "Email group"; primary: true; enabled: root.ct-emails != ""; clicked => { root.ct-email(); } } }
+                                }
+                                Rectangle { height: 1px; background: Theme.line; }
+                                Text { text: "Members"; color: Theme.dim; font-size: 11.5px * Prefs.fs; font-weight: 700; }
+                                Text { text: root.ct-notes == "" ? "No members" : root.ct-notes; color: root.ct-notes == "" ? Theme.faint : Theme.body; font-size: 14px * Prefs.fs; wrap: word-wrap; }
+                            }
+                        }
+                    }
+
+                    // the editor (new or existing contact)
+                    if root.ct-editing: Tile {
+                        flat: Theme.nordic;
+                        border-radius: Theme.nordic ? 0px : Theme.r-pane;
+                        Flickable {
+                            content-height: max(self.height, edl.preferred-height);
+                            edl := VerticalLayout {
+                                alignment: start;
+                                padding-top: Theme.nordic ? 30px : 24px;
+                                padding-bottom: 24px;
+                                padding-left: Theme.nordic ? 44px : 26px;
+                                padding-right: Theme.nordic ? 44px : 26px;
+                                spacing: 14px;
+                                Text { text: root.ct-id == "" ? "New contact" : "Edit contact"; color: Theme.text; font-size: (Theme.nordic ? 28px : 24px) * Prefs.fs; font-weight: Theme.nordic ? 800 : 700; letter-spacing: -0.4px; }
+                                PeopleField { label: "Full name"; placeholder: "Name"; text <=> root.ct-name; }
+                                HorizontalLayout {
+                                    spacing: 12px;
+                                    PeopleField { label: "Email"; placeholder: "Comma separated"; text <=> root.ct-emails; horizontal-stretch: 1; }
+                                    PeopleField { label: "Phone"; placeholder: "Comma separated"; text <=> root.ct-phones; horizontal-stretch: 1; }
+                                }
+                                HorizontalLayout {
+                                    spacing: 12px;
+                                    PeopleField { label: "Company"; placeholder: "Organisation"; text <=> root.ct-company; }
+                                    PeopleField { label: "Job title"; placeholder: "Title"; text <=> root.ct-title; }
+                                }
+                                HorizontalLayout {
+                                    spacing: 12px;
+                                    PeopleField { label: "Address"; placeholder: "Street, city"; text <=> root.ct-address; horizontal-stretch: 2; }
+                                    PeopleField { label: "Birthday"; placeholder: "YYYY-MM-DD"; text <=> root.ct-birthday; horizontal-stretch: 1; }
+                                }
+                                PeopleField { label: "Notes"; placeholder: "Anything worth remembering"; multi: true; text <=> root.ct-notes; }
+                                HorizontalLayout {
+                                    spacing: 8px;
+                                    Text { text: root.ct-status; color: Theme.accent; font-size: 13px * Prefs.fs; vertical-alignment: center; horizontal-stretch: 1; wrap: word-wrap; }
+                                    PeopleBtn { text: "Cancel"; clicked => { root.ct-editing = false; root.ct-select(root.ct-id); } }
+                                    PeopleBtn { text: "Save"; primary: true; clicked => { root.ct-save(); } }
+                                }
+                            }
+                        }
                     }
                 }
+            }
+            }
             }
         }
     }
 
+    // ======== files (no board of its own: derived from BNContacts + BNMail) ========
+    // Bento: an Upload button and a places tile on the left, then the file list tile (title
+    // with breadcrumbs, a toolbar, rows with squircle type tiles). Nordic: places on the ground,
+    // the list in one rounded surface, pills and circles.
     if root.app == 3: Rectangle {
         x: Theme.shell-x;
         width: parent.width - Theme.shell-x;
-        background: Theme.bg;
+        background: Theme.ground;
         HorizontalLayout {
-        // ---- sidebar: My files tree, Favorites, Recent, Shared with me (Bulwark files-sidebar) ----
-        Rectangle {
-            width: 220px;
-            background: Theme.side;
+            padding-top: Theme.pad;
+            padding-bottom: Theme.pad;
+            padding-right: Theme.pad;
+            spacing: Theme.gap;
+            // ---- sidebar: upload, then My files tree, Favorites, Recent, Shared with me, Trash ----
             VerticalLayout {
-                HorizontalLayout {
-                    height: 44px;
-                    padding-left: 14px;
-                    padding-right: 8px;
-                    Text { text: "Files"; color: Theme.text; font-weight: 700; vertical-alignment: center; horizontal-stretch: 1; }
-                    HoverAction { y: 11px; glyph: "\u{E710}"; clicked => { root.ctx("files-bg", "", self.absolute-position.x, self.absolute-position.y + 24px); } }
+                width: Theme.nordic ? 228px : 220px;
+                padding-top: Theme.nordic ? 30px : 0px;
+                padding-left: Theme.nordic ? 14px : 0px;
+                padding-right: Theme.nordic ? 14px : 0px;
+                padding-bottom: Theme.nordic ? 22px : 0px;
+                spacing: Theme.nordic ? 22px : 12px;
+                PeopleCta {
+                    text: "Upload";
+                    icon: "M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4 M17 8l-5-5-5 5 M12 3v12";
+                    enabled: !root.fl-in-trash;
+                    clicked => { root.fl-upload(); }
                 }
-                ScrollView {
-                    VerticalLayout {
-                        alignment: start;
-                        padding-bottom: 12px;
-                        for n in root.fl-nav: VerticalLayout {
-                            if n.header != "": Rectangle {
-                                height: 30px;
-                                Text { x: 14px; text: n.header; color: Theme.dim; font-size: 11px; font-weight: 600; vertical-alignment: center; height: parent.height; }
-                            }
-                            Rectangle {
-                                height: 28px;
-                                property <bool> here: (n.kind == "root" && root.fl-cwd == "") || (n.kind != "root" && n.id == root.fl-cwd);
-                                background: here ? Theme.sel : (fnta.has-hover || (n.id != "" && CtxHl.id == "file:" + n.id) ? Theme.hover : transparent);
-                                fnta := TouchArea {
-                                    clicked => { if n.kind == "root" { root.fl-open(""); } else { root.fl-activate(n.id); } }
-                                    pointer-event(ev) => { if ev.button == PointerEventButton.right && ev.kind == PointerEventKind.up { if n.kind == "root" { root.fl-open(""); root.ctx("files-bg", "", self.absolute-position.x + self.mouse-x, self.absolute-position.y + self.mouse-y); } else { root.ctx(n.kind == "fav" ? "file-fav" : n.kind == "recent" ? "file-recent" : "file", n.id, self.absolute-position.x + self.mouse-x, self.absolute-position.y + self.mouse-y); } } }
-                                }
-                                HorizontalLayout {
-                                    padding-left: 8px + n.depth * 14px;
-                                    padding-right: 10px;
-                                    spacing: 4px;
-                                    Rectangle {
-                                        width: 14px;
-                                        if n.count != "": Icon { text: n.count; font-size: 8px; color: Theme.dim; }
-                                        if n.count != "": TouchArea { clicked => { root.fl-toggle-folder(n.id); } }
-                                    }
-                                    Icon { text: n.icon; font-size: 12px; width: 18px; color: n.kind == "fav" ? #f59e0b : n.kind == "shared" ? Theme.accent : Theme.dim; }
-                                    Text { text: n.label; color: Theme.text; vertical-alignment: center; horizontal-stretch: 1; overflow: elide; font-weight: here ? 600 : 400; }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-        Rectangle { width: 1px; background: Theme.line; }
-        VerticalLayout {
-            HorizontalLayout {
-                height: 44px;
-                padding-left: 14px;
-                padding-right: 12px;
-                spacing: 4px;
-                for n[i] in root.crumb-names: HorizontalLayout {
-                    spacing: 4px;
-                    if i > 0: Icon { text: "\u{E76C}"; font-size: 8px; }
-                    Text {
-                        text: n; color: i == root.crumb-names.length - 1 ? Theme.text : Theme.dim; font-weight: 700; vertical-alignment: center;
-                        TouchArea { clicked => { root.fl-open(root.crumb-ids[i]); } }
-                    }
-                }
-                Rectangle { horizontal-stretch: 1; }
-                if !root.fl-in-trash: LineEdit { placeholder-text: "New folder name"; width: 180px; text <=> root.new-folder-name; accepted(t) => { root.fl-new-folder(t); root.new-folder-name = ""; } }
-                if !root.fl-in-trash: Button { text: "New folder"; clicked => { root.fl-new-folder(root.new-folder-name); root.new-folder-name = ""; } }
-                if !root.fl-in-trash: Button { text: "Upload folder"; clicked => { root.fl-upload-folder(); } }
-                if !root.fl-in-trash: PrimaryButton { text: "Upload";  clicked => { root.fl-upload(); } }
-                if root.fl-in-trash: Button { text: "Empty trash"; enabled: root.files.length > 0; clicked => { root.ctx("files-empty", "", self.absolute-position.x - 140px, self.absolute-position.y + self.height + 4px); } }
-            }
-            Rectangle { height: 1px; background: Theme.line; }
-            HorizontalLayout {
-                height: 28px;
-                padding-left: 50px;
-                padding-right: 140px;
-                Text { text: "Name"; color: Theme.dim; font-size: 11px; vertical-alignment: center; horizontal-stretch: 1; }
-                Text { text: "Size"; color: Theme.dim; font-size: 11px; vertical-alignment: center; width: 90px; }
-                Text { text: "Modified"; color: Theme.dim; font-size: 11px; vertical-alignment: center; width: 140px; }
-            }
-            Rectangle {
-             vertical-stretch: 1;
-             TouchArea { pointer-event(ev) => { if ev.button == PointerEventButton.right && ev.kind == PointerEventKind.up { root.ctx("files-bg", "", self.absolute-position.x + self.mouse-x, self.absolute-position.y + self.mouse-y); } } }
-             ListView {
-                for f in root.files: Rectangle {
-                    height: 36px;
-                    background: fta.has-hover || CtxHl.id == "file:" + f.id ? Theme.hover : transparent;
-                    opacity: f.cut ? 0.5 : 1;
-                    fta := TouchArea { double-clicked => { root.fl-activate(f.id); } pointer-event(ev) => { if ev.button == PointerEventButton.right && ev.kind == PointerEventKind.up { root.ctx("file", f.id, self.absolute-position.x + self.mouse-x, self.absolute-position.y + self.mouse-y); } } }
-                    HorizontalLayout {
-                        padding-left: 16px;
-                        padding-right: 10px;
-                        spacing: 10px;
-                        Icon { text: f.folder ? "\u{E8B7}" : "\u{E7C3}"; color: f.folder ? #f59e0b : Theme.dim; width: 20px; }
-                        // Bulwark: the star and shared marks sit right after the name
-                        if !f.renaming: HorizontalLayout {
-                            horizontal-stretch: 1;
+                Tile {
+                    flat: Theme.nordic;
+                    vertical-stretch: 1;
+                    clip: true;
+                    Flickable {
+                        content-height: max(self.height, fsb.preferred-height);
+                        fsb := VerticalLayout {
                             alignment: start;
-                            spacing: 6px;
-                            Text { text: f.name; color: Theme.text; vertical-alignment: center; overflow: elide; }
-                            if f.starred: Icon { text: "\u{E735}"; font-size: 11px; color: #f59e0b; }
-                            if f.shared: Icon { text: "\u{E72D}"; font-size: 11px; color: Theme.dim; }
+                            padding: Theme.nordic ? 0px : 10px;
+                            spacing: Theme.nordic ? 2px : 2px;
+                            for n in root.fl-nav: VerticalLayout {
+                                spacing: 2px;
+                                if n.header != "": Rectangle {
+                                    height: 34px * Prefs.fs;
+                                    Text { x: Theme.nordic ? 16px : 11px; y: parent.height - self.height - 4px; text: n.header; color: Theme.dim; font-size: (Theme.nordic ? 12px : 11.5px) * Prefs.fs; font-weight: 700; }
+                                }
+                                if n.kind == "trash": Rectangle { height: 9px; Rectangle { y: 4px; x: Theme.nordic ? 16px : 6px; width: parent.width - 2 * self.x; height: 1px; background: Theme.line; } }
+                                FileNavRow {
+                                    n: n;
+                                    selected: (n.kind == "root" && root.fl-cwd == "") || (n.kind != "root" && n.id == root.fl-cwd);
+                                    clicked => { if n.kind == "root" { root.fl-open(""); } else { root.fl-activate(n.id); } }
+                                    chevron-clicked => { root.fl-toggle-folder(n.id); }
+                                    context(x, y) => {
+                                        if n.kind == "root" { root.fl-open(""); root.ctx("files-bg", "", x, y); }
+                                        else if n.kind != "trash" { root.ctx(n.kind == "fav" ? "file-fav" : n.kind == "recent" ? "file-recent" : "file", n.id, x, y); }
+                                    }
+                                }
+                            }
                         }
-                        if f.renaming: LineEdit { text: f.name; horizontal-stretch: 1; init => { self.focus(); self.select-all(); } accepted(t) => { root.fl-rename(f.id, t); } }
-                        Text { text: f.size; color: Theme.dim; font-size: 11px; vertical-alignment: center; width: 90px; }
-                        Text { text: f.modified; color: Theme.dim; font-size: 11px; vertical-alignment: center; width: 140px; }
-                        if !f.trashed: HoverAction { glyph: "\u{E896}"; y: 7px; clicked => { root.fl-download(f.id); } }
-                        if !f.trashed: HoverAction { glyph: "\u{E8AC}"; y: 7px; clicked => { root.fl-start-rename(f.id); } }
-                        // in the trash: restore, and delete for good
-                        // keep the size and date columns under their headers (one action fewer here)
-                        if f.trashed: Rectangle { width: Prefs.large-targets ? 32px : 22px; }
-                        if f.trashed: HoverAction { glyph: "\u{E7A7}"; y: 7px; clicked => { root.fl-restore(f.id); } }
-                        HoverAction { glyph: "\u{E74D}"; y: 7px; clicked => { root.fl-delete(f.id); } }
                     }
                 }
             }
-             if root.files.length == 0: Text { text: root.fl-in-trash ? "The trash is empty" : "This folder is empty"; color: Theme.dim; horizontal-alignment: center; }
+
+            // ---- the file list ----
+            HorizontalLayout {
+                padding: Theme.nordic ? 14px : 0px;
+                padding-left: 0px;
+                horizontal-stretch: 1;
+            Rectangle {
+                background: Theme.tile;
+                border-width: 1px;
+                border-color: Theme.line;
+                border-radius: Theme.r-pane;
+                clip: true;
+                VerticalLayout {
+                    padding-top: Theme.nordic ? 28px : 20px;
+                    spacing: 0px;
+                    // title: breadcrumbs, item count
+                    HorizontalLayout {
+                        padding-left: Theme.nordic ? 32px : 22px;
+                        padding-right: Theme.nordic ? 24px : 16px;
+                        spacing: 6px;
+                        for n[i] in root.crumb-names: HorizontalLayout {
+                            spacing: 6px;
+                            if i > 0: VerticalLayout { alignment: center; SIcon { commands: Icons.chevron-right; size: 16px; weight: 2; tint: Theme.faint; } }
+                            Text {
+                                property <bool> last: i == root.crumb-names.length - 1;
+                                text: n;
+                                color: last ? Theme.text : (flcr.has-hover ? Theme.text : Theme.dim);
+                                font-size: (last ? (Theme.nordic ? 28px : 24px) : (Theme.nordic ? 20px : 18px)) * Prefs.fs;
+                                font-weight: last ? (Theme.nordic ? 800 : 700) : 600;
+                                letter-spacing: last ? -0.4px : 0px;
+                                vertical-alignment: center;
+                                flcr := TouchArea { enabled: !parent.last; clicked => { root.fl-open(root.crumb-ids[i]); } mouse-cursor: pointer; }
+                            }
+                        }
+                        Rectangle { horizontal-stretch: 1; }
+                        Text { text: root.files.length + (root.files.length == 1 ? " item" : " items"); color: Theme.dim; font-size: 12px * Prefs.fs; vertical-alignment: center; }
+                        VerticalLayout { alignment: center; IconBtn { icon: Icons.more; clicked => { root.ctx("files-bg", "", self.absolute-position.x - 160px, self.absolute-position.y + self.height + 4px); } } }
+                    }
+                    // toolbar: new folder, upload folder, upload; in the trash, empty it
+                    HorizontalLayout {
+                        padding-top: 14px;
+                        padding-bottom: 12px;
+                        padding-left: Theme.nordic ? 28px : 18px;
+                        padding-right: Theme.nordic ? 24px : 16px;
+                        spacing: 8px;
+                        if !root.fl-in-trash: Rectangle {
+                            width: 220px;
+                            height: Prefs.large-targets ? 44px : (Theme.nordic ? 38px : 34px);
+                            border-radius: Theme.nordic ? self.height / 2 : 12px;
+                            background: Theme.nordic ? transparent : Theme.tile2;
+                            border-width: nfi.has-focus ? max(1.5px, Prefs.focus-ring) : 1px;
+                            border-color: nfi.has-focus ? Theme.ring : Theme.line;
+                            HorizontalLayout {
+                                padding-left: Theme.nordic ? 14px : 11px;
+                                padding-right: 10px;
+                                spacing: 8px;
+                                VerticalLayout { alignment: center; SIcon { commands: Icons.folder; size: 14px; weight: 1.9; tint: Theme.dim; } }
+                                Rectangle {
+                                    horizontal-stretch: 1;
+                                    if root.new-folder-name == "": Text { x: 0; width: parent.width; height: parent.height; text: "New folder name"; color: Theme.faint; font-size: 13px * Prefs.fs; vertical-alignment: center; }
+                                    nfi := TextInput {
+                                        y: (parent.height - self.height) / 2;
+                                        width: parent.width;
+                                        text <=> root.new-folder-name;
+                                        color: Theme.text;
+                                        font-size: 13px * Prefs.fs;
+                                        single-line: true;
+                                        selection-background-color: Theme.sel;
+                                        selection-foreground-color: Theme.sel-text;
+                                        accessible-label: "New folder name";
+                                        accepted => { root.fl-new-folder(self.text); root.new-folder-name = ""; }
+                                    }
+                                }
+                            }
+                        }
+                        if !root.fl-in-trash: ActionButton { icon: Icons.plus; label: "New folder"; clicked => { root.fl-new-folder(root.new-folder-name); root.new-folder-name = ""; } }
+                        if !root.fl-in-trash: ActionButton { icon: Icons.folder; label: "Upload folder"; clicked => { root.fl-upload-folder(); } }
+                        if root.fl-in-trash: Text { text: "Items in the trash can be restored to where they were."; color: Theme.dim; font-size: 12.5px * Prefs.fs; vertical-alignment: center; overflow: elide; }
+                        Rectangle { horizontal-stretch: 1; }
+                        if root.fl-in-trash: ActionButton { icon: Icons.trash; label: "Empty trash"; clicked => { if root.files.length > 0 { root.ctx("files-empty", "", self.absolute-position.x - 140px, self.absolute-position.y + self.height + 4px); } } }
+                        if !root.fl-in-trash: VerticalLayout { alignment: center; PrimaryButton { text: "Upload"; height: Prefs.large-targets ? 44px : (Theme.nordic ? 38px : 34px); clicked => { root.fl-upload(); } } }
+                    }
+                    // column heads
+                    HorizontalLayout {
+                        height: 30px * Prefs.fs;
+                        // lines up with the rows: outer + row padding, type tile, gap / actions
+                        padding-left: (Theme.nordic ? 16px : 8px) + 12px + 36px + 12px;
+                        padding-right: (Theme.nordic ? 12px : 8px) + 12px + 3 * (Prefs.large-targets ? 32px : 24px) + 2 * 6px + 12px;
+                        spacing: 12px;
+                        Text { text: "Name"; color: Theme.dim; font-size: 11.5px * Prefs.fs; font-weight: 700; vertical-alignment: center; horizontal-stretch: 1; }
+                        Text { text: "Size"; color: Theme.dim; font-size: 11.5px * Prefs.fs; font-weight: 700; vertical-alignment: center; width: 90px; }
+                        Text { text: root.fl-in-trash ? "Deleted" : "Modified"; color: Theme.dim; font-size: 11.5px * Prefs.fs; font-weight: 700; vertical-alignment: center; width: 140px; }
+                    }
+                    Rectangle { height: 1px; background: Theme.line; }
+                    Rectangle {
+                        vertical-stretch: 1;
+                        TouchArea { pointer-event(ev) => { if ev.button == PointerEventButton.right && ev.kind == PointerEventKind.up { root.ctx("files-bg", "", self.absolute-position.x + self.mouse-x, self.absolute-position.y + self.mouse-y); } } }
+                        ListView {
+                            for f in root.files: HorizontalLayout {
+                                padding-left: Theme.nordic ? 16px : 8px;
+                                padding-right: Theme.nordic ? 12px : 8px;
+                                padding-top: 2px;
+                                Rectangle {
+                                    height: (Prefs.large-targets ? 56px : 52px) * Prefs.fs;
+                                    border-radius: Theme.nordic ? self.height / 2 : 16px;
+                                    background: fra.has-hover || CtxHl.id == "file:" + f.id ? Theme.tile2 : transparent;
+                                    border-width: CtxHl.id == "file:" + f.id ? 1px : 0px;
+                                    border-color: Theme.accent;
+                                    opacity: f.cut ? 0.5 : 1;
+                                    accessible-role: list-item;
+                                    accessible-label: f.name;
+                                    accessible-action-default => { root.fl-activate(f.id); }
+                                    fra := TouchArea {
+                                        double-clicked => { root.fl-activate(f.id); }
+                                        pointer-event(ev) => { if ev.button == PointerEventButton.right && ev.kind == PointerEventKind.up { root.ctx("file", f.id, self.absolute-position.x + self.mouse-x, self.absolute-position.y + self.mouse-y); } }
+                                    }
+                                    HorizontalLayout {
+                                        padding-left: 12px;
+                                        padding-right: 12px;
+                                        spacing: 12px;
+                                        // type tile: folders amber, files sky (squircle / circle)
+                                        VerticalLayout {
+                                            alignment: center;
+                                            Rectangle {
+                                                width: 36px;
+                                                height: 36px;
+                                                border-radius: Theme.round(self.height);
+                                                background: f.folder ? Theme.amber-bg : Theme.sky-bg;
+                                                SIcon { commands: f.folder ? Icons.folder : Icons.file; size: 17px; weight: 1.8; tint: f.folder ? Theme.amber-fg : Theme.sky-fg; }
+                                            }
+                                        }
+                                        if !f.renaming: HorizontalLayout {
+                                            horizontal-stretch: 1;
+                                            alignment: start;
+                                            spacing: 6px;
+                                            Text { text: f.name; color: Theme.text; font-size: 13.5px * Prefs.fs; font-weight: 600; vertical-alignment: center; overflow: elide; }
+                                            if f.starred: VerticalLayout { alignment: center; SIcon { commands: Icons.star; size: 13px; weight: 1.8; tint: Theme.amber-fg; fill: Theme.amber-fg; } }
+                                            if f.shared: VerticalLayout { alignment: center; SIcon { commands: Icons.users; size: 13px; weight: 1.9; tint: Theme.dim; } }
+                                        }
+                                        if f.renaming: VerticalLayout {
+                                            horizontal-stretch: 1;
+                                            alignment: center;
+                                            Rectangle {
+                                                height: 34px;
+                                                border-radius: Theme.nordic ? self.height / 2 : 12px;
+                                                background: Theme.tile2;
+                                                border-width: 1.5px;
+                                                border-color: Theme.ring;
+                                                rfi := TextInput {
+                                                    x: 12px;
+                                                    y: (parent.height - self.height) / 2;
+                                                    width: parent.width - 24px;
+                                                    text: f.name;
+                                                    color: Theme.text;
+                                                    font-size: 13.5px * Prefs.fs;
+                                                    single-line: true;
+                                                    selection-background-color: Theme.sel;
+                                                    selection-foreground-color: Theme.sel-text;
+                                                    accessible-label: "New name";
+                                                    init => { self.focus(); self.select-all(); }
+                                                    accepted => { root.fl-rename(f.id, self.text); }
+                                                }
+                                            }
+                                        }
+                                        Text { text: f.size; color: Theme.dim; font-size: 12px * Prefs.fs; vertical-alignment: center; width: 90px; }
+                                        Text { text: f.modified; color: Theme.dim; font-size: 12px * Prefs.fs; vertical-alignment: center; width: 140px; }
+                                        HorizontalLayout {
+                                            spacing: 6px;
+                                            if !f.trashed: VerticalLayout { alignment: center; HoverAction { icon: Icons.download; clicked => { root.fl-download(f.id); } } }
+                                            if !f.trashed: VerticalLayout { alignment: center; HoverAction { icon: Icons.pen; clicked => { root.fl-start-rename(f.id); } } }
+                                            // in the trash: restore, and delete for good
+                                            if f.trashed: Rectangle { width: Prefs.large-targets ? 32px : 24px; }
+                                            if f.trashed: VerticalLayout { alignment: center; HoverAction { icon: "M1 4v6h6 M3.51 15a9 9 0 1 0 2.13-9.36L1 10"; clicked => { root.fl-restore(f.id); } } }
+                                            VerticalLayout { alignment: center; HoverAction { icon: Icons.trash; clicked => { root.fl-delete(f.id); } } }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        if root.files.length == 0: VerticalLayout {
+                            alignment: center;
+                            spacing: 10px;
+                            HorizontalLayout {
+                                alignment: center;
+                                Rectangle {
+                                    width: 64px;
+                                    height: 64px;
+                                    border-radius: Theme.round(self.height);
+                                    background: Theme.tile2;
+                                    border-width: 1px;
+                                    border-color: Theme.line;
+                                    SIcon { commands: root.fl-in-trash ? Icons.trash : Icons.folder; size: 26px; weight: 1.6; tint: Theme.faint; }
+                                }
+                            }
+                            Text { text: root.fl-in-trash ? "The trash is empty" : "This folder is empty"; color: Theme.text; font-size: 15px * Prefs.fs; font-weight: 600; horizontal-alignment: center; }
+                            if !root.fl-in-trash: Text { text: "Upload files or make a folder to start."; color: Theme.dim; font-size: 12.5px * Prefs.fs; horizontal-alignment: center; }
+                        }
+                    }
+                }
             }
-        }
+            }
         }
     }
 
