@@ -5,7 +5,7 @@
 //! (`Window::take_snapshot`), so the window can stay off-screen and unfocused.
 //!
 //! Commands (logical pixels):
-//!   click X Y | dclick X Y | move X Y | scroll X Y DY
+//!   click X Y | rclick X Y | dclick X Y | move X Y | scroll X Y DY
 //!   type TEXT            (sent as key presses)
 //!   key Enter|Escape|Tab|Backspace|Delete|Up|Down|Left|Right
 //!   shot PATH.png        (window contents; the WebView2 email body is a separate window and not included)
@@ -59,6 +59,13 @@ fn run(u: &AppWindow, line: &str) -> String {
     };
     match a[0] {
         "click" => { click(pos(&args, 0), pos(&args, 1), 1); "ok".into() }
+        "rclick" => {
+            let position = LogicalPosition::new(pos(&args, 0), pos(&args, 1));
+            win.dispatch_event(WindowEvent::PointerMoved { position });
+            win.dispatch_event(WindowEvent::PointerPressed { position, button: PointerEventButton::Right });
+            win.dispatch_event(WindowEvent::PointerReleased { position, button: PointerEventButton::Right });
+            "ok".into()
+        }
         "dclick" => { click(pos(&args, 0), pos(&args, 1), 2); "ok".into() }
         "move" => { win.dispatch_event(WindowEvent::PointerMoved { position: LogicalPosition::new(pos(&args, 0), pos(&args, 1)) }); "ok".into() }
         "scroll" => {
