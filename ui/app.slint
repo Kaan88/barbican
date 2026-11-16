@@ -343,10 +343,16 @@ component HoverAction inherits Rectangle {
     Icon { text: glyph; font-size: 12px; color: active ? #facc15 : (hta.has-hover ? Theme.text : Theme.dim); }
 }
 
+export global Prefs {
+    in-out property <bool> toolbar-labels: true;
+    in-out property <bool> tag-chips: true;
+    in-out property <length> font-size: 13px;
+}
+
 component ToolButton inherits Rectangle {
     in property <string> glyph;
     in property <string> label;
-    in property <bool> show-label: true;
+    in property <bool> show-label: Prefs.toolbar-labels;
     callback clicked;
     height: 28px;
     width: lay.preferred-width;
@@ -452,7 +458,7 @@ component MailRow inherits VerticalLayout {
                 HorizontalLayout {
                     spacing: 4px;
                     Text { text: m.preview; color: Theme.dim; overflow: elide; horizontal-stretch: 1; }
-                    for c in m.tags: Rectangle { width: 8px; height: 8px; border-radius: 4px; background: c; y: 4px; }
+                    for c in m.tags: Rectangle { visible: Prefs.tag-chips; width: Prefs.tag-chips ? 8px : 0px; height: 8px; border-radius: 4px; background: c; y: 4px; }
                 }
             }
         }
@@ -466,7 +472,7 @@ export component AppWindow inherits Window {
     background: Theme.bg;
     preferred-width: 1400px;
     preferred-height: 900px;
-    default-font-size: 13px;
+    default-font-size: Prefs.font-size;
     default-font-family: "Segoe UI";
     init => { Palette.color-scheme = Theme.dark ? ColorScheme.dark : ColorScheme.light; }
     changed theme-dark => { Palette.color-scheme = Theme.dark ? ColorScheme.dark : ColorScheme.light; }
@@ -558,6 +564,10 @@ export component AppWindow inherits Window {
     callback open-attachment(int);
     callback save-attachment(int);
     callback undo-toast();
+    in property <bool> pref-quick-reply: true;
+    in property <bool> pref-toolbar-labels: true;
+    in property <bool> pref-tag-chips: true;
+    in property <int> pref-day-start: 8;
     in property <[string]> accounts;
     callback switch-account(string);
     callback add-account();
@@ -1265,7 +1275,7 @@ export component AppWindow inherits Window {
                     }
                 }
                 Rectangle { height: 1px; background: Theme.line; }
-                HorizontalLayout {
+                if root.pref-quick-reply: HorizontalLayout {
                     padding: 12px;
                     spacing: 10px;
                     Avatar { label: root.initials; tint: #e07a10; width: 30px; height: 30px; border-radius: 15px; }
@@ -1574,7 +1584,7 @@ export component AppWindow inherits Window {
                                 }
                             }
                         }
-                        init => { self.content-y = -8 * 56px; }
+                        init => { self.content-y = -root.pref-day-start * 56px; }
                     }
                 }
             }

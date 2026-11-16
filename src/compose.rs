@@ -286,6 +286,11 @@ pub fn send(u: &AppWindow, c: Arc<Client>, prefs: &crate::settings::Settings) {
         return;
     }
     let warned = u.get_c_status().ends_with("send anyway.");
+    if prefs.bool("sendConfirmation", false) && !warned && !u.get_c_status().ends_with("to send.") {
+        u.set_c_status("Press Send again to send.".into());
+        return;
+    }
+    o.read_receipt = prefs.bool("requestReadReceiptDefault", false);
     if !warned {
         if let Some(w) = pre_send_warning(&o, prefs) { u.set_c_status(w.into()); return; }
         let draft = serde_json::json!({"to": o.to, "cc": o.cc, "bcc": o.bcc, "subject": o.subject, "text": o.text,

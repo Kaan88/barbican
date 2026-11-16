@@ -91,6 +91,9 @@ fn count_text(role: &str, unread: i64, total: i64) -> String {
 }
 
 pub fn rebuild_folders(u: &AppWindow) {
+    let prefs = crate::settings::Settings::load();
+    let colorful = prefs.bool("colorfulSidebarIcons", true);
+    let totals = prefs.bool("showFolderTotalCount", true);
     BOXES.with(|b| {
         let b = b.borrow();
         let mut children: HashMap<String, Vec<&Value>> = HashMap::new();
@@ -100,7 +103,7 @@ pub fn rebuild_folders(u: &AppWindow) {
         for v in children.values_mut() {
             v.sort_by_key(|m| (role_rank(m["role"].as_str().unwrap_or("")), m["sortOrder"].as_i64().unwrap_or(0), m["name"].as_str().unwrap_or("").to_lowercase()));
         }
-        fn walk(p: &str, d: i32, ch: &HashMap<String, Vec<&Value>>, col: &HashSet<String>, out: &mut Vec<Folder>) {
+        fn walk(p: &str, d: i32, ch: &HashMap<String, Vec<&Value>>, col: &HashSet<String>, out: &mut Vec<Folder>, colorful: bool, totals: bool) {
             let Some(kids) = ch.get(p) else { return };
             for m in kids {
                 let id = m["id"].as_str().unwrap_or("");
@@ -119,12 +122,12 @@ pub fn rebuild_folders(u: &AppWindow) {
                     depth: d,
                     unread: unread as i32,
                     total: total as i32,
-                    color: role_color(role),
-                    count: count_text(role, unread, total).into(),
+                    color: if colorful { role_color(role) } else { rgb(0xa3a3a3) },
+                    count: (if totals { count_text(role, unread, total) } else if unread > 0 { unread.to_string() } else { String::new() }).into(),
                     chevron: if has_kids { if collapsed { 2 } else { 1 } } else { 0 },
                     muted: m["isSubscribed"].as_bool() == Some(false),
                 });
-                if !collapsed { walk(id, d + 1, ch, col, out); }
+                if !collapsed { walk(id, d + 1, ch, col, out, colorful, totals); }
                 if role == "drafts" && d == 0 {
                     out.push(Folder {
                         id: "__scheduled".into(), name: "Scheduled".into(), icon: "\u{E787}".into(), depth: 0,
@@ -134,7 +137,7 @@ pub fn rebuild_folders(u: &AppWindow) {
             }
         }
         let mut out = vec![];
-        walk("", 0, &children, &b.collapsed, &mut out);
+        walk("", 0, &children, &b.collapsed, &mut out, colorful, totals);
         u.set_folders(ModelRc::new(VecModel::from(out)));
     });
 }

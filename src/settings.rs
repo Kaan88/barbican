@@ -39,6 +39,8 @@ fn option_override(key: &str) -> Option<Vec<(Value, &'static str)>> {
         "mvUnreadSectionSize" => vec![(json!(3), "3"), (json!(5), "5"), (json!(10), "10"), (json!(20), "20")],
         "composePlacement" => vec![(json!("sidebar"), "In the sidebar"), (json!("rail"), "On the navigation rail"), (json!("floating"), "Floating button")],
         "theme" => vec![(json!("light"), "Light"), (json!("dark"), "Dark"), (json!("system"), "System")],
+        "fontSize" => vec![(json!("small"), "Small"), (json!("medium"), "Medium"), (json!("large"), "Large"), (json!("x-large"), "Extra large")],
+        "calendarDayStartHour" => (0..13).map(|h| (json!(h), ["0:00","1:00","2:00","3:00","4:00","5:00","6:00","7:00","8:00","9:00","10:00","11:00","12:00"][h as usize])).collect(),
         "writingLanguage" => vec![(json!("auto"), "Detect automatically"), (json!("en"), "English"), (json!("de"), "German"), (json!("fr"), "French"), (json!("es"), "Spanish"), (json!("tr"), "Turkish")],
         _ => return None,
     })
@@ -159,9 +161,10 @@ impl Settings {
         let mut out = vec![];
         for r in t["rows"].as_array().unwrap() {
             let kind = r["kind"].as_str().unwrap_or("");
-            let label = r["label"].as_str().unwrap_or("");
-            let desc = r["desc"].as_str().unwrap_or("");
+            let label = &r["label"].as_str().unwrap_or("").replace("{appName}", "Barbican");
+            let desc = &r["desc"].as_str().unwrap_or("").replace("{appName}", "Barbican");
             let key = r["key"].as_str().filter(|k| !k.is_empty()).or_else(|| key_for_label(label)).unwrap_or("");
+            let (label, desc) = (label.as_str(), desc.as_str());
             match kind {
                 "section" => out.push(row("section", "", label, desc)),
                 "toggle" if !key.is_empty() => {
@@ -177,7 +180,8 @@ impl Settings {
                             .map(|o| (o[0].clone(), o[1].as_str().unwrap_or("").to_string())).collect()).unwrap_or_default(),
                     };
                     if opts.is_empty() { continue; }
-                    let cur = self.prefs.get(key).cloned().or_else(|| r.get("default").cloned()).unwrap_or(Value::Null);
+                    let cur = self.prefs.get(key).cloned().or_else(|| r.get("default").cloned())
+                        .unwrap_or(if key == "theme" { json!("dark") } else { Value::Null });
                     let idx = opts.iter().position(|(v, _)| v == &cur || v.as_str().is_some_and(|x| Some(x.to_string()) == cur.as_i64().map(|n| n.to_string()) || Some(x) == cur.as_str())).unwrap_or(0);
                     let labels: Vec<&str> = opts.iter().map(|(_, l)| l.as_str()).collect();
                     out.push(select(key, label, desc, &labels, idx as i32));
@@ -259,6 +263,23 @@ impl Settings {
             }
             _ => {
                 out = self.schema_rows(tab);
+                let sel_pref = |key: &str, label: &str, desc: &str| -> SRow {
+                    let opts = option_override(key).unwrap_or_default();
+                    let cur = self.prefs.get(key).cloned();
+                    let idx = opts.iter().position(|(v, _)| Some(v) == cur.as_ref()).unwrap_or(match key { "fontSize" => 1, "calendarDayStartHour" => 8, _ => 0 });
+                    select(key, label, desc, &opts.iter().map(|(_, l)| *l).collect::<Vec<_>>(), idx as i32)
+                };
+                if tab == "appearance" {
+                    out.insert(1.min(out.len()), sel_pref("fontSize", "Text size", "Size of text across the app."));
+                }
+                if tab == "composing" {
+                    out.push(row("section", "", "Sending", ""));
+                    out.push(toggle("sendConfirmation", "Confirm before sending", "Press Send twice to send, so a message doesn't go out by accident.", self.bool("sendConfirmation", false)));
+                    out.push(toggle("requestReadReceiptDefault", "Ask for a read receipt", "New messages ask the recipient to confirm they read them.", self.bool("requestReadReceiptDefault", false)));
+                }
+                if tab == "calendar" {
+                    out.insert(1.min(out.len()), sel_pref("calendarDayStartHour", "Day starts at", "Where the day and week views open."));
+                }
                 if tab == "reading" {
                     out.push(row("section", "", "Rendering", "How the content of an email is drawn."));
                     out.push(select("desktop.renderMode", "Show email content with", "WebView2 uses the Edge engine. Blitz is a light native Rust engine that never loads anything from the network.", &["WebView2 (full HTML)", "Blitz (light, native)", "Plain text"], cfg.render_mode));

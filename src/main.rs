@@ -405,6 +405,7 @@ fn main() -> Result<(), slint::PlatformError> {
     let _ = slint::BackendSelector::new().renderer_name("skia".into()).select();
     let ui = AppWindow::new()?;
     apply_theme(&ui);
+    apply_ui_prefs(&ui);
     {
         let (loaded, errors) = plugins::load_all();
         PLUGINS.with(|p| *p.borrow_mut() = loaded);
@@ -754,7 +755,7 @@ fn main() -> Result<(), slint::PlatformError> {
         })
     };
 
-    let (pf, cf, rs, srv, sw) = (prefs.clone(), cfg.clone(), refresh_settings.clone(), server_cache.clone(), server_write.clone());
+    let (pf, cf, rs, srv, sw, wt) = (prefs.clone(), cfg.clone(), refresh_settings.clone(), server_cache.clone(), server_write.clone(), ui.as_weak());
     ui.on_settings_set_toggle(move |key, on| {
         if key.starts_with("server.") {
             if let Some(job) = server_settings::edit(&key, &serde_json::json!(on), &srv) { sw(job, 10); }
@@ -766,6 +767,7 @@ fn main() -> Result<(), slint::PlatformError> {
         p.set(&key, serde_json::json!(on), &mut cf.lock().unwrap());
         drop(p);
         rs();
+        if let Some(u) = wt.upgrade() { apply_ui_prefs(&u); mail::rebuild_folders(&u); mail::rebuild_list(&u); }
     });
 
     let (w, pf, cf, rs, srv3, sw3) = (ui.as_weak(), prefs.clone(), cfg.clone(), refresh_settings.clone(), server_cache.clone(), server_write.clone());
@@ -782,6 +784,9 @@ fn main() -> Result<(), slint::PlatformError> {
         rs();
         if key == "desktop.renderMode" || key == "desktop.remoteImages" { render_current(&w.unwrap()); }
         if key == "theme" { apply_theme(&w.unwrap()); }
+        apply_ui_prefs(&w.unwrap());
+        mail::rebuild_folders(&w.unwrap());
+        mail::rebuild_list(&w.unwrap());
     });
 
     // text edits are saved as typed, without rebuilding the page (keeps the caret)
@@ -1641,4 +1646,16 @@ fn chat_path() -> std::path::PathBuf {
     let u = CHAT_USER.lock().unwrap().clone();
     let safe: String = u.chars().map(|c| if c.is_alphanumeric() || c == '.' || c == '@' || c == '-' { c } else { '_' }).collect();
     config_dir().join(if safe.is_empty() { "chat.json".to_string() } else { format!("chat-{safe}.json") })
+}
+
+
+/// Settings that change how the native UI looks (Bulwark: fontSize, quickReplyEnabled,
+/// showToolbarLabels, showTagChips, calendarDayStartHour).
+pub fn apply_ui_prefs(ui: &AppWindow) {
+    let p = settings::Settings::load();
+    ui.set_pref_quick_reply(p.bool("quickReplyEnabled", true));
+    ui.global::<Prefs>().set_toolbar_labels(p.bool("showToolbarLabels", true));
+    ui.global::<Prefs>().set_tag_chips(p.bool("showTagChips", true));
+    ui.global::<Prefs>().set_font_size(match p.str("fontSize", "medium").as_str() { "small" => 12.0, "large" => 15.0, "x-large" | "extra-large" => 17.0, _ => 13.0 });
+    ui.set_pref_day_start(p.prefs.get("calendarDayStartHour").and_then(|v| v.as_i64()).unwrap_or(8).clamp(0, 23) as i32);
 }
