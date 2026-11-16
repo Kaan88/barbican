@@ -69,9 +69,10 @@ case "$mode" in
     git checkout -q --force --detach "$sha"
     echo "[vm] $(git log -1 --format='%h %s') ($branch)"
     BARBICAN_BUILD_SLOTS=1 BARBICAN_MSBUILD_CPU=2 bash tools/build.sh build --project "$project" -- -p:BarbicanHead=desktop
-    name=$(basename "$project" .csproj)
-    dll=$(ls -t "$(dirname "$project")"/bin/Debug/net10.0-desktop/"$name".dll 2>/dev/null | head -1)
-    [ -n "$dll" ] || { echo "[vm] no build output for $name" >&2; exit 4; }
+    # The app's entry assembly is the one with a runtimeconfig (AssemblyName may differ from the project).
+    cfg=$(ls -t "$(dirname "$project")"/bin/Debug/net10.0-desktop/*.runtimeconfig.json 2>/dev/null | head -1)
+    dll="${cfg%.runtimeconfig.json}.dll"
+    [ -n "$cfg" ] && [ -f "$dll" ] || { echo "[vm] no build output for $project" >&2; exit 4; }
     out="$HOME/barbican-out/$outname"
     rm -rf "$out"; mkdir -p "$out"
     disp=:97
