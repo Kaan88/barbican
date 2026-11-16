@@ -189,6 +189,10 @@ export global CalX {
     // ---- tasks view ----
     in-out property <[CxTask]> tasks;
     in-out property <int> task-filter;
+    // single click selects a task (and an agenda task row), double-click or Enter opens it
+    in-out property <string> task-selected;
+    // "Due Wed, Nov 18" while a day picked in the mini month filters the list
+    in-out property <string> task-day-label;
     // open tasks the sidebar list leaves out (it shows the first few, "Show all" opens the Tasks view)
     in-out property <int> sidebar-more;
     in-out property <[int]> task-counts: [0, 0, 0, 0];
@@ -1136,8 +1140,11 @@ export component AgendaView inherits Rectangle {
                 if !r.empty && r.id != "": Rectangle {
                     height: 44px;
                     border-radius: 14px;
-                    background: ata.has-hover ? root.pal.hover : transparent;
-                    ata := TouchArea { clicked => { CalX.agenda-open(r.id, r.kind); } }
+                    background: r.kind == 1 && CalX.task-selected == r.id ? root.pal.sel : ata.has-hover ? root.pal.hover : transparent;
+                    ata := TouchArea {
+                        clicked => { if r.kind == 1 { CalX.task-selected = r.id; } else { CalX.agenda-open(r.id, r.kind); } }
+                        double-clicked => { if r.kind == 1 { CalX.agenda-open(r.id, r.kind); } }
+                    }
                     HorizontalLayout {
                         padding-left: 10px;
                         padding-right: 10px;
@@ -1171,14 +1178,13 @@ export component AgendaView inherits Rectangle {
 export component TasksView inherits Rectangle {
     in property <CalPal> pal;
     callback new-task();
+    callback clear-day();
     VerticalLayout {
         HorizontalLayout {
             height: 48px;
             padding-left: 16px;
             padding-right: 16px;
             spacing: 8px;
-            Text { text: "Tasks"; color: root.pal.text; font-size: 18px; font-weight: 700; vertical-alignment: center; }
-            Rectangle { width: 8px; }
             for f[i] in ["All", "Pending", "Overdue", "Completed"]: VerticalLayout {
                 alignment: center;
                 Pill {
@@ -1189,6 +1195,7 @@ export component TasksView inherits Rectangle {
                     clicked => { CalX.task-filter-set(i); }
                 }
             }
+            if CalX.task-day-label != "": VerticalLayout { alignment: center; Pill { pal: root.pal; tone: 4; active: true; text: CalX.task-day-label + "  \u{00D7}"; clicked => { root.clear-day(); } } }
             Rectangle { horizontal-stretch: 1; }
             VerticalLayout { alignment: center; CxButton { pal: root.pal; primary: true; glyph: "\u{E710}"; text: "New task"; clicked => { root.new-task(); } } }
         }
@@ -1206,8 +1213,13 @@ export component TasksView inherits Rectangle {
             }
             if CalX.task-quick-due != "": VerticalLayout { alignment: center; Pill { pal: root.pal; tone: 4; text: CalX.task-quick-due; } }
         }
+        tfs := FocusScope {
+          vertical-stretch: 1;
+          key-pressed(e) => {
+            if CalX.task-selected != "" && (e.text == Key.Return || e.text == " ") { CalX.task-open(CalX.task-selected); return accept; }
+            reject
+          }
         ScrollView {
-            vertical-stretch: 1;
             VerticalLayout {
                 padding-left: 12px;
                 padding-right: 12px;
@@ -1220,8 +1232,14 @@ export component TasksView inherits Rectangle {
                 for t in CalX.tasks: Rectangle {
                     height: t.notes != "" ? 56px : 44px;
                     border-radius: 14px;
-                    background: tta.has-hover ? root.pal.hover : transparent;
-                    tta := TouchArea { clicked => { CalX.task-open(t.id); } }
+                    background: CalX.task-selected == t.id ? root.pal.sel : tta.has-hover ? root.pal.hover : transparent;
+                    accessible-role: button;
+                    accessible-label: t.title;
+                    accessible-action-default => { CalX.task-open(t.id); }
+                    tta := TouchArea {
+                        clicked => { CalX.task-selected = t.id; tfs.focus(); }
+                        double-clicked => { CalX.task-open(t.id); }
+                    }
                     HorizontalLayout {
                         padding-left: 10px;
                         padding-right: 10px;
@@ -1257,6 +1275,7 @@ export component TasksView inherits Rectangle {
                     }
                 }
             }
+        }
         }
     }
 }
