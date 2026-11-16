@@ -392,6 +392,11 @@ impl Ctx<'_> {
         let mut p = blank(4, title, icon, 112);
         p.value = if g + b > 0.0 { fmt(g / (g + b) * 100.0, Unit::Pct) } else { "—".into() }.into();
         p.note = note.into();
+        p.info = note.into();
+        // the meter under the value (BNDashboard "Clean mail")
+        if g + b > 0.0 {
+            p.bars = ModelRc::new(VecModel::from(vec![DashBar { label: "".into(), value: "".into(), frac: (g / (g + b)) as f32, color: col(0), share: "".into() }]));
+        }
         p
     }
 }
