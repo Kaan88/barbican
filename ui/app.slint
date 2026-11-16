@@ -1237,6 +1237,17 @@ component MailRow inherits VerticalLayout {
     property <bool> hl: CtxHl.id != "" && CtxHl.id == "mail:" + m.id;
     property <length> side: Theme.nordic ? 28px : 12px;
     property <bool> dragging;
+    // Hover actions are painted by one overlay (no TouchArea of their own, so the row keeps the
+    // hover) and hit-tested against the row's pointer; nothing in the text layout depends on hover.
+    property <length> act-bw: Prefs.large-targets ? 32px : 24px;
+    property <int> act-n: Prefs.hover-actions.length;
+    property <length> act-w: root.act-n * root.act-bw + 4px;
+    property <length> act-h: root.act-bw + 4px;
+    property <length> act-x: Prefs.hover-floating ? (Prefs.hover-left ? 8px : row.width - root.act-w - 8px) : row.width - root.act-w - (Theme.nordic ? 18px : 6px);
+    property <length> act-y: Prefs.hover-floating ? (Prefs.hover-bottom ? row.height - root.act-h - 4px : 4px) : (Theme.nordic ? 14px : 10px) + 9px * Prefs.fs - root.act-h / 2;
+    property <bool> act-on: ta.has-hover && !root.dragging && root.act-n > 0;
+    property <bool> act-over: root.act-on && ta.mouse-x >= root.act-x && ta.mouse-x < root.act-x + root.act-w && ta.mouse-y >= root.act-y && ta.mouse-y < root.act-y + root.act-h;
+    property <int> act-hi: root.act-over ? floor((ta.mouse-x - root.act-x - 2px) / root.act-bw) : -1;
     if m.header != "": Rectangle {
         height: 30px;
         TouchArea { clicked => { root.header-clicked(); } }
@@ -1268,7 +1279,9 @@ component MailRow inherits VerticalLayout {
                 pointer-event(ev) => {
                     if ev.kind == PointerEventKind.down && ev.button == PointerEventButton.left { root.dragging = false; }
                     if ev.kind == PointerEventKind.up && ev.button == PointerEventButton.left && root.dragging { Pd.dnd-drop(); }
-                    if ev.kind == PointerEventKind.up && ev.button == PointerEventButton.left && !root.dragging {
+                    if ev.kind == PointerEventKind.up && ev.button == PointerEventButton.left && !root.dragging && root.act-over {
+                        if root.act-hi >= 0 && root.act-hi < root.act-n { root.action(Prefs.hover-actions[root.act-hi]); }
+                    } else if ev.kind == PointerEventKind.up && ev.button == PointerEventButton.left && !root.dragging {
                         if ev.modifiers.control || ev.modifiers.shift { root.ctrl-clicked(); } else { root.clicked(); }
                     }
                     if ev.button == PointerEventButton.right && ev.kind == PointerEventKind.up { root.context(self.absolute-position.x + self.mouse-x, self.absolute-position.y + self.mouse-y); }
@@ -1326,7 +1339,7 @@ component MailRow inherits VerticalLayout {
                         }
                         if m.answered: VerticalLayout { alignment: center; SIcon { commands: Icons.reply; size: 13px; weight: 2; tint: Theme.faint; } }
                         if m.attach: VerticalLayout { alignment: center; SIcon { commands: Icons.clip; size: 13px; weight: 2; tint: Theme.faint; } }
-                        if !ta.has-hover || Prefs.hover-floating: Text {
+                        Text {
                             text: m.time;
                             color: Theme.nordic ? Theme.dim : (m.unread ? Theme.accent : Theme.faint);
                             font-size: (Theme.nordic ? 12px : 11.5px) * Prefs.fs;
@@ -1336,14 +1349,6 @@ component MailRow inherits VerticalLayout {
                         if Prefs.row-action: HoverAction {
                             icon: Icons.more;
                             clicked => { root.context(self.absolute-position.x, self.absolute-position.y + self.height); }
-                        }
-                        if ta.has-hover && !Prefs.hover-floating: HorizontalLayout {
-                            spacing: 0px;
-                            for a in Prefs.hover-actions: HoverAction {
-                                icon: a == "delete" ? Icons.trash : a == "star" ? Icons.star : a == "read" ? Icons.mail : a == "archive" ? Icons.archive : a == "spam" ? Icons.alert : Icons.tag;
-                                active: a == "star" && m.flagged;
-                                clicked => { root.action(a); }
-                            }
                         }
                     }
                     HorizontalLayout {
@@ -1363,7 +1368,7 @@ component MailRow inherits VerticalLayout {
                             clip: true;
                             StyledText { x: 0; y: 0; width: parent.width; text: m.hl-subject; default-color: Theme.text; default-font-size: (Theme.nordic ? 14px : 13px) * Prefs.fs; max-lines: 1; }
                         }
-                        if m.flagged && !ta.has-hover: VerticalLayout { alignment: center; SIcon { commands: Icons.star; size: 12px; weight: 1.8; tint: #fbbf24; fill: #fbbf24; } }
+                        if m.flagged: VerticalLayout { alignment: center; SIcon { commands: Icons.star; size: 12px; weight: 1.8; tint: #fbbf24; fill: #fbbf24; } }
                     }
                     HorizontalLayout {
                         spacing: 4px;
@@ -1412,25 +1417,32 @@ component MailRow inherits VerticalLayout {
                     }
                 }
             }
-            // Bulwark hoverActionsMode "floating": the actions float in a corner of the row
-            if ta.has-hover && Prefs.hover-floating: Rectangle {
-                x: Prefs.hover-left ? 8px : parent.width - self.width - 8px;
-                y: Prefs.hover-bottom ? parent.height - self.height - 4px : 4px;
-                width: fl.preferred-width + 4px;
-                height: fl.preferred-height + 4px;
+            // hover actions (Bulwark hoverActionsMode): an overlay on the time/count corner (inline) or a
+            // floating pill; painted only, the row's TouchArea does the hit test
+            if root.act-on: Rectangle {
+                x: root.act-x;
+                y: root.act-y;
+                width: root.act-w;
+                height: root.act-h;
                 border-radius: Theme.round(self.height);
-                background: Theme.popup;
-                border-width: 1px;
+                background: root.selected || !m.checked ? Theme.tile2 : Theme.sel;
+                border-width: Prefs.hover-floating ? 1px : 0px;
                 border-color: Theme.line;
-                drop-shadow-blur: 6px;
+                drop-shadow-blur: Prefs.hover-floating ? 6px : 0px;
                 drop-shadow-color: #00000040;
-                fl := HorizontalLayout {
-                    x: 2px; y: 2px;
-                    spacing: 0px;
-                    for a in Prefs.hover-actions: HoverAction {
-                        icon: a == "delete" ? Icons.trash : a == "star" ? Icons.star : a == "read" ? Icons.mail : a == "archive" ? Icons.archive : a == "spam" ? Icons.alert : Icons.tag;
-                        active: a == "star" && m.flagged;
-                        clicked => { root.action(a); }
+                for a[i] in Prefs.hover-actions: Rectangle {
+                    x: 2px + i * root.act-bw;
+                    y: 2px;
+                    width: root.act-bw;
+                    height: root.act-bw;
+                    border-radius: Theme.round(self.height);
+                    background: root.act-hi == i ? Theme.hover : transparent;
+                    SIcon {
+                        commands: a == "delete" ? Icons.trash : a == "star" ? Icons.star : a == "read" ? Icons.mail : a == "archive" ? Icons.archive : a == "spam" ? Icons.alert : Icons.tag;
+                        size: 15px;
+                        weight: 1.9;
+                        tint: a == "star" && m.flagged ? #fbbf24 : (root.act-hi == i ? Theme.text : Theme.dim);
+                        fill: a == "star" && m.flagged ? #fbbf24 : transparent;
                     }
                 }
             }
@@ -2166,6 +2178,12 @@ export component AppWindow inherits Window {
     // the WebView follows layout and overlay changes at once (not on the next poll)
     callback webview-sync();
     changed body-visible => { root.webview-sync(); }
+    // keyboard focus returns to the app's key handler whenever an overlay closes or the app changes
+    // (the focused field or menu went away with it), so Ctrl+K and ? never need a click first
+    property <bool> any-overlay: ctx-open || ev-open || show-settings || composing || CompX.sched-open || Pd.overlay || admin-dlg != "";
+    changed any-overlay => { if !root.any-overlay { kbd.focus(); } }
+    changed app => { kbd.focus(); }
+    changed logged-in => { kbd.focus(); }
     changed bx => { root.webview-sync(); }
     changed by => { root.webview-sync(); }
     changed bw => { root.webview-sync(); }
@@ -2208,6 +2226,10 @@ export component AppWindow inherits Window {
     init => { self.focus(); }
     // the mail search box keeps its arrows for the suggestions under it (src/shortcuts.rs)
     capture-key-pressed(e) => {
+        // Ctrl+K opens the command palette whichever field or menu has the focus (not in the composer: link)
+        if e.modifiers.control && !e.modifiers.shift && !e.modifiers.alt && e.text == "k" && !root.composing && !Pd.palette-open {
+            if Pd.key-hook(e.text, false, true, false) { return accept; }
+        }
         if Pd.search-focus && !e.modifiers.control && !e.modifiers.alt && (e.text == Key.UpArrow || e.text == Key.DownArrow || e.text == Key.Escape) {
             if Pd.key-hook(e.text, e.modifiers.shift, false, false) { return accept; }
         }
@@ -3440,8 +3462,8 @@ export component AppWindow inherits Window {
                             }
                         } }
                         if !cmp.narrow: VerticalLayout { alignment: center; FmtButton { glyph: "\u{E894}"; tip: "Clear formatting"; clicked => { cmp.fmt("clear"); } } }
-                        if !cmp.narrow: VerticalLayout { alignment: center; FmtButton { label: "\u{21B6}"; tip: "Undo (Ctrl+Z)"; opacity: root.rte-state.can-undo ? 1 : 0.4; clicked => { cmp.fmt("undo"); } } }
-                        if !cmp.narrow: VerticalLayout { alignment: center; FmtButton { label: "\u{21B7}"; tip: "Redo (Ctrl+Y)"; opacity: root.rte-state.can-redo ? 1 : 0.4; clicked => { cmp.fmt("redo"); } } }
+                        if !cmp.narrow: VerticalLayout { alignment: center; FmtButton { icon: Icons.undo; tip: "Undo (Ctrl+Z)"; opacity: root.rte-state.can-undo ? 1 : 0.4; clicked => { cmp.fmt("undo"); } } }
+                        if !cmp.narrow: VerticalLayout { alignment: center; FmtButton { icon: Icons.redo; tip: "Redo (Ctrl+Y)"; opacity: root.rte-state.can-redo ? 1 : 0.4; clicked => { cmp.fmt("redo"); } } }
                         if !cmp.narrow: VerticalLayout { alignment: center; FmtButton { label: "HTML"; tip: root.rte-source-open ? "Back to the editor" : "Edit HTML source"; active: root.rte-source-open; clicked => { root.rte-cmd("source-toggle"); } } }
                         if cmp.narrow: VerticalLayout { alignment: center; FmtButton { glyph: "\u{E712}"; tip: "More formatting"; clicked => { more-pop.show(); }
                             more-pop := PopupWindow { x: -160px; y: 32px; width: 210px;
@@ -3546,7 +3568,7 @@ export component AppWindow inherits Window {
                                 background: Theme.chip;
                                 border-radius: 4px;
                                 Image { width: parent.width; height: parent.height; source: im.img; image-fit: fill; }
-                                if im.img.width == 0: Text { text: "\u{1F5BC}  " + (im.label == "" ? "Image" : im.label); color: Theme.dim; horizontal-alignment: center; vertical-alignment: center; width: parent.width; height: parent.height; overflow: elide; }
+                                if im.img.width == 0: Text { text: (im.label == "" ? "Image" : im.label); color: Theme.dim; horizontal-alignment: center; vertical-alignment: center; width: parent.width; height: parent.height; overflow: elide; }
                                 Rectangle { border-width: im.selected ? 2px : 0px; border-color: Theme.accent; border-radius: 4px; }
                                 if im.selected && !root.rte-state.has-sel: RteHandle { x: -5px; y: -5px; corner: "nw"; ox: im.x - 5px; oy: im.y - 5px; ev(k, x, y) => { root.rte-pointer(k, x, y, false); } }
                                 if im.selected && !root.rte-state.has-sel: RteHandle { x: parent.width - 5px; y: -5px; corner: "ne"; ox: im.x + im.w - 5px; oy: im.y - 5px; ev(k, x, y) => { root.rte-pointer(k, x, y, false); } }

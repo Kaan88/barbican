@@ -455,7 +455,7 @@ export component EventEditor inherits Rectangle {
                         Pill {
                             pal: root.pal;
                             tone: 4;
-                            text: "\u{1F310}  " + (CalX.ed-tz == "" ? "Floating time" : CalX.ed-tz);
+                            text: (CalX.ed-tz == "" ? "Floating time" : CalX.ed-tz);
                             clicked => { if !CalX.ed-readonly { CalX.ed-tz-open = !CalX.ed-tz-open; } }
                         }
                         if CalX.ed-your-time != "": Text { text: CalX.ed-your-time; color: root.pal.dim; font-size: 12px; vertical-alignment: center; }

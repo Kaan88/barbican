@@ -25,7 +25,12 @@ thread_local! {
     static READY_TIMER: slint::Timer = slint::Timer::default();
     /// Whether the WebView child window is shown.
     static SHOWN: Cell<bool> = const { Cell::new(false) };
+    /// Debounce for refreshing the body capture that sits under the shown view.
     static SNAP_TIMER: slint::Timer = slint::Timer::default();
+    /// The capture under the view matches what the view shows: an overlay can hide the view in
+    /// the very event that opens it, with the capture already in place (no frame with the
+    /// overlay cut off by the child window).
+    static FRESH: Cell<bool> = const { Cell::new(false) };
     /// A hide waiting for the frame that shows the capture in its place.
     static HIDE_PENDING: Cell<bool> = const { Cell::new(false) };
     static UI: RefCell<Option<slint::Weak<AppWindow>>> = const { RefCell::new(None) };
@@ -46,7 +51,17 @@ thread_local! {
 const SHELL_JS: &str = r#"(function(){
 var cur=null,nxt=null,seq=0;
 function post(m){try{window.ipc.postMessage(m)}catch(e){}}
-function fix(d){try{var a=d.querySelectorAll('a,area,form');for(var i=0;i<a.length;i++)a[i].setAttribute('target','_blank')}catch(e){}}
+// the view owns the OS keyboard focus once it was clicked: pass the app's shortcuts back to the native side
+function kd(e){try{if(e.defaultPrevented||e.isComposing)return;var t=e.target,n=t&&t.tagName;
+if(t&&(t.isContentEditable||n==='INPUT'||n==='TEXTAREA'||n==='SELECT'))return;
+var k=e.key,c=e.ctrlKey||e.metaKey,a=e.altKey,fw=false;
+if(c&&!a){fw=['k','e','f','m'].indexOf(k.toLowerCase())>=0}
+else if(!a){fw=k.length===1&&k!==' '||k==='Escape'||k==='Delete'||k==='F5'||k==='F9'}
+if(!fw)return;e.preventDefault();post('key:'+(c?'c':'')+(e.shiftKey?'s':'')+(a?'a':'')+'|'+(k.length===1&&c?k.toLowerCase():k))}catch(x){}}
+document.addEventListener('keydown',kd,true);
+function fix(d){try{var a=d.querySelectorAll('a,area,form');for(var i=0;i<a.length;i++)a[i].setAttribute('target','_blank')}catch(e){}
+try{if(!d.__bbd){d.__bbd=1;var t=0,p=function(){if(t)return;t=1;requestAnimationFrame(function(){t=0;post('dirty')})};
+d.addEventListener('keydown',kd,true);d.addEventListener('scroll',p,true);d.addEventListener('load',p,true);d.addEventListener('selectionchange',p);d.defaultView.addEventListener('resize',p)}}catch(e){}}
 window.__bb={
 show:function(s,html,bg,sb){seq=s;if(nxt){nxt.remove();nxt=null}
 var f=document.createElement('iframe');if(sb!==null)f.setAttribute('sandbox',sb);f.setAttribute('title','Message');
@@ -209,10 +224,12 @@ fn ready(seq: u64, from_view: bool) {
     page_bg(&NEXT_BG.with(|b| b.borrow().clone()));
     crate::automation::mark(&format!("reveal {seq}"));
     run_js(format!("window.__bb&&__bb.reveal({seq})"));
+    mark_dirty();
 }
 
 /// The theme changed with no message open: the empty view takes the reader's new colour.
 pub fn theme_changed() {
+    mark_dirty();
     SLOW.with(|s| s.set(false));
     run_js(format!("window.__bb&&__bb.clear('{}')", reader_bg()));
     page_bg(reader_bg());
@@ -236,12 +253,86 @@ pub fn print() -> bool {
     SHELL_READY.with(|r| r.get()) && WV.with(|w| w.borrow().as_ref().map(|v| v.evaluate_script("window.__bb&&__bb.print()").is_ok()).unwrap_or(false))
 }
 
+/// The email view is a child window: once it was clicked it keeps the OS keyboard focus even when
+/// the user then clicks the native UI, and every key (Ctrl+K, ?, the single-key shortcuts) would
+/// go to the page instead of the app. A press on the main window (the view's own clicks never
+/// reach it) hands the focus back.
+pub fn install_focus_hook(ui: &AppWindow) {
+    #[cfg(windows)]
+    {
+        use slint::winit_030::{winit::event::{ElementState, WindowEvent}, EventResult, WinitWindowAccessor};
+        ui.window().on_winit_window_event(|_, ev| {
+            if let WindowEvent::MouseInput { state: ElementState::Pressed, .. } = ev {
+                WV.with(|w| if let Ok(w) = w.try_borrow() { if let Some(v) = &*w { let _ = v.focus_parent(); } });
+            }
+            EventResult::Propagate
+        });
+    }
+    #[cfg(not(windows))]
+    let _ = ui;
+}
+
+/// A key the email view caught (`flags|key`): replay it in the native window so the app's
+/// shortcuts work with the view focused.
+/// Parse a forwarded key (`flags|key`): the modifiers (c, s, a) and the key text for Slint.
+fn parse_key(spec: &str) -> Option<(Vec<slint::platform::Key>, String)> {
+    use slint::platform::Key;
+    let (flags, key) = spec.split_once('|')?;
+    let text = match key {
+        "Escape" => char::from(Key::Escape).to_string(),
+        "Delete" => char::from(Key::Delete).to_string(),
+        "F5" => char::from(Key::F5).to_string(),
+        "F9" => char::from(Key::F9).to_string(),
+        k if k.chars().count() == 1 => k.to_string(),
+        _ => return None,
+    };
+    let mut mods = vec![];
+    if flags.contains('c') { mods.push(Key::Control); }
+    if flags.contains('s') { mods.push(Key::Shift); }
+    if flags.contains('a') { mods.push(Key::Alt); }
+    Some((mods, text))
+}
+
+fn forward_key(ui: &AppWindow, spec: &str) {
+    use slint::platform::WindowEvent;
+    let Some((mods, text)) = parse_key(spec) else { return };
+    let win = ui.window();
+    for m in &mods { win.dispatch_event(WindowEvent::KeyPressed { text: (*m).into() }); }
+    win.dispatch_event(WindowEvent::KeyPressed { text: text.as_str().into() });
+    win.dispatch_event(WindowEvent::KeyReleased { text: text.as_str().into() });
+    for m in mods.iter().rev() { win.dispatch_event(WindowEvent::KeyReleased { text: (*m).into() }); }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::parse_key;
+    use slint::platform::Key;
+
+    #[test]
+    fn forwarded_keys_parse() {
+        assert_eq!(parse_key("c|k"), Some((vec![Key::Control], "k".into())));
+        assert_eq!(parse_key("s|?"), Some((vec![Key::Shift], "?".into())));
+        assert_eq!(parse_key("cs|m"), Some((vec![Key::Control, Key::Shift], "m".into())));
+        assert_eq!(parse_key("|j"), Some((vec![], "j".into())));
+        assert_eq!(parse_key("|Escape").map(|k| k.1), Some(char::from(Key::Escape).to_string()));
+        assert_eq!(parse_key("|Delete").map(|k| k.1), Some(char::from(Key::Delete).to_string()));
+        // anything else the page sends is dropped
+        assert_eq!(parse_key("|Enter"), None);
+        assert_eq!(parse_key("nokey"), None);
+        assert_eq!(parse_key("|"), None);
+    }
+}
+
 fn on_ipc(msg: &str) {
     if msg == "shell" {
         SHELL_READY.with(|r| r.set(true));
         if let Some(js) = PENDING_JS.with(|p| p.borrow_mut().take()) { run_js(js); }
     } else if let Some(n) = msg.strip_prefix("ready:").and_then(|n| n.parse::<u64>().ok()) {
         ready(n, true);
+    } else if let Some(k) = msg.strip_prefix("key:") {
+        if let Some(u) = ui() { forward_key(&u, k); }
+    } else if msg == "dirty" {
+        mark_dirty();
     }
 }
 
@@ -307,6 +398,18 @@ fn has_message(ui: &AppWindow) -> bool {
     ui.get_logged_in() && ui.get_current_mail() != "" && ui.get_render_mode() == 0
 }
 
+/// The view's content changed (scroll, resize, a new page, theme): the capture under it is out
+/// of date until it is taken again, shortly after the change stops.
+pub fn mark_dirty() {
+    FRESH.with(|f| f.set(false));
+    SNAP_TIMER.with(|t| t.start(slint::TimerMode::SingleShot, Duration::from_millis(140), || {
+        let Some(ui) = ui() else { return };
+        if SHOWN.with(|x| x.get()) && ui.get_body_visible() && has_message(&ui) && SHELL_READY.with(|r| r.get()) && freeze(&ui) {
+            FRESH.with(|f| f.set(true));
+        }
+    }));
+}
+
 /// Capture the body as it is on screen and show it in the WebView's place.
 fn freeze(ui: &AppWindow) -> bool {
     let s = ui.window().scale_factor();
@@ -368,7 +471,8 @@ pub fn sync(ui: &AppWindow) {
         let now = (ui.get_bx(), ui.get_by(), ui.get_bw(), ui.get_bh());
         // the layout moved the body as it went away (composer, another screen): the view must
         // not follow it there for a frame, and a capture of the old place is of no use
-        let moved = shown && !want && AT.with(|a| a.get()) != now;
+        let moved_to = AT.with(|a| a.get());
+        let moved = shown && !want && moved_to != now;
         // a shown view only moves with a body that stays (hiding parks it)
         if want || !shown {
             let _ = v.set_bounds(place(ui));
@@ -377,15 +481,15 @@ pub fn sync(ui: &AppWindow) {
         if want {
             HIDE_PENDING.with(|h| h.set(false));
             set_shown(ui, v, true);
-            // let the WebView paint over the capture before the capture goes
-            if ui.get_body_snap_on() {
-                let wk = ui.as_weak();
-                SNAP_TIMER.with(|t| t.start(slint::TimerMode::SingleShot, Duration::from_millis(80), move || {
-                    if let Some(u) = wk.upgrade() { if SHOWN.with(|x| x.get()) { u.set_body_snap_on(false); } }
-                }));
-            }
+            // keep the capture under the view current (it is what shows when an overlay hides the view)
+            if !shown || moved_to != now || (!FRESH.with(|f| f.get()) && !SNAP_TIMER.with(|t| t.running())) { mark_dirty(); }
         } else if shown && !HIDE_PENDING.with(|h| h.get()) {
             SNAP_TIMER.with(|t| t.stop());
+            if !moved && FRESH.with(|f| f.get()) && ui.get_body_snap_on() && has_message(ui) {
+                // the capture is already drawn under the view: hide it in this very event, before
+                // the frame that brings the overlay
+                set_shown(ui, v, false);
+            } else {
             // the capture also covers the first frame back (app switch, composer, settings)
             let frozen = !moved && has_message(ui) && SHELL_READY.with(|r| r.get()) && freeze(ui);
             if frozen && reader_shown(ui) {
@@ -397,6 +501,7 @@ pub fn sync(ui: &AppWindow) {
             } else {
                 if !frozen { ui.set_body_snap_on(false); }
                 set_shown(ui, v, false);
+            }
             }
         }
         if ui.get_current_mail() == "" && !want && CLEARED.with(|c| !c.replace(true)) {

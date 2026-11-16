@@ -1798,6 +1798,7 @@ fn main() -> Result<(), slint::PlatformError> {
     let w = ui.as_weak();
     ui.global::<Pd>().on_refocus(move || { if let Some(u) = w.upgrade() { u.invoke_focus_keys(); } });
 
+    mailview::install_focus_hook(&ui);
     // "Start in the tray" at sign-in leaves the window closed
     if !desktop::start_hidden() { ui.show()?; }
     if automation::enabled() {
