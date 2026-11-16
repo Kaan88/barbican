@@ -11,9 +11,85 @@ Cross-cutting causes behind many rows:
 
 On the user's example: the bottom-left avatar opens a popup (`ui/app.slint:1466-1505`) with the account list (switch, check on the active one) and "Add account". Missing: sign out, sign out of all, set as default, manage accounts, help links, unified inbox, storage, per-account avatars/unread badges/default star, reordering, avatar tooltip and other-accounts unread dot, Esc and arrow-key navigation.
 
-<!--SUMMARY-->
+## Summary
 
-<!--MISSING-->
+Counts are table rows (grouped interactions), not single Bulwark handlers.
+
+| area | done | partial | missing | n/a |
+|---|---|---|---|---|
+| Rail and account menu | 4 | 6 | 21 | 1 |
+| Sidebar and folder menu | 8 | 5 | 18 | 3 |
+| Layout, desktop host, session, auth, lock, offline, tour | 5 | 9 | 31 | 7 |
+| Mail: list, rows, selection, keyboard | 9 | 18 | 23 | 0 |
+| Mail: menus and message actions | 2 | 8 | 15 | 0 |
+| Mail: reader | 4 | 13 | 23 | 0 |
+| Mail: composer | 8 | 9 | 19 | 0 |
+| Mail shell, search, transfer, templates, identities | 4 | 6 | 16 | 0 |
+| Calendar and tasks | 8 | 14 | 27 | 0 |
+| Contacts | 7 | 6 | 12 | 1 |
+| Files, sync, file drop | 6 | 5 | 13 | 0 |
+| Settings, notifications, accessibility, protocol | 17 | 13 | 28 | 0 |
+| Command palette, global search, shortcuts help | 0 | 2 | 4 | 0 |
+| Admin, connector, plugins, Pro shell | 2 | 5 | 6 | 0 |
+| **Total** | **84** | **119** | **256** | **12** |
+
+
+## Missing and partial, ranked by everyday importance
+
+### Top 40 overall
+1. M Account menu: Sign out of this account / Sign out of all (only Settings > Account)
+2. M Account menu: Set as default, Manage accounts, per-account unread badges and avatars, Esc to close
+3. M Recipient autocomplete and recipient chips in the composer
+4. M Calendar, Contacts and Files keyboard shortcuts (main.rs:1446 early return; Ctrl+A always selects mail)
+5. P Hover Tag action is broken: no tag picker opens (main.rs:1593)
+6. M Shift-click range select and Shift+arrow selection in the mail list
+7. M Drag messages onto folders (and tags)
+8. P Close/Discard composer with no confirm dialog (silent save / immediate discard)
+9. M Schedule send (and Ctrl+Shift+Enter sends immediately instead)
+10. M Restore (Trash), Move to Inbox (Archive), Not spam (Junk) in reader toolbar and hover strip; "Delete forever" label
+11. M Calendar invitation banner in the reader (Accept/Maybe/Decline, Add to calendar)
+12. M Search clear button, search suggestions and recent searches
+13. M Move menu filter, Recent folders and "Choose folder…" dialog
+14. M Selection bar Move / Tag / More buttons
+15. M Pane resize handles (sidebar, list, reader, other apps)
+16. M Native notification click opens the message; notification actions
+17. M Command palette (Ctrl+K) and `?` keyboard shortcuts help
+18. M In-app attachment/file preview modal
+19. M Forward as attachment
+20. M Unsubscribe banner
+21. M Rules submenu: quick filter / block sender from a message
+22. M Calendar drag to move/resize events and drag-to-create; click opens detail popover
+23. P Week view hour-slot double-click/right-click lands on the anchor date, not the clicked day
+24. M Recurrence scope dialog (this / following / all occurrences)
+25. M Event participants, invitations, alerts/reminders
+26. M Thread inline expand in the list; conversation card expand/collapse and per-card buttons
+27. M Contacts and Files multi-select with bulk actions
+28. M Files search, sort, view toggle; OS file drop upload; undo on delete
+29. M Edit existing filter rules, multiple conditions, reorder
+30. M Tag manager (create, colour, reorder, delete tags)
+31. M Notification centre (bell)
+32. M Read receipt banner and Trust sender
+33. M Reader Prev/Next buttons, Open in window, Fullscreen
+34. M Avatar tooltip and other-accounts unread dot; Mail rail unread badge; rail tooltips
+35. M Sidebar collapse; unified per-role rows and shared mailboxes
+36. M Mail import/export; contacts import/export; calendar import and subscriptions
+37. M Pop-out windows for messages and composer
+38. M Password & sign-in settings page (change password, TOTP, app passwords)
+39. P About 30 settings saved but not read (Pause notifications, mail layout, compose placement…)
+40. M App lock (PIN / Windows Hello) and the guided tour
+
+### By area
+- **Rail and account menu:** see items 1, 2, 34; plus keyboard menu navigation, account reorder, help links, storage popover, notification bell, accessibility button, Tasks app.
+- **Sidebar:** folder drop targets, Folders header right-click, sub-unread dot, tag toggle-off, nested tags, vacation banner, folder menu Share/Rules/Mute/Import/Export/mark-subtree-read.
+- **Mail list:** see 5, 6, 7, 14, 26; plus Enter/o, Esc deselect, `a`, Backspace, Space to tick, date-group fold, sort menu, category tabs, select-all-in-folder banner, empty-state actions.
+- **Mail menus:** see 10, 13, 19, 21; plus Copy to account, Pin, Report phishing, View source, copy links, batch tri-state tags.
+- **Reader:** see 10, 11, 20, 32, 33; plus details panel, name popover card, footer reply buttons, quick-reply Cancel/Open full editor, attachment Save to Files / Download all / rename, link phishing gate.
+- **Composer:** see 3, 8, 9; plus attachment chip menu, Save as template, priority/DSN, @mentions, image URL/alt, external-recipient confirm.
+- **Calendar:** see 4, 22-25; plus Agenda and Tasks views, quick-create, mini-cal month picker, share, print, task modal.
+- **Contacts / Files:** see 4, 18, 27, 28; plus contact form structured fields and photo, merge/duplicates, directory, preview, new file, ZIP download.
+- **Settings:** see 29, 30, 38, 39; plus account list in Settings, tag manager, filter editor, vacation forwarding/audience, notification sounds, accessibility presets and quick panel.
+- **Shell / global:** see 15, 17; plus global search, desktop menu bar, F6 pane cycling, tray, protocol (mailto/webcal) launch, offline mode, plugins UI and Pro shell (lowest priority).
+
 
 ## Full tables
 
