@@ -15,6 +15,11 @@ mod recurrence;
 mod reminders;
 mod compose;
 mod contacts;
+mod contacts_x;
+mod filters_x;
+mod contact_merge;
+mod vcard;
+mod pim;
 mod ctxmenu;
 mod files;
 mod glance;
@@ -1047,6 +1052,11 @@ fn main() -> Result<(), slint::PlatformError> {
         })
     };
 
+    {
+        let lsp = load_server_page.clone();
+        let reload: filters_x::Reload = Arc::new(move |tab: String| lsp(tab));
+        filters_x::wire(&ui, state.clone(), server_cache.clone(), reload);
+    }
     let (w, rs, lsp) = (ui.as_weak(), refresh_settings.clone(), load_server_page.clone());
     ui.on_open_settings(move || {
         let u = w.unwrap();
@@ -1179,6 +1189,8 @@ fn main() -> Result<(), slint::PlatformError> {
             match mailto::unregister() { Ok(m) => mail::show_toast(&u, &m, false), Err(e) => mail::show_toast(&u, &e, false) }
             u.invoke_settings_search(u.get_settings_query());
         }
+        if contacts_x::settings_button(&u, st.lock().unwrap().clone(), &key) { return; }
+        if key == "filters.new" { u.global::<FilterX>().invoke_new_rule(); return; }
         if key == "a11y.reset" {
             pf2.lock().unwrap().set("a11y.reset", Value::Null, &mut cf2.lock().unwrap());
             apply_ui_prefs(&u);
@@ -1509,6 +1521,7 @@ fn main() -> Result<(), slint::PlatformError> {
     ui.on_ct_save(move || { let Some(c) = st.lock().unwrap().clone() else { return }; contacts::save(&w.unwrap(), c); });
     let (w, st) = (ui.as_weak(), state.clone());
     ui.on_ct_delete(move || { let Some(c) = st.lock().unwrap().clone() else { return }; contacts::delete(&w.unwrap(), c); });
+    contacts_x::wire(&ui, state.clone());
     let (w, st) = (ui.as_weak(), state.clone());
     ui.on_ct_email(move || {
         let Some(c) = st.lock().unwrap().clone() else { return };

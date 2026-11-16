@@ -854,7 +854,7 @@ fn save_eml(u: &AppWindow, st: &Shared) {
     let Some(c) = c.or_else(|| crate::client_for(st, &id)) else { return };
     let subj = m["subject"].as_str().filter(|s| !s.is_empty()).unwrap_or("message");
     let name = format!("{}.eml", crate::sanitize_name(subj));
-    let Some(path) = crate::automation::save_file(&name) else { return };
+    let Some(path) = crate::automation::save_file(&name, "", &[]) else { return };
     let blob = m["blobId"].as_str().unwrap_or("").to_string();
     // the copy shown in the source view saves without a second download
     // (the raw bytes, not the text: an 8-bit message must stay byte-identical for its signatures)
@@ -875,7 +875,7 @@ fn download_all(u: &AppWindow, st: &Shared) {
     if atts.is_empty() { return; }
     let id = u.get_current_mail().to_string();
     let Some(c) = ST.with(|s| s.borrow().client.clone()).or_else(|| crate::client_for(st, &id)) else { return };
-    let Some(path) = crate::automation::save_file(&bundle_name(m["subject"].as_str().unwrap_or(""))) else { return };
+    let Some(path) = crate::automation::save_file(&bundle_name(m["subject"].as_str().unwrap_or("")), "", &[]) else { return };
     mail::show_toast(u, &format!("Downloading {} attachments…", atts.len()), false);
     let w = u.as_weak();
     std::thread::spawn(move || {

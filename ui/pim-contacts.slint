@@ -1,0 +1,409 @@
+// Contacts depth (Bulwark contact-detail, contact-form, contact-duplicates-view,
+// contact-merge-dialog, contact-import-dialog, directory-browser): typed and labelled
+// entries, photos, dates, related people, duplicates and merge, vCard import, directory.
+import { LineEdit, ComboBox, ScrollView, TextEdit, CheckBox } from "std-widgets.slint";
+import { PimTheme, PimTile, PimIcon, PimButton, PimIconButton, PimChip, PimCaption } from "pim-theme.slint";
+
+// One line of the detail card. `act`: "mail" (write to), "tel", "url", "" (plain).
+export struct CtLine { section: string, label: string, value: string, act: string, tint: string }
+
+// One editable entry. section: email, phone, address, url, im, date, related.
+// kind/kinds: the type select; kind2/kinds2: a second select (phone context);
+// a..e: the entry's text parts (address: street, city, region, postcode, country).
+export struct CtField { section: string, key: string, kind: int, kinds: [string], kind2: int, kinds2: [string], a: string, b: string, c: string, d: string, e: string }
+
+// A row of the duplicates view; `group` numbers the duplicate group.
+export struct CtDupe { group: int, id: string, name: string, detail: string, keep: bool, first: bool }
+
+export global CtX {
+    // ---- detail ----
+    in property <[CtLine]> lines;
+    in property <image> photo;
+    in property <bool> has-photo;
+    in property <string> subtitle;
+    in property <[string]> chips;
+    // directory entry shown read-only (no edit/delete, "Add to contacts")
+    in property <bool> directory-entry;
+    callback act(string, string);
+    callback export-one();
+    callback add-from-directory();
+    // ---- editor ----
+    in-out property <string> prefix;
+    in-out property <string> given;
+    in-out property <string> middle;
+    in-out property <string> surname;
+    in-out property <string> suffix;
+    in-out property <string> nickname;
+    in-out property <string> org;
+    in-out property <string> dept;
+    in-out property <string> job-title;
+    in-out property <string> role;
+    in-out property <string> notes;
+    in property <[CtField]> fields;
+    in property <[string]> books;
+    in-out property <int> book;
+    in property <bool> is-new;
+    in property <string> status;
+    in property <image> edit-photo;
+    in property <bool> edit-has-photo;
+    callback add-field(string);
+    callback remove-field(int);
+    callback set-field(int, string, string);
+    callback set-kind(int, int, int);
+    callback pick-photo();
+    callback clear-photo();
+    callback save();
+    callback cancel();
+    // ---- duplicates ----
+    in property <[CtDupe]> dupes;
+    in property <int> dupe-groups;
+    in property <string> dupe-status;
+    callback merge(int);
+    callback open(string);
+    // ---- import ----
+    in-out property <bool> import-open;
+    in property <string> import-title;
+    in property <string> import-summary;
+    in property <int> import-dupes;
+    in-out property <bool> import-skip-dupes: true;
+    in-out property <int> import-book;
+    in property <bool> import-busy;
+    callback import-run();
+    callback import-file();
+    callback export-all();
+    // ---- directory ----
+    in property <string> dir-status;
+}
+
+component Caption inherits PimCaption { }
+
+component FieldInput inherits LineEdit {
+    font-size: 13px;
+}
+
+component LineRow inherits Rectangle {
+    in property <CtLine> l;
+    min-height: 40px;
+    border-radius: 10px;
+    background: ta.has-hover && l.act != "" ? PimTheme.hover : transparent;
+    ta := TouchArea {
+        mouse-cursor: l.act != "" ? pointer : default;
+        clicked => { if l.act != "" { CtX.act(l.act, l.value); } }
+    }
+    HorizontalLayout {
+        padding-left: 10px; padding-right: 10px; spacing: 12px;
+        VerticalLayout {
+            alignment: center;
+            width: 110px;
+            Text { text: l.label; color: PimTheme.dim; font-size: 12px; overflow: elide; }
+        }
+        VerticalLayout {
+            alignment: center;
+            padding-top: 6px; padding-bottom: 6px;
+            Text {
+                text: l.value;
+                color: l.act == "mail" || l.act == "url" ? PimTheme.accent : PimTheme.text;
+                wrap: word-wrap;
+                horizontal-stretch: 1;
+            }
+        }
+        if l.tint != "": VerticalLayout { alignment: center; PimChip { text: l.tint == "rose" ? "Soon" : l.tint == "mint" ? "Default" : l.tint == "amber" ? "Duplicate?" : ""; tint: l.tint; } }
+    }
+}
+
+// The contact card (replaces the plain field list): photo or initials, name, subtitle,
+// actions, then the typed entries grouped by section.
+export component ContactCardView inherits Rectangle {
+    in property <string> name;
+    in property <string> initials;
+    in property <bool> can-email;
+    callback write-email();
+    callback edit();
+    callback delete();
+    ScrollView {
+        VerticalLayout {
+            padding: 24px;
+            spacing: 14px;
+            alignment: start;
+            PimTile {
+                HorizontalLayout {
+                    padding: 18px;
+                    spacing: 16px;
+                    Rectangle {
+                        width: 72px; height: 72px;
+                        border-radius: 22px;
+                        clip: true;
+                        background: CtX.directory-entry ? PimTheme.sky-bg : PimTheme.rose-bg;
+                        if !CtX.has-photo: Text { text: root.initials; color: CtX.directory-entry ? PimTheme.sky-fg : PimTheme.rose-fg; font-size: 24px; font-weight: 700; horizontal-alignment: center; vertical-alignment: center; }
+                        if CtX.has-photo: Image { source: CtX.photo; width: 72px; height: 72px; image-fit: cover; }
+                    }
+                    VerticalLayout {
+                        alignment: center;
+                        spacing: 4px;
+                        Text { text: root.name; color: PimTheme.text; font-size: 22px; font-weight: 700; wrap: word-wrap; }
+                        if CtX.subtitle != "": Text { text: CtX.subtitle; color: PimTheme.dim; wrap: word-wrap; }
+                        if CtX.chips.length > 0: HorizontalLayout {
+                            spacing: 6px;
+                            alignment: start;
+                            for c in CtX.chips: PimChip { text: c; tint: CtX.directory-entry ? "sky" : ""; }
+                        }
+                    }
+                }
+            }
+            HorizontalLayout {
+                spacing: 8px;
+                alignment: start;
+                PimButton { text: "Write email"; icon: "\u{E715}"; primary: true; enabled: root.can-email; clicked => { root.write-email(); } }
+                if !CtX.directory-entry: PimButton { text: "Edit"; icon: "\u{E70F}"; clicked => { root.edit(); } }
+                if !CtX.directory-entry: PimButton { text: "Export vCard"; icon: "\u{EDE1}"; clicked => { CtX.export-one(); } }
+                if CtX.directory-entry: PimButton { text: "Add to contacts"; icon: "\u{E8FA}"; clicked => { CtX.add-from-directory(); } }
+                if !CtX.directory-entry: PimButton { text: "Delete"; icon: "\u{E74D}"; danger: true; clicked => { root.delete(); } }
+            }
+            if CtX.lines.length > 0: PimTile {
+                VerticalLayout {
+                    padding: 10px;
+                    spacing: 0px;
+                    for l[i] in CtX.lines: VerticalLayout {
+                        if i == 0 || CtX.lines[i - 1].section != l.section: Rectangle {
+                            height: i == 0 ? 22px : 30px;
+                            Caption { x: 10px; y: parent.height - 18px; text: l.section; }
+                        }
+                        LineRow { l: l; }
+                    }
+                }
+            }
+        }
+    }
+}
+
+component TypeSelect inherits ComboBox {
+    width: 120px;
+}
+
+component FieldRow inherits Rectangle {
+    in property <CtField> f;
+    in property <int> index;
+    min-height: lay.preferred-height;
+    lay := HorizontalLayout {
+        spacing: 8px;
+        if f.kinds.length > 0: VerticalLayout { alignment: start; TypeSelect { model: f.kinds; current-index: f.kind; selected => { CtX.set-kind(root.index, self.current-index, f.kind2); } } }
+        if f.kinds2.length > 0: VerticalLayout { alignment: start; TypeSelect { width: 104px; model: f.kinds2; current-index: f.kind2; selected => { CtX.set-kind(root.index, f.kind, self.current-index); } } }
+        if f.section == "address": VerticalLayout {
+            spacing: 6px;
+            horizontal-stretch: 1;
+            FieldInput { placeholder-text: "Street"; text: f.a; edited(t) => { CtX.set-field(root.index, "a", t); } }
+            HorizontalLayout {
+                spacing: 6px;
+                FieldInput { placeholder-text: "City"; text: f.b; edited(t) => { CtX.set-field(root.index, "b", t); } }
+                FieldInput { placeholder-text: "Region"; text: f.c; edited(t) => { CtX.set-field(root.index, "c", t); } }
+            }
+            HorizontalLayout {
+                spacing: 6px;
+                FieldInput { placeholder-text: "Postcode"; text: f.d; edited(t) => { CtX.set-field(root.index, "d", t); } }
+                FieldInput { placeholder-text: "Country"; text: f.e; edited(t) => { CtX.set-field(root.index, "e", t); } }
+            }
+        }
+        if f.section == "im": FieldInput { placeholder-text: "Service (Matrix, Signal…)"; width: 150px; text: f.b; edited(t) => { CtX.set-field(root.index, "b", t); } }
+        if f.section != "address": FieldInput {
+            horizontal-stretch: 1;
+            placeholder-text: f.section == "email" ? "name@example.com" : f.section == "phone" ? "Phone number" : f.section == "url" ? "https://" : f.section == "im" ? "Handle or address" : f.section == "date" ? "YYYY-MM-DD or --MM-DD" : "Name or contact";
+            text: f.a;
+            edited(t) => { CtX.set-field(root.index, "a", t); }
+        }
+        VerticalLayout { alignment: start; PimIconButton { icon: "\u{E711}"; clicked => { CtX.remove-field(root.index); } } }
+    }
+}
+
+component SectionHead inherits HorizontalLayout {
+    in property <string> label;
+    in property <string> section;
+    spacing: 8px;
+    Caption { text: root.label; vertical-alignment: center; horizontal-stretch: 1; }
+    PimButton { text: "Add"; icon: "\u{E710}"; height: 26px; clicked => { CtX.add-field(root.section); } }
+}
+
+// The contact form: name parts, organisation, typed entries per section, photo, notes.
+export component ContactEditor inherits Rectangle {
+    ScrollView {
+        VerticalLayout {
+            padding: 24px;
+            spacing: 14px;
+            alignment: start;
+            HorizontalLayout {
+                spacing: 14px;
+                Rectangle {
+                    width: 72px; height: 72px;
+                    border-radius: 22px;
+                    clip: true;
+                    background: PimTheme.rose-bg;
+                    if !CtX.edit-has-photo: PimIcon { text: "\u{E722}"; font-size: 22px; color: PimTheme.rose-fg; }
+                    if CtX.edit-has-photo: Image { source: CtX.edit-photo; width: 72px; height: 72px; image-fit: cover; }
+                    TouchArea { mouse-cursor: pointer; clicked => { CtX.pick-photo(); } }
+                }
+                VerticalLayout {
+                    alignment: center;
+                    spacing: 6px;
+                    Text { text: CtX.is-new ? "New contact" : "Edit contact"; color: PimTheme.text; font-size: 20px; font-weight: 700; }
+                    HorizontalLayout {
+                        spacing: 6px;
+                        alignment: start;
+                        PimButton { text: CtX.edit-has-photo ? "Change photo" : "Add photo"; height: 26px; clicked => { CtX.pick-photo(); } }
+                        if CtX.edit-has-photo: PimButton { text: "Remove"; height: 26px; clicked => { CtX.clear-photo(); } }
+                    }
+                }
+            }
+            PimTile {
+                VerticalLayout {
+                    padding: 16px;
+                    spacing: 8px;
+                    Caption { text: "NAME"; }
+                    HorizontalLayout {
+                        spacing: 6px;
+                        FieldInput { width: 80px; placeholder-text: "Prefix"; text <=> CtX.prefix; }
+                        FieldInput { placeholder-text: "First name"; text <=> CtX.given; }
+                        FieldInput { placeholder-text: "Last name"; text <=> CtX.surname; }
+                        FieldInput { width: 80px; placeholder-text: "Suffix"; text <=> CtX.suffix; }
+                    }
+                    HorizontalLayout {
+                        spacing: 6px;
+                        FieldInput { placeholder-text: "Middle name"; text <=> CtX.middle; }
+                        FieldInput { placeholder-text: "Nickname"; text <=> CtX.nickname; }
+                    }
+                    Caption { text: "WORK"; }
+                    HorizontalLayout {
+                        spacing: 6px;
+                        FieldInput { placeholder-text: "Organisation"; text <=> CtX.org; }
+                        FieldInput { placeholder-text: "Department"; text <=> CtX.dept; }
+                    }
+                    HorizontalLayout {
+                        spacing: 6px;
+                        FieldInput { placeholder-text: "Job title"; text <=> CtX.job-title; }
+                        FieldInput { placeholder-text: "Role"; text <=> CtX.role; }
+                    }
+                    if CtX.is-new && CtX.books.length > 1: HorizontalLayout {
+                        spacing: 8px;
+                        Text { text: "Address book"; color: PimTheme.dim; vertical-alignment: center; }
+                        ComboBox { model: CtX.books; current-index <=> CtX.book; }
+                    }
+                }
+            }
+            for s in [{k: "email", l: "EMAIL"}, {k: "phone", l: "PHONE"}, {k: "address", l: "ADDRESS"}, {k: "url", l: "WEBSITES"}, {k: "im", l: "MESSAGING & SOCIAL"}, {k: "date", l: "DATES"}, {k: "related", l: "RELATED PEOPLE"}]: PimTile {
+                VerticalLayout {
+                    padding: 16px;
+                    spacing: 8px;
+                    SectionHead { label: s.l; section: s.k; }
+                    VerticalLayout {
+                        spacing: 0px;
+                        for f[i] in CtX.fields: VerticalLayout {
+                            if f.section == s.k: VerticalLayout { padding-top: 6px; FieldRow { f: f; index: i; } }
+                        }
+                    }
+                }
+            }
+            PimTile {
+                VerticalLayout {
+                    padding: 16px;
+                    spacing: 8px;
+                    Caption { text: "NOTES"; }
+                    TextEdit { height: 90px; text <=> CtX.notes; wrap: word-wrap; }
+                }
+            }
+            HorizontalLayout {
+                spacing: 8px;
+                Text { text: CtX.status; color: PimTheme.accent; vertical-alignment: center; horizontal-stretch: 1; wrap: word-wrap; }
+                PimButton { text: "Cancel"; clicked => { CtX.cancel(); } }
+                PimButton { text: "Save"; primary: true; clicked => { CtX.save(); } }
+            }
+        }
+    }
+}
+
+// Duplicates (Bulwark contact-duplicates-view + merge dialog): each group in a tile; the
+// newest card stays and gets what the others add.
+export component ContactDupes inherits Rectangle {
+    ScrollView {
+        VerticalLayout {
+            padding: 24px;
+            spacing: 14px;
+            alignment: start;
+            Text { text: "Duplicates"; color: PimTheme.text; font-size: 22px; font-weight: 700; }
+            Text {
+                text: CtX.dupe-groups == 0 ? "No duplicates found. Contacts with the same name, email address or phone number show up here." :
+                    CtX.dupe-groups + (CtX.dupe-groups == 1 ? " group" : " groups") + " of contacts that look like the same person. Merging keeps the most recently changed card, adds every address, number and note the others have, and deletes the others. Group memberships move to the card that stays.";
+                color: PimTheme.dim; wrap: word-wrap;
+            }
+            if CtX.dupe-status != "": Text { text: CtX.dupe-status; color: PimTheme.accent; wrap: word-wrap; }
+            for d[i] in CtX.dupes: VerticalLayout {
+                if d.first: Rectangle { height: i == 0 ? 0px : 6px; }
+                if d.first: HorizontalLayout {
+                    spacing: 8px;
+                    PimCaption { text: "GROUP " + (d.group + 1); vertical-alignment: center; horizontal-stretch: 1; }
+                    PimButton { text: "Merge"; icon: "\u{E8C8}"; primary: true; height: 28px; clicked => { CtX.merge(d.group); } }
+                }
+                Rectangle {
+                    min-height: 48px;
+                    border-radius: 14px;
+                    background: dta.has-hover ? PimTheme.tile2 : PimTheme.tile;
+                    border-width: 1px;
+                    border-color: PimTheme.line;
+                    dta := TouchArea { clicked => { CtX.open(d.id); } }
+                    HorizontalLayout {
+                        padding-left: 14px; padding-right: 14px; spacing: 10px;
+                        VerticalLayout {
+                            alignment: center;
+                            horizontal-stretch: 1;
+                            padding-top: 6px; padding-bottom: 6px;
+                            Text { text: d.name; color: PimTheme.text; font-weight: 600; overflow: elide; }
+                            Text { text: d.detail; color: PimTheme.dim; font-size: 11px; wrap: word-wrap; }
+                        }
+                        if d.keep: VerticalLayout { alignment: center; PimChip { text: "Stays"; tint: "mint"; } }
+                    }
+                }
+            }
+        }
+    }
+}
+
+// vCard import (Bulwark contact-import-dialog): what the file holds, how many are already
+// in the contacts, skip or import them, target address book.
+export component ContactImportDialog inherits Rectangle {
+    background: PimTheme.scrim;
+    TouchArea { clicked => { if !CtX.import-busy { CtX.import-open = false; } } }
+    Rectangle {
+        width: 420px;
+        height: lay.preferred-height;
+        background: PimTheme.popup;
+        border-radius: 22px;
+        border-width: 1px;
+        border-color: PimTheme.line;
+        TouchArea { }
+        lay := VerticalLayout {
+            padding: 22px;
+            spacing: 12px;
+            Text { text: CtX.import-title; color: PimTheme.text; font-size: 18px; font-weight: 700; }
+            Text { text: CtX.import-summary; color: PimTheme.dim; wrap: word-wrap; }
+            if CtX.import-dupes > 0: Rectangle {
+                border-radius: 14px;
+                background: PimTheme.amber-bg;
+                min-height: al.preferred-height;
+                al := HorizontalLayout {
+                    padding: 12px;
+                    spacing: 10px;
+                    Text { text: CtX.import-dupes + (CtX.import-dupes == 1 ? " contact has" : " contacts have") + " an email address already in your contacts."; color: PimTheme.amber-fg; wrap: word-wrap; horizontal-stretch: 1; vertical-alignment: center; }
+                }
+            }
+            if CtX.import-dupes > 0: CheckBox { text: "Skip them"; checked <=> CtX.import-skip-dupes; }
+            if CtX.books.length > 1: HorizontalLayout {
+                spacing: 8px;
+                Text { text: "Into"; color: PimTheme.dim; vertical-alignment: center; }
+                ComboBox { model: CtX.books; current-index <=> CtX.import-book; }
+            }
+            HorizontalLayout {
+                spacing: 8px;
+                alignment: end;
+                PimButton { text: "Cancel"; enabled: !CtX.import-busy; clicked => { CtX.import-open = false; } }
+                PimButton { text: CtX.import-busy ? "Importing…" : "Import"; primary: true; enabled: !CtX.import-busy; clicked => { CtX.import-run(); } }
+            }
+        }
+    }
+}

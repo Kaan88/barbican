@@ -231,6 +231,9 @@ impl Settings {
                 }
                 "text" if !key.is_empty() => out.push(text("text", key, label, desc, &self.str(key, r["default"].as_str().unwrap_or("")))),
                 "button" if !key.is_empty() => out.push(text("button", key, label, desc, r["text"].as_str().unwrap_or("Reset"))),
+                // Contacts > Import / Export (Bulwark contact-import-dialog, contact-export)
+                "info" if label == "Import contacts" => out.push(text("button", "contacts.import", label, "Adds the contacts in a vCard (.vcf) file. Contacts whose email address you already have can be skipped.", "Import…")),
+                "info" if label == "Export contacts" => out.push(text("button", "contacts.export", label, "Saves every contact as a vCard 4.0 file, photos included.", "Export…")),
                 // Calendar > Working days (Bulwark calendarWorkingDays: 0 = Sunday .. 6 = Saturday)
                 "info" if label == "Working days" => {
                     out.push(row("section", "", label, desc));

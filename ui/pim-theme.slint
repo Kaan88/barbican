@@ -1,0 +1,118 @@
+import { Theme } from "theme.slint";
+
+// Tokens for the PIM screens (contacts depth, files depth, filter / identity / vacation
+// editors): an alias of Theme (ui/theme.slint), so style, light/dark and more contrast follow it.
+export global PimTheme {
+    out property <bool> dark: Theme.dark;
+    out property <bool> more-contrast: Theme.more-contrast;
+    out property <color> bg: Theme.ground;
+    out property <color> tile: Theme.tile;
+    out property <color> tile2: Theme.tile2;
+    out property <color> popup: Theme.popup;
+    out property <color> line: Theme.line;
+    out property <color> text: Theme.text;
+    out property <color> body: Theme.body;
+    out property <color> dim: Theme.dim;
+    out property <color> accent: Theme.accent;
+    out property <color> on-accent: Theme.on-accent;
+    out property <color> sel: Theme.sel;
+    out property <color> sel-text: Theme.sel-text;
+    out property <color> hover: Theme.hover;
+    out property <color> chip: Theme.chip;
+    out property <color> scrim: Theme.dark ? #000000a0 : #00000060;
+    // meaning tints
+    out property <color> rose-bg: Theme.rose-bg;
+    out property <color> rose-fg: Theme.rose-fg;
+    out property <color> mint-bg: Theme.mint-bg;
+    out property <color> mint-fg: Theme.mint-fg;
+    out property <color> sky-bg: Theme.sky-bg;
+    out property <color> sky-fg: Theme.sky-fg;
+    out property <color> amber-bg: Theme.amber-bg;
+    out property <color> amber-fg: Theme.amber-fg;
+    out property <string> icons: Theme.icons;
+    out property <string> font: "Segoe UI";
+}
+
+// A rounded tile (Bento): 1px line, radius 20.
+export component PimTile inherits Rectangle {
+    background: PimTheme.tile;
+    border-radius: 20px;
+    border-width: 1px;
+    border-color: PimTheme.line;
+}
+
+export component PimIcon inherits Text {
+    font-family: PimTheme.icons;
+    font-size: 14px;
+    color: PimTheme.dim;
+    vertical-alignment: center;
+    horizontal-alignment: center;
+}
+
+// Pill button: primary (accent) or quiet (chip). 12px radius per the design tokens.
+export component PimButton inherits Rectangle {
+    in property <string> text;
+    in property <string> icon;
+    in property <bool> primary;
+    in property <bool> danger;
+    in property <bool> enabled: true;
+    callback clicked;
+    height: 32px;
+    min-width: pl.preferred-width + (icon != "" ? 44px : 28px);
+    border-radius: 12px;
+    opacity: enabled ? 1 : 0.5;
+    background: primary ? (ta.pressed ? PimTheme.accent.darker(0.15) : ta.has-hover ? PimTheme.accent.brighter(0.1) : PimTheme.accent)
+        : danger ? (ta.has-hover ? PimTheme.rose-bg.darker(0.1) : PimTheme.rose-bg)
+        : (ta.has-hover ? PimTheme.hover : PimTheme.chip);
+    ta := TouchArea { enabled: root.enabled; clicked => { root.clicked(); } }
+    HorizontalLayout {
+        padding-left: 14px; padding-right: 14px; spacing: 6px;
+        alignment: center;
+        if icon != "": PimIcon { text: icon; font-size: 12px; color: primary ? PimTheme.on-accent : danger ? PimTheme.rose-fg : PimTheme.text; }
+        pl := Text {
+            text: root.text;
+            font-family: PimTheme.font;
+            color: primary ? PimTheme.on-accent : danger ? PimTheme.rose-fg : PimTheme.text;
+            font-weight: primary ? 700 : 600;
+            vertical-alignment: center;
+        }
+    }
+}
+
+// Small round icon button.
+export component PimIconButton inherits Rectangle {
+    in property <string> icon;
+    in property <string> tip;
+    in property <bool> enabled: true;
+    callback clicked;
+    width: 28px; height: 28px;
+    border-radius: 14px;
+    opacity: enabled ? 1 : 0.4;
+    background: ta.has-hover ? PimTheme.hover : transparent;
+    ta := TouchArea { enabled: root.enabled; clicked => { root.clicked(); } }
+    PimIcon { text: icon; font-size: 12px; color: ta.has-hover ? PimTheme.text : PimTheme.dim; }
+}
+
+// A tinted chip (meaning tint by name: rose, mint, sky, amber; anything else neutral).
+export component PimChip inherits Rectangle {
+    in property <string> text;
+    in property <string> tint;
+    height: 22px;
+    min-width: ct.preferred-width + 16px;
+    border-radius: 11px;
+    background: tint == "rose" ? PimTheme.rose-bg : tint == "mint" ? PimTheme.mint-bg : tint == "sky" ? PimTheme.sky-bg : tint == "amber" ? PimTheme.amber-bg : PimTheme.chip;
+    ct := Text {
+        text: root.text;
+        font-size: 11px;
+        font-weight: 600;
+        color: tint == "rose" ? PimTheme.rose-fg : tint == "mint" ? PimTheme.mint-fg : tint == "sky" ? PimTheme.sky-fg : tint == "amber" ? PimTheme.amber-fg : PimTheme.dim;
+        horizontal-alignment: center; vertical-alignment: center;
+    }
+}
+
+// Section caption inside a tile.
+export component PimCaption inherits Text {
+    color: PimTheme.dim;
+    font-size: 11px;
+    font-weight: 700;
+}
