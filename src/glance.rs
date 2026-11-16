@@ -179,3 +179,43 @@ pub fn sender(w: slint::Weak<AppWindow>, c: Arc<Client>, email: String, current:
         });
     });
 }
+
+/// The contact detail tiles (design/mockups BNContacts): recent mail from the contact, files
+/// they sent and the next event with them. `email` is the contact's first address; the
+/// results are dropped if another contact was opened meanwhile.
+pub fn contact(w: slint::Weak<AppWindow>, c: Arc<Client>, email: String) {
+    if let Some(u) = w.upgrade() {
+        u.set_cx_recent(ModelRc::default());
+        u.set_cx_files(ModelRc::default());
+        let next = crate::calendar::next_with(&email);
+        u.set_cx_next(next.as_ref().map(|n| n.0.clone()).unwrap_or_default().into());
+        u.set_cx_next_title(next.map(|n| n.1).unwrap_or_default().into());
+        u.set_cx_email(email.clone().into());
+    }
+    if email.is_empty() { return; }
+    std::thread::spawn(move || {
+        let recent = c.call(json!([
+            ["Email/query", {"accountId": c.account, "filter": {"operator": "AND", "conditions": [{"from": email}, {"notKeyword": "$draft"}]}, "sort": [{"property": "receivedAt", "isAscending": false}], "limit": 12}, "q"],
+            ["Email/get", {"accountId": c.account, "#ids": {"resultOf": "q", "name": "Email/query", "path": "/ids"}, "properties": ["id", "subject", "receivedAt", "attachments"]}, "g"]
+        ])).ok().map(|r| r[1][1]["list"].as_array().cloned().unwrap_or_default()).unwrap_or_default();
+        let _ = w.upgrade_in_event_loop(move |u| {
+            if u.get_cx_email().as_str() != email { return; }
+            let mut rows = vec![];
+            let mut files = vec![];
+            for m in &recent {
+                let id = m["id"].as_str().unwrap_or("");
+                let date = short_date(&m["receivedAt"]);
+                for a in m["attachments"].as_array().cloned().unwrap_or_default() {
+                    let Some(name) = a["name"].as_str().filter(|n| !n.is_empty()) else { continue };
+                    if crate::mail::is_inline_image(&a) || files.iter().any(|f: &PRow| f.label == name) { continue; }
+                    if files.len() < 4 { files.push(prow(name, &date, id)); }
+                }
+                if rows.len() >= 4 { continue; }
+                let subject = m["subject"].as_str().filter(|s| !s.trim().is_empty()).unwrap_or("(no subject)");
+                rows.push(prow(subject, &date, id));
+            }
+            u.set_cx_recent(ModelRc::new(VecModel::from(rows)));
+            u.set_cx_files(ModelRc::new(VecModel::from(files)));
+        });
+    });
+}

@@ -1371,8 +1371,14 @@ fn main() -> Result<(), slint::PlatformError> {
     });
     let w = ui.as_weak();
     ui.on_ct_new_group(move || ctxmenu::new_group_prompt(&w.unwrap(), None));
-    let w = ui.as_weak();
-    ui.on_ct_select(move |id| { let u = w.unwrap(); u.set_ct_editing(false); contacts::select(&u, &id); });
+    let (w, st) = (ui.as_weak(), state.clone());
+    ui.on_ct_select(move |id| {
+        let u = w.unwrap();
+        u.set_ct_editing(false);
+        contacts::select(&u, &id);
+        let email = u.get_ct_emails().split(',').next().unwrap_or("").trim().to_string();
+        if let Some(c) = st.lock().unwrap().clone() { glance::contact(w.clone(), c, email); }
+    });
     let w = ui.as_weak();
     ui.on_ct_new(move || { let u = w.unwrap(); contacts::select(&u, ""); u.set_ct_id("".into()); u.set_ct_editing(true); });
     let (w, st) = (ui.as_weak(), state.clone());
