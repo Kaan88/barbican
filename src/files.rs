@@ -107,6 +107,9 @@ pub fn open(u: &AppWindow, c: Arc<Client>, folder: &str) {
         if let Some(o) = c.session["accounts"].as_object() {
             for (id, a) in o { if *id != primary && a["accountCapabilities"].get(CAP).is_some() { accounts.push(id.clone()); } }
         }
+        // Stalwart 1.0 (File Storage draft 18) lists supportedNodeTypes and wants @type on create (Bulwark usesDraftFileNodeCreate)
+        let draft_cap = c.session["accounts"][&primary]["accountCapabilities"][CAP].get("supportedNodeTypes").is_some()
+            || c.session["capabilities"][CAP].get("supportedNodeTypes").is_some();
         let mut legacy = HashSet::new();
         for a in &accounts {
             let cap = &c.session["accounts"][a]["accountCapabilities"][CAP];
@@ -133,7 +136,7 @@ pub fn open(u: &AppWindow, c: Arc<Client>, folder: &str) {
         })();
         let _ = w.upgrade_in_event_loop(move |u| match res {
             Ok(nodes) => {
-                let draft = nodes.iter().any(|n| n["@type"].is_string());
+                let draft = draft_cap || nodes.iter().any(|n| n["@type"].is_string());
                 ST.with(|s| { let mut s = s.borrow_mut(); s.nodes = nodes; s.draft18 = draft; s.primary = primary; s.legacy = legacy; });
                 render(&u);
             }
