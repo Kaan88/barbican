@@ -579,7 +579,7 @@ fn submenu(u: &AppWindow, t: &Target, which: &str) -> Vec<CtxItem> {
                 v.push(i);
             }
         }
-        "rte-format" | "rte-para" | "rte-table" | "rte-ai" => v = rte_sub(which),
+        "rte-format" | "rte-para" | "rte-table" | "rte-ai" => v = rte_sub(which, u.get_ai_busy()),
         "due" => {
             v.push(it(G_CALENDAR, "Today", "", "due:0"));
             v.push(it(G_CALENDAR, "Tomorrow", "", "due:1"));
@@ -1071,7 +1071,7 @@ fn rte_items(u: &AppWindow) -> Vec<CtxItem> {
     v
 }
 
-fn rte_sub(which: &str) -> Vec<CtxItem> {
+fn rte_sub(which: &str, ai_busy: bool) -> Vec<CtxItem> {
     let c = crate::rte::ctx_info();
     let chk = |mut i: CtxItem, on: bool| { i.checked = on; i };
     match which {
@@ -1114,7 +1114,7 @@ fn rte_sub(which: &str) -> Vec<CtxItem> {
             danger(G_DELETE, "Delete table", "", "table-op:del-table"),
         ],
         "rte-ai" => ["Improve", "Shorten", "Formal", "Casual", "Fix spelling", "Translate"].iter()
-            .map(|a| it("", a, "", &format!("ai:{a}"))).collect(),
+            .map(|a| off(it("", a, "", &format!("ai:{a}")), !ai_busy)).collect(),
         _ => vec![],
     }
 }

@@ -1024,6 +1024,7 @@ export component AppWindow inherits Window {
     in-out property <bool> rte-focus-on-open;
     // HTML source view of the composer (edit raw HTML, re-imported live)
     in-out property <bool> rte-source-open;
+    in-out property <int> rte-source-focus-req;
     in-out property <string> rte-source;
     callback rte-key(string, bool, bool, bool) -> bool;
     callback rte-pointer(string, length, length, bool);
@@ -1697,7 +1698,11 @@ export component AppWindow inherits Window {
                 background: Theme.reader;
                 function fmt(k: string) {
                     root.rte-cmd(k);
-                    ime-ti.focus();
+                    self.focus-ed();
+                }
+                // the visible editing surface: the source text while the HTML view is open
+                function focus-ed() {
+                    if root.rte-source-open { root.rte-source-focus-req += 1; } else { ime-ti.focus(); }
                 }
                 property <int> sreq: root.rte-scroll-req;
                 changed sreq => {
@@ -1709,14 +1714,22 @@ export component AppWindow inherits Window {
                     }
                 }
                 property <int> freq: root.rte-focus-req;
-                changed freq => { ime-ti.focus(); }
+                changed freq => { self.focus-ed(); }
                 init => { if root.rte-focus-on-open { ime-ti.focus(); } }
                 rte-fs := FocusScope {
                     x: 0px; y: 0px; width: 1px; height: 1px;
+                    // Alt+letter: the TextInput's `edited` for that key runs during the same
+                    // key event; the flag is dropped right after so later IME commits pass.
                     property <bool> alt-key;
+                    alt-clear := Timer {
+                        interval: 1ms;
+                        running: false;
+                        triggered => { rte-fs.alt-key = false; self.running = false; }
+                    }
                     capture-key-pressed(e) => {
                         if !ime-ti.has-focus { return reject; }
                         self.alt-key = e.modifiers.alt && !e.modifiers.control;
+                        if self.alt-key { alt-clear.running = true; }
                         if root.rte-key(e.text, e.modifiers.control, e.modifiers.shift, e.modifiers.alt) { return accept; }
                         reject
                     }
@@ -1914,6 +1927,8 @@ export component AppWindow inherits Window {
                                 wrap: word-wrap;
                                 edited(t) => { root.rte-cmd("source-edit:" + t); }
                                 init => { self.focus(); }
+                                property <int> freq: root.rte-source-focus-req;
+                                changed freq => { self.focus(); }
                             }
                         }
                     }
@@ -2051,11 +2066,11 @@ export component AppWindow inherits Window {
                                     padding: 10px; spacing: 6px;
                                     HorizontalLayout { spacing: 8px;
                                         Text { text: "Text"; color: Theme.dim; width: 36px; vertical-alignment: center; font-size: 12px; }
-                                        link-text := LineEdit { text <=> root.rte-link-text; placeholder-text: "Link text"; accepted => { root.rte-cmd("link-apply"); ime-ti.focus(); } }
+                                        link-text := LineEdit { text <=> root.rte-link-text; placeholder-text: "Link text"; accepted => { root.rte-cmd("link-apply"); cmp.focus-ed(); } }
                                     }
                                     HorizontalLayout { spacing: 8px;
                                         Text { text: "URL"; color: Theme.dim; width: 36px; vertical-alignment: center; font-size: 12px; }
-                                        link-url := LineEdit { text <=> root.rte-link-url; placeholder-text: "https://"; init => { self.focus(); } accepted => { root.rte-cmd("link-apply"); ime-ti.focus(); } }
+                                        link-url := LineEdit { text <=> root.rte-link-url; placeholder-text: "https://"; init => { self.focus(); } accepted => { root.rte-cmd("link-apply"); cmp.focus-ed(); } }
                                     }
                                 }
                             }
@@ -2064,9 +2079,9 @@ export component AppWindow inherits Window {
                     if root.rte-link-open: HorizontalLayout {
                         padding-left: 12px; padding-right: 12px; padding-bottom: 6px; spacing: 6px; alignment: end;
                         Text { text: "Press Enter to apply, Esc to cancel"; color: Theme.dim; font-size: 11px; vertical-alignment: center; horizontal-stretch: 1; }
-                        VerticalLayout { alignment: center; BarButton { label: "Remove link"; chevron: false; clicked => { root.rte-cmd("link-remove"); ime-ti.focus(); } } }
-                        VerticalLayout { alignment: center; BarButton { label: "Cancel"; chevron: false; clicked => { root.rte-link-open = false; ime-ti.focus(); } } }
-                        VerticalLayout { alignment: center; BarButton { label: "Apply"; chevron: false; clicked => { root.rte-cmd("link-apply"); ime-ti.focus(); } } }
+                        VerticalLayout { alignment: center; BarButton { label: "Remove link"; chevron: false; clicked => { root.rte-cmd("link-remove"); cmp.focus-ed(); } } }
+                        VerticalLayout { alignment: center; BarButton { label: "Cancel"; chevron: false; clicked => { root.rte-link-open = false; cmp.focus-ed(); } } }
+                        VerticalLayout { alignment: center; BarButton { label: "Apply"; chevron: false; clicked => { root.rte-cmd("link-apply"); cmp.focus-ed(); } } }
                     }
                     if root.c-attachments.length > 0: HorizontalLayout {
                         padding-left: 12px;

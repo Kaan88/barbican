@@ -990,6 +990,7 @@ fn main() -> Result<(), slint::PlatformError> {
     let cf = cfg.clone();
     ui.on_ai_compose(move |action| {
         let u = w.unwrap();
+        if u.get_ai_busy() { return; } // one rewrite at a time (toolbar and right-click menu)
         let (draft, whole) = rte::ai_source();
         if draft.trim().is_empty() { u.set_c_status("Write something first.".into()); return; }
         let c = cf.lock().unwrap().clone();

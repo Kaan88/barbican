@@ -33,6 +33,8 @@ thread_local! {
     /// Image resize drag: (block, left corner, start x, start w, start h, first step).
     static RESIZE: Cell<Option<(usize, bool, f32, f32, f32, bool)>> = const { Cell::new(None) };
     static SOURCE_EDITED: Cell<bool> = const { Cell::new(false) };
+    /// The document as the source view last showed or produced it.
+    static SOURCE_DOC: RefCell<Option<Doc>> = const { RefCell::new(None) };
 }
 
 // ---------------------------------------------------------------- document access
@@ -44,13 +46,35 @@ pub fn set_doc(u: &AppWindow, doc: Doc) {
     for b in &doc.blocks { if let Kind::Image(img) = &b.kind { register_image(img); } }
     with(|e| { e.load(doc); e.set_caret(Pos::new(0, 0)); });
     UP.with(|x| x.set(false));
+    close_source(u);
     refresh(u);
 }
 
-/// Put the keyboard focus into the editor (now, and when the composer appears).
+/// Leave the HTML source view and forget its state (a new message is opened).
+pub fn close_source(u: &AppWindow) {
+    u.set_rte_source_open(false);
+    u.set_rte_source("".into());
+    SOURCE_EDITED.with(|s| s.set(false));
+    SOURCE_DOC.with(|s| *s.borrow_mut() = None);
+}
+
+/// Put the keyboard focus into the editor (now, and when the composer appears);
+/// into the source text while the HTML source view is open.
 pub fn focus(u: &AppWindow) {
+    if u.get_rte_source_open() { u.set_rte_source_focus_req(u.get_rte_source_focus_req() + 1); return; }
     u.set_rte_focus_on_open(true);
     u.set_rte_focus_req(u.get_rte_focus_req() + 1);
+}
+
+/// While the source view is open, show changes made outside it (toolbar, undo, AI,
+/// signature) so that the next keystroke there does not revert them.
+fn sync_source(u: &AppWindow) {
+    if !u.get_rte_source_open() { return; }
+    let doc = with(|e| e.doc.clone());
+    if SOURCE_DOC.with(|s| s.borrow().as_ref() == Some(&doc)) { return; }
+    u.set_rte_source(html::source(&doc).into());
+    SOURCE_DOC.with(|s| *s.borrow_mut() = Some(doc));
+    SOURCE_EDITED.with(|s| s.set(false));
 }
 
 pub fn doc() -> Doc { with(|e| e.doc.clone()) }
@@ -218,6 +242,7 @@ fn state(e: &Editor) -> RteState {
 
 /// Lay out, paint and push everything to the UI.
 pub fn refresh(u: &AppWindow) {
+    sync_source(u);
     let width = u.get_rte_width().max(80.0);
     let base = u.get_rte_base_size().max(9.0);
     let up = UP.with(|x| x.get());
@@ -345,7 +370,7 @@ pub fn ctx_pick(u: &AppWindow, action: &str) {
         if let Some((_, _, _, w)) = spelled { if action == "spell-add" { spell::add(&w) } else { spell::ignore(&w) } }
         refresh(u);
     } else if let Some(a) = action.strip_prefix("ai:") {
-        u.invoke_ai_compose(a.into());
+        if !u.get_ai_busy() { u.invoke_ai_compose(a.into()); }
     } else if action == "copy-link" {
         if let Some(l) = with(|e| e.current_link()) { u.set_rte_link_url(l.into()); }
         on_cmd(u, "copy-link");
@@ -398,11 +423,12 @@ fn source_cmd(u: &AppWindow, name: &str, arg: &str) {
     match name {
         "source-toggle" => {
             if u.get_rte_source_open() {
-                u.set_rte_source_open(false);
-                SOURCE_EDITED.with(|s| s.set(false));
+                close_source(u);
                 focus(u);
             } else {
-                u.set_rte_source(with(|e| html::source(&e.doc)).into());
+                let doc = with(|e| e.doc.clone());
+                u.set_rte_source(html::source(&doc).into());
+                SOURCE_DOC.with(|s| *s.borrow_mut() = Some(doc));
                 SOURCE_EDITED.with(|s| s.set(false));
                 u.set_rte_source_open(true);
             }
@@ -412,6 +438,7 @@ fn source_cmd(u: &AppWindow, name: &str, arg: &str) {
             let d = with(|e| html::apply_source(&e.doc, arg));
             for b in &d.blocks { if let Kind::Image(img) = &b.kind { register_image(img); } }
             with(|e| e.replace_doc(d, first));
+            SOURCE_DOC.with(|s| *s.borrow_mut() = Some(with(|e| e.doc.clone())));
         }
         _ => {}
     }

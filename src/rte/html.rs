@@ -968,6 +968,21 @@ pub fn pretty(h: &str) -> String {
 pub fn apply_source(doc: &Doc, src: &str) -> Doc {
     let mut blocks = import(src);
     if blocks.is_empty() { blocks.push(Block::new(Kind::Para)); }
+    // The source only carries src/alt/size: keep the attachment data (uploaded blob, bytes,
+    // type, name) of the images that were already in the document.
+    let old: Vec<&ImageData> = doc.blocks[..editable_end(doc)].iter()
+        .filter_map(|b| match &b.kind { Kind::Image(i) => Some(i), _ => None }).collect();
+    for b in &mut blocks {
+        if let Kind::Image(img) = &mut b.kind {
+            let same = old.iter().find(|o| match &img.cid { Some(c) => o.cid.as_ref() == Some(c), None => o.cid.is_none() && o.src == img.src });
+            if let Some(o) = same {
+                if img.blob_id.is_none() { img.blob_id = o.blob_id.clone(); }
+                if img.mime.is_empty() { img.mime = o.mime.clone(); }
+                if img.name.is_empty() { img.name = o.name.clone(); }
+                if img.bytes.is_none() { img.bytes = o.bytes.clone(); }
+            }
+        }
+    }
     blocks.extend(doc.blocks[editable_end(doc)..].iter().cloned());
     let mut d = Doc { blocks };
     d.fix();
@@ -1003,6 +1018,26 @@ mod source_tests {
         assert_eq!(e.blocks[0].text(), "New text");
         assert_eq!(e.blocks[1].text(), "Second");
         assert_eq!(e.blocks.iter().filter(|b| matches!(b.kind, Kind::Quoted { .. })).count(), 1);
+    }
+
+    #[test]
+    fn source_edit_keeps_inline_image_data() {
+        let img = ImageData {
+            src: "cid:img1@x".into(), cid: Some("img1@x".into()), blob_id: Some("B123".into()),
+            mime: "image/png".into(), name: "shot.png".into(), width: 100, height: 50,
+            bytes: Some(Arc::new(vec![1, 2, 3])), alt: String::new(),
+        };
+        let mut d = Doc { blocks: vec![Block::para("Hi"), Block::new(Kind::Image(img)), Block::para("")] };
+        d.fix();
+        let s = source(&d);
+        assert!(s.contains("cid:img1@x"), "{s}");
+        let e = apply_source(&d, &s.replacen("Hi", "Hi there", 1));
+        let back = e.blocks.iter().find_map(|b| match &b.kind { Kind::Image(i) => Some(i.clone()), _ => None }).expect("image kept");
+        assert_eq!(back.blob_id.as_deref(), Some("B123"));
+        assert_eq!(back.mime, "image/png");
+        assert_eq!(back.name, "shot.png");
+        assert_eq!(back.bytes.as_deref().map(|b| b.len()), Some(3));
+        assert_eq!(e.blocks[0].text(), "Hi there");
     }
 
     #[test]
