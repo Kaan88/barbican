@@ -652,8 +652,9 @@ pub fn send(u: &AppWindow, c: Arc<Client>, prefs: &crate::settings::Settings) {
             std::thread::spawn(move || {
                 let res = c2.send_message(&o);
                 let w3 = w2.clone();
+                let c3 = c2.clone();
                 let _ = w2.upgrade_in_event_loop(move |u| match res {
-                    Ok(_) => crate::mail::show_toast(&u, "Message sent", false),
+                    Ok(_) => { crate::mail::show_toast(&u, "Message sent", false); after_send(&u, c3); }
                     Err(e) => crate::mail::show_toast(&u, &format!("Not sent: {e}"), false),
                 });
                 crate::mail::load_mailboxes(w3, c2, false);
@@ -668,11 +669,13 @@ pub fn send(u: &AppWindow, c: Arc<Client>, prefs: &crate::settings::Settings) {
     std::thread::spawn(move || {
         let res = c.send_message(&o);
         let w2 = w.clone();
+        let c3 = c.clone();
         let _ = w.upgrade_in_event_loop(move |u| {
             u.set_sending(false);
             match res {
                 Ok(sub) => {
                     u.set_composing(false);
+                    after_send(&u, c3);
                     match sub {
                         Some(id) => {
                             PENDING.with(|p| *p.borrow_mut() = Some((id, o, snapshot)));
@@ -688,6 +691,13 @@ pub fn send(u: &AppWindow, c: Arc<Client>, prefs: &crate::settings::Settings) {
     });
 }
 
+/// A message went out (or a held one came back): the list and the open conversation show
+/// the reply without waiting for push (Bulwark refreshes the thread after sending).
+fn after_send(u: &AppWindow, c: Arc<Client>) {
+    if crate::unified::is_active(&c) || crate::mail::showing_unified() { crate::mail::sync(u.as_weak(), c); }
+    crate::refresh_open_thread(u);
+}
+
 /// Undo the last held send and put the message back in the composer.
 pub fn undo_send(u: &AppWindow, c: Arc<Client>) {
     let Some((id, o, snap)) = PENDING.with(|p| p.borrow_mut().take()) else { return };
@@ -695,8 +705,10 @@ pub fn undo_send(u: &AppWindow, c: Arc<Client>) {
     let w = u.as_weak();
     std::thread::spawn(move || {
         let res = if id.starts_with("local-") { Ok(None) } else { c.cancel_submission(&id) };
+        let c4 = c.clone();
         let _ = w.upgrade_in_event_loop(move |u| match res {
             Ok(restored) => {
+                after_send(&u, c4);
                 let (doc, plain, tags) = (snap.body_doc.clone().unwrap_or_default(), snap.plain, snap.tags.clone());
                 ST.with(|s| { *s.borrow_mut() = snap; s.borrow_mut().draft_id = restored; });
                 u.set_c_plain(plain);

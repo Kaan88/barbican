@@ -278,6 +278,15 @@ fn load_thread(w: slint::Weak<AppWindow>, c: Arc<jmap::Client>, id: String) {
         });
     });
 }
+/// Reload the open message's conversation strip: a reply was just sent from it, or push
+/// reported mail changes (the sent reply joins the thread). UI thread.
+pub fn refresh_open_thread(u: &AppWindow) {
+    let id = u.get_current_mail().to_string();
+    if id.is_empty() || u.get_app() != 0 { return; }
+    let Some(c) = READER_CLIENT.with(|r| r.borrow().clone()) else { return };
+    load_thread(u.as_weak(), c, id);
+}
+
 thread_local! {
     /// Client of the account the open message belongs to (unified inbox) and of the open composer.
     static READER_CLIENT: std::cell::RefCell<Option<Arc<jmap::Client>>> = const { std::cell::RefCell::new(None) };
@@ -440,6 +449,7 @@ fn schedule_refresh(w: slint::Weak<AppWindow>, c: Arc<jmap::Client>, types: std:
         if has("Mailbox") || has("Email") || has("Thread") { mail::load_mailboxes(w.clone(), c.clone(), false); }
         let scheduled = w.upgrade().is_some_and(|u| u.get_current_folder() == "__scheduled");
         if has("Email") || has("Thread") || (scheduled && has("EmailSubmission")) { mail::sync(w.clone(), c.clone()); }
+        if has("Email") || has("Thread") { if let Some(u) = w.upgrade() { refresh_open_thread(&u); } }
         if has("Email") || has("EmailDelivery") { check_new_mail(c.clone(), Some(w.clone())); }
     }));
 }

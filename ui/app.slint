@@ -3192,7 +3192,8 @@ export component AppWindow inherits Window {
     }
     if root.toast != "": Rectangle {
         x: (parent.width - self.width) / 2;
-        y: parent.height - 64px;
+        // the quick-reply bar under an open message: the toast (Undo send) sits above it
+        y: parent.height - 64px - (root.logged-in && root.app == 0 && root.current-mail != "" && root.pref-quick-reply && !root.composing && !root.show-settings ? 60px : 0px);
         width: tl.preferred-width;
         height: 40px;
         border-radius: 8px;

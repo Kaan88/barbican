@@ -687,7 +687,8 @@ fn mark_read_query(u: &AppWindow, c: Arc<jmap::Client>, filter: Value) {
             let msg = match res { Ok(n) => format!("Marked {n} as read"), Err(e) => format!("Could not mark as read: {e}") };
             mail::show_toast(&u, &msg, false);
             mail::load_mailboxes(w2.clone(), c.clone(), false);
-            mail::reload(w2, c);
+            // only what changed (Email/queryChanges + Email/changes), not the whole list
+            mail::sync(w2, c);
         });
     });
 }
@@ -701,7 +702,9 @@ fn mailbox_op(u: &AppWindow, c: Arc<jmap::Client>, done: &'static str, f: impl F
         let _ = w.upgrade_in_event_loop(move |u| {
             mail::show_toast(&u, &match res { Ok(s) if s.is_empty() => done.to_string(), Ok(s) => s, Err(e) => e }, false);
             mail::load_mailboxes(w2.clone(), c.clone(), false);
-            mail::reload(w2, c);
+            // the delta sync falls back to a full reload when the list's states are gone
+            // (a deleted folder that was on screen)
+            mail::sync(w2, c);
             if u.get_show_settings() && u.get_settings_tab() == "organize" { u.invoke_settings_open_tab("organize".into()); }
         });
     });
