@@ -283,7 +283,7 @@ fn build_rows(st: &ListState) -> Vec<Mail> {
 pub fn rebuild_list(u: &AppWindow) {
     // Bulwark density: extra-compact / compact / regular / comfortable
     let h = match crate::settings::Settings::load().str("density", "regular").as_str() {
-        "extra-compact" => 56.0, "compact" => 68.0, "comfortable" => 92.0, _ => 82.0,
+        "extra-compact" => 60.0, "compact" => 74.0, "comfortable" => 92.0, _ => 82.0,
     };
     u.set_mail_row_height(h);
     LIST.with(|l| {

@@ -1466,6 +1466,9 @@ impl agent::Host for UiHost {
         let (w, c) = (self.w.clone(), self.client.clone());
         load_mailboxes(w.clone(), c.clone(), false);
         let _ = self.w.upgrade_in_event_loop(move |u| {
+            // settings the assistant changed take effect right away
+            apply_theme(&u);
+            mail::rebuild_list(&u);
             let f = u.get_current_folder().to_string();
             if !f.is_empty() { load_folder(w, c, Some(f), None); }
         });
