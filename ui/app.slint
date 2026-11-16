@@ -2404,7 +2404,8 @@ export component AppWindow inherits Window {
             }
         }
     }
-        clip-buf := TextInput { width: 0px; height: 0px; opacity: 0; read-only: true; }
+    }
+    clip-buf := TextInput { width: 0px; height: 0px; opacity: 0; read-only: true; }
     if root.prompt-open: Rectangle {
         background: #00000080;
         TouchArea { clicked => { root.prompt-open = false; } }
@@ -2438,5 +2439,4 @@ export component AppWindow inherits Window {
             picked(a) => { ctx-popup.close(); root.ctx-open = false; root.ctx-pick(a); }
         }
     }
-}
 }
