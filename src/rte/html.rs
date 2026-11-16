@@ -598,26 +598,26 @@ pub fn export(doc: &Doc) -> String {
             Kind::Para => {
                 let inner = runs_html(&b.runs, false);
                 let inner = if inner.is_empty() || b.text().ends_with('\n') { format!("{inner}<br>") } else { inner };
-                if al.is_empty() { h.push_str(&format!("<div>{inner}</div>")); } else { h.push_str(&format!("<div style=\"{al}\">{inner}</div>")); }
+                h.push_str(&format!("<p style=\"margin:4px 0;{al}\">{inner}</p>"));
                 i += 1;
             }
             Kind::Heading(l) => {
-                let (size, mt) = match l { 1 => (26, 16), 2 => (21, 14), _ => (17, 12) };
-                h.push_str(&format!("<h{l} style=\"font-size:{size}px;font-weight:700;line-height:1.25;margin:{mt}px 0 6px;{al}\">{}</h{l}>", runs_html(&b.runs, false)));
+                let (size, weight) = match l { 1 => (24, 700), 2 => (20, 600), _ => (17, 600) };
+                h.push_str(&format!("<h{l} style=\"font-size:{size}px;font-weight:{weight};line-height:1.3;margin:8px 0;{al}\">{}</h{l}>", runs_html(&b.runs, false)));
                 i += 1;
             }
             Kind::Quote => {
-                h.push_str("<blockquote style=\"margin:4px 0;padding:2px 0 2px 12px;border-left:3px solid #d4d4d8;color:#52525b\">");
+                h.push_str("<blockquote style=\"margin:8px 0;padding:0 0 0 16px;border-left:3px solid #d4d4d8;color:#52525b\">");
                 while i < bl.len() && bl[i].kind == Kind::Quote {
                     let inner = runs_html(&bl[i].runs, false);
                     let al = align_style(bl[i].align);
-                    h.push_str(&format!("<div style=\"{al}\">{}</div>", if inner.is_empty() { "<br>".into() } else { inner }));
+                    h.push_str(&format!("<p style=\"margin:4px 0;{al}\">{}</p>", if inner.is_empty() { "<br>".into() } else { inner }));
                     i += 1;
                 }
                 h.push_str("</blockquote>");
             }
             Kind::Code => {
-                h.push_str("<pre style=\"font-family:Consolas,'Courier New',monospace;font-size:13px;background-color:#f4f4f5;color:#18181b;border-radius:6px;padding:10px 12px;margin:6px 0;white-space:pre-wrap\">");
+                h.push_str("<pre style=\"font-family:Consolas,'Courier New',monospace;font-size:13px;background-color:#f4f4f5;color:#18181b;border:1px solid #e4e4e7;border-radius:6px;padding:12px;margin:8px 0;white-space:pre-wrap\">");
                 let mut first = true;
                 while i < bl.len() && bl[i].kind == Kind::Code {
                     if !first { h.push('\n'); }
@@ -688,7 +688,7 @@ pub fn export(doc: &Doc) -> String {
                 }
                 i += 1;
             }
-            Kind::Rule => { h.push_str("<hr style=\"border:none;border-top:1px solid #d4d4d8;margin:12px 0\">"); i += 1; }
+            Kind::Rule => { h.push_str("<hr style=\"border:none;border-top:1px solid #d4d4d8;margin:16px 0\">"); i += 1; }
         }
     }
     h.push_str("</div>");

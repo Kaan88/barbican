@@ -81,7 +81,21 @@ impl Default for View {
     fn default() -> Self { View { geo: vec![], width: 600.0, base: 14.0, height: 0.0, cache: HashMap::new() } }
 }
 
-fn heading_scale(l: u8) -> f32 { match l { 1 => 1.75, 2 => 1.4, _ => 1.18 } }
+fn heading_scale(l: u8) -> f32 { match l { 1 => 24.0 / 14.0, 2 => 20.0 / 14.0, _ => 17.0 / 14.0 } }
+
+/// Block margin (Bulwark: p 4px, h 8px, lists 4px with items 2px apart, quote/pre 8px, hr 16px).
+fn margin(k: &Kind) -> f32 {
+    match k {
+        Kind::Para => 4.0, Kind::Heading(_) => 8.0, Kind::Bullet | Kind::Ordered => 4.0, Kind::Quote | Kind::Code => 8.0,
+        Kind::Cell { .. } => 8.0, Kind::Image(_) => 4.0, Kind::Quoted { .. } => 8.0, Kind::Rule => 16.0,
+    }
+}
+
+fn gap_between(prev: &Kind, cur: &Kind) -> f32 {
+    if prev.is_list() && cur.is_list() { return 2.0; }
+    if (prev == cur && matches!(cur, Kind::Quote | Kind::Code)) || (prev.is_cell() && cur.is_cell()) { return 0.0; }
+    margin(prev).max(margin(cur))
+}
 
 /// Natural size of an image, if known (provided by the UI layer's image cache).
 pub type ImgDims<'a> = &'a dyn Fn(&ImageData) -> Option<(u32, u32)>;
@@ -93,7 +107,7 @@ fn build_text_layout(text: &str, runs: &[Run], kind: &Kind, align: Align, width:
         let t = if empty { " " } else { text };
         let mut b = lcx.ranged_builder(fcx, t, 1.0, true);
         let (size, weight, mono, lh) = match kind {
-            Kind::Heading(l) => (base * heading_scale(*l), 700.0, false, 1.3),
+            Kind::Heading(l) => (base * heading_scale(*l), if *l == 1 { 700.0 } else { 600.0 }, false, 1.3),
             Kind::Cell { header: true, .. } => (base, 700.0, false, 1.5),
             Kind::Code => (base * 0.93, 400.0, true, 1.45),
             _ => (base, 400.0, false, 1.5),
@@ -162,11 +176,12 @@ impl View {
             let b = &bl[i];
             let prev = if i > 0 { Some(&bl[i - 1].kind) } else { None };
             let next = bl.get(i + 1).map(|x| &x.kind);
+            // vertical spacing as Bulwark's composer CSS, with collapsing margins
+            if let Some(pk) = prev { y += gap_between(pk, &b.kind); }
             match &b.kind {
                 Kind::Cell { .. } => {
                     let r = doc.table_range(i).unwrap_or(i..i + 1);
                     let (rows, cols) = doc.table_dims(&r);
-                    y += if i > 0 { 8.0 } else { 2.0 };
                     let cw = (w / cols.max(1) as f32).floor();
                     let mut cells: Vec<Geo> = Vec::with_capacity(r.len());
                     let mut row_h = vec![0.0f32; rows as usize];
@@ -187,12 +202,11 @@ impl View {
                         }
                         geo.push(g);
                     }
-                    y = row_y.last().copied().unwrap_or(y) + row_h.last().copied().unwrap_or(0.0) + 8.0;
+                    y = row_y.last().copied().unwrap_or(y) + row_h.last().copied().unwrap_or(0.0);
                     i = r.end;
                     continue;
                 }
                 Kind::Image(img) => {
-                    y += 4.0;
                     let (nw, nh) = dims(img).unwrap_or((0, 0));
                     let (mut iw, mut ih) = if img.width > 0 {
                         let h = if img.height > 0 { img.height as f32 } else if nw > 0 { img.width as f32 * nh as f32 / nw as f32 } else { 120.0 };
@@ -201,14 +215,13 @@ impl View {
                     if iw > w { ih *= w / iw; iw = w; }
                     let ix = match b.align { Align::Center => (w - iw) / 2.0, Align::Right => w - iw, _ => 0.0 };
                     geo.push(Geo { x: 0.0, y, w, h: ih, tx: ix, ty: y, layout: None, empty: false, header: None, img: Some((ix, y, iw, ih)) });
-                    y += ih + 4.0;
+                    y += ih;
                 }
                 Kind::Rule => {
-                    geo.push(Geo { x: 0.0, y, w, h: 17.0, tx: 0.0, ty: y, layout: None, empty: false, header: None, img: None });
-                    y += 17.0;
+                    geo.push(Geo { x: 0.0, y, w, h: 9.0, tx: 0.0, ty: y, layout: None, empty: false, header: None, img: None });
+                    y += 9.0;
                 }
                 Kind::Quoted { text, open, cite, .. } => {
-                    y += 6.0;
                     let hdr = 26.0;
                     let mut g = Geo { x: 0.0, y, w, h: hdr, tx: 0.0, ty: y, layout: None, empty: false, header: Some((y, hdr)), img: None };
                     if *open {
@@ -220,19 +233,17 @@ impl View {
                         g.h = hdr + 6.0 + l.height();
                         g.layout = Some(l);
                     }
-                    y += g.h + 4.0;
+                    y += g.h;
                     geo.push(g);
                 }
                 k => {
-                    let (inset, pad_top, pad_bot, gap) = match k {
-                        Kind::Heading(l) => (0.0, 0.0, 0.0, if i == 0 { 0.0 } else { match l { 1 => 14.0, 2 => 12.0, _ => 8.0 } }),
-                        Kind::Quote => (16.0, 0.0, 0.0, if prev == Some(&Kind::Quote) { 0.0 } else { 4.0 }),
-                        Kind::Code => (12.0, if prev == Some(&Kind::Code) { 0.0 } else { 8.0 }, if next == Some(&Kind::Code) { 0.0 } else { 8.0 }, if prev == Some(&Kind::Code) { 0.0 } else { 6.0 }),
-                        Kind::Bullet | Kind::Ordered => (24.0 + 22.0 * b.indent as f32, 0.0, 0.0, if prev.is_some_and(|p| p.is_list()) { 1.0 } else { 2.0 }),
-                        _ => (0.0, 0.0, 0.0, if prev.is_some_and(|p| matches!(p, Kind::Heading(_))) { 2.0 } else if prev == Some(&Kind::Quote) || prev == Some(&Kind::Code) { 4.0 } else { 0.0 }),
+                    let (inset, pad_top, pad_bot) = match k {
+                        Kind::Quote => (19.0, if prev == Some(&Kind::Quote) { 0.0 } else { 2.0 }, if next == Some(&Kind::Quote) { 0.0 } else { 2.0 }),
+                        Kind::Code => (13.0, if prev == Some(&Kind::Code) { 0.0 } else { 12.0 }, if next == Some(&Kind::Code) { 0.0 } else { 12.0 }),
+                        Kind::Bullet | Kind::Ordered => (24.0 + 24.0 * b.indent as f32, 0.0, 0.0),
+                        _ => (0.0, 0.0, 0.0),
                     };
-                    y += gap;
-                    let tw = w - inset - if *k == Kind::Code { 12.0 } else { 0.0 };
+                    let tw = w - inset - if *k == Kind::Code { 13.0 } else { 0.0 };
                     let l = self.text_layout(b, tw, false);
                     let h = pad_top + l.height() + pad_bot;
                     geo.push(Geo { x: 0.0, y, w, h, tx: inset, ty: y + pad_top, layout: Some(l), empty: b.is_empty(), header: None, img: None });
@@ -367,9 +378,20 @@ impl View {
             let g = &self.geo[i];
             let in_sel = has_sel && i >= ss.b && i <= se.b;
             match &b.kind {
-                Kind::Quote => p.back.push(PBox { x: 2.0, y: g.y, w: 3.0, h: g.h, role: Role::Line, border: 0.0, border_role: Role::Line, radius: 1.5 }),
-                Kind::Code => p.back.push(PBox { x: 0.0, y: g.y, w: g.w, h: g.h, role: Role::CodeBg, border: 0.0, border_role: Role::Line,
-                    radius: if i > 0 && doc.blocks[i - 1].kind == Kind::Code || doc.blocks.get(i + 1).is_some_and(|n| n.kind == Kind::Code) { 0.0 } else { 6.0 } }),
+                Kind::Quote => {
+                    // continuous bar across the quote's lines and the gaps between them
+                    let top = if i > 0 && doc.blocks[i - 1].kind == Kind::Quote { self.geo[i - 1].y + self.geo[i - 1].h } else { g.y };
+                    p.back.push(PBox { x: 0.0, y: top, w: 3.0, h: g.y + g.h - top, role: Role::Line, border: 0.0, border_role: Role::Line, radius: 0.0 });
+                }
+                Kind::Code => {
+                    // one framed box per run of code blocks
+                    if i == 0 || doc.blocks[i - 1].kind != Kind::Code {
+                        let mut j = i;
+                        while j + 1 < doc.blocks.len() && doc.blocks[j + 1].kind == Kind::Code { j += 1; }
+                        let end = self.geo[j].y + self.geo[j].h;
+                        p.back.push(PBox { x: 0.0, y: g.y, w: g.w, h: end - g.y, role: Role::CodeBg, border: 1.0, border_role: Role::Line, radius: 6.0 });
+                    }
+                }
                 Kind::Cell { header, .. } => {
                     p.back.push(PBox { x: g.x, y: g.y, w: g.w + 1.0, h: g.h + 1.0, role: if *header { Role::HeaderBg } else { Role::None }, border: 1.0, border_role: Role::Line, radius: 0.0 });
                 }
@@ -386,7 +408,7 @@ impl View {
                         }
                     }
                 }
-                Kind::Rule => p.back.push(PBox { x: 0.0, y: g.y + 8.0, w: g.w, h: 1.0, role: Role::Line, border: 0.0, border_role: Role::Line, radius: 0.0 }),
+                Kind::Rule => p.back.push(PBox { x: 0.0, y: g.y + 4.0, w: g.w, h: 1.0, role: Role::Line, border: 0.0, border_role: Role::Line, radius: 0.0 }),
                 Kind::Image(img) => {
                     let (ix, iy, iw, ih) = g.img.unwrap();
                     let selected = (has_sel && in_sel) || (!has_sel && sel.focus.b == i);
@@ -496,7 +518,7 @@ fn paint_layout(p: &mut Painted, l: &Layout<u32>, full: &str, runs: &[Run], ox: 
             if mk.code && !block_mono {
                 p.back.push(PBox { x: x - 2.0, y: top - 1.0, w: w + 4.0, h: m.ascent + m.descent + m.leading + 2.0, role: Role::CodeBg, border: 0.0, border_role: Role::Line, radius: 3.0 });
             }
-            let weight = if mk.bold || matches!(kind, Kind::Heading(_) | Kind::Cell { header: true, .. }) { 700 } else { 400 };
+            let weight = if mk.bold || matches!(kind, Kind::Heading(1) | Kind::Cell { header: true, .. }) { 700 } else if matches!(kind, Kind::Heading(_)) { 600 } else { 400 };
             p.texts.push(PText { x, y: top, w: w + 4.0, h: m.ascent + m.descent + m.leading, text, role, size, weight, italic: mk.italic, font: if block_mono || mk.code { 1 } else { 0 }, right: false });
             let th = (m.underline_size).max(1.0);
             if mk.underline || mk.link.is_some() {

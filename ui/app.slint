@@ -1838,7 +1838,7 @@ export component AppWindow inherits Window {
                             // floating selection toolbar
                             if root.rte-state.has-sel && root.rte-sel-x >= 0 && !rte-ta.pressed && !root.rte-link-open: Rectangle {
                                 x: max(0px, min(parent.width - 214px, root.rte-sel-x - 107px));
-                                y: max(-12px, root.rte-sel-y - 38px);
+                                y: root.rte-sel-y >= 40px ? root.rte-sel-y - 38px : root.rte-sel-y + root.rte-caret-h + 8px;
                                 width: 214px; height: 32px;
                                 border-radius: 8px;
                                 background: Theme.popup;
