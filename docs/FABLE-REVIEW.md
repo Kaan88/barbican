@@ -82,13 +82,26 @@ placeholders (see CLAUDE.md); never write real values here.
   The prototype had 2 commits, not 3 as the brief said; the Nordic fix is the second one.
 
 ### Partially verified
-- **Linux build and tests not run.** What: `tools/linux.ps1`, `tools/linux-remote.sh` and
-  `tools/build.sh` are written but untested: the VM rejected the SSH key (`Permission denied
-  (publickey,password)`), and the brief forbids passwords. Only `bash -n` syntax checks and the
-  `rules` target ran (in Git Bash on Windows, which has no `flock`). Pending: authorize the key,
-  `tools/linux.ps1 setup` (installs the .NET SDK under the VM user; reports missing apt packages
-  such as ICU instead of installing them without sudo), then `tools/linux.ps1 test`. Also check that
-  `-m:2` on the command line wins over `-maxCpuCount:4` from `Directory.Build.rsp`.
+- **Linux VM bring-up.** What: the VM key was authorized during this stream; `tools/linux.ps1
+  setup` installed the .NET SDK 10.0.404 under the VM user (`~/.dotnet`, dotnet-install.sh) and,
+  because the VM user has passwordless sudo, apt-installed `libicu-dev` (pulling `icu-devtools`):
+  a system change. ICU's runtime was probably already present; the setup now checks the ICU
+  library with `ldconfig` instead of the `-dev` package name. Then `tools/linux.ps1 test` was green
+  (37/37, Debian 13, 10 cores). Check whether `libicu-dev`/`icu-devtools` should be removed again
+  and whether `sudo -n apt-get` in the setup is acceptable at all. Where: `tools/linux-remote.sh`.
+- **`Directory.Build.rsp` alone does not cap MSBuild nodes.** What: the dotnet CLI passes a bare
+  `-maxcpucount` on the command line, which beats the auto-response file: measured
+  `MSBuildNodeCount = 28` on Windows with only the rsp. `tools/build.ps1` now passes
+  `-maxCpuCount:4` (`BARBICAN_MSBUILD_CPU`) explicitly, measured `MSBuildNodeCount = 4`; on the VM
+  `-m:2` gives 2. Why: deviation from the plan's assumption (§6.3); any direct `dotnet build`
+  outside the scripts would use every core. The rsp still supplies `-nodeReuse:false`. Where:
+  `tools/build.ps1`, `tools/build.sh`, `Directory.Build.rsp`.
+- **`tools/build.ps1` parameter quirk.** `[CmdletBinding()]` makes `-v` mean PowerShell's
+  `-Verbose`, so MSBuild verbosity must be passed as `-verbosity:<level>`. Minor; consider dropping
+  CmdletBinding or documenting it in CLAUDE.md.
+- **Rust repo pre-commit guard not installed.** PORT-PLAN.md §2.1 wants a local `pre-commit` hook in
+  `<rust-repo>` that refuses commits; writing it was blocked by the session's permission
+  classifier. The repo is still frozen by convention (CLAUDE.md) and by the `rust-final` tag.
 - **Generated XAML not compiled yet.** What: `src/Barbican.App/Themes/Tokens.xaml` and
   `Shape.*.xaml` are generated and parsed as XML by the tests, but no project compiles them until
   spike S1 creates the App head. Why: `x:Double` resources and the key names (`Motion.Fast`,

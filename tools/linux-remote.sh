@@ -28,9 +28,11 @@ case "$mode" in
     # Packages .NET needs at runtime. Only reported here: installing them is a system change the
     # user approves (CLAUDE.md). Uno/Skia/WebKitGTK packages are added with spike S1/S2.
     missing=""
-    for pkg in libicu-dev ca-certificates git curl; do
+    for pkg in ca-certificates git curl; do
       dpkg -s "$pkg" >/dev/null 2>&1 || missing="$missing $pkg"
     done
+    # .NET needs the ICU runtime library, not a particular package name (libicu76 on Debian 13).
+    ldconfig -p 2>/dev/null | grep -q 'libicuuc\.so' || missing="$missing libicu-dev"
     if [ -n "$missing" ]; then
       echo "[vm] missing packages:$missing"
       if sudo -n true 2>/dev/null; then

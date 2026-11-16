@@ -46,8 +46,10 @@ AGENTS.md points here; this file is the single source of the rules.
 - Build and test **only** through `tools/build.ps1` (Windows) and `tools/linux.ps1` (Linux VM).
   Direct `dotnet build` / `dotnet test` is forbidden.
 - `tools/build.ps1` takes one of `BARBICAN_BUILD_SLOTS` (default 2) machine-wide slots, runs at
-  BelowNormal priority with `-maxCpuCount:4 -nodeReuse:false` (Directory.Build.rsp) and the
-  compiler in-process. Rust builds (rare reference runs) go through the global rustc cap.
+  BelowNormal priority with `-maxCpuCount:4` (passed explicitly: the dotnet CLI overrides the
+  rsp's value), `-nodeReuse:false` (Directory.Build.rsp) and the compiler in-process. Rust builds
+  (rare reference runs) go through the global rustc cap.
+- MSBuild verbosity through build.ps1: `-verbosity:diag` (`-v` is PowerShell's `-Verbose`).
 - At most 3 agents compile at once, at most 5 agents alive. When you finish:
   `tools/build.ps1 shutdown`.
 - Worktrees: `<downloads>/wt-m<n>-<stream>` on branch `m<n>/<stream>`; prune after merge.

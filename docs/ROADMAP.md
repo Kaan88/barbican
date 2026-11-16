@@ -26,7 +26,7 @@ change the plan: [adr/](adr/). The Rust-era roadmap is in [legacy/ROADMAP.md](le
   check and pre-push hook, CLAUDE.md, ADRs 0001–0003.
 - [x] Legacy docs, design, tools, feel baselines and packaging files copied (scrubbed).
 - [x] `tools/Barbican.GenTokens` and the token equality tests.
-- [ ] Linux VM: SDK setup and first green run (needs the VM key authorized; see FABLE-REVIEW.md).
+- [x] Linux VM: .NET SDK set up under the VM user, first green run of `tools/linux.ps1 test`.
 - [ ] Spec catalogue `spec/` (PORT-PLAN.md §2.3), `tools/spec-check`.
 - [ ] Spikes S1 (Uno single project), S2 (body shell), S3 (editor engine), S4 (hidden
   automation), S5 (secrets format).

@@ -11,7 +11,9 @@
     - runs at BelowNormal priority (set on this process, inherited by dotnet, MSBuild nodes and
       test hosts; MSBuild also gets -lowPriority; the compiler runs in-process, not in a shared
       VBCSCompiler server that may run at Normal priority);
-    - gets -maxCpuCount:4 -nodeReuse:false from Directory.Build.rsp.
+    - passes -maxCpuCount:4 (BARBICAN_MSBUILD_CPU) explicitly: the dotnet CLI adds a bare
+      -maxcpucount that overrides Directory.Build.rsp, which still supplies -nodeReuse:false.
+  MSBuild verbosity: pass -verbosity:<level> (-v collides with PowerShell's -Verbose).
   Linux builds run on the Linux VM through tools/linux.ps1, which calls tools/build.sh there.
 
 .EXAMPLE
@@ -162,13 +164,17 @@ try {
 
     # In-process compiler: a shared VBCSCompiler server may have been started by someone else at
     # Normal priority and would compile our code there (and linger). BARBICAN_SHARED_COMPILER=1 opts out.
-    $common = @('-c', $Configuration, '-lowPriority') + (Get-HeadArgs)
+    # The dotnet CLI passes a bare -maxcpucount (= all 28 cores) that overrides Directory.Build.rsp,
+    # so the node cap must be explicit here (measured: MSBuildNodeCount 28 without it).
+    $cpu = 4
+    if ($env:BARBICAN_MSBUILD_CPU) { $cpu = [int]$env:BARBICAN_MSBUILD_CPU }
+    $common = @('-c', $Configuration, '-lowPriority', "-maxCpuCount:$cpu") + (Get-HeadArgs)
     if ($env:BARBICAN_SHARED_COMPILER -ne '1') { $common += '-p:UseSharedCompilation=false' }
     if ($Rest) { $extra = $Rest } else { $extra = @() }
     switch ($Target) {
-        'restore' { Invoke-Dotnet (@('restore', $Project, '-lowPriority') + $extra) }
+        'restore' { Invoke-Dotnet (@('restore', $Project, '-lowPriority', "-maxCpuCount:$cpu") + $extra) }
         'build' { Invoke-Dotnet (@('build', $Project) + $common + $extra) }
-        'clean' { Invoke-Dotnet (@('clean', $Project, '-c', $Configuration) + $extra) }
+        'clean' { Invoke-Dotnet (@('clean', $Project, '-c', $Configuration, "-maxCpuCount:$cpu") + $extra) }
         'test' {
             # global.json opts into Microsoft.Testing.Platform: projects are passed with --project/--solution.
             # Build first (MSBuild switches such as -lowPriority are not test-app options), then run.
@@ -181,7 +187,9 @@ try {
             Invoke-Dotnet ($testArgs + $extra)
         }
         'gen-tokens' {
-            $genArgs = @('run', '--project', (Join-Path $Root 'tools/Barbican.GenTokens/Barbican.GenTokens.csproj'), '-c', $Configuration, '--', '--root', $Root)
+            $genProject = Join-Path $Root 'tools/Barbican.GenTokens/Barbican.GenTokens.csproj'
+            Invoke-Dotnet (@('build', $genProject) + $common)
+            $genArgs = @('run', '--project', $genProject, '-c', $Configuration, '--no-build', '--', '--root', $Root)
             if ($Check) { $genArgs += '--check' }
             Invoke-Dotnet ($genArgs + $extra)
         }

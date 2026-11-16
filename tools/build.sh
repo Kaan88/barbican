@@ -7,7 +7,8 @@
 #
 # Every dotnet call takes one of BARBICAN_BUILD_SLOTS (default 2) machine-wide slots (flock on
 # lock files: a crashed build frees its slot automatically), runs under nice -n 10 and uses
-# -m:${BARBICAN_MSBUILD_CPU:-2} with the compiler in-process.
+# -m:${BARBICAN_MSBUILD_CPU:-2} with the compiler in-process. The explicit -m matters: the dotnet CLI
+# adds a bare -maxcpucount that overrides Directory.Build.rsp.
 set -euo pipefail
 
 target=${1:-build}
@@ -88,7 +89,7 @@ esac
 
 take_slot
 case "$target" in
-  restore) dn restore "$project" "${extra[@]}" ;;
+  restore) dn restore "$project" "-m:$cpu" "${extra[@]}" ;;
   build) dn build "$project" "${common[@]}" "${extra[@]}" ;;
   clean) dn clean "$project" -c "$config" "${extra[@]}" ;;
   test)
@@ -103,6 +104,7 @@ case "$target" in
     dn "${args[@]}" "${extra[@]}"
     ;;
   gen-tokens)
-    dn run --project "$root/tools/Barbican.GenTokens/Barbican.GenTokens.csproj" -c "$config" -- --root "$root" $check "${extra[@]}"
+    dn build "$root/tools/Barbican.GenTokens/Barbican.GenTokens.csproj" "${common[@]}"
+    dn run --project "$root/tools/Barbican.GenTokens/Barbican.GenTokens.csproj" -c "$config" --no-build -- --root "$root" $check "${extra[@]}"
     ;;
 esac
