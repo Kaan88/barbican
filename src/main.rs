@@ -100,6 +100,9 @@ fn wrap_html(body: &str) -> String {
 
 fn wrap_html_opts(body: &str, images: bool) -> String {
     let csp = csp(images);
+    if body.starts_with("<pre>") && !settings::Settings::load().bool("emailAlwaysLightMode", false) {
+        return format!("<!doctype html><html><head><meta charset=utf-8>{csp}<base target=_blank><style>html,body{{background:#0a0a0a;color:#e5e5e5}}body{{margin:16px;font-family:'Segoe UI',sans-serif;font-size:14px;word-wrap:break-word}}pre{{white-space:pre-wrap;font-family:inherit;margin:0}}a{{color:#f0577a}}</style></head><body>{body}</body></html>");
+    }
     format!("<!doctype html><html><head><meta charset=utf-8>{csp}<base target=_blank><style>body{{margin:16px;font-family:'Segoe UI',sans-serif;font-size:14px;color:#111;background:#fff;word-wrap:break-word}}pre{{white-space:pre-wrap;font-family:inherit}}img{{max-width:100%;height:auto}}</style></head><body>{body}</body></html>")
 }
 
@@ -189,6 +192,7 @@ pub fn html_to_text(h: &str) -> String {
 }
 
 thread_local! { static SERVER_DEBOUNCE: slint::Timer = slint::Timer::default(); }
+thread_local! { static MY_ADDRS: std::cell::RefCell<Vec<String>> = const { std::cell::RefCell::new(Vec::new()) }; }
 
 thread_local! {
     /// Loaded native plugins (UI thread only).
@@ -506,7 +510,7 @@ fn main() -> Result<(), slint::PlatformError> {
                         u.set_r_flagged(m["keywords"]["$flagged"].as_bool() == Some(true));
                         let names = |k: &str| m[k].as_array().map(|a| a.iter().map(|x| {
                             let e = x["email"].as_str().unwrap_or("");
-                            if e.eq_ignore_ascii_case(&c2.username) { "me".to_string() } else { x["name"].as_str().filter(|n| !n.is_empty()).unwrap_or(e).to_string() }
+                            if e.eq_ignore_ascii_case(&c2.username) || MY_ADDRS.with(|a| a.borrow().iter().any(|x| x.eq_ignore_ascii_case(e))) { "me".to_string() } else { x["name"].as_str().filter(|n| !n.is_empty()).unwrap_or(e).to_string() }
                         }).collect::<Vec<_>>().join(", ")).unwrap_or_default();
                         let mut to = names("to");
                         let cc = names("cc");
@@ -621,12 +625,13 @@ fn main() -> Result<(), slint::PlatformError> {
         })
     };
 
-    let (w, rs) = (ui.as_weak(), refresh_settings.clone());
+    let (w, rs, lsp) = (ui.as_weak(), refresh_settings.clone(), load_server_page.clone());
     ui.on_open_settings(move || {
         let u = w.unwrap();
         u.set_settings_query("".into());
         rs();
         u.set_show_settings(true);
+        lsp(u.get_settings_tab().to_string());
     });
 
     let (w, rs, lsp) = (ui.as_weak(), refresh_settings.clone(), load_server_page.clone());
@@ -1057,6 +1062,20 @@ fn main() -> Result<(), slint::PlatformError> {
         }
     });
 
+    let (w, st, pf) = (ui.as_weak(), state.clone(), prefs.clone());
+    ui.on_quick_reply(move |text| {
+        let Some(c) = st.lock().unwrap().clone() else { return };
+        let Some((m, _)) = CUR_MSG.with(|x| x.borrow().clone()) else { return };
+        let u = w.unwrap();
+        if text.trim().is_empty() { compose::open(&u, c, compose::Kind::Reply, Some(&m)); return; }
+        compose::open(&u, c.clone(), compose::Kind::Reply, Some(&m));
+        let body = format!("{}{}", text, u.get_c_body());
+        u.set_c_body(body.into());
+        u.set_composing(false);
+        compose::send(&u, c, &pf.lock().unwrap());
+        u.set_quick_text("".into());
+    });
+
     // ---------------- mail actions ----------------
     let w = ui.as_weak();
     ui.on_toggle_folder(move |id| mail::toggle_folder(&w.unwrap(), &id));
@@ -1323,6 +1342,13 @@ fn finish_login(w: slint::Weak<AppWindow>, st: Shared, res: Result<jmap::Client,
                 u.set_logged_in(true);
             });
             load_mailboxes(w2.clone(), c.clone(), true);
+            {
+                let (w3, c3) = (w2.clone(), c.clone());
+                std::thread::spawn(move || {
+                    let addrs: Vec<String> = c3.identities().unwrap_or_default().iter().filter_map(|i| i["email"].as_str().map(String::from)).collect();
+                    let _ = w3.upgrade_in_event_loop(move |_| MY_ADDRS.with(|a| *a.borrow_mut() = addrs));
+                });
+            }
             start_push(w2, c);
         }
         Err(e) => {

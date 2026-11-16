@@ -279,6 +279,18 @@ component TagRow inherits Rectangle {
     }
 }
 
+component PrimaryButton inherits Rectangle {
+    in property <string> text;
+    in property <bool> enabled: true;
+    callback clicked;
+    height: 32px;
+    min-width: pl.preferred-width + 28px;
+    border-radius: 6px;
+    background: !enabled ? #5a2a36 : (pta.pressed ? #d94a6b : (pta.has-hover ? #f46d8c : Theme.accent));
+    pta := TouchArea { enabled: root.enabled; clicked => { root.clicked(); } }
+    pl := Text { text: root.text; color: #16070c; font-weight: 700; horizontal-alignment: center; vertical-alignment: center; }
+}
+
 component HoverAction inherits Rectangle {
     in property <string> glyph;
     in property <bool> active;
@@ -466,7 +478,7 @@ export component AppWindow inherits Window {
     in-out property <bool> ai-memory-on: true;
     in-out property <string> ai-memory;
     in-out property <bool> ai-hidden;
-    in-out property <bool> chat-open;
+    in-out property <bool> chat-open: true;
     in property <[ChatMsg]> chat;
     in property <bool> chat-busy;
     in property <[string]> chips;
@@ -501,6 +513,7 @@ export component AppWindow inherits Window {
     callback open-attachment(int);
     callback save-attachment(int);
     callback undo-toast();
+    in-out property <string> quick-text;
     in-out property <int> app: 0;
     callback app-changed(int);
     in property <int> cal-view: 1;
@@ -662,9 +675,8 @@ export component AppWindow inherits Window {
                             accepted => { root.login(srv.text, usr.text, pwd.text, otp.text, root.remember); }
                         }
                         CheckBox { text: "Remember me on this computer"; checked <=> root.remember; }
-                        Button {
+                        PrimaryButton {
                             text: root.busy ? "Signing in…" : "Sign in";
-                            primary: true;
                             enabled: !root.busy;
                             clicked => { root.login(srv.text, usr.text, pwd.text, otp.text, root.remember); }
                         }
@@ -1063,8 +1075,9 @@ export component AppWindow inherits Window {
                     Text { text: "Remote images were blocked to protect your privacy."; color: Theme.dim; vertical-alignment: center; horizontal-stretch: 1; overflow: elide; }
                     Button { text: "Load images"; clicked => { root.load-images(); } }
                 }
+                if root.current-mail != "": Rectangle { height: 0px; }
                 body := Rectangle {
-                    background: white;
+                    background: root.render-mode == 2 ? white : #0a0a0a;
                     border-radius: 0px;
                     vertical-stretch: 1;
                     clip: true;
@@ -1089,6 +1102,18 @@ export component AppWindow inherits Window {
                             TextInput { text: root.r-body; read-only: true; single-line: false; wrap: word-wrap; color: #111111; font-size: 14px; }
                         }
                     }
+                }
+                Rectangle { height: 1px; background: Theme.line; }
+                HorizontalLayout {
+                    padding: 12px;
+                    spacing: 10px;
+                    Avatar { label: root.initials; tint: #e07a10; width: 30px; height: 30px; border-radius: 15px; }
+                    LineEdit {
+                        placeholder-text: "Reply to " + root.r-email + "…";
+                        text <=> root.quick-text;
+                        accepted(t) => { root.quick-reply(t); }
+                    }
+                    if root.quick-text != "": PrimaryButton { text: "Send";  clicked => { root.quick-reply(root.quick-text); } }
                 }
                 }
             }
@@ -1171,7 +1196,7 @@ export component AppWindow inherits Window {
                             spacing: 8px;
                             alignment: end;
                             Button { text: "Deny"; clicked => { root.confirm-action(false); } }
-                            Button { text: "Allow"; primary: true; clicked => { root.confirm-action(true); } }
+                            PrimaryButton { text: "Allow";  clicked => { root.confirm-action(true); } }
                         }
                     }
                 }
@@ -1185,7 +1210,7 @@ export component AppWindow inherits Window {
                         text <=> root.chat-input;
                         accepted(t) => { root.chat-send(t); }
                     }
-                    if !root.chat-busy: Button { text: "Send"; primary: true; clicked => { root.chat-send(root.chat-input); } }
+                    if !root.chat-busy: PrimaryButton { text: "Send";  clicked => { root.chat-send(root.chat-input); } }
                 }
             }
         }
@@ -1443,7 +1468,7 @@ export component AppWindow inherits Window {
                     HorizontalLayout {
                         spacing: 6px;
                         alignment: start;
-                        Button { text: "Write email"; primary: true; enabled: root.ct-emails != ""; clicked => { root.ct-email(); } }
+                        PrimaryButton { text: "Write email";  enabled: root.ct-emails != ""; clicked => { root.ct-email(); } }
                         Button { text: "Edit"; clicked => { root.ct-editing = true; } }
                         Button { text: "Delete"; clicked => { root.ct-delete(); } }
                     }
@@ -1471,7 +1496,7 @@ export component AppWindow inherits Window {
                         spacing: 8px;
                         Text { text: root.ct-status; color: Theme.accent; vertical-alignment: center; horizontal-stretch: 1; }
                         Button { text: "Cancel"; clicked => { root.ct-editing = false; root.ct-select(root.ct-id); } }
-                        Button { text: "Save"; primary: true; clicked => { root.ct-save(); } }
+                        PrimaryButton { text: "Save";  clicked => { root.ct-save(); } }
                     }
                 }
             }
@@ -1499,7 +1524,7 @@ export component AppWindow inherits Window {
                 Rectangle { horizontal-stretch: 1; }
                 LineEdit { placeholder-text: "New folder name"; width: 180px; text <=> root.new-folder-name; accepted(t) => { root.fl-new-folder(t); root.new-folder-name = ""; } }
                 Button { text: "New folder"; clicked => { root.fl-new-folder(root.new-folder-name); root.new-folder-name = ""; } }
-                Button { text: "Upload"; primary: true; clicked => { root.fl-upload(); } }
+                PrimaryButton { text: "Upload";  clicked => { root.fl-upload(); } }
             }
             Rectangle { height: 1px; background: Theme.line; }
             HorizontalLayout {
@@ -1649,7 +1674,7 @@ export component AppWindow inherits Window {
                     Text { text: root.ev-status; color: Theme.accent; vertical-alignment: center; horizontal-stretch: 1; overflow: elide; }
                     if root.ev-id != "": Button { text: "Delete"; clicked => { root.ev-delete(); } }
                     Button { text: "Cancel"; clicked => { root.ev-open = false; } }
-                    Button { text: "Save"; primary: true; clicked => { root.ev-save(); } }
+                    PrimaryButton { text: "Save";  clicked => { root.ev-save(); } }
                 }
             }
         }
