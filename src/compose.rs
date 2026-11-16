@@ -16,6 +16,9 @@ struct State {
     in_reply_to: Vec<String>,
     references: Vec<String>,
     identities: Vec<String>,
+    signatures: Vec<String>,
+    kind_new: bool,
+    sig_done: bool,
 }
 
 thread_local! {
@@ -43,17 +46,45 @@ fn load_identities(u: &AppWindow, c: Arc<Client>) {
     let w = u.as_weak();
     std::thread::spawn(move || {
         let ids = c.identities().unwrap_or_default();
+        let sigs: Vec<String> = ids.iter().map(|i| i["textSignature"].as_str().unwrap_or("").to_string()).collect();
         let list: Vec<String> = ids.iter().map(|i| {
             let (n, e) = (i["name"].as_str().unwrap_or(""), i["email"].as_str().unwrap_or(""));
             if n.is_empty() { e.to_string() } else { format!("{n} <{e}>") }
         }).collect();
         let _ = w.upgrade_in_event_loop(move |u| {
-            ST.with(|s| s.borrow_mut().identities = list.clone());
+            ST.with(|s| { let mut s = s.borrow_mut(); s.identities = list.clone(); s.signatures = sigs.clone(); });
+            apply_signature(&u);
             let model: Vec<SharedString> = list.iter().map(|x| x.as_str().into()).collect();
             u.set_c_identities(ModelRc::new(VecModel::from(model)));
             if u.get_c_from_index() as usize >= list.len() { u.set_c_from_index(0); }
         });
     });
+}
+
+/// Insert the identity's signature once, following Bulwark's signature settings.
+fn apply_signature(u: &AppWindow) {
+    let prefs = crate::settings::Settings::load();
+    let (sig, new, done) = ST.with(|s| {
+        let s = s.borrow();
+        (s.signatures.get(u.get_c_from_index() as usize).cloned().unwrap_or_default(), s.kind_new, s.sig_done)
+    });
+    if done || sig.trim().is_empty() { return; }
+    let enabled = if new { prefs.bool("signatureNewMailEnabled", true) } else { prefs.bool("signatureReplyForwardEnabled", true) };
+    if !enabled { return; }
+    let sep = if prefs.bool("signatureSeparatorEnabled", true) { "-- \n" } else { "" };
+    let block = format!("{sep}{}", sig.trim_end());
+    let body = u.get_c_body().to_string();
+    let above = prefs.str("signaturePosition", "below_quote") == "above_quote";
+    let out = if new || body.trim().is_empty() {
+        format!("\n\n{block}")
+    } else if above {
+        // replies/forwards start with two blank lines before the quote
+        format!("\n\n{block}{}", body.trim_start_matches('\n').split_once('\n').map(|_| format!("\n\n{}", body.trim_start_matches('\n'))).unwrap_or_default())
+    } else {
+        format!("{}\n\n{block}", body.trim_end())
+    };
+    u.set_c_body(out.into());
+    ST.with(|s| s.borrow_mut().sig_done = true);
 }
 
 fn reset(u: &AppWindow) {
@@ -72,6 +103,7 @@ fn reset(u: &AppWindow) {
 /// Open the composer for a new message, a reply, reply-all or forward of `m`.
 pub fn open(u: &AppWindow, c: Arc<Client>, kind: Kind, m: Option<&Value>) {
     reset(u);
+    ST.with(|s| s.borrow_mut().kind_new = matches!(kind, Kind::New));
     load_identities(u, c.clone());
     if let Some(m) = m {
         let me = c.username.to_lowercase();
@@ -134,6 +166,7 @@ pub fn open(u: &AppWindow, c: Arc<Client>, kind: Kind, m: Option<&Value>) {
 /// Re-open a saved draft for editing.
 pub fn open_draft(u: &AppWindow, c: Arc<Client>, m: &Value) {
     reset(u);
+    ST.with(|s| s.borrow_mut().sig_done = true);
     load_identities(u, c);
     let join = |k: &str| m[k].as_array().map(|a| a.iter().map(|x| {
         let (n, e) = (x["name"].as_str().unwrap_or(""), x["email"].as_str().unwrap_or(""));

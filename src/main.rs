@@ -8,6 +8,7 @@ mod lite;
 mod mail;
 mod oauth;
 mod plugins;
+mod server_settings;
 mod settings;
 mod spam;
 
@@ -182,6 +183,8 @@ pub fn html_to_text(h: &str) -> String {
     }
     res.trim().to_string()
 }
+
+thread_local! { static SERVER_DEBOUNCE: slint::Timer = slint::Timer::default(); }
 
 thread_local! {
     /// Loaded native plugins (UI thread only).
@@ -570,9 +573,22 @@ fn main() -> Result<(), slint::PlatformError> {
         }
     };
     let account_info = Arc::new(account_info);
+    let server_cache: server_settings::Shared = Default::default();
+    // load a server-backed settings page in the background, then redraw
+    let load_server_page = {
+        let (w, st, srv) = (ui.as_weak(), state.clone(), server_cache.clone());
+        Arc::new(move |tab: String| {
+            let Some(c) = st.lock().unwrap().clone() else { return };
+            let (w, srv) = (w.clone(), srv.clone());
+            std::thread::spawn(move || {
+                server_settings::load(&tab, &c, &srv);
+                let _ = w.upgrade_in_event_loop(|u| u.invoke_settings_search(u.get_settings_query()));
+            });
+        })
+    };
     // rebuild the current settings page (or search results)
     let refresh_settings = {
-        let (w, pf, cf, acc) = (ui.as_weak(), prefs.clone(), cfg.clone(), account_info.clone());
+        let (w, pf, cf, acc, srv) = (ui.as_weak(), prefs.clone(), cfg.clone(), account_info.clone(), server_cache.clone());
         Arc::new(move || {
             let u = w.unwrap();
             let p = pf.lock().unwrap();
@@ -583,7 +599,11 @@ fn main() -> Result<(), slint::PlatformError> {
             let rows = if q.trim().is_empty() {
                 let tab = u.get_settings_tab().to_string();
                 u.set_settings_title(p.title(&tab).into());
-                p.rows(&tab, &c, &acc())
+                let mut rows = p.rows(&tab, &c, &acc());
+                if let Some(extra) = server_settings::rows(&tab, &srv) {
+                    if tab == "account" || tab == "composing" { rows.extend(extra); } else { rows = extra; }
+                }
+                rows
             } else {
                 u.set_settings_title(format!("Search: {q}").into());
                 p.search(q.trim(), &c, &acc(), adv)
@@ -605,19 +625,44 @@ fn main() -> Result<(), slint::PlatformError> {
         u.set_show_settings(true);
     });
 
-    let (w, rs) = (ui.as_weak(), refresh_settings.clone());
+    let (w, rs, lsp) = (ui.as_weak(), refresh_settings.clone(), load_server_page.clone());
     ui.on_settings_open_tab(move |id| {
         let u = w.unwrap();
         u.set_settings_query("".into());
-        u.set_settings_tab(id);
+        u.set_settings_tab(id.clone());
         rs();
+        lsp(id.to_string());
     });
 
     let rs = refresh_settings.clone();
     ui.on_settings_search(move |_| rs());
 
-    let (pf, cf, rs) = (prefs.clone(), cfg.clone(), refresh_settings.clone());
+    // writes to the server, debounced for typing
+    let server_write = {
+        let (w, st) = (ui.as_weak(), state.clone());
+        Arc::new(move |job: Box<dyn FnOnce(&jmap::Client) -> Result<(), String> + Send>, delay_ms: u64| {
+            let Some(c) = st.lock().unwrap().clone() else { return };
+            let w = w.clone();
+            let job = std::sync::Mutex::new(Some(job));
+            SERVER_DEBOUNCE.with(|t| t.start(slint::TimerMode::SingleShot, std::time::Duration::from_millis(delay_ms), move || {
+                let Some(job) = job.lock().unwrap().take() else { return };
+                let (w, c) = (w.clone(), c.clone());
+                std::thread::spawn(move || {
+                    if let Err(e) = job(&c) {
+                        let _ = w.upgrade_in_event_loop(move |u| mail::show_toast(&u, &format!("Not saved: {e}"), false));
+                    }
+                });
+            }));
+        })
+    };
+
+    let (pf, cf, rs, srv, sw) = (prefs.clone(), cfg.clone(), refresh_settings.clone(), server_cache.clone(), server_write.clone());
     ui.on_settings_set_toggle(move |key, on| {
+        if key.starts_with("server.") {
+            if let Some(job) = server_settings::edit(&key, &serde_json::json!(on), &srv) { sw(job, 10); }
+            rs();
+            return;
+        }
         let mut p = pf.lock().unwrap();
         let on = if p.is_inverted(&key) { !on } else { on };
         p.set(&key, serde_json::json!(on), &mut cf.lock().unwrap());
@@ -636,14 +681,32 @@ fn main() -> Result<(), slint::PlatformError> {
     });
 
     // text edits are saved as typed, without rebuilding the page (keeps the caret)
-    let (pf, cf) = (prefs.clone(), cfg.clone());
+    let (pf, cf, srv, sw) = (prefs.clone(), cfg.clone(), server_cache.clone(), server_write.clone());
     ui.on_settings_set_text(move |key, t| {
+        if key.starts_with("server.") {
+            if let Some(job) = server_settings::edit(&key, &serde_json::json!(t.to_string()), &srv) { sw(job, 900); }
+            return;
+        }
         pf.lock().unwrap().set(&key, serde_json::json!(t.to_string()), &mut cf.lock().unwrap());
     });
 
-    let w = ui.as_weak();
+    let (w, st, srv, lsp) = (ui.as_weak(), state.clone(), server_cache.clone(), load_server_page.clone());
     ui.on_settings_button(move |key| {
         let u = w.unwrap();
+        if key.starts_with("server.") {
+            let Some(job) = server_settings::button(&key, &srv) else { return };
+            let Some(c) = st.lock().unwrap().clone() else { return };
+            let (w2, srv2, lsp2, tab) = (w.clone(), srv.clone(), lsp.clone(), u.get_settings_tab().to_string());
+            u.invoke_settings_search(u.get_settings_query());
+            std::thread::spawn(move || {
+                let res = job(&c, &srv2);
+                let _ = w2.upgrade_in_event_loop(move |u| {
+                    if let Err(e) = res { mail::show_toast(&u, &e, false); }
+                    lsp2(tab);
+                });
+            });
+            return;
+        }
         if key == "signout" { u.set_show_settings(false); u.invoke_sign_out(); }
         if key == "plugins.folder" { oauth::open_browser(&plugins::dir().to_string_lossy()); }
     });
