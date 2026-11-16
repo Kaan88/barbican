@@ -952,6 +952,19 @@ export component AppWindow inherits Window {
     in-out property <int> dash-range: 1;
     callback admin-load(string);
     callback admin-delete(string);
+    // sub-pages (Tasks: Scheduled/Failed/Index queue, Cluster: Nodes/Roles), a note under the header,
+    // and the action dialog ("confirm" | "form" | "running" | "result")
+    in property <[AdminRow]> admin-subs;
+    in-out property <string> admin-sub;
+    in property <string> admin-note;
+    in-out property <string> admin-dlg;
+    in property <string> admin-dlg-title;
+    in-out property <string> admin-dlg-text;
+    in property <[AdminRow]> admin-dlg-fields;
+    in property <[AdminRow]> admin-dlg-result;
+    callback admin-action-open(string);
+    callback admin-action-edit(string, string);
+    callback admin-action-execute();
     in property <[PRow]> plugin-rows;
     in property <[ThreadMsg]> thread-msgs;
     in-out property <string> c-cc;
@@ -2709,7 +2722,7 @@ export component AppWindow inherits Window {
                         width: parent.width - 16px;
                         border-radius: 6px;
                         background: root.admin-section == sec.id ? Theme.sel : (asa.has-hover ? Theme.hover : transparent);
-                        asa := TouchArea { clicked => { root.admin-section = sec.id; root.admin-load(sec.id); } }
+                        asa := TouchArea { clicked => { root.admin-section = sec.id; root.admin-sub = ""; root.admin-load(sec.id); } }
                         HorizontalLayout {
                             padding-left: 10px;
                             spacing: 8px;
@@ -2746,6 +2759,22 @@ export component AppWindow inherits Window {
                     }
                     Rectangle { y: parent.height - 1px; height: 1px; background: Theme.line; }
                 }
+                if root.admin-section != "overview" && (root.admin-subs.length > 0 || root.admin-note != ""): HorizontalLayout {
+                    padding-left: 16px;
+                    padding-right: 16px;
+                    padding-top: 10px;
+                    spacing: 4px;
+                    height: 40px;
+                    for t in root.admin-subs: Rectangle {
+                        width: stt.preferred-width + 20px;
+                        border-radius: 6px;
+                        background: root.admin-sub == t.id ? Theme.sel : (sta.has-hover ? Theme.hover : transparent);
+                        sta := TouchArea { clicked => { root.admin-sub = t.id; root.admin-load(root.admin-section); } }
+                        stt := Text { text: t.c1; color: root.admin-sub == t.id ? Theme.sel-text : Theme.text; font-size: 12px; font-weight: root.admin-sub == t.id ? 600 : 400; vertical-alignment: center; }
+                    }
+                    if root.admin-subs.length > 0: Rectangle { width: 8px; }
+                    Text { text: root.admin-note; color: Theme.dim; font-size: 12px; vertical-alignment: center; overflow: elide; horizontal-stretch: 1; }
+                }
                 if root.admin-section == "overview": AdminDashboard {
                     vertical-stretch: 1;
                     dark: Theme.dark;
@@ -2776,7 +2805,7 @@ export component AppWindow inherits Window {
                                     padding-right: 14px;
                                     spacing: 12px;
                                     for c in root.admin-cols: Text { text: c; color: Theme.dim; font-size: 11px; font-weight: 600; horizontal-stretch: 1; preferred-width: 0px; min-width: 0px; vertical-alignment: center; horizontal-alignment: left; }
-                                    Rectangle { width: root.admin-section == "queue" ? 24px : 0px; }
+                                    Rectangle { width: root.admin-section == "queue" ? 24px : root.admin-section == "actions" ? 64px : 0px; }
                                 }
                                 Rectangle { y: parent.height - 1px; height: 1px; background: Theme.line; }
                             }
@@ -2785,16 +2814,23 @@ export component AppWindow inherits Window {
                                 for r[i] in root.admin-rows: Rectangle {
                                     height: 34px;
                                     background: ara.has-hover ? Theme.hover : (mod(i, 2) == 1 ? Theme.zebra : transparent);
-                                    ara := TouchArea { }
+                                    ara := TouchArea { double-clicked => { if root.admin-section == "actions" { root.admin-action-open(r.id); } } }
                                     HorizontalLayout {
                                         padding-left: 14px;
                                         padding-right: 14px;
                                         spacing: 12px;
                                         Text { text: r.c1; color: Theme.text; font-size: 12px; horizontal-stretch: 1; preferred-width: 0px; min-width: 0px; overflow: elide; vertical-alignment: center; horizontal-alignment: left; }
                                         Text { text: r.c2; color: Theme.dim; font-size: 12px; horizontal-stretch: 1; preferred-width: 0px; min-width: 0px; overflow: elide; vertical-alignment: center; horizontal-alignment: left; }
-                                        Text { text: r.c3; color: r.c3 == "error" ? #f87171 : r.c3 == "warn" ? #fbbf24 : Theme.dim; font-size: 12px; horizontal-stretch: 1; preferred-width: 0px; min-width: 0px; overflow: elide; vertical-alignment: center; horizontal-alignment: left; }
-                                        Text { text: r.c4; color: Theme.dim; font-size: 12px; horizontal-stretch: 1; preferred-width: 0px; min-width: 0px; overflow: elide; vertical-alignment: center; horizontal-alignment: left; }
+                                        Text { text: r.c3; color: r.c3 == "error" || r.c3 == "Failed" ? #f87171 : r.c3 == "warn" || r.c3 == "Stalled" ? #fbbf24 : Theme.dim; font-size: 12px; horizontal-stretch: 1; preferred-width: 0px; min-width: 0px; overflow: elide; vertical-alignment: center; horizontal-alignment: left; }
+                                        Text { text: r.c4; color: r.c4 == "Active" ? #22c55e : r.c4 == "Inactive" ? #f87171 : r.c4 == "Stale" ? #fbbf24 : Theme.dim; font-size: 12px; horizontal-stretch: 1; preferred-width: 0px; min-width: 0px; overflow: elide; vertical-alignment: center; horizontal-alignment: left; }
                                         if root.admin-section == "queue": HoverAction { glyph: "\u{E74D}"; y: 6px; clicked => { root.admin-delete(r.id); } }
+                                        if root.admin-section == "actions": Rectangle {
+                                            width: 64px; height: 24px; y: 5px; border-radius: 5px;
+                                            background: rna.pressed ? Theme.chip : rna.has-hover ? Theme.hover : Theme.raised;
+                                            border-width: 1px; border-color: Theme.line;
+                                            rna := TouchArea { clicked => { root.admin-action-open(r.id); } }
+                                            Text { text: "Run\u{2026}"; color: Theme.text; font-size: 12px; }
+                                        }
                                     }
                                 }
                             }
@@ -2802,6 +2838,60 @@ export component AppWindow inherits Window {
                     }
                 }
             }
+            }
+        }
+    }
+
+    // ---- admin action dialog: confirm / form / running / result (x:Action/set)
+    if root.admin-dlg != "": Rectangle {
+        background: #000000a0;
+        TouchArea { }
+        Rectangle {
+            width: min(560px, parent.width - 40px);
+            height: min(adl.preferred-height, parent.height - 40px);
+            background: Theme.side;
+            border-radius: 10px;
+            border-width: 1px;
+            border-color: Theme.line;
+            clip: true;
+            adl := VerticalLayout {
+                padding: 18px;
+                spacing: 10px;
+                Text { text: root.admin-dlg == "confirm" ? "Run this action?" : root.admin-dlg-title; color: Theme.text; font-size: 16px; font-weight: 700; }
+                if root.admin-dlg == "confirm": Text { text: root.admin-dlg-title; color: Theme.text; font-weight: 600; }
+                Text { text: root.admin-dlg == "running" ? "Executing " + root.admin-dlg-title + "\u{2026}" : root.admin-dlg-text; color: Theme.dim; wrap: word-wrap; }
+                if root.admin-dlg == "form": ScrollView {
+                    min-height: min(fl.preferred-height, 340px);
+                    fl := VerticalLayout {
+                        spacing: 8px;
+                        for f in root.admin-dlg-fields: VerticalLayout {
+                            spacing: 3px;
+                            if f.c3 != "bool": Text { text: f.c1; color: Theme.dim; font-size: 12px; }
+                            if f.c3 == "text" || f.c3 == "set": LineEdit { edited(t) => { root.admin-action-edit(f.id, t); } }
+                            if f.c3 == "multiline": TextEdit { height: 110px; wrap: word-wrap; edited(t) => { root.admin-action-edit(f.id, t); } }
+                            if f.c3 == "bool": CheckBox { text: f.c1; toggled => { root.admin-action-edit(f.id, self.checked ? "true" : "false"); } }
+                        }
+                    }
+                }
+                if root.admin-dlg == "result" && root.admin-dlg-result.length > 0: ScrollView {
+                    min-height: min(rl.preferred-height, 360px);
+                    rl := VerticalLayout {
+                        spacing: 2px;
+                        for r in root.admin-dlg-result: HorizontalLayout {
+                            spacing: 10px;
+                            Text { text: r.c1; color: Theme.dim; font-size: 12px; width: 180px; overflow: elide; }
+                            TextInput { text: r.c2; color: Theme.text; font-size: 12px; read-only: true; wrap: word-wrap; horizontal-stretch: 1; }
+                        }
+                    }
+                }
+                HorizontalLayout {
+                    spacing: 8px;
+                    alignment: end;
+                    if root.admin-dlg == "confirm" || root.admin-dlg == "form": Button { text: "Cancel"; clicked => { root.admin-dlg = ""; } }
+                    if root.admin-dlg == "confirm": PrimaryButton { text: "Execute"; clicked => { root.admin-action-execute(); } }
+                    if root.admin-dlg == "form": PrimaryButton { text: "Run"; clicked => { root.admin-action-execute(); } }
+                    if root.admin-dlg == "result": PrimaryButton { text: "Done"; clicked => { root.admin-dlg = ""; } }
+                }
             }
         }
     }

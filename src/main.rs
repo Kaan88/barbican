@@ -1261,6 +1261,11 @@ fn main() -> Result<(), slint::PlatformError> {
     ui.on_admin_load(move |sec| { let Some(c) = st.lock().unwrap().clone() else { return }; admin::load(&w.unwrap(), c, &sec); });
     let (w, st) = (ui.as_weak(), state.clone());
     ui.on_admin_delete(move |id| { let Some(c) = st.lock().unwrap().clone() else { return }; admin::delete_queued(&w.unwrap(), c, &id); });
+    let w = ui.as_weak();
+    ui.on_admin_action_open(move |id| admin::action_open(&w.unwrap(), &id));
+    ui.on_admin_action_edit(move |k, v| admin::action_edit(&k, &v));
+    let (w, st) = (ui.as_weak(), state.clone());
+    ui.on_admin_action_execute(move || { let Some(c) = st.lock().unwrap().clone() else { return }; admin::action_execute(&w.unwrap(), c); });
     ui.set_admin_enabled(!admin::key().is_empty());
 
     // ---------------- keyboard shortcuts (Bulwark's single-key set) ----------------
