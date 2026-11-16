@@ -277,7 +277,34 @@ fn schedule_refresh(w: slint::Weak<AppWindow>, c: Arc<jmap::Client>) {
     REFRESH.with(|t| t.start(slint::TimerMode::SingleShot, std::time::Duration::from_millis(700), move || {
         mail::load_mailboxes(w.clone(), c.clone(), false);
         mail::reload(w.clone(), c.clone());
+        check_new_mail(c.clone());
     }));
+}
+
+static NOTIFIED: Mutex<Option<std::collections::HashSet<String>>> = Mutex::new(None);
+
+/// Desktop notification for newly arrived unread inbox mail (Bulwark: emailNotificationsEnabled).
+fn check_new_mail(c: Arc<jmap::Client>) {
+    let prefs = settings::Settings::load();
+    if !prefs.bool("emailNotificationsEnabled", true) { return; }
+    std::thread::spawn(move || {
+        let Ok(roles) = c.role_ids() else { return };
+        let Some(inbox) = roles.get("inbox") else { return };
+        let Ok((list, _, _)) = c.list(json!({"operator": "AND", "conditions": [{"inMailbox": inbox}, {"notKeyword": "$seen"}]}), 0, 10) else { return };
+        let mut guard = NOTIFIED.lock().unwrap();
+        let first_run = guard.is_none();
+        let seen = guard.get_or_insert_with(Default::default);
+        for m in list.iter().rev() {
+            let id = m["id"].as_str().unwrap_or("").to_string();
+            if seen.insert(id) && !first_run {
+                let _ = notify_rust::Notification::new()
+                    .appname("Barbican")
+                    .summary(&mail::sender(m))
+                    .body(&format!("{}\n{}", m["subject"].as_str().unwrap_or("(no subject)"), mail::clean_preview(m["preview"].as_str().unwrap_or(""))))
+                    .show();
+            }
+        }
+    });
 }
 
 fn human_size(n: u64) -> String {
@@ -1396,6 +1423,7 @@ fn finish_login(w: slint::Weak<AppWindow>, st: Shared, res: Result<jmap::Client,
                     let _ = w3.upgrade_in_event_loop(move |_| MY_ADDRS.with(|a| *a.borrow_mut() = addrs));
                 });
             }
+            check_new_mail(c.clone());
             start_push(w2, c);
         }
         Err(e) => {

@@ -345,6 +345,7 @@ component ToolButton inherits Rectangle {
 
 component MailRow inherits VerticalLayout {
     in property <Mail> m;
+    in property <length> row-height: 82px;
     in property <bool> selected;
     callback clicked;
     callback ctrl-clicked;
@@ -362,7 +363,7 @@ component MailRow inherits VerticalLayout {
         Rectangle { y: parent.height - 1px; height: 1px; background: Theme.line; }
     }
     Rectangle {
-        height: 82px;
+        height: root.row-height;
         background: selected || m.checked ? Theme.sel : ta.has-hover ? Theme.hover : transparent;
         ta := TouchArea {
             pointer-event(ev) => {
@@ -535,6 +536,7 @@ export component AppWindow inherits Window {
     callback open-attachment(int);
     callback save-attachment(int);
     callback undo-toast();
+    in property <length> mail-row-height: 82px;
     in-out property <string> quick-text;
     in-out property <int> app: 0;
     callback app-changed(int);
@@ -896,6 +898,7 @@ export component AppWindow inherits Window {
                     }
                     for m in root.mails: MailRow {
                         m: m;
+                        row-height: root.mail-row-height;
                         selected: m.id == root.current-mail;
                         clicked => {
                             root.current-mail = m.id;
