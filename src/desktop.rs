@@ -88,7 +88,14 @@ pub fn init(ui: &AppWindow, state: Shared) {
     // closing the window: to the tray (setting) or quit
     ui.window().on_close_requested(|| {
         let to_tray = Prefs::load().close_to_tray && TRAY.with(|t| t.borrow().is_some());
-        if !to_tray { slint::quit_event_loop().ok(); }
+        if !to_tray {
+            // an open draft is saved before Barbican quits (the window stays until then)
+            if let Some(u) = app().filter(|u| u.get_composing()) {
+                quit_saving_draft(&u, || Ok(()));
+                return slint::CloseRequestResponse::KeepWindowShown;
+            }
+            slint::quit_event_loop().ok();
+        }
         slint::CloseRequestResponse::HideWindow
     });
 
@@ -114,12 +121,7 @@ pub fn init(ui: &AppWindow, state: Shared) {
     TIMERS.with(|v| v.borrow_mut().push(t));
 
     let u = ui.global::<crate::UpdateState>();
-    u.on_restart(|| {
-        match updater::install_now() {
-            Ok(()) => { slint::quit_event_loop().ok(); }
-            Err(e) => if let Some(u) = app() { crate::mail::show_toast(&u, &e, false); },
-        }
-    });
+    u.on_restart(|| if let Some(u) = app() { restart_to_update(&u); });
     u.on_later(|| {
         let msg = match updater::approve_next_start() { Ok(()) => "The update installs the next time Barbican starts.".to_string(), Err(e) => e };
         if let Some(u) = app() {
@@ -134,6 +136,34 @@ pub fn init(ui: &AppWindow, state: Shared) {
         if let Some(u) = app() { dismiss_current(&u); }
     });
     u.on_dismiss(|| if let Some(u) = app() { dismiss_current(&u); });
+}
+
+/// Quit, saving an open draft first (Bulwark: "Your drafts are saved first"). `then` runs
+/// right before the loop ends; nothing happens when the draft could not be saved.
+pub fn quit_saving_draft(u: &AppWindow, then: fn() -> Result<(), String>) {
+    let finish = move || match then() {
+        Ok(()) => { slint::quit_event_loop().ok(); }
+        Err(e) => if let Some(u) = app() { crate::mail::show_toast(&u, &e, false); },
+    };
+    if !u.get_composing() { finish(); return; }
+    u.invoke_save_draft(true);
+    let tries = std::rc::Rc::new(Cell::new(0));
+    let timer = std::rc::Rc::new(slint::Timer::default());
+    let t2 = timer.clone();
+    timer.start(slint::TimerMode::Repeated, std::time::Duration::from_millis(200), move || {
+        tries.set(tries.get() + 1);
+        let Some(u) = app() else { t2.stop(); return };
+        if !u.get_composing() { t2.stop(); finish(); }
+        else if tries.get() > 50 {
+            t2.stop();
+            crate::mail::show_toast(&u, "Your draft could not be saved, so Barbican stays open.", false);
+        }
+    });
+}
+
+fn restart_to_update(u: &AppWindow) {
+    show_window(u);
+    quit_saving_draft(u, updater::install_now);
 }
 
 fn dismiss_current(u: &AppWindow) {
@@ -189,7 +219,7 @@ pub fn tray_command(id: &str) {
         "check" => {
             if u.get_logged_in() { u.invoke_refresh(); }
         }
-        "quit" => { slint::quit_event_loop().ok(); }
+        "quit" => quit_saving_draft(&u, || Ok(())),
         _ => {}
     }
 }
@@ -314,7 +344,7 @@ fn refresh_update(u: &AppWindow) {
     };
     g.set_version(s.target.clone().into());
     g.set_detail(match mode {
-        1 => "It installs when you restart Barbican. Your drafts are kept.".into(),
+        1 => "It installs when you restart Barbican. An open draft is saved first.".into(),
         2 => "Download the new version from the release page.".into(),
         _ => "".into(),
     });
@@ -390,13 +420,7 @@ pub fn setting_changed(key: &str, on: bool) {
 pub fn settings_button(u: &AppWindow, key: &str) -> bool {
     match key {
         "desktop.update.check" => { updater::check(true); true }
-        "desktop.update.restart" => {
-            match updater::install_now() {
-                Ok(()) => { slint::quit_event_loop().ok(); }
-                Err(e) => crate::mail::show_toast(u, &e, false),
-            }
-            true
-        }
+        "desktop.update.restart" => { restart_to_update(u); true }
         "desktop.update.download" => {
             let url = updater::download_page();
             if !url.is_empty() { platform::open_url(&url); }

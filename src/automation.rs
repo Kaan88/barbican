@@ -15,7 +15,7 @@
 //!   pick PATH[|PATH...]  (answer the next file-open picker with these files instead of a dialog)
 //!   notes | note-mail N | note-activate ACTION CONTEXT   (notifications are recorded, not
 //!                        shown, in automation runs; activate takes the toast-click path)
-//!   desktop | update-check | tray open|compose|check|quit   (badge, updater, tray menu)
+//!   desktop | update-check | tray open|compose|check|quit | close   (badge, updater, tray menu, X)
 use crate::AppWindow;
 use slint::platform::{Key, PointerEventButton, WindowEvent};
 use slint::{ComponentHandle, LogicalPosition, SharedString};
@@ -182,6 +182,8 @@ fn run(u: &AppWindow, line: &str) -> String {
             format!("unread {n} | tooltip {} | update {:?} {} | kind {:?} | visible {}", crate::desktop::tooltip(n), st.status, st.target, crate::updater::current_kind(), win.is_visible())
         }
         "update-check" => { crate::updater::check(true); "ok".into() }
+        // the window's close button (X): quits, or hides to the tray with close to tray on
+        "close" => { win.dispatch_event(WindowEvent::CloseRequested); "ok".into() }
         // "tray open|compose|check|quit": what the tray menu items do
         "tray" => { crate::desktop::tray_command(args.first().copied().unwrap_or("")); "ok".into() }
         "size" => { let s = win.size(); format!("{} {} scale {}", s.width, s.height, win.scale_factor()) }

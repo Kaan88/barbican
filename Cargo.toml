@@ -51,3 +51,31 @@ gtk = "0.18"
 
 [build-dependencies]
 slint-build = "1.8"
+
+# .deb (cargo deb, .github/workflows/release.yml). The install-kind marker tells the updater
+# that apt owns these files, so it only says a new version exists.
+[package.metadata.deb]
+name = "barbican"
+maintainer = "Barbican"
+copyright = "Barbican contributors"
+extended-description = "Native mail, calendar and contacts client for Stalwart (JMAP)."
+section = "mail"
+priority = "optional"
+depends = "$auto, libwebkit2gtk-4.1-0, libgtk-3-0"
+recommends = "hunspell"
+assets = [
+    ["target/release/barbican", "usr/lib/barbican/barbican", "755"],
+    ["packaging/linux/install-kind", "usr/lib/barbican/install-kind", "644"],
+    ["packaging/linux/barbican.desktop", "usr/share/applications/barbican.desktop", "644"],
+    ["packaging/icons/barbican-256.png", "usr/share/icons/hicolor/256x256/apps/barbican.png", "644"],
+    ["packaging/icons/barbican-128.png", "usr/share/icons/hicolor/128x128/apps/barbican.png", "644"],
+    ["packaging/icons/barbican-64.png", "usr/share/icons/hicolor/64x64/apps/barbican.png", "644"],
+    ["packaging/icons/barbican-48.png", "usr/share/icons/hicolor/48x48/apps/barbican.png", "644"],
+    ["packaging/icons/barbican-32.png", "usr/share/icons/hicolor/32x32/apps/barbican.png", "644"],
+    ["packaging/icons/barbican.svg", "usr/share/icons/hicolor/scalable/apps/barbican.svg", "644"],
+]
+maintainer-scripts = "packaging/linux/debian"
+
+[package.metadata.wix]
+# per-user MSI from wix/main.wxs
+eula = false

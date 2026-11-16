@@ -30,6 +30,8 @@ mod icon;
 mod notify;
 mod platform;
 mod updater;
+#[cfg(test)]
+mod release_manifest;
 
 use chrono::{DateTime, Local};
 use serde_json::{json, Value};
