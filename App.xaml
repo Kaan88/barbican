@@ -54,18 +54,109 @@
       <StaticResource x:Key="ButtonBorderBrushPointerOver" ResourceKey="Line" />
       <StaticResource x:Key="ButtonBorderBrushPressed" ResourceKey="Track" />
 
-      <Style x:Key="RowItem" TargetType="ListViewItem" BasedOn="{StaticResource DefaultListViewItemStyle}">
+      <Style x:Key="RowItem" TargetType="ListViewItem">
         <Setter Property="Padding" Value="12,10" />
         <Setter Property="Margin" Value="8,1" />
+        <Setter Property="MinHeight" Value="0" />
         <Setter Property="CornerRadius" Value="18" />
         <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+        <Setter Property="UseSystemFocusVisuals" Value="True" />
+        <Setter Property="Template">
+          <Setter.Value>
+            <ControlTemplate TargetType="ListViewItem">
+              <Grid x:Name="Root" Background="Transparent" CornerRadius="{TemplateBinding CornerRadius}">
+                <VisualStateManager.VisualStateGroups>
+                  <VisualStateGroup x:Name="CommonStates">
+                    <VisualStateGroup.Transitions><VisualTransition GeneratedDuration="0:0:0.08" /></VisualStateGroup.Transitions>
+                    <VisualState x:Name="Normal" /><VisualState x:Name="PointerOver"><VisualState.Setters><Setter Target="Root.Background" Value="{StaticResource Hover}" /></VisualState.Setters></VisualState><VisualState x:Name="Pressed"><VisualState.Setters><Setter Target="Root.Background" Value="{StaticResource Pressed}" /></VisualState.Setters></VisualState><VisualState x:Name="Selected"><VisualState.Setters><Setter Target="Root.Background" Value="{StaticResource Tile2}" /><Setter Target="SelLine.Opacity" Value="1" /></VisualState.Setters></VisualState><VisualState x:Name="PointerOverSelected"><VisualState.Setters><Setter Target="Root.Background" Value="{StaticResource Tile2}" /><Setter Target="SelLine.Opacity" Value="1" /></VisualState.Setters></VisualState><VisualState x:Name="PressedSelected"><VisualState.Setters><Setter Target="Root.Background" Value="{StaticResource Pressed}" /><Setter Target="SelLine.Opacity" Value="1" /></VisualState.Setters></VisualState>
+                  </VisualStateGroup>
+                </VisualStateManager.VisualStateGroups>
+                <Border x:Name="SelLine" BorderBrush="{StaticResource Line}" BorderThickness="1" CornerRadius="{TemplateBinding CornerRadius}" Opacity="0" />
+                <Border x:Name="Bar" Width="3" HorizontalAlignment="Left" Background="{StaticResource Accent}" Opacity="0" />
+                <ContentPresenter Margin="{TemplateBinding Padding}" HorizontalAlignment="Stretch" VerticalAlignment="Center"
+                                  Content="{TemplateBinding Content}" ContentTemplate="{TemplateBinding ContentTemplate}" />
+              </Grid>
+            </ControlTemplate>
+          </Setter.Value>
+        </Setter>
       </Style>
-      <Style x:Key="FolderItem" TargetType="ListViewItem" BasedOn="{StaticResource DefaultListViewItemStyle}">
+      <Style x:Key="NordRowItem" TargetType="ListViewItem">
+        <Setter Property="Padding" Value="28,14" />
+        <Setter Property="Margin" Value="0" />
+        <Setter Property="MinHeight" Value="0" />
+        <Setter Property="CornerRadius" Value="0" />
+        <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+        <Setter Property="UseSystemFocusVisuals" Value="True" />
+        <Setter Property="Template">
+          <Setter.Value>
+            <ControlTemplate TargetType="ListViewItem">
+              <Grid x:Name="Root" Background="Transparent" CornerRadius="{TemplateBinding CornerRadius}">
+                <VisualStateManager.VisualStateGroups>
+                  <VisualStateGroup x:Name="CommonStates">
+                    <VisualStateGroup.Transitions><VisualTransition GeneratedDuration="0:0:0.08" /></VisualStateGroup.Transitions>
+                    <VisualState x:Name="Normal" /><VisualState x:Name="PointerOver"><VisualState.Setters><Setter Target="Root.Background" Value="{StaticResource Hover}" /></VisualState.Setters></VisualState><VisualState x:Name="Pressed"><VisualState.Setters><Setter Target="Root.Background" Value="{StaticResource Pressed}" /></VisualState.Setters></VisualState><VisualState x:Name="Selected"><VisualState.Setters><Setter Target="Root.Background" Value="{StaticResource Tile2}" /><Setter Target="Bar.Opacity" Value="1" /></VisualState.Setters></VisualState><VisualState x:Name="PointerOverSelected"><VisualState.Setters><Setter Target="Root.Background" Value="{StaticResource Tile2}" /><Setter Target="Bar.Opacity" Value="1" /></VisualState.Setters></VisualState><VisualState x:Name="PressedSelected"><VisualState.Setters><Setter Target="Root.Background" Value="{StaticResource Pressed}" /><Setter Target="Bar.Opacity" Value="1" /></VisualState.Setters></VisualState>
+                  </VisualStateGroup>
+                </VisualStateManager.VisualStateGroups>
+                <Border x:Name="SelLine" BorderBrush="{StaticResource Line}" BorderThickness="1" CornerRadius="{TemplateBinding CornerRadius}" Opacity="0" />
+                <Border x:Name="Bar" Width="3" HorizontalAlignment="Left" Background="{StaticResource Accent}" Opacity="0" />
+                <ContentPresenter Margin="{TemplateBinding Padding}" HorizontalAlignment="Stretch" VerticalAlignment="Center"
+                                  Content="{TemplateBinding Content}" ContentTemplate="{TemplateBinding ContentTemplate}" />
+              </Grid>
+            </ControlTemplate>
+          </Setter.Value>
+        </Setter>
+      </Style>
+      <Style x:Key="FolderItem" TargetType="ListViewItem">
         <Setter Property="Padding" Value="11,0" />
-        <Setter Property="MinHeight" Value="38" />
         <Setter Property="Margin" Value="0,1" />
+        <Setter Property="MinHeight" Value="38" />
         <Setter Property="CornerRadius" Value="14" />
         <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+        <Setter Property="UseSystemFocusVisuals" Value="True" />
+        <Setter Property="Template">
+          <Setter.Value>
+            <ControlTemplate TargetType="ListViewItem">
+              <Grid x:Name="Root" Background="Transparent" CornerRadius="{TemplateBinding CornerRadius}">
+                <VisualStateManager.VisualStateGroups>
+                  <VisualStateGroup x:Name="CommonStates">
+                    <VisualStateGroup.Transitions><VisualTransition GeneratedDuration="0:0:0.08" /></VisualStateGroup.Transitions>
+                    <VisualState x:Name="Normal" /><VisualState x:Name="PointerOver"><VisualState.Setters><Setter Target="Root.Background" Value="{StaticResource Hover}" /></VisualState.Setters></VisualState><VisualState x:Name="Pressed"><VisualState.Setters><Setter Target="Root.Background" Value="{StaticResource Pressed}" /></VisualState.Setters></VisualState><VisualState x:Name="Selected"><VisualState.Setters><Setter Target="Root.Background" Value="{StaticResource Sel}" /></VisualState.Setters></VisualState><VisualState x:Name="PointerOverSelected"><VisualState.Setters><Setter Target="Root.Background" Value="{StaticResource Sel}" /></VisualState.Setters></VisualState><VisualState x:Name="PressedSelected"><VisualState.Setters><Setter Target="Root.Background" Value="{StaticResource Pressed}" /></VisualState.Setters></VisualState>
+                  </VisualStateGroup>
+                </VisualStateManager.VisualStateGroups>
+                <Border x:Name="SelLine" BorderBrush="{StaticResource Line}" BorderThickness="1" CornerRadius="{TemplateBinding CornerRadius}" Opacity="0" />
+                <Border x:Name="Bar" Width="3" HorizontalAlignment="Left" Background="{StaticResource Accent}" Opacity="0" />
+                <ContentPresenter Margin="{TemplateBinding Padding}" HorizontalAlignment="Stretch" VerticalAlignment="Center"
+                                  Content="{TemplateBinding Content}" ContentTemplate="{TemplateBinding ContentTemplate}" />
+              </Grid>
+            </ControlTemplate>
+          </Setter.Value>
+        </Setter>
+      </Style>
+      <Style x:Key="NordFolderItem" TargetType="ListViewItem">
+        <Setter Property="Padding" Value="16,0" />
+        <Setter Property="Margin" Value="0,1" />
+        <Setter Property="MinHeight" Value="44" />
+        <Setter Property="CornerRadius" Value="22" />
+        <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+        <Setter Property="UseSystemFocusVisuals" Value="True" />
+        <Setter Property="Template">
+          <Setter.Value>
+            <ControlTemplate TargetType="ListViewItem">
+              <Grid x:Name="Root" Background="Transparent" CornerRadius="{TemplateBinding CornerRadius}">
+                <VisualStateManager.VisualStateGroups>
+                  <VisualStateGroup x:Name="CommonStates">
+                    <VisualStateGroup.Transitions><VisualTransition GeneratedDuration="0:0:0.08" /></VisualStateGroup.Transitions>
+                    <VisualState x:Name="Normal" /><VisualState x:Name="PointerOver"><VisualState.Setters><Setter Target="Root.Background" Value="{StaticResource Hover}" /></VisualState.Setters></VisualState><VisualState x:Name="Pressed"><VisualState.Setters><Setter Target="Root.Background" Value="{StaticResource Pressed}" /></VisualState.Setters></VisualState><VisualState x:Name="Selected"><VisualState.Setters><Setter Target="Root.Background" Value="{StaticResource Sel}" /></VisualState.Setters></VisualState><VisualState x:Name="PointerOverSelected"><VisualState.Setters><Setter Target="Root.Background" Value="{StaticResource Sel}" /></VisualState.Setters></VisualState><VisualState x:Name="PressedSelected"><VisualState.Setters><Setter Target="Root.Background" Value="{StaticResource Pressed}" /></VisualState.Setters></VisualState>
+                  </VisualStateGroup>
+                </VisualStateManager.VisualStateGroups>
+                <Border x:Name="SelLine" BorderBrush="{StaticResource Line}" BorderThickness="1" CornerRadius="{TemplateBinding CornerRadius}" Opacity="0" />
+                <Border x:Name="Bar" Width="3" HorizontalAlignment="Left" Background="{StaticResource Accent}" Opacity="0" />
+                <ContentPresenter Margin="{TemplateBinding Padding}" HorizontalAlignment="Stretch" VerticalAlignment="Center"
+                                  Content="{TemplateBinding Content}" ContentTemplate="{TemplateBinding ContentTemplate}" />
+              </Grid>
+            </ControlTemplate>
+          </Setter.Value>
+        </Setter>
       </Style>
     </ResourceDictionary>
   </Application.Resources>

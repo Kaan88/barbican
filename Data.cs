@@ -29,6 +29,8 @@ public sealed class Mail : INotifyPropertyChanged
     public Brush AvatarBg => Palette.B(Tints[Tint % 4] + "Bg");
     public Brush AvatarFg => Palette.B(Tints[Tint % 4] + "Fg");
     public FontWeight FromWeight => Unread ? FontWeights.Bold : FontWeights.SemiBold;
+    public FontWeight NordWeight => Unread ? FontWeights.Bold : FontWeights.Medium;
+    public Brush DotBrush => Palette.B(Unread ? "Accent" : "Clear");
     public Brush TimeBrush => Palette.B(Unread ? "Accent" : "Faint");
     public Visibility DotVis => Unread ? Visibility.Visible : Visibility.Collapsed;
     public Visibility ThreadVis => Thread > 1 ? Visibility.Visible : Visibility.Collapsed;
@@ -46,6 +48,7 @@ public static class Sample
         ("Inbox", "inbox"), ("Drafts", "file"), ("Scheduled", "clock"), ("Sent", "send"), ("Archive", "archive"), ("Spam", "alert"), ("Trash", "trash"),
     };
 
+    public static string NewsletterHtml => Newsletter;
     const string Newsletter = """
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#efe9df;padding:28px 0;font-family:Georgia,serif">
 <tr><td align="center">

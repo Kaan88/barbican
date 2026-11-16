@@ -27,6 +27,10 @@ public sealed partial class MainWindow : Window
     int seq;
     readonly Dictionary<string, (TextBlock name, SIcon icon, TextBlock count)> folderRows = new();
     readonly List<Button> railButtons = new();
+    readonly List<Grid> folderGrids = new();
+    readonly List<(Grid row, TextBlock name, Border pill)> labelRows = new();
+    DataTemplate bentoRow;
+    bool suppressFolder;
 
     public MainWindow()
     {
@@ -36,7 +40,7 @@ public sealed partial class MainWindow : Window
         AppWindow.Resize(new Windows.Graphics.SizeInt32(1560, 960));
 
         MailList.SelectionChanged += (_, _) => { if (MailList.SelectedItem is Mail m) Open(m); };
-        BuildRail();
+        bentoRow = MailList.ItemTemplate;
         BuildFolders();
         BuildLabels();
         BuildChips();
@@ -56,11 +60,13 @@ public sealed partial class MainWindow : Window
 
     Button RailButton(string icon, string tip, bool on, RoutedEventHandler click = null)
     {
+        bool n = Palette.Nordic;
+        double size = n ? 46 : 44;
         var b = new Button
         {
-            Width = 44, Height = 44, Padding = new Thickness(0), BorderThickness = new Thickness(0), CornerRadius = new CornerRadius(14),
+            Width = size, Height = size, Padding = new Thickness(0), BorderThickness = new Thickness(0), CornerRadius = new CornerRadius(n ? 23 : 14),
             Background = on ? Palette.B("Sel") : Palette.B("Clear"),
-            Content = SIcon.Make(icon, on ? "SelText" : "Faint", 20),
+            Content = SIcon.Make(icon, on ? "SelText" : "Faint", n ? 21 : 20),
         };
         ToolTipService.SetToolTip(b, tip);
         if (click != null) b.Click += click;
@@ -70,23 +76,44 @@ public sealed partial class MainWindow : Window
 
     void BuildRail()
     {
-        RailTop.Children.Add(new Border
+        bool n = Palette.Nordic;
+        RailTop.Children.Clear(); RailBottom.Children.Clear(); railButtons.Clear();
+        RailTop.Spacing = n ? 12 : 8;
+        RailBottom.Spacing = n ? 12 : 8;
+        if (n)
         {
-            Width = 40, Height = 40, CornerRadius = new CornerRadius(13), Background = Palette.B("Accent"), Margin = new Thickness(0, 0, 0, 10),
-            Child = new TextBlock { Text = "B", FontWeight = Microsoft.UI.Text.FontWeights.Black, FontSize = 18, Foreground = Palette.B("OnAccent"), HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center },
-        });
+            // Nordic mark: three rounded bars (NordMail.dc.html)
+            var c = new Canvas { Width = 34, Height = 34, Margin = new Thickness(0, 0, 0, 14) };
+            foreach (var (x, y, h, o) in new[] { (3.0, 12.0, 19.0, 1.0), (13.5, 3.0, 28.0, 0.7), (24.0, 8.0, 23.0, 0.4) })
+            {
+                var r = new Rectangle { Width = 7, Height = h, RadiusX = 3.5, RadiusY = 3.5, Fill = Palette.B("Accent"), Opacity = o };
+                Canvas.SetLeft(r, x); Canvas.SetTop(r, y);
+                c.Children.Add(r);
+            }
+            RailTop.Children.Add(c);
+        }
+        else
+        {
+            RailTop.Children.Add(new Border
+            {
+                Width = 40, Height = 40, CornerRadius = new CornerRadius(13), Background = Palette.B("Accent"), Margin = new Thickness(0, 0, 0, 10),
+                Child = new TextBlock { Text = "B", FontWeight = Microsoft.UI.Text.FontWeights.Black, FontSize = 18, Foreground = Palette.B("OnAccent"), HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center },
+            });
+        }
         foreach (var (icon, tip, on) in new[] { ("mail", "Mail", true), ("cal", "Calendar (stub)", false), ("users", "Contacts (stub)", false), ("folder", "Files (stub)", false), ("spark", "Assistant (stub)", false), ("shield", "Admin (stub)", false) })
             RailTop.Children.Add(RailButton(icon, tip, on));
         RailBottom.Children.Add(RailButton("grid", "Switch Bento / Nordic (S)", false, (_, _) => ToggleStyle()));
         RailBottom.Children.Add(RailButton("sun", "Switch dark / light (T)", false, (_, _) => ToggleTheme()));
+        if (n)
+            RailBottom.Children.Add(new Border
+            {
+                Width = 40, Height = 40, CornerRadius = new CornerRadius(20), Background = Palette.B("Sel"), Margin = new Thickness(0, 4, 0, 0),
+                Child = new TextBlock { Text = "KK", FontWeight = Microsoft.UI.Text.FontWeights.Bold, FontSize = 13, Foreground = Palette.B("SelText"), HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center },
+            });
     }
 
     void BuildFolders()
     {
-        FolderList.Resources["ListViewItemBackgroundSelected"] = Palette.B("Sel");
-        FolderList.Resources["ListViewItemBackgroundSelectedPointerOver"] = Palette.B("Sel");
-        FolderList.Resources["ListViewItemBackgroundSelectedPressed"] = Palette.B("Sel");
-        FolderList.Resources["ListViewItemSelectionIndicatorBrush"] = Palette.B("Clear");
         foreach (var (name, icon) in Sample.Folders)
         {
             var g = new Grid { ColumnSpacing = 10, Tag = name };
@@ -100,11 +127,12 @@ public sealed partial class MainWindow : Window
             Grid.SetColumn(tb, 1); Grid.SetColumn(ct, 2);
             g.Children.Add(ic); g.Children.Add(tb); g.Children.Add(ct);
             folderRows[name] = (tb, ic, ct);
+            folderGrids.Add(g);
             FolderList.Items.Add(g);
         }
         FolderList.SelectionChanged += (_, _) =>
         {
-            if (FolderList.SelectedItem is Grid g) ShowFolder((string)g.Tag);
+            if (!suppressFolder && FolderList.SelectedItem is Grid g) ShowFolder((string)g.Tag);
         };
         FolderList.SelectedIndex = 0;
     }
@@ -122,6 +150,7 @@ public sealed partial class MainWindow : Window
             var pill = new Border { CornerRadius = new CornerRadius(9), Padding = new Thickness(7, 1, 7, 2), Background = Palette.B(tint + "Bg"), Child = new TextBlock { Text = n, FontSize = 11, FontWeight = Microsoft.UI.Text.FontWeights.Bold, Foreground = Palette.B(tint + "Fg") } };
             Grid.SetColumn(tb, 1); Grid.SetColumn(pill, 2);
             g.Children.Add(tb); g.Children.Add(pill);
+            labelRows.Add((g, tb, pill));
             LabelPanel.Children.Add(g);
         }
     }
@@ -159,6 +188,13 @@ public sealed partial class MainWindow : Window
             var b = new Button { Content = sp, Height = 36, Padding = new Thickness(14, 0, 16, 0), CornerRadius = new CornerRadius(18), BorderThickness = new Thickness(1) };
             if (label == "Archive") b.Click += (_, _) => MoveCurrent("Archive");
             Actions.Children.Add(b);
+            var nb = new Button
+            {
+                Content = label, Height = 38, Padding = new Thickness(16, 0, 16, 0), CornerRadius = new CornerRadius(19), BorderThickness = new Thickness(1),
+                FontSize = 13, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
+            };
+            if (label == "Archive") nb.Click += (_, _) => MoveCurrent("Archive");
+            NordActions.Children.Add(nb);
         }
     }
 
@@ -171,7 +207,8 @@ public sealed partial class MainWindow : Window
         {
             bool on = k == name;
             r.name.Foreground = Palette.B(on ? "SelText" : "Body");
-            r.name.FontWeight = on ? Microsoft.UI.Text.FontWeights.SemiBold : Microsoft.UI.Text.FontWeights.Normal;
+            r.name.FontWeight = Palette.Nordic ? (on ? Microsoft.UI.Text.FontWeights.Bold : Microsoft.UI.Text.FontWeights.Medium)
+                                               : (on ? Microsoft.UI.Text.FontWeights.SemiBold : Microsoft.UI.Text.FontWeights.Normal);
             r.icon.Stroke = Palette.B(on ? "SelText" : "Dim");
             r.count.Foreground = Palette.B(on ? "SelText" : "Faint");
         }
@@ -179,6 +216,7 @@ public sealed partial class MainWindow : Window
         var items = Sample.All.Where(m => m.Folder == name).ToList();
         int unread = items.Count(m => m.Unread);
         UnreadText.Text = unread > 0 ? $"{unread} unread" : $"{items.Count} messages";
+        Subtitle.Text = name == "Inbox" ? $"Good morning. {unread} new since yesterday." : $"{items.Count} messages";
         MailList.ItemsSource = items;
         if (items.Count > 0) MailList.SelectedIndex = 0;
     }
@@ -200,6 +238,8 @@ public sealed partial class MainWindow : Window
         HeadInitials.Text = m.Initials;
         HeadInitials.Foreground = m.AvatarFg;
         HeadAvatar.Background = m.AvatarBg;
+        NordSubject.Text = m.Subject;
+        NordMeta.Text = m.From == "Me" ? $"You · {m.Time}" : $"{m.From} to you · {m.Time}";
         BuildContext(m);
         _ = ShowBody(m);
     }
@@ -213,7 +253,10 @@ public sealed partial class MainWindow : Window
 
     void BuildContext(Mail m)
     {
+        if (Palette.Nordic) { BuildNordContext(m); return; }
         var p = ContextPanel;
+        p.Padding = new Thickness(22, 26, 22, 26);
+        p.Spacing = 10;
         p.Children.Clear();
         p.Children.Add(new Border
         {
@@ -249,6 +292,45 @@ public sealed partial class MainWindow : Window
         }
         p.Children.Add(new TextBlock { Text = "NOTE", FontSize = 11, FontWeight = Microsoft.UI.Text.FontWeights.Bold, CharacterSpacing = 80, Foreground = Palette.B("Faint"), Margin = new Thickness(0, 10, 0, 0) });
         p.Children.Add(new TextBlock { Text = "Sender context is sample data in this prototype.", FontSize = 12.5, Foreground = Palette.B("Dim"), TextWrapping = TextWrapping.Wrap });
+    }
+
+    // NordMail.dc.html aside: plain text, separated by hairlines, no cards.
+    void BuildNordContext(Mail m)
+    {
+        var p = ContextPanel;
+        p.Children.Clear();
+        p.Padding = new Thickness(22, 30, 22, 30);
+        p.Spacing = 16;
+        TextBlock T(string text, double size, string brush, Windows.UI.Text.FontWeight? w = null) =>
+            new() { Text = text, FontSize = size, Foreground = Palette.B(brush), FontWeight = w ?? Microsoft.UI.Text.FontWeights.Normal, TextWrapping = TextWrapping.Wrap };
+        Border Hair() => new() { Height = 1, Background = Palette.B("Line") };
+        p.Children.Add(new Border
+        {
+            Width = 64, Height = 64, CornerRadius = new CornerRadius(32), Background = m.AvatarBg, HorizontalAlignment = HorizontalAlignment.Left,
+            Child = new TextBlock { Text = m.Initials, FontSize = 20, FontWeight = Microsoft.UI.Text.FontWeights.ExtraBold, Foreground = m.AvatarFg, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center },
+        });
+        var who = new StackPanel();
+        who.Children.Add(T(m.From, 17, "Text", Microsoft.UI.Text.FontWeights.ExtraBold));
+        if (!string.IsNullOrEmpty(m.Org)) who.Children.Add(T(m.Org, 13, "Dim"));
+        p.Children.Add(who);
+        var contact = new StackPanel { Spacing = 8 };
+        contact.Children.Add(T(m.Email, 13, "Body"));
+        if (m.Label != null) contact.Children.Add(T("Label: " + m.Label, 13, "Body"));
+        p.Children.Add(contact);
+        p.Children.Add(Hair());
+        p.Children.Add(T("Recent", 12, "Dim", Microsoft.UI.Text.FontWeights.Bold));
+        var rec = new StackPanel { Spacing = 10 };
+        foreach (var r in Sample.All.Where(x => x.Email == m.Email)) rec.Children.Add(T($"{r.Subject} · {r.Time}", 13, "Body"));
+        p.Children.Add(rec);
+        if (m.From == "Mira Okafor")
+        {
+            p.Children.Add(Hair());
+            p.Children.Add(T("Coming up", 12, "Dim", Microsoft.UI.Text.FontWeights.Bold));
+            var tb = new TextBlock { FontSize = 13, Foreground = Palette.B("Body") };
+            tb.Inlines.Add(new Microsoft.UI.Xaml.Documents.Run { Text = "Thu 14:00 ", Foreground = Palette.B("AmberFg"), FontWeight = Microsoft.UI.Text.FontWeights.Bold });
+            tb.Inlines.Add(new Microsoft.UI.Xaml.Documents.Run { Text = "Design review" });
+            p.Children.Add(tb);
+        }
     }
 
     void MoveCurrent(string to) => Move(current, to);
@@ -444,34 +526,105 @@ public sealed partial class MainWindow : Window
     {
         bool n = Palette.Nordic;
         var tile = Palette.B("Tile"); var line = Palette.B("Line"); var clear = Palette.B("Clear");
-        Shell.ColumnSpacing = n ? 6 : 12;
+        var res = Application.Current.Resources;
+
+        // shell: Nordic has rail + folders straight on the ground, one surface inset 14px
+        Shell.Padding = n ? new Thickness(0, 0, 14, 14) : new Thickness(14, 0, 14, 14);
+        Shell.ColumnSpacing = n ? 0 : 12;
+        FolderCol.Width = new GridLength(n ? 228 : 236);
         foreach (var b in new[] { RailTile, FolderTile })
         {
             b.Background = n ? clear : tile;
             b.BorderThickness = new Thickness(n ? 0 : 1);
         }
-        RailTile.CornerRadius = new CornerRadius(24);
-        FolderTile.CornerRadius = new CornerRadius(26);
+        RailTile.Width = n ? 76 : 66;
+        RailTile.Padding = n ? new Thickness(0, 14, 0, 22) : new Thickness(0, 14, 0, 14);
+        FolderTile.Padding = n ? new Thickness(14, 18, 14, 22) : new Thickness(12, 14, 12, 14);
+        BuildRail();
+
+        // folders
+        ComposeBtn.Height = n ? 50 : 46;
+        ComposeBtn.CornerRadius = new CornerRadius(n ? 25 : 16);
+        ComposeBtn.Margin = new Thickness(0, 0, 0, n ? 22 : 12);
+        ComposeIcon.Visibility = n ? Visibility.Collapsed : Visibility.Visible;
+        ComposeText.FontSize = n ? 14.5 : 14;
+        foreach (var r in folderRows.Values)
+        {
+            r.icon.Visibility = n ? Visibility.Collapsed : Visibility.Visible;
+            r.name.FontSize = n ? 14.5 : 13.5;
+            r.count.FontSize = n ? 12.5 : 12;
+            r.count.FontWeight = n ? Microsoft.UI.Text.FontWeights.Normal : Microsoft.UI.Text.FontWeights.SemiBold;
+        }
+        int fi = Math.Max(FolderList.SelectedIndex, 0);
+        suppressFolder = true;
+        FolderList.Items.Clear();
+        FolderList.ItemContainerStyle = (Style)res[n ? "NordFolderItem" : "FolderItem"];
+        foreach (var g in folderGrids) FolderList.Items.Add(g);
+        FolderList.SelectedIndex = fi;
+        suppressFolder = false;
+        LabelsHead.Text = n ? "Labels" : "LABELS";
+        LabelsHead.FontSize = n ? 12 : 11;
+        LabelsHead.CharacterSpacing = n ? 0 : 80;
+        LabelsHead.Foreground = Palette.B(n ? "Dim" : "Faint");
+        LabelsHead.Margin = n ? new Thickness(16, 24, 0, 8) : new Thickness(11, 18, 0, 6);
+        LabelPanel.Spacing = n ? 0 : 2;
+        foreach (var l in labelRows)
+        {
+            l.row.Padding = n ? new Thickness(16, 9, 16, 9) : new Thickness(11, 7, 11, 7);
+            l.row.ColumnSpacing = n ? 12 : 10;
+            l.name.FontSize = n ? 14 : 13.5;
+            l.pill.Visibility = n ? Visibility.Collapsed : Visibility.Visible;
+        }
+        StorageText.Visibility = n ? Visibility.Visible : Visibility.Collapsed;
+
+        // one continuous surface split by hairlines (Nordic) vs separate tiles (Bento)
         Surface.Background = n ? tile : clear;
         Surface.BorderBrush = line;
         Surface.BorderThickness = new Thickness(n ? 1 : 0);
         Surface.CornerRadius = new CornerRadius(n ? 28 : 0);
         SurfaceGrid.ColumnSpacing = n ? 0 : 12;
+        ListCol.Width = new GridLength(n ? 390 : 370);
+        CtxCol.Width = new GridLength(n ? 250 : 272);
         foreach (var b in new[] { ListTile, ReaderTile, ContextTile })
         {
             b.Background = n ? clear : tile;
             b.CornerRadius = new CornerRadius(n ? 0 : 26);
             b.BorderThickness = new Thickness(n ? 0 : 1);
         }
-        if (n) ReaderTile.BorderThickness = new Thickness(1, 0, 1, 0);
-        ListTile.CornerRadius = n ? new CornerRadius(28, 0, 0, 28) : new CornerRadius(26);
-        ContextTile.CornerRadius = n ? new CornerRadius(0, 28, 28, 0) : new CornerRadius(26);
+        if (n)
+        {
+            ListTile.BorderThickness = new Thickness(0, 0, 1, 0);
+            ContextTile.BorderThickness = new Thickness(1, 0, 0, 0);
+            ListTile.CornerRadius = new CornerRadius(27, 0, 0, 27);
+            ContextTile.CornerRadius = new CornerRadius(0, 27, 27, 0);
+        }
+
+        // list header + rows
+        ListHead.Padding = n ? new Thickness(28, 28, 28, 16) : new Thickness(20, 18, 20, 10);
+        FolderTitle.FontSize = n ? 28 : 24;
+        FolderTitle.FontWeight = n ? Microsoft.UI.Text.FontWeights.ExtraBold : Microsoft.UI.Text.FontWeights.Bold;
+        FolderTitle.CharacterSpacing = n ? -20 : 0;
+        UnreadText.Visibility = n ? Visibility.Collapsed : Visibility.Visible;
+        Subtitle.Visibility = n ? Visibility.Visible : Visibility.Collapsed;
+        Chips.Visibility = n ? Visibility.Collapsed : Visibility.Visible;
+        int si = MailList.SelectedIndex;
+        var src = MailList.ItemsSource;
+        MailList.ItemsSource = null;
+        MailList.ItemTemplate = n ? (DataTemplate)Root.Resources["NordRow"] : bentoRow;
+        MailList.ItemContainerStyle = (Style)res[n ? "NordRowItem" : "RowItem"];
+        MailList.Padding = n ? new Thickness(0) : new Thickness(0, 0, 0, 8);
+        MailList.ItemsSource = src;
+        if (si >= 0) MailList.SelectedIndex = si;
+
+        // reader
+        ReaderHead.Visibility = n ? Visibility.Collapsed : Visibility.Visible;
+        NordHead.Visibility = n ? Visibility.Visible : Visibility.Collapsed;
+        QuickReply.Visibility = n ? Visibility.Visible : Visibility.Collapsed;
+        BodyHost.Margin = n ? new Thickness(0, 18, 0, 12) : new Thickness(8, 0, 8, 10);
+        BodyHost.CornerRadius = new CornerRadius(n ? 0 : 18);
         HeadAvatar.CornerRadius = new CornerRadius(n ? 20 : 13);
-        ComposeBtn.CornerRadius = new CornerRadius(n ? 23 : 16);
-        foreach (var b in railButtons) b.CornerRadius = new CornerRadius(n ? 22 : 14);
-        foreach (var c in FolderList.Items) if (FolderList.ContainerFromItem(c) is ListViewItem li) li.CornerRadius = new CornerRadius(n ? 19 : 14);
         if (MailList.ItemsSource is List<Mail> ms) foreach (var m in ms) m.Refresh();
-        if (current != null) BuildContext(current);
+        if (current != null) { BuildContext(current); _ = ShowBody(current); }
 
         if (animate)
         {
