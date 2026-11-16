@@ -2,10 +2,12 @@
   <Folder Name="/src/">
     <Project Path="src/Barbican.Core/Barbican.Core.csproj" />
     <Project Path="src/Barbican.Presentation/Barbican.Presentation.csproj" />
+    <Project Path="src/Barbican.Editor.Layout/Barbican.Editor.Layout.csproj" />
     <Project Path="src/Barbican.Platform/Barbican.Platform.csproj" />
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/Barbican.Core.Tests/Barbican.Core.Tests.csproj" />
+    <Project Path="tests/Barbican.Editor.Layout.Tests/Barbican.Editor.Layout.Tests.csproj" />
     <Project Path="tests/Barbican.Presentation.Tests/Barbican.Presentation.Tests.csproj" />
   </Folder>
   <Folder Name="/tools/">

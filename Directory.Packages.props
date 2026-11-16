@@ -15,6 +15,16 @@
   <ItemGroup>
     <!-- Tests -->
     <PackageVersion Include="xunit.v3" Version="4.0.3" />
+    <!-- Editor text engine (spike S3, docs/adr/0006). SkiaSharp is pinned to Uno 7.0's version
+         (Uno.WinUI.Graphics2DSK 7.0.65 -> SkiaSharp 4.156.0); the native assets must match the
+         managed version exactly, so the Linux natives RichTextKit pulls in (4.153.1) are pinned too. -->
+    <PackageVersion Include="Topten.RichTextKit" Version="0.6.173" />
+    <PackageVersion Include="SkiaSharp" Version="4.156.0" />
+    <PackageVersion Include="SkiaSharp.HarfBuzz" Version="4.156.0" />
+    <PackageVersion Include="SkiaSharp.NativeAssets.Linux" Version="4.156.0" />
+    <PackageVersion Include="SkiaSharp.Views.WinUI" Version="4.156.0" />
+    <PackageVersion Include="HarfBuzzSharp" Version="14.4.0.100" />
+    <PackageVersion Include="HarfBuzzSharp.NativeAssets.Linux" Version="14.4.0.100" />
     <!-- Presentation -->
     <PackageVersion Include="CommunityToolkit.Mvvm" Version="8.4.2" />
   </ItemGroup>

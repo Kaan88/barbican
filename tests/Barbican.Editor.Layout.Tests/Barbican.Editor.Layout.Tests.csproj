@@ -1,0 +1,8 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Spike S3: RichTextKit layout of Core/Editor documents, headless on Windows and the Linux VM:
+       caret geometry, hit testing, UTF-16/code-point mapping, selection rectangles, rendering.
+       Shared test settings: tests/Directory.Build.props. -->
+  <ItemGroup>
+    <ProjectReference Include="../../src/Barbican.Editor.Layout/Barbican.Editor.Layout.csproj" />
+  </ItemGroup>
+</Project>
