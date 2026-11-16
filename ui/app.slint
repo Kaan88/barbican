@@ -1235,12 +1235,45 @@ component ContextMenu inherits PopIn {
     border-color: Theme.line;
     drop-shadow-blur: 16px;
     drop-shadow-color: #00000055;
-    Flickable {
-        content-height: col.preferred-height;
-        col := VerticalLayout {
-            padding: 4px;
-            for it[i] in root.items: ContextMenuRow { it: it; open-sub: it.sub && it.action == root.open-sub; picked(a) => { root.picked(a); } hovered => { root.hovered(it.action, i); } }
-        }
+    CtxRows { items: root.items; open-sub: root.open-sub; picked(a) => { root.picked(a); } hovered(a, i) => { root.hovered(a, i); } }
+}
+
+/// The rows of a context menu (scrolls when the menu is taller than the space it gets).
+component CtxRows inherits Flickable {
+    in property <[CtxItem]> items;
+    in property <string> open-sub;
+    callback picked(string);
+    callback hovered(string, int);
+    content-height: col.preferred-height;
+    col := VerticalLayout {
+        padding: 4px;
+        for it[i] in root.items: ContextMenuRow { it: it; open-sub: it.sub && it.action == root.open-sub; picked(a) => { root.picked(a); } hovered => { root.hovered(it.action, i); } }
+    }
+}
+
+/// A context menu or its flyout in a window of its own (src/overlay.rs). Slint draws every
+/// PopupWindow inside the main window, under the email body (a WebView2 child window), so a
+/// menu over the body was cut off; an owned top-level window is above it from its first frame,
+/// and may extend past the main window like a native menu. Windows rounds its corners and
+/// draws its border and shadow; only the rows fade in (Motion.enter).
+export component CtxWindow inherits Window {
+    in property <[CtxItem]> items;
+    in property <string> open-sub;
+    // the rows exist while the menu is open: each opening creates them again (fade in), and a
+    // closed menu's last frame is an empty panel
+    in property <bool> shown;
+    callback picked(string);
+    callback hovered(string, int);
+    no-frame: true;
+    title: "Menu";
+    background: Theme.popup;
+    default-font-size: Prefs.font-size;
+    default-font-family: "Segoe UI";
+    if root.shown: Rectangle {
+        opacity: 0;
+        animate opacity { duration: Motion.enter; easing: Ease.enter; }
+        init => { self.opacity = 1; }
+        CtxRows { items: root.items; open-sub: root.open-sub; picked(a) => { root.picked(a); } hovered(a, i) => { root.hovered(a, i); } }
     }
 }
 
@@ -2158,21 +2191,23 @@ export component AppWindow inherits Window {
     in-out property <length> ctx-sub-y;
     in-out property <length> ctx-sub-h;
     callback ctx-hover(string, int);
-    property <length> ctx-menu-x: max(0px, min(root.ctx-x, root.width - 252px));
-    property <length> ctx-menu-y: max(0px, min(root.ctx-y, root.height - min(root.ctx-h, root.height - 8px) - 4px));
-    property <length> ctx-sub-x: root.ctx-menu-x + 248px + 244px > root.width ? max(0px, root.ctx-menu-x - 244px) : root.ctx-menu-x + 244px;
-    property <length> ctx-sub-top: max(0px, min(root.ctx-menu-y + root.ctx-sub-y - 4px, root.height - min(root.ctx-sub-h, root.height - 8px) - 4px));
-    public function ctx-close() { ctx-popup.close(); root.ctx-open = false; root.ctx-sub-action = ""; CtxHl.id = ""; }
+    public function ctx-close() { root.ctx-open = false; root.ctx-sub-action = ""; CtxHl.id = ""; root.ctx-sync(); }
     public function ctx(kind: string, id: string, x: length, y: length) {
         root.ctx-x = x;
         root.ctx-y = y;
         root.ctx-request(kind, id);
         root.ctx-sub-action = "";
-        if root.ctx-items.length > 0 { root.ctx-open = true; ctx-popup.show(); } else { CtxHl.id = ""; }
+        if root.ctx-items.length > 0 { root.ctx-open = true; root.ctx-epoch += 1; } else { root.ctx-open = false; CtxHl.id = ""; }
+        root.ctx-sync();
     }
-    public function ctx-show() { root.ctx-sub-action = ""; root.ctx-open = true; ctx-popup.show(); }
-    // the WebView2 body is a separate HWND above Slint: hide it while a menu is open
+    public function ctx-show() { root.ctx-sub-action = ""; root.ctx-open = true; root.ctx-epoch += 1; root.ctx-sync(); }
+    // the menus are owned windows of their own (src/overlay.rs): it places and shows them
+    callback ctx-sync();
+    // bumps on every opening (a new menu, or the same place with new rows)
+    in-out property <int> ctx-epoch;
     in-out property <bool> ctx-open;
+    changed ctx-open => { root.ctx-sync(); }
+    changed ctx-sub-action => { root.ctx-sync(); }
     public function copy-text(t: string) { clip-buf.text = t; clip-buf.select-all(); clip-buf.copy(); }
     in-out property <bool> prompt-open;
     in-out property <string> prompt-title;
@@ -2195,8 +2230,9 @@ export component AppWindow inherits Window {
     out property <length> by: body.absolute-position.y;
     out property <length> bw: body.width;
     out property <length> bh: body.height;
-    // the command palette and the shortcut sheet (Pd.overlay) cover the body too
-    out property <bool> body-visible: logged-in && app == 0 && current-mail != "" && (!composing || dock-shows-body) && !show-settings && render-mode == 0 && !ev-open && !ctx-open && !CompX.sched-open && !Pd.overlay;
+    // the command palette and the shortcut sheet (Pd.overlay) cover the body too; context menus
+    // do not: they are windows of their own above it (src/overlay.rs)
+    out property <bool> body-visible: logged-in && app == 0 && current-mail != "" && (!composing || dock-shows-body) && !show-settings && render-mode == 0 && !ev-open && !prompt-open && !CompX.sched-open && !Pd.overlay;
     // the WebView follows layout and overlay changes at once (not on the next poll)
     callback webview-sync();
     changed body-visible => { root.webview-sync(); }
@@ -2856,8 +2892,8 @@ export component AppWindow inherits Window {
                     ActionButton { icon: Icons.fwd; label: "Forward"; icon-only: !acts.labels; clicked => { root.act("forward"); } }
                     ActionButton { icon: Icons.archive; label: "Archive"; icon-only: !acts.labels; clicked => { root.act("archive"); } }
                     if acts.roomy || (Theme.bento && !acts.tight): ActionButton { icon: Icons.trash; label: "Delete"; icon-only: Theme.bento || !acts.labels; clicked => { root.act("delete"); } }
-                    if acts.roomy: ActionButton { icon: Icons.move; label: "Move"; icon-only: Theme.bento || !acts.labels; clicked => { move-popup.show(); } }
-                    if acts.roomy: ActionButton { icon: Icons.tag; label: "Tag"; icon-only: true; clicked => { tag-popup.show(); } }
+                    if acts.roomy: ActionButton { icon: Icons.move; label: "Move"; icon-only: Theme.bento || !acts.labels; clicked => { acts.drop("rd-move", self.absolute-position.x); } }
+                    if acts.roomy: ActionButton { icon: Icons.tag; label: "Tag"; icon-only: true; clicked => { acts.drop("rd-tag", self.absolute-position.x); } }
                     Rectangle { horizontal-stretch: 1; }
                     if !acts.tight: ActionButton {
                         icon: Icons.star;
@@ -2866,61 +2902,13 @@ export component AppWindow inherits Window {
                         active: root.r-flagged;
                         clicked => { root.act("star"); }
                     }
-                    ActionButton { icon: Icons.more; label: "More"; icon-only: true; clicked => { more-popup.show(); } }
-                    move-popup := PopupWindow {
-                        x: acts.width - 260px; y: 40px; width: 240px;
-                        MenuPanel {
-                            VerticalLayout {
-                                padding: 6px;
-                                for f in root.folders: Rectangle {
-                                    visible: f.id != "__scheduled";
-                                    height: f.id == "__scheduled" ? 0px : 30px; border-radius: Theme.nordic ? 15px : 9px;
-                                    background: mta.has-hover ? Theme.hover : transparent;
-                                    mta := TouchArea { clicked => { root.move-to(f.id); } }
-                                    HorizontalLayout {
-                                        padding-left: 10px + f.depth * 12px; spacing: 8px;
-                                        VerticalLayout { alignment: center; SIcon { commands: Icons.for-glyph(f.icon); size: 15px; weight: 1.8; tint: Theme.dim; } }
-                                        Text { text: f.name; color: Theme.text; vertical-alignment: center; }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                    tag-popup := PopupWindow {
-                        x: acts.width - 220px; y: 40px; width: 200px;
-                        MenuPanel {
-                            VerticalLayout {
-                                padding: 6px;
-                                for t in root.tags: Rectangle {
-                                    height: 30px; border-radius: Theme.nordic ? 15px : 9px;
-                                    background: tgta.has-hover ? Theme.hover : transparent;
-                                    tgta := TouchArea { clicked => { root.tag-toggle(t.id); } }
-                                    HorizontalLayout {
-                                        padding-left: 10px; spacing: 10px;
-                                        VerticalLayout { alignment: center; Rectangle { width: 10px; height: 10px; border-radius: 4px; background: t.color; } }
-                                        Text { text: t.name; color: Theme.text; vertical-alignment: center; }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                    more-popup := PopupWindow {
-                        x: acts.width - 220px; y: 40px; width: 220px;
-                        MenuPanel {
-                            VerticalLayout {
-                                padding: 6px;
-                                if !acts.roomy: MenuItem { text: "Reply all"; clicked => { root.act("reply-all"); } }
-                                if !acts.roomy && (Theme.nordic || acts.tight): MenuItem { text: "Delete"; clicked => { root.act("delete"); } }
-                                if acts.tight: MenuItem { text: root.r-flagged ? "Remove star" : "Star"; clicked => { root.act("star"); } }
-                                if !acts.roomy: MenuItem { text: "Move to…"; clicked => { move-popup.show(); } }
-                                if !acts.roomy: MenuItem { text: "Tag…"; clicked => { tag-popup.show(); } }
-                                MenuItem { text: "Report spam"; clicked => { root.act("spam"); } }
-                                MenuItem { text: "Mark as unread"; clicked => { root.act("unread"); } }
-                                MenuItem { text: "Print"; clicked => { root.act("print"); } }
-                                // view source, forward as attachment, save .eml, quick rules… (src/reader.rs)
-                                MenuItem { text: "More actions…"; clicked => { root.ctx("reader", root.current-mail, acts.absolute-position.x + acts.width - 220px, acts.absolute-position.y + 40px); } }
-                            }
-                        }
+                    ActionButton { icon: Icons.more; label: "More"; icon-only: true; clicked => { acts.drop("rd-more", self.absolute-position.x); } }
+                    // Move, Tag and More drop down as context menus (src/overlay.rs: a window of their
+                    // own, so the email body under them never cuts them off); the id says which
+                    // actions the bar already shows inline
+                    function drop(kind: string, x: length) {
+                        root.ctx(kind, (acts.roomy ? "r" : "") + (acts.tight ? "t" : "") + (Theme.nordic ? "n" : ""),
+                            min(x, acts.absolute-position.x + acts.width - 248px), acts.absolute-position.y + 40px);
                     }
                 }
                 Rectangle { height: Theme.nordic ? 30px : 20px; }
@@ -6009,49 +5997,16 @@ export component AppWindow inherits Window {
     if CtX.import-open: ContactImportDialog { }
     if FilterX.open: FilterRuleEditor { }
     if FilterX.retro-open: FilterRetroDialog { }
-    ctx-popup := PopupWindow {
-        close-policy: no-auto-close;
-        x: 0; y: 0;
-        width: root.width;
-        height: root.height;
-        TouchArea {
-            // only a press outside both menus closes (a flyout press can fall through to here)
-            pointer-event(ev) => {
-                if ev.kind == PointerEventKind.down {
-                    if self.mouse-x >= cm.x && self.mouse-x < cm.x + cm.width && self.mouse-y >= cm.y && self.mouse-y < cm.y + cm.height { return; }
-                    if root.ctx-sub-action != "" && self.mouse-x >= root.ctx-sub-x && self.mouse-x < root.ctx-sub-x + 248px && self.mouse-y >= root.ctx-sub-top && self.mouse-y < root.ctx-sub-top + min(root.ctx-sub-h, root.height - 8px) { return; }
-                    root.ctx-close();
-                }
+    // Escape closes the flyout, then the menu (the menus themselves never take the focus)
+    if root.ctx-open: FocusScope {
+        x: 0; y: 0; width: 0; height: 0;
+        init => { self.focus(); }
+        key-pressed(ev) => {
+            if ev.text == Key.Escape {
+                if root.ctx-sub-action != "" { root.ctx-sub-action = ""; } else { root.ctx-close(); }
+                return accept;
             }
-        }
-        FocusScope {
-            init => { self.focus(); }
-            key-pressed(ev) => {
-                if ev.text == Key.Escape {
-                    if root.ctx-sub-action != "" { root.ctx-sub-action = ""; } else { root.ctx-close(); }
-                    return accept;
-                }
-                reject
-            }
-        }
-        cm := ContextMenu {
-            x: root.ctx-menu-x;
-            y: root.ctx-menu-y;
-            width: 248px;
-            height: min(root.ctx-h, root.height - 8px);
-            items: root.ctx-items;
-            open-sub: root.ctx-sub-action;
-            picked(a) => { root.ctx-close(); root.ctx-pick(a); }
-            hovered(a, i) => { root.ctx-hover(a, i); }
-        }
-        if root.ctx-sub-action != "": ContextMenu {
-            x: root.ctx-sub-x;
-            y: root.ctx-sub-top;
-            width: 248px;
-            height: min(root.ctx-sub-h, root.height - 8px);
-            items: root.ctx-sub-items;
-            // pick before closing: closing removes this flyout (and would drop the rest of this handler)
-            picked(a) => { root.ctx-pick(a); root.ctx-close(); }
+            reject
         }
     }
     // schedule send / reschedule (src/schedule.rs), over everything
