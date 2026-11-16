@@ -6,6 +6,7 @@ use crate::{AppWindow, CmpAtt};
 use serde_json::Value;
 use slint::{ComponentHandle, ModelRc, SharedString, VecModel};
 use std::cell::RefCell;
+use std::collections::HashMap;
 use std::sync::Arc;
 
 #[derive(Default, Clone)]
@@ -255,43 +256,56 @@ fn resolve_reply_identity(ids: &[Value], r: &ReplyFrom, auto: bool, match_mode: 
     reply_identity(ids, &r.delivered).map(|i| (i, None))
 }
 
+thread_local! {
+    /// The last identities read per account: the composer opens with its From filled in at
+    /// once (no empty field for a frame), then takes the fresh list.
+    static LAST_IDS: RefCell<HashMap<String, Vec<Value>>> = RefCell::new(HashMap::new());
+}
+
 fn load_identities(u: &AppWindow, c: Arc<Client>, reply: ReplyFrom) {
+    let acct = c.state_key();
+    let cached = LAST_IDS.with(|l| l.borrow().get(&acct).cloned());
+    if let Some(ids) = &cached { apply_identities(u, &c, ids, &reply); }
     let w = u.as_weak();
     std::thread::spawn(move || {
         let ids = c.identities().unwrap_or_default();
-        let ids2 = ids.clone();
-        let sigs: Vec<(String, String)> = ids.iter().map(|i| (i["textSignature"].as_str().unwrap_or("").to_string(), i["htmlSignature"].as_str().unwrap_or("").to_string())).collect();
-        let list: Vec<String> = ids.iter().map(|i| {
-            let (n, e) = (i["name"].as_str().unwrap_or(""), i["email"].as_str().unwrap_or(""));
-            if n.is_empty() { e.to_string() } else { format!("{n} <{e}>") }
-        }).collect();
         let _ = w.upgrade_in_event_loop(move |u| {
-            let ids = ids2;
-            // the From and signature the composer starts with are no edit of the user's
-            let unedited = crate::autosave::unedited(&u);
-            ST.with(|s| { let mut s = s.borrow_mut(); s.identities = list.clone(); s.signatures = sigs.clone(); });
-            let model: Vec<SharedString> = list.iter().map(|x| x.as_str().into()).collect();
-            u.set_c_identities(ModelRc::new(VecModel::from(model)));
-            // default to the identity of the signed-in address, as Bulwark does
-            let me = c.username.to_lowercase();
-            let p = crate::settings::Settings::load();
-            let resolved = resolve_reply_identity(&ids, &reply, p.bool("autoSelectReplyIdentity", false), &p.str("replyIdentityMatch", "domain"));
-            let idx = resolved.as_ref().map(|r| r.0)
-                .or_else(|| ids.iter().position(|i| i["email"].as_str().is_some_and(|e| e.to_lowercase() == me)))
-                .unwrap_or(0);
-            u.set_c_from_index(idx as i32);
-            // Bulwark: the catch-all rewrite (or a draft's own sender) turns From into a
-            // name and an address to edit, sent through the anchor identity
-            if let Some((name, email)) = resolved.and_then(|r| r.1) {
-                u.set_c_from_name(name.into());
-                u.set_c_from_email(email.into());
-                u.set_c_from_custom(true);
-            }
-            // the signature of the identity just picked
-            apply_signature(&u);
-            if unedited { crate::autosave::rebase(&u); }
+            if cached.as_ref() == Some(&ids) { return; }
+            LAST_IDS.with(|l| l.borrow_mut().insert(acct, ids.clone()));
+            apply_identities(&u, &c, &ids, &reply);
         });
     });
+}
+
+fn apply_identities(u: &AppWindow, c: &Client, ids: &[Value], reply: &ReplyFrom) {
+    let sigs: Vec<(String, String)> = ids.iter().map(|i| (i["textSignature"].as_str().unwrap_or("").to_string(), i["htmlSignature"].as_str().unwrap_or("").to_string())).collect();
+    let list: Vec<String> = ids.iter().map(|i| {
+        let (n, e) = (i["name"].as_str().unwrap_or(""), i["email"].as_str().unwrap_or(""));
+        if n.is_empty() { e.to_string() } else { format!("{n} <{e}>") }
+    }).collect();
+    // the From and signature the composer starts with are no edit of the user's
+    let unedited = crate::autosave::unedited(u);
+    ST.with(|s| { let mut s = s.borrow_mut(); s.identities = list.clone(); s.signatures = sigs; });
+    let model: Vec<SharedString> = list.iter().map(|x| x.as_str().into()).collect();
+    u.set_c_identities(ModelRc::new(VecModel::from(model)));
+    // default to the identity of the signed-in address, as Bulwark does
+    let me = c.username.to_lowercase();
+    let p = crate::settings::Settings::load();
+    let resolved = resolve_reply_identity(ids, reply, p.bool("autoSelectReplyIdentity", false), &p.str("replyIdentityMatch", "domain"));
+    let idx = resolved.as_ref().map(|r| r.0)
+        .or_else(|| ids.iter().position(|i| i["email"].as_str().is_some_and(|e| e.to_lowercase() == me)))
+        .unwrap_or(0);
+    u.set_c_from_index(idx as i32);
+    // Bulwark: the catch-all rewrite (or a draft's own sender) turns From into a
+    // name and an address to edit, sent through the anchor identity
+    if let Some((name, email)) = resolved.and_then(|r| r.1) {
+        u.set_c_from_name(name.into());
+        u.set_c_from_email(email.into());
+        u.set_c_from_custom(true);
+    }
+    // the signature of the identity just picked
+    apply_signature(u);
+    if unedited { crate::autosave::rebase(u); }
 }
 
 /// Insert the identity's signature once (as rich blocks), following Bulwark's signature settings.

@@ -686,6 +686,7 @@ pub fn load_list(w: slint::Weak<AppWindow>, c: Arc<Client>, filter: Value) {
                 }
             });
             rebuild_list(&u);
+            crate::msgload::prefetch_top(&u);
         });
     });
 }
@@ -770,6 +771,8 @@ pub fn sync(w: slint::Weak<AppWindow>, c: Arc<Client>) {
                     Ok(Some(d)) => {
                         let st = &mut *l;
                         crate::jmap::apply_list_delta(&mut st.emails, &mut st.total, &mut st.threads, &d);
+                        // cached bodies take the new keywords; what left the list or a changed thread is re-read
+                        crate::bodycache::with(|b| b.on_sync(&c.state_key(), d.emails.iter(), &d.removed, &d.destroyed_threads));
                         let ids: HashSet<String> = st.emails.iter().filter_map(|m| m["id"].as_str().map(String::from)).collect();
                         st.checked.retain(|i| ids.contains(i));
                         st.sync = Some(SyncStates { account: s.account.clone(), query: d.query_state, email: d.email_state, thread: d.thread_state });
@@ -867,16 +870,24 @@ pub fn email(id: &str) -> Option<Value> {
     LIST.with(|l| l.borrow().emails.iter().find(|m| m["id"] == id).cloned())
 }
 
-/// Update a message locally (optimistic UI).
+/// Update a message locally (optimistic UI). The reader's cached copies (bodies, conversation
+/// rows, the open message) take the change too.
 fn patch_local(ids: &[String], f: impl Fn(&mut Value)) {
     LIST.with(|l| {
         for m in l.borrow_mut().emails.iter_mut() {
             if ids.iter().any(|i| m["id"] == i.as_str()) { f(m); }
         }
     });
+    crate::bodycache::with(|b| b.patch_local(ids, |i| crate::unified::real_id(i).to_string(), &f));
+    crate::CUR_MSG.with(|x| {
+        if let Some((m, _)) = x.borrow_mut().as_mut() {
+            if ids.iter().any(|i| m["id"] == i.as_str() || m["id"] == crate::unified::real_id(i)) { f(Arc::make_mut(m)); }
+        }
+    });
 }
 
 fn remove_local(ids: &[String]) {
+    crate::bodycache::with(|b| b.remove_local(ids, |i| crate::unified::real_id(i).to_string()));
     LIST.with(|l| {
         let mut l = l.borrow_mut();
         let before = l.emails.len();

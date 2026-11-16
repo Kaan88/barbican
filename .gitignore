@@ -1,3 +1,4 @@
 target/
 *.pdb
 plugins/*/target/
+__pycache__/

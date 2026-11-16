@@ -21,55 +21,6 @@ pub const SOURCE_DISPLAY_LIMIT: usize = 2 * 1024 * 1024;
 const FILES_CAP: &str = "urn:ietf:params:jmap:filenode";
 const SIEVE_CAP: &str = "urn:ietf:params:jmap:sieve";
 
-// ---------------------------------------------------------------- large pages
-
-/// Pages up to this size go to the WebView as a string (NavigateToString's limit is 2 MB).
-pub const INLINE_HTML_MAX: usize = 1_500_000;
-
-/// The custom scheme a large page is served from (WebView2 maps it to http://barbican.localhost/).
-/// The page is served from memory, never from a file: a file:// origin would let the mail's own
-/// CSS reach file:/SMB URLs (an NTLM leak) and leave the mail's plaintext in the temp folder.
-pub const PAGE_SCHEME: &str = "barbican";
-const PAGE_ORIGIN: &str = "http://barbican.localhost/";
-
-/// The large page being shown: (its one-off path, the bytes) and the URL the next navigation
-/// may go to (taken once by `allow_navigation`).
-static BIG_PAGE: std::sync::Mutex<Option<(String, Arc<Vec<u8>>)>> = std::sync::Mutex::new(None);
-static BIG_NAV: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);
-
-/// Keep a large reader page in memory and return the URL to load it from (a fresh random path
-/// per page, so a link in a mail cannot guess it).
-pub fn page_url(html: &str) -> String {
-    let mut r = [0u8; 12];
-    let _ = getrandom::getrandom(&mut r);
-    let path = format!("reader/{}.html", r.iter().map(|b| format!("{b:02x}")).collect::<String>());
-    *BIG_PAGE.lock().unwrap() = Some((path.clone(), Arc::new(html.as_bytes().to_vec())));
-    let url = format!("{PAGE_ORIGIN}{path}");
-    *BIG_NAV.lock().unwrap() = Some(url.clone());
-    url
-}
-
-/// Forget the large page (a new message is opening).
-pub fn drop_page() { *BIG_PAGE.lock().unwrap() = None; *BIG_NAV.lock().unwrap() = None; }
-
-/// The custom-scheme handler: the current large page at its path, nothing else.
-pub fn serve_page(path: &str) -> Option<Arc<Vec<u8>>> {
-    let p = path.trim_start_matches('/');
-    BIG_PAGE.lock().unwrap().as_ref().filter(|(q, _)| q == p).map(|(_, b)| b.clone())
-}
-
-/// Navigation filter for the reader: our own large-page URL is let through once (when it was
-/// just asked for); file: is always refused. `None` = not ours, the usual rules apply.
-pub fn allow_navigation(url: &str) -> Option<bool> {
-    let l = url.to_ascii_lowercase();
-    if l.starts_with("file:") { return Some(false); }
-    if l.starts_with(PAGE_ORIGIN) || l.starts_with("https://barbican.localhost/") || l.starts_with("barbican:") {
-        let mut n = BIG_NAV.lock().unwrap();
-        return Some(if n.as_deref() == Some(url) { *n = None; true } else { false });
-    }
-    None
-}
-
 // ---------------------------------------------------------------- headers
 
 /// The first header `name` (case-insensitive) of a JMAP `headers` list, unfolded and trimmed.
@@ -704,7 +655,7 @@ fn load_full_body(u: &AppWindow) {
                         let _ = w2.upgrade_in_event_loop(move |u| {
                             if !is_open(&id2) { return; }
                             show_message_body(&u, &m);
-                            crate::CUR_MSG.with(|x| if let Some((cm, _)) = x.borrow_mut().as_mut() { cm["bodyValues"] = m["bodyValues"].clone(); });
+                            crate::CUR_MSG.with(|x| if let Some((cm, _)) = x.borrow_mut().as_mut() { Arc::make_mut(cm)["bodyValues"] = m["bodyValues"].clone(); });
                             set_step(&u, |s| { s.trunc = displayed_truncated(&m); s.trunc_step = Step::Idle; s.msg = m; });
                         });
                     });
@@ -841,7 +792,7 @@ fn show_parsed(u: &AppWindow, m: &Value) {
         name: a["name"].as_str().unwrap_or("attachment").into(), size: crate::human_size(a["size"].as_u64().unwrap_or(0)).into(), index: i as i32,
     }).collect();
     u.set_attachments(ModelRc::new(VecModel::from(rows)));
-    crate::CUR_MSG.with(|x| *x.borrow_mut() = Some((m.clone(), atts)));
+    crate::CUR_MSG.with(|x| *x.borrow_mut() = Some((Arc::new(m.clone()), atts)));
     show_message_body(u, m);
     ST.with(|s| s.borrow_mut().view = View::Eml { subject });
     refresh(u);
@@ -1425,23 +1376,6 @@ Connection: close
         assert_eq!(folder_tree(&nodes), vec![("c".into(), "archive".into(), 0), ("a".into(), "Work".into(), 0), ("b".into(), "2026".into(), 1)]);
         assert_eq!(file_node(true, Some("a"), "x.pdf", "B", "application/pdf"), json!({"@type": "File", "parentId": "a", "name": "x.pdf", "blobId": "B", "mediaType": "application/pdf"}));
         assert_eq!(file_node(false, None, "x", "B", "t"), json!({"parentId": null, "name": "x", "blobId": "B", "type": "t"}));
-    }
-
-    #[test]
-    fn big_page_served_once_and_file_refused() {
-        let url = page_url("<p>hi</p>");
-        assert!(url.starts_with("http://barbican.localhost/reader/"));
-        let path = url.trim_start_matches("http://barbican.localhost");
-        assert_eq!(serve_page(path).unwrap().as_slice(), b"<p>hi</p>");
-        assert_eq!(serve_page("/reader/guess.html"), None);
-        assert_eq!(allow_navigation("http://barbican.localhost/reader/guess.html"), Some(false));
-        assert_eq!(allow_navigation(&url), Some(true));
-        assert_eq!(allow_navigation(&url), Some(false), "a link to it later is refused");
-        assert_eq!(allow_navigation("file://attacker/share/x.html"), Some(false));
-        assert_eq!(allow_navigation("FILE:///C:/x"), Some(false));
-        assert_eq!(allow_navigation("https://example.com/"), None);
-        drop_page();
-        assert_eq!(serve_page(path), None);
     }
 
     #[test]

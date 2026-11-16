@@ -12,11 +12,13 @@ mod automation;
 mod otp;
 mod agent;
 mod ai;
+mod bodycache;
 mod calendar;
 mod cal_editor;
 mod cal_extra;
 mod recurrence;
 mod reminders;
+mod capture;
 mod compose;
 mod contacts;
 mod contacts_x;
@@ -29,6 +31,8 @@ mod files;
 mod glance;
 mod jmap;
 mod lite;
+mod mailview;
+mod msgload;
 mod rte;
 mod mail;
 mod unified;
@@ -75,13 +79,8 @@ use std::sync::{Arc, Mutex};
 slint::include_modules!();
 
 thread_local! {
-    static WV: std::cell::RefCell<Option<wry::WebView>> = const { std::cell::RefCell::new(None) };
+    pub(crate) static WV: std::cell::RefCell<Option<wry::WebView>> = const { std::cell::RefCell::new(None) };
     static REPLY: std::cell::RefCell<Option<(String, String, Option<String>, String, String)>> = const { std::cell::RefCell::new(None) };
-    static PENDING: std::cell::RefCell<Option<String>> = const { std::cell::RefCell::new(None) };
-}
-
-fn csp(images: bool) -> String {
-    csp_with(images, None)
 }
 
 /// The reader's CSP; `script` (our own accessibility script) is allowed by its hash only.
@@ -92,10 +91,24 @@ fn csp_with(images: bool, script: Option<&str>) -> String {
         Some(s) => format!("'sha256-{}'", base64::engine::general_purpose::STANDARD.encode(sha2::Sha256::digest(s.as_bytes()))),
         None => "'none'".into(),
     };
+    // with remote content blocked, a remote stylesheet or font is a tracking beacon like an image
+    let (style, font, img) = if images { ("'unsafe-inline' http: https:", "http: https: data:", "http: https: data:") } else { ("'unsafe-inline'", "data:", "data:") };
     format!(
-        "<meta http-equiv=\"Content-Security-Policy\" content=\"default-src 'none'; style-src 'unsafe-inline' http: https:; font-src http: https: data:; img-src {}; script-src {scripts}; object-src 'none'; frame-src 'none'; form-action 'none'\">",
-        if images { "http: https: data:" } else { "data:" }
+        "<meta http-equiv=\"Content-Security-Policy\" content=\"default-src 'none'; style-src {style}; font-src {font}; img-src {img}; script-src {scripts}; object-src 'none'; frame-src 'none'; form-action 'none'\">"
     )
+}
+
+#[cfg(test)]
+mod csp_tests {
+    #[test]
+    fn blocked_remote_content_includes_stylesheets_and_fonts() {
+        let c = super::csp_with(false, None);
+        assert!(c.contains("style-src 'unsafe-inline';") && c.contains("font-src data:;") && c.contains("img-src data:;"), "{c}");
+        assert!(c.contains("script-src 'none'"));
+        let c = super::csp_with(true, Some("x"));
+        assert!(c.contains("style-src 'unsafe-inline' http: https:;") && c.contains("font-src http: https: data:;") && c.contains("img-src http: https: data:;"));
+        assert!(c.contains("script-src 'sha256-"));
+    }
 }
 
 /// The open message's body, kept so it can be re-rendered (mode change, resize, "Load images").
@@ -117,7 +130,16 @@ fn has_remote_images(h: &str) -> bool {
 }
 
 fn render_current(u: &AppWindow) {
+    render_current_then(u, None);
+}
+
+/// Render the open message's body; `on_ready` runs when it is about to appear (with the
+/// WebView: once the new page is laid out, right before it is swapped in).
+/// `on_ready` returning false means the page is no longer wanted (another message was opened
+/// meanwhile): it is dropped instead of revealed.
+fn render_current_then(u: &AppWindow, on_ready: Option<Box<dyn FnOnce() -> bool>>) {
     let mode = u.get_render_mode();
+    let mut on_ready = on_ready;
     CUR.with(|c| {
         let c = c.borrow();
         let Some(cur) = c.as_ref() else { return };
@@ -143,9 +165,28 @@ fn render_current(u: &AppWindow) {
                 let t = if cur.text.trim().is_empty() { cur.html.as_deref().map(html_to_text).unwrap_or_default() } else { cur.text.clone() };
                 u.set_r_body(t.into());
             }
-            _ => show_html(wrap_html_full(&body, cur.allow, true)),
+            _ => {
+                let (doc, script, bg) = page(&body, cur.allow, true);
+                let wk = u.as_weak();
+                let then = on_ready.take();
+                // the body area takes the page's colour as the page appears
+                let cb: Box<dyn FnOnce() -> bool> = Box::new(move || {
+                    if let Some(f) = then { if !f() { return false; } }
+                    if let Some(u) = wk.upgrade() { u.set_body_bg(mailview::color(bg)); }
+                    true
+                });
+                mailview::show(&doc, bg, script, Some(cb));
+            }
         }
     });
+    // the native renderers show the body at once
+    if let Some(f) = on_ready { let _ = f(); }
+}
+
+/// HTML without colours, backgrounds or a stylesheet: simple prose (most personal mail).
+fn html_uncolored(h: &str) -> bool {
+    let l = h.to_ascii_lowercase();
+    !["color", "background", "<style", "<font", "<svg", "<body"].iter().any(|k| l.contains(k))
 }
 
 fn esc(s: &str) -> String {
@@ -161,16 +202,6 @@ fn wv_bg() -> (u8, u8, u8, u8) {
     if DARK.with(|d| d.get()) { (0x14, 0x14, 0x14, 255) } else { (255, 255, 255, 255) }
 }
 
-fn show_html(h: String) {
-    WV.with(|w| match &*w.borrow() {
-        // WebView2's NavigateToString takes at most 2 MB: a bigger page (a long message, its
-        // source) is served from memory through the app's own scheme (never a file: origin)
-        Some(v) if h.len() > reader::INLINE_HTML_MAX => { let url = reader::page_url(&h); let _ = v.load_url(&url); }
-        Some(v) => { reader::drop_page(); let _ = v.load_html(&h); }
-        None => PENDING.with(|p| *p.borrow_mut() = Some(h)),
-    });
-}
-
 /// Automation only: run JS in the email WebView; the result lands in WV_EVAL for `wv-result`.
 pub static WV_EVAL: Mutex<Option<String>> = Mutex::new(None);
 pub fn wv_eval(js: &str) -> bool {
@@ -181,32 +212,40 @@ pub fn wv_eval(js: &str) -> bool {
     })
 }
 
-fn wrap_html(body: &str) -> String {
-    wrap_html_opts(body, false)
-}
-
 fn wrap_html_opts(body: &str, images: bool) -> String {
-    wrap_html_full(body, images, false)
+    page(body, images, false).0
 }
 
-/// The reader page. `recolor`: an HTML mail shown while the app is dark gets Bulwark's dark
-/// conversion (dark_mail.rs, email_dark.js) unless "Always show emails in light mode" or the
-/// accessibility colour override is on.
-fn wrap_html_full(body: &str, images: bool, recolor: bool) -> String {
+/// The reader page, whether it carries a script of ours (then, and only then, its frame may
+/// run scripts: the CSP admits our scripts by their hashes) and the colour it paints (the shell,
+/// the body area and the page agree on it, so nothing flashes as it is swapped in).
+///
+/// In the dark theme (unless "Always show emails in light mode"): plain text and HTML that sets
+/// no colours of its own take the reader's colours; other HTML gets Bulwark's dark conversion
+/// when `recolor` (dark_mail.rs, email_dark.js) and the accessibility colour override is off;
+/// anything else is on white.
+fn page(body: &str, images: bool, recolor: bool) -> (String, bool, &'static str) {
     let p = settings::Settings::load();
     // Settings > Accessibility: spacing, width, links, motion, text size and fitting
-    let a = a11y::A11y::load();
-    let recolor = recolor && DARK.with(|d| d.get()) && !p.bool("emailAlwaysLightMode", false) && !a.override_active() && !body.starts_with("<pre>");
+    let a = a11y::A11y::from(&p, a11y::System::detect());
+    let dark = DARK.with(|d| d.get()) && !p.bool("emailAlwaysLightMode", false);
+    let plain = body.starts_with("<pre>");
+    let themed = dark && (plain || html_uncolored(body));
+    let recolor = recolor && dark && !themed && !a.override_active();
     let script = match (a.mail_script(), recolor) {
         (Some(s), true) => Some(format!("{s}\n{}", dark_mail::SCRIPT)),
         (None, true) => Some(dark_mail::SCRIPT.to_string()),
         (s, false) => s,
     };
+    // the HTML parser turns CRLF into LF before the CSP hashes a script: hash (and send) it in that
+    // form, or a script read from a CRLF checkout (include_str!) is blocked
+    let script = script.map(|s| s.replace("\r\n", "\n").replace('\r', "\n"));
+    let has_script = script.is_some();
+    // the accessibility override paints its own page colour (a11y.rs)
+    let bg = if dark && a.override_active() { "#0a0a0a" } else if themed { mailview::reader_bg() } else if recolor { dark_mail::BACKGROUND } else { "#ffffff" };
     let csp = csp_with(images, script.as_deref());
-    let extra = format!("<style>{}</style>{}", a.mail_css(DARK.with(|d| d.get()) && !p.bool("emailAlwaysLightMode", false)),
-        script.map(|s| format!("<script>{s}</script>")).unwrap_or_default());
+    let extra = format!("<style>{}</style>{}", a.mail_css(dark), script.map(|s| format!("<script>{s}</script>")).unwrap_or_default());
     let csp = format!("{csp}{extra}");
-    let plain = body.starts_with("<pre>");
     // Bulwark plainTextFont: sans (default) or mono for text/plain bodies
     let pre_font = if p.str("plainTextFont", "sans") == "mono" { "ui-monospace,Consolas,'Cascadia Mono',monospace" } else { "inherit" };
     // Bulwark messageSpacing: auto drops the gutter for full-bleed HTML layouts, edge always, always never
@@ -216,88 +255,28 @@ fn wrap_html_full(body: &str, images: bool, recolor: bool) -> String {
         "always" => 16,
         _ => if !plain && full_bleed() { 0 } else { 16 },
     };
-    if plain && !p.bool("emailAlwaysLightMode", false) {
-        return format!("<!doctype html><html><head><meta charset=utf-8>{csp}<base target=_blank><style>html,body{{background:#141414;color:#d4d4d4}}body{{margin:{margin}px;font-family:'Segoe UI',sans-serif;font-size:14px;word-wrap:break-word}}pre{{white-space:pre-wrap;font-family:{pre_font};margin:0}}a{{color:#f0577a}}</style></head><body>{body}</body></html>");
+    if themed {
+        // plain text, and HTML that sets no colours of its own, take the dark reader's colours
+        return (format!("<!doctype html><html><head><meta charset=utf-8>{csp}<base target=_blank><style>html,body{{background:#141414;color:#d4d4d4}}body{{margin:{margin}px;font-family:'Segoe UI',sans-serif;font-size:14px;word-wrap:break-word}}pre{{white-space:pre-wrap;font-family:{pre_font};margin:0}}a{{color:#f0577a}}img{{max-width:100%;height:auto}}</style></head><body>{body}</body></html>"), has_script, bg);
     }
     if recolor {
         // the mail's own dark styles follow the app's theme, not the OS (resolveColorSchemeMedia)
         let scheme = dark_mail::color_scheme(true, dark_mail::has_native_dark(body));
         let body = dark_mail::resolve_color_scheme_media(body, true);
-        return format!("<!doctype html><html class=\"{}\" style=\"color-scheme:{scheme}\"><head><meta charset=utf-8>{csp}<base target=_blank><style>body{{margin:{margin}px;font-family:'Segoe UI',sans-serif;font-size:14px;word-wrap:break-word}}pre{{white-space:pre-wrap;font-family:{pre_font}}}img{{max-width:100%;height:auto}}{}</style></head><body>{body}</body></html>", dark_mail::PENDING_CLASS, dark_mail::css());
+        return (format!("<!doctype html><html class=\"{}\" style=\"color-scheme:{scheme}\"><head><meta charset=utf-8>{csp}<base target=_blank><style>body{{margin:{margin}px;font-family:'Segoe UI',sans-serif;font-size:14px;word-wrap:break-word}}pre{{white-space:pre-wrap;font-family:{pre_font}}}img{{max-width:100%;height:auto}}{}</style></head><body>{body}</body></html>", dark_mail::PENDING_CLASS, dark_mail::css()), has_script, bg);
     }
-    format!("<!doctype html><html><head><meta charset=utf-8>{csp}<base target=_blank><style>body{{margin:{margin}px;font-family:'Segoe UI',sans-serif;font-size:14px;color:#111;background:#fff;word-wrap:break-word}}pre{{white-space:pre-wrap;font-family:{pre_font}}}img{{max-width:100%;height:auto}}</style></head><body>{body}</body></html>")
-}
-
-fn rect(x: f32, y: f32, w: f32, h: f32) -> wry::Rect {
-    wry::Rect {
-        position: wry::dpi::LogicalPosition::new(x as f64, y as f64).into(),
-        size: wry::dpi::LogicalSize::new(w.max(1.0) as f64, h.max(1.0) as f64).into(),
-    }
+    (format!("<!doctype html><html><head><meta charset=utf-8>{csp}<base target=_blank><style>body{{margin:{margin}px;font-family:'Segoe UI',sans-serif;font-size:14px;color:#111;background:#fff;word-wrap:break-word}}pre{{white-space:pre-wrap;font-family:{pre_font}}}img{{max-width:100%;height:auto}}</style></head><body>{body}</body></html>"), has_script, bg)
 }
 
 fn sync_webview(ui: &AppWindow) {
-    let r = rect(ui.get_bx(), ui.get_by(), ui.get_bw(), ui.get_bh());
-    let vis = ui.get_body_visible() && !ui.global::<Pd>().get_overlay();
     // light renderer: re-layout when the reading pane width changes
     if ui.get_render_mode() == 1 && ui.get_current_mail() != "" {
         let w = ui.get_bw();
         if (LITE_W.with(|x| x.get()) - w).abs() > 4.0 && w > 50.0 { render_current(ui); }
     }
-    if WV_UNAVAILABLE.with(|x| x.get()) {
-        if ui.get_render_mode() == 0 { ui.set_render_mode(1); if ui.get_current_mail() != "" { render_current(ui); } }
-        return;
-    }
-    WV.with(|w| {
-        let mut w = w.borrow_mut();
-        if w.is_none() {
-
-
-            let html = PENDING.with(|p| p.borrow_mut().take()).unwrap_or_else(|| wrap_html(""));
-            match wry::WebViewBuilder::new()
-                .with_html(html)
-                .with_background_color(wv_bg())
-                .with_bounds(r)
-                .with_visible(vis)
-                .with_devtools(false)
-                .with_custom_protocol(reader::PAGE_SCHEME.into(), |_id, req| {
-                    let (status, body) = match reader::serve_page(req.uri().path()) {
-                        Some(b) => (200, std::borrow::Cow::Owned(b.to_vec())),
-                        None => (404, std::borrow::Cow::Borrowed(&b""[..])),
-                    };
-                    wry::http::Response::builder().status(status)
-                        .header("Content-Type", "text/html; charset=utf-8")
-                        .header("Cache-Control", "no-store")
-                        .body(body).unwrap()
-                })
-                .with_navigation_handler(|url| {
-                    // A top-level navigation is never a click on a mail link (<base target=_blank>
-                    // sends those to the new-window handler below); it comes from the message itself
-                    // (<meta http-equiv=refresh>), so a mailto: here is dropped, not opened.
-                    if mailto::parse(&url).is_some() { return false; }
-                    if let Some(ok) = reader::allow_navigation(&url) { return ok; }
-                    if url.starts_with("http") { oauth::open_browser(&url); false } else { true }
-                })
-                // links open in a new window (<base target=_blank>): clicked mailto: links open
-                // Barbican's composer, web links the browser
-                .with_new_window_req_handler(|url, _| {
-                    if mailto::parse(&url).is_some() { mailto::request(url); }
-                    else if url.starts_with("http://") || url.starts_with("https://") { oauth::open_browser(&url); }
-                    wry::NewWindowResponse::Deny
-                })
-                .build_as_child(&ui.window().window_handle())
-            {
-                Ok(v) => { let _ = v.focus_parent(); *w = Some(v); }
-                // Linux on Wayland: no child web view, so the native Blitz renderer shows mail
-                Err(_) => if cfg!(target_os = "linux") { WV_UNAVAILABLE.with(|x| x.set(true)); },
-            }
-        } else if let Some(v) = &*w {
-            let _ = v.set_bounds(r);
-            // keep keyboard focus in the native UI while the email view is hidden
-            if WV_VISIBLE.with(|x| x.replace(vis)) != vis && !vis { let _ = v.focus_parent(); }
-            let _ = v.set_visible(vis);
-        }
-    });
+    mailview::sync(ui);
 }
+
 
 pub(crate) type Shared = Arc<Mutex<Option<Arc<jmap::Client>>>>;
 
@@ -342,8 +321,7 @@ pub fn html_to_text(h: &str) -> String {
     res.trim().to_string()
 }
 
-thread_local! { static WV_VISIBLE: std::cell::Cell<bool> = const { std::cell::Cell::new(false) }; }
-thread_local! { static WV_UNAVAILABLE: std::cell::Cell<bool> = const { std::cell::Cell::new(false) }; }
+thread_local! { pub(crate) static WV_UNAVAILABLE: std::cell::Cell<bool> = const { std::cell::Cell::new(false) }; }
 thread_local! { static RESET_ARMED: std::cell::Cell<bool> = const { std::cell::Cell::new(false) }; }
 thread_local! { static SERVER_DEBOUNCE: slint::Timer = slint::Timer::default(); }
 thread_local! { static TEMPLATES: std::cell::RefCell<Vec<Value>> = const { std::cell::RefCell::new(Vec::new()) }; }
@@ -490,7 +468,7 @@ pub fn plugin_compose_check(draft: &serde_json::Value) -> Option<String> {
 
 thread_local! {
     /// The open message and its listed attachments.
-    static CUR_MSG: std::cell::RefCell<Option<(Value, Vec<Value>)>> = const { std::cell::RefCell::new(None) };
+    static CUR_MSG: std::cell::RefCell<Option<(Arc<Value>, Vec<Value>)>> = const { std::cell::RefCell::new(None) };
 }
 
 fn sanitize_name(n: &str) -> String {
@@ -811,6 +789,7 @@ fn main() -> Result<(), slint::PlatformError> {
         }
         oauth::forget();
         oauth::forget_account(&u.get_account());
+        bodycache::with(|b| b.clear());
         unified::clear();
         u.set_accounts(accounts_model());
         REMEMBER_OAUTH.store(false, std::sync::atomic::Ordering::SeqCst);
@@ -898,143 +877,8 @@ fn main() -> Result<(), slint::PlatformError> {
 
     let w = ui.as_weak();
     let st = state.clone();
-    ui.on_open_mail(move |id| {
-        shortcuts::note_opened(&id);
-        let Some(c) = client_for(&st, &id) else { return };
-        READER_CLIENT.with(|r| *r.borrow_mut() = Some(c.clone()));
-        let u = w.unwrap();
-        if settings::Settings::load().prefs.get("markAsReadDelay").and_then(|v| v.as_i64()).unwrap_or(0) == 0 { mail::mark_read_local(&u, &id); }
-        schedule::banner(&u, mail::email(&id).as_ref());
-        u.set_plugin_rows(ModelRc::default());
-        // keep the conversation strip when moving within the same thread
-        let same_thread = mail::email(&id).and_then(|m| m["threadId"].as_str().map(String::from)) == THREAD_ID.with(|t| t.borrow().clone());
-        let shared = mail::shared_account(&id);
-        if !same_thread { u.set_thread_msgs(ModelRc::default()); }
-        u.set_attachments(ModelRc::default());
-        u.set_att_cards(ModelRc::default());
-        u.set_r_to("".into());
-        u.set_r_email("".into());
-        u.set_r_subject("".into());
-        u.set_spam_verdict("".into());
-        u.set_spam_detail("".into());
-        u.set_ai_result("".into());
-        glance::clear_sender(&u);
-        REPLY.with(|r| *r.borrow_mut() = None);
-        u.set_r_from("".into());
-        u.set_r_date("".into());
-        CUR.with(|c| *c.borrow_mut() = None);
-        reader::clear(&u);
-        lite::clear();
-        u.set_images_blocked(false);
-        u.set_lite_height(0.0);
-        u.set_r_body("Loading…".into());
-        show_html(wrap_html("<p style=\"color:#888\">Loading…</p>"));
-        let w = w.clone();
-        let id = id.to_string();
-        std::thread::spawn(move || {
-            let real = unified::real_id(&id).to_string();
-            let res = c.email_body(&real).map(|mut m| {
-                inline_cid_images(&c, &mut m);
-                // a group inbox message: replies must not mark the login's own message of that id
-                if let Some(a) = &shared { m["__jmap"] = json!(a); }
-                m
-            });
-            // Bulwark markAsReadDelay (ms): 0 = instantly, N = after N ms if still open, -1 = never
-            let delay = settings::Settings::load().prefs.get("markAsReadDelay").and_then(|v| v.as_i64()).unwrap_or(0);
-            if delay >= 0 && res.as_ref().is_ok_and(|m| m["keywords"]["$seen"].as_bool() != Some(true)) {
-                let (c3, id3, w3, real3) = (c.clone(), id.clone(), w.clone(), real.clone());
-                std::thread::spawn(move || {
-                    std::thread::sleep(std::time::Duration::from_millis(delay as u64));
-                    let still = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
-                    let (s2, i2) = (still.clone(), id3.clone());
-                    let _ = w3.upgrade_in_event_loop(move |u| s2.store(u.get_current_mail().as_str() == i2, std::sync::atomic::Ordering::SeqCst));
-                    std::thread::sleep(std::time::Duration::from_millis(100));
-                    if delay == 0 || still.load(std::sync::atomic::Ordering::SeqCst) {
-                        let _ = c3.set_keyword(&[real3], "$seen", true);
-                        let _ = w3.upgrade_in_event_loop(move |u| mail::mark_read_local(&u, &id3));
-                    }
-                });
-            }
-            let c2 = c.clone();
-            let w2 = w.clone();
-            let _ = w.upgrade_in_event_loop(move |u| {
-                if u.get_current_mail().as_str() != id { return; }
-                match res {
-                    Ok(m) => {
-                        let f = &m["from"][0];
-                        if m["keywords"]["$draft"].as_bool() == Some(true) {
-                            compose::open_draft(&u, c2.clone(), &m);
-                        }
-                        let from = mail::sender(&m);
-                        let email = f["email"].as_str().unwrap_or("").to_string();
-                        u.set_r_email(email.clone().into());
-                        glance::sender(w2.clone(), c2.clone(), email.clone(), id.clone());
-                        u.set_r_initials(initials(&from).into());
-                        u.set_r_color(mail::tint(&from));
-                        mail::set_reader_avatar(&u, Some(&m), &crate::avatars::host_of(&c2.base));
-                        u.set_r_flagged(m["keywords"]["$flagged"].as_bool() == Some(true));
-                        let names = |k: &str| m[k].as_array().map(|a| a.iter().map(|x| {
-                            let e = x["email"].as_str().unwrap_or("");
-                            if e.eq_ignore_ascii_case(&c2.username) || MY_ADDRS.with(|a| a.borrow().iter().any(|x| x.eq_ignore_ascii_case(e))) { "me".to_string() } else { x["name"].as_str().filter(|n| !n.is_empty()).unwrap_or(e).to_string() }
-                        }).collect::<Vec<_>>().join(", ")).unwrap_or_default();
-                        let mut to = names("to");
-                        let cc = names("cc");
-                        if !cc.is_empty() { to = format!("{to}  ·  Cc: {cc}"); }
-                        u.set_r_to(to.into());
-                        let hide_inline = settings::Settings::load().bool("hideInlineImageAttachments", true);
-                        let atts: Vec<Value> = m["attachments"].as_array().cloned().unwrap_or_default().into_iter()
-                            .filter(|a| !(hide_inline && mail::is_inline_image(a)))
-                            .collect();
-                        let rows: Vec<Att> = atts.iter().enumerate().map(|(i, a)| Att {
-                            name: a["name"].as_str().unwrap_or("attachment").into(),
-                            size: human_size(a["size"].as_u64().unwrap_or(0)).into(),
-                            index: i as i32,
-                        }).collect();
-                        u.set_attachments(ModelRc::new(VecModel::from(rows)));
-                        attachments::show(&u, c2.clone(), &id, &atts);
-                        CUR_MSG.with(|x| *x.borrow_mut() = Some((m.clone(), atts)));
-                        load_thread(w2.clone(), c2.clone(), id.clone());
-                        u.set_r_subject(SharedString::from(m["subject"].as_str().unwrap_or("(no subject)")));
-                        u.set_r_from(from.into());
-                        u.set_r_date(parse_time(&m["receivedAt"]).map(|t| t.format("%a %d %b %Y, %H:%M").to_string()).unwrap_or_default().into());
-                        {
-                            let (html, text) = body_text(&m);
-                            let is_html = m["htmlBody"].as_array().map(|a| a.iter().any(|p| p["type"] == "text/html")).unwrap_or(false);
-                            let html = (is_html && !html.is_empty()).then_some(html);
-                            let remote = html.as_deref().is_some_and(has_remote_images);
-                            let allow = u.get_auto_images();
-                            CUR.with(|c| *c.borrow_mut() = Some(Current { html, text, remote, allow }));
-                            render_current(&u);
-                        }
-                        let (_, text) = body_text(&m);
-                        let rt = (
-                            f["email"].as_str().unwrap_or("").to_string(),
-                            m["subject"].as_str().unwrap_or("").to_string(),
-                            m["messageId"][0].as_str().map(String::from),
-                            text,
-                            u.get_r_date().to_string() + ", " + &u.get_r_from(),
-                        );
-                        REPLY.with(|r| *r.borrow_mut() = Some(rt));
-                        // banners (unsubscribe, read receipt, invitation, long body) and their loads
-                        reader::loaded(&u, c2.clone(), &m, &id);
-                        let dis = disabled_plugins();
-                        let rows = PLUGINS.with(|p| plugins::email_details(&p.borrow(), &dis, &m));
-                        u.set_plugin_rows(ModelRc::new(VecModel::from(rows.into_iter().map(|(label, value, tone)| PRow { label: label.into(), value: value.into(), tone: tone.into() }).collect::<Vec<_>>())));
-                        let spam_plugin = PLUGINS.with(|p| p.borrow().iter().any(|x| x.id == "spam-score")) && !dis.iter().any(|d| d == "spam-score");
-                        let headers = m["headers"].as_array().cloned().unwrap_or_default();
-                        if let Some(sp) = spam::analyze(&headers).filter(|_| !spam_plugin) {
-                            if sp.verdict != "clean" || u.get_spam_show_clean() {
-                                u.set_spam_verdict(sp.verdict.into());
-                                u.set_spam_detail(sp.detail.into());
-                            }
-                        }
-                        load_mailboxes(w2, c2, false);
-                    }
-                    Err(e) => show_html(wrap_html(&esc(&format!("Could not load message: {e}")))),
-                }
-            });
-        });
-    });
+    msgload::SHARED.with(|s| *s.borrow_mut() = Some(state.clone()));
+    ui.on_open_mail(move |id| msgload::open(&w.unwrap(), &st, id.to_string()));
 
     let cfg = Arc::new(Mutex::new(ai::Config::load()));
     ui.set_spam_show_clean(cfg.lock().unwrap().show_clean_spam);
@@ -1474,7 +1318,7 @@ fn main() -> Result<(), slint::PlatformError> {
         let Some(c) = login_for(&st, &w.unwrap().get_current_mail()) else { return };
         COMPOSE_CLIENT.with(|r| *r.borrow_mut() = Some(c.clone()));
         let Some((m, _)) = CUR_MSG.with(|x| x.borrow().clone()) else { return };
-        compose::open(&w.unwrap(), c, compose::ComposeKind::Reply, Some(&m));
+        compose::open(&w.unwrap(), c, compose::ComposeKind::Reply, Some(&*m));
     });
 
     rte::wire(&ui);
@@ -1706,8 +1550,8 @@ fn main() -> Result<(), slint::PlatformError> {
         let Some(c) = st.lock().unwrap().clone() else { return };
         let Some((m, _)) = CUR_MSG.with(|x| x.borrow().clone()) else { return };
         let u = w.unwrap();
-        if text.trim().is_empty() { compose::open(&u, c, compose::ComposeKind::Reply, Some(&m)); return; }
-        compose::open(&u, c.clone(), compose::ComposeKind::Reply, Some(&m));
+        if text.trim().is_empty() { compose::open(&u, c, compose::ComposeKind::Reply, Some(&*m)); return; }
+        compose::open(&u, c.clone(), compose::ComposeKind::Reply, Some(&*m));
         rte::with(|e| { e.set_caret(rte::model::Pos::new(0, 0)); e.insert_text(&text); });
         u.set_composing(false);
         compose::send(&u, c, &pf.lock().unwrap());
@@ -1860,10 +1704,10 @@ fn main() -> Result<(), slint::PlatformError> {
                 COMPOSE_CLIENT.with(|r| *r.borrow_mut() = Some(c.clone()));
                 let Some((msg, _)) = CUR_MSG.with(|x| x.borrow().clone()) else { return };
                 let kind = if a == "forward" { compose::ComposeKind::Forward } else { compose::ComposeKind::ReplyAll };
-                compose::open(&u, c, kind, Some(&msg));
+                compose::open(&u, c, kind, Some(&*msg));
             }
             "print" => {
-                let printed = u.get_render_mode() == 0 && WV.with(|v| v.borrow().as_ref().map(|v| v.print().is_ok()).unwrap_or(false));
+                let printed = u.get_render_mode() == 0 && mailview::print();
                 if !printed {
                     if let Some(h) = CUR.with(|c| c.borrow().as_ref().map(|c| c.html.clone().unwrap_or_else(|| format!("<pre>{}</pre>", esc(&c.text))))) {
                         let p = std::env::temp_dir().join("barbican-print.html");
@@ -1958,6 +1802,8 @@ fn main() -> Result<(), slint::PlatformError> {
     now_timer.start(slint::TimerMode::Repeated, std::time::Duration::from_secs(30), move || {
         if let Some(u) = w.upgrade() { set_now(&u); }
     });
+    let w = ui.as_weak();
+    ui.on_webview_sync(move || { if let Some(u) = w.upgrade() { mailview::sync(&u); } });
     let w = ui.as_weak();
     let timer = slint::Timer::default();
     timer.start(slint::TimerMode::Repeated, std::time::Duration::from_millis(50), move || {
@@ -2213,11 +2059,19 @@ pub fn apply_theme(ui: &AppWindow) {
         "system" => platform::system_dark().unwrap_or(true),
         _ => true,
     };
+    set_theme_dark(ui, dark);
+}
+
+/// Switch the app between dark and light (in memory; `apply_theme` reads the setting).
+pub fn set_theme_dark(ui: &AppWindow, dark: bool) {
     // the email view paints this colour before a message loads; keep it in step with the
     // theme so opening a message does not flash white
-    DARK.with(|d| d.set(dark));
+    let changed = DARK.with(|d| d.replace(dark)) != dark;
     WV.with(|w| if let Some(v) = &*w.borrow() { let _ = v.set_background_color(wv_bg()); });
     ui.global::<Theme>().set_dark(dark);
+    // the open message's page follows (plain text and the reader are themed); swapped in, no reload
+    if changed && ui.get_current_mail() != "" { render_current(ui); }
+    if changed && ui.get_current_mail() == "" { ui.set_body_bg(mailview::color(mailview::reader_bg())); mailview::theme_changed(); }
     // Settings > Appearance > Style: Bento (tiles) or Nordic (one surface)
     ui.global::<Theme>().set_style(if settings::Settings::load().str("uiStyle", "bento") == "nordic" { 1 } else { 0 });
     search_ui::set_accent(ui.global::<Theme>().get_accent());

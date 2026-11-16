@@ -2132,7 +2132,22 @@ export component AppWindow inherits Window {
     out property <length> by: body.absolute-position.y;
     out property <length> bw: body.width;
     out property <length> bh: body.height;
-    out property <bool> body-visible: logged-in && app == 0 && current-mail != "" && (!composing || dock-shows-body) && !show-settings && render-mode == 0 && !ev-open && !ctx-open && !CompX.sched-open;
+    // the command palette and the shortcut sheet (Pd.overlay) cover the body too
+    out property <bool> body-visible: logged-in && app == 0 && current-mail != "" && (!composing || dock-shows-body) && !show-settings && render-mode == 0 && !ev-open && !ctx-open && !CompX.sched-open && !Pd.overlay;
+    // the WebView follows layout and overlay changes at once (not on the next poll)
+    callback webview-sync();
+    changed body-visible => { root.webview-sync(); }
+    changed bx => { root.webview-sync(); }
+    changed by => { root.webview-sync(); }
+    changed bw => { root.webview-sync(); }
+    changed bh => { root.webview-sync(); }
+    // a capture of the email body, shown in its place while an overlay hides the WebView
+    in-out property <image> body-snap;
+    in-out property <bool> body-snap-on;
+    // the open message's page colour (the body area matches it while the WebView moves)
+    in-out property <color> body-bg: Theme.reader;
+    // a message is still loading (after 150 ms): a thin bar, the previous one stays readable
+    in-out property <bool> r-loading;
 
     callback shortcut(string, bool, bool);
     // the Theme tokens the productivity overlays (productivity.slint) draw with
@@ -2630,7 +2645,8 @@ export component AppWindow inherits Window {
                         VerticalLayout { alignment: center; HoverAction { icon: Icons.close; clicked => { root.bulk("clear"); } } }
                     }
                 }
-                if root.busy: Text { text: "Loading…"; color: Theme.dim; horizontal-alignment: center; height: 24px; vertical-alignment: center; }
+                // only an empty list says Loading in line: a refresh must not push the rows down
+                if root.busy && root.mails.length == 0: Text { text: "Loading…"; color: Theme.dim; horizontal-alignment: center; height: 24px; vertical-alignment: center; }
                 mail-list := ListView {
                     vertical-stretch: 1;
                     changed content-y => {
@@ -2650,7 +2666,7 @@ export component AppWindow inherits Window {
                         context(x, y) => { root.ctx("mail", m.id, x, y); }
                     }
                 }
-                if !root.busy && root.mails.length > 0: Rectangle {
+                if root.mails.length > 0: Rectangle {
                     height: 44px;
                     Text {
                         text: root.has-more ? "Loading more…" : "No more emails to load";
@@ -2927,10 +2943,16 @@ export component AppWindow inherits Window {
                 }
                 Rectangle { height: Theme.nordic ? 18px : 14px; }
                 body := Rectangle {
-                    background: root.render-mode == 2 ? white : Theme.reader;
+                    background: root.render-mode == 2 ? white : root.render-mode == 0 ? root.body-bg : Theme.reader;
                     border-radius: 0px;
                     vertical-stretch: 1;
                     clip: true;
+                    if root.body-snap-on && root.render-mode == 0: Image {
+                        x: 0; y: 0;
+                        width: parent.width; height: parent.height;
+                        source: root.body-snap;
+                        image-fit: fill;
+                    }
                     if root.render-mode == 1: ScrollView {
                         content-height: root.lite-height;
                         content-width: self.visible-width;
@@ -3090,7 +3112,16 @@ export component AppWindow inherits Window {
                 height: parent.height - 2 * self.y;
                 border-radius: Theme.nordic ? 0px : Theme.r-pane - 1px;
                 clip: true;
-            // ---- composer: replaces the reading pane (Bulwark layout) ----
+            // loading hint: a thin sliding bar along the reader's top edge, nothing else moves
+            if root.r-loading && root.current-mail != "" && !root.composing: Rectangle {
+                x: 0; y: 0; width: parent.width; height: 2px;
+                clip: true;
+                Rectangle {
+                    width: parent.width * 0.3;
+                    x: (mod(animation-tick() / 1ms, 1400) / 1400) * parent.width * 1.3 - self.width;
+                    background: Theme.accent;
+                }
+            }
             if root.composing: cmp := Rectangle {
                 background: Theme.reader;
                 // narrow: the less used formatting moves into a "more" menu; tight: the bar shows icons only
