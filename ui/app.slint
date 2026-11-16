@@ -1919,7 +1919,8 @@ export component AppWindow inherits Window {
                     }
                     body-sv := ScrollView {
                         visible: !root.rte-source-open;
-                        vertical-stretch: 1;
+                        vertical-stretch: root.rte-source-open ? 0 : 1;
+                        max-height: root.rte-source-open ? 0px : 100000px;
                         content-width: self.visible-width;
                         content-height: max(self.visible-height, root.rte-height + 48px);
                         rte-area := Rectangle {
