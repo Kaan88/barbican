@@ -9,6 +9,39 @@ use serde_json::{json, Map, Value};
 #[derive(Debug, Clone, PartialEq)]
 pub struct Item { pub bytes: Vec<u8>, pub keywords: Vec<String>, pub received_at: Option<String> }
 
+/// An .eml file larger than this is not read at all (no server takes a single message this big,
+/// and it would otherwise be held in memory whole).
+const MAX_EML: u64 = 200_000_000;
+
+/// Streaming mbox splitter: feed it lines, it hands back each message as soon as the next
+/// separator shows up, so a multi-GB mbox never sits in memory whole.
+#[derive(Default)]
+pub struct MboxSplitter { cur: Option<Vec<u8>>, pending_empty: Option<Vec<u8>> }
+
+impl MboxSplitter {
+    /// One line (with its line ending); returns a finished message when `l` starts the next.
+    pub fn push(&mut self, l: &[u8]) -> Option<Vec<u8>> {
+        let separator = l.starts_with(b"From ") && (self.cur.is_none() || self.pending_empty.is_some()) && is_envelope_line(l);
+        if separator {
+            self.pending_empty = None;
+            let done = self.cur.replace(vec![]);
+            return done.filter(|m| !blank(m));
+        }
+        let m = self.cur.as_mut()?;
+        if let Some(e) = self.pending_empty.take() { m.extend_from_slice(&e); }
+        if is_empty_line(l) { self.pending_empty = Some(l.to_vec()); return None; }
+        let quotes = l.iter().take_while(|b| **b == b'>').count();
+        if quotes > 0 && l[quotes..].starts_with(b"From ") { m.extend_from_slice(&l[1..]); } else { m.extend_from_slice(l); }
+        None
+    }
+
+    /// The last message, at the end of the file.
+    pub fn finish(&mut self) -> Option<Vec<u8>> { self.pending_empty = None; self.cur.take().filter(|m| !blank(m)) }
+}
+
+fn blank(m: &[u8]) -> bool { m.iter().all(|b| b.is_ascii_whitespace()) }
+
+#[cfg(test)]
 fn lines(bytes: &[u8]) -> Vec<&[u8]> {
     let mut out = vec![];
     let mut start = 0;
@@ -48,26 +81,12 @@ pub fn is_envelope_line(l: &[u8]) -> bool {
 /// Split an mbox file into messages (mboxo / mboxrd): a separator is a `From ` envelope line at
 /// the start or after an empty line; that empty line belongs to the format and is dropped, and
 /// `>From ` lines lose one `>`. Bytes are otherwise kept as they are.
+#[cfg(test)]
 pub fn split_mbox(bytes: &[u8]) -> Vec<Vec<u8>> {
-    let mut out: Vec<Vec<u8>> = vec![];
-    let mut cur: Option<Vec<u8>> = None;
-    let mut pending_empty: Option<&[u8]> = None;
-    for l in lines(bytes) {
-        let separator = l.starts_with(b"From ") && (cur.is_none() || pending_empty.is_some()) && is_envelope_line(l);
-        if separator {
-            pending_empty = None;
-            if let Some(m) = cur.take() { out.push(m); }
-            cur = Some(vec![]);
-            continue;
-        }
-        let Some(m) = cur.as_mut() else { continue };
-        if let Some(e) = pending_empty.take() { m.extend_from_slice(e); }
-        if is_empty_line(l) { pending_empty = Some(l); continue; }
-        let quotes = l.iter().take_while(|b| **b == b'>').count();
-        if quotes > 0 && l[quotes..].starts_with(b"From ") { m.extend_from_slice(&l[1..]); } else { m.extend_from_slice(l); }
-    }
-    if let Some(m) = cur { out.push(m); }
-    out.into_iter().filter(|m| !m.iter().all(|b| b.is_ascii_whitespace())).collect()
+    let mut sp = MboxSplitter::default();
+    let mut out: Vec<Vec<u8>> = lines(bytes).into_iter().filter_map(|l| sp.push(l)).collect();
+    out.extend(sp.finish());
+    out
 }
 
 /// The header block of a message (up to the first empty line), unfolded, by lowercased name.
@@ -133,17 +152,80 @@ pub fn received_at(f: &[(String, String)]) -> Option<String> {
     chrono::DateTime::parse_from_rfc2822(d).ok().map(|t| t.with_timezone(&chrono::Utc).format("%Y-%m-%dT%H:%M:%SZ").to_string())
 }
 
+fn to_item(m: Vec<u8>) -> Option<Item> {
+    let f = header_fields(&m);
+    let (keywords, expunged) = mbox_state(&f);
+    (!expunged).then(|| Item { received_at: received_at(&f), keywords, bytes: m })
+}
+
+fn looks_mbox(name: &str, first_line: &[u8]) -> bool {
+    let lower = name.to_lowercase();
+    lower.ends_with(".mbox") || lower.ends_with(".mbx") || lower.ends_with(".mbs") || first_line.starts_with(b"From ") && is_envelope_line(first_line)
+}
+
 /// The messages of one file: an .mbox (or anything starting with an envelope line) is split,
 /// anything else is one message. Deleted (expunged) messages are left out.
+#[cfg(test)]
 pub fn items_of(name: &str, bytes: &[u8]) -> Vec<Item> {
-    let lower = name.to_lowercase();
-    let mbox = lower.ends_with(".mbox") || lower.ends_with(".mbx") || lower.ends_with(".mbs") || bytes.starts_with(b"From ") && lines(bytes).first().is_some_and(|l| is_envelope_line(l));
-    let msgs = if mbox { split_mbox(bytes) } else { vec![bytes.to_vec()] };
-    msgs.into_iter().filter_map(|m| {
-        let f = header_fields(&m);
-        let (keywords, expunged) = mbox_state(&f);
-        (!expunged).then(|| Item { received_at: received_at(&f), keywords, bytes: m })
-    }).collect()
+    let mut r = Reader::new(name, std::io::Cursor::new(bytes.to_vec()), u64::MAX);
+    std::iter::from_fn(|| r.next_item()).collect()
+}
+
+/// Reads the messages of one file one at a time (Bulwark streams mbox files in chunks too).
+pub struct Reader<R: std::io::BufRead> {
+    src: R,
+    mbox: Option<MboxSplitter>,
+    first: Option<Vec<u8>>,
+    done: bool,
+    eml_cap: u64,
+    /// bytes read so far, for progress
+    pub read: u64,
+    /// an .eml over the cap was skipped
+    pub too_big: bool,
+}
+
+impl<R: std::io::BufRead> Reader<R> {
+    pub fn new(name: &str, mut src: R, eml_cap: u64) -> Self {
+        let mut first = vec![];
+        let ok = src.read_until(b'\n', &mut first).is_ok();
+        let mbox = (ok && looks_mbox(name, &first)).then(MboxSplitter::default);
+        Reader { read: first.len() as u64, src, mbox, first: Some(first), done: !ok, eml_cap, too_big: false }
+    }
+
+    fn next_raw(&mut self) -> Option<Vec<u8>> {
+        if self.done { return None; }
+        match self.mbox.as_mut() {
+            Some(sp) => {
+                if let Some(f) = self.first.take() { if let Some(m) = sp.push(&f) { return Some(m); } }
+                let mut l = vec![];
+                loop {
+                    l.clear();
+                    match self.src.read_until(b'\n', &mut l) {
+                        Ok(0) | Err(_) => { self.done = true; return sp.finish(); }
+                        Ok(n) => { self.read += n as u64; if let Some(m) = sp.push(&l) { return Some(m); } }
+                    }
+                }
+            }
+            None => {
+                self.done = true;
+                let mut m = self.first.take().unwrap_or_default();
+                let cap = self.eml_cap.saturating_sub(m.len() as u64);
+                let mut lim = std::io::Read::take(&mut self.src, cap.saturating_add(1));
+                let n = std::io::Read::read_to_end(&mut lim, &mut m).ok()? as u64;
+                self.read += n;
+                if n > cap { self.too_big = true; return None; }
+                (!blank(&m)).then_some(m)
+            }
+        }
+    }
+
+    /// The next message to import, skipping deleted ones.
+    pub fn next_item(&mut self) -> Option<Item> {
+        loop {
+            let m = self.next_raw()?;
+            if let Some(it) = to_item(m) { return Some(it); }
+        }
+    }
 }
 
 /// The Email/import entry of an uploaded message.
@@ -154,64 +236,138 @@ pub fn import_entry(blob: &str, mailbox: &str, it: &Item) -> Value {
     e
 }
 
-/// Import `items` into `mailbox`: upload each, then Email/import in batches the server takes.
-/// `progress(done, total)` reports along the way. Returns (imported, refusals).
-pub fn import(c: &Client, mailbox: &str, items: &[Item], progress: &dyn Fn(usize, usize)) -> (usize, Vec<String>) {
-    let mut ok = 0;
-    let mut errors: Vec<String> = vec![];
+/// What `import` needs from the server (a trait so the request loop can be tested).
+pub trait Server {
+    fn account(&self) -> String;
+    fn max_set(&self) -> usize;
+    fn max_upload(&self) -> usize;
+    fn upload(&self, data: Vec<u8>) -> Result<String, String>;
+    fn call(&self, calls: Value) -> Result<Vec<Value>, String>;
+    /// The Message-IDs of the messages already in a folder.
+    fn message_ids_in(&self, mailbox: &str) -> std::collections::HashSet<String>;
+}
+
+impl Server for Client {
+    fn account(&self) -> String { self.account.clone() }
+    fn max_set(&self) -> usize { Client::max_set(self) }
+    fn max_upload(&self) -> usize { Client::max_upload(self) }
+    fn upload(&self, data: Vec<u8>) -> Result<String, String> { Client::upload(self, data, "message/rfc822").map(|r| r.0) }
+    fn call(&self, calls: Value) -> Result<Vec<Value>, String> { Client::call(self, calls) }
+    /// inMailbox comes from the server's message cache, not its search index (which a
+    /// Message-ID header filter needs and which lags behind a fresh import), so this is
+    /// exact: every id in the folder, then their messageId (get_all chunks by the limits).
+    fn message_ids_in(&self, mailbox: &str) -> std::collections::HashSet<String> {
+        let acc = self.account.clone();
+        let Ok(ids) = self.query_all("Email/query", &acc, json!({"filter": {"inMailbox": mailbox}})) else { return Default::default() };
+        let Ok(list) = self.get_all("Email/get", &acc, &ids, Some(&json!(["messageId"]))) else { return Default::default() };
+        list.iter().flat_map(|e| e["messageId"].as_array().cloned().unwrap_or_default()).filter_map(|v| v.as_str().map(str::to_string)).collect()
+    }
+}
+
+/// The Message-ID of a message, without its angle brackets.
+pub fn message_id(bytes: &[u8]) -> Option<String> {
+    let f = header_fields(bytes);
+    let v = field(&f, "message-id")?.trim().trim_start_matches('<').trim_end_matches('>').trim().to_string();
+    (!v.is_empty() && !v.contains(['"', '\\'])).then_some(v)
+}
+
+/// What an import did.
+#[derive(Debug, Default, PartialEq)]
+pub struct Outcome { pub imported: usize, pub already: usize, pub errors: Vec<String> }
+
+/// Import messages from `items` into `mailbox` a batch at a time: those already in the folder
+/// (same Message-ID) are skipped, the rest uploaded (bytes moved, not copied) and filed with
+/// Email/import. `progress(processed)` reports after each batch with the count actually handled.
+pub fn import(c: &dyn Server, mailbox: &str, items: &mut dyn Iterator<Item = Item>, progress: &mut dyn FnMut(usize)) -> Outcome {
+    let mut out = Outcome::default();
     let batch = c.max_set().clamp(1, 50);
-    for (n, chunk) in items.chunks(batch).enumerate() {
+    let mut processed = 0;
+    // what the folder holds already, so a retried import does not file messages twice
+    let mut have = c.message_ids_in(mailbox);
+    loop {
+        let chunk: Vec<Item> = (&mut *items).take(batch).collect();
+        if chunk.is_empty() { break; }
+        processed += chunk.len();
+        let ids: Vec<Option<String>> = chunk.iter().map(|it| message_id(&it.bytes)).collect();
         let mut entries = Map::new();
-        for (i, it) in chunk.iter().enumerate() {
-            if it.bytes.len() > c.max_upload() { errors.push("A message is larger than the server takes.".into()); continue; }
-            match c.upload(it.bytes.clone(), "message/rfc822") {
-                Ok((blob, _)) => { entries.insert(format!("m{i}"), import_entry(&blob, mailbox, it)); }
-                Err(e) => errors.push(e),
+        for (i, (mut it, id)) in chunk.into_iter().zip(ids).enumerate() {
+            if let Some(id) = id { if !have.insert(id) { out.already += 1; continue; } }
+            if it.bytes.len() > c.max_upload() { out.errors.push("A message is larger than the server takes.".into()); continue; }
+            let bytes = std::mem::take(&mut it.bytes);
+            match c.upload(bytes) {
+                Ok(blob) => { entries.insert(format!("m{i}"), import_entry(&blob, mailbox, &it)); }
+                Err(e) => out.errors.push(e),
             }
         }
         if !entries.is_empty() {
             let count = entries.len();
-            match c.call(json!([["Email/import", {"accountId": c.account, "emails": entries}, "i"]])) {
+            match c.call(json!([["Email/import", {"accountId": c.account(), "emails": entries}, "i"]])) {
                 Ok(r) => {
-                    ok += r[0][1]["created"].as_object().map(|o| o.len()).unwrap_or(0);
+                    out.imported += r[0][1]["created"].as_object().map(|o| o.len()).unwrap_or(0);
                     if let Some(bad) = r[0][1]["notCreated"].as_object() {
-                        errors.extend(bad.values().map(crate::jmap::set_error));
+                        out.errors.extend(bad.values().map(crate::jmap::set_error));
                     }
                 }
-                Err(e) => errors.extend(std::iter::repeat_n(e, count)),
+                Err(e) => out.errors.extend(std::iter::repeat_n(e, count)),
             }
         }
-        progress(((n + 1) * batch).min(items.len()), items.len());
+        progress(processed);
     }
-    (ok, errors)
+    out
+}
+
+/// Whether the folder takes new messages (RFC 8621 §2 myRights.mayAddItems).
+fn may_add(c: &Client, mailbox: &str) -> Result<bool, String> {
+    let r = c.call(json!([["Mailbox/get", {"accountId": c.account, "ids": [mailbox], "properties": ["myRights"]}, "m"]]))?;
+    Ok(r[0][1]["list"][0]["myRights"]["mayAddItems"].as_bool().unwrap_or(false))
 }
 
 /// "Import messages…" on a folder: pick .eml / .mbox files, then import them in the background
-/// with a running count, and bring the folder list and the message list up to date.
+/// one message at a time (never a whole mbox in memory) with a running count, and bring the
+/// folder list and the message list up to date.
 pub fn start(u: &crate::AppWindow, c: std::sync::Arc<Client>, mailbox: &str) {
     use slint::ComponentHandle;
+    let (w, mailbox) = (u.as_weak(), mailbox.to_string());
+    // refuse up front when the folder does not take new messages (a read-only shared folder)
+    match may_add(&c, &mailbox) {
+        Ok(true) => {}
+        Ok(false) => { crate::mail::show_toast(u, "You can't add messages to this folder.", false); return; }
+        Err(e) => { crate::mail::show_toast(u, &e, false); return; }
+    }
     let Some(files) = crate::automation::pick_files() else { return };
     if files.is_empty() { return; }
-    let (w, mailbox) = (u.as_weak(), mailbox.to_string());
     crate::mail::show_toast(u, "Reading the files…", false);
     std::thread::spawn(move || {
-        let mut items = vec![];
-        let mut unreadable = 0;
+        let total_bytes: u64 = files.iter().filter_map(|f| std::fs::metadata(f).ok()).map(|m| m.len()).sum::<u64>().max(1);
+        let (mut unreadable, mut too_big, mut done_bytes) = (0usize, 0usize, 0u64);
+        let found = std::cell::Cell::new(0usize);
+        let mut acc = Outcome::default();
         for f in &files {
             let name = f.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
-            match std::fs::read(f) { Ok(b) => items.extend(items_of(&name, &b)), Err(_) => unreadable += 1 }
+            let Ok(file) = std::fs::File::open(f) else { unreadable += 1; continue };
+            let r = std::cell::RefCell::new(Reader::new(&name, std::io::BufReader::with_capacity(1 << 20, file), MAX_EML));
+            let mut it = std::iter::from_fn(|| { let i = r.borrow_mut().next_item(); if i.is_some() { found.set(found.get() + 1); } i });
+            let w2 = w.clone();
+            let base = acc.imported + acc.already + acc.errors.len();
+            let o = import(&*c, &mailbox, &mut it, &mut |n| {
+                let pct = ((done_bytes + r.borrow().read) * 100 / total_bytes).min(100);
+                let msg = format!("Importing… {} messages ({pct}%)", base + n);
+                let _ = w2.upgrade_in_event_loop(move |u| u.set_toast(msg.into()));
+            });
+            let r = r.into_inner();
+            done_bytes += r.read;
+            if r.too_big { too_big += 1; }
+            acc.imported += o.imported;
+            acc.already += o.already;
+            acc.errors.extend(o.errors);
         }
-        if items.is_empty() {
+        if found.get() == 0 && unreadable + too_big == 0 {
             let _ = w.upgrade_in_event_loop(|u| crate::mail::show_toast(&u, "No messages found in those files.", false));
             return;
         }
-        let w2 = w.clone();
-        let (ok, errors) = import(&c, &mailbox, &items, &|done, total| {
-            let msg = format!("Importing… {done} of {total}");
-            let _ = w2.upgrade_in_event_loop(move |u| u.set_toast(msg.into()));
-        });
-        let failed = errors.len() + unreadable;
-        let msg = summary(ok, failed, errors.first().map(String::as_str));
+        if too_big > 0 { acc.errors.push("A file is too large to be one message.".into()); }
+        let failed = acc.errors.len() + unreadable;
+        let msg = summary(acc.imported, acc.already, failed, acc.errors.first().map(String::as_str));
         let w3 = w.clone();
         let _ = w.upgrade_in_event_loop(move |u| {
             crate::mail::show_toast(&u, &msg, false);
@@ -221,22 +377,26 @@ pub fn start(u: &crate::AppWindow, c: std::sync::Arc<Client>, mailbox: &str) {
     });
 }
 
-/// "Imported 12 messages", with what went wrong when something did.
-pub fn summary(ok: usize, failed: usize, first_error: Option<&str>) -> String {
+/// "Imported 12 messages", with what was skipped or went wrong when something was.
+pub fn summary(ok: usize, already: usize, failed: usize, first_error: Option<&str>) -> String {
     let n = |k: usize| if k == 1 { "1 message".to_string() } else { format!("{k} messages") };
+    let mut s = format!("Imported {}", n(ok));
+    if already > 0 { s.push_str(&format!(", {already} already in the folder")); }
     match (failed, first_error) {
-        (0, _) => format!("Imported {}", n(ok)),
-        (f, Some(e)) => format!("Imported {}, {} not imported: {e}", n(ok), f),
-        (f, None) => format!("Imported {}, {} not imported", n(ok), f),
+        (0, _) => {}
+        (f, Some(e)) => s.push_str(&format!(", {f} not imported: {e}")),
+        (f, None) => s.push_str(&format!(", {f} not imported")),
     }
+    s
 }
 
 #[cfg(test)]
 mod tests {
     #[test]
     fn summaries() {
-        assert_eq!(super::summary(1, 0, None), "Imported 1 message");
-        assert_eq!(super::summary(3, 1, Some("The message is invalid.")), "Imported 3 messages, 1 not imported: The message is invalid.");
+        assert_eq!(super::summary(1, 0, 0, None), "Imported 1 message");
+        assert_eq!(super::summary(2, 3, 0, None), "Imported 2 messages, 3 already in the folder");
+        assert_eq!(super::summary(3, 0, 1, Some("The message is invalid.")), "Imported 3 messages, 1 not imported: The message is invalid.");
     }
 
     use super::*;
@@ -297,5 +457,72 @@ mod tests {
         // folded headers are unfolded
         let f = header_fields(b"Subject: a\n  b\n\n");
         assert_eq!(f[0], ("subject".to_string(), "a b".to_string()));
+    }
+
+    struct Mock { calls: std::cell::RefCell<Vec<Value>>, uploads: std::cell::RefCell<usize>, have: Vec<&'static str>, fail_one: bool }
+    impl Server for Mock {
+        fn account(&self) -> String { "A".into() }
+        fn max_set(&self) -> usize { 2 }
+        fn max_upload(&self) -> usize { 1000 }
+        fn upload(&self, _d: Vec<u8>) -> Result<String, String> { let mut n = self.uploads.borrow_mut(); *n += 1; Ok(format!("B{n}")) }
+        fn call(&self, calls: Value) -> Result<Vec<Value>, String> {
+            self.calls.borrow_mut().push(calls.clone());
+            let emails = calls[0][1]["emails"].as_object().unwrap();
+            let mut created = Map::new();
+            let mut not = Map::new();
+            for (k, _) in emails {
+                if self.fail_one && !created.is_empty() { not.insert(k.clone(), json!({"type": "invalidEmail", "description": "bad"})); } else { created.insert(k.clone(), json!({"id": "E"})); }
+            }
+            Ok(vec![json!(["Email/import", {"created": created, "notCreated": not}, "i"])])
+        }
+        fn message_ids_in(&self, mailbox: &str) -> std::collections::HashSet<String> {
+            assert_eq!(mailbox, "M1");
+            self.have.iter().map(|s| s.to_string()).collect()
+        }
+    }
+
+    fn msg(id: &str) -> Item { Item { bytes: format!("Message-ID: <{id}>\r\nSubject: s\r\n\r\nb\r\n").into_bytes(), keywords: vec!["$seen".into()], received_at: None } }
+
+    #[test]
+    fn import_loop_created_not_created_and_duplicates() {
+        let m = Mock { calls: Default::default(), uploads: Default::default(), have: vec!["b@x"], fail_one: true };
+        let big = Item { bytes: vec![b'a'; 2000], keywords: vec![], received_at: None };
+        // b@x is in the folder already; the second a@x repeats one in the same file
+        let mut items = vec![msg("a@x"), msg("b@x"), msg("c@x"), big, msg("a@x")].into_iter();
+        let mut seen = vec![];
+        let o = import(&m, "M1", &mut items, &mut |n| seen.push(n));
+        // b@x is already in the folder, the big one is refused before uploading
+        assert_eq!(o.already, 2);
+        assert_eq!(*m.uploads.borrow(), 2);
+        // batch 1: a imported; batch 2: c imported (first entry), nothing refused
+        assert_eq!(o.imported, 2);
+        assert_eq!(o.errors, vec!["A message is larger than the server takes.".to_string()]);
+        assert_eq!(seen, vec![2, 4, 5]);
+        let calls = m.calls.borrow();
+        assert_eq!(calls.len(), 2);
+        let imp = &calls[0][0][1]["emails"];
+        assert_eq!(imp.as_object().unwrap().len(), 1);
+        assert_eq!(imp["m0"]["blobId"], "B1");
+        // a notCreated answer is reported
+        let m2 = Mock { calls: Default::default(), uploads: Default::default(), have: vec![], fail_one: true };
+        let o2 = import(&m2, "M1", &mut vec![msg("a@x"), msg("b@x")].into_iter(), &mut |_| {});
+        assert_eq!(o2.imported, 1);
+        assert_eq!(o2.errors.len(), 1);
+    }
+
+    #[test]
+    fn streaming_reader_and_eml_cap() {
+        let mut r = Reader::new("box.mbox", std::io::BufReader::with_capacity(16, MBOX), u64::MAX);
+        let a = r.next_item().unwrap();
+        assert!(String::from_utf8_lossy(&a.bytes).starts_with("Subject: one"));
+        let b = r.next_item().unwrap();
+        assert!(String::from_utf8_lossy(&b.bytes).contains("Subject: three"));
+        assert!(r.next_item().is_none());
+        assert_eq!(r.read, MBOX.len() as u64);
+        let mut big = Reader::new("x.eml", &b"Subject: x\r\n\r\n0123456789"[..], 10);
+        assert!(big.next_item().is_none());
+        assert!(big.too_big);
+        assert_eq!(message_id(b"Message-Id: <a.b@c>\r\n\r\n").as_deref(), Some("a.b@c"));
+        assert_eq!(message_id(b"Subject: x\r\n\r\n"), None);
     }
 }

@@ -814,7 +814,7 @@ fn main() -> Result<(), slint::PlatformError> {
                         u.set_r_email(email.clone().into());
                         u.set_r_initials(initials(&from).into());
                         u.set_r_color(mail::tint(&from));
-                        mail::set_reader_avatar(&u, Some(&m));
+                        mail::set_reader_avatar(&u, Some(&m), &crate::avatars::host_of(&c2.base));
                         u.set_r_flagged(m["keywords"]["$flagged"].as_bool() == Some(true));
                         let names = |k: &str| m[k].as_array().map(|a| a.iter().map(|x| {
                             let e = x["email"].as_str().unwrap_or("");

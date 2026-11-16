@@ -12,6 +12,7 @@ use sha2::{Digest, Sha256};
 use slint::{ComponentHandle, Rgba8Pixel, SharedPixelBuffer};
 use std::cell::RefCell;
 use std::collections::{HashMap, VecDeque};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Mutex;
 use std::time::Duration;
 
@@ -48,8 +49,11 @@ thread_local! {
     static WIN: RefCell<Option<slint::Weak<crate::AppWindow>>> = const { RefCell::new(None) };
     static REDRAW: slint::Timer = slint::Timer::default();
 }
-static QUEUE: Mutex<VecDeque<String>> = Mutex::new(VecDeque::new());
-static RUNNING: Mutex<usize> = Mutex::new(0);
+/// The fetch queue (key, generation) and how many workers run, under one lock so a worker
+/// that finds the queue empty and stops can never miss a key pushed in the same moment.
+static WORK: Mutex<(VecDeque<(String, u64)>, usize)> = Mutex::new((VecDeque::new(), 0));
+/// Bumped by "Refresh sender icons": answers of an older generation are dropped.
+static GEN: AtomicU64 = AtomicU64::new(0);
 
 /// Known multi-part TLDs (Bulwark avatar.tsx MULTI_PART_TLDS).
 const MULTI_PART_TLDS: &[&str] = &[
@@ -131,6 +135,8 @@ pub fn get(email: &str, brand: Option<&str>, p: &Prefs, junk: bool) -> Option<Pi
 
 /// "Refresh sender icons": forget every answer (memory and disk) so they are fetched again.
 pub fn refresh() {
+    GEN.fetch_add(1, Ordering::SeqCst);
+    WORK.lock().unwrap().0.clear();
     SLOTS.with(|s| s.borrow_mut().clear());
     let _ = std::fs::remove_dir_all(crate::config_dir().join("avatars"));
 }
@@ -139,24 +145,33 @@ pub fn refresh() {
 pub fn set_window(w: slint::Weak<crate::AppWindow>) { WIN.with(|x| *x.borrow_mut() = Some(w)); }
 
 fn enqueue(key: String) {
-    QUEUE.lock().unwrap().push_back(key);
-    let mut running = RUNNING.lock().unwrap();
-    if *running >= WORKERS { return; }
-    *running += 1;
+    let mut work = WORK.lock().unwrap();
+    work.0.push_back((key, GEN.load(Ordering::SeqCst)));
+    if work.1 >= WORKERS { return; }
+    work.1 += 1;
+    drop(work);
     let w = WIN.with(|x| x.borrow().clone());
     std::thread::spawn(move || {
-        loop {
-            let Some(key) = QUEUE.lock().unwrap().pop_front() else { break };
-            let fetched = fetch(&key);
+        while let Some((key, gen)) = next_job() {
+            let fetched = fetch(&key, gen);
             if let Some(w) = &w {
-                let _ = w.upgrade_in_event_loop(move |u| arrived(&u, key, fetched));
+                let _ = w.upgrade_in_event_loop(move |u| arrived(&u, key, gen, fetched));
             }
         }
-        *RUNNING.lock().unwrap() -= 1;
     });
 }
 
-fn arrived(u: &crate::AppWindow, key: String, f: Fetched) {
+/// The next key for a worker; when there is none the worker is counted out under the same lock.
+fn next_job() -> Option<(String, u64)> {
+    let mut work = WORK.lock().unwrap();
+    let job = work.0.pop_front();
+    if job.is_none() { work.1 = work.1.saturating_sub(1); }
+    job
+}
+
+fn arrived(u: &crate::AppWindow, key: String, gen: u64, f: Fetched) {
+    // fetched before a refresh: the slot was cleared and is asked for again
+    if gen != GEN.load(Ordering::SeqCst) { return; }
     let logo = !key.starts_with("grav:");
     let slot = match f {
         Fetched::Raster(buf) => Slot::Ready(Pic { image: slint::Image::from_rgba8(buf), logo }),
@@ -208,38 +223,51 @@ fn http() -> Option<reqwest::blocking::Client> {
         .build().ok()
 }
 
-fn get_capped(url: &str) -> Option<(Vec<u8>, String)> {
-    let r = http()?.get(url).send().ok()?;
-    if !r.status().is_success() { return None; }
+/// Why a download gave nothing: a definitive answer (cached as missing) or a passing failure
+/// (timeout, offline, server error; not cached, asked again next time).
+#[derive(Debug, PartialEq)]
+enum Miss { Definitive, Transient }
+
+fn get_capped(url: &str) -> Result<(Vec<u8>, String), Miss> {
+    use std::io::Read;
+    let mut r = http().ok_or(Miss::Transient)?.get(url).send().map_err(|_| Miss::Transient)?;
+    let st = r.status();
+    if st.is_server_error() || st.as_u16() == 429 || st.as_u16() == 408 { return Err(Miss::Transient); }
+    if !st.is_success() { return Err(Miss::Definitive); }
+    if r.content_length().is_some_and(|n| n > MAX_BYTES as u64) { return Err(Miss::Definitive); }
     let ct = r.headers().get(reqwest::header::CONTENT_TYPE).and_then(|v| v.to_str().ok()).unwrap_or("").to_lowercase();
-    let bytes = r.bytes().ok()?;
-    (bytes.len() >= 10 && bytes.len() <= MAX_BYTES).then(|| (bytes.to_vec(), ct))
+    // read at most one byte past the cap, whatever the server streams
+    let mut bytes = Vec::new();
+    (&mut r).take(MAX_BYTES as u64 + 1).read_to_end(&mut bytes).map_err(|_| Miss::Transient)?;
+    if bytes.len() < 10 || bytes.len() > MAX_BYTES { return Err(Miss::Definitive); }
+    Ok((bytes, ct))
 }
 
-fn fetch(key: &str) -> Fetched {
+fn fetch(key: &str, gen: u64) -> Fetched {
+    let current = || gen == GEN.load(Ordering::SeqCst);
     let bytes = match cached(key) {
         Some(b) => b,
-        None => {
-            let got = download(key).unwrap_or_default();
-            store(key, &got);
-            got
-        }
+        None => match download(key) {
+            Ok(got) => { if current() { store(key, &got); } got }
+            Err(Miss::Definitive) => { if current() { store(key, &[]); } vec![] }
+            Err(Miss::Transient) => vec![],
+        },
     };
     decode(key, &bytes)
 }
 
 /// What a key's picture is fetched from.
-fn download(key: &str) -> Option<Vec<u8>> {
-    let (kind, v) = key.split_once(':')?;
+fn download(key: &str) -> Result<Vec<u8>, Miss> {
+    let (kind, v) = key.split_once(':').ok_or(Miss::Definitive)?;
     match kind {
         "fav" => get_capped(&format!("https://icons.duckduckgo.com/ip3/{}.ico", crate::jmap::pct(v)))
-            .filter(|(_, ct)| !ct.contains("svg") && !ct.contains("html")).map(|r| r.0),
+            .and_then(|(b, ct)| if ct.contains("svg") || ct.contains("html") { Err(Miss::Definitive) } else { Ok(b) }),
         "grav" => get_capped(&format!("https://gravatar.com/avatar/{v}?s=128&d=404")).map(|r| r.0),
         "bimi" => {
-            let url = txt_records(&format!("default._bimi.{v}")).iter().find_map(|t| bimi_logo_url(t))?;
-            get_capped(&url).filter(|(b, ct)| ct.contains("svg") || b.starts_with(b"<")).map(|r| r.0)
+            let url = txt_records(&format!("default._bimi.{v}")).iter().find_map(|t| bimi_logo_url(t)).ok_or(Miss::Definitive)?;
+            get_capped(&url).and_then(|(b, ct)| if ct.contains("svg") || b.starts_with(b"<") { Ok(b) } else { Err(Miss::Definitive) })
         }
-        _ => None,
+        _ => Err(Miss::Definitive),
     }
 }
 
@@ -262,7 +290,17 @@ pub fn bimi_logo_url(record: &str) -> Option<String> {
     let mut parts = record.split(';').map(str::trim);
     if !parts.next()?.eq_ignore_ascii_case("v=BIMI1") { return None; }
     record.split(';').map(str::trim).find_map(|p| p.strip_prefix("l=").map(|u| u.trim().to_string()))
-        .filter(|u| u.starts_with("https://") && u.len() > 8)
+        .filter(|u| u.starts_with("https://") && safe_https_host(u))
+}
+
+/// A logo URL named by a sender's DNS may only reach a public host by name: no IP literals,
+/// no local or internal names, no other port, no credentials (no probing of the local network).
+pub fn safe_https_host(u: &str) -> bool {
+    let Ok(url) = reqwest::Url::parse(u) else { return false };
+    if url.scheme() != "https" || url.port().is_some() || !url.username().is_empty() || url.password().is_some() { return false; }
+    // an IP literal (v6 in brackets, or all-numeric v4) is never a brand's logo host
+    let Some(d) = url.host_str() else { return false };
+    !d.starts_with('[') && d.parse::<std::net::IpAddr>().is_err() && valid_domain(d) && !d.split('.').all(|l| l.chars().all(|c| c.is_ascii_digit()))
 }
 
 /// TXT records of a name, through the system resolver.
@@ -297,15 +335,29 @@ fn txt_records(_name: &str) -> Vec<String> { vec![] }
 
 /// The From domain of a message that passed DMARC for it, from its Authentication-Results
 /// (Bulwark brandIndicatorDomain): only then may a BIMI logo stand for the sender.
-pub fn brand_domain(m: &serde_json::Value) -> Option<String> {
+/// Only an Authentication-Results written by the account's own server counts (RFC 8601 §5):
+/// its authserv-id must be the JMAP host or share its registered domain.
+pub fn brand_domain(m: &serde_json::Value, server_host: &str) -> Option<String> {
     let from = m["from"][0]["email"].as_str()?;
     let domain = domain_of(from);
     if domain.is_empty() { return None; }
     let headers = m["headers"].as_array()?;
     // the topmost Authentication-Results is the receiving server's own
     let ar = headers.iter().find(|h| h["name"].as_str().is_some_and(|n| n.eq_ignore_ascii_case("Authentication-Results")))?["value"].as_str()?;
+    if !trusted_authserv(ar, server_host) { return None; }
     dmarc_pass_domain(ar).filter(|d| *d == domain)
 }
+
+/// Whether the authserv-id (the first token) of an Authentication-Results is the server's.
+pub fn trusted_authserv(ar: &str, server_host: &str) -> bool {
+    let id = ar.split(';').next().unwrap_or("").split_whitespace().next().unwrap_or("").trim_end_matches('.').to_lowercase();
+    let host = server_host.trim().trim_end_matches('.').to_lowercase();
+    if id.is_empty() || host.is_empty() { return false; }
+    id == host || (id.contains('.') && host.contains('.') && root_domain(&id) == root_domain(&host))
+}
+
+/// The host of the account's JMAP URL.
+pub fn host_of(base: &str) -> String { reqwest::Url::parse(base).ok().and_then(|u| u.host_str().map(str::to_string)).unwrap_or_default() }
 
 /// The header.from domain of a dmarc=pass result in one Authentication-Results header.
 pub fn dmarc_pass_domain(ar: &str) -> Option<String> {
@@ -372,10 +424,32 @@ mod tests {
         assert_eq!(bimi_logo_url("v=spf1 include:x"), None);
         assert_eq!(dmarc_pass_domain("mx.a; spf=pass smtp.mailfrom=b.com; dmarc=pass (p=reject) header.from=B.com").as_deref(), Some("b.com"));
         assert_eq!(dmarc_pass_domain("mx.a; dmarc=fail header.from=b.com"), None);
-        let m = json!({"from": [{"email": "n@b.com"}], "headers": [{"name": "Authentication-Results", "value": "mx; dmarc=pass header.from=b.com"}]});
-        assert_eq!(brand_domain(&m).as_deref(), Some("b.com"));
-        let spoof = json!({"from": [{"email": "n@b.com"}], "headers": [{"name": "Authentication-Results", "value": "mx; dmarc=pass header.from=evil.com"}]});
-        assert_eq!(brand_domain(&spoof), None);
+        let m = json!({"from": [{"email": "n@b.com"}], "headers": [{"name": "Authentication-Results", "value": "mx.mine.org; dmarc=pass header.from=b.com"}]});
+        assert_eq!(brand_domain(&m, "mail.mine.org").as_deref(), Some("b.com"));
+        let spoof = json!({"from": [{"email": "n@b.com"}], "headers": [{"name": "Authentication-Results", "value": "mx.mine.org; dmarc=pass header.from=evil.com"}]});
+        assert_eq!(brand_domain(&spoof, "mail.mine.org"), None);
+        // a forged header with someone else's authserv-id earns no logo
+        let forged = json!({"from": [{"email": "n@bank.com"}], "headers": [{"name": "Authentication-Results", "value": "mx.bank.com; dmarc=pass header.from=bank.com"}]});
+        assert_eq!(brand_domain(&forged, "mail.mine.org"), None);
+        assert!(trusted_authserv("mail.mine.org; spf=pass", "mail.mine.org"));
+        assert!(!trusted_authserv("; dmarc=pass", "mail.mine.org"));
+        assert_eq!(host_of("https://mail.mine.org:443/jmap"), "mail.mine.org");
+        // logo URLs only to public names
+        for bad in ["https://10.0.0.5/l.svg", "https://localhost/l.svg", "https://[::1]/l.svg", "https://x.local/l.svg", "https://a.com:8443/l.svg", "https://u:p@a.com/l.svg", "https://127.0.0.1/x"] {
+            assert!(!safe_https_host(bad), "{bad}");
+            assert_eq!(bimi_logo_url(&format!("v=BIMI1; l={bad}")), None);
+        }
+        assert!(safe_https_host("https://brand.example.com/logo.svg"));
+    }
+
+    #[test]
+    fn idle_worker_is_counted_out_under_the_queue_lock() {
+        let mut w = WORK.lock().unwrap();
+        w.0.clear();
+        w.1 = 1;
+        drop(w);
+        assert!(next_job().is_none());
+        assert_eq!(WORK.lock().unwrap().1, 0);
     }
 
     #[test]

@@ -888,7 +888,10 @@ impl Client {
     /// identity `from`, else one covering the override as a wildcard (`*@domain`, RFC 8621 §6).
     fn pick_identity_for(&self, from: &str, from_override: Option<&str>) -> R<Value> {
         let ids = self.identities()?;
-        choose_identity(&ids, from, from_override).cloned().ok_or_else(|| "No sending identity on this account.".into())
+        choose_identity(&ids, from, from_override).cloned().ok_or_else(|| match from_override.filter(|o| o.contains('@')) {
+            Some(o) => format!("No identity of this account may send as {}.", o.trim()),
+            None => "No sending identity on this account.".into(),
+        })
     }
 
     /// Save or replace a draft. Returns the new draft id.
@@ -1131,14 +1134,15 @@ pub fn wildcard_covers(pattern: &str, addr: &str) -> bool {
 }
 
 /// Bulwark's identity choice for a send: the override's own identity, the composer's
-/// (by address or id), one covering the override as a wildcard, else the first.
+/// (by address or id), one covering the override as a wildcard, else the first; with an
+/// override nothing matches, none (the override must not go out under an unrelated identity).
 pub fn choose_identity<'a>(ids: &'a [Value], from: &str, from_override: Option<&str>) -> Option<&'a Value> {
     let eq = |i: &&Value, a: &str| { let a = a.trim(); !a.is_empty() && i["email"].as_str().is_some_and(|e| e.trim().eq_ignore_ascii_case(a)) };
     from_override.and_then(|o| ids.iter().find(|i| eq(i, o)))
         .or_else(|| ids.iter().find(|i| eq(i, from)))
         .or_else(|| ids.iter().find(|i| i["id"].as_str() == Some(from)))
         .or_else(|| from_override.and_then(|o| ids.iter().find(|i| i["email"].as_str().is_some_and(|e| wildcard_covers(e, o)))))
-        .or(ids.first())
+        .or_else(|| if from_override.is_some_and(|o| o.contains('@')) { None } else { ids.first() })
 }
 
 /// The submission envelope (RFC 8621 §7): only when MAIL FROM differs from the identity's
@@ -1552,6 +1556,11 @@ mod tests {
         assert_eq!(choose_identity(&ids, "", Some("x@b.org")).unwrap()["id"], "2");
         assert_eq!(choose_identity(&ids, "3", None).unwrap()["id"], "3");
         assert_eq!(choose_identity(&ids, "", None).unwrap()["id"], "1");
+        // an override no identity covers, with no composer identity: refused, not the first
+        assert!(choose_identity(&ids, "", Some("x@other.net")).is_none());
+        assert!(choose_identity(&ids, "gone@a.com", Some("x@other.net")).is_none());
+        // an override without an address is ignored
+        assert_eq!(choose_identity(&ids, "", Some("nope")).unwrap()["id"], "1");
 
         let r = vec!["t@x.y".to_string()];
         assert_eq!(submission_envelope("me@a.com", "ME@a.com", None, &r), None);

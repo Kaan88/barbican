@@ -402,9 +402,9 @@ thread_local! {
 }
 
 /// Show the open message's sender picture (the reader may use a BIMI logo: it has the headers).
-pub fn set_reader_avatar(u: &AppWindow, m: Option<&Value>) {
+pub fn set_reader_avatar(u: &AppWindow, m: Option<&Value>, server_host: &str) {
     let junk = LIST.with(|l| filter_in_junk(&l.borrow().filter));
-    let s = m.and_then(|m| Some((m["from"][0]["email"].as_str()?.to_string(), crate::avatars::brand_domain(m), junk)));
+    let s = m.and_then(|m| Some((m["from"][0]["email"].as_str()?.to_string(), crate::avatars::brand_domain(m, server_host), junk)));
     READER_SENDER.with(|r| *r.borrow_mut() = s);
     reader_avatar(u, &crate::avatars::Prefs::load());
 }
