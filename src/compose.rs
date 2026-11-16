@@ -193,35 +193,57 @@ pub struct ReplyFrom {
     delivered: Vec<String>,
     /// Forwards never take the catch-all match.
     forward: bool,
+    /// Display names the original gave its recipients (lowercased address, name): the name a
+    /// catch-all From override takes (Bulwark resolveReplyFrom overrideName).
+    names: Vec<(String, String)>,
+    /// A re-opened draft's From: its identity, or a From override when no identity has it.
+    draft_from: Option<(String, String)>,
 }
 
 fn domain_of(e: &str) -> String { e.rsplit_once('@').map(|(_, d)| d.to_lowercase()).unwrap_or_default() }
 
 /// Bulwark resolveReplyFrom's catch-all step (replyIdentityMatch "domain"): an address on one
-/// of the user's domains that is no identity picks the first identity on that domain.
-fn catch_all_identity(emails: &[String], received: &[String]) -> Option<usize> {
+/// of the user's domains that is no identity picks the first identity on that domain (the
+/// anchor it is sent through) and becomes the From override. Returns (anchor, address).
+fn catch_all_identity(emails: &[String], received: &[String]) -> Option<(usize, String)> {
     let owned: Vec<String> = emails.iter().map(|e| domain_of(e)).filter(|d| !d.is_empty()).collect();
     let hit = received.iter().find(|r| {
         let r = r.trim().to_lowercase();
         !emails.contains(&r) && owned.contains(&domain_of(&r))
     })?;
-    emails.iter().position(|e| domain_of(e) == domain_of(hit)).or(Some(0))
+    let anchor = emails.iter().position(|e| domain_of(e) == domain_of(hit)).unwrap_or(0);
+    Some((anchor, hit.trim().to_string()))
 }
 
-/// Identity index for a reply/forward, in Bulwark's order: the identity that sent a self-sent
-/// original; one of the user's own identities in To/Cc/Bcc, then Delivered-To; with
-/// autoSelectReplyIdentity (not on forwards) a catch-all address on a user's domain
-/// (replyIdentityMatch "domain"); else None (the default identity).
-fn resolve_reply_identity(ids: &[Value], r: &ReplyFrom, auto: bool, match_mode: &str) -> Option<usize> {
+/// Identity for a reply/forward, in Bulwark's order: the identity that sent a self-sent
+/// original; one of the user's own identities in To/Cc/Bcc; with autoSelectReplyIdentity (not
+/// on forwards) a catch-all address on a user's domain (replyIdentityMatch "domain"), which
+/// also rewrites From to that address; then Delivered-To; else None (the default identity).
+/// The second value is the From override as (name, email).
+fn resolve_reply_identity(ids: &[Value], r: &ReplyFrom, auto: bool, match_mode: &str) -> Option<(usize, Option<(String, String)>)> {
     let emails: Vec<String> = ids.iter().map(|i| i["email"].as_str().unwrap_or("").trim().to_lowercase()).collect();
+    if let Some((name, email)) = &r.draft_from {
+        // a draft keeps its sender: the identity with that address, else a From override
+        return match reply_identity(ids, std::slice::from_ref(email)).filter(|&i| emails[i] == email.trim().to_lowercase()) {
+            Some(i) => Some((i, None)),
+            None if email.contains('@') => {
+                let anchor = emails.iter().position(|e| domain_of(e) == domain_of(email)).unwrap_or(0);
+                Some((anchor, Some((name.clone(), email.trim().to_string()))))
+            }
+            None => None,
+        };
+    }
     if let Some(s) = &r.self_sent {
-        if let Some(i) = reply_identity(ids, std::slice::from_ref(s)) { return Some(i); }
+        if let Some(i) = reply_identity(ids, std::slice::from_ref(s)) { return Some((i, None)); }
     }
-    if let Some(i) = reply_identity(ids, &r.recipients) { return Some(i); }
+    if let Some(i) = reply_identity(ids, &r.recipients) { return Some((i, None)); }
     if auto && !r.forward && match_mode == "domain" {
-        if let Some(i) = catch_all_identity(&emails, &r.recipients).or_else(|| catch_all_identity(&emails, &r.delivered)) { return Some(i); }
+        if let Some((i, email)) = catch_all_identity(&emails, &r.recipients).or_else(|| catch_all_identity(&emails, &r.delivered)) {
+            let name = r.names.iter().find(|(e, _)| *e == email.to_lowercase()).map(|(_, n)| n.clone()).unwrap_or_default();
+            return Some((i, Some((name, email))));
+        }
     }
-    reply_identity(ids, &r.delivered)
+    reply_identity(ids, &r.delivered).map(|i| (i, None))
 }
 
 fn load_identities(u: &AppWindow, c: Arc<Client>, reply: ReplyFrom) {
@@ -244,10 +266,18 @@ fn load_identities(u: &AppWindow, c: Arc<Client>, reply: ReplyFrom) {
             // default to the identity of the signed-in address, as Bulwark does
             let me = c.username.to_lowercase();
             let p = crate::settings::Settings::load();
-            let idx = resolve_reply_identity(&ids, &reply, p.bool("autoSelectReplyIdentity", false), &p.str("replyIdentityMatch", "domain"))
+            let resolved = resolve_reply_identity(&ids, &reply, p.bool("autoSelectReplyIdentity", false), &p.str("replyIdentityMatch", "domain"));
+            let idx = resolved.as_ref().map(|r| r.0)
                 .or_else(|| ids.iter().position(|i| i["email"].as_str().is_some_and(|e| e.to_lowercase() == me)))
                 .unwrap_or(0);
             u.set_c_from_index(idx as i32);
+            // Bulwark: the catch-all rewrite (or a draft's own sender) turns From into a
+            // name and an address to edit, sent through the anchor identity
+            if let Some((name, email)) = resolved.and_then(|r| r.1) {
+                u.set_c_from_name(name.into());
+                u.set_c_from_email(email.into());
+                u.set_c_from_custom(true);
+            }
             // the signature of the identity just picked
             apply_signature(&u);
             if unedited { crate::autosave::rebase(&u); }
@@ -296,6 +326,19 @@ type Orphan = (u64, crate::autosave::Leftover, Outgoing, u64);
 
 thread_local! { static ORPHANS: RefCell<Vec<Orphan>> = const { RefCell::new(vec![]) }; }
 
+/// Bulwark "Edit sender…": From becomes a name and an address to type, starting from the
+/// identity's.
+pub fn start_from_override(u: &AppWindow) {
+    let cur = ST.with(|s| s.borrow().identities.get(u.get_c_from_index() as usize).cloned()).unwrap_or_default();
+    let (name, email) = match cur.rsplit_once('<') {
+        Some((n, e)) => (n.trim().to_string(), e.trim_end_matches('>').trim().to_string()),
+        None => (String::new(), cur.trim().to_string()),
+    };
+    if u.get_c_from_email().trim().is_empty() { u.set_c_from_email(email.into()); }
+    if u.get_c_from_name().trim().is_empty() { u.set_c_from_name(name.into()); }
+    u.set_c_from_custom(true);
+}
+
 fn reset(u: &AppWindow) {
     // a save still in flight belongs to the composer being replaced: what is typed since, or
     // a save or discard queued behind it, must not be lost with the reset (see run_save)
@@ -312,6 +355,9 @@ fn reset(u: &AppWindow) {
     u.global::<crate::CompX>().set_saved("".into());
     ST.with(|s| { let ids = s.borrow().identities.clone(); *s.borrow_mut() = State { identities: ids, ..Default::default() }; });
     crate::chips::reset(u);
+    u.set_c_from_custom(false);
+    u.set_c_from_name("".into());
+    u.set_c_from_email("".into());
     u.set_c_to("".into());
     u.set_c_cc("".into());
     u.set_c_bcc("".into());
@@ -321,7 +367,7 @@ fn reset(u: &AppWindow) {
     u.set_c_read_receipt(false);
     // Bulwark plainTextMode: every message starts (and stays) plain text
     u.set_c_plain(crate::settings::Settings::load().bool("plainTextMode", false));
-    u.set_c_tag_on(ModelRc::new(VecModel::from(vec![false; crate::mail::TAGS.len()])));
+    { use slint::Model; u.set_c_tag_on(ModelRc::new(VecModel::from(vec![false; u.get_tags().row_count()]))); }
     u.set_c_subject("".into());
     rte::set_doc(u, Doc::default());
     u.set_c_status("".into());
@@ -329,9 +375,27 @@ fn reset(u: &AppWindow) {
     refresh_attachments(u);
 }
 
+/// Bulwark replyUnderMessage (default on): a reply or forward docks under the message it
+/// answers, which stays readable above it; a new message, a re-opened draft, or a reply with
+/// no message open (or to a draft) takes the whole pane.
+pub fn should_dock(setting: bool, is_new: bool, message_open: bool, is_draft: bool) -> bool {
+    setting && !is_new && message_open && !is_draft
+}
+
 /// Open the composer for a new message, a reply, reply-all or forward of `m`.
 pub fn open(u: &AppWindow, c: Arc<Client>, kind: ComposeKind, m: Option<&Value>) {
     reset(u);
+    let dock = should_dock(
+        crate::settings::Settings::load().bool("replyUnderMessage", true),
+        matches!(kind, ComposeKind::New),
+        m.is_some() && !u.get_current_mail().is_empty(),
+        m.is_some_and(|m| m["keywords"]["$draft"].as_bool() == Some(true)),
+    );
+    u.set_reply_docked(dock);
+    u.set_dock_folded(false);
+    // the reader's toolbar, subject, sender and attachments above the message text (the
+    // reply's default height leaves some of that text in sight, as Bulwark's dockLayout)
+    u.set_dock_above(if dock { u.get_by() } else { 0.0 });
     CLIENT.with(|x| *x.borrow_mut() = Some(c.clone()));
     crate::chips::prefetch(u, c.clone());
     ST.with(|s| s.borrow_mut().kind_new = matches!(kind, ComposeKind::New));
@@ -340,13 +404,14 @@ pub fn open(u: &AppWindow, c: Arc<Client>, kind: ComposeKind, m: Option<&Value>)
         (ComposeKind::Reply | ComposeKind::ReplyAll | ComposeKind::Forward, Some(m)) => {
             let sender = m["from"][0]["email"].as_str().unwrap_or("").to_string();
             let mine = crate::my_addrs_cached();
+            let all: Vec<Value> = ["to", "cc", "bcc"].iter().flat_map(|k| m[*k].as_array().cloned().unwrap_or_default()).collect();
             ReplyFrom {
                 self_sent: mine.iter().any(|a| a.eq_ignore_ascii_case(&sender)).then_some(sender),
-                recipients: ["to", "cc", "bcc"].iter()
-                    .flat_map(|k| m[*k].as_array().cloned().unwrap_or_default())
-                    .filter_map(|x| x["email"].as_str().map(String::from)).collect(),
+                recipients: all.iter().filter_map(|x| x["email"].as_str().map(String::from)).collect(),
                 delivered: delivery_addresses(m),
                 forward: matches!(kind, ComposeKind::Forward),
+                names: all.iter().filter_map(|x| Some((x["email"].as_str()?.trim().to_lowercase(), x["name"].as_str().unwrap_or("").trim().to_string()))).collect(),
+                draft_from: None,
             }
         }
         _ => ReplyFrom::default(),
@@ -438,10 +503,13 @@ pub fn open_forward_as_attachment(u: &AppWindow, c: Arc<Client>, m: &Value, name
 /// Re-open a saved draft for editing.
 pub fn open_draft(u: &AppWindow, c: Arc<Client>, m: &Value) {
     reset(u);
+    u.set_reply_docked(false);
     CLIENT.with(|x| *x.borrow_mut() = Some(c.clone()));
     crate::chips::prefetch(u, c.clone());
     ST.with(|s| s.borrow_mut().sig_done = true);
-    load_identities(u, c, ReplyFrom::default());
+    let from = &m["from"][0];
+    let draft_from = from["email"].as_str().map(|e| (from["name"].as_str().unwrap_or("").to_string(), e.to_string()));
+    load_identities(u, c, ReplyFrom { draft_from, ..Default::default() });
     let join = |k: &str| m[k].as_array().map(|a| a.iter().map(|x| {
         let (n, e) = (x["name"].as_str().unwrap_or(""), x["email"].as_str().unwrap_or(""));
         format_recipient(n, e)
@@ -521,8 +589,12 @@ fn outgoing(u: &AppWindow) -> Outgoing {
             keywords: {
                 use slint::Model;
                 let on = u.get_c_tag_on();
-                crate::mail::TAGS.iter().enumerate().filter(|(i, _)| on.row_data(*i).unwrap_or(false)).map(|(_, t)| format!("$label:{}", t.0)).collect()
+                // the composer's tag menu lists the sidebar's tags, in that order
+                let tags = u.get_tags();
+                (0..tags.row_count()).filter(|i| on.row_data(*i).unwrap_or(false)).filter_map(|i| tags.row_data(i)).map(|t| format!("$label:{}", t.id)).collect()
             },
+            from_override: (u.get_c_from_custom() && u.get_c_from_email().contains('@'))
+                .then(|| (u.get_c_from_name().trim().to_string(), u.get_c_from_email().trim().to_string())),
         }
     })
 }
@@ -535,6 +607,7 @@ pub fn cheap_key(u: &AppWindow) -> u64 {
     rte::with(|e| e.version).hash(&mut h);
     (u.get_c_to().as_str(), u.get_c_cc().as_str(), u.get_c_bcc().as_str(), u.get_c_subject().as_str()).hash(&mut h);
     (u.get_c_from_index(), u.get_c_plain(), u.get_c_read_receipt()).hash(&mut h);
+    (u.get_c_from_custom(), u.get_c_from_name().as_str(), u.get_c_from_email().as_str()).hash(&mut h);
     u.get_c_tag_on().iter().collect::<Vec<_>>().hash(&mut h);
     ST.with(|s| s.borrow().attachments.iter().map(|a| (a.name.clone(), a.size)).collect::<Vec<_>>()).hash(&mut h);
     h.finish()
@@ -547,16 +620,17 @@ pub fn content_key(u: &AppWindow) -> u64 {
     let o = outgoing(u);
     let mut h = std::collections::hash_map::DefaultHasher::new();
     (&o.from, &o.to, &o.cc, &o.bcc, &o.subject, o.html.as_ref().unwrap_or(&o.text)).hash(&mut h);
+    o.from_override.hash(&mut h);
     o.attachments.iter().map(|a| (&a.name, &a.mime, a.size)).collect::<Vec<_>>().hash(&mut h);
     (&o.keywords, o.read_receipt).hash(&mut h);
     h.finish()
 }
 
-/// Toggle tag `i` (index into `mail::TAGS`) for the message being composed.
+/// Toggle tag `i` (a row of the sidebar's tag list) for the message being composed.
 pub fn toggle_tag(u: &AppWindow, i: i32) {
     use slint::Model;
     let on = u.get_c_tag_on();
-    let mut v: Vec<bool> = (0..crate::mail::TAGS.len()).map(|k| on.row_data(k).unwrap_or(false)).collect();
+    let mut v: Vec<bool> = (0..u.get_tags().row_count()).map(|k| on.row_data(k).unwrap_or(false)).collect();
     if let Some(x) = v.get_mut(i as usize) { *x = !*x; }
     u.set_c_tag_on(ModelRc::new(VecModel::from(v)));
 }
@@ -800,8 +874,9 @@ fn send_at(u: &AppWindow, c: Arc<Client>, prefs: &crate::settings::Settings, at:
             std::thread::spawn(move || {
                 let res = c2.send_message(&o);
                 let w3 = w2.clone();
+                let c3 = c2.clone();
                 let _ = w2.upgrade_in_event_loop(move |u| match res {
-                    Ok(_) => crate::mail::show_toast(&u, "Message sent", false),
+                    Ok(_) => { crate::mail::show_toast(&u, "Message sent", false); after_send(&u, c3); }
                     Err(e) => crate::mail::show_toast(&u, &format!("Not sent: {e}"), false),
                 });
                 crate::mail::load_mailboxes(w3, c2, false);
@@ -817,6 +892,7 @@ fn send_at(u: &AppWindow, c: Arc<Client>, prefs: &crate::settings::Settings, at:
     std::thread::spawn(move || {
         let res = c.send_message(&o);
         let w2 = w.clone();
+        let c3 = c.clone();
         let _ = w.upgrade_in_event_loop(move |u| {
             let queued = crate::autosave::finish(gen, None);
             u.set_sending(false);
@@ -824,6 +900,7 @@ fn send_at(u: &AppWindow, c: Arc<Client>, prefs: &crate::settings::Settings, at:
             match res {
                 Ok(sub) => {
                     u.set_composing(false);
+                    after_send(&u, c3);
                     match sub {
                         Some(id) => {
                             PENDING.with(|p| *p.borrow_mut() = Some((id, o, snapshot)));
@@ -839,6 +916,13 @@ fn send_at(u: &AppWindow, c: Arc<Client>, prefs: &crate::settings::Settings, at:
     });
 }
 
+/// A message went out (or a held one came back): the list and the open conversation show
+/// the reply without waiting for push (Bulwark refreshes the thread after sending).
+fn after_send(u: &AppWindow, c: Arc<Client>) {
+    if crate::unified::is_active(&c) || crate::mail::showing_unified() { crate::mail::sync(u.as_weak(), c); }
+    crate::refresh_open_thread(u);
+}
+
 /// Undo the last held send and put the message back in the composer.
 pub fn undo_send(u: &AppWindow, c: Arc<Client>) {
     let Some((id, o, snap)) = PENDING.with(|p| p.borrow_mut().take()) else { return };
@@ -846,12 +930,18 @@ pub fn undo_send(u: &AppWindow, c: Arc<Client>) {
     let w = u.as_weak();
     std::thread::spawn(move || {
         let res = if id.starts_with("local-") { Ok(None) } else { c.cancel_submission(&id) };
+        let c4 = c.clone();
         let _ = w.upgrade_in_event_loop(move |u| match res {
             Ok(restored) => {
+                after_send(&u, c4);
                 let (doc, plain, tags) = (snap.body_doc.clone().unwrap_or_default(), snap.plain, snap.tags.clone());
                 ST.with(|s| { *s.borrow_mut() = snap; s.borrow_mut().draft_id = restored; });
                 u.set_c_plain(plain);
                 u.set_c_read_receipt(o.read_receipt);
+                let (fname, femail) = o.from_override.clone().unwrap_or_default();
+                u.set_c_from_custom(o.from_override.is_some());
+                u.set_c_from_name(fname.into());
+                u.set_c_from_email(femail.into());
                 u.set_c_tag_on(ModelRc::new(VecModel::from(tags)));
                 u.set_c_to(o.to.into()); u.set_c_cc(o.cc.clone().into()); u.set_c_bcc(o.bcc.clone().into());
                 u.set_c_show_ccbcc(!o.cc.is_empty() || !o.bcc.is_empty());
@@ -1058,23 +1148,43 @@ mod tests {
     fn reply_identity_order() {
         let r = |rec: &[&str], del: &[&str], fwd: bool| ReplyFrom {
             self_sent: None, recipients: rec.iter().map(|s| s.to_string()).collect(),
-            delivered: del.iter().map(|s| s.to_string()).collect(), forward: fwd,
+            delivered: del.iter().map(|s| s.to_string()).collect(), forward: fwd, ..Default::default()
         };
+        let idx = |x: Option<(usize, Option<(String, String)>)>| x.map(|v| v.0);
         // own identity in the recipients, always
-        assert_eq!(resolve_reply_identity(&ids(), &r(&["x@y.z", "INFO@b.org"], &[], false), false, "exact"), Some(1));
+        assert_eq!(resolve_reply_identity(&ids(), &r(&["x@y.z", "INFO@b.org"], &[], false), false, "exact"), Some((1, None)));
         // sub-address tag: the untagged identity wins
-        assert_eq!(resolve_reply_identity(&ids(), &r(&["me+shop@a.com"], &[], false), false, "exact"), Some(0));
-        // catch-all on a user's domain only with the setting and domain matching
-        assert_eq!(resolve_reply_identity(&ids(), &r(&["sales@b.org"], &[], false), true, "domain"), Some(1));
+        assert_eq!(idx(resolve_reply_identity(&ids(), &r(&["me+shop@a.com"], &[], false), false, "exact")), Some(0));
+        // catch-all on a user's domain only with the setting and domain matching; it rewrites From
+        assert_eq!(resolve_reply_identity(&ids(), &r(&["Sales@b.org"], &[], false), true, "domain"), Some((1, Some(("".into(), "Sales@b.org".into())))));
         assert_eq!(resolve_reply_identity(&ids(), &r(&["sales@b.org"], &[], false), true, "exact"), None);
         assert_eq!(resolve_reply_identity(&ids(), &r(&["sales@b.org"], &[], false), false, "domain"), None);
+        // the name the sender gave the alias comes along
+        let mut named = r(&["sales@b.org"], &[], false);
+        named.names = vec![("sales@b.org".into(), "B Sales".into())];
+        assert_eq!(resolve_reply_identity(&ids(), &named, true, "domain"), Some((1, Some(("B Sales".into(), "sales@b.org".into())))));
+        // a catch-all address only in Delivered-To also becomes the override
+        assert_eq!(resolve_reply_identity(&ids(), &r(&["list@x.net"], &["help@a.com"], false), true, "domain"), Some((0, Some(("".into(), "help@a.com".into())))));
         // never on a forward
         assert_eq!(resolve_reply_identity(&ids(), &r(&["sales@b.org"], &[], true), true, "domain"), None);
         // Delivered-To after the headers
-        assert_eq!(resolve_reply_identity(&ids(), &r(&["list@x.net"], &["info@b.org"], false), false, "exact"), Some(1));
+        assert_eq!(resolve_reply_identity(&ids(), &r(&["list@x.net"], &["info@b.org"], false), false, "exact"), Some((1, None)));
         // self-sent: keep the sending identity
         let s = ReplyFrom { self_sent: Some("info@b.org".into()), recipients: vec!["me@a.com".into()], ..Default::default() };
-        assert_eq!(resolve_reply_identity(&ids(), &s, false, "exact"), Some(1));
+        assert_eq!(idx(resolve_reply_identity(&ids(), &s, false, "exact")), Some(1));
+        // a draft keeps its identity, or its own sender as the override
+        let d = |e: &str| ReplyFrom { draft_from: Some(("Name".into(), e.into())), ..Default::default() };
+        assert_eq!(resolve_reply_identity(&ids(), &d("info@b.org"), false, "exact"), Some((1, None)));
+        assert_eq!(resolve_reply_identity(&ids(), &d("alias@b.org"), false, "exact"), Some((1, Some(("Name".into(), "alias@b.org".into())))));
+    }
+
+    #[test]
+    fn reply_dock_choice() {
+        assert!(should_dock(true, false, true, false));
+        assert!(!should_dock(false, false, true, false));
+        assert!(!should_dock(true, true, true, false));
+        assert!(!should_dock(true, false, false, false));
+        assert!(!should_dock(true, false, true, true));
     }
 
     #[test]

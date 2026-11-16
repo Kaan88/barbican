@@ -13,6 +13,7 @@
 //!   size                 (window size)
 //!   resize W H           (resize the off-screen window)
 //!   ui bento|nordic dark|light [more|normal]   (style, theme and contrast in memory only, never saved)
+//!   title | from         (window title with the unread badge; the composer's From override)
 //!   wv-eval JS / wv-result (run JS in the email WebView, then read its JSON result)
 //!   pick PATH[|PATH...]  (answer the next file-open picker with these files instead of a dialog)
 //!   save PATH / savepick PATH (answer the next save-file dialog with this path)
@@ -240,6 +241,9 @@ fn run(u: &AppWindow, line: &str) -> String {
             }
             format!("style {} dark {} more-contrast {}", if t.get_style() == 1 { "nordic" } else { "bento" }, t.get_dark(), t.get_more_contrast())
         }
+        // read-only probes: the window title (unread badge) and the composer's sender
+        "title" => u.get_window_title().to_string(),
+        "from" => format!("custom={} name={} email={} identity={}", u.get_c_from_custom(), u.get_c_from_name(), u.get_c_from_email(), u.get_c_from_index()),
         "shot" => {
             let path = a.get(1).copied().unwrap_or("shot.png");
             match win.take_snapshot() {

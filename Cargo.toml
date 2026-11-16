@@ -26,7 +26,7 @@ resvg = { version = "0.48", default-features = false }
 parley = "=0.11.1"
 idna = "1.1"
 arboard = "3.7"
-image = { version = "0.25", default-features = false, features = ["png", "jpeg", "gif", "webp", "bmp"] }
+image = { version = "0.25", default-features = false, features = ["png", "jpeg", "gif", "webp", "bmp", "ico"] }
 
 blitz-html = "=0.3.0-beta.4"
 blitz-dom = "=0.3.0-beta.4"
@@ -39,7 +39,7 @@ anyrender_vello_cpu = "0.18"
 # theme, ISpellChecker and WinRT toasts; Linux uses WebKitGTK (wry), Secret Service,
 # the XDG portal colour scheme, hunspell and freedesktop notifications.
 [target.'cfg(windows)'.dependencies]
-windows = { version = "0.62", features = ["Win32_Foundation", "Win32_Globalization", "Win32_System_Com", "Win32_System_Registry", "Win32_System_Threading",
+windows = { version = "0.62", features = ["Win32_Foundation", "Win32_Globalization", "Win32_System_Com", "Win32_NetworkManagement_Dns", "Win32_System_Registry", "Win32_System_Threading",
     "Win32_UI_Shell", "Win32_UI_WindowsAndMessaging", "Win32_Graphics_Gdi", "Foundation", "Data_Xml_Dom", "UI_Notifications"] }
 keyring = { version = "3", features = ["windows-native"] }
 rfd = { version = "0.15", default-features = false, features = ["common-controls-v6"] }

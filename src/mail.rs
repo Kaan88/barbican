@@ -76,17 +76,13 @@ fn list_prefs() -> ListPrefs {
 
 pub fn page_size() -> usize { list_prefs().per_page }
 
-pub const TAGS: [(&str, &str, u32); 7] = [
-    ("red", "Red", 0xef4444), ("orange", "Orange", 0xf97316), ("yellow", "Yellow", 0xeab308),
-    ("green", "Green", 0x22c55e), ("blue", "Blue", 0x3b82f6), ("purple", "Purple", 0xa855f7), ("pink", "Pink", 0xec4899),
-];
-
 fn rgb(c: u32) -> Color {
     Color::from_argb_encoded(0xff000000 | c)
 }
 
-fn tag_color(id: &str) -> Color {
-    rgb(crate::a11y::color(TAGS.iter().find(|t| t.0 == id).map(|t| t.2).unwrap_or(0x9ca3af)))
+/// A tag's colour (the user's tags, src/tags.rs; an unknown keyword is grey).
+fn tag_color(defs: &[crate::tags::TagDef], id: &str) -> Color {
+    rgb(crate::a11y::color(defs.iter().find(|t| t.id == id).map(|t| crate::tags::color_rgb(&t.color)).unwrap_or(0x9ca3af)))
 }
 
 // ---------------- folders ----------------
@@ -186,17 +182,25 @@ pub fn rebuild_folders(u: &AppWindow) {
         u.set_folders(ModelRc::new(VecModel::from(out)));
     });
     crate::glance::title(u);
-    // Bulwark faviconUnreadBadge: the Inbox unread count where the taskbar shows it (the title)
+    // Bulwark faviconUnreadBadge: the Inbox unread count where the taskbar shows it (the title);
+    // with unreadBadgeAllAccounts (default on) every signed-in account's inbox counts
     let inbox_unread = BOXES.with(|b| b.borrow().list.iter().find(|m| m["role"] == "inbox").and_then(|m| m["unreadEmails"].as_i64()).unwrap_or(0));
-    u.set_window_title(if prefs.bool("faviconUnreadBadge", true) && inbox_unread > 0 { format!("({inbox_unread}) Barbican") } else { "Barbican".into() }.into());
+    let others = if prefs.bool("unreadBadgeAllAccounts", true) { crate::unified::other_logins_unread() } else { 0 };
+    u.set_window_title(badge_title(prefs.bool("faviconUnreadBadge", true), inbox_unread + others).into());
     // tag colours follow the colour-blind-safe palette setting too
+    let defs = crate::tags::defs();
     let tags = u.get_tags();
     for i in 0..tags.row_count() {
         if let Some(mut t) = tags.row_data(i) {
-            let c = tag_color(&t.id);
+            let c = tag_color(&defs, &t.id);
             if t.color != c { t.color = c; tags.set_row_data(i, t); }
         }
     }
+}
+
+/// The window title with the unread badge: "(3) Barbican".
+pub fn badge_title(on: bool, unread: i64) -> String {
+    if on && unread > 0 { format!("({unread}) Barbican") } else { "Barbican".into() }
 }
 
 pub fn toggle_folder(u: &AppWindow, id: &str) {
@@ -259,6 +263,8 @@ pub fn load_mailboxes(w: slint::Weak<AppWindow>, c: Arc<Client>, select_inbox: b
             None => match c.mailboxes_with_state() { Ok((l, s)) => (l, s, None), Err(_) => return },
         };
         let counts = tag_counts(&c);
+        // the other signed-in accounts' inboxes for the title badge (unreadBadgeAllAccounts)
+        if crate::unified::is_active(&c) { crate::unified::refresh_other_logins(w.clone(), select_inbox); }
         // other accounts' inbox counts for the "All inboxes" badge: on their own thread, so a
         // slow or unreachable login never holds up this account's folders
         if crate::unified::enabled() && crate::unified::is_active(&c) {
@@ -292,21 +298,48 @@ pub fn load_mailboxes(w: slint::Weak<AppWindow>, c: Arc<Client>, select_inbox: b
 // ---------------- tags ----------------
 
 fn tag_counts(c: &Client) -> HashMap<String, usize> {
-    let calls: Vec<Value> = TAGS.iter().enumerate().map(|(i, t)| json!(["Email/query", {
-        "accountId": c.account, "filter": {"hasKeyword": format!("$label:{}", t.0)}, "limit": 0, "calculateTotal": true
+    let defs = crate::tags::defs();
+    if defs.is_empty() { return HashMap::new(); }
+    let calls: Vec<Value> = defs.iter().enumerate().map(|(i, t)| json!(["Email/query", {
+        "accountId": c.account, "filter": {"hasKeyword": format!("$label:{}", t.id)}, "limit": 0, "calculateTotal": true
     }, format!("t{i}")])).collect();
+    // Client::request splits the batch by maxCallsInRequest
     match c.request(Value::Array(calls)) {
-        Ok(r) => TAGS.iter().zip(r.iter()).map(|(t, x)| (t.0.to_string(), x[1]["total"].as_u64().unwrap_or(0) as usize)).collect(),
+        Ok(r) => defs.iter().zip(r.iter()).map(|(t, x)| (t.id.clone(), x[1]["total"].as_u64().unwrap_or(0) as usize)).collect(),
         Err(_) => HashMap::new(),
     }
 }
 
+thread_local! {
+    /// Tag counts from the last fetch and the tags folded in the sidebar tree.
+    static TAG_COUNTS: RefCell<HashMap<String, usize>> = RefCell::new(HashMap::new());
+    static TAG_FOLDED: RefCell<HashSet<String>> = RefCell::new(HashSet::new());
+}
+
 fn set_tags(u: &AppWindow, counts: &HashMap<String, usize>) {
-    let v: Vec<Tag> = TAGS.iter().map(|t| Tag {
-        id: t.0.into(), name: t.1.into(), color: rgb(crate::a11y::color(t.2)),
-        count: counts.get(t.0).filter(|n| **n > 0).map(|n| n.to_string()).unwrap_or_default().into(),
-    }).collect();
+    TAG_COUNTS.with(|t| *t.borrow_mut() = counts.clone());
+    rebuild_tags(u);
+}
+
+/// The sidebar's tag list from the user's tags (a tree with nestedTags) and the last counts.
+pub fn rebuild_tags(u: &AppWindow) {
+    let defs = crate::tags::defs();
+    let rows = TAG_FOLDED.with(|f| crate::tags::rows(&defs, crate::tags::nested(), &f.borrow()));
+    let v: Vec<Tag> = TAG_COUNTS.with(|c| {
+        let c = c.borrow();
+        rows.into_iter().map(|r| Tag {
+            color: rgb(crate::a11y::color(crate::tags::color_rgb(&r.def.color))),
+            count: c.get(&r.def.id).filter(|n| **n > 0).map(|n| n.to_string()).unwrap_or_default().into(),
+            id: r.def.id.into(), name: r.def.label.into(), depth: r.depth, chevron: r.chevron,
+        }).collect()
+    });
     u.set_tags(ModelRc::new(VecModel::from(v)));
+}
+
+/// Fold or unfold a tag's children in the sidebar.
+pub fn toggle_tag_open(u: &AppWindow, id: &str) {
+    TAG_FOLDED.with(|f| { let mut f = f.borrow_mut(); if !f.remove(id) { f.insert(id.to_string()); } });
+    rebuild_tags(u);
 }
 
 // ---------------- list ----------------
@@ -380,8 +413,62 @@ fn account_mark() -> &'static str {
     if mark == "dot" && !(p.bool("showAccountDot", true) && crate::unified::several_accounts()) { "none" } else { mark }
 }
 
+/// Whether a list filter shows the Junk folder (no sender pictures there by default).
+fn filter_in_junk(filter: &Value) -> bool {
+    filter["inMailbox"].as_str().is_some_and(|id| mailbox_role(id) == "junk")
+}
+
+/// A row's sender picture: (image, 0 initials / 1 photo / 2 logo).
+fn row_avatar(m: &Value, ap: &crate::avatars::Prefs, junk: bool) -> (slint::Image, i32) {
+    match m["from"][0]["email"].as_str().and_then(|e| crate::avatars::get(e, None, ap, junk)) {
+        Some(p) => (p.image, if p.logo { 2 } else { 1 }),
+        None => (slint::Image::default(), 0),
+    }
+}
+
+thread_local! {
+    /// The open message's sender for the reader's picture: (address, DMARC-passed brand domain, in Junk).
+    static READER_SENDER: RefCell<Option<(String, Option<String>, bool)>> = const { RefCell::new(None) };
+}
+
+/// Show the open message's sender picture (the reader may use a BIMI logo: it has the headers).
+pub fn set_reader_avatar(u: &AppWindow, m: Option<&Value>, server_host: &str) {
+    let junk = LIST.with(|l| filter_in_junk(&l.borrow().filter));
+    let s = m.and_then(|m| Some((m["from"][0]["email"].as_str()?.to_string(), crate::avatars::brand_domain(m, server_host), junk)));
+    READER_SENDER.with(|r| *r.borrow_mut() = s);
+    reader_avatar(u, &crate::avatars::Prefs::load());
+}
+
+fn reader_avatar(u: &AppWindow, ap: &crate::avatars::Prefs) {
+    let pic = READER_SENDER.with(|r| r.borrow().as_ref().and_then(|(e, b, junk)| crate::avatars::get(e, b.as_deref(), ap, *junk)));
+    let (img, kind) = match pic { Some(p) => (p.image, if p.logo { 2 } else { 1 }), None => (slint::Image::default(), 0) };
+    u.set_r_avatar(img);
+    u.set_r_avatar_kind(kind);
+}
+
+/// Sender pictures arrived (or the settings changed): update the rows in place and the reader.
+pub fn refresh_avatars(u: &AppWindow) {
+    let ap = crate::avatars::Prefs::load();
+    let junk = LIST.with(|l| filter_in_junk(&l.borrow().filter));
+    let model = u.get_mails();
+    for i in 0..model.row_count() {
+        let Some(mut row) = model.row_data(i) else { continue };
+        let Some(m) = email(&row.id) else { continue };
+        let (img, kind) = row_avatar(&m, &ap, junk);
+        if row.avatar_kind != kind || (kind != 0 && row.avatar != img) {
+            row.avatar = img;
+            row.avatar_kind = kind;
+            model.set_row_data(i, row);
+        }
+    }
+    reader_avatar(u, &ap);
+}
+
 fn build_rows(st: &ListState) -> Vec<Mail> {
     let lp = list_prefs();
+    let ap = crate::avatars::Prefs::load();
+    let junk = filter_in_junk(&st.filter);
+    let tdefs = crate::tags::defs();
     let unified = st.filter["unified"] == true;
     let mark = if unified { account_mark() } else { "none" };
     let mut last = String::new();
@@ -393,9 +480,10 @@ fn build_rows(st: &ListState) -> Vec<Mail> {
             if i == 0 && st.section > 0 { "Unread".to_string() } else if i == st.section { "Everything else".to_string() } else { String::new() }
         } else if lp.group_by_date && g != last { last = g.clone(); g } else { String::new() };
         let s = sender(m);
+        let avatar = row_avatar(m, &ap, junk);
         let kw = &m["keywords"];
         let id = m["id"].as_str().unwrap_or("").to_string();
-        let tags: Vec<Color> = kw.as_object().map(|o| o.keys().filter_map(|k| k.strip_prefix("$label:")).map(tag_color).collect()).unwrap_or_default();
+        let tags: Vec<Color> = kw.as_object().map(|o| o.keys().filter_map(|k| k.strip_prefix("$label:")).map(|k| tag_color(&tdefs, k)).collect()).unwrap_or_default();
         let acct = m["__account"].as_str().filter(|_| unified).unwrap_or("");
         let acct_color = if acct.is_empty() { None } else { Some(rgb(crate::a11y::color(crate::unified::account_color(acct)))) };
         let row_tint = if let (true, Some(c)) = (mark == "tint", acct_color) { c.with_alpha(0.10) } else if lp.tint_rows { tags.first().map(|c| c.with_alpha(0.12)).unwrap_or(Color::from_argb_u8(0, 0, 0, 0)) } else { Color::from_argb_u8(0, 0, 0, 0) };
@@ -438,6 +526,8 @@ fn build_rows(st: &ListState) -> Vec<Mail> {
             hl: hl.is_some(),
             hl_subject: hl.as_ref().map(|h| h.0.clone()).unwrap_or_default(),
             hl_preview: hl.map(|h| h.1).unwrap_or_default(),
+            avatar: avatar.0,
+            avatar_kind: avatar.1,
         }
     }).collect()
 }
@@ -1032,6 +1122,13 @@ mod tests {
         assert_eq!(forced("read"), None);
         assert_eq!(resolve_toggle(&["nope".into()], "read!"), "read");
         assert_eq!(resolve_toggle(&["nope".into()], "unread!"), "unread");
+    }
+
+    #[test]
+    fn unread_badge_title() {
+        assert_eq!(badge_title(true, 5), "(5) Barbican");
+        assert_eq!(badge_title(true, 0), "Barbican");
+        assert_eq!(badge_title(false, 5), "Barbican");
     }
 
     #[test]

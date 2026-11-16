@@ -2,6 +2,10 @@
 
 mod a11y;
 mod auth;
+mod attachments;
+mod avatars;
+mod tags;
+mod mailimport;
 mod admin;
 mod dashboard;
 mod automation;
@@ -367,6 +371,15 @@ fn load_thread(w: slint::Weak<AppWindow>, c: Arc<jmap::Client>, id: String) {
         });
     });
 }
+/// Reload the open message's conversation strip: a reply was just sent from it, or push
+/// reported mail changes (the sent reply joins the thread). UI thread.
+pub fn refresh_open_thread(u: &AppWindow) {
+    let id = u.get_current_mail().to_string();
+    if id.is_empty() || u.get_app() != 0 { return; }
+    let Some(c) = READER_CLIENT.with(|r| r.borrow().clone()) else { return };
+    load_thread(u.as_weak(), c, id);
+}
+
 thread_local! {
     /// Client of the account the open message belongs to (unified inbox) and of the open composer.
     static READER_CLIENT: std::cell::RefCell<Option<Arc<jmap::Client>>> = const { std::cell::RefCell::new(None) };
@@ -550,6 +563,7 @@ fn schedule_refresh(w: slint::Weak<AppWindow>, c: Arc<jmap::Client>, types: std:
         if has("Mailbox") || has("Email") || has("Thread") { mail::load_mailboxes(w.clone(), c.clone(), false); }
         let scheduled = w.upgrade().is_some_and(|u| u.get_current_folder() == "__scheduled");
         if has("Email") || has("Thread") || (scheduled && has("EmailSubmission")) { mail::sync(w.clone(), c.clone()); }
+        if has("Email") || has("Thread") { if let Some(u) = w.upgrade() { refresh_open_thread(&u); } }
         if has("Email") || has("EmailDelivery") { check_new_mail(c.clone(), Some(w.clone())); }
         if has("CalendarEvent") || has("Calendar") {
             reminders::changed(w.clone(), c.clone());
@@ -718,6 +732,7 @@ fn main() -> Result<(), slint::PlatformError> {
     apply_theme(&ui);
     apply_ui_prefs(&ui);
     automation::start(&ui);
+    avatars::set_window(ui.as_weak());
     rte::wire_drop(&ui);
     chips::wire(&ui);
     {
@@ -896,6 +911,7 @@ fn main() -> Result<(), slint::PlatformError> {
         let shared = mail::shared_account(&id);
         if !same_thread { u.set_thread_msgs(ModelRc::default()); }
         u.set_attachments(ModelRc::default());
+        u.set_att_cards(ModelRc::default());
         u.set_r_to("".into());
         u.set_r_email("".into());
         u.set_r_subject("".into());
@@ -955,6 +971,7 @@ fn main() -> Result<(), slint::PlatformError> {
                         glance::sender(w2.clone(), c2.clone(), email.clone(), id.clone());
                         u.set_r_initials(initials(&from).into());
                         u.set_r_color(mail::tint(&from));
+                        mail::set_reader_avatar(&u, Some(&m), &crate::avatars::host_of(&c2.base));
                         u.set_r_flagged(m["keywords"]["$flagged"].as_bool() == Some(true));
                         let names = |k: &str| m[k].as_array().map(|a| a.iter().map(|x| {
                             let e = x["email"].as_str().unwrap_or("");
@@ -974,6 +991,7 @@ fn main() -> Result<(), slint::PlatformError> {
                             index: i as i32,
                         }).collect();
                         u.set_attachments(ModelRc::new(VecModel::from(rows)));
+                        attachments::show(&u, c2.clone(), &id, &atts);
                         CUR_MSG.with(|x| *x.borrow_mut() = Some((m.clone(), atts)));
                         load_thread(w2.clone(), c2.clone(), id.clone());
                         u.set_r_subject(SharedString::from(m["subject"].as_str().unwrap_or("(no subject)")));
@@ -1153,7 +1171,8 @@ fn main() -> Result<(), slint::PlatformError> {
         }
         if key == "spellCheck" { rte::spell::reload(); if let Some(u) = wt.upgrade() { rte::refresh(&u); } }
         if key.starts_with("desktop.") { desktop::setting_changed(&key, on); }
-        if let Some(u) = wt.upgrade() { apply_ui_prefs(&u); mail::rebuild_folders(&u); mail::rebuild_list(&u); }
+        if key == "unreadBadgeAllAccounts" && on { unified::refresh_other_logins(wt.clone(), true); }
+        if let Some(u) = wt.upgrade() { apply_ui_prefs(&u); mail::rebuild_folders(&u); mail::rebuild_list(&u); mail::refresh_avatars(&u); if key == "nestedTags" { mail::rebuild_tags(&u); } }
     });
 
     let (w, pf, cf, rs, srv3, sw3) = (ui.as_weak(), prefs.clone(), cfg.clone(), refresh_settings.clone(), server_cache.clone(), server_write.clone());
@@ -1228,6 +1247,7 @@ fn main() -> Result<(), slint::PlatformError> {
             u.invoke_settings_search(u.get_settings_query());
         }
         if key == "plugins.folder" { oauth::open_browser(&plugins::dir().to_string_lossy()); }
+        if key == "avatars.refresh" { avatars::refresh(); mail::refresh_avatars(&u); mail::show_toast(&u, "Sender icons will be fetched again", false); }
         if key == "backup.export" {
             if let Some(path) = rfd::FileDialog::new().set_file_name("barbican-settings.json").add_filter("JSON", &["json"]).save_file() {
                 let data = serde_json::to_string_pretty(&pf2.lock().unwrap().export()).unwrap_or_default();
@@ -1461,6 +1481,18 @@ fn main() -> Result<(), slint::PlatformError> {
     schedule::wire(&ui, state.clone(), prefs.clone());
     let w = ui.as_weak();
     ui.on_c_toggle_tag(move |i| compose::toggle_tag(&w.unwrap(), i));
+    let w = ui.as_weak();
+    ui.on_c_from_edit(move || compose::start_from_override(&w.unwrap()));
+    let w = ui.as_weak();
+    ui.on_toggle_tag_open(move |id| mail::toggle_tag_open(&w.unwrap(), &id));
+    let w = ui.as_weak();
+    ui.on_tag_new(move || ctxmenu::new_tag_prompt(&w.unwrap(), None));
+    // the share of the pane a docked reply takes, once dragged (Bulwark replyDockShare)
+    ui.set_dock_share(settings::Settings::load().prefs.get("replyDockShare").and_then(|v| v.as_f64()).filter(|f| *f > 0.1 && *f < 0.95).unwrap_or(-1.0) as f32);
+    ui.on_dock_share_save(|share| {
+        let v = (share > 0.1 && share < 0.95).then(|| json!((share as f64 * 1000.0).round() / 1000.0));
+        settings::Settings::put("replyDockShare", v);
+    });
 
     let (w, st, pf) = (ui.as_weak(), state.clone(), prefs.clone());
     ui.on_send_now(move || {
@@ -1917,6 +1949,13 @@ fn main() -> Result<(), slint::PlatformError> {
     let timer = slint::Timer::default();
     timer.start(slint::TimerMode::Repeated, std::time::Duration::from_millis(50), move || {
         if let Some(u) = w.upgrade() { sync_webview(&u); }
+    });
+    // Bulwark unreadBadgeAllAccounts: the other signed-in accounts' inbox counts for the
+    // title badge, refreshed now and then (the active account's come with its push)
+    let w = ui.as_weak();
+    let badge_timer = slint::Timer::default();
+    badge_timer.start(slint::TimerMode::Repeated, std::time::Duration::from_secs(120), move || {
+        if w.upgrade().is_some_and(|u| u.get_logged_in()) { unified::refresh_other_logins(w.clone(), false); }
     });
     // the window can be closed to the tray: the loop runs until Quit
     slint::run_event_loop_until_quit()?;

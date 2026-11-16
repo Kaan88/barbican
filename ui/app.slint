@@ -24,6 +24,9 @@ import { PimTheme } from "pim-theme.slint";
 import { CtX, CtLine, CtField, CtDupe, ContactCardView, ContactEditor, ContactDupes, ContactImportDialog } from "pim-contacts.slint";
 import { FilterX, FCond, FAct, FilterRuleRow, FilterRuleEditor, FilterRetroDialog } from "pim-filters.slint";
 export { PimTheme, CtX, CtLine, CtField, CtDupe, FilterX, FCond, FAct }
+// mail extras (p2-mailextras): attachment cards, From override, reply under the message
+import { MxTok, AttCard, FromOverride, AttCards, ReplyDockBar, ReplyDockHandle } from "mailextras.slint";
+export { AttCard }
 
 export struct Folder {
     id: string,
@@ -43,6 +46,9 @@ export struct Tag {
     name: string,
     color: color,
     count: string,
+    // nestedTags: level in the tree and the chevron (0 none, 1 open, 2 closed)
+    depth: int,
+    chevron: int,
 }
 
 export struct PRow {
@@ -207,6 +213,9 @@ export struct Mail {
     hl: bool,
     hl-subject: styled-text,
     hl-preview: styled-text,
+    // sender picture (src/avatars.rs): 0 initials, 1 photo, 2 logo
+    avatar: image,
+    avatar-kind: int,
 }
 
 export struct STab {
@@ -259,11 +268,17 @@ component Icon inherits Text {
 component Avatar inherits Rectangle {
     in property <string> label;
     in property <color> tint;
+    // a sender picture (src/avatars.rs): 0 initials, 1 photo, 2 logo on white
+    in property <image> img;
+    in property <int> kind;
     width: 34px;
     height: 34px;
     border-radius: Theme.round(self.height);
-    background: Theme.tint-bg(root.tint);
-    Text {
+    background: kind == 2 ? #ffffff : kind == 1 ? transparent : Theme.tint-bg(root.tint);
+    clip: kind != 0;
+    if kind == 1: Image { width: root.width; height: root.height; source: root.img; image-fit: cover; }
+    if kind == 2: Image { x: root.width * 0.16; y: root.height * 0.16; width: root.width * 0.68; height: root.height * 0.68; source: root.img; image-fit: contain; }
+    if kind == 0: Text {
         text: root.label;
         color: Theme.tint-fg(root.tint);
         font-size: max(9px, root.height * 0.33);
@@ -404,6 +419,7 @@ component TagRow inherits Rectangle {
     in property <Tag> t;
     in property <bool> selected;
     callback clicked;
+    callback chevron-clicked;
     callback context(length, length);
     height: Prefs.large-targets ? 44px : 37px * Prefs.fs;
     in property <string> hl-id;
@@ -417,9 +433,15 @@ component TagRow inherits Rectangle {
     changed dnd-over => { if dnd-over { Pd.dnd-target = "tag:" + t.id; } else if Pd.dnd-target == "tag:" + t.id { Pd.dnd-target = ""; } }
     if dnd-over: Rectangle { border-width: 1.5px; border-color: Theme.accent; border-radius: root.border-radius; background: Theme.accent.with-alpha(0.12); }
     HorizontalLayout {
-        padding-left: 16px;
+        padding-left: 16px + t.depth * 14px - (t.chevron != 0 ? 16px : 0px);
         padding-right: 12px;
         spacing: 12px;
+        // nestedTags: fold a tag's children
+        if t.chevron != 0: Rectangle {
+            width: 12px;
+            cha := TouchArea { clicked => { root.chevron-clicked(); } }
+            SIcon { commands: t.chevron == 2 ? Icons.chevron-right : Icons.chevron-down; size: 11px; weight: 2.2; tint: cha.has-hover ? Theme.text : Theme.faint; }
+        }
         VerticalLayout { alignment: center; Rectangle { width: 10px; height: 10px; border-radius: 4px; background: t.color; } }
         Text { text: t.name; color: selected ? Theme.sel-text : Theme.body; font-size: 14px * Prefs.fs; font-weight: selected ? 700 : 400; vertical-alignment: center; horizontal-stretch: 1; overflow: elide; }
         Text { text: t.count; color: Theme.faint; font-size: 12px * Prefs.fs; vertical-alignment: center; }
@@ -431,6 +453,7 @@ component TagTile inherits Rectangle {
     in property <Tag> t;
     in property <bool> selected;
     callback clicked;
+    callback chevron-clicked;
     callback context(length, length);
     in property <string> hl-id;
     border-radius: 16px;
@@ -447,6 +470,12 @@ component TagTile inherits Rectangle {
         spacing: 2px;
         Text { text: t.name; color: Theme.tint-fg(t.color); font-size: 12px * Prefs.fs; font-weight: 600; overflow: elide; }
         Text { text: t.count == "" ? "0" : t.count; color: Theme.tint-fg(t.color); font-size: 19px * Prefs.fs; font-weight: 800; }
+    }
+    // nestedTags: fold a tag's children
+    if t.chevron != 0: Rectangle {
+        x: parent.width - 28px; y: 6px; width: 22px; height: 22px;
+        tca := TouchArea { clicked => { root.chevron-clicked(); } }
+        SIcon { commands: t.chevron == 2 ? Icons.chevron-right : Icons.chevron-down; size: 12px; weight: 2.2; tint: tca.has-hover ? Theme.text : Theme.tint-fg(t.color); }
     }
 }
 
@@ -706,7 +735,7 @@ component MailRow inherits VerticalLayout {
                 spacing: Theme.nordic ? 8px : 11px;
                 if Theme.bento: VerticalLayout {
                     alignment: start;
-                    Avatar { label: m.initials; tint: m.color; width: 38px; height: 38px; }
+                    Avatar { label: m.initials; tint: m.color; img: m.avatar; kind: m.avatar-kind; width: 38px; height: 38px; }
                 }
                 if Theme.nordic: VerticalLayout {
                     alignment: start;
@@ -1015,7 +1044,7 @@ export component AppWindow inherits Window {
     preferred-height: 900px;
     default-font-size: Prefs.font-size;
     default-font-family: "Segoe UI";
-    init => { Palette.color-scheme = Theme.dark ? ColorScheme.dark : ColorScheme.light; root.win-w = self.width; }
+    init => { Palette.color-scheme = Theme.dark ? ColorScheme.dark : ColorScheme.light; root.win-w = self.width; root.dock-pane = self.height; }
     changed theme-dark => { Palette.color-scheme = Theme.dark ? ColorScheme.dark : ColorScheme.light; }
     property <bool> theme-dark: Theme.dark;
 
@@ -1122,6 +1151,8 @@ export component AppWindow inherits Window {
     in property <string> r-to;
     in property <string> r-initials;
     in property <color> r-color: #6366f1;
+    in property <image> r-avatar;
+    in property <int> r-avatar-kind;
     in property <bool> r-flagged;
     in property <[Att]> attachments;
     in-out property <string> toast;
@@ -1129,6 +1160,8 @@ export component AppWindow inherits Window {
     in-out property <bool> folders-collapsed;
     in-out property <bool> tags-collapsed;
     callback toggle-folder(string);
+    callback toggle-tag-open(string);
+    callback tag-new();
     callback select-tag(string);
     callback row-action(string, string);
     callback toggle-check(string);
@@ -1356,6 +1389,46 @@ export component AppWindow inherits Window {
     in property <[string]> c-identities;
     in-out property <int> c-from-index;
     in property <[Att]> c-attachments;
+    // ---- mail extras (ui/mailextras.slint) ----
+    // the Theme tokens the extras draw with
+    property <MxTok> mx-tok: {
+        dark: Theme.dark, text: Theme.text, dim: Theme.dim, line: Theme.line, accent: Theme.accent,
+        on-accent: Theme.on-accent, hover: Theme.hover, chip: Theme.chip, popup: Theme.popup,
+        surface: Theme.reader, sel: Theme.sel, sel-text: Theme.sel-text, ring: Theme.ring,
+        focus: Prefs.focus-ring, big: Prefs.large-targets,
+    };
+    // From override (Bulwark "Edit sender…" and the catch-all reply rewrite)
+    in-out property <bool> c-from-custom;
+    in-out property <string> c-from-name;
+    in-out property <string> c-from-email;
+    callback c-from-edit();
+    // attachment preview cards (attachmentImagePreviewsEnabled)
+    in property <[AttCard]> att-cards;
+    in property <string> att-summary;
+    // replyUnderMessage: a reply or forward docks under its message (Bulwark reply-dock).
+    // The pane is the window's height; under 700px (or with less than the reply's minimum
+    // left) the reply takes the pane under the reader's toolbar and folds away to show the
+    // message. dock-share is the user's dragged share (<= 0: the default 60 %), dock-above the
+    // reader's chrome above the message text when the reply opened.
+    in-out property <bool> reply-docked;
+    in-out property <bool> dock-folded;
+    in-out property <float> dock-share: -1;
+    in-out property <length> dock-above;
+    callback dock-share-save(float);
+    // followed with a change handler, not a binding: the spacer under the message is part of
+    // the window's own layout
+    out property <length> dock-pane: 900px;
+    changed height => { root.dock-pane = self.height; }
+    out property <bool> dock-takeover: root.dock-pane < 700px || root.dock-pane - 92px - 80px < 320px;
+    out property <length> dock-max: max(320px, root.dock-pane - 92px - 80px);
+    out property <length> dock-h: max(320px, min(root.dock-max,
+        root.dock-share > 0 ? root.dock-pane * root.dock-share
+        : root.dock-above > 0px ? min(root.dock-pane * 0.6, max(root.dock-pane / 2, root.dock-pane - root.dock-above - 100px))
+        : root.dock-pane * 0.6));
+    // where a reply that takes the pane starts: under the reader's action row
+    out property <length> dock-top: (Theme.nordic ? 30px : 22px) + (Prefs.large-targets ? 44px : (Theme.nordic ? 38px : 34px)) + 8px;
+    // the message stays readable above a docked reply (or a folded one)
+    out property <bool> dock-shows-body: root.reply-docked && (!root.dock-takeover || root.dock-folded);
     callback attach-file();
     callback remove-attachment(int);
     callback save-draft(bool);
@@ -1439,7 +1512,7 @@ export component AppWindow inherits Window {
     out property <length> by: body.absolute-position.y;
     out property <length> bw: body.width;
     out property <length> bh: body.height;
-    out property <bool> body-visible: logged-in && app == 0 && current-mail != "" && !composing && !show-settings && render-mode == 0 && !ev-open && !ctx-open && !CompX.sched-open;
+    out property <bool> body-visible: logged-in && app == 0 && current-mail != "" && (!composing || dock-shows-body) && !show-settings && render-mode == 0 && !ev-open && !ctx-open && !CompX.sched-open;
 
     callback shortcut(string, bool, bool);
     // the Theme tokens the productivity overlays (productivity.slint) draw with
@@ -1694,6 +1767,7 @@ export component AppWindow inherits Window {
                             Text { text: "Tags"; color: Theme.dim; font-size: 12px * Prefs.fs; font-weight: 700; vertical-alignment: center; }
                             VerticalLayout { alignment: center; SIcon { commands: root.tags-collapsed ? Icons.chevron-right : Icons.chevron-down; size: 11px; weight: 2.2; tint: Theme.faint; } }
                             Rectangle { horizontal-stretch: 1; }
+                            IconBtn { icon: Icons.plus; icon-size: 13px; width: 22px; tint: Theme.faint; clicked => { root.tag-new(); } }
                             IconBtn { icon: Icons.settings; icon-size: 13px; width: 22px; tint: Theme.faint; clicked => { root.settings-tab = "organize"; root.open-settings(); } }
                         }
                     }
@@ -1709,6 +1783,7 @@ export component AppWindow inherits Window {
                             t: t;
                             selected: t.id == root.current-tag;
                             clicked => { root.current-tag = t.id; root.select-tag(t.id); }
+                            chevron-clicked => { root.toggle-tag-open(t.id); }
                             hl-id: "tag:" + t.id;
                             context(x, y) => { root.ctx("tag", t.id, x, y); }
                         }
@@ -1719,6 +1794,7 @@ export component AppWindow inherits Window {
                             t: t;
                             selected: t.id == root.current-tag;
                             clicked => { root.current-tag = t.id; root.select-tag(t.id); }
+                            chevron-clicked => { root.toggle-tag-open(t.id); }
                             hl-id: "tag:" + t.id;
                             context(x, y) => { root.ctx("tag", t.id, x, y); }
                         }
@@ -2258,8 +2334,33 @@ export component AppWindow inherits Window {
                         }
                     }
                 }
+                // attachment previews (attachmentImagePreviewsEnabled, ui/mailextras.slint)
+                if root.att-cards.length > 0: AttCards {
+                    padding-top: 12px;
+                    tok: root.mx-tok;
+                    cards: root.att-cards;
+                    summary: root.att-summary;
+                    open(i) => { root.open-attachment(i); }
+                    save(i) => { root.save-attachment(i); }
+                    context(i, x, y) => { root.ctx("att", i, x, y); }
+                }
+                if root.att-cards.length > 0 && root.attachments.length > 1: HorizontalLayout {
+                    alignment: start;
+                    Rectangle {
+                        height: 30px;
+                        width: dacl.preferred-width;
+                        border-radius: 15px;
+                        background: daca.has-hover ? Theme.hover : transparent;
+                        daca := TouchArea { clicked => { RX.action("att", "zip"); } }
+                        dacl := HorizontalLayout {
+                            padding-left: 10px; padding-right: 12px; spacing: 8px;
+                            VerticalLayout { alignment: center; SIcon { commands: Icons.download; size: 14px; weight: 1.8; tint: Theme.accent; } }
+                            Text { text: "Download all"; color: Theme.text; font-size: 12.5px * Prefs.fs; font-weight: 600; vertical-alignment: center; }
+                        }
+                    }
+                }
                 // attachments: tile-2 cards with a tinted type badge (BNMail) / quiet pills (NordMail)
-                if root.attachments.length > 0: Flickable {
+                if root.attachments.length > 0 && root.att-cards.length == 0: Flickable {
                     height: 66px;
                     content-width: attl.preferred-width;
                     attl := HorizontalLayout {
@@ -2311,9 +2412,15 @@ export component AppWindow inherits Window {
                         }
                     }
                 }
-                if root.pref-quick-reply: Rectangle { height: 14px; }
+                // the room a docked reply takes under the message (replyUnderMessage)
+                if root.composing && root.reply-docked: Rectangle {
+                    min-height: 0px;
+                    preferred-height: root.dock-takeover ? (root.dock-folded ? 34px : 0px) : root.dock-h;
+                    vertical-stretch: 0;
+                }
+                if root.pref-quick-reply && !(root.composing && root.reply-docked): Rectangle { height: 14px; }
                 // quick reply: tile-2 bar with an accent Send (BNMail) / hairline pill (NordMail)
-                if root.pref-quick-reply: Rectangle {
+                if root.pref-quick-reply && !(root.composing && root.reply-docked): Rectangle {
                     height: Theme.nordic ? 58px : 54px;
                     border-radius: Theme.nordic ? 26px : 20px;
                     background: Theme.nordic ? transparent : Theme.tile2;
@@ -2359,6 +2466,10 @@ export component AppWindow inherits Window {
             // ---- composer: replaces the reading pane (Bulwark layout) ----
             if root.composing: cmp := Rectangle {
                 background: Theme.reader;
+                // docked under its message (replyUnderMessage), or the whole pane
+                y: !root.reply-docked ? 0px : root.dock-takeover ? (root.dock-folded ? parent.height - 34px : root.dock-top) : parent.height - root.dock-h;
+                height: !root.reply-docked ? parent.height : root.dock-takeover ? (root.dock-folded ? 34px : parent.height - root.dock-top) : root.dock-h;
+                clip: root.reply-docked;
                 function fmt(k: string) {
                     root.rte-cmd(k);
                     self.focus-ed();
@@ -2428,7 +2539,14 @@ export component AppWindow inherits Window {
                 TouchArea { }
                 VerticalLayout {
                     padding: 0px;
+                    padding-top: root.reply-docked && !root.dock-takeover ? 9px : 0px;
                     spacing: 0px;
+                    if root.reply-docked && root.dock-takeover: ReplyDockBar {
+                        tok: root.mx-tok;
+                        folded: root.dock-folded;
+                        subject: root.r-subject;
+                        toggled => { root.dock-folded = !root.dock-folded; }
+                    }
                     // header
                     HorizontalLayout {
                         height: 40px;
@@ -2452,8 +2570,16 @@ export component AppWindow inherits Window {
                             padding-right: 12px;
                             spacing: 8px;
                             Text { text: "From:"; color: Theme.dim; width: 52px; vertical-alignment: center; }
-                            Text { text: root.c-identities.length > 0 ? root.c-identities[root.c-from-index] : ""; color: Theme.text; vertical-alignment: center; horizontal-stretch: 1; overflow: elide; }
-                            Icon { text: "\u{E70D}"; font-size: 9px; color: frta.has-hover ? Theme.text : Theme.dim; }
+                            if !root.c-from-custom: Text { text: root.c-identities.length > 0 ? root.c-identities[root.c-from-index] : ""; color: Theme.text; vertical-alignment: center; horizontal-stretch: 1; overflow: elide; }
+                            if !root.c-from-custom: Icon { text: "\u{E70D}"; font-size: 9px; color: frta.has-hover ? Theme.text : Theme.dim; }
+                            // a name and an address to type (Bulwark "Edit sender…")
+                            if root.c-from-custom: FromOverride {
+                                horizontal-stretch: 1;
+                                tok: root.mx-tok;
+                                name <=> root.c-from-name;
+                                email <=> root.c-from-email;
+                                use-identity => { root.c-from-custom = false; }
+                            }
                         }
                         from-pop := PopupWindow {
                             x: 64px; y: 30px;
@@ -2462,6 +2588,8 @@ export component AppWindow inherits Window {
                                 VerticalLayout {
                                     padding: 4px;
                                     for id[i] in root.c-identities: MenuItem { text: id; checkable: true; checked: i == root.c-from-index; clicked => { root.c-from-index = i; } }
+                                    Rectangle { height: 1px; background: Theme.line; }
+                                    MenuItem { text: "Edit sender…"; glyph: "\u{E70F}"; clicked => { root.c-from-edit(); } }
                                 }
                             }
                         }
@@ -2880,6 +3008,17 @@ export component AppWindow inherits Window {
                     items: Rcpt.suggestions;
                     highlight: Rcpt.highlight;
                 }
+                // the divider above a reply that shares the pane: drag to resize, double-click resets
+                if root.reply-docked && !root.dock-takeover: ReplyDockHandle {
+                    y: 0px;
+                    tok: root.mx-tok;
+                    current: root.dock-h;
+                    min-h: 320px;
+                    max-h: root.dock-max;
+                    resized(h) => { root.dock-share = h / root.dock-pane; }
+                    done => { root.dock-share-save(root.dock-share); }
+                    reset => { root.dock-share = -1; root.dock-share-save(-1); }
+                }
             }
             }
         }
@@ -3058,6 +3197,8 @@ export component AppWindow inherits Window {
                         Avatar {
                             label: root.r-initials;
                             tint: root.r-color;
+                            img: root.r-avatar;
+                            kind: root.r-avatar-kind;
                             width: Theme.nordic ? 64px : 60px;
                             height: self.width;
                             border-radius: Theme.nordic ? self.height / 2 : 22px;
@@ -3998,7 +4139,8 @@ export component AppWindow inherits Window {
     }
     if root.toast != "": Rectangle {
         x: (parent.width - self.width) / 2;
-        y: parent.height - 68px;
+        // the quick-reply bar under an open message: the toast (Undo send) sits above it
+        y: parent.height - 68px - (root.logged-in && root.app == 0 && root.current-mail != "" && root.pref-quick-reply && !root.composing && !root.show-settings ? 60px : 0px);
         width: tl.preferred-width;
         height: 44px;
         border-radius: Theme.nordic ? 22px : 16px;
