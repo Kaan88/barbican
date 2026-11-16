@@ -1041,6 +1041,8 @@ fn main() -> Result<(), slint::PlatformError> {
     let w = ui.as_weak();
     ui.on_ct_search(move |q| contacts::search(&w.unwrap(), &q));
     let w = ui.as_weak();
+    ui.on_ct_select_group(move |id| contacts::select_group(&w.unwrap(), &id));
+    let w = ui.as_weak();
     ui.on_ct_select(move |id| { let u = w.unwrap(); u.set_ct_editing(false); contacts::select(&u, &id); });
     let w = ui.as_weak();
     ui.on_ct_new(move || { let u = w.unwrap(); contacts::select(&u, ""); u.set_ct_id("".into()); u.set_ct_editing(true); });
@@ -1052,7 +1054,9 @@ fn main() -> Result<(), slint::PlatformError> {
     ui.on_ct_email(move || {
         let Some(c) = st.lock().unwrap().clone() else { return };
         let u = w.unwrap();
-        let to = u.get_ct_emails().split(',').next().unwrap_or("").trim().to_string();
+        // a group mails every member; a contact its first address
+        let to = if u.get_ct_group() != "" && u.get_ct_id() == "" { u.get_ct_emails().to_string() }
+                 else { u.get_ct_emails().split(',').next().unwrap_or("").trim().to_string() };
         compose::open(&u, c, compose::Kind::New, None);
         u.set_c_to(to.into());
     });

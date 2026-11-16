@@ -603,6 +603,9 @@ export component AppWindow inherits Window {
     callback ev-save();
     callback ev-delete();
     in property <[ContactRow]> contacts;
+    in property <[ContactRow]> contact-groups;
+    in-out property <string> ct-group;
+    callback ct-select-group(string);
     in-out property <string> ct-id;
     in-out property <bool> ct-editing;
     in-out property <string> ct-name;
@@ -1527,6 +1530,21 @@ export component AppWindow inherits Window {
                         padding-left: 10px; padding-right: 10px; padding-bottom: 8px;
                         LineEdit { placeholder-text: "Search contacts"; edited(t) => { root.ct-search(t); } }
                     }
+                    if root.contact-groups.length > 0: VerticalLayout {
+                        Text { x: 14px; text: "Groups"; color: Theme.dim; font-size: 11px; font-weight: 700; height: 22px; vertical-alignment: center; }
+                        for g in root.contact-groups: Rectangle {
+                            height: 34px;
+                            background: g.id == root.ct-group ? Theme.sel : (gta.has-hover ? Theme.hover : transparent);
+                            gta := TouchArea { clicked => { root.ct-editing = false; root.ct-select-group(g.id); } }
+                            HorizontalLayout {
+                                padding-left: 14px; spacing: 10px;
+                                Icon { text: "\u{E716}"; color: g.color; width: 18px; }
+                                Text { text: g.name; color: Theme.text; font-weight: 600; vertical-alignment: center; horizontal-stretch: 1; overflow: elide; }
+                                Text { text: g.email; color: Theme.dim; font-size: 11px; vertical-alignment: center; }
+                                Rectangle { width: 8px; }
+                            }
+                        }
+                    }
                     Rectangle { height: 1px; background: Theme.line; }
                     ListView {
                         for c in root.contacts: VerticalLayout {
@@ -1537,7 +1555,7 @@ export component AppWindow inherits Window {
                             Rectangle {
                                 height: 46px;
                                 background: c.id == root.ct-id ? Theme.sel : (cta2.has-hover ? Theme.hover : transparent);
-                                cta2 := TouchArea { clicked => { root.ct-select(c.id); } }
+                                cta2 := TouchArea { clicked => { root.ct-group = ""; root.ct-select(c.id); } }
                                 HorizontalLayout {
                                     padding-left: 12px; spacing: 10px;
                                     VerticalLayout { alignment: center; Avatar { label: c.initials; tint: c.color; width: 30px; height: 30px; border-radius: 15px; } }
@@ -1554,9 +1572,19 @@ export component AppWindow inherits Window {
             }
             Rectangle { width: 1px; background: Theme.line; }
             Rectangle {
-                if root.ct-id == "" && !root.ct-editing: VerticalLayout {
+                if root.ct-id == "" && root.ct-group == "" && !root.ct-editing: VerticalLayout {
                     alignment: center;
                     Text { text: "Select a contact"; color: Theme.dim; horizontal-alignment: center; }
+                }
+                if root.ct-group != "" && root.ct-id == "" && !root.ct-editing: VerticalLayout {
+                    padding: 28px;
+                    spacing: 10px;
+                    alignment: start;
+                    Text { text: root.ct-name; color: Theme.text; font-size: 20px; font-weight: 700; }
+                    HorizontalLayout { alignment: start; PrimaryButton { text: "Email group"; enabled: root.ct-emails != ""; clicked => { root.ct-email(); } } }
+                    Rectangle { height: 1px; background: Theme.line; }
+                    Text { text: "Members"; color: Theme.dim; font-size: 11px; font-weight: 700; }
+                    Text { text: root.ct-notes == "" ? "No members" : root.ct-notes; color: Theme.text; wrap: word-wrap; }
                 }
                 if root.ct-id != "" && !root.ct-editing: VerticalLayout {
                     padding: 28px;

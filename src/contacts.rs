@@ -10,6 +10,7 @@ use std::sync::Arc;
 #[derive(Default)]
 struct State {
     cards: Vec<Value>,
+    groups: Vec<Value>,
     books: Vec<Value>,
     query: String,
 }
@@ -51,9 +52,11 @@ pub fn load(w: slint::Weak<AppWindow>, c: Arc<Client>) {
         })();
         let _ = w.upgrade_in_event_loop(move |u| match res {
             Ok((books, mut cards)) => {
+                let mut groups: Vec<Value> = cards.iter().filter(|x| x["kind"].as_str() == Some("group")).cloned().collect();
+                groups.sort_by_key(|x| full_name(x).to_lowercase());
                 cards.retain(|x| x["kind"].as_str() != Some("group"));
                 cards.sort_by_key(|x| full_name(x).to_lowercase());
-                ST.with(|s| { let mut s = s.borrow_mut(); s.books = books; s.cards = cards; });
+                ST.with(|s| { let mut s = s.borrow_mut(); s.books = books; s.cards = cards; s.groups = groups; });
                 render(&u);
             }
             Err(e) => crate::mail::show_toast(&u, &format!("Contacts: {e}"), false),
@@ -83,7 +86,31 @@ pub fn render(u: &AppWindow) {
             }
         }).collect();
         u.set_contacts(ModelRc::new(VecModel::from(rows)));
+        let groups: Vec<ContactRow> = s.groups.iter().map(|g| {
+            let name = full_name(g);
+            let n = g["members"].as_object().map(|m| m.len()).unwrap_or(0);
+            ContactRow { id: g["id"].as_str().unwrap_or("").into(), initials: "\u{E716}".into(), color: crate::mail::tint(&name),
+                email: format!("{n} member{}", if n == 1 { "" } else { "s" }).into(), name: name.into(), header: "".into() }
+        }).collect();
+        u.set_contact_groups(ModelRc::new(VecModel::from(groups)));
     });
+}
+
+/// Members of a group (JSContact `members` keyed by the member cards' `uid`).
+fn members(g: &Value) -> Vec<Value> {
+    let uids: Vec<String> = g["members"].as_object().map(|m| m.iter().filter(|(_, v)| **v == Value::Bool(true)).map(|(k, _)| k.clone()).collect()).unwrap_or_default();
+    ST.with(|s| s.borrow().cards.iter().filter(|c| c["uid"].as_str().is_some_and(|u| uids.iter().any(|x| x == u))).cloned().collect())
+}
+
+/// Show a group: its name and the members' addresses.
+pub fn select_group(u: &AppWindow, id: &str) {
+    let Some(g) = ST.with(|s| s.borrow().groups.iter().find(|x| x["id"] == id).cloned()) else { return };
+    let ms = members(&g);
+    u.set_ct_id("".into());
+    u.set_ct_group(id.into());
+    u.set_ct_name(full_name(&g).into());
+    u.set_ct_emails(ms.iter().filter_map(|m| first(m, "emails", "address")).collect::<Vec<_>>().join(", ").into());
+    u.set_ct_notes(ms.iter().map(full_name).collect::<Vec<_>>().join("\n").into());
 }
 
 pub fn search(u: &AppWindow, q: &str) {
