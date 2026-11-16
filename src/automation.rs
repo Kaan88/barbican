@@ -39,6 +39,13 @@
 //!   discard-composer     (close the composer without saving, like its Discard button)
 //!   resize W H           (resize the window, logical px)
 //!   render-mode N        (0 WebView, 1 light renderer, 2 plain text; in memory only)
+//!   probe-start          (frame probe: from now on record every rendered frame's start/end time
+//!                        and the time each command is dispatched; nothing is captured or copied)
+//!   probe-stop           (stop and return one JSON line: {"frames":[[start,end],…],"events":[[t,cmd],…]},
+//!                        times in ms since probe-start; analyse with tools/motion.py)
+//!   every MS N CMD       (run CMD N times, one every MS ms, from a UI-thread timer; returns at once)
+//!   motion reduce|normal|rapid|calm   (Motion.reduce / Motion.rapid in memory only, never saved)
+//!   toast [TEXT]         (show a toast, or clear it without TEXT; UI only)
 use crate::AppWindow;
 use slint::platform::{Key, PointerEventButton, WindowEvent};
 use slint::{ComponentHandle, LogicalPosition, SharedString};
@@ -162,7 +169,116 @@ fn start_burst(u: &AppWindow, args: &[&str]) -> String {
     "ok".into()
 }
 
+/// The frame probe: rendered frames (start, end) and dispatched commands, in ms since `t0`.
+/// Lives on the UI thread, where the window events, the rendering and the commands all run.
+struct Probe {
+    t0: std::time::Instant,
+    on: bool,
+    frames: Vec<(f64, f64)>,
+    events: Vec<(f64, String)>,
+}
+
+thread_local! {
+    static PROBE: std::cell::RefCell<Probe> = std::cell::RefCell::new(Probe {
+        t0: std::time::Instant::now(), on: false, frames: vec![], events: vec![],
+    });
+}
+
+/// The probe is recording (checked first, so a frame costs one atomic load when it is not).
+static PROBING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+fn probe_ms(p: &Probe) -> f64 { p.t0.elapsed().as_secs_f64() * 1000.0 }
+
+/// From the window's winit event filter (motion::install_filter). A frame starts with RedrawRequested (Slint renders
+/// and presents right after the filter returns); it has ended when a zero-delay timer queued
+/// at its start fires, on the next turn of the event loop. Only does anything while probing.
+pub fn winit_event(ev: &slint::winit_030::winit::event::WindowEvent) {
+    if !PROBING.load(std::sync::atomic::Ordering::Relaxed) { return; }
+    if !matches!(ev, slint::winit_030::winit::event::WindowEvent::RedrawRequested) { return; }
+    let idx = PROBE.with(|p| {
+        let mut p = p.borrow_mut();
+        if !p.on { return None; }
+        let t = probe_ms(&p);
+        p.frames.push((t, t));
+        Some(p.frames.len() - 1)
+    });
+    if let Some(i) = idx {
+        slint::Timer::single_shot(std::time::Duration::ZERO, move || PROBE.with(|p| {
+            let mut p = p.borrow_mut();
+            let t = probe_ms(&p);
+            if let Some(f) = p.frames.get_mut(i) { f.1 = t; }
+        }));
+    }
+}
+
+fn probe_start(u: &AppWindow) -> String {
+    use std::sync::atomic::Ordering;
+    // make sure the window's event filter (which feeds winit_event) is the current one
+    crate::motion::install_filter(u);
+    PROBE.with(|p| {
+        let mut p = p.borrow_mut();
+        p.on = true;
+        p.t0 = std::time::Instant::now();
+        p.frames.clear();
+        p.events.clear();
+    });
+    PROBING.store(true, Ordering::Relaxed);
+    "ok".into()
+}
+
+fn probe_stop() -> String {
+    PROBING.store(false, std::sync::atomic::Ordering::Relaxed);
+    PROBE.with(|p| {
+        let mut p = p.borrow_mut();
+        p.on = false;
+        let frames: Vec<serde_json::Value> = p.frames.iter().map(|(a, b)| serde_json::json!([(a * 100.0).round() / 100.0, (b * 100.0).round() / 100.0])).collect();
+        let events: Vec<serde_json::Value> = p.events.iter().map(|(t, e)| serde_json::json!([(t * 100.0).round() / 100.0, e])).collect();
+        serde_json::json!({"frames": frames, "events": events}).to_string()
+    })
+}
+
+/// `every MS N CMD`: run CMD N times on a UI-thread timer (precise spacing, no socket round trips).
+fn every(u: &AppWindow, args: &[&str]) -> String {
+    let ms: u64 = args.first().and_then(|v| v.parse().ok()).unwrap_or(33).max(1);
+    let n: usize = args.get(1).and_then(|v| v.parse().ok()).unwrap_or(1);
+    let cmd = args.get(2..).map(|a| a.join(" ")).unwrap_or_default();
+    if cmd.is_empty() || cmd.starts_with("every") { return "usage: every MS N CMD".into(); }
+    let w = u.as_weak();
+    let left = std::rc::Rc::new(std::cell::Cell::new(n));
+    let timer = std::rc::Rc::new(slint::Timer::default());
+    let t2 = timer.clone();
+    let i = std::rc::Rc::new(std::cell::Cell::new(0usize));
+    timer.start(slint::TimerMode::Repeated, std::time::Duration::from_millis(ms), move || {
+        if left.get() == 0 { t2.stop(); return; }
+        left.set(left.get() - 1);
+        let line = step_args(&cmd, i.get());
+        i.set(i.get() + 1);
+        if let Some(u) = w.upgrade() { let _ = run(&u, &line); }
+    });
+    // the closure holds the timer, so it lives until it has run N times and stops
+    "ok".into()
+}
+
+/// `A+Bi` arguments of an `every` command become A + B * i on the i-th run (a pointer sweep).
+fn step_args(cmd: &str, i: usize) -> String {
+    cmd.split(' ').map(|w| {
+        let Some(body) = w.strip_suffix('i') else { return w.to_string() };
+        let Some((a, b)) = body.split_once('+') else { return w.to_string() };
+        match (a.parse::<f32>(), b.parse::<f32>()) {
+            (Ok(a), Ok(b)) => format!("{}", a + b * i as f32),
+            _ => w.to_string(),
+        }
+    }).collect::<Vec<_>>().join(" ")
+}
+
 fn run(u: &AppWindow, line: &str) -> String {
+    PROBE.with(|p| {
+        let mut p = p.borrow_mut();
+        if p.on && !line.starts_with("probe") && !line.starts_with("every") {
+            let t = probe_ms(&p);
+            p.events.push((t, line.trim().to_string()));
+        }
+    });
     let logged = !line.starts_with("burst");
     if logged {
         if let Some(b) = BURST.lock().unwrap().as_mut().filter(|b| !b.done) {
@@ -340,6 +456,24 @@ fn run_cmd(u: &AppWindow, line: &str) -> String {
         "discard-composer" => { u.invoke_discard_draft(); "ok".into() }
         "render-mode" => { u.set_render_mode(pos(&args, 0) as i32); u.invoke_rerender(); "ok".into() }
         "theme" => { crate::set_theme_dark(u, args.first().copied() != Some("light")); "ok".into() }
+        // flip the motion tokens in memory only: reduce|normal (Motion.reduce), rapid|calm (Motion.rapid)
+        "motion" => {
+            let m = u.global::<crate::Motion>();
+            for w in &args {
+                match *w {
+                    "reduce" => m.set_reduce(true), "normal" => m.set_reduce(false),
+                    "rapid" => m.set_rapid(true), "calm" => m.set_rapid(false),
+                    "" => {}
+                    other => return format!("unknown motion option {other}"),
+                }
+            }
+            format!("reduce {} rapid {}", m.get_reduce(), m.get_rapid())
+        }
+        // show (or with no text clear) a toast, UI only: for checking its enter / exit motion
+        "toast" => { u.set_toast(a.get(1).copied().unwrap_or("").into()); "ok".into() }
+        "probe-start" => probe_start(u),
+        "probe-stop" => probe_stop(),
+        "every" => every(u, &args),
         "size" => { let s = win.size(); format!("{} {} scale {}", s.width, s.height, win.scale_factor()) }
         // resize the (off-screen) window, in logical pixels, to check narrow layouts
         "resize" => { win.set_size(slint::LogicalSize::new(pos(&args, 0).max(400.0), pos(&args, 1).max(300.0))); "ok".into() }

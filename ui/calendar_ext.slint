@@ -6,6 +6,7 @@
 // whatever the theme tokens are; the meaning tints (rose today, mint done, sky work, amber
 // attention) follow design/README.md.
 import { LineEdit, Button, ComboBox, CheckBox, ScrollView, TextEdit } from "std-widgets.slint";
+import { PopIn } from "theme.slint";
 
 export struct CalPal {
     dark: bool,
@@ -340,7 +341,7 @@ component Modal inherits Rectangle {
     callback dismiss;
     background: #00000099;
     TouchArea { clicked => { root.dismiss(); } }
-    tile := Rectangle {
+    tile := PopIn {
         width: min(root.max-w, root.width - 32px);
         height: min(root.inner-h, root.height - 32px);
         background: root.pal.tile;
@@ -376,7 +377,7 @@ export component EventEditor inherits Rectangle {
     callback cancel();
     background: #00000099;
     TouchArea { }
-    tile := Rectangle {
+    tile := PopIn {
         width: min(780px, root.width - 32px);
         height: min(body.preferred-height + 140px, root.height - 32px);
         background: root.pal.tile;

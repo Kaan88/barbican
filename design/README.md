@@ -26,3 +26,4 @@ The composer extras (`ui/recipients.slint`, `ui/compose-extras.slint`) read colo
 aliases whose every token is bound to `Theme` in `ui/theme.slint` (no Rust sync), so style,
 dark/light and more-contrast follow automatically. New parity UI files should import `Theme`
 from `theme.slint` directly.
+- Motion: `design/MOTION.md` (rules, `Motion` / `Ease` tokens, `PopIn` / `Scrim` / `Tip`, incremental list models via `src/listsync.rs`, the frame probe `tools/motion.py`).

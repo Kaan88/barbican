@@ -70,6 +70,8 @@ mod platform;
 mod updater;
 #[cfg(test)]
 mod release_manifest;
+mod listsync;
+mod motion;
 
 use chrono::{DateTime, Local};
 use serde_json::{json, Value};
@@ -709,6 +711,7 @@ fn main() -> Result<(), slint::PlatformError> {
     let ui = AppWindow::new()?;
     apply_theme(&ui);
     apply_ui_prefs(&ui);
+    motion::watch_system(&ui);
     automation::start(&ui);
     avatars::set_window(ui.as_weak());
     rte::wire_drop(&ui);
@@ -1522,7 +1525,13 @@ fn main() -> Result<(), slint::PlatformError> {
                 i += delta;
                 if i < 0 || i >= n { return; }
                 let r = m.row_data(i as usize).unwrap();
-                if !unread_only || r.unread { u.set_current_mail(r.id.clone()); u.invoke_open_mail(r.id); return; }
+                if !unread_only || r.unread {
+                    // a held key: row feedback snaps instead of trailing (Motion.rapid)
+                    motion::step(&u);
+                    u.set_current_mail(r.id.clone());
+                    u.invoke_open_mail(r.id);
+                    return;
+                }
             }
         };
         let _ = (&st, &pf);
@@ -2104,6 +2113,8 @@ pub fn apply_ui_prefs(ui: &AppWindow) {
     ui.global::<Theme>().set_more_contrast(a.more_contrast);
     search_ui::set_accent(ui.global::<Theme>().get_accent());
     ui.global::<Prefs>().set_reduce_motion(a.reduce_motion);
+    // Motion tokens: every duration 0 with reduce motion (or Windows animations off on "System")
+    motion::apply(ui, &p.str("reduceMotion", "system"), a.reduce_motion);
     ui.global::<Prefs>().set_large_targets(a.large_targets);
     // Bulwark focus outline widths: normal 2px, thick 3px, extra 5px
     ui.global::<Prefs>().set_focus_ring([0.0, 2.0, 3.0, 5.0][a.focus_ring.clamp(0, 3) as usize]);

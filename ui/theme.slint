@@ -96,6 +96,73 @@ export global Theme {
     out property <length> fs-meta: 12px;
 }
 
+/// Motion tokens (design/MOTION.md). Animations only decorate: every state change applies at
+/// once and a second input retargets a running animation. Every duration is multiplied by `k`,
+/// which is 0 when motion is reduced (Settings › Accessibility › Reduce motion, or Windows
+/// "Animation effects" off while that setting follows the system).
+export global Motion {
+    // set from Rust (motion::apply / motion::watch_system)
+    in-out property <bool> reduce: false;
+    // set from Rust while the list selection moves faster than an animation (key repeat)
+    in-out property <bool> rapid: false;
+    out property <float> k: reduce ? 0 : 1;
+    // feedback: hover, press, focus ring, selection highlight (80–120 ms)
+    out property <duration> fast: 100ms * k;
+    // message-list row feedback: like fast, but snaps while the selection is moving quickly
+    out property <duration> list: rapid ? 0ms : fast;
+    // enter: menus, popups, flyouts, tooltips, dialogs, toasts (120–180 ms, ease-out)
+    out property <duration> enter: 150ms * k;
+    // exit, for the few things that animate out at all (≤ 100 ms, ease-in)
+    out property <duration> exit: 90ms * k;
+    // the incoming view after an app or view switch (content is there on the first frame)
+    out property <duration> view: 110ms * k;
+    // hover time before a tooltip shows: a wait, not motion, so it stays with reduce motion
+    out property <duration> tip-delay: 350ms;
+    // where an entering popup starts from, and how far a toast slides in
+    out property <float> pop-scale: reduce ? 1 : 0.96;
+    out property <length> rise: reduce ? 0px : 8px;
+}
+
+/// Motion curves (kept out of `Motion`: easing properties cannot cross into Rust). `enter`
+/// decelerates (ease-out: half way after ~20 % of the time) for things arriving and for
+/// feedback; `exit` accelerates (ease-in) for the few things that animate out. No overshoot.
+export global Ease {
+    out property <easing> enter: cubic-bezier(0.2, 0, 0, 1);
+    out property <easing> exit: cubic-bezier(0.4, 0, 1, 1);
+}
+
+/// A surface that fades in and grows from `Motion.pop-scale` when it is created (menus, popups,
+/// flyouts, dialog cards, previews). Removing it is instant. It takes input from the first frame.
+/// Set `transform-origin` to the side it opens from (default: its centre).
+export component PopIn inherits Rectangle {
+    opacity: 0;
+    transform-scale: Motion.pop-scale;
+    animate opacity, transform-scale { duration: Motion.enter; easing: Ease.enter; }
+    init => {
+        self.opacity = 1;
+        self.transform-scale = 1;
+    }
+}
+
+/// The dimmed backdrop behind a dialog: its colour fades in; removed instantly with the dialog.
+export component Scrim inherits Rectangle {
+    in property <color> tint: #00000080;
+    background: transparent;
+    animate background { duration: Motion.enter; easing: Ease.enter; }
+    init => {
+        self.background = root.tint;
+    }
+}
+
+/// A tooltip surface: waits `Motion.tip-delay` on hover, then fades in. Removed instantly.
+export component Tip inherits Rectangle {
+    opacity: 0;
+    animate opacity { delay: Motion.tip-delay; duration: Motion.enter; easing: Ease.enter; }
+    init => {
+        self.opacity = 1;
+    }
+}
+
 /// Line icons from the mockups (`I` in design/mockups/*.dc.html): SVG path data in a 24 x 24 box.
 export global Icons {
     out property <string> mail: "M4 4h16v16H4z M22 6l-10 7L2 6";
