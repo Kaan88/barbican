@@ -303,6 +303,7 @@ pub fn render(u: &AppWindow) {
         u.set_cal_hour_from(cp.hour_from);
         u.set_cal_hour_to(cp.hour_to);
         u.global::<crate::Prefs>().set_cal_tinted(cp.tinted);
+        u.global::<crate::Prefs>().set_cal_h12(cp.h12);
         let mini_first = week_start(a.with_day(1).unwrap());
         let nums: Vec<slint::SharedString> = (0..6).map(|w| (mini_first + Duration::days(w * 7 + 3)).iso_week().week().to_string().into()).collect();
         u.set_cal_week_nums(ModelRc::new(VecModel::from(nums)));
@@ -664,6 +665,10 @@ pub fn calendar_info(id: &str) -> Option<(usize, String, bool, bool)> {
     })
 }
 
+pub fn calendar_color(id: &str) -> Option<String> {
+    ST.with(|s| s.borrow().calendars.iter().find(|c| c["id"] == id).and_then(|c| c["color"].as_str().map(|x| x.to_lowercase())))
+}
+
 /// Run a CalendarEvent/Calendar set call in the background, then reload.
 pub fn set_call(u: &AppWindow, c: Arc<Client>, method: &str, args: Value, what: &str) {
     let (w, method, what) = (u.as_weak(), method.to_string(), what.to_string());
@@ -691,6 +696,16 @@ pub fn set_task_due(u: &AppWindow, c: Arc<Client>, id: &str, due: chrono::NaiveD
     RAW.with(|r| if let Some(e) = r.borrow_mut().iter_mut().find(|e| e["id"] == id) { e["due"] = json!(d); });
     render_tasks(u);
     set_call(u, c, "CalendarEvent/set", json!({"update": {id: {"due": d, "timeZone": crate::agent::local_tz()}}}), "Task not updated");
+}
+
+pub fn task_has_due(id: &str) -> bool {
+    RAW.with(|r| r.borrow().iter().find(|e| e["id"] == id).is_some_and(|e| e["due"].is_string()))
+}
+
+pub fn clear_task_due(u: &AppWindow, c: Arc<Client>, id: &str) {
+    RAW.with(|r| if let Some(e) = r.borrow_mut().iter_mut().find(|e| e["id"] == id) { if let Some(o) = e.as_object_mut() { o.remove("due"); } });
+    render_tasks(u);
+    set_call(u, c, "CalendarEvent/set", json!({"update": {id: {"due": null}}}), "Task not updated");
 }
 
 pub fn delete_task(u: &AppWindow, c: Arc<Client>, id: &str) {

@@ -12,12 +12,26 @@
 //!   shot PATH.png        (window contents; the WebView2 email body is a separate window and not included)
 //!   size                 (window size)
 //!   wv-eval JS / wv-result (run JS in the email WebView, then read its JSON result)
+//!   pick PATH[|PATH...]  (answer the next file-open picker with these files instead of a dialog)
 use crate::AppWindow;
 use slint::platform::{Key, PointerEventButton, WindowEvent};
 use slint::{ComponentHandle, LogicalPosition, SharedString};
 use std::io::{BufRead, BufReader, Write};
 use std::net::TcpListener;
 use std::sync::mpsc;
+
+thread_local! {
+    static PICK: std::cell::RefCell<Option<Vec<std::path::PathBuf>>> = const { std::cell::RefCell::new(None) };
+}
+
+/// Files for a file-open picker: the paths queued by the `pick` command when automation is on,
+/// otherwise the native dialog.
+pub fn pick_files() -> Option<Vec<std::path::PathBuf>> {
+    if enabled() {
+        if let Some(v) = PICK.with(|p| p.borrow_mut().take()) { return Some(v); }
+    }
+    rfd::FileDialog::new().pick_files()
+}
 
 pub fn enabled() -> bool {
     std::env::var("BARBICAN_AUTOMATION").is_ok_and(|v| v == "1")
@@ -136,6 +150,11 @@ fn run(u: &AppWindow, line: &str) -> String {
         // run JS in the email WebView (not captured by `shot`); fetch the JSON result with wv-result
         "wv-eval" => if crate::wv_eval(a.get(1).copied().unwrap_or("")) { "ok".into() } else { "no webview".into() },
         "wv-result" => crate::WV_EVAL.lock().unwrap().clone().unwrap_or_else(|| "pending".into()).replace(['\n', '\r'], " "),
+        "pick" => {
+            let v: Vec<std::path::PathBuf> = a.get(1).copied().unwrap_or("").split('|').filter(|p| !p.is_empty()).map(Into::into).collect();
+            PICK.with(|p| *p.borrow_mut() = Some(v));
+            "ok".into()
+        }
         "size" => { let s = win.size(); format!("{} {} scale {}", s.width, s.height, win.scale_factor()) }
         "shot" => {
             let path = a.get(1).copied().unwrap_or("shot.png");

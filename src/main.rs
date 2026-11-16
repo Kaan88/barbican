@@ -319,6 +319,10 @@ fn apply_routed(u: &AppWindow, st: &Shared, ids: Vec<String>, action: &str) {
     // confirm and resolve toggles once for the whole selection, then run it per source
     if !mail::confirm_action(u, ids.len(), action) { return; }
     let action = mail::resolve_toggle(&ids, action);
+    // keep the reader's star in step when the open message is starred from any menu or key
+    if matches!(action.as_str(), "star" | "unstar") && ids.iter().any(|i| i.as_str() == u.get_current_mail().as_str()) {
+        u.set_r_flagged(action == "star");
+    }
     let selection = ids.clone();
     // one group per login and, for group inboxes, per shared JMAP account
     let mut groups: Vec<((Option<String>, Option<String>), Vec<String>)> = vec![];
@@ -658,7 +662,7 @@ fn main() -> Result<(), slint::PlatformError> {
     if let Some(v) = oauth::remembered() {
         ui.set_busy(true);
         ui.set_status("Signing in…".into());
-        restore_session(ui.as_weak(), state.clone(), v);
+        restore_session(ui.as_weak(), state.clone(), v, false);
     }
     ui.set_accounts(accounts_model());
 
@@ -667,13 +671,13 @@ fn main() -> Result<(), slint::PlatformError> {
     ui.on_switch_account(move |user| {
         let Some(v) = oauth::accounts().into_iter().find(|a| a["user"].as_str() == Some(user.as_str())) else { return };
         let u = w.unwrap();
-        SESSION_GEN.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-        *st.lock().unwrap() = None;
+        // the current session (and its push stream) stays until the new one is up: a failed
+        // switch keeps it; start_push on success retires the old stream
         u.set_current_mail("".into());
         u.set_show_settings(false);
         u.set_app(0);
         u.set_busy(true);
-        restore_session(w.clone(), st.clone(), v);
+        restore_session(w.clone(), st.clone(), v, true);
     });
     let (w, st) = (ui.as_weak(), state.clone());
     ui.on_add_account(move || {
@@ -1656,7 +1660,6 @@ fn main() -> Result<(), slint::PlatformError> {
                 }
             }
             other => {
-                if other == "star" { u.set_r_flagged(!u.get_r_flagged()); }
                 apply_routed(&u, &st, vec![id], other);
             }
         }
@@ -1711,6 +1714,14 @@ fn main() -> Result<(), slint::PlatformError> {
     if automation::enabled() {
         ui.window().set_position(slint::PhysicalPosition::new(-6000, 0));
     }
+    // the calendar's current-time line
+    let set_now = |u: &AppWindow| { use chrono::Timelike; let n = chrono::Local::now(); u.set_now_minutes((n.hour() * 60 + n.minute()) as i32); };
+    set_now(&ui);
+    let w = ui.as_weak();
+    let now_timer = slint::Timer::default();
+    now_timer.start(slint::TimerMode::Repeated, std::time::Duration::from_secs(30), move || {
+        if let Some(u) = w.upgrade() { set_now(&u); }
+    });
     let w = ui.as_weak();
     let timer = slint::Timer::default();
     timer.start(slint::TimerMode::Repeated, std::time::Duration::from_millis(50), move || {
@@ -1846,7 +1857,16 @@ fn accounts_model() -> ModelRc<SharedString> {
 }
 
 /// Sign in with a remembered session (startup and account switching).
-fn restore_session(w: slint::Weak<AppWindow>, st: Shared, v: Value) {
+/// A sign-in the server turned down (wrong or revoked credentials), as opposed to a network
+/// or server error that may pass: only the first kind may forget a remembered account.
+fn auth_rejected(e: &str) -> bool {
+    e.starts_with("The server did not accept the sign-in token") || e.starts_with("Wrong username, password")
+        || e.starts_with("Session expired")
+        || (e.starts_with("Token request failed (4") && ["invalid_grant", "invalid_client", "unauthorized_client"].iter().any(|k| e.contains(k)))
+}
+
+/// `switching`: an account switch from a running session, which a failure must not end.
+fn restore_session(w: slint::Weak<AppWindow>, st: Shared, v: Value, switching: bool) {
     std::thread::spawn(move || {
         let server = v["server"].as_str().unwrap_or("").to_string();
         let user = v["user"].as_str().unwrap_or("").to_string();
@@ -1862,7 +1882,23 @@ fn restore_session(w: slint::Weak<AppWindow>, st: Shared, v: Value) {
         } else {
             jmap::Client::connect(&server, &user, v["pass"].as_str().unwrap_or(""), "")
         };
-        if res.is_err() { oauth::forget(); oauth::forget_account(&user); }
+        if let Err(e) = &res {
+            // never drop stored credentials over a timeout or a server hiccup; when switching,
+            // the remembered session belongs to the account still in use
+            if auth_rejected(e) {
+                if !switching { oauth::forget(); }
+                oauth::forget_account(&user);
+            }
+            if switching {
+                let msg = format!("Could not switch to {user}: {e}");
+                let _ = w.upgrade_in_event_loop(move |u| {
+                    u.set_busy(false);
+                    u.set_accounts(accounts_model());
+                    mail::show_toast(&u, &msg, false);
+                });
+                return;
+            }
+        }
         let kind = v["kind"].as_str().unwrap_or("").to_string();
         finish_login(w, st, res, server, user, Some(serde_json::json!({"kind": kind, "pass": v["pass"]})));
     });
