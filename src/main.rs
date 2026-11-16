@@ -1,6 +1,7 @@
 #![cfg_attr(not(test), windows_subsystem = "windows")]
 
 mod admin;
+mod otp;
 mod agent;
 mod ai;
 mod calendar;
@@ -509,6 +510,12 @@ fn main() -> Result<(), slint::PlatformError> {
         let Some(c) = st.lock().unwrap().clone() else { return };
         let u = w.unwrap();
         u.set_current_mail("".into());
+        // Bulwark clearSearchOnFolderChange (default off): keep the query and re-run it in the new folder
+        let q = u.get_search().trim().to_string();
+        if !q.is_empty() && id != "__scheduled" && !settings::Settings::load().bool("clearSearchOnFolderChange", false) {
+            mail::load_list(w.clone(), c, json!({"operator": "AND", "conditions": [{"inMailbox": id.to_string()}, {"text": q}]}));
+            return;
+        }
         u.set_search("".into());
         load_folder(w.clone(), c, Some(id.to_string()), None);
     });
@@ -1658,5 +1665,13 @@ pub fn apply_ui_prefs(ui: &AppWindow) {
     ui.global::<Prefs>().set_tag_chips(p.bool("showTagChips", true));
     ui.global::<Prefs>().set_font_size(match p.str("fontSize", "medium").as_str() { "small" => 12.0, "large" => 15.0, "x-large" | "extra-large" => 17.0, _ => 13.0 });
     ui.set_pref_day_start(p.int("calendarDayStartHour", 8).clamp(0, 23) as i32);
+    // Bulwark hoverActions (delete, star, markRead, archive, tag, spam), in the user's order
+    let hover: Vec<slint::SharedString> = match p.prefs.get("hoverActions").and_then(|v| v.as_array()) {
+        Some(a) => a.iter().filter_map(|x| x.as_str()).filter_map(|x| match x {
+            "delete" => Some("delete"), "star" => Some("star"), "markRead" => Some("read"), "archive" => Some("archive"), "spam" => Some("spam"), _ => None,
+        }).map(slint::SharedString::from).collect(),
+        None => ["delete", "star", "read", "archive"].into_iter().map(slint::SharedString::from).collect(),
+    };
+    ui.global::<Prefs>().set_hover_actions(slint::ModelRc::new(slint::VecModel::from(hover)));
     calendar::render(ui);
 }

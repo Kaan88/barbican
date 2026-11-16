@@ -135,6 +135,9 @@ export struct Mail {
     checked: bool,
     draft: bool,
     tags: [color],
+    code: string,
+    row-tint: color,
+    files: [string],
 }
 
 export global Theme {
@@ -348,6 +351,10 @@ export global Prefs {
     in-out property <bool> tag-chips: true;
     in-out property <length> font-size: 13px;
     in-out property <bool> cal-tinted: false;
+    // list hover actions, Barbican action names (delete, star, read, archive, spam)
+    in-out property <[string]> hover-actions: ["delete", "star", "read", "archive"];
+    // reader body gutter (messageSpacing)
+    in-out property <length> reader-gutter: 20px;
 }
 
 component ToolButton inherits Rectangle {
@@ -389,8 +396,8 @@ component MailRow inherits VerticalLayout {
         Rectangle { y: parent.height - 1px; height: 1px; background: Theme.line; }
     }
     Rectangle {
-        height: root.row-height;
-        background: selected || m.checked ? Theme.sel : ta.has-hover ? Theme.hover : transparent;
+        height: root.row-height + ((m.code != "" || m.files.length > 0) ? 22px : 0px);
+        background: selected || m.checked ? Theme.sel : ta.has-hover ? Theme.hover : m.row-tint;
         ta := TouchArea {
             pointer-event(ev) => {
                 if ev.kind == PointerEventKind.up && ev.button == PointerEventButton.left {
@@ -439,10 +446,11 @@ component MailRow inherits VerticalLayout {
                     if !ta.has-hover: Text { text: m.time; color: Theme.dim; font-size: 11px; }
                     if ta.has-hover: HorizontalLayout {
                         spacing: 0px;
-                        HoverAction { glyph: "\u{E74D}"; clicked => { root.action("delete"); } }
-                        HoverAction { glyph: m.flagged ? "\u{E735}" : "\u{E734}"; active: m.flagged; clicked => { root.action("star"); } }
-                        HoverAction { glyph: m.unread ? "\u{E8C3}" : "\u{E715}"; clicked => { root.action("read"); } }
-                        HoverAction { glyph: "\u{E7B8}"; clicked => { root.action("archive"); } }
+                        for a in Prefs.hover-actions: HoverAction {
+                            glyph: a == "delete" ? "\u{E74D}" : a == "star" ? (m.flagged ? "\u{E735}" : "\u{E734}") : a == "read" ? (m.unread ? "\u{E8C3}" : "\u{E715}") : a == "archive" ? "\u{E7B8}" : a == "spam" ? "\u{E8F8}" : "\u{E8EC}";
+                            active: a == "star" && m.flagged;
+                            clicked => { root.action(a); }
+                        }
                     }
                 }
                 HorizontalLayout {
@@ -460,6 +468,38 @@ component MailRow inherits VerticalLayout {
                     spacing: 4px;
                     Text { text: m.preview; color: Theme.dim; overflow: elide; horizontal-stretch: 1; }
                     for c in m.tags: Rectangle { visible: Prefs.tag-chips; width: Prefs.tag-chips ? 8px : 0px; height: 8px; border-radius: 4px; background: c; y: 4px; }
+                }
+                if m.code != "" || m.files.length > 0: HorizontalLayout {
+                    spacing: 4px;
+                    alignment: start;
+                    if m.code != "": Rectangle {
+                        height: 18px;
+                        width: codet.preferred-width + 30px;
+                        border-radius: 4px;
+                        background: codeta.has-hover ? Theme.hover : Theme.chip;
+                        border-width: 1px;
+                        border-color: Theme.accent;
+                        codeta := TouchArea { clicked => { root.action("copy-code:" + m.code); } }
+                        HorizontalLayout {
+                            padding-left: 6px;
+                            spacing: 4px;
+                            Icon { text: "\u{E8C8}"; font-size: 9px; }
+                            codet := Text { text: m.code; color: Theme.text; font-size: 11px; font-weight: 700; vertical-alignment: center; }
+                        }
+                    }
+                    for f in m.files: Rectangle {
+                        height: 18px;
+                        width: min(ft.preferred-width + 26px, 160px);
+                        border-radius: 4px;
+                        background: Theme.chip;
+                        HorizontalLayout {
+                            padding-left: 6px;
+                            padding-right: 6px;
+                            spacing: 4px;
+                            Icon { text: "\u{E723}"; font-size: 9px; }
+                            ft := Text { text: f; color: Theme.dim; font-size: 10px; vertical-alignment: center; overflow: elide; }
+                        }
+                    }
                 }
             }
         }
