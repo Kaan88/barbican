@@ -192,6 +192,30 @@ pub fn html_to_text(h: &str) -> String {
 }
 
 thread_local! { static SERVER_DEBOUNCE: slint::Timer = slint::Timer::default(); }
+thread_local! { static THREAD_ID: std::cell::RefCell<Option<String>> = const { std::cell::RefCell::new(None) }; }
+
+/// Load the open message's conversation (unless threading is turned off, like Bulwark's disableThreading).
+fn load_thread(w: slint::Weak<AppWindow>, c: Arc<jmap::Client>, id: String) {
+    if settings::Settings::load().bool("disableThreading", false) { return; }
+    std::thread::spawn(move || {
+        let Ok(mut list) = c.thread_emails(&id) else { return };
+        list.sort_by_key(|m| m["receivedAt"].as_str().unwrap_or("").to_string());
+        let tid = list.first().and_then(|m| m["threadId"].as_str().map(String::from));
+        let rows: Vec<ThreadMsg> = list.iter().map(|m| ThreadMsg {
+            id: m["id"].as_str().unwrap_or("").into(),
+            sender: mail::sender(m).into(),
+            date: mail::parse_time(&m["receivedAt"]).map(|t| t.format("%d %b %H:%M").to_string()).unwrap_or_default().into(),
+            preview: mail::clean_preview(m["preview"].as_str().unwrap_or("")).into(),
+            current: m["id"] == id.as_str(),
+            unread: m["keywords"]["$seen"].as_bool() != Some(true),
+        }).collect();
+        let _ = w.upgrade_in_event_loop(move |u| {
+            if u.get_current_mail().as_str() != id { return; }
+            THREAD_ID.with(|t| *t.borrow_mut() = tid);
+            u.set_thread_msgs(ModelRc::new(VecModel::from(rows)));
+        });
+    });
+}
 thread_local! { static MY_ADDRS: std::cell::RefCell<Vec<String>> = const { std::cell::RefCell::new(Vec::new()) }; }
 
 thread_local! {
@@ -475,6 +499,9 @@ fn main() -> Result<(), slint::PlatformError> {
         let u = w.unwrap();
         if settings::Settings::load().prefs.get("markAsReadDelay").and_then(|v| v.as_i64()).unwrap_or(0) == 0 { mail::mark_read_local(&u, &id); }
         u.set_plugin_rows(ModelRc::default());
+        // keep the conversation strip when moving within the same thread
+        let same_thread = mail::email(&id).and_then(|m| m["threadId"].as_str().map(String::from)) == THREAD_ID.with(|t| t.borrow().clone());
+        if !same_thread { u.set_thread_msgs(ModelRc::default()); }
         u.set_attachments(ModelRc::default());
         u.set_r_to("".into());
         u.set_r_email("".into());
@@ -545,6 +572,7 @@ fn main() -> Result<(), slint::PlatformError> {
                         }).collect();
                         u.set_attachments(ModelRc::new(VecModel::from(rows)));
                         CUR_MSG.with(|x| *x.borrow_mut() = Some((m.clone(), atts)));
+                        load_thread(w2.clone(), c2.clone(), m["id"].as_str().unwrap_or("").to_string());
                         u.set_r_subject(SharedString::from(m["subject"].as_str().unwrap_or("(no subject)")));
                         u.set_r_from(from.into());
                         u.set_r_date(parse_time(&m["receivedAt"]).map(|t| t.format("%a %d %b %Y, %H:%M").to_string()).unwrap_or_default().into());

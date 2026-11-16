@@ -91,6 +91,15 @@ export struct AdminRow {
     c4: string,
 }
 
+export struct ThreadMsg {
+    id: string,
+    sender: string,
+    date: string,
+    preview: string,
+    current: bool,
+    unread: bool,
+}
+
 export struct Att {
     name: string,
     size: string,
@@ -596,6 +605,7 @@ export component AppWindow inherits Window {
     callback admin-load(string);
     callback admin-delete(string);
     in property <[PRow]> plugin-rows;
+    in property <[ThreadMsg]> thread-msgs;
     in-out property <string> c-cc;
     in-out property <string> c-bcc;
     in-out property <bool> c-show-ccbcc;
@@ -1022,6 +1032,28 @@ export component AppWindow inherits Window {
                     HoverAction { glyph: "\u{E97A}"; clicked => { root.act("reply"); } }
                     HoverAction { glyph: "\u{EE35}"; clicked => { root.act("reply-all"); } }
                     HoverAction { glyph: "\u{E72D}"; clicked => { root.act("forward"); } }
+                }
+                if root.thread-msgs.length > 1: VerticalLayout {
+                    padding-left: 16px;
+                    padding-right: 16px;
+                    padding-bottom: 8px;
+                    spacing: 2px;
+                    Text { text: "Conversation · " + root.thread-msgs.length + " messages"; color: Theme.dim; font-size: 11px; font-weight: 600; }
+                    for t in root.thread-msgs: Rectangle {
+                        height: 26px;
+                        border-radius: 4px;
+                        background: t.current ? Theme.sel : (tma.has-hover ? Theme.hover : transparent);
+                        tma := TouchArea { clicked => { if !t.current { root.current-mail = t.id; root.open-mail(t.id); } } }
+                        HorizontalLayout {
+                            padding-left: 8px;
+                            padding-right: 8px;
+                            spacing: 10px;
+                            Rectangle { width: 6px; height: 6px; y: 10px; border-radius: 3px; background: t.unread ? Theme.accent : transparent; }
+                            Text { text: t.sender; color: Theme.text; font-weight: t.current ? 700 : 600; width: 160px; overflow: elide; vertical-alignment: center; font-size: 12px; }
+                            Text { text: t.preview; color: Theme.dim; overflow: elide; vertical-alignment: center; horizontal-stretch: 1; font-size: 12px; }
+                            Text { text: t.date; color: Theme.dim; vertical-alignment: center; font-size: 11px; }
+                        }
+                    }
                 }
                 for pr in root.plugin-rows: HorizontalLayout {
                     padding-left: 16px;
