@@ -116,6 +116,19 @@ impl Settings {
         Settings { schema: schema(), prefs }
     }
 
+    /// Blocks until a pending background save has landed (call before the process exits).
+    pub fn flush() {
+        #[cfg(not(test))]
+        {
+            let _w = WRITE.lock();
+            let pending = LATEST.lock().ok().and_then(|mut l| l.take());
+            if let Some(p) = pending {
+                let _ = std::fs::create_dir_all(crate::config_dir());
+                let _ = std::fs::write(path(), Value::Object(p).to_string());
+            }
+        }
+    }
+
     /// Writes the settings file off the UI thread. `LATEST` serves `load` until the write lands
     /// and the newest save always wins. Tests write synchronously.
     fn save(&self) {
@@ -582,6 +595,7 @@ mod tests {
 /// Bulwark's timeFormat pref ("12h" | "24h"), read straight from prefs.json so hot paths
 /// (admin tables, dashboard tooltips) need not parse the schema.
 pub fn h12() -> bool {
+    if let Some(p) = LATEST.lock().ok().and_then(|l| l.clone()) { return p.get("timeFormat").and_then(|v| v.as_str()) == Some("12h"); }
     std::fs::read_to_string(path()).ok()
         .and_then(|t| serde_json::from_str::<Value>(&t).ok())
         .map(|v| v["timeFormat"].as_str() == Some("12h"))

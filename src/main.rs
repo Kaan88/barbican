@@ -1758,6 +1758,7 @@ fn main() -> Result<(), slint::PlatformError> {
         if let Some(u) = w.upgrade() { sync_webview(&u); }
     });
     slint::run_event_loop()?;
+    settings::Settings::flush();
     // refresh tokens may rotate while the app runs: keep the newest one
     if REMEMBER_OAUTH.load(std::sync::atomic::Ordering::SeqCst) {
         if let Some(c) = state.lock().unwrap().clone() { remember_session(&c, serde_json::json!({"kind": "oauth"}), &c.base, ""); }
