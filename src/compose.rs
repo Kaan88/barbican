@@ -42,7 +42,32 @@ fn refresh_attachments(u: &AppWindow) {
     });
 }
 
-fn load_identities(u: &AppWindow, c: Arc<Client>) {
+/// The identity a reply should come from: one of the user's own identities the message was
+/// addressed to (exact address first, then the address without its sub-address tag, using
+/// Bulwark's subAddressDelimiter), as Bulwark's findReplyIdentityId.
+fn reply_identity(ids: &[Value], received: &[String]) -> Option<usize> {
+    let delim = crate::settings::Settings::load().str("subAddressDelimiter", "+");
+    let base = |e: &str| -> String {
+        let e = e.trim().to_lowercase();
+        match e.split_once('@') {
+            Some((local, dom)) if !delim.is_empty() => format!("{}@{dom}", local.split(delim.as_str()).next().unwrap_or(local)),
+            _ => e,
+        }
+    };
+    let emails: Vec<String> = ids.iter().map(|i| i["email"].as_str().unwrap_or("").trim().to_lowercase()).collect();
+    for a in received {
+        if let Some(i) = emails.iter().position(|e| *e == a.trim().to_lowercase()) { return Some(i); }
+    }
+    for a in received {
+        let b = base(a);
+        // prefer the untagged identity for a base match
+        let hits: Vec<usize> = emails.iter().enumerate().filter(|(_, e)| base(e) == b).map(|(i, _)| i).collect();
+        if let Some(i) = hits.iter().copied().find(|&i| base(&emails[i]) == emails[i]).or(hits.first().copied()) { return Some(i); }
+    }
+    None
+}
+
+fn load_identities(u: &AppWindow, c: Arc<Client>, received: Vec<String>) {
     let w = u.as_weak();
     std::thread::spawn(move || {
         let ids = c.identities().unwrap_or_default();
@@ -60,7 +85,9 @@ fn load_identities(u: &AppWindow, c: Arc<Client>) {
             u.set_c_identities(ModelRc::new(VecModel::from(model)));
             // default to the identity of the signed-in address, as Bulwark does
             let me = c.username.to_lowercase();
-            let idx = ids.iter().position(|i| i["email"].as_str().is_some_and(|e| e.to_lowercase() == me)).unwrap_or(0);
+            let idx = reply_identity(&ids, &received)
+                .or_else(|| ids.iter().position(|i| i["email"].as_str().is_some_and(|e| e.to_lowercase() == me)))
+                .unwrap_or(0);
             u.set_c_from_index(idx as i32);
         });
     });
@@ -109,7 +136,14 @@ fn reset(u: &AppWindow) {
 pub fn open(u: &AppWindow, c: Arc<Client>, kind: Kind, m: Option<&Value>) {
     reset(u);
     ST.with(|s| s.borrow_mut().kind_new = matches!(kind, Kind::New));
-    load_identities(u, c.clone());
+    // replies come from the own identity the message was sent to (not forwards, like Bulwark)
+    let received: Vec<String> = match (&kind, m) {
+        (Kind::Reply | Kind::ReplyAll, Some(m)) => ["to", "cc", "bcc"].iter()
+            .flat_map(|k| m[*k].as_array().cloned().unwrap_or_default())
+            .filter_map(|x| x["email"].as_str().map(String::from)).collect(),
+        _ => vec![],
+    };
+    load_identities(u, c.clone(), received);
     if let Some(m) = m {
         let me = c.username.to_lowercase();
         let subj = m["subject"].as_str().unwrap_or("").to_string();
@@ -173,7 +207,7 @@ pub fn open(u: &AppWindow, c: Arc<Client>, kind: Kind, m: Option<&Value>) {
 pub fn open_draft(u: &AppWindow, c: Arc<Client>, m: &Value) {
     reset(u);
     ST.with(|s| s.borrow_mut().sig_done = true);
-    load_identities(u, c);
+    load_identities(u, c, vec![]);
     let join = |k: &str| m[k].as_array().map(|a| a.iter().map(|x| {
         let (n, e) = (x["name"].as_str().unwrap_or(""), x["email"].as_str().unwrap_or(""));
         if n.is_empty() { e.to_string() } else { format!("\"{n}\" <{e}>") }
