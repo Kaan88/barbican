@@ -157,6 +157,8 @@ fn run(u: &AppWindow, line: &str) -> String {
             PICK.with(|p| *p.borrow_mut() = Some(v));
             "ok".into()
         }
+        // recipient chips, typed text and suggestions of the composer (read-only probe)
+        "chips" => crate::chips::describe(u),
         "size" => { let s = win.size(); format!("{} {} scale {}", s.width, s.height, win.scale_factor()) }
         // resize the (off-screen) window, in logical pixels, to check narrow layouts
         "resize" => { win.set_size(slint::LogicalSize::new(pos(&args, 0).max(400.0), pos(&args, 1).max(300.0))); "ok".into() }

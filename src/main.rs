@@ -25,6 +25,14 @@ mod settings;
 mod sieve;
 mod templates;
 mod spam;
+// composer extras (p2-composer)
+mod autosave;
+mod chips;
+mod instance;
+mod mailto;
+mod ctheme;
+mod recipients;
+mod schedule;
 
 use chrono::{DateTime, Local};
 use serde_json::{json, Value};
@@ -191,7 +199,18 @@ fn sync_webview(ui: &AppWindow) {
                 .with_visible(vis)
                 .with_devtools(false)
                 .with_navigation_handler(|url| {
+                    // A top-level navigation is never a click on a mail link (<base target=_blank>
+                    // sends those to the new-window handler below); it comes from the message itself
+                    // (<meta http-equiv=refresh>), so a mailto: here is dropped, not opened.
+                    if mailto::parse(&url).is_some() { return false; }
                     if url.starts_with("http") { oauth::open_browser(&url); false } else { true }
+                })
+                // links open in a new window (<base target=_blank>): clicked mailto: links open
+                // Barbican's composer, web links the browser
+                .with_new_window_req_handler(|url, _| {
+                    if mailto::parse(&url).is_some() { mailto::request(url); }
+                    else if url.starts_with("http://") || url.starts_with("https://") { oauth::open_browser(&url); }
+                    wry::NewWindowResponse::Deny
                 })
                 .build_as_child(&ui.window().window_handle())
             {
@@ -587,17 +606,38 @@ fn main() -> Result<(), slint::PlatformError> {
     // Skia: the same text/graphics engine Chrome uses, so text matches Bulwark in the browser
     // (and gets system font fallback for CJK and other scripts).
     let _ = slint::BackendSelector::new().renderer_name("skia".into()).select();
+    // a mailto: link from the OS while Barbican already runs: hand it over and quit
+    let link = instance::mailto_arg(&std::env::args().skip(1).collect::<Vec<_>>());
+    if link.as_deref().is_some_and(instance::forward) { return Ok(()); }
     let ui = AppWindow::new()?;
     apply_theme(&ui);
     apply_ui_prefs(&ui);
     automation::start(&ui);
     rte::wire_drop(&ui);
+    chips::wire(&ui);
     {
         let (loaded, errors) = plugins::load_all();
         PLUGINS.with(|p| *p.borrow_mut() = loaded);
         PLUGIN_ERRORS.with(|e| *e.borrow_mut() = errors);
     }
     let state: Shared = Arc::new(Mutex::new(None));
+    {
+        // mailto: links (clicked in a message, or handed over by the OS) open the composer
+        let st = state.clone();
+        mailto::install(&ui, Box::new(move |u, m| {
+            if st.lock().unwrap().is_none() { return false; }
+            // keep what an open composer holds before it is replaced
+            if u.get_composing() && !autosave::unedited(u) { u.invoke_save_draft(false); }
+            u.invoke_compose_new();
+            if !u.get_composing() { return false; }
+            mailto::fill(u, m);
+            true
+        }));
+        instance::listen();
+        // Barbican moved or updated into a new folder: point the registration at this exe
+        mailto::repair_registration();
+        if let Some(l) = link { mailto::request(l); }
+    }
 
     if let Ok(s) = std::fs::read_to_string(config_path()) {
         let mut l = s.lines();
@@ -738,6 +778,7 @@ fn main() -> Result<(), slint::PlatformError> {
         READER_CLIENT.with(|r| *r.borrow_mut() = Some(c.clone()));
         let u = w.unwrap();
         if settings::Settings::load().prefs.get("markAsReadDelay").and_then(|v| v.as_i64()).unwrap_or(0) == 0 { mail::mark_read_local(&u, &id); }
+        schedule::banner(&u, mail::email(&id).as_ref());
         u.set_plugin_rows(ModelRc::default());
         // keep the conversation strip when moving within the same thread
         let same_thread = mail::email(&id).and_then(|m| m["threadId"].as_str().map(String::from)) == THREAD_ID.with(|t| t.borrow().clone());
@@ -1044,6 +1085,16 @@ fn main() -> Result<(), slint::PlatformError> {
             return;
         }
         if key == "signout" { u.set_show_settings(false); u.invoke_sign_out(); }
+        if key == "mailapp.register" {
+            // user-triggered only: writes the HKCU registration (or the Linux .desktop file)
+            match mailto::register_default() { Ok(m) => mail::show_toast(&u, &m, false), Err(e) => mail::show_toast(&u, &e, false) }
+            u.invoke_settings_search(u.get_settings_query());
+        }
+        if key == "mailapp.unregister" {
+            // user-triggered only: removes what mailapp.register wrote
+            match mailto::unregister() { Ok(m) => mail::show_toast(&u, &m, false), Err(e) => mail::show_toast(&u, &e, false) }
+            u.invoke_settings_search(u.get_settings_query());
+        }
         if key == "a11y.reset" {
             pf2.lock().unwrap().set("a11y.reset", Value::Null, &mut cf2.lock().unwrap());
             apply_ui_prefs(&u);
@@ -1184,7 +1235,8 @@ fn main() -> Result<(), slint::PlatformError> {
 
     ui.on_lite_click(move |x, y| {
         if let Some(href) = lite::link_at(x, y) {
-            if href.starts_with("http://") || href.starts_with("https://") || href.starts_with("mailto:") { oauth::open_browser(&href); }
+            if mailto::parse(&href).is_some() { mailto::request(href); }
+            else if href.starts_with("http://") || href.starts_with("https://") { oauth::open_browser(&href); }
         }
     });
     let cancel = Arc::new(std::sync::atomic::AtomicBool::new(false));
@@ -1282,6 +1334,7 @@ fn main() -> Result<(), slint::PlatformError> {
     });
 
     rte::wire(&ui);
+    schedule::wire(&ui, state.clone(), prefs.clone());
     let w = ui.as_weak();
     ui.on_c_toggle_tag(move |i| compose::toggle_tag(&w.unwrap(), i));
 
@@ -1425,6 +1478,8 @@ fn main() -> Result<(), slint::PlatformError> {
         let t = text.as_str();
         // composer shortcuts
         if u.get_composing() {
+            // Mod+Shift+Enter: Schedule send (Bulwark); Mod+Enter: send
+            if ctrl && shift && (t == "\r" || t == "\n") { u.global::<CompX>().invoke_sched_open_compose(); return; }
             if ctrl && (t == "\r" || t == "\n") { u.invoke_send_now(); }
             if ctrl && t == "s" { u.invoke_save_draft(false); }
             // Esc in the link popover cancels the popover, not the whole message
@@ -1733,6 +1788,7 @@ fn main() -> Result<(), slint::PlatformError> {
         if let Some(u) = w.upgrade() { sync_webview(&u); }
     });
     slint::run_event_loop()?;
+    instance::cleanup();
     // refresh tokens may rotate while the app runs: keep the newest one
     if REMEMBER_OAUTH.load(std::sync::atomic::Ordering::SeqCst) {
         if let Some(c) = state.lock().unwrap().clone() { remember_session(&c, serde_json::json!({"kind": "oauth"}), &c.base, ""); }
@@ -1977,6 +2033,7 @@ pub fn apply_theme(ui: &AppWindow) {
     ui.global::<Theme>().set_dark(dark);
     // Settings > Appearance > Style: Bento (tiles) or Nordic (one surface)
     ui.global::<Theme>().set_style(if settings::Settings::load().str("uiStyle", "bento") == "nordic" { 1 } else { 0 });
+    ctheme::sync(ui);
 }
 
 
@@ -2001,6 +2058,7 @@ pub fn apply_ui_prefs(ui: &AppWindow) {
     // Bulwark FONT_SIZE_SCALE on the 13px base
     ui.global::<Prefs>().set_font_size(13.0 * a.font_scale);
     ui.global::<Theme>().set_more_contrast(a.more_contrast);
+    ctheme::sync(ui);
     ui.global::<Prefs>().set_reduce_motion(a.reduce_motion);
     ui.global::<Prefs>().set_large_targets(a.large_targets);
     // Bulwark focus outline widths: normal 2px, thick 3px, extra 5px

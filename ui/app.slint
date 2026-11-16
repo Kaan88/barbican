@@ -3,6 +3,11 @@ export { DashRow, DashPanel, DashCol, DashBar }
 import { LineEdit, Button, ListView, ScrollView, TextEdit, ComboBox, CheckBox, Palette } from "std-widgets.slint";
 import { Theme, Icons, SIcon, Prefs } from "theme.slint";
 export { Theme, Icons, Prefs }
+// composer extras (p2-composer): recipient chips + autocomplete, palette
+import { CTheme } from "ctheme.slint";
+import { Rcpt, RChip, RSugg, RecipientField, RecipientSuggest } from "recipients.slint";
+import { CompX, SaveState, SPreset, ScheduleDialog, ScheduledBar } from "compose-extras.slint";
+export { CTheme, Rcpt, RChip, RSugg, CompX, SPreset }
 
 export struct Folder {
     id: string,
@@ -1351,13 +1356,17 @@ export component AppWindow inherits Window {
     changed composing => { if composing { app = 0; show-settings = false; } }
     in property <bool> sending: false;
     in-out property <string> c-to;
+    // recipient chips follow the field text (src/chips.rs)
+    changed c-to => { Rcpt.sync(0); }
+    changed c-cc => { Rcpt.sync(1); }
+    changed c-bcc => { Rcpt.sync(2); }
     in-out property <string> c-subject;
     in property <string> c-status;
     out property <length> bx: body.absolute-position.x;
     out property <length> by: body.absolute-position.y;
     out property <length> bw: body.width;
     out property <length> bh: body.height;
-    out property <bool> body-visible: logged-in && app == 0 && current-mail != "" && !composing && !show-settings && render-mode == 0 && !ev-open && !ctx-open;
+    out property <bool> body-visible: logged-in && app == 0 && current-mail != "" && !composing && !show-settings && render-mode == 0 && !ev-open && !ctx-open && !CompX.sched-open;
 
     callback shortcut(string, bool, bool);
     public function focus-keys() { kbd.focus(); }
@@ -1923,6 +1932,8 @@ export component AppWindow inherits Window {
                 padding-left: Theme.nordic ? 44px : 26px;
                 padding-right: Theme.nordic ? 44px : 26px;
                 spacing: 0px;
+                // Scheduled view: when it goes out, Reschedule / Cancel and edit / Cancel send
+                if root.current-folder == "__scheduled" && CompX.sched-banner != "": ScheduledBar { }
                 // actions: the main ones always, the rest inline when the reader is wide enough
                 acts := HorizontalLayout {
                     property <bool> roomy: root.reader-w > (Theme.nordic ? 720px : 600px);
@@ -2312,6 +2323,7 @@ export component AppWindow inherits Window {
                         padding-right: 8px;
                         spacing: 4px;
                         Text { text: root.c-subject == "" ? "New message" : root.c-subject; color: Theme.text; font-size: 14px; font-weight: 700; vertical-alignment: center; horizontal-stretch: 1; overflow: elide; }
+                        SaveState { }
                         VerticalLayout { alignment: center; HoverAction { glyph: "\u{E74E}"; clicked => { root.save-draft(false); } } }
                         VerticalLayout { alignment: center; HoverAction { glyph: "\u{E740}"; active: false; clicked => { root.chat-open = false; } } }
                         VerticalLayout { alignment: center; HoverAction { glyph: "\u{E8A7}"; clicked => { root.toast = "Pop-out window is not available yet."; } } }
@@ -2343,30 +2355,30 @@ export component AppWindow inherits Window {
                     }
                     // To
                     HorizontalLayout {
-                        height: 32px;
+                        min-height: 32px;
                         padding-left: 12px;
                         padding-right: 8px;
                         spacing: 8px;
-                        Text { text: "To:"; color: Theme.dim; width: 52px; vertical-alignment: center; }
-                        VerticalLayout { alignment: center; horizontal-stretch: 1; BareField { placeholder: "Recipient email addresses"; text <=> root.c-to; } }
-                        VerticalLayout { alignment: center; FmtButton { width: 28px; label: "Cc"; bold: true; clicked => { root.c-show-cc = !root.c-show-cc; } } }
-                        VerticalLayout { alignment: center; FmtButton { width: 32px; label: "Bcc"; bold: true; clicked => { root.c-show-bcc = !root.c-show-bcc; } } }
+                        Text { text: "To:"; color: Theme.dim; width: 52px; height: 32px; vertical-alignment: center; }
+                        VerticalLayout { alignment: center; horizontal-stretch: 1; RecipientField { field: 0; placeholder: "Recipient email addresses"; chips: Rcpt.to; input <=> Rcpt.to-input; } }
+                        VerticalLayout { alignment: start; padding-top: 2px; FmtButton { width: 28px; label: "Cc"; bold: true; clicked => { root.c-show-cc = !root.c-show-cc; } } }
+                        VerticalLayout { alignment: start; padding-top: 2px; FmtButton { width: 32px; label: "Bcc"; bold: true; clicked => { root.c-show-bcc = !root.c-show-bcc; } } }
                     }
                     if root.c-show-cc: HorizontalLayout {
-                        height: 32px;
+                        min-height: 32px;
                         padding-left: 12px;
                         padding-right: 12px;
                         spacing: 8px;
-                        Text { text: "Cc:"; color: Theme.dim; width: 52px; vertical-alignment: center; }
-                        VerticalLayout { alignment: center; BareField { placeholder: "Cc recipients"; text <=> root.c-cc; } }
+                        Text { text: "Cc:"; color: Theme.dim; width: 52px; height: 32px; vertical-alignment: center; }
+                        VerticalLayout { alignment: center; RecipientField { field: 1; placeholder: "Cc recipients"; chips: Rcpt.cc; input <=> Rcpt.cc-input; } }
                     }
                     if root.c-show-bcc: HorizontalLayout {
-                        height: 32px;
+                        min-height: 32px;
                         padding-left: 12px;
                         padding-right: 12px;
                         spacing: 8px;
-                        Text { text: "Bcc:"; color: Theme.dim; width: 52px; vertical-alignment: center; }
-                        VerticalLayout { alignment: center; BareField { placeholder: "Bcc recipients"; text <=> root.c-bcc; } }
+                        Text { text: "Bcc:"; color: Theme.dim; width: 52px; height: 32px; vertical-alignment: center; }
+                        VerticalLayout { alignment: center; RecipientField { field: 2; placeholder: "Bcc recipients"; chips: Rcpt.bcc; input <=> Rcpt.bcc-input; } }
                     }
                     HorizontalLayout {
                         height: 34px;
@@ -2739,13 +2751,21 @@ export component AppWindow inherits Window {
                                 }
                                 send-pop := PopupWindow { x: 116px - 210px; y: -76px; width: 210px;
                                     MenuPanel { VerticalLayout { padding: 4px;
-                                        MenuItem { glyph: "\u{E823}"; text: "Schedule send (soon)"; enabled: false; }
+                                        MenuItem { glyph: "\u{E823}"; text: "Schedule send…"; clicked => { CompX.sched-open-compose(); } }
                                         MenuItem { glyph: "\u{E74E}"; text: "Save draft"; clicked => { root.save-draft(false); } }
                                     } }
                                 }
                             }
                         }
                     }
+                }
+                // recipient suggestions (src/chips.rs), over everything below the field
+                if Rcpt.active >= 0 && Rcpt.suggestions.length > 0: RecipientSuggest {
+                    x: Rcpt.pop-x - cmp.absolute-position.x;
+                    y: Rcpt.pop-y - cmp.absolute-position.y;
+                    width: Rcpt.pop-w;
+                    items: Rcpt.suggestions;
+                    highlight: Rcpt.highlight;
                 }
             }
             }
@@ -4050,4 +4070,6 @@ export component AppWindow inherits Window {
             picked(a) => { root.ctx-pick(a); root.ctx-close(); }
         }
     }
+    // schedule send / reschedule (src/schedule.rs), over everything
+    if CompX.sched-open: ScheduleDialog { x: 0; y: 0; width: root.width; height: root.height; }
 }
