@@ -279,6 +279,10 @@ pub fn save(u: &AppWindow, c: Arc<Client>) {
         let res: Result<(), String> = if id.is_empty() {
             let book = chosen_book.or_else(|| ST.with(|s| s.borrow().books.iter().find(|b| b["isDefault"] == true).or(s.borrow().books.first()).and_then(|b| b["id"].as_str().map(String::from))));
             // a fresh account has no address book until a client creates one
+            // the local list may not be loaded yet: ask the server before creating a book
+            let book = book.or_else(|| c.call(json!([["AddressBook/get", {"accountId": acc, "ids": null, "properties": ["id", "isDefault"]}, "g"]])).ok()
+                .and_then(|r| { let l = r[0][1]["list"].as_array().cloned().unwrap_or_default();
+                    l.iter().find(|b| b["isDefault"] == true).or(l.first()).and_then(|b| b["id"].as_str().map(String::from)) }));
             let book = match book {
                 Some(b) => b,
                 None => match c.call(json!([["AddressBook/set", {"accountId": acc, "create": {"b": {"name": "Contacts"}}, "onSuccessSetIsDefault": "#b"}, "a"]]))
