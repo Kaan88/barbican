@@ -71,22 +71,36 @@ component PanelView inherits Rectangle {
     in property <bool> dark;
     // the first stat card of a page leads in the rose tint (BNDashboard "Received")
     in property <bool> lead;
+    // Nordic: panels are regions of one surface split by hairlines (top / left edge)
+    in property <bool> top-line;
+    in property <bool> left-line;
     // BNDashboard tile language: stat cards radius 22, panels 24; a leading card is rose,
     // a card that moved the wrong way is amber, the highlight card is rose. Nordic: no tints.
     property <int> tint: Theme.nordic ? 0 : p.kind == 4 ? 1 : p.kind == 0 && lead ? 1 : p.kind == 0 && !p.good && !p.flat ? 2 : 0;
     property <color> fg: tint == 1 ? Theme.rose-fg : tint == 2 ? Theme.amber-fg : Theme.text;
     property <color> dim: tint == 1 ? Theme.rose-fg : tint == 2 ? Theme.amber-fg : Theme.dim;
     property <color> grid: Theme.line;
-    property <color> accent: tint == 1 ? Theme.accent : tint == 2 ? Theme.amber-fg : p.tone == 1 ? Theme.mint-fg : p.tone == 2 ? Theme.sky-fg : Theme.accent;
+    // sparkline follows the card (BNDashboard s.line): rose card accent, amber card amber,
+    // neutral cards mint or sky, never the accent
+    property <color> accent: tint == 1 ? Theme.accent : tint == 2 ? Theme.amber-fg : p.kind != 0 ? Theme.accent : p.tone == 2 ? Theme.sky-fg : Theme.mint-fg;
     property <color> track: tint != 0 ? #00000026 : Theme.track;
     property <color> pop: Theme.popup;
+    // BNDashboard rejections: accent, mint, amber, then sky
+    pure function bar-color(i: int) -> color { i == 0 ? Theme.accent : i == 1 ? Theme.mint-fg : i == 2 ? Theme.amber-fg : Theme.sky-fg }
     property <color> pop-line: Theme.line;
-    height: p.height * 1px;
-    border-radius: p.kind == 0 || p.kind == 4 ? (Theme.nordic ? 20px : Theme.r-summary) : (Theme.nordic ? 20px : Theme.r-tile);
-    background: tint == 1 ? Theme.rose-bg : tint == 2 ? Theme.amber-bg : Theme.nordic ? Theme.tile2 : Theme.tile;
-    border-width: tint != 0 ? 0px : 1px;
+    // stat cards keep their height; charts, lists and the highlight grow to fill the board
+    property <bool> grows: p.kind != 0;
+    min-height: p.height * 1px;
+    preferred-height: p.height * 1px;
+    max-height: grows ? 100000px : p.height * 1px;
+    vertical-stretch: grows ? p.height : 0;
+    border-radius: Theme.nordic ? 0px : p.kind == 0 || p.kind == 4 ? Theme.r-summary : Theme.r-tile;
+    background: tint == 1 ? Theme.rose-bg : tint == 2 ? Theme.amber-bg : Theme.nordic ? transparent : Theme.tile;
+    border-width: tint != 0 || Theme.nordic ? 0px : 1px;
     border-color: Theme.line;
     clip: true;
+    if Theme.nordic && root.top-line: Rectangle { x: 0; y: 0; width: parent.width; height: 1px; background: Theme.line; }
+    if Theme.nordic && root.left-line: Rectangle { x: 0; y: 0; width: 1px; height: parent.height; background: Theme.line; }
 
     // header shared by every kind
     hdr := HorizontalLayout {
@@ -129,9 +143,14 @@ component PanelView inherits Rectangle {
 
     // stat card
     if p.kind == 0: Rectangle {
+        // the sparkline only when there is room beside the value (BNDashboard: value flex 1, svg 96x30)
+        property <bool> spark-room: p.spark != "" && root.width >= 190px;
+        property <length> text-w: root.width - 32px - (spark-room ? 104px : 0px);
         Text {
             x: 16px;
             y: 38px;
+            width: text-w;
+            overflow: elide;
             text: p.value;
             color: fg;
             font-size: 28px;
@@ -142,13 +161,13 @@ component PanelView inherits Rectangle {
             x: 16px;
             y: parent.height - 32px;
             height: 20px;
-            width: chg.preferred-width;
-            chg := Text { text: p.change; color: p.flat ? dim : p.good ? (Theme.dark ? #6ee7b7 : #15803d) : (Theme.dark ? #fca5a5 : #b91c1c); font-size: 11.5px; font-weight: 700; }
+            width: min(chg.preferred-width, text-w);
+            chg := Text { width: parent.width; horizontal-alignment: left; overflow: elide; text: p.change; color: p.flat ? dim : p.good ? (Theme.dark ? #6ee7b7 : #15803d) : (Theme.dark ? #fca5a5 : #b91c1c); font-size: 11.5px; font-weight: 700; }
         }
-        if p.spark != "": Path {
-            x: parent.width - 104px;
+        if spark-room: Path {
+            x: parent.width - 112px;
             y: parent.height - 44px;
-            width: 90px;
+            width: 96px;
             height: 30px;
             viewbox-width: 1000;
             viewbox-height: 100;
@@ -158,10 +177,10 @@ component PanelView inherits Rectangle {
             stroke-width: 2px;
             fill: transparent;
         }
-        if p.spark-tips.length > 0: Rectangle {
-            x: parent.width - 104px;
+        if spark-room && p.spark-tips.length > 0: Rectangle {
+            x: parent.width - 112px;
             y: parent.height - 44px;
-            width: 90px;
+            width: 96px;
             height: 30px;
             property <int> n: p.spark-tips.length;
             property <int> idx: max(0, min(n - 1, round(sta.mouse-x / self.width * (n - 1))));
@@ -316,10 +335,10 @@ component PanelView inherits Rectangle {
         padding-bottom: 8px;
         spacing: 1px;
         alignment: start;
-        for b in p.bars: HorizontalLayout {
+        for b[bi] in p.bars: HorizontalLayout {
             height: 21px;
             spacing: 10px;
-            Text { text: b.label; color: Theme.body; font-size: 12.5px; width: 110px; overflow: elide; vertical-alignment: center; }
+            Text { text: b.label; color: Theme.body; font-size: 12.5px; width: min(110px, (root.width - 36px) * 0.42); overflow: elide; vertical-alignment: center; }
             Rectangle {
                 horizontal-stretch: 1;
                 Rectangle {
@@ -334,10 +353,10 @@ component PanelView inherits Rectangle {
                     height: 8px;
                     width: max(b.frac > 0 ? 4px : 0px, parent.width * b.frac);
                     border-radius: 4px;
-                    background: b.color;
+                    background: root.bar-color(bi);
                 }
             }
-            Text { text: b.value; color: fg; font-size: 12.5px; width: 40px; horizontal-alignment: right; vertical-alignment: center; }
+            Text { text: b.value; color: fg; font-size: 12.5px; width: 36px; overflow: elide; horizontal-alignment: right; vertical-alignment: center; }
         }
         if p.bars.length == 0: Text { text: "No data for this period."; color: dim; font-size: 11px; }
     }
@@ -370,7 +389,7 @@ component PanelView inherits Rectangle {
             btl := HorizontalLayout {
                 x: 10px;
                 spacing: 6px;
-                Rectangle { width: 7px; height: 7px; y: 9.5px; border-radius: 4px; background: b.color; }
+                Rectangle { width: 7px; height: 7px; y: 9.5px; border-radius: 4px; background: root.bar-color(idx); }
                 Text { text: b.label; color: dim; font-size: 11px; vertical-alignment: center; }
                 Text { text: b.value; color: fg; font-size: 11px; font-weight: 600; vertical-alignment: center; }
                 Text { text: "(" + b.share + ")"; color: dim; font-size: 11px; vertical-alignment: center; }
@@ -378,15 +397,15 @@ component PanelView inherits Rectangle {
         }
     }
 
-    // highlight card
-    // highlight card (BNDashboard "Clean mail"): big value, then a meter in the accent
+    // highlight card (BNDashboard "Clean mail"): big value, description, then a meter in the accent
     if p.kind == 4: VerticalLayout {
         padding-left: 18px;
         padding-right: 18px;
-        padding-top: 36px;
-        padding-bottom: 16px;
+        padding-top: 40px;
+        padding-bottom: 18px;
         spacing: 4px;
-        Text { text: p.value; color: fg; font-size: 36px; font-weight: 800; letter-spacing: -1px; }
+        Text { text: p.value; color: fg; font-size: root.height >= 150px ? 54px : 36px; font-weight: 800; letter-spacing: root.height >= 150px ? -1.6px : -1px; }
+        if p.note != "" && root.height >= 170px: Text { text: p.note; color: fg; font-size: 12.5px; wrap: word-wrap; }
         Rectangle { vertical-stretch: 1; }
         if p.bars.length > 0: Rectangle {
             height: 10px;
@@ -448,9 +467,9 @@ export component AdminDashboard inherits Rectangle {
                 border-width: 1px;
                 border-color: Theme.line;
                 clip: true;
-                Flickable {
-                    viewport-width: pills.preferred-width;
-                    viewport-height: 38px;
+                tabs-fl := Flickable {
+                    content-width: pills.preferred-width;
+                    content-height: 38px;
                     pills := HorizontalLayout {
                         height: 38px;
                         padding: 4px;
@@ -462,6 +481,14 @@ export component AdminDashboard inherits Rectangle {
                             clicked => { root.tab = i; root.load(root.tab, root.range); }
                         }
                     }
+                }
+                if pills.preferred-width + tabs-fl.content-x > self.width + 2px: Rectangle {
+                    x: parent.width - 40px;
+                    width: 39px;
+                    y: 1px;
+                    height: parent.height - 2px;
+                    background: @linear-gradient(90deg, (Theme.nordic ? Theme.tile2 : Theme.tile).transparentize(1) 0%, Theme.nordic ? Theme.tile2 : Theme.tile 75%);
+                    SIcon { x: parent.width - 20px; commands: Icons.chevron-right; size: 13px; weight: 2; tint: Theme.dim; }
                 }
             }
             Text {
@@ -507,20 +534,20 @@ export component AdminDashboard inherits Rectangle {
         sv := ScrollView {
             vertical-stretch: 1;
             content-width: self.visible-width;
-            content-height: content.preferred-height;
+            content-height: max(self.visible-height, content.preferred-height);
             content := VerticalLayout {
-                width: sv.visible-width;
-                spacing: 12px;
-                padding-bottom: 16px;
+                // fill the board down to the window padding (BNDashboard grid is flex 1)
+                height: max(sv.visible-height, self.preferred-height);
+                width: sv.visible-width - (self.preferred-height > sv.visible-height ? 12px : 0px);
+                spacing: Theme.nordic ? 0px : 12px;
                 for r[ri] in root.rows: HorizontalLayout {
-                    spacing: 12px;
+                    spacing: Theme.nordic ? 0px : 12px;
                     for c[ci] in r.cols: VerticalLayout {
                         horizontal-stretch: c.weight;
                         preferred-width: 0px;
                         min-width: 0px;
-                        spacing: 12px;
-                        alignment: start;
-                        for p[pi] in c.panels: PanelView { p: p; dark: root.dark; lead: ri == 0 && ci == 0 && pi == 0; }
+                        spacing: Theme.nordic ? 0px : 12px;
+                        for p[pi] in c.panels: PanelView { p: p; dark: root.dark; lead: ri == 0 && ci == 0 && pi == 0; top-line: ri > 0 || pi > 0; left-line: ci > 0; }
                     }
                 }
             }

@@ -1212,6 +1212,15 @@ export component AppWindow inherits Window {
     in-out property <string> admin-section: "overview";
     in property <[string]> admin-cols;
     in property <[AdminRow]> admin-rows;
+    // host part of the server URL for the admin nav subtitle ("mail.example.com · Stalwart")
+    in property <string> server-host;
+    // admin list: four equal columns, the same for heads and cells (12px gutter inside each column)
+    pure function admin-cw(w: length) -> length {
+        max(0px, (w - 2 * (Theme.nordic ? 28px : 22px) + 12px - (root.admin-section == "queue" ? 48px : root.admin-section == "actions" ? 86px : 0px)) / 4)
+    }
+    pure function admin-cx(i: int, w: length) -> length {
+        (Theme.nordic ? 28px : 22px) + i * root.admin-cw(w)
+    }
     in property <[AdminRow]> admin-tiles;
     in property <string> admin-status;
     in property <[DashRow]> dash-rows;
@@ -1366,6 +1375,7 @@ export component AppWindow inherits Window {
     init => { self.focus(); }
     key-pressed(e) => {
         if (e.modifiers.control && e.text == "f") || (e.modifiers.control && e.text == "e") { search-box.focus(); return accept; }
+        if e.text == Key.Escape && root.admin-dlg != "" && root.admin-dlg != "running" { root.admin-dlg = ""; return accept; }
         root.shortcut(e.text, e.modifiers.shift, e.modifiers.control);
         accept
     }
@@ -3574,7 +3584,7 @@ export component AppWindow inherits Window {
                         padding-right: 10px;
                         padding-bottom: 14px;
                         Text { text: "Server"; color: Theme.text; font-size: (Theme.nordic ? 22px : 16px) * Prefs.fs; font-weight: 800; }
-                        Text { text: "Stalwart administration"; color: Theme.dim; font-size: 12px * Prefs.fs; overflow: elide; }
+                        Text { text: root.server-host != "" ? root.server-host + " \u{B7} Stalwart" : "Stalwart administration"; color: Theme.dim; font-size: 12px * Prefs.fs; overflow: elide; }
                     }
                     for sec in [{id: "overview", l: "Dashboard"}, {id: "accounts", l: "Accounts"}, {id: "domains", l: "Domains"},
                                 {id: "queue", l: "Queue"}, {id: "reports", l: "Reports"}, {id: "logs", l: "Logs"},
@@ -3648,10 +3658,10 @@ export component AppWindow inherits Window {
                                     cnt := Text { text: root.admin-rows.length; color: Theme.dim; font-size: 11.5px; font-weight: 600; }
                                 }
                             }
-                            Text { text: root.admin-status; color: root.admin-status == "Loading…" ? Theme.dim : Theme.accent; vertical-alignment: center; horizontal-stretch: 1; overflow: elide; font-size: 12.5px * Prefs.fs; }
+                            Text { text: root.admin-status != "" || root.admin-subs.length > 0 ? root.admin-status : root.admin-note; color: root.admin-status == "Loading…" || root.admin-status == "" ? Theme.dim : Theme.accent; vertical-alignment: center; horizontal-stretch: 1; overflow: elide; font-size: 12.5px * Prefs.fs; }
                             VerticalLayout { alignment: center; ActionButton { icon: Icons.refresh; label: "Refresh"; icon-only: !Prefs.toolbar-labels; clicked => { root.admin-load(root.admin-section); } } }
                         }
-                        if root.admin-subs.length > 0 || root.admin-note != "": HorizontalLayout {
+                        if root.admin-subs.length > 0: HorizontalLayout {
                             padding-left: Theme.nordic ? 24px : 16px;
                             padding-right: 16px;
                             padding-top: 6px;
@@ -3678,16 +3688,10 @@ export component AppWindow inherits Window {
                             }
                             Text { text: root.admin-note; color: Theme.dim; font-size: 12px * Prefs.fs; vertical-alignment: center; overflow: elide; horizontal-stretch: 1; }
                         }
-                        // column heads
+                        // column heads: placed on the same grid as the cells (admin-cx / admin-cw)
                         Rectangle {
                             height: 34px;
-                            HorizontalLayout {
-                                padding-left: Theme.nordic ? 28px : 22px;
-                                padding-right: Theme.nordic ? 28px : 22px;
-                                spacing: 12px;
-                                for c in root.admin-cols: Text { text: c; color: Theme.faint; font-size: 11.5px * Prefs.fs; font-weight: 700; letter-spacing: 0.3px; horizontal-stretch: 1; preferred-width: 0px; min-width: 0px; vertical-alignment: center; horizontal-alignment: left; }
-                                Rectangle { width: root.admin-section == "queue" ? 24px : root.admin-section == "actions" ? 74px : 0px; }
-                            }
+                            for c[ci] in root.admin-cols: Text { x: root.admin-cx(ci, parent.width); width: root.admin-cw(parent.width) - 12px; height: parent.height; text: c; color: Theme.faint; font-size: 11.5px * Prefs.fs; font-weight: 700; letter-spacing: 0.3px; vertical-alignment: center; horizontal-alignment: left; overflow: elide; }
                             Rectangle { x: Theme.nordic ? 0px : 14px; width: parent.width - 2 * self.x; y: parent.height - 1px; height: 1px; background: Theme.line; }
                         }
                         if root.admin-rows.length == 0 && root.admin-status == "": Text { text: "Nothing here."; color: Theme.dim; height: 80px; horizontal-alignment: center; vertical-alignment: center; }
@@ -3703,44 +3707,30 @@ export component AppWindow inherits Window {
                                 }
                                 if Theme.nordic: Rectangle { x: 28px; width: parent.width - 56px; y: parent.height - 1px; height: 1px; background: Theme.line; }
                                 ara := TouchArea { double-clicked => { if root.admin-section == "actions" { root.admin-action-open(r.id); } } }
-                                HorizontalLayout {
-                                    padding-left: Theme.nordic ? 28px : 22px;
-                                    padding-right: Theme.nordic ? 28px : 22px;
-                                    spacing: 12px;
-                                    Text { text: r.c1; color: Theme.text; font-size: 13px * Prefs.fs; font-weight: 600; horizontal-stretch: 1; preferred-width: 0px; min-width: 0px; overflow: elide; vertical-alignment: center; horizontal-alignment: left; }
-                                    Text { text: r.c2; color: Theme.body; font-size: 13px * Prefs.fs; horizontal-stretch: 1; preferred-width: 0px; min-width: 0px; overflow: elide; vertical-alignment: center; horizontal-alignment: left; }
-                                    Text { text: r.c3; color: r.c3 == "error" || r.c3 == "Failed" ? Theme.rose-fg : r.c3 == "warn" || r.c3 == "Stalled" ? Theme.amber-fg : Theme.dim; font-size: 13px * Prefs.fs; font-weight: r.c3 == "error" || r.c3 == "Failed" || r.c3 == "warn" || r.c3 == "Stalled" ? 600 : 400; horizontal-stretch: 1; preferred-width: 0px; min-width: 0px; overflow: elide; vertical-alignment: center; horizontal-alignment: left; }
-                                    // status as a tint chip (mint active, rose inactive, amber stale)
-                                    HorizontalLayout {
-                                        horizontal-stretch: 1;
-                                        preferred-width: 0px;
-                                        min-width: 0px;
-                                        property <int> st: r.c4 == "Active" ? 1 : r.c4 == "Inactive" ? 2 : r.c4 == "Stale" ? 3 : 0;
-                                        if st == 0: Text { text: r.c4; color: Theme.dim; font-size: 13px * Prefs.fs; overflow: elide; vertical-alignment: center; horizontal-alignment: left; }
-                                        if st != 0: VerticalLayout {
-                                            alignment: center;
-                                            Rectangle {
-                                                width: stl.preferred-width + 18px;
-                                                height: 22px;
-                                                border-radius: 11px;
-                                                background: st == 1 ? Theme.mint-bg : st == 2 ? Theme.rose-bg : Theme.amber-bg;
-                                                stl := Text { text: r.c4; color: st == 1 ? Theme.mint-fg : st == 2 ? Theme.rose-fg : Theme.amber-fg; font-size: 11.5px * Prefs.fs; font-weight: 700; }
-                                            }
-                                        }
-                                        Rectangle { horizontal-stretch: 1; }
-                                    }
-                                    if root.admin-section == "queue": VerticalLayout { alignment: center; IconBtn { icon: Icons.trash; clicked => { root.admin-delete(r.id); } } }
-                                    if root.admin-section == "actions": VerticalLayout {
-                                        alignment: center;
-                                        Rectangle {
-                                            width: 74px; height: Prefs.large-targets ? 40px : 30px;
-                                            border-radius: Theme.nordic ? self.height / 2 : 10px;
-                                            background: rna.pressed ? Theme.track : rna.has-hover ? Theme.sel : Theme.tile2;
-                                            border-width: 1px; border-color: rna.has-hover ? transparent : Theme.line;
-                                            rna := TouchArea { clicked => { root.admin-action-open(r.id); } }
-                                            Text { text: "Run\u{2026}"; color: rna.has-hover ? Theme.sel-text : Theme.text; font-size: 12.5px * Prefs.fs; font-weight: 600; }
-                                        }
-                                    }
+                                property <length> cw: root.admin-cw(self.width) - 12px;
+                                Text { x: root.admin-cx(0, parent.width); width: parent.cw; text: r.c1; color: Theme.text; font-size: 13px * Prefs.fs; font-weight: 600; overflow: elide; vertical-alignment: center; horizontal-alignment: left; }
+                                Text { x: root.admin-cx(1, parent.width); width: parent.cw; text: r.c2; color: Theme.body; font-size: 13px * Prefs.fs; overflow: elide; vertical-alignment: center; horizontal-alignment: left; }
+                                Text { x: root.admin-cx(2, parent.width); width: parent.cw; text: r.c3; color: r.c3 == "error" || r.c3 == "Failed" ? Theme.rose-fg : r.c3 == "warn" || r.c3 == "Stalled" ? Theme.amber-fg : Theme.dim; font-size: 13px * Prefs.fs; font-weight: r.c3 == "error" || r.c3 == "Failed" || r.c3 == "warn" || r.c3 == "Stalled" ? 600 : 400; overflow: elide; vertical-alignment: center; horizontal-alignment: left; }
+                                // status as a tint chip (mint active, rose inactive, amber stale), flush with its head
+                                property <int> st: r.c4 == "Active" ? 1 : r.c4 == "Inactive" ? 2 : r.c4 == "Stale" ? 3 : 0;
+                                if st == 0: Text { x: root.admin-cx(3, parent.width); width: parent.cw; text: r.c4; color: Theme.dim; font-size: 13px * Prefs.fs; overflow: elide; vertical-alignment: center; horizontal-alignment: left; }
+                                if st != 0: Rectangle {
+                                    x: root.admin-cx(3, parent.width);
+                                    width: min(parent.cw, stl.preferred-width + 18px);
+                                    height: 22px;
+                                    border-radius: 11px;
+                                    background: st == 1 ? Theme.mint-bg : st == 2 ? Theme.rose-bg : Theme.amber-bg;
+                                    stl := Text { text: r.c4; color: st == 1 ? Theme.mint-fg : st == 2 ? Theme.rose-fg : Theme.amber-fg; font-size: 11.5px * Prefs.fs; font-weight: 700; }
+                                }
+                                if root.admin-section == "queue": IconBtn { x: parent.width - (Theme.nordic ? 28px : 22px) - self.width; icon: Icons.trash; clicked => { root.admin-delete(r.id); } }
+                                if root.admin-section == "actions": Rectangle {
+                                    x: parent.width - (Theme.nordic ? 28px : 22px) - self.width;
+                                    width: 74px; height: Prefs.large-targets ? 40px : 30px;
+                                    border-radius: Theme.nordic ? self.height / 2 : 10px;
+                                    background: rna.pressed ? Theme.track : rna.has-hover ? Theme.sel : Theme.tile2;
+                                    border-width: 1px; border-color: rna.has-hover ? transparent : Theme.line;
+                                    rna := TouchArea { clicked => { root.admin-action-open(r.id); } }
+                                    Text { text: "Run\u{2026}"; color: rna.has-hover ? Theme.sel-text : Theme.text; font-size: 12.5px * Prefs.fs; font-weight: 600; }
                                 }
                             }
                         }
@@ -3969,10 +3959,34 @@ export component AppWindow inherits Window {
                     HorizontalLayout {
                         padding: 10px;
                         padding-top: 10px;
-                        LineEdit {
-                            placeholder-text: "Search settings";
-                            text <=> root.settings-query;
-                            edited(t) => { root.settings-search(t); }
+                        Rectangle {
+                            height: Prefs.large-targets ? 44px : (Theme.nordic ? 40px : 38px);
+                            border-radius: Theme.nordic ? self.height / 2 : 14px;
+                            background: Theme.nordic ? transparent : Theme.tile2;
+                            border-width: sq.has-focus ? max(1px, Prefs.focus-ring) : 1px;
+                            border-color: sq.has-focus ? Theme.ring : Theme.line;
+                            HorizontalLayout {
+                                padding-left: Theme.nordic ? 16px : 12px;
+                                padding-right: 10px;
+                                spacing: 8px;
+                                VerticalLayout { alignment: center; SIcon { commands: Icons.search; size: 15px; weight: 2; tint: Theme.dim; } }
+                                Rectangle {
+                                    horizontal-stretch: 1;
+                                    if root.settings-query == "": Text { x: 0; width: parent.width; height: parent.height; text: "Search settings"; color: Theme.faint; font-size: 13px * Prefs.fs; vertical-alignment: center; }
+                                    sq := TextInput {
+                                        y: (parent.height - self.height) / 2;
+                                        width: parent.width;
+                                        text <=> root.settings-query;
+                                        color: Theme.text;
+                                        font-size: 13px * Prefs.fs;
+                                        single-line: true;
+                                        selection-background-color: Theme.sel;
+                                        selection-foreground-color: Theme.sel-text;
+                                        accessible-label: "Search settings";
+                                        edited => { root.settings-search(self.text); }
+                                    }
+                                }
+                            }
                         }
                     }
                     ListView {
@@ -3985,7 +3999,7 @@ export component AppWindow inherits Window {
                             Rectangle {
                                 height: Prefs.large-targets ? 44px : (Theme.nordic ? 36px : 34px) * Prefs.fs;
                                 x: 10px;
-                                width: parent.width - 20px;
+                                width: parent.width - 24px;
                                 border-radius: Theme.nordic ? self.height / 2 : 13px;
                                 background: t.id == root.settings-tab ? Theme.sel : nta.has-hover ? (Theme.nordic ? Theme.tile : Theme.tile2) : transparent;
                                 nta := TouchArea { clicked => { root.settings-open-tab(t.id); } }
@@ -3998,7 +4012,12 @@ export component AppWindow inherits Window {
                             }
                         }
                     }
-                    Rectangle { height: 1px; Rectangle { x: 14px; width: parent.width - 28px; background: Theme.line; } }
+                    Rectangle {
+                        height: 1px;
+                        // soft fade so a cut-off last item reads as "more below"
+                        Rectangle { y: -18px; height: 18px; background: @linear-gradient(180deg, (Theme.nordic ? Theme.ground : Theme.tile).transparentize(1) 0%, Theme.nordic ? Theme.ground : Theme.tile 100%); }
+                        Rectangle { x: 14px; width: parent.width - 28px; background: Theme.line; }
+                    }
                     HorizontalLayout {
                         padding: 12px;
                         padding-left: 20px;
@@ -4035,9 +4054,10 @@ export component AppWindow inherits Window {
                   VerticalLayout {
                     alignment: start;
                     padding-bottom: 40px;
-                    for r in root.settings-rows: HorizontalLayout {
+                    for r[ri] in root.settings-rows: HorizontalLayout {
                         alignment: center;
-                        VerticalLayout {
+                        property <bool> dup: ri == 0 && r.kind == "section" && r.label == root.settings-title;
+                        if !dup: VerticalLayout {
                             width: min(560px, root.width - 300px);
                             padding-top: r.kind == "section" ? 26px : 12px;
                             padding-bottom: r.kind == "section" ? 4px : 0px;
@@ -4071,6 +4091,7 @@ export component AppWindow inherits Window {
                                 VerticalLayout {
                                     alignment: center;
                                     horizontal-stretch: 0;
+                                    if r.kind == "button": HorizontalLayout { alignment: end; width: 220px; ActionButton { label: r.text; clicked => { root.settings-button(r.key); } } }
                                     if r.kind == "toggle": Switch {
                                         on: r.on;
                                         toggled => { root.settings-set-toggle(r.key, !r.on); }
@@ -4086,10 +4107,6 @@ export component AppWindow inherits Window {
                                         text: r.text;
                                         input-type: r.kind == "password" ? InputType.password : InputType.text;
                                         edited(t) => { root.settings-set-text(r.key, t); }
-                                    }
-                                    if r.kind == "button": ActionButton {
-                                        label: r.text;
-                                        clicked => { root.settings-button(r.key); }
                                     }
                                     if r.kind == "value": Text { text: r.text; color: Theme.dim; horizontal-alignment: right; width: 240px; overflow: elide; }
                                 }

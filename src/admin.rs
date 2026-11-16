@@ -118,6 +118,17 @@ pub fn load(u: &AppWindow, c: std::sync::Arc<crate::jmap::Client>, section: &str
     u.set_admin_sub(sub.clone().into());
     u.set_admin_subs(ModelRc::new(VecModel::from(sl.iter().map(|(k, l)| row(k, [l.to_string(), String::new(), String::new(), String::new()])).collect::<Vec<_>>())));
     u.set_admin_note("".into());
+    // a different page: drop the previous page's rows/columns so they never show under the new title
+    {
+        static LAST: std::sync::Mutex<String> = std::sync::Mutex::new(String::new());
+        let key = format!("{section}/{sub}");
+        let mut last = LAST.lock().unwrap();
+        if *last != key {
+            u.set_admin_rows(ModelRc::default());
+            u.set_admin_cols(ModelRc::default());
+            *last = key;
+        }
+    }
     u.set_admin_status("Loading…".into());
     std::thread::spawn(move || {
         let Some(a) = Admin::new(&c) else {
