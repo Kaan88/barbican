@@ -381,3 +381,53 @@ impl Settings {
         Value::Null
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // One test so the APPDATA override can't race other tests touching config_dir().
+    #[test]
+    fn import_export_reset_roundtrip() {
+        let dir = std::env::temp_dir().join(format!("barbican-settings-test-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        #[allow(unused_unsafe)]
+        unsafe { std::env::set_var("APPDATA", &dir); }
+        let mut s = Settings { schema: serde_json::from_str(SCHEMA).unwrap(), prefs: Default::default() };
+
+        // Bulwark-shaped: flat settings object.
+        s.import(&json!({"theme": "dark", "showPreview": false})).unwrap();
+        assert_eq!(s.str("theme", ""), "dark");
+        assert!(!s.bool("showPreview", true));
+        assert!(!crate::config_dir().join("settings.json").exists());
+
+        // Bulwark-shaped with a "settings" wrapper.
+        s.import(&json!({"version": 2, "settings": {"theme": "light"}})).unwrap();
+        assert_eq!(s.str("theme", ""), "light");
+        assert!(s.prefs.get("showPreview").is_none());
+
+        // Barbican export, including the desktop file.
+        let exp = json!({"app": "barbican", "version": 1, "settings": {"density": "compact"}, "desktop": {"ai_model": "x"}});
+        s.import(&exp).unwrap();
+        assert_eq!(s.str("density", ""), "compact");
+        let desktop: Value = serde_json::from_str(&std::fs::read_to_string(crate::config_dir().join("settings.json")).unwrap()).unwrap();
+        assert_eq!(desktop["ai_model"], "x");
+        let reloaded = Settings::load();
+        assert_eq!(reloaded.str("density", ""), "compact");
+        let out = s.export();
+        assert_eq!(out["app"], "barbican");
+        assert_eq!(out["settings"]["density"], "compact");
+        assert_eq!(out["desktop"]["ai_model"], "x");
+
+        // Rejects non-objects.
+        assert!(s.import(&json!([1, 2])).is_err());
+        assert!(s.import(&json!("nope")).is_err());
+        assert_eq!(s.str("density", ""), "compact");
+
+        s.reset();
+        assert!(s.prefs.is_empty());
+        assert!(!crate::config_dir().join("settings.json").exists());
+        assert!(Settings::load().prefs.is_empty());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+}
