@@ -540,3 +540,12 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 }
+
+/// Bulwark's timeFormat pref ("12h" | "24h"), read straight from prefs.json so hot paths
+/// (admin tables, dashboard tooltips) need not parse the schema.
+pub fn h12() -> bool {
+    std::fs::read_to_string(path()).ok()
+        .and_then(|t| serde_json::from_str::<Value>(&t).ok())
+        .map(|v| v["timeFormat"].as_str() == Some("12h"))
+        .unwrap_or(false)
+}

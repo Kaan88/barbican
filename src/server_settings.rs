@@ -245,7 +245,7 @@ pub fn rows(tab: &str, cache: &Shared) -> Option<Vec<SRow>> {
             }
             for it in k.archived.iter().take(300) {
                 let id = it["id"].as_str().unwrap_or("");
-                let when = it["archivedAt"].as_str().and_then(|d| crate::mail::parse_time(&json!(d))).map(|t| t.format("%d %b %Y %H:%M").to_string()).unwrap_or_default();
+                let when = it["archivedAt"].as_str().and_then(|d| crate::mail::parse_time(&json!(d))).map(|t| t.format(if crate::settings::h12() { "%d %b %Y %-I:%M %p" } else { "%d %b %Y %H:%M" }).to_string()).unwrap_or_default();
                 let subj = it["subject"].as_str().filter(|s| !s.is_empty()).unwrap_or("(no subject)");
                 out.push(row("button", &format!("server.restore:{id}"), subj, &format!("{}  ·  deleted {when}", it["from"].as_str().unwrap_or("")), "Restore", false));
             }
