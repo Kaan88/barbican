@@ -426,7 +426,6 @@ pub fn undo_send(u: &AppWindow, c: Arc<Client>) {
         let _ = w.upgrade_in_event_loop(move |u| match res {
             Ok(()) => {
                 let (src, plain, tags) = (snap.body_src.clone(), snap.plain, snap.tags.clone());
-                let snap_body = snap.body_src.clone();
                 ST.with(|s| { *s.borrow_mut() = snap; s.borrow_mut().draft_id = None; });
                 u.set_c_plain(plain);
                 u.set_c_read_receipt(o.read_receipt);

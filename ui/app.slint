@@ -1595,8 +1595,8 @@ export component AppWindow inherits Window {
                     // body
                     body-sv := ScrollView {
                         vertical-stretch: 1;
-                        viewport-width: self.visible-width;
-                        viewport-height: max(self.visible-height, body-input.preferred-height + 24px);
+                        content-width: self.visible-width;
+                        content-height: max(self.visible-height, body-input.preferred-height + 24px);
                         TouchArea { clicked => { body-input.focus(); } }
                         if root.c-body == "": Text { x: 12px; y: 12px; text: "Write your message…"; color: Theme.dim; }
                         body-input := TextInput {
@@ -1610,10 +1610,10 @@ export component AppWindow inherits Window {
                             color: Theme.text;
                             enabled: !root.ai-busy;
                             cursor-position-changed(p) => {
-                                if p.y + 36px > -body-sv.viewport-y + body-sv.visible-height {
-                                    body-sv.viewport-y = -(p.y + 36px - body-sv.visible-height);
-                                } else if p.y + 12px < -body-sv.viewport-y {
-                                    body-sv.viewport-y = -p.y;
+                                if p.y + 36px > -body-sv.content-y + body-sv.visible-height {
+                                    body-sv.content-y = -(p.y + 36px - body-sv.visible-height);
+                                } else if p.y + 12px < -body-sv.content-y {
+                                    body-sv.content-y = -p.y;
                                 }
                             }
                         }
