@@ -17,20 +17,28 @@ struct Target {
 
 thread_local! {
     static TARGET: RefCell<Target> = RefCell::new(Target::default());
+    /// The highlighted row of the open menu, kept for a confirmation step.
+    static HL: RefCell<String> = const { RefCell::new(String::new()) };
+    /// The user's addresses, refreshed on every request (for RSVP).
+    static MINE: RefCell<Vec<String>> = const { RefCell::new(Vec::new()) };
+    static CLIENT: RefCell<Option<Arc<jmap::Client>>> = const { RefCell::new(None) };
+    /// Address book chosen for the next new contact ("New contact in this address book").
+    pub static BOOK_FOR_NEW: RefCell<Option<String>> = const { RefCell::new(None) };
+    /// Names of the principals the file under the menu is shared with (filled in the background).
+    static SHARE_NAMES: RefCell<Vec<String>> = const { RefCell::new(Vec::new()) };
     /// Pending text prompt: (action, id).
     static PROMPT: RefCell<Option<(String, String)>> = const { RefCell::new(None) };
 }
 
 // ---- item builders ----
 fn it(icon: &str, label: &str, hint: &str, action: &str) -> CtxItem {
-    CtxItem { icon: icon.into(), label: label.into(), hint: hint.into(), action: action.into(), kind: 0, sub: false, danger: false, enabled: true, checked: false }
+    CtxItem { icon: icon.into(), label: label.into(), hint: hint.into(), action: action.into(), kind: 0, sub: false, danger: false, enabled: true, checked: false, color: Default::default() }
 }
 fn sub(icon: &str, label: &str, action: &str) -> CtxItem { CtxItem { sub: true, ..it(icon, label, "", action) } }
 fn danger(icon: &str, label: &str, hint: &str, action: &str) -> CtxItem { CtxItem { danger: true, ..it(icon, label, hint, action) } }
 fn off(mut i: CtxItem, enabled: bool) -> CtxItem { i.enabled = enabled; i }
 fn sep() -> CtxItem { CtxItem { kind: 1, ..it("", "", "", "") } }
 fn header(label: &str) -> CtxItem { CtxItem { kind: 2, ..it("", label, "", "") } }
-fn back() -> CtxItem { it(G_BACK, "Back", "", "back") }
 
 const G_REPLY: &str = "\u{E97A}";
 const G_REPLY_ALL: &str = "\u{EE35}";
@@ -50,7 +58,7 @@ const G_PRINT: &str = "\u{E749}";
 const G_DOWNLOAD: &str = "\u{E896}";
 const G_COPY: &str = "\u{E8C8}";
 const G_SEARCH: &str = "\u{E721}";
-const G_BACK: &str = "\u{E72B}";
+#[allow(dead_code)]
 const G_ADD: &str = "\u{E710}";
 const G_RENAME: &str = "\u{E8AC}";
 const G_NEW_FOLDER: &str = "\u{E8F4}";
@@ -67,10 +75,24 @@ const G_EMPTY: &str = "\u{E894}";
 const G_SELECT_ALL: &str = "\u{E8B3}";
 const G_UPLOAD: &str = "\u{E898}";
 const G_SETTINGS: &str = "\u{E713}";
+const G_MAYBE: &str = "\u{E9CE}";
+const G_CANCEL: &str = "\u{E711}";
+const G_COLOR: &str = "\u{E790}";
+const G_UP: &str = "\u{E74A}";
+const G_DOWN: &str = "\u{E74B}";
+const G_ERASE: &str = "\u{E75C}";
+const G_GROUP: &str = "\u{E716}";
+const G_SHARE: &str = "\u{E72D}";
+const G_CUT: &str = "\u{E8C6}";
+const G_PASTE: &str = "\u{E77F}";
+const G_HOME: &str = "\u{E80F}";
+const G_FOLDER: &str = "\u{E8B7}";
 const G_DEFAULT: &str = "\u{E735}";
 
+fn row_h(i: &CtxItem) -> f32 { match i.kind { 1 => 9.0, 2 => 24.0, _ => 28.0 } }
+
 fn show(u: &AppWindow, items: Vec<CtxItem>) {
-    let h: f32 = items.iter().map(|i| match i.kind { 1 => 9.0, 2 => 24.0, _ => 28.0 }).sum::<f32>() + 10.0;
+    let h: f32 = items.iter().map(row_h).sum::<f32>() + 10.0;
     u.set_ctx_h(h);
     u.set_ctx_items(ModelRc::new(VecModel::from(items)));
 }
@@ -95,7 +117,25 @@ fn first_addr(s: &str) -> String {
     jmap::parse_addresses(s).first().and_then(|a| a["email"].as_str().map(String::from)).unwrap_or_else(|| s.trim().to_string())
 }
 
+/// Hover (or click) on a menu row: a "sub:" row opens its flyout beside it, any other row closes it.
+pub fn hover(u: &AppWindow, action: &str, index: i32) {
+    let Some(w) = action.strip_prefix("sub:") else { u.set_ctx_sub_action("".into()); return };
+    if u.get_ctx_sub_action().as_str() == action { return; }
+    let t = TARGET.with(|x| x.borrow().clone());
+    let items = submenu(u, &t, w);
+    let m = u.get_ctx_items();
+    let idx = if index >= 0 { index as usize } else { (0..m.row_count()).find(|&i| m.row_data(i).is_some_and(|r| r.action == action)).unwrap_or(0) };
+    let y: f32 = 4.0 + (0..idx).filter_map(|i| m.row_data(i)).map(|r| row_h(&r)).sum::<f32>();
+    u.set_ctx_sub_h(items.iter().map(row_h).sum::<f32>() + 10.0);
+    u.set_ctx_sub_y(y);
+    u.set_ctx_sub_items(ModelRc::new(VecModel::from(items)));
+    u.set_ctx_sub_action(action.into());
+}
+
+pub fn set_mine(v: Vec<String>) { MINE.with(|m| *m.borrow_mut() = v); }
+
 pub fn request(u: &AppWindow, kind: &str, id: &str) {
+    u.global::<crate::CtxHl>().set_id(format!("{kind}:{id}").into());
     let mut t = Target { kind: kind.into(), id: id.into(), ids: vec![id.into()] };
     let items: Vec<CtxItem> = match kind {
         "mail" => {
@@ -152,6 +192,39 @@ pub fn request(u: &AppWindow, kind: &str, id: &str) {
             v.push(it(G_PRINT, "Print", "", "print"));
             v
         }
+        "setting" if coll_id(id).is_some() => {
+            let (book, cid) = coll_id(id).unwrap();
+            t.kind = if book { "bookset".into() } else { "calset".into() };
+            t.id = cid.clone();
+            u.global::<crate::CtxHl>().set_id(format!("setting:{}set:{cid}", if book { "book" } else { "cal" }).into());
+            match coll_row(u, book, &cid) {
+                None => vec![],
+                Some((name, default, hidden)) if !book => {
+                    let order = coll_order(u, false);
+                    let pos = order.iter().position(|x| *x == cid).unwrap_or(0);
+                    vec![
+                        header(&name),
+                        it(G_RENAME, "Rename", "", "rename"),
+                        sub(G_COLOR, "Colour", "sub:color"),
+                        it(G_EYE, if hidden { "Show calendar" } else { "Hide calendar" }, "", "toggle"),
+                        off(it(G_DEFAULT, "Set as default", "", "default"), !default),
+                        sep(),
+                        off(it(G_UP, "Move up", "", "up"), pos > 0),
+                        off(it(G_DOWN, "Move down", "", "down"), pos + 1 < order.len()),
+                        sep(),
+                        danger(G_ERASE, "Clear all events", "", "ask:clear"),
+                        off(danger(G_DELETE, "Delete calendar", "", "ask:delete"), !default),
+                    ]
+                }
+                Some((name, default, _)) => vec![
+                    header(&name),
+                    it(G_RENAME, "Rename", "", "rename"),
+                    off(it(G_DEFAULT, "Set as default", "", "default"), !default),
+                    sep(),
+                    off(danger(G_DELETE, "Delete address book", "", "ask:delete"), !default),
+                ],
+            }
+        }
         "folder" | "setting" => {
             let fid = if kind == "setting" { id.strip_prefix("server.folder.rename:").unwrap_or("").to_string() } else { id.to_string() };
             if fid.is_empty() || fid.starts_with("__") { vec![] } else {
@@ -171,13 +244,25 @@ pub fn request(u: &AppWindow, kind: &str, id: &str) {
             it(G_READ, "Mark folder as read", "", "folder-read"),
             it(G_SELECT_ALL, "Select all", "Ctrl+A", "select-all"),
         ],
-        "event" => vec![
-            it(G_EDIT, "Edit", "", "edit"),
-            it(G_DUP, "Duplicate", "", "duplicate"),
-            it(G_COPY, "Copy title", "", "copy-title"),
-            sep(),
-            danger(G_DELETE, "Delete", "Del", "ask:delete"),
-        ],
+        "event" => {
+            let mut v = vec![];
+            if let Some((_, status)) = calendar::my_participation(id, &MINE.with(|m| m.borrow().clone())) {
+                if status != "accepted" { v.push(it(G_CHECK, "Accept", "", "rsvp:accepted")); }
+                if status != "tentative" { v.push(it(G_MAYBE, "Maybe", "", "rsvp:tentative")); }
+                if status != "declined" { v.push(it(G_CANCEL, "Decline", "", "rsvp:declined")); }
+                v.push(sep());
+            }
+            v.extend([
+                it(G_EDIT, "Edit", "", "edit"),
+                it(G_DUP, "Duplicate", "", "duplicate"),
+                sep(),
+                it(G_DOWNLOAD, "Export as .ics", "", "export-ics"),
+                it(G_COPY, "Copy title", "", "copy-title"),
+                sep(),
+                danger(G_DELETE, "Delete", "Del", "ask:delete"),
+            ]);
+            v
+        }
         "slot" => vec![
             it(G_CALENDAR, "New event", "", "new-event"),
             it(G_CALENDAR, "New all-day event", "", "new-allday"),
@@ -211,38 +296,148 @@ pub fn request(u: &AppWindow, kind: &str, id: &str) {
             it(G_UNREAD, "Send email", "", "email"),
             it(G_EDIT, "Edit", "", "edit"),
             sep(),
+            sub(G_GROUP, "Add to group", "sub:groups"),
+            sub(G_TAG, "Categories", "sub:cats"),
+            sep(),
             it(G_COPY, "Copy email address", "", "copy-email"),
             sep(),
             danger(G_DELETE, "Delete", "Del", "ask:delete"),
         ],
-        "group" => vec![
-            it(G_OPEN, "Open", "", "open"),
-            it(G_UNREAD, "Send email to group", "", "email"),
-            sep(),
-            danger(G_DELETE, "Delete group", "", "ask:delete"),
-        ],
-        "file" => {
-            let f = file_row(u, id);
-            let is_folder = f.as_ref().is_some_and(|f| f.folder);
-            vec![
-                it(G_OPEN, "Open", "", "open"),
-                off(it(G_DOWNLOAD, "Download", "", "download"), !is_folder),
-                it(G_RENAME, "Rename", "F2", "rename"),
-                sep(),
-                danger(G_DELETE, "Delete", "Del", "ask:delete"),
-            ]
+        "group" => group_items(),
+        "ctnav" => {
+            let (k, nid) = id.split_once(':').unwrap_or(("", ""));
+            t.kind = format!("ct-{k}");
+            t.id = nid.to_string();
+            match k {
+                "group" => { t.kind = "group".into(); group_items() }
+                "keyword" => vec![
+                    header(nid),
+                    it(G_OPEN, "Show contacts", "", "open"),
+                    it(G_RENAME, "Rename category", "", "rename"),
+                    sep(),
+                    danger(G_DELETE, "Delete category", "", "delete"),
+                ],
+                "book" => match contacts::book_info(nid) {
+                    None => vec![],
+                    Some((name, default)) => vec![
+                        header(&name),
+                        it(G_ADD_CONTACT, "New contact in this address book", "", "new-contact"),
+                        it(G_RENAME, "Rename", "", "rename"),
+                        off(it(G_DEFAULT, "Set as default", "", "default"), !default),
+                        sep(),
+                        off(danger(G_DELETE, "Delete address book", "", "ask:delete"), !default),
+                    ],
+                },
+                _ => vec![],
+            }
         }
+        "file" => match files::node_info(id) {
+            None => vec![],
+            Some((name, is_folder, shared_in, may_share)) => {
+                let mut v = vec![
+                    header(&name),
+                    it(G_OPEN, "Open", "", "open"),
+                ];
+                if !is_folder { v.push(it(G_DOWNLOAD, "Download", "", "download")); }
+                if may_share || (is_folder && !shared_in) { v.push(sep()); }
+                if may_share { v.push(sub(G_SHARE, "Share", "sub:share")); }
+                if is_folder && !shared_in {
+                    v.push(if files::is_starred(id) { it(G_STARRED, "Unstar", "", "star") } else { it(G_STAR, "Star", "", "star") });
+                }
+                v.extend([
+                    sep(),
+                    it(G_RENAME, "Rename", "F2", "rename"),
+                    it(G_DUP, "Duplicate", "", "duplicate"),
+                    sub(G_MOVE, "Move to", "sub:file-move"),
+                    it(G_CUT, "Cut", "Ctrl+X", "cut"),
+                    it(G_COPY, "Copy", "Ctrl+C", "copy"),
+                    sep(),
+                    danger(G_DELETE, "Delete", "Del", "ask:delete"),
+                ]);
+                v
+            }
+        },
         "files-bg" => vec![
             it(G_NEW_FOLDER, "New folder", "", "new-folder"),
             it(G_UPLOAD, "Upload files", "", "upload"),
             sep(),
+            off(it(G_PASTE, "Paste", "Ctrl+V", "paste"), files::has_clipboard()),
             it(G_REFRESH, "Refresh", "", "refresh"),
         ],
         _ => vec![],
     };
+    if t.kind == "file" { fetch_share_names(u, &t.id); }
     TARGET.with(|x| *x.borrow_mut() = t);
+    HL.with(|h| *h.borrow_mut() = u.global::<crate::CtxHl>().get_id().to_string());
     show(u, items);
 }
+
+/// A settings row key that names a calendar / address book on the management pages: (is book, id).
+fn coll_id(key: &str) -> Option<(bool, String)> {
+    for (p, book) in [("calset:", false), ("bookset:", true)] { if let Some(id) = key.strip_prefix(p) { return Some((book, id.into())); } }
+    let (book, rest) = if let Some(r) = key.strip_prefix("server.cal.") { (false, r) } else { (true, key.strip_prefix("server.book.")?) };
+    let (_, id) = rest.split_once(':')?;
+    Some((book, id.into()))
+}
+
+/// (name, is default, is hidden) from the page's section row.
+fn coll_row(u: &AppWindow, book: bool, id: &str) -> Option<(String, bool, bool)> {
+    let key = format!("{}set:{id}", if book { "book" } else { "cal" });
+    let m = u.get_settings_rows();
+    (0..m.row_count()).filter_map(|i| m.row_data(i)).find(|r| r.key == key).map(|r| (r.label.to_string(), r.desc.contains("Default"), r.desc.contains("Hidden")))
+}
+
+fn coll_order(u: &AppWindow, book: bool) -> Vec<String> {
+    let p = if book { "bookset:" } else { "calset:" };
+    let m = u.get_settings_rows();
+    (0..m.row_count()).filter_map(|i| m.row_data(i)).filter_map(|r| r.key.strip_prefix(p).map(String::from)).collect()
+}
+
+/// Run a calendar / address book change in the background, then reload the settings page and the app.
+fn coll_op(u: &AppWindow, st: &Shared, done: &'static str, f: impl FnOnce(&jmap::Client) -> Result<(), String> + Send + 'static) {
+    let Some(c) = client(st) else { return };
+    let w = u.as_weak();
+    std::thread::spawn(move || {
+        let res = f(&c);
+        let w2 = w.clone();
+        let _ = w.upgrade_in_event_loop(move |u| {
+            mail::show_toast(&u, &match res { Ok(()) => done.to_string(), Err(e) => e }, false);
+            if u.get_show_settings() { u.invoke_settings_open_tab(u.get_settings_tab()); }
+            calendar::load(w2.clone(), c.clone());
+            contacts::load(w2, c);
+        });
+    });
+}
+
+fn group_items() -> Vec<CtxItem> {
+    vec![
+        it(G_OPEN, "Open", "", "open"),
+        it(G_RENAME, "Rename group", "", "rename"),
+        sub(G_UNREAD, "Send email to group", "sub:group-mail"),
+        sep(),
+        danger(G_DELETE, "Delete group", "", "ask:delete"),
+    ]
+}
+
+/// Ask for a name, then create a contact group (with `member` in it when given).
+pub fn new_group_prompt(u: &AppWindow, member: Option<String>) {
+    prompt(u, "New group", "", "new-group", &member.unwrap_or_default());
+}
+
+/// Resolve the names behind a file's shareWith principals for the Share flyout.
+fn fetch_share_names(u: &AppWindow, id: &str) {
+    SHARE_NAMES.with(|n| n.borrow_mut().clear());
+    let ids: Vec<String> = files::shares(id).into_iter().map(|s| s.0).collect();
+    if ids.is_empty() { return; }
+    let Some(c) = CLIENT.with(|c| c.borrow().clone()) else { return };
+    let w = u.as_weak();
+    std::thread::spawn(move || {
+        let names = files::principal_names(&c, &ids);
+        let _ = w.upgrade_in_event_loop(move |_| SHARE_NAMES.with(|n| *n.borrow_mut() = names));
+    });
+}
+
+pub fn set_client(c: Option<Arc<jmap::Client>>) { CLIENT.with(|x| *x.borrow_mut() = c); }
 
 fn file_row(u: &AppWindow, id: &str) -> Option<crate::FileRow> {
     let m = u.get_files();
@@ -261,7 +456,7 @@ fn mail_items(u: &AppWindow, t: &Target) -> Vec<CtxItem> {
         off(it(G_FORWARD, "Forward", "F", "forward"), n == 1),
         sep(),
         it(G_ARCHIVE, "Archive", "E", "archive"),
-        danger(G_DELETE, "Delete", "Del", "delete"),
+        if n > 1 && crate::settings::Settings::load().bool("confirmBulkDelete", true) { danger(G_DELETE, "Delete", "Del", "ask:delete") } else { danger(G_DELETE, "Delete", "Del", "delete") },
         sub(G_MOVE, "Move to", "sub:move"),
         sep(),
         if kw(&first, "$seen") { it(G_UNREAD, "Mark as unread", "U", "unread") } else { it(G_READ, "Mark as read", "U", "read") },
@@ -298,10 +493,9 @@ fn folder_items(u: &AppWindow, id: &str) -> Vec<CtxItem> {
 }
 
 fn submenu(u: &AppWindow, t: &Target, which: &str) -> Vec<CtxItem> {
-    let mut v = vec![back(), sep()];
+    let mut v = vec![];
     match which {
         "move" => {
-            v.push(header("Move to"));
             let m = u.get_folders();
             for f in (0..m.row_count()).filter_map(|i| m.row_data(i)) {
                 if f.id.starts_with("__") || f.id == u.get_current_folder() { continue; }
@@ -310,11 +504,11 @@ fn submenu(u: &AppWindow, t: &Target, which: &str) -> Vec<CtxItem> {
             }
         }
         "tag" => {
-            v.push(header("Tag"));
             let first = mail::email(&t.ids[0]);
             let m = u.get_tags();
             for tg in (0..m.row_count()).filter_map(|i| m.row_data(i)) {
                 let mut i = it(G_TAG, &tg.name, "", &format!("tagt:{}", tg.id));
+                i.color = tg.color;
                 i.checked = kw(&first, &format!("$label:{}", tg.id));
                 v.push(i);
             }
@@ -331,6 +525,59 @@ fn submenu(u: &AppWindow, t: &Target, which: &str) -> Vec<CtxItem> {
                 off(it(G_SEARCH, "Find emails from sender", "", "find-from"), single),
             ]);
         }
+        "file-move" => {
+            for (k, label) in files::move_targets(&t.id) {
+                v.push(it(if k.is_empty() { G_HOME } else { G_FOLDER }, &label, "", &format!("moveto:{k}")));
+            }
+            if v.is_empty() { v.push(off(it("", "No other folders", "", ""), false)); }
+        }
+        "share" => {
+            v.push(it(G_ADD_CONTACT, "Share read-only…", "", "share-add:r"));
+            v.push(it(G_ADD_CONTACT, "Share with edit rights…", "", "share-add:w"));
+            let cur = files::shares(&t.id);
+            if !cur.is_empty() {
+                v.push(sep());
+                v.push(header("Shared with"));
+                let names = SHARE_NAMES.with(|n| n.borrow().clone());
+                for (i, (pid, write)) in cur.iter().enumerate() {
+                    let who = names.get(i).cloned().unwrap_or_else(|| pid.clone());
+                    v.push(it(G_DELETE, &format!("Stop sharing with {who}{}", if *write { " (edit)" } else { "" }), "", &format!("unshare:{pid}")));
+                }
+            }
+        }
+        "groups" => {
+            for (gid, name, member) in contacts::groups_for(&t.id) {
+                let mut i = it(G_GROUP, &name, "", &format!("grp:{gid}"));
+                i.checked = member;
+                v.push(i);
+            }
+            if !v.is_empty() { v.push(sep()); }
+            v.push(it(G_ADD, "New group…", "", "grp-new"));
+        }
+        "cats" => {
+            let mine = contacts::keywords_of(&t.id);
+            for (k, _) in contacts::all_keywords() {
+                let mut i = it(G_TAG, &k, "", &format!("kw:{k}"));
+                i.checked = mine.contains(&k);
+                v.push(i);
+            }
+            if !v.is_empty() { v.push(sep()); }
+            v.push(it(G_ADD, "New category…", "", "kw-new"));
+        }
+        "group-mail" => {
+            v.push(it(G_UNREAD, "To", "", "email:to"));
+            v.push(it(G_UNREAD, "Cc", "", "email:cc"));
+            v.push(it(G_UNREAD, "Bcc", "", "email:bcc"));
+        }
+        "color" => {
+            let cur = coll_color(u, &t.id);
+            for (hex, name) in crate::server_settings::CAL_COLORS {
+                let mut i = it("", name, "", &format!("color:{hex}"));
+                i.color = hex_color(hex);
+                i.checked = cur.as_deref() == Some(hex);
+                v.push(i);
+            }
+        }
         "due" => {
             v.push(it(G_CALENDAR, "Today", "", "due:0"));
             v.push(it(G_CALENDAR, "Tomorrow", "", "due:1"));
@@ -339,6 +586,18 @@ fn submenu(u: &AppWindow, t: &Target, which: &str) -> Vec<CtxItem> {
         _ => {}
     }
     v
+}
+
+pub fn hex_color(h: &str) -> slint::Color {
+    let n = u32::from_str_radix(h.trim_start_matches('#'), 16).unwrap_or(0x3b82f6);
+    slint::Color::from_rgb_u8((n >> 16) as u8, (n >> 8) as u8, n as u8)
+}
+
+/// The calendar's colour as the page's colour select shows it.
+fn coll_color(u: &AppWindow, id: &str) -> Option<String> {
+    let key = format!("server.cal.color:{id}");
+    let m = u.get_settings_rows();
+    (0..m.row_count()).filter_map(|i| m.row_data(i)).find(|r| r.key == key).map(|r| r.text.to_string())
 }
 
 fn confirm(label: &str, action: &str) -> Vec<CtxItem> {
@@ -425,7 +684,17 @@ pub fn prompt_ok(u: &AppWindow, st: &Shared, text: &str) {
         "rename-folder" => mailbox_op(u, c, "Folder renamed", move |c| c.rename_mailbox(&id, &name).map(|_| String::new())),
         "rename-cal" => calendar::set_call(u, c, "Calendar/set", json!({"update": {id: {"name": name}}}), "Calendar not renamed"),
         "new-task" => calendar::add_task(u, c, &name, &id),
+        "new-group" => contacts::create_group(u, c, &name, if id.is_empty() { None } else { Some(id) }),
+        "rename-group" => contacts::card_set(u, c, json!({"update": { id: {"name": {"full": name}} }}), "Group renamed"),
+        "new-kw" => contacts::set_keyword(u, c, &id, &name, true),
+        "rename-kw" => contacts::rename_keyword(u, c, &id, &name),
+        "rename-calset" | "rename-book" => {
+            let book = action == "rename-book";
+            coll_op(u, st, "Renamed", move |c| crate::server_settings::collection_set(c, book, json!({"update": { id: {"name": name} }})));
+        }
         "new-file-folder" => files::new_folder(u, c, &name),
+        "rename-file" => files::rename(u, c, &id, &name),
+        "share-r" | "share-w" => files::share(u, c, &id, &name, Some(action == "share-w")),
         _ => {}
     }
 }
@@ -433,23 +702,20 @@ pub fn prompt_ok(u: &AppWindow, st: &Shared, text: &str) {
 pub fn pick(u: &AppWindow, st: &Shared, action: &str) {
     if action.is_empty() { return; }
     let t = TARGET.with(|x| x.borrow().clone());
-    if action == "back" {
-        let items = match t.kind.as_str() {
-            "mail" => mail_items(u, &t),
-            "task" => { request(u, "task", &t.id); u.get_ctx_items().iter().collect() }
-            _ => return,
-        };
-        reopen(u, items);
-        return;
-    }
-    if let Some(w) = action.strip_prefix("sub:") { reopen(u, submenu(u, &t, w)); return; }
     if let Some(a) = action.strip_prefix("ask:") {
         let label = match (t.kind.as_str(), a) {
             ("folder", "empty") => "Delete all messages permanently",
             ("folder", _) => "Delete this folder",
             ("cal", _) => "Delete calendar and its events",
+            ("file", _) => "Delete for good",
+            ("calset", "clear") => "Delete every event in this calendar",
+            ("calset", _) => "Delete calendar and its events",
+            ("bookset", _) | ("ct-book", _) => "Delete address book and its contacts",
+            ("group", _) => "Delete group",
+            ("mail", _) => "Delete selected messages",
             _ => "Delete",
         };
+        u.global::<crate::CtxHl>().set_id(HL.with(|h| h.borrow().clone()).into());
         reopen(u, confirm(label, &format!("do:{a}")));
         return;
     }
@@ -482,6 +748,8 @@ pub fn pick(u: &AppWindow, st: &Shared, action: &str) {
                     let has = kw(&mail::email(&t.ids[0]), &format!("$label:{tid}"));
                     format!("{}:{tid}", if has { "untag" } else { "tag" })
                 } else { a.to_string() };
+                // the menu asked once already (or bulk confirm is off): don't ask again in mail::apply
+                if a == "delete" && t.ids.len() > 1 { mail::CONFIRM_BULK.with(|x| x.set(true)); }
                 // explicit read/unread/star/unstar: mail::apply toggles "read"/"star" from state, so pass resolved forms
                 crate::apply_routed(u, st, t.ids.clone(), &a);
             }
@@ -553,6 +821,17 @@ pub fn pick(u: &AppWindow, st: &Shared, action: &str) {
                 "edit" => u.invoke_cal_edit(id.into(), "".into(), -1),
                 "duplicate" => { u.invoke_cal_edit(id.into(), "".into(), -1); u.set_ev_id("".into()); u.set_ev_title(format!("{} (copy)", u.get_ev_title()).into()); }
                 "copy-title" => u.invoke_copy_text(calendar::event_title(id).into()),
+                "export-ics" => {
+                    let Some((name, text)) = calendar::event_ics(id) else { return };
+                    let Some(path) = rfd::FileDialog::new().set_file_name(&name).add_filter("iCalendar", &["ics"]).save_file() else { return };
+                    let msg = match std::fs::write(&path, text) { Ok(()) => "Event exported".to_string(), Err(e) => format!("Could not export: {e}") };
+                    mail::show_toast(u, &msg, false);
+                }
+                r if r.starts_with("rsvp:") => {
+                    let Some((pid, _)) = calendar::my_participation(id, &crate::my_addrs(st)) else { return };
+                    calendar::rsvp(u, c, id, &pid, &r[5..]);
+                    mail::show_toast(u, match &r[5..] { "accepted" => "Invitation accepted", "tentative" => "Answered maybe", _ => "Invitation declined" }, false);
+                }
                 "delete" => { u.set_ev_id(id.into()); calendar::delete(u, c); }
                 _ => {}
             }
@@ -586,8 +865,80 @@ pub fn pick(u: &AppWindow, st: &Shared, action: &str) {
                 "new-event" => { u.invoke_cal_edit("".into(), "".into(), -1); u.set_ev_calendar(idx as i32); }
                 "toggle" => u.invoke_cal_toggle(id.into()),
                 "rename" => prompt(u, "Rename calendar", &name, "rename-cal", id),
-                "default" => calendar::set_call(u, c, "Calendar/set", json!({"update": {id: {"isDefault": true}}}), "Could not set default"),
+                "default" => { let cid = id.to_string(); coll_op(u, st, "Default changed", move |c| crate::server_settings::default_collection(c, false, &cid)); }
                 "delete" => calendar::set_call(u, c, "Calendar/set", json!({"destroy": [id], "onDestroyRemoveEvents": true}), "Calendar not deleted"),
+                _ => {}
+            }
+        }
+        "calset" | "bookset" => {
+            let book = t.kind == "bookset";
+            let cid = id.to_string();
+            match action {
+                "rename" => prompt(u, if book { "Rename address book" } else { "Rename calendar" }, &coll_row(u, book, id).map(|r| r.0).unwrap_or_default(), if book { "rename-book" } else { "rename-calset" }, id),
+                "toggle" => {
+                    let show = coll_row(u, false, id).is_some_and(|r| r.2);
+                    coll_op(u, st, if show { "Calendar shown" } else { "Calendar hidden" }, move |c| crate::server_settings::collection_set(c, false, json!({"update": { cid: {"isVisible": show} }})));
+                }
+                "default" => coll_op(u, st, "Default changed", move |c| crate::server_settings::default_collection(c, book, &cid)),
+                "up" | "down" => {
+                    let mut order = coll_order(u, false);
+                    let Some(i) = order.iter().position(|x| *x == cid) else { return };
+                    let j = if action == "up" { i.wrapping_sub(1) } else { i + 1 };
+                    if j >= order.len() { return; }
+                    order.swap(i, j);
+                    let upd: serde_json::Map<String, Value> = order.iter().enumerate().map(|(n, x)| (x.clone(), json!({"sortOrder": n}))).collect();
+                    coll_op(u, st, "Order changed", move |c| crate::server_settings::collection_set(c, false, json!({"update": upd})));
+                }
+                "clear" => coll_op(u, st, "Events cleared", move |c| {
+                    let acc = c.account_for("urn:ietf:params:jmap:calendars");
+                    loop {
+                        let q = c.call(json!([["CalendarEvent/query", {"accountId": acc, "filter": {"inCalendar": cid}, "limit": c.max_set()}, "q"]]))?;
+                        let ids = q[0][1]["ids"].as_array().cloned().unwrap_or_default();
+                        if ids.is_empty() { return Ok(()); }
+                        let r = c.call(json!([["CalendarEvent/set", {"accountId": acc, "destroy": ids}, "d"]]))?;
+                        if r[0][1]["destroyed"].as_array().is_none_or(|a| a.is_empty()) { return Err("The server deleted nothing".into()); }
+                    }
+                }),
+                "delete" => {
+                    let args = if book { json!({"destroy": [cid], "onDestroyRemoveContents": true}) } else { json!({"destroy": [cid], "onDestroyRemoveEvents": true}) };
+                    coll_op(u, st, if book { "Address book deleted" } else { "Calendar deleted" }, move |c| crate::server_settings::collection_set(c, book, args));
+                }
+                a if a.starts_with("color:") => {
+                    let hex = a[6..].to_string();
+                    coll_op(u, st, "Colour changed", move |c| crate::server_settings::collection_set(c, false, json!({"update": { cid: {"color": hex} }})));
+                }
+                _ => {}
+            }
+        }
+        "contact" if action.starts_with("grp") || action.starts_with("kw") => {
+            let Some(c) = client(st) else { return };
+            let uid = contacts::uid_of(id).unwrap_or_default();
+            if action == "grp-new" { new_group_prompt(u, Some(uid)); return; }
+            if action == "kw-new" { prompt(u, "New category", "", "new-kw", id); return; }
+            if let Some(g) = action.strip_prefix("grp:") {
+                let on = !contacts::groups_for(id).iter().any(|x| x.0 == g && x.2);
+                contacts::set_member(u, c, g, &uid, on);
+            } else if let Some(k) = action.strip_prefix("kw:") {
+                let on = !contacts::keywords_of(id).iter().any(|x| x == k);
+                contacts::set_keyword(u, c, id, k, on);
+            }
+        }
+        "ct-keyword" => {
+            let Some(c) = client(st) else { return };
+            match action {
+                "open" => { contacts::set_filter(u, &format!("kw:{id}")); u.set_ct_group("".into()); }
+                "rename" => prompt(u, "Rename category", id, "rename-kw", id),
+                "delete" => contacts::delete_keyword(u, c, id),
+                _ => {}
+            }
+        }
+        "ct-book" => {
+            let book = id.to_string();
+            match action {
+                "new-contact" => { u.invoke_ct_new(); BOOK_FOR_NEW.with(|b| *b.borrow_mut() = Some(book)); }
+                "rename" => prompt(u, "Rename address book", &contacts::book_info(id).map(|b| b.0).unwrap_or_default(), "rename-book", id),
+                "default" => coll_op(u, st, "Default changed", move |c| crate::server_settings::default_collection(c, true, &book)),
+                "delete" => coll_op(u, st, "Address book deleted", move |c| crate::server_settings::collection_set(c, true, json!({"destroy": [book], "onDestroyRemoveContents": true}))),
                 _ => {}
             }
         }
@@ -610,7 +961,14 @@ pub fn pick(u: &AppWindow, st: &Shared, action: &str) {
             u.set_ct_editing(false);
             u.invoke_ct_select_group(id.into());
             match action {
-                "email" => u.invoke_ct_email(),
+                "email" | "email:to" => u.invoke_ct_email(),
+                "email:cc" | "email:bcc" => {
+                    let to = u.get_ct_emails();
+                    u.invoke_compose_new();
+                    if action == "email:cc" { u.set_c_cc(to); } else { u.set_c_bcc(to); }
+                }
+                "rename" => prompt(u, "Rename group", &contacts::group_name(id), "rename-group", id),
+                "open" => contacts::set_filter(u, &format!("group:{id}")),
                 "delete" => {
                     let Some(c) = client(st) else { return };
                     let (w, id) = (u.as_weak(), id.to_string());
@@ -627,16 +985,31 @@ pub fn pick(u: &AppWindow, st: &Shared, action: &str) {
                 _ => {}
             }
         }
-        "file" => match action {
-            "open" => u.invoke_fl_activate(id.into()),
-            "download" => u.invoke_fl_download(id.into()),
-            "rename" => u.invoke_fl_start_rename(id.into()),
-            "delete" => u.invoke_fl_delete(id.into()),
-            _ => {}
-        },
+        "file" => {
+            let Some(c) = client(st) else { return };
+            match action {
+                "open" => u.invoke_fl_activate(id.into()),
+                "download" => u.invoke_fl_download(id.into()),
+                "rename" => {
+                    // a folder from the sidebar may not be listed in the folder on screen: rename by prompt
+                    if file_row(u, id).is_some() { u.invoke_fl_start_rename(id.into()); }
+                    else { prompt(u, "Rename", &files::node_info(id).map(|n| n.0).unwrap_or_default(), "rename-file", id); }
+                }
+                "delete" => u.invoke_fl_delete(id.into()),
+                "star" => files::toggle_star(u, id),
+                "duplicate" => files::duplicate(u, c, id),
+                "cut" => files::set_clipboard(u, id, true),
+                "copy" => files::set_clipboard(u, id, false),
+                a if a.starts_with("moveto:") => files::move_to(u, c, id, &a[7..]),
+                a if a.starts_with("share-add:") => prompt(u, if a.ends_with('w') { "Share with edit rights: user's email" } else { "Share read-only: user's email" }, "", if a.ends_with('w') { "share-w" } else { "share-r" }, id),
+                a if a.starts_with("unshare:") => files::share(u, c, id, &a[8..], None),
+                _ => {}
+            }
+        }
         "files-bg" => match action {
             "new-folder" => prompt(u, "New folder", "", "new-file-folder", ""),
             "upload" => u.invoke_fl_upload(),
+            "paste" => { if let Some(c) = client(st) { files::paste(u, c); } }
             "refresh" => { let ids = u.get_crumb_ids(); let last = ids.row_count().checked_sub(1).and_then(|i| ids.row_data(i)).unwrap_or_default(); u.invoke_fl_open(last); }
             _ => {}
         },

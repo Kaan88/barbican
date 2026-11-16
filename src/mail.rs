@@ -493,7 +493,7 @@ fn remove_local(ids: &[String]) {
 
 /// Apply an action to messages: delete, archive, spam, notspam, star, unstar, read, unread,
 /// tag:<id>, untag:<id>, move:<mailboxId>.
-thread_local! { static CONFIRM_BULK: std::cell::Cell<bool> = const { std::cell::Cell::new(false) }; }
+thread_local! { pub static CONFIRM_BULK: std::cell::Cell<bool> = const { std::cell::Cell::new(false) }; }
 
 /// Put text on the Windows clipboard (clip.exe reads stdin).
 pub fn copy_to_clipboard(text: &str) -> bool {

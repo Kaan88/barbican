@@ -83,6 +83,9 @@ export struct FileRow {
     size: string,
     modified: string,
     renaming: bool,
+    starred: bool,
+    shared: bool,
+    cut: bool,
 }
 
 export struct AdminRow {
@@ -115,6 +118,18 @@ export struct Att {
     index: int,
 }
 
+/// A sidebar row (contacts / files navigation). kind "section" is a header-only row.
+export struct NavRow {
+    kind: string,
+    id: string,
+    label: string,
+    icon: string,
+    count: string,
+    color: color,
+    depth: int,
+    header: string, // section title shown above the row
+}
+
 export struct CtxItem {
     icon: string,
     label: string,
@@ -125,6 +140,12 @@ export struct CtxItem {
     danger: bool,
     enabled: bool,
     checked: bool,
+    color: color, // tag swatch when set
+}
+
+/// Row a context menu was opened on (Bulwark highlights it while the menu is up).
+export global CtxHl {
+    in-out property <string> id;
 }
 
 export struct ChatMsg {
@@ -264,7 +285,8 @@ component FolderRow inherits Rectangle {
     callback chevron-clicked;
     callback context(length, length);
     height: 24px;
-    background: selected ? Theme.sel : ta.has-hover ? Theme.hover : transparent;
+    in property <string> hl-id;
+    background: selected ? Theme.sel : ta.has-hover || (hl-id != "" && CtxHl.id == hl-id) ? Theme.hover : transparent;
     ta := TouchArea {
         clicked => { root.clicked(); }
         pointer-event(ev) => { if ev.button == PointerEventButton.right && ev.kind == PointerEventKind.up { root.context(self.absolute-position.x + self.mouse-x, self.absolute-position.y + self.mouse-y); } }
@@ -329,7 +351,8 @@ component TagRow inherits Rectangle {
     callback clicked;
     callback context(length, length);
     height: 24px;
-    background: selected ? Theme.sel : ta.has-hover ? Theme.hover : transparent;
+    in property <string> hl-id;
+    background: selected ? Theme.sel : ta.has-hover || (hl-id != "" && CtxHl.id == hl-id) ? Theme.hover : transparent;
     ta := TouchArea { clicked => { root.clicked(); } pointer-event(ev) => { if ev.button == PointerEventButton.right && ev.kind == PointerEventKind.up { root.context(self.absolute-position.x + self.mouse-x, self.absolute-position.y + self.mouse-y); } } }
     HorizontalLayout {
         padding-left: 26px;
@@ -397,20 +420,24 @@ component ToolButton inherits Rectangle {
 
 component ContextMenuRow inherits Rectangle {
     in property <CtxItem> it;
+    in property <bool> open-sub;
     callback picked(string);
+    callback hovered();
     height: it.kind == 1 ? 9px : it.kind == 2 ? 24px : 28px;
     border-radius: 4px;
-    background: it.kind == 0 && it.enabled && cta.has-hover ? (it.danger ? #ef444433 : Theme.hover) : transparent;
+    background: it.kind == 0 && it.enabled && (cta.has-hover || open-sub) ? (it.danger ? #ef444433 : Theme.hover) : transparent;
     if it.kind == 1: Rectangle { x: 4px; width: parent.width - 8px; height: 1px; background: Theme.line; }
     if it.kind == 2: Text { x: 10px; text: it.label; color: Theme.dim; font-size: 11px; font-weight: 600; vertical-alignment: center; }
-    cta := TouchArea { enabled: it.kind == 0 && it.enabled; clicked => { root.picked(it.action); } }
+    cta := TouchArea { enabled: it.kind == 0 && it.enabled; clicked => { if it.sub { root.hovered(); } else { root.picked(it.action); } } changed has-hover => { if self.has-hover { root.hovered(); } } }
     if it.kind == 0: HorizontalLayout {
         padding-left: 8px;
         padding-right: 10px;
         spacing: 10px;
-        Icon { text: it.checked ? "\u{E73E}" : it.icon; font-size: 13px; width: 16px; color: !it.enabled ? Theme.line : it.danger ? #ef4444 : Theme.text; }
+        if it.color.alpha == 0: Icon { text: it.checked ? "\u{E73E}" : it.icon; font-size: 13px; width: 16px; color: !it.enabled ? Theme.line : it.danger ? #ef4444 : Theme.text; }
+        if it.color.alpha > 0: VerticalLayout { alignment: center; width: 16px; TagIcon { tint: it.color; } }
         Text { text: it.label; color: !it.enabled ? Theme.dim : it.danger ? #ef4444 : Theme.text; vertical-alignment: center; horizontal-stretch: 1; overflow: elide; font-size: 13px; }
         if it.hint != "": Text { text: it.hint; color: Theme.dim; font-size: 11px; vertical-alignment: center; }
+        if it.checked && it.color.alpha > 0: Icon { text: "\u{E73E}"; font-size: 11px; width: 12px; color: Theme.accent; }
         if it.sub: Icon { text: "\u{E76C}"; font-size: 9px; width: 10px; }
     }
 }
@@ -418,16 +445,21 @@ component ContextMenuRow inherits Rectangle {
 /// Dark context menu body (Theme.popup, 1px Theme.line border, radius 8).
 component ContextMenu inherits Rectangle {
     in property <[CtxItem]> items;
+    in property <string> open-sub;
     callback picked(string);
+    callback hovered(string, int);
     background: Theme.popup;
     border-radius: 8px;
     border-width: 1px;
     border-color: Theme.line;
     drop-shadow-blur: 12px;
     drop-shadow-color: #00000066;
-    VerticalLayout {
-        padding: 4px;
-        for it in root.items: ContextMenuRow { it: it; picked(a) => { root.picked(a); } }
+    Flickable {
+        content-height: col.preferred-height;
+        col := VerticalLayout {
+            padding: 4px;
+            for it[i] in root.items: ContextMenuRow { it: it; open-sub: it.sub && it.action == root.open-sub; picked(a) => { root.picked(a); } hovered => { root.hovered(it.action, i); } }
+        }
     }
 }
 
@@ -453,7 +485,9 @@ component MailRow inherits VerticalLayout {
     }
     Rectangle {
         height: root.row-height + ((m.code != "" || m.files.length > 0) ? 22px : 0px);
-        background: selected || m.checked ? Theme.sel : ta.has-hover ? Theme.hover : m.row-tint;
+        background: selected || m.checked ? Theme.sel : ta.has-hover || (CtxHl.id != "" && CtxHl.id == "mail:" + m.id) ? Theme.hover : m.row-tint;
+        border-width: CtxHl.id != "" && CtxHl.id == "mail:" + m.id ? 1px : 0px;
+        border-color: Theme.accent;
         ta := TouchArea {
             pointer-event(ev) => {
                 if ev.kind == PointerEventKind.up && ev.button == PointerEventButton.left {
@@ -841,6 +875,10 @@ export component AppWindow inherits Window {
     in property <[ContactRow]> contacts;
     in property <[ContactRow]> contact-groups;
     in-out property <string> ct-group;
+    in-out property <[NavRow]> ct-nav;
+    in-out property <string> ct-filter;
+    callback ct-nav-select(string, string);
+    callback ct-new-group();
     callback ct-select-group(string);
     in-out property <string> ct-id;
     in-out property <bool> ct-editing;
@@ -872,6 +910,9 @@ export component AppWindow inherits Window {
     callback fl-start-rename(string);
     callback fl-rename(string, string);
     callback fl-delete(string);
+    in-out property <[NavRow]> fl-nav;
+    in-out property <string> fl-cwd;
+    callback fl-toggle-folder(string);
     in property <bool> admin-enabled;
     in-out property <string> admin-section: "overview";
     in property <[string]> admin-cols;
@@ -939,13 +980,25 @@ export component AppWindow inherits Window {
     in-out property <int> ctx-body-cmd; // bumps: odd = copy selection, even = select all (plain-text body)
     callback ctx-request(string, string);
     callback ctx-pick(string);
+    // flyout submenu (Bulwark ContextMenuSubMenu): Rust fills it when a "sub:" row is hovered
+    in-out property <[CtxItem]> ctx-sub-items;
+    in-out property <string> ctx-sub-action;
+    in-out property <length> ctx-sub-y;
+    in-out property <length> ctx-sub-h;
+    callback ctx-hover(string, int);
+    property <length> ctx-menu-x: max(0px, min(root.ctx-x, root.width - 252px));
+    property <length> ctx-menu-y: max(0px, min(root.ctx-y, root.height - min(root.ctx-h, root.height - 8px) - 4px));
+    property <length> ctx-sub-x: root.ctx-menu-x + 248px + 244px > root.width ? max(0px, root.ctx-menu-x - 244px) : root.ctx-menu-x + 244px;
+    property <length> ctx-sub-top: max(0px, min(root.ctx-menu-y + root.ctx-sub-y - 4px, root.height - min(root.ctx-sub-h, root.height - 8px) - 4px));
+    public function ctx-close() { ctx-popup.close(); root.ctx-open = false; root.ctx-sub-action = ""; CtxHl.id = ""; }
     public function ctx(kind: string, id: string, x: length, y: length) {
         root.ctx-x = x;
         root.ctx-y = y;
         root.ctx-request(kind, id);
-        if root.ctx-items.length > 0 { root.ctx-open = true; ctx-popup.show(); }
+        root.ctx-sub-action = "";
+        if root.ctx-items.length > 0 { root.ctx-open = true; ctx-popup.show(); } else { CtxHl.id = ""; }
     }
-    public function ctx-show() { root.ctx-open = true; ctx-popup.show(); }
+    public function ctx-show() { root.ctx-sub-action = ""; root.ctx-open = true; ctx-popup.show(); }
     // the WebView2 body is a separate HWND above Slint: hide it while a menu is open
     in-out property <bool> ctx-open;
     public function copy-text(t: string) { clip-buf.text = t; clip-buf.select-all(); clip-buf.copy(); }
@@ -1162,6 +1215,7 @@ export component AppWindow inherits Window {
                                     root.select-folder(f.id);
                                 }
                                 chevron-clicked => { root.toggle-folder(f.id); }
+                                hl-id: "folder:" + f.id;
                                 context(x, y) => { root.ctx("folder", f.id, x, y); }
                             }
                         }
@@ -1183,6 +1237,7 @@ export component AppWindow inherits Window {
                                 t: t;
                                 selected: t.id == root.current-tag;
                                 clicked => { root.current-tag = t.id; root.select-tag(t.id); }
+                                hl-id: "tag:" + t.id;
                                 context(x, y) => { root.ctx("tag", t.id, x, y); }
                             }
                         }
@@ -1944,6 +1999,7 @@ export component AppWindow inherits Window {
             Rectangle {
                 width: 220px;
                 background: Theme.side;
+                ScrollView {
                 VerticalLayout {
                     padding: 10px;
                     spacing: 8px;
@@ -1986,6 +2042,8 @@ export component AppWindow inherits Window {
                     Text { text: "Tasks"; color: Theme.text; font-weight: 700; }
                     for t in root.cal-tasks: Rectangle {
                         height: 24px;
+                        border-radius: 4px;
+                        background: CtxHl.id == "task:" + t.id ? Theme.hover : transparent;
                         TouchArea { pointer-event(ev) => { if ev.button == PointerEventButton.right && ev.kind == PointerEventKind.up { root.ctx("task", t.id, self.absolute-position.x + self.mouse-x, self.absolute-position.y + self.mouse-y); } } }
                         HorizontalLayout {
                             spacing: 8px;
@@ -2005,6 +2063,8 @@ export component AppWindow inherits Window {
                     Text { text: "Calendars"; color: Theme.text; font-weight: 700; }
                     for c in root.calendars: Rectangle {
                         height: 26px;
+                        border-radius: 4px;
+                        background: CtxHl.id == "cal:" + c.id ? Theme.hover : transparent;
                         ctta := TouchArea { clicked => { root.cal-toggle(c.id); } pointer-event(ev) => { if ev.button == PointerEventButton.right && ev.kind == PointerEventKind.up { root.ctx("cal", c.id, self.absolute-position.x + self.mouse-x, self.absolute-position.y + self.mouse-y); } } }
                         HorizontalLayout {
                             spacing: 8px;
@@ -2016,6 +2076,7 @@ export component AppWindow inherits Window {
                             Text { text: c.name; color: Theme.text; vertical-alignment: center; overflow: elide; }
                         }
                     }
+                }
                 }
             }
             Rectangle { width: 1px; background: Theme.line; }
@@ -2160,6 +2221,47 @@ export component AppWindow inherits Window {
         width: parent.width - 45px;
         background: Theme.bg;
         HorizontalLayout {
+            // ---- sidebar: all, address books, groups, categories (Bulwark contacts-sidebar) ----
+            Rectangle {
+                width: 210px;
+                background: Theme.side;
+                ScrollView {
+                    VerticalLayout {
+                        padding-top: 8px;
+                        padding-bottom: 12px;
+                        alignment: start;
+                        for n in root.ct-nav: VerticalLayout {
+                            if n.header != "": Rectangle {
+                                height: 30px;
+                                HorizontalLayout {
+                                    padding-left: 14px;
+                                    padding-right: 8px;
+                                    Text { text: n.header; color: Theme.dim; font-size: 11px; font-weight: 600; vertical-alignment: center; horizontal-stretch: 1; }
+                                    if n.header == "Groups": HoverAction { y: 4px; glyph: "\u{E710}"; clicked => { root.ct-new-group(); } }
+                                }
+                            }
+                            if n.kind != "section": Rectangle {
+                                height: 28px;
+                                property <string> key: n.kind == "all" ? "" : n.kind == "uncat" ? "uncat" : n.kind == "keyword" ? "kw:" + n.id : n.kind + ":" + n.id;
+                                background: root.ct-filter == key ? Theme.sel : (cnta.has-hover || CtxHl.id == "ctnav:" + n.kind + ":" + n.id ? Theme.hover : transparent);
+                                cnta := TouchArea {
+                                    clicked => { root.ct-nav-select(n.kind, n.id); }
+                                    pointer-event(ev) => { if ev.button == PointerEventButton.right && ev.kind == PointerEventKind.up && (n.kind == "group" || n.kind == "keyword" || n.kind == "book") { root.ctx("ctnav", n.kind + ":" + n.id, self.absolute-position.x + self.mouse-x, self.absolute-position.y + self.mouse-y); } }
+                                }
+                                HorizontalLayout {
+                                    padding-left: 10px;
+                                    padding-right: 10px;
+                                    spacing: 8px;
+                                    Icon { text: n.icon; font-size: 12px; width: 16px; color: Theme.dim; }
+                                    Text { text: n.label; color: Theme.text; vertical-alignment: center; horizontal-stretch: 1; overflow: elide; font-italic: n.kind == "uncat"; font-weight: root.ct-filter == key ? 600 : 400; }
+                                    Text { text: n.count; color: Theme.dim; font-size: 11px; vertical-alignment: center; }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            Rectangle { width: 1px; background: Theme.line; }
             Rectangle {
                 width: 320px;
                 background: Theme.side;
@@ -2174,21 +2276,6 @@ export component AppWindow inherits Window {
                         padding-left: 10px; padding-right: 10px; padding-bottom: 8px;
                         LineEdit { placeholder-text: "Search contacts"; edited(t) => { root.ct-search(t); } }
                     }
-                    if root.contact-groups.length > 0: VerticalLayout {
-                        Text { x: 14px; text: "Groups"; color: Theme.dim; font-size: 11px; font-weight: 700; height: 22px; vertical-alignment: center; }
-                        for g in root.contact-groups: Rectangle {
-                            height: 34px;
-                            background: g.id == root.ct-group ? Theme.sel : (gta.has-hover ? Theme.hover : transparent);
-                            gta := TouchArea { clicked => { root.ct-editing = false; root.ct-select-group(g.id); } pointer-event(ev) => { if ev.button == PointerEventButton.right && ev.kind == PointerEventKind.up { root.ctx("group", g.id, self.absolute-position.x + self.mouse-x, self.absolute-position.y + self.mouse-y); } } }
-                            HorizontalLayout {
-                                padding-left: 14px; spacing: 10px;
-                                Icon { text: "\u{E716}"; color: g.color; width: 18px; }
-                                Text { text: g.name; color: Theme.text; font-weight: 600; vertical-alignment: center; horizontal-stretch: 1; overflow: elide; }
-                                Text { text: g.email; color: Theme.dim; font-size: 11px; vertical-alignment: center; }
-                                Rectangle { width: 8px; }
-                            }
-                        }
-                    }
                     Rectangle { height: 1px; background: Theme.line; }
                     ListView {
                         for c in root.contacts: VerticalLayout {
@@ -2198,7 +2285,7 @@ export component AppWindow inherits Window {
                             }
                             Rectangle {
                                 height: 46px;
-                                background: c.id == root.ct-id ? Theme.sel : (cta2.has-hover ? Theme.hover : transparent);
+                                background: c.id == root.ct-id ? Theme.sel : (cta2.has-hover || CtxHl.id == "contact:" + c.id ? Theme.hover : transparent);
                                 cta2 := TouchArea { clicked => { root.ct-group = ""; root.ct-select(c.id); } pointer-event(ev) => { if ev.button == PointerEventButton.right && ev.kind == PointerEventKind.up { root.ctx("contact", c.id, self.absolute-position.x + self.mouse-x, self.absolute-position.y + self.mouse-y); } } }
                                 HorizontalLayout {
                                     padding-left: 12px; spacing: 10px;
@@ -2285,6 +2372,55 @@ export component AppWindow inherits Window {
         x: 45px;
         width: parent.width - 45px;
         background: Theme.bg;
+        HorizontalLayout {
+        // ---- sidebar: My files tree, Favorites, Recent, Shared with me (Bulwark files-sidebar) ----
+        Rectangle {
+            width: 220px;
+            background: Theme.side;
+            VerticalLayout {
+                HorizontalLayout {
+                    height: 44px;
+                    padding-left: 14px;
+                    padding-right: 8px;
+                    Text { text: "Files"; color: Theme.text; font-weight: 700; vertical-alignment: center; horizontal-stretch: 1; }
+                    HoverAction { y: 11px; glyph: "\u{E710}"; clicked => { root.ctx("files-bg", "", self.absolute-position.x, self.absolute-position.y + 24px); } }
+                }
+                ScrollView {
+                    VerticalLayout {
+                        alignment: start;
+                        padding-bottom: 12px;
+                        for n in root.fl-nav: VerticalLayout {
+                            if n.header != "": Rectangle {
+                                height: 30px;
+                                Text { x: 14px; text: n.header; color: Theme.dim; font-size: 11px; font-weight: 600; vertical-alignment: center; height: parent.height; }
+                            }
+                            Rectangle {
+                                height: 28px;
+                                property <bool> here: (n.kind == "root" && root.fl-cwd == "") || (n.kind != "root" && n.id == root.fl-cwd);
+                                background: here ? Theme.sel : (fnta.has-hover || (n.id != "" && CtxHl.id == "file:" + n.id) ? Theme.hover : transparent);
+                                fnta := TouchArea {
+                                    clicked => { if n.kind == "root" { root.fl-open(""); } else { root.fl-activate(n.id); } }
+                                    pointer-event(ev) => { if ev.button == PointerEventButton.right && ev.kind == PointerEventKind.up { if n.kind == "root" { root.fl-open(""); root.ctx("files-bg", "", self.absolute-position.x + self.mouse-x, self.absolute-position.y + self.mouse-y); } else { root.ctx("file", n.id, self.absolute-position.x + self.mouse-x, self.absolute-position.y + self.mouse-y); } } }
+                                }
+                                HorizontalLayout {
+                                    padding-left: 8px + n.depth * 14px;
+                                    padding-right: 10px;
+                                    spacing: 4px;
+                                    Rectangle {
+                                        width: 14px;
+                                        if n.count != "": Icon { text: n.count; font-size: 8px; color: Theme.dim; }
+                                        if n.count != "": TouchArea { clicked => { root.fl-toggle-folder(n.id); } }
+                                    }
+                                    Icon { text: n.icon; font-size: 12px; width: 18px; color: n.kind == "fav" ? #f59e0b : n.kind == "shared" ? Theme.accent : Theme.dim; }
+                                    Text { text: n.label; color: Theme.text; vertical-alignment: center; horizontal-stretch: 1; overflow: elide; font-weight: here ? 600 : 400; }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        Rectangle { width: 1px; background: Theme.line; }
         VerticalLayout {
             HorizontalLayout {
                 height: 44px;
@@ -2319,7 +2455,8 @@ export component AppWindow inherits Window {
              ListView {
                 for f in root.files: Rectangle {
                     height: 36px;
-                    background: fta.has-hover ? Theme.hover : transparent;
+                    background: fta.has-hover || CtxHl.id == "file:" + f.id ? Theme.hover : transparent;
+                    opacity: f.cut ? 0.5 : 1;
                     fta := TouchArea { double-clicked => { root.fl-activate(f.id); } pointer-event(ev) => { if ev.button == PointerEventButton.right && ev.kind == PointerEventKind.up { root.ctx("file", f.id, self.absolute-position.x + self.mouse-x, self.absolute-position.y + self.mouse-y); } } }
                     HorizontalLayout {
                         padding-left: 16px;
@@ -2327,6 +2464,8 @@ export component AppWindow inherits Window {
                         spacing: 10px;
                         Icon { text: f.folder ? "\u{E8B7}" : "\u{E7C3}"; color: f.folder ? #f59e0b : Theme.dim; width: 20px; }
                         if !f.renaming: Text { text: f.name; color: Theme.text; vertical-alignment: center; horizontal-stretch: 1; overflow: elide; }
+                        if f.starred: Icon { text: "\u{E735}"; font-size: 11px; color: #f59e0b; }
+                        if f.shared: Icon { text: "\u{E72D}"; font-size: 11px; color: Theme.dim; }
                         if f.renaming: LineEdit { text: f.name; horizontal-stretch: 1; accepted(t) => { root.fl-rename(f.id, t); } }
                         Text { text: f.size; color: Theme.dim; font-size: 11px; vertical-alignment: center; width: 90px; }
                         Text { text: f.modified; color: Theme.dim; font-size: 11px; vertical-alignment: center; width: 140px; }
@@ -2338,6 +2477,7 @@ export component AppWindow inherits Window {
             }
              if root.files.length == 0: Text { text: "This folder is empty"; color: Theme.dim; horizontal-alignment: center; }
             }
+        }
         }
     }
 
@@ -2616,7 +2756,13 @@ export component AppWindow inherits Window {
                             padding-top: r.kind == "section" ? 26px : 12px;
                             padding-bottom: r.kind == "section" ? 4px : 0px;
                             spacing: r.kind == "section" ? 4px : 10px;
-                            if r.kind == "section": Text { text: r.label; color: Theme.text; font-size: 17px; font-weight: 700; wrap: word-wrap; }
+                            if r.kind == "section": Rectangle {
+                                border-radius: 4px;
+                                background: r.key != "" && CtxHl.id == "setting:" + r.key ? Theme.hover : transparent;
+                                min-height: st.preferred-height;
+                                st := Text { width: 100%; text: r.label; color: Theme.text; font-size: 17px; font-weight: 700; wrap: word-wrap; }
+                                if r.key != "": TouchArea { pointer-event(ev) => { if ev.button == PointerEventButton.right && ev.kind == PointerEventKind.up { root.ctx("setting", r.key, self.absolute-position.x + self.mouse-x, self.absolute-position.y + self.mouse-y); } } }
+                            }
                             if r.kind == "section" && r.desc != "": Text { text: r.desc; color: Theme.dim; wrap: word-wrap; }
                             if r.kind == "textarea": Text { text: r.label; color: Theme.text; font-weight: 600; }
                             if r.kind == "textarea": TextEdit {
@@ -2697,15 +2843,43 @@ export component AppWindow inherits Window {
         width: root.width;
         height: root.height;
         TouchArea {
-            pointer-event(ev) => { if ev.kind == PointerEventKind.down { ctx-popup.close(); root.ctx-open = false; } }
+            // only a press outside both menus closes (a flyout press can fall through to here)
+            pointer-event(ev) => {
+                if ev.kind == PointerEventKind.down {
+                    if self.mouse-x >= cm.x && self.mouse-x < cm.x + cm.width && self.mouse-y >= cm.y && self.mouse-y < cm.y + cm.height { return; }
+                    if root.ctx-sub-action != "" && self.mouse-x >= root.ctx-sub-x && self.mouse-x < root.ctx-sub-x + 248px && self.mouse-y >= root.ctx-sub-top && self.mouse-y < root.ctx-sub-top + min(root.ctx-sub-h, root.height - 8px) { return; }
+                    root.ctx-close();
+                }
+            }
         }
-        ContextMenu {
-            x: max(0px, min(root.ctx-x, root.width - 252px));
-            y: max(0px, min(root.ctx-y, root.height - root.ctx-h - 4px));
+        FocusScope {
+            init => { self.focus(); }
+            key-pressed(ev) => {
+                if ev.text == Key.Escape {
+                    if root.ctx-sub-action != "" { root.ctx-sub-action = ""; } else { root.ctx-close(); }
+                    return accept;
+                }
+                reject
+            }
+        }
+        cm := ContextMenu {
+            x: root.ctx-menu-x;
+            y: root.ctx-menu-y;
             width: 248px;
-            height: root.ctx-h;
+            height: min(root.ctx-h, root.height - 8px);
             items: root.ctx-items;
-            picked(a) => { ctx-popup.close(); root.ctx-open = false; root.ctx-pick(a); }
+            open-sub: root.ctx-sub-action;
+            picked(a) => { root.ctx-close(); root.ctx-pick(a); }
+            hovered(a, i) => { root.ctx-hover(a, i); }
+        }
+        if root.ctx-sub-action != "": ContextMenu {
+            x: root.ctx-sub-x;
+            y: root.ctx-sub-top;
+            width: 248px;
+            height: min(root.ctx-sub-h, root.height - 8px);
+            items: root.ctx-sub-items;
+            // pick before closing: closing removes this flyout (and would drop the rest of this handler)
+            picked(a) => { root.ctx-pick(a); root.ctx-close(); }
         }
     }
 }

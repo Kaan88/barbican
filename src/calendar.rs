@@ -210,7 +210,7 @@ pub fn load(w: slint::Weak<AppWindow>, c: Arc<Client>) {
                 ["CalendarEvent/query", {"accountId": acc, "timeZone": tz, "limit": 5000}, "q"],
                 ["CalendarEvent/get", {"accountId": acc, "#ids": {"resultOf": "q", "name": "CalendarEvent/query", "path": "/ids"},
                     "properties": ["id", "@type", "title", "start", "duration", "timeZone", "showWithoutTime", "calendarIds", "locations",
-                        "recurrenceRules", "recurrenceOverrides", "description", "status", "due", "progress", "percentComplete", "uid"]}, "g"]
+                        "recurrenceRules", "recurrenceOverrides", "description", "status", "due", "progress", "percentComplete", "uid", "participants", "updated", "excludedRecurrenceIds"]}, "g"]
             ]))?;
             Ok((cals, q[1][1]["list"].as_array().cloned().unwrap_or_default()))
         })();
@@ -641,4 +641,112 @@ pub fn delete_task(u: &AppWindow, c: Arc<Client>, id: &str) {
     RAW.with(|r| r.borrow_mut().retain(|e| e["id"] != id));
     render_tasks(u);
     set_call(u, c, "CalendarEvent/set", json!({"destroy": [id]}), "Task not deleted");
+}
+
+// ---------------- invitations & export ----------------
+
+/// The user's own participant in an event and its answer (Bulwark getUserParticipantId):
+/// matched by calendarAddress / email against the login and identities.
+pub fn my_participation(id: &str, mine: &[String]) -> Option<(String, String)> {
+    RAW.with(|r| {
+        let r = r.borrow();
+        let e = r.iter().find(|e| e["id"] == id)?;
+        let ps = e["participants"].as_object()?;
+        let is_me = |p: &Value| {
+            let addr = p["calendarAddress"].as_str().or(p["sendTo"]["imip"].as_str()).map(|a| a.trim_start_matches("mailto:").to_string()).or(p["email"].as_str().map(String::from));
+            addr.is_some_and(|a| mine.iter().any(|m| m.eq_ignore_ascii_case(&a)))
+        };
+        // organizers don't answer their own events
+        let (pid, p) = ps.iter().find(|(_, p)| is_me(p) && p["roles"]["owner"] != true)?;
+        Some((pid.clone(), p["participationStatus"].as_str().unwrap_or("needs-action").to_string()))
+    })
+}
+
+/// Answer an invitation: patch the participant's participationStatus and let the server send the iTIP REPLY.
+pub fn rsvp(u: &AppWindow, c: Arc<Client>, id: &str, pid: &str, status: &str) {
+    let esc = pid.replace('~', "~0").replace('/', "~1");
+    RAW.with(|r| if let Some(e) = r.borrow_mut().iter_mut().find(|e| e["id"] == id) { e["participants"][pid]["participationStatus"] = json!(status); });
+    let mut patch = serde_json::Map::new();
+    patch.insert(format!("participants/{esc}/participationStatus"), json!(status));
+    set_call(u, c, "CalendarEvent/set", json!({"update": {id: Value::Object(patch)}, "sendSchedulingMessages": true}), "Answer not sent");
+}
+
+fn ics_escape(s: &str) -> String {
+    s.replace('\\', "\\\\").replace(';', "\\;").replace(',', "\\,").replace("\r\n", "\\n").replace('\n', "\\n")
+}
+
+/// Fold content lines at 75 octets (RFC 5545 3.1).
+fn ics_fold(line: &str) -> String {
+    let mut out = String::new();
+    let mut n = 0;
+    for ch in line.chars() {
+        let l = ch.len_utf8();
+        if n + l > 75 { out.push_str("\r\n "); n = 1; }
+        out.push(ch);
+        n += l;
+    }
+    out.push_str("\r\n");
+    out
+}
+
+fn ics_local(s: &str) -> String { s.replace(['-', ':'], "").chars().take(15).collect() }
+
+/// One event as an iCalendar file (Bulwark downloadEventICS).
+pub fn event_ics(id: &str) -> Option<(String, String)> {
+    let e = RAW.with(|r| r.borrow().iter().find(|e| e["id"] == id).cloned())?;
+    let mut l: Vec<String> = vec!["BEGIN:VCALENDAR".into(), "VERSION:2.0".into(), "PRODID:-//Barbican//EN".into(), "CALSCALE:GREGORIAN".into(), "BEGIN:VEVENT".into()];
+    l.push(format!("UID:{}", e["uid"].as_str().unwrap_or(id)));
+    l.push(format!("DTSTAMP:{}", chrono::Utc::now().format("%Y%m%dT%H%M%SZ")));
+    let start = e["start"].as_str().unwrap_or("");
+    let all_day = e["showWithoutTime"] == true;
+    let tz = e["timeZone"].as_str().filter(|t| !t.is_empty());
+    if all_day {
+        l.push(format!("DTSTART;VALUE=DATE:{}", ics_local(start).chars().take(8).collect::<String>()));
+        if let Some(st) = parse_local(start) {
+            let d = parse_duration(e["duration"].as_str().unwrap_or("P1D"));
+            let end = (st + if d.num_days() < 1 { Duration::days(1) } else { d }).date();
+            l.push(format!("DTEND;VALUE=DATE:{}", end.format("%Y%m%d")));
+        }
+    } else {
+        match tz {
+            Some("Etc/UTC") | Some("UTC") => l.push(format!("DTSTART:{}Z", ics_local(start))),
+            Some(tz) => l.push(format!("DTSTART;TZID={tz}:{}", ics_local(start))),
+            None => l.push(format!("DTSTART:{}", ics_local(start))),
+        }
+        if let Some(d) = e["duration"].as_str() { l.push(format!("DURATION:{d}")); }
+    }
+    l.push(format!("SUMMARY:{}", ics_escape(e["title"].as_str().unwrap_or(""))));
+    if let Some(d) = e["description"].as_str().filter(|d| !d.is_empty()) { l.push(format!("DESCRIPTION:{}", ics_escape(d))); }
+    if let Some(loc) = e["locations"].as_object().and_then(|o| o.values().next()).and_then(|x| x["name"].as_str()) { l.push(format!("LOCATION:{}", ics_escape(loc))); }
+    if let Some(s) = e["status"].as_str() { l.push(format!("STATUS:{}", s.to_uppercase())); }
+    if let Some(rules) = e["recurrenceRules"].as_array() {
+        for r in rules {
+            let mut parts = vec![format!("FREQ={}", r["frequency"].as_str().unwrap_or("daily").to_uppercase())];
+            if let Some(i) = r["interval"].as_u64().filter(|i| *i > 1) { parts.push(format!("INTERVAL={i}")); }
+            if let Some(n) = r["count"].as_u64() { parts.push(format!("COUNT={n}")); }
+            if let Some(u) = r["until"].as_str() { parts.push(format!("UNTIL={}", ics_local(u))); }
+            if let Some(days) = r["byDay"].as_array() {
+                let d: Vec<String> = days.iter().filter_map(|d| d["day"].as_str().map(|x| format!("{}{}", d["nthOfPeriod"].as_i64().map(|n| n.to_string()).unwrap_or_default(), x.to_uppercase()))).collect();
+                if !d.is_empty() { parts.push(format!("BYDAY={}", d.join(","))); }
+            }
+            if let Some(md) = r["byMonthDay"].as_array() { parts.push(format!("BYMONTHDAY={}", md.iter().map(|x| x.to_string()).collect::<Vec<_>>().join(","))); }
+            l.push(format!("RRULE:{}", parts.join(";")));
+        }
+    }
+    if let Some(ps) = e["participants"].as_object() {
+        for p in ps.values() {
+            let addr = p["calendarAddress"].as_str().or(p["sendTo"]["imip"].as_str()).map(String::from).or(p["email"].as_str().map(|a| format!("mailto:{a}")));
+            let Some(addr) = addr else { continue };
+            let addr = if addr.starts_with("mailto:") { addr } else { format!("mailto:{addr}") };
+            let cn = p["name"].as_str().filter(|n| !n.is_empty()).map(|n| format!(";CN=\"{}\"", n.replace('"', ""))).unwrap_or_default();
+            if p["roles"]["owner"] == true { l.push(format!("ORGANIZER{cn}:{addr}")); }
+            if p["roles"]["attendee"] == true || p["roles"]["owner"] != true {
+                let ps = p["participationStatus"].as_str().unwrap_or("needs-action").to_uppercase();
+                l.push(format!("ATTENDEE{cn};PARTSTAT={ps}:{addr}"));
+            }
+        }
+    }
+    l.extend(["END:VEVENT".into(), "END:VCALENDAR".into()]);
+    let title = e["title"].as_str().filter(|t| !t.is_empty()).unwrap_or("event");
+    Some((format!("{}.ics", crate::sanitize_name(title)), l.iter().map(|x| ics_fold(x)).collect()))
 }

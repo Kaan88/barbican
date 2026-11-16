@@ -392,12 +392,18 @@ impl Client {
     // ------------------------------------------------------------------
 
     pub fn download(&self, blob_id: &str, name: &str, mime: &str) -> R<Vec<u8>> {
+        let acc = self.account.clone();
+        self.download_from(&acc, blob_id, name, mime)
+    }
+
+    /// Download a blob of a given account (a shared account's files).
+    pub fn download_from(&self, account: &str, blob_id: &str, name: &str, mime: &str) -> R<Vec<u8>> {
         let t = self.url_template("downloadUrl").ok_or("The server has no download URL.")?;
         let enc = |s: &str| s.bytes().map(|b| match b {
             b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => (b as char).to_string(),
             _ => format!("%{b:02X}"),
         }).collect::<String>();
-        let url = t.replace("{accountId}", &enc(&self.account)).replace("{blobId}", &enc(blob_id))
+        let url = t.replace("{accountId}", &enc(account)).replace("{blobId}", &enc(blob_id))
             .replace("{name}", &enc(if name.is_empty() { "file" } else { name }))
             .replace("{type}", &enc(if mime.is_empty() { "application/octet-stream" } else { mime }));
         let auth = self.auth.lock().unwrap().clone();
@@ -412,11 +418,17 @@ impl Client {
     }
 
     pub fn upload(&self, data: Vec<u8>, mime: &str) -> R<(String, usize)> {
+        let acc = self.account.clone();
+        self.upload_to(&acc, data, mime)
+    }
+
+    /// Upload a blob into a given account.
+    pub fn upload_to(&self, account: &str, data: Vec<u8>, mime: &str) -> R<(String, usize)> {
         if data.len() > self.max_upload() {
             return Err(format!("The file is larger than the server allows ({} MB).", self.max_upload() / 1_000_000));
         }
         let t = self.url_template("uploadUrl").ok_or("The server has no upload URL.")?;
-        let url = t.replace("{accountId}", &self.account);
+        let url = t.replace("{accountId}", account);
         let len = data.len();
         let auth = self.auth.lock().unwrap().clone();
         let resp = self.http.post(&url).header("Authorization", auth).header("Content-Type", mime).body(data).send().map_err(e)?;
