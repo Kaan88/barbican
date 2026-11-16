@@ -59,6 +59,13 @@ impl Admin {
 
     /// query + get of an x: type.
     pub fn list(&self, ty: &str, limit: usize, sort: Option<Value>) -> Result<(usize, Vec<Value>), String> {
+        let r = self.list_inner(ty, limit, sort)?;
+        let copy = r.1.clone();
+        LAST_SEND.lock().unwrap().replace(copy);
+        Ok(r)
+    }
+
+    fn list_inner(&self, ty: &str, limit: usize, sort: Option<Value>) -> Result<(usize, Vec<Value>), String> {
         let mut q = json!({"limit": limit, "calculateTotal": true});
         if let Some(s) = sort { q["sort"] = s; }
         let r = self.call(&format!("x:{ty}/query"), q)?;
@@ -73,6 +80,13 @@ impl Admin {
 fn row(id: &str, c: [String; 4]) -> AdminRow {
     let [c1, c2, c3, c4] = c;
     AdminRow { id: id.into(), c1: c1.into(), c2: c2.into(), c3: c3.into(), c4: c4.into() }
+}
+
+/// ISO timestamps in local time, e.g. "15 Nov 2026 13:38".
+fn when(v: &Value) -> String {
+    v.as_str().and_then(|t| chrono::DateTime::parse_from_rfc3339(t).ok())
+        .map(|d| d.with_timezone(&chrono::Local).format("%d %b %Y %H:%M").to_string())
+        .unwrap_or_else(|| s(v))
 }
 
 fn s(v: &Value) -> String {
@@ -92,7 +106,14 @@ pub fn load(u: &AppWindow, c: std::sync::Arc<crate::jmap::Client>, section: &str
         let res: Result<(Vec<String>, Vec<AdminRow>, Vec<(String, String)>), String> = (|| {
             Ok(match section.as_str() {
                 "accounts" => {
+                    let doms: std::collections::HashMap<String, String> = a.list("Domain", 500, None).map(|(_, d)| d.iter()
+                        .filter_map(|x| Some((x["id"].as_str()?.to_string(), x["name"].as_str()?.to_string()))).collect()).unwrap_or_default();
                     let (_, l) = a.list("Account", 500, None)?;
+                    let l: Vec<Value> = l.into_iter().map(|mut x| {
+                        let d = x["domainId"].as_str().and_then(|i| doms.get(i)).cloned().unwrap_or_default();
+                        if !d.is_empty() { x["domainId"] = json!(d.clone()); x["name"] = json!(format!("{}@{d}", x["name"].as_str().unwrap_or(""))); }
+                        x
+                    }).collect();
                     (vec!["Name".into(), "Domain".into(), "Type".into(), "Quota".into()],
                      l.iter().map(|x| row(x["id"].as_str().unwrap_or(""), [s(&x["name"]), s(&x["domainId"]), s(&x["@type"]), s(&x["quota"])])).collect(), vec![])
                 }
@@ -106,21 +127,25 @@ pub fn load(u: &AppWindow, c: std::sync::Arc<crate::jmap::Client>, section: &str
                     (vec!["Recipients".into(), "From".into(), "Next retry".into(), "Size".into()],
                      l.iter().map(|x| {
                          let rc = x["recipients"].as_object().map(|o| o.keys().cloned().collect::<Vec<_>>().join(", ")).unwrap_or_default();
-                         row(x["id"].as_str().unwrap_or(""), [rc, s(&x["returnPath"]), s(&x["nextRetry"]), crate::human_size(x["size"].as_u64().unwrap_or(0))])
+                         row(x["id"].as_str().unwrap_or(""), [rc, s(&x["returnPath"]), when(&x["nextRetry"]), crate::human_size(x["size"].as_u64().unwrap_or(0))])
                      }).collect(), vec![])
                 }
                 "logs" => {
                     let (_, l) = a.list("Log", 200, Some(json!([{"property": "timestamp", "isAscending": false}])))
-                        .or_else(|_| a.list("Log", 200, None))?;
+                        .or_else(|_| a.list("Log", 200, None))
+                        .map_err(|e| if e.contains("serverUnavailable") || e.contains("unavailable") {
+                            "Logs are not available: the server has no log store configured (Settings → Telemetry → Logging in Stalwart).".to_string()
+                        } else { e })?;
                     (vec!["Time".into(), "Level".into(), "Event".into(), "Details".into()],
-                     l.iter().map(|x| row(x["id"].as_str().unwrap_or(""), [s(&x["timestamp"]), s(&x["level"]), s(&x["event"]), s(&x["details"])])).collect(), vec![])
+                     l.iter().map(|x| row(x["id"].as_str().unwrap_or(""), [when(&x["timestamp"]), s(&x["level"]), s(&x["event"]), s(&x["details"])])).collect(), vec![])
                 }
                 "reports" => {
                     let (_, l) = a.list("DmarcExternalReport", 200, None)?;
-                    (vec!["Report".into(), "Domain".into(), "Period".into(), "".into()],
+                    (vec!["Reporter".into(), "Received".into(), "Period".into(), "Expires".into()],
                      l.iter().map(|x| row(x["id"].as_str().unwrap_or(""), [
-                         s(&x["report"]["reportMetadata"]["orgName"]).chars().take(60).collect(), s(&x["domain"]),
-                         format!("{} – {}", s(&x["report"]["reportMetadata"]["dateRange"]["begin"]), s(&x["report"]["reportMetadata"]["dateRange"]["end"])), String::new()
+                         s(&x["from"]), when(&x["receivedAt"]),
+                         format!("{} – {}", when(&x["report"]["dateRangeStart"]), when(&x["report"]["dateRangeEnd"])),
+                         when(&x["expiresAt"]),
                      ])).collect(), vec![])
                 }
                 _ => {
@@ -135,8 +160,13 @@ pub fn load(u: &AppWindow, c: std::sync::Arc<crate::jmap::Client>, section: &str
                 }
             })
         })();
+        let last = LAST_SEND.lock().unwrap().take().unwrap_or_default();
         let _ = w.upgrade_in_event_loop(move |u| match res {
             Ok((cols, rows, tiles)) => {
+                LAST.with(|l| *l.borrow_mut() = last);
+                let (cols, rows) = if !rows.is_empty() && rows.iter().all(|r| r.c1.is_empty() && r.c2.is_empty()) {
+                    LAST.with(|l| auto_columns(&l.borrow()))
+                } else { (cols, rows) };
                 u.set_admin_cols(ModelRc::new(VecModel::from(cols.into_iter().map(Into::into).collect::<Vec<slint::SharedString>>())));
                 u.set_admin_rows(ModelRc::new(VecModel::from(rows)));
                 u.set_admin_tiles(ModelRc::new(VecModel::from(tiles.into_iter().map(|(a, b)| AdminRow { id: "".into(), c1: a.into(), c2: b.into(), c3: "".into(), c4: "".into() }).collect::<Vec<_>>())));
@@ -158,4 +188,33 @@ pub fn delete_queued(u: &AppWindow, c: std::sync::Arc<crate::jmap::Client>, id: 
             load(&u, c, "queue");
         });
     });
+}
+
+static LAST_SEND: std::sync::Mutex<Option<Vec<Value>>> = std::sync::Mutex::new(None);
+thread_local! { static LAST: std::cell::RefCell<Vec<Value>> = const { std::cell::RefCell::new(Vec::new()) }; }
+
+fn short(v: &Value) -> String {
+    let t = match v {
+        Value::String(x) => x.clone(),
+        Value::Null => String::new(),
+        Value::Object(o) => o.iter().filter(|(_, x)| !x.is_object() && !x.is_array()).map(|(k, x)| format!("{k}: {}", s(x))).take(3).collect::<Vec<_>>().join(", "),
+        Value::Array(a) => a.iter().map(s).take(3).collect::<Vec<_>>().join(", "),
+        x => x.to_string(),
+    };
+    t.chars().take(120).collect()
+}
+
+/// Columns picked from what the server actually returns (first four informative fields).
+fn auto_columns(list: &[Value]) -> (Vec<String>, Vec<AdminRow>) {
+    let Some(first) = list.first().and_then(|v| v.as_object()) else { return (vec![], vec![]) };
+    let keys: Vec<String> = first.iter()
+        .filter(|(k, v)| k.as_str() != "id" && !short(v).is_empty())
+        .map(|(k, _)| k.clone()).take(4).collect();
+    let mut cols = keys.clone();
+    while cols.len() < 4 { cols.push(String::new()); }
+    let rows = list.iter().map(|x| {
+        let c: Vec<String> = (0..4).map(|i| keys.get(i).map(|k| short(&x[k])).unwrap_or_default()).collect();
+        row(x["id"].as_str().unwrap_or(""), [c[0].clone(), c[1].clone(), c[2].clone(), c[3].clone()])
+    }).collect();
+    (cols, rows)
 }
