@@ -80,6 +80,14 @@ case "$mode" in
     trap 'kill $xpid 2>/dev/null || true' EXIT
     sleep 1
     export DOTNET_ROOT="$HOME/.dotnet" PATH="$HOME/.dotnet:$PATH"
+    # Uno 6.7 loads "libwebkit2gtk-4.1.so", the unversioned name only the -dev package provides,
+    # and otherwise falls back to 4.0 (gone from Debian 13). A private symlink on LD_LIBRARY_PATH
+    # instead of the dev package (docs/adr/0005).
+    shim="$HOME/.barbican-lib"
+    mkdir -p "$shim"
+    real=$(ls /usr/lib/*-linux-gnu/libwebkit2gtk-4.1.so.0 2>/dev/null | head -1)
+    [ -n "$real" ] && ln -sf "$real" "$shim/libwebkit2gtk-4.1.so"
+    export LD_LIBRARY_PATH="$shim${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
     set +e
     DISPLAY=$disp GDK_BACKEND=x11 BARBICAN_SPIKE_OUT="$out" timeout "$limit" nice -n 10 dotnet "$dll" >"$out/stdout.txt" 2>"$out/stderr.txt"
     code=$?
