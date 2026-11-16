@@ -4425,13 +4425,13 @@ export component AppWindow inherits Window {
                             padding-right: Theme.nordic ? 27px : 19px;
                             spacing: 0px;
                             // header: range title, today / prev / next, search, view switch
-                            if root.cal-view != 4: HorizontalLayout {
+                            HorizontalLayout {
                                 spacing: Theme.nordic ? 10px : 8px;
                                 padding-bottom: Theme.nordic ? 18px : 10px;
                                 Text {
                                     text: root.cal-title;
                                     color: Theme.text;
-                                    font-size: (Theme.nordic ? (root.cal-tight ? 22px : 28px) : 21px) * Prefs.fs;
+                                    font-size: (root.cal-grid-w < 800px ? 18px : (Theme.nordic ? (root.cal-tight ? 22px : 28px) : 21px)) * Prefs.fs;
                                     font-weight: Theme.nordic ? 800 : 700;
                                     letter-spacing: Theme.nordic ? -0.5px : 0px;
                                     vertical-alignment: center;
@@ -4439,21 +4439,23 @@ export component AppWindow inherits Window {
                                     overflow: elide;
                                     min-width: 120px;
                                 }
-                                VerticalLayout { alignment: center; ActionButton { label: "Today"; clicked => { root.cal-nav("today"); } } }
-                                VerticalLayout { alignment: center; IconBtn { icon: "M15 18l-6-6 6-6"; clicked => { root.cal-nav("prev"); } } }
-                                VerticalLayout { alignment: center; IconBtn { icon: Icons.chevron-right; clicked => { root.cal-nav("next"); } } }
-                                VerticalLayout {
+                                if root.cal-view != 4: VerticalLayout { alignment: center; ActionButton { label: "Today"; clicked => { root.cal-nav("today"); } } }
+                                if root.cal-view != 4: VerticalLayout { alignment: center; IconBtn { icon: "M15 18l-6-6 6-6"; clicked => { root.cal-nav("prev"); } } }
+                                if root.cal-view != 4: VerticalLayout { alignment: center; IconBtn { icon: Icons.chevron-right; clicked => { root.cal-nav("next"); } } }
+                                if root.cal-view != 4: VerticalLayout {
                                     alignment: center;
                                     Rectangle {
-                                        width: root.cal-narrow || root.cal-tight ? 112px : 180px;
+                                        // a tight header keeps the date readable: the search is an icon until it is used
+                                        width: root.cal-tight && !csq.has-focus && root.cal-q == "" ? (Prefs.large-targets ? 40px : 34px) : (root.cal-narrow || root.cal-tight ? 130px : 180px);
                                         height: Prefs.large-targets ? 40px : (Theme.nordic ? 36px : 32px);
                                         border-radius: Theme.nordic ? self.height / 2 : 12px;
                                         background: Theme.tile2;
                                         border-width: 1px;
                                         border-color: csq.has-focus ? Theme.accent : Theme.line;
+                                        if root.cal-tight && !csq.has-focus && root.cal-q == "": TouchArea { mouse-cursor: pointer; clicked => { csq.focus(); } }
                                         HorizontalLayout {
-                                            padding-left: 10px;
-                                            padding-right: 10px;
+                                            padding-left: root.cal-tight && !csq.has-focus && root.cal-q == "" ? 9px : 10px;
+                                            padding-right: root.cal-tight && !csq.has-focus && root.cal-q == "" ? 0px : 10px;
                                             spacing: 8px;
                                             VerticalLayout { alignment: center; SIcon { commands: Icons.search; size: 14px; weight: 1.9; tint: Theme.faint; } }
                                             Rectangle {
@@ -4467,7 +4469,7 @@ export component AppWindow inherits Window {
                                                     property <int> fr: Pd.focus-req;
                                                     changed fr => { if root.app == 1 { self.focus(); } }
                                                 }
-                                                if root.cal-q == "": Text { x: 0; width: parent.width; height: parent.height; text: "Search events"; color: Theme.faint; font-size: 12.5px * Prefs.fs; vertical-alignment: center; }
+                                                if root.cal-q == "" && !(root.cal-tight && !csq.has-focus): Text { x: 0; width: parent.width; height: parent.height; text: "Search events"; color: Theme.faint; font-size: 12.5px * Prefs.fs; vertical-alignment: center; }
                                             }
                                         }
                                     }
@@ -4477,7 +4479,7 @@ export component AppWindow inherits Window {
 
                             // ---- agenda and tasks (ui/calendar_ext.slint) ----
                             if root.cal-view == 3: AgendaView { pal: root.cal-pal; vertical-stretch: 1; }
-                            if root.cal-view == 4: TasksView { pal: root.cal-pal; vertical-stretch: 1; new-task => { CalX.task-open(""); } }
+                            if root.cal-view == 4: TasksView { pal: root.cal-pal; vertical-stretch: 1; new-task => { CalX.task-open(""); } clear-day => { root.cal-nav("task-day-clear"); } }
 
                             // ---- month ----
                             if root.cal-view == 2: VerticalLayout {

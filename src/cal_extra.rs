@@ -167,7 +167,7 @@ pub fn render_agenda(u: &AppWindow, visible: &[Occ], from: NaiveDate, to: NaiveD
                 };
                 rows.push(CxAgendaRow {
                     header: if first { header.clone().into() } else { "".into() }, today: d == today,
-                    id: o.id.clone().into(), title: o.title.clone().into(), time: agenda_time(o, d, h12).into(), location: o.location.clone().into(),
+                    id: o.id.clone().into(), title: if o.kind == 1 { agenda_task_title(&o.title) } else { o.title.as_str() }.into(), time: agenda_time(o, d, h12).into(), location: o.location.clone().into(),
                     color, kind: if o.kind == 1 { 1 } else if o.kind == 2 || is_subscription(&o.calendar) { 2 } else { 0 }, done: o.done, empty: false,
                 });
                 first = false;
@@ -207,15 +207,40 @@ pub fn task_matches(t: &Value, filter: i32, today: NaiveDate) -> bool {
     match filter { 1 => !finished, 2 => is_overdue(t, today), 3 => t["progress"] == "completed", _ => true }
 }
 
+thread_local! {
+    /// The day picked in the mini month while the Tasks view is showing: only tasks due that day.
+    static TASK_DAY: std::cell::Cell<Option<NaiveDate>> = const { std::cell::Cell::new(None) };
+}
+
+pub fn task_day() -> Option<NaiveDate> { TASK_DAY.with(|d| d.get()) }
+
+/// Picking the same day again (or "clear") lifts the filter.
+pub fn toggle_task_day(how: &str) {
+    let picked = NaiveDate::parse_from_str(how, "%Y-%m-%d").ok();
+    TASK_DAY.with(|d| d.set(if picked.is_none() || d.get() == picked { None } else { picked }));
+}
+
+/// Whether a task is due on `day` (the list a mini-month pick shows).
+pub fn task_due_on(t: &Value, day: NaiveDate) -> bool {
+    t["due"].as_str().and_then(parse_local).is_some_and(|d| d.date() == day)
+}
+
+/// The agenda draws its own marker for a task, so the prefix the grid titles carry goes.
+pub fn agenda_task_title(title: &str) -> &str {
+    title.strip_prefix(['\u{2713}', '\u{25CB}']).map(str::trim_start).unwrap_or(title)
+}
+
 pub fn render_tasks_view(u: &AppWindow) {
     let x = u.global::<crate::CalX>();
     let filter = x.get_task_filter();
+    let day = task_day();
+    x.set_task_day_label(day.map(|d| d.format("Due %a, %b %-d").to_string()).unwrap_or_default().into());
     let today = Local::now().date_naive();
     let hidden = calendar::hidden();
     let h12 = calendar::h12();
     let tasks: Vec<Value> = calendar::with_raw(|r| r.iter().filter(|e| calendar::is_task(e) && !hidden.contains(&calendar::first_calendar(e))).cloned().collect());
     let counts: Vec<i32> = (0..4).map(|f| tasks.iter().filter(|t| task_matches(t, f, today)).count() as i32).collect();
-    let mut list: Vec<&Value> = tasks.iter().filter(|t| task_matches(t, filter, today)).collect();
+    let mut list: Vec<&Value> = tasks.iter().filter(|t| task_matches(t, filter, today) && day.is_none_or(|d| task_due_on(t, d))).collect();
     list.sort_by_key(|t| (t["progress"] == "completed" || t["progress"] == "cancelled", t["due"].as_str().unwrap_or("9999").to_string(),
         match t["priority"].as_i64().unwrap_or(0) { 0 => 10, p => p }, t["title"].as_str().unwrap_or("").to_lowercase()));
     let cals = calendar::calendars();
@@ -914,6 +939,22 @@ pub fn wire(ui: &AppWindow, st: crate::Shared) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn agenda_titles_lose_marker_and_day_filter_toggles() {
+        assert_eq!(agenda_task_title("\u{25CB} Pay rent"), "Pay rent");
+        assert_eq!(agenda_task_title("\u{2713} Done thing"), "Done thing");
+        assert_eq!(agenda_task_title("Plain"), "Plain");
+        toggle_task_day("2026-11-18");
+        assert_eq!(task_day(), NaiveDate::from_ymd_opt(2026, 11, 18));
+        toggle_task_day("2026-11-18");
+        assert_eq!(task_day(), None);
+        toggle_task_day("2026-11-19");
+        toggle_task_day("clear");
+        assert_eq!(task_day(), None);
+        let t = json!({"due": "2026-11-18T09:00:00"});
+        assert!(task_due_on(&t, NaiveDate::from_ymd_opt(2026, 11, 18).unwrap()));
+        assert!(!task_due_on(&t, NaiveDate::from_ymd_opt(2026, 11, 19).unwrap()));
+    }
     #[test]
     fn feed_uid_is_stable_and_fills_only_missing() {
         let e = json!({"title": "Standup", "start": "2026-11-20T09:00:00"});

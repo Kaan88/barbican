@@ -515,7 +515,7 @@ pub fn render(u: &AppWindow) {
         let ms = week_start(first);
         let mini: Vec<MiniDay> = (0..42).map(|i| {
             let d = ms + Duration::days(i);
-            MiniDay { day: d.day() as i32, in_month: d.month() == a.month(), today: d == today, selected: d >= from && d < to && s.view != 2 && s.view != 3,
+            MiniDay { day: d.day() as i32, in_month: d.month() == a.month(), today: d == today, selected: if s.view == 4 { crate::cal_extra::task_day() == Some(d) } else { d >= from && d < to && s.view != 2 && s.view != 3 },
                 date: d.format("%Y-%m-%d").to_string().into(), busy: visible.iter().any(|o| o.kind == 0 && o.start.date() <= d && o.end.date() >= d) }
         }).collect();
         u.set_mini_month(ModelRc::new(VecModel::from(mini)));
@@ -627,6 +627,7 @@ pub fn nav(u: &AppWindow, c: Arc<Client>, how: &str) {
     let reload = ST.with(|s| {
         let mut s = s.borrow_mut();
         let a = s.anchor.unwrap_or_else(|| Local::now().date_naive());
+        if s.view == 4 && (how == "task-day-clear" || NaiveDate::parse_from_str(how, "%Y-%m-%d").is_ok()) { crate::cal_extra::toggle_task_day(how); }
         s.anchor = Some(match how {
             "today" => Local::now().date_naive(),
             "prev" => match s.view { 0 => a - Duration::days(1), 1 => a - Duration::days(week_days_shown()), 3 => a - Duration::days(AGENDA_DAYS), _ => (a.with_day(1).unwrap() - Duration::days(1)).with_day(1).unwrap() },
