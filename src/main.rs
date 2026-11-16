@@ -2,6 +2,7 @@
 
 mod admin;
 mod automation;
+mod otp;
 mod agent;
 mod ai;
 mod calendar;
@@ -92,6 +93,12 @@ fn esc(s: &str) -> String {
     s.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;")
 }
 
+thread_local! { static DARK: std::cell::Cell<bool> = const { std::cell::Cell::new(true) }; }
+
+fn wv_bg() -> (u8, u8, u8, u8) {
+    if DARK.with(|d| d.get()) { (0x0a, 0x0a, 0x0a, 255) } else { (255, 255, 255, 255) }
+}
+
 fn show_html(h: String) {
     WV.with(|w| match &*w.borrow() {
         Some(v) => { let _ = v.load_html(&h); }
@@ -105,10 +112,21 @@ fn wrap_html(body: &str) -> String {
 
 fn wrap_html_opts(body: &str, images: bool) -> String {
     let csp = csp(images);
-    if body.starts_with("<pre>") && !settings::Settings::load().bool("emailAlwaysLightMode", false) {
-        return format!("<!doctype html><html><head><meta charset=utf-8>{csp}<base target=_blank><style>html,body{{background:#0a0a0a;color:#e5e5e5}}body{{margin:16px;font-family:'Segoe UI',sans-serif;font-size:14px;word-wrap:break-word}}pre{{white-space:pre-wrap;font-family:inherit;margin:0}}a{{color:#f0577a}}</style></head><body>{body}</body></html>");
+    let p = settings::Settings::load();
+    let plain = body.starts_with("<pre>");
+    // Bulwark plainTextFont: sans (default) or mono for text/plain bodies
+    let pre_font = if p.str("plainTextFont", "sans") == "mono" { "ui-monospace,Consolas,'Cascadia Mono',monospace" } else { "inherit" };
+    // Bulwark messageSpacing: auto drops the gutter for full-bleed HTML layouts, edge always, always never
+    let full_bleed = || { let l = body.to_ascii_lowercase(); l.contains("<style") && (l.contains("width=\"100%\"") || l.contains("width:100%") || l.contains("width: 100%")) };
+    let margin = match p.str("messageSpacing", "auto").as_str() {
+        "edge" => 0,
+        "always" => 16,
+        _ => if !plain && full_bleed() { 0 } else { 16 },
+    };
+    if plain && !p.bool("emailAlwaysLightMode", false) {
+        return format!("<!doctype html><html><head><meta charset=utf-8>{csp}<base target=_blank><style>html,body{{background:#0a0a0a;color:#e5e5e5}}body{{margin:{margin}px;font-family:'Segoe UI',sans-serif;font-size:14px;word-wrap:break-word}}pre{{white-space:pre-wrap;font-family:{pre_font};margin:0}}a{{color:#f0577a}}</style></head><body>{body}</body></html>");
     }
-    format!("<!doctype html><html><head><meta charset=utf-8>{csp}<base target=_blank><style>body{{margin:16px;font-family:'Segoe UI',sans-serif;font-size:14px;color:#111;background:#fff;word-wrap:break-word}}pre{{white-space:pre-wrap;font-family:inherit}}img{{max-width:100%;height:auto}}</style></head><body>{body}</body></html>")
+    format!("<!doctype html><html><head><meta charset=utf-8>{csp}<base target=_blank><style>body{{margin:{margin}px;font-family:'Segoe UI',sans-serif;font-size:14px;color:#111;background:#fff;word-wrap:break-word}}pre{{white-space:pre-wrap;font-family:{pre_font}}}img{{max-width:100%;height:auto}}</style></head><body>{body}</body></html>")
 }
 
 fn rect(x: f32, y: f32, w: f32, h: f32) -> wry::Rect {
@@ -134,6 +152,7 @@ fn sync_webview(ui: &AppWindow) {
             let html = PENDING.with(|p| p.borrow_mut().take()).unwrap_or_else(|| wrap_html(""));
             match wry::WebViewBuilder::new()
                 .with_html(html)
+                .with_background_color(wv_bg())
                 .with_bounds(r)
                 .with_visible(vis)
                 .with_devtools(false)
@@ -334,17 +353,29 @@ static NOTIFIED: Mutex<Option<std::collections::HashSet<String>>> = Mutex::new(N
 fn check_new_mail(c: Arc<jmap::Client>) {
     let prefs = settings::Settings::load();
     if !prefs.bool("emailNotificationsEnabled", true) { return; }
+    // Bulwark emailNotificationSound (default on) and pushNotifyInboxOnly (default off: every
+    // folder except Junk, Trash, Sent and Drafts)
+    let sound = prefs.bool("emailNotificationSound", true);
+    let inbox_only = prefs.bool("pushNotifyInboxOnly", false);
     std::thread::spawn(move || {
         let Ok(roles) = c.role_ids() else { return };
         let Some(inbox) = roles.get("inbox") else { return };
-        let Ok((list, _, _)) = c.list(json!({"operator": "AND", "conditions": [{"inMailbox": inbox}, {"notKeyword": "$seen"}]}), 0, 10) else { return };
+        let place = if inbox_only {
+            json!({"inMailbox": inbox})
+        } else {
+            let skip: Vec<String> = ["junk", "trash", "sent", "drafts"].iter().filter_map(|r| roles.get(*r).cloned()).collect();
+            json!({"inMailboxOtherThan": skip})
+        };
+        let Ok((list, _, _)) = c.list(json!({"operator": "AND", "conditions": [place, {"notKeyword": "$seen"}]}), 0, 10) else { return };
         let mut guard = NOTIFIED.lock().unwrap();
         let first_run = guard.is_none();
         let seen = guard.get_or_insert_with(Default::default);
         for m in list.iter().rev() {
             let id = m["id"].as_str().unwrap_or("").to_string();
             if seen.insert(id) && !first_run {
-                let _ = notify_rust::Notification::new()
+                let mut n = notify_rust::Notification::new();
+                if sound { n.sound_name("Mail"); }
+                let _ = n
                     .appname("Barbican")
                     .summary(&mail::sender(m))
                     .body(&format!("{}\n{}", m["subject"].as_str().unwrap_or("(no subject)"), mail::clean_preview(m["preview"].as_str().unwrap_or(""))))
@@ -552,6 +583,12 @@ fn main() -> Result<(), slint::PlatformError> {
         let Some(c) = st.lock().unwrap().clone() else { return };
         let u = w.unwrap();
         u.set_current_mail("".into());
+        // Bulwark clearSearchOnFolderChange (default off): keep the query and re-run it in the new folder
+        let q = u.get_search().trim().to_string();
+        if !q.is_empty() && id != "__scheduled" && !settings::Settings::load().bool("clearSearchOnFolderChange", false) {
+            mail::load_list(w.clone(), c, json!({"operator": "AND", "conditions": [{"inMailbox": id.to_string()}, {"text": q}]}));
+            return;
+        }
         u.set_search("".into());
         load_folder(w.clone(), c, Some(id.to_string()), None);
     });
@@ -649,8 +686,9 @@ fn main() -> Result<(), slint::PlatformError> {
                         let cc = names("cc");
                         if !cc.is_empty() { to = format!("{to}  ·  Cc: {cc}"); }
                         u.set_r_to(to.into());
+                        let hide_inline = settings::Settings::load().bool("hideInlineImageAttachments", true);
                         let atts: Vec<Value> = m["attachments"].as_array().cloned().unwrap_or_default().into_iter()
-                            .filter(|a| !(a["cid"].is_string() && a["disposition"] != "attachment" && a["type"].as_str().is_some_and(|t| t.starts_with("image/"))))
+                            .filter(|a| !(hide_inline && mail::is_inline_image(a)))
                             .collect();
                         let rows: Vec<Att> = atts.iter().enumerate().map(|(i, a)| Att {
                             name: a["name"].as_str().unwrap_or("attachment").into(),
@@ -1437,8 +1475,13 @@ fn main() -> Result<(), slint::PlatformError> {
         }
     });
 
-    let st = state.clone();
+    let (st, wa) = (state.clone(), ui.as_weak());
     ui.on_open_attachment(move |i| {
+        // Bulwark mailAttachmentAction: preview (open) or download (save)
+        if settings::Settings::load().str("mailAttachmentAction", "preview") == "download" {
+            if let Some(u) = wa.upgrade() { u.invoke_save_attachment(i); }
+            return;
+        }
         let Some(c) = reader_client(&st) else { return };
         let Some(a) = CUR_MSG.with(|x| x.borrow().as_ref().and_then(|(_, atts)| atts.get(i as usize).cloned())) else { return };
         std::thread::spawn(move || {
@@ -1693,6 +1736,10 @@ pub fn apply_theme(ui: &AppWindow) {
         }
         _ => true,
     };
+    // the email view paints this colour before a message loads; keep it in step with the
+    // theme so opening a message does not flash white
+    DARK.with(|d| d.set(dark));
+    WV.with(|w| if let Some(v) = &*w.borrow() { let _ = v.set_background_color(wv_bg()); });
     ui.global::<Theme>().set_dark(dark);
 }
 
@@ -1715,5 +1762,15 @@ pub fn apply_ui_prefs(ui: &AppWindow) {
     ui.global::<Prefs>().set_toolbar_labels(p.bool("showToolbarLabels", true));
     ui.global::<Prefs>().set_tag_chips(p.bool("showTagChips", true));
     ui.global::<Prefs>().set_font_size(match p.str("fontSize", "medium").as_str() { "small" => 12.0, "large" => 15.0, "x-large" | "extra-large" => 17.0, _ => 13.0 });
-    ui.set_pref_day_start(p.prefs.get("calendarDayStartHour").and_then(|v| v.as_i64()).unwrap_or(8).clamp(0, 23) as i32);
+    ui.set_pref_day_start(p.int("calendarDayStartHour", 8).clamp(0, 23) as i32);
+    // Bulwark hoverActions (delete, star, markRead, archive, tag, spam), in the user's order
+    let hover: Vec<slint::SharedString> = match p.prefs.get("hoverActions").and_then(|v| v.as_array()) {
+        Some(a) => a.iter().filter_map(|x| x.as_str()).filter_map(|x| match x {
+            "delete" => Some("delete"), "star" => Some("star"), "markRead" => Some("read"), "archive" => Some("archive"), "spam" => Some("spam"), _ => None,
+        }).map(slint::SharedString::from).collect(),
+        None => ["delete", "star", "read", "archive"].into_iter().map(slint::SharedString::from).collect(),
+    };
+    ui.global::<Prefs>().set_hover_actions(slint::ModelRc::new(slint::VecModel::from(hover)));
+    calendar::render(ui);
+    contacts::render(ui);
 }

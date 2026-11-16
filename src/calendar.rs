@@ -48,8 +48,50 @@ fn anchor() -> NaiveDate {
     ST.with(|s| s.borrow().anchor).unwrap_or_else(|| Local::now().date_naive())
 }
 
+/// Calendar display prefs (Bulwark keys: firstDayOfWeek, showWeekNumbers, calendarLimitHours,
+/// calendarDayStartHour/EndHour, calendarHideNonWorkingDays + calendarWorkingDays,
+/// showTimeInMonthView, calendarTintedEvents).
+struct CalPrefs {
+    first_dow: u32, // 0 = Sunday, 1 = Monday, 6 = Saturday (Date.getDay numbering)
+    week_numbers: bool,
+    hour_from: i32,
+    hour_to: i32,
+    hide_non_working: bool,
+    working: Vec<u32>,
+    time_in_month: bool,
+    tinted: bool,
+    h12: bool,
+}
+
+fn cal_prefs() -> CalPrefs {
+    let p = crate::settings::Settings::load();
+    let limit = p.bool("calendarLimitHours", false);
+    let start = p.int("calendarDayStartHour", 8).clamp(0, 23) as i32;
+    let end = p.int("calendarDayEndHour", 20).clamp(1, 24) as i32;
+    let (hour_from, hour_to) = if limit && end > start { (start, end) } else { (0, 24) };
+    let working: Vec<u32> = p.prefs.get("calendarWorkingDays").and_then(|v| v.as_array())
+        .map(|a| a.iter().filter_map(|d| d.as_u64()).map(|d| d as u32 % 7).collect())
+        .unwrap_or_else(|| vec![1, 2, 3, 4, 5]);
+    CalPrefs {
+        first_dow: match p.int("firstDayOfWeek", 1) { 0 => 0, 6 => 6, _ => 1 },
+        week_numbers: p.bool("showWeekNumbers", false),
+        hour_from, hour_to,
+        hide_non_working: p.bool("calendarHideNonWorkingDays", false),
+        working,
+        time_in_month: p.bool("showTimeInMonthView", false),
+        tinted: p.bool("calendarTintedEvents", false),
+        h12: p.str("timeFormat", "24h") == "12h",
+    }
+}
+
 fn week_start(d: NaiveDate) -> NaiveDate {
-    d - Duration::days(d.weekday().num_days_from_monday() as i64)
+    let first = cal_prefs().first_dow;
+    let dow = d.weekday().num_days_from_sunday();
+    d - Duration::days(((dow + 7 - first) % 7) as i64)
+}
+
+fn fmt_time(t: NaiveDateTime, h12: bool) -> String {
+    if h12 { t.format("%-I:%M %p").to_string() } else { t.format("%H:%M").to_string() }
 }
 
 fn range() -> (NaiveDate, NaiveDate) {
@@ -124,7 +166,7 @@ fn expand(e: &Value, from: NaiveDateTime, to: NaiveDateTime) -> Vec<(NaiveDateTi
             guard += 1;
             if until.is_some_and(|u| cur > u) || cur >= to { break; }
             let candidates: Vec<NaiveDateTime> = if freq == "weekly" && !by_day.is_empty() {
-                let ws = week_start(cur.date());
+                let ws = cur.date() - Duration::days(cur.date().weekday().num_days_from_monday() as i64);
                 let mut v: Vec<NaiveDateTime> = by_day.iter().map(|wd| (ws + Duration::days(wd.num_days_from_monday() as i64)).and_time(start.time())).filter(|d| *d >= start).collect();
                 v.sort();
                 v
@@ -211,6 +253,19 @@ pub fn render(u: &AppWindow) {
     let today = Local::now().date_naive();
     let a = anchor();
     let (from, to) = range();
+    let cp = cal_prefs();
+    {
+        let ws = week_start(today);
+        let names: Vec<slint::SharedString> = (0..7).map(|i| (ws + Duration::days(i)).format("%a").to_string().into()).collect();
+        u.set_cal_weekdays(ModelRc::new(VecModel::from(names)));
+        u.set_cal_show_weeknums(cp.week_numbers);
+        u.set_cal_hour_from(cp.hour_from);
+        u.set_cal_hour_to(cp.hour_to);
+        u.global::<crate::Prefs>().set_cal_tinted(cp.tinted);
+        let mini_first = week_start(a.with_day(1).unwrap());
+        let nums: Vec<slint::SharedString> = (0..6).map(|w| (mini_first + Duration::days(w * 7 + 3)).iso_week().week().to_string().into()).collect();
+        u.set_cal_week_nums(ModelRc::new(VecModel::from(nums)));
+    }
     ST.with(|s| {
         let s = s.borrow();
         let q = s.query.to_lowercase();
@@ -220,7 +275,10 @@ pub fn render(u: &AppWindow) {
             .collect();
         u.set_cal_view(s.view);
         u.set_cal_title(match s.view {
-            0 => a.format("%A, %B %-d, %Y").to_string(),
+            0 => {
+                let t = a.format("%A, %B %-d, %Y").to_string();
+                if cp.week_numbers { format!("{t}  ·  Week {}", a.iso_week().week()) } else { t }
+            }
             1 => format!("{} – {}", from.format("%b %-d"), (to - Duration::days(1)).format("%b %-d, %Y")),
             _ => a.format("%B %Y").to_string(),
         }.into());
@@ -244,7 +302,12 @@ pub fn render(u: &AppWindow) {
             let cells: Vec<CalCell> = (0..42).map(|i| {
                 let d = from + Duration::days(i);
                 let evs: Vec<&&Occ> = visible.iter().filter(|o| o.start.date() <= d && (o.end - Duration::seconds(1)).date() >= d).collect();
-                let items: Vec<CalEvent> = evs.iter().take(4).map(|o| ev(o, &s.calendars, 0, 0.0, 0.0, 1)).collect();
+                let items: Vec<CalEvent> = evs.iter().take(4).map(|o| {
+                    let mut e = ev(o, &s.calendars, 0, 0.0, 0.0, 1, cp.h12);
+                    // Bulwark: only the start time, and only with showTimeInMonthView
+                    e.time = if cp.time_in_month && !o.all_day && o.start.date() == d { fmt_time(o.start, cp.h12).into() } else { "".into() };
+                    e
+                }).collect();
                 CalCell {
                     day: d.day() as i32, date: d.format("%Y-%m-%d").to_string().into(), in_month: d.month() == a.month(), today: d == today,
                     events: ModelRc::new(VecModel::from(items)),
@@ -253,19 +316,22 @@ pub fn render(u: &AppWindow) {
             }).collect();
             u.set_cal_cells(ModelRc::new(VecModel::from(cells)));
         } else {
-            let days = if s.view == 0 { 1 } else { 7 };
-            let heads: Vec<CalCell> = (0..days).map(|i| {
-                let d = from + Duration::days(i);
+            let mut dates: Vec<NaiveDate> = if s.view == 0 { vec![from] } else { (0..7).map(|i| from + Duration::days(i)).collect() };
+            if s.view == 1 && cp.hide_non_working {
+                let kept: Vec<NaiveDate> = dates.iter().copied().filter(|d| cp.working.contains(&d.weekday().num_days_from_sunday())).collect();
+                if !kept.is_empty() { dates = kept; }
+            }
+            let heads: Vec<CalCell> = dates.iter().enumerate().map(|(i, &d)| {
                 let all: Vec<CalEvent> = visible.iter().filter(|o| (o.all_day || (o.end - o.start).num_hours() >= 24) && o.start.date() <= d && (o.end - Duration::seconds(1)).date() >= d)
-                    .map(|o| ev(o, &s.calendars, i as i32, 0.0, 0.0, 1)).collect();
+                    .map(|o| ev(o, &s.calendars, i as i32, 0.0, 0.0, 1, cp.h12)).collect();
                 CalCell { day: d.day() as i32, date: d.format("%a").to_string().into(), in_month: true, today: d == today,
                     events: ModelRc::new(VecModel::from(all)), more: "".into() }
             }).collect();
             u.set_cal_days(ModelRc::new(VecModel::from(heads)));
             // timed events with simple overlap columns
             let mut timed: Vec<CalEvent> = vec![];
-            for i in 0..days {
-                let d = from + Duration::days(i);
+            let off = cp.hour_from as f32 * HOUR_PX;
+            for (i, &d) in dates.iter().enumerate() {
                 let day_ev: Vec<&&Occ> = visible.iter().filter(|o| !o.all_day && (o.end - o.start).num_hours() < 24 && o.start.date() == d).collect();
                 let mut lanes: Vec<NaiveDateTime> = vec![];
                 let mut placed: Vec<(usize, &&Occ)> = vec![];
@@ -276,9 +342,9 @@ pub fn render(u: &AppWindow) {
                 }
                 let n = lanes.len().max(1);
                 for (lane, o) in placed {
-                    let top = (o.start.time().num_seconds_from_midnight() as f32 / 3600.0) * HOUR_PX;
+                    let top = (o.start.time().num_seconds_from_midnight() as f32 / 3600.0) * HOUR_PX - off;
                     let h = ((o.end - o.start).num_minutes().max(20) as f32 / 60.0) * HOUR_PX;
-                    let mut e = ev(o, &s.calendars, i as i32, top, h, n as i32);
+                    let mut e = ev(o, &s.calendars, i as i32, top, h, n as i32, cp.h12);
                     e.lane = lane as i32;
                     timed.push(e);
                 }
@@ -288,11 +354,11 @@ pub fn render(u: &AppWindow) {
     });
 }
 
-fn ev(o: &Occ, cals: &[Value], col: i32, top: f32, h: f32, lanes: i32) -> CalEvent {
+fn ev(o: &Occ, cals: &[Value], col: i32, top: f32, h: f32, lanes: i32, h12: bool) -> CalEvent {
     CalEvent {
         id: o.id.as_str().into(),
         title: o.title.as_str().into(),
-        time: if o.all_day { "".into() } else { format!("{}–{}", o.start.format("%H:%M"), o.end.format("%H:%M")).into() },
+        time: if o.all_day { "".into() } else { format!("{}–{}", fmt_time(o.start, h12), fmt_time(o.end, h12)).into() },
         location: o.location.as_str().into(),
         color: color_for(cals, &o.calendar),
         col, top, height: h, lane: 0, lanes,

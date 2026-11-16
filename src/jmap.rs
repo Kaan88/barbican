@@ -701,7 +701,7 @@ fn created_id(resp: &Value, key: &str) -> R<String> {
 pub const MAILBOX_PROPERTIES: [&str; 11] = ["id", "name", "parentId", "role", "sortOrder", "totalEmails", "unreadEmails",
     "totalThreads", "unreadThreads", "myRights", "isSubscribed"];
 
-pub const EMAIL_LIST_PROPERTIES: [&str; 15] = ["id", "threadId", "mailboxIds", "keywords", "size", "receivedAt", "sentAt",
+pub const EMAIL_LIST_PROPERTIES: [&str; 16] = ["id", "threadId", "mailboxIds", "keywords", "size", "receivedAt", "sentAt", "attachments",
     "from", "to", "cc", "subject", "preview", "hasAttachment", "blobId", "header:Authentication-Results:all"];
 
 pub const EMAIL_FULL_PROPERTIES: [&str; 25] = ["id", "threadId", "mailboxIds", "keywords", "size", "receivedAt", "sentAt",
