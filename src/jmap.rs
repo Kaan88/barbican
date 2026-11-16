@@ -186,6 +186,11 @@ impl Client {
         self.oauth.as_ref().map(|m| m.lock().unwrap().clone())
     }
 
+    /// Tie the OAuth session to its remembered account so rotated tokens are written back.
+    pub fn set_token_user(&self, user: &str) {
+        if let Some(m) = &self.oauth { m.lock().unwrap().user = user.to_string(); }
+    }
+
     fn renew(&self) -> R<()> {
         let Some(m) = &self.oauth else { return Err("Not an OAuth session".into()) };
         let mut t = m.lock().unwrap();

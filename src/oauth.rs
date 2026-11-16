@@ -31,6 +31,8 @@ pub struct Tokens {
     pub expires: Option<Instant>,
     pub token_endpoint: String,
     pub client_id: String,
+    /// Remembered account this session belongs to (empty before it is stored).
+    pub user: String,
 }
 
 fn http() -> reqwest::blocking::Client {
@@ -242,17 +244,118 @@ fn parse_tokens(r: reqwest::blocking::Response, endpoint: &str, client: &str, ol
         expires: v["expires_in"].as_u64().map(|s| Instant::now() + Duration::from_secs(s.saturating_sub(30))),
         token_endpoint: endpoint.to_string(),
         client_id: client.to_string(),
+        user: String::new(),
     })
 }
 
-pub fn refresh(t: &Tokens) -> Result<Tokens, String> {
-    let rt = t.refresh.as_deref().ok_or("Session expired; sign in again.")?;
+/// What to do after a refresh attempt, given the token used and what the keyring holds now.
+#[derive(Debug, PartialEq)]
+pub enum Next {
+    /// Another instance rotated the token: retry once with this one.
+    Retry(String),
+    /// The server rejected the token and nothing newer is stored: the user must sign in again.
+    NeedsSignIn,
+    /// Network or server trouble: keep everything, try again later.
+    Transient,
+}
+
+pub fn decide(used: &str, stored: Option<&str>, rejected: bool) -> Next {
+    if !rejected { return Next::Transient; }
+    match stored {
+        Some(s) if !s.is_empty() && s != used => Next::Retry(s.to_string()),
+        _ => Next::NeedsSignIn,
+    }
+}
+
+/// Marker prefix of the error for an account that needs signing in again (never deleted).
+pub const NEEDS_SIGN_IN: &str = "Session expired";
+
+fn is_rejection(e: &str) -> bool {
+    e.starts_with("Token request failed (4") && ["invalid_grant", "invalid_client", "unauthorized_client"].iter().any(|k| e.contains(k))
+}
+
+/// Cross-process lock for refreshing (a lock file in the config dir; stale after 60 s).
+struct RefreshLock(std::path::PathBuf);
+impl RefreshLock {
+    fn acquire() -> Option<RefreshLock> {
+        let dir = crate::config_dir();
+        let _ = std::fs::create_dir_all(&dir);
+        let p = dir.join("oauth-refresh.lock");
+        let start = Instant::now();
+        loop {
+            if std::fs::OpenOptions::new().write(true).create_new(true).open(&p).is_ok() { return Some(RefreshLock(p)); }
+            let stale = std::fs::metadata(&p).and_then(|m| m.modified()).ok()
+                .and_then(|m| m.elapsed().ok()).is_some_and(|a| a > Duration::from_secs(60));
+            if stale { let _ = std::fs::remove_file(&p); continue; }
+            if start.elapsed() > Duration::from_secs(15) { return None; }
+            std::thread::sleep(Duration::from_millis(100));
+        }
+    }
+}
+impl Drop for RefreshLock {
+    fn drop(&mut self) { let _ = std::fs::remove_file(&self.0); }
+}
+
+/// The refresh token currently stored for this session's account.
+fn stored_refresh(t: &Tokens) -> Option<String> {
+    if t.user.is_empty() { return None; }
+    accounts().into_iter().find(|a| a["user"].as_str() == Some(t.user.as_str()) && a["kind"] == "oauth")
+        .and_then(|a| a["refresh"].as_str().map(String::from))
+}
+
+/// Write a rotated refresh token back so other instances see it.
+fn store_rotated(user: &str, refresh: &str) {
+    if user.is_empty() { return; }
+    let mut all = accounts();
+    let mut changed = false;
+    for a in all.iter_mut() {
+        if a["user"].as_str() == Some(user) && a["kind"] == "oauth" && a["refresh"].as_str() != Some(refresh) {
+            a["refresh"] = json!(refresh);
+            changed = true;
+        }
+    }
+    if changed { if let Some(e) = accounts_entry() { let _ = e.set_password(&Value::Array(all).to_string()); } }
+    if let Some(mut v) = remembered() {
+        if v["user"].as_str() == Some(user) && v["kind"] == "oauth" && v["refresh"].as_str() != Some(refresh) {
+            v["refresh"] = json!(refresh);
+            if let Some(e) = entry() { let _ = e.set_password(&v.to_string()); }
+        }
+    }
+}
+
+fn refresh_with(t: &Tokens, rt: &str) -> Result<Tokens, String> {
     let r = http().post(&t.token_endpoint).form(&[
         ("grant_type", "refresh_token"),
         ("refresh_token", rt),
         ("client_id", &t.client_id),
     ]).send().map_err(|e| e.to_string())?;
-    parse_tokens(r, &t.token_endpoint, &t.client_id, Some(rt))
+    let mut n = parse_tokens(r, &t.token_endpoint, &t.client_id, Some(rt))?;
+    n.user = t.user.clone();
+    Ok(n)
+}
+
+/// Refresh under a cross-process lock. Stalwart rotates refresh tokens, so another instance may
+/// have used ours already: adopt the stored token first, and on a rejection re-read the keyring
+/// and retry once. Never deletes anything.
+pub fn refresh(t: &Tokens) -> Result<Tokens, String> {
+    let mine = t.refresh.as_deref().ok_or(format!("{NEEDS_SIGN_IN}; sign in again."))?;
+    let _lock = RefreshLock::acquire();
+    let mut used = mine.to_string();
+    if let Some(s) = stored_refresh(t) { if !s.is_empty() { used = s; } }
+    let mut tried_retry = false;
+    loop {
+        match refresh_with(t, &used) {
+            Ok(n) => {
+                if let Some(r) = n.refresh.as_deref() { store_rotated(&t.user, r); }
+                return Ok(n);
+            }
+            Err(e) => match decide(&used, stored_refresh(t).as_deref(), is_rejection(&e)) {
+                Next::Retry(s) if !tried_retry => { tried_retry = true; used = s; }
+                Next::Retry(_) | Next::NeedsSignIn => return Err(format!("{NEEDS_SIGN_IN}; sign in again. ({e})")),
+                Next::Transient => return Err(e),
+            },
+        }
+    }
 }
 
 /// Best-effort token revocation on sign-out (RFC 7009).
@@ -305,4 +408,58 @@ pub fn remembered() -> Option<Value> {
 
 pub fn forget() {
     if let Some(e) = entry() { let _ = e.delete_credential(); }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn rotated_elsewhere_retries_with_stored() {
+        assert_eq!(decide("old", Some("new"), true), Next::Retry("new".into()));
+    }
+    #[test]
+    fn unchanged_rejection_needs_sign_in() {
+        assert_eq!(decide("old", Some("old"), true), Next::NeedsSignIn);
+        assert_eq!(decide("old", None, true), Next::NeedsSignIn);
+        assert_eq!(decide("old", Some(""), true), Next::NeedsSignIn);
+    }
+    #[test]
+    fn network_error_keeps_and_retries_later() {
+        assert_eq!(decide("old", Some("new"), false), Next::Transient);
+        assert_eq!(decide("old", Some("old"), false), Next::Transient);
+        assert!(!is_rejection("error sending request"));
+        assert!(is_rejection("Token request failed (400 Bad Request): invalid_grant "));
+        assert!(!is_rejection("Token request failed (503 Service Unavailable):  "));
+    }
+}
+
+#[cfg(test)]
+mod rotation_tests {
+    use super::*;
+
+    #[test]
+    fn token_changed_retries_with_stored() {
+        assert_eq!(decide("old", Some("new"), true), Next::Retry("new".into()));
+    }
+
+    #[test]
+    fn unchanged_invalid_grant_needs_sign_in() {
+        assert_eq!(decide("old", Some("old"), true), Next::NeedsSignIn);
+        assert_eq!(decide("old", None, true), Next::NeedsSignIn);
+        assert_eq!(decide("old", Some(""), true), Next::NeedsSignIn);
+    }
+
+    #[test]
+    fn network_error_is_transient() {
+        assert_eq!(decide("old", Some("new"), false), Next::Transient);
+        assert_eq!(decide("old", Some("old"), false), Next::Transient);
+    }
+
+    #[test]
+    fn rejection_detection() {
+        assert!(is_rejection("Token request failed (400 Bad Request): invalid_grant "));
+        assert!(!is_rejection("error sending request: timed out"));
+        assert!(!is_rejection("Token request failed (503): "));
+    }
 }

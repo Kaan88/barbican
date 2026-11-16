@@ -67,6 +67,7 @@ pub fn connect(v: &Value) -> Result<Client, String> {
             expires: None,
             token_endpoint: v["endpoint"].as_str().unwrap_or("").into(),
             client_id: v["client"].as_str().unwrap_or("").into(),
+            user: user.to_string(),
         };
         Client::connect_oauth(server, t)
     } else {

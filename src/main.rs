@@ -1933,6 +1933,7 @@ fn remember_session(c: &jmap::Client, mut v: Value, server: &str, user: &str) {
     v["server"] = serde_json::json!(server);
     v["user"] = serde_json::json!(user);
     if v["kind"] == "oauth" {
+        c.set_token_user(user);
         let Some(t) = c.tokens() else { return };
         if t.refresh.is_none() { return; }
         v["refresh"] = serde_json::json!(t.refresh);
@@ -1961,25 +1962,27 @@ fn restore_session(w: slint::Weak<AppWindow>, st: Shared, v: Value, switching: b
     std::thread::spawn(move || {
         let server = v["server"].as_str().unwrap_or("").to_string();
         let user = v["user"].as_str().unwrap_or("").to_string();
-        let res = if v["kind"] == "oauth" {
+        let mut res = if v["kind"] == "oauth" {
             let t = oauth::Tokens {
                 access: String::new(),
                 refresh: v["refresh"].as_str().map(String::from),
                 expires: None,
                 token_endpoint: v["endpoint"].as_str().unwrap_or("").into(),
                 client_id: v["client"].as_str().unwrap_or("").into(),
+                user: user.clone(),
             };
             jmap::Client::connect_oauth(&server, t)
         } else {
             jmap::Client::connect(&server, &user, v["pass"].as_str().unwrap_or(""), "")
         };
+        if let Err(e) = &res { if auth_rejected(e) {
+            res = Err(format!("{user} needs to sign in again. {e}"));
+        } }
         if let Err(e) = &res {
             // never drop stored credentials over a timeout or a server hiccup; when switching,
             // the remembered session belongs to the account still in use
-            if auth_rejected(e) {
-                if !switching { oauth::forget(); }
-                oauth::forget_account(&user);
-            }
+            // an account the server turned down is only marked; the stored entry stays until
+            // the user signs out or signs in again
             if switching {
                 let msg = format!("Could not switch to {user}: {e}");
                 let _ = w.upgrade_in_event_loop(move |u| {
