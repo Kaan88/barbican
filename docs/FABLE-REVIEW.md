@@ -117,3 +117,67 @@ placeholders (see CLAUDE.md); never write real values here.
   275 rows and 136 distinct non-empty `key` values. The catalogue stream (`spec/settings.csv`)
   should reconcile the number. Where: `src/Barbican.Core/Settings/settings-schema.json`,
   `tests/Barbican.Core.Tests/Settings/SettingsSchemaTests.cs`.
+
+## Spec catalogue part B (stream: m0-cat-b)
+
+### Method and coverage
+- **Behaviour rows are extracted, not read line by line.** What: `spec/behaviours/*.md` (412
+  B- rows over 14 areas) come from module headers, doc comments, constants, `#[test]` names and
+  commit subjects and bodies, not from reading all of the roughly 23,000 lines in scope. Why: this is
+  the first pass of PORT-PLAN §2.3 step 1; the Opus sample review (step 5) has not run. Expect misses
+  in the hard areas and rows that cite a test name without its logic. Where: `spec/behaviours/`.
+- **Line numbers are from `rust-final`** (`bba9613`). Check any `file:line` before relying on it.
+  Some rows cite a test and a commit without a line.
+- **Shortcuts and palette live under `spec/behaviours/`.** The plan (§2.3) puts `shortcuts.md` at
+  the `spec/` root. I used `behaviours/shortcuts.md` and `behaviours/palette.md` as the brief asked.
+  The cat-a stream's `menus.md` and `shortcuts.md` may overlap; reconcile at merge. Where:
+  `spec/behaviours/shortcuts.md`, `spec/behaviours/palette.md`.
+- **Motion numbers are quoted from commit bodies.** Feel numbers in B-MOT-027 (13 to 26 ms, 16 ms,
+  123 ms) come from commit `0530d4a`, not from the `tools/*-results` JSON files. Check them against
+  `spec/feel/rust-baseline/` once that stream has merged. Where: `spec/behaviours/motion.md`.
+
+### Settings wiring (`spec/settings.csv`)
+- **Wired is a literal match, not a read.** What: a key counts as "wired" when its quoted string
+  appears anywhere in `desktop/src/**/*.rs`. That gives 110 wired and 26 unwired of 136 keys. Why:
+  a literal can be a write, a default table or an unused list entry, so 110 is an upper bound. The
+  26 unwired keys match the GAPS P2-1 list by name, but GAPS says "about 40". Where:
+  `spec/settings.csv` (`rust_hits` gives the first file:line). The generator is in the local
+  scratchpad, not committed; re-run it if the schema changes.
+- **Key count.** The schema holds 136 distinct keys over 137 keyed rows (`plainTextFont` appears
+  twice) and 64 keyless rows. The plan's "201 keys" (§2.2, §5 M6) matches neither. Decide which
+  number the port targets. Where: `ui/settings-schema.json` (Rust), `spec/settings.csv`.
+- **Bulwark defaults are the schema defaults.** The `default` column is the schema's `default`
+  field, which `extract_settings.py` copied from Bulwark. It is not checked against Bulwark's
+  settings store. Where: `spec/settings.csv` column `default`.
+
+### Decisions harvest (`spec/decisions.md`)
+- **Every commit has a row.** What: 232 D- rows cover all 158 non-merge commits of `rust-final`
+  plus the parity-round merges. Why: the brief asked for every decision and fix; several commit
+  bodies are empty, and the reason is then the subject, marked as such in the row text where I
+  saw it. Where: `spec/decisions.md`.
+- **Three WIP branches are recorded as intent only.** `mat-overlay`, `mat-polish` and
+  `mat-switching` intent comes from the commit subjects and the plan §2.6 text. Read their diffs
+  before reviving them. Where: `spec/decisions.md` (WIP section).
+- **Renumbering.** I renumbered D- IDs sequentially after removing duplicate rows. Nothing outside
+  this file cites a D- ID yet; once other streams do, freeze the numbers. Where: `spec/decisions.md`.
+
+### Gaps and live checks
+- **G-094 to G-110 are finished items kept for traceability.** GAPS.md lists them as done in parity
+  round 2. Their live status is partial in most cases. Where: `spec/gaps.csv`, `spec/live-checks.md`.
+- **Priorities and milestones are mine.** Each G- row's milestone comes from PORT-PLAN §5 and §M10;
+  the GAPS.md file does not assign them. Check the mapping, especially G-054 (external-recipient
+  confirm, M3) and G-075 (mentions). Where: `spec/gaps.csv`.
+- **Observed issues without a reproduction.** L-009 (stray "(no subject)" draft) was seen once and
+  not reproduced; L-047 (focus after the rail) and L-049 (mini month shading) are observations
+  without a fix. They are live checks, not known bugs. Where: `spec/live-checks.md`.
+- **Hand checks mapped.** The round-2 hand list (13 items) is mapped to L- rows in
+  `spec/live-checks.md`. Items 2, 5 and 6 map to several rows each; re-check the mapping.
+
+### Privacy (public repository)
+- **Account names.** PARITY-ROUND2 and GAPS name the real accounts and a server. I replaced them
+  with `<readonly-account>` and `<test-account>` (the test account is the one the Rust report wrote
+  to), and dropped the rest. The mapping in `.local/accounts.md` should confirm which placeholder
+  is which. Where: `spec/live-checks.md`, `spec/gaps.csv` (none expected), `spec/decisions.md`.
+- **Commit bodies.** Commit bodies quoted in `spec/decisions.md` contain no personal data (checked
+  by eye and by `tools/privacy-check.sh --worktree`). The Rust log has not been searched with the
+  full hard-pattern set on every commit body; run `git log --all` through the check once more.
