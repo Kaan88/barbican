@@ -1,0 +1,167 @@
+<Window x:Class="Barbican.MainWindow"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:local="using:Barbican"
+    xmlns:wv="using:Microsoft.UI.Xaml.Controls"
+    Title="Barbican (WinUI prototype)">
+  <Grid x:Name="Root" Background="{StaticResource Ground}" RequestedTheme="Dark">
+    <Grid.RowDefinitions>
+      <RowDefinition Height="38" />
+      <RowDefinition Height="*" />
+    </Grid.RowDefinitions>
+
+    <Grid x:Name="TitleBar" Background="Transparent">
+      <TextBlock x:Name="TitleText" Margin="22,0,0,0" VerticalAlignment="Center" FontSize="12" Foreground="{StaticResource Faint}"
+                 Text="Barbican · WinUI 3 prototype   (S = Bento/Nordic, T = dark/light, J/K = next/previous)" />
+    </Grid>
+
+    <Grid x:Name="Shell" Grid.Row="1" Padding="14,0,14,14" ColumnSpacing="12">
+      <Grid.RenderTransform><TranslateTransform x:Name="ShellShift" /></Grid.RenderTransform>
+      <Grid.ColumnDefinitions>
+        <ColumnDefinition Width="Auto" />
+        <ColumnDefinition Width="236" />
+        <ColumnDefinition Width="*" />
+      </Grid.ColumnDefinitions>
+
+      <!-- Rail -->
+      <Border x:Name="RailTile" Width="66" Padding="0,14" CornerRadius="24" BorderThickness="1"
+              Background="{StaticResource Tile}" BorderBrush="{StaticResource Line}">
+        <Grid>
+          <StackPanel x:Name="RailTop" Spacing="8" HorizontalAlignment="Center" />
+          <StackPanel x:Name="RailBottom" Spacing="8" HorizontalAlignment="Center" VerticalAlignment="Bottom" />
+        </Grid>
+      </Border>
+
+      <!-- Folder sidebar -->
+      <Border x:Name="FolderTile" Grid.Column="1" Padding="12,14" CornerRadius="26" BorderThickness="1"
+              Background="{StaticResource Tile}" BorderBrush="{StaticResource Line}">
+        <ScrollViewer VerticalScrollBarVisibility="Auto">
+          <StackPanel Spacing="4">
+            <Button x:Name="ComposeBtn" HorizontalAlignment="Stretch" Height="46" CornerRadius="16" BorderThickness="0" Margin="0,0,0,12"
+                    Background="{StaticResource Accent}" Foreground="{StaticResource OnAccent}">
+              <Button.Resources>
+                <StaticResource x:Key="ButtonBackgroundPointerOver" ResourceKey="Accent" />
+                <StaticResource x:Key="ButtonBackgroundPressed" ResourceKey="Accent" />
+                <StaticResource x:Key="ButtonForegroundPointerOver" ResourceKey="OnAccent" />
+                <StaticResource x:Key="ButtonForegroundPressed" ResourceKey="OnAccent" />
+              </Button.Resources>
+              <StackPanel Orientation="Horizontal" Spacing="8">
+                <local:SIcon Kind="pen" Stroke="{StaticResource OnAccent}" />
+                <TextBlock Text="New message" FontWeight="Bold" FontSize="14" />
+              </StackPanel>
+            </Button>
+            <ListView x:Name="FolderList" SelectionMode="Single" ItemContainerStyle="{StaticResource FolderItem}" />
+            <TextBlock Text="LABELS" Margin="11,18,0,6" FontSize="11" FontWeight="Bold" CharacterSpacing="80" Foreground="{StaticResource Faint}" />
+            <StackPanel x:Name="LabelPanel" Spacing="2" />
+          </StackPanel>
+        </ScrollViewer>
+      </Border>
+
+      <!-- List / reader / context surface -->
+      <Border x:Name="Surface" Grid.Column="2" BorderThickness="0" CornerRadius="0">
+        <Grid x:Name="SurfaceGrid" ColumnSpacing="12">
+          <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="370" />
+            <ColumnDefinition Width="*" />
+            <ColumnDefinition Width="272" />
+          </Grid.ColumnDefinitions>
+
+          <Border x:Name="ListTile" CornerRadius="26" BorderThickness="1" Background="{StaticResource Tile}" BorderBrush="{StaticResource Line}">
+            <Grid>
+              <Grid.RowDefinitions>
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="*" />
+              </Grid.RowDefinitions>
+              <StackPanel Padding="20,18,20,10" Spacing="12">
+                <Grid>
+                  <TextBlock x:Name="FolderTitle" Text="Inbox" FontSize="24" FontWeight="Bold" Foreground="{StaticResource Text}" />
+                  <TextBlock x:Name="UnreadText" HorizontalAlignment="Right" VerticalAlignment="Center" FontSize="12.5" Foreground="{StaticResource Dim}" />
+                </Grid>
+                <StackPanel x:Name="Chips" Orientation="Horizontal" Spacing="6" />
+              </StackPanel>
+              <ListView x:Name="MailList" Grid.Row="1" SelectionMode="Single" ItemContainerStyle="{StaticResource RowItem}" Padding="0,0,0,8">
+                <ListView.ItemContainerTransitions>
+                  <TransitionCollection>
+                    <EntranceThemeTransition IsStaggeringEnabled="True" FromVerticalOffset="18" />
+                  </TransitionCollection>
+                </ListView.ItemContainerTransitions>
+                <ListView.ItemTemplate>
+                  <DataTemplate x:DataType="local:Mail">
+                    <Grid ColumnSpacing="11">
+                      <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="*" />
+                      </Grid.ColumnDefinitions>
+                      <Border Width="38" Height="38" VerticalAlignment="Top" CornerRadius="{x:Bind AvatarRadius, Mode=OneWay}" Background="{x:Bind AvatarBg}">
+                        <TextBlock Text="{x:Bind Initials}" FontSize="13" FontWeight="Bold" Foreground="{x:Bind AvatarFg}" HorizontalAlignment="Center" VerticalAlignment="Center" />
+                      </Border>
+                      <StackPanel Grid.Column="1" Spacing="1">
+                        <Grid ColumnSpacing="6">
+                          <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="Auto" />
+                          </Grid.ColumnDefinitions>
+                          <Ellipse Width="7" Height="7" Fill="{StaticResource Accent}" Visibility="{x:Bind DotVis, Mode=OneWay}" VerticalAlignment="Center" />
+                          <TextBlock Grid.Column="1" Text="{x:Bind From}" FontSize="14" FontWeight="{x:Bind FromWeight, Mode=OneWay}" Foreground="{StaticResource Text}" TextTrimming="CharacterEllipsis" />
+                          <Border Grid.Column="2" Visibility="{x:Bind ThreadVis}" Background="{StaticResource Track}" CornerRadius="8" Padding="6,0" VerticalAlignment="Center">
+                            <TextBlock Text="{x:Bind ThreadText}" FontSize="11" FontWeight="SemiBold" Foreground="{StaticResource Dim}" />
+                          </Border>
+                          <TextBlock Grid.Column="3" Text="{x:Bind Time}" FontSize="12" FontWeight="SemiBold" Foreground="{x:Bind TimeBrush, Mode=OneWay}" VerticalAlignment="Center" />
+                        </Grid>
+                        <TextBlock Text="{x:Bind Subject}" FontSize="13.5" Foreground="{StaticResource Body}" TextTrimming="CharacterEllipsis" />
+                        <TextBlock Text="{x:Bind Snippet}" FontSize="12.5" Foreground="{StaticResource Faint}" TextTrimming="CharacterEllipsis" />
+                      </StackPanel>
+                    </Grid>
+                  </DataTemplate>
+                </ListView.ItemTemplate>
+              </ListView>
+            </Grid>
+          </Border>
+
+          <Border x:Name="ReaderTile" Grid.Column="1" CornerRadius="26" BorderThickness="1" Background="{StaticResource Tile}" BorderBrush="{StaticResource Line}">
+            <Grid>
+              <Grid.RowDefinitions>
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="*" />
+              </Grid.RowDefinitions>
+              <StackPanel x:Name="ReaderHead" Padding="26,22,26,10" Spacing="14">
+                <StackPanel.ChildrenTransitions>
+                  <TransitionCollection><ContentThemeTransition HorizontalOffset="0" VerticalOffset="6" /></TransitionCollection>
+                </StackPanel.ChildrenTransitions>
+                <TextBlock x:Name="SubjectText" FontSize="22" FontWeight="SemiBold" TextWrapping="Wrap" Foreground="{StaticResource Text}" />
+                <Grid ColumnSpacing="12">
+                  <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                  </Grid.ColumnDefinitions>
+                  <Border x:Name="HeadAvatar" Width="40" Height="40" CornerRadius="13">
+                    <TextBlock x:Name="HeadInitials" FontWeight="Bold" HorizontalAlignment="Center" VerticalAlignment="Center" />
+                  </Border>
+                  <StackPanel Grid.Column="1" VerticalAlignment="Center">
+                    <TextBlock x:Name="HeadFrom" FontWeight="SemiBold" FontSize="14" Foreground="{StaticResource Text}" />
+                    <TextBlock x:Name="HeadEmail" FontSize="12.5" Foreground="{StaticResource Dim}" />
+                  </StackPanel>
+                  <TextBlock x:Name="HeadTime" Grid.Column="2" FontSize="12.5" Foreground="{StaticResource Faint}" VerticalAlignment="Center" />
+                </Grid>
+                <StackPanel x:Name="Actions" Orientation="Horizontal" Spacing="8" />
+              </StackPanel>
+              <Grid x:Name="BodyHost" Grid.Row="1" Margin="8,0,8,10" CornerRadius="18" Background="{StaticResource Tile}">
+                <wv:WebView2 x:Name="WebA" Opacity="0" />
+                <wv:WebView2 x:Name="WebB" Opacity="0" />
+              </Grid>
+            </Grid>
+          </Border>
+
+          <Border x:Name="ContextTile" Grid.Column="2" CornerRadius="26" BorderThickness="1" Background="{StaticResource Tile}" BorderBrush="{StaticResource Line}">
+            <ScrollViewer VerticalScrollBarVisibility="Auto">
+              <StackPanel x:Name="ContextPanel" Padding="22,26" Spacing="10" />
+            </ScrollViewer>
+          </Border>
+        </Grid>
+      </Border>
+    </Grid>
+  </Grid>
+</Window>

@@ -1,0 +1,72 @@
+<Application x:Class="Barbican.App"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+  <Application.Resources>
+    <ResourceDictionary>
+      <ResourceDictionary.MergedDictionaries>
+        <XamlControlsResources xmlns="using:Microsoft.UI.Xaml.Controls" />
+      </ResourceDictionary.MergedDictionaries>
+      <!-- One palette (design/mockups renderVals t). Colours are rewritten live by Palette.Apply. -->
+      <SolidColorBrush x:Key="Ground" Color="#0a0a0a" />
+      <SolidColorBrush x:Key="Tile" Color="#141414" />
+      <SolidColorBrush x:Key="Tile2" Color="#1a1a1a" />
+      <SolidColorBrush x:Key="Line" Color="#262626" />
+      <SolidColorBrush x:Key="Track" Color="#2e2e2e" />
+      <SolidColorBrush x:Key="Text" Color="#fafafa" />
+      <SolidColorBrush x:Key="Body" Color="#d4d4d4" />
+      <SolidColorBrush x:Key="Dim" Color="#a3a3a3" />
+      <SolidColorBrush x:Key="Faint" Color="#737373" />
+      <SolidColorBrush x:Key="Accent" Color="#f0577a" />
+      <SolidColorBrush x:Key="OnAccent" Color="#16070c" />
+      <SolidColorBrush x:Key="Sel" Color="#4a1424" />
+      <SolidColorBrush x:Key="SelText" Color="#ffd5df" />
+      <SolidColorBrush x:Key="RoseBg" Color="#24f0577a" />
+      <SolidColorBrush x:Key="RoseFg" Color="#ffb3c4" />
+      <SolidColorBrush x:Key="MintBg" Color="#2134d399" />
+      <SolidColorBrush x:Key="MintFg" Color="#86efc4" />
+      <SolidColorBrush x:Key="SkyBg" Color="#2460a5fa" />
+      <SolidColorBrush x:Key="SkyFg" Color="#a8cbff" />
+      <SolidColorBrush x:Key="AmberBg" Color="#21fbbf24" />
+      <SolidColorBrush x:Key="AmberFg" Color="#fcd679" />
+      <SolidColorBrush x:Key="Hover" Color="#1c1c1c" />
+      <SolidColorBrush x:Key="Pressed" Color="#262626" />
+      <SolidColorBrush x:Key="SelRow" Color="#202020" />
+      <SolidColorBrush x:Key="Clear" Color="Transparent" />
+
+      <FontFamily x:Key="ContentControlThemeFontFamily">Segoe UI</FontFamily>
+
+      <!-- Lightweight styling: hover/press/selection follow the palette. -->
+      <StaticResource x:Key="ListViewItemBackground" ResourceKey="Clear" />
+      <StaticResource x:Key="ListViewItemBackgroundPointerOver" ResourceKey="Hover" />
+      <StaticResource x:Key="ListViewItemBackgroundPressed" ResourceKey="Pressed" />
+      <StaticResource x:Key="ListViewItemBackgroundSelected" ResourceKey="SelRow" />
+      <StaticResource x:Key="ListViewItemBackgroundSelectedPointerOver" ResourceKey="SelRow" />
+      <StaticResource x:Key="ListViewItemBackgroundSelectedPressed" ResourceKey="Pressed" />
+      <StaticResource x:Key="ListViewItemSelectionIndicatorBrush" ResourceKey="Accent" />
+      <StaticResource x:Key="ListViewItemForeground" ResourceKey="Body" />
+      <StaticResource x:Key="ButtonBackground" ResourceKey="Clear" />
+      <StaticResource x:Key="ButtonBackgroundPointerOver" ResourceKey="Hover" />
+      <StaticResource x:Key="ButtonBackgroundPressed" ResourceKey="Pressed" />
+      <StaticResource x:Key="ButtonForeground" ResourceKey="Body" />
+      <StaticResource x:Key="ButtonForegroundPointerOver" ResourceKey="Text" />
+      <StaticResource x:Key="ButtonForegroundPressed" ResourceKey="Text" />
+      <StaticResource x:Key="ButtonBorderBrush" ResourceKey="Line" />
+      <StaticResource x:Key="ButtonBorderBrushPointerOver" ResourceKey="Line" />
+      <StaticResource x:Key="ButtonBorderBrushPressed" ResourceKey="Track" />
+
+      <Style x:Key="RowItem" TargetType="ListViewItem" BasedOn="{StaticResource DefaultListViewItemStyle}">
+        <Setter Property="Padding" Value="12,10" />
+        <Setter Property="Margin" Value="8,1" />
+        <Setter Property="CornerRadius" Value="18" />
+        <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+      </Style>
+      <Style x:Key="FolderItem" TargetType="ListViewItem" BasedOn="{StaticResource DefaultListViewItemStyle}">
+        <Setter Property="Padding" Value="11,0" />
+        <Setter Property="MinHeight" Value="38" />
+        <Setter Property="Margin" Value="0,1" />
+        <Setter Property="CornerRadius" Value="14" />
+        <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+      </Style>
+    </ResourceDictionary>
+  </Application.Resources>
+</Application>
