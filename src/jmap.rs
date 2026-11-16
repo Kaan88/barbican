@@ -128,6 +128,16 @@ impl Client {
         v["methodResponses"].as_array().cloned().ok_or_else(|| "Bad JMAP response".into())
     }
 
+    /// Request with an explicit `using` list (e.g. Stalwart's own `urn:stalwart:jmap` objects).
+    pub fn request_using(&self, using: &[&str], calls: Value) -> R<Vec<Value>> {
+        let body = json!({ "using": using, "methodCalls": calls });
+        let auth = self.auth.lock().unwrap().clone();
+        let resp = self.http.post(&self.api).header("Authorization", auth).json(&body).send().map_err(e)?;
+        if !resp.status().is_success() { return Err(format!("Request failed ({})", resp.status())); }
+        let v: Value = resp.json().map_err(e)?;
+        v["methodResponses"].as_array().cloned().ok_or_else(|| "Bad JMAP response".into())
+    }
+
     /// Like [`request`] but fails on the first method error.
     pub fn call(&self, calls: Value) -> R<Vec<Value>> {
         let out = self.request(calls)?;

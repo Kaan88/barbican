@@ -18,7 +18,10 @@ pub struct Cache {
     pub new_folder: String,
     pub confirm_delete: String,
     pub error: String,
+    pub archived: Vec<Value>,
 }
+
+const ARCHIVE_USING: [&str; 2] = ["urn:ietf:params:jmap:core", "urn:stalwart:jmap"];
 
 pub type Shared = Arc<Mutex<Cache>>;
 
@@ -50,6 +53,24 @@ pub fn load(tab: &str, c: &Client, cache: &Shared) {
                 k.script_text = text;
             }
             "organize" => { cache.lock().unwrap().mailboxes = c.mailboxes()?; }
+            "recover" => {
+                // Stalwart's deleted-item archive (x:ArchivedItem), as Bulwark's Recover deleted items
+                let acc = c.account.clone();
+                let mut q = c.request_using(&ARCHIVE_USING, json!([["x:ArchivedItem/query", {"accountId": acc, "filter": {"accountId": acc}, "limit": 500}, "q"]]))?;
+                if q[0][0] == "error" && q[0][1]["type"] == "unsupportedFilter" {
+                    q = c.request_using(&ARCHIVE_USING, json!([["x:ArchivedItem/query", {"accountId": acc, "limit": 500}, "q"]]))?;
+                }
+                if q[0][0] == "error" { return Err(crate::jmap::method_error(&q[0][1])); }
+                let ids: Vec<Value> = q[0][1]["ids"].as_array().cloned().unwrap_or_default();
+                let mut items = vec![];
+                for chunk in ids.chunks(c.max_get()) {
+                    let g = c.request_using(&ARCHIVE_USING, json!([["x:ArchivedItem/get", {"accountId": acc, "ids": chunk}, "g"]]))?;
+                    if g[0][0] == "error" { return Err(crate::jmap::method_error(&g[0][1])); }
+                    items.extend(g[0][1]["list"].as_array().cloned().unwrap_or_default());
+                }
+                items.sort_by(|a, b| b["archivedAt"].as_str().unwrap_or("").cmp(a["archivedAt"].as_str().unwrap_or("")));
+                cache.lock().unwrap().archived = items;
+            }
             "account" | "composing" => { cache.lock().unwrap().identities = c.identities()?; }
             _ => {}
         }
@@ -79,6 +100,18 @@ pub fn rows(tab: &str, cache: &Shared) -> Option<Vec<SRow>> {
             out.push(row("value", "", "Active script", &format!("{} script(s) on the server", k.scripts.len()), active, false));
             out.push(row("textarea", "server.sieve.text", "Script", "Example:  require \"fileinto\";  if address :is \"from\" \"news@example.com\" { fileinto \"Newsletters\"; }", &k.script_text, false));
             out.push(row("button", "server.sieve.save", "Save and activate", &k.script_status, "Save", false));
+        }
+        "recover" => {
+            out.push(row("section", "", "Recover deleted items", "Messages deleted for good stay in the server's archive for a while and can be put back.", "", false));
+            if k.error.is_empty() && k.archived.is_empty() {
+                out.push(row("value", "", "Nothing to recover", "The archive is empty, or this server keeps no deleted items.", "", false));
+            }
+            for it in k.archived.iter().take(300) {
+                let id = it["id"].as_str().unwrap_or("");
+                let when = it["archivedAt"].as_str().and_then(|d| crate::mail::parse_time(&json!(d))).map(|t| t.format("%d %b %Y %H:%M").to_string()).unwrap_or_default();
+                let subj = it["subject"].as_str().filter(|s| !s.is_empty()).unwrap_or("(no subject)");
+                out.push(row("button", &format!("server.restore:{id}"), subj, &format!("{}  ·  deleted {when}", it["from"].as_str().unwrap_or("")), "Restore", false));
+            }
         }
         "organize" => {
             out.push(row("section", "", "Folders", "Create, rename and delete your folders.", "", false));
@@ -173,6 +206,17 @@ pub fn button(key: &str, cache: &Shared) -> Option<Box<dyn FnOnce(&Client, &Shar
         if k.confirm_delete != id { k.confirm_delete = id; return Some(Box::new(|_, _| Ok(()))); }
         k.confirm_delete.clear();
         return Some(Box::new(move |c: &Client, _| c.delete_mailbox(&id)));
+    }
+    if let Some(id) = key.strip_prefix("server.restore:") {
+        let id = id.to_string();
+        return Some(Box::new(move |c: &Client, k: &Shared| {
+            let acc = c.account.clone();
+            let r = c.request_using(&ARCHIVE_USING, json!([["x:ArchivedItem/set", {"accountId": acc, "update": { id.clone(): {"status": "requestRestore"} }}, "r"]]))?;
+            if r[0][0] == "error" { return Err(crate::jmap::method_error(&r[0][1])); }
+            if let Some(e) = r[0][1]["notUpdated"].get(&id) { return Err(crate::jmap::set_error(e)); }
+            k.lock().unwrap().archived.retain(|x| x["id"] != id.as_str());
+            Ok(())
+        }));
     }
     if key == "server.sieve.save" {
         let text = cache.lock().unwrap().script_text.clone();
