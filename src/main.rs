@@ -461,6 +461,8 @@ fn main() -> Result<(), slint::PlatformError> {
             if let Some(t) = c.tokens() { std::thread::spawn(move || oauth::revoke(&c.base, &t)); }
         }
         oauth::forget();
+        oauth::forget_account(&u.get_account());
+        u.set_accounts(accounts_model());
         REMEMBER_OAUTH.store(false, std::sync::atomic::Ordering::SeqCst);
         u.set_current_mail("".into());
         u.set_folders(ModelRc::new(VecModel::from(Vec::<Folder>::new())));
@@ -471,29 +473,34 @@ fn main() -> Result<(), slint::PlatformError> {
 
     // restore a remembered session
     if let Some(v) = oauth::remembered() {
-        let (w, st) = (ui.as_weak(), state.clone());
         ui.set_busy(true);
         ui.set_status("Signing in…".into());
-        std::thread::spawn(move || {
-            let server = v["server"].as_str().unwrap_or("").to_string();
-            let user = v["user"].as_str().unwrap_or("").to_string();
-            let res = if v["kind"] == "oauth" {
-                let t = oauth::Tokens {
-                    access: String::new(),
-                    refresh: v["refresh"].as_str().map(String::from),
-                    expires: None,
-                    token_endpoint: v["endpoint"].as_str().unwrap_or("").into(),
-                    client_id: v["client"].as_str().unwrap_or("").into(),
-                };
-                jmap::Client::connect_oauth(&server, t)
-            } else {
-                jmap::Client::connect(&server, &user, v["pass"].as_str().unwrap_or(""), "")
-            };
-            if res.is_err() { oauth::forget(); }
-            let kind = v["kind"].as_str().unwrap_or("").to_string();
-            finish_login(w, st, res, server, user, Some(serde_json::json!({"kind": kind, "pass": v["pass"]})));
-        });
+        restore_session(ui.as_weak(), state.clone(), v);
     }
+    ui.set_accounts(accounts_model());
+
+    // account switcher (Bulwark's account menu)
+    let (w, st) = (ui.as_weak(), state.clone());
+    ui.on_switch_account(move |user| {
+        let Some(v) = oauth::accounts().into_iter().find(|a| a["user"].as_str() == Some(user.as_str())) else { return };
+        let u = w.unwrap();
+        SESSION_GEN.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        *st.lock().unwrap() = None;
+        u.set_current_mail("".into());
+        u.set_show_settings(false);
+        u.set_app(0);
+        u.set_busy(true);
+        restore_session(w.clone(), st.clone(), v);
+    });
+    let (w, st) = (ui.as_weak(), state.clone());
+    ui.on_add_account(move || {
+        let u = w.unwrap();
+        SESSION_GEN.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        *st.lock().unwrap() = None;
+        u.set_user("".into());
+        u.set_status("Sign in to another account. Your other accounts stay signed in.".into());
+        u.set_logged_in(false);
+    });
 
     let w = ui.as_weak();
     let st = state.clone();
@@ -1537,6 +1544,33 @@ fn remember_session(c: &jmap::Client, mut v: Value, server: &str, user: &str) {
     oauth::remember(&v);
 }
 
+fn accounts_model() -> ModelRc<SharedString> {
+    ModelRc::new(VecModel::from(oauth::accounts().iter().filter_map(|a| a["user"].as_str().map(SharedString::from)).collect::<Vec<_>>()))
+}
+
+/// Sign in with a remembered session (startup and account switching).
+fn restore_session(w: slint::Weak<AppWindow>, st: Shared, v: Value) {
+    std::thread::spawn(move || {
+        let server = v["server"].as_str().unwrap_or("").to_string();
+        let user = v["user"].as_str().unwrap_or("").to_string();
+        let res = if v["kind"] == "oauth" {
+            let t = oauth::Tokens {
+                access: String::new(),
+                refresh: v["refresh"].as_str().map(String::from),
+                expires: None,
+                token_endpoint: v["endpoint"].as_str().unwrap_or("").into(),
+                client_id: v["client"].as_str().unwrap_or("").into(),
+            };
+            jmap::Client::connect_oauth(&server, t)
+        } else {
+            jmap::Client::connect(&server, &user, v["pass"].as_str().unwrap_or(""), "")
+        };
+        if res.is_err() { oauth::forget(); oauth::forget_account(&user); }
+        let kind = v["kind"].as_str().unwrap_or("").to_string();
+        finish_login(w, st, res, server, user, Some(serde_json::json!({"kind": kind, "pass": v["pass"]})));
+    });
+}
+
 fn finish_login(w: slint::Weak<AppWindow>, st: Shared, res: Result<jmap::Client, String>, server: String, user: String, remember: Option<Value>) {
     match res {
         Ok(c) => {
@@ -1551,6 +1585,7 @@ fn finish_login(w: slint::Weak<AppWindow>, st: Shared, res: Result<jmap::Client,
             let w2 = w.clone();
             let _ = w.upgrade_in_event_loop(move |u| {
                 u.invoke_chat_reload();
+                u.set_accounts(accounts_model());
                 u.set_busy(false);
                 u.set_status("".into());
                 u.set_account(name.clone().into());

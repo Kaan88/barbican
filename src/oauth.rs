@@ -273,6 +273,29 @@ fn entry() -> Option<keyring::Entry> {
 /// kind: "oauth" (secret = refresh token, plus endpoint/client) or "password".
 pub fn remember(v: &Value) {
     if let Some(e) = entry() { let _ = e.set_password(&v.to_string()); }
+    // keep every signed-in account for the account switcher
+    let user = v["user"].as_str().filter(|u| !u.is_empty()).map(String::from).unwrap_or_default();
+    if user.is_empty() { return; }
+    let mut all = accounts();
+    all.retain(|a| a["user"].as_str() != Some(user.as_str()) || a["server"] != v["server"]);
+    all.insert(0, v.clone());
+    if let Some(e) = accounts_entry() { let _ = e.set_password(&Value::Array(all).to_string()); }
+}
+
+fn accounts_entry() -> Option<keyring::Entry> {
+    keyring::Entry::new("Barbican", "accounts").ok()
+}
+
+/// All remembered accounts (most recently used first).
+pub fn accounts() -> Vec<Value> {
+    accounts_entry().and_then(|e| e.get_password().ok()).and_then(|s| serde_json::from_str::<Value>(&s).ok())
+        .and_then(|v| v.as_array().cloned()).unwrap_or_default()
+}
+
+pub fn forget_account(user: &str) {
+    let mut all = accounts();
+    all.retain(|a| a["user"].as_str() != Some(user));
+    if let Some(e) = accounts_entry() { let _ = e.set_password(&Value::Array(all).to_string()); }
 }
 
 pub fn remembered() -> Option<Value> {
