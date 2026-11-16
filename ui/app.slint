@@ -2906,9 +2906,9 @@ export component AppWindow inherits Window {
                         if !f.trashed: HoverAction { glyph: "\u{E896}"; y: 7px; clicked => { root.fl-download(f.id); } }
                         if !f.trashed: HoverAction { glyph: "\u{E8AC}"; y: 7px; clicked => { root.fl-start-rename(f.id); } }
                         // in the trash: restore, and delete for good
-                        if f.trashed: HoverAction { glyph: "\u{E7A7}"; y: 7px; clicked => { root.fl-restore(f.id); } }
                         // keep the size and date columns under their headers (one action fewer here)
                         if f.trashed: Rectangle { width: Prefs.large-targets ? 32px : 22px; }
+                        if f.trashed: HoverAction { glyph: "\u{E7A7}"; y: 7px; clicked => { root.fl-restore(f.id); } }
                         HoverAction { glyph: "\u{E74D}"; y: 7px; clicked => { root.fl-delete(f.id); } }
                     }
                 }
@@ -3225,7 +3225,7 @@ export component AppWindow inherits Window {
                     padding-top: 6px;
                     Rectangle {
                         height: 32px;
-                        bta := TouchArea { clicked => { root.show-settings = false; } }
+                        bta := TouchArea { clicked => { root.show-settings = false; if root.app != 0 { root.app = 0; root.app-changed(0); } } }
                         HorizontalLayout {
                             padding-left: 16px;
                             spacing: 8px;
