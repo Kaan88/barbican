@@ -2425,16 +2425,19 @@ export component AppWindow inherits Window {
             }
         }
     }
-    if root.ctx-open: TouchArea {
-        pointer-event(ev) => { if ev.kind == PointerEventKind.down { ctx-popup.close(); root.ctx-open = false; } }
-    }
     ctx-popup := PopupWindow {
         close-policy: no-auto-close;
-        x: max(0px, min(root.ctx-x, root.width - 252px));
-        y: max(0px, min(root.ctx-y, root.height - root.ctx-h - 4px));
-        width: 248px;
-        height: root.ctx-h;
+        x: 0; y: 0;
+        width: root.width;
+        height: root.height;
+        TouchArea {
+            pointer-event(ev) => { if ev.kind == PointerEventKind.down { ctx-popup.close(); root.ctx-open = false; } }
+        }
         ContextMenu {
+            x: max(0px, min(root.ctx-x, root.width - 252px));
+            y: max(0px, min(root.ctx-y, root.height - root.ctx-h - 4px));
+            width: 248px;
+            height: root.ctx-h;
             items: root.ctx-items;
             picked(a) => { ctx-popup.close(); root.ctx-open = false; root.ctx-pick(a); }
         }
