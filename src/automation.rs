@@ -7,7 +7,8 @@
 //! Commands (logical pixels):
 //!   click X Y | rclick X Y | dclick X Y | move X Y | scroll X Y DY
 //!   type TEXT            (sent as key presses)
-//!   key Enter|Escape|Tab|Backspace|Delete|Up|Down|Left|Right
+//!   key Enter|Escape|Tab|Backspace|Delete|Up|Down|Left|Right|Home|End (with Ctrl+/Shift+/Alt+ prefixes)
+//!   drag X1 Y1 X2 Y2
 //!   shot PATH.png        (window contents; the WebView2 email body is a separate window and not included)
 //!   size                 (window size)
 use crate::AppWindow;
@@ -83,15 +84,53 @@ fn run(u: &AppWindow, line: &str) -> String {
             "ok".into()
         }
         "key" => {
-            let k = match args.first().copied().unwrap_or("") {
-                "Enter" => Key::Return, "Escape" => Key::Escape, "Tab" => Key::Tab, "Backspace" => Key::Backspace,
-                "Delete" => Key::Delete, "Up" => Key::UpArrow, "Down" => Key::DownArrow, "Left" => Key::LeftArrow, "Right" => Key::RightArrow,
-                other => return format!("unknown key {other}"),
+            // "key Enter", "key Ctrl+B", "key Ctrl+Shift+Left", "key Shift+End"
+            let spec = args.first().copied().unwrap_or("");
+            let mut parts: Vec<&str> = spec.split('+').collect();
+            let last = parts.pop().unwrap_or("");
+            let named = |n: &str| -> Option<SharedString> {
+                Some(match n {
+                    "Enter" => Key::Return.into(), "Escape" => Key::Escape.into(), "Tab" => Key::Tab.into(), "Backspace" => Key::Backspace.into(),
+                    "Delete" => Key::Delete.into(), "Up" => Key::UpArrow.into(), "Down" => Key::DownArrow.into(), "Left" => Key::LeftArrow.into(),
+                    "Right" => Key::RightArrow.into(), "Home" => Key::Home.into(), "End" => Key::End.into(), "PageUp" => Key::PageUp.into(),
+                    "PageDown" => Key::PageDown.into(), "Space" => " ".into(),
+                    s if s.chars().count() == 1 => s.to_lowercase().into(),
+                    _ => return None,
+                })
             };
-            let text: SharedString = k.into();
+            let Some(text) = named(last) else { return format!("unknown key {last}") };
+            let mods: Vec<SharedString> = parts.iter().filter_map(|m| match *m {
+                "Ctrl" => Some(Key::Control.into()), "Shift" => Some(Key::Shift.into()), "Alt" => Some(Key::Alt.into()), _ => None,
+            }).collect();
+            for m in &mods { win.dispatch_event(WindowEvent::KeyPressed { text: m.clone() }); }
             win.dispatch_event(WindowEvent::KeyPressed { text: text.clone() });
             win.dispatch_event(WindowEvent::KeyReleased { text });
+            for m in mods.iter().rev() { win.dispatch_event(WindowEvent::KeyReleased { text: m.clone() }); }
             "ok".into()
+        }
+        "drag" => {
+            let (x0, y0, x1, y1) = (pos(&args, 0), pos(&args, 1), pos(&args, 2), pos(&args, 3));
+            let p0 = LogicalPosition::new(x0, y0);
+            win.dispatch_event(WindowEvent::PointerMoved { position: p0 });
+            win.dispatch_event(WindowEvent::PointerPressed { position: p0, button: PointerEventButton::Left });
+            for i in 1..=8 {
+                let f = i as f32 / 8.0;
+                win.dispatch_event(WindowEvent::PointerMoved { position: LogicalPosition::new(x0 + (x1 - x0) * f, y0 + (y1 - y0) * f) });
+            }
+            win.dispatch_event(WindowEvent::PointerReleased { position: LogicalPosition::new(x1, y1), button: PointerEventButton::Left });
+            "ok".into()
+        }
+        "rte-image" => {
+            // insert an image file into the composer (as paste/drop would)
+            let path = a.get(1).copied().unwrap_or("");
+            match std::fs::read(path) {
+                Ok(b) => { let name = path.rsplit(['/', '\\']).next().unwrap_or("image").to_string(); crate::rte::insert_image_bytes(u, b, crate::compose::mime_for(&name), &name); "ok".into() }
+                Err(e) => format!("error {e}"),
+            }
+        }
+        "rte-html" => {
+            // dump the composer's HTML export (for checking the round trip)
+            crate::rte::to_html().replace('\n', " ")
         }
         "size" => { let s = win.size(); format!("{} {} scale {}", s.width, s.height, win.scale_factor()) }
         "shot" => {

@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-slint = { version = "1.8", features = ["raw-window-handle-06", "renderer-skia"] }
+slint = { version = "1.8", features = ["raw-window-handle-06", "renderer-skia", "unstable-winit-030"] }
 wry = ">=0.45"
 reqwest = { version = "0.12", default-features = false, features = ["blocking", "json", "rustls-tls"] }
 serde_json = { version = "1", features = ["preserve_order"] }
@@ -18,6 +18,9 @@ notify-rust = "4"
 iana-time-zone = "0.1"
 rfd = { version = "0.15", default-features = false, features = ["common-controls-v6"] }
 keyring = { version = "3", features = ["windows-native"] }
+parley = "=0.11.1"
+arboard = "3.7"
+image = { version = "0.25", default-features = false, features = ["png", "jpeg", "gif", "webp", "bmp"] }
 
 blitz-html = "=0.3.0-beta.4"
 blitz-dom = "=0.3.0-beta.4"

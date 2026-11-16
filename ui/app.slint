@@ -607,15 +607,33 @@ component MailRow inherits VerticalLayout {
     }
 }
 
-export struct FmtResult {
-    text: string,
-    anchor: int,
-    cursor: int,
+// ---- rich-text composer: painted document pushed from Rust (src/rte)
+export struct RteText { x: length, y: length, w: length, h: length, text: string, role: int, color: color, size: length, weight: int, italic: bool, font: int, right: bool }
+export struct RteBox { x: length, y: length, w: length, h: length, role: int, color: color, border: length, border-role: int, border-color: color, radius: length }
+export struct RteImage { x: length, y: length, w: length, h: length, img: image, selected: bool, label: string }
+export struct RteState { bold: bool, italic: bool, underline: bool, strike: bool, code: bool, color: string, highlight: bool, size: int, block: string, align: string, in-table: bool, link: string, has-sel: bool, can-undo: bool, can-redo: bool }
+
+// colour roles of painted runs and boxes (resolved here so the theme switches live)
+global RteColors {
+    public pure function of(role: int, c: color) -> color {
+        if role == 1 { return Theme.text; }
+        if role == 2 { return Theme.dim; }
+        if role == 3 { return Theme.track; }
+        if role == 4 { return Theme.dark ? #f0577a55 : #c8234a33; }
+        if role == 5 { return Theme.chip; }
+        if role == 6 { return Theme.dark ? #7cb1ff : #2563eb; }
+        if role == 7 { return Theme.raised; }
+        if role == 8 { return Theme.accent; }
+        if role == 9 { return transparent; }
+        return c;
+    }
 }
 
 component FmtButton inherits Rectangle {
     in property <string> glyph;
     in property <string> label;
+    in property <bool> active;
+    in property <string> tip;
     in property <bool> bold;
     in property <bool> italic;
     in property <bool> underline;
@@ -624,20 +642,29 @@ component FmtButton inherits Rectangle {
     width: 24px;
     height: 24px;
     border-radius: 4px;
-    background: fta.pressed ? Theme.chip : fta.has-hover ? Theme.hover : transparent;
+    background: fta.pressed ? Theme.chip : active ? Theme.sel : fta.has-hover ? Theme.hover : transparent;
     fta := TouchArea { clicked => { root.clicked(); } }
-    if glyph != "": Icon { text: glyph; font-size: 13px; color: fta.has-hover ? Theme.text : Theme.dim; }
+    if glyph != "": Icon { text: glyph; font-size: 13px; color: active ? Theme.sel-text : fta.has-hover ? Theme.text : Theme.dim; }
     if glyph == "": Text {
         text: label;
-        color: fta.has-hover ? Theme.text : Theme.dim;
+        color: active ? Theme.sel-text : fta.has-hover ? Theme.text : Theme.dim;
         font-size: 12px;
         font-weight: bold ? 800 : 500;
         font-italic: italic;
         horizontal-alignment: center;
         vertical-alignment: center;
     }
-    if underline: Rectangle { x: 8px; y: 18px; width: 8px; height: 1px; background: fta.has-hover ? Theme.text : Theme.dim; }
-    if strike: Rectangle { x: 7px; y: 12px; width: 10px; height: 1px; background: fta.has-hover ? Theme.text : Theme.dim; }
+    if underline: Rectangle { x: 8px; y: 18px; width: 8px; height: 1px; background: active ? Theme.sel-text : fta.has-hover ? Theme.text : Theme.dim; }
+    if strike: Rectangle { x: 7px; y: 12px; width: 10px; height: 1px; background: active ? Theme.sel-text : fta.has-hover ? Theme.text : Theme.dim; }
+    if tip != "" && fta.has-hover: Rectangle {
+        y: parent.height + 4px;
+        x: (parent.width - tipt.preferred-width - 12px) / 2;
+        width: tipt.preferred-width + 12px;
+        height: 22px;
+        border-radius: 4px;
+        background: Theme.text;
+        tipt := Text { text: root.tip; color: Theme.bg; font-size: 11px; vertical-alignment: center; horizontal-alignment: center; }
+    }
 }
 
 component MenuItem inherits Rectangle {
@@ -936,7 +963,33 @@ export component AppWindow inherits Window {
     in-out property <bool> c-plain;
     in property <[bool]> c-tag-on;
     callback c-toggle-tag(int);
-    callback c-fmt(string, int, int) -> FmtResult;
+    // rich-text editor (src/rte)
+    in property <[RteText]> rte-texts;
+    in property <[RteBox]> rte-back;
+    in property <[RteBox]> rte-front;
+    in property <[RteImage]> rte-imgs;
+    in property <length> rte-height;
+    in property <length> rte-caret-x;
+    in property <length> rte-caret-y;
+    in property <length> rte-caret-h: 20px;
+    in property <length> rte-sel-x: -1px;
+    in property <length> rte-sel-y;
+    in property <bool> rte-empty: true;
+    in property <RteState> rte-state;
+    in-out property <bool> rte-blink: true;
+    in-out property <length> rte-width: 600px;
+    out property <length> rte-base-size: Prefs.font-size;
+    in-out property <bool> rte-link-open;
+    in-out property <string> rte-link-url;
+    in-out property <string> rte-link-text;
+    in-out property <int> rte-scroll-req;
+    in-out property <int> rte-focus-req;
+    in-out property <bool> rte-focus-on-open;
+    callback rte-key(string, bool, bool, bool) -> bool;
+    callback rte-pointer(string, length, length, bool);
+    callback rte-cmd(string);
+    callback rte-scroll-to-caret();
+    rte-scroll-to-caret => { self.rte-scroll-req += 1; }
     in property <[string]> c-identities;
     in-out property <int> c-from-index;
     in property <[Att]> c-attachments;
@@ -1014,7 +1067,6 @@ export component AppWindow inherits Window {
     in property <bool> sending: false;
     in-out property <string> c-to;
     in-out property <string> c-subject;
-    in-out property <string> c-body;
     in property <string> c-status;
     out property <length> bx: body.absolute-position.x;
     out property <length> by: body.absolute-position.y;
@@ -1604,10 +1656,32 @@ export component AppWindow inherits Window {
             if root.composing: cmp := Rectangle {
                 background: Theme.reader;
                 function fmt(k: string) {
-                    let r = root.c-fmt(k, body-input.anchor-position-byte-offset, body-input.cursor-position-byte-offset);
-                    root.c-body = r.text;
-                    body-input.set-selection-offsets(r.anchor, r.cursor);
-                    body-input.focus();
+                    root.rte-cmd(k);
+                    rte-fs.focus();
+                }
+                property <int> sreq: root.rte-scroll-req;
+                changed sreq => {
+                    let top = root.rte-caret-y + 14px;
+                    if top + root.rte-caret-h + 28px > -body-sv.content-y + body-sv.visible-height {
+                        body-sv.content-y = -(top + root.rte-caret-h + 28px - body-sv.visible-height);
+                    } else if top - 8px < -body-sv.content-y {
+                        body-sv.content-y = -max(0px, top - 8px);
+                    }
+                }
+                property <int> freq: root.rte-focus-req;
+                changed freq => { rte-fs.focus(); }
+                init => { if root.rte-focus-on-open { rte-fs.focus(); } }
+                rte-fs := FocusScope {
+                    x: 0px; y: 0px; width: 1px; height: 1px;
+                    key-pressed(e) => {
+                        if root.rte-key(e.text, e.modifiers.control, e.modifiers.shift, e.modifiers.alt) { return accept; }
+                        reject
+                    }
+                }
+                Timer {
+                    interval: 530ms;
+                    running: rte-fs.has-focus;
+                    triggered => { root.rte-blink = !root.rte-blink; }
                 }
                 TouchArea { }
                 VerticalLayout {
@@ -1685,31 +1759,32 @@ export component AppWindow inherits Window {
                         VerticalLayout { alignment: center; BareField { placeholder: "Subject"; text <=> root.c-subject; } }
                     }
                     Rectangle { height: 1px; background: Theme.line; }
-                    // formatting toolbar: inserts lightweight markup, converted to HTML on send
+                    // formatting toolbar (Bulwark's), driving the native rich-text editor
                     HorizontalLayout {
                         height: 36px;
                         padding-left: 8px;
                         padding-right: 8px;
                         spacing: 2px;
                         alignment: start;
-                        VerticalLayout { alignment: center; FmtButton { glyph: "\u{E8E9}"; clicked => { size-pop.show(); }
+                        VerticalLayout { alignment: center; FmtButton { glyph: "\u{E8E9}"; tip: "Font size"; active: root.rte-state.size != 0; clicked => { size-pop.show(); }
                             size-pop := PopupWindow { y: 26px; width: 150px;
                                 MenuPanel { VerticalLayout { padding: 4px;
-                                    MenuItem { text: "Small"; clicked => { cmp.fmt("size:2"); } }
-                                    MenuItem { text: "Normal"; clicked => { cmp.fmt("size:3"); } }
-                                    MenuItem { text: "Large"; clicked => { cmp.fmt("size:5"); } }
-                                    MenuItem { text: "Huge"; clicked => { cmp.fmt("size:7"); } }
+                                    MenuItem { text: "Small"; checkable: true; checked: root.rte-state.size == 12; clicked => { cmp.fmt("size:12"); } }
+                                    MenuItem { text: "Normal"; checkable: true; checked: root.rte-state.size == 0; clicked => { cmp.fmt("size:0"); } }
+                                    MenuItem { text: "Large"; checkable: true; checked: root.rte-state.size == 18; clicked => { cmp.fmt("size:18"); } }
+                                    MenuItem { text: "Huge"; checkable: true; checked: root.rte-state.size == 24; clicked => { cmp.fmt("size:24"); } }
                                 } }
                             }
                         } }
                         Rectangle { width: 9px; Rectangle { width: 1px; height: 14px; background: Theme.line; } }
-                        VerticalLayout { alignment: center; FmtButton { label: "B"; bold: true; clicked => { cmp.fmt("bold"); } } }
-                        VerticalLayout { alignment: center; FmtButton { label: "I"; italic: true; clicked => { cmp.fmt("italic"); } } }
-                        VerticalLayout { alignment: center; FmtButton { label: "U"; underline: true; clicked => { cmp.fmt("underline"); } } }
-                        VerticalLayout { alignment: center; FmtButton { label: "S"; strike: true; clicked => { cmp.fmt("strike"); } } }
-                        VerticalLayout { alignment: center; FmtButton { glyph: "\u{E8D3}"; clicked => { color-pop.show(); }
+                        VerticalLayout { alignment: center; FmtButton { label: "B"; bold: true; tip: "Bold (Ctrl+B)"; active: root.rte-state.bold; clicked => { cmp.fmt("bold"); } } }
+                        VerticalLayout { alignment: center; FmtButton { label: "I"; italic: true; tip: "Italic (Ctrl+I)"; active: root.rte-state.italic; clicked => { cmp.fmt("italic"); } } }
+                        VerticalLayout { alignment: center; FmtButton { label: "U"; underline: true; tip: "Underline (Ctrl+U)"; active: root.rte-state.underline; clicked => { cmp.fmt("underline"); } } }
+                        VerticalLayout { alignment: center; FmtButton { label: "S"; strike: true; tip: "Strikethrough (Ctrl+Shift+S)"; active: root.rte-state.strike; clicked => { cmp.fmt("strike"); } } }
+                        VerticalLayout { alignment: center; FmtButton { glyph: "\u{E8D3}"; tip: "Text colour"; active: root.rte-state.color != ""; clicked => { color-pop.show(); }
                             color-pop := PopupWindow { y: 26px; width: 150px;
                                 MenuPanel { VerticalLayout { padding: 4px;
+                                    MenuItem { text: "Default"; checkable: true; checked: root.rte-state.color == ""; clicked => { cmp.fmt("color:"); } }
                                     MenuItem { text: "Red"; swatch: #dc2626; clicked => { cmp.fmt("color:#dc2626"); } }
                                     MenuItem { text: "Orange"; swatch: #ea580c; clicked => { cmp.fmt("color:#ea580c"); } }
                                     MenuItem { text: "Green"; swatch: #16a34a; clicked => { cmp.fmt("color:#16a34a"); } }
@@ -1719,53 +1794,179 @@ export component AppWindow inherits Window {
                                 } }
                             }
                         } }
-                        VerticalLayout { alignment: center; FmtButton { glyph: "\u{E7E6}"; clicked => { cmp.fmt("highlight"); } } }
+                        VerticalLayout { alignment: center; FmtButton { glyph: "\u{E7E6}"; tip: "Highlight (Ctrl+Shift+H)"; active: root.rte-state.highlight; clicked => { cmp.fmt("highlight"); } } }
                         Rectangle { width: 9px; Rectangle { width: 1px; height: 14px; background: Theme.line; } }
-                        VerticalLayout { alignment: center; FmtButton { label: "H1"; bold: true; clicked => { cmp.fmt("h1"); } } }
-                        VerticalLayout { alignment: center; FmtButton { label: "H2"; bold: true; clicked => { cmp.fmt("h2"); } } }
+                        VerticalLayout { alignment: center; FmtButton { label: "H1"; bold: true; tip: "Heading 1 (Ctrl+Alt+1)"; active: root.rte-state.block == "h1"; clicked => { cmp.fmt("h1"); } } }
+                        VerticalLayout { alignment: center; FmtButton { label: "H2"; bold: true; tip: "Heading 2 (Ctrl+Alt+2)"; active: root.rte-state.block == "h2"; clicked => { cmp.fmt("h2"); } } }
                         Rectangle { width: 9px; Rectangle { width: 1px; height: 14px; background: Theme.line; } }
-                        VerticalLayout { alignment: center; FmtButton { glyph: "\u{E8FD}"; clicked => { cmp.fmt("bullet"); } } }
-                        VerticalLayout { alignment: center; FmtButton { label: "1."; bold: true; clicked => { cmp.fmt("numbered"); } } }
-                        VerticalLayout { alignment: center; FmtButton { label: "\u{201D}"; bold: true; clicked => { cmp.fmt("quote"); } } }
-                        VerticalLayout { alignment: center; FmtButton { glyph: "\u{E943}"; clicked => { cmp.fmt("code"); } } }
+                        VerticalLayout { alignment: center; FmtButton { glyph: "\u{E8FD}"; tip: "Bulleted list (Ctrl+Shift+8)"; active: root.rte-state.block == "bullet"; clicked => { cmp.fmt("bullet"); } } }
+                        VerticalLayout { alignment: center; FmtButton { label: "1."; bold: true; tip: "Numbered list (Ctrl+Shift+7)"; active: root.rte-state.block == "ordered"; clicked => { cmp.fmt("numbered"); } } }
+                        VerticalLayout { alignment: center; FmtButton { label: "\u{201D}"; bold: true; tip: "Quote (Ctrl+Shift+B)"; active: root.rte-state.block == "quote"; clicked => { cmp.fmt("quote"); } } }
+                        VerticalLayout { alignment: center; FmtButton { glyph: "\u{E943}"; tip: "Code block (Ctrl+Alt+C)"; active: root.rte-state.block == "code"; clicked => { cmp.fmt("code"); } } }
                         Rectangle { width: 9px; Rectangle { width: 1px; height: 14px; background: Theme.line; } }
-                        VerticalLayout { alignment: center; FmtButton { glyph: "\u{E8E4}"; clicked => { cmp.fmt("align:left"); } } }
-                        VerticalLayout { alignment: center; FmtButton { glyph: "\u{E8E3}"; clicked => { cmp.fmt("align:center"); } } }
-                        VerticalLayout { alignment: center; FmtButton { glyph: "\u{E8E2}"; clicked => { cmp.fmt("align:right"); } } }
+                        VerticalLayout { alignment: center; FmtButton { glyph: "\u{E8E4}"; tip: "Align left"; active: root.rte-state.align == "left"; clicked => { cmp.fmt("align:left"); } } }
+                        VerticalLayout { alignment: center; FmtButton { glyph: "\u{E8E3}"; tip: "Center"; active: root.rte-state.align == "center"; clicked => { cmp.fmt("align:center"); } } }
+                        VerticalLayout { alignment: center; FmtButton { glyph: "\u{E8E2}"; tip: "Align right"; active: root.rte-state.align == "right"; clicked => { cmp.fmt("align:right"); } } }
                         Rectangle { width: 9px; Rectangle { width: 1px; height: 14px; background: Theme.line; } }
-                        VerticalLayout { alignment: center; FmtButton { glyph: "\u{E71B}"; clicked => { cmp.fmt("link"); } } }
-                        VerticalLayout { alignment: center; FmtButton { glyph: "\u{E80A}"; clicked => { cmp.fmt("table"); } } }
+                        VerticalLayout { alignment: center; FmtButton { glyph: "\u{E71B}"; tip: "Link (Ctrl+K)"; active: root.rte-state.link != ""; clicked => { cmp.fmt("link"); } } }
+                        VerticalLayout { alignment: center; FmtButton { glyph: "\u{E80A}"; tip: "Table"; active: root.rte-state.in-table; clicked => { table-pop.show(); }
+                            table-pop := PopupWindow { y: 26px; width: 200px;
+                                MenuPanel { VerticalLayout { padding: 4px;
+                                    if !root.rte-state.in-table: MenuItem { text: "Insert 2 \u{00D7} 2 table"; clicked => { cmp.fmt("table:2x2"); } }
+                                    if !root.rte-state.in-table: MenuItem { text: "Insert 3 \u{00D7} 3 table"; clicked => { cmp.fmt("table:3x3"); } }
+                                    if !root.rte-state.in-table: MenuItem { text: "Insert 4 \u{00D7} 4 table"; clicked => { cmp.fmt("table:4x4"); } }
+                                    if root.rte-state.in-table: MenuItem { text: "Add row above"; clicked => { cmp.fmt("table-op:row-above"); } }
+                                    if root.rte-state.in-table: MenuItem { text: "Add row below"; clicked => { cmp.fmt("table-op:row-below"); } }
+                                    if root.rte-state.in-table: MenuItem { text: "Add column left"; clicked => { cmp.fmt("table-op:col-left"); } }
+                                    if root.rte-state.in-table: MenuItem { text: "Add column right"; clicked => { cmp.fmt("table-op:col-right"); } }
+                                    if root.rte-state.in-table: MenuItem { text: "Delete row"; clicked => { cmp.fmt("table-op:del-row"); } }
+                                    if root.rte-state.in-table: MenuItem { text: "Delete column"; clicked => { cmp.fmt("table-op:del-col"); } }
+                                    if root.rte-state.in-table: MenuItem { text: "Toggle header row"; clicked => { cmp.fmt("table-op:header"); } }
+                                    if root.rte-state.in-table: MenuItem { text: "Delete table"; clicked => { cmp.fmt("table-op:del-table"); } }
+                                } }
+                            }
+                        } }
                         Rectangle { width: 9px; Rectangle { width: 1px; height: 14px; background: Theme.line; } }
-                        VerticalLayout { alignment: center; FmtButton { glyph: "\u{E894}"; clicked => { cmp.fmt("clear"); } } }
-                        VerticalLayout { alignment: center; FmtButton { glyph: "\u{E7A7}"; clicked => { body-input.undo(); body-input.focus(); } } }
-                        VerticalLayout { alignment: center; FmtButton { glyph: "\u{E7A6}"; clicked => { body-input.redo(); body-input.focus(); } } }
+                        VerticalLayout { alignment: center; FmtButton { glyph: "\u{E894}"; tip: "Clear formatting"; clicked => { cmp.fmt("clear"); } } }
+                        VerticalLayout { alignment: center; FmtButton { glyph: "\u{E7A7}"; tip: "Undo (Ctrl+Z)"; opacity: root.rte-state.can-undo ? 1 : 0.4; clicked => { cmp.fmt("undo"); } } }
+                        VerticalLayout { alignment: center; FmtButton { glyph: "\u{E7A6}"; tip: "Redo (Ctrl+Y)"; opacity: root.rte-state.can-redo ? 1 : 0.4; clicked => { cmp.fmt("redo"); } } }
                     }
                     Rectangle { height: 1px; background: Theme.line; }
                     // body
                     body-sv := ScrollView {
                         vertical-stretch: 1;
                         content-width: self.visible-width;
-                        content-height: max(self.visible-height, body-input.preferred-height + 24px);
-                        TouchArea { clicked => { body-input.focus(); } }
-                        if root.c-body == "": Text { x: 12px; y: 12px; text: "Write your message…"; color: Theme.dim; }
-                        body-input := TextInput {
-                            x: 12px;
-                            y: 12px;
-                            width: body-sv.visible-width - 24px;
-                            height: max(self.preferred-height, body-sv.visible-height - 24px);
-                            text <=> root.c-body;
-                            single-line: false;
-                            wrap: word-wrap;
-                            color: Theme.text;
-                            enabled: !root.ai-busy;
-                            cursor-position-changed(p) => {
-                                if p.y + 36px > -body-sv.content-y + body-sv.visible-height {
-                                    body-sv.content-y = -(p.y + 36px - body-sv.visible-height);
-                                } else if p.y + 12px < -body-sv.content-y {
-                                    body-sv.content-y = -p.y;
+                        content-height: max(self.visible-height, root.rte-height + 48px);
+                        rte-area := Rectangle {
+                            x: 16px;
+                            y: 14px;
+                            width: body-sv.visible-width - 32px;
+                            height: max(root.rte-height + 20px, body-sv.visible-height - 28px);
+                            init => { root.rte-width = self.width; root.rte-cmd("relayout"); }
+                            changed width => { root.rte-width = self.width; root.rte-cmd("relayout"); }
+                            rte-ta := TouchArea {
+                                mouse-cursor: text;
+                                pointer-event(ev) => {
+                                    if ev.button == PointerEventButton.left && ev.kind == PointerEventKind.down {
+                                        rte-fs.focus();
+                                        root.rte-pointer("down", self.mouse-x, self.mouse-y, ev.modifiers.shift);
+                                    } else if ev.kind == PointerEventKind.up {
+                                        root.rte-pointer("up", self.mouse-x, self.mouse-y, false);
+                                    }
+                                }
+                                moved => { if self.pressed { root.rte-pointer("drag", self.mouse-x, self.mouse-y, false); } }
+                            }
+                            for b in root.rte-back: Rectangle {
+                                x: b.x; y: b.y; width: b.w; height: b.h;
+                                background: RteColors.of(b.role, b.color);
+                                border-width: b.border;
+                                border-color: RteColors.of(b.border-role, b.border-color);
+                                border-radius: b.radius;
+                            }
+                            for t in root.rte-texts: Text {
+                                x: t.x; y: t.y; width: t.w; height: t.h;
+                                text: t.text;
+                                color: RteColors.of(t.role, t.color);
+                                font-size: t.size;
+                                font-weight: t.weight;
+                                font-italic: t.italic;
+                                font-family: t.font == 1 ? "Consolas" : t.font == 2 ? Theme.icons : "Segoe UI";
+                                horizontal-alignment: t.right ? right : left;
+                                vertical-alignment: top;
+                                wrap: no-wrap;
+                            }
+                            for im in root.rte-imgs: Rectangle {
+                                x: im.x; y: im.y; width: im.w; height: im.h;
+                                background: Theme.chip;
+                                border-radius: 4px;
+                                Image { width: parent.width; height: parent.height; source: im.img; image-fit: fill; }
+                                if im.img.width == 0: Text { text: "\u{1F5BC}  " + (im.label == "" ? "Image" : im.label); color: Theme.dim; horizontal-alignment: center; vertical-alignment: center; width: parent.width; height: parent.height; overflow: elide; }
+                                Rectangle { border-width: im.selected ? 2px : 0px; border-color: Theme.accent; border-radius: 4px; }
+                            }
+                            for b in root.rte-front: Rectangle {
+                                x: b.x; y: b.y; width: b.w; height: b.h;
+                                background: RteColors.of(b.role, b.color);
+                                border-radius: b.radius;
+                            }
+                            if root.rte-empty: Text { x: 0px; y: 0px; text: "Write your message\u{2026}"; color: Theme.dim; font-size: root.rte-base-size; }
+                            // caret
+                            Rectangle {
+                                visible: rte-fs.has-focus && root.rte-blink && !root.rte-state.has-sel && !root.ai-busy;
+                                x: root.rte-caret-x; y: root.rte-caret-y;
+                                width: 1.5px; height: root.rte-caret-h;
+                                background: Theme.text;
+                            }
+                            // floating selection toolbar
+                            if root.rte-state.has-sel && root.rte-sel-x >= 0 && !rte-ta.pressed && !root.rte-link-open: Rectangle {
+                                x: max(0px, min(parent.width - 214px, root.rte-sel-x - 107px));
+                                y: root.rte-sel-y >= 40px ? root.rte-sel-y - 38px : root.rte-sel-y + root.rte-caret-h + 8px;
+                                width: 214px; height: 32px;
+                                border-radius: 8px;
+                                background: Theme.popup;
+                                border-width: 1px; border-color: Theme.line;
+                                drop-shadow-blur: 10px; drop-shadow-color: #00000050;
+                                TouchArea { }
+                                HorizontalLayout {
+                                    padding: 4px; spacing: 2px;
+                                    FmtButton { label: "B"; bold: true; active: root.rte-state.bold; clicked => { cmp.fmt("bold"); } }
+                                    FmtButton { label: "I"; italic: true; active: root.rte-state.italic; clicked => { cmp.fmt("italic"); } }
+                                    FmtButton { label: "U"; underline: true; active: root.rte-state.underline; clicked => { cmp.fmt("underline"); } }
+                                    FmtButton { label: "S"; strike: true; active: root.rte-state.strike; clicked => { cmp.fmt("strike"); } }
+                                    FmtButton { glyph: "\u{E943}"; active: root.rte-state.code; clicked => { cmp.fmt("code-inline"); } }
+                                    FmtButton { glyph: "\u{E7E6}"; active: root.rte-state.highlight; clicked => { cmp.fmt("highlight"); } }
+                                    FmtButton { glyph: "\u{E71B}"; active: root.rte-state.link != ""; clicked => { cmp.fmt("link"); } }
+                                    FmtButton { glyph: "\u{E894}"; clicked => { cmp.fmt("clear"); } }
+                                }
+                            }
+                            // link bubble when the caret is in a link
+                            if root.rte-state.link != "" && !root.rte-state.has-sel && !root.rte-link-open && rte-fs.has-focus: Rectangle {
+                                x: max(0px, min(parent.width - 330px, root.rte-caret-x - 20px));
+                                y: root.rte-caret-y + root.rte-caret-h + 6px;
+                                width: 330px; height: 30px;
+                                border-radius: 8px;
+                                background: Theme.popup;
+                                border-width: 1px; border-color: Theme.line;
+                                drop-shadow-blur: 10px; drop-shadow-color: #00000050;
+                                TouchArea { }
+                                HorizontalLayout {
+                                    padding-left: 10px; padding-right: 4px; spacing: 4px;
+                                    Text { text: root.rte-state.link; color: RteColors.of(6, #000); font-size: 12px; vertical-alignment: center; overflow: elide; horizontal-stretch: 1; }
+                                    VerticalLayout { alignment: center; FmtButton { glyph: "\u{E8A7}"; tip: "Open"; clicked => { root.rte-cmd("link-open"); } } }
+                                    VerticalLayout { alignment: center; FmtButton { glyph: "\u{E70F}"; tip: "Edit"; clicked => { root.rte-cmd("link"); } } }
+                                    VerticalLayout { alignment: center; FmtButton { glyph: "\u{E8C8}"; tip: "Copy"; clicked => { root.rte-link-url = root.rte-state.link; root.rte-cmd("copy-link"); } } }
+                                    VerticalLayout { alignment: center; FmtButton { glyph: "\u{E711}"; tip: "Remove link"; clicked => { cmp.fmt("link-remove"); } } }
+                                }
+                            }
+                            // link editor popover
+                            if root.rte-link-open: Rectangle {
+                                x: max(0px, min(parent.width - 340px, root.rte-caret-x - 20px));
+                                y: root.rte-caret-y + root.rte-caret-h + 6px;
+                                width: 340px; height: 112px;
+                                border-radius: 8px;
+                                background: Theme.popup;
+                                border-width: 1px; border-color: Theme.line;
+                                drop-shadow-blur: 12px; drop-shadow-color: #00000060;
+                                TouchArea { }
+                                VerticalLayout {
+                                    padding: 10px; spacing: 6px;
+                                    HorizontalLayout { spacing: 8px;
+                                        Text { text: "Text"; color: Theme.dim; width: 36px; vertical-alignment: center; font-size: 12px; }
+                                        link-text := LineEdit { text <=> root.rte-link-text; placeholder-text: "Link text"; accepted => { root.rte-cmd("link-apply"); rte-fs.focus(); } }
+                                    }
+                                    HorizontalLayout { spacing: 8px;
+                                        Text { text: "URL"; color: Theme.dim; width: 36px; vertical-alignment: center; font-size: 12px; }
+                                        link-url := LineEdit { text <=> root.rte-link-url; placeholder-text: "https://"; init => { self.focus(); } accepted => { root.rte-cmd("link-apply"); rte-fs.focus(); } }
+                                    }
                                 }
                             }
                         }
+                    }
+                    if root.rte-link-open: HorizontalLayout {
+                        padding-left: 12px; padding-right: 12px; padding-bottom: 6px; spacing: 6px; alignment: end;
+                        Text { text: "Press Enter to apply, Esc to cancel"; color: Theme.dim; font-size: 11px; vertical-alignment: center; horizontal-stretch: 1; }
+                        VerticalLayout { alignment: center; BarButton { label: "Remove link"; chevron: false; clicked => { root.rte-cmd("link-remove"); rte-fs.focus(); } } }
+                        VerticalLayout { alignment: center; BarButton { label: "Cancel"; chevron: false; clicked => { root.rte-link-open = false; rte-fs.focus(); } } }
+                        VerticalLayout { alignment: center; BarButton { label: "Apply"; chevron: false; clicked => { root.rte-cmd("link-apply"); rte-fs.focus(); } } }
                     }
                     if root.c-attachments.length > 0: HorizontalLayout {
                         padding-left: 12px;
@@ -1795,9 +1996,10 @@ export component AppWindow inherits Window {
                         padding-right: 10px;
                         spacing: 4px;
                         VerticalLayout { alignment: center; BarButton { glyph: "\u{E723}"; label: "Attach"; clicked => { attach-pop.show(); }
-                            attach-pop := PopupWindow { y: -46px; width: 190px;
+                            attach-pop := PopupWindow { y: -76px; width: 190px;
                                 MenuPanel { VerticalLayout { padding: 4px;
                                     MenuItem { glyph: "\u{E8E5}"; text: "Attach files…"; clicked => { root.attach-file(); } }
+                                    MenuItem { glyph: "\u{EB9F}"; text: "Insert image…"; clicked => { root.rte-cmd("image"); } }
                                 } }
                             }
                         } }

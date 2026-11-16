@@ -1,6 +1,7 @@
 //! Composer: new / reply / reply-all / forward / edit draft, identities, Cc/Bcc,
 //! attachments (upload), drafts, and undo-send via EmailSubmission HOLDFOR.
 use crate::jmap::{Attachment, Client, Outgoing};
+use crate::rte::{self, model::{Block, Doc, Kind}};
 use crate::{AppWindow, Att};
 use serde_json::Value;
 use slint::{ComponentHandle, ModelRc, SharedString, VecModel};
@@ -16,11 +17,12 @@ struct State {
     in_reply_to: Vec<String>,
     references: Vec<String>,
     identities: Vec<String>,
-    signatures: Vec<String>,
+    /// (text, html) signature per identity.
+    signatures: Vec<(String, String)>,
     kind_new: bool,
     sig_done: bool,
-    /// Composer markup source (for undo-send), and plain/receipt/tag options.
-    body_src: String,
+    /// Composer document (for undo-send), and plain/receipt/tag options.
+    body_doc: Option<Doc>,
     plain: bool,
     tags: Vec<bool>,
 }
@@ -28,9 +30,40 @@ struct State {
 thread_local! {
     static ST: RefCell<State> = RefCell::new(State::default());
     static PENDING: RefCell<Option<(String, Outgoing, State)>> = const { RefCell::new(None) };
+    static CLIENT: RefCell<Option<Arc<Client>>> = const { RefCell::new(None) };
 }
 
-pub enum Kind { New, Reply, ReplyAll, Forward }
+/// Upload an inline image in the background and record its blob id in the document.
+pub fn upload_inline(u: &AppWindow, cid: String, bytes: Vec<u8>, mime: String, _name: String) {
+    let Some(c) = CLIENT.with(|c| c.borrow().clone()) else { u.set_c_status("Not signed in.".into()); return };
+    let w = u.as_weak();
+    u.set_c_status("Uploading image…".into());
+    std::thread::spawn(move || {
+        let res = c.upload(bytes, &mime);
+        let _ = w.upgrade_in_event_loop(move |u| match res {
+            Ok((blob, _)) => {
+                rte::set_image_blob(&cid, &blob);
+                if u.get_c_status().as_str() == "Uploading image…" { u.set_c_status("".into()); }
+            }
+            Err(e) => u.set_c_status(format!("Image upload failed: {e}").into()),
+        });
+    });
+}
+
+/// The quoted original of `m` as HTML (cleaned) and text.
+fn quoted_of(m: &Value) -> (String, String) {
+    let (html, text) = crate::body_text(m);
+    if !html.trim().is_empty() {
+        let h = rte::html::clean_quoted_html(&html);
+        let t = if text.trim().is_empty() { rte::html::html_text(&h) } else { text };
+        (h, t)
+    } else {
+        let h = text.lines().map(|l| format!("<div>{}</div>", if l.is_empty() { "<br>".into() } else { rte::html::esc(l) })).collect::<String>();
+        (h, text)
+    }
+}
+
+pub enum ComposeKind { New, Reply, ReplyAll, Forward }
 
 fn text_of(m: &Value) -> String {
     let (html, text) = crate::body_text(m);
@@ -76,7 +109,7 @@ fn load_identities(u: &AppWindow, c: Arc<Client>, received: Vec<String>) {
     std::thread::spawn(move || {
         let ids = c.identities().unwrap_or_default();
         let ids2 = ids.clone();
-        let sigs: Vec<String> = ids.iter().map(|i| i["textSignature"].as_str().unwrap_or("").to_string()).collect();
+        let sigs: Vec<(String, String)> = ids.iter().map(|i| (i["textSignature"].as_str().unwrap_or("").to_string(), i["htmlSignature"].as_str().unwrap_or("").to_string())).collect();
         let list: Vec<String> = ids.iter().map(|i| {
             let (n, e) = (i["name"].as_str().unwrap_or(""), i["email"].as_str().unwrap_or(""));
             if n.is_empty() { e.to_string() } else { format!("{n} <{e}>") }
@@ -97,29 +130,35 @@ fn load_identities(u: &AppWindow, c: Arc<Client>, received: Vec<String>) {
     });
 }
 
-/// Insert the identity's signature once, following Bulwark's signature settings.
+/// Insert the identity's signature once (as rich blocks), following Bulwark's signature settings.
 fn apply_signature(u: &AppWindow) {
     let prefs = crate::settings::Settings::load();
-    let (sig, new, done) = ST.with(|s| {
+    let ((text, html), new, done) = ST.with(|s| {
         let s = s.borrow();
         (s.signatures.get(u.get_c_from_index() as usize).cloned().unwrap_or_default(), s.kind_new, s.sig_done)
     });
-    if done || sig.trim().is_empty() { return; }
+    if done || (text.trim().is_empty() && rte::html::html_text(&html).trim().is_empty()) { return; }
     let enabled = if new { prefs.bool("signatureNewMailEnabled", true) } else { prefs.bool("signatureReplyForwardEnabled", true) };
     if !enabled { return; }
-    let sep = if prefs.bool("signatureSeparatorEnabled", true) { "-- \n" } else { "" };
-    let block = format!("{sep}{}", sig.trim_end());
-    let body = u.get_c_body().to_string();
+    let mut sig: Vec<Block> = vec![];
+    if prefs.bool("signatureSeparatorEnabled", true) { sig.push(Block::para("-- ")); }
+    if !rte::html::html_text(&html).trim().is_empty() { sig.extend(rte::html::import(&html)); }
+    else { sig.extend(rte::html::import_text(text.trim_end())); }
     let above = prefs.str("signaturePosition", "below_quote") == "above_quote";
-    let out = if new || body.trim().is_empty() {
-        format!("\n\n{block}")
-    } else if above {
-        // replies/forwards start with two blank lines before the quote
-        format!("\n\n{block}{}", body.trim_start_matches('\n').split_once('\n').map(|_| format!("\n\n{}", body.trim_start_matches('\n'))).unwrap_or_default())
-    } else {
-        format!("{}\n\n{block}", body.trim_end())
-    };
-    u.set_c_body(out.into());
+    rte::with(|e| {
+        let blocks = &mut e.doc.blocks;
+        // the reply header line before the quoted block, if any
+        let q = blocks.iter().position(|b| matches!(b.kind, Kind::Quoted { .. }));
+        let at = match q {
+            Some(qi) if above => { let h = if qi > 0 && !blocks[qi - 1].is_empty() { qi - 1 } else { qi }; sig.push(Block::para("")); h }
+            _ => { sig.insert(0, Block::para("")); blocks.len() }
+        };
+        let at = at.min(blocks.len());
+        for (k, b) in sig.into_iter().enumerate() { blocks.insert(at + k, b); }
+        e.doc.fix();
+    });
+    for b in rte::doc().blocks { if let Kind::Image(img) = &b.kind { rte::register_image(img); } }
+    rte::refresh(u);
     ST.with(|s| s.borrow_mut().sig_done = true);
 }
 
@@ -135,19 +174,20 @@ fn reset(u: &AppWindow) {
     u.set_c_plain(false);
     u.set_c_tag_on(ModelRc::new(VecModel::from(vec![false; crate::mail::TAGS.len()])));
     u.set_c_subject("".into());
-    u.set_c_body("".into());
+    rte::set_doc(u, Doc::default());
     u.set_c_status("".into());
     u.set_can_undo(false);
     refresh_attachments(u);
 }
 
 /// Open the composer for a new message, a reply, reply-all or forward of `m`.
-pub fn open(u: &AppWindow, c: Arc<Client>, kind: Kind, m: Option<&Value>) {
+pub fn open(u: &AppWindow, c: Arc<Client>, kind: ComposeKind, m: Option<&Value>) {
     reset(u);
-    ST.with(|s| s.borrow_mut().kind_new = matches!(kind, Kind::New));
+    CLIENT.with(|x| *x.borrow_mut() = Some(c.clone()));
+    ST.with(|s| s.borrow_mut().kind_new = matches!(kind, ComposeKind::New));
     // replies come from the own identity the message was sent to (not forwards, like Bulwark)
     let received: Vec<String> = match (&kind, m) {
-        (Kind::Reply | Kind::ReplyAll, Some(m)) => ["to", "cc", "bcc"].iter()
+        (ComposeKind::Reply | ComposeKind::ReplyAll, Some(m)) => ["to", "cc", "bcc"].iter()
             .flat_map(|k| m[*k].as_array().cloned().unwrap_or_default())
             .filter_map(|x| x["email"].as_str().map(String::from)).collect(),
         _ => vec![],
@@ -158,7 +198,7 @@ pub fn open(u: &AppWindow, c: Arc<Client>, kind: Kind, m: Option<&Value>) {
         let subj = m["subject"].as_str().unwrap_or("").to_string();
         let who = format!("{} <{}>", crate::mail::sender(m), m["from"][0]["email"].as_str().unwrap_or(""));
         let date = crate::mail::parse_time(&m["receivedAt"]).map(|t| t.format("%a %d %b %Y, %H:%M").to_string()).unwrap_or_default();
-        let text = text_of(m);
+        let (qhtml, qtext) = quoted_of(m);
         let msgid = m["messageId"][0].as_str().map(String::from);
         let mut refs: Vec<String> = m["references"].as_array().map(|a| a.iter().filter_map(|x| x.as_str().map(String::from)).collect()).unwrap_or_default();
         if let Some(id) = &msgid { refs.push(id.clone()); }
@@ -167,9 +207,12 @@ pub fn open(u: &AppWindow, c: Arc<Client>, kind: Kind, m: Option<&Value>) {
             if n.is_empty() { e.to_string() } else { format!("\"{n}\" <{e}>") }
         };
         match kind {
-            Kind::Forward => {
+            ComposeKind::Forward => {
                 u.set_c_subject((if subj.to_lowercase().starts_with("fwd:") { subj.clone() } else { format!("Fwd: {subj}") }).into());
-                u.set_c_body(format!("\n\n---------- Forwarded message ----------\nFrom: {who}\nDate: {date}\nSubject: {subj}\n\n{text}").into());
+                let blocks = vec![Block::para(""), Block::para("---------- Forwarded message ----------"),
+                    Block::para(&format!("From: {who}\nDate: {date}\nSubject: {subj}")),
+                    Block::new(Kind::Quoted { html: qhtml, text: qtext, open: true, cite: false })];
+                rte::set_doc(u, Doc { blocks });
                 // carry the original attachments
                 let atts: Vec<Attachment> = m["attachments"].as_array().cloned().unwrap_or_default().iter().map(|a| Attachment {
                     blob_id: a["blobId"].as_str().unwrap_or("").into(), name: a["name"].as_str().unwrap_or("attachment").into(),
@@ -177,11 +220,11 @@ pub fn open(u: &AppWindow, c: Arc<Client>, kind: Kind, m: Option<&Value>) {
                 }).collect();
                 ST.with(|s| { let mut s = s.borrow_mut(); s.attachments = atts; s.forwarding = true; s.answering = m["id"].as_str().map(String::from); });
             }
-            Kind::Reply | Kind::ReplyAll => {
+            ComposeKind::Reply | ComposeKind::ReplyAll => {
                 let src = if m["replyTo"].as_array().is_some_and(|a| !a.is_empty()) { &m["replyTo"] } else { &m["from"] };
                 let mut to: Vec<String> = src.as_array().map(|a| a.iter().map(addr).collect()).unwrap_or_default();
                 let mut cc: Vec<String> = vec![];
-                if matches!(kind, Kind::ReplyAll) {
+                if matches!(kind, ComposeKind::ReplyAll) {
                     let seen = |list: &Vec<String>, e: &str| list.iter().any(|x| x.to_lowercase().contains(&e.to_lowercase()));
                     for x in m["to"].as_array().cloned().unwrap_or_default() {
                         let e = x["email"].as_str().unwrap_or("");
@@ -195,8 +238,9 @@ pub fn open(u: &AppWindow, c: Arc<Client>, kind: Kind, m: Option<&Value>) {
                 u.set_c_to(to.join(", ").into());
                 if !cc.is_empty() { u.set_c_cc(cc.join(", ").into()); u.set_c_show_ccbcc(true); u.set_c_show_cc(true); }
                 u.set_c_subject((if subj.to_lowercase().starts_with("re:") { subj.clone() } else { format!("Re: {subj}") }).into());
-                let quoted: String = text.lines().map(|l| format!("> {l}\n")).collect();
-                u.set_c_body(format!("\n\nOn {date}, {who} wrote:\n{quoted}").into());
+                let blocks = vec![Block::para(""), Block::para(&format!("On {date}, {who} wrote:")),
+                    Block::new(Kind::Quoted { html: qhtml, text: qtext, open: false, cite: true })];
+                rte::set_doc(u, Doc { blocks });
                 ST.with(|s| {
                     let mut s = s.borrow_mut();
                     s.answering = m["id"].as_str().map(String::from);
@@ -204,17 +248,19 @@ pub fn open(u: &AppWindow, c: Arc<Client>, kind: Kind, m: Option<&Value>) {
                     s.references = refs;
                 });
             }
-            Kind::New => {}
+            ComposeKind::New => {}
         }
     }
     refresh_attachments(u);
     u.invoke_tpl_refresh();
+    if m.is_some() { rte::focus(u); } else { u.set_rte_focus_on_open(false); }
     u.set_composing(true);
 }
 
 /// Re-open a saved draft for editing.
 pub fn open_draft(u: &AppWindow, c: Arc<Client>, m: &Value) {
     reset(u);
+    CLIENT.with(|x| *x.borrow_mut() = Some(c.clone()));
     ST.with(|s| s.borrow_mut().sig_done = true);
     load_identities(u, c, vec![]);
     let join = |k: &str| m[k].as_array().map(|a| a.iter().map(|x| {
@@ -228,11 +274,31 @@ pub fn open_draft(u: &AppWindow, c: Arc<Client>, m: &Value) {
     u.set_c_show_cc(!join("cc").is_empty());
     u.set_c_show_bcc(!join("bcc").is_empty());
     u.set_c_subject(m["subject"].as_str().unwrap_or("").into());
-    u.set_c_body(text_of(m).into());
-    let atts: Vec<Attachment> = m["attachments"].as_array().cloned().unwrap_or_default().iter().map(|a| Attachment {
+    let (html, _) = crate::body_text(m);
+    let blocks = if html.trim().is_empty() { rte::html::import_text(&text_of(m)) } else { rte::html::import_with_quotes(&rte::html::clean_quoted_html(&html)) };
+    rte::set_doc(u, Doc { blocks });
+    // inline images referenced by cid stay in the body (fetched for display), not in the attachment list
+    let all = m["attachments"].as_array().cloned().unwrap_or_default();
+    // the reader already turned cid: references into data: URIs, so inline parts are matched in order
+    let has_data_imgs = html.contains("src=\"data:image/");
+    let is_inline = |a: &Value| a["cid"].as_str().is_some_and(|c| html.contains(&format!("cid:{c}")))
+        || (has_data_imgs && a["cid"].is_string() && a["disposition"] == "inline" && a["type"].as_str().is_some_and(|t| t.starts_with("image/")));
+    let atts: Vec<Attachment> = all.iter().filter(|a| !is_inline(a)).map(|a| Attachment {
         blob_id: a["blobId"].as_str().unwrap_or("").into(), name: a["name"].as_str().unwrap_or("attachment").into(),
         mime: a["type"].as_str().unwrap_or("application/octet-stream").into(), size: a["size"].as_u64().unwrap_or(0) as usize,
     }).collect();
+    for a in all.iter().filter(|a| is_inline(a)) {
+        let (cid, blob) = (a["cid"].as_str().unwrap_or("").to_string(), a["blobId"].as_str().unwrap_or("").to_string());
+        let (name, mime) = (a["name"].as_str().unwrap_or("image").to_string(), a["type"].as_str().unwrap_or("image/png").to_string());
+        if !html.contains(&format!("cid:{cid}")) { rte::adopt_data_image(&cid, &blob, &mime, &name); continue; }
+        rte::set_image_info(&cid, &blob, &mime, &name);
+        let Some(c2) = CLIENT.with(|x| x.borrow().clone()) else { continue };
+        let w = u.as_weak();
+        std::thread::spawn(move || {
+            let Ok(bytes) = c2.download(&blob, &name, &mime) else { return };
+            let _ = w.upgrade_in_event_loop(move |u| rte::set_image_bytes(&u, &cid, bytes));
+        });
+    }
     ST.with(|s| {
         let mut s = s.borrow_mut();
         s.attachments = atts;
@@ -241,6 +307,7 @@ pub fn open_draft(u: &AppWindow, c: Arc<Client>, m: &Value) {
         s.references = m["references"].as_array().map(|a| a.iter().filter_map(|x| x.as_str().map(String::from)).collect()).unwrap_or_default();
     });
     refresh_attachments(u);
+    rte::focus(u);
     u.set_composing(true);
 }
 
@@ -255,8 +322,11 @@ fn outgoing(u: &AppWindow) -> Outgoing {
             cc: u.get_c_cc().to_string(),
             bcc: u.get_c_bcc().to_string(),
             subject: u.get_c_subject().to_string(),
-            text: crate::markup::to_text(&u.get_c_body()),
-            html: (!u.get_c_plain()).then(|| crate::markup::to_html(&u.get_c_body())),
+            text: rte::to_text(),
+            html: (!u.get_c_plain()).then(rte::to_html),
+            inline: if u.get_c_plain() { vec![] } else {
+                rte::inline_images().into_iter().filter_map(|(cid, blob, mime, name, size)| Some((cid, Attachment { blob_id: blob?, name, mime, size }))).collect()
+            },
             attachments: s.attachments.clone(),
             in_reply_to: s.in_reply_to.clone(),
             references: s.references.clone(),
@@ -285,6 +355,16 @@ pub fn toggle_tag(u: &AppWindow, i: i32) {
 
 pub fn attach(u: &AppWindow, c: Arc<Client>) {
     let Some(files) = rfd::FileDialog::new().pick_files() else { return };
+    attach_files(u, c, files);
+}
+
+/// Attach files dropped on the composer.
+pub fn attach_paths(u: &AppWindow, files: Vec<std::path::PathBuf>) {
+    let Some(c) = CLIENT.with(|c| c.borrow().clone()) else { return };
+    attach_files(u, c, files);
+}
+
+fn attach_files(u: &AppWindow, c: Arc<Client>, files: Vec<std::path::PathBuf>) {
     let w = u.as_weak();
     u.set_c_status("Uploading…".into());
     std::thread::spawn(move || {
@@ -339,6 +419,10 @@ fn pre_send_warning(o: &Outgoing, prefs: &crate::settings::Settings) -> Option<S
 }
 
 pub fn send(u: &AppWindow, c: Arc<Client>, prefs: &crate::settings::Settings) {
+    if !u.get_c_plain() && rte::inline_images().iter().any(|i| i.1.is_none()) {
+        u.set_c_status("Wait for the images to finish uploading.".into());
+        return;
+    }
     let mut o = outgoing(u);
     if crate::jmap::parse_addresses(&format!("{},{},{}", o.to, o.cc, o.bcc)).is_empty() {
         u.set_c_status("Add at least one recipient.".into());
@@ -360,7 +444,7 @@ pub fn send(u: &AppWindow, c: Arc<Client>, prefs: &crate::settings::Settings) {
     let snapshot = ST.with(|s| {
         use slint::Model;
         let mut x = s.borrow().clone();
-        x.body_src = u.get_c_body().to_string();
+        x.body_doc = Some(rte::doc());
         x.plain = u.get_c_plain();
         x.tags = u.get_c_tag_on().iter().collect();
         x
@@ -425,7 +509,7 @@ pub fn undo_send(u: &AppWindow, c: Arc<Client>) {
         let res = if id.starts_with("local-") { Ok(()) } else { c.cancel_submission(&id) };
         let _ = w.upgrade_in_event_loop(move |u| match res {
             Ok(()) => {
-                let (src, plain, tags) = (snap.body_src.clone(), snap.plain, snap.tags.clone());
+                let (doc, plain, tags) = (snap.body_doc.clone().unwrap_or_default(), snap.plain, snap.tags.clone());
                 ST.with(|s| { *s.borrow_mut() = snap; s.borrow_mut().draft_id = None; });
                 u.set_c_plain(plain);
                 u.set_c_read_receipt(o.read_receipt);
@@ -434,7 +518,7 @@ pub fn undo_send(u: &AppWindow, c: Arc<Client>) {
                 u.set_c_show_ccbcc(!o.cc.is_empty() || !o.bcc.is_empty());
                 u.set_c_show_cc(!o.cc.is_empty());
                 u.set_c_show_bcc(!o.bcc.is_empty());
-                u.set_c_subject(o.subject.into()); u.set_c_body(src.into());
+                u.set_c_subject(o.subject.into()); rte::set_doc(&u, doc);
                 refresh_attachments(&u);
                 u.set_c_status("Sending was canceled.".into());
                 u.set_composing(true);
