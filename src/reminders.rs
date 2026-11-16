@@ -19,7 +19,16 @@ use std::sync::Arc;
 pub const STALE_MS: i64 = 10 * 60 * 1000;
 /// How far back the missed-reminders dialog looks.
 pub const MISSED_WINDOW_MS: i64 = 7 * 24 * 3600 * 1000;
-const FETCH_AHEAD_MS: i64 = 26 * 3600 * 1000;
+/// How far ahead events are read: at least 8 days, and as far as the longest calendar default
+/// alert reaches (an event alert longer than that is caught by the start margin in fetch_ahead).
+const FETCH_AHEAD_MS: i64 = 8 * 86_400_000;
+
+/// The read-ahead window for these calendars: FETCH_AHEAD_MS, or the longest default alert plus a day.
+pub fn fetch_ahead(cals: &[Value]) -> i64 {
+    let longest = cals.iter().flat_map(|c| ["defaultAlertsWithTime", "defaultAlertsWithoutTime"].into_iter().filter_map(move |k| c[k].as_object()))
+        .flat_map(|m| m.values()).filter_map(|a| a["trigger"]["offset"].as_str().and_then(offset_ms)).map(|x| x.abs()).max().unwrap_or(0);
+    FETCH_AHEAD_MS.max(longest + 86_400_000)
+}
 const REFETCH_SECS: u64 = 300;
 
 /// One editable reminder: an amount and unit before the start, and how it fires.
@@ -366,15 +375,29 @@ pub fn fetch(w: slint::Weak<AppWindow>, c: Arc<Client>) {
     let now = now_ms();
     let from = last_check(&owner).map(|l| l.max(now - MISSED_WINDOW_MS)).unwrap_or(now - STALE_MS) - 86_400_000;
     std::thread::spawn(move || {
-        let acc = c.account_for(CAL);
+        let primary = c.account_for(CAL);
         let fmt = |ms: i64| chrono::Utc.timestamp_millis_opt(ms).single().map(|t| t.format("%Y-%m-%dT%H:%M:%SZ").to_string()).unwrap_or_default();
         let res: Result<(Vec<Value>, Vec<Value>), String> = (|| {
-            let r = c.call(json!([["Calendar/get", {"accountId": acc, "ids": null, "properties": ["id", "name", "color", "defaultAlertsWithTime", "defaultAlertsWithoutTime"]}, "c"]]))?;
-            let cals = r[0][1]["list"].as_array().cloned().unwrap_or_default();
-            let ids = c.query_all("CalendarEvent/query", &acc, json!({"filter": {"after": fmt(from), "before": fmt(now + FETCH_AHEAD_MS)}}))?;
             let props = json!(["id", "@type", "uid", "title", "start", "duration", "timeZone", "showWithoutTime", "calendarIds", "recurrenceRules",
                 "excludedRecurrenceRules", "recurrenceOverrides", "alerts", "useDefaultAlerts", "status", "due", "progress", "locations", "virtualLocations"]);
-            Ok((cals, c.get_all("CalendarEvent/get", &acc, &ids, Some(&props))?))
+            let (mut all_cals, mut all_events) = (vec![], vec![]);
+            // every account with calendars: the user's own and the ones shared with them
+            for (acc, _, is_primary) in calendar::calendar_accounts(&c) {
+                let one: Result<(), String> = (|| {
+                    let r = c.call(json!([["Calendar/get", {"accountId": acc, "ids": null, "properties": ["id", "name", "color", "defaultAlertsWithTime", "defaultAlertsWithoutTime"]}, "c"]]))?;
+                    let mut cals = r[0][1]["list"].as_array().cloned().unwrap_or_default();
+                    let ahead = fetch_ahead(&cals);
+                    let ids = c.query_all("CalendarEvent/query", &acc, json!({"filter": {"after": fmt(from), "before": fmt(now + ahead)}}))?;
+                    let mut events = c.get_all("CalendarEvent/get", &acc, &ids, Some(&props))?;
+                    for k in cals.iter_mut() { let id = calendar::ns(&primary, &acc, k["id"].as_str().unwrap_or("")); k["id"] = json!(id); }
+                    for e in events.iter_mut() { calendar::namespace_event(e, &primary, &acc); }
+                    all_cals.extend(cals); all_events.extend(events);
+                    Ok(())
+                })();
+                // a shared account that fails must not hide the user's own reminders
+                if is_primary { one?; }
+            }
+            Ok((all_cals, all_events))
         })();
         let _ = w.upgrade_in_event_loop(move |u| {
             let Ok((cals, events)) = res else { return };
@@ -515,6 +538,15 @@ pub fn changed(w: slint::Weak<AppWindow>, c: Arc<Client>) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn fetch_ahead_covers_long_default_alerts() {
+        assert_eq!(fetch_ahead(&[]), 8 * 86_400_000);
+        let cals = [json!({"defaultAlertsWithoutTime": {"a": {"trigger": {"offset": "-P14D"}}}})];
+        assert_eq!(fetch_ahead(&cals), 15 * 86_400_000);
+        // a 2-days-before alert on an event 3 days out is inside the window
+        assert!(fetch_ahead(&[]) > 3 * 86_400_000);
+    }
 
     fn ms(s: &str) -> i64 { recurrence::zone_to_utc_ms(parse_local(s).unwrap(), Some("UTC")) }
 

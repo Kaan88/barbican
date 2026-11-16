@@ -642,13 +642,9 @@ pub fn refresh_feed(c: &Client, sub: &Value) -> Result<usize, String> {
     let url = normalize_feed_url(sub["url"].as_str().unwrap_or("")).ok_or("This isn't a calendar address.")?;
     let cal = sub["calendarId"].as_str().unwrap_or("").to_string();
     let (acc, raw) = calendar::server_ref(c, &cal);
-    let http = reqwest::blocking::Client::builder().timeout(std::time::Duration::from_secs(60)).user_agent("Barbican calendar").build().map_err(|e| e.to_string())?;
-    let resp = http.get(&url).send().map_err(|e| format!("Could not fetch the calendar: {e}"))?;
-    if !resp.status().is_success() { return Err(format!("The calendar address answered {}.", resp.status())); }
-    let body = resp.bytes().map_err(|e| e.to_string())?.to_vec();
-    if body.len() > 20_000_000 { return Err("The calendar is too large.".into()); }
-    if !String::from_utf8_lossy(&body[..body.len().min(4096)]).contains("BEGIN:VCALENDAR") { return Err("This address doesn't return a calendar (.ics).".into()); }
-    let feed = parse_ics(c, body)?;
+    let body = fetch_feed(&url)?;
+    let mut feed = parse_ics(c, body)?;
+    fill_uids(&url, &mut feed);
     let ids = c.query_all("CalendarEvent/query", &acc, json!({"filter": {"inCalendar": raw}}))
         .or_else(|_| c.query_all("CalendarEvent/query", &acc, json!({})))?;
     let props = json!(["id", "uid", "calendarIds", "title", "description", "start", "duration", "timeZone", "showWithoutTime", "locations", "recurrenceRules", "recurrenceOverrides", "status"]);
@@ -666,17 +662,19 @@ pub fn refresh_feed(c: &Client, sub: &Value) -> Result<usize, String> {
             unlink.push((e["id"].as_str().unwrap_or("").to_string(), json!({"calendarIds": ci})));
         }
     }
+    let mut failed: Vec<String> = vec![];
     for chunk in destroy.chunks(c.max_set()) {
-        c.call(json!([["CalendarEvent/set", {"accountId": acc, "destroy": chunk}, "d"]]))?;
+        let r = c.call(json!([["CalendarEvent/set", {"accountId": acc, "destroy": chunk}, "d"]]))?;
+        if let Some(nd) = r[0][1]["notDestroyed"].as_object() { failed.extend(nd.keys().map(|k| format!("{k}: not removed"))); }
     }
-    if !unlink.is_empty() { let _ = c.update("CalendarEvent/set", &acc, unlink); }
+    if !unlink.is_empty() { failed.extend(c.update("CalendarEvent/set", &acc, unlink)?.1); }
     // still in the feed: take what the feed changed
     const FEED: [&str; 9] = ["title", "description", "start", "duration", "timeZone", "showWithoutTime", "locations", "recurrenceRules", "status"];
     let mut changes = vec![];
     for f in &feed {
         let Some(uid) = f["uid"].as_str() else { continue };
         let Some(cur) = have.iter().find(|e| e["uid"] == uid && e["calendarIds"].as_object().is_some_and(|o| o.len() == 1)) else { continue };
-        let clean = sanitize_import(f, &raw);
+        let clean = sanitize_feed(f, &raw);
         let mut patch = Map::new();
         for k in FEED {
             let (a, b) = (clean.get(k).cloned().unwrap_or(Value::Null), cur.get(k).cloned().unwrap_or(Value::Null));
@@ -684,13 +682,60 @@ pub fn refresh_feed(c: &Client, sub: &Value) -> Result<usize, String> {
         }
         if !patch.is_empty() { changes.push((cur["id"].as_str().unwrap_or("").to_string(), Value::Object(patch))); }
     }
-    if !changes.is_empty() { let _ = c.update("CalendarEvent/set", &acc, changes); }
+    if !changes.is_empty() { failed.extend(c.update("CalendarEvent/set", &acc, changes)?.1); }
     let have_uids: std::collections::HashSet<&str> = have.iter().filter_map(|e| e["uid"].as_str()).collect();
     let mut seen = std::collections::HashSet::new();
-    let new: Vec<Value> = feed.iter().filter(|e| e["uid"].as_str().is_none_or(|u| !have_uids.contains(u) && seen.insert(u.to_string()))).map(|e| sanitize_import(e, &raw)).collect();
+    let new: Vec<Value> = feed.iter().filter(|e| e["uid"].as_str().is_none_or(|u| !have_uids.contains(u) && seen.insert(u.to_string()))) .map(|e| sanitize_feed(e, &raw)).collect();
+    let want = new.len();
     let (made, err) = create_batch(c, &acc, new);
-    if made == 0 { if let Some(e) = err { return Err(e); } }
+    if made < want { failed.push(err.unwrap_or_else(|| format!("{} events not added", want - made))); }
+    if !failed.is_empty() { return Err(refresh_error(&failed)); }
     Ok(made)
+}
+
+const FEED_MAX_BYTES: u64 = 20_000_000;
+
+/// GET the feed: at most 5 redirects, never past FEED_MAX_BYTES (checked while reading).
+fn fetch_feed(url: &str) -> Result<Vec<u8>, String> {
+    use std::io::Read;
+    let http = reqwest::blocking::Client::builder().timeout(std::time::Duration::from_secs(60)).user_agent("Barbican calendar")
+        .redirect(reqwest::redirect::Policy::limited(5)).build().map_err(|e| e.to_string())?;
+    let resp = http.get(url).send().map_err(|e| format!("Could not fetch the calendar: {e}"))?;
+    if !resp.status().is_success() { return Err(format!("The calendar address answered {}.", resp.status())); }
+    if resp.content_length().is_some_and(|n| n > FEED_MAX_BYTES) { return Err("The calendar is too large.".into()); }
+    let mut body = vec![];
+    resp.take(FEED_MAX_BYTES + 1).read_to_end(&mut body).map_err(|e| e.to_string())?;
+    if body.len() as u64 > FEED_MAX_BYTES { return Err("The calendar is too large.".into()); }
+    if !String::from_utf8_lossy(&body[..body.len().min(4096)]).contains("BEGIN:VCALENDAR") { return Err("This address doesn't return a calendar (.ics).".into()); }
+    Ok(body)
+}
+
+/// A feed event without a UID gets one from what identifies it in the feed (url, start, title;
+/// FNV-1a, stable across builds), so each refresh matches it again instead of recreating it.
+pub fn stable_uid(url: &str, e: &Value) -> String {
+    let mut f: u64 = 0xcbf29ce484222325;
+    for part in [url, e["start"].as_str().unwrap_or(""), e["title"].as_str().unwrap_or("")] {
+        for b in part.bytes().chain(std::iter::once(0x1f)) { f = (f ^ b as u64).wrapping_mul(0x100000001b3); }
+    }
+    format!("barbican-feed-{f:016x}")
+}
+
+pub fn fill_uids(url: &str, feed: &mut [Value]) {
+    for e in feed.iter_mut() {
+        if e["uid"].as_str().is_none_or(|u| u.trim().is_empty()) { let u = stable_uid(url, e); e["uid"] = json!(u); }
+    }
+}
+
+/// Subscriptions never carry the feed's own alarms (Bulwark does not fire remote alarms).
+pub fn sanitize_feed(src: &Value, cal: &str) -> Value {
+    let mut v = sanitize_import(src, cal);
+    if let Some(o) = v.as_object_mut() { o.remove("alerts"); o.insert("useDefaultAlerts".into(), json!(false)); }
+    v
+}
+
+fn refresh_error(failed: &[String]) -> String {
+    let n = failed.len();
+    format!("{n} change{} could not be applied ({})", if n == 1 { "" } else { "s" }, failed.iter().take(3).cloned().collect::<Vec<_>>().join("; "))
 }
 
 pub fn sub_save(u: &AppWindow, c: Arc<Client>) {
@@ -702,7 +747,8 @@ pub fn sub_save(u: &AppWindow, c: Arc<Client>) {
     let interval = INTERVALS[x.get_sub_interval().clamp(0, 4) as usize];
     let id = x.get_sub_id().to_string();
     x.set_sub_busy(true);
-    x.set_sub_status(if id.is_empty() { "Subscribing…" } else { "Saving…" }.into());
+    let plain = if url.starts_with("http://") { " (warning: this address is not encrypted, use https:// if the site offers it)" } else { "" };
+    x.set_sub_status(format!("{}{plain}", if id.is_empty() { "Subscribing…" } else { "Saving…" }).into());
     let w = u.as_weak();
     std::thread::spawn(move || {
         let acc = c.account_for(CAL);
@@ -868,6 +914,29 @@ pub fn wire(ui: &AppWindow, st: crate::Shared) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn feed_uid_is_stable_and_fills_only_missing() {
+        let e = json!({"title": "Standup", "start": "2026-11-20T09:00:00"});
+        let a = stable_uid("https://x/a.ics", &e);
+        assert_eq!(a, stable_uid("https://x/a.ics", &e));
+        assert_ne!(a, stable_uid("https://x/b.ics", &e));
+        assert_ne!(a, stable_uid("https://x/a.ics", &json!({"title": "Standup", "start": "2026-11-21T09:00:00"})));
+        let mut feed = vec![e.clone(), json!({"uid": "keep", "title": "K"}), json!({"uid": " ", "title": "B"})];
+        fill_uids("https://x/a.ics", &mut feed);
+        assert_eq!(feed[0]["uid"], a.as_str());
+        assert_eq!(feed[1]["uid"], "keep");
+        assert!(feed[2]["uid"].as_str().unwrap().starts_with("barbican-feed-"));
+    }
+    #[test]
+    fn feed_events_drop_remote_alerts() {
+        let src = json!({"@type": "Event", "uid": "u", "title": "T", "start": "2026-11-20T10:00:00", "alerts": {"a": {"trigger": {"offset": "-PT5M"}}}});
+        let f = sanitize_feed(&src, "cal");
+        assert!(f.get("alerts").is_none());
+        assert_eq!(f["useDefaultAlerts"], false);
+        assert!(sanitize_import(&src, "cal")["alerts"].is_object());
+        assert_eq!(refresh_error(&["a: x".into()]), "1 change could not be applied (a: x)");
+        assert!(refresh_error(&["a".into(), "b".into()]).starts_with("2 changes"));
+    }
     fn d(s: &str) -> NaiveDate { NaiveDate::parse_from_str(s, "%Y-%m-%d").unwrap() }
 
     #[test]

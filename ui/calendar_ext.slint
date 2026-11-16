@@ -189,6 +189,8 @@ export global CalX {
     // ---- tasks view ----
     in-out property <[CxTask]> tasks;
     in-out property <int> task-filter;
+    // open tasks the sidebar list leaves out (it shows the first few, "Show all" opens the Tasks view)
+    in-out property <int> sidebar-more;
     in-out property <[int]> task-counts: [0, 0, 0, 0];
     in-out property <string> task-quick;
     in-out property <string> task-quick-due;

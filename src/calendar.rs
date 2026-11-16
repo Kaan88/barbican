@@ -229,7 +229,7 @@ pub fn base_id(id: &str) -> &str { id.split('|').next().unwrap_or(id) }
 pub fn rid_of(id: &str) -> Option<&str> { id.split_once('|').map(|(_, r)| r) }
 
 /// The calendar accounts this login reaches: the primary one, then accounts shared with it.
-fn calendar_accounts(c: &Client) -> Vec<(String, String, bool)> {
+pub fn calendar_accounts(c: &Client) -> Vec<(String, String, bool)> {
     let primary = c.account_for(CAL);
     let mut out = vec![(primary.clone(), c.session["accounts"][&primary]["name"].as_str().unwrap_or("").to_string(), true)];
     if let Some(accs) = c.session["accounts"].as_object() {
@@ -637,6 +637,16 @@ pub fn delete(u: &AppWindow, c: Arc<Client>) { crate::cal_editor::delete(u, c); 
 mod tests {
     use super::*;
     #[test]
+    fn sidebar_tasks_capped_and_overdue() {
+        let open: Vec<Value> = (0..9).map(|_| json!({"progress": "needs-action"})).chain([json!({"progress": "completed"})]).collect();
+        assert_eq!(sidebar_tasks(&open), (SIDEBAR_TASKS, 3));
+        assert_eq!(sidebar_tasks(&open[..2]), (2, 0));
+        assert!(task_overdue("2026-11-09", false, "2026-11-16"));
+        assert!(!task_overdue("2026-11-16", false, "2026-11-16"));
+        assert!(!task_overdue("2026-11-09", true, "2026-11-16"));
+        assert!(!task_overdue("", false, "2026-11-16"));
+    }
+    #[test]
     fn day_columns_follow_range() {
         let d = NaiveDate::from_ymd_opt(2026, 11, 16).unwrap();
         assert_eq!(day_columns(d, d + Duration::days(3)).len(), 3);
@@ -686,16 +696,37 @@ pub fn is_task(e: &Value) -> bool {
         || (e["@type"] != "Event" && (e["progress"].is_string() || !e["due"].is_null() || e.get("percentComplete").is_some()))
 }
 
+/// How many tasks the sidebar lists (Bulwark shows a few and links to the Tasks view).
+pub const SIDEBAR_TASKS: usize = 6;
+
+/// (rows to show, open tasks left out) for tasks sorted open-first.
+pub fn sidebar_tasks(sorted: &[Value]) -> (usize, usize) {
+    let open = sorted.iter().filter(|t| t["progress"] != "completed").count();
+    let shown = open.min(SIDEBAR_TASKS);
+    (shown, open - shown)
+}
+
+/// A due date (YYYY-MM-DD) before today on a task not yet done.
+pub fn task_overdue(due: &str, done: bool, today: &str) -> bool { !done && !due.is_empty() && due < today }
+
 pub fn render_tasks(u: &AppWindow) {
     let mut tasks: Vec<Value> = RAW.with(|r| r.borrow().iter().filter(|e| is_task(e)).cloned().collect());
     tasks.sort_by_key(|t| (t["progress"] == "completed", t["due"].as_str().unwrap_or("9999").to_string()));
-    let rows: Vec<crate::TaskRow> = tasks.iter().map(|t| crate::TaskRow {
-        id: t["id"].as_str().unwrap_or("").into(),
-        title: t["title"].as_str().filter(|x| !x.is_empty()).unwrap_or("(untitled task)").into(),
-        due: t["due"].as_str().map(|d| d[..10.min(d.len())].to_string()).unwrap_or_default().into(),
-        done: t["progress"] == "completed",
+    let today = chrono::Local::now().format("%Y-%m-%d").to_string();
+    let (shown, more) = sidebar_tasks(&tasks);
+    let rows: Vec<crate::TaskRow> = tasks.iter().take(shown).map(|t| {
+        let due = t["due"].as_str().map(|d| d[..10.min(d.len())].to_string()).unwrap_or_default();
+        let done = t["progress"] == "completed";
+        crate::TaskRow {
+            id: t["id"].as_str().unwrap_or("").into(),
+            title: t["title"].as_str().filter(|x| !x.is_empty()).unwrap_or("(untitled task)").into(),
+            overdue: task_overdue(&due, done, &today),
+            due: due.into(),
+            done,
+        }
     }).collect();
     u.set_cal_tasks(ModelRc::new(VecModel::from(rows)));
+    u.global::<crate::CalX>().set_sidebar_more(more as i32);
     if view() == 4 { crate::cal_extra::render_tasks_view(u); }
 }
 
