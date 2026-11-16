@@ -402,7 +402,7 @@ component PeopleCta inherits Rectangle {
     in property <string> icon;
     in property <bool> enabled: true;
     callback clicked;
-    height: Prefs.large-targets ? 56px : (Theme.nordic ? 50px : 52px);
+    height: Prefs.large-targets ? 54px : (Theme.nordic ? 50px : 52px);
     border-radius: Theme.nordic ? self.height / 2 : 20px;
     background: !enabled ? Theme.accent.with-alpha(0.4) : pca.pressed ? Theme.accent.darker(0.12) : pca.has-hover ? Theme.accent.brighter(0.1) : Theme.accent;
     accessible-role: button;
@@ -412,7 +412,8 @@ component PeopleCta inherits Rectangle {
     HorizontalLayout {
         alignment: center;
         spacing: 8px;
-        if root.icon != "": VerticalLayout { alignment: center; SIcon { commands: root.icon; size: 16px; weight: 2.2; tint: Theme.on-accent; } }
+        // like Compose / New event: the icon in Bento only, Nordic pills are text-only
+        if root.icon != "" && Theme.bento: VerticalLayout { alignment: center; SIcon { commands: root.icon; size: 16px; weight: 2.2; tint: Theme.on-accent; } }
         Text { text: root.text; color: Theme.on-accent; font-size: 14.5px * Prefs.fs; font-weight: 700; vertical-alignment: center; }
     }
 }
@@ -2035,7 +2036,7 @@ export component AppWindow inherits Window {
                 HorizontalLayout { alignment: center; RailButton { icon: Icons.cal; tip: "Calendar"; active: root.app == 1 && !root.show-settings; clicked => { root.show-settings = false; root.app = 1; root.app-changed(1); } } }
                 HorizontalLayout { alignment: center; RailButton { icon: Icons.users; tip: "Contacts"; active: root.app == 2 && !root.show-settings; clicked => { root.show-settings = false; root.app = 2; root.app-changed(2); } } }
                 HorizontalLayout { alignment: center; RailButton { icon: Icons.folder; tip: "Files"; active: root.app == 3 && !root.show-settings; clicked => { root.show-settings = false; root.app = 3; root.app-changed(3); } } }
-                if !root.ai-hidden: HorizontalLayout { alignment: center; RailButton { icon: Icons.spark; tip: "Assistant"; active: root.chat-open; clicked => { root.show-settings = false; root.app = 0; root.chat-open = !root.chat-open; } } }
+                if !root.ai-hidden: HorizontalLayout { alignment: center; RailButton { icon: Icons.spark; tip: "Assistant"; active: root.chat-shown && root.app == 0 && !root.show-settings; clicked => { if root.app != 0 || root.show-settings { root.show-settings = false; root.app = 0; root.chat-open = true; root.c-ai-closed = false; } else if root.chat-shown { root.chat-open = false; if root.composing { root.c-ai-closed = true; } } else { root.chat-open = true; root.c-ai-closed = false; } } } }
                 if root.admin-enabled: HorizontalLayout { alignment: center; RailButton { icon: Icons.shield; tip: "Admin"; active: root.app == 4 && !root.show-settings; clicked => { root.show-settings = false; root.app = 4; root.app-changed(4); } } }
                 Rectangle { vertical-stretch: 1; }
                 HorizontalLayout { alignment: center; RailButton { icon: Icons.settings; tip: "Settings"; active: root.show-settings; clicked => { root.open-settings(); } } }
@@ -5135,16 +5136,17 @@ export component AppWindow inherits Window {
             spacing: Theme.gap;
             Tile {
                 flat: Theme.nordic;
-                width: 210px;
+                // Bento: BNDashboard's 210px nav tile; Nordic: the mail sidebar's 228px with 14px insets
+                width: Theme.nordic ? root.side-w : 210px;
                 VerticalLayout {
                     padding-top: Theme.nordic ? 28px : 18px;
-                    padding-left: 10px;
-                    padding-right: 10px;
+                    padding-left: Theme.nordic ? 14px : 10px;
+                    padding-right: Theme.nordic ? 14px : 10px;
                     padding-bottom: 14px;
                     spacing: 2px;
                     alignment: start;
                     VerticalLayout {
-                        padding-left: 10px;
+                        padding-left: Theme.nordic ? 16px : 10px;
                         padding-right: 10px;
                         padding-bottom: 14px;
                         Text { text: "Server"; color: Theme.text; font-size: (Theme.nordic ? 22px : 16px) * Prefs.fs; font-weight: 800; }
@@ -5592,7 +5594,8 @@ export component AppWindow inherits Window {
                                 HorizontalLayout {
                                     padding-left: 10px + t.indent * 16px;
                                     spacing: 10px;
-                                    Icon { text: t.icon; font-size: 13px; width: 16px; color: t.id == root.settings-tab ? Theme.sel-text : Theme.faint; }
+                                    if Icons.for-tab(t.id) != "": VerticalLayout { alignment: center; SIcon { commands: Icons.for-tab(t.id); size: 15px; weight: 1.9; tint: t.id == root.settings-tab ? Theme.sel-text : Theme.faint; } }
+                                    if Icons.for-tab(t.id) == "": Icon { text: t.icon; font-size: 13px; width: 15px; color: t.id == root.settings-tab ? Theme.sel-text : Theme.faint; }
                                     Text { text: t.label; color: t.id == root.settings-tab ? Theme.sel-text : Theme.body; font-size: 13.5px * Prefs.fs; vertical-alignment: center; overflow: elide; font-weight: t.id == root.settings-tab ? 600 : 400; }
                                 }
                             }
@@ -5711,14 +5714,16 @@ export component AppWindow inherits Window {
     if root.prompt-open: Rectangle {
         background: #00000080;
         TouchArea { clicked => { root.prompt-open = false; } }
+        // same shell as the admin dialog: popup surface, Bento tile radius / Nordic 28, 30px shadow
         Rectangle {
-            width: 360px; height: 144px;
-            background: Theme.popup; border-radius: Theme.r-tile; border-width: 1px; border-color: Theme.line;
-            drop-shadow-blur: 24px; drop-shadow-color: #00000066;
+            width: min(400px, parent.width - 40px);
+            height: pdl.preferred-height;
+            background: Theme.popup; border-radius: Theme.nordic ? 28px : Theme.r-tile; border-width: 1px; border-color: Theme.line;
+            drop-shadow-blur: 30px; drop-shadow-color: #00000066;
             TouchArea {}
-            VerticalLayout {
-                padding: 20px; spacing: 12px;
-                Text { text: root.prompt-title; color: Theme.text; font-size: 15px; font-weight: 700; }
+            pdl := VerticalLayout {
+                padding: Theme.nordic ? 28px : 22px; spacing: 14px;
+                Text { text: root.prompt-title; color: Theme.text; font-size: 17px * Prefs.fs; font-weight: 700; wrap: word-wrap; }
                 LineEdit { text <=> root.prompt-text; accepted(t) => { root.prompt-open = false; root.prompt-ok(t); } init => { self.focus(); self.select-all(); } }
                 HorizontalLayout {
                     alignment: end; spacing: 8px;

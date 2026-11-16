@@ -89,7 +89,8 @@ const G_HOME: &str = "\u{E80F}";
 const G_FOLDER: &str = "\u{E8B7}";
 const G_DEFAULT: &str = "\u{E735}";
 
-fn row_h(i: &CtxItem) -> f32 { match i.kind { 1 => 9.0, 2 => 24.0, _ => 28.0 } }
+// must match ContextMenuRow heights in ui/app.slint
+fn row_h(i: &CtxItem) -> f32 { match i.kind { 1 => 9.0, 2 => 24.0, _ => 30.0 } }
 
 fn show(u: &AppWindow, items: Vec<CtxItem>) {
     let h: f32 = items.iter().map(row_h).sum::<f32>() + 10.0;
