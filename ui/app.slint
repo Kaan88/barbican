@@ -4361,7 +4361,7 @@ export component AppWindow inherits Window {
                                 Text {
                                     text: root.cal-title;
                                     color: Theme.text;
-                                    font-size: (Theme.nordic ? (root.cal-tight ? 22px : 28px) : 21px) * Prefs.fs;
+                                    font-size: (root.cal-grid-w < 800px ? 18px : (Theme.nordic ? (root.cal-tight ? 22px : 28px) : 21px)) * Prefs.fs;
                                     font-weight: Theme.nordic ? 800 : 700;
                                     letter-spacing: Theme.nordic ? -0.5px : 0px;
                                     vertical-alignment: center;
