@@ -161,7 +161,8 @@ pub fn open_browser(url: &str) {
 /// Run the interactive browser sign-in. Blocks until the browser comes back (5 minutes max).
 pub fn sign_in(base: &str, account: &str, fallback_client: &str) -> Result<Tokens, String> {
     let meta = discover(base, account)?;
-    let listener = TcpListener::bind("127.0.0.1:0").map_err(|e| e.to_string())?;
+    // fixed port so a pre-registered client can list an exact redirect URI
+    let listener = TcpListener::bind("127.0.0.1:8791").or_else(|_| TcpListener::bind("127.0.0.1:0")).map_err(|e| e.to_string())?;
     let port = listener.local_addr().map_err(|e| e.to_string())?.port();
     let redirect = format!("http://127.0.0.1:{port}/callback");
     let client = client_id(&meta, &redirect, fallback_client);
