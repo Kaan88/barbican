@@ -347,7 +347,7 @@ fn load_thread(w: slint::Weak<AppWindow>, c: Arc<jmap::Client>, id: String) {
         let _ = w.upgrade_in_event_loop(move |u| {
             if u.get_current_mail().as_str() != id { return; }
             THREAD_ID.with(|t| *t.borrow_mut() = tid);
-            u.set_thread_msgs(ModelRc::new(VecModel::from(rows)));
+            listsync::sync_into(&u.get_thread_msgs(), rows, |r| r.id.clone(), |a, b| a == b, |m| u.set_thread_msgs(m));
         });
     });
 }
