@@ -183,7 +183,8 @@ pub fn rebuild_folders(u: &AppWindow) {
                 }
             }
         }
-        u.set_folders(ModelRc::new(VecModel::from(out)));
+        // in place: unchanged folders are not touched (no flash, hover kept), counts update per row
+        crate::listsync::sync_into(&u.get_folders(), out, |f| f.id.clone(), |a, b| a == b, |m| u.set_folders(m));
     });
     crate::glance::title(u);
     // Bulwark faviconUnreadBadge: the Inbox unread count where the taskbar shows it (the title)
@@ -280,7 +281,7 @@ fn set_tags(u: &AppWindow, counts: &HashMap<String, usize>) {
         id: t.0.into(), name: t.1.into(), color: rgb(crate::a11y::color(t.2)),
         count: counts.get(t.0).filter(|n| **n > 0).map(|n| n.to_string()).unwrap_or_default().into(),
     }).collect();
-    u.set_tags(ModelRc::new(VecModel::from(v)));
+    crate::listsync::sync_into(&u.get_tags(), v, |t| t.id.clone(), |a, b| a == b, |m| u.set_tags(m));
 }
 
 // ---------------- list ----------------
@@ -410,6 +411,15 @@ fn build_rows(st: &ListState) -> Vec<Mail> {
     }).collect()
 }
 
+/// Two list rows show the same thing: `==` on the nested tag and file models only compares
+/// identity, and every rebuild makes new ones, so those are compared by content.
+pub fn same_row(a: &Mail, b: &Mail) -> bool {
+    let mut x = a.clone();
+    x.tags = b.tags.clone();
+    x.files = b.files.clone();
+    x == *b && crate::listsync::rows_eq(&a.tags, &b.tags) && crate::listsync::rows_eq(&a.files, &b.files)
+}
+
 /// An image the body references by cid (not a real attachment).
 pub fn is_inline_image(a: &Value) -> bool {
     a["cid"].is_string() && a["disposition"] != "attachment" && a["type"].as_str().is_some_and(|t| t.starts_with("image/"))
@@ -429,7 +439,9 @@ pub fn rebuild_list(u: &AppWindow) {
     u.set_mail_row_height(h);
     LIST.with(|l| {
         let l = l.borrow();
-        u.set_mails(ModelRc::new(VecModel::from(build_rows(&l))));
+        // in place, by message id: a refresh only touches the rows that changed, new mail is an
+        // insert, a moved or deleted message a remove (design/MOTION.md, "Lists")
+        crate::listsync::sync_into(&u.get_mails(), build_rows(&l), |m| m.id.clone(), same_row, |m| u.set_mails(m));
         u.set_has_more(l.emails.len() < l.total);
         u.set_checked_count(l.checked.len() as i32);
     });

@@ -18,3 +18,4 @@ The `.dc.html` files here are the board sources: plain HTML with inline styles; 
 - `Theme.style` is 0 Bento / 1 Nordic (`Theme.bento`, `Theme.nordic`); set from the `uiStyle` setting
   (Settings › Appearance › Style). Older token names (`bg`, `side`, `hover`, `reader`, …) map onto the palette.
 - Hidden test channel: `ui bento|nordic dark|light [more|normal]` switches the look in memory only; `resize W H`.
+- Motion: `design/MOTION.md` (rules, `Motion` / `Ease` tokens, `PopIn` / `Scrim` / `Tip`, incremental list models via `src/listsync.rs`, the frame probe `tools/motion.py`).

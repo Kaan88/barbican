@@ -1,8 +1,8 @@
 import { AdminDashboard, DashRow, DashPanel, DashCol, DashBar } from "dashboard.slint";
 export { DashRow, DashPanel, DashCol, DashBar }
 import { LineEdit, Button, ListView, ScrollView, TextEdit, ComboBox, CheckBox, Palette } from "std-widgets.slint";
-import { Theme, Icons, SIcon, Prefs } from "theme.slint";
-export { Theme, Icons, Prefs }
+import { Theme, Icons, SIcon, Prefs, Motion, Ease, PopIn, Scrim, Tip } from "theme.slint";
+export { Theme, Icons, Prefs, Motion }
 
 export struct Folder {
     id: string,
@@ -260,6 +260,7 @@ component Switch inherits Rectangle {
     height: 20px;
     border-radius: 10px;
     background: on ? Theme.accent : Theme.track;
+    animate background { duration: Motion.fast; easing: Ease.enter; }
     TouchArea { clicked => { root.toggled(); } }
     Rectangle {
         x: on ? parent.width - 18px : 2px;
@@ -268,7 +269,8 @@ component Switch inherits Rectangle {
         height: 16px;
         border-radius: 8px;
         background: on ? Theme.on-accent : Theme.dim;
-        animate x { duration: Prefs.reduce-motion ? 0ms : 120ms; }
+        animate x { duration: Motion.fast; easing: Ease.enter; }
+        animate background { duration: Motion.fast; easing: Ease.enter; }
     }
 }
 
@@ -328,6 +330,7 @@ component RailButton inherits Rectangle {
     height: self.width;
     border-radius: Theme.nordic ? self.height / 2 : 14px;
     background: active ? Theme.sel : ta.has-hover ? Theme.tile2 : transparent;
+    animate background { duration: Motion.fast; easing: Ease.enter; }
     accessible-role: button;
     accessible-label: root.tip;
     accessible-action-default => { root.clicked(); }
@@ -354,6 +357,7 @@ component FolderRow inherits Rectangle {
     border-radius: Theme.nordic ? min(self.height / 2, Theme.r-nav) : Theme.r-nav;
     property <color> fg: selected ? Theme.sel-text : Theme.body;
     background: selected ? Theme.sel : ta.has-hover || (hl-id != "" && CtxHl.id == hl-id) ? Theme.tile2 : transparent;
+    animate background { duration: Motion.fast; easing: Ease.enter; }
     border-width: hl-id != "" && CtxHl.id == hl-id ? 1px : 0px;
     border-color: Theme.accent;
     ta := TouchArea {
@@ -405,6 +409,7 @@ component PeopleCta inherits Rectangle {
     height: Prefs.large-targets ? 54px : (Theme.nordic ? 50px : 52px);
     border-radius: Theme.nordic ? self.height / 2 : 20px;
     background: !enabled ? Theme.accent.with-alpha(0.4) : pca.pressed ? Theme.accent.darker(0.12) : pca.has-hover ? Theme.accent.brighter(0.1) : Theme.accent;
+    animate background { duration: Motion.fast; easing: Ease.enter; }
     accessible-role: button;
     accessible-label: root.text;
     accessible-action-default => { if root.enabled { root.clicked(); } }
@@ -434,6 +439,7 @@ component PeopleBtn inherits Rectangle {
     opacity: enabled ? 1 : 0.45;
     background: primary ? (pba.has-hover ? Theme.accent.brighter(0.1) : Theme.accent)
         : pba.pressed ? Theme.track : pba.has-hover ? Theme.hover : (Theme.nordic ? transparent : Theme.tile2);
+    animate background { duration: Motion.fast; easing: Ease.enter; }
     accessible-role: button;
     accessible-label: root.text;
     accessible-action-default => { if root.enabled { root.clicked(); } }
@@ -466,6 +472,7 @@ component PeopleNav inherits Rectangle {
     border-radius: Theme.nordic ? self.height / 2 : 14px;
     property <color> fg: tinted ? tint-fg : selected ? Theme.sel-text : Theme.body;
     background: tinted ? tint-bg : selected ? Theme.sel : (pna.has-hover || hl) ? Theme.tile2 : transparent;
+    animate background { duration: Motion.fast; easing: Ease.enter; }
     border-width: hl || (tinted && (selected || pna.has-hover)) ? 1.5px : 0px;
     border-color: tinted ? tint-fg : Theme.accent;
     accessible-role: button;
@@ -512,6 +519,7 @@ component PeopleField inherits VerticalLayout {
         background: Theme.nordic ? transparent : Theme.tile2;
         border-width: pfi.has-focus ? max(1.5px, Prefs.focus-ring) : 1px;
         border-color: pfi.has-focus ? Theme.ring : Theme.line;
+        animate border-color { duration: Motion.fast; easing: Ease.enter; }
         clip: true;
         property <length> px: Theme.nordic && !root.multi ? 16px : 12px;
         if root.text == "": Text {
@@ -551,6 +559,7 @@ component PeopleLine inherits Rectangle {
     height: max(Prefs.large-targets ? 40px : 34px, pll.preferred-height + 16px);
     border-radius: Theme.nordic ? 10px : 14px;
     background: pla.has-hover ? (Theme.nordic ? Theme.tile2 : Theme.hover) : (Theme.nordic ? transparent : Theme.tile2);
+    animate background { duration: Motion.fast; easing: Ease.enter; }
     accessible-role: button;
     accessible-label: root.label;
     accessible-action-default => { root.clicked(); }
@@ -578,6 +587,7 @@ component FileNavRow inherits Rectangle {
     border-radius: Theme.nordic ? self.height / 2 : 14px;
     property <color> fg: selected ? Theme.sel-text : Theme.body;
     background: selected ? Theme.sel : (fna.has-hover || hl) ? Theme.tile2 : transparent;
+    animate background { duration: Motion.fast; easing: Ease.enter; }
     border-width: hl ? 1px : 0px;
     border-color: Theme.accent;
     accessible-role: button;
@@ -640,6 +650,7 @@ component TagRow inherits Rectangle {
     in property <string> hl-id;
     border-radius: min(self.height / 2, Theme.r-nav);
     background: selected ? Theme.sel : ta.has-hover || (hl-id != "" && CtxHl.id == hl-id) ? Theme.tile2 : transparent;
+    animate background { duration: Motion.fast; easing: Ease.enter; }
     border-width: hl-id != "" && CtxHl.id == hl-id ? 1px : 0px;
     border-color: Theme.accent;
     ta := TouchArea { clicked => { root.clicked(); } pointer-event(ev) => { if ev.button == PointerEventButton.right && ev.kind == PointerEventKind.up { root.context(self.absolute-position.x + self.mouse-x, self.absolute-position.y + self.mouse-y); } } }
@@ -682,6 +693,7 @@ component PrimaryButton inherits Rectangle {
     min-width: pl.preferred-width + 28px;
     border-radius: min(self.height / 2, Theme.nordic ? 999px : 12px);
     background: !enabled ? Theme.accent.with-alpha(0.4) : (pta.pressed ? Theme.accent.darker(0.12) : (pta.has-hover ? Theme.accent.brighter(0.1) : Theme.accent));
+    animate background { duration: Motion.fast; easing: Ease.enter; }
     pta := TouchArea { enabled: root.enabled; clicked => { root.clicked(); } }
     pl := Text { text: root.text; color: Theme.on-accent; font-weight: 700; horizontal-alignment: center; vertical-alignment: center; }
 }
@@ -702,6 +714,7 @@ component ActionButton inherits Rectangle {
     border-width: 1px;
     border-color: Theme.line;
     background: active ? Theme.sel : ata.pressed ? Theme.track : ata.has-hover ? (Theme.nordic ? Theme.tile2 : Theme.hover) : (Theme.nordic ? transparent : Theme.tile2);
+    animate background { duration: Motion.fast; easing: Ease.enter; }
     ata := TouchArea { clicked => { root.clicked(); } }
     al := HorizontalLayout {
         padding-left: root.show-label ? (Theme.nordic ? 16px : 12px) : 0px;
@@ -733,6 +746,7 @@ component IconBtn inherits Rectangle {
     height: self.width;
     border-radius: Theme.round(self.height);
     background: active ? Theme.sel : ita.has-hover ? Theme.tile2 : transparent;
+    animate background { duration: Motion.fast; easing: Ease.enter; }
     ita := TouchArea { clicked => { root.clicked(); } }
     SIcon { commands: root.icon; size: root.icon-size; weight: 1.9; tint: root.active ? Theme.sel-text : ita.has-hover ? Theme.text : root.tint; }
 }
@@ -746,6 +760,7 @@ component QuickChip inherits Rectangle {
     width: ql.preferred-width + 24px;
     border-radius: self.height / 2;
     background: on ? Theme.text : qta.has-hover ? Theme.tile2 : transparent;
+    animate background { duration: Motion.fast; easing: Ease.enter; }
     border-width: on ? 0px : 1px;
     border-color: Theme.line;
     qta := TouchArea { clicked => { root.clicked(); } }
@@ -794,6 +809,7 @@ component Segmented inherits Rectangle {
             width: st.preferred-width + (Theme.nordic ? 24px : 20px);
             border-radius: Theme.nordic ? self.height / 2 : 9px;
             background: i == root.current ? Theme.sel : sta.has-hover ? Theme.hover : transparent;
+            animate background { duration: Motion.fast; easing: Ease.enter; }
             accessible-role: button;
             accessible-label: it;
             accessible-action-default => { root.selected(i); }
@@ -998,6 +1014,7 @@ component HoverAction inherits Rectangle {
     height: Prefs.large-targets ? 32px : 24px;
     border-radius: Theme.round(self.height);
     background: hta.has-hover ? Theme.hover : transparent;
+    animate background { duration: Motion.fast; easing: Ease.enter; }
     hta := TouchArea { clicked => { root.clicked(); } }
     if root.icon == "": Icon { text: glyph; font-size: 12px; color: active ? #fbbf24 : (hta.has-hover ? Theme.text : Theme.dim); }
     if root.icon != "": SIcon {
@@ -1019,6 +1036,7 @@ component ToolButton inherits Rectangle {
     width: max(lay.preferred-width, Prefs.large-targets ? 44px : 0px);
     border-radius: 6px;
     background: tta.has-hover ? Theme.hover : transparent;
+    animate background { duration: Motion.fast; easing: Ease.enter; }
     tta := TouchArea { clicked => { root.clicked(); } }
     lay := HorizontalLayout {
         padding-left: 8px;
@@ -1037,6 +1055,7 @@ component ContextMenuRow inherits Rectangle {
     height: it.kind == 1 ? 9px : it.kind == 2 ? 24px : 30px;
     border-radius: Theme.nordic ? 15px : 9px;
     background: it.kind == 0 && it.enabled && (cta.has-hover || open-sub) ? (it.danger ? #ef444433 : Theme.hover) : transparent;
+    animate background { duration: Motion.fast; easing: Ease.enter; }
     if it.kind == 1: Rectangle { x: 4px; width: parent.width - 8px; height: 1px; background: Theme.line; }
     if it.kind == 2: Text { x: 10px; width: parent.width - 20px; text: it.label; color: Theme.dim; font-size: 11px; font-weight: 600; vertical-alignment: center; overflow: elide; }
     cta := TouchArea { enabled: it.kind == 0 && it.enabled; clicked => { if it.sub { root.hovered(); } else { root.picked(it.action); } } changed has-hover => { if self.has-hover { root.hovered(); } } }
@@ -1054,11 +1073,12 @@ component ContextMenuRow inherits Rectangle {
 }
 
 /// Dark context menu body (Theme.popup, 1px Theme.line border, radius 8).
-component ContextMenu inherits Rectangle {
+component ContextMenu inherits PopIn {
     in property <[CtxItem]> items;
     in property <string> open-sub;
     callback picked(string);
     callback hovered(string, int);
+    transform-origin: { x: 0, y: 0 };
     background: Theme.popup;
     border-radius: Theme.r-popup;
     border-width: 1px;
@@ -1107,6 +1127,7 @@ component MailRow inherits VerticalLayout {
             width: parent.width - 2 * self.x;
             border-radius: Theme.r-row;
             background: root.selected ? Theme.tile2 : m.checked ? Theme.sel : ta.has-hover || root.hl ? Theme.tile2 : m.row-tint;
+            animate background { duration: Motion.list; easing: Ease.enter; }
             border-width: root.hl ? 1px : (Theme.bento && root.selected ? 1px : 0px);
             border-color: root.hl ? Theme.accent : Theme.line;
             ta := TouchArea {
@@ -1330,6 +1351,7 @@ component FmtButton inherits Rectangle {
     height: Prefs.large-targets ? 36px : 28px;
     border-radius: Theme.nordic ? self.height / 2 : 10px;
     background: fta.pressed ? Theme.track : active ? Theme.sel : fta.has-hover ? Theme.hover : transparent;
+    animate background { duration: Motion.fast; easing: Ease.enter; }
     fta := TouchArea { clicked => { root.clicked(); } }
     if icon != "": SIcon { commands: root.icon; size: 15px; weight: 1.9; tint: root.fg; }
     if icon == "" && glyph != "": Icon { text: glyph; font-size: 13px; color: root.fg; }
@@ -1346,7 +1368,7 @@ component FmtButton inherits Rectangle {
     }
     if underline: Rectangle { x: (parent.width - 8px) / 2; y: parent.height / 2 + 7px; width: 8px; height: 1px; background: root.fg; }
     if strike: Rectangle { x: (parent.width - 10px) / 2; y: parent.height / 2; width: 10px; height: 1px; background: root.fg; }
-    if tip != "" && fta.has-hover: Rectangle {
+    if tip != "" && fta.has-hover: Tip {
         y: parent.height + 4px;
         x: (parent.width - tipt.preferred-width - 12px) / 2;
         width: tipt.preferred-width + 12px;
@@ -1368,6 +1390,7 @@ component MenuItem inherits Rectangle {
     height: 30px;
     border-radius: Theme.nordic ? 15px : 9px;
     background: mta.has-hover && enabled ? Theme.hover : transparent;
+    animate background { duration: Motion.fast; easing: Ease.enter; }
     mta := TouchArea { enabled: root.enabled; clicked => { root.clicked(); } }
     HorizontalLayout {
         padding-left: 8px;
@@ -1380,7 +1403,7 @@ component MenuItem inherits Rectangle {
     }
 }
 
-component MenuPanel inherits Rectangle {
+component MenuPanel inherits PopIn {
     background: Theme.popup;
     border-radius: Theme.r-popup;
     border-width: 1px;
@@ -1402,6 +1425,7 @@ component BarButton inherits Rectangle {
     width: bl.preferred-width;
     border-radius: Theme.nordic ? self.height / 2 : 12px;
     background: active ? Theme.sel : bta.pressed ? Theme.track : bta.has-hover ? Theme.hover : transparent;
+    animate background { duration: Motion.fast; easing: Ease.enter; }
     bta := TouchArea { clicked => { root.clicked(); } }
     bl := HorizontalLayout {
         padding-left: 12px;
@@ -1427,9 +1451,10 @@ component CmpHeadButton inherits Rectangle {
     border-width: 1px;
     border-color: Theme.line;
     background: hta.pressed ? Theme.track : hta.has-hover ? Theme.hover : (Theme.nordic ? transparent : Theme.tile2);
+    animate background { duration: Motion.fast; easing: Ease.enter; }
     hta := TouchArea { clicked => { root.clicked(); } }
     SIcon { commands: root.icon; size: 14px; weight: 2; tint: root.active ? Theme.accent : hta.has-hover ? Theme.text : Theme.dim; }
-    if tip != "" && hta.has-hover: Rectangle {
+    if tip != "" && hta.has-hover: Tip {
         y: parent.height + 4px;
         x: parent.width - self.width;
         width: htt.preferred-width + 12px;
@@ -1584,6 +1609,10 @@ export component AppWindow inherits Window {
     in property <bool> r-flagged;
     in property <[Att]> attachments;
     in-out property <string> toast;
+    property <bool> toast-on: root.toast != "";
+    // the text stays while the toast fades out
+    property <string> toast-last;
+    changed toast => { if root.toast != "" { root.toast-last = root.toast; } }
     in property <bool> toast-undo;
     in-out property <bool> folders-collapsed;
     in-out property <bool> tags-collapsed;
@@ -1936,6 +1965,24 @@ export component AppWindow inherits Window {
     callback shortcut(string, bool, bool);
     public function focus-keys() { kbd.focus(); }
     public function focus-search() { search-box.focus(); }
+    // motion warm-up (design/MOTION.md): the renderer builds what it needs for a faded, scaled
+    // surface with text, a border and a shadow the first time it draws one, which made the
+    // first menu or dialog of a session open tens of ms late. Draw one while the app starts
+    // (at 1 % opacity, under everything), then drop it.
+    property <bool> motion-warm: true;
+    if root.motion-warm: Rectangle {
+        x: 0; y: 0; width: 180px; height: 64px;
+        opacity: 0.01;
+        transform-scale: 0.98;
+        background: Theme.popup;
+        border-radius: Theme.r-popup;
+        border-width: 1px;
+        border-color: Theme.line;
+        drop-shadow-blur: 16px;
+        drop-shadow-color: #00000055;
+        Text { text: "Barbican"; color: Theme.text; font-size: 13px; font-weight: 600; }
+    }
+    Timer { interval: 500ms; running: root.motion-warm; triggered => { root.motion-warm = false; } }
     kbd := FocusScope {
     init => { self.focus(); }
     key-pressed(e) => {
@@ -2054,7 +2101,8 @@ export component AppWindow inherits Window {
                             x: parent.width + 10px;
                             y: parent.height - (root.accounts.length * 32px + 32px + 58px);
                             width: 260px;
-                            Rectangle {
+                            PopIn {
+                                transform-origin: { x: 0, y: self.height };
                                 background: Theme.popup; border-radius: Theme.r-popup; border-width: 1px; border-color: Theme.line;
                                 drop-shadow-blur: 16px; drop-shadow-color: #00000055;
                                 VerticalLayout {
@@ -5308,10 +5356,9 @@ export component AppWindow inherits Window {
     }
 
     // ---- admin action dialog: confirm / form / running / result (x:Action/set)
-    if root.admin-dlg != "": Rectangle {
-        background: #00000080;
+    if root.admin-dlg != "": Scrim {
         TouchArea { }
-        Rectangle {
+        PopIn {
             width: min(560px, parent.width - 40px);
             height: min(adl.preferred-height, parent.height - 40px);
             background: Theme.popup;
@@ -5387,10 +5434,10 @@ export component AppWindow inherits Window {
     }
 
     // event editor: a tile-coloured dialog in the calendar's language (radius 24 Bento / 28 Nordic)
-    if root.ev-open: Rectangle {
-        background: #000000a0;
+    if root.ev-open: Scrim {
+        tint: #000000a0;
         TouchArea { }
-        Rectangle {
+        PopIn {
             width: min(520px, parent.width - 40px);
             height: evl.preferred-height;
             background: Theme.tile;
@@ -5437,7 +5484,8 @@ export component AppWindow inherits Window {
     }
 
     // calendar event hover preview (Bulwark calendarHoverPreview), drawn as a popup with the event's tint
-    if root.app == 1 && root.hov-on && root.hov-shown: Rectangle {
+    if root.app == 1 && root.hov-on && root.hov-shown: PopIn {
+        transform-origin: { x: 0, y: 0 };
         x: min(root.hov-x, root.width - self.width - 8px);
         y: min(root.hov-y, root.height - self.height - 8px);
         width: 270px;
@@ -5470,9 +5518,14 @@ export component AppWindow inherits Window {
         }
     }
 
-    if root.toast != "": Rectangle {
+    // the toast slides up and fades in; it fades out with its last text (root.toast-last)
+    Rectangle {
+        visible: root.toast-on || self.opacity > 0;
+        opacity: root.toast-on ? 1 : 0;
+        animate opacity { duration: root.toast-on ? Motion.enter : Motion.exit; easing: root.toast-on ? Ease.enter : Ease.exit; }
         x: (parent.width - self.width) / 2;
-        y: parent.height - 68px;
+        y: parent.height - 68px + (root.toast-on ? 0px : Motion.rise);
+        animate y { duration: root.toast-on ? Motion.enter : 0ms; easing: Ease.enter; }
         width: tl.preferred-width;
         height: 44px;
         border-radius: Theme.nordic ? 22px : 16px;
@@ -5485,7 +5538,7 @@ export component AppWindow inherits Window {
             padding-left: 18px;
             padding-right: 8px;
             spacing: 12px;
-            Text { text: root.toast; color: Theme.text; font-size: 13px * Prefs.fs; font-weight: 600; vertical-alignment: center; }
+            Text { text: root.toast-on ? root.toast : root.toast-last; color: Theme.text; font-size: 13px * Prefs.fs; font-weight: 600; vertical-alignment: center; }
             // undo send / undo move: a rose tint pill (BNTokens tint button)
             if root.toast-undo: VerticalLayout {
                 alignment: center;
@@ -5553,6 +5606,7 @@ export component AppWindow inherits Window {
                             background: Theme.nordic ? transparent : Theme.tile2;
                             border-width: sq.has-focus ? max(1px, Prefs.focus-ring) : 1px;
                             border-color: sq.has-focus ? Theme.ring : Theme.line;
+                            animate border-color { duration: Motion.fast; easing: Ease.enter; }
                             HorizontalLayout {
                                 padding-left: Theme.nordic ? 16px : 12px;
                                 padding-right: 10px;
@@ -5590,6 +5644,7 @@ export component AppWindow inherits Window {
                                 width: parent.width - 24px;
                                 border-radius: Theme.nordic ? self.height / 2 : 13px;
                                 background: t.id == root.settings-tab ? Theme.sel : nta.has-hover ? (Theme.nordic ? Theme.tile : Theme.tile2) : transparent;
+                                animate background { duration: Motion.fast; easing: Ease.enter; }
                                 nta := TouchArea { clicked => { root.settings-open-tab(t.id); } }
                                 HorizontalLayout {
                                     padding-left: 10px + t.indent * 16px;
@@ -5711,11 +5766,10 @@ export component AppWindow inherits Window {
     }
     }
     clip-buf := TextInput { width: 0px; height: 0px; opacity: 0; read-only: true; }
-    if root.prompt-open: Rectangle {
-        background: #00000080;
+    if root.prompt-open: Scrim {
         TouchArea { clicked => { root.prompt-open = false; } }
         // same shell as the admin dialog: popup surface, Bento tile radius / Nordic 28, 30px shadow
-        Rectangle {
+        PopIn {
             width: min(400px, parent.width - 40px);
             height: pdl.preferred-height;
             background: Theme.popup; border-radius: Theme.nordic ? 28px : Theme.r-tile; border-width: 1px; border-color: Theme.line;
