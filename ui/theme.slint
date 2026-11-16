@@ -146,6 +146,15 @@ export component PopIn inherits Rectangle {
     }
 }
 
+/// An incoming view (calendar day/week/month): content is there on the first frame, it only
+/// fades up from 55 % over `Motion.view`. Fill it with one child; removed instantly.
+export component ViewIn inherits Rectangle {
+    vertical-stretch: 1;
+    opacity: Motion.reduce ? 1 : 0.55;
+    animate opacity { duration: Motion.view; easing: Ease.enter; }
+    init => { self.opacity = 1; }
+}
+
 /// The dimmed backdrop behind a dialog: its colour fades in; removed instantly with the dialog.
 export component Scrim inherits Rectangle {
     in property <color> tint: #00000080;

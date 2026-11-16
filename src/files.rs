@@ -9,7 +9,7 @@
 use crate::jmap::Client;
 use crate::{AppWindow, FileRow, NavRow};
 use serde_json::{json, Value};
-use slint::{ComponentHandle, ModelRc, SharedString, VecModel};
+use slint::{ComponentHandle, SharedString};
 use std::cell::RefCell;
 use std::collections::HashSet;
 use std::sync::Arc;
@@ -261,7 +261,7 @@ pub fn render(u: &AppWindow) {
             shared: n["shareWith"].as_object().is_some_and(|m| !m.is_empty()) || shared(n),
             cut: cut.contains(&key(n)),
         }).collect();
-        u.set_files(ModelRc::new(VecModel::from(out)));
+        crate::listsync::sync_into(&u.get_files(), out, |r| r.id.clone(), |a, b| a == b, |m| u.set_files(m));
         // breadcrumb
         let mut crumbs: Vec<(String, String)> = vec![];
         let mut cur = s.cwd.clone();
@@ -278,8 +278,8 @@ pub fn render(u: &AppWindow) {
         crumbs.reverse();
         let ids: Vec<SharedString> = crumbs.iter().map(|c| c.0.as_str().into()).collect();
         let names: Vec<SharedString> = crumbs.iter().map(|c| c.1.as_str().into()).collect();
-        u.set_crumb_ids(ModelRc::new(VecModel::from(ids)));
-        u.set_crumb_names(ModelRc::new(VecModel::from(names)));
+        crate::listsync::sync_seq(&u.get_crumb_ids(), ids, |m| u.set_crumb_ids(m));
+        crate::listsync::sync_seq(&u.get_crumb_names(), names, |m| u.set_crumb_names(m));
 
         // ---- sidebar (Bulwark files-sidebar): My files tree, Favorites, Recent, Shared with me ----
         let mut v = vec![nav("root", "", "My files", "\u{E8B7}", 0, "")];
@@ -322,7 +322,7 @@ pub fn render(u: &AppWindow) {
         let n = trashed_items(&s).len();
         if n > 0 { t.label = format!("Trash ({n})").into(); }
         v.push(t);
-        u.set_fl_nav(ModelRc::new(VecModel::from(v)));
+        crate::listsync::sync_into(&u.get_fl_nav(), v, |r| format!("{}|{}", r.kind, r.id), |a, b| a == b, |m| u.set_fl_nav(m));
         u.set_fl_cwd(s.cwd.clone().into());
         u.set_fl_in_trash(in_trash);
     });

@@ -9,6 +9,7 @@ use crate::recurrence::{self, parse_local};
 use crate::{AppWindow, CalCell, CalDetail, CalEvent, CalGuest, CalItem, CalSum, MiniDay};
 use chrono::{Datelike, Duration, Local, NaiveDate, NaiveDateTime, Timelike};
 use serde_json::{json, Value};
+use crate::listsync::{sync_into, sync_seq};
 use slint::{Color, ComponentHandle, ModelRc, VecModel};
 use std::cell::RefCell;
 use std::collections::HashSet;
@@ -461,8 +462,8 @@ pub fn render(u: &AppWindow) {
         let ws = week_start(today);
         let names: Vec<slint::SharedString> = (0..7).map(|i| (ws + Duration::days(i)).format("%a").to_string().into()).collect();
         let short: Vec<slint::SharedString> = names.iter().map(|n| n.chars().next().map(|c| c.to_string()).unwrap_or_default().into()).collect();
-        u.set_cal_weekdays(ModelRc::new(VecModel::from(names)));
-        u.set_cal_weekdays_short(ModelRc::new(VecModel::from(short)));
+        sync_seq(&u.get_cal_weekdays(), names, |m| u.set_cal_weekdays(m));
+        sync_seq(&u.get_cal_weekdays_short(), short, |m| u.set_cal_weekdays_short(m));
         u.set_cal_show_weeknums(cp.week_numbers);
         u.set_cal_hour_from(cp.hour_from);
         u.set_cal_hour_to(cp.hour_to);
@@ -470,7 +471,7 @@ pub fn render(u: &AppWindow) {
         u.global::<crate::Prefs>().set_cal_h12(cp.h12);
         let mini_first = week_start(a.with_day(1).unwrap());
         let nums: Vec<slint::SharedString> = (0..6).map(|w| (mini_first + Duration::days(w * 7 + 3)).iso_week().week().to_string().into()).collect();
-        u.set_cal_week_nums(ModelRc::new(VecModel::from(nums)));
+        sync_seq(&u.get_cal_week_nums(), nums, |m| u.set_cal_week_nums(m));
     }
     PENDING.with(|p| *p.borrow_mut() = pending_ids(&crate::my_addrs_cached()));
     // the agenda and tasks views read the calendar state themselves: they render after the
@@ -509,7 +510,7 @@ pub fn render(u: &AppWindow) {
         if cp.birthdays {
             cals.push(CalItem { id: BIRTHDAY_CAL.into(), name: "Birthdays".into(), color: color_for(&s.calendars, BIRTHDAY_CAL), visible: !s.hidden.contains(BIRTHDAY_CAL) });
         }
-        u.set_calendars(ModelRc::new(VecModel::from(cals)));
+        sync_into(&u.get_calendars(), cals, |c| c.id.clone(), |a, b| a == b, |m| u.set_calendars(m));
         // mini month
         let first = a.with_day(1).unwrap();
         let ms = week_start(first);
@@ -518,7 +519,7 @@ pub fn render(u: &AppWindow) {
             MiniDay { day: d.day() as i32, in_month: d.month() == a.month(), today: d == today, selected: d >= from && d < to && s.view != 2 && s.view != 3,
                 date: d.format("%Y-%m-%d").to_string().into(), busy: visible.iter().any(|o| o.kind == 0 && o.start.date() <= d && o.end.date() >= d) }
         }).collect();
-        u.set_mini_month(ModelRc::new(VecModel::from(mini)));
+        sync_into(&u.get_mini_month(), mini, |d| d.date.clone(), |a, b| a == b, |m| u.set_mini_month(m));
         u.set_mini_title(a.format("%B %Y").to_string().into());
         match s.view {
             2 => {
@@ -540,7 +541,7 @@ pub fn render(u: &AppWindow) {
                         more: if evs.len() > 4 { format!("+{} more", evs.len() - 4).into() } else { "".into() },
                     }
                 }).collect();
-                u.set_cal_cells(ModelRc::new(VecModel::from(cells)));
+                sync_into(&u.get_cal_cells(), cells, |c| c.date.clone(), |a, b| a.day == b.day && a.date == b.date && a.in_month == b.in_month && a.today == b.today && a.more == b.more && crate::listsync::rows_eq(&a.events, &b.events), |m| u.set_cal_cells(m));
             }
             3 => deferred = Some((3, visible.clone(), s.calendars.clone())),
             4 => deferred = Some((4, vec![], vec![])),
@@ -558,7 +559,7 @@ pub fn render(u: &AppWindow) {
                     CalCell { day: d.day() as i32, date: d.format("%a").to_string().into(), in_month: true, today: d == today,
                         events: ModelRc::new(VecModel::from(all)), more: "".into() }
                 }).collect();
-                u.set_cal_days(ModelRc::new(VecModel::from(heads)));
+                sync_into(&u.get_cal_days(), heads, |c| format!("{}{}", c.day, c.date), |a, b| a.day == b.day && a.date == b.date && a.in_month == b.in_month && a.today == b.today && a.more == b.more && crate::listsync::rows_eq(&a.events, &b.events), |m| u.set_cal_days(m));
                 // timed events with simple overlap columns
                 let mut timed: Vec<CalEvent> = vec![];
                 let off = cp.hour_from as f32 * HOUR_PX;
@@ -580,7 +581,7 @@ pub fn render(u: &AppWindow) {
                         timed.push(e);
                     }
                 }
-                u.set_cal_events(ModelRc::new(VecModel::from(timed)));
+                sync_into(&u.get_cal_events(), timed, |e| format!("{}|{}|{}", e.id, e.col, e.date), |a, b| a == b, |m| u.set_cal_events(m));
             }
         }
     });
@@ -776,7 +777,7 @@ pub fn render_tasks(u: &AppWindow) {
         }
     }).collect();
     u.set_cal_open_tasks(rows.iter().filter(|t| !t.done).count() as i32);
-    u.set_cal_tasks(ModelRc::new(VecModel::from(rows)));
+    sync_into(&u.get_cal_tasks(), rows, |t| t.id.clone(), |a, b| a == b, |m| u.set_cal_tasks(m));
     crate::glance::calendar(u);
     u.global::<crate::CalX>().set_sidebar_more(more as i32);
     if view() == 4 { crate::cal_extra::render_tasks_view(u); }
@@ -1285,7 +1286,7 @@ fn detail(u: &AppWindow) {
         status: my.map(|(_, st)| st).unwrap_or_default().into(), organizer: organizer.into(), conflict: conflict.into(),
         description: desc.into(), past: o.end <= now,
     });
-    u.set_cal_guests(ModelRc::new(VecModel::from(guests)));
+    sync_seq(&u.get_cal_guests(), guests, |m| u.set_cal_guests(m));
     u.set_cal_has_sel(true);
 }
 

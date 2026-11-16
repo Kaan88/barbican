@@ -1,6 +1,10 @@
 {
   "_comment": "Coordinates (logical px) for tools/motion.py on the default 1400x900 Bento window. prep opens Sent (all read: opening mail there writes nothing). The dialog is the folder 'New subfolder' prompt, closed by clicking its backdrop (nothing is created).",
-  "prep": ["ui bento dark", "click 150 287", "sleep 2"],
+  "prep": [
+    "ui bento dark",
+    "click 150 287",
+    "sleep 2"
+  ],
   "list_x": 490,
   "list_y0": 250,
   "row_h": 82,
@@ -9,7 +13,24 @@
   "rail_x": 46,
   "rail_cal_y": 151,
   "rail_mail_y": 101,
-  "dialog_setup": ["rclick 190 172", "sleep 0.5"],
-  "dialog_open": ["click 270 284"],
-  "dialog_close": ["click 1000 60"]
+  "dialog_setup": [
+    "rclick 190 172",
+    "sleep 0.5"
+  ],
+  "dialog_open": [
+    "click 270 284"
+  ],
+  "dialog_close": [
+    "click 1000 60"
+  ],
+  "cal": {
+    "day": "938 145",
+    "week": "985 145",
+    "month": "1041 145",
+    "next": "772 145",
+    "prev": "734 145",
+    "new": "215 40",
+    "sweep": "120+32i 238",
+    "cancel": "841 650"
+  }
 }
