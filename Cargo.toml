@@ -12,6 +12,7 @@ chrono = "0.4"
 base64 = "0.22"
 sha2 = "0.10"
 getrandom = "0.2"
+libloading = "0.8"
 rfd = { version = "0.15", default-features = false, features = ["common-controls-v6"] }
 keyring = { version = "3", features = ["windows-native"] }
 

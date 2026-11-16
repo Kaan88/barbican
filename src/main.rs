@@ -7,6 +7,7 @@ mod jmap;
 mod lite;
 mod mail;
 mod oauth;
+mod plugins;
 mod settings;
 mod spam;
 
@@ -183,6 +184,30 @@ pub fn html_to_text(h: &str) -> String {
 }
 
 thread_local! {
+    /// Loaded native plugins (UI thread only).
+    static PLUGINS: std::cell::RefCell<Vec<plugins::Plugin>> = const { std::cell::RefCell::new(Vec::new()) };
+    static PLUGIN_ERRORS: std::cell::RefCell<Vec<String>> = const { std::cell::RefCell::new(Vec::new()) };
+}
+
+pub fn disabled_plugins() -> Vec<String> {
+    let p = settings::Settings::load();
+    p.prefs.get("disabledPlugins").and_then(|v| v.as_array()).map(|a| a.iter().filter_map(|x| x.as_str().map(String::from)).collect()).unwrap_or_default()
+}
+
+pub fn plugin_list() -> Vec<serde_json::Value> {
+    PLUGINS.with(|p| p.borrow().iter().map(plugins::describe).collect())
+}
+
+pub fn plugin_errors() -> Vec<String> {
+    PLUGIN_ERRORS.with(|e| e.borrow().clone())
+}
+
+pub fn plugin_compose_check(draft: &serde_json::Value) -> Option<String> {
+    let dis = disabled_plugins();
+    PLUGINS.with(|p| plugins::compose_check(&p.borrow(), &dis, draft))
+}
+
+thread_local! {
     /// The open message and its listed attachments.
     static CUR_MSG: std::cell::RefCell<Option<(Value, Vec<Value>)>> = const { std::cell::RefCell::new(None) };
 }
@@ -307,6 +332,11 @@ fn load_mailboxes(ui: slint::Weak<AppWindow>, client: Arc<jmap::Client>, select_
 
 fn main() -> Result<(), slint::PlatformError> {
     let ui = AppWindow::new()?;
+    {
+        let (loaded, errors) = plugins::load_all();
+        PLUGINS.with(|p| *p.borrow_mut() = loaded);
+        PLUGIN_ERRORS.with(|e| *e.borrow_mut() = errors);
+    }
     let state: Shared = Arc::new(Mutex::new(None));
 
     if let Ok(s) = std::fs::read_to_string(config_path()) {
@@ -430,6 +460,7 @@ fn main() -> Result<(), slint::PlatformError> {
         let Some(c) = st.lock().unwrap().clone() else { return };
         let u = w.unwrap();
         mail::mark_read_local(&u, &id);
+        u.set_plugin_rows(ModelRc::default());
         u.set_attachments(ModelRc::default());
         u.set_r_to("".into());
         u.set_r_email("".into());
@@ -505,8 +536,12 @@ fn main() -> Result<(), slint::PlatformError> {
                             u.get_r_date().to_string() + ", " + &u.get_r_from(),
                         );
                         REPLY.with(|r| *r.borrow_mut() = Some(rt));
+                        let dis = disabled_plugins();
+                        let rows = PLUGINS.with(|p| plugins::email_details(&p.borrow(), &dis, &m));
+                        u.set_plugin_rows(ModelRc::new(VecModel::from(rows.into_iter().map(|(label, value, tone)| PRow { label: label.into(), value: value.into(), tone: tone.into() }).collect::<Vec<_>>())));
+                        let spam_plugin = PLUGINS.with(|p| p.borrow().iter().any(|x| x.id == "spam-score")) && !dis.iter().any(|d| d == "spam-score");
                         let headers = m["headers"].as_array().cloned().unwrap_or_default();
-                        if let Some(sp) = spam::analyze(&headers) {
+                        if let Some(sp) = spam::analyze(&headers).filter(|_| !spam_plugin) {
                             if sp.verdict != "clean" || u.get_spam_show_clean() {
                                 u.set_spam_verdict(sp.verdict.into());
                                 u.set_spam_detail(sp.detail.into());
@@ -610,6 +645,7 @@ fn main() -> Result<(), slint::PlatformError> {
     ui.on_settings_button(move |key| {
         let u = w.unwrap();
         if key == "signout" { u.set_show_settings(false); u.invoke_sign_out(); }
+        if key == "plugins.folder" { oauth::open_browser(&plugins::dir().to_string_lossy()); }
     });
 
 

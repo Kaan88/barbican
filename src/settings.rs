@@ -195,6 +195,25 @@ impl Settings {
                 out.push(row("section", "", "Translation", ""));
                 out.push(text("text", "ai.lang", "Translate into", "", &cfg.lang));
             }
+            "addons" => {
+                out.push(row("section", "", "Plugins", "Native plugins dropped into the plugins folder are loaded when Barbican starts."));
+                let disabled: Vec<String> = self.prefs.get("disabledPlugins").and_then(|v| v.as_array())
+                    .map(|a| a.iter().filter_map(|x| x.as_str().map(String::from)).collect()).unwrap_or_default();
+                let list = crate::plugin_list();
+                if list.is_empty() {
+                    out.push(text("value", "", "No plugins installed", "Copy a plugin .dll into the folder and restart Barbican.", ""));
+                }
+                for p in list {
+                    let id = p["id"].as_str().unwrap_or("");
+                    let hooks = p["hooks"].as_array().map(|a| a.iter().filter_map(|h| h.as_str()).collect::<Vec<_>>().join(", ")).unwrap_or_default();
+                    out.push(toggle(&format!("plugin:{id}"), &format!("{} {}", p["name"].as_str().unwrap_or(id), p["version"].as_str().unwrap_or("")),
+                        &format!("{}  (hooks: {hooks})", p["description"].as_str().unwrap_or("")), !disabled.iter().any(|d| d == id)));
+                }
+                for e in crate::plugin_errors() {
+                    out.push(text("value", "", "Could not load", &e, ""));
+                }
+                out.push(text("button", "plugins.folder", "Plugins folder", &crate::plugins::dir().display().to_string(), "Open folder"));
+            }
             "spam" => {
                 out.push(row("section", "", "Spam Score", "Shows the spam analysis of a message from its spam headers."));
                 out.push(toggle("spam.showClean", "Show for clean mail too", "When off, the badge only appears on suspicious or spam mail.", cfg.show_clean_spam));
@@ -257,6 +276,15 @@ impl Settings {
             "spam.showClean" => cfg.show_clean_spam = value.as_bool().unwrap_or(true),
             "desktop.renderMode" => cfg.render_mode = value.as_i64().unwrap_or(0) as i32,
             "desktop.remoteImages" => cfg.remote_images = value.as_i64() == Some(1),
+            k if k.starts_with("plugin:") => {
+                let id = &k[7..];
+                let mut list: Vec<Value> = self.prefs.get("disabledPlugins").and_then(|v| v.as_array().cloned()).unwrap_or_default();
+                list.retain(|x| x.as_str() != Some(id));
+                if value.as_bool() == Some(false) { list.push(json!(id)); }
+                self.prefs.insert("disabledPlugins".into(), Value::Array(list));
+                self.save();
+                return;
+            }
             _ => {
                 self.prefs.insert(key.into(), value);
                 self.save();

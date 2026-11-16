@@ -20,6 +20,12 @@ export struct Tag {
     count: string,
 }
 
+export struct PRow {
+    label: string,
+    value: string,
+    tone: string,
+}
+
 export struct Att {
     name: string,
     size: string,
@@ -430,6 +436,7 @@ export component AppWindow inherits Window {
     callback open-attachment(int);
     callback save-attachment(int);
     callback undo-toast();
+    in property <[PRow]> plugin-rows;
     in-out property <string> c-cc;
     in-out property <string> c-bcc;
     in-out property <bool> c-show-ccbcc;
@@ -845,6 +852,25 @@ export component AppWindow inherits Window {
                     HoverAction { glyph: "\u{E97A}"; clicked => { root.act("reply"); } }
                     HoverAction { glyph: "\u{EE35}"; clicked => { root.act("reply-all"); } }
                     HoverAction { glyph: "\u{E72D}"; clicked => { root.act("forward"); } }
+                }
+                for pr in root.plugin-rows: HorizontalLayout {
+                    padding-left: 16px;
+                    padding-right: 16px;
+                    padding-bottom: 6px;
+                    spacing: 8px;
+                    Rectangle {
+                        width: pl.preferred-width + 16px;
+                        height: 20px;
+                        border-radius: 10px;
+                        background: pr.tone == "danger" ? #5c1622 : pr.tone == "warning" ? #5a4210 : pr.tone == "success" ? #14462a : #262626;
+                        pl := Text {
+                            text: pr.label;
+                            font-size: 10px;
+                            font-weight: 700;
+                            color: pr.tone == "danger" ? #ff8fa3 : pr.tone == "warning" ? #ffd27a : pr.tone == "success" ? #7ee2a8 : Theme.text;
+                        }
+                    }
+                    Text { text: pr.value; color: Theme.dim; font-size: 11px; vertical-alignment: center; overflow: elide; horizontal-stretch: 1; }
                 }
                 if root.attachments.length > 0: HorizontalLayout {
                     padding-left: 16px;

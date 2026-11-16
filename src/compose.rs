@@ -245,6 +245,9 @@ pub fn send(u: &AppWindow, c: Arc<Client>, prefs: &crate::settings::Settings) {
     let warned = u.get_c_status().ends_with("send anyway.");
     if !warned {
         if let Some(w) = pre_send_warning(&o, prefs) { u.set_c_status(w.into()); return; }
+        let draft = serde_json::json!({"to": o.to, "cc": o.cc, "bcc": o.bcc, "subject": o.subject, "text": o.text,
+            "attachments": o.attachments.iter().map(|a| a.name.clone()).collect::<Vec<_>>()});
+        if let Some(w) = crate::plugin_compose_check(&draft) { u.set_c_status(format!("{w} Press Send again to send anyway.").into()); return; }
     }
     let delay = prefs.prefs.get("sendDelaySeconds").and_then(|v| v.as_u64()).unwrap_or(5);
     let snapshot = ST.with(|s| s.borrow().clone());
