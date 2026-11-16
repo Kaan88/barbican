@@ -1419,6 +1419,8 @@ fn main() -> Result<(), slint::PlatformError> {
         if u.get_composing() {
             if ctrl && (t == "\r" || t == "\n") { u.invoke_send_now(); }
             if ctrl && t == "s" { u.invoke_save_draft(false); }
+            // Esc in the link popover cancels the popover, not the whole message
+            if t == "\u{1b}" && u.get_rte_link_open() { u.set_rte_link_open(false); rte::focus(&u); return; }
             if t == "\u{1b}" { u.invoke_save_draft(true); }
             return;
         }
