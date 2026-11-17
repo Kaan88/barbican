@@ -15,6 +15,9 @@ public static class IoThreadCheck
     /// <summary>How many times profile IO ran on the UI thread since start (tests and the automation build read it).</summary>
     public static int Violations => Volatile.Read(ref _violations);
 
+    /// <summary>Fail a Debug assertion on a violation (on by default; the tests of the counter turn it off, as a failed assertion ends the process).</summary>
+    public static bool AssertOnViolation { get; set; } = true;
+
     /// <summary>Installs the UI-thread probe (the App's dispatcher); null removes it.</summary>
     public static void Install(Func<bool>? isUiThread) => Volatile.Write(ref _isUiThread, isUiThread);
 
@@ -24,7 +27,10 @@ public static class IoThreadCheck
         if (Volatile.Read(ref _isUiThread) is { } probe && probe())
         {
             Interlocked.Increment(ref _violations);
-            Debug.Fail("Profile file IO on the UI thread: move it to the thread pool.");
+            if (AssertOnViolation)
+            {
+                Debug.Fail("Profile file IO on the UI thread: move it to the thread pool.");
+            }
         }
     }
 }
