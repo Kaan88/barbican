@@ -40,7 +40,7 @@ param(
     [int]$TimeoutSeconds = 300,
     [ValidateSet('Debug', 'Release', 'Automation')]
     [string]$Configuration = 'Debug',
-    [ValidateSet('', 'smoke', 'auto')]
+    [ValidateSet('', 'smoke', 'auto', 'auto-m2')]
     [string]$Script = ''
 )
 
