@@ -83,7 +83,13 @@ Write-capable test commands (`rx-import`, `rx-find`, `rx-destroy`) exist only in
 | `hover-sim ROW\|off` | actions | sets the row whose hover strip shows (the state a pointer entering the row sets); real hover is a hand test |
 | `pane-set SIDE LIST` | actions | `PanesViewModel.Resize` + `Commit` for both panes (clamped 180-400 and 240-600, written to `panes.json` in the profile's config directory); replies `ok sidebar=N list=N` |
 | `toast-last` | actions | `ok MESSAGE\|ACTIONLABEL\|error\|info\|visible\|gone` for the toast shown last, or `none` |
-| `menu-open MENU TARGET`, `menu-pick LABEL`, `menu-items`, `palette TEXT`, `palette-pick N`, `dialog-state`, `key CHORD` | menus | planned |
+| `menu-open MENU [TARGET]` | menus | opens a context menu without input: MENU is a `MenuIds` value (`MENU-MAIL`, `MENU-THREAD`, `MENU-FOLDER`, `MENU-TAG`, `MENU-LIST`, `MENU-ADDR`, `MENU-BODY`, `ACCOUNT`, `FOLDERS-HEADER`); TARGET is a row index or subject text (mail), a folder id or name, a tag id or label, an address, an account key. Replies `ok`, or `error no such row`, `error no rows`. |
+| `rclick row\|folder\|tag\|list\|thread [TARGET]` | menus | the same as `menu-open` for what a right-click would open there (no pointer event is produced) |
+| `menu-items` | menus | one line: `menu: a \| !b \| - \| c > \|\| flyout: ...` (`!` disabled, `-` separator, `#` header, `>` flyout, `[x]` checked, `confirm:` while the confirmation is shown); `closed` |
+| `menu-pick LABEL` | menus | picks a row by its label, opening the flyout that holds it; a danger row with a confirmation label swaps to the confirmation (pick the confirmation label to run) |
+| `palette [TEXT]`, `palette-pick N` | menus | opens the palette (and types TEXT); replies the row count and the first labels (`!` disabled); `palette-pick` runs the N-th command row |
+| `dialog-state`, `dialog-open prompt\|confirm [TITLE]`, `dialog-answer ok\|cancel` | menus | the dialog host: `none` or `open <Request> title= text=`; the open and answer commands drive the built-in prompt and confirm dialogs |
+| `key CHORD` | menus | unchanged (M1); an open menu, dialog, palette or sheet takes the chord first (`IModalSurface`), so `key Escape` closes it |
 | `rx-banners`, `banner-act ID ACTION`, `source-text`, `avatar-state EMAIL` | reader | planned |
 | `rx-import`, `rx-find`, `rx-destroy` | reader | planned, `AUTOMATION_WRITES` builds only |
 | `search TEXT`, `suggestions`, `chips` | search | planned |

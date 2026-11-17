@@ -130,6 +130,10 @@ public static class CommandIds
     public const string CyclePanes = "app.cycle-panes";
     public const string OpenA11y = "app.accessibility";
 
+    // ---- the body (owner menus; the reader view runs them in the WebView) ----
+    public const string BodyCopy = "body.copy";
+    public const string BodySelectAll = "body.select-all";
+
     // ---- later milestones, named so menus and the palette can list them disabled ----
     public const string Compose = "compose.new";
     public const string ComposeShowCc = "compose.show-cc";

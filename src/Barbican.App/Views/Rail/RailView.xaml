@@ -62,13 +62,27 @@
         </Button>
       </StackPanel>
 
-      <!-- The gear opens nothing in M1 (settings pages are M6). -->
-      <Button Grid.Row="3" x:Name="SettingsButton" Style="{StaticResource Button.Icon}" Click="OnSettingsClick" HorizontalAlignment="Center" Margin="0,0,0,10"
-              Width="{x:Bind Look.RailButton, Mode=OneWay}" Height="{x:Bind Look.RailButton, Mode=OneWay}" CornerRadius="{x:Bind Look.RailButtonRadius, Mode=OneWay}"
-              Foreground="{StaticResource Faint}"
-              AutomationProperties.AutomationId="rail.settings" AutomationProperties.Name="Settings" motion:Tip.Text="Settings">
-        <controls:SIcon Kind="Settings" Size="20" />
-      </Button>
+      <!-- Search and the shortcuts sheet (I-029, I-023) above the gear; the gear opens nothing in M1 (settings pages are M6). -->
+      <StackPanel Grid.Row="3" Spacing="2" HorizontalAlignment="Center" Margin="0,0,0,10">
+        <Button x:Name="SearchButton" Style="{StaticResource Button.Icon}" Click="OnSearchClick"
+                Width="{x:Bind Look.RailButton, Mode=OneWay}" Height="{x:Bind Look.RailButton, Mode=OneWay}" CornerRadius="{x:Bind Look.RailButtonRadius, Mode=OneWay}"
+                Foreground="{StaticResource Faint}"
+                AutomationProperties.AutomationId="rail.search" AutomationProperties.Name="Search" motion:Tip.Text="Search">
+          <controls:SIcon Kind="Search" Size="20" />
+        </Button>
+        <Button x:Name="ShortcutsButton" Style="{StaticResource Button.Icon}" Click="OnShortcutsClick"
+                Width="{x:Bind Look.RailButton, Mode=OneWay}" Height="{x:Bind Look.RailButton, Mode=OneWay}" CornerRadius="{x:Bind Look.RailButtonRadius, Mode=OneWay}"
+                Foreground="{StaticResource Faint}"
+                AutomationProperties.AutomationId="rail.shortcuts" AutomationProperties.Name="Keyboard shortcuts" motion:Tip.Text="Keyboard shortcuts (?)">
+          <controls:SIcon Kind="Key" Size="20" />
+        </Button>
+        <Button x:Name="SettingsButton" Style="{StaticResource Button.Icon}" Click="OnSettingsClick"
+                Width="{x:Bind Look.RailButton, Mode=OneWay}" Height="{x:Bind Look.RailButton, Mode=OneWay}" CornerRadius="{x:Bind Look.RailButtonRadius, Mode=OneWay}"
+                Foreground="{StaticResource Faint}"
+                AutomationProperties.AutomationId="rail.settings" AutomationProperties.Name="Settings" motion:Tip.Text="Settings">
+          <controls:SIcon Kind="Settings" Size="20" />
+        </Button>
+      </StackPanel>
 
       <!-- The account button: initials in the tint, the storage ring around it, the account popover (constrained to the window) from it. -->
       <Grid Grid.Row="4" HorizontalAlignment="Center">

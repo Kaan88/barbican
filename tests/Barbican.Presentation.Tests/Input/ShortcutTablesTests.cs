@@ -1,4 +1,4 @@
-// Ported from Rust src/shortcuts.rs tests (:697-:841). Red until stream menus implements ShortcutTables (M2 plan 6.2, T-260..T-270).
+// Ported from Rust src/shortcuts.rs tests (:697-:841). Implemented by stream menus: ShortcutTables (M2 plan 6.2, T-260..T-270).
 // Key texts: ShortcutKeys carries the Slint code points the Rust tests used (see its header).
 
 using Barbican.Presentation.Input;
@@ -15,7 +15,6 @@ public sealed class ShortcutTablesTests
         ShortcutTables.Resolve(place, c, t, shift, ctrl, alt);
 
     [Fact]
-    [Red("menus")]
     [RustTest("shortcuts::mail_keys_never_flip_and_backspace_does_not_delete")]
     public void Mail_keys_never_flip_and_backspace_does_not_delete()
     {
@@ -33,7 +32,6 @@ public sealed class ShortcutTablesTests
     }
 
     [Fact]
-    [Red("menus")]
     [RustTest("shortcuts::palette_and_help_everywhere")]
     public void Palette_and_help_everywhere()
     {
@@ -51,7 +49,6 @@ public sealed class ShortcutTablesTests
     }
 
     [Fact]
-    [Red("menus")]
     [RustTest("shortcuts::single_keys_off_leaves_named_keys")]
     public void Single_keys_off_leaves_named_keys()
     {
@@ -64,7 +61,6 @@ public sealed class ShortcutTablesTests
     }
 
     [Fact]
-    [Red("menus")]
     [RustTest("shortcuts::g_sequences")]
     public void G_sequences()
     {
@@ -85,7 +81,6 @@ public sealed class ShortcutTablesTests
     }
 
     [Fact]
-    [Red("menus")]
     [RustTest("shortcuts::mail_keys")]
     public void Mail_keys()
     {
@@ -105,7 +100,6 @@ public sealed class ShortcutTablesTests
     }
 
     [Fact]
-    [Red("menus")]
     [RustTest("shortcuts::composer_keys")]
     public void Composer_keys()
     {
@@ -115,7 +109,6 @@ public sealed class ShortcutTablesTests
     }
 
     [Fact]
-    [Red("menus")]
     [RustTest("shortcuts::calendar_keys")]
     public void Calendar_keys()
     {
@@ -135,7 +128,6 @@ public sealed class ShortcutTablesTests
     }
 
     [Fact]
-    [Red("menus")]
     [RustTest("shortcuts::list_keys")]
     public void List_keys()
     {
@@ -154,7 +146,6 @@ public sealed class ShortcutTablesTests
     }
 
     [Fact]
-    [Red("menus")]
     [RustTest("shortcuts::stepping_through_a_list")]
     public void Stepping_through_a_list()
     {
@@ -169,7 +160,6 @@ public sealed class ShortcutTablesTests
     }
 
     [Fact]
-    [Red("menus")]
     [RustTest("shortcuts::help_rows_split_keys")]
     public void Help_rows_split_keys()
     {
@@ -192,7 +182,6 @@ public sealed class ShortcutTablesTests
     }
 
     [Fact]
-    [Red("menus")]
     [RustTest("shortcuts::single_key_detection")]
     public void Single_key_detection()
     {

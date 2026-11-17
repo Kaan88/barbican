@@ -18,4 +18,10 @@ public static class MenuIds
     public const string Account = "ACCOUNT";
     public const string FoldersHeader = "FOLDERS-HEADER";
     public const string UnifiedRow = "UNIFIED-ROW";
+
+    // Flyouts of the menus above: a Submenu row names one; its provider is registered under this id.
+    public const string MailMove = "MENU-MAIL>move";
+    public const string MailTag = "MENU-MAIL>tag";
+    public const string MailMore = "MENU-MAIL>more";
+    public const string TagColour = "MENU-TAG>colour";
 }

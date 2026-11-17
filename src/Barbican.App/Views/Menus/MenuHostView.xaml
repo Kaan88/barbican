@@ -1,0 +1,16 @@
+<UserControl
+    x:Class="Barbican.App.Views.Menus.MenuHostView"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:win="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:not_win="http://uno.ui/not_win"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    mc:Ignorable="not_win">
+  <!-- The context menu host (spec/menus.md, ADR 0005, ADR 0007): one in-window Popup, constrained to the window, never a windowed MenuFlyout. The popup's child is a
+       transparent backdrop the size of the overlay layer (a click outside the card closes the menu) holding a Canvas; the code-behind puts the menu card and its flyout there. -->
+  <Popup x:Name="MenuPopup" win:ShouldConstrainToRootBounds="True" AutomationProperties.AutomationId="menu.popup">
+    <Grid x:Name="Backdrop" Background="Transparent" AutomationProperties.AutomationId="menu.backdrop">
+      <Canvas x:Name="Layer" AutomationProperties.AutomationId="menu.layer" />
+    </Grid>
+  </Popup>
+</UserControl>

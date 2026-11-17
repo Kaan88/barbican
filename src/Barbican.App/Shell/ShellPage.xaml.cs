@@ -55,6 +55,7 @@ public sealed partial class ShellPage : Page
         _look.PropertyChanged += (_, _) => ApplyLook();
         SizeChanged += (_, e) => _look.SetWindowWidth(e.NewSize.Width);
         PreviewKeyDown += OnPreviewKeyDown;
+        CharacterReceived += OnCharacterReceived;
         if (_accounts is not null)
         {
             WireAccounts(_accounts);
@@ -144,6 +145,7 @@ public sealed partial class ShellPage : Page
     public void AttachWindow(Window window)
     {
         ArgumentNullException.ThrowIfNull(window);
+        ActiveWindow.Set(window);
 #if WINDOWS
         window.ExtendsContentIntoTitleBar = true;
         window.SetTitleBar(TitleBand);
@@ -231,7 +233,7 @@ public sealed partial class ShellPage : Page
             return;
         }
 
-        var chord = KeyChordMapper.Map(
+        var chord = KeyChordMapper.MapKeyDown(
             (int)e.Key,
             IsDown(Windows.System.VirtualKey.Control),
             IsDown(Windows.System.VirtualKey.Shift),
@@ -239,6 +241,21 @@ public sealed partial class ShellPage : Page
         if (chord is { } c
             && KeyGate.Routes(c, SignInRegion.Visibility == Visibility.Visible, Activates(e.OriginalSource))
             && _keys.Handle(c, KeySource.Keyboard))
+        {
+            e.Handled = true;
+        }
+    }
+
+    // R2-11: punctuation ("/", "?", "!", "#") is the typed character, whatever the layout (a German "/" is Shift+7); the virtual key path leaves it out (KeyChordMapper.MapKeyDown)
+    private void OnCharacterReceived(UIElement sender, CharacterReceivedRoutedEventArgs e)
+    {
+        if (_keys is null || IsTyping(e.OriginalSource))
+        {
+            return;
+        }
+
+        var chord = KeyChordMapper.MapCharacter(e.Character, IsDown(Windows.System.VirtualKey.Control), IsDown(Windows.System.VirtualKey.Menu));
+        if (chord is { } c && KeyGate.Routes(c, SignInRegion.Visibility == Visibility.Visible, focusActivates: false) && _keys.Handle(c, KeySource.Keyboard))
         {
             e.Handled = true;
         }
