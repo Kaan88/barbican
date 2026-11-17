@@ -10,7 +10,7 @@
        (dims the window, a click on it does nothing: a dialog is modal) with the card centred above it. The card is filled by the code-behind for the built-in prompt and confirm
        dialogs; an owner's own dialog registers an IDialogContent and fills Content. -->
   <Popup x:Name="DialogPopup" win:ShouldConstrainToRootBounds="True" AutomationProperties.AutomationId="dialog.popup">
-    <Grid x:Name="Backdrop" Background="#66000000" AutomationProperties.AutomationId="dialog.scrim">
+    <Grid x:Name="Backdrop" Background="#66000000" TabFocusNavigation="Cycle" AutomationProperties.AutomationId="dialog.scrim">
       <Border x:Name="Card" HorizontalAlignment="Center" VerticalAlignment="Center" MinWidth="320" MaxWidth="440" Padding="20"
               Background="{StaticResource Popup}" BorderBrush="{StaticResource Line}" BorderThickness="1" CornerRadius="16"
               AutomationProperties.AutomationId="dialog.card" AutomationProperties.Name="Dialog">
