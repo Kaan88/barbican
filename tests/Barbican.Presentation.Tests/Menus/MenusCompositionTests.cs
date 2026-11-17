@@ -49,7 +49,7 @@ public sealed class MenusCompositionTests
                 Assert.True(registry.TryGet(id, out _), id);
             }
 
-            Assert.Equal(ShellCommands.Count, registry.All.Count);
+            Assert.Equal(ShellCommands.Count + Barbican.Presentation.Compose.ComposerCommands.Count, registry.All.Count);
             Assert.Same(provider.GetRequiredService<ContextMenuController>(), provider.GetRequiredService<IContextMenuService>());
             Assert.IsType<DialogService>(provider.GetRequiredService<IDialogService>());
             Assert.Equal(MenuProviders.Count, provider.GetServices<IMenuProvider>().Count());
