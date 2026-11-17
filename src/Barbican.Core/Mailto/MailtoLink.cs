@@ -80,6 +80,7 @@ public static class MailtoLink
             Bcc = bcc,
             Subject = Truncate(StripControl(Get("subject")), MaxSubject),
             Body = CleanBody(Get("body")),
+            Extra = prms.Where(p => p.Key.StartsWith("x-", StringComparison.OrdinalIgnoreCase)).GroupBy(p => p.Key.ToLowerInvariant(), StringComparer.Ordinal).ToDictionary(g => g.Key, g => string.Join(',', g.Select(p => p.Value)), StringComparer.Ordinal),
         };
     }
 
