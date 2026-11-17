@@ -57,3 +57,9 @@ Source: `ui/app.slint` MailRow (1250-1475), list tile (2583-2780), `ui/productiv
 A row drags after a 6 px move. Drop targets (folders, tag tiles) show a 1.5 px accent outline
 (inside) or a before/after insertion line (folder reorder). The ghost follows the pointer
 (`DragGhost`, productivity.slint:502). Details in `spec/behaviours` (dnd).
+
+## C# metrics (M1 shell-ui)
+`StyleMetrics.MessageRowHeight` (82 Bento / 88 Nordic), `GroupHeaderHeight` (30), `AvatarSize` (38), `Round(size)` (squircle 0.37 / circle), `RowRadius`
+(18 / 0), `ListPadLeft/Right/Top`. Bento rows are separate rounded cards (`ListItem.Message.Bento`), Nordic rows are flat with hairlines
+(`ListItem.Message.Nordic`), both in `Styles/Controls.xaml`; the row template is `Views/List/MessageListView.xaml`. Load more: 300 px before the
+end of the scroll (`MessageListView.LoadMoreDistance`).

@@ -1,0 +1,61 @@
+<UserControl
+    x:Class="Barbican.App.Views.SignIn.SignInView"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:controls="using:Barbican.App.Controls"
+    xmlns:views="using:Barbican.App.Views">
+  <!-- The sign-in screen (Bulwark components/auth/*; spec I-098..I-104): server, login, password, the one-time code once the server asks, remember me,
+       and the browser (OAuth) route with its status line. A card on the ground in both styles. -->
+  <Grid Background="{StaticResource Ground}" AutomationProperties.AutomationId="signin" AutomationProperties.Name="Sign in">
+    <Border Width="400" MaxWidth="400" HorizontalAlignment="Center" VerticalAlignment="Center" Padding="28" Background="{StaticResource Tile}" BorderBrush="{StaticResource Line}"
+            BorderThickness="{x:Bind Look.PaneBorder, Mode=OneWay}" CornerRadius="{x:Bind Look.PaneRadius, Mode=OneWay}">
+      <StackPanel Spacing="12">
+        <StackPanel Orientation="Horizontal" Spacing="12">
+          <Canvas Width="32" Height="32">
+            <Rectangle Canvas.Left="3" Canvas.Top="12" Width="7" Height="19" RadiusX="3.5" RadiusY="3.5" Fill="{StaticResource Accent}" />
+            <Rectangle Canvas.Left="13.5" Canvas.Top="3" Width="7" Height="28" RadiusX="3.5" RadiusY="3.5" Fill="{StaticResource Accent}" Opacity="0.7" />
+            <Rectangle Canvas.Left="24" Canvas.Top="8" Width="7" Height="23" RadiusX="3.5" RadiusY="3.5" Fill="{StaticResource Accent}" Opacity="0.4" />
+          </Canvas>
+          <TextBlock Text="Sign in to Barbican" FontSize="20" FontWeight="Bold" Foreground="{StaticResource Text}" VerticalAlignment="Center" />
+        </StackPanel>
+        <TextBlock Text="Your mail server speaks JMAP (Stalwart)." Style="{StaticResource Text.Meta}" />
+
+        <TextBox x:Name="ServerBox" Header="Server" PlaceholderText="mail.example.com" Text="{x:Bind Form.Server, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                 CornerRadius="{x:Bind Look.FieldRadius, Mode=OneWay}" IsEnabled="{x:Bind views:Fmt.Not(Form.IsBusy), Mode=OneWay}"
+                 AutomationProperties.AutomationId="signin.server" AutomationProperties.Name="Server" />
+        <TextBox x:Name="UserBox" Header="Login" PlaceholderText="you@example.com" Text="{x:Bind Form.User, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                 CornerRadius="{x:Bind Look.FieldRadius, Mode=OneWay}" IsEnabled="{x:Bind views:Fmt.Not(Form.IsBusy), Mode=OneWay}"
+                 AutomationProperties.AutomationId="signin.user" AutomationProperties.Name="Login" />
+        <PasswordBox x:Name="PasswordBox" Header="Password" Password="{x:Bind Form.Password, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                     CornerRadius="{x:Bind Look.FieldRadius, Mode=OneWay}" IsEnabled="{x:Bind views:Fmt.Not(Form.IsBusy), Mode=OneWay}"
+                     AutomationProperties.AutomationId="signin.password" AutomationProperties.Name="Password" />
+        <TextBox x:Name="TotpBox" Header="One-time code" PlaceholderText="123456" Text="{x:Bind Form.Totp, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                 CornerRadius="{x:Bind Look.FieldRadius, Mode=OneWay}" Visibility="{x:Bind views:Fmt.Vis(Form.NeedsTotp), Mode=OneWay}"
+                 AutomationProperties.AutomationId="signin.totp" AutomationProperties.Name="One-time code" />
+        <CheckBox Content="Remember me" IsChecked="{x:Bind Form.Remember, Mode=TwoWay}" AutomationProperties.AutomationId="signin.remember" AutomationProperties.Name="Remember me" />
+
+        <Button x:Name="SignInButton" Style="{StaticResource Button.Primary}" HorizontalAlignment="Stretch" Height="44" CornerRadius="{x:Bind Look.ButtonRadius, Mode=OneWay}"
+                IsEnabled="{x:Bind Form.CanSignIn, Mode=OneWay}" Click="OnSignInClick" AutomationProperties.AutomationId="signin.submit" AutomationProperties.Name="Sign in">
+          <TextBlock Text="Sign in" />
+        </Button>
+        <Button x:Name="OAuthButton" Style="{StaticResource Button.Action}" HorizontalAlignment="Stretch" Height="40" CornerRadius="{x:Bind Look.ButtonRadius, Mode=OneWay}"
+                IsEnabled="{x:Bind Form.CanUseOAuth, Mode=OneWay}" Click="OnOAuthClick" AutomationProperties.AutomationId="signin.oauth" AutomationProperties.Name="Sign in with your browser">
+          <StackPanel Orientation="Horizontal" Spacing="8">
+            <controls:SIcon Kind="External" Size="14" />
+            <TextBlock Text="Sign in with your browser" />
+          </StackPanel>
+        </Button>
+        <Button x:Name="CancelButton" Style="{StaticResource Button.Action}" HorizontalAlignment="Stretch" Height="36" CornerRadius="{x:Bind Look.ButtonRadius, Mode=OneWay}"
+                Visibility="{x:Bind views:Fmt.Vis(Form.CanCancel), Mode=OneWay}" Click="OnCancelClick" AutomationProperties.AutomationId="signin.cancel" AutomationProperties.Name="Cancel">
+          <TextBlock Text="Cancel" />
+        </Button>
+        <Expander Header="Client ID (optional)" HorizontalAlignment="Stretch" AutomationProperties.AutomationId="signin.advanced" AutomationProperties.Name="Advanced">
+          <TextBox PlaceholderText="Only for servers without dynamic client registration" Text="{x:Bind Form.ClientId, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                   CornerRadius="{x:Bind Look.FieldRadius, Mode=OneWay}" AutomationProperties.AutomationId="signin.clientid" AutomationProperties.Name="Client ID" />
+        </Expander>
+        <TextBlock x:Name="StatusText" Text="{x:Bind Form.Status, Mode=OneWay}" TextWrapping="Wrap" FontSize="12.5" Foreground="{StaticResource Dim}"
+                   Visibility="{x:Bind views:Fmt.VisText(Form.Status), Mode=OneWay}" AutomationProperties.AutomationId="signin.status" AutomationProperties.Name="Sign-in status" />
+      </StackPanel>
+    </Border>
+  </Grid>
+</UserControl>

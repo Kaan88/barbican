@@ -1,0 +1,26 @@
+{
+  "_comment": "Nordic at 1400x900 (logical px). Measured from docs/milestones/M1-screens/nordic-dark-normal.png.",
+  "window": [1400, 900],
+  "ui": "ui nordic dark",
+  "regions": {
+    "head": [332, 30, 340, 44],
+    "from": [90, 120, 200, 330],
+    "list": [320, 180, 360, 690],
+    "pane": [694, 0, 690, 884]
+  },
+  "ids": {
+    "folder": "m3",
+    "mail_button": "rail.mail",
+    "search": "list.search",
+    "rows": "list.rows"
+  },
+  "motion": {
+    "idle_x": 1000,
+    "idle_y": 700,
+    "rail_x": 38,
+    "rail_mail_y": 97,
+    "list_x": 500,
+    "list_y0": 200,
+    "row_h": 82
+  }
+}

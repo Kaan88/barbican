@@ -1,0 +1,96 @@
+<UserControl
+    x:Class="Barbican.App.Views.Rail.RailView"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:win="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:not_win="http://uno.ui/not_win"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    mc:Ignorable="not_win"
+    xmlns:controls="using:Barbican.App.Controls"
+    xmlns:motion="using:Barbican.App.Motion"
+    xmlns:views="using:Barbican.App.Views"
+    xmlns:accounts="using:Barbican.App.Views.Accounts">
+  <!-- The app rail (spec/layout/shell.md "Rail"; mockups BNMail nav / NordMail nav): a tile in Bento, bare in Nordic. Apps that do not exist yet are shown and inert. -->
+  <Border x:Name="Pane" Background="{x:Bind Look.PaneBrush, Mode=OneWay}" BorderBrush="{StaticResource Line}"
+          BorderThickness="{x:Bind Look.RailBorder, Mode=OneWay}" CornerRadius="{x:Bind Look.RailRadius, Mode=OneWay}"
+          Width="{x:Bind Look.RailWidth, Mode=OneWay}" Padding="{x:Bind Look.RailPadding, Mode=OneWay}">
+    <Grid RowDefinitions="Auto,Auto,*,Auto,Auto" AutomationProperties.AutomationId="rail" AutomationProperties.Name="Apps">
+      <Canvas Grid.Row="0" Width="{x:Bind Look.MarkSize, Mode=OneWay}" Height="{x:Bind Look.MarkSize, Mode=OneWay}" HorizontalAlignment="Center"
+              AutomationProperties.AutomationId="rail.mark" AutomationProperties.Name="Barbican">
+        <Canvas.RenderTransform>
+          <ScaleTransform ScaleX="1" ScaleY="1" />
+        </Canvas.RenderTransform>
+        <Rectangle Canvas.Left="3" Canvas.Top="12" Width="7" Height="19" RadiusX="3.5" RadiusY="3.5" Fill="{StaticResource Accent}" />
+        <Rectangle Canvas.Left="13.5" Canvas.Top="3" Width="7" Height="28" RadiusX="3.5" RadiusY="3.5" Fill="{StaticResource Accent}" Opacity="0.7" />
+        <Rectangle Canvas.Left="24" Canvas.Top="8" Width="7" Height="23" RadiusX="3.5" RadiusY="3.5" Fill="{StaticResource Accent}" Opacity="0.4" />
+      </Canvas>
+
+      <StackPanel Grid.Row="1" Margin="0,14,0,0" Spacing="{x:Bind Look.RailSpacing, Mode=OneWay}" HorizontalAlignment="Center">
+        <Grid>
+          <Button x:Name="MailButton" Style="{StaticResource Button.Icon}" Click="OnMailClick"
+                  Width="{x:Bind Look.RailButton, Mode=OneWay}" Height="{x:Bind Look.RailButton, Mode=OneWay}" CornerRadius="{x:Bind Look.RailButtonRadius, Mode=OneWay}"
+                  Background="{x:Bind views:Fmt.RailBackground(Rail.ActiveApp, 'Mail'), Mode=OneWay}" Foreground="{x:Bind views:Fmt.RailForeground(Rail.ActiveApp, 'Mail'), Mode=OneWay}"
+                  AutomationProperties.AutomationId="rail.mail" AutomationProperties.Name="Mail" motion:Tip.Text="Mail">
+            <controls:SIcon Kind="Mail" Size="20" />
+          </Button>
+          <Border Visibility="{x:Bind views:Fmt.VisBadge(Rail.MailBadge), Mode=OneWay}" Background="{StaticResource Accent}" CornerRadius="8" MinWidth="16" Height="16"
+                  HorizontalAlignment="Right" VerticalAlignment="Top" Margin="0,-2,-4,0" Padding="4,0" IsHitTestVisible="False"
+                  AutomationProperties.AutomationId="rail.mail.badge" AutomationProperties.Name="Unread mail">
+            <TextBlock Text="{x:Bind Rail.MailBadge, Mode=OneWay}" FontSize="10" FontWeight="Bold" Foreground="{StaticResource OnAccent}" HorizontalAlignment="Center" VerticalAlignment="Center" />
+          </Border>
+        </Grid>
+        <Button x:Name="CalendarButton" Style="{StaticResource Button.Icon}" Click="OnCalendarClick"
+                Width="{x:Bind Look.RailButton, Mode=OneWay}" Height="{x:Bind Look.RailButton, Mode=OneWay}" CornerRadius="{x:Bind Look.RailButtonRadius, Mode=OneWay}"
+                Background="{x:Bind views:Fmt.RailBackground(Rail.ActiveApp, 'Calendar'), Mode=OneWay}" Foreground="{x:Bind views:Fmt.RailForeground(Rail.ActiveApp, 'Calendar'), Mode=OneWay}"
+                AutomationProperties.AutomationId="rail.calendar" AutomationProperties.Name="Calendar" motion:Tip.Text="Calendar">
+          <controls:SIcon Kind="Cal" Size="20" />
+        </Button>
+        <Button x:Name="ContactsButton" Style="{StaticResource Button.Icon}" Click="OnContactsClick"
+                Width="{x:Bind Look.RailButton, Mode=OneWay}" Height="{x:Bind Look.RailButton, Mode=OneWay}" CornerRadius="{x:Bind Look.RailButtonRadius, Mode=OneWay}"
+                Background="{x:Bind views:Fmt.RailBackground(Rail.ActiveApp, 'Contacts'), Mode=OneWay}" Foreground="{x:Bind views:Fmt.RailForeground(Rail.ActiveApp, 'Contacts'), Mode=OneWay}"
+                AutomationProperties.AutomationId="rail.contacts" AutomationProperties.Name="Contacts" motion:Tip.Text="Contacts">
+          <controls:SIcon Kind="Users" Size="20" />
+        </Button>
+        <Button x:Name="FilesButton" Style="{StaticResource Button.Icon}" Click="OnFilesClick"
+                Width="{x:Bind Look.RailButton, Mode=OneWay}" Height="{x:Bind Look.RailButton, Mode=OneWay}" CornerRadius="{x:Bind Look.RailButtonRadius, Mode=OneWay}"
+                Background="{x:Bind views:Fmt.RailBackground(Rail.ActiveApp, 'Files'), Mode=OneWay}" Foreground="{x:Bind views:Fmt.RailForeground(Rail.ActiveApp, 'Files'), Mode=OneWay}"
+                AutomationProperties.AutomationId="rail.files" AutomationProperties.Name="Files" motion:Tip.Text="Files">
+          <controls:SIcon Kind="Folder" Size="20" />
+        </Button>
+      </StackPanel>
+
+      <!-- The gear opens nothing in M1 (settings pages are M6). -->
+      <Button Grid.Row="3" x:Name="SettingsButton" Style="{StaticResource Button.Icon}" Click="OnSettingsClick" HorizontalAlignment="Center" Margin="0,0,0,10"
+              Width="{x:Bind Look.RailButton, Mode=OneWay}" Height="{x:Bind Look.RailButton, Mode=OneWay}" CornerRadius="{x:Bind Look.RailButtonRadius, Mode=OneWay}"
+              Foreground="{StaticResource Faint}"
+              AutomationProperties.AutomationId="rail.settings" AutomationProperties.Name="Settings" motion:Tip.Text="Settings">
+        <controls:SIcon Kind="Settings" Size="20" />
+      </Button>
+
+      <!-- The account button: initials in the tint, the storage ring around it, the account popover (constrained to the window) from it. -->
+      <Grid Grid.Row="4" HorizontalAlignment="Center">
+        <controls:StorageRing Fraction="{x:Bind Rail.StorageFraction, Mode=OneWay}" RingSize="46" HorizontalAlignment="Center" VerticalAlignment="Center"
+                              AutomationProperties.AutomationId="rail.storage-ring" AutomationProperties.Name="Storage used" />
+        <Button x:Name="AccountButton" Style="{StaticResource Button.Icon}" Width="{x:Bind Look.AccountSize, Mode=OneWay}" Height="{x:Bind Look.AccountSize, Mode=OneWay}"
+                CornerRadius="{x:Bind Look.AccountRadius, Mode=OneWay}" Background="{StaticResource RoseBg}" Foreground="{StaticResource RoseFg}"
+                AutomationProperties.AutomationId="rail.account" AutomationProperties.Name="Account" motion:Tip.Text="{x:Bind Rail.AccountLabel, Mode=OneWay}">
+          <TextBlock Text="{x:Bind Rail.AccountInitials, Mode=OneWay}" FontWeight="Bold" FontSize="13" />
+          <Button.Flyout>
+            <Flyout win:ShouldConstrainToRootBounds="True" Placement="RightEdgeAlignedBottom" Opened="OnAccountFlyoutOpened">
+              <Flyout.FlyoutPresenterStyle>
+                <Style TargetType="FlyoutPresenter">
+                  <Setter Property="Padding" Value="0" />
+                  <Setter Property="Background" Value="{StaticResource Popup}" />
+                  <Setter Property="BorderBrush" Value="{StaticResource Line}" />
+                  <Setter Property="CornerRadius" Value="14" />
+                  <Setter Property="MinWidth" Value="260" />
+                </Style>
+              </Flyout.FlyoutPresenterStyle>
+              <accounts:AccountPopoverView x:Name="Popover" />
+            </Flyout>
+          </Button.Flyout>
+        </Button>
+      </Grid>
+    </Grid>
+  </Border>
+</UserControl>

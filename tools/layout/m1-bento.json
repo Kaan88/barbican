@@ -1,0 +1,26 @@
+{
+  "_comment": "Bento at the default 1400x900 window (logical px, client area): the regions tools/layout/m1_scenarios.py hands to tools/flicker.py, the AutomationIds the scenarios drive, and the motion layout tools/motion.py reads. Measured from docs/milestones/M1-screens/bento-dark-normal.png.",
+  "window": [1400, 900],
+  "ui": "ui bento dark",
+  "regions": {
+    "head": [326, 30, 340, 44],
+    "from": [102, 118, 180, 260],
+    "list": [316, 182, 350, 680],
+    "pane": [686, 14, 684, 856]
+  },
+  "ids": {
+    "folder": "m3",
+    "mail_button": "rail.mail",
+    "search": "list.search",
+    "rows": "list.rows"
+  },
+  "motion": {
+    "idle_x": 1000,
+    "idle_y": 700,
+    "rail_x": 46,
+    "rail_mail_y": 98,
+    "list_x": 490,
+    "list_y0": 220,
+    "row_h": 74
+  }
+}

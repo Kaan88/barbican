@@ -28,7 +28,6 @@ public sealed class HookCallSiteTests
     public void Mailcore_hooks_have_call_sites() => AssertFired("mailcore");
 
     [Fact]
-    [Red("shell-ui")]
     public void Shell_ui_hooks_have_call_sites() => AssertFired("shell-ui");
 
     [Fact]

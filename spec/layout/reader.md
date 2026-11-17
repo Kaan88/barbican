@@ -72,3 +72,8 @@ Source: `ui/app.slint` reader 2813-3205, assistant panel 3862-4056, sender panel
 | assistant header | rose tile, radius 24, padding 14 top/bottom, 18 left, 10 right, spacing 6 | plain heading, padding 28 top, 12 bottom, 22 left, 14 right | 3873-3882 |
 | assistant action buttons | two per row: `(chat-w - (30 or 44) - 8) / 2` wide, 58 high (large 64), radius 16 (Nordic 18), 1 px border, padding 12/8 | | 3908-3920 |
 | chat bubbles | padding 5 vertical, user left 40 right 10, assistant left 10 right 22 (tool rows 1), assistant bubble has a 1 px border; input pill height `text + 18`, radius 14 (Nordic pill), padding 14 | | 3945-3972 |
+
+## C# metrics (M1 shell-ui)
+`StyleMetrics.ReaderPadTop/Bottom/Side`, `ReaderSubjectSize` (27 / 34), `ActionButtonHeight` (34 / 38), `ReaderMinWidth` (240). The chrome is
+`Views/Reader/ReaderView.xaml` (toolbar shown disabled, header, details panel with the authentication chips, conversation strip, attachment cards,
+the `MailBodyView` slot, the quick-reply bar shown disabled).

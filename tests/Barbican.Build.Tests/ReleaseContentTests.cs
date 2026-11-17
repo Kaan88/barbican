@@ -18,7 +18,7 @@ public sealed class ReleaseContentTests
 
     private static readonly string[] AutomationOnlyPackages = ["FlaUI.UIA3", "FlaUI.Core", "Microsoft.Graphics.Win2D"];
 
-    private static readonly string[] ForbiddenFiles = ["Barbican.Automation.dll", "FlaUI.Core.dll", "FlaUI.UIA3.dll", "Interop.UIAutomationClient.dll", "Microsoft.Graphics.Canvas.dll", "Microsoft.Graphics.Canvas.Interop.dll"];
+    private static readonly string[] ForbiddenFiles = ["Barbican.Automation.dll", "FlaUI.Core.dll", "FlaUI.UIA3.dll", "Interop.UIAutomationClient.dll", "Microsoft.Graphics.Canvas.dll", "Microsoft.Graphics.Canvas.Interop.dll", "Barbican.FakeJmap.dll"];
 
     public static TheoryData<string> Projects()
     {
@@ -68,6 +68,25 @@ public sealed class ReleaseContentTests
         else if (project is not "tests/Barbican.Automation.Tests/Barbican.Automation.Tests.csproj")
         {
             Assert.Empty(refs);
+        }
+    }
+
+    /// <summary>The in-process fake server (sample data for hidden screenshots) must never reach a Release build of the App (review of m1-shell-ui).</summary>
+    [Fact]
+    public void TheAppReferencesFakeJmapOnlyInTheAutomationConfiguration()
+    {
+        var refs = XDocument.Load(TestRepo.PathOf("src/Barbican.App/Barbican.App.csproj")).Descendants()
+            .Where(e => e.Name.LocalName is "ProjectReference" && ((string?)e.Attribute("Include") ?? string.Empty).Replace('\\', '/').EndsWith("Barbican.FakeJmap/Barbican.FakeJmap.csproj", StringComparison.Ordinal))
+            .ToArray();
+        foreach (var r in refs)
+        {
+            Assert.Null(r.Attribute("Condition"));
+            Assert.Equal(AutomationCondition, (string?)r.Parent?.Attribute("Condition"));
+        }
+
+        foreach (var project in Directory.EnumerateFiles(TestRepo.PathOf("src"), "*.csproj", SearchOption.AllDirectories).Where(f => !f.EndsWith("Barbican.App.csproj", StringComparison.Ordinal)))
+        {
+            Assert.DoesNotContain("Barbican.FakeJmap", File.ReadAllText(project), StringComparison.Ordinal);
         }
     }
 

@@ -7,6 +7,14 @@
     <ProjectReference Include="../../tools/Barbican.GenTokens/Barbican.GenTokens.csproj" />
   </ItemGroup>
   <ItemGroup>
+    <!-- m1-shell-ui: the UI-free arithmetic of the App head (palette writer, layout, metrics, motion scale, key mapping) is compiled into this project, so it is tested without a window. -->
+    <Compile Include="../../src/Barbican.App/Theme/PaletteWriter.cs" Link="ShellUi/Linked/PaletteWriter.cs" />
+    <Compile Include="../../src/Barbican.App/Theme/ShellLayout.cs" Link="ShellUi/Linked/ShellLayout.cs" />
+    <Compile Include="../../src/Barbican.App/Theme/StyleMetrics.cs" Link="ShellUi/Linked/StyleMetrics.cs" />
+    <Compile Include="../../src/Barbican.App/Motion/MotionScale.cs" Link="ShellUi/Linked/MotionScale.cs" />
+    <Compile Include="../../src/Barbican.App/Shell/KeyChordMapper.cs" Link="ShellUi/Linked/KeyChordMapper.cs" />
+  </ItemGroup>
+  <ItemGroup>
     <!-- m1-mailcore: FakeTimeProvider for the key repeat, g sequence and interval tests (version pinned in Directory.Packages.props). -->
     <PackageReference Include="Microsoft.Extensions.TimeProvider.Testing" />
     <!-- m1-mailcore: the registration test builds a real service provider. -->

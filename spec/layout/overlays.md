@@ -69,3 +69,8 @@ cards radius 14, padding 10; rows 34 high (headers 40), radius 10, padding 10.
 | ViewIn | opacity 0.55 to 1 over `Motion.view` (calendar views); PageIn 0.45 to 1 (settings, admin pages) |
 `k` is 0 when motion is reduced (Settings > Accessibility > Reduce motion, or Windows "Animation
 effects" off while that setting follows the system).
+
+## C# metrics (M1 shell-ui)
+Every flyout is in-window: `ShouldConstrainToRootBounds="True"` (written `win:ShouldConstrainToRootBounds` for Uno). `StyleMetrics.PopupRadius` (14 / 16).
+Enter: `Motion/PopIn.cs` from the flyout's `Opened`. Tooltips are `Motion/Tip.cs` (in-window), never `ToolTip`. Popup controls on the deny list
+(`ComboBox`, `CommandBarFlyout`, `AutoSuggestBox`, ...) are not used (design/MOTION.md, ADR 0007).
