@@ -307,3 +307,9 @@ merge-time counts.
 |---|---|---|---|---|---|
 | D-231 | e634a45 | automation | The automation "pick" command answers the next file-open picker (attach, upload) without a dialog. | Tests must not open a native dialog (no real input). | D-009 |
 | D-232 | bba9613 | docs | PORT-PLAN.md: the master plan for the C# port (WinUI 3 on Windows, Uno on Linux). It is the plan this catalogue serves. | Plan. | docs/PORT-PLAN.md |
+
+## M1 decisions (C# port)
+
+| ID | commit | area | decision or fix | reason | links |
+|---|---|---|---|---|---|
+| D-233 | m1-f2 | reader | Lite mode (`lite.rs`, the Blitz CPU renderer for mail) is dropped: there is no .NET Blitz equivalent. The plain-text render mode stays as the fallback. User OK pending: the user confirms at the M1 gate. T-159 `lite::renders_email_html` gets no C# test. | PORT-PLAN §1 "Deliberate drops", Appendix A and B (M1: "lite 1, marked dropped"). | B-READ-046, T-159, docs/PORT-PLAN.md |

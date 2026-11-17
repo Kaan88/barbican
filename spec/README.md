@@ -16,6 +16,7 @@ streams m0-cat-a, m0-cat-b and m0-cat-c, then completed and sample-reviewed by m
 | `settings.csv` | S-<key>, S-keyless-### | 200 | 136 schema keys (wired or unwired in Rust) and 64 keyless rows |
 | `menus.md` | MENU-<name> | 24 | every context menu item by item, with enable rules and confirmations |
 | `behaviours/shortcuts.md`, `behaviours/palette.md` | B-KEY, B-PAL | 28, 21 | shortcuts and the command palette (under behaviours/; PORT-PLAN lists `shortcuts.md` at the root) |
+| `plugins/hooks.csv`, `plugins/slots.csv` | | 218, 58 | the plugin hook and slot catalogues from Bulwark's `lib/plugin-hook-catalog.ts` and `lib/plugin-slot-catalog.ts`, with milestone, owner and call site (`plugins/README.md`) |
 | `live-checks.md` | L-001..L-058 | 58 | what was never verified live in Rust |
 | `automation-protocol.md` | | | the hidden-automation command set (ADR 0007) |
 | `layout/<screen>.md` | | | tuned Slint metrics per screen, Bento and Nordic |
@@ -34,7 +35,7 @@ ids resolvable): B-SYNC-001..011 (sync.md, listsync part) with B-LST (listsync.m
 
 ## Statuses
 - T- `status`: `pending` (no C# test yet), `ported` (a C# test carries the tag), `dropped(D-###, user OK)`.
-  The one `dropped? (decision needed)` row is the lite-mode question (PORT-PLAN Appendix A, B-READ-046).
+  T-159 (lite) is `dropped(D-233, user OK pending)` until the user confirms at the M1 gate (PORT-PLAN Appendix A, B-READ-046).
 - B- rows: `ported`, `deferred(M<k>)` or `dropped(D-###, user OK)` once their milestone closes (§2.5).
 - I- `csharp_status`: `todo` or `n/a`, then `done` with evidence (a test, an automation script, a screenshot path).
 - J- `cs_status`: `pending` until re-verified with a test and Bulwark plus Stalwart refs.

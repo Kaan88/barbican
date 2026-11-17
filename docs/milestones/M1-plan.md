@@ -461,6 +461,12 @@ coverage, the deny list, the Release-content enforcement, the link router allow-
    `milestone = M1` hook has at least one call site in `src/` (scan for `HookNames.<Name>`), as Bulwark's
    `lib/__tests__/plugin-hook-catalog.test.ts` does. Red until the streams fire them.
 
+**Red convention (as built, 2026-11-17):** a red test carries `[Red("<stream>")]` (`tests/Shared/RedAttribute.cs`), is excluded from
+the default run by `tests/Directory.Build.props` so `tools/build.ps1 test` stays green, and fails with `PortPendingException` from its
+stub. `python tools/red-check.py` runs only the red tests (`BARBICAN_RED=1`) and checks every one fails for that reason. A stream
+removes `[Red]` from a test in the commit that makes it pass; `HookCallSiteTests` has one red test per owning stream. The branch is
+`m1-f2-spec-tests` (git cannot hold `m1` and `m1/f2`).
+
 **Exit:** both OSes build; the new tests are red for the right reason; spec-check maps 75 of 76 M1 rows
 (T-159 dropped pending). No production behaviour. Fable items: any Rust test whose assert could not be
 ported verbatim, the hook count, the milestone column choices.
