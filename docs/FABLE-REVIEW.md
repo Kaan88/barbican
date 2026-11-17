@@ -878,6 +878,7 @@ stage's own items. Commits are on `m2` (`git log --first-parent m2`); the per-st
    - The review widened `PublicAddress` (192.0.0.0/24, 198.18.0.0/15, 64:ff9b:1::/48, Teredo).
    - Check: that the callback is the only way out (no other `HttpClient` in reader code), the embedded-IPv4 rules, and whether
      ISATAP and 2001:2::/48 matter.
+   - **Fable review 3: fine** by reading (connects to the checked address, redirects re-checked). Low: three small ranges missing in `PublicAddress` (R3-12).
 2. **R2-07 Authentication-Results trace block (mandatory)** [reader, reader-rev, f-rev].
    `src/Barbican.Core/Mail/AuthResults/{AuthTrace,AuthServPins}.cs`, `src/Barbican.Presentation/Mail/Loading/ReaderDepth.cs`.
    - A header counts only inside the server's own block: from the first Received, whose `by` host is pinned per account or trusted
@@ -888,6 +889,7 @@ stage's own items. Commits are on `m2` (`git log --first-parent m2`); the per-st
      - (b) the first open of an account may still show a verdict in Sent while the roles load;
      - (c) the faithful `dkim_gate` port accepts any authserv-id in its own unit (one-click), so D-9 must hold through the trace
        block only. Confirm that one-click reads `AuthTrace`, not the raw headers.
+   - **Fable review 3: partly fixed.** (a) is not accurate: Stalwart writes its Received and Authentication-Results only for port 25, so a submitted, JMAP-sent or imported message can carry a forged first block (R3-06, decision E-9). (b) still open.
 3. **R2-14 / M2-Q2 writes in agent profiles (mandatory; M2-Q2 still a proposal)** [reader, reader-rev, verify].
    `src/Barbican.Core/Accounts/ReadOnlyPolicy.cs`, `src/Barbican.App/MailBody/Automation/{WriteTestGuard,Rx*Command}.cs`, `tools/auto-run.ps1`.
    - Agent profiles fail closed without both `.local` lists.
@@ -895,22 +897,26 @@ stage's own items. Commits are on `m2` (`git log --first-parent m2`); the per-st
    - [verify] proved it live: with the agent import, the menus greyed every write row on `<test-account>`, and `act mail.star` and
      `act mail.delete` answered `disabled`, sending nothing.
    - Check: that no path makes `<readonly-account>` writable in any profile.
+   - **Fable review 3: fine** (`ReadOnlyPolicy`, `ProfilePaths.IsAgentProfile`); notes in R3-12.
 4. **The native plugin host is not a security boundary (mandatory)** [unified, unified-rev].
    `src/Barbican.Core/Plugins/Native/{NativePluginHost,PluginLoadContext,PluginHookBridge,LoadedPlugin}.cs`.
    - There is one collectible load context per plugin, but a plugin runs with full trust and can take the process down.
    - Decide: user plugins in `<config>/plugins` stay off until the M6b permission UI.
    - A plugin's `Dispose` runs synchronously at shutdown, and a faulted `Ready` task goes unobserved.
    - The payload JSON is built by reflection with IL2026/IL3050 suppressed: check before any trimmed publish.
+   - **Fable review 3: confirmed, open.** The code loads `<config>/plugins` (`UnifiedRegistration.cs:136-137`) although M2.md default 7 says off until M6b (R3-04, decision E-10).
 5. **R2-06 two instances on one vault (mandatory)** [unified, unified-rev].
    `Core/Accounts/{IAccountVault,AccountStore}.cs`, `Platform/SecretAccountVault.cs`, `Core/Auth/OAuthTokenSource.cs`.
    - Each change re-reads inside the cross-process lock, then upserts or removes one entry; there is one retry with the in-memory token.
    - Not covered: the lock across two real processes. A second acquire in one process waits 15 s and then proceeds without the lock.
+   - **Fable review 3: not reviewed.**
 6. **Zip slip, saves and file names** [reader-rev, unified-rev].
    - Download all now sanitizes names (`ReaderNames.SanitizePart`).
    - Open:
      - `SaveTargets` writes into Downloads with no dialog and no check for Windows reserved names (`NUL.txt`, `CON`);
      - TNEF file names reach the saver unsanitised (`TnefExpander`);
      - `rx-save queue PATH` takes any path (automation only).
+   - **Fable review 3: partly fixed**; what is left is R3-10 (no dialog, reserved names, IO errors not caught: R3-05).
 7. **Trusted senders key on the From address only** [reader-rev]: Bulwark parity (`email-viewer.tsx:3170`), so a spoofed From of a
    trusted sender loads remote content.
 8. **Live credential copies** [verify]. The agent import into `auto-8889` wrote the two Rust password entries under this app's own
@@ -944,8 +950,10 @@ stage's own items. Commits are on `m2` (`git log --first-parent m2`); the per-st
       - other logins refresh every two minutes;
       - paging is ordered within a page only;
       - a read-only login's row is refused as "not signed in".
+    - **Fable review 3: confirmed, gate blocker.** No row of All inboxes can be opened: the composite row id goes to the active account as an email id (R3-01). Row-menu Download and View source send an empty account id (R3-02).
 12. **Writes are never retried and a failed chunk stops the rest** [actions]. `MailWriter.SetChunksAsync`; Bulwark `batchMoveEmails`
     :4134 continues. Chunks already applied are not reported.
+    - **Fable review 3: confirmed.** A later failed chunk also hides the applied ones: all rows come back and no undo is recorded (R3-03).
 13. **Optimistic removal and "a push delta applies once"** [actions]. `LoadedList`, `MessageListViewModel.Actions.cs`,
     `MailActionService.Removal.cs`.
     - A delta whose `Added` re-inserts a message the user just deleted (server race) shows it again until the next delta.
@@ -999,6 +1007,7 @@ stage's own items. Commits are on `m2` (`git log --first-parent m2`); the per-st
     - Rules menus depend on the registration order.
 26. **Sign-out** [unified, unified-rev]. onAfterLogout fires per account. The whole body cache is cleared; the avatar cache is not.
     `MailSync.Dispose` is now idempotent.
+    - **Fable review 3: partly fixed.** Per-account local state other than the body cache and the vault entry stays (R3-11, decision E-12; not confirmed file by file).
 27. **J-028 n/a** [unified]. `upToId` is never sent; a delta is applied whole.
 28. **Escape clears ticks** [verify]. `KeyRouter` "close" now also calls `ClearChecked` (Bulwark `hooks/use-keyboard-shortcuts.ts:217-221`).
     M1 kept the ticks and the selection bar after Escape. Test `KeyRouterTests.Escape_closes_the_reader_and_clears_the_ticks_as_Bulwark_does`.
@@ -1153,3 +1162,36 @@ Branch `m2-close-a` from `m2` (commits `56e9907` and the one after it). Closes i
   and the avatar opens nothing (the menus exist: `menu-open FOLDERS-HEADER` / `ACCOUNT` work); rail Calendar, Contacts, Files and
   Settings switch to apps that do not exist yet (M4-M6) and show nothing.
 - **Flaky test seen once** in Barbican.Presentation.Tests during the m2 merge run (1 failure, not reproduced in 3 later runs; name not captured). Worth a look for a timing dependency.
+
+## Fable review 3 (stream: fable-review-3)
+
+Report: [fable-review-3.md](fable-review-3.md), branch `fable-review-3` from `m2` at `91a0741` (reading only; nothing built, run or
+launched; Linux unverified). Verdicts on the M2 verify items 1 to 6, 11, 12 and 26 are marked in that section above
+("Fable review 3: ..."). For the next Fable pass, in this order:
+
+- **R3-01 after its fix: reads of unified rows.** Every read that takes a row id (body, thread, blob download, snippets, read
+  receipt, the reader's menus, the body cache key) must go to the row's own login and JMAP account with the real id. Check the
+  FakeJmap test with two logins that opens a row of each, and that a shared-account row opens too. Paths:
+  `Core/Mail/Unified/{UnifiedFetcher,UnifiedRows}.cs`, `Presentation/Mail/Loading/{MessageLoader,MessageFetcher}.cs`,
+  `Core/Search/SearchSnippetFetcher.cs`, `Presentation/Reader/ReaderBannerActions.cs`. Derived by reading, **not run**.
+- **R3-02: one `MailTarget` contract.** Six constructors fill `AccountId` and `EmailId` differently (list in the report). After the
+  fix, grep every `new MailTarget(` and every reader of `AccountId`; run Download (.eml) and View source from the row menu.
+- **R3-03: partial results of chunked writes.** `MailWriter.SetChunksAsync`, `DestroyAsync`, `UnifiedMailWriter.RouteAsync`,
+  `MailActionService.Removal.cs`: the rows put back must be exactly the rows the server did not change, and undo must cover the rest.
+- **R3-04: whether `<config>/plugins` is loaded** must match the decision (E-10). The load context is not a boundary; do not let a
+  comment say it is.
+- **R3-05: exceptions out of commands.** No runner catches them (`ShortcutCommands.Run` drops the task). After the shared runner
+  exists, check what `CrashGuard` does with a UI-thread exception (not read for this point).
+- **R3-06: the trust rule is only as good as the server's own header.** Stalwart adds Received and Authentication-Results on port
+  25 only (`crates/smtp/src/inbound/data.rs:482-501`, `crates/registry/src/schema/structs_impl.rs:28843-28875`). Re-check when the
+  default changes with a server version, and check that the app's own import cannot be used to plant a verdict.
+- **R3-08 before the archived-items view**, **R3-09** (search in a tag view), **R3-11** (what a sign-out leaves in the profile:
+  list the files per account first).
+- **Tests pass on a contract the app does not use.** `AttachmentSaverTests` build the target by hand with the real account id;
+  the app builds it through `UnifiedTargetResolver`. Prefer tests that take the target from the same resolver the menus use.
+- **No hidden scenario opens a unified row or runs a row-menu command on one.** The sample run has two FakeJmap logins
+  (`SampleUnifiedLogins`), so both are cheap to add.
+- **Not reviewed in this pass** (say so at the gate): anything running, Linux, R2-06 (the vault), `MailSync` stop paths,
+  `PluginHookBridge`, `TagRules`, Sieve, the palette and key router, the views' drag and drop code, the calendar invitation code,
+  images other than four M2 screenshots, and the plan documents listed in the report's section 5.
+- **Privacy**: the text of all 187 commits on every ref was searched with the private pattern: clean; identities are all noreply.
