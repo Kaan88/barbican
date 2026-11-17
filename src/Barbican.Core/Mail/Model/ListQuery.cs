@@ -10,4 +10,10 @@ public sealed record ListQuery
     public string? SearchText { get; init; }
 
     public int PageSize { get; init; } = 50;
+
+    /// <summary>Only messages with this keyword (Bulwark getEmails <c>hasKeyword</c>; the read part of the unread-first Inbox).</summary>
+    public string? HasKeyword { get; init; }
+
+    /// <summary>Only messages without this keyword (the unread section of the unread-first Inbox, <c>notKeyword: $seen</c>).</summary>
+    public string? NotKeyword { get; init; }
 }

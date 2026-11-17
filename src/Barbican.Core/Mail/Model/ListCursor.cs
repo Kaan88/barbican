@@ -3,4 +3,8 @@
 namespace Barbican.Core.Mail.Model;
 
 /// <summary>Where the next page starts (RFC 8620 §5.5 anchor paging: the last id shown).</summary>
-public sealed record ListCursor(string AnchorId);
+public sealed record ListCursor(string AnchorId)
+{
+    /// <summary>The position the anchor stood at; the fallback when the server no longer finds the anchor (Rust jmap.rs:541).</summary>
+    public int Position { get; init; }
+}

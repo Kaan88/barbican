@@ -3,4 +3,8 @@
 namespace Barbican.Core.Mail.Model;
 
 /// <summary>The mailboxes of an account (the tree is built from <c>parentId</c>).</summary>
-public sealed record MailboxTree(IReadOnlyList<Mailbox> All);
+public sealed record MailboxTree(IReadOnlyList<Mailbox> All)
+{
+    /// <summary>The Mailbox state the tree was read at (RFC 8620 §5.1), for a later Mailbox/changes; null when the server sent none.</summary>
+    public string? State { get; init; }
+}

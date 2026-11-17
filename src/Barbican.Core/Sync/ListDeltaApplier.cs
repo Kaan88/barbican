@@ -67,7 +67,20 @@ public static class ListDeltaApplier
             threads[t] = n;
         }
 
+        CarryThreadCounts(emails, threads);
         total = delta.Total ?? Math.Max(0, total + emails.Count - had);
+    }
+
+    /// <summary>The rows carry their conversation size (a fresh row of an unchanged thread must not fall back to 1).</summary>
+    private static void CarryThreadCounts(IList<EmailSummary> emails, IDictionary<string, int> threads)
+    {
+        for (var i = 0; i < emails.Count; i++)
+        {
+            if (emails[i].ThreadId is { } t && threads.TryGetValue(t, out var n) && emails[i].ThreadCount != n)
+            {
+                emails[i] = emails[i] with { ThreadCount = n };
+            }
+        }
     }
 
     private static int IndexOf(IList<EmailSummary> emails, string id)
