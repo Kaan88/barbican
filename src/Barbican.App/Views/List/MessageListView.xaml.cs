@@ -281,12 +281,18 @@ public sealed partial class MessageListView : UserControl
         IReadOnlyList<Barbican.Core.Mail.Model.MailTarget> targets = current.Any(t => string.Equals(t.EmailId, row.Id, StringComparison.Ordinal)) ? current : [List.TargetOf(row)];
         drops.BeginMailDrag(targets);
         e.Data.SetText(drops.Label);
-        e.Data.RequestedOperation = global::Windows.ApplicationModel.DataTransfer.DataPackageOperation.Move;
+        // a move onto a folder, a link onto a tag: the targets may accept only what the source offers (M2 hotfix 2: tags answered Link to a Move-only drag)
+        e.Data.RequestedOperation = (global::Windows.ApplicationModel.DataTransfer.DataPackageOperation)(int)Barbican.Presentation.DragDrop.DropAcceptance.SourceOffers;
+        Barbican.App.Views.Actions.DragBadge.Prepare(drops.Label);
     }
 
     // after a drop the controller has nothing pending any more; a drag that ended anywhere else fires onDragEnd(dropped: false)
 #pragma warning disable CA1822 // XAML event handler
-    private void OnDragItemsCompleted(ListViewBase sender, DragItemsCompletedEventArgs args) => ViewHost.Get<Barbican.Presentation.DragDrop.DropController>().CancelDrag();
+    private void OnDragItemsCompleted(ListViewBase sender, DragItemsCompletedEventArgs args)
+    {
+        Barbican.App.Views.Actions.DropHighlight.Clear();
+        ViewHost.Get<Barbican.Presentation.DragDrop.DropController>().CancelDrag();
+    }
 #pragma warning restore CA1822
 
     // A date-group header is not selectable.

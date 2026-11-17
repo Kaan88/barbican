@@ -5,6 +5,7 @@
 
 using System.Runtime.CompilerServices;
 using Barbican.Core.Common;
+using Barbican.Core.Jmap.Errors;
 using Barbican.Core.Mail.Model;
 using Barbican.Core.Mail.Write;
 
@@ -37,6 +38,8 @@ public sealed partial class MailActionService
             return Result<Unit>.Ok(default);
         }
 
+        // the folder on screen when the action ran: Undo falls back to it for a message whose folders were not known (never an empty mailboxIds)
+        var source = list.MailboxId is { } open && folders.Tree.All.Any(m => string.Equals(m.Id, open, StringComparison.Ordinal)) ? open : null;
         var edit = list.RemoveRows(ids);
         var result = await WriteOrRestoreAsync(op, writer.Value!, group, edit, ct).ConfigureAwait(true);
         var refused = result.IsOk ? result.Value!.Refused.Select(r => r.Id).ToHashSet(StringComparer.Ordinal) : [];
@@ -66,7 +69,7 @@ public sealed partial class MailActionService
                     toasts.Dismiss(shown);
                 }
 
-                return UndoRemovalAsync(account, accepted, edit, op.KeywordsBack, undoCt);
+                return UndoRemovalAsync(account, accepted, edit, source, op.KeywordsBack, undoCt);
             })
             : null;
         offered.Value = Notify(op.Toast(accepted.Count), entry);
@@ -87,8 +90,13 @@ public sealed partial class MailActionService
         }
     }
 
-    /// <summary>Puts the rows back and writes the folder sets they had (and the keywords the action flipped) back.</summary>
-    private async Task<Result<Unit>> UndoRemovalAsync(string account, IReadOnlyList<MailTarget> accepted, ListEdit edit, IReadOnlyDictionary<string, bool>? keywordsBack, CancellationToken ct)
+    /// <summary>
+    /// Puts the rows back and writes the folder sets they had (and the keywords the action flipped) back (Bulwark lib/jmap/client.ts:4375 restoreEmails).
+    /// A message is never sent with an empty mailboxIds: RFC 8621 4.1.1 says an Email is in at least one Mailbox and Stalwart refuses it
+    /// (crates/jmap/src/email/set.rs:978 "Message has to belong to at least one mailbox"); a message whose folders were not known goes back to the folder
+    /// the action ran in, else to the Inbox. The message that was open opens again (Bulwark components/mail/mail-app.tsx:4083 reopenAfterUndo).
+    /// </summary>
+    private async Task<Result<Unit>> UndoRemovalAsync(string account, IReadOnlyList<MailTarget> accepted, ListEdit edit, string? source, IReadOnlyDictionary<string, bool>? keywordsBack, CancellationToken ct)
     {
         var writer = WriterFor(account);
         if (!writer.IsOk)
@@ -96,18 +104,36 @@ public sealed partial class MailActionService
             return Result<Unit>.Fail(writer.Error!);
         }
 
-        var ids = accepted.Select(t => t.EmailId).ToHashSet(StringComparer.Ordinal);
-        list.RestoreRows(new ListEdit([.. edit.Removed.Where(r => ids.Contains(r.Email.Id))], edit.NextId));
-        var sets = accepted.ToDictionary(
-            t => t.EmailId,
-            t => (IReadOnlyDictionary<string, bool>)t.MailboxIds.Where(kv => kv.Value).ToDictionary(kv => kv.Key, _ => true, StringComparer.Ordinal),
-            StringComparer.Ordinal);
+        var fallback = source ?? RoleFolder(MailboxRole.Inbox)?.Id;
+        var sets = new Dictionary<string, IReadOnlyDictionary<string, bool>>(StringComparer.Ordinal);
+        foreach (var t in accepted)
+        {
+            var set = UndoSet(t.MailboxIds, fallback);
+            if (set.Count == 0)
+            {
+                // nothing to put it back into: leave it where the action put it rather than send an empty set
+                continue;
+            }
+
+            sets[t.EmailId] = set;
+        }
+
+        if (sets.Count == 0)
+        {
+            return Result<Unit>.Fail(Failed(new ValidationError("There is no folder to put the message back into.")));
+        }
+
+        var ids = sets.Keys.ToHashSet(StringComparer.Ordinal);
+        list.RestoreRows(new ListEdit([.. edit.Removed.Where(r => ids.Contains(r.Email.Id))], edit.NextId) { View = edit.View });
         var moved = await writer.Value!.SetMailboxIdsAsync(sets, ct).ConfigureAwait(true);
         var refusal = moved.IsOk ? FirstRefusal(moved.Value!) : null;
         if (!moved.IsOk || refusal is not null)
         {
             await list.ReloadAsync().ConfigureAwait(true);
-            return Result<Unit>.Fail(moved.Error ?? refusal!);
+            var error = moved.Error ?? refusal!;
+            return Result<Unit>.Fail(error is SetError { Type: "notFound" }
+                ? new ValidationError("That message no longer exists on the server, so it can't be put back.")
+                : error);
         }
 
         if (keywordsBack is not null)
@@ -119,8 +145,26 @@ public sealed partial class MailActionService
             }
         }
 
+        if (edit.OpenId is { } reopen && ids.Contains(reopen))
+        {
+            list.Reopen(edit);
+        }
+
         Notify("Undone");
         return Result<Unit>.Ok(default);
+    }
+
+    /// <summary>The folder set Undo writes: the folders the message had, else <paramref name="fallback"/>; empty only when neither is known.</summary>
+    internal static IReadOnlyDictionary<string, bool> UndoSet(IReadOnlyDictionary<string, bool> had, string? fallback)
+    {
+        ArgumentNullException.ThrowIfNull(had);
+        var set = had.Where(kv => kv.Value && kv.Key.Length > 0).ToDictionary(kv => kv.Key, _ => true, StringComparer.Ordinal);
+        if (set.Count == 0 && !string.IsNullOrEmpty(fallback))
+        {
+            set[fallback] = true;
+        }
+
+        return set;
     }
 
     /// <summary>What one removal action does, so the shared flow can run it.</summary>

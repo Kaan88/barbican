@@ -31,6 +31,12 @@ public interface IListEditor
     /// <summary>Puts earlier copies back after a failed write.</summary>
     void PutRows(IReadOnlyList<EmailSummary> before);
 
+    /// <summary>
+    /// After an Undo put the rows of <paramref name="edit"/> back: opens again the message that was open when the action ran, when the list still shows
+    /// the same view and nothing but what the action opened is open now (Bulwark components/mail/mail-app.tsx:4083 reopenAfterUndo).
+    /// </summary>
+    void Reopen(ListEdit edit);
+
     /// <summary>Reads the open list again, keeping the rows on screen until it is ready (after a failure nothing else can be trusted).</summary>
     Task ReloadAsync();
 }

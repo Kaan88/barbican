@@ -13,6 +13,9 @@ public sealed record ReaderHeader(
     bool Flagged,
     string To)
 {
+    /// <summary>The tags the message carries, under the subject, each with a remove button (Bulwark email-viewer.tsx:5422; M2 hotfix 2).</summary>
+    public IReadOnlyList<RowTag> Tags { get; init; } = [];
+
     /// <summary>The header of nothing (an empty reader).</summary>
     public static ReaderHeader None { get; } = new(string.Empty, string.Empty, string.Empty, 0, string.Empty, string.Empty, false, string.Empty);
 }

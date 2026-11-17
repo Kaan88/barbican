@@ -39,9 +39,8 @@ public sealed class MessageRowViewModel : ListItemViewModel
         Unread = !summary.Keywords.Seen;
         Flagged = summary.Keywords.Flagged;
         ThreadCount = Math.Max(summary.ThreadCount, 1);
-        TagColors = [.. summary.Keywords.Map
-            .Where(k => k.Value && k.Key.StartsWith("$label:", StringComparison.Ordinal))
-            .Select(k => context.TagColor(k.Key["$label:".Length..]))];
+        Tags = RowTag.Of(summary.Keywords, context.Tags);
+        ShowTags = context.ShowTagChips && Tags.Count > 0;
         AttachmentNames = context.AttachmentChips ? RowText.AttachmentNames(summary, context.HideInlineImages) : [];
         HasAttachment = summary.HasAttachment;
     }
@@ -93,8 +92,11 @@ public sealed class MessageRowViewModel : ListItemViewModel
     /// <summary>Messages in the conversation; the row shows a count from 2.</summary>
     public int ThreadCount { get; }
 
-    /// <summary>The 0xRRGGBB of each tag the message carries.</summary>
-    public IReadOnlyList<uint> TagColors { get; }
+    /// <summary>The tags the message carries, in the tag list's order (the reader header shows them whatever the row setting says).</summary>
+    public IReadOnlyList<RowTag> Tags { get; }
+
+    /// <summary>The row draws its tags: it has some and showTagChips is on.</summary>
+    public bool ShowTags { get; }
 
     public IReadOnlyList<string> AttachmentNames { get; }
 
@@ -114,7 +116,8 @@ public sealed class MessageRowViewModel : ListItemViewModel
         && r.Flagged == Flagged
         && r.ThreadCount == ThreadCount
         && r.HasAttachment == HasAttachment
-        && r.TagColors.SequenceEqual(TagColors)
+        && r.ShowTags == ShowTags
+        && r.Tags.SequenceEqual(Tags)
         && r.Badges.SequenceEqual(Badges, StringComparer.Ordinal)
         && r.AttachmentNames.SequenceEqual(AttachmentNames, StringComparer.Ordinal);
 }
