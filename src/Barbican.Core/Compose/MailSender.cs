@@ -1,7 +1,7 @@
 // Mirrors: Rust jmap.rs:916 send_message (Email/set create + destroy of the replaced draft, EmailSubmission/set with the identity, the explicit envelope, HOLDFOR, onSuccessUpdateEmail; the forbiddenFrom retry; $answered / $forwarded), :1064 cancel_submission,
 // compose.rs:868-880 send; Bulwark lib/jmap/client.ts sendEmail :5560, cancelEmailSubmission, components/email/message-actions.ts (undo toast, Send now), lib/plugin-hook-catalog.ts:108-111 (onBeforeEmailSend, onTransformOutgoingEmail, onComposeSend, onAfterEmailSend);
 // RFC 8621 section 7.5 (EmailSubmission/set, undoStatus, onSuccessUpdateEmail), RFC 4865 (FUTURERELEASE / HOLDFOR); Stalwart crates/jmap/src/submission/set.rs (HOLDFOR in the envelope parameters; forbiddenFrom for a MAIL FROM the identity does not own).
-// Decisions: D-247 (onComposeSend is an intercept: false means a plugin sent the message itself), D-248 (Send now = cancel and resubmit without a hold; M3 plan section 9 item 6), D-249 (a failed send takes its server copy out again, so no stray draft is left).
+// Decisions: D-M3A-02 (onComposeSend is an intercept: false means a plugin sent the message itself), D-M3A-03 (Send now = cancel and resubmit without a hold; M3 plan section 9 item 6), D-M3A-04 (a failed send takes its server copy out again, so no stray draft is left).
 
 using System.Text.Json.Nodes;
 using Barbican.Core.Accounts;

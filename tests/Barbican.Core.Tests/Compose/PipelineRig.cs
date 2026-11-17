@@ -20,14 +20,14 @@ internal sealed class PipelineRig
 {
     public const string Account = "acct";
 
-    private PipelineRig(Fake fake, FakeTimeProvider clock, HookBus hooks, IPrefsStore prefs)
+    private PipelineRig(Fake fake, FakeTimeProvider clock, HookBus hooks, IPrefsStore prefs, IDocCodec codec)
     {
         Fake = fake;
         Clock = clock;
         Hooks = hooks;
         Prefs = prefs;
         var accounts = new FakeAccounts(fake.Client, clock);
-        Codec = new TestCodec();
+        Codec = codec;
         Identities = new IdentityService(accounts);
         Seeder = new ComposeSeeder(accounts, Identities, prefs, hooks, Codec, clock);
         Drafts = new DraftService(accounts, Identities, hooks, Codec);
@@ -45,7 +45,7 @@ internal sealed class PipelineRig
 
     public IPrefsStore Prefs { get; }
 
-    public TestCodec Codec { get; }
+    public IDocCodec Codec { get; }
 
     public IdentityService Identities { get; }
 
@@ -76,12 +76,12 @@ internal sealed class PipelineRig
         StrictMailFrom = true,
     };
 
-    public static async Task<PipelineRig> StartAsync(FakeJmapOptions? options = null, JsonObject? prefs = null)
+    public static async Task<PipelineRig> StartAsync(FakeJmapOptions? options = null, JsonObject? prefs = null, IDocCodec? codec = null)
     {
         var clock = Fake.VirtualClock();
         var o = (options ?? M3Options()) with { Clock = clock };
         var fake = await Fake.StartAsync(o, clock);
-        return new PipelineRig(fake, clock, new HookBus(clock), new FixedPrefs(PrefsSnapshot.FromJson(prefs ?? [])));
+        return new PipelineRig(fake, clock, new HookBus(clock), new FixedPrefs(PrefsSnapshot.FromJson(prefs ?? [])), codec ?? new TestCodec());
     }
 
     /// <summary>The id of the seeded message with <paramref name="subject"/>.</summary>

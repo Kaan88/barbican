@@ -1,6 +1,6 @@
 // Mirrors: Rust compose.rs:797 pre_send_warning (empty subject, placeholders in what the user wrote and not in the quote, attachment reminder with the words attached, attachment, enclosed, anbei, ekte, ek'te, pièce jointe, adjunto);
 // Bulwark components/email/send-warnings-dialog.tsx, external-recipient-confirm.tsx (G-054: Rust had no external confirm; Bulwark lists recipients outside the sender's own domains); settings emptySubjectWarningEnabled, placeholderWarningEnabled, attachmentReminderEnabled.
-// Decision D-246: one dialog lists all warnings (M3 plan section 9 item 5), so the result is a list, not Rust's "press Send again".
+// Decision D-M3A-01: one dialog lists all warnings (M3 plan section 9 item 5), so the result is a list, not Rust's "press Send again".
 
 using Barbican.Core.Editor;
 using Barbican.Core.Jmap.Submission;

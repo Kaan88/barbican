@@ -1,6 +1,6 @@
 // Mirrors: Rust jmap.rs:903 save_draft (create the new draft and destroy the replaced one in one Email/set), compose.rs autosave_now / discard (:1120); Bulwark lib/jmap/client.ts createDraft/updateDraft (the old draft is destroyed in the same request),
 // components/email/email-composer.tsx autosave; lib/plugin-hook-catalog.ts:94-95 (onBeforeDraftAutoSave, onDraftAutoSave); RFC 8621 section 4.6 (Email/set). Stalwart crates/jmap/src/email/set.rs (create with $draft; keywords validated).
-// Decision D-246: a save with no resolvable identity is an error, not a draft from the first identity (Rust pick_identity_for).
+// Decision D-M3A-01: a save with no resolvable identity is an error, not a draft from the first identity (Rust pick_identity_for).
 
 using System.Text.Json.Nodes;
 using Barbican.Core.Accounts;

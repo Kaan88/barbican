@@ -1,6 +1,6 @@
 // Mirrors: Rust compose.rs:134-:440 open (fields, quote, identity, signature), :545 open_forward_as_attachment, :563 open_draft (inline images restored, G-058), :336 apply_signature; Bulwark components/email/email-composer.tsx, lib/reply-identity.ts, lib/reply-recipients.ts,
 // lib/forward-as-attachment.ts (the message's own blob attached by id), lib/plugin-hook-catalog.ts:96-102 (onBeforeEditDraft, onBuildQuoteHeader, onBeforeComposeOpenTo*); RFC 8621 section 4.1.2.3 (messageId / inReplyTo / references), RFC 5322 section 3.6.4 (References: the parent's chain plus its Message-ID).
-// Decisions D-251: a forward carries the original's non-inline attachments by blob id (no download or upload) and resends the quoted cid: images inline; a reopened draft downloads its inline images so the editor shows them (they keep their blob ids: no second upload).
+// Decisions D-M3A-06: a forward carries the original's non-inline attachments by blob id (no download or upload) and resends the quoted cid: images inline; a reopened draft downloads its inline images so the editor shows them (they keep their blob ids: no second upload).
 
 using System.Net;
 using Barbican.Core.Accounts;

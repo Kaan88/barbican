@@ -44,4 +44,8 @@ public sealed class HookCallSiteTests
 
     [Fact]
     public void Unified_m2_hooks_have_call_sites() => AssertFired("unified", "M2");
+
+    // M3: stream send-pipeline fires 15 hooks (drafts, seeding, send, attachment upload).
+    [Fact]
+    public void Send_pipeline_m3_hooks_have_call_sites() => AssertFired("send-pipeline", "M3");
 }

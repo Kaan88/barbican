@@ -1,4 +1,4 @@
-// Mirrors: Bulwark lib/plugin-hook-catalog.ts:110 onComposeSend (ComposeSendRequest, takeover). The bus has no takeover kind: a handler that sent the message itself returns false (decision D-247). Owner send-pipeline.
+// Mirrors: Bulwark lib/plugin-hook-catalog.ts:110 onComposeSend (ComposeSendRequest, takeover). The bus has no takeover kind: a handler that sent the message itself returns false (decision D-M3A-02). Owner send-pipeline.
 
 namespace Barbican.Core.Plugins.Payloads;
 

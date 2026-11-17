@@ -1,7 +1,7 @@
 // Mirrors: Rust jmap.rs:721 scheduled (EmailSubmission/query undoStatus pending + EmailSubmission/get), :985 reschedule_submission (cancel the original, submit again with HOLDFOR for the new time and the original envelope; the fallbacks of ReschedulePlanner), :1064 cancel_submission,
 // schedule.rs:215-292 (banner, action, reschedule); Bulwark lib/jmap/client.ts listScheduledSubmissions, rescheduleEmailSubmission, cancelEmailSubmission, components/email/message-actions.ts;
 // RFC 8621 section 7.3 (EmailSubmission/query, filter undoStatus), section 7.5 (undoStatus pending/final/canceled), RFC 4865. Stalwart crates/jmap/src/submission/{query,get,set}.rs.
-// Decision D-250: cancelling a scheduled send whose message cannot be moved back to Drafts leaves the copy where it is and says so (Rust destroyed it, which loses the message when no composer holds it).
+// Decision D-M3A-05: cancelling a scheduled send whose message cannot be moved back to Drafts leaves the copy where it is and says so (Rust destroyed it, which loses the message when no composer holds it).
 
 using System.Text.Json.Nodes;
 using Barbican.Core.Accounts;

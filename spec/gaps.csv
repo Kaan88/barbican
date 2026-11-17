@@ -52,11 +52,11 @@ G-050,P1,M,reader-safety,Phishing report,phishing-mark-banner.tsx; phishing-repo
 G-051,P1,S/M,reader-safety,External sender chip,external-sender-chip.tsx,GAPS P1-12,M10,open
 G-052,P1,S/M,reader-safety,BIMI verified badge,brand-verified-badge.tsx; lib/bimi,GAPS P1-12,M10,open
 G-053,P1,M,reader-safety,"Per-sender trust for remote content (trustedSenders, externalContentPolicy)",trusted-senders-modal.tsx,GAPS P1-12,M10,open
-G-054,P1,S,composer,Confirm before sending to external recipients,external-recipient-confirm.tsx,GAPS P1-12,M3,open
+G-054,P1,S,composer,Confirm before sending to external recipients,external-recipient-confirm.tsx,GAPS P1-12,M3,done (SendWarnings + SendCoordinator; dialog is composer-ui)
 G-055,P1,M,popout,Pop-out windows: message and composer in their own windows,popout/,GAPS P1-13,M10,open
 G-056,P1,S,jmap,"Truncated bodies: a notice shows, but the full body is never fetched",lib/email (isTruncated),GAPS P1-14,M2,open
 G-057,P1,S,jmap,Quota is fetched but not shown (storage usage on the Account page),Account page,GAPS P1-14,M6,open
-G-058,P1,S,composer,"cid: images in a re-opened draft: ROADMAP says placeholders, commit b9b3e99 says restored; re-check",composer draft reopen,GAPS P1-14,M3,open (re-check)
+G-058,P1,S,composer,"cid: images in a re-opened draft: ROADMAP says placeholders, commit b9b3e99 says restored; re-check",composer draft reopen,GAPS P1-14,M3,done (ComposeSeederTests.A_reopened_draft_keeps_its_fields_identity_and_inline_images_with_their_blob_ids)
 G-059,P2,S,settings-unwired,"Unwired: notificationSoundChoice, pushRelayUrl",settings-store.ts,GAPS P2-1,M6,open
 G-060,P2,S,settings-unwired,"Unwired: dateLocale, showOnboardingOnNewDevices",settings-store.ts,GAPS P2-1,M6,open
 G-061,P2,M,settings-unwired,"Unwired: mailLayout, toolbarPosition, sidebarAccountSwitcher, showRailAccountList, showSharedMailAccounts, compactSharedMailboxes, keepAppsLoaded",settings-store.ts,GAPS P2-1,M6,open
