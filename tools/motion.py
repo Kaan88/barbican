@@ -25,7 +25,10 @@ shows as a pair of frames a few ms apart.
 
 Scenario coordinates come from the layout file (default: tools/motion-layout.json); see there.
 """
-import json, os, socket, statistics, sys, time
+import json, os, statistics, sys, time
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import autoconn  # noqa: E402
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 INPUT = ("click", "rclick", "dclick", "move", "key", "scroll", "drag", "type")
@@ -33,8 +36,7 @@ INPUT = ("click", "rclick", "dclick", "move", "key", "scroll", "drag", "type")
 
 class App:
     def __init__(self, port):
-        self.s = socket.create_connection(("127.0.0.1", port), timeout=30)
-        self.f = self.s.makefile("rw", encoding="utf8")
+        self.s, self.f = autoconn.connect(port, timeout=30)
 
     def cmd(self, c):
         self.f.write(c + "\n")

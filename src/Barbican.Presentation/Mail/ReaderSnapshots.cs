@@ -38,7 +38,7 @@ public static class ReaderSnapshots
         ArgumentNullException.ThrowIfNull(options);
         var visible = Visible(body.Attachments, options);
         var cards = AttachmentCards.Wanted(visible, options.AttachmentImagePreviews);
-        var results = AuthenticationResults.Topmost(body.Headers);
+        var results = AuthenticationResults.Trusted(body.Headers, id => AuthServTrust.Trusts(options.ServerHost, id));
         var from = body.From.Count > 0 ? body.From[0].Email : string.Empty;
         var verified = from.Length > 0 && AuthenticationResults.AlignedPass(results, from);
         var failed = AuthenticationResults.Failure(results, verified);

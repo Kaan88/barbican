@@ -17,7 +17,7 @@ public static class FakeJmapHarness
         var http = new JmapHttp(() => server);
         var auth = StaticAccessTokenSource.Basic(server.Options.Username, server.Options.Password);
         var endpoint = ServerEndpoint.Parse(server.Base) ?? throw new InvalidOperationException("bad base");
-        var session = await SessionFetcher.FetchAsync(http, auth, endpoint.DiscoveryUri, TimeSpan.FromSeconds(30), time, ct).ConfigureAwait(false);
+        var session = await SessionFetcher.FetchAsync(http, auth, endpoint, endpoint.DiscoveryUri, TimeSpan.FromSeconds(30), time, ct).ConfigureAwait(false);
         var t = trace is null ? JmapTrace.Off : JmapTrace.To(trace);
         t.Event("SESSION", "");
         return session.IsOk

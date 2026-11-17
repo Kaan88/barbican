@@ -41,6 +41,34 @@ internal static class TestPng
         return png.ToArray();
     }
 
+    /// <summary>A PNG of the given colour type whose scanlines carry <paramref name="filtered"/> as is (filter bytes and all).</summary>
+    public static byte[] Raw(int width, int height, byte colorType, byte[] filtered, byte[]? palette = null)
+    {
+        using var idat = new MemoryStream();
+        using (var z = new ZLibStream(idat, CompressionLevel.Fastest, leaveOpen: true))
+        {
+            z.Write(filtered);
+        }
+
+        var header = new byte[13];
+        BinaryPrimitives.WriteUInt32BigEndian(header.AsSpan(0, 4), (uint)width);
+        BinaryPrimitives.WriteUInt32BigEndian(header.AsSpan(4, 4), (uint)height);
+        header[8] = 8;
+        header[9] = colorType;
+
+        using var png = new MemoryStream();
+        png.Write([137, 80, 78, 71, 13, 10, 26, 10]);
+        Chunk(png, "IHDR", header);
+        if (palette is not null)
+        {
+            Chunk(png, "PLTE", palette);
+        }
+
+        Chunk(png, "IDAT", idat.ToArray());
+        Chunk(png, "IEND", []);
+        return png.ToArray();
+    }
+
     private static void Chunk(Stream to, string type, byte[] data)
     {
         var length = new byte[4];

@@ -3,6 +3,8 @@
 // the cache unless a clear happened meanwhile (generation guard, bodycache.rs put_gen). Bulwark components/email/email-viewer.tsx and
 // lib/email-prefetch.ts (fetch once, cache, reuse). Stalwart crates/jmap/src/email/get.rs (bodyValues, maxBodyValueBytes, isTruncated).
 // Owner body.
+// Fable review 1 F-03: every HTML body is sanitized here (MailSanitizer), off the UI thread and once per fetch, before it is cached; the
+// original of a changed part stays in CidBodyValues.
 
 using Barbican.Core.Common;
 using Barbican.Core.Jmap.Errors;
@@ -58,6 +60,8 @@ public sealed class MessageFetcher(IBodyCache cache, IBlobSource blobs)
             }
 
             body = await CidImages.InlineAsync(body, (part, token) => blobs.DownloadAsync(part, CidImages.MaxBytes, token), ct).ConfigureAwait(false);
+            var inlined = body;
+            body = await Task.Run(() => MailSanitizer.Apply(inlined), ct).ConfigureAwait(false);
             cache.Put(accountKey, body, generation);
         }
 

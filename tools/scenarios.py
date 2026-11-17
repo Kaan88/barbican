@@ -8,9 +8,10 @@ action commands run. Coordinates are logical px for the default 1781x900 window 
 assistant panel open (as the app starts); `resize` puts it back first.
 The account must be the writable test account (actions star/unstar the open message only).
 """
-import json, os, socket, sys, time
+import json, os, sys, time
 
 sys.path.insert(0, os.path.dirname(__file__))
+import autoconn  # noqa: E402
 import flicker  # noqa: E402
 
 ROW = lambda i: f"click 450 {118 + 82 * i}"  # noqa: E731
@@ -77,8 +78,7 @@ LAYOUT = None
 
 class Driver:
     def __init__(self, port):
-        self.s = socket.create_connection(("127.0.0.1", port), timeout=30)
-        self.f = self.s.makefile("rw", encoding="utf8")
+        self.s, self.f = autoconn.connect(port, timeout=30)
 
     def cmd(self, c):
         if c.startswith("sleep "):

@@ -80,3 +80,16 @@ collection, label `<user>@Barbican`-style (not asserted), value = the same UTF-8
 - The OAuth behaviours that read and write these entries are now catalogued in
   `spec/behaviours/oauth.md` (B-OAUTH-015, B-OAUTH-018). The C# refresh path keeps the Rust rule:
   adopt the stored token, retry once, never delete.
+
+## Amendment: fix stream m1-fix-security (Fable review 1 F-05, F-06; user decision D-2)
+- **One credential per account.** A Windows generic credential holds at most 2560 bytes, so the single `accounts` entry
+  overflowed after a few OAuth accounts and the next sign-in failed. The C# vault now writes `account/<id>` per account
+  (`<id>`: 32 hex digits of SHA-256 over the account key "server\nuser", so no address appears in a target name) and
+  `account-index`, a JSON array of the ids in order (most recent first). Entries are written before the index, and entries
+  the index no longer names are removed after it, so a crash leaves at most an unnamed entry. The `session` copy of the
+  first account is gone (nothing read it in the C# app). The single `accounts` / `session` entries of the first C# builds
+  are read once when no index exists, split, and removed. The Rust entries are still never written or deleted.
+- **No OAuth refresh token is imported, by anybody (D-2).** Stalwart rotates refresh tokens; the first refresh in the C#
+  app would invalidate the Rust app's token and sign it out. The user import now copies an OAuth entry's server, user,
+  token endpoint and client id without its refresh token, and the account asks for a fresh sign-in; the agent import
+  skips OAuth entries as before. Point 2's "the import validates by a normal token refresh" is withdrawn.

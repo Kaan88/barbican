@@ -92,7 +92,7 @@ Areas: `foundation`, `jmap`, `mail`, `reader`, `composer`, `rte`, `sieve`, `sett
 | D-068 | 0530d4a | reader | While a message loads, reply, forward and attachments wait; prefetch goes 2 ahead (3 when moving one row at a time) in the direction of travel. | Prefetch behaviour. | B-MOT-014 |
 | D-069 | 0530d4a | reader | Links: every a, area and form in a message is retargeted to a new window; target=_self, _top and _parent no longer navigate; data: dropped from frame-src; mailto opens the composer. | Security: no navigation out of the frame. | B-DSK-019 |
 | D-070 | 0530d4a | reader | Large mail: no reveal of a half-parsed page after 600 ms; the bar shows, the page appears when laid out (8 s last resort). | Flicker. | B-MOT-014 |
-| D-071 | 0530d4a | reader | Frames get allow-scripts only when the accessibility script is in the page, not when the mail contains "<script>". | Security. | B-PLAT-001 |
+| D-071 | 0530d4a | reader | Frames get allow-scripts only when the accessibility script is in the page, not when the mail contains "<script>". C# (Fable F-03): frames never get allow-scripts; the shell runs the passes. | Security. | B-PLAT-001 |
 | D-072 | 0530d4a | reader | Cache: local read, flag and tag patch cached bodies; moves and deletes drop them; a fetch started before sign-out stores nothing (generation); conversations bounded by bytes; prefetch skips messages over 4 MB of inline images. | Cache correctness. | B-MOT-014 |
 | D-073 | 0530d4a | reader | Privacy: with remote content blocked, remote stylesheets and fonts are blocked too. | Privacy. | B-SET-036 |
 | D-074 | 0530d4a | settings | Perf: settings schema parsed once per process; settings read once per open; CUR_MSG holds the cached Arc instead of a deep clone. | Perf. | B-SET-001 |

@@ -45,7 +45,7 @@ public static class AccountsRegistration
         services.TryAddSingleton<OAuthFlow>();
         services.TryAddSingleton<ServerDiscovery>();
 
-        services.TryAddSingleton(_ => ReadOnlyPolicy.FromEnvironment());
+        services.TryAddSingleton(sp => ReadOnlyPolicy.For(sp.GetRequiredService<IProfilePaths>().Profile, Environment.GetEnvironmentVariable, ReadOnlyPolicy.ReadAllowList));
         services.TryAddSingleton(_ => new JmapClientOptions());
         services.TryAddSingleton<AccountStore>();
         services.TryAddSingleton(sp => new AccountManager(

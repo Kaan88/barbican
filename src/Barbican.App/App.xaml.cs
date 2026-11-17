@@ -48,10 +48,8 @@ public partial class BarbicanApp : Application
             return;
         }
 
-        if (options.IsHidden)
-        {
-            HiddenWebView.Prepare(options);
-        }
+        // every run: the profile's own WebView2 folder and no DNS prefetch; hidden runs also their own profile and painting flags (F-13)
+        WebViewEnvironment.Prepare(options);
 
         _host = AppComposition.Build(options);
         _window = new Window { Title = "Barbican" };

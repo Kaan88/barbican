@@ -149,7 +149,27 @@ function Start-Hidden([string]$Path, [string[]]$Arguments, [hashtable]$Environme
     finally { foreach ($k in $saved.Keys) { [Environment]::SetEnvironmentVariable($k, $saved[$k]) } }
 }
 
+# Fable F-08: every run gets its own token (BARBICAN_AUTOMATION_TOKEN), kept in artifacts/auto/<port>/token for the clients
+# (Send-Line here, tools/autoconn.py); a connection proves it with "auth <token>" before any command.
+$TokenFile = Join-Path $State 'token'
+function New-Token {
+    $bytes = New-Object byte[] 24
+    $rng = [System.Security.Cryptography.RandomNumberGenerator]::Create()
+    try { $rng.GetBytes($bytes) } finally { $rng.Dispose() }
+    return (($bytes | ForEach-Object { $_.ToString('x2') }) -join '')
+}
+
+# Agent profiles are read-only unless the main checkout's gitignored .local/writable-accounts.txt lists the account (Fable F-12).
+function Get-AllowList {
+    $common = (& git -C $Root rev-parse --path-format=absolute --git-common-dir 2>$null)
+    if (-not $common) { return $null }
+    $file = Join-Path (Split-Path -Parent $common) '.local/writable-accounts.txt'
+    if (Test-Path $file) { return $file } else { return $null }
+}
+
 function Send-Line([string]$Line, [int]$TimeoutMs = 30000) {
+    if (-not (Test-Path $TokenFile)) { throw "[auto-run] no token for port $Port (start the run with this script)" }
+    $token = (Get-Content $TokenFile -Raw).Trim()
     $client = New-Object System.Net.Sockets.TcpClient
     try {
         $client.Connect('127.0.0.1', $Port)
@@ -158,6 +178,9 @@ function Send-Line([string]$Line, [int]$TimeoutMs = 30000) {
         $writer = New-Object System.IO.StreamWriter($stream, (New-Object System.Text.UTF8Encoding($false)))
         $writer.NewLine = "`n"; $writer.AutoFlush = $true
         $reader = New-Object System.IO.StreamReader($stream, (New-Object System.Text.UTF8Encoding($false)))
+        $writer.WriteLine("auth $token")
+        $authed = $reader.ReadLine()
+        if ($authed -ne 'ok auth') { throw "[auto-run] the run on port $Port refused the token: $authed" }
         $writer.WriteLine($Line)
         return $reader.ReadLine()
     }
@@ -205,7 +228,11 @@ switch ($Target) {
         Stop-Own
         $path = Resolve-Exe 'src/Barbican.App/bin/Automation/net10.0-windows10.0.26100.0/win-x64/Barbican.exe'
         $before = Get-FocusState
-        $envAuto = @{ BARBICAN_AUTOMATION_PORT = "$Port"; BARBICAN_PROFILE = $(if ($ProfileName) { $ProfileName } else { "auto-$Port" }) }
+        $token = New-Token
+        Set-Content -Path $TokenFile -Value $token -NoNewline -Encoding ascii
+        $envAuto = @{ BARBICAN_AUTOMATION_PORT = "$Port"; BARBICAN_AUTOMATION_TOKEN = $token; BARBICAN_PROFILE = $(if ($ProfileName) { $ProfileName } else { "auto-$Port" }) }
+        $allow = Get-AllowList
+        if ($allow) { $envAuto.BARBICAN_WRITABLE_ACCOUNTS_FILE = $allow }
         if ($PrivateDesktop) { $p = Start-OnPrivateDesktop $path $envAuto } else { $p = Start-Hidden $path @() $envAuto }
         Set-Content (Join-Path $State 'pid.txt') "$($p.Id)|$($p.StartTime.ToString('o'))"
         Set-Content (Join-Path $State 'focus-before.txt') $before

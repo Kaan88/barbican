@@ -15,16 +15,17 @@ public sealed class MailCspTests
     [RustTest("main::blocked_remote_content_includes_stylesheets_and_fonts")]
     public void BlockedRemoteContentIncludesStylesheetsAndFonts()
     {
-        var c = MailCsp.MetaTag(false, null);
+        var c = MailCsp.MetaTag(false);
         Assert.True(c.Contains("style-src 'unsafe-inline';", StringComparison.Ordinal)
             && c.Contains("font-src data:;", StringComparison.Ordinal)
             && c.Contains("img-src data:;", StringComparison.Ordinal), c);
         Assert.Contains("script-src 'none'", c, StringComparison.Ordinal);
-        c = MailCsp.MetaTag(true, "x");
+        c = MailCsp.MetaTag(true);
         Assert.True(c.Contains("style-src 'unsafe-inline' http: https:;", StringComparison.Ordinal)
             && c.Contains("font-src http: https: data:;", StringComparison.Ordinal)
             && c.Contains("img-src http: https: data:;", StringComparison.Ordinal));
-        Assert.Contains("script-src 'sha256-", c, StringComparison.Ordinal);
+        // Fable F-03: no script runs in a frame, whatever the page (Rust allowed the dark pass by hash)
+        Assert.Contains("script-src 'none'", c, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -32,7 +33,7 @@ public sealed class MailCspTests
     {
         Assert.Equal(
             "default-src 'none'; style-src 'unsafe-inline'; font-src data:; img-src data:; script-src 'none'; object-src 'none'; frame-src 'none'; form-action 'none'; base-uri 'none'",
-            MailCsp.Policy(false, null));
+            MailCsp.Policy(false));
     }
 
     [Theory]
@@ -40,7 +41,7 @@ public sealed class MailCspTests
     [InlineData(true)]
     public void MediaObjectsFramesAndFormsNeverLoad(bool remote)
     {
-        var p = MailCsp.Policy(remote, null);
+        var p = MailCsp.Policy(remote);
         Assert.StartsWith("default-src 'none';", p, StringComparison.Ordinal);
         // media-src is not named, so <video>/<audio> fall back to default-src 'none' even with remote content on.
         Assert.DoesNotContain("media-src", p, StringComparison.Ordinal);
@@ -56,7 +57,7 @@ public sealed class MailCspTests
     {
         // A background image (CSS url()), <img>, srcset, poster, a remote stylesheet or @font-face all go
         // through img-src, style-src or font-src: none of them names a network scheme or a wildcard.
-        foreach (var directive in MailCsp.Policy(false, "dark()").Split(';', StringSplitOptions.TrimEntries))
+        foreach (var directive in MailCsp.Policy(false).Split(';', StringSplitOptions.TrimEntries))
         {
             Assert.DoesNotContain("http", directive, StringComparison.Ordinal);
             Assert.DoesNotContain("*", directive, StringComparison.Ordinal);
@@ -65,18 +66,10 @@ public sealed class MailCspTests
     }
 
     [Theory]
-    [InlineData(false, null)]
-    [InlineData(true, null)]
-    [InlineData(false, "document.documentElement.classList.remove('barbican-dark-pending')")]
-    [InlineData(true, "x")]
-    public void ScriptsRunOnlyByHashNeverInline(bool remote, string? script)
-    {
-        var scriptSrc = Directive(MailCsp.Policy(remote, script), "script-src");
-        Assert.DoesNotContain("unsafe-inline", scriptSrc, StringComparison.Ordinal);
-        Assert.DoesNotContain("unsafe-eval", scriptSrc, StringComparison.Ordinal);
-        Assert.DoesNotContain("http", scriptSrc, StringComparison.Ordinal);
-        Assert.Equal(script is null ? "script-src 'none'" : $"script-src {MailCsp.ScriptSource(script)}", scriptSrc);
-    }
+    [InlineData(false)]
+    [InlineData(true)]
+    public void No_script_ever_runs_in_a_frame(bool remote) =>
+        Assert.Equal("script-src 'none'", Directive(MailCsp.Policy(remote), "script-src"));
 
     [Fact]
     public void ScriptHashIsSha256OfTheUtf8Bytes()
@@ -90,12 +83,29 @@ public sealed class MailCspTests
     [Fact]
     public void ShellPolicyIsTheCeilingAndNeverNavigatesForms()
     {
-        Assert.Contains("form-action 'none'", ShellDocument.Policy, StringComparison.Ordinal);
-        Assert.Contains("object-src 'none'", ShellDocument.Policy, StringComparison.Ordinal);
-        Assert.Contains("base-uri 'none'", ShellDocument.Policy, StringComparison.Ordinal);
+        Assert.Contains("form-action 'none'", ShellDocument.BasePolicy, StringComparison.Ordinal);
+        Assert.Contains("object-src 'none'", ShellDocument.BasePolicy, StringComparison.Ordinal);
+        Assert.Contains("base-uri 'none'", ShellDocument.BasePolicy, StringComparison.Ordinal);
         var page = ShellDocument.Build("post('shell')", "#141414");
         Assert.StartsWith("<!doctype html><html style=\"background:#141414\">", page, StringComparison.Ordinal);
-        Assert.Contains("<script>post('shell')</script>", page, StringComparison.Ordinal);
+        Assert.Contains("post('shell')</script>", page, StringComparison.Ordinal);
+        Assert.Contains("<meta http-equiv=\"x-dns-prefetch-control\" content=\"off\">", page, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void The_shell_runs_only_its_own_script_by_hash()
+    {
+        // Fable F-03: never 'unsafe-inline'; the one inline script (dark pass + shell.js) is allowed by its SHA-256 alone
+        var page = ShellDocument.Build("post('shell');\r\nx()", "#141414");
+        var script = ShellDocument.Script("post('shell');\r\nx()");
+        Assert.DoesNotContain('\r', script);
+        Assert.StartsWith(ShellDocument.DarkPass, script, StringComparison.Ordinal);
+        Assert.Contains("<script>" + script + "</script>", page, StringComparison.Ordinal);
+        var policy = ShellDocument.Policy(script);
+        Assert.Equal($"script-src {MailCsp.ScriptSource(script)}", Directive(policy, "script-src"));
+        Assert.DoesNotContain("unsafe-inline'; frame", policy, StringComparison.Ordinal);
+        Assert.Contains(policy, page, StringComparison.Ordinal);
+        Assert.Single(System.Text.RegularExpressions.Regex.Matches(page, "<script", System.Text.RegularExpressions.RegexOptions.None, TimeSpan.FromSeconds(1)));
     }
 
     [Theory]

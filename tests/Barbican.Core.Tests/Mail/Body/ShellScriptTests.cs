@@ -29,6 +29,7 @@ public sealed partial class ShellScriptTests
         { "eval", @"\beval\s*\(|new\s+Function\s*\(" },
         { "string timers", @"set(Timeout|Interval)\s*\(\s*['""]" },
         { "frame navigation by src", @"\.\s*src\s*=(?!=)" },
+        { "allow-scripts", "allow-scripts" },
         { "allow-top-navigation", "allow-top-navigation" },
         { "allow-popups", "allow-popups" },
         { "allow-forms", "allow-forms" },
@@ -56,15 +57,24 @@ public sealed partial class ShellScriptTests
         Assert.Equal(MailSandbox.Allowed, tokens);
     }
 
-    [Theory]
-    [InlineData(false)]
-    [InlineData(true)]
-    public void CoreSandboxUsesOnlyAllowedKeywords(bool script)
+    [Fact]
+    public void CoreSandboxUsesOnlyAllowedKeywordsAndNeverScripts()
     {
-        var tokens = MailSandbox.For(script).Split(' ');
+        var tokens = MailSandbox.Frame.Split(' ');
         Assert.All(tokens, t => Assert.Contains(t, MailSandbox.Allowed, StringComparer.Ordinal));
-        Assert.Equal(script, tokens.Contains(MailSandbox.Scripts, StringComparer.Ordinal));
+        Assert.DoesNotContain("allow-scripts", MailSandbox.Allowed, StringComparer.Ordinal);
         Assert.DoesNotContain(tokens, t => t.StartsWith("allow-top-navigation", StringComparison.Ordinal) || t.StartsWith("allow-popups", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void Only_the_frames_own_srcdoc_is_finished_and_the_shell_runs_the_passes()
+    {
+        // Fable F-03: the load path and the poll both go through finish(), which checks about:srcdoc; the passes run from the shell
+        var code = Code.Value;
+        Assert.Contains("d.URL !== 'about:srcdoc'", code, StringComparison.Ordinal);
+        Assert.Matches(@"addEventListener\('load',[^\n]*finish\(d\)", code);
+        Assert.Matches(@"size\(d, sz\);\s*if \(dk\) dark\(d\);", code);
+        Assert.Contains("window.__bbDarkPass(d)", code, StringComparison.Ordinal);
     }
 
     [Fact]

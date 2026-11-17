@@ -2,6 +2,7 @@
 // login_hint, the browser, the callback, the code redeemed at the token endpoint); RFC 6749 §4.1 (authorization code grant), RFC 7636
 // (PKCE S256), RFC 8252 (native apps); Stalwart crates/http/src/auth/oauth/auth.rs (authorize), token.rs (authorization_code grant checks
 // the code_verifier). Bulwark lib/oauth/token-exchange.ts posts the same form. spec B-OAUTH-001, B-OAUTH-009, B-OAUTH-011, B-OAUTH-012.
+// Fable review 1 F-04: the callback is checked for state and RFC 9207 iss (CallbackCheck); discovery refuses non-https external endpoints.
 
 using Barbican.Core.Common;
 
@@ -39,7 +40,7 @@ public sealed class OAuthFlow(OAuthDiscovery discovery, OAuthClientRegistry clie
 
         // listen before the browser opens: a fast provider (or the automation launcher, which delivers the redirect itself) answers at once
         using var stop = CancellationTokenSource.CreateLinkedTokenSource(ct);
-        var wait = listener.WaitForCodeAsync(state, options.Timeout, time, stop.Token);
+        var wait = listener.WaitForCodeAsync(new CallbackCheck(state, meta.Value!.Issuer, meta.Value!.IssParameterSupported), options.Timeout, time, stop.Token);
         var opened = await launcher.OpenAsync(url, ct).ConfigureAwait(false);
         if (!opened.IsOk)
         {

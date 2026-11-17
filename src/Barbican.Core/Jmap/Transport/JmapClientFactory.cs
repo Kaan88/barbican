@@ -16,7 +16,7 @@ public sealed class JmapClientFactory(IJmapHttp http, TimeProvider time) : IJmap
         ArgumentNullException.ThrowIfNull(auth);
         ArgumentNullException.ThrowIfNull(options);
         var trace = JmapTrace.ToFile(options.TracePath ?? Environment.GetEnvironmentVariable(JmapTrace.Variable));
-        var session = await SessionFetcher.FetchAsync(http, auth, server.DiscoveryUri, options.RequestTimeout, time, ct).ConfigureAwait(false);
+        var session = await SessionFetcher.FetchAsync(http, auth, server, server.DiscoveryUri, options.RequestTimeout, time, ct).ConfigureAwait(false);
         trace.Event("SESSION", session.IsOk ? "" : "(failed)");
         return session.IsOk
             ? Result<IJmapClient>.Ok(new JmapClient(http, auth, session.Value!, options, time, trace))

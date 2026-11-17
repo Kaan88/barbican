@@ -34,6 +34,15 @@ public sealed record JmapSession
     /// <summary>The URL the session was read from (after redirects), for the re-fetch on a <c>sessionState</c> change.</summary>
     public string SessionUrl { get; init; } = "";
 
+    /// <summary>The server address the user typed (its origin is where every session URL was moved; Fable review 1 F-02).</summary>
+    public string ServerUrl { get; init; } = "";
+
+    /// <summary>
+    /// The origins (scheme://host[:port]) the Authorization header may be sent to: the typed server's, plus any https host the server named
+    /// for downloads, uploads or push (Bulwark lib/jmap/client.ts:2347). Empty: no request carries credentials.
+    /// </summary>
+    public IReadOnlyList<string> CredentialOrigins { get; init; } = [];
+
     /// <summary>The account id per capability URN (RFC 8620 §2 primaryAccounts).</summary>
     public IReadOnlyDictionary<string, string> PrimaryAccounts { get; init; } = new Dictionary<string, string>(StringComparer.Ordinal);
 
@@ -51,6 +60,19 @@ public sealed record JmapSession
 
     /// <summary>True for Stalwart (its <c>urn:stalwart:jmap</c> capability), whose state strings can be decoded.</summary>
     public bool IsStalwart => Has(JmapCapabilities.Stalwart);
+
+    /// <summary>True when a request to <paramref name="url"/> may carry this login's credentials.</summary>
+    public bool AllowsCredentials(Uri url)
+    {
+        ArgumentNullException.ThrowIfNull(url);
+        if (!url.IsAbsoluteUri || !string.IsNullOrEmpty(url.UserInfo))
+        {
+            return false;
+        }
+
+        var origin = url.GetLeftPart(UriPartial.Authority);
+        return CredentialOrigins.Contains(origin, StringComparer.OrdinalIgnoreCase);
+    }
 
     /// <summary>True when the server advertises <paramref name="capability"/>.</summary>
     public bool Has(string capability) => CapabilityNames.Contains(capability, StringComparer.Ordinal);

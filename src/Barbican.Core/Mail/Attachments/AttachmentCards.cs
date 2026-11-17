@@ -15,6 +15,8 @@ public static class AttachmentCards
     /// <summary>Thumbnail edge in pixels (the tile draws 40 logical px; twice that stays sharp at 200 %).</summary>
     public const int ThumbnailEdge = 80;
 
+    private static readonly Lock DecodeGate = new();
+
     private static readonly HashSet<string> Decodable = new(StringComparer.Ordinal)
     {
         "image/png", "image/jpeg", "image/jpg", "image/pjpeg", "image/gif", "image/webp", "image/bmp",
@@ -62,15 +64,22 @@ public static class AttachmentCards
     }
 
     /// <summary>Decodes an image and scales it to fill a square thumbnail (cropping the overflow); null when it is not an image.</summary>
-    /// <remarks>Core decodes PNG itself; other formats need an <see cref="IImageDecoder"/> from the platform (see <see cref="ThumbnailDecoders"/>).</remarks>
+    /// <remarks>
+    /// Core decodes PNG itself; other formats need an <see cref="IImageDecoder"/> from the platform (see <see cref="ThumbnailDecoders"/>).
+    /// One thumbnail is made at a time (Fable review 1 F-09): a message with many large pictures queues them instead of holding all at once.
+    /// Call it off the UI thread.
+    /// </remarks>
     public static ThumbnailImage? Thumbnail(byte[] bytes)
     {
         ArgumentNullException.ThrowIfNull(bytes);
-        foreach (var decoder in ThumbnailDecoders.All)
+        lock (DecodeGate)
         {
-            if (decoder.TryDecode(bytes) is { } image)
+            foreach (var decoder in ThumbnailDecoders.All)
             {
-                return ThumbnailScaler.Fill(image, ThumbnailEdge);
+                if (decoder.TryThumbnail(bytes, ThumbnailEdge) is { } thumb)
+                {
+                    return thumb;
+                }
             }
         }
 

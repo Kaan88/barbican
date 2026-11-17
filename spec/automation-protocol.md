@@ -6,7 +6,7 @@ The hidden in-app automation server of AUTOMATION builds (the `Automation` build
 `tools/auto-run.ps1 start` (SW_HIDE, own port and profile, stops only its own process; `-PrivateDesktop` for
 popup probes); on Linux with `tools/linux.ps1 xrun -Configuration Automation -Script auto` (private Xvfb only). One command per line, one reply line. The command set is the one of the
 Rust app (`src/automation.rs` header at tag `rust-final`), so `tools/auto.py`, `tools/motion.py`, `tools/flicker.py` and
-`tools/scenarios.py` run unchanged. Decisions and measurements: [ADR 0007](../docs/adr/0007-hidden-automation.md).
+`tools/scenarios.py` run with one change (they authenticate first, below). Decisions and measurements: [ADR 0007](../docs/adr/0007-hidden-automation.md).
 Reference implementation of the transport, click, capture and probe commands: `spikes/s4-automation/`.
 
 Status column: **spike** = implemented and measured in `spikes/s4-automation`; **F1** = ported to
@@ -15,6 +15,14 @@ real app; **n/a** = cannot be done in-process (Layer C); **drop** = Rust-only. O
 VM's Xvfb) the UIA commands fall back to peers and `wshot`/`probe`/`burst` use the Xvfb root picture.
 
 Coordinates are logical px of the window's client area. Replies: `ok`, a value, or `error ...` / `unknown command ...`.
+
+**Authentication (Fable review 1 F-08).** The server opens its port only when the run has a token,
+`BARBICAN_AUTOMATION_TOKEN` (at least 16 characters, no spaces; `tools/auto-run.ps1 start` makes one per run and writes it
+to `artifacts/auto/<port>/token`; `tools/linux-remote.sh auto` makes its own). The first line of every connection must be
+`auth <token>`, answered `ok auth`; any other first line gets `error auth required` and the connection is closed, and a
+later line that looks like HTTP (a request line or a `Name: value` header) closes it without a reply. Python clients
+connect through `tools/autoconn.py` (token from the variable, else the token file). The popup guard runs whether or not
+the port opens.
 
 ## Input (no real input is ever produced)
 | Command | Meaning in C# | Status |

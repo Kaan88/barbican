@@ -1,5 +1,5 @@
 // Mirrors: Rust mailview.rs (tag rust-final): SHELL_JS :51 (now Assets/mail/shell.js), shell_html :127 (Core ShellDocument), sandbox :140
-// (Core MailSandbox), show :158, slow :178, cancel_pending :190, dim :199, ready :206, theme_changed :232, clear :240, on_ipc :326, build :369
+// (Core MailSandbox: never allow-scripts, Fable F-03), show :158, slow :178, cancel_pending :190, dim :199, ready :206, theme_changed :232, clear :240, on_ipc :326, build :369
 // (navigation and new-window handlers), paint_host :100 (here DefaultBackgroundColor). PORT-PLAN.md §3.6; docs/adr/0005 (decisions 1, 4).
 // Bulwark components/email/email-viewer.tsx (sandboxed srcdoc iframe per message), lib/email-sanitization.ts:109 (frame CSP). Owner body.
 //
@@ -291,8 +291,9 @@ public sealed partial class BodyShell : IBodyPresenter, IStartupTask, IDisposabl
         core.Settings.AreBrowserAcceleratorKeysEnabled = false;
         core.FrameNavigationStarting += (_, e) =>
         {
-            // a message frame may only ever hold its srcdoc (a meta refresh or a script-free self navigation would load a remote page)
-            if (!e.Uri.StartsWith("about:", StringComparison.OrdinalIgnoreCase))
+            // a message frame may only ever hold its srcdoc (a meta refresh or a script-free self navigation would load a remote page,
+            // or about:blank would replace the message): everything else is cancelled (Fable F-03)
+            if (!string.Equals(e.Uri, "about:srcdoc", StringComparison.OrdinalIgnoreCase))
             {
                 e.Cancel = true;
                 BlockedNavigations++;
@@ -344,7 +345,7 @@ public sealed partial class BodyShell : IBodyPresenter, IStartupTask, IDisposabl
         StopReadyTimer();
         _readyTimer = _time.CreateTimer(_ => _dispatcher.Post(() => Slow(seq)), null, SlowAfter, Timeout.InfiniteTimeSpan);
 
-        Command("show", seq, html: page.Html, bg: page.Background, sandbox: MailSandbox.For(page.HasScript));
+        Command("show", seq, html: page.Html, bg: page.Background, sandbox: MailSandbox.Frame, page: page);
     }
 
     // Document seq is not ready after 600 ms: with the shell up it is still parsing (a large mail): the loading bar shows and the page is
@@ -486,7 +487,7 @@ public sealed partial class BodyShell : IBodyPresenter, IStartupTask, IDisposabl
     }
 
     // One command to the shell: a web message on Windows (one ordered channel for every command, large pages included), a script call on Linux.
-    private void Command(string op, long seq = 0, string? html = null, string? bg = null, string? sandbox = null, bool on = false)
+    private void Command(string op, long seq = 0, string? html = null, string? bg = null, string? sandbox = null, bool on = false, MailPage? page = null)
     {
 #if WINDOWS
         var buffer = new ArrayBufferWriter<byte>(html is null ? 128 : html.Length + 256);
@@ -510,6 +511,20 @@ public sealed partial class BodyShell : IBodyPresenter, IStartupTask, IDisposabl
                 w.WriteString("sandbox", sandbox);
             }
 
+            if (page is not null)
+            {
+                // the shell runs these on the frame document (no script runs in the frame, Fable F-03)
+                w.WriteBoolean("dark", page.Dark);
+                if (page.Sizing is { } z)
+                {
+                    w.WriteStartArray("size");
+                    w.WriteNumberValue(z.Factor);
+                    w.WriteNumberValue(z.MinPx);
+                    w.WriteBooleanValue(z.Fit);
+                    w.WriteEndArray();
+                }
+            }
+
             w.WriteBoolean("on", on);
             w.WriteEndObject();
         }
@@ -519,7 +534,7 @@ public sealed partial class BodyShell : IBodyPresenter, IStartupTask, IDisposabl
         var s = seq.ToString(CultureInfo.InvariantCulture);
         var js = op switch
         {
-            "show" => $"window.__bb&&__bb.show({s},{Json(html!)},{Json(bg!)},{Json(sandbox!)})",
+            "show" => $"window.__bb&&__bb.show({s},{Json(html!)},{Json(bg!)},{Json(sandbox!)},{(page?.Dark == true ? "true" : "false")},{SizeJs(page?.Sizing)})",
             "reveal" => $"window.__bb&&__bb.reveal({s})",
             "cancel" => $"window.__bb&&__bb.cancel({s})",
             "dim" => $"window.__bb&&__bb.dim({(on ? "true" : "false")})",
@@ -552,6 +567,11 @@ public sealed partial class BodyShell : IBodyPresenter, IStartupTask, IDisposabl
 #if !WINDOWS
     // a JSON string is a JavaScript string literal (the default encoder also escapes <, > and &)
     private static string Json(string s) => "\"" + JsonEncodedText.Encode(s).ToString() + "\"";
+
+    // the sizing as a JavaScript array literal, or null
+    private static string SizeJs(Barbican.Core.Settings.Accessibility.MailSizing? z) => z is null
+        ? "null"
+        : string.Create(CultureInfo.InvariantCulture, $"[{z.Factor},{z.MinPx},{(z.Fit ? "true" : "false")}]");
 #endif
 
     [LoggerMessage(Level = LogLevel.Error, Message = "the mail body view could not start")]

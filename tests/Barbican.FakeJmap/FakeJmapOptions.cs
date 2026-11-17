@@ -26,6 +26,9 @@ public sealed record FakeJmapOptions
     /// <summary>Session URLs relative to the session resource (RFC 8620 §2: allowed) instead of absolute.</summary>
     public bool RelativeUrls { get; init; }
 
+    /// <summary>The origin the session names its URLs under (a server behind a proxy advertising its internal name); null: <see cref="Origin"/>.</summary>
+    public string? SessionUrlOrigin { get; init; }
+
     /// <summary>Answer /.well-known/jmap with a 307 to /jmap/session (else the session directly, as Stalwart).</summary>
     public bool RedirectWellKnown { get; init; }
 

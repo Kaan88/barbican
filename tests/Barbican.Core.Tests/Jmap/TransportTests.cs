@@ -36,7 +36,7 @@ public sealed class TransportTests
         var server = new FakeJmapServer(new FakeJmapOptions { RedirectWellKnown = true, RedirectOrigin = "https://other.example.org" });
         var e = await Assert.ThrowsAsync<InvalidOperationException>(() => FakeJmapHarness.ConnectAsync(server, TimeProvider.System, ct: Ct));
         Assert.Contains("GET /jmap/session 401", server.Requests, StringComparer.Ordinal);
-        Assert.Contains("Wrong username", e.Message, StringComparison.Ordinal);
+        Assert.Contains("other.example.org", e.Message, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -210,7 +210,7 @@ public sealed class TransportTests
         var server = new FakeJmapServer();
         var tokens = new RenewingTokens(() => Task.FromResult<string?>(server.IssueToken()));
         var http = new JmapHttp(() => server);
-        var session = await SessionFetcher.FetchAsync(http, tokens, new Uri(server.Base + "/.well-known/jmap"), TimeSpan.FromSeconds(30), TimeProvider.System, Ct);
+        var session = await Sessions.FetchAsync(http, tokens, new Uri(server.Base + "/.well-known/jmap"), TimeSpan.FromSeconds(30), TimeProvider.System, Ct);
         using var client = new JmapClient(http, tokens, session.Value!, new JmapClientOptions(), TimeProvider.System, JmapTrace.Off);
 
         server.Inject(FakeFault.Unauthorized);
@@ -325,12 +325,12 @@ public sealed class TransportTests
     [Fact]
     public async Task Session_failures_are_named()
     {
-        Assert.False(SessionParser.Parse("not json", new Uri("https://h/")).IsOk);
-        Assert.Contains("No mail account", SessionParser.Parse("{\"accounts\":{}}", new Uri("https://h/")).Error!.Message, StringComparison.Ordinal);
-        Assert.Contains("mail capability", SessionParser.Parse("{\"accounts\":{},\"apiUrl\":\"/a\",\"downloadUrl\":\"/d\",\"primaryAccounts\":{}}", new Uri("https://h/")).Error!.Message, StringComparison.Ordinal);
+        Assert.False(Sessions.Parse("not json", new Uri("https://h/")).IsOk);
+        Assert.Contains("No mail account", Sessions.Parse("{\"accounts\":{}}", new Uri("https://h/")).Error!.Message, StringComparison.Ordinal);
+        Assert.Contains("mail capability", Sessions.Parse("{\"accounts\":{},\"apiUrl\":\"/a\",\"downloadUrl\":\"/d\",\"primaryAccounts\":{}}", new Uri("https://h/")).Error!.Message, StringComparison.Ordinal);
         var server = new FakeJmapServer(new FakeJmapOptions { Password = "other" });
         var http = new JmapHttp(() => server);
-        var r = await SessionFetcher.FetchAsync(http, StaticAccessTokenSource.Basic("user@example.org", "wrong"), new Uri(server.Base + "/.well-known/jmap"), TimeSpan.FromSeconds(5), TimeProvider.System, Ct);
+        var r = await Sessions.FetchAsync(http, StaticAccessTokenSource.Basic("user@example.org", "wrong"), new Uri(server.Base + "/.well-known/jmap"), TimeSpan.FromSeconds(5), TimeProvider.System, Ct);
         Assert.True(Assert.IsType<AuthError>(r.Error).NeedsSignIn);
     }
 }

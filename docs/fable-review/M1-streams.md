@@ -194,7 +194,7 @@ Branch `m1-f1-foundation`, merged into `m1`. Report: the stage's hand-back (Uno 
   `Win2DWarnNoPlatform=false` and relies on the App's RID for the native DLL. Where: App and Automation csproj.
 - **Profile folders:** hidden runs set `WEBVIEW2_USER_DATA_FOLDER` to `%LOCALAPPDATA%/Barbican-<profile>/WebView2`
   (profiles `smoke`, `auto-<port>`), never the user's default profile. Review against ADR 0008 profiles.
-  Where: `App/Composition/HiddenWebView.cs`.
+  Where: `App/Composition/HiddenWebView.cs` (now `WebViewEnvironment.cs`, Fable F-13).
 - **`IStartupTask` lives in `Presentation/Composition`** (so feature streams can implement it without the App).
 - **Branch name:** `m1-f1-foundation` (the task text said `m1/f1`, which git cannot create next to `m1`).
 

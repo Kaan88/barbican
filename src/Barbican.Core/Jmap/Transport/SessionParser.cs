@@ -11,11 +11,17 @@ namespace Barbican.Core.Jmap.Transport;
 /// <summary>Reads a session document into a <see cref="JmapSession"/>.</summary>
 public static class SessionParser
 {
-    /// <summary>The session, or a <see cref="TransportError"/> naming what is missing.</summary>
-    public static Result<JmapSession> Parse(string json, Uri sessionUri)
+    /// <summary>The session, or a <see cref="TransportError"/> naming what is missing or unsafe.</summary>
+    /// <param name="json">The session document.</param>
+    /// <param name="sessionUri">The URL it was read from (after redirects): relative URLs resolve against it (RFC 8620 §2).</param>
+    /// <param name="server">The server the user typed: every URL is moved onto its origin unless it is a deliberate https host of its own.</param>
+    /// <param name="viaOtherOrigin">The document came from another origin than <paramref name="server"/>'s (fetched without credentials): no
+    /// URL of it is kept off the typed origin.</param>
+    public static Result<JmapSession> Parse(string json, Uri sessionUri, ServerEndpoint server, bool viaOtherOrigin)
     {
         ArgumentNullException.ThrowIfNull(json);
         ArgumentNullException.ThrowIfNull(sessionUri);
+        ArgumentNullException.ThrowIfNull(server);
         JsonElement root;
         try
         {
@@ -34,18 +40,7 @@ public static class SessionParser
             return Fail("No mail account found in session");
         }
 
-        var primary = new Dictionary<string, string>(StringComparer.Ordinal);
-        if (root.TryGetProperty("primaryAccounts", out var p) && p.ValueKind == JsonValueKind.Object)
-        {
-            foreach (var kv in p.EnumerateObject())
-            {
-                if (kv.Value.ValueKind == JsonValueKind.String)
-                {
-                    primary[kv.Name] = kv.Value.GetString()!;
-                }
-            }
-        }
-
+        var primary = Primary(root);
         if (!primary.ContainsKey(JmapCapabilities.Mail))
         {
             return Fail("Account has no mail capability");
@@ -54,15 +49,28 @@ public static class SessionParser
         var caps = root.TryGetProperty("capabilities", out var c) && c.ValueKind == JsonValueKind.Object ? c : default;
         var core = caps.ValueKind == JsonValueKind.Object && caps.TryGetProperty(JmapCapabilities.Core, out var k) ? k : default;
         var eventSource = Str(root, "eventSourceUrl") ?? Str(core, "eventSourceUrl") ?? "";
+        var urls = new SessionUrls(sessionUri, server, AbsoluteOrigin(api), viaOtherOrigin);
+        var apiUrl = urls.Move(api);
+        var downloadUrl = urls.Rewrite(download);
+        var uploadUrl = Str(root, "uploadUrl") is { } up ? urls.Rewrite(up) : "";
+        var eventSourceUrl = eventSource.Length == 0 ? "" : urls.Rewrite(eventSource);
+        if (string.Equals(sessionUri.Scheme, Uri.UriSchemeHttps, StringComparison.Ordinal)
+            && ((string[])[apiUrl, downloadUrl, uploadUrl, eventSourceUrl]).Any(u => u.StartsWith("http://", StringComparison.OrdinalIgnoreCase)))
+        {
+            return Fail("The server's session names an insecure (http) address.");
+        }
+
         return Result<JmapSession>.Ok(new JmapSession
         {
-            ApiUrl = Absolute(sessionUri, api),
-            DownloadUrl = Absolute(sessionUri, download),
-            UploadUrl = Str(root, "uploadUrl") is { } up ? Absolute(sessionUri, up) : "",
-            EventSourceUrl = eventSource.Length == 0 ? "" : Absolute(sessionUri, eventSource),
+            ApiUrl = apiUrl,
+            DownloadUrl = downloadUrl,
+            UploadUrl = uploadUrl,
+            EventSourceUrl = eventSourceUrl,
             State = Str(root, "state") ?? "",
             Username = Str(root, "username") ?? "",
             SessionUrl = sessionUri.ToString(),
+            ServerUrl = server.BaseUri.ToString(),
+            CredentialOrigins = urls.Origins,
             PrimaryAccounts = primary,
             CapabilityNames = caps.ValueKind == JsonValueKind.Object ? [.. caps.EnumerateObject().Select(x => x.Name)] : [],
             Limits = Limits(core),
@@ -96,6 +104,33 @@ public static class SessionParser
 
         var path = sessionUri.AbsolutePath;
         return origin + path[..(path.LastIndexOf('/') + 1)] + url;
+    }
+
+    /// <summary>The origin (scheme, host, port) of an absolute http(s) URL as written, or null (relative, protocol-relative or unparsable).</summary>
+    public static string? AbsoluteOrigin(string url)
+    {
+        ArgumentNullException.ThrowIfNull(url);
+        return (url.StartsWith("https://", StringComparison.OrdinalIgnoreCase) || url.StartsWith("http://", StringComparison.OrdinalIgnoreCase))
+            && Uri.TryCreate(url, UriKind.Absolute, out var u)
+            ? u.GetLeftPart(UriPartial.Authority)
+            : null;
+    }
+
+    private static Dictionary<string, string> Primary(JsonElement root)
+    {
+        var primary = new Dictionary<string, string>(StringComparer.Ordinal);
+        if (root.TryGetProperty("primaryAccounts", out var p) && p.ValueKind == JsonValueKind.Object)
+        {
+            foreach (var kv in p.EnumerateObject())
+            {
+                if (kv.Value.ValueKind == JsonValueKind.String)
+                {
+                    primary[kv.Name] = kv.Value.GetString()!;
+                }
+            }
+        }
+
+        return primary;
     }
 
     private static CoreLimits Limits(JsonElement core)

@@ -3,8 +3,9 @@
 // Bulwark components/email/email-viewer.tsx (emailAlwaysLightMode, plainTextFont, messageSpacing), lib/email-dark-mode.ts,
 // lib/email-sanitization.ts:109 emailIframeCsp. Stalwart: none (client-side only). Owner body.
 //
-// The frame page is built here, once, for both OSes. Its CSP is the remote-content guard (the only one on Linux, ADR 0005), scripts
-// run only by hash (our dark pass and the a11y sizing script), and the frame's sandbox gets allow-scripts only when one of ours is in.
+// The frame page is built here, once, for both OSes. Its CSP is the remote-content guard (the only one on Linux, ADR 0005) and allows
+// no script at all: the dark pass and the a11y sizing run from the shell against the frame document (Fable review 1 F-03), so the page
+// only says whether they are wanted (MailPage.Dark, MailPage.Sizing). The body was sanitized when it was fetched (MailSanitizer).
 
 using System.Text;
 
@@ -32,23 +33,12 @@ public static class MailPageBuilder
         var plain = body.StartsWith("<pre>", StringComparison.Ordinal);
         var themed = dark && (plain || Uncoloured(body));
         var recolor = options.Recolor && dark && !themed && !a.OverrideActive();
-        var script = (a.MailScript(), recolor) switch
-        {
-            ({ } s, true) => s + "\n" + DarkMail.Script,
-            (null, true) => DarkMail.Script,
-            (var s, false) => s,
-        };
-
-        // the HTML parser turns CRLF into LF before the CSP hashes a script: hash (and send) it in that form
-        script = script?.Replace("\r\n", "\n", StringComparison.Ordinal).Replace('\r', '\n');
+        var sizing = a.Sizing();
         var background = dark && a.OverrideActive() ? DarkMail.Background : themed ? options.ReaderBackground : recolor ? DarkMail.Background : "#ffffff";
         var head = new StringBuilder()
-            .Append(MailCsp.MetaTag(options.AllowRemote, script))
+            .Append(MailCsp.MetaTag(options.AllowRemote))
+            .Append(MailCsp.NoPrefetchTag)
             .Append("<style>").Append(a.MailCss(dark)).Append("</style>");
-        if (script is not null)
-        {
-            head.Append("<script>").Append(script).Append("</script>");
-        }
 
         var preFont = string.Equals(options.PlainTextFont, "mono", StringComparison.Ordinal) ? Mono : "inherit";
         var margin = options.MessageSpacing switch
@@ -63,7 +53,7 @@ public static class MailPageBuilder
             var html = $"<!doctype html><html><head><meta charset=utf-8>{head}<base target=_blank><style>html,body{{background:{options.ReaderBackground};color:#d4d4d4}}" +
                 $"body{{margin:{margin}px;font-family:{Sans};font-size:14px;word-wrap:break-word}}pre{{white-space:pre-wrap;font-family:{preFont};margin:0}}" +
                 $"a{{color:#f0577a}}img{{max-width:100%;height:auto}}</style></head><body>{body}</body></html>";
-            return new MailPage(html, script is not null, background, remote);
+            return new MailPage(html, false, background, remote) { Sizing = sizing };
         }
 
         if (recolor)
@@ -74,13 +64,13 @@ public static class MailPageBuilder
             var html = $"<!doctype html><html class=\"{DarkMail.PendingClass}\" style=\"color-scheme:{scheme}\"><head><meta charset=utf-8>{head}<base target=_blank>" +
                 $"<style>body{{margin:{margin}px;font-family:{Sans};font-size:14px;word-wrap:break-word}}pre{{white-space:pre-wrap;font-family:{preFont}}}" +
                 $"img{{max-width:100%;height:auto}}{DarkMail.Css()}</style></head><body>{pinned}</body></html>";
-            return new MailPage(html, true, background, remote);
+            return new MailPage(html, true, background, remote) { Sizing = sizing };
         }
 
         var light = $"<!doctype html><html><head><meta charset=utf-8>{head}<base target=_blank>" +
             $"<style>body{{margin:{margin}px;font-family:{Sans};font-size:14px;color:#111;background:#fff;word-wrap:break-word}}pre{{white-space:pre-wrap;font-family:{preFont}}}" +
             $"img{{max-width:100%;height:auto}}</style></head><body>{body}</body></html>";
-        return new MailPage(light, script is not null, background, remote);
+        return new MailPage(light, false, background, remote) { Sizing = sizing };
     }
 
     /// <summary>An error page in the reader's colours (Rust msgload open: "Could not load message").</summary>

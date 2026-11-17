@@ -9,10 +9,10 @@ public static class SecretTarget
     /// <summary>The prefix of every entry.</summary>
     public const string Prefix = "Barbican.Next/";
 
-    /// <summary>The remembered accounts (a JSON array).</summary>
+    /// <summary>The remembered accounts as one JSON array: the layout of the first C# builds, read once and split (SecretAccountVault, Fable F-05).</summary>
     public static readonly SecretName Accounts = new("accounts");
 
-    /// <summary>The last active account (a JSON object, as Rust's session entry).</summary>
+    /// <summary>The last active account as Rust's session entry: written by the first C# builds only, removed by SecretAccountVault.</summary>
     public static readonly SecretName Session = new("session");
 
     /// <summary>The Stalwart admin API key (entered by the user in Settings, M7).</summary>

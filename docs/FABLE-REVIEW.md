@@ -529,3 +529,91 @@ Commits are on `m1`; the per-stream commits are in the archive. Report: [milesto
   item 8).
 - **[verify]** The window events are wired (item 20). `flicker.py` rejects uniform captures (item 34).
 
+
+## M1 fix stream: security (stream: m1-fix-security)
+
+Fixes for Fable review 1 (`docs/fable-review-1.md` on `fable/review-1`) F-02, F-03, F-04, F-05, F-06, F-07, F-08, F-09, F-12,
+F-13 and user decisions D-2, D-9, D-10, on branch `m1-fix-security` (from `m1` at `056ae3b`). Items below name what to re-check.
+
+- **F-02 session URLs (judgement calls).** `Core/Jmap/Transport/SessionUrls.cs`, `SessionParser.cs`, `SessionFetcher.cs`,
+  `AuthorizedHttp.cs`, `JmapSession.CredentialOrigins`. Relative URLs still resolve against the session URL (RFC 8620 §2), then
+  move onto the typed origin; Bulwark resolves them against the typed origin's root instead (`client.ts:2329`): the two differ only
+  for a relative URL without a leading slash. A session that arrived from another origin keeps no "hosted elsewhere" host (Bulwark
+  has no such case: the browser fetch never crosses). The session re-fetch on a `sessionState` change now goes through discovery
+  when the session URL is off the typed origin. A cross-origin 401 now says "Enter <origin> as the server address" instead of
+  "Wrong username" (FABLE-REVIEW M1 item 8). Check the wording, and whether a Stalwart behind a proxy that redirects
+  `/.well-known/jmap` to another host should be followed with a prompt instead.
+- **D-10 plain http.** `Core/Jmap/ServerEndpoint.cs` `Read`: http only for `localhost`, 127.0.0.0/8 and `::1`, else
+  `InsecureMessage`. A remembered (or imported) http server elsewhere now fails at start-up with that message. There is no
+  "I understand" override (the brief said refuse). `*.localhost` names are not treated as loopback.
+- **F-04 OAuth loopback and discovery.** `Core/Auth/LoopbackListener.cs`, `CallbackCheck.cs`, `OAuthDiscovery.cs` (`Secure`,
+  `MetaFrom`), `OAuthMetadata.Issuer/IssParameterSupported`, `RefreshLock.cs`. Judgement calls: a wrong `iss` **with** the right
+  state ends the sign-in (the state was leaked to a second provider, so waiting on gives nothing); without the state it is refused
+  like any stranger. An `iss` sent while the metadata names no issuer is ignored unless the provider announced the parameter.
+  A plain-http registration endpoint of an external provider is dropped (fallback client id), not followed. The refresh lock no
+  longer deletes its file and has no 60 s staleness: verify on Linux that .NET's `FileShare.None` really takes `flock` there (it
+  does in .NET on Unix by default; `DOTNET_SYSTEM_IO_DISABLEFILELOCKING` would turn it off). Not changed: bind address (already
+  `IPAddress.Loopback`), constant-time state compare, PKCE verifier (48 random bytes, 64 chars).
+- **F-05 one credential per account.** `Platform/SecretAccountVault.cs`: `account/<sha256-prefix>` entries plus `account-index`
+  (in the secret store, not a profile file: the index names no address and keeps the vault one unit). Judgement: the `session`
+  entry was dropped (nothing in the C# app read it). Migration of the old single entry is silent and automatic on first load.
+  The live Windows store was not exercised by a test here (no throwaway-target run in this stream); the 2560-byte cap is
+  checked with a capped fake store. Hand test: sign in to three OAuth accounts in a dev profile and restart.
+- **F-06 / D-2 import.** `RustCredentialImport`: the user import keeps OAuth accounts listed but drops their refresh token
+  ("imported without its sign-in; sign in again"). ADR 0008 point 2's "validate by a normal refresh" is withdrawn in an
+  amendment section.
+- **F-12 read-only fails closed.** `Core/Accounts/ReadOnlyPolicy.For(profile, env, readFile)`: in `dev` (also the default
+  profile, so a plain user run is covered too) and `auto-*`, only the file named by `BARBICAN_WRITABLE_ACCOUNTS_FILE` counts,
+  and only when its folder is named `.local`; `BARBICAN_WRITABLE_ACCOUNTS` is ignored there. Other profiles keep the variable.
+  Registered from `IProfilePaths` (not `ProfilePaths.FromEnvironment`), so the policy follows the profile the app actually uses.
+  Judgement: the allow-list holds logins, not account keys (server+login), matching the existing `IsReadOnly(user, …)`; a
+  stricter key match can come with M2's writes. Who sets the variable: `tools/auto-run.ps1` (F-08 commit) points it at the main
+  checkout's `.local/writable-accounts.txt` when that file exists; nobody creates the file in this stream.
+- **F-07 / D-9 authserv-id.** `Core/Mail/AuthResults/AuthServTrust.cs`, `AuthenticationResults.Trusted/AuthServId`; the reader
+  (`ReaderSnapshots.FromBody`) gets `ReaderOptions.ServerHost` from the account key in `MessageLoader.Present`. Judgement calls:
+  the id is not *learned* from Inbox mail (the review's suggestion); it is matched against the server host or its parent domain
+  (`mail.example.org` trusts `example.org` and `*.example.org`, never a bare TLD). Risk: a host directly under a two-label public
+  suffix (`example.co.uk`) would trust `*.co.uk`; there is no public suffix list. Learning the id per account (and pinning it) is
+  deferred to M2 with the trust banner (G-049). Hand test: open a received message on the live account and check the chip still
+  shows (Stalwart's authserv-id must sit in the server's parent domain).
+- **F-09 PNG bombs.** `Core/Mail/Attachments/PngDecoder.TryThumbnail` streams rows into `ThumbnailCells` (the cells of
+  `ThumbnailScaler.Fill`, byte-identical: `PngThumbnailTests.The_streaming_thumbnail_equals_decode_and_fill` over all colour types
+  and filters); `IImageDecoder.TryThumbnail` is a default interface method so platform decoders keep working; `TryDecode` capped
+  at 16 MP and itself row-streamed (no raw buffer); `AttachmentCards.Thumbnail` holds a static lock; `OutOfMemoryException` is caught.
+  Judgement: the streaming cap is 100 MP (time, not memory: about a second of inflate). Nothing in the app calls
+  `AttachmentCards.Thumbnail` yet (cards show kinds only in M1); the lock assumes callers are off the UI thread, which the doc says.
+- **F-08 automation token.** `Automation/Protocol/AutomationConnection.cs` (UI-free, tested over a real loopback socket in
+  `AutomationConnectionTests`), `AutomationServer`, `AutomationHost` (no token: the port stays closed, the popup guard still
+  runs). Clients: `tools/auto-run.ps1` (token per run in `artifacts/auto/<port>/token`, also passes
+  `BARBICAN_WRITABLE_ACCOUNTS_FILE` when the main checkout has `.local/writable-accounts.txt`), new `tools/autoconn.py` used by
+  `auto.py`, `motion.py`, `scenarios.py`, `layout/m1_scenarios.py`, `layout/m1_shots.py`, and `linux-remote.sh auto`.
+  Not changed: `spikes/s4-automation` (the spike server has no token; it is reference code, not built into the app).
+  Judgement: lines are read with a bound (`CommandLine.MaxLength`) so a peer cannot grow one line without limit. The hidden
+  Automation build was not launched in this commit; the F-03 stage runs it through `auto-run.ps1` and so checks the token path
+  end to end. Linux pending (VM rule).
+- **F-13 WebView2 folder.** `App/Composition/WebViewEnvironment.cs` (renamed from `HiddenWebView.cs`) runs for every run:
+  `WEBVIEW2_USER_DATA_FOLDER` = `<profile DataDir>\WebView2`, `--dns-prefetch-disable` always, the painting flags only when
+  hidden. Found on the way: a hidden run without `BARBICAN_PROFILE` named its WebView2 folder after `auto-<port>` while Core
+  resolved the `dev` profile (the user's own data); it now sets `BARBICAN_PROFILE` to the run's profile before composition.
+  WebKitGTK data directory: Linux pending (the Linux head reads none of this; Uno's WebView there has no data-dir setting we
+  use yet).
+- **F-03 the mail frame.** `Core/Mail/Body/MailSanitizer.cs` (AngleSharp 1.9.1, new Core dependency; runs in
+  `MessageFetcher.FetchAsync` off the UI thread before the body is cached, and on plugin HTML in
+  `MessageLoader.TransformThenShowAsync`); `MailSandbox.Frame` (never `allow-scripts`); `MailCsp.Policy(remote)` always
+  `script-src 'none'` plus `x-dns-prefetch-control: off`; `MailPage(Html, Dark, Background, HasRemoteContent) { Sizing }`;
+  `A11y.Sizing()` / `MailSizing`; `ShellDocument` builds one inline script (`window.__bbDarkPass=function(document){email_dark.js}`
+  + shell.js) allowed by its SHA-256 only; `shell.js` `finish()` (srcdoc check on both the load and the poll path, then size,
+  then dark, then ready); `BodyShell` sends `dark` and `size`, cancels every frame navigation but `about:srcdoc`.
+  Probe (hidden Automation build, Windows, loopback beacon): a meta refresh with the shell's sandbox (host asked for
+  `allow-scripts allow-top-navigation`, both filtered out), with and without the frame CSP, and in hand-made `allow-scripts`
+  frames: 0 beacon hits; the dark pass and the sizing applied from the shell (pending class gone, `data-dark-done` set, 10 px ->
+  15 px, white table -> rgb(22,22,22)). Foreground unchanged, no popups. Linux pending (VM rule): whether WebKitGTK lets the
+  shell's listeners and the dark pass act on a sandboxed frame without `allow-scripts`, and the meta-refresh probe there.
+  Judgement calls: `meta` is removed entirely (the page sets its own charset); `form` is unwrapped (content kept), inputs stay
+  inert; `noscript` content is kept (it renders in a script-less frame, as in a mail client); a body is reserialised only when
+  something was removed. `A11y.MailScript()` stays for its Rust-ported tests but is no longer put in a page. Not done: the
+  S2 spike harness probe (the hidden-app probe above replaces it on Windows); link-opener confirmation (point 5) is M2.
+- **Linux.** `tools/linux.ps1 test` tried once at the end of the stream: the VM job failed (ssh exit 255). Linux pending (VM
+  unreachable) for every item above: the full test run, F-03 (frame listeners and dark pass without `allow-scripts` under
+  WebKitGTK, the meta-refresh probe, WebKitGTK DNS prefetch), F-04 (`FileShare.None` as `flock`), F-08 (`linux-remote.sh auto`
+  with the token), F-13 (WebKitGTK data directory).
