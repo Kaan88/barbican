@@ -2,6 +2,7 @@
     x:Class="Barbican.App.Views.List.MessageListView"
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:motion="using:Barbican.App.Motion"
     xmlns:win="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:not_win="http://uno.ui/not_win"
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
@@ -84,7 +85,7 @@
                   <ItemsRepeater.ItemTemplate>
                     <DataTemplate x:DataType="mail:HoverButton">
                       <Button Style="{StaticResource Button.Icon}" Width="30" Height="28" CornerRadius="8" Foreground="{x:Bind views:Fmt.StripBrush(Active)}" Tag="{x:Bind CommandId}" Click="OnStripClick"
-                              ToolTipService.ToolTip="{x:Bind Tooltip}" AutomationProperties.AutomationId="{x:Bind views:Fmt.StripId(Id)}" AutomationProperties.Name="{x:Bind Tooltip}">
+                              motion:Tip.Text="{x:Bind Tooltip}" AutomationProperties.AutomationId="{x:Bind views:Fmt.StripId(Id)}" AutomationProperties.Name="{x:Bind Tooltip}">
                         <controls:SIcon Kind="{x:Bind Icon}" Size="16" />
                       </Button>
                     </DataTemplate>

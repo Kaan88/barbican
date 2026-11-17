@@ -57,6 +57,24 @@ public sealed class SidebarViewModelTests
     }
 
     [Fact]
+    public async Task Arrow_right_unfolds_and_arrow_left_folds_the_selected_folder()
+    {
+        // Bulwark sidebar.tsx:2375, spec I-060
+        using var h = new ListHarness();
+        h.Service.OnQuery = (_, _, _) => Task.FromResult(Core.Common.Result<ListPage>.Ok(Mails.Page(0, 2, 2, false)));
+        h.Sidebar.Update(Tree());
+        await h.Sidebar.SelectFolderAsync("w");
+        Assert.False(h.Sidebar.SetSelectedExpanded(true));
+        Assert.True(h.Sidebar.SetSelectedExpanded(false));
+        Assert.DoesNotContain(h.Sidebar.Folders, f => string.Equals(f.Id, "c", StringComparison.Ordinal));
+        Assert.False(h.Sidebar.SetSelectedExpanded(false));
+        Assert.True(h.Sidebar.SetSelectedExpanded(true));
+        Assert.Contains(h.Sidebar.Folders, f => string.Equals(f.Id, "c", StringComparison.Ordinal));
+        await h.Sidebar.SelectFolderAsync("inbox");
+        Assert.False(h.Sidebar.SetSelectedExpanded(false));
+    }
+
+    [Fact]
     public void A_refresh_with_the_same_folders_touches_nothing_and_a_count_change_sets_one_row()
     {
         using var h = new ListHarness();

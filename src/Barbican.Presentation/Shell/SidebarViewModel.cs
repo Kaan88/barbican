@@ -201,6 +201,19 @@ public sealed class SidebarViewModel : ObservableObject, IDisposable, Actions.IM
         RebuildFolders();
     }
 
+    /// <summary>ArrowRight unfolds and ArrowLeft folds the selected folder (Bulwark sidebar.tsx:2375); false when the key had nothing to do.</summary>
+    public bool SetSelectedExpanded(bool expanded)
+    {
+        var row = _selectedFolderId is null ? null : Folders.FirstOrDefault(f => string.Equals(f.Id, _selectedFolderId, StringComparison.Ordinal));
+        if (row is null || row.Chevron != (expanded ? 2 : 1))
+        {
+            return false;
+        }
+
+        ToggleFolder(row.Id);
+        return true;
+    }
+
     /// <summary>Folds or unfolds a tag's children.</summary>
     public void ToggleTag(string id)
     {

@@ -69,6 +69,10 @@ public static class Fmt
 
     public static string TagButtonId(string tagId) => tagId + ".select";
 
+    public static string UnifiedAccountId(string accountKey) => "sidebar-unified.account." + accountKey;
+
+    public static string SharedRowId(string accountId) => "sidebar.shared." + accountId;
+
     public static string StripId(string action) => "strip." + action;
 
     /// <summary>A hover button is faint; the star of a starred message is amber.</summary>

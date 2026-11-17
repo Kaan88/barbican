@@ -10,7 +10,7 @@ streams m0-cat-a, m0-cat-b and m0-cat-c, then completed and sample-reviewed by m
 | `rust-tests.csv` | T-001..T-353 | 353 | every Rust `#[test]` at `rust-final`: module, fn, file:line, one-line assertion, milestone, C# test, status, the `[RustTest]` tag |
 | `behaviours/<area>.md` | B-<AREA>-### | 729 | one rule per row with its source (file:line, test or commit) and the Bulwark/RFC ref |
 | `decisions.md` | D-### | 232 | every non-merge commit at `rust-final`, the parity-round merges and the three `mat-*` WIP branches |
-| `interactions.csv` (+ `interactions.md`) | I-001..I-471 | 471 | the parity checklist, re-baselined against Rust `main` |
+| `interactions.csv` (+ `interactions.md`) | I-001..I-476 | 476 | the parity checklist, re-baselined against Rust `main` |
 | `jmap.csv` | J-001..J-077 | 77 | JMAP-COMPLIANCE.md, one row per requirement |
 | `gaps.csv` | G-001..G-110 | 110 | GAPS.md (P0-P3) plus round-2 items kept for traceability |
 | `settings.csv` | S-<key>, S-keyless-### | 200 | 136 schema keys (wired or unwired in Rust) and 64 keyless rows |

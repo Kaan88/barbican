@@ -31,6 +31,10 @@ public sealed partial class UnifiedSectionViewModel : ObservableObject, IDisposa
     [ObservableProperty]
     private string _badge = "";
 
+    /// <summary>The unified inbox reads every login (not only the one on screen): the per-account rows under the row show.</summary>
+    [ObservableProperty]
+    private bool _listsAccounts;
+
     [ObservableProperty]
     private bool _isOpen;
 
@@ -95,6 +99,7 @@ public sealed partial class UnifiedSectionViewModel : ObservableObject, IDisposa
     public void Update()
     {
         IsVisible = _unified.Settings.Enabled;
+        ListsAccounts = _unified.Settings.Enabled && _unified.Settings.CrossAccount;
         var total = UnreadTotal();
         Badge = total > 0 ? total.ToString(System.Globalization.CultureInfo.CurrentCulture) : "";
         IsOpen = IsOpen && _unified.Source.Query is not null && string.Equals(_watched?.MailboxId, UnifiedRows.FolderId, StringComparison.Ordinal);

@@ -89,6 +89,8 @@ public static class UnifiedRegistration
             () => sp.GetRequiredService<MessageListViewModel>(),
             () => sp.GetService<Barbican.Presentation.Shell.GlanceTilesViewModel>()));
         services.AddSingleton<ISlotContent>(new SlotContent(SlotNames.SidebarUnified, () => new UnifiedSectionView()));
+        services.TryAddSingleton(sp => new SharedSectionViewModel(sp.GetRequiredService<UnifiedInbox>(), sp.GetRequiredService<IPrefsStore>(), sp.GetRequiredService<IDispatcher>()));
+        services.AddSingleton<ISlotContent>(new SlotContent(SlotNames.SidebarShared, () => new SharedSectionView()));
 
         // UNIFIED-ROW (spec/menus.md): header and Refresh; Refresh re-reads every source and applies the difference to the open list
         services.AddSingleton<Barbican.Presentation.Menus.IMenuProvider>(_ => new Barbican.Presentation.Menus.DelegateMenuProvider(Barbican.Presentation.Menus.MenuIds.UnifiedRow, UnifiedMenus.Row));

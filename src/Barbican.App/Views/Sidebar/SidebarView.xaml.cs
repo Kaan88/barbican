@@ -160,6 +160,18 @@ public sealed partial class SidebarView : UserControl
         }
     }
 
+    // ArrowRight and ArrowLeft unfold and fold the selected folder (I-060)
+    private void OnFolderKeyDown(object sender, Microsoft.UI.Xaml.Input.KeyRoutedEventArgs e)
+    {
+        var handled = e.Key switch
+        {
+            Windows.System.VirtualKey.Right => Sidebar.SetSelectedExpanded(true),
+            Windows.System.VirtualKey.Left => Sidebar.SetSelectedExpanded(false),
+            _ => false,
+        };
+        e.Handled = handled;
+    }
+
     private void OnFoldersHeaderClick(object sender, RoutedEventArgs e) => Sidebar.FoldersExpanded = !Sidebar.FoldersExpanded;
 
     private void OnTagsHeaderClick(object sender, RoutedEventArgs e) => Sidebar.TagsExpanded = !Sidebar.TagsExpanded;

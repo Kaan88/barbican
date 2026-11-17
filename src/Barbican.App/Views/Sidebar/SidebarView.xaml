@@ -2,6 +2,7 @@
     x:Class="Barbican.App.Views.Sidebar.SidebarView"
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:motion="using:Barbican.App.Motion"
     xmlns:win="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:not_win="http://uno.ui/not_win"
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
@@ -99,7 +100,7 @@
       </Button>
       <!-- "+" creates a top-level folder (Bulwark sidebar.tsx:848): the name is asked for in the prompt dialog -->
       <Button Grid.Column="1" Style="{StaticResource Button.Icon}" Width="22" Height="22" CornerRadius="8" Foreground="{StaticResource Faint}" Margin="0,-4,0,-4" Click="OnNewFolderClick"
-              ToolTipService.ToolTip="New folder" AutomationProperties.AutomationId="sidebar.folders.add" AutomationProperties.Name="New folder">
+              motion:Tip.Text="New folder" AutomationProperties.AutomationId="sidebar.folders.add" AutomationProperties.Name="New folder">
         <controls:SIcon Kind="Plus" Size="13" StrokeWidth="2" />
       </Button>
       <Button Grid.Column="2" Style="{StaticResource Button.Icon}" Width="22" Height="22" CornerRadius="8" IsEnabled="False" Foreground="{StaticResource Faint}" Margin="0,-4,0,-4"
@@ -108,7 +109,7 @@
       </Button>
     </Grid>
     <ListView x:Name="FolderList" ContainerContentChanging="OnFolderContainerChanging" ItemsSource="{x:Bind Sidebar.Folders}" ItemTemplate="{StaticResource FolderTemplate}" SelectionMode="Single"
-              Visibility="{x:Bind views:Fmt.Vis(Sidebar.FoldersExpanded), Mode=OneWay}" SelectionChanged="OnFolderSelectionChanged" Padding="0"
+              Visibility="{x:Bind views:Fmt.Vis(Sidebar.FoldersExpanded), Mode=OneWay}" SelectionChanged="OnFolderSelectionChanged" KeyDown="OnFolderKeyDown" Padding="0"
               AutomationProperties.AutomationId="sidebar.folders" AutomationProperties.Name="Folder list">
       <win:ListView.ItemContainerTransitions>
         <TransitionCollection />
@@ -127,7 +128,7 @@
           </StackPanel>
         </Button>
         <Button Grid.Column="1" Style="{StaticResource Button.Icon}" Width="22" Height="22" CornerRadius="8" Foreground="{StaticResource Faint}" Margin="0,-4,0,-4" Click="OnNewTagClick"
-                ToolTipService.ToolTip="New tag" AutomationProperties.AutomationId="sidebar.tags.add" AutomationProperties.Name="New tag">
+                motion:Tip.Text="New tag" AutomationProperties.AutomationId="sidebar.tags.add" AutomationProperties.Name="New tag">
           <controls:SIcon Kind="Plus" Size="13" StrokeWidth="2" />
         </Button>
       </Grid>
