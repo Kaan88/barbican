@@ -1,4 +1,4 @@
-// Ported from Rust src/palette.rs tests (:614-:682). Red until stream menus implements PaletteModel (M2 plan 6.2, T-201..T-205).
+// Ported from Rust src/palette.rs tests (:614-:682). Implemented by stream menus: PaletteModel (M2 plan 6.2, T-201..T-205).
 
 using Barbican.Presentation.Palette;
 
@@ -20,7 +20,6 @@ public sealed class PaletteModelTests
     };
 
     [Fact]
-    [Red("menus")]
     [RustTest("palette::matches_every_word")]
     public void Matches_every_word()
     {
@@ -31,7 +30,6 @@ public sealed class PaletteModelTests
     }
 
     [Fact]
-    [Red("menus")]
     [RustTest("palette::app_commands_come_first")]
     public void App_commands_come_first()
     {
@@ -49,7 +47,6 @@ public sealed class PaletteModelTests
     }
 
     [Fact]
-    [Red("menus")]
     [RustTest("palette::mail_commands_need_an_open_message")]
     public void Mail_commands_need_an_open_message()
     {
@@ -67,7 +64,6 @@ public sealed class PaletteModelTests
     }
 
     [Fact]
-    [Red("menus")]
     [RustTest("palette::accounts_and_capabilities")]
     public void Accounts_and_capabilities()
     {
@@ -83,7 +79,6 @@ public sealed class PaletteModelTests
     }
 
     [Fact]
-    [Red("menus")]
     [RustTest("palette::settings_pages")]
     public void Settings_pages()
     {
