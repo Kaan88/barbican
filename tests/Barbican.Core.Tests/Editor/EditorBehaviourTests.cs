@@ -757,4 +757,23 @@ public sealed class EditorBehaviourTests
         Assert.Equal(chords.Count, chords.Distinct().Count());
         Assert.All(EditorShortcuts.All, s => Assert.Same(s, EditorShortcuts.Find(s.Chord)));
     }
+
+    [Fact]
+    public void Bold_toggled_off_then_Enter_starts_a_plain_paragraph_and_bold_left_on_carries_over()
+    {
+        var e = new EditorSession(Doc.FromText(string.Empty));
+        e.ToggleMark(Mark.Bold);
+        e.InsertText("bold");
+        e.ToggleMark(Mark.Bold);
+        e.Enter(false);
+        e.InsertText("plain");
+        Assert.False(e.Doc.Blocks[1].Runs[0].Marks.Bold);
+
+        var f = new EditorSession(Doc.FromText(string.Empty));
+        f.ToggleMark(Mark.Bold);
+        f.InsertText("bold");
+        f.Enter(false);
+        f.InsertText("still");
+        Assert.True(f.Doc.Blocks[1].Runs[0].Marks.Bold);
+    }
 }

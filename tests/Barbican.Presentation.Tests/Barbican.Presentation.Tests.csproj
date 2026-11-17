@@ -26,6 +26,12 @@
     <Compile Include="../Barbican.Core.Tests/Settings/Prefs/TestProfilePaths.cs" Link="Accounts/Linked/TestProfilePaths.cs" />
   </ItemGroup>
   <ItemGroup>
+    <!-- m3-close: the composer end to end on the real pipeline over FakeJmap (the Core rig is linked, not copied). -->
+    <Compile Include="../Barbican.Core.Tests/Compose/PipelineRig.cs" Link="Compose/Linked/PipelineRig.cs" />
+    <Compile Include="../Barbican.Core.Tests/Compose/TestCodec.cs" Link="Compose/Linked/TestCodec.cs" />
+    <Compile Include="../Barbican.Core.Tests/Jmap/Fake.cs" Link="Compose/Linked/Fake.cs" />
+  </ItemGroup>
+  <ItemGroup>
     <!-- m1-mailcore: FakeTimeProvider for the key repeat, g sequence and interval tests (version pinned in Directory.Packages.props). -->
     <PackageReference Include="Microsoft.Extensions.TimeProvider.Testing" />
     <!-- m1-mailcore: the registration test builds a real service provider. -->
