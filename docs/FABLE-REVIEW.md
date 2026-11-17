@@ -765,3 +765,14 @@ paths and `LoopbackListener` (`ExclusiveAddressUse` maps to SO_REUSEPORT on Unix
 - **Not done (hand test):** the brief's hidden-automation scenario (password + TOTP by AutomationId on FakeJmap, OAuth second account,
   switch, popover `wshot`, no blank frame on switch) and the optional live read-only import run. `BARBICAN_FAKE_JMAP` sign-in routing does
   not exist yet (shell-ui's `BARBICAN_SAMPLE` replaces `IActiveMail`, bypassing sign-in).
+- **Integration fix at the merge (shell-ui file, by the reviewer as integrator): no sign-in screen while the accounts restore.** With the
+  real `IAccountManager` in the container, `ShellPage.ShowScreen` showed the sign-in view at start-up until the remembered account had
+  connected (a flash of the wrong screen on every start), and the sample-data run (`BARBICAN_SAMPLE=1`, the M1 screenshots) showed only
+  the sign-in view. Now the mail screen stays while `AccountsStartup.Completion` is pending, the sign-in view shows after it when no
+  account is active, and a sample-data run ignores the account manager. Where: `src/Barbican.App/Shell/ShellPage.xaml.cs`. Review: an
+  empty mail chrome during a slow restore (network) is a judgement call; measure the start with the feel probes, and decide what an
+  offline restore should show (now: the sign-in view with the account's error).
+  Checked once on the merged `m1`: Automation build started with `tools/auto-run.ps1 start -Port 8853 -PrivateDesktop` (empty in-memory
+  vault): the XAML render (`shot`) shows the sign-in view, popup guard 0 open / 0 closed, foreground window and cursor unchanged, closed.
+  No frame probe (WGC does not run on a private desktop), so "no flash of the sign-in view" is by construction, not measured. The render
+  shows "Remember me" with an indeterminate glyph although the model defaults to true: shell-ui binding, not checked further.

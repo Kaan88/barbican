@@ -16,6 +16,7 @@ public sealed partial class ShellPage : Page
     private readonly ThemeController _theme;
     private readonly IKeyRouter? _keys;
     private readonly IAccountManager? _accounts;
+    private readonly Task? _restore;
 
     public ShellPage()
     {
@@ -24,6 +25,16 @@ public sealed partial class ShellPage : Page
         _theme = ViewHost.Get<ThemeController>();
         _keys = ViewHost.Find<IKeyRouter>();
         _accounts = ViewHost.Find<IAccountManager>();
+#if AUTOMATION
+        // a sample-data run (BARBICAN_SAMPLE=1) shows FakeJmap's seed through IActiveMail without signing in: no sign-in screen there
+        if (ViewHost.Find<Barbican.Presentation.Mail.IActiveMail>() is Automation.SampleActiveMail)
+        {
+            _accounts = null;
+        }
+#endif
+
+        // while the remembered accounts are restored the mail screen stays (no sign-in screen flashing up before the account is back)
+        _restore = _accounts is null ? null : ViewHost.Find<Barbican.Presentation.Accounts.AccountsStartup>()?.Completion;
         InitializeComponent();
         Tip.SetHost(Overlay);
         _theme.Attach(Root);
@@ -40,6 +51,11 @@ public sealed partial class ShellPage : Page
         }
 
         ShowScreen();
+        if (_restore is { IsCompleted: false } restoring)
+        {
+            _ = ShowWhenRestoredAsync(restoring);
+        }
+
         Loaded += (_, _) => ViewHost.Get<ShellLifecycle>().Start(DispatcherQueue, _accounts?.Active?.Key);
     }
 
@@ -53,14 +69,24 @@ public sealed partial class ShellPage : Page
         GlanceRegion.Visibility = layout.SummaryTilesShown && _look.IsBento ? Visibility.Visible : Visibility.Collapsed;
     }
 
-    // Sign-in shows when the accounts exist as a service and none is active; without the accounts stream (sample data) the mail screen shows.
+    // Sign-in shows when the accounts exist as a service, the remembered ones are restored and none is active; without the accounts stream
+    // (sample data) the mail screen shows.
     // "Add account" in the popover shows the sign-in view over the mail screen too (spec I-010); Cancel or a finished sign-in returns.
     private void ShowScreen(bool adding = false)
     {
-        var signedOut = _accounts is not null && (adding || _accounts.Active is null);
+        var signedOut = _accounts is not null && (adding || (_accounts.Active is null && _restore is not { IsCompleted: false }));
         SignInRegion.Form.CanCancel = adding;
         SignInRegion.Visibility = signedOut ? Visibility.Visible : Visibility.Collapsed;
         MailScreen.Visibility = signedOut ? Visibility.Collapsed : Visibility.Visible;
+    }
+
+    private async Task ShowWhenRestoredAsync(Task restore)
+    {
+        // WhenAny never throws: a failed or cancelled restore also ends the wait (the sign-in screen then shows)
+#pragma warning disable VSTHRD003 // AccountsStartup.Completion is a TaskCompletionSource with asynchronous continuations; waiting on it cannot deadlock the UI thread
+        _ = await Task.WhenAny(restore).ConfigureAwait(true);
+#pragma warning restore VSTHRD003
+        DispatcherQueue.TryEnqueue(() => ShowScreen());
     }
 
     private void OnPreviewKeyDown(object sender, KeyRoutedEventArgs e)
