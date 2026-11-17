@@ -105,10 +105,15 @@ case "$mode" in
         ;;
       auto)
         port=8811
-        BARBICAN_AUTOMATION_PORT=$port timeout "$limit" nice -n 10 dotnet "$dll" >"$out/stdout.txt" 2>"$out/stderr.txt" &
+        # Fable F-08: a per-run token; every connection proves it first ("auth <token>" -> "ok auth")
+        token=$(head -c 24 /dev/urandom | od -An -tx1 | tr -d ' \n')
+        BARBICAN_AUTOMATION_TOKEN=$token BARBICAN_AUTOMATION_PORT=$port timeout "$limit" nice -n 10 dotnet "$dll" >"$out/stdout.txt" 2>"$out/stderr.txt" &
         app=$!
         send() {
           exec 3<>"/dev/tcp/127.0.0.1/$port" || return 1
+          printf 'auth %s\n' "$token" >&3
+          IFS= read -r -t 10 authed <&3
+          [ "$authed" = "ok auth" ] || { exec 3<&- 3>&-; return 1; }
           printf '%s\n' "$1" >&3
           IFS= read -r -t 60 reply <&3
           exec 3<&- 3>&-

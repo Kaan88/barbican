@@ -8,16 +8,16 @@ A hidden off-screen window delivers WGC frames only after a layout change (a res
 Fable log). The theme_flip scenario therefore follows the flip with a one-pixel resize so a frame of the settled state is captured; the in-between state is excluded
 structurally (the flip is one UI-thread turn).
 """
-import json, os, shutil, socket, sys, time
+import json, os, shutil, sys, time
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+import autoconn  # noqa: E402
 import flicker  # noqa: E402
 
 
 class Driver:
     def __init__(self, port):
-        self.s = socket.create_connection(("127.0.0.1", port), timeout=60)
-        self.f = self.s.makefile("rw", encoding="utf8")
+        self.s, self.f = autoconn.connect(port, timeout=60)
 
     def cmd(self, c):
         if c.startswith("sleep "):

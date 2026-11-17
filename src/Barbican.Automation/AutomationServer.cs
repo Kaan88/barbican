@@ -1,6 +1,5 @@
 using System.Net;
 using System.Net.Sockets;
-using System.Text;
 using Barbican.Automation.Protocol;
 
 namespace Barbican.Automation;
@@ -10,6 +9,7 @@ namespace Barbican.Automation;
 /// the run's own port, one command per line in, one reply line out, the protocol of the Rust app's
 /// automation.rs so tools/auto.py, motion.py and flicker.py work unchanged. Commands from all
 /// connections run one at a time, in arrival order; a command that takes over 20 s replies <c>timeout</c>.
+/// Every connection first proves the run's token (AutomationConnection, Fable review 1 F-08).
 /// </summary>
 internal sealed class AutomationServer : IDisposable
 {
@@ -18,15 +18,17 @@ internal sealed class AutomationServer : IDisposable
     private readonly AutomationContext _context;
     private readonly CommandRouter _router;
     private readonly int _port;
+    private readonly string _token;
     private readonly SemaphoreSlim _one = new(1, 1);
     private readonly CancellationTokenSource _stop = new();
     private TcpListener? _listener;
 
-    public AutomationServer(AutomationContext context, CommandRouter router, int port)
+    public AutomationServer(AutomationContext context, CommandRouter router, int port, string token)
     {
         _context = context;
         _router = router;
         _port = port;
+        _token = token;
     }
 
     public void Start()
@@ -73,16 +75,9 @@ internal sealed class AutomationServer : IDisposable
     {
         using (client)
         {
-            var stream = client.GetStream();
-            using var reader = new StreamReader(stream, new UTF8Encoding(false));
-            await using var writer = new StreamWriter(stream, new UTF8Encoding(false)) { AutoFlush = true, NewLine = "\n" };
             try
             {
-                while (!cancellationToken.IsCancellationRequested && await reader.ReadLineAsync(cancellationToken).ConfigureAwait(false) is { } line)
-                {
-                    var reply = line.Length > CommandLine.MaxLength ? "error line too long" : await RunOneAsync(line, cancellationToken).ConfigureAwait(false);
-                    await writer.WriteLineAsync(CommandLine.OneLine(reply)).ConfigureAwait(false);
-                }
+                await AutomationConnection.ServeAsync(client.GetStream(), _token, RunOneAsync, cancellationToken).ConfigureAwait(false);
             }
             catch (IOException)
             {

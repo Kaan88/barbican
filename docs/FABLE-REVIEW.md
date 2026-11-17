@@ -582,3 +582,12 @@ F-13 and user decisions D-2, D-9, D-10, on branch `m1-fix-security` (from `m1` a
   at 16 MP and itself row-streamed (no raw buffer); `AttachmentCards.Thumbnail` holds a static lock; `OutOfMemoryException` is caught.
   Judgement: the streaming cap is 100 MP (time, not memory: about a second of inflate). Nothing in the app calls
   `AttachmentCards.Thumbnail` yet (cards show kinds only in M1); the lock assumes callers are off the UI thread, which the doc says.
+- **F-08 automation token.** `Automation/Protocol/AutomationConnection.cs` (UI-free, tested over a real loopback socket in
+  `AutomationConnectionTests`), `AutomationServer`, `AutomationHost` (no token: the port stays closed, the popup guard still
+  runs). Clients: `tools/auto-run.ps1` (token per run in `artifacts/auto/<port>/token`, also passes
+  `BARBICAN_WRITABLE_ACCOUNTS_FILE` when the main checkout has `.local/writable-accounts.txt`), new `tools/autoconn.py` used by
+  `auto.py`, `motion.py`, `scenarios.py`, `layout/m1_scenarios.py`, `layout/m1_shots.py`, and `linux-remote.sh auto`.
+  Not changed: `spikes/s4-automation` (the spike server has no token; it is reference code, not built into the app).
+  Judgement: lines are read with a bound (`CommandLine.MaxLength`) so a peer cannot grow one line without limit. The hidden
+  Automation build was not launched in this commit; the F-03 stage runs it through `auto-run.ps1` and so checks the token path
+  end to end. Linux pending (VM rule).

@@ -5,13 +5,15 @@ Needs the AUTOMATION build started hidden with BARBICAN_SAMPLE=1 (tools/auto-run
 The picture is the XAML render (`shot`): a hidden off-screen window is not re-captured by WGC after a palette change (see tools/layout/m1_scenarios.py),
 so the XAML tree is the source. The WebView2 body area is empty in it (the body view is the body stream's).
 """
-import os, socket, sys, time
+import os, sys, time
+
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
+import autoconn  # noqa: E402
 
 
 class Driver:
     def __init__(self, port):
-        self.s = socket.create_connection(("127.0.0.1", port), timeout=60)
-        self.f = self.s.makefile("rw", encoding="utf8")
+        self.s, self.f = autoconn.connect(port, timeout=60)
 
     def cmd(self, c):
         self.f.write(c + "\n")
