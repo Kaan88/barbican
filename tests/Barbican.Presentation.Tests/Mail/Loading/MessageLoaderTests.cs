@@ -72,7 +72,9 @@ public sealed class MessageLoaderTests
         Assert.Equal(BodyState.Loading, h.Reader.BodyState);
 
         gate.SetResult();
-        Assert.True(SpinUntil(() => h.Reader.BodyState == BodyState.Ready));
+
+        // the reader turns Ready inside OnReady, on the loader's thread, before the view records the reveal: wait for both
+        Assert.True(SpinUntil(() => h.Reader.BodyState == BodyState.Ready && string.Equals(h.Presenter.Shown, "m5", StringComparison.Ordinal)));
         Assert.Equal("m5", h.Reader.EmailId);
         Assert.False(h.Presenter.Loading);
         Assert.Equal("m5", h.Presenter.Shown);
@@ -106,7 +108,7 @@ public sealed class MessageLoaderTests
         h.Loader.Open(h.Row(8), OpenReason.Click, ListDirection.None);
 
         fast.SetResult();
-        Assert.True(SpinUntil(() => h.Reader.BodyState == BodyState.Ready));
+        Assert.True(SpinUntil(() => h.Reader.BodyState == BodyState.Ready && string.Equals(h.Presenter.Shown, "m8", StringComparison.Ordinal)));
         h.Applies.Clear();
         h.Presenter.Calls.Clear();
 

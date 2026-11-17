@@ -854,3 +854,7 @@ Open after the review (not fixed here):
   I-230 retention notice remain `todo` with notes. B-MAIL-021's 200-entry thumbnail cache is attributed to the body stream by mailcore and does not
   exist.
 - **MailBodyView** subscribes to `BodyShell.StateChanged` and never unsubscribes; a second view (re-created reader) leaks the first.
+- **Flaky loader tests** (found at the merge build): `An_uncached_switch_keeps_the_old_message_and_dims_it_after_150_ms` and
+  `A_late_result_of_a_superseded_open_is_ignored` waited for the reader to turn Ready, which happens inside `OnReady` on the loader's thread
+  before the fake view records the reveal; they now wait for both. Other tests that read `FakeBodyPresenter.Calls` across threads use a plain
+  `List`: watch for more of this kind.
