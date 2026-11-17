@@ -1,4 +1,4 @@
-// Ported from Rust src/reader.rs tests (:1216-:1387), the pure ones. Red until stream reader implements them (M2 plan 6.3, T-212..T-222).
+// Ported from Rust src/reader.rs tests (:1216-:1387), the pure ones.
 // The one-click network tests are in Net/OneClickUnsubscribeTests.cs.
 
 using System.Text;
@@ -16,7 +16,6 @@ public sealed class ReaderTests
     private static JsonArray Arr(string json) => (JsonArray)J(json);
 
     [Fact]
-    [Red("reader")]
     [RustTest("reader::headers_unfold")]
     public void Headers_unfold()
     {
@@ -27,7 +26,6 @@ public sealed class ReaderTests
     }
 
     [Fact]
-    [Red("reader")]
     [RustTest("reader::unsubscribe_parsing")]
     public void Unsubscribe_parsing()
     {
@@ -61,7 +59,6 @@ public sealed class ReaderTests
     }
 
     [Fact]
-    [Red("reader")]
     [RustTest("reader::blob_copy_between_accounts")]
     public void Blob_copy_between_accounts()
     {
@@ -75,7 +72,6 @@ public sealed class ReaderTests
     }
 
     [Fact]
-    [Red("reader")]
     [RustTest("reader::dkim_gate")]
     public async Task Dkim_gate()
     {
@@ -90,7 +86,6 @@ public sealed class ReaderTests
     }
 
     [Fact]
-    [Red("reader")]
     [RustTest("reader::names")]
     public void Names()
     {
@@ -108,7 +103,6 @@ public sealed class ReaderTests
     }
 
     [Fact]
-    [Red("reader")]
     [RustTest("reader::truncation_and_source_cut")]
     public void Truncation_and_source_cut()
     {
@@ -125,7 +119,6 @@ public sealed class ReaderTests
     }
 
     [Fact]
-    [Red("reader")]
     [RustTest("reader::files_tree_and_nodes")]
     public void Files_tree_and_nodes()
     {
@@ -148,7 +141,6 @@ public sealed class ReaderTests
     }
 
     [Fact]
-    [Red("reader")]
     [RustTest("reader::message_attachments")]
     public void Message_attachments()
     {

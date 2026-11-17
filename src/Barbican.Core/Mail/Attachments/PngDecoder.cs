@@ -5,6 +5,8 @@
 // row for the filters, and adds each pixel straight into the area-average cells of the square thumbnail (the same cells and rounding as
 // ThumbnailScaler.Fill), so its memory is a few rows whatever the picture says. The whole-picture TryDecode is capped at 16 MP. Both
 // return null on OutOfMemoryException rather than ending the process; AttachmentCards runs one decode at a time.
+// Fable review 2 R2-08 (M2, owner reader): the pixel caps let a 100,000,000 x 1 picture through, and the row buffers alone (three of
+// width x channels) asked for about 1.2 GB. Header now also refuses a width over MaxWidth (32,768) and a row over MaxRowBytes (16 MB).
 
 using System.Buffers.Binary;
 using System.IO.Compression;
@@ -19,6 +21,12 @@ public sealed class PngDecoder : IImageDecoder
 
     /// <summary>The streaming thumbnail refuses more pixels than this (memory is a few rows; this bounds the time).</summary>
     public const long MaxThumbnailPixels = 100_000_000;
+
+    /// <summary>R2-08: a wider picture is refused before any row buffer is allocated.</summary>
+    public const int MaxWidth = 32_768;
+
+    /// <summary>R2-08: a decoded row (width x channels, 8 bits each) larger than this is refused.</summary>
+    public const long MaxRowBytes = 16L * 1024 * 1024;
 
     private static readonly byte[] Signature = [137, 80, 78, 71, 13, 10, 26, 10];
 
@@ -58,7 +66,8 @@ public sealed class PngDecoder : IImageDecoder
         }
 
         var p = ReadChunks(bytes);
-        if (p is null || p.Width <= 0 || p.Height <= 0 || (long)p.Width * p.Height > maxPixels || p.Channels == 0 || (p.ColorType == 3 && p.Palette is null))
+        if (p is null || p.Width <= 0 || p.Height <= 0 || (long)p.Width * p.Height > maxPixels || p.Channels == 0 || (p.ColorType == 3 && p.Palette is null)
+            || p.Width > MaxWidth || (long)p.Width * p.Channels > MaxRowBytes)
         {
             return null;
         }

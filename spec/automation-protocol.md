@@ -80,7 +80,7 @@ Write-capable test commands (`rx-import`, `rx-find`, `rx-destroy`) exist only in
 | `dnd-sim SRC DST`, `hover-sim ROW\|off`, `pane-set SIDE LIST`, `select ROWID [shift\|ctrl]`, `toast-last` | actions | planned |
 | `menu-open MENU TARGET`, `menu-pick LABEL`, `menu-items`, `palette TEXT`, `palette-pick N`, `dialog-state`, `key CHORD` | menus | planned |
 | `rx-banners`, `banner-act ID ACTION`, `source-text`, `avatar-state EMAIL` | reader | planned |
-| `rx-import`, `rx-find`, `rx-destroy` | reader | planned, `AUTOMATION_WRITES` builds only |
+| `rx-import TOKEN`, `rx-find TOKEN`, `rx-destroy TOKEN ID...` | reader | `AUTOMATION_WRITES` builds only (M2-Q2, a proposal pending the user's OK). `rx-import` imports one synthetic message (subject `Barbican write test [rx:TOKEN]`, header `X-Barbican-Write-Test: TOKEN`, example.org addresses) into the Inbox: `ok EMAILID`. `rx-find`: `ok ID...` or `ok -`. `rx-destroy`: destroys only when every id carries TOKEN on the server, else nothing: `ok destroyed N`. Each first checks, re-reading both `.local` lists: an automation profile, the login on the writable list and not on the read-only list; else `error refused: ...`. TOKEN is 8-40 letters and digits |
 | `search TEXT`, `suggestions`, `chips` | search | planned |
 | `unified on\|off`, `import-sim PATH MAILBOX` (FakeJmap only), `plugins` | unified | planned |
 

@@ -1,6 +1,6 @@
 // Ported from Rust src/reader.rs tests one_click_refuses_private_networks (:1296), one_click_does_not_follow_redirects (:1309),
 // one_click_posts_the_form_body (:1335), plus public_ip. The listener tests use a loopback listener on port 0 only, through the GuardedHttp
-// test seam (M2 plan 2.1: T-216..T-218 never touch a real network). Red until stream reader implements GuardedHttp (M2 plan 6.3).
+// test seam (M2 plan 2.1: T-216..T-218 never touch a real network).
 
 using System.Net;
 using System.Net.Sockets;
@@ -12,7 +12,6 @@ namespace Barbican.Core.Tests.Net;
 public sealed class OneClickUnsubscribeTests
 {
     [Fact]
-    [Red("reader")]
     [RustTest("reader::one_click_refuses_private_networks")]
     public async Task One_click_refuses_private_networks()
     {
@@ -30,7 +29,6 @@ public sealed class OneClickUnsubscribeTests
     }
 
     [Fact]
-    [Red("reader")]
     [RustTest("reader::one_click_does_not_follow_redirects")]
     public async Task One_click_does_not_follow_redirects()
     {
@@ -53,7 +51,6 @@ public sealed class OneClickUnsubscribeTests
     }
 
     [Fact]
-    [Red("reader")]
     [RustTest("reader::one_click_posts_the_form_body")]
     public async Task One_click_posts_the_form_body()
     {
