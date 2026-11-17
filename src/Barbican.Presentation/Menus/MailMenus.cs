@@ -115,7 +115,7 @@ public static class MailMenus
             Item(MenuGlyphs.Open, "Open", CommandIds.OpenSelected, "Enter", enabled: one),
             Item(MenuGlyphs.Print, "Print", CommandIds.Print, enabled: one),
             Item(MenuGlyphs.Download, "Download (.eml)", CommandIds.DownloadEml, enabled: one),
-            Item("", "View source", CommandIds.ViewSource, enabled: one),
+            Item("Tool", "View source", CommandIds.ViewSource, enabled: one),
             Item(MenuGlyphs.Forward, "Forward as attachment", CommandIds.ForwardAsAttachment, enabled: one),
             Sep(),
             Item(MenuGlyphs.Copy, "Copy sender address", CommandIds.CopySenderAddress, enabled: one),

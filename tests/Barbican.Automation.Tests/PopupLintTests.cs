@@ -120,4 +120,19 @@ public sealed partial class PopupLintTests
 
     [GeneratedRegex(@"new\s+(?:MenuFlyout|Flyout|CommandBarFlyout|Popup|TeachingTip|ToolTip|ComboBox|AutoSuggestBox|ContentDialog)\s*[({]|\bShowAttachedFlyout\s*\(|ToolTipService\s*\.\s*SetToolTip", RegexOptions.CultureInvariant | RegexOptions.ExplicitCapture, matchTimeoutMilliseconds: 1000)]
     private static partial Regex CodePopup();
+
+    // M2 menus (append only): the menu host, the dialog host, the palette and the shortcuts sheet are each one constrained Popup (ADR 0005, ADR 0007); none uses a MenuFlyout.
+    [Theory]
+    [InlineData("Views/Menus/MenuHostView.xaml")]
+    [InlineData("Views/Dialogs/DialogHostView.xaml")]
+    [InlineData("Views/Palette/PaletteView.xaml")]
+    [InlineData("Views/Shortcuts/ShortcutSheetView.xaml")]
+    public void The_menus_streams_hosts_are_a_single_constrained_popup(string view)
+    {
+        var (file, doc) = Xaml.Value.Single(f => f.File.EndsWith(view, StringComparison.Ordinal));
+        var popup = Assert.Single(doc.Descendants(), e => string.Equals(e.Name.LocalName, "Popup", StringComparison.Ordinal));
+        Assert.Equal("True", popup.Attributes().Single(a => string.Equals(a.Name.LocalName, "ShouldConstrainToRootBounds", StringComparison.Ordinal)).Value);
+        Assert.DoesNotContain(doc.Descendants(), e => e.Name.LocalName.EndsWith("Flyout", StringComparison.Ordinal));
+        Assert.NotNull(file);
+    }
 }

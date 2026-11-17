@@ -49,7 +49,7 @@ public static class MenusPresentationRegistration
             sp.GetRequiredService<ShellViewModel>(),
             sp.GetRequiredService<SidebarViewModel>(),
             sp.GetRequiredService<MessageListViewModel>(),
-            sp.GetRequiredService<PaletteController>(),
+            new Lazy<PaletteController>(sp.GetRequiredService<PaletteController>),
             sp.GetRequiredService<ShortcutSheetController>(),
             sp.GetService<IAccountManager>(),
             sp.GetService<IAccountMaintenance>())));

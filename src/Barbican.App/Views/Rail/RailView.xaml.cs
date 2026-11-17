@@ -1,6 +1,7 @@
 using Barbican.App.Motion;
 using Barbican.App.Shell;
 using Barbican.App.Theme;
+using Barbican.Presentation.Commands;
 using Barbican.Presentation.Shell;
 
 namespace Barbican.App.Views.Rail;
@@ -29,6 +30,24 @@ public sealed partial class RailView : UserControl
     private void OnContactsClick(object sender, RoutedEventArgs e) => _shell.TryActivate(AppId.Contacts);
 
     private void OnFilesClick(object sender, RoutedEventArgs e) => _shell.TryActivate(AppId.Files);
+
+    // I-023, I-029: the rail's search and shortcuts buttons run the commands by id; a command nobody registered does nothing (search's arrives in wave 2)
+    private void OnSearchClick(object sender, RoutedEventArgs e) => Run(CommandIds.FocusSearch);
+
+    private void OnShortcutsClick(object sender, RoutedEventArgs e) => Run(CommandIds.ShowShortcuts);
+
+    private static void Run(string commandId)
+    {
+        var registry = ViewHost.Find<ICommandRegistry>();
+        if (registry is not null && registry.TryGet(commandId, out var command))
+        {
+            var context = new CommandContext(CommandSurface.Toolbar, [], null, null, null);
+            if (command.CanExecute(context))
+            {
+                _ = command.ExecuteAsync(context, CancellationToken.None);
+            }
+        }
+    }
 
     // The gear opens nothing yet: the settings pages are M6 (spec I-028).
     private void OnSettingsClick(object sender, RoutedEventArgs e) => _shell.TryActivate(AppId.Settings);

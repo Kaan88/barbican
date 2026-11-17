@@ -100,3 +100,13 @@ channel.
 - Writes happen only on `<test-account>`, and each write test removes what it created (CLAUDE.md).
 - L-034 is a fixture test, not a live check, but it is kept here because the Rust report lists the
   contacts security review as open.
+
+## L-047 script (stream menus, run in the integrate stage; read-only on `<readonly-account>`)
+Not run by the menus stream (live checks run only after a wave's merge, M2 plan section 7). The in-process half is `ShortcutCommandsTests.An_open_surface_takes_every_key_and_no_app_key_runs` and `DialogServiceTests`; the focus half needs the signed-in window.
+1. `tools/auto-run.ps1 start -Port 8889` (hidden AUTOMATION build, profile `auto-8889`, an imported password-kind entry of `<readonly-account>`); wait for the list.
+2. `send 'key ?'`, then `send 'wshot artifacts/auto/8889/l047-sheet.png'` (not uniform), `send 'key Escape'`.
+3. Switch apps: `send 'key Ctrl+2'` (Calendar, when the account has it), then `send 'key Ctrl+1'` (back to Mail).
+4. Without any click: `send 'key ?'` (the sheet opens, then `key Escape`), then `send 'palette'` (replies the row count), `send 'key Escape'`. Expected: both open straight away (the Rust bug of L-047), and `popup-guard` replies `open 0`.
+5. `send 'menu-open MENU-MAIL 0'`, `send 'menu-items'` (no write is made: nothing is picked), `send 'key Escape'`; `send 'rclick folder Inbox'`, `send 'menu-items'`, `send 'key Escape'`.
+6. `send 'focus-guard'` unchanged (`own-is-foreground=no`); `send 'close'`.
+Pass: every reply is `ok` or a non-empty value, the sheet frame is not uniform, no menu item was picked, nothing on the account changed. HAND TEST 2 repeats the focus half with the real window.

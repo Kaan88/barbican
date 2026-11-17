@@ -11,7 +11,7 @@ using Barbican.Presentation.Shell;
 
 namespace Barbican.Presentation.Commands;
 
-/// <summary>Creates the shell commands.</summary>
+/// <summary>Creates the shell commands. The palette is taken lazily: it reads the registry that holds these commands.</summary>
 public static class ShellCommands
 {
     /// <summary>How many commands <see cref="Create"/> returns (the registration adds one <see cref="IAppCommand"/> per index).</summary>
@@ -21,7 +21,7 @@ public static class ShellCommands
         ShellViewModel shell,
         SidebarViewModel sidebar,
         MessageListViewModel list,
-        PaletteController palette,
+        Lazy<PaletteController> palette,
         ShortcutSheetController sheet,
         IAccountManager? accounts,
         IAccountMaintenance? maintenance)
@@ -33,7 +33,7 @@ public static class ShellCommands
         ArgumentNullException.ThrowIfNull(sheet);
         var commands = new List<IAppCommand>
         {
-            DelegateAppCommand.Sync(CommandIds.OpenPalette, ctx => { _ = palette.OpenAsync(); }),
+            DelegateAppCommand.Sync(CommandIds.OpenPalette, ctx => { _ = palette.Value.OpenAsync(); }),
             DelegateAppCommand.Sync(CommandIds.ShowShortcuts, _ => sheet.Open(TabOf(shell.ActiveApp), shell.Accessibility.SingleKeys)),
             DelegateAppCommand.Sync(CommandIds.ToggleTheme, _ => shell.PreviewLook(shell.Style, !shell.Dark)),
             DelegateAppCommand.Sync(CommandIds.FocusSearch, _ => list.RequestSearchFocus()),

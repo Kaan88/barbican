@@ -1,39 +1,39 @@
-// Mirrors: Rust ctxmenu.rs :56-:75 (the Segoe Fluent Icons code points the menus use). Owner menus.
+// Mirrors: Rust ctxmenu.rs :56-:75 (the icon of each row), as keys of the app's line-icon set (Tokens.Icons, SIcon) instead of Segoe Fluent code points, which the Linux head does not have. Owner menus.
 
 namespace Barbican.Presentation.Menus;
 
-/// <summary>The icon glyphs of the menus (Segoe Fluent Icons).</summary>
+/// <summary>The icons of the menus: keys of <c>Tokens.Icons</c>.</summary>
 public static class MenuGlyphs
 {
-    public const string Reply = "";
-    public const string ReplyAll = "";
-    public const string Forward = "";
-    public const string Archive = "";
-    public const string Delete = "";
-    public const string Move = "";
-    public const string Read = "";
-    public const string Unread = "";
-    public const string Star = "";
-    public const string Starred = "";
-    public const string Tag = "";
-    public const string Spam = "";
-    public const string More = "";
-    public const string Open = "";
-    public const string Print = "";
-    public const string Download = "";
-    public const string Copy = "";
-    public const string Search = "";
-    public const string Folder = "";
-    public const string Refresh = "";
-    public const string NewFolder = "";
-    public const string Rename = "";
-    public const string Upload = "";
-    public const string Add = "";
-    public const string Cancel = "";
-    public const string Select = "";
-    public const string Contact = "";
-    public const string SignOut = "";
-    public const string Default = "";
+    public const string Reply = "Reply";
+    public const string ReplyAll = "ReplyAll";
+    public const string Forward = "Fwd";
+    public const string Archive = "Archive";
+    public const string Delete = "Trash";
+    public const string Move = "Move";
+    public const string Read = "Check";
+    public const string Unread = "Unread";
+    public const string Star = "Star";
+    public const string Starred = "Star";
+    public const string Tag = "Tag";
+    public const string Spam = "Alert";
+    public const string More = "More";
+    public const string Open = "External";
+    public const string Print = "Print";
+    public const string Download = "Download";
+    public const string Copy = "Clip";
+    public const string Search = "Search";
+    public const string Folder = "Folder";
+    public const string Refresh = "Refresh";
+    public const string NewFolder = "Folder";
+    public const string Rename = "Pen";
+    public const string Upload = "Send";
+    public const string Add = "Plus";
+    public const string Cancel = "Close";
+    public const string Select = "Check";
+    public const string Contact = "User";
+    public const string SignOut = "Back";
+    public const string Default = "Star";
 
     /// <summary>The icon text of a coloured dot (a tag colour); the host draws a dot of that colour.</summary>
     public static string Dot(uint rgb) => "dot:" + (rgb & 0xFFFFFF).ToString("X6", System.Globalization.CultureInfo.InvariantCulture);
