@@ -562,3 +562,10 @@ F-13 and user decisions D-2, D-9, D-10, on branch `m1-fix-security` (from `m1` a
 - **F-06 / D-2 import.** `RustCredentialImport`: the user import keeps OAuth accounts listed but drops their refresh token
   ("imported without its sign-in; sign in again"). ADR 0008 point 2's "validate by a normal refresh" is withdrawn in an
   amendment section.
+- **F-12 read-only fails closed.** `Core/Accounts/ReadOnlyPolicy.For(profile, env, readFile)`: in `dev` (also the default
+  profile, so a plain user run is covered too) and `auto-*`, only the file named by `BARBICAN_WRITABLE_ACCOUNTS_FILE` counts,
+  and only when its folder is named `.local`; `BARBICAN_WRITABLE_ACCOUNTS` is ignored there. Other profiles keep the variable.
+  Registered from `IProfilePaths` (not `ProfilePaths.FromEnvironment`), so the policy follows the profile the app actually uses.
+  Judgement: the allow-list holds logins, not account keys (server+login), matching the existing `IsReadOnly(user, …)`; a
+  stricter key match can come with M2's writes. Who sets the variable: `tools/auto-run.ps1` (F-08 commit) points it at the main
+  checkout's `.local/writable-accounts.txt` when that file exists; nobody creates the file in this stream.

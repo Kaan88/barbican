@@ -2,9 +2,11 @@
 // the current account), on_add_account (:838); Bulwark stores/account-store.ts (several accounts signed in at once, the default star) and
 // lib/account-inbox-unread.ts (the inbox unread of the accounts not on screen). spec I-001..I-010 (data side), J-020 hooks.
 
+using System.Text.Json.Nodes;
 using Barbican.Core.Accounts;
 using Barbican.Core.Auth;
 using Barbican.Core.Jmap.Errors;
+using Barbican.Core.Jmap;
 using Barbican.Core.Jmap.Transport;
 using Barbican.Core.Mail.Service;
 using Barbican.Core.Plugins.Hooks;
@@ -259,6 +261,50 @@ public sealed class AccountManagerTests : IAsyncDisposable
         Assert.True(policy.IsReadOnly("ana@example.org", storedFlag: true));
         Assert.True(policy.IsReadOnly("ben@example.net", storedFlag: false));
         Assert.True(ReadOnlyPolicy.AllReadOnly.IsReadOnly("ana@example.org", storedFlag: false));
+    }
+
+    [Theory]
+    [InlineData("dev")]
+    [InlineData("auto-4242")]
+    public async Task An_agent_profile_without_the_allow_list_refuses_Email_set(string profile)
+    {
+        // F-12: an inherited BARBICAN_WRITABLE_ACCOUNTS counts for nothing in the agents' profiles; only the .local list opens an account
+        var env = new Dictionary<string, string?>(StringComparer.Ordinal) { [ReadOnlyPolicy.Variable] = "ana@example.org" };
+        var policy = ReadOnlyPolicy.For(profile, n => env.GetValueOrDefault(n), _ => "ana@example.org");
+        Assert.Equal(0, policy.WritableCount);
+
+        var paths = new TestProfilePaths(_root);
+        var oauthHttp = new OAuthHttp(_http, TimeProvider.System);
+        var flow = new OAuthFlow(new OAuthDiscovery(oauthHttp), _clients, oauthHttp, new RedirectFollowingLauncher(_http), new OAuthFlowOptions { LoopbackPort = 0 }, TimeProvider.System);
+        await using var manager = new AccountManager(new JmapClientFactory(_http, TimeProvider.System), new MailAccountFactory(_hooks, TimeProvider.System), _store, flow, oauthHttp, paths, policy, _hooks, TimeProvider.System);
+        var r = await manager.SignInWithPasswordAsync(new PasswordSignIn(OriginA, "ana@example.org", "pw-a", null, false), Ct);
+        Assert.True(r.IsOk, r.Error?.Message);
+        var client = manager.SessionFor(r.Value!.Key)!.Client;
+        var set = await client.SendAsync(JmapRequest.Of(JmapRequest.Call("Email/set", new JsonObject { ["accountId"] = "b", ["destroy"] = new JsonArray("x") }, "w")), Ct);
+        Assert.Equal("Email/set", Assert.IsType<ReadOnlyViolation>(set.Error).Method);
+        Assert.DoesNotContain(_a.ApiCalls, c => c.Contains("Email/set", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void The_allow_list_counts_only_from_a_local_folder_and_fails_closed()
+    {
+        var local = Path.Combine(_root, ".local", "writable-accounts.txt");
+        var elsewhere = Path.Combine(_root, "other", "writable-accounts.txt");
+        Func<string, string?> Env(string? file) => n => string.Equals(n, ReadOnlyPolicy.FileVariable, StringComparison.Ordinal) ? file : null;
+        const string List = "# the test account\r\nana@example.org  # writes go to itself\r\n\r\n";
+
+        Assert.False(ReadOnlyPolicy.For("dev", Env(local), _ => List).IsReadOnly("ana@example.org", storedFlag: false));
+        Assert.True(ReadOnlyPolicy.For("dev", Env(local), _ => List).IsReadOnly("ben@example.net", storedFlag: false));
+        Assert.True(ReadOnlyPolicy.For("dev", Env(local), _ => List).IsReadOnly("ana@example.org", storedFlag: true));
+        Assert.Equal(0, ReadOnlyPolicy.For("dev", Env(elsewhere), _ => List).WritableCount);
+        Assert.Equal(0, ReadOnlyPolicy.For("auto-1", Env(local), _ => null).WritableCount);
+        Assert.Equal(0, ReadOnlyPolicy.For("dev", Env(null), _ => List).WritableCount);
+
+        // the real reader: a missing file is read-only
+        Assert.Null(ReadOnlyPolicy.ReadAllowList(local));
+
+        // the user's own profile keeps the variable (nothing sets it in M1)
+        Assert.Equal(1, ReadOnlyPolicy.For("main", n => string.Equals(n, ReadOnlyPolicy.Variable, StringComparison.Ordinal) ? "ana@example.org" : null, _ => null).WritableCount);
     }
 
     // fails the first calls synchronously (a completed task), then connects for real
