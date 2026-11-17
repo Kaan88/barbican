@@ -32,3 +32,12 @@ builds through a host-agnostic bus (`IHookBus`), no plugin host yet.
 - `HookNamesTests` (green) pins the constants to the CSV and the counts; `HookCallSiteTests` (one red test per owner until its stream
   fires its hooks) asserts every `M1` hook has a call site under `src/`, as Bulwark's `lib/__tests__/plugin-hook-catalog.test.ts` does.
 - `python tools/spec-check.py` prints hooks per milestone and how many are fired.
+
+## Deliberate changes
+- **M2 stage F (2026-11-17): 14 hooks moved out of M2** because M2 does not build the surface that fires them (the CSV keeps `owner` empty for them until their milestone):
+  `onBeforeEmailCategorize`, `onEmailCategorize`, `onTabsChange`, `onTabActivate`, `onTabCountsRefresh` to M10 (category tabs are deferred, I-152);
+  `onBeforeAttachmentUpload`, `onBeforeBlobUpload`, `onAfterAttachmentUpload` to M3 (Bulwark fires them in the composer);
+  `onPasswordChange`, `onTotpChange`, `onAppPasswordChange`, `onEncryptionChange`, `onDisplayNameChange` to M6 (the account security pages);
+  `onAttachmentPreview` to M5 (file preview). The other 36 M2 hooks got their owner: actions 28 (mail-organize 15, mail-mailboxes 8, ui 5: onColumnResize, onDragStart,
+  onDragEnd, onEmailDrop, onTagDrop), reader 4 (onBeforeExternalLink, onAvatarResolve, onAttachmentDownload, onTextSelectionChange), search 1 (onProvideSearchResults),
+  unified 3 (onAccountRemove, onBeforeLogout, onAfterLogout).

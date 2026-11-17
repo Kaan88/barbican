@@ -72,6 +72,16 @@ the port opens.
 Write-capable test commands (`rx-import`, `rx-find`, `rx-destroy`) exist only in `AUTOMATION_WRITES` builds and only act on
 `<test-account>` (PORT-PLAN.md §4.4).
 
+## M2 commands (planned; each owner fills the meaning and appends the row in the commit that adds the command, M2 plan 4.7)
+| Command | Owner | Meaning (to be written) |
+|---|---|---|
+| `dnd-sim SRC DST`, `hover-sim ROW\|off`, `pane-set SIDE LIST`, `select ROWID [shift\|ctrl]`, `toast-last` | actions | planned |
+| `menu-open MENU TARGET`, `menu-pick LABEL`, `menu-items`, `palette TEXT`, `palette-pick N`, `dialog-state`, `key CHORD` | menus | planned |
+| `rx-banners`, `banner-act ID ACTION`, `source-text`, `avatar-state EMAIL` | reader | planned |
+| `rx-import`, `rx-find`, `rx-destroy` | reader | planned, `AUTOMATION_WRITES` builds only |
+| `search TEXT`, `suggestions`, `chips` | search | planned |
+| `unified on\|off`, `import-sim PATH MAILBOX` (FakeJmap only), `plugins` | unified | planned |
+
 ## Rules for scripts
 - Every popup of the app is `ShouldConstrainToRootBounds` (otherwise it is outside the capture and can appear on the real screen).
   `tests/Barbican.Automation.Tests/PopupLintTests.cs` enforces it on the App's XAML with a deny list

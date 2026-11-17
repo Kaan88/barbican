@@ -16,6 +16,8 @@ public sealed class ReleaseContentTests
 {
     private const string AutomationCondition = "'$(Configuration)' == 'Automation'";
 
+    private const string AutomationWritesCondition = "'$(Configuration)' == 'Automation' and '$(AutomationWrites)' == 'true'";
+
     private static readonly string[] AutomationOnlyPackages = ["FlaUI.UIA3", "FlaUI.Core", "Microsoft.Graphics.Win2D"];
 
     private static readonly string[] ForbiddenFiles = ["Barbican.Automation.dll", "FlaUI.Core.dll", "FlaUI.UIA3.dll", "Interop.UIAutomationClient.dll", "Microsoft.Graphics.Canvas.dll", "Microsoft.Graphics.Canvas.Interop.dll", "Barbican.FakeJmap.dll"];
@@ -23,7 +25,7 @@ public sealed class ReleaseContentTests
     public static TheoryData<string> Projects()
     {
         var data = new TheoryData<string>();
-        foreach (var dir in new[] { "src", "tests", "tools" })
+        foreach (var dir in new[] { "src", "tests", "tools", "plugins" })
         {
             foreach (var f in Directory.EnumerateFiles(TestRepo.PathOf(dir), "*.csproj", SearchOption.AllDirectories))
             {
@@ -99,9 +101,38 @@ public sealed class ReleaseContentTests
         {
             foreach (var d in XDocument.Load(file).Descendants().Where(e => e.Name.LocalName is "DefineConstants" && e.Value.Contains("AUTOMATION", StringComparison.Ordinal)))
             {
-                Assert.Equal(AutomationCondition, (string?)d.Parent?.Attribute("Condition"));
+                // AUTOMATION_WRITES (M2): only together with the Automation configuration (the condition below adds the AutomationWrites property)
+                var expected = d.Value.Contains("AUTOMATION_WRITES", StringComparison.Ordinal) ? AutomationWritesCondition : AutomationCondition;
+                Assert.Equal(expected, (string?)d.Parent?.Attribute("Condition"));
             }
         }
+    }
+
+    [Fact]
+    public void AutomationWritesIsDefinedOnlyTogetherWithAutomationAndNotByPlainBuilds()
+    {
+        var props = XDocument.Load(TestRepo.PathOf("Directory.Build.props"));
+        var define = Assert.Single(props.Descendants(), e => e.Name.LocalName is "DefineConstants" && e.Value.Contains("AUTOMATION_WRITES", StringComparison.Ordinal));
+        Assert.Equal(AutomationWritesCondition, (string?)define.Parent?.Attribute("Condition"));
+
+        // no project, props or targets file defines it anywhere else
+        foreach (var file in Directory.EnumerateFiles(TestRepo.Root, "*.*", SearchOption.AllDirectories)
+                     .Where(f => (f.EndsWith(".csproj", StringComparison.Ordinal) || f.EndsWith(".props", StringComparison.Ordinal) || f.EndsWith(".targets", StringComparison.Ordinal))
+                         && !f.Contains("/bin/", StringComparison.Ordinal) && !f.Contains("\\bin\\", StringComparison.Ordinal) && !f.Contains("/obj/", StringComparison.Ordinal) && !f.Contains("\\obj\\", StringComparison.Ordinal)
+                         && !f.Contains("node_modules", StringComparison.Ordinal) && !f.Contains("prototype", StringComparison.Ordinal) && !f.Contains("spikes", StringComparison.Ordinal))
+                     .Where(f => !string.Equals(Path.GetFullPath(f), Path.GetFullPath(TestRepo.PathOf("Directory.Build.props")), StringComparison.OrdinalIgnoreCase)))
+        {
+            Assert.DoesNotContain("AUTOMATION_WRITES", File.ReadAllText(file), StringComparison.Ordinal);
+        }
+    }
+
+    [Fact]
+    public void TheBuildScriptOnlyTakesWritesTogetherWithTheAutomationConfiguration()
+    {
+        var script = File.ReadAllText(TestRepo.PathOf("tools/build.ps1"));
+        Assert.Contains("[switch]$Writes", script, StringComparison.Ordinal);
+        Assert.Contains("-p:AutomationWrites=true", script, StringComparison.Ordinal);
+        Assert.Contains("-Writes needs -Configuration Automation", script, StringComparison.Ordinal);
     }
 
     [Fact]

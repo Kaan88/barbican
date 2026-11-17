@@ -29,6 +29,7 @@
   tools/build.ps1 publish -Head win   # self-contained, unpackaged App into artifacts/publish/<head>/<rid>/ (Release)
   tools/build.ps1 publish -Head desktop -Rid linux-x64
   tools/build.ps1 build -Configuration Automation -Head win   # the hidden-automation build (docs/adr/0007)
+  tools/build.ps1 build -Configuration Automation -Writes -Head win   # plus the write-capable test commands (AUTOMATION_WRITES; <test-account> only, M2 plan 3.2)
   tools/build.ps1 shutdown            # stop the compiler server when you finish (only if no build runs)
 #>
 [CmdletBinding()]
@@ -44,6 +45,7 @@ param(
     [string]$Class,
     [string]$Method,
     [switch]$Check,
+    [switch]$Writes,
     [string]$Rid,
     [int]$WaitMinutes = 90,
     [Parameter(ValueFromRemainingArguments = $true)]
@@ -187,7 +189,9 @@ try {
     # so the node cap must be explicit here (measured: MSBuildNodeCount 28 without it).
     $cpu = 4
     if ($env:BARBICAN_MSBUILD_CPU) { $cpu = [int]$env:BARBICAN_MSBUILD_CPU }
+    if ($Writes -and $Configuration -ne 'Automation') { throw '[build.ps1] -Writes needs -Configuration Automation (AUTOMATION_WRITES exists only together with AUTOMATION)' }
     $common = @('-c', $Configuration, '-lowPriority', "-maxCpuCount:$cpu") + (Get-HeadArgs)
+    if ($Writes) { $common += '-p:AutomationWrites=true' }
     if ($env:BARBICAN_SHARED_COMPILER -ne '1') { $common += '-p:UseSharedCompilation=false' }
     if ($Rest) { $extra = $Rest } else { $extra = @() }
     switch ($Target) {

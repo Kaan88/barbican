@@ -10,7 +10,8 @@ namespace Barbican.FakeJmap;
 public sealed partial class FakeApi(FakeStore store, FakeJmapOptions options, Func<string> sessionState)
 {
     private static readonly string[] Known =
-        ["urn:ietf:params:jmap:core", "urn:ietf:params:jmap:mail", "urn:ietf:params:jmap:submission", "urn:ietf:params:jmap:quota", "urn:stalwart:jmap"];
+        ["urn:ietf:params:jmap:core", "urn:ietf:params:jmap:mail", "urn:ietf:params:jmap:submission", "urn:ietf:params:jmap:quota", "urn:stalwart:jmap",
+        "urn:ietf:params:jmap:sieve", "urn:ietf:params:jmap:filenode", "urn:ietf:params:jmap:calendars"];
 
     private readonly Queue<FakeFault> _methodFaults = new();
     private readonly Lock _lock = new();
@@ -93,6 +94,25 @@ public sealed partial class FakeApi(FakeStore store, FakeJmapOptions options, Fu
             "Thread/changes" => Changes("Thread", args),
             "Identity/get" => IdentityGet(),
             "Quota/get" => QuotaGet(),
+
+            // M2 arms (stage F): each calls a method in its own file that the owning stream fills (M2 plan 3.1, 4); until then the method answers unknownMethod
+            "Mailbox/set" => MailboxSet(args),
+            "Email/import" => EmailImport(args),
+            "Email/copy" => EmailCopy(args),
+            "Email/parse" => EmailParse(args),
+            "Blob/copy" => BlobCopy(args),
+            "SearchSnippet/get" => SearchSnippetGet(args),
+            "EmailSubmission/set" => EmailSubmissionSet(args),
+            "SieveScript/get" => SieveScriptGet(args),
+            "SieveScript/set" => SieveScriptSet(args),
+            "SieveScript/validate" => SieveScriptValidate(args),
+            "FileNode/get" => FileNodeGet(args),
+            "FileNode/query" => FileNodeQuery(args),
+            "FileNode/set" => FileNodeSet(args),
+            "CalendarEvent/parse" => CalendarEventParse(args),
+            "x:ArchivedItem/get" => ArchivedItemGet(args),
+            "x:ArchivedItem/query" => ArchivedItemQuery(args),
+            "x:ArchivedItem/set" => ArchivedItemSet(args),
             _ => Error("unknownMethod"),
         };
     }

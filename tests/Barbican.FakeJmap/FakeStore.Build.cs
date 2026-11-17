@@ -42,8 +42,8 @@ public sealed partial class FakeStore
             ["messageId"] = new JsonArray(messageId),
             ["inReplyTo"] = parentRef is null ? null : new JsonArray(parentRef),
             ["references"] = parentRef is null ? null : new JsonArray(parentRef),
-            ["headers"] = new JsonArray(new JsonObject { ["name"] = "Subject", ["value"] = " " + mail.Subject }),
-            ["header:Authentication-Results:all"] = new JsonArray("mx.example.org; dkim=pass header.d=example.org; spf=pass; dmarc=pass"),
+            ["headers"] = new JsonArray([new JsonObject { ["name"] = "Subject", ["value"] = " " + mail.Subject }, .. mail.Headers.Select(h => (JsonNode)new JsonObject { ["name"] = h.Name, ["value"] = " " + h.Value })]),
+            ["header:Authentication-Results:all"] = new JsonArray(mail.AuthenticationResults ?? "mx.example.org; dkim=pass header.d=example.org; spf=pass; dmarc=pass"),
         };
     }
 
