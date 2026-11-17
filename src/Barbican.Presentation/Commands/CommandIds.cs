@@ -41,6 +41,7 @@ public static class CommandIds
     public const string EmptyTrash = "folder.empty-trash";
     public const string EmptySpam = "folder.empty-spam";
     public const string ImportMessages = "folder.import";
+    public const string RefreshUnified = "unified.refresh";
     public const string ShowTagMessages = "tag.show";
     public const string MarkTagRead = "tag.mark-read";
     public const string NewTag = "tag.new";

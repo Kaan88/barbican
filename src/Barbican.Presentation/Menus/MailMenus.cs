@@ -1,6 +1,7 @@
 // Mirrors: spec/menus.md MENU-MAIL; Rust ctxmenu.rs mail_items :516, submenu "move"/"tag"/"more" :575, confirmation labels :833-:852; Bulwark
 // components/email/email-context-menu.tsx, mail-list-menus.tsx, message-actions.ts. myRights gate the write rows (J-048, RFC 8621 section 2.4). Owner menus.
 
+using Barbican.Core.Mail.Model;
 using Barbican.Presentation.Commands;
 using static Barbican.Presentation.Menus.MenuItems;
 
@@ -39,7 +40,17 @@ public static class MailMenus
         items.Add(Item(MenuGlyphs.ReplyAll, "Reply all", CommandIds.ReplyAll, "Shift+R", enabled: one));
         items.Add(Item(MenuGlyphs.Forward, "Forward", CommandIds.Forward, "F", enabled: one));
         items.Add(Sep());
-        items.Add(Item(MenuGlyphs.Archive, "Archive", CommandIds.Archive, "E", enabled: rights.MayRemoveItems));
+        if (string.Equals(c.Mailbox?.Role, "trash", StringComparison.Ordinal))
+        {
+            // Bulwark message-actions.ts:271-274: in Trash a "Restore" row, then a separator, before Archive.
+            items.Add(Item(MenuGlyphs.Restore, "Restore", CommandIds.Restore, enabled: rights.MayRemoveItems));
+            items.Add(Sep());
+        }
+
+        // Bulwark message-actions.ts:275-277, lib/archive-inbox.ts:10-28: inside Archive (or below it) the row reads "Move to Inbox".
+        items.Add(InArchive(c, d)
+            ? Item(MenuGlyphs.Inbox, "Move to Inbox", CommandIds.MoveToInbox, enabled: rights.MayRemoveItems)
+            : Item(MenuGlyphs.Archive, "Archive", CommandIds.Archive, "E", enabled: rights.MayRemoveItems));
         items.Add(Danger(MenuGlyphs.Delete, "Delete", CommandIds.Delete, "Del", n > 1 && d.ConfirmBulkDelete ? BulkDeleteConfirm : null, enabled: rights.MayRemoveItems));
         items.Add(Sub(MenuGlyphs.Move, "Move to", MenuIds.MailMove, rights.MayRemoveItems));
         items.Add(Sep());
@@ -68,7 +79,8 @@ public static class MailMenus
         var items = new List<MenuItemSpec>();
         foreach (var f in d.Folders(account))
         {
-            if (f.IsVirtual || string.Equals(f.Id, c.Mailbox?.MailboxId, StringComparison.Ordinal) || !f.Rights.MayAddItems)
+            // Bulwark lib/move-menu.ts:117: no Drafts and no Sent either.
+            if (f.IsVirtual || f.Role is MailboxRole.Drafts or MailboxRole.Sent || string.Equals(f.Id, c.Mailbox?.MailboxId, StringComparison.Ordinal) || !f.Rights.MayAddItems)
             {
                 continue;
             }
@@ -121,6 +133,54 @@ public static class MailMenus
             Item(MenuGlyphs.Copy, "Copy sender address", CommandIds.CopySenderAddress, enabled: one),
             Item(MenuGlyphs.Search, "Find emails from sender", CommandIds.FindFromSender, enabled: one),
         ];
+    }
+
+    /// <summary>True when the browsed folder is the Archive or below it, and an Inbox exists to move to (Bulwark lib/archive-inbox.ts:10-28).</summary>
+    private static bool InArchive(MenuContext c, IMenuDataSource d)
+    {
+        var account = c.Targets.Count > 0 ? c.Targets[0].AccountKey : c.Mailbox?.AccountKey;
+        var id = c.Mailbox?.MailboxId;
+        if (id is null)
+        {
+            return false;
+        }
+
+        var folders = d.Folders(account);
+        var at = -1;
+        for (var i = 0; i < folders.Count; i++)
+        {
+            if (string.Equals(folders[i].Id, id, StringComparison.Ordinal))
+            {
+                at = i;
+                break;
+            }
+        }
+
+        if (at < 0 || !folders.Any(f => f.Role == MailboxRole.Inbox))
+        {
+            return false;
+        }
+
+        // The folder list is in tree order: the ancestors are the nearest earlier rows with a smaller depth.
+        var depth = folders[at].Depth;
+        if (folders[at].Role == MailboxRole.Archive)
+        {
+            return true;
+        }
+
+        for (var i = at - 1; i >= 0 && depth > 0; i--)
+        {
+            if (folders[i].Depth < depth)
+            {
+                depth = folders[i].Depth;
+                if (folders[i].Role == MailboxRole.Archive)
+                {
+                    return true;
+                }
+            }
+        }
+
+        return false;
     }
 
     private static MailboxRights Rights(MenuContext c, IMenuDataSource d)

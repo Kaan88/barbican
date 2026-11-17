@@ -94,6 +94,23 @@ public sealed class SidebarViewModelTests
     }
 
     [Fact]
+    public async Task The_highlight_follows_the_list_not_only_the_folder_rows()
+    {
+        // unified review request: "All inboxes" clears the folder selection, and opening a folder by any path (a command, the palette) brings it back
+        using var h = new ListHarness();
+        h.Service.OnQuery = (_, _, _) => Task.FromResult(Core.Common.Result<ListPage>.Ok(Mails.Page(0, 2, 2, false)));
+        h.Sidebar.Update(Tree());
+        await h.Sidebar.SelectFolderAsync("inbox");
+        Assert.Equal("inbox", h.Sidebar.SelectedFolderId);
+        await h.List.OpenFolderAsync(Core.Mail.Unified.UnifiedRows.FolderId, MailboxRole.None, "All inboxes");
+        Assert.Null(h.Sidebar.SelectedFolderId);
+        Assert.True(h.Sidebar.UnifiedOpen);
+        await h.List.OpenFolderAsync("inbox", MailboxRole.Inbox, "Inbox");
+        Assert.Equal("inbox", h.Sidebar.SelectedFolderId);
+        Assert.False(h.Sidebar.UnifiedOpen);
+    }
+
+    [Fact]
     public void Tags_follow_the_settings_and_nest_with_a_slash()
     {
         using var h = new ListHarness("""{"nestedTags": true, "emailKeywords": [{"id":"work","label":"Work","color":"green"},{"id":"work/clients","label":"Clients","color":"blue"}]}""");

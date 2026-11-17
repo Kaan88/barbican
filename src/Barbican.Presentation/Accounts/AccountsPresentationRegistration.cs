@@ -19,7 +19,7 @@ public static class AccountsPresentationRegistration
     {
         ArgumentNullException.ThrowIfNull(services);
         services.TryAddSingleton(sp => new SignInViewModel(sp.GetRequiredService<IAccountManager>(), sp.GetRequiredService<ServerDiscovery>(), sp.GetRequiredService<IDispatcher>()));
-        services.TryAddSingleton(sp => new AccountsViewModel(sp.GetRequiredService<IAccountManager>(), sp.GetRequiredService<IAccountOverview>(), sp.GetRequiredService<IDispatcher>()));
+        services.TryAddSingleton(sp => new AccountsViewModel(sp.GetRequiredService<IAccountManager>(), sp.GetRequiredService<IAccountOverview>(), sp.GetRequiredService<IDispatcher>(), sp.GetService<IAccountMaintenance>(), sp.GetService<Barbican.Presentation.Actions.IActionConfirmer>()));
         services.TryAddSingleton(sp => new AccountsStartup(sp.GetRequiredService<AccountManager>(), sp.GetRequiredService<PrefsStore>(), sp.GetService<ILegacyAccountImport>()));
         services.AddSingleton<IStartupTask>(sp => sp.GetRequiredService<AccountsStartup>());
         services.TryAddSingleton(sp => new BodyCacheSync(sp.GetRequiredService<MailEventHub>(), sp.GetRequiredService<IBodyCache>()));

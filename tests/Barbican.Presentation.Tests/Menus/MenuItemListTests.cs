@@ -70,20 +70,40 @@ public sealed class MenuItemListTests
         Assert.Equal(CommandIds.NotSpam, rows.Single(r => r.Label == "Not spam").CommandId);
     }
 
-    [Theory]
-    [InlineData("trash", "trash")]
-    [InlineData("archive", "archive")]
-    public void Trash_and_archive_keep_the_full_list(string role, string id)
+    [Fact]
+    public void In_Trash_a_Restore_row_comes_first_then_a_separator_before_Archive()
     {
-        var rows = MailMenus.Main(Context(MenuIds.Mail, role: role, mailboxId: id, targets: Target("m1")), new FakeMenuData());
+        // Bulwark message-actions.ts:271-274
+        var rows = MailMenus.Main(Context(MenuIds.Mail, role: "trash", mailboxId: "trash", targets: Target("m1")), new FakeMenuData());
+        Assert.Equal(["Reply", "Reply all", "Forward", "—", "Restore", "—", "Archive", "Delete", "Move to ›", "—", "Mark as read", "Star", "Tag ›", "—", "Report spam", "—", "More actions ›"], Labels(rows));
+        Assert.Equal(CommandIds.Restore, rows.Single(r => r.Label == "Restore").CommandId);
+    }
+
+    [Theory]
+    [InlineData("archive", "archive")]
+    [InlineData(null, "q-in-archive")]
+    public void In_Archive_or_below_it_the_Archive_row_says_Move_to_Inbox(string? role, string id)
+    {
+        // Bulwark message-actions.ts:275-277, lib/archive-inbox.ts:10-28
+        var data = new FakeMenuData();
+        data.FolderList.Insert(data.FolderList.FindIndex(f => f.Id == "archive") + 1, new MenuFolder("q-in-archive", "Old", MailboxRole.None, 1, MailboxRights.Full));
+        var rows = MailMenus.Main(Context(MenuIds.Mail, role: role, mailboxId: id, targets: Target("m1")), data);
+        Assert.DoesNotContain("Archive", Labels(rows));
+        Assert.Equal(CommandIds.MoveToInbox, rows.Single(r => r.Label == "Move to Inbox").CommandId);
+    }
+
+    [Fact]
+    public void Outside_Trash_and_Archive_there_is_no_Restore_or_Move_to_Inbox()
+    {
+        var rows = MailMenus.Main(Context(MenuIds.Mail, role: "none", mailboxId: "work", targets: Target("m1")), new FakeMenuData());
         Assert.Equal(MailOne, Labels(rows));
     }
 
     [Fact]
-    public void Move_to_lists_real_folders_indented_without_the_current_folder_or_virtual_ones()
+    public void Move_to_lists_real_folders_indented_without_Drafts_Sent_the_current_folder_or_virtual_ones()
     {
         var rows = MailMenus.Move(Context(MenuIds.MailMove, targets: Target("m1")), new FakeMenuData());
-        Assert.Equal(["Drafts", "Sent", "Archive", "Spam", "Trash", "Work", "Q4"], rows.Select(r => r.Label).ToArray());
+        Assert.Equal(["Archive", "Spam", "Trash", "Work", "Q4"], rows.Select(r => r.Label).ToArray());
         Assert.Equal(1, rows.Single(r => r.Label == "Q4").Indent);
         Assert.All(rows, r => Assert.Equal(CommandIds.MoveTo, r.CommandId));
         Assert.Equal("q4", rows.Single(r => r.Label == "Q4").Argument);

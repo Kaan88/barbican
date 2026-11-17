@@ -40,7 +40,7 @@ public static class TagMenus
         items.Add(Sub(MenuGlyphs.Tag, "Colour", MenuIds.TagColour));
         items.Add(Danger(MenuGlyphs.Delete, "Delete tag", CommandIds.DeleteTag, confirm: DeleteConfirm, argument: id));
         items.Add(Sep());
-        items.Add(Item(MenuGlyphs.Tag, "Manage tags…", CommandIds.ManageTags));
+        items.Add(new MenuItemSpec(MenuItemKind.Item, "Manage tags…", CommandIds.ManageTags, Hint: "Settings arrive in M6", Icon: MenuGlyphs.Tag, Enabled: false));
         return items;
     }
 

@@ -11,6 +11,7 @@ public sealed class MessageRowViewModel : ListItemViewModel
 {
     private bool _isChecked;
     private bool _isHovered;
+    private IReadOnlyList<HoverButton> _strip = [];
 
     public MessageRowViewModel(EmailSummary summary)
         : this(summary, new RowContext())
@@ -59,6 +60,13 @@ public sealed class MessageRowViewModel : ListItemViewModel
     {
         get => _isHovered;
         set => SetProperty(ref _isHovered, value);
+    }
+
+    /// <summary>The hover strip buttons; set by the list when the row becomes the hovered one (the state of the message and of the folder decide them), kept after.</summary>
+    public IReadOnlyList<HoverButton> Strip
+    {
+        get => _strip;
+        set => SetProperty(ref _strip, value);
     }
 
     public override string Key => Summary.Id;

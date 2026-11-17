@@ -1,6 +1,8 @@
 using System.Collections.Specialized;
 using Barbican.App.Shell;
 using Barbican.App.Theme;
+using Barbican.Presentation.Actions;
+using Barbican.Presentation.Commands;
 using Barbican.Presentation.Mail;
 using Barbican.Presentation.Shell;
 using Microsoft.UI.Xaml.Automation;
@@ -111,6 +113,50 @@ public sealed partial class SidebarView : UserControl
         if (sender is FrameworkElement { Tag: string id })
         {
             Sidebar.ToggleFolder(id);
+        }
+    }
+
+#pragma warning disable VSTHRD100 // XAML event handlers return void; a failed command reports itself with a toast
+    private async void OnTagClick(object sender, RoutedEventArgs e)
+    {
+        if (sender is FrameworkElement { Tag: string id })
+        {
+            await Sidebar.SelectTagAsync(id);
+        }
+    }
+
+    private async void OnNewFolderClick(object sender, RoutedEventArgs e) => await RunAsync(CommandIds.NewFolder);
+
+    private async void OnNewTagClick(object sender, RoutedEventArgs e) => await RunAsync(CommandIds.NewTag);
+#pragma warning restore VSTHRD100
+
+    private void OnTagChevronClick(object sender, RoutedEventArgs e)
+    {
+        if (sender is FrameworkElement { Tag: string id })
+        {
+            Sidebar.ToggleTag(id);
+        }
+    }
+
+    // the header buttons run the same commands as the menus; the prompt dialog asks for the name, and an error comes back as a toast
+    private static async Task RunAsync(string commandId)
+    {
+        var registry = ViewHost.Get<ICommandRegistry>();
+        if (!registry.TryGet(commandId, out var command))
+        {
+            return;
+        }
+
+        var context = new CommandContext(CommandSurface.Toolbar, [], null, null, ViewHost.Get<IActiveMail>().AccountKey);
+        if (!command.CanExecute(context))
+        {
+            return;
+        }
+
+        var result = await command.ExecuteAsync(context, CancellationToken.None);
+        if (!result.IsOk)
+        {
+            ViewHost.Find<IToastService>()?.Show(new ToastRequest(result.Error?.Message ?? "That did not work.", IsError: true));
         }
     }
 

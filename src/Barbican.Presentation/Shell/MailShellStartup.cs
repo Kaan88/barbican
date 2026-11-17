@@ -128,8 +128,22 @@ public sealed class MailShellStartup : IStartupTask, IDisposable
         }
 
         if (string.Equals(e.PropertyName, nameof(SidebarViewModel.SelectedFolderId), StringComparison.Ordinal)
+            || string.Equals(e.PropertyName, nameof(SidebarViewModel.SelectedTagId), StringComparison.Ordinal)
             || string.Equals(e.PropertyName, nameof(SidebarViewModel.InboxUnread), StringComparison.Ordinal))
         {
+            if (_sidebar.SelectedTagId is { } tagId)
+            {
+                // the tag view names the header with the tag
+                _glance.SetFolder(_sidebar.Tags.FirstOrDefault(t => string.Equals(t.Id, tagId, StringComparison.Ordinal))?.Label ?? tagId, 0);
+                return;
+            }
+
+            if (_sidebar.UnifiedOpen)
+            {
+                // "All inboxes" names the header itself (UnifiedSectionViewModel.OpenAsync); no folder row is selected, and the header keeps its title
+                return;
+            }
+
             var folder = _sidebar.Folders.FirstOrDefault(f => string.Equals(f.Id, _sidebar.SelectedFolderId, StringComparison.Ordinal));
             _glance.SetFolder(folder?.Name ?? string.Empty, folder?.Unread ?? 0);
         }

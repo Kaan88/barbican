@@ -181,6 +181,7 @@ public sealed partial class MessageListViewModel : ObservableObject, IDisposable
     {
         ArgumentException.ThrowIfNullOrEmpty(mailboxId);
         var previous = _query?.MailboxId;
+        SetTag(null);
         _role = role;
         Title = title ?? string.Empty;
         _searchText = string.Empty;
@@ -191,6 +192,40 @@ public sealed partial class MessageListViewModel : ObservableObject, IDisposable
         {
             var payload = new MailboxChangedPayload(mailboxId, role.ToString().ToLowerInvariant(), previous);
             _hooks.Fire(HookNames.OnMailboxChange, () => payload);
+        }
+    }
+
+    /// <summary>The tag the list is filtered to, or null (Bulwark <c>selectedKeyword</c>).</summary>
+    public string? TagId { get; private set; }
+
+    /// <summary>Shows the messages with a tag in every folder but Trash and Junk (Bulwark's tag view): the first page replaces the rows once it has arrived.</summary>
+    /// <param name="tagId">The tag id (the keyword is <c>$label:id</c>).</param>
+    /// <param name="title">The tag name, for the list header.</param>
+    /// <param name="excludedFolders">The folders the view leaves out (Trash and Junk).</param>
+    public async Task OpenTagAsync(string tagId, string title, IReadOnlyList<string> excludedFolders)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(tagId);
+        ArgumentNullException.ThrowIfNull(excludedFolders);
+        SetTag(tagId);
+        _role = MailboxRole.None;
+        Title = title ?? string.Empty;
+        _searchText = string.Empty;
+        OnPropertyChanged(nameof(SearchText));
+        System.Text.Json.Nodes.JsonObject? filter = null;
+        if (excludedFolders.Count > 0)
+        {
+            filter = new System.Text.Json.Nodes.JsonObject { ["inMailboxOtherThan"] = new System.Text.Json.Nodes.JsonArray([.. excludedFolders.Select(id => (System.Text.Json.Nodes.JsonNode?)id)]) };
+        }
+
+        await LoadFirstPageAsync(new ListQuery { HasKeyword = "$label:" + tagId, Filter = filter, PageSize = ReadSettings().PageSize }, folderOpened: true).ConfigureAwait(true);
+    }
+
+    private void SetTag(string? tagId)
+    {
+        if (!string.Equals(TagId, tagId, StringComparison.Ordinal))
+        {
+            TagId = tagId;
+            OnPropertyChanged(nameof(TagId));
         }
     }
 

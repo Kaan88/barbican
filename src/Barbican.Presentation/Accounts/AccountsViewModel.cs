@@ -6,6 +6,7 @@
 
 using System.Collections.ObjectModel;
 using Barbican.Core.Accounts;
+using Barbican.Presentation.Actions;
 using Barbican.Presentation.Common;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
@@ -18,6 +19,8 @@ public sealed class AccountsViewModel : ObservableObject, IDisposable
     private readonly IAccountManager _accounts;
     private readonly IAccountOverview _overview;
     private readonly IDispatcher _dispatcher;
+    private readonly IAccountMaintenance? _maintenance;
+    private readonly IActionConfirmer? _confirmer;
     private bool _isOpen;
     private string _activeTitle = "";
     private string _activeInitial = "";
@@ -25,7 +28,7 @@ public sealed class AccountsViewModel : ObservableObject, IDisposable
     private string? _message;
     private bool _isSwitching;
 
-    public AccountsViewModel(IAccountManager accounts, IAccountOverview overview, IDispatcher dispatcher)
+    public AccountsViewModel(IAccountManager accounts, IAccountOverview overview, IDispatcher dispatcher, IAccountMaintenance? maintenance = null, IActionConfirmer? confirmer = null)
     {
         ArgumentNullException.ThrowIfNull(accounts);
         ArgumentNullException.ThrowIfNull(overview);
@@ -33,6 +36,11 @@ public sealed class AccountsViewModel : ObservableObject, IDisposable
         _accounts = accounts;
         _overview = overview;
         _dispatcher = dispatcher;
+        _maintenance = maintenance;
+        _confirmer = confirmer;
+        SetDefaultCommand = new AsyncRelayCommand(SetDefaultAsync);
+        SignOutCommand = new AsyncRelayCommand(SignOutAsync);
+        SignOutAllCommand = new AsyncRelayCommand(SignOutAllAsync);
         ToggleCommand = new RelayCommand(() => IsOpen = !IsOpen);
         SwitchCommand = new AsyncRelayCommand<AccountRowViewModel>(SwitchAsync);
         AddAccountCommand = new RelayCommand(AddAccount);
@@ -60,6 +68,42 @@ public sealed class AccountsViewModel : ObservableObject, IDisposable
 
     /// <summary>Add account (I-010).</summary>
     public IRelayCommand AddAccountCommand { get; }
+
+    /// <summary>Makes the account on screen the default (I-013; Bulwark account-switcher.tsx:657).</summary>
+    public IAsyncRelayCommand SetDefaultCommand { get; }
+
+    /// <summary>Signs the account on screen out, after asking (I-014; Bulwark account-switcher.tsx:666).</summary>
+    public IAsyncRelayCommand SignOutCommand { get; }
+
+    /// <summary>Signs every account out, after asking (I-015; Bulwark account-switcher.tsx:675).</summary>
+    public IAsyncRelayCommand SignOutAllCommand { get; }
+
+    /// <summary>"Set as default" shows for an account that is not the default, when there are two or more (Bulwark account-switcher.tsx:651-659).</summary>
+    public bool CanSetDefault => _maintenance is not null && Rows.Count > 1 && Rows.FirstOrDefault(r => r.IsActive) is { ShowStar: false };
+
+    /// <summary>"Sign out of <i>address</i>" shows when an account is on screen.</summary>
+    public bool CanSignOut => _maintenance is not null && Rows.Any(r => r.IsActive);
+
+    /// <summary>"Sign out of all accounts" shows with two or more accounts (Bulwark account-switcher.tsx:672).</summary>
+    public bool CanSignOutAll => _maintenance is not null && Rows.Count > 1;
+
+    /// <summary>The label of the sign-out row.</summary>
+    public string SignOutLabel => "Sign out of " + (ActiveTitle.Length > 0 ? ActiveTitle : "this account");
+
+    /// <summary>Alt+Shift+Up/Down on a row moves it (Bulwark account-switcher.tsx:454, handleMoveKey; only a non-default account, with three or more accounts).</summary>
+    public async Task MoveAsync(AccountRowViewModel row, int delta)
+    {
+        ArgumentNullException.ThrowIfNull(row);
+        var at = Rows.IndexOf(row);
+        var to = at + delta;
+        if (_maintenance is null || at < 0 || row.ShowStar || Rows.Count <= 2 || to < 1 || to >= Rows.Count)
+        {
+            return;
+        }
+
+        var r = await _maintenance.MoveAsync(row.Key, to, CancellationToken.None).ConfigureAwait(true);
+        Message = r.IsOk ? null : r.Error!.Message;
+    }
 
     public bool IsOpen
     {
@@ -182,6 +226,10 @@ public sealed class AccountsViewModel : ObservableObject, IDisposable
         ActiveInitial = active is null || active.Account.User.Length == 0 ? "" : char.ToUpperInvariant(active.Account.User[0]).ToString();
         OthersUnread = InboxUnread.Total(statuses.Where(s => !s.IsActive && s.IsConnected));
         OnPropertyChanged(nameof(Tooltip));
+        OnPropertyChanged(nameof(CanSetDefault));
+        OnPropertyChanged(nameof(CanSignOut));
+        OnPropertyChanged(nameof(CanSignOutAll));
+        OnPropertyChanged(nameof(SignOutLabel));
     }
 
     private int IndexOf(string key)
@@ -240,6 +288,51 @@ public sealed class AccountsViewModel : ObservableObject, IDisposable
             IsSwitching = false;
         }
     }
+
+    private async Task SetDefaultAsync()
+    {
+        IsOpen = false;
+        if (_maintenance is null || Rows.FirstOrDefault(r => r.IsActive) is not { } row)
+        {
+            return;
+        }
+
+        var r = await _maintenance.SetDefaultAsync(row.Key, CancellationToken.None).ConfigureAwait(true);
+        Message = r.IsOk ? null : r.Error!.Message;
+    }
+
+    private async Task SignOutAsync()
+    {
+        IsOpen = false;
+        if (_maintenance is null || Rows.FirstOrDefault(r => r.IsActive) is not { } row)
+        {
+            return;
+        }
+
+        if (!await AskAsync($"Sign out of {row.Title}?", "Its mail stays on the server. You sign in again to read it here.").ConfigureAwait(true))
+        {
+            return;
+        }
+
+        var r = await _maintenance.SignOutAsync(row.Key, CancellationToken.None).ConfigureAwait(true);
+        Message = r.IsOk ? null : r.Error!.Message;
+    }
+
+    private async Task SignOutAllAsync()
+    {
+        IsOpen = false;
+        if (_maintenance is null || !await AskAsync("Sign out of every account?", "Their mail stays on the servers. You sign in again to read it here.").ConfigureAwait(true))
+        {
+            return;
+        }
+
+        var r = await _maintenance.SignOutAllAsync(CancellationToken.None).ConfigureAwait(true);
+        Message = r.IsOk ? null : r.Error!.Message;
+    }
+
+    // a destructive row always asks (the ACCOUNT menu's confirmation label, spec/menus.md); without a dialog host it does not go ahead
+    private async Task<bool> AskAsync(string title, string message) =>
+        _confirmer is not null && await _confirmer.ConfirmAsync(new ConfirmRequest(title, message, "Sign out"), CancellationToken.None).ConfigureAwait(true);
 
     private void AddAccount()
     {

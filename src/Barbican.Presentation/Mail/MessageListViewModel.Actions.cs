@@ -12,7 +12,8 @@ namespace Barbican.Presentation.Mail;
 
 public sealed partial class MessageListViewModel : IListEditor, IMailSelection
 {
-    private const int AllInFolderCap = 10_000;
+    /// <summary>"Select all in folder" resolves at most this many messages; the confirmation says so when the cap is hit (decision M2-Q5).</summary>
+    public const int AllInFolderCap = 10_000;
 
     private readonly HashSet<string> _checked = new(StringComparer.Ordinal);
     private string? _anchorId;
@@ -60,6 +61,12 @@ public sealed partial class MessageListViewModel : IListEditor, IMailSelection
 
     /// <summary>The ticked messages, or else the open one; empty when neither.</summary>
     public IReadOnlyList<MailTarget> Current => TargetsOf(_checked.Count > 0 ? Messages.Where(r => _checked.Contains(r.Id)) : Messages.Where(r => string.Equals(r.Id, _selectedId, StringComparison.Ordinal)));
+
+    /// <summary>Tells whether a folder is the Archive or below it; the sidebar sets it (it holds the folder tree). Without it only the Archive folder itself counts.</summary>
+    public Func<string, bool>? InArchiveTree { get; set; }
+
+    /// <summary>The folder on screen is the Archive or below it: "Archive" reads "Move to Inbox" (Bulwark lib/archive-inbox.ts:10-28).</summary>
+    public bool ArchiveMovesToInbox => _role == MailboxRole.Archive || (MailboxId is { } id && InArchiveTree?.Invoke(id) == true);
 
     /// <summary>The id of the row whose hover strip shows, or null (the automation `hover-sim` and the pointer set it; real hover is a hand test).</summary>
     public string? HoverId => _hoverId;
@@ -338,6 +345,12 @@ public sealed partial class MessageListViewModel : IListEditor, IMailSelection
             var hover = string.Equals(row.Id, _hoverId, StringComparison.Ordinal);
             if (row.IsHovered != hover)
             {
+                if (hover)
+                {
+                    // the buttons are worked out once, when the strip is about to show: the message state and the folder decide them (I-132..I-135)
+                    row.Strip = HoverStrip.For(row.Unread, row.Flagged, _role, ArchiveMovesToInbox, HoverStrip.Configured(_prefs.Current.Values[HoverStrip.SettingKey]));
+                }
+
                 row.IsHovered = hover;
             }
         }

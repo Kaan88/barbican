@@ -93,11 +93,27 @@ public static class ActionsRegistration
             sp.GetRequiredService<MessageListViewModel>(),
             sp.GetRequiredService<IMailWriterSource>(),
             sp.GetRequiredService<IMailboxDirectory>(),
-            sp.GetRequiredService<IUndoService>()).ToDictionary(c => c.Id, StringComparer.Ordinal));
+            sp.GetRequiredService<IUndoService>(),
+            sp.GetService<Barbican.Presentation.Dialogs.IDialogService>()).ToDictionary(c => c.Id, StringComparer.Ordinal));
         foreach (var id in ActionCommandSet.Ids)
         {
             var key = id;
             services.AddSingleton<IAppCommand>(sp => sp.GetRequiredService<Dictionary<string, IAppCommand>>()[key]);
+        }
+
+        // the tag menu (MENU-TAG): create, rename, recolour, delete, show, mark read
+        services.TryAddSingleton(sp => new Barbican.Presentation.Tags.TagService(sp.GetRequiredService<IPrefsStore>(), sp.GetRequiredService<Barbican.Core.Storage.IPrefsEditor>()));
+        services.TryAddSingleton(sp => new Barbican.Presentation.Tags.TagCommandSet(Barbican.Presentation.Tags.TagCommands.Create(
+            sp.GetRequiredService<Barbican.Presentation.Tags.TagService>(),
+            sp.GetRequiredService<SidebarViewModel>(),
+            sp.GetRequiredService<MailActionService>(),
+            sp.GetRequiredService<IMailWriterSource>(),
+            sp.GetRequiredService<IActiveMail>(),
+            sp.GetService<IDialogService>()).ToDictionary(c => c.Id, StringComparer.Ordinal)));
+        foreach (var id in Barbican.Presentation.Tags.TagCommands.Ids)
+        {
+            var key = id;
+            services.AddSingleton<IAppCommand>(sp => sp.GetRequiredService<Barbican.Presentation.Tags.TagCommandSet>().Commands[key]);
         }
 
         return services;

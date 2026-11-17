@@ -46,10 +46,24 @@
       </DataTemplate>
       <!-- A tag row (prototype labels): a squircle dot in the tag colour and the name. -->
       <DataTemplate x:Key="TagTemplate" x:DataType="shell:TagRowViewModel">
-        <Grid Padding="{x:Bind theme:StyleState.Current.TagRowPadding, Mode=OneWay}" ColumnSpacing="{x:Bind theme:StyleState.Current.TagSpacing, Mode=OneWay}" ColumnDefinitions="Auto,*"
+        <!-- a click filters the list to the tag; a second click on it goes back (Bulwark sidebar.tsx:1181); the chevron folds the tags inside (nested tags); the selected tag takes sel / sel-text like a folder -->
+        <Grid Background="{x:Bind views:Fmt.TagBg(Selected)}" CornerRadius="{x:Bind theme:StyleState.Current.TagRowRadius, Mode=OneWay}" ColumnDefinitions="*,Auto"
               AutomationProperties.AutomationId="{x:Bind Id}" AutomationProperties.Name="{x:Bind Label}">
-          <Border Width="10" Height="10" CornerRadius="4" Background="{x:Bind views:Fmt.Rgb(ColorRgb)}" VerticalAlignment="Center" />
-          <TextBlock Grid.Column="1" Text="{x:Bind Label}" FontSize="{x:Bind theme:StyleState.Current.TagNameSize, Mode=OneWay}" Foreground="{StaticResource Body}" TextTrimming="CharacterEllipsis" />
+          <Button Style="{StaticResource Button.Icon}" HorizontalAlignment="Stretch" HorizontalContentAlignment="Left" Tag="{x:Bind Id}" Click="OnTagClick" CornerRadius="{x:Bind theme:StyleState.Current.TagRowRadius, Mode=OneWay}"
+                  Foreground="{x:Bind views:Fmt.TagFg(Selected)}" AutomationProperties.AutomationId="{x:Bind views:Fmt.TagButtonId(Id)}" AutomationProperties.Name="{x:Bind Label}">
+            <Grid Padding="{x:Bind theme:StyleState.Current.TagRowPadding, Mode=OneWay}" ColumnSpacing="{x:Bind theme:StyleState.Current.TagSpacing, Mode=OneWay}" ColumnDefinitions="Auto,*">
+              <StackPanel Orientation="Horizontal">
+                <Border Width="{x:Bind views:Fmt.IndentPx(Depth)}" />
+                <Border Width="10" Height="10" CornerRadius="4" Background="{x:Bind views:Fmt.Rgb(ColorRgb)}" VerticalAlignment="Center" />
+              </StackPanel>
+              <TextBlock Grid.Column="1" Text="{x:Bind Label}" FontSize="{x:Bind theme:StyleState.Current.TagNameSize, Mode=OneWay}" TextTrimming="CharacterEllipsis" VerticalAlignment="Center" />
+            </Grid>
+          </Button>
+          <Button Grid.Column="1" Style="{StaticResource Button.Icon}" Width="22" Height="22" CornerRadius="6" Margin="0,0,8,0" Tag="{x:Bind Id}" Click="OnTagChevronClick" IsTabStop="False"
+                  Foreground="{x:Bind views:Fmt.TagFg(Selected)}" Visibility="{x:Bind views:Fmt.VisChevron(Chevron)}" AutomationProperties.AutomationId="{x:Bind views:Fmt.ChevronId(Id)}"
+                  AutomationProperties.Name="Expand or collapse">
+            <controls:SIcon Kind="{x:Bind views:Fmt.Chevron(Chevron)}" Size="11" StrokeWidth="2" />
+          </Button>
         </Grid>
       </DataTemplate>
     </Grid.Resources>
@@ -74,7 +88,7 @@
     <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" HorizontalScrollMode="Disabled">
     <StackPanel>
     <!-- Folders: the heading folds the list (I-019); the settings button is M2. -->
-    <Grid ColumnDefinitions="*,Auto" Padding="{x:Bind Look.FirstSectionHeaderPadding, Mode=OneWay}">
+    <Grid ColumnDefinitions="*,Auto,Auto" Padding="{x:Bind Look.FirstSectionHeaderPadding, Mode=OneWay}" AutomationProperties.AutomationId="sidebar.folders.header">
       <Button Style="{StaticResource Button.Icon}" HorizontalAlignment="Left" Padding="0" Click="OnFoldersHeaderClick" Foreground="{x:Bind Look.SectionHeaderBrush, Mode=OneWay}"
               AutomationProperties.AutomationId="sidebar.folders.toggle" AutomationProperties.Name="Folders section">
         <StackPanel Orientation="Horizontal" Spacing="6">
@@ -83,7 +97,12 @@
           <controls:SIcon Kind="{x:Bind views:Fmt.ChevronOf(Sidebar.FoldersExpanded), Mode=OneWay}" Size="10" StrokeWidth="2.2" VerticalAlignment="Center" Opacity="0.8" />
         </StackPanel>
       </Button>
-      <Button Grid.Column="1" Style="{StaticResource Button.Icon}" Width="22" Height="22" CornerRadius="8" IsEnabled="False" Foreground="{StaticResource Faint}" Margin="0,-4,0,-4"
+      <!-- "+" creates a top-level folder (Bulwark sidebar.tsx:848): the name is asked for in the prompt dialog -->
+      <Button Grid.Column="1" Style="{StaticResource Button.Icon}" Width="22" Height="22" CornerRadius="8" Foreground="{StaticResource Faint}" Margin="0,-4,0,-4" Click="OnNewFolderClick"
+              ToolTipService.ToolTip="New folder" AutomationProperties.AutomationId="sidebar.folders.add" AutomationProperties.Name="New folder">
+        <controls:SIcon Kind="Plus" Size="13" StrokeWidth="2" />
+      </Button>
+      <Button Grid.Column="2" Style="{StaticResource Button.Icon}" Width="22" Height="22" CornerRadius="8" IsEnabled="False" Foreground="{StaticResource Faint}" Margin="0,-4,0,-4"
               AutomationProperties.AutomationId="sidebar.folders.settings" AutomationProperties.Name="Folder settings">
         <controls:SIcon Kind="Opt" Size="13" />
       </Button>
@@ -107,8 +126,8 @@
             <controls:SIcon Kind="{x:Bind views:Fmt.ChevronOf(Sidebar.TagsExpanded), Mode=OneWay}" Size="10" StrokeWidth="2.2" VerticalAlignment="Center" Opacity="0.8" />
           </StackPanel>
         </Button>
-        <Button Grid.Column="1" Style="{StaticResource Button.Icon}" Width="22" Height="22" CornerRadius="8" IsEnabled="False" Foreground="{StaticResource Faint}" Margin="0,-4,0,-4"
-                AutomationProperties.AutomationId="sidebar.tags.add" AutomationProperties.Name="New tag">
+        <Button Grid.Column="1" Style="{StaticResource Button.Icon}" Width="22" Height="22" CornerRadius="8" Foreground="{StaticResource Faint}" Margin="0,-4,0,-4" Click="OnNewTagClick"
+                ToolTipService.ToolTip="New tag" AutomationProperties.AutomationId="sidebar.tags.add" AutomationProperties.Name="New tag">
           <controls:SIcon Kind="Plus" Size="13" StrokeWidth="2" />
         </Button>
       </Grid>

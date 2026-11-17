@@ -115,6 +115,14 @@ public sealed class ContextPointerRouter
         {
             context = Base(MenuIds.Tag) with { TagId = tag.Context.Id };
         }
+        else if (HasAutomationIdAbove(source, "sidebar-unified"))
+        {
+            context = Base(MenuIds.UnifiedRow);
+        }
+        else if (HasAutomationIdAbove(source, "sidebar.folders.header"))
+        {
+            context = Base(MenuIds.FoldersHeader);
+        }
         else if (IsInList(source))
         {
             context = Base(MenuIds.List);
@@ -127,6 +135,19 @@ public sealed class ContextPointerRouter
 
         e.Handled = true;
         _menus.Show(context, anchor);
+    }
+
+    private static bool HasAutomationIdAbove(DependencyObject? node, string id)
+    {
+        for (; node is not null; node = Microsoft.UI.Xaml.Media.VisualTreeHelper.GetParent(node))
+        {
+            if (node is FrameworkElement && string.Equals(Microsoft.UI.Xaml.Automation.AutomationProperties.GetAutomationId(node), id, StringComparison.Ordinal))
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private static bool IsInList(DependencyObject? node)

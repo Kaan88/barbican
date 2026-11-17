@@ -90,6 +90,17 @@ public static class UnifiedRegistration
             () => sp.GetService<Barbican.Presentation.Shell.GlanceTilesViewModel>()));
         services.AddSingleton<ISlotContent>(new SlotContent(SlotNames.SidebarUnified, () => new UnifiedSectionView()));
 
+        // UNIFIED-ROW (spec/menus.md): header and Refresh; Refresh re-reads every source and applies the difference to the open list
+        services.AddSingleton<Barbican.Presentation.Menus.IMenuProvider>(_ => new Barbican.Presentation.Menus.DelegateMenuProvider(Barbican.Presentation.Menus.MenuIds.UnifiedRow, UnifiedMenus.Row));
+        services.AddSingleton<Barbican.Presentation.Commands.IAppCommand>(sp => new Barbican.Presentation.Commands.DelegateAppCommand(
+            Barbican.Presentation.Commands.CommandIds.RefreshUnified,
+            _ => sp.GetRequiredService<UnifiedInbox>().Settings.Enabled,
+            async (_, ct) =>
+            {
+                await sp.GetRequiredService<UnifiedInbox>().RefreshAsync(ct).ConfigureAwait(true);
+                return Core.Common.Result<Core.Common.Unit>.Ok(default);
+            }));
+
         // the actions' writer source, wrapped so a unified row writes only to its own account
         if (services.LastOrDefault(d => d.ServiceType == typeof(IMailWriterSource)) is { } inner)
         {

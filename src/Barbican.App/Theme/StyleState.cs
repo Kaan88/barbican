@@ -250,6 +250,9 @@ public sealed class StyleState : ObservableObject
 
     public double TagSpacing => IsNordic ? 12 : 10;
 
+    /// <summary>The corner of a tag row: the folder rows' (Bento 14, Nordic round).</summary>
+    public CornerRadius TagRowRadius => new(IsNordic ? 22 : 14);
+
     // message rows
     public Thickness MessageRowPadding => IsBento ? new Thickness(12, 10, 12, 10) : new Thickness(28, 14, 28, 14);
 

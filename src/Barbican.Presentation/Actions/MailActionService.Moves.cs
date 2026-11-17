@@ -9,6 +9,7 @@ using Barbican.Core.Mail.Model;
 using Barbican.Core.Mail.Write;
 using Barbican.Core.Mail.Write.Payloads;
 using Barbican.Core.Plugins.Hooks;
+using Barbican.Presentation.Mail;
 
 namespace Barbican.Presentation.Actions;
 
@@ -81,8 +82,8 @@ public sealed partial class MailActionService
         }
 
         var settings = Settings;
-        if (targets.Count > 0 && settings.ConfirmArchive && !await confirmer.ConfirmAsync(
-                new ConfirmRequest(Count(targets.Count, "Archive this message?", "Archive " + targets.Count + " messages?"), "They move to the Archive folder.", "Archive", Danger: false), ct).ConfigureAwait(true))
+        if (targets.Count > 0 && (settings.ConfirmArchive || targets.Count >= MessageListViewModel.AllInFolderCap) && !await confirmer.ConfirmAsync(
+                new ConfirmRequest(Count(targets.Count, "Archive this message?", "Archive " + targets.Count + " messages?"), targets.Count >= MessageListViewModel.AllInFolderCap ? CappedMessage("They move to the Archive folder.", targets.Count) : "They move to the Archive folder.", "Archive", Danger: false), ct).ConfigureAwait(true))
         {
             return Result<Unit>.Ok(default);
         }
@@ -178,15 +179,22 @@ public sealed partial class MailActionService
     private bool InRole(MailTarget t, MailboxRole role) =>
         folders.Tree.All.Any(m => m.Role == role && t.MailboxIds.TryGetValue(m.Id, out var on) && on);
 
+    /// <summary>The select-all cap, stated in the confirmation: only the first N of the folder are included (decision M2-Q5).</summary>
+    internal static string CappedMessage(string question, int n) =>
+        $"{question} Select all stops at {n.ToString("N0", System.Globalization.CultureInfo.InvariantCulture).Replace(',', ' ')} messages: if the folder holds more, the rest are not included.";
+
     private async Task<bool> ConfirmDeleteAsync(int n, ActionSettings s, CancellationToken ct)
     {
-        if (n == 0 || !(s.ConfirmDelete || (n > 1 && s.ConfirmBulkDelete)))
+        // A selection that hit the select-all cap always asks, and says that the folder may hold more.
+        var capped = n >= MessageListViewModel.AllInFolderCap;
+        if (n == 0 || !(capped || s.ConfirmDelete || (n > 1 && s.ConfirmBulkDelete)))
         {
             return true;
         }
 
         var what = n == 1 ? "this message" : $"{n} messages";
-        return await confirmer.ConfirmAsync(new ConfirmRequest(n == 1 ? "Delete this message?" : $"Delete {n} messages?", $"Delete {what}?", "Delete"), ct).ConfigureAwait(true);
+        var message = capped ? CappedMessage($"Delete {what}?", n) : $"Delete {what}?";
+        return await confirmer.ConfirmAsync(new ConfirmRequest(n == 1 ? "Delete this message?" : $"Delete {n} messages?", message, "Delete"), ct).ConfigureAwait(true);
     }
 
     private async Task<Result<Unit>> SoftDeleteAsync(IReadOnlyList<MailTarget> soft, ActionSettings s, CancellationToken ct)

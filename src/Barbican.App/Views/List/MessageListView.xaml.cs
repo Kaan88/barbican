@@ -243,7 +243,18 @@ public sealed partial class MessageListView : UserControl
     private async void OnStripClick(object sender, RoutedEventArgs e)
 #pragma warning restore VSTHRD100
     {
-        if (sender is FrameworkElement { Tag: string id } button && RowOf(button) is { } row
+        if (sender is FrameworkElement { DataContext: HoverButton { OpensTagPicker: true } } tagButton && Menus.VisualWalk.Up<MessageRowViewModel>(tagButton)?.Context is { } tagRow)
+        {
+            // the tag button opens the picker (the Tag flyout of the row menu) under the button, as Bulwark's hover Tag does (email-hover-actions.tsx:224-228)
+            var at = tagButton.TransformToVisual(null).TransformPoint(new Windows.Foundation.Point(0, tagButton.ActualHeight));
+            var target = List.TargetOf(tagRow);
+            ViewHost.Get<Barbican.Presentation.Menus.IContextMenuService>().Show(
+                new Barbican.Presentation.Menus.MenuContext(Barbican.Presentation.Menus.MenuIds.MailTag, [target], null, null, null, null, CommandSurface.HoverStrip),
+                new Barbican.Presentation.Menus.MenuAnchor(at.X, at.Y, null));
+            return;
+        }
+
+        if (sender is FrameworkElement { Tag: string id } button && Menus.VisualWalk.Up<MessageRowViewModel>(button)?.Context is { } row
             && ViewHost.Get<ICommandRegistry>().TryGet(id, out var command))
         {
             var context = new CommandContext(CommandSurface.HoverStrip, [List.TargetOf(row)], null, null, null);
