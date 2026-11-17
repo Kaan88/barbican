@@ -613,3 +613,7 @@ F-13 and user decisions D-2, D-9, D-10, on branch `m1-fix-security` (from `m1` a
   inert; `noscript` content is kept (it renders in a script-less frame, as in a mail client); a body is reserialised only when
   something was removed. `A11y.MailScript()` stays for its Rust-ported tests but is no longer put in a page. Not done: the
   S2 spike harness probe (the hidden-app probe above replaces it on Windows); link-opener confirmation (point 5) is M2.
+- **Linux.** `tools/linux.ps1 test` tried once at the end of the stream: the VM job failed (ssh exit 255). Linux pending (VM
+  unreachable) for every item above: the full test run, F-03 (frame listeners and dark pass without `allow-scripts` under
+  WebKitGTK, the meta-refresh probe, WebKitGTK DNS prefetch), F-04 (`FileShare.None` as `flock`), F-08 (`linux-remote.sh auto`
+  with the token), F-13 (WebKitGTK data directory).
