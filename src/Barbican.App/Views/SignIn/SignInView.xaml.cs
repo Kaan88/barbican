@@ -1,37 +1,42 @@
+// Mirrors: Bulwark components/auth/login-form (Enter in a field submits the form); Fable review 2 R2-03 (the view binds to Presentation's
+// SignInViewModel; no async void handler is left: the buttons run the ViewModel's commands, which report their own failures).
+
 using Barbican.App.Shell;
 using Barbican.App.Theme;
+using Barbican.Presentation.Accounts;
+using Microsoft.UI.Xaml.Input;
 
 namespace Barbican.App.Views.SignIn;
 
-/// <summary>The sign-in screen; the logic is <see cref="SignInFormModel"/>.</summary>
+/// <summary>The sign-in screen; the logic is <see cref="SignInViewModel"/>.</summary>
 public sealed partial class SignInView : UserControl
 {
     public SignInView()
     {
-        Form = ViewHost.Get<SignInFormModel>();
+        Model = ViewHost.Get<SignInViewModel>();
         Look = ViewHost.Get<StyleState>();
         InitializeComponent();
         StatusText.Foreground = Fmt.Palette("Dim");
-        Form.PropertyChanged += (_, e) =>
+        Model.PropertyChanged += (_, e) =>
         {
-            if (string.Equals(e.PropertyName, nameof(SignInFormModel.IsError), StringComparison.Ordinal))
+            if (string.Equals(e.PropertyName, nameof(SignInViewModel.StatusIsError), StringComparison.Ordinal))
             {
-                StatusText.Foreground = Fmt.Palette(Form.IsError ? "RoseFg" : "Dim");
+                StatusText.Foreground = Fmt.Palette(Model.StatusIsError ? "RoseFg" : "Dim");
             }
         };
     }
 
-    public SignInFormModel Form { get; }
+    public SignInViewModel Model { get; }
 
     public StyleState Look { get; }
 
-    private void OnCancelClick(object sender, RoutedEventArgs e) => Form.Cancel();
-
-#pragma warning disable VSTHRD100 // XAML event handlers must return void; the awaited call reports its own failure through the ViewModel
-    private async void OnSignInClick(object sender, RoutedEventArgs e) => await Form.SignInAsync();
-#pragma warning restore VSTHRD100
-
-#pragma warning disable VSTHRD100 // XAML event handlers must return void; the awaited call reports its own failure through the ViewModel
-    private async void OnOAuthClick(object sender, RoutedEventArgs e) => await Form.SignInWithOAuthAsync();
-#pragma warning restore VSTHRD100
+    // Enter signs in once the form is complete; otherwise the field keeps the key (the shell routes nothing while this screen shows)
+    private void OnFieldKeyDown(object sender, KeyRoutedEventArgs e)
+    {
+        if (e.Key == Windows.System.VirtualKey.Enter && Model.CanSignIn)
+        {
+            e.Handled = true;
+            Model.Submit();
+        }
+    }
 }

@@ -125,6 +125,9 @@ public sealed class MessageListViewModel : ObservableObject, IDisposable
         private set => SetProperty(ref _isLoading, value);
     }
 
+    /// <summary>An account is on screen without its session yet (no network at start, Fable review 2 R2-02): "Connecting…", not "No messages".</summary>
+    public bool IsConnecting => _active.AccountKey is not null && _active.Mail is null;
+
     /// <summary>More messages follow what is loaded.</summary>
     public bool CanLoadMore
     {
@@ -676,6 +679,7 @@ public sealed class MessageListViewModel : ObservableObject, IDisposable
         CanLoadMore = false;
         IsLoading = false;
         _opener.Close();
+        OnPropertyChanged(nameof(IsConnecting));
     }
 
     private void OnPrefsChanged(object? sender, EventArgs e)

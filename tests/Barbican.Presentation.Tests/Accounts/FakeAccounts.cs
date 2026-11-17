@@ -24,6 +24,9 @@ internal sealed class FakeAccounts : IAccountManager, IAccountOverview
 
     public TaskCompletionSource? Gate { get; set; }
 
+    /// <summary>Thrown by the next sign-in (a vault that cannot be written).</summary>
+    public Exception? Throws { get; set; }
+
     public IReadOnlyList<AccountInfo> Accounts => [.. _statuses.Select(s => s.Account)];
 
     public AccountInfo? Active => _statuses.FirstOrDefault(s => s.IsActive)?.Account;
@@ -41,6 +44,11 @@ internal sealed class FakeAccounts : IAccountManager, IAccountOverview
     public async Task<Result<AccountInfo>> SignInWithPasswordAsync(PasswordSignIn request, CancellationToken ct)
     {
         PasswordRequests.Add(request);
+        if (Throws is { } boom)
+        {
+            throw boom;
+        }
+
         if (Gate is { } g)
         {
             await g.Task.WaitAsync(ct);

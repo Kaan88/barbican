@@ -1,7 +1,8 @@
 // Mirrors: Bulwark components/layout/account-switcher.tsx:300-:335 (the avatar button: tooltip with name, server and "N unread in other
 // accounts", a dot when other accounts have unread), :453 (a row click switches), :618 (Add account); Rust main.rs:816 on_switch_account
 // (a failed switch keeps the current account and says why), :838 on_add_account ("Sign in to another account. Your other accounts stay signed
-// in."). spec I-001, I-002, I-005, I-006, I-010.
+// in."). spec I-001, I-002, I-005, I-006, I-010. Fable review 2 R2-03: the account popover binds to this (the App's own popover model is gone),
+// so the unread badges, the default star and the "needs to sign in again" lines follow StatusesChanged.
 
 using System.Collections.ObjectModel;
 using Barbican.Core.Accounts;
@@ -41,6 +42,9 @@ public sealed class AccountsViewModel : ObservableObject, IDisposable
 
     /// <summary>Raised when the user asks to add an account (the shell shows the sign-in screen with <see cref="AddAccountStatus"/>).</summary>
     public event EventHandler? AddAccountRequested;
+
+    /// <summary>A row of an account the server refused was chosen: the shell shows the sign-in form for it (R2-01).</summary>
+    public event EventHandler<SignInRequestedEventArgs>? SignInRequested;
 
     /// <summary>The status the sign-in screen shows when adding an account (Rust main.rs:842).</summary>
     public static string AddAccountStatus => "Sign in to another account. Your other accounts stay signed in.";
@@ -195,15 +199,28 @@ public sealed class AccountsViewModel : ObservableObject, IDisposable
 
     private async Task SwitchAsync(AccountRowViewModel? row)
     {
-        if (row is null || row.IsActive)
+        IsOpen = false;
+        if (row is null)
         {
-            IsOpen = false;
             return;
         }
 
-        IsOpen = false;
-        IsSwitching = true;
+        if (_overview.Statuses.FirstOrDefault(s => string.Equals(s.Account.Key, row.Key, StringComparison.Ordinal)) is { NeedsSignIn: true } refused)
+        {
+            // switching would fail without sending anything: offer the sign-in for it instead (also for the account on screen)
+            Message = null;
+            SignInRequested?.Invoke(this, new SignInRequestedEventArgs(refused));
+            return;
+        }
+
+        if (row.IsActive)
+        {
+            return;
+        }
+
         Message = null;
+
+        IsSwitching = true;
         try
         {
             var r = await _accounts.SwitchToAsync(row.Key, CancellationToken.None).ConfigureAwait(true);
@@ -211,6 +228,12 @@ public sealed class AccountsViewModel : ObservableObject, IDisposable
             {
                 Message = r.Error!.Message;
             }
+        }
+#pragma warning disable CA1031 // the top of a row's command: a failure is shown in the popover, it must not end the app (R2-03)
+        catch (Exception e)
+#pragma warning restore CA1031
+        {
+            Message = e.Message;
         }
         finally
         {

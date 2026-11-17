@@ -2,7 +2,9 @@
 // "Continue in your browser…", client id default "barbican"), ui/app.slint:1388-:1424 (server field, remember me, 2FA field, client id);
 // Bulwark components/auth/login-server-field.tsx:62-:89 (looking / found "Server: <host>" with Change / not found; the unsupported-provider
 // notice), components/auth/oauth-status-card.tsx:103 (a status with one action), stores/auth-store.ts:1969 (TOTP_REQUIRED asks for the
-// code). spec I-098, I-099, I-101 (no language picker in M1), I-103, I-104.
+// code). spec I-098, I-099, I-101 (no language picker in M1), I-103, I-104. Fable review 2 R2-03: this is the model the sign-in view binds
+// to (the App's own form model is gone); Enter submits (Bulwark's form does), a failure that throws ends as a status line, never as an
+// unhandled exception; R2-01/R2-02: an account the server refused is offered with its server and login filled in (Prefill).
 
 using Barbican.Core.Accounts;
 using Barbican.Core.Auth;
@@ -35,6 +37,7 @@ public sealed class SignInViewModel : ObservableObject, IDisposable
     private string? _status;
     private bool _statusIsError;
     private string? _providerNotice;
+    private bool _canLeave;
 
     public SignInViewModel(IAccountManager accounts, ServerDiscovery discovery, IDispatcher dispatcher)
     {
@@ -48,10 +51,30 @@ public sealed class SignInViewModel : ObservableObject, IDisposable
         OAuthSignInCommand = new AsyncRelayCommand(OAuthSignInAsync, () => !IsBusy);
         CancelCommand = new RelayCommand(Cancel, () => IsBusy);
         ChangeServerCommand = new RelayCommand(() => IsEditingServer = true);
+        LeaveCommand = new RelayCommand(Leave, () => CanLeave);
     }
 
     /// <summary>Raised after a successful sign-in (on the UI thread).</summary>
     public event EventHandler<SignedInEventArgs>? SignedIn;
+
+    /// <summary>The user left the screen without signing in (<see cref="LeaveCommand"/>).</summary>
+    public event EventHandler? Left;
+
+    /// <summary>Back to the mail screen without signing in; offered only while there is one to go back to (<see cref="CanLeave"/>).</summary>
+    public IRelayCommand LeaveCommand { get; }
+
+    /// <summary>The screen was opened over the mail screen ("Add account", or an account that must sign in again while others are up).</summary>
+    public bool CanLeave
+    {
+        get => _canLeave;
+        set
+        {
+            if (SetProperty(ref _canLeave, value))
+            {
+                LeaveCommand.NotifyCanExecuteChanged();
+            }
+        }
+    }
 
     public IAsyncRelayCommand SignInCommand { get; }
 
@@ -190,6 +213,38 @@ public sealed class SignInViewModel : ObservableObject, IDisposable
 
     public bool CanSignIn => !IsBusy && Server.Trim().Length > 0 && User.Trim().Length > 0 && Password.Length > 0;
 
+    /// <summary>
+    /// Offers <paramref name="account"/> again (the server refused it, R2-01): its server and login are filled in and shown, the password is
+    /// empty, and <paramref name="reason"/> is the status line. No lookup runs: the server is known.
+    /// </summary>
+    public void Prefill(AccountInfo account, string? reason)
+    {
+        ArgumentNullException.ThrowIfNull(account);
+        Cancel();
+        _lookup?.Cancel();
+        IsEditingServer = true;
+        Server = account.Server;
+        _user = account.User;
+        OnPropertyChanged(nameof(User));
+        ProviderNotice = null;
+        IsLookingUp = false;
+        Password = "";
+        TotpCode = "";
+        NeedsTotp = false;
+        IsEditingServer = Server.Length == 0;
+        SetStatus(reason ?? $"{account.User} needs to sign in again.", error: false);
+        Refresh();
+    }
+
+    /// <summary>Enter in a field: signs in when the form is complete (Bulwark's form submits on Enter).</summary>
+    public void Submit()
+    {
+        if (SignInCommand.CanExecute(null))
+        {
+            SignInCommand.Execute(null);
+        }
+    }
+
     /// <summary>Starts over for "Add account": empty fields, the server kept.</summary>
     public void Reset(string? status = null)
     {
@@ -239,6 +294,16 @@ public sealed class SignInViewModel : ObservableObject, IDisposable
         OAuthPending = false;
     }
 
+    private void Leave()
+    {
+        Cancel();
+        Password = "";
+        TotpCode = "";
+        NeedsTotp = false;
+        SetStatus(null, error: false);
+        Left?.Invoke(this, EventArgs.Empty);
+    }
+
     private async Task SignInAsync()
     {
         var ct = Begin();
@@ -267,6 +332,12 @@ public sealed class SignInViewModel : ObservableObject, IDisposable
         catch (OperationCanceledException)
         {
             SetStatus("Sign-in cancelled.", error: false);
+        }
+#pragma warning disable CA1031 // the top of a button's command: a failure (a vault that cannot be written) is shown, it must not end the app (R2-03)
+        catch (Exception e)
+#pragma warning restore CA1031
+        {
+            SetStatus($"Sign-in failed: {e.Message}", error: true);
         }
         finally
         {
@@ -301,6 +372,12 @@ public sealed class SignInViewModel : ObservableObject, IDisposable
         catch (OperationCanceledException)
         {
             SetStatus("Sign-in cancelled.", error: false);
+        }
+#pragma warning disable CA1031 // the top of a button's command: a failure is shown, it must not end the app (R2-03)
+        catch (Exception e)
+#pragma warning restore CA1031
+        {
+            SetStatus($"Sign-in failed: {e.Message}", error: true);
         }
         finally
         {

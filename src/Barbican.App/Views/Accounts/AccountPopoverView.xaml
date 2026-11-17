@@ -4,32 +4,44 @@
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:controls="using:Barbican.App.Controls"
     xmlns:views="using:Barbican.App.Views"
-    xmlns:local="using:Barbican.App.Views.Accounts">
-  <!-- The account popover (spec/layout/shell.md "Rail": width 260, padding 6, rows 32 high, header 24 high). It lives in a Flyout constrained to the window. -->
+    xmlns:accounts="using:Barbican.Presentation.Accounts">
+  <!-- The account popover (spec/layout/shell.md "Rail": width 260, padding 6, rows 32 high, header 24 high), bound to Presentation's AccountsViewModel
+       (Fable review 2 R2-03; Bulwark components/layout/account-switcher.tsx:455-500): avatar, check on the active one, the default star with two or more
+       accounts, the inbox unread badge, and the server and error lines of an account in trouble. It lives in a Flyout constrained to the window. -->
   <StackPanel Width="260" Padding="6" Spacing="2" AutomationProperties.AutomationId="account-popover" AutomationProperties.Name="Accounts">
     <TextBlock Text="Accounts" Style="{StaticResource Text.Label}" Height="24" Padding="8,4,0,0" />
     <ItemsControl ItemsSource="{x:Bind Model.Rows}" AutomationProperties.AutomationId="account-popover.rows" AutomationProperties.Name="Account list">
       <ItemsControl.ItemTemplate>
-        <DataTemplate x:DataType="local:AccountRowItem">
+        <DataTemplate x:DataType="accounts:AccountRowViewModel">
           <Button Style="{StaticResource Button.Icon}" HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch" Padding="8,6" CornerRadius="9"
-                  Foreground="{StaticResource Text}" Click="OnRowClick" Tag="{x:Bind Key}" AutomationProperties.AutomationId="{x:Bind Key}"
-                  AutomationProperties.Name="{x:Bind User}">
-            <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="10">
-              <Border Width="28" Height="28" CornerRadius="10" Background="{x:Bind views:Fmt.TintBg(TintIndex)}">
-                <TextBlock Text="{x:Bind Initials}" FontSize="11" FontWeight="Bold" Foreground="{x:Bind views:Fmt.TintFg(TintIndex)}" HorizontalAlignment="Center" VerticalAlignment="Center" />
+                  Foreground="{StaticResource Text}" Click="OnRowClick" Tag="{x:Bind}" AutomationProperties.AutomationId="{x:Bind Key}"
+                  AutomationProperties.Name="{x:Bind Title, Mode=OneWay}">
+            <Grid ColumnDefinitions="Auto,*,Auto,Auto" ColumnSpacing="10">
+              <Border Width="28" Height="28" CornerRadius="10" Background="{x:Bind views:Fmt.TintBg(TintIndex), Mode=OneWay}" VerticalAlignment="Center">
+                <TextBlock Text="{x:Bind Initials, Mode=OneWay}" FontSize="11" FontWeight="Bold" Foreground="{x:Bind views:Fmt.TintFg(TintIndex), Mode=OneWay}"
+                           HorizontalAlignment="Center" VerticalAlignment="Center" />
               </Border>
               <StackPanel Grid.Column="1" VerticalAlignment="Center">
-                <TextBlock Text="{x:Bind User}" FontSize="13" FontWeight="SemiBold" Foreground="{StaticResource Text}" TextTrimming="CharacterEllipsis" />
-                <TextBlock Text="{x:Bind Server}" Style="{StaticResource Text.Meta}" FontSize="11.5" />
+                <StackPanel Orientation="Horizontal" Spacing="4">
+                  <TextBlock Text="{x:Bind Title, Mode=OneWay}" FontSize="13" FontWeight="SemiBold" Foreground="{StaticResource Text}" TextTrimming="CharacterEllipsis" />
+                  <controls:SIcon Kind="Star" Size="12" Foreground="{StaticResource Accent}" VerticalAlignment="Center" Visibility="{x:Bind views:Fmt.Vis(ShowStar), Mode=OneWay}" />
+                </StackPanel>
+                <TextBlock Text="{x:Bind ServerLine, Mode=OneWay}" Style="{StaticResource Text.Meta}" FontSize="11.5" Visibility="{x:Bind views:Fmt.VisText(ServerLine), Mode=OneWay}" />
+                <TextBlock Text="{x:Bind Error, Mode=OneWay}" FontSize="11.5" Foreground="{StaticResource RoseFg}" TextWrapping="Wrap"
+                           Visibility="{x:Bind views:Fmt.VisText(Error), Mode=OneWay}" />
               </StackPanel>
-              <controls:SIcon Grid.Column="2" Kind="Check" Size="16" Foreground="{StaticResource Accent}" VerticalAlignment="Center" Visibility="{x:Bind views:Fmt.Vis(IsActive)}" />
+              <Border Grid.Column="2" MinWidth="20" Height="18" Padding="6,0" CornerRadius="9" Background="{StaticResource Accent}" VerticalAlignment="Center"
+                      Visibility="{x:Bind views:Fmt.VisText(UnreadText), Mode=OneWay}">
+                <TextBlock Text="{x:Bind UnreadText, Mode=OneWay}" FontSize="11" FontWeight="SemiBold" Foreground="{StaticResource Ground}" HorizontalAlignment="Center" VerticalAlignment="Center" />
+              </Border>
+              <controls:SIcon Grid.Column="3" Kind="Check" Size="16" Foreground="{StaticResource Accent}" VerticalAlignment="Center" Visibility="{x:Bind views:Fmt.Vis(IsActive), Mode=OneWay}" />
             </Grid>
           </Button>
         </DataTemplate>
       </ItemsControl.ItemTemplate>
     </ItemsControl>
-    <TextBlock Text="{x:Bind Model.Error, Mode=OneWay}" Style="{StaticResource Text.Meta}" Foreground="{StaticResource RoseFg}" TextWrapping="Wrap" Padding="8,2"
-               Visibility="{x:Bind views:Fmt.VisText(Model.Error), Mode=OneWay}" AutomationProperties.AutomationId="account-popover.error" AutomationProperties.Name="Account switch error" />
+    <TextBlock Text="{x:Bind Model.Message, Mode=OneWay}" Style="{StaticResource Text.Meta}" Foreground="{StaticResource RoseFg}" TextWrapping="Wrap" Padding="8,2"
+               Visibility="{x:Bind views:Fmt.VisText(Model.Message), Mode=OneWay}" AutomationProperties.AutomationId="account-popover.error" AutomationProperties.Name="Account switch error" />
     <Rectangle Height="1" Fill="{StaticResource Line}" Margin="0,4" />
     <Button x:Name="AddButton" Style="{StaticResource Button.Icon}" HorizontalAlignment="Stretch" HorizontalContentAlignment="Left" Padding="8,8" CornerRadius="9"
             Foreground="{StaticResource Body}" Click="OnAddClick" AutomationProperties.AutomationId="account-popover.add" AutomationProperties.Name="Add account">
