@@ -82,4 +82,13 @@
     <Content Include="Assets/mail/*.js" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
   <Import Project="../../eng/Uno.WebView2Name.targets" />
+
+  <!-- m2-unified (D-234): the bundled native spam-score plugin is built with the app, not referenced, and copied to <output>/plugins/spam-score/,
+       where the plugin host loads it into its own load context. OutputItemType names the dll the reference built (any configuration and RID). -->
+  <ItemGroup>
+    <ProjectReference Include="../../plugins/Barbican.Plugin.SpamScore/Barbican.Plugin.SpamScore.csproj" ReferenceOutputAssembly="false" Private="false" OutputItemType="BundledPlugin" SetTargetFramework="TargetFramework=net10.0" GlobalPropertiesToRemove="RuntimeIdentifier;SelfContained" />
+  </ItemGroup>
+  <Target Name="CopyBundledPlugins" AfterTargets="Build">
+    <Copy SourceFiles="@(BundledPlugin)" DestinationFolder="$(OutDir)plugins/spam-score" SkipUnchangedFiles="true" ContinueOnError="false" Condition="'@(BundledPlugin)' != ''" />
+  </Target>
 </Project>

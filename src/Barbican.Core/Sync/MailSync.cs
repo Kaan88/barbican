@@ -200,6 +200,13 @@ public sealed partial class MailSync : IMailSync, IDisposable
             return null;
         }
 
+        if (string.Equals(w.Query.MailboxId, Mail.Unified.UnifiedRows.FolderId, StringComparison.Ordinal))
+        {
+            // the unified inbox names no mailbox of this account: say that mail changed, and the unified source re-reads its window (M2 unified)
+            Emit(new EmailsChangedEvent(new Dictionary<string, EmailSummary>(StringComparer.Ordinal), [], []));
+            return null;
+        }
+
         var delta = w.States is null ? Result<ListDelta?>.Ok(null) : await ListDeltaFetcher.FetchAsync(_client, ListFilters.For(w.Query), w.States, ct).ConfigureAwait(false);
         lock (_lock)
         {

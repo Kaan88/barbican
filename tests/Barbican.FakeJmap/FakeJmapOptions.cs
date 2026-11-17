@@ -20,6 +20,9 @@ public sealed record FakeJmapOptions
     /// <summary>The mail account id.</summary>
     public string AccountId { get; init; } = "b";
 
+    /// <summary>Shared (group) mail accounts the session lists besides the user's own (isPersonal false; M2 unified). The API does not serve them.</summary>
+    public IReadOnlyList<string> SharedAccounts { get; init; } = [];
+
     /// <summary>Advertise the Stalwart capability (state strings are Stalwart's either way).</summary>
     public bool Stalwart { get; init; } = true;
 

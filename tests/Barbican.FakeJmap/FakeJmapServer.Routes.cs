@@ -63,6 +63,7 @@ public sealed partial class FakeJmapServer
             ["uploadUrl"] = Url("/jmap/upload/{accountId}/"),
             ["state"] = "S" + Volatile.Read(ref _sessionState).ToString(CultureInfo.InvariantCulture),
         };
+        AddSharedAccounts(session, o, accountCaps);
         if (o.Push)
         {
             session["eventSourceUrl"] = Url("/jmap/eventsource/?types={types}&closeafter={closeafter}&ping={ping}");
@@ -229,6 +230,15 @@ public sealed partial class FakeJmapServer
         if (o.CalendarsCapability)
         {
             caps["urn:ietf:params:jmap:calendars"] = new JsonObject();
+        }
+    }
+
+    // M2 unified: the group accounts the login reaches (Stalwart lists them with isPersonal false)
+    private static void AddSharedAccounts(JsonObject session, FakeJmapOptions o, JsonObject accountCaps)
+    {
+        foreach (var shared in o.SharedAccounts)
+        {
+            session["accounts"]![shared] = new JsonObject { ["name"] = shared, ["isPersonal"] = false, ["isReadOnly"] = false, ["accountCapabilities"] = accountCaps.DeepClone() };
         }
     }
 }
