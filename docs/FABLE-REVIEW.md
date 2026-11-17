@@ -233,3 +233,35 @@ placeholders (see CLAUDE.md); never write real values here.
 - **Commit bodies.** Commit bodies quoted in `spec/decisions.md` contain no personal data (checked
   by eye and by `tools/privacy-check.sh --worktree`). The Rust log has not been searched with the
   full hard-pattern set on every commit body; run `git log --all` through the check once more.
+## M0 catalogue: interactions and layout (stream: m0-cat-c)
+
+- **Re-baseline is mostly carried, not re-read.** What: of 471 rows in `spec/interactions.csv`, 84
+  changed status, 9 were re-read and confirmed, 378 are `carried` (inventory status kept). Why: the
+  re-check used Rust module headers, `shortcuts.rs`/`palette.rs`/`dnd.rs`, the ctxmenu and reader
+  code and the parity-round-2 report, not a click-through of every row; areas untouched by the later
+  commits (settings pages, admin, most menus) were not re-verified. Review a sample of `changed` rows
+  (evidence column names module and function) and of `carried` rows in the busiest areas (reader
+  toolbar, composer, settings). Where: `spec/interactions.csv`, `spec/interactions.md`.
+- **"D" means a code path exists.** Many new D rows (schedule send, scope dialog, quick create,
+  one-click unsubscribe, invitation RSVP, drag and drop) were never driven live in Rust
+  (PARITY-ROUND2); the evidence column says so. Treat them as "implemented, unverified" when judging
+  the C# port against Rust. Where: rows I-042, I-208, I-211, I-212, I-241, I-300, I-314, I-337.
+- **Judgement: milestone assignment.** Each row got a milestone from its area with per-row
+  overrides (for example reader display M1, menus and actions M2, safety features M10). Check that
+  the M1 and M2 loads are realistic; M2 holds 142 rows. Where: `milestone` column.
+- **Judgement: rows moved to D on inference.** I-322 and I-323 (hour-slot click lands on the clicked
+  day) are inferred from `cal_editor::quick` taking a day column, and I-454 (palette covers sign out,
+  theme, switch account) from the `palette.rs` command list, not from running the app. Where: I-322,
+  I-323, I-454.
+- **Layout extraction is by reading, not measuring.** What: `spec/layout/*.md` copies paddings,
+  radii and sizes out of `ui/*.slint` with `file:line`; nothing was rendered, and computed values
+  (event rectangles, dashboard geometry, RTE document boxes) are excluded. Why: risk of a
+  transcription slip or of a value that Slint overrides at runtime (for example `Prefs.fs`). Check:
+  render the Rust app hidden at 1400 x 900 in both styles and compare a few rows (mail row 82, rail
+  64/76, calendar hour 52/54, composer toolbar 50) before trusting the rest. Where: `spec/layout/`.
+- **Open layout points.** No minimum window size in Slint (derived); the C# window needs explicit
+  minimums. Calendar Tasks view, contact duplicates/import dialogs and several PIM dialogs are
+  listed by component and line but not itemised. Where: `spec/layout/shell.md`,
+  `spec/layout/calendar.md`, `spec/layout/contacts.md`.
+- **Slint line numbers are cited as at `rust-final`.** `app.slint` grew to 6059 lines; the
+  inventory's `app.slint:NNNN` locations in `carried` rows are stale and are marked as such.
