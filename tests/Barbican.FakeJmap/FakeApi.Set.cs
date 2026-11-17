@@ -9,6 +9,11 @@ public sealed partial class FakeApi
 {
     private (string? Name, JsonObject Args) EmailSet(JsonObject args)
     {
+        if (((args["update"] as JsonObject)?.Count ?? 0) + ((args["destroy"] as JsonArray)?.Count ?? 0) > options.MaxObjectsInSet)
+        {
+            return Error("requestTooLarge");
+        }
+
         var oldState = store.State("Email");
         var updated = new JsonObject();
         var notUpdated = new JsonObject();

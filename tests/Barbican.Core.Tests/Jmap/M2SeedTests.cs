@@ -59,9 +59,6 @@ public sealed class M2SeedTests
         var server = new FakeJmapServer();
         foreach (var (capability, method) in new[]
         {
-            ("urn:ietf:params:jmap:mail", "Mailbox/set"),
-            ("urn:ietf:params:jmap:mail", "Email/import"),
-            ("urn:ietf:params:jmap:mail", "Email/copy"),
             ("urn:ietf:params:jmap:mail", "Email/parse"),
             ("urn:ietf:params:jmap:core", "Blob/copy"),
             ("urn:ietf:params:jmap:mail", "SearchSnippet/get"),

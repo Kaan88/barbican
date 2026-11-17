@@ -7,7 +7,6 @@ namespace Barbican.Core.Tests.Layout;
 public sealed class PaneLimitsTests
 {
     [Fact]
-    [Red("actions")]
     [RustTest("dnd::pane_limits")]
     public void Pane_limits()
     {

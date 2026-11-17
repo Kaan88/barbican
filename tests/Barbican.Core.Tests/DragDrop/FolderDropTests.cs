@@ -26,7 +26,6 @@ public sealed class FolderDropTests
     }
 
     [Fact]
-    [Red("actions")]
     [RustTest("dnd::mail_already_in_target_is_skipped")]
     public void Mail_already_in_target_is_skipped()
     {
@@ -39,7 +38,6 @@ public sealed class FolderDropTests
     }
 
     [Fact]
-    [Red("actions")]
     [RustTest("dnd::reorder_among_siblings")]
     public void Reorder_among_siblings()
     {
@@ -65,7 +63,6 @@ public sealed class FolderDropTests
     }
 
     [Fact]
-    [Red("actions")]
     [RustTest("dnd::reparent")]
     public void Reparent()
     {
@@ -82,7 +79,6 @@ public sealed class FolderDropTests
     }
 
     [Fact]
-    [Red("actions")]
     [RustTest("dnd::refuses_cycles_and_moving_special_folders")]
     public void Refuses_cycles_and_moving_special_folders()
     {
