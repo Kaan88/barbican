@@ -3,9 +3,6 @@
 // M2 hotfix 2: the user could not see which row a drop would land on. One row at a time carries the mark; it is taken off on leave, drop and drag end.
 
 using Barbican.Core.DragDrop;
-using Microsoft.UI.Xaml;
-using Microsoft.UI.Xaml.Controls;
-using Microsoft.UI.Xaml.Media;
 
 namespace Barbican.App.Views.Actions;
 

@@ -6,9 +6,6 @@
 // semi-transparent and offset below-right of the cursor; every drop target, and the shell around them, shows it instead of the snapshot.
 // Windows only: Uno does not implement DragUIOverride content, so the Linux build keeps the platform's drag visual.
 
-using Microsoft.UI.Xaml;
-using Microsoft.UI.Xaml.Controls;
-using Microsoft.UI.Xaml.Media;
 
 namespace Barbican.App.Views.Actions;
 

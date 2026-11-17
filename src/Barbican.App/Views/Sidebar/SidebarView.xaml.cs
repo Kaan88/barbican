@@ -196,7 +196,7 @@ public sealed partial class SidebarView : UserControl
 
     private static DragOperations Offered(DragEventArgs e) => (DragOperations)(int)e.DataView.RequestedOperation;
 
-    private static void WireDropTarget(SelectorItem container)
+    private static void WireDropTarget(Microsoft.UI.Xaml.Controls.Primitives.SelectorItem container)
     {
         if (container is not ListViewItem item || !Wired.Add(item))
         {
@@ -392,7 +392,13 @@ public sealed partial class SidebarView : UserControl
             return (hit.Context, ContainerOf(hit.Element) ?? hit.Element);
         }
 
-        foreach (var element in VisualTreeHelper.FindElementsInHostCoordinates(e.GetPosition(null), FolderList))
+        // host coordinates: the position relative to the window's root content (Uno's GetPosition does not take null)
+        if (FolderList.XamlRoot?.Content is not { } root)
+        {
+            return null;
+        }
+
+        foreach (var element in VisualTreeHelper.FindElementsInHostCoordinates(e.GetPosition(root), FolderList))
         {
             if (element is ListViewItem { Content: FolderRowViewModel row } item)
             {
