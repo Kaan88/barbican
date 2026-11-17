@@ -169,6 +169,28 @@ public sealed class MailSyncTests
     }
 
     [Fact]
+    public async Task A_run_cancelled_before_it_starts_still_ends_the_syncing_cycle()
+    {
+        var (_, _, sync, hooks, _) = await WatchInboxAsync();
+        using var cancelled = new CancellationTokenSource();
+        await cancelled.CancelAsync();
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => sync.SyncNowAsync(Mail, cancelled.Token));
+
+        // the next run reports syncing again and ends idle: the cancelled one did not leave the run counter raised
+        await sync.SyncNowAsync(new HashSet<string>(["Mailbox"], StringComparer.Ordinal), Ct);
+        var states = hooks.Seen.Where(h => string.Equals(h.Hook, HookNames.OnSyncStateChange, StringComparison.Ordinal)).Select(h => ((SyncStatePayload)h.Payload!).State).ToList();
+        Assert.Equal(["syncing", "idle", "syncing", "idle", "syncing", "idle"], states);
+    }
+
+    [Fact]
+    public void A_trace_file_that_cannot_be_written_never_fails_the_caller()
+    {
+        var trace = Barbican.Core.Jmap.Transport.JmapTrace.ToFile(Path.Combine(Path.GetTempPath(), "barbican-no-such-folder-" + Guid.NewGuid().ToString("N"), "trace.txt"));
+        trace.Event("SESSION", "");
+        Assert.True(trace.IsOn);
+    }
+
+    [Fact]
     public async Task The_new_mail_check_seeds_first_and_skips_junk()
     {
         var f = await Fake.StartAsync();

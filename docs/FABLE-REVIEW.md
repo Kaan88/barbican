@@ -493,3 +493,27 @@ Fable commit), not merged. Transport, session, request builder, mail service, sy
   Replace it with `\b` or drop it. Not fixed here (not my file).
 - **accounts:** the live suite reads its secret from the environment for now; once the dev-profile import and the
   secret store are on `m1`, switch `tests/Barbican.Jmap.Live/LiveAccount.cs` to read the imported password-kind entry.
+
+### Review (Opus reviewer of the jmap stream)
+Read the whole diff `origin/m1...m1-jmap` against Rust `desktop/src` (jmap.rs, mail.rs, main.rs), the plan and the spec rows.
+The transport, session, list paging, 7-call delta, Mailbox/changes merge, SSE parser, backoff and trace are faithful ports;
+citations spot-checked (jmap.rs:73/104/139/228/246/272/406/440/465/524/592/1108/1146, main.rs:486/499/538-547/560-578/2015-2058,
+mail.rs:34/254-292/759-772 all point at the code they name).
+- **Fixed: a sync cancelled while it waited for the gate left `onSyncStateChange` stuck at "syncing".** `SyncNowAsync` took
+  the gate outside its `try`, so a cancellation skipped `EndRunAsync` and the overlapping-run counter never fell back to 0;
+  every later run then reported neither "syncing" nor "idle". Now the gate and the "syncing" hook are inside the `try`.
+  Test `MailSyncTests.A_run_cancelled_before_it_starts_still_ends_the_syncing_cycle`. Where: `Core/Sync/MailSync.cs`.
+- **Fixed: `BARBICAN_JMAP_TRACE` pointing at a folder that does not exist failed every request** (the `File.AppendAllText`
+  exception escaped the trace sink into `SendAsync`). The trace is best effort now. Test
+  `MailSyncTests.A_trace_file_that_cannot_be_written_never_fails_the_caller`. Where: `Core/Jmap/Transport/JmapTrace.cs`.
+- **Fixed: the event-stream `Stream` leaked when the connect hook threw before reading began** (only the reader disposed it).
+  Where: `Core/Sync/MailSync.Push.cs` `PushOnceAsync`.
+- **Thin rows to look at:** J-009 (maxObjectsInSet) is "done" on a test that only reads the limit (M1 has no /set; the
+  chunking is M2's), J-028 (upToId) is "done" as "not sent, whole delta applied" (Rust n.a.). Both defensible, neither
+  exercises behaviour. Where: `spec/jmap.csv`.
+- **No push = no live updates at all.** A server without `eventSourceUrl` makes `RunAsync` retry the open forever on the
+  backoff (5 min cap) and nothing else syncs; Rust behaves the same. Stalwart always has push, so M1 is unaffected; a
+  polling fallback is a later decision. Where: `MailSync.Push.cs` `RunAsync`.
+- **One delta is emitted twice to the list view**: `ListDeltaEvent` and `EmailsChangedEvent` for the same delta, and
+  mailcore's `MessageListViewModel` applies both (idempotent, two rebuilds). The second exists for the body cache
+  (Rust bodycache on_sync). Review whether the list view should skip `EmailsChangedEvent` right after a `ListDeltaEvent`.

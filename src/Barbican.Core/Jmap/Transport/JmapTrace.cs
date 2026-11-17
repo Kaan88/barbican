@@ -38,9 +38,17 @@ public sealed class JmapTrace
 
         return new JmapTrace(line =>
         {
-            lock (FileLock)
+            // a diagnostic must never fail the request it describes: a missing folder or a locked file drops the line
+            try
             {
-                File.AppendAllText(path, line + "\n");
+                lock (FileLock)
+                {
+                    File.AppendAllText(path, line + "\n");
+                }
+            }
+            catch (Exception e) when (e is IOException or UnauthorizedAccessException or NotSupportedException or ArgumentException)
+            {
+                // the trace is best effort
             }
         });
     }

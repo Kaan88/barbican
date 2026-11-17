@@ -118,6 +118,9 @@ public sealed partial class MailSync
             return;
         }
 
+        // the reader disposes the stream when it ends; this also covers a hook that throws before reading starts
+        var stream = open.Value!;
+        await using var owned = stream.ConfigureAwait(false);
         await ConnectedAsync(true, ct).ConfigureAwait(false);
 
         // changes made while nobody listened are never pushed: catch up on every open (Rust main.rs:513)
@@ -126,7 +129,7 @@ public sealed partial class MailSync
         var account = _client.Session.MailAccountId;
         try
         {
-            await foreach (var ev in EventSourceReader.ReadAsync(open.Value!, _time, EventSourceReader.Deadline, ct).ConfigureAwait(false))
+            await foreach (var ev in EventSourceReader.ReadAsync(stream, _time, EventSourceReader.Deadline, ct).ConfigureAwait(false))
             {
                 OnPush(ev, account);
             }

@@ -78,11 +78,20 @@ public sealed partial class MailSync : IMailSync, IDisposable
     public async Task SyncNowAsync(IReadOnlySet<string> types, CancellationToken ct)
     {
         ArgumentNullException.ThrowIfNull(types);
-        await BeginRunAsync(ct).ConfigureAwait(false);
+        // every begun run ends, also one cancelled while it waits for the gate or the "syncing" hook: otherwise the
+        // syncing/idle cycle of onSyncStateChange would stay "syncing" for good (Bulwark stores/email-store.ts:1371)
         string? error = null;
-        await _gate.WaitAsync(ct).ConfigureAwait(false);
+        var entered = false;
+        var first = BeginRun();
         try
         {
+            if (first)
+            {
+                await NotifyAsync(HookNames.OnSyncStateChange, SyncStatePayload.Syncing, ct).ConfigureAwait(false);
+            }
+
+            await _gate.WaitAsync(ct).ConfigureAwait(false);
+            entered = true;
             error = await RunTypesAsync(types, ct).ConfigureAwait(false);
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested)
@@ -95,7 +104,11 @@ public sealed partial class MailSync : IMailSync, IDisposable
         }
         finally
         {
-            _gate.Release();
+            if (entered)
+            {
+                _gate.Release();
+            }
+
             await EndRunAsync(error, CancellationToken.None).ConfigureAwait(false);
         }
     }
@@ -213,19 +226,19 @@ public sealed partial class MailSync : IMailSync, IDisposable
         return null;
     }
 
-    private async Task BeginRunAsync(CancellationToken ct)
+    /// <summary>Counts a run in; true for the first of overlapping runs (the one that reports "syncing").</summary>
+    private bool BeginRun()
     {
         lock (_lock)
         {
             if (++_runs > 1)
             {
-                return;
+                return false;
             }
 
             _runError = null;
+            return true;
         }
-
-        await NotifyAsync(HookNames.OnSyncStateChange, SyncStatePayload.Syncing, ct).ConfigureAwait(false);
     }
 
     private async Task EndRunAsync(string? error, CancellationToken ct)
