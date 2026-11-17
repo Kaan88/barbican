@@ -12,7 +12,7 @@ namespace Barbican.App.Shell.Automation;
 /// <summary>The active mail of a sample-data run: the real MailService and MailSync over the fake server's seed.</summary>
 public sealed class SampleActiveMail : IActiveMail, Barbican.Presentation.Actions.IMailWriterSource, IDisposable
 {
-    private readonly FakeJmapServer _server = new();
+    private readonly FakeJmapServer _server = new(new FakeJmapOptions { SieveCapability = true });
     private readonly Barbican.Core.Jmap.Transport.JmapClient _client;
 
     public SampleActiveMail(IHookBus hooks, TimeProvider time)

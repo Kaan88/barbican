@@ -101,6 +101,7 @@ public static class CommandIds
     // ---- search (owner search, wave 2) ----
     public const string FocusSearch = "search.focus";
     public const string GlobalSearch = "search.global";
+    public const string OpenSearchHit = "search.open-hit";
 
     // ---- accounts (owner menus for the UI, unified for the work) ----
     public const string SwitchAccount = "account.switch";

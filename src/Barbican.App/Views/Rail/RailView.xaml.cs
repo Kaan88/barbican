@@ -32,7 +32,7 @@ public sealed partial class RailView : UserControl
     private void OnFilesClick(object sender, RoutedEventArgs e) => _shell.TryActivate(AppId.Files);
 
     // I-023, I-029: the rail's search and shortcuts buttons run the commands by id; a command nobody registered does nothing (search's arrives in wave 2)
-    private void OnSearchClick(object sender, RoutedEventArgs e) => Run(CommandIds.FocusSearch);
+    private void OnSearchClick(object sender, RoutedEventArgs e) => Run(CommandIds.GlobalSearch);
 
     private void OnShortcutsClick(object sender, RoutedEventArgs e) => Run(CommandIds.ShowShortcuts);
 

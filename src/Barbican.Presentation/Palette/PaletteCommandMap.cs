@@ -18,6 +18,11 @@ public static class PaletteCommandMap
             return (CommandIds.SwitchAccount, id["account:".Length..]);
         }
 
+        if (id.StartsWith("search-hit:mail:", StringComparison.Ordinal))
+        {
+            return (CommandIds.OpenSearchHit, id["search-hit:".Length..]);
+        }
+
         if (id.StartsWith("settings:", StringComparison.Ordinal))
         {
             return (CommandIds.GoSettings, id["settings:".Length..]);

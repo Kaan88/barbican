@@ -36,9 +36,9 @@ Added at the M0 review (stream m0-review). Modules: `spam.rs`, `plugins.rs`, `zi
 ## Search box (`src/search_ui.rs`), area `SRCH`, M2
 | ID | Rule | Source | Reference | Tests |
 |---|---|---|---|---|
-| B-SRCH-001 | The dropdown shows recent searches and people as the text changes or the box gets focus; arrows move the highlight; Enter takes the highlighted suggestion over the typed text; Escape closes (module header; the Escape path was not re-read). | search_ui.rs:1-7, :26-89 | Bulwark search-box.tsx, search-suggestions.tsx | T-256..T-258 (history part) |
-| B-SRCH-002 | One removable chip per query operator and per filter-panel field; "Clear all" from two chips (module header); removing a chip re-runs the search. | search_ui.rs:99-141 | Bulwark search-chips.tsx | none |
-| B-SRCH-003 | After a result page loads, `SearchSnippet/get` is asked for rows when the filter has a text term; rows with a `<mark>` show the highlighted subject and preview (accent colour), others keep the plain ones. A new list drops the old snippets. | search_ui.rs:143-200 | RFC 8621 5.1; Bulwark search-snippet.ts | none |
+| B-SRCH-001 | The dropdown shows recent searches and people as the text changes or the box gets focus; arrows move the highlight; Enter takes the highlighted suggestion over the typed text; Escape closes (module header; the Escape path was not re-read). | search_ui.rs:1-7, :26-89 | Bulwark search-box.tsx, search-suggestions.tsx | ported (M2 search: tests/Barbican.Presentation.Tests/Search, tests/Barbican.Core.Tests/Search) |
+| B-SRCH-002 | One removable chip per query operator and per filter-panel field; "Clear all" from two chips (module header); removing a chip re-runs the search. | search_ui.rs:99-141 | Bulwark search-chips.tsx | ported (M2 search: tests/Barbican.Presentation.Tests/Search, tests/Barbican.Core.Tests/Search) |
+| B-SRCH-003 | After a result page loads, `SearchSnippet/get` is asked for rows when the filter has a text term; rows with a `<mark>` show the highlighted subject and preview (accent colour), others keep the plain ones. A new list drops the old snippets. | search_ui.rs:143-200 | RFC 8621 5.1; Bulwark search-snippet.ts | ported (M2 search: tests/Barbican.Presentation.Tests/Search, tests/Barbican.Core.Tests/Search) |
 
 ## Invitations in mail (`src/invite.rs`), area `INV`, M4
 | ID | Rule | Source | Reference | Tests |

@@ -23,7 +23,6 @@ public sealed class SieveScriptTests
     private static List<JsonNode> Rules(JsonNode meta) => [.. ((JsonArray)meta["rules"]!).Select(n => n!.DeepClone())];
 
     [Fact]
-    [Red("search")]
     [RustTest("sieve::external_keeps_elsif_else_and_text_strings")]
     public void External_keeps_elsif_else_and_text_strings()
     {
@@ -38,7 +37,6 @@ public sealed class SieveScriptTests
     }
 
     [Fact]
-    [Red("search")]
     [RustTest("sieve::vacation_only_scripts")]
     public void Vacation_only_scripts()
     {
@@ -56,7 +54,6 @@ public sealed class SieveScriptTests
     }
 
     [Fact]
-    [Red("search")]
     [RustTest("sieve::hand_written_blocks_between_generated_ones_survive")]
     public void Hand_written_blocks_between_generated_ones_survive()
     {
@@ -84,7 +81,6 @@ public sealed class SieveScriptTests
     }
 
     [Fact]
-    [Red("search")]
     [RustTest("sieve::roundtrip_matches_bulwark_shape")]
     public void Roundtrip_matches_bulwark_shape()
     {
@@ -114,7 +110,6 @@ public sealed class SieveScriptTests
 
     // period.test.ts 'writes the start and end as UTC date and time tests'
     [Fact]
-    [Red("search")]
     [RustTest("sieve::period_tests_match_bulwark")]
     public void Period_tests_match_bulwark()
     {
@@ -128,7 +123,6 @@ public sealed class SieveScriptTests
 
     // Expected text written from generator.ts / period.test.ts ('confines the rule to its period').
     [Fact]
-    [Red("search")]
     [RustTest("sieve::rule_with_period_matches_bulwark")]
     public void Rule_with_period_matches_bulwark()
     {
@@ -165,7 +159,6 @@ public sealed class SieveScriptTests
 
     // generator-compat.test.ts 'reads version 2 back as its own' plus an enabled auto-reply.
     [Fact]
-    [Red("search")]
     [RustTest("sieve::vacation_audience_forward_match_bulwark")]
     public void Vacation_audience_forward_match_bulwark()
     {
@@ -213,7 +206,6 @@ public sealed class SieveScriptTests
     }
 
     [Fact]
-    [Red("search")]
     [RustTest("sieve::unknown_or_bad_extras_stay_locked")]
     public void Unknown_or_bad_extras_stay_locked()
     {
@@ -226,7 +218,6 @@ public sealed class SieveScriptTests
     }
 
     [Fact]
-    [Red("search")]
     [RustTest("sieve::form_days_become_utc_boundaries")]
     public void Form_days_become_utc_boundaries()
     {

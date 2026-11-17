@@ -19,7 +19,6 @@ public sealed class GlobalSearchTests
     private static SearchHit H(string title, string date) => new(SearchScope.Mail, title, title, string.Empty, date, string.Empty);
 
     [Fact]
-    [Red("search")]
     [RustTest("gsearch::mail_hit_prefers_open_folder_then_inbox")]
     public void Mail_hit_prefers_open_folder_then_inbox()
     {
@@ -32,7 +31,6 @@ public sealed class GlobalSearchTests
     }
 
     [Fact]
-    [Red("search")]
     [RustTest("gsearch::parses_operators")]
     public void Parses_operators()
     {
@@ -51,7 +49,6 @@ public sealed class GlobalSearchTests
     }
 
     [Fact]
-    [Red("search")]
     [RustTest("gsearch::unknown_keys_and_phrases_stay_text")]
     public void Unknown_keys_and_phrases_stay_text()
     {
@@ -79,7 +76,6 @@ public sealed class GlobalSearchTests
     }
 
     [Fact]
-    [Red("search")]
     [RustTest("gsearch::scope_rewrite_and_chip_removal")]
     public void Scope_rewrite_and_chip_removal()
     {
@@ -90,7 +86,6 @@ public sealed class GlobalSearchTests
     }
 
     [Fact]
-    [Red("search")]
     [RustTest("gsearch::split_text_like_bulwark")]
     public void Split_text_like_bulwark()
     {
@@ -105,7 +100,6 @@ public sealed class GlobalSearchTests
     }
 
     [Fact]
-    [Red("search")]
     [RustTest("gsearch::mailbox_filter")]
     public void Mailbox_filter()
     {
@@ -125,7 +119,6 @@ public sealed class GlobalSearchTests
     }
 
     [Fact]
-    [Red("search")]
     [RustTest("gsearch::remote_query_needed")]
     public void Remote_query_needed()
     {
@@ -136,7 +129,6 @@ public sealed class GlobalSearchTests
     }
 
     [Fact]
-    [Red("search")]
     [RustTest("gsearch::chips_follow_operators")]
     public void Chips_follow_operators()
     {
@@ -146,7 +138,6 @@ public sealed class GlobalSearchTests
     }
 
     [Fact]
-    [Red("search")]
     [RustTest("gsearch::snippets")]
     public void Snippets()
     {
@@ -162,7 +153,6 @@ public sealed class GlobalSearchTests
     }
 
     [Fact]
-    [Red("search")]
     [RustTest("gsearch::snippet_filter_loosens_terms")]
     public void Snippet_filter_loosens_terms()
     {
@@ -176,7 +166,6 @@ public sealed class GlobalSearchTests
     }
 
     [Fact]
-    [Red("search")]
     [RustTest("gsearch::ranking")]
     public void Ranking()
     {
@@ -190,7 +179,6 @@ public sealed class GlobalSearchTests
     }
 
     [Fact]
-    [Red("search")]
     [RustTest("gsearch::files_filter_skips_trash")]
     public void Files_filter_skips_trash()
     {
@@ -216,7 +204,6 @@ public sealed class GlobalSearchTests
     }
 
     [Fact]
-    [Red("search")]
     [RustTest("gsearch::terms_match_any_field")]
     public void Terms_match_any_field()
     {
