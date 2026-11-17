@@ -34,11 +34,14 @@ ids resolvable): B-SYNC-001..011 (sync.md, listsync part) with B-LST (listsync.m
 (compose.md, rte part) with B-RTE (rte-editor.md).
 
 ## Statuses
-- T- `status`: `pending` (no C# test yet), `ported` (a C# test carries the tag), `dropped(D-###, user OK)`.
+- T- `status`: `pending` (no C# test yet, or only `[Red]` ones: a red test is excluded from the default run and proves nothing),
+  `ported` (a C# test that is not `[Red]` carries the tag), `dropped(D-###, user OK)`.
   T-159 (lite) is `dropped(D-233, user OK pending)` until the user confirms at the M1 gate (PORT-PLAN Appendix A, B-READ-046).
 - B- rows: `ported`, `deferred(M<k>)` or `dropped(D-###, user OK)` once their milestone closes (§2.5).
 - I- `csharp_status`: `todo` or `n/a`, then `done` with evidence (a test, an automation script, a screenshot path).
-- J- `cs_status`: `pending` until re-verified with a test and Bulwark plus Stalwart refs.
+- J- `cs_status`: `pending` until re-verified with a test and Bulwark plus Stalwart refs; `done` names the test that exercises the
+  behaviour in `cs_test`; `partial(M<k>)` when a test covers only part of the row (the rest lands in M<k>).
+  J-009 (maxObjectsInSet: only writes chunk by it, M2) and J-028 (upToId: no test sends it) are `partial(M2)` since Fable F-11.
 
 ## How to update
 - Port a Rust test: put `[RustTest("module::name")]` on the C# test, with the value exactly as the

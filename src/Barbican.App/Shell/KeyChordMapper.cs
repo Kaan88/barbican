@@ -10,6 +10,18 @@ public static class KeyChordMapper
 {
     public static KeyChord? Map(int virtualKey, bool control, bool shift, bool alt)
     {
+        if (control && alt)
+        {
+            // AltGr reports Ctrl and Alt together and types a character on many layouts: not a shortcut (Fable F-16)
+            return null;
+        }
+
+        if (shift && virtualKey is >= 48 and <= 57)
+        {
+            // Shift+digit types a layout-dependent character ("!" or "/" ...): the digit is not what was pressed (Fable F-16)
+            return null;
+        }
+
         string? key = virtualKey switch
         {
             >= 65 and <= 90 => ((char)(shift ? virtualKey : virtualKey + 32)).ToString(),

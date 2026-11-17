@@ -154,7 +154,7 @@ public sealed class ShellViewModelTests
         h.Service.Tree = new MailboxTree([new Mailbox { Id = "inbox", Name = "Inbox", Role = MailboxRole.Inbox, UnreadEmails = 2, TotalEmails = 9 }]);
         h.Service.Quota = new QuotaInfo(2_000_000_000, 10_000_000_000);
         h.Service.Identities = [new Identity("i", "Ada Lovelace", "ada@a.example.com")];
-        h.Service.OnQuery = (q, _, _) => Task.FromResult(Result<ListPage>.Ok(q.SearchText is null ? Mails.Page(0, 3, 3, false) : new ListPage { Items = [Mails.Make("s1", from: "Bob Smith"), Mails.Make("s2", from: "Cy Young")], Total = 7 }));
+        h.Service.OnQuery = (q, _, _) => Task.FromResult(Result<ListPage>.Ok(!string.Equals(q.HasKeyword, "$flagged", StringComparison.Ordinal) ? Mails.Page(0, 3, 3, false) : new ListPage { Items = [Mails.Make("s1", from: "Bob Smith"), Mails.Make("s2", from: "Cy Young")], Total = 7 }));
         var glance = new GlanceTilesViewModel(h.Time);
         using var startup = new MailShellStartup(h.Active, h.Sidebar, glance, h.Shell, h.Time);
         await startup.StartAsync(CancellationToken.None);

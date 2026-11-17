@@ -54,7 +54,16 @@ public sealed partial class MailBodyView : UserControl
         }
 
         _host.Children.Insert(0, view);
-        shell.StateChanged += (_, _) => Sync(shell);
+        // the shell outlives every view (it is one warm WebView2): a view that left the tree must not stay subscribed to it
+        void OnState(object? sender, EventArgs e) => Sync(shell);
+        shell.StateChanged += OnState;
+        Unloaded += (_, _) => shell.StateChanged -= OnState;
+        Loaded += (_, _) =>
+        {
+            shell.StateChanged -= OnState;
+            shell.StateChanged += OnState;
+            Sync(shell);
+        };
         Sync(shell);
     }
 

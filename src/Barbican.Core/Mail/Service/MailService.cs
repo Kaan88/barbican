@@ -173,7 +173,11 @@ public sealed class MailService(IJmapClient client, TimeProvider time) : IMailSe
         }
 
         var list = r.Value!.MethodResponses[1][1].Arr("list") ?? [];
-        var rows = list.Select(ModelReader.Summary).OfType<EmailSummary>().Select(e => e with { ThreadCount = list.Count }).ToList();
+        // Email/get does not promise the order of ids (RFC 8620 §5.1): the thread's emailIds say it (Fable F-14)
+        var order = (r.Value!.MethodResponses[0][1].Arr("list") is { Count: > 0 } tl ? tl[0].Strings("emailIds") : [])
+            .Select((id, i) => (id, i)).ToDictionary(x => x.id, x => x.i, StringComparer.Ordinal);
+        var rows = list.Select(ModelReader.Summary).OfType<EmailSummary>().Select(e => e with { ThreadCount = list.Count })
+            .OrderBy(e => order.TryGetValue(e.Id, out var i) ? i : int.MaxValue).ToList();
         return Result<ConversationThread>.Ok(new ConversationThread(threadId, rows));
     }
 

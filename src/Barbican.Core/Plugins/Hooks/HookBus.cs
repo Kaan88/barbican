@@ -9,9 +9,21 @@ namespace Barbican.Core.Plugins.Hooks;
 /// </summary>
 public sealed class HookBus : IHookBus
 {
+    /// <summary>How long one handler may take before the bus gives up on it (Fable F-15): a plugin that never returns must not stop the sync.</summary>
+    public static readonly TimeSpan DefaultHandlerTimeout = TimeSpan.FromSeconds(5);
+
+    private readonly TimeProvider _time;
+    private readonly TimeSpan _timeout;
     private readonly Lock _gate = new();
     // copy on write: a registration builds a new dictionary and swaps it in, so readers (the hot path) never lock and never allocate
     private volatile Dictionary<string, Delegate[]> _handlers = new(StringComparer.Ordinal);
+
+    /// <summary>Creates a bus; a handler that takes longer than <paramref name="handlerTimeout"/> is abandoned and reported through <see cref="HandlerFailed"/>.</summary>
+    public HookBus(TimeProvider? time = null, TimeSpan? handlerTimeout = null)
+    {
+        _time = time ?? TimeProvider.System;
+        _timeout = handlerTimeout ?? DefaultHandlerTimeout;
+    }
 
     /// <summary>A handler threw; the bus carries on with the next one (a plugin must not break the app).</summary>
     public event EventHandler<HookFailedEventArgs>? HandlerFailed;
@@ -34,7 +46,6 @@ public sealed class HookBus : IHookBus
 
     private async ValueTask NotifyCoreAsync<TPayload>(string hook, Delegate[] list, TPayload payload, CancellationToken ct)
     {
-
         foreach (var d in list)
         {
             if (d is not Func<TPayload, CancellationToken, ValueTask> observer)
@@ -44,7 +55,11 @@ public sealed class HookBus : IHookBus
 
             try
             {
-                await observer(payload, ct).ConfigureAwait(false);
+                await RunAsync(hook, async t =>
+                {
+                    await observer(payload, t).ConfigureAwait(false);
+                    return true;
+                }, ct).ConfigureAwait(false);
             }
             catch (OperationCanceledException) when (ct.IsCancellationRequested)
             {
@@ -63,7 +78,6 @@ public sealed class HookBus : IHookBus
 
     private async ValueTask<bool> InterceptCoreAsync<TPayload>(string hook, Delegate[] list, TPayload payload, CancellationToken ct)
     {
-
         foreach (var d in list)
         {
             if (d is not Func<TPayload, CancellationToken, ValueTask<bool>> interceptor)
@@ -73,7 +87,9 @@ public sealed class HookBus : IHookBus
 
             try
             {
-                if (!await interceptor(payload, ct).ConfigureAwait(false))
+                // a handler that timed out counts as "allow"
+                var run = await RunAsync(hook, async t => await interceptor(payload, t).ConfigureAwait(false), ct).ConfigureAwait(false);
+                if (run.Done && !run.Value)
                 {
                     return false;
                 }
@@ -97,7 +113,6 @@ public sealed class HookBus : IHookBus
 
     private async ValueTask<T> TransformCoreAsync<T>(string hook, Delegate[] list, T value, CancellationToken ct)
     {
-
         foreach (var d in list)
         {
             if (d is not Func<T, CancellationToken, ValueTask<T>> transform)
@@ -107,7 +122,12 @@ public sealed class HookBus : IHookBus
 
             try
             {
-                value = await transform(value, ct).ConfigureAwait(false);
+                var previous = value;
+                var run = await RunAsync(hook, async t => await transform(previous, t).ConfigureAwait(false), ct).ConfigureAwait(false);
+                if (run.Done)
+                {
+                    value = run.Value;
+                }
             }
             catch (OperationCanceledException) when (ct.IsCancellationRequested)
             {
@@ -120,6 +140,33 @@ public sealed class HookBus : IHookBus
         }
 
         return value;
+    }
+
+    /// <summary>Runs one handler; past the timeout it is told to cancel, left behind, and reported (Done is false).</summary>
+    private async Task<(bool Done, T Value)> RunAsync<T>(string hook, Func<CancellationToken, Task<T>> call, CancellationToken ct)
+    {
+        using var handlerCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        var work = call(handlerCts.Token);
+        if (work.IsCompleted)
+        {
+            // an answer that is already there stays synchronous: a key press only waits for such an answer (KeyRouter)
+            return (true, await work.ConfigureAwait(false));
+        }
+
+        using var delayCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        var delay = Task.Delay(_timeout, _time, delayCts.Token);
+        var first = await Task.WhenAny(work, delay).ConfigureAwait(false);
+        if (ReferenceEquals(first, work))
+        {
+            await delayCts.CancelAsync().ConfigureAwait(false);
+            return (true, await work.ConfigureAwait(false));
+        }
+
+        ct.ThrowIfCancellationRequested();
+        await handlerCts.CancelAsync().ConfigureAwait(false);
+        _ = work.ContinueWith(static t => _ = t.Exception, CancellationToken.None, TaskContinuationOptions.OnlyOnFaulted, TaskScheduler.Default);
+        Failed(hook, new TimeoutException($"A handler of '{hook}' did not finish within {_timeout.TotalSeconds:0.#} s and was abandoned."));
+        return (false, default!);
     }
 
     private Registration Add(string hook, Delegate handler)

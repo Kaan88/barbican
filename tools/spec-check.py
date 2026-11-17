@@ -10,12 +10,15 @@ Usage (from anywhere in the repo; Python 3.10+, stdlib only):
 What it checks:
   * every [RustTest("module::name")] in tests/**/*.cs names a row of spec/rust-tests.csv (rust_test_tag);
     a tag that matches no row, or a row claimed by two tests, is an error;
-  * a T- row counts as done when a C# test carries its tag, or its status is `dropped(D-###...)`;
+  * a T- row counts as done when a C# test that is not `[Red]` carries its tag, or its status is `dropped(D-###...)`;
+    a row whose only tests are `[Red]` (excluded from the default run, so never proven) stays `pending` (Fable F-11);
   * catalogue ids (B-, D-, G-, I-, J-, L-, T-, MENU-) are defined once, and references to them resolve;
   * the plugin hook catalogue (spec/plugins/hooks.csv): rows per milestone and how many have a call site
     (a `HookNames.<Name>` reference under src/, as Bulwark's plugin-hook-catalog test counts), and
     the red tests still marked [Red] (tests that are expected to fail until their stream lands).
-The milestone gate (§2.5 first line) is `--milestone M<n>` exiting 0.
+The milestone gate (§2.5 first line) is `--milestone M<n>` exiting 0: no unmapped or red-only T- row of M<n>, and no
+`[Red]` test left anywhere (a red test is a promise of a stream that has not landed; at a gate none may remain).
+J- rows whose `cs_status` is `done` need a test name in `cs_test`; `partial(M<k>)` is for a row only partly exercised.
 """
 from __future__ import annotations
 
@@ -51,8 +54,11 @@ def tag_of(row: dict[str, str]) -> str:
     return m.group(1) if m else f"{row['module']}::{row['rust_test']}"
 
 
+RED = re.compile(r"\[Red\(")
+
+
 def scan_tests() -> dict[str, list[str]]:
-    """RustTest tag -> ["Namespace.Class.Method (path:line)", ...]."""
+    """RustTest tag -> ["Namespace.Class.Method (path:line)", ...]; a test marked [Red] has " [Red]" after its location."""
     found: dict[str, list[str]] = defaultdict(list)
     for p in sorted((ROOT / "tests").rglob("*.cs")):
         if any(part in ("bin", "obj") for part in p.parts):
@@ -61,21 +67,36 @@ def scan_tests() -> dict[str, list[str]]:
         ns = NAMESPACE.search(text)
         lines = text.splitlines()
         cls = ""
+        cls_red = False
         for i, line in enumerate(lines):
             c = CLASS.search(line)
             if c and "[" not in line.split("class")[0]:
                 cls = c.group(1)
+                # [Red] on the class: the attribute lines just above it
+                k = i - 1
+                cls_red = False
+                while k >= 0 and lines[k].lstrip().startswith("["):
+                    cls_red = cls_red or bool(RED.search(lines[k]))
+                    k -= 1
             m = ATTR.search(line)
             if not m:
                 continue
             name = "?"
+            red = cls_red
+            # [Red] among the attribute lines above the RustTest line, or between it and the method
+            k = i - 1
+            while k >= 0 and lines[k].lstrip().startswith("["):
+                red = red or bool(RED.search(lines[k]))
+                k -= 1
+            red = red or bool(RED.search(line))
             for j in range(i + 1, min(i + 6, len(lines))):
+                red = red or bool(RED.search(lines[j]) and lines[j].lstrip().startswith("["))
                 mm = METHOD.search(lines[j])
                 if mm and not lines[j].lstrip().startswith("["):
                     name = mm.group(1)
                     break
             full = ".".join(x for x in ((ns.group(1) if ns else ""), cls, name) if x)
-            found[m.group(1)].append(f"{full} ({p.relative_to(ROOT).as_posix()}:{i + 1})")
+            found[m.group(1)].append(f"{full} ({p.relative_to(ROOT).as_posix()}:{i + 1})" + (" [Red]" if red else ""))
     return found
 
 
@@ -138,17 +159,33 @@ def hooks_summary() -> list[str]:
     return out
 
 
-def red_tests() -> list[str]:
-    """Tests still marked [Red] (expected red until their stream turns them green)."""
+def red_counts() -> Counter[str]:
+    """Tests still marked [Red] by stream (expected red until their stream turns them green)."""
     n: Counter[str] = Counter()
     pat = re.compile(r'\[Red\("([^"]+)"\)\]')
     for p in sorted((ROOT / "tests").rglob("*.cs")):
-        if any(part in ("bin", "obj") for part in p.parts):
+        if any(part in ("bin", "obj") for part in p.parts) or p.name == "RedAttribute.cs":
             continue
         n.update(pat.findall(p.read_text(encoding="utf-8-sig")))
+    return n
+
+
+def red_tests() -> list[str]:
+    n = red_counts()
     if not n:
         return []
     return ["red tests ([Red(\"stream\")], excluded from the default run): " + ", ".join(f"{k} {v}" for k, v in sorted(n.items()))]
+
+
+def unproven_j_rows() -> list[str]:
+    """J- rows that say `done` without naming the test that proves them (an empty cs_test)."""
+    bad: list[str] = []
+    for p in sorted(SPEC.glob("*.csv")):
+        with p.open(encoding="utf-8", newline="") as f:
+            for r in csv.DictReader(f):
+                if r.get("cs_status") == "done" and not (r.get("cs_test") or "").strip():
+                    bad.append(f"{r['id']} is done without a cs_test ({p.name})")
+    return bad
 
 
 def main() -> int:
@@ -174,16 +211,21 @@ def main() -> int:
     for r in rows:
         ms = r["milestone"] or "?"
         tag = tag_of(r)
-        if tag in found:
+        live = [u for u in found.get(tag, []) if not u.endswith(" [Red]")]
+        if live:
             state = "ported"
             if a.write:
-                r["csharp_test"] = found[tag][0].split(" (")[0]
+                r["csharp_test"] = live[0].split(" (")[0]
                 r["status"] = "ported"
         elif r["status"].startswith("dropped(D-"):
             state = "dropped"
         else:
+            # no test, or only [Red] ones: a red test is excluded from the default run, so it proves nothing (Fable F-11)
             state = "pending"
-            open_rows[ms].append(r)
+            open_rows[ms].append(dict(r, red_only="1" if tag in found else ""))
+            if a.write and tag in found:
+                r["csharp_test"] = found[tag][0].split(" (")[0].removesuffix(" [Red]")
+                r["status"] = "pending"
         per[ms][state] += 1
 
     defined, _refs, dangling = catalogue_ids()
@@ -220,10 +262,16 @@ def main() -> int:
     gate_failed = False
     if a.milestone:
         left = open_rows.get(a.milestone, [])
-        print(f"{a.milestone}: {len(left)} T- rows without a C# test or a D- entry")
+        print(f"{a.milestone}: {len(left)} T- rows without a passing C# test or a D- entry")
         for r in left:
-            print(f"  {r['id']} {tag_of(r)}")
-        gate_failed = bool(left)
+            print(f"  {r['id']} {tag_of(r)}{'  (only a [Red] test)' if r.get('red_only') else ''}")
+        red = red_counts()
+        if red:
+            print(f"{a.milestone}: {sum(red.values())} [Red] tests left ({', '.join(f'{k} {v}' for k, v in sorted(red.items()))}); a gate needs none")
+        unproven = unproven_j_rows()
+        for u in unproven:
+            print(f"  {u}")
+        gate_failed = bool(left) or bool(red) or bool(unproven)
 
     if errors or gate_failed or (a.strict and cat_errors):
         return 1

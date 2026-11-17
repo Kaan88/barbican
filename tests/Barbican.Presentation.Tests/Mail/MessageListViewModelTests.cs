@@ -182,7 +182,7 @@ public sealed class MessageListViewModelTests
         using var h = await OpenedAsync();
         Assert.True(h.Keys.Handle(new KeyChord("j"), KeySource.Keyboard));
         Assert.Equal("m0", h.List.Selected?.Id);
-        Assert.True(h.Keys.Handle(new KeyChord("ArrowDown"), KeySource.Keyboard));
+        Assert.True(h.Keys.Handle(new KeyChord("ArrowDown"), KeySource.WebView));
         Assert.Equal("m1", h.List.Selected?.Id);
         Assert.True(h.Keys.Handle(new KeyChord("k"), KeySource.Keyboard));
         Assert.Equal("m0", h.List.Selected?.Id);
