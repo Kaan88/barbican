@@ -12,7 +12,6 @@ public sealed class ReplyIdentityTests
     private static ReplyFrom From(string[] recipients, string[] delivered, bool forward) => new() { Recipients = recipients, Delivered = delivered, Forward = forward };
 
     [Fact]
-    [Red("send-pipeline")]
     [RustTest("compose::reply_identity_order")]
     public void Reply_identity_order()
     {

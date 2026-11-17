@@ -3,4 +3,11 @@
 namespace Barbican.Presentation.Actions;
 
 /// <summary>A toast to show: the text, whether it is an error, and an optional action button (Undo).</summary>
-public sealed record ToastRequest(string Message, bool IsError = false, string? ActionLabel = null, Func<CancellationToken, Task>? Action = null, TimeSpan? Duration = null);
+public sealed record ToastRequest(string Message, bool IsError = false, string? ActionLabel = null, Func<CancellationToken, Task>? Action = null, TimeSpan? Duration = null)
+{
+    /// <summary>A second action button (M3, additive: the undo-send toast has Undo and Send now).</summary>
+    public string? SecondaryLabel { get; init; }
+
+    /// <summary>What the second button does.</summary>
+    public Func<CancellationToken, Task>? SecondaryAction { get; init; }
+}

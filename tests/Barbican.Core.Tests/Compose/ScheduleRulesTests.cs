@@ -11,7 +11,6 @@ public sealed class ScheduleRulesTests
     private static DateTimeOffset Local(int y, int mo, int d, int h, int mi) => new(y, mo, d, h, mi, 0, TimeSpan.FromHours(1));
 
     [Fact]
-    [Red("send-pipeline")]
     [RustTest("schedule::preset_times")]
     public void Preset_times()
     {
@@ -32,7 +31,6 @@ public sealed class ScheduleRulesTests
     }
 
     [Fact]
-    [Red("send-pipeline")]
     [RustTest("schedule::parsing_and_checks")]
     public void Parsing_and_checks()
     {
@@ -54,7 +52,6 @@ public sealed class ScheduleRulesTests
     }
 
     [Fact]
-    [Red("send-pipeline")]
     [RustTest("schedule::labels")]
     public void Labels()
     {

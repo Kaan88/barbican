@@ -8,7 +8,6 @@ public sealed class AutosaveStateTests
     private static AutosaveState New() => new(TimeProvider.System);
 
     [Fact]
-    [Red("send-pipeline")]
     [RustTest("autosave::debounce_rules")]
     public void Debounce_rules()
     {
@@ -34,7 +33,6 @@ public sealed class AutosaveStateTests
     }
 
     [Fact]
-    [Red("send-pipeline")]
     [RustTest("autosave::generations")]
     public void Generations()
     {
@@ -54,7 +52,6 @@ public sealed class AutosaveStateTests
     }
 
     [Fact]
-    [Red("send-pipeline")]
     [RustTest("autosave::reopen_during_a_save_keeps_the_queued_work")]
     public void Reopen_during_a_save_keeps_the_queued_work()
     {
