@@ -15,7 +15,42 @@ public static class HookBusExtensions
             return;
         }
 
-        _ = Task.Run(async () => await bus.NotifyAsync(hook, payload(), CancellationToken.None).ConfigureAwait(false));
+        // the payload says what happened now, not what the state is when a pool thread gets to it; and observers hear the events of one bus
+        // in the order they happened (one Task.Run each let a later event overtake an earlier one: a drag end before the drop, a column
+        // reset before the resize that came first)
+        var value = payload();
+        var chain = Chains.GetValue(bus, static _ => new Chain());
+        lock (chain.Gate)
+        {
+            chain.Tail = chain.Tail.ContinueWith(
+                async _ => await NotifyQuietlyAsync(bus, hook, value).ConfigureAwait(false),
+                CancellationToken.None,
+                TaskContinuationOptions.None,
+                TaskScheduler.Default).Unwrap();
+        }
+    }
+
+    private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<IHookBus, Chain> Chains = new();
+
+#pragma warning disable CA1031 // fire and forget: an observer's failure must not stop the events queued behind it (the bus reports handler errors itself)
+    private static async Task NotifyQuietlyAsync<TPayload>(IHookBus bus, string hook, TPayload value)
+    {
+        try
+        {
+            await bus.NotifyAsync(hook, value, CancellationToken.None).ConfigureAwait(false);
+        }
+        catch (Exception)
+        {
+            // nothing to tell the caller: it did not wait
+        }
+    }
+#pragma warning restore CA1031
+
+    private sealed class Chain
+    {
+        public Lock Gate { get; } = new();
+
+        public Task Tail { get; set; } = Task.CompletedTask;
     }
 
     /// <summary>Asks interceptors whether an action may go ahead (true when nothing listens).</summary>
