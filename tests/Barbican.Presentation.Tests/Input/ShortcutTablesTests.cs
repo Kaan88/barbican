@@ -95,6 +95,11 @@ public sealed class ShortcutTablesTests
         Assert.Equal(ShortcutAction.Pass, R(ShortcutPlace.Mail, none, "x", false, false, false));
         Assert.Equal(ShortcutAction.MailAction("read!"), R(ShortcutPlace.Mail, Ctx(), "q", false, true, false));
         Assert.Equal(ShortcutAction.Undo, R(ShortcutPlace.Mail, Ctx(), "z", false, true, false));
+
+        // M2 hotfix: Bulwark use-undo-shortcut.ts isUndoKey, `z` alone while single keys are on; never Shift+Z, never with single keys off
+        Assert.Equal(ShortcutAction.Undo, R(ShortcutPlace.Mail, Ctx(), "z", false, false, false));
+        Assert.Equal(ShortcutAction.Pass, R(ShortcutPlace.Mail, Ctx(), "Z", true, false, false));
+        Assert.Equal(ShortcutAction.Pass, R(ShortcutPlace.Mail, Ctx() with { SingleKeys = false }, "z", false, false, false));
         Assert.Equal(ShortcutAction.Refresh, R(ShortcutPlace.Mail, Ctx(), ShortcutKeys.F9, false, false, false));
         Assert.Equal(ShortcutAction.Compose, R(ShortcutPlace.Mail, Ctx(), "M", true, true, false));
     }
