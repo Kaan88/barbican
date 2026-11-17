@@ -14,20 +14,20 @@ public sealed class ContextMenuController : ObservableObject, IContextMenuServic
 {
     private readonly MenuModelBuilder _builder;
     private readonly ICommandRegistry _registry;
-    private readonly IToastService? _toasts;
+    private readonly CommandRunner _runner;
     private MenuContext? _context;
     private MenuLevel? _root;
     private MenuLevel? _sub;
     private MenuItemSpec? _pending;
     private MenuAnchor _anchor;
 
-    public ContextMenuController(MenuModelBuilder builder, ICommandRegistry registry, IToastService? toasts = null)
+    public ContextMenuController(MenuModelBuilder builder, ICommandRegistry registry, IToastService? toasts = null, CommandRunner? runner = null)
     {
         ArgumentNullException.ThrowIfNull(builder);
         ArgumentNullException.ThrowIfNull(registry);
         _builder = builder;
         _registry = registry;
-        _toasts = toasts;
+        _runner = runner ?? new CommandRunner(toasts);
     }
 
     /// <summary>The menu opened or closed, or its rows or highlight changed (the host redraws).</summary>
@@ -282,19 +282,8 @@ public sealed class ContextMenuController : ObservableObject, IContextMenuServic
             return;
         }
 
-        var cc = MenuModelBuilder.CommandContextOf(context, item);
-        try
-        {
-            var result = await command.ExecuteAsync(cc, CancellationToken.None).ConfigureAwait(true);
-            if (!result.IsOk)
-            {
-                _toasts?.Show(new ToastRequest(result.Error?.Message ?? "That did not work.", IsError: true));
-            }
-        }
-        catch (OperationCanceledException)
-        {
-            // the command was cancelled: nothing to say
-        }
+        // a failed result is toasted, a thrown exception too and it goes to the crash log (Fable review 3 R3-05); a cancelled run says nothing
+        _ = await _runner.RunAsync(command, MenuModelBuilder.CommandContextOf(context, item), toastFailure: true).ConfigureAwait(true);
     }
 
     private static int IndexOf(MenuLevel? level, string label)

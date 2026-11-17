@@ -5,6 +5,7 @@
 using Barbican.Core.Accounts;
 using Barbican.Core.Mail.Body;
 using Barbican.Core.Mail.Mdn;
+using Barbican.Core.Mail.Unified;
 using Barbican.Core.Net;
 using Barbican.Presentation.Mail;
 
@@ -82,9 +83,16 @@ public sealed class ReaderBannerActions(ReaderViewModel reader, IActiveMail acti
 
     private async Task<string> ReceiptAsync(ReaderSnapshot snapshot, CancellationToken ct)
     {
-        if (active.AccountKey is not { } key || accounts.SessionFor(key) is not { } session)
+        // a unified row's receipt goes out from the login that received the message, with its server id (Fable review 3 R3-01)
+        var row = UnifiedRows.ParseRow(snapshot.EmailId);
+        if ((row?.Login ?? active.AccountKey) is not { } key || accounts.SessionFor(key) is not { } session)
         {
             return Done("No account.");
+        }
+
+        if (row is { SharedAccount: not null })
+        {
+            return Done("Receipts are sent only for mail of your own accounts.");
         }
 
         var client = session.Client;
@@ -93,7 +101,8 @@ public sealed class ReaderBannerActions(ReaderViewModel reader, IActiveMail acti
             return Done("This account cannot upload.");
         }
 
-        var r = await mdn.SendAsync(client, upload, EmailJson.Of(snapshot.Body!), automatic: false, ct).ConfigureAwait(true);
+        var body = row is null ? snapshot.Body! : snapshot.Body! with { Id = row.Id, ThreadId = snapshot.Body!.ThreadId is { } t ? UnifiedRows.RealId(t) : null };
+        var r = await mdn.SendAsync(client, upload, EmailJson.Of(body), automatic: false, ct).ConfigureAwait(true);
         return r.IsOk ? Remove(snapshot, ReceiptBannerSource.Id, "Receipt sent.") : Done(r.Error!.Message);
     }
 

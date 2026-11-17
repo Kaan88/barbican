@@ -8,9 +8,11 @@ using System.Runtime.Loader;
 namespace Barbican.Core.Plugins.Native;
 
 /// <summary>
-/// The load context of one plugin. The plugin API (Barbican.Plugins.Abstractions) comes from the app so the interface types match; every other
-/// Barbican assembly is refused (a plugin sees the API, never the app's internals); the plugin's own dependencies load from its folder; the
-/// framework comes from the default context. Collectible, so a plugin can be unloaded.
+/// The load context of one plugin. The plugin API (Barbican.Plugins.Abstractions) comes from the app so the interface types match; a reference
+/// by name to any other Barbican assembly is refused, which stops a plugin from linking against the app's internals by accident; the plugin's own
+/// dependencies load from its folder; the framework comes from the default context. Collectible, so a plugin can be unloaded.
+/// This is not a security boundary: a plugin runs in the app's process with full trust and can reach everything through reflection over the
+/// default context, the file system or the network. Only plugins the app ships are loaded until the M6b permission UI (Fable review 3 R3-04).
 /// </summary>
 internal sealed class PluginLoadContext : AssemblyLoadContext
 {

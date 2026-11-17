@@ -76,6 +76,63 @@ public sealed class MailTransferTests
         Assert.StartsWith("Import stopped after", transfer.Summary, StringComparison.Ordinal);
     }
 
+    [Fact]
+    public async Task A_file_error_ends_the_import_with_its_reason_and_the_next_one_can_run()
+    {
+        // Fable review 3 R3-05: a full disk or a file in use must not leave the transfer "running" until a restart
+        var calls = 0;
+        var import = new StubImport((_, _, progress, _) =>
+        {
+            if (++calls == 1)
+            {
+                progress.Report(4);
+                throw new IOException("The file is in use.");
+            }
+
+            return Task.FromResult(Result<ImportOutcome>.Ok(new ImportOutcome(1, 0, [])));
+        });
+        var (transfer, picks) = Make(import);
+        picks.Queue("C:/mail/locked.mbox");
+
+        var r = await transfer.ImportAsync(Inbox, Ct);
+
+        Assert.False(r!.Value.IsOk);
+        Assert.False(transfer.IsRunning);
+        Assert.Equal("Import failed after 4 messages: The file is in use.", transfer.Summary);
+        Assert.Contains("The file is in use.", r.Value.Error!.Message, StringComparison.Ordinal);
+
+        picks.Queue("C:/mail/next.mbox");
+        var next = await transfer.ImportAsync(Inbox, Ct);
+        Assert.True(next!.Value.IsOk);
+    }
+
+    [Fact]
+    public async Task Any_other_exception_still_ends_the_run()
+    {
+        var import = new StubImport((_, _, _, _) => throw new InvalidOperationException("a bug"));
+        var (transfer, picks) = Make(import);
+        picks.Queue("C:/mail/old.mbox");
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => transfer.ImportAsync(Inbox, Ct));
+        Assert.False(transfer.IsRunning);
+        Assert.Equal("Import failed.", transfer.Summary);
+    }
+
+    [Fact]
+    public async Task An_export_to_a_folder_that_went_away_fails_with_its_reason()
+    {
+        var import = new StubImport((_, _, _, _) => throw new InvalidOperationException("not called"));
+        var (transfer, picks) = Make(import);
+        var gone = Path.Combine(Path.GetTempPath(), "barbican-gone-" + Guid.NewGuid().ToString("N"), "missing", "inbox.mbox");
+        picks.Queue(gone);
+
+        var r = await transfer.ExportAsync(Inbox, "inbox", asMbox: true, Ct);
+
+        Assert.False(r!.Value.IsOk);
+        Assert.False(transfer.IsRunning);
+        Assert.StartsWith("Saving failed after 0 messages: ", transfer.Summary, StringComparison.Ordinal);
+    }
+
     private sealed class StubImport(Func<MailboxRef, IReadOnlyList<string>, IProgress<int>, CancellationToken, Task<Result<ImportOutcome>>> run) : IMailImport
     {
         public IReadOnlyList<string>? Paths { get; private set; }

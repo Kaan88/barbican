@@ -260,7 +260,8 @@ public sealed partial class MessageListView : UserControl
             var context = new CommandContext(CommandSurface.HoverStrip, [List.TargetOf(row)], null, null, null);
             if (command.CanExecute(context))
             {
-                await command.ExecuteAsync(context, CancellationToken.None);
+                // a thrown exception becomes an error toast and a crash-log line (Fable review 3 R3-05); a failed result toasts itself
+                await (ViewHost.Find<CommandRunner>() ?? new CommandRunner(ViewHost.Find<Barbican.Presentation.Actions.IToastService>())).RunAsync(command, context);
             }
         }
     }

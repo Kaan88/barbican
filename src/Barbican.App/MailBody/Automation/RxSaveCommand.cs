@@ -24,12 +24,12 @@ public sealed class RxSaveCommand(SaveTargets targets, AttachmentSaver saver, Re
             return "queued";
         }
 
-        if (reader.Current.Body is not { } body || active.AccountKey is not { } key || accounts.SessionFor(key) is not { } session)
+        if (reader.Current.Body is not { } body || active.AccountKey is not { } key || accounts.SessionFor(MailTarget.OfOpen(key, body).Login) is null)
         {
             return "error no message";
         }
 
-        var target = new MailTarget(key, session.Client.Session.MailAccountId, body.Id, body.ThreadId ?? string.Empty, body.Id, body.MailboxIds, body.Keywords);
+        var target = MailTarget.OfOpen(key, body);
         Barbican.Core.Common.Result<Barbican.Core.Common.Unit>? r = a switch
         {
             "eml" => await saver.SaveEmlAsync(target, cancellationToken).ConfigureAwait(true),

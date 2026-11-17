@@ -1153,3 +1153,39 @@ Branch `m2-close-a` from `m2` (commits `56e9907` and the one after it). Closes i
   and the avatar opens nothing (the menus exist: `menu-open FOLDERS-HEADER` / `ACCOUNT` work); rail Calendar, Contacts, Files and
   Settings switch to apps that do not exist yet (M4-M6) and show nothing.
 - **Flaky test seen once** in Barbican.Presentation.Tests during the m2 merge run (1 failure, not reproduced in 3 later runs; name not captured). Worth a look for a timing dependency.
+
+## m2-fable-fix-3 (branch `m2-fable-fix-3`): Fable review 3 items R3-01, R3-02, R3-04, R3-05
+
+- **R3-01 read routing.** `Presentation/Unified/UnifiedReadRoutes.cs` resolves a unified row once into (login client, JMAP account =
+  shared account or the login's `MailAccountId`, server id) and keeps one `MailService` + `ClientBlobSource` per source while the
+  login's client stays the same. `MessageFetcher` keys the body cache by `UnifiedRows.SourceKey(login, shared)` and the server id, and
+  hands back bodies and threads with row ids again (`Tagged`), so the reader, conversation strip and actions keep speaking in row ids.
+  Review: the pinned authserv id and the server host follow the login, the folder roles the source key (`ReaderDepth.Shape` rolesKey).
+  Search snippets of unified rows go to their own login (`SearchSnippetFetcher.FetchRowsAsync`); a source whose login is not connected
+  or whose server refuses gets no snippets while the others still do. Test: `Presentation.Tests/Unified/UnifiedReadTests.cs` (two
+  FakeJmap logins with different account ids). Not done: the hidden scenario step (`unified on`, open row 1, assert body text) the
+  review asked for; the read-receipt path (`ReaderBannerActions.ReceiptAsync`) is changed but has no test.
+- **Decision (R3-01):** a read receipt for a row of a *shared* account is refused ("Receipts are sent only for mail of your own
+  accounts."): the receipt would go out from the user's own identity for mail addressed to the group (not checked against Rust).
+- **R3-02 MailTarget contract** (written on `Core/Mail/Model/MailTarget.cs`): `AccountKey` the login whose writer takes the action
+  (the account on screen for a unified row), `AccountId` the JMAP account or empty for the login's own, `EmailId` the list id. Code
+  that talks to a server asks `Login`, `JmapAccountId(loginMailAccountId)` and `ServerId`. This keeps the writers (which route by the
+  row id, `UnifiedMailWriter`) unchanged instead of the review's "EmailId = server id" variant; review whether that is the better
+  trade. Constructors: `UnifiedTargetResolver`, `ContextPointerRouter` fallback (empty, no longer the account key), `ReaderMenuOpener`
+  and `RxSaveCommand` (`MailTarget.OfOpen`), `LiveMailActions`, `MailActionService.Tags` (empty = own). Consumers moved to the
+  contract: `AttachmentSaver`, `EmailParseOpener`, `TnefExpander`, `QuickRuleService` (refuses a row of another login: "Switch to that
+  message's account"), `InvitationBannerSource` (reads the invitation through the row's login). Test: `Presentation.Tests/Unified/RowMenuSaveTests.cs`.
+- **R3-04 user plugins off.** `NativePluginHostOptions.ForApp` (Core) builds the app's roots without `UserRoot`; `UnifiedRegistration.AddPlugins`
+  uses it. The test is in Core.Tests (`Plugins/UserPluginsOffTests.cs`), not `CompositionGraphTests`: the App head's registration is not
+  reachable from a test project, so the test pins the factory the registration calls and loads a real plugin copied to
+  `<config>/plugins/x` (not loaded; loaded in a control run with the user root named). `PluginLoadContext`'s comment now says it is
+  not a security boundary.
+- **R3-05 transfers and the command runner.** `MailTransfer` catches IOException/UnauthorizedAccessException into a failed result with
+  the reason ("Import failed after N messages: ...") and ends any other run in `finally` (the exception still goes on). One runner,
+  `Presentation/Commands/CommandRunner.cs`, registered in `MenusPresentationRegistration`, used by ShortcutCommands, ContextMenuController,
+  PaletteController, RailView, SelectionBarView, MessageListView (hover strip), SidebarView and the automation `act` command: an
+  exception becomes an error toast ("That did not work: <message>") and a crash-log file (`CrashLog.Write`, source `command <id>`), a
+  cancellation says nothing. Decisions: whether a failed *result* is toasted stays as each surface had it (menus, palette, sidebar
+  yes; shortcuts, rail, bars no, because the actions toast their own failures); `DelegateAppCommand` itself does not catch (the
+  runner does, a catch there would toast twice). The crash-log folder fills with one file per thrown command (pruned at 50); check
+  that this is the wanted volume. `AttachmentSaver.WriteAsync` turns IO errors into a failed result (from the WIP commit e27dc3e).

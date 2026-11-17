@@ -17,7 +17,7 @@ public sealed class PaletteController : ObservableObject, IModalSurface
     private readonly ICommandRegistry _registry;
     private readonly IPaletteContextSource _source;
     private readonly IReadOnlyList<IPaletteProvider> _providers;
-    private readonly IToastService? _toasts;
+    private readonly CommandRunner _runner;
     private PaletteContext _context = new();
     private string _text = string.Empty;
     private string _scope = CommandsScope;
@@ -26,7 +26,7 @@ public sealed class PaletteController : ObservableObject, IModalSurface
     private bool _isOpen;
     private int _generation;
 
-    public PaletteController(ICommandRegistry registry, IPaletteContextSource source, IEnumerable<IPaletteProvider> providers, IToastService? toasts = null)
+    public PaletteController(ICommandRegistry registry, IPaletteContextSource source, IEnumerable<IPaletteProvider> providers, IToastService? toasts = null, CommandRunner? runner = null)
     {
         ArgumentNullException.ThrowIfNull(registry);
         ArgumentNullException.ThrowIfNull(source);
@@ -34,7 +34,7 @@ public sealed class PaletteController : ObservableObject, IModalSurface
         _registry = registry;
         _source = source;
         _providers = providers.ToList();
-        _toasts = toasts;
+        _runner = runner ?? new CommandRunner(toasts);
     }
 
     public bool IsOpen
@@ -214,11 +214,8 @@ public sealed class PaletteController : ObservableObject, IModalSurface
         }
 
         Close();
-        var result = await command.ExecuteAsync(Context(argument), CancellationToken.None).ConfigureAwait(true);
-        if (!result.IsOk)
-        {
-            _toasts?.Show(new ToastRequest(result.Error?.Message ?? "That did not work.", IsError: true));
-        }
+        // a failed result and a thrown exception both end in an error toast (Fable review 3 R3-05)
+        _ = await _runner.RunAsync(command, Context(argument), toastFailure: true).ConfigureAwait(true);
 
         return true;
     }

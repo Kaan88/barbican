@@ -33,10 +33,16 @@ public sealed class QuickRuleService(IActiveMail mail, IMailboxDirectory folders
             return Result<QuickRuleSubject>.Fail(new ValidationError("No account is open."));
         }
 
+        // a rule is made on the account on screen: a unified row of another login is that login's to filter (Fable review 3 R3-02)
+        if (!string.Equals(target.Login, mail.AccountKey ?? target.AccountKey, StringComparison.Ordinal))
+        {
+            return Result<QuickRuleSubject>.Fail(new ValidationError("Switch to that message's account to make a rule for it."));
+        }
+
         var args = new JsonObject
         {
-            ["accountId"] = target.AccountId.Length > 0 ? target.AccountId : client.Session.MailAccountId,
-            ["ids"] = new JsonArray(target.EmailId),
+            ["accountId"] = target.JmapAccountId(client.Session.MailAccountId),
+            ["ids"] = new JsonArray(target.ServerId),
             ["properties"] = new JsonArray("from", "header:List-Id:asText"),
         };
         var r = await client.CallAsync(JmapRequest.Of(JmapRequest.Call("Email/get", args, "g")), ct).ConfigureAwait(false);

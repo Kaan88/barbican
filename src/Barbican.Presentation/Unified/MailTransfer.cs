@@ -2,8 +2,11 @@
 // messages", cancel), lib/mail-export/ (a folder saved as mbox or .eml files). M2 plan 6.5: MENU-FOLDER "Import messages (.eml, .mbox)…",
 // Ctrl+O and folder export call these; spec I-065 (Import/Export part), G-046. Owner unified.
 // One transfer at a time; Progress is raised on the UI thread (the dispatcher) so the progress row only changes text, never blanks.
+// Fable review 3 R3-05: a file error (full disk, file in use, a folder that went away) ends the run with its reason, and whatever else is
+// thrown still ends it (finally), so the entries are never left disabled until a restart.
 
 using Barbican.Core.Common;
+using Barbican.Core.Jmap.Errors;
 using Barbican.Core.Mail.Import;
 using Barbican.Core.Mail.Model;
 using Barbican.Presentation.Common;
@@ -72,6 +75,15 @@ public sealed partial class MailTransfer : ObservableObject
             Finish($"Import stopped after {Done} messages.");
             return null;
         }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+        {
+            Finish($"Import failed after {Done} messages: {e.Message}");
+            return Result<ImportOutcome>.Fail(new ValidationError(Summary));
+        }
+        finally
+        {
+            Release(run, "Import failed.");
+        }
     }
 
     /// <summary>Saves <paramref name="folder"/> as one mbox file, or as .eml files in a folder.</summary>
@@ -116,6 +128,15 @@ public sealed partial class MailTransfer : ObservableObject
             Finish($"Saving stopped after {Done} messages.");
             return null;
         }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+        {
+            Finish($"Saving failed after {Done} messages: {e.Message}");
+            return Result<int>.Fail(new ValidationError(Summary));
+        }
+        finally
+        {
+            Release(run, "Saving failed.");
+        }
     }
 
     /// <summary>Stops the running transfer between messages.</summary>
@@ -132,6 +153,15 @@ public sealed partial class MailTransfer : ObservableObject
         Done = 0;
         IsRunning = true;
         return _running;
+    }
+
+    // the run ended by an exception nobody caught: it still ends here (the exception goes on to the caller)
+    private void Release(CancellationTokenSource run, string summary)
+    {
+        if (IsRunning && ReferenceEquals(_running, run))
+        {
+            Finish(summary);
+        }
     }
 
     private void Finish(string summary)

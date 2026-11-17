@@ -44,7 +44,8 @@ public sealed partial class RailView : UserControl
             var context = new CommandContext(CommandSurface.Toolbar, [], null, null, null);
             if (command.CanExecute(context))
             {
-                _ = command.ExecuteAsync(context, CancellationToken.None);
+                // not awaited, but what it throws still ends in an error toast and the crash log (Fable review 3 R3-05)
+                (ViewHost.Find<CommandRunner>() ?? new CommandRunner(ViewHost.Find<Barbican.Presentation.Actions.IToastService>())).Start(command, context);
             }
         }
     }

@@ -34,7 +34,7 @@ public sealed class ActCommand(ICommandRegistry commands, Barbican.Presentation.
             return "disabled " + id;
         }
 
-        var result = await command.ExecuteAsync(context, cancellationToken);
+        var result = await (Barbican.App.Shell.ViewHost.Find<CommandRunner>() ?? new CommandRunner()).RunAsync(command, context, ct: cancellationToken);
         return result.IsOk ? "ok " + id : "error " + result.Error!.Message;
     }
 }

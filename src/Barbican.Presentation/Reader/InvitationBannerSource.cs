@@ -11,6 +11,7 @@ using Barbican.Core.Jmap;
 using Barbican.Core.Jmap.Json;
 using Barbican.Core.Mail.Model;
 using Barbican.Core.Mail.Reader;
+using Barbican.Core.Mail.Unified;
 using Barbican.Presentation.Mail;
 
 namespace Barbican.Presentation.Reader;
@@ -72,8 +73,10 @@ public sealed class InvitationBannerSource(IActiveMail active, IAccountManager a
     public async IAsyncEnumerable<ReaderBanner> BannersForAsync(ReaderSnapshot snapshot, [EnumeratorCancellation] CancellationToken ct)
     {
         ArgumentNullException.ThrowIfNull(snapshot);
+        // a unified row's invitation is read through the login that holds it, from its own (or shared) mail account (Fable review 3 R3-01)
+        var row = UnifiedRows.ParseRow(snapshot.EmailId);
         if (snapshot.Body is not { } body || CalendarPart(body) is not { } part
-            || active.AccountKey is not { } key || accounts.SessionFor(key) is not { } session)
+            || (row?.Login ?? active.AccountKey) is not { } key || accounts.SessionFor(key) is not { } session)
         {
             yield break;
         }
@@ -91,8 +94,8 @@ public sealed class InvitationBannerSource(IActiveMail active, IAccountManager a
             yield break;
         }
 
-        var raw = part.Size is > 0 and <= MaxIcsBytes ? await RawAsync(client, client.Session.MailAccountId, part, ct).ConfigureAwait(false) : null;
-        var mine = active.Mail is { } mail && await mail.GetIdentitiesAsync(ct).ConfigureAwait(false) is { IsOk: true } ids
+        var raw = part.Size is > 0 and <= MaxIcsBytes ? await RawAsync(client, row?.SharedAccount ?? client.Session.MailAccountId, part, ct).ConfigureAwait(false) : null;
+        var mine = (row is null ? active.Mail : session.Mail) is { } mail && await mail.GetIdentitiesAsync(ct).ConfigureAwait(false) is { IsOk: true } ids
             ? (IReadOnlyList<string>)[.. ids.Value!.Select(i => i.Email)]
             : [];
         var from = body.From.Count > 0 ? body.From[0].Email : null;

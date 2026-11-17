@@ -50,12 +50,12 @@ public sealed class TnefExpander(Func<string, IJmapClient?> clientOf) : IAttachm
             return Result<IReadOnlyList<AttachmentRef>>.Fail(new ValidationError("This attachment cannot be opened."));
         }
 
-        if (clientOf(message.AccountKey) is not { } client)
+        if (clientOf(message.Login) is not { } client)
         {
             return Result<IReadOnlyList<AttachmentRef>>.Fail(new ValidationError("That account is not signed in."));
         }
 
-        var account = string.IsNullOrEmpty(message.AccountId) ? client.Session.MailAccountId : message.AccountId;
+        var account = message.JmapAccountId(client.Session.MailAccountId);
         var download = await client.DownloadAsync(account, blobId, a.Name ?? "winmail.dat", a.Type ?? "application/ms-tnef", ct).ConfigureAwait(false);
         if (!download.IsOk)
         {
