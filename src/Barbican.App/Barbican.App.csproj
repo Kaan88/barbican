@@ -69,6 +69,8 @@
   </PropertyGroup>
   <ItemGroup Condition="'$(Configuration)' == 'Automation'">
     <ProjectReference Include="../Barbican.Automation/Barbican.Automation.csproj" />
+    <!-- Sample data for the hidden screenshot runs (BARBICAN_SAMPLE=1): the in-process FakeJmap seed, never a real mailbox. Automation only; Release has no reference. -->
+    <ProjectReference Include="../../tests/Barbican.FakeJmap/Barbican.FakeJmap.csproj" />
     <AssemblyMetadata Include="BarbicanAutomationBuild" Value="true" />
   </ItemGroup>
   <ItemGroup>
