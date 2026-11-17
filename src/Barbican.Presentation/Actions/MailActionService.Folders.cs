@@ -31,12 +31,12 @@ public sealed partial class MailActionService
             return Result<Mailbox>.Fail(writer.Error!);
         }
 
-        if (!await AllowAsync(HookNames.OnBeforeMailboxCreate, () => new MailboxCreatePayload(trimmed, parentId), ct).ConfigureAwait(false))
+        if (!await AllowAsync(HookNames.OnBeforeMailboxCreate, () => new MailboxCreatePayload(trimmed, parentId), ct).ConfigureAwait(true))
         {
             return Result<Mailbox>.Fail(new ValidationError("Stopped by a plugin."));
         }
 
-        var created = await writer.Value!.CreateMailboxAsync(trimmed, parentId, null, ct).ConfigureAwait(false);
+        var created = await writer.Value!.CreateMailboxAsync(trimmed, parentId, null, ct).ConfigureAwait(true);
         if (!created.IsOk)
         {
             return Result<Mailbox>.Fail(Failed(created.Error!));
@@ -59,7 +59,7 @@ public sealed partial class MailActionService
         }
 
         return await UpdateFolderAsync(accountKey, mailboxId, new MailboxPatch { Name = trimmed }, HookNames.OnBeforeMailboxRename, () => new MailboxRenamePayload(mailboxId, trimmed),
-            HookNames.OnMailboxRename, () => new MailboxRenamedPayload(mailboxId, trimmed, previous), "Folder renamed", ct).ConfigureAwait(false);
+            HookNames.OnMailboxRename, () => new MailboxRenamedPayload(mailboxId, trimmed, previous), "Folder renamed", ct).ConfigureAwait(true);
     }
 
     /// <summary>Deletes a folder after asking; the server refuses a folder with subfolders or messages, and says so.</summary>
@@ -72,13 +72,13 @@ public sealed partial class MailActionService
             return Result<Unit>.Fail(writer.Error!);
         }
 
-        if (!await confirmer.ConfirmAsync(new ConfirmRequest($"Delete folder \"{name}\"?", "The folder is removed. A folder with messages or subfolders is refused.", "Delete"), ct).ConfigureAwait(false)
-            || !await AllowAsync(HookNames.OnBeforeMailboxDelete, () => new MailboxDeletePayload(mailboxId, name), ct).ConfigureAwait(false))
+        if (!await confirmer.ConfirmAsync(new ConfirmRequest($"Delete folder \"{name}\"?", "The folder is removed. A folder with messages or subfolders is refused.", "Delete"), ct).ConfigureAwait(true)
+            || !await AllowAsync(HookNames.OnBeforeMailboxDelete, () => new MailboxDeletePayload(mailboxId, name), ct).ConfigureAwait(true))
         {
             return Result<Unit>.Ok(default);
         }
 
-        var r = await writer.Value!.DestroyMailboxAsync(mailboxId, false, ct).ConfigureAwait(false);
+        var r = await writer.Value!.DestroyMailboxAsync(mailboxId, false, ct).ConfigureAwait(true);
         if (!r.IsOk)
         {
             return Result<Unit>.Fail(Failed(r.Error!));
@@ -101,13 +101,13 @@ public sealed partial class MailActionService
 
         var name = FolderName(folder.MailboxId);
         var ask = new ConfirmRequest($"Empty {name}?", $"Every message in {name} is deleted permanently.", "Empty");
-        if (!await confirmer.ConfirmAsync(ask, ct).ConfigureAwait(false)
-            || !await AllowAsync(HookNames.OnBeforeMailboxEmpty, () => new MailboxEmptyPayload(folder.MailboxId, folder.Role), ct).ConfigureAwait(false))
+        if (!await confirmer.ConfirmAsync(ask, ct).ConfigureAwait(true)
+            || !await AllowAsync(HookNames.OnBeforeMailboxEmpty, () => new MailboxEmptyPayload(folder.MailboxId, folder.Role), ct).ConfigureAwait(true))
         {
             return Result<Unit>.Ok(default);
         }
 
-        var count = await writer.Value!.EmptyMailboxAsync(folder.MailboxId, ct).ConfigureAwait(false);
+        var count = await writer.Value!.EmptyMailboxAsync(folder.MailboxId, ct).ConfigureAwait(true);
         if (!count.IsOk)
         {
             return Result<Unit>.Fail(Failed(count.Error!));
@@ -116,7 +116,7 @@ public sealed partial class MailActionService
         hooks.Fire(HookNames.OnMailboxEmpty, () => new MailboxEmptiedPayload(folder.MailboxId, folder.Role, count.Value));
         if (string.Equals(list.MailboxId, folder.MailboxId, StringComparison.Ordinal))
         {
-            await list.ReloadAsync().ConfigureAwait(false);
+            await list.ReloadAsync().ConfigureAwait(true);
         }
 
         Notify($"{Count(count.Value, "1 message", "messages")} deleted");
@@ -133,7 +133,7 @@ public sealed partial class MailActionService
             return Result<Unit>.Fail(writer.Error!);
         }
 
-        var count = await writer.Value!.MarkMailboxReadAsync(folder.MailboxId, withChildren, ct).ConfigureAwait(false);
+        var count = await writer.Value!.MarkMailboxReadAsync(folder.MailboxId, withChildren, ct).ConfigureAwait(true);
         if (!count.IsOk)
         {
             return Result<Unit>.Fail(Failed(count.Error!));
@@ -141,7 +141,7 @@ public sealed partial class MailActionService
 
         if (string.Equals(list.MailboxId, folder.MailboxId, StringComparison.Ordinal))
         {
-            await list.ReloadAsync().ConfigureAwait(false);
+            await list.ReloadAsync().ConfigureAwait(true);
         }
 
         Notify(count.Value == 0 ? "Nothing to mark as read" : $"{Count(count.Value, "1 message", "messages")} marked as read");
@@ -170,7 +170,7 @@ public sealed partial class MailActionService
         }
 
         var patches = plan.Value.ToDictionary(p => p.Id, p => ToPatch(p.Patch), StringComparer.Ordinal);
-        var r = await writer.Value!.UpdateMailboxesAsync(patches, ct).ConfigureAwait(false);
+        var r = await writer.Value!.UpdateMailboxesAsync(patches, ct).ConfigureAwait(true);
         var refusal = r.IsOk ? FirstRefusal(r.Value!) : null;
         if (!r.IsOk || refusal is not null)
         {
@@ -199,12 +199,12 @@ public sealed partial class MailActionService
             return Result<Unit>.Fail(writer.Error!);
         }
 
-        if (!await AllowAsync(interceptHook, before, ct).ConfigureAwait(false))
+        if (!await AllowAsync(interceptHook, before, ct).ConfigureAwait(true))
         {
             return Result<Unit>.Ok(default);
         }
 
-        var r = await writer.Value!.UpdateMailboxesAsync(new Dictionary<string, MailboxPatch>(StringComparer.Ordinal) { [mailboxId] = patch }, ct).ConfigureAwait(false);
+        var r = await writer.Value!.UpdateMailboxesAsync(new Dictionary<string, MailboxPatch>(StringComparer.Ordinal) { [mailboxId] = patch }, ct).ConfigureAwait(true);
         var refusal = r.IsOk ? FirstRefusal(r.Value!) : null;
         if (!r.IsOk || refusal is not null)
         {

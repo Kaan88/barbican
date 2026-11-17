@@ -125,13 +125,13 @@ public sealed partial class MailActionService
         }
 
         var ids = Ids(changed);
-        if (!await AllowAsync(interceptHook, () => payload(ids), ct).ConfigureAwait(false))
+        if (!await AllowAsync(interceptHook, () => payload(ids), ct).ConfigureAwait(true))
         {
             return Result<Unit>.Ok(default);
         }
 
         var before = list.PatchRows(ids, e => WithKeywords(e, patch));
-        var result = await writer.Value!.UpdateKeywordsAsync(ids, patch, ct).ConfigureAwait(false);
+        var result = await writer.Value!.UpdateKeywordsAsync(ids, patch, ct).ConfigureAwait(true);
         var refusal = result.IsOk ? FirstRefusal(result.Value!) : null;
         if (!result.IsOk || refusal is not null)
         {
@@ -164,10 +164,10 @@ public sealed partial class MailActionService
             var back = patch.Keys.ToDictionary(k => k, k => first.Keywords.IsSet(k), StringComparer.Ordinal);
             var ids = Ids(g);
             list.PatchRows(ids, e => WithKeywords(e, back));
-            var r = await writer.Value!.UpdateKeywordsAsync(ids, back, ct).ConfigureAwait(false);
+            var r = await writer.Value!.UpdateKeywordsAsync(ids, back, ct).ConfigureAwait(true);
             if (!r.IsOk || !r.Value!.AllAccepted)
             {
-                await list.ReloadAsync().ConfigureAwait(false);
+                await list.ReloadAsync().ConfigureAwait(true);
                 return Result<Unit>.Fail(r.Error ?? FirstRefusal(r.Value!)!);
             }
         }

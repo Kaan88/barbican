@@ -53,7 +53,7 @@ public sealed class UndoService(IToastService toasts) : IUndoService
             latest = _entries.Count > 0 ? _entries[^1] : null;
         }
 
-        return latest is not null && await UndoAsync(latest, ct).ConfigureAwait(false);
+        return latest is not null && await UndoAsync(latest, ct).ConfigureAwait(true);
     }
 
     /// <inheritdoc />
@@ -68,7 +68,7 @@ public sealed class UndoService(IToastService toasts) : IUndoService
             }
         }
 
-        var result = await entry.Undo(ct).ConfigureAwait(false);
+        var result = await entry.Undo(ct).ConfigureAwait(true);
         if (!result.IsOk)
         {
             toasts.Show(new ToastRequest(result.Error?.Message ?? "Could not undo that.", IsError: true));

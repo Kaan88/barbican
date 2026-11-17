@@ -8,6 +8,7 @@
       xmlns:glance="using:Barbican.App.Views.Glance"
       xmlns:context="using:Barbican.App.Views.Context"
       xmlns:signin="using:Barbican.App.Views.SignIn"
+      xmlns:actions="using:Barbican.App.Views.Actions"
       Background="{StaticResource Ground}">
   <!-- Regions only (PORT-PLAN.md §3.2), laid out as the WinUI prototype the user approved (prototype/winui/MainWindow.xaml):
        the title band the window's content is extended into; rail | sidebar | surface, where the surface holds message list | (summary tiles over) reader | sender panel.
@@ -34,6 +35,8 @@
       </Grid.ColumnDefinitions>
       <rail:RailView x:Name="RailRegion" Grid.Column="0" />
       <sidebar:SidebarView x:Name="SidebarRegion" Grid.Column="1" />
+      <!-- M2 plan 6.1: the pane handles sit on the edge of the sidebar and of the list (in this grid, so no layout changes); widths: PanesViewModel -->
+      <actions:PaneHandle x:Name="SidebarHandle" Grid.Column="1" Column="sidebar" Target="{x:Bind SidebarRegion}" AutomationProperties.AutomationId="pane.sidebar" />
       <Border x:Name="Surface" Grid.Column="2" AutomationProperties.AutomationId="surface" AutomationProperties.Name="Mail">
         <Grid x:Name="SurfaceGrid">
           <Grid.ColumnDefinitions>
@@ -42,6 +45,7 @@
             <ColumnDefinition Width="Auto" />
           </Grid.ColumnDefinitions>
           <list:MessageListView x:Name="ListRegion" Grid.Column="0" />
+          <actions:PaneHandle x:Name="ListHandle" Grid.Column="0" Column="email-list" Target="{x:Bind ListRegion}" AutomationProperties.AutomationId="pane.list" />
           <Grid x:Name="ReaderColumn" Grid.Column="1">
             <Grid.RowDefinitions>
               <RowDefinition Height="Auto" />

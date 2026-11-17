@@ -55,7 +55,7 @@ public sealed partial class MailActionService
 
         var wasArchive = list.Role == MailboxRole.Archive;
         var ids = Ids(targets);
-        var r = await MoveAsync(targets, inbox.Id, ct).ConfigureAwait(false);
+        var r = await MoveAsync(targets, inbox.Id, ct).ConfigureAwait(true);
         if (r.IsOk && wasArchive && ids.Length > 0)
         {
             hooks.Fire(HookNames.OnEmailUnarchive, () => new EmailUnarchivePayload(ids, inbox.Id));
@@ -76,7 +76,7 @@ public sealed partial class MailActionService
 
         var settings = Settings;
         if (targets.Count > 0 && settings.ConfirmArchive && !await confirmer.ConfirmAsync(
-                new ConfirmRequest(Count(targets.Count, "Archive this message?", "Archive " + targets.Count + " messages?"), "They move to the Archive folder.", "Archive", Danger: false), ct).ConfigureAwait(false))
+                new ConfirmRequest(Count(targets.Count, "Archive this message?", "Archive " + targets.Count + " messages?"), "They move to the Archive folder.", "Archive", Danger: false), ct).ConfigureAwait(true))
         {
             return Result<Unit>.Ok(default);
         }
@@ -87,7 +87,7 @@ public sealed partial class MailActionService
             true,
             (w, g, c) => ArchiveWriteAsync(w, g, archive.Id, settings.ArchiveMode, c),
             (ids, c) => AllowAsync(HookNames.OnBeforeEmailArchive, () => new EmailIdsPayload(ids), c),
-            ids => hooks.Fire(HookNames.OnEmailArchive, () => new EmailIdsPayload(ids))), ct).ConfigureAwait(false);
+            ids => hooks.Fire(HookNames.OnEmailArchive, () => new EmailIdsPayload(ids))), ct).ConfigureAwait(true);
     }
 
     /// <summary>Marks messages as spam (moves them to Junk and sets <c>$junk</c>) or not spam (back to the Inbox, <c>$notjunk</c>).</summary>
@@ -120,13 +120,13 @@ public sealed partial class MailActionService
         var settings = Settings;
         var permanent = targets.Where(t => IsPermanent(t, settings)).ToList();
         var soft = targets.Except(permanent).ToList();
-        if (!await ConfirmDeleteAsync(targets.Count, settings, ct).ConfigureAwait(false))
+        if (!await ConfirmDeleteAsync(targets.Count, settings, ct).ConfigureAwait(true))
         {
             return Result<Unit>.Ok(default);
         }
 
-        var first = soft.Count > 0 ? await SoftDeleteAsync(soft, settings, ct).ConfigureAwait(false) : Result<Unit>.Ok(default);
-        var second = permanent.Count > 0 ? await DestroyFlowAsync(permanent, ct).ConfigureAwait(false) : Result<Unit>.Ok(default);
+        var first = soft.Count > 0 ? await SoftDeleteAsync(soft, settings, ct).ConfigureAwait(true) : Result<Unit>.Ok(default);
+        var second = permanent.Count > 0 ? await DestroyFlowAsync(permanent, ct).ConfigureAwait(true) : Result<Unit>.Ok(default);
         return first.IsOk ? second : first;
     }
 
@@ -134,8 +134,8 @@ public sealed partial class MailActionService
     public async Task<Result<Unit>> DeleteForeverAsync(IReadOnlyList<MailTarget> targets, CancellationToken ct)
     {
         ArgumentNullException.ThrowIfNull(targets);
-        return await ConfirmDeleteAsync(targets.Count, Settings, ct).ConfigureAwait(false)
-            ? await DestroyFlowAsync(targets, ct).ConfigureAwait(false)
+        return await ConfirmDeleteAsync(targets.Count, Settings, ct).ConfigureAwait(true)
+            ? await DestroyFlowAsync(targets, ct).ConfigureAwait(true)
             : Result<Unit>.Ok(default);
     }
 
@@ -143,7 +143,7 @@ public sealed partial class MailActionService
     public async Task<Result<Unit>> RestoreAsync(IReadOnlyList<MailTarget> targets, CancellationToken ct)
     {
         ArgumentNullException.ThrowIfNull(targets);
-        var own = await OwnAddressesAsync(ct).ConfigureAwait(false);
+        var own = await OwnAddressesAsync(ct).ConfigureAwait(true);
         var outcome = Result<Unit>.Ok(default);
         foreach (var group in targets.GroupBy(t => RestoreRole(t, own)))
         {
@@ -154,7 +154,7 @@ public sealed partial class MailActionService
                 continue;
             }
 
-            var r = await MoveAsync([.. group], dest.Id, ct).ConfigureAwait(false);
+            var r = await MoveAsync([.. group], dest.Id, ct).ConfigureAwait(true);
             if (!r.IsOk && outcome.IsOk)
             {
                 outcome = r;
@@ -180,7 +180,7 @@ public sealed partial class MailActionService
         }
 
         var what = n == 1 ? "this message" : $"{n} messages";
-        return await confirmer.ConfirmAsync(new ConfirmRequest(n == 1 ? "Delete this message?" : $"Delete {n} messages?", $"Delete {what}?", "Delete"), ct).ConfigureAwait(false);
+        return await confirmer.ConfirmAsync(new ConfirmRequest(n == 1 ? "Delete this message?" : $"Delete {n} messages?", $"Delete {what}?", "Delete"), ct).ConfigureAwait(true);
     }
 
     private async Task<Result<Unit>> SoftDeleteAsync(IReadOnlyList<MailTarget> soft, ActionSettings s, CancellationToken ct)
@@ -200,7 +200,7 @@ public sealed partial class MailActionService
             true,
             (w, g, c) => alsoRead ? w.MoveWithKeywordsAsync(Ids(g), trash.Id, read, c) : w.MoveAsync(Ids(g), null, trash.Id, c),
             (ids, c) => AllowAsync(HookNames.OnBeforeEmailDelete, () => new EmailDeletePayload(ids, false), c),
-            ids => hooks.Fire(HookNames.OnAfterEmailDelete, () => new EmailDeletePayload(ids, false))), ct).ConfigureAwait(false);
+            ids => hooks.Fire(HookNames.OnAfterEmailDelete, () => new EmailDeletePayload(ids, false))), ct).ConfigureAwait(true);
     }
 
     private Task<Result<Unit>> DestroyFlowAsync(IReadOnlyList<MailTarget> targets, CancellationToken ct) =>
@@ -216,7 +216,7 @@ public sealed partial class MailActionService
     {
         if (string.Equals(mode, "single", StringComparison.Ordinal))
         {
-            return await writer.MoveAsync(Ids(group), null, archiveId, ct).ConfigureAwait(false);
+            return await writer.MoveAsync(Ids(group), null, archiveId, ct).ConfigureAwait(true);
         }
 
         var boxes = folders.Tree.All.ToList();
@@ -224,13 +224,13 @@ public sealed partial class MailActionService
         var byPath = group.GroupBy(t => string.Join('/', Core.Mail.Archive.ArchivePath.Of(list.Find(t.EmailId)?.ReceivedAt ?? time.GetUtcNow(), mode, time.LocalTimeZone)), StringComparer.Ordinal);
         foreach (var g in byPath)
         {
-            var dest = await Core.Mail.Archive.ArchiveFolders.EnsureAsync(writer, boxes, archiveId, g.Key.Length == 0 ? [] : g.Key.Split('/'), ct).ConfigureAwait(false);
+            var dest = await Core.Mail.Archive.ArchiveFolders.EnsureAsync(writer, boxes, archiveId, g.Key.Length == 0 ? [] : g.Key.Split('/'), ct).ConfigureAwait(true);
             if (!dest.IsOk)
             {
                 return Result<SetReport>.Fail(dest.Error!);
             }
 
-            var moved = await writer.MoveAsync(Ids(g), null, dest.Value!, ct).ConfigureAwait(false);
+            var moved = await writer.MoveAsync(Ids(g), null, dest.Value!, ct).ConfigureAwait(true);
             if (!moved.IsOk)
             {
                 return moved;
@@ -255,7 +255,7 @@ public sealed partial class MailActionService
 
     private async Task<IReadOnlySet<string>> OwnAddressesAsync(CancellationToken ct)
     {
-        var ids = active.Mail is { } mail ? await mail.GetIdentitiesAsync(ct).ConfigureAwait(false) : Result<IReadOnlyList<Identity>>.Ok([]);
+        var ids = active.Mail is { } mail ? await mail.GetIdentitiesAsync(ct).ConfigureAwait(true) : Result<IReadOnlyList<Identity>>.Ok([]);
         return ids.IsOk ? new HashSet<string>(ids.Value!.Select(i => i.Email ?? string.Empty).Where(e => e.Length > 0), StringComparer.OrdinalIgnoreCase) : new HashSet<string>(StringComparer.Ordinal);
     }
 }

@@ -8,8 +8,11 @@ using Barbican.Presentation.Actions;
 
 namespace Barbican.Presentation.Mail.Loading;
 
-/// <summary>The reader's mark-as-read, through the action service (hooks, optimistic row) without a toast or an undo entry.</summary>
-public sealed class LiveMailActions(MailActionService actions, IListEditor list, IMailWriterSource writers, IActiveMail active) : IMailActions
+/// <summary>
+/// The reader's mark-as-read, through the action service (hooks, optimistic row) without a toast or an undo entry. The service and the list are taken lazily:
+/// the reader's loader needs this object, and the list needs the reader (a direct dependency would be a cycle in the container).
+/// </summary>
+public sealed class LiveMailActions(Func<MailActionService> actions, Func<IListEditor> list, IMailWriterSource writers, IActiveMail active) : IMailActions
 {
     /// <inheritdoc />
     public bool CanWrite => active.AccountKey is { } key && writers.CanWrite(key);
@@ -22,8 +25,8 @@ public sealed class LiveMailActions(MailActionService actions, IListEditor list,
             return Task.FromResult(Result<Unit>.Fail(new ReadOnlyViolation("Email/set") { Message = "This account is read-only." }));
         }
 
-        var email = list.Find(emailId);
+        var email = list().Find(emailId);
         var target = new MailTarget(key, string.Empty, emailId, email?.ThreadId ?? string.Empty, emailId, email?.MailboxIds ?? new Dictionary<string, bool>(StringComparer.Ordinal), email?.Keywords ?? Keywords.None);
-        return actions.MarkOpenedReadAsync(target, ct);
+        return actions().MarkOpenedReadAsync(target, ct);
     }
 }

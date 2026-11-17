@@ -69,7 +69,7 @@ public sealed class DropController(MailActionService actions, IHookBus hooks) : 
     {
         ArgumentNullException.ThrowIfNull(targets);
         var ids = targets.Select(t => t.EmailId).ToArray();
-        var result = await actions.MoveAsync(targets, folderId, ct).ConfigureAwait(false);
+        var result = await actions.MoveAsync(targets, folderId, ct).ConfigureAwait(true);
         if (result.IsOk && targets.Any(t => !(t.MailboxIds.Count == 1 && t.MailboxIds.ContainsKey(folderId))))
         {
             hooks.Fire(HookNames.OnEmailDrop, () => new EmailDropPayload(ids, folderId));
@@ -84,7 +84,7 @@ public sealed class DropController(MailActionService actions, IHookBus hooks) : 
     {
         ArgumentNullException.ThrowIfNull(targets);
         var ids = targets.Select(t => t.EmailId).ToArray();
-        var result = await actions.SetTagAsync(targets, tagId, true, ct).ConfigureAwait(false);
+        var result = await actions.SetTagAsync(targets, tagId, true, ct).ConfigureAwait(true);
         if (result.IsOk)
         {
             hooks.Fire(HookNames.OnTagDrop, () => new TagDropPayload(ids, MailActionService.TagKeyword(tagId)));
@@ -97,7 +97,7 @@ public sealed class DropController(MailActionService actions, IHookBus hooks) : 
     /// <summary>A folder dropped on another: reorder or nest (cycles and role folders are refused with a message).</summary>
     public async Task<Result<Unit>> DropFolderAsync(string accountKey, string drag, string target, DropZone zone, CancellationToken ct)
     {
-        var result = await actions.MoveFolderAsync(accountKey, drag, target, zone, ct).ConfigureAwait(false);
+        var result = await actions.MoveFolderAsync(accountKey, drag, target, zone, ct).ConfigureAwait(true);
         EndDrag("folder", [drag], result.IsOk);
         return result;
     }

@@ -12,6 +12,6 @@ public sealed class DialogActionConfirmer(Func<IDialogService?> dialogs) : IActi
     {
         ArgumentNullException.ThrowIfNull(request);
         var host = dialogs();
-        return host is not null && await host.ShowAsync(request, ct).ConfigureAwait(false);
+        return host is not null && await host.ShowAsync(request, ct).ConfigureAwait(true);
     }
 }

@@ -15,7 +15,7 @@
        thread count, preview, attachment chips; unread first section; more on scroll. Rows come from MessageListViewModel.Rows (ListSync: only changed rows are touched).
        No item transitions, no selection animation (design/MOTION.md rules 1 and 3); a folder change lifts the rows once (Motion/Rise). -->
   <Border x:Name="Pane" Background="{x:Bind Look.PaneBrush, Mode=OneWay}" BorderBrush="{StaticResource Line}" BorderThickness="{x:Bind Look.PaneBorder, Mode=OneWay}"
-          CornerRadius="{x:Bind Look.ListRadius, Mode=OneWay}" Width="{x:Bind Look.ListWidth, Mode=OneWay}" AutomationProperties.AutomationId="list" AutomationProperties.Name="Messages">
+          CornerRadius="{x:Bind Look.ListRadius, Mode=OneWay}" AutomationProperties.AutomationId="list" AutomationProperties.Name="Messages">
     <Border BorderBrush="{StaticResource Line}" BorderThickness="{x:Bind Look.ListHairline, Mode=OneWay}" CornerRadius="{x:Bind Look.ListRadius, Mode=OneWay}">
       <Grid RowDefinitions="Auto,Auto,*">
         <Grid.Resources>
@@ -27,10 +27,17 @@
           <DataTemplate x:Key="MessageTemplate" x:DataType="mail:MessageRowViewModel">
             <!-- prototype rows: Bento avatar + sender 14 / subject 13.5 body / preview 12.5 faint; Nordic dot + sender 14 / subject 14 / preview 13 dim, indented 15 -->
             <Grid Padding="{x:Bind theme:StyleState.Current.MessageRowPadding, Mode=OneWay}" ColumnSpacing="{x:Bind theme:StyleState.Current.MessageRowSpacing, Mode=OneWay}"
-                  ColumnDefinitions="Auto,*">
+                  ColumnDefinitions="Auto,*" PointerEntered="OnRowEntered" PointerExited="OnRowExited" GotFocus="OnRowFocused">
               <Border Width="38" Height="38" VerticalAlignment="Top" Visibility="{x:Bind theme:StyleState.Current.ShowAvatar, Mode=OneWay}"
-                      CornerRadius="{x:Bind theme:StyleState.Current.AvatarRadius, Mode=OneWay}" Background="{x:Bind views:Fmt.TintBg(TintIndex)}">
-                <TextBlock Text="{x:Bind Initials}" FontSize="13" FontWeight="Bold" Foreground="{x:Bind views:Fmt.TintFg(TintIndex)}" HorizontalAlignment="Center" VerticalAlignment="Center" />
+                      CornerRadius="{x:Bind theme:StyleState.Current.AvatarRadius, Mode=OneWay}" Background="{x:Bind views:Fmt.TintBg(TintIndex)}" Tapped="OnAvatarTapped"
+                      AutomationProperties.AutomationId="row.tick" AutomationProperties.Name="Select message">
+                <Grid>
+                  <TextBlock Text="{x:Bind Initials}" FontSize="13" FontWeight="Bold" Foreground="{x:Bind views:Fmt.TintFg(TintIndex)}" HorizontalAlignment="Center" VerticalAlignment="Center" />
+                  <!-- the selectable avatar (selectable-avatar.tsx): a ticked row shows the check in place of the initials -->
+                  <Border Background="{StaticResource Accent}" CornerRadius="{x:Bind theme:StyleState.Current.AvatarRadius, Mode=OneWay}" Visibility="{x:Bind views:Fmt.Vis(IsChecked), Mode=OneWay}">
+                    <TextBlock Text="&#xE73E;" FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" FontSize="16" Foreground="{StaticResource OnAccent}" HorizontalAlignment="Center" VerticalAlignment="Center" />
+                  </Border>
+                </Grid>
               </Border>
               <StackPanel Grid.Column="1" Spacing="1" MinWidth="0">
                 <Grid ColumnDefinitions="Auto,*,Auto,Auto,Auto,Auto" ColumnSpacing="6">
@@ -66,6 +73,16 @@
                   </ItemsRepeater.ItemTemplate>
                 </ItemsRepeater>
               </StackPanel>
+              <!-- the hover strip (email-hover-actions.tsx): one frame in, no animation; real hover and keyboard focus show it, `hover-sim` drives it in automation -->
+              <Border Grid.Column="1" HorizontalAlignment="Right" VerticalAlignment="Top" Margin="0,-4,0,0" Padding="4" CornerRadius="10" Background="{StaticResource Popup}" BorderBrush="{StaticResource Line}"
+                      BorderThickness="1" Visibility="{x:Bind views:Fmt.Vis(IsHovered), Mode=OneWay}" AutomationProperties.AutomationId="row.strip" AutomationProperties.Name="Message actions">
+                <StackPanel Orientation="Horizontal" Spacing="2">
+                  <Button Style="{StaticResource Button.Chip}" Content="Delete" Tag="mail.delete" Click="OnStripClick" AutomationProperties.AutomationId="strip.delete" AutomationProperties.Name="Delete" />
+                  <Button Style="{StaticResource Button.Chip}" Content="Star" Tag="mail.toggle-star" Click="OnStripClick" AutomationProperties.AutomationId="strip.star" AutomationProperties.Name="Star" />
+                  <Button Style="{StaticResource Button.Chip}" Content="Read" Tag="mail.toggle-read" Click="OnStripClick" AutomationProperties.AutomationId="strip.read" AutomationProperties.Name="Read" />
+                  <Button Style="{StaticResource Button.Chip}" Content="Archive" Tag="mail.archive" Click="OnStripClick" AutomationProperties.AutomationId="strip.archive" AutomationProperties.Name="Archive" />
+                </StackPanel>
+              </Border>
             </Grid>
           </DataTemplate>
           <local:MessageRowTemplateSelector x:Key="RowSelector" MessageTemplate="{StaticResource MessageTemplate}" HeaderTemplate="{StaticResource HeaderTemplate}" />

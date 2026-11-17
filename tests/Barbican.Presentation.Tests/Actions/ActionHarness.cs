@@ -36,7 +36,7 @@ internal sealed class ActionHarness : IDisposable
         List = new MessageListViewModel(Active, Hub, Bus, Opener, Prefs, system, Motion, Time);
         Sidebar = new SidebarViewModel(List, Hub, Prefs, system, Bus);
         Writers = new FixedWriters(new MailWriter(client, server.Options.AccountId), !readOnly);
-        Toasts = new ToastService(Prefs, Time);
+        Toasts = new ToastService(Prefs, Time, dispatcher);
         Undo = new UndoService(Toasts);
         Confirmer = new ScriptedConfirmer();
         Actions = new MailActionService(Writers, Sidebar, List, Bus, Undo, Toasts, Prefs, Confirmer, Active, Time);

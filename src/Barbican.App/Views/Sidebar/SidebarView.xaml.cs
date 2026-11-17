@@ -20,8 +20,10 @@ public sealed partial class SidebarView : UserControl
         SlotHost.Fill(AccountHeaderSlot, SlotNames.SidebarAccountHeader);
         SlotHost.Fill(UnifiedSectionSlot, SlotNames.SidebarUnified);
         SlotHost.Fill(SharedSectionSlot, SlotNames.SidebarShared);
+        Panes = ViewHost.Get<PanesViewModel>();
         ApplyStyle();
         Look.PropertyChanged += (_, _) => ApplyStyle();
+        Panes.PropertyChanged += (_, _) => ApplyStyle();
         Sidebar.PropertyChanged += OnSidebarChanged;
         Sidebar.Folders.CollectionChanged += OnFoldersChanged;
         Loaded += (_, _) => SyncSelection();
@@ -31,9 +33,18 @@ public sealed partial class SidebarView : UserControl
 
     public StyleState Look { get; }
 
+    /// <summary>The saved pane widths (panes.json, read once at start): 0 keeps the style's own width.</summary>
+    public PanesViewModel Panes { get; }
+
     // The item containers differ per style; they are swapped once per style change, not per row. Tags are rows in both styles (prototype labels).
     private void ApplyStyle()
     {
+        var width = Panes.SidebarWidth > 0 ? Panes.SidebarWidth : Look.SidebarWidth;
+        if (Math.Abs(Pane.Width - width) > 0.01 || double.IsNaN(Pane.Width))
+        {
+            Pane.Width = width;
+        }
+
         var style = Look.FolderItemStyle;
         if (!ReferenceEquals(FolderList.ItemContainerStyle, style))
         {

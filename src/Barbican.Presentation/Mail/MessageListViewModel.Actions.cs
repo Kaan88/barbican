@@ -18,6 +18,7 @@ public sealed partial class MessageListViewModel : IListEditor, IMailSelection
     private string? _anchorId;
     private string? _cursorId;
     private bool _allInFolder;
+    private string? _hoverId;
 
     /// <summary>The selection changed (ticks, the open message): the selection bar, the menus and the palette read <see cref="Current"/> again.</summary>
     public event EventHandler? Changed;
@@ -59,6 +60,22 @@ public sealed partial class MessageListViewModel : IListEditor, IMailSelection
 
     /// <summary>The ticked messages, or else the open one; empty when neither.</summary>
     public IReadOnlyList<MailTarget> Current => TargetsOf(_checked.Count > 0 ? Messages.Where(r => _checked.Contains(r.Id)) : Messages.Where(r => string.Equals(r.Id, _selectedId, StringComparison.Ordinal)));
+
+    /// <summary>The id of the row whose hover strip shows, or null (the automation `hover-sim` and the pointer set it; real hover is a hand test).</summary>
+    public string? HoverId => _hoverId;
+
+    /// <summary>The pointer or keyboard focus entered (or left, with null) a row: only that row shows its strip.</summary>
+    public void SetHover(string? emailId)
+    {
+        if (string.Equals(_hoverId, emailId, StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        _hoverId = emailId;
+        ApplyChecks();
+        OnPropertyChanged(nameof(HoverId));
+    }
 
     /// <summary>Ctrl-click and the row tick: flips one message and makes it the anchor of the next Shift range.</summary>
     public void ToggleCheck(MessageRowViewModel row)
@@ -279,6 +296,13 @@ public sealed partial class MessageListViewModel : IListEditor, IMailSelection
         RebuildRows();
     }
 
+    /// <summary>The target of one row (the hover strip, a drag, a menu on that row).</summary>
+    public MailTarget TargetOf(MessageRowViewModel row)
+    {
+        ArgumentNullException.ThrowIfNull(row);
+        return Target(row.Summary);
+    }
+
     private static int IndexOf(List<MessageRowViewModel> rows, string id) => rows.FindIndex(r => string.Equals(r.Id, id, StringComparison.Ordinal));
 
     /// <summary>The message after <paramref name="current"/> that is not among <paramref name="ids"/>, else the one before it (Rust next_after :871).</summary>
@@ -309,6 +333,12 @@ public sealed partial class MessageListViewModel : IListEditor, IMailSelection
             if (row.IsChecked != on)
             {
                 row.IsChecked = on;
+            }
+
+            var hover = string.Equals(row.Id, _hoverId, StringComparison.Ordinal);
+            if (row.IsHovered != hover)
+            {
+                row.IsHovered = hover;
             }
         }
     }

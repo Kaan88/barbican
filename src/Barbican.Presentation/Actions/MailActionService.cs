@@ -38,7 +38,7 @@ public sealed partial class MailActionService(
         Result<Unit> outcome = Result<Unit>.Ok(default);
         foreach (var group in targets.GroupBy(t => t.AccountKey, StringComparer.Ordinal))
         {
-            var r = await run(group.Key, [.. group]).ConfigureAwait(false);
+            var r = await run(group.Key, [.. group]).ConfigureAwait(true);
             if (!r.IsOk && outcome.IsOk)
             {
                 outcome = r;

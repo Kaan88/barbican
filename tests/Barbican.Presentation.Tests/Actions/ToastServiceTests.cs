@@ -13,7 +13,7 @@ public sealed class ToastServiceTests
     private static (ToastService Toasts, FakeTimeProvider Time) Make(string prefs = "{}")
     {
         var time = new FakeTimeProvider(Mails.Now);
-        return (new ToastService(new TestPrefs(prefs), time), time);
+        return (new ToastService(new TestPrefs(prefs), time, new Barbican.Presentation.Common.InlineDispatcher()), time);
     }
 
     [Fact]

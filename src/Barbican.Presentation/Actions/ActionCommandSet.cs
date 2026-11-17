@@ -71,7 +71,7 @@ public static class ActionCommandSet
 
     /// <summary>The targets a command acts on: the ones the surface names, else the list's selection (all of the folder's when "select all" was taken).</summary>
     private static async Task<IReadOnlyList<MailTarget>> TargetsAsync(CommandContext c, MessageListViewModel list, CancellationToken ct) =>
-        c.Targets.Count > 0 ? c.Targets : await list.ResolveTargetsAsync(ct).ConfigureAwait(false);
+        c.Targets.Count > 0 ? c.Targets : await list.ResolveTargetsAsync(ct).ConfigureAwait(true);
 
     private static IReadOnlyList<MailTarget> Known(CommandContext c, MessageListViewModel list) => c.Targets.Count > 0 ? c.Targets : list.Current;
 
@@ -82,7 +82,7 @@ public static class ActionCommandSet
     }
 
     private static ActionCommand Mail(string id, MessageListViewModel list, IMailWriterSource writers, Func<IReadOnlyList<MailTarget>, bool>? when, Func<IReadOnlyList<MailTarget>, CommandContext, CancellationToken, Task<Result<Unit>>> run) =>
-        new(id, c => Writable(c, list, writers, when), async (c, ct) => await run(await TargetsAsync(c, list, ct).ConfigureAwait(false), c, ct).ConfigureAwait(false));
+        new(id, c => Writable(c, list, writers, when), async (c, ct) => await run(await TargetsAsync(c, list, ct).ConfigureAwait(true), c, ct).ConfigureAwait(true));
 
     private static IEnumerable<IAppCommand> MailCommands(MailActionService a, MessageListViewModel list, IMailWriterSource w)
     {
@@ -119,13 +119,13 @@ public static class ActionCommandSet
         yield return new ActionCommand(CommandIds.MarkFolderRead, c => Can(c, "maySetSeen"), (c, ct) => a.MarkFolderReadAsync(c.Mailbox!, string.Equals(c.Argument, "children", StringComparison.Ordinal), ct));
         yield return new ActionCommand(CommandIds.EmptyTrash, c => RoleRef(MailboxRole.Trash, Account(c)) is { } r && w.CanWrite(r.AccountKey), (c, ct) => a.EmptyFolderAsync(RoleRef(MailboxRole.Trash, Account(c))!, ct));
         yield return new ActionCommand(CommandIds.EmptySpam, c => RoleRef(MailboxRole.Junk, Account(c)) is { } r && w.CanWrite(r.AccountKey), (c, ct) => a.EmptyFolderAsync(RoleRef(MailboxRole.Junk, Account(c))!, ct));
-        yield return new ActionCommand(CommandIds.NewFolder, c => Account(c) is { } k && w.CanWrite(k), async (c, ct) => (await a.CreateFolderAsync(Account(c)!, c.Argument ?? string.Empty, null, ct).ConfigureAwait(false)).Map(_ => default(Unit)));
-        yield return new ActionCommand(CommandIds.NewSubfolder, c => Can(c, "mayCreateChild"), async (c, ct) => (await a.CreateFolderAsync(c.Mailbox!.AccountKey, c.Argument ?? string.Empty, c.Mailbox.MailboxId, ct).ConfigureAwait(false)).Map(_ => default(Unit)));
+        yield return new ActionCommand(CommandIds.NewFolder, c => Account(c) is { } k && w.CanWrite(k), async (c, ct) => (await a.CreateFolderAsync(Account(c)!, c.Argument ?? string.Empty, null, ct).ConfigureAwait(true)).Map(_ => default(Unit)));
+        yield return new ActionCommand(CommandIds.NewSubfolder, c => Can(c, "mayCreateChild"), async (c, ct) => (await a.CreateFolderAsync(c.Mailbox!.AccountKey, c.Argument ?? string.Empty, c.Mailbox.MailboxId, ct).ConfigureAwait(true)).Map(_ => default(Unit)));
         yield return new ActionCommand(CommandIds.RenameFolder, c => Can(c, "mayRename"), (c, ct) => a.RenameFolderAsync(c.Mailbox!.AccountKey, c.Mailbox.MailboxId, c.Argument ?? string.Empty, ct));
         yield return new ActionCommand(CommandIds.DeleteFolder, c => Can(c, "mayDelete"), (c, ct) => a.DeleteFolderAsync(c.Mailbox!.AccountKey, c.Mailbox.MailboxId, ct));
         yield return new ActionCommand(CommandIds.RefreshFolder, _ => true, async (_, _) =>
         {
-            await list.ReloadAsync().ConfigureAwait(false);
+            await list.ReloadAsync().ConfigureAwait(true);
             return Done;
         });
     }
@@ -156,7 +156,7 @@ public static class ActionCommandSet
         });
         yield return new ActionCommand(CommandIds.RefreshList, _ => true, async (_, _) =>
         {
-            await list.ReloadAsync().ConfigureAwait(false);
+            await list.ReloadAsync().ConfigureAwait(true);
             return Done;
         });
     }
@@ -164,7 +164,7 @@ public static class ActionCommandSet
     private static ActionCommand Undo(IUndoService undo) =>
         new(CommandIds.Undo, _ => undo.History.Count > 0, async (_, ct) =>
         {
-            await undo.UndoLatestAsync(ct).ConfigureAwait(false);
+            await undo.UndoLatestAsync(ct).ConfigureAwait(true);
             return Done;
         });
 

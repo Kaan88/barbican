@@ -10,6 +10,7 @@ namespace Barbican.Presentation.Mail;
 public sealed class MessageRowViewModel : ListItemViewModel
 {
     private bool _isChecked;
+    private bool _isHovered;
 
     public MessageRowViewModel(EmailSummary summary)
         : this(summary, new RowContext())
@@ -51,6 +52,13 @@ public sealed class MessageRowViewModel : ListItemViewModel
     {
         get => _isChecked;
         set => SetProperty(ref _isChecked, value);
+    }
+
+    /// <summary>The pointer (or keyboard focus) is on the row: its hover strip shows (I-131..I-137). The list sets it; one row at a time.</summary>
+    public bool IsHovered
+    {
+        get => _isHovered;
+        set => SetProperty(ref _isHovered, value);
     }
 
     public override string Key => Summary.Id;

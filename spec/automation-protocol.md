@@ -77,7 +77,12 @@ Write-capable test commands (`rx-import`, `rx-find`, `rx-destroy`) exist only in
 ## M2 commands (planned; each owner fills the meaning and appends the row in the commit that adds the command, M2 plan 4.7)
 | Command | Owner | Meaning (to be written) |
 |---|---|---|
-| `dnd-sim SRC DST`, `hover-sim ROW\|off`, `pane-set SIDE LIST`, `select ROWID [shift\|ctrl]`, `toast-last` | actions | planned |
+| `select ROWID [shift\|ctrl]` | actions | the list path a click takes: plain opens the row, `ctrl` ticks it (`ToggleCheck`), `shift` ticks the range from the anchor (`ExtendTo`); ROWID is a message id or `#N` (0-based among the loaded messages); replies `ok ID checked=N` |
+| `act COMMAND [ARGUMENT]` | actions | runs a registered `IAppCommand` through the registry as a menu or the selection bar does (`CommandSurface.Automation`) on the list's selection; `ok ID`, `disabled ID` or `error TEXT`. The keys Delete and z belong to the key tables of stream menus; this is how the actions scenarios run them until those call the commands |
+| `dnd-sim SRC DST` | actions | the drop path of a real drop (`DropController`): SRC a row (`#N`, id) or `folder:ID\|ROLE`; DST `folder:ID\|ROLE`, `folder:ID:before\|after\|inside`, `tag:ID`; a dragged row stands for the ticked rows when it is one of them; replies `ok folder N`, `ok tag N` or `error TEXT` |
+| `hover-sim ROW\|off` | actions | sets the row whose hover strip shows (the state a pointer entering the row sets); real hover is a hand test |
+| `pane-set SIDE LIST` | actions | `PanesViewModel.Resize` + `Commit` for both panes (clamped 180-400 and 240-600, written to `panes.json` in the profile's config directory); replies `ok sidebar=N list=N` |
+| `toast-last` | actions | `ok MESSAGE\|ACTIONLABEL\|error\|info\|visible\|gone` for the toast shown last, or `none` |
 | `menu-open MENU TARGET`, `menu-pick LABEL`, `menu-items`, `palette TEXT`, `palette-pick N`, `dialog-state`, `key CHORD` | menus | planned |
 | `rx-banners`, `banner-act ID ACTION`, `source-text`, `avatar-state EMAIL` | reader | planned |
 | `rx-import`, `rx-find`, `rx-destroy` | reader | planned, `AUTOMATION_WRITES` builds only |

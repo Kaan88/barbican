@@ -23,20 +23,26 @@ public sealed class ToastService : IToastService, IDisposable
 
     private readonly IPrefsStore _prefs;
     private readonly TimeProvider _time;
+    private readonly IDispatcher _dispatcher;
     private readonly Dictionary<long, ITimer> _timers = [];
     private readonly Lock _lock = new();
     private long _next;
 
-    public ToastService(IPrefsStore prefs, TimeProvider time)
+    public ToastService(IPrefsStore prefs, TimeProvider time, IDispatcher dispatcher)
     {
         ArgumentNullException.ThrowIfNull(prefs);
         ArgumentNullException.ThrowIfNull(time);
+        ArgumentNullException.ThrowIfNull(dispatcher);
         _prefs = prefs;
         _time = time;
+        _dispatcher = dispatcher;
     }
 
     /// <summary>A message was shown: the host raises a Narrator notification (RaiseNotificationEvent) with it.</summary>
     public event EventHandler<ToastAnnouncedEventArgs>? Announced;
+
+    /// <summary>The toast shown last, even after it left the screen (the automation toast-last command).</summary>
+    public ToastItem? LastShown { get; private set; }
 
     /// <summary>The toasts on screen, oldest first. Changed in place; the host binds to it.</summary>
     public BulkObservableCollection<ToastItem> Toasts { get; } = [];
@@ -57,6 +63,7 @@ public sealed class ToastService : IToastService, IDisposable
 
             item = new ToastItem(new ToastHandle(++_next), toast);
             Toasts.Add(item);
+            LastShown = item;
             while (Toasts.Count > MaxVisible)
             {
                 DismissLocked(Toasts[0].Handle);
@@ -65,7 +72,8 @@ public sealed class ToastService : IToastService, IDisposable
             if (DurationOf(toast) is { } after)
             {
                 var handle = item.Handle;
-                _timers[handle.Id] = _time.CreateTimer(_ => Dismiss(handle), null, after, Timeout.InfiniteTimeSpan);
+                // the collection is bound to the UI: a timer fires on a pool thread, the removal goes to the UI thread
+                _timers[handle.Id] = _time.CreateTimer(_ => _dispatcher.Post(() => Dismiss(handle)), null, after, Timeout.InfiniteTimeSpan);
             }
         }
 
