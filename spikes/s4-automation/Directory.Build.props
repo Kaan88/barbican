@@ -1,0 +1,4 @@
+<Project>
+  <!-- Spike code: reference only, outside Barbican.slnx, no strictness (it does not import the repo's
+       Directory.Build.props). Build: tools/build.ps1 build -Project spikes/s4-automation/S4.csproj -->
+</Project>

@@ -1,0 +1,15 @@
+{
+  "_comment": "Logical-px coordinates for tools/motion.py on the S4 spike window (1100x720): list rows are 51 px apart; Compose and the Dark checkbox stand in for the rail items.",
+  "prep": [],
+  "list_x": 100,
+  "list_y0": 40,
+  "row_h": 51,
+  "idle_x": 900,
+  "idle_y": 600,
+  "rail_x": 330,
+  "rail_cal_y": 25,
+  "rail_mail_y": 25,
+  "dialog_setup": [],
+  "dialog_open": [],
+  "dialog_close": []
+}
