@@ -50,6 +50,8 @@ public static class PlatformServices
         services.TryAddSingleton<IAccountVault>(sp => new SecretAccountVault(sp.GetRequiredService<ISecretStore>()));
 #if WINDOWS
         services.TryAddSingleton<ILegacyCredentialSource, WindowsLegacyCredentialSource>();
+        // M3 editor-core: the spell checker behind ISpellEngine is Windows' ISpellChecker (replaces the empty default of AddBarbicanEditorCore; Linux keeps it until M9)
+        services.Replace(ServiceDescriptor.Singleton<Barbican.Core.Editor.Spell.ISpellCheckerFactory, Barbican.Platform.Windows.Spelling.WindowsSpellCheckerFactory>());
         services.TryAddSingleton<ILegacyAccountImport>(sp => new RustCredentialImport(
             sp.GetRequiredService<ILegacyCredentialSource>(), sp.GetRequiredService<ISecretStore>(), sp.GetRequiredService<IProfilePaths>()));
 #endif

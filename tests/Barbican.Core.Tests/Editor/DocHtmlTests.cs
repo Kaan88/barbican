@@ -3,13 +3,12 @@ using Barbican.Core.Editor;
 
 namespace Barbican.Core.Tests.Editor;
 
-/// <summary>The 12 tests of Rust src/rte/html.rs (its tests, quote_tests and source_tests modules), ported one to one (M3 stream editor-core). Red until HTML import and export land.</summary>
+/// <summary>The 12 tests of Rust src/rte/html.rs (its tests, quote_tests and source_tests modules), ported one to one (M3 stream editor-core).</summary>
 public sealed class DocHtmlTests
 {
     private static List<string> Texts(IEnumerable<Block> b) => [.. b.Select(x => x.Text)];
 
     [Fact]
-    [Red("editor-core")]
     [RustTest("rte::html::import_inline_marks")]
     public void Import_inline_marks()
     {
@@ -23,7 +22,6 @@ public sealed class DocHtmlTests
     }
 
     [Fact]
-    [Red("editor-core")]
     [RustTest("rte::html::import_blocks_and_lists")]
     public void Import_blocks_and_lists()
     {
@@ -39,7 +37,6 @@ public sealed class DocHtmlTests
     }
 
     [Fact]
-    [Red("editor-core")]
     [RustTest("rte::html::import_table")]
     public void Import_table()
     {
@@ -51,7 +48,6 @@ public sealed class DocHtmlTests
     }
 
     [Fact]
-    [Red("editor-core")]
     [RustTest("rte::html::import_whitespace_and_entities")]
     public void Import_whitespace_and_entities()
     {
@@ -62,7 +58,6 @@ public sealed class DocHtmlTests
     }
 
     [Fact]
-    [Red("editor-core")]
     [RustTest("rte::html::round_trip")]
     public void Round_trip()
     {
@@ -76,7 +71,6 @@ public sealed class DocHtmlTests
     }
 
     [Fact]
-    [Red("editor-core")]
     [RustTest("rte::html::plain_text_output")]
     public void Plain_text_output()
     {
@@ -85,7 +79,6 @@ public sealed class DocHtmlTests
     }
 
     [Fact]
-    [Red("editor-core")]
     [RustTest("rte::html::export_escapes")]
     public void Export_escapes()
     {
@@ -95,7 +88,6 @@ public sealed class DocHtmlTests
     }
 
     [Fact]
-    [Red("editor-core")]
     [RustTest("rte::html::quoted_round_trip")]
     public void Quoted_round_trip()
     {
@@ -115,7 +107,6 @@ public sealed class DocHtmlTests
     }
 
     [Fact]
-    [Red("editor-core")]
     [RustTest("rte::html::clean_quote")]
     public void Clean_quote()
     {
@@ -124,7 +115,6 @@ public sealed class DocHtmlTests
     }
 
     [Fact]
-    [Red("editor-core")]
     [RustTest("rte::html::source_round_trip")]
     public void Source_round_trip()
     {
@@ -157,7 +147,6 @@ public sealed class DocHtmlTests
     }
 
     [Fact]
-    [Red("editor-core")]
     [RustTest("rte::html::source_edit_keeps_inline_image_data")]
     public void Source_edit_keeps_inline_image_data()
     {
@@ -187,7 +176,6 @@ public sealed class DocHtmlTests
     }
 
     [Fact]
-    [Red("editor-core")]
     [RustTest("rte::html::image_width_round_trip")]
     public void Image_width_round_trip()
     {
