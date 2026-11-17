@@ -5,7 +5,20 @@
     <ProjectReference Include="../../src/Barbican.Core/Barbican.Core.csproj" />
     <!-- m1-jmap: the fake JMAP server, the virtual clock (push backoff and deadlines) and coverage. -->
     <ProjectReference Include="../Barbican.FakeJmap/Barbican.FakeJmap.csproj" />
+    <!-- m2-plugins (T-206): the bundled spam-score plugin is built beside the tests, not referenced, and copied to <output>/plugins/spam-score/. -->
+    <ProjectReference Include="../../plugins/Barbican.Plugin.SpamScore/Barbican.Plugin.SpamScore.csproj" ReferenceOutputAssembly="false" Private="false" />
     <PackageReference Include="Microsoft.Extensions.TimeProvider.Testing" />
     <PackageReference Include="Microsoft.Testing.Extensions.CodeCoverage" />
   </ItemGroup>
+
+  <!-- Copies the plugin's build output (the dll and its pdb) next to the tests so the plugin host test loads the real build. -->
+  <Target Name="CopySpamScorePlugin" AfterTargets="Build">
+    <PropertyGroup>
+      <SpamScoreDir>$(MSBuildThisFileDirectory)../../plugins/Barbican.Plugin.SpamScore/bin/$(Configuration)/net10.0/</SpamScoreDir>
+    </PropertyGroup>
+    <ItemGroup>
+      <SpamScoreFiles Include="$(SpamScoreDir)Barbican.Plugin.SpamScore.dll;$(SpamScoreDir)Barbican.Plugin.SpamScore.pdb" />
+    </ItemGroup>
+    <Copy SourceFiles="@(SpamScoreFiles)" DestinationFolder="$(OutDir)plugins/spam-score" SkipUnchangedFiles="true" />
+  </Target>
 </Project>

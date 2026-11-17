@@ -14,6 +14,10 @@
     <Project Path="src/Barbican.Platform.Linux/Barbican.Platform.Linux.csproj" />
     <Project Path="src/Barbican.Automation/Barbican.Automation.csproj" />
     <Project Path="src/Barbican.App/Barbican.App.csproj" />
+    <Project Path="src/Barbican.Plugins.Abstractions/Barbican.Plugins.Abstractions.csproj" />
+  </Folder>
+  <Folder Name="/plugins/">
+    <Project Path="plugins/Barbican.Plugin.SpamScore/Barbican.Plugin.SpamScore.csproj" />
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/Barbican.Core.Tests/Barbican.Core.Tests.csproj" />

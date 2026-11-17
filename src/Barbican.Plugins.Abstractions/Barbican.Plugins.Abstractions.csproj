@@ -1,0 +1,9 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- The native .NET plugin API (M2 plan 3.2): plugins reference only this project; Core references it too.
+       Mirrors Bulwark lib/plugin-types.ts (hook payloads) and the Rust plugin ABI (docs/legacy/PLUGINS.md: manifest, email.details rows). -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <RootNamespace>Barbican.Plugins</RootNamespace>
+    <IsAotCompatible>true</IsAotCompatible>
+  </PropertyGroup>
+</Project>
