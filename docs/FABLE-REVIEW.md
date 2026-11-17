@@ -704,3 +704,76 @@ launched; Linux unverified). For the next Fable pass, in this order:
 - **R2-10.** The hook catalogue's per-hook budget and fail-closed flag before the first send guard (M3) and the plugin hosts (M6b).
 - **Not reviewed in this pass** (say so at the gate): the shell-ui layout, motion and theme code, `X11BodyOverlay.cs`, the Linux
   secret store at run time, items 24 to 39 of the verify-stage list.
+
+## m1-fix-2 (stream: m1-fix-2)
+
+This stream fixes Fable review 2 R2-01 to R2-05 on branch `m1-fix-2`, taken from `m1` at `1c34da4`, and merges them into `m1`.
+- Commits: `8623ecd` (R2-01, R2-02), `a56f335` (R2-03, R2-05, the R2-02 list state) and `675a7c4` (R2-04).
+- E-3 and E-4 are implemented as the review's recommended defaults; the user has not confirmed either yet.
+- R2-06 to R2-14 are not touched; each is owed before its milestone (M1.md §5).
+- Windows: `tools/build.ps1 test` ran 956 tests: 952 passed, 4 skipped, 0 failed. Linux pending (VM unreachable).
+- No real account was used. Every account check ran against FakeJmap.
+
+For the next Fable pass, in this order:
+
+- [ ] **R2-01: the latch. Does a refusal really stop every request of that account?**
+  - **Why:** Stalwart counts every failed login toward a ban of the client address.
+  - **Design:** `Core/Auth/AuthLatch.cs` wraps the token source of every client that `JmapClientFactory` and the sign-in paths
+    build.
+    - It closes on any `AuthError { NeedsSignIn: true }` from the inner source, which includes a refused refresh token.
+    - It also closes when `AuthorizedHttp` gets a 401 after a renewed header (`Core/Jmap/Transport/AuthorizedHttp.cs`).
+  - **Check:**
+    - that no request path skips the latch;
+    - that `MailSync` stops the push stream, the poll and the debounced syncs (`StopForSignIn` in `Core/Sync/MailSync.Push.cs`
+      and `MailSync.cs`);
+    - that `AccountManager.OnRefused` stops the unread timer for an inactive account.
+  - **Known:**
+    - requests already in flight when the refusal lands can each still get one 401;
+    - the refused session is moved to `_retired` and disposed only with the manager.
+  - **Tests:** `tests/Barbican.Core.Tests/Auth/AuthLatchTests.cs`, which counts `FakeJmapServer.Refused`, and
+    `Accounts/AccountManagerTests.cs`.
+- [ ] **R2-02: start-up without a network, and the retry loop.**
+  - **Design:** `AccountManager.RestoreAsync` connects every remembered account at once and activates the first one, in
+    remembered order, that connects. When every account failed only because its server could not be reached, the first one
+    opens without a session ("connecting", E-3).
+  - **Retry:** `RetryAsync` runs on `TimeProvider` (2 s doubling to 60 s) and connects the accounts that are unreachable and not
+    refused. When an account connects, `Attach` raises `ActiveChanged(info, info)` for the active one, so the mail reloads.
+  - **Check:**
+    - that the loop ends when nothing needs it;
+    - that it never retries a refused account;
+    - that the same-key `ActiveChanged` (also raised with `renewed: true` after a new sign-in) is handled everywhere it is
+      listened to;
+    - `SwitchToAsync` connecting the active account that has no session.
+  - **UI:** `MessageListViewModel.IsConnecting` and `MessageListView` show "Connecting…".
+- [ ] **R2-03 and the shell's choice of screen.**
+  - **Paths:** `App/Shell/ShellPage.xaml.cs` (`ShowScreen`, `Back`, `WireAccounts`), `App/Views/SignIn/SignInView.xaml(.cs)`,
+    `App/Views/Accounts/AccountPopoverView.xaml(.cs)`, and `Presentation/Accounts/SignInViewModel.cs` (`Prefill`, `Submit`,
+    `CanLeave`, `LeaveCommand`).
+  - The refused account on screen gets the form, filled in once per refusal.
+  - A refused row in the popover raises `AccountsViewModel.SignInRequested`.
+  - Cancel leaves the form only for "Add account", for a request from a row, or when another account exists.
+  - **Judge:** whether `_offered`/`_dismissed` can trap the user on the form or hide a needed one. The views are unproven on
+    screen (HAND TEST 1).
+- [ ] **R2-04 on both OSes.**
+  - **Sanitizer:** `Core/Mail/Body/MailSanitizer.cs` (`Unname`) drops `name` on `img` and its `id`. `<a name>` and a plain
+    `<img id>` stay.
+  - **Shell:** `App/Assets/mail/shell.js` reads the frame document through `Document.prototype` getters, uses `EventTarget.prototype.addEventListener` and
+    `Element.prototype.setAttribute`, keeps its marks in WeakSets (`handled`, `finished`), and `reveal` refuses an unfinished
+    frame.
+  - **Host:** `App/MailBody/BodyShell.cs` `GiveUp` sends `MailPageBuilder.Error` once; if that is not ready in time either,
+    `Ready` runs and the shell refuses the reveal, so the old page stays.
+  - **Evidence:** the hidden probe `spec/feel/M1/verify/r2-04-probe.json` sent a page with `img name=URL/body/querySelectorAll/...` and
+    `form name=documentElement` straight to `__bb.show`, without the sanitizer: it finished and was revealed.
+  - **Not covered:**
+    - `email_dark.js` still uses `doc.body`, `doc.documentElement` and `doc.defaultView`, which are safe only because the sanitizer runs
+      first. Bringing it to the prototype pattern would mean diverging from the verbatim Rust/Bulwark port. Decide.
+    - In `size()`, `b.querySelectorAll` runs on the body element, which named access does not reach.
+    - The give-up path was not exercised at run time.
+    - Linux / WebKitGTK.
+- [ ] **R2-05: the focus heuristic.**
+  - **Paths:** `App/Shell/KeyGate.cs` (the tested rule) and `ShellPage.Activates`, which treats a `ButtonBase`, `ComboBox`,
+    `ToggleSwitch`, or a `SelectorItem` outside `ListRegion` as owning the key.
+  - **Check:** controls that may be missing (`HyperlinkButton` is a `ButtonBase`; an `Expander` header; a `NavigationViewItem`),
+    and that Enter on a message row still opens it.
+  - The real keyboard path is a hand test.
+
