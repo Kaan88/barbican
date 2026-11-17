@@ -20,7 +20,10 @@ public sealed class HookBusTests
         var before = GC.GetAllocatedBytesForCurrentThread();
         await RunAsync(bus, payload, 10_000);
         var allocated = GC.GetAllocatedBytesForCurrentThread() - before;
-        Assert.True(allocated < 1024, $"{allocated} bytes allocated by 10000 calls with no handler");
+
+        // Under one byte per call: any per-call allocation (24 bytes at least) would show as 240 KB or more. A fixed few KB once
+        // (tiered JIT swapping in optimised code during the loop) is not per call; the 1 KB bound of the first version failed on it (M1 verify).
+        Assert.True(allocated < 10_000, $"{allocated} bytes allocated by 10000 calls with no handler");
     }
 
     private static async Task RunAsync(HookBus bus, Payload payload, int times)

@@ -63,6 +63,8 @@ public partial class BarbicanApp : Application
         }
 
         _window.Content = content;
+        // Window activation, visibility and closing reach the shell ViewModel (onWindowFocus/Blur, onVisibilityChange, onBeforeUnload).
+        _host.Services.GetRequiredService<Shell.ShellLifecycle>().AttachWindow(_window);
         switch (options.Mode)
         {
             case HiddenWindowMode.OffScreen:

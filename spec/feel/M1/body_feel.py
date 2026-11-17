@@ -86,6 +86,7 @@ def measure(d, out, name, actions, w, h, want=None):
         "frames": fl.get("frames"),
         "blank": fl.get("blank"),
         "flash": fl.get("flash"),
+        "empty": fl.get("empty"),
     }
 
 

@@ -19,7 +19,7 @@ I-017,Rail and account menu,Unified inbox row in menu,account-switcher.tsx:409,M
 I-018,Rail and account menu,MV popover add/default/sign-out items,account-switcher.tsx:548-578,M,M,carried,add only,todo,M2,
 I-019,Rail and account menu,Rail app links + unsaved-changes leave guard,navigation-rail.tsx:693,P,P,confirmed,Tasks rail button when Tasks app on (PARITY-ROUND2 calendar); still no leave guard,todo,M2,
 I-020,Rail and account menu,Mail rail unread badge,navigation-rail.tsx:712-724,M,M,carried,—,done,M1,"rail.mail.badge (UIA tree), docs/milestones/M1-screens/bento-dark-normal.png"
-I-021,Rail and account menu,Rail item tooltips,navigation-rail.tsx:716,M,M,carried,`tip` is accessible label only,todo,M1,
+I-021,Rail and account menu,Rail item tooltips,navigation-rail.tsx:716,M,M,carried,`tip` is accessible label only,todo,M1,"M1 verify: Tip host wired by the shell-ui review; hover cannot be injected in-process (ADR 0007), so tooltips are HAND TEST 1"
 I-022,Rail and account menu,Compose on rail (composePlacement),navigation-rail.tsx:647,M,M,carried,setting inert,todo,M6,
 I-023,Rail and account menu,Search rail button / global search,navigation-rail.tsx:671,P,P,confirmed,"Ctrl+K palette has Search everything (palette.rs, gsearch.rs); no rail search button",todo,M2,
 I-024,Rail and account menu,Plugin page links / custom sidebar apps / Add app,"navigation-rail.tsx:738,777,808",M,M,carried,—,todo,M2,
@@ -28,7 +28,7 @@ I-026,Rail and account menu,Notification bell,navigation-rail.tsx:854,M,M,carrie
 I-027,Rail and account menu,Accessibility button (Alt+Shift+A),navigation-rail.tsx:859,M,P,changed,"Alt+Shift+A resolves to Action::A11y and a palette entry (shortcuts.rs resolve, palette.rs); no rail button or quick panel",todo,M2,
 I-028,Rail and account menu,Settings gear,navigation-rail.tsx:873,D,D,carried,app.slint:1463,deferred(M6),M1,rail.settings present and inert; settings pages are M6; docs/milestones/M1-screens/bento-dark-normal.png
 I-029,Rail and account menu,Keyboard-shortcuts button,navigation-rail.tsx:892/903,M,M,confirmed,"Shortcuts sheet exists (? key, palette entry, productivity.slint ShortcutsSheet) but no rail button",todo,M2,
-I-030,Rail and account menu,Storage quota ring popover,navigation-rail.tsx:177,P,P,carried,static sidebar tile,todo,M1,
+I-030,Rail and account menu,Storage quota ring popover,navigation-rail.tsx:177,P,P,carried,static sidebar tile,todo,M1,M1 verify: ring and storage card shown (screenshots); the popover was not driven: HAND TEST 1
 I-031,Rail and account menu,"Rail account circles / rail ""+"" / rail sign-out menu",navigation-rail.tsx:934-992,M,M,carried,—,todo,M2,
 I-032,Rail and account menu,Phone bottom tab bar,navigation-rail.tsx:444-583,N,N,carried,—,n/a,N/A,
 I-033,Sidebar and folder menu,Compose button,sidebar.tsx:2739,D,D,carried,app.slint:1526,deferred(M3),M1,sidebar.compose present and disabled; docs/milestones/M1-screens/bento-dark-normal.png
@@ -37,14 +37,14 @@ I-035,Sidebar and folder menu,"Folded rail hover-peek, Esc, Tab trap, arrow keys
 I-036,Sidebar and folder menu,Mobile drawer close,sidebar.tsx:2707,N,N,carried,—,n/a,N/A,
 I-037,Sidebar and folder menu,Account switcher in sidebar header; account line under compose,"sidebar.tsx:2735,~2810",M,M,carried,—,todo,M2,
 I-038,Sidebar and folder menu,Folder row click,sidebar.tsx:507/579,D,D,carried,app.slint:1564-1572,done,M1,hidden scenario: uia-select m3 shows Sent in the list (AutomationId on the item container); SidebarView.OnFolderSelectionChanged
-I-039,Sidebar and folder menu,Folder chevron expand,sidebar.tsx:553,D,D,carried,app.slint:339,todo,M1,VM: SidebarViewModelTests.A_collapsed_parent_hides_its_children_and_shows_a_dot_when_unread_is_below; view: shell-ui
-I-040,Sidebar and folder menu,Folder row right-click,sidebar.tsx:508,D,D,carried,"ctxmenu.rs:228,511 (smaller item set)",todo,M1,
+I-039,Sidebar and folder menu,Folder chevron expand,sidebar.tsx:553,D,D,carried,app.slint:339,done,M1,"M1 verify hidden run (spec/feel/M1/verify/irows.py; results in spec/feel/M1/verify-results.json ""irows""): m1.chevron collapses Inbox (Projects hidden) and expands it again; docs/milestones/M1-screens/verify/i039-collapsed.png. VM: SidebarViewModelTests.A_collapsed_parent_hides_its_children_and_shows_a_dot_when_unread_is_below"
+I-040,Sidebar and folder menu,Folder row right-click,sidebar.tsx:508,D,D,carried,"ctxmenu.rs:228,511 (smaller item set)",deferred(M2),M1,M1 verify: context menus: the M2 menus stream and its constrained Popup host (M1-plan §2.3)
 I-041,Sidebar and folder menu,Long-press / ⋮ folder options (touch),"sidebar.tsx:510,687",N,N,carried,—,n/a,N/A,
 I-042,Sidebar and folder menu,Drop messages on folder (move + undo),sidebar.tsx:1040,M,D,changed,"Mail rows drag onto folders (dnd.rs drop kind mail, app.slint FolderRow dnd-key); undo toast not verified; never driven live",todo,M2,
 I-043,Sidebar and folder menu,Drag folder to tab,sidebar.tsx:978,M,M,carried,—,todo,M2,
-I-044,Sidebar and folder menu,Muted bell icon,sidebar.tsx:656,P,P,carried,"shown for unsubscribed, not for mutes",todo,M1,VM: SidebarViewModelTests.An_unsubscribed_folder_is_muted_and_a_parent_has_a_chevron; view: shell-ui
-I-045,Sidebar and folder menu,Collapsed-parent sub-unread dot; name truncation tooltip,"sidebar.tsx:~670,~600",M,M,carried,—,todo,M1,VM: SidebarViewModelTests.A_collapsed_parent_hides_its_children_and_shows_a_dot_when_unread_is_below; view: shell-ui
-I-046,Sidebar and folder menu,Section header collapse,sidebar.tsx:827,P,P,carried,Folders and Tags only,todo,M1,VM: SidebarViewModel.FoldersExpanded / TagsExpanded; view: shell-ui
+I-044,Sidebar and folder menu,Muted bell icon,sidebar.tsx:656,P,P,carried,"shown for unsubscribed, not for mutes",todo,M1,"VM: SidebarViewModelTests.An_unsubscribed_folder_is_muted_and_a_parent_has_a_chevron; view: shell-ui; M1 verify: the sample seed has no unsubscribed folder, so the muted icon was not seen: HAND TEST 1 on a real account"
+I-045,Sidebar and folder menu,Collapsed-parent sub-unread dot; name truncation tooltip,"sidebar.tsx:~670,~600",M,M,carried,—,todo,M1,VM: SidebarViewModelTests.A_collapsed_parent_hides_its_children_and_shows_a_dot_when_unread_is_below; view: shell-ui; M1 verify: the dot logic is tested; the seed has no unread below a collapsed parent: HAND TEST 1
+I-046,Sidebar and folder menu,Section header collapse,sidebar.tsx:827,P,P,carried,Folders and Tags only,done,M1,"M1 verify hidden run (spec/feel/M1/verify/irows.py; results in spec/feel/M1/verify-results.json ""irows""): sidebar.folders.toggle collapses and restores the folder list; docs/milestones/M1-screens/verify/i046-folders-collapsed.png (the collapsed card keeps its height: visual review). VM: SidebarViewModel.FoldersExpanded / TagsExpanded"
 I-047,Sidebar and folder menu,Section header gear,sidebar.tsx:857,D,D,carried,"app.slint:1559,1599",deferred(M6),M1,"sidebar.folders.settings present, disabled; docs/milestones/M1-screens/nordic-dark-normal.png"
 I-048,Sidebar and folder menu,"""+"" create top-level folder",sidebar.tsx:848,P,P,carried,only in Settings > Organize,todo,M2,
 I-049,Sidebar and folder menu,"Folders header right-click (mark all read, new folder, refresh)",sidebar.tsx:2074,M,M,carried,—,todo,M2,
@@ -54,14 +54,14 @@ I-052,Sidebar and folder menu,"Unified row right-click (empty trash all, refresh
 I-053,Sidebar and folder menu,Unified loading tooltip; per-account rows; per-account folder groups,"sidebar.tsx:2840,2889,2906",M,M,carried,—,todo,M2,
 I-054,Sidebar and folder menu,"Shared section: header, account rows, right-click, drag reorder, tags gear","sidebar.tsx:2133-2566,1281",M,M,carried,—,todo,M2,
 I-055,Sidebar and folder menu,Tag row click (second click deselects),sidebar.tsx:1181,P,P,carried,no toggle-off,todo,M2,
-I-056,Sidebar and folder menu,Tag row right-click,sidebar.tsx:1181,D,D,carried,ctxmenu.rs:236-241,todo,M1,
+I-056,Sidebar and folder menu,Tag row right-click,sidebar.tsx:1181,D,D,carried,ctxmenu.rs:236-241,deferred(M2),M1,M1 verify: context menus: the M2 menus stream and its constrained Popup host (M1-plan §2.3)
 I-057,Sidebar and folder menu,Nested tag chevron; Show all N tags,"sidebar.tsx:~1190,1084",M,P,changed,"Tag depth and chevrons (mailextras stream, PARITY-ROUND2); no ""Show all N tags""",todo,M2,
-I-058,Sidebar and folder menu,Scheduled row,sidebar.tsx:2042,D,D,carried,mail.rs:158,todo,M1,
-I-059,Sidebar and folder menu,"MV Starred row, Show more, Labels ""+""","sidebar.tsx:3016,3032,3068",M,M,carried,—,todo,M1,
+I-058,Sidebar and folder menu,Scheduled row,sidebar.tsx:2042,D,D,carried,mail.rs:158,todo,M1,"M1 verify: not built in M1 (mailcore scope list: no Scheduled folder); proposed deferred(M3) with scheduled send, user decides at the gate"
+I-059,Sidebar and folder menu,"MV Starred row, Show more, Labels ""+""","sidebar.tsx:3016,3032,3068",M,M,carried,—,todo,M1,"M1 verify: not built in M1 (no Starred row, no Show more); proposed deferred(M2) with tag/keyword filters, user decides at the gate"
 I-060,Sidebar and folder menu,ArrowRight/Left expand selected folder,sidebar.tsx:2375,M,M,carried,—,todo,M2,
 I-061,Sidebar and folder menu,Demo banner Tour / Reset,"sidebar.tsx:1346,1349",N,N,carried,—,n/a,N/A,
-I-062,Sidebar and folder menu,Vacation banner label / Turn off,"sidebar.tsx:1397,1405",M,M,carried,only via AI agent tool,todo,M1,
-I-063,Sidebar and folder menu,"Folder menu: Mark read, New subfolder, Rename, Refresh, Empty trash/spam, Delete, header",mailbox-context-menu.tsx,D,D,carried,ctxmenu.rs:515-529,todo,M1,
+I-062,Sidebar and folder menu,Vacation banner label / Turn off,"sidebar.tsx:1397,1405",M,M,carried,only via AI agent tool,todo,M1,"M1 verify: not built in M1; proposed deferred(M6) with vacation settings, user decides at the gate"
+I-063,Sidebar and folder menu,"Folder menu: Mark read, New subfolder, Rename, Refresh, Empty trash/spam, Delete, header",mailbox-context-menu.tsx,D,D,carried,ctxmenu.rs:515-529,deferred(M2),M1,M1 verify: context menus: the M2 menus stream and its constrained Popup host (M1-plan §2.3)
 I-064,Sidebar and folder menu,Folder menu: Mark folder and subfolders read,mailbox-context-menu.tsx:356,M,M,carried,—,todo,M2,
 I-065,Sidebar and folder menu,"Folder menu: Share…, Rules ▸, Mute notifications, New folder (shared), Import email, Export",mailbox-context-menu.tsx:387-434,M,P,changed,"Folder menu now has Import messages (.eml, .mbox) (ctxmenu.rs folder_items); Share, Rules, Mute, Export still missing",todo,M2,
 I-066,Sidebar and folder menu,Account-scope picker in Contacts/Files sidebars,"account-scope-label.tsx:50,70",M,M,carried,—,todo,M5,
@@ -111,7 +111,7 @@ I-109,"Layout, desktop host, session, auth, app lock, offline, tour, top-level",
 I-110,"Layout, desktop host, session, auth, app lock, offline, tour, top-level","Persistent storage ""Ask again""",offline-settings.tsx:76,N,N,carried,—,n/a,N/A,
 I-111,"Layout, desktop host, session, auth, app lock, offline, tour, top-level","Guided tour (auto-start, keys, overlay, Skip/Back/Next)",tour-*.tsx,M,M,carried,—,todo,M10,
 I-112,"Layout, desktop host, session, auth, app lock, offline, tour, top-level","Keyboard shortcuts modal (tabs, take tour, close)",keyboard-shortcuts-modal.tsx,M,M,carried,—,todo,M10,
-I-113,"Layout, desktop host, session, auth, app lock, offline, tour, top-level","Trusted senders modal (add, search, remove + undo)",trusted-senders-modal.tsx,M,M,carried,—,todo,M1,
+I-113,"Layout, desktop host, session, auth, app lock, offline, tour, top-level","Trusted senders modal (add, search, remove + undo)",trusted-senders-modal.tsx,M,M,carried,—,deferred(M2),M1,M1 verify: trusted senders belong to the reader image trust (M1-plan §2.3)
 I-114,"Layout, desktop host, session, auth, app lock, offline, tour, top-level",TOTP re-auth dialog,totp-reauth-dialog.tsx,M,M,carried,—,todo,M10,
 I-115,"Layout, desktop host, session, auth, app lock, offline, tour, top-level",Push notification prompt; PWA install prompt,"push-notification-prompt.tsx, pwa-install-prompt.tsx",N,N,carried,—,n/a,N/A,
 I-116,"Layout, desktop host, session, auth, app lock, offline, tour, top-level","App update ""Reload""",app-update-prompt.tsx:47,M,D,changed,UpdateBanner (ui/update-banner.slint) with signed-manifest updater (updater.rs); download and install never run end to end,todo,M8,
@@ -120,7 +120,7 @@ I-118,"Layout, desktop host, session, auth, app lock, offline, tour, top-level",
 I-119,"Mail: list, rows, selection, keyboard",Row click opens,email-list.tsx:1209,D,D,carried,app.slint:1834,done,M1,hidden scenario: key j opens the next message in the reader (KeyRouter via ShellPage.OnPreviewKeyDown and the key command)
 I-120,"Mail: list, rows, selection, keyboard",Ctrl-click / Shift-click / checkbox tick,email-list.tsx:1221,P,P,carried,"no Shift range, no checkbox",todo,M2,
 I-121,"Mail: list, rows, selection, keyboard",Row double-click opens in window,email-list.tsx:1222,M,M,carried,—,todo,M2,
-I-122,"Mail: list, rows, selection, keyboard",Row right-click,email-list.tsx:1225,D,D,carried,app.slint:612,todo,M1,
+I-122,"Mail: list, rows, selection, keyboard",Row right-click,email-list.tsx:1225,D,D,carried,app.slint:612,deferred(M2),M1,M1 verify: context menus: the M2 menus stream and its constrained Popup host (M1-plan §2.3)
 I-123,"Mail: list, rows, selection, keyboard",Row click in selection mode toggles tick,thread-list-item.tsx:684,M,M,carried,—,todo,M2,
 I-124,"Mail: list, rows, selection, keyboard",Avatar gutter click ticks / selectable avatar,"thread-list-item.tsx:221, selectable-avatar.tsx",M,M,carried,—,todo,M2,
 I-125,"Mail: list, rows, selection, keyboard",Thread inline expand chevron; collapse all,email-list.tsx:1209,M,M,carried,count chip only,todo,M2,
@@ -128,7 +128,7 @@ I-126,"Mail: list, rows, selection, keyboard",Thread checkbox ticks whole thread
 I-127,"Mail: list, rows, selection, keyboard","Row ""…"" actions button",thread-list-item.tsx:771,D,D,carried,app.slint:689,todo,M2,
 I-128,"Mail: list, rows, selection, keyboard",Row drag onto folder / tag,thread-list-item.tsx:738,M,D,changed,"Row drag onto folder or tag, selection-aware (dnd.rs ids_for_mail, app.slint tag drop targets)",todo,M2,
 I-129,"Mail: list, rows, selection, keyboard",List attachment chips clickable; tooltip; +N overflow,attachment-chips.tsx,P,P,carried,display only,deferred(M2),M1,"attachment chip shown in the row (report.pdf, docs/milestones/M1-screens/bento-dark-normal.png); click to download is M2"
-I-130,"Mail: list, rows, selection, keyboard",Verification code chip,verification-code-chip.tsx,P,P,carried,"list only (app.slint:731), not reader",todo,M1,
+I-130,"Mail: list, rows, selection, keyboard",Verification code chip,verification-code-chip.tsx,P,P,carried,"list only (app.slint:731), not reader",deferred(M2),M1,M1 verify: verification code chips are otp.rs (M1-plan §2.3; mailcore scope list)
 I-131,"Mail: list, rows, selection, keyboard",Hover strip Delete / Star,email-hover-actions.tsx,D,D,carried,app.slint:695,todo,M2,
 I-132,"Mail: list, rows, selection, keyboard",Hover Mark read/unread icon swap,email-hover-actions.tsx:218,P,P,carried,icon doesn't swap,todo,M2,
 I-133,"Mail: list, rows, selection, keyboard",Hover Archive (Move to Inbox in Archive),email-hover-actions.tsx:221,P,P,carried,archive only,todo,M2,
@@ -144,7 +144,7 @@ I-142,"Mail: list, rows, selection, keyboard","""Select all N in folder"" banner
 I-143,"Mail: list, rows, selection, keyboard",Empty Trash/Spam banner,email-list.tsx:1608,P,P,carried,folder menu only,todo,M2,
 I-144,"Mail: list, rows, selection, keyboard",Empty state Clear search / Compose,email-list.tsx:1681,M,M,carried,—,todo,M2,
 I-145,"Mail: list, rows, selection, keyboard","Pages mode Prev / Next; ""1–50 of N""",email-list.tsx:1705,M,M,carried,infinite scroll,todo,M2,
-I-146,"Mail: list, rows, selection, keyboard",Load more on scroll,email-list.tsx:1294,D,D,carried,app.slint:1828,todo,M1,VM: MessageListViewModelTests.Load_more_anchors_on_the_last_message_and_appends_without_a_reset; view: shell-ui
+I-146,"Mail: list, rows, selection, keyboard",Load more on scroll,email-list.tsx:1294,D,D,carried,app.slint:1828,todo,M1,"VM: MessageListViewModelTests.Load_more_anchors_on_the_last_message_and_appends_without_a_reset; view: shell-ui; M1 verify: the seed Inbox has 9 messages (one page), so scrolling to load more was not exercised: HAND TEST 1"
 I-147,"Mail: list, rows, selection, keyboard","List keyboard: Space tick, Enter/o open, Menu key, roving focus",list-a11y.ts,M,P,changed,"Enter / o open and Shift+arrows work (shortcuts.rs mail()); Space tick, Menu key, roving focus missing",todo,M2,
 I-148,"Mail: list, rows, selection, keyboard",Date group header fold,list-date-group-header.tsx:22,M,M,carried,callback not wired,todo,M2,
 I-149,"Mail: list, rows, selection, keyboard",Column headers / column layout,list-columns.tsx,M,M,carried,—,todo,M2,
@@ -154,7 +154,7 @@ I-152,"Mail: list, rows, selection, keyboard",Category tabs (Primary/Promotions�
 I-153,"Mail: list, rows, selection, keyboard","MV ""Unread""/""Everything else"" fold headers",mv-list-section-header.tsx,M,M,carried,—,todo,M2,
 I-154,"Mail: list, rows, selection, keyboard","Select-all toggle (second click clears, tri-state)",mv-list-toolbar.tsx:369,P,P,carried,select only,todo,M2,
 I-155,"Mail: list, rows, selection, keyboard",Plugin list filter chips / row badges,plugin-list-filters.tsx,M,M,carried,—,todo,M2,
-I-156,"Mail: list, rows, selection, keyboard","Keys j/k/arrows, n, f, s, e, c, /, Shift+G, Ctrl+1..4, Ctrl+A, u/Shift+I, !",use-keyboard-shortcuts.ts,D,D,carried,main.rs:1437-1485,todo,M1,"VM: KeyRouterTests (j/k/arrows, /, Shift+G = refresh as Bulwark mail.ts:34 and Rust, Escape, g sequences, Ctrl+1..5); action keys: M2"
+I-156,"Mail: list, rows, selection, keyboard","Keys j/k/arrows, n, f, s, e, c, /, Shift+G, Ctrl+1..4, Ctrl+A, u/Shift+I, !",use-keyboard-shortcuts.ts,D,D,carried,main.rs:1437-1485,done,M1,"M1 verify hidden run (spec/feel/M1/verify/irows.py; results in spec/feel/M1/verify-results.json ""irows""): j, j, k, Down, Up from e40 open e36, e31, e36, e31, e36; Escape closes the reader; / focuses list.search (docs/milestones/M1-screens/verify/i156-slash.png). KeyRouterTests (Shift+G = refresh, g sequences, Ctrl+1..5). Action keys s, e, !, u/Shift+I, Ctrl+A: deferred(M2)"
 I-157,"Mail: list, rows, selection, keyboard",Keys r / Shift+R / a (reply all),mail.ts:201-202,P,D,changed,"`a` maps to reply-all (shortcuts.rs mail_key_action); r, R, a",todo,M2,
 I-158,"Mail: list, rows, selection, keyboard",Keys Enter / o open focused,mail.ts:192,M,D,changed,Enter / o => Action::Open (shortcuts.rs mail()),todo,M2,
 I-159,"Mail: list, rows, selection, keyboard",Esc closes and deselects,mail.ts:193,P,P,carried,ticks stay,todo,M2,
@@ -193,17 +193,17 @@ I-191,Mail: menus and message actions,Address right-click on Cc/Bcc/details,addr
 I-192,Mail: menus and message actions,Address menu View contact,address-context-menu.tsx:78,M,M,carried,—,todo,M2,
 I-193,Mail: menus and message actions,Address menu Add to contacts,address-context-menu.tsx:84,P,P,carried,"opens form, not in place",todo,M2,
 I-194,Mail: reader,Toolbar Reply / Reply all / Forward / Archive / Delete / Print / Star,email-viewer.tsx:4820-5083,D,D,carried,app.slint:1933-1998,deferred(M2),M1,"reader.toolbar Reply, Reply all, Forward, Archive, Delete, More shown disabled; actions M2, reply and forward M3; Print/Star not built"
-I-195,Mail: reader,"Toolbar Move (filter, Choose folder)",email-viewer.tsx:4953,P,P,carried,plain popup,todo,M1,
-I-196,Mail: reader,Toolbar Tag (checked state),email-viewer.tsx:5002,P,P,carried,no checks,todo,M1,
-I-197,Mail: reader,Toolbar Spam / Not spam,"email-viewer.tsx:5032,4876",P,P,carried,Report spam only,todo,M1,
-I-198,Mail: reader,Toolbar Read/Unread toggle,email-viewer.tsx:5062,P,P,carried,Mark unread only,todo,M1,
-I-199,Mail: reader,Toolbar Restore / Move to Inbox,"email-viewer.tsx:4892,4909",M,M,carried,—,todo,M1,
+I-195,Mail: reader,"Toolbar Move (filter, Choose folder)",email-viewer.tsx:4953,P,P,carried,plain popup,todo,M1,"M1 verify: not in the toolbar (Reply, Reply all, Forward, Archive, Delete, More are); action M2"
+I-196,Mail: reader,Toolbar Tag (checked state),email-viewer.tsx:5002,P,P,carried,no checks,todo,M1,M1 verify: not in the toolbar; action M2
+I-197,Mail: reader,Toolbar Spam / Not spam,"email-viewer.tsx:5032,4876",P,P,carried,Report spam only,todo,M1,M1 verify: not in the toolbar; action M2
+I-198,Mail: reader,Toolbar Read/Unread toggle,email-viewer.tsx:5062,P,P,carried,Mark unread only,todo,M1,M1 verify: not in the toolbar; action M2
+I-199,Mail: reader,Toolbar Restore / Move to Inbox,"email-viewer.tsx:4892,4909",M,M,carried,—,todo,M1,M1 verify: not in the toolbar; action M2
 I-200,Mail: reader,Toolbar More ⋮,email-viewer.tsx:5159,P,P,carried,short list,todo,M2,
 I-201,Mail: reader,View in light/dark; Open in window; Fullscreen,email-viewer.tsx:5101-5135,M,M,carried,—,todo,M10,
 I-202,Mail: reader,Prev/Next buttons; Back to list,email-viewer.tsx:4734-4757,M,M,carried,keys only,todo,M2,
 I-203,Mail: reader,Message header click collapse; sender avatar click,"email-viewer.tsx:5551,5561",M,M,carried,—,todo,M1,"not built in M1: no header collapse, no avatar click (body stream, 2026-11-17)"
-I-204,Mail: reader,Sender / recipient name popover card,recipient-popover.tsx:281,P,P,carried,right-click only,todo,M1,
-I-205,Mail: reader,Card View contact; tel: links,"recipient-popover.tsx:156,123",M,M,carried,—,todo,M1,
+I-204,Mail: reader,Sender / recipient name popover card,recipient-popover.tsx:281,P,P,carried,right-click only,todo,M1,M1 verify: no sender card built; M5 contact data
+I-205,Mail: reader,Card View contact; tel: links,"recipient-popover.tsx:156,123",M,M,carried,—,todo,M1,M1 verify: not built; M5
 I-206,Mail: reader,"Details panel (to N recipients, Cc, auth chips, Message-ID)",email-viewer.tsx:5700-5960,M,M,carried,spam pill only,todo,M1,details panel by shell-ui (reader.details); not checked by the body stream
 I-207,Mail: reader,Brand-verified badge; External chip; identity badge; received-via chip; sender tooltip,brand-verified-badge.tsx etc.,M,P,changed,"Sender avatars from Gravatar, BIMI, favicons (avatars.rs, off by default); no verified badge, External chip or identity badge",todo,M10,
 I-208,Mail: reader,Unsubscribe banner,unsubscribe-banner.tsx,M,D,changed,"Unsubscribe banner: mailto and RFC 8058 one-click (reader.rs, reader.slint RxBanner); one-click POST never run live",todo,M2,
@@ -213,7 +213,7 @@ I-211,Mail: reader,Read receipt banner Send/Ignore,read-receipt-banner.tsx,M,D,c
 I-212,Mail: reader,"Calendar invitation banner (Accept/Maybe/Decline, Add to calendar, remove, apply proposal, view)",calendar-invitation-banner.tsx,M,D,changed,"Calendar invitation banner: Accept/Maybe/Decline, trust warning, add to calendar (invite.rs, reader.rs); counter-proposal apply and remove-cancelled missing",todo,M2,
 I-213,Mail: reader,Read aloud bar; reading mask; reader view dialog,read-aloud-bar.tsx etc.,M,M,carried,—,todo,M10,
 I-214,Mail: reader,"""Shown as plain text"" > Show formatted",email-viewer.tsx:6528,M,M,carried,global setting,todo,M1,"built (banner reader.show-formatted, BodyShell.ShowFormatted) for the accessibility plain view; not seen live"
-I-215,Mail: reader,Body right-click selection menu,email-viewer.tsx:6563,P,P,carried,lite/plain modes only,todo,M1,
+I-215,Mail: reader,Body right-click selection menu,email-viewer.tsx:6563,P,P,carried,lite/plain modes only,deferred(M2),M1,M1 verify: context menus: the M2 menus stream and its constrained Popup host (M1-plan §2.3)
 I-216,Mail: reader,Link click with phishing gate,email-viewer.tsx:6566,P,P,carried,no gate,todo,M10,
 I-217,Mail: reader,Footer Reply / Reply all / Forward,email-viewer.tsx:6614-6622,M,M,carried,—,deferred(M3),M1,reader.reply-bar (quick reply text and Send) shown disabled; reply and forward M3
 I-218,Mail: reader,Reply draft banner Edit / Discard,email-viewer.tsx:6639,M,M,carried,—,todo,M3,
@@ -221,17 +221,17 @@ I-219,Mail: reader,Quick reply box + Send,"email-viewer.tsx:6669,6731",D,D,carri
 I-220,Mail: reader,Quick reply Ctrl+Enter,email-viewer.tsx:6671,P,P,carried,Enter (single line),todo,M2,
 I-221,Mail: reader,Quick reply Cancel / Open full editor / From line / draft save,email-viewer.tsx:6692-6710,M,M,carried,—,todo,M2,
 I-222,Mail: reader,"Conversation cards: expand/collapse, ""N older"", per-card buttons","thread-conversation-view.tsx, email-viewer.tsx:927-1214",M,M,carried,thread strip,todo,M1,"conversation strip opens a message through IConversationOpener (automation `thread N`, spec/feel/M1 thread_switch); no click handler on the strip (ReaderView is shell-ui's), no expand/collapse or per-card buttons"
-I-223,Mail: reader,Per-message actions via thread context menu,conversation-message-menu.tsx,P,P,carried,right-click only,todo,M1,
+I-223,Mail: reader,Per-message actions via thread context menu,conversation-message-menu.tsx,P,P,carried,right-click only,deferred(M2),M1,M1 verify: context menus: the M2 menus stream and its constrained Popup host (M1-plan §2.3)
 I-224,Mail: reader,Draft card Edit / Discard,"thread-conversation-view.tsx:584,598",M,M,carried,—,todo,M3,
-I-225,Mail: reader,"Attachment tile click, Download, right-click Open / Save as",reader-attachments.tsx,D,D,carried,app.slint:2165-2185,todo,M1,
+I-225,Mail: reader,"Attachment tile click, Download, right-click Open / Save as",reader-attachments.tsx,D,D,carried,app.slint:2165-2185,todo,M1,"M1 verify: tiles built (reader.attachment.N), not driven; open and download M2"
 I-226,Mail: reader,"Attachment Save to Files, Rename, Edit, Download all, Save all, Show N more, drag out",reader-attachments.tsx,M,P,changed,"Download all (.zip) and Save to Files done (reader.rs, zip.rs); rename, edit, Save all, Show N more missing",todo,M2,
 I-227,Mail: reader,Attachment Copy (file to clipboard),reader-attachments.tsx:314,P,P,carried,file name only,todo,M2,
 I-228,Mail: reader,In-app attachment preview; WOPI edit,"mail-app.tsx:7272,7282",M,P,changed,"Attachment preview cards: image thumbnails up to 10 MB (attachments.rs, mailextras.slint AttCards); no modal preview, no WOPI",todo,M2,
-I-229,Mail: reader,Tag chip X in reader,tag-badge.tsx:110,M,M,carried,—,todo,M1,
+I-229,Mail: reader,Tag chip X in reader,tag-badge.tsx:110,M,M,carried,—,todo,M1,M1 verify: not checked; the X action is M2
 I-230,Mail: reader,Retention notice; trash recovery link; reader retry,retention-notice.tsx etc.,M,M,carried,—,todo,M1,"failed state and Try again seen live (reader.failed, reader.retry); retention notice and trash link not built"
-I-231,Mail: reader,"Contact sidebar (close, copy, edit, phone copy, add)",email-viewer.tsx:587-751,P,P,carried,Message button only,todo,M1,
+I-231,Mail: reader,"Contact sidebar (close, copy, edit, phone copy, add)",email-viewer.tsx:587-751,P,P,carried,Message button only,todo,M1,M1 verify: not built; M5
 I-232,Mail: reader,Search snippet highlights,search-snippet-text.tsx,P,D,changed,Highlighted snippets from SearchSnippet/get in the list (search_ui.rs); theme change does not recolour until the list rebuilds,todo,M2,
-I-233,Mail: reader,Plugin reader surfaces / selection plugin actions,reader-plugin-surfaces.tsx,M,M,carried,—,todo,M1,
+I-233,Mail: reader,Plugin reader surfaces / selection plugin actions,reader-plugin-surfaces.tsx,M,M,carried,—,deferred(M6b),M1,M1 verify: plugin surfaces: no plugin host in M1 (PORT-PLAN M6b)
 I-234,Mail: composer,Close / Esc asks save or discard,email-composer.tsx:5111,P,P,carried,saves silently,todo,M3,
 I-235,Mail: composer,Close dialog Cancel / Discard / Save draft,email-composer.tsx:6916-6923,M,M,carried,—,todo,M3,
 I-236,Mail: composer,Discard with confirm,email-composer.tsx:6705,P,P,carried,no confirm,todo,M3,

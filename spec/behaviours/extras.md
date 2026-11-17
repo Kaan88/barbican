@@ -58,3 +58,10 @@ Added at the M0 review (stream m0-review). Modules: `spam.rs`, `plugins.rs`, `zi
 
 B-CAP-002 holds as written: Windows has no under-overlay freeze (`InPlaceBodyOverlay`); Linux has `X11BodyOverlay` (XGetImage of the root window,
 refused for a rectangle outside the screen), written but not wired to a dialog in M1 and never run (VM unreachable): a Linux hand test.
+
+## M1 status (verify)
+
+Not M1 areas; settled so no row is silently open: B-SPAM-001..004 and B-PLUG-001..004: deferred(M2) with T-206 (the native spam-score plugin; the
+plugin hosts are M6b). B-ZIP-001..003: deferred(M2) (T-311, T-312). B-SRCH-001..003: deferred(M2) (search, T-256..T-258).
+B-CAP-001: ported differently (m1 F1: Windows.Graphics.Capture, ADR 0007; `PrintWindow` returns a black image for a WinUI window).
+B-CAP-003: deferred(M4/M5), with the PIM probes.

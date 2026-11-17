@@ -123,3 +123,12 @@ B-READ-042: not needed on Windows (ADR 0005, XAML composes over WebView2); the L
 `IBodyOverlayStrategy` and it never ran (the VM was unreachable): open, a Linux hand test and the M2 dialogs' wiring.
 Also built: per-message "Load external content" (I-209), "Shown as plain text" › Show formatted (I-214), `cid:` parts inlined as `data:` URIs
 (`CidImages`), the accessibility mail CSS and script of mailcore's `A11y` injected into every frame by hash.
+
+## M1 status (verify)
+
+Rows no stream marked, settled at the M1 verify stage:
+B-READ-022..026: ported (m1 mailcore: `Core/Mail/AuthResults`, T-011..T-014 `AuthResultsTests`; the reader shows the verdict chip, `reader.verdict`).
+B-READ-045: dropped(D-233, user OK pending), with T-159 (lite); the user confirms at the M1 gate.
+B-READ-001..009, B-READ-011..021, B-READ-027..039, B-READ-047..052 (view source, unsubscribe, headers, subject prefixes, files tree, message attachments,
+blob copy, read receipts, verification codes, sender pictures, quick rules): deferred(M2), the milestone of their Rust tests in `spec/rust-tests.csv`
+(B-READ-009 is shared with M8/M9). B-READ-010's 2 MiB source-view cut is M2 (view source); its reader part is ported (above).

@@ -87,3 +87,11 @@ B-SYNC-030 (two ahead, three while moving, one behind, conversation neighbours, 
 prefetch cancelled by a turn makes the open fetch itself), B-SYNC-031 (`PrefetchInlineMax`, T-186), B-SYNC-032 (T-185), B-SYNC-033 (the delay logic is
 ported and tested with writable actions; M1 registers `ReadOnlyMailActions`, so nothing is sent), B-SYNC-034 (`disableThreading`).
 B-SYNC-026: deferred(M2): reply, forward and attachment actions do not exist in M1 (the reader's buttons are disabled), so there is nothing to hold back yet.
+
+## M1 status (verify)
+
+Rows no stream marked, settled at the M1 verify stage from the code and the ported Rust tests:
+B-SYNC-012..018 and B-SYNC-020: ported (m1 accounts: `BodyCache`, `BodyCacheSync`; T-025..T-034 `BodyCacheTests`). The bounds are global for all
+accounts, as in Rust, and `Weight` counts UTF-16 code units where Rust counted UTF-8 bytes (Fable log, accounts review).
+B-SYNC-019: partial (the cache side is ported and tested, `local_actions_reach_bodies_and_conversations`); the local actions themselves: deferred(M2).
+B-SYNC-021: deferred(M2): sign-out is M2; the generation guard it relies on is ported (B-SYNC-020).

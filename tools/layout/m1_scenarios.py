@@ -80,7 +80,7 @@ def main():
     results["key_j20"] = burst(d, os.path.join(out, "key_j20"), 4000, ["key j", "sleep 0.1"] * 20)
     json.dump(results, open(os.path.join(out, "results.json"), "w"), indent=1)
     for k, v in results.items():
-        print(k, {x: v.get(x) for x in ("frames", "bad", "blank", "flash", "max_bad_run_ms") if x in v} or v)
+        print(k, {x: v.get(x) for x in ("frames", "bad", "blank", "flash", "empty", "max_bad_run_ms") if x in v} or v)
     d.cmd("probe-start wgc")
     time.sleep(2)
     probe = json.loads(d.cmd("probe-stop"))

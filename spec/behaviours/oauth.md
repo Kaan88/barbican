@@ -39,3 +39,9 @@ one-time import.
   Resolved in M1 (stream accounts): `LoopbackListener` checks `state` before `error` or `code`.
 - B-OAUTH-007: the dynamic-registration cache is a plain JSON file keyed by registration endpoint;
   the C# port may keep it in settings storage. No behaviour change intended.
+
+## M1 status (verify)
+
+B-OAUTH-003, 004 and 006: ported (m1 accounts), covered by code only (`OAuthDiscovery.DiscoverAsync`, `OAuthDiscovery.Rebase`, `OAuthHttp`); a dedicated
+test is still owed (Fable log). B-OAUTH-012..015: ported (m1 accounts: T-192..T-198 and the `OAuthTokenSourceTests` named in the Tests column).
+B-OAUTH-017: deferred(M2) for sign-out, the revoke call itself M8.

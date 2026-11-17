@@ -115,3 +115,9 @@ B-MAIL-001, B-MAIL-002, B-MAIL-008, B-MAIL-009: `MessageListViewModel`, `FolderR
 Ported in `m1-body`: B-MAIL-025..028 (`DarkMail`, T-074..T-076 `DarkMailTests`), B-MAIL-029 (`email_dark.js` verbatim as the App asset and as Core's
 string, kept equal by `DarkMailScriptTests`; the frame's CSP allows it by its SHA-256 hash; the asset is byte-equal to the Rust app's
 `src/email_dark.js` apart from line ends).
+
+## M1 status (verify)
+
+Rows no stream marked, settled at the M1 verify stage: B-MAIL-006 (confirm before bulk actions) and B-MAIL-007 (undo toast): deferred(M2), mail actions.
+B-MAIL-030..038 (unified inbox: id, cross-account scope, lazy clients, paging, dedupe, row ids, badge sum, role match, row colours): deferred(M2); the
+Rust tests of unified.rs are M2 rows of `spec/rust-tests.csv`. B-MAIL-039..045 (mbox/eml import): deferred(M2), the import rows of `spec/rust-tests.csv`.

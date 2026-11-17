@@ -1,0 +1,464 @@
+{
+ "_about": "M1 verify stage on merged m1 (Windows, hidden AUTOMATION build, BARBICAN_SAMPLE=1, port 8871; Release smoke on port 8873). See README 'Verify stage'.",
+ "body_feel": {
+  "bento/dark": {
+   "open_first": {
+    "reader": "e31 Ready",
+    "open_to_shown_ms": 52.3,
+    "send_to_ready_ms": 21.3,
+    "opens": 1,
+    "cached": 0,
+    "wall_ms": 107.3,
+    "frames": 3,
+    "blank": 0,
+    "flash": 0
+   },
+   "close_reader": {
+    "reader": "- Empty",
+    "open_to_shown_ms": null,
+    "send_to_ready_ms": null,
+    "opens": 0,
+    "cached": 0,
+    "wall_ms": 2.7,
+    "frames": 3,
+    "blank": 0,
+    "flash": 0
+   },
+   "open_again": {
+    "reader": "e31 Ready",
+    "open_to_shown_ms": 11.2,
+    "send_to_ready_ms": 10.4,
+    "opens": 1,
+    "cached": 1,
+    "wall_ms": 28.6,
+    "frames": 3,
+    "blank": 0,
+    "flash": 0
+   },
+   "switch_key": {
+    "reader": "e24 Ready",
+    "open_to_shown_ms": 18.8,
+    "send_to_ready_ms": 16.8,
+    "opens": 1,
+    "cached": 1,
+    "wall_ms": 24.5,
+    "frames": 3,
+    "blank": 0,
+    "flash": 0
+   },
+   "switch_click": {
+    "reader": "e40 Ready",
+    "open_to_shown_ms": 9.8,
+    "send_to_ready_ms": 8.6,
+    "opens": 1,
+    "cached": 0,
+    "wall_ms": 28.8,
+    "frames": 3,
+    "blank": 0,
+    "flash": 0
+   },
+   "switch_back": {
+    "reader": "e24 Ready",
+    "open_to_shown_ms": 10.9,
+    "send_to_ready_ms": 10.5,
+    "opens": 1,
+    "cached": 1,
+    "wall_ms": 29.9,
+    "frames": 3,
+    "blank": 0,
+    "flash": 0
+   },
+   "thread_switch": {
+    "reader": "e8 Ready",
+    "open_to_shown_ms": 9.5,
+    "send_to_ready_ms": 8.3,
+    "opens": 1,
+    "cached": 0,
+    "wall_ms": 22.6,
+    "frames": 3,
+    "blank": 0,
+    "flash": 0
+   },
+   "light_switch": {
+    "reader": "e8 Ready",
+    "open_to_shown_ms": null,
+    "send_to_ready_ms": 13.7,
+    "opens": 0,
+    "cached": 0,
+    "wall_ms": 316.0,
+    "frames": 4,
+    "blank": 0,
+    "flash": 0
+   }
+  },
+  "bento/light": {
+   "open_first": {
+    "reader": "e31 Ready",
+    "open_to_shown_ms": 9.3,
+    "send_to_ready_ms": 8.9,
+    "opens": 1,
+    "cached": 1,
+    "wall_ms": 31.7,
+    "frames": 3,
+    "blank": 0,
+    "flash": 0
+   },
+   "close_reader": {
+    "reader": "- Empty",
+    "open_to_shown_ms": null,
+    "send_to_ready_ms": null,
+    "opens": 0,
+    "cached": 0,
+    "wall_ms": 2.7,
+    "frames": 3,
+    "blank": 0,
+    "flash": 0
+   },
+   "open_again": {
+    "reader": "e31 Ready",
+    "open_to_shown_ms": 8.7,
+    "send_to_ready_ms": 8.3,
+    "opens": 1,
+    "cached": 1,
+    "wall_ms": 27.8,
+    "frames": 4,
+    "blank": 0,
+    "flash": 0
+   },
+   "switch_key": {
+    "reader": "e24 Ready",
+    "open_to_shown_ms": 8.9,
+    "send_to_ready_ms": 8.5,
+    "opens": 1,
+    "cached": 1,
+    "wall_ms": 22.8,
+    "frames": 3,
+    "blank": 0,
+    "flash": 0
+   },
+   "switch_click": {
+    "reader": "e40 Ready",
+    "open_to_shown_ms": 10.1,
+    "send_to_ready_ms": 9.7,
+    "opens": 1,
+    "cached": 1,
+    "wall_ms": 28.5,
+    "frames": 3,
+    "blank": 0,
+    "flash": 0
+   },
+   "switch_back": {
+    "reader": "e24 Ready",
+    "open_to_shown_ms": 10.1,
+    "send_to_ready_ms": 9.8,
+    "opens": 1,
+    "cached": 1,
+    "wall_ms": 28.5,
+    "frames": 3,
+    "blank": 0,
+    "flash": 0
+   },
+   "thread_switch": {
+    "reader": "e8 Ready",
+    "open_to_shown_ms": 10.3,
+    "send_to_ready_ms": 9.8,
+    "opens": 1,
+    "cached": 1,
+    "wall_ms": 21.2,
+    "frames": 3,
+    "blank": 0,
+    "flash": 0
+   },
+   "light_switch": {
+    "reader": "e8 Ready",
+    "open_to_shown_ms": null,
+    "send_to_ready_ms": 13.6,
+    "opens": 0,
+    "cached": 0,
+    "wall_ms": 304.6,
+    "frames": 4,
+    "blank": 0,
+    "flash": 0
+   }
+  },
+  "nordic/dark": {
+   "open_first": {
+    "reader": "e31 Ready",
+    "open_to_shown_ms": 11.3,
+    "send_to_ready_ms": 10.9,
+    "opens": 1,
+    "cached": 1,
+    "wall_ms": 29.0,
+    "frames": 5,
+    "blank": 0,
+    "flash": 0
+   },
+   "close_reader": {
+    "reader": "- Empty",
+    "open_to_shown_ms": null,
+    "send_to_ready_ms": null,
+    "opens": 0,
+    "cached": 0,
+    "wall_ms": 2.3,
+    "frames": 5,
+    "blank": 0,
+    "flash": 0
+   },
+   "open_again": {
+    "reader": "e31 Ready",
+    "open_to_shown_ms": 10.4,
+    "send_to_ready_ms": 10.0,
+    "opens": 1,
+    "cached": 1,
+    "wall_ms": 28.3,
+    "frames": 3,
+    "blank": 0,
+    "flash": 0
+   },
+   "switch_key": {
+    "reader": "e24 Ready",
+    "open_to_shown_ms": 10.2,
+    "send_to_ready_ms": 9.8,
+    "opens": 1,
+    "cached": 1,
+    "wall_ms": 22.1,
+    "frames": 4,
+    "blank": 0,
+    "flash": 0
+   },
+   "switch_click": {
+    "reader": "e40 Ready",
+    "open_to_shown_ms": 9.6,
+    "send_to_ready_ms": 9.1,
+    "opens": 1,
+    "cached": 1,
+    "wall_ms": 27.9,
+    "frames": 3,
+    "blank": 0,
+    "flash": 0
+   },
+   "switch_back": {
+    "reader": "e24 Ready",
+    "open_to_shown_ms": 9.6,
+    "send_to_ready_ms": 9.3,
+    "opens": 1,
+    "cached": 1,
+    "wall_ms": 28.8,
+    "frames": 4,
+    "blank": 0,
+    "flash": 0
+   },
+   "thread_switch": {
+    "reader": "e8 Ready",
+    "open_to_shown_ms": 9.0,
+    "send_to_ready_ms": 8.5,
+    "opens": 1,
+    "cached": 1,
+    "wall_ms": 21.2,
+    "frames": 3,
+    "blank": 0,
+    "flash": 0
+   },
+   "light_switch": {
+    "reader": "e8 Ready",
+    "open_to_shown_ms": null,
+    "send_to_ready_ms": 12.5,
+    "opens": 0,
+    "cached": 0,
+    "wall_ms": 313.5,
+    "frames": 3,
+    "blank": 0,
+    "flash": 0
+   }
+  },
+  "nordic/light": {
+   "open_first": {
+    "reader": "e31 Ready",
+    "open_to_shown_ms": 8.8,
+    "send_to_ready_ms": 8.5,
+    "opens": 1,
+    "cached": 1,
+    "wall_ms": 30.7,
+    "frames": 3,
+    "blank": 0,
+    "flash": 0
+   },
+   "close_reader": {
+    "reader": "- Empty",
+    "open_to_shown_ms": null,
+    "send_to_ready_ms": null,
+    "opens": 0,
+    "cached": 0,
+    "wall_ms": 2.6,
+    "frames": 3,
+    "blank": 0,
+    "flash": 0
+   },
+   "open_again": {
+    "reader": "e31 Ready",
+    "open_to_shown_ms": 8.6,
+    "send_to_ready_ms": 8.1,
+    "opens": 1,
+    "cached": 1,
+    "wall_ms": 29.3,
+    "frames": 3,
+    "blank": 0,
+    "flash": 0
+   },
+   "switch_key": {
+    "reader": "e24 Ready",
+    "open_to_shown_ms": 9.6,
+    "send_to_ready_ms": 9.2,
+    "opens": 1,
+    "cached": 1,
+    "wall_ms": 21.8,
+    "frames": 3,
+    "blank": 0,
+    "flash": 0
+   },
+   "switch_click": {
+    "reader": "e40 Ready",
+    "open_to_shown_ms": 9.8,
+    "send_to_ready_ms": 9.4,
+    "opens": 1,
+    "cached": 1,
+    "wall_ms": 29.2,
+    "frames": 3,
+    "blank": 0,
+    "flash": 0
+   },
+   "switch_back": {
+    "reader": "e24 Ready",
+    "open_to_shown_ms": 8.7,
+    "send_to_ready_ms": 8.3,
+    "opens": 1,
+    "cached": 1,
+    "wall_ms": 28.9,
+    "frames": 5,
+    "blank": 0,
+    "flash": 0
+   },
+   "thread_switch": {
+    "reader": "e8 Ready",
+    "open_to_shown_ms": 9.1,
+    "send_to_ready_ms": 8.7,
+    "opens": 1,
+    "cached": 1,
+    "wall_ms": 21.4,
+    "frames": 3,
+    "blank": 0,
+    "flash": 0
+   },
+   "light_switch": {
+    "reader": "e8 Ready",
+    "open_to_shown_ms": null,
+    "send_to_ready_ms": 11.9,
+    "opens": 0,
+    "cached": 0,
+    "wall_ms": 304.9,
+    "frames": 5,
+    "blank": 0,
+    "flash": 0
+   }
+  },
+  "idle_frames_2s": 0,
+  "body_state": "shell up seq 51 shown - loading no remote-blocked no plain no dropped 0 links 0 blocked 0 filtered 0"
+ },
+ "wgc_frames_total": 123,
+ "wgc_frames_uniform": 123,
+ "wgc_note": "every WGC frame of this run was uniform white: the display had been off (user idle about 5 h, display timeout 300 s), so BLANK/FLASH 0/0 here is not evidence",
+ "repeat_rendering_probe": {
+  "bento/jx20": {
+   "frames": 42,
+   "cost_median_ms": 0.19,
+   "cost_max_ms": 1.91,
+   "gap_max_ms": 32.26,
+   "input_to_frame_end_median_ms": 12.56,
+   "input_to_frame_end_max_ms": 29.31,
+   "inputs": 20
+  },
+  "bento/kx20": {
+   "frames": 43,
+   "cost_median_ms": 0.06,
+   "cost_max_ms": 1.47,
+   "gap_max_ms": 32.19,
+   "input_to_frame_end_median_ms": 17.22,
+   "input_to_frame_end_max_ms": 29.54,
+   "inputs": 20
+  },
+  "nordic/jx20": {
+   "frames": 43,
+   "cost_median_ms": 0.24,
+   "cost_max_ms": 1.84,
+   "gap_max_ms": 32.55,
+   "input_to_frame_end_median_ms": 18.54,
+   "input_to_frame_end_max_ms": 29.51,
+   "inputs": 20
+  },
+  "nordic/kx20": {
+   "frames": 44,
+   "cost_median_ms": 0.19,
+   "cost_max_ms": 1.21,
+   "gap_max_ms": 32.8,
+   "input_to_frame_end_median_ms": 19.81,
+   "input_to_frame_end_max_ms": 29.12,
+   "inputs": 20
+  }
+ },
+ "shell_scenarios": {
+  "bento": {
+   "theme_flip": 2,
+   "resize": 3,
+   "folder_click": 1,
+   "key_j20": 1,
+   "idle_frames_2s": 0
+  },
+  "nordic": {
+   "theme_flip": 2,
+   "resize": 3,
+   "folder_click": 1,
+   "key_j20": 1,
+   "idle_frames_2s": 0
+  },
+  "_note": "frames captured per scenario; all uniform white (see wgc_note)"
+ },
+ "cold_start_release_smoke_ms": {
+  "process_to_first_frame": [
+   353.4,
+   291.7,
+   287.6,
+   283.8,
+   285.6
+  ],
+  "process_to_shell_ready": [
+   552.6,
+   485.8,
+   471.7,
+   501.2,
+   472.3
+  ]
+ },
+ "inbox_interactive_automation_sample_ms_upper_bound": [
+  783,
+  806,
+  866
+ ],
+ "irows": {
+  "I-039 collapse": "ok",
+  "I-039 child hidden after collapse": true,
+  "I-039 child back after expand": true,
+  "I-046 toggle": "ok",
+  "I-046 folders hidden": false,
+  "I-046 folders back": true,
+  "open e40": "reader e40 Ready conversation 0 error -",
+  "j": "reader e36 Truncated conversation 0 error -",
+  "j2": "reader e31 Ready conversation 0 error -",
+  "k": "reader e36 Truncated conversation 0 error -",
+  "Down": "reader e31 Ready conversation 0 error -",
+  "Up": "reader e36 Truncated conversation 0 error -",
+  "Escape": "reader - Empty conversation 0 error -",
+  "/": "ok",
+  "popup-guard": "open 0 closed 0",
+  "focus-guard": "fg=67002 own=1443432 own-is-foreground=no cursor=648,526"
+ }
+}

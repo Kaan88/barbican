@@ -108,6 +108,10 @@ def analyse(d, show_frames=False, layout=None):
     s1 = {k: (crop(last, r).mean(), ink(crop(last, r))) for k, r in allr.items()}
     t_cmd = next((t for t, e in events if e.startswith("cmd ")), times[0])
 
+    # A capture with no ink anywhere (an all-white or all-black window) is not a picture of the app: WGC of a hidden
+    # window returns such frames while the display is off (M1 verify). BLANK/FLASH compare against the first and last
+    # frame, so a burst of uniform frames would pass as 0/0; count them so callers can reject the burst.
+    empty_n = sum(1 for a in L if ink(a[::4, ::4]) < 0.001)
     rows, bad, blank_n, flash_n, head_n = [], [], 0, 0, 0
     pane = regs.get("pane")
     changes, prev, response, settled = 0, None, None, None
@@ -177,6 +181,8 @@ def analyse(d, show_frames=False, layout=None):
         "blank": blank_n,
         "flash": flash_n,
         "header_missing": head_n,
+        "empty": empty_n,
+        "capture_valid": empty_n == 0,
         "worst_ms": round(best, 1),
         "changes": changes,
         "list_changes": list_changes,
