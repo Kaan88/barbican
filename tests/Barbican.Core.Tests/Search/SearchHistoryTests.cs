@@ -7,7 +7,6 @@ namespace Barbican.Core.Tests.Search;
 public sealed class SearchHistoryTests
 {
     [Fact]
-    [Red("search")]
     [RustTest("search_history::adds_newest_first_without_duplicates")]
     public void Adds_newest_first_without_duplicates()
     {
@@ -27,7 +26,6 @@ public sealed class SearchHistoryTests
     }
 
     [Fact]
-    [Red("search")]
     [RustTest("search_history::suggestions_like_bulwark")]
     public void Suggestions_like_bulwark()
     {
@@ -47,7 +45,6 @@ public sealed class SearchHistoryTests
     }
 
     [Fact]
-    [Red("search")]
     [RustTest("search_history::people_and_query")]
     public void People_and_query()
     {

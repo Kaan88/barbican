@@ -18,7 +18,6 @@ public sealed class QuickRuleBuilderTests
         Assert.True(JsonNode.DeepEquals(J(expected), actual), actual?.ToJsonString());
 
     [Fact]
-    [Red("search")]
     [RustTest("quick_rules::hand_edited_script_is_refused")]
     public void Hand_edited_script_is_refused()
     {
@@ -37,7 +36,6 @@ public sealed class QuickRuleBuilderTests
     }
 
     [Fact]
-    [Red("search")]
     [RustTest("quick_rules::subject_from_a_message")]
     public void Subject_from_a_message()
     {
@@ -53,7 +51,6 @@ public sealed class QuickRuleBuilderTests
     }
 
     [Fact]
-    [Red("search")]
     [RustTest("quick_rules::sieve_paths")]
     public void Sieve_paths()
     {
@@ -68,7 +65,6 @@ public sealed class QuickRuleBuilderTests
     }
 
     [Fact]
-    [Red("search")]
     [RustTest("quick_rules::presets_build_bulwark_rules")]
     public void Presets_build_bulwark_rules()
     {
@@ -99,7 +95,6 @@ public sealed class QuickRuleBuilderTests
     }
 
     [Fact]
-    [Red("search")]
     [RustTest("quick_rules::apply_creates_merges_or_covers")]
     public void Apply_creates_merges_or_covers()
     {
