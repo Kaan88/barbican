@@ -23,6 +23,12 @@ public sealed record FakeMail
 
     public IReadOnlyList<FakeAttachment> Attachments { get; init; } = [];
 
+    /// <summary>Extra header fields (name, value) in order, for example List-Unsubscribe or Disposition-Notification-To (M2 seed).</summary>
+    public IReadOnlyList<(string Name, string Value)> Headers { get; init; } = [];
+
+    /// <summary>The Authentication-Results value the server wrote for this message; null: the default pass under mx.example.org (M2 seed).</summary>
+    public string? AuthenticationResults { get; init; }
+
     /// <summary>An existing message whose conversation this one joins (a reply).</summary>
     public string? ReplyTo { get; init; }
 }

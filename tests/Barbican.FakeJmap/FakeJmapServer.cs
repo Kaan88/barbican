@@ -31,6 +31,10 @@ public sealed partial class FakeJmapServer : HttpMessageHandler
         if (seed)
         {
             FakeSeed.Fill(Store);
+            if (Options.SeedM2)
+            {
+                FakeSeed.FillM2(Store);
+            }
         }
     }
 

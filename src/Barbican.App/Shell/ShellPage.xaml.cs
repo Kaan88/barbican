@@ -48,6 +48,7 @@ public sealed partial class ShellPage : Page
         _restore = _accounts is null ? null : ViewHost.Find<AccountsStartup>()?.Completion;
         InitializeComponent();
         Tip.SetHost(Overlay);
+        ShellOverlays.Fill(OverlayLayer);
         _theme.Attach(Root);
         ApplyLook();
         _look.PropertyChanged += (_, _) => ApplyLook();

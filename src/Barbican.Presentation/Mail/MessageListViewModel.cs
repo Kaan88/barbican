@@ -6,6 +6,7 @@
 // anchors on the last loaded message; a push delta is one insert, not a reset.
 
 using System.Windows.Input;
+using Barbican.Core.Mail.Lists;
 using Barbican.Core.Mail.Model;
 using Barbican.Core.Plugins.Hooks;
 using Barbican.Core.Plugins.Payloads;
@@ -19,7 +20,7 @@ using CommunityToolkit.Mvvm.Input;
 namespace Barbican.Presentation.Mail;
 
 /// <summary>The message list of the open folder or search.</summary>
-public sealed class MessageListViewModel : ObservableObject, IDisposable
+public sealed partial class MessageListViewModel : ObservableObject, IDisposable
 {
     /// <summary>Load the next page when the selection is this close to the end of what is loaded.</summary>
     private const int PrefetchRows = 3;
@@ -32,6 +33,8 @@ public sealed class MessageListViewModel : ObservableObject, IDisposable
     private readonly ISystemAccessibilitySource _system;
     private readonly MotionState _motion;
     private readonly TimeProvider _time;
+    private readonly IListQueryShaper? _shaper;
+    private readonly IListSourceResolver? _sources;
     private readonly LoadedList _loaded = new();
     private readonly Dictionary<string, IReadOnlyList<string>> _badges = new(StringComparer.Ordinal);
     private CancellationTokenSource? _cts;
@@ -59,7 +62,9 @@ public sealed class MessageListViewModel : ObservableObject, IDisposable
         IPrefsStore prefs,
         ISystemAccessibilitySource system,
         MotionState motion,
-        TimeProvider time)
+        TimeProvider time,
+        IListQueryShaper? shaper = null,
+        IListSourceResolver? sources = null)
     {
         ArgumentNullException.ThrowIfNull(active);
         ArgumentNullException.ThrowIfNull(hub);
@@ -77,6 +82,8 @@ public sealed class MessageListViewModel : ObservableObject, IDisposable
         _system = system;
         _motion = motion;
         _time = time;
+        _shaper = shaper;
+        _sources = sources;
         LoadMoreCommand = new AsyncRelayCommand(LoadMoreAsync, () => CanLoadMore);
         _hub.EventReceived += OnSyncEvent;
         _active.Changed += OnAccountChanged;
@@ -224,7 +231,7 @@ public sealed class MessageListViewModel : ObservableObject, IDisposable
         var ct = _cts?.Token ?? CancellationToken.None;
         try
         {
-            var result = await mail.QueryAsync(query, cursor, ct).ConfigureAwait(true);
+            var result = await QueryPageAsync(mail, query, cursor, ct).ConfigureAwait(true);
             if (generation != _generation)
             {
                 return;
@@ -441,6 +448,17 @@ public sealed class MessageListViewModel : ObservableObject, IDisposable
     }
 
     /// <summary>
+    /// One page through the list seams (M2 plan 4.4): the shaper may adjust the query and the resolver may pick another source. Without them (the M1 default,
+    /// and every M1 test) it is exactly <c>mail.QueryAsync(query, after, ct)</c>.
+    /// </summary>
+    private Task<Core.Common.Result<ListPage>> QueryPageAsync(Core.Mail.IMailService mail, ListQuery query, ListCursor? after, CancellationToken ct)
+    {
+        var shaped = _shaper is null ? query : _shaper.Shape(query);
+        var source = _sources?.Resolve(shaped) ?? new MailServiceListSource(mail);
+        return source.QueryAsync(shaped, after, ct);
+    }
+
+    /// <summary>
     /// The first page. The unread-first Inbox is two queries, the newest unread messages (<c>notKeyword $seen</c>, the section size) and
     /// the read ones (<c>hasKeyword $seen</c>), as Rust <c>fetch_unread_first</c> (mail.rs:599) does, so an Inbox with more unread
     /// messages than one page still shows its unread section; otherwise one query of <paramref name="rows"/> or the page size.
@@ -451,16 +469,16 @@ public sealed class MessageListViewModel : ObservableObject, IDisposable
         var settings = ReadSettings();
         if (!IsUnreadFirst(query, settings))
         {
-            return await mail.QueryAsync(query with { PageSize = size }, null, ct).ConfigureAwait(true);
+            return await QueryPageAsync(mail, query with { PageSize = size }, null, ct).ConfigureAwait(true);
         }
 
-        var unread = await mail.QueryAsync(query with { NotKeyword = "$seen", PageSize = settings.UnreadSectionSize }, null, ct).ConfigureAwait(true);
+        var unread = await QueryPageAsync(mail, query with { NotKeyword = "$seen", PageSize = settings.UnreadSectionSize }, null, ct).ConfigureAwait(true);
         if (!unread.IsOk || unread.Value is null)
         {
             return unread;
         }
 
-        var read = await mail.QueryAsync(query with { HasKeyword = "$seen", PageSize = size }, null, ct).ConfigureAwait(true);
+        var read = await QueryPageAsync(mail, query with { HasKeyword = "$seen", PageSize = size }, null, ct).ConfigureAwait(true);
         if (!read.IsOk || read.Value is null)
         {
             return read;

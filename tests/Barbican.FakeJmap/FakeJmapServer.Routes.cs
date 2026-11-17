@@ -39,6 +39,8 @@ public sealed partial class FakeJmapServer
             caps["urn:stalwart:jmap"] = new JsonObject();
         }
 
+        AddM2Capabilities(caps, o);
+
         var accountCaps = new JsonObject
         {
             ["urn:ietf:params:jmap:mail"] = new JsonObject { ["maxMailboxesPerEmail"] = null, ["maxMailboxDepth"] = 10, ["emailQuerySortOptions"] = new JsonArray("receivedAt") },
@@ -208,6 +210,25 @@ public sealed partial class FakeJmapServer
         catch (JsonException)
         {
             return null;
+        }
+    }
+
+    /// <summary>The M2 capabilities, each off by its own flag so the M1 session stays as it was.</summary>
+    private static void AddM2Capabilities(JsonObject caps, FakeJmapOptions o)
+    {
+        if (o.SieveCapability)
+        {
+            caps["urn:ietf:params:jmap:sieve"] = new JsonObject();
+        }
+
+        if (o.FileNodeCapability)
+        {
+            caps["urn:ietf:params:jmap:filenode"] = new JsonObject();
+        }
+
+        if (o.CalendarsCapability)
+        {
+            caps["urn:ietf:params:jmap:calendars"] = new JsonObject();
         }
     }
 }

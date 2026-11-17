@@ -1,4 +1,4 @@
-// As Bulwark's lib/__tests__/plugin-hook-catalog.test.ts: every catalogued hook is fired somewhere. Here: every hook with milestone M1
+// As Bulwark's lib/__tests__/plugin-hook-catalog.test.ts: every catalogued hook is fired somewhere. Here: every hook with milestone M1 or M2
 // has at least one call site in src/ (a `HookNames.<Name>` reference). One test per owning stream, red until that stream fires its hooks;
 // the stream removes the [Red] attribute of its test in the commit that completes its hooks.
 
@@ -6,15 +6,15 @@ namespace Barbican.Core.Tests.Plugins;
 
 public sealed class HookCallSiteTests
 {
-    private static void AssertFired(string owner)
+    private static void AssertFired(string owner, string milestone = "M1")
     {
         var sources = string.Concat(RepoFiles.SourceFiles().Select(File.ReadAllText));
         var missing = RepoFiles.ReadCsv("spec/plugins/hooks.csv")
-            .Where(r => string.Equals(r["milestone"], "M1", StringComparison.Ordinal) && string.Equals(r["owner"], owner, StringComparison.Ordinal))
+            .Where(r => string.Equals(r["milestone"], milestone, StringComparison.Ordinal) && string.Equals(r["owner"], owner, StringComparison.Ordinal))
             .Select(r => r["name"])
             .Where(name => !sources.Contains($"HookNames.{char.ToUpperInvariant(name[0])}{name[1..]}", StringComparison.Ordinal))
             .ToList();
-        Assert.True(missing.Count == 0, $"M1 hooks of {owner} without a call site: {string.Join(", ", missing)}");
+        Assert.True(missing.Count == 0, $"{milestone} hooks of {owner} without a call site: {string.Join(", ", missing)}");
     }
 
     [Fact]
@@ -31,4 +31,21 @@ public sealed class HookCallSiteTests
 
     [Fact]
     public void Body_hooks_have_call_sites() => AssertFired("body");
+
+    // M2 (stage F of M2, plan 2.4): one red test per owner, removed by the stream in the commit that fires its hooks (actions 28, reader 4, search 1, unified 3).
+    [Fact]
+    [Red("actions")]
+    public void Actions_m2_hooks_have_call_sites() => AssertFired("actions", "M2");
+
+    [Fact]
+    [Red("reader")]
+    public void Reader_m2_hooks_have_call_sites() => AssertFired("reader", "M2");
+
+    [Fact]
+    [Red("search")]
+    public void Search_m2_hooks_have_call_sites() => AssertFired("search", "M2");
+
+    [Fact]
+    [Red("unified")]
+    public void Unified_m2_hooks_have_call_sites() => AssertFired("unified", "M2");
 }

@@ -7,7 +7,7 @@ using System.Text;
 namespace Barbican.FakeJmap;
 
 /// <summary>Fills a store with the seed account.</summary>
-public static class FakeSeed
+public static partial class FakeSeed
 {
     /// <summary>The subject of the 5-message conversation.</summary>
     public const string ThreadSubject = "Quarterly planning";

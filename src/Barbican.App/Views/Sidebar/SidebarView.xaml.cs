@@ -17,6 +17,9 @@ public sealed partial class SidebarView : UserControl
         Sidebar = ViewHost.Get<SidebarViewModel>();
         Look = ViewHost.Get<StyleState>();
         InitializeComponent();
+        SlotHost.Fill(AccountHeaderSlot, SlotNames.SidebarAccountHeader);
+        SlotHost.Fill(UnifiedSectionSlot, SlotNames.SidebarUnified);
+        SlotHost.Fill(SharedSectionSlot, SlotNames.SidebarShared);
         ApplyStyle();
         Look.PropertyChanged += (_, _) => ApplyStyle();
         Sidebar.PropertyChanged += OnSidebarChanged;

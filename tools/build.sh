@@ -78,7 +78,9 @@ dn() {
   nice -n 10 dotnet "$@"
 }
 
-common=(-c "$config" "-m:$cpu" -p:UseSharedCompilation=false)
+# The first Linux run of M1 (M2 stage F, 2026-11-17) failed with NETSDK1100 on the Windows projects of the solution: the solution is built with
+# the Windows-only projects compiled for reference (EnableWindowsTargeting) and the App head restricted to the Uno desktop head (BarbicanHead).
+common=(-c "$config" "-m:$cpu" -p:UseSharedCompilation=false -p:EnableWindowsTargeting=true -p:BarbicanHead=desktop)
 
 case "$target" in
   rules) rules; exit 0 ;;

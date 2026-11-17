@@ -44,6 +44,18 @@ public sealed record FakeJmapOptions
     /// <summary>The most ids one /query returns, whatever limit is asked (RFC 8620 §5.5: a server may cap limit).</summary>
     public int QueryLimitCap { get; init; } = 10_000;
 
+    /// <summary>Advertise the Sieve capability (urn:ietf:params:jmap:sieve) for SieveScript/get, set and validate (M2: quick rules). Off: the M1 session.</summary>
+    public bool SieveCapability { get; init; }
+
+    /// <summary>Advertise the FileNode capability (urn:ietf:params:jmap:filenode) for Save to Files (M2 reader). Off: the M1 session.</summary>
+    public bool FileNodeCapability { get; init; }
+
+    /// <summary>Advertise the Calendars capability (urn:ietf:params:jmap:calendars) for CalendarEvent/parse (M2 reader). Off: the M1 session.</summary>
+    public bool CalendarsCapability { get; init; }
+
+    /// <summary>Add the M2 seed (FakeSeed.FillM2) on top of the M1 seed. Off: the M1 seed only, so every M1 test sees the data it always saw.</summary>
+    public bool SeedM2 { get; init; }
+
     public long MaxSizeUpload { get; init; } = 50_000_000;
 
     public int MaxConcurrentUpload { get; init; } = 4;

@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- The bundled spam-score native plugin (M2 plan 3.2, stage unified fills it). References only the plugin API. The App project builds it and
+       copies it to <output>/plugins/spam-score/; Core.Tests copies the same build for T-206. Port of tests/fixtures/plugins/spam-score (Rust). -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <RootNamespace>Barbican.Plugin.SpamScore</RootNamespace>
+    <IsAotCompatible>true</IsAotCompatible>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../../src/Barbican.Plugins.Abstractions/Barbican.Plugins.Abstractions.csproj" />
+  </ItemGroup>
+</Project>

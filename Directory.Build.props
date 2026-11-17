@@ -38,6 +38,13 @@
     <DebugType>portable</DebugType>
   </PropertyGroup>
 
+  <!-- M2 stage F (docs/milestones/M2-plan.md 3.2): the write-capable test commands (rx-import, rx-find, rx-destroy) exist only under AUTOMATION_WRITES, which is defined ONLY together with
+       AUTOMATION: tools/build.ps1 build -Configuration Automation -Writes passes -p:AutomationWrites=true. Release and a plain Automation build never define it
+       (tests/Barbican.Build.Tests asserts this). -->
+  <PropertyGroup Condition="'$(Configuration)' == 'Automation' and '$(AutomationWrites)' == 'true'">
+    <DefineConstants>$(DefineConstants);AUTOMATION_WRITES</DefineConstants>
+  </PropertyGroup>
+
   <!-- Which layer a project belongs to, for the banned-API lists (BannedSymbols.txt + eng/). -->
   <PropertyGroup>
     <BarbicanRoot>$(MSBuildThisFileDirectory)</BarbicanRoot>

@@ -22,7 +22,7 @@ namespace Barbican.Presentation.Tests.Composition;
 
 public sealed class CompositionGraphTests
 {
-    private sealed class TempProfile(string root) : IProfilePaths
+    internal sealed class TempProfile(string root) : IProfilePaths
     {
         public string Profile => "test";
 
@@ -69,7 +69,7 @@ public sealed class CompositionGraphTests
         }
     }
 
-    private static ServiceCollection Compose(string root)
+    internal static ServiceCollection Compose(string root)
     {
         var services = new ServiceCollection();
         services.AddSingleton(TimeProvider.System);
@@ -82,6 +82,9 @@ public sealed class CompositionGraphTests
         services.AddBarbicanMailCore();
         services.AddBarbicanAccounts();
         services.AddBarbicanAccountsPresentation();
+
+        // the defaults of the M2 seams (stage F of M2; App/Composition/Features/ActionsRegistration.cs registers them first)
+        services.AddBarbicanM2Defaults();
 
         // what MailBodyRegistration adds besides the WebView shell
         services.TryAddSingleton<ILinkRouter, StandInLinkRouter>();

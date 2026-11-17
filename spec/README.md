@@ -22,6 +22,7 @@ streams m0-cat-a, m0-cat-b and m0-cat-c, then completed and sample-reviewed by m
 | `layout/<screen>.md` | | | tuned Slint metrics per screen, Bento and Nordic |
 | `feel/rust-baseline/` | | | the Rust flicker and motion probe results: the bar to beat (§4.5) |
 | `feel/M<n>/` | | | C# feel results per milestone (from M1) |
+| `feel/M2/` | | | C# feel results of M2 (`actions/`, `menus/`, `reader/`, `search/`, `unified/` per stream) and `linux-baseline.md`, the first Linux run of M1 (stage F) |
 
 Behaviour areas: ADM admin-dashboard, AI assistant, CAL calendar, CAP capture and probes, COMP compose,
 CON contacts, DND drag and drop, DSK desktop-tray, FILE files, INV invitations (extras.md), JMAP jmap,

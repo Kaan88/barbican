@@ -79,21 +79,16 @@
             </Border>
           </Grid>
           <TextBlock Text="{x:Bind Glance.ListSubtitle, Mode=OneWay}" FontSize="12.5" Foreground="{StaticResource Dim}" TextTrimming="CharacterEllipsis" />
-          <Border Height="38" CornerRadius="{x:Bind Look.FieldRadius, Mode=OneWay}" Background="{StaticResource Tile2}" BorderBrush="{StaticResource Line}" BorderThickness="1" Padding="12,0,6,0">
-            <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="8">
-              <controls:SIcon Kind="Search" Size="15" StrokeWidth="2" Foreground="{StaticResource Dim}" VerticalAlignment="Center" />
-              <TextBox Grid.Column="1" x:Name="SearchBox" Style="{StaticResource TextBox.Bare}" PlaceholderText="Search mail" KeyDown="OnSearchKeyDown"
-                       AutomationProperties.AutomationId="list.search" AutomationProperties.Name="Search mail" />
-              <Border Grid.Column="2" Height="17" MinWidth="18" CornerRadius="5" BorderBrush="{StaticResource Line}" BorderThickness="1" Padding="5,0" VerticalAlignment="Center" IsHitTestVisible="False">
-                <TextBlock Text="/" FontSize="11" Foreground="{StaticResource Faint}" HorizontalAlignment="Center" VerticalAlignment="Center" />
-              </Border>
-            </Grid>
-          </Border>
+          <ContentPresenter x:Name="SearchSlot" />
         </StackPanel>
 
         <!-- A load failure shows as a status line; the old rows stay. -->
-        <TextBlock Grid.Row="1" Text="{x:Bind List.Error, Mode=OneWay}" Foreground="{StaticResource RoseFg}" FontSize="12" TextWrapping="Wrap" Margin="20,0,20,8"
-                   Visibility="{x:Bind views:Fmt.VisText(List.Error), Mode=OneWay}" AutomationProperties.AutomationId="list.error" AutomationProperties.Name="List error" />
+        <StackPanel Grid.Row="1">
+          <TextBlock Text="{x:Bind List.Error, Mode=OneWay}" Foreground="{StaticResource RoseFg}" FontSize="12" TextWrapping="Wrap" Margin="20,0,20,8"
+                     Visibility="{x:Bind views:Fmt.VisText(List.Error), Mode=OneWay}" AutomationProperties.AutomationId="list.error" AutomationProperties.Name="List error" />
+          <!-- M2 plan 3.3: the selection bar (stream actions) -->
+          <ContentPresenter x:Name="SelectionBarSlot" />
+        </StackPanel>
 
         <ListView Grid.Row="2" x:Name="Rows" ItemsSource="{x:Bind List.Rows}" ItemTemplateSelector="{StaticResource RowSelector}" SelectionMode="Single" Padding="0"
                   SelectionChanged="OnSelectionChanged" ContainerContentChanging="OnContainerContentChanging" win:ShowsScrollingPlaceholders="False"

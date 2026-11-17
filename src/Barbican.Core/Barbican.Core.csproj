@@ -12,10 +12,18 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- The native plugin API (M2 plan 3.2): Core hosts plugins, plugins reference only this. -->
+    <ProjectReference Include="../Barbican.Plugins.Abstractions/Barbican.Plugins.Abstractions.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
     <!-- Each feature registers its services in its own Add<Feature>() file (docs/milestones/M1-plan.md §3.3). -->
     <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" />
     <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" />
     <PackageReference Include="AngleSharp" />
+    <!-- M2 (plan 3.2): MDN multipart/report, view source, forward as attachment, .eml/.mbox parsing, TNEF; BIMI and DMARC TXT lookups. -->
+    <PackageReference Include="MimeKit" />
+    <PackageReference Include="DnsClient" />
   </ItemGroup>
 
   <ItemGroup>
