@@ -1,5 +1,6 @@
 // Mirrors: Bulwark lib/plugin-hook-catalog.ts (observer / intercept / transform), lib/plugin-mail-hooks.ts (dispatch order, a failing
-// handler never stops the app), PORT-PLAN.md M6b (host-agnostic bus first, plugin hosts later); M1-plan §4.1. Owner mailcore.
+// handler never stops the app), PORT-PLAN.md M6b (host-agnostic bus first, plugin hosts later); M1-plan §4.1. Owner mailcore (M1); budgets and fail-closed
+// intercepts (fable-review-2 R2-10, Bulwark lib/plugin-hooks.ts:62-66, :186-188, :290-325) owner unified (M2 wave 2).
 
 namespace Barbican.Core.Plugins.Hooks;
 
@@ -9,20 +10,26 @@ namespace Barbican.Core.Plugins.Hooks;
 /// </summary>
 public sealed class HookBus : IHookBus
 {
-    /// <summary>How long one handler may take before the bus gives up on it (Fable F-15): a plugin that never returns must not stop the sync.</summary>
+    /// <summary>How long one observer or transform handler may take before the bus gives up on it (Fable F-15): a plugin that never returns must not stop the sync.</summary>
     public static readonly TimeSpan DefaultHandlerTimeout = TimeSpan.FromSeconds(5);
 
     private readonly TimeProvider _time;
-    private readonly TimeSpan _timeout;
+    private readonly TimeSpan? _timeout;
+    private readonly Func<string, HookPolicy> _policies;
     private readonly Lock _gate = new();
     // copy on write: a registration builds a new dictionary and swaps it in, so readers (the hot path) never lock and never allocate
-    private volatile Dictionary<string, Delegate[]> _handlers = new(StringComparer.Ordinal);
+    private volatile Dictionary<string, object[]> _handlers = new(StringComparer.Ordinal);
 
-    /// <summary>Creates a bus; a handler that takes longer than <paramref name="handlerTimeout"/> is abandoned and reported through <see cref="HandlerFailed"/>.</summary>
-    public HookBus(TimeProvider? time = null, TimeSpan? handlerTimeout = null)
+    /// <summary>
+    /// Creates a bus. Each hook's budget and fail-closed flag come from the catalogue (<see cref="HookPolicies.For"/>, R2-10): 5 s for observers and
+    /// transforms, 60 s for intercepts (they wait on dialogs), longer for send and upload. <paramref name="handlerTimeout"/> replaces every budget (tests);
+    /// a handler past its budget is abandoned and reported through <see cref="HandlerFailed"/>.
+    /// </summary>
+    public HookBus(TimeProvider? time = null, TimeSpan? handlerTimeout = null, Func<string, HookPolicy>? policies = null)
     {
         _time = time ?? TimeProvider.System;
-        _timeout = handlerTimeout ?? DefaultHandlerTimeout;
+        _timeout = handlerTimeout;
+        _policies = policies ?? HookPolicies.For;
     }
 
     /// <summary>A handler threw; the bus carries on with the next one (a plugin must not break the app).</summary>
@@ -40,15 +47,27 @@ public sealed class HookBus : IHookBus
     /// <summary>Registers a transform (sees the previous result, returns the next); dispose the result to remove it.</summary>
     public IDisposable Transform<T>(string hook, Func<T, CancellationToken, ValueTask<T>> handler) => Add(hook, handler);
 
+    /// <summary>Registers an observer that takes any payload type (the native plugin host: a plugin cannot name the app's payload types).</summary>
+    public IDisposable ObserveAny(string hook, Func<object?, CancellationToken, ValueTask> handler) => Add(hook, new AnyObserver(handler));
+
+    /// <summary>Registers an interceptor that takes any payload type (the native plugin host); false stops the action.</summary>
+    public IDisposable InterceptAny(string hook, Func<object?, CancellationToken, ValueTask<bool>> handler) => Add(hook, new AnyInterceptor(handler));
+
     /// <inheritdoc />
     public ValueTask NotifyAsync<TPayload>(string hook, TPayload payload, CancellationToken ct) =>
         _handlers.TryGetValue(hook, out var list) ? NotifyCoreAsync(hook, list, payload, ct) : default;
 
-    private async ValueTask NotifyCoreAsync<TPayload>(string hook, Delegate[] list, TPayload payload, CancellationToken ct)
+    private async ValueTask NotifyCoreAsync<TPayload>(string hook, object[] list, TPayload payload, CancellationToken ct)
     {
         foreach (var d in list)
         {
-            if (d is not Func<TPayload, CancellationToken, ValueTask> observer)
+            Func<TPayload, CancellationToken, ValueTask>? observer = d switch
+            {
+                Func<TPayload, CancellationToken, ValueTask> typed => typed,
+                AnyObserver any => (p, t) => any.Handler(p, t),
+                _ => null,
+            };
+            if (observer is null)
             {
                 continue;
             }
@@ -76,20 +95,26 @@ public sealed class HookBus : IHookBus
     public ValueTask<bool> InterceptAsync<TPayload>(string hook, TPayload payload, CancellationToken ct) =>
         _handlers.TryGetValue(hook, out var list) ? InterceptCoreAsync(hook, list, payload, ct) : ValueTask.FromResult(true);
 
-    private async ValueTask<bool> InterceptCoreAsync<TPayload>(string hook, Delegate[] list, TPayload payload, CancellationToken ct)
+    private async ValueTask<bool> InterceptCoreAsync<TPayload>(string hook, object[] list, TPayload payload, CancellationToken ct)
     {
         foreach (var d in list)
         {
-            if (d is not Func<TPayload, CancellationToken, ValueTask<bool>> interceptor)
+            Func<TPayload, CancellationToken, ValueTask<bool>>? interceptor = d switch
+            {
+                Func<TPayload, CancellationToken, ValueTask<bool>> typed => typed,
+                AnyInterceptor any => (p, t) => any.Handler(p, t),
+                _ => null,
+            };
+            if (interceptor is null)
             {
                 continue;
             }
 
             try
             {
-                // a handler that timed out counts as "allow"
+                // a handler that timed out counts as "allow", unless the hook fails closed (Bulwark failClosed: sending cannot be taken back)
                 var run = await RunAsync(hook, async t => await interceptor(payload, t).ConfigureAwait(false), ct).ConfigureAwait(false);
-                if (run.Done && !run.Value)
+                if (run.Done ? !run.Value : _policies(hook).FailClosed)
                 {
                     return false;
                 }
@@ -101,6 +126,10 @@ public sealed class HookBus : IHookBus
             catch (Exception e)
             {
                 Failed(hook, e);
+                if (_policies(hook).FailClosed)
+                {
+                    return false;
+                }
             }
         }
 
@@ -111,7 +140,7 @@ public sealed class HookBus : IHookBus
     public ValueTask<T> TransformAsync<T>(string hook, T value, CancellationToken ct) =>
         _handlers.TryGetValue(hook, out var list) ? TransformCoreAsync(hook, list, value, ct) : ValueTask.FromResult(value);
 
-    private async ValueTask<T> TransformCoreAsync<T>(string hook, Delegate[] list, T value, CancellationToken ct)
+    private async ValueTask<T> TransformCoreAsync<T>(string hook, object[] list, T value, CancellationToken ct)
     {
         foreach (var d in list)
         {
@@ -153,8 +182,9 @@ public sealed class HookBus : IHookBus
             return (true, await work.ConfigureAwait(false));
         }
 
+        var budget = _timeout ?? _policies(hook).Budget;
         using var delayCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
-        var delay = Task.Delay(_timeout, _time, delayCts.Token);
+        var delay = Task.Delay(budget, _time, delayCts.Token);
         var first = await Task.WhenAny(work, delay).ConfigureAwait(false);
         if (ReferenceEquals(first, work))
         {
@@ -165,17 +195,17 @@ public sealed class HookBus : IHookBus
         ct.ThrowIfCancellationRequested();
         await handlerCts.CancelAsync().ConfigureAwait(false);
         _ = work.ContinueWith(static t => _ = t.Exception, CancellationToken.None, TaskContinuationOptions.OnlyOnFaulted, TaskScheduler.Default);
-        Failed(hook, new TimeoutException($"A handler of '{hook}' did not finish within {_timeout.TotalSeconds:0.#} s and was abandoned."));
+        Failed(hook, new TimeoutException($"A handler of '{hook}' did not finish within {budget.TotalSeconds:0.#} s and was abandoned."));
         return (false, default!);
     }
 
-    private Registration Add(string hook, Delegate handler)
+    private Registration Add(string hook, object handler)
     {
         ArgumentException.ThrowIfNullOrEmpty(hook);
         ArgumentNullException.ThrowIfNull(handler);
         lock (_gate)
         {
-            var next = new Dictionary<string, Delegate[]>(_handlers, StringComparer.Ordinal)
+            var next = new Dictionary<string, object[]>(_handlers, StringComparer.Ordinal)
             {
                 [hook] = _handlers.TryGetValue(hook, out var list) ? [.. list, handler] : [handler],
             };
@@ -185,7 +215,7 @@ public sealed class HookBus : IHookBus
         return new Registration(this, hook, handler);
     }
 
-    private void Remove(string hook, Delegate handler)
+    private void Remove(string hook, object handler)
     {
         lock (_gate)
         {
@@ -195,7 +225,7 @@ public sealed class HookBus : IHookBus
             }
 
             var left = list.Where(h => !ReferenceEquals(h, handler)).ToArray();
-            var next = new Dictionary<string, Delegate[]>(_handlers, StringComparer.Ordinal);
+            var next = new Dictionary<string, object[]>(_handlers, StringComparer.Ordinal);
             if (left.Length == 0)
             {
                 next.Remove(hook);
@@ -211,7 +241,11 @@ public sealed class HookBus : IHookBus
 
     private void Failed(string hook, Exception e) => HandlerFailed?.Invoke(this, new HookFailedEventArgs(hook, e));
 
-    private sealed class Registration(HookBus bus, string hook, Delegate handler) : IDisposable
+    private sealed record AnyObserver(Func<object?, CancellationToken, ValueTask> Handler);
+
+    private sealed record AnyInterceptor(Func<object?, CancellationToken, ValueTask<bool>> Handler);
+
+    private sealed class Registration(HookBus bus, string hook, object handler) : IDisposable
     {
         public void Dispose() => bus.Remove(hook, handler);
     }

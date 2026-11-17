@@ -1,5 +1,6 @@
-// Mirrors: tests/fixtures/plugins/spam-score/src/{lib.rs,spam.rs} (the Rust source stays the reference for the port, D-234); Bulwark's spam-score plugin
-// (X-Spam-Status, X-Spam-Score, X-Spam-Flag headers). Stub from stage F of M2: the manifest is real, the handler returns no rows until stream unified ports spam.rs.
+// Mirrors: tests/fixtures/plugins/spam-score/src/lib.rs (the manifest: api 1, id spam-score, the email.details hook; the row: label "Spam analysis", value
+// "Spam  ·  detail", tone danger / warning / success) and spam.rs (the analysis, in SpamAnalyzer); D-234: a native .NET plugin replaces the C ABI DLL;
+// decision M2-Q3: bundled and enabled. Owner unified (M2 wave 2).
 
 using Barbican.Plugins;
 
@@ -15,6 +16,9 @@ public sealed class SpamScorePlugin : IBarbicanPlugin
     public Task InitializeAsync(PluginContext context, CancellationToken ct) => Task.CompletedTask;
 
     /// <inheritdoc />
-    public Task<IReadOnlyList<EmailDetailRow>> OnEmailDetailsAsync(EmailDetailsView email, CancellationToken ct) =>
-        Task.FromResult<IReadOnlyList<EmailDetailRow>>([]);
+    public Task<IReadOnlyList<EmailDetailRow>> OnEmailDetailsAsync(EmailDetailsView email, CancellationToken ct)
+    {
+        ArgumentNullException.ThrowIfNull(email);
+        return Task.FromResult(SpamAnalyzer.Rows(email.Headers));
+    }
 }

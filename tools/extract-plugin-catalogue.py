@@ -4,7 +4,7 @@
   python tools/extract-plugin-catalogue.py <bulwark-root>
 
 Reads <bulwark>/lib/plugin-hook-catalog.ts and lib/plugin-slot-catalog.ts. Columns that people edit
-later (milestone, owner, cs_call_site, status) are kept from the existing CSV when the row's name
+later (milestone, owner, cs_call_site, status, budget_ms, fail_closed) are kept from the existing CSV when the row's name
 is already there; new rows get the defaults from tools/plugin_milestones.py (spec/plugins/README.md).
 """
 import csv
@@ -107,7 +107,7 @@ def main():
     hooks_path, slots_path = OUT / "hooks.csv", OUT / "slots.csv"
     old_h, old_s = existing(hooks_path, "name"), existing(slots_path, "name")
     hcols = ["name", "group", "kind", "permission", "also_permission", "payload", "when", "bulwark_ref",
-             "milestone", "owner", "cs_call_site", "status"]
+             "milestone", "owner", "cs_call_site", "status", "budget_ms", "fail_closed"]
     rows = []
     for name, line, a, tail in entries(bw / "lib" / "plugin-hook-catalog.ts", "H"):
         group, kind, perm, payload, when = (unq(x) for x in a[:5])
@@ -126,6 +126,9 @@ def main():
             "milestone": r.get("milestone") or hook_milestone(name, group),
             "owner": r.get("owner") or hook_owner(name, group),
             "cs_call_site": r.get("cs_call_site", ""), "status": r.get("status") or NA_STATUS.get(name, "pending"),
+            # R2-10: Bulwark lib/plugin-hooks.ts:62-66 (5 s, intercepts 60 s, takeovers fail closed); edited rows are kept
+            "budget_ms": r.get("budget_ms") or {"intercept": "60000", "takeover": "600000"}.get(kind, "5000"),
+            "fail_closed": r.get("fail_closed") or ("true" if kind == "takeover" else "false"),
         })
     with hooks_path.open("w", encoding="utf-8", newline="") as f:
         w = csv.DictWriter(f, hcols, lineterminator="\n")

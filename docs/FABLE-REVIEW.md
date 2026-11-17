@@ -1103,3 +1103,47 @@ Automation+Writes.
   payload, Save to Files UI (J-036/J-075 stay pending), `IAttachedMessageOpener` use, G-056, MENU-READER/MENU-ATT providers and reader
   command ids, `IEmailDetailsSource` rows, any UI consumer of `IAvatarService`/`IAttachmentSaver` (only automation calls them), avatar-state,
   feel scenarios, L- scripts, `behaviours/reader.md` and `extras.md` ZIP/INV rows, the reader I- rows in `interactions.csv`.
+
+## M2 stream: unified
+
+Branch `m2-unified` from `m2` at `0d9b306` (wave 1 merged), worktree `<downloads>/wt-m2-unified`, Opus. Items are added as the work goes.
+
+- [ ] **Native plugin host isolation (mandatory).** `src/Barbican.Core/Plugins/Native/{NativePluginHost,PluginLoadContext,PluginHookBridge,LoadedPlugin}.cs`.
+  One collectible `AssemblyLoadContext` per plugin folder; `Barbican.Plugins.Abstractions` resolves to the app's copy (type identity), any
+  other `Barbican.*` assembly a plugin asks for is refused unless the plugin ships its own copy, the framework comes from the default context.
+  What this does **not** give: a security boundary. A plugin runs with full trust in the app's process: it can P/Invoke, read the profile,
+  start threads whose exceptions crash the process, overflow the stack, or reach the app through reflection on the default context. Containment
+  covers exceptions and slowness of calls the host makes (every call on the pool, bounded by a budget, errors reported through
+  `PluginFailed`), not hostile code. Review whether that matches the user's expectation for "plugins never take the app down" (Rust's
+  `catch_unwind` had the same limit) and whether user plugins (`<config>/plugins`) should stay off by default until M6b's permission UI.
+- [ ] **R2-10 (mandatory): per-hook budget and fail-closed flag.** `spec/plugins/hooks.csv` got `budget_ms` and `fail_closed` (every row
+  filled: observer/transform 5000, intercept 60000, takeover 600000 fail-closed; `onBeforeEmailSend` 600000 fail-closed (Bulwark
+  `lib/plugin-hooks.ts:169, :460`), `onBeforeBlobUpload` 900000 (`:72, :540`), `onBeforeCalendarAlert` 5000 (`:615`)). `tools/gen-hooks.py`
+  writes `HookPolicies.g.cs`; `tools/extract-plugin-catalogue.py` keeps both columns. `HookBus` takes the budget per hook
+  (`handlerTimeout` still overrides every budget, as the M1 tests use it) and an intercept of a fail-closed hook says **no** when its
+  handler throws or runs out of time. Judgement calls: (1) `onBeforeShortcut` and `onBeforeExternalLink` are intercepts and now get 60 s
+  like every Bulwark intercept; KeyRouter only waits for synchronous answers, so a key press is unaffected, but a plugin link check may now
+  hold a link for up to 60 s. (2) M1/M2 in-app handlers (tests, call sites) still start on the caller's thread (a completed answer stays
+  synchronous, KeyRouter needs that); only native plugin handlers are started on the pool (`PluginHookBridge`). Tests:
+  `tests/Barbican.Core.Tests/Plugins/NativePluginContainmentTests.cs`. Actions' intercept hooks run on the new bus semantics: the integrator
+  re-runs actions' hook tests after the merge (M2 plan 2.4).
+- [ ] **Payloads to plugins are JSON made by reflection.** `NativePluginHost.PayloadAsJson` serializes the app's payload records with
+  `DefaultJsonTypeInfoResolver` under `UnconditionalSuppressMessage` (IL2026/IL3050), as are `PluginLoadContext.Load` and `CreatePlugin`
+  (IL2026/IL2070/IL2075). Justification: the host refuses to load anything when `RuntimeFeature.IsDynamicCodeSupported` is false. If the
+  App is ever trimmed, payload properties could vanish silently; check before any trimmed publish.
+- [ ] **Hook names a plugin may use.** A manifest may list `email.details` (the native hook of the Rust ABI) or any catalogue name; anything
+  else refuses the plugin. A plugin may subscribe only to hooks its manifest lists (`PluginHookBridge.Refused`); a refused subscription
+  fails its `InitializeAsync`, and a plugin that did not start is listed but never called. Transform hooks are not offered to native
+  plugins in M2 (a typed value cannot round-trip through JSON); M6b decides.
+- [ ] **Spam score parity and the clean row.** `plugins/Barbican.Plugin.SpamScore/SpamAnalyzer.cs` is a line-by-line port of `spam.rs`
+  (same parse rules, `F2` formatting, the star cap of 15, `X-Spam-Level` stars first). Rust hid the built-in clean verdict unless
+  "show for clean mail too" was on, but showed every plugin row; with the plugin now bundled and enabled, `NativePlugins` hides the spam
+  plugin's `success` row unless the pref `showCleanSpam` is true (B-SPAM-004; the desktop settings file of Rust is not ported, so the key is
+  read from prefs). Check this reading.
+- [ ] **mbox reading.** `src/Barbican.Core/Mail/Import/{MboxFormat,MboxSplitter,MboxReader,Rfc5322Date}.cs`. The Rust date parse
+  (chrono `parse_from_rfc2822`) became a small RFC 5322 parser (obsolete zones, two-digit years, military zones as -0000). The streaming
+  reader counts bytes consumed by lines (T-169 asserts `BytesRead == file length`). The labels header of one large webmail provider is
+  spelled `"x-g" + "mail-labels"` in code because the private privacy pattern matches that provider's name.
+- [ ] **spec-check maps a test to a nested class declared before it.** `MailImportTests` declared its mock server before the last two
+  tests, so `spec/rust-tests.csv` named `MockServer.Import_loop...` and `MockServer.Streaming...` (stage F). I moved the mock to the end of
+  the class; `tools/spec-check.py` itself still takes the last `class` keyword above a method (owner: integrator).

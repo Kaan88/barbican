@@ -1,6 +1,6 @@
 // Ported from Rust src/plugins.rs test loads_spam_score_plugin (:130-:145). D-234: the Rust test loaded barbican_spam_score.dll through the C ABI and skipped when it
 // was not built. This test loads the spam-score native .NET plugin through the plugin host from the test output (never skipped; Core.Tests copies the bundled build to
-// <output>/plugins/spam-score/) and keeps the other assertions. Red until stream unified implements the host and the plugin (M2 plan 6.6, T-206).
+// <output>/plugins/spam-score/) and keeps the other assertions.
 
 using System.Text.Json.Nodes;
 using Barbican.Core.Plugins.Native;
@@ -10,7 +10,6 @@ namespace Barbican.Core.Tests.Plugins;
 public sealed class NativePluginHostTests
 {
     [Fact]
-    [Red("unified")]
     [RustTest("plugins::loads_spam_score_plugin")]
     public async Task Loads_spam_score_plugin()
     {
