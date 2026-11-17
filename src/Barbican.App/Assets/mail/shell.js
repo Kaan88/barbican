@@ -155,7 +155,29 @@
           if (x[2] !== null) x[0].style.setProperty('line-height', Math.round(x[2] * 100) / 100 + 'px', 'important');
         });
       }
-      if (fit) { var de = G(d, 'root'), w = de.scrollWidth, c = de.clientWidth; if (w > c + 2) b.style.zoom = (c / w).toFixed(4); }
+      if (fit) { refit(d); fitLater(d); }
+    } catch (e) { }
+  }
+  // Fit to the pane: the zoom that makes the page as wide as the pane (never wider than 1).
+  function refit(d) {
+    try {
+      var b = G(d, 'body'), de = G(d, 'root');
+      if (!b || !de) return;
+      b.style.zoom = '';
+      var w = de.scrollWidth, c = de.clientWidth;
+      if (w > c + 2) b.style.zoom = (c / w).toFixed(4);
+    } catch (e) { }
+  }
+  // R2-13: a picture that loads later widens the page; fit again once each pending one has loaded (or failed).
+  function fitLater(d) {
+    try {
+      var imgs = Q(d, 'img');
+      for (var i = 0; i < imgs.length; i++) {
+        if (!imgs[i].complete) {
+          on(imgs[i], 'load', function () { refit(d); }, false);
+          on(imgs[i], 'error', function () { refit(d); }, false);
+        }
+      }
     } catch (e) { }
   }
   // The dark conversion of a dark-pending page; the pending class goes whatever happens (its CSS hides the body).

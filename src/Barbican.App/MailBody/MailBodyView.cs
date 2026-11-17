@@ -78,7 +78,14 @@ public sealed partial class MailBodyView : UserControl
     {
         void OnBanners(object? sender, System.Collections.Specialized.NotifyCollectionChangedEventArgs e) => SyncBanners();
         reader.Banners.CollectionChanged += OnBanners;
-        Unloaded += (_, _) => reader.Banners.CollectionChanged -= OnBanners;
+        // R2-13: Unloaded can arrive after the next Loaded (the view moved in the tree): only a view that is really gone lets go
+        Unloaded += (_, _) =>
+        {
+            if (!IsLoaded)
+            {
+                reader.Banners.CollectionChanged -= OnBanners;
+            }
+        };
         Loaded += (_, _) =>
         {
             reader.Banners.CollectionChanged -= OnBanners;
@@ -119,7 +126,7 @@ public sealed partial class MailBodyView : UserControl
         var emailId = _reader!.EmailId;
         foreach (var (actionId, label) in banner.Actions)
         {
-            var button = ActionButton(label, "reader.banner." + actionId, () => _ = RunAsync(emailId, actionId));
+            var button = ActionButton(label, "reader.banner." + actionId, () => _ = RunAsync(emailId, actionId, banner));
             grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
             Grid.SetColumn(button, grid.ColumnDefinitions.Count - 1);
             grid.Children.Add(button);
@@ -131,8 +138,17 @@ public sealed partial class MailBodyView : UserControl
         return border;
     }
 
-    private async Task RunAsync(string emailId, string actionId)
+    private async Task RunAsync(string emailId, string actionId, ReaderBanner banner)
     {
+        if (string.Equals(actionId, VerificationCodeBannerSource.Copy, StringComparison.Ordinal))
+        {
+            // the code is the last word of the chip's title
+            var package = new Windows.ApplicationModel.DataTransfer.DataPackage();
+            package.SetText(banner.Title[(banner.Title.LastIndexOf(' ') + 1)..]);
+            Windows.ApplicationModel.DataTransfer.Clipboard.SetContent(package);
+            return;
+        }
+
         if (_actions is not null)
         {
             await _actions.RunAsync(emailId, actionId, CancellationToken.None).ConfigureAwait(true);
@@ -165,7 +181,13 @@ public sealed partial class MailBodyView : UserControl
         // the shell outlives every view (it is one warm WebView2): a view that left the tree must not stay subscribed to it
         void OnState(object? sender, EventArgs e) => Sync(shell);
         shell.StateChanged += OnState;
-        Unloaded += (_, _) => shell.StateChanged -= OnState;
+        Unloaded += (_, _) =>
+        {
+            if (!IsLoaded)
+            {
+                shell.StateChanged -= OnState;
+            }
+        };
         Loaded += (_, _) =>
         {
             shell.StateChanged -= OnState;

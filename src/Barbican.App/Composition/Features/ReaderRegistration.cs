@@ -43,6 +43,8 @@ public static class ReaderRegistration
         services.AddSingleton<IReaderBannerSource, InvitationBannerSource>();
         services.AddSingleton<IReaderBannerSource, ReceiptBannerSource>();
         services.AddSingleton<IReaderBannerSource, UnsubscribeBannerSource>();
+        services.Replace(ServiceDescriptor.Singleton<Barbican.Core.Mail.VerificationCode.IVerificationCodeFinder, Barbican.Core.Mail.VerificationCode.VerificationCodeFinder>());
+        services.AddSingleton<IReaderBannerSource, VerificationCodeBannerSource>();
         services.AddSingleton<ReaderBannerActions>();
         services.AddSingleton(sp => new ReaderDepth(sp.GetRequiredService<AuthServPins>(), sp.GetServices<IReaderBannerSource>(), sp.GetRequiredService<ITrustedSenders>()));
 
