@@ -15,6 +15,7 @@ public static class EditorViewRegistration
     {
         ArgumentNullException.ThrowIfNull(services);
         services.AddBarbicanEditorViewModels();
+        services.AddBarbicanEditorCommands();
 #if AUTOMATION
         services.AddBarbicanEditorAutomation();
 #endif

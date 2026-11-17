@@ -29,6 +29,7 @@ public sealed class EditorTestHost : Grid
     public EditorView Open(IEditorViewModel vm)
     {
         Children.Clear();
+        ColumnDefinitions.Clear();
         _view = new EditorView(vm);
         var card = new Border
         {
@@ -42,6 +43,23 @@ public sealed class EditorTestHost : Grid
         Children.Add(card);
         Visibility = Visibility.Visible;
         _ = DispatcherQueue.TryEnqueue(() => _view.FocusEditor());
+        return _view;
+    }
+
+    /// <summary>The S3 gate on the actual control: the same paragraph as a XAML TextBlock (left) and in the editor (right).</summary>
+    public EditorView OpenGate(IEditorViewModel vm, string text)
+    {
+        Children.Clear();
+        ColumnDefinitions.Clear();
+        ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        var block = new TextBlock { Text = text, FontSize = 15, FontFamily = new FontFamily("Segoe UI"), TextWrapping = TextWrapping.Wrap, Foreground = AppResources.Brush("Text"), Margin = new Thickness(4, 6, 12, 0), LineHeight = 22.5, LineStackingStrategy = LineStackingStrategy.BlockLineHeight };
+        Microsoft.UI.Xaml.Automation.AutomationProperties.SetAutomationId(block, "editor.gate.textblock");
+        _view = new EditorView(vm);
+        Grid.SetColumn(_view, 1);
+        Children.Add(block);
+        Children.Add(_view);
+        Visibility = Visibility.Visible;
         return _view;
     }
 

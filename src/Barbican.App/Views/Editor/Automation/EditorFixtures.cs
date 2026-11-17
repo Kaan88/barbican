@@ -19,6 +19,7 @@ internal static class EditorFixtures
             "rtl" => new Doc([Block.Para("Hello שלום עולם and مرحبا بالعالم mixed."), Block.Para("שלום עולם זהו משפט בעברית")]),
             "image" => WithImage(),
             "reply" => Reply(),
+            "gate" => new Doc([Block.Para("The quick brown fox jumps over the lazy dog while the five boxing wizards jump quickly. Pack my box with five dozen liquor jugs, and sphinx of black quartz, judge my vow. How vexingly quick daft zebras jump over every wall.")]),
             "empty" => new Doc(),
             _ => new Doc([Block.Para(string.Empty)]),
         };

@@ -18,6 +18,13 @@ public static class M3PresentationRegistration
         ArgumentNullException.ThrowIfNull(services);
         services.TryAddSingleton<IEditorViewModelFactory, EditorViewModelFactory>();
         services.TryAddSingleton<IRewriteProvider, NoRewriteProvider>();
+        return services;
+    }
+
+    /// <summary>The editor's commands (<c>rte.*</c>), its context menu providers and the active-editor holder; registered by the App head with the control.</summary>
+    public static IServiceCollection AddBarbicanEditorCommands(this IServiceCollection services)
+    {
+        ArgumentNullException.ThrowIfNull(services);
         services.TryAddSingleton<ActiveEditor>();
         foreach (var index in Enumerable.Range(0, Enum.GetValues<EditorCommand>().Length))
         {

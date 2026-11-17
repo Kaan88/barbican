@@ -204,6 +204,11 @@ public static class EditorAutomation
         var fixture = parts.Length > 0 ? parts[0] : "empty";
         var plain = parts.Contains("plain", StringComparer.Ordinal);
         var doc = EditorFixtures.Create(fixture);
+        if (string.Equals(fixture, "gate", StringComparison.Ordinal))
+        {
+            plain = true;
+        }
+
         IEditorViewModel vm;
         if (parts.Contains("fakespell", StringComparer.Ordinal))
         {
@@ -212,6 +217,14 @@ public static class EditorAutomation
         else
         {
             vm = sp.GetRequiredService<IEditorViewModelFactory>().Create(doc, plain);
+        }
+
+        if (string.Equals(fixture, "gate", StringComparison.Ordinal))
+        {
+            var text = ((EditorViewModel)vm).Session.Doc.Blocks[0].Text;
+            _ = EditorTestHost.Instance.OpenGate(vm, text);
+            sp.GetRequiredService<ActiveEditor>().Activate((IEditorSurface)vm);
+            return "ok";
         }
 
         var view = EditorTestHost.Instance.Open(vm);

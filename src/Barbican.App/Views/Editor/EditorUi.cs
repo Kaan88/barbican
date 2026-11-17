@@ -60,7 +60,6 @@ public static class EditorUi
         };
         AutomationProperties.SetAutomationId(button, "editor." + id);
         AutomationProperties.SetName(button, tip);
-        ToolTipService.SetToolTip(button, tip);
         button.Click += (_, _) => click();
         return button;
     }

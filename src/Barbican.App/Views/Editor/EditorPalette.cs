@@ -9,6 +9,11 @@ namespace Barbican.App.Views.Editor;
 /// <summary>The layout style of the editor from the live palette: the editor draws with the app's own colours, and a theme change rebuilds it.</summary>
 public static class EditorPalette
 {
+#if WINDOWS
+    /// <summary>Light text on a dark surface: the 1.6 coverage contrast (measured on dark text, ADR 0006) over-brightens it, so the dark theme draws plain coverage.</summary>
+    private static bool IsDark => Of("Text", new SKColor(0xFFFAFAFA)).Red > 0x80;
+#endif
+
     public static LayoutStyle Current(float baseSize = 15f)
     {
         var style = new LayoutStyle
@@ -24,7 +29,7 @@ public static class EditorPalette
             Selection = Of("Accent", new SKColor(0xFFF0577A)).WithAlpha(0x66),
             SpellUnderline = new SKColor(0xFFE5484D),
 #if WINDOWS
-            TextContrast = 1.6f,
+            TextContrast = IsDark ? 1f : 1.6f,
 #endif
         };
         return style;
