@@ -591,3 +591,9 @@ F-13 and user decisions D-2, D-9, D-10, on branch `m1-fix-security` (from `m1` a
   Judgement: lines are read with a bound (`CommandLine.MaxLength`) so a peer cannot grow one line without limit. The hidden
   Automation build was not launched in this commit; the F-03 stage runs it through `auto-run.ps1` and so checks the token path
   end to end. Linux pending (VM rule).
+- **F-13 WebView2 folder.** `App/Composition/WebViewEnvironment.cs` (renamed from `HiddenWebView.cs`) runs for every run:
+  `WEBVIEW2_USER_DATA_FOLDER` = `<profile DataDir>\WebView2`, `--dns-prefetch-disable` always, the painting flags only when
+  hidden. Found on the way: a hidden run without `BARBICAN_PROFILE` named its WebView2 folder after `auto-<port>` while Core
+  resolved the `dev` profile (the user's own data); it now sets `BARBICAN_PROFILE` to the run's profile before composition.
+  WebKitGTK data directory: Linux pending (the Linux head reads none of this; Uno's WebView there has no data-dir setting we
+  use yet).
