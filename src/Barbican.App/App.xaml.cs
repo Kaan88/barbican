@@ -23,8 +23,9 @@ public partial class BarbicanApp : Application
 
     public BarbicanApp()
     {
+        // first: every later failure, including one in InitializeComponent or the composition, leaves a crash log (M1 hotfix, sign-in)
+        CrashGuard.Install(this);
         InitializeComponent();
-        UnhandledException += (_, e) => Console.Error.WriteLine("[barbican] unhandled: " + e.Exception);
     }
 
     protected override void OnLaunched(LaunchActivatedEventArgs args)
