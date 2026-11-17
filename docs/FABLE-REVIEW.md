@@ -1096,6 +1096,7 @@ stage's own items. Commits are on `m2` (`git log --first-parent m2`); the per-st
 - **Bento dialog frame (27-29 ms).** Not reproduced: 6 Bento runs (light and dark, the first on a fresh process): worst gap 7.6 to 9.7 ms. Left open as "not seen again", not as fixed.
 - **feel-search.py** now waits until the list is steady for 350 ms before stopping the probe. Results: `spec/feel/M2/search/close-b-results.json` (search_results 51 frames, worst gap 9.6 ms; chip_remove 51 frames, 7.1 ms; the list never emptied).
 - **FakeJmap.** `Email/import` keeps the blob's Message-ID (the dedupe test depends on it); `x:ArchivedItem` is implemented behind `FakeJmapOptions.ArchiveCapability`; `collapseThreads` is honoured.
+
 ## m2-close-a (stream: m2-close-a)
 
 Branch `m2-close-a` from `m2` (commits `56e9907` and the one after it). Closes interaction rows of the account popover, hover strip, sidebar, tags, unified menu and the Bulwark Restore / Move to Inbox rows. Everything below was checked in the hidden AUTOMATION build on sample data only; real pointer and keyboard paths are hand tests.
