@@ -22,11 +22,15 @@ public sealed class ReaderDepth(AuthServPins? pins, IEnumerable<IReaderBannerSou
     public bool HasBanners => _sources.Count > 0;
 
     /// <summary>The options of one open: the account's pinned id and the mailbox roles known so far (the first open starts loading them).</summary>
-    public ReaderOptions Shape(ReaderOptions options, string accountKey, IMailService mail)
+    /// <param name="options">The options so far.</param>
+    /// <param name="accountKey">The login that holds the message (its pin).</param>
+    /// <param name="mail">The read service of the account that holds it.</param>
+    /// <param name="rolesKey">The key its folder roles are kept under (a shared account's own, Fable review 3 R3-01); the login when null.</param>
+    public ReaderOptions Shape(ReaderOptions options, string accountKey, IMailService mail, string? rolesKey = null)
     {
         ArgumentNullException.ThrowIfNull(options);
         ArgumentNullException.ThrowIfNull(mail);
-        return options with { PinnedAuthServ = pins?.PinFor(accountKey), MailboxRoles = RolesFor(accountKey, mail) };
+        return options with { PinnedAuthServ = pins?.PinFor(accountKey), MailboxRoles = RolesFor(rolesKey ?? accountKey, mail) };
     }
 
     /// <summary>Pins the id the server's trace block was found under, the first time one is seen for the account.</summary>

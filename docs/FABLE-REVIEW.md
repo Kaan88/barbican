@@ -1153,3 +1153,17 @@ Branch `m2-close-a` from `m2` (commits `56e9907` and the one after it). Closes i
   and the avatar opens nothing (the menus exist: `menu-open FOLDERS-HEADER` / `ACCOUNT` work); rail Calendar, Contacts, Files and
   Settings switch to apps that do not exist yet (M4-M6) and show nothing.
 - **Flaky test seen once** in Barbican.Presentation.Tests during the m2 merge run (1 failure, not reproduced in 3 later runs; name not captured). Worth a look for a timing dependency.
+
+## m2-fable-fix-3 (branch `m2-fable-fix-3`): Fable review 3 items R3-01, R3-02, R3-04, R3-05
+
+- **R3-01 read routing.** `Presentation/Unified/UnifiedReadRoutes.cs` resolves a unified row once into (login client, JMAP account =
+  shared account or the login's `MailAccountId`, server id) and keeps one `MailService` + `ClientBlobSource` per source while the
+  login's client stays the same. `MessageFetcher` keys the body cache by `UnifiedRows.SourceKey(login, shared)` and the server id, and
+  hands back bodies and threads with row ids again (`Tagged`), so the reader, conversation strip and actions keep speaking in row ids.
+  Review: the pinned authserv id and the server host follow the login, the folder roles the source key (`ReaderDepth.Shape` rolesKey).
+  Search snippets of unified rows go to their own login (`SearchSnippetFetcher.FetchRowsAsync`); a source whose login is not connected
+  or whose server refuses gets no snippets while the others still do. Test: `Presentation.Tests/Unified/UnifiedReadTests.cs` (two
+  FakeJmap logins with different account ids). Not done: the hidden scenario step (`unified on`, open row 1, assert body text) the
+  review asked for; the read-receipt path (`ReaderBannerActions.ReceiptAsync`) is changed but has no test.
+- **Decision (R3-01):** a read receipt for a row of a *shared* account is refused ("Receipts are sent only for mail of your own
+  accounts."): the receipt would go out from the user's own identity for mail addressed to the group (not checked against Rust).

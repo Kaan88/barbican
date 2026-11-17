@@ -56,13 +56,16 @@ public sealed class MessageFetcher(IBodyCache cache, IBlobSource blobs, IReadRou
         return cache.TryGet(key, id, out _);
     }
 
-    /// <summary>The account that holds a list row (its cache key: the login, plus <c>#account</c> for a shared one) and its read service; the
-    /// account on screen for a plain id or when the row's login is not connected.</summary>
-    public (string AccountKey, IMailService Mail) OwnerOf(string accountKey, IMailService mail, string emailId)
+    /// <summary>The account that holds a list row: its login (server, pinned trace id), its source key (the login, plus <c>#account</c> for a
+    /// shared one: the cache and the folder roles) and its read service; the account on screen for a plain id or when the row's login is not
+    /// connected.</summary>
+    public (string Login, string SourceKey, IMailService Mail) OwnerOf(string accountKey, IMailService mail, string emailId)
     {
         ArgumentNullException.ThrowIfNull(mail);
         var (key, _) = CacheOf(accountKey, emailId);
-        return routes?.Route(accountKey, mail, emailId) is { IsOk: true, Value: { } route } ? (key, route.Mail) : (accountKey, mail);
+        return routes?.Route(accountKey, mail, emailId) is { IsOk: true, Value: { } route } && UnifiedRows.ParseRow(emailId) is { } row
+            ? (row.Login, key, route.Mail)
+            : (accountKey, accountKey, mail);
     }
 
     /// <summary>Fetches body and conversation; a failed conversation is no failure (the strip stays empty).</summary>

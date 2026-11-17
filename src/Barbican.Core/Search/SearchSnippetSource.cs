@@ -11,6 +11,7 @@ public sealed class SearchSnippetSource : ISnippetSource
 {
     private static readonly TimeSpan Batch = TimeSpan.FromMilliseconds(25);
     private readonly Func<IJmapClient?> _client;
+    private readonly Func<string, IJmapClient?> _clientOf;
     private readonly Lock _lock = new();
     private readonly Dictionary<string, SnippetEntry?> _byId = new(StringComparer.Ordinal);
     private readonly HashSet<string> _pending = new(StringComparer.Ordinal);
@@ -19,11 +20,13 @@ public sealed class SearchSnippetSource : ISnippetSource
     private int _generation;
     private bool _scheduled;
 
-    /// <summary>A source asking <paramref name="client"/> (the active account's client at the time of the call).</summary>
-    public SearchSnippetSource(Func<IJmapClient?> client)
+    /// <summary>A source asking <paramref name="client"/> (the active account's client at the time of the call) for plain ids, and
+    /// <paramref name="clientOf"/> (a login's client) for unified row ids; without it a unified row gets no snippet.</summary>
+    public SearchSnippetSource(Func<IJmapClient?> client, Func<string, IJmapClient?>? clientOf = null)
     {
         ArgumentNullException.ThrowIfNull(client);
         _client = client;
+        _clientOf = clientOf ?? (_ => null);
     }
 
     /// <inheritdoc />
@@ -97,12 +100,13 @@ public sealed class SearchSnippetSource : ISnippetSource
             _scheduled = false;
         }
 
-        if (filter is null || ids.Count == 0 || _client() is not { } client)
+        if (filter is null || ids.Count == 0)
         {
             return;
         }
 
-        var r = await SearchSnippetFetcher.FetchAsync(client, filter, ids, CancellationToken.None).ConfigureAwait(false);
+        // unified rows are asked of the login and account that hold them (Fable review 3 R3-01)
+        var r = await SearchSnippetFetcher.FetchRowsAsync(_client(), _clientOf, filter, ids, CancellationToken.None).ConfigureAwait(false);
         if (!r.IsOk)
         {
             return;

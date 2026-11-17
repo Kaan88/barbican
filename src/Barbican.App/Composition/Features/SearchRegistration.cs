@@ -43,7 +43,8 @@ public static class SearchRegistration
     private static IServiceCollection AddSearchServices(this IServiceCollection services)
     {
         services.TryAddSingleton(sp => new SearchHistoryStore(sp.GetRequiredService<IProfilePaths>().ConfigDir));
-        services.TryAddSingleton(sp => new SearchSnippetSource(() => Active(sp).Client));
+        // a unified row's snippet is asked of its own login (Fable review 3 R3-01)
+        services.TryAddSingleton(sp => new SearchSnippetSource(() => Active(sp).Client, login => sp.GetService<Barbican.Presentation.Unified.IUnifiedLogins>()?.ClientOf(login)));
         services.TryAddSingleton<ISnippetSource>(sp => sp.GetRequiredService<SearchSnippetSource>());
         services.Replace(ServiceDescriptor.Singleton<IListQueryShaper>(sp => new SearchListQueryShaper(() => Active(sp).Mailboxes, sp.GetRequiredService<SearchSnippetSource>())));
         services.TryAddSingleton(sp => new SearchHitOpener(sp.GetRequiredService<MessageListViewModel>(), sp.GetRequiredService<SidebarViewModel>()));
