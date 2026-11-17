@@ -142,11 +142,37 @@ public sealed class HiddenWindowDecisionTests
         Assert.Equal($"auto-{port}", o.Profile);
     }
 
-    [Fact]
-    public void NamedProfileWins()
+    [Theory]
+    [InlineData("auto-9001")]
+    [InlineData("agent-look")]
+    [InlineData("xrun-auto-m2")]
+    public void NamedAgentProfileWins(string profile)
     {
-        var o = HiddenWindowOptions.Decide(NoArgs, Env(("BARBICAN_PROFILE", "dev-a")), automationBuild: true, isWindows: true, canHideWindow: true);
-        Assert.Equal("dev-a", o.Profile);
+        var o = HiddenWindowOptions.Decide(NoArgs, Env(("BARBICAN_PROFILE", profile)), automationBuild: true, isWindows: true, canHideWindow: true);
+        Assert.Equal(profile, o.Profile);
+        Assert.Null(o.Error);
+    }
+
+    // M2 hotfix: a hidden run (an agent's) never runs in one of the user's own profiles, where every account is writable (ReadOnlyPolicy)
+    [Theory]
+    [InlineData("dev", true, false)]
+    [InlineData("dev", false, true)]
+    [InlineData("dev-a", true, false)]
+    [InlineData("main", false, true)]
+    [InlineData("  ", true, false)]
+    public void HiddenRunsRefuseTheUsersProfiles(string profile, bool automationBuild, bool smoke)
+    {
+        string[] args = smoke ? ["--smoke", "out/smoke.json"] : [];
+        var o = HiddenWindowOptions.Decide(args, Env(("BARBICAN_PROFILE", profile)), automationBuild, isWindows: true, canHideWindow: true);
+        Assert.Contains("agent profile", o.Error, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ANormalRunKeepsTheUsersProfile()
+    {
+        var o = HiddenWindowOptions.Decide(NoArgs, Env(("BARBICAN_PROFILE", "dev")), automationBuild: false, isWindows: true, canHideWindow: true);
+        Assert.Null(o.Error);
+        Assert.Equal(HiddenWindowMode.Normal, o.Mode);
     }
 
     private static Func<string, string?> Env(params (string Name, string? Value)[] values) =>

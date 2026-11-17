@@ -1,18 +1,23 @@
 // Mirrors: PORT-PLAN.md §4.6 (the read-only account: every method outside the read allow-list is refused; writes only on the test account),
 // M1-plan §1 rule 3 ("M1 is a read-only client"), §6.3 (a per-account read-only flag). The real addresses never appear in the repository.
-// Fable review 1 F-12 (fail closed): in the agents' profiles (dev, auto-*) an account is writable only when its login is on the allow-list in
-// the file named by BARBICAN_WRITABLE_ACCOUNTS_FILE, which must sit in a ".local" folder (the gitignored folder of the checkout that holds the
-// test account); a missing, unreadable or misplaced file means every account is read-only, and the plain BARBICAN_WRITABLE_ACCOUNTS variable
-// counts for nothing there (an inherited variable must not open an account to an agent). In the user's own profiles that variable still
-// lists the writable logins (nothing sets it in M1, so every account is read-only).
-// Fable review 2 R2-14 and decision M2-Q2 (docs/milestones/M2-plan.md §9, a PROPOSAL pending the user's OK): the agent import stores a
-// read-only flag on every account it imports (Platform/RustCredentialImport.cs), so in M1 the allow-list could never open the imported test
-// account. Now, in the agents' profiles only, the allow-list may clear that stored flag for the logins it names, but only while a second
-// ".local" list (BARBICAN_READONLY_ACCOUNTS_FILE: the logins that are never written) is present and readable, and never for a login on that
-// second list. Fail closed (M2 plan §9 M2-Q2: "a missing read-only list means nothing is writable"): without the second list every account of
-// an agent profile is read-only, flagged or not (M1 let the first list alone open an unflagged account), and a login on the second list is
-// read-only whatever the first list says.
-// The user's own profiles are unchanged (the stored flag always wins there).
+//
+// M2 hotfix (HAND TEST 2, ADR 0008 amendment 2): the read-only rules exist to stop AGENTS from writing to the user's accounts; they never
+// restrict the user's own use of the app. So:
+// - In the user's own profiles (every profile that is not an agent profile: "dev", the default when BARBICAN_PROFILE is unset, and any other
+//   name) every account is writable and a stored read-only flag counts for nothing (Unrestricted). M1/M2 counted "dev" and the empty profile
+//   as agent profiles and opened accounts there only through BARBICAN_WRITABLE_ACCOUNTS, which nothing set, so the user's own portable zip
+//   was read-only on every account; that variable is gone.
+// - The agent rules below apply only to the agent profiles (ProfilePaths.IsAgentProfile: auto-*, smoke, smoke-*, xrun-*, agent-*). Every
+//   agent-launched run uses one: an AUTOMATION build or a --smoke run refuses any other profile (HiddenWindowOptions), tools/auto-run.ps1
+//   refuses a -ProfileName that is not one, and tools/linux-remote.sh always sets xrun-<name>.
+// - A stored read-only flag is honoured only there: only the agent import (RustCredentialImport, agent profiles only) writes one.
+//
+// The agent rules (unchanged from Fable review 1 F-12 and review 2 R2-14 / M2-Q2, fail closed): an account of an agent profile is writable
+// only when its login is on the allow-list in the file named by BARBICAN_WRITABLE_ACCOUNTS_FILE, which must sit in a ".local" folder (the
+// gitignored folder of the checkout that holds the test account), and only while a second ".local" list (BARBICAN_READONLY_ACCOUNTS_FILE:
+// the logins that are never written) is present and readable, and never for a login on that second list. Without both lists every account
+// of an agent profile is read-only, flagged or not. With both, the allow-list also clears the agent import's stored flag for the logins it
+// names (R2-14).
 // The same two lists guard the write-test commands of the AUTOMATION_WRITES build (TestWriteRefusal, read again for every command).
 
 using Barbican.Core.Storage;
@@ -22,9 +27,6 @@ namespace Barbican.Core.Accounts;
 /// <summary>Decides which accounts may be written to.</summary>
 public sealed class ReadOnlyPolicy
 {
-    /// <summary>The comma-separated logins that may be written to (the user's own profiles only).</summary>
-    public const string Variable = "BARBICAN_WRITABLE_ACCOUNTS";
-
     /// <summary>The allow-list file of the agents' profiles: one login per line, <c>#</c> starts a comment.</summary>
     public const string FileVariable = "BARBICAN_WRITABLE_ACCOUNTS_FILE";
 
@@ -37,24 +39,32 @@ public sealed class ReadOnlyPolicy
     private readonly HashSet<string> _writable;
     private readonly HashSet<string> _neverWritable;
 
+    /// <summary>A policy that writes only to <paramref name="writable"/> (the agent rules without the stored-flag exception).</summary>
     public ReadOnlyPolicy(IEnumerable<string> writable)
-        : this(writable, [], mayClearStoredFlag: false)
+        : this(writable, [], mayClearStoredFlag: false, unrestricted: false)
     {
     }
 
-    private ReadOnlyPolicy(IEnumerable<string> writable, IEnumerable<string> neverWritable, bool mayClearStoredFlag)
+    private ReadOnlyPolicy(IEnumerable<string> writable, IEnumerable<string> neverWritable, bool mayClearStoredFlag, bool unrestricted)
     {
         ArgumentNullException.ThrowIfNull(writable);
         ArgumentNullException.ThrowIfNull(neverWritable);
         _writable = new HashSet<string>(writable.Select(w => w.Trim()).Where(w => w.Length > 0), StringComparer.OrdinalIgnoreCase);
         _neverWritable = new HashSet<string>(neverWritable.Select(w => w.Trim()).Where(w => w.Length > 0), StringComparer.OrdinalIgnoreCase);
         MayClearStoredFlag = mayClearStoredFlag;
+        IsUnrestricted = unrestricted;
     }
 
-    /// <summary>Every account read-only.</summary>
+    /// <summary>Every account read-only (an agent profile without both lists).</summary>
     public static ReadOnlyPolicy AllReadOnly { get; } = new([]);
 
-    /// <summary>How many logins are writable (0: every account is read-only).</summary>
+    /// <summary>Every account writable, stored flags ignored: the user's own profiles.</summary>
+    public static ReadOnlyPolicy Unrestricted { get; } = new([], [], mayClearStoredFlag: false, unrestricted: true);
+
+    /// <summary>True for the user's own profiles: nothing is read-only.</summary>
+    public bool IsUnrestricted { get; }
+
+    /// <summary>How many logins the agent lists make writable (0: every account is read-only); not used for an unrestricted policy.</summary>
     public int WritableCount => _writable.Count(w => !_neverWritable.Contains(w));
 
     /// <summary>Whether the allow-list may clear a stored read-only flag (agent profiles with a readable read-only list, R2-14).</summary>
@@ -65,8 +75,8 @@ public sealed class ReadOnlyPolicy
         For(ProfilePaths.FromEnvironment().Profile, Environment.GetEnvironmentVariable, ReadAllowList);
 
     /// <summary>
-    /// The policy of <paramref name="profile"/>: the agents' profiles read only the <c>.local</c> lists (through <paramref name="readFile"/>, which
-    /// returns null when the file cannot be read); other profiles read <see cref="Variable"/>.
+    /// The policy of <paramref name="profile"/>: unrestricted in the user's own profiles; in an agent profile only the logins of the two
+    /// <c>.local</c> lists (read through <paramref name="readFile"/>, which returns null when the file cannot be read).
     /// </summary>
     public static ReadOnlyPolicy For(string profile, Func<string, string?> env, Func<string, string?> readFile)
     {
@@ -74,7 +84,7 @@ public sealed class ReadOnlyPolicy
         ArgumentNullException.ThrowIfNull(readFile);
         if (!IsAgentProfile(profile))
         {
-            return new((env(Variable) ?? "").Split(',', StringSplitOptions.RemoveEmptyEntries));
+            return Unrestricted;
         }
 
         // R2-14, M2-Q2 ("a missing read-only list means nothing is writable"): both lists must be there, else every account is read-only;
@@ -84,19 +94,22 @@ public sealed class ReadOnlyPolicy
             return AllReadOnly;
         }
 
-        return new(writable, never, mayClearStoredFlag: true);
+        return new(writable, never, mayClearStoredFlag: true, unrestricted: false);
     }
 
-    /// <summary>The profiles agents run in (dev and auto-*), where writes fail closed.</summary>
-    public static bool IsAgentProfile(string? profile) =>
-        string.IsNullOrEmpty(profile)
-        || string.Equals(profile, ProfilePaths.DefaultProfile, StringComparison.Ordinal)
-        || ProfilePaths.IsAutomationProfile(profile);
+    /// <summary>The profiles only agents run in (auto-*, smoke, xrun-*, agent-*; <see cref="ProfilePaths.IsAgentProfile"/>), where writes fail closed.</summary>
+    public static bool IsAgentProfile(string? profile) => ProfilePaths.IsAgentProfile(profile);
 
     /// <summary>True when writes to <paramref name="user"/> must be refused.</summary>
     public bool IsReadOnly(string user, bool storedFlag)
     {
         ArgumentNullException.ThrowIfNull(user);
+        if (IsUnrestricted)
+        {
+            // the user's own profile: every account is the user's to write, a stored flag included (only the agent import writes one)
+            return false;
+        }
+
         var login = user.Trim();
         if (_neverWritable.Contains(login) || !_writable.Contains(login))
         {
@@ -104,7 +117,7 @@ public sealed class ReadOnlyPolicy
         }
 
         // a stored flag (the agent import sets one on every account) is cleared only by the allow-list of an agent profile whose read-only
-        // list is present (R2-14); everywhere else it always wins
+        // list is present (R2-14)
         return storedFlag && !MayClearStoredFlag;
     }
 
