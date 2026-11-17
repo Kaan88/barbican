@@ -1210,7 +1210,7 @@ Branch `m2-unified` from `m2` at `0d9b306` (wave 1 merged), worktree `<downloads
 - [ ] **Open in this stream (not built):** the sidebar's shared section (I-054, `sidebar-shared` slot unfilled), per-role unified rows
   (Sent, Archive…; I-051 shows only All inboxes), per-account rows and colours (I-053, B-MAIL-038), the unified right-click menu (I-052),
   a platform file picker, an import progress view, the plugin enable/disable settings UI (I-468), the TNEF RTF body.
-- [ ] **Linux.** `tools/linux.ps1` (see the result line below).
+- [ ] **Linux (one run, `tools/linux.ps1 test -Branch m2-unified` at `3c2cc79`).** 1372 tests: 1365 passed, 6 skipped, 1 failed: `Presentation.Tests.DragDrop.DropControllerTests.Panes_load_once_clamp_save_on_commit_and_reset_on_double_click` (actions stream's test, not touched here; passes on Windows). Core.Tests passed whole on Linux, so the plugin host loads the bundled spam-score plugin there, and TNEF, import, export and the unified tests run. Windows full run: 1371 passed, 4 skipped, 0 failed.
 
 ### Requests to other streams
 
