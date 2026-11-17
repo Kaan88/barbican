@@ -2,6 +2,8 @@
 // Owner unified. Wraps the actions stream's writer source: the writer it hands out sends row ids of other accounts (and shared accounts) to
 // their own writer, with folders matched by role, else name.
 
+using Barbican.Core.Jmap.Json;
+using Barbican.Core.Mail.Model;
 using Barbican.Core.Mail.Unified;
 using Barbican.Core.Mail.Write;
 using Barbican.Presentation.Actions;
@@ -17,6 +19,21 @@ public sealed class UnifiedMailWriterSource(IMailWriterSource inner, IUnifiedLog
 
     /// <inheritdoc />
     public bool CanWrite(string accountKey) => inner.CanWrite(accountKey);
+
+    /// <inheritdoc />
+    public async Task<IReadOnlyList<(string Id, MailboxRole Role)>?> FoldersOfAsync(MailTarget target, CancellationToken ct)
+    {
+        ArgumentNullException.ThrowIfNull(target);
+        if (UnifiedRows.ParseRow(target.EmailId) is not { } row || logins.ClientOf(row.Login) is not { } client)
+        {
+            return await inner.FoldersOfAsync(target, ct).ConfigureAwait(false);
+        }
+
+        var boxes = await UnifiedFetcher.MailboxesAsync(new UnifiedSource(row.Login, client, row.SharedAccount ?? client.Session.MailAccountId, row.SharedAccount is not null), ct).ConfigureAwait(false);
+        return boxes.IsOk
+            ? [.. boxes.Value!.Select(m => ((string?)m["id"] ?? string.Empty, MailboxRoleConverter.Parse((string?)m["role"])))]
+            : null;
+    }
 
     private MailWriter? Source(UnifiedRowId row) =>
         logins.ClientOf(row.Login) is { IsReadOnly: false } client ? new MailWriter(client, row.SharedAccount ?? client.Session.MailAccountId) : null;

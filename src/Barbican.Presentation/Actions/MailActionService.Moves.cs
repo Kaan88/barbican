@@ -125,7 +125,15 @@ public sealed partial class MailActionService
     {
         ArgumentNullException.ThrowIfNull(targets);
         var settings = Settings;
-        var permanent = targets.Where(t => IsPermanent(t, settings)).ToList();
+        var permanent = new List<MailTarget>();
+        foreach (var t in targets)
+        {
+            if (await IsPermanentAsync(t, settings, ct).ConfigureAwait(true))
+            {
+                permanent.Add(t);
+            }
+        }
+
         var soft = targets.Except(permanent).ToList();
         if (!await ConfirmDeleteAsync(targets.Count, permanent.Count, settings, ct).ConfigureAwait(true))
         {
@@ -178,7 +186,7 @@ public sealed partial class MailActionService
     /// destroyed a message the user only wanted in Trash (M2 hotfix 2, the user's "deleted, pressed z, gone"). A list that is no folder (a tag, a search)
     /// destroys only a message that is in Trash (or Junk) and nowhere else.
     /// </summary>
-    private bool IsPermanent(MailTarget t, ActionSettings s)
+    private async Task<bool> IsPermanentAsync(MailTarget t, ActionSettings s, CancellationToken ct)
     {
         if (string.Equals(s.DeleteAction, "permanent", StringComparison.Ordinal))
         {
@@ -190,14 +198,29 @@ public sealed partial class MailActionService
             return list.Role == MailboxRole.Trash || (s.PermanentlyDeleteJunk && list.Role == MailboxRole.Junk);
         }
 
-        return OnlyIn(t, MailboxRole.Trash) || (s.PermanentlyDeleteJunk && OnlyIn(t, MailboxRole.Junk));
+        return await OnlyInAsync(t, MailboxRole.Trash, ct).ConfigureAwait(true) || (s.PermanentlyDeleteJunk && await OnlyInAsync(t, MailboxRole.Junk, ct).ConfigureAwait(true));
     }
 
-    /// <summary>The message is in folders of this role and in no other folder (the tree is the active account's).</summary>
-    private bool OnlyIn(MailTarget t, MailboxRole role)
+    /// <summary>
+    /// The message is in folders of this role and in no other folder, by the folder tree of the message's own account (R3-07): a unified row of another
+    /// login carries that login's folder ids, which mean nothing in the active account's tree. A row whose account tree is not known is in no role, so
+    /// Delete moves it to Trash and never destroys it.
+    /// </summary>
+    private async Task<bool> OnlyInAsync(MailTarget t, MailboxRole role, CancellationToken ct)
     {
         var inside = t.MailboxIds.Where(kv => kv.Value).Select(kv => kv.Key).ToList();
-        return inside.Count > 0 && inside.All(id => folders.Tree.All.Any(m => m.Role == role && string.Equals(m.Id, id, StringComparison.Ordinal)));
+        if (inside.Count == 0)
+        {
+            return false;
+        }
+
+        if (Core.Mail.Unified.UnifiedRows.ParseRow(t.EmailId) is null)
+        {
+            return inside.All(id => folders.Tree.All.Any(m => m.Role == role && string.Equals(m.Id, id, StringComparison.Ordinal)));
+        }
+
+        var own = await writers.FoldersOfAsync(t, ct).ConfigureAwait(true);
+        return own is not null && inside.All(id => own.Any(m => m.Role == role && string.Equals(m.Id, id, StringComparison.Ordinal)));
     }
 
     /// <summary>The select-all cap, stated in the confirmation: only the first N of the folder are included (decision M2-Q5).</summary>
