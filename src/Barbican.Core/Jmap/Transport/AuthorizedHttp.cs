@@ -2,7 +2,8 @@
 // spec B-JMAP-017, B-OAUTH-015 (the token source adopts a token rotated elsewhere; a 401 never deletes the stored one); RFC 6750 §3.1
 // (invalid_token). The token source decides whether a renewal exists: a static header answers "sign in again". Fable review 1 F-02: the
 // header goes only to an origin the caller allows (the typed server and the https hosts its session names), checked before the token
-// source is even asked. Owner jmap.
+// source is even asked. Fable review 2 R2-01: a header that was just renewed and is refused too closes the source's AuthLatch, so nothing
+// more is sent with it (a refused source closes the latch itself). Owner jmap.
 
 using System.Net;
 using System.Net.Http.Headers;
@@ -45,8 +46,15 @@ internal static class AuthorizedHttp
                 return Result<HttpResponseMessage>.Fail(Refused(target));
             }
 
-            if (response.StatusCode != HttpStatusCode.Unauthorized || renewed)
+            if (response.StatusCode != HttpStatusCode.Unauthorized)
             {
+                return Result<HttpResponseMessage>.Ok(response);
+            }
+
+            if (renewed)
+            {
+                // the renewed header is refused as well: no further request may carry it (R2-01); the caller still reads the 401
+                (auth as AuthLatch)?.Close(new AuthError("Session expired; sign in again.", NeedsSignIn: true));
                 return Result<HttpResponseMessage>.Ok(response);
             }
 

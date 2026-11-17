@@ -20,7 +20,7 @@ namespace Barbican.Core.Jmap.Transport;
 public sealed class JmapClient : IJmapClient, IDisposable
 {
     private readonly IJmapHttp _http;
-    private readonly IAccessTokenSource _auth;
+    private readonly AuthLatch _auth;
     private readonly JmapClientOptions _options;
     private readonly TimeProvider _time;
     private readonly SemaphoreSlim _requests;
@@ -36,7 +36,7 @@ public sealed class JmapClient : IJmapClient, IDisposable
         ArgumentNullException.ThrowIfNull(time);
         ArgumentNullException.ThrowIfNull(trace);
         _http = http;
-        _auth = auth;
+        _auth = AuthLatch.Over(auth);
         _session = session;
         _options = options;
         _time = time;
@@ -47,6 +47,9 @@ public sealed class JmapClient : IJmapClient, IDisposable
 
     /// <inheritdoc/>
     public JmapSession Session => Volatile.Read(ref _session);
+
+    /// <summary>The latch over this client's token source: closed once the server refused the credentials for good (R2-01).</summary>
+    public AuthLatch Auth => _auth;
 
     /// <inheritdoc/>
     public bool IsReadOnly => _options.ReadOnly;
