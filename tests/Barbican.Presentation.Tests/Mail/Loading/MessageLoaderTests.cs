@@ -246,6 +246,62 @@ public sealed class MessageLoaderTests
     }
 
     [Fact]
+    public void An_open_whose_prefetch_was_cancelled_by_a_turn_fetches_the_message_itself()
+    {
+        using var h = new LoaderHarness();
+        h.Service.CancelLag = TimeSpan.FromMilliseconds(100);
+        h.Cached("m5");
+        var stuck = h.Service.Hold("m6");
+
+        // down from m5: m6 (held), m7 and m4 are queued one after another in one batch
+        h.Loader.Open(h.Row(5), OpenReason.Click, ListDirection.None);
+        Assert.Contains("m4", h.Loader.Prefetcher.InFlight);
+
+        // one row up: the turn cancels that batch, m4's prefetch with it; the open must not go down with the prefetch
+        h.Loader.Open(h.Row(4), OpenReason.Key, ListDirection.Up);
+
+        Assert.True(SpinUntil(() => string.Equals(h.Presenter.Shown, "m4", StringComparison.Ordinal)));
+        Assert.Equal("m4", h.Reader.EmailId);
+        Assert.Equal(BodyState.Ready, h.Reader.BodyState);
+        Assert.False(h.Loader.IsWaiting);
+        stuck.TrySetResult();
+    }
+
+    [Fact]
+    public async Task The_content_render_hook_fires_once_per_opened_message_and_reports_external_content()
+    {
+        using var h = new LoaderHarness();
+        var rendered = new List<EmailContentRenderPayload>();
+        using var counted = new SemaphoreSlim(0);
+        using var c = h.Bus.Observe<EmailContentRenderPayload>(HookNames.OnEmailContentRender, (v, _) =>
+        {
+            lock (rendered)
+            {
+                rendered.Add(v);
+            }
+
+            counted.Release();
+            return ValueTask.CompletedTask;
+        });
+        h.Cache.Put(h.Active.AccountKey!, LoaderHarness.Body("m1", "<p>hi <img src=\"https://images.example.com/a.png\"></p>"), h.Cache.Generation);
+
+        h.Loader.Open(h.Row(1), OpenReason.Click, ListDirection.None);
+        Assert.True(await counted.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken));
+
+        // Enter on the message on screen opens it again: no second render event (Bulwark contentRenderedForRef)
+        h.Loader.Open(h.Row(1), OpenReason.Key, ListDirection.None);
+        Assert.False(await counted.WaitAsync(TimeSpan.FromMilliseconds(200), TestContext.Current.CancellationToken));
+
+        lock (rendered)
+        {
+            var only = Assert.Single(rendered);
+            Assert.Equal("m1", only.EmailId);
+            Assert.True(only.HasHtml);
+            Assert.True(only.HasExternalContent);
+        }
+    }
+
+    [Fact]
     public async Task A_list_load_warms_its_top_two_messages()
     {
         using var h = new LoaderHarness();

@@ -77,6 +77,14 @@ public sealed partial class X11BodyOverlay(BodyShell shell) : IBodyOverlayStrate
 
         try
         {
+            // XGetImage of a rectangle not wholly inside the root window is a BadMatch, and Xlib's default error handler ends the
+            // process: a window partly off the screen (the hidden automation window is wholly off it) gets no stand-in instead
+            var screen = XDefaultScreen(display);
+            if (x < 0 || y < 0 || width < 1 || height < 1 || x + width > XDisplayWidth(display, screen) || y + height > XDisplayHeight(display, screen))
+            {
+                return null;
+            }
+
             var root = XDefaultRootWindow(display);
             var img = XGetImage(display, root, x, y, (uint)width, (uint)height, ulong.MaxValue, ZPixmap);
             if (img == 0)
@@ -123,6 +131,15 @@ public sealed partial class X11BodyOverlay(BodyShell shell) : IBodyOverlayStrate
 
     [LibraryImport("libX11.so.6")]
     private static partial nuint XDefaultRootWindow(nint display);
+
+    [LibraryImport("libX11.so.6")]
+    private static partial int XDefaultScreen(nint display);
+
+    [LibraryImport("libX11.so.6")]
+    private static partial int XDisplayWidth(nint display, int screen);
+
+    [LibraryImport("libX11.so.6")]
+    private static partial int XDisplayHeight(nint display, int screen);
 
     [LibraryImport("libX11.so.6")]
     private static partial nint XGetImage(nint display, nuint drawable, int x, int y, uint width, uint height, ulong planeMask, int format);

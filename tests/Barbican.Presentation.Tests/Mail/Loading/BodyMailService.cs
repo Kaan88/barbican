@@ -19,6 +19,9 @@ internal sealed class BodyMailService : IMailService
 
     public ConcurrentQueue<(string Id, bool Prefetch)> BodyRequests { get; } = new();
 
+    /// <summary>How long a held request takes to give up once cancelled (a real HTTP request aborts asynchronously, not inside Cancel()).</summary>
+    public TimeSpan CancelLag { get; set; }
+
     public ConcurrentQueue<string> ThreadRequests { get; } = new();
 
     public TaskCompletionSource Hold(string id)
@@ -33,7 +36,15 @@ internal sealed class BodyMailService : IMailService
         BodyRequests.Enqueue((emailId, options.Prefetch));
         if (Gates.TryGetValue(emailId, out var gate))
         {
-            await gate.Task.WaitAsync(ct).ConfigureAwait(false);
+            try
+            {
+                await gate.Task.WaitAsync(ct).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) when (CancelLag > TimeSpan.Zero)
+            {
+                await Task.Delay(CancelLag, CancellationToken.None).ConfigureAwait(false);
+                throw;
+            }
         }
 
         return Bodies.TryGetValue(emailId, out var b)

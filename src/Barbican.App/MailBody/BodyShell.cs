@@ -55,14 +55,13 @@ public sealed partial class BodyShell : IBodyPresenter, IStartupTask, IDisposabl
     private bool _shellUp;
     private bool _shellNavigated;
     private long _docSeq;
-    private (long Seq, BodyRequest Request, MailPage Page)? _pending;
-    private (BodyRequest Request, MailPage Page)? _current;
+    private (long Seq, BodyRequest Request, MailPage Page, bool Allow)? _pending;
+    private (BodyRequest Request, MailPage Page, bool Allow)? _current;
     private ITimer? _readyTimer;
     private bool _slow;
     private bool _loaderLoading;
     private string? _allowRemoteFor;
     private string? _formattedFor;
-    private bool _remoteNow;
 
     public BodyShell(BodyAppearance appearance, Lazy<IKeyRouter> keys, ILinkRouter links, IDispatcher dispatcher, TimeProvider time, ThemeController theme, ILogger<BodyShell> log)
     {
@@ -94,8 +93,8 @@ public sealed partial class BodyShell : IBodyPresenter, IStartupTask, IDisposabl
     /// <summary>The loading bar is on (the loader's slow state or a slow page).</summary>
     public bool IsLoading => _loaderLoading || _slow;
 
-    /// <summary>The message on screen has remote content that is blocked.</summary>
-    public bool RemoteBlocked => _current is { } c && c.Page.HasRemoteContent && !_remoteNow;
+    /// <summary>The message on screen has remote content that is blocked and may be loaded ("Load external content").</summary>
+    public bool RemoteBlocked => _current is { } c && c.Page.HasRemoteContent && !c.Allow && !c.Request.BlockRemote;
 
     /// <summary>The message on screen is shown as plain text by the accessibility setting (it has HTML).</summary>
     public bool ShownAsPlainText => _current is { } c && c.Request.Content.Html is not null && _appearance.A11y.PlainView && !string.Equals(_formattedFor, c.Request.EmailId, StringComparison.Ordinal);
@@ -304,7 +303,7 @@ public sealed partial class BodyShell : IBodyPresenter, IStartupTask, IDisposabl
         {
             var uri = e.Request.Uri;
             var remote = uri.StartsWith("http:", StringComparison.OrdinalIgnoreCase) || uri.StartsWith("https:", StringComparison.OrdinalIgnoreCase);
-            if (remote && !_remoteNow)
+            if (remote && !RemoteAllowed)
             {
                 FilteredRequests++;
                 e.Response = core.Environment.CreateWebResourceResponse(null, 403, "Blocked", string.Empty);
@@ -318,6 +317,10 @@ public sealed partial class BodyShell : IBodyPresenter, IStartupTask, IDisposabl
 #else
     private const bool DevTools = false;
 #endif
+
+    // The request filter lets a remote load through only while a page that may load remote content is alive in the shell (the one on
+    // screen or the one loading); each page keeps its own permission, so the banner of the page on screen never reads the next page's.
+    private bool RemoteAllowed => (_current?.Allow ?? false) || (_pending?.Allow ?? false);
 
     private void Try(Action set)
     {
@@ -336,13 +339,11 @@ public sealed partial class BodyShell : IBodyPresenter, IStartupTask, IDisposabl
     private void Send(BodyRequest request, MailPage page, bool allowRemote)
     {
         var seq = ++_docSeq;
-        _pending = (seq, request, page);
+        _pending = (seq, request, page, allowRemote);
         _sentAt = _time.GetTimestamp();
         StopReadyTimer();
         _readyTimer = _time.CreateTimer(_ => _dispatcher.Post(() => Slow(seq)), null, SlowAfter, Timeout.InfiniteTimeSpan);
 
-        // the filter follows the newest page (the old one stays as loaded); a page that is not allowed remote content never gets it
-        _remoteNow = allowRemote;
         Command("show", seq, html: page.Html, bg: page.Background, sandbox: MailSandbox.For(page.HasScript));
     }
 
@@ -385,7 +386,7 @@ public sealed partial class BodyShell : IBodyPresenter, IStartupTask, IDisposabl
             return;
         }
 
-        _current = (p.Request, p.Page);
+        _current = (p.Request, p.Page, p.Allow);
         PaintHost(p.Page.Background);
         Command("reveal", seq);
         StateChanged?.Invoke(this, EventArgs.Empty);

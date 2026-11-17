@@ -23,7 +23,9 @@ public static class CidImages
     {
         ArgumentNullException.ThrowIfNull(message);
         ArgumentNullException.ThrowIfNull(download);
-        var parts = message.Attachments.Where(a => a.Cid is not null && SafeImageType(a.Type)).ToList();
+        // longest content id first: "cid:logo" is a prefix of "cid:logo2", and replacing it first would break the longer reference (Rust
+        // replaced in part order and had this bug); a data: URI holds no "cid:", so a replaced reference is never matched again
+        var parts = message.Attachments.Where(a => a.Cid is not null && SafeImageType(a.Type)).OrderByDescending(a => a.Cid!.Trim('<', '>').Length).ToList();
         if (parts.Count == 0)
         {
             return message;

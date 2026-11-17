@@ -228,9 +228,11 @@ public sealed class MessageLoader : IMessageOpener, IConversationOpener, IDispos
                     // ask ourselves
                 }
 #pragma warning disable CA1031 // a failed prefetch only means the open fetches the message itself
-                catch (Exception e) when (e is not OperationCanceledException)
+                catch (Exception) when (!ct.IsCancellationRequested)
 #pragma warning restore CA1031
                 {
+                    // a prefetch that failed or was cancelled (the direction of travel turned, which cancels its batch) is not this open's
+                    // cancellation: the open fetches the message itself instead of being dropped with the reader left waiting
                 }
             }
 
@@ -316,6 +318,9 @@ public sealed class MessageLoader : IMessageOpener, IConversationOpener, IDispos
 
     private void Show(string id, EmailBody body, ConversationThread? thread, ReaderSnapshot snapshot, MailContent content, bool blockRemote, long seq, PrefetchContext context)
     {
+        // onEmailContentRender fires once per opened message (Bulwark email-viewer.tsx:3937 contentRenderedForRef), not again when the
+        // message on screen is opened again (Enter)
+        var opened = false;
         var request = new BodyRequest(
             id,
             content,
@@ -336,6 +341,7 @@ public sealed class MessageLoader : IMessageOpener, IConversationOpener, IDispos
                 LastOpenToShown = _time.GetElapsedTime(_openedAt);
                 if (!string.Equals(previous, id, StringComparison.Ordinal))
                 {
+                    opened = true;
                     AnnounceClose(previous);
                     _hooks.Fire(HookNames.OnEmailOpen, () => EmailReadView.Of(body));
                 }
@@ -343,7 +349,14 @@ public sealed class MessageLoader : IMessageOpener, IConversationOpener, IDispos
                 Prefetch(id, context);
                 return true;
             },
-            OnShown: () => _hooks.Fire(HookNames.OnEmailContentRender, () => new EmailContentRenderPayload(id, content.Html is not null, !blockRemote && content.HasRemoteContent)));
+            OnShown: () =>
+            {
+                // hasExternalContent: the body refers to remote content, blocked or loaded (Bulwark email-viewer.tsx:3944-3951)
+                if (opened)
+                {
+                    _hooks.Fire(HookNames.OnEmailContentRender, () => new EmailContentRenderPayload(id, content.Html is not null, content.HasRemoteContent));
+                }
+            });
         _presenter.Show(request);
     }
 

@@ -112,3 +112,14 @@ Bulwark mapping: `lib/filters/quick-rules.ts`, `rules-menu.tsx`.
 - B-READ-046: lite mode is dropped or kept, by user decision.
 - B-READ-044 is a restatement of the CSP test. The port should add its own test of the frame's CSP header.
 - `reader.rs:1168` holds a hard-coded test-account address for the live checks. It must not be copied into the port or the public repository. The port takes the test account from `.local/accounts.md` through configuration.
+
+## M1 status (stream body)
+
+Ported in `m1-body`: B-READ-010, reader part only (the truncated notice: `EmailBody.IsTruncated` to `BodyState.Truncated`, J-053,
+`MessageLoaderTests.A_truncated_body_shows_the_notice`; the 2 MiB source-view cut belongs to view source, M2), B-READ-040 (`MailPageBuilder`,
+`MailSandbox`, `shell.js`), B-READ-041 and B-READ-044 (`MailCsp`, T-176; `MailPageBuilderTests.Remote_content_stays_blocked_until_allowed`;
+loopback beacon 0 hits on Windows, spec/feel/M1/shell-checks.json), B-READ-043 (T-175, `ForwardedKeyChords` into `IKeyRouter`).
+B-READ-042: not needed on Windows (ADR 0005, XAML composes over WebView2); the Linux stand-in (`X11BodyOverlay`) is written but no M1 dialog calls
+`IBodyOverlayStrategy` and it never ran (the VM was unreachable): open, a Linux hand test and the M2 dialogs' wiring.
+Also built: per-message "Load external content" (I-209), "Shown as plain text" › Show formatted (I-214), `cid:` parts inlined as `data:` URIs
+(`CidImages`), the accessibility mail CSS and script of mailcore's `A11y` injected into every frame by hash.

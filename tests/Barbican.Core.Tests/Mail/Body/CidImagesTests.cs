@@ -42,6 +42,25 @@ public sealed class CidImagesTests
     }
 
     [Fact]
+    public async Task A_content_id_that_is_a_prefix_of_another_does_not_break_the_longer_reference()
+    {
+        var m = new EmailBody
+        {
+            Id = "1",
+            HtmlBody = [new BodyPart { PartId = "h", Type = "text/html" }],
+            BodyValues = new Dictionary<string, BodyValue>(StringComparer.Ordinal) { ["h"] = new("<img src=\"cid:logo\"><img src=\"cid:logo2\">") },
+            Attachments =
+            [
+                new Attachment { BlobId = "A", Cid = "<logo>", Type = "image/png", Size = 1 },
+                new Attachment { BlobId = "B", Cid = "<logo2>", Type = "image/gif", Size = 1 },
+            ],
+        };
+        var r = await CidImages.InlineAsync(m, (a, _) => Task.FromResult<byte[]?>(string.Equals(a.BlobId, "A", StringComparison.Ordinal) ? [1] : [2]), CancellationToken.None);
+
+        Assert.Equal("<img src=\"data:image/png;base64,AQ==\"><img src=\"data:image/gif;base64,Ag==\">", r.BodyValues["h"].Value);
+    }
+
+    [Fact]
     public async Task A_failed_download_keeps_the_reference_and_no_parts_means_no_change()
     {
         var m = Message(new Attachment { BlobId = "A", Cid = "<a@x>", Type = "image/png", Size = 3 });

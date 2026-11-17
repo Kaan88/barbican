@@ -812,3 +812,45 @@ paths and `LoopbackListener` (`ExclusiveAddressUse` maps to SO_REUSEPORT on Unix
 - **jmap (`ModelReader`):** read null list properties as empty lists (`BodyShape` is then a no-op), and pass a trace to the sample client in `SampleActiveMail` (shell-ui) when `BARBICAN_JMAP_TRACE` is set.
 - **F1 (`src/Barbican.Automation`):** WGC frames of the hidden window come only on a layout change. Until that is solved, no feel gate about intermediate frames can be measured on Windows.
 - **integrator:** add a test that builds `AppComposition` and resolves `ShellPage`'s view models, to catch DI cycles without a launch.
+
+## M1 review: body
+Fresh review (Opus) of `origin/m1...origin/m1-body` (b0a0b54, c6cb2f5, 215cfe7). Fixed on `m1-body` in the review commit:
+- **An open could be dropped by its own cancelled prefetch.** `MessageLoader.LoadAsync` waited for the prefetch of the message it opens and treated
+  any `OperationCanceledException` as its own cancellation. Turning round in the list cancels the old prefetch batch (`MessagePrefetcher.Run`)
+  inside the same `OpenCore` call, so an open of a message queued in that batch returned without presenting: the reader stayed on the old message
+  with the loading bar on until the next key. It now ignores a failed or cancelled prefetch unless its own token is cancelled, as Rust's poll did
+  (msgload.rs:151). The test (`MessageLoaderTests.An_open_whose_prefetch_was_cancelled_by_a_turn_fetches_the_message_itself`) needs
+  `BodyMailService.CancelLag`: a fake request that aborts inside `Cancel()` hides the bug, a real HTTP request aborts later. Check that a prefetch
+  failure path cannot now double-fetch in a way that matters (it fetches once more through the cache; Rust did the same).
+- **onEmailContentRender** followed Bulwark loosely: `hasExternalContent` was false when a body plugin blocked remote content, and the event fired
+  again when the message on screen was opened again (Enter). Now: true whenever the body refers to remote content, blocked or loaded
+  (email-viewer.tsx:3944-3951), once per opened message (contentRenderedForRef, :3937). `The_content_render_hook_fires_once_per_opened_message_and_reports_external_content`.
+- **Remote-content state per page.** `BodyShell` kept one `_remoteNow` for the last page *sent*: the "Load external content" banner of the page on
+  screen read the state of the page loading behind it, and the Windows request filter followed it too. Each page now carries its own `Allow`;
+  the filter passes a remote request only while a page that allows remote content is alive (on screen or loading); the banner is hidden when a
+  body plugin blocks remote content (the button could do nothing). Not covered by an automated test (App type; no App test project): the shell
+  checks of spec/feel/M1/shell-checks.json predate it.
+- **cid: prefix collision** (`CidImages.InlineAsync`, inherited from Rust main.rs:617): `cid:logo` was replaced inside `cid:logo2`. Longest id
+  first now (`CidImagesTests.A_content_id_that_is_a_prefix_of_another_does_not_break_the_longer_reference`). A deliberate deviation from Rust.
+- **X11 stand-in could end the process.** `X11BodyOverlay.Grab` called `XGetImage` on the root window for the body's rectangle; a rectangle not
+  wholly on screen is a BadMatch and Xlib's default error handler exits. It now refuses such a rectangle. Still unwired and never run (below).
+- **Spec:** the stream had not touched `spec/behaviours/` (M1-plan §2.5). Added "M1 status (stream body)" to sync.md (B-SYNC-022..034; 026
+  deferred to M2), reader.md (B-READ-010 reader part, 040, 041, 043, 044; 042 open), mail.md (B-MAIL-025..029), extras.md (B-CAP-002) and the
+  B-SET-019 cell. Hook call-site line numbers in spec/plugins/hooks.csv re-pointed.
+
+Open after the review (not fixed here):
+- **Linux not run at all** (the VM was unreachable for the stream and for this review): shell checks, `ExecuteScriptAsync` traffic, the frame
+  CSP as the only guard, `NavigationStarting` on Uno (the first navigation is let through unconditionally: if Uno raises it twice for
+  `NavigateToString`, the shell never comes up), the X11 stand-in, Xvfb feel. The M1 exit requires them.
+- **`IBodyOverlayStrategy` has no caller.** No dialog or scrim calls `Cover`/`Uncover`; on Linux the body area shows the empty tile under a
+  dialog until something wires it (M2 dialogs, or the integrator for the M1 sign-in scrim if one covers the reader).
+- **Feel exit not met as measured.** Input to first changed frame ≤ 21 ms is unproven (hidden WGC delivers frames only on layout change);
+  "header and body in one frame" rests on the code. No uncached `open_first` per layout. Needs the on-screen/private-display measurement.
+- **shell.js `ready` without a frame** (c6cb2f5): ready is posted after a forced layout, before images in data: URIs have decoded, so a reveal can
+  paint a page whose inline images appear a frame later. The 50 ms gate was the reason; check on screen that no image area flashes.
+- **`allow-same-origin` + `allow-scripts`** on dark-pass frames (MailSandbox, from Rust): safe only while the CSP admits our hashed script alone
+  and no inline handlers; any future `'unsafe-hashes'` or plugin script in frames breaks the sandbox.
+- **I-209, I-214 not seen live**: no FakeJmap seed message has remote content or a plain view; I-203, I-222 (strip click: request to shell-ui),
+  I-230 retention notice remain `todo` with notes. B-MAIL-021's 200-entry thumbnail cache is attributed to the body stream by mailcore and does not
+  exist.
+- **MailBodyView** subscribes to `BodyShell.StateChanged` and never unsubscribes; a second view (re-created reader) leaks the first.
