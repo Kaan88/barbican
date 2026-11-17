@@ -1153,3 +1153,9 @@ Branch `m2-close-a` from `m2` (commits `56e9907` and the one after it). Closes i
   and the avatar opens nothing (the menus exist: `menu-open FOLDERS-HEADER` / `ACCOUNT` work); rail Calendar, Contacts, Files and
   Settings switch to apps that do not exist yet (M4-M6) and show nothing.
 - **Flaky test seen once** in Barbican.Presentation.Tests during the m2 merge run (1 failure, not reproduced in 3 later runs; name not captured). Worth a look for a timing dependency.
+
+## M3 plan (stream: m3-plan)
+- **Uno.Sdk 7 move is on the critical path of stream editor-view** (`global.json` still pins Uno.Sdk 6.7.49 with SkiaSharp 3.119.2; `Barbican.Editor.Layout` needs SkiaSharp 4.156.0; `Directory.Packages.props` lines 53-62, ADR 0006 "M0 review"). The plan makes it step 0 of editor-view with a vendoring fallback (docs/milestones/M3-plan.md section 6.3). Review the move for a changed WinUI/Skia behaviour in the M1/M2 views. Paths: `global.json`, `src/Barbican.App/Barbican.App.csproj`.
+- **Loopback TCP as the only single-instance mechanism** (D-241) replaces PORT-PLAN 3.9's `AppInstance` and Unix socket. Security review: the token file permissions and the greeting check (`src/Barbican.Core/Instance/`, contract stub only at this commit).
+- **Contract stubs throw `PortPendingException`** until their stream lands; a default registration that throws is only ever reached if a stream forgets to replace it (`src/Barbican.Core/Compose/*.cs`, `SendPipelineRegistration.cs`).
+- **Default decisions without a user question** (M3 plan section 9), most worth a look: send warnings and external-recipient confirm live in `Barbican.Core.Compose` (pure) with the dialog in the composer shell; DSN, Require TLS, Encrypt and Classification are deferred (I-258); mentions are built (G-075), the org disclaimer is not (I-268).
