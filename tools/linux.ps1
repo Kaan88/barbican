@@ -46,8 +46,14 @@ $Root = Split-Path -Parent $PSScriptRoot
 
 $vm = $env:BARBICAN_VM
 if (-not $vm) {
-    $file = Join-Path $Root '.local/linux-vm.txt'
-    if (Test-Path $file) { $vm = (Get-Content $file | Where-Object { $_ -match '\S' -and $_ -notmatch '^\s*#' } | Select-Object -First 1).Trim() }
+    # .local/ is gitignored, so a worktree has none of its own: fall back to the main checkout's copy
+    # (the parent of the shared git dir).
+    $candidates = @(Join-Path $Root '.local/linux-vm.txt')
+    $common = (& git -C $Root rev-parse --path-format=absolute --git-common-dir 2>$null)
+    if ($common) { $candidates += Join-Path (Split-Path -Parent $common) '.local/linux-vm.txt' }
+    foreach ($file in $candidates) {
+        if (-not $vm -and (Test-Path $file)) { $vm = (Get-Content $file | Where-Object { $_ -match '\S' -and $_ -notmatch '^\s*#' } | Select-Object -First 1).Trim() }
+    }
 }
 if (-not $vm) { throw '[linux.ps1] no VM address: set BARBICAN_VM=user@host or write it to .local/linux-vm.txt' }
 $key = $env:BARBICAN_VM_KEY
