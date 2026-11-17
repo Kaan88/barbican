@@ -33,9 +33,12 @@ public sealed partial class SidebarView : UserControl
         Sidebar.Folders.CollectionChanged += OnFoldersChanged;
         Loaded += (_, _) => SyncSelection();
 
-        // handled events too: the ListView may mark drag events of its items handled
-        FolderList.AddHandler(DragOverEvent, new DragEventHandler(OnFolderDragOver), handledEventsToo: true);
-        FolderList.AddHandler(DropEvent, new DragEventHandler(OnFolderDrop), handledEventsToo: true);
+        // M2 hotfix 2: every folder row container is a drop target of its own (OnFolderContainerChanging); the list itself only catches what no row
+        // took (handled events too: the ListView marks the drag events of its items handled)
+        FolderList.AddHandler(DragEnterEvent, new DragEventHandler(OnFolderListDragOver), handledEventsToo: true);
+        FolderList.AddHandler(DragOverEvent, new DragEventHandler(OnFolderListDragOver), handledEventsToo: true);
+        FolderList.AddHandler(DragLeaveEvent, new DragEventHandler(OnFolderListDragLeave), handledEventsToo: true);
+        FolderList.AddHandler(DropEvent, new DragEventHandler(OnFolderListDrop), handledEventsToo: true);
     }
 
     public SidebarViewModel Sidebar { get; }
@@ -112,6 +115,8 @@ public sealed partial class SidebarView : UserControl
             AutomationProperties.SetAutomationId(args.ItemContainer, row.Id);
             AutomationProperties.SetName(args.ItemContainer, row.Name);
         }
+
+        WireDropTarget(args.ItemContainer);
     }
 #pragma warning restore CA1822
 
@@ -179,9 +184,31 @@ public sealed partial class SidebarView : UserControl
         e.Handled = handled;
     }
 
-    // ---- M2 hotfix: real drag and drop (HAND TEST 2 "can't drag"); DropController keeps the drag and runs the drop (the code dnd-sim runs) ----
+    // ---- Drag and drop. M2 hotfix: real drag sources and targets; DropController keeps the drag and runs the drop (the code dnd-sim runs).
+    // M2 hotfix 2 (the user: "forbidden icon never disappears"): every row is its own drop target (AllowDrop on the ListViewItem, handlers on it, so
+    // the row is the sender and not guessed from OriginalSource), DragEnter answers as DragOver does, the answer comes from DropAcceptance (only an
+    // operation the source offers), the row under the pointer is marked (DropHighlight) and the drag shows the small badge (DragBadge). ----
+
+    private static readonly HashSet<ListViewItem> Wired = [];
+    private static DragEventArgs? _taken;
 
     private static DropController Drops => ViewHost.Get<DropController>();
+
+    private static DragOperations Offered(DragEventArgs e) => (DragOperations)(int)e.DataView.RequestedOperation;
+
+    private static void WireDropTarget(SelectorItem container)
+    {
+        if (container is not ListViewItem item || !Wired.Add(item))
+        {
+            return;
+        }
+
+        item.AllowDrop = true;
+        item.AddHandler(DragEnterEvent, new DragEventHandler(OnFolderRowDragOver), handledEventsToo: true);
+        item.AddHandler(DragOverEvent, new DragEventHandler(OnFolderRowDragOver), handledEventsToo: true);
+        item.AddHandler(DragLeaveEvent, new DragEventHandler(OnFolderRowDragLeave), handledEventsToo: true);
+        item.AddHandler(DropEvent, new DragEventHandler(OnFolderRowDrop), handledEventsToo: true);
+    }
 
     private void OnFolderDragStarting(object sender, DragItemsStartingEventArgs e)
     {
@@ -193,95 +220,200 @@ public sealed partial class SidebarView : UserControl
 
         Drops.BeginFolderDrag(account, row.Id, row.Name);
         e.Data.SetText(row.Name);
-        e.Data.RequestedOperation = DataPackageOperation.Move;
+        e.Data.RequestedOperation = (DataPackageOperation)(int)DropAcceptance.SourceOffers;
+        Actions.DragBadge.Prepare(row.Name);
     }
 
 #pragma warning disable CA1822 // XAML event handler
-    private void OnFolderDragCompleted(ListViewBase sender, DragItemsCompletedEventArgs args) => Drops.CancelDrag();
+    private void OnFolderDragCompleted(ListViewBase sender, DragItemsCompletedEventArgs args)
+    {
+        Actions.DropHighlight.Clear();
+        Drops.CancelDrag();
+    }
 #pragma warning restore CA1822
 
-    private void OnFolderDragOver(object sender, DragEventArgs e)
+    private static void OnFolderRowDragOver(object sender, DragEventArgs e)
     {
-        var drops = Drops;
-        if (FolderUnder(e) is not { } hit || !drops.CanDropOnFolder(hit.Row.Id))
+        if (sender is ListViewItem { Content: FolderRowViewModel row } item)
         {
-            e.AcceptedOperation = DataPackageOperation.None;
-            drops.Target = null;
+            AnswerFolder(e, row, item);
+        }
+    }
+
+    private static void OnFolderRowDragLeave(object sender, DragEventArgs e)
+    {
+        if (sender is FrameworkElement item)
+        {
+            Actions.DropHighlight.Clear(item);
+        }
+    }
+
+    private static void OnFolderRowDrop(object sender, DragEventArgs e)
+    {
+        if (sender is ListViewItem { Content: FolderRowViewModel row } item)
+        {
+            DropOnFolder(e, row, item);
+        }
+    }
+
+    // the list catches what no row took: the row is found under the pointer
+    private void OnFolderListDragOver(object sender, DragEventArgs e)
+    {
+        if (ReferenceEquals(e, _taken))
+        {
             return;
         }
 
-        e.AcceptedOperation = DataPackageOperation.Move;
-        e.Handled = true;
-        drops.Target = hit.Row.Id;
-        e.DragUIOverride.IsCaptionVisible = true;
-        e.DragUIOverride.Caption = drops.DraggedFolder is null
-            ? "Move to " + hit.Row.Name
-            : DropController.ZoneAt(e.GetPosition(hit.Container).Y, hit.Container.ActualHeight) switch
-            {
-                Barbican.Core.DragDrop.DropZone.Before => "Before " + hit.Row.Name,
-                Barbican.Core.DragDrop.DropZone.After => "After " + hit.Row.Name,
-                _ => "Into " + hit.Row.Name,
-            };
-    }
-
-    // a failed drop reports itself with a toast (MailActionService); the task is not awaited here
-    private void OnFolderDrop(object sender, DragEventArgs e)
-    {
-        if (FolderUnder(e) is not { } hit || !Drops.CanDropOnFolder(hit.Row.Id))
+        if (FolderUnder(e) is { } hit)
         {
-            return;
-        }
-
-        e.Handled = true;
-        var zone = DropController.ZoneAt(e.GetPosition(hit.Container).Y, hit.Container.ActualHeight);
-        _ = Drops.DropOnFolderAsync(hit.Row.Id, zone, CancellationToken.None);
-    }
-
-    private void OnTagDragOver(object sender, DragEventArgs e)
-    {
-        if (sender is FrameworkElement { DataContext: TagRowViewModel tag } && Drops.CanDropOnTag)
-        {
-            e.AcceptedOperation = DataPackageOperation.Link;
-            e.DragUIOverride.IsCaptionVisible = true;
-            e.DragUIOverride.Caption = "Tag " + tag.Label;
-            Drops.Target = tag.Id;
+            AnswerFolder(e, hit.Row, hit.Container);
         }
         else
         {
             e.AcceptedOperation = DataPackageOperation.None;
+            Actions.DragBadge.Apply(e.DragUIOverride);
+            Actions.DropHighlight.Clear();
+            Drops.Target = null;
+        }
+    }
+
+#pragma warning disable CA1822 // XAML event handler
+    private void OnFolderListDragLeave(object sender, DragEventArgs e)
+    {
+        Actions.DropHighlight.Clear();
+        Drops.Target = null;
+    }
+#pragma warning restore CA1822
+
+    private void OnFolderListDrop(object sender, DragEventArgs e)
+    {
+        if (!ReferenceEquals(e, _taken) && FolderUnder(e) is { } hit)
+        {
+            DropOnFolder(e, hit.Row, hit.Container);
+        }
+    }
+
+    private static void AnswerFolder(DragEventArgs e, FolderRowViewModel row, FrameworkElement container)
+    {
+        var drops = Drops;
+        _taken = e;
+        e.Handled = true;
+        Actions.DragBadge.Apply(e.DragUIOverride);
+        var accepted = DropAcceptance.ForFolder(drops, row.Id, Offered(e));
+        e.AcceptedOperation = (DataPackageOperation)(int)accepted;
+        if (accepted == DragOperations.None)
+        {
+            Actions.DropHighlight.Clear(container);
+            drops.Target = null;
+            e.DragUIOverride.IsCaptionVisible = false;
+            return;
+        }
+
+        var zone = DropController.ZoneAt(e.GetPosition(container).Y, container.ActualHeight);
+        drops.Target = row.Id;
+        Actions.DropHighlight.Show(container, zone, line: drops.DraggedFolder is not null);
+        e.DragUIOverride.IsCaptionVisible = true;
+        e.DragUIOverride.IsGlyphVisible = false;
+        e.DragUIOverride.Caption = DropAcceptance.FolderCaption(drops, row.Name, zone);
+    }
+
+    // a failed drop reports itself with a toast (MailActionService); the task is not awaited here
+    private static void DropOnFolder(DragEventArgs e, FolderRowViewModel row, FrameworkElement container)
+    {
+        _taken = e;
+        Actions.DropHighlight.Clear();
+        if (!Drops.CanDropOnFolder(row.Id))
+        {
+            return;
         }
 
         e.Handled = true;
+        e.AcceptedOperation = DataPackageOperation.Move;
+        var zone = DropController.ZoneAt(e.GetPosition(container).Y, container.ActualHeight);
+        _ = Drops.DropOnFolderAsync(row.Id, zone, CancellationToken.None);
     }
 
-#pragma warning disable VSTHRD100 // XAML event handler; a failed drop reports itself with a toast (MailActionService)
-    private async void OnTagDrop(object sender, DragEventArgs e)
-#pragma warning restore VSTHRD100
+#pragma warning disable CA1822 // XAML event handler
+    private void OnTagDragOver(object sender, DragEventArgs e)
     {
+        e.Handled = true;
+        Actions.DragBadge.Apply(e.DragUIOverride);
+        if (sender is not FrameworkElement { DataContext: TagRowViewModel tag } row)
+        {
+            e.AcceptedOperation = DataPackageOperation.None;
+            return;
+        }
+
+        var accepted = DropAcceptance.ForTag(Drops, Offered(e));
+        e.AcceptedOperation = (DataPackageOperation)(int)accepted;
+        if (accepted == DragOperations.None)
+        {
+            Actions.DropHighlight.Clear(row);
+            e.DragUIOverride.IsCaptionVisible = false;
+            return;
+        }
+
+        Drops.Target = tag.Id;
+        Actions.DropHighlight.Show(row, Barbican.Core.DragDrop.DropZone.Inside, line: false);
+        e.DragUIOverride.IsCaptionVisible = true;
+        e.DragUIOverride.IsGlyphVisible = false;
+        e.DragUIOverride.Caption = "Tag " + tag.Label;
+    }
+
+    private void OnTagDragLeave(object sender, DragEventArgs e)
+    {
+        if (sender is FrameworkElement row)
+        {
+            Actions.DropHighlight.Clear(row);
+        }
+
+        Drops.Target = null;
+    }
+#pragma warning restore CA1822
+
+#pragma warning disable VSTHRD100, CA1822 // XAML event handler; a failed drop reports itself with a toast (MailActionService)
+    private async void OnTagDrop(object sender, DragEventArgs e)
+#pragma warning restore VSTHRD100, CA1822
+    {
+        Actions.DropHighlight.Clear();
         if (sender is FrameworkElement { DataContext: TagRowViewModel tag } && Drops.CanDropOnTag)
         {
             e.Handled = true;
+            e.AcceptedOperation = (DataPackageOperation)(int)DropAcceptance.ForTag(Drops, Offered(e));
             _ = await Drops.DropOnTagAsync(tag.Id, CancellationToken.None);
         }
     }
 
-    // the folder row under the pointer and its item container (the zone is measured on the whole row)
-    private static (FolderRowViewModel Row, FrameworkElement Container)? FolderUnder(DragEventArgs e)
+    // the folder row under the pointer and its item container: from the event's source, else by hit-testing the pointer position
+    private (FolderRowViewModel Row, FrameworkElement Container)? FolderUnder(DragEventArgs e)
     {
-        if (VisualWalk.Up<FolderRowViewModel>(e.OriginalSource as DependencyObject) is not { } hit)
+        if (VisualWalk.Up<FolderRowViewModel>(e.OriginalSource as DependencyObject) is { } hit)
         {
-            return null;
+            return (hit.Context, ContainerOf(hit.Element) ?? hit.Element);
         }
 
-        for (DependencyObject? node = hit.Element; node is not null; node = VisualTreeHelper.GetParent(node))
+        foreach (var element in VisualTreeHelper.FindElementsInHostCoordinates(e.GetPosition(null), FolderList))
         {
-            if (node is ListViewItem item)
+            if (element is ListViewItem { Content: FolderRowViewModel row } item)
             {
-                return (hit.Context, item);
+                return (row, item);
             }
         }
 
-        return (hit.Context, hit.Element);
+        return null;
+    }
+
+    private static ListViewItem? ContainerOf(DependencyObject element)
+    {
+        for (DependencyObject? node = element; node is not null; node = VisualTreeHelper.GetParent(node))
+        {
+            if (node is ListViewItem item)
+            {
+                return item;
+            }
+        }
+
+        return null;
     }
 
     private void OnFoldersHeaderClick(object sender, RoutedEventArgs e) => Sidebar.FoldersExpanded = !Sidebar.FoldersExpanded;

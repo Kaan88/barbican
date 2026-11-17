@@ -49,6 +49,13 @@ public sealed partial class ShellPage : Page
         _restore = _accounts is null ? null : ViewHost.Find<AccountsStartup>()?.Completion;
         InitializeComponent();
         Tip.SetHost(Overlay);
+
+        // M2 hotfix 2: an in-app drag shows the small badge everywhere in the window, not the platform's snapshot of the row; outside a drop target
+        // nothing is accepted (the targets answer first and mark the event handled)
+        Views.Actions.DragBadge.Attach(Overlay);
+        Root.AllowDrop = true;
+        Root.DragEnter += OnRootDragOver;
+        Root.DragOver += OnRootDragOver;
         ShellOverlays.Fill(OverlayLayer);
         _theme.Attach(Root);
         ApplyLook();
@@ -224,6 +231,12 @@ public sealed partial class ShellPage : Page
         _ = await Task.WhenAny(restore).ConfigureAwait(true);
 #pragma warning restore VSTHRD003
         DispatcherQueue.TryEnqueue(() => ShowScreen());
+    }
+
+    private static void OnRootDragOver(object sender, DragEventArgs e)
+    {
+        e.AcceptedOperation = Windows.ApplicationModel.DataTransfer.DataPackageOperation.None;
+        Views.Actions.DragBadge.Apply(e.DragUIOverride);
     }
 
     private void OnPreviewKeyDown(object sender, KeyRoutedEventArgs e)

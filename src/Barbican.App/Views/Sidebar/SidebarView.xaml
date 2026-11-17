@@ -48,7 +48,7 @@
       <!-- A tag row (prototype labels): a squircle dot in the tag colour and the name. -->
       <DataTemplate x:Key="TagTemplate" x:DataType="shell:TagRowViewModel">
         <!-- a click filters the list to the tag; a second click on it goes back (Bulwark sidebar.tsx:1181); the chevron folds the tags inside (nested tags); the selected tag takes sel / sel-text like a folder; a drop target for dragged messages (M2 hotfix) -->
-        <Grid Background="{x:Bind views:Fmt.TagBg(Selected)}" CornerRadius="{x:Bind theme:StyleState.Current.TagRowRadius, Mode=OneWay}" ColumnDefinitions="*,Auto" AllowDrop="True" DragOver="OnTagDragOver" Drop="OnTagDrop"
+        <Grid Background="{x:Bind views:Fmt.TagBg(Selected)}" CornerRadius="{x:Bind theme:StyleState.Current.TagRowRadius, Mode=OneWay}" ColumnDefinitions="*,Auto" AllowDrop="True" DragEnter="OnTagDragOver" DragOver="OnTagDragOver" DragLeave="OnTagDragLeave" Drop="OnTagDrop"
               AutomationProperties.AutomationId="{x:Bind Id}" AutomationProperties.Name="{x:Bind Label}">
           <Button Style="{StaticResource Button.Icon}" HorizontalAlignment="Stretch" HorizontalContentAlignment="Left" Tag="{x:Bind Id}" Click="OnTagClick" CornerRadius="{x:Bind theme:StyleState.Current.TagRowRadius, Mode=OneWay}"
                   Foreground="{x:Bind views:Fmt.TagFg(Selected)}" AutomationProperties.AutomationId="{x:Bind views:Fmt.TagButtonId(Id)}" AutomationProperties.Name="{x:Bind Label}">
