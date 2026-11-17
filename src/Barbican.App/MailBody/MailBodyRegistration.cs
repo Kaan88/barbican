@@ -32,7 +32,8 @@ public static class MailBodyRegistration
         // loading: fetch through the cache, prefetch in the direction of travel, never write (M1 is read-only)
         services.TryAddSingleton<IBlobSource, ActiveBlobSource>();
         services.TryAddSingleton<IMailActions, ReadOnlyMailActions>();
-        services.TryAddSingleton(sp => new MessageFetcher(sp.GetRequiredService<IBodyCache>(), sp.GetRequiredService<IBlobSource>()));
+        // the unified inbox registers IReadRoutes (Fable review 3 R3-01): its rows are read from the account that holds them
+        services.TryAddSingleton(sp => new MessageFetcher(sp.GetRequiredService<IBodyCache>(), sp.GetRequiredService<IBlobSource>(), sp.GetService<IReadRoutes>()));
         services.TryAddSingleton(sp => new MessagePrefetcher(sp.GetRequiredService<MessageFetcher>()));
         services.TryAddSingleton(sp => new ListNeighbours(sp));
         services.TryAddSingleton<IMessageNeighbours>(sp => sp.GetRequiredService<ListNeighbours>());

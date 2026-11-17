@@ -15,7 +15,10 @@ using Barbican.Core.Mail.Model;
 namespace Barbican.Core.Mail.Service;
 
 /// <summary>The read side of mail over one <see cref="IJmapClient"/>.</summary>
-public sealed class MailService(IJmapClient client, TimeProvider time) : IMailService
+/// <param name="client">The login's client.</param>
+/// <param name="time">The clock of the role cache.</param>
+/// <param name="accountId">The JMAP account read (a shared account a unified row came from, Fable review 3 R3-01); null for the login's own mail account.</param>
+public sealed class MailService(IJmapClient client, TimeProvider time, string? accountId = null) : IMailService
 {
     private static readonly TimeSpan RoleTtl = TimeSpan.FromMinutes(5);
     private readonly Lock _roleLock = new();
@@ -24,6 +27,9 @@ public sealed class MailService(IJmapClient client, TimeProvider time) : IMailSe
 
     /// <summary>The client this service reads through.</summary>
     public IJmapClient Client => client;
+
+    /// <summary>The JMAP account this service reads: the one it was made for, else the login's own mail account.</summary>
+    public string AccountId => accountId ?? client.Session.MailAccountId;
 
     /// <summary>The folder objects last read (or brought up to date by Mailbox/changes) with their state; null before the first read.</summary>
     public (IReadOnlyList<JsonObject> List, string? State)? LastMailboxes
@@ -58,7 +64,7 @@ public sealed class MailService(IJmapClient client, TimeProvider time) : IMailSe
     /// <summary>The folder tree as server objects with its Mailbox state (for Mailbox/changes).</summary>
     public async Task<Result<(IReadOnlyList<JsonObject> List, string? State)>> GetMailboxObjectsAsync(CancellationToken ct)
     {
-        var acc = client.Session.MailAccountId;
+        var acc = AccountId;
         var props = JmapProperties.Json(JmapProperties.Mailbox);
         var r = await client.CallAsync(JmapRequest.Of(JmapRequest.Call("Mailbox/get", new JsonObject { ["accountId"] = acc, ["ids"] = null, ["properties"] = props }, "0")), ct)
             .ConfigureAwait(false);
@@ -141,7 +147,7 @@ public sealed class MailService(IJmapClient client, TimeProvider time) : IMailSe
         ArgumentNullException.ThrowIfNull(options);
         var args = new JsonObject
         {
-            ["accountId"] = client.Session.MailAccountId,
+            ["accountId"] = AccountId,
             ["ids"] = new JsonArray(emailId),
             ["properties"] = JmapProperties.Json(JmapProperties.EmailFull),
             ["bodyProperties"] = JmapProperties.Json(JmapProperties.Body),
@@ -162,7 +168,7 @@ public sealed class MailService(IJmapClient client, TimeProvider time) : IMailSe
     /// <inheritdoc/>
     public async Task<Result<ConversationThread>> GetThreadAsync(string threadId, CancellationToken ct)
     {
-        var acc = client.Session.MailAccountId;
+        var acc = AccountId;
         var b = new JmapRequestBuilder();
         var t = b.Add("Thread/get", new JsonObject { ["accountId"] = acc, ["ids"] = new JsonArray(threadId) });
         b.Add("Email/get", new JsonObject { ["accountId"] = acc, ["#ids"] = t.Ref("/list/*/emailIds"), ["properties"] = JmapProperties.Json(JmapProperties.EmailList) });

@@ -286,14 +286,16 @@ public sealed class MessageLoader : IMessageOpener, IConversationOpener, IDispos
 
         // the list's copy has the current keywords (a cached body may predate a flag or a read)
         var shown = body with { Keywords = row.Summary.Keywords };
-        var options = _options() with { ServerHost = AuthServTrust.ServerHostOf(context.AccountKey) };
+        // a unified row is judged by the account that holds it (its server for the trace block, its folders, its pin), Fable review 3 R3-01
+        var (owner, ownerMail) = _fetcher.OwnerOf(context.AccountKey, context.Mail, id);
+        var options = _options() with { ServerHost = AuthServTrust.ServerHostOf(owner) };
         if (_depth is not null)
         {
-            options = _depth.Shape(options, context.AccountKey, context.Mail);
+            options = _depth.Shape(options, owner, ownerMail);
         }
 
         var snapshot = ReaderSnapshots.FromBody(shown, fetched.Thread, options);
-        _depth?.Learn(context.AccountKey, snapshot.LearnedAuthServ);
+        _depth?.Learn(owner, snapshot.LearnedAuthServ);
         ScheduleMarkRead(id, unseen ?? !body.Keywords.Seen, delay);
         var content = BodyRequest.ContentOf(body);
         if (_depth is { HasBanners: true })

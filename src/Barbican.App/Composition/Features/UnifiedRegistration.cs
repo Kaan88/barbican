@@ -92,6 +92,7 @@ public static class UnifiedRegistration
         services.AddSingleton<IStartupTask>(sp => sp.GetRequiredService<UnifiedInbox>());
         services.Replace(ServiceDescriptor.Singleton<IListSourceResolver>(sp => new UnifiedListSourceResolver(sp.GetRequiredService<UnifiedInbox>(), sp.GetRequiredService<IActiveMail>())));
         services.Replace(ServiceDescriptor.Singleton<IMailTargetResolver>(sp => new UnifiedTargetResolver(sp.GetRequiredService<IActiveMail>())));
+        services.TryAddSingleton<Barbican.Presentation.Mail.Loading.IReadRoutes>(sp => new UnifiedReadRoutes(sp.GetRequiredService<IUnifiedLogins>(), sp.GetRequiredService<TimeProvider>()));
         services.TryAddSingleton<IUnifiedUnread>(sp => new UnifiedUnread(sp.GetRequiredService<IAccountOverview>()));
         services.TryAddSingleton(sp => new UnifiedSectionViewModel(
             sp.GetRequiredService<UnifiedInbox>(),

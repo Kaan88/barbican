@@ -46,7 +46,7 @@ public sealed class AttachmentSaver(IAccountManager accounts, IHookBus hooks, Ti
         var written = await WriteAsync(ReaderNames.SanitizePart(a.Name ?? "attachment", 120), bytes.Value!, ct).ConfigureAwait(false);
         if (written.IsOk && hooks.HasHandlers(HookNames.OnAttachmentDownload))
         {
-            await hooks.NotifyAsync(HookNames.OnAttachmentDownload, new AttachmentInfo(message.EmailId, a.BlobId, a.Name ?? "attachment", a.Type, a.Size), ct).ConfigureAwait(false);
+            await hooks.NotifyAsync(HookNames.OnAttachmentDownload, new AttachmentInfo(message.ServerId, a.BlobId, a.Name ?? "attachment", a.Type, a.Size), ct).ConfigureAwait(false);
         }
 
         return written;
@@ -106,7 +106,7 @@ public sealed class AttachmentSaver(IAccountManager accounts, IHookBus hooks, Ti
             return Result<(byte[], string)>.Fail(new ValidationError("The account is not signed in."));
         }
 
-        var got = await ReaderCalls.CallAsync(client, "Email/get", new JsonObject { ["accountId"] = message.AccountId, ["ids"] = new JsonArray(message.EmailId), ["properties"] = new JsonArray("blobId", "subject", "receivedAt") }, ct).ConfigureAwait(false);
+        var got = await ReaderCalls.CallAsync(client, "Email/get", new JsonObject { ["accountId"] = message.JmapAccountId(client.Session.MailAccountId), ["ids"] = new JsonArray(message.ServerId), ["properties"] = new JsonArray("blobId", "subject", "receivedAt") }, ct).ConfigureAwait(false);
         if (!got.IsOk || got.Value!["list"]?[0] is not { } email || email.Str("blobId") is not { } blob)
         {
             return Result<(byte[], string)>.Fail(got.IsOk ? new ValidationError("The message is gone.") : got.Error!);
@@ -116,7 +116,8 @@ public sealed class AttachmentSaver(IAccountManager accounts, IHookBus hooks, Ti
         return bytes.IsOk ? Result<(byte[], string)>.Ok((bytes.Value!, ReaderNames.EmlExportName(email))) : Result<(byte[], string)>.Fail(bytes.Error!);
     }
 
-    private IJmapClient? Client(MailTarget message) => accounts.SessionFor(message.AccountKey)?.Client;
+    // the login that holds the message (a unified row's own), Fable review 3 R3-02
+    private IJmapClient? Client(MailTarget message) => accounts.SessionFor(message.Login)?.Client;
 
     private async Task<Result<(string Subject, IReadOnlyList<JsonNode> Parts)>> AttachmentsAsync(MailTarget message, CancellationToken ct)
     {
@@ -125,7 +126,7 @@ public sealed class AttachmentSaver(IAccountManager accounts, IHookBus hooks, Ti
             return Result<(string, IReadOnlyList<JsonNode>)>.Fail(new ValidationError("The account is not signed in."));
         }
 
-        var got = await ReaderCalls.CallAsync(client, "Email/get", new JsonObject { ["accountId"] = message.AccountId, ["ids"] = new JsonArray(message.EmailId), ["properties"] = new JsonArray("subject", "attachments") }, ct).ConfigureAwait(false);
+        var got = await ReaderCalls.CallAsync(client, "Email/get", new JsonObject { ["accountId"] = message.JmapAccountId(client.Session.MailAccountId), ["ids"] = new JsonArray(message.ServerId), ["properties"] = new JsonArray("subject", "attachments") }, ct).ConfigureAwait(false);
         if (!got.IsOk)
         {
             return Result<(string, IReadOnlyList<JsonNode>)>.Fail(got.Error!);
@@ -143,7 +144,7 @@ public sealed class AttachmentSaver(IAccountManager accounts, IHookBus hooks, Ti
             return Result<byte[]>.Fail(new ValidationError("The account is not signed in."));
         }
 
-        var r = await client.DownloadAsync(message.AccountId, blobId, name, type, ct).ConfigureAwait(false);
+        var r = await client.DownloadAsync(message.JmapAccountId(client.Session.MailAccountId), blobId, name, type, ct).ConfigureAwait(false);
         if (!r.IsOk)
         {
             return Result<byte[]>.Fail(r.Error!);
@@ -160,15 +161,24 @@ public sealed class AttachmentSaver(IAccountManager accounts, IHookBus hooks, Ti
 
     private async Task<Result<Unit>> WriteAsync(string suggested, byte[] bytes, CancellationToken ct)
     {
-        var target = await pick(suggested, ct).ConfigureAwait(false);
-        if (target is null)
+        // a full disk, a file in use or a folder that went away is a failed save with its reason, never an exception for the command runner
+        // (Fable review 3 R3-05)
+        try
         {
-            return Fail("Not saved.");
-        }
+            var target = await pick(suggested, ct).ConfigureAwait(false);
+            if (target is null)
+            {
+                return Fail("Not saved.");
+            }
 
-        await using (target.ConfigureAwait(false))
+            await using (target.ConfigureAwait(false))
+            {
+                await target.WriteAsync(bytes, ct).ConfigureAwait(false);
+            }
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
         {
-            await target.WriteAsync(bytes, ct).ConfigureAwait(false);
+            return Fail("Could not save: " + e.Message);
         }
 
         return Result<Unit>.Ok(default);

@@ -18,7 +18,15 @@ public static class SearchSnippetFetcher
         ArgumentNullException.ThrowIfNull(client);
         ArgumentNullException.ThrowIfNull(filter);
         ArgumentNullException.ThrowIfNull(emailIds);
-        if (emailIds.Count == 0 || !GlobalSearch.HasSnippetTerms(filter))
+        if (!GlobalSearch.HasSnippetTerms(filter))
+        {
+            return Result<IReadOnlyList<SnippetEntry>>.Ok([]);
+        }
+
+        // a unified row id names another account (or the same one through its row id): SearchSnippet/get would answer notFound for it, so such
+        // rows get no snippet (Fable review 3 R3-01)
+        emailIds = [.. emailIds.Where(id => Mail.Unified.UnifiedRows.ParseRow(id) is null)];
+        if (emailIds.Count == 0)
         {
             return Result<IReadOnlyList<SnippetEntry>>.Ok([]);
         }

@@ -20,7 +20,7 @@ public sealed class ReaderMenuOpener(IContextMenuService menus, ReaderViewModel 
             return false;
         }
 
-        var accountId = accounts?.SessionFor(key)?.Client.Session.MailAccountId ?? key;
+        var accountId = accounts?.SessionFor(key)?.Client.Session.MailAccountId ?? string.Empty;
         var target = new MailTarget(key, accountId, body.Id, body.ThreadId ?? string.Empty, body.Id, body.MailboxIds, body.Keywords);
         menus.Show(new MenuContext(menuId, [target], null, null, null, attachment, CommandSurface.ContextMenu), anchor);
         return menus.IsOpen;

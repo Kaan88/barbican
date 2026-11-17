@@ -210,7 +210,8 @@ public sealed class ContextPointerRouter
         }
 
         var key = _active.AccountKey ?? string.Empty;
-        return new MailTarget(key, key, row.Id, row.Summary.ThreadId ?? row.Id, row.Key, row.Summary.MailboxIds, row.Summary.Keywords);
+        // the login's own mail account (an empty account id), never the account key (Fable review 3 R3-02)
+        return new MailTarget(key, string.Empty, row.Id, row.Summary.ThreadId ?? row.Id, row.Key, row.Summary.MailboxIds, row.Summary.Keywords);
     }
 
     private MailboxRef? Mailbox(string? mailboxId)

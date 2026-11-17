@@ -39,7 +39,7 @@ public sealed class EmailParseOpener(Func<string, IJmapClient?> clientOf) : IAtt
             return Result<EmailBody>.Fail(new ValidationError("This attachment cannot be opened."));
         }
 
-        if (clientOf(container.AccountKey) is not { } client)
+        if (clientOf(container.Login) is not { } client)
         {
             return Result<EmailBody>.Fail(new ValidationError("That account is not signed in."));
         }
@@ -47,7 +47,7 @@ public sealed class EmailParseOpener(Func<string, IJmapClient?> clientOf) : IAtt
         var b = new JmapRequestBuilder();
         var parse = b.Add("Email/parse", new JsonObject
         {
-            ["accountId"] = string.IsNullOrEmpty(container.AccountId) ? client.Session.MailAccountId : container.AccountId,
+            ["accountId"] = container.JmapAccountId(client.Session.MailAccountId),
             ["blobIds"] = new JsonArray(blobId),
             ["properties"] = JmapProperties.Json([.. JmapProperties.EmailFull.Where(p => p is not ("id" or "threadId" or "mailboxIds" or "keywords"))]),
             ["bodyProperties"] = JmapProperties.Json(JmapProperties.Body),
