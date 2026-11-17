@@ -239,6 +239,9 @@ fast-forwarded to `main`.
 
 ## M1, consolidated at the verify stage (stream: m1-verify)
 
+**Fable review 2 (2026-11-17, `m1` at `4eccc0f`):** items 1 to 23 below carry their verdict as a link; the new findings
+(R2-nn), the decisions and the gate blockers are in [fable-review-2.md](fable-review-2.md). Items 24 to 39 were not looked at again.
+
 The M1 sections of the stages, streams and reviews are archived verbatim in
 [fable-review/M1-streams.md](fable-review/M1-streams.md). Below they are deduplicated and ordered by risk. Each item names
 its sources in brackets:
@@ -250,7 +253,7 @@ its sources in brackets:
 Commits are on `m1`; the per-stream commits are in the archive. Report: [milestones/M1.md](milestones/M1.md).
 
 ### 1. Security, privacy and the user's real screen
-1. **Mail frame sandbox and CSP.**
+1. [Fable 2: fixed, see R2-04](fable-review-2.md#verify) **Mail frame sandbox and CSP.**
    - Dark-pass frames run with `allow-same-origin` + `allow-scripts`, as in Rust. F1 kept `allow-same-origin` against
      the plan's text and dropped the popup flags.
    - This is safe only while the frame CSP admits nothing but our hashed scripts, with no inline handlers. Any future
@@ -258,17 +261,17 @@ Commits are on `m1`; the per-stream commits are in the archive. Report: [milesto
    - The CSP adds `base-uri 'none'` (Bulwark) to the Rust policy.
 
    [f1, body-rev] `Core/Mail/Body/MailSandbox.cs`, `MailCsp.cs`, `Assets/mail/shell.js`, ADR 0005 "M1 F1".
-2. **Linux body security is CSP-only and never ran.**
+2. [Fable 2: open (never ran)](fable-review-2.md#verify) **Linux body security is CSP-only and never ran.**
    - There is no request filter and no frame-navigation event on Uno.
    - `StripRefresh` and the frame CSP are the only guards.
    - The shell lets the first `NavigationStarting` through unconditionally. If Uno raises it twice for
      `NavigateToString`, the shell never comes up.
 
    [body, body-rev] `App/MailBody/BodyShell.cs`.
-3. **Remote-content permission per page.** Each page now carries its own `Allow`. The Windows request filter passes
+3. [Fable 2: fine, untested](fable-review-2.md#verify) **Remote-content permission per page.** Each page now carries its own `Allow`. The Windows request filter passes
    remote requests only while a page that allows them is alive. No automated test covers this (App type), and the
    shell checks in `spec/feel/M1/shell-checks.json` predate it. [body-rev] `BodyShell.cs`.
-4. **OAuth.**
+4. [Fable 2: fine](fable-review-2.md#verify) **OAuth.**
    - The loopback listener reads `state` first, in constant time. A wrong or missing state gets 400 and the wait goes
      on; Rust ended the sign-in. This is a behaviour change for the user to accept.
    - One callback is accepted.
@@ -277,7 +280,7 @@ Commits are on `m1`; the per-stream commits are in the archive. Report: [milesto
    - An agent never refreshes an imported OAuth entry.
 
    [plan, accounts, accounts-rev] `Core/Auth/LoopbackListener.cs`, `RedirectFollowingLauncher.cs`, `OAuthTokenSource.cs`.
-5. **Secrets.**
+5. [Fable 2: fixed, see R2-06](fable-review-2.md#verify) **Secrets.**
    - Windows: hand-written CredMan `LibraryImport`, `CRED_PERSIST_LOCAL_MACHINE` (roaming is an open question).
    - The blob limit of 2560 bytes caps the single `accounts` entry at about 8 to 10 OAuth accounts; split it per
      account before M2's sign-out.
@@ -285,14 +288,14 @@ Commits are on `m1`; the per-stream commits are in the archive. Report: [milesto
    - The Linux `SecretServiceStore`, including the locked-keyring fix, has never run.
 
    [accounts, accounts-rev] `Platform.Windows/WindowsSecretStore.cs`, `Platform.Linux/SecretServiceStore.cs`.
-6. **ADR 0008 import and read-only accounts.**
+6. [Fable 2: fine, see R2-14](fable-review-2.md#verify) **ADR 0008 import and read-only accounts.**
    - The agent path is `dev`/`auto-*` only, password kind only, forced read-only, and never reads the admin key.
    - The user path cannot be reached in M1, because `dev` is the default profile until M8.
    - Every account is read-only unless it is listed in `BARBICAN_WRITABLE_ACCOUNTS`.
    - OAuth read-only now follows the real login, not the typed hint. Review this before M2 opens writes.
 
    [plan, accounts, accounts-rev] `Platform/RustCredentialImport.cs`, `Core/Accounts/ReadOnlyPolicy.cs`, `AccountManager.cs`.
-7. **Hidden automation.**
+7. [Fable 2: not reviewed](fable-review-2.md#verify) **Hidden automation.**
    - The popup guard is reactive, so a windowed popup could draw for one tick.
    - The deny list comes from private-desktop probes: CommandBarFlyout, ComboBox, ToolTip and AutoSuggestBox open
      outside the window.
@@ -303,34 +306,34 @@ Commits are on `m1`; the per-stream commits are in the archive. Report: [milesto
 
    [f1, shell-ui-rev, verify] `src/Barbican.Automation/PopupGuard.cs`, `App/Composition/HiddenWindow.cs`,
    `tests/Barbican.Build.Tests/ReleaseContentTests.cs`.
-8. **Session discovery.** Redirects are followed by hand (at most 5 hops). Credentials go only to same-origin hops, and
+8. [Fable 2: fixed](fable-review-2.md#verify) **Session discovery.** Redirects are followed by hand (at most 5 hops). Credentials go only to same-origin hops, and
    a switch from https to http is refused. Check that a Stalwart behind a cross-host redirecting proxy asks for sign-in
    again rather than failing oddly. [jmap] `Core/Jmap/Transport/SessionFetcher.cs`.
-9. **PNG decoder on hostile input.** It reads 8-bit, non-interlaced PNG with a 40 MP cap, and a 40 MP picture allocates
+9. [Fable 2: mostly fixed, see R2-08](fable-review-2.md#verify) **PNG decoder on hostile input.** It reads 8-bit, non-interlaced PNG with a 40 MP cap, and a 40 MP picture allocates
    about 360 MB transiently. Other formats wait for an App decoder. [mailcore, mailcore-rev] `Core/Mail/Attachments/PngDecoder.cs`.
-10. **X11 stand-in.** `XGetImage` of an off-screen rectangle (BadMatch) is now refused. The stand-in is unwired and has
+10. [Fable 2: not reviewed](fable-review-2.md#verify) **X11 stand-in.** `XGetImage` of an off-screen rectangle (BadMatch) is now refused. The stand-in is unwired and has
     never run. [body-rev] `App/MailBody/X11BodyOverlay.cs`.
-11. **Privacy check vs. provider name.** The check refuses Google's mail provider name anywhere in the repo, so the
+11. [Fable 2: decision](fable-review-2.md#verify) **Privacy check vs. provider name.** The check refuses Google's mail provider name anywhere in the repo, so the
     unsupported-provider notice lacks its two domains. The user decides on a narrower pattern. [accounts] `tools/privacy-check.sh`,
     `Core/Accounts/MailServerAddress.cs`.
 
 ### 2. Open correctness risks
-12. **Body cache can mix accounts after a switch.** `BodyCacheSync` files an event under the account active when the
+12. [Fable 2: fixed](fable-review-2.md#verify) **Body cache can mix accounts after a switch.** `BodyCacheSync` files an event under the account active when the
     event is handled. Ids repeat across accounts, so a cached body could show another message's keywords. Fix: carry
     the account key in `MailSyncEventArgs`. [accounts-rev] `Presentation/Accounts/BodyCacheSync.cs`.
-13. **List delta plumbing.**
+13. [Fable 2: fixed](fable-review-2.md#verify) **List delta plumbing.**
     - There are two RFC 8620 §5.6 implementations: `LoadedList.Apply` and `ListDeltaApplier`.
     - Every delta reaches the list twice: `ListDeltaEvent` and `EmailsChangedEvent`, giving two rebuilds.
     - `ListDeltaEvent` has no query id, so the list drops deltas while a first page loads.
 
     [mailcore, mailcore-rev, jmap-rev] `Presentation/Mail/LoadedList.cs`, `MessageListViewModel.cs`, `Core/Sync/ListDeltaApplier.cs`.
-14. **Who runs the sync loop.** `MailEventHub` runs `IMailSync.RunAsync`. If the accounts session also started it, there
+14. [Fable 2: fine](fable-review-2.md#verify) **Who runs the sync loop.** `MailEventHub` runs `IMailSync.RunAsync`. If the accounts session also started it, there
     would be two loops. Check this stays single as M2 adds accounts features. [mailcore] `Presentation/Mail/MailEventHub.cs`.
-15. **Sign-in and popover views bypass the accounts ViewModels.** They drive `IAccountManager` directly, so the provider
+15. [Fable 2: open, see R2-03](fable-review-2.md#verify) **Sign-in and popover views bypass the accounts ViewModels.** They drive `IAccountManager` directly, so the provider
     notice, OAuth cancel, unread badges and error lines are not on screen. The popover refreshes only on `ActiveChanged`.
     The I- rows stay `P`. [shell-ui, accounts-rev] `App/Views/SignIn/SignInFormModel.cs`,
     `App/Views/Accounts/AccountPopoverModel.cs`.
-16. **The App composition is untested.**
+16. [Fable 2: partly fixed](fable-review-2.md#verify) **The App composition is untested.**
     - A DI cycle (BodyShell → KeyRouter → … → BodyShell) hung the first launch silently. It is broken now with
       `Lazy<IKeyRouter>`.
     - No test resolves `AppComposition`.
@@ -338,9 +341,9 @@ Commits are on `m1`; the per-stream commits are in the archive. Report: [milesto
     - `SmokeRun` still uses its own probe WebView.
 
     [body, shell-ui, f1] `App/Composition/*`, `App/Shell/ViewHost.cs`.
-17. **Null lists in `EmailBody`.** `ModelReader` leaves null in non-nullable lists, and `BodyShape.Normalize` works
+17. [Fable 2: open (low)](fable-review-2.md#verify) **Null lists in `EmailBody`.** `ModelReader` leaves null in non-nullable lists, and `BodyShape.Normalize` works
     around it. Fix the reader. [body] `Core/Mail/Body/BodyShape.cs`.
-18. **Keyboard routing.**
+18. [Fable 2: partly fixed, see R2-05](fable-review-2.md#verify) **Keyboard routing.**
     - `KeyRouter.Handle` ignores `KeySource`. The page skips text boxes.
     - Arrow keys are handled for every source, which risks a double move with a focused `ListView`.
     - `KeyChordMapper` does not handle Shift+digit or AltGr.
@@ -348,7 +351,7 @@ Commits are on `m1`; the per-stream commits are in the archive. Report: [milesto
     - None of this has run on Uno.
 
     Hand test. [mailcore, mailcore-rev, shell-ui, shell-ui-rev] `Presentation/Input/KeyRouter.cs`, `App/Shell/ShellPage.xaml.cs`.
-19. **Hook semantics.**
+19. [Fable 2: partly fixed, see R2-10](fable-review-2.md#verify) **Hook semantics.**
     - Sync hooks are awaited inline, where Bulwark fires and forgets.
     - Observers run fire-and-forget on the pool.
     - Interceptors only stop a key whose answer is already complete.
@@ -358,11 +361,11 @@ Commits are on `m1`; the per-stream commits are in the archive. Report: [milesto
     - `onEmailContentRender` and `onThemeChange` were aligned with Bulwark by the reviews.
 
     [jmap, mailcore, shell-ui-rev, body-rev] `Core/Sync/MailSync.cs`, `NewMailWatcher.cs`, `Core/Plugins/HookBus*.cs`.
-20. **Window events now reach the hooks** **[verify]**. `App.xaml.cs` calls `ShellLifecycle.AttachWindow`. Before this,
+20. [Fable 2: not reviewed](fable-review-2.md#verify) **Window events now reach the hooks** **[verify]**. `App.xaml.cs` calls `ShellLifecycle.AttachWindow`. Before this,
     `onWindowFocus/Blur`, `onVisibilityChange` and `onBeforeUnload` had call sites but no caller. A hidden run showed
     no crash and no focus change. The events themselves were not observed, because a hidden window is never activated.
     Hand test. [shell-ui, verify] `src/Barbican.App/App.xaml.cs`, commit 6b506be.
-21. **Body cache and loader.**
+21. [Fable 2: partly fixed](fable-review-2.md#verify) **Body cache and loader.**
     - The cache bounds are global, not per account (as in Rust; the plan said per account).
     - `Weight` counts UTF-16 code units where Rust counted UTF-8 bytes.
     - An open now ignores its own cancelled prefetch. Check that the extra fetch through the cache cannot matter.
@@ -370,9 +373,9 @@ Commits are on `m1`; the per-stream commits are in the archive. Report: [milesto
     - `IBodyOverlayStrategy` has no caller.
 
     [accounts-rev, body-rev] `Core/Mail/BodyCache/*`, `Presentation/Mail/Loading/MessageLoader.cs`, `App/MailBody/MailBodyView.cs`.
-22. **`AccountManager` design.** The shared-attempt design (`Entry.Connecting`) was where the "failed connect pins the
+22. [Fable 2: confirmed, see R2-01 and R2-02](fable-review-2.md#verify) **`AccountManager` design.** The shared-attempt design (`Entry.Connecting`) was where the "failed connect pins the
     account" bug lived. Review the whole design. [accounts-rev] `Core/Accounts/AccountManager.cs`.
-23. **Push edge cases.**
+23. [Fable 2: fixed, see R2-01](fable-review-2.md#verify) **Push edge cases.**
     - A server without `eventSourceUrl` gets no live updates at all; Rust behaves the same.
     - The 700 ms debounce can be postponed indefinitely by a steady stream of pushes.
 
@@ -535,7 +538,7 @@ Commits are on `m1`; the per-stream commits are in the archive. Report: [milesto
 Fixes for Fable review 1 (`docs/fable-review-1.md` on `fable/review-1`) F-02, F-03, F-04, F-05, F-06, F-07, F-08, F-09, F-12,
 F-13 and user decisions D-2, D-9, D-10, on branch `m1-fix-security` (from `m1` at `056ae3b`). Items below name what to re-check.
 
-- **F-02 session URLs (judgement calls).** `Core/Jmap/Transport/SessionUrls.cs`, `SessionParser.cs`, `SessionFetcher.cs`,
+- [Fable 2: fixed, see R2-09](fable-review-2.md#f-verdicts) **F-02 session URLs (judgement calls).** `Core/Jmap/Transport/SessionUrls.cs`, `SessionParser.cs`, `SessionFetcher.cs`,
   `AuthorizedHttp.cs`, `JmapSession.CredentialOrigins`. Relative URLs still resolve against the session URL (RFC 8620 §2), then
   move onto the typed origin; Bulwark resolves them against the typed origin's root instead (`client.ts:2329`): the two differ only
   for a relative URL without a leading slash. A session that arrived from another origin keeps no "hosted elsewhere" host (Bulwark
@@ -543,10 +546,10 @@ F-13 and user decisions D-2, D-9, D-10, on branch `m1-fix-security` (from `m1` a
   when the session URL is off the typed origin. A cross-origin 401 now says "Enter <origin> as the server address" instead of
   "Wrong username" (FABLE-REVIEW M1 item 8). Check the wording, and whether a Stalwart behind a proxy that redirects
   `/.well-known/jmap` to another host should be followed with a prompt instead.
-- **D-10 plain http.** `Core/Jmap/ServerEndpoint.cs` `Read`: http only for `localhost`, 127.0.0.0/8 and `::1`, else
+- [Fable 2: fixed, see R2-09](fable-review-2.md#f-verdicts) **D-10 plain http.** `Core/Jmap/ServerEndpoint.cs` `Read`: http only for `localhost`, 127.0.0.0/8 and `::1`, else
   `InsecureMessage`. A remembered (or imported) http server elsewhere now fails at start-up with that message. There is no
   "I understand" override (the brief said refuse). `*.localhost` names are not treated as loopback.
-- **F-04 OAuth loopback and discovery.** `Core/Auth/LoopbackListener.cs`, `CallbackCheck.cs`, `OAuthDiscovery.cs` (`Secure`,
+- [Fable 2: fixed](fable-review-2.md#f-verdicts) **F-04 OAuth loopback and discovery.** `Core/Auth/LoopbackListener.cs`, `CallbackCheck.cs`, `OAuthDiscovery.cs` (`Secure`,
   `MetaFrom`), `OAuthMetadata.Issuer/IssParameterSupported`, `RefreshLock.cs`. Judgement calls: a wrong `iss` **with** the right
   state ends the sign-in (the state was leaked to a second provider, so waiting on gives nothing); without the state it is refused
   like any stranger. An `iss` sent while the metadata names no issuer is ignored unless the provider announced the parameter.
@@ -554,35 +557,35 @@ F-13 and user decisions D-2, D-9, D-10, on branch `m1-fix-security` (from `m1` a
   longer deletes its file and has no 60 s staleness: verify on Linux that .NET's `FileShare.None` really takes `flock` there (it
   does in .NET on Unix by default; `DOTNET_SYSTEM_IO_DISABLEFILELOCKING` would turn it off). Not changed: bind address (already
   `IPAddress.Loopback`), constant-time state compare, PKCE verifier (48 random bytes, 64 chars).
-- **F-05 one credential per account.** `Platform/SecretAccountVault.cs`: `account/<sha256-prefix>` entries plus `account-index`
+- [Fable 2: fixed, see R2-06](fable-review-2.md#f-verdicts) **F-05 one credential per account.** `Platform/SecretAccountVault.cs`: `account/<sha256-prefix>` entries plus `account-index`
   (in the secret store, not a profile file: the index names no address and keeps the vault one unit). Judgement: the `session`
   entry was dropped (nothing in the C# app read it). Migration of the old single entry is silent and automatic on first load.
   The live Windows store was not exercised by a test here (no throwaway-target run in this stream); the 2560-byte cap is
   checked with a capped fake store. Hand test: sign in to three OAuth accounts in a dev profile and restart.
-- **F-06 / D-2 import.** `RustCredentialImport`: the user import keeps OAuth accounts listed but drops their refresh token
+- [Fable 2: fixed](fable-review-2.md#f-verdicts) **F-06 / D-2 import.** `RustCredentialImport`: the user import keeps OAuth accounts listed but drops their refresh token
   ("imported without its sign-in; sign in again"). ADR 0008 point 2's "validate by a normal refresh" is withdrawn in an
   amendment section.
-- **F-12 read-only fails closed.** `Core/Accounts/ReadOnlyPolicy.For(profile, env, readFile)`: in `dev` (also the default
+- [Fable 2: fixed, see R2-14](fable-review-2.md#f-verdicts) **F-12 read-only fails closed.** `Core/Accounts/ReadOnlyPolicy.For(profile, env, readFile)`: in `dev` (also the default
   profile, so a plain user run is covered too) and `auto-*`, only the file named by `BARBICAN_WRITABLE_ACCOUNTS_FILE` counts,
   and only when its folder is named `.local`; `BARBICAN_WRITABLE_ACCOUNTS` is ignored there. Other profiles keep the variable.
   Registered from `IProfilePaths` (not `ProfilePaths.FromEnvironment`), so the policy follows the profile the app actually uses.
   Judgement: the allow-list holds logins, not account keys (server+login), matching the existing `IsReadOnly(user, …)`; a
   stricter key match can come with M2's writes. Who sets the variable: `tools/auto-run.ps1` (F-08 commit) points it at the main
   checkout's `.local/writable-accounts.txt` when that file exists; nobody creates the file in this stream.
-- **F-07 / D-9 authserv-id.** `Core/Mail/AuthResults/AuthServTrust.cs`, `AuthenticationResults.Trusted/AuthServId`; the reader
+- [Fable 2: partly fixed, see R2-07](fable-review-2.md#f-verdicts) **F-07 / D-9 authserv-id.** `Core/Mail/AuthResults/AuthServTrust.cs`, `AuthenticationResults.Trusted/AuthServId`; the reader
   (`ReaderSnapshots.FromBody`) gets `ReaderOptions.ServerHost` from the account key in `MessageLoader.Present`. Judgement calls:
   the id is not *learned* from Inbox mail (the review's suggestion); it is matched against the server host or its parent domain
   (`mail.example.org` trusts `example.org` and `*.example.org`, never a bare TLD). Risk: a host directly under a two-label public
   suffix (`example.co.uk`) would trust `*.co.uk`; there is no public suffix list. Learning the id per account (and pinning it) is
   deferred to M2 with the trust banner (G-049). Hand test: open a received message on the live account and check the chip still
   shows (Stalwart's authserv-id must sit in the server's parent domain).
-- **F-09 PNG bombs.** `Core/Mail/Attachments/PngDecoder.TryThumbnail` streams rows into `ThumbnailCells` (the cells of
+- [Fable 2: mostly fixed, see R2-08](fable-review-2.md#f-verdicts) **F-09 PNG bombs.** `Core/Mail/Attachments/PngDecoder.TryThumbnail` streams rows into `ThumbnailCells` (the cells of
   `ThumbnailScaler.Fill`, byte-identical: `PngThumbnailTests.The_streaming_thumbnail_equals_decode_and_fill` over all colour types
   and filters); `IImageDecoder.TryThumbnail` is a default interface method so platform decoders keep working; `TryDecode` capped
   at 16 MP and itself row-streamed (no raw buffer); `AttachmentCards.Thumbnail` holds a static lock; `OutOfMemoryException` is caught.
   Judgement: the streaming cap is 100 MP (time, not memory: about a second of inflate). Nothing in the app calls
   `AttachmentCards.Thumbnail` yet (cards show kinds only in M1); the lock assumes callers are off the UI thread, which the doc says.
-- **F-08 automation token.** `Automation/Protocol/AutomationConnection.cs` (UI-free, tested over a real loopback socket in
+- [Fable 2: fixed](fable-review-2.md#f-verdicts) **F-08 automation token.** `Automation/Protocol/AutomationConnection.cs` (UI-free, tested over a real loopback socket in
   `AutomationConnectionTests`), `AutomationServer`, `AutomationHost` (no token: the port stays closed, the popup guard still
   runs). Clients: `tools/auto-run.ps1` (token per run in `artifacts/auto/<port>/token`, also passes
   `BARBICAN_WRITABLE_ACCOUNTS_FILE` when the main checkout has `.local/writable-accounts.txt`), new `tools/autoconn.py` used by
@@ -591,13 +594,13 @@ F-13 and user decisions D-2, D-9, D-10, on branch `m1-fix-security` (from `m1` a
   Judgement: lines are read with a bound (`CommandLine.MaxLength`) so a peer cannot grow one line without limit. The hidden
   Automation build was not launched in this commit; the F-03 stage runs it through `auto-run.ps1` and so checks the token path
   end to end. Linux pending (VM rule).
-- **F-13 WebView2 folder.** `App/Composition/WebViewEnvironment.cs` (renamed from `HiddenWebView.cs`) runs for every run:
+- [Fable 2: fixed on Windows](fable-review-2.md#f-verdicts) **F-13 WebView2 folder.** `App/Composition/WebViewEnvironment.cs` (renamed from `HiddenWebView.cs`) runs for every run:
   `WEBVIEW2_USER_DATA_FOLDER` = `<profile DataDir>\WebView2`, `--dns-prefetch-disable` always, the painting flags only when
   hidden. Found on the way: a hidden run without `BARBICAN_PROFILE` named its WebView2 folder after `auto-<port>` while Core
   resolved the `dev` profile (the user's own data); it now sets `BARBICAN_PROFILE` to the run's profile before composition.
   WebKitGTK data directory: Linux pending (the Linux head reads none of this; Uno's WebView there has no data-dir setting we
   use yet).
-- **F-03 the mail frame.** `Core/Mail/Body/MailSanitizer.cs` (AngleSharp 1.9.1, new Core dependency; runs in
+- [Fable 2: fixed on Windows, see R2-04](fable-review-2.md#f-verdicts) **F-03 the mail frame.** `Core/Mail/Body/MailSanitizer.cs` (AngleSharp 1.9.1, new Core dependency; runs in
   `MessageFetcher.FetchAsync` off the UI thread before the body is cached, and on plugin HTML in
   `MessageLoader.TransformThenShowAsync`); `MailSandbox.Frame` (never `allow-scripts`); `MailCsp.Policy(remote)` always
   `script-src 'none'` plus `x-dns-prefetch-control: off`; `MailPage(Html, Dark, Background, HasRemoteContent) { Sizing }`;
@@ -613,7 +616,7 @@ F-13 and user decisions D-2, D-9, D-10, on branch `m1-fix-security` (from `m1` a
   inert; `noscript` content is kept (it renders in a script-less frame, as in a mail client); a body is reserialised only when
   something was removed. `A11y.MailScript()` stays for its Rust-ported tests but is no longer put in a page. Not done: the
   S2 spike harness probe (the hidden-app probe above replaces it on Windows); link-opener confirmation (point 5) is M2.
-- **Linux.** `tools/linux.ps1 test` tried once at the end of the stream: the VM job failed (ssh exit 255). Linux pending (VM
+- [Fable 2: open](fable-review-2.md#f-verdicts) **Linux.** `tools/linux.ps1 test` tried once at the end of the stream: the VM job failed (ssh exit 255). Linux pending (VM
   unreachable) for every item above: the full test run, F-03 (frame listeners and dark pass without `allow-scripts` under
   WebKitGTK, the meta-refresh probe, WebKitGTK DNS prefetch), F-04 (`FileShare.None` as `flock`), F-08 (`linux-remote.sh auto`
   with the token), F-13 (WebKitGTK data directory).
@@ -622,7 +625,7 @@ F-13 and user decisions D-2, D-9, D-10, on branch `m1-fix-security` (from `m1` a
 
 Review these, in this order of risk:
 
-- **F-14 sync/list, the three judgement calls.** (1) `Presentation/Mail/LoadedList.cs`: `Apply(ListDelta)` now delegates to
+- [Fable 2: fixed, see R2-13](fable-review-2.md#f-verdicts) **F-14 sync/list, the three judgement calls.** (1) `Presentation/Mail/LoadedList.cs`: `Apply(ListDelta)` now delegates to
   `Core/Sync/ListDeltaApplier`; `Apply(EmailsChangedEvent)` takes fresh copies only and **ignores `Removed`** (the removals of the
   query that was watched). `MailSync` still emits both events and `BodyCache` still evicts bodies by `Removed`. Check you agree
   that a message moved out of the folder keeping its cached body until the cache's LRU drops it is fine. (2)
@@ -636,7 +639,7 @@ Review these, in this order of risk:
   looked for only in `/set` calls; a `#` string in a query is data. Check no other method takes a creation id (EmailSubmission
   `onSuccessUpdateEmail` keys are handled by the key rule). The "http" host-name part of F-14 was already fixed by the
   security stream (`ServerEndpoint.Parse`, merge a03364a).
-- **F-15 hooks and sync.** `Core/Plugins/Hooks/HookBus.cs`: a 5 s per-handler timeout (`HookBus(TimeProvider?, TimeSpan?)`);
+- [Fable 2: fixed as asked, see R2-01 and R2-10](fable-review-2.md#f-verdicts) **F-15 hooks and sync.** `Core/Plugins/Hooks/HookBus.cs`: a 5 s per-handler timeout (`HookBus(TimeProvider?, TimeSpan?)`);
   a handler past it is cancelled, left behind and reported through `HandlerFailed`; an interceptor that times out counts as
   "allow", a transform leaves the value. An answer that is already complete stays synchronous (KeyRouter relies on that).
   The abandoned handler task keeps running if it ignores its token. `Core/Sync/MailSync.cs`: `onNewEmailReceived` now runs after
@@ -647,28 +650,57 @@ Review these, in this order of risk:
   all push types every `PollInterval` 60 s. Judgement: 60 s is my number, Bulwark has none. `MessageListViewModel` shows
   `SyncProblemEvent.Message` in `Error` and clears it on the next `PushStateEvent(true)`: a status line only, no sign-in prompt
   (the accounts views are still not bound to the sign-in screen, M1.md open issue).
-- **F-16 keys.** `Presentation/Input/KeyRouter.cs`: a real (`KeySource.Keyboard`) plain Up/Down is **not** handled (the focused
+- [Fable 2: partly fixed, see R2-05 and R2-11](fable-review-2.md#f-verdicts) **F-16 keys.** `Presentation/Input/KeyRouter.cs`: a real (`KeySource.Keyboard`) plain Up/Down is **not** handled (the focused
   `ListView` moves one row); WebView and Automation arrows are. This means: with focus outside the list, an arrow key does
   nothing and the reader's `_motion.Step()` and `OpenReason.Key` are not used for arrow navigation. **Hand test**: one arrow press
   moves one row, and the reader animates as for `j`. `App/Shell/KeyChordMapper.cs`: Shift+digit and Ctrl+Alt (AltGr) map to null;
   the router also refuses any Alt chord. Typing in a text box is still filtered in `ShellPage.OnPreviewKeyDown`, not in the router.
-- **Body cache race.** `MailSyncEventArgs.AccountKey` is set by `MailEventHub` from the account whose engine produced the event;
+- [Fable 2: fixed](fable-review-2.md#f-verdicts) **Body cache race.** `MailSyncEventArgs.AccountKey` is set by `MailEventHub` from the account whose engine produced the event;
   `BodyCacheSync` files under it (the `IAccountManager` parameter is gone) and the list ignores events of another account.
   `MailEventHub.Publish(e)` without a key uses the active account at publish time (tests).
-- **DI wiring test.** `tests/Barbican.Presentation.Tests/Composition/CompositionGraphTests.cs` resolves **every** registered
+- [Fable 2: partly fixed](fable-review-2.md#f-verdicts) **DI wiring test.** `tests/Barbican.Presentation.Tests/Composition/CompositionGraphTests.cs` resolves **every** registered
   service of Core + MailCore + Accounts + AccountsPresentation + the loader chain, with a presenter shaped like `BodyShell`
   (`Lazy<IKeyRouter>`). It does not include the Uno-only types (`BodyShell`, `AppComposition`, views): a cycle that runs through them is
   still only caught at launch. Worth a head-level test in an App test project. It found a real bug: `AccountManager.DisposeAsync`
   threw `ObjectDisposedException` when the container disposed the one instance for each of its three registrations; now idempotent.
-- **MailBodyView / shell.js.** `App/MailBody/MailBodyView.cs` unsubscribes on `Unloaded` and re-subscribes on `Loaded`.
+- [Fable 2: fine, cost not measured](fable-review-2.md#f-verdicts) **MailBodyView / shell.js.** `App/MailBody/MailBodyView.cs` unsubscribes on `Unloaded` and re-subscribes on `Loaded`.
   `Assets/mail/shell.js` posts `ready` from `requestAnimationFrame` with a 34 ms timer fallback (a hidden window may never run a
   frame). **Not measured**: the feel cost (up to one frame per message open) and whether data: images are decoded at reveal. Measure
   with the hidden feel run before the M1 gate; if the frame is too dear, `img.decode()` on the data: images is the alternative.
   Only a static test (`ShellScriptTests.ReadyIsPostedOneFrameAfterTheLayoutWithATimerFallback`) covers the script.
-- **F-10, F-11.** Flagged tile is `HasKeyword = "$flagged"` (`Presentation/Shell/MailShellStartup.cs`). `tools/spec-check.py`: a T- row
+- [Fable 2: fixed](fable-review-2.md#f-verdicts) **F-10, F-11.** Flagged tile is `HasKeyword = "$flagged"` (`Presentation/Shell/MailShellStartup.cs`). `tools/spec-check.py`: a T- row
   whose only tests are `[Red]` is `pending`; `--milestone` also fails while any `[Red]` test exists anywhere (no stream-to-
   milestone map exists, so a red test for a later milestone would block an earlier gate: revisit if that happens) and for a J- row
   that is `done` without `cs_test`. J-009 and J-028 are `partial(M2)` (`spec/jmap.csv`), and `spec/README.md` says so. Verified by a
   temporary `[Red]` on a tagged test (row went pending, gate message printed); not kept as a test (no harness for Python tools).
 - **Not covered.** Linux: `tools/linux.ps1 ping` failed once (ssh key not accepted / VM unreachable): Linux pending (VM
   unreachable). No hidden run was launched. Commit hashes: see `git log m1-fix-core` (this stream's commits are the ones after a03364a).
+
+## Fable review 2 (stream: fable-review-2)
+
+Report: [fable-review-2.md](fable-review-2.md), branch `fable-review-2` from `m1` at `4eccc0f` (reading only; nothing built, run or
+launched; Linux unverified). For the next Fable pass, in this order:
+
+- **R2-01 after its fix: a refused sign-in must stop all traffic of that account.** Why: by the Stalwart source a failed login
+  counts toward a ban of the client address (100 a day by default, no end by default), and a session signed in with a one-time code
+  is checked again after the token lifetime. Check the latch in the client, that the push loop, the poll and the unread timer all
+  stop, and the test that counts requests against a 401 server. Paths: `Core/Jmap/Transport/StaticAccessTokenSource.cs`,
+  `AuthorizedHttp.cs`, `Core/Auth/OAuthTokenSource.cs`, `Core/Sync/MailSync.Push.cs`, `Core/Accounts/AccountManager.cs`. This finding
+  is derived from source and was **not** run (running it can block the user's address): confirm the reading of
+  `crates/http/src/auth/authenticate.rs` and `crates/common/src/auth/authentication.rs`.
+- **R2-04 after its fix, on both OSes.** Named elements against `shell.js` (`name="URL"`, `"body"`, `"querySelectorAll"`,
+  `"addEventListener"`, `"__bbd"`), the give-up path, and on Linux whether the shell's `frame-src` really stops a click in an
+  unhandled frame. Also the dark pass (`email_dark.js`) reads the same document: check it for the same pattern. Paths:
+  `Core/Mail/Body/MailSanitizer.cs`, `App/Assets/mail/shell.js`, `App/MailBody/BodyShell.cs`.
+- **Sanitizer parse differences.** The sanitizer parses with scripting off (`MailSanitizer.Clean`), which matches a frame without
+  `allow-scripts`. Any later use of sanitized HTML in a context where scripting is on (the M3 editor, a plugin view) re-opens the
+  `noscript` difference. `EmailBody.CidBodyValues` holds the unsanitized originals: they must never be shown.
+- **R2-02 and R2-03.** Start-up without network and the account screens once they are bound to `SignInViewModel` and
+  `AccountsViewModel`: cancel of the OAuth wait, Enter to submit, the row errors.
+- **R2-05 and R2-11.** Which focused controls keep Enter and Space, and punctuation shortcuts on a non-US layout. Hand test.
+- **R2-06.** The vault under two instances, once `AccountStore.ChangeAsync` reloads inside the refresh lock.
+- **R2-07.** The pinned authserv-id and the trace-block rule when M2 builds the trust banner; no code removes forged inbound
+  headers on the server side as far as this review found (`crates/smtp/src/inbound/data.rs`).
+- **R2-10.** The hook catalogue's per-hook budget and fail-closed flag before the first send guard (M3) and the plugin hosts (M6b).
+- **Not reviewed in this pass** (say so at the gate): the shell-ui layout, motion and theme code, `X11BodyOverlay.cs`, the Linux
+  secret store at run time, items 24 to 39 of the verify-stage list.
