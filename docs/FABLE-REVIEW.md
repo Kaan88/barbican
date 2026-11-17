@@ -576,3 +576,9 @@ F-13 and user decisions D-2, D-9, D-10, on branch `m1-fix-security` (from `m1` a
   suffix (`example.co.uk`) would trust `*.co.uk`; there is no public suffix list. Learning the id per account (and pinning it) is
   deferred to M2 with the trust banner (G-049). Hand test: open a received message on the live account and check the chip still
   shows (Stalwart's authserv-id must sit in the server's parent domain).
+- **F-09 PNG bombs.** `Core/Mail/Attachments/PngDecoder.TryThumbnail` streams rows into `ThumbnailCells` (the cells of
+  `ThumbnailScaler.Fill`, byte-identical: `PngThumbnailTests.The_streaming_thumbnail_equals_decode_and_fill` over all colour types
+  and filters); `IImageDecoder.TryThumbnail` is a default interface method so platform decoders keep working; `TryDecode` capped
+  at 16 MP and itself row-streamed (no raw buffer); `AttachmentCards.Thumbnail` holds a static lock; `OutOfMemoryException` is caught.
+  Judgement: the streaming cap is 100 MP (time, not memory: about a second of inflate). Nothing in the app calls
+  `AttachmentCards.Thumbnail` yet (cards show kinds only in M1); the lock assumes callers are off the UI thread, which the doc says.
