@@ -8,7 +8,7 @@ public sealed class ModelTests
     private static readonly Marks Bold = Marks.Plain with { Bold = true };
 
     [Fact]
-    [RustTest("rte::model::tests::insert_and_merge_runs")]
+    [RustTest("rte::model::insert_and_merge_runs")]
     public void Insert_and_merge_runs()
     {
         var b = Block.Para("hello world");
@@ -22,7 +22,7 @@ public sealed class ModelTests
     }
 
     [Fact]
-    [RustTest("rte::model::tests::split_and_merge_blocks")]
+    [RustTest("rte::model::split_and_merge_blocks")]
     public void Split_and_merge_blocks()
     {
         var d = Doc.FromText("abcdef");
@@ -37,7 +37,7 @@ public sealed class ModelTests
     }
 
     [Fact]
-    [RustTest("rte::model::tests::heading_enter_at_end_gives_paragraph")]
+    [RustTest("rte::model::heading_enter_at_end_gives_paragraph")]
     public void Heading_enter_at_end_gives_paragraph()
     {
         var d = new Doc([Block.WithText(new BlockKind.Heading(1), "Title", Marks.Plain)]);
@@ -46,7 +46,7 @@ public sealed class ModelTests
     }
 
     [Fact]
-    [RustTest("rte::model::tests::ordinal_counts_levels")]
+    [RustTest("rte::model::ordinal_counts_levels")]
     public void Ordinal_counts_levels()
     {
         var d = new Doc([]);
@@ -64,7 +64,7 @@ public sealed class ModelTests
     }
 
     [Fact]
-    [RustTest("rte::model::tests::paste_multi_block")]
+    [RustTest("rte::model::paste_multi_block")]
     public void Paste_multi_block()
     {
         var d = Doc.FromText("helloworld");
@@ -75,7 +75,7 @@ public sealed class ModelTests
     }
 
     [Fact]
-    [RustTest("rte::model::tests::delete_keeps_table_shape")]
+    [RustTest("rte::model::delete_keeps_table_shape")]
     public void Delete_keeps_table_shape()
     {
         var d = new Doc([Block.Para("before")]);
@@ -92,7 +92,7 @@ public sealed class ModelTests
     }
 
     [Fact]
-    [RustTest("rte::model::tests::marks_at_caret")]
+    [RustTest("rte::model::marks_at_caret")]
     public void Marks_at_caret()
     {
         var b = Block.Para("ab");

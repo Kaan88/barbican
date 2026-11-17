@@ -12,6 +12,9 @@
   <ItemGroup>
     <PackageReference Include="xunit.v3" />
     <Using Include="Xunit" />
+    <Using Include="Barbican.Testing" />
+    <!-- [RustTest("module::name")] for ported Rust tests (PORT-PLAN.md §2.4), one source for all test projects. -->
+    <Compile Include="$(MSBuildThisFileDirectory)Shared/RustTestAttribute.cs" Link="Shared/RustTestAttribute.cs" />
     <Content Include="$(MSBuildThisFileDirectory)xunit.runner.json" Link="xunit.runner.json" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 </Project>
