@@ -4,6 +4,9 @@
 // refresh grant with rotation (a used refresh token is invalid_grant afterwards, as Stalwart crates/common/src/auth/oauth/token.rs).
 // Access tokens come from FakeJmapServer.IssueToken, so the fake JMAP API accepts them. Everything else goes to the inner server.
 // Request to jmap (FABLE-REVIEW "M1 stream: accounts"): fold this into tests/Barbican.FakeJmap so the AUTOMATION build can use it.
+// M1 hotfix (sign-in): StalwartLike answers as the real server does (crates/http/src/auth/oauth/auth.rs:579 announces
+// authorization_response_iss_parameter_supported and the login page redirects with iss; /api/discover/<account> answers the OIDC document,
+// which a plain-HTTP connection behind a TLS proxy gets with issuer "" and relative endpoints, openid.rs:60 handle_oidc_metadata).
 
 using System.Net;
 using System.Text;
@@ -41,6 +44,12 @@ internal sealed class FakeOAuthProvider : DelegatingHandler
 
     /// <summary>Refresh grants answered.</summary>
     public int RefreshGrants { get; private set; }
+
+    /// <summary>Announce RFC 9207 iss, send it with every redirect and answer /api/discover/&lt;account&gt; like Stalwart behind a TLS proxy.</summary>
+    public bool StalwartLike { get; set; }
+
+    /// <summary>The login_hint of every authorization request, in order.</summary>
+    public List<string?> LoginHints { get; } = [];
 
     /// <summary>Answer the next authorization request with this error instead of a code.</summary>
     public string? NextError { get; set; }
@@ -80,7 +89,7 @@ internal sealed class FakeOAuthProvider : DelegatingHandler
         {
             "/.well-known/oauth-authorization-server" => Json(HttpStatusCode.OK, Metadata()),
             "/.well-known/openid-configuration" => new HttpResponseMessage(HttpStatusCode.NotFound),
-            _ when path.StartsWith("/api/discover/", StringComparison.Ordinal) => new HttpResponseMessage(HttpStatusCode.NotFound),
+            _ when path.StartsWith("/api/discover/", StringComparison.Ordinal) => StalwartLike ? Json(HttpStatusCode.OK, ProxiedDiscovery()) : new HttpResponseMessage(HttpStatusCode.NotFound),
             "/oauth/authorize" => Authorize(uri),
             "/oauth/register" => await RegisterAsync(request, cancellationToken).ConfigureAwait(false),
             "/oauth/token" => await TokenAsync(request, cancellationToken).ConfigureAwait(false),
@@ -108,6 +117,31 @@ internal sealed class FakeOAuthProvider : DelegatingHandler
             m["registration_endpoint"] = Origin + "/oauth/register";
         }
 
+        if (StalwartLike)
+        {
+            m["authorization_response_iss_parameter_supported"] = true;
+        }
+
+        return m;
+    }
+
+    // what Stalwart's handle_oidc_metadata(strip_base_url: true) answers on a connection without TLS: no origin anywhere
+    private JsonObject ProxiedDiscovery()
+    {
+        var m = new JsonObject
+        {
+            ["issuer"] = "",
+            ["authorization_endpoint"] = "/oauth/authorize",
+            ["token_endpoint"] = "/oauth/token",
+            ["scopes_supported"] = new JsonArray("openid", "offline_access", "urn:ietf:params:oauth:scope:mail"),
+            ["code_challenge_methods_supported"] = new JsonArray("S256"),
+            ["authorization_response_iss_parameter_supported"] = true,
+        };
+        if (Registration)
+        {
+            m["registration_endpoint"] = "/oauth/register";
+        }
+
         return m;
     }
 
@@ -123,6 +157,7 @@ internal sealed class FakeOAuthProvider : DelegatingHandler
         string target;
         lock (_lock)
         {
+            LoginHints.Add(q.GetValueOrDefault("login_hint"));
             if (NextError is { } error)
             {
                 NextError = null;
@@ -134,6 +169,12 @@ internal sealed class FakeOAuthProvider : DelegatingHandler
                 _codes[code] = (challenge, redirect, client);
                 target = $"{redirect}?code={code}&state={Uri.EscapeDataString(state)}";
             }
+        }
+
+        if (StalwartLike)
+        {
+            // the login page: target.searchParams.set('iss', issuer || url.origin)
+            target += "&iss=" + Uri.EscapeDataString(Origin);
         }
 
         var r = new HttpResponseMessage(HttpStatusCode.Found);

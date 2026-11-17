@@ -1,6 +1,6 @@
 // Mirrors: RFC 6749 §10.12 (state binds the callback to this request), RFC 9207 §2.4 (the iss response parameter: when the client knows the
 // issuer it compares iss with it exactly; a provider that announces authorization_response_iss_parameter_supported must send it). Fable
-// review 1 F-04. Owner accounts (fix-security stream).
+// review 1 F-04. Owner accounts (fix-security stream). M1 hotfix (sign-in): an unknown issuer no longer stops the sign-in (see IssuerMismatch).
 
 namespace Barbican.Core.Auth;
 
@@ -20,8 +20,12 @@ public sealed record CallbackCheck(string State, string? Issuer, bool IssRequire
 
         if (Issuer is null)
         {
-            // an iss the client cannot compare proves nothing either way (RFC 9207 §2.4 leaves it to the client)
-            return IssRequired ? "The sign-in server's metadata names no issuer to compare its RFC 9207 iss with; the sign-in was stopped." : null;
+            // an iss the client cannot compare proves nothing either way (RFC 9207 §2.4 leaves it to the client). M1 hotfix: this used to stop
+            // the sign-in when the provider announced iss support; Stalwart's per-account discovery answers a plain-HTTP connection (a TLS
+            // proxy in front) with issuer "" while announcing support, so every sign-in through it failed after the user had signed in.
+            // Bulwark lib/desktop/browser-sign-in.ts:170 compares only when both sides are known; so does this. Discovery fills the issuer from
+            // the server's own metadata where it can (OAuthDiscovery).
+            return null;
         }
 
         return string.Equals(iss, Issuer, StringComparison.Ordinal)

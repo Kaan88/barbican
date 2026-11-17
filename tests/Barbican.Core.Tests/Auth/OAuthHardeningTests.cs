@@ -45,7 +45,9 @@ public sealed class OAuthHardeningTests
     [InlineData("https://idp.example.org", true, "", false)]
     [InlineData("https://idp.example.org", true, "&iss=https%3A%2F%2Fidp.example.org", true)]
     [InlineData(null, false, "&iss=https%3A%2F%2Fanything.example", true)]
-    [InlineData(null, true, "&iss=https%3A%2F%2Fanything.example", false)]
+    // M1 hotfix (sign-in): an issuer the metadata does not name cannot be compared; Bulwark browser-sign-in.ts:170 accepts, and so does the app now
+    [InlineData(null, true, "&iss=https%3A%2F%2Fanything.example", true)]
+    [InlineData(null, true, "", false)]
     public async Task The_iss_of_RFC_9207_is_checked_after_the_state(string? issuer, bool required, string iss, bool accepted)
     {
         using var l = LoopbackListener.Start(0).Value!;

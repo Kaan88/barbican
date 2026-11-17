@@ -3,6 +3,9 @@
 // (PKCE S256), RFC 8252 (native apps); Stalwart crates/http/src/auth/oauth/auth.rs (authorize), token.rs (authorization_code grant checks
 // the code_verifier). Bulwark lib/oauth/token-exchange.ts posts the same form. spec B-OAUTH-001, B-OAUTH-009, B-OAUTH-011, B-OAUTH-012.
 // Fable review 1 F-04: the callback is checked for state and RFC 9207 iss (CallbackCheck); discovery refuses non-https external endpoints.
+// M1 hotfix (sign-in): the query is form-urlencoded exactly as Rust's Url::parse_with_params writes it (space as '+', only A-Z a-z 0-9 * - . _
+// left as they are; WHATWG URL application/x-www-form-urlencoded serializer), so the authorization request the server's page receives is the
+// one the Rust app sends, byte for byte apart from the random values.
 
 using Barbican.Core.Common;
 
@@ -92,9 +95,36 @@ public sealed class OAuthFlow(OAuthDiscovery discovery, OAuthClientRegistry clie
 
         var b = new UriBuilder(meta.Authorization);
         var own = b.Query.TrimStart('?');
-        var added = string.Join('&', q.Select(kv => $"{Uri.EscapeDataString(kv.Key)}={Uri.EscapeDataString(kv.Value)}"));
+        var added = string.Join('&', q.Select(kv => $"{FormEncode(kv.Key)}={FormEncode(kv.Value)}"));
         b.Query = own.Length > 0 ? own + "&" + added : added;
         return b.Uri;
+    }
+
+    /// <summary>
+    /// One name or value of an application/x-www-form-urlencoded query, as Rust's <c>form_urlencoded::byte_serialize</c> writes it: A-Z a-z 0-9
+    /// and <c>* - . _</c> stay, a space becomes <c>+</c>, every other UTF-8 byte is <c>%XX</c> (upper-case hex).
+    /// </summary>
+    public static string FormEncode(string value)
+    {
+        ArgumentNullException.ThrowIfNull(value);
+        var sb = new System.Text.StringBuilder(value.Length);
+        foreach (var b in System.Text.Encoding.UTF8.GetBytes(value))
+        {
+            if (b is (>= (byte)'A' and <= (byte)'Z') or (>= (byte)'a' and <= (byte)'z') or (>= (byte)'0' and <= (byte)'9') or (byte)'*' or (byte)'-' or (byte)'.' or (byte)'_')
+            {
+                sb.Append((char)b);
+            }
+            else if (b == (byte)' ')
+            {
+                sb.Append('+');
+            }
+            else
+            {
+                sb.Append('%').Append(b.ToString("X2", System.Globalization.CultureInfo.InvariantCulture));
+            }
+        }
+
+        return sb.ToString();
     }
 
     private static async Task SwallowAsync(Task<Result<string>> wait)
