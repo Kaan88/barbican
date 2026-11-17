@@ -13,6 +13,9 @@ public sealed record ToastItem(ToastHandle Handle, ToastRequest Request)
     /// <summary>The action button's label (Undo), or null.</summary>
     public string? ActionLabel => Request.ActionLabel;
 
+    /// <summary>The second action button's label (Send now), or null (M3, additive).</summary>
+    public string? SecondaryLabel => Request.SecondaryLabel;
+
     /// <summary>An error toast (stays longer, announced as an alert).</summary>
     public bool IsError => Request.IsError;
 }

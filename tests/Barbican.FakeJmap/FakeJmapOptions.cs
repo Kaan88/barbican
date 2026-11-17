@@ -65,6 +65,27 @@ public sealed record FakeJmapOptions
     /// <summary>Add the M2 seed (FakeSeed.FillM2) on top of the M1 seed. Off: the M1 seed only, so every M1 test sees the data it always saw.</summary>
     public bool SeedM2 { get; init; }
 
+    /// <summary>M3 send pipeline: the SMTP extensions the submission capability lists (object form, as Stalwart); FUTURERELEASE makes HOLDFOR work. Empty: the M1 session.</summary>
+    public IReadOnlyList<string> SubmissionExtensions { get; init; } = [];
+
+    /// <summary>M3 templates: advertise urn:ietf:params:jmap:metadata and keep mailbox metadata (Mailbox/get metadata, Mailbox/set metadata patches with ifInState).</summary>
+    public bool MetadataCapability { get; init; }
+
+    /// <summary>M3: maxSizeAttachmentsPerEmail of the mail capability (RFC 8621 1.3.1); null: not advertised.</summary>
+    public long? MaxSizeAttachmentsPerEmail { get; init; }
+
+    /// <summary>M3 identities (Identity/get); null: the one M1 identity i1.</summary>
+    public IReadOnlyList<FakeIdentity>? Identities { get; init; }
+
+    /// <summary>M3: refuse a MAIL FROM that is not the identity's address (or covered by its wildcard) with forbiddenFrom, as Stalwart does.</summary>
+    public bool StrictMailFrom { get; init; }
+
+    /// <summary>M3: the clock of held submissions (a FakeTimeProvider in tests); null: the system clock.</summary>
+    public TimeProvider? Clock { get; init; }
+
+    /// <summary>Add the M3 seed (FakeSeed.FillM3: a reply thread with an inline image, a draft) on top of the M1 seed.</summary>
+    public bool SeedM3 { get; init; }
+
     public long MaxSizeUpload { get; init; } = 50_000_000;
 
     public int MaxConcurrentUpload { get; init; } = 4;

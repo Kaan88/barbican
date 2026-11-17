@@ -43,8 +43,8 @@ public sealed partial class FakeJmapServer
 
         var accountCaps = new JsonObject
         {
-            ["urn:ietf:params:jmap:mail"] = new JsonObject { ["maxMailboxesPerEmail"] = null, ["maxMailboxDepth"] = 10, ["emailQuerySortOptions"] = new JsonArray("receivedAt") },
-            ["urn:ietf:params:jmap:submission"] = new JsonObject { ["maxDelayedSend"] = o.MaxDelayedSend, ["submissionExtensions"] = new JsonObject() },
+            ["urn:ietf:params:jmap:mail"] = new JsonObject { ["maxMailboxesPerEmail"] = null, ["maxMailboxDepth"] = 10, ["emailQuerySortOptions"] = new JsonArray("receivedAt"), ["maxSizeAttachmentsPerEmail"] = o.MaxSizeAttachmentsPerEmail },
+            ["urn:ietf:params:jmap:submission"] = new JsonObject { ["maxDelayedSend"] = o.MaxDelayedSend, ["submissionExtensions"] = new JsonObject(o.SubmissionExtensions.Select(e => KeyValuePair.Create(e, (JsonNode?)new JsonArray()))) },
             ["urn:ietf:params:jmap:quota"] = new JsonObject(),
         };
         var session = new JsonObject
@@ -242,6 +242,11 @@ public sealed partial class FakeJmapServer
         if (o.CalendarsCapability)
         {
             caps["urn:ietf:params:jmap:calendars"] = new JsonObject();
+        }
+
+        if (o.MetadataCapability)
+        {
+            caps["urn:ietf:params:jmap:metadata"] = new JsonObject();
         }
     }
 

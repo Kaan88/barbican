@@ -1,4 +1,4 @@
-// Mirrors: M3 plan section 4.4 (DI skeleton). Owner send-pipeline: every service below is replaced by its real implementation in this file (constructor dependencies: IMailWriterFactory, IIdentityService, IHookBus, TimeProvider, IPrefsStore).
+// Mirrors: M3 plan section 4.3 and 4.7 (DI). Owner send-pipeline: the real implementations (constructor dependencies: IAccountManager, IHookBus, TimeProvider, IPrefsStore, IDocCodec; the sender also takes the seeder for an undo).
 
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
@@ -11,6 +11,7 @@ public static class SendPipelineRegistration
     public static IServiceCollection AddBarbicanSendPipeline(this IServiceCollection services)
     {
         ArgumentNullException.ThrowIfNull(services);
+        services.TryAddSingleton<IDocCodec, DocHtmlCodec>();
         services.TryAddSingleton<IComposeSeeder, ComposeSeeder>();
         services.TryAddSingleton<IDraftService, DraftService>();
         services.TryAddSingleton<IMailSender, MailSender>();

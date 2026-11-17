@@ -3,7 +3,7 @@ using Barbican.Core.Editor;
 
 namespace Barbican.Core.Tests.Editor;
 
-/// <summary>The 10 tests of Rust src/rte/editor.rs, ported one to one (M3 stream editor-core). Red until the commands land.</summary>
+/// <summary>The 10 tests of Rust src/rte/editor.rs, ported one to one (M3 stream editor-core).</summary>
 public sealed class EditorSessionTests
 {
     private static EditorSession Ed(string text)
@@ -24,7 +24,6 @@ public sealed class EditorSessionTests
     }
 
     [Fact]
-    [Red("editor-core")]
     [RustTest("rte::editor::typing_and_undo_groups")]
     public void Typing_and_undo_groups()
     {
@@ -45,7 +44,6 @@ public sealed class EditorSessionTests
     }
 
     [Fact]
-    [Red("editor-core")]
     [RustTest("rte::editor::markdown_block_rules")]
     public void Markdown_block_rules()
     {
@@ -69,7 +67,6 @@ public sealed class EditorSessionTests
     }
 
     [Fact]
-    [Red("editor-core")]
     [RustTest("rte::editor::markdown_inline_rules")]
     public void Markdown_inline_rules()
     {
@@ -84,7 +81,6 @@ public sealed class EditorSessionTests
     }
 
     [Fact]
-    [Red("editor-core")]
     [RustTest("rte::editor::toggle_marks_selection_and_caret")]
     public void Toggle_marks_selection_and_caret()
     {
@@ -102,7 +98,6 @@ public sealed class EditorSessionTests
     }
 
     [Fact]
-    [Red("editor-core")]
     [RustTest("rte::editor::lists_indent_and_backspace")]
     public void Lists_indent_and_backspace()
     {
@@ -122,7 +117,6 @@ public sealed class EditorSessionTests
     }
 
     [Fact]
-    [Red("editor-core")]
     [RustTest("rte::editor::links")]
     public void Links()
     {
@@ -137,7 +131,6 @@ public sealed class EditorSessionTests
     }
 
     [Fact]
-    [Red("editor-core")]
     [RustTest("rte::editor::tables")]
     public void Tables()
     {
@@ -156,7 +149,6 @@ public sealed class EditorSessionTests
     }
 
     [Fact]
-    [Red("editor-core")]
     [RustTest("rte::editor::image_insert_keeps_following_text")]
     public void Image_insert_keeps_following_text()
     {
@@ -173,7 +165,6 @@ public sealed class EditorSessionTests
     }
 
     [Fact]
-    [Red("editor-core")]
     [RustTest("rte::editor::replace_keeps_quote")]
     public void Replace_keeps_quote()
     {
@@ -188,7 +179,6 @@ public sealed class EditorSessionTests
     }
 
     [Fact]
-    [Red("editor-core")]
     [RustTest("rte::editor::image_resize_and_replace_range")]
     public void Image_resize_and_replace_range()
     {

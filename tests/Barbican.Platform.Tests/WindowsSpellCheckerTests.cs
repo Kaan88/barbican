@@ -9,7 +9,6 @@ namespace Barbican.Platform.Tests;
 public sealed class WindowsSpellCheckerTests
 {
     [Fact]
-    [Red("editor-core")]
     [RustTest("rte::spell::windows_checker")]
     public void Windows_checker()
     {

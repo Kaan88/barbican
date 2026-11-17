@@ -1,6 +1,7 @@
 // Mirrors: Rust compose.rs:48 is_blank, :191 delivery_addresses, :729 find_placeholders (+ is_fill_in :779); Bulwark lib/placeholder-check.ts findUnfilledPlaceholders, lib/email-composer-utils.ts deliveryAddresses; Bulwark components/email/email-composer.tsx.
 
 using System.Text;
+using Barbican.Core.Jmap.Submission;
 using Barbican.Core.Mail.Model;
 
 namespace Barbican.Core.Compose;
@@ -64,6 +65,58 @@ public static class ComposeRules
         }
 
         return output;
+    }
+
+    /// <summary>The entries of a recipient field that are no address (no @ in a bare entry): the safety net before a send, as Rust's invalid address check. Entries are split on commas and semicolons outside quotes and angle brackets.</summary>
+    public static IReadOnlyList<string> InvalidAddresses(string field)
+    {
+        ArgumentNullException.ThrowIfNull(field);
+        var bad = new List<string>();
+        foreach (var part in SplitEntries(field))
+        {
+            if (AddressParser.Parse(part).Count == 0)
+            {
+                bad.Add(part);
+            }
+        }
+
+        return bad;
+    }
+
+    private static List<string> SplitEntries(string field)
+    {
+        var parts = new List<string>();
+        var cur = new StringBuilder();
+        var quoted = false;
+        var angle = false;
+        foreach (var ch in field)
+        {
+            switch (ch)
+            {
+                case '"':
+                    quoted = !quoted;
+                    cur.Append(ch);
+                    break;
+                case '<' when !quoted:
+                    angle = true;
+                    cur.Append(ch);
+                    break;
+                case '>' when !quoted:
+                    angle = false;
+                    cur.Append(ch);
+                    break;
+                case ',' or ';' when !quoted && !angle:
+                    parts.Add(cur.ToString().Trim());
+                    cur.Clear();
+                    break;
+                default:
+                    cur.Append(ch);
+                    break;
+            }
+        }
+
+        parts.Add(cur.ToString().Trim());
+        return [.. parts.Where(p => p.Length > 0)];
     }
 
     /// <summary>Unfilled placeholders: template fields ({{ name }}, also in the subject), bracketed fill-ins ([TIME], [Your Name], [insert date here]), TODO-style markers, circle stand-ins; links and ordinary brackets are text.</summary>

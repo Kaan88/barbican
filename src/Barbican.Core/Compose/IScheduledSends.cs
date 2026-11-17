@@ -7,6 +7,9 @@ namespace Barbican.Core.Compose;
 /// <summary>The Scheduled view's data and its actions.</summary>
 public interface IScheduledSends
 {
+    /// <summary>The longest hold in seconds the account's submission capability allows (maxDelayedSend with FUTURERELEASE, Stalwart's 30 days clamped to 7); 0 when the server cannot hold or the account is not signed in. Additive (reported): the schedule dialog needs it.</summary>
+    long MaxDelayedSend(string accountId) => 0;
+
     Task<Result<IReadOnlyList<ScheduledMessage>>> ListAsync(string accountId, CancellationToken ct);
 
     /// <summary>Reschedule (the submission's undo path, then the fallbacks of <c>ReschedulePlanner</c>; B-JMAP-038/039).</summary>
