@@ -130,16 +130,20 @@ public sealed class MailWriter(IJmapClient client, string accountId) : IMailWrit
         }
 
         var report = SetReport.Empty;
+        var done = 0;
         foreach (var chunk in emailIds.Chunk(MaxObjectsInSet))
         {
             var args = new JsonObject { ["accountId"] = accountId, ["destroy"] = new JsonArray(chunk.Select(id => (JsonNode?)id).ToArray()) };
             var r = await SetOnceAsync("Email/set", args, ct).ConfigureAwait(false);
             if (!r.IsOk)
             {
-                return Result<SetReport>.Fail(r.Error!);
+                // the chunks before this one are applied on the server: say so (R3-03), the caller restores only what was not applied
+                var rest = emailIds.Skip(done).ToList();
+                return Result<SetReport>.FailPartial(r.Error!, report with { NotSent = rest });
             }
 
             report = Merge(report, r.Value!);
+            done += chunk.Length;
         }
 
         return Result<SetReport>.Ok(report);
@@ -535,6 +539,7 @@ public sealed class MailWriter(IJmapClient client, string accountId) : IMailWrit
         }
 
         var report = SetReport.Empty;
+        var done = 0;
         foreach (var chunk in items.Chunk(MaxObjectsInSet))
         {
             var map = new JsonObject();
@@ -547,11 +552,13 @@ public sealed class MailWriter(IJmapClient client, string accountId) : IMailWrit
             if (!r.IsOk)
             {
                 // a failed request stops the rest: nothing is retried, the later chunks stay unsent (Bulwark :4134 keeps going; a user
-                // action that fails once should not fire more writes)
-                return Result<SetReport>.Fail(r.Error!);
+                // action that fails once should not fire more writes). The chunks before it are applied: they come back with the error (R3-03).
+                var rest = items.Skip(done).Select(i => i.Id).ToList();
+                return Result<SetReport>.FailPartial(r.Error!, report with { NotSent = rest });
             }
 
             report = Merge(report, r.Value!);
+            done += chunk.Length;
         }
 
         return Result<SetReport>.Ok(report);

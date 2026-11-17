@@ -95,6 +95,18 @@ public sealed partial class FakeJmapServer
                 return fault;
             }
 
+            bool failThis;
+            lock (_lock)
+            {
+                failThis = ++_apiRequests == _failApiAt;
+            }
+
+            if (failThis)
+            {
+                var (failStatus, failJson) = FakeApi.Problem(500, "urn:ietf:params:jmap:error:serverFail", "Injected failure.", null);
+                return Json((HttpStatusCode)failStatus, failJson, "application/problem+json");
+            }
+
             var (status, json) = bytes.Length > Options.MaxSizeRequest
                 ? FakeApi.Problem(400, "urn:ietf:params:jmap:error:limit", "Request too large.", "maxSizeRequest")
                 : body is null ? FakeApi.Problem(400, "urn:ietf:params:jmap:error:notJSON", "Not JSON.", null) : Api.Run(body);

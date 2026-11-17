@@ -11,7 +11,7 @@ namespace Barbican.Core.Common;
 /// <summary>Success with a value, or a <see cref="JmapError"/>. Never throws for an expected failure.</summary>
 public readonly record struct Result<T>
 {
-    /// <summary>The value; meaningful only when <see cref="IsOk"/>.</summary>
+    /// <summary>The value; meaningful when <see cref="IsOk"/>, or the partial outcome of <see cref="FailPartial"/>.</summary>
     public T? Value { get; init; }
 
     /// <summary>The error; null when <see cref="IsOk"/>.</summary>
@@ -28,6 +28,13 @@ public readonly record struct Result<T>
     {
         ArgumentNullException.ThrowIfNull(error);
         return new() { Error = error };
+    }
+
+    /// <summary>A failure that still carries what was done before it happened (a bulk write whose later chunk failed).</summary>
+    public static Result<T> FailPartial(JmapError error, T partial)
+    {
+        ArgumentNullException.ThrowIfNull(error);
+        return new() { Error = error, Value = partial };
     }
 
     /// <summary>Transforms the value of a success; a failure passes through.</summary>

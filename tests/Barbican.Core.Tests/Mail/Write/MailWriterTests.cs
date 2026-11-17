@@ -119,6 +119,21 @@ public sealed class MailWriterTests
     }
 
     [Fact]
+    public async Task A_later_chunk_that_fails_returns_the_applied_ids_with_the_error()
+    {
+        var (f, w) = await StartAsync(maxObjects: 2);
+        var ids = f.Server.Store.EmailIds().Take(5).ToList();
+        f.Server.FailApiRequest(2);
+        var r = await w.DestroyAsync(ids, Ct);
+        Assert.False(r.IsOk);
+        Assert.Equal(ids.Take(2).ToList(), [.. r.Value!.Destroyed]);
+        Assert.Equal(ids.Skip(2).ToList(), [.. r.Value.NotSent]);
+        Assert.Null(f.Server.Store.Email(ids[0]));
+        Assert.NotNull(f.Server.Store.Email(ids[2]));
+        Assert.Equal(2, Calls(f, "Email/set"));
+    }
+
+    [Fact]
     public async Task Empty_mailbox_pages_until_the_folder_is_empty()
     {
         var (f, w) = await StartAsync(maxObjects: 2);

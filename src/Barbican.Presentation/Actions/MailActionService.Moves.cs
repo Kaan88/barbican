@@ -48,7 +48,7 @@ public sealed partial class MailActionService
             true,
             (w, g, c) => w.RemoveFromMailboxAsync(Ids(g), mailboxId, c),
             (ids, c) => AllowAsync(HookNames.OnBeforeEmailMove, () => new EmailMovePayload(ids, mailboxId, null), c),
-            ids => hooks.Fire(HookNames.OnAfterEmailMove, () => new EmailMovePayload(ids, mailboxId, null))), ct);
+            ids => hooks.Fire(HookNames.OnAfterEmailMove, () => new EmailMovePayload(ids, mailboxId, null))) { Verb = "removed from the folder" }, ct);
     }
 
     /// <summary>Move to Inbox (the hover strip and menu in Archive).</summary>
@@ -94,7 +94,7 @@ public sealed partial class MailActionService
             true,
             (w, g, c) => ArchiveWriteAsync(w, g, archive.Id, settings.ArchiveMode, c),
             (ids, c) => AllowAsync(HookNames.OnBeforeEmailArchive, () => new EmailIdsPayload(ids), c),
-            ids => hooks.Fire(HookNames.OnEmailArchive, () => new EmailIdsPayload(ids))), ct).ConfigureAwait(true);
+            ids => hooks.Fire(HookNames.OnEmailArchive, () => new EmailIdsPayload(ids))) { Verb = "archived" }, ct).ConfigureAwait(true);
     }
 
     /// <summary>Marks messages as spam (moves them to Junk and sets <c>$junk</c>) or not spam (back to the Inbox, <c>$notjunk</c>).</summary>
@@ -114,7 +114,7 @@ public sealed partial class MailActionService
             true,
             (w, g, c) => w.MoveWithKeywordsAsync(Ids(g), dest.Id, flags, c),
             (ids, c) => AllowAsync(HookNames.OnBeforeEmailSpamToggle, () => new EmailSpamPayload(ids, spam), c),
-            ids => hooks.Fire(HookNames.OnEmailSpamToggle, () => new EmailSpamPayload(ids, spam))) { KeywordsBack = back }, ct);
+            ids => hooks.Fire(HookNames.OnEmailSpamToggle, () => new EmailSpamPayload(ids, spam))) { KeywordsBack = back, Verb = spam ? "marked as spam" : "moved to Inbox" }, ct);
     }
 
     /// <summary>
@@ -247,7 +247,7 @@ public sealed partial class MailActionService
             true,
             (w, g, c) => alsoRead ? w.MoveWithKeywordsAsync(Ids(g), trash.Id, read, c) : w.MoveAsync(Ids(g), null, trash.Id, c),
             (ids, c) => AllowAsync(HookNames.OnBeforeEmailDelete, () => new EmailDeletePayload(ids, false), c),
-            ids => hooks.Fire(HookNames.OnAfterEmailDelete, () => new EmailDeletePayload(ids, false))), ct).ConfigureAwait(true);
+            ids => hooks.Fire(HookNames.OnAfterEmailDelete, () => new EmailDeletePayload(ids, false))) { Verb = "deleted" }, ct).ConfigureAwait(true);
     }
 
     private Task<Result<Unit>> DestroyFlowAsync(IReadOnlyList<MailTarget> targets, CancellationToken ct) =>
@@ -257,7 +257,7 @@ public sealed partial class MailActionService
             false,
             (w, g, c) => w.DestroyAsync(Ids(g), c),
             (ids, c) => AllowAsync(HookNames.OnBeforeEmailDelete, () => new EmailDeletePayload(ids, true), c),
-            ids => hooks.Fire(HookNames.OnAfterEmailDelete, () => new EmailDeletePayload(ids, true))), ct);
+            ids => hooks.Fire(HookNames.OnAfterEmailDelete, () => new EmailDeletePayload(ids, true))) { Verb = "deleted permanently" }, ct);
 
     private async Task<Result<SetReport>> ArchiveWriteAsync(IMailWriter writer, IReadOnlyList<MailTarget> group, string archiveId, string mode, CancellationToken ct)
     {
@@ -274,13 +274,16 @@ public sealed partial class MailActionService
             var dest = await Core.Mail.Archive.ArchiveFolders.EnsureAsync(writer, boxes, archiveId, g.Key.Length == 0 ? [] : g.Key.Split('/'), ct).ConfigureAwait(true);
             if (!dest.IsOk)
             {
-                return Result<SetReport>.Fail(dest.Error!);
+                // the groups moved before this one stay applied (R3-03)
+                return report.Updated.Count > 0 ? Result<SetReport>.FailPartial(dest.Error!, report) : Result<SetReport>.Fail(dest.Error!);
             }
 
             var moved = await writer.MoveAsync(Ids(g), null, dest.Value!, ct).ConfigureAwait(true);
             if (!moved.IsOk)
             {
-                return moved;
+                return moved.Value is { } part
+                    ? Result<SetReport>.FailPartial(moved.Error!, new SetReport([.. report.Updated, .. part.Updated], [.. report.Destroyed, .. part.Destroyed], [.. report.Created, .. part.Created], [.. report.Refused, .. part.Refused]))
+                    : report.Updated.Count > 0 ? Result<SetReport>.FailPartial(moved.Error!, report) : moved;
             }
 
             report = new SetReport([.. report.Updated, .. moved.Value!.Updated], [.. report.Destroyed, .. moved.Value.Destroyed], [.. report.Created, .. moved.Value.Created], [.. report.Refused, .. moved.Value.Refused]);

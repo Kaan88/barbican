@@ -43,7 +43,20 @@ public sealed partial class MailActionService
         var edit = list.RemoveRows(ids);
         var result = await WriteOrRestoreAsync(op, writer.Value!, group, edit, ct).ConfigureAwait(true);
         var refused = result.IsOk ? result.Value!.Refused.Select(r => r.Id).ToHashSet(StringComparer.Ordinal) : [];
+        // a chunked write that failed part way still says what the earlier chunks did (R3-03): those rows stay gone and get their undo
+        var applied = !result.IsOk && result.Value is { } partial ? partial.Updated.Concat(partial.Destroyed).ToHashSet(StringComparer.Ordinal) : [];
         var failed = !result.IsOk || refused.Count >= ids.Length;
+        if (!result.IsOk && applied.Count > 0)
+        {
+            list.RestoreRows(new ListEdit([.. edit.Removed.Where(r => !applied.Contains(r.Email.Id))], edit.NextId));
+            var appliedTargets = group.Where(t => applied.Contains(t.EmailId)).ToList();
+            Failed(result.Error!);
+            op.Observe(Ids(appliedTargets));
+            var partialEntry = RecordUndo(account, op, appliedTargets, edit, source);
+            partialEntry.Offered.Value = Notify(string.Create(System.Globalization.CultureInfo.InvariantCulture, $"{appliedTargets.Count} of {group.Count} messages {op.Verb}"), partialEntry.Entry);
+            return Result<Unit>.Fail(result.Error!);
+        }
+
         if (failed || refused.Count > 0)
         {
             // the rows the server did not take come back where they were; the ones it took stay gone
@@ -59,6 +72,14 @@ public sealed partial class MailActionService
         var accepted = group.Where(t => !refused.Contains(t.EmailId)).ToList();
         var acceptedIds = Ids(accepted);
         op.Observe(acceptedIds);
+        var recorded = RecordUndo(account, op, accepted, edit, source);
+        recorded.Offered.Value = Notify(op.Toast(accepted.Count), recorded.Entry);
+        return Result<Unit>.Ok(default);
+    }
+
+    /// <summary>Records the undo of the rows the server took; the box takes the toast that offers it, so Undo closes it.</summary>
+    private (UndoEntry? Entry, StrongBox<ToastHandle?> Offered) RecordUndo(string account, RemovalOp op, IReadOnlyList<MailTarget> accepted, ListEdit edit, string? source)
+    {
         // Undo, by Ctrl+Z or by the button, closes the toast that offered it (undo-history.ts runUndo closeToast)
         var offered = new StrongBox<ToastHandle?>();
         var entry = op.Undoable
@@ -72,8 +93,7 @@ public sealed partial class MailActionService
                 return UndoRemovalAsync(account, accepted, edit, source, op.KeywordsBack, undoCt);
             })
             : null;
-        offered.Value = Notify(op.Toast(accepted.Count), entry);
-        return Result<Unit>.Ok(default);
+        return (entry, offered);
     }
 
     /// <summary>The one write; a cancelled write puts the rows back before the cancellation goes on (the server was not asked to finish).</summary>
@@ -184,5 +204,8 @@ public sealed partial class MailActionService
     {
         /// <summary>Keywords the action flipped, flipped back by Undo (junk flags).</summary>
         public IReadOnlyDictionary<string, bool>? KeywordsBack { get; init; }
+
+        /// <summary>What happened to the messages, for "N of M moved" when a chunked write stopped part way.</summary>
+        public string Verb { get; init; } = "moved";
     }
 }

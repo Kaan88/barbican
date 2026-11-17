@@ -15,6 +15,8 @@ public sealed partial class FakeJmapServer : HttpMessageHandler
 {
     private readonly Lock _lock = new();
     private readonly Queue<FakeFault> _httpFaults = new();
+    private int _apiRequests;
+    private int _failApiAt = -1;
     private readonly HashSet<string> _tokens = new(StringComparer.Ordinal) { "fake-access-1" };
     private readonly List<string> _requests = [];
     private TaskCompletionSource? _hold;
@@ -81,6 +83,15 @@ public sealed partial class FakeJmapServer : HttpMessageHandler
 
     /// <summary>The API requests only, each as its method names.</summary>
     public IReadOnlyList<string> ApiCalls => [.. Requests.Where(r => r.StartsWith("POST api ", StringComparison.Ordinal)).Select(r => r["POST api ".Length..])];
+
+    /// <summary>Makes the <paramref name="nth"/> API request from now (1 is the next) answer a serverFail problem; the ones around it are served (a chunked write that fails on a later chunk).</summary>
+    public void FailApiRequest(int nth)
+    {
+        lock (_lock)
+        {
+            _failApiAt = _apiRequests + nth;
+        }
+    }
 
     /// <summary>Queues an HTTP-level fault for the next matching request.</summary>
     public void Inject(FakeFault fault)
