@@ -3,6 +3,9 @@
 // report which one; zero the buffers; no values in logs); M1-plan §1 rule 3 and §6.3 (the agent path into dev / auto-<port> profiles takes
 // password entries only and marks them read-only: an imported OAuth refresh token would rotate on first use and sign the Rust app out,
 // B-OAUTH-015). The admin and assistant keys are imported only by the user (CLAUDE.md: agents never use the admin key).
+// User decision D-2 (Fable review 1 F-06): the user's own import copies no OAuth refresh token either. Stalwart rotates refresh tokens, so the
+// first refresh here would sign the Rust app out; an OAuth entry brings its server, user, token endpoint and client id, and the account asks
+// for a fresh sign-in (its own grant). Password entries are copied as they are.
 
 using System.Security.Cryptography;
 using System.Text;
@@ -98,6 +101,13 @@ public sealed class RustCredentialImport(ILegacyCredentialSource legacy, ISecret
             {
                 present++;
                 continue;
+            }
+
+            if (account.IsOAuth)
+            {
+                // D-2: never the Rust app's refresh token; the account is listed and signs in again
+                account = account with { Refresh = null };
+                skipped.Add($"{name} (oauth): imported without its sign-in; sign in again");
             }
 
             list.Add(account with { ReadOnly = mode == ImportMode.Agent || account.ReadOnly, IsDefault = list.TrueForAll(a => !a.IsDefault) });

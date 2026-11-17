@@ -554,3 +554,11 @@ F-13 and user decisions D-2, D-9, D-10, on branch `m1-fix-security` (from `m1` a
   longer deletes its file and has no 60 s staleness: verify on Linux that .NET's `FileShare.None` really takes `flock` there (it
   does in .NET on Unix by default; `DOTNET_SYSTEM_IO_DISABLEFILELOCKING` would turn it off). Not changed: bind address (already
   `IPAddress.Loopback`), constant-time state compare, PKCE verifier (48 random bytes, 64 chars).
+- **F-05 one credential per account.** `Platform/SecretAccountVault.cs`: `account/<sha256-prefix>` entries plus `account-index`
+  (in the secret store, not a profile file: the index names no address and keeps the vault one unit). Judgement: the `session`
+  entry was dropped (nothing in the C# app read it). Migration of the old single entry is silent and automatic on first load.
+  The live Windows store was not exercised by a test here (no throwaway-target run in this stream); the 2560-byte cap is
+  checked with a capped fake store. Hand test: sign in to three OAuth accounts in a dev profile and restart.
+- **F-06 / D-2 import.** `RustCredentialImport`: the user import keeps OAuth accounts listed but drops their refresh token
+  ("imported without its sign-in; sign in again"). ADR 0008 point 2's "validate by a normal refresh" is withdrawn in an
+  amendment section.
