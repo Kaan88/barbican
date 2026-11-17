@@ -10,195 +10,125 @@ decorates a change that has already happened.
    animation ends. A second click or key during an animation acts at once: animations retarget
    from where they are, they never queue.
 2. **Durations.**
-   - feedback (hover, press, focus, selection highlight): 80–120 ms → `Motion.fast` (100 ms)
-   - enter (menus, popups, flyouts, tooltips, dialogs, panels): 120–180 ms, ease-out → `Motion.enter` (150 ms)
-   - exit: ≤ 100 ms or instant → `Motion.exit` (90 ms); most things simply vanish
+   - feedback (hover, press, focus, selection highlight): 80–120 ms → `FastMs` (100 ms)
+   - enter (menus, popups, flyouts, tooltips, dialogs, panels): 120–180 ms, ease-out → `EnterMs` (150 ms)
+   - exit: ≤ 100 ms or instant → `ExitMs` (90 ms); most things simply vanish
    - view / app switch: the new content is visible on the first frame; at most a ≤ 120 ms
-     fade/slide of the incoming view (`Motion.view`), never a crossfade that hides content
+     fade/slide of the incoming view (`ViewMs`), never a crossfade that hides content
    - nothing over 200 ms. Ease-out for enter, ease-in for exit. No bounce, no spring overshoot
      on anything frequent.
 3. **Lists.** Never animate every row on a refresh. Animate only inserted/removed rows (short
    height/opacity) when that is cheap, and the selection highlight. Keyboard repeat through a
    list does not animate per step: list feedback snaps while the selection moves faster than
-   the animation (`Motion.rapid`).
+   the animation (`MotionScale.Rapid`).
 4. **Reduce motion.** Settings › Accessibility › Reduce motion (Bulwark `reduceMotion`), or
    Windows "Animation effects" off while that setting is on "System" ⇒ every duration is 0.
 5. **Nothing continuous** except a progress bar or spinner that is on screen. Skeletons only
    when loading takes longer than 150 ms (no flash of skeleton for fast loads).
-6. **Performance.** No dropped frames at 60 Hz. No per-frame work in Rust. Model updates are
-   incremental (`listsync`) instead of replacing models. No blocking IO / JMAP / settings
+6. **Performance.** No dropped frames at 60 Hz. No per-frame work in code-behind. Collection updates are
+   incremental (`ListSync`) instead of replacing models. No blocking IO / JMAP / settings
    loads on the UI thread.
 
-## Tokens (`ui/theme.slint`, `global Motion` and `global Ease`)
+## Tokens (`src/Barbican.Presentation/Theme/Tokens.g.cs` `Tokens.Motion` / `Tokens.Ease`, `src/Barbican.App/Motion/MotionScale.cs`)
 
-The curves live in their own global `Ease` because Slint cannot expose easing properties to
-Rust, and `Motion` is set from Rust.
+The values are generated with the palette (`tools/build.ps1 gen-tokens`). `MotionScale` (a record struct: `Reduce`, `Rapid`) applies
+reduce motion and rapid selection to them; `MotionRuntime.Scale` is the one the views read, kept current by `ThemeController`
+from `ShellViewModel` (`ReduceMotion`, `IsRapid`). It is pure, so the rules are unit-tested (`MotionScaleTests`).
 
 | token | value | use |
 |---|---|---|
-| `Motion.reduce` | in, from Rust | reduce motion on (setting, or Windows animations off on "System") |
-| `Motion.rapid` | in, from Rust | the list selection is moving faster than an animation (key repeat) |
-| `Motion.k` | 0 or 1 | multiplier on every duration (0 with `reduce`) |
-| `Motion.fast` | 100 ms × k | hover, press, focus ring, selection highlight |
-| `Motion.list` | `fast`, 0 while `rapid` | message-list row feedback |
-| `Motion.enter` | 150 ms × k | menus, popups, flyouts, tooltips, dialogs, toasts coming in |
-| `Motion.exit` | 90 ms × k | the rare thing that animates out (toasts) |
-| `Motion.view` | 110 ms × k | incoming view after a switch (optional, content visible at once) |
-| `Motion.tip-delay` | 350 ms | hover time before a tooltip shows (a wait, not motion: kept with reduce) |
-| `Ease.enter` | cubic-bezier(0.2, 0, 0, 1) | enter, feedback (half way after ~20 % of the time) |
-| `Ease.exit` | cubic-bezier(0.4, 0, 1, 1) | exit |
-| `Motion.pop-scale` | 0.96 (1 with reduce) | the scale an entering popup starts from |
-| `Motion.rise` | 8 px (0 with reduce) | how far a toast slides in from |
+| `MotionScale.Reduce` | from the shell | reduce motion on (setting, or Windows animations off on "System") |
+| `MotionScale.Rapid` | from the shell | the list selection is moving faster than an animation (key repeat) |
+| `FastMs` | 100 ms (0 with reduce) | hover, press, focus ring, selection highlight |
+| `ListMs` | `FastMs`, 0 while `Rapid` | message-list row feedback |
+| `EnterMs` | 150 ms (0 with reduce) | menus, popups, flyouts, tooltips, dialogs, toasts coming in |
+| `ExitMs` | 90 ms (0 with reduce) | the rare thing that animates out (toasts) |
+| `ViewMs` | 110 ms (0 with reduce) | incoming view after a switch (optional, content visible at once) |
+| `TipDelayMs` | 350 ms | hover time before a tooltip shows (a wait, not motion: kept with reduce) |
+| `EnterCurve` | cubic-bezier(0.2, 0, 0, 1) as a `KeySpline` | enter, feedback (half way after ~20 % of the time) |
+| `ExitCurve` | cubic-bezier(0.4, 0, 1, 1) | exit |
+| `PopScale` | 0.96 (1 with reduce) | the scale an entering popup starts from |
+| `RisePx` | 8 px (0 with reduce) | how far a toast slides in from |
+| `CeilingMs` | 200 | nothing animates over this (rule 2; tested) |
 
-`Prefs.reduce-motion` stays for older code; new code reads `Motion`. Already-applied users:
-the Switch knob, buttons (RailButton, ToolButton, BarButton, PrimaryButton, ActionButton,
-IconBtn, QuickChip, HoverAction, FmtButton, CmpHeadButton, MenuItem, PeopleCta, PeopleBtn),
-nav rows (FolderRow, TagRow, PeopleNav, PeopleLine, FileNavRow, settings navigation,
-Segmented), MailRow, ContextMenuRow, the focus outline of PeopleField and the settings search.
+### Building blocks (`src/Barbican.App/Motion/`)
 
-### Building blocks (`ui/theme.slint`)
-
-- `PopIn` (inherits Rectangle): fades in from 0 and scales from `Motion.pop-scale` when it is
-  created, over `Motion.enter`; removed instantly. Set `transform-origin` to the anchor corner
-  (the context menu grows from its top-left, where the pointer was). Used by `MenuPanel`
-  (every PopupWindow menu), `ContextMenu` (menus and flyouts), the account switcher, the
-  admin / event / prompt dialog cards and the calendar hover preview.
-- `Scrim` (inherits Rectangle): the dimmed backdrop of a dialog; its colour fades in over
-  `Motion.enter`, the dialog card inside is a `PopIn`. Closing removes both at once.
-- `Tip` (inherits Rectangle): a tooltip; waits `Motion.tip-delay`, then fades in over
-  `Motion.enter`. Removed instantly when the pointer leaves.
+- `PopIn.Run(card, origin)`: fades the card in from 0 and scales it from `PopScale`, over `EnterMs`, with the enter `KeySpline`;
+  the origin is the anchor corner (the account popover grows from its bottom-right, where the avatar is). Call it from the
+  flyout's `Opened` event. With reduce motion it sets the end values at once. The exit is instant (the flyout simply closes).
+- `Scrim` (a `Grid`): the dimmed backdrop of a dialog; `Show()` fades it in over `EnterMs` through `MotionRuntime.FadeIn`,
+  `Hide()` removes it at once. The dialog card inside uses `PopIn`. M1 has no dialog yet; M2's use it.
+- `Tip` (attached property `Tip.Text`): an in-window tooltip drawn in the shell's overlay canvas (`Tip.SetHost`); waits
+  `TipDelayMs`, then fades in over `EnterMs`; removed instantly when the pointer leaves. **Not** `ToolTip` / `ToolTipService`:
+  those open as their own top-level window and are on the popup deny list (ADR 0007).
+- `MotionRuntime.FadeIn(element)`: the one enter fade the others use.
 
 ## How to animate
 
-Feedback on a control: animate the property the state drives. The state change itself is
-immediate, the colour follows.
+Feedback on a control: put the state change in the `VisualStateManager` (setters, no transition), so the new colour is there on
+the first frame; a colour change that should ease uses a `Storyboard` of `FastMs` with the enter curve, started from the state
+change and never awaited. The state itself is immediate. Item templates (`Styles/Controls.xaml`) use setters only.
 
-```slint
-background: ta.pressed ? Theme.track : ta.has-hover ? Theme.hover : transparent;
-animate background { duration: Motion.fast; easing: Ease.enter; }
-```
+Something that appears (a flyout, a popup card): `PopIn.Run` from `Opened`. Removal is instant, which is the exit we want.
 
-Something that appears (`if cond: …` or a `PopupWindow`): make it a `PopIn` (or give it the
-same `init` pattern). Removal of an `if` element is instant, which is the exit we want.
+Something that must also animate out (toasts): keep the element, drive its opacity from a bool, pick the duration by direction
+(`EnterMs` in, `ExitMs` out), and collapse it once it has faded.
 
-```slint
-if root.menu-open: PopIn { transform-origin: { x: 0, y: 0 }; … }
+Retargeting: start the new `Storyboard` from the current value (do not reset to the start value first); a fast second click never
+waits and never queues. A `Storyboard` that is already running is replaced, not appended.
 
-// the pattern inside PopIn: start values, then assign the end values in init (assignments
-// to an animated property animate; with reduce motion the duration is 0 and it just snaps)
-opacity: 0;
-transform-scale: Motion.pop-scale;
-animate opacity, transform-scale { duration: Motion.enter; easing: Ease.enter; }
-init => { self.opacity = 1; self.transform-scale = 1; }
-```
-
-Something that must also animate out (toasts): keep the element, drive it from a bool, pick
-the duration by direction, and stop drawing it once it has faded.
-
-```slint
-property <bool> on: root.toast != "";
-opacity: on ? 1 : 0;
-visible: on || self.opacity > 0;
-animate opacity { duration: on ? Motion.enter : Motion.exit; easing: on ? Ease.enter : Ease.exit; }
-```
-
-Different in and out timing for a state (e.g. a highlight that appears at once but fades out):
-
-```slint
-states [
-    lit when ta.has-hover: {
-        background: Theme.hover;
-        in { animate background { duration: 0ms; } }
-        out { animate background { duration: Motion.fast; easing: Ease.exit; } }
-    }
-]
-```
-
-Retargeting is automatic: a property that changes while it is animating starts the new
-animation from its current value, so a fast second click never waits and never queues.
+Where the framework animates by itself, switch it off: every `ListView` / `ItemsRepeater` clears `ItemContainerTransitions`
+(`<win:ListView.ItemContainerTransitions><TransitionCollection /></win:ListView.ItemContainerTransitions>`: the default
+add/remove/reposition transitions would animate every row of a refresh), and nothing uses `Frame` navigation transitions or
+`EntranceThemeTransition`. `ViewXamlLintTests` checks both.
 
 Do not:
-- animate `x`/`y`/`width`/`height` of anything inside a layout that many rows share (a list
-  refresh would move every row), or any property of every row on a refresh;
-- put `animate` on properties that change continuously (scroll position, drag position,
-  sizes that follow the window): they would lag the pointer;
-- delay a callback, a focus change or a model update with a `Timer` "until the animation ends";
-- use `delay` for anything but tooltips.
+- animate the size or position of anything inside a layout that many rows share (a list refresh would move every row), or any
+  property of every row on a refresh;
+- animate properties that change continuously (scroll position, drag position, sizes that follow the window): they would lag the pointer;
+- delay a command, a focus change or a collection update with a timer "until the animation ends";
+- use a delay for anything but tooltips.
 
-## Lists: incremental model updates (`src/listsync.rs`)
+## Lists: incremental updates (`src/Barbican.Presentation/Common/ListSync.cs`)
 
-Replacing a list property with a new `ModelRc::new(VecModel::from(rows))` rebuilds every row:
-the list flashes, hover and press are lost, the whole list repaints. Instead sync the model
-that is already shown:
+Replacing an `ObservableCollection` (or its `ItemsSource`) rebuilds every row: the list flashes, hover and press are lost, the
+whole list repaints. Instead sync the collection that is already shown: `ListSync` diffs the new rows against the shown ones by a
+stable key and touches only what changed.
 
-```rust
-use crate::listsync;
+- unchanged rows: not touched (no notification, no repaint)
+- changed rows: replaced in place (`SetItem`); new rows: `Insert`; gone rows: `RemoveAt`; a few moved rows: `Move`
+- mostly new content (another folder, a new search, the first fill, a clear), mostly gone (a filter), many moves, or duplicate
+  keys: one reset, which is cheaper than a notification per row.
 
-// rows: Vec<T> built as before; key: the row's stable id; same: content equality
-listsync::sync_into(&u.get_folders(), rows, |f| f.id.clone(), |a, b| a == b, |m| u.set_folders(m));
-```
+The message list, the folder list and the tag list are all fed through it by their ViewModels; the views only bind. A view never
+calls `Clear()` + `Add()` on a collection that is visible. The ported Rust tests of `listsync.rs` are in
+`tests/Barbican.Core.Tests` (`[RustTest("listsync::...")]`).
 
-- `sync_into(current, new, key, same, install) -> SyncStats`: syncs the `VecModel` behind a
-  property in place; the first time (the property still holds the default empty model) it
-  installs a new `VecModel` through `install`, once.
-- `sync_by(&VecModel<T>, new, key, same) -> SyncStats` / `sync_model(&VecModel<T>, new, key)`
-  (rows with `==`): the diff itself.
-  - unchanged rows: not touched (no notification, no repaint)
-  - changed rows: `set_row_data`
-  - new rows: `insert`; gone rows: `remove`; a few moved rows: `remove` + `insert`
-  - mostly new content (fewer than half of the new rows were shown: another folder, a new
-    search, the first fill, a clear), mostly gone (more than 8 rows and more rows removed
-    than kept: a filter), more than 8 moves, or duplicate keys: one `set_vec` reset, which is
-    cheaper than a notification per row.
-- `rows_eq(&ModelRc<T>, &ModelRc<T>)`: content equality for nested models (`[color]`,
-  `[string]` fields), since `==` on `ModelRc` only compares identity. `mail::same_row` uses it.
-- `SyncStats { set, inserted, removed, moved, reset }`, `untouched()`.
+## Reduce motion and the system setting
 
-Converted: the message list (`mail::rebuild_list`), the folder list (`mail::rebuild_folders`)
-and the tag list (`mail::set_tags`). Every other `ModelRc::new(VecModel…)` on a list that
-refreshes while visible should move to `sync_into`.
+- `ShellViewModel.ReduceMotion` is the stored `reduceMotion` setting; on "System" it follows Windows "Animation effects"
+  (read again when the window is activated: `ShellViewModel.NotifyWindowActive`, wired by `ShellLifecycle.AttachWindow`).
+  `ThemeController` copies it into `MotionRuntime.Scale`.
+- Rapid selection: `ShellViewModel.IsRapid` (`MotionState`) is set by the message list's key steps: a step within 150 ms of the
+  previous one sets it (row feedback snaps) until 180 ms pass without a step.
 
-## Reduce motion and the system setting (`src/motion.rs`)
+## Measuring (`tools/motion.py`, `tools/flicker.py`, `tools/layout/m1_scenarios.py`)
 
-- `motion::apply(ui, pref, reduce)` (from `apply_ui_prefs`, with the stored `reduceMotion`
-  value and `A11y::reduce_motion`): sets `Motion.reduce`. On "System" that is Windows
-  `SPI_GETCLIENTAREAANIMATION` ("Animation effects" off ⇒ reduce).
-- `motion::watch_system(ui)` (startup): installs the window's winit event filter
-  (`motion::install_filter`) which re-reads the Windows setting whenever the window is
-  activated, so turning animations off in Windows takes effect when you come back (no
-  polling). A window has a single filter, so this one also feeds the automation frame probe.
-- `motion::reduce_for(pref, system_off)`: the rule itself (on / off / follow the system).
-- `motion::step(ui)`: called on every keyboard step through the list; a step within 150 ms of
-  the previous one sets `Motion.rapid` (row feedback snaps) until 180 ms pass without a step.
+The AUTOMATION build (hidden, off-screen, own port and profile: ADR 0007, `tools/auto-run.ps1`) has the frame probe:
+`probe-start wgc` records every presented frame of the window (Windows.Graphics.Capture on Windows, `x11` on Linux) and the time
+each command is dispatched; `probe-stop` returns them as JSON. `burst MS EVERY DIR [STEP]` writes the frames as pictures for
+`tools/flicker.py` (BLANK / FLASH detection). `every MS N CMD` replays a command on a UI-thread timer for precise key repeat.
+`tools/layout/m1-bento.json` / `m1-nordic.json` hold the region rectangles and AutomationIds for the C# app;
+`python tools/layout/m1_scenarios.py --port N --layout bento|nordic` runs theme_flip, resize, folder_click, key_j20 and the idle
+probe (0 frames expected).
 
-## Measuring (`tools/motion.py`)
+Known limit of the hidden window: WGC delivers a frame only after a layout change (a resize wakes it); a palette-only change is
+composed in the XAML tree (`shot` shows it) but not captured. The theme flip is therefore measured by its structure (one UI-thread
+turn, same brush instances: `PaletteWriterTests`) plus a settled-frame check.
 
-The automation channel has a frame probe: `probe-start` records every rendered frame and
-the time each command is dispatched, `probe-stop` returns them as JSON. A frame starts at the
-window's winit `RedrawRequested` (Slint renders and presents right after) and ends when a
-zero-delay timer queued then fires (the Skia renderer's rendering notifier is never called for
-its Windows surface, so it cannot be used). `every MS N CMD` replays a command on a UI-thread timer
-(`A+Bi` arguments step by B each time) for precise key repeat and pointer sweeps.
-`motion reduce|normal|rapid|calm` flips the tokens in memory.
+## Rust baseline (Slint, 2026-11-16): the bar to beat
 
-```
-BARBICAN_AUTOMATION=1 BARBICAN_AUTOMATION_PORT=8970 target/release/barbican.exe
-python tools/motion.py --port 8970 --json tools/motion-results/after.json
-```
-
-It reports per scenario: input → first frame latency, frames per input (1–2 = a snap),
-the longest frame gap inside a run of motion (> 25 ms = a dropped frame), render time per
-frame, and how long the screen kept moving after the last input. Each scenario runs once
-unrecorded (warm-up) and then 3 times recorded. The hidden automation window is not
-vsync-throttled: while something animates it renders every ~7 ms (≈150 Hz), so frame counts
-are ~2.5× what a 60 Hz screen shows. Runs of async-load frames (body, thread) can chain into a
-"run" too, which is where the ~49 ms gaps in click-mail / arrow-repeat come from (both before
-and after; they are not animation drops).
-
-Scenarios (`tools/motion-layout.json`, Bento dark 1400×900, the Sent folder: all read, so
-opening mail writes nothing): pointer sweep over 7 rows (60 ms per row), click two mails,
-20 arrow-key repeats at 33 ms, open + Escape a message context menu, open the "New subfolder"
-prompt from the folder menu + close it on its backdrop, rail Mail → Calendar → Mail.
+The M0 measurements of the Rust app, kept as the target the C# app is compared with (`spec/feel/rust-baseline/`).
 
 ### Results (2026-11-16, `tools/motion-results/{baseline,after}.json`)
 

@@ -203,6 +203,6 @@ public sealed partial class MessageListView : UserControl
             }
         }
 
-        return null;
+        return default;
     }
 }

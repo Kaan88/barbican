@@ -44,7 +44,7 @@ public sealed class ShellLifecycle : IDisposable
     public void AttachWindow(Window window)
     {
         ArgumentNullException.ThrowIfNull(window);
-        window.Activated += (_, e) => _shell.NotifyWindowActive(e.WindowActivationState != WindowActivationState.Deactivated);
+        window.Activated += (_, e) => _shell.NotifyWindowActive(!string.Equals(e.WindowActivationState.ToString(), "Deactivated", StringComparison.Ordinal));
         window.VisibilityChanged += (_, e) => _shell.NotifyVisibility(e.Visible);
         window.Closed += (_, _) => _shell.NotifyBeforeClose();
     }

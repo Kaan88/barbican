@@ -11,19 +11,34 @@ The `.dc.html` files here are the board sources: plain HTML with inline styles; 
 - Both have a context panel beside content (sender in mail, guests in calendar, assistant in compose).
 - Icons: 1.6–1.8px stroke line icons (paths in `I`), Segoe UI text.
 
-## In the code
+## In the code (C#: WinUI 3 on Windows, Uno on Linux)
 
-- Tokens live in `ui/theme.slint` (re-exported by `ui/app.slint`): `Theme` (palette, tints, shape per style),
-  `Icons` (the `I` paths, plus a few in the same family), `SIcon` (stroke icon), `Prefs.fs` (text scale).
-- `Theme.style` is 0 Bento / 1 Nordic (`Theme.bento`, `Theme.nordic`); set from the `uiStyle` setting
-  (Settings › Appearance › Style). Older token names (`bg`, `side`, `hover`, `reader`, …) map onto the palette.
-- Hidden test channel: `ui bento|nordic dark|light [more|normal]` switches the look in memory only; `resize W H`.
+- **Palette and brushes.** `src/Barbican.App/Themes/Tokens.xaml` (generated from the token table by
+  `tools/build.ps1 gen-tokens`, never edited by hand) declares every palette colour once as a `SolidColorBrush` resource
+  (`Ground`, `Tile`, `Line`, `Text`, `Dim`, `Accent`, the tints `RoseBg`/`RoseFg`, ...). Views use `{StaticResource Key}`
+  and never copy a colour. A theme, style or more-contrast change calls `Palette.Apply`
+  (`Theme/PaletteApplier.cs` over `PaletteWriter`): it **rewrites the colour of the existing brushes in place**, so the brush
+  instances never change, nothing is re-templated and nothing flashes. `ThemeController` does it in one UI-thread turn together
+  with the shape dictionary, `StyleState` and the root's `RequestedTheme`, and fires `onThemeChange` / `onThemeBeforeApply`.
+- **Shape per style.** `Themes/Shape.Bento.xaml` and `Shape.Nordic.xaml` hold the numeric tokens (`Shape.Gap`, `Shape.RTile`, ...).
+  They are `x:Double`: WinUI cannot bind a Double resource to `Thickness`, `CornerRadius` or `GridLength` (it crashes on load),
+  so views bind the typed values of `Theme/StyleState.cs` (`Look.PaneRadius`, `Look.RailWidth`, ...) with `x:Bind`; a style flip is
+  one "all properties changed" notification. `Theme/StyleMetrics.cs` holds the numbers (one instance per style, UI-free and tested),
+  `Theme/ShellLayout.cs` the breakpoints (list width, summary tiles). The metrics columns of `spec/layout/*.md` say which
+  number is which.
+- **Style and theme come from the settings** (`uiStyle`, `theme`, contrast; `IPrefsStore` through `ShellViewModel`). The
+  automation command `ui bento|nordic dark|light [more|normal]` previews a look in memory only (`ThemeController.Preview`).
+- **Icons.** `Controls/SIcon.cs`: the `I` paths of the mockups as `PathIcon` geometry, 1.6-1.8 px stroke, size and stroke width as
+  dependency properties, colour from the foreground brush.
+- **Views, one per file** under `Views/{Rail,Sidebar,List,Glance,Reader,SignIn,Accounts}`; `Shell/ShellPage.xaml` only places the
+  regions. Bento and Nordic are the **same views**: only the `StyleState` values and the item-container styles
+  (`Styles/Controls.xaml`) differ. Rules: `x:Bind` only, an `AutomationProperties.AutomationId` and `Name` on every interactive
+  control (item containers get theirs in `ContainerContentChanging`), every flyout `ShouldConstrainToRootBounds="True"` and no
+  popup control from the deny list (`tests/Barbican.Automation.Tests/PopupLintTests`, `tests/Barbican.Presentation.Tests/ShellUi/ViewXamlLintTests`).
+- **Uno.** Members Uno does not implement (`ShouldConstrainToRootBounds`, `ItemContainerTransitions`, `ShowsScrollingPlaceholders`)
+  are written with the `win:` prefix so the Linux head ignores them (`Uno0001` is an error in this repo).
+- Hidden test channel: `ui ...`, `resize W H`, `key CHORD`, `uia-select ID` (a folder or message row), `shot` / `burst` / `probe-start`
+  (`spec/automation-protocol.md`); screenshots with sample data: `tools/layout/m1_shots.py` (`docs/milestones/M1-screens/`).
+- Motion: `design/MOTION.md` (rules, `Motion` resources and `MotionScale`, `PopIn` / `Scrim` / `Tip`, incremental lists through `ListSync`, the `wgc` frame probe).
 
-## Parity extras (branch parity-round2)
-
-The composer extras (`ui/recipients.slint`, `ui/compose-extras.slint`) read colours from `CTheme`
-(`ui/ctheme.slint`) and the reader banners (`ui/reader.slint`) from `RxTheme`. Both are thin
-aliases whose every token is bound to `Theme` in `ui/theme.slint` (no Rust sync), so style,
-dark/light and more-contrast follow automatically. New parity UI files should import `Theme`
-from `theme.slint` directly.
-- Motion: `design/MOTION.md` (rules, `Motion` / `Ease` tokens, `PopIn` / `Scrim` / `Tip`, incremental list models via `src/listsync.rs`, the frame probe `tools/motion.py`).
+The legacy Slint tokens (`ui/theme.slint`) are kept in `design/legacy-slint/theme.slint` as the reference for the numbers.

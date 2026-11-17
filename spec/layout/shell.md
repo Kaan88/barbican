@@ -86,3 +86,17 @@ border) split by 1 px hairlines; Bento gives each its own tile with `gap` 12 bet
 |---|---|---|
 | toast y | `parent.height - 68` (rises by `Motion.rise` = 8 px as it enters), minus the quick-reply bar height when a message is open | app.slint:5730 |
 | update banner | x 56, y `parent.height - self.height - 16`, width 300, radius 24, padding 16, gap 12 | app.slint:5762, update-banner.slint:47 |
+
+## C# metrics (M1 shell-ui)
+Where each number above lives in the C# app (`src/Barbican.App/Theme/`; UI-free, tested by `tests/Barbican.Presentation.Tests/ShellUi`):
+| Item | C# |
+|---|---|
+| window padding / gap | `StyleMetrics.Pad`, `StyleMetrics.Gap` (Bento 14 / 12, Nordic 0 / 0); typed as `StyleState.WindowPadding`, `StyleState.Gap` |
+| rail width, button, radius | `StyleMetrics.RailWidth` (64 / 76), `RailButton` (42 / 46), `RailButtonRadius`, `MarkSize` |
+| sidebar width | `StyleMetrics.SidebarWidth` (204 / 228) |
+| list width and the 1150 / 1180 breakpoint | `StyleMetrics.ListWidth(windowWidth)` (320 / 330 narrow, 368 / 390 wide), used by `ShellLayout.Compute` |
+| summary tiles (Bento, reader-w >= 330) | `ShellLayout.SummaryTilesShown`, `ShellLayout.TilesMinReader` |
+| reader width | `ShellLayout.ReaderWidth`; minimum window `ShellLayout.MinWidth` x `MinHeight` (960 x 640, open point of this file settled) |
+| pane / tile radii | `StyleMetrics.PaneRadius`, `TileRadius`, `SummaryRadius`, `ButtonRadius`, `FieldRadius`, `RowRadius`, `NavRadius`, `PopupRadius` |
+| compose button | `StyleMetrics.ComposeHeight`, `ComposeRadius` |
+Not in M1: the sender/context panel, the assistant panel and the composing layout (M3, M5, M9).

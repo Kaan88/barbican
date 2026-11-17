@@ -90,7 +90,7 @@ public sealed partial class PopupLintTests
         {
             foreach (var e in doc.Descendants().Where(e => PopupControls.MustConstrain.Contains(e.Name.LocalName, StringComparer.Ordinal)))
             {
-                var v = e.Attribute("ShouldConstrainToRootBounds")?.Value;
+                var v = e.Attributes().FirstOrDefault(a => string.Equals(a.Name.LocalName, "ShouldConstrainToRootBounds", StringComparison.Ordinal))?.Value;   // a win:-prefixed attribute counts: Uno has no such member (Uno0001)
                 if (!string.Equals(v, "True", StringComparison.OrdinalIgnoreCase))
                 {
                     yield return $"{file}:{((System.Xml.IXmlLineInfo)e).LineNumber} <{e.Name.LocalName}> without ShouldConstrainToRootBounds=\"True\"";
