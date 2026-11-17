@@ -3,7 +3,7 @@
 The hidden in-app automation server of AUTOMATION builds (`BARBICAN_AUTOMATION=1`, loopback only,
 `BARBICAN_AUTOMATION_PORT`, default 8792). One command per line, one reply line. The command set is the one of the
 Rust app (`src/automation.rs` header at tag `rust-final`), so `tools/auto.py`, `tools/motion.py`, `tools/flicker.py` and
-`tools/scenarios.py` run unchanged. Decisions and measurements: [ADR 0004](../docs/adr/0004-hidden-automation.md).
+`tools/scenarios.py` run unchanged. Decisions and measurements: [ADR 0007](../docs/adr/0007-hidden-automation.md).
 Reference implementation of the transport, click, capture and probe commands: `spikes/s4-automation/`.
 
 Status column: **spike** = implemented and measured in `spikes/s4-automation`; **M1** = to port with the real app;

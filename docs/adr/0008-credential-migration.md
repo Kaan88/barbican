@@ -1,4 +1,4 @@
-# ADR 0005: Secrets in the C# app and migration from the Rust app's Credential Manager entries (spike S5)
+# ADR 0008: Secrets in the C# app and migration from the Rust app's Credential Manager entries (spike S5)
 
 - Status: accepted (2026-11-17)
 - Deciders: M0 spike S5 (agent `port-s45`)

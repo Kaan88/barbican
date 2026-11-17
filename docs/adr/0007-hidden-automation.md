@@ -1,4 +1,4 @@
-# ADR 0004: Hidden automation for the C# app (spike S4)
+# ADR 0007: Hidden automation for the C# app (spike S4)
 
 - Status: accepted (2026-11-17), measured on Windows 11 build 26300, one 144 Hz monitor, WinAppSDK 2.6.5, .NET 10
 - Deciders: M0 spike S4 (agent `port-s45`); review items in `docs/FABLE-REVIEW.md`
