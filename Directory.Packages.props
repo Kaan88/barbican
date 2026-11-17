@@ -34,6 +34,8 @@
     <PackageVersion Include="Microsoft.Extensions.DependencyInjection" Version="10.0.14" />
     <PackageVersion Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="10.0.14" />
     <PackageVersion Include="Microsoft.Extensions.Logging.Abstractions" Version="10.0.14" />
+    <!-- Core: the mail sanitizer parses message HTML (Fable review 1 F-03; PORT-PLAN §3.12). 1.9.1: newest release at least two weeks old. -->
+    <PackageVersion Include="AngleSharp" Version="1.9.1" />
     <PackageVersion Include="Microsoft.Extensions.TimeProvider.Testing" Version="10.11.0" />
     <!-- Views (shell-ui): the GridSplitter / sizers of the Bento layout. -->
     <PackageVersion Include="CommunityToolkit.WinUI.Controls.Sizers" Version="8.2.251219" />

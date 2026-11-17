@@ -240,7 +240,21 @@ public sealed record A11y
         return string.Join('\n', parts);
     }
 
-    /// <summary>Script that scales message text (Bulwark applyMailTextSize) and shrinks wide messages to the pane; null when nothing needs it.</summary>
+    /// <summary>
+    /// What the body shell does to message text (Bulwark applyMailTextSize, fit to the pane); null when nothing needs it. Fable F-03: the
+    /// shell applies it to the frame document, no script runs in the frame.
+    /// </summary>
+    public MailSizing? Sizing()
+    {
+        var (factor, min) = OverrideActive() ? (1.0, 0.0) : (TextFactor(), MinFontPx);
+        var sizing = Math.Abs(factor - 1.0) > 0.001 || min > 0;
+        return sizing || FitWidth ? new MailSizing(factor, min, FitWidth) : null;
+    }
+
+    /// <summary>
+    /// The Rust in-frame script that scales message text and shrinks wide messages (Rust a11y.rs mail_script; kept for its ported tests and
+    /// as the reference of shell.js's size()); null when nothing needs it. The app no longer puts it in a frame (Fable F-03).
+    /// </summary>
     public string? MailScript()
     {
         var (factor, min) = OverrideActive() ? (1.0, 0.0) : (TextFactor(), MinFontPx);

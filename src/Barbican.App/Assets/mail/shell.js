@@ -1,9 +1,15 @@
 // The body view's shell (PORT-PLAN.md §3.6; port of the Rust app's mailview.rs SHELL_JS at
 // rust-final). One persistent document that never navigates. Each message is a sandboxed srcdoc
 // iframe with its own CSP, loaded hidden next to the one on screen; the shell posts "ready:N" once
-// the frame is laid out (and, for a page under the dark conversion, once that pass ran), the host
+// the frame is laid out (and after the shell ran the text sizing and the dark pass on it), the host
 // updates its native header and calls reveal(N) in the same dispatcher turn, and the old frame is
 // dropped. Nothing blank, white or black is ever shown in between.
+//
+// No script ever runs inside a message frame (Fable review 1 F-03): the sandbox never carries
+// allow-scripts and the frame's CSP is script-src 'none'. The dark pass (email_dark.js, prepended
+// to this script by Core's ShellDocument as window.__bbDarkPass) and the text sizing (size() below,
+// the port of A11y's sizing script) run from here against the frame document, which the shell may
+// read because the frame keeps allow-same-origin. This script runs only by its CSP hash.
 //
 // Commands arrive either as functions on window.__bb (ExecuteScriptAsync) or as web messages
 // ({op:"show"|"reveal"|"cancel"|"dim"|"clear"|"print", ...}; PostWebMessageAsJson), which carries
@@ -26,8 +32,8 @@
 (function () {
   var cur = null, nxt = null, seq = 0;
   // The only sandbox keywords a frame may get (the same list as Core's MailSandbox.Allowed): never
-  // allow-top-navigation*, allow-popups*, allow-forms or allow-downloads, whatever the host sends.
-  var SANDBOX_OK = ['allow-same-origin', 'allow-scripts', 'allow-modals'];
+  // allow-scripts, allow-top-navigation*, allow-popups*, allow-forms or allow-downloads, whatever the host sends.
+  var SANDBOX_OK = ['allow-same-origin', 'allow-modals'];
   function sandbox(sb) {
     var out = [];
     var t = typeof sb === 'string' ? sb.split(/\s+/) : [];
@@ -94,8 +100,38 @@
       }
     } catch (e) { }
   }
+  // Settings > Accessibility text size, minimum size and fit to the pane (Core A11y.Sizing; Bulwark applyMailTextSize).
+  function size(d, z) {
+    try {
+      if (!z || !d.body) return;
+      var f = +z[0] || 1, m = +z[1] || 0, fit = !!z[2], v = d.defaultView, b = d.body;
+      if (f != 1 || m > 0) {
+        var skip = { IMG: 1, BR: 1, HR: 1, WBR: 1, PICTURE: 1, SOURCE: 1, VIDEO: 1, AUDIO: 1, CANVAS: 1, IFRAME: 1, OBJECT: 1, EMBED: 1, STYLE: 1, SCRIPT: 1, TEMPLATE: 1 };
+        var els = [b], any = false, sz = [];
+        b.querySelectorAll('*').forEach(function (e) { if (skip[e.tagName] || e.closest('svg')) return; els.push(e); });
+        els.forEach(function (e) {
+          var s = v.getComputedStyle(e), p = parseFloat(s.fontSize);
+          if (!(p > 0)) return;
+          var lh = s.lineHeight.slice(-2) == 'px' ? parseFloat(s.lineHeight) : null;
+          var n = Math.max(p * f, m || 0);
+          if (Math.abs(n - p) > 0.01) any = true;
+          sz.push([e, n, lh === null ? null : lh * n / p]);
+        });
+        if (any) sz.forEach(function (x) {
+          x[0].style.setProperty('font-size', Math.round(x[1] * 100) / 100 + 'px', 'important');
+          if (x[2] !== null) x[0].style.setProperty('line-height', Math.round(x[2] * 100) / 100 + 'px', 'important');
+        });
+      }
+      if (fit) { var de = d.documentElement, w = de.scrollWidth, c = de.clientWidth; if (w > c + 2) b.style.zoom = (c / w).toFixed(4); }
+    } catch (e) { }
+  }
+  // The dark conversion of a dark-pending page; the pending class goes whatever happens (its CSS hides the body).
+  function dark(d) {
+    try { if (window.__bbDarkPass) window.__bbDarkPass(d); } catch (e) { }
+    try { d.documentElement.classList.remove('barbican-dark-pending'); } catch (e) { }
+  }
   var bb = window.__bb = {
-    show: function (s, html, bg, sb) {
+    show: function (s, html, bg, sb, dk, sz) {
       seq = s;
       if (nxt) { nxt.remove(); nxt = null; }
       var f = document.createElement('iframe');
@@ -105,8 +141,18 @@
       f._bg = bg;
       nxt = f;
       var done = false;
-      function ready() { if (done || seq !== s) return; done = true; post('ready:' + s); }
-      f.addEventListener('load', function () { try { fix(f.contentDocument); } catch (e) { } ready(); });
+      // only the frame's own srcdoc is ever finished and revealed (a frame that navigated elsewhere never is)
+      function finish(d) {
+        if (done || seq !== s || !d || d.URL !== 'about:srcdoc' || !d.body) return false;
+        done = true;
+        fix(d);
+        size(d, sz);
+        if (dk) dark(d);
+        void d.documentElement.offsetHeight;
+        post('ready:' + s);
+        return true;
+      }
+      f.addEventListener('load', function () { var d = null; try { d = f.contentDocument; } catch (e) { } finish(d); });
       f.srcdoc = html;
       document.body.appendChild(f);
       // Polled on the task queue, not per animation frame: a frame-paced poll plus a frame for layout cost
@@ -116,12 +162,7 @@
         if (done || seq !== s) return;
         var d = null;
         try { d = f.contentDocument; } catch (e) { }
-        if (d && d.URL === 'about:srcdoc' && d.readyState !== 'loading' && d.body && !d.documentElement.classList.contains('barbican-dark-pending')) {
-          fix(d);
-          void d.documentElement.offsetHeight;
-          ready();
-          return;
-        }
+        if (d && d.readyState !== 'loading' && finish(d)) return;
         setTimeout(poll, 1);
       })();
     },
@@ -151,7 +192,7 @@
       if (typeof m === 'string') { try { m = JSON.parse(m); } catch (x) { return; } }
       if (!m || !m.op) return;
       switch (m.op) {
-        case 'show': bb.show(m.seq, m.html, m.bg, m.sandbox === undefined ? null : m.sandbox); break;
+        case 'show': bb.show(m.seq, m.html, m.bg, m.sandbox === undefined ? null : m.sandbox, !!m.dark, m.size || null); break;
         case 'reveal': bb.reveal(m.seq); break;
         case 'cancel': bb.cancel(m.seq); break;
         case 'dim': bb.dim(!!m.on); break;

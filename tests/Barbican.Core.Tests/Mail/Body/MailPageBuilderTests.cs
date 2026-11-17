@@ -16,23 +16,35 @@ public sealed class MailPageBuilderTests
     {
         var p = MailPageBuilder.Build("<pre>hi</pre>", Dark);
         Assert.Equal("#141414", p.Background);
-        Assert.False(p.HasScript);
+        Assert.False(p.Dark);
         Assert.Contains("html,body{background:#141414;color:#d4d4d4}", p.Html, StringComparison.Ordinal);
         Assert.Contains("script-src 'none'", p.Html, StringComparison.Ordinal);
         Assert.DoesNotContain(DarkMail.PendingClass, p.Html, StringComparison.Ordinal);
     }
 
     [Fact]
-    public void Coloured_html_in_the_dark_theme_gets_the_dark_pass_by_hash()
+    public void Coloured_html_in_the_dark_theme_gets_the_dark_pass_from_the_shell()
     {
         var body = "<table style=\"background:#fff\"><tr><td>x</td></tr></table><style>@media (prefers-color-scheme: dark){td{color:red}}</style>";
         var p = MailPageBuilder.Build(body, Dark);
-        Assert.True(p.HasScript);
+        Assert.True(p.Dark);
         Assert.Equal(DarkMail.Background, p.Background);
         Assert.StartsWith($"<!doctype html><html class=\"{DarkMail.PendingClass}\" style=\"color-scheme:", p.Html, StringComparison.Ordinal);
-        Assert.Contains(MailCsp.ScriptSource(DarkMail.Script), p.Html, StringComparison.Ordinal);
         Assert.Contains("(min-width: 0px)", p.Html, StringComparison.Ordinal);
-        Assert.Contains("<script>" + DarkMail.Script + "</script>", p.Html, StringComparison.Ordinal);
+
+        // Fable F-03: no script in the frame; the shell runs the pass on the frame document
+        Assert.DoesNotContain("<script", p.Html, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("script-src 'none'", p.Html, StringComparison.Ordinal);
+        Assert.Contains("x-dns-prefetch-control", p.Html, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Text_sizing_travels_as_data_not_as_a_script()
+    {
+        var p = MailPageBuilder.Build("<p>x</p>", Light with { A11y = new A11y { TextScale = 1.25, FitWidth = true } });
+        Assert.Equal(new MailSizing(1.25, 0, true), p.Sizing);
+        Assert.DoesNotContain("<script", p.Html, StringComparison.OrdinalIgnoreCase);
+        Assert.Null(MailPageBuilder.Build("<p>x</p>", Light).Sizing);
     }
 
     [Fact]
@@ -44,7 +56,7 @@ public sealed class MailPageBuilderTests
         foreach (var p in new[] { light, always })
         {
             Assert.Equal("#ffffff", p.Background);
-            Assert.False(p.HasScript);
+            Assert.False(p.Dark);
             Assert.Contains("color:#111;background:#fff", p.Html, StringComparison.Ordinal);
         }
     }
@@ -71,7 +83,7 @@ public sealed class MailPageBuilderTests
     public void The_accessibility_override_turns_the_dark_pass_off()
     {
         var p = MailPageBuilder.Build("<p style=\"color:red\">x</p>", Dark with { A11y = new A11y { OverrideStyles = "always" } });
-        Assert.False(p.HasScript);
+        Assert.False(p.Dark);
         Assert.Equal(DarkMail.Background, p.Background);
         Assert.DoesNotContain(DarkMail.PendingClass, p.Html, StringComparison.Ordinal);
     }

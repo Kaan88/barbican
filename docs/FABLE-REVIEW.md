@@ -597,3 +597,19 @@ F-13 and user decisions D-2, D-9, D-10, on branch `m1-fix-security` (from `m1` a
   resolved the `dev` profile (the user's own data); it now sets `BARBICAN_PROFILE` to the run's profile before composition.
   WebKitGTK data directory: Linux pending (the Linux head reads none of this; Uno's WebView there has no data-dir setting we
   use yet).
+- **F-03 the mail frame.** `Core/Mail/Body/MailSanitizer.cs` (AngleSharp 1.9.1, new Core dependency; runs in
+  `MessageFetcher.FetchAsync` off the UI thread before the body is cached, and on plugin HTML in
+  `MessageLoader.TransformThenShowAsync`); `MailSandbox.Frame` (never `allow-scripts`); `MailCsp.Policy(remote)` always
+  `script-src 'none'` plus `x-dns-prefetch-control: off`; `MailPage(Html, Dark, Background, HasRemoteContent) { Sizing }`;
+  `A11y.Sizing()` / `MailSizing`; `ShellDocument` builds one inline script (`window.__bbDarkPass=function(document){email_dark.js}`
+  + shell.js) allowed by its SHA-256 only; `shell.js` `finish()` (srcdoc check on both the load and the poll path, then size,
+  then dark, then ready); `BodyShell` sends `dark` and `size`, cancels every frame navigation but `about:srcdoc`.
+  Probe (hidden Automation build, Windows, loopback beacon): a meta refresh with the shell's sandbox (host asked for
+  `allow-scripts allow-top-navigation`, both filtered out), with and without the frame CSP, and in hand-made `allow-scripts`
+  frames: 0 beacon hits; the dark pass and the sizing applied from the shell (pending class gone, `data-dark-done` set, 10 px ->
+  15 px, white table -> rgb(22,22,22)). Foreground unchanged, no popups. Linux pending (VM rule): whether WebKitGTK lets the
+  shell's listeners and the dark pass act on a sandboxed frame without `allow-scripts`, and the meta-refresh probe there.
+  Judgement calls: `meta` is removed entirely (the page sets its own charset); `form` is unwrapped (content kept), inputs stay
+  inert; `noscript` content is kept (it renders in a script-less frame, as in a mail client); a body is reserialised only when
+  something was removed. `A11y.MailScript()` stays for its Rust-ported tests but is no longer put in a page. Not done: the
+  S2 spike harness probe (the hidden-app probe above replaces it on Windows); link-opener confirmation (point 5) is M2.

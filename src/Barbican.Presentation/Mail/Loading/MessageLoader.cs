@@ -304,6 +304,13 @@ public sealed class MessageLoader : IMessageOpener, IConversationOpener, IDispos
             shaped = new RenderableBody(body);
         }
 
+        // a plugin's HTML gets the same sanitizer as a fetched body (Fable F-03), off the UI thread
+        if (shaped.HandledBy is not null && shaped.Html is { } pluginHtml)
+        {
+            var clean = await Task.Run(() => MailSanitizer.Clean(pluginHtml, out _)).ConfigureAwait(true);
+            shaped = shaped with { Html = clean };
+        }
+
         _dispatcher.Post(() =>
         {
             if (seq != _seq)
