@@ -1,3 +1,4 @@
+using Barbican.App.Motion;
 using Barbican.App.Shell;
 using Barbican.App.Theme;
 using Barbican.Presentation.Mail;
@@ -17,10 +18,17 @@ public sealed partial class ReaderView : UserControl
         InitializeComponent();
         Reader.PropertyChanged += (_, e) =>
         {
-            if (string.Equals(e.PropertyName, nameof(ReaderViewModel.EmailId), StringComparison.Ordinal) && !string.Equals(_detailsFor, Reader.EmailId, StringComparison.Ordinal))
+            if (!string.Equals(e.PropertyName, nameof(ReaderViewModel.EmailId), StringComparison.Ordinal))
+            {
+                return;
+            }
+
+            if (!string.Equals(_detailsFor, Reader.EmailId, StringComparison.Ordinal))
             {
                 SetDetails(false);
             }
+
+            RiseHeader();
         };
     }
 
@@ -36,6 +44,16 @@ public sealed partial class ReaderView : UserControl
         DetailsPanel.Visibility = open ? Visibility.Visible : Visibility.Collapsed;
         DetailsLabel.Text = open ? "Hide details" : "Details";
         DetailsChevron.Kind = open ? "ChevronDown" : "ChevronRight";
+    }
+
+    // The prototype's header transition (a short rise of the new subject and sender line), on the view token. The new text is already set, so the
+    // header never blanks; while keys repeat the selection moves faster than any animation and it snaps (design/MOTION.md rule 4).
+    private void RiseHeader()
+    {
+        var scale = MotionRuntime.Scale;
+        var ms = scale.Rapid || string.IsNullOrEmpty(Reader.EmailId) ? 0 : scale.ViewMs;
+        Rise.Run(SubjectText, SubjectShift, ms, fromOpacity: 0.55, fromY: 6);
+        Rise.Run(SenderLine, SenderShift, ms, fromOpacity: 0.55, fromY: 6);
     }
 
     // "Try again" opens the selected message once more (spec I-230).

@@ -28,13 +28,14 @@ public sealed partial class SidebarView : UserControl
 
     public StyleState Look { get; }
 
-    // The item containers and the tag layout differ per style; they are swapped once per style change, not per row.
+    // The item containers differ per style; they are swapped once per style change, not per row. Tags are rows in both styles (prototype labels).
     private void ApplyStyle()
     {
-        FolderList.ItemContainerStyle = Look.FolderItemStyle;
-        TagRepeater.Layout = Look.IsBento
-            ? new UniformGridLayout { MinItemWidth = 78, MinColumnSpacing = 8, MinRowSpacing = 8, ItemsStretch = UniformGridLayoutItemsStretch.Fill }
-            : new StackLayout { Orientation = Orientation.Vertical, Spacing = 2 };
+        var style = Look.FolderItemStyle;
+        if (!ReferenceEquals(FolderList.ItemContainerStyle, style))
+        {
+            FolderList.ItemContainerStyle = style;
+        }
     }
 
     private void OnFolderSelectionChanged(object sender, SelectionChangedEventArgs e)

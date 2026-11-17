@@ -1,12 +1,35 @@
 {
-  "_comment": "Nordic at 1400x900 (logical px). Measured from docs/milestones/M1-screens/nordic-dark-normal.png.",
-  "window": [1400, 900],
+  "_comment": "Nordic at 1400x900 (logical px, client area; same regions as m1-bento.json). Measured with the automation `bounds` command after the M1 look port (docs/milestones/M1-look-gap.md).",
+  "window": [
+    1400,
+    900
+  ],
   "ui": "ui nordic dark",
   "regions": {
-    "head": [332, 30, 340, 44],
-    "from": [90, 120, 200, 330],
-    "list": [320, 180, 360, 690],
-    "pane": [694, 0, 690, 884]
+    "head": [
+      333,
+      65,
+      330,
+      40
+    ],
+    "from": [
+      90,
+      152,
+      200,
+      322
+    ],
+    "list": [
+      305,
+      191,
+      389,
+      670
+    ],
+    "pane": [
+      695,
+      39,
+      424,
+      830
+    ]
   },
   "ids": {
     "folder": "m3",
@@ -18,9 +41,9 @@
     "idle_x": 1000,
     "idle_y": 700,
     "rail_x": 38,
-    "rail_mail_y": 97,
+    "rail_mail_y": 123,
     "list_x": 500,
-    "list_y0": 200,
-    "row_h": 82
+    "list_y0": 266,
+    "row_h": 90
   }
 }

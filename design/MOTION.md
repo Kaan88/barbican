@@ -62,6 +62,17 @@ from `ShellViewModel` (`ReduceMotion`, `IsRapid`). It is pure, so the rules are 
   `TipDelayMs`, then fades in over `EnterMs`; removed instantly when the pointer leaves. **Not** `ToolTip` / `ToolTipService`:
   those open as their own top-level window and are on the popup deny list (ADR 0007).
 - `MotionRuntime.FadeIn(element)`: the one enter fade the others use.
+- `Rise.Run(element, shift, ms, fromOpacity, fromY)`: the incoming-view decoration taken from the WinUI prototype
+  (docs/milestones/M1-look-gap.md). It acts on an element that **already shows its new content**: a few pixels of rise and a fade
+  from a partly transparent start (never from 0), with the enter curve. A new run stops the running one; 0 ms does nothing.
+  Its uses:
+  - the message rows on a folder change: `EnterMs`, 0.5 and 10 px;
+  - the reader's subject and sender line on a switch: `ViewMs`, 0.55 and 6 px;
+  - the mail screen on a Bento/Nordic switch: `EnterMs`.
+
+  The two list and reader uses pass 0 while keys repeat (`MotionScale.Rapid`).
+- Body cross-fade (`Assets/mail/shell.js` `reveal(seq, ms)`): the finished page fades in over the one on screen over `ViewMs`.
+  The old page is dropped when the fade ends, or at once when anything else happens. `BodyShell` sends 0 while keys repeat.
 
 ## How to animate
 

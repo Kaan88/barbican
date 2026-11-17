@@ -13,10 +13,10 @@
     xmlns:mail="using:Barbican.Presentation.Mail">
   <!-- The message list (spec/layout/mail-list.md; BNMail section, NordMail section): header with title, unread pill, greeting and search; date-group headers and message rows;
        thread count, preview, attachment chips; unread first section; more on scroll. Rows come from MessageListViewModel.Rows (ListSync: only changed rows are touched).
-       No item transitions, no selection animation (design/MOTION.md rules 1 and 3). -->
+       No item transitions, no selection animation (design/MOTION.md rules 1 and 3); a folder change lifts the rows once (Motion/Rise). -->
   <Border x:Name="Pane" Background="{x:Bind Look.PaneBrush, Mode=OneWay}" BorderBrush="{StaticResource Line}" BorderThickness="{x:Bind Look.PaneBorder, Mode=OneWay}"
-          CornerRadius="{x:Bind Look.PaneRadius, Mode=OneWay}" Width="{x:Bind Look.ListWidth, Mode=OneWay}" AutomationProperties.AutomationId="list" AutomationProperties.Name="Messages">
-    <Border BorderBrush="{StaticResource Line}" BorderThickness="{x:Bind Look.ListHairline, Mode=OneWay}" CornerRadius="{x:Bind Look.PaneRadius, Mode=OneWay}">
+          CornerRadius="{x:Bind Look.ListRadius, Mode=OneWay}" Width="{x:Bind Look.ListWidth, Mode=OneWay}" AutomationProperties.AutomationId="list" AutomationProperties.Name="Messages">
+    <Border BorderBrush="{StaticResource Line}" BorderThickness="{x:Bind Look.ListHairline, Mode=OneWay}" CornerRadius="{x:Bind Look.ListRadius, Mode=OneWay}">
       <Grid RowDefinitions="Auto,Auto,*">
         <Grid.Resources>
           <DataTemplate x:Key="HeaderTemplate" x:DataType="mail:GroupHeaderViewModel">
@@ -25,27 +25,30 @@
             </Grid>
           </DataTemplate>
           <DataTemplate x:Key="MessageTemplate" x:DataType="mail:MessageRowViewModel">
+            <!-- prototype rows: Bento avatar + sender 14 / subject 13.5 body / preview 12.5 faint; Nordic dot + sender 14 / subject 14 / preview 13 dim, indented 15 -->
             <Grid Padding="{x:Bind theme:StyleState.Current.MessageRowPadding, Mode=OneWay}" ColumnSpacing="{x:Bind theme:StyleState.Current.MessageRowSpacing, Mode=OneWay}"
                   ColumnDefinitions="Auto,*">
               <Border Width="38" Height="38" VerticalAlignment="Top" Visibility="{x:Bind theme:StyleState.Current.ShowAvatar, Mode=OneWay}"
                       CornerRadius="{x:Bind theme:StyleState.Current.AvatarRadius, Mode=OneWay}" Background="{x:Bind views:Fmt.TintBg(TintIndex)}">
-                <TextBlock Text="{x:Bind Initials}" FontSize="12.5" FontWeight="Bold" Foreground="{x:Bind views:Fmt.TintFg(TintIndex)}" HorizontalAlignment="Center" VerticalAlignment="Center" />
+                <TextBlock Text="{x:Bind Initials}" FontSize="13" FontWeight="Bold" Foreground="{x:Bind views:Fmt.TintFg(TintIndex)}" HorizontalAlignment="Center" VerticalAlignment="Center" />
               </Border>
               <StackPanel Grid.Column="1" Spacing="1" MinWidth="0">
                 <Grid ColumnDefinitions="Auto,*,Auto,Auto,Auto,Auto" ColumnSpacing="6">
-                  <Ellipse Width="7" Height="7" Fill="{x:Bind views:Fmt.UnreadDot(Unread)}" Visibility="{x:Bind theme:StyleState.Current.ShowUnreadDot, Mode=OneWay}" VerticalAlignment="Center" />
-                  <TextBlock Grid.Column="1" Text="{x:Bind Sender}" FontSize="13.5" FontWeight="{x:Bind views:Fmt.Weight(Unread)}" Foreground="{StaticResource Text}" TextTrimming="CharacterEllipsis" />
-                  <Border Grid.Column="2" Height="17" MinWidth="17" CornerRadius="8.5" Padding="6,0" Background="{StaticResource Chip}" Visibility="{x:Bind views:Fmt.VisMany(ThreadCount)}" VerticalAlignment="Center">
-                    <TextBlock Text="{x:Bind views:Fmt.Thread(ThreadCount)}" FontSize="10.5" FontWeight="Bold" Foreground="{StaticResource Dim}" HorizontalAlignment="Center" VerticalAlignment="Center" />
+                  <Ellipse Width="7" Height="7" Fill="{x:Bind views:Fmt.UnreadDot(Unread)}" Visibility="{x:Bind views:Fmt.DotVis(Unread, theme:StyleState.Current.IsNordic), Mode=OneWay}" VerticalAlignment="Center" />
+                  <TextBlock Grid.Column="1" Text="{x:Bind Sender}" FontSize="{x:Bind theme:StyleState.Current.SenderSize, Mode=OneWay}" FontWeight="{x:Bind views:Fmt.SenderWeight(Unread, theme:StyleState.Current.IsNordic), Mode=OneWay}"
+                             Foreground="{StaticResource Text}" TextTrimming="CharacterEllipsis" />
+                  <Border Grid.Column="2" CornerRadius="8" Padding="6,0" Background="{StaticResource Track}" Visibility="{x:Bind views:Fmt.VisMany(ThreadCount)}" VerticalAlignment="Center">
+                    <TextBlock Text="{x:Bind views:Fmt.Thread(ThreadCount)}" FontSize="11" FontWeight="SemiBold" Foreground="{StaticResource Dim}" HorizontalAlignment="Center" VerticalAlignment="Center" />
                   </Border>
                   <controls:SIcon Grid.Column="3" Kind="Star" Size="12" Foreground="{StaticResource AmberFg}" Visibility="{x:Bind views:Fmt.Vis(Flagged)}" VerticalAlignment="Center" />
                   <controls:SIcon Grid.Column="4" Kind="Clip" Size="12" Foreground="{StaticResource Faint}" Visibility="{x:Bind views:Fmt.VisClip(HasAttachment, AttachmentNames.Count)}" VerticalAlignment="Center" />
-                  <TextBlock Grid.Column="5" Text="{x:Bind TimeLabel}" FontSize="11.5" FontWeight="SemiBold" Foreground="{x:Bind views:Fmt.TimeBrush(Unread)}" />
+                  <TextBlock Grid.Column="5" Text="{x:Bind TimeLabel}" FontSize="12" FontWeight="{x:Bind views:Fmt.RowTimeWeight(theme:StyleState.Current.IsNordic), Mode=OneWay}"
+                             Foreground="{x:Bind views:Fmt.RowTimeBrush(Unread, theme:StyleState.Current.IsNordic), Mode=OneWay}" VerticalAlignment="Center" />
                 </Grid>
-                <TextBlock Text="{x:Bind Subject}" FontSize="13" FontWeight="{x:Bind views:Fmt.Weight(Unread)}" Foreground="{StaticResource Text}" TextTrimming="CharacterEllipsis"
-                           Margin="{x:Bind theme:StyleState.Current.MessageTextMargin, Mode=OneWay}" />
-                <TextBlock Text="{x:Bind Preview}" FontSize="12" Foreground="{StaticResource Dim}" TextTrimming="CharacterEllipsis" MaxLines="1"
-                           Margin="{x:Bind theme:StyleState.Current.MessageTextMargin, Mode=OneWay}" />
+                <TextBlock Text="{x:Bind Subject}" FontSize="{x:Bind theme:StyleState.Current.SubjectSize, Mode=OneWay}" FontWeight="{x:Bind views:Fmt.SubjectWeight(Unread, theme:StyleState.Current.IsNordic), Mode=OneWay}"
+                           Foreground="{x:Bind theme:StyleState.Current.SubjectBrush, Mode=OneWay}" TextTrimming="CharacterEllipsis" Margin="{x:Bind theme:StyleState.Current.SubjectMargin, Mode=OneWay}" />
+                <TextBlock Text="{x:Bind Preview}" FontSize="{x:Bind theme:StyleState.Current.PreviewSize, Mode=OneWay}" Foreground="{x:Bind theme:StyleState.Current.PreviewBrush, Mode=OneWay}"
+                           TextTrimming="CharacterEllipsis" MaxLines="1" Margin="{x:Bind theme:StyleState.Current.PreviewMargin, Mode=OneWay}" />
                 <ItemsRepeater ItemsSource="{x:Bind views:Fmt.Chips(AttachmentNames)}" Visibility="{x:Bind views:Fmt.VisChips(AttachmentNames.Count)}" Margin="0,4,0,0"
                                AutomationProperties.Name="Attachments">
                   <ItemsRepeater.Layout>
@@ -68,20 +71,20 @@
           <local:MessageRowTemplateSelector x:Key="RowSelector" MessageTemplate="{StaticResource MessageTemplate}" HeaderTemplate="{StaticResource HeaderTemplate}" />
         </Grid.Resources>
 
-        <!-- Header -->
-        <StackPanel Grid.Row="0" Padding="{x:Bind Look.ListHeaderPadding, Mode=OneWay}" Spacing="10">
+        <!-- Header (prototype ListHead): Bento title 24 bold with "N unread" on the right; Nordic title 28 extra bold, tight, and the greeting under it. Search stays (M1). -->
+        <StackPanel Grid.Row="0" Padding="{x:Bind Look.ListHeaderPadding, Mode=OneWay}" Spacing="12">
           <Grid ColumnDefinitions="*,Auto">
-            <TextBlock Text="{x:Bind Glance.ListTitle, Mode=OneWay}" FontSize="25" FontWeight="Bold" Foreground="{StaticResource Text}" TextTrimming="CharacterEllipsis"
+            <TextBlock Text="{x:Bind Glance.ListTitle, Mode=OneWay}" FontSize="{x:Bind Look.ListTitleSize, Mode=OneWay}" FontWeight="{x:Bind Look.ListTitleWeight, Mode=OneWay}"
+                       CharacterSpacing="{x:Bind Look.ListTitleSpacing, Mode=OneWay}" Foreground="{StaticResource Text}" TextTrimming="CharacterEllipsis"
                        AutomationProperties.AutomationId="list.title" AutomationProperties.Name="Folder title" />
-            <Border Grid.Column="1" Height="24" CornerRadius="12" Padding="10,0" Background="{StaticResource RoseBg}" VerticalAlignment="Center"
-                    Visibility="{x:Bind views:Fmt.VisCount(Glance.ListUnread), Mode=OneWay}" AutomationProperties.AutomationId="list.unread" AutomationProperties.Name="Unread count">
-              <TextBlock Text="{x:Bind views:Fmt.NewCount(Glance.ListUnread), Mode=OneWay}" FontSize="12" FontWeight="Bold" Foreground="{StaticResource RoseFg}" VerticalAlignment="Center" />
-            </Border>
+            <TextBlock Grid.Column="1" Text="{x:Bind views:Fmt.UnreadText(Glance.ListUnread), Mode=OneWay}" FontSize="12.5" Foreground="{StaticResource Dim}" VerticalAlignment="Center"
+                       Visibility="{x:Bind Look.BentoOnly, Mode=OneWay}" AutomationProperties.AutomationId="list.unread" AutomationProperties.Name="Unread count" />
           </Grid>
-          <TextBlock Text="{x:Bind Glance.ListSubtitle, Mode=OneWay}" FontSize="12.5" Foreground="{StaticResource Dim}" TextTrimming="CharacterEllipsis" />
-          <Border Height="38" CornerRadius="{x:Bind Look.FieldRadius, Mode=OneWay}" Background="{StaticResource Tile2}" BorderBrush="{StaticResource Line}" BorderThickness="1" Padding="12,0,6,0">
+          <TextBlock Text="{x:Bind Glance.ListSubtitle, Mode=OneWay}" FontSize="13" Foreground="{StaticResource Dim}" TextTrimming="CharacterEllipsis" Margin="0,-8,0,0"
+                     Visibility="{x:Bind Look.NordicOnly, Mode=OneWay}" />
+          <Border Height="36" CornerRadius="{x:Bind Look.FieldRadius, Mode=OneWay}" Background="Transparent" BorderBrush="{StaticResource Line}" BorderThickness="1" Padding="12,0,6,0">
             <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="8">
-              <controls:SIcon Kind="Search" Size="15" StrokeWidth="2" Foreground="{StaticResource Dim}" VerticalAlignment="Center" />
+              <controls:SIcon Kind="Search" Size="15" StrokeWidth="2" Foreground="{StaticResource Faint}" VerticalAlignment="Center" />
               <TextBox Grid.Column="1" x:Name="SearchBox" Style="{StaticResource TextBox.Bare}" PlaceholderText="Search mail" KeyDown="OnSearchKeyDown"
                        AutomationProperties.AutomationId="list.search" AutomationProperties.Name="Search mail" />
               <Border Grid.Column="2" Height="17" MinWidth="18" CornerRadius="5" BorderBrush="{StaticResource Line}" BorderThickness="1" Padding="5,0" VerticalAlignment="Center" IsHitTestVisible="False">
@@ -95,7 +98,7 @@
         <TextBlock Grid.Row="1" Text="{x:Bind List.Error, Mode=OneWay}" Foreground="{StaticResource RoseFg}" FontSize="12" TextWrapping="Wrap" Margin="20,0,20,8"
                    Visibility="{x:Bind views:Fmt.VisText(List.Error), Mode=OneWay}" AutomationProperties.AutomationId="list.error" AutomationProperties.Name="List error" />
 
-        <ListView Grid.Row="2" x:Name="Rows" ItemsSource="{x:Bind List.Rows}" ItemTemplateSelector="{StaticResource RowSelector}" SelectionMode="Single" Padding="0"
+        <ListView Grid.Row="2" x:Name="Rows" RenderTransformOrigin="0,0" ItemsSource="{x:Bind List.Rows}" ItemTemplateSelector="{StaticResource RowSelector}" SelectionMode="Single" Padding="{x:Bind Look.ListPadding, Mode=OneWay}"
                   SelectionChanged="OnSelectionChanged" ContainerContentChanging="OnContainerContentChanging" win:ShowsScrollingPlaceholders="False"
                   AutomationProperties.AutomationId="list.rows" AutomationProperties.Name="Message list">
           <win:ListView.ItemContainerTransitions>

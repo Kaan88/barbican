@@ -108,6 +108,10 @@ internal sealed partial class CommandRouter
 
             case "tree":
                 return Tree();
+            case "vstate":
+                return VisualState(root, line.Token(0), line.Token(1));
+            case "bounds":
+                return Bounds(root, line.Token(0));
             case "patterns":
                 return Patterns(line.Number(0), line.Number(1));
             case "shot":
@@ -365,6 +369,32 @@ internal sealed partial class CommandRouter
         }
 
         return sb.ToString();
+    }
+
+    /// <summary>
+    /// <c>vstate ID STATE</c>: puts the control with that AutomationId into a visual state (PointerOver, Normal, Pressed, ...) without any pointer.
+    /// The stand-in for hover in a hidden run, where no real pointer may move (docs/milestones/M1-look-gap.md, tools/lookdiff.py).
+    /// </summary>
+    private static string VisualState(FrameworkElement? root, string id, string state)
+    {
+        if (ElementSearch.ById(root, id) is not Control control)
+        {
+            return "error no control " + id;
+        }
+
+        return VisualStateManager.GoToState(control, state, false) ? "ok" : "error no state " + state;
+    }
+
+    /// <summary><c>bounds ID</c>: <c>X Y W H</c> of the element with that AutomationId, in logical px relative to the window content.</summary>
+    private static string Bounds(FrameworkElement? root, string id)
+    {
+        if (root is null || ElementSearch.ById(root, id) is not { } element || element.ActualWidth <= 0)
+        {
+            return "error no element " + id;
+        }
+
+        var p = element.TransformToVisual(root).TransformPoint(new global::Windows.Foundation.Point(0, 0));
+        return string.Create(CultureInfo.InvariantCulture, $"{p.X:0.#} {p.Y:0.#} {element.ActualWidth:0.#} {element.ActualHeight:0.#}");
     }
 
     /// <summary>XAML only (RenderTargetBitmap): no WebView2 content, no windowed popups.</summary>

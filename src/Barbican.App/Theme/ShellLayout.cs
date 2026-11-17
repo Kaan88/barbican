@@ -1,9 +1,11 @@
 // Mirrors: spec/layout/shell.md "Breakpoints and responsive rules" (app.slint:1722-1737); the explicit minimum window size is the open point of that file.
+// The sender panel beside the reader comes from the WinUI prototype (prototype/winui/MainWindow.xaml ContextTile); unlike the prototype, it hides
+// when the reader would get narrower than StyleMetrics.ContextMinReader (docs/milestones/M1-look-gap.md).
 
 namespace Barbican.App.Theme;
 
 /// <summary>Which regions show at a window width and how wide the columns are. Pure arithmetic, so the breakpoints are tested without a window.</summary>
-public readonly record struct ShellLayout(double WindowWidth, bool Nordic, bool SidebarShown, bool SummaryTilesShown, double ListWidth, double ReaderWidth)
+public readonly record struct ShellLayout(double WindowWidth, bool Nordic, bool SidebarShown, bool SummaryTilesShown, double ListWidth, double ReaderWidth, bool ContextShown = false)
 {
     /// <summary>The smallest window the C# app allows (spec/layout/shell.md suggests 960 x 640).</summary>
     public const double MinWidth = 960;
@@ -18,8 +20,15 @@ public readonly record struct ShellLayout(double WindowWidth, bool Nordic, bool 
     {
         var m = StyleMetrics.For(nordic);
         var list = m.ListWidth(windowWidth);
-        var fixedWidth = m.Pad + m.RailWidth + m.Gap + (sidebarShown ? m.SidebarWidth + m.Gap : 0) + list + m.Gap + m.Pad;
+        var fixedWidth = m.PadLeft + m.RailWidth + m.Gap + (sidebarShown ? m.SidebarWidth + m.Gap : 0) + list + m.Gap + m.Pad;
         var reader = Math.Max(0, windowWidth - fixedWidth);
-        return new ShellLayout(windowWidth, nordic, sidebarShown, !nordic && reader >= TilesMinReader, list, reader);
+        var withContext = reader - m.ContextWidth - m.Gap;
+        var context = withContext >= m.ContextMinReader;
+        if (context)
+        {
+            reader = withContext;
+        }
+
+        return new ShellLayout(windowWidth, nordic, sidebarShown, !nordic && reader >= TilesMinReader, list, reader, context);
     }
 }

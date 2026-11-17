@@ -11,114 +11,121 @@
     xmlns:views="using:Barbican.App.Views"
     xmlns:mail="using:Barbican.Presentation.Mail"
     xmlns:shell="using:Barbican.Presentation.Shell">
-  <!-- The folders column (spec/layout/shell.md "Folders sidebar"; BNMail aside, NordMail aside): Compose, the folders, the tags, the storage meter.
-       Bento: each section is a tile; Nordic: on the ground. Folders and tags come from SidebarViewModel (every refresh is a ListSync, so unchanged rows are not touched). -->
-  <Grid Width="{x:Bind Look.SidebarWidth, Mode=OneWay}" Padding="{x:Bind Look.SidebarPadding, Mode=OneWay}" RowSpacing="{x:Bind Look.SidebarSpacing, Mode=OneWay}"
-        RowDefinitions="Auto,*,Auto,Auto" AutomationProperties.AutomationId="sidebar" AutomationProperties.Name="Folders">
+  <!-- The folders column (spec/layout/shell.md "Folders sidebar"; BNMail aside, NordMail aside; prototype FolderTile): New message, the folders, the tags, storage.
+       Bento: the whole column is one tile; Nordic: it sits on the ground. Folders and tags come from SidebarViewModel (every refresh is a ListSync, so unchanged rows are not touched).
+       A folder row's name, icon and count take the row's foreground (Styles/Controls.xaml Template.FolderItem), so the selected row turns sel-text with no code.
+       The expand chevron of a parent folder sits after its name, so every folder icon stays in one column as in the prototype. -->
+  <Border Width="{x:Bind Look.SidebarWidth, Mode=OneWay}" Background="{x:Bind Look.SidebarBrush, Mode=OneWay}" BorderBrush="{StaticResource Line}"
+          BorderThickness="{x:Bind Look.SidebarBorder, Mode=OneWay}" CornerRadius="{x:Bind Look.SidebarRadius, Mode=OneWay}" Padding="{x:Bind Look.SidebarPadding, Mode=OneWay}">
+  <Grid RowDefinitions="Auto,*,Auto" AutomationProperties.AutomationId="sidebar" AutomationProperties.Name="Folders">
     <Grid.Resources>
       <DataTemplate x:Key="FolderTemplate" x:DataType="mail:FolderRowViewModel">
         <Grid Height="{x:Bind theme:StyleState.Current.FolderRowHeight, Mode=OneWay}" Padding="{x:Bind theme:StyleState.Current.FolderRowPadding, Mode=OneWay}"
-              Opacity="{x:Bind views:Fmt.MutedOpacity(Muted)}" ColumnSpacing="8" ColumnDefinitions="Auto,Auto,Auto,*,Auto,Auto">
-          <Border Width="{x:Bind views:Fmt.IndentPx(Depth)}" />
-          <Grid Grid.Column="1" Width="18" Height="18">
+              Opacity="{x:Bind views:Fmt.MutedOpacity(Muted)}" ColumnSpacing="10" ColumnDefinitions="Auto,*,Auto">
+          <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+            <Border Width="{x:Bind views:Fmt.IndentPx(Depth)}" />
+            <controls:SIcon Kind="{x:Bind views:Fmt.FolderIcon(Role)}" Size="18" Opacity="0.8" VerticalAlignment="Center"
+                            Visibility="{x:Bind theme:StyleState.Current.FolderIconVisibility, Mode=OneWay}" />
+          </StackPanel>
+          <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="2" VerticalAlignment="Center">
+            <TextBlock Text="{x:Bind Name}" FontSize="{x:Bind theme:StyleState.Current.FolderNameSize, Mode=OneWay}" FontWeight="{x:Bind views:Fmt.FolderWeight(Unread)}"
+                       VerticalAlignment="Center" TextTrimming="CharacterEllipsis" />
             <Button Style="{StaticResource Button.Icon}" Width="18" Height="18" CornerRadius="6" Foreground="{StaticResource Faint}" Click="OnChevronClick" Tag="{x:Bind Id}"
-                    Visibility="{x:Bind views:Fmt.VisChevron(Chevron)}" AutomationProperties.AutomationId="{x:Bind views:Fmt.ChevronId(Id)}" AutomationProperties.Name="Expand or collapse" IsTabStop="False">
-              <controls:SIcon Kind="{x:Bind views:Fmt.Chevron(Chevron)}" Size="12" StrokeWidth="2" />
+                    Visibility="{x:Bind views:Fmt.VisChevron(Chevron)}" AutomationProperties.AutomationId="{x:Bind views:Fmt.ChevronId(Id)}" AutomationProperties.Name="Expand or collapse"
+                    IsTabStop="False" VerticalAlignment="Center">
+              <controls:SIcon Kind="{x:Bind views:Fmt.Chevron(Chevron)}" Size="11" StrokeWidth="2" />
             </Button>
-          </Grid>
-          <controls:SIcon Grid.Column="2" Kind="{x:Bind views:Fmt.FolderIcon(Role)}" Size="16" StrokeWidth="1.8" Foreground="{StaticResource Dim}" VerticalAlignment="Center" />
-          <TextBlock Grid.Column="3" Text="{x:Bind Name}" FontSize="13.5" FontWeight="{x:Bind views:Fmt.FolderWeight(Unread)}" Foreground="{StaticResource Body}"
-                     VerticalAlignment="Center" TextTrimming="CharacterEllipsis" />
-          <controls:SIcon Grid.Column="4" Kind="Bell" Size="12" Foreground="{StaticResource Faint}" VerticalAlignment="Center" Visibility="{x:Bind views:Fmt.Vis(Muted)}"
-                          AutomationProperties.Name="Not subscribed" />
-          <StackPanel Grid.Column="5" Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
-            <Ellipse Width="6" Height="6" Fill="{StaticResource Accent}" Visibility="{x:Bind views:Fmt.Vis(ChildUnread)}" AutomationProperties.Name="Unread below" />
-            <TextBlock Text="{x:Bind Count}" FontSize="12" FontWeight="Bold" Foreground="{StaticResource Dim}" />
+          </StackPanel>
+          <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+            <controls:SIcon Kind="Bell" Size="12" Opacity="0.6" VerticalAlignment="Center" Visibility="{x:Bind views:Fmt.Vis(Muted)}" AutomationProperties.Name="Not subscribed" />
+            <Ellipse Width="6" Height="6" Fill="{StaticResource Accent}" Visibility="{x:Bind views:Fmt.Vis(ChildUnread)}" AutomationProperties.Name="Unread below" VerticalAlignment="Center" />
+            <TextBlock Text="{x:Bind Count}" FontSize="{x:Bind theme:StyleState.Current.FolderCountSize, Mode=OneWay}" FontWeight="{x:Bind theme:StyleState.Current.FolderCountWeight, Mode=OneWay}"
+                       Opacity="0.62" VerticalAlignment="Center" />
           </StackPanel>
         </Grid>
       </DataTemplate>
+      <!-- A tag row (prototype labels): a squircle dot in the tag colour and the name. -->
       <DataTemplate x:Key="TagTemplate" x:DataType="shell:TagRowViewModel">
-        <Border Background="{x:Bind theme:StyleState.Current.CardBrush, Mode=OneWay}" CornerRadius="{x:Bind theme:StyleState.Current.CardRadius, Mode=OneWay}" Padding="10,8"
-                AutomationProperties.AutomationId="{x:Bind Id}" AutomationProperties.Name="{x:Bind Label}">
-          <StackPanel Orientation="Horizontal" Spacing="8">
-            <Ellipse Width="9" Height="9" Fill="{x:Bind views:Fmt.Rgb(ColorRgb)}" VerticalAlignment="Center" />
-            <TextBlock Text="{x:Bind Label}" FontSize="12.5" FontWeight="SemiBold" Foreground="{StaticResource Body}" TextTrimming="CharacterEllipsis" />
-          </StackPanel>
-        </Border>
+        <Grid Padding="{x:Bind theme:StyleState.Current.TagRowPadding, Mode=OneWay}" ColumnSpacing="{x:Bind theme:StyleState.Current.TagSpacing, Mode=OneWay}" ColumnDefinitions="Auto,*"
+              AutomationProperties.AutomationId="{x:Bind Id}" AutomationProperties.Name="{x:Bind Label}">
+          <Border Width="10" Height="10" CornerRadius="4" Background="{x:Bind views:Fmt.Rgb(ColorRgb)}" VerticalAlignment="Center" />
+          <TextBlock Grid.Column="1" Text="{x:Bind Label}" FontSize="{x:Bind theme:StyleState.Current.TagNameSize, Mode=OneWay}" Foreground="{StaticResource Body}" TextTrimming="CharacterEllipsis" />
+        </Grid>
       </DataTemplate>
     </Grid.Resources>
 
-    <!-- Compose: shown, inert until M3. -->
+    <!-- New message: shown, inert until M3. -->
     <Button Grid.Row="0" x:Name="ComposeButton" Style="{StaticResource Button.Primary}" HorizontalAlignment="Stretch" IsEnabled="False"
             Height="{x:Bind Look.ComposeHeight, Mode=OneWay}" CornerRadius="{x:Bind Look.ComposeRadius, Mode=OneWay}" Margin="{x:Bind Look.ComposeMargin, Mode=OneWay}"
+            FontSize="{x:Bind Look.ComposeFontSize, Mode=OneWay}"
             AutomationProperties.AutomationId="sidebar.compose" AutomationProperties.Name="Compose">
       <StackPanel Orientation="Horizontal" Spacing="8">
-        <controls:SIcon Kind="Pen" Size="16" StrokeWidth="2.2" />
+        <controls:SIcon Kind="Pen" Size="18" Visibility="{x:Bind Look.BentoOnly, Mode=OneWay}" />
         <TextBlock Text="{x:Bind Look.ComposeLabel, Mode=OneWay}" />
       </StackPanel>
     </Button>
 
-    <!-- Folders -->
-    <Border Grid.Row="1" VerticalAlignment="Top" Background="{x:Bind Look.SectionBrush, Mode=OneWay}" BorderBrush="{StaticResource Line}" BorderThickness="{x:Bind Look.SectionBorder, Mode=OneWay}"
-            CornerRadius="{x:Bind Look.SectionRadius, Mode=OneWay}" Padding="{x:Bind Look.SectionPadding, Mode=OneWay}" MinHeight="120">
-      <Grid RowDefinitions="Auto,*">
-        <Grid ColumnDefinitions="*,Auto,Auto" Padding="{x:Bind Look.SectionHeaderPadding, Mode=OneWay}">
-          <Button Style="{StaticResource Button.Icon}" HorizontalAlignment="Left" Padding="0" Foreground="{StaticResource Dim}" Click="OnFoldersHeaderClick"
-                  AutomationProperties.AutomationId="sidebar.folders.toggle" AutomationProperties.Name="Folders section">
-            <StackPanel Orientation="Horizontal" Spacing="6">
-              <controls:SIcon Kind="{x:Bind views:Fmt.ChevronOf(Sidebar.FoldersExpanded), Mode=OneWay}" Size="12" StrokeWidth="2" VerticalAlignment="Center" />
-              <TextBlock Text="Folders" Style="{StaticResource Text.Label}" />
-            </StackPanel>
-          </Button>
-          <Button Grid.Column="1" Style="{StaticResource Button.Icon}" Width="22" Height="22" CornerRadius="8" IsEnabled="False" Foreground="{StaticResource Faint}"
-                  AutomationProperties.AutomationId="sidebar.folders.settings" AutomationProperties.Name="Folder settings">
-            <controls:SIcon Kind="Opt" Size="13" />
-          </Button>
-        </Grid>
-        <ListView Grid.Row="1" x:Name="FolderList" ContainerContentChanging="OnFolderContainerChanging" ItemsSource="{x:Bind Sidebar.Folders}" ItemTemplate="{StaticResource FolderTemplate}" SelectionMode="Single"
-                  Visibility="{x:Bind views:Fmt.Vis(Sidebar.FoldersExpanded), Mode=OneWay}" SelectionChanged="OnFolderSelectionChanged" Padding="0"
-                  AutomationProperties.AutomationId="sidebar.folders" AutomationProperties.Name="Folder list">
-          <win:ListView.ItemContainerTransitions>
-            <TransitionCollection />
-          </win:ListView.ItemContainerTransitions>
-        </ListView>
+    <!-- Folders and tags scroll together (prototype: one ScrollViewer under New message). -->
+    <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" HorizontalScrollMode="Disabled">
+    <StackPanel>
+    <!-- Folders: the heading folds the list (I-019); the settings button is M2. -->
+    <Grid ColumnDefinitions="*,Auto" Padding="{x:Bind Look.FirstSectionHeaderPadding, Mode=OneWay}">
+      <Button Style="{StaticResource Button.Icon}" HorizontalAlignment="Left" Padding="0" Click="OnFoldersHeaderClick" Foreground="{x:Bind Look.SectionHeaderBrush, Mode=OneWay}"
+              AutomationProperties.AutomationId="sidebar.folders.toggle" AutomationProperties.Name="Folders section">
+        <StackPanel Orientation="Horizontal" Spacing="6">
+          <TextBlock Text="{x:Bind views:Fmt.SectionTitle('Folders', Look.IsBento), Mode=OneWay}" FontSize="{x:Bind Look.SectionHeaderSize, Mode=OneWay}" FontWeight="Bold"
+                     CharacterSpacing="{x:Bind Look.SectionHeaderSpacing, Mode=OneWay}" />
+          <controls:SIcon Kind="{x:Bind views:Fmt.ChevronOf(Sidebar.FoldersExpanded), Mode=OneWay}" Size="10" StrokeWidth="2.2" VerticalAlignment="Center" Opacity="0.8" />
+        </StackPanel>
+      </Button>
+      <Button Grid.Column="1" Style="{StaticResource Button.Icon}" Width="22" Height="22" CornerRadius="8" IsEnabled="False" Foreground="{StaticResource Faint}" Margin="0,-4,0,-4"
+              AutomationProperties.AutomationId="sidebar.folders.settings" AutomationProperties.Name="Folder settings">
+        <controls:SIcon Kind="Opt" Size="13" />
+      </Button>
+    </Grid>
+    <ListView x:Name="FolderList" ContainerContentChanging="OnFolderContainerChanging" ItemsSource="{x:Bind Sidebar.Folders}" ItemTemplate="{StaticResource FolderTemplate}" SelectionMode="Single"
+              Visibility="{x:Bind views:Fmt.Vis(Sidebar.FoldersExpanded), Mode=OneWay}" SelectionChanged="OnFolderSelectionChanged" Padding="0"
+              AutomationProperties.AutomationId="sidebar.folders" AutomationProperties.Name="Folder list">
+      <win:ListView.ItemContainerTransitions>
+        <TransitionCollection />
+      </win:ListView.ItemContainerTransitions>
+    </ListView>
+
+    <!-- Tags (the prototype's labels). Creating one is M2. -->
+    <StackPanel Visibility="{x:Bind views:Fmt.VisCount(Sidebar.Tags.Count), Mode=OneWay}">
+      <Grid ColumnDefinitions="*,Auto" Padding="{x:Bind Look.SectionHeaderPadding, Mode=OneWay}">
+        <Button Style="{StaticResource Button.Icon}" HorizontalAlignment="Left" Padding="0" Click="OnTagsHeaderClick" Foreground="{x:Bind Look.SectionHeaderBrush, Mode=OneWay}"
+                AutomationProperties.AutomationId="sidebar.tags.toggle" AutomationProperties.Name="Tags section">
+          <StackPanel Orientation="Horizontal" Spacing="6">
+            <TextBlock Text="{x:Bind views:Fmt.SectionTitle('Tags', Look.IsBento), Mode=OneWay}" FontSize="{x:Bind Look.SectionHeaderSize, Mode=OneWay}" FontWeight="Bold"
+                       CharacterSpacing="{x:Bind Look.SectionHeaderSpacing, Mode=OneWay}" />
+            <controls:SIcon Kind="{x:Bind views:Fmt.ChevronOf(Sidebar.TagsExpanded), Mode=OneWay}" Size="10" StrokeWidth="2.2" VerticalAlignment="Center" Opacity="0.8" />
+          </StackPanel>
+        </Button>
+        <Button Grid.Column="1" Style="{StaticResource Button.Icon}" Width="22" Height="22" CornerRadius="8" IsEnabled="False" Foreground="{StaticResource Faint}" Margin="0,-4,0,-4"
+                AutomationProperties.AutomationId="sidebar.tags.add" AutomationProperties.Name="New tag">
+          <controls:SIcon Kind="Plus" Size="13" StrokeWidth="2" />
+        </Button>
       </Grid>
-    </Border>
+      <ItemsRepeater x:Name="TagRepeater" ItemsSource="{x:Bind Sidebar.Tags}" ItemTemplate="{StaticResource TagTemplate}" Visibility="{x:Bind views:Fmt.Vis(Sidebar.TagsExpanded), Mode=OneWay}"
+                     AutomationProperties.AutomationId="sidebar.tags" AutomationProperties.Name="Tag list">
+        <ItemsRepeater.Layout>
+          <StackLayout Orientation="Vertical" Spacing="2" />
+        </ItemsRepeater.Layout>
+      </ItemsRepeater>
+    </StackPanel>
+    </StackPanel>
+    </ScrollViewer>
 
-    <!-- Tags: a two-column grid of tiles in Bento, rows in Nordic (the layout is swapped once per style change). -->
-    <Border Grid.Row="2" Background="{x:Bind Look.SectionBrush, Mode=OneWay}" BorderBrush="{StaticResource Line}" BorderThickness="{x:Bind Look.SectionBorder, Mode=OneWay}"
-            CornerRadius="{x:Bind Look.SectionRadius, Mode=OneWay}" Padding="{x:Bind Look.SectionPadding, Mode=OneWay}" Visibility="{x:Bind views:Fmt.VisCount(Sidebar.Tags.Count), Mode=OneWay}">
-      <StackPanel>
-        <Grid ColumnDefinitions="*,Auto" Padding="{x:Bind Look.SectionHeaderPadding, Mode=OneWay}">
-          <Button Style="{StaticResource Button.Icon}" HorizontalAlignment="Left" Padding="0" Foreground="{StaticResource Dim}" Click="OnTagsHeaderClick"
-                  AutomationProperties.AutomationId="sidebar.tags.toggle" AutomationProperties.Name="Tags section">
-            <StackPanel Orientation="Horizontal" Spacing="6">
-              <controls:SIcon Kind="{x:Bind views:Fmt.ChevronOf(Sidebar.TagsExpanded), Mode=OneWay}" Size="12" StrokeWidth="2" VerticalAlignment="Center" />
-              <TextBlock Text="Tags" Style="{StaticResource Text.Label}" />
-            </StackPanel>
-          </Button>
-          <!-- Creating a label is M2. -->
-          <Button Grid.Column="1" Style="{StaticResource Button.Icon}" Width="22" Height="22" CornerRadius="8" IsEnabled="False" Foreground="{StaticResource Faint}"
-                  AutomationProperties.AutomationId="sidebar.tags.add" AutomationProperties.Name="New tag">
-            <controls:SIcon Kind="Plus" Size="13" StrokeWidth="2" />
-          </Button>
-        </Grid>
-        <ItemsRepeater x:Name="TagRepeater" ItemsSource="{x:Bind Sidebar.Tags}" ItemTemplate="{StaticResource TagTemplate}" Visibility="{x:Bind views:Fmt.Vis(Sidebar.TagsExpanded), Mode=OneWay}"
-                       AutomationProperties.AutomationId="sidebar.tags" AutomationProperties.Name="Tag list" />
-      </StackPanel>
-    </Border>
-
-    <!-- Storage (spec I-030): the meter and the text; the ring on the rail shows the same fraction. -->
-    <Border Grid.Row="3" Background="{x:Bind Look.SectionBrush, Mode=OneWay}" BorderBrush="{StaticResource Line}" BorderThickness="{x:Bind Look.SectionBorder, Mode=OneWay}"
-            CornerRadius="{x:Bind Look.StorageRadius, Mode=OneWay}" Padding="{x:Bind Look.StoragePadding, Mode=OneWay}" Visibility="{x:Bind views:Fmt.VisText(Sidebar.StorageText), Mode=OneWay}"
-            AutomationProperties.AutomationId="sidebar.storage" AutomationProperties.Name="Storage">
-      <StackPanel Spacing="8">
-        <TextBlock Text="{x:Bind Sidebar.StorageText, Mode=OneWay}" Style="{StaticResource Text.Meta}" />
-        <Grid x:Name="Meter" Height="6" Visibility="{x:Bind views:Fmt.VisStorage(Sidebar.StorageFraction), Mode=OneWay}" SizeChanged="OnMeterSizeChanged">
-          <Border CornerRadius="3" Background="{StaticResource Track}" />
-          <Border x:Name="MeterFill" CornerRadius="3" Background="{StaticResource Accent}" HorizontalAlignment="Left" Width="0" />
-        </Grid>
-      </StackPanel>
-    </Border>
+    <!-- Storage (spec I-030): the text and, in Bento, the meter; the ring on the rail shows the same fraction. -->
+    <StackPanel Grid.Row="2" Spacing="8" Padding="{x:Bind Look.StoragePadding, Mode=OneWay}" Visibility="{x:Bind views:Fmt.VisText(Sidebar.StorageText), Mode=OneWay}"
+                AutomationProperties.AutomationId="sidebar.storage" AutomationProperties.Name="Storage">
+      <TextBlock Text="{x:Bind Sidebar.StorageText, Mode=OneWay}" Style="{StaticResource Text.Meta}" />
+      <Grid x:Name="Meter" Height="5" Visibility="{x:Bind views:Fmt.VisStorageMeter(Sidebar.StorageFraction, Look.IsBento), Mode=OneWay}" SizeChanged="OnMeterSizeChanged">
+        <Border CornerRadius="2.5" Background="{StaticResource Track}" />
+        <Border x:Name="MeterFill" CornerRadius="2.5" Background="{StaticResource Accent}" HorizontalAlignment="Left" Width="0" />
+      </Grid>
+    </StackPanel>
   </Grid>
+  </Border>
 </UserControl>

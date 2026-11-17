@@ -61,7 +61,18 @@ public sealed partial class ShellScriptTests
         // the host's give-up path must not show a frame the shell never handled (no link handler, no dark pass)
         var code = Code.Value;
         Assert.Matches(@"finished\.add\(f\);", code);
-        Assert.Matches(@"reveal:\s*function\s*\(s\)\s*\{\s*if\s*\(s !== seq \|\| !nxt \|\| !finished\.has\(nxt\)\)\s*return;", code);
+        Assert.Matches(@"reveal:\s*function\s*\(s(,\s*ms)?\)\s*\{\s*if\s*\(s !== seq \|\| !nxt \|\| !finished\.has\(nxt\)\)\s*return;", code);
+    }
+
+    [Fact]
+    public void TheCrossFadeKeepsTheOldPageUnderTheNewOneUntilItEnds()
+    {
+        // docs/milestones/M1-look-gap.md: the incoming page fades in over the one on screen; the old one goes only after the fade
+        // (or at once when another reveal, a clear or no fade comes), so nothing blank shows in between
+        var code = Code.Value;
+        Assert.Matches(@"if\s*\(cur && ms > 0\)", code);
+        Assert.Matches(@"old = cur;\s*oldTimer = setTimeout\(dropOld, ms \+ 20\);", code);
+        Assert.Matches(@"function dropOld\(\)", code);
     }
 
     [Fact]

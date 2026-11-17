@@ -36,7 +36,9 @@
 // on below), keeps its marks in WeakSets instead of on the document, and reveals only a frame that
 // passed finish(). Core's MailSanitizer also drops such names; this is the other guard.
 (function () {
-  var cur = null, nxt = null, seq = 0;
+  var cur = null, nxt = null, seq = 0, old = null, oldTimer = 0;
+  // the frame a cross-fade is leaving: it stays under the new one until the fade ends, and goes at once when anything else happens
+  function dropOld() { if (oldTimer) { clearTimeout(oldTimer); oldTimer = 0; } if (old) { old.remove(); old = null; } }
   var DP = Document.prototype, EP = Element.prototype;
   var getter = function (n) { var x = Object.getOwnPropertyDescriptor(DP, n); return x && x.get; };
   var GET = { url: getter('URL'), body: getter('body'), root: getter('documentElement'), view: getter('defaultView'), state: getter('readyState') };
@@ -187,14 +189,27 @@
         setTimeout(poll, 1);
       })();
     },
-    reveal: function (s) {
+    reveal: function (s, ms) {
       // a frame the shell never finished is not shown (the host sends its error page instead, BodyShell.GiveUp)
       if (s !== seq || !nxt || !finished.has(nxt)) return;
       var f = nxt;
       nxt = null;
+      dropOld();
       document.documentElement.style.background = f._bg;
-      f.style.visibility = 'visible';
-      if (cur) cur.remove();
+      // The prototype's body cross-fade (docs/milestones/M1-look-gap.md): the finished page fades in over the one on screen, which stays
+      // until the fade ends, so nothing blank ever shows. ms is 0 with reduce motion and while keys repeat: then it swaps at once.
+      if (cur && ms > 0) {
+        f.style.opacity = '0';
+        f.style.transition = 'opacity ' + ms + 'ms cubic-bezier(0.2,0,0,1)';
+        f.style.visibility = 'visible';
+        void f.offsetHeight;
+        f.style.opacity = '1';
+        old = cur;
+        oldTimer = setTimeout(dropOld, ms + 20);
+      } else {
+        f.style.visibility = 'visible';
+        if (cur) cur.remove();
+      }
       cur = f;
     },
     cancel: function (s) { seq = s; if (nxt) { nxt.remove(); nxt = null; } },
@@ -202,6 +217,7 @@
     clear: function (bg) {
       seq++;
       if (nxt) { nxt.remove(); nxt = null; }
+      dropOld();
       if (cur) { cur.remove(); cur = null; }
       document.documentElement.style.background = bg;
     },
@@ -215,7 +231,7 @@
       if (!m || !m.op) return;
       switch (m.op) {
         case 'show': bb.show(m.seq, m.html, m.bg, m.sandbox === undefined ? null : m.sandbox, !!m.dark, m.size || null); break;
-        case 'reveal': bb.reveal(m.seq); break;
+        case 'reveal': bb.reveal(m.seq, +m.ms || 0); break;
         case 'cancel': bb.cancel(m.seq); break;
         case 'dim': bb.dim(!!m.on); break;
         case 'clear': bb.clear(m.bg); break;

@@ -1,0 +1,45 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!--
+    Hidden screenshot harness for the WinUI prototype (docs/milestones/M1-look-gap.md, tools/lookdiff.py).
+    It compiles the prototype's own sources unchanged (linked from ../winui) and replaces only the entry point
+    (CaptureApp.cs instead of App.xaml.cs): the window is shown off-screen, never activated (the HiddenWindow design of
+    src/Barbican.App/Composition/HiddenWindow.cs), the states are driven in process and rendered with RenderTargetBitmap.
+    Build: tools/build.ps1 build -Project prototype/capture/ProtoCapture.csproj
+    Run:   python tools/lookdiff.py proto  (or bin/x64/Debug/.../ProtoCapture.exe <outdir>)
+  -->
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0-windows10.0.19041.0</TargetFramework>
+    <TargetPlatformMinVersion>10.0.17763.0</TargetPlatformMinVersion>
+    <RootNamespace>Barbican</RootNamespace>
+    <AssemblyName>ProtoCapture</AssemblyName>
+    <Platforms>x64</Platforms>
+    <Platform>x64</Platform>
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <UseWinUI>true</UseWinUI>
+    <WindowsPackageType>None</WindowsPackageType>
+    <WindowsAppSDKSelfContained>true</WindowsAppSDKSelfContained>
+    <SelfContained>true</SelfContained>
+    <ApplicationManifest>../winui/app.manifest</ApplicationManifest>
+    <Nullable>disable</Nullable>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <EnableDefaultPageItems>false</EnableDefaultPageItems>
+    <EnableDefaultApplicationDefinition>false</EnableDefaultApplicationDefinition>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+  </PropertyGroup>
+  <ItemGroup>
+    <ApplicationDefinition Include="../winui/App.xaml" Link="App.xaml" />
+    <Page Include="../winui/MainWindow.xaml" Link="MainWindow.xaml" />
+    <Compile Include="../winui/MainWindow.xaml.cs" Link="MainWindow.xaml.cs" />
+    <Compile Include="../winui/Palette.cs" Link="Palette.cs" />
+    <Compile Include="../winui/SIcon.cs" Link="SIcon.cs" />
+    <Compile Include="../winui/Data.cs" Link="Data.cs" />
+    <Compile Include="../winui/MailHtml.cs" Link="MailHtml.cs" />
+    <Compile Include="CaptureApp.cs" />
+    <Compile Include="CaptureDriver.cs" />
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.WindowsAppSDK" Version="2.6.5" />
+    <PackageReference Include="Microsoft.Windows.SDK.BuildTools" Version="10.0.26100.4654" />
+  </ItemGroup>
+</Project>

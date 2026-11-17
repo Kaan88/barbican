@@ -33,6 +33,7 @@
   <SolidColorBrush x:Key="Rail" Color="#FF0A0A0A" />
   <SolidColorBrush x:Key="Side" Color="#FF141414" />
   <SolidColorBrush x:Key="Hover" Color="#FF1F1F1F" />
+  <SolidColorBrush x:Key="Pressed" Color="#FF282828" />
   <SolidColorBrush x:Key="Chip" Color="#FF262626" />
   <SolidColorBrush x:Key="Raised" Color="#FF1A1A1A" />
   <SolidColorBrush x:Key="Zebra" Color="#FF111111" />

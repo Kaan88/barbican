@@ -823,3 +823,41 @@ mail screen. Commits 15223c7, aa77c20, 56038a3.
 - **User state left as found:** `%APPDATA%/Barbican-dev` and the credentials `Barbican.Next/dev/session`, `.../accounts`
   (the pre-F-05 single-entry layout) were only listed. The new build migrates them on the first start (ADR 0008 amendment)
   and should restore the account without the form.
+
+## M1 look (stream: m1-look)
+
+HAND TEST 1: "does not look or feel like the concept winui3 build". The gap, the choices and the numbers are in
+docs/milestones/M1-look-gap.md.
+
+- **Icon colour bug (fixed, worth a second look).** `SIcon` bound its stroke to its own `Foreground`. Control.Foreground is not
+  inherited into a template's content, so every icon without a local Foreground drew in the theme default. That is whitish in dark
+  and almost invisible in light (rail, toolbar, folder icons). SIcon now binds, once it is loaded, to the nearest ContentPresenter's
+  Foreground, and the button templates pass their Foreground to it.
+  - Check: does an icon that is re-parented after Loaded (virtualised list containers) keep the right source?
+- **Prototype preferred over the mockups.** Seven places are listed in the gap file: Bento selection card, the "B" mark, label rows,
+  "New message", the reader order, a one-tile sidebar, and Segoe UI. Review them against design/README.md: the design language
+  file still describes the mockups.
+- **Motion that deviates from the prototype** to stay within design/MOTION.md:
+  - one block rise instead of the staggered per-row entrance;
+  - 150 ms instead of 220 / 260 ms on a style switch;
+  - the header rise runs on every switch (the prototype's ran only on first load, because of a bug in the prototype).
+
+  Check the header rise for feel during slow `j` presses. It is skipped only while keys repeat.
+- **Body cross-fade.** shell.js keeps the old frame under the new one for the fade (110 ms + 20 ms) and then removes it.
+  - Two frames are alive for that time, which doubles the memory of two large mails for about 130 ms.
+  - `print` and `dim` act on the new frame only.
+- **The flicker rule gives a false positive on a sparse target folder.** `m1_scenarios` folder_click flags BLANK on the list region
+  because Sent in the sample data has one row. flicker.py compares every frame with the first and the last frame, not with the
+  settled target. Either pick a folder with as many rows, or give the rule a target baseline. The run before the port showed
+  0 only because its `select m3` changed nothing.
+- **Sender panel** (new `Views/Context/ContextView`).
+  - It reads the sender's other messages from the loaded list rows only; no request is made.
+  - It hides below a 420 px reader, which the prototype never does.
+  - Its data is display-only, and no action is wired.
+- **Body typography is not ported** (prototype 15 / 16 px, line height 1.6 / 1.8, Nordic 600 px measure). It belongs to
+  MailPageBuilder / sizing. Decide whether M2 should adopt it.
+- **The drift check** (`tools/lookdiff.py check`) compares 12 RenderTargetBitmap pictures against `docs/milestones/M1-look/ref/`
+  at 2 %.
+  - Sample data that depends on the time of day (the Nordic greeting, relative dates) can move a few pixels. It was 0.00 % on the
+    same day.
+  - It is a script, not a test in `tools/build.ps1 test`, because it needs a running hidden AUTOMATION build.

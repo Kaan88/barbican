@@ -1,12 +1,16 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-  Control styles of the design language (design/README.md, spec/layout/shell.md "Common controls").
+  Control styles of the design language (design/README.md, spec/layout/shell.md "Common controls"), matched to the WinUI prototype the user approved
+  (prototype/winui/App.xaml: lightweight button styling, RowItem / NordRowItem / FolderItem / NordFolderItem; docs/milestones/M1-look-gap.md).
   Every colour is one of the shared palette brushes of Themes/Tokens.xaml (rewritten in place on a theme flip, so a style
   never re-resolves). Shapes that differ between Bento and Nordic are not here: views bind them to StyleState, and the list
   item styles come in a Bento and a Nordic variant that a list swaps once per style change.
-  Rules (design/MOTION.md): no animation gates input; feedback is the instant visual state, no transitions on list items.
+  Rules (design/MOTION.md): no animation gates input; feedback is the instant visual state (setters), no transitions on list items.
 -->
 <ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+
+  <!-- The prototype's text face: Segoe UI (not the WinUI default Segoe UI Variable, whose wider, rounder cuts made M1 read differently). -->
+  <FontFamily x:Key="ContentControlThemeFontFamily">Segoe UI</FontFamily>
 
   <!-- Text -->
   <Style x:Key="Text.Body" TargetType="TextBlock">
@@ -25,10 +29,12 @@
     <Setter Property="FontWeight" Value="Bold" />
   </Style>
 
-  <!-- Buttons: one template, four looks. The corner radius is set on the instance (StyleState). -->
+  <!-- Buttons: one template, four looks. The corner radius is set on the instance (StyleState). The content presenter carries the button's
+       foreground, so a line icon inside (Controls/SIcon) strokes in the button's colour. -->
   <ControlTemplate x:Key="Template.Button" TargetType="Button">
     <Border x:Name="Box" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="{TemplateBinding CornerRadius}" Padding="{TemplateBinding Padding}">
-      <ContentPresenter x:Name="Content" Content="{TemplateBinding Content}" ContentTemplate="{TemplateBinding ContentTemplate}" HorizontalContentAlignment="{TemplateBinding HorizontalContentAlignment}" VerticalContentAlignment="{TemplateBinding VerticalContentAlignment}" />
+      <ContentPresenter x:Name="Content" Content="{TemplateBinding Content}" ContentTemplate="{TemplateBinding ContentTemplate}" Foreground="{TemplateBinding Foreground}"
+                        HorizontalContentAlignment="{TemplateBinding HorizontalContentAlignment}" VerticalContentAlignment="{TemplateBinding VerticalContentAlignment}" />
       <VisualStateManager.VisualStateGroups>
         <VisualStateGroup x:Name="CommonStates">
           <VisualState x:Name="Normal" />
@@ -39,7 +45,8 @@
           </VisualState>
           <VisualState x:Name="Pressed">
             <VisualState.Setters>
-              <Setter Target="Box.Background" Value="{StaticResource Track}" />
+              <Setter Target="Box.Background" Value="{StaticResource Pressed}" />
+              <Setter Target="Box.BorderBrush" Value="{StaticResource Track}" />
             </VisualState.Setters>
           </VisualState>
           <VisualState x:Name="Disabled">
@@ -52,21 +59,18 @@
     </Border>
   </ControlTemplate>
 
-  <!-- Accent buttons keep their colour on hover and dim a little instead. -->
+  <!-- Accent buttons keep their colour on hover (prototype: ButtonBackgroundPointerOver = Accent) and dim a little when pressed. -->
   <ControlTemplate x:Key="Template.AccentButton" TargetType="Button">
     <Border x:Name="Box" Background="{TemplateBinding Background}" CornerRadius="{TemplateBinding CornerRadius}" Padding="{TemplateBinding Padding}">
-      <ContentPresenter x:Name="Content" Content="{TemplateBinding Content}" ContentTemplate="{TemplateBinding ContentTemplate}" HorizontalContentAlignment="{TemplateBinding HorizontalContentAlignment}" VerticalContentAlignment="{TemplateBinding VerticalContentAlignment}" />
+      <ContentPresenter x:Name="Content" Content="{TemplateBinding Content}" ContentTemplate="{TemplateBinding ContentTemplate}" Foreground="{TemplateBinding Foreground}"
+                        HorizontalContentAlignment="{TemplateBinding HorizontalContentAlignment}" VerticalContentAlignment="{TemplateBinding VerticalContentAlignment}" />
       <VisualStateManager.VisualStateGroups>
         <VisualStateGroup x:Name="CommonStates">
           <VisualState x:Name="Normal" />
-          <VisualState x:Name="PointerOver">
-            <VisualState.Setters>
-              <Setter Target="Box.Opacity" Value="0.92" />
-            </VisualState.Setters>
-          </VisualState>
+          <VisualState x:Name="PointerOver" />
           <VisualState x:Name="Pressed">
             <VisualState.Setters>
-              <Setter Target="Box.Opacity" Value="0.82" />
+              <Setter Target="Box.Opacity" Value="0.88" />
             </VisualState.Setters>
           </VisualState>
           <VisualState x:Name="Disabled">
@@ -90,15 +94,16 @@
     <Setter Property="UseSystemFocusVisuals" Value="True" />
   </Style>
 
+  <!-- The prototype's default button: no fill, a hairline, body text (Reply / Forward / Archive pills, sender-panel buttons). -->
   <Style x:Key="Button.Action" TargetType="Button">
     <Setter Property="Template" Value="{StaticResource Template.Button}" />
-    <Setter Property="Background" Value="{StaticResource Tile2}" />
+    <Setter Property="Background" Value="Transparent" />
     <Setter Property="BorderBrush" Value="{StaticResource Line}" />
     <Setter Property="BorderThickness" Value="1" />
-    <Setter Property="Foreground" Value="{StaticResource Text}" />
-    <Setter Property="FontSize" Value="12.5" />
+    <Setter Property="Foreground" Value="{StaticResource Body}" />
+    <Setter Property="FontSize" Value="13" />
     <Setter Property="FontWeight" Value="SemiBold" />
-    <Setter Property="Padding" Value="12,0" />
+    <Setter Property="Padding" Value="14,0,16,0" />
     <Setter Property="HorizontalContentAlignment" Value="Center" />
     <Setter Property="VerticalContentAlignment" Value="Center" />
     <Setter Property="UseSystemFocusVisuals" Value="True" />
@@ -108,7 +113,7 @@
     <Setter Property="Template" Value="{StaticResource Template.AccentButton}" />
     <Setter Property="Background" Value="{StaticResource Accent}" />
     <Setter Property="Foreground" Value="{StaticResource OnAccent}" />
-    <Setter Property="FontSize" Value="14.5" />
+    <Setter Property="FontSize" Value="14" />
     <Setter Property="FontWeight" Value="Bold" />
     <Setter Property="Padding" Value="20,0" />
     <Setter Property="HorizontalContentAlignment" Value="Center" />
@@ -124,9 +129,9 @@
     <Setter Property="Foreground" Value="{StaticResource Dim}" />
     <Setter Property="FontSize" Value="12" />
     <Setter Property="FontWeight" Value="SemiBold" />
-    <Setter Property="Height" Value="28" />
-    <Setter Property="Padding" Value="12,0" />
-    <Setter Property="CornerRadius" Value="14" />
+    <Setter Property="Height" Value="30" />
+    <Setter Property="Padding" Value="13,0" />
+    <Setter Property="CornerRadius" Value="15" />
     <Setter Property="UseSystemFocusVisuals" Value="True" />
   </Style>
 
@@ -148,11 +153,11 @@
     <Setter Property="AcceptsReturn" Value="False" />
   </Style>
 
-  <!-- List items: instant feedback, no transitions. The two variants differ in shape only. -->
-  <ControlTemplate x:Key="Template.ListItem" TargetType="ListViewItem">
+  <!-- Message rows, Bento (prototype RowItem): no frame at rest; hover fills, the selected row is a raised card (tile2 and a hairline). Instant states. -->
+  <ControlTemplate x:Key="Template.ListItem.Bento" TargetType="ListViewItem">
     <Grid x:Name="Root" Background="Transparent" Margin="{TemplateBinding Padding}">
-      <Border x:Name="Box" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="{TemplateBinding CornerRadius}" />
-      <Rectangle x:Name="Bar" Width="3" HorizontalAlignment="Left" VerticalAlignment="Stretch" Margin="0,14" RadiusX="1.5" RadiusY="1.5" Fill="{StaticResource Accent}" Visibility="Collapsed" />
+      <Border x:Name="Box" Background="Transparent" CornerRadius="{TemplateBinding CornerRadius}" />
+      <Border x:Name="SelLine" BorderBrush="{StaticResource Line}" BorderThickness="1" CornerRadius="{TemplateBinding CornerRadius}" Opacity="0" />
       <ContentPresenter x:Name="Content" Content="{TemplateBinding Content}" ContentTemplate="{TemplateBinding ContentTemplate}" HorizontalContentAlignment="Stretch" VerticalContentAlignment="Stretch" />
       <VisualStateManager.VisualStateGroups>
         <VisualStateGroup x:Name="CommonStates">
@@ -164,25 +169,25 @@
           </VisualState>
           <VisualState x:Name="Pressed">
             <VisualState.Setters>
-              <Setter Target="Box.Background" Value="{StaticResource Hover}" />
+              <Setter Target="Box.Background" Value="{StaticResource Pressed}" />
             </VisualState.Setters>
           </VisualState>
           <VisualState x:Name="Selected">
             <VisualState.Setters>
               <Setter Target="Box.Background" Value="{StaticResource Tile2}" />
-              <Setter Target="Bar.Visibility" Value="Visible" />
+              <Setter Target="SelLine.Opacity" Value="1" />
             </VisualState.Setters>
           </VisualState>
           <VisualState x:Name="PointerOverSelected">
             <VisualState.Setters>
               <Setter Target="Box.Background" Value="{StaticResource Tile2}" />
-              <Setter Target="Bar.Visibility" Value="Visible" />
+              <Setter Target="SelLine.Opacity" Value="1" />
             </VisualState.Setters>
           </VisualState>
           <VisualState x:Name="PressedSelected">
             <VisualState.Setters>
-              <Setter Target="Box.Background" Value="{StaticResource Tile2}" />
-              <Setter Target="Bar.Visibility" Value="Visible" />
+              <Setter Target="Box.Background" Value="{StaticResource Pressed}" />
+              <Setter Target="SelLine.Opacity" Value="1" />
             </VisualState.Setters>
           </VisualState>
         </VisualStateGroup>
@@ -190,10 +195,11 @@
     </Grid>
   </ControlTemplate>
 
-  <!-- Folder rows: the selected one is the "sel" pill (Bento radius 14, Nordic 22). -->
-  <ControlTemplate x:Key="Template.FolderItem" TargetType="ListViewItem">
+  <!-- Message rows, Nordic (prototype NordRowItem): full-width rows; the selected one is tile2 with the accent bar down its whole left edge. -->
+  <ControlTemplate x:Key="Template.ListItem.Nordic" TargetType="ListViewItem">
     <Grid x:Name="Root" Background="Transparent" Margin="{TemplateBinding Padding}">
-      <Border x:Name="Box" Background="Transparent" CornerRadius="{TemplateBinding CornerRadius}" />
+      <Border x:Name="Box" Background="Transparent" />
+      <Rectangle x:Name="Bar" Width="3" HorizontalAlignment="Left" VerticalAlignment="Stretch" Fill="{StaticResource Accent}" Opacity="0" />
       <ContentPresenter x:Name="Content" Content="{TemplateBinding Content}" ContentTemplate="{TemplateBinding ContentTemplate}" HorizontalContentAlignment="Stretch" VerticalContentAlignment="Stretch" />
       <VisualStateManager.VisualStateGroups>
         <VisualStateGroup x:Name="CommonStates">
@@ -205,22 +211,68 @@
           </VisualState>
           <VisualState x:Name="Pressed">
             <VisualState.Setters>
+              <Setter Target="Box.Background" Value="{StaticResource Pressed}" />
+            </VisualState.Setters>
+          </VisualState>
+          <VisualState x:Name="Selected">
+            <VisualState.Setters>
+              <Setter Target="Box.Background" Value="{StaticResource Tile2}" />
+              <Setter Target="Bar.Opacity" Value="1" />
+            </VisualState.Setters>
+          </VisualState>
+          <VisualState x:Name="PointerOverSelected">
+            <VisualState.Setters>
+              <Setter Target="Box.Background" Value="{StaticResource Tile2}" />
+              <Setter Target="Bar.Opacity" Value="1" />
+            </VisualState.Setters>
+          </VisualState>
+          <VisualState x:Name="PressedSelected">
+            <VisualState.Setters>
+              <Setter Target="Box.Background" Value="{StaticResource Pressed}" />
+              <Setter Target="Bar.Opacity" Value="1" />
+            </VisualState.Setters>
+          </VisualState>
+        </VisualStateGroup>
+      </VisualStateManager.VisualStateGroups>
+    </Grid>
+  </ControlTemplate>
+
+  <!-- Folder rows (prototype FolderItem / NordFolderItem): the selected one is the "sel" pill and its text turns sel-text (Bento radius 14, Nordic 22).
+       The row's name, icon and count take the presenter's foreground, so the selected state recolours them without touching the rows. -->
+  <ControlTemplate x:Key="Template.FolderItem" TargetType="ListViewItem">
+    <Grid x:Name="Root" Background="Transparent" Margin="{TemplateBinding Padding}">
+      <Border x:Name="Box" Background="Transparent" CornerRadius="{TemplateBinding CornerRadius}" />
+      <ContentPresenter x:Name="Content" Content="{TemplateBinding Content}" ContentTemplate="{TemplateBinding ContentTemplate}" Foreground="{StaticResource Body}"
+                        HorizontalContentAlignment="Stretch" VerticalContentAlignment="Stretch" />
+      <VisualStateManager.VisualStateGroups>
+        <VisualStateGroup x:Name="CommonStates">
+          <VisualState x:Name="Normal" />
+          <VisualState x:Name="PointerOver">
+            <VisualState.Setters>
               <Setter Target="Box.Background" Value="{StaticResource Hover}" />
+            </VisualState.Setters>
+          </VisualState>
+          <VisualState x:Name="Pressed">
+            <VisualState.Setters>
+              <Setter Target="Box.Background" Value="{StaticResource Pressed}" />
             </VisualState.Setters>
           </VisualState>
           <VisualState x:Name="Selected">
             <VisualState.Setters>
               <Setter Target="Box.Background" Value="{StaticResource Sel}" />
+              <Setter Target="Content.Foreground" Value="{StaticResource SelText}" />
             </VisualState.Setters>
           </VisualState>
           <VisualState x:Name="PointerOverSelected">
             <VisualState.Setters>
               <Setter Target="Box.Background" Value="{StaticResource Sel}" />
+              <Setter Target="Content.Foreground" Value="{StaticResource SelText}" />
             </VisualState.Setters>
           </VisualState>
           <VisualState x:Name="PressedSelected">
             <VisualState.Setters>
-              <Setter Target="Box.Background" Value="{StaticResource Sel}" />
+              <Setter Target="Box.Background" Value="{StaticResource Pressed}" />
+              <Setter Target="Content.Foreground" Value="{StaticResource SelText}" />
             </VisualState.Setters>
           </VisualState>
         </VisualStateGroup>
@@ -229,23 +281,20 @@
   </ControlTemplate>
 
   <Style x:Key="ListItem.Message.Bento" TargetType="ListViewItem">
-    <Setter Property="Template" Value="{StaticResource Template.ListItem}" />
-    <Setter Property="Padding" Value="8,0" />
+    <Setter Property="Template" Value="{StaticResource Template.ListItem.Bento}" />
+    <Setter Property="Padding" Value="8,1" />
     <Setter Property="Margin" Value="0" />
     <Setter Property="MinHeight" Value="0" />
     <Setter Property="HorizontalContentAlignment" Value="Stretch" />
-    <Setter Property="BorderBrush" Value="{StaticResource Line}" />
-    <Setter Property="BorderThickness" Value="1" />
     <Setter Property="CornerRadius" Value="18" />
     <Setter Property="UseSystemFocusVisuals" Value="False" />
   </Style>
   <Style x:Key="ListItem.Message.Nordic" TargetType="ListViewItem">
-    <Setter Property="Template" Value="{StaticResource Template.ListItem}" />
+    <Setter Property="Template" Value="{StaticResource Template.ListItem.Nordic}" />
     <Setter Property="Padding" Value="0" />
     <Setter Property="Margin" Value="0" />
     <Setter Property="MinHeight" Value="0" />
     <Setter Property="HorizontalContentAlignment" Value="Stretch" />
-    <Setter Property="BorderThickness" Value="0" />
     <Setter Property="CornerRadius" Value="0" />
     <Setter Property="UseSystemFocusVisuals" Value="False" />
   </Style>
@@ -260,7 +309,7 @@
   </Style>
   <Style x:Key="ListItem.Folder.Nordic" TargetType="ListViewItem">
     <Setter Property="Template" Value="{StaticResource Template.FolderItem}" />
-    <Setter Property="Padding" Value="0,2" />
+    <Setter Property="Padding" Value="0,1" />
     <Setter Property="Margin" Value="0" />
     <Setter Property="MinHeight" Value="0" />
     <Setter Property="HorizontalContentAlignment" Value="Stretch" />

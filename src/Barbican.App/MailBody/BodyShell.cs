@@ -413,7 +413,9 @@ public sealed partial class BodyShell : IBodyPresenter, IStartupTask, IDisposabl
 
         _current = (p.Request, p.Page, p.Allow);
         PaintHost(p.Page.Background);
-        Command("reveal", seq);
+        // the body cross-fades in on the view token, never while keys repeat (design/MOTION.md rules 2 and 4)
+        var scale = Motion.MotionRuntime.Scale;
+        Command("reveal", seq, fadeMs: scale.Rapid ? 0 : scale.ViewMs);
         StateChanged?.Invoke(this, EventArgs.Empty);
         p.Request.OnShown?.Invoke();
     }
@@ -511,7 +513,7 @@ public sealed partial class BodyShell : IBodyPresenter, IStartupTask, IDisposabl
     }
 
     // One command to the shell: a web message on Windows (one ordered channel for every command, large pages included), a script call on Linux.
-    private void Command(string op, long seq = 0, string? html = null, string? bg = null, string? sandbox = null, bool on = false, MailPage? page = null)
+    private void Command(string op, long seq = 0, string? html = null, string? bg = null, string? sandbox = null, bool on = false, MailPage? page = null, double fadeMs = 0)
     {
 #if WINDOWS
         var buffer = new ArrayBufferWriter<byte>(html is null ? 128 : html.Length + 256);
@@ -520,6 +522,11 @@ public sealed partial class BodyShell : IBodyPresenter, IStartupTask, IDisposabl
             w.WriteStartObject();
             w.WriteString("op", op);
             w.WriteNumber("seq", seq);
+            if (fadeMs > 0)
+            {
+                w.WriteNumber("ms", Math.Round(fadeMs));
+            }
+
             if (html is not null)
             {
                 w.WriteString("html", html);
@@ -559,7 +566,7 @@ public sealed partial class BodyShell : IBodyPresenter, IStartupTask, IDisposabl
         var js = op switch
         {
             "show" => $"window.__bb&&__bb.show({s},{Json(html!)},{Json(bg!)},{Json(sandbox!)},{(page?.Dark == true ? "true" : "false")},{SizeJs(page?.Sizing)})",
-            "reveal" => $"window.__bb&&__bb.reveal({s})",
+            "reveal" => $"window.__bb&&__bb.reveal({s},{Math.Round(fadeMs).ToString(CultureInfo.InvariantCulture)})",
             "cancel" => $"window.__bb&&__bb.cancel({s})",
             "dim" => $"window.__bb&&__bb.dim({(on ? "true" : "false")})",
             "clear" => $"window.__bb&&__bb.clear({Json(bg!)})",

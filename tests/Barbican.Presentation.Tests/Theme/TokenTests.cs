@@ -76,6 +76,7 @@ public sealed partial class TokenTests
     [InlineData("MintBg", 0x2134D399, 0x2134D399, 0xFFDCF5E8, 0xFFDCF5E8)]
     [InlineData("AmberFg", 0xFFFCD679, 0xFFFCD679, 0xFF7A4A06, 0xFF7A4A06)]
     [InlineData("Hover", 0xFF1F1F1F, 0xFF1F1F1F, 0xFFF2F2F3, 0xFFF2F2F3)]
+    [InlineData("Pressed", 0xFF282828, 0xFF282828, 0xFFE9E9EB, 0xFFE9E9EB)]
     [InlineData("Bg", 0xFF0A0A0A, 0xFF0A0A0A, 0xFFF4F4F5, 0xFFF4F4F5)]
     public void Palette_matches_hand_copied_slint_values(string key, uint darkNormal, uint darkMore, uint lightNormal, uint lightMore)
     {
