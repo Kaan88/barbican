@@ -11,5 +11,8 @@ public interface IUndoService
 
     Task<bool> UndoLatestAsync(CancellationToken ct);
 
+    /// <summary>Undoes one entry (the toast's Undo button) and takes it off the history so it runs once; false when it was already undone or dropped.</summary>
+    Task<bool> UndoAsync(UndoEntry entry, CancellationToken ct);
+
     IReadOnlyList<UndoEntry> History { get; }
 }

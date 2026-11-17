@@ -15,6 +15,12 @@ public interface IMailWriter
 
     Task<Result<SetReport>> MoveAsync(IReadOnlyList<string> emailIds, string? fromMailboxId, string toMailboxId, CancellationToken ct);
 
+    /// <summary>Moves messages to one folder (the whole folder set is replaced) and changes keywords in the same patch: junk ($junk), trash-and-read ($seen). Bulwark markAsSpam :4577.</summary>
+    Task<Result<SetReport>> MoveWithKeywordsAsync(IReadOnlyList<string> emailIds, string toMailboxId, IReadOnlyDictionary<string, bool> keywords, CancellationToken ct);
+
+    /// <summary>Takes messages out of one folder and leaves them in the others (a pointer patch; labels mode). Bulwark removeEmailsFromMailbox :4360.</summary>
+    Task<Result<SetReport>> RemoveFromMailboxAsync(IReadOnlyList<string> emailIds, string mailboxId, CancellationToken ct);
+
     Task<Result<SetReport>> SetMailboxIdsAsync(IReadOnlyDictionary<string, IReadOnlyDictionary<string, bool>> mailboxIdsById, CancellationToken ct);
 
     Task<Result<SetReport>> DestroyAsync(IReadOnlyList<string> emailIds, CancellationToken ct);

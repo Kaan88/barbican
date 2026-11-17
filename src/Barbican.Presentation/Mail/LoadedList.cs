@@ -51,6 +51,82 @@ public sealed class LoadedList
         }
     }
 
+    /// <summary>
+    /// Optimistic removal (a delete, move or archive the server has not answered yet): the messages leave at once and the total drops by what
+    /// left. Returns each removed message with its index, so a failed write puts it back where it was. A push delta that names the same ids
+    /// afterwards finds nothing to remove and, without a total of its own, leaves the count alone: it does not apply twice.
+    /// </summary>
+    public IReadOnlyList<(int Index, EmailSummary Email)> Remove(IReadOnlyCollection<string> ids)
+    {
+        ArgumentNullException.ThrowIfNull(ids);
+        var gone = new HashSet<string>(ids, StringComparer.Ordinal);
+        var removed = new List<(int, EmailSummary)>();
+        for (var i = 0; i < _emails.Count; i++)
+        {
+            if (gone.Contains(_emails[i].Id))
+            {
+                removed.Add((i, _emails[i]));
+            }
+        }
+
+        for (var i = removed.Count - 1; i >= 0; i--)
+        {
+            _emails.RemoveAt(removed[i].Item1);
+        }
+
+        Total = Math.Max(0, Total - removed.Count);
+        return removed;
+    }
+
+    /// <summary>Puts messages back at the indices <see cref="Remove"/> returned, and the total with them.</summary>
+    public void Restore(IReadOnlyList<(int Index, EmailSummary Email)> removed)
+    {
+        ArgumentNullException.ThrowIfNull(removed);
+        foreach (var (index, email) in removed.OrderBy(r => r.Index))
+        {
+            if (_emails.Exists(e => string.Equals(e.Id, email.Id, StringComparison.Ordinal)))
+            {
+                continue;
+            }
+
+            _emails.Insert(Math.Min(index, _emails.Count), email);
+            Total++;
+        }
+    }
+
+    /// <summary>Replaces each loaded message among <paramref name="ids"/> by <paramref name="change"/> of it; returns what each one was.</summary>
+    public IReadOnlyList<EmailSummary> Patch(IReadOnlyCollection<string> ids, Func<EmailSummary, EmailSummary> change)
+    {
+        ArgumentNullException.ThrowIfNull(ids);
+        ArgumentNullException.ThrowIfNull(change);
+        var before = new List<EmailSummary>();
+        var wanted = new HashSet<string>(ids, StringComparer.Ordinal);
+        for (var i = 0; i < _emails.Count; i++)
+        {
+            if (wanted.Contains(_emails[i].Id))
+            {
+                before.Add(_emails[i]);
+                _emails[i] = change(_emails[i]);
+            }
+        }
+
+        return before;
+    }
+
+    /// <summary>Puts earlier copies of messages back (a failed write): each takes the place of the loaded message with its id.</summary>
+    public void Put(IReadOnlyList<EmailSummary> copies)
+    {
+        ArgumentNullException.ThrowIfNull(copies);
+        foreach (var copy in copies)
+        {
+            var at = _emails.FindIndex(e => string.Equals(e.Id, copy.Id, StringComparison.Ordinal));
+            if (at >= 0)
+            {
+                _emails[at] = copy;
+            }
+        }
+    }
+
     /// <summary>Applies a delta: remove every removed id, insert the added ones by ascending index, replace rows updated in place, update sizes.</summary>
     public void Apply(ListDelta delta)
     {

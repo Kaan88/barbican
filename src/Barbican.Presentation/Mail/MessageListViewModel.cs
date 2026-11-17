@@ -570,6 +570,7 @@ public sealed partial class MessageListViewModel : ObservableObject, IDisposable
         var rows = ListLayout.Build(_loaded.Emails, context, settings.GroupByDate, unreadFirst, _badges);
         LastSync = ListSync.SyncBy(Rows, rows, r => r.Key, (a, b) => a.SameAs(b));
         KeepSelection();
+        ApplyChecks();
     }
 
     private async Task ApplyBadgesAsync()
@@ -617,6 +618,7 @@ public sealed partial class MessageListViewModel : ObservableObject, IDisposable
         {
             _selected = row;
             OnPropertyChanged(nameof(Selected));
+            SelectedTouched();
         }
     }
 

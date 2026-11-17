@@ -9,6 +9,8 @@ namespace Barbican.Presentation.Mail;
 /// <summary>One message row, immutable: a change in the data makes a new row that ListSync sets in place.</summary>
 public sealed class MessageRowViewModel : ListItemViewModel
 {
+    private bool _isChecked;
+
     public MessageRowViewModel(EmailSummary summary)
         : this(summary, new RowContext())
     {
@@ -43,6 +45,13 @@ public sealed class MessageRowViewModel : ListItemViewModel
     }
 
     public EmailSummary Summary { get; }
+
+    /// <summary>The row's tick (multi-select, I-120): the list sets it from its own checked set after every rebuild.</summary>
+    public bool IsChecked
+    {
+        get => _isChecked;
+        set => SetProperty(ref _isChecked, value);
+    }
 
     public override string Key => Summary.Id;
 

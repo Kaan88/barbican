@@ -80,6 +80,32 @@ public sealed class MailWriter(IJmapClient client, string accountId) : IMailWrit
     }
 
     /// <inheritdoc />
+    public Task<Result<SetReport>> MoveWithKeywordsAsync(IReadOnlyList<string> emailIds, string toMailboxId, IReadOnlyDictionary<string, bool> keywords, CancellationToken ct)
+    {
+        ArgumentNullException.ThrowIfNull(emailIds);
+        ArgumentNullException.ThrowIfNull(keywords);
+        ArgumentException.ThrowIfNullOrEmpty(toMailboxId);
+        return UpdateEmailsAsync(emailIds, () =>
+        {
+            var o = new JsonObject { ["mailboxIds"] = new JsonObject { [toMailboxId] = true } };
+            foreach (var (keyword, on) in keywords)
+            {
+                o[KeywordRules.Path(keyword)] = on ? true : null;
+            }
+
+            return o;
+        }, ct);
+    }
+
+    /// <inheritdoc />
+    public Task<Result<SetReport>> RemoveFromMailboxAsync(IReadOnlyList<string> emailIds, string mailboxId, CancellationToken ct)
+    {
+        ArgumentNullException.ThrowIfNull(emailIds);
+        ArgumentException.ThrowIfNullOrEmpty(mailboxId);
+        return UpdateEmailsAsync(emailIds, () => new JsonObject { ["mailboxIds/" + KeywordRules.PointerToken(mailboxId)] = null }, ct);
+    }
+
+    /// <inheritdoc />
     public Task<Result<SetReport>> SetMailboxIdsAsync(IReadOnlyDictionary<string, IReadOnlyDictionary<string, bool>> mailboxIdsById, CancellationToken ct)
     {
         ArgumentNullException.ThrowIfNull(mailboxIdsById);
