@@ -12,7 +12,8 @@ namespace Barbican.App.Composition;
 /// focus, no taskbar button, not in Alt+Tab), no border or title bar, moved and sized to
 /// (<see cref="OffScreenX"/>, <see cref="OffScreenY"/>), then <c>ShowWindow(SW_SHOWNOACTIVATE)</c>.
 /// <c>Window.Activate()</c> is never called on this path, so the user's foreground window, focus and
-/// screen are never touched. DWM keeps composing the window there (WGC captures it, WebView2 renders).
+/// screen are never touched. It refuses to show (throws) when any monitor reaches the target
+/// rectangle, before and after the move. DWM keeps composing the window there (WGC captures it, WebView2 renders).
 /// Only the WinUI head implements it; the Uno desktop head runs hidden only under a private Xvfb.
 /// </summary>
 internal static partial class HiddenWindow
@@ -31,6 +32,7 @@ internal static partial class HiddenWindow
     private const uint SwpNoZOrder = 0x4;
     private const uint SwpNoActivate = 0x10;
     private const uint SwpShowWindow = 0x40;
+    private const uint MonitorDefaultToNull = 0;
 
     public static bool IsSupported => true;
 
@@ -51,7 +53,16 @@ internal static partial class HiddenWindow
         ex = (ex | WsExNoActivate | WsExToolWindow) & ~WsExAppWindow;
         _ = SetWindowLongPtrW(hwnd, GwlExStyle, (nint)ex);
         var app = window.AppWindow;
-        app.IsShownInSwitchers = false;
+        try
+        {
+            app.IsShownInSwitchers = false;
+        }
+        catch (NotImplementedException)
+        {
+            // No shell on this desktop (a private automation desktop): WS_EX_TOOLWINDOW already keeps
+            // the window out of the taskbar and Alt+Tab.
+        }
+
         if (app.Presenter is OverlappedPresenter presenter)
         {
             presenter.SetBorderAndTitleBar(false, false);
@@ -63,7 +74,21 @@ internal static partial class HiddenWindow
             scale = 1;
         }
 
-        app.MoveAndResize(new RectInt32(OffScreenX, OffScreenY, (int)(logicalWidth * scale), (int)(logicalHeight * scale)));
+        var width = (int)(logicalWidth * scale);
+        var height = (int)(logicalHeight * scale);
+        var target = new NativeRect { Left = OffScreenX, Top = OffScreenY, Right = OffScreenX + width, Bottom = OffScreenY + height };
+        if (MonitorFromRect(target, MonitorDefaultToNull) != 0)
+        {
+            // A monitor reaches the hidden position (an unusual layout): showing there would be on screen.
+            throw new InvalidOperationException("a monitor covers the off-screen position; the hidden window is not shown");
+        }
+
+        app.MoveAndResize(new RectInt32(OffScreenX, OffScreenY, width, height));
+        if (!GetWindowRect(hwnd, out var placed) || MonitorFromRect(placed, MonitorDefaultToNull) != 0)
+        {
+            throw new InvalidOperationException("the window did not reach the off-screen position; it is not shown");
+        }
+
         // A launcher's STARTUPINFO (SW_HIDE) can override the first ShowWindow of a process: repeat it.
         for (var i = 0; i < 2 && !IsWindowVisible(hwnd); i++)
         {
@@ -93,6 +118,22 @@ internal static partial class HiddenWindow
 
     [LibraryImport("user32.dll")]
     private static partial uint GetDpiForWindow(nint hwnd);
+
+    [LibraryImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static partial bool GetWindowRect(nint hwnd, out NativeRect rect);
+
+    [LibraryImport("user32.dll")]
+    private static partial nint MonitorFromRect(in NativeRect rect, uint flags);
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct NativeRect
+    {
+        public int Left;
+        public int Top;
+        public int Right;
+        public int Bottom;
+    }
 #else
     public static bool IsSupported => false;
 

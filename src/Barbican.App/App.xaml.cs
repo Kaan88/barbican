@@ -24,6 +24,7 @@ public partial class BarbicanApp : Application
     public BarbicanApp()
     {
         InitializeComponent();
+        UnhandledException += (_, e) => Console.Error.WriteLine("[barbican] unhandled: " + e.Exception);
     }
 
     protected override void OnLaunched(LaunchActivatedEventArgs args)

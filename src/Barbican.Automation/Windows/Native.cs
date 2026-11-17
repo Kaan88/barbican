@@ -36,10 +36,12 @@ internal static partial class Native
         return (p.X, p.Y);
     }
 
-    public static string FocusReport()
+    /// <summary>The foreground window, the App's own window and whether they are the same, and the cursor.</summary>
+    public static string FocusReport(nint own)
     {
         _ = GetCursorPos(out var cursor);
-        return $"fg={GetForegroundWindow()} cursor={cursor.X},{cursor.Y}";
+        var fg = GetForegroundWindow();
+        return $"fg={fg} own={own} own-is-foreground={(fg == own ? "yes" : "no")} cursor={cursor.X},{cursor.Y}";
     }
 
     [LibraryImport("user32.dll")]

@@ -133,7 +133,7 @@ internal sealed partial class CommandRouter
                 return await WebEvalAsync(line.Argument);
             case "focus-guard":
 #if WINDOWS
-                return Native.FocusReport();
+                return Native.FocusReport(_context.Hwnd);
 #else
                 return "n/a on Linux (private Xvfb)";
 #endif
@@ -142,8 +142,15 @@ internal sealed partial class CommandRouter
             case "popup-probe":
                 return await PopupProbeAsync(line);
             case "close":
-                _context.Window.Close();
+            {
+                // After the reply is written: closing tears down the server.
+                var t = _context.Dispatcher.CreateTimer();
+                t.Interval = TimeSpan.FromMilliseconds(200);
+                t.IsRepeating = false;
+                t.Tick += (_, _) => _context.Window.Close();
+                t.Start();
                 return "ok";
+            }
             default:
                 return "unknown command " + line.Name;
         }

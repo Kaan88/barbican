@@ -56,7 +56,7 @@ public sealed partial class PopupLintTests
     [InlineData("<MenuFlyout ShouldConstrainToRootBounds=\"False\" />", 1)]
     [InlineData("<MenuFlyout ShouldConstrainToRootBounds=\"True\" />", 0)]
     [InlineData("<Button><Button.Flyout><Flyout /></Button.Flyout></Button>", 1)]
-    [InlineData("<Button><Button.ContextFlyout><CommandBarFlyout ShouldConstrainToRootBounds=\"True\" /></Button.ContextFlyout></Button>", 0)]
+    [InlineData("<Button><Button.ContextFlyout><MenuFlyout ShouldConstrainToRootBounds=\"True\" /></Button.ContextFlyout></Button>", 0)]
     [InlineData("<SolidColorBrush x:Key=\"Popup\" Color=\"#FF000000\" />", 0)]
     [InlineData("<controls:TeachingTip />", 1)]
     public void LintFindsUnconstrainedPopups(string element, int count) =>
@@ -67,6 +67,8 @@ public sealed partial class PopupLintTests
     [InlineData("<Button ToolTipService.ToolTip=\"hi\" />", 1)]
     [InlineData("<Button><ToolTipService.ToolTip><ToolTip /></ToolTipService.ToolTip></Button>", 2)]
     [InlineData("<AutoSuggestBox />", 1)]
+    [InlineData("<CommandBarFlyout ShouldConstrainToRootBounds=\"True\" />", 1)]
+    [InlineData("<ContentDialog />", 0)]
     [InlineData("<Button Content=\"ComboBox\" />", 0)]
     public void LintFindsDeniedControls(string element, int count) =>
         Assert.Equal(count, Denied([("t.xaml", Doc(element))]).Count());
