@@ -1,4 +1,4 @@
-// Ported from Rust src/motion.rs test (:81). Red until the mailcore stream implements MotionSettings.
+// Ported from Rust src/motion.rs test (:81).
 
 using Barbican.Core.Settings.Motion;
 
@@ -8,7 +8,6 @@ public sealed class MotionSettingsTests
 {
     [Fact]
     [RustTest("motion::setting_wins_over_system")]
-    [Red("mailcore")]
     public void Setting_wins_over_system()
     {
         Assert.True(MotionSettings.ReduceFor("on", false));

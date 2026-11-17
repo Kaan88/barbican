@@ -1,4 +1,4 @@
-// Ported from Rust src/attachments.rs tests (:114-:144). Red until the mailcore stream implements AttachmentCards.
+// Ported from Rust src/attachments.rs tests (:114-:144).
 
 using Barbican.Core.Mail.Attachments;
 using Barbican.Core.Mail.Model;
@@ -9,7 +9,6 @@ public sealed class AttachmentCardsTests
 {
     [Fact]
     [RustTest("attachments::names_and_kinds")]
-    [Red("mailcore")]
     public void Names_and_kinds()
     {
         Assert.Equal(("report.final", "PDF"), AttachmentCards.SplitName("report.final.pdf"));
@@ -20,7 +19,6 @@ public sealed class AttachmentCardsTests
 
     [Fact]
     [RustTest("attachments::which_attachments_preview")]
-    [Red("mailcore")]
     public void Which_attachments_preview()
     {
         var img = new Attachment { Type = "image/PNG", Size = 2000, BlobId = "b" };
@@ -39,7 +37,6 @@ public sealed class AttachmentCardsTests
 
     [Fact]
     [RustTest("attachments::thumbnails_are_square")]
-    [Red("mailcore")]
     public void Thumbnails_are_square()
     {
         var png = TestPng.Solid(120, 60, 10, 20, 30, 255);

@@ -12,7 +12,6 @@ public sealed class A11yTests
 
     [Fact]
     [RustTest("a11y::defaults_follow_bulwark")]
-    [Red("mailcore")]
     public void Defaults_follow_bulwark()
     {
         var a = A11y.From(Settings("{}"), default);
@@ -43,7 +42,6 @@ public sealed class A11yTests
 
     [Fact]
     [RustTest("a11y::mail_css_and_override")]
-    [Red("mailcore")]
     public void Mail_css_and_override()
     {
         var a = A11y.From(Settings("""{"underlineLinks": true, "readingWidth": "comfortable", "letterSpacing": "wide"}"""), default);
@@ -74,7 +72,6 @@ public sealed class A11yTests
 
     [Fact]
     [RustTest("a11y::cvd_palette")]
-    [Red("mailcore")]
     public void Cvd_palette()
     {
         Assert.Equal(0xD55E00u, A11y.CvdColor(0xef4444)); // red

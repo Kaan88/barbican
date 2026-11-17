@@ -1,4 +1,4 @@
-// Ported from Rust src/mail.rs tests (:1142-:1167). Red until the mailcore stream implements MailRules.
+// Ported from Rust src/mail.rs tests (:1142-:1167).
 
 using Barbican.Core.Mail.Rules;
 
@@ -8,7 +8,6 @@ public sealed class MailRulesTests
 {
     [Fact]
     [RustTest("mail::forced_read_never_toggles")]
-    [Red("mailcore")]
     public void Forced_read_never_toggles()
     {
         Assert.Equal("read", MailRules.Forced("read!"));
@@ -20,7 +19,6 @@ public sealed class MailRulesTests
 
     [Fact]
     [RustTest("mail::unread_badge_title")]
-    [Red("mailcore")]
     public void Unread_badge_title()
     {
         Assert.Equal("(5) Barbican", MailRules.BadgeTitle(true, 5));
@@ -30,7 +28,6 @@ public sealed class MailRulesTests
 
     [Fact]
     [RustTest("mail::archive_paths")]
-    [Red("mailcore")]
     public void Archive_paths()
     {
         // local time of the message: mid-year dates are safe in any time zone

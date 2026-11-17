@@ -1,4 +1,4 @@
-// Ported from Rust src/auth.rs tests (:93-:125). Red until the mailcore stream implements AuthenticationResults.
+// Ported from Rust src/auth.rs tests (:93-:125).
 
 using Barbican.Core.Mail.AuthResults;
 
@@ -8,7 +8,6 @@ public sealed class AuthenticationResultsTests
 {
     [Fact]
     [RustTest("auth::parses_and_aligns")]
-    [Red("mailcore")]
     public void Parses_and_aligns()
     {
         var r = AuthenticationResults.Parse(
@@ -23,7 +22,6 @@ public sealed class AuthenticationResultsTests
 
     [Fact]
     [RustTest("auth::spf_needs_aligned_mailfrom")]
-    [Red("mailcore")]
     public void Spf_needs_aligned_mailfrom()
     {
         var r = AuthenticationResults.Parse("mx; spf=pass smtp.mailfrom=a@attacker.example.net");
@@ -33,7 +31,6 @@ public sealed class AuthenticationResultsTests
 
     [Fact]
     [RustTest("auth::failures")]
-    [Red("mailcore")]
     public void Failures()
     {
         Assert.True(AuthenticationResults.Failure(AuthenticationResults.Parse("mx; dmarc=fail"), true));
@@ -44,7 +41,6 @@ public sealed class AuthenticationResultsTests
 
     [Fact]
     [RustTest("auth::domains")]
-    [Red("mailcore")]
     public void Domains()
     {
         Assert.Equal("example.com", AuthenticationResults.DomainOf("A@Example.COM."));

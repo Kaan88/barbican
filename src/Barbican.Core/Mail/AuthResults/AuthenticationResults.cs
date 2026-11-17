@@ -1,7 +1,7 @@
 // Mirrors: Rust auth.rs (parse :34, topmost :55, domain_of :60, aligned :66, aligned_dkim_pass :72, aligned_pass :79, failure :90);
-// RFC 8601; DMARC relaxed alignment (RFC 7489 §3.1); Bulwark lib/email-headers.ts. Stub from F2; owner mailcore.
+// RFC 8601; DMARC relaxed alignment (RFC 7489 §3.1); Bulwark lib/email-headers.ts. Owner mailcore.
 
-using Barbican.Core.Common;
+using System.Text;
 using Barbican.Core.Mail.Model;
 
 namespace Barbican.Core.Mail.AuthResults;
@@ -10,25 +10,170 @@ namespace Barbican.Core.Mail.AuthResults;
 public static class AuthenticationResults
 {
     /// <summary>Parses one Authentication-Results value (the authserv-id is skipped, comments stripped).</summary>
-    public static IReadOnlyList<AuthResult> Parse(string value) => throw new PortPendingException("AuthenticationResults.Parse: mailcore stream");
+    public static IReadOnlyList<AuthResult> Parse(string value)
+    {
+        ArgumentNullException.ThrowIfNull(value);
+        var clean = StripComments(value);
+        var output = new List<AuthResult>();
+        foreach (var segment in clean.Split(';'))
+        {
+            var tokens = segment.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries);
+            if (tokens.Length == 0)
+            {
+                continue;
+            }
+
+            var eq = tokens[0].IndexOf('=', StringComparison.Ordinal);
+            if (eq < 0)
+            {
+                continue;
+            }
+
+            var method = tokens[0][..eq].ToLowerInvariant();
+            var result = tokens[0][(eq + 1)..].ToLowerInvariant();
+            var props = new List<KeyValuePair<string, string>>();
+            foreach (var token in tokens.Skip(1))
+            {
+                var i = token.IndexOf('=', StringComparison.Ordinal);
+                if (i >= 0)
+                {
+                    props.Add(new KeyValuePair<string, string>(token[..i].ToLowerInvariant(), token[(i + 1)..].Trim('"')));
+                }
+            }
+
+            output.Add(new AuthResult(method, result, props));
+        }
+
+        return output;
+    }
 
     /// <summary>The topmost Authentication-Results of a header list (the one our server wrote).</summary>
-    public static IReadOnlyList<AuthResult> Topmost(IReadOnlyList<EmailHeader> headers) => throw new PortPendingException("AuthenticationResults.Topmost: mailcore stream");
+    public static IReadOnlyList<AuthResult> Topmost(IReadOnlyList<EmailHeader> headers)
+    {
+        ArgumentNullException.ThrowIfNull(headers);
+        var first = headers.FirstOrDefault(h => string.Equals(h.Name, "Authentication-Results", StringComparison.OrdinalIgnoreCase));
+        return first is null ? [] : Parse(Unfold(first.Value));
+    }
 
     /// <summary>The domain part of an address, lower-case, without a trailing dot; null if it has no dot.</summary>
-    public static string? DomainOf(string address) => throw new PortPendingException("AuthenticationResults.DomainOf: mailcore stream");
+    public static string? DomainOf(string address)
+    {
+        ArgumentNullException.ThrowIfNull(address);
+        var at = address.LastIndexOf('@');
+        var d = (at < 0 ? address : address[(at + 1)..]).Trim().TrimEnd('>').TrimEnd('.').ToLowerInvariant();
+        var ok = d.Contains('.', StringComparison.Ordinal)
+            && !d.StartsWith('.')
+            && !d.Any(char.IsWhiteSpace)
+            && d.IndexOfAny(['<', '>', '@']) < 0;
+        return ok ? d : null;
+    }
 
     /// <summary>DMARC relaxed alignment: the same domain or a parent/child of it.</summary>
-    public static bool Aligned(string fromDomain, string? candidate) => throw new PortPendingException("AuthenticationResults.Aligned: mailcore stream");
+    public static bool Aligned(string fromDomain, string? candidate)
+    {
+        ArgumentNullException.ThrowIfNull(fromDomain);
+        if (candidate is null || DomainOf("@" + candidate) is not { } o)
+        {
+            return false;
+        }
+
+        return string.Equals(o, fromDomain, StringComparison.Ordinal)
+            || o.EndsWith("." + fromDomain, StringComparison.Ordinal)
+            || fromDomain.EndsWith("." + o, StringComparison.Ordinal);
+    }
 
     /// <summary>A DKIM pass whose signing domain aligns with the From domain.</summary>
-    public static bool AlignedDkimPass(IReadOnlyList<AuthResult> results, string fromDomain) =>
-        throw new PortPendingException("AuthenticationResults.AlignedDkimPass: mailcore stream");
+    public static bool AlignedDkimPass(IReadOnlyList<AuthResult> results, string fromDomain)
+    {
+        ArgumentNullException.ThrowIfNull(results);
+        return results.Any(r => Is(r, "dkim", "pass") && Aligned(fromDomain, r.Prop("header.d")));
+    }
 
     /// <summary>Whether the checks tie the message to its From address: dmarc=pass, or an aligned SPF (MAIL FROM, never HELO) or DKIM pass.</summary>
-    public static bool AlignedPass(IReadOnlyList<AuthResult> results, string from) =>
-        throw new PortPendingException("AuthenticationResults.AlignedPass: mailcore stream");
+    public static bool AlignedPass(IReadOnlyList<AuthResult> results, string from)
+    {
+        ArgumentNullException.ThrowIfNull(results);
+        ArgumentNullException.ThrowIfNull(from);
+        if (DomainOf(from) is not { } d)
+        {
+            return false;
+        }
+
+        return results.Any(r => Is(r, "dmarc", "pass"))
+            || results.Any(r => Is(r, "spf", "pass") && r.Prop("smtp.mailfrom") is { } m && Aligned(d, DomainOf(m) ?? string.Empty))
+            || AlignedDkimPass(results, d);
+    }
 
     /// <summary>A failure that leaves the From domain unauthenticated.</summary>
-    public static bool Failure(IReadOnlyList<AuthResult> results, bool verified) => throw new PortPendingException("AuthenticationResults.Failure: mailcore stream");
+    public static bool Failure(IReadOnlyList<AuthResult> results, bool verified)
+    {
+        ArgumentNullException.ThrowIfNull(results);
+        if (results.Any(r => Is(r, "dmarc", "fail")))
+        {
+            return true;
+        }
+
+        if (verified)
+        {
+            return false;
+        }
+
+        return results.Any(r =>
+            (string.Equals(r.Method, "dkim", StringComparison.Ordinal) && r.Result is "fail" or "policy" or "permerror")
+            || (string.Equals(r.Method, "spf", StringComparison.Ordinal) && r.Result is "fail" or "softfail" or "permerror"));
+    }
+
+    private static bool Is(AuthResult r, string method, string result) =>
+        string.Equals(r.Method, method, StringComparison.Ordinal) && string.Equals(r.Result, result, StringComparison.Ordinal);
+
+    private static string StripComments(string s)
+    {
+        var sb = new StringBuilder();
+        var depth = 0;
+        foreach (var c in s)
+        {
+            if (c == '(')
+            {
+                depth++;
+            }
+            else if (c == ')' && depth > 0)
+            {
+                depth--;
+            }
+            else if (depth == 0)
+            {
+                sb.Append(c);
+            }
+        }
+
+        return sb.ToString();
+    }
+
+    private static string Unfold(string v)
+    {
+        var sb = new StringBuilder();
+        for (var i = 0; i < v.Length; i++)
+        {
+            var c = v[i];
+            if (c == '\r')
+            {
+                continue;
+            }
+
+            if (c == '\n')
+            {
+                while (i + 1 < v.Length && v[i + 1] is ' ' or '\t')
+                {
+                    i++;
+                }
+
+                sb.Append(' ');
+                continue;
+            }
+
+            sb.Append(c);
+        }
+
+        return sb.ToString();
+    }
 }
