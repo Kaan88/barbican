@@ -2,7 +2,7 @@
 // spec B-KEY-006, B-KEY-009, B-KEY-013, B-KEY-021; hooks onBeforeShortcut (intercept) and onAfterShortcut (observer). Owner mailcore.
 //
 // M1 keys: j / k / Down / Up (next, previous message), Enter or o (open), Escape (clear the search, else close the reader), / and Ctrl+E (search),
-// Shift+G (last message), g then i / s / t / d / a (go to a folder), Ctrl+1..5 (the apps that exist). Everything else is not ours (false).
+// Shift+G (refresh the list, as Bulwark and Rust), g then i / s / t / d / a (go to a folder), Ctrl+1..5 (the apps that exist). Everything else is not ours (false).
 
 using Barbican.Core.Mail.Model;
 using Barbican.Core.Plugins.Hooks;
@@ -147,7 +147,7 @@ public sealed class KeyRouter : IKeyRouter
             "down" when !shift => "next-message",
             "k" when !shift => "previous-message",
             "up" when !shift => "previous-message",
-            "g" when shift => "last-message",
+            "g" when shift => "refresh",
             "g" => "arm-go",
             "enter" or "o" => "open",
             "escape" => "close",
@@ -183,8 +183,10 @@ public sealed class KeyRouter : IKeyRouter
                 return _list.MoveSelection(1) || _list.Rows.Count > 0;
             case "previous-message":
                 return _list.MoveSelection(-1) || _list.Rows.Count > 0;
-            case "last-message":
-                return _list.SelectLast();
+            case "refresh":
+                // Bulwark lib/keyboard-shortcuts/mail.ts:34 and Rust shortcuts.rs:750 ("Shift+G stays refresh"): the list is read again, rows stay until it arrives
+                _ = _list.ReloadAsync();
+                return true;
             case "open":
                 return _list.OpenSelected();
             case "close":

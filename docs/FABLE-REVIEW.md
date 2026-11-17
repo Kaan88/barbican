@@ -490,3 +490,19 @@ Branch `m1-mailcore` (worktree `wt-m1-mailcore`), commits listed in the final re
 - **The header-only `IMessageOpener` never marks a message read** (M1 is read-only; the body stream's loader decides, behind the account guard).
 - **Reader `Attachments` are indexed by position in the visible list** (inline images hidden), as Rust `show` did; the body stream's download must use
   `AttachmentCard.BlobId`, not an index into `EmailBody.Attachments`.
+
+### mailcore review (reviewer pass)
+
+- **Shift+G is refresh, not "select last message".** The plan and brief listed "Shift+G" among the M1 list keys and the implementer bound it to "last message". Bulwark
+  `lib/keyboard-shortcuts/mail.ts:34` (`Shift + G` = `shortcuts.global.refresh`) and Rust `shortcuts.rs:750` ("Shift+G stays refresh") both make it a refresh. Rebound in
+  `Presentation/Input/KeyRouter.cs` to `MessageListViewModel.ReloadAsync` (rows stay until the page is ready); `SelectLast` stays as a method with no key. Review whether
+  the plan's wording meant something else. Commit in the final return.
+- **A `ListDeltaEvent` that arrives while a first page is loading (or with no list open) is dropped** (`MessageListViewModel.OnSyncEvent`). The event carries no query identity,
+  so a delta computed for the folder being left could be applied to the new folder's rows. Dropping is safe because the page being loaded is current. The proper fix is a
+  query id on `ListDeltaEvent` (jmap's file, additive); until then `EmailsChangedEvent` is still applied while loading (only fresh copies of ids already shown).
+- **`KeyRouter.Handle` ignores `KeySource`.** A printable key typed into the search box or the composer must not reach `Handle`; shell-ui has to filter on the focused element
+  before calling it (j in the search box would move the selection). No test can cover this until the real key handler exists: hand-test it.
+- **Linux VM unreachable again** during this review (`tools/linux.ps1 ping`: key not authorized); Linux build/test of this stream is still unverified.
+- **PNG reader memory:** a 40 MP PNG allocates about 360 MB transiently (raw plus RGBA). Left as is (Rust's `image` crate has a comparable limit); lower `MaxPixels` if the
+  first hand test shows pressure.
+

@@ -548,6 +548,10 @@ public sealed class MessageListViewModel : ObservableObject, IDisposable
     {
         switch (args.Event)
         {
+            case ListDeltaEvent when IsLoading || _query is null:
+                // a delta that was computed for the list that is being replaced (a folder switch in flight) must not touch the new rows: the
+                // first page being loaded is already current, and ListDeltaEvent carries no query identity to check
+                break;
             case ListDeltaEvent d:
                 _loaded.Apply(d.Delta);
                 _ = RebuildThenUpdateTotalAsync();

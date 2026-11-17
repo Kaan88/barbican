@@ -134,6 +134,22 @@ public sealed class MessageListViewModelTests
     }
 
     [Fact]
+    public async Task A_delta_that_arrives_while_the_next_folder_loads_does_not_touch_the_rows()
+    {
+        using var h = await OpenedAsync();
+        var gate = new TaskCompletionSource<Result<ListPage>>();
+        h.Service.OnQuery = (_, _, _) => gate.Task;
+        var opening = h.List.OpenFolderAsync("sent", MailboxRole.Sent, "Sent");
+        h.Changes.Clear();
+        var other = Mails.Make("from-the-old-folder", unread: true, hoursAgo: 0.01);
+        h.Hub.Publish(new ListDeltaEvent(new ListDelta { Added = [("from-the-old-folder", 0)], Emails = new Dictionary<string, EmailSummary> { ["from-the-old-folder"] = other }, Total = 11 }));
+        Assert.Empty(h.Changes);
+        gate.SetResult(Ok(Mails.Page(50, 2, 2, more: false)));
+        await opening;
+        Assert.DoesNotContain(h.List.Messages, r => string.Equals(r.Id, "from-the-old-folder", StringComparison.Ordinal));
+    }
+
+    [Fact]
     public async Task A_failed_load_keeps_the_rows_and_reports_why()
     {
         using var h = await OpenedAsync();

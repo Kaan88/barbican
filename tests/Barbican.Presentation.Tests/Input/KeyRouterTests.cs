@@ -86,14 +86,17 @@ public sealed class KeyRouterTests
     }
 
     [Fact]
-    public async Task Shift_g_selects_the_last_loaded_message_and_enter_opens_the_selection_again()
+    public async Task Shift_g_refreshes_the_list_as_Bulwark_and_Rust_do_and_enter_opens_the_selection_again()
     {
         using var h = await WithFoldersAsync();
+        var queries = h.Service.Queries;
+        var before = queries.Count;
         Assert.True(h.Keys.Handle(new KeyChord("G"), KeySource.Keyboard));
-        Assert.Equal("m4", h.List.Selected?.Id);
-        Assert.True(h.Keys.Handle(new KeyChord("g", Shift: true), KeySource.Keyboard));
+        Assert.Null(h.List.Selected);
+        Assert.True(queries.Count > before);
+        Assert.True(h.Keys.Handle(new KeyChord("j"), KeySource.Keyboard));
         Assert.True(h.Keys.Handle(new KeyChord("Enter"), KeySource.Keyboard));
-        Assert.Equal("m4", h.Opener.Opened[^1].Id);
+        Assert.Equal("m0", h.Opener.Opened[^1].Id);
     }
 
     [Fact]

@@ -154,7 +154,7 @@ I-152,"Mail: list, rows, selection, keyboard",Category tabs (Primary/Promotions�
 I-153,"Mail: list, rows, selection, keyboard","MV ""Unread""/""Everything else"" fold headers",mv-list-section-header.tsx,M,M,carried,—,todo,M2,
 I-154,"Mail: list, rows, selection, keyboard","Select-all toggle (second click clears, tri-state)",mv-list-toolbar.tsx:369,P,P,carried,select only,todo,M2,
 I-155,"Mail: list, rows, selection, keyboard",Plugin list filter chips / row badges,plugin-list-filters.tsx,M,M,carried,—,todo,M2,
-I-156,"Mail: list, rows, selection, keyboard","Keys j/k/arrows, n, f, s, e, c, /, Shift+G, Ctrl+1..4, Ctrl+A, u/Shift+I, !",use-keyboard-shortcuts.ts,D,D,carried,main.rs:1437-1485,todo,M1,"VM: KeyRouterTests (j/k/arrows, /, Shift+G, Escape, g sequences, Ctrl+1..5); action keys: M2"
+I-156,"Mail: list, rows, selection, keyboard","Keys j/k/arrows, n, f, s, e, c, /, Shift+G, Ctrl+1..4, Ctrl+A, u/Shift+I, !",use-keyboard-shortcuts.ts,D,D,carried,main.rs:1437-1485,todo,M1,"VM: KeyRouterTests (j/k/arrows, /, Shift+G = refresh as Bulwark mail.ts:34 and Rust, Escape, g sequences, Ctrl+1..5); action keys: M2"
 I-157,"Mail: list, rows, selection, keyboard",Keys r / Shift+R / a (reply all),mail.ts:201-202,P,D,changed,"`a` maps to reply-all (shortcuts.rs mail_key_action); r, R, a",todo,M2,
 I-158,"Mail: list, rows, selection, keyboard",Keys Enter / o open focused,mail.ts:192,M,D,changed,Enter / o => Action::Open (shortcuts.rs mail()),todo,M2,
 I-159,"Mail: list, rows, selection, keyboard",Esc closes and deselects,mail.ts:193,P,P,carried,ticks stay,todo,M2,
