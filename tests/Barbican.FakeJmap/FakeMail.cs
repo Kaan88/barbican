@@ -13,6 +13,15 @@ public sealed record FakeMail
 
     public string To { get; init; } = "user@example.org";
 
+    /// <summary>More To recipients after <see cref="To"/> (M3 reply-all tests).</summary>
+    public IReadOnlyList<string> MoreTo { get; init; } = [];
+
+    /// <summary>Cc recipients (M3 reply-all tests).</summary>
+    public IReadOnlyList<string> Cc { get; init; } = [];
+
+    /// <summary>The Reply-To address, if any (M3 reply tests).</summary>
+    public string? ReplyToEmail { get; init; }
+
     public DateTimeOffset ReceivedAt { get; init; } = new(2026, 11, 1, 9, 0, 0, TimeSpan.Zero);
 
     public string Text { get; init; } = "";

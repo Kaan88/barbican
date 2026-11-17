@@ -12,18 +12,18 @@ public static class CidHtml
     {
         ArgumentNullException.ThrowIfNull(message);
         var parts = new List<string>();
-        foreach (var p in message.HtmlBody)
+        foreach (var p in message.HtmlBody ?? [])
         {
             if (p.PartId is not { } id)
             {
                 continue;
             }
 
-            if (message.CidBodyValues.TryGetValue(id, out var cid))
+            if (message.CidBodyValues is { } cids && cids.TryGetValue(id, out var cid))
             {
                 parts.Add(cid);
             }
-            else if (message.BodyValues.TryGetValue(id, out var v))
+            else if (message.BodyValues is { } values && values.TryGetValue(id, out var v))
             {
                 parts.Add(v.Value);
             }
@@ -38,7 +38,7 @@ public static class CidHtml
         ArgumentNullException.ThrowIfNull(message);
         ArgumentNullException.ThrowIfNull(html);
         var list = new List<(string, DraftAttachment)>();
-        foreach (var a in message.Attachments)
+        foreach (var a in message.Attachments ?? [])
         {
             if (a.Cid is not { } raw)
             {

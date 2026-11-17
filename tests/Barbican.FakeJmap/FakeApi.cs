@@ -11,7 +11,7 @@ public sealed partial class FakeApi(FakeStore store, FakeJmapOptions options, Fu
 {
     private static readonly string[] Known =
         ["urn:ietf:params:jmap:core", "urn:ietf:params:jmap:mail", "urn:ietf:params:jmap:submission", "urn:ietf:params:jmap:quota", "urn:stalwart:jmap",
-        "urn:ietf:params:jmap:sieve", "urn:ietf:params:jmap:filenode", "urn:ietf:params:jmap:calendars"];
+        "urn:ietf:params:jmap:sieve", "urn:ietf:params:jmap:filenode", "urn:ietf:params:jmap:calendars", "urn:ietf:params:jmap:metadata"];
 
     private readonly Queue<FakeFault> _methodFaults = new();
     private readonly Lock _lock = new();
@@ -45,6 +45,7 @@ public sealed partial class FakeApi(FakeStore store, FakeJmapOptions options, Fu
         }
 
         var responses = new List<JsonArray>();
+        ForgetCreations();
         foreach (var call in calls.OfType<JsonArray>())
         {
             var name = (string?)call[0] ?? "";
@@ -52,6 +53,7 @@ public sealed partial class FakeApi(FakeStore store, FakeJmapOptions options, Fu
             var args = call[1] is JsonObject a ? ResultReferences.Resolve(a, responses) : null;
             var result = args is null ? Error("invalidResultReference") : Method(name, args);
             responses.Add([result.Name ?? name, result.Args, id]);
+            RememberCreations(result.Args);
         }
 
         return (200, new JsonObject { ["methodResponses"] = new JsonArray([.. responses]), ["sessionState"] = sessionState() });
@@ -89,20 +91,22 @@ public sealed partial class FakeApi(FakeStore store, FakeJmapOptions options, Fu
             "Email/query" => EmailQuery(args),
             "Email/changes" => TakeFault(FakeFault.EmailChangesFail) ? Error("cannotCalculateChanges") : Changes("Email", args),
             "Email/queryChanges" => EmailQueryChanges(args),
-            "Email/set" => EmailSet(args),
+            "Email/set" => EmailSetWithCreate(args),
             "Thread/get" => ThreadGet(args),
             "Thread/changes" => Changes("Thread", args),
-            "Identity/get" => IdentityGet(),
+            "Identity/get" => options.Identities is null ? IdentityGet() : IdentityGetM3(),
             "Quota/get" => QuotaGet(),
 
             // M2 arms (stage F): each calls a method in its own file that the owning stream fills (M2 plan 3.1, 4); until then the method answers unknownMethod
-            "Mailbox/set" => MailboxSet(args),
+            "Mailbox/set" => MailboxSetWithMetadata(args),
             "Email/import" => EmailImport(args),
             "Email/copy" => EmailCopy(args),
             "Email/parse" => EmailParse(args),
             "Blob/copy" => BlobCopy(args),
             "SearchSnippet/get" => SearchSnippetGet(args),
-            "EmailSubmission/set" => EmailSubmissionSet(args),
+            "EmailSubmission/set" => EmailSubmissionSetHeld(args),
+            "EmailSubmission/get" => EmailSubmissionGet(args),
+            "EmailSubmission/query" => EmailSubmissionQuery(args),
             "SieveScript/get" => SieveScriptGet(args),
             "SieveScript/set" => SieveScriptSet(args),
             "SieveScript/validate" => SieveScriptValidate(args),
