@@ -236,3 +236,55 @@ fast-forwarded to `main`.
 - `tools/linux.ps1` failed in a worktree because it had no `.local/`: it now reads the main checkout's. [review]
 - Not resolved, it needs the user: the Rust repo's local pre-commit guard (blocked by the permission
   classifier). [bootstrap]
+
+## M1 stream: m1-plan
+
+Plan: `docs/milestones/M1-plan.md` on branch `m1` (this commit).
+- **Branch naming deviates from CLAUDE.md** (`m<n>/<stream>`): stream branches are `m1-<key>`, because the
+  integration branch `m1` exists and git cannot hold `refs/heads/m1` and `refs/heads/m1/<key>` together.
+  Worktrees keep `<downloads>/wt-m1-<key>`. Update CLAUDE.md at the M1 gate or rename the integration
+  branch in M2. Where: M1-plan §0.
+- **Five streams instead of the suggested four:** a Sonnet `mailcore` stream (pure mail modules,
+  ViewModels, ListSync, KeyRouter, hook bus) was split from the views so that views (wave 2) build on real
+  ViewModels; the body cache sits with `accounts` (storage), not with `body`. Judgement call on load and
+  dependencies; review whether `accounts` (Opus) is overloaded. Where: M1-plan §0, §6.
+- **Contract skeleton written by a Sonnet stage (F2) from signatures in the plan.** The cross-stream
+  interfaces of the JMAP layer are designed in the plan, not by the jmap stream; the jmap stream may only
+  extend them during wave 1. Risk of a wrong model shape that mailcore builds on. Where: M1-plan §4, §9.1.
+- **DI approach:** one frozen composition root (F1) calling one `Add<Feature>()` per stream, each in a file
+  the stream owns; placeholders registered with `TryAdd`, completed with `Replace` (`IMessageOpener`).
+  Review that registration order and `Replace` cannot silently keep a placeholder. Where: M1-plan §3.3.
+- **F1 owns every csproj, the solution and `Directory.Packages.props`** and pre-creates the M1 projects
+  (`Barbican.Platform.Windows/Linux`, `Barbican.Automation`, FakeJmap, Jmap.Live, Platform/Automation/Build
+  tests) and package pins; later needs go into per-stream marked blocks. Review that nothing a stream needs
+  is missing. Where: M1-plan §3.2.
+- **I- rows tagged M1 overreach:** about 25 of the 55 are actions (menus, toolbar actions, contact data,
+  plugin surfaces). The plan closes their display part and defers the action with a milestone. Review the
+  table against INTERACTIONS and the catalogue tags. Where: M1-plan §2.3, `spec/interactions.csv`.
+- **Live-check safety:** live read-only checks only through the ADR 0008 import, password-kind entries only;
+  an imported OAuth refresh token is never refreshed by an agent (it would rotate and sign the Rust app
+  out). ADR 0008 itself says the import "validates by a normal token refresh", which is unsafe while the
+  Rust app is in use; the plan overrides it for agent runs. Security and privacy: an agent handles a real
+  password in memory. Where: M1-plan §1 rule 3, §6.3.
+- **OAuth in automation never opens a real browser:** `IBrowserLauncher` is faked in AUTOMATION builds and
+  follows the authorize URL against FakeJmap. Real OAuth sign-in is a hand test only. Where: M1-plan §6.3.
+- **Loopback `state` checked before `error`** (fixes FABLE #3) and a single accepted callback. Where:
+  M1-plan §6.3.
+- **Trace-diff against Rust is source-derived** (`spec/traces/M1/*.rust.txt` with file:line per call), not
+  a live Rust trace: partial verification of the "trace-diff matching Rust" exit. Where: M1-plan §6.1, §9.3.
+- **Feel gate uses the measured ~21 ms WGC quantum** instead of PORT-PLAN's "median ≤ 16 ms", until an
+  on-screen cadence measurement (needs the user). Where: M1-plan §6.5, §9.2, ADR 0007.
+- **Persistent SQLite cache deferred from M1 to M2** (PORT-PLAN §3.5, accepted default Q4); M1's cold-start
+  gate uses the ≤ 1.5 s "without cache" budget. Needs the user's acknowledgement at the gate. Where:
+  M1-plan §6.3, §8.
+- **Lite drop (T-159) has no explicit user OK:** F2 writes a D- entry with "user OK pending" and the gate asks
+  the user; `spec-check.py` may need to accept that status form. Where: M1-plan §2.1, §5 F2.
+- **S2 harness re-run with the code-created `MenuFlyout` phase disabled** (it put a popup on the real
+  screen in M0); the reconciliation of ADR 0005 vs 0007 on `MenuFlyout` stays open (needs a run that may
+  draw on screen). Where: M1-plan §5 F1.
+- **Hook catalogue count:** a quick regex over `<bulwark>/lib/plugin-hook-catalog.ts` finds 218 hooks in 27
+  groups; PORT-PLAN says 219 hooks in 29 groups. F2 reconciles. Where: M1-plan §2.4.
+- **Mark-as-read is never sent in M1** (read-only client); the `markAsReadDelay` logic is ported behind a
+  disabled actions interface that M2 supplies. Where: M1-plan §6.5.
+- **J-043 and J-044 set to n/a** with the Rust reasons (desktop client has no callback URL; EventSource is
+  enough, Bulwark does not use WebSocket). Where: M1-plan §2.2.
