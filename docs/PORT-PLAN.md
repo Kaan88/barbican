@@ -105,7 +105,7 @@ After using the WinUI 3 prototype, the user said "rust/slint is no more". Barbic
   - templates in the Inbox metadata (`org.bulwarkmail.template.*` and tombstones);
   - `emailKeywords` tags and `$label:` keywords;
   - the backup and settings export format.
-- **The plugin C ABI** (PLUGINS.md), loaded with `NativeLibrary`, so `barbican_spam_score.dll` keeps working.
+- **Plugins (decision 2026-11-17, replaces the C ABI):** two systems over one hook/slot catalogue: (1) a Bulwark-compatible JavaScript plugin host, so Bulwark plugins run unchanged in a sandbox (WebView2 / WebKitGTK); (2) our own native .NET plugins (AssemblyLoadContext) for code that runs better or ports more easily natively. The Rust C ABI (PLUGINS.md) is dropped; the spam-score plugin is ported as a native .NET plugin.
 - **The update manifest format and its Ed25519 key**, so the existing `BARBICAN_UPDATE_SIGNING_KEY` secret stays valid.
 - **The hidden automation protocol** (src/automation.rs). tools/auto.py, flicker.py and motion.py keep working unchanged against the C# app.
 
@@ -148,7 +148,7 @@ After using the WinUI 3 prototype, the user said "rust/slint is no more". Barbic
 | tools/flicker-results, tools/motion-results | `spec/feel/rust-baseline/` | **The bar to beat.** Every C# feel run is compared against these files. |
 | .github/workflows, wix/, packaging/ | `packaging/` (icons, .desktop, debian scripts, `install-kind` markers) | The new release.yml reuses the layout and secrets (§3.10). |
 | examples/release_manifest.rs, src/release_manifest.rs | `tools/Barbican.ReleaseTool` (C#) | Same manifest JSON, same Ed25519 key format, same channel rules. |
-| plugins/spam-score | `tests/fixtures/plugins/` (the DLL and its source) | ABI test fixture. |
+| plugins/spam-score | `tests/fixtures/plugins/spam-score` (source only) | Ported as a native .NET plugin (M2); its Rust tests become its spec. |
 | The user's memory notes (push always, test accounts, no real input, model choice, design, feel) | `CLAUDE.md` / `AGENTS.md` at the new repo root | Every agent reads these. |
 | Bulwark tree (version 1.21.2) and Stalwart source | Referenced by path and version in `spec/README.md` | Bulwark refs keep their file:line form. Stalwart: `stalwart-0.16.27.zip` is the copy on disk (JMAP-COMPLIANCE.md cites `stalwart-main.zip`, which is no longer there). Re-crawls diff against these pinned versions. |
 
@@ -706,7 +706,7 @@ For calibration, the Rust app went from first commit to parity round 2 in about 
   - **Search:** syntax chips, suggestions, history, SearchSnippet highlights.
   - **Inbox and import:** unified inbox; .eml/.mbox import (`Email/import`) and opening an attached .eml (`Email/parse`); TNEF (better than Rust).
   - **Palette and shortcuts:** command palette (Ctrl+K), search everything, `?` sheet, all mail shortcuts.
-  - **Plugins:** host (C ABI) and built-in spam score.
+  - **Plugins:** the native .NET plugin host (hooks fired for the areas built so far) and the spam-score plugin ported onto it.
 - **Exit:**
   - Mail I- rows (list, menus, reader, sidebar, palette) are D or explicitly deferred.
   - Rust leftovers on <test-account> are removed.
@@ -811,6 +811,14 @@ From this point the user can do daily mail in the C# app.
   - Make a filter in Barbican and confirm Bulwark's Sieve view reads it (the round trip Rust verified).
   - Set out-of-office on <test-account>, then turn it off.
   - Change the style and theme and restart: the settings persist.
+
+### M6b: Plugins (M)
+- **Scope:** the full plugin platform, decided 2026-11-17:
+  - **Bulwark-compatible JS host:** port Bulwark's model from `lib/plugin-hook-catalog.ts` (219 hooks, 29 groups, kinds observer/intercept/transform/takeover), `lib/plugin-slot-catalog.ts` (side panels, top banners, sidebar sections, plugin pages, dialogs, file viewers, task views) and `lib/plugin-sandbox/` (73 files: permissions, consent dialog, signed and integrity-checked bundles, storage, plugin OAuth, timeouts), running plugins in sandboxed iframes inside WebView2 (Windows) / WebKitGTK (Linux). Existing Bulwark plugins must run unchanged.
+  - **Native .NET plugins:** the same hook and slot names, in-process via AssemblyLoadContext, for plugins where native code runs better or ports more easily. Spam score lives here (ported in M2).
+  - The Rust C ABI is not ported.
+- **Spec:** the hook and slot catalogues become `spec/plugins/hooks.csv` and `slots.csv` (added in M1). Every milestone from M1 fires its own area's hooks as it is built; M6b adds the hosts, the sandbox, permissions, consent and the Settings › Add-ons UI. A test asserts every catalogue hook has a call site (as Bulwark's does).
+- **Exit:** a sample of Bulwark's own plugins runs unchanged; spam score works as a native plugin; every hook fired.
 
 ### M7: Admin (M)
 - **Scope:**
@@ -966,7 +974,7 @@ The machine has 28 logical cores and 32 GB of RAM. Today a global rustc cap of 3
 | palette.rs (682/5), shortcuts.rs (848/11), ctxmenu.rs (1273/0) | Presentation/Palette, Input/KeyRouter + Shortcuts, Menus/MenuSpec | | 2 (+4,5) |
 | dnd.rs (401/8) | Presentation/DragDrop, App panes | CommunityToolkit Sizers | 2 |
 | unified.rs (601/7), mailimport.rs (528/7), zip.rs (146/2) | Core/Mail/Unified, Import, (System.IO.Compression) | MimeKit | 2 |
-| plugins.rs (145/1), spam.rs (88/0) | Core/Plugins (NativeLibrary C ABI), built-in spam score | | 2 |
+| plugins.rs (145/1), spam.rs (88/0) | Core/Plugins (native .NET plugins + Bulwark JS host; C ABI dropped), spam score as a .NET plugin | | 2 |
 | invite.rs (366/6) | Core/Calendar/Invitations | Ical.Net (parse) | 2/4 |
 | compose.rs (1263/7), autosave.rs (251/3), schedule.rs (292/3) | Core/Compose/*, Presentation/Compose | | 3 |
 | chips.rs (471/3), recipients.rs (530/8) | Core/Compose/Recipients | MimeKit, IdnMapping | 3 |
