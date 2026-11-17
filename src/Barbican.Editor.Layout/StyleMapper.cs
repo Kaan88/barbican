@@ -12,6 +12,9 @@ namespace Barbican.Editor.Layout;
 /// <summary>Turns a block kind plus a run's marks into a RichTextKit style (Rust build_text_layout).</summary>
 public static class StyleMapper
 {
+    /// <summary>Text on a highlight stays dark whatever the theme (the highlight colours are light).</summary>
+    private static readonly SKColor HighlightInk = new(0xFF1B1F24);
+
     private static readonly ConcurrentDictionary<(string Family, int Weight, bool Italic), float> NaturalSpacing = new();
 
     public static Style ToStyle(BlockKind kind, Marks marks, LayoutStyle style)
@@ -46,7 +49,7 @@ public static class StyleMapper
             FontItalic = marks.Italic,
             Underline = marks.Underline || marks.Link is not null ? UnderlineStyle.Gapped : UnderlineStyle.None,
             StrikeThrough = marks.Strike ? StrikeThroughStyle.Solid : StrikeThroughStyle.None,
-            TextColor = marks.Link is not null ? style.Link : ParseRgb(marks.Color) ?? style.Text,
+            TextColor = marks.Link is not null ? style.Link : ParseRgb(marks.Color) ?? (marks.Highlight is not null ? HighlightInk : style.Text),
             BackgroundColor = ParseRgb(marks.Highlight) ?? (marks.Code && kind is not BlockKind.CodeBlock ? style.CodeBg : SKColor.Empty),
         };
         rtk.LineHeight = CssLineHeight(rtk, lineHeight);

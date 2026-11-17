@@ -61,7 +61,6 @@ public sealed partial class EditorView : UserControl
             Padding = new Thickness(0),
             BorderThickness = new Thickness(0),
             IsSpellCheckEnabled = false,
-            IsTextPredictionEnabled = false,
             AcceptsReturn = false,
         };
         AutomationProperties.SetAutomationId(_ime, "editor.input");
@@ -344,7 +343,7 @@ public sealed partial class EditorView : UserControl
         }
 
         var plain = _vm.Plain;
-        _toolbarBar.Visibility = plain || _vm.SourceOpen && false ? Visibility.Collapsed : Visibility.Visible;
+        _toolbarBar.Visibility = plain ? Visibility.Collapsed : Visibility.Visible;
         _toolbar.Update(_vm.Toolbar, _rtl);
         _bubble.Update(_vm.Toolbar, _rtl);
         UpdateOverlays();

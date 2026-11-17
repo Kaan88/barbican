@@ -49,8 +49,8 @@ public static class EditorUi
         var button = new Button
         {
             Content = content,
-            Padding = new Thickness(8, 4, 8, 4),
-            MinWidth = 30,
+            Padding = new Thickness(6, 4, 6, 4),
+            MinWidth = 28,
             Height = 30,
             Background = new SolidColorBrush(Microsoft.UI.Colors.Transparent),
             BorderThickness = new Thickness(0),

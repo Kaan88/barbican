@@ -25,7 +25,7 @@ public sealed class EditorToolbarView : UserControl
     public EditorToolbarView(bool bubble)
     {
         _bubble = bubble;
-        _more = EditorUi.TextButton("overflow", "…", "More", () => PickerRequested?.Invoke("overflow", _more));
+        _more = EditorUi.TextButton("overflow", "…", "More", () => PickerRequested?.Invoke("overflow", _more!));
         var row = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 2 };
         row.Children.Add(_main);
         row.Children.Add(_more);
@@ -37,6 +37,7 @@ public sealed class EditorToolbarView : UserControl
         KeyDown += OnKeyDown;
     }
 
+#pragma warning disable MA0046 // internal Action events between the toolbar and its host
     /// <summary>A command from a button (the view runs it).</summary>
     public event Action<EditorCommand, string?>? CommandInvoked;
 
@@ -45,6 +46,7 @@ public sealed class EditorToolbarView : UserControl
 
     /// <summary>Escape in the toolbar hands the focus back to the text.</summary>
     public event Action? ReturnFocus;
+#pragma warning restore MA0046
 
     /// <summary>The buttons that do not fit (their own copies; the overflow card shows them).</summary>
     public IReadOnlyList<ToolbarItem> Overflowing => _fitting >= _items.Count ? [] : [.. _items.Skip(_fitting)];
@@ -84,24 +86,32 @@ public sealed class EditorToolbarView : UserControl
             return;
         }
 
-        var fitting = 0;
-        var used = 0.0;
-        foreach (var item in _items)
+        double Width(ToolbarItem item)
         {
             item.Live.Measure(new Windows.Foundation.Size(double.PositiveInfinity, 40));
-            var w = item.Live.DesiredSize.Width + 2;
-            if (used + w > width - OverflowWidth && fitting < _items.Count)
-            {
-                break;
-            }
-
-            used += w;
-            fitting++;
+            return item.Live.DesiredSize.Width + 2 + (SeparatorBefore(item) ? 9 : 0);
         }
 
-        if (fitting + 1 >= _items.Count && used <= width)
+        var total = _items.Sum(Width);
+        var fitting = 0;
+        if (total <= width)
         {
             fitting = _items.Count;
+        }
+        else
+        {
+            var used = 0.0;
+            foreach (var item in _items)
+            {
+                var w = Width(item);
+                if (used + w > width - OverflowWidth)
+                {
+                    break;
+                }
+
+                used += w;
+                fitting++;
+            }
         }
 
         if (fitting != _fitting)
@@ -191,6 +201,8 @@ public sealed class EditorToolbarView : UserControl
     }
 #pragma warning restore MA0051
 
+    private bool SeparatorBefore(ToolbarItem item) => !_bubble && item.Id is "link" or "image" or "clear" or "undo" or "source" && _items.IndexOf(item) > 0;
+
     private void Rebuild()
     {
         _main.Children.Clear();
@@ -198,7 +210,7 @@ public sealed class EditorToolbarView : UserControl
         for (var i = 0; i < shown; i++)
         {
             var item = _items[i];
-            if (i > 0 && item.Id is "link" or "image" or "clear" or "undo" or "source" && !_bubble)
+            if (i > 0 && SeparatorBefore(item))
             {
                 _main.Children.Add(EditorUi.Separator());
             }

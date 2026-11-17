@@ -351,6 +351,7 @@ public sealed partial class EditorView
         }
     }
 
+#pragma warning disable VSTHRD100 // a drag-and-drop event handler
     private async void OnDrop(object sender, DragEventArgs e)
     {
         if (_vm is null || _session is null || _vm.Plain || !e.DataView.Contains(Windows.ApplicationModel.DataTransfer.StandardDataFormats.StorageItems))
@@ -372,6 +373,8 @@ public sealed partial class EditorView
             deferral.Complete();
         }
     }
+
+#pragma warning restore VSTHRD100
 
     private static (int Width, int Height)? ImageSize(byte[] bytes) => Barbican.Editor.Layout.LayoutImages.Decode(bytes) is { } img ? (img.Width, img.Height) : null;
 }

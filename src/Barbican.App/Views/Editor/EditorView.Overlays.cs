@@ -4,9 +4,7 @@
 using Barbican.App.Shell;
 using Barbican.App.Theme;
 using Barbican.Core.Editor;
-using Barbican.Editor.Layout;
 using Barbican.Presentation.Editor;
-using Microsoft.UI.Input;
 using Microsoft.UI.Xaml.Automation;
 using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Shapes;
@@ -269,7 +267,7 @@ public sealed partial class EditorView
         }
     }
 
-    private FrameworkElement OverflowCard()
+    private Border OverflowCard()
     {
         var stack = new StackPanel { Spacing = 2 };
         foreach (var item in _toolbar.Overflowing)
@@ -331,7 +329,7 @@ public sealed partial class EditorView
                 OpenImageUrlDialog();
                 break;
             case EditorCommand.ImageSize:
-                ResizeSelectedImage(int.TryParse(e.Argument, out var w) ? w : 0);
+                ResizeSelectedImage(int.TryParse(e.Argument, System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out var w) ? w : 0);
                 break;
             default:
                 break;
@@ -551,7 +549,7 @@ public sealed partial class EditorView
         ClosePopover();
     }
 
-    private FrameworkElement ImagePopover()
+    private Border ImagePopover()
     {
         var row = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 4 };
         row.Children.Add(EditorUi.Action("imagepop.alt", "Alt text", OpenAltDialog));

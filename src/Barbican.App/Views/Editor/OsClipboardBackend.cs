@@ -3,7 +3,6 @@
 using System.Runtime.InteropServices.WindowsRuntime;
 using Barbican.Presentation.Editor;
 using Windows.ApplicationModel.DataTransfer;
-using Windows.Storage;
 
 namespace Barbican.App.Views.Editor;
 
@@ -54,7 +53,11 @@ public sealed class OsClipboardBackend : IEditorClipboardBackend
         {
             var package = new DataPackage();
             package.SetText(text);
+            #if WINDOWS
             package.SetHtmlFormat(HtmlFormatHelper.CreateHtmlFormat(html));
+#else
+            package.SetHtmlFormat(html);
+#endif
             Clipboard.SetContent(package);
         }
 #pragma warning disable CA1031 // a locked clipboard is not an error the user can act on
