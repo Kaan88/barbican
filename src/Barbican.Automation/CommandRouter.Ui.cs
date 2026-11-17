@@ -94,6 +94,14 @@ internal sealed partial class CommandRouter
             {
                 var id = line.Token(0);
                 var value = line.Argument.Length > id.Length ? line.Argument[(id.Length + 1)..] : string.Empty;
+                // The WinUI peer does not always hand out the Value pattern to managed code (the M2 stage F run answered "pattern not supported" for every
+                // TextBox); an in-process TextBox takes the text directly, which raises TextChanged exactly as typing does.
+                if (ElementSearch.ById(_context.Root, id.Trim()) is Microsoft.UI.Xaml.Controls.TextBox box)
+                {
+                    box.Text = value;
+                    return "ok";
+                }
+
                 return WithPeer(id, p =>
                 {
                     if (p.GetPattern(PatternInterface.Value) is not IValueProvider v)
