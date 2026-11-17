@@ -162,4 +162,19 @@ public sealed class UnifiedInboxTests : IDisposable
         Assert.Equal((string?)inB.First(m => string.Equals((string?)m["role"], "archive", StringComparison.Ordinal))["id"], matched);
         Assert.NotEqual((string?)archiveA["id"], matched, StringComparer.Ordinal);
     }
+
+    [Fact]
+    public async Task Unified_search_reads_the_same_grammar_as_the_folder_search()
+    {
+        // R3-09: has:attachment and subject: are operators, not words sent to the server as typed
+        _a.Store.Deliver(new FakeMail { Subject = "withfile", ReceivedAt = T0.AddHours(6), Attachments = [new FakeAttachment("r.pdf", "application/pdf", [1, 2, 3])] }, _inboxA);
+        var (a, b) = await ConnectAsync();
+        var source = SourceOf(a, b);
+        var withFile = (await source.QueryAsync(new ListQuery { MailboxId = UnifiedRows.FolderId, SearchText = "has:attachment", PageSize = 10 }, null, Ct)).Value!;
+        Assert.Equal(["withfile"], Subjects(withFile.Items));
+        var bySubject = (await source.QueryAsync(new ListQuery { MailboxId = UnifiedRows.FolderId, SearchText = "subject:b4", PageSize = 10 }, null, Ct)).Value!;
+        Assert.Equal(["b4"], Subjects(bySubject.Items));
+        var plain = (await source.QueryAsync(new ListQuery { MailboxId = UnifiedRows.FolderId, SearchText = "a3", PageSize = 10 }, null, Ct)).Value!;
+        Assert.Equal(["a3"], Subjects(plain.Items));
+    }
 }

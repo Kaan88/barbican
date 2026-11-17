@@ -93,23 +93,29 @@ public sealed class UnifiedMailWriter(
         ArgumentNullException.ThrowIfNull(emailIds);
         var groups = emailIds.GroupBy(id => UnifiedRows.ParseRow(id) is { } r ? r with { Id = "" } : null).ToList();
         var reports = new List<SetReport>();
-        foreach (var group in groups)
+        for (var i = 0; i < groups.Count; i++)
         {
-            var report = await SendGroupAsync(group.Key, [.. group], send, mailboxes, ct).ConfigureAwait(false);
+            var report = await SendGroupAsync(groups[i].Key, [.. groups[i]], send, mailboxes, ct).ConfigureAwait(false);
             if (!report.IsOk)
             {
-                return report;
+                // an earlier group (and the chunks of this one before the failure) are applied: the failure carries them (R3-03); the groups after it
+                // are not sent
+                var notSent = (report.Value?.NotSent ?? [.. groups[i]]).Concat(groups.Skip(i + 1).SelectMany(g => g)).ToList();
+                reports.Add(report.Value ?? SetReport.Empty);
+                return Result<SetReport>.FailPartial(report.Error!, Join(reports) with { NotSent = notSent });
             }
 
             reports.Add(report.Value!);
         }
 
-        return Result<SetReport>.Ok(new SetReport(
-            [.. reports.SelectMany(r => r.Updated)],
-            [.. reports.SelectMany(r => r.Destroyed)],
-            [.. reports.SelectMany(r => r.Created)],
-            [.. reports.SelectMany(r => r.Refused)]));
+        return Result<SetReport>.Ok(Join(reports));
     }
+
+    private static SetReport Join(List<SetReport> reports) => new(
+        [.. reports.SelectMany(r => r.Updated)],
+        [.. reports.SelectMany(r => r.Destroyed)],
+        [.. reports.SelectMany(r => r.Created)],
+        [.. reports.SelectMany(r => r.Refused)]);
 
     private async Task<Result<SetReport>> SendGroupAsync(
         UnifiedRowId? source,
@@ -145,18 +151,18 @@ public sealed class UnifiedMailWriter(
 
         var real = ids.ToDictionary(UnifiedRows.RealId, id => id, StringComparer.Ordinal);
         var sent = await send(writer, [.. real.Keys], map, ct).ConfigureAwait(false);
-        if (!sent.IsOk)
-        {
-            return sent;
-        }
-
         string Row(string id) => real.GetValueOrDefault(id) ?? id;
-        var r = sent.Value!;
-        return Result<SetReport>.Ok(new SetReport(
+        SetReport Rows(SetReport r) => new(
             [.. r.Updated.Select(Row)],
             [.. r.Destroyed.Select(Row)],
             r.Created,
-            [.. r.Refused.Select(e => e with { Id = Row(e.Id) })]));
+            [.. r.Refused.Select(e => e with { Id = Row(e.Id) })])
+        {
+            NotSent = [.. r.NotSent.Select(Row)],
+        };
+
+        // a failure keeps what its chunks did before it, under the row ids
+        return sent.IsOk ? Result<SetReport>.Ok(Rows(sent.Value!)) : sent.Value is { } partial ? Result<SetReport>.FailPartial(sent.Error!, Rows(partial)) : sent;
     }
 
     private static Result<SetReport> Refuse(IEnumerable<string> ids, string why) =>

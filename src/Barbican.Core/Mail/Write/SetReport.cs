@@ -11,6 +11,12 @@ public sealed record SetReport(
     IReadOnlyList<string> Created,
     IReadOnlyList<SetError> Refused)
 {
+    /// <summary>
+    /// Ids the write never got to or whose request failed: set only on the partial report that comes with a failure (<c>Result.FailPartial</c>) when a
+    /// chunked write stopped part way. Ids in <see cref="Updated"/> / <see cref="Destroyed"/> were applied on the server.
+    /// </summary>
+    public IReadOnlyList<string> NotSent { get; init; } = [];
+
     /// <summary>An empty report (nothing asked, nothing changed).</summary>
     public static SetReport Empty { get; } = new([], [], [], []);
 

@@ -48,7 +48,7 @@ public sealed partial class MailActionService
             true,
             (w, g, c) => w.RemoveFromMailboxAsync(Ids(g), mailboxId, c),
             (ids, c) => AllowAsync(HookNames.OnBeforeEmailMove, () => new EmailMovePayload(ids, mailboxId, null), c),
-            ids => hooks.Fire(HookNames.OnAfterEmailMove, () => new EmailMovePayload(ids, mailboxId, null))), ct);
+            ids => hooks.Fire(HookNames.OnAfterEmailMove, () => new EmailMovePayload(ids, mailboxId, null))) { Verb = "removed from the folder" }, ct);
     }
 
     /// <summary>Move to Inbox (the hover strip and menu in Archive).</summary>
@@ -94,7 +94,7 @@ public sealed partial class MailActionService
             true,
             (w, g, c) => ArchiveWriteAsync(w, g, archive.Id, settings.ArchiveMode, c),
             (ids, c) => AllowAsync(HookNames.OnBeforeEmailArchive, () => new EmailIdsPayload(ids), c),
-            ids => hooks.Fire(HookNames.OnEmailArchive, () => new EmailIdsPayload(ids))), ct).ConfigureAwait(true);
+            ids => hooks.Fire(HookNames.OnEmailArchive, () => new EmailIdsPayload(ids))) { Verb = "archived" }, ct).ConfigureAwait(true);
     }
 
     /// <summary>Marks messages as spam (moves them to Junk and sets <c>$junk</c>) or not spam (back to the Inbox, <c>$notjunk</c>).</summary>
@@ -114,7 +114,7 @@ public sealed partial class MailActionService
             true,
             (w, g, c) => w.MoveWithKeywordsAsync(Ids(g), dest.Id, flags, c),
             (ids, c) => AllowAsync(HookNames.OnBeforeEmailSpamToggle, () => new EmailSpamPayload(ids, spam), c),
-            ids => hooks.Fire(HookNames.OnEmailSpamToggle, () => new EmailSpamPayload(ids, spam))) { KeywordsBack = back }, ct);
+            ids => hooks.Fire(HookNames.OnEmailSpamToggle, () => new EmailSpamPayload(ids, spam))) { KeywordsBack = back, Verb = spam ? "marked as spam" : "moved to Inbox" }, ct);
     }
 
     /// <summary>
@@ -125,7 +125,15 @@ public sealed partial class MailActionService
     {
         ArgumentNullException.ThrowIfNull(targets);
         var settings = Settings;
-        var permanent = targets.Where(t => IsPermanent(t, settings)).ToList();
+        var permanent = new List<MailTarget>();
+        foreach (var t in targets)
+        {
+            if (await IsPermanentAsync(t, settings, ct).ConfigureAwait(true))
+            {
+                permanent.Add(t);
+            }
+        }
+
         var soft = targets.Except(permanent).ToList();
         if (!await ConfirmDeleteAsync(targets.Count, permanent.Count, settings, ct).ConfigureAwait(true))
         {
@@ -178,7 +186,7 @@ public sealed partial class MailActionService
     /// destroyed a message the user only wanted in Trash (M2 hotfix 2, the user's "deleted, pressed z, gone"). A list that is no folder (a tag, a search)
     /// destroys only a message that is in Trash (or Junk) and nowhere else.
     /// </summary>
-    private bool IsPermanent(MailTarget t, ActionSettings s)
+    private async Task<bool> IsPermanentAsync(MailTarget t, ActionSettings s, CancellationToken ct)
     {
         if (string.Equals(s.DeleteAction, "permanent", StringComparison.Ordinal))
         {
@@ -190,14 +198,29 @@ public sealed partial class MailActionService
             return list.Role == MailboxRole.Trash || (s.PermanentlyDeleteJunk && list.Role == MailboxRole.Junk);
         }
 
-        return OnlyIn(t, MailboxRole.Trash) || (s.PermanentlyDeleteJunk && OnlyIn(t, MailboxRole.Junk));
+        return await OnlyInAsync(t, MailboxRole.Trash, ct).ConfigureAwait(true) || (s.PermanentlyDeleteJunk && await OnlyInAsync(t, MailboxRole.Junk, ct).ConfigureAwait(true));
     }
 
-    /// <summary>The message is in folders of this role and in no other folder (the tree is the active account's).</summary>
-    private bool OnlyIn(MailTarget t, MailboxRole role)
+    /// <summary>
+    /// The message is in folders of this role and in no other folder, by the folder tree of the message's own account (R3-07): a unified row of another
+    /// login carries that login's folder ids, which mean nothing in the active account's tree. A row whose account tree is not known is in no role, so
+    /// Delete moves it to Trash and never destroys it.
+    /// </summary>
+    private async Task<bool> OnlyInAsync(MailTarget t, MailboxRole role, CancellationToken ct)
     {
         var inside = t.MailboxIds.Where(kv => kv.Value).Select(kv => kv.Key).ToList();
-        return inside.Count > 0 && inside.All(id => folders.Tree.All.Any(m => m.Role == role && string.Equals(m.Id, id, StringComparison.Ordinal)));
+        if (inside.Count == 0)
+        {
+            return false;
+        }
+
+        if (Core.Mail.Unified.UnifiedRows.ParseRow(t.EmailId) is null)
+        {
+            return inside.All(id => folders.Tree.All.Any(m => m.Role == role && string.Equals(m.Id, id, StringComparison.Ordinal)));
+        }
+
+        var own = await writers.FoldersOfAsync(t, ct).ConfigureAwait(true);
+        return own is not null && inside.All(id => own.Any(m => m.Role == role && string.Equals(m.Id, id, StringComparison.Ordinal)));
     }
 
     /// <summary>The select-all cap, stated in the confirmation: only the first N of the folder are included (decision M2-Q5).</summary>
@@ -247,7 +270,7 @@ public sealed partial class MailActionService
             true,
             (w, g, c) => alsoRead ? w.MoveWithKeywordsAsync(Ids(g), trash.Id, read, c) : w.MoveAsync(Ids(g), null, trash.Id, c),
             (ids, c) => AllowAsync(HookNames.OnBeforeEmailDelete, () => new EmailDeletePayload(ids, false), c),
-            ids => hooks.Fire(HookNames.OnAfterEmailDelete, () => new EmailDeletePayload(ids, false))), ct).ConfigureAwait(true);
+            ids => hooks.Fire(HookNames.OnAfterEmailDelete, () => new EmailDeletePayload(ids, false))) { Verb = "deleted" }, ct).ConfigureAwait(true);
     }
 
     private Task<Result<Unit>> DestroyFlowAsync(IReadOnlyList<MailTarget> targets, CancellationToken ct) =>
@@ -257,7 +280,7 @@ public sealed partial class MailActionService
             false,
             (w, g, c) => w.DestroyAsync(Ids(g), c),
             (ids, c) => AllowAsync(HookNames.OnBeforeEmailDelete, () => new EmailDeletePayload(ids, true), c),
-            ids => hooks.Fire(HookNames.OnAfterEmailDelete, () => new EmailDeletePayload(ids, true))), ct);
+            ids => hooks.Fire(HookNames.OnAfterEmailDelete, () => new EmailDeletePayload(ids, true))) { Verb = "deleted permanently" }, ct);
 
     private async Task<Result<SetReport>> ArchiveWriteAsync(IMailWriter writer, IReadOnlyList<MailTarget> group, string archiveId, string mode, CancellationToken ct)
     {
@@ -274,13 +297,16 @@ public sealed partial class MailActionService
             var dest = await Core.Mail.Archive.ArchiveFolders.EnsureAsync(writer, boxes, archiveId, g.Key.Length == 0 ? [] : g.Key.Split('/'), ct).ConfigureAwait(true);
             if (!dest.IsOk)
             {
-                return Result<SetReport>.Fail(dest.Error!);
+                // the groups moved before this one stay applied (R3-03)
+                return report.Updated.Count > 0 ? Result<SetReport>.FailPartial(dest.Error!, report) : Result<SetReport>.Fail(dest.Error!);
             }
 
             var moved = await writer.MoveAsync(Ids(g), null, dest.Value!, ct).ConfigureAwait(true);
             if (!moved.IsOk)
             {
-                return moved;
+                return moved.Value is { } part
+                    ? Result<SetReport>.FailPartial(moved.Error!, new SetReport([.. report.Updated, .. part.Updated], [.. report.Destroyed, .. part.Destroyed], [.. report.Created, .. part.Created], [.. report.Refused, .. part.Refused]))
+                    : report.Updated.Count > 0 ? Result<SetReport>.FailPartial(moved.Error!, report) : moved;
             }
 
             report = new SetReport([.. report.Updated, .. moved.Value!.Updated], [.. report.Destroyed, .. moved.Value.Destroyed], [.. report.Created, .. moved.Value.Created], [.. report.Refused, .. moved.Value.Refused]);

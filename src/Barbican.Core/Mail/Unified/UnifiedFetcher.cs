@@ -11,6 +11,7 @@ using Barbican.Core.Jmap.Json;
 using Barbican.Core.Jmap.Requests;
 using Barbican.Core.Mail.Model;
 using Barbican.Core.Mail.Service;
+using Barbican.Core.Search;
 
 namespace Barbican.Core.Mail.Unified;
 
@@ -56,7 +57,7 @@ public static class UnifiedFetcher
         var q = b.Add("Email/query", new JsonObject
         {
             ["accountId"] = source.AccountId,
-            ["filter"] = Filter(inboxId, query),
+            ["filter"] = Filter(inboxId, query, boxes.Value!),
             ["sort"] = new JsonArray(new JsonObject { ["property"] = "receivedAt", ["isAscending"] = false }),
             ["position"] = position,
             ["limit"] = Math.Max(1, limit),
@@ -96,13 +97,12 @@ public static class UnifiedFetcher
         };
     }
 
-    private static JsonObject Filter(string inboxId, ListQuery query)
+    private static JsonObject Filter(string inboxId, ListQuery query, IReadOnlyList<JsonNode> boxes)
     {
-        var conditions = new JsonArray(new JsonObject { ["inMailbox"] = inboxId });
-        if (query.SearchText is { Length: > 0 } text)
-        {
-            conditions.Add((JsonNode)new JsonObject { ["text"] = text });
-        }
+        // the typed text is read with the grammar of the folder search (from:, to:, subject:, has:attachment, is:, after:, before:, in:), not sent as typed (R3-09)
+        var conditions = query.SearchText?.Trim() is { Length: > 0 } text
+            ? new JsonArray(GlobalSearch.MailboxSearchFilter(text, inboxId, role => boxes.FirstOrDefault(m => string.Equals((string?)m["role"], role, StringComparison.Ordinal)) is { } m ? (string?)m["id"] : null))
+            : new JsonArray(new JsonObject { ["inMailbox"] = inboxId });
 
         if (query.HasKeyword is { Length: > 0 } has)
         {
