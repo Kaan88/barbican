@@ -1,4 +1,4 @@
-// Ported from Rust src/mdn.rs tests (:246-:334). Red until stream reader implements MdnMessage (M2 plan 6.3, T-177..T-183).
+// Ported from Rust src/mdn.rs tests (:246-:334).
 
 using System.Text.Json.Nodes;
 using Barbican.Core.Mail.Mdn;
@@ -14,7 +14,6 @@ public sealed class MdnMessageTests
     private static DateTimeOffset Now() => DateTimeOffset.Parse("2026-05-28T14:23:00Z", System.Globalization.CultureInfo.InvariantCulture);
 
     [Fact]
-    [Red("reader")]
     [RustTest("mdn::dnt_addresses")]
     public void Dnt_addresses()
     {
@@ -27,7 +26,6 @@ public sealed class MdnMessageTests
     }
 
     [Fact]
-    [Red("reader")]
     [RustTest("mdn::auto_send_only_to_the_return_path")]
     public void Auto_send_only_to_the_return_path()
     {
@@ -49,7 +47,6 @@ public sealed class MdnMessageTests
     }
 
     [Fact]
-    [Red("reader")]
     [RustTest("mdn::builds_two_part_report")]
     public void Builds_two_part_report()
     {
@@ -76,7 +73,6 @@ public sealed class MdnMessageTests
     }
 
     [Fact]
-    [Red("reader")]
     [RustTest("mdn::header_injection_is_neutralised")]
     public void Header_injection_is_neutralised()
     {
@@ -100,7 +96,6 @@ public sealed class MdnMessageTests
     }
 
     [Fact]
-    [Red("reader")]
     [RustTest("mdn::base64_wraps_at_76")]
     public void Base64_wraps_at_76()
     {
@@ -111,7 +106,6 @@ public sealed class MdnMessageTests
     }
 
     [Fact]
-    [Red("reader")]
     [RustTest("mdn::requester_and_offer_rules")]
     public void Requester_and_offer_rules()
     {
@@ -130,7 +124,6 @@ public sealed class MdnMessageTests
     }
 
     [Fact]
-    [Red("reader")]
     [RustTest("mdn::identity_follows_the_recipient")]
     public void Identity_follows_the_recipient()
     {

@@ -1,4 +1,4 @@
-// Ported from Rust src/avatars.rs tests (:377-:466). Red until stream reader implements AvatarRules (M2 plan 6.3, T-018..T-024).
+// Ported from Rust src/avatars.rs tests (:377-:466).
 // T-023 (D-234 note): the Rust test counted a worker out under the queue lock; the C# queue is a Channel reader and the same meaning is asserted:
 // the busy count is zero after the queue drains.
 
@@ -12,7 +12,6 @@ public sealed class AvatarRulesTests
     private static JsonNode J(string json) => JsonNode.Parse(json)!;
 
     [Fact]
-    [Red("reader")]
     [RustTest("avatars::root_domains_and_validity")]
     public void Root_domains_and_validity()
     {
@@ -28,7 +27,6 @@ public sealed class AvatarRulesTests
     }
 
     [Fact]
-    [Red("reader")]
     [RustTest("avatars::candidate_order_follows_bulwark")]
     public void Candidate_order_follows_bulwark()
     {
@@ -49,7 +47,6 @@ public sealed class AvatarRulesTests
     }
 
     [Fact]
-    [Red("reader")]
     [RustTest("avatars::junk_and_off_show_nothing")]
     public void Junk_and_off_show_nothing()
     {
@@ -59,7 +56,6 @@ public sealed class AvatarRulesTests
     }
 
     [Fact]
-    [Red("reader")]
     [RustTest("avatars::gravatar_hash_is_sha256_of_the_normalised_address")]
     public void Gravatar_hash_is_sha256_of_the_normalised_address()
     {
@@ -68,7 +64,6 @@ public sealed class AvatarRulesTests
     }
 
     [Fact]
-    [Red("reader")]
     [RustTest("avatars::bimi_records_and_dmarc")]
     public void Bimi_records_and_dmarc()
     {
@@ -101,7 +96,6 @@ public sealed class AvatarRulesTests
     }
 
     [Fact]
-    [Red("reader")]
     [RustTest("avatars::idle_worker_is_counted_out_under_the_queue_lock")]
     public void Idle_worker_is_counted_out_after_the_queue_drains()
     {
@@ -112,7 +106,6 @@ public sealed class AvatarRulesTests
     }
 
     [Fact]
-    [Red("reader")]
     [RustTest("avatars::rasters_fit_a_square_and_reject_pixels")]
     public void Rasters_fit_a_square_and_reject_pixels()
     {

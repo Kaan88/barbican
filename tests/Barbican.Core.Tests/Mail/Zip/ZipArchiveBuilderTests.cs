@@ -1,4 +1,4 @@
-// Ported from Rust src/zip.rs tests (:98-:146). Red until stream reader implements ZipArchiveBuilder (M2 plan 6.3, T-311, T-312).
+// Ported from Rust src/zip.rs tests (:98-:146).
 // The CRC-32 reference is the independent TestCrc32 (the Rust test used the crc32fast crate).
 
 using System.Buffers.Binary;
@@ -15,7 +15,6 @@ public sealed class ZipArchiveBuilderTests
     private static uint Rd32(byte[] b, int i) => BinaryPrimitives.ReadUInt32LittleEndian(b.AsSpan(i));
 
     [Fact]
-    [Red("reader")]
     [RustTest("zip::names_are_unique")]
     public void Names_are_unique()
     {
@@ -24,7 +23,6 @@ public sealed class ZipArchiveBuilderTests
     }
 
     [Fact]
-    [Red("reader")]
     [RustTest("zip::archive_layout_reads_back")]
     public void Archive_layout_reads_back()
     {

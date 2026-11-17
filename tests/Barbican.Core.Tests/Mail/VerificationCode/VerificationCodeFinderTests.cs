@@ -1,4 +1,4 @@
-// Ported from Rust src/otp.rs tests (:287-:305). Red until stream reader implements VerificationCodeFinder (M2 plan 6.3, T-199, T-200).
+// Ported from Rust src/otp.rs tests (:287-:305).
 
 using Barbican.Core.Mail.VerificationCode;
 
@@ -9,7 +9,6 @@ public sealed class VerificationCodeFinderTests
     private static string? Find(string subject, string text) => new VerificationCodeFinder().Find(subject, text);
 
     [Fact]
-    [Red("reader")]
     [RustTest("otp::finds_codes")]
     public void Finds_codes()
     {
@@ -21,7 +20,6 @@ public sealed class VerificationCodeFinderTests
     }
 
     [Fact]
-    [Red("reader")]
     [RustTest("otp::skips_non_codes")]
     public void Skips_non_codes()
     {
