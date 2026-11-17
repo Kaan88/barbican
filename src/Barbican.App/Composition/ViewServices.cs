@@ -1,8 +1,5 @@
 using Barbican.App.Shell;
 using Barbican.App.Theme;
-using Barbican.App.Views.Accounts;
-using Barbican.App.Views.SignIn;
-using Barbican.Core.Accounts;
 using Barbican.Presentation.Common;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
@@ -26,8 +23,8 @@ public static class ViewServices
         services.TryAddSingleton<StyleState>();
         services.TryAddSingleton<ShellLifecycle>();
         services.TryAddSingleton<ThemeController>();
-        services.TryAddSingleton(sp => new AccountPopoverModel(sp.GetService<IAccountManager>(), sp.GetRequiredService<IDispatcher>()));
-        services.TryAddSingleton(sp => new SignInFormModel(sp.GetService<IAccountManager>()));
+
+        // the sign-in view and the account popover bind to Presentation's SignInViewModel and AccountsViewModel (AddBarbicanAccountsPresentation; R2-03)
 
         // Host.Build resolves the logger providers, which hands the finished provider to the views (see ViewHost.CaptureProvider).
         services.AddSingleton<ILoggerProvider>(ViewHost.CaptureProvider);

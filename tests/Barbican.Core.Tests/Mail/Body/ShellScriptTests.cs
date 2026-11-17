@@ -45,6 +45,26 @@ public sealed partial class ShellScriptTests
     }
 
     [Fact]
+    public void AFrameDocumentIsReadOnlyThroughThePrototypes()
+    {
+        // Fable review 2 R2-04: a mail element named URL, body, querySelectorAll ... shadows that member of the frame document
+        var code = Code.Value;
+        Assert.DoesNotMatch(@"(?<![\w$])d\s*\.\s*(URL|body|documentElement|defaultView|readyState|querySelectorAll|addEventListener|__bb\w*)(?![\w$])", code);
+        Assert.Contains("Object.getOwnPropertyDescriptor(DP, n)", code, StringComparison.Ordinal);
+        Assert.Contains("EventTarget.prototype.addEventListener.call(", code, StringComparison.Ordinal);
+        Assert.Contains("new WeakSet()", code, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void OnlyAFinishedFrameIsRevealed()
+    {
+        // the host's give-up path must not show a frame the shell never handled (no link handler, no dark pass)
+        var code = Code.Value;
+        Assert.Matches(@"finished\.add\(f\);", code);
+        Assert.Matches(@"reveal:\s*function\s*\(s\)\s*\{\s*if\s*\(s !== seq \|\| !nxt \|\| !finished\.has\(nxt\)\)\s*return;", code);
+    }
+
+    [Fact]
     public void ReadyIsPostedOneFrameAfterTheLayoutWithATimerFallback()
     {
         // data: images may decode a frame late; a hidden window may never run a frame, so the timer keeps the page from waiting for good
@@ -80,7 +100,7 @@ public sealed partial class ShellScriptTests
     {
         // Fable F-03: the load path and the poll both go through finish(), which checks about:srcdoc; the passes run from the shell
         var code = Code.Value;
-        Assert.Contains("d.URL !== 'about:srcdoc'", code, StringComparison.Ordinal);
+        Assert.Contains("G(d, 'url') !== 'about:srcdoc'", code, StringComparison.Ordinal);
         Assert.Matches(@"addEventListener\('load',[^\n]*finish\(d\)", code);
         Assert.Matches(@"size\(d, sz\);\s*if \(dk\) dark\(d\);", code);
         Assert.Contains("window.__bbDarkPass(d)", code, StringComparison.Ordinal);
@@ -90,8 +110,8 @@ public sealed partial class ShellScriptTests
     public void FramesRouteLinksThroughACapturingClickHandler()
     {
         var code = Code.Value;
-        Assert.Contains("d.addEventListener('click', link, true);", code, StringComparison.Ordinal);
-        Assert.Contains("d.addEventListener('auxclick', link, true);", code, StringComparison.Ordinal);
+        Assert.Contains("on(d, 'click', link, true);", code, StringComparison.Ordinal);
+        Assert.Contains("on(d, 'auxclick', link, true);", code, StringComparison.Ordinal);
         Assert.Contains("post('link:' + href)", code, StringComparison.Ordinal);
         Assert.Matches(@"function link\(e\)\s*\{[^}]*?e\.preventDefault\(\);", code);
     }

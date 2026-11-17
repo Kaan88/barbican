@@ -29,8 +29,22 @@
 // handler misses goes nowhere instead of navigating the frame.
 // This script never navigates: it never assigns location, never calls location.assign/replace,
 // window.open or document.write (tests/Barbican.Core.Tests/Mail/Body/ShellScriptTests.cs).
+//
+// The frame document belongs to the mail: an element named "URL", "body" or "querySelectorAll"
+// shadows that member of it (WHATWG HTML, named access on the Document object; Fable review 2
+// R2-04). So the shell reads a frame document only through the prototypes of its own realm (G, Q,
+// on below), keeps its marks in WeakSets instead of on the document, and reveals only a frame that
+// passed finish(). Core's MailSanitizer also drops such names; this is the other guard.
 (function () {
   var cur = null, nxt = null, seq = 0;
+  var DP = Document.prototype, EP = Element.prototype;
+  var getter = function (n) { var x = Object.getOwnPropertyDescriptor(DP, n); return x && x.get; };
+  var GET = { url: getter('URL'), body: getter('body'), root: getter('documentElement'), view: getter('defaultView'), state: getter('readyState') };
+  // a member of document d read through Document.prototype (null when it cannot be read)
+  function G(d, which) { try { return GET[which].call(d); } catch (e) { return null; } }
+  function Q(d, sel) { return DP.querySelectorAll.call(d, sel); }
+  function on(t, type, fn, capture) { EventTarget.prototype.addEventListener.call(t, type, fn, capture); }
+  var handled = new WeakSet(), finished = new WeakSet();
   // The only sandbox keywords a frame may get (the same list as Core's MailSandbox.Allowed): never
   // allow-scripts, allow-top-navigation*, allow-popups*, allow-forms or allow-downloads, whatever the host sends.
   var SANDBOX_OK = ['allow-same-origin', 'allow-modals'];
@@ -82,29 +96,30 @@
   document.addEventListener('contextmenu', ctx, true);
   function fix(d) {
     try {
-      var a = d.querySelectorAll('a,area,form');
-      for (var i = 0; i < a.length; i++) a[i].setAttribute('target', '_blank');
+      var a = Q(d, 'a,area,form');
+      for (var i = 0; i < a.length; i++) EP.setAttribute.call(a[i], 'target', '_blank');
     } catch (e) { }
     try {
-      if (!d.__bbd) {
-        d.__bbd = 1;
+      if (!handled.has(d)) {
+        handled.add(d);
         var t = 0, p = function () { if (t) return; t = 1; requestAnimationFrame(function () { t = 0; post('dirty'); }); };
-        d.addEventListener('keydown', kd, true);
-        d.addEventListener('contextmenu', ctx, true);
-        d.addEventListener('click', link, true);
-        d.addEventListener('auxclick', link, true);
-        d.addEventListener('scroll', p, true);
-        d.addEventListener('load', p, true);
-        d.addEventListener('selectionchange', p);
-        d.defaultView.addEventListener('resize', p);
+        on(d, 'keydown', kd, true);
+        on(d, 'contextmenu', ctx, true);
+        on(d, 'click', link, true);
+        on(d, 'auxclick', link, true);
+        on(d, 'scroll', p, true);
+        on(d, 'load', p, true);
+        on(d, 'selectionchange', p, false);
+        on(G(d, 'view'), 'resize', p, false);
       }
     } catch (e) { }
   }
   // Settings > Accessibility text size, minimum size and fit to the pane (Core A11y.Sizing; Bulwark applyMailTextSize).
   function size(d, z) {
     try {
-      if (!z || !d.body) return;
-      var f = +z[0] || 1, m = +z[1] || 0, fit = !!z[2], v = d.defaultView, b = d.body;
+      var b = G(d, 'body'), v = G(d, 'view');
+      if (!z || !b || !v) return;
+      var f = +z[0] || 1, m = +z[1] || 0, fit = !!z[2];
       if (f != 1 || m > 0) {
         var skip = { IMG: 1, BR: 1, HR: 1, WBR: 1, PICTURE: 1, SOURCE: 1, VIDEO: 1, AUDIO: 1, CANVAS: 1, IFRAME: 1, OBJECT: 1, EMBED: 1, STYLE: 1, SCRIPT: 1, TEMPLATE: 1 };
         var els = [b], any = false, sz = [];
@@ -122,13 +137,13 @@
           if (x[2] !== null) x[0].style.setProperty('line-height', Math.round(x[2] * 100) / 100 + 'px', 'important');
         });
       }
-      if (fit) { var de = d.documentElement, w = de.scrollWidth, c = de.clientWidth; if (w > c + 2) b.style.zoom = (c / w).toFixed(4); }
+      if (fit) { var de = G(d, 'root'), w = de.scrollWidth, c = de.clientWidth; if (w > c + 2) b.style.zoom = (c / w).toFixed(4); }
     } catch (e) { }
   }
   // The dark conversion of a dark-pending page; the pending class goes whatever happens (its CSS hides the body).
   function dark(d) {
     try { if (window.__bbDarkPass) window.__bbDarkPass(d); } catch (e) { }
-    try { d.documentElement.classList.remove('barbican-dark-pending'); } catch (e) { }
+    try { G(d, 'root').classList.remove('barbican-dark-pending'); } catch (e) { }
   }
   var bb = window.__bb = {
     show: function (s, html, bg, sb, dk, sz) {
@@ -141,14 +156,15 @@
       f._bg = bg;
       nxt = f;
       var done = false;
-      // only the frame's own srcdoc is ever finished and revealed (a frame that navigated elsewhere never is)
+      // only the frame's own srcdoc is ever finished, and only a finished frame is revealed (a frame that navigated elsewhere never is)
       function finish(d) {
-        if (done || seq !== s || !d || d.URL !== 'about:srcdoc' || !d.body) return false;
+        if (done || seq !== s || !d || G(d, 'url') !== 'about:srcdoc' || !G(d, 'body')) return false;
         done = true;
         fix(d);
         size(d, sz);
         if (dk) dark(d);
-        void d.documentElement.offsetHeight;
+        void G(d, 'root').offsetHeight;
+        finished.add(f);
         // One frame before the host hears of the page, so data: images have decoded when it is revealed (Fable M1 verify). A hidden or
         // throttled window may never run a frame: a timer is the fallback, so the page is never held back for good.
         var sent = false;
@@ -167,12 +183,13 @@
         if (done || seq !== s) return;
         var d = null;
         try { d = f.contentDocument; } catch (e) { }
-        if (d && d.readyState !== 'loading' && finish(d)) return;
+        if (d && G(d, 'state') !== 'loading' && finish(d)) return;
         setTimeout(poll, 1);
       })();
     },
     reveal: function (s) {
-      if (s !== seq || !nxt) return;
+      // a frame the shell never finished is not shown (the host sends its error page instead, BodyShell.GiveUp)
+      if (s !== seq || !nxt || !finished.has(nxt)) return;
       var f = nxt;
       nxt = null;
       document.documentElement.style.background = f._bg;

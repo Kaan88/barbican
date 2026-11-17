@@ -166,6 +166,64 @@ public sealed class SignInViewModelTests : IDisposable
     }
 
     // a JMAP server that answers /.well-known/jmap with 401 at one origin only
+    [Fact]
+    public void A_refused_account_is_offered_with_its_server_and_login_filled_in()
+    {
+        // Fable review 2 R2-01: the server refused the remembered secret; the form names the account and asks only for the password
+        _vm.Password = "left over";
+        _vm.Prefill(FakeAccounts.Info("ana@example.org", "https://jmap.example.org"), "ana@example.org needs to sign in again.");
+        Assert.Equal("https://jmap.example.org", _vm.Server);
+        Assert.Equal("ana@example.org", _vm.User);
+        Assert.Equal("", _vm.Password);
+        Assert.False(_vm.IsEditingServer);
+        Assert.False(_vm.IsLookingUp);
+        Assert.Equal("ana@example.org needs to sign in again.", _vm.Status);
+        Assert.False(_vm.CanSignIn);
+        _vm.Password = "new";
+        Assert.True(_vm.CanSignIn);
+    }
+
+    [Fact]
+    public async Task Enter_signs_in_only_when_the_form_is_complete()
+    {
+        // R2-03: Bulwark's form submits on Enter
+        _vm.Server = "https://jmap.example.org";
+        _vm.User = "ana";
+        _vm.Submit();
+        Assert.Empty(_accounts.PasswordRequests);
+        _vm.Password = "pw";
+        _vm.Submit();
+        await UntilAsync(() => !_vm.IsBusy);
+        Assert.Single(_accounts.PasswordRequests);
+    }
+
+    [Fact]
+    public async Task A_sign_in_that_throws_shows_a_status_and_does_not_escape()
+    {
+        // R2-03: an exception from the vault write ended the process through an async void handler
+        _accounts.Throws = new IOException("the vault is locked");
+        _vm.Server = "https://jmap.example.org";
+        _vm.User = "ana";
+        _vm.Password = "pw";
+        await _vm.SignInCommand.ExecuteAsync(null);
+        Assert.True(_vm.StatusIsError);
+        Assert.Contains("the vault is locked", _vm.Status, StringComparison.Ordinal);
+        Assert.False(_vm.IsBusy);
+    }
+
+    [Fact]
+    public void Leaving_clears_the_secrets_and_is_offered_only_when_allowed()
+    {
+        var left = 0;
+        _vm.Left += (_, _) => left++;
+        Assert.False(_vm.LeaveCommand.CanExecute(null));
+        _vm.CanLeave = true;
+        _vm.Password = "pw";
+        _vm.LeaveCommand.Execute(null);
+        Assert.Equal(1, left);
+        Assert.Equal("", _vm.Password);
+    }
+
     private sealed class WellKnown(string origin) : HttpMessageHandler
     {
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)

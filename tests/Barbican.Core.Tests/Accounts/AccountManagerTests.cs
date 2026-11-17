@@ -243,7 +243,9 @@ public sealed class AccountManagerTests : IAsyncDisposable
             new StoredAccount(StoredAccount.PasswordKind, OriginB, "ben@example.net") { Password = "pw-b" },
         ], Ct);
 
-        Assert.Null(await manager.RestoreAsync(Ct)); // the first account fails at once
+        // both accounts fail at once with a network error: the most recent one is on screen, connecting (Fable review 2 R2-02)
+        var restored = await manager.RestoreAsync(Ct);
+        Assert.Equal("ana@example.org", restored!.User);
         var aKey = AccountKey.Of(OriginA, "ana@example.org");
         var bKey = AccountKey.Of(OriginB, "ben@example.net");
         await Poll.UntilAsync(() => manager.SessionFor(bKey) is not null || factory.Calls >= 2, "the second account's attempt");
@@ -305,6 +307,150 @@ public sealed class AccountManagerTests : IAsyncDisposable
 
         // the user's own profile keeps the variable (nothing sets it in M1)
         Assert.Equal(1, ReadOnlyPolicy.For("main", n => string.Equals(n, ReadOnlyPolicy.Variable, StringComparison.Ordinal) ? "ana@example.org" : null, _ => null).WritableCount);
+    }
+
+    [Fact]
+    public async Task A_refused_inactive_account_is_marked_and_the_unread_timer_stops_sending_for_it()
+    {
+        // Fable review 2 R2-01: the two-minute unread read of a refused account used to send the same password 720 times a day
+        Assert.True((await SignInAAsync()).IsOk);
+        Assert.True((await SignInBAsync()).IsOk);
+        var aKey = AccountKey.Of(OriginA, "ana@example.org");
+        var old = _manager.SessionFor(aKey)!;
+        await QuietAsync(_a);
+
+        _a.RejectCredentials = true;
+        await _manager.RefreshUnreadAsync(Ct);
+        Assert.Equal(1, _a.Refused);
+        var a = _manager.Statuses.Single(x => string.Equals(x.Account.Key, aKey, StringComparison.Ordinal));
+        Assert.True(a.NeedsSignIn);
+        Assert.False(a.IsConnected);
+        Assert.Equal("ana@example.org needs to sign in again.", a.Error);
+        Assert.Null(_manager.SessionFor(aKey));
+
+        // the timer, a switch and the old session's own calls send nothing more
+        await _manager.RefreshUnreadAsync(Ct);
+        await _manager.RefreshUnreadAsync(Ct);
+        Assert.False((await _manager.SwitchToAsync(aKey, Ct)).IsOk);
+        Assert.False((await old.Mail.GetMailboxesAsync(Ct)).IsOk);
+        Assert.Equal(1, _a.Refused);
+        Assert.Equal("ben@example.net", _manager.Active!.User);
+
+        // a new sign-in brings it back
+        _a.RejectCredentials = false;
+        Assert.True((await SignInAAsync()).IsOk);
+        Assert.False(_manager.Statuses.Single(x => string.Equals(x.Account.Key, aKey, StringComparison.Ordinal)).NeedsSignIn);
+    }
+
+    [Fact]
+    public async Task The_account_on_screen_that_is_refused_asks_for_sign_in_and_a_new_sign_in_reloads_it()
+    {
+        Assert.True((await SignInAAsync()).IsOk);
+        var aKey = AccountKey.Of(OriginA, "ana@example.org");
+        var session = _manager.SessionFor(aKey)!;
+        var changes = new List<ActiveAccountChangedEventArgs>();
+        _manager.ActiveChanged += (_, e) => changes.Add(e);
+        await QuietAsync(_a);
+
+        _a.RejectCredentials = true;
+        Assert.False((await session.Mail.GetMailboxesAsync(Ct)).IsOk);
+        var status = Assert.Single(_manager.Statuses);
+        Assert.True(status.IsActive);
+        Assert.True(status.NeedsSignIn);
+        Assert.Equal(1, _a.Refused);
+
+        _a.RejectCredentials = false;
+        Assert.True((await SignInAAsync()).IsOk);
+        Assert.NotSame(session, _manager.SessionFor(aKey));
+
+        // same account, new session: the mail screen is told so it reloads
+        var renewed = Assert.Single(changes);
+        Assert.Equal(aKey, renewed.Current!.Key);
+        Assert.Equal(aKey, renewed.Previous!.Key);
+    }
+
+    [Fact]
+    public async Task Restore_with_a_refused_password_goes_to_sign_in_and_never_sends_it_again()
+    {
+        await _vault.SaveAsync([new StoredAccount(StoredAccount.PasswordKind, OriginA, "ana@example.org") { Password = "changed-elsewhere", IsDefault = true }], Ct);
+        Assert.Null(await _manager.RestoreAsync(Ct));
+        var status = Assert.Single(_manager.Statuses);
+        Assert.True(status.NeedsSignIn);
+        Assert.False(status.IsConnecting);
+        Assert.Equal(1, _a.Refused);
+
+        var aKey = AccountKey.Of(OriginA, "ana@example.org");
+        Assert.False((await _manager.SwitchToAsync(aKey, Ct)).IsOk);
+        Assert.Equal(1, _a.Refused);
+    }
+
+    [Fact]
+    public async Task Restore_activates_the_first_remembered_account_that_connects()
+    {
+        // Fable review 2 R2-02: the most recent account's server is down; the next one is shown instead of the sign-in form
+        await _vault.SaveAsync(
+        [
+            new StoredAccount(StoredAccount.PasswordKind, OriginA, "ana@example.org") { Password = "pw-a", IsDefault = true },
+            new StoredAccount(StoredAccount.PasswordKind, OriginB, "ben@example.net") { Password = "pw-b" },
+        ], Ct);
+        _a.Offline = true;
+        var restored = await _manager.RestoreAsync(Ct);
+        Assert.Equal("ben@example.net", restored!.User);
+        var a = _manager.Statuses.Single(x => string.Equals(x.Account.User, "ana@example.org", StringComparison.Ordinal));
+        Assert.True(a.IsConnecting);
+        Assert.False(a.NeedsSignIn);
+    }
+
+    [Fact]
+    public async Task Restore_without_network_stays_on_the_account_and_connects_when_the_server_is_back()
+    {
+        var clock = Fake.VirtualClock();
+        var paths = new TestProfilePaths(_root);
+        var oauthHttp = new OAuthHttp(_http, clock);
+        var flow = new OAuthFlow(new OAuthDiscovery(oauthHttp), _clients, oauthHttp, new RedirectFollowingLauncher(_http), new OAuthFlowOptions { LoopbackPort = 0 }, clock);
+        await using var manager = new AccountManager(new JmapClientFactory(_http, clock), new MailAccountFactory(_hooks, clock), _store, flow, oauthHttp, paths, ReadOnlyPolicy.AllReadOnly, _hooks, clock);
+        await _vault.SaveAsync(
+        [
+            new StoredAccount(StoredAccount.PasswordKind, OriginA, "ana@example.org") { Password = "pw-a", IsDefault = true },
+            new StoredAccount(StoredAccount.PasswordKind, OriginB, "ben@example.net") { Password = "pw-b" },
+        ], Ct);
+        _a.Offline = true;
+        _b.Offline = true;
+
+        var restored = await manager.RestoreAsync(Ct);
+        var aKey = AccountKey.Of(OriginA, "ana@example.org");
+        Assert.Equal(aKey, restored!.Key);
+        Assert.Null(manager.SessionFor(aKey));
+        Assert.True(manager.Statuses[0].IsConnecting);
+        var changes = 0;
+        manager.ActiveChanged += (_, _) => Interlocked.Increment(ref changes);
+
+        _a.Offline = false;
+        _b.Offline = false;
+        await Poll.UntilAsync(
+            () =>
+            {
+                clock.Advance(TimeSpan.FromSeconds(1));
+                return manager.SessionFor(aKey) is not null && Volatile.Read(ref changes) > 0;
+            },
+            "the retry to connect the account on screen");
+        Assert.Equal(aKey, manager.Active!.Key);
+        Assert.Equal(0, _a.Refused);
+    }
+
+    // the background unread reads after a sign-in have finished (the fake server saw no new request for a moment)
+    private static Task QuietAsync(FakeJmapServer server)
+    {
+        var seen = -1;
+        return Poll.UntilAsync(
+            () =>
+            {
+                var n = server.Requests.Count;
+                var quiet = n == seen;
+                seen = n;
+                return quiet;
+            },
+            "the server to go quiet");
     }
 
     // fails the first calls synchronously (a completed task), then connects for real

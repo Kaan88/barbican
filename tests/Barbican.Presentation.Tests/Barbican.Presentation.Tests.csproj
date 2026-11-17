@@ -13,6 +13,7 @@
     <Compile Include="../../src/Barbican.App/Theme/StyleMetrics.cs" Link="ShellUi/Linked/StyleMetrics.cs" />
     <Compile Include="../../src/Barbican.App/Motion/MotionScale.cs" Link="ShellUi/Linked/MotionScale.cs" />
     <Compile Include="../../src/Barbican.App/Shell/KeyChordMapper.cs" Link="ShellUi/Linked/KeyChordMapper.cs" />
+    <Compile Include="../../src/Barbican.App/Shell/KeyGate.cs" Link="ShellUi/Linked/KeyGate.cs" />
   </ItemGroup>
   <ItemGroup>
     <!-- m1-mailcore: FakeTimeProvider for the key repeat, g sequence and interval tests (version pinned in Directory.Packages.props). -->

@@ -1,7 +1,8 @@
 // Mirrors: Rust main.rs:486 PUSH_TYPES (Email, Mailbox, Thread, EmailDelivery, EmailSubmission), :499 start_push (re-open with backoff
 // and jitter; everything is synced once each time the stream opens, since changes made while it was down are never pushed), jmap.rs:1108
 // watch (closeafter=no, ping=30, 75 s silence = dead), :1614 changed_types; RFC 8620 §7.3 (EventSource), §7.1 (StateChange); Bulwark
-// lib/mail-push-listener.ts, lib/plugin-hook-catalog.ts:158 onPushConnectionChange. Owner jmap.
+// lib/mail-push-listener.ts, lib/plugin-hook-catalog.ts:158 onPushConnectionChange. Fable review 2 R2-01: once the server refused the
+// credentials for good (the client's AuthLatch closed), push and polling end instead of re-opening for ever; the UI hears it once. Owner jmap.
 
 using Barbican.Core.Jmap.Errors;
 using Barbican.Core.Jmap.Push;
@@ -27,6 +28,7 @@ public sealed partial class MailSync
     private readonly PushBackoff _backoff;
     private long _firstPending;
     private bool _authReported;
+    private int _signInNeeded;
     private readonly ITimer _timer;
     private readonly HashSet<string> _pending = new(StringComparer.Ordinal);
     private readonly List<Task> _inflight = [];
@@ -42,7 +44,7 @@ public sealed partial class MailSync
 
         try
         {
-            while (!ct.IsCancellationRequested)
+            while (!ct.IsCancellationRequested && !SignInNeeded)
             {
                 var started = _time.GetTimestamp();
                 if (!await PushOnceAsync(ct).ConfigureAwait(false))
@@ -52,8 +54,18 @@ public sealed partial class MailSync
                     return;
                 }
 
+                if (SignInNeeded)
+                {
+                    break;
+                }
+
                 var wait = _backoff.Next(_time.GetElapsedTime(started));
                 await Task.Delay(wait, _time, ct).ConfigureAwait(false);
+            }
+
+            if (SignInNeeded)
+            {
+                _client.Trace.Event("PUSH", "stopped (sign in again)");
             }
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested)
@@ -71,6 +83,11 @@ public sealed partial class MailSync
     public void Schedule(IEnumerable<string> types)
     {
         ArgumentNullException.ThrowIfNull(types);
+        if (SignInNeeded)
+        {
+            return;
+        }
+
         lock (_lock)
         {
             var now = _time.GetTimestamp();
@@ -137,7 +154,7 @@ public sealed partial class MailSync
     private async Task PollAsync(CancellationToken ct)
     {
         _client.Trace.Event("PUSH", "polling");
-        while (!ct.IsCancellationRequested)
+        while (!ct.IsCancellationRequested && !SignInNeeded)
         {
             Schedule(PushTypes);
             await Task.Delay(PollInterval, _time, ct).ConfigureAwait(false);
@@ -153,6 +170,10 @@ public sealed partial class MailSync
             _client.Trace.Event("PUSH", "failed");
             switch (open.Error)
             {
+                case AuthError { NeedsSignIn: true } refused:
+                    // the credentials were refused for good: re-opening would only add failed logins (R2-01)
+                    StopForSignIn(refused);
+                    break;
                 case AuthError auth when !_authReported:
                     // retried with backoff as before, but the user hears of it once (Fable F-15)
                     _authReported = true;
@@ -200,6 +221,26 @@ public sealed partial class MailSync
         }
 
         return true;
+    }
+
+    /// <summary>True once the server refused this account's credentials for good: push and polling have ended.</summary>
+    public bool SignInNeeded => Volatile.Read(ref _signInNeeded) == 1;
+
+    // ends push and polling and tells the UI once; a new sign-in brings a new engine
+    private void StopForSignIn(AuthError refused)
+    {
+        if (Interlocked.Exchange(ref _signInNeeded, 1) == 1)
+        {
+            return;
+        }
+
+        lock (_lock)
+        {
+            _pending.Clear();
+        }
+
+        _timer.Change(Timeout.InfiniteTimeSpan, Timeout.InfiniteTimeSpan);
+        Emit(new SyncProblemEvent(refused.Message, NeedsSignIn: true));
     }
 
     private void OnPush(PushEvent ev, string account)

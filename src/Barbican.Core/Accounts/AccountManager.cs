@@ -7,6 +7,11 @@
 // Decisions (FABLE-REVIEW "M1 stream: accounts"): every signed-in account keeps its session (switching back is instant); only the active one
 // runs its sync engine (MailEventHub attaches to it); the others get a cheap unread watch, one Mailbox/get every two minutes, instead of a
 // push stream each. The list is most recently used first (Rust oauth.rs:378); the default is the first account ever added (Bulwark).
+// Fable review 2 R2-01: every token source sits behind an AuthLatch; when the server refuses an account for good the entry is marked "needs to
+// sign in again", its session is dropped (so the unread timer and every caller stop sending), and nothing connects it again until a new
+// sign-in. R2-02: at start the first remembered account that connects becomes active, in the remembered order; when none connects because
+// of the network the most recent one becomes active without a session ("connecting") and every account that failed that way is retried
+// with a doubling wait; only accounts the server refused go to the sign-in form.
 
 using Barbican.Core.Auth;
 using Barbican.Core.Common;
@@ -25,6 +30,12 @@ public sealed class AccountManager : IAccountManager, IAccountOverview, IAsyncDi
     /// <summary>How often an inactive account's inbox unread is read.</summary>
     public static readonly TimeSpan UnreadInterval = TimeSpan.FromMinutes(2);
 
+    /// <summary>The first wait before an account that could not reach its server is tried again (it doubles up to <see cref="RetryMax"/>).</summary>
+    public static readonly TimeSpan RetryFirst = TimeSpan.FromSeconds(2);
+
+    /// <summary>The longest wait between two tries of an account that cannot reach its server.</summary>
+    public static readonly TimeSpan RetryMax = TimeSpan.FromSeconds(60);
+
     private readonly IJmapClientFactory _jmap;
     private readonly IMailAccountFactory _mail;
     private readonly AccountStore _store;
@@ -39,8 +50,10 @@ public sealed class AccountManager : IAccountManager, IAccountOverview, IAsyncDi
     private readonly Dictionary<string, Entry> _entries = new(StringComparer.Ordinal);
     private readonly List<string> _order = [];
     private readonly CancellationTokenSource _life = new();
+    private readonly List<AccountSession> _retired = [];
     private string? _activeKey;
     private ITimer? _unreadTimer;
+    private Task? _retry;
 
     public AccountManager(
         IJmapClientFactory jmap,
@@ -103,14 +116,16 @@ public sealed class AccountManager : IAccountManager, IAccountOverview, IAsyncDi
         {
             lock (_lock)
             {
-                return [.. _order.Select(k => _entries[k]).Select(e => new AccountStatus(e.Info, string.Equals(e.Info.Key, _activeKey, StringComparison.Ordinal), e.IsDefault, e.Session is not null, e.Unread, e.Error))];
+                return [.. _order.Select(k => _entries[k]).Select(e => new AccountStatus(e.Info, string.Equals(e.Info.Key, _activeKey, StringComparison.Ordinal), e.IsDefault, e.Session is not null, e.Unread, e.Error) { NeedsSignIn = e.Rejected })];
             }
         }
     }
 
     /// <summary>
-    /// Start-up: reads the remembered accounts, connects the most recent one and makes it active, then connects the others in the background.
-    /// Returns the active account, or null when none is remembered or the first one could not connect (its row then carries the error).
+    /// Start-up: reads the remembered accounts and connects them all; the first in the remembered order (most recent first) that connects
+    /// becomes active (R2-02). When none connects but some failed only to reach their server, the most recent of those becomes active without a
+    /// session (the mail screen says "connecting") and is retried. Returns the active account, or null when none is remembered or every one
+    /// was refused by its server (their rows then say "needs to sign in again").
     /// </summary>
     public async Task<AccountInfo?> RestoreAsync(CancellationToken ct)
     {
@@ -131,18 +146,33 @@ public sealed class AccountManager : IAccountManager, IAccountOverview, IAsyncDi
             return null;
         }
 
-        var first = await ConnectAsync(stored[0].Key, ct).ConfigureAwait(false);
-        if (first.IsOk)
+        var attempts = stored.Select(s => (s.Key, Task: ConnectAsync(s.Key, _life.Token))).ToList();
+        string? unreachable = null;
+        foreach (var (key, task) in attempts)
         {
-            await ActivateAsync(stored[0].Key, ct).ConfigureAwait(false);
+            var r = await task.WaitAsync(ct).ConfigureAwait(false);
+            if (r.IsOk)
+            {
+                await ActivateAsync(key, ct).ConfigureAwait(false);
+                StartRetry();
+                return Active;
+            }
+
+            if (r.Error is not AuthError { NeedsSignIn: true })
+            {
+                unreachable ??= key;
+            }
         }
 
-        foreach (var other in stored.Skip(1))
+        if (unreachable is null)
         {
-            _ = ConnectQuietlyAsync(other.Key);
+            return null;
         }
 
-        return first.IsOk ? Active : null;
+        // no network yet, or the servers are down: stay on the mail screen and keep trying (E-3); never the empty sign-in form
+        await ActivateAsync(unreachable, ct).ConfigureAwait(false);
+        StartRetry();
+        return Active;
     }
 
     /// <inheritdoc/>
@@ -164,7 +194,7 @@ public sealed class AccountManager : IAccountManager, IAccountOverview, IAsyncDi
         }
 
         var code = string.IsNullOrWhiteSpace(request.TotpCode) ? null : request.TotpCode.Trim();
-        var source = StaticAccessTokenSource.Basic(user, request.Password, code);
+        var source = new AuthLatch(StaticAccessTokenSource.Basic(user, request.Password, code));
         var stored = new StoredAccount(StoredAccount.PasswordKind, Base(endpoint), user) { Password = request.Password };
         var connected = await _jmap.ConnectAsync(endpoint, source, OptionsFor(stored), ct).ConfigureAwait(false);
         if (!connected.IsOk)
@@ -173,7 +203,7 @@ public sealed class AccountManager : IAccountManager, IAccountOverview, IAsyncDi
         }
 
         // Rust main.rs:762: a one-time code is never remembered, and with one the session is not remembered either
-        return Result<AccountInfo>.Ok(await AddAsync(stored, connected.Value!, null, request.Remember && code is null, ct).ConfigureAwait(false));
+        return Result<AccountInfo>.Ok(await AddAsync(stored, connected.Value!, null, source, request.Remember && code is null, ct).ConfigureAwait(false));
     }
 
     /// <inheritdoc/>
@@ -196,7 +226,8 @@ public sealed class AccountManager : IAccountManager, IAccountOverview, IAsyncDi
         }
 
         var source = new OAuthTokenSource(_http, _store, _paths, _time, AccountKey.Of(Base(endpoint), hint), tokens.Value!);
-        var connected = await _jmap.ConnectAsync(endpoint, source, OptionsFor(new StoredAccount(StoredAccount.OAuthKind, Base(endpoint), hint)), ct).ConfigureAwait(false);
+        var latch = new AuthLatch(source);
+        var connected = await _jmap.ConnectAsync(endpoint, latch, OptionsFor(new StoredAccount(StoredAccount.OAuthKind, Base(endpoint), hint)), ct).ConfigureAwait(false);
         if (!connected.IsOk)
         {
             source.Dispose();
@@ -209,7 +240,7 @@ public sealed class AccountManager : IAccountManager, IAccountOverview, IAsyncDi
         // and the client is not, connect again read-only rather than hand out a writable client for it (PORT-PLAN.md §4.6)
         if (!connected.Value!.IsReadOnly && _policy.IsReadOnly(user, storedFlag: false))
         {
-            connected = await _jmap.ConnectAsync(endpoint, source, _options with { ReadOnly = true }, ct).ConfigureAwait(false);
+            connected = await _jmap.ConnectAsync(endpoint, latch, _options with { ReadOnly = true }, ct).ConfigureAwait(false);
             if (!connected.IsOk)
             {
                 source.Dispose();
@@ -220,7 +251,7 @@ public sealed class AccountManager : IAccountManager, IAccountOverview, IAsyncDi
         var t = source.Tokens;
         var stored = new StoredAccount(StoredAccount.OAuthKind, Base(endpoint), user) { Refresh = t.Refresh, Endpoint = t.TokenEndpoint.AbsoluteUri, Client = t.ClientId };
         source.BindAccount(stored.Key);
-        return Result<AccountInfo>.Ok(await AddAsync(stored, connected.Value!, source, request.Remember && t.Refresh is not null, ct).ConfigureAwait(false));
+        return Result<AccountInfo>.Ok(await AddAsync(stored, connected.Value!, source, latch, request.Remember && t.Refresh is not null, ct).ConfigureAwait(false));
     }
 
     /// <inheritdoc/>
@@ -230,14 +261,14 @@ public sealed class AccountManager : IAccountManager, IAccountOverview, IAsyncDi
         string user;
         lock (_lock)
         {
-            if (string.Equals(accountKey, _activeKey, StringComparison.Ordinal))
-            {
-                return Result<Unit>.Ok(default);
-            }
-
             if (!_entries.TryGetValue(accountKey, out var e))
             {
                 return Result<Unit>.Fail(new AuthError("No such account.", NeedsSignIn: false));
+            }
+
+            if (string.Equals(accountKey, _activeKey, StringComparison.Ordinal) && e.Session is not null)
+            {
+                return Result<Unit>.Ok(default);
             }
 
             user = e.Info.User;
@@ -295,7 +326,8 @@ public sealed class AccountManager : IAccountManager, IAccountOverview, IAsyncDi
         {
             _unreadTimer?.Dispose();
             _unreadTimer = null;
-            sessions = [.. _entries.Values.Select(e => e.Session).OfType<AccountSession>()];
+            sessions = [.. _entries.Values.Select(e => e.Session).OfType<AccountSession>(), .. _retired];
+            _retired.Clear();
         }
 
         foreach (var s in sessions)
@@ -314,7 +346,7 @@ public sealed class AccountManager : IAccountManager, IAccountOverview, IAsyncDi
 
     private JmapClientOptions OptionsFor(StoredAccount account) => _options with { ReadOnly = _policy.IsReadOnly(account.User, account.ReadOnly) };
 
-    private async Task<AccountInfo> AddAsync(StoredAccount stored, IJmapClient client, OAuthTokenSource? tokens, bool remember, CancellationToken ct)
+    private async Task<AccountInfo> AddAsync(StoredAccount stored, IJmapClient client, OAuthTokenSource? tokens, AuthLatch latch, bool remember, CancellationToken ct)
     {
         var info = stored.ToInfo(client.IsReadOnly);
         var service = _mail.CreateService(client);
@@ -330,6 +362,7 @@ public sealed class AccountManager : IAccountManager, IAccountOverview, IAsyncDi
             e.Info = info;
             e.Session = session;
             e.Error = null;
+            e.Rejected = false;
             e.Stored = stored;
             _entries[info.Key] = e;
             _order.Remove(info.Key);
@@ -337,6 +370,7 @@ public sealed class AccountManager : IAccountManager, IAccountOverview, IAsyncDi
         }
 
         replaced?.Dispose();
+        WatchRefusal(info.Key, session, latch);
         if (remember)
         {
             await _store.RememberAsync(stored, ct).ConfigureAwait(false);
@@ -350,7 +384,7 @@ public sealed class AccountManager : IAccountManager, IAccountOverview, IAsyncDi
         }
 
         StartUnreadWatch();
-        await ActivateAsync(info.Key, ct).ConfigureAwait(false);
+        await ActivateAsync(info.Key, ct, renewed: true).ConfigureAwait(false);
         _ = RefreshUnreadOfAsync(info.Key, session, _life.Token);
         return info;
     }
@@ -372,8 +406,9 @@ public sealed class AccountManager : IAccountManager, IAccountOverview, IAsyncDi
                 return pending.WaitAsync(ct);
             }
 
-            if (e.Stored is null)
+            if (e.Stored is null || e.Rejected)
             {
+                // refused before: trying the same secret again would only count another failed login on the server (R2-01)
                 return Task.FromResult(Result<AccountSession>.Fail(new AuthError($"{e.Info.User} needs to sign in again.", NeedsSignIn: true)));
             }
 
@@ -409,21 +444,9 @@ public sealed class AccountManager : IAccountManager, IAccountOverview, IAsyncDi
                 return Fail(connected.Error!);
             }
 
-            var client = connected.Value!;
-            var info = stored.ToInfo(client.IsReadOnly);
-            var service = _mail.CreateService(client);
-            var session = new AccountSession(info, client, service, _mail.CreateSync(service), oauth);
-            Watch(oauth);
-            lock (_lock)
-            {
-                e.Info = info;
-                e.Session = session;
-                e.Error = null;
-            }
-
-            Changed();
-            await NotifyAsync(HookNames.OnAuthReady, new AccountHookPayload(info.Key), ct).ConfigureAwait(false);
-            _ = RefreshUnreadOfAsync(info.Key, session, _life.Token);
+            var session = Attach(e, stored, connected.Value!, source, oauth);
+            await NotifyAsync(HookNames.OnAuthReady, new AccountHookPayload(session.Account.Key), ct).ConfigureAwait(false);
+            _ = RefreshUnreadOfAsync(session.Account.Key, session, _life.Token);
             return Result<AccountSession>.Ok(session);
         }
         finally
@@ -440,6 +463,7 @@ public sealed class AccountManager : IAccountManager, IAccountOverview, IAsyncDi
             lock (_lock)
             {
                 e.Error = Describe(error, stored.User);
+                e.Rejected = error is AuthError { NeedsSignIn: true };
             }
 
             Changed();
@@ -447,12 +471,38 @@ public sealed class AccountManager : IAccountManager, IAccountOverview, IAsyncDi
         }
     }
 
+    // a remembered account's new session goes on its entry; an account already on screen ("connecting") is announced again so its mail loads
+    private AccountSession Attach(Entry e, StoredAccount stored, IJmapClient client, AuthLatch source, OAuthTokenSource? oauth)
+    {
+        var info = stored.ToInfo(client.IsReadOnly);
+        var service = _mail.CreateService(client);
+        var session = new AccountSession(info, client, service, _mail.CreateSync(service), oauth);
+        Watch(oauth);
+        bool active;
+        lock (_lock)
+        {
+            e.Info = info;
+            e.Session = session;
+            e.Error = null;
+            active = string.Equals(info.Key, _activeKey, StringComparison.Ordinal);
+        }
+
+        WatchRefusal(info.Key, session, source);
+        Changed();
+        if (active)
+        {
+            ActiveChanged?.Invoke(this, new ActiveAccountChangedEventArgs(info, info));
+        }
+
+        return session;
+    }
+
     // the remembered secret as a token source; null for an OAuth entry without a usable refresh token
-    private (IAccessTokenSource Source, OAuthTokenSource? OAuth)? SourceFor(StoredAccount stored)
+    private (AuthLatch Source, OAuthTokenSource? OAuth)? SourceFor(StoredAccount stored)
     {
         if (!stored.IsOAuth)
         {
-            return (StaticAccessTokenSource.Basic(stored.User, stored.Password ?? ""), null);
+            return (new AuthLatch(StaticAccessTokenSource.Basic(stored.User, stored.Password ?? "")), null);
         }
 
         if (stored.Refresh is null || stored.Endpoint is null || !Uri.TryCreate(stored.Endpoint, UriKind.Absolute, out var tokenEndpoint))
@@ -461,14 +511,83 @@ public sealed class AccountManager : IAccountManager, IAccountOverview, IAsyncDi
         }
 
         var oauth = new OAuthTokenSource(_http, _store, _paths, _time, stored.Key, new OAuthTokens("", stored.Refresh, null, tokenEndpoint, stored.Client ?? OAuthClientRegistry.DefaultClientId));
-        return (oauth, oauth);
+        return (new AuthLatch(oauth), oauth);
     }
 
-    private async Task ConnectQuietlyAsync(string key)
+    // R2-01: once the server refused this session's credentials for good, the account is marked and its session dropped, so neither the
+    // unread timer nor a switch sends them again; the shell offers the sign-in form for it (AccountStatus.NeedsSignIn)
+    private void WatchRefusal(string key, AccountSession session, AuthLatch latch)
     {
+        latch.Closed += (_, _) => OnRefused(key, session, latch.Reason!);
+        if (latch.Reason is { } already)
+        {
+            OnRefused(key, session, already);
+        }
+    }
+
+    private void OnRefused(string key, AccountSession session, AuthError reason)
+    {
+        lock (_lock)
+        {
+            if (!_entries.TryGetValue(key, out var e) || !ReferenceEquals(e.Session, session))
+            {
+                return;
+            }
+
+            e.Session = null;
+            e.Rejected = true;
+            e.Error = Describe(reason, e.Info.User);
+
+            // kept alive, not disposed: the active account's engine may still be draining; disposed with the manager
+            _retired.Add(session);
+        }
+
+        Changed();
+    }
+
+    // R2-02: accounts that could not reach their server are tried again with a doubling wait; refused ones are not (R2-01)
+    private void StartRetry()
+    {
+        lock (_lock)
+        {
+            if (_retry is { IsCompleted: false } || !_entries.Values.Any(NeedsRetry))
+            {
+                return;
+            }
+
+            var ct = _life.Token;
+            _retry = Task.Run(() => RetryAsync(ct), CancellationToken.None);
+        }
+    }
+
+    private static bool NeedsRetry(Entry e) => e.Session is null && !e.Rejected && e.Stored is not null;
+
+    private async Task RetryAsync(CancellationToken ct)
+    {
+        var wait = RetryFirst;
         try
         {
-            _ = await ConnectAsync(key, _life.Token).ConfigureAwait(false);
+            while (!ct.IsCancellationRequested)
+            {
+                await Task.Delay(wait, _time, ct).ConfigureAwait(false);
+                List<string> todo;
+                lock (_lock)
+                {
+                    todo = [.. _order.Where(k => NeedsRetry(_entries[k]))];
+                }
+
+                if (todo.Count == 0)
+                {
+                    return;
+                }
+
+                foreach (var key in todo)
+                {
+                    _ = await ConnectAsync(key, ct).ConfigureAwait(false);
+                }
+
+                wait = wait * 2 > RetryMax ? RetryMax : wait * 2;
+            }
         }
         catch (OperationCanceledException)
         {
@@ -476,7 +595,8 @@ public sealed class AccountManager : IAccountManager, IAccountOverview, IAsyncDi
         }
     }
 
-    private async Task ActivateAsync(string key, CancellationToken ct)
+    // renewed: the account got a new session (a new sign-in of the account on screen); its mail must reload even though the key is the same
+    private async Task ActivateAsync(string key, CancellationToken ct, bool renewed = false)
     {
         AccountInfo? previous;
         AccountInfo current;
@@ -490,6 +610,11 @@ public sealed class AccountManager : IAccountManager, IAccountOverview, IAsyncDi
         Changed();
         if (previous is not null && string.Equals(previous.Key, key, StringComparison.Ordinal))
         {
+            if (renewed)
+            {
+                ActiveChanged?.Invoke(this, new ActiveAccountChangedEventArgs(current, current));
+            }
+
             return;
         }
 
@@ -577,5 +702,8 @@ public sealed class AccountManager : IAccountManager, IAccountOverview, IAsyncDi
         public int? Unread { get; set; }
 
         public string? Error { get; set; }
+
+        /// <summary>The server refused the remembered secret: nothing is sent for this account until a new sign-in.</summary>
+        public bool Rejected { get; set; }
     }
 }

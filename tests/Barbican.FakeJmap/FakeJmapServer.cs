@@ -66,6 +66,15 @@ public sealed partial class FakeJmapServer : HttpMessageHandler
         }
     }
 
+    /// <summary>Answers 401 to every credential (the password changed, or the app password was revoked, while the client runs).</summary>
+    public bool RejectCredentials { get; set; }
+
+    /// <summary>Every request fails as if the host could not be reached (no network, or the server is down).</summary>
+    public bool Offline { get; set; }
+
+    /// <summary>The requests answered 401 so far (each is one failed login on a real server).</summary>
+    public int Refused => Requests.Count(r => r.EndsWith(" 401", StringComparison.Ordinal));
+
     /// <summary>The API requests only, each as its method names.</summary>
     public IReadOnlyList<string> ApiCalls => [.. Requests.Where(r => r.StartsWith("POST api ", StringComparison.Ordinal)).Select(r => r["POST api ".Length..])];
 
@@ -139,6 +148,11 @@ public sealed partial class FakeJmapServer : HttpMessageHandler
             throw new HttpRequestException($"No such host: {request.RequestUri.Host}");
         }
 
+        if (Offline)
+        {
+            throw new HttpRequestException($"Cannot reach {request.RequestUri.Host} (fake: offline)");
+        }
+
         if (path.StartsWith("/oauth/", StringComparison.Ordinal) || path.StartsWith("/.well-known/oauth", StringComparison.Ordinal))
         {
             return await OAuthAsync(request, path, cancellationToken).ConfigureAwait(false);
@@ -188,6 +202,11 @@ public sealed partial class FakeJmapServer : HttpMessageHandler
 
     private HttpResponseMessage? Authorized(HttpRequestMessage request)
     {
+        if (RejectCredentials)
+        {
+            return Unauthorized();
+        }
+
         lock (_lock)
         {
             if (_httpFaults.Count > 0 && _httpFaults.Peek() == FakeFault.Unauthorized)

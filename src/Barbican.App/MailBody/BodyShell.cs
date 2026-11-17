@@ -10,6 +10,9 @@
 // Windows: commands go as web messages (one ordered channel, no 2 MB limit); a WebResourceRequested filter refuses remote requests unless
 // the message allows them (defence in depth on top of the CSP); frame navigations other than about:srcdoc are cancelled. Linux (Uno,
 // WebKitGTK): commands go through ExecuteScriptAsync (no PostWebMessageAs*), the CSP is the only remote-content guard.
+// Fable review 2 R2-04: the shell reveals only a frame that passed its finish() (shell.js), so the give-up path no longer shows a page the
+// shell never handled (no link handling, no dark pass, perhaps a remote page on Linux): when a page is not ready in time the error page is
+// sent in its place, and only when that is not ready either does the wait end without a body (the old page stays).
 
 #if WINDOWS
 using System.Buffers;
@@ -55,7 +58,7 @@ public sealed partial class BodyShell : IBodyPresenter, IStartupTask, IDisposabl
     private bool _shellUp;
     private bool _shellNavigated;
     private long _docSeq;
-    private (long Seq, BodyRequest Request, MailPage Page, bool Allow)? _pending;
+    private (long Seq, BodyRequest Request, MailPage Page, bool Allow, bool Fallback)? _pending;
     private (BodyRequest Request, MailPage Page, bool Allow)? _current;
     private ITimer? _readyTimer;
     private bool _slow;
@@ -337,10 +340,13 @@ public sealed partial class BodyShell : IBodyPresenter, IStartupTask, IDisposabl
         }
     }
 
-    private void Send(BodyRequest request, MailPage page, bool allowRemote)
+    /// <summary>The text of the page sent instead of a message the shell could not finish in time.</summary>
+    public const string NotShownText = "This message could not be shown.";
+
+    private void Send(BodyRequest request, MailPage page, bool allowRemote, bool fallback = false)
     {
         var seq = ++_docSeq;
-        _pending = (seq, request, page, allowRemote);
+        _pending = (seq, request, page, allowRemote, fallback);
         _sentAt = _time.GetTimestamp();
         StopReadyTimer();
         _readyTimer = _time.CreateTimer(_ => _dispatcher.Post(() => Slow(seq)), null, SlowAfter, Timeout.InfiniteTimeSpan);
@@ -365,7 +371,25 @@ public sealed partial class BodyShell : IBodyPresenter, IStartupTask, IDisposabl
 
         SetSlow(true);
         StopReadyTimer();
-        _readyTimer = _time.CreateTimer(_ => _dispatcher.Post(() => Ready(seq)), null, GiveUpAfter, Timeout.InfiniteTimeSpan);
+        _readyTimer = _time.CreateTimer(_ => _dispatcher.Post(() => GiveUp(seq)), null, GiveUpAfter, Timeout.InfiniteTimeSpan);
+    }
+
+    // Document seq never passed the shell's finish() (R2-04): the shell would refuse to reveal it, so the error page goes in its place; if even
+    // that is not ready, the native side is told and the reveal is refused by the shell (the page on screen stays).
+    private void GiveUp(long seq)
+    {
+        if (_pending is not { } p || p.Seq != seq || seq != _docSeq)
+        {
+            return;
+        }
+
+        if (p.Fallback)
+        {
+            Ready(seq);
+            return;
+        }
+
+        Send(p.Request, MailPageBuilder.Error(NotShownText, _appearance.Options(false)), allowRemote: false, fallback: true);
     }
 
     // Document seq is laid out (or the wait gave up): the native side updates, then the page is revealed in the same turn.

@@ -8,6 +8,11 @@
 // run code, load a document, change the base URL, refresh or redirect, prefetch a host, or submit; it unwraps forms (their content stays
 // readable) and drops on* handlers, ping, srcdoc, form-action attributes and javascript:/vbscript: URLs. Styles, images, tables and links
 // are left exactly as sent. The output is the input unchanged when nothing had to go, so ordinary mail is never reserialised.
+//
+// Fable review 2 R2-04: no element may shadow a member of the frame's document (WHATWG HTML §3.1.6 "named access on the Document object":
+// embed, form, iframe, object and img with a name, and img with an id when it also has a name). The others are removed or unwrapped above;
+// an img loses its name, and its id when it had a name. DOMPurify's SANITIZE_DOM does the same for Bulwark (lib/email-sanitization.ts:9-57).
+// The shell (shell.js) also reads the frame document only through the prototypes, so this is the second of two guards.
 
 using AngleSharp.Dom;
 using AngleSharp.Html.Parser;
@@ -63,7 +68,7 @@ public static class MailSanitizer
             }
             else
             {
-                removed += CleanAttributes(element);
+                removed += CleanAttributes(element) + Unname(element);
             }
         }
 
@@ -107,6 +112,27 @@ public static class MailSanitizer
     }
 
     private static bool IsHtml(string? type) => type is null || type.Contains("html", StringComparison.OrdinalIgnoreCase);
+
+    // an img with a name is a property of its document (document.URL, document.body, document.querySelectorAll ...): the name goes, and the id
+    // that is exposed together with it
+    private static int Unname(IElement element)
+    {
+        if (!string.Equals(element.LocalName, "img", StringComparison.OrdinalIgnoreCase)
+            || !string.Equals(element.NamespaceUri, NamespaceNames.HtmlUri, StringComparison.Ordinal)
+            || !element.HasAttribute("name"))
+        {
+            return 0;
+        }
+
+        element.RemoveAttribute("name");
+        if (!element.HasAttribute("id"))
+        {
+            return 1;
+        }
+
+        element.RemoveAttribute("id");
+        return 2;
+    }
 
     private static int CleanAttributes(IElement element)
     {

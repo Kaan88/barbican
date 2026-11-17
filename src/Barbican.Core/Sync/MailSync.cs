@@ -146,6 +146,11 @@ public sealed partial class MailSync : IMailSync, IDisposable
             error ??= await CheckNewMailAsync(hear, ct).ConfigureAwait(false);
         }
 
+        if (error is AuthError { NeedsSignIn: true } refused)
+        {
+            StopForSignIn(refused);
+        }
+
         return error?.Message;
     }
 

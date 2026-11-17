@@ -113,4 +113,20 @@ public sealed class AccountsViewModelTests : IDisposable
         Assert.False(_vm.IsOpen);
         Assert.Equal("Sign in to another account. Your other accounts stay signed in.", AccountsViewModel.AddAccountStatus);
     }
+
+    [Fact]
+    public async Task A_row_that_must_sign_in_again_asks_for_the_sign_in_form_instead_of_switching()
+    {
+        // Fable review 2 R2-01/R2-03: a switch to a refused account would fail without sending anything; offer the form for it
+        _accounts.Set(new AccountStatus(Ana, true, true, true, 0, null), new AccountStatus(Ben, false, false, false, null, "ben@example.net needs to sign in again.") { NeedsSignIn = true });
+        var row = _vm.Rows.Single(r => string.Equals(r.Key, Ben.Key, StringComparison.Ordinal));
+        Assert.True(row.NeedsSignIn);
+        Assert.Equal("ben@example.net needs to sign in again.", row.Error);
+        AccountStatus? asked = null;
+        _vm.SignInRequested += (_, e) => asked = e.Status;
+        await _vm.SwitchCommand.ExecuteAsync(row);
+        Assert.Equal(Ben.Key, asked!.Account.Key);
+        Assert.Equal("ana@example.org", _accounts.Active!.User);
+        Assert.Null(_vm.Message);
+    }
 }

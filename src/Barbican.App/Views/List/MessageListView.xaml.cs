@@ -53,6 +53,7 @@ public sealed partial class MessageListView : UserControl
                 SyncSelection();
                 break;
             case nameof(MessageListViewModel.IsLoading):
+            case nameof(MessageListViewModel.IsConnecting):
             case nameof(MessageListViewModel.CanLoadMore):
                 UpdateEmpty();
                 CheckLoadMore();
@@ -78,7 +79,12 @@ public sealed partial class MessageListView : UserControl
         }
     }
 
-    private void UpdateEmpty() => EmptyText.Visibility = List.Rows.Count == 0 && !List.IsLoading ? Visibility.Visible : Visibility.Collapsed;
+    // an account on screen without its session yet (no network at start, R2-02) says so instead of "No messages"
+    private void UpdateEmpty()
+    {
+        EmptyText.Text = List.IsConnecting ? "Connecting…" : "No messages";
+        EmptyText.Visibility = List.Rows.Count == 0 && !List.IsLoading ? Visibility.Visible : Visibility.Collapsed;
+    }
 
     private void SyncSelection()
     {

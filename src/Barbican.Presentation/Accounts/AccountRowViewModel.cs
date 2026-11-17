@@ -2,6 +2,7 @@
 // or more accounts, the unread badge, the server line only for an account in trouble or when two accounts share an address); spec I-006.
 
 using Barbican.Core.Accounts;
+using Barbican.Core.Mail.Rules;
 using CommunityToolkit.Mvvm.ComponentModel;
 
 namespace Barbican.Presentation.Accounts;
@@ -11,6 +12,9 @@ public sealed class AccountRowViewModel(string key) : ObservableObject
 {
     private string _title = "";
     private string _initial = "";
+    private string _initials = "";
+    private int _tintIndex;
+    private bool _needsSignIn;
     private bool _isActive;
     private bool _showStar;
     private int? _unread;
@@ -33,6 +37,27 @@ public sealed class AccountRowViewModel(string key) : ObservableObject
     {
         get => _initial;
         private set => SetProperty(ref _initial, value);
+    }
+
+    /// <summary>Two letters for the avatar (Rust mail.rs initials, as the message rows).</summary>
+    public string Initials
+    {
+        get => _initials;
+        private set => SetProperty(ref _initials, value);
+    }
+
+    /// <summary>0..3: which tint the avatar takes (Rust mail.rs tint).</summary>
+    public int TintIndex
+    {
+        get => _tintIndex;
+        private set => SetProperty(ref _tintIndex, value);
+    }
+
+    /// <summary>The server refused the account: a click offers the sign-in form for it (R2-01).</summary>
+    public bool NeedsSignIn
+    {
+        get => _needsSignIn;
+        private set => SetProperty(ref _needsSignIn, value);
     }
 
     /// <summary>The check on the avatar.</summary>
@@ -86,7 +111,7 @@ public sealed class AccountRowViewModel(string key) : ObservableObject
         private set => SetProperty(ref _isReadOnly, value);
     }
 
-    /// <summary>The error of the account, or null.</summary>
+    /// <summary>The error of the account ("needs to sign in again", "could not reach the server"), or null.</summary>
     public string? Error { get; private set; }
 
     /// <summary>Takes the state of <paramref name="status"/>.</summary>
@@ -95,11 +120,19 @@ public sealed class AccountRowViewModel(string key) : ObservableObject
         ArgumentNullException.ThrowIfNull(status);
         Title = status.Account.User;
         Initial = status.Account.User.Length > 0 ? char.ToUpperInvariant(status.Account.User[0]).ToString() : "?";
+        Initials = RowText.Initials(status.Account.User);
+        TintIndex = RowText.TintIndex(status.Account.User);
+        NeedsSignIn = status.NeedsSignIn;
         IsActive = status.IsActive;
         ShowStar = status.IsDefault && rowCount > 1;
         Unread = status.InboxUnread is > 0 ? status.InboxUnread : null;
         HasError = status.Error is not null;
-        Error = status.Error;
+        if (!string.Equals(Error, status.Error, StringComparison.Ordinal))
+        {
+            Error = status.Error;
+            OnPropertyChanged(nameof(Error));
+        }
+
         IsReadOnly = status.Account.IsReadOnly;
         ServerLine = HasError || sharesAddress ? MailServerAddress.ServerHostLabel(status.Account.Server) : null;
     }
