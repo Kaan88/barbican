@@ -430,3 +430,63 @@ Branch `m1-f1-foundation`, merged into `m1`. Report: the stage's hand-back (Uno 
   Where: `App/Composition/HiddenWebView.cs`.
 - **`IStartupTask` lives in `Presentation/Composition`** (so feature streams can implement it without the App).
 - **Branch name:** `m1-f1-foundation` (the task text said `m1/f1`, which git cannot create next to `m1`).
+
+## M1 stream: mailcore
+
+Branch `m1-mailcore` (worktree `wt-m1-mailcore`), commits listed in the final return. Windows: `tools/build.ps1 test` is green; the red set of this stream
+(74 ported Rust tests plus the hook call-site test) is empty. **Linux: not run** (the VM did not answer on `tools/linux.ps1 ping`, as in F1 and F2); run
+`tools/linux.ps1 test -Branch m1-mailcore` when it is back. The headless scenario is a test (`HeadlessScenarioTests`), so that run covers it.
+
+- **`PrefsSnapshot` implemented by mailcore in an accounts-owned file** (`src/Barbican.Core/Storage/PrefsSnapshot.cs`). `A11y.From` (T-001..T-003) cannot
+  pass without `FromJson`, `Str`, `Bool` and `Number`. Same semantics as Rust `Settings::{str,bool,int}`; `Bool` also accepts "true" and "false" strings (the
+  stub's doc said so; Rust does not). Expect a merge conflict with `accounts`: keep accounts' version if it behaves the same.
+- **Thumbnails: Core reads PNG only** (`Core/Mail/Attachments/PngDecoder.cs`, 8-bit, non-interlaced, a 40 MP cap against decompression bombs). The Rust app
+  used the `image` crate (JPEG, GIF, WebP and BMP too). Other formats return null (the card shows its kind) until the App registers a decoder with
+  `ThumbnailDecoders.Register` (SkiaSharp is already in the App). Chosen over adding ImageSharp (Six Labors split licence) to a public repo. The 200-entry
+  session thumbnail cache (B-MAIL-021) is not here: it goes with the fetch (body stream). Review the PNG reader on hostile input.
+- **`LoadedList.Apply(ListDelta)` is a local copy of `ListDeltaApplier.Apply`** (jmap's stub throws `PortPending` in wave 1, and the exit test needs a push
+  against fakes). Same algorithm as Rust `apply_list_delta` (`Presentation/Mail/LoadedList.cs`). After the jmap merge either keep it (it also owns the cursor
+  and the keyword patch) or delegate; the two must not drift.
+- **Unread-first Inbox is a local partition of the loaded rows** (`ListLayout.Build`), not Rust's two queries (`fetch_unread_first`: newest N unread, then the
+  first page of read ones). `ListQuery` has no unread filter and adding one is jmap's file. Difference: an unread message older than the loaded page is not in
+  the Unread section; unread messages beyond N go to "Everything else" instead of being hidden. Active only with `interfaceLayout = mountain-view` and
+  `mvInboxType = unread-first`, in the Inbox, without a search (as Rust). Needs `ListQuery.UnreadSection` from jmap to be exact.
+- **`MailEventHub` also runs `IMailSync.RunAsync` for the active account** (`Presentation/Mail/MailEventHub.cs`): the plan never says who starts the engine.
+  If accounts' session also starts it there will be two loops; one must go, and the hub is the one that follows account switches.
+- **Arrow keys are handled for every source**, including the real keyboard (`KeyRouter`), because the brief lists "j/k/arrows". Rust left plain arrows to the
+  Slint list (B-KEY-008 "Plain arrows pass"). In XAML a focused `ListView` also moves on arrows: shell-ui must mark the key handled from `Handle`'s result or
+  route only WebView and automation arrows here. Review the double-move risk on the first hand test.
+- **Escape clears the search first, then closes the reader.** `g` then `s` goes to a mailbox with the role `flagged`; Stalwart has none, so it does nothing
+  there (Rust opened a virtual Starred list). Ctrl+E focuses search; Ctrl+F semantics (forward when a message is selected) are M2 (B-KEY-011).
+- **The `key` automation command is not registered.** It needs `Barbican.Automation`, which only the Automation configuration references, so it has to live in
+  the App. `Presentation/Input/KeyChordParser.cs` parses the chord (tests) and `IKeyRouter.Handle(chord, KeySource.Automation)` does the rest. shell-ui or the
+  integrator adds the `IAutomationCommand` named `key` (it overrides F1's stub).
+- **Hook call sites:** 26 hooks of mail-list, mail-mailboxes (display), mail-search, navigation, keyboard, app and ui; `spec/plugins/hooks.csv` has
+  `cs_call_site` and `status=done` for them. Judgement calls: payloads are my records in `Core/Plugins/Payloads/` (Bulwark's are TS object literals; for example
+  `onNavigate`'s `RouteContext` is just `{route}` here); observers are fire-and-forget on the thread pool (`HookBusExtensions.Fire`); an interceptor can only
+  stop a key press when its answer is already available (`KeyRouter` cannot await on the UI thread); a handler that throws is swallowed and reported through
+  `HookBus.HandlerFailed` (Bulwark logs it). M6b must decide whether the real hosts want async interception on the key path. `onEmailListItemRender` runs per
+  visible row (first 50) after a rebuild, only when someone listens. `onInterval` is a 60 s timer in `MailShellStartup`. The window events (`onWindowFocus`,
+  `onVisibilityChange`, `onOnline`, `onBeforeUnload`, `onAppError`) are methods on `ShellViewModel` that the App window must call (shell-ui): no real window
+  calls them yet.
+- **The zero-allocation claim is measured** by `HookBusTests.Without_handlers_nothing_listens_and_a_call_allocates_nothing` (under 1 KB for 10 000 calls of all
+  three kinds, `GC.GetAllocatedBytesForCurrentThread`). The first version used an `ImmutableDictionary` and allocated about 400 bytes per call; the bus now swaps a
+  plain dictionary copy-on-write.
+- **ListSync resets once only on `BulkObservableCollection<T>`.** On any other `IList<T>` a reset is `Clear` plus `n` adds. Every ViewModel collection is a
+  `BulkObservableCollection`; a view must not wrap them in a copy. The ported test `empty_and_clear` accepts either (as Rust did).
+- **The Presentation test project got a package reference** (`Microsoft.Extensions.TimeProvider.Testing`, already pinned) in
+  `tests/Barbican.Presentation.Tests/Barbican.Presentation.Tests.csproj`: a csproj the plan reserves for the integrator. One line, marked `m1-mailcore`.
+- **The flagged tile asks `IMailService.QueryAsync` with the text filter `is:starred`.** Rust used a custom `Email/query` with `hasKeyword $flagged`. This works
+  only if jmap's text filter understands `is:starred`; otherwise the tile stays empty. The calendar and task tiles are M4 (`GlanceTilesViewModel.SetCalendar`).
+- **Not ported in M1 (scope):** one-time code chips on rows (`showVerificationCodes`, Rust `otp.rs`), row tint by tag or account, the unified inbox and Scheduled
+  folders, sender pictures, clicking a tag to filter (needs a keyword filter in `ListQuery`; I-059 is M2), the multi-account unread badge
+  (`unreadBadgeAllAccounts`). Row text is English only (`RowText`, `ListDateGroup.Label`): Bulwark's `date_groups.*` en strings and English day and month names.
+- **Date groups follow Bulwark (`lib/list-date-groups.ts`), not Rust's `group_label`** (Today, Yesterday, weekday, then month names). The brief names Bulwark's
+  file. A user used to the Rust grouping will see Last week, Last month and Older instead.
+- **`A11y.FontScaleFactor`, `TextScale` and `MinFontPx` are `double`** where Rust had `f32`; the CSS and script text are identical for the values the tests use
+  (`1.25`, `16`), a value like `0.1+0.2` would print differently. Low risk.
+- **`ShellViewModel` reads two settings the plan does not name:** `uiStyle` (`bento` or `nordic`, Rust `main.rs:2093`) and `theme` (`light`, `dark`, `system`,
+  Bulwark theme-store). The platform layer must call `ShellViewModel.SetSystemDark` for "system".
+- **The header-only `IMessageOpener` never marks a message read** (M1 is read-only; the body stream's loader decides, behind the account guard).
+- **Reader `Attachments` are indexed by position in the visible list** (inline images hidden), as Rust `show` did; the body stream's download must use
+  `AttachmentCard.BlobId`, not an index into `EmailBody.Attachments`.

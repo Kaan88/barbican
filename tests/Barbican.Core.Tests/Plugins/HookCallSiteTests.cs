@@ -26,7 +26,6 @@ public sealed class HookCallSiteTests
     public void Accounts_hooks_have_call_sites() => AssertFired("accounts");
 
     [Fact]
-    [Red("mailcore")]
     public void Mailcore_hooks_have_call_sites() => AssertFired("mailcore");
 
     [Fact]

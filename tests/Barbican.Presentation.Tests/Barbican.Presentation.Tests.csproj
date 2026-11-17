@@ -6,4 +6,8 @@
     <ProjectReference Include="../../src/Barbican.Presentation/Barbican.Presentation.csproj" />
     <ProjectReference Include="../../tools/Barbican.GenTokens/Barbican.GenTokens.csproj" />
   </ItemGroup>
+  <ItemGroup>
+    <!-- m1-mailcore: FakeTimeProvider for the key repeat, g sequence and interval tests (version pinned in Directory.Packages.props). -->
+    <PackageReference Include="Microsoft.Extensions.TimeProvider.Testing" />
+  </ItemGroup>
 </Project>

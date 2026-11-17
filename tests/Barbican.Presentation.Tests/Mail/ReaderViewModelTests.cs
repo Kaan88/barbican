@@ -1,0 +1,143 @@
+// New tests: the reader applies a snapshot as one step. Spec B-SYNC-022 (header and body change together), B-SYNC-027 (header from the list row),
+// B-SYNC-029 (a failed fetch leaves nothing of the previous message), B-MAIL-019..024 (attachment cards). Owner mailcore.
+
+#pragma warning disable MA0002, VSTHRD003 // asserts compare strings ordinally by nature; fakes hand back TaskCompletionSource tasks on purpose
+using Barbican.Core.Mail.Model;
+using Barbican.Presentation.Mail;
+using Barbican.Presentation.Tests.Support;
+
+namespace Barbican.Presentation.Tests.Mail;
+
+public sealed class ReaderViewModelTests
+{
+    private static ReaderOptions Options() => new() { Now = Mails.Now, Zone = TimeZoneInfo.Utc };
+
+    private static EmailBody Body(string id = "b1", params Attachment[] attachments) =>
+        new()
+        {
+            Id = id,
+            ThreadId = "t" + id,
+            Subject = "Hello",
+            From = [new EmailAddress("Ada Lovelace", "ada@shop.example.com")],
+            To = [new EmailAddress(null, "me@a.example.com"), new EmailAddress("Bob", "bob@a.example.com")],
+            ReceivedAt = new DateTimeOffset(2026, 11, 16, 9, 30, 0, TimeSpan.Zero),
+            Keywords = Keywords.Of("$flagged"),
+            Attachments = attachments,
+            Headers = [new EmailHeader("Authentication-Results", "mx.example.org; dkim=pass header.d=mail.shop.example.com;\r\n spf=fail smtp.mailfrom=x@evil.example.net; dmarc=pass")],
+        };
+
+    [Fact]
+    public void Prefill_takes_the_header_from_the_list_row_while_the_body_loads()
+    {
+        var row = new MessageRowViewModel(Mails.Make("m1", subject: "Lunch?", from: "Ada Lovelace") with { To = [new EmailAddress("Bob", "bob@a.example.com")] });
+        var s = ReaderSnapshots.Prefill(row, Options());
+        Assert.Equal(BodyState.Loading, s.BodyState);
+        Assert.Equal("Lunch?", s.Header.Subject);
+        Assert.Equal("Ada Lovelace", s.Header.From);
+        Assert.Equal("AD", s.Header.Initials);
+        Assert.Equal("Bob", s.Header.To);
+        Assert.Equal("Tue 17 Nov 2026, 11:00", s.Header.Date);
+        Assert.Null(s.Body);
+    }
+
+    [Fact]
+    public void Apply_assigns_everything_before_the_first_notification()
+    {
+        var reader = new ReaderViewModel();
+        reader.Apply(ReaderSnapshots.FromBody(Body(), null, Options()));
+        var seen = new List<(string Name, string Subject, BodyState State, int Chips)>();
+        reader.PropertyChanged += (_, e) => seen.Add((e.PropertyName ?? string.Empty, reader.Header.Subject, reader.BodyState, reader.AuthChips.Count));
+        reader.Apply(ReaderSnapshots.Failed("x", "gone"));
+        Assert.NotEmpty(seen);
+        Assert.All(seen, s => Assert.Equal((string.Empty, BodyState.Failed, 0), (string.Empty, s.State, s.Chips)));
+        Assert.Equal("gone", reader.Error);
+    }
+
+    [Fact]
+    public void A_failed_fetch_leaves_nothing_of_the_previous_message()
+    {
+        var reader = new ReaderViewModel();
+        reader.Apply(ReaderSnapshots.FromBody(Body(attachments: new Attachment { Name = "a.pdf", Size = 10, BlobId = "x", Type = "application/pdf" }), null, Options()));
+        Assert.Equal("Hello", reader.Header.Subject);
+        Assert.Single(reader.Attachments);
+        reader.Apply(ReaderSnapshots.Failed("b2", "Could not load message"));
+        Assert.Equal(string.Empty, reader.Header.Subject);
+        Assert.Empty(reader.Attachments);
+        Assert.Empty(reader.Conversation);
+        Assert.Equal(BodyState.Failed, reader.BodyState);
+        reader.Clear();
+        Assert.True(reader.IsEmpty);
+    }
+
+    [Fact]
+    public void The_server_checks_become_chips_and_a_verdict_that_needs_alignment()
+    {
+        var s = ReaderSnapshots.FromBody(Body(), null, Options());
+        Assert.Equal(AuthVerdict.Verified, s.AuthVerdict);
+        Assert.Equal([("dkim", "pass", true), ("spf", "fail", false), ("dmarc", "pass", true)], s.AuthChips.Select(c => (c.Method, c.Result, c.Aligned)));
+        var other = ReaderSnapshots.FromBody(Body() with { From = [new EmailAddress(null, "ceo@bank.example.com")], Headers = [new EmailHeader("Authentication-Results", "mx; dkim=pass header.d=evil.example.net")] }, null, Options());
+        Assert.Equal(AuthVerdict.Unknown, other.AuthVerdict);
+        var failed = ReaderSnapshots.FromBody(Body() with { Headers = [new EmailHeader("Authentication-Results", "mx; dmarc=fail")] }, null, Options());
+        Assert.Equal(AuthVerdict.Failed, failed.AuthVerdict);
+    }
+
+    [Fact]
+    public void Attachment_cards_show_when_an_image_is_among_the_files_and_the_setting_is_on()
+    {
+        var files = new[]
+        {
+            new Attachment { Name = "report.final.pdf", Size = 1_500_000, BlobId = "p", Type = "application/pdf" },
+            new Attachment { Name = "photo.png", Size = 2000, BlobId = "i", Type = "image/png" },
+            new Attachment { Name = "logo.png", Size = 10, BlobId = "l", Type = "image/png", Cid = "logo" },
+        };
+        var s = ReaderSnapshots.FromBody(Body(attachments: files), null, Options());
+        Assert.True(s.ShowAttachmentCards);
+        Assert.Equal("2 attachments · 1.5 MB", s.AttachmentSummary);
+        Assert.Equal([("report.final", "PDF", false), ("photo", "PNG", true)], s.Attachments.Select(a => (a.Stem, a.Kind, a.Previewable)));
+        var off = ReaderSnapshots.FromBody(Body(attachments: files), null, Options() with { AttachmentImagePreviews = false });
+        Assert.False(off.ShowAttachmentCards);
+        Assert.Equal(string.Empty, off.AttachmentSummary);
+    }
+
+    [Fact]
+    public void A_thumbnail_arriving_touches_only_its_tile()
+    {
+        var reader = new ReaderViewModel();
+        var files = new[] { new Attachment { Name = "a.png", Size = 10, BlobId = "a", Type = "image/png" }, new Attachment { Name = "b.png", Size = 10, BlobId = "b", Type = "image/png" } };
+        reader.Apply(ReaderSnapshots.FromBody(Body(attachments: files), null, Options()));
+        var changes = new List<System.Collections.Specialized.NotifyCollectionChangedAction>();
+        reader.Attachments.CollectionChanged += (_, e) => changes.Add(e.Action);
+        reader.SetThumbnail("b1", 1, new Core.Mail.Attachments.ThumbnailImage(1, 1, [0, 0, 0, 255]));
+        Assert.Equal([System.Collections.Specialized.NotifyCollectionChangedAction.Replace], changes);
+        Assert.True(reader.Attachments[1].HasThumbnail);
+        Assert.False(reader.Attachments[0].HasThumbnail);
+        reader.SetThumbnail("another", 0, new Core.Mail.Attachments.ThumbnailImage(1, 1, [0, 0, 0, 255]));
+        Assert.False(reader.Attachments[0].HasThumbnail);
+    }
+
+    [Fact]
+    public void The_conversation_strip_marks_the_open_message_and_updates_in_place()
+    {
+        var thread = new ConversationThread("tb1", [Mails.Make("b0", hoursAgo: 30), Mails.Make("b1", unread: true, hoursAgo: 2)]);
+        var reader = new ReaderViewModel();
+        reader.Apply(ReaderSnapshots.FromBody(Body(), thread, Options()));
+        Assert.Equal([false, true], reader.Conversation.Select(c => c.IsCurrent));
+        var changes = new List<System.Collections.Specialized.NotifyCollectionChangedAction>();
+        reader.Conversation.CollectionChanged += (_, e) => changes.Add(e.Action);
+        reader.Apply(ReaderSnapshots.FromBody(Body(), thread, Options()));
+        Assert.Empty(changes);
+        Assert.Empty(ReaderSnapshots.FromBody(Body(), new ConversationThread("t", [Mails.Make("only")]), Options()).Conversation);
+    }
+
+    [Fact]
+    public void The_header_only_opener_shows_the_row_and_closing_empties_the_reader()
+    {
+        var reader = new ReaderViewModel();
+        var opener = new HeaderOnlyMessageOpener(reader, Options);
+        opener.Open(new MessageRowViewModel(Mails.Make("m1", subject: "Hi")), OpenReason.Key, ListDirection.Down);
+        Assert.Equal("Hi", reader.Header.Subject);
+        Assert.Equal(BodyState.Loading, reader.BodyState);
+        opener.Close();
+        Assert.True(reader.IsEmpty);
+    }
+}

@@ -36,15 +36,15 @@ I-034,Sidebar and folder menu,Collapse/expand sidebar toggle,sidebar.tsx:2719,M,
 I-035,Sidebar and folder menu,"Folded rail hover-peek, Esc, Tab trap, arrow keys, All-folders drawer","sidebar.tsx:2607-2640,3115,1679",M,M,carried,—,todo,M2,
 I-036,Sidebar and folder menu,Mobile drawer close,sidebar.tsx:2707,N,N,carried,—,n/a,N/A,
 I-037,Sidebar and folder menu,Account switcher in sidebar header; account line under compose,"sidebar.tsx:2735,~2810",M,M,carried,—,todo,M2,
-I-038,Sidebar and folder menu,Folder row click,sidebar.tsx:507/579,D,D,carried,app.slint:1564-1572,todo,M1,
-I-039,Sidebar and folder menu,Folder chevron expand,sidebar.tsx:553,D,D,carried,app.slint:339,todo,M1,
+I-038,Sidebar and folder menu,Folder row click,sidebar.tsx:507/579,D,D,carried,app.slint:1564-1572,todo,M1,VM: SidebarViewModelTests.Selecting_a_folder_opens_it_in_the_list_and_roles_can_be_reached_by_the_g_keys; view: shell-ui
+I-039,Sidebar and folder menu,Folder chevron expand,sidebar.tsx:553,D,D,carried,app.slint:339,todo,M1,VM: SidebarViewModelTests.A_collapsed_parent_hides_its_children_and_shows_a_dot_when_unread_is_below; view: shell-ui
 I-040,Sidebar and folder menu,Folder row right-click,sidebar.tsx:508,D,D,carried,"ctxmenu.rs:228,511 (smaller item set)",todo,M1,
 I-041,Sidebar and folder menu,Long-press / ⋮ folder options (touch),"sidebar.tsx:510,687",N,N,carried,—,n/a,N/A,
 I-042,Sidebar and folder menu,Drop messages on folder (move + undo),sidebar.tsx:1040,M,D,changed,"Mail rows drag onto folders (dnd.rs drop kind mail, app.slint FolderRow dnd-key); undo toast not verified; never driven live",todo,M2,
 I-043,Sidebar and folder menu,Drag folder to tab,sidebar.tsx:978,M,M,carried,—,todo,M2,
-I-044,Sidebar and folder menu,Muted bell icon,sidebar.tsx:656,P,P,carried,"shown for unsubscribed, not for mutes",todo,M1,
-I-045,Sidebar and folder menu,Collapsed-parent sub-unread dot; name truncation tooltip,"sidebar.tsx:~670,~600",M,M,carried,—,todo,M1,
-I-046,Sidebar and folder menu,Section header collapse,sidebar.tsx:827,P,P,carried,Folders and Tags only,todo,M1,
+I-044,Sidebar and folder menu,Muted bell icon,sidebar.tsx:656,P,P,carried,"shown for unsubscribed, not for mutes",todo,M1,VM: SidebarViewModelTests.An_unsubscribed_folder_is_muted_and_a_parent_has_a_chevron; view: shell-ui
+I-045,Sidebar and folder menu,Collapsed-parent sub-unread dot; name truncation tooltip,"sidebar.tsx:~670,~600",M,M,carried,—,todo,M1,VM: SidebarViewModelTests.A_collapsed_parent_hides_its_children_and_shows_a_dot_when_unread_is_below; view: shell-ui
+I-046,Sidebar and folder menu,Section header collapse,sidebar.tsx:827,P,P,carried,Folders and Tags only,todo,M1,VM: SidebarViewModel.FoldersExpanded / TagsExpanded; view: shell-ui
 I-047,Sidebar and folder menu,Section header gear,sidebar.tsx:857,D,D,carried,"app.slint:1559,1599",todo,M1,
 I-048,Sidebar and folder menu,"""+"" create top-level folder",sidebar.tsx:848,P,P,carried,only in Settings > Organize,todo,M2,
 I-049,Sidebar and folder menu,"Folders header right-click (mark all read, new folder, refresh)",sidebar.tsx:2074,M,M,carried,—,todo,M2,
@@ -117,7 +117,7 @@ I-115,"Layout, desktop host, session, auth, app lock, offline, tour, top-level",
 I-116,"Layout, desktop host, session, auth, app lock, offline, tour, top-level","App update ""Reload""",app-update-prompt.tsx:47,M,D,changed,UpdateBanner (ui/update-banner.slint) with signed-manifest updater (updater.rs); download and install never run end to end,todo,M8,
 I-117,"Layout, desktop host, session, auth, app lock, offline, tour, top-level",Account archive restore prompt,account-archive-prompt.tsx,M,M,carried,—,todo,M10,
 I-118,"Layout, desktop host, session, auth, app lock, offline, tour, top-level",Unread badge (favicon),favicon-badge.tsx,D,D,carried,window title,todo,M8,
-I-119,"Mail: list, rows, selection, keyboard",Row click opens,email-list.tsx:1209,D,D,carried,app.slint:1834,todo,M1,
+I-119,"Mail: list, rows, selection, keyboard",Row click opens,email-list.tsx:1209,D,D,carried,app.slint:1834,todo,M1,VM: MessageListViewModelTests.J_and_k_move_the_selection_and_open_the_message (click: Selected setter); view: shell-ui
 I-120,"Mail: list, rows, selection, keyboard",Ctrl-click / Shift-click / checkbox tick,email-list.tsx:1221,P,P,carried,"no Shift range, no checkbox",todo,M2,
 I-121,"Mail: list, rows, selection, keyboard",Row double-click opens in window,email-list.tsx:1222,M,M,carried,—,todo,M2,
 I-122,"Mail: list, rows, selection, keyboard",Row right-click,email-list.tsx:1225,D,D,carried,app.slint:612,todo,M1,
@@ -127,7 +127,7 @@ I-125,"Mail: list, rows, selection, keyboard",Thread inline expand chevron; coll
 I-126,"Mail: list, rows, selection, keyboard",Thread checkbox ticks whole thread,thread-list-item.tsx:1537,M,M,carried,—,todo,M2,
 I-127,"Mail: list, rows, selection, keyboard","Row ""…"" actions button",thread-list-item.tsx:771,D,D,carried,app.slint:689,todo,M2,
 I-128,"Mail: list, rows, selection, keyboard",Row drag onto folder / tag,thread-list-item.tsx:738,M,D,changed,"Row drag onto folder or tag, selection-aware (dnd.rs ids_for_mail, app.slint tag drop targets)",todo,M2,
-I-129,"Mail: list, rows, selection, keyboard",List attachment chips clickable; tooltip; +N overflow,attachment-chips.tsx,P,P,carried,display only,todo,M1,
+I-129,"Mail: list, rows, selection, keyboard",List attachment chips clickable; tooltip; +N overflow,attachment-chips.tsx,P,P,carried,display only,todo,M1,VM: MessageRowViewModel.AttachmentNames (RowText.AttachmentNames tests); view: shell-ui
 I-130,"Mail: list, rows, selection, keyboard",Verification code chip,verification-code-chip.tsx,P,P,carried,"list only (app.slint:731), not reader",todo,M1,
 I-131,"Mail: list, rows, selection, keyboard",Hover strip Delete / Star,email-hover-actions.tsx,D,D,carried,app.slint:695,todo,M2,
 I-132,"Mail: list, rows, selection, keyboard",Hover Mark read/unread icon swap,email-hover-actions.tsx:218,P,P,carried,icon doesn't swap,todo,M2,
@@ -144,7 +144,7 @@ I-142,"Mail: list, rows, selection, keyboard","""Select all N in folder"" banner
 I-143,"Mail: list, rows, selection, keyboard",Empty Trash/Spam banner,email-list.tsx:1608,P,P,carried,folder menu only,todo,M2,
 I-144,"Mail: list, rows, selection, keyboard",Empty state Clear search / Compose,email-list.tsx:1681,M,M,carried,—,todo,M2,
 I-145,"Mail: list, rows, selection, keyboard","Pages mode Prev / Next; ""1–50 of N""",email-list.tsx:1705,M,M,carried,infinite scroll,todo,M2,
-I-146,"Mail: list, rows, selection, keyboard",Load more on scroll,email-list.tsx:1294,D,D,carried,app.slint:1828,todo,M1,
+I-146,"Mail: list, rows, selection, keyboard",Load more on scroll,email-list.tsx:1294,D,D,carried,app.slint:1828,todo,M1,VM: MessageListViewModelTests.Load_more_anchors_on_the_last_message_and_appends_without_a_reset; view: shell-ui
 I-147,"Mail: list, rows, selection, keyboard","List keyboard: Space tick, Enter/o open, Menu key, roving focus",list-a11y.ts,M,P,changed,"Enter / o open and Shift+arrows work (shortcuts.rs mail()); Space tick, Menu key, roving focus missing",todo,M2,
 I-148,"Mail: list, rows, selection, keyboard",Date group header fold,list-date-group-header.tsx:22,M,M,carried,callback not wired,todo,M2,
 I-149,"Mail: list, rows, selection, keyboard",Column headers / column layout,list-columns.tsx,M,M,carried,—,todo,M2,
@@ -154,7 +154,7 @@ I-152,"Mail: list, rows, selection, keyboard",Category tabs (Primary/Promotions�
 I-153,"Mail: list, rows, selection, keyboard","MV ""Unread""/""Everything else"" fold headers",mv-list-section-header.tsx,M,M,carried,—,todo,M2,
 I-154,"Mail: list, rows, selection, keyboard","Select-all toggle (second click clears, tri-state)",mv-list-toolbar.tsx:369,P,P,carried,select only,todo,M2,
 I-155,"Mail: list, rows, selection, keyboard",Plugin list filter chips / row badges,plugin-list-filters.tsx,M,M,carried,—,todo,M2,
-I-156,"Mail: list, rows, selection, keyboard","Keys j/k/arrows, n, f, s, e, c, /, Shift+G, Ctrl+1..4, Ctrl+A, u/Shift+I, !",use-keyboard-shortcuts.ts,D,D,carried,main.rs:1437-1485,todo,M1,
+I-156,"Mail: list, rows, selection, keyboard","Keys j/k/arrows, n, f, s, e, c, /, Shift+G, Ctrl+1..4, Ctrl+A, u/Shift+I, !",use-keyboard-shortcuts.ts,D,D,carried,main.rs:1437-1485,todo,M1,"VM: KeyRouterTests (j/k/arrows, /, Shift+G, Escape, g sequences, Ctrl+1..5); action keys: M2"
 I-157,"Mail: list, rows, selection, keyboard",Keys r / Shift+R / a (reply all),mail.ts:201-202,P,D,changed,"`a` maps to reply-all (shortcuts.rs mail_key_action); r, R, a",todo,M2,
 I-158,"Mail: list, rows, selection, keyboard",Keys Enter / o open focused,mail.ts:192,M,D,changed,Enter / o => Action::Open (shortcuts.rs mail()),todo,M2,
 I-159,"Mail: list, rows, selection, keyboard",Esc closes and deselects,mail.ts:193,P,P,carried,ticks stay,todo,M2,

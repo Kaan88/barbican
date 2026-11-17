@@ -1,8 +1,6 @@
 // Mirrors: Bulwark lib/plugin-hook-catalog.ts (observer / intercept / transform), lib/plugin-mail-hooks.ts (dispatch order, a failing
 // handler never stops the app), PORT-PLAN.md M6b (host-agnostic bus first, plugin hosts later); M1-plan §4.1. Owner mailcore.
 
-using System.Collections.Immutable;
-
 namespace Barbican.Core.Plugins.Hooks;
 
 /// <summary>
@@ -12,7 +10,8 @@ namespace Barbican.Core.Plugins.Hooks;
 public sealed class HookBus : IHookBus
 {
     private readonly Lock _gate = new();
-    private ImmutableDictionary<string, ImmutableArray<Delegate>> _handlers = ImmutableDictionary<string, ImmutableArray<Delegate>>.Empty.WithComparers(StringComparer.Ordinal);
+    // copy on write: a registration builds a new dictionary and swaps it in, so readers (the hot path) never lock and never allocate
+    private volatile Dictionary<string, Delegate[]> _handlers = new(StringComparer.Ordinal);
 
     /// <summary>A handler threw; the bus carries on with the next one (a plugin must not break the app).</summary>
     public event EventHandler<HookFailedEventArgs>? HandlerFailed;
@@ -30,12 +29,11 @@ public sealed class HookBus : IHookBus
     public IDisposable Transform<T>(string hook, Func<T, CancellationToken, ValueTask<T>> handler) => Add(hook, handler);
 
     /// <inheritdoc />
-    public async ValueTask NotifyAsync<TPayload>(string hook, TPayload payload, CancellationToken ct)
+    public ValueTask NotifyAsync<TPayload>(string hook, TPayload payload, CancellationToken ct) =>
+        _handlers.TryGetValue(hook, out var list) ? NotifyCoreAsync(hook, list, payload, ct) : default;
+
+    private async ValueTask NotifyCoreAsync<TPayload>(string hook, Delegate[] list, TPayload payload, CancellationToken ct)
     {
-        if (!_handlers.TryGetValue(hook, out var list))
-        {
-            return;
-        }
 
         foreach (var d in list)
         {
@@ -60,12 +58,11 @@ public sealed class HookBus : IHookBus
     }
 
     /// <inheritdoc />
-    public async ValueTask<bool> InterceptAsync<TPayload>(string hook, TPayload payload, CancellationToken ct)
+    public ValueTask<bool> InterceptAsync<TPayload>(string hook, TPayload payload, CancellationToken ct) =>
+        _handlers.TryGetValue(hook, out var list) ? InterceptCoreAsync(hook, list, payload, ct) : ValueTask.FromResult(true);
+
+    private async ValueTask<bool> InterceptCoreAsync<TPayload>(string hook, Delegate[] list, TPayload payload, CancellationToken ct)
     {
-        if (!_handlers.TryGetValue(hook, out var list))
-        {
-            return true;
-        }
 
         foreach (var d in list)
         {
@@ -95,12 +92,11 @@ public sealed class HookBus : IHookBus
     }
 
     /// <inheritdoc />
-    public async ValueTask<T> TransformAsync<T>(string hook, T value, CancellationToken ct)
+    public ValueTask<T> TransformAsync<T>(string hook, T value, CancellationToken ct) =>
+        _handlers.TryGetValue(hook, out var list) ? TransformCoreAsync(hook, list, value, ct) : ValueTask.FromResult(value);
+
+    private async ValueTask<T> TransformCoreAsync<T>(string hook, Delegate[] list, T value, CancellationToken ct)
     {
-        if (!_handlers.TryGetValue(hook, out var list))
-        {
-            return value;
-        }
 
         foreach (var d in list)
         {
@@ -132,7 +128,11 @@ public sealed class HookBus : IHookBus
         ArgumentNullException.ThrowIfNull(handler);
         lock (_gate)
         {
-            _handlers = _handlers.SetItem(hook, _handlers.TryGetValue(hook, out var list) ? list.Add(handler) : [handler]);
+            var next = new Dictionary<string, Delegate[]>(_handlers, StringComparer.Ordinal)
+            {
+                [hook] = _handlers.TryGetValue(hook, out var list) ? [.. list, handler] : [handler],
+            };
+            _handlers = next;
         }
 
         return new Registration(this, hook, handler);
@@ -147,8 +147,18 @@ public sealed class HookBus : IHookBus
                 return;
             }
 
-            var next = list.Remove(handler);
-            _handlers = next.IsEmpty ? _handlers.Remove(hook) : _handlers.SetItem(hook, next);
+            var left = list.Where(h => !ReferenceEquals(h, handler)).ToArray();
+            var next = new Dictionary<string, Delegate[]>(_handlers, StringComparer.Ordinal);
+            if (left.Length == 0)
+            {
+                next.Remove(hook);
+            }
+            else
+            {
+                next[hook] = left;
+            }
+
+            _handlers = next;
         }
     }
 
