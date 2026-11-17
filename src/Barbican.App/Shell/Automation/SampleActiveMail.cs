@@ -10,9 +10,10 @@ using Barbican.Presentation.Mail;
 namespace Barbican.App.Shell.Automation;
 
 /// <summary>The active mail of a sample-data run: the real MailService and MailSync over the fake server's seed.</summary>
-public sealed class SampleActiveMail : IActiveMail, IDisposable
+public sealed class SampleActiveMail : IActiveMail, Barbican.Presentation.Actions.IMailWriterSource, IDisposable
 {
     private readonly FakeJmapServer _server = new();
+    private readonly Barbican.Core.Jmap.Transport.JmapClient _client;
 
     public SampleActiveMail(IHookBus hooks, TimeProvider time)
     {
@@ -20,6 +21,7 @@ public sealed class SampleActiveMail : IActiveMail, IDisposable
 #pragma warning disable VSTHRD002, MA0045 // synchronous by design: IActiveMail has no async member and the fake never leaves the process
         var client = Task.Run(() => FakeJmapHarness.ConnectAsync(_server, time)).GetAwaiter().GetResult();
 #pragma warning restore VSTHRD002, MA0045
+        _client = client;
         var service = new MailService(client, time);
         Mail = service;
         Sync = new Barbican.Core.Sync.MailSync(service, hooks, time);
@@ -28,6 +30,12 @@ public sealed class SampleActiveMail : IActiveMail, IDisposable
     }
 
     public void Dispose() => _server.Dispose();
+
+    /// <summary>The sample account is writable (the fake server is in memory); every write of a sample run goes to it.</summary>
+    public Barbican.Core.Mail.Write.IMailWriter? WriterOf(string accountKey) => new Barbican.Core.Mail.Write.MailWriter(_client, _server.Options.AccountId);
+
+    /// <inheritdoc />
+    public bool CanWrite(string accountKey) => true;
 
     public string? AccountKey { get; }
 

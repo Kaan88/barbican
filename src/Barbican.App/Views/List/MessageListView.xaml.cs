@@ -2,6 +2,7 @@ using System.Collections.Specialized;
 using Barbican.App.Motion;
 using Barbican.App.Shell;
 using Barbican.App.Theme;
+using Barbican.Presentation.Commands;
 using Barbican.Presentation.Mail;
 using Barbican.Presentation.Shell;
 using Microsoft.UI.Xaml.Automation;
@@ -18,6 +19,8 @@ public sealed partial class MessageListView : UserControl
     private const double LoadMoreDistance = 300;
 
     private bool _syncing;
+    private bool _modifierClick;
+    private string? _scrolledId;
     private bool _resyncQueued;
     private ScrollViewer? _scroll;
     private readonly TranslateTransform _rowsShift = new();
@@ -30,12 +33,16 @@ public sealed partial class MessageListView : UserControl
         Look = ViewHost.Get<StyleState>();
         InitializeComponent();
         Rows.RenderTransform = _rowsShift;
+        Panes = ViewHost.Get<PanesViewModel>();
         ApplyStyle();
         Look.PropertyChanged += (_, _) => ApplyStyle();
+        Panes.PropertyChanged += (_, _) => ApplyStyle();
         List.PropertyChanged += OnListChanged;
         List.Rows.CollectionChanged += OnRowsChanged;
         SlotHost.Fill(SearchSlot, SlotNames.ListSearch);
         SlotHost.Fill(SelectionBarSlot, SlotNames.ListSelectionBar);
+        Rows.AddHandler(UIElement.PointerPressedEvent, new Microsoft.UI.Xaml.Input.PointerEventHandler(OnRowsPointerPressed), true);
+        Rows.AddHandler(UIElement.PointerReleasedEvent, new Microsoft.UI.Xaml.Input.PointerEventHandler((_, _) => _modifierClick = false), true);
         Rows.Loaded += (_, _) => HookScroll();
         Rows.SizeChanged += (_, _) => CheckLoadMore();
         UpdateEmpty();
@@ -47,9 +54,18 @@ public sealed partial class MessageListView : UserControl
 
     public StyleState Look { get; }
 
+    /// <summary>The saved pane widths (panes.json, read once at start): 0 keeps the style's own width.</summary>
+    public PanesViewModel Panes { get; }
+
     // The window width also raises StyleState changes; the containers are swapped only when the style really changed.
     private void ApplyStyle()
     {
+        var width = Panes.ListWidth > 0 ? Panes.ListWidth : Look.ListWidth;
+        if (Math.Abs(Pane.Width - width) > 0.01 || double.IsNaN(Pane.Width))
+        {
+            Pane.Width = width;
+        }
+
         var style = Look.MessageItemStyle;
         if (!ReferenceEquals(Rows.ItemContainerStyle, style))
         {
@@ -129,16 +145,27 @@ public sealed partial class MessageListView : UserControl
             _syncing = false;
         }
 
-        if (row is not null)
+        // R2-12: scroll only when the selected id changed; a row that was replaced by a push delta (same id, new object) keeps the scroll position
+        if (row is not null && !string.Equals(_scrolledId, row.Id, StringComparison.Ordinal))
         {
             Rows.ScrollIntoView(row);
         }
+
+        _scrolledId = row?.Id;
     }
 
     private void OnSelectionChanged(object sender, SelectionChangedEventArgs e)
     {
         if (_syncing || e.AddedItems.Count == 0)
         {
+            return;
+        }
+
+        if (_modifierClick)
+        {
+            // Ctrl or Shift was down: the press ticked rows (OnRowsPointerPressed); it must not also open the message
+            _modifierClick = false;
+            SyncSelection();
             return;
         }
 
@@ -149,6 +176,81 @@ public sealed partial class MessageListView : UserControl
         else
         {
             SyncSelection();
+        }
+    }
+
+    private static MessageRowViewModel? RowOf(object sender) => (sender as FrameworkElement)?.DataContext as MessageRowViewModel;
+
+    // ---- M2 actions: the selectable avatar, Ctrl and Shift clicks, the hover strip (real pointer input is a hand test; the VM state is driven by hover-sim and select in automation) ----
+
+    // Ctrl-click ticks one row, Shift-click ticks the range (email-list.tsx:1221); the modifiers come from the pointer event itself, no key state is read
+    private void OnRowsPointerPressed(object sender, Microsoft.UI.Xaml.Input.PointerRoutedEventArgs e)
+    {
+        var modifiers = e.KeyModifiers;
+        var ctrl = modifiers.HasFlag(global::Windows.System.VirtualKeyModifiers.Control);
+        var shift = modifiers.HasFlag(global::Windows.System.VirtualKeyModifiers.Shift);
+        if ((!ctrl && !shift) || RowOf(e.OriginalSource) is not { } row)
+        {
+            return;
+        }
+
+        _modifierClick = true;
+        if (shift)
+        {
+            List.ExtendTo(row);
+        }
+        else
+        {
+            List.ToggleCheck(row);
+        }
+    }
+
+    private void OnAvatarTapped(object sender, Microsoft.UI.Xaml.Input.TappedRoutedEventArgs e)
+    {
+        if (RowOf(sender) is { } row)
+        {
+            e.Handled = true;
+            List.ToggleCheck(row);
+        }
+    }
+
+    private void OnRowEntered(object sender, Microsoft.UI.Xaml.Input.PointerRoutedEventArgs e)
+    {
+        if (RowOf(sender) is { } row)
+        {
+            List.SetHover(row.Id);
+        }
+    }
+
+    private void OnRowExited(object sender, Microsoft.UI.Xaml.Input.PointerRoutedEventArgs e)
+    {
+        if (RowOf(sender) is { } row && string.Equals(List.HoverId, row.Id, StringComparison.Ordinal))
+        {
+            List.SetHover(null);
+        }
+    }
+
+    // the strip also shows while keyboard focus is inside the row (I-136)
+    private void OnRowFocused(object sender, RoutedEventArgs e)
+    {
+        if (RowOf(sender) is { } row)
+        {
+            List.SetHover(row.Id);
+        }
+    }
+
+#pragma warning disable VSTHRD100 // XAML event handlers must return void; a failed action reports itself with a toast
+    private async void OnStripClick(object sender, RoutedEventArgs e)
+#pragma warning restore VSTHRD100
+    {
+        if (sender is FrameworkElement { Tag: string id } button && RowOf(button) is { } row
+            && ViewHost.Get<ICommandRegistry>().TryGet(id, out var command))
+        {
+            var context = new CommandContext(CommandSurface.HoverStrip, [List.TargetOf(row)], null, null, null);
+            if (command.CanExecute(context))
+            {
+                await command.ExecuteAsync(context, CancellationToken.None);
+            }
         }
     }
 

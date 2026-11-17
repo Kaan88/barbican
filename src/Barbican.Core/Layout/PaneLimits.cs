@@ -1,7 +1,5 @@
 // Mirrors: Rust dnd.rs:242-254 (SIDE_MIN/MAX, LIST_MIN/MAX, clamp_panes); Bulwark stores/ui-store.ts (pane sizes). Stub from stage F of M2; owner actions.
 
-using Barbican.Core.Common;
-
 namespace Barbican.Core.Layout;
 
 /// <summary>The width limits of the sidebar and the list pane, and the clamp applied to saved values.</summary>
@@ -21,6 +19,7 @@ public static class PaneLimits
     /// <summary>Clamps both widths; a value that is not finite or not positive becomes the default.</summary>
     public static (float Side, float List) Clamp(float side, float list)
     {
-        throw new PortPendingException("dnd.rs:251 clamp_panes");
+        static float Ok(float v, float lo, float hi, float d) => float.IsFinite(v) && v > 0f ? Math.Clamp(v, lo, hi) : d;
+        return (Ok(side, SideMin, SideMax, SideDefault), Ok(list, ListMin, ListMax, ListDefault));
     }
 }

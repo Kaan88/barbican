@@ -1,0 +1,27 @@
+<UserControl
+    x:Class="Barbican.App.Views.Actions.ToastHostView"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:actions="using:Barbican.Presentation.Actions"
+    xmlns:views="using:Barbican.App.Views"
+    xmlns:local="using:Barbican.App.Views.Actions"
+    IsTabStop="False">
+  <!-- The toasts (Bulwark stores/toast-store.ts): in the overlay layer, bottom centre, never a popup (ADR 0007). A toast appears in one frame and leaves when the timer says so;
+       nothing animates (design/MOTION.md). The service holds them; Narrator hears each one through a notification event. -->
+  <ItemsControl ItemsSource="{x:Bind Toasts.Toasts}" HorizontalAlignment="Center" VerticalAlignment="Bottom" Margin="0,0,0,28" IsTabStop="False"
+                AutomationProperties.AutomationId="toast.host" AutomationProperties.Name="Notifications">
+    <ItemsControl.ItemTemplate>
+      <DataTemplate x:DataType="actions:ToastItem">
+        <Border Background="{StaticResource Popup}" BorderBrush="{StaticResource Line}" BorderThickness="1" CornerRadius="12" Padding="16,8,8,8" Margin="0,4,0,0"
+                AutomationProperties.AutomationId="toast" AutomationProperties.Name="{x:Bind Message}">
+          <StackPanel Orientation="Horizontal" Spacing="12">
+            <TextBlock Text="{x:Bind Message}" Foreground="{x:Bind local:ActionFmt.ToastText(IsError)}" FontSize="13" VerticalAlignment="Center" MaxWidth="460" TextWrapping="Wrap" />
+            <Button Content="{x:Bind ActionLabel}" Style="{StaticResource Button.Chip}" Visibility="{x:Bind views:Fmt.VisText(ActionLabel)}" Tag="{x:Bind}" Click="OnAction"
+                    AutomationProperties.AutomationId="toast.action" AutomationProperties.Name="{x:Bind ActionLabel}" />
+            <Button Content="Close" Style="{StaticResource Button.Chip}" Tag="{x:Bind}" Click="OnClose" AutomationProperties.AutomationId="toast.close" AutomationProperties.Name="Close notification" />
+          </StackPanel>
+        </Border>
+      </DataTemplate>
+    </ItemsControl.ItemTemplate>
+  </ItemsControl>
+</UserControl>

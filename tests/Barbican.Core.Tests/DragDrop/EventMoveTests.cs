@@ -11,7 +11,6 @@ public sealed class EventMoveTests
     private static JsonNode J(string json) => JsonNode.Parse(json)!;
 
     [Fact]
-    [Red("actions")]
     [RustTest("dnd::tiny_drag_snaps_back_to_no_change")]
     public void Tiny_drag_snaps_back_to_no_change()
     {
@@ -23,7 +22,6 @@ public sealed class EventMoveTests
     }
 
     [Fact]
-    [Red("actions")]
     [RustTest("dnd::move_notifies_attendees_only_when_there_are_some")]
     public void Move_notifies_attendees_only_when_there_are_some()
     {
@@ -38,7 +36,6 @@ public sealed class EventMoveTests
     }
 
     [Fact]
-    [Red("actions")]
     [RustTest("dnd::event_moves_snap_to_quarters")]
     public void Event_moves_snap_to_quarters()
     {

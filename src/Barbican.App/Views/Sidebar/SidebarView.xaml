@@ -15,7 +15,7 @@
        Bento: the whole column is one tile; Nordic: it sits on the ground. Folders and tags come from SidebarViewModel (every refresh is a ListSync, so unchanged rows are not touched).
        A folder row's name, icon and count take the row's foreground (Styles/Controls.xaml Template.FolderItem), so the selected row turns sel-text with no code.
        The expand chevron of a parent folder sits after its name, so every folder icon stays in one column as in the prototype. -->
-  <Border Width="{x:Bind Look.SidebarWidth, Mode=OneWay}" Background="{x:Bind Look.SidebarBrush, Mode=OneWay}" BorderBrush="{StaticResource Line}"
+  <Border x:Name="Pane" Background="{x:Bind Look.SidebarBrush, Mode=OneWay}" BorderBrush="{StaticResource Line}"
           BorderThickness="{x:Bind Look.SidebarBorder, Mode=OneWay}" CornerRadius="{x:Bind Look.SidebarRadius, Mode=OneWay}" Padding="{x:Bind Look.SidebarPadding, Mode=OneWay}">
   <Grid RowDefinitions="Auto,*,Auto" AutomationProperties.AutomationId="sidebar" AutomationProperties.Name="Folders">
     <Grid.Resources>

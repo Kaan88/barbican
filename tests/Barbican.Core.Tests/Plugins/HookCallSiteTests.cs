@@ -34,7 +34,6 @@ public sealed class HookCallSiteTests
 
     // M2 (stage F of M2, plan 2.4): one red test per owner, removed by the stream in the commit that fires its hooks (actions 28, reader 4, search 1, unified 3).
     [Fact]
-    [Red("actions")]
     public void Actions_m2_hooks_have_call_sites() => AssertFired("actions", "M2");
 
     [Fact]

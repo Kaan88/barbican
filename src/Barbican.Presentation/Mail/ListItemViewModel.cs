@@ -3,7 +3,7 @@
 namespace Barbican.Presentation.Mail;
 
 /// <summary>A row of the message list: a message or a date-group header (closed hierarchy).</summary>
-public abstract class ListItemViewModel
+public abstract class ListItemViewModel : CommunityToolkit.Mvvm.ComponentModel.ObservableObject
 {
     private protected ListItemViewModel()
     {

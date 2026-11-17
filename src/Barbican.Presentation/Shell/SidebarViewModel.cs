@@ -14,7 +14,7 @@ using CommunityToolkit.Mvvm.ComponentModel;
 namespace Barbican.Presentation.Shell;
 
 /// <summary>The mail sidebar: folders, tags and the storage meter. Every refresh goes through ListSync, so unchanged rows are not touched.</summary>
-public sealed class SidebarViewModel : ObservableObject, IDisposable
+public sealed class SidebarViewModel : ObservableObject, IDisposable, Actions.IMailboxDirectory
 {
     private readonly MessageListViewModel _list;
     private readonly MailEventHub _hub;
@@ -47,6 +47,9 @@ public sealed class SidebarViewModel : ObservableObject, IDisposable
         _prefs.Changed += OnPrefsChanged;
         RefreshTags();
     }
+
+    /// <summary>The folders as last read (the action service finds the Trash, Archive and Junk folders in it).</summary>
+    public MailboxTree Tree => _tree;
 
     public BulkObservableCollection<FolderRowViewModel> Folders { get; } = [];
 
