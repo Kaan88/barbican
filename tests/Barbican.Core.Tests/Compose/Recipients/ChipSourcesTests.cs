@@ -9,7 +9,6 @@ namespace Barbican.Core.Tests.Compose.Recipients;
 public sealed class ChipSourcesTests
 {
     [Fact]
-    [Red("composer-ui")]
     [RustTest("chips::blur_keeps_partial_text_while_suggestions_are_open")]
     public void Blur_keeps_partial_text_while_suggestions_are_open()
     {
@@ -21,7 +20,6 @@ public sealed class ChipSourcesTests
     }
 
     [Fact]
-    [Red("composer-ui")]
     [RustTest("chips::cards_to_sources")]
     public void Cards_to_sources()
     {
@@ -40,7 +38,6 @@ public sealed class ChipSourcesTests
     }
 
     [Fact]
-    [Red("composer-ui")]
     [RustTest("chips::recent_dedup")]
     public void Recent_dedup()
     {

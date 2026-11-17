@@ -6,7 +6,6 @@ namespace Barbican.Presentation.Tests.Compose;
 public sealed class ComposerDockTests
 {
     [Fact]
-    [Red("composer-ui")]
     [RustTest("compose::reply_dock_choice")]
     public void Reply_dock_choice()
     {

@@ -7,7 +7,6 @@ namespace Barbican.Core.Tests.Mailto;
 public sealed class MailtoTests
 {
     [Fact]
-    [Red("composer-ui")]
     [RustTest("mailto::parse_rfc6068")]
     public void Parse_rfc6068()
     {
@@ -29,7 +28,6 @@ public sealed class MailtoTests
     }
 
     [Fact]
-    [Red("composer-ui")]
     [RustTest("mailto::limits")]
     public void Limits()
     {
@@ -40,7 +38,6 @@ public sealed class MailtoTests
     }
 
     [Fact]
-    [Red("composer-ui")]
     [RustTest("mailto::registration_plans")]
     public void Registration_plans()
     {
@@ -66,7 +63,6 @@ public sealed class MailtoTests
     }
 
     [Fact]
-    [Red("composer-ui")]
     [RustTest("mailto::moved_exe_is_detected")]
     public void Moved_exe_is_detected()
     {
@@ -77,7 +73,6 @@ public sealed class MailtoTests
     }
 
     [Fact]
-    [Red("composer-ui")]
     [RustTest("mailto::fragments_and_pending")]
     public void Fragments_and_pending()
     {

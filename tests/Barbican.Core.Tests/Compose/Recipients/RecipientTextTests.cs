@@ -8,7 +8,6 @@ namespace Barbican.Core.Tests.Compose.Recipients;
 public sealed class RecipientTextTests
 {
     [Fact]
-    [Red("composer-ui")]
     [RustTest("recipients::idn_round_trip")]
     public void Idn_round_trip()
     {
@@ -23,7 +22,6 @@ public sealed class RecipientTextTests
     }
 
     [Fact]
-    [Red("composer-ui")]
     [RustTest("recipients::validation")]
     public void Validation()
     {
@@ -38,7 +36,6 @@ public sealed class RecipientTextTests
     }
 
     [Fact]
-    [Red("composer-ui")]
     [RustTest("recipients::mailbox_split")]
     public void Mailbox_split()
     {
@@ -50,7 +47,6 @@ public sealed class RecipientTextTests
     }
 
     [Fact]
-    [Red("composer-ui")]
     [RustTest("recipients::split_and_parse")]
     public void Split_and_parse()
     {
@@ -76,7 +72,6 @@ public sealed class RecipientTextTests
     }
 
     [Fact]
-    [Red("composer-ui")]
     [RustTest("recipients::expansion_and_invalid")]
     public void Expansion_and_invalid()
     {
@@ -88,7 +83,6 @@ public sealed class RecipientTextTests
     }
 
     [Fact]
-    [Red("composer-ui")]
     [RustTest("recipients::paste")]
     public void Paste()
     {
@@ -100,7 +94,6 @@ public sealed class RecipientTextTests
     }
 
     [Fact]
-    [Red("composer-ui")]
     [RustTest("recipients::ranking")]
     public void Ranking()
     {
@@ -122,7 +115,6 @@ public sealed class RecipientTextTests
     }
 
     [Fact]
-    [Red("composer-ui")]
     [RustTest("recipients::default_pick")]
     public void Default_pick()
     {
@@ -136,7 +128,6 @@ public sealed class RecipientTextTests
     }
 
     [Fact]
-    [Red("composer-ui")]
     [RustTest("compose::recipients_round_trip")]
     public void Recipients_round_trip()
     {

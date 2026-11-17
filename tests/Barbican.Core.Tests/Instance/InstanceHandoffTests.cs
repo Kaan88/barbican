@@ -14,7 +14,6 @@ public sealed class InstanceHandoffTests
     private static MemoryStream Bytes(string text) => new(Encoding.UTF8.GetBytes(text));
 
     [Fact]
-    [Red("composer-ui")]
     [RustTest("instance::args_and_requests")]
     public void Args_and_requests()
     {
@@ -26,7 +25,6 @@ public sealed class InstanceHandoffTests
     }
 
     [Fact]
-    [Red("composer-ui")]
     [RustTest("instance::handoff_over_loopback")]
     public void Handoff_over_loopback()
     {
@@ -67,7 +65,6 @@ public sealed class InstanceHandoffTests
     }
 
     [Fact]
-    [Red("composer-ui")]
     [RustTest("instance::foreign_program_on_a_stale_port_gets_nothing")]
     public async Task Foreign_program_on_a_stale_port_gets_nothing()
     {
