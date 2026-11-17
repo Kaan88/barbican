@@ -136,6 +136,8 @@ public sealed partial class SidebarView : UserControl
         }
     }
 
+    private async void OnComposeClick(object sender, RoutedEventArgs e) => await RunAsync(CommandIds.Compose);
+
     private async void OnNewFolderClick(object sender, RoutedEventArgs e) => await RunAsync(CommandIds.NewFolder);
 
     private async void OnNewTagClick(object sender, RoutedEventArgs e) => await RunAsync(CommandIds.NewTag);

@@ -29,6 +29,8 @@ public sealed partial class ShellPage : Page
     private string? _offered;
     private string? _dismissed;
     private bool? _appliedNordic;
+    private readonly Barbican.Presentation.Compose.IComposerService? _composer;
+    private bool _composing;
 
     public ShellPage()
     {
@@ -37,6 +39,7 @@ public sealed partial class ShellPage : Page
         _theme = ViewHost.Get<ThemeController>();
         _keys = ViewHost.Find<IKeyRouter>();
         _accounts = ViewHost.Find<IAccountManager>();
+        _composer = ViewHost.Find<Barbican.Presentation.Compose.IComposerService>();
 #if AUTOMATION
         // a sample-data run (BARBICAN_SAMPLE=1) shows FakeJmap's seed through IActiveMail without signing in: no sign-in screen there
         if (ViewHost.Find<Barbican.Presentation.Mail.IActiveMail>() is Automation.SampleActiveMail)
@@ -62,6 +65,11 @@ public sealed partial class ShellPage : Page
         _look.PropertyChanged += (_, _) => ApplyLook();
         SizeChanged += (_, e) => _look.SetWindowWidth(e.NewSize.Width);
         PreviewKeyDown += OnPreviewKeyDown;
+        if (_composer is not null)
+        {
+            _composer.OpenChanged += (_, _) => DispatcherQueue.TryEnqueue(ApplyComposer);
+        }
+
         CharacterReceived += OnCharacterReceived;
         if (_accounts is not null)
         {
@@ -120,21 +128,36 @@ public sealed partial class ShellPage : Page
         var pad = _look.WindowPadding;
         MailScreen.Padding = band ? pad : new Thickness(pad.Left, pad.Bottom, pad.Right, pad.Bottom);
         MailScreen.ColumnSpacing = _look.Gap;
-        SidebarRegion.Visibility = layout.SidebarShown ? Visibility.Visible : Visibility.Collapsed;
+        SidebarRegion.Visibility = layout.SidebarShown && !_composing ? Visibility.Visible : Visibility.Collapsed;
         Surface.Background = _look.SurfaceBrush;
         Surface.BorderBrush = AppResources.Brush("Line");
         Surface.BorderThickness = _look.SurfaceBorder;
         Surface.CornerRadius = _look.SurfaceRadius;
         SurfaceGrid.ColumnSpacing = _look.Gap;
         ReaderColumn.RowSpacing = _look.Gap;
-        GlanceRegion.Visibility = layout.SummaryTilesShown && _look.IsBento ? Visibility.Visible : Visibility.Collapsed;
-        ContextRegion.Visibility = layout.ContextShown ? Visibility.Visible : Visibility.Collapsed;
+        GlanceRegion.Visibility = layout.SummaryTilesShown && _look.IsBento && !_composing ? Visibility.Visible : Visibility.Collapsed;
+        ContextRegion.Visibility = layout.ContextShown && !_composing ? Visibility.Visible : Visibility.Collapsed;
         if (_appliedNordic is { } before && before != _look.IsNordic)
         {
             Rise.Run(MailScreen, MailShift, MotionRuntime.Scale.EnterMs);
         }
 
         _appliedNordic = _look.IsNordic;
+    }
+
+    // M3 composer-ui: the composer replaces the reader (the folders column collapses while it is open, the list stays; the summary tiles and the sender panel give way too); a reply that docks
+    // keeps the reader above it. No app key runs while it is open: the composer has its own keys (Ctrl+Enter, Ctrl+S, Ctrl+Shift+C and B, Escape).
+    private void ApplyComposer()
+    {
+        var composer = _composer?.Current;
+        _composing = composer is not null;
+        ComposerRegion.Visibility = _composing ? Visibility.Visible : Visibility.Collapsed;
+        var docked = composer?.IsDocked == true;
+        ComposerRegion.SetValue(Grid.RowProperty, docked ? 2 : 0);
+        ComposerRegion.SetValue(Grid.RowSpanProperty, docked ? 1 : 3);
+        ComposerRegion.Height = docked ? 400 : double.NaN;
+        ReaderRegion.Visibility = _composing && !docked ? Visibility.Collapsed : Visibility.Visible;
+        ApplyLook();
     }
 
     // The title band exists where the window's content is extended into its title bar: the WinUI head. The Linux head keeps the window manager's
@@ -241,7 +264,7 @@ public sealed partial class ShellPage : Page
 
     private void OnPreviewKeyDown(object sender, KeyRoutedEventArgs e)
     {
-        if (_keys is null || IsTyping(e.OriginalSource))
+        if (_keys is null || _composing || IsTyping(e.OriginalSource))
         {
             return;
         }
@@ -263,7 +286,7 @@ public sealed partial class ShellPage : Page
     // R2-11: punctuation ("/", "?", "!", "#") is the typed character, whatever the layout (a German "/" is Shift+7); the virtual key path leaves it out (KeyChordMapper.MapKeyDown)
     private void OnCharacterReceived(UIElement sender, CharacterReceivedRoutedEventArgs e)
     {
-        if (_keys is null || IsTyping(e.OriginalSource))
+        if (_keys is null || _composing || IsTyping(e.OriginalSource))
         {
             return;
         }

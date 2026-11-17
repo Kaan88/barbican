@@ -9,6 +9,7 @@
       xmlns:context="using:Barbican.App.Views.Context"
       xmlns:signin="using:Barbican.App.Views.SignIn"
       xmlns:actions="using:Barbican.App.Views.Actions"
+      xmlns:compose="using:Barbican.App.Views.Compose"
       Background="{StaticResource Ground}">
   <!-- Regions only (PORT-PLAN.md §3.2), laid out as the WinUI prototype the user approved (prototype/winui/MainWindow.xaml):
        the title band the window's content is extended into; rail | sidebar | surface, where the surface holds message list | (summary tiles over) reader | sender panel.
@@ -50,9 +51,12 @@
             <Grid.RowDefinitions>
               <RowDefinition Height="Auto" />
               <RowDefinition Height="*" />
+              <RowDefinition Height="Auto" />
             </Grid.RowDefinitions>
             <glance:GlanceTilesView x:Name="GlanceRegion" Grid.Row="0" />
             <reader:ReaderView x:Name="ReaderRegion" Grid.Row="1" />
+            <!-- M3 composer-ui: the composer takes the reader's place (the folders column collapses and the list stays), or sits under the reader when it answers a message (ComposerDock) -->
+            <compose:ComposerView x:Name="ComposerRegion" Grid.Row="0" Grid.RowSpan="3" Visibility="Collapsed" />
           </Grid>
           <context:ContextView x:Name="ContextRegion" Grid.Column="2" />
         </Grid>
