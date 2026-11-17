@@ -1,7 +1,9 @@
 // Mirrors: Rust jmap.rs:73 fetch_session (GET /.well-known/jmap, redirects followed, Accept: application/json), :145 (401: wrong
 // credentials), :216 refresh_session; Bulwark lib/jmap/client.ts:2156 connect (401, 402 "TOTP/MFA code required");
 // RFC 8620 §2.2 (autodiscovery; the well-known URL may redirect); RFC 9110 §15.4 (redirects) and the Fetch standard (Authorization is
-// dropped on a cross-origin redirect, so a redirect to another host never receives the credentials). Owner jmap.
+// dropped on a cross-origin redirect, so a redirect to another host never receives the credentials). Fable review 1 F-02: "same origin"
+// means the origin of the server the user typed (also on a session re-fetch), and a session that arrives from another origin is parsed with
+// every URL moved back onto the typed one (SessionParser), so nothing it names receives credentials. Owner jmap.
 
 using System.Net;
 using System.Net.Http.Headers;
@@ -20,18 +22,26 @@ public static class SessionFetcher
     private const int MaxRedirects = 5;
 
     /// <summary>The session behind <paramref name="url"/>, or why there is none.</summary>
+    /// <param name="http">The clients per origin.</param>
+    /// <param name="auth">The login's token source.</param>
+    /// <param name="server">The server the user typed: only its origin receives credentials.</param>
+    /// <param name="url">The session URL to read (the discovery URL, or the session URL of an earlier read on the typed origin).</param>
+    /// <param name="timeout">The deadline of the whole lookup.</param>
+    /// <param name="time">The clock.</param>
+    /// <param name="ct">Cancels the lookup.</param>
     public static async Task<Result<JmapSession>> FetchAsync(
-        IJmapHttp http, IAccessTokenSource auth, Uri url, TimeSpan timeout, TimeProvider time, CancellationToken ct)
+        IJmapHttp http, IAccessTokenSource auth, ServerEndpoint server, Uri url, TimeSpan timeout, TimeProvider time, CancellationToken ct)
     {
         ArgumentNullException.ThrowIfNull(http);
         ArgumentNullException.ThrowIfNull(auth);
+        ArgumentNullException.ThrowIfNull(server);
         ArgumentNullException.ThrowIfNull(url);
         ArgumentNullException.ThrowIfNull(time);
         using var deadline = new CancellationTokenSource(timeout, time);
         using var linked = CancellationTokenSource.CreateLinkedTokenSource(ct, deadline.Token);
         try
         {
-            return await FollowAsync(http, auth, url, linked.Token).ConfigureAwait(false);
+            return await FollowAsync(http, auth, server, url, linked.Token).ConfigureAwait(false);
         }
         catch (OperationCanceledException) when (!ct.IsCancellationRequested)
         {
@@ -43,10 +53,10 @@ public static class SessionFetcher
         }
     }
 
-    private static async Task<Result<JmapSession>> FollowAsync(IJmapHttp http, IAccessTokenSource auth, Uri start, CancellationToken ct)
+    private static async Task<Result<JmapSession>> FollowAsync(IJmapHttp http, IAccessTokenSource auth, ServerEndpoint server, Uri start, CancellationToken ct)
     {
         var url = start;
-        var origin = start.GetLeftPart(UriPartial.Authority);
+        var origin = server.BaseUri.GetLeftPart(UriPartial.Authority);
         for (var hop = 0; hop <= MaxRedirects; hop++)
         {
             var sameOrigin = string.Equals(url.GetLeftPart(UriPartial.Authority), origin, StringComparison.OrdinalIgnoreCase);
@@ -60,7 +70,8 @@ public static class SessionFetcher
             HttpResponseMessage response;
             if (sameOrigin)
             {
-                var sent = await AuthorizedSendAsync(http, auth, url, Make, ct).ConfigureAwait(false);
+                var sent = await AuthorizedHttp.SendAsync(http.ClientFor(url), auth, url, static _ => true, Make, HttpCompletionOption.ResponseContentRead, ct)
+                    .ConfigureAwait(false);
                 if (!sent.IsOk)
                 {
                     // the token source has no header, or no renewal after a 401: at sign-in that means wrong credentials
@@ -90,21 +101,21 @@ public static class SessionFetcher
                 continue;
             }
 
-            return await ReadAsync(response, url, ct).ConfigureAwait(false);
+            return await ReadAsync(response, url, server, !sameOrigin, ct).ConfigureAwait(false);
         }
 
         return Result<JmapSession>.Fail(new TransportError("Too many redirects while looking up the server.", Retryable: false));
     }
 
-    private static async Task<Result<HttpResponseMessage>> AuthorizedSendAsync(
-        IJmapHttp http, IAccessTokenSource auth, Uri url, Func<HttpRequestMessage> make, CancellationToken ct) =>
-        await AuthorizedHttp.SendAsync(http.ClientFor(url), auth, make, HttpCompletionOption.ResponseContentRead, ct).ConfigureAwait(false);
-
-    private static async Task<Result<JmapSession>> ReadAsync(HttpResponseMessage response, Uri url, CancellationToken ct)
+    private static async Task<Result<JmapSession>> ReadAsync(HttpResponseMessage response, Uri url, ServerEndpoint server, bool otherOrigin, CancellationToken ct)
     {
         var text = await response.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
         switch (response.StatusCode)
         {
+            case HttpStatusCode.Unauthorized when otherOrigin:
+                // the sign-in was never sent there: say where the server lives instead of "wrong password" (FABLE-REVIEW M1 item 8)
+                return Result<JmapSession>.Fail(new AuthError(
+                    $"The server sent the sign-in on to {url.Host}. Enter {url.GetLeftPart(UriPartial.Authority)} as the server address.", NeedsSignIn: false));
             case HttpStatusCode.Unauthorized:
                 return Result<JmapSession>.Fail(new AuthError("Wrong username, password or one-time code.", NeedsSignIn: true));
             case HttpStatusCode.PaymentRequired when NeedsOtp(text):
@@ -112,7 +123,7 @@ public static class SessionFetcher
             case var s when !response.IsSuccessStatusCode:
                 return Result<JmapSession>.Fail(new TransportError($"Server returned {(int)s}", Retryable: (int)s >= 500));
             default:
-                return SessionParser.Parse(text, url);
+                return SessionParser.Parse(text, url, server, otherOrigin);
         }
     }
 

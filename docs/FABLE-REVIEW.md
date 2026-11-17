@@ -529,3 +529,20 @@ Commits are on `m1`; the per-stream commits are in the archive. Report: [milesto
   item 8).
 - **[verify]** The window events are wired (item 20). `flicker.py` rejects uniform captures (item 34).
 
+
+## M1 fix stream: security (stream: m1-fix-security)
+
+Fixes for Fable review 1 (`docs/fable-review-1.md` on `fable/review-1`) F-02, F-03, F-04, F-05, F-06, F-07, F-08, F-09, F-12,
+F-13 and user decisions D-2, D-9, D-10, on branch `m1-fix-security` (from `m1` at `056ae3b`). Items below name what to re-check.
+
+- **F-02 session URLs (judgement calls).** `Core/Jmap/Transport/SessionUrls.cs`, `SessionParser.cs`, `SessionFetcher.cs`,
+  `AuthorizedHttp.cs`, `JmapSession.CredentialOrigins`. Relative URLs still resolve against the session URL (RFC 8620 §2), then
+  move onto the typed origin; Bulwark resolves them against the typed origin's root instead (`client.ts:2329`): the two differ only
+  for a relative URL without a leading slash. A session that arrived from another origin keeps no "hosted elsewhere" host (Bulwark
+  has no such case: the browser fetch never crosses). The session re-fetch on a `sessionState` change now goes through discovery
+  when the session URL is off the typed origin. A cross-origin 401 now says "Enter <origin> as the server address" instead of
+  "Wrong username" (FABLE-REVIEW M1 item 8). Check the wording, and whether a Stalwart behind a proxy that redirects
+  `/.well-known/jmap` to another host should be followed with a prompt instead.
+- **D-10 plain http.** `Core/Jmap/ServerEndpoint.cs` `Read`: http only for `localhost`, 127.0.0.0/8 and `::1`, else
+  `InsecureMessage`. A remembered (or imported) http server elsewhere now fails at start-up with that message. There is no
+  "I understand" override (the brief said refuse). `*.localhost` names are not treated as loopback.

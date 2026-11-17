@@ -15,7 +15,7 @@ public sealed partial class FakeJmapServer
     {
         _ = path;
         var o = Options;
-        string Url(string p) => o.RelativeUrls ? p : o.Origin + p;
+        string Url(string p) => o.RelativeUrls ? p : (o.SessionUrlOrigin ?? o.Origin) + p;
         var core = new JsonObject
         {
             ["maxSizeUpload"] = o.MaxSizeUpload,

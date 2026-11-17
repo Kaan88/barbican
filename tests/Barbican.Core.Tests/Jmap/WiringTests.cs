@@ -78,9 +78,9 @@ public sealed class WiringTests
         var server = new FakeJmapServer(new FakeJmapOptions { Otp = "123456" });
         var http = new JmapHttp(() => server);
         var uri = new Uri(server.Base + "/.well-known/jmap");
-        var without = await SessionFetcher.FetchAsync(http, StaticAccessTokenSource.Basic("user@example.org", "fake-password"), uri, TimeSpan.FromSeconds(5), TimeProvider.System, Ct);
+        var without = await Sessions.FetchAsync(http, StaticAccessTokenSource.Basic("user@example.org", "fake-password"), uri, TimeSpan.FromSeconds(5), TimeProvider.System, Ct);
         Assert.IsType<OtpRequiredError>(without.Error);
-        var with = await SessionFetcher.FetchAsync(http, StaticAccessTokenSource.Basic("user@example.org", "fake-password", " 123456 "), uri, TimeSpan.FromSeconds(5), TimeProvider.System, Ct);
+        var with = await Sessions.FetchAsync(http, StaticAccessTokenSource.Basic("user@example.org", "fake-password", " 123456 "), uri, TimeSpan.FromSeconds(5), TimeProvider.System, Ct);
         Assert.True(with.IsOk);
     }
 

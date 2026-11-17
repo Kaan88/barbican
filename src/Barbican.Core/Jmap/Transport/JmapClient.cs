@@ -97,7 +97,7 @@ public sealed class JmapClient : IJmapClient, IDisposable
         var url = new Uri(UriTemplates.Download(template, accountId, blobId, name, type));
         Trace.Event("DOWNLOAD", "");
         var sent = await TimedAsync(
-            c => AuthorizedHttp.SendAsync(_http.ClientFor(url), _auth, () => new HttpRequestMessage(HttpMethod.Get, url), HttpCompletionOption.ResponseHeadersRead, c),
+            c => AuthorizedHttp.SendAsync(_http.ClientFor(url), _auth, url, Allowed, () => new HttpRequestMessage(HttpMethod.Get, url), HttpCompletionOption.ResponseHeadersRead, c),
             ct).ConfigureAwait(false);
         if (!sent.IsOk)
         {
@@ -144,7 +144,7 @@ public sealed class JmapClient : IJmapClient, IDisposable
             {
                 Content = new ReadOnlyMemoryContent(data) { Headers = { ContentType = MediaTypeHeaderValue.Parse(mime) } },
             };
-            var sent = await AuthorizedHttp.SendAsync(_http.ClientFor(url), _auth, Make, HttpCompletionOption.ResponseContentRead, ct).ConfigureAwait(false);
+            var sent = await AuthorizedHttp.SendAsync(_http.ClientFor(url), _auth, url, Allowed, Make, HttpCompletionOption.ResponseContentRead, ct).ConfigureAwait(false);
             if (!sent.IsOk)
             {
                 return Result<UploadedBlob>.Fail(sent.Error!);
@@ -216,7 +216,7 @@ public sealed class JmapClient : IJmapClient, IDisposable
             return m;
         }
 
-        var sent = await TimedAsync(c => AuthorizedHttp.SendAsync(_http.ClientFor(url), _auth, Make, HttpCompletionOption.ResponseHeadersRead, c), ct)
+        var sent = await TimedAsync(c => AuthorizedHttp.SendAsync(_http.ClientFor(url), _auth, url, Allowed, Make, HttpCompletionOption.ResponseHeadersRead, c), ct)
             .ConfigureAwait(false);
         if (!sent.IsOk)
         {
@@ -237,8 +237,16 @@ public sealed class JmapClient : IJmapClient, IDisposable
     /// <summary>Re-reads the session resource (RFC 8620 §3.4); the old session stays when that fails.</summary>
     public async Task<bool> RefreshSessionAsync(CancellationToken ct)
     {
-        var url = new Uri(Session.SessionUrl);
-        var fetched = await SessionFetcher.FetchAsync(_http, _auth, url, _options.RequestTimeout, _time, ct).ConfigureAwait(false);
+        // the server the user typed stays the one credentials go to; a session URL off its origin is reached by discovery again
+        var session = Session;
+        var server = new ServerEndpoint(new Uri(session.ServerUrl));
+        var url = new Uri(session.SessionUrl);
+        if (!string.Equals(url.GetLeftPart(UriPartial.Authority), server.BaseUri.GetLeftPart(UriPartial.Authority), StringComparison.OrdinalIgnoreCase))
+        {
+            url = server.DiscoveryUri;
+        }
+
+        var fetched = await SessionFetcher.FetchAsync(_http, _auth, server, url, _options.RequestTimeout, _time, ct).ConfigureAwait(false);
         Trace.Event("SESSION", "refresh");
         if (!fetched.IsOk)
         {
@@ -255,6 +263,9 @@ public sealed class JmapClient : IJmapClient, IDisposable
         _requests.Dispose();
         _uploads.Dispose();
     }
+
+    // F-02: credentials only to the origins of this login's session
+    private bool Allowed(Uri url) => Session.AllowsCredentials(url);
 
     private static AuthError Expired() => new("Session expired; sign in again.", NeedsSignIn: true);
 
@@ -319,7 +330,7 @@ public sealed class JmapClient : IJmapClient, IDisposable
                 return m;
             }
 
-            var sent = await AuthorizedHttp.SendAsync(_http.ClientFor(api), _auth, Make, HttpCompletionOption.ResponseContentRead, ct).ConfigureAwait(false);
+            var sent = await AuthorizedHttp.SendAsync(_http.ClientFor(api), _auth, api, Allowed, Make, HttpCompletionOption.ResponseContentRead, ct).ConfigureAwait(false);
             if (!sent.IsOk)
             {
                 return Result<(HttpStatusCode, RetryConditionHeaderValue?, string)>.Fail(sent.Error!);

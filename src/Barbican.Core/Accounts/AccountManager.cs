@@ -149,10 +149,13 @@ public sealed class AccountManager : IAccountManager, IAccountOverview, IAsyncDi
     public async Task<Result<AccountInfo>> SignInWithPasswordAsync(PasswordSignIn request, CancellationToken ct)
     {
         ArgumentNullException.ThrowIfNull(request);
-        if (ServerEndpoint.Parse(request.Server) is not { } endpoint)
+        var read = ServerEndpoint.Read(request.Server);
+        if (!read.IsOk)
         {
-            return Result<AccountInfo>.Fail(new AuthError("Enter your server address.", NeedsSignIn: false));
+            return Result<AccountInfo>.Fail(read.Error!);
         }
+
+        var endpoint = read.Value!;
 
         var user = request.User.Trim();
         if (user.Length == 0 || request.Password.Length == 0)
@@ -177,10 +180,13 @@ public sealed class AccountManager : IAccountManager, IAccountOverview, IAsyncDi
     public async Task<Result<AccountInfo>> SignInWithOAuthAsync(OAuthSignIn request, CancellationToken ct)
     {
         ArgumentNullException.ThrowIfNull(request);
-        if (ServerEndpoint.Parse(request.Server) is not { } endpoint)
+        var read = ServerEndpoint.Read(request.Server);
+        if (!read.IsOk)
         {
-            return Result<AccountInfo>.Fail(new AuthError("Enter your server address first.", NeedsSignIn: false));
+            return Result<AccountInfo>.Fail(string.IsNullOrWhiteSpace(request.Server) ? new AuthError("Enter your server address first.", NeedsSignIn: false) : read.Error!);
         }
+
+        var endpoint = read.Value!;
 
         var hint = request.LoginHint?.Trim() ?? "";
         var tokens = await _oauth.SignInAsync(endpoint.BaseUri, hint, request.ClientId ?? "", ct).ConfigureAwait(false);
@@ -375,10 +381,13 @@ public sealed class AccountManager : IAccountManager, IAccountOverview, IAsyncDi
     {
         try
         {
-            if (ServerEndpoint.Parse(stored.Server) is not { } endpoint)
+            var read = ServerEndpoint.Read(stored.Server);
+            if (!read.IsOk)
             {
-                return Fail(new AuthError("The remembered server address is not valid.", NeedsSignIn: true));
+                return Fail(new AuthError($"The remembered server address cannot be used. {read.Error!.Message}", NeedsSignIn: true));
             }
+
+            var endpoint = read.Value!;
 
             if (SourceFor(stored) is not var (source, oauth))
             {

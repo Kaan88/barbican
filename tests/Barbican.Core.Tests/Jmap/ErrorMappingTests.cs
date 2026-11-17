@@ -124,11 +124,11 @@ public sealed class ErrorMappingTests
         var server = new FakeJmapServer(new FakeJmapOptions { RedirectWellKnown = true });
         var http = new JmapHttp(() => server);
         var auth = StaticAccessTokenSource.Basic("user@example.org", "fake-password");
-        var missing = await SessionFetcher.FetchAsync(http, auth, new Uri(server.Base + "/nothing"), TimeSpan.FromSeconds(5), TimeProvider.System, Ct);
+        var missing = await Sessions.FetchAsync(http, auth, new Uri(server.Base + "/nothing"), TimeSpan.FromSeconds(5), TimeProvider.System, Ct);
         Assert.Contains("404", missing.Error!.Message, StringComparison.Ordinal);
-        var offline = await SessionFetcher.FetchAsync(http, auth, new Uri("https://offline.example.org/.well-known/jmap"), TimeSpan.FromSeconds(5), TimeProvider.System, Ct);
+        var offline = await Sessions.FetchAsync(http, auth, new Uri("https://offline.example.org/.well-known/jmap"), TimeSpan.FromSeconds(5), TimeProvider.System, Ct);
         Assert.True(Assert.IsType<TransportError>(offline.Error).Retryable);
-        Assert.False(SessionParser.Parse("[]", new Uri("https://h/")).IsOk);
+        Assert.False(Sessions.Parse("[]", new Uri("https://h/")).IsOk);
     }
 
     [Fact]
