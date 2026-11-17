@@ -52,7 +52,7 @@ public static partial class DocHtml
             blocks.RemoveAt(blocks.Count - 1);
         }
 
-        var inner = html[innerStart..end];
+        var inner = QuotedHtmlSanitizer.Sanitize(html[innerStart..end]);
         blocks.Add(new Block(new BlockKind.Quoted(inner, HtmlText(inner), Open: false, Cite: true)));
         var tail = Import(html[after..]);
         if (!(tail.Count == 1 && tail[0].IsEmpty))
@@ -124,7 +124,7 @@ public static partial class DocHtml
     /// <summary>A CSS colour (rgb(), #rgb, #rrggbb) as #rrggbb, or null.</summary>
     public static string? NormColor(string value) => HtmlCss.NormColor(value);
 
-    /// <summary>Drops document wrappers, head, styles and scripts so a quote cannot restyle the reply.</summary>
+    /// <summary>Drops document wrappers, head, styles and scripts so a quote cannot restyle the reply, and sanitises what stays (event handlers, frames, forms, scripting URLs; D-M3C-01).</summary>
     public static string CleanQuotedHtml(string html)
     {
         ArgumentNullException.ThrowIfNull(html);
@@ -157,7 +157,7 @@ public static partial class DocHtml
             }
         }
 
-        return s.Trim();
+        return QuotedHtmlSanitizer.Sanitize(s.Trim());
     }
 
     /// <summary>Plain text of an HTML fragment (the collapsed quote and text/plain).</summary>
