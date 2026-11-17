@@ -6,6 +6,7 @@
 // Fable review 1 F-04: an external provider's endpoints (used "as given", B-OAUTH-003) must be https (http only on this computer, as for
 // servers, D-10), else the document is not used; the issuer and RFC 9207's authorization_response_iss_parameter_supported are kept for the
 // callback check (LoopbackListener).
+// M1 hotfix (sign-in): an own per-account document without an issuer takes the issuer of the server's own well-known document.
 
 using System.Text.Json.Nodes;
 using Barbican.Core.Common;
@@ -53,6 +54,13 @@ public sealed class OAuthDiscovery(OAuthHttp http)
                     || (own?["authorization_endpoint"] is JsonValue ov && ov.TryGetValue<string>(out var os) && string.Equals(os, a, StringComparison.Ordinal));
                 if (MetaFrom(r.Json!, baseUri, isOwn) is { } m)
                 {
+                    // Stalwart answers a plain-HTTP connection (behind a TLS proxy) with issuer "" (crates/http/src/auth/oauth/openid.rs:60
+                    // handle_oidc_metadata strips the base URL); its own well-known document still names it (auth.rs:579 handle_oauth_metadata)
+                    if (isOwn && m.Issuer is null && own is not null && MetaFrom(own, baseUri, own: true) is { Issuer: { } issuer })
+                    {
+                        m = m with { Issuer = issuer };
+                    }
+
                     return Result<OAuthMetadata>.Ok(m);
                 }
             }
