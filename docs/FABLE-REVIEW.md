@@ -1170,3 +1170,60 @@ Branch `m2-unified` from `m2` at `0d9b306` (wave 1 merged), worktree `<downloads
   `IActiveMail.SyncSnapshot()`; `AccountManager.ConnectAsync` starts the attempt outside the lock (a `TaskCompletionSource` holds the
   shared attempt), so `StatusesChanged` is never raised under it; `SecretServiceStore` honours the token and says how to unlock a locked
   keyring (Linux unproven).
+- [ ] **Unified inbox design.** `Core/Mail/Unified/{UnifiedSources,UnifiedFetcher,UnifiedListSource,UnifiedMailWriter}.cs`,
+  `Presentation/Unified/*`. One `UnifiedListSource` serves the folder `__unified`: sources are the active login (all logins with
+  `unifiedCrossAccount`) plus shared accounts with `includeGroupInUnified`, deduped by (server authority, accountId); each page asks every
+  source for its next `PageSize` rows after its own position (the cursor is `"unified:" + JSON` of the positions), merges by parsed
+  `receivedAt` and keeps one window. A failing source does not empty the list. Rows keep composite ids (`login<FS>[shared<GS>]id`), so the
+  list, the selection and the undo all key on them; `UnifiedMailWriter` (wrapped around the actions' writer source) splits a write by row
+  account and maps a folder by role then name (Rust `shared_apply`, `match_mailbox`). Changes: the account on screen's `MailSync` pokes the
+  unified list with an empty `EmailsChangedEvent` while it is watched; other logins are re-read when the account manager's unread watch
+  changes (two minutes) instead of a push stream per login as Rust held. Each change re-reads the loaded window and publishes the
+  difference as a `ListDeltaEvent` (add/remove/update; a new mail is one inserted row, never a reset). Judgement calls to check: the
+  two-minute latency for non-active logins; the window re-read costs one request per source per change.
+- [ ] **Unified logins seam.** `IUnifiedLogins` (`AccountManagerLogins` in the app; `SampleUnifiedLogins` in a sample Automation run: the
+  sample login plus an in-process FakeJmap `sample-2`, every request logged per login for the hidden scenario). The routed writer builds a
+  plain `MailWriter` on the row's client (not `IMailWriterFactory.ForSession`): the factory needs a session; the read-only client still
+  refuses writes for `<readonly-account>` rows.
+- [ ] **Import service, export, transfer.** `MailImportService` (myRights first, then each file streamed through `MailImportLoop` with
+  the account's `IMailWriter`: upload, `Email/import`, dedupe by Message-ID against the folder), `MailExportService` (G-046: mboxrd with
+  Status/X-Status/X-Keywords, or one .eml per message; read-only on the server), `MailTransfer` (one run at a time, progress through the
+  dispatcher, cancel between messages, Rust's summary text) and `TransferPicks` (queued answers first; no platform picker exists yet, so an
+  unanswered pick does nothing). `import-sim` refuses anything but a test server (loopback or the sample fake).
+- [ ] **Email/parse and TNEF.** `Core/Mail/Parse/EmailParseOpener.cs` (J-058: `Email/parse` with the reader's body properties; the parsed
+  message gets its blob id as id, which no write ever names) and `Core/Mail/Tnef/TnefExpander.cs` (G-047: MimeKit `TnefPart`; the files
+  inside get local blob ids `tnef:<blob>/<n>` and their bytes stay in memory for the run, nothing is uploaded; .NET needs the code-pages
+  encoding provider for MimeKit's TNEF reader, registered at the first expand). The RTF body is not offered as an attachment yet (plan
+  asked for it; MimeKit exposes it as a body part, left for the reader integration). Both are registered; **no consumer yet** (reader).
+- [ ] **J-028 decision.** `upToId` is never sent (RFC 8620 5.6: optional); a queryChanges delta is applied whole and the unified list
+  re-reads its window. Recorded as `n/a(...)` in `spec/jmap.csv`.
+- [ ] **Plugin rows reach the reader as banners.** The reader does not read `IEmailDetailsSource` yet, so `PluginDetailsBannerSource`
+  shows each detail row as a reader banner (ids `plugin-detail-N`). When the reader shows detail rows under the sender (Bulwark
+  `ui:email-details`), drop the banner source.
+- [ ] **App csproj copies the bundled plugin.** `src/Barbican.App/Barbican.App.csproj` (shared file, `<!-- m2-unified (D-234) -->` block):
+  a `ProjectReference` with `ReferenceOutputAssembly=false`, `SetTargetFramework=net10.0` (the plugin is a plain net10.0 library; the App is
+  `-windows`), `GlobalPropertiesToRemove=RuntimeIdentifier;SelfContained`, and a target copying the dll to `$(OutDir)plugins/spam-score`.
+  Checked: the Automation build has `plugins/spam-score/Barbican.Plugin.SpamScore.dll` and `plugins` lists it. Not checked: publish
+  (`tools/build.ps1 publish`, `package-portable.ps1`) — the target runs after Build, a publish may need the same copy to `$(PublishDir)`.
+- [ ] **Feel not measured.** `spec/feel/M2/unified/hidden-run.md`: the bursts had no flagged frame and no uniform capture, but stayed under
+  the frame count (capture starved, three tries each); no number is claimed. Integrate reruns `spec/feel/M2/unified/feel.py`.
+- [ ] **Open in this stream (not built):** the sidebar's shared section (I-054, `sidebar-shared` slot unfilled), per-role unified rows
+  (Sent, Archive…; I-051 shows only All inboxes), per-account rows and colours (I-053, B-MAIL-038), the unified right-click menu (I-052),
+  a platform file picker, an import progress view, the plugin enable/disable settings UI (I-468), the TNEF RTF body.
+- [ ] **Linux.** `tools/linux.ps1` (see the result line below).
+
+### Requests to other streams
+
+- **reader:** consume `IAttachedMessageOpener` (open a message/rfc822 or .eml attachment, blob actions off) and `IAttachmentExpander`
+  (list the files of winmail.dat; their blob ids start `tnef:` and their bytes come from `TnefExpander.OpenLocal`); read detail rows from
+  `IEmailDetailsSource` (then drop `PluginDetailsBannerSource`); load a unified row through `IMailTargetResolver` (today the reader asks the
+  active account for the composite row id, so a row of another login shows no body: hidden run `rx-banners` = 0).
+- **menus:** MENU-FOLDER "Import messages (.eml, .mbox)…" and Ctrl+O calling `MailTransfer.ImportAsync(MailboxRef)`, folder "Export" calling
+  `MailTransfer.ExportAsync(folder, name, asMbox)`; the account menu's unified row from `IUnifiedUnread` (I-017); a MENU-UNIFIED (I-052).
+- **sidebar/list owner:** when the unified row opens, clear the folder selection (the Inbox row stays highlighted while All inboxes shows);
+  `MessageListViewModel.Actions`' `Target()` should go through `IMailTargetResolver` (the routed writer makes writes right today).
+- **actions:** re-run the hook tests on the new `HookBus` semantics (per-hook budgets, fail-closed intercepts; R2-10).
+- **FakeJmap owner:** `FakeApi` answers only its own account (shared accounts in the session are not served); `FakeStore.ImportBlob`
+  drops the imported message's Message-ID and headers (a repeated import is not seen as a duplicate on the fake; spam headers are lost);
+  `SampleActiveMail` uses the M1 seed only (`SeedM2` would give the spam and TNEF messages to the hidden runs).
+- **integrator:** the App csproj plugin copy for publish; `tools/spec-check.py` nested-class mapping.

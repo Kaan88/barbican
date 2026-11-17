@@ -1,5 +1,5 @@
 // Mirrors: M2 plan section 3.3. Owner unified (wave 2): IListSourceResolver (Replace), IMailTargetResolver, IAccountMaintenance (registered by
-// Core's accounts module on the account manager), IUnifiedUnread, IMailImport, the native plugin host (INativePluginHost, IEmailDetailsSource,
+// Core's accounts module on the account manager), IUnifiedUnread, IMailImport, IAttachedMessageOpener, IAttachmentExpander, the native plugin host (INativePluginHost, IEmailDetailsSource,
 // its start-up load and the reader rows), the writer source that routes unified rows, the sidebar's unified slot filler.
 // Plugins (Rust main.rs:455): the bundled ones in <app>/plugins (the build copies spam-score there), the user's in <config>/plugins, data in
 // <data>/plugin-data; disabledPlugins from the prefs; handlers on the app's hook bus.
@@ -10,6 +10,8 @@ using Barbican.App.Views.Unified;
 using Barbican.Core.Accounts;
 using Barbican.Core.Mail.Import;
 using Barbican.Core.Mail.Lists;
+using Barbican.Core.Mail.Parse;
+using Barbican.Core.Mail.Tnef;
 using Barbican.Core.Mail.Unified;
 using Barbican.Core.Mail.Write;
 using Barbican.Core.Plugins.Hooks;
@@ -42,13 +44,36 @@ public static class UnifiedRegistration
         AddUnifiedInbox(services);
         AddPlugins(services);
         services.TryAddSingleton<IMailImport>(sp => new MailImportService(target => AccountOf(sp, target)));
+
+        // attached messages (Email/parse) and winmail.dat (TNEF) on the account that holds the message; the reader consumes them (M2 plan 4.5)
+        services.TryAddSingleton<IAttachedMessageOpener>(sp => new EmailParseOpener(key => sp.GetRequiredService<IAccountManager>().SessionFor(key)?.Client));
+        services.TryAddSingleton<IAttachmentExpander>(sp => new TnefExpander(key => sp.GetRequiredService<IAccountManager>().SessionFor(key)?.Client));
+
+        // import and export runs (MENU-FOLDER "Import messages…", Ctrl+O, folder export call MailTransfer; no platform picker yet: queued answers only)
+        services.TryAddSingleton(sp => new MailExportService(key => sp.GetRequiredService<IAccountManager>().SessionFor(key)?.Client));
+        services.TryAddSingleton(_ => new TransferPicks());
+        services.TryAddSingleton(sp => new MailTransfer(sp.GetRequiredService<IMailImport>(), sp.GetRequiredService<MailExportService>(), sp.GetRequiredService<TransferPicks>(), sp.GetRequiredService<IDispatcher>()));
+#if AUTOMATION
+        services.AddSingleton<Barbican.Automation.IAutomationCommand, Views.Unified.Automation.UnifiedCommand>();
+        services.AddSingleton<Barbican.Automation.IAutomationCommand, Views.Unified.Automation.ImportSimCommand>();
+        services.AddSingleton<Barbican.Automation.IAutomationCommand, Views.Unified.Automation.PluginsCommand>();
+#endif
         return services;
     }
 
     private static void AddUnifiedInbox(IServiceCollection services)
     {
+#if AUTOMATION
+        if (string.Equals(Environment.GetEnvironmentVariable("BARBICAN_SAMPLE"), "1", StringComparison.Ordinal))
+        {
+            // a sample-data run: two in-process FakeJmap logins (the sample one and "sample-2"), each request logged per login
+            services.TryAddSingleton(sp => new Views.Unified.Automation.SampleUnifiedLogins(sp.GetRequiredService<IActiveMail>(), sp.GetRequiredService<TimeProvider>()));
+            services.TryAddSingleton<IUnifiedLogins>(sp => sp.GetRequiredService<Views.Unified.Automation.SampleUnifiedLogins>());
+        }
+#endif
+        services.TryAddSingleton<IUnifiedLogins>(sp => new AccountManagerLogins(sp.GetRequiredService<IAccountManager>()));
         services.TryAddSingleton(sp => new UnifiedInbox(
-            sp.GetRequiredService<IAccountManager>(),
+            sp.GetRequiredService<IUnifiedLogins>(),
             sp.GetService<IAccountOverview>(),
             sp.GetRequiredService<IPrefsStore>(),
             sp.GetRequiredService<MailEventHub>()));
@@ -61,7 +86,8 @@ public static class UnifiedRegistration
             sp.GetRequiredService<IUnifiedUnread>(),
             sp.GetRequiredService<IPrefsStore>(),
             sp.GetRequiredService<IDispatcher>(),
-            () => sp.GetRequiredService<MessageListViewModel>()));
+            () => sp.GetRequiredService<MessageListViewModel>(),
+            () => sp.GetService<Barbican.Presentation.Shell.GlanceTilesViewModel>()));
         services.AddSingleton<ISlotContent>(new SlotContent(SlotNames.SidebarUnified, () => new UnifiedSectionView()));
 
         // the actions' writer source, wrapped so a unified row writes only to its own account
@@ -69,8 +95,7 @@ public static class UnifiedRegistration
         {
             services.Replace(ServiceDescriptor.Singleton<IMailWriterSource>(sp => new UnifiedMailWriterSource(
                 (IMailWriterSource)Create(sp, inner),
-                sp.GetRequiredService<IAccountManager>(),
-                sp.GetRequiredService<IMailWriterFactory>())));
+                sp.GetRequiredService<IUnifiedLogins>())));
         }
     }
 
@@ -103,13 +128,10 @@ public static class UnifiedRegistration
             ? [.. a.Select(n => n is JsonValue v && v.TryGetValue<string>(out var s) ? s : null).OfType<string>()]
             : [];
 
-    private static (IMailWriter Writer, Core.Jmap.IJmapClient Client)? AccountOf(IServiceProvider sp, Core.Mail.Model.MailboxRef target)
-    {
-        var accounts = sp.GetRequiredService<IAccountManager>();
-        return accounts.SessionFor(target.AccountKey) is { } session && sp.GetRequiredService<IMailWriterSource>().WriterOf(target.AccountKey) is { } writer
-            ? (writer, session.Client)
+    private static (IMailWriter Writer, Core.Jmap.IJmapClient Client)? AccountOf(IServiceProvider sp, Core.Mail.Model.MailboxRef target) =>
+        sp.GetRequiredService<IUnifiedLogins>().ClientOf(target.AccountKey) is { } client && sp.GetRequiredService<IMailWriterSource>().WriterOf(target.AccountKey) is { } writer
+            ? (writer, client)
             : null;
-    }
 
     private static object Create(IServiceProvider sp, ServiceDescriptor d) =>
         d.ImplementationInstance

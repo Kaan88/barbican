@@ -14,10 +14,10 @@ Added at the M0 review (stream m0-review). Modules: `spam.rs`, `plugins.rs`, `zi
 ## Native plugins (`src/plugins.rs`), area `PLUG`, M2 (host), M6 (settings page)
 | ID | Rule | Source | Reference | Tests |
 |---|---|---|---|---|
-| B-PLUG-001 | Plugins are dynamic libraries in the app's `plugins` folder, loaded at start-up, with a C ABI: `barbican_plugin_manifest`, `barbican_plugin_call(hook, json)`, `barbican_plugin_free`. API version 1. | plugins.rs:1-25 | Bulwark plugin slots | T-206 |
+| B-PLUG-001 | Plugins are dynamic libraries in the app's `plugins` folder, loaded at start-up, with a C ABI: `barbican_plugin_manifest`, `barbican_plugin_call(hook, json)`, `barbican_plugin_free`. API version 1. C# port (D-234): native .NET plugins (`IBarbicanPlugin` from `Barbican.Plugins.Abstractions`, a `plugin.json` manifest) in the bundled `<app>/plugins` and the user's `<config>/plugins`, loaded at start-up on the pool. | plugins.rs:1-25 | Bulwark plugin slots | T-206 |
 | B-PLUG-002 | Hooks: `email.details` (rows under the sender, tone neutral/success/warning/danger, like Bulwark's `ui:email-details` slot), `compose.check` (a warning that holds the send once, like the attachment reminder), `settings` (settings rows in the schema's format). | plugins.rs:15-21, :107-125 | Bulwark plugin API | T-206 |
 | B-PLUG-003 | A library without a manifest, with an empty manifest or with a duplicate id is skipped and reported; disabled plugins are not called. | plugins.rs:64-105 | | T-206 |
-| B-PLUG-004 | C# port: the ABI is kept so the existing fixture (`tests/fixtures/plugins/spam-score`) still loads; the loader must not load from any other folder. | PORT-PLAN §2.2 | | T-206 (port) |
+| B-PLUG-004 | C# port (D-234 replaces the old text "the ABI is kept"): the C ABI is not kept; the spam-score fixture is ported as the bundled .NET plugin `Barbican.Plugin.SpamScore`. The loader reads only the bundled and the user plugin folders, each plugin in its own collectible load context. | PORT-PLAN §2.2, D-234 | | T-206 (port) |
 
 ## ZIP of all attachments (`src/zip.rs`), area `ZIP`, M2
 | ID | Rule | Source | Reference | Tests |
@@ -65,3 +65,15 @@ Not M1 areas; settled so no row is silently open: B-SPAM-001..004 and B-PLUG-001
 plugin hosts are M6b). B-ZIP-001..003: deferred(M2) (T-311, T-312). B-SRCH-001..003: deferred(M2) (search, T-256..T-258).
 B-CAP-001: ported differently (m1 F1: Windows.Graphics.Capture, ADR 0007; `PrintWindow` returns a black image for a WinUI window).
 B-CAP-003: deferred(M4/M5), with the PIM probes.
+
+## M2 status (stream unified)
+
+B-SPAM-001..004: done in the bundled native plugin `plugins/Barbican.Plugin.SpamScore` (`SpamAnalyzer`, parity with spam.rs), loaded through the host as
+the app loads it: `SpamScoreRulesTests` (score sources, flag and action, the AI header that only raises, no row without spam headers, the clean row only
+with `showCleanSpam`) and T-206 (`NativePluginHostTests.Loads_spam_score_plugin`, never skipped, D-234). B-SPAM-004's setting stays `showCleanSpam` in
+the prefs (no D- entry needed: it did not move).
+B-PLUG-001, B-PLUG-004: changed by D-234 (the C ABI is gone; see the rows). B-PLUG-002: `email.details` done (`IEmailDetailsSource`, shown as reader
+banners until the reader reads the details source); `compose.check` and `settings` hooks are catalogued but have no call site in M2 (compose and
+settings streams). B-PLUG-003: done (`NativePluginContainmentTests`: a missing or bad manifest, a duplicate id; `SpamScoreRulesTests.A_disabled_plugin_is_not_called`).
+Containment (R2-10): each plugin in its own collectible `AssemblyLoadContext` sharing only `Barbican.Plugins.Abstractions`; every call under the
+hook's budget; a throwing or slow plugin is reported and skipped; an intercept hook fails closed.

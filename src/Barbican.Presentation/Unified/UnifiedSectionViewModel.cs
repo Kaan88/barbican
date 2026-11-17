@@ -21,6 +21,7 @@ public sealed partial class UnifiedSectionViewModel : ObservableObject, IDisposa
     private readonly IPrefsStore _prefs;
     private readonly IDispatcher _dispatcher;
     private readonly Func<MessageListViewModel> _list;
+    private readonly Func<Shell.GlanceTilesViewModel?> _glance;
 
     [ObservableProperty]
     private bool _isVisible;
@@ -31,7 +32,7 @@ public sealed partial class UnifiedSectionViewModel : ObservableObject, IDisposa
     [ObservableProperty]
     private bool _isOpen;
 
-    public UnifiedSectionViewModel(UnifiedInbox unified, IUnifiedUnread others, IPrefsStore prefs, IDispatcher dispatcher, Func<MessageListViewModel> list)
+    public UnifiedSectionViewModel(UnifiedInbox unified, IUnifiedUnread others, IPrefsStore prefs, IDispatcher dispatcher, Func<MessageListViewModel> list, Func<Shell.GlanceTilesViewModel?>? glance = null)
     {
         ArgumentNullException.ThrowIfNull(unified);
         ArgumentNullException.ThrowIfNull(others);
@@ -43,6 +44,7 @@ public sealed partial class UnifiedSectionViewModel : ObservableObject, IDisposa
         _prefs = prefs;
         _dispatcher = dispatcher;
         _list = list;
+        _glance = glance ?? (() => null);
         _prefs.Changed += OnChanged;
         _others.Changed += OnChanged;
         _unified.Refreshed += OnRefreshed;
@@ -55,6 +57,9 @@ public sealed partial class UnifiedSectionViewModel : ObservableObject, IDisposa
         IsOpen = true;
         await _list().OpenFolderAsync(UnifiedRows.FolderId, MailboxRole.None, Title).ConfigureAwait(true);
         Update();
+
+        // the list header names the open folder (the sidebar sets it for a folder row)
+        _glance()?.SetFolder(Title, (int)Math.Min(int.MaxValue, UnreadTotal()));
     }
 
     public void Dispose()
@@ -68,10 +73,15 @@ public sealed partial class UnifiedSectionViewModel : ObservableObject, IDisposa
     public void Update()
     {
         IsVisible = _unified.Settings.Enabled;
-        var read = _unified.Source.Unread;
-        var total = read.Count > 0 ? read.Values.Where(v => v > 0).Sum() : _others.Total;
+        var total = UnreadTotal();
         Badge = total > 0 ? total.ToString(System.Globalization.CultureInfo.CurrentCulture) : "";
         IsOpen = IsOpen && _unified.Source.Query is not null;
+    }
+
+    private long UnreadTotal()
+    {
+        var read = _unified.Source.Unread;
+        return read.Count > 0 ? read.Values.Where(v => v > 0).Sum() : _others.Total;
     }
 
     private void OnChanged(object? sender, EventArgs e) => _dispatcher.Post(Update);

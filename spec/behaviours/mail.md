@@ -121,3 +121,21 @@ string, kept equal by `DarkMailScriptTests`; the frame's CSP allows it by its SH
 Rows no stream marked, settled at the M1 verify stage: B-MAIL-006 (confirm before bulk actions) and B-MAIL-007 (undo toast): deferred(M2), mail actions.
 B-MAIL-030..038 (unified inbox: id, cross-account scope, lazy clients, paging, dedupe, row ids, badge sum, role match, row colours): deferred(M2); the
 Rust tests of unified.rs are M2 rows of `spec/rust-tests.csv`. B-MAIL-039..045 (mbox/eml import): deferred(M2), the import rows of `spec/rust-tests.csv`.
+
+## M2 status (stream unified)
+
+Unified inbox (`Core/Mail/Unified`, `Presentation/Unified`): B-MAIL-030 (`UnifiedRows.FolderId`), B-MAIL-031 (`UnifiedSettings`, `UnifiedSources.Build`:
+the active login, every login with `unifiedCrossAccount`, shared accounts with `includeGroupInUnified`; T-291), B-MAIL-033 (`UnifiedListSource`: per-source
+positions in the cursor, merge by parsed time, duplicates removed; T-287, T-290, `UnifiedInboxTests.Pages_merge_by_time_and_each_source_pages_on_its_own`),
+B-MAIL-034 (T-289), B-MAIL-035 (T-288), B-MAIL-036 (T-286, `UnifiedUnread`), B-MAIL-037 (T-292, `UnifiedMailWriter` maps a picked folder by role then
+name, `UnifiedInboxTests.A_folder_picked_in_the_active_account_is_matched_by_role_in_the_other`): done. Changes are applied as deltas
+(`UnifiedListSource.RefreshAsync`, `UnifiedInboxTests.New_mail_in_one_account_comes_back_as_one_added_row_without_a_reset`) and an action on a unified row
+writes only to its own account (`UnifiedInboxTests.Starring_a_row_of_the_other_account_writes_only_to_that_account`).
+B-MAIL-032: changed. Clients are the account manager's sessions (connected by it, retried by its 60 s retry); the other logins are re-read when their
+unread count changes (the account manager's watch) instead of a push stream per login (M2 Fable, unified). B-MAIL-038 (row colours): open, the rows of
+the sidebar's per-account groups are not built yet (I-053).
+
+Import (`Core/Mail/Import`): B-MAIL-039..045 done (T-163..T-169; `MailImportServiceTests` on FakeJmap through the account's `IMailWriter`: an mbox with a
+message the folder has imports 2 and counts 1 duplicate; cancel stops between batches; a folder without `mayAddItems` is refused before any upload).
+Export (G-046): `MailExportService` saves a folder as one mboxrd file (Status, X-Status, X-Keywords written so a re-import keeps the states) or as one
+.eml per message (`MailExportServiceTests`).

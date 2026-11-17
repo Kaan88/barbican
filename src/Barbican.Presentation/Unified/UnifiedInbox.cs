@@ -16,18 +16,18 @@ namespace Barbican.Presentation.Unified;
 /// <summary>The unified inbox: its settings, its sources and the one list source that serves and follows it.</summary>
 public sealed class UnifiedInbox : IStartupTask, IDisposable
 {
-    private readonly IAccountManager _accounts;
+    private readonly IUnifiedLogins _logins;
     private readonly IAccountOverview? _overview;
     private readonly IPrefsStore _prefs;
     private readonly MailEventHub _hub;
     private int _refreshing;
 
-    public UnifiedInbox(IAccountManager accounts, IAccountOverview? overview, IPrefsStore prefs, MailEventHub hub)
+    public UnifiedInbox(IUnifiedLogins logins, IAccountOverview? overview, IPrefsStore prefs, MailEventHub hub)
     {
-        ArgumentNullException.ThrowIfNull(accounts);
+        ArgumentNullException.ThrowIfNull(logins);
         ArgumentNullException.ThrowIfNull(prefs);
         ArgumentNullException.ThrowIfNull(hub);
-        _accounts = accounts;
+        _logins = logins;
         _overview = overview;
         _prefs = prefs;
         _hub = hub;
@@ -45,7 +45,7 @@ public sealed class UnifiedInbox : IStartupTask, IDisposable
 
     /// <summary>The sources the unified inbox reads now.</summary>
     public IReadOnlyList<UnifiedSource> Sources() =>
-        UnifiedSources.Build([.. _accounts.Accounts.Select(a => (a.Key, _accounts.SessionFor(a.Key)?.Client))], _accounts.Active?.Key, Settings);
+        UnifiedSources.Build(_logins.Logins, _logins.Active, Settings);
 
     /// <inheritdoc />
     public Task StartAsync(CancellationToken cancellationToken)
@@ -81,7 +81,7 @@ public sealed class UnifiedInbox : IStartupTask, IDisposable
             var delta = await Source.RefreshAsync(ct).ConfigureAwait(false);
             if (delta is { IsOk: true, Value: { } d })
             {
-                _hub.Publish(new ListDeltaEvent(d) { Query = query }, _accounts.Active?.Key);
+                _hub.Publish(new ListDeltaEvent(d) { Query = query }, _logins.Active);
                 Refreshed?.Invoke(this, EventArgs.Empty);
             }
         }
