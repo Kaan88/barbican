@@ -1,0 +1,9 @@
+# Scenario "move": the Inbox is open, one message is moved to Archive through "Move to" (action "move:<id>").
+# Derived by hand from the Rust app at tag rust-final: mail.rs:978 apply_confirmed -> :1045 move_to(ids, target) -> jmap.rs:688
+# (one Email/set update, mailboxIds replaced by the target). After the write Rust runs sync() (mail.rs:1058 -> jmap.rs:592
+# list_delta); the C# port leaves the delta to the server's push (M2 actions), so that line is optional (Fable log M2 verify).
+
+@phase move
+@thread action
+Email/set -> Email/set                                        # jmap.rs:688 move_to
+~Email/changes,Email/queryChanges,Email/get,Email/get,Thread/changes,Thread/get,Thread/get -> Email/changes,Email/queryChanges,Email/get,Email/get,Thread/changes,Thread/get,Thread/get   # mail.rs:1058 sync

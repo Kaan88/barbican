@@ -1,0 +1,5 @@
+# C# trace of scenario "delete_undo", written by tests/Barbican.Presentation.Tests/Actions/ActionTraceTests.cs (FakeJmap).
+@phase delete
+Email/set -> Email/set
+@phase undo
+Email/set -> Email/set

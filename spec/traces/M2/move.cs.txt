@@ -1,0 +1,3 @@
+# C# trace of scenario "move", written by tests/Barbican.Presentation.Tests/Actions/ActionTraceTests.cs (FakeJmap).
+@phase move
+Email/set -> Email/set

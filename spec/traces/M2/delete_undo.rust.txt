@@ -1,0 +1,16 @@
+# Scenario "delete_undo": the Inbox is open, one message is deleted (deleteAction "trash"), then the delete is undone.
+# Derived by hand from the Rust app at tag rust-final: mail.rs:978 apply_confirmed -> :1032 move_to_role(ids, "trash") ->
+# jmap.rs:692 (role ids cached, else one Mailbox/get) -> jmap.rs:688 move_to (one Email/set update, mailboxIds replaced).
+# After the write Rust runs sync() (mail.rs:1058 -> jmap.rs:592 list_delta); the C# port does not: the server's push brings the
+# same delta once (M2 actions, "a push delta applies once"), so that line is optional here (deliberate change, Fable log M2 verify).
+# Rust has no undo for mail actions (main.rs:1354 undo_toast is undo-send only); the undo line follows Bulwark
+# stores/email-store.ts:5878 undoMove: one Email/set that puts the message back in the folders it had.
+
+@phase delete
+@thread action
+~Mailbox/get -> Mailbox/get                                   # jmap.rs:692 role_ids, only when the role cache is empty
+Email/set -> Email/set                                        # jmap.rs:688 move_to (mailboxIds: {trash: true})
+~Email/changes,Email/queryChanges,Email/get,Email/get,Thread/changes,Thread/get,Thread/get -> Email/changes,Email/queryChanges,Email/get,Email/get,Thread/changes,Thread/get,Thread/get   # mail.rs:1058 sync
+@phase undo
+@thread undo
+Email/set -> Email/set                                        # Bulwark email-store.ts:5878 undoMove (C#: UndoService)

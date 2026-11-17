@@ -118,6 +118,21 @@ public sealed class KeyRouterTests
     }
 
     [Fact]
+    public async Task Escape_closes_the_reader_and_clears_the_ticks_as_Bulwark_does()
+    {
+        // Bulwark hooks/use-keyboard-shortcuts.ts:217-221 (onCloseEmail and onDeselectAll on one Escape)
+        using var h = await WithFoldersAsync();
+        var rows = h.List.Messages.ToList();
+        Assert.True(h.Keys.Handle(new KeyChord("j"), KeySource.Keyboard));
+        h.List.ToggleCheck(rows[1]);
+        h.List.ToggleCheck(rows[3]);
+        Assert.True(h.List.HasChecked);
+        Assert.True(h.Keys.Handle(new KeyChord("Escape"), KeySource.Keyboard));
+        Assert.False(h.List.HasChecked);
+        Assert.Null(h.List.Selected);
+    }
+
+    [Fact]
     public async Task Keys_from_the_web_view_and_automation_take_the_same_path()
     {
         using var h = await WithFoldersAsync();

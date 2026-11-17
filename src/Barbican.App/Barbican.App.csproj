@@ -91,4 +91,10 @@
   <Target Name="CopyBundledPlugins" AfterTargets="Build">
     <Copy SourceFiles="@(BundledPlugin)" DestinationFolder="$(OutDir)plugins/spam-score" SkipUnchangedFiles="true" ContinueOnError="false" Condition="'@(BundledPlugin)' != ''" />
   </Target>
+  <!-- M2 verify: a publish (tools/build.ps1 publish, the portable zip) carries the bundled plugin too; before this only Build copied it, so the
+       published app started without spam score (M2-plan §8 "the bundled plugin is in the publish folder"). -->
+  <Target Name="PublishBundledPlugins" AfterTargets="Publish">
+    <Copy SourceFiles="@(BundledPlugin)" DestinationFolder="$(PublishDir)plugins/spam-score" SkipUnchangedFiles="true" ContinueOnError="false" Condition="'@(BundledPlugin)' != ''" />
+    <Error Text="The bundled spam-score plugin was not built, so the publish would start without it." Condition="'@(BundledPlugin)' == ''" />
+  </Target>
 </Project>

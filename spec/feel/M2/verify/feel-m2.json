@@ -1,0 +1,610 @@
+{
+ "bento-light/ctx_menu": {
+  "frames": 13,
+  "blank": 0,
+  "flash": 0,
+  "bad": 0,
+  "empty": 0,
+  "capture_valid": true,
+  "worst_ms": 0.0,
+  "response_ms": 302.4,
+  "first_spread": 23.7,
+  "last_spread": 24.2,
+  "valid": true,
+  "rendering_probe": {
+   "frames": 58,
+   "worst_gap_ms": 9.2,
+   "action_ms": 9.9,
+   "verdict": "ok"
+  }
+ },
+ "bento-light/ctx_menu_close": {
+  "frames": 2,
+  "blank": 0,
+  "flash": 0,
+  "bad": 0,
+  "empty": 0,
+  "capture_valid": true,
+  "worst_ms": 0.0,
+  "response_ms": 258.1,
+  "first_spread": 24.2,
+  "last_spread": 23.7,
+  "valid": false,
+  "rendering_probe": {
+   "frames": 58,
+   "worst_gap_ms": 8.2,
+   "action_ms": 1.1,
+   "verdict": "ok"
+  }
+ },
+ "bento-light/dialog": {
+  "frames": 14,
+  "blank": 0,
+  "flash": 0,
+  "bad": 0,
+  "empty": 0,
+  "capture_valid": true,
+  "worst_ms": 0.0,
+  "response_ms": 289.5,
+  "first_spread": 23.7,
+  "last_spread": 30.0,
+  "valid": true,
+  "rendering_probe": {
+   "frames": 57,
+   "worst_gap_ms": 27.4,
+   "action_ms": 0.9,
+   "verdict": "over 25 ms"
+  }
+ },
+ "bento-light/dialog_close": {
+  "frames": 2,
+  "blank": 0,
+  "flash": 0,
+  "bad": 0,
+  "empty": 0,
+  "capture_valid": true,
+  "worst_ms": 0.0,
+  "response_ms": 256.6,
+  "first_spread": 30.2,
+  "last_spread": 23.7,
+  "valid": false,
+  "rendering_probe": {
+   "frames": 58,
+   "worst_gap_ms": 7.5,
+   "action_ms": 0.9,
+   "verdict": "ok"
+  }
+ },
+ "bento-light/palette_open": {
+  "frames": 14,
+  "blank": 0,
+  "flash": 0,
+  "bad": 0,
+  "empty": 0,
+  "capture_valid": true,
+  "worst_ms": 0.0,
+  "response_ms": 298.1,
+  "first_spread": 23.7,
+  "last_spread": 34.8,
+  "valid": true,
+  "rendering_probe": {
+   "frames": 58,
+   "worst_gap_ms": 10.2,
+   "action_ms": 6.0,
+   "verdict": "ok"
+  }
+ },
+ "bento-light/palette_close": {
+  "frames": 2,
+  "blank": 0,
+  "flash": 0,
+  "bad": 0,
+  "empty": 0,
+  "capture_valid": true,
+  "worst_ms": 0.0,
+  "response_ms": 256.2,
+  "first_spread": 34.8,
+  "last_spread": 23.7,
+  "valid": false,
+  "rendering_probe": {
+   "frames": 59,
+   "worst_gap_ms": 7.3,
+   "action_ms": 1.9,
+   "verdict": "ok"
+  }
+ },
+ "bento-light/delete": {
+  "frames": 4,
+  "blank": 0,
+  "flash": 0,
+  "bad": 0,
+  "empty": 0,
+  "capture_valid": true,
+  "worst_ms": 0.0,
+  "response_ms": 249.3,
+  "first_spread": 23.7,
+  "last_spread": 21.8,
+  "valid": true,
+  "rendering_probe": {
+   "frames": 59,
+   "worst_gap_ms": 9.0,
+   "action_ms": 2.2,
+   "verdict": "ok"
+  }
+ },
+ "bento-light/undo": {
+  "frames": 4,
+  "blank": 0,
+  "flash": 0,
+  "bad": 0,
+  "empty": 0,
+  "capture_valid": true,
+  "worst_ms": 0.0,
+  "response_ms": 263.1,
+  "first_spread": 20.4,
+  "last_spread": 20.9,
+  "valid": true,
+  "rendering_probe": {
+   "frames": 59,
+   "worst_gap_ms": 7.5,
+   "action_ms": 1.0,
+   "verdict": "ok"
+  }
+ },
+ "bento-dark/ctx_menu": {
+  "frames": 14,
+  "blank": 0,
+  "flash": 0,
+  "bad": 0,
+  "empty": 0,
+  "capture_valid": true,
+  "worst_ms": 0.0,
+  "response_ms": 296.6,
+  "first_spread": 22.9,
+  "last_spread": 23.8,
+  "valid": true,
+  "rendering_probe": {
+   "frames": 58,
+   "worst_gap_ms": 9.6,
+   "action_ms": 6.2,
+   "verdict": "ok"
+  }
+ },
+ "bento-dark/ctx_menu_close": {
+  "frames": 2,
+  "blank": 0,
+  "flash": 0,
+  "bad": 0,
+  "empty": 0,
+  "capture_valid": true,
+  "worst_ms": 0.0,
+  "response_ms": 256.7,
+  "first_spread": 23.7,
+  "last_spread": 22.8,
+  "valid": false,
+  "rendering_probe": {
+   "frames": 59,
+   "worst_gap_ms": 8.1,
+   "action_ms": 1.2,
+   "verdict": "ok"
+  }
+ },
+ "bento-dark/dialog": {
+  "frames": 14,
+  "blank": 0,
+  "flash": 0,
+  "bad": 0,
+  "empty": 0,
+  "capture_valid": true,
+  "worst_ms": 0.0,
+  "response_ms": 282.9,
+  "first_spread": 22.8,
+  "last_spread": 15.3,
+  "valid": true,
+  "rendering_probe": {
+   "frames": 56,
+   "worst_gap_ms": 28.6,
+   "action_ms": 0.9,
+   "verdict": "over 25 ms"
+  }
+ },
+ "bento-dark/dialog_close": {
+  "frames": 2,
+  "blank": 0,
+  "flash": 0,
+  "bad": 0,
+  "empty": 0,
+  "capture_valid": true,
+  "worst_ms": 0.0,
+  "response_ms": 255.9,
+  "first_spread": 15.3,
+  "last_spread": 23.0,
+  "valid": false,
+  "rendering_probe": {
+   "frames": 58,
+   "worst_gap_ms": 7.1,
+   "action_ms": 1.0,
+   "verdict": "ok"
+  }
+ },
+ "bento-dark/palette_open": {
+  "frames": 14,
+  "blank": 0,
+  "flash": 0,
+  "bad": 0,
+  "empty": 0,
+  "capture_valid": true,
+  "worst_ms": 0.0,
+  "response_ms": 297.6,
+  "first_spread": 23.0,
+  "last_spread": 16.5,
+  "valid": true,
+  "rendering_probe": {
+   "frames": 58,
+   "worst_gap_ms": 9.5,
+   "action_ms": 5.1,
+   "verdict": "ok"
+  }
+ },
+ "bento-dark/palette_close": {
+  "frames": 2,
+  "blank": 0,
+  "flash": 0,
+  "bad": 0,
+  "empty": 0,
+  "capture_valid": true,
+  "worst_ms": 0.0,
+  "response_ms": 264.3,
+  "first_spread": 16.5,
+  "last_spread": 23.0,
+  "valid": false,
+  "rendering_probe": {
+   "frames": 59,
+   "worst_gap_ms": 7.1,
+   "action_ms": 1.9,
+   "verdict": "ok"
+  }
+ },
+ "bento-dark/delete": {
+  "frames": 4,
+  "blank": 0,
+  "flash": 0,
+  "bad": 0,
+  "empty": 0,
+  "capture_valid": true,
+  "worst_ms": 0.0,
+  "response_ms": 247.9,
+  "first_spread": 23.0,
+  "last_spread": 18.6,
+  "valid": true,
+  "rendering_probe": {
+   "frames": 59,
+   "worst_gap_ms": 7.2,
+   "action_ms": 2.1,
+   "verdict": "ok"
+  }
+ },
+ "bento-dark/undo": {
+  "frames": 4,
+  "blank": 0,
+  "flash": 0,
+  "bad": 0,
+  "empty": 0,
+  "capture_valid": true,
+  "worst_ms": 0.0,
+  "response_ms": 262.3,
+  "first_spread": 17.8,
+  "last_spread": 18.1,
+  "valid": true,
+  "rendering_probe": {
+   "frames": 59,
+   "worst_gap_ms": 7.2,
+   "action_ms": 1.0,
+   "verdict": "ok"
+  }
+ },
+ "nordic-light/ctx_menu": {
+  "frames": 14,
+  "blank": 0,
+  "flash": 0,
+  "bad": 0,
+  "empty": 0,
+  "capture_valid": true,
+  "worst_ms": 0.0,
+  "response_ms": null,
+  "first_spread": 24.4,
+  "last_spread": 25.3,
+  "valid": true,
+  "rendering_probe": {
+   "frames": 59,
+   "worst_gap_ms": 8.8,
+   "action_ms": 4.9,
+   "verdict": "ok"
+  }
+ },
+ "nordic-light/ctx_menu_close": {
+  "frames": 2,
+  "blank": 0,
+  "flash": 0,
+  "bad": 0,
+  "empty": 0,
+  "capture_valid": true,
+  "worst_ms": 0.0,
+  "response_ms": null,
+  "first_spread": 25.2,
+  "last_spread": 24.3,
+  "valid": false,
+  "rendering_probe": {
+   "frames": 58,
+   "worst_gap_ms": 7.5,
+   "action_ms": 0.9,
+   "verdict": "ok"
+  }
+ },
+ "nordic-light/dialog": {
+  "frames": 14,
+  "blank": 0,
+  "flash": 0,
+  "bad": 0,
+  "empty": 0,
+  "capture_valid": true,
+  "worst_ms": 0.0,
+  "response_ms": 285.7,
+  "first_spread": 24.3,
+  "last_spread": 30.5,
+  "valid": true,
+  "rendering_probe": {
+   "frames": 58,
+   "worst_gap_ms": 7.6,
+   "action_ms": 0.7,
+   "verdict": "ok"
+  }
+ },
+ "nordic-light/dialog_close": {
+  "frames": 2,
+  "blank": 0,
+  "flash": 0,
+  "bad": 0,
+  "empty": 0,
+  "capture_valid": true,
+  "worst_ms": 0.0,
+  "response_ms": 256.7,
+  "first_spread": 30.5,
+  "last_spread": 24.3,
+  "valid": false,
+  "rendering_probe": {
+   "frames": 59,
+   "worst_gap_ms": 7.1,
+   "action_ms": 1.1,
+   "verdict": "ok"
+  }
+ },
+ "nordic-light/palette_open": {
+  "frames": 14,
+  "blank": 0,
+  "flash": 0,
+  "bad": 0,
+  "empty": 0,
+  "capture_valid": true,
+  "worst_ms": 0.0,
+  "response_ms": 304.6,
+  "first_spread": 24.3,
+  "last_spread": 34.6,
+  "valid": true,
+  "rendering_probe": {
+   "frames": 59,
+   "worst_gap_ms": 9.4,
+   "action_ms": 6.5,
+   "verdict": "ok"
+  }
+ },
+ "nordic-light/palette_close": {
+  "frames": 2,
+  "blank": 0,
+  "flash": 0,
+  "bad": 0,
+  "empty": 0,
+  "capture_valid": true,
+  "worst_ms": 0.0,
+  "response_ms": 255.8,
+  "first_spread": 34.6,
+  "last_spread": 24.3,
+  "valid": false,
+  "rendering_probe": {
+   "frames": 58,
+   "worst_gap_ms": 7.2,
+   "action_ms": 2.4,
+   "verdict": "ok"
+  }
+ },
+ "nordic-light/delete": {
+  "frames": 3,
+  "blank": 0,
+  "flash": 0,
+  "bad": 0,
+  "empty": 0,
+  "capture_valid": true,
+  "worst_ms": 0.0,
+  "response_ms": 255.9,
+  "first_spread": 24.3,
+  "last_spread": 17.9,
+  "valid": true,
+  "rendering_probe": {
+   "frames": 59,
+   "worst_gap_ms": 7.4,
+   "action_ms": 2.4,
+   "verdict": "ok"
+  }
+ },
+ "nordic-light/undo": {
+  "frames": 4,
+  "blank": 0,
+  "flash": 0,
+  "bad": 0,
+  "empty": 0,
+  "capture_valid": true,
+  "worst_ms": 0.0,
+  "response_ms": 256.1,
+  "first_spread": 16.0,
+  "last_spread": 16.3,
+  "valid": true,
+  "rendering_probe": {
+   "frames": 59,
+   "worst_gap_ms": 7.2,
+   "action_ms": 0.9,
+   "verdict": "ok"
+  }
+ },
+ "nordic-dark/ctx_menu": {
+  "frames": 14,
+  "blank": 0,
+  "flash": 0,
+  "bad": 0,
+  "empty": 0,
+  "capture_valid": true,
+  "worst_ms": 0.0,
+  "response_ms": null,
+  "first_spread": 22.4,
+  "last_spread": 23.6,
+  "valid": true,
+  "rendering_probe": {
+   "frames": 59,
+   "worst_gap_ms": 9.5,
+   "action_ms": 11.3,
+   "verdict": "ok"
+  }
+ },
+ "nordic-dark/ctx_menu_close": {
+  "frames": 2,
+  "blank": 0,
+  "flash": 0,
+  "bad": 0,
+  "empty": 0,
+  "capture_valid": true,
+  "worst_ms": 0.0,
+  "response_ms": null,
+  "first_spread": 23.4,
+  "last_spread": 22.2,
+  "valid": false,
+  "rendering_probe": {
+   "frames": 58,
+   "worst_gap_ms": 7.3,
+   "action_ms": 1.1,
+   "verdict": "ok"
+  }
+ },
+ "nordic-dark/dialog": {
+  "frames": 14,
+  "blank": 0,
+  "flash": 0,
+  "bad": 0,
+  "empty": 0,
+  "capture_valid": true,
+  "worst_ms": 0.0,
+  "response_ms": 288.4,
+  "first_spread": 22.2,
+  "last_spread": 15.2,
+  "valid": true,
+  "rendering_probe": {
+   "frames": 59,
+   "worst_gap_ms": 8.1,
+   "action_ms": 1.3,
+   "verdict": "ok"
+  }
+ },
+ "nordic-dark/dialog_close": {
+  "frames": 2,
+  "blank": 0,
+  "flash": 0,
+  "bad": 0,
+  "empty": 0,
+  "capture_valid": true,
+  "worst_ms": 0.0,
+  "response_ms": 258.0,
+  "first_spread": 15.3,
+  "last_spread": 22.4,
+  "valid": false,
+  "rendering_probe": {
+   "frames": 59,
+   "worst_gap_ms": 7.3,
+   "action_ms": 1.3,
+   "verdict": "ok"
+  }
+ },
+ "nordic-dark/palette_open": {
+  "frames": 14,
+  "blank": 0,
+  "flash": 0,
+  "bad": 0,
+  "empty": 0,
+  "capture_valid": true,
+  "worst_ms": 0.0,
+  "response_ms": 298.1,
+  "first_spread": 22.4,
+  "last_spread": 15.9,
+  "valid": true,
+  "rendering_probe": {
+   "frames": 59,
+   "worst_gap_ms": 10.4,
+   "action_ms": 6.6,
+   "verdict": "ok"
+  }
+ },
+ "nordic-dark/palette_close": {
+  "frames": 2,
+  "blank": 0,
+  "flash": 0,
+  "bad": 0,
+  "empty": 0,
+  "capture_valid": true,
+  "worst_ms": 0.0,
+  "response_ms": 262.8,
+  "first_spread": 15.9,
+  "last_spread": 22.4,
+  "valid": false,
+  "rendering_probe": {
+   "frames": 59,
+   "worst_gap_ms": 7.2,
+   "action_ms": 2.4,
+   "verdict": "ok"
+  }
+ },
+ "nordic-dark/delete": {
+  "frames": 5,
+  "blank": 0,
+  "flash": 0,
+  "bad": 0,
+  "empty": 0,
+  "capture_valid": true,
+  "worst_ms": 0.0,
+  "response_ms": 247.1,
+  "first_spread": 22.4,
+  "last_spread": 15.0,
+  "valid": true,
+  "rendering_probe": {
+   "frames": 59,
+   "worst_gap_ms": 7.6,
+   "action_ms": 2.4,
+   "verdict": "ok"
+  }
+ },
+ "nordic-dark/undo": {
+  "frames": 5,
+  "blank": 0,
+  "flash": 0,
+  "bad": 0,
+  "empty": 0,
+  "capture_valid": true,
+  "worst_ms": 0.0,
+  "response_ms": 262.3,
+  "first_spread": 13.4,
+  "last_spread": 13.9,
+  "valid": true,
+  "rendering_probe": {
+   "frames": 59,
+   "worst_gap_ms": 7.1,
+   "action_ms": 1.0,
+   "verdict": "ok"
+  }
+ }
+}

@@ -243,7 +243,10 @@ public sealed class KeyRouter : IKeyRouter
                     return true;
                 }
 
+                // Bulwark hooks/use-keyboard-shortcuts.ts:217-221: Escape runs onCloseEmail and onDeselectAll together, so the ticks go too
+                // (M2 verify: they stayed, and the selection bar with them)
                 _list.CloseReader();
+                _list.ClearChecked();
                 return true;
             case "search":
                 _list.RequestSearchFocus();

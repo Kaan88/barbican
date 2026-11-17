@@ -63,6 +63,12 @@ if (-not $vm) { throw '[linux.ps1] no VM address: set BARBICAN_VM=user@host or w
 $key = $env:BARBICAN_VM_KEY
 if (-not $key) { $key = Join-Path $HOME '.ssh/barbican_vm' }
 
+# Windows OpenSSH first: started from Git Bash, PATH puts Git's MSYS ssh ahead, and that one ran only the remote `echo` of the
+# encoded script (the M2 streams' "base64 echo, no test result"), so a job looked finished with nothing run.
+$Ssh = Join-Path $env:WINDIR 'System32/OpenSSH/ssh.exe'
+$Scp = Join-Path $env:WINDIR 'System32/OpenSSH/scp.exe'
+if (-not (Test-Path $Ssh)) { $Ssh = 'ssh'; $Scp = 'scp' }
+
 $sshArgs = @('-i', $key, '-o', 'BatchMode=yes', '-o', 'ConnectTimeout=15', '-o', 'ServerAliveInterval=30', $vm)
 
 function Invoke-Vm([string[]]$RemoteArgs) {
@@ -71,12 +77,12 @@ function Invoke-Vm([string[]]$RemoteArgs) {
     $b64 = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($script))
     $quoted = ($RemoteArgs | ForEach-Object { "'" + ($_ -replace "'", "'\''") + "'" }) -join ' '
     $remote = "echo $b64 | base64 -d > /tmp/barbican-linux-remote.sh && bash /tmp/barbican-linux-remote.sh $quoted"
-    & ssh @sshArgs $remote
+    & $Ssh @sshArgs $remote
     if ($LASTEXITCODE -ne 0) { throw "[linux.ps1] VM job failed (exit $LASTEXITCODE)" }
 }
 
 if ($Target -eq 'ping') {
-    & ssh @sshArgs 'echo ok; uname -sr; nproc'
+    & $Ssh @sshArgs 'echo ok; uname -sr; nproc'
     if ($LASTEXITCODE -ne 0) { throw "[linux.ps1] cannot reach $vm with key $key (is the key authorized on the VM?)" }
     exit 0
 }
@@ -99,7 +105,7 @@ if ($Target -eq 'xrun') {
     $local = Join-Path $Root "artifacts/linux/$Out"
     New-Item -ItemType Directory -Force $local | Out-Null
     $scpArgs = @('-i', $key, '-o', 'BatchMode=yes', '-r', "${vm}:barbican-out/$Out/*", $local)
-    & scp @scpArgs
+    & $Scp @scpArgs
     if ($LASTEXITCODE -ne 0) { Write-Host "[linux.ps1] could not copy results back" } else { Write-Host "[linux.ps1] results in $local" }
     exit 0
 }
