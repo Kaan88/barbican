@@ -46,7 +46,9 @@
       </DataTemplate>
       <!-- A tag row (prototype labels): a squircle dot in the tag colour and the name. -->
       <DataTemplate x:Key="TagTemplate" x:DataType="shell:TagRowViewModel">
+        <!-- M2 hotfix: a drop target for dragged messages (they get the tag); the transparent background makes the whole row hit-testable -->
         <Grid Padding="{x:Bind theme:StyleState.Current.TagRowPadding, Mode=OneWay}" ColumnSpacing="{x:Bind theme:StyleState.Current.TagSpacing, Mode=OneWay}" ColumnDefinitions="Auto,*"
+              Background="Transparent" AllowDrop="True" DragOver="OnTagDragOver" Drop="OnTagDrop"
               AutomationProperties.AutomationId="{x:Bind Id}" AutomationProperties.Name="{x:Bind Label}">
           <Border Width="10" Height="10" CornerRadius="4" Background="{x:Bind views:Fmt.Rgb(ColorRgb)}" VerticalAlignment="Center" />
           <TextBlock Grid.Column="1" Text="{x:Bind Label}" FontSize="{x:Bind theme:StyleState.Current.TagNameSize, Mode=OneWay}" Foreground="{StaticResource Body}" TextTrimming="CharacterEllipsis" />
@@ -88,7 +90,9 @@
         <controls:SIcon Kind="Opt" Size="13" />
       </Button>
     </Grid>
+    <!-- M2 hotfix: folders are drag sources (reorder, nest) and drop targets (messages move there, a folder lands before, after or inside); SidebarView.xaml.cs -->
     <ListView x:Name="FolderList" ContainerContentChanging="OnFolderContainerChanging" ItemsSource="{x:Bind Sidebar.Folders}" ItemTemplate="{StaticResource FolderTemplate}" SelectionMode="Single"
+              CanDragItems="True" AllowDrop="True" DragItemsStarting="OnFolderDragStarting" DragItemsCompleted="OnFolderDragCompleted"
               Visibility="{x:Bind views:Fmt.Vis(Sidebar.FoldersExpanded), Mode=OneWay}" SelectionChanged="OnFolderSelectionChanged" Padding="0"
               AutomationProperties.AutomationId="sidebar.folders" AutomationProperties.Name="Folder list">
       <win:ListView.ItemContainerTransitions>
