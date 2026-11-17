@@ -14,6 +14,9 @@ public sealed record FakeJmapOptions
     /// <summary>The password Basic auth accepts.</summary>
     public string Password { get; init; } = "fake-password";
 
+    /// <summary>A one-time code the account requires (Stalwart: appended to the password as <c>password$code</c>); null: none.</summary>
+    public string? Otp { get; init; }
+
     /// <summary>The mail account id.</summary>
     public string AccountId { get; init; } = "b";
 

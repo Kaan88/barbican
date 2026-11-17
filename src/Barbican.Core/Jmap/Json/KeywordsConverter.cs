@@ -11,6 +11,9 @@ namespace Barbican.Core.Jmap.Json;
 /// <summary>Reads and writes <see cref="Keywords"/> as the JMAP keyword map.</summary>
 public sealed class KeywordsConverter : JsonConverter<Keywords>
 {
+    /// <summary>A JSON null reads as no keywords, not as a null map.</summary>
+    public override bool HandleNull => true;
+
     /// <inheritdoc/>
     public override Keywords Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
     {

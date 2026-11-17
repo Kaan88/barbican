@@ -29,6 +29,9 @@ public sealed class MailboxRoleConverter : JsonConverter<MailboxRole>
     /// <summary>The role string of a role; null for None.</summary>
     public static string? Name(MailboxRole role) => role == MailboxRole.None ? null : role.ToString().ToLowerInvariant();
 
+    /// <summary>A JSON null role (an ordinary folder) reads as None.</summary>
+    public override bool HandleNull => true;
+
     /// <inheritdoc/>
     public override MailboxRole Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options) =>
         reader.TokenType == JsonTokenType.String ? Parse(reader.GetString()) : MailboxRole.None;

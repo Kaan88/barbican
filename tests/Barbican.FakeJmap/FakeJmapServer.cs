@@ -198,9 +198,19 @@ public sealed partial class FakeJmapServer : HttpMessageHandler
         }
 
         var auth = request.Headers.Authorization;
+        string Basic(string password) => Convert.ToBase64String(Encoding.UTF8.GetBytes($"{Options.Username}:{password}"));
+        if (Options.Otp is { } otp && auth is { Scheme: "Basic" } && string.Equals(auth.Parameter, Basic(Options.Password), StringComparison.Ordinal))
+        {
+            // Stalwart: the password is right, the second factor is missing (Bulwark lib/jmap/client.ts:2165)
+            var (_, problem) = FakeApi.Problem(402, "about:blank", "Enter your TOTP code", null);
+            problem["title"] = "TOTP code required";
+            return Json(HttpStatusCode.PaymentRequired, problem, "application/problem+json");
+        }
+
+        var expected = Options.Otp is { } code ? Basic($"{Options.Password}${code}") : Basic(Options.Password);
         var ok = auth?.Scheme switch
         {
-            "Basic" => string.Equals(auth.Parameter, Convert.ToBase64String(Encoding.UTF8.GetBytes($"{Options.Username}:{Options.Password}")), StringComparison.Ordinal),
+            "Basic" => string.Equals(auth.Parameter, expected, StringComparison.Ordinal),
             "Bearer" => Valid(auth.Parameter),
             _ => false,
         };
