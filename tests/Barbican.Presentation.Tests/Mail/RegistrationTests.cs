@@ -25,7 +25,9 @@ public sealed class RegistrationTests
         Assert.IsType<HeaderOnlyMessageOpener>(provider.GetRequiredService<IMessageOpener>());
         Assert.IsType<KeyRouter>(provider.GetRequiredService<IKeyRouter>());
         Assert.Same(provider.GetRequiredService<HookBus>(), provider.GetRequiredService<IHookBus>());
-        Assert.Equal(2, provider.GetServices<IStartupTask>().Count());
+        // the mail event hub, the shell start-up and (M2 hotfix 2) the reader following the open message's row
+        Assert.Equal(3, provider.GetServices<IStartupTask>().Count());
+        Assert.Contains(provider.GetServices<IStartupTask>(), t => t is ReaderRowFollower);
     }
 
     [Fact]

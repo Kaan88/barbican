@@ -23,7 +23,7 @@ public static class ReaderSnapshots
         return new ReaderSnapshot
         {
             EmailId = s.Id,
-            Header = Header(s.From, s.To, s.Subject, s.ReceivedAt, s.Keywords.Flagged, options),
+            Header = Header(s.From, s.To, s.Subject, s.ReceivedAt, s.Keywords.Flagged, options) with { Tags = RowTag.Of(s.Keywords, options.Tags) },
             Attachments = Cards(s.Attachments, options),
             AttachmentSummary = AttachmentCards.Wanted(Visible(s.Attachments, options), options.AttachmentImagePreviews) ? AttachmentCards.Summary(Visible(s.Attachments, options)) : string.Empty,
             ShowAttachmentCards = AttachmentCards.Wanted(Visible(s.Attachments, options), options.AttachmentImagePreviews),
@@ -52,7 +52,7 @@ public static class ReaderSnapshots
         return new ReaderSnapshot
         {
             EmailId = body.Id,
-            Header = Header(body.From, body.To, body.Subject, body.ReceivedAt, body.Keywords.Flagged, options),
+            Header = Header(body.From, body.To, body.Subject, body.ReceivedAt, body.Keywords.Flagged, options) with { Tags = RowTag.Of(body.Keywords, options.Tags) },
             Conversation = Strip(thread, body.Id, options),
             Attachments = Cards(body.Attachments, options),
             AttachmentSummary = cards ? AttachmentCards.Summary(visible) : string.Empty,

@@ -78,4 +78,17 @@ public sealed partial class ReaderView : UserControl
 
     private static bool OpenAttachmentMenu(object sender, Windows.Foundation.Point at) =>
         sender is FrameworkElement { DataContext: AttachmentCard card } && ViewHost.Get<ReaderMenuOpener>().Open(MenuIds.Attachment, card.Index, new MenuAnchor(at.X, at.Y, null));
+
+    // A header tag's ×: takes the tag off the open message (Bulwark email-viewer.tsx:5431 onSetTag). The row and the header follow from the list
+    // (ReaderRowFollower); a failure reports itself with a toast (MailActionService), so the task is not awaited here.
+    private void OnTagRemoveClick(object sender, RoutedEventArgs e)
+    {
+        if (sender is not FrameworkElement { Tag: string tagId }
+            || _list.Messages.FirstOrDefault(r => string.Equals(r.Id, Reader.EmailId, StringComparison.Ordinal)) is not { } row)
+        {
+            return;
+        }
+
+        _ = ViewHost.Get<Barbican.Presentation.Actions.MailActionService>().SetTagAsync([_list.TargetOf(row)], tagId, on: false, CancellationToken.None);
+    }
 }

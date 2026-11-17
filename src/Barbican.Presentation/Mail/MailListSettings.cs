@@ -41,6 +41,12 @@ public sealed record MailListSettings
 
     public uint UnknownTagColor { get; init; } = UnknownTag;
 
+    /// <summary>Tag id to name, in the tag list's order.</summary>
+    public IReadOnlyList<KeyValuePair<string, string>> TagNames { get; init; } = [];
+
+    /// <summary>Rows show their tags (Bulwark showTagChips).</summary>
+    public bool ShowTagChips { get; init; } = true;
+
     /// <summary>Reads the settings (the defaults for anything not stored).</summary>
     public static MailListSettings Read(PrefsSnapshot prefs, SystemAccessibility system)
     {
@@ -63,6 +69,8 @@ public sealed record MailListSettings
             AttachmentChips = prefs.Bool("showAttachmentChips", true) && density is "regular" or "comfortable",
             TagColors = tags.ToDictionary(t => t.Id, t => Tint(TagRules.ColorRgb(t.Color), cvd), StringComparer.Ordinal),
             UnknownTagColor = Tint(UnknownTag, cvd),
+            TagNames = [.. tags.Select(t => KeyValuePair.Create(t.Id, t.Label))],
+            ShowTagChips = prefs.Bool("showTagChips", true),
         };
     }
 
@@ -76,8 +84,22 @@ public sealed record MailListSettings
         HideInlineImages = HideInlineImages,
         Now = now,
         Zone = zone,
-        TagColor = id => TagColors.TryGetValue(id, out var c) ? c : UnknownTagColor,
+        Tags = LookupTags(),
+        ShowTagChips = ShowTagChips,
     };
+
+    /// <summary>Names, colours and order of the tags from the tag list.</summary>
+    public TagLookup LookupTags()
+    {
+        var names = TagNames.ToDictionary(kv => kv.Key, kv => kv.Value, StringComparer.Ordinal);
+        var rank = TagNames.Select((kv, i) => (kv.Key, i)).ToDictionary(t => t.Key, t => t.i, StringComparer.Ordinal);
+        return new TagLookup
+        {
+            Name = id => names.TryGetValue(id, out var n) && n.Length > 0 ? n : id,
+            Color = id => TagColors.TryGetValue(id, out var c) ? c : UnknownTagColor,
+            Rank = id => rank.TryGetValue(id, out var r) ? r : int.MaxValue,
+        };
+    }
 
     /// <summary>The reader options for a moment in time.</summary>
     public ReaderOptions ReaderOptionsAt(DateTimeOffset now, TimeZoneInfo zone) => new()
@@ -86,6 +108,7 @@ public sealed record MailListSettings
         HideInlineImages = HideInlineImages,
         Now = now,
         Zone = zone,
+        Tags = LookupTags(),
     };
 
     private static uint Tint(uint rgb, bool cvd) => cvd ? A11y.CvdColor(rgb) : rgb;

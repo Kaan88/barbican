@@ -24,6 +24,15 @@ public static class Fmt
     /// <summary>A tag colour 0xRRGGBB as a brush (tag colours are the user's, not the palette's).</summary>
     public static Brush Rgb(uint rgb) => new SolidColorBrush(Color.FromArgb(0xFF, (byte)(rgb >> 16), (byte)(rgb >> 8), (byte)rgb));
 
+    /// <summary>A tag lozenge's fill: the tag colour, faint (Bulwark tag-badge.tsx color.fill, the palette's x/15), so the name in Text stays readable in both themes.</summary>
+    public static Brush TagFill(uint rgb) => new SolidColorBrush(Color.FromArgb(0x26, (byte)(rgb >> 16), (byte)(rgb >> 8), (byte)rgb));
+
+    /// <summary>A tag lozenge's border: the tag colour, half strength (Bulwark color.border): how a tag is picked out of a row at a glance.</summary>
+    public static Brush TagLine(uint rgb) => new SolidColorBrush(Color.FromArgb(0x99, (byte)(rgb >> 16), (byte)(rgb >> 8), (byte)rgb));
+
+    /// <summary>The automation id of a reader header tag's remove button.</summary>
+    public static string TagRemoveId(string tagId) => "reader.tag." + tagId + ".remove";
+
     public static bool Not(bool value) => !value;
 
     public static Visibility Vis(bool visible) => visible ? Visibility.Visible : Visibility.Collapsed;
