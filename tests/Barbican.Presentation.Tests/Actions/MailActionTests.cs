@@ -102,6 +102,25 @@ public sealed class MailActionTests
     }
 
     [Fact]
+    public async Task A_move_into_a_folder_whose_my_rights_forbid_adding_sends_nothing()
+    {
+        using var h = await ActionHarness.StartAsync();
+        await h.OpenAsync("inbox");
+        var archive = h.Folder("archive");
+        var rights = System.Text.Json.JsonDocument.Parse("""{"mayAddItems": false}""").RootElement.Clone();
+        h.Sidebar.Update(new MailboxTree([.. h.Sidebar.Tree.All.Select(m => string.Equals(m.Id, archive, StringComparison.Ordinal) ? m with { Extra = new Dictionary<string, System.Text.Json.JsonElement> { ["myRights"] = rights } } : m)]));
+        var rows = h.List.Messages.Select(r => r.Id).ToList();
+        var before = h.Requests;
+
+        var r = await h.Actions.MoveAsync(h.Pick(0), archive, Ct);
+
+        Assert.False(r.IsOk);
+        Assert.Equal(before, h.Requests);
+        Assert.Equal(rows, h.List.Messages.Select(x => x.Id).ToList());
+        Assert.Contains(h.Toasts.Toasts, t => t.IsError);
+    }
+
+    [Fact]
     public async Task A_failed_write_restores_every_row()
     {
         using var h = await ActionHarness.StartAsync();

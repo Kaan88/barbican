@@ -20,6 +20,12 @@ public sealed partial class MailActionService
         ArgumentNullException.ThrowIfNull(targets);
         ArgumentException.ThrowIfNullOrEmpty(toMailboxId);
         var wanted = targets.Where(t => !(t.MailboxIds.Count == 1 && t.MailboxIds.ContainsKey(toMailboxId))).ToList();
+        if (wanted.Count > 0 && !ActionCommandSet.HasRight(folders, toMailboxId, "mayAddItems"))
+        {
+            // J-048: a folder whose myRights say mayAddItems=false takes no drop and no move (RFC 8621 2); the server would refuse it anyway
+            return Task.FromResult(Result<Unit>.Fail(Failed(new ValidationError("You can't add messages to that folder."))));
+        }
+
         var from = list.MailboxId;
         var name = FolderName(toMailboxId);
         return RemoveFlowAsync(wanted, (_, _) => new RemovalOp(

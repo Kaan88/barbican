@@ -20,6 +20,7 @@ public sealed partial class MessageListView : UserControl
 
     private bool _syncing;
     private bool _modifierClick;
+    private string? _scrolledId;
     private bool _resyncQueued;
     private ScrollViewer? _scroll;
     private readonly TranslateTransform _rowsShift = new();
@@ -144,10 +145,13 @@ public sealed partial class MessageListView : UserControl
             _syncing = false;
         }
 
-        if (row is not null)
+        // R2-12: scroll only when the selected id changed; a row that was replaced by a push delta (same id, new object) keeps the scroll position
+        if (row is not null && !string.Equals(_scrolledId, row.Id, StringComparison.Ordinal))
         {
             Rows.ScrollIntoView(row);
         }
+
+        _scrolledId = row?.Id;
     }
 
     private void OnSelectionChanged(object sender, SelectionChangedEventArgs e)

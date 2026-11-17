@@ -38,7 +38,7 @@ public sealed partial class MailActionService
         }
 
         var edit = list.RemoveRows(ids);
-        var result = await op.Write(writer.Value!, group, ct).ConfigureAwait(true);
+        var result = await WriteOrRestoreAsync(op, writer.Value!, group, edit, ct).ConfigureAwait(true);
         var refused = result.IsOk ? result.Value!.Refused.Select(r => r.Id).ToHashSet(StringComparer.Ordinal) : [];
         var failed = !result.IsOk || refused.Count >= ids.Length;
         if (failed || refused.Count > 0)
@@ -71,6 +71,20 @@ public sealed partial class MailActionService
             : null;
         offered.Value = Notify(op.Toast(accepted.Count), entry);
         return Result<Unit>.Ok(default);
+    }
+
+    /// <summary>The one write; a cancelled write puts the rows back before the cancellation goes on (the server was not asked to finish).</summary>
+    private async Task<Result<SetReport>> WriteOrRestoreAsync(RemovalOp op, IMailWriter writer, IReadOnlyList<MailTarget> group, ListEdit edit, CancellationToken ct)
+    {
+        try
+        {
+            return await op.Write(writer, group, ct).ConfigureAwait(true);
+        }
+        catch (OperationCanceledException)
+        {
+            list.RestoreRows(edit);
+            throw;
+        }
     }
 
     /// <summary>Puts the rows back and writes the folder sets they had (and the keywords the action flipped) back.</summary>
