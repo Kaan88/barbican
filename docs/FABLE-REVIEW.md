@@ -289,6 +289,93 @@ Plan: `docs/milestones/M1-plan.md` on branch `m1` (this commit).
 - **J-043 and J-044 set to n/a** with the Rust reasons (desktop client has no callback URL; EventSource is
   enough, Bulwark does not use WebSocket). Where: M1-plan §2.2.
 
+## M1 stream: f2-spec-tests
+
+Branch `m1-f2-spec-tests` (the plan says `m1/f2`, but git cannot hold `m1` and `m1/f2` as refs at once). F2 wrote no
+production behaviour: contract stubs, 74 red tests, the plugin catalogue. Every item below is for review at M1.
+
+- **Red-test convention (new, review the mechanism).** `[Red("stream")]` (`tests/Shared/RedAttribute.cs`) gives the
+  traits `Red=expected` and `RedStream=<stream>`. `tests/Directory.Build.props` sets MTP's
+  `TestingPlatformCommandLineArguments` to `--filter-not-trait "Red=expected"`, so `tools/build.ps1 test` and
+  `tools/linux.ps1 test` stay green; with `BARBICAN_RED=1` it is `--filter-trait "Red=expected"` and the run is red.
+  `python tools/red-check.py` runs the red tests through `tools/build.ps1` and proves all 79 fail with
+  `PortPendingException` ("Port pending: ...") or a call-site assertion, and reports one that passes ("remove [Red]").
+  Why: no build-script change (F1 owns it), and a stream cannot silently turn a test green: red-check names it. Risk: if
+  F1 or a later edit changes how `dotnet test` takes MTP arguments, the exclusion stops working (the default suite would then
+  show 79 failures: loud, not silent). Where: `tests/Directory.Build.props`, `tests/Shared/RedAttribute.cs`,
+  `tools/red-check.py`; verified on Windows (65 default tests pass, 79 red fail, 0 wrong reason).
+- **Linux run of the red convention.** The Linux VM run of the default suite and of `BARBICAN_RED=1` is recorded in the
+  F2 merge commit message. Where: `tools/linux.ps1 test`.
+- **`PortPendingException` instead of `NotImplementedException`.** Meziantou MA0025 rejects `NotImplementedException`
+  as an error under warnings-as-errors; a dedicated exception also lets red-check tell "stub not implemented" from any
+  other failure. Streams delete the throw when they implement. Where: `src/Barbican.Core/Common/PortPendingException.cs`.
+- **Contract deviations from M1-plan §4 forced by the analyzers (renames and suppressions; the integrator should know):**
+  `IJmapClient.ReadOnly` is `IsReadOnly` (CA1716: `ReadOnly` is a VB keyword); `Result<T>.Ok/Fail` stay static on the generic
+  type with one local `#pragma warning disable CA1000` and its reason; the BodyCache namespace is `Barbican.Core.Mail.Cache`
+  (the folder stays `Mail/BodyCache`) because MA0049 forbids a type named like its namespace; the tag helpers are
+  `TagRules` (namespace `Barbican.Core.Mail.Tags`, same MA0049); the keyword helpers are in `Barbican.Core.Jmap.KeywordSyntax`
+  (a `Jmap.Keywords` namespace would hide the `Keywords` model type). Stub classes carry a local `CA1822` suppression with
+  its reason where an instance member has no state yet. Where: the files named, `src/Barbican.Core/**`.
+- **Contract additions (not in §4, needed so the 74 tests compile):** `ScheduleError : JmapError`; `EmailHeader`,
+  `BodyValue`, `BodyPart`; `Keywords.Of(...)`; `ListDelta.Added` as `(string Id, int Index)` tuples; event records
+  `MailboxesChangedEvent`, `ListDeltaEvent`, `ListResetEvent`, `EmailsChangedEvent`, `PushStateEvent`; `BodyCache` members
+  beyond `IBodyCache` (list-id keyed `Put`, `PatchLocal`, `RemoveLocal`, `OnSync`, `Patch`, `Remove`, `DropThread`,
+  `Count`, `Bytes`, `ThreadBytes`, `Weight`, `ThreadWeight`); `SettingsStore` (accounts) with `TryImport`/`Export`/`Reset`;
+  `A11y`/`SystemAccessibility`; `ListSync`/`SyncStats`. The owning streams may refine them (add-only).
+- **Tests ported with a changed shape (no assert dropped; review that the meaning held).**
+  - Rust `serde_json::Value` inputs became typed records (`EmailSummary`, `EmailBody`, `ConversationThread`, `Keywords`) in
+    the body cache, list delta, `was_unseen` and `inline_bytes` tests; the pure jmap functions on raw JSON
+    (`parse_changes`, `apply_object_delta`, `split_calls`, `read_only`, quota, delayed send, SSE) use `JsonNode`/`JsonObject`
+    because the C# typed layer sits above them. The identity JSON of `from_override...` is the `Identity` record.
+  - `listsync::*`: the Slint `VecModel` is `ObservableCollection<T>`; "current model is not a `VecModel`" (the `ModelRc::default()`
+    case of `sync_into`) is a null collection. `nested_rows_compare_by_content` is no longer about Slint (Slint's `==` on
+    `ModelRc` compared identity); it is now a plain content comparison, so treat it as a regression test of
+    `ListSync.RowsEqual` only.
+  - `msgload::unread_state_comes_from_the_list_first`: `None` and `Some(Value::Null)` both become a null `Keywords` (a copy
+    that is not an object is skipped either way), so the C# test cannot tell them apart. All five assertions are kept.
+  - `mailview::forwarded_keys_parse`: Slint `Key::Control/Shift` vectors became a `KeyModifiers` flags enum, so order
+    (`[Control, Shift]`) is no longer asserted. Escape and Delete keep their code points (U+001B, U+007F).
+  - `jmap::from_override_header_identity_and_envelope`, `jmap::delayed_send_needs_futurerelease`: JSON and `Err(String)`
+    results became `EmailAddress`, `SubmissionEnvelope` and `Result<long>` with a `ScheduleError`; the assertions are the same.
+  - `attachments::thumbnails_are_square`: the image crate's PNG encoder is replaced by a small PNG writer in the test
+    (`TestPng`); the mailcore stream picks the decoder (SkiaSharp is already pinned) and must keep Core free of UI types.
+  - `settings::import_export_reset_roundtrip`: the `APPDATA` override becomes a throwaway `IProfilePaths`; the desktop file
+    path is `<ConfigDir>/settings.json` as in Rust. The accounts stream decides where `prefs.json` lives relative to it.
+  - `dark_mail::css_hides_until_the_pass_ran` reads `DarkMail.Script` (the Rust `include_str!` of `email_dark.js`): the body
+    stream must embed that file so the two script assertions are checked against the real script.
+  - `oauth::*`: the Rust file has two test modules; the seven tests keep their names and asserts, so four duplicate each other
+    in meaning (`token_changed_retries_with_stored` = `rotated_elsewhere_retries_with_stored`, ...). Kept, because
+    `spec/rust-tests.csv` has one row per Rust test.
+- **Hook catalogue count.** The extractor finds **218 hooks in 27 groups** in `lib/plugin-hook-catalog.ts` (Bulwark 1.21.2),
+  not 219 in 29 as PORT-PLAN M6b says (`HookGroup` in the file lists 27). 58 slots. PORT-PLAN M6b should read 218 and 27.
+  Where: `spec/plugins/hooks.csv`, `tools/extract-plugin-catalogue.py`, `HookNamesTests.Catalogue_has_the_bulwark_count` (pins 218/27/58).
+- **Milestone column choices (judgement calls).** 41 hooks are M1, 50 M2, 22 M3, 35 M4, 30 M5, 31 M6, 1 M6b, 3 M8, 2 M10, 3 n/a.
+  Group defaults are in `tools/plugin_milestones.py`; per-hook overrides move out of M1 the hooks whose surface comes later:
+  reply/forward interceptors (M3), external link and avatars (M2), folder create/rename/delete/empty (M2: context menus),
+  the search-everything provider (M2), logout and account removal (M2: "sign out one or all"), column resize, text selection and
+  drag and drop (M2), custom theme and locale (M10), the plugin OAuth callback (M6b). The three phone-layout hooks
+  (`onViewChange`, `onMobileBack`, `onDeviceTypeChange`) are `n/a(...)`: the desktop app has one layout. Review both the M1 set
+  (is any missing, for example `onBeforeExternalLink` if the reader opens a link in M1?) and the n/a set.
+  All slot milestones are M6b (catalogued only).
+- **M1 hook owners** follow M1-plan §2.4 by group. `HookCallSiteTests` has one red test per owner (jmap, accounts, mailcore,
+  shell-ui, body) so each stream turns its own green; `HookNamesTests.Every_m1_hook_has_an_owner...` is green and guards the
+  owner column. `tools/spec-check.py` now prints hooks per milestone with a "fired" count (a `HookNames.<Name>` under `src/`).
+- **T-159 lite dropped: D-233, status `dropped(D-233, user OK pending)`.** The user confirms at the M1 gate. `spec-check.py`
+  already accepted the status form (`startswith("dropped(D-")`); no regex change was needed. Where: `spec/decisions.md`,
+  `spec/rust-tests.csv`, B-READ-046.
+- **`MailBodyView` stub** (`src/Barbican.App/MailBody/MailBodyView.cs`) is an empty `UserControl`: it does not show the tile
+  colour the plan describes (no token resource exists in the head yet); body or shell-ui adds it. It builds on both heads.
+- **`IAutomationCommand` (plan §4.4, owner F1) is not here.** F1 was not merged when F2 ran; F1 creates `Barbican.Automation`.
+- **`CommunityToolkit.Mvvm` is not referenced yet.** The ViewModel stubs are plain classes: adding the package reference is a
+  csproj edit (F1/integrator owned). mailcore needs `ObservableObject`; request to the integrator: add the package to
+  `src/Barbican.Presentation/Barbican.Presentation.csproj` (the version is pinned in `Directory.Packages.props`).
+- **Test addresses moved to `*.example.*` subdomains (privacy check).** The Rust tests use `a.com`, `b.org`, `other.net`,
+  `shop.com`, ... as domains; the privacy allowlist wants fictional domains, so `@a.com` became `@a.example.com`, `shop.com`
+  `shop.example.com`, and so on, consistently inside each test (parent/child relations are unchanged, so every assert keeps
+  its meaning). Bare domain strings that are not addresses (`Aligned("a.com", "b.a.com")`) are untouched.
+- **No fixtures were needed.** None of the 74 Rust tests embeds a file; the one binary (the PNG) is built in the test.
+  `tests/fixtures/<area>/` stays empty.
+
 ## M1 stream: f1-foundation
 
 Branch `m1-f1-foundation`, merged into `m1`. Report: the stage's hand-back (Uno 7, smoke, automation).

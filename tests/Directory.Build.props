@@ -12,6 +12,15 @@
     <IsTestProject>true</IsTestProject>
   </PropertyGroup>
 
+  <!-- Red tests ([Red]) are excluded from the default run so the build stays green; BARBICAN_RED=1 runs only them
+       (tools/red-check.py does that and verifies every one fails with PortPending). -->
+  <PropertyGroup Condition="'$(BARBICAN_RED)' != '1'">
+    <TestingPlatformCommandLineArguments>--filter-not-trait "Red=expected"</TestingPlatformCommandLineArguments>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(BARBICAN_RED)' == '1'">
+    <TestingPlatformCommandLineArguments>--filter-trait "Red=expected"</TestingPlatformCommandLineArguments>
+  </PropertyGroup>
+
   <ItemGroup Condition="'$(BarbicanTestLibrary)' != 'true'">
     <PackageReference Include="xunit.v3" />
     <Using Include="Xunit" />
@@ -19,6 +28,8 @@
     <!-- [RustTest("module::name")] for ported Rust tests (PORT-PLAN.md §2.4), one source for all test projects. -->
     <Compile Include="$(MSBuildThisFileDirectory)Shared/RustTestAttribute.cs" Link="Shared/RustTestAttribute.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Shared/TestRepo.cs" Link="Shared/TestRepo.cs" />
+    <!-- [Red("stream")]: a test written before its feature, expected to fail with PortPending (M1-plan F2). -->
+    <Compile Include="$(MSBuildThisFileDirectory)Shared/RedAttribute.cs" Link="Shared/RedAttribute.cs" />
     <Content Include="$(MSBuildThisFileDirectory)xunit.runner.json" Link="xunit.runner.json" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 </Project>

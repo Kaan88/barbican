@@ -71,6 +71,8 @@ AGENTS.md points here; this file is the single source of the rules.
 | Hidden smoke run | Windows: `tools/auto-run.ps1 smoke` (published exe, `--smoke`); Linux: `tools/linux.ps1 xrun -Project src/Barbican.App/Barbican.App.csproj -Script smoke -Out smoke` |
 | Automation build (hidden, ADR 0007) | `tools/build.ps1 build -Configuration Automation -Head win`, then `tools/auto-run.ps1 start -Port <p>` / `send -Command '...'` / `scenario` / `stop`; popup probes only with `start -PrivateDesktop`. Linux: `tools/linux.ps1 xrun ... -Configuration Automation -Script auto` |
 | Portable zip | `tools/build.ps1 publish -Head win`, then `tools/package-portable.ps1` → `artifacts/portable/` |
+| Red tests (expected to fail until their stream lands) | `python tools/red-check.py` (excluded from `tools/build.ps1 test` by `[Red("stream")]`; `--list` counts them) |
+| Plugin catalogue | `python tools/gen-hooks.py` (HookNames.g.cs from `spec/plugins/hooks.csv`; `--check`), `python tools/extract-plugin-catalogue.py <bulwark>` |
 | Privacy check before commit | `sh tools/privacy-check.sh --worktree` |
 | Spec status / milestone gate | `python tools/spec-check.py` (summary), `--milestone M<n>` (gate: exit 1 while T- rows of M<n> are unmapped), `--write` (fill `csharp_test`/`status` in `spec/rust-tests.csv` after porting tests) |
 
