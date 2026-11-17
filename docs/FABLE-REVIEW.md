@@ -318,3 +318,74 @@ placeholders (see CLAUDE.md); never write real values here.
   samples; real-desktop behaviour is unmeasured.
 - **Inner-loop times** include `tools/build.ps1` start-up and the build-slot mutex; one machine, one
   sample each.
+## M0 spike S3, editor engine (stream: m0-s3)
+Branch `m0-s3`; decision record `docs/adr/0006-editor-engine.md`.
+
+### Judgement calls and deviations
+- **UTF-16 offsets instead of Rust's UTF-8 bytes, grapheme caret steps instead of code points.**
+  Why: every later port of `editor.rs`/`html.rs` and their tests inherits this; Rust tests with
+  non-ASCII text will need their expected offsets recomputed, and grapheme stepping changes
+  Backspace behaviour on combining sequences (Rust deleted one code point). Check that this is
+  wanted (Bulwark/ProseMirror deletes by code point in some cases). Where:
+  `src/Barbican.Core/Editor/TextOffsets.cs`, `Pos.cs`, `Doc.Clamp`; commit `adca3e1`.
+- **Rust model semantics ported, with small C# shape changes.** `Kind` became a closed
+  `BlockKind` record hierarchy, `Marks` an immutable record (`MapMarks` takes `Func<Marks,Marks>`),
+  `Range<usize>` became `BlockSpan`, `Delete` was split (`ClearMiddle`) for the 60-line rule, and
+  `TextRange` emulates Rust `str::lines()` for quoted text. Review `Doc.Delete`, `Doc.InsertBlocks`
+  /`InsertSplit` line by line against `rte/model.rs` (the 7 ported tests cover only part of the
+  branches: atomic blocks at range ends and paste into cells are untested). Where:
+  `src/Barbican.Core/Editor/Doc.cs`, `Block.cs`.
+- **New project `Barbican.Editor.Layout`** (not in the plan's §3.2 layout): Skia + RichTextKit,
+  no UI framework, so layout tests run headless on both OSes. Check that this layering is wanted
+  (alternative: inside the App head, untestable on the VM). Where: `src/Barbican.Editor.Layout/`,
+  `Barbican.slnx`.
+- **`RustTestAttribute` created here** (xUnit v3 `ITraitAttribute`, trait `RustTest`). Other
+  streams may create their own; merge into one. The 7 `rte::model` tests are M3 rows in the plan:
+  the catalogue streams must mark them ported. Where:
+  `tests/Barbican.Core.Tests/RustTestAttribute.cs`, `tests/Barbican.Core.Tests/Editor/ModelTests.cs`.
+- **`TextContrast` alpha curve (k = 1.6) to match DirectWrite darkness.** An empirical fit at one
+  size, one scale (100 %), dark text on white. Risk: wrong for light-on-dark (dark theme),
+  coloured runs, other sizes and 125/150 % scaling; the curve also changes selection-free layer
+  cost (one `SaveLayer` per paint). Where: `src/Barbican.Editor.Layout/DocLayout.cs` (`Paint`,
+  `ContrastFilter`), `LayoutStyle.cs`; evidence `docs/adr/0006/harness-results.txt`.
+- **CSS line-height conversion.** RichTextKit's `LineHeight` multiplies font spacing, not size;
+  `StyleMapper.CssLineHeight` converts using `FontMapper.Default` metrics cached per
+  family/weight/italic. Check font-fallback runs (emoji, CJK) on a line: their own spacing may
+  still make a line taller than 22.5 px. Where: `src/Barbican.Editor.Layout/StyleMapper.cs`.
+- **ADR number 0006 chosen without coordination** (0004/0005 assumed for S1/S2, S4/S5 are on
+  `m0-s45`). Renumber at merge if it collides; the assets folder is `docs/adr/0006/`.
+- **SkiaSharp pinned to 4.156.0 (Uno 7.0.65's version) and HarfBuzzSharp 14.4.0.100**, including
+  `SkiaSharp.NativeAssets.Linux`, overriding RichTextKit's 4.153.1 natives. S1 picks the Uno
+  version: if it is not 7.0.65, the pins must move with it. Where: `Directory.Packages.props`.
+- **Spike packages file.** `spikes/Directory.Packages.props` imports the root one and adds
+  `Microsoft.WindowsAppSDK` 2.6.5 and SDK BuildTools for the harness, to avoid colliding with S1.
+  The harness also relaxes VSTHRD100/101/103, CA1515, CA1861, MA0048 in its csproj. Where:
+  `spikes/`.
+
+### Facts that contradict the plan or earlier ADRs
+- **Uno 7.0.65 ships a Skia `RichEditBox`** (36 files under
+  `src/Uno.UI/UI/Xaml/Controls/RichEditBox/` at tag 7.0.65, 1 at 6.7.424), contradicting ADR 0001
+  "Consequences" and PORT-PLAN.md §3.8. ADR 0006 §7 keeps the custom editor for the HTML
+  round-trip reason; the user may want to know. Also: the plan says Uno 6.6 is current; 7.0.65 is.
+- **RichTextKit is Apache-2.0, not MIT** (nuspec of 0.6.173). Compatible with AGPL-3.0; a vendored
+  copy must keep its LICENSE/NOTICE, and the release's third-party notices should list it.
+
+### Partially verified
+- **Text-quality gate measured only on Windows at 100 % scale, light theme, one paragraph.** Uno
+  (`SKCanvasElement` vs Uno `TextBlock`) not run: no App head before S1. Where: ADR 0006 "Pending".
+- **IME:** only the committed-text forwarding was exercised (programmatically, no real input);
+  composition events never fired. Uno's X11 IBus/Fcitx support was read in Uno's source at tag
+  7.0.65, not run. Needs the M3 [HAND TEST].
+- **Hidden harness window.** Off-screen at (-32000, -32000), `IsShownInSwitchers = false`,
+  `AppWindow.Show(false)`. I did not verify that no taskbar flash or focus change happens on every
+  shell configuration (multi-monitor layouts with negative coordinates far out are assumed
+  absent). Compare with S4's hidden-window design and reuse one. Where:
+  `spikes/s3-editor/S3Harness/HarnessWindow.cs` (`Start`).
+- **BiDi caret ambiguity pinned, not solved.** The hit-test round trip fails at the two offsets
+  around an RTL run; the test accepts only those. Where:
+  `tests/Barbican.Editor.Layout.Tests/BlockLayoutTests.cs` (`Hit_test_at_each_caret_returns_that_caret`).
+- **TextPointer offset shift of 2** in the harness's caret comparison (TextBlock content start
+  plus Run start) was found empirically (shifts 0/1/2 all logged; 2 is the one with 0 line
+  mismatches). Where: `HarnessWindow.CompareCarets`.
+- **Perf numbers are single-machine, Debug build, median of 15.** Where:
+  `docs/adr/0006/harness-results.txt`.

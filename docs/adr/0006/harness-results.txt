@@ -1,0 +1,26 @@
+ime forward: block length 252 -> 254, inserted at caret True, caret Pos { B = 0, O = 7 }, caret x 34.6 -> 57.4, ime box at x 57.4, textbox emptied True
+rasterization scale 1
+textblock lines 4: [[7,20,1,399],[30,43,1,411],[52,65,0,407],[73,88,0,399]]
+skia      lines 4: [[6,19,1,399],[29,42,1,411],[51,64,0,407],[72,87,0,399]]
+ink total textblock 986048 skia 976884 ratio 0.991
+pixel diff (dy 0) over 420x90: mean |d| 22.721/255, pixels with |d|>64: 4444
+pixel diff (dy 1) over 420x89: mean |d| 3.229/255, pixels with |d|>64: 0
+caret x vs TextBlock (TextPointer shift 0): 246 chars on the same line, mean |dx| 13.006 DIP, max 21.833 DIP at 35; 6 chars on another line (scale 1)
+caret x vs TextBlock (TextPointer shift 1): 249 chars on the same line, mean |dx| 6.617 DIP, max 14.949 DIP at 199; 3 chars on another line (scale 1)
+caret x vs TextBlock (TextPointer shift 2): 252 chars on the same line, mean |dx| 0.080 DIP, max 0.256 DIP at 186; 0 chars on another line (scale 1)
+first char rect TextBlock (10.65,2.07,19.95) vs caret (0.00,1.27,19.95)
+variant Antialias/None/subpx/k1: ink ratio 0.771; pixel diff (dy 1) over 420x89: mean |d| 10.295/255, pixels with |d|>64: 2356
+variant Antialias/None/whole/k1: ink ratio 0.761; pixel diff (dy 1) over 420x89: mean |d| 13.195/255, pixels with |d|>64: 3393
+variant Antialias/Normal/subpx/k1: ink ratio 0.851; pixel diff (dy 1) over 420x89: mean |d| 4.894/255, pixels with |d|>64: 788
+variant Antialias/Normal/whole/k1: ink ratio 0.834; pixel diff (dy 1) over 420x89: mean |d| 8.861/255, pixels with |d|>64: 2231
+variant SubpixelAntialias/None/subpx/k1: ink ratio 0.747; pixel diff (dy 1) over 420x89: mean |d| 11.681/255, pixels with |d|>64: 2354
+variant SubpixelAntialias/None/whole/k1: ink ratio 0.745; pixel diff (dy 1) over 420x89: mean |d| 13.410/255, pixels with |d|>64: 3073
+variant SubpixelAntialias/Normal/subpx/k1: ink ratio 0.798; pixel diff (dy 1) over 420x89: mean |d| 7.070/255, pixels with |d|>64: 797
+variant SubpixelAntialias/Normal/whole/k1: ink ratio 0.798; pixel diff (dy 1) over 420x89: mean |d| 9.292/255, pixels with |d|>64: 1837
+variant Antialias/Normal/subpx/k1.2: ink ratio 0.904; pixel diff (dy 1) over 420x89: mean |d| 4.030/255, pixels with |d|>64: 272
+variant Antialias/Normal/subpx/k1.3: ink ratio 0.928; pixel diff (dy 1) over 420x89: mean |d| 3.809/255, pixels with |d|>64: 191
+variant Antialias/Normal/subpx/k1.4: ink ratio 0.950; pixel diff (dy 1) over 420x89: mean |d| 3.599/255, pixels with |d|>64: 76
+variant Antialias/Normal/subpx/k1.5: ink ratio 0.971; pixel diff (dy 1) over 420x89: mean |d| 3.399/255, pixels with |d|>64: 0
+variant Antialias/Normal/subpx/k1.6: ink ratio 0.991; pixel diff (dy 1) over 420x89: mean |d| 3.229/255, pixels with |d|>64: 0
+variant Antialias/Normal/subpx/k1.8: ink ratio 1.029; pixel diff (dy 1) over 420x89: mean |d| 3.465/255, pixels with |d|>64: 48
+perf (median of 15): full layout 60 blocks 5.84 ms, paint 1290x1600 px 13.77 ms, relayout one block 0.252 ms; doc height 2936 DIP

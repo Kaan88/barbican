@@ -22,4 +22,23 @@
     <!-- Presentation -->
     <PackageVersion Include="CommunityToolkit.Mvvm" Version="8.4.2" />
   </ItemGroup>
+
+  <!-- Editor text engine (spike S3, docs/adr/0006). RichTextKit 0.6.173 needs SkiaSharp 4.x; SkiaSharp is
+       pinned to Uno 7.0's version (Uno.WinUI.Graphics2DSK 7.0.65 -> SkiaSharp 4.156.0); the native assets
+       must match the managed version exactly, so the Linux natives RichTextKit pulls in (4.153.1) are
+       pinned too.
+       SPLIT AT THE M0 MERGE: the App head is on Uno.Sdk 6.7.49 (spike S1, docs/adr/0004), whose runtime
+       uses SkiaSharp 3.119.2. With transitive pinning on, these pins would lift the App head's SkiaSharp
+       to 4.x under Uno 6.7, so they are withheld from Uno.Sdk projects. Gate before M3 (the App head
+       references Barbican.Editor.Layout): move Uno.Sdk to a 7.x whose SkiaSharp is 4.156, then drop this
+       condition. See docs/adr/0006-editor-engine.md, "Merge note". -->
+  <ItemGroup Condition="'$(UsingUnoSdk)' != 'true'">
+    <PackageVersion Include="Topten.RichTextKit" Version="0.6.173" />
+    <PackageVersion Include="SkiaSharp" Version="4.156.0" />
+    <PackageVersion Include="SkiaSharp.HarfBuzz" Version="4.156.0" />
+    <PackageVersion Include="SkiaSharp.NativeAssets.Linux" Version="4.156.0" />
+    <PackageVersion Include="SkiaSharp.Views.WinUI" Version="4.156.0" />
+    <PackageVersion Include="HarfBuzzSharp" Version="14.4.0.100" />
+    <PackageVersion Include="HarfBuzzSharp.NativeAssets.Linux" Version="14.4.0.100" />
+  </ItemGroup>
 </Project>

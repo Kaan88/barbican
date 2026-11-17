@@ -1,0 +1,25 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- The composer's text layout (spike S3, docs/adr/0006): Core/Editor documents laid out, hit-tested
+       and painted with Topten.RichTextKit on SkiaSharp. No UI framework types, so it runs headless in
+       tests on Windows and Linux; the App head hosts it in a Skia canvas. -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <RootNamespace>Barbican.Editor.Layout</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../Barbican.Core/Barbican.Core.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Topten.RichTextKit" />
+    <PackageReference Include="SkiaSharp" />
+    <PackageReference Include="SkiaSharp.HarfBuzz" />
+    <PackageReference Include="SkiaSharp.NativeAssets.Linux" />
+    <PackageReference Include="HarfBuzzSharp.NativeAssets.Linux" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Barbican.Editor.Layout.Tests" />
+  </ItemGroup>
+</Project>
