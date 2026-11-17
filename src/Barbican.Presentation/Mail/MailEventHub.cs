@@ -1,5 +1,5 @@
 // Mirrors: Rust main.rs push wiring (one stream feeds the list, the folders and the body cache); M1-plan §4.1 (IMailSync.Events is one channel
-// with one reader). Owner mailcore.
+// with one reader). Fable review 2 R2-13: the engine and its account key come from one snapshot. Owner mailcore (M2: unified).
 
 using Barbican.Core.Mail.Model;
 using Barbican.Presentation.Common;
@@ -70,7 +70,7 @@ public sealed class MailEventHub : IStartupTask, IDisposable
     private void Attach()
     {
         Stop();
-        var sync = _active.Sync;
+        var (key, sync) = _active.SyncSnapshot();
         if (sync is null)
         {
             return;
@@ -83,7 +83,6 @@ public sealed class MailEventHub : IStartupTask, IDisposable
         }
 
         var ct = cts.Token;
-        var key = _active.AccountKey;
         _ = Task.Run(() => RunAsync(sync, key, ct), ct);
     }
 

@@ -1147,3 +1147,26 @@ Branch `m2-unified` from `m2` at `0d9b306` (wave 1 merged), worktree `<downloads
 - [ ] **spec-check maps a test to a nested class declared before it.** `MailImportTests` declared its mock server before the last two
   tests, so `spec/rust-tests.csv` named `MockServer.Import_loop...` and `MockServer.Streaming...` (stage F). I moved the mock to the end of
   the class; `tools/spec-check.py` itself still takes the last `class` keyword above a method (owner: integrator).
+- [ ] **R2-06 (mandatory): two instances on one vault.** `Core/Accounts/{IAccountVault,AccountStore}.cs`, `Platform/SecretAccountVault.cs`,
+  `Core/Auth/OAuthTokenSource.cs`. Every change re-reads the vault inside the cross-process refresh lock (taken before the in-process
+  gate; a token refresh holds the lock and writes through `WriteAsync`, which therefore does not take it again) and then writes or removes
+  the one account it is about (`IAccountVault.UpsertAsync`/`RemoveAsync`; the secret vault writes the entry, re-reads the index and writes
+  the index). `SaveAsync` (whole list, deletes unnamed entries) is left to the import and the one-time migration, which read just before.
+  A refused stored refresh token is followed by one try with the token this instance holds in memory (each distinct token at most once).
+  Tests: `tests/Barbican.Platform.Tests/AccountVaultTwoInstanceTests.cs`, `OAuthTokenSourceTests.A_refused_stored_token_falls_back...`.
+  Not covered: the lock itself across two real processes (the M1 lock test covers one process); a crash between entry and index write
+  leaves an unnamed entry until the next import/migration.
+- [ ] **Sign-out (IAccountMaintenance on AccountManager).** `Core/Accounts/AccountManager.Maintenance.cs`. Order: onBeforeLogout, the
+  account leaves the list (the active one hands over to the first remaining account with a session, else the first remaining; none left:
+  `ActiveChanged(previous, null)`), the session is disposed (`MailSync.Dispose` now also cancels a running push stream or poll), the body
+  cache is cleared (all accounts: `IBodyCache` has only `Clear()`), the vault entry is removed (this app's own `account/<id>` only; the Rust
+  app's targets are never named), then onAfterLogout and onAccountRemove. The default moves to the first remaining account. A connect that
+  finishes after its account was signed out closes its new session at once. Judgement: Bulwark fires onAfterLogout only for a full logout;
+  here it fires per account (each sign-out is a logout of that account).
+- [ ] **R2-09.** `ServerEndpoint.IsLoopback` accepts only the written host `localhost`, 127.0.0.0/8 and `::1` (.NET's `Uri.Host` turns the
+  name `loopback` into `localhost`, so the host is read from the address as written); a user part is refused with `UserInfoMessage`.
+- [ ] **R2-13 Core points.** `MailSync.RunTypesAsync` runs all three syncs and keeps the first error (a refusal for good stops the rest,
+  R2-01); a push stream the transport refused is traced before polling; `MailEventHub` takes key and engine from one
+  `IActiveMail.SyncSnapshot()`; `AccountManager.ConnectAsync` starts the attempt outside the lock (a `TaskCompletionSource` holds the
+  shared attempt), so `StatusesChanged` is never raised under it; `SecretServiceStore` honours the token and says how to unlock a locked
+  keyring (Linux unproven).

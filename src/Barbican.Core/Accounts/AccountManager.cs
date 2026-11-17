@@ -25,7 +25,7 @@ using Barbican.Core.Storage;
 namespace Barbican.Core.Accounts;
 
 /// <summary>The signed-in accounts, sign-in, switching and the account rows.</summary>
-public sealed class AccountManager : IAccountManager, IAccountOverview, IAsyncDisposable
+public sealed partial class AccountManager : IAccountManager, IAccountOverview, IAsyncDisposable
 {
     /// <summary>How often an inactive account's inbox unread is read.</summary>
     public static readonly TimeSpan UnreadInterval = TimeSpan.FromMinutes(2);
@@ -46,6 +46,7 @@ public sealed class AccountManager : IAccountManager, IAccountOverview, IAsyncDi
     private readonly IHookBus _hooks;
     private readonly TimeProvider _time;
     private readonly JmapClientOptions _options;
+    private readonly Mail.Cache.IBodyCache? _bodies;
     private readonly Lock _lock = new();
     private readonly Dictionary<string, Entry> _entries = new(StringComparer.Ordinal);
     private readonly List<string> _order = [];
@@ -65,7 +66,8 @@ public sealed class AccountManager : IAccountManager, IAccountOverview, IAsyncDi
         ReadOnlyPolicy policy,
         IHookBus hooks,
         TimeProvider time,
-        JmapClientOptions? options = null)
+        JmapClientOptions? options = null,
+        Mail.Cache.IBodyCache? bodies = null)
     {
         _jmap = jmap;
         _mail = mail;
@@ -77,6 +79,7 @@ public sealed class AccountManager : IAccountManager, IAccountOverview, IAsyncDi
         _hooks = hooks;
         _time = time;
         _options = options ?? new JmapClientOptions();
+        _bodies = bodies;
     }
 
     /// <inheritdoc/>
@@ -393,6 +396,8 @@ public sealed class AccountManager : IAccountManager, IAccountOverview, IAsyncDi
     private Task<Result<AccountSession>> ConnectAsync(string key, CancellationToken ct)
     {
         Entry e;
+        StoredAccount stored;
+        TaskCompletionSource<Result<AccountSession>> attempt;
         lock (_lock)
         {
             e = _entries[key];
@@ -412,50 +417,80 @@ public sealed class AccountManager : IAccountManager, IAccountOverview, IAsyncDi
                 return Task.FromResult(Result<AccountSession>.Fail(new AuthError($"{e.Info.User} needs to sign in again.", NeedsSignIn: true)));
             }
 
-            // a connect that finished synchronously already ran its finally (this lock is re-entrant): keeping the task would pin its result
-            // and the account could never be retried
-            var attempt = ConnectStoredAsync(e, e.Stored, _life.Token);
-            e.Connecting = attempt.IsCompleted ? null : attempt;
-            return attempt.WaitAsync(ct);
+            // R2-13: the attempt starts outside the lock, so the events it raises never run under it
+            attempt = new TaskCompletionSource<Result<AccountSession>>(TaskCreationOptions.RunContinuationsAsynchronously);
+            e.Connecting = attempt.Task;
+            stored = e.Stored;
+        }
+
+        _ = RunConnectAsync(e, stored, attempt);
+        return attempt.Task.WaitAsync(ct);
+    }
+
+    // the attempt is cleared from its entry before its result is handed out, so a caller that retries at once starts a new one
+    private async Task RunConnectAsync(Entry e, StoredAccount stored, TaskCompletionSource<Result<AccountSession>> attempt)
+    {
+        void Done()
+        {
+            lock (_lock)
+            {
+                if (ReferenceEquals(e.Connecting, attempt.Task))
+                {
+                    e.Connecting = null;
+                }
+            }
+        }
+
+        try
+        {
+            var r = await ConnectStoredAsync(e, stored, _life.Token).ConfigureAwait(false);
+            Done();
+            attempt.TrySetResult(r);
+        }
+        catch (OperationCanceledException oce)
+        {
+            Done();
+            attempt.TrySetCanceled(oce.CancellationToken);
+        }
+#pragma warning disable CA1031 // handed to every caller of the attempt through the task, not swallowed
+        catch (Exception ex)
+#pragma warning restore CA1031
+        {
+            Done();
+            attempt.TrySetException(ex);
         }
     }
 
     private async Task<Result<AccountSession>> ConnectStoredAsync(Entry e, StoredAccount stored, CancellationToken ct)
     {
-        try
+        var read = ServerEndpoint.Read(stored.Server);
+        if (!read.IsOk)
         {
-            var read = ServerEndpoint.Read(stored.Server);
-            if (!read.IsOk)
-            {
-                return Fail(new AuthError($"The remembered server address cannot be used. {read.Error!.Message}", NeedsSignIn: true));
-            }
-
-            var endpoint = read.Value!;
-
-            if (SourceFor(stored) is not var (source, oauth))
-            {
-                return Fail(new AuthError($"{OAuthTokenSource.NeedsSignInPrefix}; sign in again.", NeedsSignIn: true));
-            }
-
-            var connected = await _jmap.ConnectAsync(endpoint, source, OptionsFor(stored), ct).ConfigureAwait(false);
-            if (!connected.IsOk)
-            {
-                oauth?.Dispose();
-                return Fail(connected.Error!);
-            }
-
-            var session = Attach(e, stored, connected.Value!, source, oauth);
-            await NotifyAsync(HookNames.OnAuthReady, new AccountHookPayload(session.Account.Key), ct).ConfigureAwait(false);
-            _ = RefreshUnreadOfAsync(session.Account.Key, session, _life.Token);
-            return Result<AccountSession>.Ok(session);
+            return Fail(new AuthError($"The remembered server address cannot be used. {read.Error!.Message}", NeedsSignIn: true));
         }
-        finally
+
+        var endpoint = read.Value!;
+
+        if (SourceFor(stored) is not var (source, oauth))
         {
-            lock (_lock)
-            {
-                e.Connecting = null;
-            }
+            return Fail(new AuthError($"{OAuthTokenSource.NeedsSignInPrefix}; sign in again.", NeedsSignIn: true));
         }
+
+        var connected = await _jmap.ConnectAsync(endpoint, source, OptionsFor(stored), ct).ConfigureAwait(false);
+        if (!connected.IsOk)
+        {
+            oauth?.Dispose();
+            return Fail(connected.Error!);
+        }
+
+        if (Attach(e, stored, connected.Value!, source, oauth) is not { } session)
+        {
+            return Result<AccountSession>.Fail(new AuthError($"{stored.User} was signed out.", NeedsSignIn: false));
+        }
+
+        await NotifyAsync(HookNames.OnAuthReady, new AccountHookPayload(session.Account.Key), ct).ConfigureAwait(false);
+        _ = RefreshUnreadOfAsync(session.Account.Key, session, _life.Token);
+        return Result<AccountSession>.Ok(session);
 
         Result<AccountSession> Fail(JmapError error)
         {
@@ -471,8 +506,9 @@ public sealed class AccountManager : IAccountManager, IAccountOverview, IAsyncDi
         }
     }
 
-    // a remembered account's new session goes on its entry; an account already on screen ("connecting") is announced again so its mail loads
-    private AccountSession Attach(Entry e, StoredAccount stored, IJmapClient client, AuthLatch source, OAuthTokenSource? oauth)
+    // a remembered account's new session goes on its entry; an account already on screen ("connecting") is announced again so its mail loads;
+    // null when the account was signed out while it connected (the new session is closed at once)
+    private AccountSession? Attach(Entry e, StoredAccount stored, IJmapClient client, AuthLatch source, OAuthTokenSource? oauth)
     {
         var info = stored.ToInfo(client.IsReadOnly);
         var service = _mail.CreateService(client);
@@ -481,6 +517,12 @@ public sealed class AccountManager : IAccountManager, IAccountOverview, IAsyncDi
         bool active;
         lock (_lock)
         {
+            if (!_entries.TryGetValue(info.Key, out var current) || !ReferenceEquals(current, e))
+            {
+                session.Dispose();
+                return null;
+            }
+
             e.Info = info;
             e.Session = session;
             e.Error = null;

@@ -38,6 +38,13 @@ public sealed class ActiveMailSource : IActiveMail, IDisposable
 
     public void Dispose() => _accounts.ActiveChanged -= OnActiveChanged;
 
+    /// <inheritdoc/>
+    public (string? AccountKey, IMailSync? Sync) SyncSnapshot()
+    {
+        var key = _accounts.Active?.Key;
+        return (key, key is null ? null : _accounts.SessionFor(key)?.Sync);
+    }
+
     private IAccountSession? Session() => _accounts.Active is { } a ? _accounts.SessionFor(a.Key) : null;
 
     private void OnActiveChanged(object? sender, ActiveAccountChangedEventArgs e)

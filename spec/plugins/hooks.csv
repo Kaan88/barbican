@@ -170,10 +170,10 @@ onLogin,auth,observer,auth:observe,,"{ accountId, username }",after a sign-in,li
 onAuthReady,auth,observer,auth:observe,,{ accountId },when the session is ready after start or sign-in,lib/plugin-hook-catalog.ts:277,M1,accounts,src/Barbican.Core/Accounts/AccountManager.cs:332,done,5000,false
 onTokenRefresh,auth,observer,auth:observe,,{ accountId },after the access token was renewed,lib/plugin-hook-catalog.ts:278,M1,accounts,src/Barbican.Core/Accounts/AccountManager.cs:534,done,5000,false
 onAccountAdd,auth,observer,auth:observe,,{ accountId },after another account was added,lib/plugin-hook-catalog.ts:279,M1,accounts,src/Barbican.Core/Accounts/AccountManager.cs:335,done,5000,false
-onAccountRemove,auth,observer,auth:observe,,{ accountId },after an account was removed,lib/plugin-hook-catalog.ts:280,M2,unified,,pending,5000,false
+onAccountRemove,auth,observer,auth:observe,,{ accountId },after an account was removed,lib/plugin-hook-catalog.ts:280,M2,unified,src/Barbican.Core/Accounts/AccountManager.Maintenance.cs:129,done,5000,false
 onAccountSwitch,auth,observer,app:lifecycle,,"{ accountId, previousAccountId }",after another account was made active,lib/plugin-hook-catalog.ts:281,M1,accounts,src/Barbican.Core/Accounts/AccountManager.cs:482,done,5000,false
-onBeforeLogout,auth,observer,app:lifecycle,,{ accountId },just before signing out,lib/plugin-hook-catalog.ts:282,M2,unified,,pending,5000,false
-onAfterLogout,auth,observer,app:lifecycle,,{ accountId },after signing out,lib/plugin-hook-catalog.ts:283,M2,unified,,pending,5000,false
+onBeforeLogout,auth,observer,app:lifecycle,,{ accountId },just before signing out,lib/plugin-hook-catalog.ts:282,M2,unified,src/Barbican.Core/Accounts/AccountManager.Maintenance.cs:98,done,5000,false
+onAfterLogout,auth,observer,app:lifecycle,,{ accountId },after signing out,lib/plugin-hook-catalog.ts:283,M2,unified,src/Barbican.Core/Accounts/AccountManager.Maintenance.cs:128,done,5000,false
 onOAuthCallback,auth,observer,http:fetch,,OAuthCallbackPayload,when a third-party OAuth flow this plugin started returns,lib/plugin-hook-catalog.ts:284,M6b,,,pending,5000,false
 onPasswordChange,security,observer,security:read,,{},after the account password was changed,lib/plugin-hook-catalog.ts:287,M6,,,pending,5000,false
 onTotpChange,security,observer,security:read,,{ enabled },after two-factor sign-in was turned on or off,lib/plugin-hook-catalog.ts:288,M6,,,pending,5000,false

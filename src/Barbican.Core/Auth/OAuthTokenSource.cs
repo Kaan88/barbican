@@ -1,7 +1,8 @@
 // Mirrors: Rust oauth.rs:328 refresh_with (grant_type=refresh_token, the old refresh token kept when none comes back), :338 refresh (under
 // the cross-process lock: adopt the stored token first; on a rejection re-read the store and retry once with a token rotated elsewhere;
 // never delete), :270 NEEDS_SIGN_IN ("Session expired"); jmap.rs:242 (on 401 renew once and send again; the transport does the retry,
-// AuthorizedHttp). RFC 6749 §6 (refreshing), §5.2 (errors); Stalwart crates/common/src/auth/oauth/token.rs (refresh tokens rotate).
+// AuthorizedHttp). Fable review 2 R2-06: when the stored token is refused and differs from the one this instance holds in memory, the
+// in-memory one is tried once too (the vault may hold a token another instance wrote before its own refresh failed). RFC 6749 §6 (refreshing), §5.2 (errors); Stalwart crates/common/src/auth/oauth/token.rs (refresh tokens rotate).
 // Bulwark lib/oauth/tokens.ts and slot-renewal.ts renew ahead of expiry the same way. spec B-OAUTH-012..B-OAUTH-016, J-020 (token side).
 
 using System.Net.Http.Headers;
@@ -115,7 +116,7 @@ public sealed class OAuthTokenSource : IAccessTokenSource, IDisposable
     private async Task<Result<AuthenticationHeaderValue>> RefreshAsync(OAuthTokens t, string mine, CancellationToken ct)
     {
         var used = await _store.ReadAsync(AccountKey, ct).ConfigureAwait(false) is { Length: > 0 } stored ? stored : mine;
-        var retried = false;
+        var tried = new HashSet<string>(StringComparer.Ordinal) { used };
         while (true)
         {
             var r = await _http.PostFormAsync(t.TokenEndpoint, new Dictionary<string, string>(StringComparer.Ordinal)
@@ -144,9 +145,11 @@ public sealed class OAuthTokenSource : IAccessTokenSource, IDisposable
             var now = await _store.ReadAsync(AccountKey, ct).ConfigureAwait(false);
             switch (OAuthRefresh.Decide(used, now, rejected))
             {
-                case RetryWithStored retry when !retried:
-                    retried = true;
+                case RetryWithStored retry when tried.Add(retry.RefreshToken):
                     used = retry.RefreshToken;
+                    continue;
+                case RetryWithStored or NeedsSignIn when tried.Add(mine):
+                    used = mine;
                     continue;
                 case RetryWithStored or NeedsSignIn:
                     return SignInAgain(error.Message);

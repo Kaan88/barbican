@@ -17,6 +17,9 @@ public interface IActiveMail
 
     IMailSync? Sync { get; }
 
+    /// <summary>The active account's key and sync engine read together (R2-13: a switch between two reads would pair one account's engine with the other's key).</summary>
+    (string? AccountKey, IMailSync? Sync) SyncSnapshot() => (AccountKey, Sync);
+
     /// <summary>The active account changed (or signed out): drop what belongs to the old one.</summary>
     event EventHandler? Changed;
 }

@@ -4,6 +4,7 @@
 // the keyring crate (secret_service.rs: the same calls through libsecret's D-Bus API). A locked keyring is reported, never unlocked with a
 // prompt: a prompt would put a window on the screen (M1-plan §1).
 // Unverified on Linux at the time of writing: the VM was unreachable (FABLE-REVIEW "M1 stream: accounts").
+// Fable review 2 R2-13 (M2 unified): the cancellation token is used and a locked keyring says how to unlock it.
 
 using System.Security.Cryptography;
 using System.Text;
@@ -24,6 +25,9 @@ public sealed class SecretServiceStore(string profile) : ISecretStore
     private const string DefaultCollection = "/org/freedesktop/secrets/aliases/default";
     private const string ServiceInterface = "org.freedesktop.Secret.Service";
 
+    /// <summary>What a locked keyring says (R2-13): the app never shows the unlock prompt itself, so the user is told how to unlock it.</summary>
+    public const string LockedMessage = "The keyring is locked. Unlock it (sign in to the desktop again, or open your keyring manager and unlock the default keyring), then try again.";
+
     /// <summary>The profile whose items this store reads and writes.</summary>
     public string Profile { get; } = profile;
 
@@ -36,7 +40,7 @@ public sealed class SecretServiceStore(string profile) : ISecretStore
         {
             return locked.Length == 0
                 ? Result<string?>.Ok(null)
-                : Result<string?>.Fail(new TransportError("The keyring is locked.", Retryable: true));
+                : Result<string?>.Fail(new TransportError(LockedMessage, Retryable: true));
         }
 
         var bytes = await GetSecretAsync(c, unlocked[0], session).ConfigureAwait(false);
@@ -51,7 +55,7 @@ public sealed class SecretServiceStore(string profile) : ISecretStore
                 CryptographicOperations.ZeroMemory(bytes);
             }
         }
-    });
+    }, ct);
 
     /// <inheritdoc/>
     public Task<Result<Unit>> WriteAsync(SecretName name, string value, CancellationToken ct)
@@ -68,13 +72,13 @@ public sealed class SecretServiceStore(string profile) : ISecretStore
                 var created = await CreateItemAsync(c, session, $"Barbican ({Profile}): {name.Kind}", Attributes(name), bytes).ConfigureAwait(false);
                 return created
                     ? Result<Unit>.Ok(default)
-                    : Result<Unit>.Fail(new TransportError("The keyring is locked.", Retryable: true));
+                    : Result<Unit>.Fail(new TransportError(LockedMessage, Retryable: true));
             }
             finally
             {
                 CryptographicOperations.ZeroMemory(bytes);
             }
-        });
+        }, ct);
     }
 
     /// <inheritdoc/>
@@ -87,7 +91,7 @@ public sealed class SecretServiceStore(string profile) : ISecretStore
         }
 
         return Result<Unit>.Ok(default);
-    });
+    }, ct);
 
     /// <summary>The attributes of an item: schema, profile, name (and account when given).</summary>
     public IReadOnlyDictionary<string, string> Attributes(SecretName name)
@@ -101,8 +105,10 @@ public sealed class SecretServiceStore(string profile) : ISecretStore
         return a;
     }
 
-    private static async Task<Result<T>> RunAsync<T>(Func<DBusConnection, Task<Result<T>>> body)
+    // R2-13: the token is honoured (the D-Bus calls take none, so the wait for them is cancelled instead)
+    private static async Task<Result<T>> RunAsync<T>(Func<DBusConnection, Task<Result<T>>> body, CancellationToken ct)
     {
+        ct.ThrowIfCancellationRequested();
         if (DBusAddress.Session is not { Length: > 0 } address)
         {
             return Result<T>.Fail(new TransportError("No D-Bus session bus: the Secret Service is not available.", Retryable: false));
@@ -111,8 +117,8 @@ public sealed class SecretServiceStore(string profile) : ISecretStore
         try
         {
             using var connection = new DBusConnection(address);
-            await connection.ConnectAsync().ConfigureAwait(false);
-            return await body(connection).ConfigureAwait(false);
+            await connection.ConnectAsync().AsTask().WaitAsync(ct).ConfigureAwait(false);
+            return await body(connection).WaitAsync(ct).ConfigureAwait(false);
         }
         catch (DBusExceptionBase e)
         {

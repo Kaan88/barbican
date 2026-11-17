@@ -37,6 +37,8 @@ public sealed partial class MailSync
     /// <inheritdoc/>
     public async Task RunAsync(CancellationToken ct)
     {
+        using var stopped = CancellationTokenSource.CreateLinkedTokenSource(ct, _stop.Token);
+        ct = stopped.Token;
         lock (_lock)
         {
             _runToken = ct;
@@ -179,7 +181,9 @@ public sealed partial class MailSync
                     _authReported = true;
                     Emit(new SyncProblemEvent(auth.Message, auth.NeedsSignIn));
                     break;
-                case TransportError { Retryable: false }:
+                case TransportError { Retryable: false } refusedTransport:
+                    // R2-13: also a stream the transport would not open (an event-source URL on another origin): polling from now on
+                    _client.Trace.Event("PUSH", $"no event source ({refusedTransport.Message}); polling instead");
                     return false;
                 default:
                     break;

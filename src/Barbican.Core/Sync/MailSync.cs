@@ -27,6 +27,7 @@ public sealed partial class MailSync : IMailSync, IDisposable
     private readonly TimeProvider _time;
     private readonly Channel<MailSyncEvent> _events = Channel.CreateUnbounded<MailSyncEvent>(new UnboundedChannelOptions { SingleReader = false });
     private readonly SemaphoreSlim _gate = new(1, 1);
+    private readonly CancellationTokenSource _stop = new();
     private readonly Lock _lock = new();
     private readonly NewMailWatcher _newMail;
     private WatchedList? _watched;
@@ -122,6 +123,9 @@ public sealed partial class MailSync : IMailSync, IDisposable
     /// <inheritdoc/>
     public void Dispose()
     {
+        // stops a running push stream or poll too (a signed-out account's engine must not keep its stream open)
+        _stop.Cancel();
+        _stop.Dispose();
         _timer.Dispose();
         _gate.Dispose();
         _events.Writer.TryComplete();
@@ -129,21 +133,26 @@ public sealed partial class MailSync : IMailSync, IDisposable
 
     private async Task<string?> RunTypesAsync(IReadOnlySet<string> types, List<EmailSummary> hear, CancellationToken ct)
     {
-        bool Has(string t) => types.Contains(t);
+        // R2-13: all three run and the first error is kept (a failed folder sync must not hold back the list or the new-mail check); only a
+        // refusal for good stops the rest, which would only add failed logins (R2-01)
         JmapError? error = null;
+        bool Has(string t) => types.Contains(t);
+        bool Go() => error is not AuthError { NeedsSignIn: true };
         if (Has("Mailbox") || Has("Email") || Has("Thread"))
         {
-            error ??= await SyncMailboxesAsync(ct).ConfigureAwait(false);
+            error = await SyncMailboxesAsync(ct).ConfigureAwait(false);
         }
 
-        if (Has("Email") || Has("Thread"))
+        if ((Has("Email") || Has("Thread")) && Go())
         {
-            error ??= await SyncListAsync(ct).ConfigureAwait(false);
+            var list = await SyncListAsync(ct).ConfigureAwait(false);
+            error ??= list;
         }
 
-        if (Has("Email") || Has("EmailDelivery"))
+        if ((Has("Email") || Has("EmailDelivery")) && Go())
         {
-            error ??= await CheckNewMailAsync(hear, ct).ConfigureAwait(false);
+            var mail = await CheckNewMailAsync(hear, ct).ConfigureAwait(false);
+            error ??= mail;
         }
 
         if (error is AuthError { NeedsSignIn: true } refused)
