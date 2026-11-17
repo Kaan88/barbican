@@ -28,6 +28,7 @@ public sealed partial class ShellPage : Page
     private AccountStatus? _requested;
     private string? _offered;
     private string? _dismissed;
+    private bool? _appliedNordic;
 
     public ShellPage()
     {
@@ -101,14 +102,71 @@ public sealed partial class ShellPage : Page
         };
     }
 
-    // The region frame follows the style and the window width: one pass, nothing is rebuilt.
+    // The region frame follows the style and the window width: one pass, nothing is rebuilt. A style change also gets the prototype's short rise of the
+    // mail screen (ApplyStyle animate: true), shortened to the enter token; the new layout is complete on the first frame and nothing waits for it.
     private void ApplyLook()
     {
         var layout = _look.Layout;
-        MailScreen.Padding = _look.WindowPadding;
+        var band = HasTitleBand;
+        TitleRow.Height = new GridLength(band ? _look.TitleBarHeight : 0);
+        var pad = _look.WindowPadding;
+        MailScreen.Padding = band ? pad : new Thickness(pad.Left, pad.Bottom, pad.Right, pad.Bottom);
         MailScreen.ColumnSpacing = _look.Gap;
         SidebarRegion.Visibility = layout.SidebarShown ? Visibility.Visible : Visibility.Collapsed;
+        Surface.Background = _look.SurfaceBrush;
+        Surface.BorderBrush = AppResources.Brush("Line");
+        Surface.BorderThickness = _look.SurfaceBorder;
+        Surface.CornerRadius = _look.SurfaceRadius;
+        SurfaceGrid.ColumnSpacing = _look.Gap;
+        ReaderColumn.RowSpacing = _look.Gap;
         GlanceRegion.Visibility = layout.SummaryTilesShown && _look.IsBento ? Visibility.Visible : Visibility.Collapsed;
+        ContextRegion.Visibility = layout.ContextShown ? Visibility.Visible : Visibility.Collapsed;
+        if (_appliedNordic is { } before && before != _look.IsNordic)
+        {
+            Rise.Run(MailScreen, MailShift, MotionRuntime.Scale.EnterMs);
+        }
+
+        _appliedNordic = _look.IsNordic;
+    }
+
+    // The title band exists where the window's content is extended into its title bar: the WinUI head. The Linux head keeps the window manager's
+    // title bar, so the band would be dead space there.
+#if WINDOWS
+    private static bool HasTitleBand => true;
+#else
+    private static bool HasTitleBand => false;
+#endif
+
+    /// <summary>
+    /// Extends the content into the title bar (the prototype's look: no system title bar, the title band is the drag area) and keeps the caption
+    /// buttons in the palette across theme changes. Only for a window shown normally; a hidden window has no title bar at all.
+    /// </summary>
+    public void AttachWindow(Window window)
+    {
+        ArgumentNullException.ThrowIfNull(window);
+#if WINDOWS
+        window.ExtendsContentIntoTitleBar = true;
+        window.SetTitleBar(TitleBand);
+        void Caption()
+        {
+            var bar = window.AppWindow.TitleBar;
+            var clear = Windows.UI.Color.FromArgb(0, 0, 0, 0);
+            bar.ButtonBackgroundColor = clear;
+            bar.ButtonInactiveBackgroundColor = clear;
+            bar.ButtonForegroundColor = AppResources.Brush("Dim").Color;
+            bar.ButtonHoverBackgroundColor = AppResources.Brush("Hover").Color;
+            bar.ButtonHoverForegroundColor = AppResources.Brush("Text").Color;
+            bar.ButtonPressedBackgroundColor = AppResources.Brush("Pressed").Color;
+            bar.ButtonPressedForegroundColor = AppResources.Brush("Text").Color;
+            bar.ButtonInactiveForegroundColor = AppResources.Brush("Faint").Color;
+        }
+
+        Caption();
+        _theme.CssApplied += (_, _) => Caption();
+#else
+        // the window manager draws the title bar (HasTitleBand)
+        TitleBand.Visibility = Visibility.Collapsed;
+#endif
     }
 
     // Sign-in shows when the accounts exist as a service and, once the remembered ones are restored: none is active; or the account on screen was

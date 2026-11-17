@@ -69,6 +69,27 @@ public static class Fmt
 
     public static Brush TimeBrush(bool unread) => Palette(unread ? "Accent" : "Faint");
 
+    /// <summary>The prototype's row text: the sender is bold when unread (Bento semibold, Nordic medium otherwise); the subject is plain in Bento and
+    /// follows the sender in Nordic; the time is the accent when unread in Bento and dim in Nordic.</summary>
+    public static FontWeight SenderWeight(bool unread, bool nordic) => unread ? FontWeights.Bold : nordic ? FontWeights.Medium : FontWeights.SemiBold;
+
+    public static FontWeight SubjectWeight(bool unread, bool nordic) => nordic ? (unread ? FontWeights.Bold : FontWeights.Medium) : FontWeights.Normal;
+
+    public static Brush RowTimeBrush(bool unread, bool nordic) => Palette(nordic ? "Dim" : unread ? "Accent" : "Faint");
+
+    public static FontWeight RowTimeWeight(bool nordic) => nordic ? FontWeights.Normal : FontWeights.SemiBold;
+
+    /// <summary>The unread dot: Bento shows it only for unread rows; Nordic keeps its place on every row so the names line up.</summary>
+    public static Visibility DotVis(bool unread, bool nordic) => unread || nordic ? Visibility.Visible : Visibility.Collapsed;
+
+    public static string UnreadText(int unread) => unread > 0 ? $"{unread} unread" : string.Empty;
+
+    /// <summary>Section headings: "FOLDERS" in Bento (tracked caps, prototype LABELS), "Folders" in Nordic.</summary>
+    public static string SectionTitle(string title, bool bento) => bento ? title.ToUpperInvariant() : title;
+
+    /// <summary>The storage meter shows in Bento when the server reports a quota; Nordic shows the text only (prototype StorageText).</summary>
+    public static Visibility VisStorageMeter(double fraction, bool bento) => bento && fraction >= 0 ? Visibility.Visible : Visibility.Collapsed;
+
     public static GridLength Star(double fraction) => new(Math.Clamp(fraction, 0, 1), GridUnitType.Star);
 
     public static GridLength StarRest(double fraction) => new(1 - Math.Clamp(fraction, 0, 1), GridUnitType.Star);
@@ -113,7 +134,7 @@ public static class Fmt
 
     public static string TasksValue(bool hasTasks, int count) => !hasTasks ? "No tasks" : count switch { 0 => "All clear", 1 => "1 task", _ => $"{count} tasks" };
 
-    public static Brush RailBackground(AppId active, string app) => Palette(string.Equals(active.ToString(), app, StringComparison.Ordinal) ? "Sel" : "Hover");
+    public static Brush RailBackground(AppId active, string app) => string.Equals(active.ToString(), app, StringComparison.Ordinal) ? Palette("Sel") : new SolidColorBrush(Color.FromArgb(0, 0, 0, 0));
 
     public static Brush RailForeground(AppId active, string app) => Palette(string.Equals(active.ToString(), app, StringComparison.Ordinal) ? "SelText" : "Faint");
 

@@ -1,0 +1,53 @@
+<UserControl
+    x:Class="Barbican.App.Views.Context.ContextView"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:theme="using:Barbican.App.Theme"
+    xmlns:views="using:Barbican.App.Views"
+    xmlns:local="using:Barbican.App.Views.Context">
+  <!-- The sender panel beside the reader (prototype/winui/MainWindow.xaml ContextTile / NordContext): the open message's sender, the authentication verdict,
+       and the sender's other messages in the loaded list. Display only. Shown when the reader keeps at least StyleMetrics.ContextMinReader (ShellLayout.ContextShown);
+       Bento: its own tile; Nordic: the right part of the surface behind a hairline. Nothing here animates. -->
+  <Border Width="{x:Bind Look.ContextWidth, Mode=OneWay}" Background="{x:Bind Look.PaneBrush, Mode=OneWay}" BorderBrush="{StaticResource Line}" BorderThickness="{x:Bind Look.ContextBorder, Mode=OneWay}"
+          CornerRadius="{x:Bind Look.ContextRadius, Mode=OneWay}" AutomationProperties.AutomationId="context" AutomationProperties.Name="Sender">
+    <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollMode="Disabled">
+      <StackPanel x:Name="Panel" Padding="{x:Bind Look.ContextPadding, Mode=OneWay}" Spacing="{x:Bind Look.ContextSpacing, Mode=OneWay}" Visibility="Collapsed">
+        <Border Width="{x:Bind Look.ContextAvatarSize, Mode=OneWay}" Height="{x:Bind Look.ContextAvatarSize, Mode=OneWay}" CornerRadius="{x:Bind Look.ContextAvatarRadius, Mode=OneWay}"
+                Background="{x:Bind views:Fmt.TintBg(Reader.Header.TintIndex), Mode=OneWay}" HorizontalAlignment="Left">
+          <TextBlock Text="{x:Bind Reader.Header.Initials, Mode=OneWay}" FontSize="{x:Bind Look.ContextInitialsSize, Mode=OneWay}" FontWeight="ExtraBold"
+                     Foreground="{x:Bind views:Fmt.TintFg(Reader.Header.TintIndex), Mode=OneWay}" HorizontalAlignment="Center" VerticalAlignment="Center" />
+        </Border>
+        <StackPanel Spacing="2">
+          <TextBlock Text="{x:Bind Reader.Header.From, Mode=OneWay}" FontSize="{x:Bind Look.ContextNameSize, Mode=OneWay}" FontWeight="{x:Bind Look.ContextNameWeight, Mode=OneWay}"
+                     Foreground="{StaticResource Text}" TextWrapping="Wrap" MaxLines="2" TextTrimming="CharacterEllipsis" AutomationProperties.AutomationId="context.name" />
+          <TextBlock Text="{x:Bind Reader.Header.Email, Mode=OneWay}" FontSize="12.5" Foreground="{StaticResource Faint}" TextTrimming="CharacterEllipsis" IsTextSelectionEnabled="True" />
+        </StackPanel>
+        <Border Height="24" CornerRadius="12" Padding="10,0" HorizontalAlignment="Left" Background="{x:Bind views:Fmt.VerdictBackground(Reader.AuthVerdict), Mode=OneWay}">
+          <TextBlock Text="{x:Bind views:Fmt.AuthLabel(Reader.AuthVerdict), Mode=OneWay}" FontSize="11.5" FontWeight="SemiBold" Foreground="{x:Bind views:Fmt.VerdictForeground(Reader.AuthVerdict), Mode=OneWay}"
+                     VerticalAlignment="Center" />
+        </Border>
+        <Rectangle Height="1" Fill="{StaticResource Line}" Visibility="{x:Bind Look.NordicOnly, Mode=OneWay}" />
+        <StackPanel x:Name="RecentPanel" Spacing="8">
+          <TextBlock Text="{x:Bind views:Fmt.SectionTitle('Recent', Look.IsBento), Mode=OneWay}" FontSize="{x:Bind Look.SectionHeaderSize, Mode=OneWay}" FontWeight="Bold"
+                     CharacterSpacing="{x:Bind Look.SectionHeaderSpacing, Mode=OneWay}" Foreground="{x:Bind Look.SectionHeaderBrush, Mode=OneWay}" />
+          <ItemsRepeater x:Name="RecentList" AutomationProperties.AutomationId="context.recent" AutomationProperties.Name="Recent messages from this sender">
+            <ItemsRepeater.Layout>
+              <StackLayout Orientation="Vertical" Spacing="8" />
+            </ItemsRepeater.Layout>
+            <ItemsRepeater.ItemTemplate>
+              <DataTemplate x:DataType="local:RecentItem">
+                <Border CornerRadius="14" Padding="12,9,12,10" Background="{x:Bind theme:StyleState.Current.RecentBrush, Mode=OneWay}" BorderBrush="{StaticResource Line}"
+                        BorderThickness="{x:Bind theme:StyleState.Current.CardBorder, Mode=OneWay}">
+                  <StackPanel Spacing="2">
+                    <TextBlock Text="{x:Bind Subject}" FontSize="13" FontWeight="SemiBold" Foreground="{StaticResource Body}" TextTrimming="CharacterEllipsis" />
+                    <TextBlock Text="{x:Bind Time}" FontSize="11.5" Foreground="{StaticResource Faint}" />
+                  </StackPanel>
+                </Border>
+              </DataTemplate>
+            </ItemsRepeater.ItemTemplate>
+          </ItemsRepeater>
+        </StackPanel>
+      </StackPanel>
+    </ScrollViewer>
+  </Border>
+</UserControl>

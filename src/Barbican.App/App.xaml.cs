@@ -54,7 +54,8 @@ public partial class BarbicanApp : Application
 
         _host = AppComposition.Build(options);
         _window = new Window { Title = "Barbican" };
-        UIElement content = new Shell.ShellPage();
+        var shell = new Shell.ShellPage();
+        UIElement content = shell;
         var smoke = options.IsSmoke ? new SmokeRun(_window, options, launchedMs) : null;
         if (smoke is not null)
         {
@@ -75,6 +76,7 @@ public partial class BarbicanApp : Application
                 _window.Activate();
                 break;
             case HiddenWindowMode.Normal:
+                shell.AttachWindow(_window); // the prototype's chrome: content in the title bar, palette caption buttons
                 _window.Activate();
                 break;
         }

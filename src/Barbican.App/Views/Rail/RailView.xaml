@@ -10,22 +10,25 @@
     xmlns:motion="using:Barbican.App.Motion"
     xmlns:views="using:Barbican.App.Views"
     xmlns:accounts="using:Barbican.App.Views.Accounts">
-  <!-- The app rail (spec/layout/shell.md "Rail"; mockups BNMail nav / NordMail nav): a tile in Bento, bare in Nordic. Apps that do not exist yet are shown and inert. -->
+  <!-- The app rail (spec/layout/shell.md "Rail"; mockups BNMail nav / NordMail nav; prototype BuildRail): a tile in Bento, bare in Nordic. Inactive apps are bare icons
+       (no fill until hovered); apps that do not exist yet are shown and inert. -->
   <Border x:Name="Pane" Background="{x:Bind Look.PaneBrush, Mode=OneWay}" BorderBrush="{StaticResource Line}"
           BorderThickness="{x:Bind Look.RailBorder, Mode=OneWay}" CornerRadius="{x:Bind Look.RailRadius, Mode=OneWay}"
           Width="{x:Bind Look.RailWidth, Mode=OneWay}" Padding="{x:Bind Look.RailPadding, Mode=OneWay}">
     <Grid RowDefinitions="Auto,Auto,*,Auto,Auto" AutomationProperties.AutomationId="rail" AutomationProperties.Name="Apps">
-      <Canvas Grid.Row="0" Width="{x:Bind Look.MarkSize, Mode=OneWay}" Height="{x:Bind Look.MarkSize, Mode=OneWay}" HorizontalAlignment="Center"
-              AutomationProperties.AutomationId="rail.mark" AutomationProperties.Name="Barbican">
-        <Canvas.RenderTransform>
-          <ScaleTransform ScaleX="1" ScaleY="1" />
-        </Canvas.RenderTransform>
-        <Rectangle Canvas.Left="3" Canvas.Top="12" Width="7" Height="19" RadiusX="3.5" RadiusY="3.5" Fill="{StaticResource Accent}" />
-        <Rectangle Canvas.Left="13.5" Canvas.Top="3" Width="7" Height="28" RadiusX="3.5" RadiusY="3.5" Fill="{StaticResource Accent}" Opacity="0.7" />
-        <Rectangle Canvas.Left="24" Canvas.Top="8" Width="7" Height="23" RadiusX="3.5" RadiusY="3.5" Fill="{StaticResource Accent}" Opacity="0.4" />
-      </Canvas>
+      <!-- The mark: Bento the "B" squircle, Nordic the three bars (prototype BuildRail). -->
+      <Grid Grid.Row="0" HorizontalAlignment="Center" AutomationProperties.AutomationId="rail.mark" AutomationProperties.Name="Barbican">
+        <Border Width="40" Height="40" CornerRadius="13" Background="{StaticResource Accent}" Visibility="{x:Bind Look.BentoOnly, Mode=OneWay}">
+          <TextBlock Text="B" FontWeight="Black" FontSize="18" Foreground="{StaticResource OnAccent}" HorizontalAlignment="Center" VerticalAlignment="Center" />
+        </Border>
+        <Canvas Width="34" Height="34" Visibility="{x:Bind Look.NordicOnly, Mode=OneWay}">
+          <Rectangle Canvas.Left="3" Canvas.Top="12" Width="7" Height="19" RadiusX="3.5" RadiusY="3.5" Fill="{StaticResource Accent}" />
+          <Rectangle Canvas.Left="13.5" Canvas.Top="3" Width="7" Height="28" RadiusX="3.5" RadiusY="3.5" Fill="{StaticResource Accent}" Opacity="0.7" />
+          <Rectangle Canvas.Left="24" Canvas.Top="8" Width="7" Height="23" RadiusX="3.5" RadiusY="3.5" Fill="{StaticResource Accent}" Opacity="0.4" />
+        </Canvas>
+      </Grid>
 
-      <StackPanel Grid.Row="1" Margin="0,14,0,0" Spacing="{x:Bind Look.RailSpacing, Mode=OneWay}" HorizontalAlignment="Center">
+      <StackPanel Grid.Row="1" Margin="{x:Bind Look.MarkGap, Mode=OneWay}" Spacing="{x:Bind Look.RailSpacing, Mode=OneWay}" HorizontalAlignment="Center">
         <Grid>
           <Button x:Name="MailButton" Style="{StaticResource Button.Icon}" Click="OnMailClick"
                   Width="{x:Bind Look.RailButton, Mode=OneWay}" Height="{x:Bind Look.RailButton, Mode=OneWay}" CornerRadius="{x:Bind Look.RailButtonRadius, Mode=OneWay}"
@@ -72,7 +75,7 @@
         <controls:StorageRing Fraction="{x:Bind Rail.StorageFraction, Mode=OneWay}" RingSize="46" HorizontalAlignment="Center" VerticalAlignment="Center"
                               AutomationProperties.AutomationId="rail.storage-ring" AutomationProperties.Name="Storage used" />
         <Button x:Name="AccountButton" Style="{StaticResource Button.Icon}" Width="{x:Bind Look.AccountSize, Mode=OneWay}" Height="{x:Bind Look.AccountSize, Mode=OneWay}"
-                CornerRadius="{x:Bind Look.AccountRadius, Mode=OneWay}" Background="{StaticResource RoseBg}" Foreground="{StaticResource RoseFg}"
+                CornerRadius="{x:Bind Look.AccountRadius, Mode=OneWay}" Background="{StaticResource Sel}" Foreground="{StaticResource SelText}"
                 AutomationProperties.AutomationId="rail.account" AutomationProperties.Name="Account" motion:Tip.Text="{x:Bind Rail.AccountLabel, Mode=OneWay}">
           <TextBlock Text="{x:Bind Rail.AccountInitials, Mode=OneWay}" FontWeight="Bold" FontSize="13" />
           <Button.Flyout>

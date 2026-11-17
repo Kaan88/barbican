@@ -19,12 +19,15 @@ public sealed partial class SIcon : ContentControl
     public static readonly DependencyProperty StrokeWidthProperty =
         DependencyProperty.Register(nameof(StrokeWidth), typeof(double), typeof(SIcon), new PropertyMetadata(1.7, (d, _) => ((SIcon)d).Build()));
 
+    private Microsoft.UI.Xaml.Shapes.Path? _path;
+
     public SIcon()
     {
         Width = 18;
         Height = 18;
         IsHitTestVisible = false;
         IsTabStop = false;
+        Loaded += (_, _) => BindStroke();
     }
 
     /// <summary>A key of Tokens.Icons, for example "Mail" or "Inbox".</summary>
@@ -65,9 +68,36 @@ public sealed partial class SIcon : ContentControl
         path.StrokeLineJoin = PenLineJoin.Round;
         path.StrokeStartLineCap = PenLineCap.Round;
         path.StrokeEndLineCap = PenLineCap.Round;
-        path.SetBinding(Shape.StrokeProperty, new Binding { Source = this, Path = new PropertyPath(nameof(Foreground)) });
+        _path = path;
+        BindStroke();
         var canvas = new Canvas { Width = 24, Height = 24 };
         canvas.Children.Add(path);
         Content = new Viewbox { Child = canvas };
+    }
+
+    // An icon with its own Foreground strokes in it. Otherwise it takes the colour of the content presenter it sits in (a button's, a folder row's):
+    // Control.Foreground is not inherited by a control inside a template, so binding to the icon's own Foreground left it in the theme's default
+    // text colour, white in a light window (the M1 hand-test finding "icons barely visible"; docs/milestones/M1-look-gap.md).
+    private void BindStroke()
+    {
+        if (_path is null)
+        {
+            return;
+        }
+
+        object source = this;
+        if (ReadLocalValue(ForegroundProperty) == DependencyProperty.UnsetValue)
+        {
+            for (var node = VisualTreeHelper.GetParent(this); node is not null; node = VisualTreeHelper.GetParent(node))
+            {
+                if (node is ContentPresenter presenter)
+                {
+                    source = presenter;
+                    break;
+                }
+            }
+        }
+
+        _path.SetBinding(Shape.StrokeProperty, new Binding { Source = source, Path = new PropertyPath(nameof(Foreground)) });
     }
 }

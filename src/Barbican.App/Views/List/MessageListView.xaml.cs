@@ -1,4 +1,5 @@
 using System.Collections.Specialized;
+using Barbican.App.Motion;
 using Barbican.App.Shell;
 using Barbican.App.Theme;
 using Barbican.Presentation.Mail;
@@ -19,6 +20,8 @@ public sealed partial class MessageListView : UserControl
     private bool _syncing;
     private bool _resyncQueued;
     private ScrollViewer? _scroll;
+    private readonly TranslateTransform _rowsShift = new();
+    private bool _riseNext;
 
     public MessageListView()
     {
@@ -26,6 +29,7 @@ public sealed partial class MessageListView : UserControl
         Glance = ViewHost.Get<GlanceTilesViewModel>();
         Look = ViewHost.Get<StyleState>();
         InitializeComponent();
+        Rows.RenderTransform = _rowsShift;
         ApplyStyle();
         Look.PropertyChanged += (_, _) => ApplyStyle();
         List.PropertyChanged += OnListChanged;
@@ -43,7 +47,15 @@ public sealed partial class MessageListView : UserControl
 
     public StyleState Look { get; }
 
-    private void ApplyStyle() => Rows.ItemContainerStyle = Look.MessageItemStyle;
+    // The window width also raises StyleState changes; the containers are swapped only when the style really changed.
+    private void ApplyStyle()
+    {
+        var style = Look.MessageItemStyle;
+        if (!ReferenceEquals(Rows.ItemContainerStyle, style))
+        {
+            Rows.ItemContainerStyle = style;
+        }
+    }
 
     private void OnListChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
     {
@@ -51,6 +63,9 @@ public sealed partial class MessageListView : UserControl
         {
             case nameof(MessageListViewModel.Selected):
                 SyncSelection();
+                break;
+            case nameof(MessageListViewModel.MailboxId):
+                _riseNext = true;
                 break;
             case nameof(MessageListViewModel.IsLoading):
             case nameof(MessageListViewModel.IsConnecting):
@@ -66,6 +81,15 @@ public sealed partial class MessageListView : UserControl
     private void OnRowsChanged(object? sender, NotifyCollectionChangedEventArgs e)
     {
         UpdateEmpty();
+        // Another folder's rows are in: they lift once as a block (the prototype's list entrance without its per-row stagger, design/MOTION.md rule 3).
+        // The old rows stayed until now, so nothing blanks; the new ones are fully there on the first frame.
+        if (_riseNext && List.Rows.Count > 0)
+        {
+            _riseNext = false;
+            var scale = MotionRuntime.Scale;
+            Rise.Run(Rows, _rowsShift, scale.Rapid ? 0 : scale.EnterMs, fromOpacity: 0.5, fromY: 10);
+        }
+
         // the ListView drops its selection when the selected row is replaced or removed; put it back once the change is through
         if (!_resyncQueued)
         {

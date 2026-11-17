@@ -6,34 +6,58 @@
       xmlns:list="using:Barbican.App.Views.List"
       xmlns:reader="using:Barbican.App.Views.Reader"
       xmlns:glance="using:Barbican.App.Views.Glance"
+      xmlns:context="using:Barbican.App.Views.Context"
       xmlns:signin="using:Barbican.App.Views.SignIn"
       Background="{StaticResource Ground}">
-  <!-- Regions only (PORT-PLAN.md §3.2): rail | sidebar | message list | (summary tiles over) reader, and the sign-in screen over them when no account is active.
+  <!-- Regions only (PORT-PLAN.md §3.2), laid out as the WinUI prototype the user approved (prototype/winui/MainWindow.xaml):
+       the title band the window's content is extended into; rail | sidebar | surface, where the surface holds message list | (summary tiles over) reader | sender panel.
+       Bento: every region its own tile, 12 px apart. Nordic: rail and sidebar on the ground, the surface one rounded tile split by hairlines.
+       The sign-in screen covers the regions when no account is active.
        The shape tokens are x:Double, which WinUI does not convert to Thickness, CornerRadius or GridLength, so the code-behind applies the typed values of StyleState. -->
   <Grid x:Name="Root" AutomationProperties.AutomationId="shell">
-    <Grid x:Name="MailScreen" ColumnSpacing="8" Padding="8">
+    <Grid.RowDefinitions>
+      <RowDefinition x:Name="TitleRow" Height="38" />
+      <RowDefinition Height="*" />
+    </Grid.RowDefinitions>
+    <!-- The title band: the drag area of the window (Window.SetTitleBar) and the caption buttons' ground. -->
+    <Grid x:Name="TitleBand" Background="Transparent" AutomationProperties.AutomationId="titlebar" AutomationProperties.Name="Title bar">
+      <TextBlock x:Name="TitleText" Text="Barbican" Margin="22,0,0,0" VerticalAlignment="Center" FontSize="12" Foreground="{StaticResource Faint}" IsHitTestVisible="False" />
+    </Grid>
+    <Grid x:Name="MailScreen" Grid.Row="1">
+      <Grid.RenderTransform>
+        <TranslateTransform x:Name="MailShift" />
+      </Grid.RenderTransform>
       <Grid.ColumnDefinitions>
-        <ColumnDefinition Width="Auto" />
         <ColumnDefinition Width="Auto" />
         <ColumnDefinition Width="Auto" />
         <ColumnDefinition Width="*" />
       </Grid.ColumnDefinitions>
       <rail:RailView x:Name="RailRegion" Grid.Column="0" />
       <sidebar:SidebarView x:Name="SidebarRegion" Grid.Column="1" />
-      <list:MessageListView x:Name="ListRegion" Grid.Column="2" />
-      <Grid Grid.Column="3" RowSpacing="8">
-        <Grid.RowDefinitions>
-          <RowDefinition Height="Auto" />
-          <RowDefinition Height="*" />
-        </Grid.RowDefinitions>
-        <glance:GlanceTilesView x:Name="GlanceRegion" Grid.Row="0" />
-        <reader:ReaderView x:Name="ReaderRegion" Grid.Row="1" />
-      </Grid>
+      <Border x:Name="Surface" Grid.Column="2" AutomationProperties.AutomationId="surface" AutomationProperties.Name="Mail">
+        <Grid x:Name="SurfaceGrid">
+          <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="Auto" />
+            <ColumnDefinition Width="*" />
+            <ColumnDefinition Width="Auto" />
+          </Grid.ColumnDefinitions>
+          <list:MessageListView x:Name="ListRegion" Grid.Column="0" />
+          <Grid x:Name="ReaderColumn" Grid.Column="1">
+            <Grid.RowDefinitions>
+              <RowDefinition Height="Auto" />
+              <RowDefinition Height="*" />
+            </Grid.RowDefinitions>
+            <glance:GlanceTilesView x:Name="GlanceRegion" Grid.Row="0" />
+            <reader:ReaderView x:Name="ReaderRegion" Grid.Row="1" />
+          </Grid>
+          <context:ContextView x:Name="ContextRegion" Grid.Column="2" />
+        </Grid>
+      </Border>
     </Grid>
     <!-- M2 plan 3.3: the in-window overlays (menus, dialogs, palette, toasts) are added here at start-up from the registered IShellOverlay, above the regions and below the sign-in screen. -->
-    <Grid x:Name="OverlayLayer" AutomationProperties.AutomationId="overlay.layer" />
-    <signin:SignInView x:Name="SignInRegion" Visibility="Collapsed" />
+    <Grid x:Name="OverlayLayer" Grid.Row="1" AutomationProperties.AutomationId="overlay.layer" />
+    <signin:SignInView x:Name="SignInRegion" Grid.Row="1" Visibility="Collapsed" />
     <!-- in-window tooltips (motion:Tip) draw here; never a ToolTip popup (ADR 0007) -->
-    <Canvas x:Name="Overlay" IsHitTestVisible="False" />
+    <Canvas x:Name="Overlay" Grid.RowSpan="2" IsHitTestVisible="False" />
   </Grid>
 </Page>

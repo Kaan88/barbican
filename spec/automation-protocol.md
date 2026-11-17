@@ -34,6 +34,7 @@ the port opens.
 | `type TEXT` | appends to the Value pattern of the XAML-focused element | spike |
 | `key CHORD` | `KeyRouter.Handle` (Enter, Escape, Tab, Up, Down, Ctrl+N in the spike; the full table with the app). F1 replies `error no key router yet`; the stream that owns the KeyRouter registers `key` as an `IAutomationCommand` | spike, M1 |
 | `move X Y` | accepted as a no-op (no hover injection in-process) | spike (no-op) |
+| `vstate ID STATE` | `VisualStateManager.GoToState` on the control with that AutomationId (`PointerOver`, `Normal`, `Pressed`, ...): the hover stand-in for screenshots; no pointer moves | M1 look |
 | `drag X1 Y1 X2 Y2` | not possible in-process | n/a (Layer C) |
 | `every MS N CMD` | UI-thread timer; a token `A+Bi` becomes A + B*i for the i-th run | spike |
 
@@ -59,6 +60,7 @@ the port opens.
 | `burst MS EVERY DIR [STEP]`, `burst-status` | WGC frames of the window into DIR (`f####_<ms>.png`, `events.txt`, `meta.json`); `tools/flicker.py` reads it | spike |
 | `probe-start [wgc\|rendering\|x11]`, `probe-stop` | `{"frames":[[start,end],...],"events":[[t,cmd],...],"source":...}`, ms since start; `tools/motion.py` reads it. `x11` (Linux default) polls the window's Xvfb rectangle every 8 ms and records changed pictures | spike, F1 (x11) |
 | `size`, `resize W H`, `title` | physical size and scale (`W H scale S`), logical resize, window title (with unread badge in the app) | spike |
+| `bounds ID` | `X Y W H` of the element with that AutomationId, logical px relative to the window content (`tools/lookdiff.py`) | M1 look |
 | `motion reduce\|normal\|rapid\|calm` | in-memory motion settings | spike (flag only) |
 | `theme dark\|light`, `ui bento\|nordic dark\|light [more\|normal]` | in-memory style, theme, contrast | spike (theme), M1 (ui) |
 | `anim comp\|sb` | spike-only: a 150 ms composition-thread or storyboard animation | spike |

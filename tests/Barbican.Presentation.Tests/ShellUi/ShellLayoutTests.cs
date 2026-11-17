@@ -6,7 +6,7 @@ namespace Barbican.Presentation.Tests.ShellUi;
 public sealed class ShellLayoutTests
 {
     [Theory]
-    [InlineData(1400, false, 368)]
+    [InlineData(1400, false, 370)]
     [InlineData(1100, false, 320)]
     [InlineData(1400, true, 390)]
     [InlineData(1100, true, 330)]
@@ -38,6 +38,29 @@ public sealed class ShellLayoutTests
         {
             Assert.True(ShellLayout.Compute(ShellLayout.MinWidth, nordic).ReaderWidth >= StyleMetrics.For(nordic).ReaderMinWidth);
         }
+    }
+
+    [Theory]
+    [InlineData(1560, false, true)]
+    [InlineData(1400, false, false)]
+    [InlineData(1560, true, true)]
+    [InlineData(1100, true, false)]
+    public void TheSenderPanelShowsOnlyWhenTheReaderKeepsItsRoom(double width, bool nordic, bool shown)
+    {
+        var l = ShellLayout.Compute(width, nordic);
+        Assert.Equal(shown, l.ContextShown);
+        if (shown)
+        {
+            Assert.True(l.ReaderWidth >= StyleMetrics.For(nordic).ContextMinReader);
+        }
+    }
+
+    [Fact]
+    public void TheSenderPanelTakesItsWidthFromTheReader()
+    {
+        var m = StyleMetrics.Bento;
+        var l = ShellLayout.Compute(1560, false);
+        Assert.Equal(1560 - (m.PadLeft + m.RailWidth + m.Gap + m.SidebarWidth + m.Gap + l.ListWidth + m.Gap + m.Pad) - m.ContextWidth - m.Gap, l.ReaderWidth, 3);
     }
 
     [Fact]
