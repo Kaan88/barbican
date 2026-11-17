@@ -99,7 +99,17 @@ public sealed class LoopbackListener : IDisposable
 
                 using (socket)
                 {
-                    var outcome = await HandleAsync(socket, expectedState, time, linked.Token).ConfigureAwait(false);
+                    Result<string>? outcome;
+                    try
+                    {
+                        outcome = await HandleAsync(socket, expectedState, time, linked.Token).ConfigureAwait(false);
+                    }
+                    catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+                    {
+                        // the deadline passed while a connection was still being read or answered: the same timeout as an idle wait
+                        return Result<string>.Fail(new AuthError("Sign-in timed out.", NeedsSignIn: false));
+                    }
+
                     if (outcome is { } done)
                     {
                         return done;

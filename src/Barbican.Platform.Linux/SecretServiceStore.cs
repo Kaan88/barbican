@@ -63,8 +63,12 @@ public sealed class SecretServiceStore(string profile) : ISecretStore
             var bytes = Encoding.UTF8.GetBytes(value);
             try
             {
-                await CreateItemAsync(c, session, $"Barbican ({Profile}): {name.Kind}", Attributes(name), bytes).ConfigureAwait(false);
-                return Result<Unit>.Ok(default);
+                // a locked collection answers with a prompt instead of creating the item; the prompt is never shown (it would open a window),
+                // so the write is reported as failed rather than taken as done
+                var created = await CreateItemAsync(c, session, $"Barbican ({Profile}): {name.Kind}", Attributes(name), bytes).ConfigureAwait(false);
+                return created
+                    ? Result<Unit>.Ok(default)
+                    : Result<Unit>.Fail(new TransportError("The keyring is locked.", Retryable: true));
             }
             finally
             {
@@ -182,8 +186,10 @@ public sealed class SecretServiceStore(string profile) : ISecretStore
         }, null).ConfigureAwait(false);
     }
 
-    private static Task CreateItemAsync(DBusConnection c, string session, string label, IReadOnlyDictionary<string, string> attributes, byte[] secret) =>
-        CallAsync(c, DefaultCollection, "org.freedesktop.Secret.Collection", "CreateItem", "a{sv}(oayays)b", w =>
+    // true when the item was written; false when the service asks for a prompt first (CreateItem returns (item, prompt), prompt "/" = none)
+    private static async Task<bool> CreateItemAsync(DBusConnection c, string session, string label, IReadOnlyDictionary<string, string> attributes, byte[] secret)
+    {
+        var message = Build(c, DefaultCollection, "org.freedesktop.Secret.Collection", "CreateItem", "a{sv}(oayays)b", w =>
         {
             var props = w.WriteDictionaryStart();
             w.WriteDictionaryEntryStart();
@@ -201,6 +207,14 @@ public sealed class SecretServiceStore(string profile) : ISecretStore
             w.WriteString("text/plain; charset=utf8");
             w.WriteBool(true);
         });
+        var prompt = await c.CallMethodAsync(message, static (Message m, object? _) =>
+        {
+            var r = m.GetBodyReader();
+            _ = r.ReadObjectPathAsString();
+            return r.ReadObjectPathAsString();
+        }, null).ConfigureAwait(false);
+        return string.Equals(prompt, "/", StringComparison.Ordinal);
+    }
 
     private static void WriteStringDictionary(MessageWriter w, IReadOnlyDictionary<string, string> values)
     {

@@ -166,12 +166,12 @@ onTemplateDelete,templates,observer,templates:read,,{ templateId },after a templ
 onTemplatesImport,templates,observer,templates:read,,{ count },after templates were imported,lib/plugin-hook-catalog.ts:271,M6,,,pending
 onTemplateApply,templates,observer,templates:read,,TemplateView,after a template was inserted into the composer,lib/plugin-hook-catalog.ts:272,M6,,,pending
 onTemplateRender,templates,transform,templates:read,,"{ subject, html, text }, { templateId }",before a template is inserted; may change the text,lib/plugin-hook-catalog.ts:273,M6,,,pending
-onLogin,auth,observer,auth:observe,,"{ accountId, username }",after a sign-in,lib/plugin-hook-catalog.ts:276,M1,accounts,src/Barbican.Core/Accounts/AccountManager.cs:318,done
-onAuthReady,auth,observer,auth:observe,,{ accountId },when the session is ready after start or sign-in,lib/plugin-hook-catalog.ts:277,M1,accounts,src/Barbican.Core/Accounts/AccountManager.cs:319,done
-onTokenRefresh,auth,observer,auth:observe,,{ accountId },after the access token was renewed,lib/plugin-hook-catalog.ts:278,M1,accounts,src/Barbican.Core/Accounts/AccountManager.cs:518,done
-onAccountAdd,auth,observer,auth:observe,,{ accountId },after another account was added,lib/plugin-hook-catalog.ts:279,M1,accounts,src/Barbican.Core/Accounts/AccountManager.cs:322,done
+onLogin,auth,observer,auth:observe,,"{ accountId, username }",after a sign-in,lib/plugin-hook-catalog.ts:276,M1,accounts,src/Barbican.Core/Accounts/AccountManager.cs:331,done
+onAuthReady,auth,observer,auth:observe,,{ accountId },when the session is ready after start or sign-in,lib/plugin-hook-catalog.ts:277,M1,accounts,src/Barbican.Core/Accounts/AccountManager.cs:332,done
+onTokenRefresh,auth,observer,auth:observe,,{ accountId },after the access token was renewed,lib/plugin-hook-catalog.ts:278,M1,accounts,src/Barbican.Core/Accounts/AccountManager.cs:534,done
+onAccountAdd,auth,observer,auth:observe,,{ accountId },after another account was added,lib/plugin-hook-catalog.ts:279,M1,accounts,src/Barbican.Core/Accounts/AccountManager.cs:335,done
 onAccountRemove,auth,observer,auth:observe,,{ accountId },after an account was removed,lib/plugin-hook-catalog.ts:280,M2,,,pending
-onAccountSwitch,auth,observer,app:lifecycle,,"{ accountId, previousAccountId }",after another account was made active,lib/plugin-hook-catalog.ts:281,M1,accounts,src/Barbican.Core/Accounts/AccountManager.cs:466,done
+onAccountSwitch,auth,observer,app:lifecycle,,"{ accountId, previousAccountId }",after another account was made active,lib/plugin-hook-catalog.ts:281,M1,accounts,src/Barbican.Core/Accounts/AccountManager.cs:482,done
 onBeforeLogout,auth,observer,app:lifecycle,,{ accountId },just before signing out,lib/plugin-hook-catalog.ts:282,M2,,,pending
 onAfterLogout,auth,observer,app:lifecycle,,{ accountId },after signing out,lib/plugin-hook-catalog.ts:283,M2,,,pending
 onOAuthCallback,auth,observer,http:fetch,,OAuthCallbackPayload,when a third-party OAuth flow this plugin started returns,lib/plugin-hook-catalog.ts:284,M6b,,,pending

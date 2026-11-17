@@ -698,3 +698,45 @@ the account manager, the sign-in and account-popover ViewModels.
 - **mailcore:** `BodyCacheSync` subscribes to `MailEventHub.EventReceived` and patches the cache for the active account;
   local actions (read, flag, move) must also reach `IBodyCache` when M2 adds them.
 - **privacy-check owner:** see the unsupported-provider item above.
+
+## M1 review: accounts
+
+Fresh review of `m1-accounts` (diff `m1...m1-accounts`, implementer commits 0b2639c, a385afd, 2eda0a2), fixes in the review commit on
+`m1-accounts`. Windows `tools/build.ps1 test` green before and after (692 then 695 tests, 0 failed, 4 skipped). **Linux not run:**
+the VM timed out on port 22 again during this review (2026-11-17), so `SecretServiceStore`, `LinuxBrowserLauncher`, the Linux profile
+paths and `LoopbackListener` (`ExclusiveAddressUse` maps to SO_REUSEPORT on Unix) ran nowhere but Windows.
+- **Fixed: a connect that failed synchronously pinned the account.** `AccountManager.ConnectAsync` stored the attempt task after the
+  attempt's own `finally` had already cleared it (re-entrant `Lock`), so an account whose first connect failed without awaiting could never
+  be retried until restart. Test `AccountManagerTests.A_connect_that_fails_at_once_can_be_retried`. Review the "share one attempt" design
+  as a whole (`Entry.Connecting`, `src/Barbican.Core/Accounts/AccountManager.cs`).
+- **Fixed: OAuth read-only decided on the typed hint.** The OAuth client was opened with the read-only flag of `LoginHint` (may be empty
+  or another name); the real login is only known from the session. Now a client that is writable for a login the policy makes read-only
+  is replaced by a read-only connect. Test `An_oauth_login_that_is_not_writable_gets_a_read_only_client_whatever_the_hint`. M1 lists no
+  writable account, so this was latent; review before M2 opens `BARBICAN_WRITABLE_ACCOUNTS`.
+- **Fixed: the sign-in deadline during a read threw.** A browser (or any local process) holding a connection open past the 5-minute
+  deadline made `WaitForCodeAsync` throw `OperationCanceledException` instead of "Sign-in timed out." Test
+  `LoopbackListenerTests.The_wait_times_out_while_a_silent_connection_is_open`.
+- **Fixed (unverified, Linux): a locked keyring lost writes silently.** `SecretServiceStore.WriteAsync` ignored `CreateItem`'s prompt
+  path; with a locked collection nothing was stored and Ok was returned. It now reports "The keyring is locked." (the prompt is never
+  shown: it would open a window). Needs a run on the VM.
+- **Fixed: `AccountsStartup.Completion` never completed after an unexpected exception** (vault or store failure), which would hang the
+  automation build and tests that wait on it; it now faults and rethrows.
+- **Open: `BodyCacheSync` keys events by the account active when the event is handled**, not by the account whose engine sent it.
+  `MailEventHub` posts to the dispatcher, so an event of the old account handled just after a switch patches the new account's entries;
+  Stalwart ids are per-account sequences and can collide, so a cached body could show another message's keywords until it is reopened.
+  Request to mailcore: carry the account key in `MailSyncEventArgs`. Where: `src/Barbican.Presentation/Accounts/BodyCacheSync.cs`.
+- **Open: the user path of the ADR 0008 import is unreachable in M1.** `RustCredentialImport` refuses `ImportMode.User` in `dev` and
+  `auto-*`, and `dev` is the default profile until M8 (`ProfilePaths.DefaultProfile`). Consistent with ADR 0008 ("only the default,
+  non-dev profile"), but M1 has no such profile. Decide at M8 how the real profile is named.
+- **Open: `BodyCache` bounds are global, not per account** (M1-plan §6.3 says "per account"); Rust bodycache.rs was global too, so the
+  port follows Rust. `Weight` counts UTF-16 code units where Rust counted UTF-8 bytes (non-ASCII mail weighs less here). Judgement call.
+- **Open: wrong password at sign-in for a password account** surfaces jmap's mapped "Wrong username, password or one-time code."
+  (SessionFetcher maps every AuthError at session time); an OAuth account whose refresh is rejected at restore shows the same text on its
+  row before `Describe` turns it into "needs to sign in again". Review the wording with the user.
+- **Open: shell-ui's views drive `IAccountManager` directly** (`App/Views/SignIn/SignInFormModel.cs`,
+  `App/Views/Accounts/AccountPopoverModel.cs`) instead of `SignInViewModel`/`AccountsViewModel`: the server lookup, provider notice,
+  OAuth cancel, unread badge and error line of the accounts ViewModels are not on screen, and the popover refreshes on `ActiveChanged`
+  only (not `StatusesChanged`). The I- rows stay `P`. Integrator: bind the views to the accounts ViewModels (or fold the models).
+- **Not done (hand test):** the brief's hidden-automation scenario (password + TOTP by AutomationId on FakeJmap, OAuth second account,
+  switch, popover `wshot`, no blank frame on switch) and the optional live read-only import run. `BARBICAN_FAKE_JMAP` sign-in routing does
+  not exist yet (shell-ui's `BARBICAN_SAMPLE` replaces `IActiveMail`, bypassing sign-in).

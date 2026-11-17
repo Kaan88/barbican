@@ -198,6 +198,19 @@ public sealed class AccountManager : IAccountManager, IAccountOverview, IAsyncDi
         }
 
         var user = connected.Value!.Session.Username is { Length: > 0 } u ? u : hint;
+
+        // the client was opened before the login was known (the hint may be empty or another name): when the real login must be read-only
+        // and the client is not, connect again read-only rather than hand out a writable client for it (PORT-PLAN.md §4.6)
+        if (!connected.Value!.IsReadOnly && _policy.IsReadOnly(user, storedFlag: false))
+        {
+            connected = await _jmap.ConnectAsync(endpoint, source, _options with { ReadOnly = true }, ct).ConfigureAwait(false);
+            if (!connected.IsOk)
+            {
+                source.Dispose();
+                return Result<AccountInfo>.Fail(connected.Error!);
+            }
+        }
+
         var t = source.Tokens;
         var stored = new StoredAccount(StoredAccount.OAuthKind, Base(endpoint), user) { Refresh = t.Refresh, Endpoint = t.TokenEndpoint.AbsoluteUri, Client = t.ClientId };
         source.BindAccount(stored.Key);
@@ -350,8 +363,11 @@ public sealed class AccountManager : IAccountManager, IAccountOverview, IAsyncDi
                 return Task.FromResult(Result<AccountSession>.Fail(new AuthError($"{e.Info.User} needs to sign in again.", NeedsSignIn: true)));
             }
 
-            e.Connecting = ConnectStoredAsync(e, e.Stored, _life.Token);
-            return e.Connecting.WaitAsync(ct);
+            // a connect that finished synchronously already ran its finally (this lock is re-entrant): keeping the task would pin its result
+            // and the account could never be retried
+            var attempt = ConnectStoredAsync(e, e.Stored, _life.Token);
+            e.Connecting = attempt.IsCompleted ? null : attempt;
+            return attempt.WaitAsync(ct);
         }
     }
 

@@ -47,5 +47,11 @@ public sealed class AccountsStartup(AccountManager accounts, PrefsStore prefs, I
         {
             _done.TrySetCanceled(ct);
         }
+        catch (Exception e)
+        {
+            // a broken store or vault must not leave Completion pending for ever (the automation build and tests wait on it)
+            _done.TrySetException(e);
+            throw;
+        }
     }
 }

@@ -71,6 +71,19 @@ public sealed class LoopbackListenerTests
     }
 
     [Fact]
+    public async Task The_wait_times_out_while_a_silent_connection_is_open()
+    {
+        using var l = LoopbackListener.Start(0).Value!;
+        var wait = l.WaitForCodeAsync("s", TimeSpan.FromMilliseconds(300), TimeProvider.System, Ct);
+
+        // a client that connects and never sends a request line: the deadline passes during the read, not during accept
+        using var silent = new TcpClient();
+        await silent.ConnectAsync("127.0.0.1", l.Port, Ct);
+        var r = await wait;
+        Assert.Equal("Sign-in timed out.", r.Error!.Message);
+    }
+
+    [Fact]
     public void The_redirect_is_on_127_0_0_1()
     {
         using var l = LoopbackListener.Start(0).Value!;

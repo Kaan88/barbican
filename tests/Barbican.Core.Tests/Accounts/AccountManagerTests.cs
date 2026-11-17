@@ -211,6 +211,47 @@ public sealed class AccountManagerTests : IAsyncDisposable
     }
 
     [Fact]
+    public async Task An_oauth_login_that_is_not_writable_gets_a_read_only_client_whatever_the_hint()
+    {
+        // the hint names a writable login, the server signs in another one: the client must end up read-only
+        var paths = new TestProfilePaths(_root);
+        var oauthHttp = new OAuthHttp(_http, TimeProvider.System);
+        var flow = new OAuthFlow(new OAuthDiscovery(oauthHttp), _clients, oauthHttp, new RedirectFollowingLauncher(_http), new OAuthFlowOptions { LoopbackPort = 0 }, TimeProvider.System);
+        await using var manager = new AccountManager(new JmapClientFactory(_http, TimeProvider.System), new MailAccountFactory(_hooks, TimeProvider.System), _store, flow, oauthHttp, paths, new ReadOnlyPolicy(["hint@example.org"]), _hooks, TimeProvider.System);
+
+        var r = await manager.SignInWithOAuthAsync(new OAuthSignIn(OriginA, "barbican", false) { LoginHint = "hint@example.org" }, Ct);
+        Assert.True(r.IsOk, r.Error?.Message);
+        Assert.Equal("ana@example.org", r.Value!.User);
+        Assert.True(r.Value.IsReadOnly);
+        Assert.True(manager.SessionFor(r.Value.Key)!.Client.IsReadOnly);
+    }
+
+    [Fact]
+    public async Task A_connect_that_fails_at_once_can_be_retried()
+    {
+        // a factory whose first answer is already complete when it returns (no await inside): the failed attempt must not stay pinned
+        var paths = new TestProfilePaths(_root);
+        var oauthHttp = new OAuthHttp(_http, TimeProvider.System);
+        var flow = new OAuthFlow(new OAuthDiscovery(oauthHttp), _clients, oauthHttp, new RedirectFollowingLauncher(_http), new OAuthFlowOptions { LoopbackPort = 0 }, TimeProvider.System);
+        var factory = new FailFirstFactory(new JmapClientFactory(_http, TimeProvider.System), failures: 2);
+        await using var manager = new AccountManager(factory, new MailAccountFactory(_hooks, TimeProvider.System), _store, flow, oauthHttp, paths, ReadOnlyPolicy.AllReadOnly, _hooks, TimeProvider.System);
+        await _vault.SaveAsync(
+        [
+            new StoredAccount(StoredAccount.PasswordKind, OriginA, "ana@example.org") { Password = "pw-a", IsDefault = true },
+            new StoredAccount(StoredAccount.PasswordKind, OriginB, "ben@example.net") { Password = "pw-b" },
+        ], Ct);
+
+        Assert.Null(await manager.RestoreAsync(Ct)); // the first account fails at once
+        var aKey = AccountKey.Of(OriginA, "ana@example.org");
+        var bKey = AccountKey.Of(OriginB, "ben@example.net");
+        await Poll.UntilAsync(() => manager.SessionFor(bKey) is not null || factory.Calls >= 2, "the second account's attempt");
+
+        var switched = await manager.SwitchToAsync(aKey, Ct);
+        Assert.True(switched.IsOk, switched.Error?.Message);
+        Assert.Equal("ana@example.org", manager.Active!.User);
+    }
+
+    [Fact]
     public void The_read_only_policy_lists_writable_accounts()
     {
         var policy = new ReadOnlyPolicy(["ana@example.org"]);
@@ -218,6 +259,19 @@ public sealed class AccountManagerTests : IAsyncDisposable
         Assert.True(policy.IsReadOnly("ana@example.org", storedFlag: true));
         Assert.True(policy.IsReadOnly("ben@example.net", storedFlag: false));
         Assert.True(ReadOnlyPolicy.AllReadOnly.IsReadOnly("ana@example.org", storedFlag: false));
+    }
+
+    // fails the first calls synchronously (a completed task), then connects for real
+    private sealed class FailFirstFactory(Barbican.Core.Jmap.IJmapClientFactory inner, int failures) : Barbican.Core.Jmap.IJmapClientFactory
+    {
+        private int _calls;
+
+        public int Calls => Volatile.Read(ref _calls);
+
+        public Task<Barbican.Core.Common.Result<Barbican.Core.Jmap.IJmapClient>> ConnectAsync(Barbican.Core.Jmap.ServerEndpoint server, IAccessTokenSource auth, Barbican.Core.Jmap.JmapClientOptions options, CancellationToken ct) =>
+            Interlocked.Increment(ref _calls) <= failures
+                ? Task.FromResult(Barbican.Core.Common.Result<Barbican.Core.Jmap.IJmapClient>.Fail(new TransportError("down", Retryable: true)))
+                : inner.ConnectAsync(server, auth, options, ct);
     }
 
     // a server that wants a one-time code, with its own manager
