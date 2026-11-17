@@ -1,0 +1,42 @@
+# Behaviours: sieve and filters (B-SIEVE)
+
+Area: Sieve script generation and parsing (Bulwark-compatible), filter rule editor, vacation
+(out of office), run-on-existing-mail, quick rules.
+Rust sources (`rust-final`): `desktop/src/sieve.rs`, `filters_x.rs`, `quick_rules.rs`,
+`server_settings.rs` (save_script). Bulwark refs: `lib/sieve/generator.ts`, `parser.ts`,
+`period.ts`, `vacation-forward.ts`, `vacation-audience.ts`, `lib/filters/retroactive.ts`,
+`lib/filters/quick-rules.ts`.
+
+| ID | Rule | Source (Rust) | Bulwark ref | C# status |
+|---|---|---|---|---|
+| B-SIEVE-001 | Rules are kept as JSON in a `/* @metadata:begin ... @metadata:end */` block at the top of the script. | sieve.rs:8-9 `BEGIN`, `END`; header lines 1-5 | lib/sieve/generator.ts | pending (M6) |
+| B-SIEVE-002 | Generated order: vacation include, auto-reply, vacation forwarding, then the rules, then the external rules unchanged. | sieve.rs header; :10 `EXTERNAL` marker; :11 `VACATION_FORWARD_MARKER` | generator.ts | pending (M6) |
+| B-SIEVE-003 | Metadata keys the app knows: version, rules, vacation, includeVacation, vacationForward, vacationAudience. Unknown keys are kept. | sieve.rs:13 `KNOWN_KEYS`; test `unknown_or_bad_extras_stay_locked` (:787) | generator.ts | pending (M6) |
+| B-SIEVE-004 | Metadata key order is preserved on save (serde_json preserve_order). | commit 846b17b; test `roundtrip_matches_bulwark_shape` (:692) | generator.ts | pending (M6) |
+| B-SIEVE-005 | A script with vacation only and no metadata reads as the auto-reply. | commit 04f7b96; test `vacation_only_scripts` (:662) | parser.ts | pending (M6) |
+| B-SIEVE-006 | Hand-written blocks anywhere after the metadata are kept. Bulwark scans every block. | commit 04f7b96; test `hand_written_blocks_between_generated_ones_survive` (:675) | parser.ts | pending (M6) |
+| B-SIEVE-007 | Scripts that Bulwark itself would treat as hand-edited are locked: no visual edit, no quick rule. | commit 846b17b (only lock what Bulwark locks); test `hand_edited_script_is_refused` (quick_rules.rs:254); commit 4ad1e78 | parser.ts | pending (M6) |
+| B-SIEVE-008 | The external-rules parser keeps if, elsif and else chains and multi-line `text:` strings as one block. | commit d772e1f; test `external_keeps_elsif_else_and_text_strings` (:650) | parser.ts | pending (M6) |
+| B-SIEVE-009 | Spam guard: a move or copy rule gets `not spamtest :percent :value "ge" :comparator "i;ascii-numeric" "50"` (sieve.rs:392 `SPAM_GUARD`). Requires spamtestplus, relational and comparator-i;ascii-numeric. | sieve.rs:392-393; commit ceb2327 | generator.ts (spamtestplus) | pending (M6) |
+| B-SIEVE-010 | Active periods use `currentdate :zone "+0000"`; scripts require date and relational. | sieve.rs:395 `PERIOD_REQUIRES`, :428 `NOW`; test `period_tests_match_bulwark` (:711); `rule_with_period_matches_bulwark` (:722) | period.ts | pending (M6) |
+| B-SIEVE-011 | Form days become UTC day boundaries. | test `form_days_become_utc_boundaries` (:797) | period.ts | pending (M6) |
+| B-SIEVE-012 | Vacation: include with audience, auto-reply and vacation forwarding exactly as Bulwark's generator. | sieve.rs test `vacation_audience_forward_match_bulwark` (:748); commit 846b17b | vacation-forward.ts, vacation-audience.ts | pending (M6) |
+| B-SIEVE-013 | The new rule form has Active from and until fields. | commit 846b17b | filter-rule-modal.tsx | pending (M6) |
+| B-SIEVE-014 | Visual rules are compatible with Bulwark: round trip verified in Bulwark's Sieve view. | commit 1972552 | generator.ts | pending (M6) |
+| B-SIEVE-015 | Rule editor: edit existing rules, reorder, several conditions joined all or any, several actions, not_is, reject, keep, stop, spam opt-in. | filters_x.rs header (lines 1-5); commit e5837df | filter-rule-modal.tsx, filter-settings.tsx | pending (M6) |
+| B-SIEVE-016 | Condition fields are nine: from, to, cc, subject, custom header, ... | filters_x.rs:17 `FIELDS` | filter-rule-modal.tsx | pending (M6) |
+| B-SIEVE-017 | Comparators: sixteen labelled comparators (contains, does not contain, is exactly, ...). Text comparators are a fixed list of nine. | filters_x.rs:20 `CMP_LABELS`, :231 `TEXT_CMPS` | filter-rule-modal.tsx | pending (M6) |
+| B-SIEVE-018 | Actions: ten, including move, copy, forward and discard. | filters_x.rs:40 `ACTS` | filter-rule-modal.tsx | pending (M6) |
+| B-SIEVE-019 | Twelve header names are address headers (from, sender, reply-to, to, cc, bcc, resent-*); sixteen names are listed as raw-only headers (date, message-id, references, ...). Which tests the UI offers for each list is to be confirmed in the port. | filters_x.rs:232 `ADDRESS_HEADERS`, :233 `RAW_ONLY` | sieve generator | pending (M6) |
+| B-SIEVE-020 | Validation: an invalid regex is refused; header names are validated; odd header names are quoted. | filters_x.rs tests `validation` (:762), `invalid_regex_is_refused` (:869), `odd_header_names_stay_quoted` (:876) | filter-rule-modal.tsx | pending (M6) |
+| B-SIEVE-021 | Reorder keeps the rules and the summary text is recomputed. | filters_x.rs test `reorder_and_summary` (:783) | filter-settings.tsx | pending (M6) |
+| B-SIEVE-022 | Sieve match semantics for each condition are tested as pure functions. | filters_x.rs test `sieve_match_semantics` (:795) | n/a | pending (M6) |
+| B-SIEVE-023 | Run on existing mail: a plan is built from the Inbox; a stale scan is dropped; the apply uses `ifInState` and reports partial counts; a failed save restores the list. | filters_x.rs tests `retroactive_plan` (:805), `stale_scan_is_dropped` (:836), `apply_patches_and_if_in_state` (:843); commit 0827d55 | lib/filters/retroactive.ts | pending (M6) |
+| B-SIEVE-024 | Quick rules: "always move from sender / domain / list", "always mark read", "always tag with", "block sender". The rule is merged into an existing one-condition rule that does the same. | quick_rules.rs header (1-5); test `apply_creates_merges_or_covers` (:323); `presets_build_bulwark_rules` (:298) | lib/filters/quick-rules.ts | pending (M2 reader) |
+| B-SIEVE-025 | Quick-rule subject comes from the message. | quick_rules.rs test `subject_from_a_message` (:275) | quick-rules.ts | pending (M2) |
+| B-SIEVE-026 | Sieve path names used by quick rules are tested. | quick_rules.rs test `sieve_paths` (:289) | n/a | pending (M2) |
+| B-SIEVE-027 | The assistant tools add_filter_rule and remove_filter_rule are Bulwark-compatible; they replace raw script updates. | commit b6a37f1 | assistant | pending (M6) |
+| B-SIEVE-028 | The script is saved through server_settings::save_script. | filters_x.rs header line 5 | n/a | pending (M6) |
+| B-SIEVE-029 | Vacation (out of office): reply-to audience, forward while away, keep in inbox, HTML body, templates and the calendar out-of-office block are not in the Rust UI; vacationAudience and vacationForward are stored but not edited. | GAPS P1-5 | vacation-settings.tsx, vacation-template-picker.tsx, vacation-calendar-block.tsx | open: G-021, G-022 |
+| B-SIEVE-030 | "reject" is offered even when the server does not advertise the reject extension. Port rule: offer only when advertised. | GAPS P1-4 (open) | filter-rule-modal.tsx | open: G-020 |
+| B-SIEVE-031 | Saving filters and "Apply" on existing mail were not run live. | PARITY-ROUND2 PIM "Partial" | n/a | open: L-040, L-041 |
