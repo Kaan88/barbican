@@ -14,7 +14,7 @@ namespace Barbican.Presentation.Tests.Mail.Loading;
 
 internal sealed class LoaderHarness : IDisposable
 {
-    public LoaderHarness(string prefs = "{\"disableThreading\":true}", bool canWrite = false)
+    public LoaderHarness(string prefs = "{\"disableThreading\":true}", bool canWrite = false, ReaderDepth? depth = null)
     {
         Time = new FakeTimeProvider(Mails.Now);
         Time.SetLocalTimeZone(TimeZoneInfo.Utc);
@@ -55,7 +55,8 @@ internal sealed class LoaderHarness : IDisposable
             new InlineDispatcher(),
             Time,
             Prefs,
-            () => new ReaderOptions { Now = Mails.Now, Zone = TimeZoneInfo.Utc });
+            () => new ReaderOptions { Now = Mails.Now, Zone = TimeZoneInfo.Utc },
+            depth);
     }
 
     public FakeTimeProvider Time { get; }

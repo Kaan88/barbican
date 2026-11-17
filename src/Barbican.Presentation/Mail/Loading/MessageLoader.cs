@@ -60,6 +60,12 @@ public sealed class MessageLoader : IMessageOpener, IConversationOpener, IDispos
     private ITimer? _markTimer;
     private long _openedAt;
 
+    // banners of a slow source (ReaderDepth.BannerBudget) that arrived before their page was revealed: OnReady of that open takes them
+    private readonly Lock _lateGate = new();
+    private long _readySeq = -1;
+    private long _lateSeq = -1;
+    private IReadOnlyList<Reader.ReaderBanner>? _late;
+
     public MessageLoader(
         ReaderViewModel reader,
         IActiveMail active,
@@ -308,10 +314,15 @@ public sealed class MessageLoader : IMessageOpener, IConversationOpener, IDispos
     // the banners go into the snapshot before the page is built, so they are applied with the header in the reveal's UI turn (no late pop-in)
     private async Task BannersThenShowAsync(string id, EmailBody body, ConversationThread? thread, ReaderSnapshot snapshot, MailContent content, long seq, PrefetchContext context)
     {
-        var banners = await _depth!.BannersAsync(snapshot, _openCts?.Token ?? CancellationToken.None).ConfigureAwait(true);
+        var (banners, late) = await _depth!.BannersAsync(snapshot, _time, _openCts?.Token ?? CancellationToken.None).ConfigureAwait(true);
         if (seq != _seq)
         {
             return;
+        }
+
+        if (late is not null)
+        {
+            _ = LateBannersAsync(id, seq, late);
         }
 
         var withBanners = snapshot with { Banners = banners };
@@ -327,6 +338,38 @@ public sealed class MessageLoader : IMessageOpener, IConversationOpener, IDispos
             {
                 Show(id, body, thread, withBanners, content, blockRemote: false, seq, context);
             }
+        });
+    }
+
+    // A slow source's banners (an invitation waits on CalendarEvent/parse): before the reveal they go with the page, after it they join the stack
+    // of the message on screen in one change.
+    private async Task LateBannersAsync(string id, long seq, Task<IReadOnlyList<Reader.ReaderBanner>> late)
+    {
+#pragma warning disable VSTHRD003 // ReaderDepth.BannersAsync started it for this open; it never faults and needs no context (the result is posted)
+        var more = await late.ConfigureAwait(false);
+#pragma warning restore VSTHRD003
+        if (more.Count == 0)
+        {
+            return;
+        }
+
+        _dispatcher.Post(() =>
+        {
+            if (seq != _seq)
+            {
+                return;
+            }
+
+            lock (_lateGate)
+            {
+                if (_readySeq != seq)
+                {
+                    (_lateSeq, _late) = (seq, more);
+                    return;
+                }
+            }
+
+            _reader.AddBanners(id, more);
         });
     }
 
@@ -383,6 +426,16 @@ public sealed class MessageLoader : IMessageOpener, IConversationOpener, IDispos
                 }
 
                 EndWaiting();
+                lock (_lateGate)
+                {
+                    _readySeq = seq;
+                    if (_lateSeq == seq && _late is { Count: > 0 } late)
+                    {
+                        snapshot = snapshot with { Banners = [.. snapshot.Banners, .. late.Where(b => !snapshot.Banners.Any(x => string.Equals(x.Id, b.Id, StringComparison.Ordinal)))] };
+                        _late = null;
+                    }
+                }
+
                 var previous = _shownId;
                 _shownId = id;
                 _thread = thread;

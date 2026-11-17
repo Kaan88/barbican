@@ -9,7 +9,9 @@
 // read-only flag on every account it imports (Platform/RustCredentialImport.cs), so in M1 the allow-list could never open the imported test
 // account. Now, in the agents' profiles only, the allow-list may clear that stored flag for the logins it names, but only while a second
 // ".local" list (BARBICAN_READONLY_ACCOUNTS_FILE: the logins that are never written) is present and readable, and never for a login on that
-// second list. Fail closed: without the second list no stored flag is cleared, and a login on it is read-only whatever the first list says.
+// second list. Fail closed (M2 plan §9 M2-Q2: "a missing read-only list means nothing is writable"): without the second list every account of
+// an agent profile is read-only, flagged or not (M1 let the first list alone open an unflagged account), and a login on the second list is
+// read-only whatever the first list says.
 // The user's own profiles are unchanged (the stored flag always wins there).
 // The same two lists guard the write-test commands of the AUTOMATION_WRITES build (TestWriteRefusal, read again for every command).
 
@@ -75,14 +77,14 @@ public sealed class ReadOnlyPolicy
             return new((env(Variable) ?? "").Split(',', StringSplitOptions.RemoveEmptyEntries));
         }
 
-        if (LocalList(env(FileVariable), readFile) is not { } writable)
+        // R2-14, M2-Q2 ("a missing read-only list means nothing is writable"): both lists must be there, else every account is read-only;
+        // a login on the read-only list is never writable
+        if (LocalList(env(FileVariable), readFile) is not { } writable || LocalList(env(ReadOnlyFileVariable), readFile) is not { } never)
         {
             return AllReadOnly;
         }
 
-        // R2-14: the read-only list must be there for any stored flag to be cleared; a login on it is never writable
-        var never = LocalList(env(ReadOnlyFileVariable), readFile);
-        return new(writable, never ?? [], mayClearStoredFlag: never is not null);
+        return new(writable, never, mayClearStoredFlag: true);
     }
 
     /// <summary>The profiles agents run in (dev and auto-*), where writes fail closed.</summary>

@@ -73,11 +73,14 @@ public sealed class ReadOnlyPolicyTests
     // profile, writable list, read-only list, stored flag, expected IsReadOnly(test), expected IsReadOnly(main)
     public static TheoryData<string, string, string, bool, bool, bool> Matrix => new()
     {
-        // agent profiles: M1 behaviour without a stored flag (the allow-list alone), the read-only list wins over it
+        // agent profiles without a stored flag: both lists must be there (M2-Q2: a missing read-only list means nothing is writable), and the
+        // read-only list wins over the writable one
         { "auto-8889", "test", "main", false, false, true },
-        { "auto-8889", "test", "missing", false, false, true },
+        { "auto-8889", "test", "missing", false, true, true },
+        { "auto-8889", "test", "outside", false, true, true },
         { "auto-8889", "both", "main", false, false, true },
-        { "auto-8889", "both", "missing", false, false, false },
+        { "auto-8889", "both", "missing", false, true, true },
+        { "dev", "both", "missing", false, true, true },
         { "auto-8889", "test", "test", false, true, true },
         { "auto-8889", "none", "main", false, true, true },
         { "auto-8889", "missing", "main", false, true, true },

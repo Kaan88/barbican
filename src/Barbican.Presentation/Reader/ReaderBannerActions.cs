@@ -13,6 +13,10 @@ namespace Barbican.Presentation.Reader;
 /// <summary>Runs a banner button for the message on screen and says how it went.</summary>
 public sealed class ReaderBannerActions(ReaderViewModel reader, IActiveMail active, IAccountManager accounts, IGuardedHttp http, MdnSender mdn, CheckedLinkRouter links)
 {
+    // the actions on their way, by message and action: a second click while one runs does nothing (two receipts or two POSTs otherwise)
+    private readonly HashSet<string> _running = new(StringComparer.Ordinal);
+    private readonly Lock _gate = new();
+
     /// <summary>The result line of the last action (automation and the toast).</summary>
     public string? LastResult { get; private set; }
 
@@ -26,14 +30,33 @@ public sealed class ReaderBannerActions(ReaderViewModel reader, IActiveMail acti
             return Done("The message is no longer open.");
         }
 
-        return actionId switch
+        var key = emailId + "|" + actionId;
+        lock (_gate)
         {
-            UnsubscribeBannerSource.OneClick => await OneClickAsync(snapshot, ct).ConfigureAwait(true),
-            UnsubscribeBannerSource.OpenLink => await OpenAsync(snapshot, ct).ConfigureAwait(true),
-            ReceiptBannerSource.Send => await ReceiptAsync(snapshot, ct).ConfigureAwait(true),
-            ReceiptBannerSource.Ignore => Remove(snapshot, ReceiptBannerSource.Id, "No receipt sent."),
-            _ => Done("Unknown action."),
-        };
+            if (!_running.Add(key))
+            {
+                return Done("Already on its way.");
+            }
+        }
+
+        try
+        {
+            return actionId switch
+            {
+                UnsubscribeBannerSource.OneClick => await OneClickAsync(snapshot, ct).ConfigureAwait(true),
+                UnsubscribeBannerSource.OpenLink => await OpenAsync(snapshot, ct).ConfigureAwait(true),
+                ReceiptBannerSource.Send => await ReceiptAsync(snapshot, ct).ConfigureAwait(true),
+                ReceiptBannerSource.Ignore => Remove(snapshot, ReceiptBannerSource.Id, "No receipt sent."),
+                _ => Done("Unknown action."),
+            };
+        }
+        finally
+        {
+            lock (_gate)
+            {
+                _running.Remove(key);
+            }
+        }
     }
 
     private async Task<string> OneClickAsync(ReaderSnapshot snapshot, CancellationToken ct)

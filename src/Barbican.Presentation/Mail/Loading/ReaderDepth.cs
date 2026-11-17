@@ -45,28 +45,78 @@ public sealed class ReaderDepth(AuthServPins? pins, IEnumerable<IReaderBannerSou
         return trusted is not null && body.From.Count > 0 && trusted.IsTrusted(body.From[0].Email);
     }
 
-    /// <summary>The banners of every source, in registration order; a failing source adds none.</summary>
-    public async Task<IReadOnlyList<ReaderBanner>> BannersAsync(ReaderSnapshot snapshot, CancellationToken ct)
+    /// <summary>How long an open waits for the banners before the page is built: nobody waits on a slow server (M2 plan §1 rule 8); the
+    /// banners of a slower source join the stack afterwards, moving the body down once by their own height (M2 plan §6.3 step 10).</summary>
+    public static readonly TimeSpan BannerBudget = TimeSpan.FromMilliseconds(250);
+
+    /// <summary>
+    /// The banners of every source that answered within <see cref="BannerBudget"/>, in registration order. <c>Late</c> is null when every
+    /// source answered in time, else it completes with the banners of the slower ones (registration order). A failing or cancelled source adds
+    /// none.
+    /// </summary>
+    public async Task<(IReadOnlyList<ReaderBanner> Ready, Task<IReadOnlyList<ReaderBanner>>? Late)> BannersAsync(ReaderSnapshot snapshot, TimeProvider time, CancellationToken ct)
     {
-        var all = new List<ReaderBanner>();
-        foreach (var source in _sources)
+        ArgumentNullException.ThrowIfNull(snapshot);
+        ArgumentNullException.ThrowIfNull(time);
+        List<Task<List<ReaderBanner>>> tasks = [.. _sources.Select(s => CollectAsync(s, snapshot, ct))];
+        var all = Task.WhenAll(tasks);
+        if (!all.IsCompleted)
         {
-            try
+            using var stop = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            await Task.WhenAny(all, Task.Delay(BannerBudget, time, stop.Token)).ConfigureAwait(true);
+            await stop.CancelAsync().ConfigureAwait(true);
+        }
+
+        var done = tasks.Select(t => t.IsCompleted).ToArray();
+        var ready = new List<ReaderBanner>();
+        for (var i = 0; i < tasks.Count; i++)
+        {
+            if (done[i])
             {
-                await foreach (var banner in source.BannersForAsync(snapshot, ct).ConfigureAwait(true))
-                {
-                    all.Add(banner);
-                }
-            }
-#pragma warning disable CA1031 // one broken source must not keep the message from showing
-            catch (Exception) when (!ct.IsCancellationRequested)
-#pragma warning restore CA1031
-            {
-                // nothing from this source
+#pragma warning disable VSTHRD003 // started above by this method (CollectAsync) and already complete; it never faults
+                ready.AddRange(await tasks[i].ConfigureAwait(true));
+#pragma warning restore VSTHRD003
             }
         }
 
-        return all;
+        return (ready, done.All(d => d) ? null : LateAsync(tasks, done));
+    }
+
+    private static async Task<IReadOnlyList<ReaderBanner>> LateAsync(List<Task<List<ReaderBanner>>> tasks, bool[] done)
+    {
+        var late = new List<ReaderBanner>();
+        for (var i = 0; i < tasks.Count; i++)
+        {
+            if (!done[i])
+            {
+#pragma warning disable VSTHRD003 // started by BannersAsync (CollectAsync), no context needed; it never faults
+                late.AddRange(await tasks[i].ConfigureAwait(false));
+#pragma warning restore VSTHRD003
+            }
+        }
+
+        return late;
+    }
+
+    // One source's banners; it never faults (a broken or cancelled source adds none), so the late task never goes unobserved.
+    private static async Task<List<ReaderBanner>> CollectAsync(IReaderBannerSource source, ReaderSnapshot snapshot, CancellationToken ct)
+    {
+        var list = new List<ReaderBanner>();
+        try
+        {
+            await foreach (var banner in source.BannersForAsync(snapshot, ct).ConfigureAwait(true))
+            {
+                list.Add(banner);
+            }
+        }
+#pragma warning disable CA1031 // one broken source must not keep the message from showing
+        catch (Exception)
+#pragma warning restore CA1031
+        {
+            return [];
+        }
+
+        return list;
     }
 
     private IReadOnlyDictionary<string, string> RolesFor(string accountKey, IMailService mail)

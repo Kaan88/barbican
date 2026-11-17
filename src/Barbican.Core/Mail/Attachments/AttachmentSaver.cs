@@ -72,7 +72,8 @@ public sealed class AttachmentSaver(IAccountManager accounts, IHookBus hooks, Ti
             return Fail("The attachments are too large to save as one zip.");
         }
 
-        var names = ZipArchiveBuilder.UniqueNames([.. parts.Select(p => p.Str("name") ?? string.Empty)], "attachment");
+        // the names come from the sender: sanitized first (Rust reader.rs:833 sanitize_name), so no entry carries "../" or a drive path (zip slip)
+        var names = ZipArchiveBuilder.UniqueNames([.. parts.Select(p => ReaderNames.SanitizePart(p.Str("name") ?? string.Empty, 120))], "attachment");
         var entries = new List<ZipEntryData>();
         for (var i = 0; i < parts.Count; i++)
         {

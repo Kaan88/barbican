@@ -55,6 +55,6 @@ public sealed class UnsubscribeBannerSource : IReaderBannerSource
         yield return new ReaderBanner(Id, "This message is from a mailing list.", detail, false, actions);
     }
 
-    private static string? Header(IReadOnlyList<Barbican.Core.Mail.Model.EmailHeader> headers, string name) =>
-        headers.FirstOrDefault(h => string.Equals(h.Name, name, StringComparison.OrdinalIgnoreCase))?.Value.Trim();
+    // the first header of that name, unfolded (Rust reader.rs:27 header): a List-Unsubscribe folded inside a URL still parses
+    private static string? Header(IReadOnlyList<Barbican.Core.Mail.Model.EmailHeader> headers, string name) => ReaderHeaders.Header(headers, name);
 }

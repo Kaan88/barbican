@@ -43,6 +43,11 @@ public sealed class GuardedHttpTests
     [InlineData("::10.0.0.1")]
     [InlineData("64:ff9b::a00:1")]
     [InlineData("2002:a00:1::1")]
+    [InlineData("192.0.0.8")]
+    [InlineData("198.18.0.1")]
+    [InlineData("198.19.255.254")]
+    [InlineData("64:ff9b:1::a00:1")]
+    [InlineData("2001:0:4136:e378:8000:63bf:3fff:fdd2")]
     public async Task Every_private_range_is_refused(string ip)
     {
         Assert.False(PublicAddress.IsPublic(IPAddress.Parse(ip)), ip);
@@ -58,6 +63,8 @@ public sealed class GuardedHttpTests
     [InlineData("1.1.1.1")]
     [InlineData("100.128.0.1")]
     [InlineData("172.32.0.1")]
+    [InlineData("198.20.0.1")]
+    [InlineData("2001:4860:4860::8888")]
     [InlineData("2606:4700::1111")]
     [InlineData("64:ff9b::5db8:d822")]
     [InlineData("::ffff:93.184.216.34")]

@@ -292,15 +292,22 @@ public sealed class AccountManagerTests : IAsyncDisposable
     {
         var local = Path.Combine(_root, ".local", "writable-accounts.txt");
         var elsewhere = Path.Combine(_root, "other", "writable-accounts.txt");
-        Func<string, string?> Env(string? file) => n => string.Equals(n, ReadOnlyPolicy.FileVariable, StringComparison.Ordinal) ? file : null;
+        var readOnly = Path.Combine(_root, ".local", "readonly-accounts.txt");
+        Func<string, string?> Env(string? file, string? never = null) => n =>
+            string.Equals(n, ReadOnlyPolicy.FileVariable, StringComparison.Ordinal) ? file
+            : string.Equals(n, ReadOnlyPolicy.ReadOnlyFileVariable, StringComparison.Ordinal) ? never
+            : null;
         const string List = "# the test account\r\nana@example.org  # writes go to itself\r\n\r\n";
+        string? Read(string p) => string.Equals(p, readOnly, StringComparison.Ordinal) ? "main@example.net\r\n" : List;
 
-        Assert.False(ReadOnlyPolicy.For("dev", Env(local), _ => List).IsReadOnly("ana@example.org", storedFlag: false));
-        Assert.True(ReadOnlyPolicy.For("dev", Env(local), _ => List).IsReadOnly("ben@example.net", storedFlag: false));
-        Assert.True(ReadOnlyPolicy.For("dev", Env(local), _ => List).IsReadOnly("ana@example.org", storedFlag: true));
-        Assert.Equal(0, ReadOnlyPolicy.For("dev", Env(elsewhere), _ => List).WritableCount);
-        Assert.Equal(0, ReadOnlyPolicy.For("auto-1", Env(local), _ => null).WritableCount);
-        Assert.Equal(0, ReadOnlyPolicy.For("dev", Env(null), _ => List).WritableCount);
+        // M2-Q2: without the read-only list nothing is writable; with both, the writable list opens its logins (R2-14: a stored flag too)
+        Assert.True(ReadOnlyPolicy.For("dev", Env(local), Read).IsReadOnly("ana@example.org", storedFlag: false));
+        Assert.False(ReadOnlyPolicy.For("dev", Env(local, readOnly), Read).IsReadOnly("ana@example.org", storedFlag: false));
+        Assert.True(ReadOnlyPolicy.For("dev", Env(local, readOnly), Read).IsReadOnly("ben@example.net", storedFlag: false));
+        Assert.False(ReadOnlyPolicy.For("dev", Env(local, readOnly), Read).IsReadOnly("ana@example.org", storedFlag: true));
+        Assert.Equal(0, ReadOnlyPolicy.For("dev", Env(elsewhere, readOnly), Read).WritableCount);
+        Assert.Equal(0, ReadOnlyPolicy.For("auto-1", Env(local, readOnly), _ => null).WritableCount);
+        Assert.Equal(0, ReadOnlyPolicy.For("dev", Env(null, readOnly), Read).WritableCount);
 
         // the real reader: a missing file is read-only
         Assert.Null(ReadOnlyPolicy.ReadAllowList(local));

@@ -79,6 +79,26 @@ public sealed class ReaderViewModel : ObservableObject
         OnPropertyChanged(nameof(Current));
     }
 
+    /// <summary>Banners of a slower source join the stack of the message on screen (one change: the body moves down once by their height).</summary>
+    public void AddBanners(string emailId, IReadOnlyList<Reader.ReaderBanner> banners)
+    {
+        ArgumentNullException.ThrowIfNull(banners);
+        if (!string.Equals(emailId, _current.EmailId, StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        var fresh = banners.Where(b => !_current.Banners.Any(x => string.Equals(x.Id, b.Id, StringComparison.Ordinal))).ToList();
+        if (fresh.Count == 0)
+        {
+            return;
+        }
+
+        _current = _current with { Banners = [.. _current.Banners, .. fresh] };
+        ListSync.SyncBy(Banners, _current.Banners, b => b.Id, EqualityComparer<Reader.ReaderBanner>.Default.Equals);
+        OnPropertyChanged(nameof(Current));
+    }
+
     /// <summary>Nothing is open any more.</summary>
     public void Clear() => Apply(ReaderSnapshot.Empty);
 
