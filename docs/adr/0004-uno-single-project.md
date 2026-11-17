@@ -81,3 +81,26 @@ must not depend on them on Linux.
   RichTextKit built against SkiaSharp 3.119 (ADR 0006, fallback 1). One process cannot load two
   SkiaSharp majors, so M3 cannot start with the split in place. Option B (separate heads) is only for
   a Uno 7 break of the WinUI head that an override cannot fix.
+
+## M1 Uno 7 (stage F1, 2026-11-17)
+- **Decision: fallback, deferred; the App stays on Uno.Sdk 6.7.49 for now.** No stable Uno.Sdk 7.0.x
+  meets the package age rule (every pin at least two weeks old): on nuget.org 7.0.5 was published on
+  2026-11-10 and 7.0.22 on 2026-11-13. (The 6.7.49 pin taken in M0 is itself from 2026-11-10, so the
+  age rule alone does not separate the two; the deciding facts are that the move is a new pin, the
+  gate needs the S2 harness on both OSes, and the Linux VM was unreachable during F1, so a Uno 7 gate
+  could not have been closed.) The S1/S2 gates were therefore not re-run against Uno 7, and the
+  `'$(UsingUnoSdk)' != 'true'` SkiaSharp split in `Directory.Packages.props` stays.
+- **Retry:** on or after 2026-11-27 (7.0.22 two weeks old), before M3 and ideally before wave 2 adds UI,
+  as its own stage: move `global.json`/the Sdk pin, re-run this ADR's checks (both heads build, publish
+  win-x64 and linux-x64, the `--smoke` run on both OSes, the hidden automation scenario) and the S2
+  harness, then remove the split. The fallback of the M0 review (6.7.49 through M2, RichTextKit vendored
+  against SkiaSharp 3.119 for M3) applies only if Uno 7 then fails a gate.
+- **Resolved open point "the published Windows exe starts":** the Release win-x64 publish runs hidden
+  with `Barbican.exe --smoke report.json` (`tools/auto-run.ps1 smoke`): process start to launched
+  96-144 ms, to first frame 306-388 ms, to the body shell's `shell` message 666-721 ms, exit 0 (two runs,
+  dev machine). Publish 39-48 s; win-x64 folder 295.5 MB, zipped by `tools/package-portable.ps1` to
+  109 MB; linux-x64 publish 161 MB (12 s, incremental).
+- **Found by the smoke run:** WinUI does not convert an `x:Double` resource to `Thickness`,
+  `CornerRadius` or `GridLength`; the S1 placeholder `ShellPage` crashed at load on Windows (XamlParseException).
+  The shape tokens are applied in code now. The shell stream must not bind the `Shape.*` doubles to
+  those properties in XAML (or must generate typed tokens).

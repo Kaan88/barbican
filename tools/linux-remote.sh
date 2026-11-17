@@ -3,9 +3,12 @@
 #   linux-remote.sh setup
 #   linux-remote.sh run <branch> <sha> <build|test|gen-tokens> [tools/build.sh args...]
 #   linux-remote.sh setup-ui                 packages for running the app head under Xvfb (WebKitGTK)
-#   linux-remote.sh xrun <branch> <sha> <project> <out-name> [timeout-s]
+#   linux-remote.sh xrun <branch> <sha> <project> <out-name> [timeout-s] [configuration] [script]
 #        build <project> for net10.0-desktop, run it under its own Xvfb display (never a real
-#        screen), results in ~/barbican-out/<out-name> (BARBICAN_SPIKE_OUT)
+#        screen), results in ~/barbican-out/<out-name> (BARBICAN_SPIKE_OUT). BARBICAN_XVFB=1
+#        tells the App it is on a private display (its hidden mode refuses any other display).
+#        script: (none) run once; smoke = App --smoke <out>/smoke.json; auto = the Automation
+#        build's idle scenario over its loopback port (wshot, probe-start x11, 2 s, probe-stop, close)
 # One VM job at a time (flock on ~/.barbican-vm.lock), so two agents never fight over the
 # shared checkout in ~/barbican. Builds go through tools/build.sh with one slot and -m:2.
 set -euo pipefail
@@ -62,15 +65,15 @@ case "$mode" in
     echo "[vm] setup-ui done"
     ;;
   xrun)
-    branch=$1 sha=$2 project=$3 outname=$4 limit=${5:-300}
+    branch=$1 sha=$2 project=$3 outname=$4 limit=${5:-300} config=${6:-Debug} script=${7:-}
     [ -d "$clone/.git" ] || git clone -q "$repo_url" "$clone"
     cd "$clone"
     git fetch -q origin "+refs/heads/$branch:refs/remotes/origin/$branch"
     git checkout -q --force --detach "$sha"
     echo "[vm] $(git log -1 --format='%h %s') ($branch)"
-    BARBICAN_BUILD_SLOTS=1 BARBICAN_MSBUILD_CPU=2 bash tools/build.sh build --project "$project" -- -p:BarbicanHead=desktop
+    BARBICAN_BUILD_SLOTS=1 BARBICAN_MSBUILD_CPU=2 bash tools/build.sh build -c "$config" --project "$project" -- -p:BarbicanHead=desktop
     # The app's entry assembly is the one with a runtimeconfig (AssemblyName may differ from the project).
-    cfg=$(ls -t "$(dirname "$project")"/bin/Debug/net10.0-desktop/*.runtimeconfig.json 2>/dev/null | head -1)
+    cfg=$(ls -t "$(dirname "$project")"/bin/"$config"/net10.0-desktop/*.runtimeconfig.json 2>/dev/null | head -1)
     dll="${cfg%.runtimeconfig.json}.dll"
     [ -n "$cfg" ] && [ -f "$dll" ] || { echo "[vm] no build output for $project" >&2; exit 4; }
     out="$HOME/barbican-out/$outname"
@@ -91,12 +94,59 @@ case "$mode" in
       [ -n "$real" ] && ln -sf "$real" "$shim/$lib.so"
     done
     export LD_LIBRARY_PATH="$shim${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+    export DISPLAY=$disp GDK_BACKEND=x11 BARBICAN_XVFB=1 BARBICAN_SPIKE_OUT="$out" BARBICAN_PROFILE="xrun-$outname"
     set +e
-    DISPLAY=$disp GDK_BACKEND=x11 BARBICAN_SPIKE_OUT="$out" timeout "$limit" nice -n 10 dotnet "$dll" >"$out/stdout.txt" 2>"$out/stderr.txt"
-    code=$?
+    case "$script" in
+      smoke)
+        timeout "$limit" nice -n 10 dotnet "$dll" --smoke "$out/smoke.json" >"$out/stdout.txt" 2>"$out/stderr.txt"
+        code=$?
+        echo "[vm] smoke exit $code"
+        cat "$out/smoke.json" 2>/dev/null || echo "[vm] no smoke report"
+        ;;
+      auto)
+        port=8811
+        BARBICAN_AUTOMATION_PORT=$port timeout "$limit" nice -n 10 dotnet "$dll" >"$out/stdout.txt" 2>"$out/stderr.txt" &
+        app=$!
+        send() {
+          exec 3<>"/dev/tcp/127.0.0.1/$port" || return 1
+          printf '%s\n' "$1" >&3
+          IFS= read -r -t 60 reply <&3
+          exec 3<&- 3>&-
+          printf '%s\n' "$reply"
+        }
+        up=""
+        for _ in $(seq 1 120); do
+          kill -0 $app 2>/dev/null || break
+          if up=$(send title 2>/dev/null) && [ -n "$up" ]; then break; fi
+          sleep 0.5
+        done
+        if [ -z "$up" ]; then
+          echo "[vm] automation server did not come up"
+        else
+          echo "size: $(send size)"
+          echo "wshot: $(send "wshot $out/wshot.png")"
+          echo "probe-start: $(send 'probe-start x11')"
+          sleep 2
+          probe=$(send probe-stop)
+          printf '%s\n' "$probe" >"$out/idle-probe.json"
+          case "$probe" in *'"frames":[]'*) echo "probe-stop: 0 frames in 2 s idle" ;; *) echo "probe-stop: FRAMES while idle: ${probe:0:300}" ;; esac
+          echo "popup-guard: $(send popup-guard)"
+          echo "close: $(send close)"
+        fi
+        for _ in $(seq 1 40); do kill -0 $app 2>/dev/null || break; sleep 0.25; done
+        kill $app 2>/dev/null
+        wait $app
+        code=$?
+        echo "[vm] app exit $code"
+        ;;
+      *)
+        timeout "$limit" nice -n 10 dotnet "$dll" >"$out/stdout.txt" 2>"$out/stderr.txt"
+        code=$?
+        echo "[vm] exit $code"
+        grep -E '^\[spike\]' "$out/stdout.txt" || tail -20 "$out/stdout.txt"
+        ;;
+    esac
     set -e
-    echo "[vm] exit $code"
-    grep -E '^\[spike\]' "$out/stdout.txt" || tail -20 "$out/stdout.txt"
     tail -5 "$out/stderr.txt"
     exit 0
     ;;

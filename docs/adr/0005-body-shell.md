@@ -129,3 +129,23 @@ a `.deb` dependency on the `-dev` names or a launcher that sets the path.
   stays the fallback if WebKitGTK regresses. The header/body skew (measured on Xvfb only) is re-measured
   on a real compositor before M3; fallback: dim the body until both have presented.
 - The Rust `SHELL_JS` is now kept verbatim in `docs/legacy/mailview-shell.rust-final.js` for diffing.
+
+## M1 F1 (stage f1-foundation, 2026-11-17)
+- **Links are routed by the shell, not by navigation.** `shell.js` adds a capturing `click`/`auxclick`
+  listener to every message frame; for `a[href]`/`area[href]` it cancels the event and posts
+  `link:<href>` (8000 chars max). The host accepts only absolute `http`, `https` and `mailto` URIs
+  (`ShellMessage.TryLink`) and hands them to `ILinkRouter` (M1: a placeholder that logs the scheme only;
+  the opener with confirmation comes with the reader). `ShellScriptTests` keep the shell free of
+  `location` writes, `window.open`, `document.write`, history navigation and string timers.
+- **Sandbox, deviation from the plan text:** the plan said to drop `allow-same-origin` "as in Rust", but
+  Rust's `sandbox()` (mailview.rs:140) grants `allow-same-origin` and `allow-popups`. F1 drops
+  `allow-popups` and `allow-popups-to-escape-sandbox` (links no longer need them) and keeps
+  `allow-same-origin`, which the shell needs to read the frame document for readiness and to attach its
+  link, key and context-menu handlers. The frame's own CSP (`script-src` by hash only, or none) still
+  stops message scripts. An opaque-origin design (handlers injected through `srcdoc`) is a body-stream option.
+- **Message gate:** every page-to-host message passes `ShellMessage.TryParse` (allow-list: `shell`,
+  `ready:N`, `dirty`, `key:FLAGS|KEY`, `ctx:X,Y`, `link:URL`; 8192 chars max); anything else is dropped
+  and counted (`ShellMessageGate.Dropped`). `dim` is host-to-page only and is not accepted from the page.
+- **CSP:** `MailCsp` ports Rust `csp_with` (main.rs:89) with T-176 and adds `base-uri 'none'` (Bulwark
+  `lib/email-sanitization.ts:116`) to the message policy and the shell policy. On Linux the CSP is the
+  only remote-content guard (no `WebResourceRequested` on WebKitGTK).

@@ -24,6 +24,8 @@
   tools/linux.ps1 xrun -Project spikes/BodyShell/Barbican.Spike.BodyShell.csproj -Out s2
                                          # build for net10.0-desktop and run under the VM's own Xvfb;
                                          # results copied to artifacts/linux/<Out>/
+  tools/linux.ps1 xrun -Project src/Barbican.App/Barbican.App.csproj -Script smoke -Out smoke
+  tools/linux.ps1 xrun -Project src/Barbican.App/Barbican.App.csproj -Configuration Automation -Script auto -Out auto
 #>
 [CmdletBinding()]
 param(
@@ -36,8 +38,10 @@ param(
     [string]$Project,
     [string]$Out = 'run',
     [int]$TimeoutSeconds = 300,
-    [ValidateSet('Debug', 'Release')]
-    [string]$Configuration = 'Debug'
+    [ValidateSet('Debug', 'Release', 'Automation')]
+    [string]$Configuration = 'Debug',
+    [ValidateSet('', 'smoke', 'auto')]
+    [string]$Script = ''
 )
 
 $ErrorActionPreference = 'Stop'
@@ -91,7 +95,7 @@ if ($remoteSha -ne $sha) {
 if ($Target -eq 'xrun') {
     if (-not $Project) { throw '[linux.ps1] xrun needs -Project' }
     Write-Host "[linux.ps1] xrun $Project $Branch@$($sha.Substring(0, 7)) on the VM"
-    Invoke-Vm @('xrun', $Branch, $sha, $Project.Replace('\', '/'), $Out, "$TimeoutSeconds")
+    Invoke-Vm @('xrun', $Branch, $sha, $Project.Replace('\', '/'), $Out, "$TimeoutSeconds", $Configuration, $Script)
     $local = Join-Path $Root "artifacts/linux/$Out"
     New-Item -ItemType Directory -Force $local | Out-Null
     $scpArgs = @('-i', $key, '-o', 'BatchMode=yes', '-r', "${vm}:barbican-out/$Out/*", $local)

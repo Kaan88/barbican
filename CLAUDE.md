@@ -68,6 +68,9 @@ AGENTS.md points here; this file is the single source of the rules.
 | One head only (inner loop) | `tools/build.ps1 build -Head win` or `-Head desktop` (App head; `-Project` for others) |
 | Publish the app | `tools/build.ps1 publish -Head win -Rid win-x64` (or `-Head desktop -Rid linux-x64`) → `artifacts/publish/<head>/<rid>` |
 | Run a UI project on the VM | `tools/linux.ps1 setup-ui` once, then `tools/linux.ps1 xrun -Project <csproj> -Out <name>` (private Xvfb; results in `artifacts/linux/<name>`) |
+| Hidden smoke run | Windows: `tools/auto-run.ps1 smoke` (published exe, `--smoke`); Linux: `tools/linux.ps1 xrun -Project src/Barbican.App/Barbican.App.csproj -Script smoke -Out smoke` |
+| Automation build (hidden, ADR 0007) | `tools/build.ps1 build -Configuration Automation -Head win`, then `tools/auto-run.ps1 start -Port <p>` / `send -Command '...'` / `scenario` / `stop`; popup probes only with `start -PrivateDesktop`. Linux: `tools/linux.ps1 xrun ... -Configuration Automation -Script auto` |
+| Portable zip | `tools/build.ps1 publish -Head win`, then `tools/package-portable.ps1` → `artifacts/portable/` |
 | Privacy check before commit | `sh tools/privacy-check.sh --worktree` |
 | Spec status / milestone gate | `python tools/spec-check.py` (summary), `--milestone M<n>` (gate: exit 1 while T- rows of M<n> are unmapped), `--write` (fill `csharp_test`/`status` in `spec/rust-tests.csv` after porting tests) |
 

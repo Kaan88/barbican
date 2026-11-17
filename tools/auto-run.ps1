@@ -197,7 +197,8 @@ switch ($Target) {
         $after = Get-FocusState
         Write-Host "[auto-run] smoke exit $($p.ExitCode); focus before: $before; after: $after"
         if (Test-Path $Report) { Get-Content $Report -Raw | Write-Host } else { throw '[auto-run] no smoke report' }
-        if ($before -ne $after) { Write-Host '[auto-run] WARNING: foreground window or cursor changed during the run' }
+        # The cursor moves with the user's own hand; only a changed foreground window would point at the App.
+        if (($before -split ' ')[0] -ne ($after -split ' ')[0]) { Write-Host '[auto-run] WARNING: the foreground window changed during the run' }
         exit $p.ExitCode
     }
     'start' {

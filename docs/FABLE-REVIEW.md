@@ -288,3 +288,58 @@ Plan: `docs/milestones/M1-plan.md` on branch `m1` (this commit).
   disabled actions interface that M2 supplies. Where: M1-plan §6.5.
 - **J-043 and J-044 set to n/a** with the Rust reasons (desktop client has no callback URL; EventSource is
   enough, Bulwark does not use WebSocket). Where: M1-plan §2.2.
+
+## M1 stream: f1-foundation
+
+Branch `m1-f1-foundation`, merged into `m1`. Report: the stage's hand-back (Uno 7, smoke, automation).
+- **Uno 7 move deferred (fallback for now).** No Uno.Sdk 7.0.x was two weeks old (7.0.5: 2026-11-10,
+  7.0.22: 2026-11-13); note the existing 6.7.49 pin is also from 2026-11-10, and the VM was unreachable,
+  so the both-OS gate could not have closed. Retry after 2026-11-27, before wave 2 if possible; the
+  SkiaSharp split stays until then. Review the judgement and that nothing in wave 1 deepens the Uno 6.7
+  dependence. Where: ADR 0004 "M1 Uno 7".
+- **Popup guard is reactive, not preventive.** It polls every 10 ms and around commands and closes
+  unconstrained popups; a windowed popup can still draw for up to one tick on the user's screen if the
+  App ever opens one off the private desktop. Prevention is the XAML lint plus the deny list. Review
+  whether a WH_CBT/`WM_WINDOWPOSCHANGING` jail is worth it. Where: `src/Barbican.Automation/PopupGuard.cs`.
+- **Deny list from measurements on a private desktop.** CommandBarFlyout opens outside the window even with
+  `ShouldConstrainToRootBounds="True"`; ComboBox, ToolTip, AutoSuggestBox open outside; ContentDialog stays
+  in. Pickers, SplitButton, DropDownButton, MenuBar, NumberBox were not probed and are denied. M2's menus
+  and any tooltip design must live with this (custom in-window tooltip, MenuFlyout instead of
+  CommandBarFlyout). Where: ADR 0007 "M1 F1", `Protocol/PopupControls.cs`, `PopupLintTests`.
+- **Private desktop for risky probes.** `tools/auto-run.ps1 -PrivateDesktop` uses `CreateDesktop` +
+  `CreateProcess(lpDesktop)` and never `SwitchDesktop`. A desktop is a session object that disappears with
+  the App; judged not an OS change. Review that judgement and the launcher (handle lifetime, no handle
+  inheritance unless `-CaptureOutput`). WGC does not work there, so frames are measured off-screen only.
+- **Monitor check before showing the hidden window.** `HiddenWindow.Show` now throws when any monitor
+  reaches (-12000,200)+size, before and after the move. Review the failure mode (the App crashes instead of
+  showing). Where: `src/Barbican.App/Composition/HiddenWindow.cs`.
+- **Release enforcement is static plus output checks, not an MSBuild evaluation.** Build.Tests parse the
+  project files and the built `Barbican.dll` metadata; `build.ps1 publish` and `package-portable.ps1` scan the
+  folder. A conditional reference through a new path (e.g. a `.props` import) would need a new test.
+  Where: `tests/Barbican.Build.Tests/ReleaseContentTests.cs`, `tools/build.ps1` `Assert-NoAutomationContent`.
+- **Sandbox deviation:** `allow-same-origin` kept (the shell needs the frame document), `allow-popups` and
+  `allow-popups-to-escape-sandbox` dropped, against the plan text ("drop allow-same-origin as in Rust",
+  which misreads Rust). Security review: same-origin frames plus hash-only scripts. Where: ADR 0005 "M1 F1",
+  `Core/Mail/Body/MailSandbox.cs`, `Assets/mail/shell.js`.
+- **CSP adds `base-uri 'none'`** (Bulwark) to the Rust policy; Rust differences kept (remote styles allowed
+  with remote content on, no `media-src`, no `blob:`). T-176 ported. Where: `Core/Mail/Body/MailCsp.cs`.
+- **`dim` is not accepted from the page** (plan listed it among messages; it is host-to-page). Where:
+  `Core/Mail/Body/ShellMessage.cs`.
+- **Link router is a logging placeholder;** a link click in a message does nothing visible in M1 until the
+  reader stream adds the opener (with confirmation). Where: `App/MailBody/LoggingLinkRouter.cs`.
+- **Smoke run has its own shell WebView** (a 64x64 WebView2 in the corner) until the body stream's host
+  exists; replace it with the real body host's `shell` signal. Where: `App/Composition/SmokeRun.cs`.
+- **ShellPage crash found by the smoke run:** `x:Double` tokens bound to Thickness/CornerRadius/GridLength
+  crash WinUI (Uno accepted them). The placeholder applies them in code; the token generator should emit
+  typed resources. Where: `App/Shell/ShellPage.xaml(.cs)`, ADR 0004 "M1 Uno 7".
+- **`key` automation command is a stub** replying `error no key router yet`; the KeyRouter owner registers
+  `key` as an `IAutomationCommand`. Where: `src/Barbican.Automation/CommandRouter.Ui.cs`.
+- **MA0051 relaxed for `src/Barbican.Automation`** (command tables, spike port), like `spikes/`. Where:
+  `.editorconfig`.
+- **Automation WinUI build is `win-x64`** (Win2D needs a platform); the Automation library sets
+  `Win2DWarnNoPlatform=false` and relies on the App's RID for the native DLL. Where: App and Automation csproj.
+- **Profile folders:** hidden runs set `WEBVIEW2_USER_DATA_FOLDER` to `%LOCALAPPDATA%/Barbican-<profile>/WebView2`
+  (profiles `smoke`, `auto-<port>`), never the user's default profile. Review against ADR 0008 profiles.
+  Where: `App/Composition/HiddenWebView.cs`.
+- **`IStartupTask` lives in `Presentation/Composition`** (so feature streams can implement it without the App).
+- **Branch name:** `m1-f1-foundation` (the task text said `m1/f1`, which git cannot create next to `m1`).
