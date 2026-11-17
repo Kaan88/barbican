@@ -83,6 +83,7 @@ public sealed partial class MailSync : IMailSync, IDisposable
         string? error = null;
         var entered = false;
         var first = BeginRun();
+        List<EmailSummary> hear = [];
         try
         {
             if (first)
@@ -92,13 +93,15 @@ public sealed partial class MailSync : IMailSync, IDisposable
 
             await _gate.WaitAsync(ct).ConfigureAwait(false);
             entered = true;
-            error = await RunTypesAsync(types, ct).ConfigureAwait(false);
+            error = await RunTypesAsync(types, hear, ct).ConfigureAwait(false);
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested)
         {
             throw;
         }
-        catch (Exception e) when (e is IOException or HttpRequestException or InvalidOperationException)
+#pragma warning disable CA1031 // the top of a background run: whatever went wrong is reported through onSyncStateChange, never left on a faulted task (Fable F-15)
+        catch (Exception e)
+#pragma warning restore CA1031
         {
             error = e.Message;
         }
@@ -108,6 +111,9 @@ public sealed partial class MailSync : IMailSync, IDisposable
             {
                 _gate.Release();
             }
+
+            // outside the gate: a plugin that is slow to hear of new mail must not hold up the next sync (Fable F-15)
+            await TellNewMailAsync(hear).ConfigureAwait(false);
 
             await EndRunAsync(error, CancellationToken.None).ConfigureAwait(false);
         }
@@ -121,7 +127,7 @@ public sealed partial class MailSync : IMailSync, IDisposable
         _events.Writer.TryComplete();
     }
 
-    private async Task<string?> RunTypesAsync(IReadOnlySet<string> types, CancellationToken ct)
+    private async Task<string?> RunTypesAsync(IReadOnlySet<string> types, List<EmailSummary> hear, CancellationToken ct)
     {
         bool Has(string t) => types.Contains(t);
         JmapError? error = null;
@@ -137,7 +143,7 @@ public sealed partial class MailSync : IMailSync, IDisposable
 
         if (Has("Email") || Has("EmailDelivery"))
         {
-            error ??= await CheckNewMailAsync(ct).ConfigureAwait(false);
+            error ??= await CheckNewMailAsync(hear, ct).ConfigureAwait(false);
         }
 
         return error?.Message;
@@ -203,7 +209,7 @@ public sealed partial class MailSync : IMailSync, IDisposable
         return delta.Error;
     }
 
-    private async Task<JmapError?> CheckNewMailAsync(CancellationToken ct)
+    private async Task<JmapError?> CheckNewMailAsync(List<EmailSummary> hear, CancellationToken ct)
     {
         var fresh = await _newMail.CheckAsync(ct).ConfigureAwait(false);
         if (!fresh.IsOk || fresh.Value!.Count == 0)
@@ -217,13 +223,18 @@ public sealed partial class MailSync : IMailSync, IDisposable
             && roles.Value!.TryGetValue("inbox", out var inbox))
         {
             // plugins hear of new mail in the inbox only, never of a draft (Bulwark stores/email-store.ts:1346)
-            foreach (var email in fresh.Value.Where(e => e.MailboxIds.ContainsKey(inbox) && !e.Keywords.IsSet("$draft")))
-            {
-                await _hooks.NotifyAsync(HookNames.OnNewEmailReceived, email, ct).ConfigureAwait(false);
-            }
+            hear.AddRange(fresh.Value.Where(e => e.MailboxIds.ContainsKey(inbox) && !e.Keywords.IsSet("$draft")));
         }
 
         return null;
+    }
+
+    private async Task TellNewMailAsync(List<EmailSummary> hear)
+    {
+        foreach (var email in hear)
+        {
+            await NotifyAsync(HookNames.OnNewEmailReceived, email, CancellationToken.None).ConfigureAwait(false);
+        }
     }
 
     /// <summary>Counts a run in; true for the first of overlapping runs (the one that reports "syncing").</summary>
@@ -260,9 +271,24 @@ public sealed partial class MailSync : IMailSync, IDisposable
 
     private async Task NotifyAsync<T>(string hook, T payload, CancellationToken ct)
     {
-        if (_hooks.HasHandlers(hook))
+        if (!_hooks.HasHandlers(hook))
+        {
+            return;
+        }
+
+        try
         {
             await _hooks.NotifyAsync(hook, payload, ct).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            throw;
+        }
+#pragma warning disable CA1031 // a hook is the plugin boundary: whatever it throws must not fault the sync (Fable F-15)
+        catch (Exception)
+#pragma warning restore CA1031
+        {
+            // the bus reports handler failures itself
         }
     }
 

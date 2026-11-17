@@ -36,6 +36,7 @@ public sealed class MessageListViewModel : ObservableObject, IDisposable
     private readonly Dictionary<string, IReadOnlyList<string>> _badges = new(StringComparer.Ordinal);
     private CancellationTokenSource? _cts;
     private ListQuery? _query;
+    private ListQuery? _pagingQuery;
     private MailboxRole _role;
     private MessageRowViewModel? _selected;
     private string? _selectedId;
@@ -48,6 +49,7 @@ public sealed class MessageListViewModel : ObservableObject, IDisposable
     private string _searchText = string.Empty;
     private string? _error;
     private bool _canLoadMore;
+    private bool _syncProblem;
 
     public MessageListViewModel(
         IActiveMail active,
@@ -206,7 +208,7 @@ public sealed class MessageListViewModel : ObservableObject, IDisposable
     /// <summary>Loads the next page after the last loaded message (anchor paging) and appends it in place.</summary>
     public async Task LoadMoreAsync()
     {
-        var query = _query;
+        var query = _pagingQuery ?? _query;
         var cursor = _loaded.Next;
         var mail = _active.Mail;
         if (query is null || cursor is null || mail is null || _loadingMore || IsLoading)
@@ -358,12 +360,20 @@ public sealed class MessageListViewModel : ObservableObject, IDisposable
     /// <summary>The user pressed <c>/</c>.</summary>
     public void RequestSearchFocus() => FocusSearchRequested?.Invoke(this, EventArgs.Empty);
 
-    /// <summary>Loads the first page of the open list again, keeping the rows on screen until it is ready (a refused delta, a new account state).</summary>
+    /// <summary>
+    /// Loads the open list again, as many rows as were loaded, keeping the rows on screen until it is ready (a refused delta, a new account
+    /// state). The selection stays when its message is still in the list; when it is not, the reader closes (Fable F-14).
+    /// </summary>
     public async Task ReloadAsync()
     {
         if (_query is { } q)
         {
-            await LoadFirstPageAsync(q, folderOpened: false).ConfigureAwait(true);
+            var hadSelection = _selectedId is not null;
+            await LoadFirstPageAsync(q, folderOpened: false, rows: _loaded.Emails.Count).ConfigureAwait(true);
+            if (hadSelection && _selectedId is null)
+            {
+                _opener.Close();
+            }
         }
     }
 
@@ -378,7 +388,7 @@ public sealed class MessageListViewModel : ObservableObject, IDisposable
 
     private MailListSettings ReadSettings() => MailListSettings.Read(_prefs.Current, _system.Current);
 
-    private async Task LoadFirstPageAsync(ListQuery query, bool folderOpened)
+    private async Task LoadFirstPageAsync(ListQuery query, bool folderOpened, int rows = 0)
     {
         var generation = ++_generation;
         var old = _cts;
@@ -399,7 +409,7 @@ public sealed class MessageListViewModel : ObservableObject, IDisposable
         IsLoading = true;
         try
         {
-            var result = await mail.QueryAsync(query, null, ct).ConfigureAwait(true);
+            var result = await FirstPageAsync(mail, query, rows, ct).ConfigureAwait(true);
             if (generation != _generation)
             {
                 return;
@@ -427,6 +437,48 @@ public sealed class MessageListViewModel : ObservableObject, IDisposable
         }
     }
 
+    /// <summary>
+    /// The first page. The unread-first Inbox is two queries, the newest unread messages (<c>notKeyword $seen</c>, the section size) and
+    /// the read ones (<c>hasKeyword $seen</c>), as Rust <c>fetch_unread_first</c> (mail.rs:599) does, so an Inbox with more unread
+    /// messages than one page still shows its unread section; otherwise one query of <paramref name="rows"/> or the page size.
+    /// </summary>
+    private async Task<Core.Common.Result<ListPage>> FirstPageAsync(Core.Mail.IMailService mail, ListQuery query, int rows, CancellationToken ct)
+    {
+        var size = Math.Max(query.PageSize, rows);
+        var settings = ReadSettings();
+        if (!IsUnreadFirst(query, settings))
+        {
+            return await mail.QueryAsync(query with { PageSize = size }, null, ct).ConfigureAwait(true);
+        }
+
+        var unread = await mail.QueryAsync(query with { NotKeyword = "$seen", PageSize = settings.UnreadSectionSize }, null, ct).ConfigureAwait(true);
+        if (!unread.IsOk || unread.Value is null)
+        {
+            return unread;
+        }
+
+        var read = await mail.QueryAsync(query with { HasKeyword = "$seen", PageSize = size }, null, ct).ConfigureAwait(true);
+        if (!read.IsOk || read.Value is null)
+        {
+            return read;
+        }
+
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+        var items = unread.Value.Items.Concat(read.Value.Items).Where(e => seen.Add(e.Id)).ToList();
+        var threads = unread.Value.Threads.Concat(read.Value.Threads).GroupBy(kv => kv.Key, StringComparer.Ordinal).ToDictionary(g => g.Key, g => g.Last().Value, StringComparer.Ordinal);
+        return Core.Common.Result<ListPage>.Ok(new ListPage
+        {
+            Items = items,
+            Total = unread.Value.Items.Count + (read.Value.Total ?? read.Value.Items.Count),
+            Next = read.Value.Next,
+            Threads = threads,
+            Position = 0,
+        });
+    }
+
+    private bool IsUnreadFirst(ListQuery query, MailListSettings settings) =>
+        settings.UnreadFirst && _role == MailboxRole.Inbox && string.IsNullOrWhiteSpace(query.SearchText);
+
     private async Task ApplyFirstPageAsync(ListPage page, ListQuery query, bool folderOpened, int generation)
     {
         var items = await _hooks.ShapeAsync(
@@ -447,6 +499,8 @@ public sealed class MessageListViewModel : ObservableObject, IDisposable
             items = items with { Emails = Reorder(items.Emails, ids.EmailIds) };
         }
 
+        var unreadFirst = IsUnreadFirst(query, ReadSettings());
+        _pagingQuery = unreadFirst ? query with { HasKeyword = "$seen" } : null;
         _loaded.Replace(page with { Items = items.Emails });
         _badges.Clear();
         Error = null;
@@ -455,7 +509,16 @@ public sealed class MessageListViewModel : ObservableObject, IDisposable
         CanLoadMore = _loaded.Next is not null;
         // the page's query, email and thread states let the next push bring the list up to date with a delta; Watch(query) alone keeps
         // no states, so every push would reset the list (Rust mail.rs:34 states_of, :759 sync)
-        _active.Sync?.Watch(query, page);
+        if (unreadFirst)
+        {
+            // two queries carry no sync states: a push resets the list, which reads it again (Rust mail.rs:597)
+            _active.Sync?.Watch(query);
+        }
+        else
+        {
+            _active.Sync?.Watch(query, page);
+        }
+
         if (folderOpened)
         {
             SetSelected(null);
@@ -548,6 +611,12 @@ public sealed class MessageListViewModel : ObservableObject, IDisposable
 
     private void OnSyncEvent(object? sender, MailSyncEventArgs args)
     {
+        if (args.AccountKey is { } from && !string.Equals(from, _active.AccountKey, StringComparison.Ordinal))
+        {
+            // an event of the account that was active before a switch, still on its way
+            return;
+        }
+
         switch (args.Event)
         {
             case ListDeltaEvent when IsLoading || _query is null:
@@ -568,6 +637,15 @@ public sealed class MessageListViewModel : ObservableObject, IDisposable
                 break;
             case ListResetEvent:
                 _ = ReloadAsync();
+                break;
+            case SyncProblemEvent problem:
+                // live updates stopped for a reason the user can act on (Fable F-15)
+                _syncProblem = true;
+                Error = problem.Message;
+                break;
+            case PushStateEvent { Connected: true } when _syncProblem:
+                _syncProblem = false;
+                Error = null;
                 break;
             default:
                 break;
@@ -591,6 +669,7 @@ public sealed class MessageListViewModel : ObservableObject, IDisposable
         _cts?.Cancel();
         _loaded.Replace(new ListPage());
         _query = null;
+        _pagingQuery = null;
         LastSync = ListSync.SyncBy(Rows, [], r => r.Key, (a, b) => a.SameAs(b));
         SetSelected(null);
         Total = 0;

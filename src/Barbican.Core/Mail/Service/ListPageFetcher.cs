@@ -101,7 +101,7 @@ public static class ListPageFetcher
         }
 
         var threads = ThreadSizes(ta.Value!.Arr("list") ?? []);
-        return Result<ListPage>.Ok(Page(qa.Value!, Rows(ga.Value!.Arr("list") ?? [], threads), threads, ga.Value!.Str("state"), ta.Value!.Str("state"), limit));
+        return Result<ListPage>.Ok(Page(qa.Value!, Rows(ga.Value!.Arr("list") ?? [], threads), qa.Value!.Strings("ids"), threads, ga.Value!.Str("state"), ta.Value!.Str("state"), limit));
     }
 
     private static async Task<Result<ListPage>> ChunkedAsync(
@@ -137,14 +137,17 @@ public static class ListPageFetcher
 
         var threads = ThreadSizes(th.Value!);
         var r = sent.Value!;
-        return Result<ListPage>.Ok(Page(qa.Value!, Rows(sorted, threads), threads, r.ByCallId(e.CallId)?[1].Str("state"), r.ByCallId(t.CallId)?[1].Str("state"), limit));
+        return Result<ListPage>.Ok(Page(qa.Value!, Rows(sorted, threads), ids, threads, r.ByCallId(e.CallId)?[1].Str("state"), r.ByCallId(t.CallId)?[1].Str("state"), limit));
     }
 
-    private static ListPage Page(JsonObject q, IReadOnlyList<EmailSummary> rows, IDictionary<string, int> threads, string? emailState, string? threadState, int limit)
+    internal static ListPage Page(JsonObject q, IReadOnlyList<EmailSummary> rows, IReadOnlyList<string> ids, IDictionary<string, int> threads, string? emailState, string? threadState, int limit)
     {
         var position = q.Count("position") ?? 0;
         var total = q["total"].AsNumber() is { } n ? (int?)n : null;
-        var more = rows.Count >= limit && (total is null || position + rows.Count < total);
+        // "more pages" counts the ids the query returned, not the rows that parsed: one odd message must not end paging (Fable F-14)
+        var more = ids.Count >= limit && (total is null || position + ids.Count < total);
+        var parsed = rows.Select(r => r.Id).ToHashSet(StringComparer.Ordinal);
+        var dropped = ids.Where(id => !parsed.Contains(id)).ToList();
         return new ListPage
         {
             Items = rows,
@@ -155,7 +158,8 @@ public static class ListPageFetcher
             EmailState = emailState ?? "",
             ThreadState = threadState ?? "",
             CanCalculateChanges = q.True("canCalculateChanges"),
-            Next = more && rows.Count > 0 ? new ListCursor(rows[^1].Id) { Position = position + rows.Count } : null,
+            DroppedIds = dropped,
+            Next = more && ids.Count > 0 ? new ListCursor(ids[^1]) { Position = position + ids.Count } : null,
         };
     }
 }

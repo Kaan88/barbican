@@ -45,6 +45,15 @@ public sealed partial class ShellScriptTests
     }
 
     [Fact]
+    public void ReadyIsPostedOneFrameAfterTheLayoutWithATimerFallback()
+    {
+        // data: images may decode a frame late; a hidden window may never run a frame, so the timer keeps the page from waiting for good
+        var code = Code.Value;
+        Assert.Matches(@"requestAnimationFrame\(ready\);\s*setTimeout\(ready,\s*\d+\);", code);
+        Assert.DoesNotMatch(@"offsetHeight;\s*post\('ready:'", code);
+    }
+
+    [Fact]
     public void EveryFrameGetsASandboxFromTheAllowListOnly()
     {
         var code = Code.Value;

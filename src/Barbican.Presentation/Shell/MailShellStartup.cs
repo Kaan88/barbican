@@ -110,8 +110,8 @@ public sealed class MailShellStartup : IStartupTask, IDisposable
 
     private async Task LoadFlaggedAsync(Core.Mail.IMailService mail, CancellationToken ct)
     {
-        // the flagged tile asks the list engine for the starred messages (text filter "is:starred"); a server that cannot answer leaves the tile empty
-        var r = await mail.QueryAsync(new ListQuery { SearchText = "is:starred", PageSize = 3 }, null, ct).ConfigureAwait(true);
+        // the flagged tile asks the list engine for the starred messages (keyword filter $flagged, RFC 8621 4.4.1 hasKeyword); a server that cannot answer leaves the tile empty
+        var r = await mail.QueryAsync(new ListQuery { HasKeyword = "$flagged", PageSize = 3 }, null, ct).ConfigureAwait(true);
         if (r.IsOk && r.Value is { } page && !ct.IsCancellationRequested)
         {
             _glance.SetFlagged(page.Total ?? page.Items.Count, page.Items);

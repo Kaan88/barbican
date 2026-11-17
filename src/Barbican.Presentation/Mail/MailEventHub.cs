@@ -44,7 +44,10 @@ public sealed class MailEventHub : IStartupTask, IDisposable
     }
 
     /// <summary>Hands an event to the subscribers as if the sync engine had sent it (tests and the headless scenario).</summary>
-    public void Publish(MailSyncEvent e) => _dispatcher.Post(() => EventReceived?.Invoke(this, new MailSyncEventArgs(e)));
+    public void Publish(MailSyncEvent e) => Publish(e, _active.AccountKey);
+
+    /// <summary>Hands an event to the subscribers as an event of <paramref name="accountKey"/> (the account whose engine produced it).</summary>
+    public void Publish(MailSyncEvent e, string? accountKey) => _dispatcher.Post(() => EventReceived?.Invoke(this, new MailSyncEventArgs(e, accountKey)));
 
     private void OnChanged(object? sender, EventArgs e) => Attach();
 
@@ -80,17 +83,18 @@ public sealed class MailEventHub : IStartupTask, IDisposable
         }
 
         var ct = cts.Token;
-        _ = Task.Run(() => RunAsync(sync, ct), ct);
+        var key = _active.AccountKey;
+        _ = Task.Run(() => RunAsync(sync, key, ct), ct);
     }
 
-    private async Task RunAsync(Core.Mail.IMailSync sync, CancellationToken ct)
+    private async Task RunAsync(Core.Mail.IMailSync sync, string? accountKey, CancellationToken ct)
     {
         var engine = sync.RunAsync(ct);
         try
         {
             await foreach (var e in sync.Events.ReadAllAsync(ct).ConfigureAwait(false))
             {
-                Publish(e);
+                Publish(e, accountKey);
             }
         }
         catch (OperationCanceledException)

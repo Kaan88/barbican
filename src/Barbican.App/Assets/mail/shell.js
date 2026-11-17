@@ -149,7 +149,12 @@
         size(d, sz);
         if (dk) dark(d);
         void d.documentElement.offsetHeight;
-        post('ready:' + s);
+        // One frame before the host hears of the page, so data: images have decoded when it is revealed (Fable M1 verify). A hidden or
+        // throttled window may never run a frame: a timer is the fallback, so the page is never held back for good.
+        var sent = false;
+        var ready = function () { if (sent) return; sent = true; if (seq === s) post('ready:' + s); };
+        requestAnimationFrame(ready);
+        setTimeout(ready, 34);
         return true;
       }
       f.addEventListener('load', function () { var d = null; try { d = f.contentDocument; } catch (e) { } finish(d); });

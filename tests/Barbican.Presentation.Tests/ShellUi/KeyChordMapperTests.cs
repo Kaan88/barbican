@@ -24,4 +24,13 @@ public sealed class KeyChordMapperTests
 
     [Fact]
     public void AKeyTheRouterNeverHandlesIsNull() => Assert.Null(KeyChordMapper.Map(112, false, false, false));
+
+    [Theory]
+    [InlineData(49)]
+    [InlineData(55)]
+    [InlineData(57)]
+    public void ShiftWithADigitIsNotTheDigit(int virtualKey) => Assert.Null(KeyChordMapper.Map(virtualKey, false, true, false));
+
+    [Fact]
+    public void AltGrIsNotAShortcut() => Assert.Null(KeyChordMapper.Map(81, true, false, true));
 }

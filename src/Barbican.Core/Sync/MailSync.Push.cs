@@ -3,6 +3,7 @@
 // watch (closeafter=no, ping=30, 75 s silence = dead), :1614 changed_types; RFC 8620 §7.3 (EventSource), §7.1 (StateChange); Bulwark
 // lib/mail-push-listener.ts, lib/plugin-hook-catalog.ts:158 onPushConnectionChange. Owner jmap.
 
+using Barbican.Core.Jmap.Errors;
 using Barbican.Core.Jmap.Push;
 using Barbican.Core.Mail.Model;
 using Barbican.Core.Plugins.Hooks;
@@ -17,7 +18,15 @@ public sealed partial class MailSync
     /// <summary>The keep-alive interval asked of the server (Stalwart's minimum).</summary>
     public const int PingSeconds = 30;
 
+    /// <summary>The longest a burst of pushes may postpone the sync: a steady stream must not hold it back for ever (Fable F-15).</summary>
+    public static readonly TimeSpan MaxCoalesce = TimeSpan.FromSeconds(3);
+
+    /// <summary>How often the lists are synced when the server offers no push (Fable F-15).</summary>
+    public static readonly TimeSpan PollInterval = TimeSpan.FromSeconds(60);
+
     private readonly PushBackoff _backoff;
+    private long _firstPending;
+    private bool _authReported;
     private readonly ITimer _timer;
     private readonly HashSet<string> _pending = new(StringComparer.Ordinal);
     private readonly List<Task> _inflight = [];
@@ -36,7 +45,13 @@ public sealed partial class MailSync
             while (!ct.IsCancellationRequested)
             {
                 var started = _time.GetTimestamp();
-                await PushOnceAsync(ct).ConfigureAwait(false);
+                if (!await PushOnceAsync(ct).ConfigureAwait(false))
+                {
+                    // the server has no event source: poll instead of never updating
+                    await PollAsync(ct).ConfigureAwait(false);
+                    return;
+                }
+
                 var wait = _backoff.Next(_time.GetElapsedTime(started));
                 await Task.Delay(wait, _time, ct).ConfigureAwait(false);
             }
@@ -58,10 +73,17 @@ public sealed partial class MailSync
         ArgumentNullException.ThrowIfNull(types);
         lock (_lock)
         {
+            var now = _time.GetTimestamp();
+            if (_pending.Count == 0)
+            {
+                _firstPending = now;
+            }
+
             _pending.UnionWith(types);
             if (_pending.Count > 0)
             {
-                _timer.Change(Coalesce, Timeout.InfiniteTimeSpan);
+                var wait = MaxCoalesce - _time.GetElapsedTime(_firstPending, now);
+                _timer.Change(wait < Coalesce ? (wait < TimeSpan.Zero ? TimeSpan.Zero : wait) : Coalesce, Timeout.InfiniteTimeSpan);
             }
         }
     }
@@ -79,9 +101,11 @@ public sealed partial class MailSync
         {
             await Task.WhenAll(running).ConfigureAwait(false);
         }
-        catch (OperationCanceledException)
+#pragma warning disable CA1031 // a sync's own failure is reported through onSyncStateChange; draining must not rethrow it out of RunAsync (Fable F-15)
+        catch (Exception)
+#pragma warning restore CA1031
         {
-            // a sync cut short by sign-out
+            // a sync cut short by sign-out, or one that failed and said so
         }
     }
 
@@ -109,15 +133,41 @@ public sealed partial class MailSync
         }
     }
 
-    private async Task PushOnceAsync(CancellationToken ct)
+    /// <summary>Syncs on a timer for a server without push.</summary>
+    private async Task PollAsync(CancellationToken ct)
+    {
+        _client.Trace.Event("PUSH", "polling");
+        while (!ct.IsCancellationRequested)
+        {
+            Schedule(PushTypes);
+            await Task.Delay(PollInterval, _time, ct).ConfigureAwait(false);
+        }
+    }
+
+    /// <summary>One stream, from open to end; false when the server offers no event source at all.</summary>
+    private async Task<bool> PushOnceAsync(CancellationToken ct)
     {
         var open = await _client.OpenEventSourceAsync(PushTypes, PingSeconds, ct).ConfigureAwait(false);
         if (!open.IsOk)
         {
             _client.Trace.Event("PUSH", "failed");
-            return;
+            switch (open.Error)
+            {
+                case AuthError auth when !_authReported:
+                    // retried with backoff as before, but the user hears of it once (Fable F-15)
+                    _authReported = true;
+                    Emit(new SyncProblemEvent(auth.Message, auth.NeedsSignIn));
+                    break;
+                case TransportError { Retryable: false }:
+                    return false;
+                default:
+                    break;
+            }
+
+            return true;
         }
 
+        _authReported = false;
         // the reader disposes the stream when it ends; this also covers a hook that throws before reading starts
         var stream = open.Value!;
         await using var owned = stream.ConfigureAwait(false);
@@ -148,6 +198,8 @@ public sealed partial class MailSync
         {
             await ConnectedAsync(false, CancellationToken.None).ConfigureAwait(false);
         }
+
+        return true;
     }
 
     private void OnPush(PushEvent ev, string account)
@@ -170,9 +222,6 @@ public sealed partial class MailSync
     private async Task ConnectedAsync(bool connected, CancellationToken ct)
     {
         Emit(new PushStateEvent(connected));
-        if (_hooks.HasHandlers(HookNames.OnPushConnectionChange))
-        {
-            await _hooks.NotifyAsync(HookNames.OnPushConnectionChange, new PushConnectionPayload(connected), ct).ConfigureAwait(false);
-        }
+        await NotifyAsync(HookNames.OnPushConnectionChange, new PushConnectionPayload(connected), ct).ConfigureAwait(false);
     }
 }

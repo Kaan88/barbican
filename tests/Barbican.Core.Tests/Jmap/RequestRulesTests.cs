@@ -31,6 +31,16 @@ public sealed class RequestRulesTests
     }
 
     [Fact]
+    public void A_search_for_a_hash_tag_is_data_not_a_creation_id()
+    {
+        // Fable F-14: a text filter "#tag" must not stop the split
+        var calls = FiveQueries();
+        calls.Add(JsonNode.Parse("""["Email/query", {"filter": {"text": "#tag"}}, "q"]""")!);
+        Assert.False(RequestSplitter.IsLinked(calls[^1]));
+        Assert.Equal([2, 2, 2], RequestSplitter.SplitCalls(calls, 2).Select(x => x.Count));
+    }
+
+    [Fact]
     [RustTest("jmap::read_only_calls")]
     public void Read_only_calls()
     {

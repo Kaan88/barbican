@@ -7,6 +7,9 @@ public sealed record ListPage
 {
     public IReadOnlyList<EmailSummary> Items { get; init; } = [];
 
+    /// <summary>Ids the query returned that did not come back as a readable row (a message that failed to parse); a caller may log them.</summary>
+    public IReadOnlyList<string> DroppedIds { get; init; } = [];
+
     public int? Total { get; init; }
 
     public ListCursor? Next { get; init; }

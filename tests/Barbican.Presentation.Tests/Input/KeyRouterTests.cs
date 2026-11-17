@@ -69,9 +69,27 @@ public sealed class KeyRouterTests
         using var h = await WithFoldersAsync("""{"singleKeyShortcuts": false}""");
         Assert.False(h.Keys.Handle(new KeyChord("j"), KeySource.Keyboard));
         Assert.False(h.Keys.Handle(new KeyChord("/"), KeySource.Keyboard));
-        Assert.True(h.Keys.Handle(new KeyChord("Down"), KeySource.Keyboard));
+        Assert.True(h.Keys.Handle(new KeyChord("Down"), KeySource.Automation));
         Assert.True(h.Keys.Handle(new KeyChord("Enter"), KeySource.Keyboard));
         Assert.True(h.Keys.Handle(new KeyChord("e", Control: true), KeySource.Keyboard));
+    }
+
+    [Fact]
+    public async Task A_real_arrow_key_is_left_to_the_focused_list_so_one_press_moves_one_row()
+    {
+        // Fable F-16: the ListView moves by itself; the router answering too would move two rows
+        using var h = await WithFoldersAsync();
+        Assert.False(h.Keys.Handle(new KeyChord("ArrowDown"), KeySource.Keyboard));
+        Assert.False(h.Keys.Handle(new KeyChord("Up"), KeySource.Keyboard));
+        Assert.True(h.Keys.Handle(new KeyChord("ArrowDown"), KeySource.WebView));
+    }
+
+    [Fact]
+    public async Task Alt_and_AltGr_chords_are_never_ours()
+    {
+        using var h = await WithFoldersAsync();
+        Assert.False(h.Keys.Handle(new KeyChord("e", Control: true, Alt: true), KeySource.Keyboard));
+        Assert.False(h.Keys.Handle(new KeyChord("j", Alt: true), KeySource.WebView));
     }
 
     [Fact]

@@ -279,8 +279,16 @@ public sealed class AccountManager : IAccountManager, IAccountOverview, IAsyncDi
         }
     }
 
+    private int _disposed;
+
     public async ValueTask DisposeAsync()
     {
+        // the container disposes this one instance once for every service type it was registered under (AccountManager, IAccountManager, IAccountOverview)
+        if (Interlocked.Exchange(ref _disposed, 1) == 1)
+        {
+            return;
+        }
+
         await _life.CancelAsync().ConfigureAwait(false);
         List<AccountSession> sessions;
         lock (_lock)

@@ -21,7 +21,10 @@ public static class RequestSplitter
         return [.. calls.Chunk(size).Select(c => (IReadOnlyList<JsonNode>)c)];
     }
 
-    /// <summary>True when a call's arguments use a back-reference (<c>#ids</c>) or a creation id (a <c>"#…"</c> string value).</summary>
+    /// <summary>
+    /// True when a call's arguments use a back-reference (a top-level <c>#ids</c> key) or, in a <c>/set</c> call, a creation id (a
+    /// <c>"#…"</c> string value or key anywhere in its arguments). A search for "#tag" in a query is data, not a reference (Fable F-14).
+    /// </summary>
     public static bool IsLinked(JsonNode call)
     {
         ArgumentNullException.ThrowIfNull(call);
@@ -30,6 +33,20 @@ public static class RequestSplitter
             return false;
         }
 
-        return args.Any(kv => kv.Key.StartsWith('#')) || args.ToJsonString().Contains("\"#", StringComparison.Ordinal);
+        if (args.Any(kv => kv.Key.StartsWith('#')))
+        {
+            return true;
+        }
+
+        var method = a[0]?.GetValue<string>() ?? "";
+        return method.EndsWith("/set", StringComparison.Ordinal) && HasCreationId(args);
     }
+
+    private static bool HasCreationId(JsonNode? node) => node switch
+    {
+        JsonObject o => o.Any(kv => kv.Key.StartsWith('#') || HasCreationId(kv.Value)),
+        JsonArray arr => arr.Any(HasCreationId),
+        JsonValue v => v.TryGetValue<string>(out var s) && s.StartsWith('#'),
+        _ => false,
+    };
 }

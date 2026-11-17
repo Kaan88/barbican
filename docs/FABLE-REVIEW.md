@@ -617,3 +617,58 @@ F-13 and user decisions D-2, D-9, D-10, on branch `m1-fix-security` (from `m1` a
   unreachable) for every item above: the full test run, F-03 (frame listeners and dark pass without `allow-scripts` under
   WebKitGTK, the meta-refresh probe, WebKitGTK DNS prefetch), F-04 (`FileShare.None` as `flock`), F-08 (`linux-remote.sh auto`
   with the token), F-13 (WebKitGTK data directory).
+
+## m1-fix-core (Fable review 1: F-10, F-11, F-14, F-15, F-16 and the M1 verify open issues)
+
+Review these, in this order of risk:
+
+- **F-14 sync/list, the three judgement calls.** (1) `Presentation/Mail/LoadedList.cs`: `Apply(ListDelta)` now delegates to
+  `Core/Sync/ListDeltaApplier`; `Apply(EmailsChangedEvent)` takes fresh copies only and **ignores `Removed`** (the removals of the
+  query that was watched). `MailSync` still emits both events and `BodyCache` still evicts bodies by `Removed`. Check you agree
+  that a message moved out of the folder keeping its cached body until the cache's LRU drops it is fine. (2)
+  `MessageListViewModel.FirstPageAsync`: the unread-first Inbox is now two queries as Rust `fetch_unread_first` (notKeyword
+  `$seen` limited to the section size, then hasKeyword `$seen`), with no sync states, so every push resets and re-reads the list
+  (as Rust: "a sync re-fetches it in full"). Paging then uses the `$seen` query (`_pagingQuery`). Unread messages beyond the
+  section size are not shown (Rust too). (3) a reset reloads `max(page size, rows loaded)` rows and closes the reader when the
+  open message is no longer in the list. `Core/Mail/Service/ListPageFetcher.cs`: "more pages" counts the ids returned;
+  `ListPage.DroppedIds` lists rows that failed to parse but **nothing logs them yet** (Core has no logger there): wire it in M2.
+  `MailService.GetThreadAsync` sorts by the thread's `emailIds`. `Core/Jmap/Transport/RequestSplitter.cs`: a creation id is now
+  looked for only in `/set` calls; a `#` string in a query is data. Check no other method takes a creation id (EmailSubmission
+  `onSuccessUpdateEmail` keys are handled by the key rule). The "http" host-name part of F-14 was already fixed by the
+  security stream (`ServerEndpoint.Parse`, merge a03364a).
+- **F-15 hooks and sync.** `Core/Plugins/Hooks/HookBus.cs`: a 5 s per-handler timeout (`HookBus(TimeProvider?, TimeSpan?)`);
+  a handler past it is cancelled, left behind and reported through `HandlerFailed`; an interceptor that times out counts as
+  "allow", a transform leaves the value. An answer that is already complete stays synchronous (KeyRouter relies on that).
+  The abandoned handler task keeps running if it ignores its token. `Core/Sync/MailSync.cs`: `onNewEmailReceived` now runs after
+  the gate is released (still awaited, still ordered, bounded by the bus timeout); every hook call swallows non-cancel
+  exceptions; `SyncNowAsync` catches everything (CA1031 suppressed with a reason, three places). `MailSync.Push.cs`: debounce
+  capped at `MaxCoalesce` 3 s; `AuthError` on push open emits one `SyncProblemEvent` (retry with backoff continues, the flag
+  resets when a stream opens); a `TransportError { Retryable: false }` ("No push support") switches to `PollAsync`, a sync of
+  all push types every `PollInterval` 60 s. Judgement: 60 s is my number, Bulwark has none. `MessageListViewModel` shows
+  `SyncProblemEvent.Message` in `Error` and clears it on the next `PushStateEvent(true)`: a status line only, no sign-in prompt
+  (the accounts views are still not bound to the sign-in screen, M1.md open issue).
+- **F-16 keys.** `Presentation/Input/KeyRouter.cs`: a real (`KeySource.Keyboard`) plain Up/Down is **not** handled (the focused
+  `ListView` moves one row); WebView and Automation arrows are. This means: with focus outside the list, an arrow key does
+  nothing and the reader's `_motion.Step()` and `OpenReason.Key` are not used for arrow navigation. **Hand test**: one arrow press
+  moves one row, and the reader animates as for `j`. `App/Shell/KeyChordMapper.cs`: Shift+digit and Ctrl+Alt (AltGr) map to null;
+  the router also refuses any Alt chord. Typing in a text box is still filtered in `ShellPage.OnPreviewKeyDown`, not in the router.
+- **Body cache race.** `MailSyncEventArgs.AccountKey` is set by `MailEventHub` from the account whose engine produced the event;
+  `BodyCacheSync` files under it (the `IAccountManager` parameter is gone) and the list ignores events of another account.
+  `MailEventHub.Publish(e)` without a key uses the active account at publish time (tests).
+- **DI wiring test.** `tests/Barbican.Presentation.Tests/Composition/CompositionGraphTests.cs` resolves **every** registered
+  service of Core + MailCore + Accounts + AccountsPresentation + the loader chain, with a presenter shaped like `BodyShell`
+  (`Lazy<IKeyRouter>`). It does not include the Uno-only types (`BodyShell`, `AppComposition`, views): a cycle that runs through them is
+  still only caught at launch. Worth a head-level test in an App test project. It found a real bug: `AccountManager.DisposeAsync`
+  threw `ObjectDisposedException` when the container disposed the one instance for each of its three registrations; now idempotent.
+- **MailBodyView / shell.js.** `App/MailBody/MailBodyView.cs` unsubscribes on `Unloaded` and re-subscribes on `Loaded`.
+  `Assets/mail/shell.js` posts `ready` from `requestAnimationFrame` with a 34 ms timer fallback (a hidden window may never run a
+  frame). **Not measured**: the feel cost (up to one frame per message open) and whether data: images are decoded at reveal. Measure
+  with the hidden feel run before the M1 gate; if the frame is too dear, `img.decode()` on the data: images is the alternative.
+  Only a static test (`ShellScriptTests.ReadyIsPostedOneFrameAfterTheLayoutWithATimerFallback`) covers the script.
+- **F-10, F-11.** Flagged tile is `HasKeyword = "$flagged"` (`Presentation/Shell/MailShellStartup.cs`). `tools/spec-check.py`: a T- row
+  whose only tests are `[Red]` is `pending`; `--milestone` also fails while any `[Red]` test exists anywhere (no stream-to-
+  milestone map exists, so a red test for a later milestone would block an earlier gate: revisit if that happens) and for a J- row
+  that is `done` without `cs_test`. J-009 and J-028 are `partial(M2)` (`spec/jmap.csv`), and `spec/README.md` says so. Verified by a
+  temporary `[Red]` on a tagged test (row went pending, gate message printed); not kept as a test (no harness for Python tools).
+- **Not covered.** Linux: `tools/linux.ps1 ping` failed once (ssh key not accepted / VM unreachable): Linux pending (VM
+  unreachable). No hidden run was launched. Commit hashes: see `git log m1-fix-core` (this stream's commits are the ones after a03364a).

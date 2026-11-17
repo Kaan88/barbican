@@ -60,6 +60,14 @@ public sealed class KeyRouter : IKeyRouter
         var (name, shift) = Normalize(chord);
         if (chord.Alt)
         {
+            // no mail key uses Alt, and AltGr (Ctrl+Alt on Windows) types characters on many layouts (Fable F-16)
+            return false;
+        }
+
+        if (source == KeySource.Keyboard && !chord.Control && name is "down" or "up")
+        {
+            // a focused list moves by itself on a real arrow key; routing it too would move two rows (Fable F-16). The WebView and
+            // automation have no list focus, so their arrows are ours.
             return false;
         }
 
