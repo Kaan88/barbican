@@ -45,6 +45,8 @@ public static class MailPresentationRegistration
         services.TryAddSingleton<SidebarViewModel>();
         services.TryAddSingleton<RailViewModel>();
         services.TryAddSingleton<GlanceTilesViewModel>();
+        services.TryAddSingleton<ReaderRowFollower>();
+        services.AddSingleton<IStartupTask>(sp => sp.GetRequiredService<ReaderRowFollower>());
         services.TryAddSingleton<IMessageOpener>(sp =>
         {
             var prefs = sp.GetRequiredService<IPrefsStore>();

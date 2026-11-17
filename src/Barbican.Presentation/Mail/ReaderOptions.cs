@@ -22,4 +22,7 @@ public sealed record ReaderOptions
 
     /// <summary>Mailbox id to role of the account (as far as known): a message in Sent or Drafts gets no verdict and no chips (R2-07; the user's own mail).</summary>
     public IReadOnlyDictionary<string, string> MailboxRoles { get; init; } = new Dictionary<string, string>(StringComparer.Ordinal);
+
+    /// <summary>Tag names, colours and order: the header shows the tags of the message (Bulwark email-viewer.tsx:5422).</summary>
+    public TagLookup Tags { get; init; } = TagLookup.None;
 }

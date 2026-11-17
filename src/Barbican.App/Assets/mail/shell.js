@@ -69,6 +69,8 @@
   function kd(e) {
     try {
       if (e.defaultPrevented || e.isComposing) return;
+      // a held z or Delete acts once (Bulwark use-undo-shortcut.ts:17 e.repeat; KeyGate.RepeatRoutes)
+      if (e.repeat && (e.key === 'z' || e.key === 'Z' || e.key === 'Delete')) return;
       var t = e.target, n = t && t.tagName;
       if (t && (t.isContentEditable || n === 'INPUT' || n === 'TEXTAREA' || n === 'SELECT')) return;
       var k = e.key, c = e.ctrlKey || e.metaKey, a = e.altKey, fw = false;

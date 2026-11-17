@@ -1,5 +1,5 @@
 // Mirrors: Rust mail.rs ListPrefs :40 (groupListByDate, showPreview, dateFormat, timeFormat, showAttachmentChips, density, hideInlineImageAttachments)
-// and tag_color :84. Owner mailcore.
+// and tag_color :84; Bulwark showTagChips (thread-list-item.tsx:901). Owner mailcore.
 
 namespace Barbican.Presentation.Mail;
 
@@ -21,6 +21,9 @@ public sealed record RowContext
 
     public TimeZoneInfo Zone { get; init; } = TimeZoneInfo.Utc;
 
-    /// <summary>A tag's colour by tag id (an unknown tag is grey, 0x9ca3af).</summary>
-    public Func<string, uint> TagColor { get; init; } = _ => 0x9ca3af;
+    /// <summary>Tag names, colours and order from the tag list (an unknown tag is grey, 0x9ca3af, named by its id).</summary>
+    public TagLookup Tags { get; init; } = TagLookup.None;
+
+    /// <summary>Rows show the tags a message carries (Bulwark showTagChips, default on).</summary>
+    public bool ShowTagChips { get; init; } = true;
 }

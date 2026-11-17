@@ -127,7 +127,7 @@ public sealed partial class MailActionService
         var settings = Settings;
         var permanent = targets.Where(t => IsPermanent(t, settings)).ToList();
         var soft = targets.Except(permanent).ToList();
-        if (!await ConfirmDeleteAsync(targets.Count, settings, ct).ConfigureAwait(true))
+        if (!await ConfirmDeleteAsync(targets.Count, permanent.Count, settings, ct).ConfigureAwait(true))
         {
             return Result<Unit>.Ok(default);
         }
@@ -141,7 +141,7 @@ public sealed partial class MailActionService
     public async Task<Result<Unit>> DeleteForeverAsync(IReadOnlyList<MailTarget> targets, CancellationToken ct)
     {
         ArgumentNullException.ThrowIfNull(targets);
-        return await ConfirmDeleteAsync(targets.Count, Settings, ct).ConfigureAwait(true)
+        return await ConfirmDeleteAsync(targets.Count, targets.Count, Settings, ct).ConfigureAwait(true)
             ? await DestroyFlowAsync(targets, ct).ConfigureAwait(true)
             : Result<Unit>.Ok(default);
     }
@@ -171,28 +171,61 @@ public sealed partial class MailActionService
         return outcome;
     }
 
-    private bool IsPermanent(MailTarget t, ActionSettings s) =>
-        string.Equals(s.DeleteAction, "permanent", StringComparison.Ordinal)
-        || InRole(t, MailboxRole.Trash)
-        || (s.PermanentlyDeleteJunk && InRole(t, MailboxRole.Junk));
+    /// <summary>
+    /// Whether Delete destroys the message instead of moving it to Trash. Bulwark stores/email-store.ts:3648 bulkDeleteIsPermanent and :5018 decide by the
+    /// folder on screen (Trash, Junk with permanentlyDeleteJunk, or deleteAction "permanent"), never by the message's own mailboxIds: a row's mailboxIds can
+    /// be stale (a push copy taken while the message sat in Trash before an Undo) or name another account's folders (the unified list), and judging by them
+    /// destroyed a message the user only wanted in Trash (M2 hotfix 2, the user's "deleted, pressed z, gone"). A list that is no folder (a tag, a search)
+    /// destroys only a message that is in Trash (or Junk) and nowhere else.
+    /// </summary>
+    private bool IsPermanent(MailTarget t, ActionSettings s)
+    {
+        if (string.Equals(s.DeleteAction, "permanent", StringComparison.Ordinal))
+        {
+            return true;
+        }
 
-    private bool InRole(MailTarget t, MailboxRole role) =>
-        folders.Tree.All.Any(m => m.Role == role && t.MailboxIds.TryGetValue(m.Id, out var on) && on);
+        if (list.MailboxId is { } open && folders.Tree.All.Any(m => string.Equals(m.Id, open, StringComparison.Ordinal)))
+        {
+            return list.Role == MailboxRole.Trash || (s.PermanentlyDeleteJunk && list.Role == MailboxRole.Junk);
+        }
+
+        return OnlyIn(t, MailboxRole.Trash) || (s.PermanentlyDeleteJunk && OnlyIn(t, MailboxRole.Junk));
+    }
+
+    /// <summary>The message is in folders of this role and in no other folder (the tree is the active account's).</summary>
+    private bool OnlyIn(MailTarget t, MailboxRole role)
+    {
+        var inside = t.MailboxIds.Where(kv => kv.Value).Select(kv => kv.Key).ToList();
+        return inside.Count > 0 && inside.All(id => folders.Tree.All.Any(m => m.Role == role && string.Equals(m.Id, id, StringComparison.Ordinal)));
+    }
 
     /// <summary>The select-all cap, stated in the confirmation: only the first N of the folder are included (decision M2-Q5).</summary>
     internal static string CappedMessage(string question, int n) =>
         $"{question} Select all stops at {n.ToString("N0", System.Globalization.CultureInfo.InvariantCulture).Replace(',', ' ')} messages: if the folder holds more, the rest are not included.";
 
-    private async Task<bool> ConfirmDeleteAsync(int n, ActionSettings s, CancellationToken ct)
+    /// <summary>
+    /// Asks before a delete when the settings say so, and always before a permanent one: it cannot be undone (Bulwark stores/email-store.ts:3657
+    /// shouldConfirmBulkDelete asks for every permanent bulk delete; M2 hotfix 2 asks for a single one too, because nothing brings it back).
+    /// </summary>
+    private async Task<bool> ConfirmDeleteAsync(int n, int permanent, ActionSettings s, CancellationToken ct)
     {
         // A selection that hit the select-all cap always asks, and says that the folder may hold more.
         var capped = n >= MessageListViewModel.AllInFolderCap;
-        if (n == 0 || !(capped || s.ConfirmDelete || (n > 1 && s.ConfirmBulkDelete)))
+        if (n == 0 || !(capped || permanent > 0 || s.ConfirmDelete || (n > 1 && s.ConfirmBulkDelete)))
         {
             return true;
         }
 
         var what = n == 1 ? "this message" : $"{n} messages";
+        if (permanent > 0)
+        {
+            var gone = permanent == n ? (n == 1 ? "It is deleted permanently" : "They are deleted permanently") : $"{permanent} of them are deleted permanently";
+            var text = $"{gone} and can't be restored.";
+            return await confirmer.ConfirmAsync(
+                new ConfirmRequest(n == 1 ? "Delete this message forever?" : $"Delete {n} messages forever?", capped ? CappedMessage(text, n) : text, "Delete forever"), ct).ConfigureAwait(true);
+        }
+
         var message = capped ? CappedMessage($"Delete {what}?", n) : $"Delete {what}?";
         return await confirmer.ConfirmAsync(new ConfirmRequest(n == 1 ? "Delete this message?" : $"Delete {n} messages?", message, "Delete"), ct).ConfigureAwait(true);
     }

@@ -66,6 +66,29 @@ public sealed class ReaderViewModel : ObservableObject
         OnPropertyChanged(nameof(Error));
     }
 
+    /// <summary>
+    /// The open message's row changed (a tag or the star set by an action, a push): the header follows it, nothing else moves and the body is not
+    /// fetched again (M2 hotfix 2: a tag added or removed while the message was open did not show in the header).
+    /// </summary>
+    public void FollowRow(MessageRowViewModel row)
+    {
+        ArgumentNullException.ThrowIfNull(row);
+        if (_current.BodyState == BodyState.Empty || !string.Equals(row.Id, _current.EmailId, StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        var header = _current.Header;
+        if (header.Flagged == row.Flagged && header.Tags.SequenceEqual(row.Tags))
+        {
+            return;
+        }
+
+        _current = _current with { Header = header with { Flagged = row.Flagged, Tags = row.Tags } };
+        OnPropertyChanged(nameof(Current));
+        OnPropertyChanged(nameof(Header));
+    }
+
     /// <summary>A banner was answered or dismissed: it goes, the rest of the reader stays.</summary>
     public void RemoveBanner(string emailId, string bannerId)
     {

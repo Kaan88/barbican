@@ -28,4 +28,19 @@ public sealed class KeyGateTests
     [InlineData("Enter")]
     public void NothingRoutesBehindTheSignInScreen(string key, bool control = false) =>
         Assert.False(KeyGate.Routes(new KeyChord(key, control), signInShown: true, focusActivates: false));
+
+    // M2 hotfix 2: a held z walked back through the whole undo history (Bulwark use-undo-shortcut.ts:17 ignores e.repeat)
+    [Theory]
+    [InlineData("z")]
+    [InlineData("Delete")]
+    public void AHeldUndoOrDeleteActsOnce(string key)
+    {
+        Assert.False(KeyGate.RepeatRoutes(new KeyChord(key)));
+        Assert.False(KeyGate.RepeatRoutes(new KeyChord(key, Control: true)));
+    }
+
+    [Theory]
+    [InlineData("j")]
+    [InlineData("ArrowDown")]
+    public void AHeldMoveKeyRepeats(string key) => Assert.True(KeyGate.RepeatRoutes(new KeyChord(key)));
 }
