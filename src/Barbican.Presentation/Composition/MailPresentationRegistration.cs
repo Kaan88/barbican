@@ -31,7 +31,7 @@ public static class MailPresentationRegistration
         services.TryAddSingleton<IPrefsStore, EmptyPrefsStore>();
         services.TryAddSingleton<ISystemAccessibilitySource, NoSystemAccessibility>();
         services.TryAddSingleton<IDispatcher, InlineDispatcher>();
-        services.TryAddSingleton<IActiveMail>(sp => sp.GetService<IAccountManager>() is { } accounts ? new ActiveMailSource(accounts) : new NoActiveMail());
+        services.TryAddSingleton<IActiveMail>(sp => sp.GetService<IAccountManager>() is { } accounts ? new ActiveMailSource(accounts, sp.GetRequiredService<IDispatcher>()) : new NoActiveMail());
 
         // state shared by the ViewModels
         services.TryAddSingleton<MotionState>();
