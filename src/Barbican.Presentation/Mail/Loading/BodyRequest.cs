@@ -14,6 +14,9 @@ namespace Barbican.Presentation.Mail.Loading;
 /// <param name="OnShown">Runs after the swap (the content-render hook).</param>
 public sealed record BodyRequest(string EmailId, MailContent Content, bool BlockRemote, Func<bool> OnReady, Action? OnShown = null)
 {
+    /// <summary>The sender is trusted (I-209): remote content loads without asking (never when <see cref="BlockRemote"/>).</summary>
+    public bool TrustedSender { get; init; }
+
     /// <summary>The body of a fetched message as the reader shows it.</summary>
     public static MailContent ContentOf(EmailBody message)
     {

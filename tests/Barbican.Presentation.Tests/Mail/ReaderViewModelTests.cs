@@ -11,6 +11,9 @@ namespace Barbican.Presentation.Tests.Mail;
 
 public sealed class ReaderViewModelTests
 {
+    // R2-07: the server's results count only inside its own trace block, which starts at the message's first Received
+    private static readonly EmailHeader Received = new("Received", "from relay.example.net by mx.example.org with ESMTPS; Tue, 17 Nov 2026 09:00:00 +0000");
+
     private static ReaderOptions Options() => new() { Now = Mails.Now, Zone = TimeZoneInfo.Utc, ServerHost = "jmap.example.org" };
 
     private static EmailBody Body(string id = "b1", params Attachment[] attachments) =>
@@ -24,7 +27,7 @@ public sealed class ReaderViewModelTests
             ReceivedAt = new DateTimeOffset(2026, 11, 16, 9, 30, 0, TimeSpan.Zero),
             Keywords = Keywords.Of("$flagged"),
             Attachments = attachments,
-            Headers = [new EmailHeader("Authentication-Results", "mx.example.org; dkim=pass header.d=mail.shop.example.com;\r\n spf=fail smtp.mailfrom=x@evil.example.net; dmarc=pass")],
+            Headers = [Received, new EmailHeader("Authentication-Results", "mx.example.org; dkim=pass header.d=mail.shop.example.com;\r\n spf=fail smtp.mailfrom=x@evil.example.net; dmarc=pass")],
         };
 
     [Fact]
@@ -76,9 +79,9 @@ public sealed class ReaderViewModelTests
         var s = ReaderSnapshots.FromBody(Body(), null, Options());
         Assert.Equal(AuthVerdict.Verified, s.AuthVerdict);
         Assert.Equal([("dkim", "pass", true), ("spf", "fail", false), ("dmarc", "pass", true)], s.AuthChips.Select(c => (c.Method, c.Result, c.Aligned)));
-        var other = ReaderSnapshots.FromBody(Body() with { From = [new EmailAddress(null, "ceo@bank.example.com")], Headers = [new EmailHeader("Authentication-Results", "mx.example.org; dkim=pass header.d=evil.example.net")] }, null, Options());
+        var other = ReaderSnapshots.FromBody(Body() with { From = [new EmailAddress(null, "ceo@bank.example.com")], Headers = [Received, new EmailHeader("Authentication-Results", "mx.example.org; dkim=pass header.d=evil.example.net")] }, null, Options());
         Assert.Equal(AuthVerdict.Unknown, other.AuthVerdict);
-        var failed = ReaderSnapshots.FromBody(Body() with { Headers = [new EmailHeader("Authentication-Results", "mx.example.org; dmarc=fail")] }, null, Options());
+        var failed = ReaderSnapshots.FromBody(Body() with { Headers = [Received, new EmailHeader("Authentication-Results", "mx.example.org; dmarc=fail")] }, null, Options());
         Assert.Equal(AuthVerdict.Failed, failed.AuthVerdict);
     }
 
@@ -93,7 +96,7 @@ public sealed class ReaderViewModelTests
 
         // the forged header sits above the server's (a relay kept it): the server's verdict is the one shown
         var server = new EmailHeader("Authentication-Results", "mx.example.org (comment); dmarc=fail");
-        var both = ReaderSnapshots.FromBody(Body() with { Headers = [forged, server] }, null, Options());
+        var both = ReaderSnapshots.FromBody(Body() with { Headers = [Received, forged, server] }, null, Options());
         Assert.Equal(AuthVerdict.Failed, both.AuthVerdict);
         Assert.Equal([("dmarc", "fail")], both.AuthChips.Select(c => (c.Method, c.Result)));
 

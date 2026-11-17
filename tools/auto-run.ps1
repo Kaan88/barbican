@@ -160,10 +160,10 @@ function New-Token {
 }
 
 # Agent profiles are read-only unless the main checkout's gitignored .local/writable-accounts.txt lists the account (Fable F-12).
-function Get-AllowList {
+function Get-AllowList([string]$Name = 'writable-accounts.txt') {
     $common = (& git -C $Root rev-parse --path-format=absolute --git-common-dir 2>$null)
     if (-not $common) { return $null }
-    $file = Join-Path (Split-Path -Parent $common) '.local/writable-accounts.txt'
+    $file = Join-Path (Split-Path -Parent $common) ".local/$Name"
     if (Test-Path $file) { return $file } else { return $null }
 }
 
@@ -233,6 +233,9 @@ switch ($Target) {
         $envAuto = @{ BARBICAN_AUTOMATION_PORT = "$Port"; BARBICAN_AUTOMATION_TOKEN = $token; BARBICAN_PROFILE = $(if ($ProfileName) { $ProfileName } else { "auto-$Port" }) }
         $allow = Get-AllowList
         if ($allow) { $envAuto.BARBICAN_WRITABLE_ACCOUNTS_FILE = $allow }
+        # R2-14 / M2-Q2: the logins that are never written; without this list every account stays read-only (ReadOnlyPolicy fails closed)
+        $never = Get-AllowList 'readonly-accounts.txt'
+        if ($never) { $envAuto.BARBICAN_READONLY_ACCOUNTS_FILE = $never }
         if ($PrivateDesktop) { $p = Start-OnPrivateDesktop $path $envAuto } else { $p = Start-Hidden $path @() $envAuto }
         Set-Content (Join-Path $State 'pid.txt') "$($p.Id)|$($p.StartTime.ToString('o'))"
         Set-Content (Join-Path $State 'focus-before.txt') $before

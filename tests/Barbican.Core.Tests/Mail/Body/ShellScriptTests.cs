@@ -132,9 +132,9 @@ public sealed partial class ShellScriptTests
     {
         var posts = Regex.Matches(Code.Value, @"post\('(?<name>[a-z]+)(?<colon>:?)'", RegexOptions.ExplicitCapture, TimeSpan.FromSeconds(1))
             .Select(m => m.Groups["name"].Value + m.Groups["colon"].Value).Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal).ToArray();
-        Assert.Equal(["ctx:", "dirty", "key:", "link:", "ready:", "shell"], posts);
+        Assert.Equal(["ctx:", "dirty", "key:", "link:", "ready:", "sel:", "shell"], posts);
         // Every one of them passes the host's gate in its simplest form.
-        foreach (var sample in new[] { "ctx:1,2", "dirty", "key:|j", "link:https://example.org/", "ready:1", "shell" })
+        foreach (var sample in new[] { "ctx:1,2", "dirty", "key:|j", "link:https://example.org/", "ready:1", "sel:", "sel:two words", "shell" })
         {
             Assert.True(ShellMessage.TryParse(sample, out _), sample);
         }

@@ -1,5 +1,4 @@
-// Ported from Rust src/invite.rs tests (:273-:366) except import_and_patch_shapes (T-127, M4). Red until stream reader implements
-// InvitationModel (M2 plan 6.3, early rows T-122..T-126).
+// Ported from Rust src/invite.rs tests (:273-:366) except import_and_patch_shapes (T-127, M4); early rows T-122..T-126.
 
 using System.Text.Json.Nodes;
 using Barbican.Core.Calendar.Invitations;
@@ -21,7 +20,6 @@ public sealed class InvitationModelTests
         """);
 
     [Fact]
-    [Red("reader")]
     [RustTest("invite::finds_the_calendar_part")]
     public void Finds_the_calendar_part()
     {
@@ -34,7 +32,6 @@ public sealed class InvitationModelTests
     }
 
     [Fact]
-    [Red("reader")]
     [RustTest("invite::method_order")]
     public void Method_order()
     {
@@ -50,7 +47,6 @@ public sealed class InvitationModelTests
     }
 
     [Fact]
-    [Red("reader")]
     [RustTest("invite::people")]
     public void People()
     {
@@ -66,7 +62,6 @@ public sealed class InvitationModelTests
     }
 
     [Fact]
-    [Red("reader")]
     [RustTest("invite::summary_text")]
     public void Summary_text()
     {
@@ -85,7 +80,6 @@ public sealed class InvitationModelTests
     }
 
     [Fact]
-    [Red("reader")]
     [RustTest("invite::trust_assessment")]
     public void Trust_assessment()
     {

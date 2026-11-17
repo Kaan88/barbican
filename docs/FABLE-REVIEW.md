@@ -1000,3 +1000,106 @@ Branch `m2-menus` (from `m2` at `c2e8e91`). Commits: `0903eda` (palette model an
 - [ ] **Escape inside an open flyout closes the whole menu** (Rust did the same; Bulwark closes the flyout first). `ContextMenuController.HandleKey`.
 - [ ] **Still not built (confirmed by the review, not regressions):** account popover view (arrows, drag and Alt+Shift reorder, set default, sign-out rows, unread badges, rail circles and "+"), I-270 skip link and F6 pane cycling, right-click on the folders header (I-049), I-150, I-171, the Scheduled-view rows of MENU-MAIL. The brief's "opens on Ctrl+K and k" stays Ctrl+K only (bare `k` is previous-message in Bulwark and Rust; `lib/keyboard-shortcuts/*` has no palette `k`).
 - [ ] **Frame feel (ctx_menu, dialog, palette_open) and the real right-click path are unproven** (WGC gave 0 frames); the hidden scenario was not rerun by the reviewer, only the 1077-test suite (0 failed, 4 skipped) on the branch before and after the merge.
+
+## M2 stream: reader
+Branch `m2-reader` (from `m2` at `c2e8e91`), all commits pushed: `09b4b0d` (R2-14, write-test guard), `db2d84d` (GuardedHttp, one-click,
+R2-07 trace block, R2-08 row cap, rx-* write commands, reader.rs pure ports), `866f9d1` (MDN, OTP, zip, avatar rules, invitation model),
+`d740c4a` (FakeJmap EmailSubmission/Blob/copy/FileNode/CalendarEvent arms, MDN send and zip read-back tests), `95a892f` (R2-07 in the
+reader, banner stack, trusted senders, link check, avatars, attachment saver, the four reader hooks), `0347f01` (OTP chip, R2-13 app points).
+Core.Tests 657 green, Presentation.Tests 275 green, App builds in Debug and Automation+Writes. No merge, no tag.
+
+- [ ] **GuardedHttp (mandatory).** One `SocketsHttpHandler` with no redirects, no cookies, no proxy, no credentials; `ConnectCallback`
+  resolves once, refuses the connection if any address is not public (`PublicAddress`: loopback, private, link-local, CGNAT, documentation,
+  multicast, 0/8, 240/4, ULA, site-local, v4-mapped / NAT64 / 6to4 judged by the embedded IPv4) and connects to the checked address (no
+  second lookup, no DNS rebinding window). https only (http only through the loopback test seam), no user info, GET/POST only, 2 MB body cap
+  while reading, 20 s timeout, a 3xx comes back with an empty body. 41 tests on loopback only.
+  - **Paths:** `src/Barbican.Core/Net/{GuardedHttp,PublicAddress,GuardedRefusal,OneClickUnsubscribe}.cs`, `tests/Barbican.Core.Tests/Net/`.
+  - **Check:** that `ConnectCallback` really is the only way out (no `HttpClient` elsewhere in reader code), and the IPv6 embedded-v4 rules.
+- [ ] **R2-07 (mandatory).** `AuthTrace.ServerResults`: an Authentication-Results header counts only inside the server's own trace block,
+  which starts at the message's very first Received (its `by` host must be trusted by D-9 `AuthServTrust` or equal the pinned id) and ends at
+  the next Received; inside it, only the header whose authserv-id equals that host. The id is learned and pinned per account on first sight
+  (`AuthServPins`, `authserv-ids.json`, the first pin stays) through `ReaderDepth`; no verdict and no chips in Sent, Drafts or for `$draft`.
+  Stricter than the R2-07 wording (it requires the first Received); forged headers above or below the block are ignored (8 tests in
+  `AuthTraceTests`, plus the snapshot tests).
+  - **Paths:** `src/Barbican.Core/Mail/AuthResults/{AuthTrace,AuthServPins}.cs`, `src/Barbican.Presentation/Mail/{ReaderSnapshots,ReaderOptions}.cs`,
+    `src/Barbican.Presentation/Mail/Loading/ReaderDepth.cs`; `tests/Barbican.Presentation.Tests/Mail/ReaderViewModelTests.cs` gained a
+    leading Received header (the old tests asserted the pre-R2-07 rule).
+  - **Check:** the Stalwart header order assumption (Received above its Authentication-Results); mailbox roles are loaded once per
+    account in the background, so the very first open of an account may still show a verdict in Sent if the message carries a trace block.
+- [ ] **R2-14 (mandatory, decision M2-Q2 still a proposal).** `ReadOnlyPolicy` + `TestWriteRefusal`: rx-import / rx-find / rx-destroy only
+  in `AUTOMATION_WRITES` builds, only on an automation profile whose login is on the writable list and not the read-only one (both re-read
+  each time), destroy only when every id carries the token on the server. 37 + 3 tests.
+  - **Paths:** `src/Barbican.Core/Accounts/ReadOnlyPolicy.cs`, `src/Barbican.App/MailBody/Automation/{WriteTestGuard,Rx*Command}.cs`.
+- [ ] **MDN (J-068 done).** Built by hand to the byte (the ported tests pin it); MimeKit parses it back in a test. Sent as upload,
+  Email/import into Sent with `$seen`, EmailSubmission/set with an explicit envelope, destroy on refusal, then `$mdnsent`; refused on a
+  read-only account. Sent is found with Mailbox/get roles (FakeJmap ignores a role filter on Mailbox/query). The send test answers
+  Email/import from the test (`ImportingClient`) because that arm belongs to actions.
+- [ ] **Banners in the reveal's UI turn.** `MessageLoader` collects `IReaderBannerSource` output before the page is built and puts it into
+  the snapshot; `ReaderViewModel.Apply` syncs `Banners` in the OnReady turn. Sources: invitation (CalendarEvent/parse, METHOD from the raw
+  .ics, trust note, "Replies arrive with Calendar (M4)"), receipt (writable accounts only), unsubscribe (one-click only with the server's
+  DKIM pass, else "Unsubscribe in browser"; mailto shown as an address), verification code (24 h). The stack is drawn in `MailBodyView`
+  (above the M1 remote-content banner, which gained "Always for this sender").
+  - **Check (feel):** with banner sources registered every open takes one extra await before the page is built; measured only in the hidden
+    run (`open-to-shown 7.8 ms`, sample seed, no banner); the invitation source does two network calls before the reveal (parse + .ics).
+- [ ] **Deviations.** `PrefersHttp` follows Rust/Bulwark (http over mailto); `PublicAddress` is stricter than Rust; `rx-destroy` takes TOKEN
+  first; the personal-provider list of avatars is kept as SHA-256 prefixes (the public tree must not name providers); `banner-act` is
+  `rx-banners act`; saves go to Downloads (no save dialog yet); a BIMI SVG counts as missing (no rasterizer); `onBeforeExternalLink` is
+  intercept-only (a plugin cannot rewrite the href yet); mailto links from mail are not opened (composer M3).
+- [ ] **Hidden-automation run (port 8883, `BARBICAN_SAMPLE=1`).** Started and stopped through `tools/auto-run.ps1` only; three messages
+  opened with `key Down`/`key Enter`; `rx-banners` 0 each (the sample is the M1 seed, see requests); `wv-eval` shows the frame CSP
+  `img-src data:` (remote content blocked); `popup-guard open 0 closed 0`; `focus-guard own-is-foreground=no` before and after. No frame
+  captures were taken (no uniform-frame question). One-click end to end, .eml/zip saves and avatar-state were not reachable in sample mode.
+- [ ] **Linux.** The VM answered `tools/linux.ps1 ping` (Linux 6.12, Debian 13); one `test` run of Core.Tests did not report within
+  10 minutes and was not retried.
+- [ ] **Open.** Source view (`source-text`), forward as attachment, Save to Files (the FileNode/Blob/copy fake arms exist, no client yet:
+  J-036, J-075 stay pending), message attachments through `IAttachedMessageOpener`, G-056 (full body of a truncated message), MENU-READER
+  and MENU-ATT providers and reader command ids, plugin detail rows (`IEmailDetailsSource`), `avatar-state`, the feel scenarios under
+  `spec/feel/M2/reader/**`, L-0xx live scripts, behaviours/reader.md and extras.md rows, I- rows in interactions.csv.
+
+### Requests to other streams
+- **unified (or the integrator):** `ModelReader` should read JMAP null lists as empty, so `BodyShape.Normalize` can go (R2-13).
+- **jmap / FakeStore.Build owner:** put a `Received ... by mx.example.org` header and the Authentication-Results header into `headers` in
+  Stalwart's order; today the fake has neither there, so R2-07 finds no results for seed mail and one-click never shows in sample runs.
+- **actions:** FakeJmap `Email/import`; then `MdnSenderTests` can drop `ImportingClient`.
+- **shell-ui (SampleActiveMail):** seed `SeedM2` and expose an `IAccountSession` for the sample account, so the hidden run can reach the
+  M2 seed (banners, saves, invitations).
+- **integrator:** `M2SeedTests.The_m2_dispatch_arms_answer_unknown_method_until_their_stream_fills_them` lost Blob/copy and
+  EmailSubmission/set (filled here). Automation does not reference Core, so the rx-* commands live in the App; move them if Automation gets
+  a Core reference.
+
+### Review pass (fresh Opus reviewer, read from `git diff origin/m2...origin/m2-reader`)
+Fixed on `m2-reader` in one commit after `003c121` (see `git log`); build + all tests green (1147 total, 0 failed, 4 skipped), App builds in
+Automation+Writes.
+- [ ] **R2-14 tightened (M2-Q2 still a proposal).** `ReadOnlyPolicy.For` returned writable logins in an agent profile when only the writable
+  list was there (the M1 rule), which contradicts M2-Q2 "a missing read-only list means nothing is writable". Now an agent profile without
+  both `.local` lists is `AllReadOnly`, flagged or not. `ReadOnlyPolicyTests` matrix rows and `AccountManagerTests.The_allow_list_counts_only_from_a_local_folder_and_fails_closed`
+  (unified-owned in wave 2; changed by the reviewer because the rule it pinned changed) updated. `tools/auto-run.ps1` now also passes
+  `BARBICAN_READONLY_ACCOUNTS_FILE` (`.local/readonly-accounts.txt` of the main checkout) — without it the write guard could never pass.
+  Neither `.local` list exists on this machine: nothing is writable until the user approves M2-Q2 and creates both files.
+- [ ] **GuardedHttp ranges widened.** `PublicAddress` also refuses 192.0.0.0/24, 198.18.0.0/15, the local-use NAT64 prefix 64:ff9b:1::/48
+  (RFC 8215) and Teredo 2001::/32 (the client address is obfuscated inside, so it cannot be judged). Check: whether other embedded-v4 forms
+  (ISATAP, 2001:2::/48) matter.
+- [ ] **Banners never hold the page (feel).** `ReaderDepth.BannersAsync` waited for every source with no limit before the page was built; the
+  invitation source makes three server calls, so a slow server held the reveal until the JMAP timeout. Now the open waits at most
+  `ReaderDepth.BannerBudget` (250 ms); a slower source's banners go with the page if they arrive before the reveal (stash read in
+  `OnReady`), else `ReaderViewModel.AddBanners` adds them to the message on screen in one change (the body moves down once by their height,
+  which §6.3 step 10 allows); a superseded open's late banners are dropped. Tests: `tests/Barbican.Presentation.Tests/Mail/Loading/BannerBudgetTests.cs`.
+  Check: the budget value against the open-to-shown budget once the feel scenario `banner_open` runs on screen.
+- [ ] **Zip slip.** `AttachmentSaver.SaveAllAsZipAsync` put the sender's raw attachment names into the zip ("../x", "C:/x" possible); Rust
+  `download_all` sanitizes first (reader.rs:833). Now `ReaderNames.SanitizePart(name, 120)` before `UniqueNames`. Still different from Rust:
+  one failed download fails the whole zip (Rust leaves it out and counts it in the toast). The zip writer is the hand port of `zip.rs`, not
+  `System.IO.Compression` (the plan's wording); System.IO.Compression only reads it back in `ZipReadBackTests`.
+- [ ] **Double clicks.** `ReaderBannerActions` now ignores a second run of the same action for the same message while one is on its way (two
+  receipts or two one-click POSTs otherwise).
+- [ ] **Unsubscribe headers unfolded.** `UnsubscribeBannerSource` read List-Unsubscribe and List-Unsubscribe-Post raw (folded); it now uses
+  `ReaderHeaders.Header` (Rust reader.rs:27 `header` unfolds).
+- [ ] **Not fixed, for Fable:** (1) R2-07 when Stalwart's `add_received` is off but `add_auth_results` on: the topmost Received is then the
+  sender's, and a forged A-R right under a forged `Received: by <server>` counts (data.rs:482-501; default is on). (2) Trusted senders and
+  `TrustedSender` remote loading key on the From address only (Bulwark parity, email-viewer.tsx:3170), so a spoofed From of a trusted sender
+  loads remote content. (3) `SaveTargets` writes into Downloads with no dialog and no Windows reserved-name check (`NUL.txt`, `CON`).
+  (4) The first open of an account can still show a verdict in Sent/Drafts (roles load in the background). (5) `RxSaveCommand queue PATH`
+  accepts any path (automation only, token-guarded socket).
+- [ ] **Remaining open stream work (not done by the stream, not by the review):** view source dialog and `source-text`, forward-as-attachment
+  payload, Save to Files UI (J-036/J-075 stay pending), `IAttachedMessageOpener` use, G-056, MENU-READER/MENU-ATT providers and reader
+  command ids, `IEmailDetailsSource` rows, any UI consumer of `IAvatarService`/`IAttachmentSaver` (only automation calls them), avatar-state,
+  feel scenarios, L- scripts, `behaviours/reader.md` and `extras.md` ZIP/INV rows, the reader I- rows in `interactions.csv`.

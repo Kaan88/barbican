@@ -1,5 +1,5 @@
 // Mirrors: Rust msgload.rs prefill :175 (header from the list row), attachments.rs show :80, auth.rs; Bulwark components/email/email-viewer.tsx,
-// reader-attachments.tsx, lib/server-auth-status.ts. Owner mailcore.
+// reader-attachments.tsx, lib/server-auth-status.ts; R2-07 (AuthTrace: the server's own trace block, pinned authserv-id). Owner reader (M2).
 
 using System.Globalization;
 using Barbican.Core.Mail.Attachments;
@@ -38,7 +38,13 @@ public static class ReaderSnapshots
         ArgumentNullException.ThrowIfNull(options);
         var visible = Visible(body.Attachments, options);
         var cards = AttachmentCards.Wanted(visible, options.AttachmentImagePreviews);
-        var results = AuthenticationResults.Trusted(body.Headers, id => AuthServTrust.Trusts(options.ServerHost, id));
+        // R2-07: only the server's own trace block counts (first Received, by a trusted or pinned host); the user's own mail gets no verdict
+        IReadOnlyList<string> roles = [.. body.MailboxIds.Where(m => m.Value).Select(m => options.MailboxRoles.GetValueOrDefault(m.Key)).OfType<string>()];
+        var own = body.Keywords.IsSet("$draft") || roles.Any(r => r is "sent" or "drafts");
+        string? learned = null;
+        IReadOnlyList<AuthResult> results = own || options.ServerHost is null
+            ? []
+            : AuthTrace.ServerResults(body.Headers, options.PinnedAuthServ, id => AuthServTrust.Trusts(options.ServerHost, id), out learned);
         var from = body.From.Count > 0 ? body.From[0].Email : string.Empty;
         var verified = from.Length > 0 && AuthenticationResults.AlignedPass(results, from);
         var failed = AuthenticationResults.Failure(results, verified);
@@ -53,6 +59,9 @@ public static class ReaderSnapshots
             ShowAttachmentCards = cards,
             AuthChips = [.. results.Where(r => r.Method is "dkim" or "spf" or "dmarc").Select(r => new AuthChip(r.Method, r.Result, IsAligned(r, domain)))],
             AuthVerdict = verified ? AuthVerdict.Verified : failed ? AuthVerdict.Failed : AuthVerdict.Unknown,
+            LearnedAuthServ = learned,
+            ServerResults = results,
+            MailboxRoles = roles,
             BodyState = body.IsTruncated ? BodyState.Truncated : BodyState.Ready,
             Body = body,
         };

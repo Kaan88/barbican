@@ -26,6 +26,18 @@ public sealed record ReaderSnapshot
 
     public AuthVerdict AuthVerdict { get; init; }
 
+    /// <summary>The authserv-id whose trace block gave the results (R2-07), for the loader to pin; null when none counted.</summary>
+    public string? LearnedAuthServ { get; init; }
+
+    /// <summary>The results of the server's own trace block (R2-07), for the banners (one-click needs the server's DKIM pass).</summary>
+    public IReadOnlyList<Barbican.Core.Mail.AuthResults.AuthResult> ServerResults { get; init; } = [];
+
+    /// <summary>The roles of the mailboxes the message is in (as far as known).</summary>
+    public IReadOnlyList<string> MailboxRoles { get; init; } = [];
+
+    /// <summary>The banners above the body (unsubscribe, receipt, invitation, remote content), set with the rest in the same UI turn.</summary>
+    public IReadOnlyList<Barbican.Presentation.Reader.ReaderBanner> Banners { get; init; } = [];
+
     public BodyState BodyState { get; init; }
 
     /// <summary>The message with its body values, for the body view (null for a header-only snapshot).</summary>

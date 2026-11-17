@@ -9,4 +9,8 @@ namespace Barbican.Presentation.Reader;
 /// <param name="Detail">The second line, or null.</param>
 /// <param name="IsWarning">True for a warning tone, false for a caution or info.</param>
 /// <param name="Actions">The buttons: (action id, label).</param>
-public sealed record ReaderBanner(string Id, string Title, string? Detail, bool IsWarning, IReadOnlyList<(string ActionId, string Label)> Actions);
+public sealed record ReaderBanner(string Id, string Title, string? Detail, bool IsWarning, IReadOnlyList<(string ActionId, string Label)> Actions)
+{
+    /// <summary>A small line under the buttons (an invitation: "Replies arrive with Calendar (M4)").</summary>
+    public string? Note { get; init; }
+}

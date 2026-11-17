@@ -46,6 +46,7 @@ public sealed class MessageLoader : IMessageOpener, IConversationOpener, IDispos
     private readonly TimeProvider _time;
     private readonly IPrefsStore _prefs;
     private readonly Func<ReaderOptions> _options;
+    private readonly ReaderDepth? _depth;
     private long _seq;
     private int _opens;
     private int _cachedOpens;
@@ -59,6 +60,12 @@ public sealed class MessageLoader : IMessageOpener, IConversationOpener, IDispos
     private ITimer? _markTimer;
     private long _openedAt;
 
+    // banners of a slow source (ReaderDepth.BannerBudget) that arrived before their page was revealed: OnReady of that open takes them
+    private readonly Lock _lateGate = new();
+    private long _readySeq = -1;
+    private long _lateSeq = -1;
+    private IReadOnlyList<Reader.ReaderBanner>? _late;
+
     public MessageLoader(
         ReaderViewModel reader,
         IActiveMail active,
@@ -71,7 +78,8 @@ public sealed class MessageLoader : IMessageOpener, IConversationOpener, IDispos
         IDispatcher dispatcher,
         TimeProvider time,
         IPrefsStore prefs,
-        Func<ReaderOptions> options)
+        Func<ReaderOptions> options,
+        ReaderDepth? depth = null)
     {
         ArgumentNullException.ThrowIfNull(reader);
         ArgumentNullException.ThrowIfNull(active);
@@ -97,6 +105,7 @@ public sealed class MessageLoader : IMessageOpener, IConversationOpener, IDispos
         _time = time;
         _prefs = prefs;
         _options = options;
+        _depth = depth;
         _active.Changed += OnAccountChanged;
         _neighbours.ListLoaded += OnListLoaded;
     }
@@ -277,9 +286,22 @@ public sealed class MessageLoader : IMessageOpener, IConversationOpener, IDispos
 
         // the list's copy has the current keywords (a cached body may predate a flag or a read)
         var shown = body with { Keywords = row.Summary.Keywords };
-        var snapshot = ReaderSnapshots.FromBody(shown, fetched.Thread, _options() with { ServerHost = AuthServTrust.ServerHostOf(context.AccountKey) });
+        var options = _options() with { ServerHost = AuthServTrust.ServerHostOf(context.AccountKey) };
+        if (_depth is not null)
+        {
+            options = _depth.Shape(options, context.AccountKey, context.Mail);
+        }
+
+        var snapshot = ReaderSnapshots.FromBody(shown, fetched.Thread, options);
+        _depth?.Learn(context.AccountKey, snapshot.LearnedAuthServ);
         ScheduleMarkRead(id, unseen ?? !body.Keywords.Seen, delay);
         var content = BodyRequest.ContentOf(body);
+        if (_depth is { HasBanners: true })
+        {
+            _ = BannersThenShowAsync(id, body, fetched.Thread, snapshot, content, seq, context);
+            return;
+        }
+
         if (!_hooks.HasHandlers(HookNames.OnRenderEmailBody))
         {
             Show(id, body, fetched.Thread, snapshot, content, blockRemote: false, seq, context);
@@ -287,6 +309,68 @@ public sealed class MessageLoader : IMessageOpener, IConversationOpener, IDispos
         }
 
         _ = TransformThenShowAsync(id, body, fetched.Thread, snapshot, content, seq, context);
+    }
+
+    // the banners go into the snapshot before the page is built, so they are applied with the header in the reveal's UI turn (no late pop-in)
+    private async Task BannersThenShowAsync(string id, EmailBody body, ConversationThread? thread, ReaderSnapshot snapshot, MailContent content, long seq, PrefetchContext context)
+    {
+        var (banners, late) = await _depth!.BannersAsync(snapshot, _time, _openCts?.Token ?? CancellationToken.None).ConfigureAwait(true);
+        if (seq != _seq)
+        {
+            return;
+        }
+
+        if (late is not null)
+        {
+            _ = LateBannersAsync(id, seq, late);
+        }
+
+        var withBanners = snapshot with { Banners = banners };
+        if (_hooks.HasHandlers(HookNames.OnRenderEmailBody))
+        {
+            await TransformThenShowAsync(id, body, thread, withBanners, content, seq, context).ConfigureAwait(true);
+            return;
+        }
+
+        _dispatcher.Post(() =>
+        {
+            if (seq == _seq)
+            {
+                Show(id, body, thread, withBanners, content, blockRemote: false, seq, context);
+            }
+        });
+    }
+
+    // A slow source's banners (an invitation waits on CalendarEvent/parse): before the reveal they go with the page, after it they join the stack
+    // of the message on screen in one change.
+    private async Task LateBannersAsync(string id, long seq, Task<IReadOnlyList<Reader.ReaderBanner>> late)
+    {
+#pragma warning disable VSTHRD003 // ReaderDepth.BannersAsync started it for this open; it never faults and needs no context (the result is posted)
+        var more = await late.ConfigureAwait(false);
+#pragma warning restore VSTHRD003
+        if (more.Count == 0)
+        {
+            return;
+        }
+
+        _dispatcher.Post(() =>
+        {
+            if (seq != _seq)
+            {
+                return;
+            }
+
+            lock (_lateGate)
+            {
+                if (_readySeq != seq)
+                {
+                    (_lateSeq, _late) = (seq, more);
+                    return;
+                }
+            }
+
+            _reader.AddBanners(id, more);
+        });
     }
 
     // onRenderEmailBody: a plugin may take the body over (decrypted mail) before the page is built
@@ -342,6 +426,16 @@ public sealed class MessageLoader : IMessageOpener, IConversationOpener, IDispos
                 }
 
                 EndWaiting();
+                lock (_lateGate)
+                {
+                    _readySeq = seq;
+                    if (_lateSeq == seq && _late is { Count: > 0 } late)
+                    {
+                        snapshot = snapshot with { Banners = [.. snapshot.Banners, .. late.Where(b => !snapshot.Banners.Any(x => string.Equals(x.Id, b.Id, StringComparison.Ordinal)))] };
+                        _late = null;
+                    }
+                }
+
                 var previous = _shownId;
                 _shownId = id;
                 _thread = thread;
@@ -364,7 +458,10 @@ public sealed class MessageLoader : IMessageOpener, IConversationOpener, IDispos
                 {
                     _hooks.Fire(HookNames.OnEmailContentRender, () => new EmailContentRenderPayload(id, content.Html is not null, content.HasRemoteContent));
                 }
-            });
+            })
+        {
+            TrustedSender = _depth?.Trusted(body) ?? false,
+        };
         _presenter.Show(request);
     }
 

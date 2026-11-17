@@ -60,9 +60,7 @@ public sealed class M2SeedTests
         foreach (var (capability, method) in new[]
         {
             ("urn:ietf:params:jmap:mail", "Email/parse"),
-            ("urn:ietf:params:jmap:core", "Blob/copy"),
             ("urn:ietf:params:jmap:mail", "SearchSnippet/get"),
-            ("urn:ietf:params:jmap:submission", "EmailSubmission/set"),
             ("urn:ietf:params:jmap:sieve", "SieveScript/get"),
             ("urn:ietf:params:jmap:sieve", "SieveScript/set"),
             ("urn:ietf:params:jmap:sieve", "SieveScript/validate"),

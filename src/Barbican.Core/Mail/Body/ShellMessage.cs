@@ -1,4 +1,4 @@
-// Mirrors: Rust mailview.rs:326 on_ipc (tag rust-final): "shell", "ready:N", "key:...", "dirty".
+// Mirrors: Rust mailview.rs:326 on_ipc (tag rust-final): "shell", "ready:N", "key:...", "dirty"; M2 adds "sel:TEXT" (onTextSelectionChange).
 //   New in the C# port (docs/adr/0005 decision 4, "M0 review"): "link:URL" (links routed by the shell
 //   on both OSes) and "ctx:X,Y" (already posted by the Rust shell, unused there), plus an allow-list
 //   and length caps, because on Linux the messages arrive through webkit.messageHandlers.unoWebView
@@ -15,13 +15,16 @@ namespace Barbican.Core.Mail.Body;
 /// <see cref="ShellMessageGate"/>). A <see cref="ShellMessageKind.Link"/> carries an absolute
 /// http, https or mailto URI without control characters or white space.
 /// </summary>
-public sealed record ShellMessage(ShellMessageKind Kind, long Sequence = 0, string? Key = null, int X = 0, int Y = 0, Uri? Link = null)
+public sealed record ShellMessage(ShellMessageKind Kind, long Sequence = 0, string? Key = null, int X = 0, int Y = 0, Uri? Link = null, string? Text = null)
 {
     /// <summary>Longest message accepted at all (a link URL dominates).</summary>
     public const int MaxLength = 8192;
 
     /// <summary>Longest <c>key:</c> payload: up to three flag letters, the bar and a key name.</summary>
     public const int MaxKeyLength = 32;
+
+    /// <summary>Longest selected text passed on (<c>sel:</c>); the shell cuts it to this as well.</summary>
+    public const int MaxSelection = 4000;
 
     /// <summary>Largest page coordinate accepted in <c>ctx:X,Y</c>.</summary>
     public const int MaxCoordinate = 1_000_000;
@@ -75,6 +78,12 @@ public sealed record ShellMessage(ShellMessageKind Kind, long Sequence = 0, stri
             return parts.Length == 2 && Coordinate(parts[0]) is { } x && Coordinate(parts[1]) is { } y
                 ? new ShellMessage(ShellMessageKind.Context, X: x, Y: y)
                 : null;
+        }
+
+        if (raw.StartsWith("sel:", StringComparison.Ordinal))
+        {
+            var t = raw[4..];
+            return t.Length <= MaxSelection ? new ShellMessage(ShellMessageKind.Selection, Text: new string([.. t.Select(c => char.IsControl(c) && c is not '\n' and not '\t' ? ' ' : c)])) : null;
         }
 
         return raw.StartsWith("link:", StringComparison.Ordinal) && TryLink(raw[5..], out var uri)
