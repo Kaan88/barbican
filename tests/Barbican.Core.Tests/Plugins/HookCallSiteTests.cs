@@ -48,4 +48,8 @@ public sealed class HookCallSiteTests
     // M3: stream send-pipeline fires 15 hooks (drafts, seeding, send, attachment upload).
     [Fact]
     public void Send_pipeline_m3_hooks_have_call_sites() => AssertFired("send-pipeline", "M3");
+
+    // M3: stream composer-ui fires 10 hooks (reply and forward intercepts, composer open, close and change, recipient chips, mailto).
+    [Fact]
+    public void Composer_ui_m3_hooks_have_call_sites() => AssertFired("composer-ui", "M3");
 }

@@ -52,6 +52,20 @@ public sealed partial class ToastHostView : UserControl
         }
     }
 
+#pragma warning disable VSTHRD100 // XAML event handlers must return void; the action reports its own failure with a toast
+    private async void OnSecondary(object sender, RoutedEventArgs e)
+#pragma warning restore VSTHRD100
+    {
+        if (sender is FrameworkElement { Tag: ToastItem item })
+        {
+            Toasts.Dismiss(item.Handle);
+            if (item.Request.SecondaryAction is { } run)
+            {
+                await run(CancellationToken.None);
+            }
+        }
+    }
+
     private void OnClose(object sender, RoutedEventArgs e)
     {
         if (sender is FrameworkElement { Tag: ToastItem item })

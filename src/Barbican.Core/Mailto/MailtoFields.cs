@@ -14,4 +14,7 @@ public sealed record MailtoFields
     public string Subject { get; init; } = "";
 
     public string Body { get; init; } = "";
+
+    /// <summary>Parameters named <c>x-&lt;plugin id&gt;-&lt;name&gt;</c> (Bulwark 1.21 onComposeFromLink), keys lower-cased; the composer hands them to the plugin they name.</summary>
+    public IReadOnlyDictionary<string, string> Extra { get; init; } = new Dictionary<string, string>(StringComparer.Ordinal);
 }

@@ -12,7 +12,7 @@ using Barbican.Presentation.Mail;
 namespace Barbican.Presentation.Reader;
 
 /// <summary>Runs a banner button for the message on screen and says how it went.</summary>
-public sealed class ReaderBannerActions(ReaderViewModel reader, IActiveMail active, IAccountManager accounts, IGuardedHttp http, MdnSender mdn, CheckedLinkRouter links)
+public sealed class ReaderBannerActions(ReaderViewModel reader, IActiveMail active, IAccountManager accounts, IGuardedHttp http, MdnSender mdn, CheckedLinkRouter links, IEnumerable<Barbican.Presentation.Compose.IBannerActionHandler>? handlers = null)
 {
     // the actions on their way, by message and action: a second click while one runs does nothing (two receipts or two POSTs otherwise)
     private readonly HashSet<string> _running = new(StringComparer.Ordinal);
@@ -48,6 +48,7 @@ public sealed class ReaderBannerActions(ReaderViewModel reader, IActiveMail acti
                 UnsubscribeBannerSource.OpenLink => await OpenAsync(snapshot, ct).ConfigureAwait(true),
                 ReceiptBannerSource.Send => await ReceiptAsync(snapshot, ct).ConfigureAwait(true),
                 ReceiptBannerSource.Ignore => Remove(snapshot, ReceiptBannerSource.Id, "No receipt sent."),
+                _ when handlers?.FirstOrDefault(h => h.Owns(actionId)) is { } owner => Done(await owner.RunAsync(snapshot, actionId, ct).ConfigureAwait(true)),
                 _ => Done("Unknown action."),
             };
         }

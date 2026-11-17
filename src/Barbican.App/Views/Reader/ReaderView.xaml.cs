@@ -38,6 +38,28 @@ public sealed partial class ReaderView : UserControl
 
     public StyleState Look { get; }
 
+    // Reply, Reply all and Forward run the compose commands on the message on screen (M3 composer-ui; the commands are registered by the composer)
+    private void OnReplyClick(object sender, RoutedEventArgs e) => RunOnOpen(Barbican.Presentation.Commands.CommandIds.Reply);
+
+    private void OnReplyAllClick(object sender, RoutedEventArgs e) => RunOnOpen(Barbican.Presentation.Commands.CommandIds.ReplyAll);
+
+    private void OnForwardClick(object sender, RoutedEventArgs e) => RunOnOpen(Barbican.Presentation.Commands.CommandIds.Forward);
+
+    private void RunOnOpen(string commandId)
+    {
+        var active = ViewHost.Get<Barbican.Presentation.Mail.IActiveMail>();
+        if (Reader.Current.Body is not { } body || active.AccountKey is not { } key || !ViewHost.Get<Barbican.Presentation.Commands.ICommandRegistry>().TryGet(commandId, out var command))
+        {
+            return;
+        }
+
+        var context = new Barbican.Presentation.Commands.CommandContext(Barbican.Presentation.Commands.CommandSurface.Toolbar, [Barbican.Core.Mail.Model.MailTarget.OfOpen(key, body)], null, null, key);
+        if (command.CanExecute(context))
+        {
+            ViewHost.Get<Barbican.Presentation.Commands.CommandRunner>().Start(command, context);
+        }
+    }
+
     private void OnDetailsClick(object sender, RoutedEventArgs e) => SetDetails(DetailsPanel.Visibility != Visibility.Visible);
 
     private void SetDetails(bool open)

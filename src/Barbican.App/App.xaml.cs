@@ -28,6 +28,7 @@ public partial class BarbicanApp : Application
         InitializeComponent();
     }
 
+#pragma warning disable MA0051 // the start-up sequence reads top to bottom (as before the single-instance hand-off was added)
     protected override void OnLaunched(LaunchActivatedEventArgs args)
     {
         var launchedMs = ProcessClock.SinceStartMs();
@@ -46,6 +47,13 @@ public partial class BarbicanApp : Application
             }
 
             Environment.Exit(2);
+            return;
+        }
+
+        // a mailto: link on the command line while another Barbican of this profile runs goes to that one, and this process ends without a window (M3 composer-ui, PORT-PLAN 3.9)
+        if (!options.IsSmoke && Composition.SingleInstanceStart.ForwardLink(Environment.GetCommandLineArgs().Skip(1).ToArray()))
+        {
+            Environment.Exit(0);
             return;
         }
 
@@ -91,6 +99,7 @@ public partial class BarbicanApp : Application
         }
     }
 
+#pragma warning restore MA0051
 #if AUTOMATION
     private void StartAutomation(Shell.ShellPage shell, int port)
     {

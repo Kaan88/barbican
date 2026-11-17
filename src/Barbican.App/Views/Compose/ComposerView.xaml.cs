@@ -1,0 +1,362 @@
+// Mirrors: Bulwark components/email/email-composer.tsx (layout, capture key handler :5509, Cc and Bcc toggles :6031-6056, status :5660); M3 plan section 6.4 step 2; I-234..I-239, I-246, I-249, I-253, I-257.
+// The composer pane. The data is ComposerViewModel (one per open composer, from IComposerService.Current); this draws it and routes the keys. The cards, the files and the key table are the other parts of this class.
+
+#pragma warning disable CA1859, CA1822 // the card builders return UIElement by design (one slot, many kinds)
+
+using System.Collections.Specialized;
+using System.ComponentModel;
+using Barbican.App.Shell;
+using Barbican.App.Theme;
+using Barbican.Core.Compose;
+using Barbican.Presentation.Compose;
+using Microsoft.UI.Xaml.Automation;
+using Microsoft.UI.Xaml.Input;
+using Windows.System;
+
+namespace Barbican.App.Views.Compose;
+
+/// <summary>The composer pane.</summary>
+public sealed partial class ComposerView : UserControl
+{
+    private readonly IComposerService _service = ViewHost.Get<IComposerService>();
+    private ComposerViewModel? _vm;
+    private bool _syncing;
+
+    public ComposerView()
+    {
+        Look = ViewHost.Get<StyleState>();
+        InitializeComponent();
+        _service.OpenChanged += (_, _) => DispatcherQueue.TryEnqueue(() => Attach(_service.Current));
+        PreviewKeyDown += OnPreviewKeyDown;
+        Host.DragEnter += OnDragOver;
+        Host.DragOver += OnDragOver;
+        Host.DragLeave += (_, _) => DropOverlay.Visibility = Visibility.Collapsed;
+        Host.Drop += OnDrop;
+        ToField.Trailing = TogglesFor();
+        Loaded += (_, _) => Attach(_service.Current);
+    }
+
+    public StyleState Look { get; }
+
+    /// <summary>The composer on screen, or null.</summary>
+    public ComposerViewModel? Vm => _vm;
+
+    private void Attach(ComposerViewModel? vm)
+    {
+        if (ReferenceEquals(vm, _vm))
+        {
+            return;
+        }
+
+        if (_vm is not null)
+        {
+            _vm.PropertyChanged -= OnVmChanged;
+            _vm.Attachments.CollectionChanged -= OnAttachmentsChanged;
+            _vm.Dialog?.Complete(null);
+        }
+
+        _vm = vm;
+        _card = CardKind.None;
+        if (vm is null)
+        {
+            ToField.Bind(null);
+            CcField.Bind(null);
+            BccField.Bind(null);
+            BodyHost.Content = null;
+            RefreshCards();
+            return;
+        }
+
+        vm.PropertyChanged += OnVmChanged;
+        vm.Attachments.CollectionChanged += OnAttachmentsChanged;
+        ToField.Bind(vm.To);
+        CcField.Bind(vm.Cc);
+        BccField.Bind(vm.Bcc);
+        TitleText.Text = TitleOf(vm.Kind);
+        AutomationProperties.SetName(Pane, TitleText.Text);
+        _syncing = true;
+        SubjectBox.Text = vm.Subject;
+        _syncing = false;
+        BuildBody();
+        SyncAll();
+        _ = DispatcherQueue.TryEnqueue(() => (vm.To.Recipients.Count == 0 ? ToField : null)?.FocusInput());
+    }
+
+    private static string PlainOf(Barbican.Core.Editor.Doc doc) => doc.TextRange(new Barbican.Core.Editor.Pos(0, 0), doc.End);
+
+    private static string TitleOf(ComposeKind kind) => kind switch
+    {
+        ComposeKind.Reply => "Reply",
+        ComposeKind.ReplyAll => "Reply all",
+        ComposeKind.Forward or ComposeKind.ForwardAsAttachment => "Forward",
+        ComposeKind.EditDraft => "Edit draft",
+        _ => "New message",
+    };
+
+    private void OnVmChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        switch (e.PropertyName)
+        {
+            case nameof(ComposerViewModel.Editor) or nameof(ComposerViewModel.PlainText):
+                BuildBody();
+                break;
+            case nameof(ComposerViewModel.Dialog) or nameof(ComposerViewModel.Schedule) or nameof(ComposerViewModel.Templates):
+                RefreshCards();
+                break;
+            default:
+                SyncAll();
+                break;
+        }
+    }
+
+    // everything the header and footer show that the view model can change by itself
+    private void SyncAll()
+    {
+        if (_vm is not { } vm)
+        {
+            return;
+        }
+
+        CcBox.Visibility = vm.ShowCc ? Visibility.Visible : Visibility.Collapsed;
+        BccBox.Visibility = vm.ShowBcc ? Visibility.Visible : Visibility.Collapsed;
+        FromText.Text = vm.FromText;
+        StatusText.Text = vm.Status;
+        SendButton.IsEnabled = !vm.IsSending;
+        SendArrow.IsEnabled = !vm.IsSending;
+        if (!string.Equals(SubjectBox.Text, vm.Subject, StringComparison.Ordinal))
+        {
+            _syncing = true;
+            SubjectBox.Text = vm.Subject;
+            _syncing = false;
+        }
+
+        if (ToField.Trailing is StackPanel toggles)
+        {
+            toggles.Visibility = vm.ShowCc && vm.ShowBcc ? Visibility.Collapsed : Visibility.Visible;
+            toggles.Children[0].Visibility = vm.ShowCc ? Visibility.Collapsed : Visibility.Visible;
+            toggles.Children[1].Visibility = vm.ShowBcc ? Visibility.Collapsed : Visibility.Visible;
+        }
+
+        RebuildAttachments();
+    }
+
+    // the Cc and Bcc links at the right end of the To row (I-246)
+    private StackPanel TogglesFor()
+    {
+        var panel = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 4 };
+        panel.Children.Add(Toggle("Cc", "composer.cc.toggle", () => _vm?.RevealCc()));
+        panel.Children.Add(Toggle("Bcc", "composer.bcc.toggle", () => _vm?.RevealBcc()));
+        return panel;
+    }
+
+    private static Button Toggle(string text, string id, Action click)
+    {
+        var button = new Button { Style = (Style)Application.Current.Resources["Button.Icon"], Height = 26, Padding = new Thickness(8, 0, 8, 0), CornerRadius = new CornerRadius(13), Content = new TextBlock { Text = text, FontSize = 12.5, Foreground = AppResources.Brush("Dim") } };
+        AutomationProperties.SetAutomationId(button, id);
+        AutomationProperties.SetName(button, "Add " + text);
+        button.Click += (_, _) => click();
+        return button;
+    }
+
+    private void BuildBody()
+    {
+        if (_vm is not { } vm)
+        {
+            return;
+        }
+
+        if (vm.Editor is { } editor && ComposerBodyHost.EditorFactory is { } make)
+        {
+            BodyHost.Content = make(editor);
+            return;
+        }
+
+        // no editor control yet: a plain text box stands in (not the shipped editor; the editor view replaces it through ComposerBodyHost.EditorFactory)
+        var box = new TextBox
+        {
+            Style = (Style)Application.Current.Resources["TextBox.Bare"],
+            AcceptsReturn = true,
+            TextWrapping = TextWrapping.Wrap,
+            FontSize = 14,
+            VerticalAlignment = VerticalAlignment.Stretch,
+            Text = vm.Editor is { } e ? PlainOf(e.Session.Doc) : vm.FallbackBody,
+        };
+        ScrollViewer.SetVerticalScrollBarVisibility(box, ScrollBarVisibility.Auto);
+        AutomationProperties.SetAutomationId(box, "composer.body");
+        AutomationProperties.SetName(box, "Message body");
+        box.TextChanged += (_, _) =>
+        {
+            if (vm.Editor is { } session)
+            {
+                session.Session.Load(Barbican.Core.Editor.Doc.FromText(box.Text));
+            }
+            else
+            {
+                vm.FallbackBody = box.Text;
+            }
+        };
+        vm.PropertyChanged += (_, args) =>
+        {
+            if (string.Equals(args.PropertyName, nameof(ComposerViewModel.FallbackBody), StringComparison.Ordinal) && !string.Equals(box.Text, vm.FallbackBody, StringComparison.Ordinal) && vm.Editor is null)
+            {
+                box.Text = vm.FallbackBody;
+            }
+        };
+        BodyHost.Content = box;
+    }
+
+    private void OnSubjectChanged(object sender, TextChangedEventArgs e)
+    {
+        if (!_syncing && _vm is { } vm)
+        {
+            vm.Subject = SubjectBox.Text;
+        }
+    }
+
+    private void OnSendClick(object sender, RoutedEventArgs e) => _ = _vm?.SendAsync();
+
+    private void OnSendArrowClick(object sender, RoutedEventArgs e) => ShowPanel(CardKind.SendMenu);
+
+    private void OnTemplatesClick(object sender, RoutedEventArgs e) => _ = _vm?.OpenTemplatesAsync();
+
+    private void OnOptionsClick(object sender, RoutedEventArgs e) => ShowPanel(CardKind.Options);
+
+    private void OnFromClick(object sender, RoutedEventArgs e) => ShowPanel(CardKind.From);
+
+    private void OnDiscardClick(object sender, RoutedEventArgs e) => _ = _vm?.DiscardAsync();
+
+    private void OnCloseClick(object sender, RoutedEventArgs e) => _ = _service.TryCloseAsync(CancellationToken.None);
+
+    // The composer's keys (Bulwark's capture handler): they work from any field because the key tunnels down from here. The shell's app keys stay out while the composer is open.
+    private void OnPreviewKeyDown(object sender, KeyRoutedEventArgs e)
+    {
+        if (_vm is not { } vm)
+        {
+            return;
+        }
+
+        var ctrl = Down(VirtualKey.Control);
+        var shift = Down(VirtualKey.Shift);
+        if (e.Key == VirtualKey.Escape)
+        {
+            HandleEscape(vm, e);
+            return;
+        }
+
+        if (ctrl && e.Key == VirtualKey.V && TryPasteFiles())
+        {
+            e.Handled = true;
+            return;
+        }
+
+        var name = e.Key switch
+        {
+            VirtualKey.Enter => "enter",
+            VirtualKey.S => "s",
+            VirtualKey.C => "c",
+            VirtualKey.B => "b",
+            _ => null,
+        };
+        if (name is not null && ctrl && vm.HandleChord(name, true, shift, Down(VirtualKey.Menu)))
+        {
+            e.Handled = true;
+            return;
+        }
+
+        if (!ctrl && !shift && e.Key == VirtualKey.T && e.OriginalSource is Button)
+        {
+            e.Handled = true;
+            _ = vm.OpenTemplatesAsync();
+        }
+    }
+
+    private void HandleEscape(ComposerViewModel vm, KeyRoutedEventArgs e)
+    {
+            e.Handled = true;
+            if (vm.Dialog is not null)
+            {
+                vm.AnswerDialog(null);
+            }
+            else if (vm.Schedule is not null)
+            {
+                vm.CancelSchedule();
+            }
+            else if (vm.Templates is not null)
+            {
+                vm.CloseTemplates();
+            }
+            else if (_card != CardKind.None)
+            {
+                ShowPanel(CardKind.None);
+            }
+            else if (!SuggestionsOpen())
+            {
+                _ = _service.TryCloseAsync(CancellationToken.None);
+            }
+            else
+            {
+                e.Handled = false;
+            }
+    }
+
+    private bool SuggestionsOpen() => _vm is { } vm && (vm.To.IsOpen || vm.Cc.IsOpen || vm.Bcc.IsOpen);
+
+    private static bool Down(VirtualKey key) => Microsoft.UI.Input.InputKeyboardSource.GetKeyStateForCurrentThread(key).HasFlag(Windows.UI.Core.CoreVirtualKeyStates.Down);
+
+    private void RebuildAttachments()
+    {
+        if (_vm is not { } vm)
+        {
+            return;
+        }
+
+        var items = vm.Attachments.Where(a => a.Attachment.Cid is null).ToList();
+        AttachmentList.Visibility = items.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
+        AttachmentList.Items.Clear();
+        for (var i = 0; i < items.Count; i++)
+        {
+            AttachmentList.Items.Add(AttachmentChip(items[i], i));
+        }
+    }
+
+    private void OnAttachmentsChanged(object? sender, NotifyCollectionChangedEventArgs e) => DispatcherQueue.TryEnqueue(RebuildAttachments);
+
+    private UIElement AttachmentChip(AttachmentItem item, int index)
+    {
+        var row = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6 };
+        row.Children.Add(new Barbican.App.Controls.SIcon { Kind = "Clip", Size = 14, Foreground = AppResources.Brush("Dim") });
+        row.Children.Add(new TextBlock { Text = item.Name, FontSize = 12.5, Foreground = AppResources.Brush("Body"), MaxWidth = 220, TextTrimming = TextTrimming.CharacterEllipsis, VerticalAlignment = VerticalAlignment.Center });
+        row.Children.Add(new TextBlock { Text = item.IsUploading ? "Uploading" : item.SizeText, FontSize = 11.5, Foreground = AppResources.Brush("Faint"), VerticalAlignment = VerticalAlignment.Center });
+        if (item.IsUploading)
+        {
+            row.Children.Add(new ProgressRing { IsActive = true, Width = 14, Height = 14, VerticalAlignment = VerticalAlignment.Center });
+        }
+
+        var remove = new Button { Style = (Style)Application.Current.Resources["Button.Icon"], Width = 20, Height = 20, CornerRadius = new CornerRadius(10), Content = new Barbican.App.Controls.SIcon { Kind = "Close", Size = 10 } };
+        AutomationProperties.SetAutomationId(remove, $"composer.attachment.{index}.remove");
+        AutomationProperties.SetName(remove, (item.IsUploading ? "Cancel upload of " : "Remove ") + item.Name);
+        remove.Click += (_, _) => _vm?.RemoveAttachment(item);
+        row.Children.Add(remove);
+        var box = new Border
+        {
+            Background = AppResources.Brush("Chip"),
+            BorderBrush = AppResources.Brush("Line"),
+            BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(13),
+            Height = 28,
+            Padding = new Thickness(10, 0, 4, 0),
+            Margin = new Thickness(0, 0, 6, 6),
+            Child = row,
+        };
+        AutomationProperties.SetAutomationId(box, $"composer.attachment.{index}");
+        AutomationProperties.SetName(box, item.Name);
+        item.PropertyChanged += (_, args) =>
+        {
+            if (string.Equals(args.PropertyName, nameof(AttachmentItem.State), StringComparison.Ordinal))
+            {
+                DispatcherQueue.TryEnqueue(RebuildAttachments);
+            }
+        };
+        return box;
+    }
+}

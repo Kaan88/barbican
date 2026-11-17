@@ -72,8 +72,8 @@
     <!-- M2 plan 3.3 slots: the account header (menus, I-037) above New message and the unified inbox section (unified, wave 2) below it; the shared accounts section (unified) ends the scrolling part. -->
     <StackPanel Grid.Row="0">
     <ContentPresenter x:Name="AccountHeaderSlot" />
-    <!-- New message: shown, inert until M3. -->
-    <Button x:Name="ComposeButton" Style="{StaticResource Button.Primary}" HorizontalAlignment="Stretch" IsEnabled="False"
+    <!-- New message: runs the compose command (M3 composer-ui). -->
+    <Button x:Name="ComposeButton" Style="{StaticResource Button.Primary}" HorizontalAlignment="Stretch" Click="OnComposeClick"
             Height="{x:Bind Look.ComposeHeight, Mode=OneWay}" CornerRadius="{x:Bind Look.ComposeRadius, Mode=OneWay}" Margin="{x:Bind Look.ComposeMargin, Mode=OneWay}"
             FontSize="{x:Bind Look.ComposeFontSize, Mode=OneWay}"
             AutomationProperties.AutomationId="sidebar.compose" AutomationProperties.Name="Compose">

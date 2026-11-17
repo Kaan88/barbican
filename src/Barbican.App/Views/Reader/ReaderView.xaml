@@ -34,15 +34,15 @@
           <!-- actions: Reply, Reply all, Forward, Archive and Delete are M2 or M3 and stay disabled; More opens MENU-READER. Bento: icon + label (Reply all, Delete, More icon-only); Nordic: text only. -->
           <StackPanel Grid.Row="{x:Bind Look.ReaderActionsRow, Mode=OneWay}" Orientation="Horizontal" Spacing="8" AutomationProperties.AutomationId="reader.toolbar" AutomationProperties.Name="Message actions">
             <Button Style="{StaticResource Button.Action}" Height="{x:Bind Look.ActionButtonHeight, Mode=OneWay}" CornerRadius="{x:Bind Look.ActionRadius, Mode=OneWay}"
-                    Padding="{x:Bind Look.ActionPadding, Mode=OneWay}" IsEnabled="False" AutomationProperties.AutomationId="reader.reply" AutomationProperties.Name="Reply">
+                    Padding="{x:Bind Look.ActionPadding, Mode=OneWay}" Click="OnReplyClick" AutomationProperties.AutomationId="reader.reply" AutomationProperties.Name="Reply">
               <StackPanel Orientation="Horizontal" Spacing="6"><controls:SIcon Kind="Reply" Size="16" Visibility="{x:Bind Look.BentoOnly, Mode=OneWay}" /><TextBlock Text="Reply" /></StackPanel>
             </Button>
             <Button Style="{StaticResource Button.Action}" Height="{x:Bind Look.ActionButtonHeight, Mode=OneWay}" CornerRadius="{x:Bind Look.ActionRadius, Mode=OneWay}"
-                    Padding="{x:Bind Look.ActionPadding, Mode=OneWay}" IsEnabled="False" AutomationProperties.AutomationId="reader.replyall" AutomationProperties.Name="Reply all">
+                    Padding="{x:Bind Look.ActionPadding, Mode=OneWay}" Click="OnReplyAllClick" AutomationProperties.AutomationId="reader.replyall" AutomationProperties.Name="Reply all">
               <StackPanel Orientation="Horizontal" Spacing="6"><controls:SIcon Kind="ReplyAll" Size="16" Visibility="{x:Bind Look.BentoOnly, Mode=OneWay}" /><TextBlock Text="Reply all" Visibility="{x:Bind Look.SecondaryLabelVisibility, Mode=OneWay}" /></StackPanel>
             </Button>
             <Button Style="{StaticResource Button.Action}" Height="{x:Bind Look.ActionButtonHeight, Mode=OneWay}" CornerRadius="{x:Bind Look.ActionRadius, Mode=OneWay}"
-                    Padding="{x:Bind Look.ActionPadding, Mode=OneWay}" IsEnabled="False" AutomationProperties.AutomationId="reader.forward" AutomationProperties.Name="Forward">
+                    Padding="{x:Bind Look.ActionPadding, Mode=OneWay}" Click="OnForwardClick" AutomationProperties.AutomationId="reader.forward" AutomationProperties.Name="Forward">
               <StackPanel Orientation="Horizontal" Spacing="6"><controls:SIcon Kind="Fwd" Size="16" Visibility="{x:Bind Look.BentoOnly, Mode=OneWay}" /><TextBlock Text="Forward" /></StackPanel>
             </Button>
             <Button Style="{StaticResource Button.Action}" Height="{x:Bind Look.ActionButtonHeight, Mode=OneWay}" CornerRadius="{x:Bind Look.ActionRadius, Mode=OneWay}"
