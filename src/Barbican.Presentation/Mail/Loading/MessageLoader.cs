@@ -46,6 +46,8 @@ public sealed class MessageLoader : IMessageOpener, IConversationOpener, IDispos
     private readonly IPrefsStore _prefs;
     private readonly Func<ReaderOptions> _options;
     private long _seq;
+    private int _opens;
+    private int _cachedOpens;
     private CancellationTokenSource? _openCts;
     private MessageRowViewModel? _currentRow;
     private string? _shownId;
@@ -54,6 +56,7 @@ public sealed class MessageLoader : IMessageOpener, IConversationOpener, IDispos
     private bool _loadingShown;
     private ITimer? _slowTimer;
     private ITimer? _markTimer;
+    private long _openedAt;
 
     public MessageLoader(
         ReaderViewModel reader,
@@ -106,6 +109,12 @@ public sealed class MessageLoader : IMessageOpener, IConversationOpener, IDispos
     /// <summary>The message the reader shows (header and body applied), or null.</summary>
     public string? ShownId => _shownId;
 
+    /// <summary>From the last open to its header and body going on screen together (the feel probe of the hidden runs), or null.</summary>
+    public TimeSpan? LastOpenToShown { get; private set; }
+
+    /// <summary>Opens since start; the ones that were shown from the cache without waiting.</summary>
+    public (int Opens, int CachedOpens) OpenCounts => (_opens, _cachedOpens);
+
     /// <summary>The prefetcher (tests read its travel state).</summary>
     public MessagePrefetcher Prefetcher => _prefetcher;
 
@@ -156,6 +165,8 @@ public sealed class MessageLoader : IMessageOpener, IConversationOpener, IDispos
     private void OpenCore(MessageRowViewModel row)
     {
         var seq = Supersede();
+        _openedAt = _time.GetTimestamp();
+        _opens++;
         var ct = _openCts!.Token;
         var id = row.Id;
         _currentRow = row;
@@ -176,6 +187,7 @@ public sealed class MessageLoader : IMessageOpener, IConversationOpener, IDispos
         if (_fetcher.Cached(account, id, threading) is { } hit)
         {
             EndWaiting();
+            _cachedOpens++;
             Present(row, hit, seq, unseen, delay, new PrefetchContext(account, mail, threading));
             return;
         }
@@ -321,6 +333,7 @@ public sealed class MessageLoader : IMessageOpener, IConversationOpener, IDispos
                 _shownId = id;
                 _thread = thread;
                 _reader.Apply(snapshot);
+                LastOpenToShown = _time.GetElapsedTime(_openedAt);
                 if (!string.Equals(previous, id, StringComparison.Ordinal))
                 {
                     AnnounceClose(previous);

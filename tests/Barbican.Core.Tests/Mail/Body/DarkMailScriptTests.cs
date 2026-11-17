@@ -1,5 +1,5 @@
 // email_dark.js is carried twice: as the App asset (diffable against the Rust app's src/email_dark.js) and as Core's string, which the page
-// builder hashes for the frame's CSP. They must be the same text. Owner body.
+// builder hashes for the frame's CSP. They must be the same text. Owner body. Spec: B-MAIL-029.
 
 using Barbican.Core.Mail.Body;
 

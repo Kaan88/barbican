@@ -40,7 +40,9 @@ public sealed partial class BodyShell : IBodyPresenter, IStartupTask, IDisposabl
     public static readonly TimeSpan GiveUpAfter = TimeSpan.FromMilliseconds(8000);
 
     private readonly BodyAppearance _appearance;
-    private readonly IKeyRouter _keys;
+    // resolved on the first forwarded key: the key router needs the list, the list the loader, the loader this view (a cycle at construction)
+    private readonly Lazy<IKeyRouter> _keys;
+    private long _sentAt;
     private readonly ILinkRouter _links;
     private readonly IDispatcher _dispatcher;
     private readonly TimeProvider _time;
@@ -62,7 +64,7 @@ public sealed partial class BodyShell : IBodyPresenter, IStartupTask, IDisposabl
     private string? _formattedFor;
     private bool _remoteNow;
 
-    public BodyShell(BodyAppearance appearance, IKeyRouter keys, ILinkRouter links, IDispatcher dispatcher, TimeProvider time, ThemeController theme, ILogger<BodyShell> log)
+    public BodyShell(BodyAppearance appearance, Lazy<IKeyRouter> keys, ILinkRouter links, IDispatcher dispatcher, TimeProvider time, ThemeController theme, ILogger<BodyShell> log)
     {
         _appearance = appearance;
         _keys = keys;
@@ -103,6 +105,9 @@ public sealed partial class BodyShell : IBodyPresenter, IStartupTask, IDisposabl
 
     /// <summary>Links handed to the link router.</summary>
     public int RoutedLinks { get; private set; }
+
+    /// <summary>From the last page sent to the shell to its ready signal (layout and the dark pass done), or null.</summary>
+    public TimeSpan? LastSendToReady { get; private set; }
 
     /// <summary>Navigations and new windows refused.</summary>
     public int BlockedNavigations { get; private set; }
@@ -332,6 +337,7 @@ public sealed partial class BodyShell : IBodyPresenter, IStartupTask, IDisposabl
     {
         var seq = ++_docSeq;
         _pending = (seq, request, page);
+        _sentAt = _time.GetTimestamp();
         StopReadyTimer();
         _readyTimer = _time.CreateTimer(_ => _dispatcher.Post(() => Slow(seq)), null, SlowAfter, Timeout.InfiniteTimeSpan);
 
@@ -370,6 +376,7 @@ public sealed partial class BodyShell : IBodyPresenter, IStartupTask, IDisposabl
 
         StopReadyTimer();
         _pending = null;
+        LastSendToReady = _time.GetElapsedTime(_sentAt);
         SetSlow(false);
         if (!p.Request.OnReady())
         {
@@ -450,7 +457,7 @@ public sealed partial class BodyShell : IBodyPresenter, IStartupTask, IDisposabl
                 Ready(m.Sequence);
                 break;
             case ShellMessageKind.Key when m.Key is not null && ShellMessageParser.ParseKey(m.Key) is { } key:
-                _ = _keys.Handle(ForwardedKeyChords.ToChord(key), KeySource.WebView);
+                _ = _keys.Value.Handle(ForwardedKeyChords.ToChord(key), KeySource.WebView);
                 break;
             case ShellMessageKind.Link when m.Link is not null:
                 RoutedLinks++;

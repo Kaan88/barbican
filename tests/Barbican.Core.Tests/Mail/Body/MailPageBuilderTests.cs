@@ -1,4 +1,5 @@
 // Rust main.rs:229 page() (tag rust-final): which page a message gets in which theme, its CSP, script and colour. Owner body.
+// Spec: B-READ-040, B-READ-041, B-READ-044 (frame CSP), B-MAIL-025..028 (dark pass), B-SET-019 (message text restyling).
 
 using Barbican.Core.Mail.Body;
 using Barbican.Core.Settings.Accessibility;

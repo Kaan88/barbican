@@ -8,6 +8,7 @@ using Barbican.Core.Settings.Accessibility;
 using Barbican.Core.Storage;
 using Barbican.Presentation.Common;
 using Barbican.Presentation.Composition;
+using Barbican.Presentation.Input;
 using Barbican.Presentation.Mail;
 using Barbican.Presentation.Mail.Loading;
 using Microsoft.Extensions.DependencyInjection;
@@ -39,7 +40,7 @@ public static class MailBodyRegistration
 
         // the body view: one warm WebView2 shell, started with the window
         services.TryAddSingleton<BodyAppearance>();
-        services.TryAddSingleton<BodyShell>();
+        services.TryAddSingleton(sp => ActivatorUtilities.CreateInstance<BodyShell>(sp, new Lazy<IKeyRouter>(sp.GetRequiredService<IKeyRouter>)));
         services.Replace(ServiceDescriptor.Singleton<IBodyPresenter>(sp => sp.GetRequiredService<BodyShell>()));
         services.AddSingleton<IStartupTask>(sp => sp.GetRequiredService<BodyShell>());
 #if WINDOWS

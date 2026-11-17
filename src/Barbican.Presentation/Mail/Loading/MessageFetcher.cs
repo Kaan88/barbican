@@ -51,7 +51,7 @@ public sealed class MessageFetcher(IBodyCache cache, IBlobSource blobs)
                 return Result<FetchedMessage>.Fail(r.Error ?? new TransportError("No message.", false));
             }
 
-            body = r.Value;
+            body = BodyShape.Normalize(r.Value);
             if (prefetch && MessageLoadRules.InlineBytes(body) > MessageLoadRules.PrefetchInlineMax)
             {
                 return Result<FetchedMessage>.Fail(new TransportError("large inline images", false));

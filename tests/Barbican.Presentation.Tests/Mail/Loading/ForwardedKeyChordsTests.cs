@@ -1,4 +1,4 @@
-// Rust mailview.rs forward_key :295 (tag rust-final): a key the mail view forwarded reaches the KeyRouter as the chord a real key would be. Owner body.
+// Rust mailview.rs forward_key :295 (tag rust-final): a key the mail view forwarded reaches the KeyRouter as the chord a real key would be. Owner body. Spec: B-READ-043.
 
 using Barbican.Core.Mail.Body;
 using Barbican.Presentation.Input;

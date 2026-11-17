@@ -1,6 +1,8 @@
 // The message loader's rules (M1-plan §6.5 exit tests; Rust msgload.rs module comment): a cached switch applies header and body in one
 // Apply; an uncached one keeps the old message and dims it after 150 ms on a virtual clock; a late result of a superseded open is ignored;
 // mark-as-read is never sent by the M1 actions; the delay logic works with actions that may write. Owner body.
+// Spec: B-SYNC-022 (header and body change together), B-SYNC-025 (150 ms), B-SYNC-027 (prefill), B-SYNC-028 (late result dropped),
+// B-SYNC-029 (failed open), B-SYNC-030 (prefetch), B-SYNC-033 (markAsReadDelay), J-053 / B-READ-010 (truncated notice).
 
 #pragma warning disable MA0002 // asserts compare strings ordinally by nature
 using Barbican.Core.Mail.Body.Hooks;
@@ -145,6 +147,16 @@ public sealed class MessageLoaderTests
         Assert.Equal("Subject m9", h.Reader.Header.Subject);
         Assert.Contains("Could not load message", h.Reader.Error, StringComparison.Ordinal);
         Assert.Null(h.Presenter.Shown);
+    }
+
+    [Fact]
+    public void A_truncated_body_shows_the_notice()
+    {
+        using var h = new LoaderHarness();
+        h.Cache.Put(h.Active.AccountKey!, LoaderHarness.Body("m3") with { IsTruncated = true }, h.Cache.Generation);
+        h.Loader.Open(h.Row(3), OpenReason.Click, ListDirection.None);
+        Assert.Equal(BodyState.Truncated, h.Reader.BodyState);
+        Assert.Equal("m3", h.Presenter.Shown);
     }
 
     [Fact]

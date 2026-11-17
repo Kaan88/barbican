@@ -109,16 +109,20 @@
       f.addEventListener('load', function () { try { fix(f.contentDocument); } catch (e) { } ready(); });
       f.srcdoc = html;
       document.body.appendChild(f);
+      // Polled on the task queue, not per animation frame: a frame-paced poll plus a frame for layout cost
+      // two to three frames (about 55 ms in a hidden run) before the host even heard of the page. Reading
+      // offsetHeight lays the page out now, so the reveal that follows paints a finished page.
       (function poll() {
         if (done || seq !== s) return;
         var d = null;
         try { d = f.contentDocument; } catch (e) { }
         if (d && d.URL === 'about:srcdoc' && d.readyState !== 'loading' && d.body && !d.documentElement.classList.contains('barbican-dark-pending')) {
           fix(d);
-          requestAnimationFrame(ready);
+          void d.documentElement.offsetHeight;
+          ready();
           return;
         }
-        requestAnimationFrame(poll);
+        setTimeout(poll, 1);
       })();
     },
     reveal: function (s) {
