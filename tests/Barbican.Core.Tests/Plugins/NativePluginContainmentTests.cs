@@ -186,6 +186,28 @@ public sealed class NativePluginContainmentTests
         Assert.Equal(HookPolicies.Default, HookPolicies.For("notAHook"));
     }
 
+    [Fact]
+    public async Task A_plugin_whose_manifest_throws_is_skipped_and_the_others_load()
+    {
+        using var host = NativePluginHost.FromInstances(
+            new NativePluginHostOptions(),
+            [(new BrokenManifestPlugin(), Path.Combine(Path.GetTempPath(), "broken")), (new TestPlugin("rows"), Path.Combine(Path.GetTempPath(), "rows"))]);
+        Assert.Equal("rows", Assert.Single(host.Plugins).Id);
+        Assert.Contains(host.LoadErrors, e => e.StartsWith("broken:", StringComparison.Ordinal));
+        Assert.Equal("rows", Assert.Single(await host.EmailDetailsAsync(SpamMail, Ct)).Label);
+    }
+
+    private sealed class BrokenManifestPlugin : IBarbicanPlugin
+    {
+#pragma warning disable CA1065 // a getter that throws is what this test plugin is for
+        public PluginManifest Manifest => throw new InvalidOperationException("no manifest");
+#pragma warning restore CA1065
+
+        public Task InitializeAsync(PluginContext context, CancellationToken ct) => Task.CompletedTask;
+
+        public Task<IReadOnlyList<EmailDetailRow>> OnEmailDetailsAsync(EmailDetailsView email, CancellationToken ct) => Task.FromResult<IReadOnlyList<EmailDetailRow>>([]);
+    }
+
     private sealed class TestPlugin(string id, params string[] hooks) : IBarbicanPlugin
     {
         public PluginManifest Manifest { get; } = new(1, id, id, "1.0", "test", [NativePluginHost.EmailDetailsHook, .. hooks]);

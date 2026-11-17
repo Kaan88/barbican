@@ -67,7 +67,7 @@ public sealed class UnifiedListSource(Func<IReadOnlyList<UnifiedSource>> sources
             return Result<ListPage>.Fail(read.Error!);
         }
 
-        var (pages, rows) = read.Value;
+        var (pages, rows, _) = read.Value;
         lock (_lock)
         {
             if (after is null || _query != query)
@@ -121,8 +121,8 @@ public sealed class UnifiedListSource(Func<IReadOnlyList<UnifiedSource>> sources
             return Result<ListDelta?>.Fail(read.Error!);
         }
 
-        var (pages, _) = read.Value;
-        var after = Window(pages, before, served);
+        var (pages, _, failed) = read.Value;
+        var after = Window(pages, before, served, failed);
         var delta = Diff(before, after, Threads(pages), pages.Sum(p => p.Total));
         lock (_lock)
         {
@@ -134,7 +134,7 @@ public sealed class UnifiedListSource(Func<IReadOnlyList<UnifiedSource>> sources
             _rows = after;
             foreach (var p in pages)
             {
-                _served[p.Key] = after.Count(r => string.Equals(UnifiedRows.ParseRow(r.Id) is { } id ? UnifiedRows.SourceKey(id.Login, id.SharedAccount) : null, p.Key, StringComparison.Ordinal));
+                _served[p.Key] = after.Count(r => string.Equals(KeyOf(r), p.Key, StringComparison.Ordinal));
                 _unread[p.Key] = p.Unread;
             }
         }
@@ -176,20 +176,25 @@ public sealed class UnifiedListSource(Func<IReadOnlyList<UnifiedSource>> sources
     private static bool Same(EmailSummary a, EmailSummary b) =>
         string.Equals(JsonSerializer.Serialize(a, Jmap.Json.JmapJsonContext.Default.EmailSummary), JsonSerializer.Serialize(b, Jmap.Json.JmapJsonContext.Default.EmailSummary), StringComparison.Ordinal);
 
-    // the refreshed window: per source, the rows down to the last row it had served (or as many as it had served when that row is gone)
-    private static List<EmailSummary> Window(IReadOnlyList<UnifiedSourcePage> pages, List<EmailSummary> before, Dictionary<string, int> served)
+    // the refreshed window: per source, the rows down to the last row it had served (or as many as it had served when that row is gone). A
+    // source that is still read but failed this time keeps the rows it had (a slow server never empties its part of the list); a source that
+    // is no longer read at all (signed out, setting turned off) loses its rows. M2 unified review: the failed source's rows used to go.
+    private static List<EmailSummary> Window(IReadOnlyList<UnifiedSourcePage> pages, List<EmailSummary> before, Dictionary<string, int> served, HashSet<string> failed)
     {
-        var rows = new List<EmailSummary>();
+        var rows = new List<EmailSummary>(before.Where(r => KeyOf(r) is { } k && failed.Contains(k)));
         foreach (var p in pages)
         {
             var had = served.GetValueOrDefault(p.Key);
-            var last = before.LastOrDefault(r => UnifiedRows.ParseRow(r.Id) is { } id && string.Equals(UnifiedRows.SourceKey(id.Login, id.SharedAccount), p.Key, StringComparison.Ordinal));
+            var last = before.LastOrDefault(r => string.Equals(KeyOf(r), p.Key, StringComparison.Ordinal));
             var at = last is null ? -1 : p.Rows.ToList().FindIndex(r => string.Equals(r.Id, last.Id, StringComparison.Ordinal));
             rows.AddRange(p.Rows.Take(at >= 0 ? at + 1 : had));
         }
 
         return Merge(rows);
     }
+
+    private static string? KeyOf(EmailSummary row) =>
+        UnifiedRows.ParseRow(row.Id) is { } id ? UnifiedRows.SourceKey(id.Login, id.SharedAccount) : null;
 
     private static List<EmailSummary> Merge(IEnumerable<EmailSummary> rows)
     {
@@ -208,12 +213,12 @@ public sealed class UnifiedListSource(Func<IReadOnlyList<UnifiedSource>> sources
         return threads;
     }
 
-    private async Task<Result<(List<UnifiedSourcePage> Pages, List<EmailSummary> Rows)>> ReadAsync(ListQuery query, Func<UnifiedSource, (int Position, int Limit)> window, CancellationToken ct)
+    private async Task<Result<(List<UnifiedSourcePage> Pages, List<EmailSummary> Rows, HashSet<string> Failed)>> ReadAsync(ListQuery query, Func<UnifiedSource, (int Position, int Limit)> window, CancellationToken ct)
     {
         var all = sources();
         if (all.Count == 0)
         {
-            return Result<(List<UnifiedSourcePage>, List<EmailSummary>)>.Fail(new ValidationError("No account is connected."));
+            return Result<(List<UnifiedSourcePage>, List<EmailSummary>, HashSet<string>)>.Fail(new ValidationError("No account is connected."));
         }
 
         var results = await Task.WhenAll(all.Select(s =>
@@ -224,10 +229,11 @@ public sealed class UnifiedListSource(Func<IReadOnlyList<UnifiedSource>> sources
         var pages = results.Where(r => r.IsOk).Select(r => r.Value!).ToList();
         if (pages.Count == 0)
         {
-            return Result<(List<UnifiedSourcePage>, List<EmailSummary>)>.Fail(new ValidationError(string.Join("; ", results.Select(r => r.Error!.Message))));
+            return Result<(List<UnifiedSourcePage>, List<EmailSummary>, HashSet<string>)>.Fail(new ValidationError(string.Join("; ", results.Select(r => r.Error!.Message))));
         }
 
-        return Result<(List<UnifiedSourcePage>, List<EmailSummary>)>.Ok((pages, Merge(pages.SelectMany(p => p.Rows))));
+        var failed = all.Where((_, i) => !results[i].IsOk).Select(s => s.Key).ToHashSet(StringComparer.Ordinal);
+        return Result<(List<UnifiedSourcePage>, List<EmailSummary>, HashSet<string>)>.Ok((pages, Merge(pages.SelectMany(p => p.Rows)), failed));
     }
 
     private static Dictionary<string, int> Positions(ListCursor? after)

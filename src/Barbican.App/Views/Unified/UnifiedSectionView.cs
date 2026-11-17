@@ -42,7 +42,14 @@ public sealed partial class UnifiedSectionView : UserControl
         _row.Click += OnClick;
         Content = _row;
         Apply();
-        _vm.PropertyChanged += OnChanged;
+
+        // follows the view model while in the tree; a slot that is unloaded and loaded again (pane collapse, theme) subscribes again
+        Loaded += (_, _) =>
+        {
+            _vm.PropertyChanged -= OnChanged;
+            _vm.PropertyChanged += OnChanged;
+            Apply();
+        };
         Unloaded += (_, _) => _vm.PropertyChanged -= OnChanged;
     }
 

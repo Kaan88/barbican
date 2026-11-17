@@ -1227,3 +1227,49 @@ Branch `m2-unified` from `m2` at `0d9b306` (wave 1 merged), worktree `<downloads
   drops the imported message's Message-ID and headers (a repeated import is not seen as a duplicate on the fake; spam headers are lost);
   `SampleActiveMail` uses the M1 seed only (`SeedM2` would give the spam and TNEF messages to the hidden runs).
 - **integrator:** the App csproj plugin copy for publish; `tools/spec-check.py` nested-class mapping.
+
+### Review of the unified stream (Opus reviewer, before the merge into `m2`)
+
+Read `git diff origin/m2...origin/m2-unified` (5 commits, `862099b`..`42f95cf`) against M2-plan 6.5, 3.1, 4.4-4.6, R2-06/09/10/13. Fixed on
+the branch (commit named "M2 unified review"):
+- [ ] **`MailSync.Dispose` was not idempotent and could throw into a running sync.** Sign-out now disposes the engine while its push run may
+  still be unwinding; `_stop.Dispose()` and `_gate.Dispose()` made the unwinding run throw `ObjectDisposedException` (`_gate.Release()` in
+  `SyncNowAsync`'s finally, `_stop.Token` in `RunAsync`), and a second `Dispose` threw from `_stop.Cancel()`. Now one flag, `_stop` cancelled
+  but not disposed, the gate left alone. `src/Barbican.Core/Sync/MailSync.cs`.
+- [ ] **A unified source that failed on a refresh lost its rows**, against the class's own promise ("a refresh never empties the list because
+  one server is slow"): `Window` only kept rows of sources that answered, so the diff removed the slow source's rows. Now a source still read
+  but failing keeps its rows; a source no longer read (signed out, setting off) loses them. Test
+  `UnifiedInboxTests.A_source_that_fails_on_a_refresh_keeps_its_rows_and_a_source_no_longer_read_loses_them`.
+  `src/Barbican.Core/Mail/Unified/UnifiedListSource.cs`.
+- [ ] **One bad plugin could fault the whole plugin host.** `LoadFolder` caught only a list of load exceptions and `Register` read
+  `plugin.Manifest` unguarded, so a manifest getter (foreign code) that threw escaped `NativePluginHost.Load`; `NativePlugins.LoadAsync`'s task
+  then faulted and every `EmailDetailsAsync` (spam score included) threw. Now any exception at the load boundary skips that plugin only (CA1031
+  suppressed with the reason). Test `NativePluginContainmentTests.A_plugin_whose_manifest_throws_is_skipped_and_the_others_load`.
+  `src/Barbican.Core/Plugins/Native/NativePluginHost.cs`. Still open for Fable: `Dispose` calls a plugin's `Dispose` synchronously on the
+  caller's thread (a plugin that hangs there hangs shutdown); a plugin's `Ready` task that faults and is never awaited is unobserved.
+- [ ] **File IO on the UI thread in `MailTransfer`.** The mbox export opened its `FileStream` on the UI thread, the .eml export created the folder
+  there, and the import could open the first file there when the first server call completed synchronously. All three now start on the pool.
+  `src/Barbican.Presentation/Unified/MailTransfer.cs`.
+- [ ] **`UnifiedSectionView` stopped following its view model after an unload/reload** (unsubscribed in `Unloaded`, never subscribed again).
+  Now subscribes on `Loaded`. `src/Barbican.App/Views/Unified/UnifiedSectionView.cs`. The row is built in code with literal paddings, a
+  transparent brush and a hard-coded glyph, not the design tokens (design-language pass owed).
+- [ ] **G-046 and G-047 said `done` without their UI.** Now `done (core ...)` with what is missing (no folder-menu entry or picker; no reader
+  consumer of the TNEF expander, RTF body not offered). `spec/gaps.csv`.
+
+Checked and left as is (Fable please confirm):
+- [ ] R2-06: `AccountStore.ChangeAsync` takes the cross-process `RefreshLock` before the in-process gate; `WriteAsync` (called by a refresh that
+  holds the lock) does not take it. The lock is a `FileShare.None` handle, so a second acquire in the same process waits up to 15 s and then
+  proceeds without it (as Rust). No path calls `RememberAsync`/`ForgetAsync` while holding the lock today; a future one would stall 15 s.
+- [ ] Sign-out clears the whole body cache (`IBodyCache` has only `Clear()`), not only the account's entries, and does not touch the avatar
+  cache (keyed by address, not account). The brief asked for "its caches"; correct but wider than needed.
+- [ ] `UnifiedMailWriterSource` refuses a row of a read-only login with "is not signed in" (no writer is built), never sending a request;
+  the message is misleading for `<readonly-account>` rows. Safe; the wording is a small follow-up.
+- [ ] `TnefExpander.Local` keeps every expanded file's bytes in a static dictionary for the run (bounded by the 50 MB input cap per distinct
+  winmail.dat, never freed); the file names inside a TNEF stream are foreign text and reach the saver unsanitised (reader's saver must strip
+  path parts before it writes, `..\` included).
+- [ ] The unified paging merges per-source pages (Rust parity): a later page of one source can hold rows newer than the tail of an earlier
+  page of another, so the list is ordered within each page, not globally across loads.
+- [ ] Remaining M2 rows of this stream (not built, still `todo`/`partial` in `spec/interactions.csv`): I-050 header toggle, I-051 per-role rows,
+  I-052 MENU-UNIFIED, I-053 per-account rows and colours, I-054 shared section, I-017 menu row, I-065/I-287 menu entries and picker, I-468
+  settings toggle. They need a follow-up stream or the integrator before the M2 gate (M2-plan 8 wants every mail I- row `done` or deferred
+  with a reason).

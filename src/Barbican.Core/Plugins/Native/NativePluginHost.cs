@@ -6,7 +6,6 @@
 // before its first await is bounded by the budget too. Owner unified (M2 wave 2). Nothing here assumes the JS host (M6b).
 
 using System.Diagnostics.CodeAnalysis;
-using System.Reflection;
 using System.Runtime.CompilerServices;
 using System.Text.Json;
 using System.Text.Json.Nodes;
@@ -270,8 +269,9 @@ public sealed class NativePluginHost : INativePluginHost, IDisposable
 
             Register(folder, bundled, plugin, context);
         }
-        catch (Exception e) when (e is IOException or UnauthorizedAccessException or BadImageFormatException or FileLoadException or ReflectionTypeLoadException
-                                       or TypeLoadException or MissingMethodException or TargetInvocationException or InvalidCastException)
+#pragma warning disable CA1031 // a plugin is foreign code: whatever its constructor, static constructor or manifest throws (not only load errors) skips that plugin and never the host (M2 unified review)
+        catch (Exception e)
+#pragma warning restore CA1031
         {
             _errors.Add($"{label}: {e.Message}");
             Report(label, "load", e);
@@ -282,9 +282,24 @@ public sealed class NativePluginHost : INativePluginHost, IDisposable
     private void Register(string folder, bool bundled, IBarbicanPlugin plugin, PluginLoadContext? context)
     {
         var label = Path.GetFileName(folder);
-        var m = plugin.Manifest;
-        var why = Refusal(m) ?? (_loaded.Any(p => string.Equals(p.Info.Id, m.Id, StringComparison.Ordinal)) ? $"duplicate id {m.Id}" : null);
-        if (why is not null)
+        PluginManifest? m;
+        try
+        {
+            // read once: the manifest is the plugin's own code (a getter may throw or answer differently each time)
+            m = plugin.Manifest;
+        }
+#pragma warning disable CA1031 // foreign code: a throwing manifest refuses that plugin, never the host
+        catch (Exception e)
+#pragma warning restore CA1031
+        {
+            _errors.Add($"{label}: the manifest could not be read ({e.Message})");
+            Report(label, "manifest", e);
+            context?.Unload();
+            return;
+        }
+
+        var why = m is null ? "no manifest" : Refusal(m) ?? (_loaded.Any(p => string.Equals(p.Info.Id, m.Id, StringComparison.Ordinal)) ? $"duplicate id {m.Id}" : null);
+        if (why is not null || m is null)
         {
             _errors.Add($"{label}: {why}");
             context?.Unload();

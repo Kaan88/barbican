@@ -62,7 +62,8 @@ public sealed partial class MailTransfer : ObservableObject
 
         try
         {
-            var r = await _import.ImportFilesAsync(target, paths, new Progress(this), run.Token).ConfigureAwait(true);
+            // on the pool: the import opens and reads the files (no file IO on the UI thread, even when the first server call completes at once)
+            var r = await Task.Run(() => _import.ImportFilesAsync(target, paths, new Progress(this), run.Token), run.Token).ConfigureAwait(true);
             Finish(r.IsOk ? MboxFormat.Summary(r.Value!.Imported, r.Value.Already, r.Value.Errors.Count, r.Value.Errors.Count > 0 ? r.Value.Errors[0] : null) : r.Error!.Message);
             return r;
         }
@@ -94,7 +95,8 @@ public sealed partial class MailTransfer : ObservableObject
             Result<int> r;
             if (asMbox)
             {
-                var file = new FileStream(path, FileMode.Create, FileAccess.Write, FileShare.None, 81920, useAsync: true);
+                // opened on the pool: no file IO on the UI thread (a slow or network path would stall it). M2 unified review.
+                var file = await Task.Run(() => new FileStream(path, FileMode.Create, FileAccess.Write, FileShare.None, 81920, useAsync: true), run.Token).ConfigureAwait(true);
                 await using (file.ConfigureAwait(true))
                 {
                     r = await _export.ExportMboxAsync(folder, file, new Progress(this), run.Token).ConfigureAwait(true);
@@ -102,7 +104,8 @@ public sealed partial class MailTransfer : ObservableObject
             }
             else
             {
-                r = await _export.ExportEmlAsync(folder, path, new Progress(this), run.Token).ConfigureAwait(true);
+                // started on the pool: the export creates the folder before its first await
+                r = await Task.Run(() => _export.ExportEmlAsync(folder, path, new Progress(this), run.Token), run.Token).ConfigureAwait(true);
             }
 
             Finish(r.IsOk ? $"Saved {r.Value} messages." : r.Error!.Message);

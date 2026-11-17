@@ -32,6 +32,7 @@ public sealed partial class MailSync : IMailSync, IDisposable
     private readonly NewMailWatcher _newMail;
     private WatchedList? _watched;
     private int _runs;
+    private int _disposed;
     private string? _runError;
 
     public MailSync(MailService service, IHookBus hooks, TimeProvider time, PushBackoff? backoff = null)
@@ -123,11 +124,17 @@ public sealed partial class MailSync : IMailSync, IDisposable
     /// <inheritdoc/>
     public void Dispose()
     {
-        // stops a running push stream or poll too (a signed-out account's engine must not keep its stream open)
+        // stops a running push stream or poll too (a signed-out account's engine must not keep its stream open). Idempotent, and the stop
+        // source and the gate are left undisposed on purpose: a run that is still unwinding (its request cancelled by _stop) releases the gate
+        // and reads _stop.Token after this returns, and a disposed one would throw ObjectDisposedException out of that run (neither holds a
+        // wait handle, so nothing leaks). M2 unified review.
+        if (Interlocked.Exchange(ref _disposed, 1) == 1)
+        {
+            return;
+        }
+
         _stop.Cancel();
-        _stop.Dispose();
         _timer.Dispose();
-        _gate.Dispose();
         _events.Writer.TryComplete();
     }
 

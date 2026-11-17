@@ -109,6 +109,27 @@ public sealed class UnifiedInboxTests : IDisposable
     }
 
     [Fact]
+    public async Task A_source_that_fails_on_a_refresh_keeps_its_rows_and_a_source_no_longer_read_loses_them()
+    {
+        var (a, b) = await ConnectAsync();
+        var both = UnifiedSources.Build([(LoginA, a), (LoginB, b)], LoginA, new UnifiedSettings(true, CrossAccount: true, IncludeGroup: false));
+        IReadOnlyList<UnifiedSource> now = both;
+        var source = new UnifiedListSource(() => now);
+        _ = (await source.QueryAsync(new ListQuery { MailboxId = UnifiedRows.FolderId, PageSize = 10 }, null, Ct)).Value!;
+
+        // B is still read but its server refuses this time (an account id it does not know): its rows stay, nothing changes
+        now = [both[0], both[1] with { AccountId = "missing" }];
+        Assert.Null((await source.RefreshAsync(Ct)).Value);
+
+        // B is no longer read (signed out): its two rows go, A's stay
+        now = [both[0]];
+        var delta = (await source.RefreshAsync(Ct)).Value!;
+        Assert.Equal(2, delta.Removed.Count);
+        Assert.All(delta.Removed, id => Assert.Equal(LoginB, UnifiedRows.ParseRow(id)!.Login));
+        Assert.Empty(delta.Added);
+    }
+
+    [Fact]
     public async Task Starring_a_row_of_the_other_account_writes_only_to_that_account()
     {
         var (a, b) = await ConnectAsync();
