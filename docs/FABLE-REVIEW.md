@@ -777,3 +777,37 @@ For the next Fable pass, in this order:
     and that Enter on a message row still opens it.
   - The real keyboard path is a hand test.
 
+
+## M2 plan (stream: m2-plan)
+
+The plan [docs/milestones/M2-plan.md](milestones/M2-plan.md) was written on branch `m2` (from `origin/m1` at `112c9f9`). Items for Fable:
+
+- [ ] **Stream split and file ownership.**
+  - **Paths:** M2-plan.md §0, §3.1, §3.3.
+  - **Check:** six stages (F, then `actions`, `menus`, `reader` in wave 1 and `search`, `unified` in wave 2). Confirm that no file has two owners in the same wave. The list ViewModel is the weak spot: actions owns it, while search and unified reach it only through the two partial files and the seams of §4.4. Check those seams against Rust `mail.rs` `load_list` :665 and `unified.rs` `fetch` :361.
+- [ ] **Contracts written by a Sonnet stage.**
+  - **Paths:** M2-plan.md §4 (`IAppCommand`, `IMenuProvider`, `IMailWriter`, `IListSource`, `IGuardedHttp` and the others).
+  - **Check:** that these are complete enough that no owner has to break them. The rule is: add members, never rename or remove.
+- [ ] **R2-14 proposal (decision M2-Q2).**
+  - **Paths:** M2-plan.md §6.3 step 1 and §9.
+  - **Proposal:** in agent profiles, the `.local` allow-list may clear the import's read-only flag for the logins it names, except logins on a second `.local` read-only list. If that list is missing, nothing is writable.
+  - **Check:** that this cannot make `<readonly-account>` writable in any profile. Also check the `AUTOMATION_WRITES` gate (`rx-import`, `rx-find`, `rx-destroy`; §3.2, §4.7).
+- [ ] **One-click unsubscribe and `GuardedHttp` (decision M2-Q7).**
+  - **Paths:** M2-plan.md §6.3 steps 2-3.
+  - **Check:** the SSRF rules (every resolved address public, connect pinned to the checked address, no redirects, https only, user click only) and the DKIM condition, which depends on the R2-07 trace-block rule.
+- [ ] **Hook re-tags (decision M2-Q5).**
+  - **Paths:** M2-plan.md §2.4.
+  - **Change:** 14 hooks move out of M2 (5 to M10, 3 to M3, 5 to M6, 1 to M5).
+  - **Check:** that no M2 surface fires one of them, so none is lost. Also R2-10 timing: actions' intercepts run on the M1 bus semantics until `unified` lands the budgets in wave 2.
+- [ ] **T-206 change (D-234) and the dropped C ABI.**
+  - **Paths:** M2-plan.md §2.1 and §6.5; `tests/fixtures/plugins/spam-score/`.
+  - **Check:** the native .NET plugin host design (a collectible `AssemblyLoadContext` per plugin, Abstractions shared) and that the spam score stays at parity with Rust `spam.rs`.
+- [ ] **Deferrals.**
+  - **Paths:** M2-plan.md §2.3 "deferred" row, §9 M2-Q1 (SQLite cache to M3 wave 1), M2-Q6.
+  - **Check:** that each deferral has a real later home and none hides an M2 exit criterion. The criterion is mail I- rows done or deferred.
+- [ ] **Early ports (decision M2-Q8).**
+  - **Rows:** Sieve T-271..T-279 (M6) and invitation T-122..T-126 (M4) are ported in M2.
+  - **Check:** that the quick-rule save path cannot overwrite a hand-edited script. The L-016 live check restores the user's script byte for byte.
+- [ ] **Linux.**
+  - **Finding:** `tools/linux.ps1 ping` answered at plan time (2026-11-17).
+  - **Plan:** stage F runs the first Linux test of M1 (as m2) before any change and records it in `spec/feel/M2/linux-baseline.md`.

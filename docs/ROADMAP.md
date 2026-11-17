@@ -7,7 +7,7 @@ change the plan: [adr/](adr/). The Rust-era roadmap is in [legacy/ROADMAP.md](le
 |---|---|---|
 | M0 | Freeze the Rust repo, new repo and foundation, spec catalogue, design tokens, spikes S1–S5 | **done** (2026-11-17, [m0-checklist.md](m0-checklist.md)) |
 | M1 | Read-only mail client on the test account (JMAP core, sync, push, shell, list, reader) | **awaiting hand test** (branch `m1`, [milestones/M1.md](milestones/M1.md)) |
-| M2 | Mail actions, menus, reader depth, search, palette, import, plugins | planned |
+| M2 | Mail actions, menus, reader depth, search, palette, import, plugins | **planned in detail** (branch `m2`, [milestones/M2-plan.md](milestones/M2-plan.md)) |
 | M3 | Compose and send with the native editor | planned |
 | M4 | Calendar and tasks | planned |
 | M5 | Contacts and Files | planned |
