@@ -11,7 +11,10 @@ What it checks:
   * every [RustTest("module::name")] in tests/**/*.cs names a row of spec/rust-tests.csv (rust_test_tag);
     a tag that matches no row, or a row claimed by two tests, is an error;
   * a T- row counts as done when a C# test carries its tag, or its status is `dropped(D-###...)`;
-  * catalogue ids (B-, D-, G-, I-, J-, L-, T-, MENU-) are defined once, and references to them resolve.
+  * catalogue ids (B-, D-, G-, I-, J-, L-, T-, MENU-) are defined once, and references to them resolve;
+  * the plugin hook catalogue (spec/plugins/hooks.csv): rows per milestone and how many have a call site
+    (a `HookNames.<Name>` reference under src/, as Bulwark's plugin-hook-catalog test counts), and
+    the red tests still marked [Red] (tests that are expected to fail until their stream lands).
 The milestone gate (§2.5 first line) is `--milestone M<n>` exiting 0.
 """
 from __future__ import annotations
@@ -105,6 +108,49 @@ def catalogue_ids() -> tuple[Counter[str], set[str], list[str]]:
     return defined, refs, dangling
 
 
+def hooks_summary() -> list[str]:
+    """Rows of spec/plugins/hooks.csv per milestone, and how many are fired somewhere under src/."""
+    path = SPEC / "plugins" / "hooks.csv"
+    if not path.exists():
+        return []
+    with path.open(encoding="utf-8", newline="") as f:
+        rows = list(csv.DictReader(f))
+    used: set[str] = set()
+    ref = re.compile(r"HookNames\.(\w+)")
+    for p in (ROOT / "src").rglob("*.cs"):
+        if p.name.endswith(".g.cs") or any(part in ("bin", "obj") for part in p.parts):
+            continue
+        used.update(ref.findall(p.read_text(encoding="utf-8-sig")))
+    per: dict[str, list[int]] = defaultdict(lambda: [0, 0])
+    for r in rows:
+        name = r["name"][0].upper() + r["name"][1:]
+        per[r["milestone"]][0] += 1
+        if name in used:
+            per[r["milestone"]][1] += 1
+    out = [f"plugin hooks (spec/plugins/hooks.csv): {len(rows)} hooks in {len({r['group'] for r in rows})} groups",
+           f"  {'milestone':<10}{'hooks':>6}{'fired':>7}"]
+    for ms in sorted(per, key=lambda m: (int(re.sub(r"\D", "", m)) if re.sub(r"\D", "", m) else 99, m)):
+        out.append(f"  {ms:<10}{per[ms][0]:>6}{per[ms][1]:>7}")
+    slots = SPEC / "plugins" / "slots.csv"
+    if slots.exists():
+        with slots.open(encoding="utf-8", newline="") as f:
+            out.append(f"plugin slots (spec/plugins/slots.csv): {sum(1 for _ in csv.DictReader(f))} catalogued")
+    return out
+
+
+def red_tests() -> list[str]:
+    """Tests still marked [Red] (expected red until their stream turns them green)."""
+    n: Counter[str] = Counter()
+    pat = re.compile(r'\[Red\("([^"]+)"\)\]')
+    for p in sorted((ROOT / "tests").rglob("*.cs")):
+        if any(part in ("bin", "obj") for part in p.parts):
+            continue
+        n.update(pat.findall(p.read_text(encoding="utf-8-sig")))
+    if not n:
+        return []
+    return ["red tests ([Red(\"stream\")], excluded from the default run): " + ", ".join(f"{k} {v}" for k, v in sorted(n.items()))]
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--milestone", help="gate: list and fail on unmapped T- rows of this milestone (e.g. M1)")
@@ -157,6 +203,8 @@ def main() -> int:
         print(f"  {ms:<10}{sum(c.values()):>6}{c['ported']:>8}{c['dropped']:>9}{c['pending']:>9}")
     print(f"  {'total':<10}{sum(tot.values()):>6}{tot['ported']:>8}{tot['dropped']:>9}{tot['pending']:>9}")
     print(f"catalogue: {len(defined)} ids defined; {len(dups)} duplicate; {len(dangling)} dangling references")
+    for line in hooks_summary() + red_tests():
+        print(line)
     for e in errors:
         print(f"ERROR {e}")
     for e in cat_errors:
