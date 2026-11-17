@@ -3,6 +3,9 @@
 
 using Barbican.App.Shell;
 using Barbican.App.Views.Search;
+#if AUTOMATION
+using Barbican.App.Views.Search.Automation;
+#endif
 using Barbican.Core.Mail.Lists;
 using Barbican.Core.Mail.Model;
 using Barbican.Core.Mail.Service;
@@ -29,6 +32,9 @@ public static class SearchRegistration
     {
         ArgumentNullException.ThrowIfNull(services);
         services.AddSingleton<ISlotContent>(new SlotContent(SlotNames.ListSearch, () => new SearchBoxView()));
+#if AUTOMATION
+        services.AddBarbicanSearchAutomation();
+#endif
         return services.AddSearchServices().AddSearchCommands().AddRuleMenus();
     }
 
