@@ -47,8 +47,8 @@
       </DataTemplate>
       <!-- A tag row (prototype labels): a squircle dot in the tag colour and the name. -->
       <DataTemplate x:Key="TagTemplate" x:DataType="shell:TagRowViewModel">
-        <!-- a click filters the list to the tag; a second click on it goes back (Bulwark sidebar.tsx:1181); the chevron folds the tags inside (nested tags); the selected tag takes sel / sel-text like a folder -->
-        <Grid Background="{x:Bind views:Fmt.TagBg(Selected)}" CornerRadius="{x:Bind theme:StyleState.Current.TagRowRadius, Mode=OneWay}" ColumnDefinitions="*,Auto"
+        <!-- a click filters the list to the tag; a second click on it goes back (Bulwark sidebar.tsx:1181); the chevron folds the tags inside (nested tags); the selected tag takes sel / sel-text like a folder; a drop target for dragged messages (M2 hotfix) -->
+        <Grid Background="{x:Bind views:Fmt.TagBg(Selected)}" CornerRadius="{x:Bind theme:StyleState.Current.TagRowRadius, Mode=OneWay}" ColumnDefinitions="*,Auto" AllowDrop="True" DragOver="OnTagDragOver" Drop="OnTagDrop"
               AutomationProperties.AutomationId="{x:Bind Id}" AutomationProperties.Name="{x:Bind Label}">
           <Button Style="{StaticResource Button.Icon}" HorizontalAlignment="Stretch" HorizontalContentAlignment="Left" Tag="{x:Bind Id}" Click="OnTagClick" CornerRadius="{x:Bind theme:StyleState.Current.TagRowRadius, Mode=OneWay}"
                   Foreground="{x:Bind views:Fmt.TagFg(Selected)}" AutomationProperties.AutomationId="{x:Bind views:Fmt.TagButtonId(Id)}" AutomationProperties.Name="{x:Bind Label}">
@@ -108,7 +108,9 @@
         <controls:SIcon Kind="Opt" Size="13" />
       </Button>
     </Grid>
+    <!-- M2 hotfix: folders are drag sources (reorder, nest) and drop targets (messages move there, a folder lands before, after or inside); SidebarView.xaml.cs -->
     <ListView x:Name="FolderList" ContainerContentChanging="OnFolderContainerChanging" ItemsSource="{x:Bind Sidebar.Folders}" ItemTemplate="{StaticResource FolderTemplate}" SelectionMode="Single"
+              CanDragItems="True" AllowDrop="True" DragItemsStarting="OnFolderDragStarting" DragItemsCompleted="OnFolderDragCompleted"
               Visibility="{x:Bind views:Fmt.Vis(Sidebar.FoldersExpanded), Mode=OneWay}" SelectionChanged="OnFolderSelectionChanged" KeyDown="OnFolderKeyDown" Padding="0"
               AutomationProperties.AutomationId="sidebar.folders" AutomationProperties.Name="Folder list">
       <win:ListView.ItemContainerTransitions>

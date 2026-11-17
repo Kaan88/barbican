@@ -64,6 +64,25 @@ public sealed class StorageTests : IDisposable
         }
     }
 
+    // M2 hotfix: only these are agent profiles; "dev" (the default and the portable zip's) and every other name are the user's own
+    [Theory]
+    [InlineData("auto-8801", true)]
+    [InlineData("smoke", true)]
+    [InlineData("smoke-2", true)]
+    [InlineData("xrun-auto-m2", true)]
+    [InlineData("agent-look", true)]
+    [InlineData("dev", false)]
+    [InlineData("dev-a", false)]
+    [InlineData("auto", false)]
+    [InlineData("smokey", false)]
+    [InlineData("main", false)]
+    [InlineData("", false)]
+    [InlineData(null, false)]
+    public void Agent_profiles_are_named_by_prefix(string? name, bool agent)
+    {
+        Assert.Equal(agent, ProfilePaths.IsAgentProfile(name));
+    }
+
     [Fact]
     public void Atomic_writes_replace_and_leave_no_temp_files()
     {

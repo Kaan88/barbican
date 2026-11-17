@@ -1,6 +1,6 @@
 // Mirrors: ADR 0008 decision 2 and "M0 review" (read accounts.Barbican, else session.Barbican; decode UTF-16LE; map kind/server/user and
 // pass or refresh/endpoint/client; write only new entries; never modify or delete the Rust entries; skip an odd-length or non-JSON blob and
-// report which one; zero the buffers; no values in logs); M1-plan §1 rule 3 and §6.3 (the agent path into dev / auto-<port> profiles takes
+// report which one; zero the buffers; no values in logs); M1-plan §1 rule 3 and §6.3 (the agent path into an agent profile (auto-*, smoke, xrun-*, agent-*; dev until the M2 hotfix) takes
 // password entries only and marks them read-only: an imported OAuth refresh token would rotate on first use and sign the Rust app out,
 // B-OAUTH-015). The admin and assistant keys are imported only by the user (CLAUDE.md: agents never use the admin key).
 // User decision D-2 (Fable review 1 F-06): the user's own import copies no OAuth refresh token either. Stalwart rotates refresh tokens, so the
@@ -36,15 +36,16 @@ public sealed class RustCredentialImport(ILegacyCredentialSource legacy, ISecret
     /// <inheritdoc/>
     public async Task<ImportReport> ImportAsync(ImportMode mode, CancellationToken ct)
     {
-        var agentProfile = string.Equals(paths.Profile, ProfilePaths.DefaultProfile, StringComparison.Ordinal) || ProfilePaths.IsAutomationProfile(paths.Profile);
+        // M2 hotfix: the agent import (which marks every account read-only) runs only in an agent profile; "dev" is the user's own profile
+        var agentProfile = ProfilePaths.IsAgentProfile(paths.Profile);
         if (mode == ImportMode.Agent && !agentProfile)
         {
-            return new ImportReport(0, 0, ["The agent import runs only in the dev or an automation profile."]);
+            return new ImportReport(0, 0, ["The agent import runs only in an agent profile (auto-*, smoke, xrun-*, agent-*)."]);
         }
 
         if (mode == ImportMode.User && agentProfile)
         {
-            return new ImportReport(0, 0, ["The import is offered only in the default profile."]);
+            return new ImportReport(0, 0, ["The import is offered only in the user's own profiles."]);
         }
 
         var skipped = new List<string>();

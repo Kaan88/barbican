@@ -93,3 +93,21 @@ collection, label `<user>@Barbican`-style (not asserted), value = the same UTF-8
   app would invalidate the Rust app's token and sign it out. The user import now copies an OAuth entry's server, user,
   token endpoint and client id without its refresh token, and the account asks for a fresh sign-in; the agent import
   skips OAuth entries as before. Point 2's "the import validates by a normal token refresh" is withdrawn.
+
+## Amendment 2: M2 hotfix (stream m2-hotfix-writes; HAND TEST 2)
+- **The read-only rules are for agents only; they never restrict the user.** In M1 and M2 `ReadOnlyPolicy` counted the default
+  profile `dev` (and an empty profile) as an agent profile, and in every other profile it opened an account only through
+  `BARBICAN_WRITABLE_ACCOUNTS`, which nothing set. The portable zip runs in `dev`, so the user's own app was read-only on every
+  account: no drag, tag, delete, and every write row of every menu disabled. Now:
+  - **Agent profiles** are exactly `auto-*` (AUTOMATION builds), `smoke` and `smoke-*` (`--smoke`), `xrun-*` (`tools/linux.ps1
+    xrun`) and `agent-*` (`ProfilePaths.IsAgentProfile`). The F-12 / R2-14 / M2-Q2 rules hold there unchanged: both `.local`
+    lists or nothing is writable, a login on the read-only list never is, the agent import's stored flag is cleared only by them.
+  - **Every other profile is the user's own**, `dev` and the unset default included: every account is writable and a stored
+    read-only flag counts for nothing (`ReadOnlyPolicy.Unrestricted`). `BARBICAN_WRITABLE_ACCOUNTS` is gone.
+  - **The agent import** (`BARBICAN_IMPORT_RUST_ACCOUNTS=1`, which marks every account read-only) runs only in an agent profile,
+    no longer in `dev`; the user import is offered in the user's profiles. The `BARBICAN_PROFILE=dev or auto-<port>` sentence of
+    decision 1 now reads: the agents' profiles are separate sets, so agents' runs never see the user's entries.
+  - **Agent runs can never use the user's profile.** An AUTOMATION build or a `--smoke` run exits (code 2) when
+    `BARBICAN_PROFILE` names a profile that is not an agent profile (`HiddenWindowOptions`); unset, it gets `auto-<port>` or
+    `smoke` as before. `tools/auto-run.ps1` refuses such a `-ProfileName`, and `tools/linux-remote.sh` always sets `xrun-<name>`.
+    Agents never start a normal (visible) run (CLAUDE.md), so no agent tool can launch a build in the user's profile.

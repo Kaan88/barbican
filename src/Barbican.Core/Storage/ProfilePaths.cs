@@ -1,6 +1,7 @@
 // Mirrors: Rust platform/mod.rs:20 config_dir, :33 data_dir, :46 xdg_dir (at rust-final); PORT-PLAN.md §3.5 (profiles: BARBICAN_PROFILE=dev
 // gives Barbican-dev folders; agents use auto-<port>), §4.4; ADR 0008 (the profile also scopes the secrets). Until M8 the C# app never uses the
 // Rust app's own folders: with no BARBICAN_PROFILE it runs as "dev", so a C# run cannot write the Rust profile (CLAUDE.md standing rules).
+// M2 hotfix: "dev" is the user's own profile (the portable zip runs in it); agents run only in the agent profiles (IsAgentProfile).
 
 namespace Barbican.Core.Storage;
 
@@ -75,6 +76,23 @@ public sealed class ProfilePaths : IProfilePaths
     /// <summary>True for <c>auto-&lt;port&gt;</c> profiles (ADR 0007: one per automation run).</summary>
     public static bool IsAutomationProfile(string? profile) =>
         profile is not null && profile.StartsWith("auto-", StringComparison.Ordinal);
+
+    /// <summary>The profile of a hidden <c>--smoke</c> run (HiddenWindowOptions, tools/auto-run.ps1 smoke).</summary>
+    public const string SmokeProfile = "smoke";
+
+    /// <summary>
+    /// True for the profiles only agents run in (M2 hotfix, ADR 0008 amendment 2): <c>auto-*</c> (AUTOMATION builds), <c>smoke</c> and
+    /// <c>smoke-*</c> (--smoke runs), <c>xrun-*</c> (tools/linux.ps1 xrun) and <c>agent-*</c>. Every other profile, the default <c>dev</c>
+    /// included, is the user's own: the agents' read-only rules never apply there (ReadOnlyPolicy), and the agent tools refuse to start a run
+    /// in one (HiddenWindowOptions, tools/auto-run.ps1).
+    /// </summary>
+    public static bool IsAgentProfile(string? profile) =>
+        profile is not null
+        && (IsAutomationProfile(profile)
+            || string.Equals(profile, SmokeProfile, StringComparison.Ordinal)
+            || profile.StartsWith("smoke-", StringComparison.Ordinal)
+            || profile.StartsWith("xrun-", StringComparison.Ordinal)
+            || profile.StartsWith("agent-", StringComparison.Ordinal));
 
     /// <summary>The user's home folder.</summary>
     public static string HomeDir() => Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);

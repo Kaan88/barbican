@@ -94,6 +94,7 @@ case "$mode" in
       [ -n "$real" ] && ln -sf "$real" "$shim/$lib.so"
     done
     export LD_LIBRARY_PATH="$shim${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+    # M2 hotfix: always an agent profile (xrun-*; ProfilePaths.IsAgentProfile), never the user's: there the agents' read-only rules hold
     export DISPLAY=$disp GDK_BACKEND=x11 BARBICAN_XVFB=1 BARBICAN_SPIKE_OUT="$out" BARBICAN_PROFILE="xrun-$outname"
     set +e
     case "$script" in
