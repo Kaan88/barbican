@@ -36,3 +36,25 @@ For comparison, the Rust baseline (`spec/feel/rust-baseline/flicker/after-review
   measurement.
 - **Reduce motion has nothing to settle.** The body view has no animation: the swap is one visibility change, and the dim is an
   opacity change with no transition.
+
+## Verify stage (merged `m1`, 2026-11-17)
+
+Rerun on the merged branch by the M1 verify stage: hidden AUTOMATION build, port 8871 (8872, 8874, 8875 for the
+Inbox-interactive, I- row and launch checks), Release `--smoke` on port 8873. All numbers are in `verify-results.json`;
+the scripts are `body_feel.py`, `tools/layout/m1_scenarios.py` and `verify/*.py`.
+
+| measure | value |
+|---|---|
+| open-to-shown, cached switch | 8.6 to 18.8 ms (slower than the body stream's 4.3 to 6.9 ms on the same code path plus the review fixes; still within 50 ms) |
+| open-to-shown, first open with no cache | 52.3 ms (bento/dark, first scenario of a fresh process) |
+| send-to-ready | 8.1 to 21.3 ms; theme re-render 11.9 to 13.7 ms |
+| arrow repeat x20 at 33 ms (`rendering` probe) | frame cost median 0.06 to 0.24 ms, max 1.9 ms; input to end of next frame median 12.6 to 19.8 ms, max 29.5 ms; longest gap 32 ms |
+| idle frames in 2 s | 0 |
+| cold start, Release smoke (5 runs) | first frame 284 to 353 ms; body shell ready 472 to 553 ms |
+| Inbox interactive (AUTOMATION, FakeJmap) | upper bound 783 to 866 ms (process start to a successful `uia-select` of a row) |
+
+**The frame numbers of this run are void.** The display had been off for hours (display timeout 300 s), and every one
+of the 123 WGC frames was uniform white; the UI thread rendered at about 30 Hz. `tools/flicker.py` compared those white
+frames with white first and last frames and reported 0 BLANK / 0 FLASH. It now reports `empty` (frames with no ink
+anywhere) and `capture_valid`, and `body_feel.py` and `m1_scenarios.py` print the count. Repeat the frame scenarios with
+the display on, or on screen with the user's OK (docs/milestones/M1.md §3).

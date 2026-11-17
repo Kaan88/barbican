@@ -6,7 +6,7 @@ change the plan: [adr/](adr/). The Rust-era roadmap is in [legacy/ROADMAP.md](le
 | Milestone | Scope (short) | Status |
 |---|---|---|
 | M0 | Freeze the Rust repo, new repo and foundation, spec catalogue, design tokens, spikes S1–S5 | **done** (2026-11-17, [m0-checklist.md](m0-checklist.md)) |
-| M1 | Read-only mail client on the test account (JMAP core, sync, push, shell, list, reader) | **next** |
+| M1 | Read-only mail client on the test account (JMAP core, sync, push, shell, list, reader) | **awaiting hand test** (branch `m1`, [milestones/M1.md](milestones/M1.md)) |
 | M2 | Mail actions, menus, reader depth, search, palette, import, plugins | planned |
 | M3 | Compose and send with the native editor | planned |
 | M4 | Calendar and tasks | planned |
@@ -36,6 +36,18 @@ change the plan: [adr/](adr/). The Rust-era roadmap is in [legacy/ROADMAP.md](le
 - Carried to M1: `design/README.md` and `design/MOTION.md` in XAML terms; archiving the Rust repo
   (end of M1); the Rust repo's local pre-commit guard (needs the user: blocked by the permission
   classifier).
+
+## M1 progress
+- [x] Fixed stages F1 (automation foundation, hidden window and smoke, popup guard, shell link routing) and F2 (74 red
+  tests, contract skeleton, plugin catalogue); streams jmap, mailcore, accounts, shell-ui and body, each reviewed and merged
+  into `m1` ([M1-plan.md](milestones/M1-plan.md)).
+- [x] Windows `tools/build.ps1 test` passes on merged `m1` (801 tests, 0 failed, 4 skipped); `spec-check --milestone M1` 0 open (75 ported, T-159
+  dropped pending the user's OK); 41/41 M1 hooks have call sites; trace-diff open/switch/push match; cold start 284-353 ms
+  to the first frame (Release smoke); portable zip built locally.
+- [ ] Linux VM: not run (SSH on port 22 times out); M1 is not green on both OSes yet.
+- [ ] Frame-level feel gates (BLANK/FLASH, input to frame <= 21 ms): not measurable on the hidden window; on-screen run needs the user.
+- [ ] **HAND TEST 1** and the gate decisions ([milestones/M1.md](milestones/M1.md) §4, §6). After the user's OK: merge `m1` to
+  `main`, tag `m1`, archive the Rust repo (needs the user).
 
 ## M1: what it starts with
 1. **Uno.Sdk 7.0.x** (ADR 0004 "M0 review"): one SkiaSharp major for the App head and the editor;
