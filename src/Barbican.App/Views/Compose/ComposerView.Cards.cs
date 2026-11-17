@@ -6,8 +6,8 @@
 
 using Barbican.App.Theme;
 using Barbican.Core.Compose;
-using Barbican.Core.Compose.Schedule;
 using Barbican.Presentation.Compose;
+using Barbican.Presentation.Compose.Pipeline;
 using Microsoft.UI.Xaml.Automation;
 using Microsoft.UI.Xaml.Input;
 
@@ -126,17 +126,15 @@ public sealed partial class ComposerView
 
     // ---- schedule ----------------------------------------------------------------------------------------
 
-    private UIElement ScheduleCard(ScheduleDialogState state)
+    internal static StackPanel ScheduleCard(ScheduleDialogViewModel state)
     {
         var panel = new StackPanel { Spacing = 8, MinWidth = 320 };
         panel.Children.Add(Heading(state.Title));
-        var now = DateTimeOffset.UtcNow;
         for (var i = 0; i < state.Presets.Count; i++)
         {
             var index = i;
             var preset = state.Presets[i];
-            var label = $"{preset.Label}   {ScheduleRules.Label(preset.At, false, now, TimeZoneInfo.Local)}";
-            panel.Children.Add(CardButton(label, DialogTone.Plain, $"composer.schedule.preset.{i}", () => state.Choose(index), stretch: true));
+            panel.Children.Add(CardButton($"{preset.Label}   {preset.When}", DialogTone.Plain, $"composer.schedule.preset.{i}", () => state.Choose(index), stretch: true));
         }
 
         panel.Children.Add(Body("Or pick a date and time"));
@@ -152,20 +150,20 @@ public sealed partial class ComposerView
         row.Children.Add(date);
         row.Children.Add(time);
         panel.Children.Add(row);
-        var error = new TextBlock { FontSize = 12.5, Foreground = AppResources.Brush("RoseFg"), TextWrapping = TextWrapping.Wrap, Text = state.Error ?? string.Empty, Visibility = state.Error is null ? Visibility.Collapsed : Visibility.Visible };
+        var error = new TextBlock { FontSize = 12.5, Foreground = AppResources.Brush("RoseFg"), TextWrapping = TextWrapping.Wrap, Text = state.Error, Visibility = state.Error.Length == 0 ? Visibility.Collapsed : Visibility.Visible };
         AutomationProperties.SetAutomationId(error, "composer.schedule.error");
         state.PropertyChanged += (_, args) =>
         {
-            if (string.Equals(args.PropertyName, nameof(ScheduleDialogState.Error), StringComparison.Ordinal))
+            if (string.Equals(args.PropertyName, nameof(ScheduleDialogViewModel.Error), StringComparison.Ordinal))
             {
-                error.Text = state.Error ?? string.Empty;
-                error.Visibility = state.Error is null ? Visibility.Collapsed : Visibility.Visible;
+                error.Text = state.Error;
+                error.Visibility = state.Error.Length == 0 ? Visibility.Collapsed : Visibility.Visible;
             }
         };
         panel.Children.Add(error);
         var buttons = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, HorizontalAlignment = HorizontalAlignment.Right };
         buttons.Children.Add(CardButton("Cancel", DialogTone.Plain, "composer.schedule.cancel", state.Cancel));
-        buttons.Children.Add(CardButton(state.Mode == ScheduleDialogMode.Reschedule ? "Reschedule" : "Schedule", DialogTone.Primary, "composer.schedule.ok", state.ChooseTyped));
+        buttons.Children.Add(CardButton(state.ConfirmLabel, DialogTone.Primary, "composer.schedule.ok", () => state.ChooseTyped()));
         panel.Children.Add(buttons);
         AutomationProperties.SetAutomationId(panel, "composer.schedule");
         return panel;
@@ -357,9 +355,9 @@ public sealed partial class ComposerView
 
     // ---- small builders ----------------------------------------------------------------------------------
 
-    private static TextBlock Heading(string text) => new() { Text = text, FontSize = 16, FontWeight = Microsoft.UI.Text.FontWeights.Bold, Foreground = AppResources.Brush("Text"), TextWrapping = TextWrapping.Wrap };
+    internal static TextBlock Heading(string text) => new() { Text = text, FontSize = 16, FontWeight = Microsoft.UI.Text.FontWeights.Bold, Foreground = AppResources.Brush("Text"), TextWrapping = TextWrapping.Wrap };
 
-    private static TextBlock Body(string text, string? id = null)
+    internal static TextBlock Body(string text, string? id = null)
     {
         var t = new TextBlock { Text = text, FontSize = 13, Foreground = AppResources.Brush("Dim"), TextWrapping = TextWrapping.Wrap };
         if (id is not null)
@@ -376,7 +374,7 @@ public sealed partial class ComposerView
         return e;
     }
 
-    private static Button CardButton(string label, DialogTone tone, string id, Action click, bool stretch = false)
+    internal static Button CardButton(string label, DialogTone tone, string id, Action click, bool stretch = false)
     {
         var style = tone == DialogTone.Primary ? "Button.Primary" : "Button.Action";
         var button = new Button { Style = (Style)Application.Current.Resources[style], Content = label, Height = 34, CornerRadius = new CornerRadius(17), FontSize = 13 };

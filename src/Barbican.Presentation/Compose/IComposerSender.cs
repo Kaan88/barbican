@@ -12,6 +12,9 @@ public interface IComposerSender
     /// <summary>The account's <c>maxDelayedSend</c> in seconds (0: no hold); bounds the schedule dialog.</summary>
     long MaxDelayedSeconds(string accountKey);
 
+    /// <summary>The sender shows its own toasts (undo, scheduled); the composer then shows none.</summary>
+    bool ShowsToasts => false;
+
     Task<Result<SendReceipt>> SendAsync(ComposeDraft draft, SendOptions options, CancellationToken ct);
 
     /// <summary>Cancels the held submission; the seed reopens the message in a composer.</summary>

@@ -26,6 +26,9 @@ public sealed record ComposerContext(
 
     public ITemplateStore? Templates { get; init; }
 
+    /// <summary>Creates the template picker view model of send-pipeline (null: the store is used directly).</summary>
+    public Func<Pipeline.TemplatePickerViewModel>? TemplatePickers { get; init; }
+
     /// <summary>Ask before a message goes outside the sender's own domains (Bulwark's external-recipient confirm is an organisation policy, off for a person: prefs <c>externalRecipientConfirm</c>, default false).</summary>
     public bool ConfirmExternalRecipients { get; init; }
 

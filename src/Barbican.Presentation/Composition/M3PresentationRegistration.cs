@@ -12,6 +12,7 @@ using Barbican.Presentation.Dialogs;
 using Barbican.Presentation.Mail;
 using Barbican.Presentation.Reader;
 using Barbican.Presentation.Compose;
+using Barbican.Presentation.Compose.Pipeline;
 using Barbican.Presentation.Editor;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
@@ -32,7 +33,8 @@ public static class M3PresentationRegistration
     public static IServiceCollection AddBarbicanComposerViewModels(this IServiceCollection services)
     {
         ArgumentNullException.ThrowIfNull(services);
-        services.TryAddSingleton<IComposerSender>(sp => new DirectComposerSender(sp.GetRequiredService<IMailSender>()));
+        // the send flow of send-pipeline (checks, the undo toast with Undo and Send now, scheduled toasts) behind the composer's one seam; Lazy because SendCoordinator opens seeds through IComposerService
+        services.TryAddSingleton<IComposerSender>(sp => new CoordinatorComposerSender(new Lazy<SendCoordinator>(sp.GetRequiredService<SendCoordinator>), sp.GetRequiredService<IScheduledSends>(), sp.GetRequiredService<IMailSender>()));
 
         // autocomplete: the people written to, from Sent, now; the contact cards join through the same interface in M5 (D-245)
         services.Replace(ServiceDescriptor.Singleton<IRecipientSources>(sp => sp.GetService<IAccountManager>() is { } accounts
@@ -53,6 +55,7 @@ public static class M3PresentationRegistration
         {
             Toasts = sp.GetService<IToastService>(),
             Templates = sp.GetService<ITemplateStore>(),
+            TemplatePickers = () => sp.GetService<TemplatePickerViewModel>() ?? throw new InvalidOperationException("The send pipeline view models are not registered."),
             MessageOpen = () => sp.GetService<ReaderViewModel>() is { } reader && reader.Current.EmailId.Length > 0,
         });
         services.Replace(ServiceDescriptor.Singleton<IComposerService>(sp => new ComposerService(sp.GetRequiredService<ComposerServices>())));

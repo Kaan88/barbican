@@ -127,6 +127,7 @@ public sealed class ComposerService : IComposerService, IDisposable
             {
                 Toasts = _s.Toasts,
                 Templates = _s.Templates,
+                TemplatePickers = _s.TemplatePickers,
                 Reopen = OpenSeedAsync,
                 MentionsEnabled = _s.Prefs.Current.Bool("recipientMentionsEnabled", true),
                 MentionAddsRecipientTo = _s.Prefs.Current.Str("mentionAddsRecipientTo", "to"),

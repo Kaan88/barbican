@@ -66,7 +66,27 @@ public sealed partial class ComposerViewModel
             return;
         }
 
-        var picker = new TemplatePickerState(list.Value!, InsertTemplateAsync, SaveTemplateAsync, t => DeleteTemplateAsync(store, t));
+        TemplatePickerState picker;
+        if (_c.TemplatePickers?.Invoke() is { } model)
+        {
+            model.SenderName = CurrentIdentityName();
+            _ = await model.LoadAsync(AccountKey, CancellationToken.None).ConfigureAwait(true);
+            picker = new TemplatePickerState(
+                model.Items,
+                t =>
+                {
+                    var ins = model.Insert(t);
+                    ApplyInsertion(ins.Blocks, ins.Subject);
+                    return Task.CompletedTask;
+                },
+                async name => (await model.SaveAsync(name, Subject, CurrentDoc(), _plain, CancellationToken.None).ConfigureAwait(true)).Value,
+                async t => (await model.DeleteAsync(t, CancellationToken.None).ConfigureAwait(true)).IsOk);
+        }
+        else
+        {
+            picker = new TemplatePickerState(list.Value!, InsertTemplateAsync, SaveTemplateAsync, t => DeleteTemplateAsync(store, t));
+        }
+
         picker.CloseRequested += (_, _) => Templates = null;
         Templates = picker;
     }
@@ -78,11 +98,6 @@ public sealed partial class ComposerViewModel
     public Task InsertTemplateAsync(MailTemplate template)
     {
         ArgumentNullException.ThrowIfNull(template);
-        if (Subject.Trim().Length == 0 && template.Subject.Length > 0)
-        {
-            Subject = template.Subject;
-        }
-
         IReadOnlyList<Block> blocks;
         try
         {
@@ -91,6 +106,20 @@ public sealed partial class ComposerViewModel
         catch (Barbican.Core.Common.PortPendingException)
         {
             blocks = [.. Doc.FromText(template.Body).Blocks];
+        }
+
+        ApplyInsertion(blocks, template.Subject);
+        return Task.CompletedTask;
+    }
+
+    private string CurrentIdentityName() => CurrentIdentity?.Identity.Name ?? string.Empty;
+
+    // the subject goes in when the subject is empty; the blocks at the caret (or the end of the stand-in text)
+    private void ApplyInsertion(IReadOnlyList<Block> blocks, string? subject)
+    {
+        if (Subject.Trim().Length == 0 && !string.IsNullOrEmpty(subject))
+        {
+            Subject = subject;
         }
 
         if (Editor is { } e)
@@ -103,8 +132,6 @@ public sealed partial class ComposerViewModel
             var text = string.Join('\n', blocks.Select(b => b.Text));
             FallbackBody = FallbackBody.Length == 0 ? text : FallbackBody + "\n" + text;
         }
-
-        return Task.CompletedTask;
     }
 
     private async Task<MailTemplate?> SaveTemplateAsync(string name)

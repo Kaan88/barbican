@@ -157,7 +157,7 @@ public sealed partial class ComposerViewModel
         string? draftId = null;
         try
         {
-            var res = await _c.Drafts.SaveAsync(BuildDraft(commit: false), CancellationToken.None).ConfigureAwait(true);
+            var res = await _c.Drafts.SaveAsync(BuildDraft(commit: false), autosave: !explicitSave, CancellationToken.None).ConfigureAwait(true);
             if (res.IsOk)
             {
                 draftId = res.Value!.DraftId;

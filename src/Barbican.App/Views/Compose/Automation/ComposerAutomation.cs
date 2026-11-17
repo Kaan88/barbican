@@ -7,6 +7,7 @@ using Barbican.App.Views.Menus.Automation;
 using Barbican.Automation;
 using Barbican.Core.Compose;
 using Barbican.Presentation.Compose;
+using Barbican.Presentation.Compose.Pipeline;
 using Barbican.Presentation.Mail;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
@@ -275,6 +276,12 @@ public static class ComposerAutomation
             return "error no schedule dialog";
         }
 
+        if (string.Equals(arg, "cancel", StringComparison.OrdinalIgnoreCase))
+        {
+            state.Cancel();
+            return "cancelled";
+        }
+
         if (arg.Length == 0)
         {
             return $"dialog {state.Presets.Count} presets: {string.Join(" | ", state.Presets.Select(p => p.Label))}";
@@ -292,9 +299,9 @@ public static class ComposerAutomation
             state.ChooseTyped();
         }
 
-        if (state.Error is { } error)
+        if (state.Error.Length > 0)
         {
-            return "error " + error;
+            return "error " + state.Error;
         }
 
         return await open ? "scheduled" : "not sent";

@@ -10,7 +10,6 @@ using Barbican.Presentation.Compose;
 using Barbican.Presentation.Menus;
 using Microsoft.UI.Dispatching;
 using Microsoft.UI.Xaml.Automation;
-using Microsoft.UI.Xaml.Controls.Primitives;
 using Microsoft.UI.Xaml.Input;
 using Windows.System;
 
@@ -26,7 +25,6 @@ public sealed class RecipientFieldView : UserControl
     private readonly ChipPanel _panel = new();
     private readonly TextBox _input = new() { Style = (Style)Application.Current.Resources["TextBox.Bare"], FontSize = 13, MinHeight = 26, VerticalContentAlignment = VerticalAlignment.Center };
     private readonly ContentPresenter _trailing = new() { VerticalAlignment = VerticalAlignment.Top, Margin = new Thickness(0, 2, 0, 0) };
-    private readonly Popup _popup = new() { IsLightDismissEnabled = false };
     private readonly StackPanel _list = new() { Spacing = 0 };
     private readonly Border _listBox;
     private RecipientFieldViewModel? _field;
@@ -57,8 +55,14 @@ public sealed class RecipientFieldView : UserControl
             Child = _list,
         };
         AutomationProperties.SetAutomationId(_listBox, "composer.suggestions");
-        _popup.Child = _listBox;
-        _root.Children.Add(_popup);
+        // the list sits in the row under the field (an in-layout list: no popup window, ADR 0007)
+        _root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        _root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        Grid.SetRow(_listBox, 1);
+        Grid.SetColumn(_listBox, 1);
+        _listBox.HorizontalAlignment = HorizontalAlignment.Left;
+        _listBox.Visibility = Visibility.Collapsed;
+        _root.Children.Add(_listBox);
         Content = _root;
         _input.TextChanged += OnTextChanged;
         _input.KeyDown += OnKeyDown;
@@ -186,7 +190,6 @@ public sealed class RecipientFieldView : UserControl
             Padding = new Thickness(3, 0, 3, 0),
             Child = row,
         };
-        ToolTipService.SetToolTip(box, null);
         AutomationProperties.SetAutomationId(box, $"composer.{_field.Name.ToLowerInvariant()}.chip.{index}");
         AutomationProperties.SetName(box, chip.Kind == ChipKind.Invalid ? "Invalid address " + chip.Full : chip.Full);
         box.DoubleTapped += (_, e) =>
@@ -302,7 +305,7 @@ public sealed class RecipientFieldView : UserControl
         _list.Children.Clear();
         if (_field is not { IsOpen: true } f)
         {
-            _popup.IsOpen = false;
+            _listBox.Visibility = Visibility.Collapsed;
             return;
         }
 
@@ -311,9 +314,7 @@ public sealed class RecipientFieldView : UserControl
             _list.Children.Add(Row(f.Suggestions[i], i, i == f.Highlight));
         }
 
-        _popup.VerticalOffset = _root.ActualHeight + 2;
-        _popup.HorizontalOffset = _label.ActualWidth + 10;
-        _popup.IsOpen = true;
+        _listBox.Visibility = Visibility.Visible;
     }
 
     private UIElement Row(SuggestionRow row, int index, bool highlighted)

@@ -5,6 +5,7 @@ using Barbican.App.Views.Dialogs;
 using Barbican.Core.Mail.Body;
 using Barbican.Presentation.Composition;
 using Barbican.Presentation.Compose;
+using Barbican.Presentation.Compose.Pipeline;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 
@@ -17,7 +18,10 @@ public static class ComposerRegistration
     {
         ArgumentNullException.ThrowIfNull(services);
         _ = services.AddBarbicanComposerViewModels();
+        _ = services.AddBarbicanSendPipelineViewModels();
+        services.AddSingleton<Barbican.Presentation.Compose.Pipeline.IScheduleDialogHost, ScheduleDialogHost>();
         services.AddSingleton<IDialogContent, AccountPickDialogContent>();
+        services.AddSingleton<IDialogContent, ScheduleDialogContent>();
 
         // a mailto: link clicked in a message opens the composer, never the OS handler (B-COMP-034); everything else keeps the reader's link check
         services.Replace(ServiceDescriptor.Singleton<ILinkRouter>(sp => new ComposerLinkRouter(sp.GetRequiredService<CheckedLinkRouter>(), sp.GetRequiredService<MailtoRouter>())));

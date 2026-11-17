@@ -5,13 +5,14 @@
 using Barbican.Core.Compose;
 using Barbican.Core.Compose.Recipients;
 using Barbican.Presentation.Actions;
+using Barbican.Presentation.Compose.Pipeline;
 
 namespace Barbican.Presentation.Compose;
 
 public sealed partial class ComposerViewModel
 {
     private bool _sending;
-    private ScheduleDialogState? _schedule;
+    private ScheduleDialogViewModel? _schedule;
 
     /// <summary>A send is in flight (the buttons are off and the composer cannot be closed).</summary>
     public bool IsSending
@@ -21,7 +22,7 @@ public sealed partial class ComposerViewModel
     }
 
     /// <summary>The schedule dialog, or null (the view draws it over the composer).</summary>
-    public ScheduleDialogState? Schedule
+    public ScheduleDialogViewModel? Schedule
     {
         get => _schedule;
         private set => SetProperty(ref _schedule, value);
@@ -38,9 +39,9 @@ public sealed partial class ComposerViewModel
             return false;
         }
 
-        var state = new ScheduleDialogState(ScheduleDialogMode.Compose, _c.Time, _c.Time.LocalTimeZone, _c.Sender.MaxDelayedSeconds(AccountKey));
+        var state = new ScheduleDialogViewModel(ScheduleMode.Compose, _c.Time, _c.Sender.MaxDelayedSeconds(AccountKey), twelveHour: false);
         Schedule = state;
-        var when = await state.Result.ConfigureAwait(true);
+        var when = await state.Completion.ConfigureAwait(true);
         Schedule = null;
         return when is { } at && await SendAtAsync(at).ConfigureAwait(true);
     }
@@ -179,6 +180,12 @@ public sealed partial class ComposerViewModel
         IsSending = false;
         if (receipt is null)
         {
+            if (_c.Sender.ShowsToasts)
+            {
+                Status = "Not sent";
+                return false;
+            }
+
             Notify("The message was not sent: " + error, error: true);
             Status = "Not sent";
             return false;
@@ -192,7 +199,7 @@ public sealed partial class ComposerViewModel
     // the undo window of the toast is send-pipeline's SendCoordinator when it is registered; this is the minimum so a held message can always be taken back
     private void ToastSent(SendReceipt receipt, DateTimeOffset? scheduledAt)
     {
-        if (_c.Toasts is not { } toasts)
+        if (_c.Sender.ShowsToasts || _c.Toasts is not { } toasts)
         {
             return;
         }

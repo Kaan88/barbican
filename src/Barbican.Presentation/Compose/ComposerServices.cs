@@ -28,6 +28,8 @@ public sealed record ComposerServices(
 
     public ITemplateStore? Templates { get; init; }
 
+    public Func<Pipeline.TemplatePickerViewModel>? TemplatePickers { get; init; }
+
     /// <summary>A message is open in the reader (a reply docks under it, <see cref="ComposerDock"/>).</summary>
     public Func<bool> MessageOpen { get; init; } = () => false;
 }

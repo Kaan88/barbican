@@ -522,21 +522,26 @@ public sealed class ComposerViewModelTests
     public async Task The_schedule_dialog_refuses_a_past_time_and_a_blank_one_with_Bulwarks_messages()
     {
         var h = new ComposerHarness();
-        var state = new ScheduleDialogState(ScheduleDialogMode.Compose, h.Time, TimeZoneInfo.Utc, 7 * 24 * 3600);
-        state.ChooseTyped();
+        h.Time.SetLocalTimeZone(TimeZoneInfo.Utc);
+        var state = new Barbican.Presentation.Compose.Pipeline.ScheduleDialogViewModel(Barbican.Presentation.Compose.Pipeline.ScheduleMode.Compose, h.Time, 7 * 24 * 3600, false)
+        {
+            Date = string.Empty,
+            Time = string.Empty,
+        };
+        _ = state.ChooseTyped();
         Assert.Equal("Choose a date and time.", state.Error);
         state.Date = "2026-11-17";
         state.Time = "08:00";
-        state.ChooseTyped();
+        _ = state.ChooseTyped();
         Assert.Equal("Choose a future date and time.", state.Error);
         state.Date = "2026-12-31";
-        state.ChooseTyped();
+        _ = state.ChooseTyped();
         Assert.Equal("This time is later than the server allows.", state.Error);
         state.Date = "2026-11-20";
-        state.ChooseTyped();
-        Assert.Null(state.Error);
-        Assert.Equal(new DateTimeOffset(2026, 11, 20, 8, 0, 0, TimeSpan.Zero), await state.Result);
-        Assert.Equal("Reschedule", new ScheduleDialogState(ScheduleDialogMode.Reschedule, h.Time, TimeZoneInfo.Utc, 100).Title);
+        _ = state.ChooseTyped();
+        Assert.Empty(state.Error);
+        Assert.Equal(new DateTimeOffset(2026, 11, 20, 8, 0, 0, TimeSpan.Zero), await state.Completion);
+        Assert.Equal("Reschedule", new Barbican.Presentation.Compose.Pipeline.ScheduleDialogViewModel(Barbican.Presentation.Compose.Pipeline.ScheduleMode.Reschedule, h.Time, 100, false).Title);
     }
 
     // ---- templates and mentions ------------------------------------------------------------------------

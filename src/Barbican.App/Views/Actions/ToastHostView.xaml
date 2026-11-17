@@ -18,6 +18,8 @@
             <TextBlock Text="{x:Bind Message}" Foreground="{x:Bind local:ActionFmt.ToastText(IsError)}" FontSize="13" VerticalAlignment="Center" MaxWidth="460" TextWrapping="Wrap" />
             <Button Content="{x:Bind ActionLabel}" Style="{StaticResource Button.Chip}" Visibility="{x:Bind views:Fmt.VisText(ActionLabel)}" Tag="{x:Bind}" Click="OnAction"
                     AutomationProperties.AutomationId="toast.action" AutomationProperties.Name="{x:Bind ActionLabel}" />
+            <Button Content="{x:Bind SecondaryLabel}" Style="{StaticResource Button.Chip}" Visibility="{x:Bind views:Fmt.VisText(SecondaryLabel)}" Tag="{x:Bind}" Click="OnSecondary"
+                    AutomationProperties.AutomationId="toast.secondary" AutomationProperties.Name="{x:Bind SecondaryLabel}" />
             <Button Content="Close" Style="{StaticResource Button.Chip}" Tag="{x:Bind}" Click="OnClose" AutomationProperties.AutomationId="toast.close" AutomationProperties.Name="Close notification" />
           </StackPanel>
         </Border>

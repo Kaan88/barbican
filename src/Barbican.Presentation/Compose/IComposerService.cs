@@ -12,7 +12,7 @@ public interface IComposerService
     bool IsOpen { get; }
 
     /// <summary>The open composer (the shell draws it), or null.</summary>
-    ComposerViewModel? Current { get; }
+    ComposerViewModel? Current => null;
 
     event EventHandler? OpenChanged;
 
@@ -26,5 +26,5 @@ public interface IComposerService
     Task<bool> TryCloseAsync(CancellationToken ct);
 
     /// <summary>Quitting: waits for the save in flight and saves unsaved work silently, so closing the window loses nothing.</summary>
-    Task FlushAsync(CancellationToken ct);
+    Task FlushAsync(CancellationToken ct) => Task.CompletedTask;
 }
