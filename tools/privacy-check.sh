@@ -5,7 +5,6 @@
 # commits not on any origin branch), carry personal data. Text files only: scan binaries you add
 # (DLLs, images with text) by hand, e.g. for local paths compiled into them.
 # Runs from .githooks/pre-push on every push; run it by hand before pushing anything unusual.
-# This file is the only tracked file allowed to contain the patterns below.
 set -eu
 
 rev=${1:-HEAD}
@@ -16,7 +15,15 @@ if [ "$rev" = "--worktree" ]; then opt="--untracked"; tree=""; rev=HEAD; else op
 fail=0
 
 # 1. Hard patterns: the user's accounts, server, local user name, the admin key file.
-hard='<private patterns: see .local/privacy-patterns.txt>'
+# The patterns are private: they live in the gitignored .local/privacy-patterns.txt of the main
+# checkout (one extended regex), never in this public file. Fail closed when they are missing.
+common=$(git rev-parse --path-format=absolute --git-common-dir)
+pat="$(dirname "$common")/.local/privacy-patterns.txt"
+if [ ! -s "$pat" ]; then
+  echo "privacy-check: $pat is missing; ask the user for the pattern file (see CLAUDE.md)" >&2
+  exit 2
+fi
+hard=$(head -n 1 "$pat")
 if git grep $opt -I -n -i -E "$hard" $tree -- . "$self"; then
   echo "privacy-check: personal data above (use placeholders; real values go in .local/accounts.md)" >&2
   fail=1

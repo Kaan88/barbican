@@ -126,6 +126,7 @@ Where things go:
   hostnames, no local user names or home paths, no tokens or keys, no screenshots of real mail.
   Use the placeholders; the real mapping lives only in `.local/accounts.md`.
 - Commit author and committer must be the GitHub noreply identity.
+- The private patterns live in the gitignored `.local/privacy-patterns.txt` of the main checkout (never in a tracked file); the script fails closed without it.
 - Before every commit run `sh tools/privacy-check.sh --worktree`; before every push the
   `.githooks/pre-push` hook runs it on what you push. It checks text only: scan binaries you add
   (DLLs, images) by hand, for example for home paths compiled into them.
