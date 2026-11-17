@@ -1,0 +1,9 @@
+{
+ "what": "Fable review 2 R2-04 after the fix: hidden AUTOMATION build (tools/auto-run.ps1 start, BARBICAN_SAMPLE=1, FakeJmap seed), foreground window unchanged before and after",
+ "state_after_open_e21": "shell up seq 2 shown e21 loading no remote-blocked no plain no dropped 0 links 0 blocked 0 filtered 0",
+ "state_after_open_e24": "shell up seq 3 shown e24 loading no remote-blocked no plain no dropped 0 links 0 blocked 0 filtered 0",
+ "state_after_open_e31": "shell up seq 4 shown e31 loading no remote-blocked no plain no dropped 0 links 0 blocked 0 filtered 0",
+ "clobber_page": "shown straight through window.__bb.show, bypassing the sanitizer: <img name=URL>, name=body, name=querySelectorAll, name=addEventListener, name=readyState, <form name=documentElement>",
+ "clobber_result": "frames 2, the clobbering frame finished and was revealed (visibility visible); contentDocument.body read naively is the <img name=body> (textContent empty), so the names did shadow the document and the shell still worked",
+ "not_covered": "a frame that never finishes (give-up path) and Linux (WebKitGTK): Linux pending (VM unreachable)"
+}

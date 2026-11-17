@@ -97,4 +97,30 @@ public sealed class MailSanitizerTests
         Assert.DoesNotContain("onmouseover", page.Html, StringComparison.Ordinal);
         Assert.DoesNotContain("<script", page.Html, StringComparison.OrdinalIgnoreCase);
     }
+
+    [Theory]
+    [InlineData("URL")]
+    [InlineData("body")]
+    [InlineData("documentElement")]
+    [InlineData("querySelectorAll")]
+    [InlineData("addEventListener")]
+    [InlineData("__bbd")]
+    public void An_image_cannot_name_a_member_of_its_document(string member)
+    {
+        // Fable review 2 R2-04: <img name="body"> is document.body inside the frame (WHATWG HTML named access on Document)
+        var clean = MailSanitizer.Clean($"<p>x</p><img src=\"cid:a\" name=\"{member}\" id=\"{member}\" alt=\"a\">", out var changed);
+        Assert.True(changed);
+        Assert.DoesNotContain("name=", clean, StringComparison.Ordinal);
+        Assert.DoesNotContain("id=", clean, StringComparison.Ordinal);
+        Assert.Contains("alt=\"a\"", clean, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void An_anchor_name_and_an_image_id_without_a_name_stay()
+    {
+        // neither is a member of the document: in-mail anchors keep working
+        const string html = "<a name=\"top\"></a><img src=\"cid:a\" id=\"logo\"><a href=\"#top\">up</a>";
+        Assert.Equal(html, MailSanitizer.Clean(html, out var changed));
+        Assert.False(changed);
+    }
 }
