@@ -132,7 +132,15 @@ public static class ComposerAutomation
                 c.Subject = value;
                 break;
             case "body":
-                c.FallbackBody = value;
+                if (c.Editor is { } editor)
+                {
+                    editor.Session.Load(Barbican.Core.Editor.Doc.FromText(value));
+                }
+                else
+                {
+                    c.FallbackBody = value;
+                }
+
                 break;
             case "tag":
                 c.SubAddressTag = value;
