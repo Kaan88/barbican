@@ -32,6 +32,9 @@ public sealed class Doc
 
     public int NewTableId => Blocks.Select(b => b.Kind.Table).Max() is int t ? t + 1 : 0;
 
+    /// <summary>A deep copy (blocks are cloned, runs are immutable records): the undo history stores these.</summary>
+    public Doc Clone() => new(_blocks.Select(b => b.Clone()));
+
     public static Doc FromText(string text)
     {
         ArgumentNullException.ThrowIfNull(text);
