@@ -254,6 +254,30 @@ public sealed partial class MessageListView : UserControl
         }
     }
 
+    // ---- M2 hotfix: real drag and drop (HAND TEST 2 "can't drag"). The platform's in-app drag; DropController keeps what is dragged and runs the drop
+    // (the same code dnd-sim runs). The dragged row stands for the ticked rows when it is one of them (Rust dnd.rs ids_for_mail :47). ----
+
+    private void OnDragItemsStarting(object sender, DragItemsStartingEventArgs e)
+    {
+        if (e.Items.OfType<MessageRowViewModel>().FirstOrDefault() is not { } row)
+        {
+            e.Cancel = true;
+            return;
+        }
+
+        var drops = ViewHost.Get<Barbican.Presentation.DragDrop.DropController>();
+        var current = List.Current;
+        IReadOnlyList<Barbican.Core.Mail.Model.MailTarget> targets = current.Any(t => string.Equals(t.EmailId, row.Id, StringComparison.Ordinal)) ? current : [List.TargetOf(row)];
+        drops.BeginMailDrag(targets);
+        e.Data.SetText(drops.Label);
+        e.Data.RequestedOperation = global::Windows.ApplicationModel.DataTransfer.DataPackageOperation.Move;
+    }
+
+    // after a drop the controller has nothing pending any more; a drag that ended anywhere else fires onDragEnd(dropped: false)
+#pragma warning disable CA1822 // XAML event handler
+    private void OnDragItemsCompleted(ListViewBase sender, DragItemsCompletedEventArgs args) => ViewHost.Get<Barbican.Presentation.DragDrop.DropController>().CancelDrag();
+#pragma warning restore CA1822
+
     // A date-group header is not selectable.
 #pragma warning disable CA1822 // XAML event handler
     private void OnContainerContentChanging(ListViewBase sender, ContainerContentChangingEventArgs args)

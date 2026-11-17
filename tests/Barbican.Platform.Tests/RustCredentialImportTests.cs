@@ -1,5 +1,5 @@
 // ADR 0008 (the one-time credential import): the Rust entries are read, never written; odd-length and non-JSON blobs are skipped; both kinds
-// of entry (accounts list, single session) are read; the agent path imports password entries only, read-only, and only into dev or auto-*
+// of entry (accounts list, single session) are read; the agent path imports password entries only, read-only, and only into an agent profile (auto-*, smoke, xrun-*, agent-*; dev until the M2 hotfix)
 // profiles; buffers are zeroed. Rust platform/windows.rs (UTF-16 blobs) and main.rs remember_session (the JSON shape).
 
 using System.Text.Json.Nodes;
@@ -25,7 +25,7 @@ public sealed class RustCredentialImportTests
         var legacy = new FakeLegacySource().Text(RustCredentialImport.AccountsTarget, $"[{Password},{OAuth}]")
             .Text(RustCredentialImport.AdminKeyTarget, "admin-secret");
         var store = new InMemorySecretStore();
-        var report = await new RustCredentialImport(legacy, store, Profile("dev")).ImportAsync(ImportMode.Agent, Ct);
+        var report = await new RustCredentialImport(legacy, store, Profile("auto-8801")).ImportAsync(ImportMode.Agent, Ct);
 
         Assert.Equal(1, report.Imported);
         Assert.Contains(report.Skipped, s => s.Contains("(oauth): sign in by hand", StringComparison.Ordinal));
@@ -80,7 +80,7 @@ public sealed class RustCredentialImportTests
     {
         var legacy = new FakeLegacySource().Raw(RustCredentialImport.AccountsTarget, [0x7b, 0x00, 0x22]).Text(RustCredentialImport.SessionTarget, "{not json");
         var store = new InMemorySecretStore();
-        var report = await new RustCredentialImport(legacy, store, Profile("dev")).ImportAsync(ImportMode.Agent, Ct);
+        var report = await new RustCredentialImport(legacy, store, Profile("auto-8801")).ImportAsync(ImportMode.Agent, Ct);
         Assert.Equal(0, report.Imported);
         Assert.Contains(report.Skipped, s => s.Contains("odd-length", StringComparison.Ordinal));
         Assert.Contains(report.Skipped, s => s.Contains("not JSON", StringComparison.Ordinal));
@@ -103,7 +103,7 @@ public sealed class RustCredentialImportTests
         var mine = StoredAccount.FromJson(JsonNode.Parse(Password))! with { Password = "newer" };
         await new SecretAccountVault(store).SaveAsync([mine], Ct);
         var legacy = new FakeLegacySource().Text(RustCredentialImport.AccountsTarget, $"[{Password}]");
-        var report = await new RustCredentialImport(legacy, store, Profile("dev")).ImportAsync(ImportMode.Agent, Ct);
+        var report = await new RustCredentialImport(legacy, store, Profile("auto-8801")).ImportAsync(ImportMode.Agent, Ct);
         Assert.Equal(0, report.Imported);
         Assert.Equal(1, report.AlreadyPresent);
         Assert.Equal("newer", Assert.Single(await AccountsInAsync(store)).Password);
@@ -115,7 +115,11 @@ public sealed class RustCredentialImportTests
         var legacy = new FakeLegacySource().Text(RustCredentialImport.AccountsTarget, $"[{Password}]");
         var store = new InMemorySecretStore();
         Assert.Equal(0, (await new RustCredentialImport(legacy, store, Profile("main")).ImportAsync(ImportMode.Agent, Ct)).Imported);
-        Assert.Equal(0, (await new RustCredentialImport(legacy, store, Profile("dev")).ImportAsync(ImportMode.User, Ct)).Imported);
+
+        // M2 hotfix: "dev" is the user's own profile (the portable zip runs in it), so the agent import (which marks accounts read-only) never runs there
+        Assert.Equal(0, (await new RustCredentialImport(legacy, store, Profile("dev")).ImportAsync(ImportMode.Agent, Ct)).Imported);
+        Assert.Equal(0, (await new RustCredentialImport(legacy, store, Profile("auto-8801")).ImportAsync(ImportMode.User, Ct)).Imported);
+        Assert.Equal(0, (await new RustCredentialImport(legacy, store, Profile("smoke")).ImportAsync(ImportMode.User, Ct)).Imported);
         Assert.Empty(legacy.Reads);
         Assert.Equal(0, store.Writes);
     }

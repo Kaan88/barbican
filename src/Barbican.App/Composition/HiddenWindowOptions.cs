@@ -7,6 +7,7 @@ namespace Barbican.App.Composition;
 /// window exists. UI-free so tests/Barbican.Automation.Tests covers it.
 /// <list type="bullet">
 /// <item>An AUTOMATION build is always hidden, whatever the arguments or the environment say.</item>
+/// <item>A hidden run runs only in an agent profile (<c>Barbican.Core.Storage.ProfilePaths.IsAgentProfile</c>); a named user profile is an error (M2 hotfix).</item>
 /// <item><c>--smoke REPORT.json</c> (any configuration, also Release) is hidden.</item>
 /// <item>Hidden means <see cref="HiddenWindowMode.OffScreen"/> where the head can hide a window (the
 /// WinUI head), else <see cref="HiddenWindowMode.PrivateDisplay"/> on Linux under the private Xvfb
@@ -66,6 +67,14 @@ public sealed record HiddenWindowOptions(
         {
             (mode, var hideError) = HiddenMode(environment, isWindows, canHideWindow);
             error ??= hideError;
+
+            // M2 hotfix: every agent-launched run (an AUTOMATION build, --smoke) runs in an agent profile, never in one of the user's own
+            // (dev, the default, any other name), where every account is writable (ReadOnlyPolicy). Fail closed: the App exits before the
+            // composition reads any profile.
+            if (!Barbican.Core.Storage.ProfilePaths.IsAgentProfile(profile))
+            {
+                error ??= $"a hidden run (AUTOMATION build or {SmokeArgument}) runs only in an agent profile (auto-*, smoke, xrun-*, agent-*), not in \"{profile}\"";
+            }
         }
 
         return new HiddenWindowOptions(

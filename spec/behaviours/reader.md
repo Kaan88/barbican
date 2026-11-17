@@ -86,12 +86,12 @@ Bulwark mapping: `components/ui/avatar.tsx`, `app/api/favicon`, `app/api/bimi`. 
 | B-READ-043 | Keyboard shortcuts pressed inside the body are forwarded to the app as key strings, such as `c|k` (Control+k) and `s|?` (Shift+?). | mailview.rs:312 `forwarded_keys_parse` | | `forwarded_keys_parse` |
 | B-READ-044 | The body's CSP contains `script-src 'none'` in the blocked-remote case (test assertion). | mailview.rs CSP tests (108-109) | | `blocked_remote_content_includes_stylesheets_and_fonts` |
 
-## Lite mode (`lite.rs`) (decision pending)
+## Lite mode (`lite.rs`) (dropped: D-233, approved 2026-11-17)
 
 | ID | Rule | Source | Reference | Tests |
 |---|---|---|---|---|
 | B-READ-045 | Lite (plain-text reading) renders the email HTML at 600 px wide, with height above 900 px for a long message. | lite.rs:64 | | `renders_email_html` |
-| B-READ-046 | PORT-PLAN Appendix A says lite (`lite.rs`) is dropped, with "plain-text mode kept". The user must confirm this. Recorded as a D- item when decided. | PORT-PLAN Appendix A, B (M1 "lite 1 (marked dropped)") | | `renders_email_html` (status: dropped? pending decision) |
+| B-READ-046 | PORT-PLAN Appendix A says lite (`lite.rs`) is dropped, with "plain-text mode kept". The user confirmed it on 2026-11-17 ("drop it"): D-233. | PORT-PLAN Appendix A, B (M1 "lite 1 (marked dropped)") | | `renders_email_html` (status: dropped(D-233, user OK)) |
 
 ## Quick rules (`quick_rules.rs`) (M2)
 
@@ -110,7 +110,7 @@ Bulwark mapping: `lib/filters/quick-rules.ts`, `rules-menu.tsx`.
 
 - B-READ-010 and gap J-053: `displayed_truncated` exists and is tested, but the compliance doc says a truncated body is shown with no notice. Check which is current before porting.
 - B-READ-032: Bulwark has sender pictures on, Barbican asks first. This is a deliberate deviation and needs an entry in `spec/decisions.md`.
-- B-READ-046: lite mode is dropped or kept, by user decision.
+- B-READ-046: lite mode is dropped (D-233, the user approved on 2026-11-17).
 - B-READ-044 is a restatement of the CSP test. The port should add its own test of the frame's CSP header.
 - `reader.rs:1168` holds a hard-coded test-account address for the live checks. It must not be copied into the port or the public repository. The port takes the test account from `.local/accounts.md` through configuration.
 
@@ -129,7 +129,7 @@ Also built: per-message "Load external content" (I-209), "Shown as plain text" â
 
 Rows no stream marked, settled at the M1 verify stage:
 B-READ-022..026: ported (m1 mailcore: `Core/Mail/AuthResults`, T-011..T-014 `AuthResultsTests`; the reader shows the verdict chip, `reader.verdict`).
-B-READ-045: dropped(D-233, user OK pending), with T-159 (lite); the user confirms at the M1 gate.
+B-READ-045: dropped(D-233, user OK), with T-159 (lite); approved by the user on 2026-11-17 ("drop it").
 B-READ-001..009, B-READ-011..021, B-READ-027..039, B-READ-047..052 (view source, unsubscribe, headers, subject prefixes, files tree, message attachments,
 blob copy, read receipts, verification codes, sender pictures, quick rules): deferred(M2), the milestone of their Rust tests in `spec/rust-tests.csv`
 (B-READ-009 is shared with M8/M9). B-READ-010's 2 MiB source-view cut is M2 (view source); its reader part is ported (above).

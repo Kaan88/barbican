@@ -95,6 +95,81 @@ public sealed class DropControllerTests : IDisposable
         Assert.Contains(h.Toasts.Toasts, x => x.IsError);
     }
 
+    // M2 hotfix (HAND TEST 2 "can't drag"): the real drag keeps its targets in the controller from the start to the drop
+    [Fact]
+    public async Task A_real_mail_drag_moves_on_drop_and_a_drag_without_a_drop_only_ends()
+    {
+        using var h = await ActionHarness.StartAsync();
+        await h.OpenAsync("inbox");
+        var dnd = new DropController(h.Actions, h.Bus);
+        var ended = new List<bool>();
+        using var sub = h.Bus.Observe<DragEndPayload>(HookNames.OnDragEnd, (p, _) => { lock (ended) { ended.Add(p.Dropped); } return ValueTask.CompletedTask; });
+
+        var t = h.Pick(0, 1);
+        var archive = h.Folder("archive");
+        var inbox = h.Folder("inbox");
+        dnd.BeginMailDrag(t);
+        Assert.Equal("2 messages", dnd.Label);
+        Assert.True(dnd.CanDropOnFolder(archive));
+        Assert.False(dnd.CanDropOnFolder(inbox));
+        Assert.True(dnd.CanDropOnTag);
+        Assert.True((await dnd.DropOnFolderAsync(archive, DropZone.Inside, Ct)).IsOk);
+        Assert.All(t, x => Assert.Equal(archive, h.Server.Store.Email(x.EmailId)!["mailboxIds"]!.AsObject().Single().Key));
+        Assert.Empty(dnd.DraggedMail);
+
+        // the list view's DragItemsCompleted after the drop changes nothing more
+        dnd.CancelDrag();
+        dnd.BeginMailDrag(h.Pick(0));
+        dnd.CancelDrag();
+        Assert.False(dnd.IsDragging);
+        Assert.False(dnd.CanDropOnTag);
+        await Task.Delay(150, Ct);
+        lock (ended)
+        {
+            Assert.Equal([true, false], ended);
+        }
+    }
+
+    [Fact]
+    public async Task A_real_mail_drag_dropped_on_a_tag_tags_the_messages()
+    {
+        using var h = await ActionHarness.StartAsync();
+        await h.OpenAsync("inbox");
+        var dnd = new DropController(h.Actions, h.Bus);
+        var t = h.Pick(1);
+        dnd.BeginMailDrag(t);
+        Assert.True((await dnd.DropOnTagAsync("work", Ct)).IsOk);
+        Assert.NotNull(h.Server.Store.Email(t[0].EmailId)!["keywords"]!["$label:work"]);
+    }
+
+    [Fact]
+    public async Task A_real_folder_drag_nests_the_folder_and_never_drops_on_itself_or_a_tag()
+    {
+        using var h = await ActionHarness.StartAsync();
+        var parent = h.Server.Store.AddMailbox("Parent", null);
+        var other = h.Server.Store.AddMailbox("Other", null);
+        h.Sidebar.Update((await h.Active.Mail!.GetMailboxesAsync(Ct)).Value!);
+        var dnd = new DropController(h.Actions, h.Bus);
+        dnd.BeginFolderDrag(h.Active.AccountKey!, other, "Other");
+        Assert.Equal(other, dnd.DraggedFolder);
+        Assert.False(dnd.CanDropOnFolder(other));
+        Assert.True(dnd.CanDropOnFolder(parent));
+        Assert.False(dnd.CanDropOnTag);
+        var r = await dnd.DropOnFolderAsync(parent, DropZone.Inside, Ct);
+        Assert.True(r.IsOk, r.Error?.Message);
+        Assert.Equal(parent, h.Server.Store.Mailboxes().Single(m => string.Equals(m["id"]!.GetValue<string>(), other, StringComparison.Ordinal))["parentId"]!.GetValue<string>());
+        Assert.Null(dnd.DraggedFolder);
+        Assert.False(dnd.IsDragging);
+    }
+
+    [Theory]
+    [InlineData(0, DropZone.Before)]
+    [InlineData(7, DropZone.Before)]
+    [InlineData(16, DropZone.Inside)]
+    [InlineData(25, DropZone.After)]
+    [InlineData(31, DropZone.After)]
+    public void The_drop_zone_is_the_quarter_of_the_row(double y, DropZone zone) => Assert.Equal(zone, DropController.ZoneAt(y, 32));
+
     [Fact]
     public async Task Panes_load_once_clamp_save_on_commit_and_reset_on_double_click()
     {

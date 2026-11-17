@@ -233,6 +233,9 @@ public static class ShortcutTables
         return t switch
         {
             "g" => ShortcutAction.ArmGo,
+            // Bulwark hooks/use-undo-shortcut.ts:15-25 isUndoKey: `z` alone undoes while single-key shortcuts are on (the help sheet
+            // always said "Ctrl + Z / z"; M2 hotfix: only Ctrl+Z was mapped, HAND TEST 2)
+            "z" => ShortcutAction.Undo,
             "x" => ctx.HasMail ? ShortcutAction.ToggleSelect : ShortcutAction.Pass,
             // Bulwark's unadvertised alias of Shift+R
             "a" => ctx.HasMail ? ShortcutAction.MailAction("reply-all") : ShortcutAction.Pass,

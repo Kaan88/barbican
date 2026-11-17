@@ -1081,3 +1081,42 @@ stage's own items. Commits are on `m2` (`git log --first-parent m2`); the per-st
   - the delete_undo and move traces;
   - the `auto-m2` VM script;
   - 33 interaction rows deferred as the plan lists them.
+
+## M2 hotfix: writes (stream: m2-hotfix-writes)
+
+- **Security boundary moved: the user's profiles are now unrestricted.** `src/Barbican.Core/Accounts/ReadOnlyPolicy.cs`
+  (`For`, `Unrestricted`, `IsReadOnly`) and `src/Barbican.Core/Storage/ProfilePaths.cs` (`IsAgentProfile`: `auto-*`, `smoke`,
+  `smoke-*`, `xrun-*`, `agent-*`). Before, "dev" and the empty profile were agent profiles, so the user's portable zip was read-only
+  on every account (HAND TEST 2). The agents' protection of `<readonly-account>` now rests entirely on agents never running in a
+  user profile. Review that every agent launch path is covered: `HiddenWindowOptions.Decide` (an AUTOMATION build or `--smoke` exits
+  on a named non-agent profile), `tools/auto-run.ps1` `Assert-AgentProfile`, `tools/linux-remote.sh` (`xrun-<name>`). Not covered by
+  code: an agent starting a Release build by hand without `--smoke` (visible window, already forbidden by CLAUDE.md) or running
+  `dotnet run` with `BARBICAN_PROFILE=dev`. Commit d779998.
+- **Stored read-only flags in "dev" are now ignored.** Earlier agent imports (`BARBICAN_IMPORT_RUST_ACCOUNTS=1` in "dev", before
+  this hotfix) may have left `<readonly-account>` in the dev profile's credential set flagged read-only; it is now writable there,
+  by design (the user owns it). Any agent that still runs a build in "dev" could write to it. `RustCredentialImport` refuses the
+  agent import outside agent profiles now. Commit d779998.
+- **CLAUDE.md line "C# dev builds use their own profile (`BARBICAN_PROFILE=dev`)" is stale**: dev is the user's profile; agents use
+  auto-*/smoke/xrun-*. Not edited by this stream (CLAUDE.md is the user's rules file); the user or the next review should update it.
+- **Real drag and drop was never wired** (no `CanDragItems`/`AllowDrop`/`Drop` anywhere); now the platform's in-app DnD:
+  `src/Barbican.App/Views/List/MessageListView.xaml(.cs)` (drag source), `src/Barbican.App/Views/Sidebar/SidebarView.xaml(.cs)`
+  (folder list drag source and drop target via `AddHandler(..., handledEventsToo)`, tag rows drop targets with a transparent
+  background), state in `DropController.BeginMailDrag(targets)/BeginFolderDrag/CanDropOnFolder/DropOnFolderAsync/DropOnTagAsync/
+  CancelDrag`. Unverified: real pointer dragging (hand test), the order of `Drop` and `DragItemsCompleted` (CancelDrag is a no-op
+  once a drop consumed the drag), Uno Skia's in-app DnD on Linux (compiles and tests green; never driven), `DragUIOverride` captions
+  on Uno. CanDragItems on the message list may interact with press-and-hold on touch. Commit ce83fb8.
+- **Plain `z` undo** added (`ShortcutTables.Mail`), Bulwark `hooks/use-undo-shortcut.ts:15-25`; Rust maps only Ctrl+Z. Bulwark parity
+  chosen over Rust because the `?` sheet already advertised it. Commit 45ef124.
+- **Sample runs hide account-policy bugs.** `SampleActiveMail.CanWrite` is always true and bypasses `AccountManager`, so the M2
+  verify could never see the read-only zip. The policy-to-client chain now has a unit test (`AccountManagerTests.
+  The_users_own_profile_writes_to_every_account_even_one_flagged_read_only`), but there is still no hidden run that signs into
+  FakeJmap through the real `AccountManager`; consider one before M3.
+- **`caption` automation command** (`src/Barbican.App/Shell/Automation/CaptionCommand.cs`) calls `ShellPage.AttachWindow` on the
+  hidden window (ExtendsContentIntoTitleBar on an off-screen, never-activated window); focus-guard stayed `own-is-foreground=no`.
+- **No tag keyboard shortcut** exists in Rust or Bulwark; "tag through the shortcut" was checked through the menus only. The palette
+  has no tag rows (`palette Tag` / `palette Red`: 0 rows) — a parity question for the menus stream.
+- **Not fixed here, owned by m2-close-a (not merged at the time of this hotfix):** tag menu rows Show messages, Mark all as read,
+  New tag, Rename, Delete tag, Manage tags have no registered commands (always disabled, also on a writable account); the sidebar
+  "+" (`sidebar.tags.add`), folder settings button and Compose are `IsEnabled="False"` in XAML; right-click on the folders header
+  and the avatar opens nothing (the menus exist: `menu-open FOLDERS-HEADER` / `ACCOUNT` work); rail Calendar, Contacts, Files and
+  Settings switch to apps that do not exist yet (M4-M6) and show nothing.
