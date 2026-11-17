@@ -778,6 +778,52 @@ For the next Fable pass, in this order:
   - The real keyboard path is a hand test.
 
 
+## M1 hotfix: sign-in (stream: m1-hotfix-signin)
+
+HAND TEST 1 on the portable zip from 6b506be: passkey sign-in failed, the TOTP sign-in on the server's page crashed the app
+at the callback (WER: CoreMessagingXP.dll 0xc000027b, combase RPC_E_WRONG_THREAD), and every later start showed an empty
+mail screen. Commits 15223c7, aa77c20, 56038a3.
+
+- **Root cause of the crash and of the empty shell: `ActiveChanged` off the UI thread.** `AccountManager` raises it from
+  thread-pool continuations (sign-in after the loopback, `RestoreAsync` under `AccountsStartup`'s `Task.Run`, and since R2-02
+  the retry loop). `ActiveMailSource` forwarded it synchronously to UI-bound ViewModels. The fix marshals in
+  `Presentation/Mail/ActiveMailSource.cs` only; the manager still raises its events on any thread. **Review:** every other
+  direct subscriber of `IAccountManager.ActiveChanged` / `IAccountOverview.StatusesChanged` must keep dispatching itself
+  (today: `ShellPage`, `AccountsViewModel`); a new subscriber that forgets will bring the crash back. Consider making the
+  manager raise its events through an injected context instead. The proof is `SignInThreadTests` (a UI-thread stand-in, not
+  WinUI); no hidden-app run signed in, because the AUTOMATION build has no FakeJmap-backed account route (the fake OAuth
+  provider still lives in Core.Tests, linked into Presentation.Tests).
+- **`Changed` is now posted, not synchronous, when raised off the UI thread.** Subscribers read `Active`/`Mail`/`Sync` when
+  the post runs, so a quick second change can be seen twice with the newer account. Check `MailEventHub.Attach` and
+  `MessageListViewModel.OnAccountChanged` tolerate a repeated change of the same account.
+- **The crash guard swallows UI-thread exceptions** (`App/Composition/CrashGuard.cs`: `Application.UnhandledException` is
+  marked handled after logging to `<data dir>/logs/crash-*.log`). This keeps the app alive but can leave a ViewModel half
+  updated; it also hides failures from the AUTOMATION build, which only notices them in the logs folder. Decide whether the
+  automation build should fail a run when a crash log appears. Logs hold exception messages, which may contain an address the
+  user typed (never a password or token by construction; not enforced).
+- **The 11:03 and 11:05 automation crashes (wt-m1-fix-security, P7 0x800710dd)** are the same failure mode (an unhandled
+  WinRT exception on the UI thread turned into a fail-fast at combase+0xabfa) but not the same bug: a different HRESULT
+  (HRESULT_FROM_WIN32 4317, ERROR_INVALID_OPERATION), in hidden runs of the F-03/F-13 WebView2 work with no sign-in. 21 such
+  crashes of that automation exe since 04:46 are in WER. No dump existed. The crash guard will now log them; look at the
+  logs folder of the next one before guessing.
+- **RFC 9207 check relaxed (deviation from F-04).** `CallbackCheck`: an issuer the metadata does not name no longer refuses an
+  `iss` it cannot compare (Bulwark browser-sign-in.ts:170 parity). `OAuthDiscovery` takes the issuer of the server's own
+  well-known document for an own per-account document without one (Stalwart answers `issuer: ""` on a plain-HTTP connection
+  behind a TLS proxy, openid.rs:60). The user's server sends a full issuer, so this did not cause HAND TEST 1; it was latent
+  and the login hint now routes every sign-in through `/api/discover/<account>`.
+- **Passkeys: cause not proven.** Stalwart 0.16.27's source has no WebAuthn; the user's server runs a newer login page with
+  passkeys whose passkey login posts the page's raw query back (`authCodePasskey` with `query`). The only differences
+  between the C# and Rust requests were the missing `login_hint` (6b506be's form sent none) and `%20` instead of `+` in
+  `scope`; both are now identical to Rust (`OAuthFlow.FormEncode`, test `The_authorize_query_is_written_as_the_Rust_app_writes_it`).
+  The same OAuth client id is used by both apps (stateless `swc1.` ids, the cached ids are equal). If passkeys still fail,
+  the next step needs a real browser: the page's error text and the server's log for the `authCodePasskey` request.
+- **Atomic save:** an account is remembered (vault: entries, then index) before hooks and before it is announced, so the
+  crash point of HAND TEST 1 cannot lose it (`A_finished_sign_in_is_remembered_before_anything_can_fail_on_it`). Not changed:
+  a vault write that fails still lets the sign-in succeed unremembered (Rust parity, `AccountStore.LastError` only).
+- **User state left as found:** `%APPDATA%/Barbican-dev` and the credentials `Barbican.Next/dev/session`, `.../accounts`
+  (the pre-F-05 single-entry layout) were only listed. The new build migrates them on the first start (ADR 0008 amendment)
+  and should restore the account without the form.
+
 ## M2 plan (stream: m2-plan)
 
 The plan [docs/milestones/M2-plan.md](milestones/M2-plan.md) was written on branch `m2` (from `origin/m1` at `112c9f9`). Items for Fable:

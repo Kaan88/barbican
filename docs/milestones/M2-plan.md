@@ -5,7 +5,8 @@
   live safety), §6 (workflow, models, concurrency); decisions: [adr/](../adr/README.md); open review items:
   [FABLE-REVIEW.md](../FABLE-REVIEW.md) (M1 consolidated list, Fable review 2, m1-fix-2) and
   [fable-review-2.md](../fable-review-2.md) R2-06 to R2-14; the M1 report [M1.md](M1.md) §5, §6.
-- Integration branch: **`m2`**, taken from `origin/m1` at `112c9f9` (m1 with m1-fix-2 merged). M2 builds on `m1` because the
+- Integration branch: **`m2`**, taken from `origin/m1` at `112c9f9` (m1 with m1-fix-2 merged), and since then holding the
+  HAND TEST 1 sign-in hotfix (`c90c83d`, merged from `m1`: UI-thread account change, crash log and guard, issuer-less discovery). M2 builds on `m1` because the
   user has not done HAND TEST 1 yet. If `m1` changes before the M1 gate (hand-test fixes), the integrator merges `m1` into `m2`
   (never a rebase, never a force-push). Nothing merges to `main` and nothing is tagged until the user's M2 hand test and OK.
 - Accounts and paths are placeholders (CLAUDE.md, `.local/accounts.md`): `<readonly-account>`, `<test-account>`, `<server>`,

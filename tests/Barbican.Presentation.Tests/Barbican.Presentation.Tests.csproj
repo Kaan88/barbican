@@ -16,6 +16,13 @@
     <Compile Include="../../src/Barbican.App/Shell/KeyGate.cs" Link="ShellUi/Linked/KeyGate.cs" />
   </ItemGroup>
   <ItemGroup>
+    <!-- M1 hotfix (sign-in): sign-in and restore end to end on FakeJmap with the fake OAuth provider, to prove the UI-thread rule. -->
+    <ProjectReference Include="../Barbican.FakeJmap/Barbican.FakeJmap.csproj" />
+    <Compile Include="../Barbican.Core.Tests/Auth/FakeOAuthProvider.cs" Link="Accounts/Linked/FakeOAuthProvider.cs" />
+    <Compile Include="../Barbican.Core.Tests/Accounts/MemoryVault.cs" Link="Accounts/Linked/MemoryVault.cs" />
+    <Compile Include="../Barbican.Core.Tests/Settings/Prefs/TestProfilePaths.cs" Link="Accounts/Linked/TestProfilePaths.cs" />
+  </ItemGroup>
+  <ItemGroup>
     <!-- m1-mailcore: FakeTimeProvider for the key repeat, g sequence and interval tests (version pinned in Directory.Packages.props). -->
     <PackageReference Include="Microsoft.Extensions.TimeProvider.Testing" />
     <!-- m1-mailcore: the registration test builds a real service provider. -->
