@@ -1,9 +1,10 @@
-#if AUTOMATION
+#if AUTOMATION && WINDOWS
 // Mirrors: M2 hotfix (HAND TEST 2 "none of the menus on the side are accessible"): a pattern invoke can succeed where a real click is swallowed by
 // the window's drag region, so this reads the non-client regions Windows really uses. `caption` gives the shell the chrome of a normal window
 // (ShellPage.AttachWindow: content extended into the title bar, the title band set as the drag area; a hidden run skips it) and replies the
 // Caption and Passthrough regions of InputNonClientPointerSource in logical px of the client area, so a script can check that no region
-// covers the rail, the sidebar or anything else below the 38 px title band. The window stays off-screen and is never activated.
+// covers the rail, the sidebar or anything else below the 38 px title band. The window stays off-screen and is never activated. Windows only
+// (the Linux head keeps the window manager's title bar).
 
 using System.Globalization;
 using System.Text;
@@ -29,7 +30,6 @@ public sealed class CaptionCommand : IAutomationCommand
 
     public async Task<string> RunAsync(string args, CancellationToken cancellationToken)
     {
-#if WINDOWS
         if (_window is not { } window || _shell is not { } shell)
         {
             return "error no window";
@@ -60,10 +60,6 @@ public sealed class CaptionCommand : IAutomationCommand
         }
 
         return sb.ToString();
-#else
-        await Task.CompletedTask.ConfigureAwait(true);
-        return "n/a on Linux (the window manager draws the title bar)";
-#endif
     }
 }
 #endif
