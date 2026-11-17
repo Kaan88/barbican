@@ -47,7 +47,7 @@ public static class AccountsRegistration
 
         services.TryAddSingleton(sp => ReadOnlyPolicy.For(sp.GetRequiredService<IProfilePaths>().Profile, Environment.GetEnvironmentVariable, ReadOnlyPolicy.ReadAllowList));
         services.TryAddSingleton(_ => new JmapClientOptions());
-        services.TryAddSingleton<AccountStore>();
+        services.TryAddSingleton(sp => new AccountStore(sp.GetRequiredService<IAccountVault>(), sp.GetRequiredService<IProfilePaths>(), sp.GetRequiredService<TimeProvider>()));
         services.TryAddSingleton(sp => new AccountManager(
             sp.GetRequiredService<IJmapClientFactory>(),
             sp.GetRequiredService<Mail.Service.IMailAccountFactory>(),
@@ -58,9 +58,11 @@ public static class AccountsRegistration
             sp.GetRequiredService<ReadOnlyPolicy>(),
             sp.GetRequiredService<Plugins.Hooks.IHookBus>(),
             sp.GetRequiredService<TimeProvider>(),
-            sp.GetRequiredService<JmapClientOptions>()));
+            sp.GetRequiredService<JmapClientOptions>(),
+            sp.GetService<IBodyCache>()));
         services.TryAddSingleton<IAccountManager>(sp => sp.GetRequiredService<AccountManager>());
         services.TryAddSingleton<IAccountOverview>(sp => sp.GetRequiredService<AccountManager>());
+        services.TryAddSingleton<IAccountMaintenance>(sp => sp.GetRequiredService<AccountManager>());
         return services;
     }
 }

@@ -1,219 +1,219 @@
-name,group,kind,permission,also_permission,payload,when,bulwark_ref,milestone,owner,cs_call_site,status
-onEmailsFetched,mail-list,transform,email:render-takeover,,"Email[] (list rows), { mailboxId }","after a page of the message list is loaded, before it is shown",lib/plugin-hook-catalog.ts:72,M1,mailcore,src/Barbican.Presentation/Mail/MessageListViewModel.cs:433,done
-onEmailListItemRender,mail-list,transform,email:read,,"EmailListBadge[], { email: EmailSummary }",for each visible row; returned badges are shown next to the subject,lib/plugin-hook-catalog.ts:73,M1,mailcore,src/Barbican.Presentation/Mail/MessageListViewModel.cs:472,done
-onEmailSelectionChange,mail-list,observer,email:read,,{ emailIds: string[] },when the set of selected messages changes,lib/plugin-hook-catalog.ts:74,M1,mailcore,src/Barbican.Presentation/Mail/MessageListViewModel.cs:257,done
-onMailboxChange,mail-list,observer,email:read,,"{ mailboxId, role, previousMailboxId }",when the user opens another folder,lib/plugin-hook-catalog.ts:75,M1,mailcore,src/Barbican.Presentation/Mail/MessageListViewModel.cs:178,done
-onEmailOpen,mail-read,observer,email:read,,EmailReadView,when a message is opened,lib/plugin-hook-catalog.ts:78,M1,body,src/Barbican.Presentation/Mail/Loading/MessageLoader.cs:346,done
-onEmailClose,mail-read,observer,email:read,,{ emailId },when the open message is closed or replaced,lib/plugin-hook-catalog.ts:79,M1,body,src/Barbican.Presentation/Mail/Loading/MessageLoader.cs:448,done
-onRenderEmailBody,mail-read,transform,email:render-takeover,,"RenderableBody, MessageContext",before the body of an opened message is rendered,lib/plugin-hook-catalog.ts:80,M1,body,src/Barbican.Presentation/Mail/Loading/MessageLoader.cs:297,done
-onEmailContentRender,mail-read,observer,email:read,,"{ emailId, hasHtml, hasExternalContent }",after the body of an opened message is on screen,lib/plugin-hook-catalog.ts:81,M1,body,src/Barbican.Presentation/Mail/Loading/MessageLoader.cs:357,done
-onThreadExpand,mail-read,observer,email:read,,"{ threadId, emailIds, expanded }",when a conversation is expanded or collapsed,lib/plugin-hook-catalog.ts:82,M1,body,src/Barbican.Presentation/Mail/Loading/MessageLoader.cs:136,done
-onBeforeReply,mail-read,intercept,email:read,,ReplyContext,"when Reply is chosen, before the composer opens",lib/plugin-hook-catalog.ts:83,M3,,,pending
-onBeforeReplyAll,mail-read,intercept,email:read,,ReplyContext,"when Reply all is chosen, before the composer opens",lib/plugin-hook-catalog.ts:84,M3,,,pending
-onBeforeForward,mail-read,intercept,email:read,,ReplyContext,"when Forward is chosen, before the composer opens",lib/plugin-hook-catalog.ts:85,M3,,,pending
-onBeforeExternalLink,mail-read,intercept,links:check,,ExternalLinkContext,"when a link is opened (mail, reader view, events, contacts, notifications, the unsubscribe link, links other plugins open); return false to stop it or { href } to change it",lib/plugin-hook-catalog.ts:86,M2,reader,src/Barbican.Core/Mail/Body/CheckedLinkRouter.cs:30,done
-onAvatarResolve,mail-read,transform,email:read,,"string | null (avatar URL), { email, name }",when a sender avatar is needed,lib/plugin-hook-catalog.ts:87,M2,reader,src/Barbican.Core/Mail/Avatars/AvatarService.cs:80,done
-onBeforeCompose,mail-compose,intercept,email:send,,ComposeOptions,before the composer opens; return false to stop it or a ComposeOptions to prefill it,lib/plugin-hook-catalog.ts:90,M3,,,pending
-onComposerOpen,mail-compose,observer,email:read,,ComposerContext,after the composer opened,lib/plugin-hook-catalog.ts:91,M3,,,pending
-onComposerClose,mail-compose,observer,email:read,,"{ draftId, sent: boolean }",after the composer closed,lib/plugin-hook-catalog.ts:92,M3,,,pending
-onDraftChange,mail-compose,observer,email:read,,DraftView,while the user writes (debounced),lib/plugin-hook-catalog.ts:93,M3,,,pending
-onBeforeDraftAutoSave,mail-compose,transform,email:send,,AlmostSavedDraft,"before a draft is saved; return a changed draft, or false to skip a save while typing (saves on close and before send always run)",lib/plugin-hook-catalog.ts:94,M3,,,pending
-onDraftAutoSave,mail-compose,observer,email:read,,"{ draftId, subject }",after a draft was saved,lib/plugin-hook-catalog.ts:95,M3,,,pending
-onBeforeEditDraft,mail-compose,transform,email:send,,Email,before a saved draft is opened in the composer,lib/plugin-hook-catalog.ts:96,M3,,,pending
-onBuildQuoteHeader,mail-compose,transform,email:send,,"QuoteHeader, QuoteHeaderContext",when a reply or forward is set up,lib/plugin-hook-catalog.ts:97,M3,,,pending
-onRecipientChipsChange,mail-compose,transform,email:send,,Recipient[],when the recipient fields change,lib/plugin-hook-catalog.ts:98,M3,,,pending
-onBeforeComposeOpenToReply,mail-compose,transform,email:send,,Email (the original),before a reply is filled in,lib/plugin-hook-catalog.ts:99,M3,,,pending
-onBeforeComposeOpenToReplyAll,mail-compose,transform,email:send,,Email (the original),before a reply-all is filled in,lib/plugin-hook-catalog.ts:100,M3,,,pending
-onBeforeComposeOpenToForward,mail-compose,transform,email:send,,Email (the original),before a forward is filled in,lib/plugin-hook-catalog.ts:101,M3,,,pending
-onBeforeComposeOpenToForwardAsAttachment,mail-compose,transform,email:send,,Email (the original),before a forward-as-attachment is filled in,lib/plugin-hook-catalog.ts:102,M3,,,pending
-onMailtoIntercept,mail-compose,intercept,email:read,,MailtoContext,when a mailto: link is opened; return false to stop the composer,lib/plugin-hook-catalog.ts:103,M3,,,pending
-onComposeFromLink,mail-compose,observer,compose:read,compose:write,ComposeLinkContext,"when the composer opened from a mailto: or Bulwark link carrying parameters for this plugin (x-<plugin id>-<name>=<value>); only this plugin hears it, with the prefix gone (Bulwark 1.21 and later)",lib/plugin-hook-catalog.ts:105,M3,,,pending
-onBeforeEmailSend,mail-send,intercept,email:send,,OutgoingEmail,when Send is pressed; a handler that fails or times out stops the send,lib/plugin-hook-catalog.ts:108,M3,,,pending
-onTransformOutgoingEmail,mail-send,transform,email:send,,OutgoingEmail,right before the message is submitted,lib/plugin-hook-catalog.ts:109,M3,,,pending
-onComposeSend,mail-send,takeover,email:send,,ComposeSendRequest,at the start of sending; may send the message itself,lib/plugin-hook-catalog.ts:110,M3,,,pending
-onAfterEmailSend,mail-send,observer,email:read,,"{ emailId, accountId, submissionId, to, cc, bcc, subject, scheduledFor, composerId }",after the server accepted the message,lib/plugin-hook-catalog.ts:111,M3,,,pending
-onBeforeEmailDelete,mail-organize,intercept,email:write,,"{ emailIds, permanent }",before messages are deleted or moved to Trash,lib/plugin-hook-catalog.ts:114,M2,actions,src/Barbican.Presentation/Actions/MailActionService.Moves.cs:202,done
-onAfterEmailDelete,mail-organize,observer,email:read,,"{ emailIds, permanent }",after messages were deleted,lib/plugin-hook-catalog.ts:115,M2,actions,src/Barbican.Presentation/Actions/MailActionService.Moves.cs:203,done
-onBeforeEmailMove,mail-organize,intercept,email:write,,"{ emailIds, fromMailboxId, toMailboxId }","before messages are moved (toMailboxId null: removed from fromMailboxId only, still in other folders)",lib/plugin-hook-catalog.ts:116,M2,actions,src/Barbican.Presentation/Actions/MailActionService.Moves.cs:30,done
-onAfterEmailMove,mail-organize,observer,email:read,,"{ emailIds, fromMailboxId, toMailboxId }","after messages were moved (toMailboxId null: removed from fromMailboxId only, still in other folders)",lib/plugin-hook-catalog.ts:117,M2,actions,src/Barbican.Presentation/Actions/MailActionService.Moves.cs:31,done
-onBeforeEmailArchive,mail-organize,intercept,email:write,,{ emailIds },before messages are archived,lib/plugin-hook-catalog.ts:118,M2,actions,src/Barbican.Presentation/Actions/MailActionService.Moves.cs:89,done
-onEmailArchive,mail-organize,observer,email:read,,{ emailIds },after messages were archived,lib/plugin-hook-catalog.ts:119,M2,actions,src/Barbican.Presentation/Actions/MailActionService.Moves.cs:90,done
-onEmailUnarchive,mail-organize,observer,email:read,,"{ emailIds, toMailboxId }",after messages were moved out of the archive,lib/plugin-hook-catalog.ts:120,M2,actions,src/Barbican.Presentation/Actions/MailActionService.Moves.cs:61,done
-onBeforeEmailSpamToggle,mail-organize,intercept,email:write,,"{ emailIds, spam }",before messages are marked as spam or not spam,lib/plugin-hook-catalog.ts:121,M2,actions,src/Barbican.Presentation/Actions/MailActionService.Moves.cs:109,done
-onEmailSpamToggle,mail-organize,observer,email:read,,"{ emailIds, spam }",after messages were marked as spam or not spam,lib/plugin-hook-catalog.ts:122,M2,actions,src/Barbican.Presentation/Actions/MailActionService.Moves.cs:110,done
-onBeforeEmailReadStateChange,mail-organize,intercept,email:write,,"{ emailIds, read }",before messages are marked read or unread,lib/plugin-hook-catalog.ts:123,M2,actions,src/Barbican.Presentation/Actions/MailActionService.Keywords.cs:20,done
-onEmailReadStateChange,mail-organize,observer,email:read,,"{ emailIds, read }",after messages were marked read or unread,lib/plugin-hook-catalog.ts:124,M2,actions,src/Barbican.Presentation/Actions/MailActionService.Keywords.cs:20,done
-onBeforeEmailStarToggle,mail-organize,intercept,email:write,,"{ emailIds, starred, accountId }",before messages are starred or unstarred; `accountId` names the messages' account when it is not the user's own (a team or shared mailbox),lib/plugin-hook-catalog.ts:125,M2,actions,src/Barbican.Presentation/Actions/MailActionService.Keywords.cs:34,done
-onEmailStarToggle,mail-organize,observer,email:read,,"{ emailIds, starred, accountId }",after messages were starred or unstarred; `accountId` as on onBeforeEmailStarToggle,lib/plugin-hook-catalog.ts:126,M2,actions,src/Barbican.Presentation/Actions/MailActionService.Keywords.cs:34,done
-onBeforeEmailKeywordChange,mail-organize,intercept,email:write,,"{ emailIds, added: string[], removed: string[] }",before tags or other keywords are changed,lib/plugin-hook-catalog.ts:127,M2,actions,src/Barbican.Presentation/Actions/MailActionService.Keywords.cs:86,done
-onEmailKeywordChange,mail-organize,observer,email:read,,"{ emailIds, added: string[], removed: string[] }",after tags or other keywords changed,lib/plugin-hook-catalog.ts:128,M2,actions,src/Barbican.Presentation/Actions/MailActionService.Keywords.cs:86,done
-onBeforeEmailCategorize,mail-organize,intercept,email:read,,EmailCategorizeContext,before messages are moved to another inbox tab,lib/plugin-hook-catalog.ts:129,M10,,,pending
-onEmailCategorize,mail-organize,observer,email:read,,EmailCategorizeContext,after messages were moved to another inbox tab,lib/plugin-hook-catalog.ts:130,M10,,,pending
-onMailboxesRefresh,mail-mailboxes,observer,email:read,,MailboxView[],after the folder list was loaded or refreshed,lib/plugin-hook-catalog.ts:133,M1,mailcore,src/Barbican.Presentation/Shell/SidebarViewModel.cs:99,done
-onBeforeMailboxCreate,mail-mailboxes,intercept,email:write,,"{ name, parentId }",before a folder is created,lib/plugin-hook-catalog.ts:134,M2,actions,src/Barbican.Presentation/Actions/MailActionService.Folders.cs:34,done
-onMailboxCreate,mail-mailboxes,observer,email:read,,"{ mailboxId, name, parentId }",after a folder was created,lib/plugin-hook-catalog.ts:135,M2,actions,src/Barbican.Presentation/Actions/MailActionService.Folders.cs:45,done
-onBeforeMailboxRename,mail-mailboxes,intercept,email:write,,"{ mailboxId, name }",before a folder is renamed,lib/plugin-hook-catalog.ts:136,M2,actions,src/Barbican.Presentation/Actions/MailActionService.Folders.cs:61,done
-onMailboxRename,mail-mailboxes,observer,email:read,,"{ mailboxId, name, previousName }",after a folder was renamed,lib/plugin-hook-catalog.ts:137,M2,actions,src/Barbican.Presentation/Actions/MailActionService.Folders.cs:62,done
-onBeforeMailboxDelete,mail-mailboxes,intercept,email:write,,"{ mailboxId, name }",before a folder is deleted,lib/plugin-hook-catalog.ts:138,M2,actions,src/Barbican.Presentation/Actions/MailActionService.Folders.cs:76,done
-onMailboxDelete,mail-mailboxes,observer,email:read,,"{ mailboxId, name }",after a folder was deleted,lib/plugin-hook-catalog.ts:139,M2,actions,src/Barbican.Presentation/Actions/MailActionService.Folders.cs:87,done
-onBeforeMailboxEmpty,mail-mailboxes,intercept,email:write,,"{ mailboxId, role }",before a folder (usually Trash or Spam) is emptied,lib/plugin-hook-catalog.ts:140,M2,actions,src/Barbican.Presentation/Actions/MailActionService.Folders.cs:105,done
-onMailboxEmpty,mail-mailboxes,observer,email:read,,"{ mailboxId, role, count }",after a folder was emptied,lib/plugin-hook-catalog.ts:141,M2,actions,src/Barbican.Presentation/Actions/MailActionService.Folders.cs:116,done
-onQuotaChange,mail-mailboxes,observer,email:read,,QuotaView,when the storage quota was read and changed,lib/plugin-hook-catalog.ts:142,M1,mailcore,src/Barbican.Presentation/Shell/SidebarViewModel.cs:111,done
-onSearch,mail-search,transform,email:read,,"{ query, filters: SearchFilters }",before a search runs; may change the query and filters,lib/plugin-hook-catalog.ts:145,M1,mailcore,src/Barbican.Presentation/Mail/MessageListViewModel.cs:202,done
-onSearchResults,mail-search,transform,email:read,,"string[], { query, filters, emailIds }",after search results arrived; return ids of further messages to add to them (at most 100),lib/plugin-hook-catalog.ts:146,M1,mailcore,src/Barbican.Presentation/Mail/MessageListViewModel.cs:441,done
-onProvideSearchResults,mail-search,transform,email:read,,"ExternalSearchResult[], { query, filters }","to add results from elsewhere to a search; drawn above its message list (title and snippet, or one line of score, title, from and date when the user chooses); an entry naming a message (email) opens it on a click, any other click comes back as onAction with surface ""search-results"" and the entry's key",lib/plugin-hook-catalog.ts:147,M2,search,src/Barbican.Presentation/Search/GlobalSearchPaletteProvider.cs:59,done
-onBeforeAttachmentUpload,mail-attachments,intercept,email:read,,AttachmentInfo,before a file is attached in the composer,lib/plugin-hook-catalog.ts:150,M3,,,pending
-onBeforeBlobUpload,mail-attachments,transform,email:blob-write,,"{ file, blobId } | ExternalAttachmentResult",before an attachment is uploaded; may offload it,lib/plugin-hook-catalog.ts:151,M3,,,pending
-onAfterAttachmentUpload,mail-attachments,observer,email:read,,AttachmentInfo,after an attachment was uploaded,lib/plugin-hook-catalog.ts:152,M3,,,pending
-onAttachmentDownload,mail-attachments,observer,email:read,,AttachmentInfo,when an attachment of a message is downloaded,lib/plugin-hook-catalog.ts:153,M2,reader,src/Barbican.Core/Mail/Attachments/AttachmentSaver.cs:45,done
-onAttachmentPreview,mail-attachments,transform,email:render-takeover,,"AttachmentPreview, AttachmentInfo",when an attachment preview opens,lib/plugin-hook-catalog.ts:154,M5,,,pending
-onNewEmailReceived,mail-sync,observer,email:read,,EmailSummary,for each new message in the inbox (push or poll),lib/plugin-hook-catalog.ts:157,M1,jmap,src/Barbican.Core/Sync/MailSync.cs:209,done
-onPushConnectionChange,mail-sync,observer,email:read,,{ connected: boolean },when live updates connect or drop,lib/plugin-hook-catalog.ts:158,M1,jmap,src/Barbican.Core/Sync/MailSync.Push.cs:172,done
-onSyncStateChange,mail-sync,observer,email:read,,"{ state: ""syncing"" | ""idle"" | ""error"", error? }",when the app starts or finishes fetching changes from the server,lib/plugin-hook-catalog.ts:159,M1,jmap,src/Barbican.Core/Sync/MailSync.cs:228,done
-onCalendarEventOpen,calendar,observer,calendar:read,,CalendarEventView,when an event is opened,lib/plugin-hook-catalog.ts:162,M4,,,pending
-onCalendarEventFormOpen,calendar,observer,calendar:read,,CalendarEventFormView,when the event form opens,lib/plugin-hook-catalog.ts:163,M4,,,pending
-onCalendarEventFormSave,calendar,transform,calendar:write,,"CalendarEventFormSavePatch, CalendarEventFormView",while the event form is saved,lib/plugin-hook-catalog.ts:164,M4,,,pending
-onCheckEventConflicts,calendar,transform,calendar:read,,"ConflictWarning[], { event }",while start or end change in the event form,lib/plugin-hook-catalog.ts:165,M4,,,pending
-onBeforeEventCreate,calendar,intercept,calendar:write,,CalendarEventView,before an event is created,lib/plugin-hook-catalog.ts:166,M4,,,pending
-onCreatingEvent,calendar,transform,calendar:write,,"{localEvent: CalendarEvent, serverEvent: CalendarEvent}",when an event is created,lib/plugin-hook-catalog.ts:167,M4,,,pending
-onAfterEventCreate,calendar,observer,calendar:read,,CalendarEventView,after an event was created,lib/plugin-hook-catalog.ts:168,M4,,,pending
-onBeforeEventUpdate,calendar,intercept,calendar:write,,"{ eventId, patch }",before an event is changed,lib/plugin-hook-catalog.ts:169,M4,,,pending
-onUpdatingEvent,calendar,transform,calendar:write,,"{localUpdates : Partial<CalendarEvent>, serverUpdates: Partial<CalendarEvent>, eventId: string}",when an event is updated,lib/plugin-hook-catalog.ts:170,M4,,,pending
-onBeforeFetchEvents,calendar,transform,calendar:write,,"{ start, end }",before events are fetched from the server; may change the range,lib/plugin-hook-catalog.ts:171,M4,,,pending
-onFetchingEvents,calendar,transform,calendar:write,,CalendarEvent[],after events are fetched from the server; may add or remove events,lib/plugin-hook-catalog.ts:172,M4,,,pending
-onAfterEventUpdate,calendar,observer,calendar:read,,CalendarEventView,after an event was changed,lib/plugin-hook-catalog.ts:173,M4,,,pending
-onBeforeEventDelete,calendar,intercept,calendar:write,,"{ eventId, title }",before an event is deleted,lib/plugin-hook-catalog.ts:174,M4,,,pending
-onAfterEventDelete,calendar,observer,calendar:read,,"{ eventId, title }",after an event was deleted,lib/plugin-hook-catalog.ts:175,M4,,,pending
-onBeforeEventRsvp,calendar,intercept,calendar:write,,"{ eventId, status }",before an invitation is answered,lib/plugin-hook-catalog.ts:176,M4,,,pending
-onEventRsvp,calendar,observer,calendar:read,,"{ eventId, status }",after an invitation was answered,lib/plugin-hook-catalog.ts:177,M4,,,pending
-onBeforeEventsImport,calendar,intercept,calendar:write,,"{ calendarId, count }",before events from a file are imported,lib/plugin-hook-catalog.ts:178,M4,,,pending
-onEventsImport,calendar,observer,calendar:read,,"{ calendarId, imported, skipped }",after events were imported,lib/plugin-hook-catalog.ts:179,M4,,,pending
-onCalendarDateChange,calendar,observer,calendar:read,,{ date },when the shown date changes,lib/plugin-hook-catalog.ts:180,M4,,,pending
-onCalendarViewChange,calendar,observer,calendar:read,,{ view },"when day, week, month or agenda view is chosen",lib/plugin-hook-catalog.ts:181,M4,,,pending
-onCalendarChange,calendar,observer,calendar:read,,"{ calendarId, change: ""created"" | ""updated"" | ""removed"" }","after a calendar was created, changed or removed",lib/plugin-hook-catalog.ts:182,M4,,,pending
-onCalendarVisibilityToggle,calendar,observer,calendar:read,,"{ calendarId, visible }",when a calendar is shown or hidden,lib/plugin-hook-catalog.ts:183,M4,,,pending
-onICalSubscriptionChange,calendar,observer,calendar:read,,"{ subscriptionId, change: ""added"" | ""updated"" | ""removed"" | ""refreshed"" }",when a calendar subscription changes,lib/plugin-hook-catalog.ts:184,M4,,,pending
-onBeforeCalendarAlert,calendar,intercept,calendar:write,tasks:write,CalendarAlertView,"before Bulwark shows a reminder of an event or a task, in every open tab; return false to show it yourself (no toast, sound or title alert from Bulwark; onCalendarAlert still fires); a task's needs tasks:write, an event's calendar:write",lib/plugin-hook-catalog.ts:185,M4,,,pending
-onCalendarAlert,calendar,observer,calendar:read,tasks:read,"CalendarAlertView ({ id, eventId, eventTitle, triggerTime } or { id, taskId, taskTitle, triggerTime })","when a reminder of an event or a task fires, in every open tab, also one a plugin took over; a task's needs tasks:read, an event's calendar:read",lib/plugin-hook-catalog.ts:186,M4,,,pending
-onCalendarAlertAcknowledge,calendar,observer,calendar:read,tasks:read,"{ alertId, eventId } or { alertId, taskId }","when the user closes a reminder's toast, in that tab only; a task's needs tasks:read, an event's calendar:read",lib/plugin-hook-catalog.ts:187,M4,,,pending
-onContactOpen,contacts,observer,contacts:read,,ContactView,when a contact is opened,lib/plugin-hook-catalog.ts:190,M5,,,pending
-onBeforeContactCreate,contacts,intercept,contacts:write,,ContactView,before a contact is created,lib/plugin-hook-catalog.ts:191,M5,,,pending
-onAfterContactCreate,contacts,observer,contacts:read,,ContactView,after a contact was created,lib/plugin-hook-catalog.ts:192,M5,,,pending
-onBeforeContactUpdate,contacts,intercept,contacts:write,,"{ contactId, patch }",before a contact is changed,lib/plugin-hook-catalog.ts:193,M5,,,pending
-onAfterContactUpdate,contacts,observer,contacts:read,,ContactView,after a contact was changed,lib/plugin-hook-catalog.ts:194,M5,,,pending
-onBeforeContactDelete,contacts,intercept,contacts:write,,{ contactIds },before contacts are deleted,lib/plugin-hook-catalog.ts:195,M5,,,pending
-onAfterContactDelete,contacts,observer,contacts:read,,{ contactIds },after contacts were deleted,lib/plugin-hook-catalog.ts:196,M5,,,pending
-onContactsImport,contacts,observer,contacts:read,,"{ addressBookId, imported }",after contacts were imported,lib/plugin-hook-catalog.ts:197,M5,,,pending
-onContactSelectionChange,contacts,observer,contacts:read,,{ contactIds },when the selected contacts change,lib/plugin-hook-catalog.ts:198,M5,,,pending
-onContactGroupChange,contacts,observer,contacts:read,,"{ groupId, change: ""created"" | ""updated"" | ""deleted"" }",after a contact group changed,lib/plugin-hook-catalog.ts:199,M5,,,pending
-onContactGroupMemberChange,contacts,observer,contacts:read,,"{ groupId, added, removed }",after members were added to or removed from a group,lib/plugin-hook-catalog.ts:200,M5,,,pending
-onContactMove,contacts,observer,contacts:read,,"{ contactId, toAddressBookId }",after a contact moved to another address book,lib/plugin-hook-catalog.ts:201,M5,,,pending
-onProvideRecipientSuggestions,contacts,transform,contacts:read,,"RecipientSuggestion[], { query }",to add suggestions to recipient autocomplete,lib/plugin-hook-catalog.ts:202,M5,,,pending
-onTasksLoaded,tasks,observer,tasks:read,,TaskView[],after the task list was loaded,lib/plugin-hook-catalog.ts:205,M4,,,pending
-onBeforeTaskCreate,tasks,intercept,tasks:write,,TaskView,before a task is created,lib/plugin-hook-catalog.ts:206,M4,,,pending
-onTaskCreate,tasks,observer,tasks:read,,TaskView,after a task was created,lib/plugin-hook-catalog.ts:207,M4,,,pending
-onBeforeTaskUpdate,tasks,intercept,tasks:write,,"{ taskId, patch }",before a task is changed,lib/plugin-hook-catalog.ts:208,M4,,,pending
-onTaskUpdate,tasks,observer,tasks:read,,TaskView,after a task was changed,lib/plugin-hook-catalog.ts:209,M4,,,pending
-onBeforeTaskDelete,tasks,intercept,tasks:write,,"{ taskId, title }",before a task is deleted,lib/plugin-hook-catalog.ts:210,M4,,,pending
-onTaskDelete,tasks,observer,tasks:read,,"{ taskId, title }",after a task was deleted,lib/plugin-hook-catalog.ts:211,M4,,,pending
-onTaskToggleComplete,tasks,observer,tasks:read,,"{ taskId, complete }",after a task was checked off or reopened,lib/plugin-hook-catalog.ts:212,M4,,,pending
-onTaskFilterChange,tasks,observer,tasks:read,,"{ filter, showCompleted }",when the task filter changes,lib/plugin-hook-catalog.ts:213,M4,,,pending
-onFileNavigate,files,observer,files:read,,{ path },when another folder is opened,lib/plugin-hook-catalog.ts:216,M5,,,pending
-onBeforeFileUpload,files,intercept,files:write,,"{ name, size, type, path }",before a file is uploaded,lib/plugin-hook-catalog.ts:217,M5,,,pending
-onAfterFileUpload,files,observer,files:read,,FileResourceView,after a file was uploaded,lib/plugin-hook-catalog.ts:218,M5,,,pending
-onFileUploadCancel,files,observer,files:read,,"{ name, path }",when an upload is cancelled,lib/plugin-hook-catalog.ts:219,M5,,,pending
-onFileDownload,files,observer,files:read,,FileResourceView,when a file is downloaded,lib/plugin-hook-catalog.ts:220,M5,,,pending
-onDirectoryCreate,files,observer,files:read,,FileResourceView,after a folder was created,lib/plugin-hook-catalog.ts:221,M5,,,pending
-onBeforeFileDelete,files,intercept,files:write,,{ files: FileResourceView[] },before files are deleted,lib/plugin-hook-catalog.ts:222,M5,,,pending
-onAfterFileDelete,files,observer,files:read,,{ files: FileResourceView[] },after files were deleted,lib/plugin-hook-catalog.ts:223,M5,,,pending
-onBeforeFileRename,files,intercept,files:write,,"{ file, newName }",before a file is renamed,lib/plugin-hook-catalog.ts:224,M5,,,pending
-onFileRename,files,observer,files:read,,"{ file, previousName }",after a file was renamed,lib/plugin-hook-catalog.ts:225,M5,,,pending
-onBeforeFileMove,files,intercept,files:write,,"{ files, toPath }",before files are moved,lib/plugin-hook-catalog.ts:226,M5,,,pending
-onFileMove,files,observer,files:read,,"{ files, toPath }",after files were moved,lib/plugin-hook-catalog.ts:227,M5,,,pending
-onFileCopy,files,observer,files:read,,"{ files, toPath }",after files were copied,lib/plugin-hook-catalog.ts:228,M5,,,pending
-onFileDuplicate,files,observer,files:read,,FileResourceView,after a file was duplicated,lib/plugin-hook-catalog.ts:229,M5,,,pending
-onFileFavoriteToggle,files,observer,files:read,,"{ file, favorite }",when a file is starred or unstarred,lib/plugin-hook-catalog.ts:230,M5,,,pending
-onFileSelectionChange,files,observer,files:read,,{ files: FileResourceView[] },when the selected files change,lib/plugin-hook-catalog.ts:231,M5,,,pending
-onFileUndo,files,observer,files:read,,{ action },after the last file action was undone,lib/plugin-hook-catalog.ts:232,M5,,,pending
-onBeforeSettingChange,settings,intercept,settings:write,,"{ key, value, previous }",before a preference is changed,lib/plugin-hook-catalog.ts:235,M6,,,pending
-onSettingChange,settings,observer,settings:read,,"{ key, value, previous }",after a preference changed,lib/plugin-hook-catalog.ts:236,M6,,,pending
-onSettingsExport,settings,observer,settings:read,,{ keys: string[] },after settings were exported,lib/plugin-hook-catalog.ts:237,M6,,,pending
-onSettingsImport,settings,observer,settings:read,,{ keys: string[] },after settings were imported,lib/plugin-hook-catalog.ts:238,M6,,,pending
-onSettingsReset,settings,observer,settings:read,,{},after settings were reset to defaults,lib/plugin-hook-catalog.ts:239,M6,,,pending
-onSettingsSync,settings,observer,settings:read,,"{ direction: ""pulled"" | ""pushed"" }",after settings were synced with the server,lib/plugin-hook-catalog.ts:240,M6,,,pending
-onKeywordChange,settings,observer,settings:read,,{ keywords: KeywordView[] },after the tag definitions changed,lib/plugin-hook-catalog.ts:241,M6,,,pending
-onTrustedSenderChange,settings,observer,settings:read,,"{ email, trusted }",after a sender was trusted or untrusted for remote content,lib/plugin-hook-catalog.ts:242,M6,,,pending
-onIdentitiesLoaded,identities,observer,identity:read,,IdentityView[],after sender identities were loaded,lib/plugin-hook-catalog.ts:245,M6,,,pending
-onBeforeIdentityChange,identities,intercept,identity:write,,"{ identityId?, change: ""create"" | ""update"" | ""delete"", identity? }","before an identity is created, changed or deleted",lib/plugin-hook-catalog.ts:246,M6,,,pending
-onIdentityCreate,identities,observer,identity:read,,IdentityView,after an identity was created,lib/plugin-hook-catalog.ts:247,M6,,,pending
-onIdentityUpdate,identities,observer,identity:read,,IdentityView,after an identity was changed,lib/plugin-hook-catalog.ts:248,M6,,,pending
-onIdentityDelete,identities,observer,identity:read,,{ identityId },after an identity was deleted,lib/plugin-hook-catalog.ts:249,M6,,,pending
-onIdentitySelect,identities,observer,identity:read,,IdentityView,when another From identity is chosen in the composer,lib/plugin-hook-catalog.ts:250,M6,,,pending
-onSignatureRender,identities,transform,identity:read,,"{ html, text }, { identityId }",when a signature is inserted into the composer,lib/plugin-hook-catalog.ts:251,M6,,,pending
-onSelectReplyIdentity,identities,transform,email:send,,ReplyIdentityContext,"when a reply, reply-all, forward or quick reply picks its From identity; return the id of one of the listed identities to send from it, or nothing to keep Bulwark's pick. A From the user picked by hand wins",lib/plugin-hook-catalog.ts:252,M6,,,pending
-onFiltersLoaded,filters,observer,filters:read,,FilterRuleView[],after filter rules were loaded,lib/plugin-hook-catalog.ts:255,M6,,,pending
-onFilterRuleChange,filters,observer,filters:read,,"{ ruleId, change: ""added"" | ""updated"" | ""deleted"" | ""reordered"" | ""toggled"" }",after a filter rule changed in the editor,lib/plugin-hook-catalog.ts:256,M6,,,pending
-onBeforeFiltersSave,filters,intercept,filters:write,,{ rules: FilterRuleView[] },before filter rules are saved to the server,lib/plugin-hook-catalog.ts:257,M6,,,pending
-onFiltersSave,filters,observer,filters:read,,{ accountId },after the filter script was saved,lib/plugin-hook-catalog.ts:258,M6,,,pending
-onSieveScriptChange,filters,observer,filters:read,,{ accountId },after the active script changed,lib/plugin-hook-catalog.ts:259,M6,,,pending
-onSieveScriptGenerate,filters,transform,filters:write,,"string (Sieve script), SieveScriptGenerateContext",before the generated script is uploaded,lib/plugin-hook-catalog.ts:260,M6,,,pending
-onVacationLoaded,vacation,observer,vacation:read,,VacationView,after the out-of-office reply was loaded,lib/plugin-hook-catalog.ts:263,M6,,,pending
-onBeforeVacationUpdate,vacation,intercept,vacation:write,,VacationView,before the out-of-office reply is changed,lib/plugin-hook-catalog.ts:264,M6,,,pending
-onVacationUpdate,vacation,observer,vacation:read,,VacationView,after the out-of-office reply was changed,lib/plugin-hook-catalog.ts:265,M6,,,pending
-onTemplateCreate,templates,observer,templates:read,,TemplateView,after a template was created,lib/plugin-hook-catalog.ts:268,M6,,,pending
-onTemplateUpdate,templates,observer,templates:read,,TemplateView,after a template was changed,lib/plugin-hook-catalog.ts:269,M6,,,pending
-onTemplateDelete,templates,observer,templates:read,,{ templateId },after a template was deleted,lib/plugin-hook-catalog.ts:270,M6,,,pending
-onTemplatesImport,templates,observer,templates:read,,{ count },after templates were imported,lib/plugin-hook-catalog.ts:271,M6,,,pending
-onTemplateApply,templates,observer,templates:read,,TemplateView,after a template was inserted into the composer,lib/plugin-hook-catalog.ts:272,M6,,,pending
-onTemplateRender,templates,transform,templates:read,,"{ subject, html, text }, { templateId }",before a template is inserted; may change the text,lib/plugin-hook-catalog.ts:273,M6,,,pending
-onLogin,auth,observer,auth:observe,,"{ accountId, username }",after a sign-in,lib/plugin-hook-catalog.ts:276,M1,accounts,src/Barbican.Core/Accounts/AccountManager.cs:331,done
-onAuthReady,auth,observer,auth:observe,,{ accountId },when the session is ready after start or sign-in,lib/plugin-hook-catalog.ts:277,M1,accounts,src/Barbican.Core/Accounts/AccountManager.cs:332,done
-onTokenRefresh,auth,observer,auth:observe,,{ accountId },after the access token was renewed,lib/plugin-hook-catalog.ts:278,M1,accounts,src/Barbican.Core/Accounts/AccountManager.cs:534,done
-onAccountAdd,auth,observer,auth:observe,,{ accountId },after another account was added,lib/plugin-hook-catalog.ts:279,M1,accounts,src/Barbican.Core/Accounts/AccountManager.cs:335,done
-onAccountRemove,auth,observer,auth:observe,,{ accountId },after an account was removed,lib/plugin-hook-catalog.ts:280,M2,unified,,pending
-onAccountSwitch,auth,observer,app:lifecycle,,"{ accountId, previousAccountId }",after another account was made active,lib/plugin-hook-catalog.ts:281,M1,accounts,src/Barbican.Core/Accounts/AccountManager.cs:482,done
-onBeforeLogout,auth,observer,app:lifecycle,,{ accountId },just before signing out,lib/plugin-hook-catalog.ts:282,M2,unified,,pending
-onAfterLogout,auth,observer,app:lifecycle,,{ accountId },after signing out,lib/plugin-hook-catalog.ts:283,M2,unified,,pending
-onOAuthCallback,auth,observer,http:fetch,,OAuthCallbackPayload,when a third-party OAuth flow this plugin started returns,lib/plugin-hook-catalog.ts:284,M6b,,,pending
-onPasswordChange,security,observer,security:read,,{},after the account password was changed,lib/plugin-hook-catalog.ts:287,M6,,,pending
-onTotpChange,security,observer,security:read,,{ enabled },after two-factor sign-in was turned on or off,lib/plugin-hook-catalog.ts:288,M6,,,pending
-onAppPasswordChange,security,observer,security:read,,"{ change: ""created"" | ""removed"" }",after an app password was created or removed,lib/plugin-hook-catalog.ts:289,M6,,,pending
-onEncryptionChange,security,observer,security:read,,{ enabled },after encryption at rest was changed,lib/plugin-hook-catalog.ts:290,M6,,,pending
-onDisplayNameChange,security,observer,security:read,,{ displayName },after the account display name was changed,lib/plugin-hook-catalog.ts:291,M6,,,pending
-onNavigate,navigation,observer,ui:observe,,RouteContext,after the app moved to another page,lib/plugin-hook-catalog.ts:294,M1,mailcore,src/Barbican.Presentation/Shell/ShellViewModel.cs:116,done
-onRouteEnter,navigation,observer,ui:observe,,RouteContext,when a page is entered,lib/plugin-hook-catalog.ts:295,M1,mailcore,src/Barbican.Presentation/Shell/ShellViewModel.cs:117,done
-onRouteLeave,navigation,observer,ui:observe,,RouteContext,when a page is left,lib/plugin-hook-catalog.ts:296,M1,mailcore,src/Barbican.Presentation/Shell/ShellViewModel.cs:115,done
-onThemeChange,theme,observer,ui:observe,,"{ theme: ""light"" | ""dark"" | ""system"", resolved: ""light"" | ""dark"" }",after the colour scheme changed,lib/plugin-hook-catalog.ts:299,M1,shell-ui,src/Barbican.App/Theme/ThemeController.cs:114,done
-onCustomThemeChange,theme,observer,ui:observe,,{ themeId },after another theme was activated,lib/plugin-hook-catalog.ts:300,M10,,,pending
-onThemeBeforeApply,theme,transform,ui:observe,,"string (CSS), { themeId, variant }",before theme CSS is applied,lib/plugin-hook-catalog.ts:301,M1,shell-ui,src/Barbican.App/Theme/ThemeController.cs:126,done
-onLocaleChange,theme,observer,ui:observe,,{ locale },after the app language changed,lib/plugin-hook-catalog.ts:302,M10,,,pending
-onToastShow,notifications,observer,ui:notifications,,"{ id, type, title, message }",when the app shows a toast,lib/plugin-hook-catalog.ts:306,M8,,,pending
-onToastDismiss,notifications,observer,ui:notifications,,{ id },when a toast is dismissed,lib/plugin-hook-catalog.ts:307,M8,,,pending
-onNotificationClick,notifications,observer,ui:notifications,,{ tag },"when a notification the plugin showed, or one from the app, is clicked",lib/plugin-hook-catalog.ts:308,M8,,,pending
-onAppReady,app,observer,app:lifecycle,,{ accountId },once after the app has started and the mail data is loaded,lib/plugin-hook-catalog.ts:311,M1,mailcore,src/Barbican.Presentation/Shell/ShellViewModel.cs:161,done
-onVisibilityChange,app,observer,app:lifecycle,,{ visible },when the tab is hidden or shown,lib/plugin-hook-catalog.ts:312,M1,mailcore,src/Barbican.Presentation/Shell/ShellViewModel.cs:174,done
-onWindowFocus,app,observer,app:lifecycle,,{},when the window gains focus,lib/plugin-hook-catalog.ts:313,M1,mailcore,src/Barbican.Presentation/Shell/ShellViewModel.cs:171,done
-onWindowBlur,app,observer,app:lifecycle,,{},when the window loses focus,lib/plugin-hook-catalog.ts:314,M1,mailcore,src/Barbican.Presentation/Shell/ShellViewModel.cs:171,done
-onOnline,app,observer,app:lifecycle,,{},when the network comes back,lib/plugin-hook-catalog.ts:315,M1,mailcore,src/Barbican.Presentation/Shell/ShellViewModel.cs:176,done
-onOffline,app,observer,app:lifecycle,,{},when the network goes away,lib/plugin-hook-catalog.ts:316,M1,mailcore,src/Barbican.Presentation/Shell/ShellViewModel.cs:176,done
-onBeforeUnload,app,observer,app:lifecycle,,{},when the page is about to close,lib/plugin-hook-catalog.ts:317,M1,mailcore,src/Barbican.Presentation/Shell/ShellViewModel.cs:179,done
-onAppError,app,observer,app:lifecycle,,{ message },when an unhandled error occurs in the app,lib/plugin-hook-catalog.ts:318,M1,mailcore,src/Barbican.Presentation/Shell/ShellViewModel.cs:185,done
-onInterval,app,observer,app:lifecycle,,{ now },once a minute while the app is open,lib/plugin-hook-catalog.ts:319,M1,mailcore,src/Barbican.Presentation/Shell/ShellViewModel.cs:189,done
-onViewChange,ui,observer,ui:observe,,"{ view: ""sidebar"" | ""list"" | ""viewer"" }","when the phone layout switches between folders, message list and message",lib/plugin-hook-catalog.ts:322,n/a,,,n/a(Bulwark phone layout: the desktop app has one layout)
-onSidebarToggle,ui,observer,ui:observe,,{ open },when the sidebar is opened or closed,lib/plugin-hook-catalog.ts:323,M1,mailcore,src/Barbican.Presentation/Shell/ShellViewModel.cs:149,done
-onSidebarCollapse,ui,observer,ui:observe,,{ collapsed },when the sidebar is collapsed or expanded,lib/plugin-hook-catalog.ts:324,M1,mailcore,src/Barbican.Presentation/Shell/ShellViewModel.cs:157,done
-onDeviceTypeChange,ui,observer,ui:observe,,"{ deviceType: ""mobile"" | ""tablet"" | ""desktop"" }","when the layout switches between phone, tablet and desktop",lib/plugin-hook-catalog.ts:325,n/a,,,n/a(Bulwark phone/tablet/desktop switch: the desktop app has one layout)
-onColumnResize,ui,observer,ui:observe,,"{ column: ""sidebar"" | ""email-list"" | ""email-list-height"", width }",after a column was resized or reset,lib/plugin-hook-catalog.ts:326,M2,actions,src/Barbican.Presentation/Shell/PanesViewModel.cs:80,done
-onMobileBack,ui,observer,ui:observe,,{},when Back is used on the phone layout,lib/plugin-hook-catalog.ts:327,n/a,,,n/a(Bulwark phone layout: the desktop app has one layout)
-onTextSelectionChange,ui,observer,email:read,,SelectionContext,when the user selects text (debounced),lib/plugin-hook-catalog.ts:328,M2,reader,src/Barbican.App/MailBody/BodyShell.cs (ShellMessageKind.Selection),done
-onDragStart,ui,observer,email:read,,"{ kind: ""email"", ids }",when messages start being dragged,lib/plugin-hook-catalog.ts:329,M2,actions,src/Barbican.Presentation/DragDrop/DropController.cs:55,done
-onDragEnd,ui,observer,email:read,,"{ kind, ids, dropped }",when a drag ends,lib/plugin-hook-catalog.ts:330,M2,actions,src/Barbican.Presentation/DragDrop/DropController.cs:64,done
-onEmailDrop,ui,observer,email:read,,"{ emailIds, targetMailboxId }",after messages were dropped on a folder,lib/plugin-hook-catalog.ts:331,M2,actions,src/Barbican.Presentation/DragDrop/DropController.cs:75,done
-onTagDrop,ui,observer,email:read,,"{ emailIds, keyword }",after a tag was dropped on messages,lib/plugin-hook-catalog.ts:332,M2,actions,src/Barbican.Presentation/DragDrop/DropController.cs:90,done
-onSidebarAppOpen,ui,observer,ui:observe,,{ appId },when a sidebar app is opened,lib/plugin-hook-catalog.ts:333,M1,mailcore,src/Barbican.Presentation/Shell/ShellViewModel.cs:119,done
-onSidebarAppClose,ui,observer,ui:observe,,{ appId },when a sidebar app is closed,lib/plugin-hook-catalog.ts:334,M1,mailcore,src/Barbican.Presentation/Shell/ShellViewModel.cs:118,done
-onBeforeShortcut,keyboard,intercept,ui:keyboard,,"{ key, action }",before an app shortcut runs; return false to stop it,lib/plugin-hook-catalog.ts:337,M1,mailcore,src/Barbican.Presentation/Input/KeyRouter.cs:80,done
-onAfterShortcut,keyboard,observer,ui:keyboard,,"{ key, action }",after an app shortcut ran,lib/plugin-hook-catalog.ts:338,M1,mailcore,src/Barbican.Presentation/Input/KeyRouter.cs:91,done
-onTabsChange,tabs,observer,ui:message-list-tabs,,MessageListTab[],after the set of inbox tabs changed,lib/plugin-hook-catalog.ts:341,M10,,,pending
-onTabActivate,tabs,observer,ui:message-list-tabs,,TabActivateContext,when another inbox tab is chosen,lib/plugin-hook-catalog.ts:342,M10,,,pending
-onTabCountsRefresh,tabs,observer,ui:message-list-tabs,,"Record<tabId, number>",after the unread counts per tab were refreshed,lib/plugin-hook-catalog.ts:343,M10,,,pending
+name,group,kind,permission,also_permission,payload,when,bulwark_ref,milestone,owner,cs_call_site,status,budget_ms,fail_closed
+onEmailsFetched,mail-list,transform,email:render-takeover,,"Email[] (list rows), { mailboxId }","after a page of the message list is loaded, before it is shown",lib/plugin-hook-catalog.ts:72,M1,mailcore,src/Barbican.Presentation/Mail/MessageListViewModel.cs:433,done,5000,false
+onEmailListItemRender,mail-list,transform,email:read,,"EmailListBadge[], { email: EmailSummary }",for each visible row; returned badges are shown next to the subject,lib/plugin-hook-catalog.ts:73,M1,mailcore,src/Barbican.Presentation/Mail/MessageListViewModel.cs:472,done,5000,false
+onEmailSelectionChange,mail-list,observer,email:read,,{ emailIds: string[] },when the set of selected messages changes,lib/plugin-hook-catalog.ts:74,M1,mailcore,src/Barbican.Presentation/Mail/MessageListViewModel.cs:257,done,5000,false
+onMailboxChange,mail-list,observer,email:read,,"{ mailboxId, role, previousMailboxId }",when the user opens another folder,lib/plugin-hook-catalog.ts:75,M1,mailcore,src/Barbican.Presentation/Mail/MessageListViewModel.cs:178,done,5000,false
+onEmailOpen,mail-read,observer,email:read,,EmailReadView,when a message is opened,lib/plugin-hook-catalog.ts:78,M1,body,src/Barbican.Presentation/Mail/Loading/MessageLoader.cs:346,done,5000,false
+onEmailClose,mail-read,observer,email:read,,{ emailId },when the open message is closed or replaced,lib/plugin-hook-catalog.ts:79,M1,body,src/Barbican.Presentation/Mail/Loading/MessageLoader.cs:448,done,5000,false
+onRenderEmailBody,mail-read,transform,email:render-takeover,,"RenderableBody, MessageContext",before the body of an opened message is rendered,lib/plugin-hook-catalog.ts:80,M1,body,src/Barbican.Presentation/Mail/Loading/MessageLoader.cs:297,done,5000,false
+onEmailContentRender,mail-read,observer,email:read,,"{ emailId, hasHtml, hasExternalContent }",after the body of an opened message is on screen,lib/plugin-hook-catalog.ts:81,M1,body,src/Barbican.Presentation/Mail/Loading/MessageLoader.cs:357,done,5000,false
+onThreadExpand,mail-read,observer,email:read,,"{ threadId, emailIds, expanded }",when a conversation is expanded or collapsed,lib/plugin-hook-catalog.ts:82,M1,body,src/Barbican.Presentation/Mail/Loading/MessageLoader.cs:136,done,5000,false
+onBeforeReply,mail-read,intercept,email:read,,ReplyContext,"when Reply is chosen, before the composer opens",lib/plugin-hook-catalog.ts:83,M3,,,pending,60000,false
+onBeforeReplyAll,mail-read,intercept,email:read,,ReplyContext,"when Reply all is chosen, before the composer opens",lib/plugin-hook-catalog.ts:84,M3,,,pending,60000,false
+onBeforeForward,mail-read,intercept,email:read,,ReplyContext,"when Forward is chosen, before the composer opens",lib/plugin-hook-catalog.ts:85,M3,,,pending,60000,false
+onBeforeExternalLink,mail-read,intercept,links:check,,ExternalLinkContext,"when a link is opened (mail, reader view, events, contacts, notifications, the unsubscribe link, links other plugins open); return false to stop it or { href } to change it",lib/plugin-hook-catalog.ts:86,M2,reader,src/Barbican.Core/Mail/Body/CheckedLinkRouter.cs:30,done,60000,false
+onAvatarResolve,mail-read,transform,email:read,,"string | null (avatar URL), { email, name }",when a sender avatar is needed,lib/plugin-hook-catalog.ts:87,M2,reader,src/Barbican.Core/Mail/Avatars/AvatarService.cs:80,done,5000,false
+onBeforeCompose,mail-compose,intercept,email:send,,ComposeOptions,before the composer opens; return false to stop it or a ComposeOptions to prefill it,lib/plugin-hook-catalog.ts:90,M3,,,pending,60000,false
+onComposerOpen,mail-compose,observer,email:read,,ComposerContext,after the composer opened,lib/plugin-hook-catalog.ts:91,M3,,,pending,5000,false
+onComposerClose,mail-compose,observer,email:read,,"{ draftId, sent: boolean }",after the composer closed,lib/plugin-hook-catalog.ts:92,M3,,,pending,5000,false
+onDraftChange,mail-compose,observer,email:read,,DraftView,while the user writes (debounced),lib/plugin-hook-catalog.ts:93,M3,,,pending,5000,false
+onBeforeDraftAutoSave,mail-compose,transform,email:send,,AlmostSavedDraft,"before a draft is saved; return a changed draft, or false to skip a save while typing (saves on close and before send always run)",lib/plugin-hook-catalog.ts:94,M3,,,pending,5000,false
+onDraftAutoSave,mail-compose,observer,email:read,,"{ draftId, subject }",after a draft was saved,lib/plugin-hook-catalog.ts:95,M3,,,pending,5000,false
+onBeforeEditDraft,mail-compose,transform,email:send,,Email,before a saved draft is opened in the composer,lib/plugin-hook-catalog.ts:96,M3,,,pending,5000,false
+onBuildQuoteHeader,mail-compose,transform,email:send,,"QuoteHeader, QuoteHeaderContext",when a reply or forward is set up,lib/plugin-hook-catalog.ts:97,M3,,,pending,5000,false
+onRecipientChipsChange,mail-compose,transform,email:send,,Recipient[],when the recipient fields change,lib/plugin-hook-catalog.ts:98,M3,,,pending,5000,false
+onBeforeComposeOpenToReply,mail-compose,transform,email:send,,Email (the original),before a reply is filled in,lib/plugin-hook-catalog.ts:99,M3,,,pending,5000,false
+onBeforeComposeOpenToReplyAll,mail-compose,transform,email:send,,Email (the original),before a reply-all is filled in,lib/plugin-hook-catalog.ts:100,M3,,,pending,5000,false
+onBeforeComposeOpenToForward,mail-compose,transform,email:send,,Email (the original),before a forward is filled in,lib/plugin-hook-catalog.ts:101,M3,,,pending,5000,false
+onBeforeComposeOpenToForwardAsAttachment,mail-compose,transform,email:send,,Email (the original),before a forward-as-attachment is filled in,lib/plugin-hook-catalog.ts:102,M3,,,pending,5000,false
+onMailtoIntercept,mail-compose,intercept,email:read,,MailtoContext,when a mailto: link is opened; return false to stop the composer,lib/plugin-hook-catalog.ts:103,M3,,,pending,60000,false
+onComposeFromLink,mail-compose,observer,compose:read,compose:write,ComposeLinkContext,"when the composer opened from a mailto: or Bulwark link carrying parameters for this plugin (x-<plugin id>-<name>=<value>); only this plugin hears it, with the prefix gone (Bulwark 1.21 and later)",lib/plugin-hook-catalog.ts:105,M3,,,pending,5000,false
+onBeforeEmailSend,mail-send,intercept,email:send,,OutgoingEmail,when Send is pressed; a handler that fails or times out stops the send,lib/plugin-hook-catalog.ts:108,M3,,,pending,600000,true
+onTransformOutgoingEmail,mail-send,transform,email:send,,OutgoingEmail,right before the message is submitted,lib/plugin-hook-catalog.ts:109,M3,,,pending,5000,false
+onComposeSend,mail-send,takeover,email:send,,ComposeSendRequest,at the start of sending; may send the message itself,lib/plugin-hook-catalog.ts:110,M3,,,pending,600000,true
+onAfterEmailSend,mail-send,observer,email:read,,"{ emailId, accountId, submissionId, to, cc, bcc, subject, scheduledFor, composerId }",after the server accepted the message,lib/plugin-hook-catalog.ts:111,M3,,,pending,5000,false
+onBeforeEmailDelete,mail-organize,intercept,email:write,,"{ emailIds, permanent }",before messages are deleted or moved to Trash,lib/plugin-hook-catalog.ts:114,M2,actions,src/Barbican.Presentation/Actions/MailActionService.Moves.cs:202,done,60000,false
+onAfterEmailDelete,mail-organize,observer,email:read,,"{ emailIds, permanent }",after messages were deleted,lib/plugin-hook-catalog.ts:115,M2,actions,src/Barbican.Presentation/Actions/MailActionService.Moves.cs:203,done,5000,false
+onBeforeEmailMove,mail-organize,intercept,email:write,,"{ emailIds, fromMailboxId, toMailboxId }","before messages are moved (toMailboxId null: removed from fromMailboxId only, still in other folders)",lib/plugin-hook-catalog.ts:116,M2,actions,src/Barbican.Presentation/Actions/MailActionService.Moves.cs:30,done,60000,false
+onAfterEmailMove,mail-organize,observer,email:read,,"{ emailIds, fromMailboxId, toMailboxId }","after messages were moved (toMailboxId null: removed from fromMailboxId only, still in other folders)",lib/plugin-hook-catalog.ts:117,M2,actions,src/Barbican.Presentation/Actions/MailActionService.Moves.cs:31,done,5000,false
+onBeforeEmailArchive,mail-organize,intercept,email:write,,{ emailIds },before messages are archived,lib/plugin-hook-catalog.ts:118,M2,actions,src/Barbican.Presentation/Actions/MailActionService.Moves.cs:89,done,60000,false
+onEmailArchive,mail-organize,observer,email:read,,{ emailIds },after messages were archived,lib/plugin-hook-catalog.ts:119,M2,actions,src/Barbican.Presentation/Actions/MailActionService.Moves.cs:90,done,5000,false
+onEmailUnarchive,mail-organize,observer,email:read,,"{ emailIds, toMailboxId }",after messages were moved out of the archive,lib/plugin-hook-catalog.ts:120,M2,actions,src/Barbican.Presentation/Actions/MailActionService.Moves.cs:61,done,5000,false
+onBeforeEmailSpamToggle,mail-organize,intercept,email:write,,"{ emailIds, spam }",before messages are marked as spam or not spam,lib/plugin-hook-catalog.ts:121,M2,actions,src/Barbican.Presentation/Actions/MailActionService.Moves.cs:109,done,60000,false
+onEmailSpamToggle,mail-organize,observer,email:read,,"{ emailIds, spam }",after messages were marked as spam or not spam,lib/plugin-hook-catalog.ts:122,M2,actions,src/Barbican.Presentation/Actions/MailActionService.Moves.cs:110,done,5000,false
+onBeforeEmailReadStateChange,mail-organize,intercept,email:write,,"{ emailIds, read }",before messages are marked read or unread,lib/plugin-hook-catalog.ts:123,M2,actions,src/Barbican.Presentation/Actions/MailActionService.Keywords.cs:20,done,60000,false
+onEmailReadStateChange,mail-organize,observer,email:read,,"{ emailIds, read }",after messages were marked read or unread,lib/plugin-hook-catalog.ts:124,M2,actions,src/Barbican.Presentation/Actions/MailActionService.Keywords.cs:20,done,5000,false
+onBeforeEmailStarToggle,mail-organize,intercept,email:write,,"{ emailIds, starred, accountId }",before messages are starred or unstarred; `accountId` names the messages' account when it is not the user's own (a team or shared mailbox),lib/plugin-hook-catalog.ts:125,M2,actions,src/Barbican.Presentation/Actions/MailActionService.Keywords.cs:34,done,60000,false
+onEmailStarToggle,mail-organize,observer,email:read,,"{ emailIds, starred, accountId }",after messages were starred or unstarred; `accountId` as on onBeforeEmailStarToggle,lib/plugin-hook-catalog.ts:126,M2,actions,src/Barbican.Presentation/Actions/MailActionService.Keywords.cs:34,done,5000,false
+onBeforeEmailKeywordChange,mail-organize,intercept,email:write,,"{ emailIds, added: string[], removed: string[] }",before tags or other keywords are changed,lib/plugin-hook-catalog.ts:127,M2,actions,src/Barbican.Presentation/Actions/MailActionService.Keywords.cs:86,done,60000,false
+onEmailKeywordChange,mail-organize,observer,email:read,,"{ emailIds, added: string[], removed: string[] }",after tags or other keywords changed,lib/plugin-hook-catalog.ts:128,M2,actions,src/Barbican.Presentation/Actions/MailActionService.Keywords.cs:86,done,5000,false
+onBeforeEmailCategorize,mail-organize,intercept,email:read,,EmailCategorizeContext,before messages are moved to another inbox tab,lib/plugin-hook-catalog.ts:129,M10,,,pending,60000,false
+onEmailCategorize,mail-organize,observer,email:read,,EmailCategorizeContext,after messages were moved to another inbox tab,lib/plugin-hook-catalog.ts:130,M10,,,pending,5000,false
+onMailboxesRefresh,mail-mailboxes,observer,email:read,,MailboxView[],after the folder list was loaded or refreshed,lib/plugin-hook-catalog.ts:133,M1,mailcore,src/Barbican.Presentation/Shell/SidebarViewModel.cs:99,done,5000,false
+onBeforeMailboxCreate,mail-mailboxes,intercept,email:write,,"{ name, parentId }",before a folder is created,lib/plugin-hook-catalog.ts:134,M2,actions,src/Barbican.Presentation/Actions/MailActionService.Folders.cs:34,done,60000,false
+onMailboxCreate,mail-mailboxes,observer,email:read,,"{ mailboxId, name, parentId }",after a folder was created,lib/plugin-hook-catalog.ts:135,M2,actions,src/Barbican.Presentation/Actions/MailActionService.Folders.cs:45,done,5000,false
+onBeforeMailboxRename,mail-mailboxes,intercept,email:write,,"{ mailboxId, name }",before a folder is renamed,lib/plugin-hook-catalog.ts:136,M2,actions,src/Barbican.Presentation/Actions/MailActionService.Folders.cs:61,done,60000,false
+onMailboxRename,mail-mailboxes,observer,email:read,,"{ mailboxId, name, previousName }",after a folder was renamed,lib/plugin-hook-catalog.ts:137,M2,actions,src/Barbican.Presentation/Actions/MailActionService.Folders.cs:62,done,5000,false
+onBeforeMailboxDelete,mail-mailboxes,intercept,email:write,,"{ mailboxId, name }",before a folder is deleted,lib/plugin-hook-catalog.ts:138,M2,actions,src/Barbican.Presentation/Actions/MailActionService.Folders.cs:76,done,60000,false
+onMailboxDelete,mail-mailboxes,observer,email:read,,"{ mailboxId, name }",after a folder was deleted,lib/plugin-hook-catalog.ts:139,M2,actions,src/Barbican.Presentation/Actions/MailActionService.Folders.cs:87,done,5000,false
+onBeforeMailboxEmpty,mail-mailboxes,intercept,email:write,,"{ mailboxId, role }",before a folder (usually Trash or Spam) is emptied,lib/plugin-hook-catalog.ts:140,M2,actions,src/Barbican.Presentation/Actions/MailActionService.Folders.cs:105,done,60000,false
+onMailboxEmpty,mail-mailboxes,observer,email:read,,"{ mailboxId, role, count }",after a folder was emptied,lib/plugin-hook-catalog.ts:141,M2,actions,src/Barbican.Presentation/Actions/MailActionService.Folders.cs:116,done,5000,false
+onQuotaChange,mail-mailboxes,observer,email:read,,QuotaView,when the storage quota was read and changed,lib/plugin-hook-catalog.ts:142,M1,mailcore,src/Barbican.Presentation/Shell/SidebarViewModel.cs:111,done,5000,false
+onSearch,mail-search,transform,email:read,,"{ query, filters: SearchFilters }",before a search runs; may change the query and filters,lib/plugin-hook-catalog.ts:145,M1,mailcore,src/Barbican.Presentation/Mail/MessageListViewModel.cs:202,done,5000,false
+onSearchResults,mail-search,transform,email:read,,"string[], { query, filters, emailIds }",after search results arrived; return ids of further messages to add to them (at most 100),lib/plugin-hook-catalog.ts:146,M1,mailcore,src/Barbican.Presentation/Mail/MessageListViewModel.cs:441,done,5000,false
+onProvideSearchResults,mail-search,transform,email:read,,"ExternalSearchResult[], { query, filters }","to add results from elsewhere to a search; drawn above its message list (title and snippet, or one line of score, title, from and date when the user chooses); an entry naming a message (email) opens it on a click, any other click comes back as onAction with surface ""search-results"" and the entry's key",lib/plugin-hook-catalog.ts:147,M2,search,src/Barbican.Presentation/Search/GlobalSearchPaletteProvider.cs:59,done,5000,false
+onBeforeAttachmentUpload,mail-attachments,intercept,email:read,,AttachmentInfo,before a file is attached in the composer,lib/plugin-hook-catalog.ts:150,M3,,,pending,60000,false
+onBeforeBlobUpload,mail-attachments,transform,email:blob-write,,"{ file, blobId } | ExternalAttachmentResult",before an attachment is uploaded; may offload it,lib/plugin-hook-catalog.ts:151,M3,,,pending,900000,false
+onAfterAttachmentUpload,mail-attachments,observer,email:read,,AttachmentInfo,after an attachment was uploaded,lib/plugin-hook-catalog.ts:152,M3,,,pending,5000,false
+onAttachmentDownload,mail-attachments,observer,email:read,,AttachmentInfo,when an attachment of a message is downloaded,lib/plugin-hook-catalog.ts:153,M2,reader,src/Barbican.Core/Mail/Attachments/AttachmentSaver.cs:45,done,5000,false
+onAttachmentPreview,mail-attachments,transform,email:render-takeover,,"AttachmentPreview, AttachmentInfo",when an attachment preview opens,lib/plugin-hook-catalog.ts:154,M5,,,pending,5000,false
+onNewEmailReceived,mail-sync,observer,email:read,,EmailSummary,for each new message in the inbox (push or poll),lib/plugin-hook-catalog.ts:157,M1,jmap,src/Barbican.Core/Sync/MailSync.cs:209,done,5000,false
+onPushConnectionChange,mail-sync,observer,email:read,,{ connected: boolean },when live updates connect or drop,lib/plugin-hook-catalog.ts:158,M1,jmap,src/Barbican.Core/Sync/MailSync.Push.cs:172,done,5000,false
+onSyncStateChange,mail-sync,observer,email:read,,"{ state: ""syncing"" | ""idle"" | ""error"", error? }",when the app starts or finishes fetching changes from the server,lib/plugin-hook-catalog.ts:159,M1,jmap,src/Barbican.Core/Sync/MailSync.cs:228,done,5000,false
+onCalendarEventOpen,calendar,observer,calendar:read,,CalendarEventView,when an event is opened,lib/plugin-hook-catalog.ts:162,M4,,,pending,5000,false
+onCalendarEventFormOpen,calendar,observer,calendar:read,,CalendarEventFormView,when the event form opens,lib/plugin-hook-catalog.ts:163,M4,,,pending,5000,false
+onCalendarEventFormSave,calendar,transform,calendar:write,,"CalendarEventFormSavePatch, CalendarEventFormView",while the event form is saved,lib/plugin-hook-catalog.ts:164,M4,,,pending,5000,false
+onCheckEventConflicts,calendar,transform,calendar:read,,"ConflictWarning[], { event }",while start or end change in the event form,lib/plugin-hook-catalog.ts:165,M4,,,pending,5000,false
+onBeforeEventCreate,calendar,intercept,calendar:write,,CalendarEventView,before an event is created,lib/plugin-hook-catalog.ts:166,M4,,,pending,60000,false
+onCreatingEvent,calendar,transform,calendar:write,,"{localEvent: CalendarEvent, serverEvent: CalendarEvent}",when an event is created,lib/plugin-hook-catalog.ts:167,M4,,,pending,5000,false
+onAfterEventCreate,calendar,observer,calendar:read,,CalendarEventView,after an event was created,lib/plugin-hook-catalog.ts:168,M4,,,pending,5000,false
+onBeforeEventUpdate,calendar,intercept,calendar:write,,"{ eventId, patch }",before an event is changed,lib/plugin-hook-catalog.ts:169,M4,,,pending,60000,false
+onUpdatingEvent,calendar,transform,calendar:write,,"{localUpdates : Partial<CalendarEvent>, serverUpdates: Partial<CalendarEvent>, eventId: string}",when an event is updated,lib/plugin-hook-catalog.ts:170,M4,,,pending,5000,false
+onBeforeFetchEvents,calendar,transform,calendar:write,,"{ start, end }",before events are fetched from the server; may change the range,lib/plugin-hook-catalog.ts:171,M4,,,pending,5000,false
+onFetchingEvents,calendar,transform,calendar:write,,CalendarEvent[],after events are fetched from the server; may add or remove events,lib/plugin-hook-catalog.ts:172,M4,,,pending,5000,false
+onAfterEventUpdate,calendar,observer,calendar:read,,CalendarEventView,after an event was changed,lib/plugin-hook-catalog.ts:173,M4,,,pending,5000,false
+onBeforeEventDelete,calendar,intercept,calendar:write,,"{ eventId, title }",before an event is deleted,lib/plugin-hook-catalog.ts:174,M4,,,pending,60000,false
+onAfterEventDelete,calendar,observer,calendar:read,,"{ eventId, title }",after an event was deleted,lib/plugin-hook-catalog.ts:175,M4,,,pending,5000,false
+onBeforeEventRsvp,calendar,intercept,calendar:write,,"{ eventId, status }",before an invitation is answered,lib/plugin-hook-catalog.ts:176,M4,,,pending,60000,false
+onEventRsvp,calendar,observer,calendar:read,,"{ eventId, status }",after an invitation was answered,lib/plugin-hook-catalog.ts:177,M4,,,pending,5000,false
+onBeforeEventsImport,calendar,intercept,calendar:write,,"{ calendarId, count }",before events from a file are imported,lib/plugin-hook-catalog.ts:178,M4,,,pending,60000,false
+onEventsImport,calendar,observer,calendar:read,,"{ calendarId, imported, skipped }",after events were imported,lib/plugin-hook-catalog.ts:179,M4,,,pending,5000,false
+onCalendarDateChange,calendar,observer,calendar:read,,{ date },when the shown date changes,lib/plugin-hook-catalog.ts:180,M4,,,pending,5000,false
+onCalendarViewChange,calendar,observer,calendar:read,,{ view },"when day, week, month or agenda view is chosen",lib/plugin-hook-catalog.ts:181,M4,,,pending,5000,false
+onCalendarChange,calendar,observer,calendar:read,,"{ calendarId, change: ""created"" | ""updated"" | ""removed"" }","after a calendar was created, changed or removed",lib/plugin-hook-catalog.ts:182,M4,,,pending,5000,false
+onCalendarVisibilityToggle,calendar,observer,calendar:read,,"{ calendarId, visible }",when a calendar is shown or hidden,lib/plugin-hook-catalog.ts:183,M4,,,pending,5000,false
+onICalSubscriptionChange,calendar,observer,calendar:read,,"{ subscriptionId, change: ""added"" | ""updated"" | ""removed"" | ""refreshed"" }",when a calendar subscription changes,lib/plugin-hook-catalog.ts:184,M4,,,pending,5000,false
+onBeforeCalendarAlert,calendar,intercept,calendar:write,tasks:write,CalendarAlertView,"before Bulwark shows a reminder of an event or a task, in every open tab; return false to show it yourself (no toast, sound or title alert from Bulwark; onCalendarAlert still fires); a task's needs tasks:write, an event's calendar:write",lib/plugin-hook-catalog.ts:185,M4,,,pending,5000,false
+onCalendarAlert,calendar,observer,calendar:read,tasks:read,"CalendarAlertView ({ id, eventId, eventTitle, triggerTime } or { id, taskId, taskTitle, triggerTime })","when a reminder of an event or a task fires, in every open tab, also one a plugin took over; a task's needs tasks:read, an event's calendar:read",lib/plugin-hook-catalog.ts:186,M4,,,pending,5000,false
+onCalendarAlertAcknowledge,calendar,observer,calendar:read,tasks:read,"{ alertId, eventId } or { alertId, taskId }","when the user closes a reminder's toast, in that tab only; a task's needs tasks:read, an event's calendar:read",lib/plugin-hook-catalog.ts:187,M4,,,pending,5000,false
+onContactOpen,contacts,observer,contacts:read,,ContactView,when a contact is opened,lib/plugin-hook-catalog.ts:190,M5,,,pending,5000,false
+onBeforeContactCreate,contacts,intercept,contacts:write,,ContactView,before a contact is created,lib/plugin-hook-catalog.ts:191,M5,,,pending,60000,false
+onAfterContactCreate,contacts,observer,contacts:read,,ContactView,after a contact was created,lib/plugin-hook-catalog.ts:192,M5,,,pending,5000,false
+onBeforeContactUpdate,contacts,intercept,contacts:write,,"{ contactId, patch }",before a contact is changed,lib/plugin-hook-catalog.ts:193,M5,,,pending,60000,false
+onAfterContactUpdate,contacts,observer,contacts:read,,ContactView,after a contact was changed,lib/plugin-hook-catalog.ts:194,M5,,,pending,5000,false
+onBeforeContactDelete,contacts,intercept,contacts:write,,{ contactIds },before contacts are deleted,lib/plugin-hook-catalog.ts:195,M5,,,pending,60000,false
+onAfterContactDelete,contacts,observer,contacts:read,,{ contactIds },after contacts were deleted,lib/plugin-hook-catalog.ts:196,M5,,,pending,5000,false
+onContactsImport,contacts,observer,contacts:read,,"{ addressBookId, imported }",after contacts were imported,lib/plugin-hook-catalog.ts:197,M5,,,pending,5000,false
+onContactSelectionChange,contacts,observer,contacts:read,,{ contactIds },when the selected contacts change,lib/plugin-hook-catalog.ts:198,M5,,,pending,5000,false
+onContactGroupChange,contacts,observer,contacts:read,,"{ groupId, change: ""created"" | ""updated"" | ""deleted"" }",after a contact group changed,lib/plugin-hook-catalog.ts:199,M5,,,pending,5000,false
+onContactGroupMemberChange,contacts,observer,contacts:read,,"{ groupId, added, removed }",after members were added to or removed from a group,lib/plugin-hook-catalog.ts:200,M5,,,pending,5000,false
+onContactMove,contacts,observer,contacts:read,,"{ contactId, toAddressBookId }",after a contact moved to another address book,lib/plugin-hook-catalog.ts:201,M5,,,pending,5000,false
+onProvideRecipientSuggestions,contacts,transform,contacts:read,,"RecipientSuggestion[], { query }",to add suggestions to recipient autocomplete,lib/plugin-hook-catalog.ts:202,M5,,,pending,5000,false
+onTasksLoaded,tasks,observer,tasks:read,,TaskView[],after the task list was loaded,lib/plugin-hook-catalog.ts:205,M4,,,pending,5000,false
+onBeforeTaskCreate,tasks,intercept,tasks:write,,TaskView,before a task is created,lib/plugin-hook-catalog.ts:206,M4,,,pending,60000,false
+onTaskCreate,tasks,observer,tasks:read,,TaskView,after a task was created,lib/plugin-hook-catalog.ts:207,M4,,,pending,5000,false
+onBeforeTaskUpdate,tasks,intercept,tasks:write,,"{ taskId, patch }",before a task is changed,lib/plugin-hook-catalog.ts:208,M4,,,pending,60000,false
+onTaskUpdate,tasks,observer,tasks:read,,TaskView,after a task was changed,lib/plugin-hook-catalog.ts:209,M4,,,pending,5000,false
+onBeforeTaskDelete,tasks,intercept,tasks:write,,"{ taskId, title }",before a task is deleted,lib/plugin-hook-catalog.ts:210,M4,,,pending,60000,false
+onTaskDelete,tasks,observer,tasks:read,,"{ taskId, title }",after a task was deleted,lib/plugin-hook-catalog.ts:211,M4,,,pending,5000,false
+onTaskToggleComplete,tasks,observer,tasks:read,,"{ taskId, complete }",after a task was checked off or reopened,lib/plugin-hook-catalog.ts:212,M4,,,pending,5000,false
+onTaskFilterChange,tasks,observer,tasks:read,,"{ filter, showCompleted }",when the task filter changes,lib/plugin-hook-catalog.ts:213,M4,,,pending,5000,false
+onFileNavigate,files,observer,files:read,,{ path },when another folder is opened,lib/plugin-hook-catalog.ts:216,M5,,,pending,5000,false
+onBeforeFileUpload,files,intercept,files:write,,"{ name, size, type, path }",before a file is uploaded,lib/plugin-hook-catalog.ts:217,M5,,,pending,60000,false
+onAfterFileUpload,files,observer,files:read,,FileResourceView,after a file was uploaded,lib/plugin-hook-catalog.ts:218,M5,,,pending,5000,false
+onFileUploadCancel,files,observer,files:read,,"{ name, path }",when an upload is cancelled,lib/plugin-hook-catalog.ts:219,M5,,,pending,5000,false
+onFileDownload,files,observer,files:read,,FileResourceView,when a file is downloaded,lib/plugin-hook-catalog.ts:220,M5,,,pending,5000,false
+onDirectoryCreate,files,observer,files:read,,FileResourceView,after a folder was created,lib/plugin-hook-catalog.ts:221,M5,,,pending,5000,false
+onBeforeFileDelete,files,intercept,files:write,,{ files: FileResourceView[] },before files are deleted,lib/plugin-hook-catalog.ts:222,M5,,,pending,60000,false
+onAfterFileDelete,files,observer,files:read,,{ files: FileResourceView[] },after files were deleted,lib/plugin-hook-catalog.ts:223,M5,,,pending,5000,false
+onBeforeFileRename,files,intercept,files:write,,"{ file, newName }",before a file is renamed,lib/plugin-hook-catalog.ts:224,M5,,,pending,60000,false
+onFileRename,files,observer,files:read,,"{ file, previousName }",after a file was renamed,lib/plugin-hook-catalog.ts:225,M5,,,pending,5000,false
+onBeforeFileMove,files,intercept,files:write,,"{ files, toPath }",before files are moved,lib/plugin-hook-catalog.ts:226,M5,,,pending,60000,false
+onFileMove,files,observer,files:read,,"{ files, toPath }",after files were moved,lib/plugin-hook-catalog.ts:227,M5,,,pending,5000,false
+onFileCopy,files,observer,files:read,,"{ files, toPath }",after files were copied,lib/plugin-hook-catalog.ts:228,M5,,,pending,5000,false
+onFileDuplicate,files,observer,files:read,,FileResourceView,after a file was duplicated,lib/plugin-hook-catalog.ts:229,M5,,,pending,5000,false
+onFileFavoriteToggle,files,observer,files:read,,"{ file, favorite }",when a file is starred or unstarred,lib/plugin-hook-catalog.ts:230,M5,,,pending,5000,false
+onFileSelectionChange,files,observer,files:read,,{ files: FileResourceView[] },when the selected files change,lib/plugin-hook-catalog.ts:231,M5,,,pending,5000,false
+onFileUndo,files,observer,files:read,,{ action },after the last file action was undone,lib/plugin-hook-catalog.ts:232,M5,,,pending,5000,false
+onBeforeSettingChange,settings,intercept,settings:write,,"{ key, value, previous }",before a preference is changed,lib/plugin-hook-catalog.ts:235,M6,,,pending,60000,false
+onSettingChange,settings,observer,settings:read,,"{ key, value, previous }",after a preference changed,lib/plugin-hook-catalog.ts:236,M6,,,pending,5000,false
+onSettingsExport,settings,observer,settings:read,,{ keys: string[] },after settings were exported,lib/plugin-hook-catalog.ts:237,M6,,,pending,5000,false
+onSettingsImport,settings,observer,settings:read,,{ keys: string[] },after settings were imported,lib/plugin-hook-catalog.ts:238,M6,,,pending,5000,false
+onSettingsReset,settings,observer,settings:read,,{},after settings were reset to defaults,lib/plugin-hook-catalog.ts:239,M6,,,pending,5000,false
+onSettingsSync,settings,observer,settings:read,,"{ direction: ""pulled"" | ""pushed"" }",after settings were synced with the server,lib/plugin-hook-catalog.ts:240,M6,,,pending,5000,false
+onKeywordChange,settings,observer,settings:read,,{ keywords: KeywordView[] },after the tag definitions changed,lib/plugin-hook-catalog.ts:241,M6,,,pending,5000,false
+onTrustedSenderChange,settings,observer,settings:read,,"{ email, trusted }",after a sender was trusted or untrusted for remote content,lib/plugin-hook-catalog.ts:242,M6,,,pending,5000,false
+onIdentitiesLoaded,identities,observer,identity:read,,IdentityView[],after sender identities were loaded,lib/plugin-hook-catalog.ts:245,M6,,,pending,5000,false
+onBeforeIdentityChange,identities,intercept,identity:write,,"{ identityId?, change: ""create"" | ""update"" | ""delete"", identity? }","before an identity is created, changed or deleted",lib/plugin-hook-catalog.ts:246,M6,,,pending,60000,false
+onIdentityCreate,identities,observer,identity:read,,IdentityView,after an identity was created,lib/plugin-hook-catalog.ts:247,M6,,,pending,5000,false
+onIdentityUpdate,identities,observer,identity:read,,IdentityView,after an identity was changed,lib/plugin-hook-catalog.ts:248,M6,,,pending,5000,false
+onIdentityDelete,identities,observer,identity:read,,{ identityId },after an identity was deleted,lib/plugin-hook-catalog.ts:249,M6,,,pending,5000,false
+onIdentitySelect,identities,observer,identity:read,,IdentityView,when another From identity is chosen in the composer,lib/plugin-hook-catalog.ts:250,M6,,,pending,5000,false
+onSignatureRender,identities,transform,identity:read,,"{ html, text }, { identityId }",when a signature is inserted into the composer,lib/plugin-hook-catalog.ts:251,M6,,,pending,5000,false
+onSelectReplyIdentity,identities,transform,email:send,,ReplyIdentityContext,"when a reply, reply-all, forward or quick reply picks its From identity; return the id of one of the listed identities to send from it, or nothing to keep Bulwark's pick. A From the user picked by hand wins",lib/plugin-hook-catalog.ts:252,M6,,,pending,5000,false
+onFiltersLoaded,filters,observer,filters:read,,FilterRuleView[],after filter rules were loaded,lib/plugin-hook-catalog.ts:255,M6,,,pending,5000,false
+onFilterRuleChange,filters,observer,filters:read,,"{ ruleId, change: ""added"" | ""updated"" | ""deleted"" | ""reordered"" | ""toggled"" }",after a filter rule changed in the editor,lib/plugin-hook-catalog.ts:256,M6,,,pending,5000,false
+onBeforeFiltersSave,filters,intercept,filters:write,,{ rules: FilterRuleView[] },before filter rules are saved to the server,lib/plugin-hook-catalog.ts:257,M6,,,pending,60000,false
+onFiltersSave,filters,observer,filters:read,,{ accountId },after the filter script was saved,lib/plugin-hook-catalog.ts:258,M6,,,pending,5000,false
+onSieveScriptChange,filters,observer,filters:read,,{ accountId },after the active script changed,lib/plugin-hook-catalog.ts:259,M6,,,pending,5000,false
+onSieveScriptGenerate,filters,transform,filters:write,,"string (Sieve script), SieveScriptGenerateContext",before the generated script is uploaded,lib/plugin-hook-catalog.ts:260,M6,,,pending,5000,false
+onVacationLoaded,vacation,observer,vacation:read,,VacationView,after the out-of-office reply was loaded,lib/plugin-hook-catalog.ts:263,M6,,,pending,5000,false
+onBeforeVacationUpdate,vacation,intercept,vacation:write,,VacationView,before the out-of-office reply is changed,lib/plugin-hook-catalog.ts:264,M6,,,pending,60000,false
+onVacationUpdate,vacation,observer,vacation:read,,VacationView,after the out-of-office reply was changed,lib/plugin-hook-catalog.ts:265,M6,,,pending,5000,false
+onTemplateCreate,templates,observer,templates:read,,TemplateView,after a template was created,lib/plugin-hook-catalog.ts:268,M6,,,pending,5000,false
+onTemplateUpdate,templates,observer,templates:read,,TemplateView,after a template was changed,lib/plugin-hook-catalog.ts:269,M6,,,pending,5000,false
+onTemplateDelete,templates,observer,templates:read,,{ templateId },after a template was deleted,lib/plugin-hook-catalog.ts:270,M6,,,pending,5000,false
+onTemplatesImport,templates,observer,templates:read,,{ count },after templates were imported,lib/plugin-hook-catalog.ts:271,M6,,,pending,5000,false
+onTemplateApply,templates,observer,templates:read,,TemplateView,after a template was inserted into the composer,lib/plugin-hook-catalog.ts:272,M6,,,pending,5000,false
+onTemplateRender,templates,transform,templates:read,,"{ subject, html, text }, { templateId }",before a template is inserted; may change the text,lib/plugin-hook-catalog.ts:273,M6,,,pending,5000,false
+onLogin,auth,observer,auth:observe,,"{ accountId, username }",after a sign-in,lib/plugin-hook-catalog.ts:276,M1,accounts,src/Barbican.Core/Accounts/AccountManager.cs:331,done,5000,false
+onAuthReady,auth,observer,auth:observe,,{ accountId },when the session is ready after start or sign-in,lib/plugin-hook-catalog.ts:277,M1,accounts,src/Barbican.Core/Accounts/AccountManager.cs:332,done,5000,false
+onTokenRefresh,auth,observer,auth:observe,,{ accountId },after the access token was renewed,lib/plugin-hook-catalog.ts:278,M1,accounts,src/Barbican.Core/Accounts/AccountManager.cs:534,done,5000,false
+onAccountAdd,auth,observer,auth:observe,,{ accountId },after another account was added,lib/plugin-hook-catalog.ts:279,M1,accounts,src/Barbican.Core/Accounts/AccountManager.cs:335,done,5000,false
+onAccountRemove,auth,observer,auth:observe,,{ accountId },after an account was removed,lib/plugin-hook-catalog.ts:280,M2,unified,src/Barbican.Core/Accounts/AccountManager.Maintenance.cs:129,done,5000,false
+onAccountSwitch,auth,observer,app:lifecycle,,"{ accountId, previousAccountId }",after another account was made active,lib/plugin-hook-catalog.ts:281,M1,accounts,src/Barbican.Core/Accounts/AccountManager.cs:482,done,5000,false
+onBeforeLogout,auth,observer,app:lifecycle,,{ accountId },just before signing out,lib/plugin-hook-catalog.ts:282,M2,unified,src/Barbican.Core/Accounts/AccountManager.Maintenance.cs:98,done,5000,false
+onAfterLogout,auth,observer,app:lifecycle,,{ accountId },after signing out,lib/plugin-hook-catalog.ts:283,M2,unified,src/Barbican.Core/Accounts/AccountManager.Maintenance.cs:128,done,5000,false
+onOAuthCallback,auth,observer,http:fetch,,OAuthCallbackPayload,when a third-party OAuth flow this plugin started returns,lib/plugin-hook-catalog.ts:284,M6b,,,pending,5000,false
+onPasswordChange,security,observer,security:read,,{},after the account password was changed,lib/plugin-hook-catalog.ts:287,M6,,,pending,5000,false
+onTotpChange,security,observer,security:read,,{ enabled },after two-factor sign-in was turned on or off,lib/plugin-hook-catalog.ts:288,M6,,,pending,5000,false
+onAppPasswordChange,security,observer,security:read,,"{ change: ""created"" | ""removed"" }",after an app password was created or removed,lib/plugin-hook-catalog.ts:289,M6,,,pending,5000,false
+onEncryptionChange,security,observer,security:read,,{ enabled },after encryption at rest was changed,lib/plugin-hook-catalog.ts:290,M6,,,pending,5000,false
+onDisplayNameChange,security,observer,security:read,,{ displayName },after the account display name was changed,lib/plugin-hook-catalog.ts:291,M6,,,pending,5000,false
+onNavigate,navigation,observer,ui:observe,,RouteContext,after the app moved to another page,lib/plugin-hook-catalog.ts:294,M1,mailcore,src/Barbican.Presentation/Shell/ShellViewModel.cs:116,done,5000,false
+onRouteEnter,navigation,observer,ui:observe,,RouteContext,when a page is entered,lib/plugin-hook-catalog.ts:295,M1,mailcore,src/Barbican.Presentation/Shell/ShellViewModel.cs:117,done,5000,false
+onRouteLeave,navigation,observer,ui:observe,,RouteContext,when a page is left,lib/plugin-hook-catalog.ts:296,M1,mailcore,src/Barbican.Presentation/Shell/ShellViewModel.cs:115,done,5000,false
+onThemeChange,theme,observer,ui:observe,,"{ theme: ""light"" | ""dark"" | ""system"", resolved: ""light"" | ""dark"" }",after the colour scheme changed,lib/plugin-hook-catalog.ts:299,M1,shell-ui,src/Barbican.App/Theme/ThemeController.cs:114,done,5000,false
+onCustomThemeChange,theme,observer,ui:observe,,{ themeId },after another theme was activated,lib/plugin-hook-catalog.ts:300,M10,,,pending,5000,false
+onThemeBeforeApply,theme,transform,ui:observe,,"string (CSS), { themeId, variant }",before theme CSS is applied,lib/plugin-hook-catalog.ts:301,M1,shell-ui,src/Barbican.App/Theme/ThemeController.cs:126,done,5000,false
+onLocaleChange,theme,observer,ui:observe,,{ locale },after the app language changed,lib/plugin-hook-catalog.ts:302,M10,,,pending,5000,false
+onToastShow,notifications,observer,ui:notifications,,"{ id, type, title, message }",when the app shows a toast,lib/plugin-hook-catalog.ts:306,M8,,,pending,5000,false
+onToastDismiss,notifications,observer,ui:notifications,,{ id },when a toast is dismissed,lib/plugin-hook-catalog.ts:307,M8,,,pending,5000,false
+onNotificationClick,notifications,observer,ui:notifications,,{ tag },"when a notification the plugin showed, or one from the app, is clicked",lib/plugin-hook-catalog.ts:308,M8,,,pending,5000,false
+onAppReady,app,observer,app:lifecycle,,{ accountId },once after the app has started and the mail data is loaded,lib/plugin-hook-catalog.ts:311,M1,mailcore,src/Barbican.Presentation/Shell/ShellViewModel.cs:161,done,5000,false
+onVisibilityChange,app,observer,app:lifecycle,,{ visible },when the tab is hidden or shown,lib/plugin-hook-catalog.ts:312,M1,mailcore,src/Barbican.Presentation/Shell/ShellViewModel.cs:174,done,5000,false
+onWindowFocus,app,observer,app:lifecycle,,{},when the window gains focus,lib/plugin-hook-catalog.ts:313,M1,mailcore,src/Barbican.Presentation/Shell/ShellViewModel.cs:171,done,5000,false
+onWindowBlur,app,observer,app:lifecycle,,{},when the window loses focus,lib/plugin-hook-catalog.ts:314,M1,mailcore,src/Barbican.Presentation/Shell/ShellViewModel.cs:171,done,5000,false
+onOnline,app,observer,app:lifecycle,,{},when the network comes back,lib/plugin-hook-catalog.ts:315,M1,mailcore,src/Barbican.Presentation/Shell/ShellViewModel.cs:176,done,5000,false
+onOffline,app,observer,app:lifecycle,,{},when the network goes away,lib/plugin-hook-catalog.ts:316,M1,mailcore,src/Barbican.Presentation/Shell/ShellViewModel.cs:176,done,5000,false
+onBeforeUnload,app,observer,app:lifecycle,,{},when the page is about to close,lib/plugin-hook-catalog.ts:317,M1,mailcore,src/Barbican.Presentation/Shell/ShellViewModel.cs:179,done,5000,false
+onAppError,app,observer,app:lifecycle,,{ message },when an unhandled error occurs in the app,lib/plugin-hook-catalog.ts:318,M1,mailcore,src/Barbican.Presentation/Shell/ShellViewModel.cs:185,done,5000,false
+onInterval,app,observer,app:lifecycle,,{ now },once a minute while the app is open,lib/plugin-hook-catalog.ts:319,M1,mailcore,src/Barbican.Presentation/Shell/ShellViewModel.cs:189,done,5000,false
+onViewChange,ui,observer,ui:observe,,"{ view: ""sidebar"" | ""list"" | ""viewer"" }","when the phone layout switches between folders, message list and message",lib/plugin-hook-catalog.ts:322,n/a,,,n/a(Bulwark phone layout: the desktop app has one layout),5000,false
+onSidebarToggle,ui,observer,ui:observe,,{ open },when the sidebar is opened or closed,lib/plugin-hook-catalog.ts:323,M1,mailcore,src/Barbican.Presentation/Shell/ShellViewModel.cs:149,done,5000,false
+onSidebarCollapse,ui,observer,ui:observe,,{ collapsed },when the sidebar is collapsed or expanded,lib/plugin-hook-catalog.ts:324,M1,mailcore,src/Barbican.Presentation/Shell/ShellViewModel.cs:157,done,5000,false
+onDeviceTypeChange,ui,observer,ui:observe,,"{ deviceType: ""mobile"" | ""tablet"" | ""desktop"" }","when the layout switches between phone, tablet and desktop",lib/plugin-hook-catalog.ts:325,n/a,,,n/a(Bulwark phone/tablet/desktop switch: the desktop app has one layout),5000,false
+onColumnResize,ui,observer,ui:observe,,"{ column: ""sidebar"" | ""email-list"" | ""email-list-height"", width }",after a column was resized or reset,lib/plugin-hook-catalog.ts:326,M2,actions,src/Barbican.Presentation/Shell/PanesViewModel.cs:80,done,5000,false
+onMobileBack,ui,observer,ui:observe,,{},when Back is used on the phone layout,lib/plugin-hook-catalog.ts:327,n/a,,,n/a(Bulwark phone layout: the desktop app has one layout),5000,false
+onTextSelectionChange,ui,observer,email:read,,SelectionContext,when the user selects text (debounced),lib/plugin-hook-catalog.ts:328,M2,reader,src/Barbican.App/MailBody/BodyShell.cs (ShellMessageKind.Selection),done,5000,false
+onDragStart,ui,observer,email:read,,"{ kind: ""email"", ids }",when messages start being dragged,lib/plugin-hook-catalog.ts:329,M2,actions,src/Barbican.Presentation/DragDrop/DropController.cs:55,done,5000,false
+onDragEnd,ui,observer,email:read,,"{ kind, ids, dropped }",when a drag ends,lib/plugin-hook-catalog.ts:330,M2,actions,src/Barbican.Presentation/DragDrop/DropController.cs:64,done,5000,false
+onEmailDrop,ui,observer,email:read,,"{ emailIds, targetMailboxId }",after messages were dropped on a folder,lib/plugin-hook-catalog.ts:331,M2,actions,src/Barbican.Presentation/DragDrop/DropController.cs:75,done,5000,false
+onTagDrop,ui,observer,email:read,,"{ emailIds, keyword }",after a tag was dropped on messages,lib/plugin-hook-catalog.ts:332,M2,actions,src/Barbican.Presentation/DragDrop/DropController.cs:90,done,5000,false
+onSidebarAppOpen,ui,observer,ui:observe,,{ appId },when a sidebar app is opened,lib/plugin-hook-catalog.ts:333,M1,mailcore,src/Barbican.Presentation/Shell/ShellViewModel.cs:119,done,5000,false
+onSidebarAppClose,ui,observer,ui:observe,,{ appId },when a sidebar app is closed,lib/plugin-hook-catalog.ts:334,M1,mailcore,src/Barbican.Presentation/Shell/ShellViewModel.cs:118,done,5000,false
+onBeforeShortcut,keyboard,intercept,ui:keyboard,,"{ key, action }",before an app shortcut runs; return false to stop it,lib/plugin-hook-catalog.ts:337,M1,mailcore,src/Barbican.Presentation/Input/KeyRouter.cs:80,done,60000,false
+onAfterShortcut,keyboard,observer,ui:keyboard,,"{ key, action }",after an app shortcut ran,lib/plugin-hook-catalog.ts:338,M1,mailcore,src/Barbican.Presentation/Input/KeyRouter.cs:91,done,5000,false
+onTabsChange,tabs,observer,ui:message-list-tabs,,MessageListTab[],after the set of inbox tabs changed,lib/plugin-hook-catalog.ts:341,M10,,,pending,5000,false
+onTabActivate,tabs,observer,ui:message-list-tabs,,TabActivateContext,when another inbox tab is chosen,lib/plugin-hook-catalog.ts:342,M10,,,pending,5000,false
+onTabCountsRefresh,tabs,observer,ui:message-list-tabs,,"Record<tabId, number>",after the unread counts per tab were refreshed,lib/plugin-hook-catalog.ts:343,M10,,,pending,5000,false

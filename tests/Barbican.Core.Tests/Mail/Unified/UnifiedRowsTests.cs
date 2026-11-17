@@ -1,4 +1,4 @@
-// Ported from Rust src/unified.rs tests (:504-:601). Red until stream unified implements UnifiedRows (M2 plan 6.6, T-286..T-292).
+// Ported from Rust src/unified.rs tests (:504-:601).
 
 using System.Text.Json.Nodes;
 using Barbican.Core.Mail.Unified;
@@ -10,7 +10,6 @@ public sealed class UnifiedRowsTests
     private static JsonNode J(string json) => JsonNode.Parse(json)!;
 
     [Fact]
-    [Red("unified")]
     [RustTest("unified::other_logins_badge_sum")]
     public void Other_logins_badge_sum()
     {
@@ -21,7 +20,6 @@ public sealed class UnifiedRowsTests
     }
 
     [Fact]
-    [Red("unified")]
     [RustTest("unified::merge_orders_by_parsed_time_and_dedupes")]
     public void Merge_orders_by_parsed_time_and_dedupes()
     {
@@ -41,7 +39,6 @@ public sealed class UnifiedRowsTests
     }
 
     [Fact]
-    [Red("unified")]
     [RustTest("unified::row_ids_keep_sources_apart")]
     public void Row_ids_keep_sources_apart()
     {
@@ -68,7 +65,6 @@ public sealed class UnifiedRowsTests
     }
 
     [Fact]
-    [Red("unified")]
     [RustTest("unified::dedupe_reads_each_account_once")]
     public void Dedupe_reads_each_account_once()
     {
@@ -87,7 +83,6 @@ public sealed class UnifiedRowsTests
     }
 
     [Fact]
-    [Red("unified")]
     [RustTest("unified::positions_count_per_source")]
     public void Positions_count_per_source()
     {
@@ -99,7 +94,6 @@ public sealed class UnifiedRowsTests
     }
 
     [Fact]
-    [Red("unified")]
     [RustTest("unified::shared_accounts_from_session")]
     public void Shared_accounts_from_session()
     {
@@ -117,7 +111,6 @@ public sealed class UnifiedRowsTests
     }
 
     [Fact]
-    [Red("unified")]
     [RustTest("unified::match_by_role_then_name")]
     public void Match_by_role_then_name()
     {

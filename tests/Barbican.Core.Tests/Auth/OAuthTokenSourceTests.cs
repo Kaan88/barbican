@@ -119,6 +119,21 @@ public sealed class OAuthTokenSourceTests
     }
 
     [Fact]
+    public async Task A_refused_stored_token_falls_back_to_the_one_in_memory_once()
+    {
+        // R2-06: the vault holds a token the provider no longer takes (another instance wrote it, then lost it); this instance still holds a live one
+        using var rig = new OAuthRig();
+        var store = new MemoryRefreshStore();
+        var mine = rig.Provider.AddRefreshToken();
+        store.Set(Key, "fake-refresh-dead");
+        using var source = new OAuthTokenSource(rig.OAuth, store, rig.Paths, rig.Time, Key, Tokens(rig, "a", mine));
+        var r = await source.RenewAfterRejectAsync(new("Bearer", "a"), Ct);
+        Assert.True(r.IsOk, r.Error?.Message);
+        Assert.Equal(2, rig.Provider.RefreshGrants); // the stored one, then the one in memory
+        Assert.Equal(source.Tokens.Refresh, store.Get(Key));
+    }
+
+    [Fact]
     public async Task A_server_outage_is_transient_and_keeps_the_tokens()
     {
         using var rig = new OAuthRig();

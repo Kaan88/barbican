@@ -1,4 +1,4 @@
-// Ported from Rust src/mailimport.rs tests (:395-:528). Red until stream unified implements the import (M2 plan 6.6, T-163..T-169).
+// Ported from Rust src/mailimport.rs tests (:395-:528).
 // The Rust Mock server becomes an IImportServer fake with the same behaviour (maxObjectsInSet 2, maxSizeUpload 1000, one entry refused when fail_one).
 
 using System.Text;
@@ -18,7 +18,6 @@ public sealed class MailImportTests
     private static JsonNode J(string json) => JsonNode.Parse(json)!;
 
     [Fact]
-    [Red("unified")]
     [RustTest("mailimport::summaries")]
     public void Summaries()
     {
@@ -28,7 +27,6 @@ public sealed class MailImportTests
     }
 
     [Fact]
-    [Red("unified")]
     [RustTest("mailimport::splits_mbox")]
     public void Splits_mbox()
     {
@@ -44,7 +42,6 @@ public sealed class MailImportTests
     }
 
     [Fact]
-    [Red("unified")]
     [RustTest("mailimport::envelope_lines")]
     public void Envelope_lines()
     {
@@ -56,7 +53,6 @@ public sealed class MailImportTests
     }
 
     [Fact]
-    [Red("unified")]
     [RustTest("mailimport::states_and_dates")]
     public void States_and_dates()
     {
@@ -79,7 +75,6 @@ public sealed class MailImportTests
     }
 
     [Fact]
-    [Red("unified")]
     [RustTest("mailimport::eml_is_one_message_and_entries")]
     public void Eml_is_one_message_and_entries()
     {
@@ -96,6 +91,59 @@ public sealed class MailImportTests
         // folded headers are unfolded
         var f = MboxFormat.HeaderFields("Subject: a\n  b\n\n"u8);
         Assert.Equal(("subject", "a b"), f[0]);
+    }
+
+    [Fact]
+    [RustTest("mailimport::import_loop_created_not_created_and_duplicates")]
+    public async Task Import_loop_created_not_created_and_duplicates()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var m = new MockServer(["b@x"], failOne: true);
+        var big = new ImportItem(new byte[2000], [], null);
+
+        // b@x is in the folder already; the second a@x repeats one in the same file
+        using var items = new List<ImportItem> { Msg("a@x"), Msg("b@x"), Msg("c@x"), big, Msg("a@x") }.GetEnumerator();
+        var seen = new List<int>();
+        var o = await MailImportLoop.ImportAsync(m, "M1", items, seen.Add, ct);
+
+        // b@x is already in the folder, the big one is refused before uploading
+        Assert.Equal(2, o.Already);
+        Assert.Equal(2, m.Uploads);
+
+        // batch 1: a imported; batch 2: c imported (first entry), nothing refused
+        Assert.Equal(2, o.Imported);
+        Assert.Equal(["A message is larger than the server takes."], o.Errors);
+        Assert.Equal([2, 4, 5], seen);
+        Assert.Equal(2, m.Calls.Count);
+        var imp = (JsonObject)m.Calls[0][0]![1]!["emails"]!;
+        Assert.Single(imp);
+        Assert.Equal("B1", (string)imp["m0"]!["blobId"]!);
+
+        // a notCreated answer is reported
+        var m2 = new MockServer([], failOne: true);
+        using var two = new List<ImportItem> { Msg("a@x"), Msg("b@x") }.GetEnumerator();
+        var o2 = await MailImportLoop.ImportAsync(m2, "M1", two, _ => { }, ct);
+        Assert.Equal(1, o2.Imported);
+        Assert.Single(o2.Errors);
+    }
+
+    [Fact]
+    [RustTest("mailimport::streaming_reader_and_eml_cap")]
+    public void Streaming_reader_and_eml_cap()
+    {
+        var r = new MboxReader("box.mbox", new BufferedStream(new MemoryStream(Mbox), 16), long.MaxValue);
+        var a = r.NextItem()!;
+        Assert.StartsWith("Subject: one", Encoding.UTF8.GetString(a.Bytes), StringComparison.Ordinal);
+        var b = r.NextItem()!;
+        Assert.Contains("Subject: three", Encoding.UTF8.GetString(b.Bytes), StringComparison.Ordinal);
+        Assert.Null(r.NextItem());
+        Assert.Equal(Mbox.Length, r.BytesRead);
+
+        var big = new MboxReader("x.eml", new MemoryStream("Subject: x\r\n\r\n0123456789"u8.ToArray()), 10);
+        Assert.Null(big.NextItem());
+        Assert.True(big.TooBig);
+        Assert.Equal("a.b@c", MboxFormat.MessageId("Message-Id: <a.b@c>\r\n\r\n"u8));
+        Assert.Null(MboxFormat.MessageId("Subject: x\r\n\r\n"u8));
     }
 
     private sealed class MockServer(IReadOnlyList<string> have, bool failOne) : IImportServer
@@ -146,59 +194,4 @@ public sealed class MailImportTests
 
     private static ImportItem Msg(string id) =>
         new(Encoding.ASCII.GetBytes($"Message-ID: <{id}>\r\nSubject: s\r\n\r\nb\r\n"), ["$seen"], null);
-
-    [Fact]
-    [Red("unified")]
-    [RustTest("mailimport::import_loop_created_not_created_and_duplicates")]
-    public async Task Import_loop_created_not_created_and_duplicates()
-    {
-        var ct = TestContext.Current.CancellationToken;
-        var m = new MockServer(["b@x"], failOne: true);
-        var big = new ImportItem(new byte[2000], [], null);
-
-        // b@x is in the folder already; the second a@x repeats one in the same file
-        using var items = new List<ImportItem> { Msg("a@x"), Msg("b@x"), Msg("c@x"), big, Msg("a@x") }.GetEnumerator();
-        var seen = new List<int>();
-        var o = await MailImportLoop.ImportAsync(m, "M1", items, seen.Add, ct);
-
-        // b@x is already in the folder, the big one is refused before uploading
-        Assert.Equal(2, o.Already);
-        Assert.Equal(2, m.Uploads);
-
-        // batch 1: a imported; batch 2: c imported (first entry), nothing refused
-        Assert.Equal(2, o.Imported);
-        Assert.Equal(["A message is larger than the server takes."], o.Errors);
-        Assert.Equal([2, 4, 5], seen);
-        Assert.Equal(2, m.Calls.Count);
-        var imp = (JsonObject)m.Calls[0][0]![1]!["emails"]!;
-        Assert.Single(imp);
-        Assert.Equal("B1", (string)imp["m0"]!["blobId"]!);
-
-        // a notCreated answer is reported
-        var m2 = new MockServer([], failOne: true);
-        using var two = new List<ImportItem> { Msg("a@x"), Msg("b@x") }.GetEnumerator();
-        var o2 = await MailImportLoop.ImportAsync(m2, "M1", two, _ => { }, ct);
-        Assert.Equal(1, o2.Imported);
-        Assert.Single(o2.Errors);
-    }
-
-    [Fact]
-    [Red("unified")]
-    [RustTest("mailimport::streaming_reader_and_eml_cap")]
-    public void Streaming_reader_and_eml_cap()
-    {
-        var r = new MboxReader("box.mbox", new BufferedStream(new MemoryStream(Mbox), 16), long.MaxValue);
-        var a = r.NextItem()!;
-        Assert.StartsWith("Subject: one", Encoding.UTF8.GetString(a.Bytes), StringComparison.Ordinal);
-        var b = r.NextItem()!;
-        Assert.Contains("Subject: three", Encoding.UTF8.GetString(b.Bytes), StringComparison.Ordinal);
-        Assert.Null(r.NextItem());
-        Assert.Equal(Mbox.Length, r.BytesRead);
-
-        var big = new MboxReader("x.eml", new MemoryStream("Subject: x\r\n\r\n0123456789"u8.ToArray()), 10);
-        Assert.Null(big.NextItem());
-        Assert.True(big.TooBig);
-        Assert.Equal("a.b@c", MboxFormat.MessageId("Message-Id: <a.b@c>\r\n\r\n"u8));
-        Assert.Null(MboxFormat.MessageId("Subject: x\r\n\r\n"u8));
-    }
 }

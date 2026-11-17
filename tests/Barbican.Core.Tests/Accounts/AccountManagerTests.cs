@@ -17,7 +17,7 @@ using Barbican.FakeJmap;
 
 namespace Barbican.Core.Tests.Accounts;
 
-public sealed class AccountManagerTests : IAsyncDisposable
+public sealed partial class AccountManagerTests : IAsyncDisposable
 {
     private const string OriginA = "https://jmap.example.org";
     private const string OriginB = "https://mail.example.net";

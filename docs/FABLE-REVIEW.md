@@ -1157,3 +1157,173 @@ Branch `m2-search` (from `m2` at 0d9b306). Core ported from Rust with the 30 red
 #### Requests to other streams (from the search review)
 - actions: in `MessageListViewModel.ApplyFirstPageAsync`, call `Watch` with the shaped query (see above); render snippet marks in the row template from `ISnippetSource`.
 - reader/menus: register a MENU-READER provider that appends `RuleMenus.Section(...)` and enable `reader.more`.
+
+## M2 stream: unified
+
+Branch `m2-unified` from `m2` at `0d9b306` (wave 1 merged), worktree `<downloads>/wt-m2-unified`, Opus. Items are added as the work goes.
+
+- [ ] **Native plugin host isolation (mandatory).** `src/Barbican.Core/Plugins/Native/{NativePluginHost,PluginLoadContext,PluginHookBridge,LoadedPlugin}.cs`.
+  One collectible `AssemblyLoadContext` per plugin folder; `Barbican.Plugins.Abstractions` resolves to the app's copy (type identity), any
+  other `Barbican.*` assembly a plugin asks for is refused unless the plugin ships its own copy, the framework comes from the default context.
+  What this does **not** give: a security boundary. A plugin runs with full trust in the app's process: it can P/Invoke, read the profile,
+  start threads whose exceptions crash the process, overflow the stack, or reach the app through reflection on the default context. Containment
+  covers exceptions and slowness of calls the host makes (every call on the pool, bounded by a budget, errors reported through
+  `PluginFailed`), not hostile code. Review whether that matches the user's expectation for "plugins never take the app down" (Rust's
+  `catch_unwind` had the same limit) and whether user plugins (`<config>/plugins`) should stay off by default until M6b's permission UI.
+- [ ] **R2-10 (mandatory): per-hook budget and fail-closed flag.** `spec/plugins/hooks.csv` got `budget_ms` and `fail_closed` (every row
+  filled: observer/transform 5000, intercept 60000, takeover 600000 fail-closed; `onBeforeEmailSend` 600000 fail-closed (Bulwark
+  `lib/plugin-hooks.ts:169, :460`), `onBeforeBlobUpload` 900000 (`:72, :540`), `onBeforeCalendarAlert` 5000 (`:615`)). `tools/gen-hooks.py`
+  writes `HookPolicies.g.cs`; `tools/extract-plugin-catalogue.py` keeps both columns. `HookBus` takes the budget per hook
+  (`handlerTimeout` still overrides every budget, as the M1 tests use it) and an intercept of a fail-closed hook says **no** when its
+  handler throws or runs out of time. Judgement calls: (1) `onBeforeShortcut` and `onBeforeExternalLink` are intercepts and now get 60 s
+  like every Bulwark intercept; KeyRouter only waits for synchronous answers, so a key press is unaffected, but a plugin link check may now
+  hold a link for up to 60 s. (2) M1/M2 in-app handlers (tests, call sites) still start on the caller's thread (a completed answer stays
+  synchronous, KeyRouter needs that); only native plugin handlers are started on the pool (`PluginHookBridge`). Tests:
+  `tests/Barbican.Core.Tests/Plugins/NativePluginContainmentTests.cs`. Actions' intercept hooks run on the new bus semantics: the integrator
+  re-runs actions' hook tests after the merge (M2 plan 2.4).
+- [ ] **Payloads to plugins are JSON made by reflection.** `NativePluginHost.PayloadAsJson` serializes the app's payload records with
+  `DefaultJsonTypeInfoResolver` under `UnconditionalSuppressMessage` (IL2026/IL3050), as are `PluginLoadContext.Load` and `CreatePlugin`
+  (IL2026/IL2070/IL2075). Justification: the host refuses to load anything when `RuntimeFeature.IsDynamicCodeSupported` is false. If the
+  App is ever trimmed, payload properties could vanish silently; check before any trimmed publish.
+- [ ] **Hook names a plugin may use.** A manifest may list `email.details` (the native hook of the Rust ABI) or any catalogue name; anything
+  else refuses the plugin. A plugin may subscribe only to hooks its manifest lists (`PluginHookBridge.Refused`); a refused subscription
+  fails its `InitializeAsync`, and a plugin that did not start is listed but never called. Transform hooks are not offered to native
+  plugins in M2 (a typed value cannot round-trip through JSON); M6b decides.
+- [ ] **Spam score parity and the clean row.** `plugins/Barbican.Plugin.SpamScore/SpamAnalyzer.cs` is a line-by-line port of `spam.rs`
+  (same parse rules, `F2` formatting, the star cap of 15, `X-Spam-Level` stars first). Rust hid the built-in clean verdict unless
+  "show for clean mail too" was on, but showed every plugin row; with the plugin now bundled and enabled, `NativePlugins` hides the spam
+  plugin's `success` row unless the pref `showCleanSpam` is true (B-SPAM-004; the desktop settings file of Rust is not ported, so the key is
+  read from prefs). Check this reading.
+- [ ] **mbox reading.** `src/Barbican.Core/Mail/Import/{MboxFormat,MboxSplitter,MboxReader,Rfc5322Date}.cs`. The Rust date parse
+  (chrono `parse_from_rfc2822`) became a small RFC 5322 parser (obsolete zones, two-digit years, military zones as -0000). The streaming
+  reader counts bytes consumed by lines (T-169 asserts `BytesRead == file length`). The labels header of one large webmail provider is
+  spelled `"x-g" + "mail-labels"` in code because the private privacy pattern matches that provider's name.
+- [ ] **spec-check maps a test to a nested class declared before it.** `MailImportTests` declared its mock server before the last two
+  tests, so `spec/rust-tests.csv` named `MockServer.Import_loop...` and `MockServer.Streaming...` (stage F). I moved the mock to the end of
+  the class; `tools/spec-check.py` itself still takes the last `class` keyword above a method (owner: integrator).
+- [ ] **R2-06 (mandatory): two instances on one vault.** `Core/Accounts/{IAccountVault,AccountStore}.cs`, `Platform/SecretAccountVault.cs`,
+  `Core/Auth/OAuthTokenSource.cs`. Every change re-reads the vault inside the cross-process refresh lock (taken before the in-process
+  gate; a token refresh holds the lock and writes through `WriteAsync`, which therefore does not take it again) and then writes or removes
+  the one account it is about (`IAccountVault.UpsertAsync`/`RemoveAsync`; the secret vault writes the entry, re-reads the index and writes
+  the index). `SaveAsync` (whole list, deletes unnamed entries) is left to the import and the one-time migration, which read just before.
+  A refused stored refresh token is followed by one try with the token this instance holds in memory (each distinct token at most once).
+  Tests: `tests/Barbican.Platform.Tests/AccountVaultTwoInstanceTests.cs`, `OAuthTokenSourceTests.A_refused_stored_token_falls_back...`.
+  Not covered: the lock itself across two real processes (the M1 lock test covers one process); a crash between entry and index write
+  leaves an unnamed entry until the next import/migration.
+- [ ] **Sign-out (IAccountMaintenance on AccountManager).** `Core/Accounts/AccountManager.Maintenance.cs`. Order: onBeforeLogout, the
+  account leaves the list (the active one hands over to the first remaining account with a session, else the first remaining; none left:
+  `ActiveChanged(previous, null)`), the session is disposed (`MailSync.Dispose` now also cancels a running push stream or poll), the body
+  cache is cleared (all accounts: `IBodyCache` has only `Clear()`), the vault entry is removed (this app's own `account/<id>` only; the Rust
+  app's targets are never named), then onAfterLogout and onAccountRemove. The default moves to the first remaining account. A connect that
+  finishes after its account was signed out closes its new session at once. Judgement: Bulwark fires onAfterLogout only for a full logout;
+  here it fires per account (each sign-out is a logout of that account).
+- [ ] **R2-09.** `ServerEndpoint.IsLoopback` accepts only the written host `localhost`, 127.0.0.0/8 and `::1` (.NET's `Uri.Host` turns the
+  name `loopback` into `localhost`, so the host is read from the address as written); a user part is refused with `UserInfoMessage`.
+- [ ] **R2-13 Core points.** `MailSync.RunTypesAsync` runs all three syncs and keeps the first error (a refusal for good stops the rest,
+  R2-01); a push stream the transport refused is traced before polling; `MailEventHub` takes key and engine from one
+  `IActiveMail.SyncSnapshot()`; `AccountManager.ConnectAsync` starts the attempt outside the lock (a `TaskCompletionSource` holds the
+  shared attempt), so `StatusesChanged` is never raised under it; `SecretServiceStore` honours the token and says how to unlock a locked
+  keyring (Linux unproven).
+- [ ] **Unified inbox design.** `Core/Mail/Unified/{UnifiedSources,UnifiedFetcher,UnifiedListSource,UnifiedMailWriter}.cs`,
+  `Presentation/Unified/*`. One `UnifiedListSource` serves the folder `__unified`: sources are the active login (all logins with
+  `unifiedCrossAccount`) plus shared accounts with `includeGroupInUnified`, deduped by (server authority, accountId); each page asks every
+  source for its next `PageSize` rows after its own position (the cursor is `"unified:" + JSON` of the positions), merges by parsed
+  `receivedAt` and keeps one window. A failing source does not empty the list. Rows keep composite ids (`login<FS>[shared<GS>]id`), so the
+  list, the selection and the undo all key on them; `UnifiedMailWriter` (wrapped around the actions' writer source) splits a write by row
+  account and maps a folder by role then name (Rust `shared_apply`, `match_mailbox`). Changes: the account on screen's `MailSync` pokes the
+  unified list with an empty `EmailsChangedEvent` while it is watched; other logins are re-read when the account manager's unread watch
+  changes (two minutes) instead of a push stream per login as Rust held. Each change re-reads the loaded window and publishes the
+  difference as a `ListDeltaEvent` (add/remove/update; a new mail is one inserted row, never a reset). Judgement calls to check: the
+  two-minute latency for non-active logins; the window re-read costs one request per source per change.
+- [ ] **Unified logins seam.** `IUnifiedLogins` (`AccountManagerLogins` in the app; `SampleUnifiedLogins` in a sample Automation run: the
+  sample login plus an in-process FakeJmap `sample-2`, every request logged per login for the hidden scenario). The routed writer builds a
+  plain `MailWriter` on the row's client (not `IMailWriterFactory.ForSession`): the factory needs a session; the read-only client still
+  refuses writes for `<readonly-account>` rows.
+- [ ] **Import service, export, transfer.** `MailImportService` (myRights first, then each file streamed through `MailImportLoop` with
+  the account's `IMailWriter`: upload, `Email/import`, dedupe by Message-ID against the folder), `MailExportService` (G-046: mboxrd with
+  Status/X-Status/X-Keywords, or one .eml per message; read-only on the server), `MailTransfer` (one run at a time, progress through the
+  dispatcher, cancel between messages, Rust's summary text) and `TransferPicks` (queued answers first; no platform picker exists yet, so an
+  unanswered pick does nothing). `import-sim` refuses anything but a test server (loopback or the sample fake).
+- [ ] **Email/parse and TNEF.** `Core/Mail/Parse/EmailParseOpener.cs` (J-058: `Email/parse` with the reader's body properties; the parsed
+  message gets its blob id as id, which no write ever names) and `Core/Mail/Tnef/TnefExpander.cs` (G-047: MimeKit `TnefPart`; the files
+  inside get local blob ids `tnef:<blob>/<n>` and their bytes stay in memory for the run, nothing is uploaded; .NET needs the code-pages
+  encoding provider for MimeKit's TNEF reader, registered at the first expand). The RTF body is not offered as an attachment yet (plan
+  asked for it; MimeKit exposes it as a body part, left for the reader integration). Both are registered; **no consumer yet** (reader).
+- [ ] **J-028 decision.** `upToId` is never sent (RFC 8620 5.6: optional); a queryChanges delta is applied whole and the unified list
+  re-reads its window. Recorded as `n/a(...)` in `spec/jmap.csv`.
+- [ ] **Plugin rows reach the reader as banners.** The reader does not read `IEmailDetailsSource` yet, so `PluginDetailsBannerSource`
+  shows each detail row as a reader banner (ids `plugin-detail-N`). When the reader shows detail rows under the sender (Bulwark
+  `ui:email-details`), drop the banner source.
+- [ ] **App csproj copies the bundled plugin.** `src/Barbican.App/Barbican.App.csproj` (shared file, `<!-- m2-unified (D-234) -->` block):
+  a `ProjectReference` with `ReferenceOutputAssembly=false`, `SetTargetFramework=net10.0` (the plugin is a plain net10.0 library; the App is
+  `-windows`), `GlobalPropertiesToRemove=RuntimeIdentifier;SelfContained`, and a target copying the dll to `$(OutDir)plugins/spam-score`.
+  Checked: the Automation build has `plugins/spam-score/Barbican.Plugin.SpamScore.dll` and `plugins` lists it. Not checked: publish
+  (`tools/build.ps1 publish`, `package-portable.ps1`) — the target runs after Build, a publish may need the same copy to `$(PublishDir)`.
+- [ ] **Feel not measured.** `spec/feel/M2/unified/hidden-run.md`: the bursts had no flagged frame and no uniform capture, but stayed under
+  the frame count (capture starved, three tries each); no number is claimed. Integrate reruns `spec/feel/M2/unified/feel.py`.
+- [ ] **Open in this stream (not built):** the sidebar's shared section (I-054, `sidebar-shared` slot unfilled), per-role unified rows
+  (Sent, Archive…; I-051 shows only All inboxes), per-account rows and colours (I-053, B-MAIL-038), the unified right-click menu (I-052),
+  a platform file picker, an import progress view, the plugin enable/disable settings UI (I-468), the TNEF RTF body.
+- [ ] **Linux (one run, `tools/linux.ps1 test -Branch m2-unified` at `3c2cc79`).** 1372 tests: 1365 passed, 6 skipped, 1 failed: `Presentation.Tests.DragDrop.DropControllerTests.Panes_load_once_clamp_save_on_commit_and_reset_on_double_click` (actions stream's test, not touched here; passes on Windows). Core.Tests passed whole on Linux, so the plugin host loads the bundled spam-score plugin there, and TNEF, import, export and the unified tests run. Windows full run: 1371 passed, 4 skipped, 0 failed.
+
+### Requests to other streams
+
+- **reader:** consume `IAttachedMessageOpener` (open a message/rfc822 or .eml attachment, blob actions off) and `IAttachmentExpander`
+  (list the files of winmail.dat; their blob ids start `tnef:` and their bytes come from `TnefExpander.OpenLocal`); read detail rows from
+  `IEmailDetailsSource` (then drop `PluginDetailsBannerSource`); load a unified row through `IMailTargetResolver` (today the reader asks the
+  active account for the composite row id, so a row of another login shows no body: hidden run `rx-banners` = 0).
+- **menus:** MENU-FOLDER "Import messages (.eml, .mbox)…" and Ctrl+O calling `MailTransfer.ImportAsync(MailboxRef)`, folder "Export" calling
+  `MailTransfer.ExportAsync(folder, name, asMbox)`; the account menu's unified row from `IUnifiedUnread` (I-017); a MENU-UNIFIED (I-052).
+- **sidebar/list owner:** when the unified row opens, clear the folder selection (the Inbox row stays highlighted while All inboxes shows);
+  `MessageListViewModel.Actions`' `Target()` should go through `IMailTargetResolver` (the routed writer makes writes right today).
+- **actions:** re-run the hook tests on the new `HookBus` semantics (per-hook budgets, fail-closed intercepts; R2-10).
+- **FakeJmap owner:** `FakeApi` answers only its own account (shared accounts in the session are not served); `FakeStore.ImportBlob`
+  drops the imported message's Message-ID and headers (a repeated import is not seen as a duplicate on the fake; spam headers are lost);
+  `SampleActiveMail` uses the M1 seed only (`SeedM2` would give the spam and TNEF messages to the hidden runs).
+- **integrator:** the App csproj plugin copy for publish; `tools/spec-check.py` nested-class mapping.
+
+### Review of the unified stream (Opus reviewer, before the merge into `m2`)
+
+Read `git diff origin/m2...origin/m2-unified` (5 commits, `862099b`..`42f95cf`) against M2-plan 6.5, 3.1, 4.4-4.6, R2-06/09/10/13. Fixed on
+the branch (commit named "M2 unified review"):
+- [ ] **`MailSync.Dispose` was not idempotent and could throw into a running sync.** Sign-out now disposes the engine while its push run may
+  still be unwinding; `_stop.Dispose()` and `_gate.Dispose()` made the unwinding run throw `ObjectDisposedException` (`_gate.Release()` in
+  `SyncNowAsync`'s finally, `_stop.Token` in `RunAsync`), and a second `Dispose` threw from `_stop.Cancel()`. Now one flag, `_stop` cancelled
+  but not disposed, the gate left alone. `src/Barbican.Core/Sync/MailSync.cs`.
+- [ ] **A unified source that failed on a refresh lost its rows**, against the class's own promise ("a refresh never empties the list because
+  one server is slow"): `Window` only kept rows of sources that answered, so the diff removed the slow source's rows. Now a source still read
+  but failing keeps its rows; a source no longer read (signed out, setting off) loses them. Test
+  `UnifiedInboxTests.A_source_that_fails_on_a_refresh_keeps_its_rows_and_a_source_no_longer_read_loses_them`.
+  `src/Barbican.Core/Mail/Unified/UnifiedListSource.cs`.
+- [ ] **One bad plugin could fault the whole plugin host.** `LoadFolder` caught only a list of load exceptions and `Register` read
+  `plugin.Manifest` unguarded, so a manifest getter (foreign code) that threw escaped `NativePluginHost.Load`; `NativePlugins.LoadAsync`'s task
+  then faulted and every `EmailDetailsAsync` (spam score included) threw. Now any exception at the load boundary skips that plugin only (CA1031
+  suppressed with the reason). Test `NativePluginContainmentTests.A_plugin_whose_manifest_throws_is_skipped_and_the_others_load`.
+  `src/Barbican.Core/Plugins/Native/NativePluginHost.cs`. Still open for Fable: `Dispose` calls a plugin's `Dispose` synchronously on the
+  caller's thread (a plugin that hangs there hangs shutdown); a plugin's `Ready` task that faults and is never awaited is unobserved.
+- [ ] **File IO on the UI thread in `MailTransfer`.** The mbox export opened its `FileStream` on the UI thread, the .eml export created the folder
+  there, and the import could open the first file there when the first server call completed synchronously. All three now start on the pool.
+  `src/Barbican.Presentation/Unified/MailTransfer.cs`.
+- [ ] **`UnifiedSectionView` stopped following its view model after an unload/reload** (unsubscribed in `Unloaded`, never subscribed again).
+  Now subscribes on `Loaded`. `src/Barbican.App/Views/Unified/UnifiedSectionView.cs`. The row is built in code with literal paddings, a
+  transparent brush and a hard-coded glyph, not the design tokens (design-language pass owed).
+- [ ] **G-046 and G-047 said `done` without their UI.** Now `done (core ...)` with what is missing (no folder-menu entry or picker; no reader
+  consumer of the TNEF expander, RTF body not offered). `spec/gaps.csv`.
+
+Checked and left as is (Fable please confirm):
+- [ ] R2-06: `AccountStore.ChangeAsync` takes the cross-process `RefreshLock` before the in-process gate; `WriteAsync` (called by a refresh that
+  holds the lock) does not take it. The lock is a `FileShare.None` handle, so a second acquire in the same process waits up to 15 s and then
+  proceeds without it (as Rust). No path calls `RememberAsync`/`ForgetAsync` while holding the lock today; a future one would stall 15 s.
+- [ ] Sign-out clears the whole body cache (`IBodyCache` has only `Clear()`), not only the account's entries, and does not touch the avatar
+  cache (keyed by address, not account). The brief asked for "its caches"; correct but wider than needed.
+- [ ] `UnifiedMailWriterSource` refuses a row of a read-only login with "is not signed in" (no writer is built), never sending a request;
+  the message is misleading for `<readonly-account>` rows. Safe; the wording is a small follow-up.
+- [ ] `TnefExpander.Local` keeps every expanded file's bytes in a static dictionary for the run (bounded by the 50 MB input cap per distinct
+  winmail.dat, never freed); the file names inside a TNEF stream are foreign text and reach the saver unsanitised (reader's saver must strip
+  path parts before it writes, `..\` included).
+- [ ] The unified paging merges per-source pages (Rust parity): a later page of one source can hold rows newer than the tail of an earlier
+  page of another, so the list is ordered within each page, not globally across loads.
+- [ ] Remaining M2 rows of this stream (not built, still `todo`/`partial` in `spec/interactions.csv`): I-050 header toggle, I-051 per-role rows,
+  I-052 MENU-UNIFIED, I-053 per-account rows and colours, I-054 shared section, I-017 menu row, I-065/I-287 menu entries and picker, I-468
+  settings toggle. They need a follow-up stream or the integrator before the M2 gate (M2-plan 8 wants every mail I- row `done` or deferred
+  with a reason).

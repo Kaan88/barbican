@@ -1,16 +1,140 @@
-// Mirrors: M2 plan section 3.3. Owner unified (wave 2): IListSourceResolver (Replace), IMailTargetResolver, IAccountMaintenance, IUnifiedUnread, IMailImport, IAttachedMessageOpener, IAttachmentExpander,
-// INativePluginHost, the sidebar section slot fillers. Stage F creates it empty.
+// Mirrors: M2 plan section 3.3. Owner unified (wave 2): IListSourceResolver (Replace), IMailTargetResolver, IAccountMaintenance (registered by
+// Core's accounts module on the account manager), IUnifiedUnread, IMailImport, IAttachedMessageOpener, IAttachmentExpander, the native plugin host (INativePluginHost, IEmailDetailsSource,
+// its start-up load and the reader rows), the writer source that routes unified rows, the sidebar's unified slot filler.
+// Plugins (Rust main.rs:455): the bundled ones in <app>/plugins (the build copies spam-score there), the user's in <config>/plugins, data in
+// <data>/plugin-data; disabledPlugins from the prefs; handlers on the app's hook bus.
 
+using System.Text.Json.Nodes;
+using Barbican.App.Shell;
+using Barbican.App.Views.Unified;
+using Barbican.Core.Accounts;
+using Barbican.Core.Mail.Import;
+using Barbican.Core.Mail.Lists;
+using Barbican.Core.Mail.Parse;
+using Barbican.Core.Mail.Tnef;
+using Barbican.Core.Mail.Unified;
+using Barbican.Core.Mail.Write;
+using Barbican.Core.Plugins.Hooks;
+using Barbican.Core.Plugins.Native;
+using Barbican.Core.Storage;
+using Barbican.Presentation.Actions;
+using Barbican.Presentation.Common;
+using Barbican.Presentation.Composition;
+using Barbican.Presentation.Mail;
+using Barbican.Presentation.Mail.Lists;
+using Barbican.Presentation.Reader;
+using Barbican.Presentation.Unified;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 
 namespace Barbican.App.Composition.Features;
 
 /// <summary>Unified inbox, shared accounts, account maintenance, import and export, native plugin host (M2 stream unified).</summary>
 public static class UnifiedRegistration
 {
+    /// <summary>The prefs key of the disabled plugin ids (Rust main.rs:455).</summary>
+    public const string DisabledPluginsKey = "disabledPlugins";
+
+    /// <summary>The prefs key of "show the spam verdict for clean mail too" (B-SPAM-004).</summary>
+    public const string ShowCleanSpamKey = "showCleanSpam";
+
     public static IServiceCollection AddBarbicanUnified(this IServiceCollection services)
     {
         ArgumentNullException.ThrowIfNull(services);
+        AddUnifiedInbox(services);
+        AddPlugins(services);
+        services.TryAddSingleton<IMailImport>(sp => new MailImportService(target => AccountOf(sp, target)));
+
+        // attached messages (Email/parse) and winmail.dat (TNEF) on the account that holds the message; the reader consumes them (M2 plan 4.5)
+        services.TryAddSingleton<IAttachedMessageOpener>(sp => new EmailParseOpener(key => sp.GetRequiredService<IAccountManager>().SessionFor(key)?.Client));
+        services.TryAddSingleton<IAttachmentExpander>(sp => new TnefExpander(key => sp.GetRequiredService<IAccountManager>().SessionFor(key)?.Client));
+
+        // import and export runs (MENU-FOLDER "Import messages…", Ctrl+O, folder export call MailTransfer; no platform picker yet: queued answers only)
+        services.TryAddSingleton(sp => new MailExportService(key => sp.GetRequiredService<IAccountManager>().SessionFor(key)?.Client));
+        services.TryAddSingleton(_ => new TransferPicks());
+        services.TryAddSingleton(sp => new MailTransfer(sp.GetRequiredService<IMailImport>(), sp.GetRequiredService<MailExportService>(), sp.GetRequiredService<TransferPicks>(), sp.GetRequiredService<IDispatcher>()));
+#if AUTOMATION
+        services.AddSingleton<Barbican.Automation.IAutomationCommand, Views.Unified.Automation.UnifiedCommand>();
+        services.AddSingleton<Barbican.Automation.IAutomationCommand, Views.Unified.Automation.ImportSimCommand>();
+        services.AddSingleton<Barbican.Automation.IAutomationCommand, Views.Unified.Automation.PluginsCommand>();
+#endif
         return services;
     }
+
+    private static void AddUnifiedInbox(IServiceCollection services)
+    {
+#if AUTOMATION
+        if (string.Equals(Environment.GetEnvironmentVariable("BARBICAN_SAMPLE"), "1", StringComparison.Ordinal))
+        {
+            // a sample-data run: two in-process FakeJmap logins (the sample one and "sample-2"), each request logged per login
+            services.TryAddSingleton(sp => new Views.Unified.Automation.SampleUnifiedLogins(sp.GetRequiredService<IActiveMail>(), sp.GetRequiredService<TimeProvider>()));
+            services.TryAddSingleton<IUnifiedLogins>(sp => sp.GetRequiredService<Views.Unified.Automation.SampleUnifiedLogins>());
+        }
+#endif
+        services.TryAddSingleton<IUnifiedLogins>(sp => new AccountManagerLogins(sp.GetRequiredService<IAccountManager>()));
+        services.TryAddSingleton(sp => new UnifiedInbox(
+            sp.GetRequiredService<IUnifiedLogins>(),
+            sp.GetService<IAccountOverview>(),
+            sp.GetRequiredService<IPrefsStore>(),
+            sp.GetRequiredService<MailEventHub>()));
+        services.AddSingleton<IStartupTask>(sp => sp.GetRequiredService<UnifiedInbox>());
+        services.Replace(ServiceDescriptor.Singleton<IListSourceResolver>(sp => new UnifiedListSourceResolver(sp.GetRequiredService<UnifiedInbox>(), sp.GetRequiredService<IActiveMail>())));
+        services.Replace(ServiceDescriptor.Singleton<IMailTargetResolver>(sp => new UnifiedTargetResolver(sp.GetRequiredService<IActiveMail>())));
+        services.TryAddSingleton<IUnifiedUnread>(sp => new UnifiedUnread(sp.GetRequiredService<IAccountOverview>()));
+        services.TryAddSingleton(sp => new UnifiedSectionViewModel(
+            sp.GetRequiredService<UnifiedInbox>(),
+            sp.GetRequiredService<IUnifiedUnread>(),
+            sp.GetRequiredService<IPrefsStore>(),
+            sp.GetRequiredService<IDispatcher>(),
+            () => sp.GetRequiredService<MessageListViewModel>(),
+            () => sp.GetService<Barbican.Presentation.Shell.GlanceTilesViewModel>()));
+        services.AddSingleton<ISlotContent>(new SlotContent(SlotNames.SidebarUnified, () => new UnifiedSectionView()));
+
+        // the actions' writer source, wrapped so a unified row writes only to its own account
+        if (services.LastOrDefault(d => d.ServiceType == typeof(IMailWriterSource)) is { } inner)
+        {
+            services.Replace(ServiceDescriptor.Singleton<IMailWriterSource>(sp => new UnifiedMailWriterSource(
+                (IMailWriterSource)Create(sp, inner),
+                sp.GetRequiredService<IUnifiedLogins>())));
+        }
+    }
+
+    private static void AddPlugins(IServiceCollection services)
+    {
+        services.TryAddSingleton(sp =>
+        {
+            var paths = sp.GetRequiredService<IProfilePaths>();
+            var prefs = sp.GetRequiredService<IPrefsStore>();
+            return new NativePlugins(
+                () => new NativePluginHostOptions
+                {
+                    BundledRoot = Path.Combine(AppContext.BaseDirectory, "plugins"),
+                    UserRoot = Path.Combine(paths.ConfigDir, "plugins"),
+                    DataRoot = Path.Combine(paths.DataDir, "plugin-data"),
+                    Disabled = Disabled(prefs),
+                    Bus = sp.GetService<HookBus>(),
+                    Time = sp.GetRequiredService<TimeProvider>(),
+                },
+                () => prefs.Current.Bool(ShowCleanSpamKey, false));
+        });
+        services.Replace(ServiceDescriptor.Singleton<INativePluginHost>(sp => sp.GetRequiredService<NativePlugins>()));
+        services.Replace(ServiceDescriptor.Singleton<IEmailDetailsSource>(sp => sp.GetRequiredService<NativePlugins>()));
+        services.AddSingleton<IStartupTask>(sp => new PluginStartup(sp.GetRequiredService<NativePlugins>()));
+        services.AddSingleton<IReaderBannerSource>(sp => new PluginDetailsBannerSource(sp.GetRequiredService<NativePlugins>()));
+    }
+
+    private static HashSet<string> Disabled(IPrefsStore prefs) =>
+        prefs.Current.Values[DisabledPluginsKey] is JsonArray a
+            ? [.. a.Select(n => n is JsonValue v && v.TryGetValue<string>(out var s) ? s : null).OfType<string>()]
+            : [];
+
+    private static (IMailWriter Writer, Core.Jmap.IJmapClient Client)? AccountOf(IServiceProvider sp, Core.Mail.Model.MailboxRef target) =>
+        sp.GetRequiredService<IUnifiedLogins>().ClientOf(target.AccountKey) is { } client && sp.GetRequiredService<IMailWriterSource>().WriterOf(target.AccountKey) is { } writer
+            ? (writer, client)
+            : null;
+
+    private static object Create(IServiceProvider sp, ServiceDescriptor d) =>
+        d.ImplementationInstance
+        ?? d.ImplementationFactory?.Invoke(sp)
+        ?? ActivatorUtilities.CreateInstance(sp, d.ImplementationType!);
 }

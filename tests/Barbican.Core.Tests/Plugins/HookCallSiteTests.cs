@@ -43,6 +43,5 @@ public sealed class HookCallSiteTests
     public void Search_m2_hooks_have_call_sites() => AssertFired("search", "M2");
 
     [Fact]
-    [Red("unified")]
     public void Unified_m2_hooks_have_call_sites() => AssertFired("unified", "M2");
 }
