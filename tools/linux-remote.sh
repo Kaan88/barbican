@@ -143,6 +143,8 @@ case "$mode" in
                      "dialog-open confirm Verify" "dialog-state" "wshot $out/dialog.png" "dialog-answer cancel" "dialog-state" \
                      "palette" "key Escape" "dnd-sim #1 folder:archive" "toast-last" "act mail.undo" "toast-last" \
                      "search from:carol has:attachment" "chips" "search" "unified on" "unified state" "plugins"; do
+              # X11 capture is an immediate XGetImage: give the Skia frame of a just-opened menu or dialog a second first
+              case "$c" in wshot*) sleep 1 ;; esac
               echo "$c: $(send "$c")"
             done
           fi
