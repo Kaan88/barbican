@@ -17,6 +17,8 @@ namespace Barbican.Core.Compose;
 /// <summary>The Scheduled view's data and its actions.</summary>
 public sealed class ScheduledSends(IAccountManager accounts, TimeProvider time) : IScheduledSends
 {
+    public long MaxDelayedSend(string accountId) => ComposeContext.For(accounts, accountId) is { IsOk: true } c ? SubmissionOps.MaxDelayedSend(c.Value!) : 0;
+
     public async Task<Result<IReadOnlyList<ScheduledMessage>>> ListAsync(string accountId, CancellationToken ct)
     {
         var ctx = ComposeContext.For(accounts, accountId);
