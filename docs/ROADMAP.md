@@ -7,7 +7,7 @@ change the plan: [adr/](adr/). The Rust-era roadmap is in [legacy/ROADMAP.md](le
 |---|---|---|
 | M0 | Freeze the Rust repo, new repo and foundation, spec catalogue, design tokens, spikes S1–S5 | **done** (2026-11-17, [m0-checklist.md](m0-checklist.md)) |
 | M1 | Read-only mail client on the test account (JMAP core, sync, push, shell, list, reader) | **awaiting hand test** (branch `m1`, [milestones/M1.md](milestones/M1.md)) |
-| M2 | Mail actions, menus, reader depth, search, palette, import, plugins | **planned in detail** (branch `m2`, [milestones/M2-plan.md](milestones/M2-plan.md)) |
+| M2 | Mail actions, menus, reader depth, search, palette, import, plugins | **awaiting hand test** (branch `m2`, [milestones/M2.md](milestones/M2.md); plan [M2-plan.md](milestones/M2-plan.md)) |
 | M3 | Compose and send with the native editor | planned |
 | M4 | Calendar and tasks | planned |
 | M5 | Contacts and Files | planned |
@@ -44,10 +44,24 @@ change the plan: [adr/](adr/). The Rust-era roadmap is in [legacy/ROADMAP.md](le
 - [x] Windows `tools/build.ps1 test` passes on merged `m1` (801 tests, 0 failed, 4 skipped); `spec-check --milestone M1` 0 open (75 ported, T-159
   dropped pending the user's OK); 41/41 M1 hooks have call sites; trace-diff open/switch/push match; cold start 284-353 ms
   to the first frame (Release smoke); portable zip built locally.
-- [ ] Linux VM: not run (SSH on port 22 times out); M1 is not green on both OSes yet.
-- [ ] Frame-level feel gates (BLANK/FLASH, input to frame <= 21 ms): not measurable on the hidden window; on-screen run needs the user.
+- [x] Linux VM: green on merged `m2`, which contains `m1` (1426 tests, 0 failed, 6 skipped; M2 verify).
+- [ ] Frame-level feel gates (BLANK/FLASH, input to frame <= 21 ms): not measurable at M1 verify; measured with valid WGC frames at M2 verify
+  (M2.md §3). Real-input scenarios still need the user.
 - [ ] **HAND TEST 1** and the gate decisions ([milestones/M1.md](milestones/M1.md) §4, §6). After the user's OK: merge `m1` to
   `main`, tag `m1`, archive the Rust repo (needs the user).
+
+## M2 progress
+- [x] Stage F (spec tests, contracts) and streams actions, menus, reader, search and unified, each reviewed and merged into `m2`
+  ([M2-plan.md](milestones/M2-plan.md)).
+- [x] Windows `tools/build.ps1 test` on merged `m2`: 1430 tests, 0 failed, 4 skipped. Linux VM: 1426, 0 failed, 6 skipped; `xrun -Script auto-m2`
+  drove menus, a dialog over the body, the palette and a simulated drop.
+- [x] `spec-check --milestone M2` 0 open (89 ported, `--strict` 0); 36/36 M2 hooks fire; trace-diff open/switch/push and the new
+  delete_undo and move match; cold start 310-322 ms to the first frame; publish carries the bundled spam-score plugin; portable zip built locally.
+- [x] Feel: ctx_menu, dialog, palette, delete and undo show 0 BLANK / 0 FLASH in Bento and Nordic, light and dark (valid WGC captures).
+- [ ] Interaction rows: 70 M2 rows and 19 carried M1 rows still `todo` (views not built). Decision at the gate ([M2.md](milestones/M2.md) §6).
+- [ ] Live writes and the cleanup of the Rust leftovers on the test account: wait for M2-Q2 or HAND TEST 2.
+- [ ] **HAND TEST 2** and the gate decisions ([milestones/M2.md](milestones/M2.md) §6, §7), after HAND TEST 1. Then merge to `main` and tag
+  (needs the user).
 
 ## M1: what it starts with
 1. **Uno.Sdk 7.0.x** (ADR 0004 "M0 review"): one SkiaSharp major for the App head and the editor;
