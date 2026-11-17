@@ -1,7 +1,8 @@
-// Mirrors: Rust jmap.rs:1614 changed_types; RFC 8620 §7.1 (StateChange.changed per account). Stub from F2; owner jmap.
+// Mirrors: Rust jmap.rs:1614 changed_types; RFC 8620 §7.1 (StateChange.changed: account id to type to state); Bulwark
+// lib/push-events.ts:35 changesAnyType. Owner jmap.
 
-using Barbican.Core.Common;
 using System.Text.Json.Nodes;
+using Barbican.Core.Jmap.Json;
 
 namespace Barbican.Core.Jmap.Push;
 
@@ -9,6 +10,22 @@ namespace Barbican.Core.Jmap.Push;
 public static class PushChanges
 {
     /// <summary>The changed type to state map of one account (empty when the account is absent).</summary>
-    public static IReadOnlyDictionary<string, string> ChangedTypes(JsonNode change, string accountId) =>
-        throw new PortPendingException("PushChanges.ChangedTypes: jmap stream");
+    public static IReadOnlyDictionary<string, string> ChangedTypes(JsonNode change, string accountId)
+    {
+        ArgumentNullException.ThrowIfNull(change);
+        ArgumentNullException.ThrowIfNull(accountId);
+        var result = new Dictionary<string, string>(StringComparer.Ordinal);
+        if (change.Obj("changed").Obj(accountId) is { } types)
+        {
+            foreach (var (type, state) in types)
+            {
+                if (state.AsString() is { } s)
+                {
+                    result[type] = s;
+                }
+            }
+        }
+
+        return result;
+    }
 }

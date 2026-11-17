@@ -1,5 +1,5 @@
-// Mirrors: PORT-PLAN.md §4.1 (expected failures are values, not exceptions, in the JMAP layer).
-// Contract stub from F2 (M1-plan §4.1); owner jmap.
+// Mirrors: PORT-PLAN.md §3.4 / §4.1 (expected failures are values, not exceptions, in the JMAP layer); Rust jmap.rs `type R<T> =
+// Result<T, String>` (:27), typed here with the closed JmapError hierarchy. Owner jmap.
 
 using Barbican.Core.Jmap.Errors;
 
@@ -8,7 +8,7 @@ using Barbican.Core.Jmap.Errors;
 
 namespace Barbican.Core.Common;
 
-/// <summary>Success with a value, or a <see cref="JmapError"/>.</summary>
+/// <summary>Success with a value, or a <see cref="JmapError"/>. Never throws for an expected failure.</summary>
 public readonly record struct Result<T>
 {
     /// <summary>The value; meaningful only when <see cref="IsOk"/>.</summary>
@@ -24,14 +24,31 @@ public readonly record struct Result<T>
     public static Result<T> Ok(T value) => new() { Value = value };
 
     /// <summary>A failure.</summary>
-    public static Result<T> Fail(JmapError error) => new() { Error = error };
+    public static Result<T> Fail(JmapError error)
+    {
+        ArgumentNullException.ThrowIfNull(error);
+        return new() { Error = error };
+    }
 
-    /// <summary>Transforms the value of a success.</summary>
-    public Result<TOut> Map<TOut>(Func<T, TOut> map) => throw new PortPendingException("Result.Map: jmap stream");
+    /// <summary>Transforms the value of a success; a failure passes through.</summary>
+    public Result<TOut> Map<TOut>(Func<T, TOut> map)
+    {
+        ArgumentNullException.ThrowIfNull(map);
+        return Error is null ? Result<TOut>.Ok(map(Value!)) : Result<TOut>.Fail(Error);
+    }
 
-    /// <summary>Chains a call that can fail.</summary>
-    public Result<TOut> Bind<TOut>(Func<T, Result<TOut>> bind) => throw new PortPendingException("Result.Bind: jmap stream");
+    /// <summary>Chains a call that can fail; a failure passes through.</summary>
+    public Result<TOut> Bind<TOut>(Func<T, Result<TOut>> bind)
+    {
+        ArgumentNullException.ThrowIfNull(bind);
+        return Error is null ? bind(Value!) : Result<TOut>.Fail(Error);
+    }
 
     /// <summary>Folds both cases into one value.</summary>
-    public TOut Match<TOut>(Func<T, TOut> ok, Func<JmapError, TOut> fail) => throw new PortPendingException("Result.Match: jmap stream");
+    public TOut Match<TOut>(Func<T, TOut> ok, Func<JmapError, TOut> fail)
+    {
+        ArgumentNullException.ThrowIfNull(ok);
+        ArgumentNullException.ThrowIfNull(fail);
+        return Error is null ? ok(Value!) : fail(Error);
+    }
 }

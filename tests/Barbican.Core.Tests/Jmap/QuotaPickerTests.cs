@@ -1,4 +1,4 @@
-// Ported from Rust src/jmap.rs test quota_prefers_mail_account_octets (:1865). Red until the jmap stream implements QuotaPicker.
+// Ported from Rust src/jmap.rs test quota_prefers_mail_account_octets (:1865).
 
 using System.Text.Json.Nodes;
 using Barbican.Core.Jmap.Quota;
@@ -11,7 +11,6 @@ public sealed class QuotaPickerTests
 
     [Fact]
     [RustTest("jmap::quota_prefers_mail_account_octets")]
-    [Red("jmap")]
     public void Quota_prefers_mail_account_octets()
     {
         List<JsonObject> list =

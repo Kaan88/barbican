@@ -1,4 +1,4 @@
-// Ported from Rust src/jmap.rs test sse_parser_events (:1840). Red until the jmap stream implements SseParser and PushChanges.
+// Ported from Rust src/jmap.rs test sse_parser_events (:1840).
 
 using System.Text.Json.Nodes;
 using Barbican.Core.Jmap.Push;
@@ -9,7 +9,6 @@ public sealed class PushTests
 {
     [Fact]
     [RustTest("jmap::sse_parser_events")]
-    [Red("jmap")]
     public void Sse_parser_events()
     {
         var p = new SseParser();

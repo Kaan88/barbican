@@ -1,5 +1,5 @@
 // Ported from Rust src/jmap.rs tests calls_split_by_limit_unless_linked (:1812), read_only_calls (:1826), problem_details (:1832).
-// Red until the jmap stream implements RequestSplitter, ReadOnlyGuard and ProblemMessages.
+//
 
 using System.Text.Json.Nodes;
 using Barbican.Core.Jmap.Errors;
@@ -15,7 +15,6 @@ public sealed class RequestRulesTests
 
     [Fact]
     [RustTest("jmap::calls_split_by_limit_unless_linked")]
-    [Red("jmap")]
     public void Calls_split_by_limit_unless_linked()
     {
         var calls = FiveQueries();
@@ -33,7 +32,6 @@ public sealed class RequestRulesTests
 
     [Fact]
     [RustTest("jmap::read_only_calls")]
-    [Red("jmap")]
     public void Read_only_calls()
     {
         Assert.True(ReadOnlyGuard.IsReadOnly(JsonNode.Parse("""[["Email/get", {}, "a"], ["Email/queryChanges", {}, "b"]]""")!.AsArray()));
@@ -42,7 +40,6 @@ public sealed class RequestRulesTests
 
     [Fact]
     [RustTest("jmap::problem_details")]
-    [Red("jmap")]
     public void Problem_details()
     {
         var m = ProblemMessages.Message(400, JsonNode.Parse("""{"type": "urn:ietf:params:jmap:error:limit", "limit": "maxCallsInRequest", "status": 400}""")!.AsObject());
