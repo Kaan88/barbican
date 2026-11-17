@@ -1,5 +1,6 @@
 // Mirrors: Rust search_history.rs:15 load, :20 save, :40 add, :46 remove (search-history.json, a JSON array of strings, ten newest first); Bulwark stores/search-history-store.ts.
-// Kept locally under the profile (D-3). Reads and writes are synchronous and small; a missing or damaged file is an empty history.
+// Kept locally under the profile (D-3). The list lives in memory (read once, off the UI thread when a path is given); each change writes the small file on a background task, in order,
+// so the box never waits for the disk. A missing or damaged file is an empty history.
 
 using System.Text.Json;
 using System.Text.Json.Nodes;
@@ -15,9 +16,29 @@ public sealed class SearchHistoryStore
     private readonly string? _path;
     private readonly Lock _lock = new();
     private List<string>? _cache;
+    private Task _writes = Task.CompletedTask;
 
     /// <summary>History in <c>search-history.json</c> under <paramref name="configDir"/>; null keeps it in memory (tests).</summary>
-    public SearchHistoryStore(string? configDir) => _path = configDir is null ? null : Path.Combine(configDir, FileName);
+    public SearchHistoryStore(string? configDir)
+    {
+        _path = configDir is null ? null : Path.Combine(configDir, FileName);
+        if (_path is not null)
+        {
+            _ = Task.Run(Load);
+        }
+    }
+
+    /// <summary>Waits until every change so far is on disk (tests, shutdown).</summary>
+    public Task FlushAsync()
+    {
+        Task pending;
+        lock (_lock)
+        {
+            pending = _writes;
+        }
+
+        return pending;
+    }
 
     /// <summary>The recent searches, newest first.</summary>
     public IReadOnlyList<string> Load()
@@ -86,12 +107,19 @@ public sealed class SearchHistoryStore
             return;
         }
 
+        var snapshot = new JsonArray([.. _cache!.Select(x => (JsonNode?)JsonValue.Create(x))]).ToJsonString();
+        var path = _path;
+        _writes = _writes.ContinueWith(_ => Write(path, snapshot), CancellationToken.None, TaskContinuationOptions.None, TaskScheduler.Default);
+    }
+
+    private static void Write(string path, string json)
+    {
         try
         {
-            Directory.CreateDirectory(Path.GetDirectoryName(_path)!);
-            var tmp = _path + ".tmp";
-            File.WriteAllText(tmp, new JsonArray([.. _cache!.Select(x => (JsonNode?)JsonValue.Create(x))]).ToJsonString());
-            File.Move(tmp, _path, overwrite: true);
+            Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+            var tmp = path + ".tmp";
+            File.WriteAllText(tmp, json);
+            File.Move(tmp, path, overwrite: true);
         }
         catch (Exception e) when (e is IOException or UnauthorizedAccessException)
         {

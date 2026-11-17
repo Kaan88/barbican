@@ -89,7 +89,7 @@ public sealed class SearchFlowTests
     }
 
     [Fact]
-    public void History_persists_ten_newest_without_duplicates()
+    public async Task History_persists_ten_newest_without_duplicates()
     {
         var dir = Path.Combine(Path.GetTempPath(), "barbican-history-" + Guid.NewGuid().ToString("N"));
         try
@@ -101,6 +101,7 @@ public sealed class SearchFlowTests
             }
 
             a.Add("QUERY 5");
+            await a.FlushAsync();
             var b = new SearchHistoryStore(dir);
             var list = b.Load();
             Assert.Equal(SearchHistory.MaxRecent, list.Count);
@@ -108,6 +109,7 @@ public sealed class SearchFlowTests
             Assert.Single(list, x => x.Equals("query 5", StringComparison.OrdinalIgnoreCase));
             Assert.True(File.Exists(Path.Combine(dir, SearchHistoryStore.FileName)));
             b.Remove("QUERY 5");
+            await b.FlushAsync();
             Assert.DoesNotContain("QUERY 5", new SearchHistoryStore(dir).Load(), StringComparer.Ordinal);
         }
         finally
@@ -117,5 +119,18 @@ public sealed class SearchFlowTests
                 Directory.Delete(dir, true);
             }
         }
+    }
+
+    [Fact]
+    public void A_list_query_without_the_shaper_reads_the_same_grammar_for_the_sync_delta()
+    {
+        var q = new ListQuery { MailboxId = "m1", SearchText = "from:alice has:attachment report" };
+        var f = ListFilters.For(q);
+        var json = f.ToJsonString();
+        Assert.Contains("\"inMailbox\":\"m1\"", json, StringComparison.Ordinal);
+        Assert.Contains("\"from\":\"alice\"", json, StringComparison.Ordinal);
+        Assert.Contains("\"hasAttachment\":true", json, StringComparison.Ordinal);
+        Assert.Contains("\"text\":\"report\"", json, StringComparison.Ordinal);
+        Assert.DoesNotContain("from:alice", json, StringComparison.Ordinal);
     }
 }

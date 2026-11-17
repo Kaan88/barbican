@@ -19,6 +19,7 @@ public sealed partial class SearchBoxView : UserControl
     private readonly MessageListViewModel _list;
     private readonly SearchBoxModel _model;
     private bool _syncing;
+    private bool _redrawQueued;
 
     public SearchBoxView()
     {
@@ -27,7 +28,7 @@ public sealed partial class SearchBoxView : UserControl
         Look = ViewHost.Get<StyleState>();
         InitializeComponent();
         _list.FocusSearchRequested += (_, _) => SearchBox.Focus(FocusState.Programmatic);
-        _model.PropertyChanged += (_, _) => Redraw();
+        _model.PropertyChanged += (_, _) => QueueRedraw();
         _list.PropertyChanged += (_, e) =>
         {
             if (string.Equals(e.PropertyName, nameof(MessageListViewModel.SearchText), StringComparison.Ordinal) && !string.Equals(_list.SearchText, SearchBox.Text, StringComparison.Ordinal))
@@ -44,6 +45,26 @@ public sealed partial class SearchBoxView : UserControl
     private static Brush Brush(string key) => Application.Current.Resources.TryGetValue(key, out var v) && v is Brush b ? b : new SolidColorBrush(Microsoft.UI.Colors.Gray);
 
     private static Style? StyleOf(string key) => Application.Current.Resources.TryGetValue(key, out var v) ? v as Style : null;
+
+    // One model change raises several property notifications (Changed()); the controls are rebuilt once, before the next frame, not once per notification (search_type: one quantum per key).
+    private void QueueRedraw()
+    {
+        if (_redrawQueued)
+        {
+            return;
+        }
+
+        _redrawQueued = true;
+        if (!DispatcherQueue.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.High, () =>
+        {
+            _redrawQueued = false;
+            Redraw();
+        }))
+        {
+            _redrawQueued = false;
+            Redraw();
+        }
+    }
 
     private void Redraw()
     {
@@ -206,7 +227,8 @@ public sealed partial class SearchBoxView : UserControl
 
     private void OnTextChanged(object sender, TextChangedEventArgs e)
     {
-        if (_syncing)
+        // TextChanged for a programmatic set arrives after the guard is down: text the model already holds is not an edit (no dropdown opens when a folder or a clear rewrites the box)
+        if (_syncing || string.Equals(SearchBox.Text, _model.Text, StringComparison.Ordinal))
         {
             return;
         }

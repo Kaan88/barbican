@@ -4,6 +4,7 @@
 
 using System.Text.Json.Nodes;
 using Barbican.Core.Mail.Model;
+using Barbican.Core.Search;
 
 namespace Barbican.Core.Mail.Service;
 
@@ -20,17 +21,23 @@ public static class ListFilters
             // the search shaper (M2) already holds the folder and the typed text as conditions (gsearch mailbox_search_filter), so they are not added again
             conditions.Add((JsonObject)shaped.DeepClone());
         }
-        else
+        else if (query.SearchText?.Trim() is { Length: > 0 } text)
         {
-            if (!string.IsNullOrEmpty(query.MailboxId))
+            // an unshaped query (the sync's delta watches the query as the list holds it) reads the same grammar as the shaped page, so a live push
+            // during "from:alice has:attachment" compares like with like; in:trash and in:spam need the folder list, which only the shaper has (they fall back to the open folder)
+            var grammar = GlobalSearch.MailboxSearchFilter(text, query.MailboxId, _ => null);
+            if (grammar is JsonObject { } g && g["conditions"] is JsonArray parts && g["operator"] is JsonValue)
             {
-                conditions.Add(new JsonObject { ["inMailbox"] = query.MailboxId });
+                conditions.AddRange(parts.OfType<JsonObject>().Select(p => (JsonObject)p.DeepClone()));
             }
-
-            if (query.SearchText?.Trim() is { Length: > 0 } text)
+            else
             {
-                conditions.Add(new JsonObject { ["text"] = text });
+                conditions.Add(grammar as JsonObject ?? []);
             }
+        }
+        else if (!string.IsNullOrEmpty(query.MailboxId))
+        {
+            conditions.Add(new JsonObject { ["inMailbox"] = query.MailboxId });
         }
 
         if (!string.IsNullOrEmpty(query.HasKeyword))
