@@ -117,3 +117,57 @@ placeholders (see CLAUDE.md); never write real values here.
   275 rows and 136 distinct non-empty `key` values. The catalogue stream (`spec/settings.csv`)
   should reconcile the number. Where: `src/Barbican.Core/Settings/settings-schema.json`,
   `tests/Barbican.Core.Tests/Settings/SettingsSchemaTests.cs`.
+
+## M0 spikes S1/S2 (stream: m0-s12)
+
+### Incident
+- **A MenuFlyout appeared on the user's real screen.** What: in S2 runs 1 and 2 on Windows the
+  harness opened a `MenuFlyout` over the body of its off-screen automation window. On WinAppSDK
+  2.6.5 the flyout is a windowed popup (`IsConstrainedToRootBounds=false` despite
+  `ShouldConstrainToRootBounds=true`) and Windows clamped it onto the visible monitor: about 0.5–0.7 s
+  at the right screen edge, twice per run, four times in all. No input was sent; nothing was
+  clicked. Fix: the Windows harness now uses a constrained `Popup`, checks
+  `IsConstrainedToRootBounds` in the same turn and closes it at once if not; the `ContentDialog`
+  phase is guarded the same way; a real `MenuFlyout` runs on Windows only with
+  `BARBICAN_SPIKE_WINDOWED_MENUS=1` (throwaway VM). Why: violates the "never touch the real screen"
+  rule; any future UI automation (§3.7 menus, S4) must assume windowed popups escape off-screen
+  windows. Where: `spikes/BodyShell/Scenario.Phases.cs`, docs/adr/0005 decision 2.
+
+### Judgement calls and deviations
+- **Uno.Sdk 6.7.49, not 7.0.22.** 7.0 was four days old and moves to SkiaSharp 4.x. Revisit at M2
+  (S3 RichTextKit). Where: `global.json`, docs/adr/0004.
+- **WebView2Aot removed from compile references (desktop TFM).** Its global `WebView2` namespace
+  shadows the control. A build target removes one `ReferencePath`; the assembly still ships. Check it
+  does not hide anything the Win32 Skia host needs at compile time. Where:
+  `eng/Uno.WebView2Name.targets`.
+- **Analyzer relaxations.** App head: CA1010, CA2007, MA0004 off; MA0048 off for `App.xaml.cs`.
+  Spikes: many rules off and `Uno0001` not an error (`spikes/Directory.Build.props`,
+  `.editorconfig`). Check the head relaxations are the minimum.
+- **Prototype patched at build time** for Uno (`SizeInt32` object initialiser) instead of editing
+  `prototype/winui`. Where: `prototype/uno/Barbican.Prototype.Uno.csproj`.
+- **VM packages and library shim.** `setup-ui` installed `libwebkit2gtk-4.1-0`, GTK 3, Xvfb, fonts
+  (plus dependencies) with `sudo -n apt-get`; `xrun` symlinks unversioned GTK/WebKit names into
+  `~/.barbican-lib` instead of installing `-dev` packages. Where: `tools/linux-remote.sh`.
+- **CSP port duplicated in the spike.** `spikes/BodyShell/MailDocument.cs` copies `csp_with`, the
+  sandbox flags and the dark wrapper without the Rust tests. M1 must move it into Core with them.
+
+### Security
+- **Linux has no host-side request filter.** `WebResourceRequested` is not on Uno/Linux; remote
+  blocking there is CSP-only (verified: 0 beacon hits with images off).
+- **Linux link routing and navigation.** `target=_blank` link clicks raise nothing (lost, not
+  routed); a script-initiated top-level navigation of the shell reached the server although
+  `NavigationStarting` cancelled the load. The shell must route links itself on Linux, and no code
+  path may navigate the shell. Where: docs/adr/0005 decision 4, `spikes/BodyShell/Scenario.Probes.cs`.
+- **`shell.js` posts through `webkit.messageHandlers.unoWebView` on Linux.** Any page script with
+  same-origin access could post too; the frames have no scripts except the hashed dark script. Check
+  the host validates every message (`ready:N` sequence, `ctx:` bounds).
+
+### Partially verified
+- **The published Windows exe was not launched** (the App head shows a visible window; needs a hidden
+  smoke mode). Publish sizes: win-x64 292.9 MB (R2R), linux-x64 160 MB (21 MB `DirectN.dll`).
+- **WGC delivers frames only on change**, so the Windows phase counts are small (3–29 frames); a
+  bad frame that equals its predecessor would not be recorded. Linux samples every 8 ms by XGetImage.
+- **Linux overlay results come from Xvfb** (no compositor, no GPU). Header/body skew there was up to 2
+  samples; real-desktop behaviour is unmeasured.
+- **Inner-loop times** include `tools/build.ps1` start-up and the build-slot mutex; one machine, one
+  sample each.
