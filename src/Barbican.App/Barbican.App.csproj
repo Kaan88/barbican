@@ -43,15 +43,20 @@
     <TargetPlatformMinVersion Condition="$(TargetFramework.Contains('-windows'))">10.0.19041.0</TargetPlatformMinVersion>
     <!-- LibraryImport (source-generated P/Invoke) for the hidden window (Composition/HiddenWindow.cs). -->
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <!-- Uno.Sdk 7 / CsWinRT 2.x AOT analyzer for collection expressions: no trimming or AOT in this app. -->
+    <NoWarn>$(NoWarn);CsWinRT1032</NoWarn>
   </PropertyGroup>
 
   <ItemGroup>
     <ProjectReference Include="../Barbican.Presentation/Barbican.Presentation.csproj" />
     <ProjectReference Include="../Barbican.Platform/Barbican.Platform.csproj" />
+    <!-- The editor's layout engine (docs/adr/0006); Uno.Sdk 7.0 brings SkiaSharp 4.156 on both heads. -->
+    <ProjectReference Include="../Barbican.Editor.Layout/Barbican.Editor.Layout.csproj" />
     <!-- The composition root (Composition/AppComposition.cs) builds a Microsoft.Extensions.Hosting host. -->
     <PackageReference Include="Microsoft.Extensions.Hosting" />
   </ItemGroup>
   <ItemGroup Condition="$(TargetFramework.Contains('-windows'))">
+    <PackageReference Include="SkiaSharp.Views.WinUI" />
     <ProjectReference Include="../Barbican.Platform.Windows/Barbican.Platform.Windows.csproj" />
   </ItemGroup>
   <ItemGroup Condition="$(TargetFramework.EndsWith('-desktop'))">

@@ -1237,3 +1237,6 @@ launched; Linux unverified). Verdicts on the M2 verify items 1 to 6, 11, 12 and 
 - **Loopback TCP as the only single-instance mechanism** (D-241) replaces PORT-PLAN 3.9's `AppInstance` and Unix socket. Security review: the token file permissions and the greeting check (`src/Barbican.Core/Instance/`, contract stub only at this commit).
 - **Contract stubs throw `PortPendingException`** until their stream lands; a default registration that throws is only ever reached if a stream forgets to replace it (`src/Barbican.Core/Compose/*.cs`, `SendPipelineRegistration.cs`).
 - **Default decisions without a user question** (M3 plan section 9), most worth a look: send warnings and external-recipient confirm live in `Barbican.Core.Compose` (pure) with the dialog in the composer shell; DSN, Require TLS, Encrypt and Classification are deferred (I-258); mentions are built (G-075), the org disclaimer is not (I-268).
+
+## M3 editor-view
+- **Uno.Sdk 7.0.22 move (D-246)**: check M1/M2 views for a changed WinUI or Skia behaviour (fonts, popups, flyouts) and the suppressions (`CsWinRT1032`, `CA1416`) in `src/Barbican.App/Barbican.App.csproj` and `src/Barbican.Automation/Barbican.Automation.csproj`. `global.json`, `Directory.Packages.props`.
