@@ -9,7 +9,7 @@ using Barbican.Presentation.Shell;
 namespace Barbican.Presentation.Input;
 
 /// <summary>Turns the keys the M1 router does not know into registry commands.</summary>
-public sealed class ShortcutCommands(ICommandRegistry registry, IMailSelection selection)
+public sealed class ShortcutCommands(ICommandRegistry registry, IMailSelection selection, CommandRunner? runner = null)
 {
     /// <summary>The command a chord runs, when the tables name one, a handler exists and it can run now.</summary>
     public bool TryResolve(KeyChord chord, AppId app, bool singleKeys, out string commandId)
@@ -47,7 +47,8 @@ public sealed class ShortcutCommands(ICommandRegistry registry, IMailSelection s
         return true;
     }
 
-    /// <summary>Runs a command resolved by <see cref="TryResolve"/>; the result of the command is its own to show.</summary>
+    /// <summary>Runs a command resolved by <see cref="TryResolve"/>; the result of the command is its own to show, an exception becomes an error
+    /// toast through the runner (Fable review 3 R3-05).</summary>
     public bool Run(string commandId)
     {
         if (!registry.TryGet(commandId, out var command))
@@ -55,7 +56,7 @@ public sealed class ShortcutCommands(ICommandRegistry registry, IMailSelection s
             return false;
         }
 
-        _ = command.ExecuteAsync(ContextOf(commandId), CancellationToken.None);
+        (runner ?? new CommandRunner()).Start(command, ContextOf(commandId));
         return true;
     }
 

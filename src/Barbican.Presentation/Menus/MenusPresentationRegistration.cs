@@ -30,7 +30,12 @@ public static class MenusPresentationRegistration
             services.AddSingleton<IMenuProvider>(sp => MenuProviders.Create(sp.GetRequiredService<IMenuDataSource>())[i]);
         }
 
-        services.TryAddSingleton<ContextMenuController>(sp => new ContextMenuController(sp.GetRequiredService<MenuModelBuilder>(), sp.GetRequiredService<ICommandRegistry>(), sp.GetService<IToastService>()));
+        // every surface runs commands through one runner: an exception becomes an error toast and a crash-log line (Fable review 3 R3-05)
+        services.TryAddSingleton(sp => new CommandRunner(
+            sp.GetService<IToastService>(),
+            sp.GetService<Barbican.Core.Storage.IProfilePaths>() is { } paths ? Barbican.Core.Storage.CrashLog.FolderOf(paths) : null,
+            sp.GetService<TimeProvider>()));
+        services.TryAddSingleton<ContextMenuController>(sp => new ContextMenuController(sp.GetRequiredService<MenuModelBuilder>(), sp.GetRequiredService<ICommandRegistry>(), sp.GetService<IToastService>(), sp.GetRequiredService<CommandRunner>()));
         services.Replace(ServiceDescriptor.Singleton<IContextMenuService>(sp => sp.GetRequiredService<ContextMenuController>()));
         services.AddSingleton<IModalSurface>(sp => sp.GetRequiredService<ContextMenuController>());
 
@@ -39,11 +44,11 @@ public static class MenusPresentationRegistration
         services.AddSingleton<IModalSurface>(sp => sp.GetRequiredService<DialogService>());
 
         services.TryAddSingleton<IPaletteContextSource>(sp => new PaletteContextSource(sp.GetRequiredService<ShellViewModel>(), sp.GetRequiredService<IMailSelection>(), sp.GetService<IAccountManager>()));
-        services.TryAddSingleton<PaletteController>(sp => new PaletteController(sp.GetRequiredService<ICommandRegistry>(), sp.GetRequiredService<IPaletteContextSource>(), sp.GetServices<IPaletteProvider>(), sp.GetService<IToastService>()));
+        services.TryAddSingleton<PaletteController>(sp => new PaletteController(sp.GetRequiredService<ICommandRegistry>(), sp.GetRequiredService<IPaletteContextSource>(), sp.GetServices<IPaletteProvider>(), sp.GetService<IToastService>(), sp.GetRequiredService<CommandRunner>()));
         services.AddSingleton<IModalSurface>(sp => sp.GetRequiredService<PaletteController>());
         services.TryAddSingleton<ShortcutSheetController>();
         services.AddSingleton<IModalSurface>(sp => sp.GetRequiredService<ShortcutSheetController>());
-        services.TryAddSingleton<ShortcutCommands>(sp => new ShortcutCommands(sp.GetRequiredService<ICommandRegistry>(), sp.GetRequiredService<IMailSelection>()));
+        services.TryAddSingleton<ShortcutCommands>(sp => new ShortcutCommands(sp.GetRequiredService<ICommandRegistry>(), sp.GetRequiredService<IMailSelection>(), sp.GetRequiredService<CommandRunner>()));
 
         services.TryAddSingleton<ShellCommandSet>(sp => new ShellCommandSet(ShellCommands.Create(
             sp.GetRequiredService<ShellViewModel>(),

@@ -1180,3 +1180,12 @@ Branch `m2-close-a` from `m2` (commits `56e9907` and the one after it). Closes i
   reachable from a test project, so the test pins the factory the registration calls and loads a real plugin copied to
   `<config>/plugins/x` (not loaded; loaded in a control run with the user root named). `PluginLoadContext`'s comment now says it is
   not a security boundary.
+- **R3-05 transfers and the command runner.** `MailTransfer` catches IOException/UnauthorizedAccessException into a failed result with
+  the reason ("Import failed after N messages: ...") and ends any other run in `finally` (the exception still goes on). One runner,
+  `Presentation/Commands/CommandRunner.cs`, registered in `MenusPresentationRegistration`, used by ShortcutCommands, ContextMenuController,
+  PaletteController, RailView, SelectionBarView, MessageListView (hover strip), SidebarView and the automation `act` command: an
+  exception becomes an error toast ("That did not work: <message>") and a crash-log file (`CrashLog.Write`, source `command <id>`), a
+  cancellation says nothing. Decisions: whether a failed *result* is toasted stays as each surface had it (menus, palette, sidebar
+  yes; shortcuts, rail, bars no, because the actions toast their own failures); `DelegateAppCommand` itself does not catch (the
+  runner does, a catch there would toast twice). The crash-log folder fills with one file per thrown command (pruned at 50); check
+  that this is the wanted volume. `AttachmentSaver.WriteAsync` turns IO errors into a failed result (from the WIP commit e27dc3e).

@@ -1,7 +1,6 @@
 using System.Collections.Specialized;
 using Barbican.App.Shell;
 using Barbican.App.Theme;
-using Barbican.Presentation.Actions;
 using Barbican.Presentation.Commands;
 using Barbican.Presentation.Mail;
 using Barbican.Presentation.Shell;
@@ -165,11 +164,8 @@ public sealed partial class SidebarView : UserControl
             return;
         }
 
-        var result = await command.ExecuteAsync(context, CancellationToken.None);
-        if (!result.IsOk)
-        {
-            ViewHost.Find<IToastService>()?.Show(new ToastRequest(result.Error?.Message ?? "That did not work.", IsError: true));
-        }
+        // a failed result and a thrown exception both end in an error toast (Fable review 3 R3-05)
+        _ = await (ViewHost.Find<CommandRunner>() ?? new CommandRunner(ViewHost.Find<Barbican.Presentation.Actions.IToastService>())).RunAsync(command, context, toastFailure: true);
     }
 
     // ArrowRight and ArrowLeft unfold and fold the selected folder (I-060)
