@@ -1,7 +1,10 @@
 <Project>
   <Import Project="$([MSBuild]::GetPathOfFileAbove('Directory.Build.props', '$(MSBuildThisFileDirectory)../'))" />
 
-  <!-- Every project under tests/: an xUnit v3 test app on Microsoft.Testing.Platform (global.json). -->
+  <!-- Every project under tests/: an xUnit v3 test app on Microsoft.Testing.Platform (global.json).
+       A helper library (tests/Barbican.FakeJmap) sets BarbicanTestLibrary=true in its project file:
+       it stays a plain class library without xUnit (item conditions are evaluated after all
+       properties, so the project's own setting is seen here). -->
   <PropertyGroup>
     <TargetFramework>net10.0</TargetFramework>
     <OutputType>Exe</OutputType>
@@ -9,12 +12,13 @@
     <IsTestProject>true</IsTestProject>
   </PropertyGroup>
 
-  <ItemGroup>
+  <ItemGroup Condition="'$(BarbicanTestLibrary)' != 'true'">
     <PackageReference Include="xunit.v3" />
     <Using Include="Xunit" />
     <Using Include="Barbican.Testing" />
     <!-- [RustTest("module::name")] for ported Rust tests (PORT-PLAN.md §2.4), one source for all test projects. -->
     <Compile Include="$(MSBuildThisFileDirectory)Shared/RustTestAttribute.cs" Link="Shared/RustTestAttribute.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)Shared/TestRepo.cs" Link="Shared/TestRepo.cs" />
     <Content Include="$(MSBuildThisFileDirectory)xunit.runner.json" Link="xunit.runner.json" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 </Project>

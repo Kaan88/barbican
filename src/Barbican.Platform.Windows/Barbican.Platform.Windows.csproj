@@ -1,0 +1,28 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Windows implementations of the Barbican.Platform interfaces (PORT-PLAN.md §3.9): Credential
+       Manager (CredReadW/CredWriteW, docs/adr/0008), system theme, later tray, notifications and the
+       rest. Referenced by the App head's Windows TFM only. Created by M1 stage F1 so that no stream
+       edits a project file (docs/milestones/M1-plan.md §3.2); filled by the accounts stream.
+       Win32 signatures come from CsWin32: list them in NativeMethods.txt. -->
+  <PropertyGroup>
+    <TargetFramework>net10.0-windows10.0.26100.0</TargetFramework>
+    <TargetPlatformMinVersion>10.0.19041.0</TargetPlatformMinVersion>
+    <RootNamespace>Barbican.Platform.Windows</RootNamespace>
+    <IsAotCompatible>true</IsAotCompatible>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../Barbican.Platform/Barbican.Platform.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Windows.CsWin32" PrivateAssets="all" />
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" />
+    <AdditionalFiles Include="NativeMethods.txt" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Barbican.Platform.Tests" />
+  </ItemGroup>
+</Project>

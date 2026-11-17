@@ -13,10 +13,28 @@
 //   key:FLAGS|KEY    a shortcut pressed while the page has focus (c=ctrl/meta, s=shift, a=alt)
 //   dirty            the visible page changed (scroll, resize, load, selection)
 //   ctx:X,Y          a right-click at page coordinates X,Y (the host opens its native menu)
-// Links: every link and form of a message is retargeted to a new window before it is shown; the
-// host blocks new windows and routes http(s) to the browser and mailto: to the composer.
+//   link:URL         a link in a message was activated (the host checks the scheme and routes it)
+// The host validates every message (src/Barbican.Core/Mail/Body/ShellMessage.cs) and drops the rest.
+//
+// Links (docs/adr/0005 decision 4): a capturing click handler in every frame document takes each
+// activated link itself and posts link:URL, on both OSes (on Linux neither a new window nor a
+// navigation event fires for a target=_blank click, so the link would be lost). As a fallback every
+// link and form is also retargeted to _blank, which the sandbox (no allow-popups) refuses: a link the
+// handler misses goes nowhere instead of navigating the frame.
+// This script never navigates: it never assigns location, never calls location.assign/replace,
+// window.open or document.write (tests/Barbican.Core.Tests/Mail/Body/ShellScriptTests.cs).
 (function () {
   var cur = null, nxt = null, seq = 0;
+  // The only sandbox keywords a frame may get (the same list as Core's MailSandbox.Allowed): never
+  // allow-top-navigation*, allow-popups*, allow-forms or allow-downloads, whatever the host sends.
+  var SANDBOX_OK = ['allow-same-origin', 'allow-scripts', 'allow-modals'];
+  function sandbox(sb) {
+    var out = [];
+    var t = typeof sb === 'string' ? sb.split(/\s+/) : [];
+    for (var i = 0; i < t.length; i++) if (SANDBOX_OK.indexOf(t[i]) >= 0 && out.indexOf(t[i]) < 0) out.push(t[i]);
+    if (out.indexOf('allow-same-origin') < 0) out.unshift('allow-same-origin');
+    return out.join(' ');
+  }
   // WebView2 (Windows) exposes chrome.webview; Uno's WebKitGTK view (Linux) exposes no shim, only
   // the script message handler it registers as "unoWebView" (spike S2, docs/adr/0005).
   function post(m) {
@@ -42,6 +60,18 @@
   function ctx(e) {
     try { e.preventDefault(); post('ctx:' + Math.round(e.clientX) + ',' + Math.round(e.clientY)); } catch (x) { }
   }
+  // A primary or middle click (or Enter) on a link: the host gets the absolute URL, the frame stays.
+  function link(e) {
+    try {
+      if (e.button !== 0 && e.button !== 1) return;
+      var a = e.target && e.target.closest ? e.target.closest('a[href],area[href]') : null;
+      if (!a) return;
+      e.preventDefault();
+      e.stopPropagation();
+      var href = a.href;
+      if (typeof href === 'string' && href.length > 0 && href.length <= 8000) post('link:' + href);
+    } catch (x) { }
+  }
   document.addEventListener('keydown', kd, true);
   document.addEventListener('contextmenu', ctx, true);
   function fix(d) {
@@ -55,6 +85,8 @@
         var t = 0, p = function () { if (t) return; t = 1; requestAnimationFrame(function () { t = 0; post('dirty'); }); };
         d.addEventListener('keydown', kd, true);
         d.addEventListener('contextmenu', ctx, true);
+        d.addEventListener('click', link, true);
+        d.addEventListener('auxclick', link, true);
         d.addEventListener('scroll', p, true);
         d.addEventListener('load', p, true);
         d.addEventListener('selectionchange', p);
@@ -67,7 +99,7 @@
       seq = s;
       if (nxt) { nxt.remove(); nxt = null; }
       var f = document.createElement('iframe');
-      if (sb !== null) f.setAttribute('sandbox', sb);
+      f.setAttribute('sandbox', sandbox(sb));
       f.setAttribute('title', 'Message');
       f.style.cssText = 'position:absolute;left:0;top:0;width:100%;height:100%;border:0;margin:0;visibility:hidden;background:' + bg;
       f._bg = bg;

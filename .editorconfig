@@ -86,3 +86,13 @@ dotnet_diagnostic.MA0048.severity = none
 dotnet_diagnostic.CA1010.severity = none
 dotnet_diagnostic.CA2007.severity = none
 dotnet_diagnostic.MA0004.severity = none
+
+# The automation build's library (src/Barbican.Automation, AUTOMATION configuration only) is UI code
+# like the head: continuations stay on the dispatcher, and Uno's UIElement is IEnumerable.
+[src/Barbican.Automation/**.cs]
+dotnet_diagnostic.CA1010.severity = none
+dotnet_diagnostic.CA2007.severity = none
+dotnet_diagnostic.MA0004.severity = none
+# Command tables (one case per protocol command) and scenario code ported from spikes/s4-automation
+# read top to bottom; splitting them only scatters the protocol (as for spikes/, docs/adr/0007).
+dotnet_diagnostic.MA0051.severity = none

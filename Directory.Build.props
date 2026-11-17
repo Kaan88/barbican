@@ -26,6 +26,18 @@
     <RepositoryUrl>https://github.com/Kaan88/barbican</RepositoryUrl>
   </PropertyGroup>
 
+  <!-- The AUTOMATION configuration (M1 stage F1, docs/adr/0007): a Debug build that also defines
+       AUTOMATION. Only in this configuration does the App reference src/Barbican.Automation (the
+       loopback command server, the UIA client, WGC capture, probes, the popup guard). Release and
+       Debug never contain it; tests/Barbican.Build.Tests and tools/build.ps1 publish check that. -->
+  <PropertyGroup Condition="'$(Configuration)' == 'Automation'">
+    <BarbicanAutomation>true</BarbicanAutomation>
+    <DefineConstants>$(DefineConstants);AUTOMATION;DEBUG;TRACE</DefineConstants>
+    <Optimize>false</Optimize>
+    <DebugSymbols>true</DebugSymbols>
+    <DebugType>portable</DebugType>
+  </PropertyGroup>
+
   <!-- Which layer a project belongs to, for the banned-API lists (BannedSymbols.txt + eng/). -->
   <PropertyGroup>
     <BarbicanRoot>$(MSBuildThisFileDirectory)</BarbicanRoot>

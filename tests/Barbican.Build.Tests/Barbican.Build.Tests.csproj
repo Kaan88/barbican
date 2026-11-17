@@ -1,0 +1,5 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Release content enforcement (docs/adr/0007 "M0 review", docs/milestones/M1-plan.md §5 F1 step 2):
+       the Release App graph has no Barbican.Automation, FlaUI or Win2D; the built App assembly carries
+       no AUTOMATION marker outside the Automation configuration; the publish check exists. -->
+</Project>

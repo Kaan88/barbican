@@ -23,6 +23,31 @@
     <PackageVersion Include="CommunityToolkit.Mvvm" Version="8.4.2" />
   </ItemGroup>
 
+  <!-- M1 pins (docs/milestones/M1-plan.md §3.2), set by stage F1 so no stream edits this file for the
+       packages M1 is expected to need. Each version was at least two weeks old on 2026-11-17. A stream
+       that needs an unforeseen package adds it in its own marked block at the end of this file
+       (an ItemGroup between the comments "m1-KEY" and "/m1-KEY") and names it in its Fable section.
+       TimeProvider.Testing is the FakeTimeProvider for the tests (push backoff, dim timers). -->
+  <ItemGroup>
+    <!-- Composition root (App) and the per-feature Add<Feature>() registration files (Core, Presentation). -->
+    <PackageVersion Include="Microsoft.Extensions.Hosting" Version="10.0.14" />
+    <PackageVersion Include="Microsoft.Extensions.DependencyInjection" Version="10.0.14" />
+    <PackageVersion Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="10.0.14" />
+    <PackageVersion Include="Microsoft.Extensions.Logging.Abstractions" Version="10.0.14" />
+    <PackageVersion Include="Microsoft.Extensions.TimeProvider.Testing" Version="10.11.0" />
+    <!-- Views (shell-ui): the GridSplitter / sizers of the Bento layout. -->
+    <PackageVersion Include="CommunityToolkit.WinUI.Controls.Sizers" Version="8.2.251219" />
+    <!-- Barbican.Platform.Linux: Secret Service and portals over D-Bus (Protocol = the AOT-friendly API). -->
+    <PackageVersion Include="Tmds.DBus.Protocol" Version="0.95.2" />
+    <PackageVersion Include="Tmds.DBus" Version="0.95.2" />
+    <!-- Barbican.Platform.Windows: Win32 P/Invoke generation (Credential Manager, theme). -->
+    <PackageVersion Include="Microsoft.Windows.CsWin32" Version="0.3.367" />
+    <!-- Barbican.Automation only (AUTOMATION configuration, never in Release; docs/adr/0007): the UIA
+         client for pattern clicks and Win2D for the WGC frame copy and PNG encoding. -->
+    <PackageVersion Include="FlaUI.UIA3" Version="5.0.0" />
+    <PackageVersion Include="Microsoft.Graphics.Win2D" Version="1.4.0" />
+  </ItemGroup>
+
   <!-- Editor text engine (spike S3, docs/adr/0006). RichTextKit 0.6.173 needs SkiaSharp 4.x; SkiaSharp is
        pinned to Uno 7.0's version (Uno.WinUI.Graphics2DSK 7.0.65 -> SkiaSharp 4.156.0); the native assets
        must match the managed version exactly, so the Linux natives RichTextKit pulls in (4.153.1) are

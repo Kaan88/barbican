@@ -1,0 +1,9 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Opt-in live suite (PORT-PLAN.md §4.6, docs/milestones/M1-plan.md §1 rule 3): read-only checks
+       against the real server, skipped unless BARBICAN_LIVE=1. Only the Verify stage or the user runs
+       it; agents never type passwords and use only the ADR 0008 password-kind import into a dev or
+       automation profile. Created by stage F1; filled by the jmap stream. -->
+  <ItemGroup>
+    <ProjectReference Include="../../src/Barbican.Core/Barbican.Core.csproj" />
+  </ItemGroup>
+</Project>

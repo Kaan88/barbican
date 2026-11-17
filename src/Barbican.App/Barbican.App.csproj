@@ -41,10 +41,34 @@
     <!-- The Windows App SDK ships its strings as en-us; with the default "en" the PRI step fails (PRI257). -->
     <DefaultLanguage>en-US</DefaultLanguage>
     <TargetPlatformMinVersion Condition="$(TargetFramework.Contains('-windows'))">10.0.19041.0</TargetPlatformMinVersion>
+    <!-- LibraryImport (source-generated P/Invoke) for the hidden window (Composition/HiddenWindow.cs). -->
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
   </PropertyGroup>
 
   <ItemGroup>
     <ProjectReference Include="../Barbican.Presentation/Barbican.Presentation.csproj" />
+    <ProjectReference Include="../Barbican.Platform/Barbican.Platform.csproj" />
+    <!-- The composition root (Composition/AppComposition.cs) builds a Microsoft.Extensions.Hosting host. -->
+    <PackageReference Include="Microsoft.Extensions.Hosting" />
+  </ItemGroup>
+  <ItemGroup Condition="$(TargetFramework.Contains('-windows'))">
+    <ProjectReference Include="../Barbican.Platform.Windows/Barbican.Platform.Windows.csproj" />
+  </ItemGroup>
+  <ItemGroup Condition="$(TargetFramework.EndsWith('-desktop'))">
+    <ProjectReference Include="../Barbican.Platform.Linux/Barbican.Platform.Linux.csproj" />
+  </ItemGroup>
+
+  <!-- Hidden automation (docs/adr/0007) exists ONLY in the Automation configuration: the command
+       server, the UIA client (FlaUI), WGC capture (Win2D) and the popup guard live in
+       Barbican.Automation, which nothing else references. tests/Barbican.Build.Tests asserts that the
+       Release graph has no reference to it, FlaUI or Win2D; tools/build.ps1 publish fails when such a
+       DLL or the marker below reaches the publish folder. -->
+  <ItemGroup Condition="'$(Configuration)' == 'Automation'">
+    <ProjectReference Include="../Barbican.Automation/Barbican.Automation.csproj" />
+    <AssemblyMetadata Include="BarbicanAutomationBuild" Value="true" />
+  </ItemGroup>
+  <ItemGroup>
+    <AssemblyMetadata Include="BarbicanConfiguration" Value="$(Configuration)" />
   </ItemGroup>
 
   <ItemGroup>
