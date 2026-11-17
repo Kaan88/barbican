@@ -1,4 +1,4 @@
-// Ported from Rust src/msgload.rs tests (:386-:405). Red until the body stream implements MessageLoadRules.
+// Ported from Rust src/msgload.rs tests (:386-:405).
 // Rust's None and Some(Value::Null) both become a null Keywords (a copy that is not an object is skipped either way).
 
 using Barbican.Core.Mail.Model;
@@ -10,7 +10,6 @@ public sealed class MessageLoadRulesTests
 {
     [Fact]
     [RustTest("msgload::unread_state_comes_from_the_list_first")]
-    [Red("body")]
     public void Unread_state_comes_from_the_list_first()
     {
         var unread = Keywords.None;
@@ -24,7 +23,6 @@ public sealed class MessageLoadRulesTests
 
     [Fact]
     [RustTest("msgload::inline_image_size")]
-    [Red("body")]
     public void Inline_image_size()
     {
         var m = new EmailBody

@@ -1,4 +1,4 @@
-// Ported from Rust src/dark_mail.rs tests (:113-:147). Red until the body stream implements DarkMail.
+// Ported from Rust src/dark_mail.rs tests (:113-:147).
 
 using Barbican.Core.Mail.Body;
 
@@ -8,7 +8,6 @@ public sealed class DarkMailTests
 {
     [Fact]
     [RustTest("dark_mail::native_dark_detection")]
-    [Red("body")]
     public void Native_dark_detection()
     {
         Assert.True(DarkMail.HasNativeDark("<style>@media (prefers-color-scheme: dark){body{background:#000}}</style>"));
@@ -22,7 +21,6 @@ public sealed class DarkMailTests
 
     [Fact]
     [RustTest("dark_mail::pins_media_queries_to_the_app_theme")]
-    [Red("body")]
     public void Pins_media_queries_to_the_app_theme()
     {
         const string h = "<style>@media (prefers-color-scheme: dark){a{}} @media ( prefers-color-scheme : light ){b{}}</style><p>(prefers-color-scheme: dark)</p>";
@@ -43,7 +41,6 @@ public sealed class DarkMailTests
 
     [Fact]
     [RustTest("dark_mail::css_hides_until_the_pass_ran")]
-    [Red("body")]
     public void Css_hides_until_the_pass_ran()
     {
         var c = DarkMail.Css();

@@ -53,3 +53,8 @@ Added at the M0 review (stream m0-review). Modules: `spam.rs`, `plugins.rs`, `zi
 - B-SPAM-004: the setting lives in the assistant's desktop settings file (`showCleanSpam`) although it is a
   reader display rule; the C# settings model may move it. Needs a D- entry if it moves.
 - B-CAP-003: the C# automation protocol (`spec/automation-protocol.md`) lists the probes it keeps.
+
+## M1 status (stream body)
+
+B-CAP-002 holds as written: Windows has no under-overlay freeze (`InPlaceBodyOverlay`); Linux has `X11BodyOverlay` (XGetImage of the root window,
+refused for a rectangle outside the screen), written but not wired to a dialog in M1 and never run (VM unreachable): a Linux hand test.

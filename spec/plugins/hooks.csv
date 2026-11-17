@@ -3,11 +3,11 @@ onEmailsFetched,mail-list,transform,email:render-takeover,,"Email[] (list rows),
 onEmailListItemRender,mail-list,transform,email:read,,"EmailListBadge[], { email: EmailSummary }",for each visible row; returned badges are shown next to the subject,lib/plugin-hook-catalog.ts:73,M1,mailcore,src/Barbican.Presentation/Mail/MessageListViewModel.cs:472,done
 onEmailSelectionChange,mail-list,observer,email:read,,{ emailIds: string[] },when the set of selected messages changes,lib/plugin-hook-catalog.ts:74,M1,mailcore,src/Barbican.Presentation/Mail/MessageListViewModel.cs:257,done
 onMailboxChange,mail-list,observer,email:read,,"{ mailboxId, role, previousMailboxId }",when the user opens another folder,lib/plugin-hook-catalog.ts:75,M1,mailcore,src/Barbican.Presentation/Mail/MessageListViewModel.cs:178,done
-onEmailOpen,mail-read,observer,email:read,,EmailReadView,when a message is opened,lib/plugin-hook-catalog.ts:78,M1,body,,pending
-onEmailClose,mail-read,observer,email:read,,{ emailId },when the open message is closed or replaced,lib/plugin-hook-catalog.ts:79,M1,body,,pending
-onRenderEmailBody,mail-read,transform,email:render-takeover,,"RenderableBody, MessageContext",before the body of an opened message is rendered,lib/plugin-hook-catalog.ts:80,M1,body,,pending
-onEmailContentRender,mail-read,observer,email:read,,"{ emailId, hasHtml, hasExternalContent }",after the body of an opened message is on screen,lib/plugin-hook-catalog.ts:81,M1,body,,pending
-onThreadExpand,mail-read,observer,email:read,,"{ threadId, emailIds, expanded }",when a conversation is expanded or collapsed,lib/plugin-hook-catalog.ts:82,M1,body,,pending
+onEmailOpen,mail-read,observer,email:read,,EmailReadView,when a message is opened,lib/plugin-hook-catalog.ts:78,M1,body,src/Barbican.Presentation/Mail/Loading/MessageLoader.cs:346,done
+onEmailClose,mail-read,observer,email:read,,{ emailId },when the open message is closed or replaced,lib/plugin-hook-catalog.ts:79,M1,body,src/Barbican.Presentation/Mail/Loading/MessageLoader.cs:448,done
+onRenderEmailBody,mail-read,transform,email:render-takeover,,"RenderableBody, MessageContext",before the body of an opened message is rendered,lib/plugin-hook-catalog.ts:80,M1,body,src/Barbican.Presentation/Mail/Loading/MessageLoader.cs:297,done
+onEmailContentRender,mail-read,observer,email:read,,"{ emailId, hasHtml, hasExternalContent }",after the body of an opened message is on screen,lib/plugin-hook-catalog.ts:81,M1,body,src/Barbican.Presentation/Mail/Loading/MessageLoader.cs:357,done
+onThreadExpand,mail-read,observer,email:read,,"{ threadId, emailIds, expanded }",when a conversation is expanded or collapsed,lib/plugin-hook-catalog.ts:82,M1,body,src/Barbican.Presentation/Mail/Loading/MessageLoader.cs:136,done
 onBeforeReply,mail-read,intercept,email:read,,ReplyContext,"when Reply is chosen, before the composer opens",lib/plugin-hook-catalog.ts:83,M3,,,pending
 onBeforeReplyAll,mail-read,intercept,email:read,,ReplyContext,"when Reply all is chosen, before the composer opens",lib/plugin-hook-catalog.ts:84,M3,,,pending
 onBeforeForward,mail-read,intercept,email:read,,ReplyContext,"when Forward is chosen, before the composer opens",lib/plugin-hook-catalog.ts:85,M3,,,pending

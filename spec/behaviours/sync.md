@@ -75,3 +75,15 @@ Ported in `m1-mailcore`: B-SYNC-001..011 (`ListSync`, `ListSyncTests`, `MessageL
 B-SYNC-036 (50 per page, anchor paging in `MessageListViewModel.LoadMoreAsync`; the page size follows `emailsPerPage`), B-SYNC-037 (list side: a pushed
 delta is one insert; the engine is the jmap stream), B-SYNC-038 (`MailRules.BadgeTitle`, `ShellViewModel.SetUnreadBadge`). B-SYNC-022..034 belong to the
 body stream (`MessageLoader`); `ReaderViewModel.Apply` gives them the one-step swap.
+
+## M1 status (stream body)
+
+Ported in `m1-body` (`MessageLoader`, `MessagePrefetcher`, `PrefetchPlan`, `MessageFetcher`, `BodyShell`; tests `MessageLoaderTests`, `PrefetchPlanTests`,
+`MessageLoadRulesTests`): B-SYNC-022 and B-SYNC-024 (the header is applied in the body view's ready callback, in the same UI turn as `reveal(N)`:
+`A_cached_switch_applies_header_and_body_in_one_apply`; on screen this rests on the code, the hidden WGC bursts cannot show it, spec/feel/M1/README.md),
+B-SYNC-023 (one shell document that never navigates, sandboxed srcdoc frames loaded hidden: `BodyShell`, `shell.js`, spec/feel/M1/shell-checks.json),
+B-SYNC-025 (150 ms, once per burst), B-SYNC-027 (prefill), B-SYNC-028 (sequence + cancellation; a superseded page is refused at ready), B-SYNC-029,
+B-SYNC-030 (two ahead, three while moving, one behind, conversation neighbours, the list's top two; an open waits up to 5 s for its own prefetch, and a
+prefetch cancelled by a turn makes the open fetch itself), B-SYNC-031 (`PrefetchInlineMax`, T-186), B-SYNC-032 (T-185), B-SYNC-033 (the delay logic is
+ported and tested with writable actions; M1 registers `ReadOnlyMailActions`, so nothing is sent), B-SYNC-034 (`disableThreading`).
+B-SYNC-026: deferred(M2): reply, forward and attachment actions do not exist in M1 (the reader's buttons are disabled), so there is nothing to hold back yet.

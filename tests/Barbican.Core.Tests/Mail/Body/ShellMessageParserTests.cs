@@ -1,4 +1,4 @@
-// Ported from Rust src/mailview.rs test (:312). Red until the body stream implements ShellMessageParser.
+// Ported from Rust src/mailview.rs test (:312).
 // The Slint Key characters become the same code points (Escape U+001B, Delete U+007F); modifiers are a flags enum instead of a Vec.
 
 using Barbican.Core.Mail.Body;
@@ -9,7 +9,6 @@ public sealed class ShellMessageParserTests
 {
     [Fact]
     [RustTest("mailview::forwarded_keys_parse")]
-    [Red("body")]
     public void Forwarded_keys_parse()
     {
         Assert.Equal(new ForwardedKey(KeyModifiers.Control, "k"), ShellMessageParser.ParseKey("c|k"));

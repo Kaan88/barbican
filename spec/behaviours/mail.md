@@ -109,3 +109,9 @@ Ported in `m1-mailcore`: B-MAIL-003..005 (`MailRules`), B-MAIL-010..018 (`TagRul
 itself and takes other formats from a platform `IImageDecoder`; the 200-entry session cache is the body stream's with the fetch), B-MAIL-020, B-MAIL-022..024
 (`AttachmentCards`), B-MAIL-046 (list header, flagged and storage tiles; the calendar and task tiles are M4: `GlanceTilesViewModel.SetCalendar`).
 B-MAIL-001, B-MAIL-002, B-MAIL-008, B-MAIL-009: `MessageListViewModel`, `FolderRows`, `RowText.CleanPreview`.
+
+## M1 status (stream body)
+
+Ported in `m1-body`: B-MAIL-025..028 (`DarkMail`, T-074..T-076 `DarkMailTests`), B-MAIL-029 (`email_dark.js` verbatim as the App asset and as Core's
+string, kept equal by `DarkMailScriptTests`; the frame's CSP allows it by its SHA-256 hash; the asset is byte-equal to the Rust app's
+`src/email_dark.js` apart from line ends).

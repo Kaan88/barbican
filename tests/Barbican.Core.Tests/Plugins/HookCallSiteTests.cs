@@ -30,6 +30,5 @@ public sealed class HookCallSiteTests
     public void Shell_ui_hooks_have_call_sites() => AssertFired("shell-ui");
 
     [Fact]
-    [Red("body")]
     public void Body_hooks_have_call_sites() => AssertFired("body");
 }
