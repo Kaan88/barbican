@@ -1,6 +1,8 @@
 using Barbican.App.Composition.Features;
 using Barbican.App.MailBody;
 using Barbican.Core.Accounts;
+using Barbican.Core.Compose;
+using Barbican.Core.Editor;
 using Barbican.Core.Jmap;
 using Barbican.Presentation.Composition;
 using Microsoft.Extensions.DependencyInjection;
@@ -40,6 +42,10 @@ public static class AppComposition
         services.AddBarbicanReaderDepth();  // M2 reader:  src/Barbican.App/Composition/Features/ReaderRegistration.cs
         services.AddBarbicanSearch();       // M2 search:  src/Barbican.App/Composition/Features/SearchRegistration.cs
         services.AddBarbicanUnified();      // M2 unified: src/Barbican.App/Composition/Features/UnifiedRegistration.cs
+        services.AddBarbicanSendPipeline(); // M3 send-pipeline: src/Barbican.Core/Compose/SendPipelineRegistration.cs
+        services.AddBarbicanEditorCore();   // M3 editor-core:   src/Barbican.Core/Editor/EditorCoreRegistration.cs
+        services.AddBarbicanEditorView();   // M3 editor-view:   src/Barbican.App/Composition/Features/EditorViewRegistration.cs
+        services.AddBarbicanComposer();     // M3 composer-ui:   src/Barbican.App/Composition/Features/ComposerRegistration.cs
 #if AUTOMATION
         services.AddBarbicanAutomation();   // F1:       src/Barbican.Automation/AutomationRegistration.cs
 #endif

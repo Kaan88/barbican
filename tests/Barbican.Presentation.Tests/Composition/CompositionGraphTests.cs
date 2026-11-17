@@ -7,6 +7,8 @@
 using Barbican.Core.Accounts;
 using Barbican.Core.Auth;
 using Barbican.Core.Common;
+using Barbican.Core.Compose;
+using Barbican.Core.Editor;
 using Barbican.Core.Jmap;
 using Barbican.Core.Mail.Body;
 using Barbican.Core.Storage;
@@ -85,6 +87,12 @@ public sealed class CompositionGraphTests
 
         // the defaults of the M2 seams (stage F of M2; App/Composition/Features/ActionsRegistration.cs registers them first)
         services.AddBarbicanM2Defaults();
+
+        // the M3 streams' portable registrations (App/Composition/AppComposition.cs adds them after the M2 features)
+        services.AddBarbicanSendPipeline();
+        services.AddBarbicanEditorCore();
+        services.AddBarbicanEditorViewModels();
+        services.AddBarbicanComposerViewModels();
 
         // what MailBodyRegistration adds besides the WebView shell
         services.TryAddSingleton<ILinkRouter, StandInLinkRouter>();
