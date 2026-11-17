@@ -3,9 +3,13 @@
 // crates/http/src/auth/oauth/auth.rs:141 handle_discover_request (/api/discover/<account>: the OIDC document of the account's directory,
 // else the server's own). Bulwark lib/oauth/discovery.ts:295 asks the same two well-known documents; lib/oauth/scopes.ts:61 also adds every
 // urn:ietf:params:oauth:scope:* data scope the provider lists.
+// Fable review 1 F-04: an external provider's endpoints (used "as given", B-OAUTH-003) must be https (http only on this computer, as for
+// servers, D-10), else the document is not used; the issuer and RFC 9207's authorization_response_iss_parameter_supported are kept for the
+// callback check (LoopbackListener).
 
 using System.Text.Json.Nodes;
 using Barbican.Core.Common;
+using Barbican.Core.Jmap;
 using Barbican.Core.Jmap.Errors;
 
 namespace Barbican.Core.Auth;
@@ -68,12 +72,26 @@ public sealed class OAuthDiscovery(OAuthHttp http)
         Uri? Fix(string? e) => e is null ? null : Absolute(own ? Rebase(e, baseUri) : e);
         var authorization = Fix(Str("authorization_endpoint"));
         var token = Fix(Str("token_endpoint"));
-        if (authorization is null || token is null)
+        if (authorization is null || token is null || !Secure(authorization) || !Secure(token))
         {
             return null;
         }
 
-        return new OAuthMetadata(authorization, token, Fix(Str("registration_endpoint")), Fix(Str("revocation_endpoint")), PickScope(doc["scopes_supported"]), External: !own);
+        var registration = Fix(Str("registration_endpoint")) is { } reg && Secure(reg) ? reg : null;
+        var revocation = Fix(Str("revocation_endpoint")) is { } rev && Secure(rev) ? rev : null;
+        return new OAuthMetadata(authorization, token, registration, revocation, PickScope(doc["scopes_supported"]), External: !own)
+        {
+            Issuer = Str("issuer"),
+            IssParameterSupported = doc["authorization_response_iss_parameter_supported"] is JsonValue iss && iss.TryGetValue<bool>(out var on) && on,
+        };
+    }
+
+    /// <summary>An endpoint that may carry a code, a token or a client secret: https, or plain http on this computer only (D-10).</summary>
+    public static bool Secure(Uri endpoint)
+    {
+        ArgumentNullException.ThrowIfNull(endpoint);
+        return string.Equals(endpoint.Scheme, Uri.UriSchemeHttps, StringComparison.Ordinal)
+            || (string.Equals(endpoint.Scheme, Uri.UriSchemeHttp, StringComparison.Ordinal) && ServerEndpoint.IsLoopback(endpoint));
     }
 
     /// <summary>

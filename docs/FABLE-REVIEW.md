@@ -546,3 +546,11 @@ F-13 and user decisions D-2, D-9, D-10, on branch `m1-fix-security` (from `m1` a
 - **D-10 plain http.** `Core/Jmap/ServerEndpoint.cs` `Read`: http only for `localhost`, 127.0.0.0/8 and `::1`, else
   `InsecureMessage`. A remembered (or imported) http server elsewhere now fails at start-up with that message. There is no
   "I understand" override (the brief said refuse). `*.localhost` names are not treated as loopback.
+- **F-04 OAuth loopback and discovery.** `Core/Auth/LoopbackListener.cs`, `CallbackCheck.cs`, `OAuthDiscovery.cs` (`Secure`,
+  `MetaFrom`), `OAuthMetadata.Issuer/IssParameterSupported`, `RefreshLock.cs`. Judgement calls: a wrong `iss` **with** the right
+  state ends the sign-in (the state was leaked to a second provider, so waiting on gives nothing); without the state it is refused
+  like any stranger. An `iss` sent while the metadata names no issuer is ignored unless the provider announced the parameter.
+  A plain-http registration endpoint of an external provider is dropped (fallback client id), not followed. The refresh lock no
+  longer deletes its file and has no 60 s staleness: verify on Linux that .NET's `FileShare.None` really takes `flock` there (it
+  does in .NET on Unix by default; `DOTNET_SYSTEM_IO_DISABLEFILELOCKING` would turn it off). Not changed: bind address (already
+  `IPAddress.Loopback`), constant-time state compare, PKCE verifier (48 random bytes, 64 chars).

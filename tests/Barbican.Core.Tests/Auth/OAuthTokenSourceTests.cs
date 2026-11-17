@@ -146,15 +146,19 @@ public sealed class OAuthTokenSourceTests
     public async Task The_cross_process_lock_is_exclusive_and_released()
     {
         using var rig = new OAuthRig();
+        var path = Path.Combine(rig.Paths.ConfigDir, "oauth-refresh.lock");
         using (var first = await RefreshLock.AcquireAsync(rig.Paths, rig.Time, Ct))
         {
-            Assert.NotNull(first);
-            Assert.True(File.Exists(Path.Combine(rig.Paths.ConfigDir, "oauth-refresh.lock")));
+            Assert.True(first!.IsHeld);
+
+            // Fable F-04: the lock is the open handle, which the OS drops when the holder dies; nobody else can open it meanwhile
+            Assert.Throws<IOException>(() => new FileStream(path, FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None).Dispose());
         }
 
-        Assert.False(File.Exists(Path.Combine(rig.Paths.ConfigDir, "oauth-refresh.lock")));
+        // the file stays (a stale file is no lock), and the next holder takes it at once
+        Assert.True(File.Exists(path));
         using var again = await RefreshLock.AcquireAsync(rig.Paths, rig.Time, Ct);
-        Assert.NotNull(again);
+        Assert.True(again!.IsHeld);
     }
 
     // the stored token changes between the first attempt and the re-read (another process finished its rotation meanwhile)

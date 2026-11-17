@@ -5,6 +5,10 @@
 // "/callback?error=x". Here `state` is checked before anything else: a callback without the expected state is answered 400 and ignored
 // (the wait goes on), and the first callback that carries it is the only one accepted; the listener then closes, so a second callback finds
 // nothing listening.
+// Fable review 1 F-04: only GET /callback is a callback (any other method gets 405 and the wait goes on); a wrong or missing state never ends
+// the wait (a web page can reach the fixed port blindly); the listener binds 127.0.0.1 only, never "localhost" (RFC 8252 §7.3, §8.3); and
+// RFC 9207 §2.4: when the provider names an issuer, a callback's iss must be that issuer, and a provider that announces
+// authorization_response_iss_parameter_supported must send it, else the sign-in fails (a mix-up between two providers).
 
 using System.Globalization;
 using System.Net;
@@ -77,9 +81,20 @@ public sealed class LoopbackListener : IDisposable
     /// Waits for the callback that carries <paramref name="expectedState"/> and returns its code. The provider's <c>error</c> on that callback
     /// fails the sign-in. Closes the listener when it returns.
     /// </summary>
-    public async Task<Result<string>> WaitForCodeAsync(string expectedState, TimeSpan timeout, TimeProvider time, CancellationToken ct)
+    public Task<Result<string>> WaitForCodeAsync(string expectedState, TimeSpan timeout, TimeProvider time, CancellationToken ct) =>
+        WaitForCodeAsync(new CallbackCheck(expectedState, null, false), timeout, time, ct);
+
+    /// <summary>
+    /// Waits for the callback that passes <paramref name="check"/> (state, then RFC 9207 iss) and returns its code. Closes the listener when
+    /// it returns.
+    /// </summary>
+    public async Task<Result<string>> WaitForCodeAsync(CallbackCheck check, TimeSpan timeout, TimeProvider time, CancellationToken ct)
     {
-        ArgumentException.ThrowIfNullOrEmpty(expectedState);
+        ArgumentNullException.ThrowIfNull(check);
+        if (string.IsNullOrEmpty(check.State))
+        {
+            throw new ArgumentException("A callback check needs the state.", nameof(check));
+        }
         ArgumentNullException.ThrowIfNull(time);
         using var deadline = new CancellationTokenSource(timeout, time);
         using var linked = CancellationTokenSource.CreateLinkedTokenSource(ct, deadline.Token);
@@ -102,7 +117,7 @@ public sealed class LoopbackListener : IDisposable
                     Result<string>? outcome;
                     try
                     {
-                        outcome = await HandleAsync(socket, expectedState, time, linked.Token).ConfigureAwait(false);
+                        outcome = await HandleAsync(socket, check, time, linked.Token).ConfigureAwait(false);
                     }
                     catch (OperationCanceledException) when (!ct.IsCancellationRequested)
                     {
@@ -202,7 +217,7 @@ public sealed class LoopbackListener : IDisposable
     }
 
     // null: not the callback this sign-in waits for, keep listening
-    private async Task<Result<string>?> HandleAsync(TcpClient socket, string expectedState, TimeProvider time, CancellationToken ct)
+    private async Task<Result<string>?> HandleAsync(TcpClient socket, CallbackCheck check, TimeProvider time, CancellationToken ct)
     {
         var stream = socket.GetStream();
         var line = await ReadRequestLineAsync(stream, time, ct).ConfigureAwait(false);
@@ -219,14 +234,29 @@ public sealed class LoopbackListener : IDisposable
             return null;
         }
 
+        // F-04: the browser follows the redirect with GET; a form POST from a web page is no callback
+        if (!string.Equals(parts[0], "GET", StringComparison.Ordinal))
+        {
+            Interlocked.Increment(ref _refused);
+            await RespondAsync(stream, 405, "Method Not Allowed", null, null, ct).ConfigureAwait(false);
+            return null;
+        }
+
         var q = ParseQuery(target.Query);
 
         // state first (FABLE #3): nothing else in a callback counts until it proves it answers this request
-        if (!SameState(q.GetValueOrDefault("state"), expectedState))
+        if (!SameState(q.GetValueOrDefault("state"), check.State))
         {
             Interlocked.Increment(ref _refused);
             await RespondAsync(stream, 400, "Bad Request", "Sign-in failed", "This answer does not belong to the sign-in Barbican is waiting for.", ct).ConfigureAwait(false);
             return null;
+        }
+
+        // RFC 9207 §2.4: the answer must come from the issuer the request went to (checked before error and code)
+        if (check.IssuerMismatch(q.GetValueOrDefault("iss")) is { } mixUp)
+        {
+            await RespondAsync(stream, 400, "Bad Request", "Sign-in failed", "The answer came from another sign-in server than the one Barbican asked.", ct).ConfigureAwait(false);
+            return Result<string>.Fail(new AuthError(mixUp, NeedsSignIn: false));
         }
 
         if (q.TryGetValue("error", out var error))
