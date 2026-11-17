@@ -17,6 +17,9 @@ public sealed record ListQuery
     /// <summary>Only messages without this keyword (the unread section of the unread-first Inbox, <c>notKeyword: $seen</c>).</summary>
     public string? NotKeyword { get; init; }
 
+    /// <summary>Folders the list leaves out (<c>inMailboxOtherThan</c>; the tag view's Trash and Junk), kept when a search runs inside the view (R3-09).</summary>
+    public IReadOnlyList<string>? ExcludedMailboxes { get; init; }
+
     /// <summary>An extra Email/query filter, AND-ed with the mailbox and keyword conditions by ListFilters (search, wave 2; null by default so M1 behaves as before).</summary>
     public System.Text.Json.Nodes.JsonObject? Filter { get; init; }
 

@@ -211,14 +211,19 @@ public sealed partial class MessageListViewModel : ObservableObject, IDisposable
         Title = title ?? string.Empty;
         _searchText = string.Empty;
         OnPropertyChanged(nameof(SearchText));
-        System.Text.Json.Nodes.JsonObject? filter = null;
-        if (excludedFolders.Count > 0)
-        {
-            filter = new System.Text.Json.Nodes.JsonObject { ["inMailboxOtherThan"] = new System.Text.Json.Nodes.JsonArray([.. excludedFolders.Select(id => (System.Text.Json.Nodes.JsonNode?)id)]) };
-        }
-
-        await LoadFirstPageAsync(new ListQuery { HasKeyword = "$label:" + tagId, Filter = filter, PageSize = ReadSettings().PageSize }, folderOpened: true).ConfigureAwait(true);
+        _tagExcluded = [.. excludedFolders];
+        await LoadFirstPageAsync(TagQuery(), folderOpened: true).ConfigureAwait(true);
     }
+
+    // the folders the tag view leaves out, kept so a search inside the view and its clearing keep the same view (R3-09)
+    private IReadOnlyList<string> _tagExcluded = [];
+
+    private ListQuery TagQuery() => new()
+    {
+        HasKeyword = "$label:" + TagId,
+        ExcludedMailboxes = _tagExcluded.Count > 0 ? _tagExcluded : null,
+        PageSize = ReadSettings().PageSize,
+    };
 
     private void SetTag(string? tagId)
     {
@@ -233,12 +238,18 @@ public sealed partial class MessageListViewModel : ObservableObject, IDisposable
     public async Task SearchAsync(string text)
     {
         var folder = _query?.MailboxId;
+        var inTag = TagId is not null;
         var trimmed = (text ?? string.Empty).Trim();
         _searchText = text ?? string.Empty;
         OnPropertyChanged(nameof(SearchText));
         if (trimmed.Length == 0)
         {
-            if (folder is not null)
+            if (inTag)
+            {
+                // clearing the box inside a tag view brings the tag list back
+                await LoadFirstPageAsync(TagQuery(), folderOpened: false).ConfigureAwait(true);
+            }
+            else if (folder is not null)
             {
                 await LoadFirstPageAsync(new ListQuery { MailboxId = folder, PageSize = ReadSettings().PageSize }, folderOpened: false).ConfigureAwait(true);
             }
@@ -247,7 +258,9 @@ public sealed partial class MessageListViewModel : ObservableObject, IDisposable
         }
 
         var shaped = await _hooks.ShapeAsync(HookNames.OnSearch, new SearchPayload(trimmed), CancellationToken.None).ConfigureAwait(true);
-        await LoadFirstPageAsync(new ListQuery { MailboxId = folder, SearchText = shaped.Query, PageSize = ReadSettings().PageSize }, folderOpened: false).ConfigureAwait(true);
+        // inside a tag view the search keeps the tag and the folders the view leaves out; the header keeps naming the tag (R3-09)
+        var query = inTag ? TagQuery() with { SearchText = shaped.Query } : new ListQuery { MailboxId = folder, SearchText = shaped.Query, PageSize = ReadSettings().PageSize };
+        await LoadFirstPageAsync(query, folderOpened: false).ConfigureAwait(true);
     }
 
     /// <summary>Loads the next page after the last loaded message (anchor paging) and appends it in place.</summary>

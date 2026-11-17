@@ -50,6 +50,11 @@ public static class ListFilters
             conditions.Add(new JsonObject { ["notKeyword"] = query.NotKeyword });
         }
 
+        if (query.ExcludedMailboxes is { Count: > 0 } excluded)
+        {
+            conditions.Add(new JsonObject { ["inMailboxOtherThan"] = new JsonArray([.. excluded.Select(id => (JsonNode?)id)]) });
+        }
+
         return conditions.Count switch
         {
             0 => [],

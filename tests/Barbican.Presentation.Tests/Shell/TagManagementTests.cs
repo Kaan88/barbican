@@ -107,7 +107,7 @@ public sealed class TagManagementTests
         Assert.True(h.Sidebar.Tags.Single(t => t.Id == "work").Selected);
         var tagQuery = queries.Last();
         Assert.Equal("$label:work", tagQuery.HasKeyword);
-        Assert.Equal(["trash", "junk"], tagQuery.Filter!["inMailboxOtherThan"]!.AsArray().Select(n => (string)n!));
+        Assert.Equal(["trash", "junk"], tagQuery.ExcludedMailboxes);
 
         await h.Sidebar.SelectTagAsync("work");
         Assert.Null(h.Sidebar.SelectedTagId);
