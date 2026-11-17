@@ -57,6 +57,24 @@ public sealed class SidebarViewModelTests
     }
 
     [Fact]
+    public async Task Arrow_right_unfolds_and_arrow_left_folds_the_selected_folder()
+    {
+        // Bulwark sidebar.tsx:2375, spec I-060
+        using var h = new ListHarness();
+        h.Service.OnQuery = (_, _, _) => Task.FromResult(Core.Common.Result<ListPage>.Ok(Mails.Page(0, 2, 2, false)));
+        h.Sidebar.Update(Tree());
+        await h.Sidebar.SelectFolderAsync("w");
+        Assert.False(h.Sidebar.SetSelectedExpanded(true));
+        Assert.True(h.Sidebar.SetSelectedExpanded(false));
+        Assert.DoesNotContain(h.Sidebar.Folders, f => string.Equals(f.Id, "c", StringComparison.Ordinal));
+        Assert.False(h.Sidebar.SetSelectedExpanded(false));
+        Assert.True(h.Sidebar.SetSelectedExpanded(true));
+        Assert.Contains(h.Sidebar.Folders, f => string.Equals(f.Id, "c", StringComparison.Ordinal));
+        await h.Sidebar.SelectFolderAsync("inbox");
+        Assert.False(h.Sidebar.SetSelectedExpanded(false));
+    }
+
+    [Fact]
     public void A_refresh_with_the_same_folders_touches_nothing_and_a_count_change_sets_one_row()
     {
         using var h = new ListHarness();
@@ -91,6 +109,23 @@ public sealed class SidebarViewModelTests
         Assert.True(h.Sidebar.GoToRole(MailboxRole.Inbox));
         Assert.Equal("inbox", h.List.MailboxId);
         Assert.False(h.Sidebar.GoToRole(MailboxRole.Drafts));
+    }
+
+    [Fact]
+    public async Task The_highlight_follows_the_list_not_only_the_folder_rows()
+    {
+        // unified review request: "All inboxes" clears the folder selection, and opening a folder by any path (a command, the palette) brings it back
+        using var h = new ListHarness();
+        h.Service.OnQuery = (_, _, _) => Task.FromResult(Core.Common.Result<ListPage>.Ok(Mails.Page(0, 2, 2, false)));
+        h.Sidebar.Update(Tree());
+        await h.Sidebar.SelectFolderAsync("inbox");
+        Assert.Equal("inbox", h.Sidebar.SelectedFolderId);
+        await h.List.OpenFolderAsync(Core.Mail.Unified.UnifiedRows.FolderId, MailboxRole.None, "All inboxes");
+        Assert.Null(h.Sidebar.SelectedFolderId);
+        Assert.True(h.Sidebar.UnifiedOpen);
+        await h.List.OpenFolderAsync("inbox", MailboxRole.Inbox, "Inbox");
+        Assert.Equal("inbox", h.Sidebar.SelectedFolderId);
+        Assert.False(h.Sidebar.UnifiedOpen);
     }
 
     [Fact]

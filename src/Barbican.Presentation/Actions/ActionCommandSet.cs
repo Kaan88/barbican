@@ -5,6 +5,7 @@ using System.Text.Json;
 using Barbican.Core.Common;
 using Barbican.Core.Mail.Model;
 using Barbican.Presentation.Commands;
+using Barbican.Presentation.Dialogs;
 using Barbican.Presentation.Mail;
 
 namespace Barbican.Presentation.Actions;
@@ -59,14 +60,14 @@ public static class ActionCommandSet
     ];
 
     /// <summary>Every command this stream owns.</summary>
-    public static IReadOnlyList<IAppCommand> Build(MailActionService actions, MessageListViewModel list, IMailWriterSource writers, IMailboxDirectory folders, IUndoService undo)
+    public static IReadOnlyList<IAppCommand> Build(MailActionService actions, MessageListViewModel list, IMailWriterSource writers, IMailboxDirectory folders, IUndoService undo, IDialogService? dialogs = null)
     {
         ArgumentNullException.ThrowIfNull(actions);
         ArgumentNullException.ThrowIfNull(list);
         ArgumentNullException.ThrowIfNull(writers);
         ArgumentNullException.ThrowIfNull(folders);
         ArgumentNullException.ThrowIfNull(undo);
-        return [.. MailCommands(actions, list, writers), .. FolderCommands(actions, list, writers, folders), .. ListCommands(list), Undo(undo)];
+        return [.. MailCommands(actions, list, writers), .. FolderCommands(actions, list, writers, folders, dialogs), .. ListCommands(list), Undo(undo)];
     }
 
     /// <summary>The targets a command acts on: the ones the surface names, else the list's selection (all of the folder's when "select all" was taken).</summary>
@@ -99,7 +100,7 @@ public static class ActionCommandSet
         yield return Mail(CommandIds.Tag, list, w, null, (t, c, ct) => c.Argument is { Length: > 0 } tag ? a.SetTagAsync(t, tag, MailActionService.TagState(t, tag) != true, ct) : Task.FromResult(Done));
         yield return Mail(CommandIds.Untag, list, w, null, (t, c, ct) => c.Argument is { Length: > 0 } tag ? a.SetTagAsync(t, tag, false, ct) : Task.FromResult(Done));
         yield return Mail(CommandIds.MoveTo, list, w, null, (t, c, ct) => c.Argument is { Length: > 0 } to ? a.MoveAsync(t, to, ct) : Task.FromResult(Done));
-        yield return Mail(CommandIds.MoveToInbox, list, w, _ => list.Role == MailboxRole.Archive, (t, _, ct) => a.MoveToInboxAsync(t, ct));
+        yield return Mail(CommandIds.MoveToInbox, list, w, _ => list.ArchiveMovesToInbox, (t, _, ct) => a.MoveToInboxAsync(t, ct));
         yield return Mail(CommandIds.Archive, list, w, _ => list.Role != MailboxRole.Archive, (t, _, ct) => a.ArchiveAsync(t, ct));
         yield return Mail(CommandIds.Delete, list, w, null, (t, _, ct) => a.DeleteAsync(t, ct));
         yield return Mail(CommandIds.DeleteForever, list, w, null, (t, _, ct) => a.DeleteForeverAsync(t, ct));
@@ -109,7 +110,7 @@ public static class ActionCommandSet
         yield return Mail(CommandIds.NotSpam, list, w, _ => list.Role == MailboxRole.Junk, (t, _, ct) => a.ReportSpamAsync(t, false, ct));
     }
 
-    private static IEnumerable<IAppCommand> FolderCommands(MailActionService a, MessageListViewModel list, IMailWriterSource w, IMailboxDirectory dir)
+    private static IEnumerable<IAppCommand> FolderCommands(MailActionService a, MessageListViewModel list, IMailWriterSource w, IMailboxDirectory dir, IDialogService? dialogs)
     {
         bool Can(CommandContext c, string right) => c.Mailbox is { } m && w.CanWrite(m.AccountKey) && HasRight(dir, m.MailboxId, right);
         MailboxRef? RoleRef(MailboxRole role, string? account) =>
@@ -119,9 +120,25 @@ public static class ActionCommandSet
         yield return new ActionCommand(CommandIds.MarkFolderRead, c => Can(c, "maySetSeen"), (c, ct) => a.MarkFolderReadAsync(c.Mailbox!, string.Equals(c.Argument, "children", StringComparison.Ordinal), ct));
         yield return new ActionCommand(CommandIds.EmptyTrash, c => RoleRef(MailboxRole.Trash, Account(c)) is { } r && w.CanWrite(r.AccountKey), (c, ct) => a.EmptyFolderAsync(RoleRef(MailboxRole.Trash, Account(c))!, ct));
         yield return new ActionCommand(CommandIds.EmptySpam, c => RoleRef(MailboxRole.Junk, Account(c)) is { } r && w.CanWrite(r.AccountKey), (c, ct) => a.EmptyFolderAsync(RoleRef(MailboxRole.Junk, Account(c))!, ct));
-        yield return new ActionCommand(CommandIds.NewFolder, c => Account(c) is { } k && w.CanWrite(k), async (c, ct) => (await a.CreateFolderAsync(Account(c)!, c.Argument ?? string.Empty, null, ct).ConfigureAwait(true)).Map(_ => default(Unit)));
-        yield return new ActionCommand(CommandIds.NewSubfolder, c => Can(c, "mayCreateChild"), async (c, ct) => (await a.CreateFolderAsync(c.Mailbox!.AccountKey, c.Argument ?? string.Empty, c.Mailbox.MailboxId, ct).ConfigureAwait(true)).Map(_ => default(Unit)));
-        yield return new ActionCommand(CommandIds.RenameFolder, c => Can(c, "mayRename"), (c, ct) => a.RenameFolderAsync(c.Mailbox!.AccountKey, c.Mailbox.MailboxId, c.Argument ?? string.Empty, ct));
+        // a name that is not given with the command is asked for in the prompt dialog (Rust ctxmenu.rs PROMPT :32); cancelling does nothing
+        async Task<string?> NameAsync(CommandContext c, string title, string initial, string confirm, CancellationToken ct) =>
+            !string.IsNullOrEmpty(c.Argument) ? c.Argument
+            : dialogs is null ? string.Empty
+            : await dialogs.ShowAsync(new PromptDialogRequest(title, "Name", initial, confirm), ct).ConfigureAwait(true);
+        string CurrentName(CommandContext c) => c.Mailbox is { } m ? dir.Tree.All.FirstOrDefault(x => string.Equals(x.Id, m.MailboxId, StringComparison.Ordinal))?.Name ?? string.Empty : string.Empty;
+
+        yield return new ActionCommand(CommandIds.NewFolder, c => Account(c) is { } k && w.CanWrite(k), async (c, ct) =>
+            await NameAsync(c, "New folder", string.Empty, "Create", ct).ConfigureAwait(true) is { } name
+                ? (await a.CreateFolderAsync(Account(c)!, name, null, ct).ConfigureAwait(true)).Map(_ => default(Unit))
+                : Done);
+        yield return new ActionCommand(CommandIds.NewSubfolder, c => Can(c, "mayCreateChild"), async (c, ct) =>
+            await NameAsync(c, "New subfolder", string.Empty, "Create", ct).ConfigureAwait(true) is { } name
+                ? (await a.CreateFolderAsync(c.Mailbox!.AccountKey, name, c.Mailbox.MailboxId, ct).ConfigureAwait(true)).Map(_ => default(Unit))
+                : Done);
+        yield return new ActionCommand(CommandIds.RenameFolder, c => Can(c, "mayRename"), async (c, ct) =>
+            await NameAsync(c, "Rename folder", CurrentName(c), "Rename", ct).ConfigureAwait(true) is { } name
+                ? await a.RenameFolderAsync(c.Mailbox!.AccountKey, c.Mailbox.MailboxId, name, ct).ConfigureAwait(true)
+                : Done);
         yield return new ActionCommand(CommandIds.DeleteFolder, c => Can(c, "mayDelete"), (c, ct) => a.DeleteFolderAsync(c.Mailbox!.AccountKey, c.Mailbox.MailboxId, ct));
         yield return new ActionCommand(CommandIds.RefreshFolder, _ => true, async (_, _) =>
         {

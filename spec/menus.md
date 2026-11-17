@@ -22,13 +22,14 @@ Target: the selection when the clicked row is in a multi-selection, else the row
 1. header "N selected" (only when N > 1)
 2. Scheduled view only, when the first message has a `submissionId`: Reschedule [off: N = 1], Cancel and edit [off: N = 1], danger Cancel send [off: N = 1], —
 3. Reply (R) [off: N = 1], Reply all (Shift+R) [off: N = 1], Forward (F) [off: N = 1], —
-4. Archive (E); danger Delete (Del), which asks first when N > 1 and `confirmBulkDelete` is on (default on); Move to ›, —
+4. In the Trash folder only: Restore [off: no `mayRemoveItems`], — (Bulwark `components/email/message-actions.ts:271-274`; the messages go back to where they came from, else the Inbox).
+   Archive (E), which in the Archive folder or any folder below it reads **Move to Inbox** (Bulwark `message-actions.ts:275-277`, `lib/archive-inbox.ts:10-28`; shown only when an Inbox exists); danger Delete (Del), which asks first when N > 1 and `confirmBulkDelete` is on (default on), and always asks when the selection hit the select-all cap of 10 000 (the dialog says the folder may hold more); Move to ›, —
 5. Mark as unread / Mark as read (U), by the first message's `$seen`; Unstar / Star (S), by `$flagged`; Tag ›, —
 6. Not spam (in the Junk folder) / Report spam (!), —
 7. More actions ›
 
 Flyouts:
-- **Move to ›**: every folder except virtual ones (`__…`) and the current one, indented by depth.
+- **Move to ›**: every folder except virtual ones (`__…`), the current one, Drafts, Sent and folders that take no new mail (`mayAddItems` false), indented by depth (Bulwark `lib/move-menu.ts:117`).
 - **Tag ›**: every tag with its colour, checked when the first message has `$label:<id>`; "No tags" (disabled) when there are none.
 - **More actions ›**: Open (Enter), Print, Download (.eml), View source, Forward as attachment, —, Copy sender address, Find emails from sender; all [off: N = 1].
 
@@ -68,6 +69,9 @@ Trash or Junk only: —, danger Empty trash / Empty spam (asks); custom folders 
 ## MENU-TAG: a tag in the sidebar [M2]
 Show messages; Mark all as read; —; New tag…; New tag inside… (only with nested tags and a valid child id); Rename…; Colour ›; danger Delete tag (asks; messages keep the keyword); —; Manage tags….
 - **Colour ›**: the tag palette, each in its colour, the current one checked.
+
+## UNIFIED-ROW: the "All inboxes" row of the sidebar [M2]
+header "All inboxes"; Refresh. Bulwark `components/layout/mailbox-context-menu.tsx:285-306` (`unified-mailbox`) adds danger "Empty trash in all accounts" for a unified Trash row only; Barbican's unified view is the Inbox row alone, so that item arrives with a unified Trash row (not before M10).
 
 ## MENU-LIST: the list background [M2]
 Refresh; Mark folder as read; Select all (Ctrl+A).

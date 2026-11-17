@@ -45,7 +45,7 @@ AGENTS.md points here; this file is the single source of the rules.
 ## Build limits (the machine froze under parallel builds)
 - Build and test **only** through `tools/build.ps1` (Windows) and `tools/linux.ps1` (Linux VM).
   Direct `dotnet build` / `dotnet test` is forbidden.
-- `tools/build.ps1` takes one of `BARBICAN_BUILD_SLOTS` (default 2) machine-wide slots, runs at
+- `tools/build.ps1` takes one of `BARBICAN_BUILD_SLOTS` (default 4) machine-wide slots, runs at
   BelowNormal priority with `-maxCpuCount:4` (passed explicitly: the dotnet CLI overrides the
   rsp's value), `-nodeReuse:false` (Directory.Build.rsp) and the compiler in-process. Rust builds
   (rare reference runs) go through the global rustc cap.

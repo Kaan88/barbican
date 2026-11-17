@@ -1096,3 +1096,59 @@ stage's own items. Commits are on `m2` (`git log --first-parent m2`); the per-st
 - **Bento dialog frame (27-29 ms).** Not reproduced: 6 Bento runs (light and dark, the first on a fresh process): worst gap 7.6 to 9.7 ms. Left open as "not seen again", not as fixed.
 - **feel-search.py** now waits until the list is steady for 350 ms before stopping the probe. Results: `spec/feel/M2/search/close-b-results.json` (search_results 51 frames, worst gap 9.6 ms; chip_remove 51 frames, 7.1 ms; the list never emptied).
 - **FakeJmap.** `Email/import` keeps the blob's Message-ID (the dedupe test depends on it); `x:ArchivedItem` is implemented behind `FakeJmapOptions.ArchiveCapability`; `collapseThreads` is honoured.
+## m2-close-a (stream: m2-close-a)
+
+Branch `m2-close-a` from `m2` (commits `56e9907` and the one after it). Closes interaction rows of the account popover, hover strip, sidebar, tags, unified menu and the Bulwark Restore / Move to Inbox rows. Everything below was checked in the hidden AUTOMATION build on sample data only; real pointer and keyboard paths are hand tests.
+
+- **The list is the one truth for the open folder (new rule).** `SidebarViewModel.OnListChanged` follows `MessageListViewModel.MailboxId` and `TagId`; `UnifiedSectionViewModel.IsOpen` follows `MailboxId`. Before, a command that opened the Inbox left the "All inboxes" header and the old highlight. Why review: it changes who owns `SelectedFolderId` (a folder opened by the palette, a `g` key or `unified inbox` now moves the highlight) and the order of three property notifications in `SelectFolderAsync` and `OpenTagAsync`. Where: `src/Barbican.Presentation/Shell/SidebarViewModel.cs`, `Shell/MailShellStartup.cs`, `Unified/UnifiedSectionViewModel.cs`, `Mail/MessageListViewModel.cs` (`TagId`, `OpenTagAsync`).
+- **Restore and Move to Inbox in the row menu (spec first).** Archive ancestry is computed twice: `MailMenus.InArchive` walks the menu folder list by depth, `SidebarViewModel.InArchiveTree` walks `ParentId`. They should agree; the second also decides the hover button and the `mail.move-inbox` command. Bulwark `archiveInboxTarget` also falls back to a non-shared Inbox for a shared account; not ported. Restore sends the messages back by `RestoreAsync` (origin role, else Inbox). Where: `Menus/MailMenus.cs`, `Actions/ActionCommandSet.cs`, `spec/menus.md` MENU-MAIL.
+- **Move to now hides Drafts and Sent** (Bulwark `lib/move-menu.ts:117`). The drag-to-folder path (`MailActionService.Moves.cs:24`) checks only `mayAddItems`, so a drop on Drafts is still allowed. Decide whether drops follow the menu.
+- **Select-all cap in the confirmation.** A selection of 10 000 messages now always asks, even with the confirm settings off, and says that the folder may hold more. Why review: it is a new always-ask rule next to D-7, and the count is the cap, not a server count. Where: `Actions/MailActionService.Moves.cs` (`CappedMessage`).
+- **Tags: filter, mark read, delete.** Tag definitions are `emailKeywords` in the prefs (`Tags/TagService.cs`); deleting a definition leaves `$label:` keywords on messages (as the confirmation says). The tag view leaves Trash and Junk out with `inMailboxOtherThan`. Mark all as read queries `hasKeyword` and `notKeyword $seen` up to 10 000 messages and writes them in one `SetReadAsync` (no per-account split, active account only). Where: `Tags/*.cs`, `Actions/MailActionService.Tags.cs`. Not built: "Show all N tags" (needs the per-tag visibility setting), tag counts, tag drag onto rows is the older `dnd-sim` path.
+- **Prompt for folder names.** `folder.new`, `folder.new-sub` and `folder.rename` used to fail with "Give the folder a name" from the menu; they now open the prompt dialog (`ActionCommandSet.NameAsync`). The prompt on the real dialog host was verified hidden (`dialog-state`); typing a name and the write are hand tests (M2-Q2).
+- **Account popover actions.** "Set as default", "Sign out of <address>", "Sign out of all accounts" run `IAccountMaintenance` after a confirmation through `IActionConfirmer`; without a dialog host they do nothing (fail closed). Alt+Shift+Up/Down reads modifier state with `InputKeyboardSource.GetKeyStateForCurrentThread` (the same read-only call `ShellPage` uses). Drag reorder is not built. Where: `Accounts/AccountsViewModel.cs`, `Views/Accounts/AccountPopoverView.xaml(.cs)`.
+- **Hover strip as icon buttons.** Buttons come from the `hoverActions` setting (default delete, star, read, archive; tag and spam optional). "Mark as read" uses the Check icon and "Mark as unread" the envelope, because the icon set has no open envelope. The Tag button opens the row menu Tag flyout under the button (`MessageListView.OnStripClick`). Floating mode and plugin row actions are not built (I-137, I-136).
+- **Unified: per-account rows and Shared section.** Per-account rows reuse `AccountsViewModel.Rows` and its switch command, so a refused account opens the sign-in form. The Shared section only lists the shared accounts that All inboxes reads (names from the JMAP Session); opening one account has no list source yet. `UnifiedSectionView` is now XAML (it was code-built).
+- **UNIFIED-ROW menu** is only header and Refresh (Bulwark `mailbox-context-menu.tsx:285-306`); "Empty trash in all accounts" needs a unified Trash row.
+- **Look.** The reference pictures of `docs/milestones/M1-look/ref` were re-accepted (the "+" in the Folders header moved 0.3 to 0.8 percent of the pixels). New sample-data pictures: `docs/milestones/M2-close-a-screens/` (unified, tag filter, hover strip in Bento dark and Nordic light). Popups are not in `shot`; the account popover was seen once with `wshot`.
+- **Tooltips (m2-close-a finish).** The sidebar "+" buttons, hover-strip buttons and Shared rows used `ToolTipService.ToolTip`, which the popup lint denies (ADR 0007); they now use `motion:Tip.Text` (in-window tip). The lint test caught it; no visual change expected. The hidden Automation build and `lookdiff check` were NOT re-run after this change: a hidden Barbican process (PID 42072, left by an earlier run in this worktree) locked the Automation output and was not stopped (not started by this agent). Re-run `tools/lookdiff.py check` once it is gone.
+
+## M2 hotfix: writes (stream: m2-hotfix-writes)
+
+- **Security boundary moved: the user's profiles are now unrestricted.** `src/Barbican.Core/Accounts/ReadOnlyPolicy.cs`
+  (`For`, `Unrestricted`, `IsReadOnly`) and `src/Barbican.Core/Storage/ProfilePaths.cs` (`IsAgentProfile`: `auto-*`, `smoke`,
+  `smoke-*`, `xrun-*`, `agent-*`). Before, "dev" and the empty profile were agent profiles, so the user's portable zip was read-only
+  on every account (HAND TEST 2). The agents' protection of `<readonly-account>` now rests entirely on agents never running in a
+  user profile. Review that every agent launch path is covered: `HiddenWindowOptions.Decide` (an AUTOMATION build or `--smoke` exits
+  on a named non-agent profile), `tools/auto-run.ps1` `Assert-AgentProfile`, `tools/linux-remote.sh` (`xrun-<name>`). Not covered by
+  code: an agent starting a Release build by hand without `--smoke` (visible window, already forbidden by CLAUDE.md) or running
+  `dotnet run` with `BARBICAN_PROFILE=dev`. Commit d779998.
+- **Stored read-only flags in "dev" are now ignored.** Earlier agent imports (`BARBICAN_IMPORT_RUST_ACCOUNTS=1` in "dev", before
+  this hotfix) may have left `<readonly-account>` in the dev profile's credential set flagged read-only; it is now writable there,
+  by design (the user owns it). Any agent that still runs a build in "dev" could write to it. `RustCredentialImport` refuses the
+  agent import outside agent profiles now. Commit d779998.
+- **CLAUDE.md line "C# dev builds use their own profile (`BARBICAN_PROFILE=dev`)" is stale**: dev is the user's profile; agents use
+  auto-*/smoke/xrun-*. Not edited by this stream (CLAUDE.md is the user's rules file); the user or the next review should update it.
+- **Real drag and drop was never wired** (no `CanDragItems`/`AllowDrop`/`Drop` anywhere); now the platform's in-app DnD:
+  `src/Barbican.App/Views/List/MessageListView.xaml(.cs)` (drag source), `src/Barbican.App/Views/Sidebar/SidebarView.xaml(.cs)`
+  (folder list drag source and drop target via `AddHandler(..., handledEventsToo)`, tag rows drop targets with a transparent
+  background), state in `DropController.BeginMailDrag(targets)/BeginFolderDrag/CanDropOnFolder/DropOnFolderAsync/DropOnTagAsync/
+  CancelDrag`. Unverified: real pointer dragging (hand test), the order of `Drop` and `DragItemsCompleted` (CancelDrag is a no-op
+  once a drop consumed the drag), Uno Skia's in-app DnD on Linux (compiles and tests green; never driven), `DragUIOverride` captions
+  on Uno. CanDragItems on the message list may interact with press-and-hold on touch. Commit ce83fb8.
+- **Plain `z` undo** added (`ShortcutTables.Mail`), Bulwark `hooks/use-undo-shortcut.ts:15-25`; Rust maps only Ctrl+Z. Bulwark parity
+  chosen over Rust because the `?` sheet already advertised it. Commit 45ef124.
+- **Sample runs hide account-policy bugs.** `SampleActiveMail.CanWrite` is always true and bypasses `AccountManager`, so the M2
+  verify could never see the read-only zip. The policy-to-client chain now has a unit test (`AccountManagerTests.
+  The_users_own_profile_writes_to_every_account_even_one_flagged_read_only`), but there is still no hidden run that signs into
+  FakeJmap through the real `AccountManager`; consider one before M3.
+- **`caption` automation command** (`src/Barbican.App/Shell/Automation/CaptionCommand.cs`) calls `ShellPage.AttachWindow` on the
+  hidden window (ExtendsContentIntoTitleBar on an off-screen, never-activated window); focus-guard stayed `own-is-foreground=no`.
+- **No tag keyboard shortcut** exists in Rust or Bulwark; "tag through the shortcut" was checked through the menus only. The palette
+  has no tag rows (`palette Tag` / `palette Red`: 0 rows) — a parity question for the menus stream.
+- **Not fixed here, owned by m2-close-a (not merged at the time of this hotfix):** tag menu rows Show messages, Mark all as read,
+  New tag, Rename, Delete tag, Manage tags have no registered commands (always disabled, also on a writable account); the sidebar
+  "+" (`sidebar.tags.add`), folder settings button and Compose are `IsEnabled="False"` in XAML; right-click on the folders header
+  and the avatar opens nothing (the menus exist: `menu-open FOLDERS-HEADER` / `ACCOUNT` work); rail Calendar, Contacts, Files and
+  Settings switch to apps that do not exist yet (M4-M6) and show nothing.
+- **Flaky test seen once** in Barbican.Presentation.Tests during the m2 merge run (1 failure, not reproduced in 3 later runs; name not captured). Worth a look for a timing dependency.

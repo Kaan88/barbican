@@ -159,6 +159,15 @@ function New-Token {
     return (($bytes | ForEach-Object { $_.ToString('x2') }) -join '')
 }
 
+# M2 hotfix: every run this script starts uses an agent profile (auto-*, smoke, smoke-*, xrun-*, agent-*; ProfilePaths.IsAgentProfile).
+# The user's own profiles ("dev", the default, any other name) write to every account, so a run there is refused here, and the App
+# refuses it too (HiddenWindowOptions).
+function Assert-AgentProfile([string]$Name) {
+    if ($Name -cnotmatch '^(auto-|smoke-|xrun-|agent-)' -and $Name -cne 'smoke') {
+        throw "[auto-run] -ProfileName '$Name' is not an agent profile (auto-*, smoke, smoke-*, xrun-*, agent-*); agent runs never use the user's profiles"
+    }
+}
+
 # Agent profiles are read-only unless the main checkout's gitignored .local/writable-accounts.txt lists the account (Fable F-12).
 function Get-AllowList([string]$Name = 'writable-accounts.txt') {
     $common = (& git -C $Root rev-parse --path-format=absolute --git-common-dir 2>$null)
@@ -215,6 +224,7 @@ switch ($Target) {
         if (Test-Path $Report) { Remove-Item $Report -Force }
         $before = Get-FocusState
         $env_ = @{ BARBICAN_PROFILE = $(if ($ProfileName) { $ProfileName } else { 'smoke' }) }
+        Assert-AgentProfile $env_.BARBICAN_PROFILE
         $p = Start-Hidden $path @('--smoke', "`"$Report`"") $env_ -Capture
         if (-not $p.WaitForExit($TimeoutSeconds * 1000)) { Stop-Process -Id $p.Id -Force; throw '[auto-run] smoke run did not exit' }
         $after = Get-FocusState
@@ -231,6 +241,7 @@ switch ($Target) {
         $token = New-Token
         Set-Content -Path $TokenFile -Value $token -NoNewline -Encoding ascii
         $envAuto = @{ BARBICAN_AUTOMATION_PORT = "$Port"; BARBICAN_AUTOMATION_TOKEN = $token; BARBICAN_PROFILE = $(if ($ProfileName) { $ProfileName } else { "auto-$Port" }) }
+        Assert-AgentProfile $envAuto.BARBICAN_PROFILE
         $allow = Get-AllowList
         if ($allow) { $envAuto.BARBICAN_WRITABLE_ACCOUNTS_FILE = $allow }
         # R2-14 / M2-Q2: the logins that are never written; without this list every account stays read-only (ReadOnlyPolicy fails closed)

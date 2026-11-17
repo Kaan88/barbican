@@ -5,7 +5,7 @@
 
 .DESCRIPTION
   The machine froze under parallel builds, so every dotnet invocation here:
-    - takes one of N machine-wide build slots (BARBICAN_BUILD_SLOTS, default 2). A slot is the named
+    - takes one of N machine-wide build slots (BARBICAN_BUILD_SLOTS, default 4). A slot is the named
       mutex Global\BarbicanDotnetBuild-<i>; a mutex (not a semaphore) so a crashed or killed build
       frees its slot automatically (the next taker gets it as "abandoned");
     - runs at BelowNormal priority (set on this process, inherited by dotnet, MSBuild nodes and
@@ -66,7 +66,7 @@ $env:MSBUILDDISABLENODEREUSE = '1'
 $env:DOTNET_CLI_UI_LANGUAGE = 'en'
 
 function Get-SlotCount {
-    $n = 2
+    $n = 4
     if ($env:BARBICAN_BUILD_SLOTS) { $n = [int]$env:BARBICAN_BUILD_SLOTS }
     if ($n -lt 1) { $n = 1 }
     return $n

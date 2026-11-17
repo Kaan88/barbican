@@ -37,6 +37,9 @@ public static class ViewServices
 
         services.AddSingleton<Barbican.Automation.IAutomationCommand, Shell.Automation.KeyCommand>();
         services.AddSingleton<Barbican.Automation.IAutomationCommand, Shell.Automation.UiCommand>();
+#if WINDOWS
+        services.AddSingleton<Barbican.Automation.IAutomationCommand, Shell.Automation.CaptionCommand>();
+#endif
 #endif
         return services;
     }

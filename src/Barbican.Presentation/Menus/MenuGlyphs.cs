@@ -11,6 +11,8 @@ public static class MenuGlyphs
     public const string Archive = "Archive";
     public const string Delete = "Trash";
     public const string Move = "Move";
+    public const string Restore = "Undo";
+    public const string Inbox = "Inbox";
     public const string Read = "Check";
     public const string Unread = "Unread";
     public const string Star = "Star";

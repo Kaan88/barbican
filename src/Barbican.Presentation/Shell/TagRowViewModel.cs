@@ -8,4 +8,5 @@ namespace Barbican.Presentation.Shell;
 /// <param name="ColorRgb">The tag colour 0xRRGGBB, in the colour-blind-safe palette when that setting is on.</param>
 /// <param name="Depth">Nesting level.</param>
 /// <param name="Chevron">0 none, 1 open, 2 closed.</param>
-public sealed record TagRowViewModel(string Id, string Label, uint ColorRgb, int Depth, int Chevron);
+/// <param name="Selected">The list is filtered to this tag (Bulwark sidebar.tsx:1181: a second click on it clears the filter).</param>
+public sealed record TagRowViewModel(string Id, string Label, uint ColorRgb, int Depth, int Chevron, bool Selected = false);

@@ -10,7 +10,7 @@ streams m0-cat-a, m0-cat-b and m0-cat-c, then completed and sample-reviewed by m
 | `rust-tests.csv` | T-001..T-353 | 353 | every Rust `#[test]` at `rust-final`: module, fn, file:line, one-line assertion, milestone, C# test, status, the `[RustTest]` tag |
 | `behaviours/<area>.md` | B-<AREA>-### | 729 | one rule per row with its source (file:line, test or commit) and the Bulwark/RFC ref |
 | `decisions.md` | D-### | 232 | every non-merge commit at `rust-final`, the parity-round merges and the three `mat-*` WIP branches |
-| `interactions.csv` (+ `interactions.md`) | I-001..I-471 | 471 | the parity checklist, re-baselined against Rust `main` |
+| `interactions.csv` (+ `interactions.md`) | I-001..I-476 | 476 | the parity checklist, re-baselined against Rust `main` |
 | `jmap.csv` | J-001..J-077 | 77 | JMAP-COMPLIANCE.md, one row per requirement |
 | `gaps.csv` | G-001..G-110 | 110 | GAPS.md (P0-P3) plus round-2 items kept for traceability |
 | `settings.csv` | S-<key>, S-keyless-### | 200 | 136 schema keys (wired or unwired in Rust) and 64 keyless rows |
@@ -37,7 +37,7 @@ ids resolvable): B-SYNC-001..011 (sync.md, listsync part) with B-LST (listsync.m
 ## Statuses
 - T- `status`: `pending` (no C# test yet, or only `[Red]` ones: a red test is excluded from the default run and proves nothing),
   `ported` (a C# test that is not `[Red]` carries the tag), `dropped(D-###, user OK)`.
-  T-159 (lite) is `dropped(D-233, user OK pending)` until the user confirms at the M1 gate (PORT-PLAN Appendix A, B-READ-046).
+  T-159 (lite) is `dropped(D-233, user OK)`: the user approved the drop on 2026-11-17 (PORT-PLAN Appendix A, B-READ-046).
 - B- rows: `ported`, `deferred(M<k>)` or `dropped(D-###, user OK)` once their milestone closes (§2.5).
 - I- `csharp_status`: `todo` or `n/a`, then `done` with evidence (a test, an automation script, a screenshot path).
 - J- `cs_status`: `pending` until re-verified with a test and Bulwark plus Stalwart refs; `done` names the test that exercises the

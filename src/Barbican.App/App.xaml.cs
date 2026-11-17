@@ -82,7 +82,7 @@ public partial class BarbicanApp : Application
         }
 
 #if AUTOMATION
-        Barbican.Automation.AutomationHost.Start(_window, _host.Services, options.AutomationPort);
+        StartAutomation(shell, options.AutomationPort);
 #endif
         smoke?.Start();
         foreach (var task in _host.Services.GetServices<IStartupTask>())
@@ -90,4 +90,16 @@ public partial class BarbicanApp : Application
             _ = task.StartAsync(CancellationToken.None);
         }
     }
+
+#if AUTOMATION
+    private void StartAutomation(Shell.ShellPage shell, int port)
+    {
+#if WINDOWS
+        Shell.Automation.CaptionCommand.Use(_window!, shell);
+#else
+        _ = shell;   // the caption command is Windows only
+#endif
+        Barbican.Automation.AutomationHost.Start(_window!, _host!.Services, port);
+    }
+#endif
 }

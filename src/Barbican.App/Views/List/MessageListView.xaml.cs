@@ -243,7 +243,18 @@ public sealed partial class MessageListView : UserControl
     private async void OnStripClick(object sender, RoutedEventArgs e)
 #pragma warning restore VSTHRD100
     {
-        if (sender is FrameworkElement { Tag: string id } button && RowOf(button) is { } row
+        if (sender is FrameworkElement { DataContext: HoverButton { OpensTagPicker: true } } tagButton && Menus.VisualWalk.Up<MessageRowViewModel>(tagButton)?.Context is { } tagRow)
+        {
+            // the tag button opens the picker (the Tag flyout of the row menu) under the button, as Bulwark's hover Tag does (email-hover-actions.tsx:224-228)
+            var at = tagButton.TransformToVisual(null).TransformPoint(new Windows.Foundation.Point(0, tagButton.ActualHeight));
+            var target = List.TargetOf(tagRow);
+            ViewHost.Get<Barbican.Presentation.Menus.IContextMenuService>().Show(
+                new Barbican.Presentation.Menus.MenuContext(Barbican.Presentation.Menus.MenuIds.MailTag, [target], null, null, null, null, CommandSurface.HoverStrip),
+                new Barbican.Presentation.Menus.MenuAnchor(at.X, at.Y, null));
+            return;
+        }
+
+        if (sender is FrameworkElement { Tag: string id } button && Menus.VisualWalk.Up<MessageRowViewModel>(button)?.Context is { } row
             && ViewHost.Get<ICommandRegistry>().TryGet(id, out var command))
         {
             var context = new CommandContext(CommandSurface.HoverStrip, [List.TargetOf(row)], null, null, null);
@@ -253,6 +264,30 @@ public sealed partial class MessageListView : UserControl
             }
         }
     }
+
+    // ---- M2 hotfix: real drag and drop (HAND TEST 2 "can't drag"). The platform's in-app drag; DropController keeps what is dragged and runs the drop
+    // (the same code dnd-sim runs). The dragged row stands for the ticked rows when it is one of them (Rust dnd.rs ids_for_mail :47). ----
+
+    private void OnDragItemsStarting(object sender, DragItemsStartingEventArgs e)
+    {
+        if (e.Items.OfType<MessageRowViewModel>().FirstOrDefault() is not { } row)
+        {
+            e.Cancel = true;
+            return;
+        }
+
+        var drops = ViewHost.Get<Barbican.Presentation.DragDrop.DropController>();
+        var current = List.Current;
+        IReadOnlyList<Barbican.Core.Mail.Model.MailTarget> targets = current.Any(t => string.Equals(t.EmailId, row.Id, StringComparison.Ordinal)) ? current : [List.TargetOf(row)];
+        drops.BeginMailDrag(targets);
+        e.Data.SetText(drops.Label);
+        e.Data.RequestedOperation = global::Windows.ApplicationModel.DataTransfer.DataPackageOperation.Move;
+    }
+
+    // after a drop the controller has nothing pending any more; a drag that ended anywhere else fires onDragEnd(dropped: false)
+#pragma warning disable CA1822 // XAML event handler
+    private void OnDragItemsCompleted(ListViewBase sender, DragItemsCompletedEventArgs args) => ViewHost.Get<Barbican.Presentation.DragDrop.DropController>().CancelDrag();
+#pragma warning restore CA1822
 
     // A date-group header is not selectable.
 #pragma warning disable CA1822 // XAML event handler

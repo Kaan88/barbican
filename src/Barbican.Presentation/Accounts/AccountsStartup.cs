@@ -11,7 +11,7 @@ namespace Barbican.Presentation.Accounts;
 /// <summary>Loads the prefs, runs the agent import when asked, then restores the remembered accounts.</summary>
 public sealed class AccountsStartup(AccountManager accounts, PrefsStore prefs, ILegacyAccountImport? import = null) : IStartupTask
 {
-    /// <summary>Set to 1 by an agent to import the Rust app's password accounts into a dev or automation profile (read-only).</summary>
+    /// <summary>Set to 1 by an agent to import the Rust app's password accounts into an agent profile (read-only).</summary>
     public const string ImportVariable = "BARBICAN_IMPORT_RUST_ACCOUNTS";
 
     /// <summary>What the agent import did, when it ran (counts and entry names only).</summary>

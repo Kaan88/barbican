@@ -63,6 +63,21 @@ public static class Fmt
 
     public static FontWeight FolderWeight(int unread) => unread > 0 ? FontWeights.SemiBold : FontWeights.Normal;
 
+    public static Brush TagBg(bool selected) => selected ? Palette("Sel") : new SolidColorBrush(Color.FromArgb(0, 0, 0, 0));
+
+    public static Brush TagFg(bool selected) => Palette(selected ? "SelText" : "Body");
+
+    public static string TagButtonId(string tagId) => tagId + ".select";
+
+    public static string UnifiedAccountId(string accountKey) => "sidebar-unified.account." + accountKey;
+
+    public static string SharedRowId(string accountId) => "sidebar.shared." + accountId;
+
+    public static string StripId(string action) => "strip." + action;
+
+    /// <summary>A hover button is faint; the star of a starred message is amber.</summary>
+    public static Brush StripBrush(bool active) => Palette(active ? "AmberFg" : "Dim");
+
     public static string ChevronId(string folderId) => folderId + ".chevron";
 
     public static double IndentPx(int depth) => depth * 14;

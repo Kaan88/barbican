@@ -266,12 +266,13 @@ public sealed partial class AccountManagerTests : IAsyncDisposable
     }
 
     [Theory]
-    [InlineData("dev")]
+    [InlineData("smoke")]
+    [InlineData("xrun-auto")]
     [InlineData("auto-4242")]
     public async Task An_agent_profile_without_the_allow_list_refuses_Email_set(string profile)
     {
-        // F-12: an inherited BARBICAN_WRITABLE_ACCOUNTS counts for nothing in the agents' profiles; only the .local list opens an account
-        var env = new Dictionary<string, string?>(StringComparer.Ordinal) { [ReadOnlyPolicy.Variable] = "ana@example.org" };
+        // F-12: an inherited BARBICAN_WRITABLE_ACCOUNTS (the M1 variable, gone) counts for nothing in the agents' profiles; only the .local lists open an account
+        var env = new Dictionary<string, string?>(StringComparer.Ordinal) { ["BARBICAN_WRITABLE_ACCOUNTS"] = "ana@example.org" };
         var policy = ReadOnlyPolicy.For(profile, n => env.GetValueOrDefault(n), _ => "ana@example.org");
         Assert.Equal(0, policy.WritableCount);
 
@@ -285,6 +286,29 @@ public sealed partial class AccountManagerTests : IAsyncDisposable
         var set = await client.SendAsync(JmapRequest.Of(JmapRequest.Call("Email/set", new JsonObject { ["accountId"] = "b", ["destroy"] = new JsonArray("x") }, "w")), Ct);
         Assert.Equal("Email/set", Assert.IsType<ReadOnlyViolation>(set.Error).Method);
         Assert.DoesNotContain(_a.ApiCalls, c => c.Contains("Email/set", StringComparison.Ordinal));
+    }
+
+    [Theory]
+    [InlineData("dev")]
+    [InlineData("main")]
+    public async Task The_users_own_profile_writes_to_every_account_even_one_flagged_read_only(string profile)
+    {
+        // M2 hotfix (HAND TEST 2: the portable zip runs in "dev" and could not drag, tag or delete): no list, an old agent-import flag on the
+        // account, and the write still reaches the server
+        var policy = ReadOnlyPolicy.For(profile, _ => null, _ => null);
+        var paths = new TestProfilePaths(_root);
+        var oauthHttp = new OAuthHttp(_http, TimeProvider.System);
+        var flow = new OAuthFlow(new OAuthDiscovery(oauthHttp), _clients, oauthHttp, new RedirectFollowingLauncher(_http), new OAuthFlowOptions { LoopbackPort = 0 }, TimeProvider.System);
+        await using var manager = new AccountManager(new JmapClientFactory(_http, TimeProvider.System), new MailAccountFactory(_hooks, TimeProvider.System), _store, flow, oauthHttp, paths, policy, _hooks, TimeProvider.System);
+        await _vault.SaveAsync([new StoredAccount(StoredAccount.PasswordKind, OriginA, "ana@example.org") { Password = "pw-a", IsDefault = true, ReadOnly = true }], Ct);
+
+        var restored = await manager.RestoreAsync(Ct);
+        await Poll.UntilAsync(() => manager.SessionFor(restored!.Key) is not null, "the restored account's session");
+        var client = manager.SessionFor(restored!.Key)!.Client;
+        Assert.False(client.IsReadOnly);
+        var set = await client.SendAsync(JmapRequest.Of(JmapRequest.Call("Email/set", new JsonObject { ["accountId"] = client.Session.MailAccountId, ["destroy"] = new JsonArray("x") }, "w")), Ct);
+        Assert.Null(set.Error);
+        Assert.Contains(_a.ApiCalls, c => c.Contains("Email/set", StringComparison.Ordinal));
     }
 
     [Fact]
@@ -301,19 +325,20 @@ public sealed partial class AccountManagerTests : IAsyncDisposable
         string? Read(string p) => string.Equals(p, readOnly, StringComparison.Ordinal) ? "main@example.net\r\n" : List;
 
         // M2-Q2: without the read-only list nothing is writable; with both, the writable list opens its logins (R2-14: a stored flag too)
-        Assert.True(ReadOnlyPolicy.For("dev", Env(local), Read).IsReadOnly("ana@example.org", storedFlag: false));
-        Assert.False(ReadOnlyPolicy.For("dev", Env(local, readOnly), Read).IsReadOnly("ana@example.org", storedFlag: false));
-        Assert.True(ReadOnlyPolicy.For("dev", Env(local, readOnly), Read).IsReadOnly("ben@example.net", storedFlag: false));
-        Assert.False(ReadOnlyPolicy.For("dev", Env(local, readOnly), Read).IsReadOnly("ana@example.org", storedFlag: true));
-        Assert.Equal(0, ReadOnlyPolicy.For("dev", Env(elsewhere, readOnly), Read).WritableCount);
+        Assert.True(ReadOnlyPolicy.For("auto-1", Env(local), Read).IsReadOnly("ana@example.org", storedFlag: false));
+        Assert.False(ReadOnlyPolicy.For("auto-1", Env(local, readOnly), Read).IsReadOnly("ana@example.org", storedFlag: false));
+        Assert.True(ReadOnlyPolicy.For("auto-1", Env(local, readOnly), Read).IsReadOnly("ben@example.net", storedFlag: false));
+        Assert.False(ReadOnlyPolicy.For("auto-1", Env(local, readOnly), Read).IsReadOnly("ana@example.org", storedFlag: true));
+        Assert.Equal(0, ReadOnlyPolicy.For("auto-1", Env(elsewhere, readOnly), Read).WritableCount);
         Assert.Equal(0, ReadOnlyPolicy.For("auto-1", Env(local, readOnly), _ => null).WritableCount);
-        Assert.Equal(0, ReadOnlyPolicy.For("dev", Env(null, readOnly), Read).WritableCount);
+        Assert.Equal(0, ReadOnlyPolicy.For("smoke", Env(null, readOnly), Read).WritableCount);
 
         // the real reader: a missing file is read-only
         Assert.Null(ReadOnlyPolicy.ReadAllowList(local));
 
-        // the user's own profile keeps the variable (nothing sets it in M1)
-        Assert.Equal(1, ReadOnlyPolicy.For("main", n => string.Equals(n, ReadOnlyPolicy.Variable, StringComparison.Ordinal) ? "ana@example.org" : null, _ => null).WritableCount);
+        // M2 hotfix: the user's own profiles need no list at all; every account is writable, a stored flag too
+        Assert.False(ReadOnlyPolicy.For("dev", Env(null), _ => null).IsReadOnly("ben@example.net", storedFlag: true));
+        Assert.False(ReadOnlyPolicy.For("main", Env(null), _ => null).IsReadOnly("ana@example.org", storedFlag: false));
     }
 
     [Fact]

@@ -43,6 +43,7 @@ public static class CommandIds
     public const string ImportMessages = "folder.import";
     public const string ExportMbox = "folder.export-mbox";
     public const string ExportEml = "folder.export-eml";
+    public const string RefreshUnified = "unified.refresh";
     public const string ShowTagMessages = "tag.show";
     public const string MarkTagRead = "tag.mark-read";
     public const string NewTag = "tag.new";

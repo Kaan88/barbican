@@ -8,6 +8,7 @@ using System.Text.Json.Nodes;
 using Barbican.Core.Mail.Model;
 using Barbican.Core.Mail.Write.Payloads;
 using Barbican.Core.Plugins.Hooks;
+using Barbican.Presentation.Mail;
 using Barbican.FakeJmap;
 
 namespace Barbican.Presentation.Tests.Actions;
@@ -45,6 +46,21 @@ public sealed class MailActionTests
         Assert.All(ids, id => Assert.Equal([h.Folder("inbox")], Boxes(h, id)));
         Assert.DoesNotContain(NotifyCollectionChangedAction.Reset, h.Changes);
         Assert.Empty(h.Undo.History);
+    }
+
+    [Fact]
+    public async Task A_selection_that_hit_the_select_all_cap_always_asks_and_says_the_folder_may_hold_more()
+    {
+        // decision M2-Q5: the cap of 10 000 is stated in the confirmation, even with the bulk-delete question off
+        using var h = await ActionHarness.StartAsync();
+        await h.OpenAsync("inbox");
+        h.Confirmer.Answer = false;
+        var one = h.Pick(0)[0];
+        var many = Enumerable.Range(0, MessageListViewModel.AllInFolderCap).Select(i => one with { EmailId = "e" + i, RowId = "e" + i }).ToList();
+        Assert.True((await h.Actions.DeleteAsync(many, Ct)).IsOk);
+        var ask = Assert.Single(h.Confirmer.Asked);
+        Assert.Equal("Delete 10000 messages?", ask.Title);
+        Assert.Contains("stops at 10 000 messages", ask.Message, StringComparison.Ordinal);
     }
 
     [Fact]

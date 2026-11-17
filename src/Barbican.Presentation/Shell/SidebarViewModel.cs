@@ -25,6 +25,8 @@ public sealed class SidebarViewModel : ObservableObject, IDisposable, Actions.IM
     private readonly HashSet<string> _collapsedTags = new(StringComparer.Ordinal);
     private MailboxTree _tree = new([]);
     private string? _selectedFolderId;
+    private string? _selectedTagId;
+    private string? _lastFolderId;
     private string _storageText = string.Empty;
     private double _storageFraction = -1;
     private QuotaInfo? _quota;
@@ -45,6 +47,8 @@ public sealed class SidebarViewModel : ObservableObject, IDisposable, Actions.IM
         _hooks = hooks;
         _hub.EventReceived += OnSyncEvent;
         _prefs.Changed += OnPrefsChanged;
+        _list.PropertyChanged += OnListChanged;
+        _list.InArchiveTree = InArchiveTree;
         RefreshTags();
     }
 
@@ -62,6 +66,22 @@ public sealed class SidebarViewModel : ObservableObject, IDisposable, Actions.IM
         get => _selectedFolderId;
         private set => SetProperty(ref _selectedFolderId, value);
     }
+
+    /// <summary>The tag the list is filtered to (its row is highlighted and no folder is), or null.</summary>
+    public string? SelectedTagId
+    {
+        get => _selectedTagId;
+        private set
+        {
+            if (SetProperty(ref _selectedTagId, value))
+            {
+                RefreshTags();
+            }
+        }
+    }
+
+    /// <summary>The list shows "All inboxes": no folder row is selected and the header keeps the unified title.</summary>
+    public bool UnifiedOpen { get; private set; }
 
     /// <summary>The Inbox's unread count (the rail badge and the window title).</summary>
     public int InboxUnread => FolderRows.InboxUnread(_tree);
@@ -126,6 +146,7 @@ public sealed class SidebarViewModel : ObservableObject, IDisposable, Actions.IM
         }
 
         SelectedFolderId = folderId;
+        _lastFolderId = folderId;
         return _list.OpenFolderAsync(folderId, mailbox.Role, FolderRows.DisplayName(mailbox));
     }
 
@@ -142,6 +163,33 @@ public sealed class SidebarViewModel : ObservableObject, IDisposable, Actions.IM
         return true;
     }
 
+    /// <summary>A click on a tag row: filters the list to the tag, or, on the selected tag, goes back to the folder that was open (Bulwark sidebar.tsx:1181).</summary>
+    public Task SelectTagAsync(string tagId)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(tagId);
+        if (string.Equals(_selectedTagId, tagId, StringComparison.Ordinal))
+        {
+            return ClearTagAsync();
+        }
+
+        var label = Tags.FirstOrDefault(t => string.Equals(t.Id, tagId, StringComparison.Ordinal))?.Label
+            ?? TagRules.Parse(_prefs.Current.Values["emailKeywords"]).FirstOrDefault(d => string.Equals(d.Id, tagId, StringComparison.Ordinal))?.Label
+            ?? tagId;
+        return _list.OpenTagAsync(tagId, label, [.. _tree.All.Where(m => m.Role is MailboxRole.Trash or MailboxRole.Junk).Select(m => m.Id)]);
+    }
+
+    /// <summary>Leaves the tag view: the folder that was open before comes back, else the Inbox.</summary>
+    public Task ClearTagAsync()
+    {
+        if (_selectedTagId is null)
+        {
+            return Task.CompletedTask;
+        }
+
+        var back = _lastFolderId is { } id && _tree.All.Any(m => string.Equals(m.Id, id, StringComparison.Ordinal)) ? id : _tree.All.FirstOrDefault(m => m.Role == MailboxRole.Inbox)?.Id;
+        return back is null ? Task.CompletedTask : SelectFolderAsync(back);
+    }
+
     /// <summary>Folds or unfolds a folder's children.</summary>
     public void ToggleFolder(string id)
     {
@@ -151,6 +199,19 @@ public sealed class SidebarViewModel : ObservableObject, IDisposable, Actions.IM
         }
 
         RebuildFolders();
+    }
+
+    /// <summary>ArrowRight unfolds and ArrowLeft folds the selected folder (Bulwark sidebar.tsx:2375); false when the key had nothing to do.</summary>
+    public bool SetSelectedExpanded(bool expanded)
+    {
+        var row = _selectedFolderId is null ? null : Folders.FirstOrDefault(f => string.Equals(f.Id, _selectedFolderId, StringComparison.Ordinal));
+        if (row is null || row.Chevron != (expanded ? 2 : 1))
+        {
+            return false;
+        }
+
+        ToggleFolder(row.Id);
+        return true;
     }
 
     /// <summary>Folds or unfolds a tag's children.</summary>
@@ -175,7 +236,7 @@ public sealed class SidebarViewModel : ObservableObject, IDisposable, Actions.IM
             .Select(r =>
             {
                 var rgb = TagRules.ColorRgb(r.Def.Color);
-                return new TagRowViewModel(r.Def.Id, r.Def.Label, cvd ? A11y.CvdColor(rgb) : rgb, r.Depth, r.Chevron);
+                return new TagRowViewModel(r.Def.Id, r.Def.Label, cvd ? A11y.CvdColor(rgb) : rgb, r.Depth, r.Chevron, string.Equals(r.Def.Id, _selectedTagId, StringComparison.Ordinal));
             })
             .ToList();
         ListSync.SyncModel(Tags, rows, r => r.Id);
@@ -185,6 +246,59 @@ public sealed class SidebarViewModel : ObservableObject, IDisposable, Actions.IM
     {
         _hub.EventReceived -= OnSyncEvent;
         _prefs.Changed -= OnPrefsChanged;
+        _list.PropertyChanged -= OnListChanged;
+    }
+
+    /// <summary>True when the folder is the Archive or lies below it and an Inbox exists (Bulwark lib/archive-inbox.ts:10-28).</summary>
+    private bool InArchiveTree(string folderId)
+    {
+        var byId = _tree.All.ToDictionary(m => m.Id, StringComparer.Ordinal);
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+        for (var at = byId.GetValueOrDefault(folderId); at is not null && seen.Add(at.Id); at = at.ParentId is { } parent ? byId.GetValueOrDefault(parent) : null)
+        {
+            if (at.Role == MailboxRole.Archive)
+            {
+                return _tree.All.Any(m => m.Role == MailboxRole.Inbox);
+            }
+        }
+
+        return false;
+    }
+
+    // The list is the one truth for the open folder: when something other than a folder row opened it (the unified inbox, a command, the
+    // palette), the highlight follows. "All inboxes" is no folder of the tree, so no folder row stays highlighted (unified review request).
+    private void OnListChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
+    {
+        if (string.Equals(e.PropertyName, nameof(MessageListViewModel.TagId), StringComparison.Ordinal))
+        {
+            // the tag view highlights its tag and no folder (Bulwark sidebar.tsx:1181, selectedKeyword); leaving it brings the folder back through MailboxId
+            SelectedTagId = _list.TagId;
+            if (_list.TagId is not null)
+            {
+                UnifiedOpen = false;
+                SelectedFolderId = null;
+            }
+
+            return;
+        }
+
+        if (!string.Equals(e.PropertyName, nameof(MessageListViewModel.MailboxId), StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        var id = _list.MailboxId;
+        if (string.Equals(id, Core.Mail.Unified.UnifiedRows.FolderId, StringComparison.Ordinal))
+        {
+            UnifiedOpen = true;
+            SelectedFolderId = null;
+        }
+        else if (id is not null && _tree.All.Any(m => string.Equals(m.Id, id, StringComparison.Ordinal)))
+        {
+            UnifiedOpen = false;
+            _lastFolderId = id;
+            SelectedFolderId = id;
+        }
     }
 
     private void RebuildFolders()

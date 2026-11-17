@@ -2,7 +2,7 @@
 
 The hidden in-app automation server of AUTOMATION builds (the `Automation` build configuration:
 `tools/build.ps1 build -Configuration Automation -Head win`; `src/Barbican.Automation`), loopback only,
-`BARBICAN_AUTOMATION_PORT` (default 8792), profile `BARBICAN_PROFILE` (default `auto-<port>`). Launch on Windows with
+`BARBICAN_AUTOMATION_PORT` (default 8792), profile `BARBICAN_PROFILE` (default `auto-<port>`; any other value must be an agent profile, `auto-*`, `smoke*`, `xrun-*` or `agent-*`, or the run exits: M2 hotfix). Launch on Windows with
 `tools/auto-run.ps1 start` (SW_HIDE, own port and profile, stops only its own process; `-PrivateDesktop` for
 popup probes); on Linux with `tools/linux.ps1 xrun -Configuration Automation -Script auto` (private Xvfb only). One command per line, one reply line. The command set is the one of the
 Rust app (`src/automation.rs` header at tag `rust-final`), so `tools/auto.py`, `tools/motion.py`, `tools/flicker.py` and
@@ -60,6 +60,7 @@ the port opens.
 | `burst MS EVERY DIR [STEP]`, `burst-status` | WGC frames of the window into DIR (`f####_<ms>.png`, `events.txt`, `meta.json`); `tools/flicker.py` reads it | spike |
 | `probe-start [wgc\|rendering\|x11]`, `probe-stop` | `{"frames":[[start,end],...],"events":[[t,cmd],...],"source":...}`, ms since start; `tools/motion.py` reads it. `x11` (Linux default) polls the window's Xvfb rectangle every 8 ms and records changed pictures | spike, F1 (x11) |
 | `size`, `resize W H`, `title` | physical size and scale (`W H scale S`), logical resize, window title (with unread badge in the app) | spike |
+| `caption` | Windows, M2 hotfix: attaches the normal window's chrome (`ShellPage.AttachWindow`: content in the title bar, the title band as drag area) to the hidden window and replies `scale= extended= buttons-h= caption=X,Y,W,H;... passthrough=...` from `InputNonClientPointerSource` in logical px, so a script proves no drag region covers the rail or the sidebar (a pattern invoke succeeds even where a real click would be swallowed) | M2 hotfix |
 | `bounds ID` | `X Y W H` of the element with that AutomationId, logical px relative to the window content (`tools/lookdiff.py`) | M1 look |
 | `motion reduce\|normal\|rapid\|calm` | in-memory motion settings | spike (flag only) |
 | `theme dark\|light`, `ui bento\|nordic dark\|light [more\|normal]` | in-memory style, theme, contrast | spike (theme), M1 (ui) |

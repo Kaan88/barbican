@@ -1,0 +1,28 @@
+<UserControl
+    x:Class="Barbican.App.Views.Unified.SharedSectionView"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:motion="using:Barbican.App.Motion"
+    xmlns:controls="using:Barbican.App.Controls"
+    xmlns:theme="using:Barbican.App.Theme"
+    xmlns:views="using:Barbican.App.Views"
+    xmlns:unified="using:Barbican.Presentation.Unified">
+  <!-- The shared accounts section (Bulwark sidebar.tsx:2133-2566): a header and one row per shared account the unified inbox reads. The rows name the account as the server does.
+       Opening one account's folders, right-click, drag reorder and the tags gear are not built yet (spec I-054 stays partial). -->
+  <StackPanel x:Name="Section" Visibility="Collapsed" AutomationProperties.AutomationId="sidebar.shared" AutomationProperties.Name="Shared accounts">
+    <TextBlock Text="{x:Bind views:Fmt.SectionTitle('Shared', Look.IsBento), Mode=OneWay}" Padding="{x:Bind Look.SectionHeaderPadding, Mode=OneWay}" FontSize="{x:Bind Look.SectionHeaderSize, Mode=OneWay}"
+               FontWeight="Bold" CharacterSpacing="{x:Bind Look.SectionHeaderSpacing, Mode=OneWay}" Foreground="{x:Bind Look.SectionHeaderBrush, Mode=OneWay}" />
+    <ItemsControl ItemsSource="{x:Bind Model.Rows}">
+      <ItemsControl.ItemTemplate>
+        <DataTemplate x:DataType="unified:SharedAccountRow">
+          <Grid Height="{x:Bind theme:StyleState.Current.FolderRowHeight, Mode=OneWay}" Padding="{x:Bind theme:StyleState.Current.FolderRowPadding, Mode=OneWay}" ColumnSpacing="10" ColumnDefinitions="Auto,*"
+                motion:Tip.Text="Read in All inboxes" AutomationProperties.AutomationId="{x:Bind views:Fmt.SharedRowId(AccountId)}" AutomationProperties.Name="{x:Bind Name}">
+            <controls:SIcon Kind="Users" Size="18" Opacity="0.8" Foreground="{StaticResource Body}" VerticalAlignment="Center" Visibility="{x:Bind theme:StyleState.Current.FolderIconVisibility, Mode=OneWay}" />
+            <TextBlock Grid.Column="1" Text="{x:Bind Name}" FontSize="{x:Bind theme:StyleState.Current.FolderNameSize, Mode=OneWay}" Foreground="{StaticResource Body}" VerticalAlignment="Center"
+                       TextTrimming="CharacterEllipsis" />
+          </Grid>
+        </DataTemplate>
+      </ItemsControl.ItemTemplate>
+    </ItemsControl>
+  </StackPanel>
+</UserControl>

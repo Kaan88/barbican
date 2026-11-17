@@ -1,9 +1,14 @@
 using System.Collections.Specialized;
 using Barbican.App.Shell;
 using Barbican.App.Theme;
+using Barbican.Presentation.Actions;
+using Barbican.Presentation.Commands;
 using Barbican.Presentation.Mail;
 using Barbican.Presentation.Shell;
+using Barbican.App.Views.Menus;
+using Barbican.Presentation.DragDrop;
 using Microsoft.UI.Xaml.Automation;
+using Windows.ApplicationModel.DataTransfer;
 
 namespace Barbican.App.Views.Sidebar;
 
@@ -27,6 +32,10 @@ public sealed partial class SidebarView : UserControl
         Sidebar.PropertyChanged += OnSidebarChanged;
         Sidebar.Folders.CollectionChanged += OnFoldersChanged;
         Loaded += (_, _) => SyncSelection();
+
+        // handled events too: the ListView may mark drag events of its items handled
+        FolderList.AddHandler(DragOverEvent, new DragEventHandler(OnFolderDragOver), handledEventsToo: true);
+        FolderList.AddHandler(DropEvent, new DragEventHandler(OnFolderDrop), handledEventsToo: true);
     }
 
     public SidebarViewModel Sidebar { get; }
@@ -112,6 +121,167 @@ public sealed partial class SidebarView : UserControl
         {
             Sidebar.ToggleFolder(id);
         }
+    }
+
+#pragma warning disable VSTHRD100 // XAML event handlers return void; a failed command reports itself with a toast
+    private async void OnTagClick(object sender, RoutedEventArgs e)
+    {
+        if (sender is FrameworkElement { Tag: string id })
+        {
+            await Sidebar.SelectTagAsync(id);
+        }
+    }
+
+    private async void OnNewFolderClick(object sender, RoutedEventArgs e) => await RunAsync(CommandIds.NewFolder);
+
+    private async void OnNewTagClick(object sender, RoutedEventArgs e) => await RunAsync(CommandIds.NewTag);
+#pragma warning restore VSTHRD100
+
+    private void OnTagChevronClick(object sender, RoutedEventArgs e)
+    {
+        if (sender is FrameworkElement { Tag: string id })
+        {
+            Sidebar.ToggleTag(id);
+        }
+    }
+
+    // the header buttons run the same commands as the menus; the prompt dialog asks for the name, and an error comes back as a toast
+    private static async Task RunAsync(string commandId)
+    {
+        var registry = ViewHost.Get<ICommandRegistry>();
+        if (!registry.TryGet(commandId, out var command))
+        {
+            return;
+        }
+
+        var context = new CommandContext(CommandSurface.Toolbar, [], null, null, ViewHost.Get<IActiveMail>().AccountKey);
+        if (!command.CanExecute(context))
+        {
+            return;
+        }
+
+        var result = await command.ExecuteAsync(context, CancellationToken.None);
+        if (!result.IsOk)
+        {
+            ViewHost.Find<IToastService>()?.Show(new ToastRequest(result.Error?.Message ?? "That did not work.", IsError: true));
+        }
+    }
+
+    // ArrowRight and ArrowLeft unfold and fold the selected folder (I-060)
+    private void OnFolderKeyDown(object sender, Microsoft.UI.Xaml.Input.KeyRoutedEventArgs e)
+    {
+        var handled = e.Key switch
+        {
+            Windows.System.VirtualKey.Right => Sidebar.SetSelectedExpanded(true),
+            Windows.System.VirtualKey.Left => Sidebar.SetSelectedExpanded(false),
+            _ => false,
+        };
+        e.Handled = handled;
+    }
+
+    // ---- M2 hotfix: real drag and drop (HAND TEST 2 "can't drag"); DropController keeps the drag and runs the drop (the code dnd-sim runs) ----
+
+    private static DropController Drops => ViewHost.Get<DropController>();
+
+    private void OnFolderDragStarting(object sender, DragItemsStartingEventArgs e)
+    {
+        if (e.Items.OfType<FolderRowViewModel>().FirstOrDefault() is not { } row || ViewHost.Get<IActiveMail>().AccountKey is not { } account)
+        {
+            e.Cancel = true;
+            return;
+        }
+
+        Drops.BeginFolderDrag(account, row.Id, row.Name);
+        e.Data.SetText(row.Name);
+        e.Data.RequestedOperation = DataPackageOperation.Move;
+    }
+
+#pragma warning disable CA1822 // XAML event handler
+    private void OnFolderDragCompleted(ListViewBase sender, DragItemsCompletedEventArgs args) => Drops.CancelDrag();
+#pragma warning restore CA1822
+
+    private void OnFolderDragOver(object sender, DragEventArgs e)
+    {
+        var drops = Drops;
+        if (FolderUnder(e) is not { } hit || !drops.CanDropOnFolder(hit.Row.Id))
+        {
+            e.AcceptedOperation = DataPackageOperation.None;
+            drops.Target = null;
+            return;
+        }
+
+        e.AcceptedOperation = DataPackageOperation.Move;
+        e.Handled = true;
+        drops.Target = hit.Row.Id;
+        e.DragUIOverride.IsCaptionVisible = true;
+        e.DragUIOverride.Caption = drops.DraggedFolder is null
+            ? "Move to " + hit.Row.Name
+            : DropController.ZoneAt(e.GetPosition(hit.Container).Y, hit.Container.ActualHeight) switch
+            {
+                Barbican.Core.DragDrop.DropZone.Before => "Before " + hit.Row.Name,
+                Barbican.Core.DragDrop.DropZone.After => "After " + hit.Row.Name,
+                _ => "Into " + hit.Row.Name,
+            };
+    }
+
+    // a failed drop reports itself with a toast (MailActionService); the task is not awaited here
+    private void OnFolderDrop(object sender, DragEventArgs e)
+    {
+        if (FolderUnder(e) is not { } hit || !Drops.CanDropOnFolder(hit.Row.Id))
+        {
+            return;
+        }
+
+        e.Handled = true;
+        var zone = DropController.ZoneAt(e.GetPosition(hit.Container).Y, hit.Container.ActualHeight);
+        _ = Drops.DropOnFolderAsync(hit.Row.Id, zone, CancellationToken.None);
+    }
+
+    private void OnTagDragOver(object sender, DragEventArgs e)
+    {
+        if (sender is FrameworkElement { DataContext: TagRowViewModel tag } && Drops.CanDropOnTag)
+        {
+            e.AcceptedOperation = DataPackageOperation.Link;
+            e.DragUIOverride.IsCaptionVisible = true;
+            e.DragUIOverride.Caption = "Tag " + tag.Label;
+            Drops.Target = tag.Id;
+        }
+        else
+        {
+            e.AcceptedOperation = DataPackageOperation.None;
+        }
+
+        e.Handled = true;
+    }
+
+#pragma warning disable VSTHRD100 // XAML event handler; a failed drop reports itself with a toast (MailActionService)
+    private async void OnTagDrop(object sender, DragEventArgs e)
+#pragma warning restore VSTHRD100
+    {
+        if (sender is FrameworkElement { DataContext: TagRowViewModel tag } && Drops.CanDropOnTag)
+        {
+            e.Handled = true;
+            _ = await Drops.DropOnTagAsync(tag.Id, CancellationToken.None);
+        }
+    }
+
+    // the folder row under the pointer and its item container (the zone is measured on the whole row)
+    private static (FolderRowViewModel Row, FrameworkElement Container)? FolderUnder(DragEventArgs e)
+    {
+        if (VisualWalk.Up<FolderRowViewModel>(e.OriginalSource as DependencyObject) is not { } hit)
+        {
+            return null;
+        }
+
+        for (DependencyObject? node = hit.Element; node is not null; node = VisualTreeHelper.GetParent(node))
+        {
+            if (node is ListViewItem item)
+            {
+                return (hit.Context, item);
+            }
+        }
+
+        return (hit.Context, hit.Element);
     }
 
     private void OnFoldersHeaderClick(object sender, RoutedEventArgs e) => Sidebar.FoldersExpanded = !Sidebar.FoldersExpanded;

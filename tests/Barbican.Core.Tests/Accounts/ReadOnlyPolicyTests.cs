@@ -1,5 +1,6 @@
-// R2-14 and decision M2-Q2 (docs/milestones/M2-plan.md §6.3 step 1, §9; a proposal pending the user's OK): the full policy matrix of
-// ReadOnlyPolicy (profile x writable list x read-only list x stored flag) and the guard of the write-test commands (TestWriteRefusal).
+// R2-14 and decision M2-Q2 (docs/milestones/M2-plan.md §6.3 step 1, §9): the full policy matrix of ReadOnlyPolicy (profile x writable
+// list x read-only list x stored flag) and the guard of the write-test commands (TestWriteRefusal). M2 hotfix: the agent rules hold only in
+// the agent profiles (auto-*, smoke, xrun-*, agent-*); the user's own profiles, "dev" included, write to every account.
 // Logins are example.org/example.net placeholders.
 
 using Barbican.Core.Accounts;
@@ -63,7 +64,7 @@ public sealed class ReadOnlyPolicyTests
         {
             ReadOnlyPolicy.FileVariable => wPath,
             ReadOnlyPolicy.ReadOnlyFileVariable => rPath,
-            ReadOnlyPolicy.Variable => $"{Test},{Main}",
+            "BARBICAN_WRITABLE_ACCOUNTS" => Main, // the M1 variable is gone: inherited, it opens nothing anywhere
             _ => null,
         };
 
@@ -80,7 +81,9 @@ public sealed class ReadOnlyPolicyTests
         { "auto-8889", "test", "outside", false, true, true },
         { "auto-8889", "both", "main", false, false, true },
         { "auto-8889", "both", "missing", false, true, true },
-        { "dev", "both", "missing", false, true, true },
+        { "smoke", "both", "missing", false, true, true },
+        { "xrun-auto-m2", "test", "main", false, false, true },
+        { "agent-a", "missing", "missing", false, true, true },
         { "auto-8889", "test", "test", false, true, true },
         { "auto-8889", "none", "main", false, true, true },
         { "auto-8889", "missing", "main", false, true, true },
@@ -95,14 +98,20 @@ public sealed class ReadOnlyPolicyTests
         { "auto-8889", "test", "test", true, true, true },
         { "auto-8889", "none", "main", true, true, true },
         { "auto-8889", "missing", "main", true, true, true },
-        { "dev", "test", "main", true, false, true },
-        { "dev", "test", "missing", true, true, true },
-        { "dev", "both", "test", false, true, false },
+        { "smoke", "test", "main", true, false, true },
+        { "xrun-smoke", "test", "missing", true, true, true },
 
-        // the user's own profile: the variable lists both, the stored flag always wins, the .local lists count for nothing
+        // M2 hotfix: the user's own profiles ("dev", the default of the portable zip, the empty profile and any other name) write to every
+        // account; neither the .local lists nor a stored flag restrict them
+        { "dev", "both", "missing", false, false, false },
+        { "dev", "test", "main", true, false, false },
+        { "dev", "missing", "missing", true, false, false },
+        { "dev", "both", "test", false, false, false },
+        { "", "missing", "missing", true, false, false },
         { "main", "missing", "missing", false, false, false },
-        { "main", "test", "main", true, true, true },
+        { "main", "test", "main", true, false, false },
         { "work", "missing", "test", false, false, false },
+        { "auto", "missing", "missing", true, false, false },
     };
 
     [Theory]
@@ -122,6 +131,8 @@ public sealed class ReadOnlyPolicyTests
         Assert.False(ReadOnlyPolicy.For("auto-1", Lists("test", "missing").Env, Lists("test", "missing").Read).MayClearStoredFlag);
         Assert.False(ReadOnlyPolicy.For("main", Lists("test", "main").Env, Lists("test", "main").Read).MayClearStoredFlag);
         Assert.False(new ReadOnlyPolicy([Test]).MayClearStoredFlag);
+        Assert.True(ReadOnlyPolicy.For("dev", Lists("missing", "missing").Env, Lists("missing", "missing").Read).IsUnrestricted);
+        Assert.False(ReadOnlyPolicy.For("auto-1", Lists("test", "main").Env, Lists("test", "main").Read).IsUnrestricted);
         Assert.Equal(0, ReadOnlyPolicy.For("auto-1", Lists("test", "test").Env, Lists("test", "test").Read).WritableCount);
     }
 

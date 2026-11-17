@@ -8,7 +8,7 @@
   <!-- The account popover (spec/layout/shell.md "Rail": width 260, padding 6, rows 32 high, header 24 high), bound to Presentation's AccountsViewModel
        (Fable review 2 R2-03; Bulwark components/layout/account-switcher.tsx:455-500): avatar, check on the active one, the default star with two or more
        accounts, the inbox unread badge, and the server and error lines of an account in trouble. It lives in a Flyout constrained to the window. -->
-  <StackPanel Width="260" Padding="6" Spacing="2" AutomationProperties.AutomationId="account-popover" AutomationProperties.Name="Accounts">
+  <StackPanel Width="260" Padding="6" Spacing="2" AutomationProperties.AutomationId="account-popover" AutomationProperties.Name="Accounts" KeyDown="OnPopoverKeyDown">
     <TextBlock Text="Accounts" Style="{StaticResource Text.Label}" Height="24" Padding="8,4,0,0" />
     <ItemsControl ItemsSource="{x:Bind Model.Rows}" AutomationProperties.AutomationId="account-popover.rows" AutomationProperties.Name="Account list">
       <ItemsControl.ItemTemplate>
@@ -48,6 +48,33 @@
       <StackPanel Orientation="Horizontal" Spacing="10">
         <controls:SIcon Kind="Plus" Size="16" />
         <TextBlock Text="Add account" FontSize="13" />
+      </StackPanel>
+    </Button>
+    <!-- The actions of the account on screen (Bulwark account-switcher.tsx:645-681): Set as default (an account that is not the default, with two or more), Sign out of it, Sign out of all (two or more).
+         Both sign-outs ask first. -->
+    <Rectangle Height="1" Fill="{StaticResource Line}" Margin="0,4" />
+    <Button Style="{StaticResource Button.Icon}" HorizontalAlignment="Stretch" HorizontalContentAlignment="Left" Padding="8,8" CornerRadius="9" Foreground="{StaticResource Body}"
+            Click="OnActionClick" Command="{x:Bind Model.SetDefaultCommand}" Visibility="{x:Bind views:Fmt.Vis(Model.CanSetDefault), Mode=OneWay}" AutomationProperties.AutomationId="account-popover.default"
+            AutomationProperties.Name="Set as default">
+      <StackPanel Orientation="Horizontal" Spacing="10">
+        <controls:SIcon Kind="Star" Size="16" />
+        <TextBlock Text="Set as default" FontSize="13" />
+      </StackPanel>
+    </Button>
+    <Button Style="{StaticResource Button.Icon}" HorizontalAlignment="Stretch" HorizontalContentAlignment="Left" Padding="8,8" CornerRadius="9" Foreground="{StaticResource Body}"
+            Click="OnActionClick" Command="{x:Bind Model.SignOutCommand}" Visibility="{x:Bind views:Fmt.Vis(Model.CanSignOut), Mode=OneWay}" AutomationProperties.AutomationId="account-popover.signout"
+            AutomationProperties.Name="{x:Bind Model.SignOutLabel, Mode=OneWay}">
+      <StackPanel Orientation="Horizontal" Spacing="10">
+        <controls:SIcon Kind="Back" Size="16" />
+        <TextBlock Text="{x:Bind Model.SignOutLabel, Mode=OneWay}" FontSize="13" TextTrimming="CharacterEllipsis" />
+      </StackPanel>
+    </Button>
+    <Button Style="{StaticResource Button.Icon}" HorizontalAlignment="Stretch" HorizontalContentAlignment="Left" Padding="8,8" CornerRadius="9" Foreground="{StaticResource Body}"
+            Click="OnActionClick" Command="{x:Bind Model.SignOutAllCommand}" Visibility="{x:Bind views:Fmt.Vis(Model.CanSignOutAll), Mode=OneWay}" AutomationProperties.AutomationId="account-popover.signout-all"
+            AutomationProperties.Name="Sign out of all accounts">
+      <StackPanel Orientation="Horizontal" Spacing="10">
+        <controls:SIcon Kind="Back" Size="16" />
+        <TextBlock Text="Sign out of all accounts" FontSize="13" />
       </StackPanel>
     </Button>
   </StackPanel>
