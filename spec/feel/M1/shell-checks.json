@@ -1,0 +1,13 @@
+{
+ "state0": "shell up seq 105 shown e31 loading no remote-blocked no plain no dropped 0 links 2 blocked 6 filtered 4",
+ "inject": "\"ok\"",
+ "frame_script": "\"no\"",
+ "link": "\"clicked\"",
+ "nav": "\"asked\"",
+ "shell_after_nav": "\"object|about:blank\"",
+ "frame_top_nav": "\"no throw\"",
+ "shell_after_top": "\"object|about:blank\"",
+ "state1": "shell up seq 105 shown e31 loading no remote-blocked no plain no dropped 0 links 3 blocked 9 filtered 6",
+ "remote_banner_e24": "shell up seq 106 shown e24 loading no remote-blocked no plain no dropped 0 links 3 blocked 9 filtered 6",
+ "beacon_hits": []
+}

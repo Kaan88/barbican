@@ -776,3 +776,39 @@ paths and `LoopbackListener` (`ExclusiveAddressUse` maps to SO_REUSEPORT on Unix
   vault): the XAML render (`shot`) shows the sign-in view, popup guard 0 open / 0 closed, foreground window and cursor unchanged, closed.
   No frame probe (WGC does not run on a private desktop), so "no flash of the sign-in view" is by construction, not measured. The render
   shows "Remember me" with an indeterminate glyph although the model defaults to true: shell-ui binding, not checked further.
+
+## M1 stream: body
+- **What was built.** BodyShell is one warm WebView2. The page loads at window start and is never re-created; MailBodyView takes it over. Each message is a sandboxed srcdoc frame with its own CSP (`MailPageBuilder`), loaded hidden; the shell posts `ready:N`, the native header is applied in the same dispatcher turn, and `reveal(N)` is sent. MessageLoader replaces the header-only opener: the old message stays until the new one is ready, the slow state (loading bar, row header, dim) comes at 150 ms, every open has a sequence guard, the cache goes through IBodyCache with generation guards, prefetch follows the direction of travel and the list top, and the conversation strip opens through the same path. Mark-as-read is ported behind `IMailActions`; M1 registers `ReadOnlyMailActions`, so nothing is ever sent. The mail-read hooks fire from `MessageLoader.cs`. The X11 stand-in overlay is written for Linux but was never run.
+- **Feel (Windows, hidden, sample data): measured in process, not from frames.** Full numbers are in `spec/feel/M1/README.md` and `body-results.json`.
+  - A cached switch takes 4.3 to 6.9 ms from the open call to the turn that applies the header and sends reveal. The first open with no cache takes 50 ms.
+  - BLANK and FLASH were 0 in all 32 scenarios, and the reader showed 0 idle frames.
+  - The frame numbers are weak evidence. WGC composes the hidden window only on a layout change, and one burst caught the WebView already showing the new body while the XAML part was the old frame. The capture does that, but it also means "header and body in the same frame" rests on the code (`BodyShell.Ready`), not on frames.
+  - Input to first frame ≤ 21 ms is **not proven**. It is open-to-shown plus one compositor frame: about 26 ms here, with 20.8 ms frames off-screen.
+- **shell.js poll changed.** Before, it polled per animation frame and waited one more frame before `ready`. That measured 55 ms send-to-ready and 60 ms for a cached switch, which failed the 50 ms gate. It now polls on the task queue (`setTimeout(poll, 1)`) and forces layout (`offsetHeight`) before `ready`. Send-to-ready is now about 4 ms. Check that the dark pass still never shows the light original: ready still waits for the pending class to go.
+- **Shell checks (Windows, automation):** `spec/feel/M1/shell-checks.json`.
+  - An image, stylesheet, background image and nested frame pointing at a loopback beacon from the shown frame: 0 hits. The CSP blocked them, and the request filter counted 2 more.
+  - A script added to a frame without allow-scripts did not run.
+  - A link click was routed to ILinkRouter (counted) and not followed.
+  - `location.assign` in the shell and `top.location=` from a frame were cancelled; the shell kept its document.
+  - Linux was not run (the VM is unreachable). On Linux the frame CSP and `StripRefresh` are the only guards: there is no request filter and no frame-navigation event on Uno.
+- **DI cycle found at the first launch.** The cycle was BodyShell → IKeyRouter → KeyRouter → MessageListViewModel → IMessageOpener → MessageLoader → IBodyPresenter → BodyShell. The process hung with no window and no automation server, and there was no log. BodyShell now takes `Lazy<IKeyRouter>`. No test builds the App composition, so a cycle like this is only caught by launching the app.
+- **EmailBody lists can be null.** For a header the server sends as null (`bcc`, `replyTo` and similar, RFC 8621 `EmailAddress[]|null`), the JSON reader leaves null in non-nullable list properties of EmailBody, so `BodyCache.Weight` threw a NullReferenceException and every open failed in the sample run. The loader now calls `BodyShape.Normalize` before caching. The proper fix is in the reader (request below). `SampleBodiesTests` opens every seed message.
+- **Sample seed:** the inline `chart.png` is 8 bytes (only the PNG signature), so it shows as a broken image after a correct cid→data: inlining. No seed message has remote content, so the "Load external content" banner (I-209) and the plain-text banner (I-214) were never seen live.
+- **Spec state:**
+  - **Closed:** T-074..T-076, T-175, T-185, T-186 are green (`[Red("body")]` removed), and so is HookCallSiteTests. The five M1 mail-read hooks are `done` (`spec/plugins/hooks.csv`). J-053 is `done`.
+  - **Referenced in test headers:** B-READ-040/041/043/044, B-MAIL-025..029, B-SYNC-022/025/027..030/033, B-SET-019.
+  - **Left `todo`, with evidence notes, because they were not seen live or not built:** I-203 (header collapse and avatar click: not built), I-206 (shell-ui's), I-209, I-214, I-222 (no strip click, no expand/collapse), I-230 (retry seen; no retention notice).
+  - **CAP rows:** B-CAP-002 holds as written (Windows has no freeze; Linux uses the X11 stand-in, unrun).
+- **Traces:** `tools/trace-diff.py --all spec/traces/M1` gives open, push and switch the same as Rust. The body's own requests (Email/get, Thread/get) are the optional `~` lines there. A read trace from the app was not recorded, because the sample run's client is connected without a trace (`SampleActiveMail` passes none).
+- **Not done:**
+  - context menu (`ctx:X,Y` is parsed but has no menu: M2);
+  - per-OS shell tests on Linux;
+  - an uncached open_first in every layout (the cache was warm after the first one);
+  - live mark-as-read (by design).
+
+### Requests to other streams
+- **shell-ui (`src/Barbican.App/Views/Reader/ReaderView.xaml(.cs)`):** give each conversation strip item a Tapped handler that calls `ViewHost.Find<Barbican.Presentation.Mail.Loading.IConversationOpener>()?.OpenConversationMessage(item.Id)` (I-222).
+- **integrator / F1 (`SmokeRun`):** switch the smoke run's body probe to `BodyShell` (`IsShellUp`) instead of its own probe WebView.
+- **jmap (`ModelReader`):** read null list properties as empty lists (`BodyShape` is then a no-op), and pass a trace to the sample client in `SampleActiveMail` (shell-ui) when `BARBICAN_JMAP_TRACE` is set.
+- **F1 (`src/Barbican.Automation`):** WGC frames of the hidden window come only on a layout change. Until that is solved, no feel gate about intermediate frames can be measured on Windows.
+- **integrator:** add a test that builds `AppComposition` and resolves `ShellPage`'s view models, to catch DI cycles without a launch.
