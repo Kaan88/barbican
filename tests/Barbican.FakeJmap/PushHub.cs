@@ -56,6 +56,15 @@ public sealed class PushHub
         }
     }
 
+    /// <summary>Sends a raw event on every open stream (a StateChange for another account, an unknown event).</summary>
+    public void Send(string eventName, string data)
+    {
+        foreach (var s in Streams())
+        {
+            s.Send(eventName, data);
+        }
+    }
+
     /// <summary>Drops every open stream (the client sees end of stream).</summary>
     public void CloseAll()
     {

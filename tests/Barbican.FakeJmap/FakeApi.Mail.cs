@@ -28,7 +28,7 @@ public sealed partial class FakeApi
     {
         var ids = store.Mailboxes().Select(m => (JsonNode)(string)m["id"]!).ToList();
         var position = (int?)args["position"] ?? 0;
-        var limit = (int?)args["limit"] ?? ids.Count;
+        var limit = Math.Min((int?)args["limit"] ?? ids.Count, options.QueryLimitCap);
         return (null, new JsonObject
         {
             ["accountId"] = options.AccountId,
@@ -65,7 +65,7 @@ public sealed partial class FakeApi
     private (string? Name, JsonObject Args) EmailQuery(JsonObject args)
     {
         var ids = store.Query(args["filter"]);
-        var limit = Math.Min((int?)args["limit"] ?? 50, 10_000);
+        var limit = Math.Min((int?)args["limit"] ?? 50, options.QueryLimitCap);
         int position;
         if ((string?)args["anchor"] is { } anchor)
         {

@@ -194,13 +194,7 @@ public sealed partial class FakeJmapServer
             return Json(HttpStatusCode.BadRequest, new JsonObject { ["error"] = "unsupported_grant_type" });
         }
 
-        string token;
-        lock (_lock)
-        {
-            Refreshes++;
-            token = "fake-access-" + (++_tokenSerial).ToString(CultureInfo.InvariantCulture);
-            _tokens.Add(token);
-        }
+        var token = IssueToken();
 
         return Json(HttpStatusCode.OK, new JsonObject { ["access_token"] = token, ["token_type"] = "Bearer", ["expires_in"] = 3600, ["refresh_token"] = "fake-refresh-" + token });
     }

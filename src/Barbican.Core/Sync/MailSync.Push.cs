@@ -119,8 +119,10 @@ public sealed partial class MailSync
         }
 
         await ConnectedAsync(true, ct).ConfigureAwait(false);
-        _client.Trace.Event("PUSH", "open");
+
+        // changes made while nobody listened are never pushed: catch up on every open (Rust main.rs:513)
         Schedule(PushTypes);
+        _client.Trace.Event("PUSH", "open");
         var account = _client.Session.MailAccountId;
         try
         {

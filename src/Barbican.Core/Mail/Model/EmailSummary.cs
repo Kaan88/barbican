@@ -45,5 +45,5 @@ public sealed record EmailSummary
     public IReadOnlyList<string> AuthenticationResults { get; init; } = [];
 
     [JsonExtensionData]
-    public IDictionary<string, JsonElement>? Extra { get; init; }
+    public IDictionary<string, JsonElement>? Extra { get; set; }
 }

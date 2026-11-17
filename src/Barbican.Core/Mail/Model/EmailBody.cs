@@ -66,5 +66,5 @@ public sealed record EmailBody
     public IReadOnlyList<string> References { get; init; } = [];
 
     [JsonExtensionData]
-    public IDictionary<string, JsonElement>? Extra { get; init; }
+    public IDictionary<string, JsonElement>? Extra { get; set; }
 }

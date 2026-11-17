@@ -35,6 +35,9 @@ public sealed record FakeJmapOptions
     /// <summary>Advertise an event source.</summary>
     public bool Push { get; init; } = true;
 
+    /// <summary>The most ids one /query returns, whatever limit is asked (RFC 8620 §5.5: a server may cap limit).</summary>
+    public int QueryLimitCap { get; init; } = 10_000;
+
     public long MaxSizeUpload { get; init; } = 50_000_000;
 
     public int MaxConcurrentUpload { get; init; } = 4;

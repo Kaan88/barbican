@@ -20,10 +20,23 @@ public static class JsonNodeExtensions
     public static ulong Number(this JsonNode? node, string key) => node is JsonObject o ? o[key].AsNumber() ?? 0 : 0;
 
     /// <summary>The non-negative integer value of this node, or null.</summary>
-    public static ulong? AsNumber(this JsonNode? node) =>
-        node is JsonValue v && v.GetValueKind() == JsonValueKind.Number && v.TryGetValue<ulong>(out var n) ? n
-        : node is JsonValue d && d.GetValueKind() == JsonValueKind.Number && d.TryGetValue<double>(out var x) && x >= 0 && x <= ulong.MaxValue && Math.Floor(x) == x ? (ulong)x
-        : null;
+    public static ulong? AsNumber(this JsonNode? node)
+    {
+        if (node is not JsonValue v || v.GetValueKind() != JsonValueKind.Number)
+        {
+            return null;
+        }
+
+        // a parsed value and one built from an int, long or double all print as their JSON number
+        var text = v.ToJsonString();
+        if (ulong.TryParse(text, System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out var n))
+        {
+            return n;
+        }
+
+        return double.TryParse(text, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var x)
+            && x >= 0 && x <= ulong.MaxValue && Math.Floor(x) == x ? (ulong)x : null;
+    }
 
     /// <summary>The integer member <paramref name="key"/> clamped to int, or null.</summary>
     public static int? Count(this JsonNode? node, string key) =>

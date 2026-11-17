@@ -96,6 +96,18 @@ public sealed partial class FakeJmapServer : HttpMessageHandler
         }
     }
 
+    /// <summary>Hands out a new access token, as a refresh grant does.</summary>
+    public string IssueToken()
+    {
+        lock (_lock)
+        {
+            Refreshes++;
+            var token = "fake-access-" + (++_tokenSerial).ToString(System.Globalization.CultureInfo.InvariantCulture);
+            _tokens.Add(token);
+            return token;
+        }
+    }
+
     /// <summary>Holds every API response until the returned object is disposed (for the concurrency gate tests).</summary>
     public IDisposable HoldApi()
     {

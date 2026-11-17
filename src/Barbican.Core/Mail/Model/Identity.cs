@@ -10,5 +10,5 @@ public sealed record Identity(string Id, string? Name, string Email)
 
     /// <summary>Server properties not modelled here (signatures, mayDelete, ...), kept for a read-modify-write.</summary>
     [System.Text.Json.Serialization.JsonExtensionData]
-    public IDictionary<string, System.Text.Json.JsonElement>? Extra { get; init; }
+    public IDictionary<string, System.Text.Json.JsonElement>? Extra { get; set; }
 }

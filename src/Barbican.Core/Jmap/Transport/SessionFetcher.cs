@@ -63,8 +63,10 @@ public static class SessionFetcher
                 var sent = await AuthorizedSendAsync(http, auth, url, Make, ct).ConfigureAwait(false);
                 if (!sent.IsOk)
                 {
-                    // the token source has no header, or no renewal after a 401
-                    return Result<JmapSession>.Fail(sent.Error!);
+                    // the token source has no header, or no renewal after a 401: at sign-in that means wrong credentials
+                    return Result<JmapSession>.Fail(sent.Error is AuthError
+                        ? new AuthError("Wrong username, password or one-time code.", NeedsSignIn: true)
+                        : sent.Error!);
                 }
 
                 response = sent.Value!;
