@@ -67,9 +67,9 @@ onBeforeBlobUpload,mail-attachments,transform,email:blob-write,,"{ file, blobId 
 onAfterAttachmentUpload,mail-attachments,observer,email:read,,AttachmentInfo,after an attachment was uploaded,lib/plugin-hook-catalog.ts:152,M2,,,pending
 onAttachmentDownload,mail-attachments,observer,email:read,,AttachmentInfo,when an attachment of a message is downloaded,lib/plugin-hook-catalog.ts:153,M2,,,pending
 onAttachmentPreview,mail-attachments,transform,email:render-takeover,,"AttachmentPreview, AttachmentInfo",when an attachment preview opens,lib/plugin-hook-catalog.ts:154,M2,,,pending
-onNewEmailReceived,mail-sync,observer,email:read,,EmailSummary,for each new message in the inbox (push or poll),lib/plugin-hook-catalog.ts:157,M1,jmap,,pending
-onPushConnectionChange,mail-sync,observer,email:read,,{ connected: boolean },when live updates connect or drop,lib/plugin-hook-catalog.ts:158,M1,jmap,,pending
-onSyncStateChange,mail-sync,observer,email:read,,"{ state: ""syncing"" | ""idle"" | ""error"", error? }",when the app starts or finishes fetching changes from the server,lib/plugin-hook-catalog.ts:159,M1,jmap,,pending
+onNewEmailReceived,mail-sync,observer,email:read,,EmailSummary,for each new message in the inbox (push or poll),lib/plugin-hook-catalog.ts:157,M1,jmap,src/Barbican.Core/Sync/MailSync.cs:209,done
+onPushConnectionChange,mail-sync,observer,email:read,,{ connected: boolean },when live updates connect or drop,lib/plugin-hook-catalog.ts:158,M1,jmap,src/Barbican.Core/Sync/MailSync.Push.cs:172,done
+onSyncStateChange,mail-sync,observer,email:read,,"{ state: ""syncing"" | ""idle"" | ""error"", error? }",when the app starts or finishes fetching changes from the server,lib/plugin-hook-catalog.ts:159,M1,jmap,src/Barbican.Core/Sync/MailSync.cs:228,done
 onCalendarEventOpen,calendar,observer,calendar:read,,CalendarEventView,when an event is opened,lib/plugin-hook-catalog.ts:162,M4,,,pending
 onCalendarEventFormOpen,calendar,observer,calendar:read,,CalendarEventFormView,when the event form opens,lib/plugin-hook-catalog.ts:163,M4,,,pending
 onCalendarEventFormSave,calendar,transform,calendar:write,,"CalendarEventFormSavePatch, CalendarEventFormView",while the event form is saved,lib/plugin-hook-catalog.ts:164,M4,,,pending

@@ -18,7 +18,6 @@ public sealed class HookCallSiteTests
     }
 
     [Fact]
-    [Red("jmap")]
     public void Jmap_hooks_have_call_sites() => AssertFired("jmap");
 
     [Fact]

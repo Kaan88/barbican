@@ -1,0 +1,3 @@
+# C# engine trace of scenario "switch", written by tests/Barbican.Core.Tests/Sync/TraceScenarioTests.cs (FakeJmap, virtual clock).
+@phase switch
+Email/query(limit=50),Email/get,Thread/get -> Email/query,Email/get,Thread/get

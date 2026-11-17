@@ -199,9 +199,12 @@ public sealed partial class MailSync : IMailSync, IDisposable
         }
 
         Emit(new NewMailEvent(fresh.Value));
-        if (_hooks.HasHandlers(HookNames.OnNewEmailReceived))
+        if (_hooks.HasHandlers(HookNames.OnNewEmailReceived)
+            && await _service.GetRoleIdsAsync(ct).ConfigureAwait(false) is { IsOk: true } roles
+            && roles.Value!.TryGetValue("inbox", out var inbox))
         {
-            foreach (var email in fresh.Value)
+            // plugins hear of new mail in the inbox only, never of a draft (Bulwark stores/email-store.ts:1346)
+            foreach (var email in fresh.Value.Where(e => e.MailboxIds.ContainsKey(inbox) && !e.Keywords.IsSet("$draft")))
             {
                 await _hooks.NotifyAsync(HookNames.OnNewEmailReceived, email, ct).ConfigureAwait(false);
             }

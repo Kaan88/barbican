@@ -1,0 +1,11 @@
+# C# engine trace of scenario "open", written by tests/Barbican.Core.Tests/Sync/TraceScenarioTests.cs (FakeJmap, virtual clock).
+SESSION
+Mailbox/get -> Mailbox/get
+Email/query(limit=50),Email/get,Thread/get -> Email/query,Email/get,Thread/get
+Identity/get -> Identity/get
+Email/query(limit=10),Email/get,Thread/get -> Email/query,Email/get,Thread/get
+@phase catch-up
+PUSH open
+Mailbox/changes -> Mailbox/changes
+Email/changes,Email/queryChanges,Email/get,Email/get,Thread/changes,Thread/get,Thread/get -> Email/changes,Email/queryChanges,Email/get,Email/get,Thread/changes,Thread/get,Thread/get
+Email/query(limit=10),Email/get,Thread/get -> Email/query,Email/get,Thread/get

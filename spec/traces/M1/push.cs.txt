@@ -1,0 +1,8 @@
+# C# engine trace of scenario "push", written by tests/Barbican.Core.Tests/Sync/TraceScenarioTests.cs (FakeJmap, virtual clock).
+@phase push
+PUSH state Email,EmailDelivery,Mailbox,Thread
+@phase refresh
+Mailbox/changes -> Mailbox/changes
+Mailbox/get -> Mailbox/get
+Email/changes,Email/queryChanges,Email/get,Email/get,Thread/changes,Thread/get,Thread/get -> Email/changes,Email/queryChanges,Email/get,Email/get,Thread/changes,Thread/get,Thread/get
+Email/query(limit=10),Email/get,Thread/get -> Email/query,Email/get,Thread/get
