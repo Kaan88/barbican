@@ -81,8 +81,13 @@ public sealed class MailShellStartup : IStartupTask, IDisposable
         _sidebar.PropertyChanged -= OnSidebarChanged;
         _active.Changed -= OnAccountChanged;
         _interval?.Dispose();
-        _cts?.Cancel();
-        _cts?.Dispose();
+        _interval = null;
+
+        // idempotent: the container disposes the instance once per registration that returns it
+        var cts = _cts;
+        _cts = null;
+        cts?.Cancel();
+        cts?.Dispose();
     }
 
     private async Task LoadIdentitiesAsync(Core.Mail.IMailService mail, CancellationToken ct)
