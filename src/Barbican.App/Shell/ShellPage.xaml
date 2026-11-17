@@ -30,6 +30,8 @@
         <reader:ReaderView x:Name="ReaderRegion" Grid.Row="1" />
       </Grid>
     </Grid>
+    <!-- M2 plan 3.3: the in-window overlays (menus, dialogs, palette, toasts) are added here at start-up from the registered IShellOverlay, above the regions and below the sign-in screen. -->
+    <Grid x:Name="OverlayLayer" AutomationProperties.AutomationId="overlay.layer" />
     <signin:SignInView x:Name="SignInRegion" Visibility="Collapsed" />
     <!-- in-window tooltips (motion:Tip) draw here; never a ToolTip popup (ADR 0007) -->
     <Canvas x:Name="Overlay" IsHitTestVisible="False" />

@@ -48,8 +48,11 @@
       </DataTemplate>
     </Grid.Resources>
 
+    <!-- M2 plan 3.3 slots: the account header (menus, I-037) above Compose, the unified inbox section (unified, wave 2) below it; the shared accounts section (unified) sits above the tags. -->
+    <StackPanel Grid.Row="0">
+    <ContentPresenter x:Name="AccountHeaderSlot" />
     <!-- Compose: shown, inert until M3. -->
-    <Button Grid.Row="0" x:Name="ComposeButton" Style="{StaticResource Button.Primary}" HorizontalAlignment="Stretch" IsEnabled="False"
+    <Button x:Name="ComposeButton" Style="{StaticResource Button.Primary}" HorizontalAlignment="Stretch" IsEnabled="False"
             Height="{x:Bind Look.ComposeHeight, Mode=OneWay}" CornerRadius="{x:Bind Look.ComposeRadius, Mode=OneWay}" Margin="{x:Bind Look.ComposeMargin, Mode=OneWay}"
             AutomationProperties.AutomationId="sidebar.compose" AutomationProperties.Name="Compose">
       <StackPanel Orientation="Horizontal" Spacing="8">
@@ -57,6 +60,8 @@
         <TextBlock Text="{x:Bind Look.ComposeLabel, Mode=OneWay}" />
       </StackPanel>
     </Button>
+    <ContentPresenter x:Name="UnifiedSectionSlot" />
+    </StackPanel>
 
     <!-- Folders -->
     <Border Grid.Row="1" VerticalAlignment="Top" Background="{x:Bind Look.SectionBrush, Mode=OneWay}" BorderBrush="{StaticResource Line}" BorderThickness="{x:Bind Look.SectionBorder, Mode=OneWay}"
@@ -86,7 +91,9 @@
     </Border>
 
     <!-- Tags: a two-column grid of tiles in Bento, rows in Nordic (the layout is swapped once per style change). -->
-    <Border Grid.Row="2" Background="{x:Bind Look.SectionBrush, Mode=OneWay}" BorderBrush="{StaticResource Line}" BorderThickness="{x:Bind Look.SectionBorder, Mode=OneWay}"
+    <StackPanel Grid.Row="2" Spacing="{x:Bind Look.SidebarSpacing, Mode=OneWay}">
+    <ContentPresenter x:Name="SharedSectionSlot" />
+    <Border Background="{x:Bind Look.SectionBrush, Mode=OneWay}" BorderBrush="{StaticResource Line}" BorderThickness="{x:Bind Look.SectionBorder, Mode=OneWay}"
             CornerRadius="{x:Bind Look.SectionRadius, Mode=OneWay}" Padding="{x:Bind Look.SectionPadding, Mode=OneWay}" Visibility="{x:Bind views:Fmt.VisCount(Sidebar.Tags.Count), Mode=OneWay}">
       <StackPanel>
         <Grid ColumnDefinitions="*,Auto" Padding="{x:Bind Look.SectionHeaderPadding, Mode=OneWay}">
@@ -107,6 +114,7 @@
                        AutomationProperties.AutomationId="sidebar.tags" AutomationProperties.Name="Tag list" />
       </StackPanel>
     </Border>
+    </StackPanel>
 
     <!-- Storage (spec I-030): the meter and the text; the ring on the rail shows the same fraction. -->
     <Border Grid.Row="3" Background="{x:Bind Look.SectionBrush, Mode=OneWay}" BorderBrush="{StaticResource Line}" BorderThickness="{x:Bind Look.SectionBorder, Mode=OneWay}"

@@ -1,3 +1,4 @@
+using Barbican.App.Composition.Features;
 using Barbican.App.MailBody;
 using Barbican.Core.Accounts;
 using Barbican.Core.Jmap;
@@ -34,6 +35,11 @@ public static class AppComposition
         services.AddBarbicanPlatform();     // accounts: src/Barbican.App/Composition/PlatformServices.cs
         services.AddBarbicanViews();        // shell-ui: src/Barbican.App/Composition/ViewServices.cs
         services.AddBarbicanMailBody();     // body:     src/Barbican.App/MailBody/MailBodyRegistration.cs
+        services.AddBarbicanMailActions();  // M2 actions: src/Barbican.App/Composition/Features/ActionsRegistration.cs (also registers the defaults of every M2 seam)
+        services.AddBarbicanMenus();        // M2 menus:   src/Barbican.App/Composition/Features/MenusRegistration.cs
+        services.AddBarbicanReaderDepth();  // M2 reader:  src/Barbican.App/Composition/Features/ReaderRegistration.cs
+        services.AddBarbicanSearch();       // M2 search:  src/Barbican.App/Composition/Features/SearchRegistration.cs
+        services.AddBarbicanUnified();      // M2 unified: src/Barbican.App/Composition/Features/UnifiedRegistration.cs
 #if AUTOMATION
         services.AddBarbicanAutomation();   // F1:       src/Barbican.Automation/AutomationRegistration.cs
 #endif

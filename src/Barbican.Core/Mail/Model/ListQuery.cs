@@ -16,4 +16,13 @@ public sealed record ListQuery
 
     /// <summary>Only messages without this keyword (the unread section of the unread-first Inbox, <c>notKeyword: $seen</c>).</summary>
     public string? NotKeyword { get; init; }
+
+    /// <summary>An extra Email/query filter, AND-ed with the mailbox and keyword conditions by ListFilters (search, wave 2; null by default so M1 behaves as before).</summary>
+    public System.Text.Json.Nodes.JsonObject? Filter { get; init; }
+
+    /// <summary>An explicit sort (search, wave 2); null keeps the list's own order.</summary>
+    public IReadOnlyList<SortComparator>? Sort { get; init; }
+
+    /// <summary>collapseThreads (RFC 8621 section 4.4.3, J-051); null keeps the server default.</summary>
+    public bool? CollapseThreads { get; init; }
 }

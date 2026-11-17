@@ -4,7 +4,6 @@ using Barbican.App.Theme;
 using Barbican.Presentation.Mail;
 using Barbican.Presentation.Shell;
 using Microsoft.UI.Xaml.Automation;
-using Microsoft.UI.Xaml.Input;
 
 namespace Barbican.App.Views.List;
 
@@ -31,7 +30,8 @@ public sealed partial class MessageListView : UserControl
         Look.PropertyChanged += (_, _) => ApplyStyle();
         List.PropertyChanged += OnListChanged;
         List.Rows.CollectionChanged += OnRowsChanged;
-        List.FocusSearchRequested += (_, _) => SearchBox.Focus(FocusState.Programmatic);
+        SlotHost.Fill(SearchSlot, SlotNames.ListSearch);
+        SlotHost.Fill(SelectionBarSlot, SlotNames.ListSelectionBar);
         Rows.Loaded += (_, _) => HookScroll();
         Rows.SizeChanged += (_, _) => CheckLoadMore();
         UpdateEmpty();
@@ -165,30 +165,6 @@ public sealed partial class MessageListView : UserControl
         if (_scroll.ScrollableHeight - _scroll.VerticalOffset < LoadMoreDistance)
         {
             List.LoadMoreCommand.Execute(null);
-        }
-    }
-
-#pragma warning disable VSTHRD100 // XAML event handlers must return void; the awaited call reports its own failure through the ViewModel
-    private async void OnSearchKeyDown(object sender, KeyRoutedEventArgs e)
-#pragma warning restore VSTHRD100
-    {
-        switch (e.Key)
-        {
-            case global::Windows.System.VirtualKey.Enter:
-                e.Handled = true;
-                await List.SearchAsync(SearchBox.Text);
-                break;
-            case global::Windows.System.VirtualKey.Escape:
-                e.Handled = true;
-                if (SearchBox.Text.Length > 0)
-                {
-                    SearchBox.Text = string.Empty;
-                    await List.SearchAsync(string.Empty);
-                }
-
-                break;
-            default:
-                break;
         }
     }
 
