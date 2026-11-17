@@ -52,9 +52,9 @@
                   <TextBlock Grid.Column="5" Text="{x:Bind TimeLabel}" FontSize="12" FontWeight="{x:Bind views:Fmt.RowTimeWeight(theme:StyleState.Current.IsNordic), Mode=OneWay}"
                              Foreground="{x:Bind views:Fmt.RowTimeBrush(Unread, theme:StyleState.Current.IsNordic), Mode=OneWay}" VerticalAlignment="Center" />
                 </Grid>
-                <TextBlock Text="{x:Bind Subject}" FontSize="{x:Bind theme:StyleState.Current.SubjectSize, Mode=OneWay}" FontWeight="{x:Bind views:Fmt.SubjectWeight(Unread, theme:StyleState.Current.IsNordic), Mode=OneWay}"
+                <TextBlock local:Snippet.Id="{x:Bind Id}" local:Snippet.Part="subject" local:Snippet.Plain="{x:Bind Subject}" FontSize="{x:Bind theme:StyleState.Current.SubjectSize, Mode=OneWay}" FontWeight="{x:Bind views:Fmt.SubjectWeight(Unread, theme:StyleState.Current.IsNordic), Mode=OneWay}"
                            Foreground="{x:Bind theme:StyleState.Current.SubjectBrush, Mode=OneWay}" TextTrimming="CharacterEllipsis" Margin="{x:Bind theme:StyleState.Current.SubjectMargin, Mode=OneWay}" />
-                <TextBlock Text="{x:Bind Preview}" FontSize="{x:Bind theme:StyleState.Current.PreviewSize, Mode=OneWay}" Foreground="{x:Bind theme:StyleState.Current.PreviewBrush, Mode=OneWay}"
+                <TextBlock local:Snippet.Id="{x:Bind Id}" local:Snippet.Part="preview" local:Snippet.Plain="{x:Bind Preview}" FontSize="{x:Bind theme:StyleState.Current.PreviewSize, Mode=OneWay}" Foreground="{x:Bind theme:StyleState.Current.PreviewBrush, Mode=OneWay}"
                            TextTrimming="CharacterEllipsis" MaxLines="1" Margin="{x:Bind theme:StyleState.Current.PreviewMargin, Mode=OneWay}" />
                 <ItemsRepeater ItemsSource="{x:Bind views:Fmt.Chips(AttachmentNames)}" Visibility="{x:Bind views:Fmt.VisChips(AttachmentNames.Count)}" Margin="0,4,0,0"
                                AutomationProperties.Name="Attachments">

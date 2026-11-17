@@ -14,7 +14,7 @@ public sealed partial class FakeStore
         var parts = Parts(mail, out var text, out var html, out var bodyValues);
         var size = Encoding.UTF8.GetByteCount(mail.Text) + Encoding.UTF8.GetByteCount(mail.Html ?? "") + mail.Attachments.Sum(a => a.Content.Length);
         var preview = mail.Text.Replace('\n', ' ');
-        var messageId = id + "@example.org";
+        var messageId = mail.MessageId ?? id + "@example.org";
         var parentRef = mail.ReplyTo is { } r && _emails.TryGetValue(r, out var p) ? (string?)((JsonArray)p["messageId"]!)[0] : null;
         return new JsonObject
         {

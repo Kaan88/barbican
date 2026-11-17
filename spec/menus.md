@@ -41,8 +41,10 @@ header (the address); Copy email address; New message; Add to contacts; —; Fin
 ## MENU-ATT: an attachment chip [M2]
 Open; Save as…; then the reader extras: Open message (first, for an attached message), Save to Files › (when Files is available or loading), Download all (.zip) (more than one attachment); —; Copy file name.
 - **Save to Files ›**: "Loading folders…" (disabled) until loaded; then My files and every folder, indented.
+- **Built (m2-close-b):** Save as…, Download all (.zip) (more than one attachment with content), —, Copy file name. Not built yet, on purpose: Open (opening an untrusted file with the system handler needs a decision, see FABLE-REVIEW m2-close-b), Open message (Email/parse has no reader UI), Save to Files (no Files client in the reader). A click or right-click on an attachment card opens it.
 
 ## MENU-READER: the reader's More menu [M2]
+Opens from the ⋮ button of the reader's action row (the message on screen is the target). Built rows: View source (a dialog: the raw message cut at 2 MiB with Copy source and Save .eml), Forward as attachment (off until the composer, M3), Download (.eml), Download all attachments (.zip) [off: no attachments], then the Rules section. "Has blob" and "opened .eml" are not tracked yet: a loaded message always counts as having its blob.
 View source [off: has blob, not an opened .eml]; Forward as attachment [off: has blob, not a shared-account message, not an opened .eml]; Download (.eml) [off: has blob, not an opened .eml]; Download all attachments (.zip) [off: has attachments].
 Then, when a rule subject exists (not for an opened .eml): —; header "Rules";
 - Always move messages from <sender> › [off: one sender] (or "…from the sender");
@@ -60,7 +62,7 @@ Plain-text view only: Copy (Ctrl+C), Select all (Ctrl+A), —. Always: Copy mess
 (In the HTML body, the shell catches `contextmenu` and posts `ctx:X,Y`; the host opens this menu: `src/Barbican.App/Assets/mail/shell.js`, ADR 0005.)
 
 ## MENU-FOLDER: a mailbox in the sidebar, or a folder row on the Organize settings page [M2]
-header (folder name); Mark folder as read; Refresh; —; New subfolder; Rename [off: not a role folder]; Import messages (.eml, .mbox)…;
+header (folder name); Mark folder as read; Refresh; —; New subfolder; Rename [off: not a role folder]; Import messages (.eml, .mbox)… [off: the account cannot write]; Export as mbox…; Export as .eml files… (a folder pick; both read only, so they stay on for a read-only account); Rules ›;
 Trash or Junk only: —, danger Empty trash / Empty spam (asks); custom folders only: —, danger Delete folder (asks). Virtual folders (`__…`) have no menu.
 
 ## MENU-TAG: a tag in the sidebar [M2]

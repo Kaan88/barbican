@@ -150,7 +150,8 @@ public sealed partial class FakeStore
         var text = Encoding.UTF8.GetString(bytes);
         var subject = text.Split('\n').Select(l => l.TrimEnd('\r')).FirstOrDefault(l => l.StartsWith("Subject:", StringComparison.OrdinalIgnoreCase))?["Subject:".Length..].Trim() ?? "";
         var body = text.Contains("\r\n\r\n", StringComparison.Ordinal) ? text[(text.IndexOf("\r\n\r\n", StringComparison.Ordinal) + 4)..] : text;
-        var id = Deliver(new FakeMail { Subject = subject, Text = body, Keywords = keywords }, mailboxIds[0]);
+        var messageId = text.Split('\n').Select(l => l.TrimEnd('\r')).FirstOrDefault(l => l.StartsWith("Message-ID:", StringComparison.OrdinalIgnoreCase))?["Message-ID:".Length..].Trim().Trim('<', '>');
+        var id = Deliver(new FakeMail { Subject = subject, Text = body, Keywords = keywords, MessageId = string.IsNullOrEmpty(messageId) ? null : messageId }, mailboxIds[0]);
         if (mailboxIds.Count > 1)
         {
             Patch(id, e =>

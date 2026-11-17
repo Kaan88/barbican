@@ -17,18 +17,18 @@ namespace Barbican.Core.Mail.Service;
 public static class ListPageFetcher
 {
     /// <summary>The page of <paramref name="filter"/> after <paramref name="after"/> (null: the first page).</summary>
-    public static async Task<Result<ListPage>> FetchAsync(IJmapClient client, JsonObject filter, ListCursor? after, int limit, CancellationToken ct)
+    public static async Task<Result<ListPage>> FetchAsync(IJmapClient client, JsonObject filter, ListCursor? after, int limit, CancellationToken ct, bool? collapseThreads = null)
     {
         ArgumentNullException.ThrowIfNull(client);
         ArgumentNullException.ThrowIfNull(filter);
         var position = after?.Position ?? 0;
         var page = limit > client.Session.Limits.MaxObjectsInGet
-            ? await ChunkedAsync(client, filter, position, after?.AnchorId, limit, ct).ConfigureAwait(false)
-            : await OneRequestAsync(client, filter, position, after?.AnchorId, limit, ct).ConfigureAwait(false);
+            ? await ChunkedAsync(client, filter, position, after?.AnchorId, limit, collapseThreads, ct).ConfigureAwait(false)
+            : await OneRequestAsync(client, filter, position, after?.AnchorId, limit, collapseThreads, ct).ConfigureAwait(false);
         if (!page.IsOk && !string.IsNullOrEmpty(after?.AnchorId) && page.Error is MethodError { Type: "anchorNotFound" })
         {
             // the anchor was deleted or moved out: read from where it stood (Rust jmap.rs:541)
-            return await FetchAsync(client, filter, after with { AnchorId = "" }, limit, ct).ConfigureAwait(false);
+            return await FetchAsync(client, filter, after with { AnchorId = "" }, limit, ct, collapseThreads).ConfigureAwait(false);
         }
 
         return page;
@@ -54,7 +54,7 @@ public static class ListPageFetcher
         [.. list.Select(ModelReader.Summary).OfType<EmailSummary>()
             .Select(e => e.ThreadId is { } t && threads.TryGetValue(t, out var n) ? e with { ThreadCount = n } : e)];
 
-    private static JsonObject Query(IJmapClient client, JsonObject filter, int position, string? anchor, int limit)
+    private static JsonObject Query(IJmapClient client, JsonObject filter, int position, string? anchor, int limit, bool? collapseThreads)
     {
         var q = new JsonObject
         {
@@ -64,6 +64,12 @@ public static class ListPageFetcher
             ["limit"] = limit,
             ["calculateTotal"] = true,
         };
+        if (collapseThreads is { } collapse)
+        {
+            // RFC 8621 §4.4.3: one message per conversation; opt-in (the list asks for every message, as Bulwark does), J-051
+            q["collapseThreads"] = collapse;
+        }
+
         if (string.IsNullOrEmpty(anchor))
         {
             q["position"] = position;
@@ -78,11 +84,11 @@ public static class ListPageFetcher
     }
 
     private static async Task<Result<ListPage>> OneRequestAsync(
-        IJmapClient client, JsonObject filter, int position, string? anchor, int limit, CancellationToken ct)
+        IJmapClient client, JsonObject filter, int position, string? anchor, int limit, bool? collapseThreads, CancellationToken ct)
     {
         var acc = client.Session.MailAccountId;
         var b = new JmapRequestBuilder();
-        var q = b.Add("Email/query", Query(client, filter, position, anchor, limit));
+        var q = b.Add("Email/query", Query(client, filter, position, anchor, limit, collapseThreads));
         var g = b.Add("Email/get", new JsonObject { ["accountId"] = acc, ["#ids"] = q.Ref("/ids"), ["properties"] = JmapProperties.Json(JmapProperties.EmailList) });
         var t = b.Add("Thread/get", new JsonObject { ["accountId"] = acc, ["#ids"] = g.Ref("/list/*/threadId") });
         var sent = await client.SendAsync(b.Build(), ct).ConfigureAwait(false);
@@ -105,11 +111,11 @@ public static class ListPageFetcher
     }
 
     private static async Task<Result<ListPage>> ChunkedAsync(
-        IJmapClient client, JsonObject filter, int position, string? anchor, int limit, CancellationToken ct)
+        IJmapClient client, JsonObject filter, int position, string? anchor, int limit, bool? collapseThreads, CancellationToken ct)
     {
         var acc = client.Session.MailAccountId;
         var b = new JmapRequestBuilder();
-        var q = b.Add("Email/query", Query(client, filter, position, anchor, limit));
+        var q = b.Add("Email/query", Query(client, filter, position, anchor, limit, collapseThreads));
         var e = b.Add("Email/get", new JsonObject { ["accountId"] = acc, ["ids"] = new JsonArray(), ["properties"] = new JsonArray("id") });
         var t = b.Add("Thread/get", new JsonObject { ["accountId"] = acc, ["ids"] = new JsonArray() });
         var sent = await client.SendAsync(b.Build(), ct).ConfigureAwait(false);

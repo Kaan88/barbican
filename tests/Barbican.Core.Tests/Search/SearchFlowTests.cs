@@ -50,6 +50,37 @@ public sealed class SearchFlowTests
         Assert.Contains(marked!, s => s.Marked && s.Text.Equals("Report", StringComparison.OrdinalIgnoreCase));
     }
 
+    // I-232: a row that asked under one search must not stay unmarked, or marked for a search that is gone, when the filter changes meanwhile
+    [Fact]
+    public async Task A_changed_filter_tells_the_rows_to_ask_again_and_a_batch_in_flight_is_asked_again()
+    {
+        var (f, mail, inbox) = await StartAsync();
+        var snippets = new SearchSnippetSource(() => f.Client);
+        var first = ShaperFor(mail, snippets).Shape(new ListQuery { MailboxId = inbox, SearchText = "from:carol has:attachment report" });
+        var page = (await mail.QueryAsync(first, null, TestContext.Current.CancellationToken)).Value!;
+        var id = page.Items[0].Id;
+        Assert.Null(snippets.SubjectFor(id));
+
+        // the search changes before the batch answers: the rows are told to draw again
+        var told = new TaskCompletionSource<SnippetsArrivedEventArgs>();
+        snippets.Arrived += (_, e) => told.TrySetResult(e);
+        _ = ShaperFor(mail, snippets).Shape(new ListQuery { MailboxId = inbox, SearchText = "from:carol has:attachment attached" });
+        Assert.Contains(id, (await told.Task.WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken)).EmailIds, StringComparer.Ordinal);
+
+        // the redraw asks again under the new filter and the marks of the new search arrive
+        var marks = new TaskCompletionSource();
+        snippets.Arrived += (_, _) =>
+        {
+            if (snippets.PreviewFor(id) is not null)
+            {
+                marks.TrySetResult();
+            }
+        };
+        _ = snippets.PreviewFor(id);
+        await marks.Task.WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken);
+        Assert.Contains(snippets.PreviewFor(id)!, s => s.Marked && s.Text.Equals("attached", StringComparison.OrdinalIgnoreCase));
+    }
+
     [Fact]
     public async Task The_shaper_puts_the_folder_and_the_operators_in_one_filter()
     {

@@ -132,7 +132,7 @@ public sealed class MailService(IJmapClient client, TimeProvider time) : IMailSe
     public Task<Result<ListPage>> QueryAsync(ListQuery query, ListCursor? after, CancellationToken ct)
     {
         ArgumentNullException.ThrowIfNull(query);
-        return ListPageFetcher.FetchAsync(client, ListFilters.For(query), after, query.PageSize, ct);
+        return ListPageFetcher.FetchAsync(client, ListFilters.For(query), after, query.PageSize, ct, query.CollapseThreads);
     }
 
     /// <inheritdoc/>

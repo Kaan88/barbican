@@ -31,7 +31,7 @@
         <Grid x:Name="ContentGrid" Padding="{x:Bind Look.ReaderPadding, Mode=OneWay}" RowSpacing="{x:Bind Look.ReaderSpacing, Mode=OneWay}" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto,*,Auto"
               Visibility="{x:Bind views:Fmt.VisBody(Reader.BodyState, 'content'), Mode=OneWay}">
           <!-- The order follows the prototype: Bento subject, sender line, actions; Nordic actions, subject, the "to you" line. The rows are bound (StyleState.Reader*Row). -->
-          <!-- actions: every one is M2 or M3, so the pills are present and disabled. Bento: icon + label (Reply all, Delete, More icon-only); Nordic: text only. -->
+          <!-- actions: Reply, Reply all, Forward, Archive and Delete are M2 or M3 and stay disabled; More opens MENU-READER. Bento: icon + label (Reply all, Delete, More icon-only); Nordic: text only. -->
           <StackPanel Grid.Row="{x:Bind Look.ReaderActionsRow, Mode=OneWay}" Orientation="Horizontal" Spacing="8" AutomationProperties.AutomationId="reader.toolbar" AutomationProperties.Name="Message actions">
             <Button Style="{StaticResource Button.Action}" Height="{x:Bind Look.ActionButtonHeight, Mode=OneWay}" CornerRadius="{x:Bind Look.ActionRadius, Mode=OneWay}"
                     Padding="{x:Bind Look.ActionPadding, Mode=OneWay}" IsEnabled="False" AutomationProperties.AutomationId="reader.reply" AutomationProperties.Name="Reply">
@@ -54,7 +54,7 @@
               <StackPanel Orientation="Horizontal" Spacing="6"><controls:SIcon Kind="Trash" Size="16" Visibility="{x:Bind Look.BentoOnly, Mode=OneWay}" /><TextBlock Text="Delete" Visibility="{x:Bind Look.SecondaryLabelVisibility, Mode=OneWay}" /></StackPanel>
             </Button>
             <Button Style="{StaticResource Button.Action}" Width="{x:Bind Look.ActionButtonHeight, Mode=OneWay}" Height="{x:Bind Look.ActionButtonHeight, Mode=OneWay}" Padding="0"
-                    CornerRadius="{x:Bind Look.ActionRadius, Mode=OneWay}" IsEnabled="False" AutomationProperties.AutomationId="reader.more" AutomationProperties.Name="More actions">
+                    CornerRadius="{x:Bind Look.ActionRadius, Mode=OneWay}" Click="OnMoreClick" AutomationProperties.AutomationId="reader.more" AutomationProperties.Name="More actions">
               <controls:SIcon Kind="More" Size="16" />
             </Button>
           </StackPanel>
@@ -159,7 +159,7 @@
             </StackPanel>
           </Border>
 
-          <!-- attachment cards (display; opening one is M2, spec I-225) -->
+          <!-- attachment cards: a click or right-click opens MENU-ATT (save, download all, copy the name) -->
           <StackPanel Grid.Row="5" Spacing="6" Visibility="{x:Bind views:Fmt.VisCount(Reader.Attachments.Count), Mode=OneWay}" AutomationProperties.AutomationId="reader.attachments" AutomationProperties.Name="Attachments">
             <TextBlock Text="{x:Bind Reader.AttachmentSummary, Mode=OneWay}" Style="{StaticResource Text.Label}" />
             <ItemsRepeater ItemsSource="{x:Bind Reader.Attachments}">
@@ -170,7 +170,7 @@
                 <DataTemplate x:DataType="mail:AttachmentCard">
                   <Border MinWidth="190" Height="56" CornerRadius="{x:Bind theme:StyleState.Current.CardRadius, Mode=OneWay}" Padding="10,6" Background="{StaticResource Tile2}"
                           BorderBrush="{StaticResource Line}" BorderThickness="{x:Bind theme:StyleState.Current.CardBorder, Mode=OneWay}"
-                          AutomationProperties.AutomationId="{x:Bind views:Fmt.AttachmentId(Index)}" AutomationProperties.Name="{x:Bind Stem}">
+                          Tapped="OnAttachmentTapped" RightTapped="OnAttachmentRightTapped" AutomationProperties.AutomationId="{x:Bind views:Fmt.AttachmentId(Index)}" AutomationProperties.Name="{x:Bind Stem}">
                     <Grid ColumnDefinitions="Auto,*" ColumnSpacing="10">
                       <Border Width="40" Height="40" CornerRadius="10" Background="{StaticResource RoseBg}">
                         <TextBlock Text="{x:Bind views:Fmt.Badge(Kind)}" FontSize="10" FontWeight="ExtraBold" Foreground="{StaticResource RoseFg}" HorizontalAlignment="Center" VerticalAlignment="Center" />

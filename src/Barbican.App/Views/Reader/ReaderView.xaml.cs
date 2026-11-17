@@ -2,6 +2,8 @@ using Barbican.App.Motion;
 using Barbican.App.Shell;
 using Barbican.App.Theme;
 using Barbican.Presentation.Mail;
+using Barbican.Presentation.Menus;
+using Microsoft.UI.Xaml.Input;
 
 namespace Barbican.App.Views.Reader;
 
@@ -58,4 +60,22 @@ public sealed partial class ReaderView : UserControl
 
     // "Try again" opens the selected message once more (spec I-230).
     private void OnRetryClick(object sender, RoutedEventArgs e) => _list.OpenSelected(OpenReason.Click);
+
+    // More (the ⋮ button): MENU-READER under the button (spec I-200).
+    private void OnMoreClick(object sender, RoutedEventArgs e)
+    {
+        if (sender is FrameworkElement button && XamlRoot?.Content is UIElement root)
+        {
+            var p = button.TransformToVisual(root).TransformPoint(new Windows.Foundation.Point(0, button.ActualHeight + 4));
+            _ = ViewHost.Get<ReaderMenuOpener>().Open(MenuIds.Reader, null, new MenuAnchor(p.X, p.Y, null));
+        }
+    }
+
+    // An attachment card: a click or a right-click opens MENU-ATT at the pointer (spec I-226).
+    private void OnAttachmentTapped(object sender, TappedRoutedEventArgs e) => e.Handled = OpenAttachmentMenu(sender, e.GetPosition(XamlRoot?.Content));
+
+    private void OnAttachmentRightTapped(object sender, RightTappedRoutedEventArgs e) => e.Handled = OpenAttachmentMenu(sender, e.GetPosition(XamlRoot?.Content));
+
+    private static bool OpenAttachmentMenu(object sender, Windows.Foundation.Point at) =>
+        sender is FrameworkElement { DataContext: AttachmentCard card } && ViewHost.Get<ReaderMenuOpener>().Open(MenuIds.Attachment, card.Index, new MenuAnchor(at.X, at.Y, null));
 }

@@ -29,6 +29,9 @@ public sealed record FakeMail
     /// <summary>The Authentication-Results value the server wrote for this message; null: the default pass under mx.example.org (M2 seed).</summary>
     public string? AuthenticationResults { get; init; }
 
+    /// <summary>The Message-ID (without angle brackets); null: the store makes one from the id. Email/import keeps the blob's own.</summary>
+    public string? MessageId { get; init; }
+
     /// <summary>An existing message whose conversation this one joins (a reply).</summary>
     public string? ReplyTo { get; init; }
 }

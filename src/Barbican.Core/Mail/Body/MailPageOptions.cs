@@ -11,6 +11,9 @@ public sealed record MailPageOptions
     /// <summary>The app is drawn dark.</summary>
     public bool Dark { get; init; }
 
+    /// <summary>The Nordic style: 16 px / 1.8 text and a 600 px measure for prose (Bento: 15 px / 1.6).</summary>
+    public bool Nordic { get; init; }
+
     /// <summary>"Always show emails in light mode" (<c>emailAlwaysLightMode</c>).</summary>
     public bool AlwaysLight { get; init; }
 

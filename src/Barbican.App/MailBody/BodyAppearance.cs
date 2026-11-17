@@ -33,6 +33,7 @@ public sealed class BodyAppearance(ThemeController theme, IPrefsStore prefs, ISy
         A11y = A11y,
         PlainTextFont = prefs.Current.Str("plainTextFont", "sans"),
         MessageSpacing = prefs.Current.Str("messageSpacing", "auto"),
+        Nordic = Variant.Nordic,
         AllowRemote = allowRemote,
         ReaderBackground = ReaderHex,
     };

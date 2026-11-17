@@ -78,6 +78,11 @@ public sealed class ContextPointerRouter
                 anchor = AnchorOf(tag);
                 context = Base(menuId) with { TagId = tag.Id };
                 break;
+            case MenuIds.Reader or MenuIds.Attachment:
+                // the message on screen; for MENU-ATT the target is the attachment's index (default 0)
+                var isAttachment = string.Equals(menuId, MenuIds.Attachment, StringComparison.Ordinal);
+                var attachmentIndex = isAttachment && int.TryParse(target, System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out var ai) ? ai : 0;
+                return ViewHost.Get<Barbican.App.Views.Reader.ReaderMenuOpener>().Open(menuId, isAttachment ? attachmentIndex : null, anchor) ? "ok" : "error no rows";
             case MenuIds.Address:
                 context = Base(menuId) with { Address = target };
                 break;

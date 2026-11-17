@@ -113,4 +113,34 @@ public sealed class MailPageBuilderTests
         Assert.Equal("#141414", p.Background);
         Assert.Contains("&lt;boom&gt;", p.Html, StringComparison.Ordinal);
     }
+
+    // the approved prototype's body typography (prototype/winui/MailHtml.cs Wrap; docs/milestones/M1-look-gap.md)
+    [Fact]
+    public void Bento_text_is_15_px_with_1_6_line_height_and_no_measure()
+    {
+        var p = MailPageBuilder.Build("<pre>hi</pre>", Dark);
+        Assert.Contains("font-size:15px;line-height:1.6", p.Html, StringComparison.Ordinal);
+        Assert.DoesNotContain("max-width:600px", p.Html, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Nordic_prose_is_16_px_with_1_8_line_height_and_a_600_px_measure()
+    {
+        foreach (var body in new[] { "<pre>hi</pre>", "<p>hello there</p>" })
+        {
+            var p = MailPageBuilder.Build(body, Dark with { Nordic = true });
+            Assert.Contains("font-size:16px;line-height:1.8;max-width:600px", p.Html, StringComparison.Ordinal);
+        }
+
+        var light = MailPageBuilder.Build("<p>hello there</p>", Light with { Nordic = true });
+        Assert.Contains("font-size:16px;line-height:1.8;max-width:600px", light.Html, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void A_coloured_layout_keeps_its_own_width_in_Nordic()
+    {
+        var p = MailPageBuilder.Build("<table style=\"background:#fff\" width=\"100%\"><tr><td>x</td></tr></table>", Light with { Nordic = true });
+        Assert.Contains("font-size:16px;line-height:1.8", p.Html, StringComparison.Ordinal);
+        Assert.DoesNotContain("max-width:600px", p.Html, StringComparison.Ordinal);
+    }
 }

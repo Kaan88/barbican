@@ -29,6 +29,28 @@ public static class SearchAutomationRegistration
             var list = sp.GetRequiredService<MessageListViewModel>();
             return $"ok {list.Messages.Count()} rows (total {list.Total}) chips={model.Chips.Count}";
         });
+        Add(services, "rows", (sp, _) =>
+        {
+            // read only: what the list shows now (the feel scripts poll it while a swap draws)
+            var list = sp.GetRequiredService<MessageListViewModel>();
+            return Task.FromResult($"ok {list.Messages.Count()} rows (total {list.Total}) chips={sp.GetRequiredService<SearchBoxModel>().Chips.Count}");
+        });
+        Add(services, "snippet", (sp, args) =>
+        {
+            // the marks the list draws for a row (N = row index or message id): `snippet subject=[[hit]]... preview=...`, or `none` when the row has no mark
+            var list = sp.GetRequiredService<MessageListViewModel>();
+            var rows = list.Messages.ToList();
+            var key = args.Trim();
+            var row = int.TryParse(key, System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out var n) && n < rows.Count ? rows[n] : rows.Find(r => string.Equals(r.Id, key, StringComparison.Ordinal));
+            if (row is null)
+            {
+                return Task.FromResult("error no such row");
+            }
+
+            var source = sp.GetRequiredService<Barbican.Core.Search.ISnippetSource>();
+            static string Show(IReadOnlyList<Barbican.Core.Search.TextSegment>? s) => s is null ? "none" : string.Concat(s.Select(x => x.Marked ? "[[" + x.Text + "]]" : x.Text));
+            return Task.FromResult($"{row.Id} subject={Show(source.SubjectFor(row.Id))} preview={Show(source.PreviewFor(row.Id))}");
+        });
         Add(services, "global-search", async (sp, args) =>
         {
             var palette = sp.GetRequiredService<Barbican.Presentation.Palette.PaletteController>();

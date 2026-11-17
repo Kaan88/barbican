@@ -7,6 +7,7 @@
 No input is produced: the commands drive the same model and services the views draw (`suggestions`, `search`, `chip-remove`).
 Usage: python tools/feel-search.py --port 8884 [--out DIR]
 A probe with no frames (display off, uniform capture) is reported "unproven (capture invalid)", never as a pass.
+Each probe is stopped only after the list has been steady for 350 ms (m2-close-b: it used to stop at the command's reply, before the swap drew).
 """
 import argparse
 import json
@@ -45,6 +46,26 @@ def judge_frames(name, probe, limit_ms=25):
     return {"scenario": name, "frames": len(frames), "worst_gap_ms": worst, "verdict": "ok" if worst <= limit_ms else f"FAIL gap {worst} ms > {limit_ms}"}
 
 
+def settle(app, quiet_ms=350, limit_ms=3000):
+    """Keep the probe running until the swap has rendered. The command answers when the model is updated; the list redraws after that,
+    so stopping the probe at the reply (the first version of this script) ended it before the frames of the swap. Polls the row count
+    (`rows`) every 50 ms and returns once it has been unchanged for quiet_ms; the minimum seen shows whether the list ever emptied."""
+    seen = []
+    last = None
+    still = time.perf_counter()
+    end = time.perf_counter() + limit_ms / 1000
+    while time.perf_counter() < end:
+        rows = rows_of(app.cmd("rows"))
+        seen.append(rows)
+        if rows != last:
+            last = rows
+            still = time.perf_counter()
+        elif (time.perf_counter() - still) * 1000 >= quiet_ms:
+            break
+        time.sleep(0.05)
+    return seen
+
+
 def rows_of(reply):
     # "ok N rows (total T) chips=C"
     parts = reply.split()
@@ -71,6 +92,7 @@ def main():
         reply = app.cmd("suggestions " + text)
         stamps.append((text, round((time.perf_counter() - t0) * 1000, 1), reply[:60]))
         time.sleep(0.08)
+    settle(app)
     probe = json.loads(app.cmd("probe-stop") or "{}")
     r = judge_frames("search_type", probe)
     r["command_ms"] = [(t, ms) for t, ms, _ in stamps]
@@ -78,14 +100,17 @@ def main():
 
     # search_results: the old list stays until the results are ready, one swap
     app.cmd("search")
-    before = rows_of(app.cmd("search report"))
+    before = rows_of(app.cmd("rows"))
     print(app.cmd("probe-start rendering"))
     t0 = time.perf_counter()
     reply = app.cmd("search from:carol has:attachment")
     took = round((time.perf_counter() - t0) * 1000, 1)
+    seen = settle(app)
     probe = json.loads(app.cmd("probe-stop") or "{}")
     r = judge_frames("search_results", probe)
-    r.update({"rows_before": before, "rows_after": rows_of(reply), "search_ms": took, "reply": reply})
+    r.update({"rows_before": before, "rows_after": rows_of(reply), "min_rows_while_settling": min(seen) if seen else None, "search_ms": took, "reply": reply})
+    if seen and min(seen) == 0 and before > 0:
+        r["verdict"] = "FAIL the list emptied between the old and the new results"
     results.append(r)
 
     # chip_remove
@@ -93,9 +118,12 @@ def main():
     t0 = time.perf_counter()
     reply = app.cmd("chip-remove has")
     took = round((time.perf_counter() - t0) * 1000, 1)
+    seen = settle(app)
     probe = json.loads(app.cmd("probe-stop") or "{}")
     r = judge_frames("chip_remove", probe)
-    r.update({"requery_ms": took, "reply": reply})
+    r.update({"requery_ms": took, "min_rows_while_settling": min(seen) if seen else None, "reply": reply})
+    if seen and min(seen) == 0:
+        r["verdict"] = "FAIL the list emptied while the chip was removed"
     results.append(r)
 
     print(json.dumps(results, indent=2))

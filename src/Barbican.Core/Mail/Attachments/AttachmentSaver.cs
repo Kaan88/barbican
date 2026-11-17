@@ -93,20 +93,27 @@ public sealed class AttachmentSaver(IAccountManager accounts, IHookBus hooks, Ti
     /// <summary>Saves the raw message (its blob) as an .eml file named from the subject and date.</summary>
     public async Task<Result<Unit>> SaveEmlAsync(MailTarget message, CancellationToken ct)
     {
+        var raw = await RawAsync(message, ct).ConfigureAwait(false);
+        return raw.IsOk ? await WriteAsync(raw.Value.Name, raw.Value.Bytes, ct).ConfigureAwait(false) : Result<Unit>.Fail(raw.Error!);
+    }
+
+    /// <summary>The raw message (its blob, RFC 5322 bytes) and the .eml name it would be saved under (View source, Download .eml).</summary>
+    public async Task<Result<(byte[] Bytes, string Name)>> RawAsync(MailTarget message, CancellationToken ct)
+    {
         ArgumentNullException.ThrowIfNull(message);
         if (Client(message) is not { } client)
         {
-            return Fail("The account is not signed in.");
+            return Result<(byte[], string)>.Fail(new ValidationError("The account is not signed in."));
         }
 
         var got = await ReaderCalls.CallAsync(client, "Email/get", new JsonObject { ["accountId"] = message.AccountId, ["ids"] = new JsonArray(message.EmailId), ["properties"] = new JsonArray("blobId", "subject", "receivedAt") }, ct).ConfigureAwait(false);
         if (!got.IsOk || got.Value!["list"]?[0] is not { } email || email.Str("blobId") is not { } blob)
         {
-            return got.IsOk ? Fail("The message is gone.") : Result<Unit>.Fail(got.Error!);
+            return Result<(byte[], string)>.Fail(got.IsOk ? new ValidationError("The message is gone.") : got.Error!);
         }
 
         var bytes = await DownloadAsync(message, blob, "message.eml", "message/rfc822", ct).ConfigureAwait(false);
-        return bytes.IsOk ? await WriteAsync(ReaderNames.EmlExportName(email), bytes.Value!, ct).ConfigureAwait(false) : Result<Unit>.Fail(bytes.Error!);
+        return bytes.IsOk ? Result<(byte[], string)>.Ok((bytes.Value!, ReaderNames.EmlExportName(email))) : Result<(byte[], string)>.Fail(bytes.Error!);
     }
 
     private IJmapClient? Client(MailTarget message) => accounts.SessionFor(message.AccountKey)?.Client;

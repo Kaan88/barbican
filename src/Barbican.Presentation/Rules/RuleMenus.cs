@@ -106,7 +106,7 @@ public static class RuleMenus
         }
 
         // after "Import messages", before the danger rows; a folder menu without that row gets it at the end
-        var at = folder.ToList().FindIndex(i => string.Equals(i.CommandId, CommandIds.ImportMessages, StringComparison.Ordinal));
+        var at = folder.ToList().FindLastIndex(i => string.Equals(i.CommandId, CommandIds.ImportMessages, StringComparison.Ordinal) || string.Equals(i.CommandId, CommandIds.ExportEml, StringComparison.Ordinal));
         var rules = Sub(Icon, "Rules", FolderRules);
         return at < 0 ? [.. folder, rules] : [.. folder.Take(at + 1), rules, .. folder.Skip(at + 1)];
     }

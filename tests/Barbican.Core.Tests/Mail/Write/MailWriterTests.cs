@@ -218,4 +218,16 @@ public sealed class MailWriterTests
         Assert.Single(r.Value.Refused);
         Assert.NotNull(store.Email(r.Value.Created[0]));
     }
+
+    [Fact]
+    public async Task Import_keeps_the_Message_ID_of_the_uploaded_blob()
+    {
+        var (f, w) = await StartAsync();
+        var inbox = f.Server.Store.MailboxId("inbox")!;
+        var up = await w.UploadAsync(Encoding.UTF8.GetBytes("Message-ID: <kept-1@example.org>\r\nSubject: keep\r\n\r\nbody"), "message/rfc822", Ct);
+        var r = await w.ImportAsync([new EmailImportEntry(up.Value!.BlobId, [inbox], [], null)], Ct);
+        Assert.True(r.IsOk);
+        var email = f.Server.Store.Email(r.Value!.Created[0])!;
+        Assert.Equal("kept-1@example.org", (string?)((System.Text.Json.Nodes.JsonArray)email["messageId"]!)[0]);
+    }
 }

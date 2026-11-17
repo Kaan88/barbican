@@ -13,6 +13,7 @@ using Barbican.Core.Net;
 using Barbican.Core.Plugins.Hooks;
 using Barbican.Core.Storage;
 using Barbican.Platform;
+using Barbican.Presentation.Mail;
 using Barbican.Presentation.Mail.Loading;
 using Barbican.Presentation.Reader;
 using Microsoft.Extensions.DependencyInjection;
@@ -68,6 +69,7 @@ public static class ReaderRegistration
                 Path.Combine(sp.GetRequiredService<IProfilePaths>().DataDir, "avatars"));
         });
         services.Replace(ServiceDescriptor.Singleton<IAvatarService>(sp => sp.GetRequiredService<AvatarService>()));
+        AddReaderMenus(services);
 #if AUTOMATION
         services.AddSingleton<Barbican.Automation.IAutomationCommand, Barbican.App.MailBody.Automation.RxBannersCommand>();
         services.AddSingleton<Barbican.Automation.IAutomationCommand, Barbican.App.MailBody.Automation.RxSaveCommand>();
@@ -79,5 +81,35 @@ public static class ReaderRegistration
         services.AddSingleton<Barbican.Automation.IAutomationCommand, Barbican.App.MailBody.Automation.RxDestroyCommand>();
 #endif
         return services;
+    }
+
+    // the reader's More menu (MENU-READER), an attachment chip's menu (MENU-ATT) and the commands behind them
+    private static void AddReaderMenus(IServiceCollection services)
+    {
+        services.TryAddSingleton<Barbican.Presentation.Common.IClipboardService, SystemClipboard>();
+        services.AddSingleton<Barbican.App.Views.Dialogs.IDialogContent, Barbican.App.Views.Dialogs.SourceDialogContent>();
+        services.TryAddSingleton(sp => new Barbican.App.Views.Reader.ReaderMenuOpener(sp.GetRequiredService<Barbican.Presentation.Menus.IContextMenuService>(), sp.GetRequiredService<ReaderViewModel>(), sp.GetRequiredService<IActiveMail>(), sp.GetService<IAccountManager>()));
+        services.AddSingleton(sp => new Barbican.Presentation.Reader.ReaderCommands(
+            sp.GetRequiredService<AttachmentSaver>(),
+            () => sp.GetRequiredService<ReaderViewModel>().Current.Body,
+            sp.GetRequiredService<Barbican.Presentation.Common.IClipboardService>(),
+            sp.GetRequiredService<Barbican.Presentation.Dialogs.IDialogService>(),
+            sp.GetService<Barbican.Presentation.Actions.IToastService>()));
+        foreach (var i in Enumerable.Range(0, Barbican.Presentation.Reader.ReaderCommands.Count))
+        {
+            var index = i;
+            services.AddSingleton<Barbican.Presentation.Commands.IAppCommand>(sp => sp.GetRequiredService<Barbican.Presentation.Reader.ReaderCommands>().Create()[index]);
+        }
+
+        foreach (var i in Enumerable.Range(0, 2))
+        {
+            var index = i;
+            services.AddSingleton<Barbican.Presentation.Menus.IMenuProvider>(sp =>
+            {
+                var directory = sp.GetRequiredService<Barbican.Presentation.Actions.IMailboxDirectory>();
+                var reader = sp.GetRequiredService<ReaderViewModel>();
+                return Barbican.Presentation.Reader.ReaderMenus.Providers(() => reader.Current.Body, _ => directory.Tree.All.Any(m => m.Role == Barbican.Core.Mail.Model.MailboxRole.Junk))[index];
+            });
+        }
     }
 }

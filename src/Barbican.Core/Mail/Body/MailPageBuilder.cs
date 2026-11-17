@@ -3,6 +3,9 @@
 // Bulwark components/email/email-viewer.tsx (emailAlwaysLightMode, plainTextFont, messageSpacing), lib/email-dark-mode.ts,
 // lib/email-sanitization.ts:109 emailIframeCsp. Stalwart: none (client-side only). Owner body.
 //
+// Body typography is the approved prototype's (prototype/winui/MailHtml.cs Wrap, docs/milestones/M1-look-gap.md): 15 px / 1.6 in Bento,
+// 16 px / 1.8 in Nordic, and in Nordic a 600 px measure for prose (plain text and HTML without its own colours; layouts keep their width).
+//
 // The frame page is built here, once, for both OSes. Its CSP is the remote-content guard (the only one on Linux, ADR 0005) and allows
 // no script at all: the dark pass and the a11y sizing run from the shell against the frame document (Fable review 1 F-03), so the page
 // only says whether they are wanted (MailPage.Dark, MailPage.Sizing). The body was sanitized when it was fetched (MailSanitizer).
@@ -48,10 +51,13 @@ public static class MailPageBuilder
             _ => !plain && FullBleed(body) ? 0 : 16,
         };
         var remote = MailHtml.HasRemoteContent(body);
+        var prose = plain || Uncoloured(body);
+        var type = options.Nordic ? "font-size:16px;line-height:1.8" : "font-size:15px;line-height:1.6";
+        var measure = options.Nordic ? ";max-width:600px" : "";
         if (themed)
         {
             var html = $"<!doctype html><html><head><meta charset=utf-8>{head}<base target=_blank><style>html,body{{background:{options.ReaderBackground};color:#d4d4d4}}" +
-                $"body{{margin:{margin}px;font-family:{Sans};font-size:14px;word-wrap:break-word}}pre{{white-space:pre-wrap;font-family:{preFont};margin:0}}" +
+                $"body{{margin:{margin}px;font-family:{Sans};{type}{measure};word-wrap:break-word}}pre{{white-space:pre-wrap;font-family:{preFont};margin:0}}" +
                 $"a{{color:#f0577a}}img{{max-width:100%;height:auto}}</style></head><body>{body}</body></html>";
             return new MailPage(html, false, background, remote) { Sizing = sizing };
         }
@@ -62,13 +68,13 @@ public static class MailPageBuilder
             var scheme = DarkMail.ColorScheme(true, DarkMail.HasNativeDark(body));
             var pinned = DarkMail.ResolveColorSchemeMedia(body, true);
             var html = $"<!doctype html><html class=\"{DarkMail.PendingClass}\" style=\"color-scheme:{scheme}\"><head><meta charset=utf-8>{head}<base target=_blank>" +
-                $"<style>body{{margin:{margin}px;font-family:{Sans};font-size:14px;word-wrap:break-word}}pre{{white-space:pre-wrap;font-family:{preFont}}}" +
+                $"<style>body{{margin:{margin}px;font-family:{Sans};{type};word-wrap:break-word}}pre{{white-space:pre-wrap;font-family:{preFont}}}" +
                 $"img{{max-width:100%;height:auto}}{DarkMail.Css()}</style></head><body>{pinned}</body></html>";
             return new MailPage(html, true, background, remote) { Sizing = sizing };
         }
 
         var light = $"<!doctype html><html><head><meta charset=utf-8>{head}<base target=_blank>" +
-            $"<style>body{{margin:{margin}px;font-family:{Sans};font-size:14px;color:#111;background:#fff;word-wrap:break-word}}pre{{white-space:pre-wrap;font-family:{preFont}}}" +
+            $"<style>body{{margin:{margin}px;font-family:{Sans};{type}{(prose ? measure : "")};color:#111;background:#fff;word-wrap:break-word}}pre{{white-space:pre-wrap;font-family:{preFont}}}" +
             $"img{{max-width:100%;height:auto}}</style></head><body>{body}</body></html>";
         return new MailPage(light, false, background, remote) { Sizing = sizing };
     }

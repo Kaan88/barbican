@@ -209,4 +209,16 @@ public sealed class MailServiceTests
         Assert.Equal("http://localhost:8080/.well-known/jmap", ServerEndpoint.Parse("http://localhost:8080/.well-known/jmap/")!.DiscoveryUri.ToString());
         Assert.Null(ServerEndpoint.Parse(""));
     }
+
+    [Fact]
+    [Rfc("J-051", "RFC 8621 4.4.3")]
+    public async Task Collapse_threads_is_sent_only_when_asked_and_lists_one_message_per_conversation()
+    {
+        var (f, s) = await StartAsync();
+        var inbox = f.Server.Store.MailboxId("inbox")!;
+        var all = (await s.QueryAsync(new ListQuery { MailboxId = inbox, PageSize = 50 }, null, Ct)).Value!;
+        var collapsed = (await s.QueryAsync(new ListQuery { MailboxId = inbox, PageSize = 50, CollapseThreads = true }, null, Ct)).Value!;
+        Assert.True(collapsed.Items.Count < all.Items.Count);
+        Assert.Equal(collapsed.Items.Count, collapsed.Items.Select(e => e.ThreadId).Distinct(StringComparer.Ordinal).Count());
+    }
 }

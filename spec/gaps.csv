@@ -44,7 +44,7 @@ G-042,P1,S/M,folders,Folders: export and import a folder,mail-transfer/,GAPS P1-
 G-043,P1,M,sharing,"Sharing folders, calendars and address books with other users (Barbican shares Files only)",layout/mailbox-share-dialog.tsx; share-collection-dialog.tsx,GAPS P1-9,M6 (later),open
 G-044,P1,S/M,live-updates,"Live updates for calendars, contacts, files and identities: push types cover mail only, and there is no /changes delta for them",EventSource types,GAPS P1-10,M4/M5,open
 G-045,P1,M,notifications,ShareNotification and CalendarEventNotification; the notification centre,share-notification-store.ts; calendar-event-notification-store.ts; notifications/notification-center.tsx,GAPS P1-10,M8,open
-G-046,P1,M,mail-transfer,Mail export of a folder to mbox or eml,mail-transfer/,GAPS P1-11,M2,done (core and MailTransfer; folder menu item and file picker open; live: L-038)
+G-046,P1,M,mail-transfer,Mail export of a folder to mbox or eml,mail-transfer/,GAPS P1-11,M2,done (core and MailTransfer; folder menu items and the platform file picker built (m2-close-b); live: L-038)
 G-047,P1,M,mail-transfer,winmail.dat (TNEF) decoding,lib/tnef.ts,GAPS P1-11,M2,done (core expander; no reader consumer yet; RTF body not offered)
 G-048,P1,M,mail-transfer,Email/copy: copy a message to another account,n/a (JMAP Email/copy),GAPS P1-11,M2,open
 G-049,P1,M,reader-safety,Link mismatch warnings,lib/phishing-links.ts,GAPS P1-12,M10,open

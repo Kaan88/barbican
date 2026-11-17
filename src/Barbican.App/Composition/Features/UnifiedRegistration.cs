@@ -49,10 +49,22 @@ public static class UnifiedRegistration
         services.TryAddSingleton<IAttachedMessageOpener>(sp => new EmailParseOpener(key => sp.GetRequiredService<IAccountManager>().SessionFor(key)?.Client));
         services.TryAddSingleton<IAttachmentExpander>(sp => new TnefExpander(key => sp.GetRequiredService<IAccountManager>().SessionFor(key)?.Client));
 
-        // import and export runs (MENU-FOLDER "Import messages…", Ctrl+O, folder export call MailTransfer; no platform picker yet: queued answers only)
+        // import and export runs (MENU-FOLDER "Import messages…" and "Export as…" call MailTransfer through TransferCommands; the picker is the platform's, or queued answers in a hidden run)
         services.TryAddSingleton(sp => new MailExportService(key => sp.GetRequiredService<IAccountManager>().SessionFor(key)?.Client));
+#if AUTOMATION
+        // a hidden run never opens a dialog: picks are queued answers only (CLAUDE.md: never touch the user's screen)
         services.TryAddSingleton(_ => new TransferPicks());
+#else
+        services.TryAddSingleton(_ => new TransferPicks(SystemFilePicker.PickAsync));
+#endif
         services.TryAddSingleton(sp => new MailTransfer(sp.GetRequiredService<IMailImport>(), sp.GetRequiredService<MailExportService>(), sp.GetRequiredService<TransferPicks>(), sp.GetRequiredService<IDispatcher>()));
+        foreach (var i in Enumerable.Range(0, TransferCommands.Count))
+        {
+            var index = i;
+            services.AddSingleton<Barbican.Presentation.Commands.IAppCommand>(sp => TransferCommands.Create(
+                sp.GetRequiredService<MailTransfer>(), sp.GetRequiredService<IMailWriterSource>(), sp.GetRequiredService<Barbican.Presentation.Menus.IMenuDataSource>(), sp.GetService<IToastService>())[index]);
+        }
+
 #if AUTOMATION
         services.AddSingleton<Barbican.Automation.IAutomationCommand, Views.Unified.Automation.UnifiedCommand>();
         services.AddSingleton<Barbican.Automation.IAutomationCommand, Views.Unified.Automation.ImportSimCommand>();

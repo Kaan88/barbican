@@ -56,6 +56,12 @@ public sealed record FakeJmapOptions
     /// <summary>Advertise the Calendars capability (urn:ietf:params:jmap:calendars) for CalendarEvent/parse (M2 reader). Off: the M1 session.</summary>
     public bool CalendarsCapability { get; init; }
 
+    /// <summary>Answer (with <see cref="Stalwart"/>, which advertises <c>urn:stalwart:jmap</c>) x:ArchivedItem/get, query and set (Stalwart's deleted-item archive, J-074). Off: the M1 session.</summary>
+    public bool ArchiveCapability { get; init; }
+
+    /// <summary>With <see cref="ArchiveCapability"/>: refuse the <c>accountId</c> filter of x:ArchivedItem/query with unsupportedFilter, as Stalwart does for a user who may not impersonate.</summary>
+    public bool ArchiveRefusesAccountFilter { get; init; }
+
     /// <summary>Add the M2 seed (FakeSeed.FillM2) on top of the M1 seed. Off: the M1 seed only, so every M1 test sees the data it always saw.</summary>
     public bool SeedM2 { get; init; }
 

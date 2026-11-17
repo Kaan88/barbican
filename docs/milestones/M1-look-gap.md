@@ -153,3 +153,6 @@ Idle: 0 frames in 2 s, before and after; nothing animates at rest.
   not have.
 - **Hover token.** #1f1f1f against P's #1d1d1d, and #f2f2f3 against #f3f3f4. Kept, because the 1-level difference is below what the drift
   check can see.
+
+## Mail body typography (m2-close-b)
+The prototype's `MailHtml.Wrap` sets the body at 15 px / line height 1.6 in Bento and 16 px / 1.8 in Nordic, with a 600 px measure in Nordic. `MailPageBuilder` now does the same for the themed and light pages (the measure applies to prose only: plain text and HTML without its own colours, so a newsletter layout keeps its width). The dark-adjusted page takes the size and line height but not the measure. Pictures: `docs/milestones/M2-screens/reader-body-{nordic,bento}-dark.png`.

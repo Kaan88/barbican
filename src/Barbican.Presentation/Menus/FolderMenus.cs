@@ -39,6 +39,8 @@ public static class FolderMenus
             Item(MenuGlyphs.NewFolder, "New subfolder", CommandIds.NewSubfolder, enabled: rights.MayCreateChild),
             Item(MenuGlyphs.Rename, "Rename", CommandIds.RenameFolder, enabled: role == MailboxRole.None && rights.MayRename),
             Item(MenuGlyphs.Upload, "Import messages (.eml, .mbox)…", CommandIds.ImportMessages, enabled: rights.MayAddItems),
+            Item(MenuGlyphs.Download, "Export as mbox…", CommandIds.ExportMbox),
+            Item(MenuGlyphs.Download, "Export as .eml files…", CommandIds.ExportEml),
         };
         if (role is MailboxRole.Trash or MailboxRole.Junk)
         {

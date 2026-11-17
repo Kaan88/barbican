@@ -1,0 +1,50 @@
+[
+  {
+    "scenario": "search_type",
+    "frames": 111,
+    "worst_gap_ms": 10.929999999999978,
+    "verdict": "ok",
+    "command_ms": [
+      [
+        "a",
+        7.6
+      ],
+      [
+        "al",
+        1.7
+      ],
+      [
+        "ali",
+        1.8
+      ],
+      [
+        "alic",
+        1.8
+      ],
+      [
+        "alice",
+        1.7
+      ]
+    ]
+  },
+  {
+    "scenario": "search_results",
+    "frames": 53,
+    "worst_gap_ms": 7.849999999999994,
+    "verdict": "ok",
+    "rows_before": 9,
+    "rows_after": 1,
+    "min_rows_while_settling": 1,
+    "search_ms": 7.1,
+    "reply": "ok 1 rows (total 1) chips=2"
+  },
+  {
+    "scenario": "chip_remove",
+    "frames": 51,
+    "worst_gap_ms": 7.260000000000019,
+    "verdict": "ok",
+    "requery_ms": 1.7,
+    "min_rows_while_settling": 1,
+    "reply": "ok text=\"from:carol\" 1 rows chips=1"
+  }
+]

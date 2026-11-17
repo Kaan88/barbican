@@ -65,6 +65,13 @@ public sealed partial class FakeApi
     private (string? Name, JsonObject Args) EmailQuery(JsonObject args)
     {
         var ids = store.Query(args["filter"]);
+        if ((bool?)args["collapseThreads"] == true)
+        {
+            // RFC 8621 4.4.3: only the first (newest) message of each conversation
+            var seen = new HashSet<string>(StringComparer.Ordinal);
+            ids = [.. ids.Where(id => seen.Add((string?)store.Email(id)?["threadId"] ?? id))];
+        }
+
         var limit = Math.Min((int?)args["limit"] ?? 50, options.QueryLimitCap);
         int position;
         if ((string?)args["anchor"] is { } anchor)

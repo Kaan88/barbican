@@ -33,6 +33,7 @@ public sealed class SearchSnippetSource : ISnippetSource
     public void SetFilter(JsonNode? filter)
     {
         var key = filter?.ToJsonString() ?? string.Empty;
+        IReadOnlyList<string> stale;
         lock (_lock)
         {
             if (string.Equals(key, _filterKey, StringComparison.Ordinal))
@@ -43,9 +44,14 @@ public sealed class SearchSnippetSource : ISnippetSource
             _filterKey = key;
             _filter = filter?.DeepClone();
             _generation++;
+            stale = [.. _byId.Keys.Union(_pending, StringComparer.Ordinal)];
             _byId.Clear();
             _pending.Clear();
         }
+
+        // rows on screen drew the old filter's marks, or drew before any filter was set: tell them to ask again, so nothing stays marked for a search that is gone and nothing
+        // stays plain for one that started (I-232). No ids means every row.
+        Arrived?.Invoke(this, new SnippetsArrivedEventArgs(stale));
     }
 
     /// <inheritdoc />
@@ -106,6 +112,18 @@ public sealed class SearchSnippetSource : ISnippetSource
         {
             if (generation != _generation)
             {
+                // the filter changed while this batch was on the wire: its answer is for the old search. Ask again for the same rows under the new one.
+                foreach (var id in ids)
+                {
+                    _pending.Add(id);
+                }
+
+                if (_pending.Count > 0 && !_scheduled)
+                {
+                    _scheduled = true;
+                    _ = Task.Run(RunBatchAsync);
+                }
+
                 return;
             }
 
