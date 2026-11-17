@@ -32,6 +32,9 @@ public sealed class Doc
 
     public int NewTableId => Blocks.Select(b => b.Kind.Table).Max() is int t ? t + 1 : 0;
 
+    /// <summary>A deep copy (blocks are cloned, runs are immutable records): the undo history stores these.</summary>
+    public Doc Clone() => new(_blocks.Select(b => b.Clone()));
+
     public static Doc FromText(string text)
     {
         ArgumentNullException.ThrowIfNull(text);
@@ -379,7 +382,7 @@ public sealed class Doc
     private static bool IsText(Block b) => !b.Kind.IsAtomic && !b.Kind.IsCell;
 
     /// <summary>Rust's <c>str::lines</c>: split on \n, strip a trailing \r, no empty last line.</summary>
-    private static IEnumerable<string> Lines(string s)
+    internal static IEnumerable<string> Lines(string s)
     {
         var parts = s.Split('\n');
         var n = parts.Length > 0 && parts[^1].Length == 0 ? parts.Length - 1 : parts.Length;

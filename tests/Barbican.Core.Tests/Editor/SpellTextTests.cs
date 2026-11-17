@@ -2,11 +2,10 @@ using Barbican.Core.Editor.Spell;
 
 namespace Barbican.Core.Tests.Editor;
 
-/// <summary>Rust src/rte/spell.rs tests tags, utf16_ranges and skips, ported (M3 stream editor-core). utf16_ranges changed with a D- entry (D-240): offsets are UTF-16 already.</summary>
+/// <summary>Rust src/rte/spell.rs tests tags, utf16_ranges and skips, ported. utf16_ranges changed with a D- entry (D-240): offsets are UTF-16 already.</summary>
 public sealed class SpellTextTests
 {
     [Fact]
-    [Red("editor-core")]
     [RustTest("rte::spell::tags")]
     public void Tags()
     {
@@ -16,7 +15,6 @@ public sealed class SpellTextTests
     }
 
     [Fact]
-    [Red("editor-core")]
     [RustTest("rte::spell::utf16_ranges")]
     public void Utf16_ranges()
     {
@@ -30,7 +28,6 @@ public sealed class SpellTextTests
     }
 
     [Fact]
-    [Red("editor-core")]
     [RustTest("rte::spell::skips")]
     public void Skips()
     {

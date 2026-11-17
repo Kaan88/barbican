@@ -1,0 +1,3 @@
+[a "quoted" alt]
+[logo.png]
+caption
