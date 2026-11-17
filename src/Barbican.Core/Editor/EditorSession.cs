@@ -1,5 +1,5 @@
 // Mirrors: Rust src/rte/editor.rs (tag rust-final); Bulwark components/email/email-composer.tsx (TipTap commands and input rules). No RFC or Stalwart counterpart.
-// Decisions: spec/decisions.md D-M3-B1 (undo snapshots), D-M3-B3 (plain mode ignores formatting commands, B-RTE-020), D-M3-B4 (UTF-16 offsets, grapheme steps).
+// Decisions: spec/decisions.md D-M3B-01 (undo snapshots), D-M3B-03 (plain mode ignores formatting commands, B-RTE-020), D-M3B-04 (UTF-16 offsets, grapheme steps), D-M3B-08 (CR normalised).
 
 using System.Text;
 

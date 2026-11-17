@@ -1,6 +1,6 @@
 // Mirrors: Rust src/rte/html.rs (tag rust-final) import() and its Builder; HTML Living Standard 13 (the tree comes from AngleSharp, so unclosed and
 // misnested markup is repaired the way a browser does); Bulwark components/email/email-composer.tsx (TipTap schema). No Stalwart counterpart.
-// Decisions: spec/decisions.md D-M3-B2 (AngleSharp DOM walk instead of the Rust tokenizer), D-M3-B5 (scripting schemes dropped from links and images).
+// Decisions: spec/decisions.md D-M3B-02 (AngleSharp DOM walk instead of the Rust tokenizer), D-M3B-05 (scripting schemes dropped from links and images, hex colours validated, rem read).
 
 using System.Globalization;
 using System.Text;
