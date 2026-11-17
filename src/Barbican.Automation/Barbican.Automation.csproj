@@ -13,7 +13,7 @@
     <OutputType>Library</OutputType>
     <UnoSingleProject>true</UnoSingleProject>
     <RootNamespace>Barbican.Automation</RootNamespace>
-    <UnoFeatures>SkiaRenderer;WebView</UnoFeatures>
+    <UnoFeatures>Skia;WebView</UnoFeatures>
     <UnoDisableHotDesign>true</UnoDisableHotDesign>
     <UnoDisableMCPSupport>true</UnoDisableMCPSupport>
     <UnoDisableGenerateAssemblyInfoWorkaround>true</UnoDisableGenerateAssemblyInfoWorkaround>
@@ -24,6 +24,9 @@
     <TargetPlatformMinVersion Condition="$(TargetFramework.Contains('-windows'))">10.0.19041.0</TargetPlatformMinVersion>
     <!-- A library compiles against Win2D's managed projection only; the native
          Microsoft.Graphics.Canvas.dll is resolved by the App head, which has a runtime identifier. -->
+    <!-- Uno.Sdk 7 / CsWinRT 2.x: the collection-expression AOT analyzer (CsWinRT1032) is irrelevant (no trimming or AOT here);
+         CA1416: the WGC capture-session properties are set inside TrySet, which swallows the failure on older Windows. -->
+    <NoWarn>$(NoWarn);CsWinRT1032;CA1416</NoWarn>
     <Win2DWarnNoPlatform>false</Win2DWarnNoPlatform>
   </PropertyGroup>
 

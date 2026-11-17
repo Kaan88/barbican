@@ -20,6 +20,8 @@ public static class ComposerRegistration
         _ = services.AddBarbicanComposerViewModels();
         _ = services.AddBarbicanSendPipelineViewModels();
         services.AddSingleton<Barbican.Presentation.Compose.Pipeline.IScheduleDialogHost, ScheduleDialogHost>();
+        // the editor control of editor-view is the composer body
+        ComposerBodyHost.EditorFactory = vm => new Views.Editor.EditorView(vm);
         services.AddSingleton<IDialogContent, AccountPickDialogContent>();
         services.AddSingleton<IDialogContent, ScheduleDialogContent>();
 

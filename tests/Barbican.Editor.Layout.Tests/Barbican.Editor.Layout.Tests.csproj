@@ -5,4 +5,8 @@
   <ItemGroup>
     <ProjectReference Include="../../src/Barbican.Editor.Layout/Barbican.Editor.Layout.csproj" />
   </ItemGroup>
+  <ItemGroup>
+    <!-- m3-editor-view: FakeTimeProvider for the double and triple click timing. -->
+    <PackageReference Include="Microsoft.Extensions.TimeProvider.Testing" />
+  </ItemGroup>
 </Project>

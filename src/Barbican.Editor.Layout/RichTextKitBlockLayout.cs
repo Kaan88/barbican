@@ -15,12 +15,14 @@ internal sealed class RichTextKitBlockLayout : IBlockLayout
     private readonly TextBlock _tb;
     private readonly bool _empty;
     private readonly LayoutStyle _style;
+    private readonly string _text;
     private readonly int _utf16Length;
 
-    public RichTextKitBlockLayout(TextBlock tb, int utf16Length, bool empty, LayoutStyle style)
+    public RichTextKitBlockLayout(TextBlock tb, string text, bool empty, LayoutStyle style)
     {
         _tb = tb;
-        _utf16Length = utf16Length;
+        _text = text;
+        _utf16Length = text.Length;
         _empty = empty;
         _style = style;
         tb.Layout();
@@ -88,6 +90,36 @@ internal sealed class RichTextKitBlockLayout : IBlockLayout
         }
 
         return _tb.CaretIndicies.Select(ToUtf16).Distinct().ToArray();
+    }
+
+    public (int Start, int End) LineRange(int offset, bool upstream)
+    {
+        if (_empty || _tb.Lines.Count == 0)
+        {
+            return (0, 0);
+        }
+
+        var cp = ToCodePoint(offset);
+        var lines = _tb.Lines;
+        var hit = lines[^1];
+        foreach (var line in lines)
+        {
+            var inside = upstream ? cp > line.Start && cp <= line.End : cp >= line.Start && cp < line.End;
+            if (inside || (cp == line.Start && cp == line.End))
+            {
+                hit = line;
+                break;
+            }
+        }
+
+        var start = ToUtf16(hit.Start);
+        var end = ToUtf16(hit.End);
+        if (end > start && end <= _text.Length && _text[end - 1] == (char)10)
+        {
+            end--;
+        }
+
+        return (start, Math.Max(start, end));
     }
 
     public void Paint(SKCanvas canvas, float x, float y, int selStart, int selEnd)

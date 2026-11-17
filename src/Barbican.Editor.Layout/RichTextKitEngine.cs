@@ -38,6 +38,6 @@ public sealed class RichTextKitEngine : ITextLayoutEngine
             }
         }
 
-        return new RichTextKitBlockLayout(tb, block.Length, empty, style);
+        return new RichTextKitBlockLayout(tb, block.Text, empty, style);
     }
 }
