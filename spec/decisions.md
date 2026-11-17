@@ -312,7 +312,7 @@ merge-time counts.
 
 | ID | commit | area | decision or fix | reason | links |
 |---|---|---|---|---|---|
-| D-233 | m1-f2 | reader | Lite mode (`lite.rs`, the Blitz CPU renderer for mail) is dropped: there is no .NET Blitz equivalent. The plain-text render mode stays as the fallback. User OK pending: the user confirms at the M1 gate. T-159 `lite::renders_email_html` gets no C# test. | PORT-PLAN §1 "Deliberate drops", Appendix A and B (M1: "lite 1, marked dropped"). | B-READ-046, T-159, docs/PORT-PLAN.md |
+| D-233 | m1-f2 | reader | Lite mode (`lite.rs`, the Blitz CPU renderer for mail) is dropped: there is no .NET Blitz equivalent. The plain-text render mode stays as the fallback. **Approved by the user on 2026-11-17 ("drop it", HAND TEST 2 feedback; recorded by m2-hotfix-writes).** T-159 `lite::renders_email_html` gets no C# test. | PORT-PLAN §1 "Deliberate drops", Appendix A and B (M1: "lite 1, marked dropped"). | B-READ-046, T-159, docs/PORT-PLAN.md |
 
 ## M2 decisions (C# port)
 
