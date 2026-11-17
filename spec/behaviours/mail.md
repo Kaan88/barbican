@@ -102,3 +102,10 @@ Bulwark mapping: `mail-transfer/mail-import-dialog`, `lib/mail-import` (`mbox.ts
 - The Rust module has no tests for `glance.rs` (0 T- rows). The port must add tests for each tile's query.
 - B-MAIL-032 numbers (60 s retry, 60 s refresh) are from constants and were not re-checked against Bulwark's timings.
 - Tags use the FNV hash to agree with the JavaScript client (B-MAIL-013). Any change to the hash breaks existing `tag-` ids, so the port must keep the exact algorithm.
+
+## M1 status (stream mailcore)
+
+Ported in `m1-mailcore`: B-MAIL-003..005 (`MailRules`), B-MAIL-010..018 (`TagRules`, `TagRulesTests`), B-MAIL-019, B-MAIL-021 (thumbnail 80 px; Core decodes PNG
+itself and takes other formats from a platform `IImageDecoder`; the 200-entry session cache is the body stream's with the fetch), B-MAIL-020, B-MAIL-022..024
+(`AttachmentCards`), B-MAIL-046 (list header, flagged and storage tiles; the calendar and task tiles are M4: `GlanceTilesViewModel.SetCalendar`).
+B-MAIL-001, B-MAIL-002, B-MAIL-008, B-MAIL-009: `MessageListViewModel`, `FolderRows`, `RowText.CleanPreview`.

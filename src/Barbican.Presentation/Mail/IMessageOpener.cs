@@ -1,5 +1,5 @@
-// Mirrors: M1-plan §4.3 (list to reader). Contract stub from F2; owner mailcore. mailcore registers a header-only placeholder
-// (TryAdd); body replaces it with MessageLoader (Rust msgload.rs) in wave 3.
+// Mirrors: M1-plan §4.3 (list to reader). mailcore registers a header-only placeholder (TryAdd); body replaces it with MessageLoader
+// (Rust msgload.rs) in wave 3. Owner mailcore.
 
 namespace Barbican.Presentation.Mail;
 

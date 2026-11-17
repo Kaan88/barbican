@@ -1,4 +1,4 @@
-// Ported from Rust src/tags.rs tests (:190-:290). Red until the mailcore stream implements TagRules.
+// Ported from Rust src/tags.rs tests (:190-:290).
 
 using System.Text.Json.Nodes;
 using Barbican.Core.Mail.Tags;
@@ -11,7 +11,6 @@ public sealed class TagRulesTests
 
     [Fact]
     [RustTest("tags::ids_follow_bulwark")]
-    [Red("mailcore")]
     public void Ids_follow_bulwark()
     {
         Assert.Equal("work-stuff", TagRules.NormalizeLevel("  Work Stuff!! "));
@@ -33,7 +32,6 @@ public sealed class TagRulesTests
 
     [Fact]
     [RustTest("tags::fnv_matches_javascript")]
-    [Red("mailcore")]
     public void Fnv_matches_javascript()
     {
         // FNV-1a 32 of "a" is 0xe40c292c = 3826002220, base 36 "1r9wi7g"
@@ -42,7 +40,6 @@ public sealed class TagRulesTests
 
     [Fact]
     [RustTest("tags::tree_rows")]
-    [Red("mailcore")]
     public void Tree_rows()
     {
         List<TagDef> defs = [D("work"), D("home"), D("work/clients"), D("work/clients/acme"), D("lost/child")];
@@ -65,7 +62,6 @@ public sealed class TagRulesTests
 
     [Fact]
     [RustTest("tags::manage_tags")]
-    [Red("mailcore")]
     public void Manage_tags()
     {
         List<TagDef> defs = [D("work"), D("home")];
@@ -87,7 +83,6 @@ public sealed class TagRulesTests
 
     [Fact]
     [RustTest("tags::stored_tags_and_colours")]
-    [Red("mailcore")]
     public void Stored_tags_and_colours()
     {
         Assert.Equal(TagRules.Defaults(), TagRules.Parse(null));

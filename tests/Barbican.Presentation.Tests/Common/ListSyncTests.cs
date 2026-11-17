@@ -1,4 +1,4 @@
-// Ported from Rust src/listsync.rs tests (:175-:300). Red until the mailcore stream implements ListSync.
+// Ported from Rust src/listsync.rs tests (:175-:300).
 // The Slint VecModel becomes ObservableCollection<T>; "not a VecModel yet" (the default empty model) becomes a null collection.
 
 using System.Collections.ObjectModel;
@@ -16,7 +16,6 @@ public sealed class ListSyncTests
 
     [Fact]
     [RustTest("listsync::unchanged_rows_are_not_touched")]
-    [Red("mailcore")]
     public void Unchanged_rows_are_not_touched()
     {
         var m = Model(new(1, "a"), new(2, "b"), new(3, "c"));
@@ -26,7 +25,6 @@ public sealed class ListSyncTests
 
     [Fact]
     [RustTest("listsync::changed_row_is_set_in_place")]
-    [Red("mailcore")]
     public void Changed_row_is_set_in_place()
     {
         var m = Model(new(1, "a"), new(2, "b"), new(3, "c"));
@@ -37,7 +35,6 @@ public sealed class ListSyncTests
 
     [Fact]
     [RustTest("listsync::new_mail_on_top_is_one_insert")]
-    [Red("mailcore")]
     public void New_mail_on_top_is_one_insert()
     {
         var m = Model(new(1, "a"), new(2, "b"), new(3, "c"));
@@ -48,7 +45,6 @@ public sealed class ListSyncTests
 
     [Fact]
     [RustTest("listsync::deleted_row_is_one_remove")]
-    [Red("mailcore")]
     public void Deleted_row_is_one_remove()
     {
         var m = Model(new(1, "a"), new(2, "b"), new(3, "c"), new(4, "d"));
@@ -59,7 +55,6 @@ public sealed class ListSyncTests
 
     [Fact]
     [RustTest("listsync::load_more_appends")]
-    [Red("mailcore")]
     public void Load_more_appends()
     {
         var m = Model(new(1, "a"), new(2, "b"));
@@ -70,7 +65,6 @@ public sealed class ListSyncTests
 
     [Fact]
     [RustTest("listsync::mixed_insert_remove_update_and_move")]
-    [Red("mailcore")]
     public void Mixed_insert_remove_update_and_move()
     {
         var m = Model(new(1, "a"), new(2, "b"), new(3, "c"), new(4, "d"), new(5, "e"));
@@ -88,7 +82,6 @@ public sealed class ListSyncTests
 
     [Fact]
     [RustTest("listsync::mostly_new_list_resets_once")]
-    [Red("mailcore")]
     public void Mostly_new_list_resets_once()
     {
         var m = Model(new(1, "a"), new(2, "b"), new(3, "c"));
@@ -100,7 +93,6 @@ public sealed class ListSyncTests
 
     [Fact]
     [RustTest("listsync::big_reorder_resets")]
-    [Red("mailcore")]
     public void Big_reorder_resets()
     {
         var old = Enumerable.Range(0, 40).Select(i => new R(i, "x")).ToArray();
@@ -113,7 +105,6 @@ public sealed class ListSyncTests
 
     [Fact]
     [RustTest("listsync::filter_keeping_few_rows_resets")]
-    [Red("mailcore")]
     public void Filter_keeping_few_rows_resets()
     {
         var m = Model(Enumerable.Range(0, 40).Select(i => new R(i, "x")).ToArray());
@@ -125,7 +116,6 @@ public sealed class ListSyncTests
 
     [Fact]
     [RustTest("listsync::duplicate_keys_reset")]
-    [Red("mailcore")]
     public void Duplicate_keys_reset()
     {
         var m = Model(new(1, "a"), new(2, "b"));
@@ -136,7 +126,6 @@ public sealed class ListSyncTests
 
     [Fact]
     [RustTest("listsync::empty_and_clear")]
-    [Red("mailcore")]
     public void Empty_and_clear()
     {
         var m = Model();
@@ -151,7 +140,6 @@ public sealed class ListSyncTests
 
     [Fact]
     [RustTest("listsync::sync_into_installs_once_then_syncs_in_place")]
-    [Red("mailcore")]
     public void Sync_into_installs_once_then_syncs_in_place()
     {
         ObservableCollection<R>? installed = null;
@@ -165,7 +153,6 @@ public sealed class ListSyncTests
 
     [Fact]
     [RustTest("listsync::nested_rows_compare_by_content")]
-    [Red("mailcore")]
     public void Nested_rows_compare_by_content()
     {
         // Slint's == on ModelRc only compares identity; here the rule is the same: rows rebuilt from data compare by content.

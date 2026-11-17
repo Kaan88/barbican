@@ -68,3 +68,10 @@ Feel rules are measured, not eyeballed (PORT-PLAN section 4.5): every row marked
 
 - B-SYNC-031: the reason for `PREFETCH_INLINE_MAX` is in a source comment that was not re-read in this pass. Confirm before porting.
 - B-SYNC-022 cites the intent of the `mat-switching` WIP branch. That branch is not on `main`; it is pushed to the Rust repository as a `mat-*` branch (see `docs/legacy/branches.md`). Its diff was not read in this pass. The port should read it before M1 switching work.
+
+## M1 status (stream mailcore)
+
+Ported in `m1-mailcore`: B-SYNC-001..011 (`ListSync`, `ListSyncTests`, `MessageListViewModelTests`), B-SYNC-035 (`MailRules.Forced`, `MailRulesTests`),
+B-SYNC-036 (50 per page, anchor paging in `MessageListViewModel.LoadMoreAsync`; the page size follows `emailsPerPage`), B-SYNC-037 (list side: a pushed
+delta is one insert; the engine is the jmap stream), B-SYNC-038 (`MailRules.BadgeTitle`, `ShellViewModel.SetUnreadBadge`). B-SYNC-022..034 belong to the
+body stream (`MessageLoader`); `ReaderViewModel.Apply` gives them the one-step swap.

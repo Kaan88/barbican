@@ -1,8 +1,8 @@
 name,group,kind,permission,also_permission,payload,when,bulwark_ref,milestone,owner,cs_call_site,status
-onEmailsFetched,mail-list,transform,email:render-takeover,,"Email[] (list rows), { mailboxId }","after a page of the message list is loaded, before it is shown",lib/plugin-hook-catalog.ts:72,M1,mailcore,,pending
-onEmailListItemRender,mail-list,transform,email:read,,"EmailListBadge[], { email: EmailSummary }",for each visible row; returned badges are shown next to the subject,lib/plugin-hook-catalog.ts:73,M1,mailcore,,pending
-onEmailSelectionChange,mail-list,observer,email:read,,{ emailIds: string[] },when the set of selected messages changes,lib/plugin-hook-catalog.ts:74,M1,mailcore,,pending
-onMailboxChange,mail-list,observer,email:read,,"{ mailboxId, role, previousMailboxId }",when the user opens another folder,lib/plugin-hook-catalog.ts:75,M1,mailcore,,pending
+onEmailsFetched,mail-list,transform,email:render-takeover,,"Email[] (list rows), { mailboxId }","after a page of the message list is loaded, before it is shown",lib/plugin-hook-catalog.ts:72,M1,mailcore,src/Barbican.Presentation/Mail/MessageListViewModel.cs:433,done
+onEmailListItemRender,mail-list,transform,email:read,,"EmailListBadge[], { email: EmailSummary }",for each visible row; returned badges are shown next to the subject,lib/plugin-hook-catalog.ts:73,M1,mailcore,src/Barbican.Presentation/Mail/MessageListViewModel.cs:472,done
+onEmailSelectionChange,mail-list,observer,email:read,,{ emailIds: string[] },when the set of selected messages changes,lib/plugin-hook-catalog.ts:74,M1,mailcore,src/Barbican.Presentation/Mail/MessageListViewModel.cs:257,done
+onMailboxChange,mail-list,observer,email:read,,"{ mailboxId, role, previousMailboxId }",when the user opens another folder,lib/plugin-hook-catalog.ts:75,M1,mailcore,src/Barbican.Presentation/Mail/MessageListViewModel.cs:178,done
 onEmailOpen,mail-read,observer,email:read,,EmailReadView,when a message is opened,lib/plugin-hook-catalog.ts:78,M1,body,,pending
 onEmailClose,mail-read,observer,email:read,,{ emailId },when the open message is closed or replaced,lib/plugin-hook-catalog.ts:79,M1,body,,pending
 onRenderEmailBody,mail-read,transform,email:render-takeover,,"RenderableBody, MessageContext",before the body of an opened message is rendered,lib/plugin-hook-catalog.ts:80,M1,body,,pending
@@ -49,7 +49,7 @@ onBeforeEmailKeywordChange,mail-organize,intercept,email:write,,"{ emailIds, add
 onEmailKeywordChange,mail-organize,observer,email:read,,"{ emailIds, added: string[], removed: string[] }",after tags or other keywords changed,lib/plugin-hook-catalog.ts:128,M2,,,pending
 onBeforeEmailCategorize,mail-organize,intercept,email:read,,EmailCategorizeContext,before messages are moved to another inbox tab,lib/plugin-hook-catalog.ts:129,M2,,,pending
 onEmailCategorize,mail-organize,observer,email:read,,EmailCategorizeContext,after messages were moved to another inbox tab,lib/plugin-hook-catalog.ts:130,M2,,,pending
-onMailboxesRefresh,mail-mailboxes,observer,email:read,,MailboxView[],after the folder list was loaded or refreshed,lib/plugin-hook-catalog.ts:133,M1,mailcore,,pending
+onMailboxesRefresh,mail-mailboxes,observer,email:read,,MailboxView[],after the folder list was loaded or refreshed,lib/plugin-hook-catalog.ts:133,M1,mailcore,src/Barbican.Presentation/Shell/SidebarViewModel.cs:99,done
 onBeforeMailboxCreate,mail-mailboxes,intercept,email:write,,"{ name, parentId }",before a folder is created,lib/plugin-hook-catalog.ts:134,M2,,,pending
 onMailboxCreate,mail-mailboxes,observer,email:read,,"{ mailboxId, name, parentId }",after a folder was created,lib/plugin-hook-catalog.ts:135,M2,,,pending
 onBeforeMailboxRename,mail-mailboxes,intercept,email:write,,"{ mailboxId, name }",before a folder is renamed,lib/plugin-hook-catalog.ts:136,M2,,,pending
@@ -58,9 +58,9 @@ onBeforeMailboxDelete,mail-mailboxes,intercept,email:write,,"{ mailboxId, name }
 onMailboxDelete,mail-mailboxes,observer,email:read,,"{ mailboxId, name }",after a folder was deleted,lib/plugin-hook-catalog.ts:139,M2,,,pending
 onBeforeMailboxEmpty,mail-mailboxes,intercept,email:write,,"{ mailboxId, role }",before a folder (usually Trash or Spam) is emptied,lib/plugin-hook-catalog.ts:140,M2,,,pending
 onMailboxEmpty,mail-mailboxes,observer,email:read,,"{ mailboxId, role, count }",after a folder was emptied,lib/plugin-hook-catalog.ts:141,M2,,,pending
-onQuotaChange,mail-mailboxes,observer,email:read,,QuotaView,when the storage quota was read and changed,lib/plugin-hook-catalog.ts:142,M1,mailcore,,pending
-onSearch,mail-search,transform,email:read,,"{ query, filters: SearchFilters }",before a search runs; may change the query and filters,lib/plugin-hook-catalog.ts:145,M1,mailcore,,pending
-onSearchResults,mail-search,transform,email:read,,"string[], { query, filters, emailIds }",after search results arrived; return ids of further messages to add to them (at most 100),lib/plugin-hook-catalog.ts:146,M1,mailcore,,pending
+onQuotaChange,mail-mailboxes,observer,email:read,,QuotaView,when the storage quota was read and changed,lib/plugin-hook-catalog.ts:142,M1,mailcore,src/Barbican.Presentation/Shell/SidebarViewModel.cs:111,done
+onSearch,mail-search,transform,email:read,,"{ query, filters: SearchFilters }",before a search runs; may change the query and filters,lib/plugin-hook-catalog.ts:145,M1,mailcore,src/Barbican.Presentation/Mail/MessageListViewModel.cs:202,done
+onSearchResults,mail-search,transform,email:read,,"string[], { query, filters, emailIds }",after search results arrived; return ids of further messages to add to them (at most 100),lib/plugin-hook-catalog.ts:146,M1,mailcore,src/Barbican.Presentation/Mail/MessageListViewModel.cs:441,done
 onProvideSearchResults,mail-search,transform,email:read,,"ExternalSearchResult[], { query, filters }","to add results from elsewhere to a search; drawn above its message list (title and snippet, or one line of score, title, from and date when the user chooses); an entry naming a message (email) opens it on a click, any other click comes back as onAction with surface ""search-results"" and the entry's key",lib/plugin-hook-catalog.ts:147,M2,,,pending
 onBeforeAttachmentUpload,mail-attachments,intercept,email:read,,AttachmentInfo,before a file is attached in the composer,lib/plugin-hook-catalog.ts:150,M2,,,pending
 onBeforeBlobUpload,mail-attachments,transform,email:blob-write,,"{ file, blobId } | ExternalAttachmentResult",before an attachment is uploaded; may offload it,lib/plugin-hook-catalog.ts:151,M2,,,pending
@@ -180,9 +180,9 @@ onTotpChange,security,observer,security:read,,{ enabled },after two-factor sign-
 onAppPasswordChange,security,observer,security:read,,"{ change: ""created"" | ""removed"" }",after an app password was created or removed,lib/plugin-hook-catalog.ts:289,M2,,,pending
 onEncryptionChange,security,observer,security:read,,{ enabled },after encryption at rest was changed,lib/plugin-hook-catalog.ts:290,M2,,,pending
 onDisplayNameChange,security,observer,security:read,,{ displayName },after the account display name was changed,lib/plugin-hook-catalog.ts:291,M2,,,pending
-onNavigate,navigation,observer,ui:observe,,RouteContext,after the app moved to another page,lib/plugin-hook-catalog.ts:294,M1,mailcore,,pending
-onRouteEnter,navigation,observer,ui:observe,,RouteContext,when a page is entered,lib/plugin-hook-catalog.ts:295,M1,mailcore,,pending
-onRouteLeave,navigation,observer,ui:observe,,RouteContext,when a page is left,lib/plugin-hook-catalog.ts:296,M1,mailcore,,pending
+onNavigate,navigation,observer,ui:observe,,RouteContext,after the app moved to another page,lib/plugin-hook-catalog.ts:294,M1,mailcore,src/Barbican.Presentation/Shell/ShellViewModel.cs:116,done
+onRouteEnter,navigation,observer,ui:observe,,RouteContext,when a page is entered,lib/plugin-hook-catalog.ts:295,M1,mailcore,src/Barbican.Presentation/Shell/ShellViewModel.cs:117,done
+onRouteLeave,navigation,observer,ui:observe,,RouteContext,when a page is left,lib/plugin-hook-catalog.ts:296,M1,mailcore,src/Barbican.Presentation/Shell/ShellViewModel.cs:115,done
 onThemeChange,theme,observer,ui:observe,,"{ theme: ""light"" | ""dark"" | ""system"", resolved: ""light"" | ""dark"" }",after the colour scheme changed,lib/plugin-hook-catalog.ts:299,M1,shell-ui,,pending
 onCustomThemeChange,theme,observer,ui:observe,,{ themeId },after another theme was activated,lib/plugin-hook-catalog.ts:300,M10,,,pending
 onThemeBeforeApply,theme,transform,ui:observe,,"string (CSS), { themeId, variant }",before theme CSS is applied,lib/plugin-hook-catalog.ts:301,M1,shell-ui,,pending
@@ -190,18 +190,18 @@ onLocaleChange,theme,observer,ui:observe,,{ locale },after the app language chan
 onToastShow,notifications,observer,ui:notifications,,"{ id, type, title, message }",when the app shows a toast,lib/plugin-hook-catalog.ts:306,M8,,,pending
 onToastDismiss,notifications,observer,ui:notifications,,{ id },when a toast is dismissed,lib/plugin-hook-catalog.ts:307,M8,,,pending
 onNotificationClick,notifications,observer,ui:notifications,,{ tag },"when a notification the plugin showed, or one from the app, is clicked",lib/plugin-hook-catalog.ts:308,M8,,,pending
-onAppReady,app,observer,app:lifecycle,,{ accountId },once after the app has started and the mail data is loaded,lib/plugin-hook-catalog.ts:311,M1,mailcore,,pending
-onVisibilityChange,app,observer,app:lifecycle,,{ visible },when the tab is hidden or shown,lib/plugin-hook-catalog.ts:312,M1,mailcore,,pending
-onWindowFocus,app,observer,app:lifecycle,,{},when the window gains focus,lib/plugin-hook-catalog.ts:313,M1,mailcore,,pending
-onWindowBlur,app,observer,app:lifecycle,,{},when the window loses focus,lib/plugin-hook-catalog.ts:314,M1,mailcore,,pending
-onOnline,app,observer,app:lifecycle,,{},when the network comes back,lib/plugin-hook-catalog.ts:315,M1,mailcore,,pending
-onOffline,app,observer,app:lifecycle,,{},when the network goes away,lib/plugin-hook-catalog.ts:316,M1,mailcore,,pending
-onBeforeUnload,app,observer,app:lifecycle,,{},when the page is about to close,lib/plugin-hook-catalog.ts:317,M1,mailcore,,pending
-onAppError,app,observer,app:lifecycle,,{ message },when an unhandled error occurs in the app,lib/plugin-hook-catalog.ts:318,M1,mailcore,,pending
-onInterval,app,observer,app:lifecycle,,{ now },once a minute while the app is open,lib/plugin-hook-catalog.ts:319,M1,mailcore,,pending
+onAppReady,app,observer,app:lifecycle,,{ accountId },once after the app has started and the mail data is loaded,lib/plugin-hook-catalog.ts:311,M1,mailcore,src/Barbican.Presentation/Shell/ShellViewModel.cs:161,done
+onVisibilityChange,app,observer,app:lifecycle,,{ visible },when the tab is hidden or shown,lib/plugin-hook-catalog.ts:312,M1,mailcore,src/Barbican.Presentation/Shell/ShellViewModel.cs:174,done
+onWindowFocus,app,observer,app:lifecycle,,{},when the window gains focus,lib/plugin-hook-catalog.ts:313,M1,mailcore,src/Barbican.Presentation/Shell/ShellViewModel.cs:171,done
+onWindowBlur,app,observer,app:lifecycle,,{},when the window loses focus,lib/plugin-hook-catalog.ts:314,M1,mailcore,src/Barbican.Presentation/Shell/ShellViewModel.cs:171,done
+onOnline,app,observer,app:lifecycle,,{},when the network comes back,lib/plugin-hook-catalog.ts:315,M1,mailcore,src/Barbican.Presentation/Shell/ShellViewModel.cs:176,done
+onOffline,app,observer,app:lifecycle,,{},when the network goes away,lib/plugin-hook-catalog.ts:316,M1,mailcore,src/Barbican.Presentation/Shell/ShellViewModel.cs:176,done
+onBeforeUnload,app,observer,app:lifecycle,,{},when the page is about to close,lib/plugin-hook-catalog.ts:317,M1,mailcore,src/Barbican.Presentation/Shell/ShellViewModel.cs:179,done
+onAppError,app,observer,app:lifecycle,,{ message },when an unhandled error occurs in the app,lib/plugin-hook-catalog.ts:318,M1,mailcore,src/Barbican.Presentation/Shell/ShellViewModel.cs:185,done
+onInterval,app,observer,app:lifecycle,,{ now },once a minute while the app is open,lib/plugin-hook-catalog.ts:319,M1,mailcore,src/Barbican.Presentation/Shell/ShellViewModel.cs:189,done
 onViewChange,ui,observer,ui:observe,,"{ view: ""sidebar"" | ""list"" | ""viewer"" }","when the phone layout switches between folders, message list and message",lib/plugin-hook-catalog.ts:322,n/a,,,n/a(Bulwark phone layout: the desktop app has one layout)
-onSidebarToggle,ui,observer,ui:observe,,{ open },when the sidebar is opened or closed,lib/plugin-hook-catalog.ts:323,M1,mailcore,,pending
-onSidebarCollapse,ui,observer,ui:observe,,{ collapsed },when the sidebar is collapsed or expanded,lib/plugin-hook-catalog.ts:324,M1,mailcore,,pending
+onSidebarToggle,ui,observer,ui:observe,,{ open },when the sidebar is opened or closed,lib/plugin-hook-catalog.ts:323,M1,mailcore,src/Barbican.Presentation/Shell/ShellViewModel.cs:149,done
+onSidebarCollapse,ui,observer,ui:observe,,{ collapsed },when the sidebar is collapsed or expanded,lib/plugin-hook-catalog.ts:324,M1,mailcore,src/Barbican.Presentation/Shell/ShellViewModel.cs:157,done
 onDeviceTypeChange,ui,observer,ui:observe,,"{ deviceType: ""mobile"" | ""tablet"" | ""desktop"" }","when the layout switches between phone, tablet and desktop",lib/plugin-hook-catalog.ts:325,n/a,,,n/a(Bulwark phone/tablet/desktop switch: the desktop app has one layout)
 onColumnResize,ui,observer,ui:observe,,"{ column: ""sidebar"" | ""email-list"" | ""email-list-height"", width }",after a column was resized or reset,lib/plugin-hook-catalog.ts:326,M2,,,pending
 onMobileBack,ui,observer,ui:observe,,{},when Back is used on the phone layout,lib/plugin-hook-catalog.ts:327,n/a,,,n/a(Bulwark phone layout: the desktop app has one layout)
@@ -210,10 +210,10 @@ onDragStart,ui,observer,email:read,,"{ kind: ""email"", ids }",when messages sta
 onDragEnd,ui,observer,email:read,,"{ kind, ids, dropped }",when a drag ends,lib/plugin-hook-catalog.ts:330,M2,,,pending
 onEmailDrop,ui,observer,email:read,,"{ emailIds, targetMailboxId }",after messages were dropped on a folder,lib/plugin-hook-catalog.ts:331,M2,,,pending
 onTagDrop,ui,observer,email:read,,"{ emailIds, keyword }",after a tag was dropped on messages,lib/plugin-hook-catalog.ts:332,M2,,,pending
-onSidebarAppOpen,ui,observer,ui:observe,,{ appId },when a sidebar app is opened,lib/plugin-hook-catalog.ts:333,M1,mailcore,,pending
-onSidebarAppClose,ui,observer,ui:observe,,{ appId },when a sidebar app is closed,lib/plugin-hook-catalog.ts:334,M1,mailcore,,pending
-onBeforeShortcut,keyboard,intercept,ui:keyboard,,"{ key, action }",before an app shortcut runs; return false to stop it,lib/plugin-hook-catalog.ts:337,M1,mailcore,,pending
-onAfterShortcut,keyboard,observer,ui:keyboard,,"{ key, action }",after an app shortcut ran,lib/plugin-hook-catalog.ts:338,M1,mailcore,,pending
+onSidebarAppOpen,ui,observer,ui:observe,,{ appId },when a sidebar app is opened,lib/plugin-hook-catalog.ts:333,M1,mailcore,src/Barbican.Presentation/Shell/ShellViewModel.cs:119,done
+onSidebarAppClose,ui,observer,ui:observe,,{ appId },when a sidebar app is closed,lib/plugin-hook-catalog.ts:334,M1,mailcore,src/Barbican.Presentation/Shell/ShellViewModel.cs:118,done
+onBeforeShortcut,keyboard,intercept,ui:keyboard,,"{ key, action }",before an app shortcut runs; return false to stop it,lib/plugin-hook-catalog.ts:337,M1,mailcore,src/Barbican.Presentation/Input/KeyRouter.cs:80,done
+onAfterShortcut,keyboard,observer,ui:keyboard,,"{ key, action }",after an app shortcut ran,lib/plugin-hook-catalog.ts:338,M1,mailcore,src/Barbican.Presentation/Input/KeyRouter.cs:91,done
 onTabsChange,tabs,observer,ui:message-list-tabs,,MessageListTab[],after the set of inbox tabs changed,lib/plugin-hook-catalog.ts:341,M2,,,pending
 onTabActivate,tabs,observer,ui:message-list-tabs,,TabActivateContext,when another inbox tab is chosen,lib/plugin-hook-catalog.ts:342,M2,,,pending
 onTabCountsRefresh,tabs,observer,ui:message-list-tabs,,"Record<tabId, number>",after the unread counts per tab were refreshed,lib/plugin-hook-catalog.ts:343,M2,,,pending

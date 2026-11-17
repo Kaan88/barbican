@@ -9,15 +9,15 @@ Rust sources: `desktop/src/motion.rs`, `design/MOTION.md`, `tools/motion.py`, `t
 
 | ID | Rule | Source (Rust) | Bulwark ref | C# status |
 |---|---|---|---|---|
-| B-MOT-001 | `Motion.reduce` comes from Settings > Accessibility > Reduce motion. On "System" it comes from Windows' animation-effects setting, re-read on window activation. | motion.rs header (lines 1-4); test `setting_wins_over_system` (:81) | accessibility | pending (M1) |
-| B-MOT-002 | `Motion.rapid` is on while the list selection moves faster than an animation (key repeat). It is set on a user action, not per frame. | motion.rs:18 `RAPID` (150 ms); header | n/a | pending (M1) |
-| B-MOT-003 | A single-shot timer clears `rapid` after 180 ms of calm. | motion.rs:20 `CALM_AFTER` | n/a | pending (M1) |
-| B-MOT-004 | No per-frame work in the motion module. | motion.rs header (lines 3-4) | n/a | pending (M1) |
+| B-MOT-001 | `Motion.reduce` comes from Settings > Accessibility > Reduce motion. On "System" it comes from Windows' animation-effects setting, re-read on window activation. | motion.rs header (lines 1-4); test `setting_wins_over_system` (:81) | accessibility | ported (m1 mailcore: MotionSettings, MotionState; the views bind in shell-ui) |
+| B-MOT-002 | `Motion.rapid` is on while the list selection moves faster than an animation (key repeat). It is set on a user action, not per frame. | motion.rs:18 `RAPID` (150 ms); header | n/a | ported (m1 mailcore: MotionSettings, MotionState; the views bind in shell-ui) |
+| B-MOT-003 | A single-shot timer clears `rapid` after 180 ms of calm. | motion.rs:20 `CALM_AFTER` | n/a | ported (m1 mailcore: MotionSettings, MotionState; the views bind in shell-ui) |
+| B-MOT-004 | No per-frame work in the motion module. | motion.rs header (lines 3-4) | n/a | ported (m1 mailcore: MotionSettings, MotionState; the views bind in shell-ui) |
 | B-MOT-005 | Durations (design/MOTION.md tokens): fast 100 ms, list, enter 150 ms, exit 90 ms, view 110 ms, tip delay, pop scale, rise. | commit ea190d4 (ui/theme.slint `Motion`) | n/a | pending (M1) |
 | B-MOT-006 | Easing: enter cubic-bezier(0.2, 0, 0, 1); exit cubic-bezier(0.4, 0, 1, 1). | commit ea190d4 (`Ease`) | n/a | pending (M1) |
-| B-MOT-007 | With reduce motion on, every duration is multiplied by 0. | commit ea190d4 | accessibility | pending (M1) |
+| B-MOT-007 | With reduce motion on, every duration is multiplied by 0. | commit ea190d4 | accessibility | ported (m1 mailcore: MotionSettings, MotionState; the views bind in shell-ui) |
 | B-MOT-008 | Nothing gates input. State applies at once; animations retarget. | commit ea190d4 | n/a | pending (M1) |
-| B-MOT-009 | Late-content fades are instant while keys repeat (`Motion.late`). | commit 358bb57 | n/a | pending (M1) |
+| B-MOT-009 | Late-content fades are instant while keys repeat (`Motion.late`). | commit 358bb57 | n/a | ported (m1 mailcore: MotionSettings, MotionState; the views bind in shell-ui) |
 | B-MOT-010 | Popups (context menu, flyouts, menu panels, account switcher, dialogs, calendar preview) pop in; they are removed instantly. | commit ea190d4 | n/a | pending (M2) |
 | B-MOT-011 | Tooltips wait and then fade in; the toast slides in and fades out. | commit ea190d4 | n/a | pending (M2) |
 | B-MOT-012 | Shared buttons and nav rows give hover, press and selection feedback; the focus outline is shown. | commit ea190d4 | n/a | pending (M1) |

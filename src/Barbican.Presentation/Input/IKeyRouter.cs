@@ -1,4 +1,4 @@
-// Mirrors: spec/behaviours/shortcuts.md; hooks onBeforeShortcut / onAfterShortcut; M1-plan §4.3. Contract stub from F2; owner mailcore.
+// Mirrors: spec/behaviours/shortcuts.md; hooks onBeforeShortcut / onAfterShortcut; M1-plan §4.3. Owner mailcore.
 
 namespace Barbican.Presentation.Input;
 
