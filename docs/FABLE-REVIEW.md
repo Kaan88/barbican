@@ -1167,3 +1167,11 @@ Branch `m2-close-a` from `m2` (commits `56e9907` and the one after it). Closes i
   review asked for; the read-receipt path (`ReaderBannerActions.ReceiptAsync`) is changed but has no test.
 - **Decision (R3-01):** a read receipt for a row of a *shared* account is refused ("Receipts are sent only for mail of your own
   accounts."): the receipt would go out from the user's own identity for mail addressed to the group (not checked against Rust).
+- **R3-02 MailTarget contract** (written on `Core/Mail/Model/MailTarget.cs`): `AccountKey` the login whose writer takes the action
+  (the account on screen for a unified row), `AccountId` the JMAP account or empty for the login's own, `EmailId` the list id. Code
+  that talks to a server asks `Login`, `JmapAccountId(loginMailAccountId)` and `ServerId`. This keeps the writers (which route by the
+  row id, `UnifiedMailWriter`) unchanged instead of the review's "EmailId = server id" variant; review whether that is the better
+  trade. Constructors: `UnifiedTargetResolver`, `ContextPointerRouter` fallback (empty, no longer the account key), `ReaderMenuOpener`
+  and `RxSaveCommand` (`MailTarget.OfOpen`), `LiveMailActions`, `MailActionService.Tags` (empty = own). Consumers moved to the
+  contract: `AttachmentSaver`, `EmailParseOpener`, `TnefExpander`, `QuickRuleService` (refuses a row of another login: "Switch to that
+  message's account"), `InvitationBannerSource` (reads the invitation through the row's login). Test: `Presentation.Tests/Unified/RowMenuSaveTests.cs`.

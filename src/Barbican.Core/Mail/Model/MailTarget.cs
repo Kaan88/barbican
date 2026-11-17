@@ -25,6 +25,15 @@ public sealed record MailTarget(
     IReadOnlyDictionary<string, bool> MailboxIds,
     Keywords Keywords)
 {
+    /// <summary>The target of the message open in the reader (its id is a list id, as the reader keeps it): the shared account a unified row
+    /// names, else the login's own mail account (an empty account id), Fable review 3 R3-02.</summary>
+    public static MailTarget OfOpen(string accountKey, EmailBody body)
+    {
+        ArgumentNullException.ThrowIfNull(body);
+        var shared = Unified.UnifiedRows.ParseRow(body.Id)?.SharedAccount ?? string.Empty;
+        return new MailTarget(accountKey, shared, body.Id, body.ThreadId ?? string.Empty, body.Id, body.MailboxIds, body.Keywords);
+    }
+
     /// <summary>The source a unified row id names (login, shared account, server id), or null for a plain id.</summary>
     public Unified.UnifiedRowId? Source => Unified.UnifiedRows.ParseRow(EmailId) ?? Unified.UnifiedRows.ParseRow(RowId);
 
