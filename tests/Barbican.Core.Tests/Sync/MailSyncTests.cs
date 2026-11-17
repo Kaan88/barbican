@@ -144,12 +144,15 @@ public sealed class MailSyncTests
 
     [Fact]
     [Rfc("J-027", "RFC 8620 5.6")]
+    [Rfc("J-028", "RFC 8620 5.6")]
     public void The_delta_request_is_seven_linked_calls_and_queryChanges_has_no_maxChanges()
     {
         var (request, calls) = ListDeltaFetcher.Build("b", new System.Text.Json.Nodes.JsonObject { ["inMailbox"] = "m1" }, new ListStates("q", "e", "t"), 256);
         Assert.Equal(7, request.MethodCalls.Count);
         Assert.Equal(["Email/changes", "Email/queryChanges", "Email/get", "Email/get", "Thread/changes", "Thread/get", "Thread/get"], calls.Select(c => c.Method), StringComparer.Ordinal);
         Assert.Null(request.MethodCalls[1][1]!["maxChanges"]);
+        // upToId is optional and not used: the whole delta is applied (Rust jmap.rs:592)
+        Assert.Null(request.MethodCalls[1][1]!["upToId"]);
         Assert.Equal(256, (int)request.MethodCalls[0][1]!["maxChanges"]!);
         Assert.Equal("/added/*/id", (string?)request.MethodCalls[2][1]!["#ids"]!["path"]);
     }

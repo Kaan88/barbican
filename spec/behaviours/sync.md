@@ -60,8 +60,8 @@ Feel rules are measured, not eyeballed (PORT-PLAN section 4.5): every row marked
 
 | ID | Rule | Source | Reference | Tests |
 |---|---|---|---|---|
-| B-SYNC-036 | The message list is paged 50 at a time (`PAGE`). Load more anchors on the last loaded message (B-JMAP-027). | mail.rs:52 `PAGE` | | none (live) |
-| B-SYNC-037 | Push (EventSource) changes refresh the list through the delta (B-JMAP-020); a full reload only when the delta is refused (B-JMAP-019). | mail.rs `sync`, `reload`; jmap.rs push | | `list_delta_*` |
+| B-SYNC-036 | The message list is paged 50 at a time (`PAGE`). Load more anchors on the last loaded message (B-JMAP-027). | mail.rs:52 `PAGE` | | none (live) · **C#:** ported (pages of 50, PageSize; load more anchors on the last row: MailServiceTests.Load_more_pages_by_anchor_so_new_mail_does_not_shift_it) |
+| B-SYNC-037 | Push (EventSource) changes refresh the list through the delta (B-JMAP-020); a full reload only when the delta is refused (B-JMAP-019). | mail.rs `sync`, `reload`; jmap.rs push | | `list_delta_*` · **C#:** ported (MailSync: push → coalesced delta, ListResetEvent only when no delta: PushTests.Open_push_delta_never_resets_the_list, MailSyncTests.No_delta_resets_the_list) |
 | B-SYNC-038 | Window title shows the unread count in brackets, or plain "Barbican" at zero. | mail.rs:203 `badge_title` | | `unread_badge_title` |
 
 ## Open questions

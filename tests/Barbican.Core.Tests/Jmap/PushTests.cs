@@ -9,6 +9,7 @@ public sealed class PushTests
 {
     [Fact]
     [RustTest("jmap::sse_parser_events")]
+    [Rfc("J-042", "WHATWG HTML 9.2.6")]
     public void Sse_parser_events()
     {
         var p = new SseParser();
