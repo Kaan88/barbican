@@ -21,7 +21,7 @@ public sealed class RecipientFieldView : UserControl
     private static readonly TimeSpan BlurDelay = TimeSpan.FromMilliseconds(180);
 
     private readonly Grid _root = new() { ColumnSpacing = 10 };
-    private readonly TextBlock _label = new() { VerticalAlignment = VerticalAlignment.Top, Width = 38, FontSize = 12.5, Margin = new Thickness(0, 6, 0, 0) };
+    private readonly TextBlock _label = new() { VerticalAlignment = VerticalAlignment.Top, Width = 54, FontSize = 12.5, Margin = new Thickness(0, 6, 0, 0) };
     private readonly ChipPanel _panel = new();
     private readonly TextBox _input = new() { Style = (Style)Application.Current.Resources["TextBox.Bare"], FontSize = 13, MinHeight = 26, VerticalContentAlignment = VerticalAlignment.Center };
     private readonly ContentPresenter _trailing = new() { VerticalAlignment = VerticalAlignment.Top, Margin = new Thickness(0, 2, 0, 0) };

@@ -33,7 +33,7 @@
           <StackPanel Grid.Row="1" Spacing="0">
             <Grid x:Name="FromRow" MinHeight="34" ColumnSpacing="10" AutomationProperties.AutomationId="composer.from">
               <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="38" />
+                <ColumnDefinition Width="54" />
                 <ColumnDefinition Width="*" />
                 <ColumnDefinition Width="Auto" />
               </Grid.ColumnDefinitions>
@@ -56,7 +56,7 @@
             </StackPanel>
             <Grid MinHeight="36" ColumnSpacing="10">
               <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="38" />
+                <ColumnDefinition Width="54" />
                 <ColumnDefinition Width="*" />
               </Grid.ColumnDefinitions>
               <TextBlock Text="Subject" FontSize="12.5" Foreground="{StaticResource Dim}" VerticalAlignment="Center" TextWrapping="NoWrap" />

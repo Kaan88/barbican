@@ -25,6 +25,29 @@ public static class SampleComposeServices
         services.Replace(ServiceDescriptor.Singleton<IMailSender>(new SampleSender(drafts)));
         services.Replace(ServiceDescriptor.Singleton<IAttachmentUploader, SampleUploader>());
         services.Replace(ServiceDescriptor.Singleton<ITemplateStore, SampleTemplates>());
+        services.Replace(ServiceDescriptor.Singleton<IScheduledSends, SampleScheduled>());
+        services.Replace(ServiceDescriptor.Singleton<Barbican.Core.Compose.Recipients.IRecipientSources, SampleRecipients>());
+    }
+
+    private sealed class SampleRecipients : Barbican.Core.Compose.Recipients.IRecipientSources
+    {
+        public Task<Barbican.Core.Compose.Recipients.SuggestionSources> LoadAsync(string accountId, CancellationToken ct) => Task.FromResult(new Barbican.Core.Compose.Recipients.SuggestionSources
+        {
+            Contacts = [("Anna Berg", "anna@example.org"), ("Anders Kim", "anders@example.net"), ("Daniel Moreau", "daniel@example.com")],
+            Groups = [("g1", "Project team", [Barbican.Core.Compose.Recipients.Recipient.Addr("Anna Berg", "anna@example.org"), Barbican.Core.Compose.Recipients.Recipient.Addr("Daniel Moreau", "daniel@example.com")])],
+            Recent = [("", "sam@example.org"), ("Alice", "alice@example.org")],
+        });
+    }
+
+    private sealed class SampleScheduled : IScheduledSends
+    {
+        public long MaxDelayedSend(string accountId) => 7 * 24 * 3600;
+
+        public Task<Result<IReadOnlyList<ScheduledMessage>>> ListAsync(string accountId, CancellationToken ct) => Task.FromResult(Result<IReadOnlyList<ScheduledMessage>>.Ok([]));
+
+        public Task<Result<Unit>> RescheduleAsync(string accountId, string submissionId, DateTimeOffset at, CancellationToken ct) => Task.FromResult(Result<Unit>.Ok(default));
+
+        public Task<Result<string>> CancelAsync(string accountId, string submissionId, CancellationToken ct) => Task.FromResult(Result<string>.Ok("sample-email"));
     }
 
     private sealed class SampleSeeder(IActiveMail active) : IComposeSeeder

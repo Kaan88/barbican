@@ -29,7 +29,7 @@ public static class ComposerRegistration
         // links from the command line and from later launches, and the hand-off listener
         services.AddSingleton<IStartupTask, MailtoStartup>();
 #if AUTOMATION
-        services.AddBarbicanComposerAutomation();
+        _ = Views.Compose.Automation.ComposerAutomation.AddBarbicanComposerAutomation(services);
 #endif
         return services;
     }

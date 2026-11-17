@@ -20,10 +20,11 @@ public sealed class MailtoRouter
     private readonly IHookBus _hooks;
     private readonly IDialogService? _dialogs;
     private readonly IToastService? _toasts;
+    private readonly Func<string?>? _activeAccount;
     private readonly List<MailtoFields> _pending = [];
     private readonly Lock _gate = new();
 
-    public MailtoRouter(IComposerService composer, IAccountManager? accounts, IHookBus hooks, IDialogService? dialogs = null, IToastService? toasts = null)
+    public MailtoRouter(IComposerService composer, IAccountManager? accounts, IHookBus hooks, IDialogService? dialogs = null, IToastService? toasts = null, Func<string?>? activeAccount = null)
     {
         ArgumentNullException.ThrowIfNull(composer);
         ArgumentNullException.ThrowIfNull(hooks);
@@ -32,6 +33,7 @@ public sealed class MailtoRouter
         _hooks = hooks;
         _dialogs = dialogs;
         _toasts = toasts;
+        _activeAccount = activeAccount;
         if (accounts is not null)
         {
             accounts.ActiveChanged += (_, _) => _ = RetryPendingAsync(CancellationToken.None);
@@ -70,7 +72,7 @@ public sealed class MailtoRouter
     /// <summary>Opens the links that waited for a sign-in, one composer each (the one before is kept as a draft by the leave guard when it holds text).</summary>
     public async Task RetryPendingAsync(CancellationToken ct)
     {
-        if (_accounts?.Active is null)
+        if (_accounts?.Active is null && _activeAccount?.Invoke() is null)
         {
             return;
         }
@@ -99,7 +101,7 @@ public sealed class MailtoRouter
         var account = await ChooseAccountAsync(link, ct).ConfigureAwait(true);
         if (account is null)
         {
-            if (_accounts?.Accounts.Count is null or 0)
+            if (_accounts?.Accounts.Count is null or 0 && _activeAccount?.Invoke() is null)
             {
                 _ = _toasts?.Show(new ToastRequest(MailtoLink.SignInMessage(link)));
                 lock (_gate)
@@ -135,7 +137,8 @@ public sealed class MailtoRouter
         var list = _accounts?.Accounts ?? [];
         if (list.Count == 0)
         {
-            return null;
+            // no signed-in login, but a mail source is active (a sample-data run): it writes the message
+            return _activeAccount?.Invoke();
         }
 
         if (list.Count == 1 || _dialogs is null)

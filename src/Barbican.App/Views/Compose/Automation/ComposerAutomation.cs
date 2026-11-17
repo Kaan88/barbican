@@ -7,10 +7,8 @@ using Barbican.App.Views.Menus.Automation;
 using Barbican.Automation;
 using Barbican.Core.Compose;
 using Barbican.Presentation.Compose;
-using Barbican.Presentation.Compose.Pipeline;
 using Barbican.Presentation.Mail;
 using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.DependencyInjection.Extensions;
 
 namespace Barbican.App.Views.Compose.Automation;
 
@@ -210,7 +208,7 @@ public static class ComposerAutomation
             case "templates":
                 await c.OpenTemplatesAsync();
                 return c.Templates is null ? "error no templates" : $"ok {c.Templates.Items.Count} templates: {string.Join(" | ", c.Templates.Items.Select(t => t.Name))}";
-            case "template" when c.Templates is { } picker && int.TryParse(arg, out var n) && n >= 0 && n < picker.Items.Count:
+            case "template" when c.Templates is { } picker && int.TryParse(arg, NumberStyles.None, CultureInfo.InvariantCulture, out var n) && n >= 0 && n < picker.Items.Count:
                 await picker.InsertAsync(picker.Items[n]);
                 return "ok";
             case "tpl-search" when c.Templates is { } picker:
@@ -226,14 +224,14 @@ public static class ComposerAutomation
             case "bcc":
                 c.RevealBcc();
                 return "ok";
-            case "pick" when int.TryParse(arg, out var i):
+            case "pick" when int.TryParse(arg, NumberStyles.None, CultureInfo.InvariantCulture, out var i):
                 c.To.Pick(i);
                 return "ok";
             case "chip-remove":
                 return ChipRemove(c, arg);
             case "attach":
                 return await AttachAsync(c, arg);
-            case "cancel-upload" when int.TryParse(arg, out var u) && u >= 0 && u < c.Attachments.Count:
+            case "cancel-upload" when int.TryParse(arg, NumberStyles.None, CultureInfo.InvariantCulture, out var u) && u >= 0 && u < c.Attachments.Count:
                 c.RemoveAttachment(c.Attachments[u]);
                 return "ok";
             default:
@@ -244,7 +242,7 @@ public static class ComposerAutomation
     private static string ChipRemove(ComposerViewModel c, string arg)
     {
         var p = arg.Split(' ', StringSplitOptions.RemoveEmptyEntries);
-        if (p.Length < 2 || FieldOf(c, p[0]) is not { } f || !int.TryParse(p[1], out var i))
+        if (p.Length < 2 || FieldOf(c, p[0]) is not { } f || !int.TryParse(p[1], NumberStyles.None, CultureInfo.InvariantCulture, out var i))
         {
             return "error usage: compose-do chip-remove to|cc|bcc N";
         }
@@ -287,7 +285,7 @@ public static class ComposerAutomation
             return $"dialog {state.Presets.Count} presets: {string.Join(" | ", state.Presets.Select(p => p.Label))}";
         }
 
-        if (int.TryParse(arg, out var n))
+        if (int.TryParse(arg, NumberStyles.None, CultureInfo.InvariantCulture, out var n))
         {
             state.Choose(n);
         }
