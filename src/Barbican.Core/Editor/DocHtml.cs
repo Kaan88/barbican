@@ -1,5 +1,5 @@
 // Mirrors: Rust src/rte/html.rs (tag rust-final); Bulwark components/email/email-composer.tsx (TipTap HTML output), lib/email-html (inline styles); HTML Living Standard 13 (parsing, via AngleSharp).
-// Decisions: spec/decisions.md D-M3-B2 (import over the AngleSharp DOM), D-M3-B5 (sanitising), D-M3-B6 (draft quote detection also accepts single-quoted type=cite).
+// Decisions: spec/decisions.md D-M3B-02 (import over the AngleSharp DOM), D-M3B-05 (sanitising), D-M3B-06 (draft quote detection accepts any quoting of type=cite).
 
 using System.Globalization;
 using System.Net;
@@ -342,7 +342,8 @@ public static partial class DocHtml
             return null;
         }
 
-        var decoded = WebUtility.HtmlDecode("&" + name.ToString() + ";");
-        return decoded.Length > 0 && decoded[0] != '&' ? decoded : null;
+        var entity = "&" + name.ToString() + ";";
+        var decoded = WebUtility.HtmlDecode(entity);
+        return string.Equals(decoded, entity, StringComparison.Ordinal) ? null : decoded;
     }
 }

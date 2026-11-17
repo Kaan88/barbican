@@ -1,0 +1,7 @@
+a<b>&"c"  two spaces   three
+tab	here
+line
+break
+trailing break
+
+😀 and é
