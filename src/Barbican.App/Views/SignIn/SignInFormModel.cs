@@ -22,6 +22,7 @@ public sealed class SignInFormModel : ObservableObject
     private bool _busy;
     private string _status = string.Empty;
     private bool _isError;
+    private bool _canCancel;
 
     public SignInFormModel(IAccountManager? manager)
     {
@@ -30,6 +31,25 @@ public sealed class SignInFormModel : ObservableObject
 
     /// <summary>A sign-in worked; the shell shows the mail screen.</summary>
     public event EventHandler? SignedIn;
+
+    /// <summary>The user left the screen without signing in (only offered while another account is active: "Add account").</summary>
+    public event EventHandler? Cancelled;
+
+    /// <summary>True while the screen was opened from the account popover, so there is somewhere to go back to.</summary>
+    public bool CanCancel
+    {
+        get => _canCancel;
+        set => SetProperty(ref _canCancel, value);
+    }
+
+    public void Cancel()
+    {
+        Password = string.Empty;
+        Totp = string.Empty;
+        NeedsTotp = false;
+        Set(string.Empty, false);
+        Cancelled?.Invoke(this, EventArgs.Empty);
+    }
 
     public string Server
     {

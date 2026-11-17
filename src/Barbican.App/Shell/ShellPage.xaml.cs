@@ -1,6 +1,8 @@
 // Mirrors: spec/layout/shell.md (regions, breakpoints); Bulwark hooks/use-keyboard-shortcuts.ts (shortcuts are ignored while typing in a field); M1-plan §6.4.
 
+using Barbican.App.Motion;
 using Barbican.App.Theme;
+using Barbican.App.Views.Accounts;
 using Barbican.Core.Accounts;
 using Barbican.Presentation.Input;
 using Microsoft.UI.Xaml.Input;
@@ -23,6 +25,7 @@ public sealed partial class ShellPage : Page
         _keys = ViewHost.Find<IKeyRouter>();
         _accounts = ViewHost.Find<IAccountManager>();
         InitializeComponent();
+        Tip.SetHost(Overlay);
         _theme.Attach(Root);
         ApplyLook();
         _look.PropertyChanged += (_, _) => ApplyLook();
@@ -30,8 +33,10 @@ public sealed partial class ShellPage : Page
         PreviewKeyDown += OnPreviewKeyDown;
         if (_accounts is not null)
         {
-            _accounts.ActiveChanged += (_, _) => DispatcherQueue.TryEnqueue(ShowScreen);
-            SignInRegion.Form.SignedIn += (_, _) => ShowScreen();
+            _accounts.ActiveChanged += (_, _) => DispatcherQueue.TryEnqueue(() => ShowScreen());
+            SignInRegion.Form.SignedIn += (_, _) => ShowScreen(adding: false);
+            SignInRegion.Form.Cancelled += (_, _) => ShowScreen(adding: false);
+            ViewHost.Get<AccountPopoverModel>().AddAccountRequested += (_, _) => ShowScreen(adding: true);
         }
 
         ShowScreen();
@@ -49,9 +54,11 @@ public sealed partial class ShellPage : Page
     }
 
     // Sign-in shows when the accounts exist as a service and none is active; without the accounts stream (sample data) the mail screen shows.
-    private void ShowScreen()
+    // "Add account" in the popover shows the sign-in view over the mail screen too (spec I-010); Cancel or a finished sign-in returns.
+    private void ShowScreen(bool adding = false)
     {
-        var signedOut = _accounts is not null && _accounts.Active is null;
+        var signedOut = _accounts is not null && (adding || _accounts.Active is null);
+        SignInRegion.Form.CanCancel = adding;
         SignInRegion.Visibility = signedOut ? Visibility.Visible : Visibility.Collapsed;
         MailScreen.Visibility = signedOut ? Visibility.Collapsed : Visibility.Visible;
     }

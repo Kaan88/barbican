@@ -23,6 +23,7 @@ public sealed class ThemeController : IDisposable
     private FrameworkElement? _root;
     private ThemeVariant? _override;
     private ThemeVariant? _applied;
+    private string? _appliedSetting;
 
     public ThemeController(ShellViewModel shell, StyleState style, IHookBus hooks, IPrefsStore prefs)
     {
@@ -87,7 +88,8 @@ public sealed class ThemeController : IDisposable
     private void Apply(bool force)
     {
         var variant = _override ?? _shell.Variant;
-        if (!force && _applied == variant)
+        var setting = _prefs.Current.Str("theme", "system");
+        if (!force && _applied == variant && string.Equals(_appliedSetting, setting, StringComparison.Ordinal))
         {
             return;
         }
@@ -107,27 +109,35 @@ public sealed class ThemeController : IDisposable
 
         var css = ThemeCss.For(palette);
         CssApplied?.Invoke(this, new ThemeCssEventArgs(css));
-        if (before is { } previous && previous.Dark != variant.Dark)
+        // Bulwark stores/theme-store.ts:703-710: fired when the theme setting OR the resolved scheme changed (system -> dark while already dark counts), not for style or contrast.
+        var resolved = variant.Dark ? "dark" : "light";
+        if (before is { } previous && (previous.Dark != variant.Dark || !string.Equals(_appliedSetting, setting, StringComparison.Ordinal)))
         {
-            var setting = _prefs.Current.Str("theme", "system");
-            var resolved = variant.Dark ? "dark" : "light";
             _hooks.Fire(HookNames.OnThemeChange, () => new ThemeChangePayload(setting, resolved));
         }
 
+        _appliedSetting = setting;
+
         if (_hooks.HasHandlers(HookNames.OnThemeBeforeApply))
         {
-            _ = TransformAsync(css);
+            _ = TransformAsync(css, variant);
         }
     }
 
     // Bulwark applies the original CSS first and re-applies a plugin's version when it arrives; a newer variant makes the old answer stale.
-    private async Task TransformAsync(string css)
+    private async Task TransformAsync(string css, ThemeVariant variant)
     {
         var shaped = await _hooks.ShapeAsync(HookNames.OnThemeBeforeApply, css, CancellationToken.None);
         var dispatcher = _root?.DispatcherQueue;
         if (dispatcher is not null && !string.Equals(shaped, css, StringComparison.Ordinal))
         {
-            _ = dispatcher.TryEnqueue(() => CssApplied?.Invoke(this, new ThemeCssEventArgs(shaped)));
+            _ = dispatcher.TryEnqueue(() =>
+            {
+                if (_applied == variant)
+                {
+                    CssApplied?.Invoke(this, new ThemeCssEventArgs(shaped));
+                }
+            });
         }
     }
 }

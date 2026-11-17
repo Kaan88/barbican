@@ -13,6 +13,9 @@ public sealed partial class AccountPopoverView : UserControl
 
     public AccountPopoverModel Model { get; }
 
+    /// <summary>A row or "Add account" was chosen: the flyout that hosts the popover closes.</summary>
+    public event EventHandler? Chosen;
+
 #pragma warning disable VSTHRD100 // XAML event handlers must return void; the awaited call reports its own failure through the ViewModel
     private async void OnRowClick(object sender, RoutedEventArgs e)
 #pragma warning restore VSTHRD100
@@ -20,8 +23,13 @@ public sealed partial class AccountPopoverView : UserControl
         if (sender is FrameworkElement { Tag: string key })
         {
             await Model.SwitchAsync(key);
+            Chosen?.Invoke(this, EventArgs.Empty);
         }
     }
 
-    private void OnAddClick(object sender, RoutedEventArgs e) => Model.RequestAddAccount();
+    private void OnAddClick(object sender, RoutedEventArgs e)
+    {
+        Model.RequestAddAccount();
+        Chosen?.Invoke(this, EventArgs.Empty);
+    }
 }

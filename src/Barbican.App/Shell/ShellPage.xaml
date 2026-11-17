@@ -31,5 +31,7 @@
       </Grid>
     </Grid>
     <signin:SignInView x:Name="SignInRegion" Visibility="Collapsed" />
+    <!-- in-window tooltips (motion:Tip) draw here; never a ToolTip popup (ADR 0007) -->
+    <Canvas x:Name="Overlay" IsHitTestVisible="False" />
   </Grid>
 </Page>

@@ -45,6 +45,10 @@
             <TextBlock Text="Sign in with your browser" />
           </StackPanel>
         </Button>
+        <Button x:Name="CancelButton" Style="{StaticResource Button.Action}" HorizontalAlignment="Stretch" Height="36" CornerRadius="{x:Bind Look.ButtonRadius, Mode=OneWay}"
+                Visibility="{x:Bind views:Fmt.Vis(Form.CanCancel), Mode=OneWay}" Click="OnCancelClick" AutomationProperties.AutomationId="signin.cancel" AutomationProperties.Name="Cancel">
+          <TextBlock Text="Cancel" />
+        </Button>
         <Expander Header="Client ID (optional)" HorizontalAlignment="Stretch" AutomationProperties.AutomationId="signin.advanced" AutomationProperties.Name="Advanced">
           <TextBox PlaceholderText="Only for servers without dynamic client registration" Text="{x:Bind Form.ClientId, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
                    CornerRadius="{x:Bind Look.FieldRadius, Mode=OneWay}" AutomationProperties.AutomationId="signin.clientid" AutomationProperties.Name="Client ID" />

@@ -25,6 +25,8 @@ public sealed partial class SignInView : UserControl
 
     public StyleState Look { get; }
 
+    private void OnCancelClick(object sender, RoutedEventArgs e) => Form.Cancel();
+
 #pragma warning disable VSTHRD100 // XAML event handlers must return void; the awaited call reports its own failure through the ViewModel
     private async void OnSignInClick(object sender, RoutedEventArgs e) => await Form.SignInAsync();
 #pragma warning restore VSTHRD100

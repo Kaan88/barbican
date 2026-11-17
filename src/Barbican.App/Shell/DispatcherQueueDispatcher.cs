@@ -13,10 +13,8 @@ public sealed class DispatcherQueueDispatcher(DispatcherQueue queue) : IDispatch
     public void Post(Action action)
     {
         ArgumentNullException.ThrowIfNull(action);
-        if (!queue.TryEnqueue(() => action()))
-        {
-            throw new InvalidOperationException("The UI thread's queue is shut down.");
-        }
+        // After the window closed the queue is shut down; a late sync result is dropped (throwing here would crash the process from a thread-pool continuation).
+        _ = queue.TryEnqueue(() => action());
     }
 
     public Task InvokeAsync(Func<Task> action)

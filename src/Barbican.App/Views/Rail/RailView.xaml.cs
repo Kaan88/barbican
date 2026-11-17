@@ -15,6 +15,7 @@ public sealed partial class RailView : UserControl
         Rail = ViewHost.Get<RailViewModel>();
         Look = ViewHost.Get<StyleState>();
         InitializeComponent();
+        Popover.Chosen += (_, _) => AccountButton.Flyout?.Hide();
     }
 
     public RailViewModel Rail { get; }
