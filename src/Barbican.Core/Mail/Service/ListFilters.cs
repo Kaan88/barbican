@@ -15,14 +15,22 @@ public static class ListFilters
     {
         ArgumentNullException.ThrowIfNull(query);
         var conditions = new List<JsonObject>();
-        if (!string.IsNullOrEmpty(query.MailboxId))
+        if (query.Filter is { } shaped)
         {
-            conditions.Add(new JsonObject { ["inMailbox"] = query.MailboxId });
+            // the search shaper (M2) already holds the folder and the typed text as conditions (gsearch mailbox_search_filter), so they are not added again
+            conditions.Add((JsonObject)shaped.DeepClone());
         }
-
-        if (query.SearchText?.Trim() is { Length: > 0 } text)
+        else
         {
-            conditions.Add(new JsonObject { ["text"] = text });
+            if (!string.IsNullOrEmpty(query.MailboxId))
+            {
+                conditions.Add(new JsonObject { ["inMailbox"] = query.MailboxId });
+            }
+
+            if (query.SearchText?.Trim() is { Length: > 0 } text)
+            {
+                conditions.Add(new JsonObject { ["text"] = text });
+            }
         }
 
         if (!string.IsNullOrEmpty(query.HasKeyword))

@@ -45,6 +45,10 @@ public static class FilterEvaluator
             "text" => Text(e).Contains((string)value!, StringComparison.OrdinalIgnoreCase),
             "subject" => ((string?)e["subject"] ?? "").Contains((string)value!, StringComparison.OrdinalIgnoreCase),
             "from" => (e["from"]?.ToJsonString() ?? "").Contains((string)value!, StringComparison.OrdinalIgnoreCase),
+            "to" => (e["to"]?.ToJsonString() ?? "").Contains((string)value!, StringComparison.OrdinalIgnoreCase),
+            "hasAttachment" => ((bool?)e["hasAttachment"] ?? false) == (bool)value!,
+            "after" => string.CompareOrdinal((string?)e["receivedAt"], (string)value!) >= 0,
+            "before" => string.CompareOrdinal((string?)e["receivedAt"], (string)value!) <= 0,
             _ => false,
         };
     }
