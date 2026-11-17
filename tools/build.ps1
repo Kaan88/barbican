@@ -25,13 +25,15 @@
   tools/build.ps1 build -Project tests/Barbican.Core.Tests/Barbican.Core.Tests.csproj
   tools/build.ps1 gen-tokens          # regenerate design tokens from design/legacy-slint/theme.slint
   tools/build.ps1 gen-tokens -Check   # fail if the committed generated files are stale
-  tools/build.ps1 build -Head win     # App head only for one TFM (inner loop; App lands with spike S1)
+  tools/build.ps1 build -Head win     # App head only for one TFM (inner loop): win = WinUI, desktop = Uno Skia
+  tools/build.ps1 publish -Head win   # self-contained, unpackaged App into artifacts/publish/<head>/<rid>/ (Release)
+  tools/build.ps1 publish -Head desktop -Rid linux-x64
   tools/build.ps1 shutdown            # stop the compiler server when you finish (only if no build runs)
 #>
 [CmdletBinding()]
 param(
     [Parameter(Position = 0)]
-    [ValidateSet('build', 'test', 'restore', 'clean', 'gen-tokens', 'rules', 'shutdown')]
+    [ValidateSet('build', 'test', 'restore', 'clean', 'gen-tokens', 'rules', 'shutdown', 'publish')]
     [string]$Target = 'build',
     [string]$Project,
     [ValidateSet('Debug', 'Release')]
@@ -41,6 +43,7 @@ param(
     [string]$Class,
     [string]$Method,
     [switch]$Check,
+    [string]$Rid,
     [int]$WaitMinutes = 90,
     [Parameter(ValueFromRemainingArguments = $true)]
     [string[]]$Rest
@@ -185,6 +188,23 @@ try {
             if ($Class) { $testArgs += @('--filter-class', $Class) }
             if ($Method) { $testArgs += @('--filter-method', $Method) }
             Invoke-Dotnet ($testArgs + $extra)
+        }
+        'publish' {
+            # The App head, one TFM, self-contained and unpackaged (spike S1, docs/adr/0004).
+            if ($Head -notin @('win', 'desktop')) { throw '[build.ps1] publish needs -Head win or -Head desktop' }
+            if ($PSBoundParameters.ContainsKey('Project') -eq $false) { $Project = Join-Path $Root 'src/Barbican.App/Barbican.App.csproj' }
+            if (-not $Rid) { $Rid = if ($Head -eq 'win') { 'win-x64' } else { 'linux-x64' } }
+            $tfm = if ($Head -eq 'win') { 'net10.0-windows10.0.26100.0' } else { 'net10.0-desktop' }
+            $out = Join-Path $Root "artifacts/publish/$Head/$Rid"
+            $pubConfig = if ($PSBoundParameters.ContainsKey('Configuration')) { $Configuration } else { 'Release' }
+            $pub = @('publish', $Project, '-c', $pubConfig, '-f', $tfm, '-r', $Rid, '--self-contained', '-o', $out,
+                '-lowPriority', "-maxCpuCount:$cpu") + (Get-HeadArgs)
+            # The Windows App SDK picks its publish profile by Platform (win-<Platform>.pubxml): without
+            # it publish fails with NETSDK1198 (win-AnyCPU.pubxml).
+            if ($Head -eq 'win') { $pub += "-p:Platform=$($Rid.Split('-')[-1])" }
+            if ($env:BARBICAN_SHARED_COMPILER -ne '1') { $pub += '-p:UseSharedCompilation=false' }
+            Invoke-Dotnet ($pub + $extra)
+            Write-Host "[build.ps1] published to $out"
         }
         'gen-tokens' {
             $genProject = Join-Path $Root 'tools/Barbican.GenTokens/Barbican.GenTokens.csproj'

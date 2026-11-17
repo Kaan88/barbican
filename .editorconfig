@@ -64,3 +64,25 @@ generated_code = true
 dotnet_diagnostic.CA1707.severity = none
 dotnet_diagnostic.CA2007.severity = none
 dotnet_diagnostic.MA0004.severity = none
+
+# The app head (src/Barbican.App). WinUI and Uno find the Application class by the file name
+# App.xaml(.cs); its type cannot be called App inside namespace Barbican.App (MA0049), so the type
+# is BarbicanApp in App.xaml.cs. UI code continues on the dispatcher thread: ConfigureAwait(false)
+# there would be a bug, so CA2007/MA0004 are off for the head only. On Uno Skia every UIElement
+# implements the non-generic IEnumerable (its children), so CA1010 fires on each page and control.
+[src/Barbican.App/App.xaml.cs]
+dotnet_diagnostic.MA0048.severity = none
+
+[src/Barbican.App/**.cs]
+dotnet_diagnostic.CA1010.severity = none
+dotnet_diagnostic.CA2007.severity = none
+dotnet_diagnostic.MA0004.severity = none
+
+# Spikes (spikes/, docs/adr/0004, 0005): same reason as the App head for App.xaml.cs and the UI-thread rules.
+[spikes/*/App.xaml.cs]
+dotnet_diagnostic.MA0048.severity = none
+
+[spikes/**.cs]
+dotnet_diagnostic.CA1010.severity = none
+dotnet_diagnostic.CA2007.severity = none
+dotnet_diagnostic.MA0004.severity = none

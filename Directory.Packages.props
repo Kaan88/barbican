@@ -15,6 +15,10 @@
   <ItemGroup>
     <!-- Tests -->
     <PackageVersion Include="xunit.v3" Version="4.0.3" />
+    <!-- Spikes (spikes/): Uno's diagnostics to the console on the Linux head. The adapter's version is
+         Uno.Sdk's UnoVersion (global.json Uno.Sdk 6.7.49 -> Uno 6.7.424). -->
+    <PackageVersion Include="Microsoft.Extensions.Logging.Console" Version="10.0.14" />
+    <PackageVersion Include="Uno.UI.Adapter.Microsoft.Extensions.Logging" Version="6.7.424" />
     <!-- Presentation -->
     <PackageVersion Include="CommunityToolkit.Mvvm" Version="8.4.2" />
   </ItemGroup>

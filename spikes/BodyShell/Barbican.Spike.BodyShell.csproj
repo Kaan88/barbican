@@ -1,0 +1,38 @@
+<Project Sdk="Uno.Sdk">
+  <!--
+    Spike S2 (docs/adr/0005-body-shell.md): the mail body shell (port of the Rust mailview.rs
+    idea) on both heads, with an in-app scenario that measures it from captured frames.
+      tools/build.ps1 build -Project spikes/BodyShell/Barbican.Spike.BodyShell.csproj -Head win|desktop
+      run: Barbican.Spike.BodyShell.exe (off-screen, never activated; BARBICAN_SPIKE_OUT=<dir>)
+  -->
+  <PropertyGroup>
+    <TargetFrameworks>net10.0-windows10.0.26100.0;net10.0-desktop</TargetFrameworks>
+    <TargetFrameworks Condition="'$(BarbicanHead)' == 'win'">net10.0-windows10.0.26100.0</TargetFrameworks>
+    <TargetFrameworks Condition="'$(BarbicanHead)' == 'desktop'">net10.0-desktop</TargetFrameworks>
+    <OutputType>Exe</OutputType>
+    <UnoSingleProject>true</UnoSingleProject>
+    <RootNamespace>Barbican.Spike.BodyShell</RootNamespace>
+    <ApplicationTitle>Barbican body shell spike</ApplicationTitle>
+    <ApplicationId>org.barbican.spike.bodyshell</ApplicationId>
+    <ApplicationDisplayVersion>0.1</ApplicationDisplayVersion>
+    <UnoFeatures>SkiaRenderer;WebView</UnoFeatures>
+    <UnoDisableHotDesign>true</UnoDisableHotDesign>
+    <UnoDisableMCPSupport>true</UnoDisableMCPSupport>
+    <UnoDisableGenerateAssemblyInfoWorkaround>true</UnoDisableGenerateAssemblyInfoWorkaround>
+    <WinAppSdkVersion>2.6.5</WinAppSdkVersion>
+    <WindowsPackageType>None</WindowsPackageType>
+    <WindowsAppSDKSelfContained>true</WindowsAppSDKSelfContained>
+    <DefaultLanguage>en-US</DefaultLanguage>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <TargetPlatformMinVersion Condition="$(TargetFramework.Contains('-windows'))">10.0.19041.0</TargetPlatformMinVersion>
+  </PropertyGroup>
+  <ItemGroup>
+    <!-- The shell and the dark pass are the App's assets, used as they are. -->
+    <Content Include="../../src/Barbican.App/Assets/mail/*.js" Link="Assets/mail/%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+  <ItemGroup Condition="$(TargetFramework.EndsWith('-desktop'))">
+    <PackageReference Include="Microsoft.Extensions.Logging.Console" />
+    <PackageReference Include="Uno.UI.Adapter.Microsoft.Extensions.Logging" />
+  </ItemGroup>
+  <Import Project="../../eng/Uno.WebView2Name.targets" />
+</Project>

@@ -1,0 +1,55 @@
+<Project Sdk="Uno.Sdk">
+  <!--
+    The app head: one Uno single project, two target frameworks (PORT-PLAN.md §3.1 option A,
+    decided by spike S1, docs/adr/0004-uno-single-project.md).
+      net10.0-windows10.0.26100.0  the real WinUI 3 app on the Windows App SDK
+      net10.0-desktop              Uno Skia (X11 on Linux; also runs on Windows for quick checks)
+    Inner loop: tools/build.ps1 build -Head win|desktop builds one TFM (BarbicanHead below).
+    On Linux, Uno.Sdk drops the windows TFM by itself.
+  -->
+  <PropertyGroup>
+    <BarbicanWinTfm>net10.0-windows10.0.26100.0</BarbicanWinTfm>
+    <BarbicanDesktopTfm>net10.0-desktop</BarbicanDesktopTfm>
+    <TargetFrameworks>$(BarbicanWinTfm);$(BarbicanDesktopTfm)</TargetFrameworks>
+    <TargetFrameworks Condition="'$(BarbicanHead)' == 'win'">$(BarbicanWinTfm)</TargetFrameworks>
+    <TargetFrameworks Condition="'$(BarbicanHead)' == 'desktop'">$(BarbicanDesktopTfm)</TargetFrameworks>
+
+    <OutputType>Exe</OutputType>
+    <UnoSingleProject>true</UnoSingleProject>
+    <RootNamespace>Barbican.App</RootNamespace>
+    <AssemblyName>Barbican</AssemblyName>
+    <ApplicationTitle>Barbican</ApplicationTitle>
+    <ApplicationId>org.barbican.desktop</ApplicationId>
+    <ApplicationDisplayVersion>0.1</ApplicationDisplayVersion>
+    <ApplicationVersion>1</ApplicationVersion>
+    <ApplicationPublisher>Barbican authors</ApplicationPublisher>
+    <Description>Barbican, a desktop mail client for Stalwart (JMAP)</Description>
+
+    <!-- Only what the app uses: no Uno.Extensions, no Toolkit/Material (PORT-PLAN.md §3.3). -->
+    <UnoFeatures>SkiaRenderer;WebView</UnoFeatures>
+    <!-- No dev-time agents inside the app: Hot Design and the in-app MCP server are off. The
+         DevServer's Debug-only switch-off of the version attributes is reverted (CA1016). -->
+    <UnoDisableHotDesign>true</UnoDisableHotDesign>
+    <UnoDisableMCPSupport>true</UnoDisableMCPSupport>
+    <UnoDisableGenerateAssemblyInfoWorkaround>true</UnoDisableGenerateAssemblyInfoWorkaround>
+
+    <!-- The Windows App SDK the prototype uses (Uno.Sdk 6.7 defaults to 1.7; the override is
+         spike S1's first gate). Unpackaged and self-contained: no runtime install, no MSIX. -->
+    <WinAppSdkVersion>2.6.5</WinAppSdkVersion>
+    <WindowsPackageType>None</WindowsPackageType>
+    <WindowsAppSDKSelfContained>true</WindowsAppSDKSelfContained>
+    <!-- The Windows App SDK ships its strings as en-us; with the default "en" the PRI step fails (PRI257). -->
+    <DefaultLanguage>en-US</DefaultLanguage>
+    <TargetPlatformMinVersion Condition="$(TargetFramework.Contains('-windows'))">10.0.19041.0</TargetPlatformMinVersion>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../Barbican.Presentation/Barbican.Presentation.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- The body shell's scripts and the dark-mail pass, read at run time (PORT-PLAN.md §3.6). -->
+    <Content Include="Assets/mail/*.js" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+  <Import Project="../../eng/Uno.WebView2Name.targets" />
+</Project>

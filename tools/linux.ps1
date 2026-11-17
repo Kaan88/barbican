@@ -19,15 +19,23 @@
   tools/linux.ps1 test                   # current branch, all tests
   tools/linux.ps1 test -Branch m1/jmap -Class "*SessionTests"
   tools/linux.ps1 build
+  tools/linux.ps1 build -Project spikes/BodyShell/Barbican.Spike.BodyShell.csproj
+  tools/linux.ps1 setup-ui               # once: Xvfb + WebKitGTK for running the app head on the VM
+  tools/linux.ps1 xrun -Project spikes/BodyShell/Barbican.Spike.BodyShell.csproj -Out s2
+                                         # build for net10.0-desktop and run under the VM's own Xvfb;
+                                         # results copied to artifacts/linux/<Out>/
 #>
 [CmdletBinding()]
 param(
     [Parameter(Position = 0)]
-    [ValidateSet('setup', 'build', 'test', 'gen-tokens', 'ping')]
+    [ValidateSet('setup', 'setup-ui', 'build', 'test', 'gen-tokens', 'ping', 'xrun')]
     [string]$Target = 'test',
     [string]$Branch,
     [string]$Class,
     [string]$Method,
+    [string]$Project,
+    [string]$Out = 'run',
+    [int]$TimeoutSeconds = 300,
     [ValidateSet('Debug', 'Release')]
     [string]$Configuration = 'Debug'
 )
@@ -64,6 +72,7 @@ if ($Target -eq 'ping') {
 }
 
 if ($Target -eq 'setup') { Invoke-Vm @('setup'); exit 0 }
+if ($Target -eq 'setup-ui') { Invoke-Vm @('setup-ui'); exit 0 }
 
 if (-not $Branch) { $Branch = (& git -C $Root rev-parse --abbrev-ref HEAD).Trim() }
 $sha = (& git -C $Root rev-parse "refs/heads/$Branch").Trim()
@@ -73,7 +82,20 @@ if ($remoteSha -ne $sha) {
     throw "[linux.ps1] $Branch at $($sha.Substring(0, 7)) is not pushed (origin has '$remoteSha'). Push first: every commit is pushed right away."
 }
 
+if ($Target -eq 'xrun') {
+    if (-not $Project) { throw '[linux.ps1] xrun needs -Project' }
+    Write-Host "[linux.ps1] xrun $Project $Branch@$($sha.Substring(0, 7)) on the VM"
+    Invoke-Vm @('xrun', $Branch, $sha, $Project.Replace('\', '/'), $Out, "$TimeoutSeconds")
+    $local = Join-Path $Root "artifacts/linux/$Out"
+    New-Item -ItemType Directory -Force $local | Out-Null
+    $scpArgs = @('-i', $key, '-o', 'BatchMode=yes', '-r', "${vm}:barbican-out/$Out/*", $local)
+    & scp @scpArgs
+    if ($LASTEXITCODE -ne 0) { Write-Host "[linux.ps1] could not copy results back" } else { Write-Host "[linux.ps1] results in $local" }
+    exit 0
+}
+
 $buildArgs = @('-c', $Configuration)
+if ($Project) { $buildArgs += @('--project', $Project.Replace('\', '/')) }
 if ($Class) { $buildArgs += @('--class', $Class) }
 if ($Method) { $buildArgs += @('--method', $Method) }
 Write-Host "[linux.ps1] $Target $Branch@$($sha.Substring(0, 7)) on the VM"

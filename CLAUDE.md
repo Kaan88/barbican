@@ -65,6 +65,9 @@ AGENTS.md points here; this file is the single source of the rules.
 | Real-input rule check | `tools/build.ps1 rules` |
 | Linux build + tests (VM) | push first, then `tools/linux.ps1 test` (or `build`; `-Branch`, `-Class`, `-Method`) |
 | Linux VM first-time setup | `tools/linux.ps1 setup`; reachability: `tools/linux.ps1 ping` |
+| One head only (inner loop) | `tools/build.ps1 build -Head win` or `-Head desktop` (App head; `-Project` for others) |
+| Publish the app | `tools/build.ps1 publish -Head win -Rid win-x64` (or `-Head desktop -Rid linux-x64`) → `artifacts/publish/<head>/<rid>` |
+| Run a UI project on the VM | `tools/linux.ps1 setup-ui` once, then `tools/linux.ps1 xrun -Project <csproj> -Out <name>` (private Xvfb; results in `artifacts/linux/<name>`) |
 | Privacy check before commit | `sh tools/privacy-check.sh --worktree` |
 
 Run PowerShell scripts with `powershell -NoProfile -ExecutionPolicy Bypass -File tools/<script>.ps1 …`
@@ -76,7 +79,7 @@ runs on push or pull request. Wherever the plan says "CI", use the two commands 
 
 ## Layout
 ```
-Barbican.slnx               the solution (Core, Presentation, Platform, tests, tools); the App head joins with spike S1
+Barbican.slnx               the solution (Core, Presentation, Platform, App head, tests, tools)
 Directory.Build.props       strictness for every project (nullable, warnings as errors, analyzers)
 Directory.Packages.props    every package version (central package management)
 Directory.Build.rsp         -maxCpuCount:4 -nodeReuse:false
@@ -84,7 +87,7 @@ BannedSymbols.txt, eng/     banned APIs: all projects / Core / Presentation / te
 src/Barbican.Core/          net10.0, no UI types: models, JMAP, sync, services, settings schema
 src/Barbican.Presentation/  net10.0: ViewModels, menus/shortcuts as data, design tokens (Theme/)
 src/Barbican.Platform/      net10.0: platform service interfaces
-src/Barbican.App/           the Uno single-project head (created by spike S1); today only Themes/ and Assets/
+src/Barbican.App/           the Uno single-project head (Uno.Sdk, WinUI 3 + Uno Skia; docs/adr/0004); Assets/mail/shell.js
 tests/<Project>.Tests/      xUnit v3 on Microsoft.Testing.Platform; shared settings in tests/Directory.Build.props
 tests/fixtures/             test fixtures (Bulwark vectors, recorded responses, the spam-score plugin source)
 tools/                      build.ps1, build.sh, linux.ps1, privacy-check.sh, Barbican.GenTokens, auto.py & probes
@@ -93,6 +96,8 @@ docs/                       PORT-PLAN.md, ROADMAP.md, FABLE-REVIEW.md, adr/, leg
 design/                     README.md, MOTION.md, mockups/ (source of truth for the UI), legacy-slint/theme.slint
 packaging/                  icons, Linux .desktop and Debian scripts, install-kind markers, WiX source (reference)
 prototype/winui/            the WinUI 3 prototype (reference only, not in the solution, no strictness)
+prototype/uno/              the same prototype XAML built as an Uno single project (spike S1)
+spikes/                     throwaway M0 spikes (not in the solution; relaxed rules in spikes/Directory.Build.props)
 ```
 Rules for new code (PORT-PLAN.md §3.2, §4.1): one type per file (MA0048), one view per file, one
 ResourceDictionary and one DI registration file per feature, records for models, `Result<T>` for
