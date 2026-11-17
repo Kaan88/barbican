@@ -14,12 +14,11 @@
     <Grid.Resources>
       <DataTemplate x:Key="FolderTemplate" x:DataType="mail:FolderRowViewModel">
         <Grid Height="{x:Bind theme:StyleState.Current.FolderRowHeight, Mode=OneWay}" Padding="{x:Bind theme:StyleState.Current.FolderRowPadding, Mode=OneWay}"
-              Opacity="{x:Bind views:Fmt.MutedOpacity(Muted)}" ColumnSpacing="8" ColumnDefinitions="Auto,Auto,Auto,*,Auto,Auto"
-              AutomationProperties.AutomationId="{x:Bind Id}" AutomationProperties.Name="{x:Bind Name}">
+              Opacity="{x:Bind views:Fmt.MutedOpacity(Muted)}" ColumnSpacing="8" ColumnDefinitions="Auto,Auto,Auto,*,Auto,Auto">
           <Border Width="{x:Bind views:Fmt.IndentPx(Depth)}" />
           <Grid Grid.Column="1" Width="18" Height="18">
             <Button Style="{StaticResource Button.Icon}" Width="18" Height="18" CornerRadius="6" Foreground="{StaticResource Faint}" Click="OnChevronClick" Tag="{x:Bind Id}"
-                    Visibility="{x:Bind views:Fmt.VisChevron(Chevron)}" AutomationProperties.Name="Expand or collapse" IsTabStop="False">
+                    Visibility="{x:Bind views:Fmt.VisChevron(Chevron)}" AutomationProperties.AutomationId="{x:Bind views:Fmt.ChevronId(Id)}" AutomationProperties.Name="Expand or collapse" IsTabStop="False">
               <controls:SIcon Kind="{x:Bind views:Fmt.Chevron(Chevron)}" Size="12" StrokeWidth="2" />
             </Button>
           </Grid>
@@ -72,7 +71,7 @@
             <controls:SIcon Kind="Opt" Size="13" />
           </Button>
         </Grid>
-        <ListView Grid.Row="1" x:Name="FolderList" ItemsSource="{x:Bind Sidebar.Folders}" ItemTemplate="{StaticResource FolderTemplate}" SelectionMode="Single"
+        <ListView Grid.Row="1" x:Name="FolderList" ContainerContentChanging="OnFolderContainerChanging" ItemsSource="{x:Bind Sidebar.Folders}" ItemTemplate="{StaticResource FolderTemplate}" SelectionMode="Single"
                   Visibility="{x:Bind views:Fmt.Vis(Sidebar.FoldersExpanded), Mode=OneWay}" SelectionChanged="OnFolderSelectionChanged" Padding="0"
                   AutomationProperties.AutomationId="sidebar.folders" AutomationProperties.Name="Folder list">
           <ListView.ItemContainerTransitions>

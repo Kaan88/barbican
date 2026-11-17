@@ -35,6 +35,7 @@ public sealed partial class ShellPage : Page
         }
 
         ShowScreen();
+        Loaded += (_, _) => ViewHost.Get<ShellLifecycle>().Start(DispatcherQueue, _accounts?.Active?.Key);
     }
 
     // The region frame follows the style and the window width: one pass, nothing is rebuilt.

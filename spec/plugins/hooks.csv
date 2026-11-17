@@ -183,9 +183,9 @@ onDisplayNameChange,security,observer,security:read,,{ displayName },after the a
 onNavigate,navigation,observer,ui:observe,,RouteContext,after the app moved to another page,lib/plugin-hook-catalog.ts:294,M1,mailcore,src/Barbican.Presentation/Shell/ShellViewModel.cs:116,done
 onRouteEnter,navigation,observer,ui:observe,,RouteContext,when a page is entered,lib/plugin-hook-catalog.ts:295,M1,mailcore,src/Barbican.Presentation/Shell/ShellViewModel.cs:117,done
 onRouteLeave,navigation,observer,ui:observe,,RouteContext,when a page is left,lib/plugin-hook-catalog.ts:296,M1,mailcore,src/Barbican.Presentation/Shell/ShellViewModel.cs:115,done
-onThemeChange,theme,observer,ui:observe,,"{ theme: ""light"" | ""dark"" | ""system"", resolved: ""light"" | ""dark"" }",after the colour scheme changed,lib/plugin-hook-catalog.ts:299,M1,shell-ui,,pending
+onThemeChange,theme,observer,ui:observe,,"{ theme: ""light"" | ""dark"" | ""system"", resolved: ""light"" | ""dark"" }",after the colour scheme changed,lib/plugin-hook-catalog.ts:299,M1,shell-ui,src/Barbican.App/Theme/ThemeController.cs:114,done
 onCustomThemeChange,theme,observer,ui:observe,,{ themeId },after another theme was activated,lib/plugin-hook-catalog.ts:300,M10,,,pending
-onThemeBeforeApply,theme,transform,ui:observe,,"string (CSS), { themeId, variant }",before theme CSS is applied,lib/plugin-hook-catalog.ts:301,M1,shell-ui,,pending
+onThemeBeforeApply,theme,transform,ui:observe,,"string (CSS), { themeId, variant }",before theme CSS is applied,lib/plugin-hook-catalog.ts:301,M1,shell-ui,src/Barbican.App/Theme/ThemeController.cs:126,done
 onLocaleChange,theme,observer,ui:observe,,{ locale },after the app language changed,lib/plugin-hook-catalog.ts:302,M10,,,pending
 onToastShow,notifications,observer,ui:notifications,,"{ id, type, title, message }",when the app shows a toast,lib/plugin-hook-catalog.ts:306,M8,,,pending
 onToastDismiss,notifications,observer,ui:notifications,,{ id },when a toast is dismissed,lib/plugin-hook-catalog.ts:307,M8,,,pending

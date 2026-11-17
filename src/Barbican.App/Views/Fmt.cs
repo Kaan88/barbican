@@ -63,6 +63,8 @@ public static class Fmt
 
     public static FontWeight FolderWeight(int unread) => unread > 0 ? FontWeights.SemiBold : FontWeights.Normal;
 
+    public static string ChevronId(string folderId) => folderId + ".chevron";
+
     public static double IndentPx(int depth) => depth * 14;
 
     public static Brush TimeBrush(bool unread) => Palette(unread ? "Accent" : "Faint");

@@ -22,7 +22,7 @@
           </DataTemplate>
           <DataTemplate x:Key="MessageTemplate" x:DataType="mail:MessageRowViewModel">
             <Grid Padding="{x:Bind theme:StyleState.Current.MessageRowPadding, Mode=OneWay}" ColumnSpacing="{x:Bind theme:StyleState.Current.MessageRowSpacing, Mode=OneWay}"
-                  ColumnDefinitions="Auto,*" AutomationProperties.AutomationId="{x:Bind Id}" AutomationProperties.Name="{x:Bind Subject}">
+                  ColumnDefinitions="Auto,*">
               <Border Width="38" Height="38" VerticalAlignment="Top" Visibility="{x:Bind theme:StyleState.Current.ShowAvatar, Mode=OneWay}"
                       CornerRadius="{x:Bind theme:StyleState.Current.AvatarRadius, Mode=OneWay}" Background="{x:Bind views:Fmt.TintBg(TintIndex)}">
                 <TextBlock Text="{x:Bind Initials}" FontSize="12.5" FontWeight="Bold" Foreground="{x:Bind views:Fmt.TintFg(TintIndex)}" HorizontalAlignment="Center" VerticalAlignment="Center" />

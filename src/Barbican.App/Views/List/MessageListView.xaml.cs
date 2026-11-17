@@ -3,6 +3,7 @@ using Barbican.App.Shell;
 using Barbican.App.Theme;
 using Barbican.Presentation.Mail;
 using Barbican.Presentation.Shell;
+using Microsoft.UI.Xaml.Automation;
 using Microsoft.UI.Xaml.Input;
 
 namespace Barbican.App.Views.List;
@@ -123,7 +124,15 @@ public sealed partial class MessageListView : UserControl
 
     // A date-group header is not selectable.
 #pragma warning disable CA1822 // XAML event handler
-    private void OnContainerContentChanging(ListViewBase sender, ContainerContentChangingEventArgs args) => args.ItemContainer.IsEnabled = args.Item is not GroupHeaderViewModel;
+    private void OnContainerContentChanging(ListViewBase sender, ContainerContentChangingEventArgs args)
+    {
+        args.ItemContainer.IsEnabled = args.Item is not GroupHeaderViewModel;
+        if (args.Item is MessageRowViewModel row)
+        {
+            AutomationProperties.SetAutomationId(args.ItemContainer, row.Id);
+            AutomationProperties.SetName(args.ItemContainer, row.Subject);
+        }
+    }
 #pragma warning restore CA1822
 
     private void HookScroll()

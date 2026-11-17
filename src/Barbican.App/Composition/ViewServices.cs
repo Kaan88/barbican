@@ -2,6 +2,7 @@ using Barbican.App.Shell;
 using Barbican.App.Theme;
 using Barbican.App.Views.Accounts;
 using Barbican.App.Views.SignIn;
+using Barbican.Core.Accounts;
 using Barbican.Presentation.Common;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
@@ -23,9 +24,10 @@ public static class ViewServices
         // Replaces the inline dispatcher mailcore registers with TryAdd: the real one posts to the window's DispatcherQueue.
         services.Replace(ServiceDescriptor.Singleton<IDispatcher>(_ => new DispatcherQueueDispatcher(ViewHost.UiQueue ?? Microsoft.UI.Dispatching.DispatcherQueue.GetForCurrentThread() ?? throw new InvalidOperationException("No UI queue: the composition root must be built on the UI thread."))));
         services.TryAddSingleton<StyleState>();
+        services.TryAddSingleton<ShellLifecycle>();
         services.TryAddSingleton<ThemeController>();
-        services.TryAddSingleton<AccountPopoverModel>();
-        services.TryAddSingleton<SignInFormModel>();
+        services.TryAddSingleton(sp => new AccountPopoverModel(sp.GetService<IAccountManager>(), sp.GetRequiredService<IDispatcher>()));
+        services.TryAddSingleton(sp => new SignInFormModel(sp.GetService<IAccountManager>()));
 
         // Host.Build resolves the logger providers, which hands the finished provider to the views (see ViewHost.CaptureProvider).
         services.AddSingleton<ILoggerProvider>(ViewHost.CaptureProvider);

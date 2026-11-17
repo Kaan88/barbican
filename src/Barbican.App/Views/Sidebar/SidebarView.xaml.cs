@@ -3,6 +3,7 @@ using Barbican.App.Shell;
 using Barbican.App.Theme;
 using Barbican.Presentation.Mail;
 using Barbican.Presentation.Shell;
+using Microsoft.UI.Xaml.Automation;
 
 namespace Barbican.App.Views.Sidebar;
 
@@ -77,6 +78,18 @@ public sealed partial class SidebarView : UserControl
             _syncing = false;
         }
     }
+
+    // The item container is the selectable element UIA and the automation commands see, so it carries the id and the name (the folder's id and name).
+#pragma warning disable CA1822 // a XAML event handler
+    private void OnFolderContainerChanging(ListViewBase sender, ContainerContentChangingEventArgs args)
+    {
+        if (args.Item is FolderRowViewModel row)
+        {
+            AutomationProperties.SetAutomationId(args.ItemContainer, row.Id);
+            AutomationProperties.SetName(args.ItemContainer, row.Name);
+        }
+    }
+#pragma warning restore CA1822
 
     private void OnChevronClick(object sender, RoutedEventArgs e)
     {
