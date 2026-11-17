@@ -1,4 +1,5 @@
-// Mirrors: Rust attachments.rs show :81 (attachmentImagePreviewsEnabled), mail.rs hideInlineImageAttachments. Owner mailcore.
+// Mirrors: Rust attachments.rs show :81 (attachmentImagePreviewsEnabled), mail.rs hideInlineImageAttachments; RFC 8601 §5 (ServerHost).
+// Owner mailcore.
 
 namespace Barbican.Presentation.Mail;
 
@@ -12,4 +13,7 @@ public sealed record ReaderOptions
     public DateTimeOffset Now { get; init; } = DateTimeOffset.UnixEpoch;
 
     public TimeZoneInfo Zone { get; init; } = TimeZoneInfo.Utc;
+
+    /// <summary>The host of the account's server: only its Authentication-Results count (Fable F-07, D-9). Null: no chips, no verdict.</summary>
+    public string? ServerHost { get; init; }
 }

@@ -47,6 +47,7 @@ Bulwark mapping: `lib/email-headers.ts`. RFC 8601 (Authentication-Results). DMAR
 | B-READ-024 | An SPF pass counts only when `smtp.mailfrom` aligns with the From domain. | auth.rs:104 `spf_needs_aligned_mailfrom` | RFC 7489 | `spf_needs_aligned_mailfrom` |
 | B-READ-025 | DMARC fail, and SPF softfail with no aligned DKIM pass, are failures. `dkim=none` is not a failure. | auth.rs:111 `failure` | | `failures` |
 | B-READ-026 | `domain_of` lower-cases and strips the trailing dot. A sender without `@` has no domain. | auth.rs:119 | | `domains` |
+| B-READ-026a | Only the account server's own Authentication-Results count: the topmost header whose authserv-id is the server host or in its parent domain; any other header (the sender's own, in a sent copy or an import) gives no chips and no verdict. New in C# (Rust took the topmost header whatever its id). | (none; Rust auth.rs:55 took the topmost) | RFC 8601 §5, §7.1; D-9; Fable F-07 | done: ReaderViewModelTests.Only_the_account_servers_own_authentication_results_count, An_authserv_id_is_trusted_when_it_is_the_servers_domain, The_authserv_id_is_read_from_the_header |
 
 ## One-time codes (`otp.rs`) (M2)
 

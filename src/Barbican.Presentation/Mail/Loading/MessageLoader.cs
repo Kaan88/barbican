@@ -15,6 +15,7 @@
 
 using Barbican.Core.Common;
 using Barbican.Core.Jmap.Errors;
+using Barbican.Core.Mail.AuthResults;
 using Barbican.Core.Mail.Body;
 using Barbican.Core.Mail.Body.Hooks;
 using Barbican.Core.Mail.Model;
@@ -276,7 +277,7 @@ public sealed class MessageLoader : IMessageOpener, IConversationOpener, IDispos
 
         // the list's copy has the current keywords (a cached body may predate a flag or a read)
         var shown = body with { Keywords = row.Summary.Keywords };
-        var snapshot = ReaderSnapshots.FromBody(shown, fetched.Thread, _options());
+        var snapshot = ReaderSnapshots.FromBody(shown, fetched.Thread, _options() with { ServerHost = AuthServTrust.ServerHostOf(context.AccountKey) });
         ScheduleMarkRead(id, unseen ?? !body.Keywords.Seen, delay);
         var content = BodyRequest.ContentOf(body);
         if (!_hooks.HasHandlers(HookNames.OnRenderEmailBody))

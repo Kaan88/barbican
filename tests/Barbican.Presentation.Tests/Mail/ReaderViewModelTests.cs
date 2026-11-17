@@ -2,6 +2,7 @@
 // B-SYNC-029 (a failed fetch leaves nothing of the previous message), B-MAIL-019..024 (attachment cards). Owner mailcore.
 
 #pragma warning disable MA0002, VSTHRD003 // asserts compare strings ordinally by nature; fakes hand back TaskCompletionSource tasks on purpose
+using Barbican.Core.Mail.AuthResults;
 using Barbican.Core.Mail.Model;
 using Barbican.Presentation.Mail;
 using Barbican.Presentation.Tests.Support;
@@ -10,7 +11,7 @@ namespace Barbican.Presentation.Tests.Mail;
 
 public sealed class ReaderViewModelTests
 {
-    private static ReaderOptions Options() => new() { Now = Mails.Now, Zone = TimeZoneInfo.Utc };
+    private static ReaderOptions Options() => new() { Now = Mails.Now, Zone = TimeZoneInfo.Utc, ServerHost = "jmap.example.org" };
 
     private static EmailBody Body(string id = "b1", params Attachment[] attachments) =>
         new()
@@ -75,10 +76,54 @@ public sealed class ReaderViewModelTests
         var s = ReaderSnapshots.FromBody(Body(), null, Options());
         Assert.Equal(AuthVerdict.Verified, s.AuthVerdict);
         Assert.Equal([("dkim", "pass", true), ("spf", "fail", false), ("dmarc", "pass", true)], s.AuthChips.Select(c => (c.Method, c.Result, c.Aligned)));
-        var other = ReaderSnapshots.FromBody(Body() with { From = [new EmailAddress(null, "ceo@bank.example.com")], Headers = [new EmailHeader("Authentication-Results", "mx; dkim=pass header.d=evil.example.net")] }, null, Options());
+        var other = ReaderSnapshots.FromBody(Body() with { From = [new EmailAddress(null, "ceo@bank.example.com")], Headers = [new EmailHeader("Authentication-Results", "mx.example.org; dkim=pass header.d=evil.example.net")] }, null, Options());
         Assert.Equal(AuthVerdict.Unknown, other.AuthVerdict);
-        var failed = ReaderSnapshots.FromBody(Body() with { Headers = [new EmailHeader("Authentication-Results", "mx; dmarc=fail")] }, null, Options());
+        var failed = ReaderSnapshots.FromBody(Body() with { Headers = [new EmailHeader("Authentication-Results", "mx.example.org; dmarc=fail")] }, null, Options());
         Assert.Equal(AuthVerdict.Failed, failed.AuthVerdict);
+    }
+
+    [Fact]
+    public void Only_the_account_servers_own_authentication_results_count()
+    {
+        // F-07 / D-9: the server added no header (a sent copy, an import): the sender's own header claims dmarc=pass under its own id
+        var forged = new EmailHeader("Authentication-Results", "mail.shop.example.com; dkim=pass header.d=shop.example.com; dmarc=pass");
+        var alone = ReaderSnapshots.FromBody(Body() with { Headers = [forged] }, null, Options());
+        Assert.Equal(AuthVerdict.Unknown, alone.AuthVerdict);
+        Assert.Empty(alone.AuthChips);
+
+        // the forged header sits above the server's (a relay kept it): the server's verdict is the one shown
+        var server = new EmailHeader("Authentication-Results", "mx.example.org (comment); dmarc=fail");
+        var both = ReaderSnapshots.FromBody(Body() with { Headers = [forged, server] }, null, Options());
+        Assert.Equal(AuthVerdict.Failed, both.AuthVerdict);
+        Assert.Equal([("dmarc", "fail")], both.AuthChips.Select(c => (c.Method, c.Result)));
+
+        // no known server: nothing is trusted
+        Assert.Equal(AuthVerdict.Unknown, ReaderSnapshots.FromBody(Body(), null, Options() with { ServerHost = null }).AuthVerdict);
+    }
+
+    [Theory]
+    [InlineData("jmap.example.org", "jmap.example.org", true)]
+    [InlineData("jmap.example.org", "mx.example.org", true)]
+    [InlineData("jmap.example.org", "example.org", true)]
+    [InlineData("jmap.example.org", "mx.example.org.", true)]
+    [InlineData("jmap.example.org", "example.org.evil.example.net", false)]
+    [InlineData("jmap.example.org", "evilexample.org", false)]
+    [InlineData("jmap.example.org", "org", false)]
+    [InlineData("example.org", "mx.example.org", true)]
+    [InlineData("example.org", "other.org", false)]
+    [InlineData("localhost", "localhost", true)]
+    [InlineData(null, "mx.example.org", false)]
+    public void An_authserv_id_is_trusted_when_it_is_the_servers_domain(string? host, string id, bool trusted) =>
+        Assert.Equal(trusted, AuthServTrust.Trusts(host, id));
+
+    [Fact]
+    public void The_authserv_id_is_read_from_the_header()
+    {
+        Assert.Equal("mx.example.org", AuthenticationResults.AuthServId("mx.example.org 1; dkim=pass"));
+        Assert.Equal("mx.example.org", AuthenticationResults.AuthServId(" (c) mx.example.org;\r\n spf=pass"));
+        Assert.Null(AuthenticationResults.AuthServId("dkim=pass"));
+        Assert.Equal("example.org", AuthServTrust.ServerHostOf("https://Example.org:8443\nana@example.org"));
+        Assert.Null(AuthServTrust.ServerHostOf(null));
     }
 
     [Fact]

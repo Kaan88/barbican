@@ -569,3 +569,10 @@ F-13 and user decisions D-2, D-9, D-10, on branch `m1-fix-security` (from `m1` a
   Judgement: the allow-list holds logins, not account keys (server+login), matching the existing `IsReadOnly(user, …)`; a
   stricter key match can come with M2's writes. Who sets the variable: `tools/auto-run.ps1` (F-08 commit) points it at the main
   checkout's `.local/writable-accounts.txt` when that file exists; nobody creates the file in this stream.
+- **F-07 / D-9 authserv-id.** `Core/Mail/AuthResults/AuthServTrust.cs`, `AuthenticationResults.Trusted/AuthServId`; the reader
+  (`ReaderSnapshots.FromBody`) gets `ReaderOptions.ServerHost` from the account key in `MessageLoader.Present`. Judgement calls:
+  the id is not *learned* from Inbox mail (the review's suggestion); it is matched against the server host or its parent domain
+  (`mail.example.org` trusts `example.org` and `*.example.org`, never a bare TLD). Risk: a host directly under a two-label public
+  suffix (`example.co.uk`) would trust `*.co.uk`; there is no public suffix list. Learning the id per account (and pinning it) is
+  deferred to M2 with the trust banner (G-049). Hand test: open a received message on the live account and check the chip still
+  shows (Stalwart's authserv-id must sit in the server's parent domain).

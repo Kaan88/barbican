@@ -1,5 +1,7 @@
 // Mirrors: Rust auth.rs (parse :34, topmost :55, domain_of :60, aligned :66, aligned_dkim_pass :72, aligned_pass :79, failure :90);
 // RFC 8601; DMARC relaxed alignment (RFC 7489 §3.1); Bulwark lib/email-headers.ts. Owner mailcore.
+// Fable review 1 F-07 / D-9: the reader takes the topmost header whose authserv-id the account's server owns (Trusted, AuthServTrust), never
+// simply the topmost one; a message with no such header has no chips and no verdict.
 
 using System.Text;
 using Barbican.Core.Mail.Model;
@@ -47,7 +49,35 @@ public static class AuthenticationResults
         return output;
     }
 
-    /// <summary>The topmost Authentication-Results of a header list (the one our server wrote).</summary>
+    /// <summary>The authserv-id of one Authentication-Results value (RFC 8601 §2.2: the first token, before any version and the first ';').</summary>
+    public static string? AuthServId(string value)
+    {
+        ArgumentNullException.ThrowIfNull(value);
+        var head = StripComments(Unfold(value)).Split(';')[0].Trim();
+        var id = head.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries).FirstOrDefault();
+        return string.IsNullOrEmpty(id) || id.Contains('=', StringComparison.Ordinal) ? null : id.Trim('"');
+    }
+
+    /// <summary>
+    /// The topmost Authentication-Results whose authserv-id <paramref name="trusted"/> accepts (RFC 8601 §5), or nothing: a header from any
+    /// other id is the sender's word, not the server's.
+    /// </summary>
+    public static IReadOnlyList<AuthResult> Trusted(IReadOnlyList<EmailHeader> headers, Func<string, bool> trusted)
+    {
+        ArgumentNullException.ThrowIfNull(headers);
+        ArgumentNullException.ThrowIfNull(trusted);
+        foreach (var h in headers)
+        {
+            if (string.Equals(h.Name, "Authentication-Results", StringComparison.OrdinalIgnoreCase) && AuthServId(h.Value) is { } id && trusted(id))
+            {
+                return Parse(Unfold(h.Value));
+            }
+        }
+
+        return [];
+    }
+
+    /// <summary>The topmost Authentication-Results of a header list, whatever its authserv-id (Rust; the reader uses <see cref="Trusted"/>).</summary>
     public static IReadOnlyList<AuthResult> Topmost(IReadOnlyList<EmailHeader> headers)
     {
         ArgumentNullException.ThrowIfNull(headers);
