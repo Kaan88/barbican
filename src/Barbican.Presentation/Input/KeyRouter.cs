@@ -27,6 +27,8 @@ public sealed class KeyRouter : IKeyRouter
     private readonly ISystemAccessibilitySource _system;
     private readonly IHookBus _hooks;
     private readonly TimeProvider _time;
+    private readonly ShortcutCommands? _commands;
+    private readonly IReadOnlyList<IModalSurface> _modals;
     private long? _goArmedAt;
 
     public KeyRouter(
@@ -36,7 +38,9 @@ public sealed class KeyRouter : IKeyRouter
         IPrefsStore prefs,
         ISystemAccessibilitySource system,
         IHookBus hooks,
-        TimeProvider time)
+        TimeProvider time,
+        ShortcutCommands? commands = null,
+        IEnumerable<IModalSurface>? modals = null)
     {
         ArgumentNullException.ThrowIfNull(list);
         ArgumentNullException.ThrowIfNull(sidebar);
@@ -52,16 +56,27 @@ public sealed class KeyRouter : IKeyRouter
         _system = system;
         _hooks = hooks;
         _time = time;
+        _commands = commands;
+        _modals = modals?.ToList() ?? [];
     }
 
     /// <inheritdoc />
     public bool Handle(KeyChord chord, KeySource source)
     {
+        // an open menu, dialog, palette or sheet gets the key and no app key runs behind it (Bulwark lib/keyboard.ts:355, I-168)
+        foreach (var modal in _modals)
+        {
+            if (modal.IsOpen)
+            {
+                return modal.HandleKey(chord);
+            }
+        }
+
         var (name, shift) = Normalize(chord);
         if (chord.Alt)
         {
-            // no mail key uses Alt, and AltGr (Ctrl+Alt on Windows) types characters on many layouts (Fable F-16)
-            return false;
+            // no M1 mail key uses Alt, and AltGr (Ctrl+Alt on Windows) types characters on many layouts (Fable F-16); the tables read Alt+Shift+A
+            return TryCommands(chord);
         }
 
         if (source == KeySource.Keyboard && !chord.Control && name is "down" or "up")
@@ -82,7 +97,7 @@ public sealed class KeyRouter : IKeyRouter
         {
             // an unrelated key ends a pending g
             _goArmedAt = null;
-            return false;
+            return TryCommands(chord);
         }
 
         var allowed = _hooks.AllowAsync(HookNames.OnBeforeShortcut, () => new ShortcutPayload(Spell(chord), action), CancellationToken.None);
@@ -94,6 +109,30 @@ public sealed class KeyRouter : IKeyRouter
         }
 
         var handled = Perform(action);
+        if (handled)
+        {
+            _hooks.Fire(HookNames.OnAfterShortcut, () => new ShortcutPayload(Spell(chord), action));
+        }
+
+        return handled;
+    }
+
+    // the keys of the shortcut tables (M2 menus): a command by id, when a handler exists and it can run now
+    private bool TryCommands(KeyChord chord)
+    {
+        if (_commands is null || !_commands.TryResolve(chord, _shell.ActiveApp, A11y.From(_prefs.Current, _system.Current).SingleKeys, out var id))
+        {
+            return false;
+        }
+
+        var action = "cmd:" + id;
+        var allowed = _hooks.AllowAsync(HookNames.OnBeforeShortcut, () => new ShortcutPayload(Spell(chord), action), CancellationToken.None);
+        if (allowed.IsCompleted && !allowed.GetAwaiter().GetResult())
+        {
+            return true;
+        }
+
+        var handled = _commands.Run(id);
         if (handled)
         {
             _hooks.Fire(HookNames.OnAfterShortcut, () => new ShortcutPayload(Spell(chord), action));

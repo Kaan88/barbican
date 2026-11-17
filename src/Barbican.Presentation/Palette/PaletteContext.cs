@@ -1,5 +1,7 @@
 // Mirrors: Rust palette.rs:70 Ctx (what the palette offers depends on where it was opened). Stub from stage F of M2; owner menus.
 
+using Barbican.Core.Mail.Model;
+
 namespace Barbican.Presentation.Palette;
 
 /// <summary>Where the palette was opened and what is true there.</summary>
@@ -42,4 +44,7 @@ public sealed record PaletteContext
     public IReadOnlyList<string> Accounts { get; init; } = [];
 
     public string Account { get; init; } = string.Empty;
+
+    /// <summary>The messages a mail command of the palette applies to (the list's selection).</summary>
+    public IReadOnlyList<MailTarget> Targets { get; init; } = [];
 }

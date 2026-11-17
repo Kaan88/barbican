@@ -103,7 +103,8 @@ public static class PaletteModel
         }
 
         const string nav = "Go to";
-        v.Add(Cmd("go:mail", nav, "mail", "Go to Mail", string.Empty));
+        // "Inbox" is a keyword so that "go inbox" finds Mail (the g i key goes to the Inbox)
+        v.Add(Cmd("go:mail", nav, "mail", "Go to Mail", string.Empty, "Inbox"));
         if (x.Calendars)
         {
             v.Add(Cmd("go:calendar", nav, "calendar", "Go to Calendar", string.Empty));
