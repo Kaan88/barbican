@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Platform services: the secret store against a throwaway target (Barbican.Next/test-<guid>/,
+       deleted after), fake-store tests, the ADR 0008 import. net10.0 runs everywhere; the Windows
+       implementation is referenced on Windows only. Created by stage F1; filled by the accounts stream. -->
+  <PropertyGroup>
+    <TargetFramework Condition="'$(OS)' == 'Windows_NT'">net10.0-windows10.0.26100.0</TargetFramework>
+    <TargetPlatformMinVersion Condition="'$(OS)' == 'Windows_NT'">10.0.19041.0</TargetPlatformMinVersion>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../../src/Barbican.Platform/Barbican.Platform.csproj" />
+    <ProjectReference Include="../../src/Barbican.Platform.Linux/Barbican.Platform.Linux.csproj" />
+  </ItemGroup>
+  <ItemGroup Condition="'$(OS)' == 'Windows_NT'">
+    <ProjectReference Include="../../src/Barbican.Platform.Windows/Barbican.Platform.Windows.csproj" />
+  </ItemGroup>
+</Project>

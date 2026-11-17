@@ -1,13 +1,18 @@
 # Automation protocol (Layer A)
 
-The hidden in-app automation server of AUTOMATION builds (`BARBICAN_AUTOMATION=1`, loopback only,
-`BARBICAN_AUTOMATION_PORT`, default 8792). One command per line, one reply line. The command set is the one of the
+The hidden in-app automation server of AUTOMATION builds (the `Automation` build configuration:
+`tools/build.ps1 build -Configuration Automation -Head win`; `src/Barbican.Automation`), loopback only,
+`BARBICAN_AUTOMATION_PORT` (default 8792), profile `BARBICAN_PROFILE` (default `auto-<port>`). Launch on Windows with
+`tools/auto-run.ps1 start` (SW_HIDE, own port and profile, stops only its own process; `-PrivateDesktop` for
+popup probes); on Linux with `tools/linux.ps1 xrun -Configuration Automation -Script auto` (private Xvfb only). One command per line, one reply line. The command set is the one of the
 Rust app (`src/automation.rs` header at tag `rust-final`), so `tools/auto.py`, `tools/motion.py`, `tools/flicker.py` and
 `tools/scenarios.py` run unchanged. Decisions and measurements: [ADR 0007](../docs/adr/0007-hidden-automation.md).
 Reference implementation of the transport, click, capture and probe commands: `spikes/s4-automation/`.
 
-Status column: **spike** = implemented and measured in `spikes/s4-automation`; **M1** = to port with the real app;
-**n/a** = cannot be done in-process (Layer C); **drop** = Rust-only.
+Status column: **spike** = implemented and measured in `spikes/s4-automation`; **F1** = ported to
+`src/Barbican.Automation` by M1 stage F1 (every spike command below is, except where noted); **M1** = to port with the
+real app; **n/a** = cannot be done in-process (Layer C); **drop** = Rust-only. On Linux (Uno desktop head under the
+VM's Xvfb) the UIA commands fall back to peers and `wshot`/`probe`/`burst` use the Xvfb root picture.
 
 Coordinates are logical px of the window's client area. Replies: `ok`, a value, or `error ...` / `unknown command ...`.
 
@@ -19,7 +24,7 @@ Coordinates are logical px of the window's client area. Replies: `ok`, a value, 
 | `peer-click X Y` | in-process AutomationPeer path (needed for XAML drawn over a WebView2, invisible to UIA clients) | spike |
 | `scroll X Y DY` | `ScrollViewer.ChangeView` under the point (DY in px, positive = down) | spike |
 | `type TEXT` | appends to the Value pattern of the XAML-focused element | spike |
-| `key CHORD` | `KeyRouter.Handle` (Enter, Escape, Tab, Up, Down, Ctrl+N in the spike; the full table with the app) | spike, M1 |
+| `key CHORD` | `KeyRouter.Handle` (Enter, Escape, Tab, Up, Down, Ctrl+N in the spike; the full table with the app). F1 replies `error no key router yet`; the stream that owns the KeyRouter registers `key` as an `IAutomationCommand` | spike, M1 |
 | `move X Y` | accepted as a no-op (no hover injection in-process) | spike (no-op) |
 | `drag X1 Y1 X2 Y2` | not possible in-process | n/a (Layer C) |
 | `every MS N CMD` | UI-thread timer; a token `A+Bi` becomes A + B*i for the i-th run | spike |
@@ -32,7 +37,10 @@ Coordinates are logical px of the window's client area. Replies: `ok`, a value, 
 | `invoke ID`, `select ID`, `text ID VALUE` | in-process peer variants (work over a WebView2) | spike |
 | `uia-find TEXT`, `uia-tree`, `tree` | debugging: UIA elements by name with rectangle and patterns; elements that carry an AutomationId | spike |
 | `patterns X Y` | peer classes and patterns along the ancestors of the point (debugging) | spike |
-| `status`, `focus-guard` | spike-only read-outs (status text; foreground window and cursor position for the no-focus proof) | spike |
+| `status` | spike-only status text | spike (drop) |
+| `focus-guard` | `fg=<hwnd> own=<hwnd> own-is-foreground=yes\|no cursor=X,Y`: the no-focus proof (Windows) | F1 |
+| `popup-guard` | `open N closed M[: types]`: the fail-closed popup guard's view (see Rules) | F1 |
+| `popup-probe KIND [free]` | opens one popup control in code (menuflyout, flyout, commandbarflyout, popup, teachingtip, combobox, tooltip, autosuggest, contentdialog), replies `probe KIND constrained=yes\|no\|none guard-closed=N` or the guard's error. **Only on a private desktop** (`tools/auto-run.ps1 start -PrivateDesktop`) | F1 |
 
 ## Capture and measurement
 | Command | Meaning | Status |
@@ -41,13 +49,13 @@ Coordinates are logical px of the window's client area. Replies: `ok`, a value, 
 | `wshot PATH.png` | whole window incl. WebView2 and in-window flyouts, Windows.Graphics.Capture, client area | spike |
 | `wshot-pw PATH.png` | `PrintWindow`; **black for WinUI 3**, kept only to document that it is not a fallback | spike (drop in M1) |
 | `burst MS EVERY DIR [STEP]`, `burst-status` | WGC frames of the window into DIR (`f####_<ms>.png`, `events.txt`, `meta.json`); `tools/flicker.py` reads it | spike |
-| `probe-start [wgc\|rendering]`, `probe-stop` | `{"frames":[[start,end],...],"events":[[t,cmd],...],"source":...}`, ms since start; `tools/motion.py` reads it | spike |
+| `probe-start [wgc\|rendering\|x11]`, `probe-stop` | `{"frames":[[start,end],...],"events":[[t,cmd],...],"source":...}`, ms since start; `tools/motion.py` reads it. `x11` (Linux default) polls the window's Xvfb rectangle every 8 ms and records changed pictures | spike, F1 (x11) |
 | `size`, `resize W H`, `title` | physical size and scale (`W H scale S`), logical resize, window title (with unread badge in the app) | spike |
 | `motion reduce\|normal\|rapid\|calm` | in-memory motion settings | spike (flag only) |
 | `theme dark\|light`, `ui bento\|nordic dark\|light [more\|normal]` | in-memory style, theme, contrast | spike (theme), M1 (ui) |
 | `anim comp\|sb` | spike-only: a 150 ms composition-thread or storyboard animation | spike |
 | `wv-eval JS` | runs JS in the web view and returns its result directly (the Rust `wv-result` poll is not needed) | spike |
-| `close` | closes the window | spike |
+| `close` | replies `ok`, then closes the window 200 ms later | spike |
 
 ## To port with the real app (M1+), same names and meaning as the Rust header
 `pick PATH[|PATH...]`, `save PATH`/`savepick PATH` (queued answers for the file pickers), `rx-banners`, `cal-dump TEXT`,
@@ -58,5 +66,13 @@ Write-capable test commands (`rx-import`, `rx-find`, `rx-destroy`) exist only in
 
 ## Rules for scripts
 - Every popup of the app is `ShouldConstrainToRootBounds` (otherwise it is outside the capture and can appear on the real screen).
+  `tests/Barbican.Automation.Tests/PopupLintTests.cs` enforces it on the App's XAML with a deny list
+  (`src/Barbican.Automation/Protocol/PopupControls.cs`: CommandBarFlyout, ComboBox, ToolTip, AutoSuggestBox, pickers, ...).
+- The popup guard (AUTOMATION builds) sweeps the open popups every 10 ms and around every command, closes each one with
+  `IsConstrainedToRootBounds == false` and makes the running (or next) command reply `error unconstrained-popup <type>`.
+  It reacts; it does not prevent the first frame of such a popup (docs/adr/0007 "M1 F1").
+- `Barbican --smoke REPORT.json` (every configuration, Release included) runs hidden, waits for the body shell's `shell`
+  message and writes `{"schema":1,"ok",...,"processToFirstFrameMs","processToShellReadyMs","exitCode"}`; exit 0 = ok,
+  2 = cannot run hidden here, 3 = no shell within 60 s, 4 = shell failed.
 - Frame times are WGC present times: on the dev machine one frame every 20.8 ms for an off-screen window; gates use that quantum.
 - Own port, own profile (`BARBICAN_PROFILE=auto-<port>`), never the user's windows or entries.

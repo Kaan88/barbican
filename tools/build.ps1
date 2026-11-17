@@ -28,6 +28,7 @@
   tools/build.ps1 build -Head win     # App head only for one TFM (inner loop): win = WinUI, desktop = Uno Skia
   tools/build.ps1 publish -Head win   # self-contained, unpackaged App into artifacts/publish/<head>/<rid>/ (Release)
   tools/build.ps1 publish -Head desktop -Rid linux-x64
+  tools/build.ps1 build -Configuration Automation -Head win   # the hidden-automation build (docs/adr/0007)
   tools/build.ps1 shutdown            # stop the compiler server when you finish (only if no build runs)
 #>
 [CmdletBinding()]
@@ -36,7 +37,7 @@ param(
     [ValidateSet('build', 'test', 'restore', 'clean', 'gen-tokens', 'rules', 'shutdown', 'publish')]
     [string]$Target = 'build',
     [string]$Project,
-    [ValidateSet('Debug', 'Release')]
+    [ValidateSet('Debug', 'Release', 'Automation')]
     [string]$Configuration = 'Debug',
     [ValidateSet('', 'win', 'desktop', 'both')]
     [string]$Head = '',
@@ -128,6 +129,21 @@ function Invoke-Dotnet([string[]]$Arguments) {
     if ($LASTEXITCODE -ne 0) { throw "[build.ps1] dotnet exited with $LASTEXITCODE" }
 }
 
+# The hidden automation (src/Barbican.Automation, FlaUI, Win2D) must never reach a Debug or Release
+# output (docs/adr/0007 "M0 review", docs/milestones/M1-plan.md §5 F1). Checked on every publish: no
+# such DLL in the folder and no BarbicanAutomationBuild marker in the App assembly.
+function Assert-NoAutomationContent([string]$Dir) {
+    $bad = @(Get-ChildItem -Path $Dir -Recurse -File -Include 'FlaUI*.dll', 'Microsoft.Graphics.Canvas*.dll', 'Barbican.Automation.dll', 'Interop.UIAutomationClient.dll' -ErrorAction SilentlyContinue)
+    foreach ($f in $bad) { Write-Host "  $($f.FullName)" }
+    if ($bad.Count -gt 0) { throw '[build.ps1] automation content in a non-Automation publish' }
+    $app = Join-Path $Dir 'Barbican.dll'
+    if (-not (Test-Path $app)) { throw "[build.ps1] no Barbican.dll in $Dir" }
+    $bytes = [System.IO.File]::ReadAllBytes($app)
+    $text = [System.Text.Encoding]::ASCII.GetString($bytes)
+    if ($text.Contains('BarbicanAutomationBuild')) { throw '[build.ps1] BarbicanAutomationBuild marker in a non-Automation App assembly' }
+    Write-Host '[build.ps1] publish check: no automation content'
+}
+
 function Get-HeadArgs {
     # The App head (Uno single project, spike S1) reads BarbicanHead to build one TFM in the inner loop.
     switch ($Head) {
@@ -204,6 +220,7 @@ try {
             if ($Head -eq 'win') { $pub += "-p:Platform=$($Rid.Split('-')[-1])" }
             if ($env:BARBICAN_SHARED_COMPILER -ne '1') { $pub += '-p:UseSharedCompilation=false' }
             Invoke-Dotnet ($pub + $extra)
+            if ($pubConfig -ne 'Automation') { Assert-NoAutomationContent $out }
             Write-Host "[build.ps1] published to $out"
         }
         'gen-tokens' {

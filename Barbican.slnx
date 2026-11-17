@@ -1,15 +1,29 @@
 <Solution>
+  <Configurations>
+    <BuildType Name="Debug" />
+    <BuildType Name="Release" />
+    <!-- Debug plus the AUTOMATION symbol and the Barbican.Automation reference (docs/adr/0007). -->
+    <BuildType Name="Automation" />
+  </Configurations>
   <Folder Name="/src/">
     <Project Path="src/Barbican.Core/Barbican.Core.csproj" />
     <Project Path="src/Barbican.Presentation/Barbican.Presentation.csproj" />
     <Project Path="src/Barbican.Editor.Layout/Barbican.Editor.Layout.csproj" />
     <Project Path="src/Barbican.Platform/Barbican.Platform.csproj" />
+    <Project Path="src/Barbican.Platform.Windows/Barbican.Platform.Windows.csproj" />
+    <Project Path="src/Barbican.Platform.Linux/Barbican.Platform.Linux.csproj" />
+    <Project Path="src/Barbican.Automation/Barbican.Automation.csproj" />
     <Project Path="src/Barbican.App/Barbican.App.csproj" />
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/Barbican.Core.Tests/Barbican.Core.Tests.csproj" />
     <Project Path="tests/Barbican.Editor.Layout.Tests/Barbican.Editor.Layout.Tests.csproj" />
     <Project Path="tests/Barbican.Presentation.Tests/Barbican.Presentation.Tests.csproj" />
+    <Project Path="tests/Barbican.FakeJmap/Barbican.FakeJmap.csproj" />
+    <Project Path="tests/Barbican.Jmap.Live/Barbican.Jmap.Live.csproj" />
+    <Project Path="tests/Barbican.Platform.Tests/Barbican.Platform.Tests.csproj" />
+    <Project Path="tests/Barbican.Automation.Tests/Barbican.Automation.Tests.csproj" />
+    <Project Path="tests/Barbican.Build.Tests/Barbican.Build.Tests.csproj" />
   </Folder>
   <Folder Name="/tools/">
     <Project Path="tools/Barbican.GenTokens/Barbican.GenTokens.csproj" />

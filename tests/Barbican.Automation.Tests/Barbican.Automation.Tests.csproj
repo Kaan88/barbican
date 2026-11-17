@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Hidden automation without a window (docs/adr/0007, docs/milestones/M1-plan.md §5 F1): the window
+       mode decision (AUTOMATION and smoke runs are never shown normally), the line protocol, the popup
+       guard's policy, the smoke report, and the XAML lint (every popup constrained to the window).
+       The UI-free source files are compiled in from the App and the Automation project. -->
+  <ItemGroup>
+    <Compile Include="../../src/Barbican.App/Composition/HiddenWindowMode.cs" Link="Linked/HiddenWindowMode.cs" />
+    <Compile Include="../../src/Barbican.App/Composition/HiddenWindowOptions.cs" Link="Linked/HiddenWindowOptions.cs" />
+    <Compile Include="../../src/Barbican.App/Composition/SmokeReport.cs" Link="Linked/SmokeReport.cs" />
+    <Compile Include="../../src/Barbican.Automation/Protocol/*.cs" Link="Linked/Protocol/%(Filename)%(Extension)" />
+  </ItemGroup>
+</Project>

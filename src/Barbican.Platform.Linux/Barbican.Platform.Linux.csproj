@@ -1,0 +1,24 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Linux implementations of the Barbican.Platform interfaces (PORT-PLAN.md §3.9): Secret Service
+       over D-Bus (schema barbican-next, docs/adr/0008), the desktop portal's theme, later the rest.
+       Referenced by the App head's desktop TFM. Created by M1 stage F1 so that no stream edits a
+       project file (docs/milestones/M1-plan.md §3.2); filled by the accounts stream. -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <RootNamespace>Barbican.Platform.Linux</RootNamespace>
+    <IsAotCompatible>true</IsAotCompatible>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../Barbican.Platform/Barbican.Platform.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Tmds.DBus.Protocol" />
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Barbican.Platform.Tests" />
+  </ItemGroup>
+</Project>

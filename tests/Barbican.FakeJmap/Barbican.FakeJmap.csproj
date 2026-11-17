@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- In-process JMAP server as an HttpMessageHandler (docs/milestones/M1-plan.md §3.2, §6.1): session,
+       real state strings, /changes, /queryChanges, limits, RFC 7807 problems, EventSource, OAuth
+       endpoints, synthetic seed mail (example.org only). A class library for the test projects and
+       for the AUTOMATION build (BARBICAN_FAKE_JMAP). Created by stage F1; filled by the jmap stream. -->
+  <PropertyGroup>
+    <BarbicanTestLibrary>true</BarbicanTestLibrary>
+    <OutputType>Library</OutputType>
+    <IsTestProject>false</IsTestProject>
+    <RootNamespace>Barbican.FakeJmap</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../../src/Barbican.Core/Barbican.Core.csproj" />
+  </ItemGroup>
+</Project>
