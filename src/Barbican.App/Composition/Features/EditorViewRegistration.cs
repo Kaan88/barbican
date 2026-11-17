@@ -1,5 +1,8 @@
 // Mirrors: M3 plan section 4.7. Owner editor-view: the editor control and its overlays (views, resource dictionary, the slot filler for the composer body); the view models come from M3PresentationRegistration.
 
+#if AUTOMATION
+using Barbican.App.Views.Editor.Automation;
+#endif
 using Barbican.Presentation.Composition;
 using Microsoft.Extensions.DependencyInjection;
 
@@ -11,6 +14,11 @@ public static class EditorViewRegistration
     public static IServiceCollection AddBarbicanEditorView(this IServiceCollection services)
     {
         ArgumentNullException.ThrowIfNull(services);
-        return services.AddBarbicanEditorViewModels();
+        services.AddBarbicanEditorViewModels();
+        services.AddBarbicanEditorCommands();
+#if AUTOMATION
+        services.AddBarbicanEditorAutomation();
+#endif
+        return services;
     }
 }

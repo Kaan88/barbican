@@ -248,7 +248,7 @@ I-246,Mail: composer,Cc / Bcc toggles,"email-composer.tsx:6031,6056",D,D,carried
 I-247,Mail: composer,"Recipient autocomplete (type, keys, click)","email-composer.tsx:7689,2660",M,D,changed,"Recipient autocomplete with contacts and recent, group expansion (recipients.rs, recipients.slint, chips.rs)",todo,M3,
 I-248,Mail: composer,"Recipient chips (create, backspace, paste split, drag, chip menu, keyboard)",email-composer.tsx:7314-7762,M,P,changed,"Chips with invalid marking and IDN (chips.rs, recipients.slint); chip menu, drag, paste-split not verified",todo,M3,
 I-249,Mail: composer,Ctrl+Shift+C / Ctrl+Shift+B show Cc/Bcc,email-composer.tsx:5509,M,D,changed,Ctrl+Shift+C / Ctrl+Shift+B => ShowCc / ShowBcc (shortcuts.rs composer branch),todo,M3,
-I-250,Mail: composer,Subject; plain body; body right-click; cut/copy,email-composer.tsx,D,D,carried,ctxmenu.rs:1074,todo,M3,
+I-250,Mail: composer,Subject; plain body; body right-click; cut/copy,email-composer.tsx,D,D,carried,ctxmenu.rs:1074,done,M3,Body right-click: MENU-RTE through the M2 menu service (EditorMenusTests; docs/milestones/M3-screens/editor/05-context-menu-spell.png); cut/copy/paste through the clipboard seam (EditorClipboardActionsTests)
 I-251,Mail: composer,Selection plugin actions,composer-selection-menu.tsx:113,P,P,carried,AI rewrite only,todo,M3,
 I-252,Mail: composer,Attachment chip right-click / preview / rename / edit / cancel upload,email-composer.tsx:6293-6419,M,M,carried,remove only,todo,M3,
 I-253,Mail: composer,Attach files,email-composer.tsx:6515,D,D,carried,app.slint:2657,todo,M3,
@@ -259,14 +259,14 @@ I-257,Mail: composer,Options Plain text / Read receipt; Tags menu,email-composer
 I-258,Mail: composer,"Options DSN, Require TLS, Encrypt, Priority, Classification",email-composer.tsx:6612-6660,M,M,carried,—,todo,M3,
 I-259,Mail: composer,Send warnings dialog,send-warnings-dialog.tsx,P,P,carried,"inline status, press Send again",todo,M3,
 I-260,Mail: composer,External recipients confirm,external-recipient-confirm.tsx,M,M,carried,—,todo,M3,
-I-261,Mail: composer,@mentions,recipient-mention.tsx,M,M,carried,—,todo,M3,
+I-261,Mail: composer,@mentions,recipient-mention.tsx,M,M,carried,—,done,M3,"@ popup from IMentionSource (MentionTriggerTests; M3-screens/editor/10-mentions.png); real recipients come from composer-ui; the picked mention is plain text ""@First "" (D-247)"
 I-262,Mail: composer,Reply-type menu,reply-type-menu.tsx,M,M,carried,—,todo,M3,
-I-263,Mail: composer,"Formatting basics, lists, align, link, clear, undo, table edits, paste/drop images, image resize",rich-text-editor.tsx,D,D,carried,app.slint:2389-2451,todo,M3,
-I-264,Mail: composer,Font size; text colour; highlight; table grid; insert picture,rich-text-editor.tsx,P,P,carried,"fewer options, no URL",todo,M3,
-I-265,Mail: composer,RTL; image alt text; cell colour; overflow; Alt+F10 toolbar keys; image drag,rich-text-editor.tsx,M,M,carried,—,todo,M3,
-I-266,Mail: composer,Image from URL dialog,image-url-dialog.tsx,M,M,carried,—,todo,M3,
-I-267,Mail: composer,Link dialog validation,link-dialog.tsx:96,P,P,carried,no whitespace message,todo,M3,
-I-268,Mail: composer,Plain-text list paste; org disclaimer preview,plain-text-paste.ts,M,M,carried,—,todo,M3,
+I-263,Mail: composer,"Formatting basics, lists, align, link, clear, undo, table edits, paste/drop images, image resize",rich-text-editor.tsx,D,D,carried,app.slint:2389-2451,done,M3,"Toolbar, shortcuts, lists, align, link, clear, undo, table ops, paste and drop images, resize handles (EditorKeyMapTests, EditorViewModelTests, EditorControllerTests, editor-dump script; M3-screens/editor/01-sample.png, 07-image-handles.png)"
+I-264,Mail: composer,Font size; text colour; highlight; table grid; insert picture,rich-text-editor.tsx,P,P,carried,"fewer options, no URL",done,M3,"Size menu 14-32, 16 text colours, highlight, 6x8 table grid, picture from file or address (EditorCards; M3-screens/editor/01-sample.png); picker dropdowns driven by the toolbar, screenshots of the closed state only"
+I-265,Mail: composer,RTL; image alt text; cell colour; overflow; Alt+F10 toolbar keys; image drag,rich-text-editor.tsx,M,M,carried,—,partial,M3,"RTL toggle (right align, D-248), image alt text card, overflow menu, Alt+F10 and arrow keys in the toolbar, image drag-move built; cell colour is not built (the model has no cell background, D-249); RTL and Alt+F10 not exercised by a hidden run"
+I-266,Mail: composer,Image from URL dialog,image-url-dialog.tsx,M,M,carried,—,done,M3,"Picture-from-address card, https only (LinkValidatorTests.A_picture_address_is_https_with_a_host_and_nothing_else)"
+I-267,Mail: composer,Link dialog validation,link-dialog.tsx:96,P,P,carried,no whitespace message,done,M3,"Link card: address with spaces shows the error, Save disabled without an address, Remove link when editing (LinkValidatorTests; M3-screens/editor/04-link-popover.png)"
+I-268,Mail: composer,Plain-text list paste; org disclaimer preview,plain-text-paste.ts,M,M,carried,—,done,M3,"Plain-text list paste (PlainTextListPasteTests, EditorClipboardActionsTests); the org disclaimer preview is composer-ui/M7"
 I-269,Mail: composer,"Plugin composer buttons, panels, options",composer-*plugin*.tsx,M,M,carried,—,todo,M10,
 I-270,"Mail app shell, search, transfer, templates, identities, popout, print",Skip to message list,mail-app.tsx:6328,M,M,carried,—,todo,M2,skip link and F6 pane cycling not built (KeyChordMapper maps F6; no command) (open)
 I-271,"Mail app shell, search, transfer, templates, identities, popout, print","Pane resize (sidebar, list, horizontal split)",mail-app.tsx:6502-6945,M,P,changed,"Sidebar and list resize handles (dnd.rs limits sidebar 180-400, list 240-600); no horizontal split",todo,M2,

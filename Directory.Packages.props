@@ -16,9 +16,9 @@
     <!-- Tests -->
     <PackageVersion Include="xunit.v3" Version="4.0.3" />
     <!-- Spikes (spikes/): Uno's diagnostics to the console on the Linux head. The adapter's version is
-         Uno.Sdk's UnoVersion (global.json Uno.Sdk 6.7.49 -> Uno 6.7.424). -->
-    <PackageVersion Include="Microsoft.Extensions.Logging.Console" Version="10.0.14" />
-    <PackageVersion Include="Uno.UI.Adapter.Microsoft.Extensions.Logging" Version="6.7.424" />
+         Uno.Sdk's UnoVersion (global.json Uno.Sdk 7.0.22 -> Uno 7.0.22). -->
+    <PackageVersion Include="Microsoft.Extensions.Logging.Console" Version="10.0.15" />
+    <PackageVersion Include="Uno.UI.Adapter.Microsoft.Extensions.Logging" Version="7.0.22" />
     <!-- Presentation -->
     <PackageVersion Include="CommunityToolkit.Mvvm" Version="8.4.2" />
   </ItemGroup>
@@ -30,10 +30,10 @@
        TimeProvider.Testing is the FakeTimeProvider for the tests (push backoff, dim timers). -->
   <ItemGroup>
     <!-- Composition root (App) and the per-feature Add<Feature>() registration files (Core, Presentation). -->
-    <PackageVersion Include="Microsoft.Extensions.Hosting" Version="10.0.14" />
-    <PackageVersion Include="Microsoft.Extensions.DependencyInjection" Version="10.0.14" />
-    <PackageVersion Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="10.0.14" />
-    <PackageVersion Include="Microsoft.Extensions.Logging.Abstractions" Version="10.0.14" />
+    <PackageVersion Include="Microsoft.Extensions.Hosting" Version="10.0.15" />
+    <PackageVersion Include="Microsoft.Extensions.DependencyInjection" Version="10.0.15" />
+    <PackageVersion Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="10.0.15" />
+    <PackageVersion Include="Microsoft.Extensions.Logging.Abstractions" Version="10.0.15" />
     <!-- Core: the mail sanitizer parses message HTML (Fable review 1 F-03; PORT-PLAN §3.12). 1.9.1: newest release at least two weeks old. -->
     <PackageVersion Include="AngleSharp" Version="1.9.1" />
     <PackageVersion Include="Microsoft.Extensions.TimeProvider.Testing" Version="10.11.0" />
@@ -51,7 +51,7 @@
   </ItemGroup>
 
   <!-- Editor text engine (spike S3, docs/adr/0006). RichTextKit 0.6.173 needs SkiaSharp 4.x; SkiaSharp is
-       pinned to Uno 7.0's version (Uno.WinUI.Graphics2DSK 7.0.65 -> SkiaSharp 4.156.0); the native assets
+       pinned to Uno 7.0's version (Uno.WinUI.Graphics2DSK 7.0.22 -> SkiaSharp 4.156.0); the native assets
        must match the managed version exactly, so the Linux natives RichTextKit pulls in (4.153.1) are
        pinned too.
        SPLIT AT THE M0 MERGE: the App head is on Uno.Sdk 6.7.49 (spike S1, docs/adr/0004), whose runtime
@@ -59,7 +59,7 @@
        to 4.x under Uno 6.7, so they are withheld from Uno.Sdk projects. Gate before M3 (the App head
        references Barbican.Editor.Layout): move Uno.Sdk to a 7.x whose SkiaSharp is 4.156, then drop this
        condition. See docs/adr/0006-editor-engine.md, "Merge note". -->
-  <ItemGroup Condition="'$(UsingUnoSdk)' != 'true'">
+  <ItemGroup>
     <PackageVersion Include="Topten.RichTextKit" Version="0.6.173" />
     <PackageVersion Include="SkiaSharp" Version="4.156.0" />
     <PackageVersion Include="SkiaSharp.HarfBuzz" Version="4.156.0" />

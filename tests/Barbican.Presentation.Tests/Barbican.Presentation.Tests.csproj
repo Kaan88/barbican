@@ -5,6 +5,9 @@
   <ItemGroup>
     <ProjectReference Include="../../src/Barbican.Presentation/Barbican.Presentation.csproj" />
     <ProjectReference Include="../../tools/Barbican.GenTokens/Barbican.GenTokens.csproj" />
+    <!-- m3-editor-view: the editor key mapping of the App head (EditorKeyInput) is compiled in and tested without a window. -->
+    <ProjectReference Include="../../src/Barbican.Editor.Layout/Barbican.Editor.Layout.csproj" />
+    <Compile Include="../../src/Barbican.App/Views/Editor/EditorKeyInput.cs" Link="Editor/Linked/EditorKeyInput.cs" />
   </ItemGroup>
   <ItemGroup>
     <!-- m1-shell-ui: the UI-free arithmetic of the App head (palette writer, layout, metrics, motion scale, key mapping) is compiled into this project, so it is tested without a window. -->

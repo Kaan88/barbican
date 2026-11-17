@@ -28,5 +28,8 @@ public interface IBlockLayout
     /// <summary>Caret stops (UTF-16 offsets) in logical order, including 0 and the text length.</summary>
     IReadOnlyList<int> CaretStops();
 
+    /// <summary>The visual line holding <paramref name="offset"/>: start and end offsets (a trailing hard break is not part of the line).</summary>
+    (int Start, int End) LineRange(int offset, bool upstream);
+
     void Paint(SKCanvas canvas, float x, float y, int selStart, int selEnd);
 }

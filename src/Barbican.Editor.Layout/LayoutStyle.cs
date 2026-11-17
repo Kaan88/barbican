@@ -23,6 +23,20 @@ public sealed record LayoutStyle
 
     public SKColor Link { get; init; } = new(0xFF2F6FDB);
 
+    /// <summary>Secondary text: the quoted original and block quotes (Rust Role::Dim).</summary>
+    public SKColor Dim { get; init; } = new(0xFF5B6470);
+
+    /// <summary>Rules, quote bars, table and code borders.</summary>
+    public SKColor Line { get; init; } = new(0xFFD0D5DB);
+
+    public SKColor CodeBg { get; init; } = new(0xFFF3F4F6);
+
+    public SKColor HeaderBg { get; init; } = new(0xFFF3F4F6);
+
+    public SKColor Accent { get; init; } = new(0xFF2F6FDB);
+
+    public SKColor SpellUnderline { get; init; } = new(0xFFD83B3B);
+
     public SKColor Selection { get; init; } = new(0x663D8BFD);
 
     /// <summary>Glyph edging: Antialias (grayscale) matches WinUI TextBlock in a non-opaque surface.</summary>
