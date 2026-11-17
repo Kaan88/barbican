@@ -7,7 +7,6 @@ namespace Barbican.Core.Tests.Compose;
 public sealed class ComposeRulesTests
 {
     [Fact]
-    [Red("send-pipeline")]
     [RustTest("compose::blank_drafts")]
     public void Blank_drafts()
     {
@@ -22,7 +21,6 @@ public sealed class ComposeRulesTests
     }
 
     [Fact]
-    [Red("send-pipeline")]
     [RustTest("compose::placeholders")]
     public void Placeholders()
     {
@@ -35,7 +33,6 @@ public sealed class ComposeRulesTests
     }
 
     [Fact]
-    [Red("send-pipeline")]
     [RustTest("compose::delivered_to_headers")]
     public void Delivered_to_headers()
     {

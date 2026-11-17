@@ -9,7 +9,6 @@ public sealed class TemplateTombstoneTests
     private static readonly DateTimeOffset Now = new(2026, 11, 17, 8, 0, 0, TimeSpan.Zero);
 
     [Fact]
-    [Red("send-pipeline")]
     [RustTest("templates::tombstone_keeps_other_deletions")]
     public void Tombstone_keeps_other_deletions()
     {

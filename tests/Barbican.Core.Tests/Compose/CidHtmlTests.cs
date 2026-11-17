@@ -8,7 +8,6 @@ namespace Barbican.Core.Tests.Compose;
 public sealed class CidHtmlTests
 {
     [Fact]
-    [Red("send-pipeline")]
     [RustTest("compose::quoted_inline_parts_use_cid_html")]
     public void Quoted_inline_parts_use_cid_html()
     {
