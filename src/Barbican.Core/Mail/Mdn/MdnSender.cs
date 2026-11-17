@@ -130,13 +130,14 @@ public sealed class MdnSender(TimeProvider time)
 
     private static async Task<Result<string>> ImportAsync(IJmapClient client, Uploader upload, string account, string raw, CancellationToken ct)
     {
-        var sent = await ReaderCalls.CallAsync(client, "Mailbox/query", new JsonObject { ["accountId"] = account, ["filter"] = new JsonObject { ["role"] = "sent" } }, ct).ConfigureAwait(false);
-        if (!sent.IsOk)
+        // Mailbox/get with the role read here (one small call; a role filter on Mailbox/query is not answered by every server alike)
+        var boxes = await ReaderCalls.CallAsync(client, "Mailbox/get", new JsonObject { ["accountId"] = account, ["ids"] = null, ["properties"] = new JsonArray("id", "role") }, ct).ConfigureAwait(false);
+        if (!boxes.IsOk)
         {
-            return Result<string>.Fail(sent.Error!);
+            return Result<string>.Fail(boxes.Error!);
         }
 
-        if (ReaderCalls.Ids(sent.Value!) is not [var sentId, ..])
+        if ((boxes.Value!["list"] as JsonArray ?? []).FirstOrDefault(b => string.Equals(b.Str("role"), "sent", StringComparison.Ordinal)).Str("id") is not { } sentId)
         {
             return Result<string>.Fail(new ValidationError("No Sent folder."));
         }
