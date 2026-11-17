@@ -21,7 +21,7 @@ public sealed class LinkValidatorTests
     [InlineData("   ", false)]
     [InlineData("a b", false)]
     [InlineData("example.test", true)]
-    [InlineData(" mailto:someone@example.test ", true)]
+    [InlineData(" mailto:someone@mail.example ", true)]
     public void Save_needs_an_address_without_spaces(string href, bool can)
     {
         Assert.Equal(can, LinkValidator.CanSubmitLink(href));

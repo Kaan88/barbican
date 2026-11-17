@@ -19,7 +19,7 @@ public sealed class MentionTriggerTests
     }
 
     [Theory]
-    [InlineData("info@example.test", 17)]
+    [InlineData("info@mail.example", 17)]
     [InlineData("hello", 5)]
     [InlineData("@ab cd", 6)]
     [InlineData("", 0)]
@@ -29,9 +29,9 @@ public sealed class MentionTriggerTests
     }
 
     [Theory]
-    [InlineData("Nagy János", "nj@example.test", "Nagy")]
-    [InlineData("", "alice@example.test", "alice")]
-    [InlineData("  Bob  ", "b@example.test", "Bob")]
+    [InlineData("Nagy János", "nj@mail.example", "Nagy")]
+    [InlineData("", "alice@mail.example", "alice")]
+    [InlineData("  Bob  ", "b@mail.example", "Bob")]
     [InlineData("", "nobody", "nobody")]
     public void The_label_is_the_first_name_or_the_local_part(string name, string email, string expected)
     {
