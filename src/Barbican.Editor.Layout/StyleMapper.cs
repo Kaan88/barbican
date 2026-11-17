@@ -47,7 +47,7 @@ public static class StyleMapper
             Underline = marks.Underline || marks.Link is not null ? UnderlineStyle.Gapped : UnderlineStyle.None,
             StrikeThrough = marks.Strike ? StrikeThroughStyle.Solid : StrikeThroughStyle.None,
             TextColor = marks.Link is not null ? style.Link : ParseRgb(marks.Color) ?? style.Text,
-            BackgroundColor = ParseRgb(marks.Highlight) ?? SKColor.Empty,
+            BackgroundColor = ParseRgb(marks.Highlight) ?? (marks.Code && kind is not BlockKind.CodeBlock ? style.CodeBg : SKColor.Empty),
         };
         rtk.LineHeight = CssLineHeight(rtk, lineHeight);
         return rtk;
