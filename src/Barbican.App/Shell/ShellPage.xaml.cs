@@ -239,6 +239,7 @@ public sealed partial class ShellPage : Page
             IsDown(Windows.System.VirtualKey.Shift),
             IsDown(Windows.System.VirtualKey.Menu));
         if (chord is { } c
+            && (!e.KeyStatus.WasKeyDown || KeyGate.RepeatRoutes(c))
             && KeyGate.Routes(c, SignInRegion.Visibility == Visibility.Visible, Activates(e.OriginalSource))
             && _keys.Handle(c, KeySource.Keyboard))
         {

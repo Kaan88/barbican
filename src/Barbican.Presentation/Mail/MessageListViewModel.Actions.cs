@@ -266,15 +266,16 @@ public sealed partial class MessageListViewModel : IListEditor, IMailSelection
         }
 
         SelectionTouched();
-        return new ListEdit(removed, next);
+        return new ListEdit(removed, next) { OpenId = openGoes ? openId : null, View = _query };
     }
 
     /// <inheritdoc />
     public void RestoreRows(ListEdit edit)
     {
         ArgumentNullException.ThrowIfNull(edit);
-        if (edit.IsEmpty)
+        if (edit.IsEmpty || (edit.View is not null && !Equals(edit.View, _query)))
         {
+            // another list is on screen now: its rows are not these (the restored folder's push delta brings them back there)
             return;
         }
 
@@ -282,6 +283,23 @@ public sealed partial class MessageListViewModel : IListEditor, IMailSelection
         RebuildRows();
         Total = _loaded.Total;
         SelectionTouched();
+    }
+
+    /// <inheritdoc />
+    public void Reopen(ListEdit edit)
+    {
+        ArgumentNullException.ThrowIfNull(edit);
+        if (edit.OpenId is not { } emailId || (edit.View is not null && !Equals(edit.View, _query))
+            || (_selectedId is not null && !string.Equals(_selectedId, edit.NextId, StringComparison.Ordinal)))
+        {
+            // nothing was open, another list is on screen, or the user opened something else than what the action opened: leave it
+            return;
+        }
+
+        if (Messages.FirstOrDefault(r => string.Equals(r.Id, emailId, StringComparison.Ordinal)) is { } row)
+        {
+            Select(row, OpenReason.Key, ListDirection.Down);
+        }
     }
 
     /// <inheritdoc />

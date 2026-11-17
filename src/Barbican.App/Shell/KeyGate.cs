@@ -23,4 +23,14 @@ public static class KeyGate
         var activation = chord.Key is "Enter" or "Space" && !chord.Control && !chord.Alt;
         return !(activation && focusActivates);
     }
+
+    /// <summary>
+    /// Whether an auto-repeated key press (the key held down) may act. Undo never repeats (Bulwark hooks/use-undo-shortcut.ts:17 `e.repeat`): a held
+    /// `z` walked back through the whole undo history, putting older messages back into older folders (M2 hotfix 2). Delete does not repeat either:
+    /// a held Delete removed message after message.
+    /// </summary>
+    public static bool RepeatRoutes(KeyChord chord)
+    {
+        return !(chord.Key is "z" or "Z" or "Delete" or "#");
+    }
 }
