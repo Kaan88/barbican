@@ -935,3 +935,69 @@ Commits on `m2-f` (all pushed): `954dcd5` (Linux build flags, privacy allowlist)
 - [ ] **Open: MimeKit/DnsClient AOT and trim result is "unproven"** (no call site, no trimmed publish); reader/unified must publish once after their first call (IL2104/IL3053) and move users to `src/Barbican.Core.Mime` if it warns.
 - [ ] **Reader (D-9):** the faithful `dkim_gate` port keeps the Rust behaviour (any Authentication-Results authserv-id counts, test header `mx.example.org`); D-9 (ignore other authserv-ids) needs its own D- entry and test when reader implements it.
 - [ ] Verified by reading, not trusting: `unsubscribe_parsing`, `headers_unfold`, `dkim_gate`, `blob_copy_between_accounts` ports against Rust reader.rs (only the domains changed, D-236); hooks re-tags 14 + 36 owners match the CSV; red-check 107/107 fail for the right reason; suite 988 total, 0 failed, 4 skipped; privacy clean.
+
+## M2 stream: reader
+Branch `m2-reader` (from `m2` at `c2e8e91`), all commits pushed: `09b4b0d` (R2-14, write-test guard), `db2d84d` (GuardedHttp, one-click,
+R2-07 trace block, R2-08 row cap, rx-* write commands, reader.rs pure ports), `866f9d1` (MDN, OTP, zip, avatar rules, invitation model),
+`d740c4a` (FakeJmap EmailSubmission/Blob/copy/FileNode/CalendarEvent arms, MDN send and zip read-back tests), `95a892f` (R2-07 in the
+reader, banner stack, trusted senders, link check, avatars, attachment saver, the four reader hooks), `0347f01` (OTP chip, R2-13 app points).
+Core.Tests 657 green, Presentation.Tests 275 green, App builds in Debug and Automation+Writes. No merge, no tag.
+
+- [ ] **GuardedHttp (mandatory).** One `SocketsHttpHandler` with no redirects, no cookies, no proxy, no credentials; `ConnectCallback`
+  resolves once, refuses the connection if any address is not public (`PublicAddress`: loopback, private, link-local, CGNAT, documentation,
+  multicast, 0/8, 240/4, ULA, site-local, v4-mapped / NAT64 / 6to4 judged by the embedded IPv4) and connects to the checked address (no
+  second lookup, no DNS rebinding window). https only (http only through the loopback test seam), no user info, GET/POST only, 2 MB body cap
+  while reading, 20 s timeout, a 3xx comes back with an empty body. 41 tests on loopback only.
+  - **Paths:** `src/Barbican.Core/Net/{GuardedHttp,PublicAddress,GuardedRefusal,OneClickUnsubscribe}.cs`, `tests/Barbican.Core.Tests/Net/`.
+  - **Check:** that `ConnectCallback` really is the only way out (no `HttpClient` elsewhere in reader code), and the IPv6 embedded-v4 rules.
+- [ ] **R2-07 (mandatory).** `AuthTrace.ServerResults`: an Authentication-Results header counts only inside the server's own trace block,
+  which starts at the message's very first Received (its `by` host must be trusted by D-9 `AuthServTrust` or equal the pinned id) and ends at
+  the next Received; inside it, only the header whose authserv-id equals that host. The id is learned and pinned per account on first sight
+  (`AuthServPins`, `authserv-ids.json`, the first pin stays) through `ReaderDepth`; no verdict and no chips in Sent, Drafts or for `$draft`.
+  Stricter than the R2-07 wording (it requires the first Received); forged headers above or below the block are ignored (8 tests in
+  `AuthTraceTests`, plus the snapshot tests).
+  - **Paths:** `src/Barbican.Core/Mail/AuthResults/{AuthTrace,AuthServPins}.cs`, `src/Barbican.Presentation/Mail/{ReaderSnapshots,ReaderOptions}.cs`,
+    `src/Barbican.Presentation/Mail/Loading/ReaderDepth.cs`; `tests/Barbican.Presentation.Tests/Mail/ReaderViewModelTests.cs` gained a
+    leading Received header (the old tests asserted the pre-R2-07 rule).
+  - **Check:** the Stalwart header order assumption (Received above its Authentication-Results); mailbox roles are loaded once per
+    account in the background, so the very first open of an account may still show a verdict in Sent if the message carries a trace block.
+- [ ] **R2-14 (mandatory, decision M2-Q2 still a proposal).** `ReadOnlyPolicy` + `TestWriteRefusal`: rx-import / rx-find / rx-destroy only
+  in `AUTOMATION_WRITES` builds, only on an automation profile whose login is on the writable list and not the read-only one (both re-read
+  each time), destroy only when every id carries the token on the server. 37 + 3 tests.
+  - **Paths:** `src/Barbican.Core/Accounts/ReadOnlyPolicy.cs`, `src/Barbican.App/MailBody/Automation/{WriteTestGuard,Rx*Command}.cs`.
+- [ ] **MDN (J-068 done).** Built by hand to the byte (the ported tests pin it); MimeKit parses it back in a test. Sent as upload,
+  Email/import into Sent with `$seen`, EmailSubmission/set with an explicit envelope, destroy on refusal, then `$mdnsent`; refused on a
+  read-only account. Sent is found with Mailbox/get roles (FakeJmap ignores a role filter on Mailbox/query). The send test answers
+  Email/import from the test (`ImportingClient`) because that arm belongs to actions.
+- [ ] **Banners in the reveal's UI turn.** `MessageLoader` collects `IReaderBannerSource` output before the page is built and puts it into
+  the snapshot; `ReaderViewModel.Apply` syncs `Banners` in the OnReady turn. Sources: invitation (CalendarEvent/parse, METHOD from the raw
+  .ics, trust note, "Replies arrive with Calendar (M4)"), receipt (writable accounts only), unsubscribe (one-click only with the server's
+  DKIM pass, else "Unsubscribe in browser"; mailto shown as an address), verification code (24 h). The stack is drawn in `MailBodyView`
+  (above the M1 remote-content banner, which gained "Always for this sender").
+  - **Check (feel):** with banner sources registered every open takes one extra await before the page is built; measured only in the hidden
+    run (`open-to-shown 7.8 ms`, sample seed, no banner); the invitation source does two network calls before the reveal (parse + .ics).
+- [ ] **Deviations.** `PrefersHttp` follows Rust/Bulwark (http over mailto); `PublicAddress` is stricter than Rust; `rx-destroy` takes TOKEN
+  first; the personal-provider list of avatars is kept as SHA-256 prefixes (the public tree must not name providers); `banner-act` is
+  `rx-banners act`; saves go to Downloads (no save dialog yet); a BIMI SVG counts as missing (no rasterizer); `onBeforeExternalLink` is
+  intercept-only (a plugin cannot rewrite the href yet); mailto links from mail are not opened (composer M3).
+- [ ] **Hidden-automation run (port 8883, `BARBICAN_SAMPLE=1`).** Started and stopped through `tools/auto-run.ps1` only; three messages
+  opened with `key Down`/`key Enter`; `rx-banners` 0 each (the sample is the M1 seed, see requests); `wv-eval` shows the frame CSP
+  `img-src data:` (remote content blocked); `popup-guard open 0 closed 0`; `focus-guard own-is-foreground=no` before and after. No frame
+  captures were taken (no uniform-frame question). One-click end to end, .eml/zip saves and avatar-state were not reachable in sample mode.
+- [ ] **Linux.** The VM answered `tools/linux.ps1 ping` (Linux 6.12, Debian 13); one `test` run of Core.Tests did not report within
+  10 minutes and was not retried.
+- [ ] **Open.** Source view (`source-text`), forward as attachment, Save to Files (the FileNode/Blob/copy fake arms exist, no client yet:
+  J-036, J-075 stay pending), message attachments through `IAttachedMessageOpener`, G-056 (full body of a truncated message), MENU-READER
+  and MENU-ATT providers and reader command ids, plugin detail rows (`IEmailDetailsSource`), `avatar-state`, the feel scenarios under
+  `spec/feel/M2/reader/**`, L-0xx live scripts, behaviours/reader.md and extras.md rows, I- rows in interactions.csv.
+
+### Requests to other streams
+- **unified (or the integrator):** `ModelReader` should read JMAP null lists as empty, so `BodyShape.Normalize` can go (R2-13).
+- **jmap / FakeStore.Build owner:** put a `Received ... by mx.example.org` header and the Authentication-Results header into `headers` in
+  Stalwart's order; today the fake has neither there, so R2-07 finds no results for seed mail and one-click never shows in sample runs.
+- **actions:** FakeJmap `Email/import`; then `MdnSenderTests` can drop `ImportingClient`.
+- **shell-ui (SampleActiveMail):** seed `SeedM2` and expose an `IAccountSession` for the sample account, so the hidden run can reach the
+  M2 seed (banners, saves, invitations).
+- **integrator:** `M2SeedTests.The_m2_dispatch_arms_answer_unknown_method_until_their_stream_fills_them` lost Blob/copy and
+  EmailSubmission/set (filled here). Automation does not reference Core, so the rx-* commands live in the App; move them if Automation gets
+  a Core reference.
