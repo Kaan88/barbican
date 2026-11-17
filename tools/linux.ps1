@@ -25,7 +25,7 @@
                                          # build for net10.0-desktop and run under the VM's own Xvfb;
                                          # results copied to artifacts/linux/<Out>/
   tools/linux.ps1 xrun -Project src/Barbican.App/Barbican.App.csproj -Script smoke -Out smoke
-  tools/linux.ps1 xrun -Project src/Barbican.App/Barbican.App.csproj -Configuration Automation -Script auto -Out auto
+  tools/linux.ps1 xrun -Project src/Barbican.App/Barbican.App.csproj -Configuration Automation -Script auto -Out auto   (or -Script auto-m2: sample seed, menus, dialog, drop)
 #>
 [CmdletBinding()]
 param(

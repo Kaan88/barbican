@@ -103,11 +103,13 @@ case "$mode" in
         echo "[vm] smoke exit $code"
         cat "$out/smoke.json" 2>/dev/null || echo "[vm] no smoke report"
         ;;
-      auto)
+      auto|auto-m2)
         port=8811
         # Fable F-08: a per-run token; every connection proves it first ("auth <token>" -> "ok auth")
         token=$(head -c 24 /dev/urandom | od -An -tx1 | tr -d ' \n')
-        BARBICAN_AUTOMATION_TOKEN=$token BARBICAN_AUTOMATION_PORT=$port timeout "$limit" nice -n 10 dotnet "$dll" >"$out/stdout.txt" 2>"$out/stderr.txt" &
+        # auto-m2 (M2-plan §8): the sample FakeJmap seed, so menus, a dialog over the body and the drop path have mail to act on
+        sample=""; [ "$script" = "auto-m2" ] && sample=1
+        BARBICAN_SAMPLE=$sample BARBICAN_AUTOMATION_TOKEN=$token BARBICAN_AUTOMATION_PORT=$port timeout "$limit" nice -n 10 dotnet "$dll" >"$out/stdout.txt" 2>"$out/stderr.txt" &
         app=$!
         send() {
           exec 3<>"/dev/tcp/127.0.0.1/$port" || return 1
@@ -135,6 +137,15 @@ case "$mode" in
           probe=$(send probe-stop)
           printf '%s\n' "$probe" >"$out/idle-probe.json"
           case "$probe" in *'"frames":[]'*) echo "probe-stop: 0 frames in 2 s idle" ;; *) echo "probe-stop: FRAMES while idle: ${probe:0:300}" ;; esac
+          if [ "$script" = "auto-m2" ]; then
+            # M2 verify: a context menu, a dialog over the body (the X11 stand-in image, ADR 0005), the palette and a simulated drop
+            for c in "select #0" "menu-open MENU-MAIL 0" "menu-items" "wshot $out/menu.png" "key Escape" \
+                     "dialog-open confirm Verify" "dialog-state" "wshot $out/dialog.png" "dialog-answer cancel" "dialog-state" \
+                     "palette" "key Escape" "dnd-sim #1 folder:archive" "toast-last" "act mail.undo" "toast-last" \
+                     "search from:carol has:attachment" "chips" "search" "unified on" "unified state" "plugins"; do
+              echo "$c: $(send "$c")"
+            done
+          fi
           echo "popup-guard: $(send popup-guard)"
           echo "close: $(send close)"
         fi
