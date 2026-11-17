@@ -27,7 +27,8 @@ public sealed class PrefsStore : IPrefsStore, IPrefsEditor, IDisposable
     private long _changeSeq;
     private long _savedSeq;
 
-    public PrefsStore(IProfilePaths paths, TimeProvider time)
+    /// <summary>Reads prefs.json of <paramref name="paths"/>; <paramref name="beforeLoad"/> runs first on the same thread-pool task (the dev profile's copy from the Rust app).</summary>
+    public PrefsStore(IProfilePaths paths, TimeProvider time, Action? beforeLoad = null)
     {
         ArgumentNullException.ThrowIfNull(paths);
         ArgumentNullException.ThrowIfNull(time);
@@ -35,7 +36,11 @@ public sealed class PrefsStore : IPrefsStore, IPrefsEditor, IDisposable
         _time = time;
 
         // read off the calling thread (the composition runs on the UI thread); the first Current waits for it
-        _load = Task.Run(() => Read(_path));
+        _load = Task.Run(() =>
+        {
+            beforeLoad?.Invoke();
+            return Read(_path);
+        });
     }
 
     /// <inheritdoc/>
