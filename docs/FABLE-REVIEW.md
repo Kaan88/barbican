@@ -612,3 +612,89 @@ mail.rs:34/254-292/759-772 all point at the code they name).
     implementations of RFC 8620 §5.6 now exist; review whether `LoadedList` should call `Core/Sync/ListDeltaApplier`.
   - **Linux not run for this merge either:** the VM answers ping but SSH (port 22) timed out on 2026-11-17; Windows
     `tools/build.ps1 test` is green (564 tests, 561 passed, 3 live skipped). Run `tools/linux.ps1 test` on `m1` when the VM is back.
+
+## M1 stream: accounts
+
+Branch `m1-accounts` (from `m1` at 32ced0b; commits 6e7c61b, 0b2639c, a385afd and the Fable commit), not merged. Profiles
+and prefs, body cache, OAuth (discovery, registration, PKCE, loopback, refresh), secret stores and the ADR 0008 import,
+the account manager, the sign-in and account-popover ViewModels.
+- **FABLE #3 resolved, behaviour changed.** `LoopbackListener` reads `state` before `error` or `code`. A callback with a
+  missing or wrong state gets 400 and the wait goes on (Rust ended the sign-in with "Sign-in state mismatch"); state is
+  compared in constant time; the first callback with the right state ends the wait and the listener closes, so a replay
+  finds nobody listening. Review that "ignore and keep waiting" is wanted over "fail at once" (a forged callback can no
+  longer cancel the sign-in, but a user who reloads an old tab waits for the timeout). Where: `Core/Auth/LoopbackListener.cs`.
+- **AUTOMATION builds never open a browser.** `RedirectFollowingLauncher` GETs the authorize URL through the app's
+  transport, requires a 3xx whose Location is an http loopback IP, and writes the GET to the listener over a raw socket.
+  Normal builds use the OS launcher (`UseShellExecute` / `xdg-open`, http(s) only). Where: `Core/Auth/RedirectFollowingLauncher.cs`,
+  `App/Composition/PlatformServices.cs`.
+- **Refresh (FABLE #3, B-OAUTH-013/015).** `OAuthTokenSource` renews ahead of expiry and after a 401, one renewal at a time
+  per account; under `oauth-refresh.lock` it adopts the stored token, retries once with a token rotated elsewhere, writes a
+  rotation back, never deletes. The lock is still a file going stale after 60 s, as in Rust. An imported OAuth entry is
+  never refreshed by an agent: the agent import skips OAuth entries ("sign in by hand").
+- **Secrets (FABLE #6).** Windows: hand-written `LibraryImport` of CredReadW/CredWriteW/CredDeleteW/CredFree (not CsWin32;
+  four functions did not justify the generator), `Barbican.Next/<profile>/<kind>[/<account>]`, `CRED_PERSIST_LOCAL_MACHINE`
+  (the user may want roaming: open), UTF-8, buffers zeroed. The blob limit is 2560 bytes, and the `accounts` entry holds
+  every account as one JSON array: about 8-10 OAuth accounts fit. Review splitting it per account before M2's sign-out.
+  Linux: `SecretServiceStore` over Tmds.DBus.Protocol (plain session, `schema=barbican-next`, `profile`, `name`, `account`)
+  is written but **never ran** (VM unreachable; its test skips without a Secret Service). Automation profiles (`auto-*`)
+  keep secrets in memory and never touch the OS store. Strings that held a password cannot be zeroed (.NET strings); only
+  the byte buffers are.
+- **ADR 0008 import.** `RustCredentialImport` reads `accounts.Barbican`, then `session.Barbican`, through
+  `ILegacyCredentialSource` (read only by construction; it refuses `Barbican.Next/` targets). Odd-length or invalid UTF-16
+  and non-JSON blobs are skipped with a reason, only new entries are added, blobs are zeroed. User path: default profile
+  only, both kinds, plus the admin and assistant keys. Agent path: `dev` or `auto-*` only, password kind only, forced
+  read-only, never reads the admin-key entry. Agents trigger it with `BARBICAN_IMPORT_RUST_ACCOUNTS=1` (`AccountsStartup`).
+  No Linux import (the Rust Linux format is known from the crate source only). The UI entry ("Import accounts from the
+  previous Barbican") is shell-ui's to show; the call is `ILegacyAccountImport.ImportAsync(ImportMode.User)`.
+- **Read-only.** Every account is read-only unless its address is listed in `BARBICAN_WRITABLE_ACCOUNTS`
+  (`ReadOnlyPolicy`); M1 lists none, imported agent entries also carry the stored flag. The flag reaches
+  `JmapClientOptions.ReadOnly`. Review before M2 adds the first writes: the user's own profile must get a way to opt in.
+- **Accounts.** Several accounts stay signed in (one `AccountSession` each); the list is most recently used first (Rust),
+  the default star is the first account added (Bulwark). Inactive accounts get a 2-minute inbox-unread poll
+  (a mailbox read through their own session, Bulwark account-inbox-unread.ts) rather than push; their sync engine is not
+  started. A failed switch keeps the current account ("Could not switch to ..."). With a one-time code the account is not
+  remembered (Rust main.rs:762); the code goes as `password$code` (Rust), not Bulwark's token exchange. `onAccountAdd`
+  fires only for a second or later account. Sign-out and forgetting are M2.
+- **Server lookup** (I-098): `ServerDiscovery` probes `/.well-known/jmap` on the email domain and `mail.<domain>` (200,
+  3xx or 401 count). Bulwark's `_jmap._tcp` SRV lookup is not ported (.NET has no SRV resolver without a package).
+- **Unsupported-provider notice, one provider missing.** `tools/privacy-check.sh` refuses the name of Google's mail
+  service anywhere in the repo (it guards a private address), so its two domains are not in `MailServerAddress`'s list
+  and no notice shows for them. Owner of the privacy check: decide whether a narrower pattern can allow the provider
+  name, then add the two entries.
+- **Profiles and prefs.** `Barbican-<profile>` (default `dev`) beside the Rust `Barbican` folder; `auto-*` for automation.
+  `prefs.json` is kept as a `JsonObject` (unknown keys survive), saved atomically 300 ms after the last change on the
+  thread pool. The dev profile copies the Rust prefs, panes and search history once (marker file); the Rust folder is
+  only read. `IoThreadCheck` counts profile IO on the UI thread and asserts in Debug. The exit flush is not wired (below).
+- **Persistent SQLite cache deferred to M2** (M1-plan §6.3): M1's cold start uses the "without cache" budget.
+- **Contract additions** (all additive): `AccountInfo.Kind`, `AccountInfo.IsReadOnly`, `OAuthSignIn.LoginHint`,
+  `IPrefsEditor` (`Put`, `FlushAsync`), `IAccountOverview`, `IAccountVault`, `IRefreshTokenStore`, `IAuthorizationLauncher`
+  (Core cannot see Platform's `IBrowserLauncher`), `ILegacyAccountImport`, `SignedInEventArgs`.
+- **Tests:** Core 375, Platform 19 (1 skipped: Secret Service), Presentation 140; full `tools/build.ps1 test` 691, 0 failed,
+  4 skipped. OAuth end to end runs on FakeJmap behind a test-side `FakeOAuthProvider` (authorize, registration, code grant
+  with PKCE, refresh rotation), so FakeJmap itself still has no OAuth endpoints.
+- **Hidden automation:** the Automation build ran on a private desktop (`tools/auto-run.ps1 start -Port 8837
+  -PrivateDesktop`): it started, ran the accounts start-up with an empty in-memory vault, popup guard 0/0, foreground and
+  cursor unchanged, closed. `wshot` and `probe-start wgc` fail on a private desktop, so there are **no frame numbers**.
+  The brief's scenario (password + TOTP by AutomationId, OAuth second account, switch, popover `wshot`, no blank frame on
+  switch) is a **hand test / later run**: the sign-in and popover views are shell-ui's and `BARBICAN_FAKE_JMAP` is not
+  wired. **Live checks** (import, both accounts read-only, list folders, delete the dev entries): hand test, not run.
+- **Files edited outside my owned paths:** `tests/Barbican.Core.Tests/Plugins/HookCallSiteTests.cs` (`[Red("accounts")]`
+  removed) and the spec files (`hooks.csv`, `oauth.md`, `settings.md`, `platform.md`, `interactions.csv`, `jmap.csv`
+  J-020), as the brief asked. The I- rows are `P`: the logic is done, the views are shell-ui's.
+- **Linux VM unreachable** (ssh refused the key, 2026-11-17): `SecretServiceStore`, `LinuxBrowserLauncher` and the Linux
+  profile paths ran nowhere. Run `tools/linux.ps1 test -Branch m1-accounts`.
+
+### Requests to other streams
+- **jmap / integrator:** fold `tests/Barbican.Core.Tests/Auth/FakeOAuthProvider.cs` into `tests/Barbican.FakeJmap`
+  (authorize, registration, code grant with PKCE) and reference FakeJmap from the App in the Automation configuration
+  behind `BARBICAN_FAKE_JMAP`, so the hidden scenario can sign in without a server.
+- **jmap:** switch `tests/Barbican.Jmap.Live/LiveAccount.cs` to the imported password-kind entry: `SecretAccountVault` over
+  `WindowsSecretStore("dev")` after `BARBICAN_IMPORT_RUST_ACCOUNTS=1`.
+- **shell-ui:** bind `SignInViewModel` and `AccountsViewModel` (both singletons in DI; `SignedIn` and
+  `AddAccountRequested` drive the screen change; `Reset(AccountsViewModel.AddAccountStatus)` for Add account); give the
+  fields AutomationIds (server, user, password, totp, client id, remember, sign-in, oauth, cancel, change-server; the
+  avatar, rows by account key, add-account); offer the ADR 0008 import in the default profile; call
+  `IPrefsEditor.FlushAsync` on exit (B-SET-005).
+- **mailcore:** `BodyCacheSync` subscribes to `MailEventHub.EventReceived` and patches the cache for the active account;
+  local actions (read, flag, move) must also reach `IBodyCache` when M2 adds them.
+- **privacy-check owner:** see the unsupported-provider item above.
