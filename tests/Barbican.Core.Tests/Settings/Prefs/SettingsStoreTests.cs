@@ -1,4 +1,4 @@
-// Ported from Rust src/settings.rs test (:581). Red until the accounts stream implements SettingsStore.
+// Ported from Rust src/settings.rs test (:581).
 
 using System.Text.Json.Nodes;
 using Barbican.Core.Settings.Prefs;
@@ -12,7 +12,6 @@ public sealed class SettingsStoreTests
     // One test, as in Rust, so the shared directory cannot race another test.
     [Fact]
     [RustTest("settings::import_export_reset_roundtrip")]
-    [Red("accounts")]
     public void Import_export_reset_roundtrip()
     {
         var dir = Path.Combine(Path.GetTempPath(), $"barbican-settings-test-{Environment.ProcessId}");

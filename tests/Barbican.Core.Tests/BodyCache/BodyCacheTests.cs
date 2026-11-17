@@ -1,4 +1,4 @@
-// Ported from Rust src/bodycache.rs tests (:226-:345). Red until the accounts stream implements BodyCache.
+// Ported from Rust src/bodycache.rs tests (:226-:345).
 // The Rust cache held serde Values; this one holds EmailBody and ConversationThread, so the JSON literals become records.
 
 using Barbican.Core.Mail.Model;
@@ -20,7 +20,6 @@ public sealed class BodyCacheTests
 
     [Fact]
     [RustTest("bodycache::get_put_and_lru_by_count")]
-    [Red("accounts")]
     public void Get_put_and_lru_by_count()
     {
         var c = new Barbican.Core.Mail.Cache.BodyCache(2, long.MaxValue);
@@ -35,7 +34,6 @@ public sealed class BodyCacheTests
 
     [Fact]
     [RustTest("bodycache::per_account")]
-    [Red("accounts")]
     public void Per_account()
     {
         var c = new Barbican.Core.Mail.Cache.BodyCache();
@@ -46,7 +44,6 @@ public sealed class BodyCacheTests
 
     [Fact]
     [RustTest("bodycache::bounded_by_bytes_keeps_newest")]
-    [Red("accounts")]
     public void Bounded_by_bytes_keeps_newest()
     {
         var big = new string('x', 10_000);
@@ -65,7 +62,6 @@ public sealed class BodyCacheTests
 
     [Fact]
     [RustTest("bodycache::replacing_an_entry_keeps_the_byte_count")]
-    [Red("accounts")]
     public void Replacing_an_entry_keeps_the_byte_count()
     {
         var c = new Barbican.Core.Mail.Cache.BodyCache();
@@ -80,7 +76,6 @@ public sealed class BodyCacheTests
 
     [Fact]
     [RustTest("bodycache::sync_patches_keywords_and_drops_removed_and_threads")]
-    [Red("accounts")]
     public void Sync_patches_keywords_and_drops_removed_and_threads()
     {
         var c = new Barbican.Core.Mail.Cache.BodyCache();
@@ -110,7 +105,6 @@ public sealed class BodyCacheTests
 
     [Fact]
     [RustTest("bodycache::local_actions_reach_bodies_and_conversations")]
-    [Red("accounts")]
     public void Local_actions_reach_bodies_and_conversations()
     {
         var c = new Barbican.Core.Mail.Cache.BodyCache();
@@ -135,7 +129,6 @@ public sealed class BodyCacheTests
 
     [Fact]
     [RustTest("bodycache::a_fetch_from_before_a_clear_is_not_stored")]
-    [Red("accounts")]
     public void A_fetch_from_before_a_clear_is_not_stored()
     {
         var c = new Barbican.Core.Mail.Cache.BodyCache();
@@ -151,7 +144,6 @@ public sealed class BodyCacheTests
 
     [Fact]
     [RustTest("bodycache::conversations_are_bounded_by_bytes")]
-    [Red("accounts")]
     public void Conversations_are_bounded_by_bytes()
     {
         var c = new Barbican.Core.Mail.Cache.BodyCache();
@@ -168,7 +160,6 @@ public sealed class BodyCacheTests
 
     [Fact]
     [RustTest("bodycache::weight_counts_headers")]
-    [Red("accounts")]
     public void Weight_counts_headers()
     {
         var m = Msg("1", "x");
@@ -179,7 +170,6 @@ public sealed class BodyCacheTests
 
     [Fact]
     [RustTest("bodycache::weight_counts_body_values")]
-    [Red("accounts")]
     public void Weight_counts_body_values()
     {
         Assert.True(Barbican.Core.Mail.Cache.BodyCache.Weight(Msg("1", new string('x', 1000))) >= 1000);

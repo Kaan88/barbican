@@ -15,11 +15,11 @@ reproduced by any count of this schema and is flagged in the Fable log.
 | ID | Rule | Source (Rust) | Bulwark ref | C# status |
 |---|---|---|---|---|
 | B-SET-001 | The schema is embedded verbatim and parsed once per process. | settings.rs:9 `SCHEMA` (include_str); commit 0530d4a (parsed once) | components/settings/*, settings-store.ts | pending (M6) |
-| B-SET-002 | Values live in prefs.json under the same keys as Bulwark's settings store. | settings.rs header (lines 1-3) | stores/settings-store.ts | pending (M6) |
+| B-SET-002 | Values live in prefs.json under the same keys as Bulwark's settings store. | settings.rs header (lines 1-3) | stores/settings-store.ts | store done (M1 accounts): StorageTests.Prefs_round_trip_keeps_keys_this_build_does_not_know; pages pending (M6) |
 | B-SET-003 | Settings are read once per open; CUR_MSG-style caches hold Arcs, not deep clones. | commit 0530d4a | n/a | pending (M6) |
-| B-SET-004 | A save writes off the UI thread. `LATEST` serves reads until the write lands; the newest save wins; a superseded write is skipped. | settings.rs:136-158 `save` | n/a | pending (M6) |
-| B-SET-005 | On exit the pending background save is flushed first. | settings.rs:122 `flush`; commit 0f8bdf5 | n/a | pending (M6) |
-| B-SET-006 | Export writes the Bulwark-keyed prefs plus the desktop and assistant settings file. Import accepts Bulwark exports. Reset restores defaults. | settings.rs:160 `export`, :167 `import`, :178 `reset`; test `import_export_reset_roundtrip` (:581); commits 7593933, e1f5bf5 | settings backup | pending (M6) |
+| B-SET-004 | A save writes off the UI thread. `LATEST` serves reads until the write lands; the newest save wins; a superseded write is skipped. | settings.rs:136-158 `save` | n/a | store done (M1 accounts): PrefsStore saves on the thread pool, newest wins, 300 ms debounce; StorageTests.Prefs_saves_are_debounced; pages pending (M6) |
+| B-SET-005 | On exit the pending background save is flushed first. | settings.rs:122 `flush`; commit 0f8bdf5 | n/a | store: PrefsStore.FlushAsync; the exit call is not wired yet (request to shell-ui, FABLE accounts); pending (M6) |
+| B-SET-006 | Export writes the Bulwark-keyed prefs plus the desktop and assistant settings file. Import accepts Bulwark exports. Reset restores defaults. | settings.rs:160 `export`, :167 `import`, :178 `reset`; test `import_export_reset_roundtrip` (:581); commits 7593933, e1f5bf5 | settings backup | T-259 (SettingsStoreTests); dev-profile copy of the Rust prefs: StorageTests.The_dev_profile_copies_the_rust_prefs_once_and_never_writes_them; UI pending (M6) |
 | B-SET-007 | Each key has a default (schema `default`); a missing key reads as the default. | settings.rs:191 `bool`, :195 `str`, :200 `int` | schema | pending (M6) |
 | B-SET-008 | Changed settings apply live (no restart), including settings changed by the assistant. | commits 594e4e9, 714ad82, a90b362 | settings-store.ts | pending (M6) |
 | B-SET-009 | `inverted` toggles store the opposite value. | settings.rs:548 `is_inverted` | schema `invert` | pending (M6) |
