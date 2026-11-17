@@ -13,6 +13,7 @@ the catalogue in `spec/` turns them into checkable rows.
 | PLUGINS.md | The plugin C ABI (kept unchanged in the C# app) |
 | ROADMAP.md | The Rust app's roadmap |
 | branches.md | Every branch of the Rust repo at the freeze, with its purpose |
+| mailview-shell.rust-final.js | `SHELL_JS` from `src/mailview.rs` (lines 51-81), verbatim (PORT-PLAN §2.2). The C# shell, `src/Barbican.App/Assets/mail/shell.js`, is a port of it (ADR 0005); this copy is the reference for diffing. Added at the M0 review. |
 | ci/ci.yml, ci/release.yml | The Rust app's GitHub workflows (never ran). Reference only: this repository runs no CI on push (docs/adr/0002). |
 
 ## What was changed when copying

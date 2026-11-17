@@ -108,3 +108,19 @@ keyboard, focus or screen? Which capture and probe mechanisms give the numbers t
   screen; no input and no focus change was involved. Fixed by item 4.
 - Not implemented in the spike: `drag`, `wv-result`, `pick`/`save`, `ui`, `rx-*`, `cal-dump`, `pim`, `notes`
   (they depend on the real app); the spike has a throwaway layout.
+
+## M0 review (stream m0-review, at the merge of all M0 branches)
+- Renumbered from 0004, because spike S1 had taken that number; the file and its references are updated.
+- **Contradiction with ADR 0005 on `MenuFlyout`:** see ADR 0005, "M0 review". The decision there (a
+  `Popup` host, XAML-declared constrained flyouts only, a fail-closed check in the AUTOMATION build)
+  replaces "every flyout `ShouldConstrainToRootBounds`" as the rule; that rule still holds as a minimum.
+- **"WGC on an on-screen window (the user's machine only)"** in the open issues would draw on the user's
+  real screen, which an agent may not do. It needs the user's OK as a [HAND TEST], or a virtual display
+  (an OS change, which is also the user's call). Until then the feel gates use the measured ~21 ms quantum.
+- **Release builds must not carry FlaUI, the Win2D capture or the server.** First M1 automation task:
+  keep them in a separate project referenced only under the AUTOMATION configuration, and make
+  `tools/build.ps1 publish` check that the Release output has no `FlaUI*.dll`.
+- **Go/fallback summary:** go for the off-screen non-activating window, the loopback line protocol,
+  UIA-pattern clicks, WGC capture and the `wgc` frame probe. Fallbacks: in-process peers and
+  `invoke ID` for elements over the WebView2 (already in use). Drag, hover and IME stay [HAND TEST]
+  until a throwaway-VM layer exists.

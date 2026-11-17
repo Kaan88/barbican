@@ -48,7 +48,7 @@ mkdir -p "$lockdir"
 # Real input is forbidden on the user's machines (CLAUDE.md); xdotool belongs to throwaway VMs only.
 rules() {
   local pattern='\b(SendInput|keybd_event|mouse_event|SetCursorPos|InputInjector)\b|FlaUI\.Core\.Input\.(Mouse|Keyboard)|xdotool'
-  if grep -rnE "$pattern" "$root/src" "$root/tests" "$root/tools" \
+  if grep -rnE "$pattern" "$root/src" "$root/tests" "$root/tools" "$root/spikes" "$root/prototype" \
       --include='*.cs' --include='*.xaml' --include='*.ps1' --include='*.sh' --include='*.py' --include='*.csproj' \
       --exclude=build.ps1 --exclude=build.sh --exclude-dir=bin --exclude-dir=obj; then
     echo "[build.sh] real-input API found (forbidden; see CLAUDE.md)" >&2

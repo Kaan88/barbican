@@ -108,3 +108,24 @@ a `.deb` dependency on the `-dev` names or a launcher that sets the path.
 - `NavigationStarting` on Uno did not stop the request of a script-initiated top-level navigation.
 - The Windows `MenuFlyout` behaviour over an on-screen window was not captured (it ran only off-screen,
   where it escapes the window); `BARBICAN_SPIKE_WINDOWED_MENUS=1` runs that phase on a throwaway VM.
+
+## M0 review (stream m0-review, at the merge of all M0 branches)
+- **Contradiction with ADR 0007 (S4), not reconciled by a run.** Here a `MenuFlyout` created in code
+  (with a presenter style and `ShouldConstrainToRootBounds = true`, `Scenario.Phases.cs:301`) opened as
+  a windowed popup. In S4, a `MenuFlyout` declared in XAML as `Button.Flyout` or `ContextFlyout` with
+  `ShouldConstrainToRootBounds="True"` drew in-window, over the WebView2 too. Reconciling the two needs
+  a run that may draw on the real screen, so it was not done.
+- **Decision (explicit):** the menu host of PORT-PLAN §3.7 is the constrained `Popup`-based menu, which
+  both spikes saw in-window with 0 punch-through. `MenuFlyout` is allowed only when declared in XAML
+  with the constraint. The AUTOMATION build fails closed: after any popup opens it checks
+  `IsConstrainedToRootBounds`, and when that is false it closes the popup and returns an error, so a
+  windowed popup can never stay on the user's screen. Owners: the M1 automation stream (the guard) and
+  the M2 menus stream (the host).
+- **Security items that block M1's reader on Linux** (not later polish): the shell routes every link
+  itself (`link:URL`); a test asserts that no shell code assigns `location` or calls `open`; and the CSP
+  is the only remote-content guard on Linux, so M1 ports the CSP builder into Core with its Rust tests.
+- **Go/fallback summary:** Windows is a go with no fallback needed (capture-under-overlay is not ported).
+  Linux is a go with the stand-in image under dialogs and full-window scrims; the plain-text body mode
+  stays the fallback if WebKitGTK regresses. The header/body skew (measured on Xvfb only) is re-measured
+  on a real compositor before M3; fallback: dim the body until both have presented.
+- The Rust `SHELL_JS` is now kept verbatim in `docs/legacy/mailview-shell.rust-final.js` for diffing.

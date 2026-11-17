@@ -111,7 +111,7 @@ function Exit-BuildSlot([System.Threading.Mutex]$Mutex) {
 # managed APIs; this catches P/Invoke declarations and scripts.
 function Invoke-RuleCheck {
     $pattern = '\b(SendInput|keybd_event|mouse_event|SetCursorPos|InputInjector)\b|FlaUI\.Core\.Input\.(Mouse|Keyboard)|xdotool'
-    $dirs = @('src', 'tests', 'tools') | ForEach-Object { Join-Path $Root $_ } | Where-Object { Test-Path $_ }
+    $dirs = @('src', 'tests', 'tools', 'spikes', 'prototype') | ForEach-Object { Join-Path $Root $_ } | Where-Object { Test-Path $_ }
     $hits = Get-ChildItem -Path $dirs -Recurse -File -Include *.cs, *.xaml, *.ps1, *.sh, *.py, *.csproj |
         Where-Object { $_.FullName -notmatch '[\\/](bin|obj)[\\/]' -and $_.Name -notin @('build.ps1', 'build.sh') } |
         Select-String -Pattern $pattern

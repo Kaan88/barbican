@@ -63,3 +63,21 @@ must not depend on them on Linux.
   Linux-only host builder (no `UseWin32()`) under a Linux RID would drop it.
 - Not verified: that the published Windows exe starts (the App head shows a visible window; a hidden
   smoke mode is needed first, M1).
+
+## M0 review (stream m0-review, at the merge of all M0 branches)
+- **Finding: two SkiaSharp majors.** Uno.Sdk 6.7.49 uses SkiaSharp 3.119.2. Spike S3 pinned the editor
+  stack to SkiaSharp 4.156.0, which is what Uno.Sdk 7.0.22 uses (Uno 7.0.65; its default WinAppSDK is
+  2.5.1, which we still override to 2.6.5). Both facts were read from the two Uno.Sdk packages'
+  `packages.json`. With transitive pinning on, the S3 pins would have lifted the App head to SkiaSharp 4
+  under Uno 6.7. At the merge, the editor pins in `Directory.Packages.props` are withheld from Uno.Sdk
+  projects (`Condition="'$(UsingUnoSdk)' != 'true'"`). Checked in `project.assets.json`: the App head
+  resolves 3.119.2 and `Barbican.Editor.Layout` 4.156.0. Both OSes are green with it.
+- **Decision (explicit):** option A stands. **The first task of M1 is the move to Uno.Sdk 7.0.x**
+  (whose SkiaSharp matches the editor), before M1 adds UI code that would have to be ported. Its gate
+  is a re-run of this ADR's checks (both heads build, the prototype runs under Xvfb, publish win-x64
+  and linux-x64, inner-loop times) and of the S2 harness on both OSes. After it, the condition above
+  is removed.
+- **Fallback (explicit):** if Uno 7 fails a gate, stay on 6.7.49 through M2 and, for M3, vendor
+  RichTextKit built against SkiaSharp 3.119 (ADR 0006, fallback 1). One process cannot load two
+  SkiaSharp majors, so M3 cannot start with the split in place. Option B (separate heads) is only for
+  a Uno 7 break of the WinUI head that an override cannot fix.

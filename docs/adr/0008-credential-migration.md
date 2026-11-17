@@ -68,3 +68,15 @@ collection, label `<user>@Barbican`-style (not asserted), value = the same UTF-8
   Linux import (Linux users of the Rust app are expected to be none; it was a Windows-first app).
 - `CRED_PERSIST_ENTERPRISE` entries can roam; the new local-machine persistence is a deliberate narrowing (secrets
   such as refresh tokens should not roam by default). Decide with the user whether roaming is wanted.
+
+## M0 review (stream m0-review, at the merge of all M0 branches)
+- Renumbered from 0005, because spike S2 had taken that number; the file and its references are updated.
+- **Decision (explicit):** go as written: the app's own target names (`Barbican.Next/<profile>/<name>`),
+  local-machine persistence, and an explicit one-time read-only import. The Rust entries are never
+  written or deleted.
+- **Fallback (explicit):** if the user wants roaming, switch the account list only to
+  `CRED_PERSIST_ENTERPRISE` (refresh tokens stay local). The Linux import is dropped unless the Linux
+  format is confirmed on the VM.
+- The OAuth behaviours that read and write these entries are now catalogued in
+  `spec/behaviours/oauth.md` (B-OAUTH-015, B-OAUTH-018). The C# refresh path keeps the Rust rule:
+  adopt the stored token, retry once, never delete.

@@ -63,12 +63,13 @@ AGENTS.md points here; this file is the single source of the rules.
 | Filter tests (xUnit v3) | `tools/build.ps1 test -Class "*TokenTests"` or `-Method "*Palette*"` |
 | Regenerate design tokens | `tools/build.ps1 gen-tokens` (check only: `-Check`) |
 | Real-input rule check | `tools/build.ps1 rules` |
-| Linux build + tests (VM) | push first, then `tools/linux.ps1 test` (or `build`; `-Branch`, `-Class`, `-Method`) |
+| Linux build + tests (VM) | push first, then `tools/linux.ps1 test` (or `build`; `-Branch`, `-Class`, `-Method`). Works from a worktree: the VM address is read from the main checkout's `.local/` |
 | Linux VM first-time setup | `tools/linux.ps1 setup`; reachability: `tools/linux.ps1 ping` |
 | One head only (inner loop) | `tools/build.ps1 build -Head win` or `-Head desktop` (App head; `-Project` for others) |
 | Publish the app | `tools/build.ps1 publish -Head win -Rid win-x64` (or `-Head desktop -Rid linux-x64`) → `artifacts/publish/<head>/<rid>` |
 | Run a UI project on the VM | `tools/linux.ps1 setup-ui` once, then `tools/linux.ps1 xrun -Project <csproj> -Out <name>` (private Xvfb; results in `artifacts/linux/<name>`) |
 | Privacy check before commit | `sh tools/privacy-check.sh --worktree` |
+| Spec status / milestone gate | `python tools/spec-check.py` (summary), `--milestone M<n>` (gate: exit 1 while T- rows of M<n> are unmapped), `--write` (fill `csharp_test`/`status` in `spec/rust-tests.csv` after porting tests) |
 
 Run PowerShell scripts with `powershell -NoProfile -ExecutionPolicy Bypass -File tools/<script>.ps1 …`
 if the execution policy blocks them.
@@ -107,7 +108,11 @@ Directory.Build.props; suppress one diagnostic locally with a reason if you must
 
 Where things go:
 - Spec files: `spec/` (`spec/README.md` explains IDs); feel results: `spec/feel/M<n>/`.
-- Ported Rust tests: the owning test project, tagged `[RustTest("module::test_name")]`.
+- Ported Rust tests: the owning test project, tagged `[RustTest("module::test_name")]` with the value
+  exactly as `spec/rust-tests.csv` `rust_test_tag` has it (no `tests::` segment); the attribute is
+  `tests/Shared/RustTestAttribute.cs`, linked into every test project. Run `python tools/spec-check.py --write`.
+- Context menus: `spec/menus.md` item by item. Every popup and flyout is in-window
+  (`ShouldConstrainToRootBounds="True"`, ADR 0007); a windowed popup can appear on the user's real screen.
 - Milestone reports: `docs/milestones/M<n>.md`. Decisions: `docs/adr/NNNN-title.md`.
 - Generated files (`*.g.cs`, `src/Barbican.App/Themes/*.xaml`) are never edited by hand.
 

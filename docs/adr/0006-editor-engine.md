@@ -158,3 +158,15 @@ Recorded so the user can reconsider with the new fact; nothing in this spike dep
   blocks as placeholder boxes and no list bullets).
 - `TextContrast` for coloured text and highlights: the alpha curve also darkens anti-aliased edges
   of coloured runs; check links and highlights against TextBlock.
+
+## M0 review (stream m0-review, at the merge of all M0 branches)
+- At the merge, the SkiaSharp 4.156.0 pins are withheld from the Uno.Sdk 6.7 App head (see ADR 0004,
+  "M0 review"). The editor projects and their tests use 4.156.0 on both OSes (62/62 green). The App
+  head may reference `Barbican.Editor.Layout` only after the Uno 7 move (the first M1 task) or after
+  the vendoring fallback. The "Pending" Uno gate runs after that move.
+- The number 0006 was kept; the S4 and S5 records, which had also used 0004 and 0005, became 0007 and 0008.
+- `RustTestAttribute` now lives in `tests/Shared/` for every test project. The `rte::model` tags drop
+  the `tests::` segment to match `spec/rust-tests.csv`, where the 7 rows are now `ported`
+  (`tools/spec-check.py`).
+- Uno 7's Skia `RichEditBox` does not change the decision (RTF cannot round-trip Bulwark's HTML), but it
+  contradicts PORT-PLAN §3.8, so the user should see it (listed in `docs/FABLE-REVIEW.md`).
