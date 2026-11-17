@@ -1,8 +1,8 @@
 // Mirrors: M2 plan section 3.3. Owner unified (wave 2): IListSourceResolver (Replace), IMailTargetResolver, IAccountMaintenance (registered by
 // Core's accounts module on the account manager), IUnifiedUnread, IMailImport, IAttachedMessageOpener, IAttachmentExpander, the native plugin host (INativePluginHost, IEmailDetailsSource,
 // its start-up load and the reader rows), the writer source that routes unified rows, the sidebar's unified slot filler.
-// Plugins (Rust main.rs:455): the bundled ones in <app>/plugins (the build copies spam-score there), the user's in <config>/plugins, data in
-// <data>/plugin-data; disabledPlugins from the prefs; handlers on the app's hook bus.
+// Plugins (Rust main.rs:455): the bundled ones in <app>/plugins (the build copies spam-score there), data in <data>/plugin-data; disabledPlugins
+// from the prefs; handlers on the app's hook bus. The user's <config>/plugins is not read until M6b (docs/milestones/M2.md default 7).
 
 using System.Text.Json.Nodes;
 using Barbican.App.Shell;
@@ -132,11 +132,9 @@ public static class UnifiedRegistration
             var paths = sp.GetRequiredService<IProfilePaths>();
             var prefs = sp.GetRequiredService<IPrefsStore>();
             return new NativePlugins(
-                () => new NativePluginHostOptions
+                // user plugins (<config>/plugins) stay off until the M6b permission UI: ForApp sets no user root (Fable review 3 R3-04)
+                () => NativePluginHostOptions.ForApp(AppContext.BaseDirectory, paths.DataDir) with
                 {
-                    BundledRoot = Path.Combine(AppContext.BaseDirectory, "plugins"),
-                    UserRoot = Path.Combine(paths.ConfigDir, "plugins"),
-                    DataRoot = Path.Combine(paths.DataDir, "plugin-data"),
                     Disabled = Disabled(prefs),
                     Bus = sp.GetService<HookBus>(),
                     Time = sp.GetRequiredService<TimeProvider>(),

@@ -1175,3 +1175,8 @@ Branch `m2-close-a` from `m2` (commits `56e9907` and the one after it). Closes i
   and `RxSaveCommand` (`MailTarget.OfOpen`), `LiveMailActions`, `MailActionService.Tags` (empty = own). Consumers moved to the
   contract: `AttachmentSaver`, `EmailParseOpener`, `TnefExpander`, `QuickRuleService` (refuses a row of another login: "Switch to that
   message's account"), `InvitationBannerSource` (reads the invitation through the row's login). Test: `Presentation.Tests/Unified/RowMenuSaveTests.cs`.
+- **R3-04 user plugins off.** `NativePluginHostOptions.ForApp` (Core) builds the app's roots without `UserRoot`; `UnifiedRegistration.AddPlugins`
+  uses it. The test is in Core.Tests (`Plugins/UserPluginsOffTests.cs`), not `CompositionGraphTests`: the App head's registration is not
+  reachable from a test project, so the test pins the factory the registration calls and loads a real plugin copied to
+  `<config>/plugins/x` (not loaded; loaded in a control run with the user root named). `PluginLoadContext`'s comment now says it is
+  not a security boundary.
