@@ -1103,3 +1103,45 @@ Automation+Writes.
   payload, Save to Files UI (J-036/J-075 stay pending), `IAttachedMessageOpener` use, G-056, MENU-READER/MENU-ATT providers and reader
   command ids, `IEmailDetailsSource` rows, any UI consumer of `IAvatarService`/`IAttachmentSaver` (only automation calls them), avatar-state,
   feel scenarios, L- scripts, `behaviours/reader.md` and `extras.md` ZIP/INV rows, the reader I- rows in `interactions.csv`.
+
+## M2 stream: search
+Branch `m2-search` (from `m2` at 0d9b306). Core ported from Rust with the 30 red tests green (T-102..T-114, T-256..T-258, T-207..T-211, T-271..T-279); glue, views and menus written fresh.
+
+- [ ] **Sieve port is the risky part: read `src/Barbican.Core/Sieve/SieveScript.cs` against `sieve.rs` (Opus read of the quick-rule save path).** The scanner (`ScanTopLevel`,
+  `SkipText`, `SkipIfChain`) and `GenerateMeta` are line-by-line ports; the 9 Rust tests pass, but the Rust tests only cover shapes the Rust author thought of. Check: (1) `Json()` uses
+  `JavaScriptEncoder.UnsafeRelaxedJsonEscaping` so the metadata block has no `\u0027`/`\u003C` escapes (serde_json writes none); a non-ASCII rule name must round-trip byte for byte;
+  (2) key order is the insertion order of `JsonObject` (serde `preserve_order`); (3) `PeriodBoundaryOf` uses `DateTimeOffset.TryParse` where Rust uses chrono `parse_from_rfc3339` after a manual
+  shape check; leap seconds and year 0000 are the only places they may differ; (4) `DayBoundary` converts local time to UTC with `TimeZoneInfo.Local` (an ambiguous DST hour takes standard time,
+  a gap fails with "bad date" where chrono's `earliest()` would also fail).
+- [ ] **Quick-rule save path: `QuickRuleSaver` -> `SieveScriptStore.SaveAsync`.** Order: read the active script, `SieveScript.Parse`, `QuickRuleBuilder.Plan` (a `Locked` script is refused with
+  "edited by hand" and nothing is written), generate with the server's `sieveExtensions`, upload (read-only clients fail in `JmapClient.UploadAsync`: `ReadOnlyViolation`), `SieveScript/validate`
+  (an `error` object is shown as "Not saved: ..." and the script is untouched), then `SieveScript/set` with `onSuccessActivateScript`. Known gaps: no `ifInState` (two clients saving at once
+  last-write-wins, as Rust); the merged rules are re-generated from the parsed metadata, so anything Bulwark's parser would drop is dropped (Rust identical). L-016 (the live Block sender on
+  `<test-account>` with a byte-for-byte restore) is NOT done: it is the integrate stage.
+- [ ] **`ListFilters.For` now lets `ListQuery.Filter` replace the folder and text conditions** (`src/Barbican.Core/Mail/Service/ListFilters.cs`, owned by search). The shaper puts `inMailbox` and the
+  operators inside `Filter` (as `mailbox_search_filter`), so adding them again would be redundant. Watchers (`MailSync`, `Watch(query)`) use the UNSHAPED query: a live delta for a search
+  still filters on the raw text (`{"text": "from:alice ..."}`), so pushes during an open search may add or miss rows. Check: whether the list should shape the query before `Watch`
+  (a one-line change in `MessageListViewModel`, actions' file; not done: Requests below).
+- [ ] **Snippets are lazy, not "after each page".** There is no hook in the list's load path (the two seams are the shaper and the partial files), so `SearchSnippetSource` is asked per row by the
+  renderer (`SubjectFor`/`PreviewFor`), batches the ids for 25 ms and sends one `SearchSnippet/get`, then raises `Arrived`. Nothing renders them yet: actions' row template (I-232) has to call
+  `ISnippetSource` and recolour from theme brushes (L-050); `SearchSnippetSource` has no colour in it (segments only), so a theme flip cannot bake a colour.
+  Check: the 25 ms batch against the `search_results` feel scenario once rows call it.
+- [ ] **Search box UI (`src/Barbican.App/Views/Search/SearchBoxView.xaml(.cs)`) was built but not looked at.** Suggestions, chips and the filter panel are in-flow children of the control (no popup,
+  no AutoSuggestBox), built in code from `SearchBoxModel`. The hidden-automation run was NOT done (see Open below), so there is no frame of it: verify the look against the Bento/Nordic mockups,
+  the 36 px field with a clear X and the filter button, and that the in-flow panels do not make the list jump while typing (a measure for the `search_type` scenario).
+- [ ] **Filter panel is text-only.** Every toggle edits operators in the text (`is:unread`, `has:attachment`, `after:`, `in:trash|spam`) and searches again, so chips, history and the server filter
+  stay one thing. Not in the panel because the grammar has no operator for them: size presets, "No attachment", a body field, a "Search in" folder other than Trash and Spam (I-278/I-279
+  are `done` only for what the grammar can say; check whether Fable wants `size:`/`-has:` operators, which Bulwark's `search-syntax.ts` does not have).
+- [ ] **Global search.** `GlobalSearchPaletteProvider` ("Search" scope) runs mail only; contacts, calendar and files return nothing until M4/M5 (`FilterFiles` is ported and tested). Opening a hit
+  works only when the message is among the rows the list loaded after opening its folder (`SearchHitOpener`; Rust waited 9 s then opened it anyway): a hit beyond the first page shows
+  "That message is not in the first page of its folder". Plugin entries (`onProvideSearchResults`, fired in the provider) are rows with ids `search-hit:plugin:KEY` that nothing handles
+  yet (M6b onAction).
+- [ ] **Edits outside my owned files (each a few lines; revert if the owner objects):** `CommandIds.OpenSearchHit` and a `search-hit:mail:` branch in `PaletteCommandMap.Resolve` (menus);
+  `RailView.OnSearchClick` runs `search.global` instead of `search.focus` (I-023); `FilterEvaluator` in FakeJmap learned `to`, `hasAttachment`, `after`, `before`; `M2SeedTests` no longer expects
+  `SearchSnippet/get` and `SieveScript/*` to answer `unknownMethod`; `HookCallSiteTests` lost its search `[Red]`; `spec/*` statuses (I-, J-, B-SIEVE, B-SRCH, hooks.csv).
+- [ ] **Rules menus.** `RuleMenus.Providers` registers a MENU-MAIL>more provider that is menus' `More` plus the Rules section, and a MENU-FOLDER provider that is menus' folder menu plus a Rules
+  flyout; the later registration of an id wins (`MenuModelBuilder.Index`), which depends on `AddBarbicanSearch` running after `AddBarbicanMenus` (it does in `AppComposition`). There is no
+  MENU-READER provider in the tree (reader did not register one): `RuleMenus.Section` is the part to append there. Row labels say "the sender" and "this domain" because the sender is only known
+  after the message is read. The folder Rules submenu lists no rules (running a rule on a folder is M6); "Manage rules" toasts "Filters arrive in M6".
+- [ ] **Not done in this stream (open).** Feel scenarios `search_type`, `search_results`, `chip_remove` and the hidden-automation scenario (port 8884); Linux run; L-016 and L-050 scripts;
+  the automation `text` command fix (it answers "pattern not supported" for every TextBox, so typing into `list.search` cannot be scripted); AOT/trim check of MimeKit is not mine.
