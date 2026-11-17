@@ -81,7 +81,7 @@ def main():
     before = rows_of(app.cmd("search report"))
     print(app.cmd("probe-start rendering"))
     t0 = time.perf_counter()
-    reply = app.cmd("search from:alice has:attachment")
+    reply = app.cmd("search from:carol has:attachment")
     took = round((time.perf_counter() - t0) * 1000, 1)
     probe = json.loads(app.cmd("probe-stop") or "{}")
     r = judge_frames("search_results", probe)
