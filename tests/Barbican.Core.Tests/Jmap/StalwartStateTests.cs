@@ -1,5 +1,5 @@
 // Ported from Rust src/jmap.rs tests stalwart_state_round_trip (:1707) and went_back_only_for_lower_stalwart_ids (:1728).
-// Red until the jmap stream implements StalwartState.
+//
 
 using Barbican.Core.Jmap.State;
 
@@ -9,7 +9,6 @@ public sealed class StalwartStateTests
 {
     [Fact]
     [RustTest("jmap::stalwart_state_round_trip")]
-    [Red("jmap")]
     public void Stalwart_state_round_trip()
     {
         foreach (var id in new ulong[] { 0, 1, 31, 127, 128, 300, 16_383, 16_384, 1UL << 40, ulong.MaxValue })
@@ -42,7 +41,6 @@ public sealed class StalwartStateTests
 
     [Fact]
     [RustTest("jmap::went_back_only_for_lower_stalwart_ids")]
-    [Red("jmap")]
     public void Went_back_only_for_lower_stalwart_ids()
     {
         Assert.True(StalwartState.WentBack(StalwartState.Encode(500), StalwartState.Encode(20)));

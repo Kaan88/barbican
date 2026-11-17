@@ -37,11 +37,13 @@ public sealed record EmailSummary
     public IReadOnlyList<Attachment> Attachments { get; init; } = [];
 
     /// <summary>Messages in the conversation (the list's thread count).</summary>
+    [JsonIgnore]
     public int ThreadCount { get; init; } = 1;
 
     /// <summary>The Authentication-Results headers (<c>header:Authentication-Results:all</c>).</summary>
+    [JsonPropertyName("header:Authentication-Results:all")]
     public IReadOnlyList<string> AuthenticationResults { get; init; } = [];
 
     [JsonExtensionData]
-    public IDictionary<string, JsonElement>? Extra { get; init; }
+    public IDictionary<string, JsonElement>? Extra { get; set; }
 }

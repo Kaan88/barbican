@@ -14,4 +14,10 @@ public sealed record BodyPart
     public string? Type { get; init; }
 
     public string? Charset { get; init; }
+
+    public string? Name { get; init; }
+
+    public string? Cid { get; init; }
+
+    public string? Disposition { get; init; }
 }

@@ -3,4 +3,12 @@
 namespace Barbican.Core.Mail.Model;
 
 /// <summary>A sending identity (RFC 8621 §6). A wildcard identity has an email such as <c>*@example.org</c>.</summary>
-public sealed record Identity(string Id, string? Name, string Email);
+public sealed record Identity(string Id, string? Name, string Email)
+{
+    /// <summary>Reply-To addresses of the identity (RFC 8621 §6.1 <c>replyTo</c>), or null.</summary>
+    public IReadOnlyList<EmailAddress>? ReplyTo { get; init; }
+
+    /// <summary>Server properties not modelled here (signatures, mayDelete, ...), kept for a read-modify-write.</summary>
+    [System.Text.Json.Serialization.JsonExtensionData]
+    public IDictionary<string, System.Text.Json.JsonElement>? Extra { get; set; }
+}

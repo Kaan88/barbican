@@ -3,4 +3,8 @@
 namespace Barbican.Core.Mail.Model;
 
 /// <summary>No delta can be computed: reload the watched list.</summary>
-public sealed record ListResetEvent : MailSyncEvent;
+public sealed record ListResetEvent : MailSyncEvent
+{
+    /// <summary>The watched query to reload (null: whatever list is open).</summary>
+    public ListQuery? Query { get; init; }
+}

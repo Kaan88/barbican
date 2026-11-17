@@ -30,5 +30,5 @@ public sealed record Mailbox
 
     /// <summary>Properties the model does not name, kept so nothing is lost on a round trip.</summary>
     [JsonExtensionData]
-    public IDictionary<string, JsonElement>? Extra { get; init; }
+    public IDictionary<string, JsonElement>? Extra { get; set; }
 }

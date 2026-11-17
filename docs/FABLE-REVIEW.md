@@ -506,3 +506,109 @@ Branch `m1-mailcore` (worktree `wt-m1-mailcore`), commits listed in the final re
 - **PNG reader memory:** a 40 MP PNG allocates about 360 MB transiently (raw plus RGBA). Left as is (Rust's `image` crate has a comparable limit); lower `MaxPixels` if the
   first hand test shows pressure.
 
+## M1 stream: jmap
+
+Branch `m1-jmap` (from `m1` at fa7cc17; commits 6b9d58f, 088b7d3, af867f4, 93e69db, 828c2cc, 8a46011, 847aeac and the
+Fable commit), not merged. Transport, session, request builder, mail service, sync and push engine, FakeJmap, trace-diff.
+- **`using` sends every capability the server advertised** (Rust jmap.rs:283, B-JMAP-006), where Bulwark sends core+mail
+  (lib/jmap/client.ts:2466). Kept Rust's choice; an unknown capability in a hand-built `using` is a problem error. Review
+  whether a server that rejects an advertised-but-unexpected capability is worth guarding. Where: `Core/Jmap/Transport/JmapClient.cs`.
+- **Manual redirect policy for session discovery.** Redirects are followed by hand (at most 5 hops), the Authorization
+  header goes only to same-origin hops, https to http is refused. Rust let reqwest follow redirects (which drops the header
+  cross-origin too). Review the hop limit and that a Stalwart behind a proxy that redirects to another host still works
+  (it asks for sign-in again rather than leaking the password). Where: `Core/Jmap/Transport/SessionFetcher.cs`.
+- **402 with TOTP/MFA in the problem = `OtpRequiredError`** (Bulwark client.ts:2165); `password$code` as in Rust jmap.rs:125.
+  The fake mimics Stalwart's shape from Bulwark's handling, not from a recorded Stalwart response. Where: `SessionFetcher.cs`,
+  `tests/Barbican.FakeJmap/FakeJmapServer.cs` (`Otp`).
+- **Contract additions outside the F2 stubs** (all additive): `ListCursor.Position`, `IMailSync.Watch(query, loaded)` (default
+  forwards to `Watch(query)`), `IJmapClient.Trace` and `OpenEventSourceAsync` (default members), `[JsonExtensionData] Extra`
+  made settable (STJ cannot bind it on init-only records), `EmailBody` gained SentAt, Size, HasAttachment, Sender, MessageId,
+  InReplyTo, References; `EmailSummary.ThreadCount` is `[JsonIgnore]`. mailcore and body consume these; review the shapes.
+- **Keywords and MailboxRole converters read JSON null** (`HandleNull`): a null role is an ordinary folder, null keywords none.
+- **Hooks are awaited inline** in the sync run (onSyncStateChange, onNewEmailReceived) and on connect/drop
+  (onPushConnectionChange): a slow plugin delays the next step of that run. Bulwark emits without awaiting
+  (`void emailHooks...emit`). Review against the hook bus's own timeout once mailcore's HookBus lands.
+- **onNewEmailReceived payload is the `EmailSummary` model**, inbox only and never a draft (Bulwark stores/email-store.ts:1346).
+  Bulwark keeps its own Email/changes baseline for plugins; here it rides the Rust new-mail check (unread, newest 10, the
+  first run seeds), so a message read on another device before the check runs is not reported. Deviation to review.
+  Where: `Core/Sync/MailSync.cs`, `NewMailWatcher.cs`.
+- **The new-mail check ignores notification prefs** (`InboxOnly` is a switch for the notifier stream to set). Where: `NewMailWatcher.cs`.
+- **ListResetEvent leaves the re-read to the view**: when no delta can be had the engine drops the list states and emits
+  `ListResetEvent`; the list view must query again and call `Watch(query, page)`, or later pushes keep resetting. Where:
+  `MailSync.cs` `SyncListAsync`; mailcore's `MessageListViewModel`.
+- **700 ms coalesce is an `ITimer` debounce** (each push restarts it), like Rust main.rs:538; a steady stream of pushes under
+  700 ms apart would postpone the sync indefinitely. Rust has the same property. Where: `MailSync.Push.cs` `Schedule`.
+- **Session kept as `JsonElement`/JsonObject inside `JmapSession`** for capability reads (`AccountCapability<T>` via the
+  source-generated context). AOT-safe, but review the shape before M3 adds submission and M4 calendars.
+- **J-051 collapseThreads stays M2** (Rust and Bulwark list messages and show the thread size).
+- **J-015 creation ids deferred to M3** (`JmapRequestBuilder.CreationRef` exists; first real use is EmailSubmission/set).
+- **trace-diff is source-derived** (PORT-PLAN §4.6, M1-plan risk 3): `spec/traces/M1/*.rust.txt` were written by hand from
+  `desktop/src` at rust-final with file:line per line. Glance tiles, tag counts, body prefetch and calendar calls are marked
+  optional (`~`), because they belong to other streams or milestones. A live Rust or Bulwark trace is a hand test. Review the
+  derivation, especially push: one Mailbox/get for the counts-only fetch (jmap.rs:465). Where: `tools/trace-diff.py`,
+  `tests/Barbican.Core.Tests/Sync/TraceScenarioTests.cs`.
+- **Live checks are hand tests.** `tests/Barbican.Jmap.Live` (session, folders, a Sent page and its delta, read-only
+  client) is skipped unless `BARBICAN_LIVE=1` and `BARBICAN_LIVE_SERVER`/`_USER`/`_SECRET` are supplied by the Verify stage
+  or the user from a password-kind ADR 0008 import. No agent ran it: the import is the accounts stream's and is not on `m1`.
+- **Coverage (Microsoft.Testing.Extensions.CodeCoverage, cobertura):** Jmap 93.2%, Sync 90.7%, Mail/Service 94.1%,
+  Mail/Model 100%. Uncovered: mostly cancellation and IO-exception branches in `JmapClient` and `EventSourceReader`.
+- **Files edited outside my owned paths:** `Directory.Packages.props` (an `m1-jmap` block: CodeCoverage 18.12.0),
+  `tests/Barbican.Core.Tests/Barbican.Core.Tests.csproj` (FakeJmap reference, TimeProvider.Testing, CodeCoverage),
+  `spec/plugins/hooks.csv` and `HookCallSiteTests.cs` (the three jmap hook rows and the `[Red("jmap")]` removal, as the
+  brief asked), `spec/jmap.csv`, `spec/behaviours/jmap.md`, `sync.md` (B-SYNC-036, 037 only).
+- **Linux VM unreachable** again (ssh connect timed out, 2026-11-17); green on Windows only (`tools/build.ps1 test`:
+  432 tests, 429 passed, 3 live skipped). The Linux run is open.
+
+### Requests to other streams
+- **mailcore:** register the real `HookBus` in DI. `AddBarbicanCore` registers `NullHookBus.Instance` with `TryAdd`, so
+  your registration must come first or replace it. MailSync calls only `HasHandlers` and `NotifyAsync`.
+- **integrator:** own the `Barbican.Core.Tests.csproj` and `Directory.Packages.props` edits above at the merge.
+- **integrator / F2 owner:** `tools/spec-check.py:119` has a literal backspace byte (0x08) in the hook regex
+  (`r"<BS>HookNames\.(\w+)"`, probably a `\b` written through a non-raw string), so "fired" is 0 for every milestone.
+  Replace it with `\b` or drop it. Not fixed here (not my file).
+- **accounts:** the live suite reads its secret from the environment for now; once the dev-profile import and the
+  secret store are on `m1`, switch `tests/Barbican.Jmap.Live/LiveAccount.cs` to read the imported password-kind entry.
+
+### Review (Opus reviewer of the jmap stream)
+Read the whole diff `origin/m1...m1-jmap` against Rust `desktop/src` (jmap.rs, mail.rs, main.rs), the plan and the spec rows.
+The transport, session, list paging, 7-call delta, Mailbox/changes merge, SSE parser, backoff and trace are faithful ports;
+citations spot-checked (jmap.rs:73/104/139/228/246/272/406/440/465/524/592/1108/1146, main.rs:486/499/538-547/560-578/2015-2058,
+mail.rs:34/254-292/759-772 all point at the code they name).
+- **Fixed: a sync cancelled while it waited for the gate left `onSyncStateChange` stuck at "syncing".** `SyncNowAsync` took
+  the gate outside its `try`, so a cancellation skipped `EndRunAsync` and the overlapping-run counter never fell back to 0;
+  every later run then reported neither "syncing" nor "idle". Now the gate and the "syncing" hook are inside the `try`.
+  Test `MailSyncTests.A_run_cancelled_before_it_starts_still_ends_the_syncing_cycle`. Where: `Core/Sync/MailSync.cs`.
+- **Fixed: `BARBICAN_JMAP_TRACE` pointing at a folder that does not exist failed every request** (the `File.AppendAllText`
+  exception escaped the trace sink into `SendAsync`). The trace is best effort now. Test
+  `MailSyncTests.A_trace_file_that_cannot_be_written_never_fails_the_caller`. Where: `Core/Jmap/Transport/JmapTrace.cs`.
+- **Fixed: the event-stream `Stream` leaked when the connect hook threw before reading began** (only the reader disposed it).
+  Where: `Core/Sync/MailSync.Push.cs` `PushOnceAsync`.
+- **Thin rows to look at:** J-009 (maxObjectsInSet) is "done" on a test that only reads the limit (M1 has no /set; the
+  chunking is M2's), J-028 (upToId) is "done" as "not sent, whole delta applied" (Rust n.a.). Both defensible, neither
+  exercises behaviour. Where: `spec/jmap.csv`.
+- **No push = no live updates at all.** A server without `eventSourceUrl` makes `RunAsync` retry the open forever on the
+  backoff (5 min cap) and nothing else syncs; Rust behaves the same. Stalwart always has push, so M1 is unaffected; a
+  polling fallback is a later decision. Where: `MailSync.Push.cs` `RunAsync`.
+- **One delta is emitted twice to the list view**: `ListDeltaEvent` and `EmailsChangedEvent` for the same delta, and
+  mailcore's `MessageListViewModel` applies both (idempotent, two rebuilds). The second exists for the body cache
+  (Rust bodycache on_sync). Review whether the list view should skip `EmailsChangedEvent` right after a `ListDeltaEvent`.
+- **Merge into `m1` (after mailcore), integration fixes in the merge commit:**
+  - **Two hook buses.** `AddBarbicanCore` runs first in `AppComposition` and registered `NullHookBus` with `TryAdd`, so
+    mailcore's `TryAdd<IHookBus>(HookBus)` was ignored: the sync engine and the ViewModels got the null bus while plugins
+    (tests today, M6b) register on `HookBus`. The jmap module now registers the real `HookBus` the same way mailcore does
+    (either order gives one bus). `NullHookBus` stays as a test double. Tests: `WiringTests.The_hook_bus_is_the_real_one_that_plugins_register_on`,
+    Presentation `RegistrationTests.The_jmap_module_first_and_mailcore_second_still_share_one_hook_bus`.
+    Where: `Core/Jmap/JmapRegistration.cs`.
+  - **Every push reset the list.** `MessageListViewModel` called `Watch(query)` (the F2 contract), which keeps no states,
+    so the engine answered every Email push with `ListResetEvent` and a full reload: the opposite of the "open, push,
+    delta, no reset" exit test, which only held inside Core. It now calls `Watch(query, page)`. The view also drops a
+    `ListDeltaEvent`/`ListResetEvent` whose `Query` is not the list it shows. Tests:
+    `MessageListViewModelTests.Opening_a_folder_shows_the_first_page_under_a_date_header` (asserts the page is handed over),
+    `A_delta_or_reset_of_another_watched_list_is_ignored`. Where: `Presentation/Mail/MessageListViewModel.cs` (mailcore's file,
+    changed by the integrator as the jmap Fable section asked).
+  - **`tools/spec-check.py` hook count fixed** (the 0x08 byte in the regex the jmap section reported): M1 now shows 29 of
+    41 hooks fired; the 12 open ones are body, accounts and shell-ui rows of later waves.
+  - **Mailcore keeps its own `LoadedList.Apply`** (a copy of `ListDeltaApplier` written before jmap landed). Two
+    implementations of RFC 8620 §5.6 now exist; review whether `LoadedList` should call `Core/Sync/ListDeltaApplier`.
+  - **Linux not run for this merge either:** the VM answers ping but SSH (port 22) timed out on 2026-11-17; Windows
+    `tools/build.ps1 test` is green (564 tests, 561 passed, 3 live skipped). Run `tools/linux.ps1 test` on `m1` when the VM is back.

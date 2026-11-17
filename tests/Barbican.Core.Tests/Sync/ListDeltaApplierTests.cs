@@ -1,5 +1,5 @@
 // Ported from Rust src/jmap.rs tests list_delta_inserts_removes_and_updates (:1761), list_delta_leaves_far_additions_to_paging (:1784)
-// and list_delta_refreshes_rows_updated_in_place (:1799). Red until the jmap stream implements ListDeltaApplier.
+// and list_delta_refreshes_rows_updated_in_place (:1799).
 
 using Barbican.Core.Mail.Model;
 using Barbican.Core.Sync;
@@ -14,7 +14,6 @@ public sealed class ListDeltaApplierTests
 
     [Fact]
     [RustTest("jmap::list_delta_inserts_removes_and_updates")]
-    [Red("jmap")]
     public void List_delta_inserts_removes_and_updates()
     {
         List<EmailSummary> emails = [Em("1"), Em("2"), Em("3"), Em("4")];
@@ -41,7 +40,6 @@ public sealed class ListDeltaApplierTests
 
     [Fact]
     [RustTest("jmap::list_delta_leaves_far_additions_to_paging")]
-    [Red("jmap")]
     public void List_delta_leaves_far_additions_to_paging()
     {
         List<EmailSummary> emails = [Em("1"), Em("2")];
@@ -60,7 +58,6 @@ public sealed class ListDeltaApplierTests
 
     [Fact]
     [RustTest("jmap::list_delta_refreshes_rows_updated_in_place")]
-    [Red("jmap")]
     public void List_delta_refreshes_rows_updated_in_place()
     {
         // immutable filters: queryChanges reports nothing, Email/changes the keyword change

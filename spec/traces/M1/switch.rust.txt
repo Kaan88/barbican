@@ -1,0 +1,9 @@
+# Scenario "switch": with the inbox open and push settled, the user opens another folder (Archive).
+# Derived by hand from the Rust app at tag rust-final: main.rs:839 on_select_folder -> :851 load_folder -> :691 {inMailbox} ->
+# mail.rs:665 load_list. Lines marked ~ belong to other streams (body prefetch).
+
+@phase switch
+@thread load_list
+Email/query(limit=50),Email/get,Thread/get -> Email/query,Email/get,Thread/get   # mail.rs:684 fetch_list -> :624 -> jmap.rs:524 list_page
+~Email/get -> Email/get                                       # mail.rs:701 prefetch_top (body stream)
+~Email/get -> Email/get

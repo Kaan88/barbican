@@ -3,5 +3,9 @@
        Shared test settings: tests/Directory.Build.props. -->
   <ItemGroup>
     <ProjectReference Include="../../src/Barbican.Core/Barbican.Core.csproj" />
+    <!-- m1-jmap: the fake JMAP server, the virtual clock (push backoff and deadlines) and coverage. -->
+    <ProjectReference Include="../Barbican.FakeJmap/Barbican.FakeJmap.csproj" />
+    <PackageReference Include="Microsoft.Extensions.TimeProvider.Testing" />
+    <PackageReference Include="Microsoft.Testing.Extensions.CodeCoverage" />
   </ItemGroup>
 </Project>

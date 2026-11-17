@@ -1,5 +1,5 @@
 // Ported from Rust src/jmap.rs tests reschedule_fallback_order (:1654), from_override_header_identity_and_envelope (:1663),
-// addresses (:1878) and delayed_send_needs_futurerelease (:1886). Red until the jmap stream implements the Submission rules
+// addresses (:1878) and delayed_send_needs_futurerelease (:1886). The Submission rules
 // (M3 uses them; M1 ports and tests the pure functions).
 
 using System.Text.Json.Nodes;
@@ -15,7 +15,6 @@ public sealed class SubmissionTests
 
     [Fact]
     [RustTest("jmap::reschedule_fallback_order")]
-    [Red("jmap")]
     public void Reschedule_fallback_order()
     {
         Assert.Equal<RescheduleFallback>([new RecreateAt(10_000), new RestoreDraft()], ReschedulePlanner.Fallbacks(10_000, 0));
@@ -27,7 +26,6 @@ public sealed class SubmissionTests
 
     [Fact]
     [RustTest("jmap::from_override_header_identity_and_envelope")]
-    [Red("jmap")]
     public void From_override_header_identity_and_envelope()
     {
         var ident = new Identity("i1", "Me", "me@a.example.com");
@@ -74,7 +72,6 @@ public sealed class SubmissionTests
 
     [Fact]
     [RustTest("jmap::addresses")]
-    [Red("jmap")]
     public void Addresses()
     {
         var a = AddressParser.Parse("\"Doe, Jane\" <jane@x.example.org>; bob@y.example.org, <c@z.example.org>, nobody");
@@ -85,7 +82,6 @@ public sealed class SubmissionTests
 
     [Fact]
     [RustTest("jmap::delayed_send_needs_futurerelease")]
-    [Red("jmap")]
     public void Delayed_send_needs_futurerelease()
     {
         Assert.Equal(0, DelayedSend.Limit(Cap("""{"maxDelayedSend": 600}"""), false));

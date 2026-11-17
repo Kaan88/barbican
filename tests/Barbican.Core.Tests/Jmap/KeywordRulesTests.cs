@@ -1,4 +1,4 @@
-// Ported from Rust src/jmap.rs test keywords (:1857). Red until the jmap stream implements KeywordRules.
+// Ported from Rust src/jmap.rs test keywords (:1857).
 
 using Barbican.Core.Jmap.KeywordSyntax;
 
@@ -8,7 +8,6 @@ public sealed class KeywordRulesTests
 {
     [Fact]
     [RustTest("jmap::keywords")]
-    [Red("jmap")]
     public void Keywords()
     {
         Assert.True(KeywordRules.IsValid("$label:red"));

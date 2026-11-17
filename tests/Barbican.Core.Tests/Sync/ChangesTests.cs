@@ -1,5 +1,5 @@
 // Ported from Rust src/jmap.rs tests parse_changes_reads_response (:1736), object_delta_merges_partial_updates (:1752) and
-// counts_only_update_of_unknown_folder_fetches_it_whole (:1900). Red until the jmap stream implements ChangesParser and ObjectDelta.
+// counts_only_update_of_unknown_folder_fetches_it_whole (:1900).
 
 using System.Text.Json.Nodes;
 using Barbican.Core.Jmap.State;
@@ -13,7 +13,6 @@ public sealed class ChangesTests
 
     [Fact]
     [RustTest("jmap::parse_changes_reads_response")]
-    [Red("jmap")]
     public void Parse_changes_reads_response()
     {
         var r = JsonNode.Parse(
@@ -40,7 +39,6 @@ public sealed class ChangesTests
 
     [Fact]
     [RustTest("jmap::object_delta_merges_partial_updates")]
-    [Red("jmap")]
     public void Object_delta_merges_partial_updates()
     {
         List<JsonObject> have = [Obj("""{"id": "a", "name": "Inbox", "unreadEmails": 1}"""), Obj("""{"id": "b", "name": "Old"}""")];
@@ -52,7 +50,6 @@ public sealed class ChangesTests
 
     [Fact]
     [RustTest("jmap::counts_only_update_of_unknown_folder_fetches_it_whole")]
-    [Red("jmap")]
     public void Counts_only_update_of_unknown_folder_fetches_it_whole()
     {
         List<JsonObject> have = [Obj("""{"id": "a", "name": "Inbox"}""")];

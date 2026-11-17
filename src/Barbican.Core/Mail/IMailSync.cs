@@ -15,6 +15,12 @@ public interface IMailSync
     /// <summary>The open list the engine keeps in sync.</summary>
     void Watch(ListQuery query);
 
+    /// <summary>
+    /// The open list, read as <paramref name="loaded"/>: its query, email and thread states let the next push bring it up to date with
+    /// a delta instead of a reset (Rust mail.rs:34 states_of).
+    /// </summary>
+    void Watch(ListQuery query, ListPage loaded) => Watch(query);
+
     /// <summary>Runs push and the delta loop until cancelled.</summary>
     Task RunAsync(CancellationToken ct);
 }

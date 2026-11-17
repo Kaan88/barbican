@@ -116,7 +116,7 @@ def hooks_summary() -> list[str]:
     with path.open(encoding="utf-8", newline="") as f:
         rows = list(csv.DictReader(f))
     used: set[str] = set()
-    ref = re.compile(r"HookNames\.(\w+)")
+    ref = re.compile(r"\bHookNames\.(\w+)")
     for p in (ROOT / "src").rglob("*.cs"):
         if p.name.endswith(".g.cs") or any(part in ("bin", "obj") for part in p.parts):
             continue

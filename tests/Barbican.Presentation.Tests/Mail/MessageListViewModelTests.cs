@@ -35,6 +35,8 @@ public sealed class MessageListViewModelTests
         Assert.True(h.List.CanLoadMore);
         Assert.False(h.List.IsLoading);
         Assert.Equal("inbox", Assert.Single(h.Sync.Watched).MailboxId);
+        // the engine gets the page with its states, so the next push is a delta and not a reset (Rust mail.rs:34 states_of)
+        Assert.Single(h.Sync.Loaded);
         Assert.True(h.List.LastSync.Reset);
         Assert.Empty(h.Opener.Opened);
     }
@@ -147,6 +149,21 @@ public sealed class MessageListViewModelTests
         gate.SetResult(Ok(Mails.Page(50, 2, 2, more: false)));
         await opening;
         Assert.DoesNotContain(h.List.Messages, r => string.Equals(r.Id, "from-the-old-folder", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task A_delta_or_reset_of_another_watched_list_is_ignored()
+    {
+        using var h = await OpenedAsync();
+        h.Changes.Clear();
+        var queries = h.Service.Queries.Count;
+        var elsewhere = new ListQuery { MailboxId = "archive" };
+        var other = Mails.Make("from-another-list", unread: true, hoursAgo: 0.01);
+        h.Hub.Publish(new ListDeltaEvent(new ListDelta { Added = [("from-another-list", 0)], Emails = new Dictionary<string, EmailSummary> { ["from-another-list"] = other }, Total = 11 }) { Query = elsewhere });
+        h.Hub.Publish(new ListResetEvent { Query = elsewhere });
+        Assert.Empty(h.Changes);
+        Assert.Equal(queries, h.Service.Queries.Count);
+        Assert.DoesNotContain(h.List.Messages, r => string.Equals(r.Id, "from-another-list", StringComparison.Ordinal));
     }
 
     [Fact]

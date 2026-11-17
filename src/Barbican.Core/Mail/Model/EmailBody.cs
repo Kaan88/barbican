@@ -41,13 +41,30 @@ public sealed record EmailBody
     public IReadOnlyDictionary<string, BodyValue> BodyValues { get; init; } = new Dictionary<string, BodyValue>(StringComparer.Ordinal);
 
     /// <summary>Inline (<c>cid:</c>) images already resolved to data URIs, by content id (Rust <c>__cidBodyValues</c>).</summary>
+    [JsonIgnore]
     public IReadOnlyDictionary<string, string> CidBodyValues { get; init; } = new Dictionary<string, string>(StringComparer.Ordinal);
 
     /// <summary>True when the server cut a body value short (J-053, surfaced in the reader).</summary>
+    [JsonIgnore]
     public bool IsTruncated { get; init; }
 
     public DateTimeOffset? ReceivedAt { get; init; }
 
+    public DateTimeOffset? SentAt { get; init; }
+
+    public long Size { get; init; }
+
+    public bool HasAttachment { get; init; }
+
+    public IReadOnlyList<EmailAddress> Sender { get; init; } = [];
+
+    /// <summary>Message-ID values (RFC 8621 §4.1.2.3 <c>messageId</c>), for replies (M3).</summary>
+    public IReadOnlyList<string> MessageId { get; init; } = [];
+
+    public IReadOnlyList<string> InReplyTo { get; init; } = [];
+
+    public IReadOnlyList<string> References { get; init; } = [];
+
     [JsonExtensionData]
-    public IDictionary<string, JsonElement>? Extra { get; init; }
+    public IDictionary<string, JsonElement>? Extra { get; set; }
 }

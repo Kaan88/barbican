@@ -453,7 +453,9 @@ public sealed class MessageListViewModel : ObservableObject, IDisposable
         await RebuildWithBadgesAsync().ConfigureAwait(true);
         Total = _loaded.Total;
         CanLoadMore = _loaded.Next is not null;
-        _active.Sync?.Watch(query);
+        // the page's query, email and thread states let the next push bring the list up to date with a delta; Watch(query) alone keeps
+        // no states, so every push would reset the list (Rust mail.rs:34 states_of, :759 sync)
+        _active.Sync?.Watch(query, page);
         if (folderOpened)
         {
             SetSelected(null);
@@ -550,7 +552,12 @@ public sealed class MessageListViewModel : ObservableObject, IDisposable
         {
             case ListDeltaEvent when IsLoading || _query is null:
                 // a delta that was computed for the list that is being replaced (a folder switch in flight) must not touch the new rows: the
-                // first page being loaded is already current, and ListDeltaEvent carries no query identity to check
+                // first page being loaded is already current
+                break;
+            case ListDeltaEvent { Query: { } q } when q != _query:
+                // a delta of a list this view no longer shows (the engine names the watched query)
+                break;
+            case ListResetEvent { Query: { } q } when q != _query:
                 break;
             case ListDeltaEvent d:
                 _loaded.Apply(d.Delta);

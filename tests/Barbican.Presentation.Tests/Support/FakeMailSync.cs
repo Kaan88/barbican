@@ -14,7 +14,16 @@ internal sealed class FakeMailSync : IMailSync
 
     public ChannelReader<MailSyncEvent> Events => _channel.Reader;
 
+    /// <summary>The pages handed to <see cref="Watch(ListQuery, ListPage)"/>: their states are what lets a push become a delta.</summary>
+    public List<ListPage> Loaded { get; } = [];
+
     public void Watch(ListQuery query) => Watched.Add(query);
+
+    public void Watch(ListQuery query, ListPage loaded)
+    {
+        Watched.Add(query);
+        Loaded.Add(loaded);
+    }
 
     public async Task RunAsync(CancellationToken ct) => await Task.Delay(Timeout.Infinite, ct).ConfigureAwait(false);
 
