@@ -11,8 +11,8 @@ onThreadExpand,mail-read,observer,email:read,,"{ threadId, emailIds, expanded }"
 onBeforeReply,mail-read,intercept,email:read,,ReplyContext,"when Reply is chosen, before the composer opens",lib/plugin-hook-catalog.ts:83,M3,,,pending
 onBeforeReplyAll,mail-read,intercept,email:read,,ReplyContext,"when Reply all is chosen, before the composer opens",lib/plugin-hook-catalog.ts:84,M3,,,pending
 onBeforeForward,mail-read,intercept,email:read,,ReplyContext,"when Forward is chosen, before the composer opens",lib/plugin-hook-catalog.ts:85,M3,,,pending
-onBeforeExternalLink,mail-read,intercept,links:check,,ExternalLinkContext,"when a link is opened (mail, reader view, events, contacts, notifications, the unsubscribe link, links other plugins open); return false to stop it or { href } to change it",lib/plugin-hook-catalog.ts:86,M2,reader,,pending
-onAvatarResolve,mail-read,transform,email:read,,"string | null (avatar URL), { email, name }",when a sender avatar is needed,lib/plugin-hook-catalog.ts:87,M2,reader,,pending
+onBeforeExternalLink,mail-read,intercept,links:check,,ExternalLinkContext,"when a link is opened (mail, reader view, events, contacts, notifications, the unsubscribe link, links other plugins open); return false to stop it or { href } to change it",lib/plugin-hook-catalog.ts:86,M2,reader,src/Barbican.Core/Mail/Body/CheckedLinkRouter.cs:30,done
+onAvatarResolve,mail-read,transform,email:read,,"string | null (avatar URL), { email, name }",when a sender avatar is needed,lib/plugin-hook-catalog.ts:87,M2,reader,src/Barbican.Core/Mail/Avatars/AvatarService.cs:80,done
 onBeforeCompose,mail-compose,intercept,email:send,,ComposeOptions,before the composer opens; return false to stop it or a ComposeOptions to prefill it,lib/plugin-hook-catalog.ts:90,M3,,,pending
 onComposerOpen,mail-compose,observer,email:read,,ComposerContext,after the composer opened,lib/plugin-hook-catalog.ts:91,M3,,,pending
 onComposerClose,mail-compose,observer,email:read,,"{ draftId, sent: boolean }",after the composer closed,lib/plugin-hook-catalog.ts:92,M3,,,pending
@@ -65,7 +65,7 @@ onProvideSearchResults,mail-search,transform,email:read,,"ExternalSearchResult[]
 onBeforeAttachmentUpload,mail-attachments,intercept,email:read,,AttachmentInfo,before a file is attached in the composer,lib/plugin-hook-catalog.ts:150,M3,,,pending
 onBeforeBlobUpload,mail-attachments,transform,email:blob-write,,"{ file, blobId } | ExternalAttachmentResult",before an attachment is uploaded; may offload it,lib/plugin-hook-catalog.ts:151,M3,,,pending
 onAfterAttachmentUpload,mail-attachments,observer,email:read,,AttachmentInfo,after an attachment was uploaded,lib/plugin-hook-catalog.ts:152,M3,,,pending
-onAttachmentDownload,mail-attachments,observer,email:read,,AttachmentInfo,when an attachment of a message is downloaded,lib/plugin-hook-catalog.ts:153,M2,reader,,pending
+onAttachmentDownload,mail-attachments,observer,email:read,,AttachmentInfo,when an attachment of a message is downloaded,lib/plugin-hook-catalog.ts:153,M2,reader,src/Barbican.Core/Mail/Attachments/AttachmentSaver.cs:45,done
 onAttachmentPreview,mail-attachments,transform,email:render-takeover,,"AttachmentPreview, AttachmentInfo",when an attachment preview opens,lib/plugin-hook-catalog.ts:154,M5,,,pending
 onNewEmailReceived,mail-sync,observer,email:read,,EmailSummary,for each new message in the inbox (push or poll),lib/plugin-hook-catalog.ts:157,M1,jmap,src/Barbican.Core/Sync/MailSync.cs:209,done
 onPushConnectionChange,mail-sync,observer,email:read,,{ connected: boolean },when live updates connect or drop,lib/plugin-hook-catalog.ts:158,M1,jmap,src/Barbican.Core/Sync/MailSync.Push.cs:172,done
@@ -205,7 +205,7 @@ onSidebarCollapse,ui,observer,ui:observe,,{ collapsed },when the sidebar is coll
 onDeviceTypeChange,ui,observer,ui:observe,,"{ deviceType: ""mobile"" | ""tablet"" | ""desktop"" }","when the layout switches between phone, tablet and desktop",lib/plugin-hook-catalog.ts:325,n/a,,,n/a(Bulwark phone/tablet/desktop switch: the desktop app has one layout)
 onColumnResize,ui,observer,ui:observe,,"{ column: ""sidebar"" | ""email-list"" | ""email-list-height"", width }",after a column was resized or reset,lib/plugin-hook-catalog.ts:326,M2,actions,,pending
 onMobileBack,ui,observer,ui:observe,,{},when Back is used on the phone layout,lib/plugin-hook-catalog.ts:327,n/a,,,n/a(Bulwark phone layout: the desktop app has one layout)
-onTextSelectionChange,ui,observer,email:read,,SelectionContext,when the user selects text (debounced),lib/plugin-hook-catalog.ts:328,M2,reader,,pending
+onTextSelectionChange,ui,observer,email:read,,SelectionContext,when the user selects text (debounced),lib/plugin-hook-catalog.ts:328,M2,reader,src/Barbican.App/MailBody/BodyShell.cs (ShellMessageKind.Selection),done
 onDragStart,ui,observer,email:read,,"{ kind: ""email"", ids }",when messages start being dragged,lib/plugin-hook-catalog.ts:329,M2,actions,,pending
 onDragEnd,ui,observer,email:read,,"{ kind, ids, dropped }",when a drag ends,lib/plugin-hook-catalog.ts:330,M2,actions,,pending
 onEmailDrop,ui,observer,email:read,,"{ emailIds, targetMailboxId }",after messages were dropped on a folder,lib/plugin-hook-catalog.ts:331,M2,actions,,pending

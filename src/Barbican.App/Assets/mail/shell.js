@@ -94,6 +94,21 @@
       if (typeof href === 'string' && href.length > 0 && href.length <= 8000) post('link:' + href);
     } catch (x) { }
   }
+  // onTextSelectionChange (Bulwark plugin-hook-catalog.ts:328): the selected text, debounced, capped like the host (ShellMessage.MaxSelection)
+  var selT = 0, selLast = '';
+  function sel(d) {
+    return function () {
+      if (selT) clearTimeout(selT);
+      selT = setTimeout(function () {
+        selT = 0;
+        try {
+          var v = G(d, 'view'), t = v && v.getSelection ? String(v.getSelection()) : '';
+          if (t.length > 4000) t = t.slice(0, 4000);
+          if (t !== selLast) { selLast = t; post('sel:' + t); }
+        } catch (x) { }
+      }, 300);
+    };
+  }
   document.addEventListener('keydown', kd, true);
   document.addEventListener('contextmenu', ctx, true);
   function fix(d) {
@@ -112,6 +127,7 @@
         on(d, 'scroll', p, true);
         on(d, 'load', p, true);
         on(d, 'selectionchange', p, false);
+        on(d, 'selectionchange', sel(d), false);
         on(G(d, 'view'), 'resize', p, false);
       }
     } catch (e) { }

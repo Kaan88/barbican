@@ -22,6 +22,8 @@ using System.Globalization;
 using System.Text.Json;
 using Barbican.App.Theme;
 using Barbican.Core.Mail.Body;
+using Barbican.Core.Mail.Reader.Hooks;
+using Barbican.Core.Plugins.Hooks;
 using Barbican.Presentation.Common;
 using Barbican.Presentation.Composition;
 using Barbican.Presentation.Input;
@@ -47,6 +49,7 @@ public sealed partial class BodyShell : IBodyPresenter, IStartupTask, IDisposabl
     private readonly Lazy<IKeyRouter> _keys;
     private long _sentAt;
     private readonly ILinkRouter _links;
+    private readonly IHookBus _hooks;
     private readonly IDispatcher _dispatcher;
     private readonly TimeProvider _time;
     private readonly ThemeController _theme;
@@ -66,8 +69,9 @@ public sealed partial class BodyShell : IBodyPresenter, IStartupTask, IDisposabl
     private string? _allowRemoteFor;
     private string? _formattedFor;
 
-    public BodyShell(BodyAppearance appearance, Lazy<IKeyRouter> keys, ILinkRouter links, IDispatcher dispatcher, TimeProvider time, ThemeController theme, ILogger<BodyShell> log)
+    public BodyShell(BodyAppearance appearance, Lazy<IKeyRouter> keys, ILinkRouter links, IDispatcher dispatcher, TimeProvider time, ThemeController theme, ILogger<BodyShell> log, IHookBus hooks)
     {
+        _hooks = hooks;
         _appearance = appearance;
         _keys = keys;
         _links = links;
@@ -137,7 +141,7 @@ public sealed partial class BodyShell : IBodyPresenter, IStartupTask, IDisposabl
             _formattedFor = null;
         }
 
-        var allow = !request.BlockRemote && string.Equals(_allowRemoteFor, request.EmailId, StringComparison.Ordinal);
+        var allow = !request.BlockRemote && (request.TrustedSender || string.Equals(_allowRemoteFor, request.EmailId, StringComparison.Ordinal));
         var plain = _appearance.A11y.PlainView && _formattedFor is null;
         var page = MailPageBuilder.Build(request.Content.BodyMarkup(plain), _appearance.Options(allow));
         Send(request, page, allow);
@@ -486,6 +490,9 @@ public sealed partial class BodyShell : IBodyPresenter, IStartupTask, IDisposabl
                 break;
             case ShellMessageKind.Key when m.Key is not null && ShellMessageParser.ParseKey(m.Key) is { } key:
                 _ = _keys.Value.Handle(ForwardedKeyChords.ToChord(key), KeySource.WebView);
+                break;
+            case ShellMessageKind.Selection when m.Text is not null && _current is { } shown && _hooks.HasHandlers(HookNames.OnTextSelectionChange):
+                _ = _hooks.NotifyAsync(HookNames.OnTextSelectionChange, new SelectionContext(shown.Request.EmailId, m.Text), CancellationToken.None).AsTask();
                 break;
             case ShellMessageKind.Link when m.Link is not null:
                 RoutedLinks++;

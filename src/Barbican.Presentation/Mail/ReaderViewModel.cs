@@ -1,5 +1,5 @@
 // Mirrors: M1-plan §4.3 (Header, Conversation strip, Attachments, AuthResults, BodyState, Apply(ReaderSnapshot)); Rust msgload.rs (header and body
-// change together, B-SYNC-022; a failed fetch leaves nothing of the previous message, B-SYNC-029); spec I-194..I-233. Owner mailcore.
+// change together, B-SYNC-022; a failed fetch leaves nothing of the previous message, B-SYNC-029); spec I-194..I-233; M2 banners (reader). Owner reader (M2).
 
 using CommunityToolkit.Mvvm.ComponentModel;
 using Barbican.Presentation.Common;
@@ -38,6 +38,9 @@ public sealed class ReaderViewModel : ObservableObject
     /// <summary>The attachment tiles; synced in place so a thumbnail arriving touches one tile.</summary>
     public BulkObservableCollection<AttachmentCard> Attachments { get; } = [];
 
+    /// <summary>The banners above the body; synced in place with the snapshot (same turn as the reveal).</summary>
+    public BulkObservableCollection<Reader.ReaderBanner> Banners { get; } = [];
+
     /// <summary>Takes over a prepared snapshot: every property and both collections change here, then the notifications go out together.</summary>
     public void Apply(ReaderSnapshot snapshot)
     {
@@ -45,6 +48,7 @@ public sealed class ReaderViewModel : ObservableObject
         var previous = _current;
         _current = snapshot;
         ListSync.SyncBy(Conversation, snapshot.Conversation, c => c.Id, EqualityComparer<ConversationItem>.Default.Equals);
+        ListSync.SyncBy(Banners, snapshot.Banners, b => b.Id, EqualityComparer<Reader.ReaderBanner>.Default.Equals);
         ListSync.SyncBy(Attachments, snapshot.Attachments, a => a.Index.ToString(System.Globalization.CultureInfo.InvariantCulture), AttachmentCardsEqual);
         OnPropertyChanged(nameof(Current));
         if (!string.Equals(previous.EmailId, snapshot.EmailId, StringComparison.Ordinal))
@@ -60,6 +64,19 @@ public sealed class ReaderViewModel : ObservableObject
         OnPropertyChanged(nameof(AuthChips));
         OnPropertyChanged(nameof(AuthVerdict));
         OnPropertyChanged(nameof(Error));
+    }
+
+    /// <summary>A banner was answered or dismissed: it goes, the rest of the reader stays.</summary>
+    public void RemoveBanner(string emailId, string bannerId)
+    {
+        if (!string.Equals(emailId, _current.EmailId, StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        _current = _current with { Banners = [.. _current.Banners.Where(b => !string.Equals(b.Id, bannerId, StringComparison.Ordinal))] };
+        ListSync.SyncBy(Banners, _current.Banners, b => b.Id, EqualityComparer<Reader.ReaderBanner>.Default.Equals);
+        OnPropertyChanged(nameof(Current));
     }
 
     /// <summary>Nothing is open any more.</summary>

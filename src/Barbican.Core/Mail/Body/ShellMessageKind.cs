@@ -22,4 +22,7 @@ public enum ShellMessageKind
 
     /// <summary><c>link:URL</c>: a link click the shell intercepted; only http, https and mailto pass.</summary>
     Link,
+
+    /// <summary><c>sel:TEXT</c>: the selected text changed (debounced by the shell; capped, controls dropped); feeds onTextSelectionChange.</summary>
+    Selection,
 }

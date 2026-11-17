@@ -46,6 +46,7 @@ public sealed class MessageLoader : IMessageOpener, IConversationOpener, IDispos
     private readonly TimeProvider _time;
     private readonly IPrefsStore _prefs;
     private readonly Func<ReaderOptions> _options;
+    private readonly ReaderDepth? _depth;
     private long _seq;
     private int _opens;
     private int _cachedOpens;
@@ -71,7 +72,8 @@ public sealed class MessageLoader : IMessageOpener, IConversationOpener, IDispos
         IDispatcher dispatcher,
         TimeProvider time,
         IPrefsStore prefs,
-        Func<ReaderOptions> options)
+        Func<ReaderOptions> options,
+        ReaderDepth? depth = null)
     {
         ArgumentNullException.ThrowIfNull(reader);
         ArgumentNullException.ThrowIfNull(active);
@@ -97,6 +99,7 @@ public sealed class MessageLoader : IMessageOpener, IConversationOpener, IDispos
         _time = time;
         _prefs = prefs;
         _options = options;
+        _depth = depth;
         _active.Changed += OnAccountChanged;
         _neighbours.ListLoaded += OnListLoaded;
     }
@@ -277,9 +280,22 @@ public sealed class MessageLoader : IMessageOpener, IConversationOpener, IDispos
 
         // the list's copy has the current keywords (a cached body may predate a flag or a read)
         var shown = body with { Keywords = row.Summary.Keywords };
-        var snapshot = ReaderSnapshots.FromBody(shown, fetched.Thread, _options() with { ServerHost = AuthServTrust.ServerHostOf(context.AccountKey) });
+        var options = _options() with { ServerHost = AuthServTrust.ServerHostOf(context.AccountKey) };
+        if (_depth is not null)
+        {
+            options = _depth.Shape(options, context.AccountKey, context.Mail);
+        }
+
+        var snapshot = ReaderSnapshots.FromBody(shown, fetched.Thread, options);
+        _depth?.Learn(context.AccountKey, snapshot.LearnedAuthServ);
         ScheduleMarkRead(id, unseen ?? !body.Keywords.Seen, delay);
         var content = BodyRequest.ContentOf(body);
+        if (_depth is { HasBanners: true })
+        {
+            _ = BannersThenShowAsync(id, body, fetched.Thread, snapshot, content, seq, context);
+            return;
+        }
+
         if (!_hooks.HasHandlers(HookNames.OnRenderEmailBody))
         {
             Show(id, body, fetched.Thread, snapshot, content, blockRemote: false, seq, context);
@@ -287,6 +303,31 @@ public sealed class MessageLoader : IMessageOpener, IConversationOpener, IDispos
         }
 
         _ = TransformThenShowAsync(id, body, fetched.Thread, snapshot, content, seq, context);
+    }
+
+    // the banners go into the snapshot before the page is built, so they are applied with the header in the reveal's UI turn (no late pop-in)
+    private async Task BannersThenShowAsync(string id, EmailBody body, ConversationThread? thread, ReaderSnapshot snapshot, MailContent content, long seq, PrefetchContext context)
+    {
+        var banners = await _depth!.BannersAsync(snapshot, _openCts?.Token ?? CancellationToken.None).ConfigureAwait(true);
+        if (seq != _seq)
+        {
+            return;
+        }
+
+        var withBanners = snapshot with { Banners = banners };
+        if (_hooks.HasHandlers(HookNames.OnRenderEmailBody))
+        {
+            await TransformThenShowAsync(id, body, thread, withBanners, content, seq, context).ConfigureAwait(true);
+            return;
+        }
+
+        _dispatcher.Post(() =>
+        {
+            if (seq == _seq)
+            {
+                Show(id, body, thread, withBanners, content, blockRemote: false, seq, context);
+            }
+        });
     }
 
     // onRenderEmailBody: a plugin may take the body over (decrypted mail) before the page is built
@@ -364,7 +405,10 @@ public sealed class MessageLoader : IMessageOpener, IConversationOpener, IDispos
                 {
                     _hooks.Fire(HookNames.OnEmailContentRender, () => new EmailContentRenderPayload(id, content.Html is not null, content.HasRemoteContent));
                 }
-            });
+            })
+        {
+            TrustedSender = _depth?.Trusted(body) ?? false,
+        };
         _presenter.Show(request);
     }
 

@@ -67,7 +67,8 @@ public static class MailBodyRegistration
                 sp.GetRequiredService<IDispatcher>(),
                 time,
                 prefs,
-                () => MailListSettings.Read(prefs.Current, system.Current).ReaderOptionsAt(time.GetUtcNow(), time.LocalTimeZone));
+                () => MailListSettings.Read(prefs.Current, system.Current).ReaderOptionsAt(time.GetUtcNow(), time.LocalTimeZone),
+                sp.GetService<ReaderDepth>());
         });
         services.Replace(ServiceDescriptor.Singleton<IMessageOpener>(sp => sp.GetRequiredService<MessageLoader>()));
         services.TryAddSingleton<IConversationOpener>(sp => sp.GetRequiredService<MessageLoader>());

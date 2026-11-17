@@ -38,7 +38,6 @@ public sealed class HookCallSiteTests
     public void Actions_m2_hooks_have_call_sites() => AssertFired("actions", "M2");
 
     [Fact]
-    [Red("reader")]
     public void Reader_m2_hooks_have_call_sites() => AssertFired("reader", "M2");
 
     [Fact]
