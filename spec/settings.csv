@@ -1,6 +1,6 @@
 id,status,pages,kind,label,default,rust_read_by,rust_hits,csharp_read_by,notes
 S-settingsSyncDisabled,unwired,about,toggle,Settings sync,false,,,not ported,invert
-S-a11y.reset,wired,accessibility,button,Reset accessibility settings,null,main.rs;settings.rs,src/main.rs:1091,not ported,
+S-a11y.reset,wired,accessibility,button,Reset accessibility settings,null,main.rs;settings.rs,src/main.rs:1091,SetUiRowsView.ResetAccessibilityAsync,"Asks first; resets accessibility-only keys sequentially, preserving keys shared with other pages."
 S-colorBlindPalette,wired,accessibility,toggle,Colour-blind-safe colours,false,a11y.rs,src/a11y.rs:9,A11y,
 S-confirmArchive,wired,accessibility,toggle,Confirm before archiving,false,a11y.rs,src/a11y.rs:16,A11y,
 S-confirmDelete,wired,accessibility,toggle,Confirm before deleting,false,a11y.rs,src/a11y.rs:16,A11y,
@@ -124,7 +124,7 @@ S-pushNotifyInboxOnly,wired,notifications,toggle,Inbox only,false,main.rs,src/ma
 S-pushRelayUrl,unwired,notifications,select,Push relay,"""""",,,not ported,
 S-unreadBadgeAllAccounts,wired,notifications,toggle,Count unread mail in all accounts,true,mail.rs;main.rs;unified.rs,src/mail.rs:189,not ported,
 S-nestedTags,wired,organize,toggle,Nested tags,null,main.rs;tags.rs,src/main.rs:1025,SidebarViewModel,
-S-avatars.refresh,wired,privacy,button,Refresh sender icons,null,main.rs,src/main.rs:1100,not ported,
+S-avatars.refresh,wired,privacy,button,Refresh sender icons,null,main.rs,src/main.rs:1100,SetUiRowsView.RefreshAvatarsAsync; AvatarService.RefreshAsync,Clears profile-local avatar image cache and invalidates in-flight fetches.
 S-gravatarAvatars,wired,privacy,toggle,Gravatar photos,false,avatars.rs,src/avatars.rs:33,not ported,
 S-senderFavicons,wired,privacy,toggle,Sender pictures from the web,false,avatars.rs,src/avatars.rs:33,not ported,
 S-showAvatarsInJunk,wired,privacy,toggle,Show avatars in the Junk folder,false,avatars.rs,src/avatars.rs:33,not ported,
@@ -162,18 +162,18 @@ S-keyless-023,keyless,general,info,Open calendar links in {appName},,,,not porte
 S-keyless-024,keyless,general,select,How links open,,,,not ported,no key: dropped by Rust settings.rs schema_rows
 S-keyless-025,keyless,appearance,select,Light or dark,,,,not ported,no key: dropped by Rust settings.rs schema_rows
 S-keyless-026,keyless,appearance,info,Text size and motion,,,,not ported,no key: dropped by Rust settings.rs schema_rows
-S-keyless-027,keyless,accessibility,info,Density and toolbar labels,,,,not ported,no key: dropped by Rust settings.rs schema_rows
-S-keyless-028,keyless,accessibility,info,Theme and colour mode,,,,not ported,no key: dropped by Rust settings.rs schema_rows
-S-keyless-029,keyless,accessibility,info,Light background for messages,,,,not ported,no key: dropped by Rust settings.rs schema_rows
-S-keyless-030,keyless,accessibility,info,Keyboard shortcuts,,,,not ported,no key: dropped by Rust settings.rs schema_rows
-S-keyless-031,keyless,accessibility,info,Hover and swipe actions,,,,not ported,no key: dropped by Rust settings.rs schema_rows
-S-keyless-032,keyless,accessibility,info,Event previews in the calendar,,,,not ported,no key: dropped by Rust settings.rs schema_rows
-S-keyless-033,keyless,accessibility,info,Conversations and preview lines,,,,not ported,no key: dropped by Rust settings.rs schema_rows
-S-keyless-034,keyless,accessibility,info,Marking mail as read,,,,not ported,no key: dropped by Rust settings.rs schema_rows
-S-keyless-035,keyless,accessibility,info,Warnings before sending,,,,not ported,no key: dropped by Rust settings.rs schema_rows
-S-keyless-036,keyless,accessibility,info,Asking before deleting several messages,,,,not ported,no key: dropped by Rust settings.rs schema_rows
-S-keyless-037,keyless,accessibility,info,Do not disturb,,,,not ported,no key: dropped by Rust settings.rs schema_rows
-S-keyless-038,keyless,accessibility,info,Sounds and the unread badge,,,,not ported,no key: dropped by Rust settings.rs schema_rows
+S-keyless-027,keyless,accessibility,info,Density and toolbar labels,,,,SetUiRowsView,Accessibility cross-link opens its target Settings page or shortcuts help.
+S-keyless-028,keyless,accessibility,info,Theme and colour mode,,,,SetUiRowsView,Accessibility cross-link opens its target Settings page or shortcuts help.
+S-keyless-029,keyless,accessibility,info,Light background for messages,,,,SetUiRowsView,Accessibility cross-link opens its target Settings page or shortcuts help.
+S-keyless-030,keyless,accessibility,info,Keyboard shortcuts,,,,SetUiRowsView,Accessibility cross-link opens its target Settings page or shortcuts help.
+S-keyless-031,keyless,accessibility,info,Hover and swipe actions,,,,SetUiRowsView,Accessibility cross-link opens its target Settings page or shortcuts help.
+S-keyless-032,keyless,accessibility,info,Event previews in the calendar,,,,SetUiRowsView,Accessibility cross-link opens its target Settings page or shortcuts help.
+S-keyless-033,keyless,accessibility,info,Conversations and preview lines,,,,SetUiRowsView,Accessibility cross-link opens its target Settings page or shortcuts help.
+S-keyless-034,keyless,accessibility,info,Marking mail as read,,,,SetUiRowsView,Accessibility cross-link opens its target Settings page or shortcuts help.
+S-keyless-035,keyless,accessibility,info,Warnings before sending,,,,SetUiRowsView,Accessibility cross-link opens its target Settings page or shortcuts help.
+S-keyless-036,keyless,accessibility,info,Asking before deleting several messages,,,,SetUiRowsView,Accessibility cross-link opens its target Settings page or shortcuts help.
+S-keyless-037,keyless,accessibility,info,Do not disturb,,,,SetUiRowsView,Accessibility cross-link opens its target Settings page or shortcuts help.
+S-keyless-038,keyless,accessibility,info,Sounds and the unread badge,,,,SetUiRowsView,Accessibility cross-link opens its target Settings page or shortcuts help.
 S-keyless-039,keyless,message_list,select,Message list order,,,,not ported,no key: dropped by Rust settings.rs schema_rows
 S-keyless-040,keyless,composing,toggle,Check spelling and grammar while I type,,,,not ported,no key: dropped by Rust settings.rs schema_rows
 S-keyless-041,keyless,vacation,info,Reply automatically,,,,not ported,no key: dropped by Rust settings.rs schema_rows
@@ -189,14 +189,14 @@ S-keyless-050,keyless,calendar,select,Organize invitations as,,,,not ported,no k
 S-keyless-051,keyless,calendar,info,Working days,,,,not ported,no key: dropped by Rust settings.rs schema_rows
 S-keyless-052,keyless,contacts,info,Import contacts,,,,commands contacts.import / contacts.export (ContactsCommands); the rows are M6,no key: dropped by Rust settings.rs schema_rows
 S-keyless-053,keyless,contacts,info,Export contacts,,,,commands contacts.import / contacts.export (ContactsCommands); the rows are M6,no key: dropped by Rust settings.rs schema_rows
-S-keyless-054,keyless,files,select,Show files as,,,,not ported,no key: dropped by Rust settings.rs schema_rows
-S-keyless-055,keyless,files,select,Default sort,,,,not ported,no key: dropped by Rust settings.rs schema_rows
-S-keyless-056,keyless,files,select,Sort direction,,,,not ported,no key: dropped by Rust settings.rs schema_rows
-S-keyless-057,keyless,files,toggle,Show file icons,,,,not ported,no key: dropped by Rust settings.rs schema_rows
-S-keyless-058,keyless,files,toggle,Colored icons,,,,not ported,no key: dropped by Rust settings.rs schema_rows
-S-keyless-059,keyless,files,toggle,Show thumbnails,,,,not ported,no key: dropped by Rust settings.rs schema_rows
-S-keyless-060,keyless,files,toggle,Show hidden files,,,,not ported,no key: dropped by Rust settings.rs schema_rows
-S-keyless-061,keyless,about,info,Export settings,,,,not ported,no key: dropped by Rust settings.rs schema_rows
-S-keyless-062,keyless,about,text,Import settings,,,,not ported,no key: dropped by Rust settings.rs schema_rows
-S-keyless-063,keyless,about,info,Refresh cached data,,,,not ported,no key: dropped by Rust settings.rs schema_rows
-S-keyless-064,keyless,about,info,Reset settings,,,,not ported,no key: dropped by Rust settings.rs schema_rows
+S-keyless-054,keyless,files,select,Show files as,,,,SetUiRowRules; SetUiViewModel; FilesSettings.Read,Settings UI reads and writes filesSettings fields.
+S-keyless-055,keyless,files,select,Default sort,,,,SetUiRowRules; SetUiViewModel; FilesSettings.Read,Settings UI reads and writes filesSettings fields.
+S-keyless-056,keyless,files,select,Sort direction,,,,SetUiRowRules; SetUiViewModel; FilesSettings.Read,Settings UI reads and writes filesSettings fields.
+S-keyless-057,keyless,files,toggle,Show file icons,,,,SetUiRowRules; SetUiViewModel; FilesSettings.Read,Settings UI reads and writes filesSettings fields.
+S-keyless-058,keyless,files,toggle,Colored icons,,,,SetUiRowRules; SetUiViewModel; FilesSettings.Read,Settings UI reads and writes filesSettings fields.
+S-keyless-059,keyless,files,toggle,Show thumbnails,,,,SetUiRowRules; SetUiViewModel; FilesSettings.Read,Settings UI reads and writes filesSettings fields; thumbnail rendering remains unimplemented.
+S-keyless-060,keyless,files,toggle,Show hidden files,,,,SetUiRowRules; SetUiViewModel; FilesSettings.Read,Settings UI reads and writes filesSettings fields.
+S-keyless-061,keyless,about,info,Export settings,,,,SetUiRowsView; SetUiBackupPage,Opens Backup and import; reset asks before changing settings.
+S-keyless-062,keyless,about,text,Import settings,,,,SetUiRowsView; SetUiBackupPage,Opens Backup and import; reset asks before changing settings.
+S-keyless-063,keyless,about,info,Refresh cached data,,,,SetUiRowsView.RefreshDataAsync,Refreshes calendar and contacts and requests mail delta sync; not a full cache purge.
+S-keyless-064,keyless,about,info,Reset settings,,,,SetUiRowsView; SetUiBackupPage,Opens Backup and import; reset asks before changing settings.

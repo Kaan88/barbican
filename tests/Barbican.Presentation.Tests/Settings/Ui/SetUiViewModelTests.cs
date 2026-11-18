@@ -93,6 +93,23 @@ public sealed class SetUiViewModelTests
     }
 
     [Fact]
+    public async Task Files_controls_preserve_other_fields_and_reject_invalid_choices()
+    {
+        var vm = Create();
+        Assert.Equal("list", (string?)vm.RowsOf(SettingsPageIds.Files).Single(r => string.Equals(r.Row.Id, "S-keyless-054", StringComparison.Ordinal)).Value);
+        Assert.True((bool?)vm.RowsOf(SettingsPageIds.Files).Single(r => string.Equals(r.Row.Id, "S-keyless-057", StringComparison.Ordinal)).Value);
+        await Task.WhenAll(
+            vm.SetValueAsync("S-keyless-054", JsonValue.Create("grid"), Ct),
+            vm.SetValueAsync("S-keyless-060", JsonValue.Create(true), Ct));
+        var prefs = Assert.IsType<JsonObject>(vm.ValueOf("filesSettings"));
+        Assert.Equal("grid", (string?)prefs["defaultViewMode"]);
+        Assert.True((bool?)prefs["showHiddenFiles"]);
+        await vm.SetValueAsync("S-keyless-054", JsonValue.Create("invalid"), Ct);
+        Assert.NotEmpty(vm.LastError);
+        Assert.Equal("grid", (string?)vm.ValueOf("filesSettings")!["defaultViewMode"]);
+    }
+
+    [Fact]
     public void Search_finds_rows_by_label_and_clears()
     {
         var vm = Create();
