@@ -65,6 +65,7 @@ public sealed partial class FakeJmapServer
         };
         AddSharedAccounts(session, o, accountCaps);
         AddSharedCalendarAccounts(session, o);
+        AddSharedFileAccounts(session, o);
         if (o.Push)
         {
             session["eventSourceUrl"] = Url("/jmap/eventsource/?types={types}&closeafter={closeafter}&ping={ping}");
@@ -237,7 +238,7 @@ public sealed partial class FakeJmapServer
 
         if (o.FileNodeCapability)
         {
-            caps["urn:ietf:params:jmap:filenode"] = new JsonObject();
+            caps["urn:ietf:params:jmap:filenode"] = FileCapability(o);
         }
 
         if (o.CalendarsCapability)

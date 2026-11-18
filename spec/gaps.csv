@@ -14,10 +14,10 @@ G-012,P1,S/M,contacts,"Security review of contacts input: vCard parsing of untru
 G-013,P1,M,files,In-app preview (files open externally today),file-preview-modal.tsx; image-preview-modal.tsx; eml-preview.tsx,GAPS P1-3,M5,open
 G-014,P1,M,files,Details panel,file-details-panel.tsx,GAPS P1-3,M5,open
 G-015,P1,M,files,"Grid and list views, sort, search, thumbnails (Show files as, Default sort, thumbnails, hidden files)",file-views.tsx,GAPS P1-3,M5,open
-G-016,P1,M,files,Upload conflict dialog,upload-conflict-dialog.tsx,GAPS P1-3,M5,open
-G-017,P1,M,files,Zip download,lib/files-zip.ts,GAPS P1-3,M5,open
-G-018,P1,M,files,New text file,new-file-dialog.tsx,GAPS P1-3,M5,open
-G-019,P1,M,files,"Filename download rules (filenameSpaceReplacement and siblings, postExportAction)",files-settings.ts,GAPS P1-3,M5,open
+G-016,P1,M,files,Upload conflict dialog,upload-conflict-dialog.tsx,GAPS P1-3,M5,"open (M5 files-data: the policy is FileConflictChoice and the callback of UploadFilesAsync and UploadFolderAsync, Replace as an update of the blob; the dialog is files-ui)"
+G-017,P1,M,files,Zip download,lib/files-zip.ts,GAPS P1-3,M5,"open (M5 files-data: FileTransfer.DownloadZipAsync, a streaming writer with a 2 GiB cap; the menu is files-ui)"
+G-018,P1,M,files,New text file,new-file-dialog.tsx,GAPS P1-3,M5,open (M5 files-data: FileTransfer.CreateTextFileAsync; the dialog is files-ui)
+G-019,P1,M,files,"Filename download rules (filenameSpaceReplacement and siblings, postExportAction)",files-settings.ts,GAPS P1-3,M5,done (M5 files-data: FileNames.DownloadName and FileTransfer.LocalNameFor read the four filename settings; the settings rows are M6)
 G-020,P1,S,sieve,Filters: 'reject' offered even when the server does not list the reject extension,filter-rule-modal.tsx,GAPS P1-4,M6,open
 G-021,P1,S/M,sieve,"Vacation UI: reply-to audience, forward while away, keep in inbox, HTML body, templates",vacation-settings.tsx; vacation-template-picker.tsx; lib/vacation-audience.ts; vacation-forward.ts,GAPS P1-5,M6,open
 G-022,P1,S/M,sieve,Vacation: calendar out-of-office block (vacationBlockCalendar),vacation-calendar-block.tsx,GAPS P1-5,M6,open

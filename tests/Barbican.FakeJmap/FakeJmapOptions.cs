@@ -53,6 +53,9 @@ public sealed record FakeJmapOptions
     /// <summary>Advertise the FileNode capability (urn:ietf:params:jmap:filenode) for Save to Files (M2 reader). Off: the M1 session.</summary>
     public bool FileNodeCapability { get; init; }
 
+    /// <summary>M5 files-data: the file storage behind FileNode/* (the draft-18 shape, name rules, shared accounts, the M5 seed; needs <see cref="FileNodeCapability"/>); null: the M2 tree of Documents, Photos and .Trash on the user's account.</summary>
+    public FakeFiles? Files { get; init; }
+
     /// <summary>Advertise the Calendars capability (urn:ietf:params:jmap:calendars) for CalendarEvent/parse (M2 reader). Off: the M1 session.</summary>
     public bool CalendarsCapability { get; init; }
 
