@@ -64,6 +64,8 @@
     </Grid>
     <!-- M4 cal-views: the Calendar app's screen (rail | calendar sidebar | surface | detail), built on the first visit and shown instead of the mail screen while the rail has Calendar open; the mail screen keeps its state while hidden. -->
     <Grid x:Name="CalendarHost" Grid.Row="1" Visibility="Collapsed" AutomationProperties.AutomationId="calendar.host" />
+    <!-- M5 con-ui (S0, D-M5-07): the screens of the other rail apps (Contacts, Files), one child per registered IAppScreenFactory, built on the first visit and then only hidden. -->
+    <Grid x:Name="AppHost" Grid.Row="1" Visibility="Collapsed" AutomationProperties.AutomationId="apps.host" />
     <!-- M2 plan 3.3: the in-window overlays (menus, dialogs, palette, toasts) are added here at start-up from the registered IShellOverlay, above the regions and below the sign-in screen. -->
     <Grid x:Name="OverlayLayer" Grid.Row="1" AutomationProperties.AutomationId="overlay.layer" />
     <signin:SignInView x:Name="SignInRegion" Grid.Row="1" Visibility="Collapsed" />
