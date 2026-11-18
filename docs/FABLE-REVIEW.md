@@ -1294,7 +1294,7 @@ launched; Linux unverified). Verdicts on the M2 verify items 1 to 6, 11, 12 and 
 - Perf probe numbers (5 000 tasks, 3 000 events): Agenda 21 ms, Month 16-35 ms, Week 68-85 ms, Day 16-41 ms: measures view model and layout, not the first paint of the ListView.
 
 ## M4 stream cal-ui
-- **Typed date and time fields instead of pickers** (D-M4-40): `src/Barbican.App/Views/Calendar/Editors/CalendarCardHost.Event.cs`. Review whether a picker is wanted; the card layout was never looked at (no calendar screen host on this branch, so no screenshot was taken).
+- **Typed date and time fields instead of pickers** (D-M4-D01): `src/Barbican.App/Views/Calendar/Editors/CalendarCardHost.Event.cs`. Review whether a picker is wanted; the card layout was never looked at (no calendar screen host on this branch, so no screenshot was taken).
 - **App views compiled, never run**: `CalendarCardHost*.cs` and `Automation/CalendarUiAutomation.cs` build in Debug and Automation but no hidden run happened; cal-views places `CalendarCardHost` (DI singleton) over its grid.
 - **Command and menu counts are constants** (`CalendarCommandSet.Count` 40, `CalendarMenus.Count` 6); composition tests assert them. Commit 16e4666 fixed an off-by-one (was 41).
 - **Requests to other streams**: cal-views adds `CalendarCardHost` as the top child of the calendar screen and routes the rail Tasks entry to `TasksViewModel`; the Tasks list view and reminder popup views are not written (view models only).

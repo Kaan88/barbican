@@ -65,6 +65,7 @@ public sealed class ReminderPopup : IReminderPopup, IDisposable
     }
 
     /// <summary>"In 15 minutes", "Now", "Task due" for a shown reminder, in the user's time format.</summary>
+    /// <inheritdoc/>
     public string WhenLabel(DueReminder reminder) =>
         ReminderRules.WhenLabel(reminder, _time.GetUtcNow().ToUnixTimeMilliseconds(), _prefs is not null && CalendarSettings.Read(_prefs.Current).TwelveHour, Zone());
 
@@ -133,10 +134,11 @@ public sealed class ReminderPopup : IReminderPopup, IDisposable
             _missed = [.. missed.OrderBy(d => d.StartMs ?? d.FireMs)];
         }
 
-        Notify(nameof(Missed));
+        // the await above resumed on the pool (ConfigureAwait(false)): the views listen on the UI thread
+        Post(() => Notify(nameof(Missed)));
     }
 
-    /// <summary>The missed-reminders dialog was closed: they were dealt with when listed, so only the list goes (Rust missed_done); <paramref name="open"/> goes to the calendar.</summary>
+    /// <inheritdoc/>
     public async Task CloseMissedAsync(bool open, CancellationToken ct)
     {
         var missed = Missed;

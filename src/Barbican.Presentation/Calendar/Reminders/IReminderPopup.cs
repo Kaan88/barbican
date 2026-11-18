@@ -27,4 +27,10 @@ public interface IReminderPopup : INotifyPropertyChanged
 
     /// <summary>Loads the missed list once after a start (the dialog opens when it is not empty).</summary>
     Task LoadMissedAsync(CancellationToken ct);
+
+    /// <summary>"In 15 minutes", "Now", "Task due" for a reminder, in the user's time format and zone.</summary>
+    string WhenLabel(DueReminder reminder);
+
+    /// <summary>The missed-reminders dialog was closed; <paramref name="open"/> goes to the calendar.</summary>
+    Task CloseMissedAsync(bool open, CancellationToken ct);
 }

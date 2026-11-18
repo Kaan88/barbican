@@ -6,8 +6,11 @@ using Barbican.Core.Calendar.Reminders;
 namespace Barbican.Presentation.Calendar.Editors;
 
 /// <summary>The default rules: the real statics of Core.</summary>
-public sealed class CalendarRules : ICalendarRules
+public sealed class CalendarRules(Barbican.Core.Storage.IPrefsStore? prefs = null) : ICalendarRules
 {
+    // the timeZone setting (S-timeZone), else the machine's zone
+    private TimeZoneInfo? Zone() => prefs is null ? null : Barbican.Core.Calendar.CalendarSettings.Read(prefs.Current).Zone();
+
     public EventData BuildData(EventForm form, JsonNode? ev, (DateTime Start, DateTime End)? occurrence) => EventEditor.BuildData(form, ev, occurrence);
 
     public CalendarPerson? ParsePerson(string text) => CalendarPeople.Parse(text);
@@ -50,11 +53,11 @@ public sealed class CalendarRules : ICalendarRules
 
     public (string FileName, string Text) EventIcs(JsonNode ev) => IcsWriter.Event(ev);
 
-    public DateTime ZoneToLocal(DateTime wall, string? zone) => TimeZones.ZoneToLocal(wall, zone);
+    public DateTime ZoneToLocal(DateTime wall, string? zone) => TimeZones.ZoneToLocal(wall, zone, Zone());
 
-    public DateTime LocalToZone(DateTime local, string? zone) => TimeZones.LocalToZone(local, zone);
+    public DateTime LocalToZone(DateTime local, string? zone) => TimeZones.LocalToZone(local, zone, Zone());
 
-    public long ZoneToUtcMs(DateTime wall, string? zone) => TimeZones.ZoneToUtcMs(wall, zone);
+    public long ZoneToUtcMs(DateTime wall, string? zone) => TimeZones.ZoneToUtcMs(wall, zone, Zone());
 
     public AvailabilityStatus AvailabilityFor(IReadOnlyList<(long Start, long End, bool Tentative)> periods, long fromMs, long untilMs) => FindATime.AvailabilityFor(periods, fromMs, untilMs);
 

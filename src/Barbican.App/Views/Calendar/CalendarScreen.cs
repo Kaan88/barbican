@@ -170,6 +170,8 @@ public sealed class CalendarScreen : UserControl
         layers.Children.Add(_root);
         layers.Children.Add(_overlay);
         layers.Children.Add(_print);
+        // cal-ui's editor cards and questions sit over the grid, on their own scrim (in the window, ADR 0007)
+        layers.Children.Add(ViewHost.Get<Barbican.App.Views.Calendar.Editors.CalendarCardHost>());
         _overlay.Children.Add(_hover);
         _overlay.Children.Add(_results);
         _overlay.Children.Add(_more);
@@ -210,6 +212,13 @@ public sealed class CalendarScreen : UserControl
     /// <summary>One pass over the whole screen from the model: toolbar, sidebar, the active grid, the notice, the detail panel, the results list.</summary>
     public void Render()
     {
+        // the mini month's day pick belongs to CalendarViewModel.TaskDay; the Tasks view model filters by it
+        var tasksModel = ViewHost.Get<Barbican.Presentation.Calendar.Tasks.TasksViewModel>();
+        if (tasksModel.Day != _vm.TaskDay.Day)
+        {
+            tasksModel.Day = _vm.TaskDay.Day;
+        }
+
         _toolbar.Render();
         _sidebar.Render();
         var view = _vm.View;

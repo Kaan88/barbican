@@ -1,0 +1,54 @@
+<UserControl
+    x:Class="Barbican.App.Views.Calendar.Tasks.TasksListView"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:local="using:Barbican.App.Views.Calendar.Tasks"
+    xmlns:win="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:not_win="http://uno.ui/not_win"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    mc:Ignorable="not_win">
+  <!-- The Tasks view (Rust cal_extra.rs render_tasks_view; Bulwark task-list-view.tsx, task-toolbar.tsx): filters with counts, the quick-add field with its due-date hint, the day filter of the mini month, then the rows.
+       A ListView, so thousands of tasks are virtualised (PARITY-ROUND2). Every control is in the window: no flyout, no popup (ADR 0007). -->
+  <Grid RowDefinitions="Auto,Auto,Auto,*" RowSpacing="8" AutomationProperties.AutomationId="cal.tasks" AutomationProperties.Name="Tasks">
+    <StackPanel x:Name="Filters" Orientation="Horizontal" Spacing="6" />
+    <Grid Grid.Row="1" ColumnDefinitions="*,Auto" ColumnSpacing="8">
+      <TextBox x:Name="Quick" PlaceholderText="Add a task (try: Call Ann friday)" AutomationProperties.AutomationId="cal.tasks.quick" AutomationProperties.Name="Add a task" KeyDown="OnQuickKeyDown" TextChanged="OnQuickChanged" />
+      <Button Grid.Column="1" x:Name="AddButton" Content="Add" Style="{StaticResource Button.Primary}" Height="32" CornerRadius="16" Click="OnAdd" AutomationProperties.AutomationId="cal.tasks.add" AutomationProperties.Name="Add task" />
+    </Grid>
+    <StackPanel Grid.Row="2" Orientation="Horizontal" Spacing="10">
+      <TextBlock x:Name="QuickDue" FontSize="12" Foreground="{StaticResource Accent}" VerticalAlignment="Center" AutomationProperties.AutomationId="cal.tasks.quickdue" />
+      <Button x:Name="DayChip" Visibility="Collapsed" FontSize="12" Height="26" Padding="10,0" CornerRadius="13" Click="OnClearDay" AutomationProperties.AutomationId="cal.tasks.day" AutomationProperties.Name="Clear the day filter" />
+    </StackPanel>
+    <ListView Grid.Row="3" x:Name="List" SelectionMode="None" IsItemClickEnabled="True" ItemClick="OnItemClick" DoubleTapped="OnDoubleTapped" RightTapped="OnRightTapped"
+              AutomationProperties.AutomationId="cal.tasks.list" AutomationProperties.Name="Task list" Padding="0,2,0,8">
+      <win:ListView.ItemContainerTransitions>
+        <TransitionCollection />
+      </win:ListView.ItemContainerTransitions>
+      <ListView.ItemContainerStyle>
+        <Style TargetType="ListViewItem">
+          <Setter Property="Padding" Value="0" />
+          <Setter Property="MinHeight" Value="0" />
+          <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+          <Setter Property="Margin" Value="0,0,0,2" />
+        </Style>
+      </ListView.ItemContainerStyle>
+      <ListView.ItemTemplate>
+        <DataTemplate x:DataType="local:TaskRowItem">
+          <Grid MinHeight="44" Padding="6,4,10,4" ColumnSpacing="10" ColumnDefinitions="Auto,*,Auto,Auto" Background="{x:Bind Background}" CornerRadius="10">
+            <Button Content="{x:Bind Tick}" Click="OnTick" Background="Transparent" BorderThickness="0" FontSize="18" Padding="6,0" VerticalAlignment="Center" AutomationProperties.AutomationId="cal.tasks.tick" AutomationProperties.Name="Toggle done" />
+            <StackPanel Grid.Column="1" VerticalAlignment="Center">
+              <TextBlock Text="{x:Bind Title}" FontSize="13.5" Foreground="{x:Bind TitleBrush}" TextDecorations="{x:Bind TitleDecoration}" TextTrimming="CharacterEllipsis" />
+              <TextBlock Text="{x:Bind Notes}" Visibility="{x:Bind NotesVisible}" FontSize="12" Foreground="{StaticResource Faint}" TextTrimming="CharacterEllipsis" />
+            </StackPanel>
+            <TextBlock Grid.Column="2" Text="{x:Bind Due}" FontSize="12.5" Foreground="{x:Bind DueBrush}" VerticalAlignment="Center" />
+            <StackPanel Grid.Column="3" Orientation="Horizontal" Spacing="6" VerticalAlignment="Center" MinWidth="90">
+              <Ellipse Width="9" Height="9" Fill="{x:Bind Dot}" />
+              <TextBlock Text="{x:Bind ListName}" FontSize="12" Foreground="{StaticResource Dim}" TextTrimming="CharacterEllipsis" MaxWidth="120" />
+            </StackPanel>
+          </Grid>
+        </DataTemplate>
+      </ListView.ItemTemplate>
+    </ListView>
+    <TextBlock Grid.Row="3" x:Name="Empty" Text="No tasks here." FontSize="13" Foreground="{StaticResource Faint}" HorizontalAlignment="Center" VerticalAlignment="Center" IsHitTestVisible="False" AutomationProperties.AutomationId="cal.tasks.empty" />
+  </Grid>
+</UserControl>

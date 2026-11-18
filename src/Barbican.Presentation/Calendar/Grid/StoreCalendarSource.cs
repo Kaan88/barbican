@@ -4,6 +4,7 @@ using System.Text.Json.Nodes;
 using Barbican.Core.Accounts;
 using Barbican.Core.Calendar;
 using Barbican.Core.Common;
+using Barbican.Core.Storage;
 
 namespace Barbican.Presentation.Calendar.Grid;
 
@@ -12,13 +13,15 @@ public sealed class StoreCalendarSource : ICalendarSource, IDisposable
 {
     private readonly ICalendarStore _store;
     private readonly IAccountManager _accounts;
+    private readonly IPrefsStore? _prefs;
 
-    public StoreCalendarSource(ICalendarStore store, IAccountManager accounts)
+    public StoreCalendarSource(ICalendarStore store, IAccountManager accounts, IPrefsStore? prefs = null)
     {
         ArgumentNullException.ThrowIfNull(store);
         ArgumentNullException.ThrowIfNull(accounts);
         _store = store;
         _accounts = accounts;
+        _prefs = prefs;
         _store.Changed += OnStoreChanged;
     }
 
@@ -34,6 +37,9 @@ public sealed class StoreCalendarSource : ICalendarSource, IDisposable
         return loaded.IsOk ? Result<Unit>.Ok(default) : Result<Unit>.Fail(loaded.Error!);
     }
 
+    // the timeZone setting (S-timeZone), else the machine's zone
+    private TimeZoneInfo? Zone() => _prefs is null ? null : CalendarSettings.Read(_prefs.Current).Zone();
+
     public IReadOnlyList<CalendarListRow> Calendars(string accountKey) =>
         _store.Snapshot(accountKey) is { } snapshot ? CalendarRows.From(snapshot.Calendars, accountKey) : [];
 
@@ -46,7 +52,7 @@ public sealed class StoreCalendarSource : ICalendarSource, IDisposable
 
         // the snapshot is an immutable record of the load: nothing here holds the store while the caller renders (B-CAL-048)
         var events = snapshot.Events.Where(e => !TaskOccurrences.IsTask(e)).ToList();
-        var result = new List<CalendarOccurrence>(CalendarOccurrences.In(events, from, until));
+        var result = new List<CalendarOccurrence>(CalendarOccurrences.In(events, from, until, Zone()));
         result.AddRange(TaskOccurrences.In(snapshot.Events, from, until));
         result.Sort((a, b) => a.Start != b.Start ? a.Start.CompareTo(b.Start) : b.AllDay.CompareTo(a.AllDay));
         return result;

@@ -13,6 +13,8 @@ public static class CalendarDataPresentationRegistration
     {
         ArgumentNullException.ThrowIfNull(services);
         services.TryAddSingleton<IReminderPopup, ReminderPopup>();
+        services.TryAddSingleton<Barbican.Core.Calendar.Feeds.CalendarSubscriptionRefresher>();
+        services.AddSingleton<IStartupTask, Barbican.Presentation.Calendar.CalendarBackground>();
         return services;
     }
 }
