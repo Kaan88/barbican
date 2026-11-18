@@ -30,6 +30,32 @@ No live writes were left on the test account. No app or build process of the str
 1. One Sonnet agent per stream in its worktree, "continue from the last commit" (read the WIP subject, the stream's section of docs/milestones/M6-plan.md and this table); `$env:BARBICAN_BUILD_SLOTS = "3"` for every build.
 2. Merge the four into `m6` (append-only conflicts in decisions.md / FABLE-REVIEW.md: keep both; status rows in spec CSVs: keep the side that marks the work done; composition counts are separate terms per stream), full test, then one close-pass agent (wire real services, live checks on the test account via `agent-ui`, M6.md, zip), then M6b.
 
+## Handoff (2026-11-18)
+**Where things are.** M4 and M5 are done (`m4` 7d1454e, `m5` 13727b4; zips `Barbican-ea1576de1218-win-x64.zip`, `Barbican-8a629a8e0d74-win-x64.zip`).
+M6 is paused mid-way (table above). Nothing is merged to `main` or tagged. Every branch and worktree is clean and pushed (checked 2026-11-18).
+`m5` contains the `webview-bg` change (mail-body WebView2 hidden + suspended + low memory in the background, closed after
+`webviewBackgroundCloseMinutes`, default 5; measured 305 MB foreground, 270 MB suspended, 0 MB after the close; D-WV-01).
+
+**How the milestones were run (keep doing this).** Plan agent (contracts as stubs, FakeJmap arms, red tests, seam and
+composition-count terms in the plan commit, unique type and decision prefixes per stream, threaded in-memory fakes) -> one
+Sonnet agent per stream in `wt-m<n>-<key>` -> coordinator merges into `m<n>` and runs `tools/build.ps1 test` -> one Sonnet
+close-pass agent (wire real services, hidden sample run, live checks on the test account via profile `agent-ui`, report, zip).
+Every agent: `$env:BARBICAN_BUILD_SLOTS = "3"`; at most 5 agents alive.
+
+**Needs the user.**
+- Hand check of the WebView background release with a real minimise (agents can only simulate it).
+- Hand test of the M4/M5 zips: real pointer drag and drop, OS file drop into Files, Ctrl/Shift selection, contact print to a printer.
+- `CLAUDE.md` line 31 still calls `dev` the agents' profile (M2 report 6): waiting for the user's OK to edit.
+- Worktrees to prune (merged, clean; `git worktree remove` needs the user's permission): `wt-m5-con-data`, `wt-m5-con-ui`,
+  `wt-m5-files-data`, `wt-m5-files-ui`, `wt-m5-plan` (detached at 8be3a6a), `wt-webview-bg`; older: `wt-fable-review-3`,
+  `wt-m2-fable-fix-3`, `wt-m2-hotfix-2`, `wt-m2-close-a` (if still on disk).
+- A `Barbican.exe` from `wt-m2-close-a` (Automation build, started 2026-11-17 17:08) was still running at the pause; no agent of
+  this session started it, so it was left alone.
+
+**Known open defects.** Crowded week-view lanes still clip titles and times ("Focu..."); UI sweep S-02 (scheduled banner stays after
+Cancel send) and S-03 (reader keeps the old message after a folder switch by click); M3 unproven items (live round trip, real IME,
+mailto from a browser, default-app registration); the test account still holds the Rust-era folders `p2prod A` / `p2prod B`.
+
 Open from M5 (docs/milestones/M5.md "What is unproven" and "Not done"): contact activity tiles, blob photos in the contact list, marquee selection in Files, the account scope picker (I-066), an in-app PDF preview, a real-pointer drag test, Linux (M9). Seen in the M5 live run: the test account still holds the two Rust-era folders `p2prod A` and `p2prod B` and the old calendar and mail leftovers of `.local/accounts.md`.
 
 Order after M5: M6, M6b, M7, M8, M10, M9 (Linux last), then the whole-app Fable review.
