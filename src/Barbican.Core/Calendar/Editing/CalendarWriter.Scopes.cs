@@ -78,7 +78,7 @@ public sealed partial class CalendarWriter
         if (!created.IsOk)
         {
             // put the series back as it was; the first failure is what the user is told
-            _ = await UpdateOnServerAsync(client, account, serverId, restore, false, ct).ConfigureAwait(false);
+            _ = await CalendarJmap.UpdateOnServerAsync(client, account, serverId, restore, false, ct).ConfigureAwait(false);
             if (first.Previous is not null)
             {
                 store.Restore(write.AccountKey, id, first.Previous);

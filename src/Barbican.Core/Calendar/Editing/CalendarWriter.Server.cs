@@ -4,15 +4,13 @@
 using System.Text.Json.Nodes;
 using Barbican.Core.Common;
 using Barbican.Core.Jmap;
-using Barbican.Core.Jmap.Errors;
-using Barbican.Core.Jmap.Requests;
 using Barbican.Core.Plugins.Hooks;
 
 namespace Barbican.Core.Calendar.Editing;
 
 public sealed partial class CalendarWriter
 {
-    private const string CalendarsCapability = "urn:ietf:params:jmap:calendars";
+    private const string CalendarsCapability = CalendarJmap.Capability;
 
     /// <summary>What an update did to the store: the event as it was (for <see cref="ICalendarStore.Restore"/>) and the outcome.</summary>
     private sealed record UpdateOutcome(Result<Unit> Result, JsonNode? Previous)
@@ -20,17 +18,7 @@ public sealed partial class CalendarWriter
         public bool IsOk => Result.IsOk;
     }
 
-    private Result<IJmapClient> ClientFor(string accountKey)
-    {
-        if (accounts.SessionFor(accountKey)?.Client is not { } client)
-        {
-            return Result<IJmapClient>.Fail(new ValidationError("Not signed in."));
-        }
-
-        return client.Session.Has(CalendarsCapability)
-            ? Result<IJmapClient>.Ok(client)
-            : Result<IJmapClient>.Fail(new ValidationError("This account has no calendar."));
-    }
+    private Result<IJmapClient> ClientFor(string accountKey) => CalendarJmap.ClientFor(accounts, accountKey);
 
     private JsonNode? StoredEvent(string accountKey, string eventId)
     {
@@ -39,8 +27,6 @@ public sealed partial class CalendarWriter
     }
 
     /// <summary>The account and server id of an event: a shared account's events carry their own (<c>_acc</c>, <c>_rid</c>), else the namespace of the id, else the primary calendar account.</summary>
-    private static SetError? FirstFailure(SetOutcome outcome) => outcome.Failed.Count > 0 ? outcome.Failed[0] : null;
-
     internal static (string Account, string ServerId) ServerRef(string primary, JsonNode? ev, string id)
     {
         if (ev?.Str("_rid") is { } rid)
@@ -52,115 +38,12 @@ public sealed partial class CalendarWriter
         return (account ?? primary, serverId);
     }
 
-    private async Task<IReadOnlyList<string>> OwnAddressesAsync(string accountKey, CancellationToken ct)
-    {
-        var session = accounts.SessionFor(accountKey);
-        var own = new List<string>();
-        if (session is null)
-        {
-            return own;
-        }
-
-        var user = session.Client.Session.Username;
-        if (user.Contains('@', StringComparison.Ordinal))
-        {
-            own.Add(user);
-        }
-
-        if (identities is not null)
-        {
-            var list = await identities.ListAsync(session.Client.Session.MailAccountId, ct).ConfigureAwait(false);
-            foreach (var i in list.IsOk ? list.Value! : [])
-            {
-                if (i.Identity.Email.Contains('@', StringComparison.Ordinal) && !own.Contains(i.Identity.Email.Trim(), StringComparer.OrdinalIgnoreCase))
-                {
-                    own.Add(i.Identity.Email.Trim());
-                }
-            }
-        }
-
-        return own;
-    }
+    private Task<IReadOnlyList<string>> OwnAddressesAsync(string accountKey, CancellationToken ct) => CalendarJmap.OwnAddressesAsync(accounts, identities, accountKey, ct);
 
     private async Task RefreshAsync(string accountKey, CancellationToken ct)
     {
         // the push delta confirms every write; asking at once makes a create or a delete show without waiting for it
         _ = await store.RefreshAsync(accountKey, ct).ConfigureAwait(false);
-    }
-
-    private static async Task<Result<SetOutcome>> SetAsync(IJmapClient client, string type, JsonObject args, CancellationToken ct)
-    {
-        var method = type + "/set";
-        var r = await client.CallAsync(JmapRequest.Of(JmapRequest.Call(method, args, "s")), ct).ConfigureAwait(false);
-        if (!r.IsOk)
-        {
-            return Result<SetOutcome>.Fail(r.Error!);
-        }
-
-        var response = r.Value!.Args("s", method);
-        return response.IsOk ? Result<SetOutcome>.Ok(SetErrors.Read(response.Value)) : Result<SetOutcome>.Fail(response.Error!);
-    }
-
-    private static JsonObject SetArgs(string account, bool send)
-    {
-        var args = new JsonObject { ["accountId"] = account };
-        if (send)
-        {
-            args["sendSchedulingMessages"] = true;
-        }
-
-        return args;
-    }
-
-    private static async Task<Result<string>> CreateOnServerAsync(IJmapClient client, string account, JsonObject data, bool send, CancellationToken ct)
-    {
-        var args = SetArgs(account, send);
-        args["create"] = new JsonObject { ["e"] = data.DeepClone() };
-        var r = await SetAsync(client, "CalendarEvent", args, ct).ConfigureAwait(false);
-        if (!r.IsOk)
-        {
-            return Result<string>.Fail(r.Error!);
-        }
-
-        return r.Value!.Created.TryGetValue("e", out var id)
-            ? Result<string>.Ok(id)
-            : Result<string>.Fail((JmapError?)FirstFailure(r.Value) ?? new ValidationError("The server did not create the event."));
-    }
-
-    private static async Task<Result<Unit>> UpdateOnServerAsync(IJmapClient client, string account, string serverId, JsonObject patch, bool send, CancellationToken ct)
-    {
-        var body = (JsonObject)patch.DeepClone();
-        if (body["calendarIds"] is { } ids)
-        {
-            body["calendarIds"] = CalendarIds.ServerCalendarIds(ids);
-        }
-
-        var args = SetArgs(account, send);
-        args["update"] = new JsonObject { [serverId] = body };
-        var r = await SetAsync(client, "CalendarEvent", args, ct).ConfigureAwait(false);
-        if (!r.IsOk)
-        {
-            return Result<Unit>.Fail(r.Error!);
-        }
-
-        return r.Value!.Updated.Contains(serverId, StringComparer.Ordinal)
-            ? Result<Unit>.Ok(default)
-            : Result<Unit>.Fail((JmapError?)FirstFailure(r.Value) ?? new ValidationError("The server did not change the event."));
-    }
-
-    private static async Task<Result<Unit>> DestroyOnServerAsync(IJmapClient client, string account, string serverId, bool send, CancellationToken ct)
-    {
-        var args = SetArgs(account, send);
-        args["destroy"] = new JsonArray(serverId);
-        var r = await SetAsync(client, "CalendarEvent", args, ct).ConfigureAwait(false);
-        if (!r.IsOk)
-        {
-            return Result<Unit>.Fail(r.Error!);
-        }
-
-        return r.Value!.Destroyed.Contains(serverId, StringComparer.Ordinal)
-            ? Result<Unit>.Ok(default)
-            : Result<Unit>.Fail((JmapError?)FirstFailure(r.Value) ?? new ValidationError("The server did not delete the event."));
     }
 
     /// <summary>Creates an event or a task: hooks, the new object with server ids, the call, then the store catches up.</summary>
@@ -194,7 +77,7 @@ public sealed partial class CalendarWriter
             data = shaped.ServerEvent as JsonObject ?? data;
         }
 
-        var created = await CreateOnServerAsync(client, account, data, send, ct).ConfigureAwait(false);
+        var created = await CalendarJmap.CreateOnServerAsync(client, account, data, send, ct).ConfigureAwait(false);
         if (created.IsOk)
         {
             var id = created.Value!;
@@ -235,7 +118,7 @@ public sealed partial class CalendarWriter
         }
 
         var previous = store.Patch(accountKey, id, (JsonObject)patch.DeepClone());
-        var result = await UpdateOnServerAsync(client, account, serverId, server, send, ct).ConfigureAwait(false);
+        var result = await CalendarJmap.UpdateOnServerAsync(client, account, serverId, server, send, ct).ConfigureAwait(false);
         if (result.IsOk)
         {
             hooks.Fire(task ? HookNames.OnTaskUpdate : HookNames.OnAfterEventUpdate, () => new EventHookPayload(id, StoredEvent(accountKey, id)?.DeepClone() ?? patch.DeepClone()));
@@ -247,7 +130,7 @@ public sealed partial class CalendarWriter
     private static async Task<Result<Unit>> DestroyEventAsync(IJmapClient client, string accountKey, string eventId, JsonNode? ev, bool send, CancellationToken ct)
     {
         var (account, serverId) = ServerRef(client.Session.AccountFor(CalendarsCapability), ev, eventId);
-        var result = await DestroyOnServerAsync(client, account, serverId, send, ct).ConfigureAwait(false);
+        var result = await CalendarJmap.DestroyOnServerAsync(client, account, serverId, send, ct).ConfigureAwait(false);
         _ = accountKey;
         return result;
     }

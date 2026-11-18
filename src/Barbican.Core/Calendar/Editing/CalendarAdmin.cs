@@ -128,17 +128,7 @@ public sealed class CalendarAdmin(IAccountManager accounts, ICalendarStore store
         return (account ?? client.Session.AccountFor(CalendarsCapability), id);
     }
 
-    private Result<IJmapClient> ClientFor(string accountKey)
-    {
-        if (accounts.SessionFor(accountKey)?.Client is not { } client)
-        {
-            return Result<IJmapClient>.Fail(new ValidationError("Not signed in."));
-        }
-
-        return client.Session.Has(CalendarsCapability)
-            ? Result<IJmapClient>.Ok(client)
-            : Result<IJmapClient>.Fail(new ValidationError("This account has no calendar."));
-    }
+    private Result<IJmapClient> ClientFor(string accountKey) => CalendarJmap.ClientFor(accounts, accountKey);
 
     private static async Task<Result<SetOutcome>> SetAsync(IJmapClient client, string account, JsonObject args, CancellationToken ct)
     {
