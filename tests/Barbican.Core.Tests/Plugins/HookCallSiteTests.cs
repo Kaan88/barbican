@@ -52,4 +52,8 @@ public sealed class HookCallSiteTests
     // M3: stream composer-ui fires 10 hooks (reply and forward intercepts, composer open, close and change, recipient chips, mailto).
     [Fact]
     public void Composer_ui_m3_hooks_have_call_sites() => AssertFired("composer-ui", "M3");
+
+    // M4: stream cal-views fires 5 hooks (event open, date change, view change, calendar change, visibility toggle).
+    [Fact]
+    public void Cal_views_m4_hooks_have_call_sites() => AssertFired("cal-views", "M4");
 }

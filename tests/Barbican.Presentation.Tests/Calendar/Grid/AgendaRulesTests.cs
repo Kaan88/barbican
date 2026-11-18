@@ -13,7 +13,6 @@ public sealed class AgendaRulesTests
     private static DateTime Dt(string s) => DateTime.ParseExact(s, "yyyy-MM-dd'T'HH:mm:ss", System.Globalization.CultureInfo.InvariantCulture);
 
     [Fact]
-    [Red("cal-views")]
     [RustTest("cal_extra::agenda_titles_lose_marker_and_day_filter_toggles")]
     public void Agenda_titles_lose_marker_and_day_filter_toggles()
     {
@@ -34,7 +33,6 @@ public sealed class AgendaRulesTests
     }
 
     [Fact]
-    [Red("cal-views")]
     [RustTest("cal_extra::agenda_parts")]
     public void Agenda_parts()
     {
