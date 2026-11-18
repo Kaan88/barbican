@@ -8,7 +8,6 @@ namespace Barbican.Core.Tests.Calendar.Recurrence;
 public sealed class RecurrenceRuleTests
 {
     [Fact]
-    [Red("cal-data")]
     [RustTest("recurrence::summaries")]
     public void Summaries()
     {
@@ -20,7 +19,6 @@ public sealed class RecurrenceRuleTests
     }
 
     [Fact]
-    [Red("cal-data")]
     [RustTest("recurrence::rule_json_round_trip_and_sameness")]
     public void Rule_json_round_trip_and_sameness()
     {

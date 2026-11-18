@@ -84,9 +84,11 @@
     <PackageVersion Include="DnsClient" Version="1.8.0" />
   </ItemGroup>
 
-  <!-- m4-cal-edit: Ical.Net reads .ics files (VEVENT, VTODO) for the import (D-M4-03); 5.2.3 published 2026-06-23, 5.2.4 of 2026-10-31 is too new on 2026-11-18. -->
+  <!-- m4-cal-data: NodaTime (tzdb, time zones for the recurrence engine; D-M4-03) and Ical.Net (differential oracle of the recurrence tests, tests only).
+       Both older than two weeks on 2026-11-18. -->
   <ItemGroup>
-    <PackageVersion Include="Ical.Net" Version="5.2.3" />
+    <PackageVersion Include="NodaTime" Version="3.2.2" />
+    <PackageVersion Include="Ical.Net" Version="5.1.1" />
   </ItemGroup>
-  <!-- /m4-cal-edit -->
+  <!-- /m4-cal-data -->
 </Project>

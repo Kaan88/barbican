@@ -26,6 +26,8 @@
     <PackageReference Include="DnsClient" />
     <!-- M4 (D-M4-03): the .ics reader of the import -->
     <PackageReference Include="Ical.Net" />
+    <!-- M4 cal-data: time zones (tzdb) for the recurrence engine and reminders. -->
+    <PackageReference Include="NodaTime" />
   </ItemGroup>
 
   <ItemGroup>
