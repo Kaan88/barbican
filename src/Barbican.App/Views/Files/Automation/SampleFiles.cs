@@ -187,7 +187,7 @@ public sealed class SampleFiles : IFileStore, IFileWriter, IFileTransfer
         var type = FilesPreviewRulesRef(e);
         return Task.FromResult(Result<byte[]>.Ok(type switch
         {
-            "eml" => Encoding.UTF8.GetBytes("From: Sample Sender <sender@example.test>\r\nTo: you@example.test\r\nSubject: Your invoice\r\nDate: Mon, 02 Nov 2026 09:30:00 +0000\r\n\r\nHello,\r\n\r\nthe invoice for November is attached to this sample message.\r\n"),
+            "eml" => Encoding.UTF8.GetBytes("From: Sample Sender <sender@example.org>\r\nTo: you@example.org\r\nSubject: Your invoice\r\nDate: Mon, 02 Nov 2026 09:30:00 +0000\r\n\r\nHello,\r\n\r\nthe invoice for November is attached to this sample message.\r\n"),
             "png" => Png(e.Name),
             _ => Encoding.UTF8.GetBytes("# " + e.Name + "\r\n\r\nSample content of this file.\r\nSecond line of the sample file.\r\n"),
         }));
