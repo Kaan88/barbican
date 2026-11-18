@@ -66,7 +66,7 @@ public static class PaletteModel
                     v.Add(Cmd("cal:new", c, "add", "New event", K("n")));
                     v.Add(Cmd("cal:search", c, "search", "Search events", K("/")));
                     v.Add(Cmd("cal:today", c, "today", "Go to today", K("t")));
-                    (string Key, string Label)[] views = [("d", "Day view"), ("w", "Week view"), ("m", "Month view")];
+                    (string Key, string Label)[] views = [("d", "Day view"), ("w", "Week view"), ("m", "Month view"), ("a", "Agenda view"), ("k", "Tasks view")];
                     for (var i = 0; i < views.Length; i++)
                     {
                         if (x.CalView != i)
@@ -75,6 +75,10 @@ public static class PaletteModel
                         }
                     }
 
+                    v.Add(Cmd("cal:task", c, "add", "New task", string.Empty));
+                    v.Add(Cmd("cal:import", c, "download", "Import events (.ics)", string.Empty));
+                    v.Add(Cmd("cal:subscribe", c, "calendar", "Subscribe to a calendar", string.Empty));
+                    v.Add(Cmd("cal:print", c, "print", "Print", string.Empty));
                     v.Add(Cmd("cal:refresh", c, "refresh", "Refresh", "F5"));
                     break;
                 case 2:

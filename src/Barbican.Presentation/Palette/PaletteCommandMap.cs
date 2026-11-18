@@ -1,5 +1,6 @@
 // Mirrors: Rust palette.rs run_command :485 (what each palette id does), mapped onto the registry's CommandIds (M2 plan 4.1). Owner menus.
 
+using Barbican.Presentation.Calendar.Commands;
 using Barbican.Presentation.Commands;
 
 namespace Barbican.Presentation.Palette;
@@ -39,6 +40,19 @@ public static class PaletteCommandMap
             "mail:unread" => CommandIds.MarkUnread,
             "mail:star" => context.MailFlagged ? CommandIds.Unstar : CommandIds.Star,
             "mail:spam" => context.InJunk ? CommandIds.NotSpam : CommandIds.ReportSpam,
+            "cal:new" => CalendarCommandIds.NewEvent,
+            "cal:task" => CalendarCommandIds.NewTask,
+            "cal:search" => CalendarCommandIds.Search,
+            "cal:today" => CalendarCommandIds.Today,
+            "cal:view0" => CalendarCommandIds.ViewDay,
+            "cal:view1" => CalendarCommandIds.ViewWeek,
+            "cal:view2" => CalendarCommandIds.ViewMonth,
+            "cal:view3" => CalendarCommandIds.ViewAgenda,
+            "cal:view4" => CalendarCommandIds.ViewTasks,
+            "cal:import" => CalendarCommandIds.Import,
+            "cal:subscribe" => CalendarCommandIds.Subscribe,
+            "cal:print" => CalendarCommandIds.Print,
+            "cal:refresh" => CalendarCommandIds.Refresh,
             "go:mail" => CommandIds.GoMail,
             "go:calendar" => CommandIds.GoCalendar,
             "go:contacts" => CommandIds.GoContacts,

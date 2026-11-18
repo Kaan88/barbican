@@ -72,6 +72,12 @@ public sealed class KeyRouter : IKeyRouter
             }
         }
 
+        // the calendar has its own keys (M4 cal-ui, I-296): none of the mail keys (j, k, o, Enter, g, ...) runs there, the tables do; only the app switch stays
+        if (_shell.ActiveApp == AppId.Calendar && !IsAppSwitch(chord))
+        {
+            return TryCommands(chord);
+        }
+
         var (name, shift) = Normalize(chord);
         if (chord.Alt)
         {
@@ -140,6 +146,8 @@ public sealed class KeyRouter : IKeyRouter
 
         return handled;
     }
+
+    private static bool IsAppSwitch(KeyChord chord) => chord.Control && !chord.Alt && !chord.Shift && chord.Key is "1" or "2" or "3" or "4" or "5";
 
     private static string Spell(KeyChord c) =>
         (c.Control ? "Ctrl+" : string.Empty) + (c.Alt ? "Alt+" : string.Empty) + (c.Shift ? "Shift+" : string.Empty) + c.Key;

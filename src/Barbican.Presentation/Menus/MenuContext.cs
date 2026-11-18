@@ -17,4 +17,6 @@ public sealed record MenuContext(
 {
     /// <summary>M4 (additive, cal-views): what a calendar menu (MENU-EVENT, MENU-SLOT, MENU-TASK, MENU-CAL) was opened on.</summary>
     public Barbican.Presentation.Calendar.Grid.CalendarMenuTarget? Calendar { get; init; }
+    /// <summary>What a calendar menu is about (M4, additive): an occurrence id, a task id, a calendar id, or a slot ("yyyy-MM-ddTHH:mm" plus "|allday"); null for the mail menus.</summary>
+    public string? Subject { get; init; }
 }

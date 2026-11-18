@@ -19,9 +19,22 @@ public static class MenuIds
     public const string FoldersHeader = "FOLDERS-HEADER";
     public const string UnifiedRow = "UNIFIED-ROW";
 
+    // The calendar menus (M4, cal-ui: spec/menus.md MENU-EVENT, MENU-SLOT, MENU-TASK, MENU-CAL).
+    public const string Event = "MENU-EVENT";
+
+    public const string Slot = "MENU-SLOT";
+
+    public const string Task = "MENU-TASK";
+
+    public const string Calendar = "MENU-CAL";
+
     // Flyouts of the menus above: a Submenu row names one; its provider is registered under this id.
     public const string MailMove = "MENU-MAIL>move";
     public const string MailTag = "MENU-MAIL>tag";
     public const string MailMore = "MENU-MAIL>more";
     public const string TagColour = "MENU-TAG>colour";
+
+    public const string TaskDue = "MENU-TASK>due";
+
+    public const string CalendarColour = "MENU-CAL>colour";
 }
