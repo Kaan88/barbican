@@ -167,6 +167,12 @@ public sealed partial class FakeApi
             }
 
             var patch = raw as JsonObject ?? [];
+            if (run.IsCard && run.Contacts.RefusesBlobMedia && patch.ToJsonString().Contains("\"blobId\"", StringComparison.Ordinal))
+            {
+                run.NotUpdated[id] = SetError("invalidProperties", "media");
+                continue;
+            }
+
             string? error = null;
             var found = run.Contacts.Update(run.Type, id, target =>
             {
