@@ -56,6 +56,12 @@ public sealed record FakeJmapOptions
     /// <summary>Advertise the Calendars capability (urn:ietf:params:jmap:calendars) for CalendarEvent/parse (M2 reader). Off: the M1 session.</summary>
     public bool CalendarsCapability { get; init; }
 
+    /// <summary>M4: the calendar data behind Calendar/* and CalendarEvent/* (needs <see cref="CalendarsCapability"/>); null: those methods answer unknownMethod.</summary>
+    public FakeCalendars? Calendars { get; init; }
+
+    /// <summary>M4: advertise Principals and Principal availability (Principal/query, Principal/getAvailability, G-009).</summary>
+    public bool AvailabilityCapability { get; init; }
+
     /// <summary>Answer (with <see cref="Stalwart"/>, which advertises <c>urn:stalwart:jmap</c>) x:ArchivedItem/get, query and set (Stalwart's deleted-item archive, J-074). Off: the M1 session.</summary>
     public bool ArchiveCapability { get; init; }
 

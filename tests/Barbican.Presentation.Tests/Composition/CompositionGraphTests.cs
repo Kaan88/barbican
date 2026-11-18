@@ -6,6 +6,8 @@
 #pragma warning disable MA0002, VSTHRD003
 using Barbican.Core.Accounts;
 using Barbican.Core.Auth;
+using Barbican.Core.Calendar;
+using Barbican.Core.Calendar.Editing;
 using Barbican.Core.Common;
 using Barbican.Core.Compose;
 using Barbican.Core.Editor;
@@ -71,6 +73,17 @@ public sealed class CompositionGraphTests
         }
     }
 
+    /// <summary>The M4 streams' portable registrations (App/Composition/AppComposition.cs adds them after the M3 features).</summary>
+    private static void AddM4(ServiceCollection services)
+    {
+        services.AddBarbicanCalendarData();
+        services.AddBarbicanCalendarEditing();
+        services.AddBarbicanCalendarDataViewModels();
+        services.AddBarbicanCalendarEditingViewModels();
+        services.AddBarbicanCalendarViewsViewModels();
+        services.AddBarbicanCalendarUiViewModels();
+    }
+
     internal static ServiceCollection Compose(string root)
     {
         var services = new ServiceCollection();
@@ -93,6 +106,7 @@ public sealed class CompositionGraphTests
         services.AddBarbicanEditorCore();
         services.AddBarbicanEditorViewModels();
         services.AddBarbicanComposerViewModels();
+        AddM4(services);
 
         // what MailBodyRegistration adds besides the WebView shell
         services.TryAddSingleton<ILinkRouter, StandInLinkRouter>();

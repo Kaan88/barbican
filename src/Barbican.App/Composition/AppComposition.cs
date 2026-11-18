@@ -1,6 +1,8 @@
 using Barbican.App.Composition.Features;
 using Barbican.App.MailBody;
 using Barbican.Core.Accounts;
+using Barbican.Core.Calendar;
+using Barbican.Core.Calendar.Editing;
 using Barbican.Core.Compose;
 using Barbican.Core.Editor;
 using Barbican.Core.Jmap;
@@ -46,6 +48,12 @@ public static class AppComposition
         services.AddBarbicanEditorCore();   // M3 editor-core:   src/Barbican.Core/Editor/EditorCoreRegistration.cs
         services.AddBarbicanEditorView();   // M3 editor-view:   src/Barbican.App/Composition/Features/EditorViewRegistration.cs
         services.AddBarbicanComposer();     // M3 composer-ui:   src/Barbican.App/Composition/Features/ComposerRegistration.cs
+        services.AddBarbicanCalendarData();             // M4 cal-data: src/Barbican.Core/Calendar/CalendarDataRegistration.cs
+        services.AddBarbicanCalendarEditing();          // M4 cal-edit: src/Barbican.Core/Calendar/Editing/CalendarEditingRegistration.cs
+        services.AddBarbicanCalendarDataViewModels();   // M4 cal-data: src/Barbican.Presentation/Composition/CalendarDataPresentationRegistration.cs
+        services.AddBarbicanCalendarEditingViewModels(); // M4 cal-edit: src/Barbican.Presentation/Composition/CalendarEditingPresentationRegistration.cs
+        services.AddBarbicanCalendarViews();            // M4 cal-views: src/Barbican.App/Composition/Features/CalendarViewsRegistration.cs
+        services.AddBarbicanCalendarUi();               // M4 cal-ui: src/Barbican.App/Composition/Features/CalendarUiRegistration.cs
 #if AUTOMATION
         services.AddBarbicanAutomation();   // F1:       src/Barbican.Automation/AutomationRegistration.cs
 #endif
