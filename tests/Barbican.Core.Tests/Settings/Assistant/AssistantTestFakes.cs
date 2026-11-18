@@ -16,11 +16,11 @@ internal sealed class AssistantTestFakes
             Task.FromResult(Result<AssistantMessage>.Ok(script(++Calls)));
     }
 
-    internal sealed class CountingTools(bool writes) : IAssistantTools
+    internal sealed class CountingTools(bool writes, string name = "do_thing") : IAssistantTools
     {
         public int Runs { get; private set; }
 
-        public IReadOnlyList<AssistantToolSpec> Specs(AssistantActionMode mode) => [new("do_thing", "does a thing", [], writes)];
+        public IReadOnlyList<AssistantToolSpec> Specs(AssistantActionMode mode) => [new(name, "does a thing", [], writes)];
 
         public Task<string> RunAsync(string accountKey, string name, JsonObject args, CancellationToken ct)
         {

@@ -30,9 +30,11 @@ public sealed class AssistantClient : IAssistantClient, IDisposable
     internal AssistantClient(IAssistantKeys keys, HttpMessageHandler? handler)
     {
         _keys = keys;
+#pragma warning disable RS0030 // Assistant providers use a separate origin and must not share JMAP credentials or redirects.
         _http = handler is null
             ? new HttpClient(new SocketsHttpHandler { AllowAutoRedirect = false, UseCookies = false }, disposeHandler: true) { Timeout = System.Threading.Timeout.InfiniteTimeSpan }
             : new HttpClient(handler, disposeHandler: false) { Timeout = System.Threading.Timeout.InfiniteTimeSpan };
+#pragma warning restore RS0030
     }
 
     /// <inheritdoc/>
@@ -194,6 +196,7 @@ public sealed class AssistantClient : IAssistantClient, IDisposable
         return new AssistantMessage("assistant", text.ToString().Trim(), calls.Count == 0 ? null : calls, null);
     }
 
+#pragma warning disable MA0051 // Request setup and error mapping form one provider transaction.
     private async Task<Result<AssistantMessage>> CompleteCoreAsync(AssistantConfig config, IReadOnlyList<AssistantMessage> messages, IReadOnlyList<AssistantToolSpec> tools, CancellationToken ct)
     {
         var key = await _keys.ReadAsync(ct).ConfigureAwait(false);
@@ -204,7 +207,7 @@ public sealed class AssistantClient : IAssistantClient, IDisposable
 
         var anthropic = config.Provider == AssistantProviderKind.Anthropic;
         var baseUrl = config.Base.TrimEnd('/');
-        if (!Uri.TryCreate(baseUrl, UriKind.Absolute, out var root) || (root.Scheme != Uri.UriSchemeHttps && root.Scheme != Uri.UriSchemeHttp))
+        if (!Uri.TryCreate(baseUrl, UriKind.Absolute, out var root) || (!string.Equals(root.Scheme, Uri.UriSchemeHttps, StringComparison.Ordinal) && !string.Equals(root.Scheme, Uri.UriSchemeHttp, StringComparison.Ordinal)))
         {
             return Result<AssistantMessage>.Fail(new ValidationError("The address of the AI service is not a web address."));
         }
@@ -257,4 +260,5 @@ public sealed class AssistantClient : IAssistantClient, IDisposable
             return Result<AssistantMessage>.Fail(new ValidationError("Could not reach the AI service: " + e.Message));
         }
     }
+#pragma warning restore MA0051
 }

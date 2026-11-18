@@ -122,7 +122,8 @@ public sealed partial class AssistantTools(
 
     private static string Isoday(string day) => day.Length == 10 ? day + "T00:00:00Z" : day;
 
-    private async Task<string> SearchAsync(IAccountSession session, JsonObject a, CancellationToken ct)
+#pragma warning disable MA0051 // The search filters and query are kept together for parity with the reference.
+    private static async Task<string> SearchAsync(IAccountSession session, JsonObject a, CancellationToken ct)
     {
         var conditions = new List<JsonObject>();
         foreach (var key in new[] { "text", "from", "to", "subject" })
@@ -198,6 +199,7 @@ public sealed partial class AssistantTools(
         return AssistantPrompt.WrapEmail(sb.ToString().TrimEnd());
     }
 
+#pragma warning restore MA0051
     private static string TextOf(EmailBody m)
     {
         string Join(IReadOnlyList<BodyPart> parts) => string.Join('\n', parts.Select(p => p.PartId is { } id && m.BodyValues.TryGetValue(id, out var v) ? v.Value : string.Empty));
@@ -303,10 +305,10 @@ public sealed partial class AssistantTools(
 
         IReadOnlyDictionary<string, bool>? patch = Str(a, "mark") switch
         {
-            "read" => new Dictionary<string, bool> { ["$seen"] = true },
-            "unread" => new Dictionary<string, bool> { ["$seen"] = false },
-            "flagged" => new Dictionary<string, bool> { ["$flagged"] = true },
-            "unflagged" => new Dictionary<string, bool> { ["$flagged"] = false },
+            "read" => new Dictionary<string, bool>(StringComparer.Ordinal) { ["$seen"] = true },
+            "unread" => new Dictionary<string, bool>(StringComparer.Ordinal) { ["$seen"] = false },
+            "flagged" => new Dictionary<string, bool>(StringComparer.Ordinal) { ["$flagged"] = true },
+            "unflagged" => new Dictionary<string, bool>(StringComparer.Ordinal) { ["$flagged"] = false },
             _ => null,
         };
         return patch is null ? Fail("mark must be read, unread, flagged or unflagged.") : Report(await writers.ForSession(session).UpdateKeywordsAsync(ids, patch, ct).ConfigureAwait(false));

@@ -40,4 +40,24 @@ public sealed class AssistantLoopTests
         Assert.Equal(0, tools.Runs);
         Assert.Contains(history, m => string.Equals(m.Role, "tool", StringComparison.Ordinal) && string.Equals(m.Text, "The user declined this action. Do not retry it unless they ask.", StringComparison.Ordinal));
     }
+    [Fact]
+    public async Task Automatic_mode_still_confirms_delete_and_honors_refusal()
+    {
+        var client = new ScriptedClient(n => n == 1
+            ? new AssistantMessage("assistant", "", System.Text.Json.Nodes.JsonNode.Parse("""[{"id":"c1","name":"delete_messages","arguments":{}}]"""), null)
+            : new AssistantMessage("assistant", "Left it.", null, null));
+        var tools = new CountingTools(writes: true, name: "delete_messages");
+        var history = new List<AssistantMessage>();
+        var asked = 0;
+        var result = await AssistantLoop.RunAsync(client, tools, Config(AssistantActionMode.Automatic), "a", history, (_, _) =>
+        {
+            asked++;
+            return Task.FromResult(false);
+        }, _ => { }, Ct);
+        Assert.True(result.IsOk);
+        Assert.Equal(1, asked);
+        Assert.Equal(0, tools.Runs);
+        Assert.Contains(history, m => string.Equals(m.Text, AssistantLoop.Declined, StringComparison.Ordinal));
+    }
+
 }

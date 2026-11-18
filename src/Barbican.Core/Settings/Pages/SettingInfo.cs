@@ -18,6 +18,7 @@ public sealed class SettingInfo(IAccountManager accounts, IAccountQuota quota, I
     /// <inheritdoc/>
     public Task<string> TextAsync(string rowId, CancellationToken ct) => Task.Run(() => TextCoreAsync(rowId, ct), ct);
 
+#pragma warning disable MA0051 // Each catalog information row maps to its own account query.
     private async Task<string> TextCoreAsync(string rowId, CancellationToken ct)
     {
         if (!Provides(rowId))
@@ -86,6 +87,7 @@ public sealed class SettingInfo(IAccountManager accounts, IAccountQuota quota, I
         }
     }
 
+#pragma warning restore MA0051
     /// <summary>The version the About page shows (the informational version of the app, without a build suffix).</summary>
     public static string Version()
     {

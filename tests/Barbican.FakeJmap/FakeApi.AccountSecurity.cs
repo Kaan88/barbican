@@ -8,6 +8,7 @@ using System.Text.Json.Nodes;
 
 namespace Barbican.FakeJmap;
 
+#pragma warning disable MA0051 // The fake keeps each JMAP set transaction together under one lock.
 public sealed partial class FakeApi
 {
     private readonly List<(string Type, JsonObject Args)> _securitySetRequests = [];
@@ -291,3 +292,5 @@ public sealed partial class FakeApi
         return null;
     }
 }
+
+#pragma warning restore MA0051

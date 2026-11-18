@@ -84,7 +84,7 @@ public static class AssistantLoop
         }
 
         progress(Label(name, args));
-        var needsAsking = spec.Writes && (config.Actions == AssistantActionMode.Ask || string.Equals(name, "send_email", StringComparison.Ordinal));
+        var needsAsking = spec.Writes && (config.Actions == AssistantActionMode.Ask || IsDestructive(name));
         if (needsAsking && !await confirm(name, Label(name, args)).ConfigureAwait(false))
         {
             return Declined;
@@ -105,6 +105,8 @@ public static class AssistantLoop
             return "Error: " + e.Message;
         }
     }
+
+    private static bool IsDestructive(string name) => name is "send_email" or "delete_messages";
 
     /// <summary>"Search mail: invoice": the tool name in words with its first useful argument (Rust agent.rs label).</summary>
     public static string Label(string name, JsonObject args)

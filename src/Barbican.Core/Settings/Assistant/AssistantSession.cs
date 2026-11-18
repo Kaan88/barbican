@@ -62,19 +62,41 @@ public sealed class AssistantSession : IAssistantSession
     public Task<Result<Unit>> ClearAsync(string accountKey, CancellationToken ct)
     {
         ArgumentNullException.ThrowIfNull(accountKey);
-        return Task.Run(
-            () =>
-            {
-                lock (_lock)
-                {
-                    Loaded(accountKey).Clear();
-                    AtomicFile.Delete(PathOf(accountKey));
-                }
+        return Task.Run(() => ClearCoreAsync(accountKey, ct), ct);
+    }
 
-                Changed?.Invoke(this, EventArgs.Empty);
-                return Result<Unit>.Ok(default);
-            },
-            ct);
+    private SemaphoreSlim GateOf(string accountKey)
+    {
+        lock (_lock)
+        {
+            if (!_gates.TryGetValue(accountKey, out var gate))
+            {
+                gate = _gates[accountKey] = new SemaphoreSlim(1, 1);
+            }
+
+            return gate;
+        }
+    }
+
+    private async Task<Result<Unit>> ClearCoreAsync(string accountKey, CancellationToken ct)
+    {
+        var gate = GateOf(accountKey);
+        await gate.WaitAsync(ct).ConfigureAwait(false);
+        try
+        {
+            lock (_lock)
+            {
+                Loaded(accountKey).Clear();
+                AtomicFile.Delete(PathOf(accountKey));
+            }
+
+            Changed?.Invoke(this, EventArgs.Empty);
+            return Result<Unit>.Ok(default);
+        }
+        finally
+        {
+            _ = gate.Release();
+        }
     }
 
     private string PathOf(string accountKey) =>
@@ -128,40 +150,33 @@ public sealed class AssistantSession : IAssistantSession
             return Result<string>.Fail(new ValidationError("Type a question first."));
         }
 
-        SemaphoreSlim gate;
-        lock (_lock)
-        {
-            if (!_gates.TryGetValue(accountKey, out gate!))
-            {
-                gate = _gates[accountKey] = new SemaphoreSlim(1, 1);
-            }
-        }
+        var gate = GateOf(accountKey);
 
         await gate.WaitAsync(ct).ConfigureAwait(false);
         try
         {
             var config = _settings.Config(accountKey);
             var user = _accounts.SessionFor(accountKey)?.Client.Session.Username ?? accountKey;
-            List<AssistantMessage> history;
-            int before;
+            List<AssistantMessage> working;
             lock (_lock)
             {
-                history = Loaded(accountKey);
-                before = history.Count;
-                history.Add(new AssistantMessage("user", question, null, null));
+                working = [.. Loaded(accountKey)];
             }
 
-            Changed?.Invoke(this, EventArgs.Empty);
+            working.Add(new AssistantMessage("user", question, null, null));
             var system = AssistantPrompt.System(config, user, _time.GetUtcNow(), null, openMessageId is { Length: > 0 });
             var client = new SystemPromptClient(_client, system);
             var tools = new OpenMessageTools(_tools, openMessageId);
-            var working = new List<AssistantMessage>(history);
             var result = await AssistantLoop.RunAsync(client, tools, config, accountKey, working, (tool, what) => ConfirmAsync(tool, what, ct), _ => Changed?.Invoke(this, EventArgs.Empty), ct).ConfigureAwait(false);
             lock (_lock)
             {
-                history.Clear();
-                history.AddRange(result.IsOk ? working : working.Take(before));
-                Save(accountKey, history);
+                if (result.IsOk)
+                {
+                    var history = Loaded(accountKey);
+                    history.Clear();
+                    history.AddRange(working);
+                    Save(accountKey, history);
+                }
             }
 
             Changed?.Invoke(this, EventArgs.Empty);
