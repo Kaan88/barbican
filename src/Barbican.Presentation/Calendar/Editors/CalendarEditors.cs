@@ -1,20 +1,153 @@
-// Mirrors: ICalendarEditors. Stub from the M4 plan section 4.6; owner cal-ui replaces the class (constructor dependencies: ICalendarStore, ICalendarWriter, IAvailabilityService, IHookBus, IDialogService, IToastService, IPrefsStore, TimeProvider, IDispatcher).
+// Mirrors: Rust cal_editor.rs:512 open_new, :554 open_existing, cal_extra.rs:315 open_task, :1115 scope_go; Bulwark components/calendar/event-modal.tsx, quick-create-popover.tsx, task-modal.tsx, recurrence-scope-dialog.tsx; I-300, I-314, I-322..I-324, I-333..I-339, I-342.
+// The default ICalendarEditors: it builds the card view models and puts them on the calendar's card layer (<see cref="CalendarEditorHost"/>); the views draw them.
 
+using Barbican.Core.Calendar;
 using Barbican.Core.Calendar.Editing;
-using Barbican.Core.Common;
+using Barbican.Core.Plugins.Hooks;
+using Barbican.Core.Storage;
+using Barbican.Presentation.Actions;
+using Barbican.Presentation.Calendar.Tasks;
 
 namespace Barbican.Presentation.Calendar.Editors;
 
 /// <summary>The default <see cref="ICalendarEditors"/>.</summary>
 public sealed class CalendarEditors : ICalendarEditors
 {
-    public Task OpenQuickCreateAsync(NewEventRequest request, CancellationToken ct) => throw new PortPendingException("CalendarEditors.OpenQuickCreateAsync");
+    private readonly ICalendarSource _source;
+    private readonly ICalendarWriter _writer;
+    private readonly ICalendarRules _rules;
+    private readonly CalendarEditorHost _host;
+    private readonly IAvailabilityService? _availability;
+    private readonly IContactCardReader? _contacts;
+    private readonly IHookBus? _hooks;
+    private readonly IToastService? _toasts;
+    private readonly TimeProvider _time;
+    private readonly IPrefsStore? _prefs;
 
-    public Task OpenNewEventAsync(NewEventRequest request, CancellationToken ct) => throw new PortPendingException("CalendarEditors.OpenNewEventAsync");
+    public CalendarEditors(
+        ICalendarSource source,
+        ICalendarWriter writer,
+        ICalendarRules rules,
+        CalendarEditorHost host,
+        IAvailabilityService? availability = null,
+        IContactCardReader? contacts = null,
+        IHookBus? hooks = null,
+        IToastService? toasts = null,
+        TimeProvider? time = null,
+        IPrefsStore? prefs = null)
+    {
+        ArgumentNullException.ThrowIfNull(source);
+        ArgumentNullException.ThrowIfNull(writer);
+        ArgumentNullException.ThrowIfNull(rules);
+        ArgumentNullException.ThrowIfNull(host);
+        _source = source;
+        _writer = writer;
+        _rules = rules;
+        _host = host;
+        _availability = availability;
+        _contacts = contacts;
+        _hooks = hooks;
+        _toasts = toasts;
+        _time = time ?? TimeProvider.System;
+        _prefs = prefs;
+    }
 
-    public Task OpenAsync(string occurrenceId, CancellationToken ct) => throw new PortPendingException("CalendarEditors.OpenAsync");
+    /// <summary>The card layer.</summary>
+    public CalendarEditorHost Host => _host;
 
-    public Task OpenNewTaskAsync(string? calendarId, DateOnly? due, CancellationToken ct) => throw new PortPendingException("CalendarEditors.OpenNewTaskAsync");
+    private bool TwelveHour => _prefs is not null && CalendarSettings.Read(_prefs.Current).TwelveHour;
 
-    public Task<(EditScope Scope, bool Notify)?> AskScopeAsync(string title, bool forDelete, bool hasGuests, CancellationToken ct) => throw new PortPendingException("CalendarEditors.AskScopeAsync");
+    private EventEditorServices Services() => new(_source, _writer, _rules, _host, _availability, _contacts, _hooks, _toasts, _time, TwelveHour);
+
+    public Task OpenQuickCreateAsync(NewEventRequest request, CancellationToken ct)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        var card = new QuickCreateViewModel(_source, _writer, request, TwelveHour);
+        _host.Show(card);
+        _ = FinishQuickAsync(card, ct);
+        return Task.CompletedTask;
+    }
+
+    private async Task FinishQuickAsync(QuickCreateViewModel card, CancellationToken ct)
+    {
+#pragma warning disable VSTHRD003 // completed by the card itself
+        await card.Closed.ConfigureAwait(true);
+#pragma warning restore VSTHRD003
+        _host.Close(card);
+        if (card.MoreRequest is { } more)
+        {
+            await OpenNewEventAsync(more, ct).ConfigureAwait(true);
+        }
+    }
+
+    public Task OpenNewEventAsync(NewEventRequest request, CancellationToken ct)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        var editor = new EventEditorViewModel(Services());
+        editor.OpenNew(request);
+        Show(editor);
+        return Task.CompletedTask;
+    }
+
+    public Task OpenAsync(string occurrenceId, CancellationToken ct)
+    {
+        ArgumentNullException.ThrowIfNull(occurrenceId);
+        var id = CalendarJson.BaseId(occurrenceId);
+        var ev = _source.Events.FirstOrDefault(e => string.Equals(CalendarJson.Id(e), id, StringComparison.Ordinal));
+        if (ev is null)
+        {
+            return Task.CompletedTask;
+        }
+
+        if (occurrenceId.StartsWith("task:", StringComparison.Ordinal) || CalendarJson.IsTask(ev))
+        {
+            var task = new TaskEditorViewModel(_source, _writer, _host);
+            task.OpenExisting(ev);
+            ShowTask(task);
+            return Task.CompletedTask;
+        }
+
+        var editor = new EventEditorViewModel(Services());
+        editor.OpenExisting(ev, CalendarJson.RecurrenceIdOf(occurrenceId));
+        Show(editor);
+        return Task.CompletedTask;
+    }
+
+    public Task OpenNewTaskAsync(string? calendarId, DateOnly? due, CancellationToken ct)
+    {
+        var task = new TaskEditorViewModel(_source, _writer, _host);
+        task.OpenNew(calendarId, due);
+        ShowTask(task);
+        return Task.CompletedTask;
+    }
+
+    public Task<(EditScope Scope, bool Notify)?> AskScopeAsync(string title, bool forDelete, bool hasGuests, CancellationToken ct) => _host.AskScopeAsync(title, forDelete, hasGuests, ct);
+
+    /// <summary>Opens a copy of the editor's event as a new event (the footer's Duplicate, the event menu's Duplicate).</summary>
+    public void OpenDuplicate(EventEditorViewModel original)
+    {
+        ArgumentNullException.ThrowIfNull(original);
+        original.Close();
+        Show(original.DuplicateCopy());
+    }
+
+    private void Show(EventEditorViewModel editor)
+    {
+        _host.Show(editor);
+        _ = CloseWhenDoneAsync(editor, editor.Closed);
+    }
+
+    private void ShowTask(TaskEditorViewModel task)
+    {
+        _host.Show(task);
+        _ = CloseWhenDoneAsync(task, task.Closed);
+    }
+
+    private async Task CloseWhenDoneAsync(object card, Task closed)
+    {
+#pragma warning disable VSTHRD003 // completed by the card itself
+        await closed.ConfigureAwait(true);
+#pragma warning restore VSTHRD003
+        _host.Close(card);
+    }
 }
