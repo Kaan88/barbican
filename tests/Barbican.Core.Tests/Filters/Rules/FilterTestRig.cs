@@ -2,6 +2,8 @@
 
 using Barbican.Core.Accounts;
 using Barbican.Core.Common;
+using Barbican.Core.Calendar;
+using Barbican.Core.Calendar.Editing;
 using Barbican.Core.Compose;
 using Barbican.Core.Filters.Rules;
 using Barbican.Core.Jmap;
@@ -27,7 +29,9 @@ internal sealed class FilterTestRig
         Hooks = new HookBus(clock);
         var accounts = new FakeAccounts(fake.Client, clock);
         Filters = new FilterService(accounts, Hooks);
-        Vacation = new VacationService(accounts, Hooks, clock);
+        var calendars = new CalendarStore(accounts, Hooks);
+        var writer = new CalendarWriter(accounts, calendars, Hooks);
+        Vacation = new VacationService(accounts, Hooks, clock, calendars, writer);
         Folders = new FolderAdmin(accounts, clock);
         Templates = new TemplateAdmin(accounts, new TemplateStore(accounts, clock), Hooks, clock);
     }
