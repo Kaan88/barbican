@@ -22,6 +22,3 @@ public sealed record ContactsPrintRequest(ContactsPrintDocument Document) : Dial
 
 /// <summary>The directory browser (the composer's directory button and the Directory place): the answer is the chosen addresses joined with commas, or null.</summary>
 public sealed record ContactsDirectoryRequest(ContactsDirectoryModel Model) : DialogRequest<string>("Directory");
-
-/// <summary>A choice of one address book (a move, an import target).</summary>
-public sealed record ContactsBookPickRequest(string Heading, IReadOnlyList<ContactsSidebarEntry> Books, string? Current) : DialogRequest<string>(Heading);

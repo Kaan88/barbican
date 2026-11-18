@@ -34,10 +34,12 @@ public static class ContactsUiPresentationRegistration
             sp.GetRequiredService<IDispatcher>(),
             sp.GetService<IContactDirectory>()));
         services.TryAddSingleton<IContactsViewModel>(sp => sp.GetRequiredService<ContactsViewModel>());
-        services.TryAddSingleton<IContactsEditors, NoContactsEditors>();
         services.TryAddSingleton<IContactsChrome, NoContactsChrome>();
         services.TryAddSingleton<ContactsFilePicker>(_ => new ContactsFilePicker());
         services.TryAddSingleton<IContactsFilePicker>(sp => sp.GetRequiredService<ContactsFilePicker>());
+        services.TryAddSingleton<IContactsEditors>(sp => sp.GetService<IDialogService>() is { } dialogs
+            ? new ContactsEditors(sp.GetRequiredService<IContactsViewModel>(), sp.GetRequiredService<IContactWriter>(), sp.GetRequiredService<IContactsFilePicker>(), dialogs)
+            : new NoContactsEditors());
         services.TryAddSingleton(sp => new ContactsActions(new ContactsActionDeps(
             sp.GetRequiredService<IContactsViewModel>(),
             sp.GetRequiredService<IContactWriter>(),

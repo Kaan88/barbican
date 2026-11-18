@@ -78,9 +78,9 @@ S-signaturePosition,wired,composing,select,Signature position,"""below_quote""",
 S-signatureReplyForwardEnabled,wired,composing,toggle,Signature on replies & forwards,true,compose.rs,src/compose.rs:333,src/Barbican.Core/Compose/ComposeSettings.cs; ComposeSeeder,
 S-signatureSeparatorEnabled,wired,composing,toggle,Signature delimiter,true,compose.rs,src/compose.rs:336,src/Barbican.Core/Compose/ComposeSettings.cs; ComposeSeeder,
 S-writingLanguage,wired,composing,select,Writing language,"""auto""",main.rs;settings.rs;spell.rs,src/main.rs:1042,not ported,
-S-groupContactsByLetter,wired,contacts,toggle,Group by first letter,true,contacts.rs,src/contacts.rs:236,not ported,
-S-showContactsDirectory,wired,contacts,toggle,Show the directory,true,contacts_x.rs,src/contacts_x.rs:851,not ported,
-S-sortContactsByLastName,wired,contacts,toggle,Sort by last name,false,contacts.rs,src/contacts.rs:237,not ported,
+S-groupContactsByLetter,wired,contacts,toggle,Group by first letter,true,contacts.rs,src/contacts.rs:236,src/Barbican.Presentation/Contacts/ContactsViewModel.cs,
+S-showContactsDirectory,wired,contacts,toggle,Show the directory,true,contacts_x.rs,src/contacts_x.rs:851,src/Barbican.Presentation/Contacts/ContactsViewModel.cs,
+S-sortContactsByLastName,wired,contacts,toggle,Sort by last name,false,contacts.rs,src/contacts.rs:237,src/Barbican.Presentation/Contacts/ContactsViewModel.cs,
 S-filenameCollapseSeparators,unwired,files,toggle,Collapse repeated separators,true,,,not ported,
 S-filenameLowercase,unwired,files,toggle,Lowercase,false,,,not ported,
 S-filenameSpaceReplacement,unwired,files,select,Spaces,"""keep""",,,not ported,
@@ -187,8 +187,8 @@ S-keyless-048,keyless,vacation,toggle,Keep in inbox,,,,not ported,no key: droppe
 S-keyless-049,keyless,calendar,select,Calendar opens in,,,,not ported,no key: dropped by Rust settings.rs schema_rows
 S-keyless-050,keyless,calendar,select,Organize invitations as,,,,not ported,no key: dropped by Rust settings.rs schema_rows
 S-keyless-051,keyless,calendar,info,Working days,,,,not ported,no key: dropped by Rust settings.rs schema_rows
-S-keyless-052,keyless,contacts,info,Import contacts,,,,not ported,no key: dropped by Rust settings.rs schema_rows
-S-keyless-053,keyless,contacts,info,Export contacts,,,,not ported,no key: dropped by Rust settings.rs schema_rows
+S-keyless-052,keyless,contacts,info,Import contacts,,,,commands contacts.import / contacts.export (ContactsCommands); the rows are M6,no key: dropped by Rust settings.rs schema_rows
+S-keyless-053,keyless,contacts,info,Export contacts,,,,commands contacts.import / contacts.export (ContactsCommands); the rows are M6,no key: dropped by Rust settings.rs schema_rows
 S-keyless-054,keyless,files,select,Show files as,,,,not ported,no key: dropped by Rust settings.rs schema_rows
 S-keyless-055,keyless,files,select,Default sort,,,,not ported,no key: dropped by Rust settings.rs schema_rows
 S-keyless-056,keyless,files,select,Sort direction,,,,not ported,no key: dropped by Rust settings.rs schema_rows

@@ -295,7 +295,6 @@ public sealed class ContactsViewModel : ObservableObject, IContactsViewModel, ID
         Rebuild();
     }
 
-    /// <summary>Whether the contacts of this account were loaded (the screen loads on its first visit and again when the login changes).</summary>
     public bool IsLoadedFor(string accountKey) => string.Equals(_loadedFor, accountKey, StringComparison.Ordinal);
 
     public void Dispose()

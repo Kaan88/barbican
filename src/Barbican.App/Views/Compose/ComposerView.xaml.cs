@@ -132,9 +132,12 @@ public sealed partial class ComposerView : UserControl
 
         if (ToField.Trailing is StackPanel toggles)
         {
-            toggles.Visibility = vm.ShowCc && vm.ShowBcc ? Visibility.Collapsed : Visibility.Visible;
+            // M5 con-ui: the third child is the directory button (only where the server has a directory, D-M5-13), so the row stays while it is there
+            var directory = Barbican.App.Views.Contacts.ContactsUi.Model.DirectoryAvailable;
+            toggles.Visibility = vm.ShowCc && vm.ShowBcc && !directory ? Visibility.Collapsed : Visibility.Visible;
             toggles.Children[0].Visibility = vm.ShowCc ? Visibility.Collapsed : Visibility.Visible;
             toggles.Children[1].Visibility = vm.ShowBcc ? Visibility.Collapsed : Visibility.Visible;
+            toggles.Children[2].Visibility = directory ? Visibility.Visible : Visibility.Collapsed;
         }
 
         RebuildAttachments();
@@ -146,7 +149,24 @@ public sealed partial class ComposerView : UserControl
         var panel = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 4 };
         panel.Children.Add(Toggle("Cc", "composer.cc.toggle", () => _vm?.RevealCc()));
         panel.Children.Add(Toggle("Bcc", "composer.bcc.toggle", () => _vm?.RevealBcc()));
+        // M5 con-ui (I-369): the directory picker adds the chosen principals to the To field
+        panel.Children.Add(Toggle("Directory", "composer.directory", () => Barbican.App.Views.Contacts.ContactsUi.Run(AddFromDirectoryAsync)));
+        panel.Children[2].Visibility = Visibility.Collapsed;
         return panel;
+    }
+
+    private async Task AddFromDirectoryAsync()
+    {
+        var chosen = await Barbican.App.Views.Contacts.ContactsUi.Actions.PickFromDirectoryAsync(CancellationToken.None).ConfigureAwait(true);
+        if (_vm is not { } vm || string.IsNullOrEmpty(chosen))
+        {
+            return;
+        }
+
+        foreach (var recipient in Barbican.Core.Compose.Recipients.RecipientText.ParseList(chosen))
+        {
+            _ = vm.To.Add(recipient);
+        }
     }
 
     private static Button Toggle(string text, string id, Action click)

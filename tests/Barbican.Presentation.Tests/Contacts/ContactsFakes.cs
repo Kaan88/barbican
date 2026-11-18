@@ -75,7 +75,13 @@ internal sealed class RecordingContactWriter(FakeContactStore store) : IContactW
 
     public Task<Result<Unit>> MoveAsync(string accountKey, IReadOnlyList<string> cardIds, string bookId, CancellationToken ct) => Task.FromResult(Result<Unit>.Ok(default));
 
-    public Task<Result<string>> CreateGroupAsync(string accountKey, string? bookId, string name, IReadOnlyList<string> memberUids, CancellationToken ct) => Task.FromResult(Result<string>.Ok("g-new"));
+    public List<(string Name, IReadOnlyList<string> Uids)> Groups { get; } = [];
+
+    public Task<Result<string>> CreateGroupAsync(string accountKey, string? bookId, string name, IReadOnlyList<string> memberUids, CancellationToken ct)
+    {
+        Groups.Add((name, memberUids));
+        return Task.FromResult(Result<string>.Ok("g-new"));
+    }
 
     public Task<Result<Unit>> SetMembersAsync(string accountKey, string groupId, IReadOnlyList<string> add, IReadOnlyList<string> remove, CancellationToken ct)
     {

@@ -93,4 +93,7 @@ public interface IContactsViewModel : INotifyPropertyChanged
     Task<Result<Unit>> DeleteAsync(IReadOnlyList<string> ids, CancellationToken ct);
 
     Task RefreshAsync(CancellationToken ct);
+
+    /// <summary>Whether the contacts of this account were loaded (the screen loads on its first visit; the form loads before it opens from the mail side).</summary>
+    bool IsLoadedFor(string accountKey);
 }

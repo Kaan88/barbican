@@ -19,7 +19,7 @@
           <TextBlock x:Name="MessageText" FontSize="13" Foreground="{StaticResource Body}" TextWrapping="Wrap" AutomationProperties.AutomationId="dialog.message" />
           <TextBox x:Name="Field" Visibility="Collapsed" KeyDown="OnFieldKeyDown" AutomationProperties.AutomationId="dialog.field" AutomationProperties.Name="Name" />
           <ContentControl x:Name="CustomContent" HorizontalContentAlignment="Stretch" AutomationProperties.AutomationId="dialog.content" />
-          <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8">
+          <StackPanel x:Name="Buttons" Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8">
             <Button x:Name="CancelButton" Style="{StaticResource Button.Action}" Content="Cancel" CornerRadius="14" Height="32" Padding="16,0" Click="OnCancel"
                     AutomationProperties.AutomationId="dialog.cancel" AutomationProperties.Name="Cancel" />
             <Button x:Name="OkButton" Style="{StaticResource Button.Primary}" Content="OK" CornerRadius="14" Height="32" Padding="16,0" Click="OnOk"

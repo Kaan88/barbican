@@ -1,6 +1,7 @@
 // Mirrors: Rust contacts.rs groups (commits e75e107, 4d24260: create a group with members, rename, delete), Bulwark components/contacts/group-form.tsx (name, member picker with search); B-CON-016, B-CON-024; I-359, I-360.
 // The dialog of a new group and of "edit members": a name, a search field and a tick per contact. Owner con-ui.
 
+using System.Text.Json.Nodes;
 using Barbican.Core.Common;
 using Barbican.Core.Contacts;
 
@@ -13,6 +14,7 @@ public sealed class ContactsGroupModel : ContactsDialogModel
     private readonly IContactWriter _writer;
     private readonly string? _groupId;
     private readonly HashSet<string> _before;
+    private readonly string _originalName;
     private string _name;
     private string _search = string.Empty;
 
@@ -26,6 +28,7 @@ public sealed class ContactsGroupModel : ContactsDialogModel
         _groupId = groupId;
         var group = groupId is null ? null : contacts.CardOf(groupId);
         _name = group is null ? string.Empty : ContactsListRules.FullName(group);
+        _originalName = _name;
         var chosen = new HashSet<string>(preselected ?? [], StringComparer.Ordinal);
         Picks =
         [
@@ -88,6 +91,12 @@ public sealed class ContactsGroupModel : ContactsDialogModel
                 var add = chosen.Where(id => !_before.Contains(id)).Select(id => UidOf(id)).Where(u => u.Length > 0).ToList();
                 var remove = _before.Where(id => !chosen.Contains(id, StringComparer.Ordinal)).Select(id => UidOf(id)).Where(u => u.Length > 0).ToList();
                 result = await _writer.SetMembersAsync(key, _groupId, add, remove, ct).ConfigureAwait(true);
+                if (result.IsOk && !string.Equals(name, _originalName, StringComparison.Ordinal))
+                {
+                    var next = _contacts.CardOf(_groupId)?["name"]?.DeepClone() as JsonObject ?? [];
+                    next["full"] = name;
+                    result = await _writer.UpdateAsync(key, _groupId, new JsonObject { ["name"] = next }, ct).ConfigureAwait(true);
+                }
             }
 
             if (result.IsOk)
