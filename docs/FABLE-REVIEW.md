@@ -1,6 +1,14 @@
-# Fable review log
+# Implementation review log (Astra)
 
-What Fable (the later reviewer model) should review. Every agent appends in its own branch, under
+Astra will review the implementations at the final whole-app review. This file keeps its
+historical name so existing links and earlier Fable review records remain valid.
+
+**Codex continuation (2026-11-19, user instruction):** mark new entries as Codex and name
+the stream and worker model. Record what Astra should review, including exact paths and
+commits, remaining risks, and the limits of the test evidence. Keep earlier entries and
+review outcomes intact. Do not run separate milestone reviews before the whole-app review.
+
+Every agent appends in its own branch, under
 a heading with its stream name: one bullet per item with **what** to review, **why** (risk,
 judgement call, uncertainty, deviation from Bulwark/RFC/plan, security, privacy, partial
 verification) and **where** (paths, commits). Add items as you go. Accounts and paths are
@@ -1372,3 +1380,8 @@ launched; Linux unverified). Verdicts on the M2 verify items 1 to 6, 11, 12 and 
 - **Account security is coded without a live write** (D-M6-09): the FakeJmap arms are written from Stalwart's source (`crates/jmap/src/registry/mapping/`) and Bulwark's store, not recorded from a server. Review the secret handling (never logged, issued once) and the shape of the set requests against the source.
 - **`onSettingsSync` has its call site in import** (D-M6-A04): a deviation from the hook's catalogue meaning (settings sync between devices is not built).
 - **43 red tests were written against stub signatures**: where a stream finds a signature wrong it files a request; review that the red tests were not weakened to pass (compare `tests/` at the plan commit).
+
+## Codex — M6 coordination (parent)
+
+- **Assistant service/UI integration:** review the adapter between the settings page and the real assistant configuration and credential store, confirmation dispatch to the in-window dialog, and coverage of the Rust tool set. The paused streams use separate settings stores and a partial tool set; passing pure tests alone does not prove the integrated behavior. Paths: `src/Barbican.Core/Settings/Assistant/`, `src/Barbican.App/Views/Settings/`, and the integration adapters added during the close pass. Integration commits and executed checks will be recorded as they land.
+- **Evidence at takeover:** stream branches started at `c2d9652` (set-data), `a1e88a6` (set-ui), `b87f023` (srv-data), and `36efd7d` (srv-ui); integration branch started at `450ec55`. Some WIP commits removed red markers before tests ran. Require executed tests and inspected hidden sample captures before accepting completion. Linux remains deferred to M9; account-security writes remain FakeJmap-only.
