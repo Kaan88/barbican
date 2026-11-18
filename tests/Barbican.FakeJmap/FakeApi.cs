@@ -76,7 +76,8 @@ public sealed partial class FakeApi(FakeStore store, FakeJmapOptions options, Fu
 
     private (string? Name, JsonObject Args) Method(string name, JsonObject args)
     {
-        if (!string.Equals(name, "Core/echo", StringComparison.Ordinal) && !string.Equals((string?)args["accountId"], options.AccountId, StringComparison.Ordinal))
+        if (!string.Equals(name, "Core/echo", StringComparison.Ordinal) && !string.Equals((string?)args["accountId"], options.AccountId, StringComparison.Ordinal)
+            && !(name.StartsWith("Calendar", StringComparison.Ordinal) && options.SharedCalendars.ContainsKey((string?)args["accountId"] ?? string.Empty)))
         {
             return Error("accountNotFound");
         }

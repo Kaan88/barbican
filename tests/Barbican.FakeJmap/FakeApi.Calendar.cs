@@ -9,9 +9,14 @@ public sealed partial class FakeApi
 {
     private (string? Name, JsonObject Args) CalendarGet(string type, JsonObject args)
     {
-        if (options.Calendars is not { } cals || !options.CalendarsCapability)
+        if (CalendarsOf(args) is not { } cals || !options.CalendarsCapability)
         {
             return Error("unknownMethod");
+        }
+
+        if (cals.Fails)
+        {
+            return Error("serverFail");
         }
 
         var all = string.Equals(type, "Calendar", StringComparison.Ordinal) ? cals.Calendars() : cals.Events();
@@ -42,8 +47,11 @@ public sealed partial class FakeApi
             }
         }
 
-        return (null, new JsonObject { ["accountId"] = options.AccountId, ["state"] = cals.State(type), ["list"] = list, ["notFound"] = notFound });
+        return (null, new JsonObject { ["accountId"] = (string?)args["accountId"] ?? options.AccountId, ["state"] = cals.State(type), ["list"] = list, ["notFound"] = notFound });
     }
+
+    /// <summary>The calendar data an account id names: a shared account's (<see cref="FakeJmapOptions.SharedCalendars"/>) or the user's own.</summary>
+    private FakeCalendars? CalendarsOf(JsonObject args) => (string?)args["accountId"] is { } id && options.SharedCalendars.TryGetValue(id, out var shared) ? shared : options.Calendars;
 
     private static JsonObject Pick(JsonObject o, JsonArray? properties)
     {
@@ -64,9 +72,14 @@ public sealed partial class FakeApi
 
     private (string? Name, JsonObject Args) CalendarChanges(string type, JsonObject args)
     {
-        if (options.Calendars is not { } cals || !options.CalendarsCapability)
+        if (CalendarsOf(args) is not { } cals || !options.CalendarsCapability)
         {
             return Error("unknownMethod");
+        }
+
+        if (cals.Fails)
+        {
+            return Error("serverFail");
         }
 
         var since = (string?)args["sinceState"] ?? "";
@@ -77,7 +90,7 @@ public sealed partial class FakeApi
 
         return (null, new JsonObject
         {
-            ["accountId"] = options.AccountId,
+            ["accountId"] = (string?)args["accountId"] ?? options.AccountId,
             ["oldState"] = since,
             ["newState"] = cals.State(type),
             ["hasMoreChanges"] = false,
@@ -89,9 +102,14 @@ public sealed partial class FakeApi
 
     private (string? Name, JsonObject Args) CalendarEventQuery(JsonObject args)
     {
-        if (options.Calendars is not { } cals || !options.CalendarsCapability)
+        if (CalendarsOf(args) is not { } cals || !options.CalendarsCapability)
         {
             return Error("unknownMethod");
+        }
+
+        if (cals.Fails)
+        {
+            return Error("serverFail");
         }
 
         var filter = args["filter"] as JsonObject;
@@ -106,7 +124,7 @@ public sealed partial class FakeApi
         var limit = Math.Min(args["limit"] is JsonValue l ? l.GetValue<int>() : options.QueryLimitCap, options.QueryLimitCap);
         return (null, new JsonObject
         {
-            ["accountId"] = options.AccountId,
+            ["accountId"] = (string?)args["accountId"] ?? options.AccountId,
             ["queryState"] = cals.State("CalendarEvent"),
             ["canCalculateChanges"] = false,
             ["position"] = position,

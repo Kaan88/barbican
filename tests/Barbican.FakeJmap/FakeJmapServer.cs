@@ -30,6 +30,11 @@ public sealed partial class FakeJmapServer : HttpMessageHandler
         Store = new FakeStore();
         Api = new FakeApi(Store, Options, () => "S" + Volatile.Read(ref _sessionState).ToString(System.Globalization.CultureInfo.InvariantCulture));
         Push = new PushHub(Store, Options.AccountId);
+        if (Options.Calendars is { } calendars)
+        {
+            Push.Attach(calendars);
+        }
+
         if (seed)
         {
             FakeSeed.Fill(Store);

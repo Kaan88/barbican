@@ -34,8 +34,10 @@ public sealed partial class MailSync : IMailSync, IDisposable
     private int _runs;
     private int _disposed;
     private string? _runError;
+    private readonly ICalendarPush? _calendarPush;
+    private readonly IReadOnlyList<string> _pushTypes;
 
-    public MailSync(MailService service, IHookBus hooks, TimeProvider time, PushBackoff? backoff = null)
+    public MailSync(MailService service, IHookBus hooks, TimeProvider time, PushBackoff? backoff = null, ICalendarPush? calendar = null)
     {
         ArgumentNullException.ThrowIfNull(service);
         ArgumentNullException.ThrowIfNull(hooks);
@@ -46,6 +48,9 @@ public sealed partial class MailSync : IMailSync, IDisposable
         _time = time;
         _backoff = backoff ?? PushBackoff.WithRandomJitter();
         _newMail = new NewMailWatcher(service);
+        _calendarPush = calendar;
+        // M4 cal-data: a login with calendars also follows their state strings (the stream is only asked for types the server has)
+        _pushTypes = calendar is not null && _client.Session.Has(JmapCapabilities.Calendars) ? [.. PushTypes, .. CalendarPushRelay.Types] : PushTypes;
         _timer = time.CreateTimer(_ => OnCoalesced(), null, Timeout.InfiniteTimeSpan, Timeout.InfiniteTimeSpan);
     }
 

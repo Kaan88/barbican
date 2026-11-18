@@ -19,6 +19,13 @@ public sealed class PushHub
         store.Changed += Publish;
     }
 
+    /// <summary>Follows a calendar account too: its changes become StateChanges of the user's account (M4: Calendar and CalendarEvent states).</summary>
+    public void Attach(FakeCalendars calendars)
+    {
+        ArgumentNullException.ThrowIfNull(calendars);
+        calendars.Changed += Publish;
+    }
+
     /// <summary>Streams opened so far.</summary>
     public int Opened { get; private set; }
 
