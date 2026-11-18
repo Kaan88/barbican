@@ -19,7 +19,6 @@ public sealed class SrvUiFolderTreeRulesTests
     ];
 
     [Fact]
-    [Red("srv-ui")]
     public void Role_folders_come_first_then_the_rest_by_name_with_children_under_their_parent()
     {
         var rows = SrvUiFolderTreeRules.Flatten(Folders, new HashSet<string>(StringComparer.Ordinal));
@@ -29,7 +28,6 @@ public sealed class SrvUiFolderTreeRulesTests
     }
 
     [Fact]
-    [Red("srv-ui")]
     public void A_collapsed_parent_hides_its_children()
     {
         var rows = SrvUiFolderTreeRules.Flatten(Folders, new HashSet<string>(StringComparer.Ordinal) { "alpha" });
