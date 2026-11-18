@@ -9,7 +9,6 @@ public sealed class AccountIdentityRulesTests
     private static AccountIdentity I(string id) => new(id, id, id + "@x.example", null, null, string.Empty, string.Empty, true);
 
     [Fact]
-    [Red("set-data")]
     public void Addresses_are_checked_before_an_identity_is_sent()
     {
         Assert.Null(AccountIdentityRules.Problem(new AccountIdentityEdit("Ann", "ann@x.example", null, null, null, null), isCreate: true));
@@ -21,7 +20,6 @@ public sealed class AccountIdentityRulesTests
     }
 
     [Fact]
-    [Red("set-data")]
     public void Identities_follow_the_stored_order_then_server_order()
     {
         var ordered = AccountIdentityRules.Ordered([I("a"), I("b"), I("c"), I("d")], ["c", "gone", "a"]);

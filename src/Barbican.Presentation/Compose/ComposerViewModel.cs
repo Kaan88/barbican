@@ -11,6 +11,8 @@ using Barbican.Core.Compose;
 using Barbican.Core.Compose.Recipients;
 using Barbican.Core.Editor;
 using Barbican.Core.Jmap.Submission;
+using Barbican.Core.Plugins.Hooks;
+using Barbican.Core.Plugins.Payloads;
 using Barbican.Presentation.Editor;
 using CommunityToolkit.Mvvm.ComponentModel;
 
@@ -141,6 +143,11 @@ public sealed partial class ComposerViewModel : ObservableObject, IMentionSource
                 OnPropertyChanged(nameof(FromText));
                 OnPropertyChanged(nameof(CanTag));
                 OnPropertyChanged(nameof(SubAddressPreview));
+                // onIdentitySelect (M6 set-data): another From identity was chosen in the composer
+                if (value is not null && Identities.FirstOrDefault(i => string.Equals(i.Id, value, StringComparison.Ordinal)) is { } chosen)
+                {
+                    _c.Hooks.Fire(HookNames.OnIdentitySelect, () => new IdentityViewPayload(chosen.Id, chosen.Name, chosen.Email, null, null, string.Empty, string.Empty));
+                }
             }
         }
     }

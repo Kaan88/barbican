@@ -7,7 +7,6 @@ namespace Barbican.Core.Tests.Settings.Assistant;
 public sealed class AssistantErrorsTests
 {
     [Fact]
-    [Red("set-data")]
     public void Statuses_map_to_plain_messages()
     {
         Assert.Contains("key", AssistantErrors.Message(401, null, null), StringComparison.OrdinalIgnoreCase);

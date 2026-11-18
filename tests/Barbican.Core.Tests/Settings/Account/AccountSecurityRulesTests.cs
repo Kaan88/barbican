@@ -7,7 +7,6 @@ namespace Barbican.Core.Tests.Settings.Account;
 public sealed class AccountSecurityRulesTests
 {
     [Fact]
-    [Red("set-data")]
     public void A_password_change_is_checked_before_it_is_sent()
     {
         Assert.Null(AccountSecurityRules.PasswordProblem("old-password", "new-password-1", "new-password-1"));
@@ -18,7 +17,6 @@ public sealed class AccountSecurityRulesTests
     }
 
     [Fact]
-    [Red("set-data")]
     public void A_totp_code_is_six_digits_with_spaces_ignored()
     {
         Assert.True(AccountSecurityRules.IsTotpCode("123456"));

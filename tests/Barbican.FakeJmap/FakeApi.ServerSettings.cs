@@ -12,7 +12,7 @@ public sealed partial class FakeApi
         "VacationResponse/get" => VacationGet(args),
         "VacationResponse/set" => VacationSet(args),
         "Identity/set" => IdentitySet(args),
-        "x:AccountPassword/get" or "x:AccountPassword/set" or "x:AccountSettings/get" or "x:AppPassword/query" or "x:AppPassword/get" or "x:AppPassword/set" or "x:ApiKey/query" or "x:ApiKey/get" or "x:ApiKey/set" => AccountSecurityMethod(name, args),
+        "x:AccountPassword/get" or "x:AccountPassword/set" or "x:AccountSettings/get" or "x:AccountSettings/set" or "x:PublicKey/set" or "x:AppPassword/query" or "x:AppPassword/get" or "x:AppPassword/set" or "x:ApiKey/query" or "x:ApiKey/get" or "x:ApiKey/set" => AccountSecurityMethod(name, args),
         _ => Error("unknownMethod"),
     };
 }

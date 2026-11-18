@@ -11,7 +11,6 @@ public sealed class SettingRulesTests
         new("S-x", "general", kind, "x", string.Empty, "x", [.. options.Select(o => new SettingOption(o, o.ToUpperInvariant()))], null, SettingRowStatus.Wired, false, null);
 
     [Fact]
-    [Red("set-data")]
     public void Values_are_checked_against_the_kind_of_their_row()
     {
         var toggle = Row(SettingRowKind.Toggle);

@@ -7,7 +7,6 @@ namespace Barbican.Core.Tests.Settings.Pages;
 public sealed class SettingsCatalogTests
 {
     [Fact]
-    [Red("set-data")]
     public void Pages_carry_every_schema_row_with_a_unique_id()
     {
         var pages = SettingsCatalog.Pages();
@@ -19,7 +18,6 @@ public sealed class SettingsCatalogTests
     }
 
     [Fact]
-    [Red("set-data")]
     public void Keyless_rows_are_kept_with_stable_ids_and_no_key()
     {
         var keyless = SettingsCatalog.Pages().SelectMany(p => p.Rows).Where(r => r.Status == SettingRowStatus.Keyless).ToList();

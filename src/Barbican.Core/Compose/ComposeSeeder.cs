@@ -39,7 +39,7 @@ public sealed class ComposeSeeder(IAccountManager accounts, IIdentityService ide
         var settings = ComposeSettings.Read(prefs.Current);
         if (request.Kind == ComposeKind.New)
         {
-            return Result<ComposeSeed>.Ok(SeedNew(request, ids.Value!, ctx.Value!, settings));
+            return Result<ComposeSeed>.Ok(await SeedNewAsync(request, ids.Value!, ctx.Value!, settings, ct).ConfigureAwait(false));
         }
 
         if (request.SourceEmailId is not { Length: > 0 } sourceId)
@@ -67,7 +67,7 @@ public sealed class ComposeSeeder(IAccountManager accounts, IIdentityService ide
             : await SeedAnswerAsync(request, message, ids.Value!, ctx.Value, settings, ct).ConfigureAwait(false);
     }
 
-    private ComposeSeed SeedNew(ComposeRequest request, IReadOnlyList<ComposeIdentity> ids, ComposeContext ctx, ComposeSettings settings)
+    private async Task<ComposeSeed> SeedNewAsync(ComposeRequest request, IReadOnlyList<ComposeIdentity> ids, ComposeContext ctx, ComposeSettings settings, CancellationToken ct)
     {
         var chosen = Default(ids, ctx.Username);
         var blocks = new List<Block> { Block.Para("") };
@@ -77,7 +77,7 @@ public sealed class ComposeSeeder(IAccountManager accounts, IIdentityService ide
             blocks.InsertRange(0, codec.ImportText(prefill.Body));
         }
 
-        var (withSignature, texts) = Sign(blocks, chosen is null ? null : ids[chosen.Value], settings, isNew: true);
+        var (withSignature, texts) = Sign(blocks, chosen is null ? null : await ShapedAsync(ids[chosen.Value], ct).ConfigureAwait(false), settings, isNew: true);
         return new ComposeSeed
         {
             AccountId = request.AccountId,
@@ -98,6 +98,14 @@ public sealed class ComposeSeeder(IAccountManager accounts, IIdentityService ide
         var own = OwnAddresses(ids, ctx.Username);
         var choice = ReplyIdentity.Resolve([.. ids.Select(i => i.Identity)], ReplyFromOf(m, own, forward, settings), settings.AutoSelectReplyIdentity, settings.ReplyIdentityMatch, settings.SubAddressDelimiter);
         var index = choice?.Index ?? Default(ids, ctx.Username);
+        // onSelectReplyIdentity (M6 set-data, a transform): a plug-in may name another of the listed identities; the pick Barbican made is then dropped with its From override
+        var picked = await hooks.ShapeAsync(HookNames.OnSelectReplyIdentity, new SelectReplyIdentityPayload([.. ids.Select(x => x.Identity.Id)], index is { } pi ? ids[pi].Identity.Id : null, m.Id), ct).ConfigureAwait(false);
+        if (picked.IdentityId is { } wanted && !string.Equals(wanted, index is { } ci ? ids[ci].Identity.Id : null, StringComparison.Ordinal) && ids.ToList().FindIndex(x => string.Equals(x.Identity.Id, wanted, StringComparison.Ordinal)) is >= 0 and var at)
+        {
+            index = at;
+            choice = null;
+        }
+
         var subject = m.Subject ?? "";
         var seed = new ComposeSeed
         {
@@ -110,7 +118,7 @@ public sealed class ComposeSeeder(IAccountManager accounts, IIdentityService ide
         };
         if (request.Kind == ComposeKind.ForwardAsAttachment)
         {
-            return Result<ComposeSeed>.Ok(ForwardAsAttachment(seed, m, subject, ids, index, settings));
+            return Result<ComposeSeed>.Ok(await ForwardAsAttachmentAsync(seed, m, subject, ids, index, settings, ct).ConfigureAwait(false));
         }
 
         var quote = QuoteOf(m);
@@ -129,7 +137,7 @@ public sealed class ComposeSeeder(IAccountManager accounts, IIdentityService ide
             (seed, blocks) = ReplyOf(seed, m, quote, inline, header, request.Kind == ComposeKind.ReplyAll, own, settings);
         }
 
-        var (body, texts) = Sign(blocks, index is { } si ? ids[si] : null, settings, isNew: false);
+        var (body, texts) = Sign(blocks, index is { } si ? await ShapedAsync(ids[si], ct).ConfigureAwait(false) : null, settings, isNew: false);
         return Result<ComposeSeed>.Ok(seed with { Body = new Doc(body), SignatureTexts = texts });
     }
 
@@ -185,11 +193,11 @@ public sealed class ComposeSeeder(IAccountManager accounts, IIdentityService ide
         }, blocks);
     }
 
-    private ComposeSeed ForwardAsAttachment(ComposeSeed seed, EmailBody m, string subject, IReadOnlyList<ComposeIdentity> ids, int? index, ComposeSettings settings)
+    private async Task<ComposeSeed> ForwardAsAttachmentAsync(ComposeSeed seed, EmailBody m, string subject, IReadOnlyList<ComposeIdentity> ids, int? index, ComposeSettings settings, CancellationToken ct)
     {
         // Bulwark lib/forward-as-attachment.ts: the message's own blob is attached by id, the body starts empty
         var blob = m.Extra is { } e && e.TryGetValue("blobId", out var b) && b.ValueKind == System.Text.Json.JsonValueKind.String ? b.GetString() : null;
-        var (body, texts) = Sign([Block.Para("")], index is { } si ? ids[si] : null, settings, isNew: false);
+        var (body, texts) = Sign([Block.Para("")], index is { } si ? await ShapedAsync(ids[si], ct).ConfigureAwait(false) : null, settings, isNew: false);
         var name = Sanitize(subject.Length == 0 ? "message" : subject) + ".eml";
         return seed with
         {
@@ -304,6 +312,18 @@ public sealed class ComposeSeeder(IAccountManager accounts, IIdentityService ide
 
         var html = string.Join('\n', Or(m.HtmlBody).Select(p => p.PartId is { } id && Or(m.BodyValues).TryGetValue(id, out var v) ? v.Value : ""));
         return html.Trim().Length == 0 ? "" : codec.HtmlText(html);
+    }
+
+    /// <summary>onSignatureRender (M6 set-data, a transform): a plug-in may replace the signature that is about to be inserted; the identity as it is when nothing listens.</summary>
+    private async Task<ComposeIdentity> ShapedAsync(ComposeIdentity identity, CancellationToken ct)
+    {
+        if (!hooks.HasHandlers(HookNames.OnSignatureRender))
+        {
+            return identity;
+        }
+
+        var shaped = await hooks.TransformAsync(HookNames.OnSignatureRender, new SignatureRenderPayload(identity.HtmlSignature, identity.TextSignature, identity.Identity.Id), ct).ConfigureAwait(false);
+        return identity with { HtmlSignature = shaped.Html, TextSignature = shaped.Text };
     }
 
     /// <summary>Rust apply_signature: the separator and the identity's signature (HTML when it has text, else its text), below the quote or above it, into the document.</summary>

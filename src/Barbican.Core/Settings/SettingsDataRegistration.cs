@@ -21,6 +21,8 @@ public static class SettingsDataRegistration
         services.TryAddSingleton<IAccountIdentities, AccountIdentities>();
         services.TryAddSingleton<IAccountSecurity, AccountSecurity>();
         services.TryAddSingleton<IAccountQuota, AccountQuota>();
+        services.TryAddSingleton<IAssistantKeys, AssistantKeys>();
+        services.TryAddSingleton<IAssistantSettings, AssistantSettings>();
         services.TryAddSingleton<IAssistantClient, AssistantClient>();
         services.TryAddSingleton<IAssistantTools, AssistantTools>();
         services.TryAddSingleton<IAssistantSession, AssistantSession>();

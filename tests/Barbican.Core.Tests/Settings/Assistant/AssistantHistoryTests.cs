@@ -8,7 +8,6 @@ namespace Barbican.Core.Tests.Settings.Assistant;
 public sealed class AssistantHistoryTests
 {
     [Fact]
-    [Red("set-data")]
     public void History_round_trips_and_a_bad_entry_is_skipped()
     {
         var calls = JsonNode.Parse("""[{"id": "c1", "name": "list_folders", "arguments": {}}]""");

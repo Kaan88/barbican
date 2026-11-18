@@ -1372,3 +1372,6 @@ launched; Linux unverified). Verdicts on the M2 verify items 1 to 6, 11, 12 and 
 - **Account security is coded without a live write** (D-M6-09): the FakeJmap arms are written from Stalwart's source (`crates/jmap/src/registry/mapping/`) and Bulwark's store, not recorded from a server. Review the secret handling (never logged, issued once) and the shape of the set requests against the source.
 - **`onSettingsSync` has its call site in import** (D-M6-A04): a deviation from the hook's catalogue meaning (settings sync between devices is not built).
 - **43 red tests were written against stub signatures**: where a stream finds a signature wrong it files a request; review that the red tests were not weakened to pass (compare `tests/` at the plan commit).
+
+## set-data (M6, paused WIP)
+- Not compiling yet: AssistantJson.Push helper missing; analyzer fixes pending in AssistantClient, AssistantTools, SettingInfo. Review decisions D-M6-A (identity order key app.barbican.identityOrder, IAssistantKeys/Settings/Confirmation seams, edited FakeVacationAndSecurityArmsTests, FakeApi.cs, ReaderRegistration, ComposeSeeder).

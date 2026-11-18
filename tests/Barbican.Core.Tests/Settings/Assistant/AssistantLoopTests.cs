@@ -10,7 +10,6 @@ public sealed class AssistantLoopTests
     private static CancellationToken Ct => TestContext.Current.CancellationToken;
 
     [Fact]
-    [Red("set-data")]
     public async Task The_loop_stops_after_sixteen_model_turns()
     {
         var client = new ScriptedClient(CallsTool);
@@ -25,7 +24,6 @@ public sealed class AssistantLoopTests
     }
 
     [Fact]
-    [Red("set-data")]
     public async Task A_declined_write_tool_does_not_run_and_the_model_is_told()
     {
         var client = new ScriptedClient(n => n == 1 ? CallsTool(1) : new AssistantMessage("assistant", "All right, I left it.", null, null));

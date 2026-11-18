@@ -7,7 +7,6 @@ namespace Barbican.Core.Tests.Settings.Account;
 public sealed class AccountQuotaUsageTests
 {
     [Fact]
-    [Red("set-data")]
     public void Usage_reads_as_a_fraction_and_a_sentence()
     {
         var usage = new AccountQuotaUsage(500_000_000, 1_000_000_000);
