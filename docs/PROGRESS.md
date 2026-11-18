@@ -1,4 +1,4 @@
-# Progress (PAUSED 2026-11-18 by the user)
+# Progress (M4 done 2026-11-18)
 
 Everything is pushed. Nothing is merged to `main` or tagged.
 
@@ -11,26 +11,10 @@ wherever they can. Safety rules stay (no real input, read-only account, admin ke
 |---|---|---|
 | M2 | `m2` (6012f9f) | Done: hotfix-2 and Fable review 3 fixes merged. Zip `Barbican-6012f9f305d6-win-x64.zip`. |
 | M3 | `m3` (2f11adb) | Done: send pipeline, editor core, editor view (Uno 7 / SkiaSharp 4), composer UI, close (quoted HTML sanitised, round trip). 2122 tests green, Linux green. Zip `Barbican-2f11adb86437-win-x64.zip`. Unproven: live round trip on the test account (no agent profile signed in), real IME, mailto from a browser, default-app registration. |
-| M4 | `m4-plan` | Planned 2026-11-18: docs/milestones/M4-plan.md (four streams cal-data, cal-edit, cal-views, cal-ui), contracts, FakeJmap calendar arms and 43 red tests pushed; `m4` is created from it. |
+| M4 | `m4` (see git log) | Done 2026-11-18: calendar and tasks (cal-data, cal-edit, cal-views, cal-ui, UI sweep, integration pass). 2370 tests green on Windows, 0 [Red], spec-check M4 clean. Linux deferred to M9. Report: docs/milestones/M4.md. Zip `Barbican-ea1576de1218-win-x64.zip`. |
 
-### Pause table (2026-11-18)
-| Branch | Last commit | State and next step |
-|---|---|---|
-| `m4-cal-data` | a10dcf0 (WIP) | All 19 red green; store and recurrence done (suite green at 017d127). Reminder scheduler, state store, popup VM and ReminderSchedulerTests written but never tested. Next: run those tests, hook call-site test, hooks.csv, D-M4-A05, timeZone setting, full suite + Linux. Ical.Net pinned 5.1.1 (may conflict with cal-edit's Directory.Packages.props). |
-| `m4-cal-edit` | 9da524f | Steps 1-2 done, 16/17 red green (EventEditor alerts test waits for cal-data ReminderRules). Next: step 3 (invitations, IcsReader/Importer, feeds, availability, 5 hooks). Core suite green. |
-| `m4-cal-views` | 61238e1 (WIP) | Presentation layer done (3 red green, suite green at 2e5cc06). App views written, App head build unverified. Next: build -Head win, suite, hidden run, screenshots, perf probe. |
-| `m4-cal-ui` | 698aa59 (WIP) | View models done (4 red green). Suite not confirmed. Next: run tests (CalendarMenusTests, CalendarCommandSet.Count), App views, automation, screenshots, decisions. |
-| `m4-ui-sweep` | 4ee2ccb | 15 defects, 9 fixed (docs/milestones/UI-SWEEP-1.md). Next: rebuild/test last 2 edits, keyboard sweep on real data, open list, clean the UISWEEP test mails and cancel the mail scheduled for Thu 19 Nov 08:00. The 4 real-account screenshots (g01-g04) were removed from the branch history with the user's OK (rewritten and force-pushed 2026-11-18; old head 6e110d6). Never commit real-account screenshots; keep them untracked. |
-
-## How to resume (after the 2026-11-18 pause)
-1. Each paused branch ends with a "WIP (paused)" commit or its last real commit; read its subject and the stream's section in
-   docs/milestones/M4-plan.md, then restart one Sonnet agent per stream in the same worktree with "continue from the last commit".
-2. Merge the four M4 streams into `m4` (check spec/decisions.md for duplicated rows after each merge; one branch once doubled it),
-   then an M4 close pass, a zip, then M5.
-3. Finish the UI sweep on `m4-ui-sweep` (real data via `tools/auto-run.ps1 start -ProfileName agent-ui`), merge it.
-4. Real-account runs: profile `agent-ui` is signed in to the test account (copied from `dev` with the user's OK; it is a
-   throwaway). `.local/writable-accounts.txt` and `.local/readonly-accounts.txt` exist. One process per profile at a time.
-5. Known on real data: list previews run words together across blocks (check DocHtml.ToText / sent text part).
+## Next step
+M5 (contacts). Open from M4, see docs/milestones/M4.md "What is unproven": live checks on the test account, Linux build (M9). The UI sweep keyboard run on real data and cleanup of its test mails are still open (docs/milestones/UI-SWEEP-1.md).
 
 Order after M4: M5, M6, M6b, M7, M8, M10, M9 (Linux last), then the whole-app Fable review.
 
