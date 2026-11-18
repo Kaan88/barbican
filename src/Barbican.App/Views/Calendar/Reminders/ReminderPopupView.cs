@@ -89,7 +89,7 @@ public sealed class ReminderPopupView : Grid
 
         var snooze = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6, Margin = new Thickness(0, 6, 0, 0) };
         snooze.Children.Add(CalendarCardKit.Label("Snooze"));
-        foreach (var (label, minutes) in new[] { ("5 min", 5), ("10 min", 10), ("15 min", 15), ("1 hour", 60) })
+        foreach (var (label, minutes) in new[] { ("5m", 5), ("10m", 10), ("15m", 15), ("1h", 60) })
         {
             var button = CalendarCardKit.Btn(label, DialogTone.Plain, "cal.reminder.snooze." + minutes, () => _popup.Snooze(reminder, minutes));
             button.Height = 28;

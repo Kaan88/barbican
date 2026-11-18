@@ -26,6 +26,7 @@ public static class CalendarViewsRegistration
             services.TryAddSingleton<SampleCalendarSource>();
             services.Replace(ServiceDescriptor.Singleton<ICalendarSource>(sp => sp.GetRequiredService<SampleCalendarSource>()));
             services.Replace(ServiceDescriptor.Singleton<ICalendarWriter>(sp => sp.GetRequiredService<SampleCalendarSource>()));
+            services.Replace(ServiceDescriptor.Singleton<Barbican.Presentation.Calendar.Editors.IEditorSource>(sp => new SampleEditorSource(sp.GetRequiredService<SampleCalendarSource>())));
         }
 
         for (var i = 0; i < 8; i++)

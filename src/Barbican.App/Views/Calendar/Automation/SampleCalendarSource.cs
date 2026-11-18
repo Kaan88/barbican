@@ -129,15 +129,31 @@ public sealed class SampleCalendarSource : ICalendarSource, ICalendarWriter
         return Result<Unit>.Ok(default);
     }
 
-    public Task<Result<string>> SaveEventAsync(EventWrite write, CancellationToken ct) => throw new PortPendingException("SampleCalendarSource.SaveEventAsync");
+    public Task<Result<string>> SaveEventAsync(EventWrite write, CancellationToken ct)
+    {
+        ArgumentNullException.ThrowIfNull(write);
+        if (write.EventId is { } id && PatchFrom(id, write.Data))
+        {
+            return Task.FromResult(Result<string>.Ok(id));
+        }
 
-    public Task<Result<Unit>> DeleteEventAsync(string accountKey, string eventId, EditScope scope, string? recurrenceId, bool notify, CancellationToken ct) => throw new PortPendingException("SampleCalendarSource.DeleteEventAsync");
+        return Task.FromResult(Result<string>.Ok(AddEventFrom(write.Data)));
+    }
 
-    public Task<Result<string>> CreateAsync(string accountKey, string calendarId, JsonObject data, CancellationToken ct) => throw new PortPendingException("SampleCalendarSource.CreateAsync");
+    public Task<Result<Unit>> DeleteEventAsync(string accountKey, string eventId, EditScope scope, string? recurrenceId, bool notify, CancellationToken ct) =>
+        Task.FromResult(RemoveId(eventId) ? Result<Unit>.Ok(default) : Result<Unit>.Fail(new ValidationError("That event is gone.")));
 
-    public Task<Result<Unit>> UpdateAsync(string accountKey, string id, JsonObject patch, CancellationToken ct) => throw new PortPendingException("SampleCalendarSource.UpdateAsync");
+    public Task<Result<string>> CreateAsync(string accountKey, string calendarId, JsonObject data, CancellationToken ct)
+    {
+        ArgumentNullException.ThrowIfNull(data);
+        return Task.FromResult(Result<string>.Ok(string.Equals((string?)data["@type"], "Task", StringComparison.Ordinal) ? AddTaskFrom(calendarId, data) : AddEventFrom(data)));
+    }
 
-    public Task<Result<Unit>> DestroyAsync(string accountKey, string id, CancellationToken ct) => throw new PortPendingException("SampleCalendarSource.DestroyAsync");
+    public Task<Result<Unit>> UpdateAsync(string accountKey, string id, JsonObject patch, CancellationToken ct) =>
+        Task.FromResult(PatchFrom(id, patch) ? Result<Unit>.Ok(default) : Result<Unit>.Fail(new ValidationError("That item is gone.")));
+
+    public Task<Result<Unit>> DestroyAsync(string accountKey, string id, CancellationToken ct) =>
+        Task.FromResult(RemoveId(id) ? Result<Unit>.Ok(default) : Result<Unit>.Fail(new ValidationError("That item is gone.")));
 
     /// <summary>Adds many tasks and events (the L-027 probe: thousands open in under a second).</summary>
     public void AddBulk(int tasks, int events)
@@ -160,6 +176,168 @@ public sealed class SampleCalendarSource : ICalendarSource, ICalendarWriter
         }
 
         Changed?.Invoke(this, new CalendarSourceChangedEventArgs("sample", false));
+    }
+
+    // ---- the editors' side (cal-ui reads JSCalendar objects and writes through ICalendarWriter): the same entries, as JSON ----
+
+    private const string Done = "✓";
+
+    /// <summary>The calendars as JSCalendar objects (the editors' source).</summary>
+    public IReadOnlyList<JsonNode> CalendarObjects() =>
+        [.. Rows.Select(r => (JsonNode)new JsonObject
+        {
+            ["id"] = r.Id,
+            ["name"] = r.Name,
+            ["color"] = r.Color,
+            ["isDefault"] = r.IsDefault,
+            ["isVisible"] = true,
+            ["myRights"] = new JsonObject { ["mayReadItems"] = true, ["mayWriteAll"] = r.CanEdit, ["mayDelete"] = r.CanEdit },
+        })];
+
+    /// <summary>Events and tasks as JSCalendar objects; an entry with a raw object keeps it, the others get title, start and duration.</summary>
+    public IReadOnlyList<JsonNode> EventObjects()
+    {
+        lock (_gate)
+        {
+            var list = new List<JsonNode>();
+            foreach (var e in _events)
+            {
+                if (e.Kind == CalendarOccurrenceKind.Task)
+                {
+                    var id = e.Id.StartsWith("task:", StringComparison.Ordinal) ? e.Id[5..] : e.Id;
+                    list.Add(new JsonObject
+                    {
+                        ["@type"] = "Task",
+                        ["id"] = id,
+                        ["title"] = TaskTitle(e.Title),
+                        ["due"] = e.Start.ToString("yyyy-MM-dd'T'HH:mm:ss", System.Globalization.CultureInfo.InvariantCulture),
+                        ["showWithoutTime"] = true,
+                        ["progress"] = e.Title.StartsWith(Done, StringComparison.Ordinal) ? "completed" : "needs-action",
+                        ["calendarIds"] = new JsonObject { [e.Calendar] = true },
+                    });
+                    continue;
+                }
+
+                if (e.SeriesId is not null)
+                {
+                    continue; // the stand-up series is shown on the grid only
+                }
+
+                var json = e.Raw?.DeepClone() as JsonObject ?? [];
+                json["@type"] = "Event";
+                json["id"] = e.Id;
+                json["title"] = e.Title;
+                json["start"] = e.Start.ToString("yyyy-MM-dd'T'HH:mm:ss", System.Globalization.CultureInfo.InvariantCulture);
+                json["duration"] = System.Xml.XmlConvert.ToString(e.End - e.Start);
+                json["timeZone"] = "UTC";
+                json["showWithoutTime"] = e.AllDay;
+                json["calendarIds"] = new JsonObject { [e.Calendar] = true };
+                if (e.Location.Length > 0)
+                {
+                    json["locations"] = new JsonObject { ["l1"] = new JsonObject { ["name"] = e.Location } };
+                }
+
+                list.Add(json);
+            }
+
+            return list;
+        }
+    }
+
+    private static string TaskTitle(string marked) => marked.TrimStart('✓', '○', ' ');
+
+    /// <summary>A new event from the editor's data (start, duration, title, calendar); returns its id.</summary>
+    public string AddEventFrom(JsonObject data)
+    {
+        ArgumentNullException.ThrowIfNull(data);
+        var start = DateTime.Parse((string?)data["start"] ?? "2026-01-01T09:00:00", System.Globalization.CultureInfo.InvariantCulture);
+        var span = data["duration"] is JsonValue d && d.TryGetValue<string>(out var text) ? System.Xml.XmlConvert.ToTimeSpan(text) : TimeSpan.FromHours(1);
+        var calendar = data["calendarIds"] is JsonObject c && c.FirstOrDefault().Key is { } k ? k : "personal";
+        var id = "new" + Guid.NewGuid().ToString("N")[..6];
+        var location = data["locations"] is JsonObject l && l.FirstOrDefault().Value?["name"] is { } n ? (string?)n ?? string.Empty : string.Empty;
+        lock (_gate)
+        {
+            _events.Add(new Entry(id, (string?)data["title"] ?? "(no title)", start, start + span, (bool?)data["showWithoutTime"] == true, calendar, location, CalendarOccurrenceKind.Event, Raw: data.DeepClone()));
+        }
+
+        Changed?.Invoke(this, new CalendarSourceChangedEventArgs("sample", false));
+        return id;
+    }
+
+    /// <summary>A new task from the task editor's or the quick-add data.</summary>
+    public string AddTaskFrom(string calendarId, JsonObject data)
+    {
+        ArgumentNullException.ThrowIfNull(data);
+        var due = data["due"] is JsonValue d && d.TryGetValue<string>(out var text) && DateTime.TryParse(text, System.Globalization.CultureInfo.InvariantCulture, out var parsed) ? parsed.Date : _time.GetLocalNow().Date;
+        var id = "newtask" + Guid.NewGuid().ToString("N")[..6];
+        lock (_gate)
+        {
+            _events.Add(new Entry("task:" + id, "○ " + ((string?)data["title"] ?? "(untitled task)"), due, due.AddDays(1), true, calendarId, string.Empty, CalendarOccurrenceKind.Task));
+        }
+
+        Changed?.Invoke(this, new CalendarSourceChangedEventArgs("sample", false));
+        return id;
+    }
+
+    /// <summary>A task patch (title, progress, due) or an event title patch.</summary>
+    public bool PatchFrom(string id, JsonObject patch)
+    {
+        ArgumentNullException.ThrowIfNull(patch);
+        lock (_gate)
+        {
+            var i = _events.FindIndex(e => string.Equals(e.Id, id, StringComparison.Ordinal) || string.Equals(e.Id, "task:" + id, StringComparison.Ordinal));
+            if (i < 0)
+            {
+                return false;
+            }
+
+            var e = _events[i];
+            var marker = e.Title.StartsWith(Done, StringComparison.Ordinal) ? Done + " " : "○ ";
+            var title = e.Kind == CalendarOccurrenceKind.Task ? TaskTitle(e.Title) : e.Title;
+            foreach (var (key, value) in patch)
+            {
+                switch (key)
+                {
+                    case "title":
+                        title = (string?)value ?? title;
+                        break;
+                    case "progress":
+                        marker = string.Equals((string?)value, "completed", StringComparison.Ordinal) ? Done + " " : "○ ";
+                        break;
+                    case "due":
+                        if (value is JsonValue v && v.TryGetValue<string>(out var text) && DateTime.TryParse(text, System.Globalization.CultureInfo.InvariantCulture, out var due))
+                        {
+                            e = e with { Start = due.Date, End = due.Date.AddDays(1) };
+                        }
+
+                        break;
+                    default:
+                        break;
+                }
+            }
+
+            _events[i] = e with { Title = e.Kind == CalendarOccurrenceKind.Task ? marker + title : title };
+        }
+
+        Changed?.Invoke(this, new CalendarSourceChangedEventArgs("sample", false));
+        return true;
+    }
+
+    /// <summary>Removes an event or task by id.</summary>
+    public bool RemoveId(string id)
+    {
+        bool removed;
+        lock (_gate)
+        {
+            removed = _events.RemoveAll(e => string.Equals(e.Id, id, StringComparison.Ordinal) || string.Equals(e.Id, "task:" + id, StringComparison.Ordinal)) > 0;
+        }
+
+        if (removed)
+        {
+            Changed?.Invoke(this, new CalendarSourceChangedEventArgs("sample", false));
+        }
+
+        return removed;
     }
 
     private static CalendarOccurrence ToOccurrence(Entry e) =>

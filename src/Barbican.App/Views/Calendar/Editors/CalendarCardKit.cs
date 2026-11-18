@@ -39,25 +39,47 @@ internal static class CalendarCardKit
         return box;
     }
 
-    /// <summary>A one-of-many choice as radio buttons: a drop-down opens a popup, and no popup may be created in code (ADR 0007).</summary>
-    public static RadioButtons Combo(string id, IEnumerable<string> items, int selected, Action<int> set)
+    /// <summary>A one-of-many choice as a row of chips, the chosen one filled: a drop-down opens a popup (no popup may be created in code, ADR 0007) and a RadioButtons drew no selection here. Chips wrap in rows of three.</summary>
+    public static StackPanel Combo(string id, IEnumerable<string> items, int selected, Action<int> set)
     {
-        var radios = new RadioButtons { MaxColumns = 3 };
-        foreach (var item in items)
+        var names = items.ToList();
+        var chips = new List<Button>();
+        var current = selected;
+        void Paint()
         {
-            radios.Items.Add(item);
+            for (var i = 0; i < chips.Count; i++)
+            {
+                chips[i].Style = (Style)Application.Current.Resources[i == current ? "Button.Primary" : "Button.Action"];
+            }
         }
 
-        radios.SelectedIndex = selected;
-        radios.SelectionChanged += (_, _) =>
+        var column = new StackPanel { Spacing = 6 };
+        StackPanel? row = null;
+        for (var i = 0; i < names.Count; i++)
         {
-            if (radios.SelectedIndex >= 0)
+            if (i % 3 == 0)
             {
-                set(radios.SelectedIndex);
+                row = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6 };
+                column.Children.Add(row);
             }
-        };
-        AutomationProperties.SetAutomationId(radios, id);
-        return radios;
+
+            var index = i;
+            var chip = new Button { Content = names[i], Height = 30, CornerRadius = new CornerRadius(15), FontSize = 12.5, Padding = new Thickness(12, 0, 12, 0) };
+            AutomationProperties.SetAutomationId(chip, id + "." + i);
+            AutomationProperties.SetName(chip, names[i]);
+            chip.Click += (_, _) =>
+            {
+                current = index;
+                Paint();
+                set(index);
+            };
+            chips.Add(chip);
+            row!.Children.Add(chip);
+        }
+
+        Paint();
+        AutomationProperties.SetAutomationId(column, id);
+        return column;
     }
 
     public static CheckBox Check(string id, string label, bool value, Action<bool> set)

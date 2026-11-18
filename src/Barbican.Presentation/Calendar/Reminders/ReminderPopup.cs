@@ -158,21 +158,25 @@ public sealed class ReminderPopup : IReminderPopup, IDisposable
     public void Dispose() => _scheduler.Due -= OnDue;
 
     // a reminder came due (or was found missed) on the scheduler's thread
-    private void OnDue(object? sender, ReminderEventArgs e)
+    private void OnDue(object? sender, ReminderEventArgs e) => Offer(e.Reminders, e.Missed);
+
+    /// <summary>Puts reminders on screen (or in the missed list): what the scheduler's <c>Due</c> does, also the seam of the hidden automation run (cal-reminder) and of tests.</summary>
+    public void Offer(IReadOnlyList<DueReminder> reminders, bool missed)
     {
+        ArgumentNullException.ThrowIfNull(reminders);
         lock (_lock)
         {
-            if (e.Missed)
+            if (missed)
             {
-                _missed = [.. _missed.Concat(e.Reminders.Where(r => !_missed.Any(m => string.Equals(m.Key, r.Key, StringComparison.Ordinal)))).OrderBy(d => d.StartMs ?? d.FireMs)];
+                _missed = [.. _missed.Concat(reminders.Where(r => !_missed.Any(m => string.Equals(m.Key, r.Key, StringComparison.Ordinal)))).OrderBy(d => d.StartMs ?? d.FireMs)];
             }
             else
             {
-                _shown = [.. e.Reminders.Concat(_shown.Where(s => !e.Reminders.Any(r => string.Equals(r.Key, s.Key, StringComparison.Ordinal)))).OrderBy(d => d.StartMs ?? d.FireMs)];
+                _shown = [.. reminders.Concat(_shown.Where(s => !reminders.Any(r => string.Equals(r.Key, s.Key, StringComparison.Ordinal)))).OrderBy(d => d.StartMs ?? d.FireMs)];
             }
         }
 
-        Post(() => Notify(e.Missed ? nameof(Missed) : nameof(Shown)));
+        Post(() => Notify(missed ? nameof(Missed) : nameof(Shown)));
     }
 
     private void Remove(string key, bool shown, bool missed)

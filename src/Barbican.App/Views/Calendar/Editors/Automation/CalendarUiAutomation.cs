@@ -20,14 +20,38 @@ public static class CalendarUiAutomation
     {
         ArgumentNullException.ThrowIfNull(services);
         Add(services, "cal-editor-open", OpenAsync);
-        Add(services, "cal-editor-set", (sp, args) => Task.FromResult(Set(sp, args)));
+        Add(services, "cal-editor-set", (sp, args) =>
+        {
+            var answer = Set(sp, args);
+            sp.GetService<CalendarCardHost>()?.Redraw();
+            return Task.FromResult(answer);
+        });
         Add(services, "cal-editor-save", SaveAsync);
         Add(services, "cal-task-add", AddTaskAsync);
+        Add(services, "cal-reminder", (sp, args) => Task.FromResult(Remind(sp, args)));
         return services;
     }
 
     private static void Add(IServiceCollection services, string name, Func<IServiceProvider, string, Task<string>> run) =>
         services.AddSingleton<IAutomationCommand>(sp => new LambdaAutomationCommand(name, args => run(sp, args)));
+
+    // cal-reminder [missed] TITLE: puts a reminder on screen (or in the missed-reminders dialog) as if the scheduler had raised it; the answer is the counts shown and missed
+    private static string Remind(IServiceProvider sp, string args)
+    {
+        if (sp.GetRequiredService<Barbican.Presentation.Calendar.Reminders.IReminderPopup>() is not Barbican.Presentation.Calendar.Reminders.ReminderPopup popup)
+        {
+            return "error no reminder popup";
+        }
+
+        var text = args.Trim();
+        var missed = text.StartsWith("missed", StringComparison.OrdinalIgnoreCase);
+        var title = (missed ? text[6..] : text).Trim();
+        var now = (sp.GetService<TimeProvider>() ?? TimeProvider.System).GetUtcNow().ToUnixTimeMilliseconds();
+        var start = now + (missed ? -3_600_000 : 900_000);
+        var key = "auto:" + start.ToString(CultureInfo.InvariantCulture) + ":" + title;
+        popup.Offer([new Barbican.Core.Calendar.Reminders.DueReminder(key, "auto-" + (title.Length == 0 ? "reminder" : title), "a1", now, start, title.Length == 0 ? "Team stand-up" : title, "Work", false)], missed);
+        return "ok shown=" + popup.Shown.Count.ToString(CultureInfo.InvariantCulture) + " missed=" + popup.Missed.Count.ToString(CultureInfo.InvariantCulture);
+    }
 
     // cal-editor-open new [yyyy-MM-dd [HH:mm]] | quick [yyyy-MM-dd [HH:mm]] | task | ID
     private static async Task<string> OpenAsync(IServiceProvider sp, string args)

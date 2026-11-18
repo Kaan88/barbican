@@ -151,6 +151,9 @@ public sealed partial class CalendarCardHost
         return row;
     }
 
+    /// <summary>Rebuilds the open card from its view model (the hidden automation run changed a field behind the controls).</summary>
+    public void Redraw() => ForceRedraw();
+
     /// <summary>Rebuilds the open card (a list inside it changed).</summary>
     private void ForceRedraw()
     {
