@@ -11,14 +11,16 @@ namespace Barbican.App.Shell;
 public sealed class ShellLifecycle : IDisposable
 {
     private readonly ShellViewModel _shell;
+    private readonly MailBody.BodyShell? _body;
     private DispatcherQueueTimer? _timer;
     private DispatcherQueue? _queue;
     private bool _started;
 
-    public ShellLifecycle(ShellViewModel shell)
+    public ShellLifecycle(ShellViewModel shell, MailBody.BodyShell? body = null)
     {
         ArgumentNullException.ThrowIfNull(shell);
         _shell = shell;
+        _body = body;
     }
 
     /// <summary>Starts the minute tick and the network watch, and reports the shell as ready. Call once, on the UI thread, when the page is loaded.</summary>
@@ -45,8 +47,52 @@ public sealed class ShellLifecycle : IDisposable
     {
         ArgumentNullException.ThrowIfNull(window);
         window.Activated += (_, e) => _shell.NotifyWindowActive(!string.Equals(e.WindowActivationState.ToString(), "Deactivated", StringComparison.Ordinal));
-        window.VisibilityChanged += (_, e) => _shell.NotifyVisibility(e.Visible);
+        window.VisibilityChanged += (_, e) =>
+        {
+            _shell.NotifyVisibility(e.Visible);
+            SetBackground(!e.Visible);
+        };
+#if WINDOWS
+        // minimising does not always raise VisibilityChanged: the presenter state says it too (both are idempotent)
+        window.AppWindow.Changed += (_, e) =>
+        {
+            if (e.DidPresenterChange && window.AppWindow.Presenter is Microsoft.UI.Windowing.OverlappedPresenter p)
+            {
+                SetBackground(p.State == Microsoft.UI.Windowing.OverlappedPresenterState.Minimized);
+            }
+        };
+#endif
         window.Closed += (_, _) => _shell.NotifyBeforeClose();
+    }
+
+    // the body WebView2 is suspended while the window is hidden or minimised, closed after a while, resumed on return (D-WV-01)
+    private void SetBackground(bool background)
+    {
+        if (_body is null)
+        {
+            return;
+        }
+
+        void Apply()
+        {
+            if (background)
+            {
+                _body.Power.EnterBackground();
+            }
+            else
+            {
+                _body.Power.EnterForeground();
+            }
+        }
+
+        if (_queue is { HasThreadAccess: false } q)
+        {
+            _ = q.TryEnqueue(Apply);
+        }
+        else
+        {
+            Apply();
+        }
     }
 
     public void Dispose()

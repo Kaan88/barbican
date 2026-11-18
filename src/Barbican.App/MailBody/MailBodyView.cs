@@ -194,6 +194,20 @@ public sealed partial class MailBodyView : UserControl
             shell.StateChanged += OnState;
             Sync(shell);
         };
+        // a closed and re-created WebView (background release, D-WV-01) goes into the same place
+        shell.ViewReplaced += (_, _) =>
+        {
+            var fresh = shell.View;
+            if (fresh.Parent is Panel p && !ReferenceEquals(p, _host))
+            {
+                p.Children.Remove(fresh);
+            }
+
+            if (!_host.Children.Contains(fresh))
+            {
+                _host.Children.Insert(0, fresh);
+            }
+        };
         Sync(shell);
     }
 
