@@ -19,9 +19,9 @@ public sealed partial class FakeApi
         var (created, notCreated) = MailboxCreates(args["create"] as JsonObject ?? []);
         var updated = new JsonObject();
         var notUpdated = new JsonObject();
-        foreach (var (id, patch) in args["update"] as JsonObject ?? [])
+        foreach (var (id, patch) in (args["update"] as JsonObject ?? []).OrderBy(u => u.Value is JsonObject { } q && q.ContainsKey("role") && q["role"] is null ? 0 : 1))
         {
-            var err = patch is JsonObject p ? store.UpdateMailbox(id, p) : "invalidPatch";
+            var err = patch is JsonObject p ? UpdateWithRole(id, p) : "invalidPatch";
             if (err is null)
             {
                 updated[id] = null;
@@ -60,6 +60,20 @@ public sealed partial class FakeApi
             ["destroyed"] = destroyed,
             ["notDestroyed"] = notDestroyed,
         });
+    }
+
+    // srv-data (M6 folder management): a role is set or cleared through the store's role arm (a role is one folder's: the update that clears the holder is processed first),
+    // the rest of the patch goes to the M2 arm; Stalwart crates/jmap/src/mailbox/set.rs
+    private string? UpdateWithRole(string id, JsonObject patch)
+    {
+        if (!patch.ContainsKey("role"))
+        {
+            return store.UpdateMailbox(id, patch);
+        }
+
+        var err = store.SetMailboxRole(id, (string?)patch["role"]);
+        var rest = new JsonObject(patch.Where(kv => !string.Equals(kv.Key, "role", StringComparison.Ordinal)).Select(kv => new KeyValuePair<string, JsonNode?>(kv.Key, kv.Value?.DeepClone())));
+        return err ?? (rest.Count > 0 ? store.UpdateMailbox(id, rest) : null);
     }
 
     private (JsonObject Created, JsonObject NotCreated) MailboxCreates(JsonObject creates)

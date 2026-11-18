@@ -21,7 +21,6 @@ public sealed class FilterRulesTests
 
     [Fact]
     [RustTest("filters_x::builds_multi_condition_rule_and_round_trips")]
-    [Red("srv-data")]
     public void Builds_multi_condition_rule_and_round_trips()
     {
         FilterCond[] conds =
@@ -68,7 +67,6 @@ public sealed class FilterRulesTests
 
     [Fact]
     [RustTest("filters_x::validation")]
-    [Red("srv-data")]
     public void Validation()
     {
         var mark = new[] { Act("mark_read") };
@@ -88,7 +86,6 @@ public sealed class FilterRulesTests
 
     [Fact]
     [RustTest("filters_x::reorder_and_summary")]
-    [Red("srv-data")]
     public void Reorder_and_summary()
     {
         JsonNode[] rules = [J("""{"id": "a"}"""), J("""{"id": "b"}"""), J("""{"id": "c"}""")];
@@ -99,12 +96,11 @@ public sealed class FilterRulesTests
             {"matchType": "any", "conditions": [{"field": "from", "comparator": "contains", "value": "x"}, {"field": "attachment", "comparator": "has_any", "value": ""}],
              "actions": [{"type": "star"}, {"type": "move", "value": "Archive"}], "stopProcessing": true}
             """);
-        Assert.Equal("From contains x or Has an attachment â†’ Star message, Move to folder Archive Â· then stop", FilterRules.Summary(r));
+        Assert.Equal("From contains x or Has an attachment → Star message, Move to folder Archive · then stop", FilterRules.Summary(r));
     }
 
     [Fact]
     [RustTest("filters_x::sieve_match_semantics")]
-    [Red("srv-data")]
     public void Sieve_match_semantics()
     {
         Assert.True(FilterRules.SieveMatches("news*", "newsletter"));
@@ -117,7 +113,6 @@ public sealed class FilterRulesTests
 
     [Fact]
     [RustTest("filters_x::retroactive_plan")]
-    [Red("srv-data")]
     public void Retroactive_plan()
     {
         var rule = J("""
@@ -158,7 +153,6 @@ public sealed class FilterRulesTests
 
     [Fact]
     [RustTest("filters_x::stale_scan_is_dropped")]
-    [Red("srv-data")]
     public void Stale_scan_is_dropped()
     {
         Assert.True(FilterRules.Current(2, 2, true));
@@ -168,7 +162,6 @@ public sealed class FilterRulesTests
 
     [Fact]
     [RustTest("filters_x::apply_patches_and_if_in_state")]
-    [Red("srv-data")]
     public async Task Apply_patches_and_if_in_state()
     {
         Assert.Equal("""{"mailboxIds/a~1b~0c":true}""", FilterRules.StepPatch("copy", "a/b~c").ToJsonString());
@@ -216,7 +209,6 @@ public sealed class FilterRulesTests
 
     [Fact]
     [RustTest("filters_x::invalid_regex_is_refused")]
-    [Red("srv-data")]
     public void Invalid_regex_is_refused()
     {
         var bad = Build([Cond("subject", "regex", "([a-z")], [Act("mark_read")]);
@@ -225,7 +217,6 @@ public sealed class FilterRulesTests
 
     [Fact]
     [RustTest("filters_x::odd_header_names_stay_quoted")]
-    [Red("srv-data")]
     public void Odd_header_names_stay_quoted()
     {
         FilterAct[] acts = [Act("mark_read")];
@@ -242,11 +233,10 @@ public sealed class FilterRulesTests
         Assert.Contains("header:X-Spam_Flag:asText:all", p, StringComparer.Ordinal);
         Assert.Contains("header:X-Spam_Flag:all", p, StringComparer.Ordinal);
         var m = FilterRules.RetroMessage(J("""{"id": "e", "header:X-Spam_Flag:asText:all": ["v\"x\\y"], "header:X-Spam_Flag:all": [" v\"x\\y"]}"""));
-        Assert.Equal("""["v\"x\\y"]""", m["headers"]!["x-spam_flag"]!.ToJsonString());
+        Assert.Equal("v\"x\\y", (string?)m["headers"]!["x-spam_flag"]![0]);
     }
 
     [Fact]
-    [Red("srv-data")]
     public void Comparators_follow_the_field()
     {
         Assert.Equal(10, FilterRules.Comparators("from").Count);
@@ -259,7 +249,6 @@ public sealed class FilterRulesTests
     }
 
     [Fact]
-    [Red("srv-data")]
     public void Reject_is_offered_only_when_the_server_lists_the_extension()
     {
         Assert.DoesNotContain(FilterRules.ActionKinds(["fileinto"]), a => string.Equals(a.Id, "reject", StringComparison.Ordinal));
