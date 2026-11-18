@@ -95,7 +95,7 @@ public sealed record RecurrenceRule
         var v = new JsonObject { ["@type"] = "RecurrenceRule", ["frequency"] = Freq };
         if (Interval != 1)
         {
-            v["interval"] = Interval;
+            v["interval"] = Num(Interval);
         }
 
         if (ByDay.Count > 0)
@@ -105,7 +105,7 @@ public sealed record RecurrenceRule
                 var o = new JsonObject { ["@type"] = "NDay", ["day"] = DayCodes[MondayIndex(d.Day)] };
                 if (d.Nth is { } n)
                 {
-                    o["nthOfPeriod"] = n;
+                    o["nthOfPeriod"] = Num(n);
                 }
 
                 return (JsonNode)o;
@@ -114,7 +114,7 @@ public sealed record RecurrenceRule
 
         if (ByMonthDay.Count > 0)
         {
-            v["byMonthDay"] = new JsonArray([.. ByMonthDay.Select(x => (JsonNode)JsonValue.Create(x))]);
+            v["byMonthDay"] = new JsonArray([.. ByMonthDay.Select(x => Num(x))]);
         }
 
         if (ByMonth.Count > 0)
@@ -124,12 +124,12 @@ public sealed record RecurrenceRule
 
         if (BySetPos.Count > 0)
         {
-            v["bySetPosition"] = new JsonArray([.. BySetPos.Select(x => (JsonNode)JsonValue.Create(x))]);
+            v["bySetPosition"] = new JsonArray([.. BySetPos.Select(x => Num(x))]);
         }
 
         if (Count is { } c)
         {
-            v["count"] = c;
+            v["count"] = Num(c);
         }
 
         if (Until is { } u)
@@ -237,6 +237,9 @@ public sealed record RecurrenceRule
         5 => "fifth",
         _ => n.ToString(CultureInfo.InvariantCulture),
     };
+
+    /// <summary>A JSON number node that holds an int when it fits, so callers can read it back with an int read (a long-typed node refuses the conversion).</summary>
+    private static JsonValue Num(long n) => (n is >= int.MinValue and <= int.MaxValue ? JsonValue.Create((int)n) : JsonValue.Create(n))!;
 
     private static List<long> Longs(JsonArray? a) => a is null ? [] : [.. a.Select(x => x.AsLong()).OfType<long>()];
 }

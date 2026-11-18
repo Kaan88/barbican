@@ -64,7 +64,6 @@ public sealed class EventEditorTests
     }
 
     [Fact]
-    [Red("cal-edit")] // waits for cal-data step 3 (ReminderRules.BuildAlertsPatch and RowOffset)
     [RustTest("cal_editor::guests_rules_alerts_location")]
     public void Guests_rules_alerts_location()
     {
