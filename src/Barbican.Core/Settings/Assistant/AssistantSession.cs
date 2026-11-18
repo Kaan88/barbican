@@ -155,6 +155,7 @@ public sealed class AssistantSession : IAssistantSession
         await gate.WaitAsync(ct).ConfigureAwait(false);
         try
         {
+            await _settings.InitializeAsync(ct).ConfigureAwait(false);
             var config = _settings.Config(accountKey);
             var user = _accounts.SessionFor(accountKey)?.Client.Session.Username ?? accountKey;
             List<AssistantMessage> working;

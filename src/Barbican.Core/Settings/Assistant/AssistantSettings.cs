@@ -10,18 +10,35 @@ using Barbican.Core.Storage;
 namespace Barbican.Core.Settings.Assistant;
 
 /// <summary>The default <see cref="IAssistantSettings"/>.</summary>
-public sealed class AssistantSettings(IProfilePaths paths) : IAssistantSettings
+public sealed class AssistantSettings : IAssistantSettings, IDisposable
 {
     private const string Section = "assistant";
 
     private readonly Lock _lock = new();
-    private JsonObject? _file;
-    private DateTime _stamp;
+    private readonly IProfilePaths _paths;
+    private readonly SettingWriteGate _gate;
+    private readonly bool _ownsGate;
+    private JsonObject _file = [];
+    private bool _initialized;
+
+    public AssistantSettings(IProfilePaths paths, SettingWriteGate? gate = null)
+    {
+        _paths = paths;
+        _gate = gate ?? new SettingWriteGate();
+        _ownsGate = gate is null;
+        _gate.DesktopChanged += OnDesktopChanged;
+    }
 
     /// <inheritdoc/>
     public event EventHandler? Changed;
 
-    private string FilePath => Path.Combine(paths.ConfigDir, SettingsStore.DesktopFileName);
+    public void Dispose()
+    {
+        _gate.DesktopChanged -= OnDesktopChanged;
+        if (_ownsGate) _gate.Dispose();
+    }
+
+    private string FilePath => Path.Combine(_paths.ConfigDir, SettingsStore.DesktopFileName);
 
     /// <summary>The settings a new account starts with.</summary>
     public static AssistantConfig Defaults { get; } = new(AssistantProviderKind.OpenAiCompatible, "https://api.openai.com/v1", "gpt-4o-mini", "English", AssistantActionMode.Ask, true, string.Empty, []);
@@ -32,7 +49,7 @@ public sealed class AssistantSettings(IProfilePaths paths) : IAssistantSettings
         ArgumentNullException.ThrowIfNull(accountKey);
         lock (_lock)
         {
-            return Parse((Load()[Section] as JsonObject)?[accountKey] as JsonObject);
+            return Parse((_file[Section] as JsonObject)?[accountKey] as JsonObject);
         }
     }
 
@@ -41,34 +58,91 @@ public sealed class AssistantSettings(IProfilePaths paths) : IAssistantSettings
     {
         ArgumentNullException.ThrowIfNull(accountKey);
         ArgumentNullException.ThrowIfNull(config);
-        return Task.Run(
-            () =>
+        return Task.Run(() => SaveCoreAsync(accountKey, config, ct), ct);
+    }
+
+    /// <inheritdoc/>
+    public Task InitializeAsync(CancellationToken ct) => Task.Run(() => InitializeCoreAsync(ct), ct);
+
+    private async Task InitializeCoreAsync(CancellationToken ct)
+    {
+        await _gate.WaitAsync(ct).ConfigureAwait(false);
+        var loaded = false;
+        try
+        {
+            bool needsLoad;
+            lock (_lock) { needsLoad = !_initialized; }
+            if (needsLoad)
             {
-                try
+                var file = ReadFile();
+                lock (_lock)
                 {
-                    lock (_lock)
-                    {
-                        var file = Load();
-                        var section = file[Section] as JsonObject ?? [];
-                        section[accountKey] = ToJson(config);
-                        file[Section] = section;
-                        AtomicFile.WriteAllText(FilePath, file.ToJsonString());
-                        _stamp = File.GetLastWriteTimeUtc(FilePath);
-                    }
-                }
-                catch (IOException e)
-                {
-                    return Result<Unit>.Fail(new ValidationError("Could not save the assistant settings: " + e.Message));
-                }
-                catch (UnauthorizedAccessException e)
-                {
-                    return Result<Unit>.Fail(new ValidationError("Could not save the assistant settings: " + e.Message));
+                    _file = file;
+                    _initialized = true;
                 }
 
-                Changed?.Invoke(this, EventArgs.Empty);
-                return Result<Unit>.Ok(default);
-            },
-            ct);
+                loaded = true;
+            }
+        }
+        finally
+        {
+            _gate.Release();
+        }
+
+        if (loaded) Changed?.Invoke(this, EventArgs.Empty);
+    }
+
+    private async Task<Result<Unit>> SaveCoreAsync(string accountKey, AssistantConfig config, CancellationToken ct)
+    {
+        await _gate.WaitAsync(ct).ConfigureAwait(false);
+        try
+        {
+            bool needsLoad;
+            lock (_lock) { needsLoad = !_initialized; }
+            if (needsLoad)
+            {
+                var existing = ReadFile();
+                lock (_lock)
+                {
+                    _file = existing;
+                    _initialized = true;
+                }
+            }
+
+            JsonObject file;
+            lock (_lock) { file = (JsonObject)_file.DeepClone(); }
+
+            var section = file[Section] as JsonObject ?? [];
+            section[accountKey] = ToJson(config);
+            file[Section] = section;
+            AtomicFile.WriteAllText(FilePath, file.ToJsonString());
+            _gate.PublishDesktop(file);
+        }
+        catch (IOException e)
+        {
+            return Result<Unit>.Fail(new ValidationError("Could not save the assistant settings: " + e.Message));
+        }
+        catch (UnauthorizedAccessException e)
+        {
+            return Result<Unit>.Fail(new ValidationError("Could not save the assistant settings: " + e.Message));
+        }
+        finally
+        {
+            _gate.Release();
+        }
+
+        return Result<Unit>.Ok(default);
+    }
+
+    private void OnDesktopChanged(object? sender, SettingDesktopChangedEventArgs e)
+    {
+        lock (_lock)
+        {
+            _file = (JsonObject)e.Desktop.DeepClone();
+            _initialized = true;
+        }
+
+        ThreadPool.QueueUserWorkItem(_ => Changed?.Invoke(this, EventArgs.Empty));
     }
 
     private static JsonObject ToJson(AssistantConfig c) => new()
@@ -105,26 +179,15 @@ public sealed class AssistantSettings(IProfilePaths paths) : IAssistantSettings
 
     private static int? Int(JsonNode? n) => n is JsonValue v && v.TryGetValue<int>(out var i) ? i : null;
 
-    // the file is kept in memory and read again when its time changes (the import and the reset of the backup replace it)
-    private JsonObject Load()
+    private JsonObject ReadFile()
     {
-        var stamp = File.GetLastWriteTimeUtc(FilePath);
-        if (_file is not null && stamp == _stamp)
-        {
-            return _file;
-        }
-
-        _stamp = stamp;
-
         try
         {
-            _file = AtomicFile.ReadAllTextOrNull(FilePath) is { } text ? JsonNode.Parse(text) as JsonObject : null;
+            return AtomicFile.ReadAllTextOrNull(FilePath) is { } text ? JsonNode.Parse(text) as JsonObject ?? [] : [];
         }
         catch (JsonException)
         {
-            _file = null;
+            return [];
         }
-
-        return _file ??= [];
     }
 }

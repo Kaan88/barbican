@@ -14,34 +14,42 @@ using Barbican.Core.Storage;
 namespace Barbican.Core.Settings.Backup;
 
 /// <summary>The default <see cref="ISettingBackup"/>.</summary>
-public sealed class SettingBackup(IPrefsStore prefs, IPrefsEditor editor, IProfilePaths paths, IHookBus hooks) : ISettingBackup, IDisposable
+public sealed class SettingBackup(IPrefsStore prefs, IPrefsEditor editor, IProfilePaths paths, IHookBus hooks, SettingWriteGate? gate = null) : ISettingBackup, IDisposable
 {
-    private readonly SemaphoreSlim _gate = new(1, 1);
+    private readonly SettingWriteGate _gate = gate ?? new SettingWriteGate();
 
     /// <inheritdoc/>
     public event EventHandler? Changed;
 
-    public void Dispose() => _gate.Dispose();
+    public void Dispose()
+    {
+        if (gate is null) _gate.Dispose();
+    }
 
     private string DesktopPath => Path.Combine(paths.ConfigDir, SettingsStore.DesktopFileName);
 
     /// <inheritdoc/>
-    public Task<Result<JsonObject>> ExportAsync(CancellationToken ct) => Task.Run(
-        () =>
+    public Task<Result<JsonObject>> ExportAsync(CancellationToken ct) => Task.Run(() => ExportCoreAsync(ct), ct);
+
+    private async Task<Result<JsonObject>> ExportCoreAsync(CancellationToken ct)
+    {
+        await _gate.WaitAsync(ct).ConfigureAwait(false);
+        JsonObject export;
+        List<string> keys;
+        try
         {
             var settings = (JsonObject)prefs.Current.Values.DeepClone();
-            var export = new JsonObject
-            {
-                ["app"] = "barbican",
-                ["version"] = 1,
-                ["settings"] = settings,
-                ["desktop"] = ReadDesktop() ?? [],
-            };
-            var keys = settings.Select(kv => kv.Key).ToList();
-            hooks.Fire(HookNames.OnSettingsExport, () => new SettingsKeysPayload(keys));
-            return Result<JsonObject>.Ok(export);
-        },
-        ct);
+            export = new JsonObject { ["app"] = "barbican", ["version"] = 1, ["settings"] = settings, ["desktop"] = ReadDesktop() ?? [] };
+            keys = settings.Select(kv => kv.Key).ToList();
+        }
+        finally
+        {
+            _gate.Release();
+        }
+
+        hooks.Fire(HookNames.OnSettingsExport, () => new SettingsKeysPayload(keys));
+        return Result<JsonObject>.Ok(export);
+    }
 
     /// <inheritdoc/>
     public Task<Result<Unit>> ImportAsync(JsonNode document, CancellationToken ct)
@@ -65,10 +73,11 @@ public sealed class SettingBackup(IPrefsStore prefs, IPrefsEditor editor, IProfi
 
             await editor.FlushAsync(ct).ConfigureAwait(false);
             AtomicFile.Delete(DesktopPath);
+            _gate.PublishDesktop([]);
         }
         finally
         {
-            _ = _gate.Release();
+            _gate.Release();
         }
 
         Changed?.Invoke(this, EventArgs.Empty);
@@ -107,11 +116,12 @@ public sealed class SettingBackup(IPrefsStore prefs, IPrefsEditor editor, IProfi
             if (plan.HasDesktop && root["desktop"] is JsonObject desktop)
             {
                 await AtomicFile.WriteAllTextAsync(DesktopPath, desktop.ToJsonString(), ct).ConfigureAwait(false);
+                _gate.PublishDesktop(desktop);
             }
         }
         finally
         {
-            _ = _gate.Release();
+            _gate.Release();
         }
 
         Changed?.Invoke(this, EventArgs.Empty);

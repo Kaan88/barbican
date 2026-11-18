@@ -5,6 +5,7 @@ using Barbican.Core.Settings.Account;
 using Barbican.Core.Settings.Assistant;
 using Barbican.Core.Settings.Backup;
 using Barbican.Core.Settings.Pages;
+using Barbican.Core.Settings.Prefs;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 
@@ -16,6 +17,7 @@ public static class SettingsDataRegistration
     public static IServiceCollection AddBarbicanSettingsData(this IServiceCollection services)
     {
         ArgumentNullException.ThrowIfNull(services);
+        services.TryAddSingleton<SettingWriteGate>();
         services.TryAddSingleton<ISettingValues, SettingValues>();
         services.TryAddSingleton<ISettingBackup, SettingBackup>();
         services.TryAddSingleton<ISettingInfo, SettingInfo>();

@@ -17,6 +17,7 @@ public static class SettingsSeamRegistration
         services.TryAddSingleton<ISettingsNavigation, SettingsNavigation>();
         services.TryAddSingleton<IAssistantConfirmation, AssistantDialogConfirmation>();
         services.TryAddSingleton<IAssistantComposer, AssistantComposerBridge>();
+        services.AddSingleton<IStartupTask, AssistantSettingsStartup>();
         return services;
     }
 }
