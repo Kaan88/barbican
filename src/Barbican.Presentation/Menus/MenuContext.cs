@@ -17,4 +17,10 @@ public sealed record MenuContext(
 {
     /// <summary>M4 (additive, cal-views): what a calendar menu (MENU-EVENT, MENU-SLOT, MENU-TASK, MENU-CAL) was opened on.</summary>
     public Barbican.Presentation.Calendar.Grid.CalendarMenuTarget? Calendar { get; init; }
+
+    /// <summary>M5 (additive, plan commit, frozen): what a contacts menu (MENU-CONTACT, MENU-GROUP, MENU-CATEGORY, MENU-BOOK) was opened on. Owner con-ui.</summary>
+    public Barbican.Presentation.Contacts.ContactMenuTarget? Contact { get; init; }
+
+    /// <summary>M5 (additive, plan commit, frozen): what a Files menu (MENU-FILE, MENU-FILE-TRASH, MENU-FILE-FAV, MENU-FILE-RECENT, MENU-FILES-BG) was opened on. Owner files-ui.</summary>
+    public Barbican.Presentation.Files.FileMenuTarget? File { get; init; }
 }

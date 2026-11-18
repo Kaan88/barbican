@@ -1,4 +1,4 @@
-# Progress (M4 done 2026-11-18)
+# Progress (M4 done, M5 planned 2026-11-18)
 
 Everything is pushed. Nothing is merged to `main` or tagged.
 
@@ -12,9 +12,11 @@ wherever they can. Safety rules stay (no real input, read-only account, admin ke
 | M2 | `m2` (6012f9f) | Done: hotfix-2 and Fable review 3 fixes merged. Zip `Barbican-6012f9f305d6-win-x64.zip`. |
 | M3 | `m3` (2f11adb) | Done: send pipeline, editor core, editor view (Uno 7 / SkiaSharp 4), composer UI, close (quoted HTML sanitised, round trip). 2122 tests green, Linux green. Zip `Barbican-2f11adb86437-win-x64.zip`. Unproven: live round trip on the test account (no agent profile signed in), real IME, mailto from a browser, default-app registration. |
 | M4 | `m4` (see git log) | Done 2026-11-18: calendar and tasks (cal-data, cal-edit, cal-views, cal-ui, UI sweep, integration pass). 2370 tests green on Windows, 0 [Red], spec-check M4 clean. Linux deferred to M9. Report: docs/milestones/M4.md. Zip `Barbican-ea1576de1218-win-x64.zip`. |
+| M5 | `m5-plan` | Planned 2026-11-18: contacts and files in four streams (con-data A, con-ui B, files-data C, files-ui D); contracts as compiling stubs, FakeJmap contact arms (reads real, set arm a stub), 14 Rust tests plus 13 others as 27 red tests, decisions D-M5-01..19. Plan: docs/milestones/M5-plan.md. `m5` is not created yet. |
 
 ## Next step
-M5 (contacts). Open from M4, see docs/milestones/M4.md "What is unproven": live checks on the test account, Linux build (M9). UI sweep 1 (merged): keyboard run on real data and test-mail cleanup done; open defects S-02, S-03 and the unchecked areas are in docs/milestones/UI-SWEEP-1.md. Seen in the M4 screens: overlapping events in a week column shrink to unreadable slivers ("F...", "R..."), and the mini-month day numbers have marks drawn through them.
+M5 (contacts and files) is **planned**: branch `m5-plan` (from `m4`), plan `docs/milestones/M5-plan.md`. Next: create `m5` from `m5-plan` and start the four streams (con-data, con-ui, files-data, files-ui) from the plan; 27 red tests wait for them (`python tools/red-check.py --list`).
+M5 (contacts) background: Open from M4, see docs/milestones/M4.md "What is unproven": live checks on the test account, Linux build (M9). UI sweep 1 (merged): keyboard run on real data and test-mail cleanup done; open defects S-02, S-03 and the unchecked areas are in docs/milestones/UI-SWEEP-1.md. Seen in the M4 screens: overlapping events in a week column shrink to unreadable slivers ("F...", "R..."), and the mini-month day numbers have marks drawn through them.
 
 Order after M4: M5, M6, M6b, M7, M8, M10, M9 (Linux last), then the whole-app Fable review.
 

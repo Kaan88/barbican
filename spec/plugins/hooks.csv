@@ -66,7 +66,7 @@ onBeforeAttachmentUpload,mail-attachments,intercept,email:read,,AttachmentInfo,b
 onBeforeBlobUpload,mail-attachments,transform,email:blob-write,,"{ file, blobId } | ExternalAttachmentResult",before an attachment is uploaded; may offload it,lib/plugin-hook-catalog.ts:151,M3,send-pipeline,src/Barbican.Core/Compose/AttachmentUploader.cs:77,done,900000,false
 onAfterAttachmentUpload,mail-attachments,observer,email:read,,AttachmentInfo,after an attachment was uploaded,lib/plugin-hook-catalog.ts:152,M3,send-pipeline,src/Barbican.Core/Compose/AttachmentUploader.cs:55,done,5000,false
 onAttachmentDownload,mail-attachments,observer,email:read,,AttachmentInfo,when an attachment of a message is downloaded,lib/plugin-hook-catalog.ts:153,M2,reader,src/Barbican.Core/Mail/Attachments/AttachmentSaver.cs:45,done,5000,false
-onAttachmentPreview,mail-attachments,transform,email:render-takeover,,"AttachmentPreview, AttachmentInfo",when an attachment preview opens,lib/plugin-hook-catalog.ts:154,M5,,,pending,5000,false
+onAttachmentPreview,mail-attachments,transform,email:render-takeover,,"AttachmentPreview, AttachmentInfo",when an attachment preview opens,lib/plugin-hook-catalog.ts:154,M5,files-ui,,pending,5000,false
 onNewEmailReceived,mail-sync,observer,email:read,,EmailSummary,for each new message in the inbox (push or poll),lib/plugin-hook-catalog.ts:157,M1,jmap,src/Barbican.Core/Sync/MailSync.cs:209,done,5000,false
 onPushConnectionChange,mail-sync,observer,email:read,,{ connected: boolean },when live updates connect or drop,lib/plugin-hook-catalog.ts:158,M1,jmap,src/Barbican.Core/Sync/MailSync.Push.cs:172,done,5000,false
 onSyncStateChange,mail-sync,observer,email:read,,"{ state: ""syncing"" | ""idle"" | ""error"", error? }",when the app starts or finishes fetching changes from the server,lib/plugin-hook-catalog.ts:159,M1,jmap,src/Barbican.Core/Sync/MailSync.cs:228,done,5000,false
@@ -96,19 +96,19 @@ onICalSubscriptionChange,calendar,observer,calendar:read,,"{ subscriptionId, cha
 onBeforeCalendarAlert,calendar,intercept,calendar:write,tasks:write,CalendarAlertView,"before Bulwark shows a reminder of an event or a task, in every open tab; return false to show it yourself (no toast, sound or title alert from Bulwark; onCalendarAlert still fires); a task's needs tasks:write, an event's calendar:write",lib/plugin-hook-catalog.ts:185,M4,cal-data,src/Barbican.Core/Calendar/Reminders/ReminderScheduler.Check.cs:211,done,5000,false
 onCalendarAlert,calendar,observer,calendar:read,tasks:read,"CalendarAlertView ({ id, eventId, eventTitle, triggerTime } or { id, taskId, taskTitle, triggerTime })","when a reminder of an event or a task fires, in every open tab, also one a plugin took over; a task's needs tasks:read, an event's calendar:read",lib/plugin-hook-catalog.ts:186,M4,cal-data,src/Barbican.Core/Calendar/Reminders/ReminderScheduler.Check.cs:212,done,5000,false
 onCalendarAlertAcknowledge,calendar,observer,calendar:read,tasks:read,"{ alertId, eventId } or { alertId, taskId }","when the user closes a reminder's toast, in that tab only; a task's needs tasks:read, an event's calendar:read",lib/plugin-hook-catalog.ts:187,M4,cal-data,src/Barbican.Core/Calendar/Reminders/ReminderScheduler.Check.cs:41,done,5000,false
-onContactOpen,contacts,observer,contacts:read,,ContactView,when a contact is opened,lib/plugin-hook-catalog.ts:190,M5,,,pending,5000,false
-onBeforeContactCreate,contacts,intercept,contacts:write,,ContactView,before a contact is created,lib/plugin-hook-catalog.ts:191,M5,,,pending,60000,false
-onAfterContactCreate,contacts,observer,contacts:read,,ContactView,after a contact was created,lib/plugin-hook-catalog.ts:192,M5,,,pending,5000,false
-onBeforeContactUpdate,contacts,intercept,contacts:write,,"{ contactId, patch }",before a contact is changed,lib/plugin-hook-catalog.ts:193,M5,,,pending,60000,false
-onAfterContactUpdate,contacts,observer,contacts:read,,ContactView,after a contact was changed,lib/plugin-hook-catalog.ts:194,M5,,,pending,5000,false
-onBeforeContactDelete,contacts,intercept,contacts:write,,{ contactIds },before contacts are deleted,lib/plugin-hook-catalog.ts:195,M5,,,pending,60000,false
-onAfterContactDelete,contacts,observer,contacts:read,,{ contactIds },after contacts were deleted,lib/plugin-hook-catalog.ts:196,M5,,,pending,5000,false
-onContactsImport,contacts,observer,contacts:read,,"{ addressBookId, imported }",after contacts were imported,lib/plugin-hook-catalog.ts:197,M5,,,pending,5000,false
-onContactSelectionChange,contacts,observer,contacts:read,,{ contactIds },when the selected contacts change,lib/plugin-hook-catalog.ts:198,M5,,,pending,5000,false
-onContactGroupChange,contacts,observer,contacts:read,,"{ groupId, change: ""created"" | ""updated"" | ""deleted"" }",after a contact group changed,lib/plugin-hook-catalog.ts:199,M5,,,pending,5000,false
-onContactGroupMemberChange,contacts,observer,contacts:read,,"{ groupId, added, removed }",after members were added to or removed from a group,lib/plugin-hook-catalog.ts:200,M5,,,pending,5000,false
-onContactMove,contacts,observer,contacts:read,,"{ contactId, toAddressBookId }",after a contact moved to another address book,lib/plugin-hook-catalog.ts:201,M5,,,pending,5000,false
-onProvideRecipientSuggestions,contacts,transform,contacts:read,,"RecipientSuggestion[], { query }",to add suggestions to recipient autocomplete,lib/plugin-hook-catalog.ts:202,M5,,,pending,5000,false
+onContactOpen,contacts,observer,contacts:read,,ContactView,when a contact is opened,lib/plugin-hook-catalog.ts:190,M5,con-ui,,pending,5000,false
+onBeforeContactCreate,contacts,intercept,contacts:write,,ContactView,before a contact is created,lib/plugin-hook-catalog.ts:191,M5,con-data,,pending,60000,false
+onAfterContactCreate,contacts,observer,contacts:read,,ContactView,after a contact was created,lib/plugin-hook-catalog.ts:192,M5,con-data,,pending,5000,false
+onBeforeContactUpdate,contacts,intercept,contacts:write,,"{ contactId, patch }",before a contact is changed,lib/plugin-hook-catalog.ts:193,M5,con-data,,pending,60000,false
+onAfterContactUpdate,contacts,observer,contacts:read,,ContactView,after a contact was changed,lib/plugin-hook-catalog.ts:194,M5,con-data,,pending,5000,false
+onBeforeContactDelete,contacts,intercept,contacts:write,,{ contactIds },before contacts are deleted,lib/plugin-hook-catalog.ts:195,M5,con-data,,pending,60000,false
+onAfterContactDelete,contacts,observer,contacts:read,,{ contactIds },after contacts were deleted,lib/plugin-hook-catalog.ts:196,M5,con-data,,pending,5000,false
+onContactsImport,contacts,observer,contacts:read,,"{ addressBookId, imported }",after contacts were imported,lib/plugin-hook-catalog.ts:197,M5,con-data,,pending,5000,false
+onContactSelectionChange,contacts,observer,contacts:read,,{ contactIds },when the selected contacts change,lib/plugin-hook-catalog.ts:198,M5,con-ui,,pending,5000,false
+onContactGroupChange,contacts,observer,contacts:read,,"{ groupId, change: ""created"" | ""updated"" | ""deleted"" }",after a contact group changed,lib/plugin-hook-catalog.ts:199,M5,con-data,,pending,5000,false
+onContactGroupMemberChange,contacts,observer,contacts:read,,"{ groupId, added, removed }",after members were added to or removed from a group,lib/plugin-hook-catalog.ts:200,M5,con-data,,pending,5000,false
+onContactMove,contacts,observer,contacts:read,,"{ contactId, toAddressBookId }",after a contact moved to another address book,lib/plugin-hook-catalog.ts:201,M5,con-data,,pending,5000,false
+onProvideRecipientSuggestions,contacts,transform,contacts:read,,"RecipientSuggestion[], { query }",to add suggestions to recipient autocomplete,lib/plugin-hook-catalog.ts:202,M5,con-data,,pending,5000,false
 onTasksLoaded,tasks,observer,tasks:read,,TaskView[],after the task list was loaded,lib/plugin-hook-catalog.ts:205,M4,cal-data,src/Barbican.Core/Calendar/CalendarStore.Load.cs:80,done,5000,false
 onBeforeTaskCreate,tasks,intercept,tasks:write,,TaskView,before a task is created,lib/plugin-hook-catalog.ts:206,M4,cal-edit,src/Barbican.Core/Calendar/Editing/CalendarWriter.Server.cs:69,done,60000,false
 onTaskCreate,tasks,observer,tasks:read,,TaskView,after a task was created,lib/plugin-hook-catalog.ts:207,M4,cal-edit,src/Barbican.Core/Calendar/Editing/CalendarWriter.Server.cs:84,done,5000,false
@@ -118,23 +118,23 @@ onBeforeTaskDelete,tasks,intercept,tasks:write,,"{ taskId, title }",before a tas
 onTaskDelete,tasks,observer,tasks:read,,"{ taskId, title }",after a task was deleted,lib/plugin-hook-catalog.ts:211,M4,cal-edit,src/Barbican.Core/Calendar/Editing/CalendarWriter.cs:76,done,5000,false
 onTaskToggleComplete,tasks,observer,tasks:read,,"{ taskId, complete }",after a task was checked off or reopened,lib/plugin-hook-catalog.ts:212,M4,cal-edit,src/Barbican.Core/Calendar/Editing/CalendarWriter.cs:146,done,5000,false
 onTaskFilterChange,tasks,observer,tasks:read,,"{ filter, showCompleted }",when the task filter changes,lib/plugin-hook-catalog.ts:213,M4,cal-ui,,pending,5000,false
-onFileNavigate,files,observer,files:read,,{ path },when another folder is opened,lib/plugin-hook-catalog.ts:216,M5,,,pending,5000,false
-onBeforeFileUpload,files,intercept,files:write,,"{ name, size, type, path }",before a file is uploaded,lib/plugin-hook-catalog.ts:217,M5,,,pending,60000,false
-onAfterFileUpload,files,observer,files:read,,FileResourceView,after a file was uploaded,lib/plugin-hook-catalog.ts:218,M5,,,pending,5000,false
-onFileUploadCancel,files,observer,files:read,,"{ name, path }",when an upload is cancelled,lib/plugin-hook-catalog.ts:219,M5,,,pending,5000,false
-onFileDownload,files,observer,files:read,,FileResourceView,when a file is downloaded,lib/plugin-hook-catalog.ts:220,M5,,,pending,5000,false
-onDirectoryCreate,files,observer,files:read,,FileResourceView,after a folder was created,lib/plugin-hook-catalog.ts:221,M5,,,pending,5000,false
-onBeforeFileDelete,files,intercept,files:write,,{ files: FileResourceView[] },before files are deleted,lib/plugin-hook-catalog.ts:222,M5,,,pending,60000,false
-onAfterFileDelete,files,observer,files:read,,{ files: FileResourceView[] },after files were deleted,lib/plugin-hook-catalog.ts:223,M5,,,pending,5000,false
-onBeforeFileRename,files,intercept,files:write,,"{ file, newName }",before a file is renamed,lib/plugin-hook-catalog.ts:224,M5,,,pending,60000,false
-onFileRename,files,observer,files:read,,"{ file, previousName }",after a file was renamed,lib/plugin-hook-catalog.ts:225,M5,,,pending,5000,false
-onBeforeFileMove,files,intercept,files:write,,"{ files, toPath }",before files are moved,lib/plugin-hook-catalog.ts:226,M5,,,pending,60000,false
-onFileMove,files,observer,files:read,,"{ files, toPath }",after files were moved,lib/plugin-hook-catalog.ts:227,M5,,,pending,5000,false
-onFileCopy,files,observer,files:read,,"{ files, toPath }",after files were copied,lib/plugin-hook-catalog.ts:228,M5,,,pending,5000,false
-onFileDuplicate,files,observer,files:read,,FileResourceView,after a file was duplicated,lib/plugin-hook-catalog.ts:229,M5,,,pending,5000,false
-onFileFavoriteToggle,files,observer,files:read,,"{ file, favorite }",when a file is starred or unstarred,lib/plugin-hook-catalog.ts:230,M5,,,pending,5000,false
-onFileSelectionChange,files,observer,files:read,,{ files: FileResourceView[] },when the selected files change,lib/plugin-hook-catalog.ts:231,M5,,,pending,5000,false
-onFileUndo,files,observer,files:read,,{ action },after the last file action was undone,lib/plugin-hook-catalog.ts:232,M5,,,pending,5000,false
+onFileNavigate,files,observer,files:read,,{ path },when another folder is opened,lib/plugin-hook-catalog.ts:216,M5,files-ui,,pending,5000,false
+onBeforeFileUpload,files,intercept,files:write,,"{ name, size, type, path }",before a file is uploaded,lib/plugin-hook-catalog.ts:217,M5,files-data,,pending,60000,false
+onAfterFileUpload,files,observer,files:read,,FileResourceView,after a file was uploaded,lib/plugin-hook-catalog.ts:218,M5,files-data,,pending,5000,false
+onFileUploadCancel,files,observer,files:read,,"{ name, path }",when an upload is cancelled,lib/plugin-hook-catalog.ts:219,M5,files-data,,pending,5000,false
+onFileDownload,files,observer,files:read,,FileResourceView,when a file is downloaded,lib/plugin-hook-catalog.ts:220,M5,files-data,,pending,5000,false
+onDirectoryCreate,files,observer,files:read,,FileResourceView,after a folder was created,lib/plugin-hook-catalog.ts:221,M5,files-data,,pending,5000,false
+onBeforeFileDelete,files,intercept,files:write,,{ files: FileResourceView[] },before files are deleted,lib/plugin-hook-catalog.ts:222,M5,files-data,,pending,60000,false
+onAfterFileDelete,files,observer,files:read,,{ files: FileResourceView[] },after files were deleted,lib/plugin-hook-catalog.ts:223,M5,files-data,,pending,5000,false
+onBeforeFileRename,files,intercept,files:write,,"{ file, newName }",before a file is renamed,lib/plugin-hook-catalog.ts:224,M5,files-data,,pending,60000,false
+onFileRename,files,observer,files:read,,"{ file, previousName }",after a file was renamed,lib/plugin-hook-catalog.ts:225,M5,files-data,,pending,5000,false
+onBeforeFileMove,files,intercept,files:write,,"{ files, toPath }",before files are moved,lib/plugin-hook-catalog.ts:226,M5,files-data,,pending,60000,false
+onFileMove,files,observer,files:read,,"{ files, toPath }",after files were moved,lib/plugin-hook-catalog.ts:227,M5,files-data,,pending,5000,false
+onFileCopy,files,observer,files:read,,"{ files, toPath }",after files were copied,lib/plugin-hook-catalog.ts:228,M5,files-data,,pending,5000,false
+onFileDuplicate,files,observer,files:read,,FileResourceView,after a file was duplicated,lib/plugin-hook-catalog.ts:229,M5,files-data,,pending,5000,false
+onFileFavoriteToggle,files,observer,files:read,,"{ file, favorite }",when a file is starred or unstarred,lib/plugin-hook-catalog.ts:230,M5,files-data,,pending,5000,false
+onFileSelectionChange,files,observer,files:read,,{ files: FileResourceView[] },when the selected files change,lib/plugin-hook-catalog.ts:231,M5,files-ui,,pending,5000,false
+onFileUndo,files,observer,files:read,,{ action },after the last file action was undone,lib/plugin-hook-catalog.ts:232,M5,files-ui,,pending,5000,false
 onBeforeSettingChange,settings,intercept,settings:write,,"{ key, value, previous }",before a preference is changed,lib/plugin-hook-catalog.ts:235,M6,,,pending,60000,false
 onSettingChange,settings,observer,settings:read,,"{ key, value, previous }",after a preference changed,lib/plugin-hook-catalog.ts:236,M6,,,pending,5000,false
 onSettingsExport,settings,observer,settings:read,,{ keys: string[] },after settings were exported,lib/plugin-hook-catalog.ts:237,M6,,,pending,5000,false

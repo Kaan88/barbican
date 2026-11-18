@@ -1298,3 +1298,11 @@ launched; Linux unverified). Verdicts on the M2 verify items 1 to 6, 11, 12 and 
 - **App views compiled, never run**: `CalendarCardHost*.cs` and `Automation/CalendarUiAutomation.cs` build in Debug and Automation but no hidden run happened; cal-views places `CalendarCardHost` (DI singleton) over its grid.
 - **Command and menu counts are constants** (`CalendarCommandSet.Count` 40, `CalendarMenus.Count` 6); composition tests assert them. Commit 16e4666 fixed an off-by-one (was 41).
 - **Requests to other streams**: cal-views adds `CalendarCardHost` as the top child of the calendar screen and routes the rail Tasks entry to `TasksViewModel`; the Tasks list view and reminder popup views are not written (view models only).
+
+## M5 plan (stream: m5-plan)
+- **Hostile-input limits are chosen, not measured** (D-M5-03, G-012): 16 M characters a file, 10 000 cards, 1 M characters a line, about 8 MiB a photo, 500 entries a kind. Review the numbers against what a real phone export contains and that no path allocates more than a few times a limit (`src/Barbican.Core/Contacts/VCardLimits.cs`, `ContactPhoto.cs`; contract and red tests only at this commit).
+- **FolkerKinzel is not used for vCard** (D-M5-05): a deviation from the PORT-PLAN wording; the hand-written mapping is pinned by Rust's tests. `src/Barbican.Core/Contacts/VCardParser.cs`.
+- **The contacts FakeJmap arms are written from RFC 9610 and Stalwart's source, not recorded from a server** (`tests/Barbican.FakeJmap/FakeApi.Contacts.cs`, `FakeContacts.cs`): review that the error shapes (`requestTooLarge` over `maxObjectsInGet`, `invalidPatch` for a keywords pointer on a card without keywords) match Stalwart before con-data's write arm is trusted.
+- **Permanent file deletes** (D-M5-10, D-7): the contract says the UI always asks; review that no `IFileWriter` path other than `PurgeAsync` and a delete inside the trash destroys (`src/Barbican.Core/Files/IFileWriter.cs`).
+- **The shell seam** (`src/Barbican.App/Shell/IAppScreenFactory.cs`, D-M5-07): con-ui generalises ShellPage once; review that the Calendar host and the mail screen keep their state while another app is shown.
+- **The two additive `MenuContext` members** (`Contact`, `File`, D-M5-08) are in the frozen M2 record; review that no later stream adds a third parallel member.

@@ -4,7 +4,9 @@ using Barbican.Core.Accounts;
 using Barbican.Core.Calendar;
 using Barbican.Core.Calendar.Editing;
 using Barbican.Core.Compose;
+using Barbican.Core.Contacts;
 using Barbican.Core.Editor;
+using Barbican.Core.Files;
 using Barbican.Core.Jmap;
 using Barbican.Presentation.Composition;
 using Microsoft.Extensions.DependencyInjection;
@@ -54,6 +56,10 @@ public static class AppComposition
         services.AddBarbicanCalendarEditingViewModels(); // M4 cal-edit: src/Barbican.Presentation/Composition/CalendarEditingPresentationRegistration.cs
         services.AddBarbicanCalendarViews();            // M4 cal-views: src/Barbican.App/Composition/Features/CalendarViewsRegistration.cs
         services.AddBarbicanCalendarUi();               // M4 cal-ui: src/Barbican.App/Composition/Features/CalendarUiRegistration.cs
+        services.AddBarbicanContactsData();            // M5 con-data: src/Barbican.Core/Contacts/ContactsDataRegistration.cs
+        services.AddBarbicanFilesData();               // M5 files-data: src/Barbican.Core/Files/FilesDataRegistration.cs
+        services.AddBarbicanContactsUi();              // M5 con-ui: src/Barbican.App/Composition/Features/ContactsUiRegistration.cs
+        services.AddBarbicanFilesUi();                 // M5 files-ui: src/Barbican.App/Composition/Features/FilesUiRegistration.cs
 #if AUTOMATION
         services.AddBarbicanAutomation();   // F1:       src/Barbican.Automation/AutomationRegistration.cs
 #endif

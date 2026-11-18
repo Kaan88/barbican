@@ -1,0 +1,55 @@
+// Ported from Rust src/contacts_x.rs tests :1136 import_batch_and_principals (T-072) and :1153 shrinks_photo_to_jpeg (T-073); M5 stream con-data. The photo is a 900 x 600 PNG of one colour, embedded as base64 (no image library in the test).
+
+using Barbican.Core.Contacts;
+using static Barbican.Core.Tests.Contacts.ContactTestData;
+
+namespace Barbican.Core.Tests.Contacts;
+
+public sealed class ContactImportTests
+{
+    private const string Png900x600 = "iVBORw0KGgoAAAANSUhEUgAAA4QAAAJYCAIAAAC1p7+MAAAJgUlEQVR42u3WMQ0AAAgEsVeCEvwHWchgoEkV3HSZagAAOBEJAAAwowAAmFEAADCjAACYUQAAMKMAAJhRAAAwowAAmFEAADCjAACYUQAAMKMAAJhRAAAwowAAmFEAADCjAACYUQAAzCgAAJhRAADMKAAAmFEAAMwoAACYUQAAzCgAAJhRAADMKAAAmFEAAMwoAACYUQAAzCgAAJhRAADMKAAAmFEAAMwoAABmFAAAzCgAAGYUAADMKAAAZhQAAMwoAABmFAAAzCgAAGYUAADMKAAAZhQAAMwoAABmFAAAzCgAAGYUAAAzCgAAZhQAADMKAABmFAAAMwoAAGYUAAAzCgAAZhQAADMKAABmFAAAMwoAAGYUAAAzCgAAZhQAADMKAABmFAAAMwoAgBkFAAAzCgCAGQUAADMKAIAZBQAAMwoAgBkFAAAzCgCAGQUAADMKAIAZBQAAMwoAgBkFAAAzCgCAGQUAwIwCAIAZBQDAjAIAgBkFAMCMAgCAGQUAwIwCAIAZBQDAjAIAgBkFAMCMAgCAGQUAwIwCAIAZBQDAjAIAgBkFAMCMAgBgRgEAwIwCAGBGAQDAjAIAYEYBAMCMAgBgRgEAwIwCAGBGAQDAjAIAYEYBAMCMAgBgRgEAwIwCAGBGAQAwoyoAAGBGAQAwowAAYEYBADCjAABgRgEAMKMAAGBGAQAwowAAYEYBADCjAABgRgEAMKMAAGBGAQAwowAAYEYBADCjAACYUQAAMKMAAJhRAAAwowAAmFEAADCjAACYUQAAMKMAAJhRAAAwowAAmFEAADCjAACYUQAAMKMAAJhRAAAwowAAmFEAAMwoAACYUQAAzCgAAJhRAADMKAAAmFEAAMwoAACYUQAAzCgAAJhRAADMKAAAmFEAAMwoAACYUQAAzCgAAGYUAADMKAAAZhQAAMwoAABmFAAAzCgAAGYUAADMKAAAZhQAAMwoAABmFAAAzCgAAGYUAADMKAAAZhQAAMwoAABmFAAAMwoAAGYUAAAzCgAAZhQAADMKAABmFAAAMwoAAGYUAAAzCgAAZhQAADMKAABmFAAAMwoAAGYUAAAzCgCAGQUAADMKAIAZBQAAMwoAgBkFAAAzCgCAGQUAADMKAIAZBQAAMwoAgBkFAAAzCgCAGQUAADMKAIAZBQAAMwoAgBkFAMCMAgCAGQUAwIwCAIAZBQDAjAIAgBkFAMCMAgCAGQUAwIwCAIAZBQDAjAIAgBkFAMCMAgCAGQUAwIwCAGBGVQAAwIwCAGBGAQDAjAIAYEYBAMCMAgBgRgEAwIwCAGBGAQDAjAIAYEYBAMCMAgBgRgEAwIwCAGBGAQDAjAIAYEYBADCjAABgRgEAMKMAAGBGAQAwowAAYEYBADCjAABgRgEAMKMAAGBGAQAwowAAYEYBADCjAABgRgEAMKMAAJhRCQAAMKMAAJhRAAAwowAAmFEAADCjAACYUQAAMKMAAJhRAAAwowAAmFEAADCjAACYUQAAMKMAAJhRAAAwowAAmFEAAMwoAACYUQAAzCgAAJhRAADMKAAAmFEAAMwoAACYUQAAzCgAAJhRAADMKAAAmFEAAMwoAACYUQAAzCgAAJhRAADMKAAAZhQAAMwoAABmFAAAzCgAAGYUAADMKAAAZhQAAMwoAABmFAAAzCgAAGYUAADMKAAAZhQAAMwoAABmFAAAMwoAAGYUAAAzCgAAZhQAADMKAABmFAAAMwoAAGYUAAAzCgAAZhQAADMKAABmFAAAMwoAAGYUAAAzCgAAZhQAADMKAIAZBQAAMwoAgBkFAAAzCgCAGQUAADMKAIAZBQAAMwoAgBkFAAAzCgCAGQUAADMKAIAZBQAAMwoAgBkFAMCMAgCAGQUAwIwCAIAZBQDAjAIAgBkFAMCMAgCAGQUAwIwCAIAZBQDAjAIAgBkFAMCMAgCAGQUAwIwCAIAZBQDAjAIAYEYBAMCMAgBgRgEAwIwCAGBGAQDAjAIAYEYBAMCMAgBgRgEAwIwCAGBGAQDAjAIAYEYBAMCMAgBgRgEAMKMqAABgRgEAMKMAAGBGAQAwowAAYEYBADCjAABgRgEAMKMAAGBGAQAwowAAYEYBADCjAABgRgEAMKMAAGBGAQAwowAAmFEAADCjAACYUQAAMKMAAJhRAAAwowAAmFEAADCjAACYUQAAMKMAAJhRAAAwowAAmFEAADCjAACYUQAAMKMAAJhRAADMKAAAmFEAAMwoAACYUQAAzCgAAJhRAADMKAAAmFEAAMwoAACYUQAAzCgAAJhRAADMKAAAmFEAAMwoAABmFAAAzCgAAGYUAADMKAAAZhQAAMwoAABmFAAAzCgAAGYUAADMKAAAZhQAAMwoAABmFAAAzCgAAGYUAADMKAAAZhQAADMKAABmFAAAMwoAAGYUAAAzCgAAZhQAADMKAABmFAAAMwoAAGYUAAAzCgAAZhQAADMKAABmFAAAMwoAgBkFAAAzCgCAGQUAADMKAIAZBQAAMwoAgBkFAAAzCgCAGQUAADMKAIAZBQAAMwoAgBkFAAAzCgCAGQUAADMKAIAZBQDAjAIAgBkFAMCMAgCAGQUAwIwCAIAZBQDAjAIAgBkFAMCMAgCAGQUAwIwCAIAZBQDAjAIAgBkFAMCMAgBgRlUAAMCMAgBgRgEAwIwCAGBGAQDAjAIAYEYBAMCMAgBgRgEAwIwCAGBGAQDAjAIAYEYBAMCMAgBgRgEAwIwCAGBGAQAwowAAYEYBADCjAABgRgEAMKMAAGBGAQAwowAAYEYBADCjAABgRgEAMKMAAGBGAQAwowAAYEYBADCjAACYUQkAADCjAACYUQAAMKMAAJhRAAAwowAAmFEAADCjAACYUQAAMKMAAJhRAAAwowAAmFEAADCjAACYUQAAMKMAAJhRAADMKAAAmFEAAMwoAACYUQAAzCgAAJhRAADMKAAAmFEAAMwoAACYUQAAzCgAAJhRAADMKAAAmFEAAMwoAACYUQAAzCgAAGYUAADMKAAAZhQAAMwoAABmFAAAzCgAAGYUAADMKAAAZhQAAMwoAABmFAAAzCgAAGYUAADMKAAAZhQAADMKAABmFAAAMwoAAGYUAAAzCgAAZhQAADMKAABmFAAAMwoAAGYUAAAzCgAAZhQAADMKAABmFAAAMwoAAGYUAAAzCgCAGQUAADMKAIAZBQAAMwoAgBkFAAAzCgCAGQUAADMKAIAZBQAAMwoAgBkFAAAzCgCAGQUAADMKAIAZBQDAjAIAgBkFAOCXBfbJEstAP9TyAAAAAElFTkSuQmCC";
+
+    [Fact]
+    [RustTest("contacts_x::import_batch_and_principals")]
+    [Red("con-data")]
+    public void Import_batch_and_principals()
+    {
+        var cards = new[] { J("""{"id": "import-1", "name": {"full": "A"}}"""), J("""{"name": {"full": "B"}, "uid": "u-b"}""") };
+        var b = ContactImport.Batch(cards, [0], true, "book1");
+        var only = Assert.Single(b);
+        Assert.Equal("u-b", (string?)only["uid"]);
+        Assert.True((bool?)only["addressBookIds"]!["book1"]);
+        b = ContactImport.Batch(cards, [0], false, "book1");
+        Assert.Equal(2, b.Count);
+        Assert.Null(b[0]["id"]);
+        Assert.StartsWith("urn:uuid:", (string?)b[0]["uid"], StringComparison.Ordinal);
+        Assert.Equal(45, ContactImport.NewUid().Length);
+        var p = ContactImport.PrincipalCard(J("""{"id": "x", "type": "group", "name": "Sales", "email": "sales@x.example", "description": "Team"}"""));
+        Assert.Equal("group", (string?)p["kind"]);
+        Assert.Equal("sales@x.example", (string?)p["emails"]!["e0"]!["address"]);
+    }
+
+    [Fact]
+    [RustTest("contacts_x::shrinks_photo_to_jpeg")]
+    [Red("con-data")]
+    public void Shrinks_photo_to_jpeg()
+    {
+        var png = Convert.FromBase64String(Png900x600);
+        var r = ContactPhoto.Shrink(png);
+        Assert.True(r.IsOk);
+        Assert.Equal("image/jpeg", r.Value!.MediaType);
+        // JPEG SOF0/SOF2 marker: height then width, 2 bytes each
+        var bytes = r.Value.Bytes;
+        var sof = Enumerable.Range(0, bytes.Length - 9).First(i => bytes[i] == 0xFF && (bytes[i + 1] == 0xC0 || bytes[i + 1] == 0xC2));
+        Assert.Equal(341, (bytes[sof + 5] << 8) | bytes[sof + 6]);
+        Assert.Equal(512, (bytes[sof + 7] << 8) | bytes[sof + 8]);
+        Assert.False(ContactPhoto.Shrink("nope"u8.ToArray()).IsOk);
+    }
+
+    [Fact]
+    [Red("con-data")]
+    public void A_photo_over_the_input_cap_is_refused_without_decoding()
+    {
+        Assert.False(ContactPhoto.Shrink(new byte[ContactPhoto.MaxInputBytes + 1]).IsOk);
+    }
+}

@@ -11,7 +11,7 @@ public sealed partial class FakeApi(FakeStore store, FakeJmapOptions options, Fu
 {
     private static readonly string[] Known =
         ["urn:ietf:params:jmap:core", "urn:ietf:params:jmap:mail", "urn:ietf:params:jmap:submission", "urn:ietf:params:jmap:quota", "urn:stalwart:jmap",
-        "urn:ietf:params:jmap:sieve", "urn:ietf:params:jmap:filenode", "urn:ietf:params:jmap:calendars", "urn:ietf:params:jmap:metadata", "urn:ietf:params:jmap:principals", "urn:ietf:params:jmap:principals:availability"];
+        "urn:ietf:params:jmap:sieve", "urn:ietf:params:jmap:filenode", "urn:ietf:params:jmap:calendars", "urn:ietf:params:jmap:metadata", "urn:ietf:params:jmap:principals", "urn:ietf:params:jmap:principals:availability", "urn:ietf:params:jmap:contacts"];
 
     private readonly Queue<FakeFault> _methodFaults = new();
     private readonly Lock _lock = new();
@@ -126,10 +126,12 @@ public sealed partial class FakeApi(FakeStore store, FakeJmapOptions options, Fu
             "CalendarEvent/set" => CalendarSet("CalendarEvent", args),
             "Principal/query" => PrincipalQuery(args),
             "Principal/getAvailability" => PrincipalGetAvailability(args),
+
             "x:ArchivedItem/get" => ArchivedItemGet(args),
             "x:ArchivedItem/query" => ArchivedItemQuery(args),
             "x:ArchivedItem/set" => ArchivedItemSet(args),
-            _ => Error("unknownMethod"),
+            // M5 arms (plan section 4.13): AddressBook/* and ContactCard/* are con-data's (FakeApi.Contacts.cs, FakeApi.ContactsSet.cs); each answers unknownMethod without options.Contacts
+            _ => name.StartsWith("AddressBook/", StringComparison.Ordinal) || name.StartsWith("ContactCard/", StringComparison.Ordinal) ? ContactMethod(name, args) : Error("unknownMethod"),
         };
     }
 

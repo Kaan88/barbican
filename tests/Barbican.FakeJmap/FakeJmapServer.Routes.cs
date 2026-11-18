@@ -245,6 +245,11 @@ public sealed partial class FakeJmapServer
             caps["urn:ietf:params:jmap:calendars"] = new JsonObject();
         }
 
+        if (o.ContactsCapability)
+        {
+            caps["urn:ietf:params:jmap:contacts"] = new JsonObject();
+        }
+
         if (o.AvailabilityCapability)
         {
             caps["urn:ietf:params:jmap:principals"] = new JsonObject();

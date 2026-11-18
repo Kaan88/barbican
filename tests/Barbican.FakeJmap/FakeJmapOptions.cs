@@ -62,6 +62,12 @@ public sealed record FakeJmapOptions
     /// <summary>M4: calendars shared with the login by account id (the session lists them with the Calendars capability; only the Calendar and CalendarEvent read methods serve them; no push).</summary>
     public IReadOnlyDictionary<string, FakeCalendars> SharedCalendars { get; init; } = new Dictionary<string, FakeCalendars>(StringComparer.Ordinal);
 
+    /// <summary>M5: advertise the Contacts capability (urn:ietf:params:jmap:contacts) for AddressBook/* and ContactCard/* (needs <see cref="Contacts"/>).</summary>
+    public bool ContactsCapability { get; init; }
+
+    /// <summary>M5: the contact data behind AddressBook/* and ContactCard/* (needs <see cref="ContactsCapability"/>); null: those methods answer unknownMethod.</summary>
+    public FakeContacts? Contacts { get; init; }
+
     /// <summary>M4: advertise Principals and Principal availability (Principal/query, Principal/getAvailability, G-009).</summary>
     public bool AvailabilityCapability { get; init; }
 
