@@ -8,7 +8,10 @@ namespace Barbican.Core.Settings.Assistant;
 /// <summary>One account's assistant conversation.</summary>
 public interface IAssistantSession
 {
-    /// <summary>The conversation so far (a snapshot).</summary>
+    /// <summary>Loads this account's saved history off the UI thread.</summary>
+    Task InitializeHistoryAsync(string accountKey, CancellationToken ct) => Task.CompletedTask;
+
+    /// <summary>The conversation so far (a memory-only snapshot, empty until loaded).</summary>
     IReadOnlyList<AssistantMessage> History(string accountKey);
 
     /// <summary>Asks a question; <paramref name="openMessageId"/> is "this email" (id <c>current</c>, B-AI-010). Returns the answer text; the history is saved.</summary>

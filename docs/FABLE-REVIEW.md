@@ -1449,3 +1449,7 @@ launched; Linux unverified). Verdicts on the M2 verify items 1 to 6, 11, 12 and 
 ## Codex - M6 settings concurrency (Terra High)
 
 - Review `src/Barbican.Core/Settings/Prefs/SettingWriteGate.cs`, `SettingValues.cs`, `SettingBackup.cs`, `AssistantSettings.cs` and `src/Barbican.Presentation/Settings/Integration/AssistantSettingsStartup.cs`: the shared gate coordinates the M6 service paths and exports, but does not make the two-file import crash-atomic or cover legacy direct `IPrefsEditor` writers. Interceptors run outside the gate and retry up to three times on changed prior values; notifications run after release and may arrive out of application order under concurrent writes. PrefsStore itself invokes its synchronous Changed event inside the write call; a handler that synchronously waits on another gated write can still deadlock. Tests cover controlled import, retry, production DI and slow profile loading, not those legacy/reentrant paths.
+
+## Codex - M6 assistant history loading (Terra High)
+
+- Review `src/Barbican.Core/Settings/Assistant/AssistantSession.cs` and `IAssistantSession.cs`: `History` is memory-only and returns empty before `InitializeHistoryAsync`; load, ask and clear serialize per account, with file I/O outside the cache lock. The UI must call initialization on account/page changes and observe `Changed`; close integration owns that wiring. Tests cover slow reads, saved history reopening and clear during an in-flight ask; cancellation and I/O failure paths deserve further review.
