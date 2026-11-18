@@ -16,6 +16,7 @@ public static class SendPipelineViewModelsRegistration
         services.TryAddTransient<TemplatePickerViewModel>();
         services.TryAddSingleton<ScheduledListSource>();
         services.TryAddSingleton<ScheduledBannerActions>();
+        services.AddSingleton<IBannerActionHandler>(sp => sp.GetRequiredService<ScheduledBannerActions>());
         services.AddSingleton<IReaderBannerSource, ScheduledBannerSource>();
         return services;
     }

@@ -129,6 +129,12 @@ public sealed class ScheduleDialogViewModelTests
         Assert.Equal(["s1", "s1"], scheduled.Cancelled);
         Assert.Equal("Open", toasts.Shown[^1].ActionLabel);
 
+        // the reader hands these ids to the registered handlers (UI sweep S-01: Cancel send answered "Unknown action")
+        Assert.True(actions.Owns(ScheduledBannerSource.CancelSend));
+        Assert.True(actions.Owns(ScheduledBannerSource.Reschedule));
+        Assert.True(actions.Owns(ScheduledBannerSource.CancelAndEdit));
+        Assert.False(actions.Owns("draft.edit"));
+
         Assert.Equal("This message is no longer scheduled.", await actions.RunAsync("gone", ScheduledBannerSource.CancelSend, Ct));
     }
 }
