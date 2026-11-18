@@ -25,11 +25,14 @@ internal sealed class CalendarRig
         Client = client;
         Store = new MemoryCalendarStore(cals);
         var accounts = new FakeAccounts(client);
+        Accounts = accounts;
         Writer = new CalendarWriter(accounts, Store, Hooks);
         Admin = new CalendarAdmin(accounts, Store);
     }
 
     public FakeJmapServer Server { get; }
+
+    public IAccountManager Accounts { get; }
 
     public FakeCalendars Cals { get; }
 

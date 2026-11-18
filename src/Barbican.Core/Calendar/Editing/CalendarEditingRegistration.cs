@@ -2,6 +2,7 @@
 
 using Barbican.Core.Calendar.Feeds;
 using Barbican.Core.Calendar.Invitations;
+using Barbican.Core.Net;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 
@@ -18,6 +19,7 @@ public static class CalendarEditingRegistration
         services.TryAddSingleton<IAvailabilityService, AvailabilityService>();
         services.TryAddSingleton<IContactCardReader, ContactCardReader>();
         services.TryAddSingleton<IIcsImporter, IcsImporter>();
+        services.TryAddSingleton<IGuardedHttp, GuardedHttp>(); // feeds fetch through the same guarded client as the reader (the App registers it as well)
         services.TryAddSingleton<ICalendarSubscriptions, CalendarSubscriptions>();
         services.TryAddSingleton<IInvitationService, InvitationService>();
         return services;

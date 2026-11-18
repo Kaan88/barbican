@@ -1273,3 +1273,10 @@ launched; Linux unverified). Verdicts on the M2 verify items 1 to 6, 11, 12 and 
 - **Contract stubs throw `PortPendingException`** until their stream lands; a default registration that throws is only reached if a stream forgets to replace it (`CalendarDataRegistration.cs`, `CalendarEditingRegistration.cs`, the six calls in `AppComposition.cs`).
 - **FakeJmap calendar arms** (`tests/Barbican.FakeJmap/FakeApi.Calendar.cs`) are written from the draft and Stalwart's source, not recorded from a server: review that their error shapes match Stalwart before cal-edit's write arm is trusted (`Principal/getAvailability` answers from event participants only).
 
+
+## M4 cal-edit step 3 (invitations, import, feeds, availability)
+- **IcsReader** (`src/Barbican.Core/Calendar/Editing/IcsReader.cs`): a hand-written iCalendar reader instead of Ical.Net (D-M4-E01). Review its RRULE, EXDATE, TZID (Windows zone names pass through unchanged) and floating-time handling against real feeds; the server parse fallback is only exercised against the FakeJmap parse arm.
+- **Feed fetching** (`Feeds/CalendarSubscriptions.cs`, D-M4-E03): redirects are not followed and plain http is refused by `GuardedHttp`, so the plan's "http warned" is a warning on a feed that then fails. Decide whether `GuardedResponse` should expose `Location` for a per-hop `FeedRules.Check`.
+- **Subscription state** (D-M4-E02): kept in `calendar-subscriptions.json` with per-event hashes; nothing in cal-edit runs the refresh interval (no timer), check that cal-ui or cal-data owns it.
+- **Invitation answers** (`Invitations/InvitationService.cs`, D-M4-E04): verified only against FakeJmap's `CalendarEvent/set` (it records `sendSchedulingMessages`, Stalwart's iMIP behaviour for a created-with-answer event is from its source, not from a live server). No optimistic store patch for answers; the store is refreshed after the call.
+- **Availability** (`Editing/AvailabilityService.cs`): `Principal/query` filter by `email` and `Principal/getAvailability` argument names follow the draft and the fake; a real Stalwart (G-009) must confirm them before "Find a time" is trusted.
