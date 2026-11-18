@@ -32,9 +32,9 @@ public sealed class CalendarSubscriptionsTests : IDisposable
         "BEGIN:VCALENDAR\r\nVERSION:2.0\r\n" + string.Concat(events.Select(e =>
             $"BEGIN:VEVENT\r\nUID:{e.Uid}\r\nSUMMARY:{e.Title}\r\nDTSTART:20261103T100000Z\r\nDTEND:20261103T110000Z\r\nBEGIN:VALARM\r\nACTION:DISPLAY\r\nTRIGGER:-PT10M\r\nEND:VALARM\r\nEND:VEVENT\r\n")) + "END:VCALENDAR\r\n";
 
-    private async Task<(CalendarRig Rig, CalendarSubscriptions Subs, FakeFeedHttp Http)> SetUpAsync()
+    private async Task<(EditingRig Rig, CalendarSubscriptions Subs, FakeFeedHttp Http)> SetUpAsync()
     {
-        var rig = await CalendarRig.CreateAsync();
+        var rig = await EditingRig.CreateAsync();
         var http = new FakeFeedHttp();
         return (rig, new CalendarSubscriptions(rig.Accounts, rig.Admin, rig.Store, http, rig.Hooks, new TestProfilePaths(_root)), http);
     }
@@ -45,15 +45,15 @@ public sealed class CalendarSubscriptionsTests : IDisposable
         var (_, subs, http) = await SetUpAsync();
         foreach (var bad in new[] { "http://localhost/x.ics", "https://192.168.1.5/x.ics", "https://intranet/x.ics", "ftp://x.example.com/a.ics" })
         {
-            var r = await subs.SaveAsync(CalendarRig.Account, new CalendarSubscription("", bad, 60), "Team", Ct);
+            var r = await subs.SaveAsync(EditingRig.Account, new CalendarSubscription("", bad, 60), "Team", Ct);
             Assert.False(r.IsOk, bad);
         }
 
         Assert.Empty(http.Urls);
-        Assert.Empty(await subs.ListAsync(CalendarRig.Account, Ct));
+        Assert.Empty(await subs.ListAsync(EditingRig.Account, Ct));
 
         http.Answer("http://plain.example.com/a.ics", Feed(("a", "Plain")));
-        var warned = await subs.SaveAsync(CalendarRig.Account, new CalendarSubscription("", "http://plain.example.com/a.ics", 60), "Plain", Ct);
+        var warned = await subs.SaveAsync(EditingRig.Account, new CalendarSubscription("", "http://plain.example.com/a.ics", 60), "Plain", Ct);
         Assert.True(warned.IsOk, warned.Error?.Message);
         Assert.Contains("not encrypted", warned.Value, StringComparison.Ordinal);
     }
@@ -63,14 +63,14 @@ public sealed class CalendarSubscriptionsTests : IDisposable
     {
         var (rig, subs, http) = await SetUpAsync();
         http.Answer(Url, Feed(("a", "Stand-up"), ("b", "Retro")));
-        var told = await CalendarRig.HeardAsync<SubscriptionChangePayload>(rig.Hooks, HookNames.OnICalSubscriptionChange, async () =>
+        var told = await EditingRig.HeardAsync<SubscriptionChangePayload>(rig.Hooks, HookNames.OnICalSubscriptionChange, async () =>
         {
-            var r = await subs.SaveAsync(CalendarRig.Account, new CalendarSubscription("", Url, 60), "Team", Ct);
+            var r = await subs.SaveAsync(EditingRig.Account, new CalendarSubscription("", Url, 60), "Team", Ct);
             Assert.True(r.IsOk, r.Error?.Message);
             Assert.Null(r.Value);
         });
         Assert.Equal("added", told.Change);
-        var sub = Assert.Single(await subs.ListAsync(CalendarRig.Account, Ct));
+        var sub = Assert.Single(await subs.ListAsync(EditingRig.Account, Ct));
         Assert.Equal(Url, sub.Url);
         Assert.Contains(rig.Cals.Calendars(), c => string.Equals((string?)c["name"], "Team", StringComparison.Ordinal));
         Assert.Equal(2, rig.Cals.Events().Count);
@@ -81,7 +81,7 @@ public sealed class CalendarSubscriptionsTests : IDisposable
         });
 
         var sets = rig.Sets.Count;
-        var again = await subs.RefreshAsync(CalendarRig.Account, sub.CalendarId, Ct);
+        var again = await subs.RefreshAsync(EditingRig.Account, sub.CalendarId, Ct);
         Assert.Equal(0, again.Value);
         Assert.Equal(sets, rig.Sets.Count);
     }
@@ -91,11 +91,11 @@ public sealed class CalendarSubscriptionsTests : IDisposable
     {
         var (rig, subs, http) = await SetUpAsync();
         http.Answer(Url, Feed(("a", "Stand-up"), ("b", "Retro")));
-        _ = await subs.SaveAsync(CalendarRig.Account, new CalendarSubscription("", Url, 60), "Team", Ct);
-        var sub = (await subs.ListAsync(CalendarRig.Account, Ct))[0];
+        _ = await subs.SaveAsync(EditingRig.Account, new CalendarSubscription("", Url, 60), "Team", Ct);
+        var sub = (await subs.ListAsync(EditingRig.Account, Ct))[0];
 
         http.Answer(Url, Feed(("a", "Stand-up (renamed)"), ("c", "Planning")));
-        var r = await subs.RefreshAsync(CalendarRig.Account, sub.CalendarId, Ct);
+        var r = await subs.RefreshAsync(EditingRig.Account, sub.CalendarId, Ct);
         Assert.Equal(3, r.Value);
         var titles = rig.Cals.Events().Select(e => (string?)e["title"]).Order(StringComparer.Ordinal).ToArray();
         Assert.Equal(["Planning", "Stand-up (renamed)"], titles);
@@ -106,16 +106,16 @@ public sealed class CalendarSubscriptionsTests : IDisposable
     {
         var (rig, subs, http) = await SetUpAsync();
         http.Answer(Url, Feed(("a", "Stand-up")));
-        _ = await subs.SaveAsync(CalendarRig.Account, new CalendarSubscription("", Url, 60), "Team", Ct);
-        var sub = (await subs.ListAsync(CalendarRig.Account, Ct))[0];
+        _ = await subs.SaveAsync(EditingRig.Account, new CalendarSubscription("", Url, 60), "Team", Ct);
+        var sub = (await subs.ListAsync(EditingRig.Account, Ct))[0];
 
         http.Status = 500;
-        Assert.False((await subs.RefreshAsync(CalendarRig.Account, sub.CalendarId, Ct)).IsOk);
+        Assert.False((await subs.RefreshAsync(EditingRig.Account, sub.CalendarId, Ct)).IsOk);
         Assert.Single(rig.Cals.Events());
 
-        var removed = await subs.RemoveAsync(CalendarRig.Account, sub.CalendarId, true, Ct);
+        var removed = await subs.RemoveAsync(EditingRig.Account, sub.CalendarId, true, Ct);
         Assert.True(removed.IsOk, removed.Error?.Message);
-        Assert.Empty(await subs.ListAsync(CalendarRig.Account, Ct));
+        Assert.Empty(await subs.ListAsync(EditingRig.Account, Ct));
         Assert.DoesNotContain(rig.Cals.Calendars(), c => string.Equals((string?)c["id"], sub.CalendarId, StringComparison.Ordinal));
     }
 

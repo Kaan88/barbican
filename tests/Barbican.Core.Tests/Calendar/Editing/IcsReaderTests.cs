@@ -64,16 +64,16 @@ public sealed class IcsReaderTests
     [Fact]
     public async Task Import_keeps_or_drops_the_alerts_stores_without_messages_and_tells_the_hooks()
     {
-        var rig = await CalendarRig.CreateAsync();
+        var rig = await EditingRig.CreateAsync();
         var importer = new IcsImporter(rig.Accounts, rig.Store, rig.Hooks);
-        var parsed = await importer.ParseAsync(CalendarRig.Account, Encoding.UTF8.GetBytes(Sample), Ct);
+        var parsed = await importer.ParseAsync(EditingRig.Account, Encoding.UTF8.GetBytes(Sample), Ct);
         Assert.True(parsed.IsOk, parsed.Error?.Message);
         Assert.True(ImportRules.HasAlerts(parsed.Value!));
         var events = parsed.Value!.Where(e => !string.Equals((string?)e["@type"], "Task", StringComparison.Ordinal)).ToList();
 
-        var done = await CalendarRig.HeardAsync<ImportDonePayload>(rig.Hooks, HookNames.OnEventsImport, async () =>
+        var done = await EditingRig.HeardAsync<ImportDonePayload>(rig.Hooks, HookNames.OnEventsImport, async () =>
         {
-            var r = await importer.ImportAsync(CalendarRig.Account, rig.Work, events, keepAlerts: false, Ct);
+            var r = await importer.ImportAsync(EditingRig.Account, rig.Work, events, keepAlerts: false, Ct);
             Assert.Equal(2, r.Value);
         });
         Assert.Equal(new ImportDonePayload(rig.Work, 2, 0), done);
@@ -82,7 +82,7 @@ public sealed class IcsReaderTests
         Assert.All(rig.Sets, s => Assert.False(s.Args.ContainsKey("sendSchedulingMessages")));
         Assert.Empty(rig.Cals.SchedulingSent);
 
-        var kept = await importer.ImportAsync(CalendarRig.Account, rig.Work, [events[0]], keepAlerts: true, Ct);
+        var kept = await importer.ImportAsync(EditingRig.Account, rig.Work, [events[0]], keepAlerts: true, Ct);
         Assert.Equal(1, kept.Value);
         Assert.Contains(rig.Cals.Events(), e => e["alerts"] is not null);
     }
@@ -90,20 +90,20 @@ public sealed class IcsReaderTests
     [Fact]
     public async Task An_intercept_hook_stops_the_import_and_a_big_file_is_refused()
     {
-        var rig = await CalendarRig.CreateAsync();
+        var rig = await EditingRig.CreateAsync();
         var importer = new IcsImporter(rig.Accounts, rig.Store, rig.Hooks);
         using var stop = rig.Hooks.Intercept<ImportCountPayload>(HookNames.OnBeforeEventsImport, (_, _) => ValueTask.FromResult(false));
-        var r = await importer.ImportAsync(CalendarRig.Account, rig.Work, IcsReader.Parse(Sample), true, Ct);
+        var r = await importer.ImportAsync(EditingRig.Account, rig.Work, IcsReader.Parse(Sample), true, Ct);
         Assert.False(r.IsOk);
         Assert.Empty(rig.Cals.Events());
-        Assert.False((await importer.ParseAsync(CalendarRig.Account, new byte[IcsImporter.MaxBytes + 1], Ct)).IsOk);
-        Assert.False((await importer.ParseAsync(CalendarRig.Account, "no events here"u8.ToArray(), Ct)).IsOk);
+        Assert.False((await importer.ParseAsync(EditingRig.Account, new byte[IcsImporter.MaxBytes + 1], Ct)).IsOk);
+        Assert.False((await importer.ParseAsync(EditingRig.Account, "no events here"u8.ToArray(), Ct)).IsOk);
     }
 
     [Fact]
     public async Task Availability_reports_busy_time_of_a_guest_and_not_found_for_a_stranger()
     {
-        var rig = await CalendarRig.CreateAsync((cals, work) => cals.AddEvent(work, new JsonObject
+        var rig = await EditingRig.CreateAsync((cals, work) => cals.AddEvent(work, new JsonObject
         {
             ["title"] = "Busy",
             ["start"] = "2026-11-03T10:00:00",
@@ -114,9 +114,9 @@ public sealed class IcsReaderTests
             ["participants"] = new JsonObject { ["p"] = new JsonObject { ["email"] = "ann@x.example", ["roles"] = new JsonObject { ["attendee"] = true } } },
         }));
         var service = new AvailabilityService(rig.Accounts);
-        Assert.True(service.IsSupported(CalendarRig.Account));
+        Assert.True(service.IsSupported(EditingRig.Account));
         var from = new DateTimeOffset(2026, 11, 3, 0, 0, 0, TimeSpan.Zero).ToUnixTimeMilliseconds();
-        var r = await service.BusyAsync(CalendarRig.Account, ["Ann@x.example"], from, from + 86_400_000, Ct);
+        var r = await service.BusyAsync(EditingRig.Account, ["Ann@x.example"], from, from + 86_400_000, Ct);
         var ann = r.Value!["ann@x.example"];
         Assert.True(ann.IsOk, ann.Error?.Message);
         var busy = Assert.Single(ann.Value!);
@@ -128,8 +128,8 @@ public sealed class IcsReaderTests
     [Fact]
     public async Task Cards_are_empty_without_the_contacts_capability()
     {
-        var rig = await CalendarRig.CreateAsync();
-        var cards = await new ContactCardReader(rig.Accounts).CardsAsync(CalendarRig.Account, Ct);
+        var rig = await EditingRig.CreateAsync();
+        var cards = await new ContactCardReader(rig.Accounts).CardsAsync(EditingRig.Account, Ct);
         Assert.True(cards.IsOk);
         Assert.Empty(cards.Value!);
     }

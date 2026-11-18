@@ -11,7 +11,7 @@ public sealed class CalendarWriterTests
 {
     private static CancellationToken Ct => TestContext.Current.CancellationToken;
 
-    private static EventForm Form(CalendarRig rig) => new()
+    private static EventForm Form(EditingRig rig) => new()
     {
         Title = "Review",
         Start = Dt("2026-11-20T10:00:00"),
@@ -19,18 +19,18 @@ public sealed class CalendarWriterTests
         TimeZone = "UTC",
         Calendar = rig.Work,
         Send = true,
-        Me = [CalendarRig.Me],
+        Me = [EditingRig.Me],
         Attendees = [new CalendarPerson("Ann", "ann@x.example"), new CalendarPerson("Bob", "bob@y.example")],
     };
 
-    private static async Task<CalendarRig> SeriesRigAsync() => await CalendarRig.CreateAsync((cals, work) => cals.AddEvent(work, CalendarRig.Series()));
+    private static async Task<EditingRig> SeriesRigAsync() => await EditingRig.CreateAsync((cals, work) => cals.AddEvent(work, EditingRig.Series()));
 
     [Fact]
     public async Task A_new_event_with_two_guests_is_one_call_with_scheduling_messages()
     {
-        var rig = await CalendarRig.CreateAsync();
+        var rig = await EditingRig.CreateAsync();
         var (data, send) = EventEditor.BuildData(Form(rig), null, null);
-        var id = await rig.Writer.SaveEventAsync(new EventWrite(CalendarRig.Account, null, data, EditScope.WholeEvent, null, send), Ct);
+        var id = await rig.Writer.SaveEventAsync(new EventWrite(EditingRig.Account, null, data, EditScope.WholeEvent, null, send), Ct);
         Assert.True(id.IsOk, id.Error?.Message);
         var set = Assert.Single(rig.Sets);
         Assert.Equal("CalendarEvent", set.Type);
@@ -43,11 +43,11 @@ public sealed class CalendarWriterTests
     [Fact]
     public async Task Without_guests_or_without_the_notify_choice_no_scheduling_messages_are_asked_for()
     {
-        var rig = await CalendarRig.CreateAsync();
+        var rig = await EditingRig.CreateAsync();
         var (data, send) = EventEditor.BuildData(Form(rig) with { Attendees = [] }, null, null);
-        _ = await rig.Writer.SaveEventAsync(new EventWrite(CalendarRig.Account, null, data, EditScope.WholeEvent, null, send), Ct);
+        _ = await rig.Writer.SaveEventAsync(new EventWrite(EditingRig.Account, null, data, EditScope.WholeEvent, null, send), Ct);
         (data, send) = EventEditor.BuildData(Form(rig) with { Send = false }, null, null);
-        _ = await rig.Writer.SaveEventAsync(new EventWrite(CalendarRig.Account, null, data, EditScope.WholeEvent, null, send), Ct);
+        _ = await rig.Writer.SaveEventAsync(new EventWrite(EditingRig.Account, null, data, EditScope.WholeEvent, null, send), Ct);
         Assert.All(rig.Sets, s => Assert.False(s.Args.ContainsKey("sendSchedulingMessages")));
         Assert.Empty(rig.Cals.SchedulingSent);
     }
@@ -57,9 +57,9 @@ public sealed class CalendarWriterTests
     {
         var rig = await SeriesRigAsync();
         var master = rig.Store.Event("s")!;
-        var form = new EventForm { Title = "Stand-up (moved)", Start = Dt("2026-11-04T09:00:00"), End = Dt("2026-11-04T09:15:00"), TimeZone = "UTC", Calendar = rig.Work, Repeat = 1, Me = [CalendarRig.Me], Attendees = EventEditor.AttendeesOf(master) };
+        var form = new EventForm { Title = "Stand-up (moved)", Start = Dt("2026-11-04T09:00:00"), End = Dt("2026-11-04T09:15:00"), TimeZone = "UTC", Calendar = rig.Work, Repeat = 1, Me = [EditingRig.Me], Attendees = EventEditor.AttendeesOf(master) };
         var (data, _) = EventEditor.BuildData(form, master, (Dt("2026-11-04T09:00:00"), Dt("2026-11-04T09:15:00")));
-        var r = await rig.Writer.SaveEventAsync(new EventWrite(CalendarRig.Account, "s", data, EditScope.Occurrence, "2026-11-04T09:00:00", false), Ct);
+        var r = await rig.Writer.SaveEventAsync(new EventWrite(EditingRig.Account, "s", data, EditScope.Occurrence, "2026-11-04T09:00:00", false), Ct);
         Assert.True(r.IsOk, r.Error?.Message);
         var update = Assert.Single(rig.Sets).Args["update"]!["s"]!.AsObject();
         var over = Assert.Single(update);
@@ -68,7 +68,7 @@ public sealed class CalendarWriterTests
 
         // a second override goes in as a pointer into the map
         data["title"] = "Stand-up (again)";
-        var again = await rig.Writer.SaveEventAsync(new EventWrite(CalendarRig.Account, "s", data, EditScope.Occurrence, "2026-11-05T09:00:00", false), Ct);
+        var again = await rig.Writer.SaveEventAsync(new EventWrite(EditingRig.Account, "s", data, EditScope.Occurrence, "2026-11-05T09:00:00", false), Ct);
         Assert.True(again.IsOk, again.Error?.Message);
         Assert.Equal(["recurrenceOverrides/2026-11-05T09:00:00"], rig.Sets[^1].Args["update"]!["s"]!.AsObject().Select(kv => kv.Key).ToArray());
     }
@@ -78,9 +78,9 @@ public sealed class CalendarWriterTests
     {
         var rig = await SeriesRigAsync();
         var master = rig.Store.Event("s")!;
-        var form = new EventForm { Title = "Stand-up (new)", Start = Dt("2026-11-04T09:00:00"), End = Dt("2026-11-04T09:15:00"), TimeZone = "UTC", Calendar = rig.Work, Repeat = 1, Me = [CalendarRig.Me], Attendees = EventEditor.AttendeesOf(master) };
+        var form = new EventForm { Title = "Stand-up (new)", Start = Dt("2026-11-04T09:00:00"), End = Dt("2026-11-04T09:15:00"), TimeZone = "UTC", Calendar = rig.Work, Repeat = 1, Me = [EditingRig.Me], Attendees = EventEditor.AttendeesOf(master) };
         var (data, _) = EventEditor.BuildData(form, master, (Dt("2026-11-04T09:00:00"), Dt("2026-11-04T09:15:00")));
-        var ok = await rig.Writer.SaveEventAsync(new EventWrite(CalendarRig.Account, "s", data, EditScope.Following, "2026-11-04T09:00:00", false), Ct);
+        var ok = await rig.Writer.SaveEventAsync(new EventWrite(EditingRig.Account, "s", data, EditScope.Following, "2026-11-04T09:00:00", false), Ct);
         Assert.True(ok.IsOk, ok.Error?.Message);
         Assert.Equal(2, rig.Sets.Count);
         Assert.Equal("2026-11-04T08:59:59", (string?)rig.Cals.Events().First(e => string.Equals((string?)e["id"], "s", StringComparison.Ordinal))["recurrenceRules"]![0]!["until"]);
@@ -88,7 +88,7 @@ public sealed class CalendarWriterTests
 
         var rig2 = await SeriesRigAsync();
         rig2.Server.Api.FailNextSet("forbidden", skip: 1);
-        var failed = await rig2.Writer.SaveEventAsync(new EventWrite(CalendarRig.Account, "s", data, EditScope.Following, "2026-11-04T09:00:00", false), Ct);
+        var failed = await rig2.Writer.SaveEventAsync(new EventWrite(EditingRig.Account, "s", data, EditScope.Following, "2026-11-04T09:00:00", false), Ct);
         Assert.False(failed.IsOk);
         Assert.Equal(3, rig2.Sets.Count);
         var restored = rig2.Cals.Events().Single();
@@ -102,9 +102,9 @@ public sealed class CalendarWriterTests
     {
         var rig = await SeriesRigAsync();
         var master = rig.Store.Event("s")!;
-        var form = new EventForm { Title = "Stand-up", Start = Dt("2026-11-04T09:30:00"), End = Dt("2026-11-04T09:45:00"), TimeZone = "UTC", Calendar = rig.Work, Repeat = 1, Me = [CalendarRig.Me], Attendees = EventEditor.AttendeesOf(master) };
+        var form = new EventForm { Title = "Stand-up", Start = Dt("2026-11-04T09:30:00"), End = Dt("2026-11-04T09:45:00"), TimeZone = "UTC", Calendar = rig.Work, Repeat = 1, Me = [EditingRig.Me], Attendees = EventEditor.AttendeesOf(master) };
         var (data, _) = EventEditor.BuildData(form, master, (Dt("2026-11-04T09:00:00"), Dt("2026-11-04T09:15:00")));
-        var r = await rig.Writer.SaveEventAsync(new EventWrite(CalendarRig.Account, "s", data, EditScope.All, "2026-11-04T09:00:00", false), Ct);
+        var r = await rig.Writer.SaveEventAsync(new EventWrite(EditingRig.Account, "s", data, EditScope.All, "2026-11-04T09:00:00", false), Ct);
         Assert.True(r.IsOk, r.Error?.Message);
         Assert.Equal("2026-11-02T09:30:00", (string?)rig.Cals.Events().Single()["start"]);
     }
@@ -113,14 +113,14 @@ public sealed class CalendarWriterTests
     public async Task Deleting_one_occurrence_adds_an_excluded_override_and_deleting_following_cuts_the_series()
     {
         var rig = await SeriesRigAsync();
-        var r = await rig.Writer.DeleteEventAsync(CalendarRig.Account, "s", EditScope.Occurrence, "2026-11-03T09:00:00", true, Ct);
+        var r = await rig.Writer.DeleteEventAsync(EditingRig.Account, "s", EditScope.Occurrence, "2026-11-03T09:00:00", true, Ct);
         Assert.True(r.IsOk, r.Error?.Message);
         Assert.True((bool?)rig.Cals.Events().Single()["recurrenceOverrides"]!["2026-11-03T09:00:00"]!["excluded"]);
         Assert.True((bool?)rig.Sets[0].Args["sendSchedulingMessages"]);
-        var f = await rig.Writer.DeleteEventAsync(CalendarRig.Account, "s", EditScope.Following, "2026-11-05T09:00:00", false, Ct);
+        var f = await rig.Writer.DeleteEventAsync(EditingRig.Account, "s", EditScope.Following, "2026-11-05T09:00:00", false, Ct);
         Assert.True(f.IsOk, f.Error?.Message);
         Assert.Equal("2026-11-05T08:59:59", (string?)rig.Cals.Events().Single()["recurrenceRules"]![0]!["until"]);
-        var all = await rig.Writer.DeleteEventAsync(CalendarRig.Account, "s", EditScope.All, null, false, Ct);
+        var all = await rig.Writer.DeleteEventAsync(EditingRig.Account, "s", EditScope.All, null, false, Ct);
         Assert.True(all.IsOk, all.Error?.Message);
         Assert.Empty(rig.Cals.Events());
     }
@@ -129,7 +129,7 @@ public sealed class CalendarWriterTests
     public async Task Deleting_following_from_the_first_occurrence_deletes_the_whole_series()
     {
         var rig = await SeriesRigAsync();
-        var r = await rig.Writer.DeleteEventAsync(CalendarRig.Account, "s", EditScope.Following, "2026-11-02T09:00:00", false, Ct);
+        var r = await rig.Writer.DeleteEventAsync(EditingRig.Account, "s", EditScope.Following, "2026-11-02T09:00:00", false, Ct);
         Assert.True(r.IsOk, r.Error?.Message);
         Assert.Empty(rig.Cals.Events());
     }
@@ -137,18 +137,18 @@ public sealed class CalendarWriterTests
     [Fact]
     public async Task A_drag_patches_start_and_duration_notifies_guests_and_a_drag_that_changes_nothing_is_no_call()
     {
-        var rig = await CalendarRig.CreateAsync((cals, work) =>
+        var rig = await EditingRig.CreateAsync((cals, work) =>
         {
-            var e = CalendarRig.Series("single");
+            var e = EditingRig.Series("single");
             e.Remove("recurrenceRules");
             e["timeZone"] = null;
             _ = cals.AddEvent(work, e);
         });
-        var same = await rig.Writer.MoveAsync(CalendarRig.Account, "single", Dt("2026-11-02T09:00:00"), TimeSpan.FromMinutes(15), Ct);
+        var same = await rig.Writer.MoveAsync(EditingRig.Account, "single", Dt("2026-11-02T09:00:00"), TimeSpan.FromMinutes(15), Ct);
         Assert.True(same.IsOk);
         Assert.Empty(rig.Sets);
 
-        var moved = await rig.Writer.MoveAsync(CalendarRig.Account, "single", Dt("2026-11-02T10:15:00"), TimeSpan.FromMinutes(45), Ct);
+        var moved = await rig.Writer.MoveAsync(EditingRig.Account, "single", Dt("2026-11-02T10:15:00"), TimeSpan.FromMinutes(45), Ct);
         Assert.True(moved.IsOk, moved.Error?.Message);
         var set = Assert.Single(rig.Sets);
         Assert.True((bool?)set.Args["sendSchedulingMessages"]);
@@ -160,15 +160,15 @@ public sealed class CalendarWriterTests
     [Fact]
     public async Task A_failed_drag_restores_the_store_and_returns_the_error()
     {
-        var rig = await CalendarRig.CreateAsync((cals, work) =>
+        var rig = await EditingRig.CreateAsync((cals, work) =>
         {
-            var e = CalendarRig.Series("single");
+            var e = EditingRig.Series("single");
             e.Remove("recurrenceRules");
             e["timeZone"] = null;
             _ = cals.AddEvent(work, e);
         });
         rig.Server.Api.FailNextSet("forbidden");
-        var r = await rig.Writer.MoveAsync(CalendarRig.Account, "single", Dt("2026-11-03T09:00:00"), TimeSpan.FromMinutes(15), Ct);
+        var r = await rig.Writer.MoveAsync(EditingRig.Account, "single", Dt("2026-11-03T09:00:00"), TimeSpan.FromMinutes(15), Ct);
         Assert.False(r.IsOk);
         Assert.Contains("permission", r.Error!.Message, StringComparison.OrdinalIgnoreCase);
         Assert.Equal("2026-11-02T09:00:00", (string?)rig.Store.Event("single")!["start"]);
@@ -179,13 +179,13 @@ public sealed class CalendarWriterTests
     [Fact]
     public async Task Dragging_an_occurrence_of_a_series_writes_its_override()
     {
-        var rig = await CalendarRig.CreateAsync((cals, work) =>
+        var rig = await EditingRig.CreateAsync((cals, work) =>
         {
-            var e = CalendarRig.Series();
+            var e = EditingRig.Series();
             e["timeZone"] = null;
             _ = cals.AddEvent(work, e);
         });
-        var r = await rig.Writer.MoveAsync(CalendarRig.Account, "s|2026-11-04T09:00:00", Dt("2026-11-04T11:00:00"), TimeSpan.FromMinutes(15), Ct);
+        var r = await rig.Writer.MoveAsync(EditingRig.Account, "s|2026-11-04T09:00:00", Dt("2026-11-04T11:00:00"), TimeSpan.FromMinutes(15), Ct);
         Assert.True(r.IsOk, r.Error?.Message);
         var over = rig.Cals.Events().Single()["recurrenceOverrides"]!["2026-11-04T09:00:00"]!;
         Assert.Equal("2026-11-04T11:00:00", (string?)over["start"]);
@@ -197,7 +197,7 @@ public sealed class CalendarWriterTests
     {
         var rig = await SeriesRigAsync();
         var local = Dt("2026-11-02T12:00:00");
-        var r = await rig.Writer.MoveAsync(CalendarRig.Account, "s", local, TimeSpan.FromMinutes(15), Ct);
+        var r = await rig.Writer.MoveAsync(EditingRig.Account, "s", local, TimeSpan.FromMinutes(15), Ct);
         Assert.True(r.IsOk, r.Error?.Message);
         var expected = TimeZoneInfo.ConvertTimeToUtc(local, TimeZoneInfo.Local).ToString("yyyy-MM-dd'T'HH:mm:ss", System.Globalization.CultureInfo.InvariantCulture);
         Assert.Equal(expected, (string?)rig.Cals.Events().Single()["recurrenceOverrides"]?["2026-11-02T09:00:00"]?["start"] ?? (string?)rig.Cals.Events().Single()["start"]);
@@ -206,9 +206,9 @@ public sealed class CalendarWriterTests
     [Fact]
     public async Task A_guest_event_the_user_does_not_organise_moves_without_scheduling_messages()
     {
-        var rig = await CalendarRig.CreateAsync((cals, work) =>
+        var rig = await EditingRig.CreateAsync((cals, work) =>
         {
-            var e = CalendarRig.Series("theirs");
+            var e = EditingRig.Series("theirs");
             e.Remove("recurrenceRules");
             e["timeZone"] = null;
             e["organizerCalendarAddress"] = "mailto:boss@y.example";
@@ -216,7 +216,7 @@ public sealed class CalendarWriterTests
             e["participants"]!["o"]!["calendarAddress"] = "mailto:boss@y.example";
             _ = cals.AddEvent(work, e);
         });
-        var r = await rig.Writer.MoveAsync(CalendarRig.Account, "theirs", Dt("2026-11-02T12:00:00"), TimeSpan.FromMinutes(15), Ct);
+        var r = await rig.Writer.MoveAsync(EditingRig.Account, "theirs", Dt("2026-11-02T12:00:00"), TimeSpan.FromMinutes(15), Ct);
         Assert.True(r.IsOk, r.Error?.Message);
         Assert.False(rig.Sets[0].Args.ContainsKey("sendSchedulingMessages"));
     }
@@ -224,10 +224,10 @@ public sealed class CalendarWriterTests
     [Fact]
     public async Task A_task_tick_sends_progress_and_fires_the_toggle_hook_once_per_flip()
     {
-        var rig = await CalendarRig.CreateAsync((cals, work) => cals.AddEvent(work, new JsonObject { ["id"] = "t1", ["@type"] = "Task", ["title"] = "Pay", ["progress"] = "needs-action" }));
-        var heard = await CalendarRig.HeardAsync<TaskToggledPayload>(rig.Hooks, HookNames.OnTaskToggleComplete, async () =>
+        var rig = await EditingRig.CreateAsync((cals, work) => cals.AddEvent(work, new JsonObject { ["id"] = "t1", ["@type"] = "Task", ["title"] = "Pay", ["progress"] = "needs-action" }));
+        var heard = await EditingRig.HeardAsync<TaskToggledPayload>(rig.Hooks, HookNames.OnTaskToggleComplete, async () =>
         {
-            var r = await rig.Writer.UpdateAsync(CalendarRig.Account, "t1", new JsonObject { ["progress"] = "completed" }, Ct);
+            var r = await rig.Writer.UpdateAsync(EditingRig.Account, "t1", new JsonObject { ["progress"] = "completed" }, Ct);
             Assert.True(r.IsOk, r.Error?.Message);
         });
         Assert.Equal(new TaskToggledPayload("t1", true), heard);
@@ -238,17 +238,17 @@ public sealed class CalendarWriterTests
     [Fact]
     public async Task Tasks_are_created_updated_and_destroyed_with_the_task_hooks()
     {
-        var rig = await CalendarRig.CreateAsync();
-        var created = await CalendarRig.HeardAsync<EventHookPayload>(rig.Hooks, HookNames.OnTaskCreate, async () =>
+        var rig = await EditingRig.CreateAsync();
+        var created = await EditingRig.HeardAsync<EventHookPayload>(rig.Hooks, HookNames.OnTaskCreate, async () =>
         {
-            var r = await rig.Writer.CreateAsync(CalendarRig.Account, rig.Work, new JsonObject { ["@type"] = "Task", ["title"] = "Call", ["start"] = "2026-11-20T00:00:00" }, Ct);
+            var r = await rig.Writer.CreateAsync(EditingRig.Account, rig.Work, new JsonObject { ["@type"] = "Task", ["title"] = "Call", ["start"] = "2026-11-20T00:00:00" }, Ct);
             Assert.True(r.IsOk, r.Error?.Message);
         });
         var id = created.EventId!;
         Assert.Equal("Task", (string?)rig.Cals.Events().Single()["@type"]);
-        var deleted = await CalendarRig.HeardAsync<DeleteHookPayload>(rig.Hooks, HookNames.OnTaskDelete, async () =>
+        var deleted = await EditingRig.HeardAsync<DeleteHookPayload>(rig.Hooks, HookNames.OnTaskDelete, async () =>
         {
-            var r = await rig.Writer.DestroyAsync(CalendarRig.Account, id, Ct);
+            var r = await rig.Writer.DestroyAsync(EditingRig.Account, id, Ct);
             Assert.True(r.IsOk, r.Error?.Message);
         });
         Assert.Equal(new DeleteHookPayload(id, "Call"), deleted);
@@ -258,11 +258,11 @@ public sealed class CalendarWriterTests
     [Fact]
     public async Task An_intercept_hook_stops_a_create_and_a_transform_changes_what_the_server_gets()
     {
-        var rig = await CalendarRig.CreateAsync();
+        var rig = await EditingRig.CreateAsync();
         using (rig.Hooks.Intercept<EventHookPayload>(HookNames.OnBeforeEventCreate, (_, _) => ValueTask.FromResult(false)))
         {
             var (data, send) = EventEditor.BuildData(Form(rig), null, null);
-            var stopped = await rig.Writer.SaveEventAsync(new EventWrite(CalendarRig.Account, null, data, EditScope.WholeEvent, null, send), Ct);
+            var stopped = await rig.Writer.SaveEventAsync(new EventWrite(EditingRig.Account, null, data, EditScope.WholeEvent, null, send), Ct);
             Assert.False(stopped.IsOk);
             Assert.Empty(rig.Sets);
         }
@@ -274,7 +274,7 @@ public sealed class CalendarWriterTests
             return ValueTask.FromResult(p with { ServerEvent = server });
         });
         var (d2, s2) = EventEditor.BuildData(Form(rig), null, null);
-        _ = await rig.Writer.SaveEventAsync(new EventWrite(CalendarRig.Account, null, d2, EditScope.WholeEvent, null, s2), Ct);
+        _ = await rig.Writer.SaveEventAsync(new EventWrite(EditingRig.Account, null, d2, EditScope.WholeEvent, null, s2), Ct);
         Assert.Equal("Renamed by a plugin", (string?)rig.Cals.Events().Single()["title"]);
     }
 
@@ -283,7 +283,7 @@ public sealed class CalendarWriterTests
     {
         var rig = await SeriesRigAsync();
         rig.Server.Api.FailNextSet("forbidden");
-        var r = await rig.Writer.UpdateAsync(CalendarRig.Account, "s", new JsonObject { ["title"] = "Nope" }, Ct);
+        var r = await rig.Writer.UpdateAsync(EditingRig.Account, "s", new JsonObject { ["title"] = "Nope" }, Ct);
         Assert.False(r.IsOk);
         Assert.Equal("Stand-up", (string?)rig.Store.Event("s")!["title"]);
         Assert.Equal([("s", "Nope")], rig.Store.Patches.Select(p => (p.Id, (string)p.Patch["title"]!)).ToArray());
@@ -292,7 +292,7 @@ public sealed class CalendarWriterTests
     [Fact]
     public async Task A_conflict_check_asks_the_plugins()
     {
-        var rig = await CalendarRig.CreateAsync();
+        var rig = await EditingRig.CreateAsync();
         Assert.Empty(await rig.Writer.CheckConflictsAsync(new JsonObject(), Ct));
         using var h = rig.Hooks.Transform<ConflictCheckPayload>(HookNames.OnCheckEventConflicts, (p, _) => ValueTask.FromResult(p with { Warnings = [.. p.Warnings, "Overlaps Lunch"] }));
         Assert.Equal(["Overlaps Lunch"], await rig.Writer.CheckConflictsAsync(new JsonObject(), Ct));

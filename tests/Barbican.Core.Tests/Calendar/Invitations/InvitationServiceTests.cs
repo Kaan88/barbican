@@ -25,21 +25,21 @@ public sealed class InvitationServiceTests
         ["participants"] = new JsonObject
         {
             ["o"] = new JsonObject { ["email"] = "olga@acme.example", ["roles"] = new JsonObject { ["owner"] = true }, ["participationStatus"] = "accepted" },
-            ["m"] = new JsonObject { ["email"] = CalendarRig.Me, ["roles"] = new JsonObject { ["attendee"] = true }, ["participationStatus"] = "needs-action" },
+            ["m"] = new JsonObject { ["email"] = EditingRig.Me, ["roles"] = new JsonObject { ["attendee"] = true }, ["participationStatus"] = "needs-action" },
         },
     };
 
-    private static InvitationService Service(CalendarRig rig) => new(rig.Accounts, rig.Store, rig.Hooks);
+    private static InvitationService Service(EditingRig rig) => new(rig.Accounts, rig.Store, rig.Hooks);
 
     [Fact]
     public async Task An_event_already_in_the_calendar_is_answered_with_a_patch_that_sends_the_reply()
     {
-        var rig = await CalendarRig.CreateAsync((cals, work) => cals.AddEvent(work, Invite()));
+        var rig = await EditingRig.CreateAsync((cals, work) => cals.AddEvent(work, Invite()));
         var service = Service(rig);
         var invitation = Invite();
-        var heard = await CalendarRig.HeardAsync<RsvpHookPayload>(rig.Hooks, HookNames.OnEventRsvp, async () =>
+        var heard = await EditingRig.HeardAsync<RsvpHookPayload>(rig.Hooks, HookNames.OnEventRsvp, async () =>
         {
-            var r = await service.AnswerAsync(CalendarRig.Account, invitation, [CalendarRig.Me], "accepted", Ct);
+            var r = await service.AnswerAsync(EditingRig.Account, invitation, [EditingRig.Me], "accepted", Ct);
             Assert.True(r.IsOk, r.Error?.Message);
         });
         Assert.Equal("accepted", heard.Status);
@@ -52,8 +52,8 @@ public sealed class InvitationServiceTests
     [Fact]
     public async Task An_unknown_event_is_added_with_the_answer_already_in_it_in_one_call()
     {
-        var rig = await CalendarRig.CreateAsync();
-        var r = await Service(rig).AnswerAsync(CalendarRig.Account, Invite(), [CalendarRig.Me], "tentative", Ct);
+        var rig = await EditingRig.CreateAsync();
+        var r = await Service(rig).AnswerAsync(EditingRig.Account, Invite(), [EditingRig.Me], "tentative", Ct);
         Assert.True(r.IsOk, r.Error?.Message);
         var set = Assert.Single(rig.Sets);
         Assert.True((bool?)set.Args["sendSchedulingMessages"]);
@@ -67,13 +67,13 @@ public sealed class InvitationServiceTests
     [Fact]
     public async Task An_intercept_hook_stops_the_answer_and_a_stranger_cannot_answer()
     {
-        var rig = await CalendarRig.CreateAsync();
+        var rig = await EditingRig.CreateAsync();
         var service = Service(rig);
-        var stranger = await service.AnswerAsync(CalendarRig.Account, Invite(), ["someone@else.example"], "accepted", Ct);
+        var stranger = await service.AnswerAsync(EditingRig.Account, Invite(), ["someone@else.example"], "accepted", Ct);
         Assert.False(stranger.IsOk);
         using (rig.Hooks.Intercept<RsvpHookPayload>(HookNames.OnBeforeEventRsvp, (_, _) => ValueTask.FromResult(false)))
         {
-            Assert.False((await service.AnswerAsync(CalendarRig.Account, Invite(), [CalendarRig.Me], "accepted", Ct)).IsOk);
+            Assert.False((await service.AnswerAsync(EditingRig.Account, Invite(), [EditingRig.Me], "accepted", Ct)).IsOk);
         }
 
         Assert.Empty(rig.Sets);
@@ -82,39 +82,39 @@ public sealed class InvitationServiceTests
     [Fact]
     public async Task Add_to_calendar_stores_the_event_without_an_answer_and_without_messages()
     {
-        var rig = await CalendarRig.CreateAsync();
-        var r = await Service(rig).AddToCalendarAsync(CalendarRig.Account, Invite(), Ct);
+        var rig = await EditingRig.CreateAsync();
+        var r = await Service(rig).AddToCalendarAsync(EditingRig.Account, Invite(), Ct);
         Assert.True(r.IsOk, r.Error?.Message);
         Assert.False(rig.Sets.Single().Args.ContainsKey("sendSchedulingMessages"));
         Assert.Equal("needs-action", (string?)rig.Cals.Events().Single()["participants"]!["m"]!["participationStatus"]);
-        var stored = await Service(rig).StoredAsync(CalendarRig.Account, "inv-1", Ct);
+        var stored = await Service(rig).StoredAsync(EditingRig.Account, "inv-1", Ct);
         Assert.Equal("Design review", (string?)stored.Value!["title"]);
-        Assert.Null((await Service(rig).StoredAsync(CalendarRig.Account, "other", Ct)).Value);
+        Assert.Null((await Service(rig).StoredAsync(EditingRig.Account, "other", Ct)).Value);
     }
 
     [Fact]
     public async Task A_counter_proposal_moves_the_event_and_tells_the_guests_and_a_cancellation_removes_it()
     {
-        var rig = await CalendarRig.CreateAsync((cals, work) =>
+        var rig = await EditingRig.CreateAsync((cals, work) =>
         {
             var mine = Invite();
-            mine["organizerCalendarAddress"] = "mailto:" + CalendarRig.Me;
-            mine["participants"]!["o"]!["email"] = CalendarRig.Me;
+            mine["organizerCalendarAddress"] = "mailto:" + EditingRig.Me;
+            mine["participants"]!["o"]!["email"] = EditingRig.Me;
             mine["participants"]!["m"]!["email"] = "olga@acme.example";
             _ = cals.AddEvent(work, mine);
         });
         var service = Service(rig);
         var counter = new JsonObject { ["uid"] = "inv-1", ["start"] = "2026-11-21T15:00:00", ["timeZone"] = "UTC", ["duration"] = "PT30M" };
-        var r = await service.ApplyCounterAsync(CalendarRig.Account, counter, Ct);
+        var r = await service.ApplyCounterAsync(EditingRig.Account, counter, Ct);
         Assert.True(r.IsOk, r.Error?.Message);
         Assert.True((bool?)Assert.Single(rig.Sets).Args["sendSchedulingMessages"]);
         var moved = rig.Cals.Events().Single();
         Assert.Equal("2026-11-21T15:00:00", (string?)moved["start"]);
         Assert.Equal("PT30M", (string?)moved["duration"]);
 
-        var gone = await service.RemoveCancelledAsync(CalendarRig.Account, "inv-1", Ct);
+        var gone = await service.RemoveCancelledAsync(EditingRig.Account, "inv-1", Ct);
         Assert.True(gone.IsOk, gone.Error?.Message);
         Assert.Empty(rig.Cals.Events());
-        Assert.True((await service.RemoveCancelledAsync(CalendarRig.Account, "inv-1", Ct)).IsOk);
+        Assert.True((await service.RemoveCancelledAsync(EditingRig.Account, "inv-1", Ct)).IsOk);
     }
 }

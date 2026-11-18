@@ -12,12 +12,12 @@ using Barbican.FakeJmap;
 
 namespace Barbican.Core.Tests.Calendar.Editing;
 
-internal sealed class CalendarRig
+internal sealed class EditingRig
 {
     public const string Account = "acct";
     public const string Me = "user@example.org";
 
-    private CalendarRig(FakeJmapServer server, FakeCalendars cals, string work, JmapClient client)
+    private EditingRig(FakeJmapServer server, FakeCalendars cals, string work, JmapClient client)
     {
         Server = server;
         Cals = cals;
@@ -50,14 +50,14 @@ internal sealed class CalendarRig
 
     public IReadOnlyList<(string Type, JsonObject Args)> Sets => Server.Api.SetRequests;
 
-    public static async Task<CalendarRig> CreateAsync(Action<FakeCalendars, string>? seed = null)
+    public static async Task<EditingRig> CreateAsync(Action<FakeCalendars, string>? seed = null)
     {
         var cals = new FakeCalendars();
         var work = cals.AddCalendar("Work", isDefault: true);
         seed?.Invoke(cals, work);
         var server = new FakeJmapServer(new FakeJmapOptions { CalendarsCapability = true, AvailabilityCapability = true, Calendars = cals });
         var client = await FakeJmapHarness.ConnectAsync(server, TimeProvider.System, _ => { }, false, TestContext.Current.CancellationToken);
-        return new CalendarRig(server, cals, work, client);
+        return new EditingRig(server, cals, work, client);
     }
 
     /// <summary>A weekday series of five days at 09:00 (UTC) with the user as organiser and Ann as a guest.</summary>
@@ -114,7 +114,7 @@ internal sealed class CalendarRig
 
     private sealed class Session(IJmapClient client) : IAccountSession
     {
-        public AccountInfo Account => new(CalendarRig.Account, Me, "example.org");
+        public AccountInfo Account => new(EditingRig.Account, Me, "example.org");
 
         public IJmapClient Client => client;
 
