@@ -1,6 +1,7 @@
 using Barbican.Core.Settings.Folders;
 using Barbican.Core.Settings.Vacation;
 using Barbican.Core.Sieve;
+using Barbican.FakeJmap;
 
 namespace Barbican.Core.Tests.Filters.Rules;
 
@@ -45,6 +46,63 @@ public sealed class FilterServiceTests
         var loaded = await rig.Vacation.LoadAsync(FilterTestRig.Account, Ct);
         Assert.True(loaded.IsOk, loaded.Error?.Message);
         Assert.False(loaded.Value!.Enabled);
+    }
+
+    [Fact]
+    public async Task Vacation_calendar_block_tracks_changes_and_preserves_manual_edits()
+    {
+        var calendars = new FakeCalendars();
+        calendars.AddCalendar("Work", isDefault: true);
+        var rig = await FilterTestRig.StartAsync(new FakeJmapOptions { SieveCapability = true, VacationCapability = true, MetadataCapability = true, CalendarsCapability = true, Calendars = calendars });
+        var value = new VacationSettings(true, "Away", "Back soon", null, new DateOnly(2026, 12, 1), new DateOnly(2026, 12, 3), null, null, true);
+        Assert.True((await rig.Vacation.SaveAsync(FilterTestRig.Account, value, Ct)).IsOk);
+        var created = Assert.Single(calendars.Events());
+        Assert.Equal("bulwark-ooo-b", (string?)created["uid"]);
+        Assert.True((bool?)created["keywords"]?["bulwark-out-of-office"]);
+        Assert.True((await rig.Vacation.SaveAsync(FilterTestRig.Account, value with { To = new DateOnly(2026, 12, 4) }, Ct)).IsOk);
+        Assert.Equal("P4D", (string?)Assert.Single(calendars.Events())["duration"]);
+        var eventId = (string)created["id"]!;
+        calendars.Update("CalendarEvent", eventId, e => { e["title"] = "Personal edit"; e["start"] = "2026-12-02T00:00:00"; });
+        Assert.True((await rig.Vacation.SaveAsync(FilterTestRig.Account, value with { Enabled = false }, Ct)).IsOk);
+        Assert.Equal("Personal edit", (string?)Assert.Single(calendars.Events())["title"]);
+    }
+
+    [Fact]
+    public async Task Vacation_calendar_turning_off_removes_a_future_unchanged_block()
+    {
+        var calendars = new FakeCalendars();
+        calendars.AddCalendar("Work", isDefault: true);
+        var rig = await FilterTestRig.StartAsync(new FakeJmapOptions { SieveCapability = true, VacationCapability = true, MetadataCapability = true, CalendarsCapability = true, Calendars = calendars });
+        var value = new VacationSettings(true, "Away", "Back soon", null, new DateOnly(2026, 12, 1), new DateOnly(2026, 12, 3), null, null, true);
+        Assert.True((await rig.Vacation.SaveAsync(FilterTestRig.Account, value, Ct)).IsOk);
+        Assert.Single(calendars.Events());
+        Assert.True((await rig.Vacation.SaveAsync(FilterTestRig.Account, value with { Enabled = false }, Ct)).IsOk);
+        Assert.Empty(calendars.Events());
+    }
+
+    [Fact]
+    public async Task Vacation_calendar_does_not_restore_a_deleted_block_on_load()
+    {
+        var calendars = new FakeCalendars();
+        calendars.AddCalendar("Work", isDefault: true);
+        var rig = await FilterTestRig.StartAsync(new FakeJmapOptions { SieveCapability = true, VacationCapability = true, MetadataCapability = true, CalendarsCapability = true, Calendars = calendars });
+        var value = new VacationSettings(true, "Away", "Back soon", null, new DateOnly(2026, 12, 1), new DateOnly(2026, 12, 3), null, null, true);
+        Assert.True((await rig.Vacation.SaveAsync(FilterTestRig.Account, value, Ct)).IsOk);
+        Assert.True(calendars.Destroy("CalendarEvent", (string)Assert.Single(calendars.Events())["id"]!));
+        Assert.True((await rig.Vacation.LoadAsync(FilterTestRig.Account, Ct)).IsOk);
+        Assert.Empty(calendars.Events());
+    }
+
+    [Fact]
+    public async Task Vacation_calendar_turning_off_shortens_a_started_block()
+    {
+        var calendars = new FakeCalendars();
+        calendars.AddCalendar("Work", isDefault: true);
+        var rig = await FilterTestRig.StartAsync(new FakeJmapOptions { SieveCapability = true, VacationCapability = true, MetadataCapability = true, CalendarsCapability = true, Calendars = calendars });
+        var value = new VacationSettings(true, "Away", "Back soon", null, new DateOnly(2026, 11, 17), new DateOnly(2026, 11, 20), null, null, true);
+        Assert.True((await rig.Vacation.SaveAsync(FilterTestRig.Account, value, Ct)).IsOk);
+        Assert.True((await rig.Vacation.SaveAsync(FilterTestRig.Account, value with { Enabled = false }, Ct)).IsOk);
+        Assert.Equal("PT9H", (string?)Assert.Single(calendars.Events())["duration"]);
     }
 
     [Fact]
