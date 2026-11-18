@@ -4,6 +4,7 @@ using System.ComponentModel;
 using System.Runtime.CompilerServices;
 using Barbican.Core.Files;
 using Barbican.Core.Plugins.Hooks;
+using Barbican.Core.Storage;
 
 namespace Barbican.Presentation.Files;
 
@@ -26,16 +27,31 @@ public sealed class FilesViewModel : IFilesViewModel
     private string _search = string.Empty;
     private bool _showHidden;
     private bool _loading;
+    private bool _showDetails;
     private string? _error;
     private string _accountKey = string.Empty;
 
-    public FilesViewModel(IFileStore store, IFileWriter writer, IHookBus? hooks = null, TimeProvider? time = null)
+    public FilesViewModel(IFileStore store, IFileWriter writer, IHookBus? hooks = null, TimeProvider? time = null, IPrefsStore? prefs = null)
     {
         ArgumentNullException.ThrowIfNull(store);
         _store = store;
         Writer = writer;
         _hooks = hooks;
         Time = time ?? TimeProvider.System;
+        if (prefs is not null)
+        {
+            Settings = FilesSettings.Read(prefs.Current);
+            _viewMode = Settings.ViewMode;
+            _sortKey = Settings.SortKey;
+            _descending = Settings.SortDescending;
+            _showHidden = Settings.ShowHidden;
+            prefs.Changed += (_, _) =>
+            {
+                Settings = FilesSettings.Read(prefs.Current);
+                Raise(nameof(Settings));
+            };
+        }
+
         _store.Changed += (_, e) =>
         {
             if (string.Equals(e.AccountKey, _accountKey, StringComparison.Ordinal))
@@ -50,6 +66,16 @@ public sealed class FilesViewModel : IFilesViewModel
     public IFileWriter Writer { get; }
 
     public TimeProvider Time { get; }
+
+    /// <summary>The Files preferences (icons, colours, thumbnails; the rest seeds the view).</summary>
+    public FilesSettings Settings { get; private set; } = FilesSettings.Default;
+
+    /// <summary>The details panel is open.</summary>
+    public bool ShowDetails
+    {
+        get => _showDetails;
+        set => Set(ref _showDetails, value);
+    }
 
     /// <summary>The login whose files are shown (set by the screen from the account scope picker, I-066).</summary>
     public string AccountKey
@@ -156,7 +182,7 @@ public sealed class FilesViewModel : IFilesViewModel
     public IReadOnlyList<FileEntry> Folders(string? parentKey)
     {
         var all = _store.Snapshot(_accountKey)?.Entries ?? [];
-        var kids = all.Where(e => e.IsDirectory && string.Equals(e.ParentKey, parentKey, StringComparison.Ordinal)).ToList();
+        var kids = all.Where(e => e.IsDirectory && !e.Shared && string.Equals(e.ParentKey, parentKey, StringComparison.Ordinal)).ToList();
         return FilesListRules.Sort(FilesListRules.Visible(kids, _showHidden), FilesSortKey.Name, false);
     }
 
@@ -273,7 +299,7 @@ public sealed class FilesViewModel : IFilesViewModel
             FavouritesLocation => ByKeys(all, _store.Favourites),
             RecentLocation => ByKeys(all, _store.Recent),
             SharedLocation => [.. all.Where(e => e.Shared && e.ParentKey is null)],
-            FileTrash.TrashLocation => [.. FileTrash.Items(all).Select(t => t.Entry)],
+            FileTrash.TrashLocation => TrashItems(all),
             var folder => [.. all.Where(e => string.Equals(e.ParentKey, folder, StringComparison.Ordinal))],
         };
         var visible = FilesListRules.Visible(source, _showHidden);
@@ -291,6 +317,20 @@ public sealed class FilesViewModel : IFilesViewModel
         }
 
         Raise(nameof(Entries));
+    }
+
+    // FileTrash.Items is files-data's; until it lands (its stub throws) the loose children of the trash folder are the items (D-M5-D05)
+    private static List<FileEntry> TrashItems(IReadOnlyList<FileEntry> all)
+    {
+        try
+        {
+            return [.. FileTrash.Items(all).Select(t => t.Entry)];
+        }
+        catch (Barbican.Core.Common.PortPendingException)
+        {
+            var trash = all.FirstOrDefault(e => e.IsDirectory && !e.Shared && e.ParentKey is null && string.Equals(e.Name, FileTrash.TrashName, StringComparison.Ordinal));
+            return trash is null ? [] : [.. all.Where(e => string.Equals(e.ParentKey, trash.Key, StringComparison.Ordinal))];
+        }
     }
 
     private static List<FileEntry> ByKeys(IReadOnlyList<FileEntry> all, IReadOnlyList<string> keys)
