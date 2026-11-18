@@ -11,6 +11,9 @@ public interface ICalendarSource
     /// <summary>Raised when calendars or events changed (a load, a push delta, a local patch or its rollback); may come from any thread.</summary>
     event EventHandler<CalendarSourceChangedEventArgs>? Changed;
 
+    /// <summary>The login to show when no account is active (a sample run has none); null for the store.</summary>
+    string? DefaultAccountKey { get; }
+
     /// <summary>Loads the login's calendars and events (the Retry button calls it again).</summary>
     Task<Result<Unit>> LoadAsync(string accountKey, CancellationToken ct);
 

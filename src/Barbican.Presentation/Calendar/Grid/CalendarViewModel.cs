@@ -108,10 +108,13 @@ public sealed class CalendarViewModel : ObservableObject, ICalendarViewModel, ID
     /// <summary>Today on the user's clock (the injected <see cref="TimeProvider"/>).</summary>
     public DateOnly TodayDate => DateOnly.FromDateTime(_time.GetLocalNow().DateTime);
 
+    /// <summary>Now on the user's clock.</summary>
+    public DateTime Now() => _time.GetLocalNow().DateTime;
+
     public CalendarViewSettings Settings => _settings;
 
     /// <summary>The login the surface shows, or null.</summary>
-    public string? AccountKey => _accounts.Active?.Key;
+    public string? AccountKey => _accounts.Active?.Key ?? _source.DefaultAccountKey;
 
     /// <summary>The views the switch offers: Tasks only when tasks are on and the Tasks app is not separate (Rust view_names).</summary>
     public IReadOnlyList<CalendarViewKind> AvailableViews =>
@@ -190,14 +193,16 @@ public sealed class CalendarViewModel : ObservableObject, ICalendarViewModel, ID
     {
         get
         {
-            if (Selected is not { } o || AccountKey is not { } key)
-            {
-                return null;
-            }
-
-            var raw = o.Kind == CalendarOccurrenceKind.Birthday ? null : _source.EventObject(key, o.Base);
-            return EventDetails.From(o, raw, _calendars.FirstOrDefault(c => string.Equals(c.Id, o.Calendar, StringComparison.Ordinal)), _settings.Core.TwelveHour);
+            return Selected is { } o ? DetailOf(o) : null;
         }
+    }
+
+    /// <summary>The detail of any occurrence (the hover card and the panel).</summary>
+    public EventDetail DetailOf(CalendarOccurrence occurrence)
+    {
+        ArgumentNullException.ThrowIfNull(occurrence);
+        var raw = occurrence.Kind == CalendarOccurrenceKind.Birthday || AccountKey is not { } key ? null : _source.EventObject(key, occurrence.Base);
+        return EventDetails.From(occurrence, raw, _calendars.FirstOrDefault(c => string.Equals(c.Id, occurrence.Calendar, StringComparison.Ordinal)), _settings.Core.TwelveHour);
     }
 
     public void SetView(CalendarViewKind view)

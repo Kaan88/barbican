@@ -24,6 +24,8 @@ public sealed class StoreCalendarSource : ICalendarSource, IDisposable
 
     public event EventHandler<CalendarSourceChangedEventArgs>? Changed;
 
+    public string? DefaultAccountKey => null;
+
     public void Dispose() => _store.Changed -= OnStoreChanged;
 
     public async Task<Result<Unit>> LoadAsync(string accountKey, CancellationToken ct)

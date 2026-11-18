@@ -27,6 +27,8 @@ internal sealed class FakeCalendarSource : ICalendarSource
 
     public HashSet<string> Immovable { get; } = new(StringComparer.Ordinal);
 
+    public string? DefaultAccountKey => null;
+
     public Result<Unit> LoadResult { get; set; } = Result<Unit>.Ok(default);
 
     public int Loads { get; private set; }
@@ -153,7 +155,7 @@ internal sealed class CalendarHarness : IDisposable
         Toasts = new RecordingToastService();
         Editors = new RecordingEditors();
         View = new CalendarViewModel(Source, Accounts, Prefs, Bus, Time, new InlineDispatcher(), Editors);
-        Gestures = new CalendarGestures(Writer, View, Editors, Source, Accounts, Toasts);
+        Gestures = new CalendarGestures(Writer, View, Editors, Source, Toasts);
     }
 
     public FakeTimeProvider Time { get; }

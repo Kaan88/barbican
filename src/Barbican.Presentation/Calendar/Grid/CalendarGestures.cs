@@ -1,7 +1,6 @@
 // Mirrors: Rust dnd.rs / app.slint (events drag in 15-minute steps and resize with rollback), cal_editor.rs:1431 quick; Bulwark components/calendar/calendar-week-view.tsx, calendar-month-view.tsx, lib/calendar/event-drag-grab.ts, lib/calendar-editability.ts;
 // B-CAL-052 (a drop that changes nothing is skipped; a failed drop rolls back and says so); I-314..I-324. The write and its store rollback are ICalendarWriter.MoveAsync (cal-edit); this is the decision.
 
-using Barbican.Core.Accounts;
 using Barbican.Core.Calendar;
 using Barbican.Core.Calendar.Editing;
 using Barbican.Core.Common;
@@ -21,25 +20,22 @@ public sealed class CalendarGestures : ICalendarGestures
     public const int DefaultMinutes = 60;
 
     private readonly ICalendarWriter _writer;
-    private readonly ICalendarViewModel _view;
+    private readonly CalendarViewModel _view;
     private readonly ICalendarEditors _editors;
     private readonly IToastService? _toasts;
     private readonly ICalendarSource _source;
-    private readonly IAccountManager _accounts;
 
-    public CalendarGestures(ICalendarWriter writer, ICalendarViewModel view, ICalendarEditors editors, ICalendarSource source, IAccountManager accounts, IToastService? toasts = null)
+    public CalendarGestures(ICalendarWriter writer, CalendarViewModel view, ICalendarEditors editors, ICalendarSource source, IToastService? toasts = null)
     {
         ArgumentNullException.ThrowIfNull(writer);
         ArgumentNullException.ThrowIfNull(view);
         ArgumentNullException.ThrowIfNull(editors);
         ArgumentNullException.ThrowIfNull(source);
-        ArgumentNullException.ThrowIfNull(accounts);
         _writer = writer;
         _view = view;
         _editors = editors;
         _toasts = toasts;
         _source = source;
-        _accounts = accounts;
     }
 
     public DateTime Snap(DateTime time)
@@ -53,7 +49,7 @@ public sealed class CalendarGestures : ICalendarGestures
     public bool CanDrag(string occurrenceId)
     {
         ArgumentNullException.ThrowIfNull(occurrenceId);
-        return Find(occurrenceId) is { Kind: CalendarOccurrenceKind.Event } && _accounts.Active is { } a && _source.CanMove(a.Key, occurrenceId);
+        return Find(occurrenceId) is { Kind: CalendarOccurrenceKind.Event } && _view.AccountKey is { } key && _source.CanMove(key, occurrenceId);
     }
 
     public async Task<Result<Unit>> MoveAsync(string occurrenceId, DateTime newStart, CancellationToken ct)
@@ -143,12 +139,12 @@ public sealed class CalendarGestures : ICalendarGestures
             return Result<Unit>.Fail(new ValidationError("Only events can be moved here."));
         }
 
-        if (_accounts.Active is not { } account)
+        if (_view.AccountKey is not { } account)
         {
             return Result<Unit>.Fail(new ValidationError("No account is signed in."));
         }
 
-        if (!_source.CanMove(account.Key, id))
+        if (!_source.CanMove(account, id))
         {
             return Result<Unit>.Fail(new ValidationError("Only the organiser can change this event."));
         }
@@ -158,7 +154,7 @@ public sealed class CalendarGestures : ICalendarGestures
 
     private async Task<Result<Unit>> WriteAsync(CalendarOccurrence o, DateTime start, TimeSpan duration, CancellationToken ct)
     {
-        var account = _accounts.Active!.Key;
+        var account = _view.AccountKey!;
         var result = await _writer.MoveAsync(account, o.Id, start, duration, ct).ConfigureAwait(false);
         if (!result.IsOk)
         {
