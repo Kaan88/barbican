@@ -2,7 +2,6 @@
 
 using Barbican.Core.Calendar;
 using Barbican.Presentation.Calendar.Grid;
-using Microsoft.UI.Text;
 using Windows.UI.Text;
 
 namespace Barbican.App.Views.Calendar;

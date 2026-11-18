@@ -3,12 +3,10 @@
 // The calendar row's menu (rename, set default, delete, the colour submenu) is cal-ui's provider of MENU-CAL; the row only opens it. The capped task list is cal-ui's control in the slot SlotNames.CalendarSidebarTasks.
 
 using Microsoft.UI.Xaml.Automation;
-using System.Globalization;
 using Barbican.App.Shell;
 using Barbican.App.Theme;
 using Barbican.Presentation.Calendar.Grid;
 using Microsoft.UI.Text;
-using Microsoft.UI.Xaml.Input;
 
 #pragma warning disable MA0051 // a drawing routine builds one frame in one pass (no flicker); splitting it would only pass the same locals around
 namespace Barbican.App.Views.Calendar;

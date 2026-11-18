@@ -4,8 +4,6 @@
 
 using Microsoft.UI.Xaml.Automation;
 using System.Globalization;
-using Barbican.App.Shell;
-using Barbican.Core.Calendar;
 using Barbican.Presentation.Calendar.Grid;
 using Microsoft.UI.Text;
 using Microsoft.UI.Xaml.Input;

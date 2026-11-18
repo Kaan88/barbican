@@ -10,12 +10,14 @@ using Barbican.Core.Common;
 using Barbican.Core.Jmap.Errors;
 using Barbican.Presentation.Calendar.Grid;
 
+#pragma warning disable MA0051 // the seed is one block of sample data
+
 namespace Barbican.App.Views.Calendar.Automation;
 
 /// <summary>In-memory calendars and events for sample runs; also the writer for drags.</summary>
 public sealed class SampleCalendarSource : ICalendarSource, ICalendarWriter
 {
-    private readonly object _gate = new();
+    private readonly Lock _gate = new();
     private readonly List<Entry> _events = [];
     private readonly TimeProvider _time;
 
@@ -35,7 +37,9 @@ public sealed class SampleCalendarSource : ICalendarSource, ICalendarWriter
     public bool FailNext { get; set; }
 
     /// <summary>Moves that reached the writer: id, new start, duration (the scenario reads it).</summary>
+    #pragma warning disable MA0016 // the scenario appends and reads it
     public List<string> Writes { get; } = [];
+    #pragma warning restore MA0016
 
     public IReadOnlyList<CalendarListRow> Rows { get; } =
     [
@@ -108,7 +112,7 @@ public sealed class SampleCalendarSource : ICalendarSource, ICalendarWriter
 
         // the optimistic patch is on screen now (Patch + Changed); the "server" answers a moment later
         Changed?.Invoke(this, new CalendarSourceChangedEventArgs("sample", false));
-        await Task.Delay(60, ct).ConfigureAwait(false);
+        await Task.Delay(60, ct).ConfigureAwait(true);
         if (FailNext)
         {
             FailNext = false;

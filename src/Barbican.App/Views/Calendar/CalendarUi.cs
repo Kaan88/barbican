@@ -18,9 +18,9 @@ internal static class CalendarUi
     public static CalendarGestures Gestures => ViewHost.Get<CalendarGestures>();
 
     /// <summary>Runs async work from an event handler: what it throws ends in an error toast, never in the dispatcher.</summary>
-    public static void Run(Func<Task> work) => _ = Guard(work);
+    public static void Run(Func<Task> work) => _ = GuardAsync(work);
 
-    private static async Task Guard(Func<Task> work)
+    private static async Task GuardAsync(Func<Task> work)
     {
         try
         {

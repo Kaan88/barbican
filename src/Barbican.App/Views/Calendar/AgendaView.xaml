@@ -2,11 +2,18 @@
     x:Class="Barbican.App.Views.Calendar.AgendaView"
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-    xmlns:local="using:Barbican.App.Views.Calendar">
+    xmlns:local="using:Barbican.App.Views.Calendar"
+    xmlns:win="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:not_win="http://uno.ui/not_win"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    mc:Ignorable="not_win">
   <!-- The Agenda (Rust cal_extra.rs render_agenda; Bulwark calendar-agenda-view.tsx): 30 days from the anchor, a heading on the first row of each day, the time, a calendar dot or a task mark, the title, the place.
        A ListView, so the thousands of tasks of L-027 are virtualised: only the rows on screen exist. -->
   <ListView x:Name="List" SelectionMode="None" IsItemClickEnabled="True" ItemClick="OnItemClick" DoubleTapped="OnDoubleTapped" RightTapped="OnRightTapped"
             AutomationProperties.AutomationId="cal.agenda" AutomationProperties.Name="Agenda" Padding="0,4,0,8">
+    <win:ListView.ItemContainerTransitions>
+      <TransitionCollection />
+    </win:ListView.ItemContainerTransitions>
     <ListView.ItemContainerStyle>
       <Style TargetType="ListViewItem">
         <Setter Property="Padding" Value="0" />

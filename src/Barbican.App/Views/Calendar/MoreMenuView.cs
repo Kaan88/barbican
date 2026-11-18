@@ -2,7 +2,6 @@
 // Refresh and Print are the surface's own; Import and Subscribe run cal-ui's commands (calendar.import, calendar.subscribe) and are greyed until those are registered.
 
 using Microsoft.UI.Xaml.Automation;
-using Barbican.Presentation.Calendar.Grid;
 using Microsoft.UI.Text;
 
 namespace Barbican.App.Views.Calendar;

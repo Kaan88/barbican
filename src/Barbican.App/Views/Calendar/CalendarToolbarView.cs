@@ -2,12 +2,8 @@
 // B-CAL-053 (the title gets smaller when the grid is narrow); I-310 (Today, Prev, Next), I-311 (view switch), I-312 (More), I-313 (search).
 
 using Microsoft.UI.Xaml.Automation;
-using System.Globalization;
-using Barbican.App.Shell;
-using Barbican.App.Theme;
 using Barbican.Presentation.Calendar.Grid;
 using Microsoft.UI.Text;
-using Microsoft.UI.Xaml.Input;
 using Windows.Foundation;
 using Windows.System;
 

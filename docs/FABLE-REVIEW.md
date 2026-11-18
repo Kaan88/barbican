@@ -1273,3 +1273,8 @@ launched; Linux unverified). Verdicts on the M2 verify items 1 to 6, 11, 12 and 
 - **Contract stubs throw `PortPendingException`** until their stream lands; a default registration that throws is only reached if a stream forgets to replace it (`CalendarDataRegistration.cs`, `CalendarEditingRegistration.cs`, the six calls in `AppComposition.cs`).
 - **FakeJmap calendar arms** (`tests/Barbican.FakeJmap/FakeApi.Calendar.cs`) are written from the draft and Stalwart's source, not recorded from a server: review that their error shapes match Stalwart before cal-edit's write arm is trusted (`Principal/getAvailability` answers from event participants only).
 
+
+## M4 stream: cal-views
+- Review `src/Barbican.App/Views/Calendar/**` (gestures, hover preview, print view) against Bulwark's calendar views: judgement calls are D-M4-C05..C10 in `spec/decisions.md`. Verified only through hidden automation on sample data (screens in `docs/milestones/M4-screens/`), never with a real pointer or on a real login; Linux untested (deferred to M9).
+- `CalendarGestures.WriteAsync` now resumes on the caller's thread (`ConfigureAwait(true)`); the previous `false` threw a COMException in the toast and rollback path. Check the same pattern in cal-edit's `CalendarWriter` when merging.
+- Perf probe numbers (5 000 tasks, 3 000 events): Agenda 21 ms, Month 16-35 ms, Week 68-85 ms, Day 16-41 ms: measures view model and layout, not the first paint of the ListView.

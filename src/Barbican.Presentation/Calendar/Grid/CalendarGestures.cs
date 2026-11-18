@@ -155,7 +155,7 @@ public sealed class CalendarGestures : ICalendarGestures
     private async Task<Result<Unit>> WriteAsync(CalendarOccurrence o, DateTime start, TimeSpan duration, CancellationToken ct)
     {
         var account = _view.AccountKey!;
-        var result = await _writer.MoveAsync(account, o.Id, start, duration, ct).ConfigureAwait(false);
+        var result = await _writer.MoveAsync(account, o.Id, start, duration, ct).ConfigureAwait(true);
         if (!result.IsOk)
         {
             // the writer already put the store back (B-CAL-052): the grid shows the old time again; the toast says why

@@ -13,10 +13,12 @@ using System.Diagnostics;
 using System.Globalization;
 using System.Text.Json.Nodes;
 using Barbican.Automation;
-using Barbican.Core.Calendar;
 using Barbican.Presentation.Calendar.Grid;
 using Barbican.Presentation.Shell;
 using Microsoft.Extensions.DependencyInjection;
+
+#pragma warning disable MA0051 // automation command tables read as one list of commands; sample data is one block
+#pragma warning disable MA0048 // the command record sits beside its table
 
 namespace Barbican.App.Views.Calendar.Automation;
 
@@ -129,7 +131,7 @@ public sealed class CalendarCommand(string name, Func<string[], CancellationToke
 
         yield return new CalendarCommand("cal-bulk", (w, _) =>
         {
-            if (sample is null || w.Length < 2 || !int.TryParse(w[0], out var tasks) || !int.TryParse(w[1], out var events))
+            if (sample is null || w.Length < 2 || !int.TryParse(w[0], NumberStyles.Integer, CultureInfo.InvariantCulture, out var tasks) || !int.TryParse(w[1], NumberStyles.Integer, CultureInfo.InvariantCulture, out var events))
             {
                 return Task.FromResult("error cal-bulk TASKS EVENTS (sample runs only)");
             }
