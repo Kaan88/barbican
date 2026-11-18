@@ -500,6 +500,35 @@
        "Open in active session if possible"
       ]
      ]
+    },
+    {
+     "kind": "select",
+     "label": "Free the mail view's memory in the background",
+     "desc": "When the window is hidden or minimised the message view is suspended at once. After this long in the background it is closed to give back all its memory, and opens again with the next message.",
+     "key": "webviewBackgroundCloseMinutes",
+     "options": [
+      [
+       "0",
+       "Never close it"
+      ],
+      [
+       "1",
+       "After 1 minute"
+      ],
+      [
+       "5",
+       "After 5 minutes"
+      ],
+      [
+       "15",
+       "After 15 minutes"
+      ],
+      [
+       "60",
+       "After 1 hour"
+      ]
+     ],
+     "default": "5"
     }
    ]
   },

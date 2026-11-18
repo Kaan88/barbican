@@ -24,6 +24,7 @@ using Barbican.App.Theme;
 using Barbican.Core.Mail.Body;
 using Barbican.Core.Mail.Reader.Hooks;
 using Barbican.Core.Plugins.Hooks;
+using Barbican.Core.Storage;
 using Barbican.Presentation.Common;
 using Barbican.Presentation.Composition;
 using Barbican.Presentation.Input;
@@ -69,8 +70,9 @@ public sealed partial class BodyShell : IBodyPresenter, IStartupTask, IDisposabl
     private string? _allowRemoteFor;
     private string? _formattedFor;
 
-    public BodyShell(BodyAppearance appearance, Lazy<IKeyRouter> keys, ILinkRouter links, IDispatcher dispatcher, TimeProvider time, ThemeController theme, ILogger<BodyShell> log, IHookBus hooks)
+    public BodyShell(BodyAppearance appearance, Lazy<IKeyRouter> keys, ILinkRouter links, IDispatcher dispatcher, TimeProvider time, ThemeController theme, ILogger<BodyShell> log, IHookBus hooks, IPrefsStore prefs)
     {
+        Power = new BodyBackgroundPolicy(this, time, dispatcher, () => BodyBackgroundPolicy.ParseMinutes(prefs.Current.Str(BodyBackgroundPolicy.SettingKey, "5")));
         _hooks = hooks;
         _appearance = appearance;
         _keys = keys;
@@ -87,6 +89,9 @@ public sealed partial class BodyShell : IBodyPresenter, IStartupTask, IDisposabl
 
     /// <summary>The WebView the body view hosts (created on first use, on the UI thread).</summary>
     public WebView2 View => _view ??= CreateView();
+
+    /// <summary>The background policy (D-WV-01): the window's visibility calls it; see BodyShell.Power.cs.</summary>
+    public BodyBackgroundPolicy Power { get; }
 
     /// <summary>The shell document is up.</summary>
     public bool IsShellUp => _shellUp;
@@ -131,6 +136,12 @@ public sealed partial class BodyShell : IBodyPresenter, IStartupTask, IDisposabl
     public void Show(BodyRequest request)
     {
         ArgumentNullException.ThrowIfNull(request);
+        if (!_recreating)
+        {
+            // a suspended web view is resumed and a closed one created again before anything is sent to it (D-WV-01)
+            Power.BeforeUse();
+        }
+
         if (!string.Equals(_allowRemoteFor, request.EmailId, StringComparison.Ordinal))
         {
             _allowRemoteFor = null;
@@ -169,6 +180,7 @@ public sealed partial class BodyShell : IBodyPresenter, IStartupTask, IDisposabl
 
     public void Clear()
     {
+        _restore = null;
         ++_docSeq;
         _pending = null;
         _current = null;
@@ -212,6 +224,7 @@ public sealed partial class BodyShell : IBodyPresenter, IStartupTask, IDisposabl
     {
         _theme.CssApplied -= OnThemeApplied;
         _readyTimer?.Dispose();
+        Power.Dispose();
     }
 
     private WebView2 CreateView()
@@ -586,6 +599,12 @@ public sealed partial class BodyShell : IBodyPresenter, IStartupTask, IDisposabl
     // a payload starting with { is a web message (Windows), anything else a script
     private void Post(string payload)
     {
+        if (_closed)
+        {
+            // the web view is closed (background release): the shown message is kept in _restore and sent again on re-create
+            return;
+        }
+
         if (!_shellUp || _view?.CoreWebView2 is null)
         {
             _queued.Add(payload);
