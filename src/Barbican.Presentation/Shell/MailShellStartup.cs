@@ -131,6 +131,12 @@ public sealed class MailShellStartup : IStartupTask, IDisposable
             || string.Equals(e.PropertyName, nameof(SidebarViewModel.SelectedTagId), StringComparison.Ordinal)
             || string.Equals(e.PropertyName, nameof(SidebarViewModel.InboxUnread), StringComparison.Ordinal))
         {
+            // starring or unstarring happens in some folder; the Flagged tile counts across all of them, so it is asked again whenever the view changes (UI-SWEEP-1 G-01)
+            if (_active.Mail is { } mail && _cts is { } cts && !cts.IsCancellationRequested)
+            {
+                _ = LoadFlaggedAsync(mail, cts.Token);
+            }
+
             if (_sidebar.SelectedTagId is { } tagId)
             {
                 // the tag view names the header with the tag

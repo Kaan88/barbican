@@ -10,8 +10,19 @@ using Barbican.Presentation.Mail;
 namespace Barbican.Presentation.Compose.Pipeline;
 
 /// <summary>What the scheduled banner buttons and the Scheduled folder row menu do.</summary>
-public sealed class ScheduledBannerActions(IScheduledSends scheduled, IActiveMail active, IScheduleDialogHost dialogs, IComposerService composer, IToastService toasts, IPrefsStore prefs, TimeProvider time)
+public sealed class ScheduledBannerActions(IScheduledSends scheduled, IActiveMail active, IScheduleDialogHost dialogs, IComposerService composer, IToastService toasts, IPrefsStore prefs, TimeProvider time) : IBannerActionHandler
 {
+    /// <summary>The reader asks this handler for the banner's buttons (ReaderBannerActions falls back to the registered handlers).</summary>
+    public bool Owns(string actionId) => actionId is ScheduledBannerSource.Reschedule or ScheduledBannerSource.CancelAndEdit or ScheduledBannerSource.CancelSend;
+
+    /// <inheritdoc />
+    public Task<string> RunAsync(Barbican.Presentation.Mail.ReaderSnapshot snapshot, string actionId, CancellationToken ct)
+    {
+        ArgumentNullException.ThrowIfNull(snapshot);
+        return RunAsync(snapshot.EmailId, actionId, ct);
+    }
+
+
     private bool TwelveHour => string.Equals(prefs.Current.Str("timeFormat", "24h"), "12h", StringComparison.Ordinal);
 
     /// <summary>Runs <paramref name="actionId"/> (a <see cref="ScheduledBannerSource"/> action) for the message <paramref name="emailId"/>; the text is the result line (the toast says the same).</summary>

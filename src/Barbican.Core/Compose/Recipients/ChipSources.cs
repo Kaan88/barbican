@@ -79,7 +79,7 @@ public static class ChipSources
         var output = new List<(string Name, string Email)>();
         foreach (var m in sent)
         {
-            foreach (var x in m.To.Concat(m.Cc))
+            foreach (var x in (m.To ?? []).Concat(m.Cc ?? []))
             {
                 var e = x.Email?.Trim() ?? "";
                 if (e.Length == 0 || output.Any(o => string.Equals(o.Email, e, StringComparison.OrdinalIgnoreCase)))

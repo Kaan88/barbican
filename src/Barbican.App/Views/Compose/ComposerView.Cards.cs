@@ -73,7 +73,8 @@ public sealed partial class ComposerView
                         };
         }
 
-        Card.Child = content;
+        // UI-SWEEP-1 C-03: a docked reply is short, so a tall card (Schedule, Templates) scrolls instead of being cut off
+        Card.Child = content is null ? null : new ScrollViewer { Content = content, VerticalScrollBarVisibility = ScrollBarVisibility.Auto, HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled, HorizontalScrollMode = ScrollMode.Disabled };
         CardLayer.Visibility = content is null ? Visibility.Collapsed : Visibility.Visible;
         if (content is not null)
         {
@@ -128,7 +129,7 @@ public sealed partial class ComposerView
 
     internal static StackPanel ScheduleCard(ScheduleDialogViewModel state)
     {
-        var panel = new StackPanel { Spacing = 8, MinWidth = 320 };
+        var panel = new StackPanel { Spacing = 6, MinWidth = 320 };
         panel.Children.Add(Heading(state.Title));
         for (var i = 0; i < state.Presets.Count; i++)
         {

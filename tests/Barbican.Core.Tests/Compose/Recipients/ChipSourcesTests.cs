@@ -49,5 +49,16 @@ public sealed class ChipSourcesTests
         Assert.Equal([("A", "a@x.example"), ("", "b@x.example")], ChipSources.RecentFromSent(sent));
     }
 
+    [Fact]
+    public void RecentFromSent_skips_a_null_Cc_or_To_that_a_server_summary_can_carry()
+    {
+        var sent = new[]
+        {
+            new EmailSummary { Id = "s1", To = [new EmailAddress("A", "a@x.example")], Cc = null! },
+            new EmailSummary { Id = "s2", To = null!, Cc = [new EmailAddress(null, "b@x.example")] },
+        };
+        Assert.Equal([("A", "a@x.example"), ("", "b@x.example")], ChipSources.RecentFromSent(sent));
+    }
+
     private static JsonObject Card(string json) => (JsonObject)JsonNode.Parse(json)!;
 }
