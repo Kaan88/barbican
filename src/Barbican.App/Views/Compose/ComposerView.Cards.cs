@@ -129,7 +129,7 @@ public sealed partial class ComposerView
 
     internal static StackPanel ScheduleCard(ScheduleDialogViewModel state)
     {
-        var panel = new StackPanel { Spacing = 8, MinWidth = 320 };
+        var panel = new StackPanel { Spacing = 6, MinWidth = 320 };
         panel.Children.Add(Heading(state.Title));
         for (var i = 0; i < state.Presets.Count; i++)
         {

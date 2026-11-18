@@ -19,3 +19,12 @@ Severity: H = broken function or layout, M = clipped/missing/misleading, L = pol
 | U-01 | Unified inbox | Rows carry no account marker | f03 | L | open (check Bulwark's unified list) |
 | X-01 | `toast` automation command | Not implemented (listed in the protocol) | - | L | open |
 | W-01 | Window | Below 960 px logical the shell overflows; the real window has a 960 minimum (`ShellLayout.MinWidth`), `resize` bypasses it | c04 | n/a | not a defect |
+| G-01 | Glance "Flagged" tile | Count stays stale after starring (loaded once at start). Reloaded on every folder/tag change; in-folder star still waits for the next change | g06 | M | fixed (partly), live refresh on star open |
+| C-07 | Composer Schedule card, docked | Last button still clipped by a few px after the scroll fix; spacing tightened (unverified by shot) | g10 | L | fixed, needs re-shoot |
+| C-08 | Docked composer, keyboard focus | A focus ring stays on the Cc button behind the scrim while a card is open | g10 | L | open |
+| A-01 | Move with a bad target | `act mail.move Archive` (a name, not an id) shows the raw server error "<emailId>: Invalid mailboxIds ..." in the toast | - | M | open (friendly message, validate target) |
+| R-06 | Conversation strip | Rows show only sender and time, same text for each row of one sender; no snippet or subject | g06 | L | open |
+| A-02 | Automation | `compose-do schedule N` replies "not sent" although the message was scheduled | g10 | L | open |
+| N-01 | Real data previews | "Heading One Normalboldword" style previews come from old HTML-only messages (server preview); a fresh send from this app previews with spaces ("Heading Three line b line c") | - | n/a | verified, not a defect of ours |
+
+Paused: the keyboard sweep (j/k/Enter/s, ctrl+k, /, g d) on the real account, light/Nordic composer on real data, hover strip and attachments on real data, motion/flicker, and cleanup of the sweep's test mails (subjects "UISWEEP ...", one scheduled for Thu 19 Nov 08:00, in Inbox/Sent/Drafts of the test account) are not done.
