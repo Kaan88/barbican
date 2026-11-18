@@ -46,6 +46,18 @@ public static class TimeZones
         return Instant.FromUnixTimeMilliseconds(ms).InZone(z).LocalDateTime.ToDateTimeUnspecified();
     }
 
+    /// <summary>The wall time in <paramref name="zone"/> at an instant (UTC milliseconds); a floating zone gives the user's wall time.</summary>
+    public static DateTime UtcMsToZone(long ms, string? zone, TimeZoneInfo? local = null)
+    {
+        if (ZoneOf(zone) is { } z)
+        {
+            return Instant.FromUnixTimeMilliseconds(ms).InZone(z).LocalDateTime.ToDateTimeUnspecified();
+        }
+
+        var utc = DateTimeOffset.FromUnixTimeMilliseconds(ms).UtcDateTime;
+        return DateTime.SpecifyKind(TimeZoneInfo.ConvertTimeFromUtc(utc, local ?? TimeZoneInfo.Local), DateTimeKind.Unspecified);
+    }
+
     public static IReadOnlyList<string> All() => Names.Value;
 
     /// <summary>Up to <paramref name="max"/> zone names: city prefix first, then name prefix, then contains ("new york" finds America/New_York).</summary>

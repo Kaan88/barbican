@@ -9,7 +9,6 @@ namespace Barbican.Core.Tests.Calendar.Reminders;
 public sealed class ReminderRulesTests
 {
     [Fact]
-    [Red("cal-data")]
     [RustTest("reminders::fetch_ahead_covers_long_default_alerts")]
     public void Fetch_ahead_covers_long_default_alerts()
     {
@@ -22,7 +21,6 @@ public sealed class ReminderRulesTests
     }
 
     [Fact]
-    [Red("cal-data")]
     [RustTest("reminders::offsets_and_rows")]
     public void Offsets_and_rows()
     {
@@ -44,7 +42,6 @@ public sealed class ReminderRulesTests
     }
 
     [Fact]
-    [Red("cal-data")]
     [RustTest("reminders::effective_alerts_prefer_the_event_copy")]
     public void Effective_alerts_prefer_the_event_copy()
     {
@@ -59,7 +56,6 @@ public sealed class ReminderRulesTests
     }
 
     [Fact]
-    [Red("cal-data")]
     [RustTest("reminders::alerts_patch_keeps_unchanged_and_leaves_defaults")]
     public void Alerts_patch_keeps_unchanged_and_leaves_defaults()
     {
@@ -95,7 +91,6 @@ public sealed class ReminderRulesTests
     }
 
     [Fact]
-    [Red("cal-data")]
     [RustTest("reminders::due_alerts_of_series_and_tasks")]
     public void Due_alerts_of_series_and_tasks()
     {
@@ -127,7 +122,6 @@ public sealed class ReminderRulesTests
     }
 
     [Fact]
-    [Red("cal-data")]
     [RustTest("reminders::missed_window")]
     public void Missed_window()
     {

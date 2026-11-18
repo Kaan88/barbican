@@ -118,6 +118,7 @@ public sealed partial class FakeApi
         var ids = cals.Events()
             .Where(e => uid is null || string.Equals((string?)e["uid"], uid, StringComparison.Ordinal))
             .Where(e => inCals is null || (e["calendarIds"] as JsonObject ?? []).Any(k => inCals.Contains(k.Key)))
+            .Where(e => InRange(e, (string?)filter?["after"], (string?)filter?["before"]))
             .Select(e => (string)e["id"]!)
             .ToList();
         var position = args["position"] is JsonValue p ? p.GetValue<int>() : 0;
@@ -131,6 +132,32 @@ public sealed partial class FakeApi
             ["total"] = ids.Count,
             ["ids"] = new JsonArray([.. ids.Skip(position).Take(limit).Select(i => (JsonNode)i)]),
         });
+    }
+
+    /// <summary>The after/before filter of CalendarEvent/query (Stalwart calendar_event/query.rs): the event overlaps [after, before); a series counts from its start on. Times without a zone are UTC here.</summary>
+    private static bool InRange(JsonObject e, string? after, string? before)
+    {
+        if (after is null && before is null)
+        {
+            return true;
+        }
+
+        var start = DateTimeOffset.Parse(((string?)e["utcStart"] ?? (string?)e["start"] ?? "1970-01-01T00:00:00") + (((string?)e["utcStart"] ?? (string?)e["start"] ?? "").EndsWith('Z') ? string.Empty : "Z"), System.Globalization.CultureInfo.InvariantCulture);
+        var end = start + Duration((string?)e["duration"]);
+        var recurs = e["recurrenceRules"] is JsonArray { Count: > 0 };
+        return (before is null || start < DateTimeOffset.Parse(before, System.Globalization.CultureInfo.InvariantCulture)) && (after is null || recurs || end > DateTimeOffset.Parse(after, System.Globalization.CultureInfo.InvariantCulture));
+    }
+
+    private static TimeSpan Duration(string? iso)
+    {
+        try
+        {
+            return string.IsNullOrEmpty(iso) ? TimeSpan.FromHours(1) : System.Xml.XmlConvert.ToTimeSpan(iso);
+        }
+        catch (FormatException)
+        {
+            return TimeSpan.FromHours(1);
+        }
     }
 
     private (string? Name, JsonObject Args) PrincipalQuery(JsonObject args)

@@ -171,7 +171,7 @@ public sealed partial class CalendarStore
     }
 
     /// <summary>The primary calendar account, then the accounts shared with the login that have the Calendars capability (Rust calendar_accounts).</summary>
-    private static List<(string Account, string Name)> CalendarAccounts(JmapSession session, string primary)
+    internal static List<(string Account, string Name)> CalendarAccounts(JmapSession session, string primary)
     {
         var output = new List<(string, string)> { (primary, NameOf(session, primary)) };
         if (session.Raw.ValueKind == JsonValueKind.Object && session.Raw.TryGetProperty("accounts", out var accounts) && accounts.ValueKind == JsonValueKind.Object)
