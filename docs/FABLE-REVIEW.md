@@ -1265,3 +1265,11 @@ launched; Linux unverified). Verdicts on the M2 verify items 1 to 6, 11, 12 and 
 - **Clipboard** (`OsClipboardBackend.cs`): the WinRT clipboard is read as an async snapshot, then pasted synchronously. Never exercised against the real clipboard (hidden runs use `MemoryClipboardBackend`). HTML written without `HtmlFormatHelper` on the Uno head.
 - **Text quality gate** (D-251): only dark theme at 100 % measured; check 125/150 % and light theme, and the Uno `SKCanvasElement` host on the VM.
 - **Model gaps recorded as decisions** D-247 to D-249, D-252: mention chips, RTL direction, cell colour, image move undo.
+
+## M4 plan (stream: m4-plan)
+- **Webcal address check is stricter than Bulwark** (D-M4-07, G-006): LAN, localhost, link-local, unique-local, IPv4-mapped and credentialed addresses are refused, http is allowed with a warning. Review the rule list and that the fetcher repeats it on redirects and on resolved addresses (`src/Barbican.Core/Calendar/Feeds/FeedRules.cs`, contract stub only at this commit).
+- **JSCalendar stays `JsonNode` and wall clocks stay `DateTime`** (D-M4-02): review that no stream introduces a typed event model that would drop unknown properties on a write. Paths: `src/Barbican.Core/Calendar/**`.
+- **The .ics import drops alerts by default** (D-M4-09) where Bulwark keeps them; the prompt appears only when the file has alerts. `src/Barbican.Core/Calendar/Editing/ImportRules.cs`.
+- **Contract stubs throw `PortPendingException`** until their stream lands; a default registration that throws is only reached if a stream forgets to replace it (`CalendarDataRegistration.cs`, `CalendarEditingRegistration.cs`, the six calls in `AppComposition.cs`).
+- **FakeJmap calendar arms** (`tests/Barbican.FakeJmap/FakeApi.Calendar.cs`) are written from the draft and Stalwart's source, not recorded from a server: review that their error shapes match Stalwart before cal-edit's write arm is trusted (`Principal/getAvailability` answers from event participants only).
+

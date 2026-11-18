@@ -11,7 +11,7 @@ wherever they can. Safety rules stay (no real input, read-only account, admin ke
 |---|---|---|
 | M2 | `m2` (6012f9f) | Done: hotfix-2 and Fable review 3 fixes merged. Zip `Barbican-6012f9f305d6-win-x64.zip`. |
 | M3 | `m3` (2f11adb) | Done: send pipeline, editor core, editor view (Uno 7 / SkiaSharp 4), composer UI, close (quoted HTML sanitised, round trip). 2122 tests green, Linux green. Zip `Barbican-2f11adb86437-win-x64.zip`. Unproven: live round trip on the test account (no agent profile signed in), real IME, mailto from a browser, default-app registration. |
-| M4 | `m4` | Next: calendar and tasks. |
+| M4 | `m4-plan` | Planned 2026-11-18: docs/milestones/M4-plan.md (four streams cal-data, cal-edit, cal-views, cal-ui), contracts, FakeJmap calendar arms and 43 red tests pushed; `m4` is created from it. |
 
 Order after M4: M5, M6, M6b, M7, M8, M10, M9 (Linux last), then the whole-app Fable review.
 
