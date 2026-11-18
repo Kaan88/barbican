@@ -1417,3 +1417,7 @@ launched; Linux unverified). Verdicts on the M2 verify items 1 to 6, 11, 12 and 
 - Inspect generic row behaviour and its coverage in `src/Barbican.App/Views/Settings/SetUiRowsView.cs` and `src/Barbican.Presentation/Settings/Ui/SetUiCatalog.cs` (`a1e88a6`): sample screenshots cover only a subset; empty or inert controls and cross-stream pages need integration verification. Linux and human interaction are deferred.
 
 - Review `src/Barbican.App/Views/Settings/SetUiChoice.cs` and its call sites (this follow-up): in-window chips replace prohibited ComboBox popups; visual layout and keyboard accessibility need further verification.
+
+## Codex - M6 assistant tools checkpoint
+
+- Review `src/Barbican.Core/Settings/Assistant/AssistantTools.cs`, `AssistantLoop.cs`, `AssistantSession.cs`, `IAssistantComposer.cs`: new typed tool paths need integrated fake-server coverage for calendar, contacts, attachments, filter edits and send. Drafts require the coordinator's composer adapter; confirm reply prefill survives. Filter rules depend on the srv-data implementation; do not claim B-AI-008 complete until integrated. Core tests passed 1,426 on Windows, including fake-server tag and scripted composer/confirmation tests; Linux and live service behavior are unproven.
