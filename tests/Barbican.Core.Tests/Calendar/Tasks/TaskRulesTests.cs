@@ -9,7 +9,6 @@ namespace Barbican.Core.Tests.Calendar.Tasks;
 public sealed class TaskRulesTests
 {
     [Fact]
-    [Red("cal-ui")]
     [RustTest("cal_extra::quick_task_dates")]
     public void Quick_task_dates()
     {
@@ -25,7 +24,6 @@ public sealed class TaskRulesTests
     }
 
     [Fact]
-    [Red("cal-ui")]
     [RustTest("cal_extra::task_labels_and_filters")]
     public void Task_labels_and_filters()
     {
@@ -46,7 +44,6 @@ public sealed class TaskRulesTests
     }
 
     [Fact]
-    [Red("cal-ui")]
     [RustTest("cal_extra::task_field_mapping")]
     public void Task_field_mapping()
     {
@@ -66,7 +63,6 @@ public sealed class TaskRulesTests
     }
 
     [Fact]
-    [Red("cal-ui")]
     [RustTest("calendar::sidebar_tasks_capped_and_overdue")]
     public void Sidebar_tasks_capped_and_overdue()
     {
