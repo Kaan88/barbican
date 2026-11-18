@@ -84,11 +84,21 @@ public sealed class AssistantToolsTests
         Assert.Contains("<email>", found, StringComparison.Ordinal);
     }
 
-    [Fact]
-    public async Task Calendar_tool_creates_event_in_own_default_calendar_with_configured_zone()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Calendar_tool_uses_a_writable_own_calendar_with_configured_zone(bool readOnlyDefault)
     {
         var data = new FakeCalendars();
-        var calendar = data.AddCalendar("Work", isDefault: true);
+        if (readOnlyDefault)
+        {
+            _ = data.AddCalendar("Read-only", isDefault: true, extra: new JsonObject
+            {
+                ["myRights"] = new JsonObject { ["mayReadItems"] = true, ["mayWriteAll"] = false, ["mayWriteOwn"] = false },
+            });
+        }
+
+        var calendar = data.AddCalendar("Work", isDefault: !readOnlyDefault);
         var rig = CalendarRig.Create();
         var (key, _, _) = await rig.AddAsync("user@example.org", new FakeJmapOptions { Calendars = data });
         using var store = new CalendarStore(rig, rig.Hooks);

@@ -16,6 +16,7 @@ public static class SettingsSeamRegistration
         ArgumentNullException.ThrowIfNull(services);
         services.TryAddSingleton<ISettingsNavigation, SettingsNavigation>();
         services.TryAddSingleton<IAssistantConfirmation, AssistantDialogConfirmation>();
+        services.TryAddSingleton<IAssistantComposer, AssistantComposerBridge>();
         return services;
     }
 }

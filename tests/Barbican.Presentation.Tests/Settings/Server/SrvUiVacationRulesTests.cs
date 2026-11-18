@@ -12,7 +12,6 @@ public sealed class SrvUiVacationRulesTests
     private static VacationSettings V(bool on, DateOnly? from, DateOnly? to) => new(on, "Away", "Away.", null, from, to, null, null, false);
 
     [Fact]
-    [Red("srv-ui")]
     public void The_status_line_tells_off_active_scheduled_and_ended()
     {
         Assert.Equal("Off", SrvUiVacationRules.Status(V(false, null, null), Today));

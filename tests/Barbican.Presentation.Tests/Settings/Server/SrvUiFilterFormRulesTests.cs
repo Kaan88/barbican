@@ -8,7 +8,6 @@ namespace Barbican.Presentation.Tests.Settings.Server;
 public sealed class SrvUiFilterFormRulesTests
 {
     [Fact]
-    [Red("srv-ui")]
     public void Changing_the_field_keeps_a_comparator_it_allows_and_resets_one_it_does_not()
     {
         var kept = SrvUiFilterFormRules.FieldChanged(new FilterCond("from", "contains", "x@y.example", string.Empty), "to");
@@ -21,7 +20,6 @@ public sealed class SrvUiFilterFormRulesTests
     }
 
     [Fact]
-    [Red("srv-ui")]
     public void The_value_box_follows_the_field_and_comparator()
     {
         Assert.Equal(SrvUiValueKind.None, SrvUiFilterFormRules.ValueKind("all", string.Empty));

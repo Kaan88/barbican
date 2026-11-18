@@ -443,7 +443,9 @@ public sealed partial class AssistantTools(
         }
 
         var primary = session.Client.Session.AccountFor("urn:ietf:params:jmap:calendars");
-        var own = loaded.Value!.Calendars.Where(c => (c["_acc"] is null || string.Equals((string?)c["_acc"], primary, StringComparison.Ordinal)) && (bool?)c["myRights"]?["mayAddItems"] != false).ToList();
+        var own = loaded.Value!.Calendars.Where(c =>
+            (c["_acc"] is null || string.Equals((string?)c["_acc"], primary, StringComparison.Ordinal)) &&
+            (c["myRights"] is null || (bool?)c["myRights"]?["mayWriteAll"] == true || (bool?)c["myRights"]?["mayWriteOwn"] == true)).ToList();
         var selected = own.FirstOrDefault(c => (bool?)c["isDefault"] == true) ?? (own.Count > 0 ? own[0] : null);
         var calendar = (string?)selected?["id"];
         if (string.IsNullOrEmpty(calendar))

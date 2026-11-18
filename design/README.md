@@ -1,4 +1,10 @@
-# Barbican design language (approved 2026-11-16)
+# Barbican design language
+
+**Current direction (approved 2026-11-19):** [Bento Balanced and Nordic Focus](UI-GUIDELINES.md)
+are the UI guidelines from now on, including for Claude. The selected directions refine the
+existing two styles and take precedence where the older boards below differ. Further Terra
+alternatives are explorations until the user selects them. Keep all motion, accessibility,
+shared-token and hidden-automation requirements.
 
 Source of truth for the UI. Canvas: `<design-canvas-url>` (link in .local/accounts.md) (page "Bento × Nordic").
 The `.dc.html` files here are the board sources: plain HTML with inline styles; values come from

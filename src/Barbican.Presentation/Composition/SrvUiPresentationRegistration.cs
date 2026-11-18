@@ -13,6 +13,9 @@ public static class SrvUiPresentationRegistration
     {
         ArgumentNullException.ThrowIfNull(services);
         services.TryAddSingleton<ISrvUiFiltersViewModel, SrvUiFiltersViewModel>();
+        services.TryAddSingleton<SrvUiVacationViewModel>();
+        services.TryAddSingleton<SrvUiIdentitiesViewModel>();
+        services.TryAddSingleton<SrvUiTemplatesViewModel>();
         return services;
     }
 }
