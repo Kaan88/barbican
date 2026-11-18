@@ -1,4 +1,4 @@
-# Progress (M5 done 2026-11-18)
+# Progress (PAUSED 2026-11-18 by the user, M6 mid-way)
 
 Everything is pushed. Nothing is merged to `main` or tagged.
 
@@ -12,11 +12,24 @@ wherever they can. Safety rules stay (no real input, read-only account, admin ke
 | M2 | `m2` (6012f9f) | Done: hotfix-2 and Fable review 3 fixes merged. Zip `Barbican-6012f9f305d6-win-x64.zip`. |
 | M3 | `m3` (2f11adb) | Done: send pipeline, editor core, editor view (Uno 7 / SkiaSharp 4), composer UI, close (quoted HTML sanitised, round trip). 2122 tests green, Linux green. Zip `Barbican-2f11adb86437-win-x64.zip`. Unproven: live round trip on the test account (no agent profile signed in), real IME, mailto from a browser, default-app registration. |
 | M4 | `m4` (see git log) | Done 2026-11-18: calendar and tasks (cal-data, cal-edit, cal-views, cal-ui, UI sweep, integration pass). 2370 tests green on Windows, 0 [Red], spec-check M4 clean. Linux deferred to M9. Report: docs/milestones/M4.md. Zip `Barbican-ea1576de1218-win-x64.zip`. |
-| M6 | `m6-plan` | **Planned 2026-11-18** ([milestones/M6-plan.md](milestones/M6-plan.md)): four streams (set-data, set-ui, srv-data, srv-ui), the settings seam, contracts as stubs, FakeJmap arms, in-memory fakes, 43 red tests (set-data 18, set-ui 3, srv-data 17, srv-ui 5), decisions D-M6-00.. in spec/decisions.md. Integration branch `m6` is created from `m6-plan`. |
+| M6 | `m6` | **In progress, paused 2026-11-18** (see the pause table). Planned ([milestones/M6-plan.md](milestones/M6-plan.md)): four streams (set-data, set-ui, srv-data, srv-ui), the settings seam, contracts as stubs, FakeJmap arms, in-memory fakes, 43 red tests (set-data 18, set-ui 3, srv-data 17, srv-ui 5), decisions D-M6-00.. in spec/decisions.md. Integration branch `m6` is created from `m6-plan`. |
 | M5 | `m5` (8a629a8) | Done 2026-11-18: contacts and files (con-data, con-ui, files-data, files-ui, webview-bg, integration pass with live checks on the test account). 2618 tests green on Windows, 0 [Red], spec-check M5 clean. Linux deferred to M9. Report: docs/milestones/M5.md. Zip `Barbican-8a629a8e0d74-win-x64.zip`. |
 
-## Next step
-M6 (settings, server settings, assistant) is planned on branch `m6-plan` ([milestones/M6-plan.md](milestones/M6-plan.md)): create `m6` from it and start the four streams (set-data, set-ui, srv-data, srv-ui; worktrees `wt-m6-<key>`).
+## Pause table (M6, 2026-11-18)
+Every stream ends with a "WIP (paused)" commit, pushed. Nothing of M6 is merged into `m6` yet (`m6` = the plan, c31f1df).
+No live writes were left on the test account. No app or build process of the streams is left running.
+
+| Branch (worktree `wt-m6-<key>`) | Last commit | State and next step |
+|---|---|---|
+| `m6-set-data` | c2d9652 | Code, FakeJmap arms, hooks.csv and composer call sites written; **Core does not compile yet**; [Red] removed from its 18 tests, never run. Next: add `AssistantJson.Push(JsonArray, JsonNode)`, fix analyzer errors (HttpClient RS0030 pragma, MA0051 splits, MA0002), build, test, `spec-check --write`, decisions D-M6-A.. |
+| `m6-set-ui` | a1e88a6 | Screen, generic row renderer, account/security/assistant/backup pages, assistant column, commands, set-* automation; its 3 red green; Presentation tests and `build -Head win` passed. A hidden run crashed on the theme write (fixed in SetUiPrefsValues, not re-run). Next: Automation build, hidden run (port 8921), screenshots, Fable notes, D-M6-B04..B06, full test. |
+| `m6-srv-data` | b87f023 | Pure rules, four services, hook call sites, FakeJmap arms; 11 FilterRulesTests green, the other 5 rule tests, hook test and service rig compile but never ran; [Red] removed from all 17. Next: service tests on `FilterTestRig`, hooks.csv call-site rows, D-M6-C06/C07, Fable notes, spec-check, full test. |
+| `m6-srv-ui` | 36efd7d | Rules, view models, six pages and 3 dialogs registered through ISettingsPageFactory, sample-fakes swap, srv-open/srv-dump automation; its 5 red green, Presentation tests 971 pass. Automation build never confirmed (stopped by the pause). Next: Automation build, hidden sample run (port 8922), screenshots, decisions, Fable notes, full test and `-Head win`. |
+
+## How to resume
+1. One Sonnet agent per stream in its worktree, "continue from the last commit" (read the WIP subject, the stream's section of docs/milestones/M6-plan.md and this table); `$env:BARBICAN_BUILD_SLOTS = "3"` for every build.
+2. Merge the four into `m6` (append-only conflicts in decisions.md / FABLE-REVIEW.md: keep both; status rows in spec CSVs: keep the side that marks the work done; composition counts are separate terms per stream), full test, then one close-pass agent (wire real services, live checks on the test account via `agent-ui`, M6.md, zip), then M6b.
+
 Open from M5 (docs/milestones/M5.md "What is unproven" and "Not done"): contact activity tiles, blob photos in the contact list, marquee selection in Files, the account scope picker (I-066), an in-app PDF preview, a real-pointer drag test, Linux (M9). Seen in the M5 live run: the test account still holds the two Rust-era folders `p2prod A` and `p2prod B` and the old calendar and mail leftovers of `.local/accounts.md`.
 
 Order after M5: M6, M6b, M7, M8, M10, M9 (Linux last), then the whole-app Fable review.
