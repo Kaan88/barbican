@@ -19,9 +19,14 @@ public sealed partial class FakeApi
         _ => Error("unknownMethod"),
     };
 
+    /// <summary>The contact data an account id names: a shared account's (<see cref="FakeJmapOptions.SharedContacts"/>) or the user's own.</summary>
+    private FakeContacts? ContactsOf(JsonObject args) => (string?)args["accountId"] is { } id && options.SharedContacts.TryGetValue(id, out var shared) ? shared : options.Contacts;
+
+    private string ContactAccount(JsonObject args) => (string?)args["accountId"] is { } id && options.SharedContacts.ContainsKey(id) ? id : options.AccountId;
+
     private (string? Name, JsonObject Args) ContactGet(string type, JsonObject args)
     {
-        if (options.Contacts is not { } contacts || !options.ContactsCapability)
+        if (ContactsOf(args) is not { } contacts || !options.ContactsCapability)
         {
             return Error("unknownMethod");
         }
@@ -56,12 +61,12 @@ public sealed partial class FakeApi
             }
         }
 
-        return (null, new JsonObject { ["accountId"] = options.AccountId, ["state"] = contacts.State(type), ["list"] = list, ["notFound"] = notFound });
+        return (null, new JsonObject { ["accountId"] = ContactAccount(args), ["state"] = contacts.State(type), ["list"] = list, ["notFound"] = notFound });
     }
 
     private (string? Name, JsonObject Args) ContactChanges(string type, JsonObject args)
     {
-        if (options.Contacts is not { } contacts || !options.ContactsCapability)
+        if (ContactsOf(args) is not { } contacts || !options.ContactsCapability)
         {
             return Error("unknownMethod");
         }
@@ -79,7 +84,7 @@ public sealed partial class FakeApi
 
         return (null, new JsonObject
         {
-            ["accountId"] = options.AccountId,
+            ["accountId"] = ContactAccount(args),
             ["oldState"] = since,
             ["newState"] = contacts.State(type),
             ["hasMoreChanges"] = false,
@@ -91,7 +96,7 @@ public sealed partial class FakeApi
 
     private (string? Name, JsonObject Args) ContactCardQuery(JsonObject args)
     {
-        if (options.Contacts is not { } contacts || !options.ContactsCapability)
+        if (ContactsOf(args) is not { } contacts || !options.ContactsCapability)
         {
             return Error("unknownMethod");
         }
@@ -119,7 +124,7 @@ public sealed partial class FakeApi
         var limit = Math.Min(args["limit"] is JsonValue l ? l.GetValue<int>() : options.QueryLimitCap, options.QueryLimitCap);
         return (null, new JsonObject
         {
-            ["accountId"] = options.AccountId,
+            ["accountId"] = ContactAccount(args),
             ["queryState"] = contacts.State("ContactCard"),
             ["canCalculateChanges"] = false,
             ["position"] = position,

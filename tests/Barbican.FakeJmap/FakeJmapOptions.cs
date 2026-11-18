@@ -71,6 +71,18 @@ public sealed record FakeJmapOptions
     /// <summary>M5: the contact data behind AddressBook/* and ContactCard/* (needs <see cref="ContactsCapability"/>); null: those methods answer unknownMethod.</summary>
     public FakeContacts? Contacts { get; init; }
 
+    /// <summary>M5: address books shared with the login by account id (the session lists them with the Contacts capability, isPersonal false; the contact methods serve them with the same arms, their changes push under their own account id).</summary>
+    public IReadOnlyDictionary<string, FakeContacts> SharedContacts { get; init; } = new Dictionary<string, FakeContacts>(StringComparer.Ordinal);
+
+    /// <summary>M5 directory: the principals behind Principal/query and Principal/get (RFC 9670; needs <see cref="PrincipalsCapability"/>); each has id, type, name, and optionally email, description, timeZone, accounts.</summary>
+    public IReadOnlyList<System.Text.Json.Nodes.JsonObject>? Principals { get; init; }
+
+    /// <summary>M5 directory: advertise urn:ietf:params:jmap:principals without the availability capability.</summary>
+    public bool PrincipalsCapability { get; init; }
+
+    /// <summary>M5 directory: Principal/query is refused with forbidden (Principal/get without ids still lists the principals the login knows), as a Stalwart that turns directory queries off.</summary>
+    public bool PrincipalQueryForbidden { get; init; }
+
     /// <summary>M4: advertise Principals and Principal availability (Principal/query, Principal/getAvailability, G-009).</summary>
     public bool AvailabilityCapability { get; init; }
 

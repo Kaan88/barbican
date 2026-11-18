@@ -77,8 +77,7 @@ public sealed partial class FakeApi(FakeStore store, FakeJmapOptions options, Fu
     private (string? Name, JsonObject Args) Method(string name, JsonObject args)
     {
         if (!string.Equals(name, "Core/echo", StringComparison.Ordinal) && !string.Equals((string?)args["accountId"], options.AccountId, StringComparison.Ordinal)
-            && !(name.StartsWith("Calendar", StringComparison.Ordinal) && options.SharedCalendars.ContainsKey((string?)args["accountId"] ?? string.Empty))
-            && !IsSharedFileAccount(name, (string?)args["accountId"]))
+            && !IsSharedAccount(name, (string?)args["accountId"] ?? string.Empty))
         {
             return Error("accountNotFound");
         }
@@ -126,7 +125,8 @@ public sealed partial class FakeApi(FakeStore store, FakeJmapOptions options, Fu
             "CalendarEvent/changes" => CalendarChanges("CalendarEvent", args),
             "CalendarEvent/query" => CalendarEventQuery(args),
             "CalendarEvent/set" => CalendarSet("CalendarEvent", args),
-            "Principal/query" => PrincipalQuery(args),
+            "Principal/query" => options.Principals is not null ? PrincipalDirectoryQuery(args) : PrincipalQuery(args),
+            "Principal/get" => PrincipalGet(args),
             "Principal/getAvailability" => PrincipalGetAvailability(args),
 
             "x:ArchivedItem/get" => ArchivedItemGet(args),
@@ -136,6 +136,12 @@ public sealed partial class FakeApi(FakeStore store, FakeJmapOptions options, Fu
             _ => name.StartsWith("AddressBook/", StringComparison.Ordinal) || name.StartsWith("ContactCard/", StringComparison.Ordinal) ? ContactMethod(name, args) : Error("unknownMethod"),
         };
     }
+
+    // an account the session lists besides the user's: shared calendars (Calendar*), shared address books (AddressBook/, ContactCard/), shared file storage
+    private bool IsSharedAccount(string name, string account) =>
+        (name.StartsWith("Calendar", StringComparison.Ordinal) && options.SharedCalendars.ContainsKey(account))
+        || ((name.StartsWith("AddressBook/", StringComparison.Ordinal) || name.StartsWith("ContactCard/", StringComparison.Ordinal)) && options.SharedContacts.ContainsKey(account))
+        || IsSharedFileAccount(name, account);
 
     private bool TakeFault(FakeFault fault)
     {

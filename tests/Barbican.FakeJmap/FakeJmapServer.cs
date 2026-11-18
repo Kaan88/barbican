@@ -35,6 +35,16 @@ public sealed partial class FakeJmapServer : HttpMessageHandler
             Push.Attach(calendars);
         }
 
+        if (Options.Contacts is { } ownContacts)
+        {
+            Push.Attach(ownContacts);
+        }
+
+        foreach (var (id, shared) in Options.SharedContacts)
+        {
+            Push.Attach(shared, id);
+        }
+
         if (seed)
         {
             FakeSeed.Fill(Store);

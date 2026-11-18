@@ -62,7 +62,7 @@ public sealed partial class FakeApi
 
     private (string? Name, JsonObject Args) ContactSet(string type, JsonObject args)
     {
-        if (options.Contacts is not { } contacts || !options.ContactsCapability)
+        if (ContactsOf(args) is not { } contacts || !options.ContactsCapability)
         {
             return Error("unknownMethod");
         }
@@ -100,7 +100,7 @@ public sealed partial class FakeApi
         ContactDefault(run);
         return (null, new JsonObject
         {
-            ["accountId"] = options.AccountId,
+            ["accountId"] = ContactAccount(args),
             ["oldState"] = oldState,
             ["newState"] = contacts.State(type),
             ["created"] = run.Created.Count == 0 ? null : run.Created,

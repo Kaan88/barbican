@@ -90,7 +90,17 @@ public sealed class PushHub
         }
     }
 
-    private void Publish(object? sender, FakeStateChangedEventArgs e)
+    /// <summary>Follows a contacts account: its changes become StateChanges of <paramref name="accountId"/> (null: the user's account; a shared account's id for <see cref="FakeJmapOptions.SharedContacts"/>), M5: AddressBook and ContactCard states.</summary>
+    public void Attach(FakeContacts contacts, string? accountId = null)
+    {
+        ArgumentNullException.ThrowIfNull(contacts);
+        var account = accountId ?? _accountId;
+        contacts.Changed += (_, e) => Publish(account, e);
+    }
+
+    private void Publish(object? sender, FakeStateChangedEventArgs e) => Publish(_accountId, e);
+
+    private void Publish(string accountId, FakeStateChangedEventArgs e)
     {
         var states = e.States;
         List<(PushStream Stream, HashSet<string> Types)> open;
@@ -112,7 +122,7 @@ public sealed class PushHub
 
             if (changed.Count > 0)
             {
-                var change = new JsonObject { ["@type"] = "StateChange", ["changed"] = new JsonObject { [_accountId] = changed } };
+                var change = new JsonObject { ["@type"] = "StateChange", ["changed"] = new JsonObject { [accountId] = changed } };
                 stream.Send("state", change.ToJsonString());
             }
         }

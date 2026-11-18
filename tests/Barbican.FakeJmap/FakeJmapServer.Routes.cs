@@ -256,6 +256,10 @@ public sealed partial class FakeJmapServer
             caps["urn:ietf:params:jmap:principals"] = new JsonObject();
             caps["urn:ietf:params:jmap:principals:availability"] = new JsonObject();
         }
+        else if (o.PrincipalsCapability)
+        {
+            caps["urn:ietf:params:jmap:principals"] = new JsonObject();
+        }
 
         if (o.MetadataCapability)
         {
@@ -266,9 +270,19 @@ public sealed partial class FakeJmapServer
     // M4: the accounts that share their calendars with the login (the Calendars capability only)
     private static void AddSharedCalendarAccounts(JsonObject session, FakeJmapOptions o)
     {
+        AddSharedContactAccounts(session, o);
         foreach (var id in o.SharedCalendars.Keys)
         {
             session["accounts"]![id] = new JsonObject { ["name"] = id, ["isPersonal"] = false, ["isReadOnly"] = false, ["accountCapabilities"] = new JsonObject { ["urn:ietf:params:jmap:calendars"] = new JsonObject() } };
+        }
+    }
+
+    // M5: the accounts that share their address books with the login (the Contacts capability only)
+    private static void AddSharedContactAccounts(JsonObject session, FakeJmapOptions o)
+    {
+        foreach (var id in o.SharedContacts.Keys)
+        {
+            session["accounts"]![id] = new JsonObject { ["name"] = id, ["isPersonal"] = false, ["isReadOnly"] = false, ["accountCapabilities"] = new JsonObject { ["urn:ietf:params:jmap:contacts"] = new JsonObject() } };
         }
     }
 
