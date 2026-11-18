@@ -85,7 +85,7 @@ S-filenameCollapseSeparators,unwired,files,toggle,Collapse repeated separators,t
 S-filenameLowercase,unwired,files,toggle,Lowercase,false,,,FileTransfer.LocalNameFor (files-data),
 S-filenameSpaceReplacement,unwired,files,select,Spaces,"""keep""",,,FileTransfer.LocalNameFor (files-data),
 S-filenameStripDiacritics,unwired,files,toggle,Strip diacritics,false,,,FileTransfer.LocalNameFor (files-data),
-S-postExportAction,unwired,files,select,After export,"""keep""",,,not ported,
+S-postExportAction,unwired,files,select,After export,"""keep""",,,not ported," (M5 files-data: the action after a mail export, so no Files code reads it; D-M5-C07)"
 S-dateFormat,wired,general,select,Date format,"""smart""",mail.rs,src/mail.rs:66,MailListSettings,
 S-dateLocale,unwired,general,select,Date format region,"""auto""",,,not ported,
 S-firstDayOfWeek,wired,general,select,First day of week,1,calendar.rs;recurrence.rs;settings.rs,src/calendar.rs:170,src/Barbican.Core/Calendar/CalendarSettings.cs,
