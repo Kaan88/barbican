@@ -16,6 +16,19 @@ limits, the four M6 pause checkpoints, and the resume prompt. Apply its
 Codex-specific model and attribution instructions when older plans name Claude
 models; all safety, privacy, build and account rules below remain in force.
 
+## UI direction approved by the user (2026-11-19)
+
+Read [design/UI-GUIDELINES.md](design/UI-GUIDELINES.md) before UI work. The user selected
+**Bento Balanced** and **Nordic Focus** from the Codex / Terra High mockups and instructed
+that these are the UI guidelines from now on, including for Claude. Refine the existing
+Bento and Nordic styles toward those baselines; where older boards differ, the selected
+directions win. Nordic Focus uses the integrated sender/context panel, with a user-controlled
+show/hide toggle; the reader expands when hidden. Preserve behavior, shared tokens, native
+WinUI 3 feasibility, accessibility,
+reduced motion and the hidden-automation rules. Further mockup alternatives remain proposals
+until selected; do not silently adopt them. Reference images are checked into
+`design/mockups/approved-2026-11-19/`.
+
 ## Start of every session
 1. Read `.local/accounts.md` (gitignored, machine-local). It maps the placeholders used in this repo
    (`<readonly-account>`, `<test-account>`, `<server>`, `<admin-key-file>`, `<rust-repo>`,

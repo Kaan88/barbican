@@ -112,9 +112,10 @@ public sealed partial class FakeApi
                 }
             }
 
-            if (node["otpAuth"] is JsonObject otp && otp.ContainsKey("otpCode"))
+            if (node["otpAuth"] is JsonObject otp)
             {
-                otp["otpCode"] = "***";
+                if (otp.ContainsKey("otpCode")) otp["otpCode"] = "***";
+                if (otp["otpUrl"] is not null) otp["otpUrl"] = "***";
             }
         }
 

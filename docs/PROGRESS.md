@@ -10,13 +10,15 @@ wherever they can. Safety rules stay (no real input, read-only account, admin ke
 
 ## Codex continuation (active, 2026-11-19)
 
+- **User-selected UI guidelines:** Bento Balanced and Nordic Focus; see `design/UI-GUIDELINES.md` and CLAUDE.md. Nordic Focus now means the integrated sender/context layout with a toggleable panel; the name remains Nordic Focus. The same Terra agent is creating two completely different exploratory alternatives, not just variations. No blanket production theme replacement has been applied.
+
 - Coordinator: Sol, checking subagent code during integration as requested by the user; the later independent whole-app reviewer is Astra. Keep the historical filename `docs/FABLE-REVIEW.md`, mark new entries as Codex, and record exact review scope and evidence.
 - The user explicitly authorized pushing milestone commits to `Kaan88/barbican`.
-- Set-data checkpoint `d1f137c` merged into `m6` as `08fe6f5`; missing assistant tools are being completed on the stream branch.
+- Set-data checkpoints through `a921d70` are merged; assistant tools, fake-only account writes, offline provider formats and history isolation have executed coverage. Shared mutation locking for backup/settings is being completed on the stream branch.
 - Srv-data calendar lifecycle checkpoint `89ce45b` merged as `fe2118c`; ownership/lifecycle FakeJmap tests passed, with remaining policy/timezone/live limitations in the Astra log.
 - Set-ui checkpoint `bd50e41` merged as `1d3b614`; the coordinator fixed the Security-page parenting failure and verified repeated hidden visits. Assistant configuration now uses its real service; the guarded composer adapter is implemented.
-- Srv-ui has resumed in its existing worktree on port 8922. Three Terra High workers remain the active limit; narrow Luna High work will use a free slot when available.
-- Coordinator integration bridges, guarded assistant composer and background preference dispatch pass the full Windows suite: 2,695 passed, four live/Linux skips, zero failed. Final server UI merge, remaining settings/tool reconciliation, complete hidden checks, live checks/cleanup, M6 report and portable zip are pending. Linux stays deferred to M9.
+- Srv-ui checkpoint `1332306` merged as `08331b8`. The same Terra worker is completing UI-keyless controls, catalogue reconciliation, sample real-service wiring and the close pass on port 8929. Narrow Luna High catalogue triage is complete.
+- Latest combined Windows run at `08331b8`: 2,709 passed, four live/Linux skips, zero failed. Subsequent assistant/account/provider checks are merged, including the coordinator calendar-rights regression (nine focused assistant cases passed). Remaining settings reconciliation/locking, complete hidden checks, live checks/cleanup, M6 report and portable zip are pending. Linux stays deferred to M9.
 - Continue in order: M6 -> M6b -> M7 -> M8 -> M10 -> M9 -> Astra whole-app review. The pause table below is historical evidence, not current status.
 
 ## Milestones
@@ -25,7 +27,7 @@ wherever they can. Safety rules stay (no real input, read-only account, admin ke
 | M2 | `m2` (6012f9f) | Done: hotfix-2 and Fable review 3 fixes merged. Zip `Barbican-6012f9f305d6-win-x64.zip`. |
 | M3 | `m3` (2f11adb) | Done: send pipeline, editor core, editor view (Uno 7 / SkiaSharp 4), composer UI, close (quoted HTML sanitised, round trip). 2122 tests green, Linux green. Zip `Barbican-2f11adb86437-win-x64.zip`. Unproven: live round trip on the test account (no agent profile signed in), real IME, mailto from a browser, default-app registration. |
 | M4 | `m4` (see git log) | Done 2026-11-18: calendar and tasks (cal-data, cal-edit, cal-views, cal-ui, UI sweep, integration pass). 2370 tests green on Windows, 0 [Red], spec-check M4 clean. Linux deferred to M9. Report: docs/milestones/M4.md. Zip `Barbican-ea1576de1218-win-x64.zip`. |
-| M6 | `m6` | **In progress, paused 2026-11-18** (see the pause table). Planned ([milestones/M6-plan.md](milestones/M6-plan.md)): four streams (set-data, set-ui, srv-data, srv-ui), the settings seam, contracts as stubs, FakeJmap arms, in-memory fakes, 43 red tests (set-data 18, set-ui 3, srv-data 17, srv-ui 5), decisions D-M6-00.. in spec/decisions.md. Integration branch `m6` is created from `m6-plan`. |
+| M6 | `m6` | **In progress: integration/close pass, 2026-11-19.** All four implementation streams merged; 18/18 Rust test rows mapped, 36/36 M6 hook call sites recorded, zero Red markers. Windows integration and hidden Security refresh checks passed. Remaining work and exact evidence are listed in the active Codex continuation above; the old pause table is historical. |
 | M5 | `m5` (8a629a8) | Done 2026-11-18: contacts and files (con-data, con-ui, files-data, files-ui, webview-bg, integration pass with live checks on the test account). 2618 tests green on Windows, 0 [Red], spec-check M5 clean. Linux deferred to M9. Report: docs/milestones/M5.md. Zip `Barbican-8a629a8e0d74-win-x64.zip`. |
 
 ## Pause table (M6, 2026-11-18)

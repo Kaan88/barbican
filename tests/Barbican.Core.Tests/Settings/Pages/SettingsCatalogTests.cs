@@ -29,4 +29,16 @@ public sealed class SettingsCatalogTests
         Assert.Equal("accessibility", SettingsCatalog.RowOf("S-colorBlindPalette")!.Page);
         Assert.Null(SettingsCatalog.RowOf("S-nope"));
     }
+    [Theory]
+    [InlineData("recipientMentionsEnabled")]
+    [InlineData("mentionAddsRecipientTo")]
+    [InlineData("filenameCollapseSeparators")]
+    [InlineData("filenameLowercase")]
+    [InlineData("filenameSpaceReplacement")]
+    [InlineData("filenameStripDiacritics")]
+    public void Existing_settings_readers_are_not_labelled_inert(string key)
+    {
+        Assert.Equal(SettingRowStatus.Wired, SettingsCatalog.RowOfKey(key)!.Status);
+    }
+
 }
