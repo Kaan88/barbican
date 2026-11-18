@@ -9,7 +9,6 @@ namespace Barbican.Core.Tests.Calendar.Feeds;
 public sealed class FeedRulesTests
 {
     [Fact]
-    [Red("cal-edit")]
     [RustTest("cal_extra::feed_uid_is_stable_and_fills_only_missing")]
     public void Feed_uid_is_stable_and_fills_only_missing()
     {
@@ -26,7 +25,6 @@ public sealed class FeedRulesTests
     }
 
     [Fact]
-    [Red("cal-edit")]
     [RustTest("cal_extra::feed_events_drop_remote_alerts")]
     public void Feed_events_drop_remote_alerts()
     {
@@ -40,7 +38,6 @@ public sealed class FeedRulesTests
     }
 
     [Fact]
-    [Red("cal-edit")]
     public void Lan_and_localhost_feeds_are_blocked()
     {
         string[] urls =
@@ -69,7 +66,6 @@ public sealed class FeedRulesTests
     }
 
     [Fact]
-    [Red("cal-edit")]
     public void Public_https_is_allowed_and_http_is_allowed_with_a_warning()
     {
         var https = FeedRules.Check("webcal://example.com/a.ics");

@@ -1,10 +1,10 @@
 id,priority,size,area,item,bulwark_ref,source,milestone,status
-G-001,P0,S,calendar,Invitations: applying a counter-proposal,components/calendar invitation banner (ical counter),GAPS P0-1 (remaining),M4,open
-G-002,P0,S,calendar,Invitations: remove cancelled event from the banner,calendar invitation banner,GAPS P0-1 (remaining),M4,open
+G-001,P0,S,calendar,Invitations: applying a counter-proposal,components/calendar invitation banner (ical counter),GAPS P0-1 (remaining),M4,done
+G-002,P0,S,calendar,Invitations: remove cancelled event from the banner,calendar invitation banner,GAPS P0-1 (remaining),M4,done
 G-003,P0,S,calendar,Event editor: all-day strip in day and week header has no height cap,calendar day/week header,GAPS P0-2,M4,open
-G-004,P0,S,calendar,Import: .ics alerts kept from the file without asking first,ical-import-modal.tsx,GAPS P0-2,M4,open
+G-004,P0,S,calendar,Import: .ics alerts kept from the file without asking first (D-M4-09: the prompt defaults to keep as Bulwark),ical-import-modal.tsx,GAPS P0-2,M4,open
 G-005,P0,S,calendar,Reminders: an event's own alert set more than 8 days ahead is missed when the calendar defaults do not reach that far,use-calendar-alerts.ts,GAPS P0-3,M4,open
-G-006,P0,S,calendar,Webcal: feeds on localhost or LAN hosts not blocked; plain http accepted with a warning,calendar-subscription-sync.ts,GAPS P0-4,M4,open
+G-006,P0,S,calendar,Webcal: feeds on localhost or LAN hosts not blocked; plain http accepted with a warning,calendar-subscription-sync.ts,GAPS P0-4,M4,done
 G-007,P0,S,platform,Mailto on Linux: .desktop registration code never compiled,n/a (platform),GAPS P0-5,M9,open
 G-008,P1,S/M,calendar,Calendar print,calendar-print.tsx,GAPS P1-1,M4,open
 G-009,P1,S/M,calendar,"Find a time depends on Principal/getAvailability, which Stalwart may not support",find-a-time.tsx,GAPS P1-1,M4,open

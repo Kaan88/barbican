@@ -25,4 +25,7 @@ public interface ICalendarWriter
     Task<Result<Unit>> UpdateAsync(string accountKey, string id, System.Text.Json.Nodes.JsonObject patch, CancellationToken ct);
 
     Task<Result<Unit>> DestroyAsync(string accountKey, string id, CancellationToken ct);
+
+    /// <summary>onCheckEventConflicts (additive, M4 cal-edit): the warnings plugins add while the start or end changes in the editor; none without a plugin. A default member so existing fakes keep compiling.</summary>
+    Task<IReadOnlyList<string>> CheckConflictsAsync(System.Text.Json.Nodes.JsonNode ev, CancellationToken ct) => Task.FromResult<IReadOnlyList<string>>([]);
 }

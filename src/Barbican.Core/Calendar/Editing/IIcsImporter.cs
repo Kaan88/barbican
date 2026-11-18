@@ -12,6 +12,6 @@ public interface IIcsImporter
     /// <summary>The events and tasks of the file as JSCalendar (Ical.Net, then the server's CalendarEvent/parse for what it cannot read); at most 5 MB.</summary>
     Task<Result<IReadOnlyList<JsonNode>>> ParseAsync(string accountKey, ReadOnlyMemory<byte> ics, CancellationToken ct);
 
-    /// <summary>Stores the events in the calendar (<see cref="ImportRules.Sanitize"/>, alerts dropped unless <paramref name="keepAlerts"/>, no scheduling messages), in chunks; returns how many were stored, with the first failure if any.</summary>
+    /// <summary>Stores the events in the calendar (<see cref="ImportRules.Sanitize"/>, alerts of the file dropped only when <paramref name="keepAlerts"/> is false (the dialog's default is true, as Bulwark keeps them: D-M4-09), no scheduling messages), in chunks; returns how many were stored, with the first failure if any.</summary>
     Task<Result<int>> ImportAsync(string accountKey, string calendarId, IReadOnlyList<JsonNode> events, bool keepAlerts, CancellationToken ct);
 }

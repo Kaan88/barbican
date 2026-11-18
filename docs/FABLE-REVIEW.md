@@ -1280,3 +1280,10 @@ launched; Linux unverified). Verdicts on the M2 verify items 1 to 6, 11, 12 and 
 - **FakeJmap `after`/before filter** (`tests/Barbican.FakeJmap/FakeApi.Calendar.cs`) is written from Stalwart's calendar_event/query.rs, not recorded; a task with only a `due` counts at its due.
 - **`timeZone` setting** (D-M4-A06, `CalendarSettings.Zone()`): relies on `TimeZoneInfo.FindSystemTimeZoneById` accepting IANA names (ICU on Windows; Linux not run, deferred to M9).
 - **Not run: Linux** (the user deferred it to M9). The notification service and sound (B-CAL-035) are M8.
+
+## M4 cal-edit step 3 (invitations, import, feeds, availability)
+- **IcsReader** (`src/Barbican.Core/Calendar/Editing/IcsReader.cs`): a hand-written iCalendar reader instead of Ical.Net (D-M4-E01). Review its RRULE, EXDATE, TZID (Windows zone names pass through unchanged) and floating-time handling against real feeds; the server parse fallback is only exercised against the FakeJmap parse arm.
+- **Feed fetching** (`Feeds/CalendarSubscriptions.cs`, D-M4-E03): redirects are not followed and plain http is refused by `GuardedHttp`, so the plan's "http warned" is a warning on a feed that then fails. Decide whether `GuardedResponse` should expose `Location` for a per-hop `FeedRules.Check`.
+- **Subscription state** (D-M4-E02): kept in `calendar-subscriptions.json` with per-event hashes; nothing in cal-edit runs the refresh interval (no timer), check that cal-ui or cal-data owns it.
+- **Invitation answers** (`Invitations/InvitationService.cs`, D-M4-E04): verified only against FakeJmap's `CalendarEvent/set` (it records `sendSchedulingMessages`, Stalwart's iMIP behaviour for a created-with-answer event is from its source, not from a live server). No optimistic store patch for answers; the store is refreshed after the call.
+- **Availability** (`Editing/AvailabilityService.cs`): `Principal/query` filter by `email` and `Principal/getAvailability` argument names follow the draft and the fake; a real Stalwart (G-009) must confirm them before "Find a time" is trusted.

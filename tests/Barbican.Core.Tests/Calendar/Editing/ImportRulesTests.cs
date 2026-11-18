@@ -9,7 +9,6 @@ namespace Barbican.Core.Tests.Calendar.Editing;
 public sealed class ImportRulesTests
 {
     [Fact]
-    [Red("cal-edit")]
     [RustTest("cal_extra::imports_are_cleaned")]
     public void Imports_are_cleaned()
     {
@@ -33,7 +32,6 @@ public sealed class ImportRulesTests
     }
 
     [Fact]
-    [Red("cal-edit")]
     public void The_alerts_prompt_asks_only_when_the_file_has_alerts()
     {
         Assert.True(ImportRules.HasAlerts([J("""{"title": "T", "alerts": {"a": {"trigger": {"offset": "-PT5M"}}}}""")]));

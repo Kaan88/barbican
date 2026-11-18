@@ -28,7 +28,6 @@ public sealed class EventEditorTests
     };
 
     [Fact]
-    [Red("cal-edit")]
     [RustTest("cal_editor::new_event_data")]
     public void New_event_data()
     {
@@ -56,7 +55,6 @@ public sealed class EventEditorTests
     }
 
     [Fact]
-    [Red("cal-edit")]
     [RustTest("cal_editor::dst_aware_duration")]
     public void Dst_aware_duration()
     {
@@ -66,7 +64,7 @@ public sealed class EventEditorTests
     }
 
     [Fact]
-    [Red("cal-edit")]
+    [Red("cal-edit")] // waits for cal-data step 3 (ReminderRules.BuildAlertsPatch and RowOffset)
     [RustTest("cal_editor::guests_rules_alerts_location")]
     public void Guests_rules_alerts_location()
     {
@@ -97,7 +95,6 @@ public sealed class EventEditorTests
     }
 
     [Fact]
-    [Red("cal-edit")]
     [RustTest("cal_editor::edits_keep_ids_answers_and_unchanged_fields")]
     public void Edits_keep_ids_answers_and_unchanged_fields()
     {
@@ -143,7 +140,6 @@ public sealed class EventEditorTests
     }
 
     [Fact]
-    [Red("cal-edit")]
     [RustTest("cal_editor::organizer_detection")]
     public void Organizer_detection()
     {
@@ -165,7 +161,6 @@ public sealed class EventEditorTests
     }
 
     [Fact]
-    [Red("cal-edit")]
     [RustTest("cal_editor::scope_patches")]
     public void Scope_patches()
     {

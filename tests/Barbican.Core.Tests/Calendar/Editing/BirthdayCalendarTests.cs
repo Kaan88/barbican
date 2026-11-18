@@ -9,7 +9,6 @@ namespace Barbican.Core.Tests.Calendar.Editing;
 public sealed class BirthdayCalendarTests
 {
     [Fact]
-    [Red("cal-edit")]
     [RustTest("cal_extra::birthdays")]
     public void Birthdays()
     {
