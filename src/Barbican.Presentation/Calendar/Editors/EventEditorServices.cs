@@ -8,7 +8,7 @@ namespace Barbican.Presentation.Calendar.Editors;
 
 /// <summary>What the event editor needs besides the event.</summary>
 public sealed record EventEditorServices(
-    ICalendarSource Source,
+    IEditorSource Source,
     ICalendarWriter Writer,
     ICalendarRules Rules,
     ICalendarQuestions Questions,

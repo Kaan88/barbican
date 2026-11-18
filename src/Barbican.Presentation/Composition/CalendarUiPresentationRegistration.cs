@@ -29,11 +29,11 @@ public static class CalendarUiPresentationRegistration
     {
         ArgumentNullException.ThrowIfNull(services);
         services.TryAddSingleton<ICalendarRules, CalendarRules>();
-        services.TryAddSingleton<ICalendarSource>(sp => new CalendarSource(sp.GetRequiredService<ICalendarStore>(), sp.GetService<IAccountManager>(), sp.GetService<ICalendarSubscriptions>()));
+        services.TryAddSingleton<IEditorSource>(sp => new CalendarSource(sp.GetRequiredService<ICalendarStore>(), sp.GetService<IAccountManager>(), sp.GetService<ICalendarSubscriptions>()));
         services.TryAddSingleton<CalendarEditorHost>();
         services.TryAddSingleton<ICalendarQuestions>(sp => sp.GetRequiredService<CalendarEditorHost>());
         services.AddSingleton<CalendarEditors>(sp => new CalendarEditors(
-            sp.GetRequiredService<ICalendarSource>(),
+            sp.GetRequiredService<IEditorSource>(),
             sp.GetRequiredService<ICalendarWriter>(),
             sp.GetRequiredService<ICalendarRules>(),
             sp.GetRequiredService<CalendarEditorHost>(),
@@ -45,7 +45,7 @@ public static class CalendarUiPresentationRegistration
             sp.GetService<IPrefsStore>()));
         services.Replace(ServiceDescriptor.Singleton<ICalendarEditors>(sp => sp.GetRequiredService<CalendarEditors>()));
         services.TryAddSingleton(sp => new TasksViewModel(
-            sp.GetRequiredService<ICalendarSource>(),
+            sp.GetRequiredService<IEditorSource>(),
             sp.GetRequiredService<ICalendarWriter>(),
             sp.GetRequiredService<ICalendarEditors>(),
             sp.GetService<IHookBus>(),
@@ -66,7 +66,7 @@ public static class CalendarUiPresentationRegistration
             sp.GetRequiredService<ICalendarViewModel>(),
             sp.GetRequiredService<CalendarEditors>(),
             sp.GetRequiredService<CalendarEditorHost>(),
-            sp.GetRequiredService<ICalendarSource>(),
+            sp.GetRequiredService<IEditorSource>(),
             sp.GetRequiredService<ICalendarWriter>(),
             sp.GetRequiredService<ICalendarAdmin>(),
             sp.GetRequiredService<ICalendarSubscriptions>(),
@@ -89,7 +89,7 @@ public static class CalendarUiPresentationRegistration
         for (var i = 0; i < CalendarMenus.Count; i++)
         {
             var index = i;
-            services.AddSingleton<IMenuProvider>(sp => CalendarMenus.Create(sp.GetRequiredService<ICalendarSource>())[index]);
+            services.AddSingleton<IMenuProvider>(sp => CalendarMenus.Create(sp.GetRequiredService<IEditorSource>())[index]);
         }
 
         return services;

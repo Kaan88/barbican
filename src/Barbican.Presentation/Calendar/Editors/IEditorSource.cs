@@ -5,7 +5,7 @@ using System.Text.Json.Nodes;
 namespace Barbican.Presentation.Calendar.Editors;
 
 /// <summary>What the calendar editors read of the active login.</summary>
-public interface ICalendarSource
+public interface IEditorSource
 {
     /// <summary>The active login (null when none).</summary>
     string? AccountKey { get; }

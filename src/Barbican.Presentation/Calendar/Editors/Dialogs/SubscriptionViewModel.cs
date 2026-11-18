@@ -11,7 +11,7 @@ namespace Barbican.Presentation.Calendar.Editors.Dialogs;
 /// <summary>Subscribe to a webcal feed, or edit one.</summary>
 public sealed class SubscriptionViewModel : ObservableObject, ICloseableCard
 {
-    private readonly ICalendarSource _source;
+    private readonly IEditorSource _source;
     private readonly ICalendarSubscriptions _subscriptions;
     private readonly ICalendarAdmin _admin;
     private readonly ICalendarRules _rules;
@@ -26,7 +26,7 @@ public sealed class SubscriptionViewModel : ObservableObject, ICloseableCard
     private string _status = string.Empty;
     private bool _busy;
 
-    public SubscriptionViewModel(ICalendarSource source, ICalendarSubscriptions subscriptions, ICalendarAdmin admin, ICalendarRules rules, CalendarEditorHost? host = null)
+    public SubscriptionViewModel(IEditorSource source, ICalendarSubscriptions subscriptions, ICalendarAdmin admin, ICalendarRules rules, CalendarEditorHost? host = null)
     {
         ArgumentNullException.ThrowIfNull(source);
         ArgumentNullException.ThrowIfNull(subscriptions);

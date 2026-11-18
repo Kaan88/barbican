@@ -20,7 +20,7 @@ public sealed class TasksViewModel : ObservableObject
     /// <summary>The filters in index order.</summary>
     public static IReadOnlyList<string> FilterNames { get; } = ["All", "Pending", "Overdue", "Completed"];
 
-    private readonly ICalendarSource _source;
+    private readonly IEditorSource _source;
     private readonly ICalendarWriter _writer;
     private readonly ICalendarEditors _editors;
     private readonly IHookBus? _hooks;
@@ -39,7 +39,7 @@ public sealed class TasksViewModel : ObservableObject
     private int _sidebarHidden;
 
     public TasksViewModel(
-        ICalendarSource source,
+        IEditorSource source,
         ICalendarWriter writer,
         ICalendarEditors editors,
         IHookBus? hooks = null,

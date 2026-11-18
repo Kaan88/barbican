@@ -14,7 +14,7 @@ public sealed class ImportViewModel : ObservableObject, ICloseableCard
     /// <summary>The largest file read: 5 MB.</summary>
     public const int MaxBytes = 5 * 1024 * 1024;
 
-    private readonly ICalendarSource _source;
+    private readonly IEditorSource _source;
     private readonly IIcsImporter _importer;
     private readonly ICalendarRules _rules;
     private readonly ICalendarFilePicker _picker;
@@ -27,7 +27,7 @@ public sealed class ImportViewModel : ObservableObject, ICloseableCard
     private string _fileName = string.Empty;
     private bool _busy;
 
-    public ImportViewModel(ICalendarSource source, IIcsImporter importer, ICalendarRules rules, ICalendarFilePicker picker)
+    public ImportViewModel(IEditorSource source, IIcsImporter importer, ICalendarRules rules, ICalendarFilePicker picker)
     {
         ArgumentNullException.ThrowIfNull(source);
         ArgumentNullException.ThrowIfNull(importer);

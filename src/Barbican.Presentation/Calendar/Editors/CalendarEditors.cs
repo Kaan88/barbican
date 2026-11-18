@@ -13,7 +13,7 @@ namespace Barbican.Presentation.Calendar.Editors;
 /// <summary>The default <see cref="ICalendarEditors"/>.</summary>
 public sealed class CalendarEditors : ICalendarEditors
 {
-    private readonly ICalendarSource _source;
+    private readonly IEditorSource _source;
     private readonly ICalendarWriter _writer;
     private readonly ICalendarRules _rules;
     private readonly CalendarEditorHost _host;
@@ -25,7 +25,7 @@ public sealed class CalendarEditors : ICalendarEditors
     private readonly IPrefsStore? _prefs;
 
     public CalendarEditors(
-        ICalendarSource source,
+        IEditorSource source,
         ICalendarWriter writer,
         ICalendarRules rules,
         CalendarEditorHost host,

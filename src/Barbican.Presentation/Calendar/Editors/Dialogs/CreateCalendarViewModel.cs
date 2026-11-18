@@ -6,7 +6,7 @@ using CommunityToolkit.Mvvm.ComponentModel;
 namespace Barbican.Presentation.Calendar.Editors.Dialogs;
 
 /// <summary>Create a calendar: a name and a colour.</summary>
-public sealed class CreateCalendarViewModel(ICalendarSource source, ICalendarAdmin admin) : ObservableObject, ICloseableCard
+public sealed class CreateCalendarViewModel(IEditorSource source, ICalendarAdmin admin) : ObservableObject, ICloseableCard
 {
     private readonly TaskCompletionSource _closed = new(TaskCreationOptions.RunContinuationsAsynchronously);
     private string _name = string.Empty;

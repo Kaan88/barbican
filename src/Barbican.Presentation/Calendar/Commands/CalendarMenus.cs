@@ -19,7 +19,7 @@ public static class CalendarMenus
     /// <summary>How many providers <see cref="Create"/> returns.</summary>
     public const int Count = 6;
 
-    public static IReadOnlyList<IMenuProvider> Create(ICalendarSource source) =>
+    public static IReadOnlyList<IMenuProvider> Create(IEditorSource source) =>
     [
         new DelegateMenuProvider(MenuIds.Event, c => Event(c, source)),
         new DelegateMenuProvider(MenuIds.Slot, Slot),
@@ -29,7 +29,7 @@ public static class CalendarMenus
         new DelegateMenuProvider(MenuIds.CalendarColour, c => CalendarColour(c, source)),
     ];
 
-    private static JsonNode? EventOf(ICalendarSource source, string? subject) =>
+    private static JsonNode? EventOf(IEditorSource source, string? subject) =>
         subject is null ? null : source.Events.FirstOrDefault(e => string.Equals(CalendarJson.Id(e), CalendarJson.BaseId(subject), StringComparison.Ordinal));
 
     /// <summary>The user's answer to an event: the participationStatus of the participant who is the user, or null when the user is not a guest.</summary>
@@ -58,7 +58,7 @@ public static class CalendarMenus
     }
 
     /// <summary>MENU-EVENT.</summary>
-    public static IReadOnlyList<MenuItemSpec> Event(MenuContext c, ICalendarSource source)
+    public static IReadOnlyList<MenuItemSpec> Event(MenuContext c, IEditorSource source)
     {
         ArgumentNullException.ThrowIfNull(c);
         ArgumentNullException.ThrowIfNull(source);
@@ -114,10 +114,10 @@ public static class CalendarMenus
         ];
     }
 
-    private static JsonNode? TaskOf(ICalendarSource source, string? id) => source.Events.FirstOrDefault(e => string.Equals(CalendarJson.Id(e), id, StringComparison.Ordinal));
+    private static JsonNode? TaskOf(IEditorSource source, string? id) => source.Events.FirstOrDefault(e => string.Equals(CalendarJson.Id(e), id, StringComparison.Ordinal));
 
     /// <summary>MENU-TASK.</summary>
-    public static IReadOnlyList<MenuItemSpec> Task(MenuContext c, ICalendarSource source)
+    public static IReadOnlyList<MenuItemSpec> Task(MenuContext c, IEditorSource source)
     {
         ArgumentNullException.ThrowIfNull(c);
         ArgumentNullException.ThrowIfNull(source);
@@ -137,7 +137,7 @@ public static class CalendarMenus
     }
 
     /// <summary>The due date flyout of MENU-TASK: Today, Tomorrow, Next week, and "No due date" only when the task has one.</summary>
-    public static IReadOnlyList<MenuItemSpec> TaskDue(MenuContext c, ICalendarSource source)
+    public static IReadOnlyList<MenuItemSpec> TaskDue(MenuContext c, IEditorSource source)
     {
         ArgumentNullException.ThrowIfNull(c);
         ArgumentNullException.ThrowIfNull(source);
@@ -160,10 +160,10 @@ public static class CalendarMenus
         return items;
     }
 
-    private static JsonNode? CalendarOf(ICalendarSource source, string? id) => source.Calendars.FirstOrDefault(k => string.Equals(CalendarJson.Id(k), id, StringComparison.Ordinal));
+    private static JsonNode? CalendarOf(IEditorSource source, string? id) => source.Calendars.FirstOrDefault(k => string.Equals(CalendarJson.Id(k), id, StringComparison.Ordinal));
 
     /// <summary>MENU-CAL.</summary>
-    public static IReadOnlyList<MenuItemSpec> Calendar(MenuContext c, ICalendarSource source)
+    public static IReadOnlyList<MenuItemSpec> Calendar(MenuContext c, IEditorSource source)
     {
         ArgumentNullException.ThrowIfNull(c);
         ArgumentNullException.ThrowIfNull(source);
@@ -189,7 +189,7 @@ public static class CalendarMenus
     }
 
     /// <summary>The colour flyout of MENU-CAL: the calendar colours, the current one checked.</summary>
-    public static IReadOnlyList<MenuItemSpec> CalendarColour(MenuContext c, ICalendarSource source)
+    public static IReadOnlyList<MenuItemSpec> CalendarColour(MenuContext c, IEditorSource source)
     {
         ArgumentNullException.ThrowIfNull(c);
         ArgumentNullException.ThrowIfNull(source);

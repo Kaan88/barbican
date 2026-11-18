@@ -20,7 +20,7 @@ public sealed class TaskEditorViewModel : ObservableObject
 
     public static IReadOnlyList<string> AlertChoices { get; } = ["No alert", "At due time", "5 minutes before", "15 minutes before", "30 minutes before", "1 hour before", "1 day before"];
 
-    private readonly Editors.ICalendarSource _source;
+    private readonly Editors.IEditorSource _source;
     private readonly ICalendarWriter _writer;
     private readonly Editors.CalendarEditorHost? _host;
     private readonly TaskCompletionSource _closed = new(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -37,7 +37,7 @@ public sealed class TaskEditorViewModel : ObservableObject
     private string _listId = string.Empty;
     private string _error = string.Empty;
 
-    public TaskEditorViewModel(Editors.ICalendarSource source, ICalendarWriter writer, Editors.CalendarEditorHost? host = null)
+    public TaskEditorViewModel(Editors.IEditorSource source, ICalendarWriter writer, Editors.CalendarEditorHost? host = null)
     {
         ArgumentNullException.ThrowIfNull(source);
         ArgumentNullException.ThrowIfNull(writer);

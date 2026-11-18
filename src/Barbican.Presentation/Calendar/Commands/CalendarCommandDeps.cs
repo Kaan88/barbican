@@ -18,7 +18,7 @@ public sealed record CalendarCommandDeps(
     ICalendarViewModel View,
     CalendarEditors Editors,
     CalendarEditorHost Host,
-    ICalendarSource Source,
+    IEditorSource Source,
     ICalendarWriter Writer,
     ICalendarAdmin Admin,
     ICalendarSubscriptions Subscriptions,

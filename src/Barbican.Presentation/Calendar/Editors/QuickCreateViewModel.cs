@@ -11,7 +11,7 @@ namespace Barbican.Presentation.Calendar.Editors;
 /// <summary>The quick-create popover of a clicked slot, day or dragged range.</summary>
 public sealed class QuickCreateViewModel : ObservableObject, ICloseableCard
 {
-    private readonly ICalendarSource _source;
+    private readonly IEditorSource _source;
     private readonly ICalendarWriter _writer;
     private readonly NewEventRequest _request;
     private readonly bool _twelveHour;
@@ -20,7 +20,7 @@ public sealed class QuickCreateViewModel : ObservableObject, ICloseableCard
     private string _calendarId = string.Empty;
     private string _error = string.Empty;
 
-    public QuickCreateViewModel(ICalendarSource source, ICalendarWriter writer, NewEventRequest request, bool twelveHour = false)
+    public QuickCreateViewModel(IEditorSource source, ICalendarWriter writer, NewEventRequest request, bool twelveHour = false)
     {
         ArgumentNullException.ThrowIfNull(source);
         ArgumentNullException.ThrowIfNull(writer);

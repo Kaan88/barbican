@@ -4,7 +4,7 @@ using System.Text.Json.Nodes;
 using Barbican.Presentation.Calendar.Editors;
 namespace Barbican.Presentation.Tests.Calendar.Editors;
 
-internal sealed class FakeSource : ICalendarSource
+internal sealed class FakeSource : IEditorSource
 {
     public string? AccountKey { get; set; } = "acct";
 

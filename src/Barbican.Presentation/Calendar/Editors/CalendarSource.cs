@@ -5,7 +5,7 @@ using Barbican.Core.Calendar.Feeds;
 namespace Barbican.Presentation.Calendar.Editors;
 
 /// <summary>The default source over <see cref="ICalendarStore"/> and the account manager.</summary>
-public sealed class CalendarSource : ICalendarSource
+public sealed class CalendarSource : IEditorSource
 {
     private readonly ICalendarStore _store;
     private readonly IAccountManager? _accounts;
