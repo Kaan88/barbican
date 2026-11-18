@@ -19,4 +19,10 @@ public static class SlotNames
 
     /// <summary>The shared accounts section of the sidebar (unified, wave 2).</summary>
     public const string SidebarShared = "sidebar.shared";
+
+    /// <summary>The Tasks view in the calendar surface (M4: cal-ui fills it, cal-views hosts it).</summary>
+    public const string CalendarTasks = "calendar.tasks";
+
+    /// <summary>The capped task list under the mini month in the calendar sidebar (M4: cal-ui fills it).</summary>
+    public const string CalendarSidebarTasks = "calendar.sidebar.tasks";
 }

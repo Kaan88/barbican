@@ -11,7 +11,7 @@ public sealed partial class FakeApi(FakeStore store, FakeJmapOptions options, Fu
 {
     private static readonly string[] Known =
         ["urn:ietf:params:jmap:core", "urn:ietf:params:jmap:mail", "urn:ietf:params:jmap:submission", "urn:ietf:params:jmap:quota", "urn:stalwart:jmap",
-        "urn:ietf:params:jmap:sieve", "urn:ietf:params:jmap:filenode", "urn:ietf:params:jmap:calendars", "urn:ietf:params:jmap:metadata"];
+        "urn:ietf:params:jmap:sieve", "urn:ietf:params:jmap:filenode", "urn:ietf:params:jmap:calendars", "urn:ietf:params:jmap:metadata", "urn:ietf:params:jmap:principals", "urn:ietf:params:jmap:principals:availability"];
 
     private readonly Queue<FakeFault> _methodFaults = new();
     private readonly Lock _lock = new();
@@ -114,6 +114,17 @@ public sealed partial class FakeApi(FakeStore store, FakeJmapOptions options, Fu
             "FileNode/query" => FileNodeQuery(args),
             "FileNode/set" => FileNodeSet(args),
             "CalendarEvent/parse" => CalendarEventParse(args),
+
+            // M4 arms (plan section 4.7): reads and changes are cal-data's (FakeApi.Calendar.cs), writes are cal-edit's (FakeApi.CalendarSet.cs); each answers unknownMethod without options.Calendars
+            "Calendar/get" => CalendarGet("Calendar", args),
+            "Calendar/changes" => CalendarChanges("Calendar", args),
+            "Calendar/set" => CalendarSet("Calendar", args),
+            "CalendarEvent/get" => CalendarGet("CalendarEvent", args),
+            "CalendarEvent/changes" => CalendarChanges("CalendarEvent", args),
+            "CalendarEvent/query" => CalendarEventQuery(args),
+            "CalendarEvent/set" => CalendarSet("CalendarEvent", args),
+            "Principal/query" => PrincipalQuery(args),
+            "Principal/getAvailability" => PrincipalGetAvailability(args),
             "x:ArchivedItem/get" => ArchivedItemGet(args),
             "x:ArchivedItem/query" => ArchivedItemQuery(args),
             "x:ArchivedItem/set" => ArchivedItemSet(args),
