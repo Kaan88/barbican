@@ -57,6 +57,11 @@ public sealed class ContactsDetailView : UserControl
         };
         AutomationProperties.SetAutomationId(avatar, "contacts.detail.avatar");
         header.Children.Add(avatar);
+        if (photo is null && !isGroup)
+        {
+            LoadBlobPhoto(avatar, card);
+        }
+
         var titles = new StackPanel { Spacing = 2, VerticalAlignment = VerticalAlignment.Center };
         titles.Children.Add(new TextBlock { Text = name, FontSize = 22, FontWeight = FontWeights.Bold, Foreground = ContactsUi.Palette("Text"), TextWrapping = TextWrapping.Wrap, IsTextSelectionEnabled = true });
         AutomationProperties.SetAutomationId(titles, "contacts.detail.name");
@@ -118,7 +123,24 @@ public sealed class ContactsDetailView : UserControl
                 row.Children.Add(new TextBlock { Text = line.Label, FontSize = 11.5, Foreground = ContactsUi.Palette("Faint") });
             }
 
-            row.Children.Add(new TextBlock { Text = line.Value, FontSize = 13.5, Foreground = ContactsUi.Palette("Body"), TextWrapping = TextWrapping.Wrap, IsTextSelectionEnabled = true });
+            var value = new TextBlock { Text = line.Value, FontSize = 13.5, Foreground = ContactsUi.Palette("Body"), TextWrapping = TextWrapping.Wrap, IsTextSelectionEnabled = true };
+            if (string.Equals(line.Section, "PHONE", StringComparison.Ordinal) && ContactsJson.TelUri(line.Value) is { } tel)
+            {
+                // a phone number is a tel: link (I-205): the system hands it to the phone app the user chose; only plain digits ever leave the app
+                var call = new HyperlinkButton { Content = "Call", Padding = new Thickness(6, 0, 6, 0), FontSize = 12, VerticalAlignment = VerticalAlignment.Center };
+                AutomationProperties.SetAutomationId(call, "contacts.detail.call");
+                AutomationProperties.SetName(call, "Call " + line.Value);
+                call.Click += (_, _) => ContactsUi.Run(async () => _ = await (ViewHost.Find<Barbican.Platform.IBrowserLauncher>()?.OpenAsync(tel, CancellationToken.None) ?? Task.FromResult(default(Barbican.Core.Common.Result<Barbican.Core.Common.Unit>))).ConfigureAwait(true));
+                var withCall = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 4 };
+                withCall.Children.Add(value);
+                withCall.Children.Add(call);
+                row.Children.Add(withCall);
+            }
+            else
+            {
+                row.Children.Add(value);
+            }
+
             tile!.Children.Add(row);
         }
 
@@ -224,4 +246,33 @@ public sealed class ContactsDetailView : UserControl
             return finalSize;
         }
     }
+
+    /// <summary>A photo held as a blob is downloaded through IContactPhotos (never a web link) and shown when it arrives, if the same card is still open (B-CON-014, D-M5-I02).</summary>
+    private void LoadBlobPhoto(Border avatar, System.Text.Json.Nodes.JsonNode card)
+    {
+        if (ViewHost.Find<Barbican.Core.Contacts.IContactPhotos>() is not { } photos || _vm.AccountKey is not { } key || !HasBlobPhoto(card))
+        {
+            return;
+        }
+
+        var id = ContactsJson.Id(card);
+        ContactsUi.Run(async () =>
+        {
+            var bytes = await photos.BytesAsync(key, card, CancellationToken.None).ConfigureAwait(true);
+            if (!bytes.IsOk || !string.Equals(_vm.OpenCard is { } open ? ContactsJson.Id(open) : null, id, StringComparison.Ordinal))
+            {
+                return;
+            }
+
+            var brush = ContactsAvatar.Photo("data:" + bytes.Value.MediaType + ";base64," + Convert.ToBase64String(bytes.Value.Bytes));
+            if (brush is not null)
+            {
+                avatar.Background = brush;
+                avatar.Child = null;
+            }
+        });
+    }
+
+    private static bool HasBlobPhoto(System.Text.Json.Nodes.JsonNode card) =>
+        card["media"] is System.Text.Json.Nodes.JsonObject media && media.Any(m => string.Equals(ContactsJson.Str(m.Value, "kind"), "photo", StringComparison.Ordinal) && ContactsJson.Str(m.Value, "blobId").Length > 0);
 }

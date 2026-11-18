@@ -38,7 +38,7 @@ public static class ContactsUiPresentationRegistration
         services.TryAddSingleton<ContactsFilePicker>(_ => new ContactsFilePicker());
         services.TryAddSingleton<IContactsFilePicker>(sp => sp.GetRequiredService<ContactsFilePicker>());
         services.TryAddSingleton<IContactsEditors>(sp => sp.GetService<IDialogService>() is { } dialogs
-            ? new ContactsEditors(sp.GetRequiredService<IContactsViewModel>(), sp.GetRequiredService<IContactWriter>(), sp.GetRequiredService<IContactsFilePicker>(), dialogs)
+            ? new ContactsEditors(sp.GetRequiredService<IContactsViewModel>(), sp.GetRequiredService<IContactWriter>(), sp.GetRequiredService<IContactsFilePicker>(), dialogs, sp.GetService<IContactPhotos>())
             : new NoContactsEditors());
         services.TryAddSingleton(sp => new ContactsActions(new ContactsActionDeps(
             sp.GetRequiredService<IContactsViewModel>(),

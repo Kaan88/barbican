@@ -26,6 +26,25 @@ public sealed class SampleContactsAccount : IContactsAccountSource
     public bool HasContacts => true;
 }
 
+/// <summary>A made-up server directory for sample runs (three people, a group and a room, at example.org).</summary>
+public sealed class SampleContactDirectory : IContactDirectory
+{
+    public bool IsAvailable(string accountKey) => true;
+
+    public Task<Result<(IReadOnlyList<JsonNode> Principals, bool Fallback)>> LoadAsync(string accountKey, CancellationToken ct)
+    {
+        IReadOnlyList<JsonNode> principals =
+        [
+            new JsonObject { ["id"] = "p1", ["type"] = "individual", ["name"] = "Rosalind Franklin", ["email"] = "rosalind@example.org", ["description"] = "Crystallography" },
+            new JsonObject { ["id"] = "p2", ["type"] = "individual", ["name"] = "Dennis Ritchie", ["email"] = "dennis@example.org", ["description"] = "Systems" },
+            new JsonObject { ["id"] = "p3", ["type"] = "individual", ["name"] = "Hedy Lamarr", ["email"] = "hedy@example.org" },
+            new JsonObject { ["id"] = "p4", ["type"] = "group", ["name"] = "All staff", ["email"] = "staff@example.org" },
+            new JsonObject { ["id"] = "p5", ["type"] = "resource", ["name"] = "Meeting room 1", ["email"] = "room1@example.org" },
+        ];
+        return Task.FromResult(Result<(IReadOnlyList<JsonNode> Principals, bool Fallback)>.Ok((principals, false)));
+    }
+}
+
 /// <summary>An in-memory contact store, writer and address-book service over made-up contacts.</summary>
 public sealed class SampleContactStore : IContactStore, IContactWriter, IAddressBooks
 {

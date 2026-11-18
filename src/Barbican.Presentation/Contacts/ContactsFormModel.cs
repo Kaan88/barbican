@@ -4,7 +4,6 @@
 using System.Text.Json.Nodes;
 using Barbican.Core.Common;
 using Barbican.Core.Contacts;
-using Barbican.Core.Jmap.Errors;
 
 namespace Barbican.Presentation.Contacts;
 
@@ -34,6 +33,10 @@ public sealed class ContactsFormModel : ContactsDialogModel
     private string? _bookId;
     private string? _photo;
     private bool _photoChanged;
+    private byte[]? _photoBytes;
+
+    /// <summary>Photos of cards (a blob upload with the data: URI as the server's fallback, B-CON-014); without it the picture goes into the card as a data: URI.</summary>
+    public IContactPhotos? Photos { get; init; }
 
     public ContactsFormModel(IContactsViewModel contacts, IContactWriter writer, IContactsFilePicker picker, string? cardId, string? bookId, ContactForm? seed = null, string? email = null)
     {
@@ -52,14 +55,7 @@ public sealed class ContactsFormModel : ContactsDialogModel
             _categories = string.Join(", ", ContactsJson.Keys(card, "keywords"));
             _photo = ContactsJson.PhotoUri(card);
             _bookId = ContactsJson.Keys(card, "addressBookIds") is [var first, ..] ? first : _bookId;
-            try
-            {
-                _fields.AddRange(ContactFields.Of(card));
-            }
-            catch (PortPendingException e)
-            {
-                Error = "The entries cannot be shown yet (" + e.Message + ")";
-            }
+            _fields.AddRange(ContactFields.Of(card));
         }
         else
         {
@@ -145,7 +141,6 @@ public sealed class ContactsFormModel : ContactsDialogModel
             return;
         }
 
-        try
         {
             var shrunk = ContactPhoto.Shrink(picked.Bytes);
             if (!shrunk.IsOk)
@@ -155,19 +150,17 @@ public sealed class ContactsFormModel : ContactsDialogModel
             }
 
             _photo = "data:" + shrunk.Value!.MediaType + ";base64," + Convert.ToBase64String(shrunk.Value.Bytes);
+            _photoBytes = shrunk.Value.Bytes;
             _photoChanged = true;
             Error = string.Empty;
             OnPropertyChanged(nameof(PhotoUri));
-        }
-        catch (PortPendingException e)
-        {
-            Error = "Photos cannot be added yet (" + e.Message + ")";
         }
     }
 
     public void RemovePhoto()
     {
         _photo = null;
+        _photoBytes = null;
         _photoChanged = true;
         OnPropertyChanged(nameof(PhotoUri));
     }
@@ -175,15 +168,7 @@ public sealed class ContactsFormModel : ContactsDialogModel
     /// <summary>The card the form describes (without saving), or the validation error.</summary>
     public Result<JsonObject> BuildCard()
     {
-        Result<JsonObject> built;
-        try
-        {
-            built = ContactFields.Build(_original, _form, _fields);
-        }
-        catch (PortPendingException e)
-        {
-            return Result<JsonObject>.Fail(new ValidationError("Saving is not available yet (" + e.Message + ")"));
-        }
+        var built = ContactFields.Build(_original, _form, _fields);
 
         if (!built.IsOk)
         {
@@ -207,7 +192,7 @@ public sealed class ContactsFormModel : ContactsDialogModel
             _ = card.Remove("keywords");
         }
 
-        if (_photoChanged)
+        if (_photoChanged && Photos is null)
         {
             if (_photo is null)
             {
@@ -248,14 +233,25 @@ public sealed class ContactsFormModel : ContactsDialogModel
         try
         {
             Result<Unit> result;
+            string? createdId = null;
             if (_cardId is null)
             {
                 var created = await _writer.CreateAsync(key, _bookId, built.Value!, ct).ConfigureAwait(true);
+                createdId = created.IsOk ? created.Value : null;
                 result = created.Map(_ => default(Unit));
             }
             else
             {
-                result = await _writer.UpdateAsync(key, _cardId, Patch(_original, built.Value!), ct).ConfigureAwait(true);
+                result = await _writer.UpdateAsync(key, _cardId, Patch(_original, built.Value!, _photoChanged && Photos is null), ct).ConfigureAwait(true);
+            }
+
+            if (result.IsOk && _photoChanged && Photos is not null && (_cardId ?? createdId) is { } photoCard)
+            {
+                var photo = _photoBytes is { } bytes ? await Photos.SetAsync(key, photoCard, bytes, ct).ConfigureAwait(true) : await Photos.RemoveAsync(key, photoCard, ct).ConfigureAwait(true);
+                if (!photo.IsOk)
+                {
+                    result = photo;
+                }
             }
 
             if (result.IsOk)
@@ -277,7 +273,7 @@ public sealed class ContactsFormModel : ContactsDialogModel
     }
 
     /// <summary>The properties of <paramref name="next"/> that differ from the card on the server, as a patch (a removed property is null); server-owned ones are never sent.</summary>
-    public static JsonObject Patch(JsonNode? original, JsonObject next)
+    public static JsonObject Patch(JsonNode? original, JsonObject next, bool mediaOwned = false)
     {
         ArgumentNullException.ThrowIfNull(next);
         var patch = new JsonObject();
@@ -289,7 +285,7 @@ public sealed class ContactsFormModel : ContactsDialogModel
                 continue;
             }
 
-            if (!old.TryGetPropertyValue(name, out var before) || !JsonNode.DeepEquals(before, value))
+            if (!old.TryGetPropertyValue(name, out var before) ? value is not null : !JsonNode.DeepEquals(before, value))
             {
                 patch[name] = value?.DeepClone();
             }
@@ -297,7 +293,8 @@ public sealed class ContactsFormModel : ContactsDialogModel
 
         foreach (var (name, _) in old)
         {
-            if (!IsServerOwned(name) && !next.ContainsKey(name))
+            // only what the form owns is removed by its absence: a property it never shows (media, localizations, calendars, ...) stays on the card (D-M5-I01)
+            if ((name is "keywords" || (mediaOwned && name is "media")) && !next.ContainsKey(name))
             {
                 patch[name] = null;
             }

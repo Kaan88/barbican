@@ -92,12 +92,43 @@ public sealed class ContactsModelsTests
     public void A_save_patches_only_what_changed_and_never_the_server_owned_properties()
     {
         var original = ContactsHarness.J("""{"id": "c1", "uid": "u", "addressBookIds": {"b1": true}, "name": {"full": "Ada"}, "emails": {"e": {"address": "a@x.example"}}, "notes": {"n": {"note": "old"}}}""");
-        var next = (JsonObject)ContactsHarness.J("""{"id": "c1", "uid": "u2", "kind": "individual", "addressBookIds": {"b2": true}, "name": {"full": "Ada"}, "emails": {"e": {"address": "b@x.example"}}, "keywords": {"Friends": true}}""");
+        var next = (JsonObject)ContactsHarness.J("""{"id": "c1", "uid": "u2", "kind": "individual", "addressBookIds": {"b2": true}, "name": {"full": "Ada"}, "emails": {"e": {"address": "b@x.example"}}, "notes": null, "keywords": {"Friends": true}}""");
         var patch = ContactsFormModel.Patch(original, next);
         Assert.Equal(["emails", "keywords", "notes"], patch.Select(p => p.Key).Order(StringComparer.Ordinal));
         Assert.Null(patch["notes"]);
         Assert.Equal("b@x.example", (string?)patch["emails"]!["e"]!["address"]);
     }
+
+    [Fact]
+    public void A_save_keeps_the_properties_the_form_does_not_show_and_removes_what_the_form_emptied()
+    {
+        var original = ContactsHarness.J("""{"id": "c1", "name": {"full": "Ada"}, "media": {"m": {"kind": "photo", "blobId": "b9"}}, "calendars": {"c": {"uri": "https://x.example/c"}}, "keywords": {"Old": true}, "nicknames": {"k": {"name": "Countess"}}}""");
+        var next = (JsonObject)ContactsHarness.J("""{"name": {"full": "Ada"}, "nicknames": null}""");
+        var patch = ContactsFormModel.Patch(original, next);
+        Assert.Equal(["keywords", "nicknames"], patch.Select(p => p.Key).Order(StringComparer.Ordinal));
+        Assert.Null(patch["keywords"]);
+        Assert.Null(patch["nicknames"]);
+        // a photo the form replaced without the photo service is removed from the card by its absence
+        Assert.Contains("media", ContactsFormModel.Patch(original, next, mediaOwned: true).Select(p => p.Key));
+        // an emptied property the card never had is not sent
+        Assert.DoesNotContain("titles", ContactsFormModel.Patch(original, (JsonObject)ContactsHarness.J("""{"name": {"full": "Ada"}, "titles": null}""")).Select(p => p.Key));
+    }
+
+    [Theory]
+    [InlineData("+44 20 7946-0002", "tel:+442079460002")]
+    [InlineData("(020) 7946 0002", "tel:02079460002")]
+    [InlineData("0207946", "tel:0207946")]
+    public void A_phone_number_becomes_a_tel_address_of_digits_and_a_plus_only(string number, string expected) =>
+        Assert.Equal(expected, ContactsJson.TelUri(number)!.AbsoluteUri);
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("12")]
+    [InlineData("call me")]
+    [InlineData("123;ext=4")]
+    [InlineData("+44+20 7946")]
+    [InlineData("123456789012345678901")]
+    public void A_text_that_is_not_a_phone_number_gets_no_call_link(string text) => Assert.Null(ContactsJson.TelUri(text));
 
     [Fact]
     public async Task The_file_picker_answers_queued_picks_first_then_the_platform()

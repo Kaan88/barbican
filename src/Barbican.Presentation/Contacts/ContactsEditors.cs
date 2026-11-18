@@ -6,7 +6,7 @@ using Barbican.Presentation.Dialogs;
 namespace Barbican.Presentation.Contacts;
 
 /// <summary>Opens the contact form through the dialog service.</summary>
-public sealed class ContactsEditors(IContactsViewModel vm, Barbican.Core.Contacts.IContactWriter writer, IContactsFilePicker picker, IDialogService dialogs) : IContactsEditors
+public sealed class ContactsEditors(IContactsViewModel vm, Barbican.Core.Contacts.IContactWriter writer, IContactsFilePicker picker, IDialogService dialogs, IContactPhotos? photos = null) : IContactsEditors
 {
     /// <summary>The form that was opened last (a hidden run fills it in and saves it).</summary>
     public ContactsFormModel? LastForm { get; private set; }
@@ -14,7 +14,7 @@ public sealed class ContactsEditors(IContactsViewModel vm, Barbican.Core.Contact
     public async Task OpenNewAsync(string? bookId, ContactForm? seed, string? email, CancellationToken ct)
     {
         await EnsureLoadedAsync(ct).ConfigureAwait(true);
-        LastForm = new ContactsFormModel(vm, writer, picker, null, bookId, seed, email);
+        LastForm = new ContactsFormModel(vm, writer, picker, null, bookId, seed, email) { Photos = photos };
         _ = await dialogs.ShowAsync(new ContactsFormRequest(LastForm), ct).ConfigureAwait(true);
     }
 
@@ -27,7 +27,7 @@ public sealed class ContactsEditors(IContactsViewModel vm, Barbican.Core.Contact
             return false;
         }
 
-        LastForm = new ContactsFormModel(vm, writer, picker, cardId, null);
+        LastForm = new ContactsFormModel(vm, writer, picker, cardId, null) { Photos = photos };
         _ = await dialogs.ShowAsync(new ContactsFormRequest(LastForm), ct).ConfigureAwait(true);
         return true;
     }

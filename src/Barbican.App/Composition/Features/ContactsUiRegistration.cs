@@ -25,6 +25,8 @@ public static class ContactsUiRegistration
             services.Replace(ServiceDescriptor.Singleton<Barbican.Core.Contacts.IContactWriter>(sp => sp.GetRequiredService<Views.Contacts.Automation.SampleContactStore>()));
             services.Replace(ServiceDescriptor.Singleton<Barbican.Core.Contacts.IAddressBooks>(sp => sp.GetRequiredService<Views.Contacts.Automation.SampleContactStore>()));
             services.Replace(ServiceDescriptor.Singleton<IContactsAccountSource, Views.Contacts.Automation.SampleContactsAccount>());
+            services.Replace(ServiceDescriptor.Singleton<Barbican.Core.Contacts.IContactDirectory, Views.Contacts.Automation.SampleContactDirectory>());
+            services.RemoveAll<Barbican.Core.Contacts.IContactPhotos>(); // the sample account has no server: a picked photo goes into the card as a data: URI
         }
 #endif
         _ = services.AddBarbicanContactsUiViewModels();

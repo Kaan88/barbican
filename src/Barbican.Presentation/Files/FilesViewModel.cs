@@ -319,19 +319,8 @@ public sealed class FilesViewModel : IFilesViewModel
         Raise(nameof(Entries));
     }
 
-    // FileTrash.Items is files-data's; until it lands (its stub throws) the loose children of the trash folder are the items (D-M5-D05)
-    private static List<FileEntry> TrashItems(IReadOnlyList<FileEntry> all)
-    {
-        try
-        {
-            return [.. FileTrash.Items(all).Select(t => t.Entry)];
-        }
-        catch (Barbican.Core.Common.PortPendingException)
-        {
-            var trash = all.FirstOrDefault(e => e.IsDirectory && !e.Shared && e.ParentKey is null && string.Equals(e.Name, FileTrash.TrashName, StringComparison.Ordinal));
-            return trash is null ? [] : [.. all.Where(e => string.Equals(e.ParentKey, trash.Key, StringComparison.Ordinal))];
-        }
-    }
+    // the items of the trash: the children of every dated batch folder and loose children of .Trash (FileTrash.Items, B-FILE-007)
+    private static List<FileEntry> TrashItems(IReadOnlyList<FileEntry> all) => [.. FileTrash.Items(all).Select(t => t.Entry)];
 
     private static List<FileEntry> ByKeys(IReadOnlyList<FileEntry> all, IReadOnlyList<string> keys)
     {
