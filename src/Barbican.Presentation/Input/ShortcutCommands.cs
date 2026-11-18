@@ -3,13 +3,14 @@
 // ICommandRegistry. A key whose command has no handler (or cannot run now) is not ours: it falls through. Owner menus.
 
 using Barbican.Presentation.Actions;
+using Barbican.Presentation.Calendar.Commands;
 using Barbican.Presentation.Commands;
 using Barbican.Presentation.Shell;
 
 namespace Barbican.Presentation.Input;
 
 /// <summary>Turns the keys the M1 router does not know into registry commands.</summary>
-public sealed class ShortcutCommands(ICommandRegistry registry, IMailSelection selection, CommandRunner? runner = null)
+public sealed class ShortcutCommands(ICommandRegistry registry, IMailSelection selection, CommandRunner? runner = null, ICalendarKeyContext? calendarKeys = null)
 {
     /// <summary>The command a chord runs, when the tables name one, a handler exists and it can run now.</summary>
     public bool TryResolve(KeyChord chord, AppId app, bool singleKeys, out string commandId)
@@ -30,9 +31,9 @@ public sealed class ShortcutCommands(ICommandRegistry registry, IMailSelection s
         }
 
         var hasMail = selection.Current.Count > 0;
-        var context = new ShortcutContext { HasMail = hasMail, SingleKeys = singleKeys };
+        var context = new ShortcutContext { HasMail = hasMail, SingleKeys = singleKeys, EditorOpen = place == ShortcutPlace.Calendar && calendarKeys?.EditorOpen == true };
         var action = ShortcutTables.Resolve(place, context, text, chord.Shift, chord.Control, chord.Alt);
-        var id = CommandFor(action);
+        var id = place == ShortcutPlace.Calendar ? CalendarCommandFor(action) ?? CommandFor(action) : CommandFor(action);
         if (id is null && action.Kind == ShortcutKind.Pass && place == ShortcutPlace.Mail && hasMail && singleKeys && !chord.Control && !chord.Alt)
         {
             id = MailCommand(ShortcutTables.MailKeyAction(text));
@@ -90,6 +91,34 @@ public sealed class ShortcutCommands(ICommandRegistry registry, IMailSelection s
         var targets = selection.Current;
         return new CommandContext(CommandSurface.Keyboard, targets, null, null, targets.Count > 0 ? targets[0].AccountKey : null);
     }
+
+    /// <summary>The calendar's keys (M4 cal-ui, I-296): the table's actions as calendar commands. Refresh and the search key mean the calendar's own in this app.</summary>
+    private static string? CalendarCommandFor(ShortcutAction action) => action.Kind switch
+    {
+        ShortcutKind.Cal => action.Name switch
+        {
+            "today" => CalendarCommandIds.Today,
+            "prev" => CalendarCommandIds.Previous,
+            "next" => CalendarCommandIds.Next,
+            _ => null,
+        },
+        ShortcutKind.CalView => action.Number switch
+        {
+            0 => CalendarCommandIds.ViewDay,
+            1 => CalendarCommandIds.ViewWeek,
+            2 => CalendarCommandIds.ViewMonth,
+            3 => CalendarCommandIds.ViewAgenda,
+            4 => CalendarCommandIds.ViewTasks,
+            _ => null,
+        },
+        ShortcutKind.NewEvent => CalendarCommandIds.NewEvent,
+        ShortcutKind.EditEvent => CalendarCommandIds.EditEvent,
+        ShortcutKind.FocusSearch => CalendarCommandIds.Search,
+        ShortcutKind.Refresh => CalendarCommandIds.Refresh,
+        ShortcutKind.SaveEvent => CalendarCommandIds.SaveEvent,
+        ShortcutKind.CloseEditor => CalendarCommandIds.CloseEditor,
+        _ => null,
+    };
 
     private static string? CommandFor(ShortcutAction action) => action.Kind switch
     {

@@ -48,7 +48,7 @@ public static class MenusPresentationRegistration
         services.AddSingleton<IModalSurface>(sp => sp.GetRequiredService<PaletteController>());
         services.TryAddSingleton<ShortcutSheetController>();
         services.AddSingleton<IModalSurface>(sp => sp.GetRequiredService<ShortcutSheetController>());
-        services.TryAddSingleton<ShortcutCommands>(sp => new ShortcutCommands(sp.GetRequiredService<ICommandRegistry>(), sp.GetRequiredService<IMailSelection>(), sp.GetRequiredService<CommandRunner>()));
+        services.TryAddSingleton<ShortcutCommands>(sp => new ShortcutCommands(sp.GetRequiredService<ICommandRegistry>(), sp.GetRequiredService<IMailSelection>(), sp.GetRequiredService<CommandRunner>(), sp.GetService<Barbican.Presentation.Calendar.Commands.ICalendarKeyContext>()));
 
         services.TryAddSingleton<ShellCommandSet>(sp => new ShellCommandSet(ShellCommands.Create(
             sp.GetRequiredService<ShellViewModel>(),

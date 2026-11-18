@@ -5,7 +5,7 @@ using CommunityToolkit.Mvvm.ComponentModel;
 namespace Barbican.Presentation.Calendar.Editors;
 
 /// <summary>The state of the calendar's card layer.</summary>
-public sealed class CalendarEditorHost : ObservableObject, ICalendarQuestions
+public sealed class CalendarEditorHost : ObservableObject, ICalendarQuestions, Commands.ICalendarKeyContext
 {
     private object? _card;
     private ComposerDialog? _question;
@@ -34,6 +34,7 @@ public sealed class CalendarEditorHost : ObservableObject, ICalendarQuestions
             if (SetProperty(ref _question, value))
             {
                 OnPropertyChanged(nameof(IsOpen));
+                OnPropertyChanged(nameof(EditorOpen));
             }
         }
     }
@@ -47,8 +48,8 @@ public sealed class CalendarEditorHost : ObservableObject, ICalendarQuestions
 
     public bool IsOpen => _card is not null || _question is not null;
 
-    /// <summary>An event or task editor is open: the calendar's single keys are off (<c>ShortcutContext.EditorOpen</c>).</summary>
-    public bool EditorOpen => _card is EventEditorViewModel or TaskEditorViewModel;
+    /// <summary>A card or a question is on screen: the calendar's single keys are off, Ctrl+Enter saves and Esc closes (<c>ShortcutContext.EditorOpen</c>).</summary>
+    public bool EditorOpen => _card is not null || _question is not null;
 
     public void Show(object card)
     {

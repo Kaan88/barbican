@@ -13,4 +13,8 @@ public sealed record MenuContext(
     string? TagId,
     string? Address,
     int? AttachmentIndex,
-    CommandSurface Surface);
+    CommandSurface Surface)
+{
+    /// <summary>What a calendar menu is about (M4, additive): an occurrence id, a task id, a calendar id, or a slot ("yyyy-MM-ddTHH:mm" plus "|allday"); null for the mail menus.</summary>
+    public string? Subject { get; init; }
+}

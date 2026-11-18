@@ -131,6 +131,30 @@ public sealed class CalendarEditors : ICalendarEditors
         Show(original.DuplicateCopy());
     }
 
+    /// <summary>A transient editor over an existing event, for what the menus do with an event without opening the card (delete with its scope question); null for a task or an unknown id.</summary>
+    public EventEditorViewModel? EditorFor(string occurrenceId)
+    {
+        ArgumentNullException.ThrowIfNull(occurrenceId);
+        var ev = _source.Events.FirstOrDefault(e => string.Equals(CalendarJson.Id(e), CalendarJson.BaseId(occurrenceId), StringComparison.Ordinal));
+        if (ev is null || CalendarJson.IsTask(ev))
+        {
+            return null;
+        }
+
+        var editor = new EventEditorViewModel(Services());
+        editor.OpenExisting(ev, CalendarJson.RecurrenceIdOf(occurrenceId));
+        return editor;
+    }
+
+    /// <summary>The event menu's Duplicate: a copy of the event in the editor as a new event.</summary>
+    public void OpenDuplicateOf(string occurrenceId)
+    {
+        if (EditorFor(occurrenceId) is { } editor)
+        {
+            Show(editor.DuplicateCopy());
+        }
+    }
+
     private void Show(EventEditorViewModel editor)
     {
         _host.Show(editor);
