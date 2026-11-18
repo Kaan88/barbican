@@ -1,5 +1,5 @@
 // Mirrors: see IAssistantTools; Rust agent.rs:48-150 (tool specs), :152-440 (exec), describe/label. B-AI-007, B-AI-008, B-AI-009. The tools call typed services (IMailService through the session, IMailWriter, IVacationService, IFilterService, ISettingValues), never raw JMAP; mail text goes back to the model inside <email> tags (B-AI-004).
-// D-M6-A12: the tools this build runs are search_mail, read_message, read_thread, list_folders, move, archive, delete and mark messages, create_folder, get and set vacation, list_filters, change_setting and remember. add and remove filter rule need the composer, the tag service (Presentation) or services of other streams; they are not offered to the model until they exist, so it never calls a tool that cannot run.
+// D-M6-A12: the tool set uses existing typed services. Composer opening is an optional UI bridge; calendar and contact tools are capability-filtered in the session.
 
 using System.Globalization;
 using System.Text;
@@ -279,7 +279,7 @@ public sealed partial class AssistantTools(
 
         using var stream = downloaded.Value!;
         using var reader = new StreamReader(stream, Encoding.UTF8, detectEncodingFromByteOrderMarks: true);
-        var buffer = new char[AssistantLoop.MaxToolResult];
+        var buffer = new char[AssistantLoop.MaxToolResult - 128];
         var count = await reader.ReadBlockAsync(buffer.AsMemory(), ct).ConfigureAwait(false);
         return AssistantPrompt.WrapEmail(new string(buffer, 0, count));
     }
@@ -379,6 +379,24 @@ public sealed partial class AssistantTools(
         return patch is null ? Fail("mark must be read, unread, flagged or unflagged.") : Report(await writers.ForSession(session).UpdateKeywordsAsync(ids, patch, ct).ConfigureAwait(false));
     }
 
+    private TimeZoneInfo CalendarZone()
+    {
+        var configured = values.Stored("timeZone") is JsonValue setting && setting.TryGetValue<string>(out var pref) ? pref : "auto";
+        if (!string.IsNullOrWhiteSpace(configured) && !string.Equals(configured, "auto", StringComparison.OrdinalIgnoreCase))
+        {
+            try
+            {
+                return TimeZoneInfo.FindSystemTimeZoneById(configured);
+            }
+            catch (Exception e) when (e is TimeZoneNotFoundException or InvalidTimeZoneException)
+            {
+                // Match CalendarSettings.Zone: invalid preference falls back to the machine zone.
+            }
+        }
+
+        return TimeZoneInfo.Local;
+    }
+
     private async Task<string> CheckCalendarAsync(IAccountSession session, string accountKey, JsonObject args, CancellationToken ct)
     {
         if (!session.Client.Session.Has("urn:ietf:params:jmap:calendars"))
@@ -399,7 +417,7 @@ public sealed partial class AssistantTools(
             return Fail(loaded.Error!.Message);
         }
 
-        var occurrences = CalendarOccurrences.In(loaded.Value!.Events, from.Value, to.Value).Take(100);
+        var occurrences = CalendarOccurrences.In(loaded.Value!.Events, from.Value, to.Value, CalendarZone()).Take(100);
         return AssistantPrompt.WrapEmail(string.Join("\n", occurrences.Select(o => $"{o.Start:yyyy-MM-dd HH:mm} - {o.End:yyyy-MM-dd HH:mm} | {o.Title} | {o.Location}")));
     }
 
@@ -424,14 +442,19 @@ public sealed partial class AssistantTools(
             return Fail(loaded.Error!.Message);
         }
 
-        var selected = loaded.Value!.Calendars.FirstOrDefault(c => (bool?)c["isDefault"] == true) ?? (loaded.Value.Calendars.Count > 0 ? loaded.Value.Calendars[0] : null);
+        var primary = session.Client.Session.AccountFor("urn:ietf:params:jmap:calendars");
+        var own = loaded.Value!.Calendars.Where(c =>
+            (c["_acc"] is null || string.Equals((string?)c["_acc"], primary, StringComparison.Ordinal)) &&
+            (c["myRights"] is null || (bool?)c["myRights"]?["mayWriteAll"] == true || (bool?)c["myRights"]?["mayWriteOwn"] == true)).ToList();
+        var selected = own.FirstOrDefault(c => (bool?)c["isDefault"] == true) ?? (own.Count > 0 ? own[0] : null);
         var calendar = (string?)selected?["id"];
         if (string.IsNullOrEmpty(calendar))
         {
             return Fail("No calendar found.");
         }
 
-        var zone = TimeZoneInfo.TryConvertWindowsIdToIanaId(TimeZoneInfo.Local.Id, out var iana) ? iana : TimeZoneInfo.Local.Id;
+        var zoneId = CalendarZone().Id;
+        var zone = TimeZoneInfo.TryConvertWindowsIdToIanaId(zoneId, out var iana) ? iana : zoneId;
         var data = new JsonObject { ["@type"] = "Event", ["title"] = title, ["start"] = start, ["timeZone"] = zone, ["duration"] = System.Xml.XmlConvert.ToString(TimeSpan.FromMinutes(minutes)) };
         if (Str(args, "location") is { Length: > 0 } location)
         {
@@ -503,7 +526,7 @@ public sealed partial class AssistantTools(
         var request = new ComposeRequest(accountKey, reply.Length == 0 ? ComposeKind.New : ComposeKind.Reply)
         {
             SourceEmailId = reply.Length == 0 ? null : reply,
-            Prefill = new ComposePrefill { To = Str(args, "to"), Subject = Str(args, "subject"), Body = Str(args, "body") },
+            Prefill = new ComposePrefill { To = Str(args, "to"), Cc = Str(args, "cc"), Bcc = Str(args, "bcc"), Subject = Str(args, "subject"), Body = Str(args, "body") },
         };
         var opened = await draftOpener.OpenAsync(request, ct).ConfigureAwait(false);
         return opened.IsOk ? "The draft is open in the composer for review." : Fail(opened.Error!.Message);
@@ -645,9 +668,18 @@ public sealed partial class AssistantTools(
             }
 
             var folderList = folders.Value!.All.Select(m => new FilterFolder(m.Id, m.Name)).ToList();
+            var field = Str(args, "field");
             var comparator = Str(args, "comparator");
-            var condition = new FilterCond(Str(args, "field"), comparator.Length == 0 ? "contains" : comparator, Str(args, "value"), "");
-            var action = new FilterAct(Str(args, "action"), Str(args, "action_value"), "", false);
+            var kind = Str(args, "action");
+            if (!FilterRules.Fields.Any(f => string.Equals(f.Id, field, StringComparison.Ordinal)) || !FilterRules.ActionKinds(loaded.Value.Extensions).Any(a => string.Equals(a.Id, kind, StringComparison.Ordinal)))
+            {
+                return Fail("Unknown filter field or action.");
+            }
+
+            var value = Str(args, "action_value");
+            var folder = kind is "move" or "copy" ? folderList.FirstOrDefault(f => string.Equals(f.Id, value, StringComparison.Ordinal) || string.Equals(f.Path, value, StringComparison.OrdinalIgnoreCase)) : null;
+            var condition = new FilterCond(field, comparator.Length == 0 ? "contains" : comparator, Str(args, "value"), "");
+            var action = new FilterAct(kind, value, folder?.Id ?? string.Empty, false);
             var built = FilterRules.BuildRule(null, null, name, false, [condition], [action], folderList, Flag(args, "stop") == true, false, "", "");
             if (built.Rule is null)
             {
@@ -680,6 +712,11 @@ public sealed partial class AssistantTools(
     {
         var key = Str(a, "key");
         var row = SettingsCatalog.RowOfKey(key);
+        if (key.StartsWith("ai.", StringComparison.OrdinalIgnoreCase) || key.StartsWith("admin", StringComparison.OrdinalIgnoreCase))
+        {
+            return Fail("That setting cannot be changed by the assistant.");
+        }
+
         if (row is null || row.Kind is SettingRowKind.Info or SettingRowKind.Button or SettingRowKind.Section)
         {
             return Fail($"There is no setting called \"{key}\".");

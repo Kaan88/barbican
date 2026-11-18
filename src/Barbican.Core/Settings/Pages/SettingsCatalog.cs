@@ -13,8 +13,7 @@ public static class SettingsCatalog
     private static readonly HashSet<string> UnwiredKeys = new(StringComparer.Ordinal)
     {
         "settingsSyncDisabled", "compactSharedMailboxes", "keepAppsLoaded", "mailLayout", "proInterface", "showRailAccountList", "showSharedMailAccounts", "sidebarAccountSwitcher",
-        "toolbarPosition", "mentionAddsRecipientTo", "recipientMentionsEnabled", "rtlEditingSupport", "filenameCollapseSeparators", "filenameLowercase", "filenameSpaceReplacement",
-        "filenameStripDiacritics", "postExportAction", "dateLocale", "showOnboardingOnNewDevices", "listColumns", "messageListOrderScope", "swipeLeftAction", "swipeRightAction",
+        "toolbarPosition", "rtlEditingSupport", "postExportAction", "dateLocale", "showOnboardingOnNewDevices", "listColumns", "messageListOrderScope", "swipeLeftAction", "swipeRightAction",
         "notificationSoundChoice", "pushRelayUrl", "debugMode",
     };
 
