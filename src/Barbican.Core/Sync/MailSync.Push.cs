@@ -142,7 +142,7 @@ public sealed partial class MailSync
         }
 
         // the calendar types are not mail: they go to the calendar store, outside the mail syncing/idle cycle
-        var calendar = types.Where(t => CalendarPushRelay.Types.Contains(t, StringComparer.Ordinal)).ToList();
+        var calendar = types.Where(t => CalendarPushRelay.Types.Contains(t, StringComparer.Ordinal) || ContactPushTypes.Types.Contains(t, StringComparer.Ordinal)).ToList();
         if (calendar.Count > 0)
         {
             types.ExceptWith(calendar);

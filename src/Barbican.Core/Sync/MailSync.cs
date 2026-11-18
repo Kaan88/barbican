@@ -50,7 +50,10 @@ public sealed partial class MailSync : IMailSync, IDisposable
         _newMail = new NewMailWatcher(service);
         _calendarPush = calendar;
         // M4 cal-data: a login with calendars also follows their state strings (the stream is only asked for types the server has)
-        _pushTypes = calendar is not null && _client.Session.Has(JmapCapabilities.Calendars) ? [.. PushTypes, .. CalendarPushRelay.Types] : PushTypes;
+        // M5 con-data: and its contacts (AddressBook, ContactCard); the same relay hands them on, each store reads the types it knows
+        _pushTypes = calendar is null
+            ? PushTypes
+            : [.. PushTypes, .. _client.Session.Has(JmapCapabilities.Calendars) ? CalendarPushRelay.Types : [], .. _client.Session.Has(ContactPushTypes.Capability) ? ContactPushTypes.Types : []];
         _timer = time.CreateTimer(_ => OnCoalesced(), null, Timeout.InfiniteTimeSpan, Timeout.InfiniteTimeSpan);
     }
 

@@ -78,6 +78,7 @@ public static partial class FakeSeed
             ["updated"] = "2026-01-01T00:00:00Z",
             ["name"] = new JsonObject { ["full"] = "Anna Müller" },
             ["emails"] = new JsonObject { ["e0"] = new JsonObject { ["address"] = "anna@mueller.example" } },
+            ["keywords"] = new JsonObject { ["Friend"] = true },
         });
         _ = contacts.AddCard(work, new JsonObject
         {
