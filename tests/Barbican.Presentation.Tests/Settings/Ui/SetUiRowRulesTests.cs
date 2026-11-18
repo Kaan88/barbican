@@ -12,7 +12,6 @@ public sealed class SetUiRowRulesTests
         new(id, "p", kind, id, string.Empty, id, [.. options.Select(o => new SettingOption(o, o.ToUpperInvariant()))], def, SettingRowStatus.Wired, advanced, null);
 
     [Fact]
-    [Red("set-ui")]
     public void Advanced_rows_hide_and_a_section_without_visible_rows_hides_with_them()
     {
         var rows = new[]
@@ -29,7 +28,6 @@ public sealed class SetUiRowRulesTests
     }
 
     [Fact]
-    [Red("set-ui")]
     public void A_value_falls_back_to_the_row_default()
     {
         var row = R("a", SettingRowKind.Toggle, def: JsonValue.Create(true));
@@ -39,7 +37,6 @@ public sealed class SetUiRowRulesTests
     }
 
     [Fact]
-    [Red("set-ui")]
     public void A_select_shows_the_label_of_its_value()
     {
         var row = R("s", SettingRowKind.Select, false, null, "x", "y");
