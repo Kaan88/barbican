@@ -5,6 +5,7 @@ using Barbican.Core.Common;
 using Barbican.Core.Compose;
 using Barbican.Core.Filters.Rules;
 using Barbican.Core.Jmap;
+using Barbican.Core.Mail;
 using Barbican.Core.Plugins.Hooks;
 using Barbican.Core.Settings.Folders;
 using Barbican.Core.Settings.Templates;

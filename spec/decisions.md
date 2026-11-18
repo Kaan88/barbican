@@ -554,3 +554,6 @@ Plan decisions are `D-M6-00..`; the streams add `D-M6-A..` (set-data), `D-M6-B..
 | D-M6-D01 | m6-plan | filters ui | The rule editor is a dialog over the filters page; the raw Sieve view is read-only text with Copy (a hand-edited script is shown locked, B-SIEVE-007), editing the script as text is not offered. | I-432..I-434; Bulwark's Sieve view is for reading what Barbican wrote (L-041). | |
 | D-M6-D02 | m6-plan | recover ui | The Recover page lists `ArchivedItems` of the existing M3 data layer and restores through it; no new data. | I-438. | |
 | D-M6-D03 | m6-plan | tags ui | The tag manager of the Folders and tags page uses the existing `TagService`; shared tags are deferred (D-M6-10). | I-431. | |
+
+| D-M6-C06 | b87f023 | vacation | Persist the calendar-block flag in Inbox metadata; creating or removing a calendar event is not implemented by VacationService. | The service lacks the calendar writer integration; G-022 remains unproven and needs integration work. | G-022 |
+| D-M6-C07 | b87f023 | folders | Store pinned folders in the Barbican-owned `pinned-folders` Inbox metadata setting; other folder preferences use the Bulwark keys. | No matching Bulwark pin key was identified. | G-038 |
