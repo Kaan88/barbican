@@ -20,7 +20,7 @@ wherever they can. Safety rules stay (no real input, read-only account, admin ke
 | `m4-cal-edit` | 9da524f | Steps 1-2 done, 16/17 red green (EventEditor alerts test waits for cal-data ReminderRules). Next: step 3 (invitations, IcsReader/Importer, feeds, availability, 5 hooks). Core suite green. |
 | `m4-cal-views` | 61238e1 (WIP) | Presentation layer done (3 red green, suite green at 2e5cc06). App views written, App head build unverified. Next: build -Head win, suite, hidden run, screenshots, perf probe. |
 | `m4-cal-ui` | 698aa59 (WIP) | View models done (4 red green). Suite not confirmed. Next: run tests (CalendarMenusTests, CalendarCommandSet.Count), App views, automation, screenshots, decisions. |
-| `m4-ui-sweep` | 6e110d6 | 15 defects, 9 fixed (docs/milestones/UI-SWEEP-1.md). Next: rebuild/test last 2 edits, keyboard sweep on real data, open list, clean the UISWEEP test mails and cancel the mail scheduled for Thu 19 Nov 08:00. Commit f735132 pushed 4 real-account screenshots (now untracked; history rewrite awaits the user's OK). |
+| `m4-ui-sweep` | 4ee2ccb | 15 defects, 9 fixed (docs/milestones/UI-SWEEP-1.md). Next: rebuild/test last 2 edits, keyboard sweep on real data, open list, clean the UISWEEP test mails and cancel the mail scheduled for Thu 19 Nov 08:00. The 4 real-account screenshots (g01-g04) were removed from the branch history with the user's OK (rewritten and force-pushed 2026-11-18; old head 6e110d6). Never commit real-account screenshots; keep them untracked. |
 
 ## How to resume (after the 2026-11-18 pause)
 1. Each paused branch ends with a "WIP (paused)" commit or its last real commit; read its subject and the stream's section in
