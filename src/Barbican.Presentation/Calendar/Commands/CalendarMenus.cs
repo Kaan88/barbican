@@ -1,6 +1,7 @@
 // Mirrors: spec/menus.md MENU-EVENT, MENU-SLOT, MENU-TASK, MENU-CAL item by item; Rust ctxmenu.rs:249-:279; Bulwark components/calendar/event-context-menu.tsx (RSVP rows only when the user is a participant and the answer is not the current one), empty-space-context-menu.tsx,
-// task-context-menu.tsx, calendar-sidebar-panel.tsx. I-326..I-330, I-344, I-305 (the menu items; the click and right-click are cal-views'). The providers read the subject from MenuContext.Subject.
+// task-context-menu.tsx, calendar-sidebar-panel.tsx. I-326..I-330, I-344, I-305 (the menu items; the click and right-click are cal-views'). The providers read the subject from MenuContext.Calendar (cal-views' typed target) through SubjectOf.
 
+using System.Globalization;
 using System.Text.Json.Nodes;
 using Barbican.Presentation.Calendar.Editors;
 using Barbican.Presentation.Menus;
@@ -28,6 +29,23 @@ public static class CalendarMenus
         new DelegateMenuProvider(MenuIds.Calendar, c => Calendar(c, source)),
         new DelegateMenuProvider(MenuIds.CalendarColour, c => CalendarColour(c, source)),
     ];
+
+    /// <summary>What a calendar menu is about, read from the typed target: the slot as "yyyy-MM-ddTHH:mm" (plus "|allday") for MENU-SLOT, the calendar id for MENU-CAL and its colour flyout, the occurrence (or task) id otherwise.</summary>
+    public static string? SubjectOf(MenuContext c)
+    {
+        ArgumentNullException.ThrowIfNull(c);
+        if (c.Calendar is not { } t)
+        {
+            return null;
+        }
+
+        return c.MenuId switch
+        {
+            MenuIds.Slot => t.Slot is { } s ? s.ToString("yyyy-MM-ddTHH:mm", CultureInfo.InvariantCulture) + (t.AllDay ? "|allday" : string.Empty) : null,
+            MenuIds.Calendar or MenuIds.CalendarColour => t.CalendarId,
+            _ => t.OccurrenceId,
+        };
+    }
 
     private static JsonNode? EventOf(IEditorSource source, string? subject) =>
         subject is null ? null : source.Events.FirstOrDefault(e => string.Equals(CalendarJson.Id(e), CalendarJson.BaseId(subject), StringComparison.Ordinal));
@@ -62,7 +80,7 @@ public static class CalendarMenus
     {
         ArgumentNullException.ThrowIfNull(c);
         ArgumentNullException.ThrowIfNull(source);
-        if (c.Subject is not { } subject || EventOf(source, subject) is not { } ev)
+        if (SubjectOf(c) is not { } subject || EventOf(source, subject) is not { } ev)
         {
             return [];
         }
@@ -103,7 +121,7 @@ public static class CalendarMenus
     public static IReadOnlyList<MenuItemSpec> Slot(MenuContext c)
     {
         ArgumentNullException.ThrowIfNull(c);
-        var subject = c.Subject ?? string.Empty;
+        var subject = SubjectOf(c) ?? string.Empty;
         return
         [
             Item(MenuGlyphs.Add, "New event", CalendarCommandIds.SlotNewEvent, argument: subject),
@@ -121,7 +139,7 @@ public static class CalendarMenus
     {
         ArgumentNullException.ThrowIfNull(c);
         ArgumentNullException.ThrowIfNull(source);
-        if (c.Subject is not { } id || TaskOf(source, id) is not { } task)
+        if (SubjectOf(c) is not { } id || TaskOf(source, id) is not { } task)
         {
             return [];
         }
@@ -141,7 +159,7 @@ public static class CalendarMenus
     {
         ArgumentNullException.ThrowIfNull(c);
         ArgumentNullException.ThrowIfNull(source);
-        if (c.Subject is not { } id || TaskOf(source, id) is not { } task)
+        if (SubjectOf(c) is not { } id || TaskOf(source, id) is not { } task)
         {
             return [];
         }
@@ -167,7 +185,7 @@ public static class CalendarMenus
     {
         ArgumentNullException.ThrowIfNull(c);
         ArgumentNullException.ThrowIfNull(source);
-        if (c.Subject is not { } id || CalendarOf(source, id) is not { } cal)
+        if (SubjectOf(c) is not { } id || CalendarOf(source, id) is not { } cal)
         {
             return [];
         }
@@ -193,7 +211,7 @@ public static class CalendarMenus
     {
         ArgumentNullException.ThrowIfNull(c);
         ArgumentNullException.ThrowIfNull(source);
-        var id = c.Subject ?? string.Empty;
+        var id = SubjectOf(c) ?? string.Empty;
         var current = CalendarJson.Str(CalendarOf(source, id), "color");
         return [.. CalendarJson.Colors.Select(col => Item(
             MenuGlyphs.Dot(Convert.ToUInt32(col.Hex[1..], 16)),

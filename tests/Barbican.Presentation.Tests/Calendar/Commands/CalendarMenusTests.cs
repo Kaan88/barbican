@@ -3,6 +3,7 @@
 using System.Text.Json.Nodes;
 using Barbican.Presentation.Calendar.Commands;
 using Barbican.Presentation.Commands;
+using Barbican.Presentation.Calendar.Grid;
 using Barbican.Presentation.Menus;
 using Barbican.Presentation.Tests.Calendar.Editors;
 
@@ -12,7 +13,15 @@ public sealed class CalendarMenusTests
 {
     private readonly FakeSource _source = new();
 
-    private static MenuContext Ctx(string menu, string subject) => new(menu, [], null, null, null, null, CommandSurface.ContextMenu) { Subject = subject };
+    private static MenuContext Ctx(string menu, string subject) => new(menu, [], null, null, null, null, CommandSurface.ContextMenu)
+    {
+        Calendar = menu switch
+        {
+            MenuIds.Slot => new CalendarMenuTarget("acc", Slot: DateTime.Parse(subject, System.Globalization.CultureInfo.InvariantCulture)),
+            MenuIds.Calendar or MenuIds.CalendarColour => new CalendarMenuTarget("acc", CalendarId: subject),
+            _ => new CalendarMenuTarget("acc", OccurrenceId: subject),
+        },
+    };
 
     private static string[] Labels(IEnumerable<MenuItemSpec> items) =>
         [.. items.Select(i => i.Kind switch { MenuItemKind.Separator => "—", MenuItemKind.Header => "# " + i.Label, MenuItemKind.Submenu => i.Label + " ›", _ => i.Label })];
