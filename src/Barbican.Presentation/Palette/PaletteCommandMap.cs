@@ -8,6 +8,17 @@ namespace Barbican.Presentation.Palette;
 /// <summary>Which registry command a palette row runs, and with what argument.</summary>
 public static class PaletteCommandMap
 {
+    // M5 con-ui: the Contacts rows of the palette run the contacts commands
+    private static string? ContactsCommand(string id) => id switch
+    {
+        "ct:new" => Contacts.ContactsCommandIds.New,
+        "ct:group" => Contacts.ContactsCommandIds.NewGroup,
+        "ct:import" => Contacts.ContactsCommandIds.Import,
+        "ct:export" => Contacts.ContactsCommandIds.Export,
+        "ct:merge" => Contacts.ContactsCommandIds.Merge,
+        _ => null,
+    };
+
     /// <summary>The command id and argument of a palette row; the id is null for a row nothing handles (calendar, contacts, files rows until their milestones).</summary>
     public static (string? CommandId, string? Argument) Resolve(PaletteCommand command, PaletteContext context)
     {
@@ -69,6 +80,6 @@ public static class PaletteCommandMap
             "sign-out" => CommandIds.SignOut,
             _ => null,
         };
-        return (mapped, null);
+        return (mapped ?? ContactsCommand(id), null);
     }
 }

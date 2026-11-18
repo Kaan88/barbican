@@ -173,7 +173,7 @@ public sealed class MenuItemListTests
     public void Address_menu_lists_the_spec_rows_and_is_empty_without_an_address()
     {
         var rows = MessageMenus.Address(Context(MenuIds.Address, address: "ann@example.org"));
-        Assert.Equal(["# ann@example.org", "Copy email address", "New message", "Add to contacts", "—", "Find emails from this sender"], Labels(rows));
+        Assert.Equal(["# ann@example.org", "Copy email address", "New message", "View contact", "Add to contacts", "—", "Find emails from this sender"], Labels(rows));
         Assert.All(rows.Where(r => r.Kind == MenuItemKind.Item), r => Assert.Equal("ann@example.org", r.Argument));
         Assert.Empty(MessageMenus.Address(Context(MenuIds.Address, address: "not an address")));
         Assert.Empty(MessageMenus.Address(Context(MenuIds.Address)));

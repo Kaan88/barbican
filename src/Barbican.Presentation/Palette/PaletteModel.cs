@@ -84,6 +84,9 @@ public static class PaletteModel
                 case 2:
                     v.Add(Cmd("ct:new", "Contacts", "add", "New contact", string.Empty));
                     v.Add(Cmd("ct:group", "Contacts", "people", "New group", string.Empty));
+                    v.Add(Cmd("ct:import", "Contacts", "upload", "Import contacts", string.Empty, "vcard", "vcf"));
+                    v.Add(Cmd("ct:export", "Contacts", "download", "Export contacts", string.Empty, "vcard", "vcf"));
+                    v.Add(Cmd("ct:merge", "Contacts", "people", "Merge duplicate contacts", string.Empty, "duplicates"));
                     break;
                 case 3:
                     const string f = "Files";
