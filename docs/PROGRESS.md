@@ -14,7 +14,7 @@ wherever they can. Safety rules stay (no real input, read-only account, admin ke
 | M4 | `m4` (see git log) | Done 2026-11-18: calendar and tasks (cal-data, cal-edit, cal-views, cal-ui, UI sweep, integration pass). 2370 tests green on Windows, 0 [Red], spec-check M4 clean. Linux deferred to M9. Report: docs/milestones/M4.md. Zip `Barbican-ea1576de1218-win-x64.zip`. |
 
 ## Next step
-M5 (contacts). Open from M4, see docs/milestones/M4.md "What is unproven": live checks on the test account, Linux build (M9). The UI sweep keyboard run on real data and cleanup of its test mails are still open (docs/milestones/UI-SWEEP-1.md).
+M5 (contacts). Open from M4, see docs/milestones/M4.md "What is unproven": live checks on the test account, Linux build (M9). UI sweep 1 (merged): keyboard run on real data and test-mail cleanup done; open defects S-02, S-03 and the unchecked areas are in docs/milestones/UI-SWEEP-1.md. Seen in the M4 screens: overlapping events in a week column shrink to unreadable slivers ("F...", "R..."), and the mini-month day numbers have marks drawn through them.
 
 Order after M4: M5, M6, M6b, M7, M8, M10, M9 (Linux last), then the whole-app Fable review.
 
