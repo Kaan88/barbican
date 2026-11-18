@@ -1455,3 +1455,5 @@ launched; Linux unverified). Verdicts on the M2 verify items 1 to 6, 11, 12 and 
 - Review `src/Barbican.Core/Settings/Pages/SettingsCatalog.cs`: the two mention and four filename preferences were removed from the inert list after checking their concrete readers; the UI owner is reconciling the remaining settings CSV.
 
 - **Sol code check of `5ec4e27` found a calendar-rights bug:** `AssistantTools.CreateEventAsync` tested mailbox right `mayAddItems`; calendars use `mayWriteAll` / `mayWriteOwn`. The coordinator corrected the filter and extended the FakeJmap calendar test with a read-only default and writable fallback. All nine assistant-tool integration cases passed on Windows after the correction.
+
+- Sol code check of `f0ca62f` found the avatar refresh lock could hold disk IO while `TryGet` waited. Follow-up separates the background-only disk lock from the short state lock, with disk-before-state lock ordering. The delayed-fetch regression verifies old work cannot repopulate the cache; a deliberately slow filesystem was not simulated.
