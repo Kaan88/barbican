@@ -51,6 +51,23 @@ public sealed class ToastService : IToastService, IDisposable
     public ToastHandle Show(ToastRequest toast)
     {
         ArgumentNullException.ThrowIfNull(toast);
+        var handle = new ToastHandle(Interlocked.Increment(ref _next));
+
+        // the collection is bound to the UI: a send finishing on a pool thread must not touch it there (0x8001010E "marshalled for a different thread", UI-SWEEP-1 C-05)
+        if (_dispatcher.HasThreadAccess)
+        {
+            ShowCore(handle, toast);
+        }
+        else
+        {
+            _dispatcher.Post(() => ShowCore(handle, toast));
+        }
+
+        return handle;
+    }
+
+    private void ShowCore(ToastHandle newHandle, ToastRequest toast)
+    {
         ToastItem item;
         lock (_lock)
         {
@@ -61,7 +78,7 @@ public sealed class ToastService : IToastService, IDisposable
                 DismissLocked(same.Handle);
             }
 
-            item = new ToastItem(new ToastHandle(++_next), toast);
+            item = new ToastItem(newHandle, toast);
             Toasts.Add(item);
             LastShown = item;
             while (Toasts.Count > MaxVisible)
@@ -78,12 +95,17 @@ public sealed class ToastService : IToastService, IDisposable
         }
 
         Announced?.Invoke(this, new ToastAnnouncedEventArgs(item));
-        return item.Handle;
     }
 
     /// <inheritdoc />
     public void Dismiss(ToastHandle handle)
     {
+        if (!_dispatcher.HasThreadAccess)
+        {
+            _dispatcher.Post(() => Dismiss(handle));
+            return;
+        }
+
         lock (_lock)
         {
             DismissLocked(handle);

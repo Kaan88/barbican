@@ -44,6 +44,9 @@ public sealed partial class ReaderView : UserControl
     private void OnReplyAllClick(object sender, RoutedEventArgs e) => RunOnOpen(Barbican.Presentation.Commands.CommandIds.ReplyAll);
 
     private void OnForwardClick(object sender, RoutedEventArgs e) => RunOnOpen(Barbican.Presentation.Commands.CommandIds.Forward);
+    private void OnArchiveClick(object sender, RoutedEventArgs e) => RunOnOpen(Barbican.Presentation.Commands.CommandIds.Archive);
+
+    private void OnDeleteClick(object sender, RoutedEventArgs e) => RunOnOpen(Barbican.Presentation.Commands.CommandIds.Delete);
 
     private void RunOnOpen(string commandId)
     {
@@ -58,6 +61,17 @@ public sealed partial class ReaderView : UserControl
         {
             ViewHost.Get<Barbican.Presentation.Commands.CommandRunner>().Start(command, context);
         }
+    }
+
+    // UI-SWEEP-1 R-05: in a narrow pane the verdict pill drops under the sender line instead of squeezing the name to nothing
+    private void OnSenderLineSizeChanged(object sender, SizeChangedEventArgs e)
+    {
+        var narrow = e.NewSize.Width < 440;
+        Grid.SetRow(VerdictPill, narrow ? 1 : 0);
+        Grid.SetColumn(VerdictPill, narrow ? 1 : 2);
+        Grid.SetColumnSpan(VerdictPill, narrow ? 3 : 1);
+        VerdictPill.HorizontalAlignment = narrow ? HorizontalAlignment.Left : HorizontalAlignment.Stretch;
+        VerdictPill.Margin = narrow ? new Thickness(0, 6, 0, 0) : default;
     }
 
     private void OnDetailsClick(object sender, RoutedEventArgs e) => SetDetails(DetailsPanel.Visibility != Visibility.Visible);

@@ -31,8 +31,8 @@
         <Grid x:Name="ContentGrid" Padding="{x:Bind Look.ReaderPadding, Mode=OneWay}" RowSpacing="{x:Bind Look.ReaderSpacing, Mode=OneWay}" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto,*,Auto"
               Visibility="{x:Bind views:Fmt.VisBody(Reader.BodyState, 'content'), Mode=OneWay}">
           <!-- The order follows the prototype: Bento subject, sender line, actions; Nordic actions, subject, the "to you" line. The rows are bound (StyleState.Reader*Row). -->
-          <!-- actions: Reply, Reply all, Forward, Archive and Delete are M2 or M3 and stay disabled; More opens MENU-READER. Bento: icon + label (Reply all, Delete, More icon-only); Nordic: text only. -->
-          <StackPanel Grid.Row="{x:Bind Look.ReaderActionsRow, Mode=OneWay}" Orientation="Horizontal" Spacing="8" AutomationProperties.AutomationId="reader.toolbar" AutomationProperties.Name="Message actions">
+          <!-- actions: Reply, Reply all, Forward, Archive and Delete run their commands on the open message; More opens MENU-READER. Bento: icon + label (Reply all, Delete, More icon-only); Nordic: text only. -->
+          <controls:WrapRow Grid.Row="{x:Bind Look.ReaderActionsRow, Mode=OneWay}" Spacing="8" AutomationProperties.AutomationId="reader.toolbar" AutomationProperties.Name="Message actions">
             <Button Style="{StaticResource Button.Action}" Height="{x:Bind Look.ActionButtonHeight, Mode=OneWay}" CornerRadius="{x:Bind Look.ActionRadius, Mode=OneWay}"
                     Padding="{x:Bind Look.ActionPadding, Mode=OneWay}" Click="OnReplyClick" AutomationProperties.AutomationId="reader.reply" AutomationProperties.Name="Reply">
               <StackPanel Orientation="Horizontal" Spacing="6"><controls:SIcon Kind="Reply" Size="16" Visibility="{x:Bind Look.BentoOnly, Mode=OneWay}" /><TextBlock Text="Reply" /></StackPanel>
@@ -46,18 +46,18 @@
               <StackPanel Orientation="Horizontal" Spacing="6"><controls:SIcon Kind="Fwd" Size="16" Visibility="{x:Bind Look.BentoOnly, Mode=OneWay}" /><TextBlock Text="Forward" /></StackPanel>
             </Button>
             <Button Style="{StaticResource Button.Action}" Height="{x:Bind Look.ActionButtonHeight, Mode=OneWay}" CornerRadius="{x:Bind Look.ActionRadius, Mode=OneWay}"
-                    Padding="{x:Bind Look.ActionPadding, Mode=OneWay}" IsEnabled="False" AutomationProperties.AutomationId="reader.archive" AutomationProperties.Name="Archive">
+                    Padding="{x:Bind Look.ActionPadding, Mode=OneWay}" Click="OnArchiveClick" AutomationProperties.AutomationId="reader.archive" AutomationProperties.Name="Archive">
               <StackPanel Orientation="Horizontal" Spacing="6"><controls:SIcon Kind="Archive" Size="16" Visibility="{x:Bind Look.BentoOnly, Mode=OneWay}" /><TextBlock Text="Archive" /></StackPanel>
             </Button>
             <Button Style="{StaticResource Button.Action}" Height="{x:Bind Look.ActionButtonHeight, Mode=OneWay}" CornerRadius="{x:Bind Look.ActionRadius, Mode=OneWay}"
-                    Padding="{x:Bind Look.ActionPadding, Mode=OneWay}" IsEnabled="False" AutomationProperties.AutomationId="reader.delete" AutomationProperties.Name="Delete">
+                    Padding="{x:Bind Look.ActionPadding, Mode=OneWay}" Click="OnDeleteClick" AutomationProperties.AutomationId="reader.delete" AutomationProperties.Name="Delete">
               <StackPanel Orientation="Horizontal" Spacing="6"><controls:SIcon Kind="Trash" Size="16" Visibility="{x:Bind Look.BentoOnly, Mode=OneWay}" /><TextBlock Text="Delete" Visibility="{x:Bind Look.SecondaryLabelVisibility, Mode=OneWay}" /></StackPanel>
             </Button>
             <Button Style="{StaticResource Button.Action}" Width="{x:Bind Look.ActionButtonHeight, Mode=OneWay}" Height="{x:Bind Look.ActionButtonHeight, Mode=OneWay}" Padding="0"
                     CornerRadius="{x:Bind Look.ActionRadius, Mode=OneWay}" Click="OnMoreClick" AutomationProperties.AutomationId="reader.more" AutomationProperties.Name="More actions">
               <controls:SIcon Kind="More" Size="16" />
             </Button>
-          </StackPanel>
+          </controls:WrapRow>
 
           <!-- header: the subject and the sender line rise a few pixels when another message opens (Motion/Rise; the prototype's header transition) -->
           <StackPanel Grid.Row="{x:Bind Look.ReaderSubjectRow, Mode=OneWay}">
@@ -91,7 +91,7 @@
             </ItemsRepeater.ItemTemplate>
           </ItemsRepeater>
           </StackPanel>
-          <Grid Grid.Row="{x:Bind Look.ReaderSenderRow, Mode=OneWay}" x:Name="SenderLine" ColumnDefinitions="Auto,*,Auto,Auto" ColumnSpacing="12" AutomationProperties.AutomationId="reader.header" AutomationProperties.Name="Message header">
+          <Grid Grid.Row="{x:Bind Look.ReaderSenderRow, Mode=OneWay}" x:Name="SenderLine" ColumnDefinitions="Auto,*,Auto,Auto" RowDefinitions="Auto,Auto" ColumnSpacing="8" SizeChanged="OnSenderLineSizeChanged" AutomationProperties.AutomationId="reader.header" AutomationProperties.Name="Message header">
             <Grid.RenderTransform>
               <TranslateTransform x:Name="SenderShift" />
             </Grid.RenderTransform>
@@ -101,7 +101,7 @@
                          HorizontalAlignment="Center" VerticalAlignment="Center" />
             </Border>
             <!-- Bento: From 14 semibold over the address and date; Nordic: "From to you · date" in one dim line -->
-            <StackPanel Grid.Column="1" VerticalAlignment="Center" Visibility="{x:Bind Look.BentoOnly, Mode=OneWay}">
+            <StackPanel Grid.Column="1" MinWidth="90" VerticalAlignment="Center" Visibility="{x:Bind Look.BentoOnly, Mode=OneWay}">
               <TextBlock Text="{x:Bind Reader.Header.From, Mode=OneWay}" FontSize="14" FontWeight="SemiBold" Foreground="{StaticResource Text}" TextTrimming="CharacterEllipsis"
                          AutomationProperties.AutomationId="reader.sender" AutomationProperties.Name="Sender" />
               <TextBlock FontSize="12.5" Foreground="{StaticResource Dim}" TextTrimming="CharacterEllipsis">
@@ -109,16 +109,16 @@
                 <Run Text="{x:Bind views:Fmt.DateLine(Reader.Header.Date), Mode=OneWay}" Foreground="{StaticResource Faint}" />
               </TextBlock>
             </StackPanel>
-            <TextBlock Grid.Column="1" FontSize="{x:Bind Look.ReaderSenderSize, Mode=OneWay}" Foreground="{StaticResource Dim}" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"
+            <TextBlock Grid.Column="1" MinWidth="90" FontSize="{x:Bind Look.ReaderSenderSize, Mode=OneWay}" Foreground="{StaticResource Dim}" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"
                        Visibility="{x:Bind Look.NordicOnly, Mode=OneWay}">
               <Run Text="{x:Bind Reader.Header.From, Mode=OneWay}" FontWeight="SemiBold" Foreground="{StaticResource Text}" />
               <Run Text="{x:Bind views:Fmt.ToLine(Reader.Header.To), Mode=OneWay}" />
               <Run Text="{x:Bind views:Fmt.DateLine(Reader.Header.Date), Mode=OneWay}" />
             </TextBlock>
-            <Border Grid.Column="2" Height="22" CornerRadius="11" Padding="10,0" Background="{x:Bind views:Fmt.VerdictBackground(Reader.AuthVerdict), Mode=OneWay}" VerticalAlignment="Center"
+            <Border x:Name="VerdictPill" Grid.Column="2" Height="22" CornerRadius="11" Padding="10,0" Background="{x:Bind views:Fmt.VerdictBackground(Reader.AuthVerdict), Mode=OneWay}" VerticalAlignment="Center"
                     AutomationProperties.AutomationId="reader.verdict" AutomationProperties.Name="Authentication result">
               <TextBlock Text="{x:Bind views:Fmt.AuthLabel(Reader.AuthVerdict), Mode=OneWay}" FontSize="11" FontWeight="SemiBold" Foreground="{x:Bind views:Fmt.VerdictForeground(Reader.AuthVerdict), Mode=OneWay}"
-                         VerticalAlignment="Center" />
+                         TextTrimming="CharacterEllipsis" VerticalAlignment="Center" />
             </Border>
             <Button Grid.Column="3" x:Name="DetailsButton" Style="{StaticResource Button.Icon}" Height="26" Padding="8,0" CornerRadius="9" Foreground="{StaticResource Dim}" Click="OnDetailsClick"
                     AutomationProperties.AutomationId="reader.details.toggle" AutomationProperties.Name="Details">

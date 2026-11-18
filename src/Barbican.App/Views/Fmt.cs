@@ -104,6 +104,8 @@ public static class Fmt
     public static FontWeight RowTimeWeight(bool nordic) => nordic ? FontWeights.Normal : FontWeights.SemiBold;
 
     /// <summary>The unread dot: Bento shows it only for unread rows; Nordic keeps its place on every row so the names line up.</summary>
+    public static Visibility NordicTick(bool isChecked, bool nordic) => isChecked && nordic ? Visibility.Visible : Visibility.Collapsed;
+
     public static Visibility DotVis(bool unread, bool nordic) => unread || nordic ? Visibility.Visible : Visibility.Collapsed;
 
     public static string UnreadText(int unread) => unread > 0 ? $"{unread} unread" : string.Empty;
@@ -176,6 +178,9 @@ public static class Fmt
     public static string DateLine(string date) => string.IsNullOrEmpty(date) ? string.Empty : $" · {date}";
 
     public static string Angle(string email) => string.IsNullOrEmpty(email) ? string.Empty : $"<{email}>";
+
+    /// <summary>Nordic rows have no avatar to show the check, so a ticked row takes the hover tint (UI-SWEEP-1 L-02).</summary>
+    public static Brush TickedRowBackground(bool isChecked, bool nordic) => isChecked && nordic ? Palette("Hover") : new SolidColorBrush(Color.FromArgb(0, 0, 0, 0));
 
     public static Brush CurrentBackground(bool current) => current ? Palette("Hover") : new SolidColorBrush(Color.FromArgb(0, 0, 0, 0));
 

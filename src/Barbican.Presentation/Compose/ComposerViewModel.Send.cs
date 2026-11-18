@@ -182,7 +182,8 @@ public sealed partial class ComposerViewModel
         {
             if (_c.Sender.ShowsToasts)
             {
-                Status = "Not sent";
+                // the coordinator toasts most refusals, but a quiet one (a cancelled question, a thrown error) would leave only "Not sent": keep the reason on screen (UI-SWEEP-1 C-05)
+                Status = string.IsNullOrWhiteSpace(error) ? "Not sent" : "Not sent: " + error;
                 return false;
             }
 

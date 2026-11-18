@@ -32,6 +32,27 @@ public sealed class ToastServiceTests
     }
 
     [Fact]
+    public void A_toast_shown_from_a_pool_thread_is_added_on_the_ui_thread_not_on_the_caller()
+    {
+        var queue = new Queue<Action>();
+        var toasts = new ToastService(new TestPrefs("{}"), new FakeTimeProvider(Mails.Now), new OffThreadDispatcher(queue));
+        var handle = toasts.Show(new ToastRequest("from a send"));
+        Assert.Empty(toasts.Toasts);
+        queue.Dequeue()();
+        Assert.Equal(["from a send"], toasts.Toasts.Select(t => t.Message));
+        Assert.Equal(handle, toasts.Toasts[0].Handle);
+    }
+
+    private sealed class OffThreadDispatcher(Queue<Action> queue) : Barbican.Presentation.Common.IDispatcher
+    {
+        public bool HasThreadAccess => false;
+
+        public void Post(Action action) => queue.Enqueue(action);
+
+        public Task InvokeAsync(Func<Task> action) => action();
+    }
+
+    [Fact]
     public void A_duration_of_zero_keeps_toasts_until_they_are_closed()
     {
         var (toasts, time) = Make("""{"toastDuration": 0}""");
