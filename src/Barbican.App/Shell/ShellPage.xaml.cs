@@ -8,7 +8,9 @@ using Barbican.App.Motion;
 using Barbican.App.Theme;
 using Barbican.Core.Accounts;
 using Barbican.Presentation.Accounts;
+using Barbican.Presentation.Calendar.Grid;
 using Barbican.Presentation.Input;
+using Barbican.Presentation.Shell;
 using Microsoft.UI.Xaml.Controls.Primitives;
 using Microsoft.UI.Xaml.Input;
 
@@ -31,6 +33,8 @@ public sealed partial class ShellPage : Page
     private bool? _appliedNordic;
     private readonly Barbican.Presentation.Compose.IComposerService? _composer;
     private bool _composing;
+    private Views.Calendar.CalendarScreen? _calendar;
+    private readonly ShellViewModel? _shell;
 
     public ShellPage()
     {
@@ -40,6 +44,7 @@ public sealed partial class ShellPage : Page
         _keys = ViewHost.Find<IKeyRouter>();
         _accounts = ViewHost.Find<IAccountManager>();
         _composer = ViewHost.Find<Barbican.Presentation.Compose.IComposerService>();
+        _shell = ViewHost.Find<ShellViewModel>();
 #if AUTOMATION
         // a sample-data run (BARBICAN_SAMPLE=1) shows FakeJmap's seed through IActiveMail without signing in: no sign-in screen there
         if (ViewHost.Find<Barbican.Presentation.Mail.IActiveMail>() is Automation.SampleActiveMail)
@@ -76,6 +81,7 @@ public sealed partial class ShellPage : Page
             WireAccounts(_accounts);
         }
 
+        WireCalendar();
         ShowScreen();
         if (_restore is { IsCompleted: false } restoring)
         {
@@ -226,7 +232,43 @@ public sealed partial class ShellPage : Page
         }
 
         SignInRegion.Visibility = signedOut ? Visibility.Visible : Visibility.Collapsed;
-        MailScreen.Visibility = signedOut ? Visibility.Collapsed : Visibility.Visible;
+        var calendar = !signedOut && _shell?.ActiveApp == AppId.Calendar && _shell.AvailableApps.Contains(AppId.Calendar);
+        MailScreen.Visibility = signedOut || calendar ? Visibility.Collapsed : Visibility.Visible;
+        ShowCalendar(calendar);
+    }
+
+    // M4 cal-views: Calendar is in the rail's available apps while the login advertises calendars; opening it swaps the screen
+    private void WireCalendar()
+    {
+        ViewHost.Find<CalendarAppAvailability>()?.Apply();
+        if (_shell is null)
+        {
+            return;
+        }
+
+        _shell.PropertyChanged += (_, e) =>
+        {
+            if (string.Equals(e.PropertyName, nameof(ShellViewModel.ActiveApp), StringComparison.Ordinal))
+            {
+                ShowScreen();
+            }
+        };
+    }
+
+    // the Calendar screen is built on the first visit (no cost at start-up) and then only hidden
+    private void ShowCalendar(bool show)
+    {
+        if (show && _calendar is null)
+        {
+            _calendar = new Views.Calendar.CalendarScreen();
+            CalendarHost.Children.Add(_calendar);
+        }
+
+        CalendarHost.Visibility = show ? Visibility.Visible : Visibility.Collapsed;
+        if (show)
+        {
+            _calendar?.OnShown();
+        }
     }
 
     private void Back(bool signedIn)

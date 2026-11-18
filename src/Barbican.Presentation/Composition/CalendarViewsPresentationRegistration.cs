@@ -12,8 +12,12 @@ public static class CalendarViewsPresentationRegistration
     public static IServiceCollection AddBarbicanCalendarViewsViewModels(this IServiceCollection services)
     {
         ArgumentNullException.ThrowIfNull(services);
-        services.TryAddSingleton<ICalendarViewModel, CalendarViewModel>();
-        services.TryAddSingleton<ICalendarGestures, CalendarGestures>();
+        services.TryAddSingleton<ICalendarSource, StoreCalendarSource>();
+        services.TryAddSingleton<CalendarViewModel>();
+        services.TryAddSingleton<ICalendarViewModel>(sp => sp.GetRequiredService<CalendarViewModel>());
+        services.TryAddSingleton<CalendarAppAvailability>();
+        services.TryAddSingleton<CalendarGestures>();
+        services.TryAddSingleton<ICalendarGestures>(sp => sp.GetRequiredService<CalendarGestures>());
         return services;
     }
 }

@@ -1287,3 +1287,8 @@ launched; Linux unverified). Verdicts on the M2 verify items 1 to 6, 11, 12 and 
 - **Subscription state** (D-M4-E02): kept in `calendar-subscriptions.json` with per-event hashes; nothing in cal-edit runs the refresh interval (no timer), check that cal-ui or cal-data owns it.
 - **Invitation answers** (`Invitations/InvitationService.cs`, D-M4-E04): verified only against FakeJmap's `CalendarEvent/set` (it records `sendSchedulingMessages`, Stalwart's iMIP behaviour for a created-with-answer event is from its source, not from a live server). No optimistic store patch for answers; the store is refreshed after the call.
 - **Availability** (`Editing/AvailabilityService.cs`): `Principal/query` filter by `email` and `Principal/getAvailability` argument names follow the draft and the fake; a real Stalwart (G-009) must confirm them before "Find a time" is trusted.
+
+## M4 stream: cal-views
+- Review `src/Barbican.App/Views/Calendar/**` (gestures, hover preview, print view) against Bulwark's calendar views: judgement calls are D-M4-C05..C10 in `spec/decisions.md`. Verified only through hidden automation on sample data (screens in `docs/milestones/M4-screens/`), never with a real pointer or on a real login; Linux untested (deferred to M9).
+- `CalendarGestures.WriteAsync` now resumes on the caller's thread (`ConfigureAwait(true)`); the previous `false` threw a COMException in the toast and rollback path. Check the same pattern in cal-edit's `CalendarWriter` when merging.
+- Perf probe numbers (5 000 tasks, 3 000 events): Agenda 21 ms, Month 16-35 ms, Week 68-85 ms, Day 16-41 ms: measures view model and layout, not the first paint of the ListView.

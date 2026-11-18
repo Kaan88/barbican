@@ -56,4 +56,7 @@ public sealed class HookCallSiteTests
     // M4: stream cal-data fires 6 hooks (events fetch range and result, tasks loaded, reminder before, shown and acknowledged).
     [Fact]
     public void Cal_data_m4_hooks_have_call_sites() => AssertFired("cal-data", "M4");
+    // M4: stream cal-views fires 5 hooks (event open, date change, view change, calendar change, visibility toggle).
+    [Fact]
+    public void Cal_views_m4_hooks_have_call_sites() => AssertFired("cal-views", "M4");
 }

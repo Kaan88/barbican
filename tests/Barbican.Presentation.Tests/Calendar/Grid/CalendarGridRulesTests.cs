@@ -7,7 +7,6 @@ namespace Barbican.Presentation.Tests.Calendar.Grid;
 public sealed class CalendarGridRulesTests
 {
     [Fact]
-    [Red("cal-views")]
     [RustTest("calendar::day_columns_follow_range")]
     public void Day_columns_follow_range()
     {
