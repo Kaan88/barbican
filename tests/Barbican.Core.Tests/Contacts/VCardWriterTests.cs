@@ -9,7 +9,6 @@ public sealed class VCardWriterTests
 {
     [Fact]
     [RustTest("vcard::round_trip_and_folding")]
-    [Red("con-data")]
     public void Round_trip_and_folding()
     {
         var card = J("""

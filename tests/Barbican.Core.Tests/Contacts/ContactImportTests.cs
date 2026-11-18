@@ -11,7 +11,6 @@ public sealed class ContactImportTests
 
     [Fact]
     [RustTest("contacts_x::import_batch_and_principals")]
-    [Red("con-data")]
     public void Import_batch_and_principals()
     {
         var cards = new[] { J("""{"id": "import-1", "name": {"full": "A"}}"""), J("""{"name": {"full": "B"}, "uid": "u-b"}""") };
@@ -31,7 +30,6 @@ public sealed class ContactImportTests
 
     [Fact]
     [RustTest("contacts_x::shrinks_photo_to_jpeg")]
-    [Red("con-data")]
     public void Shrinks_photo_to_jpeg()
     {
         var png = Convert.FromBase64String(Png900x600);
@@ -47,7 +45,6 @@ public sealed class ContactImportTests
     }
 
     [Fact]
-    [Red("con-data")]
     public void A_photo_over_the_input_cap_is_refused_without_decoding()
     {
         Assert.False(ContactPhoto.Shrink(new byte[ContactPhoto.MaxInputBytes + 1]).IsOk);

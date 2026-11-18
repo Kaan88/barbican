@@ -10,7 +10,7 @@ G-008,P1,S/M,calendar,Calendar print,calendar-print.tsx,GAPS P1-1,M4,open
 G-009,P1,S/M,calendar,"Find a time depends on Principal/getAvailability, which Stalwart may not support",find-a-time.tsx,GAPS P1-1,M4,open
 G-010,P1,S/M,contacts,Contact print,contact-print.ts,GAPS P1-2,M5,open
 G-011,P1,S/M,contacts,Contact activity and related people,contact-activity.tsx,GAPS P1-2,M5,open
-G-012,P1,S/M,contacts,"Security review of contacts input: vCard parsing of untrusted files, photo data URI size, export paths",vcard.ts,GAPS P1-2 (review),M5,open
+G-012,P1,S/M,contacts,"Security review of contacts input: vCard parsing of untrusted files, photo data URI size, export paths",vcard.ts,GAPS P1-2 (review),M5,partial(M5)
 G-013,P1,M,files,In-app preview (files open externally today),file-preview-modal.tsx; image-preview-modal.tsx; eml-preview.tsx,GAPS P1-3,M5,open
 G-014,P1,M,files,Details panel,file-details-panel.tsx,GAPS P1-3,M5,open
 G-015,P1,M,files,"Grid and list views, sort, search, thumbnails (Show files as, Default sort, thumbnails, hidden files)",file-views.tsx,GAPS P1-3,M5,open
@@ -42,7 +42,7 @@ G-040,P1,S/M,folders,Folders: mark the whole tree read,organize-settings.tsx,GAP
 G-041,P1,S/M,folders,Folders: per-folder notification mute (notificationMutes),folder-settings.tsx,GAPS P1-9,M6,open
 G-042,P1,S/M,folders,Folders: export and import a folder,mail-transfer/,GAPS P1-9; P1-11,M6,open
 G-043,P1,M,sharing,"Sharing folders, calendars and address books with other users (Barbican shares Files only)",layout/mailbox-share-dialog.tsx; share-collection-dialog.tsx,GAPS P1-9,M6 (later),open
-G-044,P1,S/M,live-updates,"Live updates for calendars, contacts, files and identities: push types cover mail only, and there is no /changes delta for them",EventSource types,GAPS P1-10,M4/M5,open
+G-044,P1,S/M,live-updates,"Live updates for calendars, contacts, files and identities: push types cover mail only, and there is no /changes delta for them",EventSource types,GAPS P1-10,M4/M5,partial(M5)
 G-045,P1,M,notifications,ShareNotification and CalendarEventNotification; the notification centre,share-notification-store.ts; calendar-event-notification-store.ts; notifications/notification-center.tsx,GAPS P1-10,M8,open
 G-046,P1,M,mail-transfer,Mail export of a folder to mbox or eml,mail-transfer/,GAPS P1-11,M2,done (core and MailTransfer; folder menu items and the platform file picker built (m2-close-b); live: L-038)
 G-047,P1,M,mail-transfer,winmail.dat (TNEF) decoding,lib/tnef.ts,GAPS P1-11,M2,done (core expander; no reader consumer yet; RTF body not offered)

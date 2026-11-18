@@ -28,6 +28,8 @@
     <PackageReference Include="Ical.Net" />
     <!-- M4 cal-data: time zones (tzdb) for the recurrence engine and reminders. -->
     <PackageReference Include="NodaTime" />
+    <!-- M5 con-data (D-M5-02): contact photos are decoded and shrunk with SkiaSharp (the App head already carries it; Linux assets: M9). -->
+    <PackageReference Include="SkiaSharp" />
   </ItemGroup>
 
   <ItemGroup>

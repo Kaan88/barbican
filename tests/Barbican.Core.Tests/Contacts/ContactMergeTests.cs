@@ -10,7 +10,6 @@ public sealed class ContactMergeTests
 {
     [Fact]
     [RustTest("contact_merge::finds_groups_by_name_email_phone")]
-    [Red("con-data")]
     public void Finds_groups_by_name_email_phone()
     {
         var cards = new[]
@@ -29,7 +28,6 @@ public sealed class ContactMergeTests
 
     [Fact]
     [RustTest("contact_merge::merge_keeps_newest_and_adds_missing")]
-    [Red("con-data")]
     public void Merge_keeps_newest_and_adds_missing()
     {
         var a = J("""
@@ -67,7 +65,6 @@ public sealed class ContactMergeTests
     }
 
     [Fact]
-    [Red("con-data")]
     public void The_default_book_is_the_flagged_one_then_Contacts_then_the_first_and_never_a_duplicate()
     {
         var flagged = J("""{"id": "b2", "name": "Work", "isDefault": true}""");

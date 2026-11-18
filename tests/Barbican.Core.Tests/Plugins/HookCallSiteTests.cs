@@ -59,4 +59,8 @@ public sealed class HookCallSiteTests
     // M4: stream cal-views fires 5 hooks (event open, date change, view change, calendar change, visibility toggle).
     [Fact]
     public void Cal_views_m4_hooks_have_call_sites() => AssertFired("cal-views", "M4");
+
+    // M5: stream con-data fires 11 hooks (contact create, update and delete before and after, import, move, group change, group members, recipient suggestions); the tests that reach them are in ContactWriterTests and ContactLookupTests.
+    [Fact]
+    public void Con_data_m5_hooks_have_call_sites() => AssertFired("con-data", "M5");
 }

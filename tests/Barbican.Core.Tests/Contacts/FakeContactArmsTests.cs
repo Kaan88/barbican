@@ -1,4 +1,4 @@
-// Green: the FakeJmap contact arms of the M5 plan (section 4.13) answer AddressBook/get, ContactCard/query (filters and paging), get with the chunk limit, and changes; without options.Contacts they answer unknownMethod; the set arms are stubs.
+// Green: the FakeJmap contact arms of the M5 plan (section 4.13) answer AddressBook/get, ContactCard/query (filters and paging), get with the chunk limit, and changes; without options.Contacts they answer unknownMethod; the set arms are in FakeContactSetTests.
 
 using System.Text.Json.Nodes;
 using Barbican.Core.Jmap;
@@ -72,7 +72,7 @@ public sealed class FakeContactArmsTests
         Assert.Equal("unknownMethod", (string?)plain["type"]);
         var noCapability = await CallAsync(new FakeJmapServer(new FakeJmapOptions { Contacts = contacts }), "ContactCard/query", new JsonObject());
         Assert.Equal("unknownMethod", (string?)noCapability["type"]);
-        var set = await CallAsync(new FakeJmapServer(new FakeJmapOptions { ContactsCapability = true, Contacts = contacts }), "ContactCard/set", new JsonObject());
+        var set = await CallAsync(new FakeJmapServer(new FakeJmapOptions { ContactsCapability = true }), "ContactCard/set", new JsonObject());
         Assert.Equal("unknownMethod", (string?)set["type"]);
     }
 }

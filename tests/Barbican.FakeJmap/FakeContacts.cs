@@ -20,6 +20,9 @@ public sealed class FakeContacts
     /// <summary>True: AddressBook and ContactCard reads of this account answer serverFail.</summary>
     public bool Fails { get; set; }
 
+    /// <summary>True: a ContactCard/set that puts a blobId into media is refused with invalidProperties (media), as Stalwart 0.16 does; a data: URI is taken.</summary>
+    public bool RefusesBlobMedia { get; set; }
+
     /// <summary>Raised after each change with the changed type and its new state (like FakeStore.Changed).</summary>
     public event EventHandler<FakeStateChangedEventArgs>? Changed;
 

@@ -79,7 +79,7 @@ S-signatureReplyForwardEnabled,wired,composing,toggle,Signature on replies & for
 S-signatureSeparatorEnabled,wired,composing,toggle,Signature delimiter,true,compose.rs,src/compose.rs:336,src/Barbican.Core/Compose/ComposeSettings.cs; ComposeSeeder,
 S-writingLanguage,wired,composing,select,Writing language,"""auto""",main.rs;settings.rs;spell.rs,src/main.rs:1042,not ported,
 S-groupContactsByLetter,wired,contacts,toggle,Group by first letter,true,contacts.rs,src/contacts.rs:236,not ported,
-S-showContactsDirectory,wired,contacts,toggle,Show the directory,true,contacts_x.rs,src/contacts_x.rs:851,not ported,
+S-showContactsDirectory,wired,contacts,toggle,Show the directory,true,contacts_x.rs,src/contacts_x.rs:851,src/Barbican.Core/Contacts/ContactDirectory.cs (IsAvailable: the directory loads only with the principals capability and the setting on),
 S-sortContactsByLastName,wired,contacts,toggle,Sort by last name,false,contacts.rs,src/contacts.rs:237,not ported,
 S-filenameCollapseSeparators,unwired,files,toggle,Collapse repeated separators,true,,,FileTransfer.LocalNameFor (files-data),
 S-filenameLowercase,unwired,files,toggle,Lowercase,false,,,FileTransfer.LocalNameFor (files-data),
@@ -92,7 +92,7 @@ S-firstDayOfWeek,wired,general,select,First day of week,1,calendar.rs;recurrence
 S-showOnboardingOnNewDevices,unwired,general,toggle,Show on new devices,false,,,not ported,
 S-webviewBackgroundCloseMinutes,wired,general,select,Free the mail view's memory in the background,"""5""",,,BodyBackgroundPolicy;BodyShell,Barbican only (D-WV-01); minutes in the background before the body WebView2 is closed; 0 = never
 S-timeFormat,wired,general,select,Time format,"""24h""",calendar.rs;compose.rs;files.rs;mail.rs;schedule.rs;settings.rs,src/calendar.rs:177,src/Barbican.Core/Compose/ComposeSettings.cs; ScheduleDialogViewModel,
-S-timeZone,wired,general,info,Time zone,"""auto""",agent.rs;cal_editor.rs;cal_extra.rs;calendar.rs;contacts_x.rs;invite.rs;reminders.rs;vcard.rs,src/agent.rs:409,src/Barbican.Core/Calendar/CalendarSettings.cs,
+S-timeZone,wired,general,info,Time zone,"""auto""",agent.rs;cal_editor.rs;cal_extra.rs;calendar.rs;contacts_x.rs;invite.rs;reminders.rs;vcard.rs,src/agent.rs:409,src/Barbican.Core/Calendar/CalendarSettings.cs; src/Barbican.Core/Contacts/ContactDates.cs (Today),
 S-archiveMode,wired,message_list,select,Archive in,"""single""",mail.rs,src/mail.rs:990,not ported,
 S-clearSearchOnFolderChange,wired,message_list,toggle,Clear search when switching folders,false,main.rs,src/main.rs:846,not ported,
 S-confirmBulkDelete,wired,message_list,toggle,Confirm before deleting several messages,true,ctxmenu.rs;mail.rs,src/ctxmenu.rs:537,not ported,
