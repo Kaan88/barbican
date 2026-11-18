@@ -10,7 +10,7 @@ namespace Barbican.FakeJmap;
 public sealed partial class FakeApi
 {
     private readonly List<(string Type, JsonObject Args)> _setRequests = [];
-    private readonly Queue<string> _setFailures = new();
+    private readonly List<(int Skip, string Type)> _setFailures = [];
 
     /// <summary>Every Calendar/set and CalendarEvent/set that arrived, with its arguments (a copy).</summary>
     public IReadOnlyList<(string Type, JsonObject Args)> SetRequests
@@ -24,12 +24,12 @@ public sealed partial class FakeApi
         }
     }
 
-    /// <summary>The next calendar write is refused object by object with this SetError type (for instance "forbidden" or "serverFail"); nothing changes.</summary>
-    public void FailNextSet(string errorType)
+    /// <summary>The next calendar write (after <paramref name="skip"/> writes that go through) is refused object by object with this SetError type (for instance "forbidden" or "serverFail"); nothing changes.</summary>
+    public void FailNextSet(string errorType, int skip = 0)
     {
         lock (_lock)
         {
-            _setFailures.Enqueue(errorType);
+            _setFailures.Add((skip, errorType));
         }
     }
 
@@ -73,7 +73,16 @@ public sealed partial class FakeApi
         lock (_lock)
         {
             _setRequests.Add((type, (JsonObject)args.DeepClone()));
-            failure = _setFailures.Count > 0 ? _setFailures.Dequeue() : null;
+            failure = null;
+            if (_setFailures.Count > 0 && _setFailures[0].Skip <= 0)
+            {
+                failure = _setFailures[0].Type;
+                _setFailures.RemoveAt(0);
+            }
+            else if (_setFailures.Count > 0)
+            {
+                _setFailures[0] = (_setFailures[0].Skip - 1, _setFailures[0].Type);
+            }
         }
 
         var oldState = cals.State(type);
