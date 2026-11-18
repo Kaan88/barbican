@@ -14,7 +14,6 @@ public sealed class FilterHookCallSiteTests
     ];
 
     [Fact]
-    [Red("srv-data")]
     public void Srv_data_m6_hooks_have_call_sites()
     {
         var sources = string.Concat(RepoFiles.SourceFiles().Select(File.ReadAllText));
