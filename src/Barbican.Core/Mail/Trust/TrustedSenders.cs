@@ -5,6 +5,8 @@
 using System.Text.Json;
 using Barbican.Core.Common;
 using Barbican.Core.Jmap.Errors;
+using Barbican.Core.Plugins.Hooks;
+using Barbican.Core.Plugins.Payloads;
 using Barbican.Core.Storage;
 
 namespace Barbican.Core.Mail.Trust;
@@ -13,13 +15,15 @@ namespace Barbican.Core.Mail.Trust;
 public sealed class TrustedSenders : ITrustedSenders
 {
     private readonly string? _path;
+    private readonly IHookBus? _hooks;
     private readonly Lock _lock = new();
     private readonly Task _loaded;
     private List<string> _all = [];
 
     /// <summary>Kept in <c>trusted-senders.json</c> under <paramref name="dataDir"/>; null keeps them in memory only (tests).</summary>
-    public TrustedSenders(string? dataDir)
+    public TrustedSenders(string? dataDir, IHookBus? hooks = null)
     {
+        _hooks = hooks;
         _path = dataDir is null ? null : Path.Combine(dataDir, "trusted-senders.json");
         _loaded = _path is null ? Task.CompletedTask : Task.Run(Load);
     }
@@ -61,7 +65,13 @@ public sealed class TrustedSenders : ITrustedSenders
 
         await LoadedAsync().ConfigureAwait(false);
         var key = address.Trim().ToLowerInvariant();
-        return await ChangeAsync(list => { if (!list.Contains(key, StringComparer.Ordinal)) { list.Add(key); } }, ct).ConfigureAwait(false);
+        var added = await ChangeAsync(list => { if (!list.Contains(key, StringComparer.Ordinal)) { list.Add(key); } }, ct).ConfigureAwait(false);
+        if (added.IsOk)
+        {
+            _hooks?.Fire(HookNames.OnTrustedSenderChange, () => new TrustedSenderChangePayload(key, true));
+        }
+
+        return added;
     }
 
     public async Task<Result<Unit>> RemoveAsync(string address, CancellationToken ct)
@@ -69,7 +79,13 @@ public sealed class TrustedSenders : ITrustedSenders
         ArgumentNullException.ThrowIfNull(address);
         await LoadedAsync().ConfigureAwait(false);
         var key = address.Trim().ToLowerInvariant();
-        return await ChangeAsync(list => list.RemoveAll(a => string.Equals(a, key, StringComparison.Ordinal)), ct).ConfigureAwait(false);
+        var removed = await ChangeAsync(list => list.RemoveAll(a => string.Equals(a, key, StringComparison.Ordinal)), ct).ConfigureAwait(false);
+        if (removed.IsOk)
+        {
+            _hooks?.Fire(HookNames.OnTrustedSenderChange, () => new TrustedSenderChangePayload(key, false));
+        }
+
+        return removed;
     }
 
 #pragma warning disable VSTHRD003 // _loaded was started by the constructor on the thread pool; waiting for it needs no context

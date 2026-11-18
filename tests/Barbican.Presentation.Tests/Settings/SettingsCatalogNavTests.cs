@@ -8,7 +8,6 @@ namespace Barbican.Presentation.Tests.Settings;
 public sealed class SettingsCatalogNavTests
 {
     [Fact]
-    [Red("set-data")]
     public void Every_catalog_page_has_a_navigation_entry_of_the_same_group()
     {
         foreach (var page in SettingsCatalog.Pages())

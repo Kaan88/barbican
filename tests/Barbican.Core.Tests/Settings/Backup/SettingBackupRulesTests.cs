@@ -18,7 +18,6 @@ public sealed class SettingBackupRulesTests
     ];
 
     [Fact]
-    [Red("set-data")]
     public void Flat_wrapped_and_barbican_files_are_told_apart_and_unknown_keys_are_listed()
     {
         var flat = SettingBackupRules.Plan(JsonNode.Parse("""{"theme": "dark", "fontSize": "large", "pluginThing": 1}""")!, Pages)!;

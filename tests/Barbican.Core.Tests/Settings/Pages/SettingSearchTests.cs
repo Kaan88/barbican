@@ -14,7 +14,6 @@ public sealed class SettingSearchTests
     ];
 
     [Fact]
-    [Red("set-data")]
     public void A_label_match_beats_a_description_match_beats_a_keyword_match()
     {
         var hits = SettingSearch.Search(Entries, "theme");
@@ -27,7 +26,6 @@ public sealed class SettingSearchTests
     }
 
     [Fact]
-    [Red("set-data")]
     public void Entries_come_from_rows_but_not_from_section_rows()
     {
         var page = new SettingPage("appearance", "Appearance", "top",

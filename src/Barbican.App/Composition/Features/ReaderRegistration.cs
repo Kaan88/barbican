@@ -29,7 +29,7 @@ public static class ReaderRegistration
         ArgumentNullException.ThrowIfNull(services);
         services.AddSingleton<IGuardedHttp, GuardedHttp>();
         services.AddSingleton(sp => new AuthServPins(sp.GetRequiredService<IProfilePaths>().DataDir));
-        services.Replace(ServiceDescriptor.Singleton<ITrustedSenders>(sp => new TrustedSenders(sp.GetRequiredService<IProfilePaths>().DataDir)));
+        services.Replace(ServiceDescriptor.Singleton<ITrustedSenders>(sp => new TrustedSenders(sp.GetRequiredService<IProfilePaths>().DataDir, sp.GetService<Barbican.Core.Plugins.Hooks.IHookBus>())));
         services.AddSingleton(sp => new MdnSender(sp.GetRequiredService<TimeProvider>()));
 
         // links from messages and banners: the plugins' link check, then the system browser (M1's LoggingLinkRouter opened nothing)

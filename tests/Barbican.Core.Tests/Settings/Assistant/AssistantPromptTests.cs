@@ -7,7 +7,6 @@ namespace Barbican.Core.Tests.Settings.Assistant;
 public sealed class AssistantPromptTests
 {
     [Fact]
-    [Red("set-data")]
     public void Mail_is_wrapped_clipped_and_cannot_close_its_own_tag()
     {
         var wrapped = AssistantPrompt.WrapEmail("Hello");

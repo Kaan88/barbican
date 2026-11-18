@@ -95,7 +95,7 @@ public sealed partial class FakeApi(FakeStore store, FakeJmapOptions options, Fu
             "Email/set" => EmailSetWithCreate(args),
             "Thread/get" => ThreadGet(args),
             "Thread/changes" => Changes("Thread", args),
-            "Identity/get" => options.Identities is null ? IdentityGet() : IdentityGetM3(),
+            "Identity/get" => IdentityGetLive(args),
             "Quota/get" => QuotaGet(),
 
             // M2 arms (stage F): each calls a method in its own file that the owning stream fills (M2 plan 3.1, 4); until then the method answers unknownMethod

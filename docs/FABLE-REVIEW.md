@@ -1385,3 +1385,12 @@ launched; Linux unverified). Verdicts on the M2 verify items 1 to 6, 11, 12 and 
 
 - **Assistant service/UI integration:** review the adapter between the settings page and the real assistant configuration and credential store, confirmation dispatch to the in-window dialog, and coverage of the Rust tool set. The paused streams use separate settings stores and a partial tool set; passing pure tests alone does not prove the integrated behavior. Paths: `src/Barbican.Core/Settings/Assistant/`, `src/Barbican.App/Views/Settings/`, and the integration adapters added during the close pass. Integration commits and executed checks will be recorded as they land.
 - **Evidence at takeover:** stream branches started at `c2d9652` (set-data), `a1e88a6` (set-ui), `b87f023` (srv-data), and `36efd7d` (srv-ui); integration branch started at `450ec55`. Some WIP commits removed red markers before tests ran. Require executed tests and inspected hidden sample captures before accepting completion. Linux remains deferred to M9; account-security writes remain FakeJmap-only.
+## set-data (M6, paused WIP)
+- Not compiling yet: AssistantJson.Push helper missing; analyzer fixes pending in AssistantClient, AssistantTools, SettingInfo. Review decisions D-M6-A (identity order key app.barbican.identityOrder, IAssistantKeys/Settings/Confirmation seams, edited FakeVacationAndSecurityArmsTests, FakeApi.cs, ReaderRegistration, ComposeSeeder).
+
+## Codex — M6 set-data (Terra High)
+
+- Review `src/Barbican.Core/Settings/Assistant/AssistantSession.cs`, `AssistantLoop.cs` (based on `c2d9652`): account histories now use per-account gates for ask/clear and deletion in automatic mode requires confirmation. Check cancellation, tool confirmation coverage, and account isolation under concurrent calls.
+- Review `src/Barbican.Core/Settings/Assistant/AssistantTools.cs` and `SettingsDataRegistration.cs` (based on `c2d9652`): the Rust tool set is still incomplete; B-AI-008 is not proven. The Windows suite passed 2,642 tests with four live/Linux skips before subsequent tool work; no live write was performed.
+- Review `tests/Barbican.FakeJmap/FakeApi.IdentitySet.cs`, `FakeApi.AccountSecurity.cs`, shared routing and `src/Barbican.App/Composition/Features/ReaderRegistration.cs` from `c2d9652`: coordinator approved integration of shared edits; check fake semantics and security data redaction against Stalwart.
+- Review `spec/settings.csv` and `SettingsCatalog.cs` from `c2d9652`: rows labelled not ported have not yet all been reconciled against actual readers or marked inert.

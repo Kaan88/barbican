@@ -56,10 +56,13 @@ public sealed class FakeVacationAndSecurityArmsTests
         Assert.Equal("zz", (string?)apps["notFound"]![0]);
         var (_, keys) = await CallAsync(server, "x:ApiKey/get", new JsonObject { ["ids"] = null });
         Assert.Equal("script", (string?)keys["list"]![0]!["description"]);
-        var (set, _) = await CallAsync(server, "x:AppPassword/set", new JsonObject { ["create"] = new JsonObject() });
-        Assert.Equal("error", set);
-        var (identity, _) = await CallAsync(server, "Identity/set", new JsonObject { ["create"] = new JsonObject() });
-        Assert.Equal("error", identity);
+        // the set arms are filled since M6 set-data: an empty create is refused object by object, not as a method error
+        var (set, setAnswer) = await CallAsync(server, "x:AppPassword/set", new JsonObject { ["create"] = new JsonObject { ["c"] = new JsonObject() } });
+        Assert.Equal("x:AppPassword/set", set);
+        Assert.Equal("invalidProperties", (string?)setAnswer["notCreated"]!["c"]!["type"]);
+        var (identity, identityAnswer) = await CallAsync(server, "Identity/set", new JsonObject { ["create"] = new JsonObject { ["c"] = new JsonObject() } });
+        Assert.Equal("Identity/set", identity);
+        Assert.Equal("invalidProperties", (string?)identityAnswer["notCreated"]!["c"]!["type"]);
 
         var plain = new FakeJmapServer(new FakeJmapOptions());
         var (off, _) = await CallAsync(plain, "x:AccountPassword/get", new JsonObject { ["ids"] = new JsonArray("singleton") });

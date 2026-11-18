@@ -16,4 +16,5 @@ public sealed record SettingRow(
     JsonNode? Default,
     SettingRowStatus Status,
     bool Advanced,
-    string? Section);
+    string? Section,
+    bool Inverted = false);
