@@ -1,8 +1,23 @@
-# Progress (resumed 2026-11-18)
+# Progress (updated 2026-11-18)
 
-Everything is pushed. Nothing is merged to `main` or tagged. Resume from the state below.
+Everything is pushed. Nothing is merged to `main` or tagged.
 
-## Branches
+**Process from 2026-11-18 (the user):** no Fable reviews until one whole-app review at the very end; the user's process rules
+(gates, hand-test waits, questions) are dropped, defaults are taken and recorded in spec/decisions.md; Sonnet or Haiku agents
+wherever they can. Safety rules stay (no real input, read-only account, admin key, Rust profile, build.ps1, privacy check).
+
+## Milestones
+| Milestone | Branch | State |
+|---|---|---|
+| M2 | `m2` (6012f9f) | Done: hotfix-2 and Fable review 3 fixes merged. Zip `Barbican-6012f9f305d6-win-x64.zip`. |
+| M3 | `m3` (2f11adb) | Done: send pipeline, editor core, editor view (Uno 7 / SkiaSharp 4), composer UI, close (quoted HTML sanitised, round trip). 2122 tests green, Linux green. Zip `Barbican-2f11adb86437-win-x64.zip`. Unproven: live round trip on the test account (no agent profile signed in), real IME, mailto from a browser, default-app registration. |
+| M4 | `m4` | Next: calendar and tasks. |
+
+Order after M4: M5, M6, M6b, M7, M8, M10, M9 (Linux last), then the whole-app Fable review.
+
+## History before 2026-11-18
+
+### Branches
 | Branch | State |
 |---|---|
 | `main` | M0 only. |
