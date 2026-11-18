@@ -9,7 +9,6 @@ namespace Barbican.Core.Tests.Calendar.Editing;
 public sealed class FindATimeTests
 {
     [Fact]
-    [Red("cal-edit")]
     [RustTest("cal_editor::free_slots_skip_busy_and_off_hours")]
     public void Free_slots_skip_busy_and_off_hours()
     {

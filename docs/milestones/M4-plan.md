@@ -124,7 +124,7 @@ Each stream gives its hooks a call site through `IHookBus` and sets `cs_call_sit
   changes), 062 (G-005); cal-edit: 011..017, 029, 036 (rule), 038, 041..047, 049..051, 061; cal-views: 007 (with cal-ui), 009, 010, 037, 052 (gestures), 053..056,
   058..060; cal-ui: 036, 039, 040, 057 (colour change and default rule: the menu; the settings page rows are M6). B-CAL-057's settings page part is M6.
 - **L- (run in the integrate stage, §7):** L-012 (RSVP sent), L-020 (quick create), L-021 (rule builder), L-022 (drag with attendees sends updates: the
-  calendar part), L-023 (scope dialog), L-024 (task editor), L-025 (.ics import: the alerts prompt replaces "alerts kept"), L-026 (birthdays), L-027 (Agenda
+  calendar part), L-023 (scope dialog), L-024 (task editor), L-025 (.ics import: the file's alerts are kept unless the user says no in the alerts prompt), L-026 (birthdays), L-027 (Agenda
   and Tasks with many tasks: the PARITY-ROUND2 crash scenario on `<readonly-account>`), L-028 (reminder fires, own alert and 8 or more days ahead), L-029
   (availability supported?), L-030 (cleanup).
 - **G-:** G-001 (counter-proposal), G-002 (cancelled event removed): cal-edit; G-003 (all-day strip cap): cal-views; G-004 (import alerts prompt): cal-edit service,
@@ -335,15 +335,15 @@ participant-availability,ical-import-modal,ical-subscription-modal}.tsx`, `compo
    `onTaskDelete`, `onTaskToggleComplete` when `progress` flips); `CalendarAdmin`; `ICalendarWriter` ids may carry a shared account's namespace (`CalendarIds.SplitNs`) and are written to that account.
 3. *Invitations, import, feeds, availability.* `InvitationService` (parse = `CalendarEvent/parse` + the METHOD from the raw blob; answer on the stored copy or add-with-answer in one call with `sendSchedulingMessages`; counter apply; cancel removal by
    `calendar-cancellation.ts`), the banner: `InvitationBannerSource` gets Accept, Maybe, Decline, Add to calendar, Apply proposal, Remove from calendar through an `IBannerActionHandler` (registered in `CalendarEditingPresentationRegistration`; the M2 "Replies arrive with
-   Calendar (M4)" note goes away; RSVP runs as the login that owns the message; hooks `onBeforeEventRsvp`, `onEventRsvp`). `IcsImporter` (Ical.Net reading VEVENT and VTODO; the server parse as fallback; at most 5 MB; chunks of `maxObjectsInSet`; alerts dropped unless
-   asked: D-M4-09; `onBeforeEventsImport`, `onEventsImport`). `CalendarSubscriptions` (fetch with an `HttpClient` seam: at most 5 redirects with `FeedRules.Check` on every hop and on the resolved addresses, 20 MB cap while reading and on Content-Length, 30 s timeout;
+   Calendar (M4)" note goes away; RSVP runs as the login that owns the message; hooks `onBeforeEventRsvp`, `onEventRsvp`). `IcsImporter` (Ical.Net reading VEVENT and VTODO; the server parse as fallback; at most 5 MB; chunks of `maxObjectsInSet`; alerts kept unless
+   the user says no: D-M4-09; `onBeforeEventsImport`, `onEventsImport`). `CalendarSubscriptions` (fetch with an `HttpClient` seam: at most 5 redirects with `FeedRules.Check` on every hop and on the resolved addresses, 20 MB cap while reading and on Content-Length, 30 s timeout;
    refresh by the stable UID diff of Bulwark `calendar-feed-diff.ts` so an unchanged feed writes nothing; subscriptions kept in the calendar's own properties when the server has them, else in calendar.json; `onICalSubscriptionChange`).
    `AvailabilityService` (Principal/query by address, Principal/getAvailability per principal, an error type per guest; `IsSupported` from the session capability). `ContactCardReader` (ContactCard/query + get read only; empty without the capability).
 
 **Acceptance tests** (all FakeJmap, no network): the 14 ported tests and the 3 extra green; save a new event with two guests: one `CalendarEvent/set` with `sendSchedulingMessages` true and `FakeCalendars.SchedulingSent` shows it; edit one occurrence: the master gets
 a `recurrenceOverrides/<rid>` patch and nothing else; edit following: two calls, the second failing restores the master; delete this occurrence adds an excluded override; drag with a failing server restores the store and returns the error; drag that changes
 nothing makes no call; a task tick sends `progress` and fires `onTaskToggleComplete`; RSVP on a stored event patches `participants/<id>/participationStatus` with scheduling messages, and on an unstored one creates the copy with the answer in one call; apply
-counter moves the stored event; a cancel removes it and an outdated cancel does not; import: 3 events and a VTODO from a fixture, alerts dropped by default and kept on request, a 6 MB file refused; a feed refresh with one changed event writes one update and an
+counter moves the stored event; a cancel removes it and an outdated cancel does not; import: 3 events and a VTODO from a fixture, alerts kept by default (Bulwark) and dropped when the user says no, a 6 MB file refused; a feed refresh with one changed event writes one update and an
 unchanged feed writes nothing; a redirect to `http://127.0.0.1/` is refused; the Ical.Net reader and `IcsWriter` round-trip a fixture; availability with the capability off reports unsupported; `HookCallSiteTests` for the 21 hooks.
 
 **Live script (integrate stage):** `<test-account>`: create an event, edit this occurrence and this and following of a 5-day series, delete; accept an invitation sent to itself (L-012), import a 2-event .ics, subscribe to a public https feed and unsubscribe, set up and delete a calendar; ask
@@ -413,7 +413,7 @@ cal-views paints occurrence literals; if cal-edit is late, cal-views and cal-ui 
 3. **NodaTime and Ical.Net are added by the streams, not by the plan** (D-M4-03); Ical.Net is the oracle and the .ics reader, never the recurrence engine.
 4. **Recurrence on the event's own wall clock**, expanded on the client, as Rust and Bulwark do (J-072 note: no `expandRecurrences`).
 5. **Reminders fire for every login** from one scheduler on `TimeProvider`; the OS notification is M7's (D-M4-11).
-6. **Webcal: LAN, localhost and credentials are blocked, http is warned** (D-M4-07, stricter than Bulwark on purpose); **the .ics import asks about alerts, default drop** (D-M4-09).
+6. **Webcal: LAN, localhost and credentials are blocked, http is warned** (D-M4-07, stricter than Bulwark on purpose); **the .ics import asks about alerts, default keep as Bulwark** (D-M4-09, overridden by the user's rule that Bulwark's behaviour wins).
 7. **The all-day strip is capped at 3 rows with a toggle** (D-M4-08); **print is an in-app model** (D-M4-14).
 8. **Find a time and availability only with the capability** (D-M4-13); L-029 records what the server does.
 9. **Sharing a calendar (I-306) is M6**, contacts proper are M5 (the calendar reads cards through a replaceable reader, D-M4-06); "Copy to account" is built only when two logins have calendars.

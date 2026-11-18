@@ -8,7 +8,6 @@ namespace Barbican.Core.Tests.Calendar.Editing;
 public sealed class CalendarPeopleTests
 {
     [Fact]
-    [Red("cal-edit")]
     [RustTest("cal_editor::people_parsing")]
     public void People_parsing()
     {
@@ -21,7 +20,6 @@ public sealed class CalendarPeopleTests
     }
 
     [Fact]
-    [Red("cal-edit")]
     [RustTest("cal_extra::people_search")]
     public void People_search()
     {

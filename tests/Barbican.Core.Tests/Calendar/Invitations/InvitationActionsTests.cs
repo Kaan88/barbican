@@ -8,7 +8,6 @@ namespace Barbican.Core.Tests.Calendar.Invitations;
 public sealed class InvitationActionsTests
 {
     [Fact]
-    [Red("cal-edit")]
     [RustTest("invite::import_and_patch_shapes")]
     public void Import_and_patch_shapes()
     {
