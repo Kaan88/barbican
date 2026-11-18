@@ -30,6 +30,7 @@ public sealed partial class MessageListViewModel : ObservableObject, IDisposable
     private readonly IHookBus _hooks;
     private readonly IMessageOpener _opener;
     private readonly IPrefsStore _prefs;
+    private readonly IDispatcher? _dispatcher;
     private readonly ISystemAccessibilitySource _system;
     private readonly MotionState _motion;
     private readonly TimeProvider _time;
@@ -64,7 +65,8 @@ public sealed partial class MessageListViewModel : ObservableObject, IDisposable
         MotionState motion,
         TimeProvider time,
         IListQueryShaper? shaper = null,
-        IListSourceResolver? sources = null)
+        IListSourceResolver? sources = null,
+        IDispatcher? dispatcher = null)
     {
         ArgumentNullException.ThrowIfNull(active);
         ArgumentNullException.ThrowIfNull(hub);
@@ -79,6 +81,7 @@ public sealed partial class MessageListViewModel : ObservableObject, IDisposable
         _hooks = hooks;
         _opener = opener;
         _prefs = prefs;
+        _dispatcher = dispatcher;
         _system = system;
         _motion = motion;
         _time = time;
@@ -751,6 +754,18 @@ public sealed partial class MessageListViewModel : ObservableObject, IDisposable
     }
 
     private void OnPrefsChanged(object? sender, EventArgs e)
+    {
+        if (_dispatcher is not null && !_dispatcher.HasThreadAccess)
+        {
+            _dispatcher.Post(RefreshPrefs);
+        }
+        else
+        {
+            RefreshPrefs();
+        }
+    }
+
+    private void RefreshPrefs()
     {
         if (_query is not null)
         {

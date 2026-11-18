@@ -1,12 +1,23 @@
-# Progress (PAUSED 2026-11-18 by the user, M6 mid-way)
+# Progress (M6 resumed by Codex, 2026-11-19)
 
-Everything is pushed. Nothing is merged to `main` or tagged.
+Completed checkpoints are pushed. Active work is recorded below. Nothing is merged to `main` or tagged.
 
 **Codex takeover (2026-11-19):** read [CODEX-HANDOFF.md](CODEX-HANDOFF.md). Use Terra High for stream work and Luna High for narrow helpers; queue streams within the actual session agent limit.
 
 **Process from 2026-11-18 (the user):** no Fable reviews until one whole-app review at the very end; the user's process rules
 (gates, hand-test waits, questions) are dropped, defaults are taken and recorded in spec/decisions.md; Terra or Luna agents
 wherever they can. Safety rules stay (no real input, read-only account, admin key, Rust profile, build.ps1, privacy check).
+
+## Codex continuation (active, 2026-11-19)
+
+- Coordinator: Sol, checking subagent code during integration as requested by the user; the later independent whole-app reviewer is Astra. Keep the historical filename `docs/FABLE-REVIEW.md`, mark new entries as Codex, and record exact review scope and evidence.
+- The user explicitly authorized pushing milestone commits to `Kaan88/barbican`.
+- Set-data checkpoint `d1f137c` merged into `m6` as `08fe6f5`; missing assistant tools are being completed on the stream branch.
+- Srv-data checkpoint `856f4f9` is pushed; the calendar-block lifecycle is being completed before integration.
+- Set-ui checkpoint `bd50e41` is pushed; theme/sample assistant checks passed, but the hidden Security page has a caught exception and blank content requiring integration diagnosis.
+- Srv-ui has resumed in its existing worktree on port 8922. Three Terra High workers remain the active limit; narrow Luna High work will use a free slot when available.
+- Coordinator integration bridges and background preference dispatch pass the Presentation suite (963) and Platform suite (44 pass, one Linux-service skip). Full merged Windows tests, real-service hidden checks, live checks/cleanup, M6 report and portable zip are still pending. Linux stays deferred to M9.
+- Continue in order: M6 -> M6b -> M7 -> M8 -> M10 -> M9 -> Astra whole-app review. The pause table below is historical evidence, not current status.
 
 ## Milestones
 | Milestone | Branch | State |

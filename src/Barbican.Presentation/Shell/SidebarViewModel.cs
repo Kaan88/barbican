@@ -19,6 +19,7 @@ public sealed class SidebarViewModel : ObservableObject, IDisposable, Actions.IM
     private readonly MessageListViewModel _list;
     private readonly MailEventHub _hub;
     private readonly IPrefsStore _prefs;
+    private readonly IDispatcher? _dispatcher;
     private readonly ISystemAccessibilitySource _system;
     private readonly IHookBus _hooks;
     private readonly HashSet<string> _collapsedFolders = new(StringComparer.Ordinal);
@@ -33,7 +34,7 @@ public sealed class SidebarViewModel : ObservableObject, IDisposable, Actions.IM
     private bool _foldersExpanded = true;
     private bool _tagsExpanded = true;
 
-    public SidebarViewModel(MessageListViewModel list, MailEventHub hub, IPrefsStore prefs, ISystemAccessibilitySource system, IHookBus hooks)
+    public SidebarViewModel(MessageListViewModel list, MailEventHub hub, IPrefsStore prefs, ISystemAccessibilitySource system, IHookBus hooks, IDispatcher? dispatcher = null)
     {
         ArgumentNullException.ThrowIfNull(list);
         ArgumentNullException.ThrowIfNull(hub);
@@ -43,6 +44,7 @@ public sealed class SidebarViewModel : ObservableObject, IDisposable, Actions.IM
         _list = list;
         _hub = hub;
         _prefs = prefs;
+        _dispatcher = dispatcher;
         _system = system;
         _hooks = hooks;
         _hub.EventReceived += OnSyncEvent;
@@ -317,6 +319,18 @@ public sealed class SidebarViewModel : ObservableObject, IDisposable, Actions.IM
     }
 
     private void OnPrefsChanged(object? sender, EventArgs e)
+    {
+        if (_dispatcher is not null && !_dispatcher.HasThreadAccess)
+        {
+            _dispatcher.Post(RefreshPrefs);
+        }
+        else
+        {
+            RefreshPrefs();
+        }
+    }
+
+    private void RefreshPrefs()
     {
         RebuildFolders();
         RefreshTags();

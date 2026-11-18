@@ -6,6 +6,7 @@ using Barbican.Core.Plugins.Payloads;
 using Barbican.Core.Settings.Accessibility;
 using Barbican.Core.Storage;
 using Barbican.Presentation.Theme;
+using Barbican.Presentation.Common;
 using CommunityToolkit.Mvvm.ComponentModel;
 
 namespace Barbican.Presentation.Shell;
@@ -14,6 +15,7 @@ namespace Barbican.Presentation.Shell;
 public sealed class ShellViewModel : ObservableObject, IDisposable
 {
     private readonly IPrefsStore _prefs;
+    private readonly IDispatcher? _dispatcher;
     private readonly ISystemAccessibilitySource _system;
     private readonly MotionState _motion;
     private readonly IHookBus _hooks;
@@ -28,7 +30,7 @@ public sealed class ShellViewModel : ObservableObject, IDisposable
     private bool _sidebarOpen = true;
     private bool _sidebarCollapsed;
 
-    public ShellViewModel(IPrefsStore prefs, ISystemAccessibilitySource system, MotionState motion, IHookBus hooks, TimeProvider time)
+    public ShellViewModel(IPrefsStore prefs, ISystemAccessibilitySource system, MotionState motion, IHookBus hooks, TimeProvider time, IDispatcher? dispatcher = null)
     {
         ArgumentNullException.ThrowIfNull(prefs);
         ArgumentNullException.ThrowIfNull(system);
@@ -36,6 +38,7 @@ public sealed class ShellViewModel : ObservableObject, IDisposable
         ArgumentNullException.ThrowIfNull(hooks);
         ArgumentNullException.ThrowIfNull(time);
         _prefs = prefs;
+        _dispatcher = dispatcher;
         _system = system;
         _motion = motion;
         _hooks = hooks;
@@ -196,7 +199,17 @@ public sealed class ShellViewModel : ObservableObject, IDisposable
 
     private static string Route(AppId app) => app.ToString().ToLowerInvariant();
 
-    private void OnSettingsChanged(object? sender, EventArgs e) => Refresh();
+    private void OnSettingsChanged(object? sender, EventArgs e)
+    {
+        if (_dispatcher is not null && !_dispatcher.HasThreadAccess)
+        {
+            _dispatcher.Post(Refresh);
+        }
+        else
+        {
+            Refresh();
+        }
+    }
 
     private void Refresh()
     {

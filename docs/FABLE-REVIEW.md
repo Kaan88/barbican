@@ -8,6 +8,12 @@ the stream and worker model. Record what Astra should review, including exact pa
 commits, remaining risks, and the limits of the test evidence. Keep earlier entries and
 review outcomes intact. Do not run separate milestone reviews before the whole-app review.
 
+**Coordinator code checks (2026-11-19, user instruction):** Sol checks subagent code
+during integration. These checks are part of implementation, not a separate review
+stage. Codex entries record the inspected paths and source commits, concrete findings,
+fixes and executed checks. Astra still performs the later independent whole-app review;
+a stream report or green test count alone is not a coordinator code check.
+
 Every agent appends in its own branch, under
 a heading with its stream name: one bullet per item with **what** to review, **why** (risk,
 judgement call, uncertainty, deviation from Bulwark/RFC/plan, security, privacy, partial
@@ -1394,3 +1400,7 @@ launched; Linux unverified). Verdicts on the M2 verify items 1 to 6, 11, 12 and 
 - Review `src/Barbican.Core/Settings/Assistant/AssistantTools.cs` and `SettingsDataRegistration.cs` (based on `c2d9652`): the Rust tool set is still incomplete; B-AI-008 is not proven. The Windows suite passed 2,642 tests with four live/Linux skips before subsequent tool work; no live write was performed.
 - Review `tests/Barbican.FakeJmap/FakeApi.IdentitySet.cs`, `FakeApi.AccountSecurity.cs`, shared routing and `src/Barbican.App/Composition/Features/ReaderRegistration.cs` from `c2d9652`: coordinator approved integration of shared edits; check fake semantics and security data redaction against Stalwart.
 - Review `spec/settings.csv` and `SettingsCatalog.cs` from `c2d9652`: rows labelled not ported have not yet all been reconciled against actual readers or marked inert.
+
+- **Sol coordinator code-check scope so far:** inspected set-data checkpoint `d1f137c`, including `AssistantLoop.cs`, `AssistantSession.cs`, `AssistantTools.cs`, `AssistantClient.cs`, `AssistantSettings.cs`, `IAssistantKeys.cs`, `SettingsDataRegistration.cs`, the shared FakeJmap routing changes and `ReaderRegistration.cs`. Findings: automatic destructive tools needed confirmation; tool coverage was partial; UI settings and the client's configuration/key stores were disconnected. The worker added confirmation and session serialization; remaining tool work is still in progress. This is targeted integration checking, not a claim that every changed line has been reviewed.
+- **Sol coordinator checks of UI/service seams:** inspected the paused set-ui assistant/security pages and srv-data `VacationService.cs`. Findings: credential deletion needed confirmation; background prefs updates reached older bound consumers without dispatch; vacation's calendar checkbox only saved a flag. The UI worker added confirmations, the server-data worker is implementing calendar lifecycle behavior, and the coordinator fixed background preference dispatch in `ShellViewModel`, `SidebarViewModel`, `MessageListViewModel` and `FilesViewModel`. Regression evidence: 963 Presentation tests pass; 44 Platform tests pass with one Linux-service skip. The real hidden Security page failure and all merged UI/service scenarios remain to verify.
+- **Integration bridge review for Astra:** `src/Barbican.Platform/SecretAssistantKeys.cs` shares the settings page's profile-scoped credential entry; `src/Barbican.Presentation/Settings/Integration/AssistantDialogConfirmation.cs` dispatches confirmation and declines without a dialog host. Tests cover credential read/write/delete, sanitized write failures, dispatched acceptance/refusal, cancellation before opening, and the missing-host fallback. The coordinator added these after merging `d1f137c` as `08fe6f5`; actual provider calls remain unproven.

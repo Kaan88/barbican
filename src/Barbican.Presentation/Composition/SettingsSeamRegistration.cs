@@ -1,6 +1,8 @@
 // Mirrors: M6 plan section 4.1 (DI of the seam both UI streams share). Frozen in the M6 plan commit; owner integrator.
 
 using Barbican.Presentation.Settings;
+using Barbican.Core.Settings.Assistant;
+using Barbican.Presentation.Settings.Integration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 
@@ -13,6 +15,7 @@ public static class SettingsSeamRegistration
     {
         ArgumentNullException.ThrowIfNull(services);
         services.TryAddSingleton<ISettingsNavigation, SettingsNavigation>();
+        services.TryAddSingleton<IAssistantConfirmation, AssistantDialogConfirmation>();
         return services;
     }
 }

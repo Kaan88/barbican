@@ -5,6 +5,7 @@
 using Barbican.Core.Accounts;
 using Barbican.Core.Auth;
 using Barbican.Core.Storage;
+using Barbican.Core.Settings.Assistant;
 using Barbican.Platform;
 using Barbican.Presentation.Accounts;
 using Microsoft.Extensions.DependencyInjection;
@@ -47,6 +48,7 @@ public static class PlatformServices
             return new SecretServiceStore(profile);
 #endif
         });
+        services.TryAddSingleton<IAssistantKeys, SecretAssistantKeys>();
         services.TryAddSingleton<IAccountVault>(sp => new SecretAccountVault(sp.GetRequiredService<ISecretStore>()));
 #if WINDOWS
         services.TryAddSingleton<ILegacyCredentialSource, WindowsLegacyCredentialSource>();

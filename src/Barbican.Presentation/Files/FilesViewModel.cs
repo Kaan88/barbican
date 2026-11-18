@@ -48,8 +48,20 @@ public sealed class FilesViewModel : IFilesViewModel
             _showHidden = Settings.ShowHidden;
             prefs.Changed += (_, _) =>
             {
-                Settings = FilesSettings.Read(prefs.Current);
-                Raise(nameof(Settings));
+                void RefreshPrefs()
+                {
+                    Settings = FilesSettings.Read(prefs.Current);
+                    Raise(nameof(Settings));
+                }
+
+                if (dispatcher is not null && !dispatcher.HasThreadAccess)
+                {
+                    dispatcher.Post(RefreshPrefs);
+                }
+                else
+                {
+                    RefreshPrefs();
+                }
             };
         }
 
