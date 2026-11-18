@@ -35,6 +35,8 @@ public sealed partial class ShellPage : Page
     private bool _composing;
     private Views.Calendar.CalendarScreen? _calendar;
     private readonly ShellViewModel? _shell;
+    private readonly IReadOnlyList<IAppScreenFactory> _factories;
+    private readonly Dictionary<AppId, UIElement> _appScreens = [];
 
     public ShellPage()
     {
@@ -45,6 +47,7 @@ public sealed partial class ShellPage : Page
         _accounts = ViewHost.Find<IAccountManager>();
         _composer = ViewHost.Find<Barbican.Presentation.Compose.IComposerService>();
         _shell = ViewHost.Find<ShellViewModel>();
+        _factories = ViewHost.Find<IEnumerable<IAppScreenFactory>>()?.ToList() ?? [];
 #if AUTOMATION
         // a sample-data run (BARBICAN_SAMPLE=1) shows FakeJmap's seed through IActiveMail without signing in: no sign-in screen there
         if (ViewHost.Find<Barbican.Presentation.Mail.IActiveMail>() is Automation.SampleActiveMail)
@@ -82,6 +85,7 @@ public sealed partial class ShellPage : Page
         }
 
         WireCalendar();
+        ApplyAppAvailability();
         ShowScreen();
         if (_restore is { IsCompleted: false } restoring)
         {
@@ -98,10 +102,10 @@ public sealed partial class ShellPage : Page
         var signIn = SignInRegion.Model;
         _signIn = signIn;
         var switcher = ViewHost.Get<AccountsViewModel>();
-        accounts.ActiveChanged += (_, _) => DispatcherQueue.TryEnqueue(() => ShowScreen());
+        accounts.ActiveChanged += (_, _) => DispatcherQueue.TryEnqueue(() => { ApplyAppAvailability(); ShowScreen(); });
         if (_overview is not null)
         {
-            _overview.StatusesChanged += (_, _) => DispatcherQueue.TryEnqueue(() => ShowScreen());
+            _overview.StatusesChanged += (_, _) => DispatcherQueue.TryEnqueue(() => { ApplyAppAvailability(); ShowScreen(); });
         }
 
         signIn.SignedIn += (_, _) => Back(signedIn: true);
@@ -233,8 +237,65 @@ public sealed partial class ShellPage : Page
 
         SignInRegion.Visibility = signedOut ? Visibility.Visible : Visibility.Collapsed;
         var calendar = !signedOut && _shell?.ActiveApp == AppId.Calendar && _shell.AvailableApps.Contains(AppId.Calendar);
-        MailScreen.Visibility = signedOut || calendar ? Visibility.Collapsed : Visibility.Visible;
+        var other = signedOut || _shell is null || calendar ? null : _factories.FirstOrDefault(f => f.App == _shell.ActiveApp && _shell.AvailableApps.Contains(f.App));
+        MailScreen.Visibility = signedOut || calendar || other is not null ? Visibility.Collapsed : Visibility.Visible;
         ShowCalendar(calendar);
+        ShowAppScreen(other);
+    }
+
+    // M5 S0: an app of the rail other than Mail and Calendar shows the screen of the factory registered for it (built on the first visit, then only hidden)
+    private void ShowAppScreen(IAppScreenFactory? active)
+    {
+        if (active is not null && !_appScreens.ContainsKey(active.App))
+        {
+            var screen = active.Create();
+            _appScreens[active.App] = screen;
+            AppHost.Children.Add(screen);
+        }
+
+        foreach (var (app, screen) in _appScreens)
+        {
+            screen.Visibility = active is not null && active.App == app ? Visibility.Visible : Visibility.Collapsed;
+        }
+
+        AppHost.Visibility = active is null ? Visibility.Collapsed : Visibility.Visible;
+        active?.OnShown();
+    }
+
+    // M5 S0: the rail enables an app while its factory says the login offers it; additive, so Calendar's own availability (CalendarAppAvailability) is left alone
+    private void ApplyAppAvailability()
+    {
+        if (_shell is null)
+        {
+            return;
+        }
+
+        var apps = _shell.AvailableApps.ToList();
+        var changed = false;
+        foreach (var factory in _factories)
+        {
+            var has = factory.IsAvailable();
+            if (has && !apps.Contains(factory.App))
+            {
+                apps.Add(factory.App);
+                changed = true;
+            }
+            else if (!has && apps.Remove(factory.App))
+            {
+                changed = true;
+            }
+        }
+
+        if (!changed)
+        {
+            return;
+        }
+
+        _shell.SetAvailableApps(apps.OrderBy(a => (int)a).ToList());
+        if (_shell.ActiveApp != AppId.Mail && !_shell.AvailableApps.Contains(_shell.ActiveApp))
+        {
+            _ = _shell.TryActivate(AppId.Mail);
+        }
     }
 
     // M4 cal-views: Calendar is in the rail's available apps while the login advertises calendars; opening it swaps the screen
