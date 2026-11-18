@@ -5,7 +5,6 @@
 // The clicks themselves are the generic `invoke ID` and `text ID VALUE` on the srv.* automation ids.
 
 using System.Text.Json.Nodes;
-using Barbican.App.Shell;
 using Barbican.Automation;
 using Barbican.Presentation.Settings;
 using Barbican.Presentation.Settings.Server;
@@ -36,6 +35,7 @@ public sealed class SrvUiCommand(string name, Func<string[], Task<string>> run) 
         }
     }
 
+    #pragma warning disable MA0051 // Keep the sample page dumps together as the automation command table.
     public static IEnumerable<IAutomationCommand> Create(IServiceProvider sp)
     {
         ArgumentNullException.ThrowIfNull(sp);
@@ -105,5 +105,6 @@ public sealed class SrvUiCommand(string name, Func<string[], Task<string>> run) 
             return o.ToJsonString();
         });
     }
+#pragma warning restore MA0051
 }
 #endif

@@ -37,7 +37,7 @@ internal sealed class SrvUiVacationPage : SrvUiPage
         form.Children.Add(SrvUiKit.Row(Text("srv.vacation.from", _model.FromText, v => _model.FromText = v, placeholder: "First day"), Text("srv.vacation.to", _model.ToText, v => _model.ToText = v, placeholder: "Last day")));
         form.Children.Add(Label("Who gets the reply"));
         var audiences = new[] { string.Empty, "internal", "external" };
-        form.Children.Add(Combo("srv.vacation.audience", ["Everyone", "Only my own domains", "Only other domains"], Math.Max(0, Array.IndexOf(audiences, _model.AudienceOnly)), i => _model.AudienceOnly = audiences[i]));
+        form.Children.Add(SrvUiKit.Cycle("srv.vacation.audience", ["Everyone", "Only my own domains", "Only other domains"], Math.Max(0, Array.IndexOf(audiences, _model.AudienceOnly)), i => _model.AudienceOnly = audiences[i]));
         form.Children.Add(Text("srv.vacation.domains", _model.DomainsText, v => _model.DomainsText = v, placeholder: "Own domains, comma separated"));
         form.Children.Add(Check("srv.vacation.forward", "Forward mail while I am away", _model.ForwardOn, v => _model.ForwardOn = v));
         form.Children.Add(Text("srv.vacation.forward-to", _model.ForwardTo, v => _model.ForwardTo = v, placeholder: "Forward to (address)"));

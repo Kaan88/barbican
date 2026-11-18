@@ -1372,3 +1372,9 @@ launched; Linux unverified). Verdicts on the M2 verify items 1 to 6, 11, 12 and 
 - **Account security is coded without a live write** (D-M6-09): the FakeJmap arms are written from Stalwart's source (`crates/jmap/src/registry/mapping/`) and Bulwark's store, not recorded from a server. Review the secret handling (never logged, issued once) and the shape of the set requests against the source.
 - **`onSettingsSync` has its call site in import** (D-M6-A04): a deviation from the hook's catalogue meaning (settings sync between devices is not built).
 - **43 red tests were written against stub signatures**: where a stream finds a signature wrong it files a request; review that the red tests were not weakened to pass (compare `tests/` at the plan commit).
+
+## Codex - M6 srv-ui (Terra High)
+- Review the server pages, dialogs and view models introduced in 36efd7d (`src/Barbican.App/Views/SettingsServer/`, `src/Barbican.Presentation/Settings/Server/`): sample-only hidden checks cover rendering, not a real account, real pointer or IME. Verify each interaction and service error path after data integration.
+- Review threading in `SrvUiPageModel` and its derived view models: notifications are posted to the dispatcher but state changes after `ConfigureAwait(false)` can occur on pool threads. Integration must marshal state changes as well as notifications under D-M6-00.
+- Review the selection and text-entry tradeoffs in `SrvUiKit`, `SrvUiVacationPage`, and `SrvUiTemplatesPage` (D-M6-D04/D05): cycling choices require repeated presses, dates are typed, template import/export is pasted text and HTML is edited as source. Validate accessibility and parity.
+- Requests to integrator: wire and test real data adapters and all six pages against merged services; inspect `spec/interactions.csv` and `spec/settings.csv` before claiming completion, as this stream has not asserted those rows. The plan's frozen settings seam is required to replace the stub screen.
