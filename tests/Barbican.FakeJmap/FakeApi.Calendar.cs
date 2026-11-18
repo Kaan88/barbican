@@ -142,7 +142,9 @@ public sealed partial class FakeApi
             return true;
         }
 
-        var start = DateTimeOffset.Parse(((string?)e["utcStart"] ?? (string?)e["start"] ?? "1970-01-01T00:00:00") + (((string?)e["utcStart"] ?? (string?)e["start"] ?? "").EndsWith('Z') ? string.Empty : "Z"), System.Globalization.CultureInfo.InvariantCulture);
+        // a task with only a due date counts at its due
+        var startText = (string?)e["utcStart"] ?? (string?)e["start"] ?? (string?)e["due"] ?? "1970-01-01T00:00:00";
+        var start = DateTimeOffset.Parse(startText + (startText.EndsWith('Z') ? string.Empty : "Z"), System.Globalization.CultureInfo.InvariantCulture);
         var end = start + Duration((string?)e["duration"]);
         var recurs = e["recurrenceRules"] is JsonArray { Count: > 0 };
         return (before is null || start < DateTimeOffset.Parse(before, System.Globalization.CultureInfo.InvariantCulture)) && (after is null || recurs || end > DateTimeOffset.Parse(after, System.Globalization.CultureInfo.InvariantCulture));

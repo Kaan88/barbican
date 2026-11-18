@@ -66,7 +66,7 @@ public sealed class ReminderPopup : IReminderPopup, IDisposable
 
     /// <summary>"In 15 minutes", "Now", "Task due" for a shown reminder, in the user's time format.</summary>
     public string WhenLabel(DueReminder reminder) =>
-        ReminderRules.WhenLabel(reminder, _time.GetUtcNow().ToUnixTimeMilliseconds(), _prefs is not null && CalendarSettings.Read(_prefs.Current).TwelveHour, _time.LocalTimeZone);
+        ReminderRules.WhenLabel(reminder, _time.GetUtcNow().ToUnixTimeMilliseconds(), _prefs is not null && CalendarSettings.Read(_prefs.Current).TwelveHour, Zone());
 
     /// <inheritdoc/>
     public async Task DismissAsync(DueReminder reminder, CancellationToken ct)
@@ -116,7 +116,7 @@ public sealed class ReminderPopup : IReminderPopup, IDisposable
                 return;
             }
 
-            var at = TimeZones.UtcMsToZone(reminder.StartMs ?? reminder.FireMs, null, _time.LocalTimeZone);
+            var at = TimeZones.UtcMsToZone(reminder.StartMs ?? reminder.FireMs, null, Zone());
             _calendar.ShowDay(DateOnly.FromDateTime(at));
 
             // an occurrence of a series is "id|recurrenceId" as the grid knows it; a task is "task:id"
@@ -194,6 +194,9 @@ public sealed class ReminderPopup : IReminderPopup, IDisposable
             Notify(nameof(Missed));
         }
     }
+
+    // the timeZone setting, else the machine's zone
+    private TimeZoneInfo Zone() => (_prefs is null ? null : CalendarSettings.Read(_prefs.Current).Zone()) ?? _time.LocalTimeZone;
 
     private void Notify(string property) => PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(property));
 

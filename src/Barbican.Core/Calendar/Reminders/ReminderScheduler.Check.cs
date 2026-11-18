@@ -149,7 +149,7 @@ public sealed partial class ReminderScheduler
             var acked = await _state.AcknowledgedAsync(run.Owner, ct).ConfigureAwait(false);
             var first = !run.CheckedMissed;
             var from = first ? (last is { } l ? Math.Max(l, now - ReminderRules.MissedWindowMs) : now - ReminderRules.StaleMs) : now - ReminderRules.StaleMs;
-            var due = ReminderRules.DueBetween(run.Events, run.Calendars, Math.Min(from, now - ReminderRules.StaleMs), now + 1, settings.TasksEnabled);
+            var due = ReminderRules.DueBetween(run.Events, run.Calendars, Math.Min(from, now - ReminderRules.StaleMs), now + 1, settings.TasksEnabled, settings.Zone());
             if (first)
             {
                 await ListMissedAsync(run, due, acked, last, now, sound, ct).ConfigureAwait(false);

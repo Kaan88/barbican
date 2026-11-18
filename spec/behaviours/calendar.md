@@ -12,12 +12,12 @@ Status column: `pending (M<n>)` is the milestone that owns the row (PORT-PLAN §
 
 | ID | Rule | Source (Rust) | Bulwark ref | C# status |
 |---|---|---|---|---|
-| B-CAL-001 | Calendars and events come from JMAP `Calendar` / `CalendarEvent`. Event reads request 34 fixed properties. | calendar.rs:19 `CAL`, :266 `EVENT_PROPS` | lib/calendar (JSCalendar) | pending (M4) |
-| B-CAL-002 | Calendar colours are taken in order from an 8-colour palette; a calendar shared from another account gets a per-viewer colour. | calendar.rs:63 `PALETTE`; header (sharedCalendarColors) | components/calendar, sharedCalendarColors | pending (M4) |
-| B-CAL-003 | The contact birthday calendar has the fixed id `__birthday-calendar__`. | calendar.rs:20 `BIRTHDAY_CAL` | lib/birthday-calendar.ts | pending (M4) |
-| B-CAL-004 | Recurrence is expanded on the client, on the event's own wall clock (RFC 8984 4.3), with overrides and exclusions; a series is not expanded from the server. | recurrence.rs header; calendar.rs test `occurrences_carry_recurrence_ids_and_skip_tasks` (:709) | lib/calendar-recurrence (expansion fallback) | pending (M4) |
-| B-CAL-005 | Occurrences carry recurrence ids; tasks are not expanded as events. | calendar.rs:709 | as B-CAL-004 | pending (M4) |
-| B-CAL-006 | Agenda view covers 30 days from the start day. | calendar.rs:206 `AGENDA_DAYS` | calendar-agenda-view.tsx | pending (M4) |
+| B-CAL-001 | Calendars and events come from JMAP `Calendar` / `CalendarEvent`. Event reads request 34 fixed properties. | calendar.rs:19 `CAL`, :266 `EVENT_PROPS` | lib/calendar (JSCalendar) | ported |
+| B-CAL-002 | Calendar colours are taken in order from an 8-colour palette; a calendar shared from another account gets a per-viewer colour. | calendar.rs:63 `PALETTE`; header (sharedCalendarColors) | components/calendar, sharedCalendarColors | ported |
+| B-CAL-003 | The contact birthday calendar has the fixed id `__birthday-calendar__`. | calendar.rs:20 `BIRTHDAY_CAL` | lib/birthday-calendar.ts | ported |
+| B-CAL-004 | Recurrence is expanded on the client, on the event's own wall clock (RFC 8984 4.3), with overrides and exclusions; a series is not expanded from the server. | recurrence.rs header; calendar.rs test `occurrences_carry_recurrence_ids_and_skip_tasks` (:709) | lib/calendar-recurrence (expansion fallback) | ported |
+| B-CAL-005 | Occurrences carry recurrence ids; tasks are not expanded as events. | calendar.rs:709 | as B-CAL-004 | ported |
+| B-CAL-006 | Agenda view covers 30 days from the start day. | calendar.rs:206 `AGENDA_DAYS` | calendar-agenda-view.tsx | ported |
 | B-CAL-007 | Sidebar shows at most 6 tasks, then "Show all". Overdue tasks get a rose pill. | calendar.rs:752 `SIDEBAR_TASKS`; test `sidebar_tasks_capped_and_overdue` (:692); commit cbaa64a | tasks-sidebar-filters.tsx | pending (M4) |
 | B-CAL-008 | Day and week columns follow the loaded range; a narrow pane shows 3 days. | calendar.rs test `day_columns_follow_range` (:702); commit d772e1f | calendar grid | pending (M4) |
 | B-CAL-009 | Hour rows are 56 px tall in the day and week grids. | calendar.rs:18 `HOUR_PX` | calendar grid | pending (M4) |
@@ -29,24 +29,24 @@ Status column: `pending (M<n>)` is the milestone that owns the row (PORT-PLAN §
 | B-CAL-015 | Edits keep ids, answers and unchanged fields. | cal_editor.rs test `edits_keep_ids_answers_and_unchanged_fields` (:1558) | event-modal.tsx | pending (M4) |
 | B-CAL-016 | Organizer is detected from the event; scheduling messages are sent only for owned events with attendees. | cal_editor.rs test `organizer_detection` (:1596); commit d16233d ("calendar drag rollback + scheduling") | event-modal.tsx | pending (M4) |
 | B-CAL-017 | Guest rules and alert rules and location are validated before save. | cal_editor.rs test `guests_rules_alerts_location` (:1532) | participant-input.tsx | pending (M4) |
-| B-CAL-018 | Monthly "nth weekday" supports 1st to 4th and last (-1). | cal_editor.rs:900 `NTH`; recurrence.rs test `monthly_nth_and_last_weekday` (:470) | recurrence-editor.tsx | pending (M4) |
-| B-CAL-019 | A monthly rule on day 31 skips months that do not have it. | recurrence.rs test `monthly_day_31_skips_short_months` (:484) | recurrence-rule.ts | pending (M4) |
-| B-CAL-020 | UNTIL is inclusive; the start counts as the first occurrence. | recurrence.rs test `until_is_inclusive_and_start_counts` (:462) | recurrence-rule.ts | pending (M4) |
-| B-CAL-021 | Weekly BYDAY with interval and count is expanded as specified. | recurrence.rs test `weekly_by_day_interval_count` (:454) | recurrence-rule.ts | pending (M4) |
-| B-CAL-022 | Yearly rules pick a month and a day. | recurrence.rs test `yearly_in_month_on_day` (:492) | recurrence-rule.ts | pending (M4) |
-| B-CAL-023 | Durations round-trip; DST changes keep the wall-clock duration. | recurrence.rs test `durations_round_trip` (:439); cal_editor.rs test `dst_aware_duration` (:1523) | recurrence.rs | pending (M4) |
-| B-CAL-024 | Count left after splitting a series is computed on the split. | recurrence.rs test `count_left_after_split` (:533) | recurrence-rule.ts | pending (M4) |
-| B-CAL-025 | Time zones convert to the user's clock; the zone search matches names. | recurrence.rs test `zones_convert_and_search` (:539) | time-zone-picker.tsx | pending (M4) |
-| B-CAL-026 | English recurrence summaries follow Bulwark's buildRecurrenceSummary wording. | recurrence.rs test `summaries` (:515); recurrence.rs:4 | recurrence-editor.tsx `buildRecurrenceSummary` | pending (M4) |
-| B-CAL-027 | A recurrence rule round-trips as JSON and sameness is judged on the rule, not on text. | recurrence.rs test `rule_json_round_trip_and_sameness` (:524) | recurrence-rule.ts | pending (M4) |
-| B-CAL-028 | Reminders: an event fires its own alerts; when the event has none (or useDefaultAlerts is on) its calendar's defaults fire. | reminders.rs:105 `calendar_defaults`, :113 `effective_alerts`; test `effective_alerts_prefer_the_event_copy` (:573) | lib/calendar-alerts.ts | pending (M4) |
+| B-CAL-018 | Monthly "nth weekday" supports 1st to 4th and last (-1). | cal_editor.rs:900 `NTH`; recurrence.rs test `monthly_nth_and_last_weekday` (:470) | recurrence-editor.tsx | ported |
+| B-CAL-019 | A monthly rule on day 31 skips months that do not have it. | recurrence.rs test `monthly_day_31_skips_short_months` (:484) | recurrence-rule.ts | ported |
+| B-CAL-020 | UNTIL is inclusive; the start counts as the first occurrence. | recurrence.rs test `until_is_inclusive_and_start_counts` (:462) | recurrence-rule.ts | ported |
+| B-CAL-021 | Weekly BYDAY with interval and count is expanded as specified. | recurrence.rs test `weekly_by_day_interval_count` (:454) | recurrence-rule.ts | ported |
+| B-CAL-022 | Yearly rules pick a month and a day. | recurrence.rs test `yearly_in_month_on_day` (:492) | recurrence-rule.ts | ported |
+| B-CAL-023 | Durations round-trip; DST changes keep the wall-clock duration. | recurrence.rs test `durations_round_trip` (:439); cal_editor.rs test `dst_aware_duration` (:1523) | recurrence.rs | ported |
+| B-CAL-024 | Count left after splitting a series is computed on the split. | recurrence.rs test `count_left_after_split` (:533) | recurrence-rule.ts | ported |
+| B-CAL-025 | Time zones convert to the user's clock; the zone search matches names. | recurrence.rs test `zones_convert_and_search` (:539) | time-zone-picker.tsx | ported |
+| B-CAL-026 | English recurrence summaries follow Bulwark's buildRecurrenceSummary wording. | recurrence.rs test `summaries` (:515); recurrence.rs:4 | recurrence-editor.tsx `buildRecurrenceSummary` | ported |
+| B-CAL-027 | A recurrence rule round-trips as JSON and sameness is judged on the rule, not on text. | recurrence.rs test `rule_json_round_trip_and_sameness` (:524) | recurrence-rule.ts | ported |
+| B-CAL-028 | Reminders: an event fires its own alerts; when the event has none (or useDefaultAlerts is on) its calendar's defaults fire. | reminders.rs:105 `calendar_defaults`, :113 `effective_alerts`; test `effective_alerts_prefer_the_event_copy` (:573) | lib/calendar-alerts.ts | ported |
 | B-CAL-029 | Alert changes keep unchanged alerts and do not copy calendar defaults into the event. | reminders.rs test `alerts_patch_keeps_unchanged_and_leaves_defaults` (:585); :157 `build_alerts_patch` | event-modal.tsx | pending (M4) |
-| B-CAL-030 | Reminders are fetched 8 days ahead, so long default alerts are seen. | reminders.rs:24 `FETCH_AHEAD_MS` (8 * 86400000); test `fetch_ahead_covers_long_default_alerts` (:543); commit cbaa64a | use-calendar-alerts.ts | pending (M4) |
-| B-CAL-031 | A reminder's state is stale after 10 minutes; calendars are refetched every 300 s. | reminders.rs:19 `STALE_MS`, :32 `REFETCH_SECS` | use-calendar-alerts.ts | pending (M4) |
-| B-CAL-032 | Reminder alert key is `event:alert:fireMs`; acknowledged keys are stored per owner in calendar.json. | reminders.rs:202 `alert_key`, :297 `acknowledge`, :284 `state_path` | lib/calendar-alerts.ts | pending (M4) |
-| B-CAL-033 | Reminders that came due while the app was closed (up to 7 days back, not acknowledged) are listed once in the missed-reminders dialog. | reminders.rs:21 `MISSED_WINDOW_MS`; :320 `missed`; test `missed_window` (:637) | missed-reminders-dialog.tsx | pending (M4) |
-| B-CAL-034 | Due alerts for series and tasks are computed by `due_between`. | reminders.rs:220; test `due_alerts_of_series_and_tasks` (:613) | calendar-alerts.ts | pending (M4) |
-| B-CAL-035 | Reminder notifications go to the desktop notifier when calendarNotificationsEnabled is on, with sound per calendarNotificationSound. | reminders.rs header; notify.rs:90 `reminder_note` | reminder-notifications.ts | pending (M8) |
+| B-CAL-030 | Reminders are fetched 8 days ahead, so long default alerts are seen. | reminders.rs:24 `FETCH_AHEAD_MS` (8 * 86400000); test `fetch_ahead_covers_long_default_alerts` (:543); commit cbaa64a | use-calendar-alerts.ts | ported |
+| B-CAL-031 | A reminder's state is stale after 10 minutes; calendars are refetched every 300 s. | reminders.rs:19 `STALE_MS`, :32 `REFETCH_SECS` | use-calendar-alerts.ts | ported |
+| B-CAL-032 | Reminder alert key is `event:alert:fireMs`; acknowledged keys are stored per owner in calendar.json. | reminders.rs:202 `alert_key`, :297 `acknowledge`, :284 `state_path` | lib/calendar-alerts.ts | ported |
+| B-CAL-033 | Reminders that came due while the app was closed (up to 7 days back, not acknowledged) are listed once in the missed-reminders dialog. | reminders.rs:21 `MISSED_WINDOW_MS`; :320 `missed`; test `missed_window` (:637) | missed-reminders-dialog.tsx | ported |
+| B-CAL-034 | Due alerts for series and tasks are computed by `due_between`. | reminders.rs:220; test `due_alerts_of_series_and_tasks` (:613) | calendar-alerts.ts | ported |
+| B-CAL-035 | Reminder notifications go to the desktop notifier when calendarNotificationsEnabled is on, with sound per calendarNotificationSound. | reminders.rs header; notify.rs:90 `reminder_note` | reminder-notifications.ts | deferred(M8): the scheduler raises Due with Sound; the notification service is M8 |
 | B-CAL-036 | Task alert choices: none (-1), at due (0), 5, 15, 30, 60, 1440 minutes before. | cal_extra.rs:312 `TASK_ALERT_MIN` | task-modal.tsx | pending (M4) |
 | B-CAL-037 | Agenda titles lose a duplicated "○" marker; the agenda day filter toggles. | cal_extra.rs test `agenda_titles_lose_marker_and_day_filter_toggles` (:943); commit 5c6e668 | calendar-agenda-view.tsx | pending (M4) |
 | B-CAL-038 | Tasks: due-date quick dates; labels and filters; field mapping to JSCalendar Task. | cal_extra.rs tests `quick_task_dates` (:984), `task_labels_and_filters` (:997), `task_field_mapping` (:1015) | task-modal.tsx, tasks-sidebar-filters.tsx | pending (M4) |

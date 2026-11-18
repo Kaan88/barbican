@@ -1,7 +1,6 @@
 // M4 cal-data acceptance tests of the reminder scheduler over FakeJmap on a virtual clock: an own alert 9 days ahead (G-005), a series once per occurrence, two logins, state across a restart, snooze, stale and missed, settings, hooks, a push refetch (M4 plan 6.1).
 
 using System.Text.Json.Nodes;
-using Barbican.Core.Calendar;
 using Barbican.Core.Calendar.Reminders;
 using Barbican.Core.Plugins.Hooks;
 using Barbican.Core.Plugins.Payloads;
@@ -276,9 +275,6 @@ public sealed class ReminderSchedulerTests : IDisposable
         // tasks off: only the event; sound on
         using var noTasks = Make(rig, prefs: new JsonObject { ["enableCalendarTasks"] = false }, dir: Path.Combine(_dir, "b"));
         var seen2 = Record(noTasks);
-        _clock.SetUtcNow(new DateTimeOffset(2026, 11, 18, 9, 0, 0, TimeSpan.Zero));
-        await noTasks.CheckNowAsync(Ct);
-        _clock.Advance(TimeSpan.FromMinutes(6));
         await noTasks.CheckNowAsync(Ct);
         Assert.Equal("e", Assert.Single(Assert.Single(seen2).Reminders).Event);
         Assert.True(seen2[0].Sound);
@@ -286,9 +282,6 @@ public sealed class ReminderSchedulerTests : IDisposable
         // notifications off: nothing
         using var off = Make(rig, prefs: new JsonObject { ["calendarNotificationsEnabled"] = false }, dir: Path.Combine(_dir, "c"));
         var seen3 = Record(off);
-        _clock.SetUtcNow(new DateTimeOffset(2026, 11, 18, 9, 0, 0, TimeSpan.Zero));
-        await off.CheckNowAsync(Ct);
-        _clock.Advance(TimeSpan.FromMinutes(6));
         await off.CheckNowAsync(Ct);
         Assert.Empty(seen3);
     }
@@ -354,9 +347,11 @@ public sealed class ReminderSchedulerTests : IDisposable
         // an event made after the first read is not seen until the events are read again (300 s) or a push says so
         cals.AddEvent(work, Event("late", "2026-11-18T09:03:00", "-PT1M"));
         _clock.Advance(TimeSpan.FromMinutes(2));
+        await sched.DrainAsync();
         await sched.CheckNowAsync(Ct);
         Assert.Empty(seen);
         rig.Push.Raise(client, ["CalendarEventNotification"]);
+        await sched.DrainAsync();
         await sched.CheckNowAsync(Ct);
         Assert.Equal("late", Assert.Single(Assert.Single(seen).Reminders).Event);
     }

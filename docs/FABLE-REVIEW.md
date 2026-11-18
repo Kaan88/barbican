@@ -1273,3 +1273,10 @@ launched; Linux unverified). Verdicts on the M2 verify items 1 to 6, 11, 12 and 
 - **Contract stubs throw `PortPendingException`** until their stream lands; a default registration that throws is only reached if a stream forgets to replace it (`CalendarDataRegistration.cs`, `CalendarEditingRegistration.cs`, the six calls in `AppComposition.cs`).
 - **FakeJmap calendar arms** (`tests/Barbican.FakeJmap/FakeApi.Calendar.cs`) are written from the draft and Stalwart's source, not recorded from a server: review that their error shapes match Stalwart before cal-edit's write arm is trusted (`Principal/getAvailability` answers from event participants only).
 
+## M4 cal-data (stream: m4-cal-data)
+- **Ical.Net is pinned 5.1.1** in `Directory.Packages.props` (test-only oracle for `RecurrenceOracleTests`). cal-edit may pin another version in the same file: on merge keep one version and re-run the oracle test (300 random rules); a version change may move the D-M4-A01 differences.
+- **Reminder window and stale rules** (D-M4-A05, `src/Barbican.Core/Calendar/Reminders/ReminderRules*.cs`, `ReminderScheduler*.cs`): 35 day read window, 15 s check, 300 s refetch, acknowledged keys per login. Review the missed-while-closed logic (first check per run) and that a failing shared account never hides the user's own reminders. Tested on a virtual clock over FakeJmap only, never against a real server.
+- **Scheduler test timing** (`ReminderSchedulerTests`): the timer test drains the background checks before each manual check because `FakeTimeProvider.Advance` fires every 15 s tick at once; the gate skips an overlapping check by design.
+- **FakeJmap `after`/before filter** (`tests/Barbican.FakeJmap/FakeApi.Calendar.cs`) is written from Stalwart's calendar_event/query.rs, not recorded; a task with only a `due` counts at its due.
+- **`timeZone` setting** (D-M4-A06, `CalendarSettings.Zone()`): relies on `TimeZoneInfo.FindSystemTimeZoneById` accepting IANA names (ICU on Windows; Linux not run, deferred to M9).
+- **Not run: Linux** (the user deferred it to M9). The notification service and sound (B-CAL-035) are M8.
