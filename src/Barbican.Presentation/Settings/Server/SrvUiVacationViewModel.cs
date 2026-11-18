@@ -24,10 +24,7 @@ public sealed class SrvUiVacationViewModel : SrvUiPageModel
         _time = time ?? TimeProvider.System;
         _service.Changed += (_, e) =>
         {
-            if (IsMine(e.AccountKey))
-            {
-                _ = ReloadQuietlyAsync();
-            }
+            _ = ReloadQuietlyAsync(e.AccountKey);
         };
     }
 
@@ -70,8 +67,9 @@ public sealed class SrvUiVacationViewModel : SrvUiPageModel
     public async Task LoadAsync(CancellationToken ct)
     {
         IsLoading = true;
-        Take(await _service.LoadAsync(AccountKey, ct).ConfigureAwait(false));
-        IsLoading = false;
+        var account = AccountKey;
+        var result = await _service.LoadAsync(account, ct).ConfigureAwait(false);
+        await OnUiAsync(account, () => { Take(result); IsLoading = false; }).ConfigureAwait(false);
     }
 
     public async Task SaveAsync(CancellationToken ct)
@@ -88,13 +86,17 @@ public sealed class SrvUiVacationViewModel : SrvUiPageModel
         var forward = ForwardOn || ForwardTo.Trim().Length > 0 ? new VacationForward(ForwardOn, ForwardTo.Trim(), ForwardKeep) : null;
         var settings = new VacationSettings(Enabled, Subject.Trim(), Body, _saved?.HtmlBody, from, to, audience, forward, BlockCalendar);
         IsLoading = true;
-        var result = await _service.SaveAsync(AccountKey, settings, ct).ConfigureAwait(false);
-        IsLoading = false;
-        Take(result);
-        if (result.IsOk)
+        var account = AccountKey;
+        var result = await _service.SaveAsync(account, settings, ct).ConfigureAwait(false);
+        await OnUiAsync(account, () =>
         {
-            Message = "Saved.";
-        }
+            IsLoading = false;
+            Take(result);
+            if (result.IsOk)
+            {
+                Message = "Saved.";
+            }
+        }).ConfigureAwait(false);
     }
 
     private static bool TryDay(string text, out DateOnly? day)
@@ -142,11 +144,12 @@ public sealed class SrvUiVacationViewModel : SrvUiPageModel
         Raise(string.Empty);
     }
 
-    private async Task ReloadQuietlyAsync()
+    private async Task ReloadQuietlyAsync(string account)
     {
         try
         {
-            Take(await _service.LoadAsync(AccountKey, CancellationToken.None).ConfigureAwait(false));
+            var result = await _service.LoadAsync(account, CancellationToken.None).ConfigureAwait(false);
+            await OnUiAsync(account, () => Take(result)).ConfigureAwait(false);
         }
         catch (OperationCanceledException)
         {

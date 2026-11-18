@@ -26,10 +26,7 @@ public sealed class SrvUiFoldersViewModel : SrvUiPageModel
         _source = source;
         _admin.Changed += (_, e) =>
         {
-            if (IsMine(e.AccountKey))
-            {
-                _ = ReloadQuietlyAsync();
-            }
+            _ = ReloadQuietlyAsync(e.AccountKey);
         };
         _source.Changed += (_, _) => Raise(nameof(Rows));
     }
@@ -71,8 +68,9 @@ public sealed class SrvUiFoldersViewModel : SrvUiPageModel
     public async Task LoadAsync(CancellationToken ct)
     {
         IsLoading = true;
-        TakePrefs(await _admin.PrefsAsync(AccountKey, ct).ConfigureAwait(false));
-        IsLoading = false;
+        var account = AccountKey;
+        var result = await _admin.PrefsAsync(account, ct).ConfigureAwait(false);
+        await OnUiAsync(account, () => { TakePrefs(result); IsLoading = false; }).ConfigureAwait(false);
     }
 
     /// <summary>Creates a folder (under the selected one when <paramref name="underSelected"/>).</summary>
@@ -85,8 +83,9 @@ public sealed class SrvUiFoldersViewModel : SrvUiPageModel
             return false;
         }
 
-        var result = await _admin.CreateAsync(AccountKey, underSelected ? _selectedId : null, name.Trim(), ct).ConfigureAwait(false);
-        return Done(result);
+        var account = AccountKey;
+        var result = await _admin.CreateAsync(account, underSelected ? _selectedId : null, name.Trim(), ct).ConfigureAwait(false);
+        return await DoneAsync(account, result).ConfigureAwait(false);
     }
 
     public async Task<bool> RenameAsync(string name, CancellationToken ct)
@@ -98,7 +97,9 @@ public sealed class SrvUiFoldersViewModel : SrvUiPageModel
             return false;
         }
 
-        return Done(await _admin.RenameAsync(AccountKey, _selectedId, name.Trim(), ct).ConfigureAwait(false));
+        var account = AccountKey;
+        var result = await _admin.RenameAsync(account, _selectedId, name.Trim(), ct).ConfigureAwait(false);
+        return await DoneAsync(account, result).ConfigureAwait(false);
     }
 
     public async Task<bool> DeleteAsync(CancellationToken ct)
@@ -108,23 +109,36 @@ public sealed class SrvUiFoldersViewModel : SrvUiPageModel
             return false;
         }
 
-        var ok = Done(await _admin.DeleteAsync(AccountKey, _selectedId, ct).ConfigureAwait(false));
-        if (ok)
-        {
-            Select(null);
-        }
-
+        var account = AccountKey;
+        var result = await _admin.DeleteAsync(account, _selectedId, ct).ConfigureAwait(false);
+        var ok = false;
+        await OnUiAsync(account, () => { ok = Done(result); if (ok) { Select(null); } }).ConfigureAwait(false);
         return ok;
     }
 
-    public async Task<bool> SetRoleAsync(string? role, CancellationToken ct) =>
-        _selectedId is not null && Done(await _admin.SetRoleAsync(AccountKey, _selectedId, role, ct).ConfigureAwait(false));
+    public async Task<bool> SetRoleAsync(string? role, CancellationToken ct)
+    {
+        if (_selectedId is null) { return false; }
+        var account = AccountKey;
+        var result = await _admin.SetRoleAsync(account, _selectedId, role, ct).ConfigureAwait(false);
+        return await DoneAsync(account, result).ConfigureAwait(false);
+    }
 
-    public async Task<bool> SubscribeAsync(bool subscribed, CancellationToken ct) =>
-        _selectedId is not null && Done(await _admin.SubscribeAsync(AccountKey, _selectedId, subscribed, ct).ConfigureAwait(false));
+    public async Task<bool> SubscribeAsync(bool subscribed, CancellationToken ct)
+    {
+        if (_selectedId is null) { return false; }
+        var account = AccountKey;
+        var result = await _admin.SubscribeAsync(account, _selectedId, subscribed, ct).ConfigureAwait(false);
+        return await DoneAsync(account, result).ConfigureAwait(false);
+    }
 
-    public async Task<bool> MarkTreeReadAsync(CancellationToken ct) =>
-        _selectedId is not null && Done(await _admin.MarkTreeReadAsync(AccountKey, _selectedId, ct).ConfigureAwait(false));
+    public async Task<bool> MarkTreeReadAsync(CancellationToken ct)
+    {
+        if (_selectedId is null) { return false; }
+        var account = AccountKey;
+        var result = await _admin.MarkTreeReadAsync(account, _selectedId, ct).ConfigureAwait(false);
+        return await DoneAsync(account, result).ConfigureAwait(false);
+    }
 
     /// <summary>Moves the selected folder under another (null: the top); refused for itself, its own descendants and the role folders.</summary>
     public async Task<bool> MoveUnderAsync(string? parentId, CancellationToken ct)
@@ -135,11 +149,18 @@ public sealed class SrvUiFoldersViewModel : SrvUiPageModel
             return false;
         }
 
-        return Done(await _admin.MoveAsync(AccountKey, [_selectedId], parentId, ct).ConfigureAwait(false));
+        var account = AccountKey;
+        var result = await _admin.MoveAsync(account, [_selectedId], parentId, ct).ConfigureAwait(false);
+        return await DoneAsync(account, result).ConfigureAwait(false);
     }
 
-    public async Task<bool> SetPrefAsync(FolderAdminPref pref, string? value, CancellationToken ct) =>
-        _selectedId is not null && Done(await _admin.SetPrefAsync(AccountKey, _selectedId, pref, value, ct).ConfigureAwait(false));
+    public async Task<bool> SetPrefAsync(FolderAdminPref pref, string? value, CancellationToken ct)
+    {
+        if (_selectedId is null) { return false; }
+        var account = AccountKey;
+        var result = await _admin.SetPrefAsync(account, _selectedId, pref, value, ct).ConfigureAwait(false);
+        return await DoneAsync(account, result).ConfigureAwait(false);
+    }
 
     /// <summary>Folders the selected one may be moved under (the tree rules).</summary>
     public IReadOnlyList<FolderAdminNode> MoveTargets() => [.. _source.Nodes().Where(n => _selectedId is not null && CanMoveUnder(_selectedId, n.Id))];
@@ -182,6 +203,13 @@ public sealed class SrvUiFoldersViewModel : SrvUiPageModel
         }
     }
 
+    private async Task<bool> DoneAsync<T>(string account, Result<T> result)
+    {
+        var ok = false;
+        await OnUiAsync(account, () => ok = Done(result)).ConfigureAwait(false);
+        return ok;
+    }
+
     private bool Done<T>(Result<T> result)
     {
         Error = result.IsOk ? null : result.Error!.Message;
@@ -201,11 +229,12 @@ public sealed class SrvUiFoldersViewModel : SrvUiPageModel
         Raise(nameof(Rows));
     }
 
-    private async Task ReloadQuietlyAsync()
+    private async Task ReloadQuietlyAsync(string account)
     {
         try
         {
-            TakePrefs(await _admin.PrefsAsync(AccountKey, CancellationToken.None).ConfigureAwait(false));
+            var result = await _admin.PrefsAsync(account, CancellationToken.None).ConfigureAwait(false);
+            await OnUiAsync(account, () => TakePrefs(result)).ConfigureAwait(false);
         }
         catch (OperationCanceledException)
         {

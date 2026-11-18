@@ -33,31 +33,43 @@ public sealed class SrvUiRecoverViewModel : SrvUiPageModel
     public async Task LoadAsync(CancellationToken ct)
     {
         IsLoading = true;
+        var account = AccountKey;
         var result = await _source.ListAsync(ct).ConfigureAwait(false);
-        if (result.IsOk)
+        await OnUiAsync(account, () =>
         {
-            Error = null;
-            _items = result.Value!;
-            Raise(nameof(Items));
-        }
-        else
-        {
-            Error = result.Error!.Message;
-        }
+            if (result.IsOk)
+            {
+                Error = null;
+                _items = result.Value!;
+                Raise(nameof(Items));
+            }
+            else
+            {
+                Error = result.Error!.Message;
+            }
 
-        IsLoading = false;
+            IsLoading = false;
+        }).ConfigureAwait(false);
     }
 
     public async Task RestoreAsync(string id, CancellationToken ct)
     {
+        var account = AccountKey;
         var result = await _source.RestoreAsync(id, ct).ConfigureAwait(false);
-        if (!result.IsOk)
+        await OnUiAsync(account, () =>
         {
-            Error = result.Error!.Message;
-            return;
+            if (!result.IsOk)
+            {
+                Error = result.Error!.Message;
+            }
+            else
+            {
+                Message = "Restored. The message is back where it was.";
+            }
+        }).ConfigureAwait(false);
+        if (result.IsOk)
+        {
+            await OnUiAsync(account, () => LoadAsync(ct)).ConfigureAwait(false);
         }
-
-        Message = "Restored. The message is back where it was.";
-        await LoadAsync(ct).ConfigureAwait(false);
     }
 }

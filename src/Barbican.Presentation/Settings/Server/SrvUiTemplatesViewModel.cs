@@ -29,10 +29,7 @@ public sealed partial class SrvUiTemplatesViewModel : SrvUiPageModel
         _service = service;
         _service.Changed += (_, e) =>
         {
-            if (IsMine(e.AccountKey))
-            {
-                _ = ReloadQuietlyAsync();
-            }
+            _ = ReloadQuietlyAsync(e.AccountKey);
         };
     }
 
@@ -65,8 +62,9 @@ public sealed partial class SrvUiTemplatesViewModel : SrvUiPageModel
     public async Task LoadAsync(CancellationToken ct)
     {
         IsLoading = true;
-        Take(await _service.ListAsync(AccountKey, ct).ConfigureAwait(false));
-        IsLoading = false;
+        var account = AccountKey;
+        var result = await _service.ListAsync(account, ct).ConfigureAwait(false);
+        await OnUiAsync(account, () => { Take(result); IsLoading = false; }).ConfigureAwait(false);
     }
 
     public void StartNew()
@@ -96,20 +94,24 @@ public sealed partial class SrvUiTemplatesViewModel : SrvUiPageModel
             return;
         }
 
+        var account = AccountKey;
         var result = _selectedId is null
-            ? await _service.CreateAsync(AccountKey, Name.Trim(), Subject, Body, IsHtml, ct).ConfigureAwait(false)
-            : await _service.UpdateAsync(AccountKey, (_items.First(t => string.Equals(t.Id, _selectedId, StringComparison.Ordinal))) with { Name = Name.Trim(), Subject = Subject, Body = Body, IsHtml = IsHtml }, ct).ConfigureAwait(false);
-        if (!result.IsOk)
+            ? await _service.CreateAsync(account, Name.Trim(), Subject, Body, IsHtml, ct).ConfigureAwait(false)
+            : await _service.UpdateAsync(account, (_items.First(t => string.Equals(t.Id, _selectedId, StringComparison.Ordinal))) with { Name = Name.Trim(), Subject = Subject, Body = Body, IsHtml = IsHtml }, ct).ConfigureAwait(false);
+        await OnUiAsync(account, async () =>
         {
-            Error = result.Error!.Message;
-            return;
-        }
+            if (!result.IsOk)
+            {
+                Error = result.Error!.Message;
+                return;
+            }
 
-        Error = null;
-        _creating = false;
-        _selectedId = result.Value!.Id;
-        Message = "Saved.";
-        await LoadAsync(ct).ConfigureAwait(false);
+            Error = null;
+            _creating = false;
+            _selectedId = result.Value!.Id;
+            Message = "Saved.";
+            await LoadAsync(ct).ConfigureAwait(true);
+        }).ConfigureAwait(false);
     }
 
     public async Task DeleteAsync(CancellationToken ct)
@@ -119,28 +121,36 @@ public sealed partial class SrvUiTemplatesViewModel : SrvUiPageModel
             return;
         }
 
-        var result = await _service.DeleteAsync(AccountKey, _selectedId, ct).ConfigureAwait(false);
-        if (!result.IsOk)
+        var account = AccountKey;
+        var result = await _service.DeleteAsync(account, _selectedId, ct).ConfigureAwait(false);
+        await OnUiAsync(account, async () =>
         {
-            Error = result.Error!.Message;
-            return;
-        }
+            if (!result.IsOk)
+            {
+                Error = result.Error!.Message;
+                return;
+            }
 
-        _selectedId = null;
-        await LoadAsync(ct).ConfigureAwait(false);
+            _selectedId = null;
+            await LoadAsync(ct).ConfigureAwait(true);
+        }).ConfigureAwait(false);
     }
 
     public async Task ExportAsync(CancellationToken ct)
     {
-        var result = await _service.ExportAsync(AccountKey, ct).ConfigureAwait(false);
-        if (!result.IsOk)
+        var account = AccountKey;
+        var result = await _service.ExportAsync(account, ct).ConfigureAwait(false);
+        await OnUiAsync(account, () =>
         {
-            Error = result.Error!.Message;
-            return;
-        }
+            if (!result.IsOk)
+            {
+                Error = result.Error!.Message;
+                return;
+            }
 
-        ExportText = result.Value!.ToJsonString(Pretty);
-        Raise(nameof(ExportText));
+            ExportText = result.Value!.ToJsonString(Pretty);
+            Raise(nameof(ExportText));
+        }).ConfigureAwait(false);
     }
 
     /// <summary>Imports pasted text (a Bulwark export or a plain array of templates).</summary>
@@ -162,16 +172,20 @@ public sealed partial class SrvUiTemplatesViewModel : SrvUiPageModel
             return;
         }
 
-        var result = await _service.ImportAsync(AccountKey, doc, ct).ConfigureAwait(false);
-        if (!result.IsOk)
+        var account = AccountKey;
+        var result = await _service.ImportAsync(account, doc, ct).ConfigureAwait(false);
+        await OnUiAsync(account, async () =>
         {
-            Error = result.Error!.Message;
-            return;
-        }
+            if (!result.IsOk)
+            {
+                Error = result.Error!.Message;
+                return;
+            }
 
-        Error = null;
-        Message = "Imported " + result.Value + " template" + (result.Value == 1 ? string.Empty : "s") + ".";
-        await LoadAsync(ct).ConfigureAwait(false);
+            Error = null;
+            Message = "Imported " + result.Value + " template" + (result.Value == 1 ? string.Empty : "s") + ".";
+            await LoadAsync(ct).ConfigureAwait(true);
+        }).ConfigureAwait(false);
     }
 
     [GeneratedRegex(@"\{\{\s*(?<n>[A-Za-z0-9_\-]+)\s*\}\}", RegexOptions.ExplicitCapture, matchTimeoutMilliseconds: 200)]
@@ -209,11 +223,12 @@ public sealed partial class SrvUiTemplatesViewModel : SrvUiPageModel
         Select(keep);
     }
 
-    private async Task ReloadQuietlyAsync()
+    private async Task ReloadQuietlyAsync(string account)
     {
         try
         {
-            Take(await _service.ListAsync(AccountKey, CancellationToken.None).ConfigureAwait(false));
+            var result = await _service.ListAsync(account, CancellationToken.None).ConfigureAwait(false);
+            await OnUiAsync(account, () => Take(result)).ConfigureAwait(false);
         }
         catch (OperationCanceledException)
         {

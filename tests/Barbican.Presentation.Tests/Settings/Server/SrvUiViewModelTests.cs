@@ -32,12 +32,16 @@ public sealed class SrvUiViewModelTests
         var vm = new SrvUiFiltersViewModel(new SampleFilterService(), null, dispatcher);
         var raised = new List<int>();
         vm.PropertyChanged += (_, _) => raised.Add(Environment.CurrentManagedThreadId);
-        await vm.LoadAsync(Ct);
+        var loading = vm.LoadAsync(Ct);
+        Assert.True(SpinWait.SpinUntil(() => dispatcher.Pending >= 2, TimeSpan.FromSeconds(5)));
+        Assert.Empty(vm.Rows);
         Assert.Empty(raised);
-        Assert.True(dispatcher.Pending > 0);
+        var pumpThread = Environment.CurrentManagedThreadId;
         dispatcher.Pump();
+        await loading;
+        Assert.Single(vm.Rows);
         Assert.NotEmpty(raised);
-        Assert.All(raised, id => Assert.Equal(Environment.CurrentManagedThreadId, id));
+        Assert.All(raised, id => Assert.Equal(pumpThread, id));
     }
 
     [Fact]

@@ -29,7 +29,28 @@ internal sealed class SrvUiQueuedDispatcher : IDispatcher
         }
     }
 
-    public Task InvokeAsync(Func<Task> action) => action();
+    public Task InvokeAsync(Func<Task> action)
+    {
+        var completion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        Post(() =>
+        {
+            try
+            {
+                var task = action();
+                _ = task.ContinueWith(t =>
+                {
+                    if (t.IsFaulted) { completion.SetException(t.Exception!.InnerExceptions); }
+                    else if (t.IsCanceled) { completion.SetCanceled(); }
+                    else { completion.SetResult(); }
+                }, TaskScheduler.Default);
+            }
+            catch (Exception e)
+            {
+                completion.SetException(e);
+            }
+        });
+        return completion.Task;
+    }
 
     public void Pump()
     {

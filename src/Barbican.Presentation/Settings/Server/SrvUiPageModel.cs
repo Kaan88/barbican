@@ -59,6 +59,27 @@ public abstract class SrvUiPageModel : INotifyPropertyChanged
         }
     }
 
+    /// <summary>Applies a service result on the UI dispatcher, only for its original account.</summary>
+    protected Task OnUiAsync(string accountKey, Action action) => _dispatcher is null
+        ? ApplyAsync(accountKey, action)
+        : _dispatcher.InvokeAsync(() => ApplyAsync(accountKey, action));
+
+    protected Task OnUiAsync(string accountKey, Func<Task> action) => _dispatcher is null
+        ? ApplyAsync(accountKey, action)
+        : _dispatcher.InvokeAsync(() => ApplyAsync(accountKey, action));
+
+    private Task ApplyAsync(string accountKey, Func<Task> action) => IsMine(accountKey) ? action() : Task.CompletedTask;
+
+    private Task ApplyAsync(string accountKey, Action action)
+    {
+        if (IsMine(accountKey))
+        {
+            action();
+        }
+
+        return Task.CompletedTask;
+    }
+
     protected void Set<T>(ref T field, T value, [CallerMemberName] string? name = null)
     {
         if (EqualityComparer<T>.Default.Equals(field, value))

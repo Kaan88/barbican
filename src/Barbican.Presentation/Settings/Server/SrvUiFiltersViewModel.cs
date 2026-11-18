@@ -28,10 +28,7 @@ public sealed class SrvUiFiltersViewModel : SrvUiPageModel, ISrvUiFiltersViewMod
         _folders = folders;
         _service.Changed += (_, e) =>
         {
-            if (IsMine(e.AccountKey))
-            {
-                _ = ReloadQuietlyAsync();
-            }
+            _ = ReloadQuietlyAsync(e.AccountKey);
         };
     }
 
@@ -61,9 +58,9 @@ public sealed class SrvUiFiltersViewModel : SrvUiPageModel, ISrvUiFiltersViewMod
     public async Task LoadAsync(CancellationToken ct)
     {
         IsLoading = true;
-        var result = await _service.LoadAsync(AccountKey, ct).ConfigureAwait(false);
-        Apply(result);
-        IsLoading = false;
+        var account = AccountKey;
+        var result = await _service.LoadAsync(account, ct).ConfigureAwait(false);
+        await OnUiAsync(account, () => { Apply(result); IsLoading = false; }).ConfigureAwait(false);
     }
 
     public Task MoveAsync(string ruleId, int direction, CancellationToken ct) =>
@@ -155,17 +152,23 @@ public sealed class SrvUiFiltersViewModel : SrvUiPageModel, ISrvUiFiltersViewMod
 
         var next = change([.. _state.Rules.Select(r => r.DeepClone())]);
         SaveError = null;
-        var result = await _service.SaveAsync(AccountKey, next, ct).ConfigureAwait(false);
-        if (result.IsOk)
+        var account = AccountKey;
+        var result = await _service.SaveAsync(account, next, ct).ConfigureAwait(false);
+        var applied = false;
+        await OnUiAsync(account, () =>
         {
-            Apply(result);
-            return true;
-        }
-
-        // a failed save restores the list the server has (B-SIEVE-023): the rows were never changed, the view redraws them
-        SaveError = result.Error!.Message;
-        Raise(nameof(Rows));
-        return false;
+            if (result.IsOk)
+            {
+                Apply(result);
+                applied = true;
+            }
+            else
+            {
+                SaveError = result.Error!.Message;
+                Raise(nameof(Rows));
+            }
+        }).ConfigureAwait(false);
+        return applied;
     }
 
     private void Apply(Result<FilterState> result)
@@ -184,11 +187,12 @@ public sealed class SrvUiFiltersViewModel : SrvUiPageModel, ISrvUiFiltersViewMod
         Raise(nameof(State));
     }
 
-    private async Task ReloadQuietlyAsync()
+    private async Task ReloadQuietlyAsync(string account)
     {
         try
         {
-            Apply(await _service.LoadAsync(AccountKey, CancellationToken.None).ConfigureAwait(false));
+            var result = await _service.LoadAsync(account, CancellationToken.None).ConfigureAwait(false);
+            await OnUiAsync(account, () => Apply(result)).ConfigureAwait(false);
         }
         catch (OperationCanceledException)
         {

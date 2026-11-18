@@ -22,10 +22,7 @@ public sealed class SrvUiIdentitiesViewModel : SrvUiPageModel
         _service = service;
         _service.Changed += (_, e) =>
         {
-            if (IsMine(e.AccountKey))
-            {
-                _ = ReloadQuietlyAsync();
-            }
+            _ = ReloadQuietlyAsync(e.AccountKey);
         };
     }
 
@@ -54,8 +51,9 @@ public sealed class SrvUiIdentitiesViewModel : SrvUiPageModel
     public async Task LoadAsync(CancellationToken ct)
     {
         IsLoading = true;
-        Take(await _service.ListAsync(AccountKey, ct).ConfigureAwait(false));
-        IsLoading = false;
+        var account = AccountKey;
+        var result = await _service.ListAsync(account, ct).ConfigureAwait(false);
+        await OnUiAsync(account, () => { Take(result); IsLoading = false; }).ConfigureAwait(false);
     }
 
     /// <summary>Opens an empty form for a new identity.</summary>
@@ -89,19 +87,23 @@ public sealed class SrvUiIdentitiesViewModel : SrvUiPageModel
         }
 
         var edit = new AccountIdentityEdit(Name.Trim(), Email.Trim(), ReplyTo.Trim(), Bcc.Trim(), TextSignature, HtmlSignature);
+        var account = AccountKey;
         var result = _selectedId is null
-            ? await _service.CreateAsync(AccountKey, edit, ct).ConfigureAwait(false)
-            : await _service.UpdateAsync(AccountKey, _selectedId, edit, ct).ConfigureAwait(false);
-        if (!result.IsOk)
+            ? await _service.CreateAsync(account, edit, ct).ConfigureAwait(false)
+            : await _service.UpdateAsync(account, _selectedId, edit, ct).ConfigureAwait(false);
+        await OnUiAsync(account, async () =>
         {
-            Error = result.Error!.Message;
-            return;
-        }
+            if (!result.IsOk)
+            {
+                Error = result.Error!.Message;
+                return;
+            }
 
-        Error = null;
-        _creating = false;
-        _selectedId = result.Value!.Id;
-        await LoadAsync(ct).ConfigureAwait(false);
+            Error = null;
+            _creating = false;
+            _selectedId = result.Value!.Id;
+            await LoadAsync(ct).ConfigureAwait(true);
+        }).ConfigureAwait(false);
     }
 
     public async Task DeleteAsync(CancellationToken ct)
@@ -111,15 +113,19 @@ public sealed class SrvUiIdentitiesViewModel : SrvUiPageModel
             return;
         }
 
-        var result = await _service.DeleteAsync(AccountKey, _selectedId, ct).ConfigureAwait(false);
-        if (!result.IsOk)
+        var account = AccountKey;
+        var result = await _service.DeleteAsync(account, _selectedId, ct).ConfigureAwait(false);
+        await OnUiAsync(account, async () =>
         {
-            Error = result.Error!.Message;
-            return;
-        }
+            if (!result.IsOk)
+            {
+                Error = result.Error!.Message;
+                return;
+            }
 
-        _selectedId = null;
-        await LoadAsync(ct).ConfigureAwait(false);
+            _selectedId = null;
+            await LoadAsync(ct).ConfigureAwait(true);
+        }).ConfigureAwait(false);
     }
 
     /// <summary>Moves an identity up (-1) or down (1); the first is the default sender.</summary>
@@ -134,14 +140,18 @@ public sealed class SrvUiIdentitiesViewModel : SrvUiPageModel
         }
 
         (ids[at], ids[to]) = (ids[to], ids[at]);
-        var result = await _service.SetOrderAsync(AccountKey, ids, ct).ConfigureAwait(false);
-        if (!result.IsOk)
+        var account = AccountKey;
+        var result = await _service.SetOrderAsync(account, ids, ct).ConfigureAwait(false);
+        await OnUiAsync(account, async () =>
         {
-            Error = result.Error!.Message;
-            return;
-        }
+            if (!result.IsOk)
+            {
+                Error = result.Error!.Message;
+                return;
+            }
 
-        await LoadAsync(ct).ConfigureAwait(false);
+            await LoadAsync(ct).ConfigureAwait(true);
+        }).ConfigureAwait(false);
     }
 
     private void Take(Barbican.Core.Common.Result<IReadOnlyList<AccountIdentity>> result)
@@ -164,11 +174,12 @@ public sealed class SrvUiIdentitiesViewModel : SrvUiPageModel
         Select(keep);
     }
 
-    private async Task ReloadQuietlyAsync()
+    private async Task ReloadQuietlyAsync(string account)
     {
         try
         {
-            Take(await _service.ListAsync(AccountKey, CancellationToken.None).ConfigureAwait(false));
+            var result = await _service.ListAsync(account, CancellationToken.None).ConfigureAwait(false);
+            await OnUiAsync(account, () => Take(result)).ConfigureAwait(false);
         }
         catch (OperationCanceledException)
         {
