@@ -2,8 +2,10 @@
 
 Everything is pushed. Nothing is merged to `main` or tagged.
 
+**Codex takeover (2026-11-19):** read [CODEX-HANDOFF.md](CODEX-HANDOFF.md). Use Terra High for stream work and Luna High for narrow helpers; queue streams within the actual session agent limit.
+
 **Process from 2026-11-18 (the user):** no Fable reviews until one whole-app review at the very end; the user's process rules
-(gates, hand-test waits, questions) are dropped, defaults are taken and recorded in spec/decisions.md; Sonnet or Haiku agents
+(gates, hand-test waits, questions) are dropped, defaults are taken and recorded in spec/decisions.md; Terra or Luna agents
 wherever they can. Safety rules stay (no real input, read-only account, admin key, Rust profile, build.ps1, privacy check).
 
 ## Milestones
@@ -27,7 +29,7 @@ No live writes were left on the test account. No app or build process of the str
 | `m6-srv-ui` | 36efd7d | Rules, view models, six pages and 3 dialogs registered through ISettingsPageFactory, sample-fakes swap, srv-open/srv-dump automation; its 5 red green, Presentation tests 971 pass. Automation build never confirmed (stopped by the pause). Next: Automation build, hidden sample run (port 8922), screenshots, decisions, Fable notes, full test and `-Head win`. |
 
 ## How to resume
-1. One Sonnet agent per stream in its worktree, "continue from the last commit" (read the WIP subject, the stream's section of docs/milestones/M6-plan.md and this table); `$env:BARBICAN_BUILD_SLOTS = "3"` for every build.
+1. One Terra agent per stream in its worktree, "continue from the last commit" (read the WIP subject, the stream's section of docs/milestones/M6-plan.md and this table); `$env:BARBICAN_BUILD_SLOTS = "3"` for every build.
 2. Merge the four into `m6` (append-only conflicts in decisions.md / FABLE-REVIEW.md: keep both; status rows in spec CSVs: keep the side that marks the work done; composition counts are separate terms per stream), full test, then one close-pass agent (wire real services, live checks on the test account via `agent-ui`, M6.md, zip), then M6b.
 
 ## Handoff (2026-11-18)
@@ -38,7 +40,7 @@ M6 is paused mid-way (table above). Nothing is merged to `main` or tagged. Every
 
 **How the milestones were run (keep doing this).** Plan agent (contracts as stubs, FakeJmap arms, red tests, seam and
 composition-count terms in the plan commit, unique type and decision prefixes per stream, threaded in-memory fakes) -> one
-Sonnet agent per stream in `wt-m<n>-<key>` -> coordinator merges into `m<n>` and runs `tools/build.ps1 test` -> one Sonnet
+Terra agent per stream in `wt-m<n>-<key>` -> coordinator merges into `m<n>` and runs `tools/build.ps1 test` -> one Terra
 close-pass agent (wire real services, hidden sample run, live checks on the test account via profile `agent-ui`, report, zip).
 Every agent: `$env:BARBICAN_BUILD_SLOTS = "3"`; at most 5 agents alive.
 

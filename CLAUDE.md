@@ -7,6 +7,15 @@ AGENTS.md points here; this file is the single source of the rules.
 
 **This repository is PUBLIC.** Read "Privacy" before you write anything.
 
+## Codex continuation (2026-11-19)
+
+Codex agents must also read [docs/CODEX-HANDOFF.md](docs/CODEX-HANDOFF.md).
+It carries the user's takeover instructions: Terra for former Sonnet assignments,
+Luna for former Haiku assignments, explicit reasoning settings, current agent
+limits, the four M6 pause checkpoints, and the resume prompt. Apply its
+Codex-specific model and attribution instructions when older plans name Claude
+models; all safety, privacy, build and account rules below remain in force.
+
 ## Start of every session
 1. Read `.local/accounts.md` (gitignored, machine-local). It maps the placeholders used in this repo
    (`<readonly-account>`, `<test-account>`, `<server>`, `<admin-key-file>`, `<rust-repo>`,
