@@ -107,6 +107,16 @@ public sealed partial class ReaderView : UserControl
         }
     }
 
+    // The sender's name: a click opens the name popover with the contact card (I-204, M5 con-ui)
+    private void OnSenderTapped(object sender, TappedRoutedEventArgs e)
+    {
+        if (sender is FrameworkElement anchor)
+        {
+            Contacts.ContactsMailSurfaces.ShowPopover(SenderFlyout, SenderCard, anchor, Reader.Header.Email ?? string.Empty);
+            e.Handled = true;
+        }
+    }
+
     // An attachment card: a click or a right-click opens MENU-ATT at the pointer (spec I-226).
     private void OnAttachmentTapped(object sender, TappedRoutedEventArgs e) => e.Handled = OpenAttachmentMenu(sender, e.GetPosition(XamlRoot?.Content));
 

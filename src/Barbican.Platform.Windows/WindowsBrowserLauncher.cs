@@ -1,5 +1,5 @@
 // Mirrors: Rust platform/windows.rs open_url (ShellExecute of an http(s) URL in the default browser); RFC 8252 §4.1 (an external user-agent
-// for the authorization request). Only http and https URLs are opened. Never registered in AUTOMATION builds (M1-plan §1: agents never open a
+// for the authorization request). Only http and https URLs and plain tel: numbers are opened (BrowserLaunchRules). Never registered in AUTOMATION builds (M1-plan §1: agents never open a
 // real browser).
 
 using System.Diagnostics;
@@ -15,9 +15,9 @@ public sealed class WindowsBrowserLauncher : IBrowserLauncher
     public Task<Result<Unit>> OpenAsync(Uri uri, CancellationToken ct)
     {
         ArgumentNullException.ThrowIfNull(uri);
-        if (!uri.IsAbsoluteUri || !(string.Equals(uri.Scheme, Uri.UriSchemeHttps, StringComparison.Ordinal) || string.Equals(uri.Scheme, Uri.UriSchemeHttp, StringComparison.Ordinal)))
+        if (!BrowserLaunchRules.Allows(uri))
         {
-            return Task.FromResult(Result<Unit>.Fail(new TransportError("Only web addresses open in the browser.", Retryable: false)));
+            return Task.FromResult(Result<Unit>.Fail(new TransportError("Only web addresses and phone numbers open outside the app.", Retryable: false)));
         }
 
         try

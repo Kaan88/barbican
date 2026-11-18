@@ -5,6 +5,7 @@
 
 using Barbican.Core.Mail.Model;
 using Barbican.Presentation.Commands;
+using Barbican.Presentation.Files;
 using Barbican.Presentation.Menus;
 using Barbican.Presentation.Rules;
 using static Barbican.Presentation.Menus.MenuItems;
@@ -50,6 +51,11 @@ public static class ReaderMenus
         {
             Item(MenuGlyphs.Download, "Save as…", CommandIds.SaveAttachment, argument: arg, enabled: a.BlobId is not null),
         };
+        if (a.BlobId is not null && FilesPreviewRules.KindOf(a.Type, a.Name ?? string.Empty) is FilesPreviewKind.Image or FilesPreviewKind.Text or FilesPreviewKind.Eml)
+        {
+            items.Insert(0, Item(MenuGlyphs.Open, "Preview", CommandIds.OpenAttachment, argument: arg));
+        }
+
         if (open.Attachments.Count(x => x.BlobId is not null) > 1)
         {
             items.Add(Item(MenuGlyphs.Download, "Download all (.zip)", CommandIds.DownloadAllZip));

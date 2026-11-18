@@ -88,6 +88,7 @@ public static class ReaderRegistration
     {
         services.TryAddSingleton<Barbican.Presentation.Common.IClipboardService, SystemClipboard>();
         services.AddSingleton<Barbican.App.Views.Dialogs.IDialogContent, Barbican.App.Views.Dialogs.SourceDialogContent>();
+        services.AddSingleton<Barbican.App.Views.Dialogs.IDialogContent, Barbican.App.Views.Dialogs.AttachmentPreviewDialogContent>();
         services.TryAddSingleton(sp => new Barbican.App.Views.Reader.ReaderMenuOpener(sp.GetRequiredService<Barbican.Presentation.Menus.IContextMenuService>(), sp.GetRequiredService<ReaderViewModel>(), sp.GetRequiredService<IActiveMail>()));
         services.AddSingleton(sp => new Barbican.Presentation.Reader.ReaderCommands(
             sp.GetRequiredService<AttachmentSaver>(),

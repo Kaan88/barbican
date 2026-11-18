@@ -52,6 +52,38 @@ public sealed class AttachmentSaver(IAccountManager accounts, IHookBus hooks, Ti
         return written;
     }
 
+    /// <summary>The most an in-app preview downloads (Bulwark file-preview: 12 MB).</summary>
+    public const long MaxPreviewBytes = 12L * 1024 * 1024;
+
+    /// <summary>
+    /// The bytes of an attachment for the preview: refused over <see cref="MaxPreviewBytes"/> or without a blob; the onAttachmentPreview transform runs first and a plugin that took the preview over
+    /// (Handled) gets a null value (nothing to show). Bulwark lib/plugin-hook-catalog.ts:154; I-228.
+    /// </summary>
+    public async Task<Result<byte[]?>> ReadForPreviewAsync(MailTarget message, AttachmentRef attachment, CancellationToken ct)
+    {
+        ArgumentNullException.ThrowIfNull(message);
+        ArgumentNullException.ThrowIfNull(attachment);
+        var a = attachment.Attachment;
+        if (a.BlobId is null)
+        {
+            return Result<byte[]?>.Fail(new ValidationError("This attachment has no content to show."));
+        }
+
+        if (a.Size > MaxPreviewBytes)
+        {
+            return Result<byte[]?>.Fail(new ValidationError("This attachment is too large to preview; save it instead."));
+        }
+
+        var info = new AttachmentInfo(message.ServerId, a.BlobId, a.Name ?? "attachment", a.Type, a.Size);
+        if ((await hooks.TransformAsync(HookNames.OnAttachmentPreview, new AttachmentPreview(info, false), ct).ConfigureAwait(false)).Handled)
+        {
+            return Result<byte[]?>.Ok(null);
+        }
+
+        var bytes = await DownloadAsync(message, a.BlobId, a.Name ?? "attachment", a.Type ?? "application/octet-stream", ct).ConfigureAwait(false);
+        return bytes.IsOk ? Result<byte[]?>.Ok(bytes.Value) : Result<byte[]?>.Fail(bytes.Error!);
+    }
+
     public async Task<Result<Unit>> SaveAllAsZipAsync(MailTarget message, CancellationToken ct)
     {
         ArgumentNullException.ThrowIfNull(message);

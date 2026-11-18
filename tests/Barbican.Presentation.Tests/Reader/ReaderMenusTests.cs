@@ -61,6 +61,28 @@ public sealed class ReaderMenusTests
     }
 
     [Fact]
+    public void A_picture_or_text_attachment_offers_a_preview_first_and_a_pdf_does_not()
+    {
+        var body = new EmailBody
+        {
+            Id = "m1",
+            Attachments =
+            [
+                new Attachment { BlobId = "b0", Name = "p.png", Type = "image/png", Size = 10 },
+                new Attachment { BlobId = "b1", Name = "n.txt", Type = "text/plain", Size = 10 },
+                new Attachment { BlobId = null, Name = "gone.png", Type = "image/png", Size = 10 },
+            ],
+        };
+        var image = ReaderMenus.Attachment(Reader([Target("m1")], 0, MenuIds.Attachment), body);
+        Assert.Equal("Preview", image[0].Label);
+        Assert.Equal(CommandIds.OpenAttachment, image[0].CommandId);
+        Assert.Equal("0", image[0].Argument);
+        Assert.Equal("Preview", ReaderMenus.Attachment(Reader([Target("m1")], 1, MenuIds.Attachment), body)[0].Label);
+        Assert.DoesNotContain(ReaderMenus.Attachment(Reader([Target("m1")], 2, MenuIds.Attachment), body), r => string.Equals(r.Label, "Preview", StringComparison.Ordinal));
+        Assert.DoesNotContain(ReaderMenus.Attachment(Reader([Target("m1")], 0, MenuIds.Attachment), Body("a.pdf")), r => string.Equals(r.Label, "Preview", StringComparison.Ordinal));
+    }
+
+    [Fact]
     public void An_attachment_index_that_is_not_there_has_no_menu()
     {
         Assert.Empty(ReaderMenus.Attachment(Reader([Target("m1")], 3, MenuIds.Attachment), Body("a.pdf")));

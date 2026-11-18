@@ -9,6 +9,32 @@ public static class ContactsJson
 {
     private const string UuidPrefix = "urn:uuid:";
 
+    /// <summary>The <c>tel:</c> address of a phone number as people type it ("+44 20 7946-0002", "(020) 7946 0002"): digits and a leading plus only, 3 to 20 digits; null for anything else (a letter, a second plus, too short or too long), which then gets no Call link.</summary>
+    public static Uri? TelUri(string? number)
+    {
+        if (string.IsNullOrWhiteSpace(number))
+        {
+            return null;
+        }
+
+        var text = number.Trim();
+        var plus = text.StartsWith('+');
+        var digits = new System.Text.StringBuilder();
+        foreach (var c in plus ? text[1..] : text)
+        {
+            if (char.IsAsciiDigit(c))
+            {
+                _ = digits.Append(c);
+            }
+            else if (c is not (' ' or '-' or '.' or '(' or ')' or '\u00a0'))
+            {
+                return null;
+            }
+        }
+
+        return digits.Length is >= 3 and <= 20 ? new Uri("tel:" + (plus ? "+" : string.Empty) + digits, UriKind.Absolute) : null;
+    }
+
     /// <summary>A string property, or an empty string.</summary>
     public static string Str(JsonNode? node, string key) => node?[key] is JsonValue v && v.TryGetValue<string>(out var s) ? s : string.Empty;
 

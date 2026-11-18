@@ -15,13 +15,12 @@ namespace Barbican.App.Views.Contacts;
 /// <summary>The contact card of the reader's sender panel.</summary>
 public static class ContactsMailSurfaces
 {
-    private static string _for = string.Empty;
 
     /// <summary>Fills <paramref name="panel"/> for the sender <paramref name="email"/> (cleared when there is none); the lookup is asynchronous and a late answer for another sender is dropped.</summary>
     public static void FillSender(StackPanel panel, string email)
     {
         ArgumentNullException.ThrowIfNull(panel);
-        _for = email ?? string.Empty;
+        panel.Tag = email ?? string.Empty;
         panel.Children.Clear();
         panel.Visibility = Visibility.Collapsed;
         if (string.IsNullOrWhiteSpace(email) || ViewHost.Find<IContactLookup>() is not { } lookup)
@@ -42,7 +41,7 @@ public static class ContactsMailSurfaces
                 match = null;
             }
 
-            if (!string.Equals(_for, email, StringComparison.Ordinal))
+            if (!string.Equals(panel.Tag as string, email, StringComparison.Ordinal))
             {
                 return;
             }
@@ -80,13 +79,35 @@ public static class ContactsMailSurfaces
         panel.Children.Add(row);
     }
 
+    /// <summary>The name popover of the reader (I-204): the sender's contact card (or Add to contacts) in the reader's in-window flyout (declared in XAML, constrained to the window) under <paramref name="anchor"/>.</summary>
+    public static void ShowPopover(Flyout flyout, StackPanel card, FrameworkElement anchor, string email)
+    {
+        ArgumentNullException.ThrowIfNull(flyout);
+        ArgumentNullException.ThrowIfNull(card);
+        ArgumentNullException.ThrowIfNull(anchor);
+        if (string.IsNullOrWhiteSpace(email))
+        {
+            return;
+        }
+
+        FillSender(card, email);
+        flyout.ShowAt(anchor);
+    }
+
     private static Grid CopyRow(string value, string id)
     {
-        var grid = new Grid { ColumnSpacing = 6, ColumnDefinitions = { new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) }, new ColumnDefinition { Width = GridLength.Auto } } };
+        var grid = new Grid { ColumnSpacing = 6, ColumnDefinitions = { new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) }, new ColumnDefinition { Width = GridLength.Auto }, new ColumnDefinition { Width = GridLength.Auto } } };
         grid.Children.Add(new TextBlock { Text = value, FontSize = 12.5, Foreground = ContactsUi.Palette("Body"), VerticalAlignment = VerticalAlignment.Center, IsTextSelectionEnabled = true, TextTrimming = TextTrimming.CharacterEllipsis });
         var copy = Button("Copy", id + ".copy", () => ViewHost.Find<IClipboardService>()?.SetText(value));
         Grid.SetColumn(copy, 1);
         grid.Children.Add(copy);
+        if (ContactsJson.TelUri(value) is { } tel)
+        {
+            var call = Button("Call", id + ".call", () => ContactsUi.Run(async () => _ = await (ViewHost.Find<Barbican.Platform.IBrowserLauncher>()?.OpenAsync(tel, CancellationToken.None) ?? Task.FromResult(default(Barbican.Core.Common.Result<Barbican.Core.Common.Unit>))).ConfigureAwait(true)));
+            Grid.SetColumn(call, 2);
+            grid.Children.Add(call);
+        }
+
         return grid;
     }
 

@@ -4,6 +4,7 @@
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:body="using:Barbican.App.MailBody"
     xmlns:controls="using:Barbican.App.Controls"
+    xmlns:win="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:theme="using:Barbican.App.Theme"
     xmlns:views="using:Barbican.App.Views"
     xmlns:mail="using:Barbican.Presentation.Mail">
@@ -95,6 +96,11 @@
             <Grid.RenderTransform>
               <TranslateTransform x:Name="SenderShift" />
             </Grid.RenderTransform>
+            <FlyoutBase.AttachedFlyout>
+              <Flyout x:Name="SenderFlyout" win:ShouldConstrainToRootBounds="True" Placement="Bottom">
+                <StackPanel x:Name="SenderCard" Spacing="8" MinWidth="240" MaxWidth="320" AutomationProperties.AutomationId="reader.sender.popover" />
+              </Flyout>
+            </FlyoutBase.AttachedFlyout>
             <Border Width="40" Height="40" CornerRadius="{x:Bind Look.AvatarRadius, Mode=OneWay}" Background="{x:Bind views:Fmt.TintBg(Reader.Header.TintIndex), Mode=OneWay}"
                     Visibility="{x:Bind Look.ShowAvatar, Mode=OneWay}" VerticalAlignment="Center">
               <TextBlock Text="{x:Bind Reader.Header.Initials, Mode=OneWay}" FontSize="14" FontWeight="Bold" Foreground="{x:Bind views:Fmt.TintFg(Reader.Header.TintIndex), Mode=OneWay}"
@@ -102,14 +108,14 @@
             </Border>
             <!-- Bento: From 14 semibold over the address and date; Nordic: "From to you · date" in one dim line -->
             <StackPanel Grid.Column="1" MinWidth="90" VerticalAlignment="Center" Visibility="{x:Bind Look.BentoOnly, Mode=OneWay}">
-              <TextBlock Text="{x:Bind Reader.Header.From, Mode=OneWay}" FontSize="14" FontWeight="SemiBold" Foreground="{StaticResource Text}" TextTrimming="CharacterEllipsis"
+              <TextBlock Text="{x:Bind Reader.Header.From, Mode=OneWay}" FontSize="14" FontWeight="SemiBold" Foreground="{StaticResource Text}" TextTrimming="CharacterEllipsis" Tapped="OnSenderTapped"
                          AutomationProperties.AutomationId="reader.sender" AutomationProperties.Name="Sender" />
               <TextBlock FontSize="12.5" Foreground="{StaticResource Dim}" TextTrimming="CharacterEllipsis">
                 <Run Text="{x:Bind Reader.Header.Email, Mode=OneWay}" /><Run Text="{x:Bind views:Fmt.ToLine(Reader.Header.To), Mode=OneWay}" Foreground="{StaticResource Faint}" />
                 <Run Text="{x:Bind views:Fmt.DateLine(Reader.Header.Date), Mode=OneWay}" Foreground="{StaticResource Faint}" />
               </TextBlock>
             </StackPanel>
-            <TextBlock Grid.Column="1" MinWidth="90" FontSize="{x:Bind Look.ReaderSenderSize, Mode=OneWay}" Foreground="{StaticResource Dim}" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"
+            <TextBlock Grid.Column="1" MinWidth="90" FontSize="{x:Bind Look.ReaderSenderSize, Mode=OneWay}" Foreground="{StaticResource Dim}" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" Tapped="OnSenderTapped"
                        Visibility="{x:Bind Look.NordicOnly, Mode=OneWay}">
               <Run Text="{x:Bind Reader.Header.From, Mode=OneWay}" FontWeight="SemiBold" Foreground="{StaticResource Text}" />
               <Run Text="{x:Bind views:Fmt.ToLine(Reader.Header.To), Mode=OneWay}" />
