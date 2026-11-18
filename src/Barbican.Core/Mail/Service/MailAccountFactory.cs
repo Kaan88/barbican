@@ -7,11 +7,11 @@ using Barbican.Core.Sync;
 namespace Barbican.Core.Mail.Service;
 
 /// <summary>The production <see cref="IMailAccountFactory"/>.</summary>
-public sealed class MailAccountFactory(IHookBus hooks, TimeProvider time) : IMailAccountFactory
+public sealed class MailAccountFactory(IHookBus hooks, TimeProvider time, ICalendarPush? calendar = null) : IMailAccountFactory
 {
     /// <inheritdoc/>
     public MailService CreateService(IJmapClient client) => new(client, time);
 
     /// <inheritdoc/>
-    public IMailSync CreateSync(MailService service) => new MailSync(service, hooks, time);
+    public IMailSync CreateSync(MailService service) => new MailSync(service, hooks, time, null, calendar);
 }

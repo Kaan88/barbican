@@ -64,6 +64,7 @@ public sealed partial class FakeJmapServer
             ["state"] = "S" + Volatile.Read(ref _sessionState).ToString(CultureInfo.InvariantCulture),
         };
         AddSharedAccounts(session, o, accountCaps);
+        AddSharedCalendarAccounts(session, o);
         if (o.Push)
         {
             session["eventSourceUrl"] = Url("/jmap/eventsource/?types={types}&closeafter={closeafter}&ping={ping}");
@@ -253,6 +254,15 @@ public sealed partial class FakeJmapServer
         if (o.MetadataCapability)
         {
             caps["urn:ietf:params:jmap:metadata"] = new JsonObject();
+        }
+    }
+
+    // M4: the accounts that share their calendars with the login (the Calendars capability only)
+    private static void AddSharedCalendarAccounts(JsonObject session, FakeJmapOptions o)
+    {
+        foreach (var id in o.SharedCalendars.Keys)
+        {
+            session["accounts"]![id] = new JsonObject { ["name"] = id, ["isPersonal"] = false, ["isReadOnly"] = false, ["accountCapabilities"] = new JsonObject { ["urn:ietf:params:jmap:calendars"] = new JsonObject() } };
         }
     }
 

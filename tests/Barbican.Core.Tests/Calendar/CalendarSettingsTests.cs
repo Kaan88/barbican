@@ -19,4 +19,15 @@ public sealed class CalendarSettingsTests
         Assert.True(s.TintedEvents && s.FreeScroll && s.TasksEnabled && s.ShowTasksOnCalendar && s.InvitationParsing);
         Assert.False(s.ShowWeekNumbers || s.HideNonWorkingDays || s.ShowTimeInMonthView || s.ShowTasksApp || s.ShowBirthdayCalendar || s.TwelveHour);
     }
+
+    [Fact]
+    public void The_time_zone_setting_is_auto_or_an_iana_name()
+    {
+        Assert.Equal("auto", CalendarSettings.Read(PrefsSnapshot.FromJson([])).TimeZone);
+        Assert.Null(CalendarSettings.Read(PrefsSnapshot.FromJson([])).Zone());
+        var berlin = CalendarSettings.Read(PrefsSnapshot.FromJson(new System.Text.Json.Nodes.JsonObject { ["timeZone"] = "Europe/Berlin" }));
+        Assert.Equal("Europe/Berlin", berlin.TimeZone);
+        Assert.NotNull(berlin.Zone());
+        Assert.Null(CalendarSettings.Read(PrefsSnapshot.FromJson(new System.Text.Json.Nodes.JsonObject { ["timeZone"] = "Mars/Olympus" })).Zone());
+    }
 }

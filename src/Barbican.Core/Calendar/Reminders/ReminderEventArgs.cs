@@ -11,4 +11,7 @@ public sealed class ReminderEventArgs(string owner, IReadOnlyList<DueReminder> r
     public IReadOnlyList<DueReminder> Reminders { get; } = reminders;
 
     public bool Missed { get; } = missed;
+
+    /// <summary>Whether the reminder may play a sound: <c>calendarNotificationSound</c> on and do-not-disturb off (the notification service of M7 and the popup follow it).</summary>
+    public bool Sound { get; init; }
 }

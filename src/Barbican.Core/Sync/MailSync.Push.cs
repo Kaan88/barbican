@@ -4,6 +4,7 @@
 // lib/mail-push-listener.ts, lib/plugin-hook-catalog.ts:158 onPushConnectionChange. Fable review 2 R2-01: once the server refused the
 // credentials for good (the client's AuthLatch closed), push and polling end instead of re-opening for ever; the UI hears it once. Owner jmap.
 
+using Barbican.Core.Jmap;
 using Barbican.Core.Jmap.Errors;
 using Barbican.Core.Jmap.Push;
 using Barbican.Core.Mail.Model;
@@ -140,6 +141,17 @@ public sealed partial class MailSync
             _inflight.RemoveAll(t => t.IsCompleted);
         }
 
+        // the calendar types are not mail: they go to the calendar store, outside the mail syncing/idle cycle
+        var calendar = types.Where(t => CalendarPushRelay.Types.Contains(t, StringComparer.Ordinal)).ToList();
+        if (calendar.Count > 0)
+        {
+            types.ExceptWith(calendar);
+            if (!ct.IsCancellationRequested)
+            {
+                _calendarPush?.Raise(_client, calendar);
+            }
+        }
+
         if (types.Count == 0 || ct.IsCancellationRequested)
         {
             return;
@@ -158,7 +170,7 @@ public sealed partial class MailSync
         _client.Trace.Event("PUSH", "polling");
         while (!ct.IsCancellationRequested && !SignInNeeded)
         {
-            Schedule(PushTypes);
+            Schedule(_pushTypes);
             await Task.Delay(PollInterval, _time, ct).ConfigureAwait(false);
         }
     }
@@ -166,7 +178,7 @@ public sealed partial class MailSync
     /// <summary>One stream, from open to end; false when the server offers no event source at all.</summary>
     private async Task<bool> PushOnceAsync(CancellationToken ct)
     {
-        var open = await _client.OpenEventSourceAsync(PushTypes, PingSeconds, ct).ConfigureAwait(false);
+        var open = await _client.OpenEventSourceAsync(_pushTypes, PingSeconds, ct).ConfigureAwait(false);
         if (!open.IsOk)
         {
             _client.Trace.Event("PUSH", "failed");
@@ -199,7 +211,7 @@ public sealed partial class MailSync
         await ConnectedAsync(true, ct).ConfigureAwait(false);
 
         // changes made while nobody listened are never pushed: catch up on every open (Rust main.rs:513)
-        Schedule(PushTypes);
+        Schedule(_pushTypes);
         _client.Trace.Event("PUSH", "open");
         var account = _client.Session.MailAccountId;
         try
@@ -252,7 +264,13 @@ public sealed partial class MailSync
         switch (ev)
         {
             case PushState s:
-                var types = PushChanges.ChangedTypes(s.Change, account).Keys.Order(StringComparer.Ordinal).ToList();
+                var seen = PushChanges.ChangedTypes(s.Change, account).Keys.ToHashSet(StringComparer.Ordinal);
+                if (_calendarPush is not null && _client.Session.AccountFor(JmapCapabilities.Calendars) is { Length: > 0 } calendarAccount && !string.Equals(calendarAccount, account, StringComparison.Ordinal))
+                {
+                    seen.UnionWith(PushChanges.ChangedTypes(s.Change, calendarAccount).Keys);
+                }
+
+                var types = seen.Order(StringComparer.Ordinal).ToList();
                 _client.Trace.Event("PUSH", "state " + string.Join(",", types));
                 Schedule(types);
                 break;

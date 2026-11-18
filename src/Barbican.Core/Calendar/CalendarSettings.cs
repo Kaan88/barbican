@@ -1,5 +1,5 @@
 // Mirrors: Rust calendar.rs:160 cal_prefs, :146 week_days_shown, :151 hover_delay, :156 month_timed; spec/settings.csv rows S-calendar*, S-showWeekNumbers, S-firstDayOfWeek, S-showTimeInMonthView, S-enableCalendarTasks, S-showTasksOnCalendar, S-showTasksApp,
-// S-showBirthdayCalendar, S-timeFormat; B-CAL-055. Real from the M4 plan section 4.2 (the defaults are Rust's); owner cal-data keeps it in step with settings.csv.
+// S-showBirthdayCalendar, S-timeFormat, S-timeZone; B-CAL-055. Real from the M4 plan section 4.2 (the defaults are Rust's); owner cal-data keeps it in step with settings.csv.
 
 using Barbican.Core.Storage;
 
@@ -48,6 +48,31 @@ public sealed record CalendarSettings
 
     public bool NotificationSound { get; init; } = true;
 
+    /// <summary>S-timeZone: "auto" (the machine's zone) or an IANA name.</summary>
+    public string TimeZone { get; init; } = "auto";
+
+    /// <summary>The user's zone for floating times and the views: null for "auto" or a name this machine does not know (the machine's zone then).</summary>
+    public TimeZoneInfo? Zone()
+    {
+        if (string.IsNullOrWhiteSpace(TimeZone) || string.Equals(TimeZone, "auto", StringComparison.OrdinalIgnoreCase))
+        {
+            return null;
+        }
+
+        try
+        {
+            return TimeZoneInfo.FindSystemTimeZoneById(TimeZone);
+        }
+        catch (TimeZoneNotFoundException)
+        {
+            return null;
+        }
+        catch (InvalidTimeZoneException)
+        {
+            return null;
+        }
+    }
+
     public static CalendarSettings Read(PrefsSnapshot prefs)
     {
         ArgumentNullException.ThrowIfNull(prefs);
@@ -71,6 +96,7 @@ public sealed record CalendarSettings
             InvitationParsing = prefs.Bool("calendarInvitationParsingEnabled", true),
             NotificationsEnabled = prefs.Bool("calendarNotificationsEnabled", true),
             NotificationSound = prefs.Bool("calendarNotificationSound", true),
+            TimeZone = prefs.Str("timeZone", "auto"),
         };
     }
 }

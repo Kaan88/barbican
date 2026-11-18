@@ -14,10 +14,14 @@ public sealed class FakeCalendars
     private readonly List<JsonObject> _events = [];
     private readonly List<(int State, string Type, string Id, char Kind)> _log = [];
     private int _state = 1;
+    private int _expiredBefore;
     private int _next;
 
     /// <summary>Every CalendarEvent/set that sent scheduling messages: (operation create, update or destroy, id).</summary>
     public IList<(string Operation, string Id)> SchedulingSent { get; } = [];
+
+    /// <summary>True: Calendar and CalendarEvent reads of this account answer serverFail (a shared account that cannot be read).</summary>
+    public bool Fails { get; set; }
 
     /// <summary>Raised after each change with the changed type and its new state (like FakeStore.Changed); the push hub wiring of cal-data listens.</summary>
     public event EventHandler<FakeStateChangedEventArgs>? Changed;
@@ -81,6 +85,15 @@ public sealed class FakeCalendars
         }
     }
 
+    /// <summary>The server forgets every state issued so far: /changes from one answers cannotCalculateChanges (RFC 8620 5.2).</summary>
+    public void ExpireStates()
+    {
+        lock (_lock)
+        {
+            _expiredBefore = _state;
+        }
+    }
+
     /// <summary>The created, updated and destroyed ids since a state string of <see cref="State"/>; null when the state is unknown (cannotCalculateChanges).</summary>
     public (List<string> Created, List<string> Updated, List<string> Destroyed)? ChangesSince(string type, string since)
     {
@@ -88,6 +101,11 @@ public sealed class FakeCalendars
         {
             var prefix = type + "-";
             if (!since.StartsWith(prefix, StringComparison.Ordinal) || !int.TryParse(since.AsSpan(prefix.Length), CultureInfo.InvariantCulture, out var s))
+            {
+                return null;
+            }
+
+            if (s < _expiredBefore)
             {
                 return null;
             }
@@ -105,7 +123,7 @@ public sealed class FakeCalendars
     }
 
     /// <summary>Runs <paramref name="change"/> on the calendar or event with this id under the lock and logs an update; false when there is none.</summary>
-    internal bool Update(string type, string id, Action<JsonObject> change)
+    public bool Update(string type, string id, Action<JsonObject> change)
     {
         lock (_lock)
         {
@@ -121,7 +139,7 @@ public sealed class FakeCalendars
         }
     }
 
-    internal bool Destroy(string type, string id)
+    public bool Destroy(string type, string id)
     {
         lock (_lock)
         {

@@ -9,9 +9,14 @@ public sealed partial class FakeApi
 {
     private (string? Name, JsonObject Args) CalendarGet(string type, JsonObject args)
     {
-        if (options.Calendars is not { } cals || !options.CalendarsCapability)
+        if (CalendarsOf(args) is not { } cals || !options.CalendarsCapability)
         {
             return Error("unknownMethod");
+        }
+
+        if (cals.Fails)
+        {
+            return Error("serverFail");
         }
 
         var all = string.Equals(type, "Calendar", StringComparison.Ordinal) ? cals.Calendars() : cals.Events();
@@ -42,8 +47,11 @@ public sealed partial class FakeApi
             }
         }
 
-        return (null, new JsonObject { ["accountId"] = options.AccountId, ["state"] = cals.State(type), ["list"] = list, ["notFound"] = notFound });
+        return (null, new JsonObject { ["accountId"] = (string?)args["accountId"] ?? options.AccountId, ["state"] = cals.State(type), ["list"] = list, ["notFound"] = notFound });
     }
+
+    /// <summary>The calendar data an account id names: a shared account's (<see cref="FakeJmapOptions.SharedCalendars"/>) or the user's own.</summary>
+    private FakeCalendars? CalendarsOf(JsonObject args) => (string?)args["accountId"] is { } id && options.SharedCalendars.TryGetValue(id, out var shared) ? shared : options.Calendars;
 
     private static JsonObject Pick(JsonObject o, JsonArray? properties)
     {
@@ -64,9 +72,14 @@ public sealed partial class FakeApi
 
     private (string? Name, JsonObject Args) CalendarChanges(string type, JsonObject args)
     {
-        if (options.Calendars is not { } cals || !options.CalendarsCapability)
+        if (CalendarsOf(args) is not { } cals || !options.CalendarsCapability)
         {
             return Error("unknownMethod");
+        }
+
+        if (cals.Fails)
+        {
+            return Error("serverFail");
         }
 
         var since = (string?)args["sinceState"] ?? "";
@@ -77,7 +90,7 @@ public sealed partial class FakeApi
 
         return (null, new JsonObject
         {
-            ["accountId"] = options.AccountId,
+            ["accountId"] = (string?)args["accountId"] ?? options.AccountId,
             ["oldState"] = since,
             ["newState"] = cals.State(type),
             ["hasMoreChanges"] = false,
@@ -89,9 +102,14 @@ public sealed partial class FakeApi
 
     private (string? Name, JsonObject Args) CalendarEventQuery(JsonObject args)
     {
-        if (options.Calendars is not { } cals || !options.CalendarsCapability)
+        if (CalendarsOf(args) is not { } cals || !options.CalendarsCapability)
         {
             return Error("unknownMethod");
+        }
+
+        if (cals.Fails)
+        {
+            return Error("serverFail");
         }
 
         var filter = args["filter"] as JsonObject;
@@ -100,19 +118,48 @@ public sealed partial class FakeApi
         var ids = cals.Events()
             .Where(e => uid is null || string.Equals((string?)e["uid"], uid, StringComparison.Ordinal))
             .Where(e => inCals is null || (e["calendarIds"] as JsonObject ?? []).Any(k => inCals.Contains(k.Key)))
+            .Where(e => InRange(e, (string?)filter?["after"], (string?)filter?["before"]))
             .Select(e => (string)e["id"]!)
             .ToList();
         var position = args["position"] is JsonValue p ? p.GetValue<int>() : 0;
         var limit = Math.Min(args["limit"] is JsonValue l ? l.GetValue<int>() : options.QueryLimitCap, options.QueryLimitCap);
         return (null, new JsonObject
         {
-            ["accountId"] = options.AccountId,
+            ["accountId"] = (string?)args["accountId"] ?? options.AccountId,
             ["queryState"] = cals.State("CalendarEvent"),
             ["canCalculateChanges"] = false,
             ["position"] = position,
             ["total"] = ids.Count,
             ["ids"] = new JsonArray([.. ids.Skip(position).Take(limit).Select(i => (JsonNode)i)]),
         });
+    }
+
+    /// <summary>The after/before filter of CalendarEvent/query (Stalwart calendar_event/query.rs): the event overlaps [after, before); a series counts from its start on. Times without a zone are UTC here.</summary>
+    private static bool InRange(JsonObject e, string? after, string? before)
+    {
+        if (after is null && before is null)
+        {
+            return true;
+        }
+
+        // a task with only a due date counts at its due
+        var startText = (string?)e["utcStart"] ?? (string?)e["start"] ?? (string?)e["due"] ?? "1970-01-01T00:00:00";
+        var start = DateTimeOffset.Parse(startText + (startText.EndsWith('Z') ? string.Empty : "Z"), System.Globalization.CultureInfo.InvariantCulture);
+        var end = start + Duration((string?)e["duration"]);
+        var recurs = e["recurrenceRules"] is JsonArray { Count: > 0 };
+        return (before is null || start < DateTimeOffset.Parse(before, System.Globalization.CultureInfo.InvariantCulture)) && (after is null || recurs || end > DateTimeOffset.Parse(after, System.Globalization.CultureInfo.InvariantCulture));
+    }
+
+    private static TimeSpan Duration(string? iso)
+    {
+        try
+        {
+            return string.IsNullOrEmpty(iso) ? TimeSpan.FromHours(1) : System.Xml.XmlConvert.ToTimeSpan(iso);
+        }
+        catch (FormatException)
+        {
+            return TimeSpan.FromHours(1);
+        }
     }
 
     private (string? Name, JsonObject Args) PrincipalQuery(JsonObject args)

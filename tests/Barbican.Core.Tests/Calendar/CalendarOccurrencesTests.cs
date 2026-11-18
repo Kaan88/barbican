@@ -8,7 +8,6 @@ namespace Barbican.Core.Tests.Calendar;
 public sealed class CalendarOccurrencesTests
 {
     [Fact]
-    [Red("cal-data")]
     [RustTest("calendar::occurrences_carry_recurrence_ids_and_skip_tasks")]
     public void Occurrences_carry_recurrence_ids_and_skip_tasks()
     {

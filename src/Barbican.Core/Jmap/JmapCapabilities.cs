@@ -15,4 +15,7 @@ public static class JmapCapabilities
     public const string Quota = "urn:ietf:params:jmap:quota";
 
     public const string Stalwart = "urn:stalwart:jmap";
+
+    /// <summary>JMAP Calendars (draft-ietf-jmap-calendars; Stalwart crates/jmap/src/calendar*); added by M4 cal-data.</summary>
+    public const string Calendars = "urn:ietf:params:jmap:calendars";
 }

@@ -59,6 +59,9 @@ public sealed record FakeJmapOptions
     /// <summary>M4: the calendar data behind Calendar/* and CalendarEvent/* (needs <see cref="CalendarsCapability"/>); null: those methods answer unknownMethod.</summary>
     public FakeCalendars? Calendars { get; init; }
 
+    /// <summary>M4: calendars shared with the login by account id (the session lists them with the Calendars capability; only the Calendar and CalendarEvent read methods serve them; no push).</summary>
+    public IReadOnlyDictionary<string, FakeCalendars> SharedCalendars { get; init; } = new Dictionary<string, FakeCalendars>(StringComparer.Ordinal);
+
     /// <summary>M4: advertise Principals and Principal availability (Principal/query, Principal/getAvailability, G-009).</summary>
     public bool AvailabilityCapability { get; init; }
 

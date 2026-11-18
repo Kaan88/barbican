@@ -11,7 +11,6 @@ public sealed class RecurrenceEngineTests
     private static string[] Fmt(IEnumerable<DateTime> v, string format) => [.. v.Select(d => d.ToString(format, CultureInfo.InvariantCulture))];
 
     [Fact]
-    [Red("cal-data")]
     [RustTest("recurrence::durations_round_trip")]
     public void Durations_round_trip()
     {
@@ -29,7 +28,6 @@ public sealed class RecurrenceEngineTests
     }
 
     [Fact]
-    [Red("cal-data")]
     [RustTest("recurrence::weekly_by_day_interval_count")]
     public void Weekly_by_day_interval_count()
     {
@@ -39,7 +37,6 @@ public sealed class RecurrenceEngineTests
     }
 
     [Fact]
-    [Red("cal-data")]
     [RustTest("recurrence::until_is_inclusive_and_start_counts")]
     public void Until_is_inclusive_and_start_counts()
     {
@@ -50,7 +47,6 @@ public sealed class RecurrenceEngineTests
     }
 
     [Fact]
-    [Red("cal-data")]
     [RustTest("recurrence::monthly_nth_and_last_weekday")]
     public void Monthly_nth_and_last_weekday()
     {
@@ -67,7 +63,6 @@ public sealed class RecurrenceEngineTests
     }
 
     [Fact]
-    [Red("cal-data")]
     [RustTest("recurrence::monthly_day_31_skips_short_months")]
     public void Monthly_day_31_skips_short_months()
     {
@@ -77,7 +72,6 @@ public sealed class RecurrenceEngineTests
     }
 
     [Fact]
-    [Red("cal-data")]
     [RustTest("recurrence::yearly_in_month_on_day")]
     public void Yearly_in_month_on_day()
     {
@@ -88,7 +82,6 @@ public sealed class RecurrenceEngineTests
     }
 
     [Fact]
-    [Red("cal-data")]
     [RustTest("recurrence::overrides_exclusions_and_moves")]
     public void Overrides_exclusions_and_moves()
     {
@@ -109,7 +102,6 @@ public sealed class RecurrenceEngineTests
     }
 
     [Fact]
-    [Red("cal-data")]
     [RustTest("recurrence::count_left_after_split")]
     public void Count_left_after_split()
     {
