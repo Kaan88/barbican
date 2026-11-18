@@ -13,7 +13,6 @@ public sealed class FilesListRulesTests
         new(name, "a", false, name, null, name, dir, dir ? null : "b", size, DateTimeOffset.FromUnixTimeSeconds(modified), type, null);
 
     [Fact]
-    [Red("files-ui")]
     public void Sorting_puts_folders_first_and_orders_names_naturally()
     {
         FileEntry[] entries = [E("file10.txt", false), E("file2.txt", false), E("Zeta", true), E("alpha", true), E("File1.txt", false)];
@@ -25,7 +24,6 @@ public sealed class FilesListRulesTests
     }
 
     [Fact]
-    [Red("files-ui")]
     public void Hidden_files_and_the_trash_folder_are_filtered()
     {
         FileEntry[] entries = [E(".hidden", false), E("shown.txt", false), E(".Trash", true)];
@@ -34,7 +32,6 @@ public sealed class FilesListRulesTests
     }
 
     [Fact]
-    [Red("files-ui")]
     public void The_preview_kind_comes_from_the_media_type_then_the_extension()
     {
         Assert.Equal(FilesPreviewKind.Image, FilesPreviewRules.KindOf("image/png", "x"));
