@@ -10,7 +10,6 @@ public sealed class ContactsListRulesTests
     private static JsonNode J(string json) => JsonNode.Parse(json)!;
 
     [Fact]
-    [Red("con-ui")]
     public void Sort_names_follow_the_by_last_name_setting()
     {
         var components = J("""{"name": {"components": [{"kind": "given", "value": "Ada"}, {"kind": "surname", "value": "Lovelace"}, {"kind": "surname2", "value": "Byron"}], "full": "Ada Lovelace"}}""");
@@ -23,7 +22,6 @@ public sealed class ContactsListRulesTests
     }
 
     [Fact]
-    [Red("con-ui")]
     public void Initials_and_letter_headers()
     {
         Assert.Equal("AL", ContactsListRules.Initials("Ada Lovelace", string.Empty));
@@ -35,7 +33,6 @@ public sealed class ContactsListRulesTests
     }
 
     [Fact]
-    [Red("con-ui")]
     public void Search_matches_every_word_across_name_email_phone_and_organization()
     {
         var card = J("""{"name": {"full": "Anna Müller"}, "emails": {"e": {"address": "anna@acme.example"}}, "phones": {"p": {"number": "+49 30 5550000"}}, "organizations": {"o": {"name": "ACME Ltd"}}}""");

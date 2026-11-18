@@ -10,7 +10,7 @@ using Barbican.Presentation.Shell;
 namespace Barbican.Presentation.Input;
 
 /// <summary>Turns the keys the M1 router does not know into registry commands.</summary>
-public sealed class ShortcutCommands(ICommandRegistry registry, IMailSelection selection, CommandRunner? runner = null, ICalendarKeyContext? calendarKeys = null)
+public sealed class ShortcutCommands(ICommandRegistry registry, IMailSelection selection, CommandRunner? runner = null, ICalendarKeyContext? calendarKeys = null, Barbican.Presentation.Contacts.IContactsViewModel? contacts = null)
 {
     /// <summary>The command a chord runs, when the tables name one, a handler exists and it can run now.</summary>
     public bool TryResolve(KeyChord chord, AppId app, bool singleKeys, out string commandId)
@@ -31,9 +31,9 @@ public sealed class ShortcutCommands(ICommandRegistry registry, IMailSelection s
         }
 
         var hasMail = selection.Current.Count > 0;
-        var context = new ShortcutContext { HasMail = hasMail, SingleKeys = singleKeys, EditorOpen = place == ShortcutPlace.Calendar && calendarKeys?.EditorOpen == true };
+        var context = new ShortcutContext { HasMail = hasMail, SingleKeys = singleKeys, EditorOpen = place == ShortcutPlace.Calendar && calendarKeys?.EditorOpen == true, HasContact = place == ShortcutPlace.Contacts && contacts is { } c && (c.SelectedIds.Count > 0 || c.OpenId is not null) };
         var action = ShortcutTables.Resolve(place, context, text, chord.Shift, chord.Control, chord.Alt);
-        var id = place == ShortcutPlace.Calendar ? CalendarCommandFor(action) ?? CommandFor(action) : CommandFor(action);
+        var id = place == ShortcutPlace.Calendar ? CalendarCommandFor(action) ?? CommandFor(action) : place == ShortcutPlace.Contacts ? ContactsCommandFor(action) ?? CommandFor(action) : CommandFor(action);
         if (id is null && action.Kind == ShortcutKind.Pass && place == ShortcutPlace.Mail && hasMail && singleKeys && !chord.Control && !chord.Alt)
         {
             id = MailCommand(ShortcutTables.MailKeyAction(text));
@@ -117,6 +117,20 @@ public sealed class ShortcutCommands(ICommandRegistry registry, IMailSelection s
         ShortcutKind.Refresh => CalendarCommandIds.Refresh,
         ShortcutKind.SaveEvent => CalendarCommandIds.SaveEvent,
         ShortcutKind.CloseEditor => CalendarCommandIds.CloseEditor,
+        _ => null,
+    };
+
+    /// <summary>The contacts keys (M5 con-ui, B-CON-031): the table's list actions as contacts commands.</summary>
+    private static string? ContactsCommandFor(ShortcutAction action) => action.Kind switch
+    {
+        ShortcutKind.Move => action.Number < 0 ? Barbican.Presentation.Contacts.ContactsCommandIds.KeyUp : Barbican.Presentation.Contacts.ContactsCommandIds.KeyDown,
+        ShortcutKind.First => Barbican.Presentation.Contacts.ContactsCommandIds.KeyFirst,
+        ShortcutKind.Last => Barbican.Presentation.Contacts.ContactsCommandIds.KeyLast,
+        ShortcutKind.OpenItem => Barbican.Presentation.Contacts.ContactsCommandIds.Open,
+        ShortcutKind.Delete => Barbican.Presentation.Contacts.ContactsCommandIds.Delete,
+        ShortcutKind.Clear => Barbican.Presentation.Contacts.ContactsCommandIds.KeyClear,
+        ShortcutKind.Menu => Barbican.Presentation.Contacts.ContactsCommandIds.KeyMenu,
+        ShortcutKind.FocusSearch => Barbican.Presentation.Contacts.ContactsCommandIds.KeySearch,
         _ => null,
     };
 

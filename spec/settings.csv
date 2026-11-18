@@ -78,14 +78,14 @@ S-signaturePosition,wired,composing,select,Signature position,"""below_quote""",
 S-signatureReplyForwardEnabled,wired,composing,toggle,Signature on replies & forwards,true,compose.rs,src/compose.rs:333,src/Barbican.Core/Compose/ComposeSettings.cs; ComposeSeeder,
 S-signatureSeparatorEnabled,wired,composing,toggle,Signature delimiter,true,compose.rs,src/compose.rs:336,src/Barbican.Core/Compose/ComposeSettings.cs; ComposeSeeder,
 S-writingLanguage,wired,composing,select,Writing language,"""auto""",main.rs;settings.rs;spell.rs,src/main.rs:1042,not ported,
-S-groupContactsByLetter,wired,contacts,toggle,Group by first letter,true,contacts.rs,src/contacts.rs:236,not ported,
-S-showContactsDirectory,wired,contacts,toggle,Show the directory,true,contacts_x.rs,src/contacts_x.rs:851,src/Barbican.Core/Contacts/ContactDirectory.cs (IsAvailable: the directory loads only with the principals capability and the setting on),
-S-sortContactsByLastName,wired,contacts,toggle,Sort by last name,false,contacts.rs,src/contacts.rs:237,not ported,
+S-groupContactsByLetter,wired,contacts,toggle,Group by first letter,true,contacts.rs,src/contacts.rs:236,src/Barbican.Presentation/Contacts/ContactsViewModel.cs,
+S-showContactsDirectory,wired,contacts,toggle,Show the directory,true,contacts_x.rs,src/contacts_x.rs:851,src/Barbican.Presentation/Contacts/ContactsViewModel.cs; src/Barbican.Core/Contacts/ContactDirectory.cs (IsAvailable: the directory loads only with the principals capability and the setting on),
+S-sortContactsByLastName,wired,contacts,toggle,Sort by last name,false,contacts.rs,src/contacts.rs:237,src/Barbican.Presentation/Contacts/ContactsViewModel.cs,
 S-filenameCollapseSeparators,unwired,files,toggle,Collapse repeated separators,true,,,FileTransfer.LocalNameFor (files-data),
 S-filenameLowercase,unwired,files,toggle,Lowercase,false,,,FileTransfer.LocalNameFor (files-data),
 S-filenameSpaceReplacement,unwired,files,select,Spaces,"""keep""",,,FileTransfer.LocalNameFor (files-data),
 S-filenameStripDiacritics,unwired,files,toggle,Strip diacritics,false,,,FileTransfer.LocalNameFor (files-data),
-S-postExportAction,unwired,files,select,After export,"""keep""",,,not ported," (M5 files-data: the action after a mail export, so no Files code reads it; D-M5-C07)"
+S-postExportAction,unwired,files,select,After export,"""keep""",,,not ported,
 S-dateFormat,wired,general,select,Date format,"""smart""",mail.rs,src/mail.rs:66,MailListSettings,
 S-dateLocale,unwired,general,select,Date format region,"""auto""",,,not ported,
 S-firstDayOfWeek,wired,general,select,First day of week,1,calendar.rs;recurrence.rs;settings.rs,src/calendar.rs:170,src/Barbican.Core/Calendar/CalendarSettings.cs,
@@ -187,8 +187,8 @@ S-keyless-048,keyless,vacation,toggle,Keep in inbox,,,,not ported,no key: droppe
 S-keyless-049,keyless,calendar,select,Calendar opens in,,,,not ported,no key: dropped by Rust settings.rs schema_rows
 S-keyless-050,keyless,calendar,select,Organize invitations as,,,,not ported,no key: dropped by Rust settings.rs schema_rows
 S-keyless-051,keyless,calendar,info,Working days,,,,not ported,no key: dropped by Rust settings.rs schema_rows
-S-keyless-052,keyless,contacts,info,Import contacts,,,,not ported,no key: dropped by Rust settings.rs schema_rows
-S-keyless-053,keyless,contacts,info,Export contacts,,,,not ported,no key: dropped by Rust settings.rs schema_rows
+S-keyless-052,keyless,contacts,info,Import contacts,,,,commands contacts.import / contacts.export (ContactsCommands); the rows are M6,no key: dropped by Rust settings.rs schema_rows
+S-keyless-053,keyless,contacts,info,Export contacts,,,,commands contacts.import / contacts.export (ContactsCommands); the rows are M6,no key: dropped by Rust settings.rs schema_rows
 S-keyless-054,keyless,files,select,Show files as,,,,not ported,no key: dropped by Rust settings.rs schema_rows
 S-keyless-055,keyless,files,select,Default sort,,,,not ported,no key: dropped by Rust settings.rs schema_rows
 S-keyless-056,keyless,files,select,Sort direction,,,,not ported,no key: dropped by Rust settings.rs schema_rows

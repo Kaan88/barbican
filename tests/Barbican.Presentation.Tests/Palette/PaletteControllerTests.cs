@@ -144,9 +144,10 @@ public sealed class PaletteControllerTests
     }
 
     [Fact]
-    public void Contacts_and_files_rows_have_no_command_until_their_milestones()
+    public void Files_rows_have_no_command_until_their_milestone_and_contacts_rows_run_the_contacts_commands()
     {
-        Assert.Null(PaletteCommandMap.Resolve(new PaletteCommand("ct:new", "Contacts", "i", "New contact", [], string.Empty), new PaletteContext()).CommandId);
+        Assert.Equal("contacts.new", PaletteCommandMap.Resolve(new PaletteCommand("ct:new", "Contacts", "i", "New contact", [], string.Empty), new PaletteContext()).CommandId);
+        Assert.Equal("contacts.import", PaletteCommandMap.Resolve(new PaletteCommand("ct:import", "Contacts", "i", "Import contacts", [], string.Empty), new PaletteContext()).CommandId);
         Assert.Null(PaletteCommandMap.Resolve(new PaletteCommand("fl:upload", "Files", "i", "Upload files", [], string.Empty), new PaletteContext()).CommandId);
     }
 }

@@ -55,6 +55,7 @@ public static class MessageMenus
             Header(address),
             Item(MenuGlyphs.Copy, "Copy email address", CommandIds.CopyAddress, argument: address),
             Item(MenuGlyphs.Reply, "New message", CommandIds.NewMessageTo, argument: address),
+            Item(MenuGlyphs.Contact, "View contact", CommandIds.ViewContact, argument: address),
             Item(MenuGlyphs.Contact, "Add to contacts", CommandIds.AddToContacts, argument: address),
             Sep(),
             Item(MenuGlyphs.Search, "Find emails from this sender", CommandIds.FindFromSender, argument: address),

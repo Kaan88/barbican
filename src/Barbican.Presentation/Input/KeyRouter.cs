@@ -72,8 +72,8 @@ public sealed class KeyRouter : IKeyRouter
             }
         }
 
-        // the calendar has its own keys (M4 cal-ui, I-296): none of the mail keys (j, k, o, Enter, g, ...) runs there, the tables do; only the app switch stays
-        if (_shell.ActiveApp == AppId.Calendar && !IsAppSwitch(chord))
+        // the calendar and the contacts have their own keys (M4 cal-ui, I-296; M5 con-ui, B-CON-031): none of the mail keys (j, k, o, Enter, g, ...) runs there, the tables do; only the app switch stays
+        if (_shell.ActiveApp is AppId.Calendar or AppId.Contacts && !IsAppSwitch(chord))
         {
             return TryCommands(chord);
         }

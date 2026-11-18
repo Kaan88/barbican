@@ -46,6 +46,7 @@ public sealed partial class ContextView : UserControl
         }
 
         _for = key;
+        Contacts.ContactsMailSurfaces.FillSender(ContactPanel, email ?? string.Empty);
         var recent = string.IsNullOrEmpty(email)
             ? []
             : _list.Messages

@@ -47,6 +47,8 @@ public sealed partial class DialogHostView : UserControl
         MessageText.Visibility = Visibility.Collapsed;
         Field.Visibility = Visibility.Collapsed;
         CustomContent.Content = null;
+        Buttons.Visibility = Visibility.Visible;
+        Card.MaxWidth = 440;
         OkButton.Content = "OK";
         OkButton.Style = (Style)Application.Current.Resources["Button.Primary"];
         switch (dialog.Request)
@@ -70,6 +72,8 @@ public sealed partial class DialogHostView : UserControl
                     if (factory.CanDraw(dialog.Request))
                     {
                         CustomContent.Content = factory.Create(dialog);
+                        Buttons.Visibility = factory.OwnButtons ? Visibility.Collapsed : Visibility.Visible;
+                        Card.MaxWidth = factory.MaxWidth;
                         break;
                     }
                 }

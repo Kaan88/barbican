@@ -8,8 +8,8 @@ G-006,P0,S,calendar,Webcal: feeds on localhost or LAN hosts not blocked; plain h
 G-007,P0,S,platform,Mailto on Linux: .desktop registration code never compiled,n/a (platform),GAPS P0-5,M9,open
 G-008,P1,S/M,calendar,Calendar print,calendar-print.tsx,GAPS P1-1,M4,open
 G-009,P1,S/M,calendar,"Find a time depends on Principal/getAvailability, which Stalwart may not support",find-a-time.tsx,GAPS P1-1,M4,open
-G-010,P1,S/M,contacts,Contact print,contact-print.ts,GAPS P1-2,M5,open
-G-011,P1,S/M,contacts,Contact activity and related people,contact-activity.tsx,GAPS P1-2,M5,open
+G-010,P1,S/M,contacts,Contact print,contact-print.ts,GAPS P1-2,M5,done (in-app print model and in-window preview; the OS print path is built and never run: needs a human)
+G-011,P1,S/M,contacts,Contact activity and related people,contact-activity.tsx,GAPS P1-2,M5,"open (related people lines come from ContactDetail; the activity tiles are deferred, B-CON-026)"
 G-012,P1,S/M,contacts,"Security review of contacts input: vCard parsing of untrusted files, photo data URI size, export paths",vcard.ts,GAPS P1-2 (review),M5,partial(M5)
 G-013,P1,M,files,In-app preview (files open externally today),file-preview-modal.tsx; image-preview-modal.tsx; eml-preview.tsx,GAPS P1-3,M5,open
 G-014,P1,M,files,Details panel,file-details-panel.tsx,GAPS P1-3,M5,open

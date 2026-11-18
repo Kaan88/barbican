@@ -26,6 +26,8 @@
           <TextBlock Text="{x:Bind views:Fmt.AuthLabel(Reader.AuthVerdict), Mode=OneWay}" FontSize="11.5" FontWeight="SemiBold" Foreground="{x:Bind views:Fmt.VerdictForeground(Reader.AuthVerdict), Mode=OneWay}"
                      VerticalAlignment="Center" />
         </Border>
+        <!-- M5 con-ui (I-231, D-M5-19): the sender's contact card, filled by Contacts.ContactsMailSurfaces from IContactLookup -->
+        <StackPanel x:Name="ContactPanel" Spacing="6" Visibility="Collapsed" AutomationProperties.AutomationId="context.contact" />
         <Rectangle Height="1" Fill="{StaticResource Line}" Visibility="{x:Bind Look.NordicOnly, Mode=OneWay}" />
         <StackPanel x:Name="RecentPanel" Spacing="8">
           <TextBlock Text="{x:Bind views:Fmt.SectionTitle('Recent', Look.IsBento), Mode=OneWay}" FontSize="{x:Bind Look.SectionHeaderSize, Mode=OneWay}" FontWeight="Bold"

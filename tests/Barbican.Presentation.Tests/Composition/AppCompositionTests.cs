@@ -50,7 +50,7 @@ public sealed class AppCompositionTests
             provider =>
             {
                 // the composer registers its own commands (M3 composer-ui); every other seam is still empty
-                Assert.Equal(Barbican.Presentation.Compose.ComposerCommands.Count + Barbican.Presentation.Calendar.Commands.CalendarCommandSet.Count + Barbican.Presentation.Files.FilesCommands.Count, provider.GetRequiredService<ICommandRegistry>().All.Count);
+                Assert.Equal(Barbican.Presentation.Compose.ComposerCommands.Count + Barbican.Presentation.Calendar.Commands.CalendarCommandSet.Count + Barbican.Presentation.Files.FilesCommands.Count + Barbican.Presentation.Contacts.ContactsCommands.Count, provider.GetRequiredService<ICommandRegistry>().All.Count);
                 Assert.IsType<NoContextMenuService>(provider.GetRequiredService<IContextMenuService>());
                 Assert.False(provider.GetRequiredService<IContextMenuService>().IsOpen);
                 Assert.Empty(provider.GetRequiredService<IMailSelection>().Current);
@@ -74,7 +74,7 @@ public sealed class AppCompositionTests
             provider =>
             {
                 var registry = provider.GetRequiredService<ICommandRegistry>();
-                Assert.Equal(2 + Barbican.Presentation.Compose.ComposerCommands.Count + Barbican.Presentation.Calendar.Commands.CalendarCommandSet.Count + Barbican.Presentation.Files.FilesCommands.Count, registry.All.Count);
+                Assert.Equal(2 + Barbican.Presentation.Compose.ComposerCommands.Count + Barbican.Presentation.Calendar.Commands.CalendarCommandSet.Count + Barbican.Presentation.Files.FilesCommands.Count + Barbican.Presentation.Contacts.ContactsCommands.Count, registry.All.Count);
                 Assert.True(registry.TryGet(CommandIds.Archive, out var archive));
                 Assert.True(archive.CanExecute(new CommandContext(CommandSurface.Keyboard, [], null, null, null)));
                 Assert.False(registry.TryGet(CommandIds.Undo, out _), "a command id without a handler is not registered (menus show it disabled)");

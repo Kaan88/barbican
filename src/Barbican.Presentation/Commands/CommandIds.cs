@@ -81,6 +81,7 @@ public static class CommandIds
     public const string CopyAddress = "address.copy";
     public const string NewMessageTo = "address.compose";
     public const string AddToContacts = "address.add-contact";
+    public const string ViewContact = "address.view-contact";
     public const string FindFromSender = "mail.find-from-sender";
     public const string OpenAttachment = "attachment.open";
     public const string SaveAttachment = "attachment.save";

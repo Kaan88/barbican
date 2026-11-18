@@ -1,0 +1,73 @@
+<UserControl
+    x:Class="Barbican.App.Views.Contacts.ContactsListView"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:local="using:Barbican.App.Views.Contacts"
+    xmlns:win="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:not_win="http://uno.ui/not_win"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    mc:Ignorable="not_win">
+  <!-- The people list (Rust app.slint contacts list; Bulwark components/contacts/contact-list.tsx, contact-list-item.tsx): header (title, count, import, export, select), search field, bulk bar in select mode,
+       then the rows with letter headers. A ListView, so 600 contacts are virtualised. Every control is in the window (ADR 0007). -->
+  <Grid RowDefinitions="Auto,Auto,Auto,Auto,*" RowSpacing="8" AutomationProperties.AutomationId="contacts.list" AutomationProperties.Name="Contacts list">
+    <Grid ColumnDefinitions="*,Auto,Auto,Auto" ColumnSpacing="4" Padding="4,0,0,0">
+      <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+        <TextBlock x:Name="Title" Text="Contacts" FontSize="17" FontWeight="Bold" Foreground="{StaticResource Text}" AutomationProperties.AutomationId="contacts.title" />
+        <TextBlock x:Name="Count" FontSize="12.5" Foreground="{StaticResource Faint}" VerticalAlignment="Center" AutomationProperties.AutomationId="contacts.count" />
+      </StackPanel>
+      <Button Grid.Column="1" x:Name="ImportButton" Style="{StaticResource Button.Icon}" Width="30" Height="30" CornerRadius="10" Click="OnImport" AutomationProperties.AutomationId="contacts.import" AutomationProperties.Name="Import contacts" />
+      <Button Grid.Column="2" x:Name="ExportButton" Style="{StaticResource Button.Icon}" Width="30" Height="30" CornerRadius="10" Click="OnExport" AutomationProperties.AutomationId="contacts.export" AutomationProperties.Name="Export contacts" />
+      <Button Grid.Column="3" x:Name="SelectButton" Style="{StaticResource Button.Icon}" Width="30" Height="30" CornerRadius="10" Click="OnSelectMode" AutomationProperties.AutomationId="contacts.select-mode" AutomationProperties.Name="Select contacts" />
+    </Grid>
+    <Grid Grid.Row="1" ColumnDefinitions="Auto,*,Auto" Height="38" CornerRadius="14" Background="{StaticResource Hover}" Padding="12,0,6,0" ColumnSpacing="8">
+      <TextBlock x:Name="SearchGlyph" VerticalAlignment="Center" />
+      <TextBox Grid.Column="1" x:Name="Search" PlaceholderText="Search contacts" BorderThickness="0" Background="Transparent" VerticalAlignment="Center" TextChanged="OnSearchChanged" KeyDown="OnSearchKeyDown"
+               AutomationProperties.AutomationId="contacts.search" AutomationProperties.Name="Search contacts" />
+      <Button Grid.Column="2" x:Name="ClearSearch" Style="{StaticResource Button.Icon}" Width="24" Height="24" CornerRadius="8" Visibility="Collapsed" Click="OnClearSearch" AutomationProperties.AutomationId="contacts.search.clear" AutomationProperties.Name="Clear search" />
+    </Grid>
+    <Border Grid.Row="2" x:Name="Notice" Visibility="Collapsed" CornerRadius="12" Padding="12,6,8,6" Background="{StaticResource RoseBg}" AutomationProperties.AutomationId="contacts.error">
+      <Grid ColumnDefinitions="*,Auto" ColumnSpacing="10">
+        <TextBlock x:Name="NoticeText" FontSize="12.5" FontWeight="SemiBold" Foreground="{StaticResource RoseFg}" TextWrapping="Wrap" VerticalAlignment="Center" AutomationProperties.AutomationId="contacts.error.text" />
+        <Button Grid.Column="1" Content="Retry" Style="{StaticResource Button.Action}" Height="30" CornerRadius="10" FontSize="12.5" Click="OnRetry" AutomationProperties.AutomationId="contacts.error.retry" AutomationProperties.Name="Retry" />
+      </Grid>
+    </Border>
+    <Grid Grid.Row="3" x:Name="BulkBar" Visibility="Collapsed" ColumnDefinitions="*,Auto,Auto,Auto" ColumnSpacing="6" AutomationProperties.AutomationId="contacts.bulk">
+      <TextBlock x:Name="BulkCount" FontSize="12.5" FontWeight="SemiBold" Foreground="{StaticResource Dim}" VerticalAlignment="Center" AutomationProperties.AutomationId="contacts.bulk.count" />
+      <Button Grid.Column="1" Content="Select all" Style="{StaticResource Button.Action}" Height="30" CornerRadius="10" FontSize="12.5" Click="OnSelectAll" AutomationProperties.AutomationId="contacts.bulk.all" AutomationProperties.Name="Select all" />
+      <Button Grid.Column="2" x:Name="BulkDelete" Content="Delete" Style="{StaticResource Button.Action}" Height="30" CornerRadius="10" FontSize="12.5" Foreground="{StaticResource RoseFg}" Click="OnBulkDelete" AutomationProperties.AutomationId="contacts.bulk.delete" AutomationProperties.Name="Delete selected" />
+      <Button Grid.Column="3" Content="Done" Style="{StaticResource Button.Primary}" Height="30" CornerRadius="10" FontSize="12.5" Click="OnSelectMode" AutomationProperties.AutomationId="contacts.bulk.done" AutomationProperties.Name="Done" />
+    </Grid>
+    <ListView Grid.Row="4" x:Name="List" SelectionMode="None" IsItemClickEnabled="True" ItemClick="OnItemClick" RightTapped="OnRightTapped" DoubleTapped="OnDoubleTapped"
+              AutomationProperties.AutomationId="contacts.rows" AutomationProperties.Name="Contacts" Padding="0,2,0,8">
+      <win:ListView.ItemContainerTransitions>
+        <TransitionCollection />
+      </win:ListView.ItemContainerTransitions>
+      <ListView.ItemContainerStyle>
+        <Style TargetType="ListViewItem">
+          <Setter Property="Padding" Value="0" />
+          <Setter Property="MinHeight" Value="0" />
+          <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+          <Setter Property="Margin" Value="0,0,0,2" />
+        </Style>
+      </ListView.ItemContainerStyle>
+      <ListView.ItemTemplate>
+        <DataTemplate x:DataType="local:ContactsListItem">
+          <Grid>
+            <TextBlock Text="{x:Bind Letter}" Visibility="{x:Bind HeaderVisible}" Height="30" Padding="12,8,0,0" FontSize="11.5" FontWeight="Bold" Foreground="{StaticResource Faint}" />
+            <Grid Visibility="{x:Bind RowVisible}" Height="52" Padding="10,0,10,0" ColumnSpacing="11" ColumnDefinitions="Auto,Auto,*" CornerRadius="16" Background="{x:Bind RowBackground}">
+              <TextBlock Text="{x:Bind Check}" Visibility="{x:Bind CheckVisible}" FontSize="17" VerticalAlignment="Center" Foreground="{StaticResource Dim}" />
+              <Border Grid.Column="1" Width="36" Height="36" CornerRadius="{x:Bind AvatarRadius}" Background="{x:Bind AvatarBackground}" VerticalAlignment="Center">
+                <TextBlock Text="{x:Bind Initials}" Visibility="{x:Bind InitialsVisible}" FontSize="12.5" FontWeight="Bold" Foreground="{x:Bind AvatarForeground}" HorizontalAlignment="Center" VerticalAlignment="Center" />
+              </Border>
+              <StackPanel Grid.Column="2" VerticalAlignment="Center">
+                <TextBlock Text="{x:Bind Name}" FontSize="13.5" FontWeight="{x:Bind NameWeight}" Foreground="{x:Bind NameBrush}" TextTrimming="CharacterEllipsis" />
+                <TextBlock Text="{x:Bind Email}" Visibility="{x:Bind EmailVisible}" FontSize="12" Foreground="{StaticResource Faint}" TextTrimming="CharacterEllipsis" />
+              </StackPanel>
+            </Grid>
+          </Grid>
+        </DataTemplate>
+      </ListView.ItemTemplate>
+    </ListView>
+    <TextBlock Grid.Row="4" x:Name="Empty" FontSize="13" Foreground="{StaticResource Faint}" HorizontalAlignment="Center" VerticalAlignment="Center" TextAlignment="Center" TextWrapping="Wrap" IsHitTestVisible="False" AutomationProperties.AutomationId="contacts.empty" />
+  </Grid>
+</UserControl>
