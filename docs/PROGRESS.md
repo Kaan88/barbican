@@ -1,4 +1,4 @@
-# Progress (updated 2026-11-18)
+# Progress (PAUSED 2026-11-18 by the user)
 
 Everything is pushed. Nothing is merged to `main` or tagged.
 
@@ -12,6 +12,16 @@ wherever they can. Safety rules stay (no real input, read-only account, admin ke
 | M2 | `m2` (6012f9f) | Done: hotfix-2 and Fable review 3 fixes merged. Zip `Barbican-6012f9f305d6-win-x64.zip`. |
 | M3 | `m3` (2f11adb) | Done: send pipeline, editor core, editor view (Uno 7 / SkiaSharp 4), composer UI, close (quoted HTML sanitised, round trip). 2122 tests green, Linux green. Zip `Barbican-2f11adb86437-win-x64.zip`. Unproven: live round trip on the test account (no agent profile signed in), real IME, mailto from a browser, default-app registration. |
 | M4 | `m4-plan` | Planned 2026-11-18: docs/milestones/M4-plan.md (four streams cal-data, cal-edit, cal-views, cal-ui), contracts, FakeJmap calendar arms and 43 red tests pushed; `m4` is created from it. |
+
+## How to resume (after the 2026-11-18 pause)
+1. Each paused branch ends with a "WIP (paused)" commit or its last real commit; read its subject and the stream's section in
+   docs/milestones/M4-plan.md, then restart one Sonnet agent per stream in the same worktree with "continue from the last commit".
+2. Merge the four M4 streams into `m4` (check spec/decisions.md for duplicated rows after each merge; one branch once doubled it),
+   then an M4 close pass, a zip, then M5.
+3. Finish the UI sweep on `m4-ui-sweep` (real data via `tools/auto-run.ps1 start -ProfileName agent-ui`), merge it.
+4. Real-account runs: profile `agent-ui` is signed in to the test account (copied from `dev` with the user's OK; it is a
+   throwaway). `.local/writable-accounts.txt` and `.local/readonly-accounts.txt` exist. One process per profile at a time.
+5. Known on real data: list previews run words together across blocks (check DocHtml.ToText / sent text part).
 
 Order after M4: M5, M6, M6b, M7, M8, M10, M9 (Linux last), then the whole-app Fable review.
 
