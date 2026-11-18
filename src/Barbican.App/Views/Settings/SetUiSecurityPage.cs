@@ -2,6 +2,7 @@
 // App lock, Windows Hello and the passkey rows (keyless in the schema) are M8 (D-M6-10): they are not drawn.
 
 using Barbican.App.Shell;
+using Barbican.Presentation.Dialogs;
 using Barbican.Presentation.Settings;
 using Barbican.Presentation.Settings.Ui;
 
@@ -140,5 +141,12 @@ internal static class SetUiSecurityPage
     }
 
     private static Grid Entry(string label, string description, string button, string id, Func<string, Task> action, string automationId) =>
-        SetUiUi.RowOf(label, description, SetUiUi.Pill(button, () => SetUiUi.Run(() => action(id)), automationId + ".delete"), automationId);
+        SetUiUi.RowOf(label, description, SetUiUi.Pill(button, () => SetUiUi.Run(async () =>
+        {
+            var dialogs = ViewHost.Find<IDialogService>();
+            if (dialogs is not null && await dialogs.ShowAsync(new ConfirmDialogRequest("Delete", "Delete " + label + "?", "Delete", true), CancellationToken.None).ConfigureAwait(true))
+            {
+                await action(id).ConfigureAwait(true);
+            }
+        }), automationId + ".delete"), automationId);
 }

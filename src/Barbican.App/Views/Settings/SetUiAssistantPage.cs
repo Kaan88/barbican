@@ -27,27 +27,13 @@ internal static class SetUiAssistantPage
         int Number(string key, int fallback) => vm.ValueOf(key) is JsonValue v && v.TryGetValue<int>(out var n) ? n : fallback;
         void Save(string key, JsonNode? value) => SetUiUi.Run(() => vm.SetKeyAsync(key, value, CancellationToken.None));
 
-        var provider = new ComboBox { ItemsSource = Providers, SelectedIndex = Math.Clamp(Number("ai.provider", 0), 0, 1), MinWidth = 220 };
-        provider.SelectionChanged += (_, _) =>
-        {
-            if (provider.SelectedIndex >= 0)
-            {
-                Save("ai.provider", JsonValue.Create(provider.SelectedIndex));
-            }
-        };
+        var provider = new SetUiChoice(Providers, Math.Clamp(Number("ai.provider", 0), 0, 1), index => Save("ai.provider", JsonValue.Create(index)));
         form.Children.Add(SetUiUi.RowOf("Provider", "OpenAI-compatible servers and Anthropic.", SetUiUi.Id(provider, "set.assistant.provider"), "set.assistant.provider.row"));
         form.Children.Add(TextRow("Base address", "Leave empty for the provider's own.", "ai.base", "https://api.openai.com/v1", Text, Save, "set.assistant.base"));
         form.Children.Add(TextRow("Model", "For example gpt-4o-mini or claude-haiku-5-5.", "ai.model", "gpt-4o-mini", Text, Save, "set.assistant.model"));
         form.Children.Add(TextRow("Language", "The language of its answers and of Translate.", "ai.lang", "English", Text, Save, "set.assistant.lang"));
 
-        var mode = new ComboBox { ItemsSource = Modes, SelectedIndex = Math.Clamp(Number("ai.actions", 1), 0, 2), MinWidth = 220 };
-        mode.SelectionChanged += (_, _) =>
-        {
-            if (mode.SelectedIndex >= 0)
-            {
-                Save("ai.actions", JsonValue.Create(mode.SelectedIndex));
-            }
-        };
+        var mode = new SetUiChoice(Modes, Math.Clamp(Number("ai.actions", 1), 0, 2), index => Save("ai.actions", JsonValue.Create(index)));
         form.Children.Add(SetUiUi.RowOf("Actions", "Read only never changes mail. Sending always asks.", SetUiUi.Id(mode, "set.assistant.actions"), "set.assistant.actions.row"));
 
         var memory = new ToggleSwitch { OnContent = string.Empty, OffContent = string.Empty, IsOn = vm.ValueOf("ai.memory") is not JsonValue m || !m.TryGetValue<bool>(out var on) || on };

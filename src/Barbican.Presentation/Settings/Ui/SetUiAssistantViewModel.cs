@@ -24,6 +24,13 @@ public sealed class SetUiAssistantViewModel : INotifyPropertyChanged
         _screen = screen;
         _dispatcher = dispatcher;
         _session.Changed += (_, _) => OnUi(() => Raise(null));
+        _screen.PropertyChanged += (_, e) =>
+        {
+            if (string.IsNullOrEmpty(e.PropertyName) || string.Equals(e.PropertyName, nameof(ISetUiViewModel.AccountKey), StringComparison.Ordinal))
+            {
+                OnUi(() => Raise(nameof(Messages)));
+            }
+        };
     }
 
     public event PropertyChangedEventHandler? PropertyChanged;
@@ -71,8 +78,11 @@ public sealed class SetUiAssistantViewModel : INotifyPropertyChanged
             _error = "The assistant is not available yet.";
         }
 
-        _busy = false;
-        Raise(null);
+        finally
+        {
+            _busy = false;
+            Raise(null);
+        }
     }
 
     public async Task ClearAsync(CancellationToken ct)

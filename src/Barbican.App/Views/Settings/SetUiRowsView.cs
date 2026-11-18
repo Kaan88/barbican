@@ -130,19 +130,16 @@ public sealed class SetUiRowsView : StackPanel
 
         if (key is not null && row.Kind == SettingRowKind.Select && row.Options.Count > 0)
         {
-            var combo = new ComboBox { MinWidth = 180, ItemsSource = row.Options.Select(o => o.Label).ToList() };
-            combo.SelectedItem = SetUiRowRules.SelectText(row, r.Value);
-            combo.SelectionChanged += (_, _) =>
+            int IndexOf(JsonNode? value) => row.Options.ToList().FindIndex(o => string.Equals(o.Label, SetUiRowRules.SelectText(row, value), StringComparison.Ordinal));
+            var choice = new SetUiChoice(row.Options.Select(o => o.Label), IndexOf(r.Value), index =>
             {
-                if (_updating || combo.SelectedIndex < 0)
+                if (!_updating)
                 {
-                    return;
+                    SetUiUi.Run(() => _vm.SetValueAsync(row.Id, JsonValue.Create(row.Options[index].Value), CancellationToken.None));
                 }
-
-                SetUiUi.Run(() => _vm.SetValueAsync(row.Id, JsonValue.Create(row.Options[combo.SelectedIndex].Value), CancellationToken.None));
-            };
-            _refresh[row.Id] = () => combo.SelectedItem = SetUiRowRules.SelectText(row, Current(row));
-            return SetUiUi.RowOf(row.Label, Note(row, desc), SetUiUi.Id(combo, id + ".select"), id);
+            });
+            _refresh[row.Id] = () => choice.Selected = IndexOf(Current(row));
+            return SetUiUi.RowOf(row.Label, Note(row, desc), SetUiUi.Id(choice, id + ".select"), id);
         }
 
         if (key is not null && row.Kind is SettingRowKind.Text or SettingRowKind.Select)

@@ -38,6 +38,10 @@ public sealed class SetUiViewModel : ISetUiViewModel
         _dispatcher = dispatcher;
         _pages = SetUiCatalog.Load();
         _values.Changed += (_, _) => OnUi(() => Raise("Values"));
+        if (_accounts is not null)
+        {
+            _accounts.ActiveChanged += (_, _) => OnUi(() => Raise(nameof(AccountKey)));
+        }
     }
 
     public event PropertyChangedEventHandler? PropertyChanged;
