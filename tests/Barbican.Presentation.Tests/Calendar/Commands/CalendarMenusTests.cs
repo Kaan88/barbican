@@ -37,9 +37,9 @@ public sealed class CalendarMenusTests
     public void A_guest_sees_the_answers_that_are_not_the_current_one_first()
     {
         const string guest = "{\"id\":\"e1\",\"title\":\"Board\",\"calendarIds\":{\"work\":true},\"participants\":{\"p1\":{\"email\":\"ann@y.example\",\"roles\":{\"owner\":true}},\"p2\":{\"email\":\"me@x.example\",\"participationStatus\":\"STATUS\"}}}";
-        Assert.Equal(["Accept", "Maybe", "Decline", "—"], Labels(Event(guest.Replace("STATUS", "needs-action", StringComparison.Ordinal))).Take(4));
-        Assert.Equal(["Maybe", "Decline", "—", "Edit"], Labels(Event(guest.Replace("STATUS", "accepted", StringComparison.Ordinal))).Take(4));
-        Assert.Equal(["Accept", "Maybe", "—", "Edit"], Labels(Event(guest.Replace("STATUS", "declined", StringComparison.Ordinal))).Take(4));
+        Assert.Equal(["Accept", "Maybe", "Decline", "—"], Labels(Event(guest.Replace("STATUS", "needs-action", StringComparison.Ordinal))).Take(4).ToArray());
+        Assert.Equal(["Maybe", "Decline", "—", "Edit"], Labels(Event(guest.Replace("STATUS", "accepted", StringComparison.Ordinal))).Take(4).ToArray());
+        Assert.Equal(["Accept", "Maybe", "—", "Edit"], Labels(Event(guest.Replace("STATUS", "declined", StringComparison.Ordinal))).Take(4).ToArray());
         var rsvp = Event(guest.Replace("STATUS", "needs-action", StringComparison.Ordinal))[0];
         Assert.Equal(CalendarArg.Join("accepted", "e1"), rsvp.Argument);
     }
@@ -48,8 +48,8 @@ public sealed class CalendarMenusTests
     public void An_event_with_a_web_address_as_location_offers_the_meeting_link()
     {
         var labels = Labels(Event("{\"id\":\"e1\",\"title\":\"Sync\",\"calendarIds\":{\"work\":true},\"locations\":{\"l1\":{\"name\":\"https://meet.example/a\"}}}"));
-        Assert.Contains("Join meeting", labels);
-        Assert.Contains("Copy meeting link", labels);
+        Assert.Contains("Join meeting", labels, StringComparer.Ordinal);
+        Assert.Contains("Copy meeting link", labels, StringComparer.Ordinal);
     }
 
     [Fact]
@@ -101,7 +101,7 @@ public sealed class CalendarMenusTests
     {
         var items = CalendarMenus.CalendarColour(Ctx(MenuIds.CalendarColour, "work"), _source);
         Assert.Equal(14, items.Count);
-        Assert.Equal(["Blue"], items.Where(i => i.Checked == true).Select(i => i.Label));
+        Assert.Equal(["Blue"], items.Where(i => i.Checked == true).Select(i => i.Label).ToArray());
         Assert.Equal(CalendarArg.Join("#ef4444", "work"), items[1].Argument);
     }
 
