@@ -89,7 +89,15 @@ internal static class SetUiAccountPage
             }
         }
 
-        model.PropertyChanged += (_, _) => Render();
+        model.PropertyChanged += (_, e) =>
+        {
+            if (string.Equals(e.PropertyName, nameof(model.AccountKey), StringComparison.Ordinal))
+            {
+                name.Text = string.Empty;
+            }
+
+            Render();
+        };
         return new SetUiPageFactory(
             SettingsPageIds.Account,
             f =>

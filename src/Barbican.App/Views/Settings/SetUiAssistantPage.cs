@@ -64,7 +64,7 @@ internal static class SetUiAssistantPage
                     var text = value is JsonValue v && v.TryGetValue<string>(out var t) ? t : string.Empty;
                     config = key switch
                     {
-                        "ai.provider" => config with { Provider = (AssistantProviderKind)(value?.GetValue<int>() ?? 0) },
+                        "ai.provider" => WithProvider(config, (AssistantProviderKind)(value?.GetValue<int>() ?? 0)),
                         "ai.actions" => config with { Actions = (AssistantActionMode)(value?.GetValue<int>() ?? 1) },
                         "ai.base" => config with { Base = text },
                         "ai.model" => config with { Model = text },
@@ -78,6 +78,11 @@ internal static class SetUiAssistantPage
                     {
                         throw new IOException("The assistant settings could not be saved.");
                     }
+
+                    if (string.Equals(key, "ai.provider", StringComparison.Ordinal) && string.Equals(accountKey, pageAccountKey, StringComparison.Ordinal) && textInputs.TryGetValue("ai.base", out var baseBox) && baseBox.FocusState == FocusState.Unfocused)
+                    {
+                        baseBox.Text = config.Base;
+                    }
                 }
                 finally
                 {
@@ -88,8 +93,8 @@ internal static class SetUiAssistantPage
 
         var provider = new SetUiChoice(Providers, Math.Clamp(Number("ai.provider", 0), 0, 1), index => Save("ai.provider", JsonValue.Create(index)));
         form.Children.Add(SetUiUi.RowOf("Provider", "OpenAI-compatible servers and Anthropic.", SetUiUi.Id(provider, "set.assistant.provider"), "set.assistant.provider.row"));
-        form.Children.Add(TextRow("Base address", "Leave empty for the provider's own.", "ai.base", "https://api.openai.com/v1", Text, Save, textInputs, "set.assistant.base"));
-        form.Children.Add(TextRow("Model", "For example gpt-4o-mini or claude-haiku-5-5.", "ai.model", "gpt-4o-mini", Text, Save, textInputs, "set.assistant.model"));
+        form.Children.Add(TextRow("Base address", "Required. Enter the provider API base address, including /v1.", "ai.base", "https://api.openai.com/v1", Text, Save, textInputs, "set.assistant.base"));
+        form.Children.Add(TextRow("Model", "Required. Enter a model supported by this provider.", "ai.model", "gpt-4o-mini", Text, Save, textInputs, "set.assistant.model"));
         form.Children.Add(TextRow("Language", "The language of its answers and of Translate.", "ai.lang", "English", Text, Save, textInputs, "set.assistant.lang"));
 
         var mode = new SetUiChoice(Modes, Math.Clamp(Number("ai.actions", 1), 0, 2), index => Save("ai.actions", JsonValue.Create(index)));
@@ -180,6 +185,16 @@ internal static class SetUiAssistantPage
                 root.Children.Add(column);
                 return root;
             }, Refresh);
+    }
+
+    private static AssistantConfig WithProvider(AssistantConfig config, AssistantProviderKind provider)
+    {
+        const string openAi = "https://api.openai.com/v1";
+        const string anthropic = "https://api.anthropic.com/v1";
+        var standard = string.Equals(config.Base.TrimEnd('/'), openAi, StringComparison.OrdinalIgnoreCase)
+            || string.Equals(config.Base.TrimEnd('/'), anthropic, StringComparison.OrdinalIgnoreCase)
+            || string.IsNullOrWhiteSpace(config.Base);
+        return config with { Provider = provider, Base = standard ? (provider == AssistantProviderKind.Anthropic ? anthropic : openAi) : config.Base };
     }
 
     private static Grid TextRow(string label, string description, string key, string placeholder, Func<string, string> read, Action<string, JsonNode?> save, Dictionary<string, TextBox> inputs, string id)

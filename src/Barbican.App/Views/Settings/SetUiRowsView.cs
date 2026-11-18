@@ -3,6 +3,16 @@
 
 using System.Text.Json.Nodes;
 using Barbican.App.Theme;
+using Barbican.App.Shell;
+using Barbican.Presentation.Dialogs;
+using Barbican.Presentation.Commands;
+using Barbican.Presentation.Actions;
+using Barbican.Core.Accounts;
+using Barbican.Core.Calendar;
+using Barbican.Core.Contacts;
+using Barbican.Core.Mail.Avatars;
+using Barbican.Core.Sync;
+using Barbican.Presentation.Settings;
 using Barbican.Core.Settings.Pages;
 using Barbican.Presentation.Settings.Ui;
 using Microsoft.UI.Xaml.Automation;
@@ -21,6 +31,7 @@ public sealed class SetUiRowsView : StackPanel
     private readonly Dictionary<string, FrameworkElement> _byId = new(StringComparer.Ordinal);
     private readonly Dictionary<string, Action> _refresh = new(StringComparer.Ordinal);
     private bool _updating;
+    private TextBlock? _error;
 
     public SetUiRowsView(string pageId, Func<SettingRow, bool>? include = null)
     {
@@ -33,6 +44,14 @@ public sealed class SetUiRowsView : StackPanel
             {
                 case "Values":
                     RefreshValues();
+                    break;
+                case nameof(ISetUiViewModel.LastError):
+                    if (_error is not null)
+                    {
+                        _error.Text = _vm.LastError;
+                        _error.Visibility = _vm.LastError.Length > 0 ? Visibility.Visible : Visibility.Collapsed;
+                    }
+
                     break;
                 case "Info":
                 case nameof(ISetUiViewModel.ShowAdvanced):
@@ -60,6 +79,11 @@ public sealed class SetUiRowsView : StackPanel
             _byId[r.Row.Id] = element;
             Children.Add(element);
         }
+
+        _error = SetUiUi.Meta(_vm.LastError);
+        _error.Foreground = AppResources.Brush("RoseFg");
+        _error.Visibility = _vm.LastError.Length > 0 ? Visibility.Visible : Visibility.Collapsed;
+        Children.Add(_error);
     }
 
     /// <summary>Scrolls to a row and marks it (a search hit or a cross-link).</summary>
@@ -111,6 +135,31 @@ public sealed class SetUiRowsView : StackPanel
 
             AutomationProperties.SetAutomationId(section, id);
             return section;
+        }
+
+        if (string.Equals(row.Id, "S-a11y.reset", StringComparison.Ordinal))
+        {
+            return SetUiUi.RowOf(row.Label, desc, SetUiUi.Pill("Reset", () => SetUiUi.Run(ResetAccessibilityAsync), id + ".button"), id);
+        }
+
+        if (string.Equals(row.Id, "S-avatars.refresh", StringComparison.Ordinal))
+        {
+            return SetUiUi.RowOf(row.Label, desc, SetUiUi.Pill("Refresh", () => SetUiUi.Run(RefreshAvatarsAsync), id + ".button"), id);
+        }
+
+        if (string.Equals(row.Id, "S-keyless-063", StringComparison.Ordinal))
+        {
+            return SetUiUi.RowOf(row.Label, desc, SetUiUi.Pill("Refresh", () => SetUiUi.Run(RefreshDataAsync), id + ".button"), id);
+        }
+
+        if (string.Equals(row.Id, "S-keyless-030", StringComparison.Ordinal))
+        {
+            return SetUiUi.RowOf(row.Label, desc, SetUiUi.Pill("Open", () => SetUiUi.Run(ShowShortcutsAsync), id + ".link"), id);
+        }
+
+        if (LinkPage(row.Id) is { } target)
+        {
+            return SetUiUi.RowOf(row.Label, desc, SetUiUi.Pill("Open", () => ViewHost.Get<ISettingsNavigation>().Open(target), id + ".link"), id);
         }
 
         var key = SetUiRowRules.KeyOf(row);
@@ -183,7 +232,95 @@ public sealed class SetUiRowsView : StackPanel
         return SetUiUi.RowOf(row.Label, desc, value, id);
     }
 
-    private static string Note(SettingRow row, string desc) => row.Status == SettingRowStatus.Unwired ? (desc.Length > 0 ? desc + " " : string.Empty) + "Not used by the app yet." : desc;
+    private static string? LinkPage(string id) => id switch
+    {
+        "S-keyless-027" or "S-keyless-028" => SettingsPageIds.Appearance,
+        "S-keyless-029" or "S-keyless-034" => SettingsPageIds.Reading,
+        "S-keyless-031" or "S-keyless-033" or "S-keyless-036" => SettingsPageIds.MessageList,
+        "S-keyless-032" => SettingsPageIds.Calendar,
+        "S-keyless-035" => SettingsPageIds.Composing,
+        "S-keyless-037" or "S-keyless-038" => SettingsPageIds.Notifications,
+        "S-keyless-061" or "S-keyless-062" or "S-keyless-064" => SettingsPageIds.Backup,
+        _ => null,
+    };
+
+    private static async Task RefreshAvatarsAsync()
+    {
+        if (ViewHost.Find<AvatarService>() is not { } avatars)
+        {
+            _ = ViewHost.Find<IToastService>()?.Show(new ToastRequest("Sender icon refresh is unavailable.", IsError: true));
+            return;
+        }
+
+        await avatars.RefreshAsync(CancellationToken.None).ConfigureAwait(true);
+        _ = ViewHost.Find<IToastService>()?.Show(new ToastRequest("Sender icons refreshed."));
+    }
+
+    private static async Task RefreshDataAsync()
+    {
+        var accounts = ViewHost.Find<IAccountManager>();
+        if (accounts?.Active is not { } account || accounts.SessionFor(account.Key) is not { } session)
+        {
+            _ = ViewHost.Find<IToastService>()?.Show(new ToastRequest("No active account to refresh.", IsError: true));
+            return;
+        }
+
+        var calendar = ViewHost.Find<ICalendarStore>();
+        var contacts = ViewHost.Find<IContactStore>();
+        if (session.Sync is not MailSync sync || calendar is null || contacts is null)
+        {
+            _ = ViewHost.Find<IToastService>()?.Show(new ToastRequest("Data refresh is unavailable for this account.", IsError: true));
+            return;
+        }
+
+        var cal = await calendar.RefreshAsync(account.Key, CancellationToken.None).ConfigureAwait(true);
+        var con = await contacts.RefreshAsync(account.Key, CancellationToken.None).ConfigureAwait(true);
+        await sync.SyncNowAsync(new HashSet<string>(["Mailbox", "Email", "Thread"], StringComparer.Ordinal), CancellationToken.None).ConfigureAwait(true);
+        var error = cal.Error?.Message ?? con.Error?.Message;
+        _ = ViewHost.Find<IToastService>()?.Show(error is null
+            ? new ToastRequest("Calendar and contacts refreshed; mail refresh requested.")
+            : new ToastRequest("Refresh incomplete: " + error, IsError: true));
+    }
+
+    private static async Task ShowShortcutsAsync()
+    {
+        var registry = ViewHost.Find<ICommandRegistry>();
+        var context = new CommandContext(CommandSurface.Toolbar, [], null, null, null);
+        if (registry is not null && registry.TryGet(CommandIds.ShowShortcuts, out var command) && command.CanExecute(context))
+        {
+            _ = await command.ExecuteAsync(context, CancellationToken.None).ConfigureAwait(true);
+        }
+    }
+
+    private async Task ResetAccessibilityAsync()
+    {
+        var dialogs = ViewHost.Find<IDialogService>();
+        if (dialogs is null || !await dialogs.ShowAsync(new ConfirmDialogRequest("Reset accessibility settings", "Reset accessibility settings to their defaults? Settings shared with other pages stay unchanged.", "Reset", true), CancellationToken.None).ConfigureAwait(true))
+        {
+            return;
+        }
+
+        var shared = _vm.CatalogPages.Where(p => !string.Equals(p.Id, SettingsPageIds.Accessibility, StringComparison.Ordinal))
+            .SelectMany(p => p.Rows).Where(r => r.Key is not null).Select(r => r.Key!).ToHashSet(StringComparer.Ordinal);
+        var keys = _vm.CatalogPages.Where(p => string.Equals(p.Id, SettingsPageIds.Accessibility, StringComparison.Ordinal))
+            .SelectMany(p => p.Rows).Where(r => r.Key is not null && r.Kind is SettingRowKind.Toggle or SettingRowKind.Select or SettingRowKind.Text)
+            .Select(r => r.Key!).Where(k => !shared.Contains(k)).Distinct(StringComparer.Ordinal);
+        foreach (var key in keys)
+        {
+            await _vm.SetKeyAsync(key, null, CancellationToken.None).ConfigureAwait(true);
+            if (_vm.LastError.Length > 0)
+            {
+                return;
+            }
+        }
+
+        _ = ViewHost.Find<IToastService>()?.Show(new ToastRequest("Accessibility settings reset."));
+    }
+
+    private static string Note(SettingRow row, string desc) =>
+        row.Status == SettingRowStatus.Unwired || string.Equals(row.Id, "S-keyless-059", StringComparison.Ordinal)
+            ? (desc.Length > 0 ? desc + " " : string.Empty) + "Not used by the app yet."
+            : desc;
 
     private JsonNode? Current(SettingRow row) => _vm.RowsOf(_pageId).FirstOrDefault(x => string.Equals(x.Row.Id, row.Id, StringComparison.Ordinal))?.Value;
 

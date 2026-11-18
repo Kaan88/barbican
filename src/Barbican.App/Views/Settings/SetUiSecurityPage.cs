@@ -102,9 +102,11 @@ internal static class SetUiSecurityPage
 
             dynamic.Children.Add(SetUiUi.Heading("App passwords"));
             dynamic.Children.Add(SetUiUi.Meta("Passwords for apps that cannot use two-step sign-in."));
+            var accountVersion = model.AccountVersion;
+            var accountKey = model.AccountKey;
             foreach (var a in model.AppPasswords)
             {
-                dynamic.Children.Add(Entry(a.Name, a.ExpiresAt is { } e ? "Expires " + e.LocalDateTime.ToString("d MMM yyyy", System.Globalization.CultureInfo.InvariantCulture) : "No expiry", "Delete", a.Id, id => model.DeleteAppPasswordAsync(id, CancellationToken.None), "set.security.app." + a.Id));
+                dynamic.Children.Add(Entry(a.Name, a.ExpiresAt is { } e ? "Expires " + e.LocalDateTime.ToString("d MMM yyyy", System.Globalization.CultureInfo.InvariantCulture) : "No expiry", "Delete", a.Id, id => model.DeleteAppPasswordAsync(id, CancellationToken.None), "set.security.app." + a.Id, () => model.AccountVersion == accountVersion && string.Equals(model.AccountKey, accountKey, StringComparison.Ordinal)));
             }
 
             dynamic.Children.Add(appNameRow);
@@ -117,7 +119,7 @@ internal static class SetUiSecurityPage
             dynamic.Children.Add(SetUiUi.Heading("API keys"));
             foreach (var k in model.ApiKeys)
             {
-                dynamic.Children.Add(Entry(k.Description, k.ExpiresAt is { } e ? "Expires " + e.LocalDateTime.ToString("d MMM yyyy", System.Globalization.CultureInfo.InvariantCulture) : "No expiry", "Delete", k.Id, id => model.DeleteApiKeyAsync(id, CancellationToken.None), "set.security.key." + k.Id));
+                dynamic.Children.Add(Entry(k.Description, k.ExpiresAt is { } e ? "Expires " + e.LocalDateTime.ToString("d MMM yyyy", System.Globalization.CultureInfo.InvariantCulture) : "No expiry", "Delete", k.Id, id => model.DeleteApiKeyAsync(id, CancellationToken.None), "set.security.key." + k.Id, () => model.AccountVersion == accountVersion && string.Equals(model.AccountKey, accountKey, StringComparison.Ordinal)));
             }
 
             dynamic.Children.Add(keyNameRow);
@@ -136,7 +138,21 @@ internal static class SetUiSecurityPage
             }
         }
 
-        model.PropertyChanged += (_, _) => Render();
+        model.PropertyChanged += (_, e) =>
+        {
+            if (string.Equals(e.PropertyName, nameof(model.AccountKey), StringComparison.Ordinal))
+            {
+                current.Password = string.Empty;
+                next.Password = string.Empty;
+                confirm.Password = string.Empty;
+                totpPassword.Password = string.Empty;
+                totpCode.Text = string.Empty;
+                appName.Text = string.Empty;
+                keyName.Text = string.Empty;
+            }
+
+            Render();
+        };
         return new SetUiPageFactory(
             SettingsPageIds.Security,
             _ =>
@@ -147,11 +163,11 @@ internal static class SetUiSecurityPage
             () => SetUiUi.Run(() => model.RefreshAsync(CancellationToken.None)));
     }
 
-    private static Grid Entry(string label, string description, string button, string id, Func<string, Task> action, string automationId) =>
+    private static Grid Entry(string label, string description, string button, string id, Func<string, Task> action, string automationId, Func<bool> stillCurrent) =>
         SetUiUi.RowOf(label, description, SetUiUi.Pill(button, () => SetUiUi.Run(async () =>
         {
             var dialogs = ViewHost.Find<IDialogService>();
-            if (dialogs is not null && await dialogs.ShowAsync(new ConfirmDialogRequest("Delete", "Delete " + label + "?", "Delete", true), CancellationToken.None).ConfigureAwait(true))
+            if (dialogs is not null && await dialogs.ShowAsync(new ConfirmDialogRequest("Delete", "Delete " + label + "?", "Delete", true), CancellationToken.None).ConfigureAwait(true) && stillCurrent())
             {
                 await action(id).ConfigureAwait(true);
             }

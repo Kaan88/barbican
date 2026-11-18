@@ -61,6 +61,57 @@ public sealed class AvatarServiceTests : IDisposable
     }
 
     [Fact]
+    public async Task Refresh_drops_memory_and_disk_cache_and_fetches_again()
+    {
+        var http = new FakeHttp { ["https://acme.example/favicon.ico"] = TestPng.Solid(4, 4, 1, 2, 3, 255) };
+        var service = new AvatarService(http, () => new AvatarPrefs(true, false, false), NullHookBus.Instance, TimeProvider.System, null, _dir);
+        _ = service.TryGet("anna@acme.example", null, false);
+        for (var i = 0; i < 200 && service.TryGet("anna@acme.example", null, false) is null; i++)
+        {
+            await Task.Delay(10, TestContext.Current.CancellationToken);
+        }
+
+        Assert.NotNull(service.TryGet("anna@acme.example", null, false));
+        Assert.Single(http.Urls);
+        await service.RefreshAsync(TestContext.Current.CancellationToken);
+        Assert.Empty(Directory.GetFiles(_dir, "*.img"));
+        Assert.Null(service.TryGet("anna@acme.example", null, false));
+        for (var i = 0; i < 200 && service.TryGet("anna@acme.example", null, false) is null; i++)
+        {
+            await Task.Delay(10, TestContext.Current.CancellationToken);
+        }
+
+        Assert.NotNull(service.TryGet("anna@acme.example", null, false));
+        Assert.Equal(2, http.Urls.Count);
+    }
+
+    [Fact]
+    public async Task Refresh_discards_a_fetch_that_was_already_in_flight()
+    {
+        var http = new DelayedHttp();
+        var service = new AvatarService(http, () => new AvatarPrefs(true, false, false), NullHookBus.Instance, TimeProvider.System, null, _dir);
+        _ = service.TryGet("anna@acme.example", null, false);
+        await http.Started.Task.WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken);
+        await service.RefreshAsync(TestContext.Current.CancellationToken);
+        _ = service.TryGet("anna@acme.example", null, false);
+        for (var i = 0; i < 200 && service.TryGet("anna@acme.example", null, false) is null; i++)
+        {
+            await Task.Delay(10, TestContext.Current.CancellationToken);
+        }
+
+        Assert.NotNull(service.TryGet("anna@acme.example", null, false));
+        http.Release.SetResult();
+        for (var i = 0; i < 200 && service.State.Busy > 0; i++)
+        {
+            await Task.Delay(10, TestContext.Current.CancellationToken);
+        }
+
+        Assert.Equal(0, service.State.Busy);
+        Assert.Equal(http.Fresh, await File.ReadAllBytesAsync(Assert.Single(Directory.GetFiles(_dir, "*.img")), TestContext.Current.CancellationToken));
+        Assert.NotNull(service.TryGet("anna@acme.example", null, false));
+    }
+
+    [Fact]
     public async Task A_bimi_record_is_read_through_the_resolver_and_an_svg_falls_back_to_the_favicon()
     {
         var http = new FakeHttp
@@ -123,6 +174,28 @@ public sealed class AvatarServiceTests : IDisposable
             }
 
             return ValueTask.FromResult(value);
+        }
+    }
+
+    private sealed class DelayedHttp : IGuardedHttp
+    {
+        private int _calls;
+        public TaskCompletionSource Started { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public TaskCompletionSource Release { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public byte[] Fresh { get; } = TestPng.Solid(4, 4, 1, 2, 3, 255);
+
+        public async Task<Result<GuardedResponse>> SendAsync(GuardedRequest request, CancellationToken ct)
+        {
+            if (Interlocked.Increment(ref _calls) == 1)
+            {
+                Started.TrySetResult();
+#pragma warning disable VSTHRD003 // This fake deliberately holds the first fetch across refresh.
+                await Release.Task.WaitAsync(ct).ConfigureAwait(false);
+#pragma warning restore VSTHRD003
+                return Result<GuardedResponse>.Ok(new GuardedResponse(200, TestPng.Solid(4, 4, 9, 8, 7, 255), "image/png"));
+            }
+
+            return Result<GuardedResponse>.Ok(new GuardedResponse(200, Fresh, "image/png"));
         }
     }
 

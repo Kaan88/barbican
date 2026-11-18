@@ -17,6 +17,8 @@ namespace Barbican.Core.Mail.Avatars;
 public sealed class AvatarService(IGuardedHttp http, Func<AvatarPrefs> prefs, IHookBus hooks, TimeProvider time, Func<string, CancellationToken, Task<string?>>? txt, string? cacheDir) : IAvatarService
 {
     private static readonly TimeSpan CacheAge = TimeSpan.FromDays(7);
+    private readonly Lock _refreshLock = new();
+    private long _generation;
     private readonly AvatarJobs _jobs = new();
     private readonly ConcurrentDictionary<string, AvatarSlot> _slots = new(StringComparer.Ordinal);
     private readonly ConcurrentDictionary<string, string> _owner = new(StringComparer.Ordinal);
@@ -32,28 +34,76 @@ public sealed class AvatarService(IGuardedHttp http, Func<AvatarPrefs> prefs, IH
         return AvatarRules.Get(email, brandDomain, prefs(), junk, key => _slots.GetValueOrDefault(key, AvatarSlot.Unknown), key => Request(key, email));
     }
 
-    private void Request(string key, string email)
+    /// <summary>Clears cached pictures and drops results from work started before the refresh.</summary>
+    public Task RefreshAsync(CancellationToken ct) => Task.Run(() => Refresh(ct), ct);
+
+    private void Refresh(CancellationToken ct)
     {
-        if (!_slots.TryAdd(key, AvatarSlot.Pending))
+        string[] owners;
+        lock (_refreshLock)
         {
-            return;
+            ct.ThrowIfCancellationRequested();
+            _generation++;
+            _jobs.Clear();
+            owners = [.. _owner.Values.Distinct(StringComparer.Ordinal)];
+            _owner.Clear();
+            _slots.Clear();
+            if (cacheDir is not null && Directory.Exists(cacheDir))
+            {
+                foreach (var path in Directory.EnumerateFiles(cacheDir, "*.img", SearchOption.TopDirectoryOnly))
+                {
+                    ct.ThrowIfCancellationRequested();
+                    File.Delete(path);
+                }
+            }
         }
 
-        _owner[key] = email;
-        if (_jobs.Enqueue(key))
+        foreach (var owner in owners)
         {
-            _ = Task.Run(WorkAsync);
+            Arrived?.Invoke(this, new AvatarArrivedEventArgs(owner));
+        }
+    }
+
+    private void Request(string key, string email)
+    {
+        lock (_refreshLock)
+        {
+            if (!_slots.TryAdd(key, AvatarSlot.Pending))
+            {
+                return;
+            }
+
+            _owner[key] = email;
+            if (_jobs.Enqueue(key))
+            {
+                _ = Task.Run(WorkAsync);
+            }
         }
     }
 
     private async Task WorkAsync()
     {
-        while (_jobs.NextJob() is { } key)
+        while (true)
         {
+            string? key;
+            string email;
+            long generation;
+            lock (_refreshLock)
+            {
+                key = _jobs.NextJob();
+                if (key is null)
+                {
+                    return;
+                }
+
+                generation = _generation;
+                email = _owner.GetValueOrDefault(key) ?? string.Empty;
+            }
+
             AvatarImage? image = null;
             try
             {
-                image = await ResolveAsync(key, _owner.GetValueOrDefault(key) ?? string.Empty, CancellationToken.None).ConfigureAwait(false);
+                image = await ResolveAsync(key, email, generation, CancellationToken.None).ConfigureAwait(false);
             }
 #pragma warning disable CA1031 // a failed picture is a missing one; the initials stay
             catch (Exception)
@@ -62,15 +112,24 @@ public sealed class AvatarService(IGuardedHttp http, Func<AvatarPrefs> prefs, IH
                 image = null;
             }
 
-            _slots[key] = image is null ? AvatarSlot.Missing : new AvatarSlot(AvatarSlotState.Ready, image);
-            if (image is not null && _owner.TryGetValue(key, out var email))
+            lock (_refreshLock)
+            {
+                if (generation != _generation)
+                {
+                    continue;
+                }
+
+                _slots[key] = image is null ? AvatarSlot.Missing : new AvatarSlot(AvatarSlotState.Ready, image);
+            }
+
+            if (image is not null)
             {
                 Arrived?.Invoke(this, new AvatarArrivedEventArgs(email));
             }
         }
     }
 
-    private async Task<AvatarImage?> ResolveAsync(string key, string email, CancellationToken ct)
+    private async Task<AvatarImage?> ResolveAsync(string key, string email, long generation, CancellationToken ct)
     {
         var url = await UrlAsync(key, ct).ConfigureAwait(false);
         if (hooks.HasHandlers(HookNames.OnAvatarResolve))
@@ -84,13 +143,28 @@ public sealed class AvatarService(IGuardedHttp http, Func<AvatarPrefs> prefs, IH
             return null;
         }
 
-        var bytes = Cached(key) ?? await FetchAsync(uri, ct).ConfigureAwait(false);
+        byte[]? bytes;
+        lock (_refreshLock)
+        {
+            bytes = generation == _generation ? Cached(key) : null;
+        }
+
+        bytes ??= await FetchAsync(uri, ct).ConfigureAwait(false);
         if (bytes is null || AvatarRules.ToRaster(bytes) is not { } raster)
         {
             return null;
         }
 
-        Store(key, bytes);
+        lock (_refreshLock)
+        {
+            if (generation != _generation)
+            {
+                return null;
+            }
+
+            Store(key, bytes);
+        }
+
         return new AvatarImage(key, raster);
     }
 
