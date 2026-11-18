@@ -119,20 +119,20 @@ onTaskDelete,tasks,observer,tasks:read,,"{ taskId, title }",after a task was del
 onTaskToggleComplete,tasks,observer,tasks:read,,"{ taskId, complete }",after a task was checked off or reopened,lib/plugin-hook-catalog.ts:212,M4,cal-edit,src/Barbican.Core/Calendar/Editing/CalendarWriter.cs:146,done,5000,false
 onTaskFilterChange,tasks,observer,tasks:read,,"{ filter, showCompleted }",when the task filter changes,lib/plugin-hook-catalog.ts:213,M4,cal-ui,,pending,5000,false
 onFileNavigate,files,observer,files:read,,{ path },when another folder is opened,lib/plugin-hook-catalog.ts:216,M5,files-ui,,pending,5000,false
-onBeforeFileUpload,files,intercept,files:write,,"{ name, size, type, path }",before a file is uploaded,lib/plugin-hook-catalog.ts:217,M5,files-data,,pending,60000,false
-onAfterFileUpload,files,observer,files:read,,FileResourceView,after a file was uploaded,lib/plugin-hook-catalog.ts:218,M5,files-data,,pending,5000,false
-onFileUploadCancel,files,observer,files:read,,"{ name, path }",when an upload is cancelled,lib/plugin-hook-catalog.ts:219,M5,files-data,,pending,5000,false
-onFileDownload,files,observer,files:read,,FileResourceView,when a file is downloaded,lib/plugin-hook-catalog.ts:220,M5,files-data,,pending,5000,false
-onDirectoryCreate,files,observer,files:read,,FileResourceView,after a folder was created,lib/plugin-hook-catalog.ts:221,M5,files-data,,pending,5000,false
-onBeforeFileDelete,files,intercept,files:write,,{ files: FileResourceView[] },before files are deleted,lib/plugin-hook-catalog.ts:222,M5,files-data,,pending,60000,false
-onAfterFileDelete,files,observer,files:read,,{ files: FileResourceView[] },after files were deleted,lib/plugin-hook-catalog.ts:223,M5,files-data,,pending,5000,false
-onBeforeFileRename,files,intercept,files:write,,"{ file, newName }",before a file is renamed,lib/plugin-hook-catalog.ts:224,M5,files-data,,pending,60000,false
-onFileRename,files,observer,files:read,,"{ file, previousName }",after a file was renamed,lib/plugin-hook-catalog.ts:225,M5,files-data,,pending,5000,false
-onBeforeFileMove,files,intercept,files:write,,"{ files, toPath }",before files are moved,lib/plugin-hook-catalog.ts:226,M5,files-data,,pending,60000,false
-onFileMove,files,observer,files:read,,"{ files, toPath }",after files were moved,lib/plugin-hook-catalog.ts:227,M5,files-data,,pending,5000,false
-onFileCopy,files,observer,files:read,,"{ files, toPath }",after files were copied,lib/plugin-hook-catalog.ts:228,M5,files-data,,pending,5000,false
-onFileDuplicate,files,observer,files:read,,FileResourceView,after a file was duplicated,lib/plugin-hook-catalog.ts:229,M5,files-data,,pending,5000,false
-onFileFavoriteToggle,files,observer,files:read,,"{ file, favorite }",when a file is starred or unstarred,lib/plugin-hook-catalog.ts:230,M5,files-data,,pending,5000,false
+onBeforeFileUpload,files,intercept,files:write,,"{ name, size, type, path }",before a file is uploaded,lib/plugin-hook-catalog.ts:217,M5,files-data,src/Barbican.Core/Files/FileTransfer.cs:145,done,60000,false
+onAfterFileUpload,files,observer,files:read,,FileResourceView,after a file was uploaded,lib/plugin-hook-catalog.ts:218,M5,files-data,src/Barbican.Core/Files/FileTransfer.cs:164,done,5000,false
+onFileUploadCancel,files,observer,files:read,,"{ name, path }",when an upload is cancelled,lib/plugin-hook-catalog.ts:219,M5,files-data,src/Barbican.Core/Files/FileTransfer.Upload.cs:310,done,5000,false
+onFileDownload,files,observer,files:read,,FileResourceView,when a file is downloaded,lib/plugin-hook-catalog.ts:220,M5,files-data,src/Barbican.Core/Files/FileTransfer.cs:60,done,5000,false
+onDirectoryCreate,files,observer,files:read,,FileResourceView,after a folder was created,lib/plugin-hook-catalog.ts:221,M5,files-data,src/Barbican.Core/Files/FileWriter.cs:68,done,5000,false
+onBeforeFileDelete,files,intercept,files:write,,{ files: FileResourceView[] },before files are deleted,lib/plugin-hook-catalog.ts:222,M5,files-data,src/Barbican.Core/Files/FileWriter.Trash.cs:39,done,60000,false
+onAfterFileDelete,files,observer,files:read,,{ files: FileResourceView[] },after files were deleted,lib/plugin-hook-catalog.ts:223,M5,files-data,src/Barbican.Core/Files/FileWriter.Trash.cs:51,done,5000,false
+onBeforeFileRename,files,intercept,files:write,,"{ file, newName }",before a file is renamed,lib/plugin-hook-catalog.ts:224,M5,files-data,src/Barbican.Core/Files/FileWriter.cs:114,done,60000,false
+onFileRename,files,observer,files:read,,"{ file, previousName }",after a file was renamed,lib/plugin-hook-catalog.ts:225,M5,files-data,src/Barbican.Core/Files/FileWriter.cs:127,done,5000,false
+onBeforeFileMove,files,intercept,files:write,,"{ files, toPath }",before files are moved,lib/plugin-hook-catalog.ts:226,M5,files-data,src/Barbican.Core/Files/FileWriter.cs:176,done,60000,false
+onFileMove,files,observer,files:read,,"{ files, toPath }",after files were moved,lib/plugin-hook-catalog.ts:227,M5,files-data,src/Barbican.Core/Files/FileWriter.cs:188,done,5000,false
+onFileCopy,files,observer,files:read,,"{ files, toPath }",after files were copied,lib/plugin-hook-catalog.ts:228,M5,files-data,src/Barbican.Core/Files/FileWriter.Copy.cs:83,done,5000,false
+onFileDuplicate,files,observer,files:read,,FileResourceView,after a file was duplicated,lib/plugin-hook-catalog.ts:229,M5,files-data,src/Barbican.Core/Files/FileWriter.Copy.cs:120,done,5000,false
+onFileFavoriteToggle,files,observer,files:read,,"{ file, favorite }",when a file is starred or unstarred,lib/plugin-hook-catalog.ts:230,M5,files-data,src/Barbican.Core/Files/FileStore.cs:109,done,5000,false
 onFileSelectionChange,files,observer,files:read,,{ files: FileResourceView[] },when the selected files change,lib/plugin-hook-catalog.ts:231,M5,files-ui,,pending,5000,false
 onFileUndo,files,observer,files:read,,{ action },after the last file action was undone,lib/plugin-hook-catalog.ts:232,M5,files-ui,,pending,5000,false
 onBeforeSettingChange,settings,intercept,settings:write,,"{ key, value, previous }",before a preference is changed,lib/plugin-hook-catalog.ts:235,M6,,,pending,60000,false

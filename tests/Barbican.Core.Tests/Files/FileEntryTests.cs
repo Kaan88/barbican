@@ -10,7 +10,6 @@ public sealed class FileEntryTests
     private static JsonNode J(string json) => JsonNode.Parse(json)!;
 
     [Fact]
-    [Red("files-data")]
     public void Both_FileNode_shapes_are_read()
     {
         var old = FileEntry.FromJmap(J("""{"id": "f1", "parentId": "d1", "name": "a.txt", "type": "text/plain", "blobId": "b1", "size": 5, "nodeType": "file", "modified": "2026-01-02T03:04:05Z"}"""), "acct", "A1", false).Value!;
@@ -37,7 +36,6 @@ public sealed class FileEntryTests
     }
 
     [Fact]
-    [Red("files-data")]
     public void Names_are_checked_against_the_server_rules_before_an_upload()
     {
         var rules = FileNameChecks.RulesFrom(J("""{"forbiddenNameChars": "/\\:", "forbiddenNodeNames": ["con", "Aux"], "maxSizeFileNodeName": 10}"""))!;
@@ -50,7 +48,7 @@ public sealed class FileEntryTests
         Assert.Equal("reserved", FileNameChecks.ProblemOf("CON", rules)!.Kind);
         Assert.Equal("reserved", FileNameChecks.ProblemOf("con.txt", rules)!.Kind);
         Assert.Equal("reserved", FileNameChecks.ProblemOf("Aux.tar.gz", rules)!.Kind);
-        Assert.Null(FileNameChecks.ProblemOf("console.txt", rules));
+        Assert.Null(FileNameChecks.ProblemOf("cons.txt", rules));
         // the length is in UTF-8 bytes: five two-byte letters are ten bytes, six are twelve
         Assert.Null(FileNameChecks.ProblemOf("ééééé", rules));
         Assert.Equal("tooLong", FileNameChecks.ProblemOf("éééééé", rules)!.Kind);

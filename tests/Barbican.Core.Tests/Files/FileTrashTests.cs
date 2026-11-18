@@ -11,7 +11,6 @@ public sealed class FileTrashTests
 {
     [Fact]
     [RustTest("files::trash_batch_names")]
-    [Red("files-data")]
     public void Trash_batch_names()
     {
         Assert.Equal("1730112000000~b12", FileTrash.BatchName("b12", 1730112000000));
@@ -29,7 +28,6 @@ public sealed class FileTrashTests
 
     [Fact]
     [RustTest("files::trash_listing_and_names")]
-    [Red("files-data")]
     public void Trash_listing_and_names()
     {
         FileEntry[] nodes =

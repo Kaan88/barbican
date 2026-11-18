@@ -77,7 +77,8 @@ public sealed partial class FakeApi(FakeStore store, FakeJmapOptions options, Fu
     private (string? Name, JsonObject Args) Method(string name, JsonObject args)
     {
         if (!string.Equals(name, "Core/echo", StringComparison.Ordinal) && !string.Equals((string?)args["accountId"], options.AccountId, StringComparison.Ordinal)
-            && !(name.StartsWith("Calendar", StringComparison.Ordinal) && options.SharedCalendars.ContainsKey((string?)args["accountId"] ?? string.Empty)))
+            && !(name.StartsWith("Calendar", StringComparison.Ordinal) && options.SharedCalendars.ContainsKey((string?)args["accountId"] ?? string.Empty))
+            && !IsSharedFileAccount(name, (string?)args["accountId"]))
         {
             return Error("accountNotFound");
         }
@@ -114,6 +115,7 @@ public sealed partial class FakeApi(FakeStore store, FakeJmapOptions options, Fu
             "FileNode/get" => FileNodeGet(args),
             "FileNode/query" => FileNodeQuery(args),
             "FileNode/set" => FileNodeSet(args),
+            "FileNode/changes" => FileNodeChanges(args),
             "CalendarEvent/parse" => CalendarEventParse(args),
 
             // M4 arms (plan section 4.7): reads and changes are cal-data's (FakeApi.Calendar.cs), writes are cal-edit's (FakeApi.CalendarSet.cs); each answers unknownMethod without options.Calendars
