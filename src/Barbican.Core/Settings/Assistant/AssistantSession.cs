@@ -166,7 +166,7 @@ public sealed class AssistantSession : IAssistantSession
             working.Add(new AssistantMessage("user", question, null, null));
             var system = AssistantPrompt.System(config, user, _time.GetUtcNow(), null, openMessageId is { Length: > 0 });
             var client = new SystemPromptClient(_client, system);
-            var tools = new OpenMessageTools(_tools, openMessageId);
+            var tools = new OpenMessageTools(_tools, openMessageId, _accounts.SessionFor(accountKey));
             var result = await AssistantLoop.RunAsync(client, tools, config, accountKey, working, (tool, what) => ConfirmAsync(tool, what, ct), _ => Changed?.Invoke(this, EventArgs.Empty), ct).ConfigureAwait(false);
             lock (_lock)
             {
@@ -199,9 +199,15 @@ public sealed class AssistantSession : IAssistantSession
     }
 
     // "current" means the message open in the reader (B-AI-010)
-    private sealed class OpenMessageTools(IAssistantTools inner, string? openId) : IAssistantTools
+    private sealed class OpenMessageTools(IAssistantTools inner, string? openId, IAccountSession? account) : IAssistantTools
     {
-        public IReadOnlyList<AssistantToolSpec> Specs(AssistantActionMode mode) => inner.Specs(mode);
+        public IReadOnlyList<AssistantToolSpec> Specs(AssistantActionMode mode) =>
+            [.. inner.Specs(mode).Where(s => s.Name switch
+            {
+                "check_calendar" or "create_event" => account?.Client.Session.Has("urn:ietf:params:jmap:calendars") == true,
+                "find_contact" or "create_contact" => account?.Client.Session.Has("urn:ietf:params:jmap:contacts") == true,
+                _ => true,
+            })];
 
         public Task<string> RunAsync(string accountKey, string name, JsonObject args, CancellationToken ct)
         {
@@ -209,6 +215,11 @@ public sealed class AssistantSession : IAssistantSession
             if (args["id"] is JsonValue id && id.TryGetValue<string>(out var s) && (s.Length == 0 || string.Equals(s, "current", StringComparison.Ordinal)))
             {
                 args["id"] = open;
+            }
+
+            if (args["reply_to_id"] is JsonValue reply && reply.TryGetValue<string>(out var replyId) && string.Equals(replyId, "current", StringComparison.Ordinal))
+            {
+                args["reply_to_id"] = open;
             }
 
             if (args["ids"] is JsonArray ids)

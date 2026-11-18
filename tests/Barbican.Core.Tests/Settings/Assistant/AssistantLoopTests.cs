@@ -60,4 +60,24 @@ public sealed class AssistantLoopTests
         Assert.Contains(history, m => string.Equals(m.Text, AssistantLoop.Declined, StringComparison.Ordinal));
     }
 
+    [Fact]
+    public async Task Automatic_send_confirmation_shows_recipients_subject_and_body()
+    {
+        var client = new ScriptedClient(n => n == 1
+            ? new AssistantMessage("assistant", "", System.Text.Json.Nodes.JsonNode.Parse("""[{"id":"c1","name":"send_email","arguments":{"to":"erin@example.net","bcc":"sam@example.org","subject":"Hello","body":"Message text"}}]"""), null)
+            : new AssistantMessage("assistant", "Not sent.", null, null));
+        var tools = new CountingTools(writes: true, name: "send_email");
+        string? shown = null;
+        await AssistantLoop.RunAsync(client, tools, Config(AssistantActionMode.Automatic), "a", [], (_, text) =>
+        {
+            shown = text;
+            return Task.FromResult(false);
+        }, _ => { }, Ct);
+        Assert.Contains("erin@example.net", shown, StringComparison.Ordinal);
+        Assert.Contains("sam@example.org", shown, StringComparison.Ordinal);
+        Assert.Contains("Hello", shown, StringComparison.Ordinal);
+        Assert.Contains("Message text", shown, StringComparison.Ordinal);
+        Assert.Equal(0, tools.Runs);
+    }
+
 }
