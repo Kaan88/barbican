@@ -16,7 +16,7 @@ wherever they can. Safety rules stay (no real input, read-only account, admin ke
 ### Pause table (2026-11-18)
 | Branch | Last commit | State and next step |
 |---|---|---|
-| `m4-cal-data` | (agent still finishing at pause time; see the branch head) | Store, recurrence, reminders. |
+| `m4-cal-data` | a10dcf0 (WIP) | All 19 red green; store and recurrence done (suite green at 017d127). Reminder scheduler, state store, popup VM and ReminderSchedulerTests written but never tested. Next: run those tests, hook call-site test, hooks.csv, D-M4-A05, timeZone setting, full suite + Linux. Ical.Net pinned 5.1.1 (may conflict with cal-edit's Directory.Packages.props). |
 | `m4-cal-edit` | 9da524f | Steps 1-2 done, 16/17 red green (EventEditor alerts test waits for cal-data ReminderRules). Next: step 3 (invitations, IcsReader/Importer, feeds, availability, 5 hooks). Core suite green. |
 | `m4-cal-views` | 61238e1 (WIP) | Presentation layer done (3 red green, suite green at 2e5cc06). App views written, App head build unverified. Next: build -Head win, suite, hidden run, screenshots, perf probe. |
 | `m4-cal-ui` | 698aa59 (WIP) | View models done (4 red green). Suite not confirmed. Next: run tests (CalendarMenusTests, CalendarCommandSet.Count), App views, automation, screenshots, decisions. |
