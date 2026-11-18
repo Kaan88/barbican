@@ -13,6 +13,15 @@ wherever they can. Safety rules stay (no real input, read-only account, admin ke
 | M3 | `m3` (2f11adb) | Done: send pipeline, editor core, editor view (Uno 7 / SkiaSharp 4), composer UI, close (quoted HTML sanitised, round trip). 2122 tests green, Linux green. Zip `Barbican-2f11adb86437-win-x64.zip`. Unproven: live round trip on the test account (no agent profile signed in), real IME, mailto from a browser, default-app registration. |
 | M4 | `m4-plan` | Planned 2026-11-18: docs/milestones/M4-plan.md (four streams cal-data, cal-edit, cal-views, cal-ui), contracts, FakeJmap calendar arms and 43 red tests pushed; `m4` is created from it. |
 
+### Pause table (2026-11-18)
+| Branch | Last commit | State and next step |
+|---|---|---|
+| `m4-cal-data` | (agent still finishing at pause time; see the branch head) | Store, recurrence, reminders. |
+| `m4-cal-edit` | 9da524f | Steps 1-2 done, 16/17 red green (EventEditor alerts test waits for cal-data ReminderRules). Next: step 3 (invitations, IcsReader/Importer, feeds, availability, 5 hooks). Core suite green. |
+| `m4-cal-views` | 61238e1 (WIP) | Presentation layer done (3 red green, suite green at 2e5cc06). App views written, App head build unverified. Next: build -Head win, suite, hidden run, screenshots, perf probe. |
+| `m4-cal-ui` | 698aa59 (WIP) | View models done (4 red green). Suite not confirmed. Next: run tests (CalendarMenusTests, CalendarCommandSet.Count), App views, automation, screenshots, decisions. |
+| `m4-ui-sweep` | 6e110d6 | 15 defects, 9 fixed (docs/milestones/UI-SWEEP-1.md). Next: rebuild/test last 2 edits, keyboard sweep on real data, open list, clean the UISWEEP test mails and cancel the mail scheduled for Thu 19 Nov 08:00. Commit f735132 pushed 4 real-account screenshots (now untracked; history rewrite awaits the user's OK). |
+
 ## How to resume (after the 2026-11-18 pause)
 1. Each paused branch ends with a "WIP (paused)" commit or its last real commit; read its subject and the stream's section in
    docs/milestones/M4-plan.md, then restart one Sonnet agent per stream in the same worktree with "continue from the last commit".
