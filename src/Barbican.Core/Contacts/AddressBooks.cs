@@ -3,6 +3,7 @@
 
 using System.Text.Json.Nodes;
 using Barbican.Core.Common;
+using Barbican.Core.Jmap.Json;
 
 namespace Barbican.Core.Contacts;
 
@@ -10,7 +11,13 @@ namespace Barbican.Core.Contacts;
 public sealed class AddressBooks : IAddressBooks
 {
     /// <summary>The book a new contact goes to: the one with isDefault, else the first named "Contacts" (any case), else the first book; null when there is none and one has to be created (and only then, after asking the server again: B-CON-003).</summary>
-    public static JsonNode? DefaultBook(IReadOnlyList<JsonNode> books) => throw new PortPendingException("AddressBooks.DefaultBook");
+    public static JsonNode? DefaultBook(IReadOnlyList<JsonNode> books)
+    {
+        ArgumentNullException.ThrowIfNull(books);
+        return books.FirstOrDefault(b => ContactJson.IsTrue(ContactJson.Get(b, "isDefault")))
+            ?? books.FirstOrDefault(b => string.Equals(b.Str("name"), "Contacts", StringComparison.OrdinalIgnoreCase))
+            ?? (books.Count > 0 ? books[0] : null);
+    }
 
     public Task<Result<string>> EnsureDefaultAsync(string accountKey, CancellationToken ct) => throw new PortPendingException("AddressBooks.EnsureDefaultAsync");
 

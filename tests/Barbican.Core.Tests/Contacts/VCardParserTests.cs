@@ -16,7 +16,6 @@ public sealed class VCardParserTests
 
     [Fact]
     [RustTest("vcard::parses_vcard3_with_types_and_apple_labels")]
-    [Red("con-data")]
     public void Parses_vcard3_with_types_and_apple_labels()
     {
         const string v = "BEGIN:VCARD\r\nVERSION:3.0\r\nN:Doe;Jane;Q;Dr.;Jr.\r\nFN:Dr. Jane Q Doe Jr.\r\nEMAIL;TYPE=INTERNET,WORK,PREF:jane@work.example\r\n"
@@ -53,7 +52,6 @@ public sealed class VCardParserTests
 
     [Fact]
     [RustTest("vcard::dates_reduced_forms")]
-    [Red("con-data")]
     public void Dates_reduced_forms()
     {
         Assert.Equal(4, (int?)VCardParser.ParseDate("--0412", NoParams)!["month"]);
@@ -69,7 +67,6 @@ public sealed class VCardParserTests
 
     [Fact]
     [RustTest("vcard::quoted_printable_and_skips_empty")]
-    [Red("con-data")]
     public void Quoted_printable_and_skips_empty()
     {
         const string v = "BEGIN:VCARD\nVERSION:2.1\nN;CHARSET=UTF-8;ENCODING=QUOTED-PRINTABLE:M=C3=BCller;J=\n=C3=BCrgen\nEND:VCARD\nBEGIN:VCARD\nVERSION:3.0\nNOTE:nothing\nEND:VCARD\n";
@@ -80,7 +77,6 @@ public sealed class VCardParserTests
 
     [Fact]
     [RustTest("vcard::duplicates_in_file_and_existing")]
-    [Red("con-data")]
     public void Duplicates_in_file_and_existing()
     {
         var existing = new[] { J("""{"emails": {"a": {"address": "A@x.example"}}}""") };
@@ -92,7 +88,6 @@ public sealed class VCardParserTests
     }
 
     [Fact]
-    [Red("con-data")]
     public void An_oversized_photo_is_dropped_and_the_card_stays()
     {
         var vcf = "BEGIN:VCARD\r\nVERSION:3.0\r\nFN:Ann Lee\r\nPHOTO;ENCODING=b;TYPE=JPEG:" + new string('A', 5000) + "\r\nEND:VCARD\r\n";
@@ -105,7 +100,6 @@ public sealed class VCardParserTests
     }
 
     [Fact]
-    [Red("con-data")]
     public void A_file_over_the_limit_is_refused_and_extra_cards_are_counted()
     {
         Assert.False(VCardParser.ParseChecked(new string('x', 2000), new VCardLimits { MaxFileChars = 1000 }).IsOk);
@@ -122,7 +116,6 @@ public sealed class VCardParserTests
     }
 
     [Fact]
-    [Red("con-data")]
     public async Task Hostile_shapes_end_quickly_without_throwing()
     {
         var hostile = new[]

@@ -22,7 +22,6 @@ public sealed class ContactFieldsTests
 
     [Fact]
     [RustTest("contacts_x::fields_round_trip_keeps_unknown_properties")]
-    [Red("con-data")]
     public void Fields_round_trip_keeps_unknown_properties()
     {
         var c = Card();
@@ -56,7 +55,6 @@ public sealed class ContactFieldsTests
 
     [Fact]
     [RustTest("contacts_x::edits_add_remove_and_validate")]
-    [Red("con-data")]
     public void Edits_add_remove_and_validate()
     {
         var c = Card();
@@ -89,7 +87,6 @@ public sealed class ContactFieldsTests
 
     [Fact]
     [RustTest("contacts_x::pretty_dates_and_upcoming")]
-    [Red("con-data")]
     public void Pretty_dates_and_upcoming()
     {
         var today = new DateOnly(2026, 11, 16);

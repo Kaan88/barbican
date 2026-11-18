@@ -19,4 +19,7 @@ public sealed record VCardLimits
 
     /// <summary>Entries of one kind (emails, phones, ...) in one card.</summary>
     public int MaxEntriesPerKind { get; init; } = 500;
+
+    /// <summary>Property lines kept for one card (the rest of a card that long are ignored): bounds what a file of one endless card can hold (D-M5-A03).</summary>
+    public int MaxPropertiesPerCard { get; init; } = 5_000;
 }
