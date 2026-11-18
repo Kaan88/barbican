@@ -8,7 +8,6 @@ namespace Barbican.Core.Tests.Calendar.Recurrence;
 public sealed class TimeZonesTests
 {
     [Fact]
-    [Red("cal-data")]
     [RustTest("recurrence::zones_convert_and_search")]
     public void Zones_convert_and_search()
     {

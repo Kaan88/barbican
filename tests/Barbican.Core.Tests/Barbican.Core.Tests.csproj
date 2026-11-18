@@ -9,6 +9,8 @@
     <ProjectReference Include="../../plugins/Barbican.Plugin.SpamScore/Barbican.Plugin.SpamScore.csproj" ReferenceOutputAssembly="false" Private="false" />
     <PackageReference Include="Microsoft.Extensions.TimeProvider.Testing" />
     <PackageReference Include="Microsoft.Testing.Extensions.CodeCoverage" />
+    <!-- M4 cal-data: the differential oracle of the recurrence tests (test-side only, D-M4-03). -->
+    <PackageReference Include="Ical.Net" />
   </ItemGroup>
 
   <!-- Copies the plugin's build output (the dll and its pdb) next to the tests so the plugin host test loads the real build. -->

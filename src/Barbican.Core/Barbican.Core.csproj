@@ -24,6 +24,8 @@
     <!-- M2 (plan 3.2): MDN multipart/report, view source, forward as attachment, .eml/.mbox parsing, TNEF; BIMI and DMARC TXT lookups. -->
     <PackageReference Include="MimeKit" />
     <PackageReference Include="DnsClient" />
+    <!-- M4 cal-data: time zones (tzdb) for the recurrence engine and reminders. -->
+    <PackageReference Include="NodaTime" />
   </ItemGroup>
 
   <ItemGroup>

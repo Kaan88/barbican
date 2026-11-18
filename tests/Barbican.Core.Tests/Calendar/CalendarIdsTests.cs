@@ -8,7 +8,6 @@ namespace Barbican.Core.Tests.Calendar;
 public sealed class CalendarIdsTests
 {
     [Fact]
-    [Red("cal-data")]
     [RustTest("calendar::namespaced_ids")]
     public void Namespaced_ids()
     {
