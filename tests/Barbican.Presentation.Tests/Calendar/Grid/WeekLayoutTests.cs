@@ -141,6 +141,21 @@ public sealed class WeekLayoutTests
     }
 
     [Fact]
+    public void Overlapping_events_share_the_column_while_each_lane_stays_readable_and_cascade_when_it_would_not()
+    {
+        // 134 px column: two lanes share it, three would be 44 px each and cascade instead (D-M5-I05)
+        Assert.Equal((0d, 134d), WeekLayout.Slot(0, 1, 134));
+        Assert.Equal((67d, 67d), WeekLayout.Slot(1, 2, 134));
+        var lanes = Enumerable.Range(0, 3).Select(l => WeekLayout.Slot(l, 3, 134)).ToList();
+        Assert.All(lanes, s => Assert.True(s.Width >= WeekLayout.MinLaneWidth));
+        Assert.Equal(0, lanes[0].Left);
+        Assert.True(lanes[1].Left > lanes[0].Left && lanes[2].Left > lanes[1].Left);
+        Assert.All(lanes, s => Assert.True(s.Left + s.Width <= 134.001 || s.Width == WeekLayout.MinLaneWidth));
+        // a crowded column never goes below the readable width
+        Assert.All(Enumerable.Range(0, 8).Select(l => WeekLayout.Slot(l, 8, 134)), s => Assert.True(s.Width >= WeekLayout.MinLaneWidth));
+    }
+
+    [Fact]
     public void Thousands_of_items_build_the_agenda_quickly()
     {
         var occs = Enumerable.Range(0, 5000).Select(i => O("e" + i, "2026-11-18T10:00", "2026-11-18T11:00", title: "Item " + i)).ToList();

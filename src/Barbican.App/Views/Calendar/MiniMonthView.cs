@@ -131,7 +131,7 @@ public sealed class MiniMonthView : UserControl
         for (var i = 0; i < days.Count; i++)
         {
             var d = days[i];
-            var label = new Grid();
+            var label = new Grid { HorizontalAlignment = HorizontalAlignment.Stretch, VerticalAlignment = VerticalAlignment.Stretch };
             label.Children.Add(new TextBlock
             {
                 Text = d.Day.Day.ToString(CultureInfo.InvariantCulture),
@@ -140,10 +140,11 @@ public sealed class MiniMonthView : UserControl
                 Foreground = CalendarVisuals.Palette(d.Today ? "OnAccent" : d.InMonth ? "Body" : "Faint"),
                 HorizontalAlignment = HorizontalAlignment.Center,
                 VerticalAlignment = VerticalAlignment.Center,
+                Margin = new Thickness(0, 0, 0, d.Busy && !d.Today ? 5 : 0),
             });
             if (d.Busy && !d.Today)
             {
-                label.Children.Add(new Border { Width = 4, Height = 4, CornerRadius = new CornerRadius(2), Background = CalendarVisuals.Palette("Accent"), HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Bottom, Margin = new Thickness(0, 0, 0, 2) });
+                label.Children.Add(new Border { Width = 4, Height = 4, CornerRadius = new CornerRadius(2), Background = CalendarVisuals.Palette("Accent"), HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Bottom, Margin = new Thickness(0, 0, 0, 3) });
             }
 
             var key = d.Day.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
@@ -155,6 +156,9 @@ public sealed class MiniMonthView : UserControl
                 CornerRadius = new CornerRadius(9),
                 Background = d.Today ? CalendarVisuals.Palette("Accent") : d.Selected ? CalendarVisuals.Palette("Tile2") : null,
                 Content = label,
+                Padding = new Thickness(0),
+                HorizontalContentAlignment = HorizontalAlignment.Stretch,
+                VerticalContentAlignment = VerticalAlignment.Stretch,
                 IsTabStop = false,
             };
             AutomationProperties.SetAutomationId(button, "cal.mini.day." + key);

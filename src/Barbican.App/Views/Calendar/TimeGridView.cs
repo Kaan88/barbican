@@ -283,10 +283,10 @@ public sealed class TimeGridView : UserControl
         _placed.Clear();
         var calendars = _vm.Calendars.ToDictionary(c => c.Id, c => c.Color, StringComparer.Ordinal);
         var now = _vm.Now();
-        foreach (var box in WeekLayout.Timed(_columns, _vm.Occurrences, settings.HourFrom, settings.HourTo))
+        foreach (var box in WeekLayout.Timed(_columns, _vm.Occurrences, settings.HourFrom, settings.HourTo).OrderBy(b => b.Lane))
         {
-            var laneW = colW / box.Lanes;
-            var rect = new Rect(Gutter + (box.Column * colW) + (box.Lane * laneW) + 2, box.Top + 1, Math.Max(8, laneW - 5), Math.Max(10, box.Height - 2));
+            var (laneLeft, laneW) = WeekLayout.Slot(box.Lane, box.Lanes, colW);
+            var rect = new Rect(Gutter + (box.Column * colW) + laneLeft + 2, box.Top + 1, Math.Max(8, laneW - 5), Math.Max(10, box.Height - 2));
             _placed.Add(new Placed(rect, box));
             var o = box.Occurrence;
             var hex = calendars.TryGetValue(o.Calendar, out var c) ? c : "#3b82f6";

@@ -55,6 +55,34 @@ public static class WeekLayout
         return result;
     }
 
+    /// <summary>The narrowest a lane may be before the lanes of an overlap group cascade instead of sharing the column (px; a card narrower than this cannot show a title).</summary>
+    public const double MinLaneWidth = 64;
+
+    /// <summary>The widest step between cascaded lanes (px).</summary>
+    public const double CascadeStep = 22;
+
+    /// <summary>
+    /// Where lane <paramref name="lane"/> of <paramref name="lanes"/> goes in a column <paramref name="columnWidth"/> px wide, as left offset and width: side by side while each lane keeps <see cref="MinLaneWidth"/>,
+    /// else cascaded (each later lane starts a step to the right and runs to the column's edge, drawn over the earlier ones) so every title stays readable (D-M5-I05).
+    /// </summary>
+    public static (double Left, double Width) Slot(int lane, int lanes, double columnWidth)
+    {
+        if (lanes <= 1)
+        {
+            return (0, columnWidth);
+        }
+
+        if (columnWidth / lanes >= MinLaneWidth)
+        {
+            var w = columnWidth / lanes;
+            return (lane * w, w);
+        }
+
+        var step = Math.Min(CascadeStep, Math.Max(8, (columnWidth - MinLaneWidth) / (lanes - 1)));
+        var left = lane * step;
+        return (left, Math.Max(MinLaneWidth, columnWidth - left));
+    }
+
     private static void PlaceGroup(List<(CalendarOccurrence Occ, DateTime Start, DateTime End)> segments, int column, DateTime dayStart, int hourFrom, List<TimedBox> result)
     {
         var i = 0;
