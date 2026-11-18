@@ -76,11 +76,11 @@ internal static class HtmlExporter
                 case BlockKind.Quoted q:
                     if (q.Cite)
                     {
-                        h.Append("<blockquote type=\"cite\" style=\"margin:0 0 0 .8ex;border-left:2px solid #d4d4d8;padding-left:1ex\">").Append(q.Html).Append("</blockquote>");
+                        h.Append("<blockquote type=\"cite\" style=\"margin:0 0 0 .8ex;border-left:2px solid #d4d4d8;padding-left:1ex\">").Append(QuotedHtmlSanitizer.Sanitize(q.Html)).Append("</blockquote>");
                     }
                     else
                     {
-                        h.Append("<div>").Append(q.Html).Append("</div>");
+                        h.Append("<div>").Append(QuotedHtmlSanitizer.Sanitize(q.Html)).Append("</div>");
                     }
 
                     i++;

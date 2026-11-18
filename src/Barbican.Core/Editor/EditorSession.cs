@@ -1156,14 +1156,13 @@ public sealed class EditorSession : IEditorSession
             return;
         }
 
+        // the marks the next character would get: a mark just toggled (stored) wins over the text before the caret, so Bold off then Enter starts a plain paragraph (ProseMirror splitBlock keeps storedMarks)
+        var pending = _stored;
         var np = Doc.Split(p);
 
         // carry the caret marks into the new block (minus links)
-        var carried = Doc.Blocks[p.B].MarksAt(p.O) with { Link = null };
-        if (!carried.IsPlain && Doc.Blocks[np.B].IsEmpty)
-        {
-            _stored = carried;
-        }
+        var carried = (pending ?? Doc.Blocks[p.B].MarksAt(p.O)) with { Link = null };
+        _stored = !carried.IsPlain && Doc.Blocks[np.B].IsEmpty ? carried : null;
 
         Sel = Sel.Caret(np);
     }
