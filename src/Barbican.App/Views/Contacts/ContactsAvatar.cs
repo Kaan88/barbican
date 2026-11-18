@@ -47,13 +47,13 @@ internal static class ContactsAvatar
             if (comma > 0 && dataUri.AsSpan(0, comma).Contains("base64", StringComparison.OrdinalIgnoreCase))
             {
                 var bytes = Convert.FromBase64String(dataUri[(comma + 1)..]);
+                // the stream adapter is not disposed here: disposing it closes the stream it wraps and the decoder would read nothing (found in the M5 hidden run, D-M5-I02)
                 var stream = new InMemoryRandomAccessStream();
-                using (var output = stream.AsStreamForWrite())
-                {
-                    output.Write(bytes, 0, bytes.Length);
-                    output.Flush();
-                }
-
+#pragma warning disable CA2000 // closing the adapter closes the stream the bitmap is about to read
+                var output = stream.AsStreamForWrite();
+#pragma warning restore CA2000
+                output.Write(bytes, 0, bytes.Length);
+                output.Flush();
                 stream.Seek(0);
                 var image = new BitmapImage();
                 image.SetSource(stream);

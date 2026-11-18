@@ -59,7 +59,7 @@ public static class WeekLayout
     public const double MinLaneWidth = 64;
 
     /// <summary>The widest step between cascaded lanes (px).</summary>
-    public const double CascadeStep = 22;
+    public const double CascadeStep = 36;
 
     /// <summary>
     /// Where lane <paramref name="lane"/> of <paramref name="lanes"/> goes in a column <paramref name="columnWidth"/> px wide, as left offset and width: side by side while each lane keeps <see cref="MinLaneWidth"/>,

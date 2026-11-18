@@ -298,6 +298,15 @@ public sealed class TimeGridView : UserControl
             Canvas.SetLeft(card, rect.X);
             Canvas.SetTop(card, rect.Y);
             AutomationProperties.SetAutomationId(card, "cal.event." + o.Id);
+            if (laneW > (colW / box.Lanes) + 0.5)
+            {
+                // a cascaded lane covers part of the one before it: a card of the tinted (translucent) kind gets an opaque ground so the titles do not show through each other (D-M5-I05)
+                var ground = new Border { Width = rect.Width, Height = rect.Height, CornerRadius = card.CornerRadius, Background = CalendarVisuals.Palette("Tile"), BorderBrush = CalendarVisuals.Palette("Line"), BorderThickness = new Thickness(1), IsHitTestVisible = false };
+                Canvas.SetLeft(ground, rect.X);
+                Canvas.SetTop(ground, rect.Y);
+                children.Add(ground);
+            }
+
             children.Add(card);
         }
 

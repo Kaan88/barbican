@@ -153,7 +153,7 @@ public sealed class FilesListView : UserControl
         var g = Columns();
         void Cell(string t, int col, FilesSortKey? key)
         {
-            var b = new Button { Style = (Style)Application.Current.Resources["Button.Action"], Content = t + (key is { } k && k == _vm.SortKey ? (_vm.SortDescending ? "  ▼" : "  ▲") : string.Empty), HorizontalAlignment = HorizontalAlignment.Left, FontSize = 11.5, Opacity = 0.7 };
+            var b = new Button { Style = (Style)Application.Current.Resources["Button.Icon"], Content = t + (key is { } k && k == _vm.SortKey ? (_vm.SortDescending ? "  ▼" : "  ▲") : string.Empty), HorizontalAlignment = HorizontalAlignment.Left, FontSize = 11.5, Opacity = 0.7 };
             if (key is { } sort)
             {
                 b.Click += (_, _) =>

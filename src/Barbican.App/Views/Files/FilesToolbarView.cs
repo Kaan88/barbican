@@ -101,7 +101,7 @@ public sealed class FilesToolbarView : UserControl
 
     private void Crumb(string text, Action go, string id)
     {
-        var b = new Button { Style = (Style)Application.Current.Resources["Button.Action"], Content = text };
+        var b = new Button { Style = (Style)Application.Current.Resources["Button.Icon"], Content = text };
         AutomationProperties.SetAutomationId(b, id);
         b.Click += (_, _) => go();
         _crumbs.Children.Add(b);

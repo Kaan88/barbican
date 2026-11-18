@@ -5,6 +5,7 @@ using System.Runtime.CompilerServices;
 using Barbican.Core.Files;
 using Barbican.Core.Plugins.Hooks;
 using Barbican.Core.Storage;
+using Barbican.Presentation.Common;
 
 namespace Barbican.Presentation.Files;
 
@@ -31,7 +32,7 @@ public sealed class FilesViewModel : IFilesViewModel
     private string? _error;
     private string _accountKey = string.Empty;
 
-    public FilesViewModel(IFileStore store, IFileWriter writer, IHookBus? hooks = null, TimeProvider? time = null, IPrefsStore? prefs = null)
+    public FilesViewModel(IFileStore store, IFileWriter writer, IHookBus? hooks = null, TimeProvider? time = null, IPrefsStore? prefs = null, IDispatcher? dispatcher = null)
     {
         ArgumentNullException.ThrowIfNull(store);
         _store = store;
@@ -54,9 +55,20 @@ public sealed class FilesViewModel : IFilesViewModel
 
         _store.Changed += (_, e) =>
         {
-            if (string.Equals(e.AccountKey, _accountKey, StringComparison.Ordinal))
+            if (!string.Equals(e.AccountKey, _accountKey, StringComparison.Ordinal))
+            {
+                return;
+            }
+
+            // the real store raises Changed from the thread that finished a write or a push, and the views redraw on PropertyChanged: back to the UI thread first
+            // (found by the M5 live run: an upload ended in "interface marshalled for a different thread"; the sample store raises on the UI thread and hid it)
+            if (dispatcher is null || dispatcher.HasThreadAccess)
             {
                 Rebuild();
+            }
+            else
+            {
+                dispatcher.Post(Rebuild);
             }
         };
     }

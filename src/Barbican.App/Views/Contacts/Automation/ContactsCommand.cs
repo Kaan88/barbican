@@ -27,7 +27,7 @@ namespace Barbican.App.Views.Contacts.Automation;
 public sealed class ContactsCommand(string name, Func<string[], CancellationToken, Task<string>> run) : IAutomationCommand
 {
     /// <summary>How many commands <see cref="Create"/> returns.</summary>
-    public const int Count = 8;
+    public const int Count = 11;
 
     public string Name => name;
 
@@ -169,6 +169,47 @@ public sealed class ContactsCommand(string name, Func<string[], CancellationToke
             return result.IsOk ? "ok" : "error " + result.Error!.Message;
         });
 
+        // the dialogs sit in a popup the element search cannot reach, so the hidden run drives their models the way their buttons do
+        yield return new ContactsCommand("con-form-photo", async (_, ct) =>
+        {
+            if (sp.GetRequiredService<IContactsEditors>() is not ContactsEditors { LastForm: { } form })
+            {
+                return "error no form is open";
+            }
+
+            await form.PickPhotoAsync(ct).ConfigureAwait(true);
+            return string.IsNullOrEmpty(form.Error) ? "ok photo=" + (form.PhotoUri is null ? "none" : "set") : "error " + form.Error;
+        });
+
+        yield return new ContactsCommand("con-import-go", async (_, ct) =>
+        {
+            if (sp.GetRequiredService<ContactsActions>().LastImport is not { } import)
+            {
+                return "error no import dialog is open";
+            }
+
+            await import.PickAsync(ct).ConfigureAwait(true);
+            if (!string.IsNullOrEmpty(import.Error))
+            {
+                return "error " + import.Error;
+            }
+
+            var count = import.ImportCount;
+            var result = await import.ImportAsync(ct).ConfigureAwait(true);
+            return result.IsOk ? "ok imported=" + result.Value + " of " + count : "error " + result.Error!.Message + " imported=" + result.Value;
+        });
+
+        yield return new ContactsCommand("con-merge-go", async (_, ct) =>
+        {
+            if (sp.GetRequiredService<ContactsActions>().LastMerge is not { } merge)
+            {
+                return "error no merge dialog is open";
+            }
+
+            var result = await merge.MergeAsync(ct).ConfigureAwait(true);
+            return result.IsOk ? "ok " + merge.Status : "error " + result.Error!.Message;
+        });
+
         yield return new ContactsCommand("con-queue-open", async (w, ct) =>
         {
             var path = string.Join(' ', w);
@@ -209,6 +250,12 @@ public sealed class ContactsCommand(string name, Func<string[], CancellationToke
                     json["open"] = vm.OpenId;
                     json["name"] = vm.OpenCard is { } card ? ContactsListRules.FullName(card) : null;
                     json["lines"] = new JsonArray([.. vm.DetailLines.Select(l => (JsonNode)new JsonObject { ["section"] = l.Section, ["label"] = l.Label, ["value"] = l.Value })]);
+                    break;
+                case "photo":
+                    json["open"] = vm.OpenId;
+                    json["uriLength"] = vm.OpenCard is { } pc ? ContactsJson.PhotoUri(pc)?.Length : null;
+                    json["media"] = vm.OpenCard?["media"] is { } media ? media.ToJsonString().Length : null;
+                    json["decoded"] = vm.OpenCard is { } dc && ContactsAvatar.Photo(ContactsJson.PhotoUri(dc)) is not null;
                     break;
                 case "menu":
                     var provider = sp.GetServices<IMenuProvider>().FirstOrDefault(p => string.Equals(p.MenuId, w.Length > 1 ? w[1] : ContactsMenuIds.Contact, StringComparison.Ordinal));

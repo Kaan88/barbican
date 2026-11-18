@@ -24,7 +24,8 @@ public sealed class FilesSidebarView : UserControl
 
     public FilesSidebarView()
     {
-        Width = 248;
+        Width = 236;
+        Margin = new Thickness(7, -5, 5, 0); // lines the pill up with the calendar and contacts sidebars
         _new = new Button
         {
             Style = (Style)Application.Current.Resources["Button.Primary"],

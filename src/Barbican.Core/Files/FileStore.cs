@@ -33,6 +33,7 @@ public sealed partial class FileStore : IFileStore, IDisposable
     private readonly Dictionary<string, Held> _held = new(StringComparer.Ordinal);
     private readonly Dictionary<string, CancellationTokenSource> _watchers = new(StringComparer.Ordinal);
     private readonly CancellationTokenSource _stop = new();
+    private readonly Task<string?> _localText;
     private List<string>? _favourites;
     private List<string>? _recent;
     private JsonObject _localOther = [];
@@ -45,6 +46,8 @@ public sealed partial class FileStore : IFileStore, IDisposable
         _accounts = accounts;
         _hooks = hooks;
         _localPath = paths is null ? null : Path.Combine(paths.ConfigDir, "files.json");
+        // files.json is read on the thread pool from the start: the sidebar asks for the favourites while it is built on the UI thread, and profile file IO there is a bug (found by the M5 live run: IoThreadCheck failed the app)
+        _localText = _localPath is { } local ? Task.Run(() => AtomicFile.ReadAllTextOrNull(local)) : Task.FromResult<string?>(null);
         _time = time ?? TimeProvider.System;
         _watchPush = watchPush;
     }
@@ -226,7 +229,10 @@ public sealed partial class FileStore : IFileStore, IDisposable
 
         _favourites = [];
         _recent = [];
-        if (_localPath is null || AtomicFile.ReadAllTextOrNull(_localPath) is not { } text)
+#pragma warning disable VSTHRD002 // the read runs on the thread pool and takes no lock of ours: waiting for it cannot deadlock, and the favourites are needed right now
+        var read = _localText.GetAwaiter().GetResult();
+#pragma warning restore VSTHRD002
+        if (read is not { } text)
         {
             return;
         }

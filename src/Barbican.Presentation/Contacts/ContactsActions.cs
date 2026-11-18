@@ -379,9 +379,16 @@ public sealed class ContactsActions(ContactsActionDeps d)
 
     // ---- import, export, merge, print ----
 
+    /// <summary>The import dialog's model that was opened last (a hidden run drives it, as the dialog's buttons would).</summary>
+    public ContactsImportViewModel? LastImport { get; private set; }
+
+    /// <summary>The merge dialog's model that was opened last (a hidden run drives it).</summary>
+    public ContactsMergeViewModel? LastMerge { get; private set; }
+
     public async Task<Result<Unit>> ImportAsync(CancellationToken ct)
     {
-        await ShowAsync(new ContactsImportRequest(new ContactsImportViewModel(Vm, d.Writer, d.Books, d.Picker)), ct).ConfigureAwait(true);
+        LastImport = new ContactsImportViewModel(Vm, d.Writer, d.Books, d.Picker);
+        await ShowAsync(new ContactsImportRequest(LastImport), ct).ConfigureAwait(true);
         return Done;
     }
 
@@ -431,7 +438,8 @@ public sealed class ContactsActions(ContactsActionDeps d)
             return Done;
         }
 
-        await ShowAsync(new ContactsMergeRequest(new ContactsMergeViewModel(Vm, d.Writer)), ct).ConfigureAwait(true);
+        LastMerge = new ContactsMergeViewModel(Vm, d.Writer);
+        await ShowAsync(new ContactsMergeRequest(LastMerge), ct).ConfigureAwait(true);
         return Done;
     }
 
