@@ -13,6 +13,8 @@ using Barbican.Core.Compose;
 using Barbican.Core.Contacts;
 using Barbican.Core.Editor;
 using Barbican.Core.Files;
+using Barbican.Core.Filters.Rules;
+using Barbican.Core.Settings;
 using Barbican.Core.Jmap;
 using Barbican.Core.Mail.Body;
 using Barbican.Core.Storage;
@@ -75,6 +77,16 @@ public sealed class CompositionGraphTests
         }
     }
 
+    /// <summary>The M6 streams' portable registrations (App/Composition/AppComposition.cs adds them after the M5 features).</summary>
+    private static void AddM6(ServiceCollection services)
+    {
+        services.AddBarbicanSettingsSeam();
+        services.AddBarbicanSettingsData();
+        services.AddBarbicanServerSettingsData();
+        services.AddBarbicanSettingsUiViewModels();
+        services.AddBarbicanServerUiViewModels();
+    }
+
     /// <summary>The M5 streams' portable registrations (App/Composition/AppComposition.cs adds them after the M4 features).</summary>
     private static void AddM5(ServiceCollection services)
     {
@@ -119,6 +131,7 @@ public sealed class CompositionGraphTests
         services.AddBarbicanComposerViewModels();
         AddM4(services);
         AddM5(services);
+        AddM6(services);
 
         // what MailBodyRegistration adds besides the WebView shell
         services.TryAddSingleton<ILinkRouter, StandInLinkRouter>();

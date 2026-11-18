@@ -7,7 +7,9 @@ using Barbican.Core.Compose;
 using Barbican.Core.Contacts;
 using Barbican.Core.Editor;
 using Barbican.Core.Files;
+using Barbican.Core.Filters.Rules;
 using Barbican.Core.Jmap;
+using Barbican.Core.Settings;
 using Barbican.Presentation.Composition;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
@@ -60,6 +62,11 @@ public static class AppComposition
         services.AddBarbicanFilesData();               // M5 files-data: src/Barbican.Core/Files/FilesDataRegistration.cs
         services.AddBarbicanContactsUi();              // M5 con-ui: src/Barbican.App/Composition/Features/ContactsUiRegistration.cs
         services.AddBarbicanFilesUi();                 // M5 files-ui: src/Barbican.App/Composition/Features/FilesUiRegistration.cs
+        services.AddBarbicanSettingsSeam();             // M6 plan commit: src/Barbican.Presentation/Composition/SettingsSeamRegistration.cs
+        services.AddBarbicanSettingsData();             // M6 set-data: src/Barbican.Core/Settings/SettingsDataRegistration.cs
+        services.AddBarbicanServerSettingsData();       // M6 srv-data: src/Barbican.Core/Filters/Rules/FilterDataRegistration.cs
+        services.AddBarbicanSettingsUi();               // M6 set-ui: src/Barbican.App/Composition/Features/SettingsUiRegistration.cs
+        services.AddBarbicanServerUi();                 // M6 srv-ui: src/Barbican.App/Composition/Features/SrvUiRegistration.cs
 #if AUTOMATION
         services.AddBarbicanAutomation();   // F1:       src/Barbican.Automation/AutomationRegistration.cs
 #endif

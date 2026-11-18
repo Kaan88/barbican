@@ -92,6 +92,15 @@ public sealed record FakeJmapOptions
     /// <summary>With <see cref="ArchiveCapability"/>: refuse the <c>accountId</c> filter of x:ArchivedItem/query with unsupportedFilter, as Stalwart does for a user who may not impersonate.</summary>
     public bool ArchiveRefusesAccountFilter { get; init; }
 
+    /// <summary>M6: advertise urn:ietf:params:jmap:vacationresponse for VacationResponse/get and set (srv-data).</summary>
+    public bool VacationCapability { get; init; }
+
+    /// <summary>M6: the vacation response VacationResponse/get answers (needs <see cref="VacationCapability"/>); null: disabled, empty.</summary>
+    public FakeVacation? Vacation { get; init; }
+
+    /// <summary>M6: the account-security objects behind x:AccountPassword, x:AccountSettings, x:AppPassword and x:ApiKey (set-data); null: those methods answer unknownMethod.</summary>
+    public FakeAccountSecurity? AccountSecurity { get; init; }
+
     /// <summary>Add the M2 seed (FakeSeed.FillM2) on top of the M1 seed. Off: the M1 seed only, so every M1 test sees the data it always saw.</summary>
     public bool SeedM2 { get; init; }
 

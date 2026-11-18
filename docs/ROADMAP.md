@@ -11,7 +11,7 @@ change the plan: [adr/](adr/). The Rust-era roadmap is in [legacy/ROADMAP.md](le
 | M3 | Compose and send with the native editor | planned |
 | M4 | Calendar and tasks | planned |
 | M5 | Contacts and Files | planned (plan: milestones/M5-plan.md) |
-| M6 | Settings pages, server settings, assistant | planned |
+| M6 | Settings pages, server settings, assistant | planned (plan: milestones/M6-plan.md) |
 | M7 | Admin | planned |
 | M8 | Windows desktop integration and distribution | planned |
 | M9 | Linux | planned |
