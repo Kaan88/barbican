@@ -16,9 +16,9 @@ Starting dimensions in effective pixels: 14 window inset, 12 tile gutters, 66 ra
 
 ![Approved Nordic Focus direction](mockups/approved-2026-11-19/nordic-focus-light.png)
 
-Keep the rail and folders on the ground, with one continuous rounded list/reader surface separated by a hairline. Favor a spacious reading column and minimal chrome. Use pills/circles and the same B identity and palette. The pictured context panel is hidden; provide an accessible control to reveal it rather than removing its functionality.
+Keep the rail and folders on the ground, with one continuous rounded list/reader/context surface separated by hairlines. Favor a spacious reading column and minimal chrome. Use pills/circles and the same B identity and palette. Nordic Focus includes the integrated sender/context panel selected by the user on 2026-11-19; keep the name Nordic Focus. The sender panel MUST be toggleable through an accessible show/hide control with a clear pressed state. Expand the reader when it is hidden, preserve the panel state when toggling, and provide keyboard access. Do not permanently reserve empty panel width.
 
-Starting dimensions: 76 rail, approximately 210-228 folders, 330-350 list and flexible reader. Keep the existing shell breakpoints; hide or reveal auxiliary context before compressing the reading area below roughly 420. At narrow widths use list/reader navigation rather than squeezing the entire desktop layout.
+Starting dimensions: 76 rail, approximately 210-228 folders, 330-350 list, flexible reader and about 190-210 for the context panel when open. Keep the existing shell breakpoints; collapse auxiliary context before compressing the reading area below roughly 420, with its show/hide control still accessible. At narrow widths use list/reader navigation rather than squeezing the entire desktop layout.
 
 ## Both styles and all screens
 

@@ -22,7 +22,9 @@ Read [design/UI-GUIDELINES.md](design/UI-GUIDELINES.md) before UI work. The user
 **Bento Balanced** and **Nordic Focus** from the Codex / Terra High mockups and instructed
 that these are the UI guidelines from now on, including for Claude. Refine the existing
 Bento and Nordic styles toward those baselines; where older boards differ, the selected
-directions win. Preserve behavior, shared tokens, native WinUI 3 feasibility, accessibility,
+directions win. Nordic Focus uses the integrated sender/context panel, with a user-controlled
+show/hide toggle; the reader expands when hidden. Preserve behavior, shared tokens, native
+WinUI 3 feasibility, accessibility,
 reduced motion and the hidden-automation rules. Further mockup alternatives remain proposals
 until selected; do not silently adopt them. Reference images are checked into
 `design/mockups/approved-2026-11-19/`.
