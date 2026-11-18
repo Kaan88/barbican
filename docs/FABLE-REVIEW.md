@@ -1421,3 +1421,9 @@ launched; Linux unverified). Verdicts on the M2 verify items 1 to 6, 11, 12 and 
 ## Codex - M6 assistant tools checkpoint
 
 - Review `src/Barbican.Core/Settings/Assistant/AssistantTools.cs`, `AssistantLoop.cs`, `AssistantSession.cs`, `IAssistantComposer.cs`: new typed tool paths need integrated fake-server coverage for calendar, contacts, attachments, filter edits and send. Drafts require the coordinator's composer adapter; confirm reply prefill survives. Filter rules depend on the srv-data implementation; do not claim B-AI-008 complete until integrated. Core tests passed 1,426 on Windows, including fake-server tag and scripted composer/confirmation tests; Linux and live service behavior are unproven.
+
+## Codex - M6 set-data integration follow-up
+
+- Review assistant tool changes after `325dfcf` in `src/Barbican.Core/Settings/Assistant/AssistantTools.cs`: account-filtered calendars, configured timezone, bounded attachment reads, filter rule validation and composer prefill. Fake-server tests cover ordinary paths; shared-account and task-only calendar selection remain limited because Stalwart does not expose supported components in Calendar/get (Bulwark `lib/jmap/client.ts:9075-9145`). The actual composer adapter and reply prefill need integrated UI verification.
+- Review `tests/Barbican.FakeJmap/FakeApi.AccountSecurity.cs`: the request log now redacts OTP URLs as well as codes and passwords. Fake-only account tests cover identities, password, TOTP and credentials, but are not proof of real Stalwart security-write compatibility.
+- Review `src/Barbican.Core/Settings/Pages/SettingsCatalog.cs`: the two mention and four filename preferences were removed from the inert list after checking their concrete readers; the UI owner is reconciling the remaining settings CSV.
