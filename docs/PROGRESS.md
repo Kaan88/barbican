@@ -13,10 +13,10 @@ wherever they can. Safety rules stay (no real input, read-only account, admin ke
 - Coordinator: Sol, checking subagent code during integration as requested by the user; the later independent whole-app reviewer is Astra. Keep the historical filename `docs/FABLE-REVIEW.md`, mark new entries as Codex, and record exact review scope and evidence.
 - The user explicitly authorized pushing milestone commits to `Kaan88/barbican`.
 - Set-data checkpoint `d1f137c` merged into `m6` as `08fe6f5`; missing assistant tools are being completed on the stream branch.
-- Srv-data checkpoint `856f4f9` is pushed; the calendar-block lifecycle is being completed before integration.
-- Set-ui checkpoint `bd50e41` is pushed; theme/sample assistant checks passed, but the hidden Security page has a caught exception and blank content requiring integration diagnosis.
+- Srv-data calendar lifecycle checkpoint `89ce45b` merged as `fe2118c`; ownership/lifecycle FakeJmap tests passed, with remaining policy/timezone/live limitations in the Astra log.
+- Set-ui checkpoint `bd50e41` merged as `1d3b614`; the coordinator fixed the Security-page parenting failure and verified repeated hidden visits. Assistant configuration now uses its real service; the guarded composer adapter is implemented.
 - Srv-ui has resumed in its existing worktree on port 8922. Three Terra High workers remain the active limit; narrow Luna High work will use a free slot when available.
-- Coordinator integration bridges and background preference dispatch pass the Presentation suite (963) and Platform suite (44 pass, one Linux-service skip). Full merged Windows tests, real-service hidden checks, live checks/cleanup, M6 report and portable zip are still pending. Linux stays deferred to M9.
+- Coordinator integration bridges, guarded assistant composer and background preference dispatch pass the full Windows suite: 2,695 passed, four live/Linux skips, zero failed. Final server UI merge, remaining settings/tool reconciliation, complete hidden checks, live checks/cleanup, M6 report and portable zip are pending. Linux stays deferred to M9.
 - Continue in order: M6 -> M6b -> M7 -> M8 -> M10 -> M9 -> Astra whole-app review. The pause table below is historical evidence, not current status.
 
 ## Milestones

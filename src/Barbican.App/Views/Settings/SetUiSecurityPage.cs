@@ -50,6 +50,13 @@ internal static class SetUiSecurityPage
         }), "set.security.change", primary: true));
         panel.Children.Add(dynamic);
 
+        // Reuse rows, not just their controls: clearing the panel detaches a row but the
+        // input remains a child of its Grid. Rewrapping it on refresh throws in WinUI.
+        var totpPasswordRow = SetUiUi.RowOf("Password", "Needed to change two-step sign-in.", totpPassword, "set.security.totp.password.row");
+        var totpCodeRow = SetUiUi.RowOf("Code", string.Empty, totpCode, "set.security.totp.code.row");
+        var appNameRow = SetUiUi.RowOf("New app password", string.Empty, appName, "set.security.app.name.row");
+        var keyNameRow = SetUiUi.RowOf("New API key", string.Empty, keyName, "set.security.key.name.row");
+
         void Render()
         {
             notice.Text = model.Available ? model.Status : "Account security is not offered by this server.";
@@ -64,7 +71,7 @@ internal static class SetUiSecurityPage
             if (model.TotpOn)
             {
                 dynamic.Children.Add(SetUiUi.Body("Two-step sign-in is on."));
-                dynamic.Children.Add(SetUiUi.RowOf("Password", "Needed to turn it off.", totpPassword, "set.security.totp.password.row"));
+                dynamic.Children.Add(totpPasswordRow);
                 dynamic.Children.Add(SetUiUi.Pill("Turn off", () => SetUiUi.Run(async () =>
                 {
                     await model.DisableTotpAsync(totpPassword.Password, CancellationToken.None).ConfigureAwait(true);
@@ -76,7 +83,7 @@ internal static class SetUiSecurityPage
                 dynamic.Children.Add(SetUiUi.Body("Add this to your authenticator app, then enter a code."));
                 var uri = new TextBox { Text = model.OtpUri, IsReadOnly = true, TextWrapping = TextWrapping.Wrap, MaxWidth = 520 };
                 dynamic.Children.Add(SetUiUi.Id(uri, "set.security.totp.uri"));
-                dynamic.Children.Add(SetUiUi.RowOf("Code", string.Empty, totpCode, "set.security.totp.code.row"));
+                dynamic.Children.Add(totpCodeRow);
                 dynamic.Children.Add(SetUiUi.Pill("Confirm", () => SetUiUi.Run(async () =>
                 {
                     await model.ConfirmTotpAsync(totpCode.Text, CancellationToken.None).ConfigureAwait(true);
@@ -85,7 +92,7 @@ internal static class SetUiSecurityPage
             }
             else
             {
-                dynamic.Children.Add(SetUiUi.RowOf("Password", "Needed to start.", totpPassword, "set.security.totp.password.row"));
+                dynamic.Children.Add(totpPasswordRow);
                 dynamic.Children.Add(SetUiUi.Pill("Turn on", () => SetUiUi.Run(async () =>
                 {
                     await model.BeginTotpAsync(totpPassword.Password, CancellationToken.None).ConfigureAwait(true);
@@ -100,7 +107,7 @@ internal static class SetUiSecurityPage
                 dynamic.Children.Add(Entry(a.Name, a.ExpiresAt is { } e ? "Expires " + e.LocalDateTime.ToString("d MMM yyyy", System.Globalization.CultureInfo.InvariantCulture) : "No expiry", "Delete", a.Id, id => model.DeleteAppPasswordAsync(id, CancellationToken.None), "set.security.app." + a.Id));
             }
 
-            dynamic.Children.Add(SetUiUi.RowOf("New app password", string.Empty, appName, "set.security.app.name.row"));
+            dynamic.Children.Add(appNameRow);
             dynamic.Children.Add(SetUiUi.Pill("Create app password", () => SetUiUi.Run(async () =>
             {
                 await model.CreateAppPasswordAsync(appName.Text, CancellationToken.None).ConfigureAwait(true);
@@ -113,7 +120,7 @@ internal static class SetUiSecurityPage
                 dynamic.Children.Add(Entry(k.Description, k.ExpiresAt is { } e ? "Expires " + e.LocalDateTime.ToString("d MMM yyyy", System.Globalization.CultureInfo.InvariantCulture) : "No expiry", "Delete", k.Id, id => model.DeleteApiKeyAsync(id, CancellationToken.None), "set.security.key." + k.Id));
             }
 
-            dynamic.Children.Add(SetUiUi.RowOf("New API key", string.Empty, keyName, "set.security.key.name.row"));
+            dynamic.Children.Add(keyNameRow);
             dynamic.Children.Add(SetUiUi.Pill("Create API key", () => SetUiUi.Run(async () =>
             {
                 await model.CreateApiKeyAsync(keyName.Text, CancellationToken.None).ConfigureAwait(true);
