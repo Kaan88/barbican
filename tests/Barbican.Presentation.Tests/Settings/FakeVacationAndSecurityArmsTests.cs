@@ -31,7 +31,7 @@ public sealed class FakeVacationAndSecurityArmsTests
         Assert.Empty(some["list"]!.AsArray());
         Assert.Equal("nope", (string?)some["notFound"]![0]);
         var (name, _) = await CallAsync(server, "VacationResponse/set", new JsonObject { ["update"] = new JsonObject() });
-        Assert.Equal("error", name);
+        Assert.Equal("VacationResponse/set", name); // srv-data filled the set arm (it was a stub in the plan commit); its tests are in Barbican.Core.Tests Settings/Vacation
 
         var plain = new FakeJmapServer(new FakeJmapOptions());
         var (off, _) = await CallAsync(plain, "VacationResponse/get", new JsonObject { ["ids"] = null });

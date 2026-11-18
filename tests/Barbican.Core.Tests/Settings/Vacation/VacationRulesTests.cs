@@ -9,7 +9,6 @@ public sealed class VacationRulesTests
     private static VacationSettings Base() => new(true, "Away", "I am away.", null, null, null, null, null, false);
 
     [Fact]
-    [Red("srv-data")]
     public void A_vacation_is_checked_before_it_is_saved()
     {
         Assert.Null(VacationRules.Problem(Base()));
@@ -24,7 +23,6 @@ public sealed class VacationRulesTests
     }
 
     [Fact]
-    [Red("srv-data")]
     public void Own_domains_are_lower_case_unique_and_in_order()
     {
         Assert.Equal(["example.org", "example.com"], VacationRules.OwnDomains(["a@Example.org", "b@example.COM", "c@example.org", "broken", "d@localhost"]));

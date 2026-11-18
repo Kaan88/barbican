@@ -13,7 +13,7 @@ namespace Barbican.Presentation.Tests.Support;
 
 internal sealed class ListHarness : IDisposable
 {
-    public ListHarness(string prefs = "{}")
+    public ListHarness(string prefs = "{}", IDispatcher? dispatcher = null)
     {
         Time = new FakeTimeProvider(Mails.Now);
         Time.SetLocalTimeZone(TimeZoneInfo.Utc);
@@ -23,13 +23,13 @@ internal sealed class ListHarness : IDisposable
         Prefs = new TestPrefs(prefs);
         Opener = new RecordingOpener();
         Bus = new HookBus();
-        var dispatcher = new InlineDispatcher();
+        dispatcher ??= new InlineDispatcher();
         Hub = new MailEventHub(Active, dispatcher);
         System = new NoSystemAccessibility();
         Motion = new MotionState(Time, dispatcher);
-        List = new MessageListViewModel(Active, Hub, Bus, Opener, Prefs, System, Motion, Time);
-        Shell = new ShellViewModel(Prefs, System, Motion, Bus, Time);
-        Sidebar = new SidebarViewModel(List, Hub, Prefs, System, Bus);
+        List = new MessageListViewModel(Active, Hub, Bus, Opener, Prefs, System, Motion, Time, dispatcher: dispatcher);
+        Shell = new ShellViewModel(Prefs, System, Motion, Bus, Time, dispatcher);
+        Sidebar = new SidebarViewModel(List, Hub, Prefs, System, Bus, dispatcher);
         Keys = new KeyRouter(List, Sidebar, Shell, Prefs, System, Bus, Time);
         List.Rows.CollectionChanged += (_, e) => Changes.Add(e.Action);
     }

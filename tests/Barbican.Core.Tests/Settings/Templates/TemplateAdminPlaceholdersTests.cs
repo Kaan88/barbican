@@ -7,7 +7,6 @@ namespace Barbican.Core.Tests.Settings.Templates;
 public sealed class TemplateAdminPlaceholdersTests
 {
     [Fact]
-    [Red("srv-data")]
     public void Placeholders_are_found_once_in_order_and_filled()
     {
         Assert.Equal(["name", "topic"], TemplateAdminPlaceholders.Find("Hi {{name}}, {{ name }} / {{topic}} {{not valid}} {single}"));

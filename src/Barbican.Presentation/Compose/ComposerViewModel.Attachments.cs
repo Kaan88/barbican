@@ -95,21 +95,25 @@ public sealed partial class ComposerViewModel
     public void CloseTemplates() => Templates?.Cancel();
 
     /// <summary>Inserts a template: its subject when the subject is empty, its body at the caret.</summary>
-    public Task InsertTemplateAsync(MailTemplate template)
+    public async Task InsertTemplateAsync(MailTemplate template)
     {
         ArgumentNullException.ThrowIfNull(template);
+
+        // onTemplateRender (transform) may change the subject and the text before it goes in (srv-data, D-M6-08); onTemplateApply tells observers after
+        var shaped = await _c.Hooks.ShapeAsync(HookNames.OnTemplateRender, new TemplateAdminRenderPayload(template.Id, template.Subject, template.IsHtml ? template.Body : string.Empty, template.IsHtml ? string.Empty : template.Body), CancellationToken.None).ConfigureAwait(true);
+        var text = template.IsHtml ? shaped.Html : shaped.Text;
         IReadOnlyList<Block> blocks;
         try
         {
-            blocks = template.IsHtml ? DocHtml.Import(template.Body) : [.. Doc.FromText(template.Body).Blocks];
+            blocks = template.IsHtml ? DocHtml.Import(text) : [.. Doc.FromText(text).Blocks];
         }
         catch (Barbican.Core.Common.PortPendingException)
         {
-            blocks = [.. Doc.FromText(template.Body).Blocks];
+            blocks = [.. Doc.FromText(text).Blocks];
         }
 
-        ApplyInsertion(blocks, template.Subject);
-        return Task.CompletedTask;
+        ApplyInsertion(blocks, shaped.Subject);
+        _c.Hooks.Fire(HookNames.OnTemplateApply, () => new TemplateAdminViewPayload(template.Id, template.Name, shaped.Subject, text, template.IsHtml, template.Category, template.IsFavorite));
     }
 
     private string CurrentIdentityName() => CurrentIdentity?.Identity.Name ?? string.Empty;

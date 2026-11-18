@@ -16,7 +16,6 @@ public sealed class FolderAdminRulesTests
     ];
 
     [Fact]
-    [Red("srv-data")]
     public void Names_roles_and_holders()
     {
         Assert.Null(FolderAdminRules.NameProblem("Receipts", ["Work", "Archive"]));
@@ -30,7 +29,6 @@ public sealed class FolderAdminRulesTests
     }
 
     [Fact]
-    [Red("srv-data")]
     public void A_folder_cannot_move_under_itself_and_role_folders_stay_put()
     {
         Assert.True(FolderAdminRules.CanMoveUnder(Tree, "deep", null));
