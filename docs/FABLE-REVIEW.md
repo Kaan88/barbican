@@ -1273,3 +1273,9 @@ launched; Linux unverified). Verdicts on the M2 verify items 1 to 6, 11, 12 and 
 - **Contract stubs throw `PortPendingException`** until their stream lands; a default registration that throws is only reached if a stream forgets to replace it (`CalendarDataRegistration.cs`, `CalendarEditingRegistration.cs`, the six calls in `AppComposition.cs`).
 - **FakeJmap calendar arms** (`tests/Barbican.FakeJmap/FakeApi.Calendar.cs`) are written from the draft and Stalwart's source, not recorded from a server: review that their error shapes match Stalwart before cal-edit's write arm is trusted (`Principal/getAvailability` answers from event participants only).
 
+
+## M4 stream cal-ui
+- **Typed date and time fields instead of pickers** (D-M4-40): `src/Barbican.App/Views/Calendar/Editors/CalendarCardHost.Event.cs`. Review whether a picker is wanted; the card layout was never looked at (no calendar screen host on this branch, so no screenshot was taken).
+- **App views compiled, never run**: `CalendarCardHost*.cs` and `Automation/CalendarUiAutomation.cs` build in Debug and Automation but no hidden run happened; cal-views places `CalendarCardHost` (DI singleton) over its grid.
+- **Command and menu counts are constants** (`CalendarCommandSet.Count` 40, `CalendarMenus.Count` 6); composition tests assert them. Commit 16e4666 fixed an off-by-one (was 41).
+- **Requests to other streams**: cal-views adds `CalendarCardHost` as the top child of the calendar screen and routes the rail Tasks entry to `TasksViewModel`; the Tasks list view and reminder popup views are not written (view models only).
