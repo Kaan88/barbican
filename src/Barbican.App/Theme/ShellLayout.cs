@@ -2,6 +2,8 @@
 // The sender panel beside the reader comes from the WinUI prototype (prototype/winui/MainWindow.xaml ContextTile); unlike the prototype, it hides
 // when the reader would get narrower than StyleMetrics.ContextMinReader (docs/milestones/M1-look-gap.md).
 
+using Barbican.Presentation.Shell;
+
 namespace Barbican.App.Theme;
 
 /// <summary>Which regions show at a window width and how wide the columns are. Pure arithmetic, so the breakpoints are tested without a window.</summary>
@@ -17,18 +19,21 @@ public readonly record struct ShellLayout(double WindowWidth, bool Nordic, bool 
 
     /// <summary>Computes the layout of the mail screen.</summary>
     public static ShellLayout Compute(double windowWidth, bool nordic, bool sidebarShown = true)
+        => Compute(windowWidth, nordic ? ShellStyle.Nordic : ShellStyle.Bento, sidebarShown);
+
+    public static ShellLayout Compute(double windowWidth, ShellStyle style, bool sidebarShown = true)
     {
-        var m = StyleMetrics.For(nordic);
+        var m = StyleMetrics.For(style);
         var list = m.ListWidth(windowWidth);
         var fixedWidth = m.PadLeft + m.RailWidth + m.Gap + (sidebarShown ? m.SidebarWidth + m.Gap : 0) + list + m.Gap + m.Pad;
         var reader = Math.Max(0, windowWidth - fixedWidth);
         var withContext = reader - m.ContextWidth - m.Gap;
-        var context = withContext >= m.ContextMinReader;
+        var context = !m.Bulwark && withContext >= m.ContextMinReader;
         if (context)
         {
             reader = withContext;
         }
 
-        return new ShellLayout(windowWidth, nordic, sidebarShown, !nordic && reader >= TilesMinReader, list, reader, context);
+        return new ShellLayout(windowWidth, m.Nordic, sidebarShown, !m.Bulwark && !m.Nordic && reader >= TilesMinReader, list, reader, context);
     }
 }

@@ -40,22 +40,24 @@ public sealed class StyleState : ObservableObject
 
     public bool IsBento => !_m.Nordic;
 
-    public ShellStyle Style => _m.Nordic ? ShellStyle.Nordic : ShellStyle.Bento;
+    public bool IsBulwark => _m.Bulwark;
+
+    public ShellStyle Style => IsBulwark ? ShellStyle.Bulwark : _m.Nordic ? ShellStyle.Nordic : ShellStyle.Bento;
 
     /// <summary>The window width the layout was computed for.</summary>
     public double WindowWidth => _windowWidth;
 
-    public ShellLayout Layout => ShellLayout.Compute(_windowWidth, _m.Nordic);
+    public ShellLayout Layout => ShellLayout.Compute(_windowWidth, Style);
 
     /// <summary>Applies a style; true when it changed.</summary>
-    public bool SetStyle(bool nordic)
+    public bool SetStyle(ShellStyle style)
     {
-        if (nordic == _m.Nordic)
+        if (style == Style)
         {
             return false;
         }
 
-        _m = StyleMetrics.For(nordic);
+        _m = StyleMetrics.For(style);
         OnPropertyChanged(string.Empty);
         return true;
     }
@@ -153,12 +155,14 @@ public sealed class StyleState : ObservableObject
 
     public CornerRadius SurfaceRadius => IsNordic ? new CornerRadius(_m.PaneRadius) : new CornerRadius(0);
 
-    public Thickness PaneBorder => IsBento ? new Thickness(1) : new Thickness(0);
+    public Thickness PaneBorder => IsBento && !IsBulwark ? new Thickness(1) : new Thickness(0);
 
-    public CornerRadius PaneRadius => IsBento ? new CornerRadius(_m.PaneRadius) : new CornerRadius(0);
+    public CornerRadius PaneRadius => IsBento && !IsBulwark ? new CornerRadius(_m.PaneRadius) : new CornerRadius(0);
 
     /// <summary>Nordic: the list's corners follow the surface's inner curve on the left, the sender panel's on the right.</summary>
-    public CornerRadius ListRadius => IsBento ? new CornerRadius(_m.PaneRadius) : new CornerRadius(_m.PaneRadius - 1, 0, 0, _m.PaneRadius - 1);
+    public CornerRadius ListRadius => IsBulwark ? new CornerRadius(0) : IsBento ? new CornerRadius(_m.PaneRadius) : new CornerRadius(_m.PaneRadius - 1, 0, 0, _m.PaneRadius - 1);
+
+    public Thickness ListBorder => IsBulwark ? new Thickness(0, 0, 1, 0) : PaneBorder;
 
     public CornerRadius ContextRadius => IsBento ? new CornerRadius(_m.PaneRadius) : new CornerRadius(0, _m.PaneRadius - 1, _m.PaneRadius - 1, 0);
 
@@ -217,9 +221,9 @@ public sealed class StyleState : ObservableObject
 
     public Thickness MarkGap => new(0, _m.MarkGap, 0, 0);
 
-    public CornerRadius RailRadius => IsBento ? new CornerRadius(24) : new CornerRadius(0);
+    public CornerRadius RailRadius => IsBento && !IsBulwark ? new CornerRadius(24) : new CornerRadius(0);
 
-    public Thickness RailBorder => IsBento ? new Thickness(1) : new Thickness(0);
+    public Thickness RailBorder => IsBulwark ? new Thickness(0, 0, 1, 0) : IsBento ? new Thickness(1) : new Thickness(0);
 
     public CornerRadius AccountRadius => new(_m.Round(AccountSize));
 
@@ -230,9 +234,9 @@ public sealed class StyleState : ObservableObject
 
     public Brush SidebarBrush => PaneBrush;
 
-    public Thickness SidebarBorder => PaneBorder;
+    public Thickness SidebarBorder => IsBulwark ? new Thickness(0, 0, 1, 0) : PaneBorder;
 
-    public CornerRadius SidebarRadius => IsBento ? new CornerRadius(_m.PaneRadius) : new CornerRadius(0);
+    public CornerRadius SidebarRadius => IsBento && !IsBulwark ? new CornerRadius(_m.PaneRadius) : new CornerRadius(0);
 
     public double SidebarSpacing => 0;
 

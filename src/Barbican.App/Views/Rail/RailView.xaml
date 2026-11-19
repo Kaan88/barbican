@@ -13,7 +13,7 @@
   <!-- The app rail (spec/layout/shell.md "Rail"; mockups BNMail nav / NordMail nav; prototype BuildRail): a tile in Bento, bare in Nordic. Inactive apps are bare icons
        (no fill until hovered); apps that do not exist yet are shown and inert. -->
   <Border x:Name="Pane" Background="{x:Bind Look.PaneBrush, Mode=OneWay}" BorderBrush="{StaticResource Line}"
-          BorderThickness="{x:Bind Look.RailBorder, Mode=OneWay}" CornerRadius="{x:Bind Look.RailRadius, Mode=OneWay}"
+           BorderThickness="{x:Bind Look.RailBorder, Mode=OneWay}" CornerRadius="{x:Bind Look.RailRadius, Mode=OneWay}"
           Width="{x:Bind Look.RailWidth, Mode=OneWay}" Padding="{x:Bind Look.RailPadding, Mode=OneWay}">
     <Grid RowDefinitions="Auto,Auto,*,Auto,Auto" AutomationProperties.AutomationId="rail" AutomationProperties.Name="Apps">
       <!-- The mark: Bento the "B" squircle, Nordic the three bars (prototype BuildRail). -->

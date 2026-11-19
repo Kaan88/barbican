@@ -25,6 +25,19 @@ placeholders (see CLAUDE.md); never write real values here.
 - Review `src/Barbican.Core/Compose/ComposeRequest.cs`, `ComposeSeeder.cs`, and `tests/Barbican.Core.Tests/Compose/ComposeSeederTests.cs` (uncommitted): reply-only text is imported as plain text before signature placement; UI ownership, account and message binding, draft lifecycle, and sending remain outside this stream. Synthetic Core tests do not verify the eventual UI handoff.
 - Composer visual pass (Codex, GPT-6.1 Terra; uncommitted, based on palette prerequisite): review `src/Barbican.App/Views/Compose/ComposerView.xaml` and `ComposerView.xaml.cs`. Bulwark uses flat header/field rows and a compact responsive footer while the same actions and legacy layouts remain; header window controls, additional Bulwark footer actions and compact dock field behavior are not implemented. Hidden synthetic Windows captures exercise new and docked reply plus Bento/Nordic previews; actual window transitions and live accounts were not tested.
 
+## M6b shell (Codex, Terra)
+
+- Review the uncommitted mail shell slice based on palette prerequisite `e8b41fa`:
+  `src/Barbican.App/Theme/{StyleMetrics,ShellLayout,StyleState,ThemeController}.cs`,
+  `Shell/ShellPage.xaml*`, and `Views/{Rail/RailView,Sidebar/SidebarView,List/MessageListView}.xaml`.
+  Bulwark alone uses flush seams and 56/256/384 defaults, while legacy shapes are retained;
+  shared metrics and rail also affect other app screens and need integration review.
+  The Windows title band remains above the rail, not the reference's full-height rail;
+  preserving a safe native drag/caption area needs a separate design. A hidden synthetic
+  sample checked default and resized pane bounds, saved widths after restart, the minimum
+  window, and Bento/Nordic transitions; actual pointer dragging and keyboard focus remain
+  unverified. The title, list contents, and reader are not full Bulwark parity.
+
 ## M0, consolidated at the merge (stream: m0-review)
 
 The seven M0 streams' sections are archived verbatim in

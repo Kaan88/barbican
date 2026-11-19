@@ -154,6 +154,7 @@ public sealed partial class ShellPage : Page
         MailScreen.Padding = band ? pad : new Thickness(pad.Left, pad.Bottom, pad.Right, pad.Bottom);
         MailScreen.ColumnSpacing = _look.Gap;
         SidebarRegion.Visibility = layout.SidebarShown && !_composing ? Visibility.Visible : Visibility.Collapsed;
+        SidebarHandle.Visibility = SidebarRegion.Visibility;
         Surface.Background = _look.SurfaceBrush;
         Surface.BorderBrush = AppResources.Brush("Line");
         Surface.BorderThickness = _look.SurfaceBorder;
@@ -382,7 +383,7 @@ public sealed partial class ShellPage : Page
 
     private void OnPreviewKeyDown(object sender, KeyRoutedEventArgs e)
     {
-        if (_keys is null || _composing || IsTyping(e.OriginalSource))
+        if (_keys is null || _composing || IsTyping(e.OriginalSource) || e.OriginalSource is DependencyObject source && (IsInside(source, SidebarHandle) || IsInside(source, ListHandle)))
         {
             return;
         }

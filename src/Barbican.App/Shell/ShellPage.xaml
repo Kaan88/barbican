@@ -12,9 +12,9 @@
       xmlns:compose="using:Barbican.App.Views.Compose"
     xmlns:controls="using:Barbican.App.Controls"
       Background="{StaticResource Ground}">
-  <!-- Regions only (PORT-PLAN.md §3.2), laid out as the WinUI prototype the user approved (prototype/winui/MainWindow.xaml):
-       the title band the window's content is extended into; rail | sidebar | surface, where the surface holds message list | (summary tiles over) reader | sender panel.
-       Bento: every region its own tile, 12 px apart. Nordic: rail and sidebar on the ground, the surface one rounded tile split by hairlines.
+  <!-- Regions only (PORT-PLAN.md §3.2): the title band the window's content is extended into;
+       rail | sidebar | surface, where the surface holds message list | (summary tiles over) reader | sender panel.
+       Bulwark's mail panes touch and use hairline seams (components/mail/mail-app.tsx); the legacy styles retain their tiles.
        The sign-in screen covers the regions when no account is active.
        The shape tokens are x:Double, which WinUI does not convert to Thickness, CornerRadius or GridLength, so the code-behind applies the typed values of StyleState. -->
   <Grid x:Name="Root" AutomationProperties.AutomationId="shell">
@@ -38,7 +38,7 @@
       <rail:RailView x:Name="RailRegion" Grid.Column="0" />
       <sidebar:SidebarView x:Name="SidebarRegion" Grid.Column="1" />
       <!-- M2 plan 6.1: the pane handles sit on the edge of the sidebar and of the list (in this grid, so no layout changes); widths: PanesViewModel -->
-      <actions:PaneHandle x:Name="SidebarHandle" Grid.Column="1" Column="sidebar" Target="{x:Bind SidebarRegion}" AutomationProperties.AutomationId="pane.sidebar" />
+      <actions:PaneHandle x:Name="SidebarHandle" Grid.Column="1" Column="sidebar" Target="{x:Bind SidebarRegion}" AutomationProperties.AutomationId="pane.sidebar" AutomationProperties.Name="Resize sidebar" />
       <Border x:Name="Surface" Grid.Column="2" AutomationProperties.AutomationId="surface" AutomationProperties.Name="Mail">
         <Grid x:Name="SurfaceGrid">
           <Grid.ColumnDefinitions>
@@ -56,7 +56,7 @@
               <StackPanel Orientation="Horizontal" Spacing="8"><controls:SIcon Kind="Pen" Size="18" /><TextBlock Text="New message" /></StackPanel>
             </Button>
           </Grid>
-          <actions:PaneHandle x:Name="ListHandle" Grid.Column="0" Column="email-list" Target="{x:Bind ListRegion}" AutomationProperties.AutomationId="pane.list" />
+          <actions:PaneHandle x:Name="ListHandle" Grid.Column="0" Column="email-list" Target="{x:Bind ListRegion}" AutomationProperties.AutomationId="pane.list" AutomationProperties.Name="Resize message list" />
           <Grid x:Name="ReaderColumn" Grid.Column="1">
             <Grid.RowDefinitions>
               <RowDefinition Height="Auto" />

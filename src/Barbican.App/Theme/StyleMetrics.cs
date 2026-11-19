@@ -3,11 +3,14 @@
 // where it and the mockups or spec/layout/*.md disagree, the prototype wins (docs/milestones/M1-look-gap.md lists each choice). Rust ui/theme.slint
 // (pad, gap, r-*) for the rest; design/README.md. UI-free numbers only (the XAML-typed values are StyleState).
 
+using Barbican.Presentation.Shell;
+
 namespace Barbican.App.Theme;
 
 /// <summary>Every per-style number the views need, in effective pixels. One instance per style; nothing here knows WinUI.</summary>
 /// <param name="Nordic">Nordic (one surface, pills and circles) instead of Bento (tiles).</param>
-public sealed record StyleMetrics(bool Nordic)
+/// <param name="Bulwark">Use Bulwark shell dimensions instead of the legacy style.</param>
+public sealed record StyleMetrics(bool Nordic, bool Bulwark = false)
 {
     /// <summary>The Bento metrics.</summary>
     public static StyleMetrics Bento { get; } = new(false);
@@ -15,23 +18,32 @@ public sealed record StyleMetrics(bool Nordic)
     /// <summary>The Nordic metrics.</summary>
     public static StyleMetrics NordicStyle { get; } = new(true);
 
+    public static StyleMetrics BulwarkStyle { get; } = new(false, true);
+
     /// <summary>The metrics of a style.</summary>
     public static StyleMetrics For(bool nordic) => nordic ? NordicStyle : Bento;
+
+    public static StyleMetrics For(ShellStyle style) => style switch
+    {
+        ShellStyle.Bulwark => BulwarkStyle,
+        ShellStyle.Nordic => NordicStyle,
+        _ => Bento,
+    };
 
     /// <summary>The title-bar band the content is extended into (prototype: 38 px of ground with the window title and the caption buttons).</summary>
     public double TitleBarHeight => 38;
 
-    /// <summary>Window padding left of the rail (Bento: 14; Nordic: the rail sits on the window edge).</summary>
-    public double PadLeft => Nordic ? 0 : 14;
+    /// <summary>Mail shell panes touch the window and one another.</summary>
+    public double PadLeft => Bulwark || Nordic ? 0 : 14;
 
-    /// <summary>Window padding right of and below the content (both styles 14: the Nordic surface keeps 14 px from the window edge).</summary>
-    public double Pad => 14;
+    /// <summary>Window padding right of and below the content.</summary>
+    public double Pad => Bulwark ? 0 : 14;
 
-    /// <summary>Gap between tiles (Theme.gap): Bento 12, Nordic none (rail, folders and the surface touch).</summary>
-    public double Gap => Nordic ? 0 : 12;
+    /// <summary>Gap between shell panes.</summary>
+    public double Gap => Bulwark || Nordic ? 0 : 12;
 
-    /// <summary>The rail column (prototype RailTile: 66 with its border in Bento, 76 in Nordic).</summary>
-    public double RailWidth => Nordic ? 76 : 66;
+    /// <summary>The rail column. The reference shell is approximately 56 px wide.</summary>
+    public double RailWidth => Bulwark ? 56 : Nordic ? 76 : 66;
 
     /// <summary>The rail button box.</summary>
     public double RailButton => Nordic ? 46 : 44;
@@ -49,10 +61,10 @@ public sealed record StyleMetrics(bool Nordic)
 
     public double MarkGap => Nordic ? 14 : 10;
 
-    public double SidebarWidth => Nordic ? 228 : 236;
+    public double SidebarWidth => Bulwark ? 256 : Nordic ? 228 : 236;
 
-    /// <summary>The message list's width; narrow below 1150 (Bento) or 1180 (Nordic) px of window.</summary>
-    public double ListWidth(double windowWidth) => windowWidth < (Nordic ? 1180 : 1150) ? (Nordic ? 330 : 320) : (Nordic ? 390 : 370);
+    /// <summary>The default message list width (Bulwark stores/ui-store.ts EMAIL_LIST_DEFAULT).</summary>
+    public double ListWidth(double windowWidth) => Bulwark ? 384 : windowWidth < (Nordic ? 1180 : 1150) ? (Nordic ? 330 : 320) : (Nordic ? 390 : 370);
 
     /// <summary>The sender panel beside the reader (prototype ContextTile: 272 Bento, 250 Nordic).</summary>
     public double ContextWidth => Nordic ? 250 : 272;

@@ -105,7 +105,7 @@ public sealed class ThemeController : IDisposable
         var palette = Tokens.Palette(variant);
         PaletteApplier.Apply(variant);
         AppResources.UseShape(variant.Nordic);
-        _style.SetStyle(variant.Nordic);
+        _style.SetStyle(variant.Bulwark ? ShellStyle.Bulwark : variant.Nordic ? ShellStyle.Nordic : ShellStyle.Bento);
         if (_root is not null)
         {
             _root.RequestedTheme = variant.Dark ? ElementTheme.Dark : ElementTheme.Light;

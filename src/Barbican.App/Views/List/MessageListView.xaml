@@ -15,7 +15,7 @@
   <!-- The message list (spec/layout/mail-list.md; BNMail section, NordMail section): header with title, unread pill, greeting and search; date-group headers and message rows;
        thread count, preview, attachment chips; unread first section; more on scroll. Rows come from MessageListViewModel.Rows (ListSync: only changed rows are touched).
        No item transitions, no selection animation (design/MOTION.md rules 1 and 3); a folder change lifts the rows once (Motion/Rise). -->
-  <Border x:Name="Pane" Background="{x:Bind Look.PaneBrush, Mode=OneWay}" BorderBrush="{StaticResource Line}" BorderThickness="{x:Bind Look.PaneBorder, Mode=OneWay}"
+  <Border x:Name="Pane" Background="{x:Bind Look.PaneBrush, Mode=OneWay}" BorderBrush="{StaticResource Line}" BorderThickness="{x:Bind Look.ListBorder, Mode=OneWay}"
           CornerRadius="{x:Bind Look.ListRadius, Mode=OneWay}" AutomationProperties.AutomationId="list" AutomationProperties.Name="Messages">
     <Border BorderBrush="{StaticResource Line}" BorderThickness="{x:Bind Look.ListHairline, Mode=OneWay}" CornerRadius="{x:Bind Look.ListRadius, Mode=OneWay}">
       <Grid RowDefinitions="Auto,Auto,*">
