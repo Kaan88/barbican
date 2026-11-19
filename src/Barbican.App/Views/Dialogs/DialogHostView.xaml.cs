@@ -105,6 +105,10 @@ public sealed partial class DialogHostView : UserControl
                 _ = Field.Focus(FocusState.Programmatic);
                 Field.SelectAll();
             }
+            else if (Buttons.Visibility == Visibility.Collapsed && FocusManager.FindFirstFocusableElement(CustomContent) is Control custom)
+            {
+                _ = custom.Focus(FocusState.Keyboard);
+            }
             else
             {
                 _ = OkButton.Focus(FocusState.Programmatic);

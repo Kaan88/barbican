@@ -50,7 +50,7 @@
                              Visibility="{x:Bind views:Fmt.NordicTick(IsChecked, theme:StyleState.Current.IsNordic), Mode=OneWay}" />
                   <Grid Grid.Column="1" ColumnDefinitions="Auto,*" ColumnSpacing="5">
                     <Ellipse Width="7" Height="7" Fill="{x:Bind views:Fmt.TintFg(AccountColorIndex)}" Visibility="{x:Bind views:Fmt.Vis(ShowAccountDot)}" VerticalAlignment="Center" AutomationProperties.Name="{x:Bind AccountDescription}" />
-                    <TextBlock Grid.Column="1" Text="{x:Bind Sender}" FontSize="{x:Bind theme:StyleState.Current.SenderSize, Mode=OneWay}" FontWeight="{x:Bind views:Fmt.SenderWeight(Unread, theme:StyleState.Current.IsNordic), Mode=OneWay}"
+                    <TextBlock Grid.Column="1" Text="{x:Bind Sender}" FontFamily="{x:Bind theme:StyleState.Current.AppFont, Mode=OneWay}" FontSize="{x:Bind theme:StyleState.Current.SenderSize, Mode=OneWay}" FontWeight="{x:Bind views:Fmt.SenderWeight(Unread, theme:StyleState.Current.IsNordic), Mode=OneWay}"
                                Foreground="{StaticResource Text}" TextTrimming="CharacterEllipsis" />
                   </Grid>
                   <Border Grid.Column="2" CornerRadius="8" Padding="6,0" Background="{StaticResource Track}" Visibility="{x:Bind views:Fmt.VisMany(ThreadCount)}" VerticalAlignment="Center">
@@ -63,7 +63,7 @@
                 </Grid>
                 <!-- the subject, and at its end the message's tags (Bulwark thread-list-item.tsx:1044 subject placement, tag-badge.tsx; showTagChips; M2 hotfix 2) -->
                 <Grid ColumnDefinitions="*,Auto" ColumnSpacing="6" Margin="{x:Bind theme:StyleState.Current.SubjectMargin, Mode=OneWay}">
-                  <TextBlock local:Snippet.Id="{x:Bind Id}" local:Snippet.Part="subject" local:Snippet.Plain="{x:Bind Subject}" FontSize="{x:Bind theme:StyleState.Current.SubjectSize, Mode=OneWay}" FontWeight="{x:Bind views:Fmt.SubjectWeight(Unread, theme:StyleState.Current.IsNordic), Mode=OneWay}"
+                  <TextBlock local:Snippet.Id="{x:Bind Id}" local:Snippet.Part="subject" local:Snippet.Plain="{x:Bind Subject}" FontFamily="{x:Bind theme:StyleState.Current.AppFont, Mode=OneWay}" FontSize="{x:Bind theme:StyleState.Current.SubjectSize, Mode=OneWay}" FontWeight="{x:Bind views:Fmt.SubjectWeight(Unread, theme:StyleState.Current.IsNordic), Mode=OneWay}"
                              Foreground="{x:Bind theme:StyleState.Current.SubjectBrush, Mode=OneWay}" TextTrimming="CharacterEllipsis" />
                   <ItemsRepeater Grid.Column="1" ItemsSource="{x:Bind Tags}" Visibility="{x:Bind views:Fmt.Vis(ShowTags)}" MaxWidth="200" VerticalAlignment="Center"
                                  AutomationProperties.Name="Tags">
@@ -80,7 +80,7 @@
                     </ItemsRepeater.ItemTemplate>
                   </ItemsRepeater>
                 </Grid>
-                <TextBlock local:Snippet.Id="{x:Bind Id}" local:Snippet.Part="preview" local:Snippet.Plain="{x:Bind Preview}" FontSize="{x:Bind theme:StyleState.Current.PreviewSize, Mode=OneWay}" Foreground="{x:Bind theme:StyleState.Current.PreviewBrush, Mode=OneWay}"
+                <TextBlock local:Snippet.Id="{x:Bind Id}" local:Snippet.Part="preview" local:Snippet.Plain="{x:Bind Preview}" FontFamily="{x:Bind theme:StyleState.Current.AppFont, Mode=OneWay}" FontSize="{x:Bind theme:StyleState.Current.PreviewSize, Mode=OneWay}" Foreground="{x:Bind theme:StyleState.Current.PreviewBrush, Mode=OneWay}"
                            TextTrimming="CharacterEllipsis" MaxLines="1" Margin="{x:Bind theme:StyleState.Current.PreviewMargin, Mode=OneWay}" />
                 <Button Content="{x:Bind VerificationCode}" Visibility="{x:Bind views:Fmt.Vis(ShowVerificationCode)}" Click="OnCopyVerificationCode"
                         HorizontalAlignment="Left" Margin="0,4,0,0" Padding="8,2" AutomationProperties.Name="Copy verification code" AutomationProperties.AutomationId="row.copy-code" />
@@ -127,7 +127,7 @@
         <!-- Header (prototype ListHead): Bento title 24 bold with "N unread" on the right; Nordic title 28 extra bold, tight, and the greeting under it. Search stays (M1). -->
         <StackPanel Grid.Row="0" Padding="{x:Bind Look.ListHeaderPadding, Mode=OneWay}" Spacing="12">
           <Grid ColumnDefinitions="*,Auto">
-            <TextBlock Text="{x:Bind Glance.ListTitle, Mode=OneWay}" FontSize="{x:Bind Look.ListTitleSize, Mode=OneWay}" FontWeight="{x:Bind Look.ListTitleWeight, Mode=OneWay}"
+            <TextBlock Text="{x:Bind Glance.ListTitle, Mode=OneWay}" FontFamily="{x:Bind Look.AppFont, Mode=OneWay}" FontSize="{x:Bind Look.ListTitleSize, Mode=OneWay}" FontWeight="{x:Bind Look.ListTitleWeight, Mode=OneWay}"
                        CharacterSpacing="{x:Bind Look.ListTitleSpacing, Mode=OneWay}" Foreground="{StaticResource Text}" TextTrimming="CharacterEllipsis"
                        AutomationProperties.AutomationId="list.title" AutomationProperties.Name="Folder title" />
             <TextBlock Grid.Column="1" Text="{x:Bind views:Fmt.UnreadText(Glance.ListUnread), Mode=OneWay}" FontSize="12.5" Foreground="{StaticResource Dim}" VerticalAlignment="Center"

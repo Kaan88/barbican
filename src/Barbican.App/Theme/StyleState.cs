@@ -4,6 +4,7 @@
 // Thickness, CornerRadius or GridLength in XAML (WinUI crashes on load: M1 F1 found it), so views bind typed values from here instead.
 
 using Barbican.Presentation.Shell;
+using Barbican.Core.Settings.Accessibility;
 using CommunityToolkit.Mvvm.ComponentModel;
 using Microsoft.UI.Text;
 using Windows.UI.Text;
@@ -18,6 +19,8 @@ public sealed class StyleState : ObservableObject
 {
     private StyleMetrics _m = StyleMetrics.Bento;
     private double _windowWidth = 1400;
+    private A11y _accessibility = new();
+    private bool _showToolbarLabels = true;
 
     public StyleState()
     {
@@ -75,6 +78,33 @@ public sealed class StyleState : ObservableObject
         }
     }
 
+    /// <summary>Updates typed dimensions when the shared accessibility settings change.</summary>
+    public void SetAccessibility(A11y accessibility, bool showToolbarLabels)
+    {
+        ArgumentNullException.ThrowIfNull(accessibility);
+        if (_accessibility == accessibility && _showToolbarLabels == showToolbarLabels) return;
+        _accessibility = accessibility;
+        _showToolbarLabels = showToolbarLabels;
+        OnPropertyChanged(string.Empty);
+    }
+
+    public bool ShowToolbarLabels => _showToolbarLabels;
+    public Visibility ToolbarLabelVisibility => _showToolbarLabels ? Visibility.Visible : Visibility.Collapsed;
+    public Visibility ToolbarIconVisibility => IsBento || !_showToolbarLabels ? Visibility.Visible : Visibility.Collapsed;
+    public double TextScale => _accessibility.FontScaleFactor;
+    public double BodyTextSize => 13 * TextScale;
+    public double MetaTextSize => 12 * TextScale;
+    public double MinimumTarget => _accessibility.LargeTargets ? 44 : 0;
+    public double QuickTarget => Math.Max(36 * TextScale, MinimumTarget);
+    public Thickness FocusThickness => new(Math.Max(1, _accessibility.FocusRing));
+    public FontFamily AppFont => new(_accessibility.AppFont switch
+    {
+        "atkinson" => "Atkinson Hyperlegible Next, Segoe UI",
+        "lexend" => "Lexend, Segoe UI",
+        "opendyslexic" => "OpenDyslexic, Segoe UI",
+        _ => "Segoe UI",
+    });
+
     // brushes (the live palette instances; a region is a tile in Bento and bare in Nordic)
     public Brush TileBrush { get; }
 
@@ -128,20 +158,20 @@ public sealed class StyleState : ObservableObject
 
     public Thickness ListHeaderPadding => new(_m.ListPadLeft, _m.ListPadTop, _m.ListPadRight, _m.ListPadBottom);
 
-    public double ListTitleSize => _m.ListTitleSize;
+    public double ListTitleSize => _m.ListTitleSize * TextScale;
 
     public FontWeight ListTitleWeight => IsNordic ? FontWeights.ExtraBold : FontWeights.Bold;
 
     public int ListTitleSpacing => IsNordic ? -20 : 0;
 
-    public double ReaderSubjectSize => _m.ReaderSubjectSize;
+    public double ReaderSubjectSize => _m.ReaderSubjectSize * TextScale;
 
     public FontWeight ReaderSubjectWeight => IsNordic ? FontWeights.Bold : FontWeights.SemiBold;
 
     public int ReaderSubjectSpacing => IsNordic ? -25 : 0;
 
     /// <summary>0 lets the font decide (Bento); Nordic sets the prototype's 41 px lines for the 34 px subject.</summary>
-    public double ReaderSubjectLineHeight => IsNordic ? 41 : 0;
+    public double ReaderSubjectLineHeight => IsNordic ? 41 * TextScale : 0;
 
     public Thickness ReaderSubjectMargin => IsNordic ? new Thickness(0, 12, 0, 0) : new Thickness(0);
 
@@ -152,20 +182,20 @@ public sealed class StyleState : ObservableObject
 
     public int ReaderSenderRow => IsNordic ? 2 : 1;
 
-    public double ReaderSenderSize => IsNordic ? 13.5 : 12.5;
+    public double ReaderSenderSize => (IsNordic ? 13.5 : 12.5) * TextScale;
 
     /// <summary>The space between the reader's parts (prototype ReaderTile: 14 Bento, 18 Nordic).</summary>
     public double ReaderSpacing => IsNordic ? 18 : 14;
 
     /// <summary>Reply all, Delete and More are icon-only pills in Bento so the six M1 actions fit the prototype's three-pill width.</summary>
-    public Visibility SecondaryLabelVisibility => NordicOnly;
+    public Visibility SecondaryLabelVisibility => IsNordic && _showToolbarLabels ? Visibility.Visible : Visibility.Collapsed;
 
     // rail
     public Thickness RailPadding => new(0, _m.RailPadTop, 0, _m.RailPadBottom);
 
     public double RailSpacing => _m.RailSpacing;
 
-    public double RailButton => _m.RailButton;
+    public double RailButton => Math.Max(_m.RailButton, MinimumTarget);
 
     public CornerRadius RailButtonRadius => new(_m.RailButtonRadius);
 
@@ -192,13 +222,13 @@ public sealed class StyleState : ObservableObject
 
     public double SidebarSpacing => 0;
 
-    public double ComposeHeight => _m.ComposeHeight;
+    public double ComposeHeight => Math.Max(_m.ComposeHeight * TextScale, MinimumTarget);
 
     public CornerRadius ComposeRadius => new(_m.ComposeRadius);
 
     public string ComposeLabel => "New message";
 
-    public double ComposeFontSize => IsNordic ? 14.5 : 14;
+    public double ComposeFontSize => (IsNordic ? 14.5 : 14) * TextScale;
 
     public Thickness ComposeMargin => IsNordic ? new Thickness(0, 0, 0, 22) : new Thickness(0, 0, 0, 12);
 
@@ -220,7 +250,7 @@ public sealed class StyleState : ObservableObject
 
     public Thickness FirstSectionHeaderPadding => IsBento ? new Thickness(11, 0, 0, 6) : new Thickness(16, 0, 0, 8);
 
-    public double SectionHeaderSize => IsBento ? 11 : 12;
+    public double SectionHeaderSize => (IsBento ? 11 : 12) * TextScale;
 
     public int SectionHeaderSpacing => IsBento ? 80 : 0;
 
@@ -231,13 +261,13 @@ public sealed class StyleState : ObservableObject
     public Visibility NordicOnly => IsNordic ? Visibility.Visible : Visibility.Collapsed;
 
     // folder and tag rows
-    public double FolderRowHeight => _m.FolderRowHeight;
+    public double FolderRowHeight => Math.Max(_m.FolderRowHeight * TextScale, MinimumTarget);
 
     public Thickness FolderRowPadding => IsBento ? new Thickness(11, 0, 11, 0) : new Thickness(16, 0, 16, 0);
 
-    public double FolderNameSize => IsNordic ? 14.5 : 13.5;
+    public double FolderNameSize => (IsNordic ? 14.5 : 13.5) * TextScale;
 
-    public double FolderCountSize => IsNordic ? 12.5 : 12;
+    public double FolderCountSize => (IsNordic ? 12.5 : 12) * TextScale;
 
     public FontWeight FolderCountWeight => IsNordic ? FontWeights.Normal : FontWeights.SemiBold;
 
@@ -246,7 +276,7 @@ public sealed class StyleState : ObservableObject
 
     public Thickness TagRowPadding => IsBento ? new Thickness(11, 7, 11, 7) : new Thickness(16, 9, 16, 9);
 
-    public double TagNameSize => IsNordic ? 14 : 13.5;
+    public double TagNameSize => (IsNordic ? 14 : 13.5) * TextScale;
 
     public double TagSpacing => IsNordic ? 12 : 10;
 
@@ -263,11 +293,11 @@ public sealed class StyleState : ObservableObject
     public CornerRadius AvatarRadius => new(_m.Round(_m.AvatarSize));
 
     /// <summary>The sender line (both styles 14), subject (13.5 Bento, 14 Nordic) and preview (12.5, 13) sizes of the prototype's rows.</summary>
-    public double SenderSize => 14;
+    public double SenderSize => 14 * TextScale;
 
-    public double SubjectSize => IsNordic ? 14 : 13.5;
+    public double SubjectSize => (IsNordic ? 14 : 13.5) * TextScale;
 
-    public double PreviewSize => IsNordic ? 13 : 12.5;
+    public double PreviewSize => (IsNordic ? 13 : 12.5) * TextScale;
 
     public Brush SubjectBrush => AppResources.Brush(IsNordic ? "Text" : "Body");
 
@@ -313,7 +343,7 @@ public sealed class StyleState : ObservableObject
 
     public CornerRadius PopupRadius => new(_m.PopupRadius);
 
-    public double ActionButtonHeight => _m.ActionButtonHeight;
+    public double ActionButtonHeight => Math.Max(_m.ActionButtonHeight * TextScale, MinimumTarget);
 
     public CornerRadius ChipRadius => new(14);
 

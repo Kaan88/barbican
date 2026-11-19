@@ -41,6 +41,17 @@ public sealed class A11yTests
     }
 
     [Fact]
+    public void Quick_panel_preferences_map_to_live_accessibility_model()
+    {
+        var a = A11y.From(Settings("""{"fontSize":"xx-large","appFont":"lexend","focusRing":"thick","largeTargets":"on","showAccessibilityButton":true}"""), default);
+        Assert.Equal(1.5, a.FontScaleFactor);
+        Assert.Equal("lexend", a.AppFont);
+        Assert.Equal(2, a.FocusRing);
+        Assert.True(a.LargeTargets);
+        Assert.True(a.ShowAccessibilityButton);
+    }
+
+    [Fact]
     [RustTest("a11y::mail_css_and_override")]
     public void Mail_css_and_override()
     {

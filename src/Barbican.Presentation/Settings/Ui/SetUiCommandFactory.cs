@@ -3,6 +3,7 @@
 using Barbican.Core.Common;
 using Barbican.Core.Jmap.Errors;
 using Barbican.Presentation.Commands;
+using Barbican.Presentation.Dialogs;
 using Barbican.Presentation.Shell;
 
 namespace Barbican.Presentation.Settings.Ui;
@@ -10,11 +11,13 @@ namespace Barbican.Presentation.Settings.Ui;
 /// <summary>Creates the settings commands.</summary>
 public static class SetUiCommandFactory
 {
-    public static IReadOnlyList<IAppCommand> Create(ShellViewModel shell, ISettingsNavigation navigation, ISetUiViewModel screen)
+    public static IReadOnlyList<IAppCommand> Create(ShellViewModel shell, ISettingsNavigation navigation, ISetUiViewModel screen, IDialogService dialogs, AccessibilityQuickModel quick)
     {
         ArgumentNullException.ThrowIfNull(shell);
         ArgumentNullException.ThrowIfNull(navigation);
         ArgumentNullException.ThrowIfNull(screen);
+        ArgumentNullException.ThrowIfNull(dialogs);
+        ArgumentNullException.ThrowIfNull(quick);
         return
         [
             new DelegateAppCommand(
@@ -41,6 +44,11 @@ public static class SetUiCommandFactory
             DelegateAppCommand.Sync(SetUiCommandIds.Back, c => { _ = navigation.Back(); }, _ => navigation.CanGoBack),
             DelegateAppCommand.Sync(SetUiCommandIds.Forward, c => { _ = navigation.Forward(); }, _ => navigation.CanGoForward),
             DelegateAppCommand.Sync(SetUiCommandIds.ToggleAdvanced, _ => screen.ShowAdvanced = !screen.ShowAdvanced),
+            new DelegateAppCommand(CommandIds.OpenA11y, _ => true, async (context, ct) =>
+            {
+                _ = await dialogs.ShowAsync(new AccessibilityQuickRequest(quick), ct).ConfigureAwait(true);
+                return Result<Unit>.Ok(default);
+            }),
         ];
     }
 }

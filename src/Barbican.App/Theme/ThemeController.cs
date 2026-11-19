@@ -50,6 +50,7 @@ public sealed class ThemeController : IDisposable
         ArgumentNullException.ThrowIfNull(root);
         _root = root;
         MotionRuntime.Scale = new MotionScale(_shell.ReduceMotion, _shell.IsRapid);
+        _style.SetAccessibility(_shell.Accessibility, _prefs.Current.Bool("showToolbarLabels", true));
         Apply(force: true);
     }
 
@@ -66,6 +67,9 @@ public sealed class ThemeController : IDisposable
     {
         switch (e.PropertyName)
         {
+            case nameof(ShellViewModel.Accessibility):
+                _style.SetAccessibility(_shell.Accessibility, _prefs.Current.Bool("showToolbarLabels", true));
+                break;
             case nameof(ShellViewModel.ReduceMotion):
             case nameof(ShellViewModel.IsRapid):
                 MotionRuntime.Scale = new MotionScale(_shell.ReduceMotion, _shell.IsRapid);

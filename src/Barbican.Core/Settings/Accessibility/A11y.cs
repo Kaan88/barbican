@@ -19,6 +19,10 @@ public sealed record A11y
         + "if(x[2]!==null)x[0].style.setProperty('line-height',Math.round(x[2]*100)/100+'px','important')})}"
         + "if(fit){var d=document.documentElement;var w=d.scrollWidth,c=d.clientWidth;if(w>c+2)b.style.zoom=(c/w).toFixed(4)}});";
 
+    public string AppFont { get; init; } = "default";
+
+    public bool ShowAccessibilityButton { get; init; }
+
     public bool MoreContrast { get; init; }
 
     public bool ReduceMotion { get; init; }
@@ -112,6 +116,8 @@ public sealed record A11y
         ArgumentNullException.ThrowIfNull(prefs);
         return new A11y
         {
+            AppFont = prefs.Str("appFont", "default"),
+            ShowAccessibilityButton = prefs.Bool("showAccessibilityButton", false),
             MoreContrast = prefs.Str("contrast", "system") switch { "more" => true, "normal" => false, _ => system.HighContrast },
             ReduceMotion = Toggle(prefs, "reduceMotion", system.ReduceMotion),
             LargeTargets = Toggle(prefs, "largeTargets", system.Touch),

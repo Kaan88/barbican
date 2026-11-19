@@ -36,6 +36,8 @@ public sealed partial class RailView : UserControl
 
     private void OnShortcutsClick(object sender, RoutedEventArgs e) => Run(CommandIds.ShowShortcuts);
 
+    private void OnAccessibilityClick(object sender, RoutedEventArgs e) => Run(CommandIds.OpenA11y);
+
     private static void Run(string commandId)
     {
         var registry = ViewHost.Find<ICommandRegistry>();

@@ -1,6 +1,12 @@
 // New tests (M1.md section 5: a DI cycle hung the first launch; M2 plan 3.2): the Core and Presentation part of AddBarbicanMenus resolves completely, none of the registered
 // services forms a cycle (the registry holds the shell commands, which reach the palette, which reads the registry), and the real controller replaces the do-nothing menu service. Owner menus.
 
+using System.Text.Json.Nodes;
+using Barbican.Core.Settings.Pages;
+using Barbican.Presentation.Settings;
+using Barbican.Presentation.Settings.Sample;
+using Barbican.Presentation.Shell;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using Barbican.Presentation.Commands;
 using Barbican.Presentation.Dialogs;
 using Barbican.Presentation.Input;
@@ -13,6 +19,35 @@ namespace Barbican.Presentation.Tests.Menus;
 
 public sealed class MenusCompositionTests
 {
+    [Fact]
+    public async Task Accessibility_shortcut_resolves_real_command_and_writes_the_shared_values()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "barbican-a11y-di-" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            var services = CompositionGraphTests.Compose(root);
+            services.Replace(ServiceDescriptor.Singleton<ISettingValues, SampleSettingValues>());
+            _ = services.AddBarbicanMenusPresentation();
+            await using var provider = services.BuildServiceProvider();
+            var keys = provider.GetRequiredService<ShortcutCommands>();
+            Assert.True(keys.TryResolve(new KeyChord("a", Shift: true, Alt: true), AppId.Mail, false, out var id));
+            Assert.Equal(CommandIds.OpenA11y, id);
+            Assert.True(provider.GetRequiredService<ICommandRegistry>().TryGet(id, out var command));
+            var running = command!.ExecuteAsync(new CommandContext(CommandSurface.Keyboard, [], null, null, null), TestContext.Current.CancellationToken);
+            var dialog = provider.GetRequiredService<DialogService>();
+            var request = Assert.IsType<AccessibilityQuickRequest>(dialog.Current!.Request);
+            Assert.True((await request.Model.SetAsync("reduceMotion", JsonValue.Create("on"), TestContext.Current.CancellationToken)).IsOk);
+            Assert.Equal("on", provider.GetRequiredService<ISettingValues>().Stored("reduceMotion")!.GetValue<string>());
+            dialog.Current.Complete(true);
+            Assert.True((await running).IsOk);
+            Assert.False(dialog.IsOpen);
+        }
+        finally
+        {
+            if (Directory.Exists(root)) Directory.Delete(root, recursive: true);
+        }
+    }
+
     [Fact]
     public async Task The_menus_composition_resolves_without_a_cycle_and_registers_every_command_and_provider()
     {
