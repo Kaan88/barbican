@@ -1,0 +1,8 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <BarbicanTestLibrary>true</BarbicanTestLibrary>
+    <OutputType>Library</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+  </PropertyGroup>
+  <ItemGroup><ProjectReference Include="../../../../../../src/Barbican.Plugins.Abstractions/Barbican.Plugins.Abstractions.csproj" /></ItemGroup>
+</Project>
