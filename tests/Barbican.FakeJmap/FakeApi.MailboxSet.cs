@@ -16,6 +16,8 @@ public sealed partial class FakeApi
         }
 
         var oldState = store.State("Mailbox");
+        if ((string?)args["ifInState"] is { } expected && !string.Equals(expected, oldState, StringComparison.Ordinal))
+            return Error("stateMismatch");
         var (created, notCreated) = MailboxCreates(args["create"] as JsonObject ?? []);
         var updated = new JsonObject();
         var notUpdated = new JsonObject();

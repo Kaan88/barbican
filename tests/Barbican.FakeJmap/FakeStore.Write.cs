@@ -151,7 +151,21 @@ public sealed partial class FakeStore
         var subject = text.Split('\n').Select(l => l.TrimEnd('\r')).FirstOrDefault(l => l.StartsWith("Subject:", StringComparison.OrdinalIgnoreCase))?["Subject:".Length..].Trim() ?? "";
         var body = text.Contains("\r\n\r\n", StringComparison.Ordinal) ? text[(text.IndexOf("\r\n\r\n", StringComparison.Ordinal) + 4)..] : text;
         var messageId = text.Split('\n').Select(l => l.TrimEnd('\r')).FirstOrDefault(l => l.StartsWith("Message-ID:", StringComparison.OrdinalIgnoreCase))?["Message-ID:".Length..].Trim().Trim('<', '>');
-        var id = Deliver(new FakeMail { Subject = subject, Text = body, Keywords = keywords, MessageId = string.IsNullOrEmpty(messageId) ? null : messageId }, mailboxIds[0]);
+        // Preserve the synthetic From and custom headers used by filter scans and guarded cleanup.
+        var lines = text.Split("\r\n\r\n", 2, StringSplitOptions.None)[0].Split("\r\n", StringSplitOptions.None);
+        var fromLine = lines.FirstOrDefault(l => l.StartsWith("From:", StringComparison.OrdinalIgnoreCase));
+        var from = System.Net.Mail.MailAddress.TryCreate(fromLine?[5..].Trim(), out var parsed) ? parsed : null;
+        var headers = lines.Select(l => (Line: l, Colon: l.IndexOf(':', StringComparison.Ordinal)))
+            .Where(x => x.Colon > 0 && !x.Line.StartsWith("Subject:", StringComparison.OrdinalIgnoreCase))
+            .Select(x => (Name: x.Line[..x.Colon], Value: x.Line[(x.Colon + 1)..].Trim())).ToList();
+        var id = Deliver(new FakeMail { Subject = subject, Text = body, Keywords = keywords, MessageId = string.IsNullOrEmpty(messageId) ? null : messageId,
+            FromName = from?.DisplayName ?? "Sender", FromEmail = from?.Address ?? "sender@example.org", Headers = headers }, mailboxIds[0]);
+        Patch(id, e =>
+        {
+            e["header:Subject:asText:all"] = new JsonArray(subject);
+            e["header:Subject:all"] = new JsonArray(" " + subject);
+            return true;
+        });
         if (mailboxIds.Count > 1)
         {
             Patch(id, e =>
