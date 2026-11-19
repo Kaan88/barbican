@@ -38,6 +38,7 @@ public sealed partial class EventEditorViewModel
 
         _endTime = end.ToString("HH:mm", CultureInfo.InvariantCulture);
         _timeZone = request.AllDay ? null : _s.DefaultZone ?? CalendarJson.LocalZoneId();
+        _zoneExplicit = false;
         _freeBusy = request.AllDay ? 1 : 0;
         _useDefaultAlerts = true;
         _notify = true;
@@ -66,6 +67,7 @@ public sealed partial class EventEditorViewModel
         _location = LocationOf(ev);
         _allDay = CalendarJson.Flag(ev, "showWithoutTime");
         _timeZone = _allDay ? null : CalendarJson.Str(ev, "timeZone") is { Length: > 0 } z ? z : null;
+        _zoneExplicit = true;
         var duration = CalendarJson.ParseDuration(CalendarJson.Str(ev, "duration"));
         var start = CalendarJson.ParseLocal(CalendarJson.Str(ev, "start")) ?? DateTime.Today;
         _recurrenceId = null;
@@ -236,7 +238,7 @@ public sealed partial class EventEditorViewModel
 
     private bool EnsureNewEventZone()
     {
-        if (_event is not null || _allDay || !string.IsNullOrEmpty(_timeZone)) return true;
+        if (_event is not null || _allDay || (_zoneExplicit && _timeZone is null) || !string.IsNullOrEmpty(_timeZone)) return true;
         _timeZone = _s.CurrentZone?.Invoke() ?? _s.DefaultZone ?? CalendarJson.LocalZoneId();
         if (_timeZone.Length > 0) return true;
         Error = "The system time zone is unavailable. Select a supported time zone in Settings, then try again.";
@@ -440,6 +442,7 @@ public sealed partial class EventEditorViewModel
         copy._location = _location;
         copy._description = _description;
         copy._timeZone = _timeZone;
+        copy._zoneExplicit = _event is not null || _zoneExplicit;
         copy._repeat = _repeat;
         copy._freeBusy = _freeBusy;
         copy._privacy = _privacy;

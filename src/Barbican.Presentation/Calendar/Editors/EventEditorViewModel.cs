@@ -33,6 +33,7 @@ public sealed partial class EventEditorViewModel : ObservableObject
     private string _startTime = "09:00";
     private string _endTime = "10:00";
     private string? _timeZone;
+    private bool _zoneExplicit;
     private string _calendarId = string.Empty;
     private int _repeat;
     private int _freeBusy;
@@ -189,6 +190,7 @@ public sealed partial class EventEditorViewModel : ObservableObject
         get => _timeZone;
         set
         {
+            _zoneExplicit = true;
             if (SetProperty(ref _timeZone, value))
             {
                 OnPropertyChanged(nameof(ZoneLabel));
