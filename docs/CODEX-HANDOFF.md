@@ -6,8 +6,10 @@ This is the Codex-specific continuation of the user's Claude handoff.
 
 ## Selected UI guidelines (2026-11-19)
 
-The user selected **Bento Balanced** and **Nordic Focus** (integrated sender/context panel,
-with an accessible show/hide toggle and expanding reader) and directed all future UI work,
+The user selected **Bento Balanced**, **Nordic Focus** (integrated sender/context panel,
+with an accessible show/hide toggle and expanding reader), and **Atlas** (horizontal message deck
+above the reader). Modern WinUI 3 materials, depth and fluid feedback are also requested with
+accessibility and platform fallbacks. The user directed all future UI work,
 including Claude's, to use them. Read [design/UI-GUIDELINES.md](../design/UI-GUIDELINES.md)
 and the updated CLAUDE.md. Additional alternatives by the same Terra agent remain proposals.
 The selected images are stored in the repository; do not depend on a machine-local gallery.

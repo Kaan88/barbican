@@ -10,7 +10,7 @@ wherever they can. Safety rules stay (no real input, read-only account, admin ke
 
 ## Codex continuation (active, 2026-11-19)
 
-- **User-selected UI guidelines:** Bento Balanced and Nordic Focus; see `design/UI-GUIDELINES.md` and CLAUDE.md. Nordic Focus now means the integrated sender/context layout with a toggleable panel; the name remains Nordic Focus. The same Terra agent is creating two completely different exploratory alternatives, not just variations. No blanket production theme replacement has been applied.
+- **User-selected UI guidelines:** Bento Balanced, Nordic Focus and Atlas; see `design/UI-GUIDELINES.md` and CLAUDE.md. Nordic Focus now means the integrated sender/context layout with a toggleable panel; the name remains Nordic Focus. Atlas is now approved as a distinct horizontal message-deck direction; Studio remains exploratory. Modern WinUI 3 materials, subtle elevation and fluid feedback are requested with accessible platform fallbacks. No blanket production theme replacement has been applied.
 
 - Coordinator: Sol, checking subagent code during integration as requested by the user; the later independent whole-app reviewer is Astra. Keep the historical filename `docs/FABLE-REVIEW.md`, mark new entries as Codex, and record exact review scope and evidence.
 - The user explicitly authorized pushing milestone commits to `Kaan88/barbican`.
