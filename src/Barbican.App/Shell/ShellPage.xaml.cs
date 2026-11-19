@@ -81,7 +81,7 @@ public sealed partial class ShellPage : Page
         _look.PropertyChanged += (_, _) => ApplyLook();
         SidebarRegion.Panes.PropertyChanged += (_, _) =>
         {
-            if (_composing && _look.IsBulwark) ApplyLook();
+            if (_look.IsBulwark) ApplyLook();
         };
         SizeChanged += (_, e) => _look.SetWindowWidth(e.NewSize.Width);
         ReaderColumn.SizeChanged += (_, _) => ApplyDockLayout();
@@ -167,7 +167,7 @@ public sealed partial class ShellPage : Page
         if (!_look.IsBulwark) _composerMaximized = false;
         var fullscreen = _readerFullscreen && _look.IsBulwark;
         var hideMailPanes = fullscreen || _composerMaximized;
-        RailRegion.Visibility = _composerMaximized ? Visibility.Collapsed : Visibility.Visible;
+
         ComposerRegion.SetMaximized(_composerMaximized);
         // Bulwark keeps the mailbox beside an in-page composer. Fold only when the
         // saved pane widths would leave too little room for the editor controls.
@@ -175,11 +175,20 @@ public sealed partial class ShellPage : Page
         var editorSpace = layout.WindowWidth - _look.RailWidth
             - (panes.SidebarWidth > 0 ? panes.SidebarWidth : _look.SidebarWidth)
             - (panes.ListWidth > 0 ? panes.ListWidth : layout.ListWidth);
-        SidebarRegion.Visibility = layout.SidebarShown && !hideMailPanes
-            && (!_composing || (_look.IsBulwark && editorSpace >= 480)) ? Visibility.Visible : Visibility.Collapsed;
+        var reading = _look.IsBulwark && !_composing && !ReaderRegion.Reader.IsEmpty;
+        var readerOnly = reading && layout.WindowWidth - _look.RailWidth - (panes.ListWidth > 0 ? panes.ListWidth : layout.ListWidth) < 480;
+        var phone = _look.IsBulwark && layout.WindowWidth < 700;
+        var composerOnly = phone && _composing;
+        RailRegion.Visibility = _composerMaximized || (phone && (reading || _composing)) ? Visibility.Collapsed : Visibility.Visible;
+        SidebarRegion.MaxWidth = phone ? Math.Min(180, layout.WindowWidth / 3) : double.PositiveInfinity;
+        SidebarRegion.Visibility = !composerOnly && layout.SidebarShown && !hideMailPanes
+            && ((!_composing && !reading) || (_look.IsBulwark && editorSpace >= 480)) ? Visibility.Visible : Visibility.Collapsed;
+        ReaderBack.Visibility = readerOnly && !fullscreen ? Visibility.Visible : Visibility.Collapsed;
         SidebarHandle.Visibility = SidebarRegion.Visibility;
-        ListColumn.Visibility = hideMailPanes ? Visibility.Collapsed : Visibility.Visible;
-        ListHandle.Visibility = ListColumn.Visibility;
+        ListColumn.Visibility = hideMailPanes || readerOnly || composerOnly ? Visibility.Collapsed : Visibility.Visible;
+        ListRegion.MaxWidth = phone ? Math.Max(1, layout.WindowWidth - _look.RailWidth -
+            (SidebarRegion.Visibility == Visibility.Visible ? SidebarRegion.MaxWidth : 0)) : double.PositiveInfinity;
+        ListHandle.Visibility = phone ? Visibility.Collapsed : ListColumn.Visibility;
         ReaderRegion.SetFullscreen(fullscreen);
         Surface.Background = _look.SurfaceBrush;
         Surface.BorderBrush = AppResources.Brush("Line");
@@ -209,12 +218,16 @@ public sealed partial class ShellPage : Page
         ReaderRegion.FullscreenRequested += (_, _) => SetReaderFullscreen(!_readerFullscreen);
         ReaderRegion.Reader.PropertyChanged += (_, e) =>
         {
-            if (_readerFullscreen && ReaderRegion.Reader.IsEmpty &&
-                string.Equals(e.PropertyName, nameof(ReaderViewModel.IsEmpty), StringComparison.Ordinal))
-            {
-                SetReaderFullscreen(false);
-            }
+            if (!string.Equals(e.PropertyName, nameof(ReaderViewModel.IsEmpty), StringComparison.Ordinal)) return;
+            if (_readerFullscreen && ReaderRegion.Reader.IsEmpty) SetReaderFullscreen(false);
+            else if (_look.IsBulwark) ApplyLook();
         };
+    }
+
+    private void OnReaderBack(object sender, RoutedEventArgs e)
+    {
+        ListRegion.List.CloseReader();
+        ListRegion.Focus(FocusState.Programmatic);
     }
 
     private void SetReaderFullscreen(bool enabled)

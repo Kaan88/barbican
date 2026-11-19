@@ -112,6 +112,15 @@ public sealed class SidebarViewModelTests
     }
 
     [Fact]
+    public async Task Initial_folder_is_highlighted_when_the_tree_arrives_after_the_list()
+    {
+        using var h = new ListHarness();
+        await h.List.OpenFolderAsync("inbox", MailboxRole.Inbox, "Inbox");
+        h.Sidebar.Update(Tree());
+        Assert.Equal("inbox", h.Sidebar.SelectedFolderId);
+    }
+
+    [Fact]
     public async Task The_highlight_follows_the_list_not_only_the_folder_rows()
     {
         // unified review request: "All inboxes" clears the folder selection, and opening a folder by any path (a command, the palette) brings it back

@@ -241,7 +241,7 @@
        The row's name, icon and count take the presenter's foreground, so the selected state recolours them without touching the rows. -->
   <ControlTemplate x:Key="Template.FolderItem" TargetType="ListViewItem">
     <Grid x:Name="Root" Background="Transparent" Margin="{TemplateBinding Padding}">
-      <Border x:Name="Box" Background="Transparent" CornerRadius="{TemplateBinding CornerRadius}" />
+      <Border x:Name="Box" Background="Transparent" BorderBrush="Transparent" BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="{TemplateBinding CornerRadius}" />
       <ContentPresenter x:Name="Content" Content="{TemplateBinding Content}" ContentTemplate="{TemplateBinding ContentTemplate}" Foreground="{StaticResource Body}"
                         HorizontalContentAlignment="Stretch" VerticalContentAlignment="Stretch" />
       <VisualStateManager.VisualStateGroups>
@@ -260,18 +260,21 @@
           <VisualState x:Name="Selected">
             <VisualState.Setters>
               <Setter Target="Box.Background" Value="{StaticResource Sel}" />
+              <Setter Target="Box.BorderBrush" Value="{StaticResource Accent}" />
               <Setter Target="Content.Foreground" Value="{StaticResource SelText}" />
             </VisualState.Setters>
           </VisualState>
           <VisualState x:Name="PointerOverSelected">
             <VisualState.Setters>
               <Setter Target="Box.Background" Value="{StaticResource Sel}" />
+              <Setter Target="Box.BorderBrush" Value="{StaticResource Accent}" />
               <Setter Target="Content.Foreground" Value="{StaticResource SelText}" />
             </VisualState.Setters>
           </VisualState>
           <VisualState x:Name="PressedSelected">
             <VisualState.Setters>
               <Setter Target="Box.Background" Value="{StaticResource Pressed}" />
+              <Setter Target="Box.BorderBrush" Value="{StaticResource Accent}" />
               <Setter Target="Content.Foreground" Value="{StaticResource SelText}" />
             </VisualState.Setters>
           </VisualState>
@@ -323,6 +326,7 @@
     </Setter>
   </Style>
   <Style x:Key="ListItem.Folder.Bento" TargetType="ListViewItem">
+    <Setter Property="BorderThickness" Value="0" />
     <Setter Property="Template" Value="{StaticResource Template.FolderItem}" />
     <Setter Property="Padding" Value="0,1" />
     <Setter Property="Margin" Value="0" />
@@ -332,6 +336,7 @@
     <Setter Property="UseSystemFocusVisuals" Value="False" />
   </Style>
   <Style x:Key="ListItem.Folder.Nordic" TargetType="ListViewItem">
+    <Setter Property="BorderThickness" Value="0" />
     <Setter Property="Template" Value="{StaticResource Template.FolderItem}" />
     <Setter Property="Padding" Value="0,1" />
     <Setter Property="Margin" Value="0" />
@@ -339,5 +344,11 @@
     <Setter Property="HorizontalContentAlignment" Value="Stretch" />
     <Setter Property="CornerRadius" Value="22" />
     <Setter Property="UseSystemFocusVisuals" Value="False" />
+  </Style>
+  <Style x:Key="ListItem.Folder.Bulwark" TargetType="ListViewItem" BasedOn="{StaticResource ListItem.Folder.Bento}">
+    <Setter Property="CornerRadius" Value="0" />
+    <Setter Property="Padding" Value="0" />
+    <Setter Property="BorderThickness" Value="2,0,0,0" />
+    <Setter Property="UseSystemFocusVisuals" Value="True" />
   </Style>
 </ResourceDictionary>

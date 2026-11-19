@@ -91,6 +91,8 @@ public static class Fmt
 
     public static string ChevronId(string folderId) => folderId + ".chevron";
 
+    public static double FolderIndent(int depth, bool bulwark) => depth * (bulwark ? 12 : 14);
+
     public static double IndentPx(int depth) => depth * 14;
 
     public static Brush TimeBrush(bool unread) => Palette(unread ? "Accent" : "Faint");

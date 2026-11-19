@@ -312,7 +312,19 @@ public sealed class StyleState : ObservableObject
     // folder and tag rows
     public double FolderRowHeight => Math.Max(_m.FolderRowHeight * TextScale, MinimumTarget);
 
-    public Thickness FolderRowPadding => IsBento ? new Thickness(11, 0, 11, 0) : new Thickness(16, 0, 16, 0);
+    public int FolderDisclosureColumn => IsBulwark ? 1 : 3;
+
+    public int FolderIconColumn => IsBulwark ? 2 : 1;
+
+    public int FolderNameColumn => IsBulwark ? 3 : 2;
+
+    public double FolderDisclosureSlot => IsBulwark ? 20 : 0;
+
+    public Thickness FolderChevronMargin => IsBulwark ? new Thickness(-2) : new Thickness(0);
+
+    public double FolderChevronSize => IsBulwark ? 24 : 18;
+
+    public Thickness FolderRowPadding => IsBulwark ? new Thickness(8, 0, 8, 0) : IsBento ? new Thickness(11, 0, 11, 0) : new Thickness(16, 0, 16, 0);
 
     public double FolderNameSize => (IsNordic ? 14.5 : 13.5) * TextScale;
 
@@ -420,5 +432,5 @@ public sealed class StyleState : ObservableObject
     /// <summary>The two item-container styles of a list: Bento or Nordic variant (Styles/Controls.xaml).</summary>
     public Style MessageItemStyle => (Style)Application.Current.Resources[IsBulwark ? "ListItem.Message.Bulwark" : IsNordic ? "ListItem.Message.Nordic" : "ListItem.Message.Bento"];
 
-    public Style FolderItemStyle => (Style)Application.Current.Resources[IsNordic ? "ListItem.Folder.Nordic" : "ListItem.Folder.Bento"];
+    public Style FolderItemStyle => (Style)Application.Current.Resources[IsBulwark ? "ListItem.Folder.Bulwark" : IsNordic ? "ListItem.Folder.Nordic" : "ListItem.Folder.Bento"];
 }

@@ -64,6 +64,9 @@
               <RowDefinition Height="Auto" />
             </Grid.RowDefinitions>
             <glance:GlanceTilesView x:Name="GlanceRegion" Grid.Row="0" />
+            <Button x:Name="ReaderBack" Grid.Row="0" Content="Back to messages" Visibility="Collapsed"
+                    HorizontalAlignment="Left" Style="{StaticResource Button.Action}" Click="OnReaderBack"
+                    AutomationProperties.Name="Back to messages" AutomationProperties.AutomationId="reader.back-to-list" />
             <reader:ReaderView x:Name="ReaderRegion" Grid.Row="1" />
             <!-- M3 composer-ui: the composer takes the reader's place (the folders column collapses and the list stays), or sits under the reader when it answers a message (ComposerDock) -->
             <Grid x:Name="ComposerDockHost" Grid.Row="0" Grid.RowSpan="3" RowDefinitions="Auto,*" Visibility="Collapsed" AutomationProperties.AutomationId="reply-dock.host">

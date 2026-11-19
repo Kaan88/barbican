@@ -15,7 +15,7 @@
   <!-- The folders column (spec/layout/shell.md "Folders sidebar"; BNMail aside, NordMail aside; prototype FolderTile): New message, the folders, the tags, storage.
        Bento: the whole column is one tile; Nordic: it sits on the ground. Folders and tags come from SidebarViewModel (every refresh is a ListSync, so unchanged rows are not touched).
        A folder row's name, icon and count take the row's foreground (Styles/Controls.xaml Template.FolderItem), so the selected row turns sel-text with no code.
-       The expand chevron of a parent folder sits after its name, so every folder icon stays in one column as in the prototype. -->
+       Bulwark reserves a leading disclosure slot. The legacy styles place the chevron after the name. -->
   <Border x:Name="Pane" Background="{x:Bind Look.SidebarBrush, Mode=OneWay}" BorderBrush="{StaticResource Line}"
            BorderThickness="{x:Bind Look.SidebarBorder, Mode=OneWay}" CornerRadius="{x:Bind Look.SidebarRadius, Mode=OneWay}" Padding="{x:Bind Look.SidebarPadding, Mode=OneWay}">
   <Grid RowDefinitions="Auto,*,Auto" AutomationProperties.AutomationId="sidebar" AutomationProperties.Name="Folders">
@@ -23,20 +23,24 @@
       <DataTemplate x:Key="FolderTemplate" x:DataType="mail:FolderRowViewModel">
         <Grid Height="{x:Bind theme:StyleState.Current.FolderRowHeight, Mode=OneWay}" Padding="{x:Bind theme:StyleState.Current.FolderRowPadding, Mode=OneWay}"
               Opacity="{x:Bind views:Fmt.MutedOpacity(Muted)}" ColumnSpacing="10" ColumnDefinitions="Auto,*,Auto">
-          <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
-            <Border Width="{x:Bind views:Fmt.IndentPx(Depth)}" />
-            <controls:SIcon Kind="{x:Bind views:Fmt.FolderIcon(Role)}" Foreground="{x:Bind views:Fmt.Rgb(ColorRgb)}" Size="16" Opacity="0.8" VerticalAlignment="Center"
-                            Visibility="{x:Bind theme:StyleState.Current.FolderIconVisibility, Mode=OneWay}" />
-          </StackPanel>
-          <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="2" VerticalAlignment="Center">
-            <TextBlock Text="{x:Bind Name}" FontFamily="{x:Bind theme:StyleState.Current.AppFont, Mode=OneWay}" FontSize="{x:Bind theme:StyleState.Current.FolderNameSize, Mode=OneWay}" FontWeight="{x:Bind views:Fmt.FolderWeight(Unread)}"
-                       VerticalAlignment="Center" TextTrimming="CharacterEllipsis" />
-            <Button Style="{StaticResource Button.Icon}" Width="18" Height="18" CornerRadius="6" Foreground="{StaticResource Faint}" Click="OnChevronClick" Tag="{x:Bind Id}"
+          <Grid Grid.ColumnSpan="2" HorizontalAlignment="Left" VerticalAlignment="Center" ColumnDefinitions="Auto,Auto,Auto,Auto">
+            <Border Width="{x:Bind views:Fmt.FolderIndent(Depth, theme:StyleState.Current.IsBulwark), Mode=OneWay}" />
+            <Grid Grid.Column="{x:Bind theme:StyleState.Current.FolderDisclosureColumn, Mode=OneWay}" MinWidth="{x:Bind theme:StyleState.Current.FolderDisclosureSlot, Mode=OneWay}">
+              <Button Style="{StaticResource Button.Icon}" Width="{x:Bind theme:StyleState.Current.FolderChevronSize, Mode=OneWay}" Height="{x:Bind theme:StyleState.Current.FolderChevronSize, Mode=OneWay}" Margin="{x:Bind theme:StyleState.Current.FolderChevronMargin, Mode=OneWay}" CornerRadius="6" Foreground="{StaticResource Faint}" Click="OnChevronClick" Tag="{x:Bind Id}"
                     Visibility="{x:Bind views:Fmt.VisChevron(Chevron)}" AutomationProperties.AutomationId="{x:Bind views:Fmt.ChevronId(Id)}" AutomationProperties.Name="Expand or collapse"
                     IsTabStop="False" VerticalAlignment="Center">
               <controls:SIcon Kind="{x:Bind views:Fmt.Chevron(Chevron)}" Size="11" StrokeWidth="2" />
-            </Button>
-          </StackPanel>
+              </Button>
+            </Grid>
+            <Grid Grid.Column="{x:Bind theme:StyleState.Current.FolderIconColumn, Mode=OneWay}" Margin="0,0,8,0">
+              <controls:SIcon Kind="{x:Bind views:Fmt.FolderIcon(Role)}" Foreground="{x:Bind views:Fmt.Rgb(ColorRgb)}" Size="16" Opacity="0.8" VerticalAlignment="Center"
+                            Visibility="{x:Bind theme:StyleState.Current.FolderIconVisibility, Mode=OneWay}" />
+            </Grid>
+            <Grid Grid.Column="{x:Bind theme:StyleState.Current.FolderNameColumn, Mode=OneWay}">
+              <TextBlock Text="{x:Bind Name}" FontFamily="{x:Bind theme:StyleState.Current.AppFont, Mode=OneWay}" FontSize="{x:Bind theme:StyleState.Current.FolderNameSize, Mode=OneWay}" FontWeight="{x:Bind views:Fmt.FolderWeight(Unread)}"
+                       VerticalAlignment="Center" TextTrimming="CharacterEllipsis" />
+            </Grid>
+          </Grid>
           <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
             <controls:SIcon Kind="Bell" Size="12" Opacity="0.6" VerticalAlignment="Center" Visibility="{x:Bind views:Fmt.Vis(Muted)}" AutomationProperties.Name="Not subscribed" />
             <Ellipse Width="6" Height="6" Fill="{StaticResource Accent}" Visibility="{x:Bind views:Fmt.Vis(ChildUnread)}" AutomationProperties.Name="Unread below" VerticalAlignment="Center" />

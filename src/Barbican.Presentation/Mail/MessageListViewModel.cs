@@ -200,6 +200,7 @@ public sealed partial class MessageListViewModel : ObservableObject, IDisposable
     {
         ArgumentException.ThrowIfNullOrEmpty(mailboxId);
         var previous = _browseMailboxId ?? _query?.MailboxId;
+        if (_selected is not null && (TagId is not null || !string.Equals(previous, mailboxId, StringComparison.Ordinal))) CloseReader();
         var preservedSearch = !_prefs.Current.Bool("clearSearchOnFolderChange", false) ? _query?.SearchText : null;
         _browseMailboxId = mailboxId;
         SetTag(null);
@@ -227,6 +228,7 @@ public sealed partial class MessageListViewModel : ObservableObject, IDisposable
     {
         ArgumentException.ThrowIfNullOrEmpty(tagId);
         ArgumentNullException.ThrowIfNull(excludedFolders);
+        if (_selected is not null && !string.Equals(TagId, tagId, StringComparison.Ordinal)) CloseReader();
         _browseMailboxId = null;
         SetTag(tagId);
         _role = MailboxRole.None;
@@ -616,9 +618,9 @@ public sealed partial class MessageListViewModel : ObservableObject, IDisposable
             _active.Sync?.Watch(query, page);
         }
 
-        if (folderOpened)
+        if (folderOpened && _selected is not null)
         {
-            SetSelected(null);
+            CloseReader();
         }
     }
 

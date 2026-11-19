@@ -120,6 +120,7 @@ public sealed class SidebarViewModel : ObservableObject, IDisposable, Actions.IM
         ArgumentNullException.ThrowIfNull(tree);
         _tree = tree;
         RebuildFolders();
+        SyncOpenFolder();
         OnPropertyChanged(nameof(InboxUnread));
         _hooks.Fire(HookNames.OnMailboxesRefresh, () => tree);
     }
@@ -289,6 +290,12 @@ public sealed class SidebarViewModel : ObservableObject, IDisposable, Actions.IM
             return;
         }
 
+        SyncOpenFolder();
+    }
+
+    private void SyncOpenFolder()
+    {
+        if (_list.TagId is not null) return;
         var id = _list.MailboxId;
         if (string.Equals(id, Core.Mail.Unified.UnifiedRows.FolderId, StringComparison.Ordinal))
         {

@@ -15,6 +15,7 @@ namespace Barbican.App.Views.Sidebar;
 public sealed partial class SidebarView : UserControl
 {
     private bool _syncing;
+    private bool _folderSyncQueued;
 
     public SidebarView()
     {
@@ -89,7 +90,15 @@ public sealed partial class SidebarView : UserControl
         }
     }
 
-    private void OnFoldersChanged(object? sender, NotifyCollectionChangedEventArgs e) => SyncSelection();
+    private void OnFoldersChanged(object? sender, NotifyCollectionChangedEventArgs e)
+    {
+        if (_folderSyncQueued) return;
+        _folderSyncQueued = DispatcherQueue.TryEnqueue(() =>
+        {
+            _folderSyncQueued = false;
+            SyncSelection();
+        });
+    }
 
     private void SyncSelection()
     {
