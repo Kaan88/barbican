@@ -46,8 +46,32 @@ public sealed class AssistantSession : IAssistantSession
         ArgumentNullException.ThrowIfNull(accountKey);
         lock (_lock)
         {
-            return [.. Loaded(accountKey)];
+            return _histories.TryGetValue(accountKey, out var history) ? [.. history] : [];
         }
+    }
+
+    /// <inheritdoc/>
+    public Task InitializeHistoryAsync(string accountKey, CancellationToken ct)
+    {
+        ArgumentNullException.ThrowIfNull(accountKey);
+        return Task.Run(() => InitializeHistoryCoreAsync(accountKey, ct), ct);
+    }
+
+    private async Task InitializeHistoryCoreAsync(string accountKey, CancellationToken ct)
+    {
+        var gate = GateOf(accountKey);
+        await gate.WaitAsync(ct).ConfigureAwait(false);
+        bool loaded;
+        try
+        {
+            loaded = EnsureLoaded(accountKey);
+        }
+        finally
+        {
+            _ = gate.Release();
+        }
+
+        if (loaded) Changed?.Invoke(this, EventArgs.Empty);
     }
 
     /// <inheritdoc/>
@@ -84,10 +108,10 @@ public sealed class AssistantSession : IAssistantSession
         await gate.WaitAsync(ct).ConfigureAwait(false);
         try
         {
+            AtomicFile.Delete(PathOf(accountKey));
             lock (_lock)
             {
-                Loaded(accountKey).Clear();
-                AtomicFile.Delete(PathOf(accountKey));
+                _histories[accountKey] = [];
             }
 
             Changed?.Invoke(this, EventArgs.Empty);
@@ -102,12 +126,12 @@ public sealed class AssistantSession : IAssistantSession
     private string PathOf(string accountKey) =>
         Path.Combine(_paths.DataDir, "assistant", Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(accountKey)))[..16] + ".json");
 
-    // callers hold _lock
-    private List<AssistantMessage> Loaded(string accountKey)
+    // Caller holds the per-account gate; disk IO is never under the cache lock.
+    private bool EnsureLoaded(string accountKey)
     {
-        if (_histories.TryGetValue(accountKey, out var known))
+        lock (_lock)
         {
-            return known;
+            if (_histories.ContainsKey(accountKey)) return false;
         }
 
         List<AssistantMessage> read = [];
@@ -120,11 +144,11 @@ public sealed class AssistantSession : IAssistantSession
         }
         catch (JsonException)
         {
-            // a broken file is an empty conversation; the next answer rewrites it
+            // A broken file is an empty conversation; the next answer rewrites it.
         }
 
-        _histories[accountKey] = read;
-        return read;
+        lock (_lock) { _histories[accountKey] = read; }
+        return true;
     }
 
     private void Save(string accountKey, List<AssistantMessage> history)
@@ -158,10 +182,11 @@ public sealed class AssistantSession : IAssistantSession
             await _settings.InitializeAsync(ct).ConfigureAwait(false);
             var config = _settings.Config(accountKey);
             var user = _accounts.SessionFor(accountKey)?.Client.Session.Username ?? accountKey;
+            _ = EnsureLoaded(accountKey);
             List<AssistantMessage> working;
             lock (_lock)
             {
-                working = [.. Loaded(accountKey)];
+                working = [.. _histories[accountKey]];
             }
 
             working.Add(new AssistantMessage("user", question, null, null));
@@ -169,15 +194,10 @@ public sealed class AssistantSession : IAssistantSession
             var client = new SystemPromptClient(_client, system);
             var tools = new OpenMessageTools(_tools, openMessageId, _accounts.SessionFor(accountKey));
             var result = await AssistantLoop.RunAsync(client, tools, config, accountKey, working, (tool, what) => ConfirmAsync(tool, what, ct), _ => Changed?.Invoke(this, EventArgs.Empty), ct).ConfigureAwait(false);
-            lock (_lock)
+            if (result.IsOk)
             {
-                if (result.IsOk)
-                {
-                    var history = Loaded(accountKey);
-                    history.Clear();
-                    history.AddRange(working);
-                    Save(accountKey, history);
-                }
+                Save(accountKey, working);
+                lock (_lock) { _histories[accountKey] = working; }
             }
 
             Changed?.Invoke(this, EventArgs.Empty);

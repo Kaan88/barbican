@@ -2,6 +2,8 @@
 
 using System.Globalization;
 using System.Text.Json.Nodes;
+using System.Text.Json;
+using System.Text.RegularExpressions;
 
 namespace Barbican.Core.Settings.Pages;
 
@@ -56,9 +58,33 @@ public static class SettingRules
             return Bad("Choose one of the listed values.");
         }
 
+        // The three-way account marker in Bulwark is two booleans, not a string enum.
+        if (string.Equals(row.Key, "tintListRowsByAccount", StringComparison.Ordinal))
+        {
+            return Toggle(value);
+        }
+
+        if (string.Equals(row.Key, "subAddressDelimiter", StringComparison.Ordinal))
+        {
+            return text.Length == 1 && "!#$%&'*+-./=?^_`{|}~".Contains(text[0], StringComparison.Ordinal)
+                ? Good(JsonValue.Create(text)) : Bad("Choose a valid one-character delimiter.");
+        }
+
+        if (string.Equals(row.Key, "writingLanguage", StringComparison.Ordinal))
+        {
+            return string.Equals(text, "auto", StringComparison.Ordinal) || Regex.IsMatch(text, "^[A-Za-z]{2,3}(-[A-Za-z0-9]{1,8}){0,3}$", RegexOptions.CultureInvariant | RegexOptions.ExplicitCapture, TimeSpan.FromSeconds(1))
+                ? Good(JsonValue.Create(text)) : Bad("Choose a valid language tag.");
+        }
+
         if (row.Options.Count > 0 && !row.Options.Any(o => string.Equals(o.Value, text, StringComparison.Ordinal)))
         {
             return Bad("That is not one of the choices.");
+        }
+
+        if (row.Default?.GetValueKind() == JsonValueKind.Number)
+        {
+            return double.TryParse(text, NumberStyles.Float, CultureInfo.InvariantCulture, out var number) && double.IsFinite(number)
+                ? Good(JsonValue.Create(number)) : Bad("Choose a number.");
         }
 
         return Good(JsonValue.Create(text));
@@ -79,9 +105,9 @@ public static class SettingRules
             return s;
         }
 
-        if (v.TryGetValue<long>(out var l))
+        if (v.GetValueKind() == JsonValueKind.Number)
         {
-            return l.ToString(CultureInfo.InvariantCulture);
+            return v.ToJsonString();
         }
 
         return v.TryGetValue<bool>(out var b) ? (b ? "true" : "false") : null;
