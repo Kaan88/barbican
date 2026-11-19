@@ -118,7 +118,8 @@ internal sealed class SrvUiFiltersPage : SrvUiPage
 
     private async Task DeleteAsync(string id, string name)
     {
-        if (await SrvUiKit.AskAsync("Delete rule", "Delete the rule \"" + name + "\"? Mail it already sorted stays where it is.", "Delete").ConfigureAwait(true))
+        var generation = _model.AccountGeneration;
+        if (await SrvUiKit.AskAsync("Delete rule", "Delete the rule \"" + name + "\"? Mail it already sorted stays where it is.", "Delete").ConfigureAwait(true) && _model.IsCurrentGeneration(generation) && _model.RuleOf(id) is not null)
         {
             await _model.DeleteAsync(id, CancellationToken.None).ConfigureAwait(true);
         }

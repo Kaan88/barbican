@@ -9,9 +9,9 @@ namespace Barbican.Presentation.Settings.Server;
 public interface ISrvUiRecoverSource
 {
     /// <summary>The server offers recovery (Stalwart); the page says so when not.</summary>
-    bool Available { get; }
+    bool Available(string accountKey);
 
-    Task<Result<IReadOnlyList<ArchivedItem>>> ListAsync(CancellationToken ct);
+    Task<Result<IReadOnlyList<ArchivedItem>>> ListAsync(string accountKey, CancellationToken ct);
 
-    Task<Result<Unit>> RestoreAsync(string id, CancellationToken ct);
+    Task<Result<Unit>> RestoreAsync(string accountKey, string id, CancellationToken ct);
 }

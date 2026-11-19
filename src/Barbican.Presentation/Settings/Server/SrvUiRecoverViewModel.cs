@@ -12,6 +12,7 @@ public sealed class SrvUiRecoverViewModel : SrvUiPageModel
     private readonly ISrvUiRecoverSource _source;
     private IReadOnlyList<ArchivedItem> _items = [];
     private string _message = string.Empty;
+    private long _loadSequence;
 
     public SrvUiRecoverViewModel(ISrvUiRecoverSource source, IAccountManager? accounts = null, IDispatcher? dispatcher = null)
         : base(accounts, dispatcher)
@@ -20,9 +21,9 @@ public sealed class SrvUiRecoverViewModel : SrvUiPageModel
         _source = source;
     }
 
-    public IReadOnlyList<ArchivedItem> Items => _items;
+    public IReadOnlyList<ArchivedItem> Items => IsLoaded(CaptureAccount()) ? _items : [];
 
-    public bool Available => _source.Available;
+    public bool Available => _source.Available(AccountKey);
 
     public string Message
     {
@@ -33,14 +34,17 @@ public sealed class SrvUiRecoverViewModel : SrvUiPageModel
     public async Task LoadAsync(CancellationToken ct)
     {
         IsLoading = true;
-        var account = AccountKey;
-        var result = await _source.ListAsync(ct).ConfigureAwait(false);
-        await OnUiAsync(account, () =>
+        var stamp = CaptureAccount();
+        var sequence = Interlocked.Increment(ref _loadSequence);
+        var result = await _source.ListAsync(stamp.Key, ct).ConfigureAwait(false);
+        await OnUiAsync(stamp, () =>
         {
+            if (sequence != Interlocked.Read(ref _loadSequence)) return;
             if (result.IsOk)
             {
                 Error = null;
                 _items = result.Value!;
+                MarkLoaded(stamp);
                 Raise(nameof(Items));
             }
             else
@@ -52,11 +56,13 @@ public sealed class SrvUiRecoverViewModel : SrvUiPageModel
         }).ConfigureAwait(false);
     }
 
-    public async Task RestoreAsync(string id, CancellationToken ct)
+    public Task RestoreAsync(string id, CancellationToken ct) => RestoreAsync(id, AccountGeneration, ct);
+
+    public async Task RestoreAsync(string id, long expectedGeneration, CancellationToken ct)
     {
-        var account = AccountKey;
-        var result = await _source.RestoreAsync(id, ct).ConfigureAwait(false);
-        await OnUiAsync(account, () =>
+        if (!RequireLoaded(out var stamp) || stamp.Generation != expectedGeneration || !_items.Any(item => string.Equals(item.Id, id, StringComparison.Ordinal))) return;
+        var result = await _source.RestoreAsync(stamp.Key, id, ct).ConfigureAwait(false);
+        await OnUiAsync(stamp, () =>
         {
             if (!result.IsOk)
             {
@@ -69,7 +75,17 @@ public sealed class SrvUiRecoverViewModel : SrvUiPageModel
         }).ConfigureAwait(false);
         if (result.IsOk)
         {
-            await OnUiAsync(account, () => LoadAsync(ct)).ConfigureAwait(false);
+            await OnUiAsync(stamp, () => LoadAsync(ct)).ConfigureAwait(false);
         }
     }
+    protected override void OnAccountSwitched()
+    {
+        _ = Interlocked.Increment(ref _loadSequence);
+        _items = [];
+        Message = string.Empty;
+        Raise(nameof(Items));
+        Raise(nameof(Available));
+        if (Available) ReloadAfterSwitch(() => LoadAsync(CancellationToken.None));
+    }
+
 }

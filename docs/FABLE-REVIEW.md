@@ -1748,3 +1748,7 @@ The response and script updates are separate operations, so failures can leave p
 ## Codex - M6 srv-ui (Terra High)
 
 - Folder settings load account-scoped mailbox snapshots from the captured session; writes require that snapshot and matching account generation, and success refreshes it. Colliding-ID and delayed A-to-B-to-A tests pass. The sidebar fallback is not used as a write source. Folder delete confirmations and unsent name fields are fenced on account switch. Vacation account switches now invalidate and clear the draft without automatically loading a hidden page: the visible page offers Reload and disables Save until a matching load succeeds, avoiding background calendar reconciliation. An explicitly opened/reloaded writable vacation page still uses the existing reconciliation behavior.
+
+## Codex - M6 srv-ui (Terra High)
+
+- Filter rules and folder choices now load for a captured account/generation. Editors, scans, apply dialogs and delete confirmations retain that generation; A-to-B-to-A rejects stale work and an already-issued apply may finish only on its original account. Recovery now passes an explicit account into its source and rejects stale rendered row actions even for colliding ids. Controlled regressions cover stale scans/editors and recovery collisions. The previous test assumption that the new account never reloads before modal construction was replaced with deterministic generation tests. Review same-account overlapping reload ordering and actual server behavior; no real writes were run.

@@ -16,9 +16,9 @@ public sealed class SrvUiSampleRecover : ISrvUiRecoverSource
         new("a3", "Re: Meeting notes", new DateTimeOffset(2026, 10, 30, 8, 0, 0, TimeSpan.Zero)),
     ];
 
-    public bool Available => true;
+    public bool Available(string accountKey) => true;
 
-    public Task<Result<IReadOnlyList<ArchivedItem>>> ListAsync(CancellationToken ct) =>
+    public Task<Result<IReadOnlyList<ArchivedItem>>> ListAsync(string accountKey, CancellationToken ct) =>
         Task.Run(() =>
         {
             lock (_lock)
@@ -27,7 +27,7 @@ public sealed class SrvUiSampleRecover : ISrvUiRecoverSource
             }
         }, ct);
 
-    public Task<Result<Unit>> RestoreAsync(string id, CancellationToken ct) =>
+    public Task<Result<Unit>> RestoreAsync(string accountKey, string id, CancellationToken ct) =>
         Task.Run(() =>
         {
             lock (_lock)

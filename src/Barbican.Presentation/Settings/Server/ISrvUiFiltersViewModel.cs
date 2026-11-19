@@ -15,6 +15,10 @@ public interface ISrvUiFiltersViewModel : INotifyPropertyChanged
 
     string AccountKey { get; }
 
+    long AccountGeneration { get; }
+
+    bool IsCurrentGeneration(long generation);
+
     /// <summary>The account that owns the currently loaded rules.</summary>
     string? StateAccountKey { get; }
 
@@ -46,12 +50,12 @@ public interface ISrvUiFiltersViewModel : INotifyPropertyChanged
     JsonNode? RuleOf(string ruleId);
 
     /// <summary>Adds the rule, or replaces the one with its id; the list is saved and the script regenerated.</summary>
-    Task<bool> UpsertAsync(JsonNode rule, string expectedAccount, string? expectedState, CancellationToken ct);
+    Task<bool> UpsertAsync(JsonNode rule, string expectedAccount, string? expectedState, long expectedGeneration, CancellationToken ct);
 
     /// <summary>The generated Sieve script, read-only (the metadata block, the rules and the hand-written part).</summary>
     string SieveText();
 
-    Task<Result<FilterScan>> ScanAsync(JsonNode rule, long generation, CancellationToken ct);
+    Task<Result<FilterScan>> ScanAsync(JsonNode rule, long run, string account, long accountGeneration, CancellationToken ct);
 
-    Task<Result<FilterApplied>> ApplyAsync(FilterScan scan, CancellationToken ct);
+    Task<Result<FilterApplied>> ApplyAsync(FilterScan scan, string account, long accountGeneration, CancellationToken ct);
 }

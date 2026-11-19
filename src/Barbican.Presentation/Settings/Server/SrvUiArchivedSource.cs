@@ -19,17 +19,17 @@ public sealed class SrvUiArchivedSource : ISrvUiRecoverSource
         _accounts = accounts;
     }
 
-    public bool Available => Client() is { } c && ArchivedItems.Advertised(c);
+    public bool Available(string accountKey) => Client(accountKey) is { } c && ArchivedItems.Advertised(c);
 
-    public Task<Result<IReadOnlyList<ArchivedItem>>> ListAsync(CancellationToken ct) =>
-        Client() is { } c
+    public Task<Result<IReadOnlyList<ArchivedItem>>> ListAsync(string accountKey, CancellationToken ct) =>
+        Client(accountKey) is { } c
             ? ArchivedItems.ListAsync(c, Limit, ct)
             : Task.FromResult(Result<IReadOnlyList<ArchivedItem>>.Fail(new ValidationError("Sign in to an account first.")));
 
-    public Task<Result<Unit>> RestoreAsync(string id, CancellationToken ct) =>
-        Client() is { } c
+    public Task<Result<Unit>> RestoreAsync(string accountKey, string id, CancellationToken ct) =>
+        Client(accountKey) is { } c
             ? ArchivedItems.RestoreAsync(c, id, ct)
             : Task.FromResult(Result<Unit>.Fail(new ValidationError("Sign in to an account first.")));
 
-    private Barbican.Core.Jmap.IJmapClient? Client() => _accounts.Active is { } a ? _accounts.SessionFor(a.Key)?.Client : null;
+    private Barbican.Core.Jmap.IJmapClient? Client(string accountKey) => _accounts.SessionFor(accountKey)?.Client;
 }
