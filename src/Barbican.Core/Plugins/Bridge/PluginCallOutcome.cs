@@ -1,14 +1,41 @@
 // Mirrors: Bulwark protocol.ts API result/error union, with fixed safe failure text at the native boundary.
 using Barbican.Core.Plugins.Protocol;
+using Barbican.Core.Plugins.Runtime;
 namespace Barbican.Core.Plugins.Bridge;
 public sealed class PluginCallOutcome
 {
-    private PluginCallOutcome(bool success, PluginValue? value, PluginErrorCode? error) { IsSuccess = success; Value = value; Error = error; }
+    private readonly PluginDeliveryFence? _delivery;
+
+    private PluginCallOutcome(bool success, PluginValue? value, PluginErrorCode? error, PluginDeliveryFence? delivery = null)
+    {
+        IsSuccess = success;
+        Value = value;
+        Error = error;
+        _delivery = delivery;
+    }
     public bool IsSuccess { get; }
     public PluginValue? Value { get; }
     public PluginErrorCode? Error { get; }
     private static readonly PluginValue Undefined = CreateUndefined();
     public static PluginCallOutcome Succeeded(PluginValue? value = null) => new(true, value ?? Undefined, null);
+    internal PluginCallOutcome WithDeliveryFence(PluginDeliveryFence fence) => new(true, Value, null, fence);
+
+    /// <summary>
+    /// Host-only check for a queued success. Call in the delivery callback, not before queueing it.
+    /// This check is not atomic with a later native send; the transport must not queue another hop.
+    /// </summary>
+    public async ValueTask<PluginCallOutcome> RevalidateForDeliveryAsync(PluginRuntimeBinding recipient, CancellationToken ct)
+    {
+        ArgumentNullException.ThrowIfNull(recipient);
+        ct.ThrowIfCancellationRequested();
+        if (!IsSuccess)
+        {
+            return this;
+        }
+
+        return _delivery is { } fence && await fence.IsCurrentAsync(recipient, ct).ConfigureAwait(false)
+            ? this : Failed(_delivery?.Refusal ?? PluginErrorCode.StaleContext);
+    }
     private static PluginValue CreateUndefined()
     {
         var builder = new PluginValueBuilder();

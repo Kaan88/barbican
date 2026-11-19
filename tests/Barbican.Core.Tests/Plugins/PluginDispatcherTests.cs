@@ -77,6 +77,61 @@ public sealed class PluginDispatcherTests
         Assert.True(binding.IsAlive);
     }
 
+    [Theory]
+    [InlineData(false, PluginErrorCode.StaleContext)]
+    [InlineData(true, PluginErrorCode.UnknownOutcome)]
+    public async Task QueuedResultRetainsItsCaptureAfterInvocationCloses(bool issue, PluginErrorCode expected)
+    {
+        var sessions = new Sessions();
+        var method = new Method(async (context, ct) =>
+        {
+            var active = context.CaptureActive().Value!;
+            if (issue)
+            {
+                Assert.True(await context.CheckCurrentAsync(ct));
+                context.MarkMutationIssued();
+            }
+
+            return Text(active.LocalAccountKey);
+        }, mayMutate: issue);
+        var dispatcher = new PluginApiDispatcher("auto-dispatch", [method], new Authority(Grant()), sessions);
+        await using var binding = PluginRuntimeBinding.Create("auto-dispatch", Grant(), PluginFrameKind.Background);
+
+        var first = await dispatcher.DispatchAsync(binding, Request(), Ct);
+        Assert.True(first.IsSuccess);
+        Assert.Same(first, await first.RevalidateForDeliveryAsync(binding, Ct));
+        sessions.Switch("b");
+        var rejected = await first.RevalidateForDeliveryAsync(binding, Ct);
+        Assert.Equal(expected, rejected.Error);
+        Assert.Null(rejected.Value);
+
+        var next = await dispatcher.DispatchAsync(binding, Request(), Ct);
+        Assert.Equal("b", (await next.RevalidateForDeliveryAsync(binding, Ct)).Value!.StringValue);
+    }
+
+    [Fact]
+    public async Task QueuedResultWithoutAnAccountStillRequiresItsOriginalLiveGrantAndBinding()
+    {
+        var authority = new Authority(Grant());
+        var dispatcher = new PluginApiDispatcher("auto-dispatch", [new Method((_, _) => Task.FromResult(Text("value")))], authority, new Sessions());
+        await using var binding = PluginRuntimeBinding.Create("auto-dispatch", Grant(), PluginFrameKind.Background);
+        await using var sibling = PluginRuntimeBinding.Create("auto-dispatch", Grant(), PluginFrameKind.Background);
+        var outcome = await dispatcher.DispatchAsync(binding, Request(), Ct);
+        Assert.Same(outcome, await outcome.RevalidateForDeliveryAsync(binding, Ct));
+        Assert.Equal(PluginErrorCode.StaleContext, (await outcome.RevalidateForDeliveryAsync(sibling, Ct)).Error);
+        authority.Current = Grant(2);
+        Assert.Equal(PluginErrorCode.StaleContext, (await outcome.RevalidateForDeliveryAsync(binding, Ct)).Error);
+    }
+
+    [Fact]
+    public async Task UnfencedSuccessCannotPassAHostDeliveryCheck()
+    {
+        await using var binding = PluginRuntimeBinding.Create("auto-dispatch", Grant(), PluginFrameKind.Background);
+        var outcome = await Text("adapter-only").RevalidateForDeliveryAsync(binding, Ct);
+        Assert.Equal(PluginErrorCode.StaleContext, outcome.Error);
+        Assert.Null(outcome.Value);
+    }
+
     [Fact]
     public async Task ActiveAccountAbaInvalidatesResultWithoutChangingCapturedClient()
     {

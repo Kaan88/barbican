@@ -76,7 +76,11 @@ public sealed class PluginApiDispatcher : IPluginApiDispatcher
             if (!await context.CheckCurrentAsync(stop.Token).ConfigureAwait(false)) return Fail(PluginErrorCode.StaleContext);
             var outcome = await method.InvokeAsync(context, request.Arguments, stop.Token).ConfigureAwait(false);
             if (!await context.CheckCurrentAsync(stop.Token).ConfigureAwait(false)) return Fail(context.HasIssuedMutation ? PluginErrorCode.UnknownOutcome : PluginErrorCode.StaleContext);
-            return outcome;
+            if (!outcome.IsSuccess) return outcome;
+            var delivery = context.SealForDelivery();
+            return delivery is null
+                ? Fail(context.HasIssuedMutation ? PluginErrorCode.UnknownOutcome : PluginErrorCode.StaleContext)
+                : outcome.WithDeliveryFence(delivery);
         }
         catch (OperationCanceledException) { return Fail(state.Close() ? PluginErrorCode.UnknownOutcome : PluginErrorCode.Cancelled); }
         catch (Exception e) when (e is not OutOfMemoryException and not StackOverflowException) { return Fail(state.Close() ? PluginErrorCode.UnknownOutcome : PluginErrorCode.Failed); }
