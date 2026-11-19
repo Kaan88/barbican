@@ -6,7 +6,7 @@
   <!-- The list's search box (stage F moved it out of MessageListView; stream search owns it): the field with its clear X and filter toggle, the removable chips, the suggestions and the filter panel.
        Suggestions and the panel are in-flow elements of this control (in-window, constrained to it; never an AutoSuggestBox, never a popup window). The AutomationId list.search is unchanged. -->
   <StackPanel Spacing="6">
-    <Border Height="36" CornerRadius="{x:Bind Look.FieldRadius, Mode=OneWay}" Background="Transparent" BorderBrush="{StaticResource Line}" BorderThickness="1" Padding="12,0,6,0">
+    <Border Height="{x:Bind Look.ListSearchHeight, Mode=OneWay}" CornerRadius="{x:Bind Look.FieldRadius, Mode=OneWay}" Background="Transparent" BorderBrush="{StaticResource Line}" BorderThickness="1" Padding="12,0,6,0">
       <Grid ColumnDefinitions="Auto,*,Auto,Auto,Auto" ColumnSpacing="8">
         <controls:SIcon Kind="Search" Size="15" StrokeWidth="2" Foreground="{StaticResource Faint}" VerticalAlignment="Center" />
         <TextBox Grid.Column="1" x:Name="SearchBox" Style="{StaticResource TextBox.Bare}" PlaceholderText="Search mail" KeyDown="OnSearchKeyDown" TextChanged="OnTextChanged" GotFocus="OnBoxFocused"

@@ -104,12 +104,13 @@
     <StackPanel>
     <!-- Folders: the heading folds the list (I-019); the settings button is M2. -->
     <Grid ColumnDefinitions="*,Auto,Auto" Padding="{x:Bind Look.FirstSectionHeaderPadding, Mode=OneWay}" AutomationProperties.AutomationId="sidebar.folders.header">
-      <Button Style="{StaticResource Button.Icon}" HorizontalAlignment="Left" Padding="0" Click="OnFoldersHeaderClick" Foreground="{x:Bind Look.SectionHeaderBrush, Mode=OneWay}"
+      <Button Style="{StaticResource Button.Icon}" HorizontalAlignment="Left" Padding="0" Click="OnFoldersHeaderClick" Foreground="{x:Bind Look.SidebarHeaderBrush, Mode=OneWay}"
               AutomationProperties.AutomationId="sidebar.folders.toggle" AutomationProperties.Name="Folders section">
         <StackPanel Orientation="Horizontal" Spacing="6">
-          <TextBlock Text="{x:Bind views:Fmt.SectionTitle('Folders', Look.IsBento), Mode=OneWay}" FontSize="{x:Bind Look.SectionHeaderSize, Mode=OneWay}" FontWeight="Bold"
-                     CharacterSpacing="{x:Bind Look.SectionHeaderSpacing, Mode=OneWay}" />
-          <controls:SIcon Kind="{x:Bind views:Fmt.ChevronOf(Sidebar.FoldersExpanded), Mode=OneWay}" Size="10" StrokeWidth="2.2" VerticalAlignment="Center" Opacity="0.8" />
+          <controls:SIcon Kind="{x:Bind views:Fmt.ChevronOf(Sidebar.FoldersExpanded), Mode=OneWay}" Visibility="{x:Bind Look.BulwarkOnly, Mode=OneWay}" Size="14" StrokeWidth="2.2" VerticalAlignment="Center" Opacity="0.8" />
+          <TextBlock Text="{x:Bind views:Fmt.SectionTitle('Folders', Look.SidebarUppercaseHeaders), Mode=OneWay}" FontSize="{x:Bind Look.SidebarHeaderSize, Mode=OneWay}" FontWeight="{x:Bind Look.SidebarHeaderWeight, Mode=OneWay}"
+                     CharacterSpacing="{x:Bind Look.SidebarHeaderSpacing, Mode=OneWay}" />
+          <controls:SIcon Kind="{x:Bind views:Fmt.ChevronOf(Sidebar.FoldersExpanded), Mode=OneWay}" Visibility="{x:Bind Look.LegacyMarkVisibility, Mode=OneWay}" Size="10" StrokeWidth="2.2" VerticalAlignment="Center" Opacity="0.8" />
         </StackPanel>
       </Button>
       <!-- "+" creates a top-level folder (Bulwark sidebar.tsx:848): the name is asked for in the prompt dialog -->
@@ -135,12 +136,13 @@
     <!-- Tags (the prototype's labels). Creating one is M2. -->
     <StackPanel Visibility="{x:Bind views:Fmt.VisCount(Sidebar.Tags.Count), Mode=OneWay}">
       <Grid ColumnDefinitions="*,Auto" Padding="{x:Bind Look.SectionHeaderPadding, Mode=OneWay}">
-        <Button Style="{StaticResource Button.Icon}" HorizontalAlignment="Left" Padding="0" Click="OnTagsHeaderClick" Foreground="{x:Bind Look.SectionHeaderBrush, Mode=OneWay}"
+        <Button Style="{StaticResource Button.Icon}" HorizontalAlignment="Left" Padding="0" Click="OnTagsHeaderClick" Foreground="{x:Bind Look.SidebarHeaderBrush, Mode=OneWay}"
                 AutomationProperties.AutomationId="sidebar.tags.toggle" AutomationProperties.Name="Tags section">
           <StackPanel Orientation="Horizontal" Spacing="6">
-            <TextBlock Text="{x:Bind views:Fmt.SectionTitle('Tags', Look.IsBento), Mode=OneWay}" FontSize="{x:Bind Look.SectionHeaderSize, Mode=OneWay}" FontWeight="Bold"
-                       CharacterSpacing="{x:Bind Look.SectionHeaderSpacing, Mode=OneWay}" />
-            <controls:SIcon Kind="{x:Bind views:Fmt.ChevronOf(Sidebar.TagsExpanded), Mode=OneWay}" Size="10" StrokeWidth="2.2" VerticalAlignment="Center" Opacity="0.8" />
+            <controls:SIcon Kind="{x:Bind views:Fmt.ChevronOf(Sidebar.TagsExpanded), Mode=OneWay}" Visibility="{x:Bind Look.BulwarkOnly, Mode=OneWay}" Size="14" StrokeWidth="2.2" VerticalAlignment="Center" Opacity="0.8" />
+            <TextBlock Text="{x:Bind views:Fmt.SectionTitle('Tags', Look.SidebarUppercaseHeaders), Mode=OneWay}" FontSize="{x:Bind Look.SidebarHeaderSize, Mode=OneWay}" FontWeight="{x:Bind Look.SidebarHeaderWeight, Mode=OneWay}"
+                       CharacterSpacing="{x:Bind Look.SidebarHeaderSpacing, Mode=OneWay}" />
+            <controls:SIcon Kind="{x:Bind views:Fmt.ChevronOf(Sidebar.TagsExpanded), Mode=OneWay}" Visibility="{x:Bind Look.LegacyMarkVisibility, Mode=OneWay}" Size="10" StrokeWidth="2.2" VerticalAlignment="Center" Opacity="0.8" />
           </StackPanel>
         </Button>
         <Button Grid.Column="1" Style="{StaticResource Button.Icon}" Width="22" Height="22" CornerRadius="8" Foreground="{StaticResource Faint}" Margin="0,-4,0,-4" Click="OnNewTagClick"

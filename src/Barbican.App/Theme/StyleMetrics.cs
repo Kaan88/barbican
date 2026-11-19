@@ -46,15 +46,15 @@ public sealed record StyleMetrics(bool Nordic, bool Bulwark = false)
     public double RailWidth => Bulwark ? 56 : Nordic ? 76 : 66;
 
     /// <summary>The rail button box.</summary>
-    public double RailButton => Nordic ? 46 : 44;
+    public double RailButton => Bulwark ? 40 : Nordic ? 46 : 44;
 
-    public double RailButtonRadius => Nordic ? 23 : 14;
+    public double RailButtonRadius => Bulwark ? 6 : Nordic ? 23 : 14;
 
-    public double RailPadTop => 14;
+    public double RailPadTop => Bulwark ? 12 : 14;
 
     public double RailPadBottom => Nordic ? 22 : 14;
 
-    public double RailSpacing => Nordic ? 12 : 8;
+    public double RailSpacing => Bulwark ? 4 : Nordic ? 12 : 8;
 
     /// <summary>The mark: the "B" squircle (Bento, 40) or the three bars (Nordic, 34).</summary>
     public double MarkSize => Nordic ? 34 : 40;
