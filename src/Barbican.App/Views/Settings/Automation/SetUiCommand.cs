@@ -3,7 +3,7 @@
 //   set-open PAGE [ANCHOR]   opens the Settings app on a page (a SettingsPageIds value) and scrolls to a row
 //   set-search TEXT          types in the search box ("-" clears)
 //   set-advanced on|off      Show advanced settings
-//   set-set KEY VALUE        writes a pref through the settings values (true, false, a number or text)
+//   set-set KEY VALUE        writes a pref through the settings values (null clears; true, false, a number or text)
 //   set-get KEY              reads a pref
 //   set-ask TEXT             asks the assistant column
 //   set-dump                 the state as one line of JSON
@@ -83,7 +83,7 @@ public sealed class SetUiCommand(string name, Func<string, CancellationToken, Ta
             }
 
             var raw = a[(split + 1)..].Trim();
-            JsonNode value = bool.TryParse(raw, out var b) ? JsonValue.Create(b) : double.TryParse(raw, System.Globalization.CultureInfo.InvariantCulture, out var d) ? JsonValue.Create(d) : JsonValue.Create(raw);
+            JsonNode? value = string.Equals(raw, "null", StringComparison.Ordinal) ? null : bool.TryParse(raw, out var b) ? JsonValue.Create(b) : double.TryParse(raw, System.Globalization.CultureInfo.InvariantCulture, out var d) ? JsonValue.Create(d) : JsonValue.Create(raw);
             await vm.SetKeyAsync(a[..split], value, ct).ConfigureAwait(true);
             return vm.LastError.Length == 0 ? "ok" : "error " + vm.LastError;
         });

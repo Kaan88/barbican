@@ -22,7 +22,7 @@ public sealed class SetUiViewModel : ISetUiViewModel, IDisposable
     private readonly IDispatcher? _dispatcher;
     private readonly IReadOnlyList<SettingPage> _pages;
     private readonly Dictionary<string, string> _infoText = new(StringComparer.Ordinal);
-    private readonly SemaphoreSlim _filesGate = new(1, 1);
+    private readonly SemaphoreSlim _compoundGate = new(1, 1);
     private string _search = string.Empty;
     private bool _advanced;
     private string _lastError = string.Empty;
@@ -47,7 +47,7 @@ public sealed class SetUiViewModel : ISetUiViewModel, IDisposable
 
     public event PropertyChangedEventHandler? PropertyChanged;
 
-    public void Dispose() => _filesGate.Dispose();
+    public void Dispose() => _compoundGate.Dispose();
 
     public string SearchText
     {
@@ -108,7 +108,12 @@ public sealed class SetUiViewModel : ISetUiViewModel, IDisposable
         {
             var stored = SetUiRowRules.KeyOf(row) is { } k ? Stored(k) : null;
             _ = _infoText.TryGetValue(row.Id, out var text);
-            rows.Add(new SetUiRow(row, SetUiRowRules.FileField(row.Id) is not null ? SetUiRowRules.FileValue(row.Id, stored) : SetUiRowRules.EffectiveValue(row, stored), text ?? string.Empty, visible.Contains(row.Id)));
+            var value = string.Equals(row.Key, "tintListRowsByAccount", StringComparison.Ordinal)
+                ? JsonValue.Create(Marker())
+                : string.Equals(row.Key, "messageListOrderScope", StringComparison.Ordinal)
+                    ? JsonValue.Create(stored is JsonValue scope && scope.TryGetValue<string>(out var textScope) && string.Equals(textScope, "all", StringComparison.Ordinal))
+                    : SetUiRowRules.FileField(row.Id) is not null ? SetUiRowRules.FileValue(row.Id, stored) : SetUiRowRules.EffectiveValue(row, stored);
+            rows.Add(new SetUiRow(row, value, text ?? string.Empty, visible.Contains(row.Id)));
         }
 
         return rows;
@@ -124,12 +129,47 @@ public sealed class SetUiViewModel : ISetUiViewModel, IDisposable
             return;
         }
 
+        if (string.Equals(row.Key, "messageListOrderScope", StringComparison.Ordinal))
+        {
+            if (value is JsonValue scope && scope.TryGetValue<bool>(out var all))
+            {
+                await SetKeyAsync(key, JsonValue.Create(all ? "all" : "inbox"), ct).ConfigureAwait(true);
+            }
+
+            return;
+        }
+
+        if (string.Equals(row.Key, "tintListRowsByAccount", StringComparison.Ordinal))
+        {
+            await SetMarkerAsync(value, ct).ConfigureAwait(true);
+            return;
+        }
+
         if (SetUiRowRules.FileField(rowId) is not { } field)
         {
+            if (row.Key is null)
+            {
+                var keylessCheck = SettingRules.Coerce(row, value);
+                if (!keylessCheck.Ok)
+                {
+                    _lastError = keylessCheck.Error ?? "That value is not allowed.";
+                    Raise(nameof(LastError));
+                    Raise("Values");
+                    return;
+                }
+
+                value = keylessCheck.Value;
+            }
+
             await SetKeyAsync(key, value, ct).ConfigureAwait(true);
             return;
         }
 
+        await SetFileFieldAsync(row, key, field, value, ct).ConfigureAwait(true);
+    }
+
+    private async Task SetFileFieldAsync(SettingRow row, string key, string field, JsonNode? value, CancellationToken ct)
+    {
         var check = SettingRules.Coerce(row, value);
         if (!check.Ok)
         {
@@ -139,7 +179,7 @@ public sealed class SetUiViewModel : ISetUiViewModel, IDisposable
             return;
         }
 
-        await _filesGate.WaitAsync(ct).ConfigureAwait(true);
+        await _compoundGate.WaitAsync(ct).ConfigureAwait(true);
         try
         {
             var files = Stored(key) as JsonObject ?? new JsonObject();
@@ -148,7 +188,90 @@ public sealed class SetUiViewModel : ISetUiViewModel, IDisposable
         }
         finally
         {
-            _ = _filesGate.Release();
+            _ = _compoundGate.Release();
+        }
+    }
+
+    private string Marker()
+    {
+        var tint = Stored("tintListRowsByAccount") is JsonValue t && t.TryGetValue<bool>(out var on) && on;
+        var dot = Stored("showAccountDot") is not JsonValue d || !d.TryGetValue<bool>(out var visible) || visible;
+        return tint ? "tint" : dot ? "dot" : "none";
+    }
+
+    private async Task SetMarkerAsync(JsonNode? value, CancellationToken ct)
+    {
+        var mode = value is JsonValue v && v.TryGetValue<string>(out var text) ? text : string.Empty;
+        if (mode is not ("dot" or "tint" or "none"))
+        {
+            _lastError = "Choose an account marker.";
+            Raise(nameof(LastError));
+            Raise("Values");
+            return;
+        }
+
+        await _compoundGate.WaitAsync(ct).ConfigureAwait(true);
+        try
+        {
+            await SetKeyAsync("tintListRowsByAccount", JsonValue.Create(string.Equals(mode, "tint", StringComparison.Ordinal)), ct).ConfigureAwait(true);
+            if (_lastError.Length == 0)
+            {
+                await SetKeyAsync("showAccountDot", JsonValue.Create(string.Equals(mode, "dot", StringComparison.Ordinal)), ct).ConfigureAwait(true);
+            }
+        }
+        finally { _ = _compoundGate.Release(); }
+    }
+
+    public async Task SetCalendarHourAsync(bool start, int hour, CancellationToken ct)
+    {
+        if ((start && hour is < 0 or > 23) || (!start && hour is < 1 or > 24))
+        {
+            _lastError = "Enter a valid hour.";
+            Raise(nameof(LastError));
+            Raise("Values");
+            return;
+        }
+
+        await _compoundGate.WaitAsync(ct).ConfigureAwait(true);
+        try
+        {
+            _lastError = string.Empty;
+            int ReadHour(string key, int fallback) => int.TryParse(Stored(key)?.ToJsonString(), System.Globalization.NumberStyles.Integer, System.Globalization.CultureInfo.InvariantCulture, out var d) ? d : fallback;
+            var from = Math.Clamp(ReadHour("calendarDayStartHour", 8), 0, 23);
+            var to = Math.Clamp(ReadHour("calendarDayEndHour", 20), 1, 24);
+            if (start && hour >= to) { await SetKeyAsync("calendarDayEndHour", JsonValue.Create(hour + 1), ct).ConfigureAwait(true); }
+            if (!start && hour <= from) { await SetKeyAsync("calendarDayStartHour", JsonValue.Create(hour - 1), ct).ConfigureAwait(true); }
+            if (_lastError.Length == 0) { await SetKeyAsync(start ? "calendarDayStartHour" : "calendarDayEndHour", JsonValue.Create(hour), ct).ConfigureAwait(true); }
+        }
+        finally { _ = _compoundGate.Release(); }
+    }
+
+    public async Task SetWorkingDayAsync(int day, bool enabled, CancellationToken ct)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegative(day);
+        ArgumentOutOfRangeException.ThrowIfGreaterThan(day, 6);
+        await _compoundGate.WaitAsync(ct).ConfigureAwait(true);
+        try
+        {
+            var existing = Stored("calendarWorkingDays") as JsonArray;
+            var days = existing is null
+                ? new HashSet<int>([1, 2, 3, 4, 5])
+                : existing.OfType<JsonValue>().Select(v => v.TryGetValue<int>(out var d) ? d : -1).Where(d => d is >= 0 and <= 6).ToHashSet();
+            if (!enabled && days.Contains(day) && days.Count == 1)
+            {
+                _lastError = "Choose at least one working day.";
+                Raise(nameof(LastError));
+                Raise("Values");
+                return;
+            }
+
+            if (enabled) { _ = days.Add(day); } else { _ = days.Remove(day); }
+            var next = new JsonArray([.. days.Order().Select(d => (JsonNode?)JsonValue.Create(d))]);
+            await SetKeyAsync("calendarWorkingDays", next, ct).ConfigureAwait(true);
+        }
+        finally
+        {
+            _ = _compoundGate.Release();
         }
     }
 

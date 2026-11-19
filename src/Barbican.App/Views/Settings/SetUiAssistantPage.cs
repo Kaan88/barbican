@@ -5,6 +5,7 @@ using System.Text.Json.Nodes;
 using Barbican.App.Shell;
 using Barbican.Core.Settings.Assistant;
 using Barbican.Presentation.Settings;
+using Barbican.Presentation.Settings.Ui;
 
 #pragma warning disable MA0051 // a page is built top to bottom in one method, like its layout reads
 
@@ -82,6 +83,10 @@ internal static class SetUiAssistantPage
                     if (string.Equals(key, "ai.provider", StringComparison.Ordinal) && string.Equals(accountKey, pageAccountKey, StringComparison.Ordinal) && textInputs.TryGetValue("ai.base", out var baseBox) && baseBox.FocusState == FocusState.Unfocused)
                     {
                         baseBox.Text = config.Base;
+                        if (textInputs.TryGetValue("ai.model", out var modelBox) && modelBox.FocusState == FocusState.Unfocused)
+                        {
+                            modelBox.Text = config.Model;
+                        }
                     }
                 }
                 finally
@@ -91,13 +96,13 @@ internal static class SetUiAssistantPage
             });
         }
 
-        var provider = new SetUiChoice(Providers, Math.Clamp(Number("ai.provider", 0), 0, 1), index => Save("ai.provider", JsonValue.Create(index)));
+        var provider = new SetUiChoice(Providers, Math.Clamp(Number("ai.provider", 0), 0, 1), index => Save("ai.provider", JsonValue.Create(index)), "set.assistant.provider");
         form.Children.Add(SetUiUi.RowOf("Provider", "OpenAI-compatible servers and Anthropic.", SetUiUi.Id(provider, "set.assistant.provider"), "set.assistant.provider.row"));
         form.Children.Add(TextRow("Base address", "Required. Enter the provider API base address, including /v1.", "ai.base", "https://api.openai.com/v1", Text, Save, textInputs, "set.assistant.base"));
         form.Children.Add(TextRow("Model", "Required. Enter a model supported by this provider.", "ai.model", "gpt-4o-mini", Text, Save, textInputs, "set.assistant.model"));
         form.Children.Add(TextRow("Language", "The language of its answers and of Translate.", "ai.lang", "English", Text, Save, textInputs, "set.assistant.lang"));
 
-        var mode = new SetUiChoice(Modes, Math.Clamp(Number("ai.actions", 1), 0, 2), index => Save("ai.actions", JsonValue.Create(index)));
+        var mode = new SetUiChoice(Modes, Math.Clamp(Number("ai.actions", 1), 0, 2), index => Save("ai.actions", JsonValue.Create(index)), "set.assistant.actions");
         form.Children.Add(SetUiUi.RowOf("Actions", "Read only never changes mail. Sending always asks.", SetUiUi.Id(mode, "set.assistant.actions"), "set.assistant.actions.row"));
 
         var memory = new ToggleSwitch { OnContent = string.Empty, OffContent = string.Empty, IsOn = settings.Config(vm.AccountKey).Memory };
@@ -140,7 +145,7 @@ internal static class SetUiAssistantPage
         form.Children.Add(SetUiUi.RowOf("API key", "Kept in the credential store, never in your settings or backups.", keyPanel, "set.assistant.key.row"));
         form.Children.Add(keyStatus);
 
-        void Refresh()
+        void Refresh(bool accountChanged)
         {
             refreshing = true;
             try
@@ -149,14 +154,24 @@ internal static class SetUiAssistantPage
                 provider.Selected = Math.Clamp(Number("ai.provider", 0), 0, 1);
                 mode.Selected = Math.Clamp(Number("ai.actions", 1), 0, 2);
                 memory.IsOn = settings.Config(pageAccountKey).Memory;
-                instructions.Text = Text("ai.instructions");
-                foreach (var (settingKey, box) in textInputs)
+                if (accountChanged || instructions.FocusState == FocusState.Unfocused)
                 {
-                    box.Text = Text(settingKey);
+                    instructions.Text = Text("ai.instructions");
                 }
 
-                key.Password = string.Empty;
-                keyStatus.Text = string.Empty;
+                foreach (var (settingKey, box) in textInputs)
+                {
+                    if (accountChanged || box.FocusState == FocusState.Unfocused)
+                    {
+                        box.Text = Text(settingKey);
+                    }
+                }
+
+                if (accountChanged)
+                {
+                    key.Password = string.Empty;
+                    keyStatus.Text = string.Empty;
+                }
             }
             finally
             {
@@ -168,9 +183,10 @@ internal static class SetUiAssistantPage
         {
             if (string.Equals(e.PropertyName, nameof(vm.AccountKey), StringComparison.Ordinal))
             {
-                Refresh();
+                Refresh(true);
             }
         };
+        settings.Changed += (_, _) => form.DispatcherQueue.TryEnqueue(() => Refresh(false));
 
         return new SetUiPageFactory(
             SettingsPageIds.Assistant,
@@ -184,7 +200,12 @@ internal static class SetUiAssistantPage
                 Grid.SetColumn(column, 1);
                 root.Children.Add(column);
                 return root;
-            }, Refresh);
+            }, () => SetUiUi.Run(async () =>
+            {
+                await settings.InitializeAsync(CancellationToken.None).ConfigureAwait(true);
+                await ViewHost.Get<SetUiAssistantViewModel>().InitializeAsync(CancellationToken.None).ConfigureAwait(true);
+                Refresh(false);
+            }));
     }
 
     private static AssistantConfig WithProvider(AssistantConfig config, AssistantProviderKind provider)
@@ -194,7 +215,13 @@ internal static class SetUiAssistantPage
         var standard = string.Equals(config.Base.TrimEnd('/'), openAi, StringComparison.OrdinalIgnoreCase)
             || string.Equals(config.Base.TrimEnd('/'), anthropic, StringComparison.OrdinalIgnoreCase)
             || string.IsNullOrWhiteSpace(config.Base);
-        return config with { Provider = provider, Base = standard ? (provider == AssistantProviderKind.Anthropic ? anthropic : openAi) : config.Base };
+        var oldDefaultModel = string.Equals(config.Model, "gpt-4o-mini", StringComparison.Ordinal) || string.Equals(config.Model, "claude-haiku-5-5", StringComparison.Ordinal);
+        return config with
+        {
+            Provider = provider,
+            Base = standard ? (provider == AssistantProviderKind.Anthropic ? anthropic : openAi) : config.Base,
+            Model = provider != config.Provider && oldDefaultModel ? string.Empty : config.Model,
+        };
     }
 
     private static Grid TextRow(string label, string description, string key, string placeholder, Func<string, string> read, Action<string, JsonNode?> save, Dictionary<string, TextBox> inputs, string id)

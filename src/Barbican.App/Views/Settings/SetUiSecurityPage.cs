@@ -127,6 +127,7 @@ internal static class SetUiSecurityPage
             {
                 await model.CreateApiKeyAsync(keyName.Text, CancellationToken.None).ConfigureAwait(true);
                 keyName.Text = string.Empty;
+                SetUiUi.Run(() => model.RefreshAsync(CancellationToken.None));
             }), "set.security.key.create"));
 
             if (model.IssuedSecret.Length > 0)
@@ -149,6 +150,7 @@ internal static class SetUiSecurityPage
                 totpCode.Text = string.Empty;
                 appName.Text = string.Empty;
                 keyName.Text = string.Empty;
+                SetUiUi.Run(() => model.RefreshAsync(CancellationToken.None));
             }
 
             Render();

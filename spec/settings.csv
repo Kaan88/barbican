@@ -19,7 +19,7 @@ S-paragraphSpacing,wired,accessibility,select,Paragraph spacing,"""normal""",a11
 S-plainTextFont,wired,accessibility;reading,select,Plain text mail font | Font for plain text mail,"""sans""",a11y.rs;main.rs,src/a11y.rs:25,A11y;BodyAppearance,
 S-readingWidth,wired,accessibility,select,Reading width,"""full""",a11y.rs,src/a11y.rs:10,A11y,
 S-reduceMotion,wired,accessibility,select,Reduce motion,"""system""",a11y.rs;main.rs,src/a11y.rs:11,A11y;ShellViewModel,
-S-sendConfirmation,wired,accessibility,toggle,Confirm before sending,false,compose.rs;settings.rs,src/compose.rs:868,not ported,
+S-sendConfirmation,wired,accessibility,toggle,Confirm before sending,false,compose.rs;settings.rs,src/compose.rs:868,src/Barbican.Core/Compose/ComposeSettings.cs,
 S-showRowActionButton,wired,accessibility,toggle,Actions button on each message,false,a11y.rs,src/a11y.rs:13,A11y,
 S-singleKeyShortcuts,wired,accessibility,toggle,Single-key shortcuts,true,a11y.rs,src/a11y.rs:12,A11y,
 S-toastDuration,wired,accessibility,select,Notification duration,5,a11y.rs;settings.rs,src/a11y.rs:15,A11y,
@@ -27,7 +27,7 @@ S-underlineLinks,wired,accessibility,toggle,Underline links,false,a11y.rs,src/a1
 S-unreadCountStyle,wired,accessibility,select,Unread counts,"""count""",a11y.rs,src/a11y.rs:16,A11y,
 S-visualAlerts,wired,accessibility,toggle,Visual alerts,false,a11y.rs,src/a11y.rs:16,A11y,
 S-wordSpacing,wired,accessibility,select,Word spacing,"""normal""",a11y.rs,src/a11y.rs:10,A11y,
-S-subAddressDelimiter,wired,account,select,Sub-address delimiter,null,compose.rs,src/compose.rs:169,src/Barbican.Core/Compose/ComposeSettings.cs; ComposeSeeder,
+S-subAddressDelimiter,wired,account,select,Sub-address delimiter,null,compose.rs,src/compose.rs:169,SetUiRowsView.CustomText; ComposeSettings; ReplyRecipients,Custom single-character delimiter uses shared validation.
 S-colorfulSidebarIcons,wired,appearance,toggle,Colorful sidebar icons,false,mail.rs,src/mail.rs:117,FolderRowOptions,
 S-compactSharedMailboxes,unwired,appearance,toggle,Compact shared mailboxes,false,,,not ported,
 S-composePlacement,wired,appearance,select,Compose button,null,settings.rs,src/settings.rs:53,not ported,
@@ -43,41 +43,41 @@ S-showRailAccountList,unwired,appearance,toggle,Show account avatars on the navi
 S-showSharedMailAccounts,unwired,appearance,toggle,Show shared mail accounts,true,,,not ported,
 S-showToolbarLabels,wired,appearance,toggle,Show toolbar labels,true,main.rs,src/main.rs:2113,not ported,
 S-sidebarAccountSwitcher,unwired,appearance,toggle,Account switcher at the top of the sidebar,true,,,not ported,
-S-tintListRowsByAccount,wired,appearance,select,Tell accounts apart,false,mail.rs,src/mail.rs:408,not ported,
+S-tintListRowsByAccount,wired,appearance,select,Tell accounts apart,false,mail.rs,src/mail.rs:408,MailListSettings; MessageListViewModel; MessageRowViewModel,Composite selector writes tintListRowsByAccount and showAccountDot; two writes can be partial on failure.
 S-toolbarPosition,unwired,appearance,select,Toolbar position,"""top""",,,not ported,
 S-uiStyle,wired,appearance,select,Style,"""bento""",main.rs,src/main.rs:1041,ShellViewModel,
 S-unifiedCrossAccount,wired,appearance,toggle,Across all accounts,false,main.rs;unified.rs,src/main.rs:1013,"UnifiedSettings.From (Core/Mail/Unified; UnifiedInbox, UnifiedSectionViewModel)",
-S-calendarDayEndHour,wired,calendar,select,Visible hours,20,cal_editor.rs;calendar.rs;settings.rs,src/calendar.rs:164,not ported,
-S-calendarFreeScroll,wired,calendar,toggle,Free scrolling,true,calendar.rs,src/calendar.rs:179,not ported,
-S-calendarHideNonWorkingDays,wired,calendar,toggle,Hide non-working days,false,calendar.rs,src/calendar.rs:173,not ported,
-S-calendarHoverPreview,wired,calendar,select,Event hover preview,"""delay-500ms""",calendar.rs,src/calendar.rs:180,not ported,
+S-calendarDayEndHour,wired,calendar,select,Visible hours,20,cal_editor.rs;calendar.rs;settings.rs,src/calendar.rs:164,SetUiRowsView.CalendarHours; CalendarViewSettings,Visible start and end hour edits keep the end after the start; writes can be partially applied if a later write fails.
+S-calendarFreeScroll,wired,calendar,toggle,Free scrolling,true,calendar.rs,src/calendar.rs:179,src/Barbican.Core/Calendar/CalendarSettings.cs,
+S-calendarHideNonWorkingDays,wired,calendar,toggle,Hide non-working days,false,calendar.rs,src/calendar.rs:173,src/Barbican.Core/Calendar/CalendarSettings.cs,
+S-calendarHoverPreview,wired,calendar,select,Event hover preview,"""delay-500ms""",calendar.rs,src/calendar.rs:180,src/Barbican.Core/Calendar/CalendarSettings.cs,
 S-calendarInvitationParsingEnabled,wired,calendar,toggle,Show invitations from mail,true,reader.rs,src/reader.rs:343,src/Barbican.Core/Calendar/CalendarSettings.cs,
-S-calendarLimitHours,wired,calendar,toggle,Limit visible hours,true,calendar.rs,src/calendar.rs:162,not ported,
-S-calendarMonthTimedEvents,wired,calendar,select,Timed events in month view,"""bar""",calendar.rs,src/calendar.rs:178,not ported,
-S-calendarTintedEvents,wired,calendar,toggle,Light event colors,true,calendar.rs,src/calendar.rs:176,not ported,
+S-calendarLimitHours,wired,calendar,toggle,Limit visible hours,true,calendar.rs,src/calendar.rs:162,src/Barbican.Core/Calendar/CalendarSettings.cs,
+S-calendarMonthTimedEvents,wired,calendar,select,Timed events in month view,"""bar""",calendar.rs,src/calendar.rs:178,src/Barbican.Core/Calendar/CalendarSettings.cs,
+S-calendarTintedEvents,wired,calendar,toggle,Light event colors,true,calendar.rs,src/calendar.rs:176,src/Barbican.Core/Calendar/CalendarSettings.cs,
 S-enableCalendarTasks,wired,calendar,toggle,Tasks,true,calendar.rs;reminders.rs,src/calendar.rs:182,src/Barbican.Core/Calendar/CalendarSettings.cs,
 S-showBirthdayCalendar,wired,calendar,toggle,Contact birthday calendar,false,calendar.rs,src/calendar.rs:185,src/Barbican.Core/Calendar/CalendarSettings.cs,
-S-showTasksApp,wired,calendar,toggle,Tasks as their own app,false,calendar.rs,src/calendar.rs:184,not ported,
-S-showTasksOnCalendar,wired,calendar,toggle,Show tasks on calendar,true,calendar.rs,src/calendar.rs:183,not ported,
-S-showTimeInMonthView,wired,calendar,toggle,Show time in month view,false,calendar.rs,src/calendar.rs:175,not ported,
+S-showTasksApp,wired,calendar,toggle,Tasks as their own app,false,calendar.rs,src/calendar.rs:184,src/Barbican.Core/Calendar/CalendarSettings.cs,
+S-showTasksOnCalendar,wired,calendar,toggle,Show tasks on calendar,true,calendar.rs,src/calendar.rs:183,src/Barbican.Core/Calendar/CalendarSettings.cs,
+S-showTimeInMonthView,wired,calendar,toggle,Show time in month view,false,calendar.rs,src/calendar.rs:175,src/Barbican.Core/Calendar/CalendarSettings.cs,
 S-showWeekNumbers,wired,calendar,toggle,Show week numbers,false,calendar.rs,src/calendar.rs:171,src/Barbican.Core/Calendar/CalendarSettings.cs,
-S-attachmentReminderEnabled,wired,composing,toggle,Attachment reminder,true,compose.rs,src/compose.rs:809,not ported,
+S-attachmentReminderEnabled,wired,composing,toggle,Attachment reminder,true,compose.rs,src/compose.rs:809,src/Barbican.Core/Compose/ComposeSettings.cs,
 S-autoSelectReplyIdentity,wired,composing,toggle,Reply from the address it was sent to,false,compose.rs,src/compose.rs:307,src/Barbican.Core/Compose/ComposeSettings.cs; ComposeSeeder,
-S-emptySubjectWarningEnabled,wired,composing,toggle,Empty subject warning,true,compose.rs,src/compose.rs:798,not ported,
+S-emptySubjectWarningEnabled,wired,composing,toggle,Empty subject warning,true,compose.rs,src/compose.rs:798,src/Barbican.Core/Compose/ComposeSettings.cs,
 S-mentionAddsRecipientTo,unwired,composing,select,Contacts in @ mentions,"""to""",,,not ported,
-S-placeholderWarningEnabled,wired,composing,toggle,Placeholder warning,true,compose.rs,src/compose.rs:801,not ported,
+S-placeholderWarningEnabled,wired,composing,toggle,Placeholder warning,true,compose.rs,src/compose.rs:801,src/Barbican.Core/Compose/ComposeSettings.cs,
 S-plainTextMode,wired,composing,toggle,Plain text only,false,compose.rs,src/compose.rs:405,src/Barbican.Core/Compose/ComposeSettings.cs; ComposeSettings.Read,
-S-quickReplyEnabled,wired,composing,toggle,Quick reply,true,main.rs,src/main.rs:2112,not ported,
+S-quickReplyEnabled,wired,composing,toggle,Quick reply,true,main.rs,src/main.rs:2112,src/Barbican.Core/Compose/ComposeSettings.cs,
 S-recipientMentionsEnabled,unwired,composing,toggle,Mention recipients with @,true,,,not ported,
 S-replyIdentityMatch,wired,composing,select,Received address matching,"""domain""",compose.rs,src/compose.rs:307,src/Barbican.Core/Compose/ComposeSettings.cs; ComposeSeeder,
-S-replyUnderMessage,wired,composing,toggle,Replies under the message,true,compose.rs,src/compose.rs:426,not ported,
+S-replyUnderMessage,wired,composing,toggle,Replies under the message,true,compose.rs,src/compose.rs:426,src/Barbican.Core/Compose/ComposeSettings.cs,
 S-rtlEditingSupport,unwired,composing,toggle,Right-to-left editing support,false,,,not ported,
 S-sendDelaySeconds,wired,composing,select,Undo send,5,compose.rs;settings.rs,src/compose.rs:879,src/Barbican.Core/Compose/ComposeSettings.cs; SendCoordinator,
 S-signatureNewMailEnabled,wired,composing,toggle,Signature on new mail,true,compose.rs,src/compose.rs:333,src/Barbican.Core/Compose/ComposeSettings.cs; ComposeSeeder,
 S-signaturePosition,wired,composing,select,Signature position,"""below_quote""",compose.rs,src/compose.rs:339,src/Barbican.Core/Compose/ComposeSettings.cs; ComposeSeeder,
 S-signatureReplyForwardEnabled,wired,composing,toggle,Signature on replies & forwards,true,compose.rs,src/compose.rs:333,src/Barbican.Core/Compose/ComposeSettings.cs; ComposeSeeder,
 S-signatureSeparatorEnabled,wired,composing,toggle,Signature delimiter,true,compose.rs,src/compose.rs:336,src/Barbican.Core/Compose/ComposeSettings.cs; ComposeSeeder,
-S-writingLanguage,wired,composing,select,Writing language,"""auto""",main.rs;settings.rs;spell.rs,src/main.rs:1042,not ported,
+S-writingLanguage,wired,composing,select,Writing language,"""auto""",main.rs;settings.rs;spell.rs,src/main.rs:1042,SetUiRowsView.CustomText; SpellSettings,Accepts a validated language tag or auto.
 S-groupContactsByLetter,wired,contacts,toggle,Group by first letter,true,contacts.rs,src/contacts.rs:236,src/Barbican.Presentation/Contacts/ContactsViewModel.cs,
 S-showContactsDirectory,wired,contacts,toggle,Show the directory,true,contacts_x.rs,src/contacts_x.rs:851,src/Barbican.Presentation/Contacts/ContactsViewModel.cs; src/Barbican.Core/Contacts/ContactDirectory.cs (IsAvailable: the directory loads only with the principals capability and the setting on),
 S-sortContactsByLastName,wired,contacts,toggle,Sort by last name,false,contacts.rs,src/contacts.rs:237,src/Barbican.Presentation/Contacts/ContactsViewModel.cs,
@@ -93,22 +93,22 @@ S-showOnboardingOnNewDevices,unwired,general,toggle,Show on new devices,false,,,
 S-webviewBackgroundCloseMinutes,wired,general,select,Free the mail view's memory in the background,"""5""",,,BodyBackgroundPolicy;BodyShell,Barbican only (D-WV-01); minutes in the background before the body WebView2 is closed; 0 = never
 S-timeFormat,wired,general,select,Time format,"""24h""",calendar.rs;compose.rs;files.rs;mail.rs;schedule.rs;settings.rs,src/calendar.rs:177,src/Barbican.Core/Compose/ComposeSettings.cs; ScheduleDialogViewModel,
 S-timeZone,wired,general,info,Time zone,"""auto""",agent.rs;cal_editor.rs;cal_extra.rs;calendar.rs;contacts_x.rs;invite.rs;reminders.rs;vcard.rs,src/agent.rs:409,src/Barbican.Core/Calendar/CalendarSettings.cs; src/Barbican.Core/Contacts/ContactDates.cs (Today),
-S-archiveMode,wired,message_list,select,Archive in,"""single""",mail.rs,src/mail.rs:990,not ported,
+S-archiveMode,wired,message_list,select,Archive in,"""single""",mail.rs,src/mail.rs:990,src/Barbican.Presentation/Actions/ActionSettings.cs,
 S-clearSearchOnFolderChange,wired,message_list,toggle,Clear search when switching folders,false,main.rs,src/main.rs:846,not ported,
-S-confirmBulkDelete,wired,message_list,toggle,Confirm before deleting several messages,true,ctxmenu.rs;mail.rs,src/ctxmenu.rs:537,not ported,
-S-deleteAction,wired,message_list,select,Delete action,"""trash""",mail.rs,src/mail.rs:1029,not ported,
+S-confirmBulkDelete,wired,message_list,toggle,Confirm before deleting several messages,true,ctxmenu.rs;mail.rs,src/ctxmenu.rs:537,src/Barbican.Presentation/Actions/ActionSettings.cs; src/Barbican.Presentation/Menus/MailboxMenuData.cs,
+S-deleteAction,wired,message_list,select,Delete action,"""trash""",mail.rs,src/mail.rs:1029,src/Barbican.Presentation/Actions/ActionSettings.cs,
 S-disableThreading,wired,message_list,toggle,Group messages by conversation,false,main.rs;msgload.rs,src/main.rs:334,MessageLoadRules,invert
 S-emailsPerPage,wired,message_list,select,Emails per page,50,mail.rs,src/mail.rs:68,MailListSettings,
 S-groupListByDate,wired,message_list,toggle,Group by date,false,mail.rs,src/mail.rs:64,MailListSettings,
 S-listColumns,unwired,message_list,toggle,Show the list as columns,false,,,not ported,
-S-messageListOrderScope,unwired,message_list,toggle,Apply to all folders,"""inbox""",,,not ported,
+S-messageListOrderScope,unwired,message_list,toggle,Apply to all folders,"""inbox""",,,SetUiViewModel; ListSortResolver,Settings toggle stores inbox or all; hidden sample exercised all.
 S-mvInboxType,wired,message_list,select,Inbox type,"""unread-first""",mail.rs,src/mail.rs:584,MailListSettings,
 S-mvUnreadSectionSize,wired,message_list,select,Unread messages shown,25,mail.rs;settings.rs,src/mail.rs:587,MailListSettings,
-S-permanentlyDeleteJunk,wired,message_list,toggle,Permanently delete Junk,false,mail.rs,src/mail.rs:984,not ported,
+S-permanentlyDeleteJunk,wired,message_list,toggle,Permanently delete Junk,false,mail.rs,src/mail.rs:984,src/Barbican.Presentation/Actions/ActionSettings.cs,
 S-searchDefaultScope,wired,message_list,select,Search in,"""all""",main.rs,src/main.rs:1599,not ported,
 S-showAttachmentChips,wired,message_list,toggle,Show attachments in the list,true,mail.rs,src/mail.rs:70,MailListSettings,
 S-showPreview,wired,message_list,toggle,Show preview text,true,mail.rs;settings.rs,src/mail.rs:65,MailListSettings,
-S-showTagChips,wired,message_list,toggle,Show tags in the list,true,main.rs,src/main.rs:2114,not ported,
+S-showTagChips,wired,message_list,toggle,Show tags in the list,true,main.rs,src/main.rs:2114,src/Barbican.Presentation/Mail/MailListSettings.cs,
 S-showVerificationCodes,wired,message_list,toggle,Show verification codes,true,mail.rs,src/mail.rs:71,not ported,
 S-swipeLeftAction,unwired,message_list,select,Swipe left action (mobile),"""delete""",,,not ported,
 S-swipeRightAction,unwired,message_list,select,Swipe right action (mobile),"""archive""",,,not ported,
@@ -125,16 +125,16 @@ S-pushRelayUrl,unwired,notifications,select,Push relay,"""""",,,not ported,
 S-unreadBadgeAllAccounts,wired,notifications,toggle,Count unread mail in all accounts,true,mail.rs;main.rs;unified.rs,src/mail.rs:189,not ported,
 S-nestedTags,wired,organize,toggle,Nested tags,null,main.rs;tags.rs,src/main.rs:1025,SidebarViewModel,
 S-avatars.refresh,wired,privacy,button,Refresh sender icons,null,main.rs,src/main.rs:1100,SetUiRowsView.RefreshAvatarsAsync; AvatarService.RefreshAsync,Clears profile-local avatar image cache and invalidates in-flight fetches.
-S-gravatarAvatars,wired,privacy,toggle,Gravatar photos,false,avatars.rs,src/avatars.rs:33,not ported,
-S-senderFavicons,wired,privacy,toggle,Sender pictures from the web,false,avatars.rs,src/avatars.rs:33,not ported,
-S-showAvatarsInJunk,wired,privacy,toggle,Show avatars in the Junk folder,false,avatars.rs,src/avatars.rs:33,not ported,
+S-gravatarAvatars,wired,privacy,toggle,Gravatar photos,false,avatars.rs,src/avatars.rs:33,src/Barbican.App/Composition/Features/ReaderRegistration.cs,
+S-senderFavicons,wired,privacy,toggle,Sender pictures from the web,false,avatars.rs,src/avatars.rs:33,src/Barbican.App/Composition/Features/ReaderRegistration.cs,
+S-showAvatarsInJunk,wired,privacy,toggle,Show avatars in the Junk folder,false,avatars.rs,src/avatars.rs:33,src/Barbican.App/Composition/Features/ReaderRegistration.cs,
 S-attachmentImagePreviewsEnabled,wired,reading,toggle,Show image previews in attachments,true,attachments.rs,src/attachments.rs:60,MailListSettings,
 S-emailAlwaysLightMode,wired,reading,toggle,Always show emails in light mode,false,main.rs,src/main.rs:233,BodyAppearance,
 S-hideInlineImageAttachments,wired,reading,toggle,Hide inline images from attachments,true,mail.rs;msgload.rs;reader.rs,src/mail.rs:73,MailListSettings,
 S-mailAttachmentAction,wired,reading,select,Attachment click action,"""preview""",main.rs,src/main.rs:1747,not ported,
 S-markAsReadDelay,wired,reading,select,Mark as read,0,msgload.rs,src/msgload.rs:36,MessageLoadRules,
 S-messageSpacing,wired,reading,select,Message spacing,"""auto""",main.rs,src/main.rs:255,BodyAppearance,
-S-returnToListAfterAction,wired,reading,toggle,"Return to list after delete, archive, move or mark unread",true,mail.rs,src/mail.rs:1011,not ported,
+S-returnToListAfterAction,wired,reading,toggle,"Return to list after delete, archive, move or mark unread",true,mail.rs,src/mail.rs:1011,src/Barbican.Presentation/Mail/MessageListViewModel.Actions.cs,
 S-debugMode,unwired,troubleshooting,toggle,Detailed logging,false,,,not ported,
 S-keyless-001,keyless,account,info,Email address,,,,not ported,no key: dropped by Rust settings.rs schema_rows
 S-keyless-002,keyless,account,info,Username,,,,not ported,no key: dropped by Rust settings.rs schema_rows
@@ -161,7 +161,7 @@ S-keyless-022,keyless,general,info,Open email links in {appName},,,,not ported,n
 S-keyless-023,keyless,general,info,Open calendar links in {appName},,,,not ported,no key: dropped by Rust settings.rs schema_rows
 S-keyless-024,keyless,general,select,How links open,,,,not ported,no key: dropped by Rust settings.rs schema_rows
 S-keyless-025,keyless,appearance,select,Light or dark,,,,not ported,no key: dropped by Rust settings.rs schema_rows
-S-keyless-026,keyless,appearance,info,Text size and motion,,,,not ported,no key: dropped by Rust settings.rs schema_rows
+S-keyless-026,keyless,appearance,info,Text size and motion,,,,SetUiRowsView,Opens Accessibility for text size and motion.
 S-keyless-027,keyless,accessibility,info,Density and toolbar labels,,,,SetUiRowsView,Accessibility cross-link opens its target Settings page or shortcuts help.
 S-keyless-028,keyless,accessibility,info,Theme and colour mode,,,,SetUiRowsView,Accessibility cross-link opens its target Settings page or shortcuts help.
 S-keyless-029,keyless,accessibility,info,Light background for messages,,,,SetUiRowsView,Accessibility cross-link opens its target Settings page or shortcuts help.
@@ -174,7 +174,7 @@ S-keyless-035,keyless,accessibility,info,Warnings before sending,,,,SetUiRowsVie
 S-keyless-036,keyless,accessibility,info,Asking before deleting several messages,,,,SetUiRowsView,Accessibility cross-link opens its target Settings page or shortcuts help.
 S-keyless-037,keyless,accessibility,info,Do not disturb,,,,SetUiRowsView,Accessibility cross-link opens its target Settings page or shortcuts help.
 S-keyless-038,keyless,accessibility,info,Sounds and the unread badge,,,,SetUiRowsView,Accessibility cross-link opens its target Settings page or shortcuts help.
-S-keyless-039,keyless,message_list,select,Message list order,,,,not ported,no key: dropped by Rust settings.rs schema_rows
+S-keyless-039,keyless,message_list,select,Message list order,,,,SetUiOrderEditor; MessageListOrder,"Presets and up to three ordered levels including tags; hidden sample exercised add, reorder and tag changes."
 S-keyless-040,keyless,composing,toggle,Check spelling and grammar while I type,,,,not ported,no key: dropped by Rust settings.rs schema_rows
 S-keyless-041,keyless,vacation,info,Reply automatically,,,,not ported,no key: dropped by Rust settings.rs schema_rows
 S-keyless-042,keyless,vacation,select,Reply to,,,,not ported,no key: dropped by Rust settings.rs schema_rows
@@ -184,11 +184,11 @@ S-keyless-045,keyless,vacation,text,Subject,,,,not ported,no key: dropped by Rus
 S-keyless-046,keyless,vacation,info,Forward messages,,,,not ported,no key: dropped by Rust settings.rs schema_rows
 S-keyless-047,keyless,vacation,text,Forward to,,,,not ported,no key: dropped by Rust settings.rs schema_rows
 S-keyless-048,keyless,vacation,toggle,Keep in inbox,,,,not ported,no key: dropped by Rust settings.rs schema_rows
-S-keyless-049,keyless,calendar,select,Calendar opens in,,,,not ported,no key: dropped by Rust settings.rs schema_rows
-S-keyless-050,keyless,calendar,select,Organize invitations as,,,,not ported,no key: dropped by Rust settings.rs schema_rows
-S-keyless-051,keyless,calendar,info,Working days,,,,not ported,no key: dropped by Rust settings.rs schema_rows
-S-keyless-052,keyless,contacts,info,Import contacts,,,,commands contacts.import / contacts.export (ContactsCommands); the rows are M6,no key: dropped by Rust settings.rs schema_rows
-S-keyless-053,keyless,contacts,info,Export contacts,,,,commands contacts.import / contacts.export (ContactsCommands); the rows are M6,no key: dropped by Rust settings.rs schema_rows
+S-keyless-049,keyless,calendar,select,Calendar opens in,,,,SetUiRowRules; CalendarViewModel,calendarViewMode selects the initial view; calendar service checkpoint supplies live preference handling.
+S-keyless-050,keyless,calendar,select,Organize invitations as,,,,SetUiCalendarIdentityEditor; ICalendarParticipantIdentities,Account-guarded organizer choices; read-only agent-profile probe loaded choices; no live change made.
+S-keyless-051,keyless,calendar,info,Working days,,,,SetUiRowsView.WorkingDays; SetUiViewModel.SetWorkingDayAsync; CalendarViewSettings.Read,Seven in-window toggles write calendarWorkingDays in first-day order and require at least one day.
+S-keyless-052,keyless,contacts,info,Import contacts,,,,SetUiRowsView; ContactsCommands.Import,"Opens Contacts; import is available there, not directly from the Settings row."
+S-keyless-053,keyless,contacts,info,Export contacts,,,,SetUiRowsView; ContactsCommands.Export,"Opens Contacts; export is available there, not directly from the Settings row."
 S-keyless-054,keyless,files,select,Show files as,,,,SetUiRowRules; SetUiViewModel; FilesSettings.Read,Settings UI reads and writes filesSettings fields.
 S-keyless-055,keyless,files,select,Default sort,,,,SetUiRowRules; SetUiViewModel; FilesSettings.Read,Settings UI reads and writes filesSettings fields.
 S-keyless-056,keyless,files,select,Sort direction,,,,SetUiRowRules; SetUiViewModel; FilesSettings.Read,Settings UI reads and writes filesSettings fields.

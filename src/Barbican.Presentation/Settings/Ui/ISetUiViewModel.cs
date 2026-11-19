@@ -39,6 +39,12 @@ public interface ISetUiViewModel : INotifyPropertyChanged
 
     Task SetValueAsync(string rowId, JsonNode? value, CancellationToken ct);
 
+    /// <summary>Changes one calendar working day without losing concurrent day edits.</summary>
+    Task SetWorkingDayAsync(int day, bool enabled, CancellationToken ct);
+
+    /// <summary>Sets the calendar's visible start or end hour, keeping the range valid.</summary>
+    Task SetCalendarHourAsync(bool start, int hour, CancellationToken ct);
+
     /// <summary>Loads the text of the info rows of a page (off the UI thread); PropertyChanged tells the screen.</summary>
     Task RefreshInfoAsync(string pageId, CancellationToken ct);
 }

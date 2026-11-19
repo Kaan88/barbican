@@ -13,9 +13,9 @@ public static class SetUiRowRules
     private static readonly HashSet<string> InvertedKeys = new(["disableThreading", "settingsSyncDisabled"], StringComparer.Ordinal);
 
     // The keyless select rows the shell already reads under a pref (Rust settings.rs kept the key in code, not in the schema): "Light or dark" is "theme" (light, dark, system).
-    private static readonly Dictionary<string, string> KeylessKeys = new(StringComparer.Ordinal) { ["S-keyless-025"] = "theme" };
+    private static readonly Dictionary<string, string> KeylessKeys = new(StringComparer.Ordinal) { ["S-keyless-025"] = "theme", ["S-keyless-049"] = "calendarViewMode" };
 
-    private static readonly Dictionary<string, string> KeylessDefaults = new(StringComparer.Ordinal) { ["S-keyless-025"] = "system" };
+    private static readonly Dictionary<string, string> KeylessDefaults = new(StringComparer.Ordinal) { ["S-keyless-025"] = "system", ["S-keyless-049"] = "month" };
 
     private static readonly Dictionary<string, (string Field, object Default)> FileFields = new(StringComparer.Ordinal)
     {
