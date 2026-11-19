@@ -1884,3 +1884,7 @@ Limitations for review: an invalidation after the final precommit check but duri
 The host-selected profile lease uses an exclusive file handle, and the public package manager constructor requires a matching held lease. Under that owner, validated immutable authority snapshots are cached; resource opening still reinspects exact package bytes. Lease cancellation denies authority and asks the coordinator to establish binding invalidation barriers before the handle is released. Tests use unique temporary profiles and in-memory persistence.
 
 Review: the host must stop and drain all owned runtimes before disposing the lease; cancellation establishes invalidation barriers but does not wait for foreign teardown. Production authenticated storage and startup composition remain pending, and the lease relies on trusted profile-root ownership and OS file sharing. Check all store and lease-loss races under the final production adapter.
+
+### Codex - M6b authenticated package store acceptance
+
+Three Platform acceptance tests target the planned real AuthenticatedPluginPackageStore and currently fail at its explicit PortPending stub: durable authenticated readback, rollback refusal, and hash-bound archive access after lease loss. Only isolated temporary profiles and in-memory secrets are used. The production adapter, crash fault injection and secret-store tamper cases remain to implement and review.
