@@ -30,6 +30,7 @@ public sealed class PluginGrantSnapshot
     public long Generation { get; }
     public bool Enabled { get; }
     public ImmutableHashSet<string> Permissions { get; }
+    /// <summary>Authorized local-login keys; shared JMAP resource-account IDs require separate captured-session validation.</summary>
     public ImmutableHashSet<string> AccountKeys { get; }
 
     /// <summary>Checks a trusted transport binding against this snapshot. Null account is only for host-scoped methods.</summary>

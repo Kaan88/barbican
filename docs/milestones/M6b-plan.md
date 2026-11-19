@@ -33,7 +33,7 @@ Before independent implementation, the coordinator records the protocol schema a
 The shared protocol must include:
 
 - Immutable package identity, content hash, version, provenance/trust tier, requested and granted permissions, enabled/error state and update diff.
-- A named per-instance runtime identity bound to the authenticated frame, account context and lifecycle cancellation. JSON RPC request/result/error envelopes with correlation, message size and timeout limits, callback/stream ownership and teardown.
+- A named per-instance runtime identity bound to the authenticated frame, package/grant and lifecycle cancellation, plus a distinct call-time captured session/account generation. Background frames must remain able to follow active-account changes; local login keys and shared JMAP account IDs are separate namespaces (see M6b-account-routing.md). JSON RPC request/result/error envelopes with correlation, message size and timeout limits, callback/stream ownership and teardown.
 - Observer, intercept, transform and takeover registration with stable ordering, per-call permission projection, validated result conversion and reference failure policy. Native abstractions need additive support for transform/takeover; current Observe/Intercept alone is insufficient.
 - Slot definitions with executable permission-aware prop/field projection, action/data/frame contribution models, callbacks and safe disposal. Unknown slot/props fail closed.
 - Package manager, consent store, runtime, API dispatcher, slot registry and presentation seams; production composition and test fakes. Platform resources/profile/origin adapters must not depend on Presentation from Core.
