@@ -1947,3 +1947,17 @@ The provisional `PluginValue` storage seam needs source-compatible `JSON.stringi
 
 - Review `Views/List/MessageListView.xaml`, its code-behind, and `Views/Sidebar/SidebarView.xaml` and its code-behind: the default toolbar follows `mail-app.tsx:6633-6690`, while optional sidebar Compose follows `sidebar.tsx:211-213,2728-2763`. The existing list menu is intentionally reused; it offers Refresh, Mark folder as read and Select all, not every upstream folder action. Grouping and message ownership were not changed.
 - Windows Automation build passed without warnings. Hidden sample port 8936 exercised toolbar selection and menu, captured both floating and sidebar Compose layouts, and invoked sidebar Compose to open the synthetic editor. Bento and Nordic list title/search bounds were checked; full keyboard navigation, high contrast, narrow layouts and legacy sidebar Compose remain to be independently verified. No live account or browser was used.
+# M6b composer parity stream
+
+- Review the Bulwark-only composer surface, field geometry, typography, and
+  borderless footer actions in `src/Barbican.App/Views/Compose/ComposerView.xaml`,
+  `ComposerView.xaml.cs`, and `RecipientFieldView.cs`. This is a scoped source-based
+  approximation of `components/email/email-composer.tsx:5674-5786,5940-5948,6144-6161,6479-6542`
+  in Bulwark 1.21.2, not a claim of complete visual parity. Check scaled text,
+  narrow layouts, theme switching and high contrast; editor formatting chrome,
+  missing reference toolbar controls and window behavior are outside this pass.
+  Windows Automation build passed; hidden synthetic 1424×884 WGC captures on
+  port 8935 show the fields and footer in light and dark. Two captures per mode
+  differed only at the blinking caret. Subject, Send and Attach had nonzero
+  bounds. These captures are local native evidence, not a reference comparison;
+  keyboard, high contrast, text scaling and narrow-layout checks remain open.
