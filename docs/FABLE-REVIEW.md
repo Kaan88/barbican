@@ -1464,6 +1464,20 @@ launched; Linux unverified). Verdicts on the M2 verify items 1 to 6, 11, 12 and 
 
 - Review `src/Barbican.Core/Settings/Prefs/SettingWriteGate.cs`, `SettingValues.cs`, `SettingBackup.cs`, `AssistantSettings.cs` and `src/Barbican.Presentation/Settings/Integration/AssistantSettingsStartup.cs`: the shared gate coordinates the M6 service paths and exports, but does not make the two-file import crash-atomic or cover legacy direct `IPrefsEditor` writers. Interceptors run outside the gate and retry up to three times on changed prior values; notifications run after release and may arrive out of application order under concurrent writes. PrefsStore itself invokes its synchronous Changed event inside the write call; a handler that synchronously waits on another gated write can still deadlock. Tests cover controlled import, retry, production DI and slow profile loading, not those legacy/reentrant paths.
 
+## Codex - approved Atlas and native polish direction (Sol)
+
+- User approved Atlas alongside Bento Balanced and Nordic Focus and requested modern WinUI 3 polish. Review `design/UI-GUIDELINES.md`, `CLAUDE.md` and the approved Atlas reference images when assessing later adoption: horizontal deck keyboard/list semantics, small-window reader height, palette contrast, sender-panel toggling, material fallbacks and reduced-motion behavior need native implementation evidence. The gallery selection/labels were checked by Terra and the coordinator inspected the synthetic image; this documentation checkpoint does not implement a third production style or prove native material/performance behavior.
+
+## Codex - Studio selection correction (Sol)
+
+- The user corrected the preceding Atlas selection to Studio. Current approved directions are Bento Balanced, Nordic Focus and Studio; Atlas is exploratory. `design/UI-GUIDELINES.md`, `CLAUDE.md`, handoff/progress and the gallery now record the corrected selection. Apply the modern WinUI polish requirements to these approved directions; verify Studio top-navigation focus order, context toggle, adaptive layout, palette contrast and material fallbacks during implementation. The preceding Atlas approval entry is historical and superseded.
+
 ## Codex - M6 assistant history loading (Terra High)
 
 - Review `src/Barbican.Core/Settings/Assistant/AssistantSession.cs` and `IAssistantSession.cs`: `History` is memory-only and returns empty before `InitializeHistoryAsync`; load, ask and clear serialize per account, with file I/O outside the cache lock. The UI must call initialization on account/page changes and observe `Changed`; close integration owns that wiring. Tests cover slow reads, saved history reopening and clear during an in-flight ask; cancellation and I/O failure paths deserve further review.
+
+## Codex - M6 settings schema corrections (Terra High)
+
+- Review `src/Barbican.Core/Settings/settings-schema.json`, `Pages/SettingRules.cs`, and their tests (D-M6-A14): static options and typed numeric values follow Bulwark `lib/accessibility-settings.ts`, `lib/sub-addressing.ts`, `lib/proofreading/languages.ts`, `lib/message-list-order.ts`, `lib/notification-sound.ts`, `lib/unread-first.ts`, `lib/compose-placement.ts`, and `stores/settings-store.ts`. Dynamic identity and policy relay choices are intentionally empty until supplied by their owning UI. The composite account marker requires the UI to write two booleans; the validator rejects string labels to protect prefs. Custom delimiter and installed-checker language choices require UI integration; test and visually verify those interactions.
+
+- **Sol integration code check:** reviewed per-account history serialization, memory-only snapshot reads, async initialization, numeric select coercion, malformed-choice removal and their regression tests in `e945533` / `6ccd3ab`. UI initialization and dynamic/composite controls remain close-pass requirements; the stream Windows suite passed 2,737 with four skips, pending final merged-head verification.

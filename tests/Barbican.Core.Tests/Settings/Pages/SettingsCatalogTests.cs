@@ -41,4 +41,45 @@ public sealed class SettingsCatalogTests
         Assert.Equal(SettingRowStatus.Wired, SettingsCatalog.RowOfKey(key)!.Status);
     }
 
+    [Fact]
+    public void Extracted_select_options_are_real_choices_and_numeric_values_stay_numeric()
+    {
+        var rows = SettingsCatalog.Pages().SelectMany(p => p.Rows).ToList();
+        Assert.All(rows.SelectMany(r => r.Options), option =>
+        {
+            Assert.DoesNotContain("${", option.Value, StringComparison.Ordinal);
+            Assert.DoesNotContain("${", option.Label, StringComparison.Ordinal);
+            Assert.DoesNotContain("t(`", option.Label, StringComparison.Ordinal);
+            Assert.DoesNotContain("�", option.Label, StringComparison.Ordinal);
+        });
+        var fonts = SettingsCatalog.RowOfKey("fontSize")!;
+        Assert.Contains(fonts.Options, option => string.Equals(option.Value, "medium", StringComparison.Ordinal));
+        Assert.True(SettingRules.Coerce(fonts, System.Text.Json.Nodes.JsonValue.Create("large")).Ok);
+        var marker = SettingsCatalog.RowOfKey("tintListRowsByAccount")!;
+        Assert.False(SettingRules.Coerce(marker, System.Text.Json.Nodes.JsonValue.Create("tint")).Ok);
+        Assert.True(SettingRules.Coerce(marker, System.Text.Json.Nodes.JsonValue.Create(true)).Ok);
+        var scale = SettingsCatalog.RowOfKey("mailTextScale")!;
+        var number = SettingRules.Coerce(scale, System.Text.Json.Nodes.JsonValue.Create("1.125"));
+        Assert.True(number.Ok);
+        Assert.Equal(1.125, (double?)number.Value);
+        Assert.False(SettingRules.Coerce(scale, System.Text.Json.Nodes.JsonValue.Create("9")).Ok);
+        Assert.True(SettingRules.Coerce(SettingsCatalog.RowOfKey("subAddressDelimiter")!, System.Text.Json.Nodes.JsonValue.Create("#")).Ok);
+        Assert.False(SettingRules.Coerce(SettingsCatalog.RowOfKey("subAddressDelimiter")!, System.Text.Json.Nodes.JsonValue.Create("ab")).Ok);
+        Assert.True(SettingRules.Coerce(SettingsCatalog.RowOfKey("writingLanguage")!, System.Text.Json.Nodes.JsonValue.Create("de-CH")).Ok);
+        Assert.False(SettingRules.Coerce(SettingsCatalog.RowOfKey("writingLanguage")!, System.Text.Json.Nodes.JsonValue.Create("<script>")).Ok);
+    }
+
+    [Fact]
+    public void Every_static_keyed_select_choice_passes_its_value_validation()
+    {
+        foreach (var row in SettingsCatalog.Pages().SelectMany(page => page.Rows).Where(r => r.Kind == SettingRowKind.Select && r.Key is not null && !string.Equals(r.Key, "tintListRowsByAccount", StringComparison.Ordinal)))
+        {
+            foreach (var option in row.Options)
+            {
+                var check = SettingRules.Coerce(row, System.Text.Json.Nodes.JsonValue.Create(option.Value));
+                Assert.True(check.Ok, $"{row.Id}: {option.Value}: {check.Error}");
+            }
+        }
+    }
+
 }
