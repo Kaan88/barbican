@@ -164,6 +164,7 @@ public sealed partial class PluginPackageManager : IPluginPackageManager, IPlugi
     public async Task<Result<PluginInstallation>> InstallAsync(PluginInstallDecision decision, CancellationToken ct)
     {
         ArgumentNullException.ThrowIfNull(decision);
+        var notifications = new List<PluginAuthorityChangedEventArgs>();
         await _gate.WaitAsync(ct).ConfigureAwait(false);
         try
         {
@@ -179,7 +180,7 @@ public sealed partial class PluginPackageManager : IPluginPackageManager, IPlugi
             }
             if (previous is not null)
             {
-                var stopped = await StopAsync(loaded.Value, previous.Package.Identity, ct).ConfigureAwait(false);
+                var stopped = await StopAsync(loaded.Value, previous.Package.Identity, notifications, ct).ConfigureAwait(false);
                 if (!stopped.IsOk) return Result<PluginInstallation>.Fail(stopped.Error!);
                 loaded = await LoadAsync(ct).ConfigureAwait(false);
                 if (!loaded.IsOk) return Result<PluginInstallation>.Fail(loaded.Error!);
@@ -193,13 +194,17 @@ public sealed partial class PluginPackageManager : IPluginPackageManager, IPlugi
             if (!commit.IsOk) return Result<PluginInstallation>.Fail(commit.Error!);
             _reviews.Remove(decision.ReviewId);
             _blocked.Remove(entry.Id);
-            Changed?.Invoke(this, new(entry.Id, entry.Generation));
+            notifications.Add(new(entry.Id, entry.Generation));
             return Result<PluginInstallation>.Ok(new(review.Definition, false, Grant(entry)));
         }
-        finally { _gate.Release(); }
+        finally
+        {
+            _gate.Release();
+            foreach (var notification in notifications) Changed?.Invoke(this, notification);
+        }
     }
 
-    private async Task<Result<Unit>> StopAsync(Loaded loaded, PluginPackageIdentity identity, CancellationToken ct)
+    private async Task<Result<Unit>> StopAsync(Loaded loaded, PluginPackageIdentity identity, List<PluginAuthorityChangedEventArgs> notifications, CancellationToken ct)
     {
         var entry = loaded.Index.Entries.SingleOrDefault(x => Identity(x) == identity);
         if (entry is null) return Failure<Unit>("Installed package changed.");
@@ -211,7 +216,7 @@ public sealed partial class PluginPackageManager : IPluginPackageManager, IPlugi
             var index = new Index(checked(loaded.Index.NextGeneration + 1), [.. loaded.Index.Entries.Select(x => x == entry ? stopped : x)]);
             var saved = await CommitAsync(loaded, index, ct).ConfigureAwait(false);
             if (!saved.IsOk) return saved;
-            Changed?.Invoke(this, new(identity.Id, stopped.Generation));
+            notifications.Add(new(identity.Id, stopped.Generation));
         }
         var cleanup = await _revocation.RevokeAsync(identity, through, ct).ConfigureAwait(false);
         if (!cleanup.IsOk) return cleanup;
@@ -251,6 +256,7 @@ public sealed partial class PluginPackageManager : IPluginPackageManager, IPlugi
 
     public async Task<Result<Unit>> SetEnabledAsync(PluginPackageIdentity package, bool enabled, CancellationToken ct)
     {
+        var notifications = new List<PluginAuthorityChangedEventArgs>();
         await _gate.WaitAsync(ct).ConfigureAwait(false);
         try
         {
@@ -258,36 +264,45 @@ public sealed partial class PluginPackageManager : IPluginPackageManager, IPlugi
             if (!loaded.IsOk) return Result<Unit>.Fail(loaded.Error!);
             var entry = loaded.Value!.Index.Entries.SingleOrDefault(x => Identity(x) == package);
             if (entry is null) return Failure<Unit>("Installed package changed.");
-            if (!enabled) return await StopAsync(loaded.Value, package, ct).ConfigureAwait(false);
+            if (!enabled) return await StopAsync(loaded.Value, package, notifications, ct).ConfigureAwait(false);
             if (_blocked.Contains(package.Id) || entry.CleanupThrough is not null) return Failure<Unit>("Package cleanup is pending.");
             if (entry.Enabled) return Result<Unit>.Ok(default);
             var updated = entry with { Enabled = true, Generation = loaded.Value.Index.NextGeneration };
             var index = new Index(checked(loaded.Value.Index.NextGeneration + 1), [.. loaded.Value.Index.Entries.Select(x => x == entry ? updated : x)]);
             var result = await CommitAsync(loaded.Value, index, ct).ConfigureAwait(false);
-            if (result.IsOk) Changed?.Invoke(this, new(package.Id, updated.Generation));
+            if (result.IsOk) notifications.Add(new(package.Id, updated.Generation));
             return result;
         }
-        finally { _gate.Release(); }
+        finally
+        {
+            _gate.Release();
+            foreach (var notification in notifications) Changed?.Invoke(this, notification);
+        }
     }
 
     public async Task<Result<Unit>> UninstallAsync(PluginPackageIdentity package, CancellationToken ct)
     {
+        var notifications = new List<PluginAuthorityChangedEventArgs>();
         await _gate.WaitAsync(ct).ConfigureAwait(false);
         try
         {
             var loaded = await LoadAsync(ct).ConfigureAwait(false);
             if (!loaded.IsOk) return Result<Unit>.Fail(loaded.Error!);
-            var stopped = await StopAsync(loaded.Value!, package, ct).ConfigureAwait(false);
+            var stopped = await StopAsync(loaded.Value!, package, notifications, ct).ConfigureAwait(false);
             if (!stopped.IsOk) return stopped;
             loaded = await LoadAsync(ct).ConfigureAwait(false);
             if (!loaded.IsOk) return Result<Unit>.Fail(loaded.Error!);
             var index = loaded.Value!.Index with { Entries = [.. loaded.Value.Index.Entries.Where(x => Identity(x) != package)] };
             var saved = await CommitAsync(loaded.Value, index, ct).ConfigureAwait(false);
             if (!saved.IsOk) return saved;
-            Changed?.Invoke(this, new(package.Id, index.NextGeneration));
+            notifications.Add(new(package.Id, index.NextGeneration));
             return await _store.DeleteContentAsync(_options.Profile, package, ct).ConfigureAwait(false);
         }
-        finally { _gate.Release(); }
+        finally
+        {
+            _gate.Release();
+            foreach (var notification in notifications) Changed?.Invoke(this, notification);
+        }
     }
 
     public async Task<Result<Stream>> OpenResourceAsync(PluginPackageIdentity package, string resource, CancellationToken ct)

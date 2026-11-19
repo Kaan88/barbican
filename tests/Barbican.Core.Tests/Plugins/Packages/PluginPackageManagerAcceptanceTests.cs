@@ -35,6 +35,22 @@ public sealed class PluginPackageManagerAcceptanceTests
     }
 
     [Fact]
+    public async Task AuthorityChangeObserverMayReadCurrentAuthoritySynchronously()
+    {
+        var rig = new PackageTestRig();
+        var manager = rig.Manager();
+        using var archive = PackageTestRig.Archive("export default 1", "email:read");
+        var preview = Need(await manager.InspectAsync(archive, PluginPackageSource.LocalImport, Ct));
+        var observed = false;
+#pragma warning disable VSTHRD002 // Deliberate synchronous reentry tests that observers are called outside the gate.
+        manager.Changed += (_, _) => observed = manager.GetCurrentAsync(PackageTestRig.PluginId, CancellationToken.None).GetAwaiter().GetResult().IsOk;
+#pragma warning restore VSTHRD002
+        var operation = Task.Run(() => manager.InstallAsync(Decision(preview, ["email:read"], ["login-a"]), CancellationToken.None), CancellationToken.None);
+        Assert.True((await operation.WaitAsync(TimeSpan.FromSeconds(5), Ct)).IsOk);
+        Assert.True(observed);
+    }
+
+    [Fact]
     public async Task ReviewTokenIsOneUseExpiresAndCannotApproveAnotherHash()
     {
         var rig = new PackageTestRig();
