@@ -52,6 +52,9 @@ public sealed class MessageRowViewModel : ListItemViewModel
             ShowAccountTint = context.TintListRowsByAccount && !context.MoreContrast;
             ShowAccountDot = context.MultipleAccountSources && (context.MoreContrast && context.TintListRowsByAccount || !context.TintListRowsByAccount && context.ShowAccountDot);
         }
+
+        ShowTagTint = context.TintListRowsByTag && !context.MoreContrast && !ShowAccountTint && Tags.Count > 0;
+        TagTintColor = Tags.Count > 0 ? Tags[0].Color : 0;
     }
 
     public EmailSummary Summary { get; }
@@ -97,6 +100,10 @@ public sealed class MessageRowViewModel : ListItemViewModel
 
     public bool ShowAccountDot { get; }
 
+    public bool ShowTagTint { get; }
+
+    public uint TagTintColor { get; }
+
     public string AccessibleName => string.IsNullOrEmpty(AccountDescription) ? Sender + ", " + Subject : AccountDescription + ", " + Sender + ", " + Subject;
 
     public string Subject { get; }
@@ -141,6 +148,8 @@ public sealed class MessageRowViewModel : ListItemViewModel
         && r.ThreadCount == ThreadCount
         && r.HasAttachment == HasAttachment
         && string.Equals(r.VerificationCode, VerificationCode, StringComparison.Ordinal)
+        && r.ShowTagTint == ShowTagTint
+        && r.TagTintColor == TagTintColor
         && r.ShowAccountTint == ShowAccountTint
         && r.ShowAccountDot == ShowAccountDot
         && r.AccountColorIndex == AccountColorIndex
