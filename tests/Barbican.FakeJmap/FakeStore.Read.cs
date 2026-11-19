@@ -38,20 +38,20 @@ public sealed partial class FakeStore
     }
 
     /// <summary>The ids matching <paramref name="filter"/> now, newest first.</summary>
-    public IReadOnlyList<string> Query(JsonNode? filter)
+    public IReadOnlyList<string> Query(JsonNode? filter, JsonArray? sort = null)
     {
         lock (_lock)
         {
-            return Sorted(_emails.Values, filter);
+            return Sorted(_emails.Values, filter, sort);
         }
     }
 
     /// <summary>The ids that matched at Email state <paramref name="state"/>; null when that state is unknown.</summary>
-    public IReadOnlyList<string>? QueryAt(string state, JsonNode? filter)
+    public IReadOnlyList<string>? QueryAt(string state, JsonNode? filter, JsonArray? sort = null)
     {
         lock (_lock)
         {
-            return StalwartState.ChangeId(state) is { } id && _snapshots.TryGetValue(id, out var snap) ? Sorted(snap, filter) : null;
+            return StalwartState.ChangeId(state) is { } id && _snapshots.TryGetValue(id, out var snap) ? Sorted(snap, filter, sort) : null;
         }
     }
 
@@ -87,11 +87,55 @@ public sealed partial class FakeStore
         }
     }
 
-    private static List<string> Sorted(IEnumerable<JsonObject> emails, JsonNode? filter) =>
-        [.. emails.Where(e => FilterEvaluator.Matches(e, filter))
-            .OrderByDescending(e => (string?)e["receivedAt"], StringComparer.Ordinal)
+    private static List<string> Sorted(IEnumerable<JsonObject> emails, JsonNode? filter, JsonArray? sort)
+    {
+        var comparators = sort?.OfType<JsonObject>().ToList() ?? [];
+        if (comparators.Count == 0)
+        {
+            comparators.Add(new JsonObject { ["property"] = "receivedAt", ["isAscending"] = false });
+        }
+
+        return [.. emails.Where(e => FilterEvaluator.Matches(e, filter))
+            .OrderBy(e => e, Comparer<JsonObject>.Create((a, b) => Compare(a, b, comparators)))
             .ThenByDescending(e => (string?)e["id"], StringComparer.Ordinal)
             .Select(e => (string)e["id"]!)];
+    }
+
+    private static int Compare(JsonObject a, JsonObject b, IReadOnlyList<JsonObject> comparators)
+    {
+        foreach (var comparator in comparators)
+        {
+            var property = (string?)comparator["property"] ?? "receivedAt";
+            int result;
+            if (string.Equals(property, "hasKeyword", StringComparison.Ordinal))
+            {
+                var keyword = (string?)comparator["keyword"] ?? "";
+                result = (a["keywords"]?[keyword] is not null).CompareTo(b["keywords"]?[keyword] is not null);
+            }
+            else if (string.Equals(property, "size", StringComparison.Ordinal))
+            {
+                result = ((long?)a[property] ?? 0).CompareTo((long?)b[property] ?? 0);
+            }
+            else
+            {
+                result = string.Compare(SortText(a[property]), SortText(b[property]), StringComparison.OrdinalIgnoreCase);
+            }
+
+            if (result != 0)
+            {
+                return (bool?)comparator["isAscending"] == true ? result : -result;
+            }
+        }
+
+        return 0;
+    }
+
+    private static string? SortText(JsonNode? value) => value switch
+    {
+        JsonValue v when v.TryGetValue<string>(out var text) => text,
+        JsonArray list when list.FirstOrDefault() is JsonObject person => (string?)person["name"] ?? (string?)person["email"],
+        _ => null,
+    };
 
     private JsonObject WithCounts(JsonObject box)
     {

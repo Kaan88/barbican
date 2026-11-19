@@ -116,7 +116,7 @@ public sealed partial class FakeJmapServer : HttpMessageHandler
     /// <summary>Queues an HTTP-level fault for the next matching request.</summary>
     public void Inject(FakeFault fault)
     {
-        if (fault is FakeFault.CannotCalculateChanges or FakeFault.TooManyChanges or FakeFault.QueryStateWentBack or FakeFault.EmailChangesFail)
+        if (fault is FakeFault.CannotCalculateChanges or FakeFault.TooManyChanges or FakeFault.QueryStateWentBack or FakeFault.EmailChangesFail or FakeFault.UnsupportedKeywordSort)
         {
             Api.Inject(fault);
             return;

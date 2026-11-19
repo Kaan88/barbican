@@ -10,4 +10,5 @@ namespace Barbican.Core.Mail.Unified;
 /// <param name="Total">The source's inbox total (for the query).</param>
 /// <param name="Threads">Conversation sizes by unified thread id.</param>
 /// <param name="Unread">The source's inbox unread.</param>
-public sealed record UnifiedSourcePage(string Key, IReadOnlyList<EmailSummary> Rows, int Total, IReadOnlyDictionary<string, int> Threads, long Unread);
+/// <param name="Warning">A nonfatal source ordering limitation.</param>
+public sealed record UnifiedSourcePage(string Key, IReadOnlyList<EmailSummary> Rows, int Total, IReadOnlyDictionary<string, int> Threads, long Unread, string? Warning = null);

@@ -10,6 +10,7 @@ using Barbican.Core.Jmap.Errors;
 using Barbican.Core.Jmap.Json;
 using Barbican.Core.Jmap.Requests;
 using Barbican.Core.Mail.Model;
+using Barbican.Core.Mail.Lists;
 using Barbican.Core.Mail.Service;
 using Barbican.Core.Search;
 
@@ -52,13 +53,16 @@ public static class UnifiedFetcher
             return Result<UnifiedSourcePage>.Fail(new ValidationError($"{source.Login}: no inbox"));
         }
 
+        var sort = await ListSortResolver.ResolveAsync(source.Client, query.Sort, ct, source.AccountId).ConfigureAwait(false);
+        var warning = query.Sort?.Any(item => item.Keyword is not null) == true && ListSortResolver.KeywordsUnsupported(source.Client, source.AccountId)
+            ? "An account does not support keyword ordering; value ordering is used for all accounts." : null;
         var unread = inbox["unreadEmails"] is JsonValue u && u.TryGetValue<long>(out var n) ? n : 0;
         var b = new JmapRequestBuilder();
         var q = b.Add("Email/query", new JsonObject
         {
             ["accountId"] = source.AccountId,
             ["filter"] = Filter(inboxId, query, boxes.Value!),
-            ["sort"] = new JsonArray(new JsonObject { ["property"] = "receivedAt", ["isAscending"] = false }),
+            ["sort"] = MessageListOrder.ComparatorsJson(sort),
             ["position"] = position,
             ["limit"] = Math.Max(1, limit),
             ["calculateTotal"] = true,
@@ -73,16 +77,35 @@ public static class UnifiedFetcher
 
         var r = sent.Value!;
         var (qa, ga, ta) = (r.Args(q.CallId, q.Method), r.Args(g.CallId, g.Method), r.Args(t.CallId, t.Method));
+        if (qa.Error is MethodError { Type: "unsupportedSort" } && query.Sort?.Any(item => item.Keyword is not null) == true && warning is null)
+        {
+            ListSortResolver.RefusedKeywords(source.Client, source.AccountId);
+            var retry = await PageAsync(source, query, position, limit, ct).ConfigureAwait(false);
+            return retry;
+        }
+
         if (!qa.IsOk || !ga.IsOk || !ta.IsOk)
         {
             return Result<UnifiedSourcePage>.Fail((qa.Error ?? ga.Error ?? ta.Error)!);
         }
 
-        var sizes = ListPageFetcher.ThreadSizes(ta.Value!.Arr("list") ?? []);
-        var rows = ListPageFetcher.Rows(ga.Value!.Arr("list") ?? [], sizes).Select(e => Tag(e, source)).ToList();
+        return ToPage(source, qa.Value!, ga.Value!, ta.Value!, unread, warning);
+    }
+
+    private static Result<UnifiedSourcePage> ToPage(UnifiedSource source, JsonObject query, JsonObject get, JsonObject thread, long unread, string? warning)
+    {
+        var sizes = ListPageFetcher.ThreadSizes(thread.Arr("list") ?? []);
+        var byId = ListPageFetcher.Rows(get.Arr("list") ?? [], sizes).ToDictionary(e => e.Id, StringComparer.Ordinal);
+        var ids = query.Strings("ids");
+        if (ids.Any(id => !byId.ContainsKey(id)))
+        {
+            return Result<UnifiedSourcePage>.Fail(new ValidationError("An account returned incomplete message rows; retry the unified list."));
+        }
+
+        var rows = ids.Select(id => Tag(byId[id], source)).ToList();
         var threads = sizes.ToDictionary(kv => UnifiedRows.RowId(source.Login, source.SharedAccount, kv.Key), kv => kv.Value, StringComparer.Ordinal);
-        var total = qa.Value!["total"] is JsonValue tv && tv.TryGetValue<int>(out var tot) ? tot : rows.Count;
-        return Result<UnifiedSourcePage>.Ok(new UnifiedSourcePage(source.Key, rows, total, threads, unread));
+        var total = query["total"] is JsonValue tv && tv.TryGetValue<int>(out var tot) ? tot : rows.Count;
+        return Result<UnifiedSourcePage>.Ok(new UnifiedSourcePage(source.Key, rows, total, threads, unread, warning));
     }
 
     /// <summary>A row of <paramref name="source"/> with its unified row id and thread id.</summary>

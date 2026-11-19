@@ -44,6 +44,9 @@ public sealed record FakeJmapOptions
     /// <summary>Advertise an event source.</summary>
     public bool Push { get; init; } = true;
 
+    /// <summary>Reject keyword sorting even if the session does not advertise this limitation.</summary>
+    public bool RefuseKeywordSort { get; init; }
+
     /// <summary>The most ids one /query returns, whatever limit is asked (RFC 8620 §5.5: a server may cap limit).</summary>
     public int QueryLimitCap { get; init; } = 10_000;
 

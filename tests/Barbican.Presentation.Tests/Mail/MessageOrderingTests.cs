@@ -30,4 +30,13 @@ public sealed class MessageOrderingTests
         h.Prefs.Set("""{"messageListOrder":[{"criterion":"size","direction":"desc"}],"messageListOrderScope":"all","showPreview":false}""");
         Assert.Equal(before + 1, h.Service.Queries.Count);
     }
+    [Fact]
+    public async Task Refresh_keyword_fallback_warning_is_visible_without_row_changes()
+    {
+        using var h = new ListHarness();
+        await h.List.OpenFolderAsync("inbox", MailboxRole.Inbox, "Inbox");
+        h.Hub.Publish(new ListDeltaEvent(new ListDelta { Warning = "Keyword priority is unavailable." }) { Query = h.Service.Queries[^1].Query });
+        Assert.Equal("Keyword priority is unavailable.", h.List.Error);
+    }
+
 }

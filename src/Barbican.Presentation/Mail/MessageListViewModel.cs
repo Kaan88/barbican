@@ -742,6 +742,7 @@ public sealed partial class MessageListViewModel : ObservableObject, IDisposable
             case ListResetEvent { Query: { } q } when q != _query:
                 break;
             case ListDeltaEvent d:
+                if (d.Delta.Warning is { } warning) Error = warning;
                 _loaded.Apply(d.Delta);
                 _ = RebuildThenUpdateTotalAsync();
                 break;
