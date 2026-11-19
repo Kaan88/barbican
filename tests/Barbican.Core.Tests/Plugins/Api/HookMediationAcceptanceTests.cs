@@ -111,4 +111,29 @@ public sealed class HookMediationAcceptanceTests
         Assert.Throws<ArgumentNullException>(() => bus.TakeOver<int>("hook", null!));
         Assert.Throws<ArgumentNullException>(() => bus.InterceptWithValue<int>("hook", null!));
     }
+    [Fact]
+    public async Task TakeoverDefaultBudgetDoesNotUseObserverFiveSecondTimeout()
+    {
+        var time = new Microsoft.Extensions.Time.Testing.FakeTimeProvider(); var bus = new HookBus(time);
+        var release = new TaskCompletionSource<PluginTakeOverDecision>(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var registration = bus.TakeOver<int>("unknown-takeover", (_, _) => new ValueTask<PluginTakeOverDecision>(release.Task));
+        var pending = bus.TakeOverAsync("unknown-takeover", 0, TestContext.Current.CancellationToken).AsTask();
+        time.Advance(TimeSpan.FromSeconds(6));
+        Assert.NotSame(pending, await Task.WhenAny(pending, Task.Delay(100, TestContext.Current.CancellationToken)));
+        release.SetResult(PluginTakeOverDecision.Handled);
+        Assert.Equal(HookTakeOverOutcome.Handled, await pending);
+    }
+
+    [Fact]
+    public async Task ValueInterceptDefaultBudgetDoesNotUseObserverFiveSecondTimeout()
+    {
+        var time = new Microsoft.Extensions.Time.Testing.FakeTimeProvider(); var bus = new HookBus(time);
+        var release = new TaskCompletionSource<HookValueDecision<int>>(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var registration = bus.InterceptWithValue<int>("unknown-intercept", (_, _) => new ValueTask<HookValueDecision<int>>(release.Task));
+        var pending = bus.InterceptWithValueAsync("unknown-intercept", 0, TestContext.Current.CancellationToken).AsTask();
+        time.Advance(TimeSpan.FromSeconds(6));
+        Assert.NotSame(pending, await Task.WhenAny(pending, Task.Delay(100, TestContext.Current.CancellationToken)));
+        release.SetResult(HookValueDecision<int>.Replace(7));
+        var result = await pending; Assert.True(result.Allowed); Assert.Equal(7, result.Value);
+    }
 }

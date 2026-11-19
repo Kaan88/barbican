@@ -1,5 +1,5 @@
 // Mirrors: Bulwark lib/plugin-hook-catalog.ts (observer / intercept / transform), lib/plugin-mail-hooks.ts (dispatch order, a failing
-// handler never stops the app), PORT-PLAN.md M6b (host-agnostic bus first, plugin hosts later); M1-plan Â§4.1. Owner mailcore (M1); budgets and fail-closed
+// handler never stops the app), PORT-PLAN.md M6b (host-agnostic bus first, plugin hosts later); M1-plan section 4.1. Owner mailcore (M1); budgets and fail-closed
 // intercepts (fable-review-2 R2-10, Bulwark lib/plugin-hooks.ts:62-66, :186-188, :290-325) owner unified (M2 wave 2).
 
 namespace Barbican.Core.Plugins.Hooks;
@@ -75,7 +75,7 @@ public sealed class HookBus : IHookBus
             if (item is not OrderedHook { Handler: TakeOverHandler<T> handler }) continue;
             try
             {
-                var run = await RunAsync(hook, async t => await handler.Handler(payload, t).ConfigureAwait(false), ct).ConfigureAwait(false);
+                var run = await RunAsync(hook, async t => await handler.Handler(payload, t).ConfigureAwait(false), ct, extendedBudget: true).ConfigureAwait(false);
                 if (!run.Done) return HookTakeOverOutcome.Failed;
                 switch (run.Value)
                 {
@@ -99,7 +99,7 @@ public sealed class HookBus : IHookBus
             try
             {
                 var current = value;
-                var run = await RunAsync(hook, async t => await handler.Handler(current, t).ConfigureAwait(false), ct).ConfigureAwait(false);
+                var run = await RunAsync(hook, async t => await handler.Handler(current, t).ConfigureAwait(false), ct, extendedBudget: true).ConfigureAwait(false);
                 if (!run.Done || run.Value is null) continue;
                 if (run.Value.Kind == HookValueDecisionKind.Veto) return HookValueInterceptResult<T>.Veto();
                 if (run.Value.Kind == HookValueDecisionKind.Replace) value = run.Value.Value!;
@@ -235,7 +235,7 @@ public sealed class HookBus : IHookBus
     }
 
     /// <summary>Runs one handler; past the timeout it is told to cancel, left behind, and reported (Done is false).</summary>
-    private async Task<(bool Done, T Value)> RunAsync<T>(string hook, Func<CancellationToken, Task<T>> call, CancellationToken ct)
+    private async Task<(bool Done, T Value)> RunAsync<T>(string hook, Func<CancellationToken, Task<T>> call, CancellationToken ct, bool extendedBudget = false)
     {
         using var handlerCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
         var work = call(handlerCts.Token);
@@ -246,6 +246,7 @@ public sealed class HookBus : IHookBus
         }
 
         var budget = _timeout ?? _policies(hook).Budget;
+        if (_timeout is null && extendedBudget && budget < TimeSpan.FromSeconds(60)) budget = TimeSpan.FromSeconds(60);
         using var delayCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
         var delay = Task.Delay(budget, _time, delayCts.Token);
         var first = await Task.WhenAny(work, delay).ConfigureAwait(false);
