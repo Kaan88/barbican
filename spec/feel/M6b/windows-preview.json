@@ -1,0 +1,23 @@
+{
+  "kind": "interim-preview",
+  "sourceRevision": "36e2d5fc496f69eaa68c36948b7b917d5c8a5fa2",
+  "productVersion": "0.1+36e2d5fc496f69eaa68c36948b7b917d5c8a5fa2",
+  "artifact": "artifacts/portable/Barbican-M6b-preview-36e2d5fc496f-win-x64.zip",
+  "bytes": 144521024,
+  "sha256": "DC8B5FAD5B11BFB0F023FBB64DB1D37F55E70F010EE2E720836C6C0383BF3070",
+  "automationSuite": {
+    "passed": 3114,
+    "failed": 0,
+    "skipped": 4,
+    "buildWarnings": 0
+  },
+  "extractedSmoke": {
+    "ok": true,
+    "configuration": "Release",
+    "head": "win",
+    "processToLaunchedMs": 218.2,
+    "processToFirstFrameMs": 557.4,
+    "processToShellReadyMs": 836.3,
+    "exitCode": 0
+  }
+}

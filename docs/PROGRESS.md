@@ -9,6 +9,13 @@ deletions; leave them untouched and build from clean worktrees.
 
 ### First resumed checkpoint
 
+- **Windows x64 portable preview:** `artifacts/portable/Barbican-M6b-preview-36e2d5fc496f-win-x64.zip`
+  is available locally, not a GitHub Release. The clean Release publish excluded
+  automation components. The extracted app's version matched `36e2d5f` and
+  hidden smoke reached shell-ready in 836.3 ms, exit 0. Full ordinary Automation
+  suite on source-equivalent `fe147d1`: 3114 passed, zero failed, four skipped;
+  both heads compiled without warnings. See [portable evidence](../spec/feel/M6b/windows-preview.json).
+  This is a progress preview, not M6b completion or Astra approval.
 - **Explicit Windows mail WebView environment:** integrated at `9166080`
   (`dd0c92c` in the verification worktree). The reader and smoke
   now pass explicit profile-scoped environments, check the actual folder before
@@ -30,7 +37,14 @@ deletions; leave them untouched and build from clean worktrees.
   shared contract blocker: reference transform chains carry intermediate structured
   values and validate at the end, whereas the existing bus requires a CLR type
   after each handler. No implementation landed from that audit. Stream D has
-  started an independent Add-ons UI slice in `wt-m6b-ui`.
+  produced an independently reviewed display-only Add-ons model at `8e066df`
+  on `codex/m6b-ui`: 1079 Presentation tests passed, including six new ones.
+  The view and authority/consent plumbing remain open; not in the preview.
+- **Queued plugin responses:** `86f47f4` on `codex/m6b-delivery` captures
+  host-only immutable grant/session checks with a successful dispatcher result.
+  All 18 focused dispatcher tests passed. The UI/native transport does not yet
+  call the check, and the async check alone is not atomic with a later send.
+  Not integrated or included in the preview.
 
 ## Codex continuation (saved pre-resume checkpoint, 2026-11-19)
 
