@@ -26,6 +26,9 @@
             </Grid>
           </DataTemplate>
           <DataTemplate x:Key="MessageTemplate" x:DataType="mail:MessageRowViewModel">
+            <Grid>
+              <Border Background="{StaticResource Sel}" Opacity="0.3" IsHitTestVisible="False"
+                      Visibility="{x:Bind views:Fmt.UnreadFill(Unread, theme:StyleState.Current.IsBulwark), Mode=OneWay}" />
             <!-- prototype rows: Bento avatar + sender 14 / subject 13.5 body / preview 12.5 faint; Nordic dot + sender 14 / subject 14 / preview 13 dim, indented 15 -->
             <Grid Background="{x:Bind views:Fmt.TickedRowBackground(IsChecked, theme:StyleState.Current.IsNordic), Mode=OneWay}" Padding="{x:Bind theme:StyleState.Current.MessageRowPadding, Mode=OneWay}" ColumnSpacing="{x:Bind theme:StyleState.Current.MessageRowSpacing, Mode=OneWay}"
                   ColumnDefinitions="Auto,*" AutomationProperties.Name="{x:Bind AccessibleName}" PointerEntered="OnRowEntered" PointerExited="OnRowExited" GotFocus="OnRowFocused">
@@ -119,6 +122,7 @@
                   </ItemsRepeater.ItemTemplate>
                 </ItemsRepeater>
               </Border>
+            </Grid>
             </Grid>
           </DataTemplate>
           <local:MessageRowTemplateSelector x:Key="RowSelector" MessageTemplate="{StaticResource MessageTemplate}" HeaderTemplate="{StaticResource HeaderTemplate}" />

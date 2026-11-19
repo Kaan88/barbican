@@ -71,6 +71,23 @@
 
     <!-- M2 plan 3.3 slots: the account header (menus, I-037) above New message and the unified inbox section (unified, wave 2) below it; the shared accounts section (unified) ends the scrolling part. -->
     <StackPanel Grid.Row="0">
+    <Border Visibility="{x:Bind Look.SidebarSwitcherVisibility, Mode=OneWay}" BorderBrush="{StaticResource Line}" BorderThickness="0,0,0,1" Padding="8,0" Margin="0,0,0,8">
+      <Button x:Name="HeaderAccountButton" MinHeight="56" Style="{StaticResource Button.Icon}" HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch"
+              Padding="8,0" AutomationProperties.AutomationId="sidebar.account" AutomationProperties.Name="Switch account">
+        <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="10">
+          <Border Width="32" Height="32" CornerRadius="16" Background="{StaticResource Sel}" VerticalAlignment="Center">
+            <TextBlock Text="{x:Bind Account.AccountInitials, Mode=OneWay}" Foreground="{StaticResource SelText}" FontWeight="SemiBold" HorizontalAlignment="Center" VerticalAlignment="Center" />
+          </Border>
+          <TextBlock Grid.Column="1" Text="{x:Bind Account.AccountLabel, Mode=OneWay}" Foreground="{StaticResource Text}" FontSize="14" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" VerticalAlignment="Center" />
+          <controls:SIcon Grid.Column="2" Kind="ChevronDown" Size="14" VerticalAlignment="Center" />
+        </Grid>
+        <Button.Flyout>
+          <Flyout win:ShouldConstrainToRootBounds="True" Placement="Bottom">
+            <accounts:AccountPopoverView xmlns:accounts="using:Barbican.App.Views.Accounts" x:Name="HeaderPopover" />
+          </Flyout>
+        </Button.Flyout>
+      </Button>
+    </Border>
     <ContentPresenter x:Name="AccountHeaderSlot" />
     <!-- New message: runs the compose command (M3 composer-ui). -->
     <StackPanel Visibility="{x:Bind views:Fmt.VisNot(Look.IsBulwark), Mode=OneWay}">

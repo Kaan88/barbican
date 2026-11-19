@@ -1966,3 +1966,11 @@ The provisional `PluginValue` storage seam needs source-compatible `JSON.stringi
   differed only at the blinking caret. Subject, Send and Attach had nonzero
   bounds. These captures are local native evidence, not a reference comparison;
   keyboard, high contrast, text scaling and narrow-layout checks remain open.
+
+## Solo Bulwark default mail pass — paused
+
+- Review the change following `585056f` in `src/Barbican.App/Views/{Reader,Sidebar,List}`,
+  `Shell/ShellPage.xaml.cs`, `Styles/Controls.xaml` and `Theme/`. The new sidebar
+  switcher uses the existing account popover. The wide composer now considers
+  saved pane widths. Evidence, rendering boundaries and two suite failures
+  are in `docs/milestones/M6b-solo-parity.md`. No milestone approval requested.

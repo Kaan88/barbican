@@ -39,6 +39,8 @@ public sealed partial class ReaderView : UserControl
 
     public StyleState Look { get; }
 
+    public Barbican.Presentation.Shell.RailViewModel Account { get; } = ViewHost.Get<Barbican.Presentation.Shell.RailViewModel>();
+
     public event EventHandler? FullscreenRequested;
 
     public void SetFullscreen(bool fullscreen)

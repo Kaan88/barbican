@@ -126,6 +126,8 @@ public static class Fmt
 
     public static Thickness Indent(int depth) => new(depth * 14, 0, 0, 0);
 
+    public static Visibility UnreadFill(bool unread, bool bulwark) => Vis(unread && bulwark);
+
     public static string FolderIcon(MailboxRole role) => role switch
     {
         MailboxRole.Inbox => "Inbox",

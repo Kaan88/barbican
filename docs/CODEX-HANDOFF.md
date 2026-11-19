@@ -6,6 +6,9 @@ This is the Codex-specific continuation of the user's Claude handoff.
 
 ## Current M6b UI pause (2026-11-20)
 
+**Latest checkpoint:** [Solo default-theme pass and restart instructions](milestones/M6b-solo-parity.md).
+Start there in the parity worktree. The user paused this pass and requested no delegation.
+
 The user paused work after reporting that the preview theme does not match
 Bulwark. For the current UI checkout, verified evidence, open gaps and resume
 order, read the [M6b Bulwark parity handoff](milestones/M6b-parity-handoff.md)

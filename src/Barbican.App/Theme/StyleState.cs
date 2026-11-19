@@ -23,6 +23,7 @@ public sealed class StyleState : ObservableObject
     private A11y _accessibility = new();
     private bool _showToolbarLabels = true;
     private string _composePlacement = "floating";
+    private bool _sidebarAccountSwitcher = true;
 
     public StyleState()
     {
@@ -86,11 +87,12 @@ public sealed class StyleState : ObservableObject
     }
 
     /// <summary>Updates typed dimensions when the shared accessibility settings change.</summary>
-    public void SetAccessibility(A11y accessibility, bool showToolbarLabels, string? composePlacement)
+    public void SetAccessibility(A11y accessibility, bool showToolbarLabels, string? composePlacement, bool sidebarAccountSwitcher = true)
     {
         ArgumentNullException.ThrowIfNull(accessibility);
         var placement = ComposePlacementRules.Normalize(composePlacement);
-        if (_accessibility == accessibility && _showToolbarLabels == showToolbarLabels && string.Equals(_composePlacement, placement, StringComparison.Ordinal)) return;
+        if (_accessibility == accessibility && _showToolbarLabels == showToolbarLabels && _sidebarAccountSwitcher == sidebarAccountSwitcher && string.Equals(_composePlacement, placement, StringComparison.Ordinal)) return;
+        _sidebarAccountSwitcher = sidebarAccountSwitcher;
         _accessibility = accessibility;
         _showToolbarLabels = showToolbarLabels;
         _composePlacement = placement;
@@ -208,7 +210,16 @@ public sealed class StyleState : ObservableObject
     public double ReaderSenderSize => (IsNordic ? 13.5 : 12.5) * TextScale;
 
     /// <summary>The space between the reader's parts (prototype ReaderTile: 14 Bento, 18 Nordic).</summary>
-    public double ReaderSpacing => IsNordic ? 18 : 14;
+    public double ReaderSpacing => IsBulwark ? 0 : IsNordic ? 18 : 14;
+
+    // email-viewer.tsx: top actions and message header are full-width ruled bands.
+    public Thickness ReaderBandMargin => IsBulwark ? new(-_m.ReaderPadSide, 0, -_m.ReaderPadSide, 0) : default;
+    public Thickness ReaderBandPadding => IsBulwark ? new(_m.ReaderPadSide, 12, _m.ReaderPadSide, 12) : default;
+    public Thickness ReaderBandRule => IsBulwark ? new(0, 0, 0, 1) : default;
+    public Style ReaderActionStyle => (Style)Application.Current.Resources[IsBulwark ? "Button.Icon" : "Button.Action"];
+    public Thickness ReaderActionPadding => IsBulwark ? new(10, 0, 10, 0) : ActionPadding;
+    public CornerRadius ReaderActionRadius => IsBulwark ? new(6) : ActionRadius;
+    public double ReaderActionHeight => IsBulwark ? Math.Max(32 * TextScale, MinimumTarget) : ActionButtonHeight;
 
     /// <summary>Reply all, Delete and More are icon-only pills in Bento so the six M1 actions fit the prototype's three-pill width.</summary>
     public Visibility SecondaryLabelVisibility => ToolbarLabelVisibility;
@@ -239,7 +250,8 @@ public sealed class StyleState : ObservableObject
     public double AccountSize => IsBento ? 38 : 40;
 
     // sidebar: Bento is one tile (compose, folders, tags, storage); Nordic sits on the ground
-    public Thickness SidebarPadding => IsNordic ? new Thickness(14, 18, 14, 22) : new Thickness(12, 14, 12, 14);
+    public Thickness SidebarPadding => IsBulwark ? new Thickness(0, 0, 0, 12) : IsNordic ? new Thickness(14, 18, 14, 22) : new Thickness(12, 14, 12, 14);
+    public Visibility SidebarSwitcherVisibility => IsBulwark && _sidebarAccountSwitcher ? Visibility.Visible : Visibility.Collapsed;
 
     public Brush SidebarBrush => IsBulwark ? AppResources.Brush("Side") : PaneBrush;
 
@@ -406,7 +418,7 @@ public sealed class StyleState : ObservableObject
     public CornerRadius ReplyRadius => new(26);
 
     /// <summary>The two item-container styles of a list: Bento or Nordic variant (Styles/Controls.xaml).</summary>
-    public Style MessageItemStyle => (Style)Application.Current.Resources[IsNordic ? "ListItem.Message.Nordic" : "ListItem.Message.Bento"];
+    public Style MessageItemStyle => (Style)Application.Current.Resources[IsBulwark ? "ListItem.Message.Bulwark" : IsNordic ? "ListItem.Message.Nordic" : "ListItem.Message.Bento"];
 
     public Style FolderItemStyle => (Style)Application.Current.Resources[IsNordic ? "ListItem.Folder.Nordic" : "ListItem.Folder.Bento"];
 }

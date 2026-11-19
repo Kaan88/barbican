@@ -160,7 +160,14 @@ public sealed partial class ShellPage : Page
         MailScreen.Padding = band ? pad : new Thickness(pad.Left, pad.Bottom, pad.Right, pad.Bottom);
         MailScreen.ColumnSpacing = _look.Gap;
         var fullscreen = _readerFullscreen && _look.IsBulwark;
-        SidebarRegion.Visibility = layout.SidebarShown && !_composing && !fullscreen ? Visibility.Visible : Visibility.Collapsed;
+        // Bulwark keeps the mailbox beside an in-page composer. Fold only when the
+        // saved pane widths would leave too little room for the editor controls.
+        var panes = SidebarRegion.Panes;
+        var editorSpace = layout.WindowWidth - _look.RailWidth
+            - (panes.SidebarWidth > 0 ? panes.SidebarWidth : _look.SidebarWidth)
+            - (panes.ListWidth > 0 ? panes.ListWidth : layout.ListWidth);
+        SidebarRegion.Visibility = layout.SidebarShown && !fullscreen
+            && (!_composing || (_look.IsBulwark && editorSpace >= 480)) ? Visibility.Visible : Visibility.Collapsed;
         SidebarHandle.Visibility = SidebarRegion.Visibility;
         ListColumn.Visibility = fullscreen ? Visibility.Collapsed : Visibility.Visible;
         ListHandle.Visibility = ListColumn.Visibility;

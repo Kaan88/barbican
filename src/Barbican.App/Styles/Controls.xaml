@@ -298,6 +298,30 @@
     <Setter Property="CornerRadius" Value="0" />
     <Setter Property="UseSystemFocusVisuals" Value="False" />
   </Style>
+  <!-- Bulwark thread-list-item.tsx:733-746: edge-to-edge rows, a bottom rule and an accent selection fill. -->
+  <Style x:Key="ListItem.Message.Bulwark" TargetType="ListViewItem" BasedOn="{StaticResource ListItem.Message.Nordic}">
+    <Setter Property="UseSystemFocusVisuals" Value="True" />
+    <Setter Property="Template">
+      <Setter.Value>
+        <ControlTemplate TargetType="ListViewItem">
+          <Grid Background="Transparent">
+            <Border x:Name="Surface" BorderBrush="{StaticResource Line}" BorderThickness="0,0,0,1" />
+            <ContentPresenter Content="{TemplateBinding Content}" ContentTemplate="{TemplateBinding ContentTemplate}" HorizontalContentAlignment="Stretch" />
+            <VisualStateManager.VisualStateGroups>
+              <VisualStateGroup x:Name="CommonStates">
+                <VisualState x:Name="Normal" />
+                <VisualState x:Name="PointerOver"><VisualState.Setters><Setter Target="Surface.Background" Value="{StaticResource Hover}" /></VisualState.Setters></VisualState>
+                <VisualState x:Name="Pressed"><VisualState.Setters><Setter Target="Surface.Background" Value="{StaticResource Pressed}" /></VisualState.Setters></VisualState>
+                <VisualState x:Name="Selected"><VisualState.Setters><Setter Target="Surface.Background" Value="{StaticResource Sel}" /></VisualState.Setters></VisualState>
+                <VisualState x:Name="PointerOverSelected"><VisualState.Setters><Setter Target="Surface.Background" Value="{StaticResource Sel}" /></VisualState.Setters></VisualState>
+                <VisualState x:Name="PressedSelected"><VisualState.Setters><Setter Target="Surface.Background" Value="{StaticResource Pressed}" /></VisualState.Setters></VisualState>
+              </VisualStateGroup>
+            </VisualStateManager.VisualStateGroups>
+          </Grid>
+        </ControlTemplate>
+      </Setter.Value>
+    </Setter>
+  </Style>
   <Style x:Key="ListItem.Folder.Bento" TargetType="ListViewItem">
     <Setter Property="Template" Value="{StaticResource Template.FolderItem}" />
     <Setter Property="Padding" Value="0,1" />

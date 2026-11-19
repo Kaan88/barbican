@@ -13,46 +13,54 @@
        the conversation strip, the attachment cards, the body slot (MailBodyView, body stream), and the reply bar. Header, strip, cards and body come from ReaderViewModel.Apply in one
        call, so they change together. Laid out as the prototype (prototype/winui/MainWindow.xaml ReaderTile / NordReader). The only motion is the header rise on a switch
        (Motion/Rise, never while keys repeat); the body cross-fades in MailBodyView (design/MOTION.md). -->
-  <Border Background="{x:Bind Look.PaneBrush, Mode=OneWay}" BorderBrush="{StaticResource Line}" BorderThickness="{x:Bind Look.PaneBorder, Mode=OneWay}"
+  <Border Background="{x:Bind Look.ListBrush, Mode=OneWay}" BorderBrush="{StaticResource Line}" BorderThickness="{x:Bind Look.PaneBorder, Mode=OneWay}"
           CornerRadius="{x:Bind Look.PaneRadius, Mode=OneWay}" MinWidth="240" MinHeight="200" AutomationProperties.AutomationId="reader" AutomationProperties.Name="Message">
     <Border BorderBrush="{StaticResource Line}" BorderThickness="{x:Bind Look.ListHairline, Mode=OneWay}" CornerRadius="{x:Bind Look.PaneRadius, Mode=OneWay}">
       <Grid>
         <!-- nothing open -->
         <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="10" Visibility="{x:Bind views:Fmt.VisBody(Reader.BodyState, 'empty'), Mode=OneWay}"
                     AutomationProperties.AutomationId="reader.empty" AutomationProperties.Name="No message selected">
-          <Border Width="68" Height="68" CornerRadius="25" Background="{StaticResource Tile2}" BorderBrush="{StaticResource Line}" BorderThickness="1" HorizontalAlignment="Center">
+          <StackPanel Visibility="{x:Bind Look.BulwarkOnly, Mode=OneWay}" Padding="24" HorizontalAlignment="Center">
+            <Border Width="80" Height="80" CornerRadius="40" HorizontalAlignment="Center" Background="{StaticResource Tile}">
+              <controls:SIcon Kind="Mail" Size="40" Foreground="{StaticResource Dim}" HorizontalAlignment="Center" VerticalAlignment="Center" />
+            </Border>
+            <TextBlock Text="No conversation selected" TextAlignment="Center" Margin="0,24,0,8" FontSize="20" FontWeight="SemiBold" Foreground="{StaticResource Text}" />
+            <TextBlock Text="Choose a conversation from the list to read it here" TextAlignment="Center" TextWrapping="Wrap" FontSize="16" Foreground="{StaticResource Dim}" />
+          </StackPanel>
+          <Border Visibility="{x:Bind Look.LegacyMarkVisibility, Mode=OneWay}" Width="68" Height="68" CornerRadius="25" Background="{StaticResource Tile2}" BorderBrush="{StaticResource Line}" BorderThickness="1" HorizontalAlignment="Center">
             <Canvas Width="32" Height="32" HorizontalAlignment="Center" VerticalAlignment="Center">
               <Rectangle Canvas.Left="3" Canvas.Top="12" Width="7" Height="19" RadiusX="3.5" RadiusY="3.5" Fill="{StaticResource Accent}" />
               <Rectangle Canvas.Left="13.5" Canvas.Top="3" Width="7" Height="28" RadiusX="3.5" RadiusY="3.5" Fill="{StaticResource Accent}" Opacity="0.7" />
               <Rectangle Canvas.Left="24" Canvas.Top="8" Width="7" Height="23" RadiusX="3.5" RadiusY="3.5" Fill="{StaticResource Accent}" Opacity="0.4" />
             </Canvas>
           </Border>
-          <TextBlock Text="Select a message to read it" FontSize="13" Foreground="{StaticResource Faint}" HorizontalAlignment="Center" />
+          <TextBlock Visibility="{x:Bind Look.LegacyMarkVisibility, Mode=OneWay}" Text="Select a message to read it" FontSize="13" Foreground="{StaticResource Faint}" HorizontalAlignment="Center" />
         </StackPanel>
 
         <Grid x:Name="ContentGrid" Padding="{x:Bind Look.ReaderPadding, Mode=OneWay}" RowSpacing="{x:Bind Look.ReaderSpacing, Mode=OneWay}" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto,*,Auto"
               Visibility="{x:Bind views:Fmt.VisBody(Reader.BodyState, 'content'), Mode=OneWay}">
            <!-- Bulwark order: actions, subject, collapsed conversation headers, and the open message. -->
           <!-- actions: Reply, Reply all, Forward, Archive and Delete run their commands on the open message; More opens MENU-READER. Bento: icon + label (Reply all, Delete, More icon-only); Nordic: text only. -->
-           <controls:WrapRow Grid.Row="0" Spacing="8" AutomationProperties.AutomationId="reader.toolbar" AutomationProperties.Name="Message actions">
-            <Button Style="{StaticResource Button.Action}" Height="{x:Bind Look.ActionButtonHeight, Mode=OneWay}" CornerRadius="{x:Bind Look.ActionRadius, Mode=OneWay}"
-                    Padding="{x:Bind Look.ActionPadding, Mode=OneWay}" Click="OnReplyClick" AutomationProperties.AutomationId="reader.reply" AutomationProperties.Name="Reply">
+           <Border Grid.Row="0" Margin="{x:Bind Look.ReaderBandMargin, Mode=OneWay}" Padding="{x:Bind Look.ReaderBandPadding, Mode=OneWay}" BorderThickness="{x:Bind Look.ReaderBandRule, Mode=OneWay}" BorderBrush="{StaticResource Line}">
+           <controls:WrapRow Spacing="4" AutomationProperties.AutomationId="reader.toolbar" AutomationProperties.Name="Message actions">
+            <Button Style="{x:Bind Look.ReaderActionStyle, Mode=OneWay}" Height="{x:Bind Look.ReaderActionHeight, Mode=OneWay}" CornerRadius="{x:Bind Look.ReaderActionRadius, Mode=OneWay}"
+                    Padding="{x:Bind Look.ReaderActionPadding, Mode=OneWay}" MinWidth="{x:Bind Look.MinimumTarget, Mode=OneWay}" Click="OnReplyClick" motion:Tip.Text="Reply" AutomationProperties.AutomationId="reader.reply" AutomationProperties.Name="Reply">
               <StackPanel Orientation="Horizontal" Spacing="6"><controls:SIcon Kind="Reply" Size="16" Visibility="{x:Bind Look.ToolbarIconVisibility, Mode=OneWay}" /><TextBlock Text="Reply" Visibility="{x:Bind Look.ToolbarLabelVisibility, Mode=OneWay}" /></StackPanel>
             </Button>
-            <Button Style="{StaticResource Button.Action}" Height="{x:Bind Look.ActionButtonHeight, Mode=OneWay}" CornerRadius="{x:Bind Look.ActionRadius, Mode=OneWay}"
-                    Padding="{x:Bind Look.ActionPadding, Mode=OneWay}" Click="OnReplyAllClick" AutomationProperties.AutomationId="reader.replyall" AutomationProperties.Name="Reply all">
+            <Button Style="{x:Bind Look.ReaderActionStyle, Mode=OneWay}" Height="{x:Bind Look.ReaderActionHeight, Mode=OneWay}" CornerRadius="{x:Bind Look.ReaderActionRadius, Mode=OneWay}"
+                    Padding="{x:Bind Look.ReaderActionPadding, Mode=OneWay}" MinWidth="{x:Bind Look.MinimumTarget, Mode=OneWay}" Click="OnReplyAllClick" motion:Tip.Text="Reply all" AutomationProperties.AutomationId="reader.replyall" AutomationProperties.Name="Reply all">
               <StackPanel Orientation="Horizontal" Spacing="6"><controls:SIcon Kind="ReplyAll" Size="16" Visibility="{x:Bind Look.ToolbarIconVisibility, Mode=OneWay}" /><TextBlock Text="Reply all" Visibility="{x:Bind Look.SecondaryLabelVisibility, Mode=OneWay}" /></StackPanel>
             </Button>
-            <Button Style="{StaticResource Button.Action}" Height="{x:Bind Look.ActionButtonHeight, Mode=OneWay}" CornerRadius="{x:Bind Look.ActionRadius, Mode=OneWay}"
-                    Padding="{x:Bind Look.ActionPadding, Mode=OneWay}" Click="OnForwardClick" AutomationProperties.AutomationId="reader.forward" AutomationProperties.Name="Forward">
+            <Button Style="{x:Bind Look.ReaderActionStyle, Mode=OneWay}" Height="{x:Bind Look.ReaderActionHeight, Mode=OneWay}" CornerRadius="{x:Bind Look.ReaderActionRadius, Mode=OneWay}"
+                    Padding="{x:Bind Look.ReaderActionPadding, Mode=OneWay}" MinWidth="{x:Bind Look.MinimumTarget, Mode=OneWay}" Click="OnForwardClick" motion:Tip.Text="Forward" AutomationProperties.AutomationId="reader.forward" AutomationProperties.Name="Forward">
               <StackPanel Orientation="Horizontal" Spacing="6"><controls:SIcon Kind="Fwd" Size="16" Visibility="{x:Bind Look.ToolbarIconVisibility, Mode=OneWay}" /><TextBlock Text="Forward" Visibility="{x:Bind Look.ToolbarLabelVisibility, Mode=OneWay}" /></StackPanel>
             </Button>
-            <Button Style="{StaticResource Button.Action}" Height="{x:Bind Look.ActionButtonHeight, Mode=OneWay}" CornerRadius="{x:Bind Look.ActionRadius, Mode=OneWay}"
-                    Padding="{x:Bind Look.ActionPadding, Mode=OneWay}" Click="OnArchiveClick" AutomationProperties.AutomationId="reader.archive" AutomationProperties.Name="Archive">
+            <Button Style="{x:Bind Look.ReaderActionStyle, Mode=OneWay}" Height="{x:Bind Look.ReaderActionHeight, Mode=OneWay}" CornerRadius="{x:Bind Look.ReaderActionRadius, Mode=OneWay}"
+                    Padding="{x:Bind Look.ReaderActionPadding, Mode=OneWay}" MinWidth="{x:Bind Look.MinimumTarget, Mode=OneWay}" Click="OnArchiveClick" motion:Tip.Text="Archive" AutomationProperties.AutomationId="reader.archive" AutomationProperties.Name="Archive">
               <StackPanel Orientation="Horizontal" Spacing="6"><controls:SIcon Kind="Archive" Size="16" Visibility="{x:Bind Look.ToolbarIconVisibility, Mode=OneWay}" /><TextBlock Text="Archive" Visibility="{x:Bind Look.ToolbarLabelVisibility, Mode=OneWay}" /></StackPanel>
             </Button>
-            <Button Style="{StaticResource Button.Action}" Height="{x:Bind Look.ActionButtonHeight, Mode=OneWay}" CornerRadius="{x:Bind Look.ActionRadius, Mode=OneWay}"
-                    Padding="{x:Bind Look.ActionPadding, Mode=OneWay}" Click="OnDeleteClick" AutomationProperties.AutomationId="reader.delete" AutomationProperties.Name="Delete">
+            <Button Style="{x:Bind Look.ReaderActionStyle, Mode=OneWay}" Height="{x:Bind Look.ReaderActionHeight, Mode=OneWay}" CornerRadius="{x:Bind Look.ReaderActionRadius, Mode=OneWay}"
+                    Padding="{x:Bind Look.ReaderActionPadding, Mode=OneWay}" MinWidth="{x:Bind Look.MinimumTarget, Mode=OneWay}" Click="OnDeleteClick" motion:Tip.Text="Delete" AutomationProperties.AutomationId="reader.delete" AutomationProperties.Name="Delete">
               <StackPanel Orientation="Horizontal" Spacing="6"><controls:SIcon Kind="Trash" Size="16" Visibility="{x:Bind Look.ToolbarIconVisibility, Mode=OneWay}" /><TextBlock Text="Delete" Visibility="{x:Bind Look.SecondaryLabelVisibility, Mode=OneWay}" /></StackPanel>
              </Button>
               <!-- Bulwark 1.21.2 email-viewer.tsx:5128-5142: ghost button with Maximize2 / Minimize2. -->
@@ -69,14 +77,16 @@
                   </Grid>
                 </Viewbox>
               </Button>
-             <Button Style="{StaticResource Button.Action}" Width="{x:Bind Look.ActionButtonHeight, Mode=OneWay}" Height="{x:Bind Look.ActionButtonHeight, Mode=OneWay}" Padding="0"
-                    CornerRadius="{x:Bind Look.ActionRadius, Mode=OneWay}" Click="OnMoreClick" AutomationProperties.AutomationId="reader.more" AutomationProperties.Name="More actions">
+             <Button Style="{x:Bind Look.ReaderActionStyle, Mode=OneWay}" Width="{x:Bind Look.ReaderActionHeight, Mode=OneWay}" Height="{x:Bind Look.ReaderActionHeight, Mode=OneWay}" Padding="0"
+                    CornerRadius="{x:Bind Look.ReaderActionRadius, Mode=OneWay}" Click="OnMoreClick" motion:Tip.Text="More actions" AutomationProperties.AutomationId="reader.more" AutomationProperties.Name="More actions">
               <controls:SIcon Kind="More" Size="16" />
             </Button>
           </controls:WrapRow>
+          </Border>
 
           <!-- header: the subject and the sender line rise a few pixels when another message opens (Motion/Rise; the prototype's header transition) -->
-           <StackPanel Grid.Row="1">
+           <Border Grid.Row="1" Margin="{x:Bind Look.ReaderBandMargin, Mode=OneWay}" Padding="{x:Bind Look.ReaderBandPadding, Mode=OneWay}" BorderThickness="{x:Bind Look.ReaderBandRule, Mode=OneWay}" BorderBrush="{StaticResource Line}">
+           <StackPanel>
           <TextBlock x:Name="SubjectText" Text="{x:Bind Reader.Header.Subject, Mode=OneWay}" FontSize="{x:Bind Look.ReaderSubjectSize, Mode=OneWay}"
                      FontWeight="{x:Bind Look.ReaderSubjectWeight, Mode=OneWay}" CharacterSpacing="{x:Bind Look.ReaderSubjectSpacing, Mode=OneWay}" LineHeight="{x:Bind Look.ReaderSubjectLineHeight, Mode=OneWay}"
                      Margin="{x:Bind Look.ReaderSubjectMargin, Mode=OneWay}" Foreground="{StaticResource Text}"
@@ -107,7 +117,9 @@
             </ItemsRepeater.ItemTemplate>
           </ItemsRepeater>
           </StackPanel>
-           <Grid Grid.Row="3" x:Name="SenderLine" ColumnDefinitions="Auto,*,Auto,Auto" RowDefinitions="Auto,Auto" ColumnSpacing="8" SizeChanged="OnSenderLineSizeChanged" AutomationProperties.AutomationId="reader.header" AutomationProperties.Name="Message header">
+          </Border>
+           <Border Grid.Row="3" Margin="{x:Bind Look.ReaderBandMargin, Mode=OneWay}" Padding="{x:Bind Look.ReaderBandPadding, Mode=OneWay}" BorderThickness="{x:Bind Look.ReaderBandRule, Mode=OneWay}" BorderBrush="{StaticResource Line}">
+           <Grid x:Name="SenderLine" ColumnDefinitions="Auto,*,Auto,Auto" RowDefinitions="Auto,Auto" ColumnSpacing="8" SizeChanged="OnSenderLineSizeChanged" AutomationProperties.AutomationId="reader.header" AutomationProperties.Name="Message header">
             <Grid.RenderTransform>
               <TranslateTransform x:Name="SenderShift" />
             </Grid.RenderTransform>
@@ -149,6 +161,7 @@
               </StackPanel>
             </Button>
           </Grid>
+          </Border>
 
           <!-- details panel: from, to, date and the check of each authentication method (spec I-206) -->
            <Border Grid.Row="4" x:Name="DetailsPanel" Visibility="Collapsed" CornerRadius="8" Padding="14,12" Background="{StaticResource Tile2}" BorderBrush="{StaticResource Line}" BorderThickness="1"
@@ -262,7 +275,11 @@
            <!-- Quick reply hands off to the full composer; inline delivery is not wired. -->
            <Border Grid.Row="8" x:Name="QuickReplyBar" Visibility="Collapsed" BorderBrush="{StaticResource Line}" LostFocus="OnQuickReplyBlur"
                    AutomationProperties.AutomationId="reader.reply-bar" AutomationProperties.Name="Quick reply">
-             <StackPanel x:Name="QuickReplyLayout">
+             <Grid ColumnDefinitions="Auto,*">
+               <Border Visibility="{x:Bind Look.BulwarkOnly, Mode=OneWay}" Width="40" Height="40" CornerRadius="20" Margin="0,0,12,0" VerticalAlignment="Top" Background="{StaticResource Sel}">
+                 <TextBlock Text="{x:Bind Account.AccountInitials, Mode=OneWay}" Foreground="{StaticResource SelText}" FontSize="14" FontWeight="SemiBold" HorizontalAlignment="Center" VerticalAlignment="Center" />
+               </Border>
+             <StackPanel Grid.Column="1" x:Name="QuickReplyLayout">
                <TextBox x:Name="QuickReplyText" AcceptsReturn="True" TextWrapping="Wrap" MinHeight="56" MaxHeight="144" ScrollViewer.VerticalScrollBarVisibility="Auto"
                         GotFocus="OnQuickReplyFocus" TextChanged="OnQuickReplyTextChanged"
                         PlaceholderText="{x:Bind views:Fmt.ReplyHint(Reader.Header.From), Mode=OneWay}" FontSize="14"
@@ -272,6 +289,7 @@
                  <Button Content="Open full editor" Style="{StaticResource Button.Primary}" Click="OnQuickReplyOpenEditor" AutomationProperties.AutomationId="reader.reply.full" />
                </StackPanel>
              </StackPanel>
+             </Grid>
           </Border>
         </Grid>
       </Grid>

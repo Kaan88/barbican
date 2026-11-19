@@ -21,6 +21,7 @@ public sealed partial class SidebarView : UserControl
         Sidebar = ViewHost.Get<SidebarViewModel>();
         Look = ViewHost.Get<StyleState>();
         InitializeComponent();
+        HeaderPopover.Chosen += (_, _) => HeaderAccountButton.Flyout?.Hide();
         SlotHost.Fill(AccountHeaderSlot, SlotNames.SidebarAccountHeader);
         SlotHost.Fill(UnifiedSectionSlot, SlotNames.SidebarUnified);
         SlotHost.Fill(SharedSectionSlot, SlotNames.SidebarShared);
@@ -41,6 +42,8 @@ public sealed partial class SidebarView : UserControl
     }
 
     public SidebarViewModel Sidebar { get; }
+
+    public RailViewModel Account { get; } = ViewHost.Get<RailViewModel>();
 
     public StyleState Look { get; }
 

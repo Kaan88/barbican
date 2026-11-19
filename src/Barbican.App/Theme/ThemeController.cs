@@ -50,7 +50,7 @@ public sealed class ThemeController : IDisposable
         ArgumentNullException.ThrowIfNull(root);
         _root = root;
         MotionRuntime.Scale = new MotionScale(_shell.ReduceMotion, _shell.IsRapid);
-        _style.SetAccessibility(_shell.Accessibility, (_prefs.Current.Bool("showToolbarLabels", true) || _prefs.Current.Bool("simpleMode", false)), _prefs.Current.Str("composePlacement", "floating"));
+        ApplyControlPreferences();
         Apply(force: true);
     }
 
@@ -63,12 +63,16 @@ public sealed class ThemeController : IDisposable
 
     public void Dispose() => _shell.PropertyChanged -= OnShellChanged;
 
+    private void ApplyControlPreferences() => _style.SetAccessibility(_shell.Accessibility,
+        _prefs.Current.Bool("showToolbarLabels", true) || _prefs.Current.Bool("simpleMode", false),
+        _prefs.Current.Str("composePlacement", "floating"), _prefs.Current.Bool("sidebarAccountSwitcher", true));
+
     private void OnShellChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
     {
         switch (e.PropertyName)
         {
             case nameof(ShellViewModel.Accessibility):
-                _style.SetAccessibility(_shell.Accessibility, (_prefs.Current.Bool("showToolbarLabels", true) || _prefs.Current.Bool("simpleMode", false)), _prefs.Current.Str("composePlacement", "floating"));
+                ApplyControlPreferences();
                 break;
             case nameof(ShellViewModel.ReduceMotion):
             case nameof(ShellViewModel.IsRapid):

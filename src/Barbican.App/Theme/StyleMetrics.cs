@@ -92,7 +92,7 @@ public sealed record StyleMetrics(bool Nordic, bool Bulwark = false)
 
     public double ComposeRadius => Nordic ? 25 : 16;
 
-    public double FolderRowHeight => Nordic ? 44 : 38;
+    public double FolderRowHeight => Bulwark ? 30 : Nordic ? 44 : 38;
 
     public double FolderIndent => 14;
 
@@ -105,11 +105,11 @@ public sealed record StyleMetrics(bool Nordic, bool Bulwark = false)
     /// <summary>Squircle (Bento) or circle (Nordic) of an avatar or icon button (prototype: 38 → 13 or 19).</summary>
     public double Round(double size) => Nordic ? size / 2 : Math.Round(size * 0.34);
 
-    public double ReaderPadTop => Nordic ? 30 : 22;
+    public double ReaderPadTop => Bulwark ? 0 : Nordic ? 30 : 22;
 
     public double ReaderPadBottom => Nordic ? 24 : 10;
 
-    public double ReaderPadSide => Nordic ? 44 : 26;
+    public double ReaderPadSide => Bulwark ? 24 : Nordic ? 44 : 26;
 
     public double ListPadLeft => Nordic ? 28 : 20;
 
@@ -121,7 +121,7 @@ public sealed record StyleMetrics(bool Nordic, bool Bulwark = false)
 
     public double ListTitleSize => Nordic ? 28 : 24;
 
-    public double ReaderSubjectSize => Nordic ? 34 : 22;
+    public double ReaderSubjectSize => Bulwark ? 20 : Nordic ? 34 : 22;
 
     public double ActionButtonHeight => Nordic ? 38 : 36;
 
