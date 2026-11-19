@@ -25,7 +25,7 @@ using Barbican.Core.Storage;
 namespace Barbican.Core.Accounts;
 
 /// <summary>The signed-in accounts, sign-in, switching and the account rows.</summary>
-public sealed partial class AccountManager : IAccountManager, IAccountOverview, IAsyncDisposable
+public sealed partial class AccountManager : IAccountManager, IAccountOverview, IAccountSessionSnapshots, IAsyncDisposable
 {
     /// <summary>How often an inactive account's inbox unread is read.</summary>
     public static readonly TimeSpan UnreadInterval = TimeSpan.FromMinutes(2);
@@ -53,6 +53,7 @@ public sealed partial class AccountManager : IAccountManager, IAccountOverview, 
     private readonly CancellationTokenSource _life = new();
     private readonly List<AccountSession> _retired = [];
     private string? _activeKey;
+    private long _selectionGeneration = 1;
     private ITimer? _unreadTimer;
     private Task? _retry;
 
@@ -647,6 +648,7 @@ public sealed partial class AccountManager : IAccountManager, IAccountOverview, 
             previous = _activeKey is { } p ? _entries[p].Info : null;
             current = _entries[key].Info;
             _activeKey = key;
+            _selectionGeneration++;
         }
 
         Changed();

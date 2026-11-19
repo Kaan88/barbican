@@ -171,6 +171,7 @@ public sealed partial class AccountManager : IAccountMaintenance
             if (previous is not null)
             {
                 _activeKey = _order.FirstOrDefault(k => _entries[k].Session is not null) ?? _order.FirstOrDefault();
+                _selectionGeneration++;
                 next = _activeKey is { } k ? _entries[k].Info : null;
             }
 
