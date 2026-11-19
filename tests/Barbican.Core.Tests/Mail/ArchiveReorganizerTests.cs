@@ -1,5 +1,7 @@
 // Fake-only coverage for Bulwark message-list-settings.tsx:82-145 archive reorganization.
 #pragma warning disable MA0002 // xUnit string assertions compare ordinally
+using System.Text.Json.Nodes;
+using Barbican.Core.Jmap;
 using Barbican.Core.Mail.Archive;
 using Barbican.Core.Mail.Write;
 using Barbican.Core.Mail.Write.Payloads;
@@ -53,6 +55,50 @@ public sealed class ArchiveReorganizerTests
 
             Assert.NotEqual(root, cBox);
         }
+    }
+
+    [Fact]
+    public async Task Reorganization_preserves_other_mailbox_memberships()
+    {
+        var rig = ContactRig.Create();
+        var (key, server, client) = await rig.AddAsync("labels@example.org", null);
+        using (server)
+        {
+            var root = server.Store.MailboxId("archive")!;
+            var other = server.Store.AddMailbox("Important project", null);
+            var id = server.Store.Deliver(new FakeMail { Subject = "labeled", ReceivedAt = Date(2024, 3) }, root);
+            var writer = new MailWriter(client, client.Session.MailAccountId);
+            var assigned = await writer.SetMailboxIdsAsync(new Dictionary<string, IReadOnlyDictionary<string, bool>>(StringComparer.Ordinal)
+            {
+                [id] = new Dictionary<string, bool>(StringComparer.Ordinal) { [root] = true, [other] = true },
+            }, Ct);
+            Assert.True(assigned.IsOk, assigned.Error?.Message);
+            var result = await new ArchiveReorganizer(rig, new MailWriterFactory(), new HookBus(), TimeProvider.System).ReorganizeAsync(key, "year", Ct);
+            Assert.True(result.IsOk, result.Error?.Message);
+            var memberships = server.Store.Email(id)!["mailboxIds"]!.AsObject();
+            Assert.True(memberships.ContainsKey(other));
+            Assert.False(memberships.ContainsKey(root));
+            Assert.Equal(2, memberships.Count);
+        }
+    }
+
+    [Theory]
+    [InlineData("-1")]
+    [InlineData("1.25")]
+    public async Task Malformed_query_total_stops_before_any_write(string rawTotal)
+    {
+        var client = new ContactScriptedClient(request => new JmapResponse
+        {
+            MethodResponses = [.. request.MethodCalls.Select(call => new JsonArray(
+                call[0]!.DeepClone(),
+                string.Equals((string?)call[0], "Mailbox/get", StringComparison.Ordinal)
+                    ? new JsonObject { ["list"] = new JsonArray(new JsonObject { ["id"] = "archive", ["name"] = "Archive", ["role"] = "archive" }) }
+                    : new JsonObject { ["queryState"] = "q", ["total"] = JsonNode.Parse(rawTotal), ["ids"] = new JsonArray() },
+                call[2]!.DeepClone()))],
+        }, [JmapCapabilities.Mail]);
+        var result = await new ArchiveReorganizer(client, new MailWriterFactory(), new HookBus(), TimeProvider.System).ReorganizeAsync(ContactScriptedClient.Key, "year", Ct);
+        Assert.False(result.IsOk);
+        Assert.DoesNotContain(client.Requests.SelectMany(request => request.MethodCalls), call => ((string?)call[0])?.EndsWith("/set", StringComparison.Ordinal) == true);
     }
 
     [Fact]

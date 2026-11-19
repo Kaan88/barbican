@@ -1509,3 +1509,8 @@ The earlier concurrent-read concern above is addressed in `UnifiedListSource`: a
 Review `src/Barbican.Core/Mail/Archive/{IArchiveReorganizer,ArchiveReorganizationReport,ArchiveReorganizer,ArchiveSnapshot}.cs`, settings registration, and `tests/Barbican.Core.Tests/Mail/ArchiveReorganizerTests.cs`. Bulwark `components/settings/message-list-settings.tsx:82-145` and `lib/jmap/client.ts:3204,4134` define root-only dated grouping, folder creation and move hooks. The service captures the requested account session, requires a stable complete paged snapshot before writing, respects object-set limits and reports known, unattempted and unknown outcomes. Single mode is a no-op; missing dates and plugin-vetoed groups are skipped. It uses the existing whole-mailbox-set move semantics.
 
 Nine fake-server tests pass on Windows: capped paging in year/month modes, existing folders, read-only, account isolation, folder/move veto, successful hook payloads, cancellation and later-chunk failure. No live writes performed. A transport failure or cancellation during a write can leave its server outcome unknown, explicitly reported; a remote mailbox can still change after the completed scan, so review retry/refresh messaging and confirmation in the UI. The Settings UI owns confirmation and report display.
+
+
+## Codex - M6 archive membership preservation (Terra High)
+
+The archive reorganization now removes only the root Archive membership while adding the dated destination, preserving other mailbox labels. This deliberately differs from Bulwark `batchMoveEmails`, which replaces all mailbox IDs. The existing `JsonNodeExtensions.AsNumber` rejects negative and fractional totals before conversion; service-level tests pin refusal before any writes.

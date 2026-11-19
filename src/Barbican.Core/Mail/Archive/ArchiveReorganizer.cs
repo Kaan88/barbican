@@ -107,7 +107,7 @@ public sealed class ArchiveReorganizer(IAccountManager accounts, IMailWriterFact
             {
                 ct.ThrowIfCancellationRequested();
                 progress.InFlight = chunk.Length;
-                var moved = await writer.MoveAsync(chunk, null, destination, ct).ConfigureAwait(false);
+                var moved = await writer.MoveAsync(chunk, archive, destination, ct).ConfigureAwait(false);
                 if (moved.Value is { } report)
                 {
                     updated.AddRange(report.Updated);
