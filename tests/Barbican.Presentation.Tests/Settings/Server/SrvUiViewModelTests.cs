@@ -1,6 +1,8 @@
 // Not Rust rows: I-291, I-432..I-436 (the srv-ui view models on the Sample* fakes, which complete and raise Changed off the caller: D-M6-00). M6 stream srv-ui.
 
 using Barbican.Core.Settings.Folders;
+using Barbican.Core.Settings.Vacation;
+using Barbican.Core.Common;
 using Barbican.Presentation.Common;
 using Barbican.Presentation.Settings.Sample;
 using Barbican.Presentation.Settings.Server;
@@ -94,6 +96,45 @@ public sealed class SrvUiViewModelTests
     }
 
     [Fact]
+    public async Task Vacation_html_round_trips_and_can_be_cleared_without_changing_plain_text()
+    {
+        var service = new SampleVacationService();
+        var initial = new VacationSettings(false, "Away", "Plain reply", "<p>Existing</p>", null, null, null, null, false);
+        _ = await service.SaveAsync(SrvUiPageModel.SampleKey, initial, Ct);
+        var vm = new SrvUiVacationViewModel(service, null, new InlineDispatcher());
+        await vm.LoadAsync(Ct);
+        Assert.Equal("<p>Existing</p>", vm.HtmlBody);
+        vm.HtmlBody = "<p>Edited <b>HTML</b></p>";
+        await vm.SaveAsync(Ct);
+        var saved = await service.LoadAsync(SrvUiPageModel.SampleKey, Ct);
+        Assert.Equal("Plain reply", saved.Value!.TextBody);
+        Assert.Equal("<p>Edited <b>HTML</b></p>", saved.Value.HtmlBody);
+        vm.HtmlBody = string.Empty;
+        await vm.SaveAsync(Ct);
+        saved = await service.LoadAsync(SrvUiPageModel.SampleKey, Ct);
+        Assert.Null(saved.Value!.HtmlBody);
+        Assert.Equal("Plain reply", saved.Value.TextBody);
+    }
+
+    [Fact]
+    public async Task Vacation_save_keeps_html_edits_made_while_the_service_is_pending()
+    {
+        var service = new DelayedVacationService();
+        var vm = new SrvUiVacationViewModel(service, null, new InlineDispatcher());
+        await vm.LoadAsync(Ct);
+        vm.Body = "Plain";
+        vm.HtmlBody = "<p>First</p>";
+        var saving = vm.SaveAsync(Ct);
+        vm.HtmlBody = "<p>Newer</p>";
+        service.Release();
+        await saving;
+        Assert.Equal("<p>Newer</p>", vm.HtmlBody);
+        Assert.Contains("not saved yet", vm.Message, StringComparison.Ordinal);
+        var saved = await service.LoadAsync(SrvUiPageModel.SampleKey, Ct);
+        Assert.Equal("<p>First</p>", saved.Value!.HtmlBody);
+    }
+
+    [Fact]
     public async Task Identities_create_show_in_the_list_and_a_default_one_cannot_be_deleted()
     {
         var vm = new SrvUiIdentitiesViewModel(new SampleAccountIdentities(), null, new InlineDispatcher());
@@ -150,6 +191,28 @@ public sealed class SrvUiViewModelTests
         Assert.Equal(3, vm.Items.Count);
         await vm.RestoreAsync("a2", Ct);
         Assert.Equal(2, vm.Items.Count);
+    }
+
+    private sealed class DelayedVacationService : IVacationService
+    {
+        private readonly SampleVacationService _inner = new();
+        private readonly TaskCompletionSource _release = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public event EventHandler<VacationChangedEventArgs>? Changed
+        {
+            add => _inner.Changed += value;
+            remove => _inner.Changed -= value;
+        }
+
+        public Task<Result<VacationSettings>> LoadAsync(string accountKey, CancellationToken ct) => _inner.LoadAsync(accountKey, ct);
+
+        public async Task<Result<VacationSettings>> SaveAsync(string accountKey, VacationSettings settings, CancellationToken ct)
+        {
+            await _release.Task.WaitAsync(ct);
+            return await _inner.SaveAsync(accountKey, settings, ct);
+        }
+
+        public void Release() => _release.TrySetResult();
     }
 
     private sealed class FixedTime(DateTimeOffset now) : TimeProvider
