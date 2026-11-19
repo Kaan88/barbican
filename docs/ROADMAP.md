@@ -3,19 +3,26 @@
 The plan and the full scope of each milestone: [PORT-PLAN.md](PORT-PLAN.md) §5. Decisions that
 change the plan: [adr/](adr/). The Rust-era roadmap is in [legacy/ROADMAP.md](legacy/ROADMAP.md).
 
+Current execution order: **M6 -> M6b -> M7 -> M8 -> M10**. The user directed Codex to stop after finishing M10; M9 (Linux) and the final Astra whole-app review remain outside this run. Historical hand-test gates below do not pause implementation. See [PROGRESS.md](PROGRESS.md) for evidence and carryovers.
+
 | Milestone | Scope (short) | Status |
 |---|---|---|
-| M0 | Freeze the Rust repo, new repo and foundation, spec catalogue, design tokens, spikes S1–S5 | **done** (2026-11-17, [m0-checklist.md](m0-checklist.md)) |
-| M1 | Read-only mail client on the test account (JMAP core, sync, push, shell, list, reader) | **awaiting hand test** (branch `m1`, [milestones/M1.md](milestones/M1.md)) |
-| M2 | Mail actions, menus, reader depth, search, palette, import, plugins | **awaiting hand test** (branch `m2`, [milestones/M2.md](milestones/M2.md); plan [M2-plan.md](milestones/M2-plan.md)) |
-| M3 | Compose and send with the native editor | planned |
-| M4 | Calendar and tasks | planned |
-| M5 | Contacts and Files | planned (plan: milestones/M5-plan.md) |
-| M6 | Settings pages, server settings, assistant | planned (plan: milestones/M6-plan.md) |
-| M7 | Admin | planned |
-| M8 | Windows desktop integration and distribution | planned |
-| M9 | Linux | planned |
-| M10 | Parity sweep, polish, 1.0 | planned |
+| M0 | Foundation, catalogue, tokens and spikes | Done |
+| M1 | Read-only mail, sync, accounts, shell and reader | Implemented; historical manual checks/carryovers in report |
+| M2 | Mail actions, menus, search, import and native plugin foundation | Implemented with follow-up fixes |
+| M3 | Compose and send with native editor | Done; manual/live limitations recorded |
+| M4 | Calendar and tasks | Done; Linux deferred |
+| M5 | Contacts and Files | Done; explicit feature carryovers remain |
+| M6 | Settings, server features and assistant | Integration/close pass active; final tests, UI/live verification, report and fresh Windows portable zip pending |
+| M6b | Full plugin platform, sandbox, permissions, consent and Add-ons | Next; source inventory/planning preparation underway |
+| M7 | Admin dashboard and management | Planned |
+| M8 | Windows desktop integration and distribution | Planned |
+| M10 | Parity sweep, UI polish and release readiness | Planned; finish then stop this run |
+| M9 | Linux | Deferred until after this run |
+
+UI work follows [Bento Balanced, Nordic Focus and Studio](../design/UI-GUIDELINES.md), including modern WinUI 3 materials, depth and responsive motion with platform/accessibility fallbacks. Atlas remains exploratory. No merge to `main`, tags, OS changes or release publication is implied by the roadmap.
+
+## Historical milestone evidence
 
 ## M0 progress
 - [x] Rust repo frozen: all 44 branches pushed, `rust-final` tagged, renamed `Kaan88/barbican-rust`

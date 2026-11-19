@@ -14,12 +14,12 @@ wherever they can. Safety rules stay (no real input, read-only account, admin ke
 
 - Coordinator: Sol, checking subagent code during integration as requested by the user; the later independent whole-app reviewer is Astra. Keep the historical filename `docs/FABLE-REVIEW.md`, mark new entries as Codex, and record exact review scope and evidence.
 - The user explicitly authorized pushing milestone commits to `Kaan88/barbican`.
-- Set-data checkpoints through `a921d70` are merged; assistant tools, fake-only account writes, offline provider formats and history isolation have executed coverage. Shared mutation locking for backup/settings is being completed on the stream branch.
+- Set-data checkpoints through `a921d70` are merged; assistant tools, fake-only account writes, offline provider formats and history isolation have executed coverage. Shared mutation locking and async assistant configuration are merged as `38ddd24`; async history and repaired typed schema choices are merged as `b5ba4b7`.
 - Srv-data calendar lifecycle checkpoint `89ce45b` merged as `fe2118c`; ownership/lifecycle FakeJmap tests passed, with remaining policy/timezone/live limitations in the Astra log.
 - Set-ui checkpoint `bd50e41` merged as `1d3b614`; the coordinator fixed the Security-page parenting failure and verified repeated hidden visits. Assistant configuration now uses its real service; the guarded composer adapter is implemented.
 - Srv-ui checkpoint `1332306` merged as `08331b8`. The same Terra worker is completing UI-keyless controls, catalogue reconciliation, sample real-service wiring and the close pass on port 8929. Narrow Luna High catalogue triage is complete.
 - Latest combined Windows run at `08331b8`: 2,709 passed, four live/Linux skips, zero failed. Subsequent assistant/account/provider checks are merged, including the coordinator calendar-rights regression (nine focused assistant cases passed). Remaining settings reconciliation/locking, complete hidden checks, live checks/cleanup, M6 report and portable zip are pending. Linux stays deferred to M9.
-- Continue in order: M6 -> M6b -> M7 -> M8 -> M10 -> M9 -> Astra whole-app review. The pause table below is historical evidence, not current status.
+- Active user goal: finish M6 -> M6b -> M7 -> M8 -> M10, then stop. M9 and the final Astra review remain later work. After M6 passes its final integration checks, produce and verify a fresh Windows portable zip as explicitly requested. The pause table below is historical evidence, not current status.
 
 ## Milestones
 | Milestone | Branch | State |

@@ -129,8 +129,9 @@ Do not stop at each milestone for hand-test gates or routine questions. Record
 human-only checks as unproven. Maintain FABLE-REVIEW notes as work proceeds, but
 run no separate Fable reviews until the final whole-app review.
 
-Continue in this order: **M6 -> M6b -> M7 -> M8 -> M10 -> M9 (Linux last) ->
-whole-app review**. Windows-only results must be identified as such; Linux is
+The current user goal is **M6 -> M6b -> M7 -> M8 -> M10, then stop**. Produce and
+verify a fresh Windows portable zip after M6 closes. M9 (Linux last) and the final Astra
+whole-app review remain later work outside this run. Windows-only results must be identified as such; Linux is
 deferred, not passed. On pause, save and push work, stop only your own processes,
 clean test-account writes, and update PROGRESS.md with exact commits and next steps.
 
