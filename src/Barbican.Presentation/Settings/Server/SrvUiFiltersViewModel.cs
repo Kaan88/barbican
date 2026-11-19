@@ -47,6 +47,8 @@ public sealed class SrvUiFiltersViewModel : SrvUiPageModel, ISrvUiFiltersViewMod
 
     public FilterState? State => _state;
 
+    public string? StateAccountKey => _stateAccount;
+
     public IReadOnlyList<FilterFolder> Folders
     {
         get
@@ -85,7 +87,7 @@ public sealed class SrvUiFiltersViewModel : SrvUiPageModel, ISrvUiFiltersViewMod
 
     public JsonNode? RuleOf(string ruleId) => _state?.Rules.FirstOrDefault(r => string.Equals(IdOf(r), ruleId, StringComparison.Ordinal))?.DeepClone();
 
-    public Task<bool> UpsertAsync(JsonNode rule, CancellationToken ct)
+    public Task<bool> UpsertAsync(JsonNode rule, string expectedAccount, string? expectedState, CancellationToken ct)
     {
         ArgumentNullException.ThrowIfNull(rule);
         var id = IdOf(rule);
@@ -104,7 +106,7 @@ public sealed class SrvUiFiltersViewModel : SrvUiPageModel, ISrvUiFiltersViewMod
 
                 return rules;
             },
-            ct);
+            ct, expectedAccount, expectedState);
     }
 
     public string SieveText()
@@ -143,11 +145,18 @@ public sealed class SrvUiFiltersViewModel : SrvUiPageModel, ISrvUiFiltersViewMod
         return string.Join('/', parts);
     }
 
-    private async Task<bool> WriteAsync(Func<List<JsonNode>, IReadOnlyList<JsonNode>> change, CancellationToken ct)
+    private async Task<bool> WriteAsync(Func<List<JsonNode>, IReadOnlyList<JsonNode>> change, CancellationToken ct, string? expectedAccount = null, string? expectedState = null)
     {
         if (_state is null || !string.Equals(_stateAccount, AccountKey, StringComparison.Ordinal))
         {
             SaveError = "Reload filters for this account before saving.";
+            return false;
+        }
+
+        if (expectedAccount is not null && (!string.Equals(expectedAccount, AccountKey, StringComparison.Ordinal)
+            || string.IsNullOrEmpty(expectedState) || !string.Equals(expectedState, _state.State, StringComparison.Ordinal)))
+        {
+            SaveError = "Filters changed while this editor was open; reload and edit again.";
             return false;
         }
 
@@ -193,6 +202,7 @@ public sealed class SrvUiFiltersViewModel : SrvUiPageModel, ISrvUiFiltersViewMod
         Raise(nameof(Rows));
         Raise(nameof(Locked));
         Raise(nameof(State));
+        Raise(nameof(StateAccountKey));
     }
 
     private async Task ReloadQuietlyAsync(string account)

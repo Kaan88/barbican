@@ -12,6 +12,18 @@ public sealed partial class FakeApi
     private readonly List<(string Id, string Name, string BlobId, bool Active)> _scripts = [];
     private int _scriptSeq;
     private int _scriptState;
+    private bool _refuseNextSieveSet;
+    private bool _skipNextSieveActivation;
+    private bool _wrongNextSieveAcknowledgement;
+
+    /// <summary>Return a per-script refusal with an empty updated map for the next set.</summary>
+    public void RefuseNextSieveSet() { lock (_lock) { _refuseNextSieveSet = true; } }
+
+    /// <summary>Simulate a server that acknowledges a set but fails to activate the script.</summary>
+    public void SkipNextSieveActivation() { lock (_lock) { _skipNextSieveActivation = true; } }
+
+    /// <summary>Return an unrelated updated id without acknowledging the requested target.</summary>
+    public void WrongNextSieveAcknowledgement() { lock (_lock) { _wrongNextSieveAcknowledgement = true; } }
 
     private string SieveState => "s" + _scriptState.ToString(CultureInfo.InvariantCulture);
 
@@ -98,6 +110,8 @@ public sealed partial class FakeApi
             var oldState = SieveState;
             if ((string?)args["ifInState"] is { } expected && !string.Equals(expected, oldState, StringComparison.Ordinal))
                 return Error("stateMismatch");
+            if (SieveFault(args, oldState) is { } injected) return injected;
+
             var oldActive = _scripts.FirstOrDefault(script => script.Active).Id;
             var created = new JsonObject();
             var notCreated = new JsonObject();
@@ -119,6 +133,23 @@ public sealed partial class FakeApi
                 created[key] = new JsonObject { ["id"] = id };
             }
 
+            UpdateSieveScripts(args, updated, notUpdated);
+
+            if (_skipNextSieveActivation) _skipNextSieveActivation = false;
+            else ActivateLocked((string?)args["onSuccessActivateScript"], refs);
+            var newActive = _scripts.FirstOrDefault(script => script.Active).Id;
+            if (created.Count > 0 || updated.Count > 0 || !string.Equals(oldActive, newActive, StringComparison.Ordinal)) _scriptState++;
+            var res = new JsonObject { ["accountId"] = options.AccountId, ["oldState"] = oldState, ["newState"] = SieveState };
+            res["created"] = created.Count > 0 ? created : null;
+            res["updated"] = updated.Count > 0 ? updated : null;
+            res["notCreated"] = notCreated.Count > 0 ? notCreated : null;
+            res["notUpdated"] = notUpdated.Count > 0 ? notUpdated : null;
+            return (null, res);
+        }
+    }
+
+    private void UpdateSieveScripts(JsonObject args, JsonObject updated, JsonObject notUpdated)
+    {
             foreach (var (id, v) in args["update"] as JsonObject ?? [])
             {
                 var i = _scripts.FindIndex(s => string.Equals(s.Id, id, StringComparison.Ordinal));
@@ -138,17 +169,28 @@ public sealed partial class FakeApi
                 _scripts[i] = _scripts[i] with { BlobId = blob, Name = (string?)v?["name"] ?? _scripts[i].Name };
                 updated[id] = null;
             }
+    }
 
-            ActivateLocked((string?)args["onSuccessActivateScript"], refs);
-            var newActive = _scripts.FirstOrDefault(script => script.Active).Id;
-            if (created.Count > 0 || updated.Count > 0 || !string.Equals(oldActive, newActive, StringComparison.Ordinal)) _scriptState++;
-            var res = new JsonObject { ["accountId"] = options.AccountId, ["oldState"] = oldState, ["newState"] = SieveState };
-            res["created"] = created.Count > 0 ? created : null;
-            res["updated"] = updated.Count > 0 ? updated : null;
-            res["notCreated"] = notCreated.Count > 0 ? notCreated : null;
-            res["notUpdated"] = notUpdated.Count > 0 ? notUpdated : null;
-            return (null, res);
+    private (string? Name, JsonObject Args)? SieveFault(JsonObject args, string oldState)
+    {
+        if (_refuseNextSieveSet)
+        {
+            _refuseNextSieveSet = false;
+            var updateId = (args["update"] as JsonObject)?.FirstOrDefault().Key;
+            var createId = (args["create"] as JsonObject)?.FirstOrDefault().Key;
+            var key = updateId ?? createId ?? "n";
+            return (null, new JsonObject { ["accountId"] = options.AccountId, ["oldState"] = oldState, ["newState"] = oldState,
+                ["updated"] = new JsonObject(), [updateId is null ? "notCreated" : "notUpdated"] = new JsonObject { [key] = new JsonObject { ["type"] = "forbidden", ["description"] = "fixture refusal" } } });
         }
+
+        if (_wrongNextSieveAcknowledgement)
+        {
+            _wrongNextSieveAcknowledgement = false;
+            return (null, new JsonObject { ["accountId"] = options.AccountId, ["oldState"] = oldState, ["newState"] = oldState,
+                ["updated"] = new JsonObject { ["unrelated"] = null } });
+        }
+
+        return null;
     }
 
     private void ActivateLocked(string? act, Dictionary<string, string> refs)
