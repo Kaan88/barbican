@@ -29,9 +29,12 @@ public sealed class ComposerServiceTests
 
         public bool Fail { get; set; }
 
+        public TaskCompletionSource<Result<ComposeSeed>>? Waiting { get; set; }
+
         public Task<Result<ComposeSeed>> SeedAsync(ComposeRequest request, CancellationToken ct)
         {
             Requests.Add(request);
+            if (Waiting is { } waiting) return waiting.Task.WaitAsync(ct);
             if (Fail)
             {
                 return Task.FromResult(Result<ComposeSeed>.Fail(new ValidationError("no such message")));
@@ -102,6 +105,40 @@ public sealed class ComposerServiceTests
         Assert.Equal(expected, sent);
         Assert.Equal(expected ? 1 : 0, w.Harness.Sender.Sent.Count);
         Assert.False(w.Service.IsOpen);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Concurrent_open_guards_the_composer_created_by_the_first_request(bool fromSeed)
+    {
+        var w = new World();
+        var ct = TestContext.Current.CancellationToken;
+        var waiting = new TaskCompletionSource<Result<ComposeSeed>>(TaskCreationOptions.RunContinuationsAsynchronously);
+        w.Seeder.Waiting = waiting;
+        var confirmation = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        w.Service.OpenChanged += (_, _) =>
+        {
+            if (w.Service.Current is not { } opened) return;
+            opened.Subject = "Edited before replacement";
+            opened.PropertyChanged += (_, _) =>
+            {
+                if (opened.Dialog is not null) confirmation.TrySetResult();
+            };
+        };
+        var first = w.Service.OpenAsync(new ComposeRequest("acc", ComposeKind.New), ct);
+        var seed = new ComposeSeed { AccountId = "acc", Kind = ComposeKind.New, Body = Barbican.Core.Editor.Doc.FromText(string.Empty) };
+        var replacement = fromSeed ? w.Service.OpenSeedAsync(seed, ct)
+            : w.Service.OpenAsync(new ComposeRequest("acc", ComposeKind.New), ct);
+        Assert.Single(w.Seeder.Requests);
+        waiting.SetResult(Result<ComposeSeed>.Ok(seed));
+        await first;
+        var original = Assert.IsType<ComposerViewModel>(w.Service.Current);
+        await confirmation.Task.WaitAsync(TimeSpan.FromSeconds(5), ct);
+        Assert.Equal("leave", original.Dialog!.Id);
+        original.AnswerDialog("cancel");
+        await replacement;
+        Assert.Same(original, w.Service.Current);
     }
 
     [Fact]

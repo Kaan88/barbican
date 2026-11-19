@@ -1,14 +1,12 @@
 using System.Globalization;
 using System.Text;
 using System.Text.Json.Nodes;
-using Barbican.Automation.Capture;
 using Barbican.Automation.Protocol;
 using Microsoft.UI.Xaml.Automation;
 using Microsoft.UI.Xaml.Automation.Peers;
 using Microsoft.UI.Xaml.Automation.Provider;
 using Microsoft.UI.Xaml.Controls.Primitives;
 using Microsoft.UI.Xaml.Input;
-using Microsoft.UI.Xaml.Media.Imaging;
 #if WINDOWS
 using Barbican.Automation.Windows;
 #endif
@@ -123,7 +121,7 @@ internal sealed partial class CommandRouter
             case "patterns":
                 return Patterns(line.Number(0), line.Number(1));
             case "shot":
-                return await XamlShotAsync(line.Argument);
+                return await AutomationHost.XamlShotAsync(_context.Root, line.Argument);
             case "wshot":
                 return await FrameProbe.WindowShotAsync(_context, line.Argument);
             case "burst":
@@ -411,28 +409,6 @@ internal sealed partial class CommandRouter
 
         var p = element.TransformToVisual(root).TransformPoint(new global::Windows.Foundation.Point(0, 0));
         return string.Create(CultureInfo.InvariantCulture, $"{p.X:0.#} {p.Y:0.#} {element.ActualWidth:0.#} {element.ActualHeight:0.#}");
-    }
-
-    /// <summary>XAML only (RenderTargetBitmap): no WebView2 content, no windowed popups.</summary>
-    private async Task<string> XamlShotAsync(string path)
-    {
-        if (_context.Root is not { } root)
-        {
-            return "no window content";
-        }
-
-        var rtb = new RenderTargetBitmap();
-        await rtb.RenderAsync(root);
-        var buf = await rtb.GetPixelsAsync();
-        var bytes = new byte[buf.Length];
-        using (var reader = global::Windows.Storage.Streams.DataReader.FromBuffer(buf))
-        {
-            reader.ReadBytes(bytes);
-        }
-
-        var shot = new Shot(rtb.PixelWidth, rtb.PixelHeight, rtb.PixelWidth * 4, bytes);
-        await Task.Run(() => PngWriter.Save(shot, path));
-        return string.Create(CultureInfo.InvariantCulture, $"saved {rtb.PixelWidth}x{rtb.PixelHeight}");
     }
 
     private string Theme(CommandLine line)

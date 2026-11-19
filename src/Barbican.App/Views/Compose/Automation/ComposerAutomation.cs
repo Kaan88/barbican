@@ -16,7 +16,7 @@ namespace Barbican.App.Views.Compose.Automation;
 public static class ComposerAutomation
 {
 #if WINDOWS
-    internal static Func<string, string>? WindowAction { get; set; }
+    internal static Func<string, Task<string>>? WindowAction { get; set; }
 #endif
 
     public static IServiceCollection AddBarbicanComposerAutomation(this IServiceCollection services)
@@ -28,7 +28,7 @@ public static class ComposerAutomation
         }
 
 #if WINDOWS
-        Add(services, "compose-window", (_, args) => Task.FromResult(WindowAction?.Invoke(args.Trim()) ?? "error no shell"));
+        Add(services, "compose-window", (_, args) => WindowAction?.Invoke(args.Trim()) ?? Task.FromResult("error no shell"));
 #endif
         Add(services, "compose-edit", (sp, args) => Task.FromResult(Edit(sp, args)));
         Add(services, "compose-open", ComposeOpenAsync);

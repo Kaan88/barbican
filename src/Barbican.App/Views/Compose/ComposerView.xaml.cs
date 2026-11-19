@@ -60,7 +60,7 @@ public sealed partial class ComposerView : UserControl
         string label = window is null ? "Open in a new window" : "Return to main window";
         AutomationProperties.SetName(WindowButton, label);
         Barbican.App.Motion.Tip.SetText(WindowButton, label);
-        WindowGlyph.Glyph = window is null ? "\uE8A7" : "\uE8BB";
+        WindowGlyph.Glyph = window is null ? "\uE8A7" : "\uE72B";
         ApplyComposerLayout();
     }
 

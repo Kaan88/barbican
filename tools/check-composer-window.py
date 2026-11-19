@@ -1,6 +1,7 @@
 """Check an already running hidden, synthetic Bulwark sample app on the supplied port."""
 import argparse
 import time
+from pathlib import Path
 
 import autoconn
 
@@ -8,6 +9,7 @@ import autoconn
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("port", type=int)
+    parser.add_argument("--capture", type=Path, help="Save the detached composer at its minimum size")
     args = parser.parse_args()
     sock, stream = autoconn.connect(args.port)
     with sock, stream:
@@ -70,8 +72,40 @@ def main():
         expect("compose-dialog save", "ok")
         wait("compose-window state", "main")
         expect("compose-state", "closed")
+        expect("select #0", "ok")
+        deadline = time.monotonic() + 4
+        while not send("bounds reader.reply").split()[0].lstrip("-").isdigit():
+            if time.monotonic() >= deadline:
+                raise AssertionError("Reply control did not appear")
+        expect("invoke reader.reply", "ok")
+        wait("compose-state", "docked=True")
+        expect("compose-edit insert Docked note", "ok")
+        expect("compose-window pop", "child")
+        wait("compose-window state", "child loaded")
+        send("compose-window minimum")
+        deadline = time.monotonic() + 4
+        while True:
+            bounds = send("compose-window bounds")
+            width, height = map(int, bounds.split("x"))
+            if 400 <= width <= 500 and 460 <= height <= 580:
+                break
+            if time.monotonic() >= deadline:
+                raise AssertionError(f"Unexpected minimum client bounds: {bounds}")
+            time.sleep(0.05)
+        if args.capture:
+            expect("compose-window shot " + str(args.capture.resolve()), "saved ")
+        expect("compose-window return", "main")
+        expect("compose-state", "docked=True")
+        expect("compose-state", 'Docked note')
+        expect("compose-window pop", "child")
+        expect("compose-set subject Discard from child", "ok")
+        send("compose-window close")
+        wait("compose-window state", "child confirmation")
+        expect("compose-dialog discard", "ok")
+        wait("compose-state", "closed")
+        wait("compose-window state", "main")
         expect("focus-guard", "own-is-foreground=no")
-        print("Passed composer transfer, undo, close confirmation and save checks.")
+        print("Passed composer transfer, undo, minimum size, docked reply, close, save and discard checks.")
 
 
 if __name__ == "__main__":

@@ -1,3 +1,6 @@
+using Barbican.Automation.Capture;
+using Microsoft.UI.Xaml.Media.Imaging;
+using System.Globalization;
 using Barbican.Automation.Protocol;
 using Microsoft.Extensions.DependencyInjection;
 
@@ -12,6 +15,28 @@ public static class AutomationHost
 {
     private static AutomationServer? _server;
     private static bool _started;
+
+    /// <summary>XAML only (RenderTargetBitmap): no WebView2 content, no windowed popups.</summary>
+    public static async Task<string> XamlShotAsync(UIElement? root, string path)
+    {
+        if (root is null)
+        {
+            return "no window content";
+        }
+
+        var rtb = new RenderTargetBitmap();
+        await rtb.RenderAsync(root);
+        var buf = await rtb.GetPixelsAsync();
+        var bytes = new byte[buf.Length];
+        using (var reader = global::Windows.Storage.Streams.DataReader.FromBuffer(buf))
+        {
+            reader.ReadBytes(bytes);
+        }
+
+        var shot = new Shot(rtb.PixelWidth, rtb.PixelHeight, rtb.PixelWidth * 4, bytes);
+        await Task.Run(() => PngWriter.Save(shot, path));
+        return string.Create(CultureInfo.InvariantCulture, $"saved {rtb.PixelWidth}x{rtb.PixelHeight}");
+    }
 
     public static void Start(Window window, IServiceProvider services, int port, Func<Task>? close = null)
     {

@@ -105,7 +105,7 @@ public partial class BarbicanApp : Application
     private void StartAutomation(Shell.ShellPage shell, int port)
     {
 #if WINDOWS
-        Views.Compose.Automation.ComposerAutomation.WindowAction = shell.InspectComposerWindow;
+        Views.Compose.Automation.ComposerAutomation.WindowAction = shell.InspectComposerWindowAsync;
         Shell.Automation.CaptionCommand.Use(_window!, shell);
 #else
         _ = shell;   // the caption command is Windows only

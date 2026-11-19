@@ -1996,3 +1996,4 @@ The provisional `PluginValue` storage seam needs source-compatible `JSON.stringi
   `src/Barbican.App/Shell/WindowCloseController.cs`. The repeatable synthetic
   scenario is `tools/check-composer-window.py`. Normal interactive window
   placement and the OS file picker await hands-on review.
+- Follow-up to b79ef0c serializes replacement and undo/reopen at the leave guard. Concurrent open tests cover both routes. Hidden sample 9022 checked the minimum child (464 by 544 client pixels at scale 1), docked return, discard, and visible close confirmations. Native activation and monitor-to-monitor scaling await hands-on review.

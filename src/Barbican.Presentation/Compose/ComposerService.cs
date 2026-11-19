@@ -36,44 +36,56 @@ public sealed class ComposerService : IComposerService, IDisposable
     public async Task OpenAsync(ComposeRequest request, CancellationToken ct)
     {
         ArgumentNullException.ThrowIfNull(request);
-        if (!await AllowAsync(request, ct).ConfigureAwait(true) || !await TryCloseAsync(ct).ConfigureAwait(true))
-        {
-            return;
-        }
+        if (!await AllowAsync(request, ct).ConfigureAwait(true)) return;
+        await ReplaceAsync(() => SeedAsync(request, ct), request.Kind, ct).ConfigureAwait(true);
+    }
 
-        ComposeSeed seed;
+    private async Task<ComposeSeed?> SeedAsync(ComposeRequest request, CancellationToken ct)
+    {
         try
         {
             var res = await _s.Seeder.SeedAsync(request, ct).ConfigureAwait(true);
             if (!res.IsOk)
             {
                 _ = _s.Toasts?.Show(new ToastRequest("Could not open the composer: " + res.Error!.Message, IsError: true));
-                return;
+                return null;
             }
 
-            seed = res.Value!;
+            return res.Value!;
         }
         catch (PortPendingException)
         {
             _ = _s.Toasts?.Show(new ToastRequest("Writing messages is not available in this build yet.", IsError: true));
-            return;
+            return null;
         }
-
-        await OpenSeedCoreAsync(seed, request.Kind, ct).ConfigureAwait(true);
     }
 
     /// <inheritdoc />
     public async Task OpenSeedAsync(ComposeSeed seed, CancellationToken ct)
     {
         ArgumentNullException.ThrowIfNull(seed);
-        if (await TryCloseAsync(ct).ConfigureAwait(true))
-        {
-            await OpenSeedCoreAsync(seed, seed.Kind, ct).ConfigureAwait(true);
-        }
+        await ReplaceAsync(() => Task.FromResult<ComposeSeed?>(seed), seed.Kind, ct).ConfigureAwait(true);
     }
 
     /// <inheritdoc />
-    public async Task<bool> TryCloseAsync(CancellationToken ct) => _current is not { } c || await c.RequestCloseAsync().ConfigureAwait(true);
+    public async Task<bool> TryCloseAsync(CancellationToken ct)
+    {
+        if (_current is not { } observed) return true;
+        await _opening.WaitAsync(ct).ConfigureAwait(true);
+        try
+        {
+            if (!ReferenceEquals(observed, _current)) return _current is null;
+            return await RequestCloseAsync(observed).ConfigureAwait(true);
+        }
+        finally
+        {
+            _ = _opening.Release();
+        }
+    }
+
+    private static async Task<bool> RequestCloseAsync(ComposerViewModel current) =>
+        current.Dialog is null && current.Schedule is null && current.Templates is null
+        && await current.RequestCloseAsync().ConfigureAwait(true);
 
     /// <inheritdoc />
     public async Task FlushAsync(CancellationToken ct)
@@ -106,13 +118,22 @@ public sealed class ComposerService : IComposerService, IDisposable
             ct).ConfigureAwait(true);
     }
 
-    private async Task OpenSeedCoreAsync(ComposeSeed seed, ComposeKind kind, CancellationToken ct)
+    private async Task ReplaceAsync(Func<Task<ComposeSeed?>> getSeed, ComposeKind kind, CancellationToken ct)
     {
         await _opening.WaitAsync(ct).ConfigureAwait(true);
         try
         {
-            var composer = await CreateComposerAsync(seed, kind, null, ct).ConfigureAwait(true);
+            if (_current is { } current && !await RequestCloseAsync(current).ConfigureAwait(true)) return;
             ct.ThrowIfCancellationRequested();
+            var seed = await getSeed().ConfigureAwait(true);
+            if (seed is null) return;
+            var composer = await CreateComposerAsync(seed, kind, null, ct).ConfigureAwait(true);
+            if (ct.IsCancellationRequested)
+            {
+                composer.Dispose();
+                ct.ThrowIfCancellationRequested();
+            }
+
             composer.Closed += OnClosed;
             _current = composer;
             _timer = _s.Time.CreateTimer(_ => _s.Dispatcher.Post(composer.Tick), null, AutosaveState.Tick, AutosaveState.Tick);
