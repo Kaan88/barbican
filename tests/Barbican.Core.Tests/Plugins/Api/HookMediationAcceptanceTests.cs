@@ -79,4 +79,27 @@ public sealed class HookMediationAcceptanceTests
         Assert.Equal(HookTakeOverOutcome.Failed, await result.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken));
         release.SetResult(PluginTakeOverDecision.Handled);
     }
+    [Fact]
+    [Red("m6b-mediation")]
+    public async Task ValueInterceptUsesOneOrderedPassAndVetoStopsIt()
+    {
+        var bus = new HookBus(); var calls = new List<int>();
+        using var first = bus.InterceptWithValue<int>("onBeforeOpenLink", (value, _) => { calls.Add(value); return ValueTask.FromResult(HookValueDecision<int>.Replace(value + 1)); }, 10);
+        using var second = bus.InterceptWithValue<int>("onBeforeOpenLink", (value, _) => { calls.Add(value); return ValueTask.FromResult(HookValueDecision<int>.Veto()); }, 20);
+        using var third = bus.InterceptWithValue<int>("onBeforeOpenLink", (value, _) => { calls.Add(value); return ValueTask.FromResult(HookValueDecision<int>.Unchanged()); }, 30);
+        var result = await bus.InterceptWithValueAsync("onBeforeOpenLink", 0, TestContext.Current.CancellationToken);
+        Assert.False(result.Allowed); Assert.Collection(calls, x => Assert.Equal(0, x), x => Assert.Equal(1, x));
+    }
+
+    [Fact]
+    [Red("m6b-mediation")]
+    public async Task ValueInterceptExceptionFailsOpenAndLaterSeesLastAcceptedValue()
+    {
+        var bus = new HookBus();
+        using var first = bus.InterceptWithValue<int>("onBeforeOpenLink", (value, _) => ValueTask.FromResult(HookValueDecision<int>.Replace(value + 1)), 10);
+        using var second = bus.InterceptWithValue<int>("onBeforeOpenLink", (_, _) => throw new InvalidOperationException("private"), 20);
+        using var third = bus.InterceptWithValue<int>("onBeforeOpenLink", (value, _) => ValueTask.FromResult(HookValueDecision<int>.Replace(value * 2)), 30);
+        var result = await bus.InterceptWithValueAsync("onBeforeOpenLink", 3, TestContext.Current.CancellationToken);
+        Assert.True(result.Allowed); Assert.Equal(8, result.Value);
+    }
 }

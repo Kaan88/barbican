@@ -20,4 +20,7 @@ public interface IHookBus
     /// <summary>Takeover: explicit default, handled, aborted or failed outcome.</summary>
     ValueTask<HookTakeOverOutcome> TakeOverAsync<TPayload>(string hook, TPayload payload, CancellationToken ct) =>
         throw new Barbican.Core.Common.PortPendingException("hook takeover");
+    /// <summary>One ordered pass of vetoes and validated value replacements.</summary>
+    ValueTask<HookValueInterceptResult<T>> InterceptWithValueAsync<T>(string hook, T initial, CancellationToken ct) =>
+        throw new Barbican.Core.Common.PortPendingException("hook value intercept");
 }

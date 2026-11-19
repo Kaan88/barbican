@@ -60,6 +60,15 @@ public sealed class HookBus : IHookBus
     /// <inheritdoc />
     public ValueTask<HookTakeOverOutcome> TakeOverAsync<TPayload>(string hook, TPayload payload, CancellationToken ct) =>
         throw new Barbican.Core.Common.PortPendingException("hook takeover dispatch");
+#pragma warning disable CA1822 // Registration is pending and will mutate this bus.
+    /// <summary>Registers an ordered value interceptor.</summary>
+    public IDisposable InterceptWithValue<T>(string hook, Func<T, CancellationToken, ValueTask<HookValueDecision<T>>> handler, int order = 100) =>
+        throw new Barbican.Core.Common.PortPendingException("hook value intercept registration");
+#pragma warning restore CA1822
+
+    /// <inheritdoc />
+    public ValueTask<HookValueInterceptResult<T>> InterceptWithValueAsync<T>(string hook, T initial, CancellationToken ct) =>
+        throw new Barbican.Core.Common.PortPendingException("hook value intercept dispatch");
     /// <summary>Registers an observer that takes any payload type (the native plugin host: a plugin cannot name the app's payload types).</summary>
     public IDisposable ObserveAny(string hook, Func<object?, CancellationToken, ValueTask> handler) => Add(hook, new AnyObserver(handler));
 
