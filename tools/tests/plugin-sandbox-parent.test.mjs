@@ -5,11 +5,11 @@ import assert from 'node:assert/strict';
 import { createSandboxParent } from '../../src/Barbican.App/Assets/plugins/plugin-sandbox-parent.js';
 import { decodePluginValue } from '../../src/Barbican.App/Assets/plugins/plugin-value-codec.js';
 
-function rig({ tier='untrusted', hostOrigin='https://plugin.invalid' } = {}) {
+function rig({ tier='untrusted', hostOrigin='https://plugin.invalid', maxPendingMessages=8, maxPendingBytes=8192 } = {}) {
   const sent = [], native = [], activities = [];
   const window = { postMessage: (...args) => sent.push(args) };
   const frame = { contentWindow: window };
-  const bridge = createSandboxParent({ frame, tier, hostOrigin, postNative: wire => { assert.equal(typeof wire,'string'); native.push(decodePluginValue(new TextEncoder().encode(wire))); }, onActivity: () => activities.push(1), maxMessageBytes: 4096 });
+  const bridge = createSandboxParent({ frame, tier, hostOrigin, postNative: wire => { assert.equal(typeof wire,'string'); native.push(decodePluginValue(new TextEncoder().encode(wire))); }, onActivity: () => activities.push(1), maxMessageBytes: 4096, maxPendingMessages, maxPendingBytes });
   const event = (data, extra={}) => ({ source:window, origin:'null', data, ports:[], ...extra });
   return { bridge, frame, window, sent, native, activities, event };
 }
@@ -119,4 +119,39 @@ test('activity is throttled and invalid multiple ports are never installed', asy
   assert.equal(r.native.length,0);
   await r.bridge.receive(r.event({type:'sandbox-ready'},{ports:[a]}));
   a.onmessage({}); a.onmessage({}); assert.equal(r.activities.length,1);
+});
+
+
+test('bounded queued snapshots preserve order, reject a flood, and release credits', async () => {
+  const r=rig({maxPendingMessages:2,maxPendingBytes:8192}); await readyAndInit(r);
+  const original=Blob.prototype.arrayBuffer; let release;
+  Blob.prototype.arrayBuffer=function() { return new Promise(resolve => { release=async () => resolve(await original.call(this)); }); };
+  try {
+    const first=r.bridge.receive(r.event({type:'api-request',id:'slow',method:'upload',args:[new Blob(['x'])]}));
+    const second=r.bridge.receive(r.event({type:'api-request',id:'next',method:'storage.get',args:[]}));
+    const denied=await r.bridge.receive(r.event({type:'api-request',id:'flood',method:'storage.get',args:[]}));
+    assert.equal(denied,false); assert.equal(r.native.some(x => x.id === 'next'),false);
+    await release(); await Promise.all([first,second]);
+    assert.deepEqual(r.native.filter(x => x.id === 'slow' || x.id === 'next').map(x => x.id),['slow','next']);
+    assert.equal(await r.bridge.receive(r.event({type:'api-request',id:'after',method:'storage.get',args:[]})),true);
+  } finally { Blob.prototype.arrayBuffer=original; }
+});
+test('rejected ready ports are closed while the owned first port remains active', async () => {
+  const r=rig(); const makePort=()=>({closed:false,onmessage:null,close(){this.closed=true;}});
+  const wrong=makePort(); await r.bridge.receive(r.event({type:'sandbox-ready'},{source:{},ports:[wrong]})); assert.equal(wrong.closed,true);
+  const many=[makePort(),makePort()]; await r.bridge.receive(r.event({type:'sandbox-ready'},{ports:many})); assert.ok(many.every(p=>p.closed));
+  const oversized=makePort(); await r.bridge.receive(r.event({type:'sandbox-ready',extra:'x'.repeat(20000)},{ports:[oversized]})); assert.equal(oversized.closed,true);
+  const owned=makePort(); await r.bridge.receive(r.event({type:'sandbox-ready'},{ports:[owned]}));
+  const duplicate=makePort(); await r.bridge.receive(r.event({type:'sandbox-ready'},{ports:[duplicate]}));
+  assert.equal(duplicate.closed,true); assert.equal(owned.closed,false); r.bridge.dispose(); assert.equal(owned.closed,true);
+});
+test('disposing a slow queued message prevents dispatch and settles its reserved work', async () => {
+  const r=rig({maxPendingMessages:1,maxPendingBytes:4096}); await readyAndInit(r);
+  const original=Blob.prototype.arrayBuffer; let release;
+  Blob.prototype.arrayBuffer=function() { return new Promise(resolve => { release=async () => resolve(await original.call(this)); }); };
+  try {
+    const pending=r.bridge.receive(r.event({type:'api-request',id:'cancelled',method:'upload',args:[new Blob(['x'])]}));
+    r.bridge.dispose(); await release(); assert.equal(await pending,false);
+    assert.equal(r.native.some(x => x.id === 'cancelled'),false);
+  } finally { Blob.prototype.arrayBuffer=original; }
 });
