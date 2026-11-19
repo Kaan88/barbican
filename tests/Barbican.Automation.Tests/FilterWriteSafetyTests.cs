@@ -9,6 +9,17 @@ namespace Barbican.Automation.Tests;
 public sealed class FilterWriteSafetyTests
 {
     [Fact]
+    public void OnlyACompletelyInertOriginalScriptCanBeTemporarilyReplaced()
+    {
+        Assert.True(FilterWriteSafety.IsInertScript(" \r\n"));
+        Assert.True(FilterWriteSafety.IsInertScript("keep;\r\n"));
+        Assert.False(FilterWriteSafety.IsInertScript("discard;"));
+        Assert.False(FilterWriteSafety.IsInertScript("keep; # hidden external action"));
+        Assert.False(FilterWriteSafety.IsInertScript("/* @metadata:begin {\"version\":1,\"rules\":[]} @metadata:end */ keep;"));
+        Assert.False(FilterWriteSafety.IsInertScript("keep; redirect \"other@example.org\";"));
+    }
+
+    [Fact]
     public void SnapshotMustBeAnActiveManagedScriptWithExactUtf8Bytes()
     {
         var active = new SieveScriptInfo("script", "filters", "blob", true);

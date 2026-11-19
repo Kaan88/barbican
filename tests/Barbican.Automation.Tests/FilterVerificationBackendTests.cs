@@ -19,7 +19,7 @@ public sealed class FilterVerificationBackendTests
     public async Task RealFilterServiceRoundTripRestoresOriginalScriptAndSyntheticArtifacts()
     {
         using var server = new FakeJmapServer(new FakeJmapOptions { SieveCapability = true });
-        const string original = "# synthetic original\r\nkeep;\r\n";
+        const string original = "keep;\r\n";
         server.Api.SeedSieve("filters", original, true);
         using var client = await FakeJmapHarness.ConnectAsync(server, TimeProvider.System, ct: TestContext.Current.CancellationToken);
         var session = new TestSession(client);
@@ -49,7 +49,7 @@ public sealed class FilterVerificationBackendTests
     public async Task FakeServerFailureAndCancellationRestoreOrRetainConflict(bool cancellation, bool conflict)
     {
         using var server = new FakeJmapServer(new FakeJmapOptions { SieveCapability = true });
-        const string original = "# synthetic original\r\nkeep;\r\n";
+        const string original = "keep;\r\n";
         server.Api.SeedSieve("filters", original, true);
         using var client = await FakeJmapHarness.ConnectAsync(server, TimeProvider.System, ct: TestContext.Current.CancellationToken);
         var session = new TestSession(client);
@@ -80,6 +80,48 @@ public sealed class FilterVerificationBackendTests
     }
 
     [Fact]
+    public async Task MultipleResultsBlockTheRun()
+    {
+        using var server = new FakeJmapServer(new FakeJmapOptions { SieveCapability = true });
+        const string original = "keep;\r\n";
+        server.Api.SeedSieve("filters", original, true);
+        var existing = server.Store.Deliver(new FakeMail { Subject = "other synthetic message", FromEmail = "rx@example.org" });
+        var before = server.Store.Email(existing)!.ToJsonString();
+        using var client = await FakeJmapHarness.ConnectAsync(server, TimeProvider.System, ct: TestContext.Current.CancellationToken);
+        var session = new TestSession(client);
+        var backend = new FilterVerificationBackend(() => session, session, new HookBus(TimeProvider.System), new MailWriterFactory(), TimeProvider.System);
+        var dir = Path.Combine(Path.GetTempPath(), "barbican-filter-candidate-" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            using var journal = await FilterRecoveryJournal.CreateAsync(new InMemorySecretStore(), dir, TestContext.Current.CancellationToken);
+            var result = await FilterWriteRun.RunAsync(backend, journal, TestContext.Current.CancellationToken);
+            Assert.False(result.Passed);
+            Assert.True(result.CleanupComplete);
+            Assert.Equal(before, server.Store.Email(existing)!.ToJsonString(), StringComparer.Ordinal);
+            Assert.Equal(original, server.Api.ActiveSieveText(), StringComparer.Ordinal);
+        }
+        finally
+        {
+            if (Directory.Exists(dir)) Directory.Delete(dir, recursive: true);
+        }
+    }
+
+    [Theory]
+    [InlineData("keep; discard;")]
+    [InlineData("/* @metadata:begin {\"version\":1,\"rules\":[]} @metadata:end */ keep;")]
+    public async Task NonInertOriginalScriptIsRefusedBeforeAnyWrite(string script)
+    {
+        using var server = new FakeJmapServer(new FakeJmapOptions { SieveCapability = true });
+        server.Api.SeedSieve("filters", script, true);
+        using var client = await FakeJmapHarness.ConnectAsync(server, TimeProvider.System, ct: TestContext.Current.CancellationToken);
+        var session = new TestSession(client);
+        var backend = new FilterVerificationBackend(() => session, session, new HookBus(TimeProvider.System), new MailWriterFactory(), TimeProvider.System);
+        await Assert.ThrowsAsync<InvalidOperationException>(() => backend.CaptureAsync(TestContext.Current.CancellationToken));
+        Assert.DoesNotContain(server.Requests, r => r.Contains("/set", StringComparison.Ordinal) || r.Contains("upload", StringComparison.Ordinal));
+        Assert.Equal(script, server.Api.ActiveSieveText(), StringComparer.Ordinal);
+    }
+
+    [Fact]
     public async Task StaleMailboxStateCannotDeleteAnotherChangedFolder()
     {
         using var server = new FakeJmapServer();
@@ -99,7 +141,7 @@ public sealed class FilterVerificationBackendTests
     public async Task RevokedCapturedClientStopsCleanupAndRetainsJournal()
     {
         using var server = new FakeJmapServer(new FakeJmapOptions { SieveCapability = true });
-        server.Api.SeedSieve("filters", "# original\r\nkeep;\r\n", true);
+        server.Api.SeedSieve("filters", "keep;\r\n", true);
         using var client = await FakeJmapHarness.ConnectAsync(server, TimeProvider.System, ct: TestContext.Current.CancellationToken);
         var session = new TestSession(client);
         IAccountSession? authorized = session;

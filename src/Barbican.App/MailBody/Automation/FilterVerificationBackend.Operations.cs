@@ -26,7 +26,11 @@ internal sealed partial class FilterVerificationBackend
     public async Task<string> CreateFolderAsync(string token, CancellationToken ct)
     {
         Guard();
-        return Need(await _writer.CreateMailboxAsync(FolderName(token), null, null, ct).ConfigureAwait(false)).Id;
+        var created = Need(await _writer.CreateMailboxAsync(FolderName(token), null, null, ct).ConfigureAwait(false));
+        var matches = await FolderCandidatesAsync(token, ct).ConfigureAwait(false);
+        if (matches.Count != 1 || !string.Equals(matches[0], created.Id, StringComparison.Ordinal))
+            throw new InvalidOperationException("The synthetic folder was not uniquely verified.");
+        return created.Id;
     }
 
     public async Task<string?> DiscoverOwnMessageAsync(string token, CancellationToken ct)
@@ -64,7 +68,29 @@ internal sealed partial class FilterVerificationBackend
     public async Task<FilterScan> ScanAsync(JsonNode rule, CancellationToken ct)
     {
         Guard();
-        return Need(await _filters.ScanAsync(_session.Account.Key, rule, 1, ct).ConfigureAwait(false));
+        var scan = Need(await _filters.ScanAsync(_session.Account.Key, rule, 1, ct).ConfigureAwait(false));
+        await ConfirmScanCompleteAsync(scan, ct).ConfigureAwait(false);
+        return scan;
+    }
+
+    private async Task ConfirmScanCompleteAsync(FilterScan scan, CancellationToken ct)
+    {
+        var (folders, _) = await ReadFoldersAsync(ct).ConfigureAwait(false);
+        var inboxes = folders.OfType<JsonObject>().Where(x => string.Equals(x.Str("role"), "inbox", StringComparison.Ordinal)).Select(x => x.Str("id")).OfType<string>().ToList();
+        if (inboxes.Count != 1 || string.IsNullOrEmpty(scan.State)) throw new InvalidOperationException("The Inbox scan cannot be verified.");
+        var before = Need(await ReaderCalls.CallAsync(_client, "Email/get", new JsonObject { ["accountId"] = _mail, ["ids"] = new JsonArray() }, ct).ConfigureAwait(false));
+        if (!string.Equals(before.Str("state"), scan.State, StringComparison.Ordinal)) throw new InvalidOperationException("The Inbox changed during the scan.");
+        var query = Need(await ReaderCalls.CallAsync(_client, "Email/query", new JsonObject
+        {
+            ["accountId"] = _mail, ["filter"] = FilterRules.QueryFilter(scan.Rule, inboxes[0]), ["limit"] = 2, ["calculateTotal"] = true,
+        }, ct).ConfigureAwait(false));
+        var ids = ReaderCalls.Ids(query);
+        if (query["total"] is not JsonValue total || !total.TryGetValue<int>(out var count) || count != 1 || ids.Count != 1
+            || scan.Steps.SelectMany(step => step.Ids).Distinct(StringComparer.Ordinal).ToList() is not [var planned]
+            || !string.Equals(ids[0], planned, StringComparison.Ordinal))
+            throw new InvalidOperationException("The Inbox query was not uniquely exhaustive.");
+        var after = Need(await ReaderCalls.CallAsync(_client, "Email/get", new JsonObject { ["accountId"] = _mail, ["ids"] = new JsonArray() }, ct).ConfigureAwait(false));
+        if (!string.Equals(after.Str("state"), scan.State, StringComparison.Ordinal)) throw new InvalidOperationException("The Inbox changed during verification.");
     }
 
     public async Task ApplyAndVerifyAsync(FilterScan scan, string emailId, string folderId, CancellationToken ct)

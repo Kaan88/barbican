@@ -21,17 +21,22 @@ public sealed class FilterWriteCommand(WriteTestGuard guard, IHookBus hooks, IMa
         var (session, refusal) = guard.Check();
         if (session is null || refusal is not null) return "error refused";
         FilterRecoveryJournal? journal = null;
+        var enteredRun = false;
+        var enteredJournalCreation = false;
         try
         {
             var backend = new FilterVerificationBackend(guard, session, hooks, writers, time);
             var secretStore = new WindowsSecretStore(profile.Profile);
+            enteredJournalCreation = true;
             journal = await FilterRecoveryJournal.CreateAsync(secretStore, Path.Combine(profile.DataDir, "filter-write-recovery"), ct).ConfigureAwait(false);
+            enteredRun = true;
             var result = await FilterWriteRun.RunAsync(backend, journal, ct).ConfigureAwait(false);
             return result.Passed ? "ok passed=1 cleanup=1" : $"error passed=0 cleanup={(result.CleanupComplete ? 1 : 0)}";
         }
         catch (Exception e) when (e is not OutOfMemoryException and not StackOverflowException)
         {
-            // RunAsync only throws before a server mutation. Any later failure retains the journal in its returned outcome.
+            // Once the runner is entered, retain evidence on any unexpected exception.
+            if (enteredRun || (enteredJournalCreation && journal is null)) return "error passed=0 cleanup=0";
             if (journal is not null)
             {
                 try { await journal.CompleteAsync(CancellationToken.None).ConfigureAwait(false); }

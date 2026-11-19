@@ -12,6 +12,9 @@ public static class FilterWriteSafety
 {
     private static readonly UTF8Encoding StrictUtf8 = new(false, true);
 
+    /// <summary>Only an empty script or the Sieve keep command is provably inert while the temporary rule is installed.</summary>
+    public static bool IsInertScript(string text) => string.IsNullOrWhiteSpace(text) || string.Equals(text.Trim(), "keep;", StringComparison.Ordinal);
+
     /// <summary>Accepts only an already active managed target whose original bytes can be restored exactly.</summary>
     public static bool CanRestore(SieveScriptState state, byte[] raw)
     {

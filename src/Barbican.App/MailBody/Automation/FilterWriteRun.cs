@@ -64,6 +64,8 @@ public static class FilterWriteRun
         try
         {
             var ct = CancellationToken.None;
+            // An unacknowledged script save could have installed a rule referencing these artifacts.
+            if (record.ScriptPending) return false;
             if (record.ImportPending && await backend.DiscoverOwnMessageAsync(record.Token, ct).ConfigureAwait(false) is { } foundMessage)
             {
                 record.EmailId = foundMessage;

@@ -48,7 +48,7 @@ internal sealed partial class FilterVerificationBackend : IFilterWriteBackend
         Guard();
         var state = Need(await new SieveScriptStore(_client).ReadAsync(ct).ConfigureAwait(false));
         var target = state.Target ?? throw new InvalidOperationException("An active managed filter script is required.");
-        if (state.Text.Length > 96 * 1024 || SieveScript.Parse(state.Text).Locked)
+        if (state.Text.Length > 96 * 1024 || !FilterWriteSafety.IsInertScript(state.Text) || SieveScript.Parse(state.Text).Locked)
             throw new InvalidOperationException("The filter script cannot be safely restored.");
         var raw = await ReadScriptBytesAsync(target.BlobId, ct).ConfigureAwait(false);
         if (!FilterWriteSafety.CanRestore(state, raw)) throw new InvalidOperationException("The script bytes cannot be restored exactly.");

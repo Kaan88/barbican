@@ -26,7 +26,12 @@ public sealed class FilterWriteRunTests
             Assert.Equal(string.Equals(behavior, "success", StringComparison.Ordinal) || string.Equals(behavior, "conflict", StringComparison.Ordinal), backend.Applied);
             Assert.Equal(!complete, File.Exists(Path.Combine(dir, "filter-recovery.lock")));
             if (string.Equals(behavior, "foreign", StringComparison.Ordinal)) Assert.True(backend.Restored && backend.MessageDestroyed && backend.FolderDestroyed);
-            if (string.Equals(behavior, "cancel-save", StringComparison.Ordinal)) Assert.False(backend.Restored);
+            if (string.Equals(behavior, "cancel-save", StringComparison.Ordinal))
+            {
+                Assert.False(backend.Restored);
+                Assert.False(backend.MessageDestroyed);
+                Assert.False(backend.FolderDestroyed);
+            }
             if (string.Equals(behavior, "conflict", StringComparison.Ordinal)) Assert.False(backend.MessageDestroyed);
         }
         finally
