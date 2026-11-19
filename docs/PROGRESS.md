@@ -1,4 +1,4 @@
-# Progress (M6 delivered, M6b contracts active, 2026-11-19)
+# Progress (M6 delivered, M6b paused by user, 2026-11-19)
 
 Completed checkpoints are pushed. Active work is recorded below. Nothing is merged to `main` or tagged.
 
@@ -8,7 +8,20 @@ Completed checkpoints are pushed. Active work is recorded below. Nothing is merg
 (gates, hand-test waits, questions) are dropped, defaults are taken and recorded in spec/decisions.md; Terra or Luna agents
 wherever they can. Safety rules stay (no real input, read-only account, admin key, Rust profile, build.ps1, privacy check).
 
-## Codex continuation (active, 2026-11-19)
+## Codex continuation (paused by user, 2026-11-19)
+
+**User explicitly paused the goal. Do not resume implementation until instructed.** Goal remains the full M6b -> M7 -> M8 -> M10 roadmap (M9/Linux excluded), then Astra review/fix until satisfied, then hidden UI/usability walkthrough. M6 portable remains delivered. Agents stopped; their housekeeping inspections found no remaining owned build/app process. No live account, key, OS store or native plugin operation was performed in this phase.
+
+The integration checkpoint includes reviewed runtime RED baseline f1729fb plus composer/package baselines. Full combined red-check proved **57 expected PortPending failures, zero unexpected passes/wrong reasons** (runtime 26, packages 18, composer 13). Root's complete Core suite passed **1728/1728** on the preceding package/composer baseline. These tests prove intended missing entry points, not completed runtime behavior. The latest fully integrated ordinary Windows suite remains **3088 passed / four skipped** at 9647d85, followed by the passing singleton graph and encoding checks. New implementation drafts listed below are not integrated or claimed verified by those counts.
+
+| Paused stream | Worktree / branch / pushed head | Preserved uncommitted work / next step on explicit resume |
+|---|---|---|
+| A runtime | `wt-m6-a11y-quick`, `codex/m6b-runtime`, `152e664` | `tools/tests/plugin-sandbox-parent.red.test.mjs` readiness/init-issued adjustments, unverified. Review diff, implement real trusted parent bridge, execute source/native tests; real WebView/bootstrap still unfinished. c05a1e9 owned-call registry and 152e664 resource-policy units passed focused tests but are not integrated. |
+| B packages | `wt-m6-set-data`, `codex/m6b-packages`, `f28484d` | Four untracked lease files: `Core/Plugins/Storage/IPluginProfileAuthorityLease.cs`, `IPluginProfileAuthorityLeaseFactory.cs`, `PluginProfileAuthorityLeaseFactory.cs`, and `Core.Tests/Plugins/Packages/PluginProfileAuthorityLeaseTests.cs` (under their src/tests project roots). First build had analyzers; rerun interrupted, unverified. Review manager safety corrections through 9138c66 and scoped storage f28484d before integration. Implement/test exclusive host profile lease, authenticated actual store and cached authority; native execution still needs positive consented sentinel proof. |
+| C mediation | `wt-m6b-protocol`, `codex/m6b-mediation`, `027a262` | `src/Barbican.Core/Plugins/Hooks/HookBus.cs` interrupted implementation, unverified; inspect diff and run focused hook tests before removing Reds. Corrected composer a0a538c has focused 21+3 passing cases but awaits root integration; hook/value-intercept and preview/print baselines are pending. |
+
+Resume review concerns: preserve reusable callbacks versus one-shot replies/multi-chunk streams; no tier claims from messages; source file/body limits end-to-end; manager invalidation even on persistence failure, no foreign teardown under its gate, prior-generation-bound review, no silent privileged downgrade; authenticated exclusive authority and immediate live checks. Scoped storage still refuses valid extended Date ranges and needs accurate ambiguous-commit error handling; do not call it complete. Reader MailSanitizer alone permits styles/remote images/links and cannot establish network-free HTML printing. HTTP must distinguish declared-origin fetch from authenticated Bulwark sidecar post, verify every redirect and actual connect IP, and expose no ambient credentials. Slot mutations still need an async authority-compatible contract before their implementation. These are remaining work, not permission questions.
+
 
 - **M6b coordinator revocation foundation:** ten focused Core tests passed with no build warnings/errors. Revocation invalidates all affected bindings before cleanup, shares in-flight work, retains failures for retry and tolerates cancelled callers. Production grant/package/runtime wiring remains pending.
 
