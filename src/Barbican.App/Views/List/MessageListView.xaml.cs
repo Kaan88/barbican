@@ -240,6 +240,11 @@ public sealed partial class MessageListView : UserControl
     }
 
 #pragma warning disable VSTHRD100 // XAML event handlers must return void; a failed action reports itself with a toast
+    private void OnCopyVerificationCode(object sender, RoutedEventArgs e)
+    {
+        if (sender is FrameworkElement { DataContext: MessageRowViewModel row }) List.CopyVerificationCode(row);
+    }
+
     private async void OnStripClick(object sender, RoutedEventArgs e)
 #pragma warning restore VSTHRD100
     {

@@ -40,7 +40,11 @@ public static class MailPresentationRegistration
 
         // ViewModels
         services.TryAddSingleton<ShellViewModel>();
-        services.TryAddSingleton<ReaderViewModel>();
+        services.TryAddSingleton(sp => new ReaderViewModel(
+            sp.GetRequiredService<IPrefsStore>(),
+            sp.GetService<Barbican.Core.Mail.VerificationCode.IVerificationCodeFinder>(),
+            sp.GetRequiredService<TimeProvider>(),
+            sp.GetRequiredService<IDispatcher>()));
         services.TryAddSingleton<MessageListViewModel>();
         services.TryAddSingleton<SidebarViewModel>();
         services.TryAddSingleton<RailViewModel>();

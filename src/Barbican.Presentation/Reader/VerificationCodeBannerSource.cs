@@ -6,11 +6,12 @@ using System.Runtime.CompilerServices;
 using System.Text;
 using Barbican.Core.Mail.VerificationCode;
 using Barbican.Presentation.Mail;
+using Barbican.Core.Storage;
 
 namespace Barbican.Presentation.Reader;
 
 /// <summary>The verification-code chip of a fresh sign-in mail.</summary>
-public sealed class VerificationCodeBannerSource(IVerificationCodeFinder finder, TimeProvider time) : IReaderBannerSource
+public sealed class VerificationCodeBannerSource(IVerificationCodeFinder finder, TimeProvider time, IPrefsStore? prefs = null) : IReaderBannerSource
 {
     public const string Id = "code";
     public const string Copy = "code.copy";
@@ -20,11 +21,16 @@ public sealed class VerificationCodeBannerSource(IVerificationCodeFinder finder,
 
     private const int MaxText = 20_000;
 
+    public bool Enabled => prefs?.Current.Bool("showVerificationCodes", true) ?? true;
+
+    public static bool IsFresh(DateTimeOffset? received, DateTimeOffset now) =>
+        received is { } at && now - at >= TimeSpan.FromMinutes(-5) && now - at <= Fresh;
+
     /// <summary>The code of a fresh message, or null (old, no text, no code).</summary>
     public string? CodeOf(ReaderSnapshot snapshot)
     {
         ArgumentNullException.ThrowIfNull(snapshot);
-        if (snapshot.Body is not { } body || body.ReceivedAt is not { } at || time.GetUtcNow() - at > Fresh)
+        if (!Enabled || snapshot.Body is not { } body || !IsFresh(body.ReceivedAt, time.GetUtcNow()))
         {
             return null;
         }

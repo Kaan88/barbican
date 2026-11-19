@@ -10,6 +10,7 @@ using Barbican.Core.Mail.Lists;
 using Barbican.Core.Mail.Model;
 using Barbican.Core.Mail.Rules;
 using Barbican.Core.Mail.Unified;
+using Barbican.Core.Mail.VerificationCode;
 using Barbican.Core.Plugins.Hooks;
 using Barbican.Core.Plugins.Payloads;
 using Barbican.Core.Settings.Accessibility;
@@ -40,6 +41,10 @@ public sealed partial class MessageListViewModel : ObservableObject, IDisposable
     private readonly IListQueryShaper? _shaper;
     private readonly IListSourceResolver? _sources;
     private readonly UnifiedInbox? _unified;
+    private readonly IVerificationCodeFinder _codeFinder;
+    private readonly IClipboardService? _clipboard;
+    private ITimer? _codeExpiry;
+    private bool _disposed;
     private readonly LoadedList _loaded = new();
     private readonly Dictionary<string, IReadOnlyList<string>> _badges = new(StringComparer.Ordinal);
     private CancellationTokenSource? _cts;
@@ -72,7 +77,9 @@ public sealed partial class MessageListViewModel : ObservableObject, IDisposable
         IListQueryShaper? shaper = null,
         IListSourceResolver? sources = null,
         IDispatcher? dispatcher = null,
-        UnifiedInbox? unified = null)
+        UnifiedInbox? unified = null,
+        IVerificationCodeFinder? codeFinder = null,
+        IClipboardService? clipboard = null)
     {
         ArgumentNullException.ThrowIfNull(active);
         ArgumentNullException.ThrowIfNull(hub);
@@ -94,6 +101,8 @@ public sealed partial class MessageListViewModel : ObservableObject, IDisposable
         _shaper = shaper;
         _sources = sources;
         _unified = unified;
+        _codeFinder = codeFinder ?? new VerificationCodeFinder();
+        _clipboard = clipboard;
         LoadMoreCommand = new AsyncRelayCommand(LoadMoreAsync, () => CanLoadMore);
         _hub.EventReceived += OnSyncEvent;
         _active.Changed += OnAccountChanged;
@@ -451,6 +460,8 @@ public sealed partial class MessageListViewModel : ObservableObject, IDisposable
 
     public void Dispose()
     {
+        _disposed = true;
+        _codeExpiry?.Dispose();
         _hub.EventReceived -= OnSyncEvent;
         _active.Changed -= OnAccountChanged;
         _prefs.Changed -= OnPrefsChanged;
@@ -625,10 +636,21 @@ public sealed partial class MessageListViewModel : ObservableObject, IDisposable
         }
     }
 
+    /// <summary>Copies the current fresh verification code without opening the row.</summary>
+    public bool CopyVerificationCode(MessageRowViewModel row)
+    {
+        ArgumentNullException.ThrowIfNull(row);
+        if (_clipboard is null || !ReadSettings().ShowVerificationCodes || !Messages.Any(item => ReferenceEquals(item, row))
+            || !Barbican.Presentation.Reader.VerificationCodeBannerSource.IsFresh(row.Summary.ReceivedAt, _time.GetUtcNow())
+            || row.VerificationCode is not { } code) return false;
+        _clipboard.SetText(code);
+        return true;
+    }
+
     private void RebuildRows()
     {
         var settings = ReadSettings();
-        var context = settings.RowContextAt(_time.GetUtcNow(), _time.LocalTimeZone);
+        var context = settings.RowContextAt(_time.GetUtcNow(), _time.LocalTimeZone) with { CodeFinder = _codeFinder };
         context = WithAccountMarkers(context);
         var searching = !string.IsNullOrWhiteSpace(_query?.SearchText);
         int? unreadFirst = settings.UnreadFirst && _role == MailboxRole.Inbox && !searching ? settings.UnreadSectionSize : null;
@@ -638,6 +660,30 @@ public sealed partial class MessageListViewModel : ObservableObject, IDisposable
         LastSync = ListSync.SyncBy(Rows, rows, r => r.Key, (a, b) => a.SameAs(b));
         KeepSelection();
         ApplyChecks();
+        ScheduleCodeExpiry();
+    }
+
+    private void ScheduleCodeExpiry()
+    {
+        var next = Messages.Where(row => row.ShowVerificationCode && row.Summary.ReceivedAt is not null)
+            .Select(row => row.Summary.ReceivedAt!.Value + Barbican.Presentation.Reader.VerificationCodeBannerSource.Fresh + TimeSpan.FromMilliseconds(1))
+            .Order().FirstOrDefault();
+        if (next == default)
+        {
+            _codeExpiry?.Change(Timeout.InfiniteTimeSpan, Timeout.InfiniteTimeSpan);
+            return;
+        }
+
+        _codeExpiry ??= _time.CreateTimer(_ => OnCodeExpiry(), null, Timeout.InfiniteTimeSpan, Timeout.InfiniteTimeSpan);
+        var due = next - _time.GetUtcNow();
+        _codeExpiry.Change(due > TimeSpan.Zero ? due : TimeSpan.FromMilliseconds(1), Timeout.InfiniteTimeSpan);
+    }
+
+    private void OnCodeExpiry()
+    {
+        void Refresh() { if (!_disposed && _query is not null) RebuildRows(); }
+        if (_dispatcher is not null && !_dispatcher.HasThreadAccess) _dispatcher.Post(Refresh);
+        else Refresh();
     }
 
     private RowContext WithAccountMarkers(RowContext context)
