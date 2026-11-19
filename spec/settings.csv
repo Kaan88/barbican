@@ -45,7 +45,7 @@ S-showToolbarLabels,wired,appearance,toggle,Show toolbar labels,true,main.rs,src
 S-sidebarAccountSwitcher,unwired,appearance,toggle,Account switcher at the top of the sidebar,true,,,inert (D-M6-A03): SettingsCatalog.UnwiredKeys; SetUiRowsView.Note,The setting does not currently control sidebar account switching. The UI labels this as not used.
 S-tintListRowsByAccount,wired,appearance,select,Tell accounts apart,false,mail.rs,src/mail.rs:408,MailListSettings; MessageListViewModel; MessageRowViewModel,Composite selector writes tintListRowsByAccount and showAccountDot; two writes can be partial on failure.
 S-toolbarPosition,unwired,appearance,select,Toolbar position,"""top""",,,inert (D-M6-A03): SettingsCatalog.UnwiredKeys; SetUiRowsView.Note,Configurable toolbar placement is not implemented. The UI labels this as not used.
-S-uiStyle,wired,appearance,select,Style,"""bento""",main.rs,src/main.rs:1041,ShellViewModel,
+S-uiStyle,wired,appearance,select,Style,"""bulwark""",main.rs,src/main.rs:1041,ShellViewModel,
 S-unifiedCrossAccount,wired,appearance,toggle,Across all accounts,false,main.rs;unified.rs,src/main.rs:1013,"UnifiedSettings.From (Core/Mail/Unified; UnifiedInbox, UnifiedSectionViewModel)",
 S-calendarDayEndHour,wired,calendar,select,Visible hours,20,cal_editor.rs;calendar.rs;settings.rs,src/calendar.rs:164,SetUiRowsView.CalendarHours; CalendarViewSettings,Visible start and end hour edits keep the end after the start; writes can be partially applied if a later write fails.
 S-calendarFreeScroll,wired,calendar,toggle,Free scrolling,true,calendar.rs,src/calendar.rs:179,src/Barbican.Core/Calendar/CalendarSettings.cs,

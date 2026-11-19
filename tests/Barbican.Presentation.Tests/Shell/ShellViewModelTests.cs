@@ -14,6 +14,33 @@ namespace Barbican.Presentation.Tests.Shell;
 public sealed class ShellViewModelTests
 {
     [Fact]
+    public void Default_style_is_bulwark_and_explicit_legacy_choices_survive()
+    {
+        using var h = new ListHarness("{}");
+        Assert.Equal("Bulwark", h.Shell.Style.ToString());
+        Assert.Equal(ThemeVariant.Default, h.Shell.Variant);
+        h.Prefs.Set("""{"uiStyle":"bento"}""");
+        Assert.Equal(ShellStyle.Bento, h.Shell.Style);
+        h.Prefs.Set("""{"uiStyle":"nordic"}""");
+        Assert.Equal(ShellStyle.Nordic, h.Shell.Style);
+    }
+
+    [Fact]
+    public void Bulwark_theme_setting_follows_system_or_explicit_scheme()
+    {
+        using var h = new ListHarness("{}");
+        h.Shell.SetSystemDark(false);
+        Assert.Equal(ThemeVariant.Default with { Dark = false }, h.Shell.Variant);
+        h.Prefs.Set("""{"theme":"dark","contrast":"more"}""");
+        Assert.Equal(ThemeVariant.Default with { MoreContrast = true }, h.Shell.Variant);
+        h.Shell.SetSystemDark(false);
+        Assert.True(h.Shell.Dark);
+        h.Prefs.Set("""{"theme":"light"}""");
+        h.Shell.SetSystemDark(true);
+        Assert.False(h.Shell.Dark);
+    }
+
+    [Fact]
     public void The_look_comes_from_the_settings_and_the_os()
     {
         using var h = new ListHarness("""{"uiStyle": "nordic", "theme": "light", "contrast": "more"}""");
@@ -26,7 +53,7 @@ public sealed class ShellViewModelTests
         Assert.False(h.Shell.Dark);
         h.Shell.SetSystemDark(true);
         Assert.True(h.Shell.Dark);
-        Assert.Equal(ShellStyle.Bento, h.Shell.Style);
+        Assert.Equal(ShellStyle.Bulwark, h.Shell.Style);
     }
 
     [Fact]

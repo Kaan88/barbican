@@ -101,7 +101,48 @@ public sealed record TokenSet(
             }
         }
 
+        AddBulwarkPalettes(palettes);
         return (palettes, shapes[false], shapes[true]);
+    }
+
+    private static void AddBulwarkPalettes(List<IReadOnlyDictionary<string, uint>> palettes)
+    {
+        // Bulwark 1.21.2 app/globals.css:46-93,127-170 and
+        // app/accessibility.css:290-329. Semantic mappings onto the existing native
+        // brush names; legacy sender tint pairs remain unchanged until redesigned.
+        foreach (var (dark, more) in new[] { (true, false), (true, true), (false, false), (false, true) })
+        {
+            var p = new Dictionary<string, uint>(palettes[(dark ? 0 : 4) + (more ? 2 : 0)], StringComparer.Ordinal);
+            void Set(string key, uint d, uint l) => p[key] = dark ? d : l;
+            Set("Ground", 0xFF0A0A0A, 0xFFFFFFFF);
+            Set("Tile", 0xFF141414, 0xFFFFFFFF);
+            Set("Tile2", 0xFF262626, 0xFFF8FAFC);
+            Set("Line", more ? 0xFF9CA3AF : 0x4D808080, more ? 0xFF4B5563 : 0xFFE2E8F0);
+            Set("Track", 0xFF262626, 0xFFF1F5F9);
+            Set("Text", more ? 0xFFFFFFFF : 0xFFFAFAFA, more ? 0xFF000000 : 0xFF0F172A);
+            p["Body"] = p["Text"];
+            Set("Dim", more ? 0xFFE5E7EB : 0xFFADADAD, more ? 0xFF1F2937 : 0xFF59687C);
+            p["Faint"] = p["Dim"];
+            Set("Accent", more ? 0xFF93C5FD : 0xFFFAFAFA, more ? 0xFF1D4ED8 : 0xFF185AEA);
+            Set("OnAccent", more ? 0xFF000000 : 0xFF171717, 0xFFFFFFFF);
+            Set("Sel", 0x403B82F6, 0xFFDBEAFE);
+            Set("SelText", more ? 0xFFDBEAFE : 0xFF93C5FD, more ? 0xFF1E3A8A : 0xFF1E40AF);
+            Set("Popup", 0xFF1C1C1C, 0xFFFFFFFF);
+            p["Bg"] = p["Ground"];
+            Set("Rail", 0xFF0A0A0A, 0xFFF8FAFC);
+            p["Side"] = p["Rail"];
+            Set("Hover", 0xFF1A1A1A, 0xFFF1F5F9);
+            p["Pressed"] = p["Tile2"];
+            p["Chip"] = p["Tile2"];
+            p["Raised"] = p["Tile2"];
+            p["Zebra"] = p["Ground"];
+            p["Bubble"] = p["Tile2"];
+            p["Reader"] = p["Ground"];
+            p["MutedDay"] = p["Dim"];
+            Set("Ring", more ? 0xFFFFFFFF : 0xFFD4D4D4, more ? 0xFF000000 : 0xFF2563EB);
+            palettes.Add(p);
+        }
+
     }
 
     private static List<(string Key, double Value, string Unit)> EvaluateMotion(SlintGlobal motion)

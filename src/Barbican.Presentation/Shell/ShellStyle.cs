@@ -10,4 +10,7 @@ public enum ShellStyle
 
     /// <summary>One surface, pills and circles.</summary>
     Nordic,
+
+    /// <summary>Bulwark palette and native shell foundation.</summary>
+    Bulwark,
 }

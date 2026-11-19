@@ -13,8 +13,8 @@ namespace Barbican.App.MailBody;
 /// <summary>The page options of the moment, from the applied theme and the settings.</summary>
 public sealed class BodyAppearance(ThemeController theme, IPrefsStore prefs, ISystemAccessibilitySource system)
 {
-    /// <summary>The variant the window is drawn in (dark Bento until the theme is first applied).</summary>
-    public ThemeVariant Variant => theme.Applied ?? new ThemeVariant(true, false, false);
+    /// <summary>The variant the window is drawn in (the default until the theme is first applied).</summary>
+    public ThemeVariant Variant => theme.Applied ?? ThemeVariant.Default;
 
     /// <summary>The reader's colour (the tile the body sits on).</summary>
     public Color ReaderColor => AppResources.FromArgb(Tokens.Palette(Variant)["Reader"]);

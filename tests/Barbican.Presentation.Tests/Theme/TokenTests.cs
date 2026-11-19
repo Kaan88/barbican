@@ -19,6 +19,35 @@ public sealed partial class TokenTests
 
     private static TokenSet FromSource() => TokenSet.FromSlint(ReadRepoFile(Emitters.SourcePath));
 
+    // Bulwark 1.21.2 app/globals.css :root and .dark, without host branding.
+    [Theory]
+    [InlineData("Ground", 0xFF0A0A0A, 0xFFFFFFFF)]
+    [InlineData("Tile", 0xFF141414, 0xFFFFFFFF)]
+    [InlineData("Text", 0xFFFAFAFA, 0xFF0F172A)]
+    [InlineData("Accent", 0xFFFAFAFA, 0xFF185AEA)]
+    [InlineData("OnAccent", 0xFF171717, 0xFFFFFFFF)]
+    [InlineData("SelText", 0xFF93C5FD, 0xFF1E40AF)]
+    [InlineData("Side", 0xFF0A0A0A, 0xFFF8FAFC)]
+    [InlineData("Ring", 0xFFD4D4D4, 0xFF2563EB)]
+    public void Default_palette_uses_bulwark_css(string key, uint dark, uint light)
+    {
+        Assert.Equal(dark, Tokens.Palette(ThemeVariant.Default)[key]);
+        Assert.Equal(light, Tokens.Palette(ThemeVariant.Default with { Dark = false })[key]);
+    }
+
+    [Theory]
+    [InlineData("Line", 0xFF9CA3AF, 0xFF4B5563)]
+    [InlineData("Text", 0xFFFFFFFF, 0xFF000000)]
+    [InlineData("Dim", 0xFFE5E7EB, 0xFF1F2937)]
+    [InlineData("Accent", 0xFF93C5FD, 0xFF1D4ED8)]
+    [InlineData("Ring", 0xFFFFFFFF, 0xFF000000)]
+    public void Bulwark_more_contrast_uses_accessibility_css(string key, uint dark, uint light)
+    {
+        var variant = ThemeVariant.Default with { MoreContrast = true };
+        Assert.Equal(dark, Tokens.Palette(variant)[key]);
+        Assert.Equal(light, Tokens.Palette(variant with { Dark = false })[key]);
+    }
+
     [Fact]
     public void Committed_generated_files_are_up_to_date()
     {
@@ -58,7 +87,7 @@ public sealed partial class TokenTests
             Assert.Equal((g.Dark, g.MoreContrast, g.Nordic), (v.Dark, v.MoreContrast, v.Nordic));
         }
 
-        Assert.Equal(0, ThemeVariant.Default.Index);
+        Assert.Equal(8, ThemeVariant.Default.Index);
     }
 
     /// <summary>Hand-copied from theme.slint (independent of the generator's evaluator).</summary>
