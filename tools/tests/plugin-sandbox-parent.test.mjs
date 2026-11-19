@@ -54,6 +54,17 @@ test('replaced iframe, navigation and disposal reject queued messages and sends'
   await assert.rejects(() => r.bridge.send({type:'theme-change',theme:{dark:false,fontFamily:'x',vars:{}}}));
   assert.equal(r.native.filter(x => x.type === 'api-request').length,0);
 });
+const init = {type:'init',payload:{mode:'background',pluginId:'fixture',tier:'untrusted',manifest:{id:'fixture',version:'1',permissions:[],settings:{}},code:'',locale:'en'}};
+async function readyAndInit(r) { await r.bridge.receive(r.event({type:'sandbox-ready'})); await r.bridge.send(init); }
+
+test('API requests are rejected before init and accepted during activation', async () => {
+  const r=rig(); await r.bridge.receive(r.event({type:'sandbox-ready'}));
+  await r.bridge.receive(r.event({type:'api-request',id:'early',method:'storage.get',args:[]}));
+  assert.equal(r.native.some(x => x.id === 'early'),false);
+  await r.bridge.send(init);
+  await r.bridge.receive(r.event({type:'api-request',id:'active',method:'storage.get',args:[]}));
+  assert.equal(r.native.some(x => x.id === 'active'),true);
+});
 const inbound = [
   {type:'sandbox-ready'}, {type:'init-done',hooks:[],slots:[],shortcuts:[]}, {type:'init-error',error:'failed'},
   {type:'api-request',id:'a',method:'storage.get',args:[]}, {type:'callback-invoke',id:'b',callbackId:'c',args:[]},
@@ -63,12 +74,12 @@ const inbound = [
   {type:'floating-dropdown-update',id:'f'}, {type:'floating-dropdown-close',id:'f'},
 ];
 for (const message of inbound) test(`source inbound variant ${message.type} reaches the authenticated bridge`, async () => {
-  const r=rig(); if (message.type !== 'sandbox-ready') await r.bridge.receive(r.event({type:'sandbox-ready'}));
+  const r=rig(); if (message.type !== 'sandbox-ready') await readyAndInit(r);
   await r.bridge.receive(r.event(message)); assert.ok(r.native.some(x => x.type === message.type));
 });
 const theme={dark:false,fontFamily:'sans-serif',vars:{}}, features={externalSenderLabel:false,externalRecipientWarning:false,noThirdPartyTraffic:false};
 const outbound = [
- {type:'init',payload:{mode:'background',pluginId:'fixture',tier:'untrusted',manifest:{id:'fixture',version:'1',permissions:[],settings:{}},code:'',locale:'en'}},
+ init,
  {type:'api-response',id:'a',ok:true,result:null}, {type:'callback-response',id:'b',ok:true,result:null},
  {type:'hook-invoke',id:'c',hookName:'email:before-send',args:[]}, {type:'locale-change',locale:'en'},
  {type:'theme-change',theme}, {type:'settings-change',settings:{}}, {type:'host-change',features}, {type:'props-update',props:{}},
@@ -77,13 +88,35 @@ const outbound = [
  {type:'floating-dropdown-select',id:'f',option:{value:'a',label:'A'}}, {type:'floating-dropdown-highlight',id:'f',index:0}, {type:'floating-dropdown-dismiss',id:'f'},
 ];
 for (const message of outbound) test(`source outbound variant ${message.type} targets the bound frame`, async () => {
-  const r=rig(); await r.bridge.receive(r.event({type:'sandbox-ready'})); await r.bridge.send(message);
+  const r=rig(); if (message.type === 'init') await r.bridge.receive(r.event({type:'sandbox-ready'})); else await readyAndInit(r); await r.bridge.send(message);
   assert.equal(r.sent.at(-1)[0].type,message.type); assert.equal(r.sent.at(-1)[1],'*');
   if (message.type === 'stream-chunk') assert.deepEqual([...new Uint8Array(r.sent.at(-1)[0].chunk)],[1,2]);
 });
 test('unknown types and oversized clone graphs fail closed without forwarding', async () => {
-  const r=rig(); await r.bridge.receive(r.event({type:'sandbox-ready'}));
+  const r=rig(); await readyAndInit(r);
   await r.bridge.receive(r.event({type:'not-a-real-message',id:'x'}));
   await r.bridge.receive(r.event({type:'api-request',id:'x',method:'storage.get',args:['x'.repeat(20000)]}));
   assert.equal(r.native.filter(x => x.type === 'api-request' || x.type === 'not-a-real-message').length,0);
+});
+
+test('pending init is unique and privileged sends target only the selected origin', async () => {
+  const r=rig({tier:'privileged'});
+  await r.bridge.receive(r.event({type:'sandbox-ready'},{origin:'https://plugin.invalid'}));
+  const first=r.bridge.send(init);
+  await assert.rejects(() => r.bridge.send(init));
+  await first;
+  assert.equal(r.sent.at(-1)[1],'https://plugin.invalid');
+});
+test('async binary snapshots are dropped when the frame is replaced before forwarding', async () => {
+  const r=rig(); await readyAndInit(r);
+  const request=r.bridge.receive(r.event({type:'api-request',id:'stale',method:'upload',args:[new Blob(['payload'])]}));
+  r.frame.contentWindow={}; await request;
+  assert.equal(r.native.some(x => x.id === 'stale'),false);
+});
+test('activity is throttled and invalid multiple ports are never installed', async () => {
+  const r=rig(); const a={onmessage:null,close(){}}, b={onmessage:null,close(){}};
+  await r.bridge.receive(r.event({type:'sandbox-ready'},{ports:[a,b]}));
+  assert.equal(r.native.length,0);
+  await r.bridge.receive(r.event({type:'sandbox-ready'},{ports:[a]}));
+  a.onmessage({}); a.onmessage({}); assert.equal(r.activities.length,1);
 });
