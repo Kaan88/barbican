@@ -73,6 +73,7 @@ internal sealed class SrvUiOrganizePage : SrvUiPage
     private Grid FolderLine(SrvUiFolderRow row)
     {
         var node = row.Node;
+        var generation = _folders.AccountGeneration;
         var picked = string.Equals(node.Id, _folders.SelectedId, StringComparison.Ordinal);
         var grid = new Grid { Margin = new Thickness(row.Depth * 20, 0, 0, 0), ColumnSpacing = 6 };
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(26) });
@@ -96,7 +97,7 @@ internal sealed class SrvUiOrganizePage : SrvUiPage
             FontSize = 13,
             Style = (Style)Application.Current.Resources[picked ? "Button.Primary" : "Button.Action"],
         };
-        button.Click += (_, _) => _folders.Select(node.Id);
+        button.Click += (_, _) => { if (_folders.IsCurrentGeneration(generation)) _folders.Select(node.Id); };
         AutomationProperties.SetAutomationId(button, "srv.folder.row." + node.Id);
         AutomationProperties.SetName(button, node.Name);
         Grid.SetColumn(button, 1);
@@ -108,11 +109,13 @@ internal sealed class SrvUiOrganizePage : SrvUiPage
     {
         var panel = new StackPanel { Spacing = 6 };
         var selected = _folders.Selected;
+        var generation = _folders.AccountGeneration;
+        var selectedId = selected?.Id;
         panel.Children.Add(Label("New folder"));
         panel.Children.Add(SrvUiKit.Row(
             Text("srv.folder.new-name", _newName, v => _newName = v, placeholder: "Folder name"),
-            SrvUiKit.Small("Create at top", "srv.folder.create", () => SrvUiKit.Run(() => CreateAsync(false))),
-            Enable(SrvUiKit.Small("Create inside selected", "srv.folder.create-inside", () => SrvUiKit.Run(() => CreateAsync(true))), selected is not null)));
+            SrvUiKit.Small("Create at top", "srv.folder.create", () => SrvUiKit.Run(() => CreateAsync(false, generation, selectedId))),
+            Enable(SrvUiKit.Small("Create inside selected", "srv.folder.create-inside", () => SrvUiKit.Run(() => CreateAsync(true, generation, selectedId))), selected is not null)));
         if (selected is null)
         {
             panel.Children.Add(SrvUiKit.Dim("Pick a folder above to rename it, give it a role or change how it counts mail."));
@@ -129,10 +132,13 @@ internal sealed class SrvUiOrganizePage : SrvUiPage
     private void AddSelected(StackPanel panel, FolderAdminNode f)
     {
         var id = f.Id;
+        var generation = _folders.AccountGeneration;
+        bool Current() => _folders.IsCurrentGeneration(generation) && string.Equals(id, _folders.SelectedId, StringComparison.Ordinal);
+        void RunSelected(Func<Task> action) { if (Current()) SrvUiKit.Run(action); }
         panel.Children.Add(SrvUiKit.Strong(f.Name));
         panel.Children.Add(SrvUiKit.Row(
-            Text("srv.folder.rename-to", _renameTo.Length == 0 ? f.Name : _renameTo, v => _renameTo = v),
-            SrvUiKit.Small("Rename", "srv.folder.rename", () => SrvUiKit.Run(async () =>
+            Text("srv.folder.rename-to", _renameTo.Length == 0 ? f.Name : _renameTo, v => { if (Current()) _renameTo = v; }),
+            SrvUiKit.Small("Rename", "srv.folder.rename", () => RunSelected(async () =>
             {
                 if (await _folders.RenameAsync(_renameTo.Length == 0 ? f.Name : _renameTo, CancellationToken.None).ConfigureAwait(true))
                 {
@@ -142,15 +148,15 @@ internal sealed class SrvUiOrganizePage : SrvUiPage
         var roles = new List<string> { string.Empty };
         roles.AddRange(FolderAdminRulesRoles());
         panel.Children.Add(Label("Role (a role belongs to one folder; giving it here takes it from the other)"));
-        panel.Children.Add(SrvUiKit.Cycle("srv.folder.role", [.. roles.Select(r => r.Length == 0 ? "No role" : r)], Math.Max(0, roles.IndexOf(f.Role ?? string.Empty)), i => SrvUiKit.Run(() => _folders.SetRoleAsync(roles[i].Length == 0 ? null : roles[i], CancellationToken.None))));
+        panel.Children.Add(SrvUiKit.Cycle("srv.folder.role", [.. roles.Select(r => r.Length == 0 ? "No role" : r)], Math.Max(0, roles.IndexOf(f.Role ?? string.Empty)), i => RunSelected(() => _folders.SetRoleAsync(roles[i].Length == 0 ? null : roles[i], CancellationToken.None))));
         var subscribed = _folders.Subscribed(id);
-        panel.Children.Add(Check("srv.folder.subscribed", "Subscribed", subscribed, v => SrvUiKit.Run(() => _folders.SubscribeAsync(v, CancellationToken.None))));
+        panel.Children.Add(Check("srv.folder.subscribed", "Subscribed", subscribed, v => RunSelected(() => _folders.SubscribeAsync(v, CancellationToken.None))));
         panel.Children.Add(Label("Icon"));
-        panel.Children.Add(SrvUiKit.Cycle("srv.folder.icon", [.. Icons.Select(i => i.Length == 0 ? "Default" : i)], Math.Max(0, Array.IndexOf(Icons, _folders.IconOf(id))), i => SrvUiKit.Run(() => _folders.SetPrefAsync(FolderAdminPref.Icon, Icons[i], CancellationToken.None))));
+        panel.Children.Add(SrvUiKit.Cycle("srv.folder.icon", [.. Icons.Select(i => i.Length == 0 ? "Default" : i)], Math.Max(0, Array.IndexOf(Icons, _folders.IconOf(id))), i => RunSelected(() => _folders.SetPrefAsync(FolderAdminPref.Icon, Icons[i], CancellationToken.None))));
         panel.Children.Add(Label("Count"));
-        panel.Children.Add(SrvUiKit.Cycle("srv.folder.count", ["Unread", "All messages", "No count"], Math.Max(0, Array.IndexOf(Modes, _folders.CountModeOf(id))), i => SrvUiKit.Run(() => _folders.SetPrefAsync(FolderAdminPref.CountMode, Modes[i], CancellationToken.None))));
-        panel.Children.Add(Check("srv.folder.pin", "Pin to the top of the sidebar", _folders.Prefs.Pinned.Contains(id), v => SrvUiKit.Run(() => _folders.SetPrefAsync(FolderAdminPref.Pin, v ? "true" : "false", CancellationToken.None))));
-        panel.Children.Add(Check("srv.folder.mute", "Mute notifications", _folders.Prefs.Muted.Contains(id), v => SrvUiKit.Run(() => _folders.SetPrefAsync(FolderAdminPref.Mute, v ? "true" : "false", CancellationToken.None))));
+        panel.Children.Add(SrvUiKit.Cycle("srv.folder.count", ["Unread", "All messages", "No count"], Math.Max(0, Array.IndexOf(Modes, _folders.CountModeOf(id))), i => RunSelected(() => _folders.SetPrefAsync(FolderAdminPref.CountMode, Modes[i], CancellationToken.None))));
+        panel.Children.Add(Check("srv.folder.pin", "Pin to the top of the sidebar", _folders.Prefs.Pinned.Contains(id), v => RunSelected(() => _folders.SetPrefAsync(FolderAdminPref.Pin, v ? "true" : "false", CancellationToken.None))));
+        panel.Children.Add(Check("srv.folder.mute", "Mute notifications", _folders.Prefs.Muted.Contains(id), v => RunSelected(() => _folders.SetPrefAsync(FolderAdminPref.Mute, v ? "true" : "false", CancellationToken.None))));
         var targets = _folders.MoveTargets();
         var moveRow = SrvUiKit.Row();
         if (!string.Equals(_movedFor, id, StringComparison.Ordinal))
@@ -158,24 +164,25 @@ internal sealed class SrvUiOrganizePage : SrvUiPage
             _movedFor = id;
         }
 
-        moveRow.Children.Add(SrvUiKit.Small("Move to top", "srv.folder.move-top", () => SrvUiKit.Run(() => _folders.MoveUnderAsync(null, CancellationToken.None)), false));
+        moveRow.Children.Add(SrvUiKit.Small("Move to top", "srv.folder.move-top", () => RunSelected(() => _folders.MoveUnderAsync(null, CancellationToken.None)), false));
         if (targets.Count > 0)
         {
             var chosen = targets[0].Id;
             moveRow.Children.Add(SrvUiKit.Cycle("srv.folder.move-to", [.. targets.Select(t => t.Name)], 0, i => chosen = targets[i].Id));
-            moveRow.Children.Add(SrvUiKit.Small("Move under", "srv.folder.move", () => SrvUiKit.Run(() => _folders.MoveUnderAsync(chosen, CancellationToken.None))));
+            moveRow.Children.Add(SrvUiKit.Small("Move under", "srv.folder.move", () => RunSelected(() => _folders.MoveUnderAsync(chosen, CancellationToken.None))));
         }
 
         panel.Children.Add(moveRow);
         panel.Children.Add(SrvUiKit.Row(
-            SrvUiKit.Small("Mark folder and subfolders read", "srv.folder.mark-read", () => SrvUiKit.Run(() => _folders.MarkTreeReadAsync(CancellationToken.None))),
-            SrvUiKit.Small("Delete folder", "srv.folder.delete", () => SrvUiKit.Run(() => DeleteFolderAsync(f)), true)));
+            SrvUiKit.Small("Mark folder and subfolders read", "srv.folder.mark-read", () => RunSelected(() => _folders.MarkTreeReadAsync(CancellationToken.None))),
+            SrvUiKit.Small("Delete folder", "srv.folder.delete", () => RunSelected(() => DeleteFolderAsync(f, generation)), true)));
     }
 
     private static IEnumerable<string> FolderAdminRulesRoles() => FolderAdminRules.AssignableRoles;
 
-    private async Task CreateAsync(bool inside)
+    private async Task CreateAsync(bool inside, long generation, string? selectedId)
     {
+        if (!_folders.IsCurrentGeneration(generation) || (inside && !string.Equals(selectedId, _folders.SelectedId, StringComparison.Ordinal))) return;
         if (await _folders.CreateAsync(_newName, inside, CancellationToken.None).ConfigureAwait(true))
         {
             _newName = string.Empty;
@@ -183,9 +190,8 @@ internal sealed class SrvUiOrganizePage : SrvUiPage
         }
     }
 
-    private async Task DeleteFolderAsync(FolderAdminNode f)
+    private async Task DeleteFolderAsync(FolderAdminNode f, long generation)
     {
-        var generation = _folders.AccountGeneration;
         if (await SrvUiKit.AskAsync("Delete folder", "Delete the folder \"" + f.Name + "\" and every message in it? This cannot be undone.", "Delete").ConfigureAwait(true) && _folders.IsCurrentGeneration(generation) && string.Equals(f.Id, _folders.SelectedId, StringComparison.Ordinal))
         {
             _ = await _folders.DeleteAsync(CancellationToken.None).ConfigureAwait(true);

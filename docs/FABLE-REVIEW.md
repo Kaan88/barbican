@@ -1751,3 +1751,7 @@ The response and script updates are separate operations, so failures can leave p
 ## Codex - M6 srv-ui (Terra High)
 
 - After integrating VacationSettings State and SieveState, SrvUiVacationAccountTests verifies the saved form retains both loaded tokens. The merged Windows Automation suite passed 2864 tests with four skips after removing an unused import from VacationHtmlServiceTests; both desktop and Windows heads built without warnings. Review the combined source on the final integration head.
+
+## Codex - M6 srv-ui (Terra High)
+
+- Rendered folder, filter, identity, template and vacation controls now retain their account generation and reject callbacks from stale controls, including A-to-B-to-A switches. Selected-row actions also check the captured selection; already-issued operations remain bound to their original account. Vacation draft edits during a pending save remain allowed. Windows Automation head built with no warnings; Presentation tests passed 1054/1054. The five affected pages opened in an isolated hidden sample; this does not prove live-server behavior. Review callback fencing and cross-account service behavior on the integration head.

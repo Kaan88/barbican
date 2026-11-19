@@ -24,34 +24,36 @@ internal sealed class SrvUiVacationPage : SrvUiPage
     protected override void Render()
     {
         Reset();
+        var generation = _model.FormGeneration;
+        void Edit(Action action) { if (_model.IsCurrentForm(generation)) action(); }
         var status = SrvUiKit.Strong("Status: " + (_model.Status.Length == 0 ? "..." : _model.Status));
         AutomationProperties.SetAutomationId(status, "srv.vacation.status");
         Body.Children.Add(status);
         if (!_model.CanSave && !_model.IsLoading)
         {
-            Body.Children.Add(SrvUiKit.Small("Reload for this account", "srv.vacation.reload", () => SrvUiKit.Run(() => _model.LoadAsync(CancellationToken.None))));
+            Body.Children.Add(SrvUiKit.Small("Reload for this account", "srv.vacation.reload", () => { if (_model.FormGeneration == generation) SrvUiKit.Run(() => _model.LoadAsync(CancellationToken.None)); }));
         }
 
         var form = new StackPanel { Spacing = 6 };
-        form.Children.Add(Check("srv.vacation.enabled", "Send an automatic reply", _model.Enabled, v => _model.Enabled = v));
+        form.Children.Add(Check("srv.vacation.enabled", "Send an automatic reply", _model.Enabled, v => Edit(() => _model.Enabled = v)));
         form.Children.Add(Label("Subject"));
-        form.Children.Add(Text("srv.vacation.subject", _model.Subject, v => _model.Subject = v, placeholder: "Out of office"));
+        form.Children.Add(Text("srv.vacation.subject", _model.Subject, v => Edit(() => _model.Subject = v), placeholder: "Out of office"));
         form.Children.Add(Label("Message"));
-        form.Children.Add(Text("srv.vacation.body", _model.Body, v => _model.Body = v, multiline: true, placeholder: "I am away and will answer when I am back."));
+        form.Children.Add(Text("srv.vacation.body", _model.Body, v => Edit(() => _model.Body = v), multiline: true, placeholder: "I am away and will answer when I am back."));
         form.Children.Add(Label("HTML message (optional)"));
         form.Children.Add(SrvUiKit.Dim("Edit HTML source here. Keep the plain message above for recipients who cannot display HTML."));
-        form.Children.Add(Text("srv.vacation.html", _model.HtmlBody, v => _model.HtmlBody = v, multiline: true, placeholder: "<p>I am away.</p>"));
+        form.Children.Add(Text("srv.vacation.html", _model.HtmlBody, v => Edit(() => _model.HtmlBody = v), multiline: true, placeholder: "<p>I am away.</p>"));
         form.Children.Add(SrvUiKit.Dim("Organization vacation templates are not available until organization policy is connected."));
         form.Children.Add(Label("Days (yyyy-MM-dd; either can stay empty)"));
-        form.Children.Add(SrvUiKit.Row(Text("srv.vacation.from", _model.FromText, v => _model.FromText = v, placeholder: "First day"), Text("srv.vacation.to", _model.ToText, v => _model.ToText = v, placeholder: "Last day")));
+        form.Children.Add(SrvUiKit.Row(Text("srv.vacation.from", _model.FromText, v => Edit(() => _model.FromText = v), placeholder: "First day"), Text("srv.vacation.to", _model.ToText, v => Edit(() => _model.ToText = v), placeholder: "Last day")));
         form.Children.Add(Label("Who gets the reply"));
         var audiences = new[] { string.Empty, "internal", "external" };
-        form.Children.Add(SrvUiKit.Cycle("srv.vacation.audience", ["Everyone", "Only my own domains", "Only other domains"], Math.Max(0, Array.IndexOf(audiences, _model.AudienceOnly)), i => _model.AudienceOnly = audiences[i]));
-        form.Children.Add(Text("srv.vacation.domains", _model.DomainsText, v => _model.DomainsText = v, placeholder: "Own domains, comma separated"));
-        form.Children.Add(Check("srv.vacation.forward", "Forward mail while I am away", _model.ForwardOn, v => _model.ForwardOn = v));
-        form.Children.Add(Text("srv.vacation.forward-to", _model.ForwardTo, v => _model.ForwardTo = v, placeholder: "Forward to (address)"));
-        form.Children.Add(Check("srv.vacation.forward-keep", "Keep a copy in the inbox", _model.ForwardKeep, v => _model.ForwardKeep = v));
-        form.Children.Add(Check("srv.vacation.calendar", "Block my calendar for these days", _model.BlockCalendar, v => _model.BlockCalendar = v));
+        form.Children.Add(SrvUiKit.Cycle("srv.vacation.audience", ["Everyone", "Only my own domains", "Only other domains"], Math.Max(0, Array.IndexOf(audiences, _model.AudienceOnly)), i => Edit(() => _model.AudienceOnly = audiences[i])));
+        form.Children.Add(Text("srv.vacation.domains", _model.DomainsText, v => Edit(() => _model.DomainsText = v), placeholder: "Own domains, comma separated"));
+        form.Children.Add(Check("srv.vacation.forward", "Forward mail while I am away", _model.ForwardOn, v => Edit(() => _model.ForwardOn = v)));
+        form.Children.Add(Text("srv.vacation.forward-to", _model.ForwardTo, v => Edit(() => _model.ForwardTo = v), placeholder: "Forward to (address)"));
+        form.Children.Add(Check("srv.vacation.forward-keep", "Keep a copy in the inbox", _model.ForwardKeep, v => Edit(() => _model.ForwardKeep = v)));
+        form.Children.Add(Check("srv.vacation.calendar", "Block my calendar for these days", _model.BlockCalendar, v => Edit(() => _model.BlockCalendar = v)));
         Body.Children.Add(SrvUiKit.Card(form, "srv.vacation.form"));
         Body.Children.Add(SrvUiKit.Error(_model.Error));
         if (_model.Message.Length > 0)
@@ -59,6 +61,6 @@ internal sealed class SrvUiVacationPage : SrvUiPage
             Body.Children.Add(SrvUiKit.Dim(_model.Message));
         }
 
-        Body.Children.Add(Btn("Save", Barbican.Presentation.Compose.DialogTone.Primary, "srv.vacation.save", () => SrvUiKit.Run(() => _model.SaveAsync(CancellationToken.None)), _model.CanSave));
+        Body.Children.Add(Btn("Save", Barbican.Presentation.Compose.DialogTone.Primary, "srv.vacation.save", () => { if (_model.IsCurrentForm(generation)) SrvUiKit.Run(() => _model.SaveAsync(CancellationToken.None)); }, _model.CanSave));
     }
 }

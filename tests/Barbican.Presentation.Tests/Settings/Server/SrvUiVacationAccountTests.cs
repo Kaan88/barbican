@@ -48,6 +48,7 @@ public sealed class SrvUiVacationAccountTests
         var loading = vm.LoadAsync(Ct);
         first.SetResult(Result<VacationSettings>.Ok(Value("Original A")));
         await loading;
+        var oldGeneration = vm.FormGeneration;
         vm.Body = "Old A write";
         var saving = vm.SaveAsync(Ct);
         Assert.Equal("vacation-state", service.LastSaved!.State);
@@ -60,6 +61,7 @@ public sealed class SrvUiVacationAccountTests
         var loadingA = vm.LoadAsync(Ct);
         aLoad.SetResult(Result<VacationSettings>.Ok(Value("Fresh A")));
         await loadingA;
+        Assert.False(vm.IsCurrentForm(oldGeneration));
         Assert.True(SpinWait.SpinUntil(() => string.Equals(vm.Body, "Fresh A", StringComparison.Ordinal), TimeSpan.FromSeconds(5)));
         bLoad.SetResult(Result<VacationSettings>.Ok(Value("Late B")));
         service.SaveResult.SetResult(Result<VacationSettings>.Ok(Value("Late A save")));

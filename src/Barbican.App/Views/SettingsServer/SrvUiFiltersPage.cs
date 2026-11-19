@@ -37,9 +37,10 @@ internal sealed class SrvUiFiltersPage : SrvUiPage
             Body.Children.Add(notice);
         }
 
+        var generation = _model.AccountGeneration;
         var toolbar = SrvUiKit.Row(
-            SrvUiKit.Small("Add rule", "srv.filters.add", () => SrvUiKit.Run(() => EditAsync(null)), false),
-            SrvUiKit.Small("View Sieve script", "srv.filters.sieve", () => SrvUiKit.Run(ShowSieveAsync)));
+            SrvUiKit.Small("Add rule", "srv.filters.add", () => RunCurrent(generation, () => EditAsync(null)), false),
+            SrvUiKit.Small("View Sieve script", "srv.filters.sieve", () => RunCurrent(generation, ShowSieveAsync)));
         ((Button)toolbar.Children[0]).IsEnabled = !_model.Locked;
         Body.Children.Add(toolbar);
         Body.Children.Add(SrvUiKit.Error(_model.SaveError));
@@ -57,8 +58,9 @@ internal sealed class SrvUiFiltersPage : SrvUiPage
     private Border RowOf(SrvUiFilterRow row, int index, int count)
     {
         var id = row.Id;
+        var generation = _model.AccountGeneration;
         var enabled = new CheckBox { IsChecked = row.Enabled, IsEnabled = !_model.Locked, MinWidth = 0, VerticalAlignment = VerticalAlignment.Center };
-        enabled.Click += (_, _) => SrvUiKit.Run(() => _model.SetEnabledAsync(id, enabled.IsChecked == true, CancellationToken.None));
+        enabled.Click += (_, _) => RunCurrent(generation, () => _model.SetEnabledAsync(id, enabled.IsChecked == true, CancellationToken.None));
         AutomationProperties.SetAutomationId(enabled, "srv.filters.enabled." + id);
         AutomationProperties.SetName(enabled, "Enable " + row.Name);
         var text = new StackPanel { Spacing = 2 };
@@ -72,14 +74,19 @@ internal sealed class SrvUiFiltersPage : SrvUiPage
         Grid.SetColumn(text, 1);
         grid.Children.Add(text);
         var buttons = SrvUiKit.Row(
-            Enabled(SrvUiKit.Small("Up", "srv.filters.up." + id, () => SrvUiKit.Run(() => _model.MoveAsync(id, -1, CancellationToken.None))), index > 0 && !_model.Locked),
-            Enabled(SrvUiKit.Small("Down", "srv.filters.down." + id, () => SrvUiKit.Run(() => _model.MoveAsync(id, 1, CancellationToken.None))), index < count - 1 && !_model.Locked),
-            Enabled(SrvUiKit.Small("Edit", "srv.filters.edit." + id, () => SrvUiKit.Run(() => EditAsync(id))), !_model.Locked),
-            SrvUiKit.Small("Apply to existing mail", "srv.filters.apply." + id, () => SrvUiKit.Run(() => ApplyAsync(id))),
-            Enabled(SrvUiKit.Small("Delete", "srv.filters.delete." + id, () => SrvUiKit.Run(() => DeleteAsync(id, row.Name)), danger: true), !_model.Locked));
+            Enabled(SrvUiKit.Small("Up", "srv.filters.up." + id, () => RunCurrent(generation, () => _model.MoveAsync(id, -1, CancellationToken.None))), index > 0 && !_model.Locked),
+            Enabled(SrvUiKit.Small("Down", "srv.filters.down." + id, () => RunCurrent(generation, () => _model.MoveAsync(id, 1, CancellationToken.None))), index < count - 1 && !_model.Locked),
+            Enabled(SrvUiKit.Small("Edit", "srv.filters.edit." + id, () => RunCurrent(generation, () => EditAsync(id))), !_model.Locked),
+            SrvUiKit.Small("Apply to existing mail", "srv.filters.apply." + id, () => RunCurrent(generation, () => ApplyAsync(id))),
+            Enabled(SrvUiKit.Small("Delete", "srv.filters.delete." + id, () => RunCurrent(generation, () => DeleteAsync(id, row.Name, generation)), danger: true), !_model.Locked));
         Grid.SetColumn(buttons, 2);
         grid.Children.Add(buttons);
         return SrvUiKit.Card(grid, "srv.filters.row." + id);
+    }
+
+    private void RunCurrent(long generation, Func<Task> action)
+    {
+        if (_model.IsCurrentGeneration(generation)) SrvUiKit.Run(action);
     }
 
     private static Button Enabled(Button button, bool on)
@@ -116,9 +123,8 @@ internal sealed class SrvUiFiltersPage : SrvUiPage
         }
     }
 
-    private async Task DeleteAsync(string id, string name)
+    private async Task DeleteAsync(string id, string name, long generation)
     {
-        var generation = _model.AccountGeneration;
         if (await SrvUiKit.AskAsync("Delete rule", "Delete the rule \"" + name + "\"? Mail it already sorted stays where it is.", "Delete").ConfigureAwait(true) && _model.IsCurrentGeneration(generation) && _model.RuleOf(id) is not null)
         {
             await _model.DeleteAsync(id, CancellationToken.None).ConfigureAwait(true);
