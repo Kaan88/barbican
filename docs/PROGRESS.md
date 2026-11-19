@@ -1,4 +1,4 @@
-# Progress (M6 delivered, M6b resumed, 2026-11-19)
+# Progress (M6 delivered, M6b paused by user, 2026-11-19)
 
 Completed checkpoints are pushed. Active work is recorded below. Nothing is merged to `main` or tagged.
 
@@ -8,11 +8,24 @@ Completed checkpoints are pushed. Active work is recorded below. Nothing is merg
 (gates, hand-test waits, questions) are dropped, defaults are taken and recorded in spec/decisions.md; Terra or Luna agents
 wherever they can. Safety rules stay (no real input, read-only account, admin key, Rust profile, build.ps1, privacy check).
 
-## Codex continuation (resumed by user, 2026-11-19)
+## Codex continuation (paused by user, 2026-11-19)
 
 - **Resumed integration:** full-range JavaScript Date helper aa746ee passed 108 Node vectors; reviewed composer-only changes through a0a538c are integrated and the complete Core suite passed 1754/1754. Runtime host issuer/parent bridge and package lease/store/storage remain on worker branches for review; no production sandbox/186-method completion is claimed. The saved pause table below is historical.
 
-**User explicitly resumed the full goal after the saved pause at 100357d. All three streams are running again.** Goal remains the full M6b -> M7 -> M8 -> M10 roadmap (M9/Linux excluded), then Astra review/fix until satisfied, then hidden UI/usability walkthrough. M6 portable remains delivered. Agents stopped; their housekeeping inspections found no remaining owned build/app process. No live account, key, OS store or native plugin operation was performed in this phase.
+**User explicitly requested: pause, mark progress, commit and push.** The goal is paused; do not resume implementation or tests without instruction. All stream work is committed/pushed and the three worktrees are clean. Agents reported no remaining builds or app processes they started. No real credential-store/native-browser/printing/OS operation was performed during this implementation interval.
+
+### Latest saved state
+
+Integration source checkpoint **5b2f33e** contains reviewed composer GetSnapshot/SetSubject/ReadAttachment adapters and shared edit limiter; complete Core suite **1754/1754 passed**, zero warnings/errors. Full-range Date formatting passed two focused cases covering **108 native JavaScript vectors** and invalid values, with tests executed red before implementation. Real editor/backend integration, browser limits and all 186 APIs are still unfinished. Earlier full Windows and combined RED counts below remain historical, not evidence for current worker drafts.
+
+| Stream | Pushed checkpoint | Exact pause state and next step |
+|---|---|---|
+| A runtime (`wt-m6-a11y-quick`, `codex/m6b-runtime`) | `9672f0c` | Clean. Working host issuer 8aba99e, parent gate b64d1e0 (42 simulated Node cases), Core graph Import 8617ff9 (two focused cases) precede unverified ingress WIP. Ten original simulated ingress cases passed, final run with two added regressions was interrupted. Review/verify ingress, response budgets and revocation races, then actual SDK/bootstrap. Bootstrap staging outside Git retains verbatim licenses; see machine-local `.local/m6b-bootstrap-staging.json`. License scan conflict is unresolved; no checker exception/change was made. |
+| B packages (`wt-m6-set-data`, `codex/m6b-packages`) | `f6363b8` | Clean. Manager/cache/lease/scoped storage and actual authenticated file-store drafts are pushed for direct review; Platform store ca662d0 had eight focused cases with temp folders/fake secrets only. Native sidecar/consent WIP is explicitly unverified: last focused build failed MA0051 in PluginPackageInspector.InspectAsync, NativePackageInspector.InspectAsync and PluginPackageManager.InstallAsync; native tests did not run and remain Red. Split those methods, execute source/adversarial cases, then review actual positive-consent loader path (still absent). |
+| C mediation (`wt-m6b-protocol`, `codex/m6b-mediation`) | `a8608ad` | Clean. Hook ordering/deadlines/detached cancellation fixes through 110193f had 15 focused passing cases but await integration review. Presentation limiter WIP is unreviewed; two focused cases passed before pause while still marked Red, so rerun and unmark only with evidence. Preview/PDF adapters, all-account policy integration and HTML isolated sanitizer/renderer remain pending. |
+
+Resume priorities: inspect each current head before trusting historical test counts; directly review worker code before integration; complete actual runtime/reference bootstrap/WebView isolation and all required API/hook/slot/native surfaces. The third-party clsx 2.1.1 MIT notice is preserved verbatim outside Git and its published upstream contact trips privacy patterns; determine a narrowly compliant attribution solution, never strip notices or broadly disable scanning. Store crypto/concurrency/lease/cache and crash recovery need production integration review; no OS-backed credential-store proof is claimed. D UI/slots remains queued. M7, M8, M10, the final Astra fix/review loop and hidden UI walkthrough are all still required. The full objective is unchanged.
+ Goal remains the full M6b -> M7 -> M8 -> M10 roadmap (M9/Linux excluded), then Astra review/fix until satisfied, then hidden UI/usability walkthrough. M6 portable remains delivered. Agents stopped; their housekeeping inspections found no remaining owned build/app process. No live account, key, OS store or native plugin operation was performed in this phase.
 
 The integration checkpoint includes reviewed runtime RED baseline f1729fb plus composer/package baselines. Full combined red-check proved **57 expected PortPending failures, zero unexpected passes/wrong reasons** (runtime 26, packages 18, composer 13). Root's complete Core suite passed **1728/1728** on the preceding package/composer baseline. These tests prove intended missing entry points, not completed runtime behavior. The latest fully integrated ordinary Windows suite remains **3088 passed / four skipped** at 9647d85, followed by the passing singleton graph and encoding checks. New implementation drafts listed below are not integrated or claimed verified by those counts.
 
