@@ -61,6 +61,7 @@ public static class AccountsRegistration
             sp.GetRequiredService<JmapClientOptions>(),
             sp.GetService<IBodyCache>()));
         services.TryAddSingleton<IAccountManager>(sp => sp.GetRequiredService<AccountManager>());
+        services.TryAddSingleton<IAccountSessionSnapshots>(sp => sp.GetRequiredService<AccountManager>());
         services.TryAddSingleton<IAccountOverview>(sp => sp.GetRequiredService<AccountManager>());
         services.TryAddSingleton<IAccountMaintenance>(sp => sp.GetRequiredService<AccountManager>());
         return services;

@@ -205,6 +205,7 @@ public sealed class CompositionGraphTests
             Assert.Same(resolving, done);
             Assert.Empty(await resolving);
 
+            Assert.Same(provider.GetRequiredService<IAccountManager>(), provider.GetRequiredService<IAccountSessionSnapshots>());
             Assert.NotNull(provider.GetRequiredService<MessageLoader>());
             Assert.Same(provider.GetRequiredService<IKeyRouter>(), ((ShellLikePresenter)provider.GetRequiredService<IBodyPresenter>()).Keys.Value);
         }
