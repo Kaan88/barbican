@@ -2,6 +2,7 @@
 // Spec: I-183, I-288. Owner reader.
 
 using Barbican.Core.Accounts;
+using Barbican.Core.Common;
 using Barbican.Core.Jmap;
 using Barbican.Core.Mail;
 using Barbican.Core.Mail.Attachments;
@@ -53,6 +54,87 @@ public sealed class AttachmentSaverTests
         var r = await saver.RawAsync(target with { AccountKey = "gone" }, Ct);
         Assert.False(r.IsOk);
         Assert.Contains("not signed in", r.Error!.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Preview_stops_at_the_actual_limit_even_when_the_advertised_size_is_small()
+    {
+        var f = await Fake.StartAsync();
+        var input = new SyntheticStream(AttachmentSaver.MaxPreviewBytes + 1_000_000);
+        var client = new StreamClient(f.Client, input);
+        var saver = new AttachmentSaver(new FakeAccounts(client), new NullHookBus(), f.Time, (_, _) => Task.FromResult<Stream?>(null));
+        var target = new MailTarget("acct", "", "message", "", "message", new Dictionary<string, bool>(StringComparer.Ordinal), Keywords.None);
+        var attachment = new AttachmentRef(0, new Attachment { BlobId = "blob", Name = "test.txt", Type = "text/plain", Size = 1 });
+        var result = await saver.ReadForPreviewAsync(target, attachment, Ct);
+        Assert.False(result.IsOk);
+        Assert.Contains("too large", result.Error!.Message, StringComparison.Ordinal);
+        Assert.Equal(AttachmentSaver.MaxPreviewBytes + 1, input.ReadBytes);
+        Assert.True(input.Disposed);
+    }
+
+    [Fact]
+    public async Task Preview_returns_a_complete_small_stream_and_disposes_it()
+    {
+        var f = await Fake.StartAsync();
+        var input = new SyntheticStream(11);
+        var saver = new AttachmentSaver(new FakeAccounts(new StreamClient(f.Client, input)), new NullHookBus(), f.Time, (_, _) => Task.FromResult<Stream?>(null));
+        var target = new MailTarget("acct", "", "message", "", "message", new Dictionary<string, bool>(StringComparer.Ordinal), Keywords.None);
+        var attachment = new AttachmentRef(0, new Attachment { BlobId = "blob", Name = "test.txt", Type = "text/plain", Size = 1 });
+        var result = await saver.ReadForPreviewAsync(target, attachment, Ct);
+        Assert.True(result.IsOk, result.Error?.Message);
+        Assert.Equal(11, result.Value!.Length);
+        Assert.True(input.Disposed);
+    }
+
+    [Fact]
+    public async Task Preview_disposes_the_download_stream_when_cancelled()
+    {
+        var f = await Fake.StartAsync();
+        var input = new SyntheticStream(100);
+        var client = new StreamClient(f.Client, input);
+        var saver = new AttachmentSaver(new FakeAccounts(client), new NullHookBus(), f.Time, (_, _) => Task.FromResult<Stream?>(null));
+        var target = new MailTarget("acct", "", "message", "", "message", new Dictionary<string, bool>(StringComparer.Ordinal), Keywords.None);
+        var attachment = new AttachmentRef(0, new Attachment { BlobId = "blob", Name = "test.txt", Type = "text/plain", Size = 1 });
+        using var cancel = new CancellationTokenSource();
+        await cancel.CancelAsync();
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => saver.ReadForPreviewAsync(target, attachment, cancel.Token));
+        Assert.True(input.Disposed);
+    }
+
+    private sealed class StreamClient(IJmapClient inner, Stream input) : IJmapClient
+    {
+        public JmapSession Session => inner.Session;
+        public bool IsReadOnly => inner.IsReadOnly;
+        public T? AccountCapability<T>(string accountId, string capability) where T : class => inner.AccountCapability<T>(accountId, capability);
+        public Task<Result<JmapResponse>> SendAsync(JmapRequest request, CancellationToken ct) => inner.SendAsync(request, ct);
+        public Task<Result<Stream>> DownloadAsync(string accountId, string blobId, string name, string type, CancellationToken ct) => Task.FromResult(Result<Stream>.Ok(input));
+    }
+
+    private sealed class SyntheticStream(long length) : Stream
+    {
+        private long _position;
+        public long ReadBytes => _position;
+        public bool Disposed { get; private set; }
+        public override bool CanRead => true;
+        public override bool CanSeek => false;
+        public override bool CanWrite => false;
+        public override long Length => length;
+        public override long Position { get => _position; set => throw new NotSupportedException(); }
+        public override void Flush() { }
+        public override int Read(byte[] buffer, int offset, int count) => throw new NotSupportedException();
+        public override ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken cancellationToken = default)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var count = (int)Math.Min(buffer.Length, length - _position);
+            buffer.Span[..count].Clear();
+            _position += count;
+            return ValueTask.FromResult(count);
+        }
+
+        public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();
+        public override void SetLength(long value) => throw new NotSupportedException();
+        public override void Write(byte[] buffer, int offset, int count) => throw new NotSupportedException();
+        protected override void Dispose(bool disposing) { Disposed = true; base.Dispose(disposing); }
     }
 
     private sealed class FakeAccounts(IJmapClient client) : IAccountManager

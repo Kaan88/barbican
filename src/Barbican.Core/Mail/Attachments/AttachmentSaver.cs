@@ -80,7 +80,7 @@ public sealed class AttachmentSaver(IAccountManager accounts, IHookBus hooks, Ti
             return Result<byte[]?>.Ok(null);
         }
 
-        var bytes = await DownloadAsync(message, a.BlobId, a.Name ?? "attachment", a.Type ?? "application/octet-stream", ct).ConfigureAwait(false);
+        var bytes = await DownloadAsync(message, a.BlobId, a.Name ?? "attachment", a.Type ?? "application/octet-stream", ct, MaxPreviewBytes).ConfigureAwait(false);
         return bytes.IsOk ? Result<byte[]?>.Ok(bytes.Value) : Result<byte[]?>.Fail(bytes.Error!);
     }
 
@@ -169,7 +169,7 @@ public sealed class AttachmentSaver(IAccountManager accounts, IHookBus hooks, Ti
         return Result<(string, IReadOnlyList<JsonNode>)>.Ok((email.Str("subject") ?? string.Empty, parts));
     }
 
-    private async Task<Result<byte[]>> DownloadAsync(MailTarget message, string blobId, string name, string type, CancellationToken ct)
+    private async Task<Result<byte[]>> DownloadAsync(MailTarget message, string blobId, string name, string type, CancellationToken ct, long? maxBytes = null)
     {
         if (Client(message) is not { } client)
         {
@@ -186,8 +186,32 @@ public sealed class AttachmentSaver(IAccountManager accounts, IHookBus hooks, Ti
         await using (stream.ConfigureAwait(false))
         {
             using var copy = new MemoryStream();
-            await stream.CopyToAsync(copy, ct).ConfigureAwait(false);
+            if (maxBytes is null)
+            {
+                await stream.CopyToAsync(copy, ct).ConfigureAwait(false);
+            }
+            else
+            {
+                var bounded = await CopyPreviewAsync(stream, copy, maxBytes.Value, ct).ConfigureAwait(false);
+                if (!bounded) return Result<byte[]>.Fail(new ValidationError("This attachment is too large to preview; save it instead."));
+            }
+
             return Result<byte[]>.Ok(copy.ToArray());
+        }
+    }
+
+    private static async Task<bool> CopyPreviewAsync(Stream input, Stream output, long maxBytes, CancellationToken ct)
+    {
+        var buffer = new byte[81920];
+        long total = 0;
+        while (true)
+        {
+            var count = (int)Math.Min(buffer.Length, maxBytes - total + 1);
+            var read = await input.ReadAsync(buffer.AsMemory(0, count), ct).ConfigureAwait(false);
+            if (read == 0) return true;
+            total += read;
+            if (total > maxBytes) return false;
+            await output.WriteAsync(buffer.AsMemory(0, read), ct).ConfigureAwait(false);
         }
     }
 
