@@ -1,5 +1,10 @@
 # M6b Bulwark UI parity
 
+Bulwark is the default visual direction; see the current
+[UI guidelines](../../design/UI-GUIDELINES.md). Compare the shell and reader
+first, then the composer and other screens. The older theme studies remain on
+hold; retaining a saved legacy appearance must not change the new default.
+
 The reference walkthrough and native parity fixes are required before M6b goes
 to Astra. This is a coverage ledger, not a completion report. Reference
 observations come from the signed-in throwaway account. Do not track mailbox
@@ -76,3 +81,12 @@ offers Exit fullscreen without opening a new window.
 Capture sanitized reference layouts and use synthetic fixtures for any committed
 native images. Track unavailable capability variants explicitly rather than
 checking off inaccessible or untried controls.
+
+## First native pass
+
+- Reader: actions and subject now precede the collapsed conversation headers.
+  An eight-message presentation test verifies two visible earlier headers and
+  “Show 5 older messages.” Hidden Windows automation on the five-message
+  sample opened `e21`, revealed older headers, activated `e8` through its header
+  button, and confirmed `e8 Ready`. There is still only one message body surface.
+  Per-message actions and the expanded-card layout still need a parity pass.

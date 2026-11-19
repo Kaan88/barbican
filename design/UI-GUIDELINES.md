@@ -1,8 +1,22 @@
 # Current UI guidelines
 
-Approved by the user on 2026-11-19. Design studies by Codex / Terra High; direction recorded by the Sol coordinator.
+**Bulwark is the main visual direction for Barbican.** Use the live walkthrough
+and the pinned upstream source together, as indexed in the
+[M6b UI parity notes](../docs/milestones/M6b-ui-parity.md). Start with the mail
+shell, inbox and reader, then carry the same palette and control styling into
+the composer, dialogs, settings, and other app views.
 
-The selected directions are **Bento Balanced**, **Nordic Focus** and **Studio**. Use these as the UI guidelines from now on, including work by Claude and future Codex agents. Bento Balanced and Nordic Focus refine the existing styles; Studio is also approved as a distinct layout direction. Record its production integration in the milestone plan before extending the current two-style selector. Where the older design boards differ, these directions take precedence. Preserve established functionality, accessibility and safety rules while applying the selected visual language.
+Use native controls and semantic tokens. Match reference geometry and hierarchy
+at comparable viewport sizes, not a fixed pixel layout at every scale. Verify
+light and dark modes, keyboard focus, high contrast, reduced motion, narrow
+layouts, and any changed commands. Keep screenshots that contain real-account
+data out of the repository; use synthetic native fixtures for review evidence.
+
+## Historical studies — on hold
+
+Bento Balanced, Nordic Focus, and Studio were selected on 2026-11-19. Their
+design work and the material directions below are on hold and do not define the
+current default.
 
 ## Bento Balanced
 
