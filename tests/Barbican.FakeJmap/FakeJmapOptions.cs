@@ -53,6 +53,12 @@ public sealed record FakeJmapOptions
     /// <summary>Advertise the Sieve capability (urn:ietf:params:jmap:sieve) for SieveScript/get, set and validate (M2: quick rules). Off: the M1 session.</summary>
     public bool SieveCapability { get; init; }
 
+    /// <summary>Advertised Sieve extensions for synthetic interoperability tests.</summary>
+    public IReadOnlyList<string> SieveExtensions { get; init; } = [];
+
+    /// <summary>Model Stalwart's shared VacationResponse/SieveScript state and reserved vacation script.</summary>
+    public bool VacationSharesSieveState { get; init; }
+
     /// <summary>Advertise the FileNode capability (urn:ietf:params:jmap:filenode) for Save to Files (M2 reader). Off: the M1 session.</summary>
     public bool FileNodeCapability { get; init; }
 

@@ -38,6 +38,9 @@ public sealed class VacationService(IAccountManager accounts, IHookBus hooks, Ti
     public Task<Result<VacationSettings>> LoadAsync(string accountKey, CancellationToken ct) => Task.Run(() => LoadCoreAsync(accountKey, true, ct), ct);
 
     /// <inheritdoc />
+    public Task<Result<VacationSettings>> LoadSnapshotAsync(string accountKey, CancellationToken ct) => Task.Run(() => LoadCoreAsync(accountKey, false, ct), ct);
+
+    /// <inheritdoc />
     public Task<Result<VacationSettings>> SaveAsync(string accountKey, VacationSettings settings, CancellationToken ct)
     {
         ArgumentNullException.ThrowIfNull(settings);
@@ -60,18 +63,19 @@ public sealed class VacationService(IAccountManager accounts, IHookBus hooks, Ti
     private static VacationAudience? AudienceOf(JsonNode? n) =>
         n is JsonObject o && FilterRules.Str(o, "only") is { } only && o["domains"] is JsonArray d ? new VacationAudience(only, [.. d.Select(x => x.AsString()).OfType<string>()]) : null;
 
-    private static string? Problem(JsonObject response)
+    private static JmapError? SetProblem(JsonObject response)
     {
         foreach (var map in new[] { "notUpdated", "notCreated", "notDestroyed" })
         {
             if (response[map] is JsonObject { Count: > 0 } failed)
             {
                 var first = failed.First();
-                return SetErrors.From(first.Key, first.Value!).Message;
+                return SetErrors.From(first.Key, first.Value);
             }
         }
 
-        return null;
+        return response["updated"] is JsonObject updated && updated.ContainsKey("singleton")
+            ? null : new ValidationError("The auto-reply may have been saved, but the server did not acknowledge it; reload before retrying.");
     }
 
     // the metadata of the filters script with the vacation extras the settings ask for; null when it is already what the script says
@@ -149,6 +153,7 @@ public sealed class VacationService(IAccountManager accounts, IHookBus hooks, Ti
             var vr = (got.Value!["list"] as JsonArray)?.FirstOrDefault();
             settings = settings with
             {
+                State = got.Value.Str("state"),
                 Enabled = Flag(vr, "isEnabled"),
                 Subject = vr.Str("subject") ?? string.Empty,
                 TextBody = vr.Str("textBody") ?? string.Empty,
@@ -164,6 +169,7 @@ public sealed class VacationService(IAccountManager accounts, IHookBus hooks, Ti
             var meta = SieveScript.Parse(read.Text).Metadata;
             settings = settings with
             {
+                SieveState = read.State,
                 Enabled = settings.Enabled || (Flag(meta, "includeVacation") && read.Target?.IsActive == true),
                 Forward = ForwardOf(meta["vacationForward"]),
                 Audience = AudienceOf(meta["vacationAudience"]),
@@ -179,7 +185,7 @@ public sealed class VacationService(IAccountManager accounts, IHookBus hooks, Ti
         {
             var view = View(settings);
             hooks.Fire(HookNames.OnVacationLoaded, () => view);
-            await SyncCalendarAsync(accountKey, http, settings, null, true, ct).ConfigureAwait(false);
+            if (!http.IsReadOnly) await SyncCalendarAsync(accountKey, http, settings, null, true, ct).ConfigureAwait(false);
         }
 
         return Result<VacationSettings>.Ok(settings);
@@ -201,45 +207,29 @@ public sealed class VacationService(IAccountManager accounts, IHookBus hooks, Ti
         }
 
         var http = client.Value!;
+        if (http.IsReadOnly) return Result<VacationSettings>.Fail(new ReadOnlyViolation("VacationResponse/set"));
         var before = await LoadCoreAsync(accountKey, false, ct).ConfigureAwait(false);
+        if (!before.IsOk) return Result<VacationSettings>.Fail(before.Error!);
+        var guard = CheckStates(http, settings, before.Value!);
+        if (!guard.IsOk) return Result<VacationSettings>.Fail(guard.Error!);
         var view = View(settings);
         if (!await hooks.AllowAsync(HookNames.OnBeforeVacationUpdate, () => view, ct).ConfigureAwait(false))
         {
             return Result<VacationSettings>.Fail(FilterAccess.StoppedByPlugin);
         }
 
-        if (http.Session.Has(Capability))
-        {
-            var patch = new JsonObject
-            {
-                ["isEnabled"] = settings.Enabled,
-                ["fromDate"] = view.FromDate,
-                ["toDate"] = view.ToDate,
-                ["subject"] = settings.Subject,
-                ["textBody"] = settings.TextBody,
-                ["htmlBody"] = string.IsNullOrWhiteSpace(settings.HtmlBody) ? null : settings.HtmlBody,
-            };
-            var args = new JsonObject { ["accountId"] = http.Session.AccountFor(Capability), ["update"] = new JsonObject { ["singleton"] = patch } };
-            var set = await ReaderCalls.CallAsync(http, "VacationResponse/set", args, ct).ConfigureAwait(false);
-            if (!set.IsOk)
-            {
-                return Result<VacationSettings>.Fail(set.Error!);
-            }
-
-            if (Problem(set.Value!) is { } refused)
-            {
-                return Result<VacationSettings>.Fail(new ValidationError(refused));
-            }
-        }
+        var response = await SaveResponseAsync(http, before.Value!, settings, ct).ConfigureAwait(false);
+        if (!response.IsOk) return Result<VacationSettings>.Fail(response.Error!);
 
         // the reply itself is saved even when the filters part is not: say so (Bulwark VacationFiltersError)
-        var extras = await SaveExtrasAsync(http, settings, ct).ConfigureAwait(false);
+        var extras = await SaveExtrasAsync(http, settings with { SieveState = response.Value }, ct).ConfigureAwait(false);
         if (!extras.IsOk)
         {
             return Result<VacationSettings>.Fail(new ValidationError("The auto-reply may have been saved, but forwarding or its recipients could not be confirmed: " + extras.Error!.Message));
         }
 
         var loaded = await LoadCoreAsync(accountKey, false, ct).ConfigureAwait(false);
+        if (!loaded.IsOk) return Result<VacationSettings>.Fail(new ValidationError("The auto-reply may have been saved, but the result could not be reloaded: " + loaded.Error!.Message));
         if (before.IsOk && RelevantChanged(before.Value!, settings))
         {
             await SyncCalendarAsync(accountKey, http, settings, before.Value, false, ct).ConfigureAwait(false);
@@ -247,6 +237,56 @@ public sealed class VacationService(IAccountManager accounts, IHookBus hooks, Ti
         hooks.Fire(HookNames.OnVacationUpdate, () => view);
         Changed?.Invoke(this, new VacationChangedEventArgs(accountKey));
         return loaded;
+    }
+
+    // Stalwart 0.16.27 vacation/get.rs and vacation/set.rs use SyncCollection::SieveScript for both versions.
+    private static async Task<Result<string?>> SaveResponseAsync(IJmapClient client, VacationSettings before, VacationSettings settings, CancellationToken ct)
+    {
+        var expectedSieveState = settings.SieveState;
+        if (!client.Session.Has(Capability)) return Result<string?>.Ok(expectedSieveState);
+        var patch = VacationPatch(before, settings);
+        if (patch.Count == 0) return Result<string?>.Ok(expectedSieveState);
+        var args = new JsonObject { ["accountId"] = client.Session.AccountFor(Capability), ["ifInState"] = settings.State, ["update"] = new JsonObject { ["singleton"] = patch } };
+        var set = await ReaderCalls.CallAsync(client, "VacationResponse/set", args, ct).ConfigureAwait(false);
+        if (!set.IsOk) return Result<string?>.Fail(set.Error!);
+        if (SetProblem(set.Value!) is { } refused) return Result<string?>.Fail(refused);
+        if (SharesStalwartState(client, before))
+        {
+            expectedSieveState = set.Value!.Str("newState");
+            if (string.IsNullOrEmpty(expectedSieveState))
+                return Result<string?>.Fail(new ValidationError("The auto-reply may have been saved, but the server omitted its new state; reload before retrying."));
+        }
+
+        return Result<string?>.Ok(expectedSieveState);
+    }
+
+    private static bool SharesStalwartState(IJmapClient client, VacationSettings before) =>
+        client.Session.IsStalwart && client.Session.Has(SieveScriptStore.Capability)
+        && string.Equals(client.Session.AccountFor(Capability), client.Session.AccountFor(SieveScriptStore.Capability), StringComparison.Ordinal)
+        && !string.IsNullOrEmpty(before.State) && string.Equals(before.State, before.SieveState, StringComparison.Ordinal);
+
+    private static Result<Unit> CheckStates(IJmapClient client, VacationSettings requested, VacationSettings current)
+    {
+        if (client.Session.Has(Capability) && string.IsNullOrEmpty(requested.State))
+            return Result<Unit>.Fail(new ValidationError("The vacation state is unavailable; reload before saving."));
+        if (client.Session.Has(SieveScriptStore.Capability) && string.IsNullOrEmpty(requested.SieveState))
+            return Result<Unit>.Fail(new ValidationError("The filter script state is unavailable; reload before saving."));
+        if ((client.Session.Has(Capability) && !string.Equals(requested.State, current.State, StringComparison.Ordinal))
+            || (client.Session.Has(SieveScriptStore.Capability) && !string.Equals(requested.SieveState, current.SieveState, StringComparison.Ordinal)))
+            return Result<Unit>.Fail(MethodErrors.From("VacationResponse/set", new JsonObject { ["type"] = "stateMismatch" }));
+        return Result<Unit>.Ok(default);
+    }
+
+    private static JsonObject VacationPatch(VacationSettings before, VacationSettings after)
+    {
+        var patch = new JsonObject();
+        if (before.Enabled != after.Enabled) patch["isEnabled"] = after.Enabled;
+        if (before.From != after.From) patch["fromDate"] = Boundary(after.From, false);
+        if (before.To != after.To) patch["toDate"] = Boundary(after.To, true);
+        if (!string.Equals(before.Subject, after.Subject, StringComparison.Ordinal)) patch["subject"] = after.Subject;
+        if (!string.Equals(before.TextBody, after.TextBody, StringComparison.Ordinal)) patch["textBody"] = after.TextBody;
+        if (!string.Equals(before.HtmlBody, after.HtmlBody, StringComparison.Ordinal)) patch["htmlBody"] = string.IsNullOrWhiteSpace(after.HtmlBody) ? null : after.HtmlBody;
+        return patch;
     }
 
     private static bool RelevantChanged(VacationSettings a, VacationSettings b) =>
@@ -271,8 +311,11 @@ public sealed class VacationService(IAccountManager accounts, IHookBus hooks, Ti
             }
 
             var current = read.Value!;
+            if (!string.Equals(settings.SieveState, current.State, StringComparison.Ordinal))
+                return Result<Unit>.Fail(MethodErrors.From("SieveScript/set", new JsonObject { ["type"] = "stateMismatch" }));
             var parsed = SieveScript.Parse(current.Text);
-            if (WithExtras(parsed.Metadata, settings, current.Extensions) is { } meta)
+            if ((current.Target is not null || settings.Forward is not null || settings.Audience is not null)
+                && WithExtras(parsed.Metadata, settings, current.Extensions) is { } meta)
             {
                 if (parsed.Locked)
                 {
