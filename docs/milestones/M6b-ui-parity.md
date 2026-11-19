@@ -120,3 +120,17 @@ reader moved from x696 (728 px wide) to x56 (1368 px wide) while the app rail
 remained at x0. Exit restored the reader to x696 and the list to x312.
 This is an in-app reader mode, not a new window. Keyboard focus restoration
 still needs targeted verification.
+
+Inbox chrome follow-up: the default list toolbar places select-all and folder
+actions on either side of search; the optional sidebar Compose placement
+uses the existing compose command. Hidden automation measured both 36 px
+controls, activated the selection bar and opened the folder menu (Refresh,
+Mark folder as read, Select all). That menu is still a subset of Bulwark.
+This does not change conversation grouping.
+
+Replacement captures were made with the XAML renderer to avoid a stale
+compositor frame. At 1440×900 window size, the light and dark reader captures
+had different SHA-256 prefixes (`76797478090b` and `00cc55626018`).
+The dock capture (`d0c5697e03e7`) was taken only after the subject and Send
+controls reported nonzero bounds. These captures verify native chrome, not
+WebView message content; they are local synthetic artifacts.
