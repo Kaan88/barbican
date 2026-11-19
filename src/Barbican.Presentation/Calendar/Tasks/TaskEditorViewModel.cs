@@ -60,6 +60,12 @@ public sealed class TaskEditorViewModel : ObservableObject
 
     public IReadOnlyList<Editors.CalendarChoice> Lists { get; }
 
+    public string TimeZone
+    {
+        get => _defaultZone;
+        set { if (SetProperty(ref _defaultZone, value ?? string.Empty)) Error = string.Empty; }
+    }
+
     public bool IsNew => _id is null;
 
     public string? Id => _id;
@@ -181,7 +187,7 @@ public sealed class TaskEditorViewModel : ObservableObject
             _defaultZone = _currentZone?.Invoke() ?? string.Empty;
             if (_defaultZone.Length == 0)
             {
-                Error = "The system time zone is unavailable. Select a supported time zone in Settings, then try again.";
+                Error = "The system time zone is unavailable. Choose a supported time zone, then try again.";
                 return false;
             }
         }

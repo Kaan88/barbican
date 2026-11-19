@@ -61,7 +61,7 @@ public sealed class TimeZonePickerContent : IDialogContent
         {
             var now = _time.GetUtcNow();
             var local = _time.LocalTimeZone;
-            all = await Task.Run(() => Choices(request.Selected, now, local)).ConfigureAwait(true);
+            all = await Task.Run(() => Choices(request.Selected, now, local, request.RequireSupportedZone)).ConfigureAwait(true);
             Filter();
         });
         return panel;
@@ -81,14 +81,16 @@ public sealed class TimeZonePickerContent : IDialogContent
         return choice.Offset == total && choice.Rank >= 0;
     }
 
-    private static List<Choice> Choices(string selected, DateTimeOffset now, TimeZoneInfo local)
+    private static List<Choice> Choices(string selected, DateTimeOffset now, TimeZoneInfo local, bool requireSupportedZone)
     {
         var names = TimeZones.All().ToList();
         if (!string.Equals(selected, "auto", StringComparison.OrdinalIgnoreCase) && !names.Contains(selected, StringComparer.Ordinal)) names.Add(selected);
         var result = new List<Choice> { new("auto", "Automatic (" + local.DisplayName + ")", "automatic auto", -1, int.MinValue) };
+        if (requireSupportedZone) result.Clear();
         foreach (var name in names)
         {
             var supported = SettingDisplayTimeZone.TryResolve(name, out var zone);
+            if (requireSupportedZone && !supported) continue;
             var offset = supported ? (int)zone!.GetUtcOffset(now).TotalMinutes : 0;
             var span = TimeSpan.FromMinutes(Math.Abs(offset));
             var label = supported ? string.Create(System.Globalization.CultureInfo.InvariantCulture, $"GMT{(offset < 0 ? '-' : '+')}{(int)span.TotalHours:00}:{span.Minutes:00}") : "unavailable";

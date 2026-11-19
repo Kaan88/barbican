@@ -3,4 +3,4 @@
 namespace Barbican.Presentation.Calendar.Editors;
 
 /// <summary>What the views ask the editors to open for a new event: the range clicked or dragged, on the user's clock, and an optional calendar and title (the month cell's quick create, "New event in this calendar").</summary>
-public sealed record NewEventRequest(DateTime Start, DateTime End, bool AllDay, string? CalendarId = null, string Title = "");
+public sealed record NewEventRequest(DateTime Start, DateTime End, bool AllDay, string? CalendarId = null, string Title = "", string? TimeZone = null);

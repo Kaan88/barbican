@@ -24,6 +24,11 @@ public sealed partial class CalendarCardHost
         if (t.HasTime)
         {
             panel.Children.Add(Text("cal.task.duetime", t.DueTime, v => t.DueTime = v));
+            if (t.IsNew)
+            {
+                panel.Children.Add(Body("Time zone for this task: " + (t.TimeZone.Length == 0 ? "Unavailable" : t.TimeZone)));
+                panel.Children.Add(Btn("Choose time zone", DialogTone.Plain, "cal.task.zone", () => Run(PickZoneAsync(t.TimeZone, zone => t.TimeZone = zone))));
+            }
         }
 
         panel.Children.Add(Label("Priority"));
@@ -61,6 +66,11 @@ public sealed partial class CalendarCardHost
         var (day, time) = q.Label;
         panel.Children.Add(Body(time.Length > 0 ? day + "  " + time : day));
         panel.Children.Add(Text("cal.quick.title", q.Title, v => q.Title = v, placeholder: "Add title"));
+        if (!q.AllDay)
+        {
+            panel.Children.Add(Body("Time zone for this event: " + (q.TimeZone.Length == 0 ? "Unavailable" : q.TimeZone)));
+            panel.Children.Add(Btn("Choose time zone", DialogTone.Plain, "cal.quick.zone", () => Run(PickZoneAsync(q.TimeZone, zone => q.TimeZone = zone))));
+        }
         var calendars = q.Calendars.ToList();
         panel.Children.Add(Combo("cal.quick.calendar", calendars.Select(c => c.Name), Math.Max(0, calendars.FindIndex(c => string.Equals(c.Id, q.CalendarId, StringComparison.Ordinal))), i => q.CalendarId = calendars[i].Id));
         var error = ErrorLine(q.Error);

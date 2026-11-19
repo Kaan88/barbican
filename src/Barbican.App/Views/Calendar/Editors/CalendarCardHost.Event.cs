@@ -25,7 +25,15 @@ public sealed partial class CalendarCardHost
         body.Children.Add(DateTimeRow("cal.event.start", e.StartDate, e.StartTime, d => e.StartDate = d, t => e.StartTime = t, e.AllDay));
         body.Children.Add(Label("Ends"));
         body.Children.Add(DateTimeRow("cal.event.end", e.EndDate, e.EndTime, d => e.EndDate = d, t => e.EndTime = t, e.AllDay));
-        body.Children.Add(Body("Time zone: " + e.ZoneLabel));
+        if (!e.AllDay)
+        {
+            body.Children.Add(Body("Time zone for this event: " + (e.TimeZone is { Length: 0 } ? "Unavailable" : e.ZoneLabel)));
+            if (!read)
+            {
+                body.Children.Add(Btn("Choose time zone", DialogTone.Plain, "cal.event.zone", () => Run(PickZoneAsync(e.TimeZone ?? "auto", zone => e.TimeZone = zone))));
+                body.Children.Add(Btn("Use floating time", DialogTone.Plain, "cal.event.floating", () => { e.TimeZone = null; ForceRedraw(); }));
+            }
+        }
         body.Children.Add(Label("Repeat"));
         body.Children.Add(Combo("cal.event.repeat", EventEditorViewModel.RepeatChoices, e.Repeat, i => { e.Repeat = i; ForceRedraw(); }));
         if (e.CustomOpen)

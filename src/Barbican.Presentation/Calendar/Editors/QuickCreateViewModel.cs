@@ -69,6 +69,14 @@ public sealed class QuickCreateViewModel : ObservableObject, ICloseableCard
         private set => SetProperty(ref _error, value);
     }
 
+    public bool AllDay => _request.AllDay;
+
+    public string TimeZone
+    {
+        get => _zone;
+        set { if (SetProperty(ref _zone, value ?? string.Empty)) Error = string.Empty; }
+    }
+
     public bool CanSave => _calendarId.Length > 0;
 
     /// <summary>"Friday, November 20" and "09:00 – 10:00" (or "All day"); a dragged range of days shows both ends.</summary>
@@ -129,7 +137,7 @@ public sealed class QuickCreateViewModel : ObservableObject, ICloseableCard
             _zone = _currentZone?.Invoke() ?? string.Empty;
             if (_zone.Length == 0)
             {
-                Error = "The system time zone is unavailable. Select a supported time zone in Settings, then try again.";
+                Error = "The system time zone is unavailable. Choose a supported time zone, then try again.";
                 return false;
             }
         }
@@ -148,7 +156,7 @@ public sealed class QuickCreateViewModel : ObservableObject, ICloseableCard
     /// <summary>"More options": closes the popover and asks for the full editor with the title and calendar.</summary>
     public void More()
     {
-        MoreRequest = _request with { Title = _title, CalendarId = _calendarId.Length > 0 ? _calendarId : _request.CalendarId };
+        MoreRequest = _request with { Title = _title, CalendarId = _calendarId.Length > 0 ? _calendarId : _request.CalendarId, TimeZone = _zone.Length > 0 ? _zone : null };
         Close();
     }
 

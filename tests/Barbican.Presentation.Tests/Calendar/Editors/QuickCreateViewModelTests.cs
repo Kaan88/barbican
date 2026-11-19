@@ -39,10 +39,11 @@ public sealed class QuickCreateViewModelTests
         var q = new QuickCreateViewModel(_source, _writer, new NewEventRequest(Dt("2026-11-20T09:00:00"), Dt("2026-11-20T10:00:00"), false), zone: Zone(), currentZone: Zone);
         q.Title = "Keep this";
         Assert.False(await q.SaveAsync(CancellationToken.None));
-        Assert.Contains("Select a supported time zone", q.Error);
+        Assert.Contains("Choose a supported time zone", q.Error);
         Assert.Empty(_writer.Creates);
         Assert.Equal("Keep this", q.Title);
-        selected = "Asia/Tokyo";
+        q.TimeZone = "Asia/Tokyo";
+        Assert.Equal("auto", selected);
         Assert.True(await q.SaveAsync(CancellationToken.None));
         Assert.Equal("Asia/Tokyo", (string?)Assert.Single(_writer.Creates).Data["timeZone"]);
     }
@@ -87,9 +88,11 @@ public sealed class QuickCreateViewModelTests
         var q = new QuickCreateViewModel(_source, _writer, new NewEventRequest(Dt("2026-11-20T09:00:00"), Dt("2026-11-20T10:00:00"), false));
         q.Title = "Plan";
         q.CalendarId = "home";
+        q.TimeZone = "Asia/Tokyo";
         q.More();
         Assert.Equal("Plan", q.MoreRequest!.Title);
         Assert.Equal("home", q.MoreRequest.CalendarId);
+        Assert.Equal("Asia/Tokyo", q.MoreRequest.TimeZone);
         Assert.True(q.Closed.IsCompleted);
         Assert.Empty(_writer.Creates);
     }

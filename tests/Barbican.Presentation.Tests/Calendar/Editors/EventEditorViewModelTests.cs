@@ -76,7 +76,7 @@ public sealed class EventEditorViewModelTests
         e.OpenNew(new NewEventRequest(Dt("2026-11-20T10:00:00"), Dt("2026-11-20T11:00:00"), false));
         e.Title = "Keep this";
         Assert.False(await e.SaveAsync(CancellationToken.None));
-        Assert.Contains("Select a supported time zone", e.Error);
+        Assert.Contains("Choose a supported time zone", e.Error);
         Assert.Empty(_writer.Saves);
         Assert.Equal("Keep this", e.Title);
         selected = "Asia/Tokyo";
