@@ -15,6 +15,7 @@ using Barbican.Presentation.Mail;
 using Barbican.Presentation.Shell;
 using Microsoft.UI.Xaml.Controls.Primitives;
 using Microsoft.UI.Xaml.Input;
+using Microsoft.UI.Xaml.Automation;
 
 namespace Barbican.App.Shell;
 
@@ -35,6 +36,8 @@ public sealed partial class ShellPage : Page
     private bool? _appliedNordic;
     private readonly Barbican.Presentation.Compose.IComposerService? _composer;
     private bool _composing;
+    private object? _dockSession;
+    private bool _showDockMessage;
     private bool _readerFullscreen;
     private Views.Calendar.CalendarScreen? _calendar;
     private readonly ShellViewModel? _shell;
@@ -76,6 +79,7 @@ public sealed partial class ShellPage : Page
         ApplyLook();
         _look.PropertyChanged += (_, _) => ApplyLook();
         SizeChanged += (_, e) => _look.SetWindowWidth(e.NewSize.Width);
+        ReaderColumn.SizeChanged += (_, _) => ApplyDockLayout();
         PreviewKeyDown += OnPreviewKeyDown;
         if (_composer is not null)
         {
@@ -169,6 +173,7 @@ public sealed partial class ShellPage : Page
         ReaderColumn.RowSpacing = _look.Gap;
         GlanceRegion.Visibility = layout.SummaryTilesShown && _look.IsBento && !_composing ? Visibility.Visible : Visibility.Collapsed;
         ContextRegion.Visibility = layout.ContextShown && !_composing ? Visibility.Visible : Visibility.Collapsed;
+        ApplyDockLayout();
         if (_appliedNordic is { } before && before != _look.IsNordic)
         {
             Rise.Run(MailScreen, MailShift, MotionRuntime.Scale.EnterMs);
@@ -202,13 +207,42 @@ public sealed partial class ShellPage : Page
     {
         var composer = _composer?.Current;
         _composing = composer is not null;
-        ComposerRegion.Visibility = _composing ? Visibility.Visible : Visibility.Collapsed;
         var docked = composer?.IsDocked == true;
-        ComposerRegion.SetValue(Grid.RowProperty, docked ? 2 : 0);
-        ComposerRegion.SetValue(Grid.RowSpanProperty, docked ? 1 : 3);
-        ComposerRegion.Height = docked ? 400 : double.NaN;
-        ReaderRegion.Visibility = _composing && !docked ? Visibility.Collapsed : Visibility.Visible;
+        if (!ReferenceEquals(_dockSession, composer))
+        {
+            _dockSession = composer;
+            _showDockMessage = false;
+        }
+
+        ComposerDockHost.Visibility = _composing ? Visibility.Visible : Visibility.Collapsed;
+        ComposerDockHost.SetValue(Grid.RowProperty, docked ? 2 : 0);
+        ComposerDockHost.SetValue(Grid.RowSpanProperty, docked ? 1 : 3);
         ApplyLook();
+    }
+
+    // Bulwark shares 60% of a tall reader; a short reader alternates between
+    // the message and the still-mounted composer (reply-dock.tsx:40-70, 148-210).
+    private void ApplyDockLayout()
+    {
+        var docked = _composer?.Current?.IsDocked == true;
+        var adaptive = _composing && docked && _look.IsBulwark;
+        var layout = adaptive ? ReplyDockLayout.Compute(ReaderColumn.ActualHeight) : default;
+        var takeover = adaptive && layout.Takeover;
+        var showingMessage = takeover && _showDockMessage;
+        DockDisclosure.Visibility = takeover ? Visibility.Visible : Visibility.Collapsed;
+        DockDisclosure.Content = showingMessage ? "Back to reply" : "Show the message";
+        AutomationProperties.SetName(DockDisclosure, (string)DockDisclosure.Content);
+        ComposerRegion.Visibility = showingMessage ? Visibility.Collapsed : Visibility.Visible;
+        ReaderRegion.Visibility = _composing && (!docked || (takeover && !showingMessage)) ? Visibility.Collapsed : Visibility.Visible;
+        ComposerDockHost.Height = !docked || showingMessage ? double.NaN
+            : !adaptive ? 400
+            : layout.Height > 0 ? layout.Height : double.NaN;
+    }
+
+    private void OnDockDisclosureClick(object sender, RoutedEventArgs e)
+    {
+        _showDockMessage = !_showDockMessage;
+        ApplyDockLayout();
     }
 
     // The title band exists where the window's content is extended into its title bar: the WinUI head. The Linux head keeps the window manager's

@@ -66,7 +66,12 @@
             <glance:GlanceTilesView x:Name="GlanceRegion" Grid.Row="0" />
             <reader:ReaderView x:Name="ReaderRegion" Grid.Row="1" />
             <!-- M3 composer-ui: the composer takes the reader's place (the folders column collapses and the list stays), or sits under the reader when it answers a message (ComposerDock) -->
-            <compose:ComposerView x:Name="ComposerRegion" Grid.Row="0" Grid.RowSpan="3" Visibility="Collapsed" />
+            <Grid x:Name="ComposerDockHost" Grid.Row="0" Grid.RowSpan="3" RowDefinitions="Auto,*" Visibility="Collapsed" AutomationProperties.AutomationId="reply-dock.host">
+              <Button x:Name="DockDisclosure" Grid.Row="0" HorizontalAlignment="Stretch" HorizontalContentAlignment="Left"
+                      Padding="16,6" Click="OnDockDisclosureClick" Visibility="Collapsed"
+                      AutomationProperties.AutomationId="reply-dock.disclosure" />
+              <compose:ComposerView x:Name="ComposerRegion" Grid.Row="1" />
+            </Grid>
           </Grid>
           <context:ContextView x:Name="ContextRegion" Grid.Column="2" />
         </Grid>

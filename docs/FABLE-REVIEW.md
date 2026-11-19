@@ -39,6 +39,18 @@ placeholders (see CLAUDE.md); never write real values here.
   window, and Bento/Nordic transitions; actual pointer dragging and keyboard focus remain
   unverified. The title, list contents, and reader are not full Bulwark parity.
 
+## M6b adaptive reply dock (Terra)
+
+- Review the uncommitted `src/Barbican.App/Shell/{ReplyDockLayout.cs,ShellPage.xaml,ShellPage.xaml.cs}`
+  changes based on `45df962`. Bulwark's 60% initial share and 700 px takeover threshold
+  follow `components/mail/reply-dock.tsx`; the native reader's 200 px minimum replaces
+  the web-specific chrome/body measurements. The compact disclosure keeps the composer
+  mounted. A draggable/persisted divider and the web reader's measured chrome and body
+  adaptation are not implemented; legacy dock height remains 400 px. Hidden synthetic
+  automation verified both compact disclosure directions, a retained subject, resizing,
+  and legacy heights; keyboard accessibility, editor undo state and all reply variants
+  still need verification.
+
 ## M0, consolidated at the merge (stream: m0-review)
 
 The seven M0 streams' sections are archived verbatim in

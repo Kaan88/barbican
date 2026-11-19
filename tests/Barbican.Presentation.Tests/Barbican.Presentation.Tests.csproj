@@ -17,6 +17,7 @@
     <Compile Include="../../src/Barbican.App/Motion/MotionScale.cs" Link="ShellUi/Linked/MotionScale.cs" />
     <Compile Include="../../src/Barbican.App/Shell/KeyChordMapper.cs" Link="ShellUi/Linked/KeyChordMapper.cs" />
     <Compile Include="../../src/Barbican.App/Shell/KeyGate.cs" Link="ShellUi/Linked/KeyGate.cs" />
+    <Compile Include="../../src/Barbican.App/Shell/ReplyDockLayout.cs" Link="ShellUi/Linked/ReplyDockLayout.cs" />
   </ItemGroup>
   <ItemGroup>
     <!-- M1 hotfix (sign-in): sign-in and restore end to end on FakeJmap with the fake OAuth provider, to prove the UI-thread rule. -->
