@@ -77,15 +77,108 @@ public sealed class UnifiedInboxTests : IDisposable
 
         // the shared account cannot be read on this fake server: the other sources still answer
         var first = (await source.QueryAsync(query, null, Ct)).Value!;
-        Assert.Equal(["a5", "b4", "a3", "b2"], Subjects(first.Items));
+        Assert.Equal(["a5", "b4"], Subjects(first.Items));
         Assert.Equal(5, first.Total);
         Assert.NotNull(first.Next);
         Assert.All(first.Items, r => Assert.NotNull(UnifiedRows.ParseRow(r.Id)));
         Assert.Equal(LoginB, UnifiedRows.ParseRow(first.Items[1].Id)!.Login);
 
         var second = (await source.QueryAsync(query, first.Next, Ct)).Value!;
-        Assert.Equal(["a1"], Subjects(second.Items));
-        Assert.Null(second.Next);
+        Assert.Equal(["a3", "b2"], Subjects(second.Items));
+        Assert.NotNull(second.Next);
+        var third = (await source.QueryAsync(query, second.Next, Ct)).Value!;
+        Assert.Equal(["a1"], Subjects(third.Items));
+        Assert.Null(third.Next);
+    }
+
+    [Fact]
+    public async Task Server_page_caps_do_not_hide_newer_rows_behind_other_accounts()
+    {
+        using var capped = new FakeJmapServer(new FakeJmapOptions { Origin = "https://capped.example.org", AccountId = "c", QueryLimitCap = 1 }, seed: false);
+        var inbox = capped.Store.AddMailbox("Inbox", "inbox");
+        capped.Store.Deliver(new FakeMail { Subject = "c9", ReceivedAt = T0.AddHours(9) }, inbox);
+        capped.Store.Deliver(new FakeMail { Subject = "c8", ReceivedAt = T0.AddHours(8) }, inbox);
+        var (a, _) = await ConnectAsync();
+        var c = await FakeJmapHarness.ConnectAsync(capped, TimeProvider.System, ct: Ct);
+        var source = SourceOf(a, c, group: false);
+        var query = new ListQuery { MailboxId = UnifiedRows.FolderId, PageSize = 2 };
+        var page = (await source.QueryAsync(query, null, Ct)).Value!;
+        Assert.Equal(["c9", "c8"], Subjects(page.Items));
+        Assert.Equal(["a5", "a3"], Subjects((await source.QueryAsync(query, page.Next, Ct)).Value!.Items));
+    }
+
+    [Fact]
+    public async Task Starred_priority_is_sorted_before_paginating_across_sources()
+    {
+        _a.Store.Deliver(new FakeMail { Subject = "starA", ReceivedAt = T0, Keywords = ["$flagged"] }, _inboxA);
+        _b.Store.Deliver(new FakeMail { Subject = "starB", ReceivedAt = T0.AddMinutes(1), Keywords = ["$flagged"] }, _inboxB);
+        var (a, b) = await ConnectAsync();
+        var source = SourceOf(a, b, group: false);
+        var query = new ListQuery { MailboxId = UnifiedRows.FolderId, PageSize = 1,
+            Sort = [new("hasKeyword", false, "$flagged"), new("receivedAt", false)] };
+        var first = (await source.QueryAsync(query, null, Ct)).Value!;
+        var second = (await source.QueryAsync(query, first.Next, Ct)).Value!;
+        var third = (await source.QueryAsync(query, second.Next, Ct)).Value!;
+        Assert.Equal(["starB"], Subjects(first.Items));
+        Assert.Equal(["starA"], Subjects(second.Items));
+        Assert.Equal(["a5"], Subjects(third.Items));
+    }
+
+    [Fact]
+    public async Task One_unsupported_account_forces_common_value_sort_and_warning()
+    {
+        using var refusing = new FakeJmapServer(new FakeJmapOptions { Origin = "https://refusing.example.org", AccountId = "r", RefuseKeywordSort = true }, seed: false);
+        var inbox = refusing.Store.AddMailbox("Inbox", "inbox");
+        refusing.Store.Deliver(new FakeMail { Subject = "refusing-new", ReceivedAt = T0.AddHours(6) }, inbox);
+        _a.Store.Deliver(new FakeMail { Subject = "star-old", ReceivedAt = T0, Keywords = ["$flagged"] }, _inboxA);
+        var (a, _) = await ConnectAsync();
+        var r = await FakeJmapHarness.ConnectAsync(refusing, TimeProvider.System, ct: Ct);
+        var source = SourceOf(a, r, group: false);
+        var query = new ListQuery { MailboxId = UnifiedRows.FolderId, PageSize = 2,
+            Sort = [new("hasKeyword", false, "$flagged"), new("receivedAt", false)] };
+        var page = (await source.QueryAsync(query, null, Ct)).Value!;
+        Assert.NotNull(page.Warning);
+        Assert.Equal(["refusing-new", "a5"], Subjects(page.Items));
+    }
+
+    [Fact]
+    public void Refresh_reordering_emits_remove_and_reinsert_operations()
+    {
+        var before = new[] { new EmailSummary { Id = "a" }, new EmailSummary { Id = "b" } };
+        var after = new[] { before[1], before[0] };
+        var delta = UnifiedListSource.Diff(before, after, new Dictionary<string, int>(StringComparer.Ordinal), 2)!;
+        Assert.Equal(["a", "b"], delta.Removed);
+        Assert.Equal(new[] { ("b", 0), ("a", 1) }, delta.Added);
+        Assert.Equal(2, delta.Emails.Count);
+    }
+
+    [Fact]
+    public async Task Paging_after_refresh_uses_updated_source_positions()
+    {
+        var (a, b) = await ConnectAsync();
+        var source = SourceOf(a, b, group: false);
+        var query = new ListQuery { MailboxId = UnifiedRows.FolderId, PageSize = 2 };
+        var first = (await source.QueryAsync(query, null, Ct)).Value!;
+        _a.Store.Deliver(new FakeMail { Subject = "a6", ReceivedAt = T0.AddHours(6) }, _inboxA);
+        Assert.NotNull((await source.RefreshAsync(Ct)).Value);
+        var next = (await source.QueryAsync(query, first.Next, Ct)).Value!;
+        Assert.Equal(["a3", "b2"], Subjects(next.Items));
+    }
+
+    [Fact]
+    public async Task Refresh_keeps_failed_account_total_when_another_account_changes()
+    {
+        var (a, b) = await ConnectAsync();
+        var both = UnifiedSources.Build([(LoginA, a), (LoginB, b)], LoginA, new UnifiedSettings(true, true, false));
+        IReadOnlyList<UnifiedSource> current = both;
+        var source = new UnifiedListSource(() => current);
+        _ = await source.QueryAsync(new ListQuery { MailboxId = UnifiedRows.FolderId, PageSize = 10 }, null, Ct);
+        current = [both[0], both[1] with { AccountId = "missing" }];
+        _a.Store.Deliver(new FakeMail { Subject = "a6", ReceivedAt = T0.AddHours(6) }, _inboxA);
+        var delta = (await source.RefreshAsync(Ct)).Value!;
+        Assert.Equal(6, delta.Total);
+        Assert.Empty(delta.Removed);
+        Assert.Single(delta.Added);
     }
 
     [Fact]

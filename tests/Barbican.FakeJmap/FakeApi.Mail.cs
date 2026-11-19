@@ -64,7 +64,12 @@ public sealed partial class FakeApi
 
     private (string? Name, JsonObject Args) EmailQuery(JsonObject args)
     {
-        var ids = store.Query(args["filter"]);
+        if (options.RefuseKeywordSort && (args["sort"] as JsonArray ?? []).OfType<JsonObject>().Any(c => string.Equals((string?)c["property"], "hasKeyword", StringComparison.Ordinal)))
+        {
+            return Error("unsupportedSort");
+        }
+
+        var ids = store.Query(args["filter"], args["sort"] as JsonArray);
         if ((bool?)args["collapseThreads"] == true)
         {
             // RFC 8621 4.4.3: only the first (newest) message of each conversation
@@ -119,14 +124,15 @@ public sealed partial class FakeApi
         }
 
         var since = (string?)args["sinceQueryState"] ?? "";
-        if (store.QueryAt(since, args["filter"]) is not { } before)
+        if (store.QueryAt(since, args["filter"], args["sort"] as JsonArray) is not { } before)
         {
             return Error("cannotCalculateChanges");
         }
 
-        var now = store.Query(args["filter"]);
+        var now = store.Query(args["filter"], args["sort"] as JsonArray);
         var old = before.ToHashSet(StringComparer.Ordinal);
         var current = now.ToHashSet(StringComparer.Ordinal);
+        var moved = !before.Where(current.Contains).SequenceEqual(now.Where(old.Contains), StringComparer.Ordinal);
         var newState = store.State("Email");
         if (TakeFault(FakeFault.QueryStateWentBack))
         {
@@ -138,8 +144,8 @@ public sealed partial class FakeApi
             ["accountId"] = options.AccountId,
             ["oldQueryState"] = since,
             ["newQueryState"] = newState,
-            ["removed"] = new JsonArray([.. before.Where(i => !current.Contains(i)).Select(x => (JsonNode)x)]),
-            ["added"] = new JsonArray([.. now.Select((id, index) => (id, index)).Where(x => !old.Contains(x.id))
+            ["removed"] = new JsonArray([.. before.Where(i => moved || !current.Contains(i)).Select(x => (JsonNode)x)]),
+            ["added"] = new JsonArray([.. now.Select((id, index) => (id, index)).Where(x => moved || !old.Contains(x.id))
                 .Select(x => (JsonNode)new JsonObject { ["id"] = x.id, ["index"] = x.index })]),
         };
         if ((bool?)args["calculateTotal"] == true)
