@@ -99,7 +99,7 @@ internal static class SetUiAssistantPage
         var provider = new SetUiChoice(Providers, Math.Clamp(Number("ai.provider", 0), 0, 1), index => Save("ai.provider", JsonValue.Create(index)), "set.assistant.provider");
         form.Children.Add(SetUiUi.RowOf("Provider", "OpenAI-compatible servers and Anthropic.", SetUiUi.Id(provider, "set.assistant.provider"), "set.assistant.provider.row"));
         form.Children.Add(TextRow("Base address", "Required. Enter the provider API base address, including /v1.", "ai.base", "https://api.openai.com/v1", Text, Save, textInputs, "set.assistant.base"));
-        form.Children.Add(TextRow("Model", "Required. Enter a model supported by this provider.", "ai.model", "gpt-4o-mini", Text, Save, textInputs, "set.assistant.model"));
+        form.Children.Add(TextRow("Model", "Required. Enter a model supported by this provider.", "ai.model", "Enter a model ID", Text, Save, textInputs, "set.assistant.model"));
         form.Children.Add(TextRow("Language", "The language of its answers and of Translate.", "ai.lang", "English", Text, Save, textInputs, "set.assistant.lang"));
 
         var mode = new SetUiChoice(Modes, Math.Clamp(Number("ai.actions", 1), 0, 2), index => Save("ai.actions", JsonValue.Create(index)), "set.assistant.actions");

@@ -1615,3 +1615,22 @@ Validation: focused tests 3 passed, full Presentation suite 996 passed, Windows 
 ## Codex - M6 search preference consumers (Sol)
 
 - `MessageListViewModel` now consumes clearSearchOnFolderChange (default false) and searchDefaultScope (default all), following Bulwark defaults. Clearing a global search restores the browsing folder; explicit tag searches keep tag scope. `SearchListQueryShaper` uses GlobalMailFilter for all-folder searches so Trash/Junk are excluded unless explicitly requested. Queries are shaped before being stored/watched, preserving the same filter for initial page, paging and push deltas. Four new scope/preservation/watch regressions passed; the full Windows Presentation suite passed 1,016 tests. The prior folder-search test now explicitly selects the folder preference and retains its assertions. Final full-suite/hidden actual-service verification remain required.
+
+## Codex - M6 archive reorganization (Terra High)
+
+Review `src/Barbican.Core/Mail/Archive/{IArchiveReorganizer,ArchiveReorganizationReport,ArchiveReorganizer,ArchiveSnapshot}.cs`, settings registration, and `tests/Barbican.Core.Tests/Mail/ArchiveReorganizerTests.cs`. Bulwark `components/settings/message-list-settings.tsx:82-145` and `lib/jmap/client.ts:3204,4134` define root-only dated grouping, folder creation and move hooks. The service captures the requested account session, requires a stable complete paged snapshot before writing, respects object-set limits and reports known, unattempted and unknown outcomes. Single mode is a no-op; missing dates and plugin-vetoed groups are skipped. It uses the existing whole-mailbox-set move semantics.
+
+Nine fake-server tests pass on Windows: capped paging in year/month modes, existing folders, read-only, account isolation, folder/move veto, successful hook payloads, cancellation and later-chunk failure. No live writes performed. A transport failure or cancellation during a write can leave its server outcome unknown, explicitly reported; a remote mailbox can still change after the completed scan, so review retry/refresh messaging and confirmation in the UI. The Settings UI owns confirmation and report display.
+
+
+## Codex - M6 archive membership preservation (Terra High)
+
+The archive reorganization now removes only the root Archive membership while adding the dated destination, preserving other mailbox labels. This deliberately differs from Bulwark `batchMoveEmails`, which replaces all mailbox IDs. The existing `JsonNodeExtensions.AsNumber` rejects negative and fractional totals before conversion; service-level tests pin refusal before any writes.
+
+## Codex - M6 archive UI and anchor follow-up (Terra High)
+
+- Review the archive action in SetUiRowsView: it captures account and account generation, confirms before writing, serializes repeated presses, requests mail and folder refresh, and retains detailed known/unknown outcomes in page text. Account changes suppress late results. The test profile opened and cancelled the confirmation; no real archive write was run. Verify the account generation against rapid switches and inspect lengthy partial-result accessibility.
+- A first-open anchor initially stayed at the top because the asynchronous Info refresh rebuilt the rows. RowsView reapplies the active anchor after rebuilding and waits for nonzero geometry, with stale requests detached on unload or navigation; the hidden cold archive-anchor capture now shows the requested row. Review rapid navigation and scroll restoration under I-397.
+- Full Windows Automation suite for 7c0c847 plus archive UI and anchor work passed 2796 tests with four skips; Windows and desktop heads built with zero warnings. Final milestone-merged tests remain required.
+
+- **Sol integration code check:** reviewed stable pre-write scan, captured account, chunk outcomes, plugin vetoes and partial/cancel reporting. Requested preservation of unrelated mailbox memberships; the follow-up implements it with regression coverage (12 archive tests). Inspected all six synthetic captures and corrected Backup tiles in both contact sheets to use a sample relative path. This checkpoint applies the reviewed source and corrected captures without importing the earlier path-bearing screenshot commit into m6 ancestry. Final merged verification and portable packaging remain pending.

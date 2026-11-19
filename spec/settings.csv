@@ -136,31 +136,31 @@ S-markAsReadDelay,wired,reading,select,Mark as read,0,msgload.rs,src/msgload.rs:
 S-messageSpacing,wired,reading,select,Message spacing,"""auto""",main.rs,src/main.rs:255,BodyAppearance,
 S-returnToListAfterAction,wired,reading,toggle,"Return to list after delete, archive, move or mark unread",true,mail.rs,src/mail.rs:1011,src/Barbican.Presentation/Mail/MessageListViewModel.Actions.cs,
 S-debugMode,unwired,troubleshooting,toggle,Detailed logging,false,,,not ported,
-S-keyless-001,keyless,account,info,Email address,,,,not ported,no key: dropped by Rust settings.rs schema_rows
-S-keyless-002,keyless,account,info,Username,,,,not ported,no key: dropped by Rust settings.rs schema_rows
-S-keyless-003,keyless,account,info,Authentication,,,,not ported,no key: dropped by Rust settings.rs schema_rows
-S-keyless-004,keyless,account,info,JMAP server,,,,not ported,no key: dropped by Rust settings.rs schema_rows
-S-keyless-005,keyless,account,info,Storage usage,,,,not ported,no key: dropped by Rust settings.rs schema_rows
-S-keyless-006,keyless,account,info,Account type,,,,not ported,no key: dropped by Rust settings.rs schema_rows
-S-keyless-007,keyless,account,info,Your name,,,,not ported,no key: dropped by Rust settings.rs schema_rows
-S-keyless-008,keyless,account,text,Your name,,,,not ported,no key: dropped by Rust settings.rs schema_rows
-S-keyless-009,keyless,account,info,Your addresses,,,,not ported,no key: dropped by Rust settings.rs schema_rows
-S-keyless-010,keyless,account,info,Sub-addressing,,,,not ported,no key: dropped by Rust settings.rs schema_rows
-S-keyless-011,keyless,security,info,Two-step sign-in,,,,not ported,no key: dropped by Rust settings.rs schema_rows
-S-keyless-012,keyless,security,toggle,Two-step sign-in,,,,not ported,no key: dropped by Rust settings.rs schema_rows
-S-keyless-013,keyless,security,toggle,Lock with a PIN,,,,not ported,no key: dropped by Rust settings.rs schema_rows
-S-keyless-014,keyless,security,toggle,Unlock with Windows Hello,,,,not ported,no key: dropped by Rust settings.rs schema_rows
-S-keyless-015,keyless,security,select,Lock after,,,,not ported,no key: dropped by Rust settings.rs schema_rows
-S-keyless-016,keyless,security,info,Lock now,,,,not ported,no key: dropped by Rust settings.rs schema_rows
-S-keyless-017,keyless,security,info,PIN,,,,not ported,no key: dropped by Rust settings.rs schema_rows
-S-keyless-018,keyless,security,info,Passkey,,,,not ported,no key: dropped by Rust settings.rs schema_rows
-S-keyless-019,keyless,notifications,toggle,Turn on for this device,,,,not ported,no key: dropped by Rust settings.rs schema_rows
-S-keyless-020,keyless,general,info,Introductory tour,,,,not ported,no key: dropped by Rust settings.rs schema_rows
-S-keyless-021,keyless,general,info,Language,,,,not ported,no key: dropped by Rust settings.rs schema_rows
-S-keyless-022,keyless,general,info,Open email links in {appName},,,,not ported,no key: dropped by Rust settings.rs schema_rows
-S-keyless-023,keyless,general,info,Open calendar links in {appName},,,,not ported,no key: dropped by Rust settings.rs schema_rows
-S-keyless-024,keyless,general,select,How links open,,,,not ported,no key: dropped by Rust settings.rs schema_rows
-S-keyless-025,keyless,appearance,select,Light or dark,,,,not ported,no key: dropped by Rust settings.rs schema_rows
+S-keyless-001,keyless,account,info,Email address,,,,SetUiAccountPage; SetUiSecurityViewModel,no key: dropped by Rust settings.rs schema_rows
+S-keyless-002,keyless,account,info,Username,,,,unavailable in SetUiAccountPage,no key: dropped by Rust settings.rs schema_rows
+S-keyless-003,keyless,account,info,Authentication,,,,SetUiAccountPage; SetUiSecurityViewModel,no key: dropped by Rust settings.rs schema_rows
+S-keyless-004,keyless,account,info,JMAP server,,,,SetUiAccountPage; SetUiSecurityViewModel,no key: dropped by Rust settings.rs schema_rows
+S-keyless-005,keyless,account,info,Storage usage,,,,SetUiAccountPage; SetUiSecurityViewModel,no key: dropped by Rust settings.rs schema_rows
+S-keyless-006,keyless,account,info,Account type,,,,unavailable in SetUiAccountPage,no key: dropped by Rust settings.rs schema_rows
+S-keyless-007,keyless,account,info,Your name,,,,SetUiAccountPage; SetUiSecurityViewModel,no key: dropped by Rust settings.rs schema_rows
+S-keyless-008,keyless,account,text,Your name,,,,SetUiAccountPage; SetUiSecurityViewModel,no key: dropped by Rust settings.rs schema_rows
+S-keyless-009,keyless,account,info,Your addresses,,,,SetUiAccountPage; SetUiSecurityViewModel,no key: dropped by Rust settings.rs schema_rows
+S-keyless-010,keyless,account,info,Sub-addressing,,,,SetUiRowsView (subAddressDelimiter keyed row); keyless detail unavailable,no key: dropped by Rust settings.rs schema_rows
+S-keyless-011,keyless,security,info,Two-step sign-in,,,,SetUiSecurityPage; SetUiSecurityViewModel,no key: dropped by Rust settings.rs schema_rows
+S-keyless-012,keyless,security,toggle,Two-step sign-in,,,,SetUiSecurityPage; SetUiSecurityViewModel,no key: dropped by Rust settings.rs schema_rows
+S-keyless-013,keyless,security,toggle,Lock with a PIN,,,,deferred M8 (app lock),no key: dropped by Rust settings.rs schema_rows
+S-keyless-014,keyless,security,toggle,Unlock with Windows Hello,,,,deferred M8 (app lock),no key: dropped by Rust settings.rs schema_rows
+S-keyless-015,keyless,security,select,Lock after,,,,deferred M8 (app lock),no key: dropped by Rust settings.rs schema_rows
+S-keyless-016,keyless,security,info,Lock now,,,,deferred M8 (app lock),no key: dropped by Rust settings.rs schema_rows
+S-keyless-017,keyless,security,info,PIN,,,,deferred M8 (app lock),no key: dropped by Rust settings.rs schema_rows
+S-keyless-018,keyless,security,info,Passkey,,,,deferred M8 (app lock),no key: dropped by Rust settings.rs schema_rows
+S-keyless-019,keyless,notifications,toggle,Turn on for this device,,,,deferred M8 (notification behavior),no key: dropped by Rust settings.rs schema_rows
+S-keyless-020,keyless,general,info,Introductory tour,,,,deferred M10 (tour and language),no key: dropped by Rust settings.rs schema_rows
+S-keyless-021,keyless,general,info,Language,,,,deferred M10 (tour and language),no key: dropped by Rust settings.rs schema_rows
+S-keyless-022,keyless,general,info,Open email links in {appName},,,,deferred M8 (protocol handlers),no key: dropped by Rust settings.rs schema_rows
+S-keyless-023,keyless,general,info,Open calendar links in {appName},,,,deferred M8 (protocol handlers),no key: dropped by Rust settings.rs schema_rows
+S-keyless-024,keyless,general,select,How links open,,,,deferred M8 (protocol handlers),no key: dropped by Rust settings.rs schema_rows
+S-keyless-025,keyless,appearance,select,Light or dark,,,,SetUiRowsView; ThemeController,no key: dropped by Rust settings.rs schema_rows
 S-keyless-026,keyless,appearance,info,Text size and motion,,,,SetUiRowsView,Opens Accessibility for text size and motion.
 S-keyless-027,keyless,accessibility,info,Density and toolbar labels,,,,SetUiRowsView,Accessibility cross-link opens its target Settings page or shortcuts help.
 S-keyless-028,keyless,accessibility,info,Theme and colour mode,,,,SetUiRowsView,Accessibility cross-link opens its target Settings page or shortcuts help.
@@ -175,15 +175,15 @@ S-keyless-036,keyless,accessibility,info,Asking before deleting several messages
 S-keyless-037,keyless,accessibility,info,Do not disturb,,,,SetUiRowsView,Accessibility cross-link opens its target Settings page or shortcuts help.
 S-keyless-038,keyless,accessibility,info,Sounds and the unread badge,,,,SetUiRowsView,Accessibility cross-link opens its target Settings page or shortcuts help.
 S-keyless-039,keyless,message_list,select,Message list order,,,,SetUiOrderEditor; MessageListOrder,"Presets and up to three ordered levels including tags; hidden sample exercised add, reorder and tag changes."
-S-keyless-040,keyless,composing,toggle,Check spelling and grammar while I type,,,,not ported,no key: dropped by Rust settings.rs schema_rows
-S-keyless-041,keyless,vacation,info,Reply automatically,,,,not ported,no key: dropped by Rust settings.rs schema_rows
-S-keyless-042,keyless,vacation,select,Reply to,,,,not ported,no key: dropped by Rust settings.rs schema_rows
-S-keyless-043,keyless,vacation,text,From (optional),,,,not ported,no key: dropped by Rust settings.rs schema_rows
-S-keyless-044,keyless,vacation,text,Until (optional),,,,not ported,no key: dropped by Rust settings.rs schema_rows
-S-keyless-045,keyless,vacation,text,Subject,,,,not ported,no key: dropped by Rust settings.rs schema_rows
-S-keyless-046,keyless,vacation,info,Forward messages,,,,not ported,no key: dropped by Rust settings.rs schema_rows
-S-keyless-047,keyless,vacation,text,Forward to,,,,not ported,no key: dropped by Rust settings.rs schema_rows
-S-keyless-048,keyless,vacation,toggle,Keep in inbox,,,,not ported,no key: dropped by Rust settings.rs schema_rows
+S-keyless-040,keyless,composing,toggle,Check spelling and grammar while I type,,,,unavailable (proofreading control),no key: dropped by Rust settings.rs schema_rows
+S-keyless-041,keyless,vacation,info,Reply automatically,,,,SrvUiVacationPage; SrvUiVacationViewModel; VacationService,no key: dropped by Rust settings.rs schema_rows
+S-keyless-042,keyless,vacation,select,Reply to,,,,SrvUiVacationPage; SrvUiVacationViewModel; VacationService,no key: dropped by Rust settings.rs schema_rows
+S-keyless-043,keyless,vacation,text,From (optional),,,,SrvUiVacationPage; SrvUiVacationViewModel; VacationService,no key: dropped by Rust settings.rs schema_rows
+S-keyless-044,keyless,vacation,text,Until (optional),,,,SrvUiVacationPage; SrvUiVacationViewModel; VacationService,no key: dropped by Rust settings.rs schema_rows
+S-keyless-045,keyless,vacation,text,Subject,,,,SrvUiVacationPage; SrvUiVacationViewModel; VacationService,no key: dropped by Rust settings.rs schema_rows
+S-keyless-046,keyless,vacation,info,Forward messages,,,,SrvUiVacationPage; SrvUiVacationViewModel; VacationService,no key: dropped by Rust settings.rs schema_rows
+S-keyless-047,keyless,vacation,text,Forward to,,,,SrvUiVacationPage; SrvUiVacationViewModel; VacationService,no key: dropped by Rust settings.rs schema_rows
+S-keyless-048,keyless,vacation,toggle,Keep in inbox,,,,SrvUiVacationPage; SrvUiVacationViewModel; VacationService,no key: dropped by Rust settings.rs schema_rows
 S-keyless-049,keyless,calendar,select,Calendar opens in,,,,SetUiRowRules; CalendarViewModel,calendarViewMode selects the initial view; calendar service checkpoint supplies live preference handling.
 S-keyless-050,keyless,calendar,select,Organize invitations as,,,,SetUiCalendarIdentityEditor; ICalendarParticipantIdentities,Account-guarded organizer choices; read-only agent-profile probe loaded choices; no live change made.
 S-keyless-051,keyless,calendar,info,Working days,,,,SetUiRowsView.WorkingDays; SetUiViewModel.SetWorkingDayAsync; CalendarViewSettings.Read,Seven in-window toggles write calendarWorkingDays in first-day order and require at least one day.

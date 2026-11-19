@@ -11,6 +11,7 @@ using Barbican.Core.Accounts;
 using Barbican.Core.Calendar;
 using Barbican.Core.Contacts;
 using Barbican.Core.Mail.Avatars;
+using Barbican.Core.Mail.Archive;
 using Barbican.Core.Sync;
 using Barbican.Presentation.Settings;
 using Barbican.Presentation.Shell;
@@ -33,7 +34,10 @@ public sealed class SetUiRowsView : StackPanel
     private readonly Dictionary<string, Action> _refresh = new(StringComparer.Ordinal);
     private readonly List<IDisposable> _childrenToDispose = [];
     private bool _updating;
+    private long _accountVersion;
+    private bool _archiveRunning;
     private TextBlock? _error;
+    private TextBlock? _archiveStatus;
 
     public SetUiRowsView(string pageId, Func<SettingRow, bool>? include = null)
     {
@@ -44,6 +48,10 @@ public sealed class SetUiRowsView : StackPanel
         {
             switch (e.PropertyName)
             {
+                case nameof(ISetUiViewModel.AccountKey):
+                    _accountVersion++;
+                    if (_archiveStatus is not null) _archiveStatus.Text = string.Empty;
+                    break;
                 case "Values":
                     RefreshValues();
                     break;
@@ -88,6 +96,11 @@ public sealed class SetUiRowsView : StackPanel
         _error.Foreground = AppResources.Brush("RoseFg");
         _error.Visibility = _vm.LastError.Length > 0 ? Visibility.Visible : Visibility.Collapsed;
         Children.Add(_error);
+        var navigation = ViewHost.Find<ISettingsNavigation>();
+        if (navigation is not null && string.Equals(navigation.Current, _pageId, StringComparison.Ordinal) && navigation.Anchor is { } anchor)
+        {
+            _ = Reveal(anchor);
+        }
     }
 
     /// <summary>Scrolls to a row and marks it (a search hit or a cross-link).</summary>
@@ -98,12 +111,34 @@ public sealed class SetUiRowsView : StackPanel
             return false;
         }
 
-        element.StartBringIntoView();
-        if (element is Grid g)
+        var navigation = ViewHost.Get<ISettingsNavigation>();
+        SizeChangedEventHandler? sized = null;
+        RoutedEventHandler? unloaded = null;
+        void Detach()
         {
-            g.Background = AppResources.Brush("Sel");
+            element.SizeChanged -= sized;
+            element.Unloaded -= unloaded;
         }
 
+        void TryReveal()
+        {
+            if (!string.Equals(navigation.Current, _pageId, StringComparison.Ordinal) || !string.Equals(navigation.Anchor, anchor, StringComparison.Ordinal))
+            {
+                Detach();
+                return;
+            }
+
+            if (element.ActualHeight <= 0 || element.ActualWidth <= 0) return;
+            Detach();
+            element.StartBringIntoView();
+            if (element is Grid g) g.Background = AppResources.Brush("Sel");
+        }
+
+        sized = (_, _) => TryReveal();
+        unloaded = (_, _) => Detach();
+        element.SizeChanged += sized;
+        element.Unloaded += unloaded;
+        _ = element.DispatcherQueue.TryEnqueue(TryReveal);
         return true;
     }
 
@@ -227,7 +262,15 @@ public sealed class SetUiRowsView : StackPanel
                 }
             }, id + ".select");
             _refresh[row.Id] = () => choice.Selected = IndexOf(Current(row));
-            return SetUiUi.RowOf(row.Label, Note(row, desc), SetUiUi.Id(choice, id + ".select"), id);
+            var selectRow = SetUiUi.RowOf(row.Label, Note(row, desc), SetUiUi.Id(choice, id + ".select"), id);
+            if (!string.Equals(row.Key, "archiveMode", StringComparison.Ordinal)) return selectRow;
+            var archiveRows = new StackPanel();
+            archiveRows.Children.Add(selectRow);
+            _archiveStatus = SetUiUi.Meta(string.Empty);
+            _ = SetUiUi.Id(_archiveStatus, "set.archive.status");
+            archiveRows.Children.Add(SetUiUi.RowOf("Reorganize existing archive", "Move messages in the Archive root into folders using the selected mode.", SetUiUi.Pill("Reorganize", () => SetUiUi.Run(ReorganizeArchiveAsync), "set.archive.reorganize"), "set.archive.reorganize.row"));
+            archiveRows.Children.Add(_archiveStatus);
+            return archiveRows;
         }
 
         if (key is not null && row.Kind is SettingRowKind.Text or SettingRowKind.Select)
@@ -363,6 +406,46 @@ public sealed class SetUiRowsView : StackPanel
         "S-keyless-061" or "S-keyless-062" or "S-keyless-064" => SettingsPageIds.Backup,
         _ => null,
     };
+
+    private async Task ReorganizeArchiveAsync()
+    {
+        var accounts = ViewHost.Find<IAccountManager>();
+        var service = ViewHost.Find<IArchiveReorganizer>();
+        var dialogs = ViewHost.Find<IDialogService>();
+        var account = accounts?.Active?.Key;
+        var version = _accountVersion;
+        if (_archiveRunning || account is null || service is null || dialogs is null)
+        {
+            _ = ViewHost.Find<IToastService>()?.Show(new ToastRequest("Archive reorganization is unavailable.", IsError: true));
+            return;
+        }
+
+        var storedMode = _vm.ValueOf("archiveMode") as JsonValue;
+        var mode = storedMode is not null && storedMode.TryGetValue<string>(out var selectedMode) ? selectedMode ?? "single" : "single";
+        _archiveRunning = true;
+        try
+        {
+            if (!await dialogs.ShowAsync(new ConfirmDialogRequest("Reorganize archive", "Move messages in this account's Archive root using the selected folder mode?", "Reorganize", true), CancellationToken.None).ConfigureAwait(true)
+                || version != _accountVersion || !string.Equals(accounts?.Active?.Key, account, StringComparison.Ordinal)) return;
+            var result = await service.ReorganizeAsync(account, mode, CancellationToken.None).ConfigureAwait(true);
+            if (version != _accountVersion || !string.Equals(accounts?.Active?.Key, account, StringComparison.Ordinal)) return;
+            if (accounts?.SessionFor(account)?.Sync is MailSync sync)
+            {
+                await sync.SyncNowAsync(new HashSet<string>(["Mailbox", "Email", "Thread"], StringComparer.Ordinal), CancellationToken.None).ConfigureAwait(true);
+            }
+
+            if (version != _accountVersion || !string.Equals(accounts?.Active?.Key, account, StringComparison.Ordinal)) return;
+            var report = result.Value;
+            var message = report is null ? result.Error?.Message ?? "Archive reorganization did not produce a report." :
+                string.Equals(mode, "single", StringComparison.Ordinal) && result.IsOk ? "Single-folder mode needs no reorganization." :
+                $"Moved {report.Moved}; skipped {report.Skipped}; failed {report.Failed}; unattempted {report.Unattempted}; unknown {report.Unknown}. " +
+                (report.SnapshotComplete ? $"Snapshot total {report.Total}. " : "Snapshot incomplete. ") +
+                (report.Cancelled ? "Cancelled. " : string.Empty) + (report.Detail ?? string.Empty) + " " + (result.Error?.Message ?? string.Empty);
+            if (_archiveStatus is not null) _archiveStatus.Text = message;
+            _ = ViewHost.Find<IToastService>()?.Show(new ToastRequest(message, IsError: !result.IsOk || report?.Failed > 0 || report?.Unknown > 0));
+        }
+        finally { _archiveRunning = false; }
+    }
 
     private static async Task RefreshAvatarsAsync()
     {
