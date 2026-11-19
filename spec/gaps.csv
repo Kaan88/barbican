@@ -18,29 +18,29 @@ G-016,P1,M,files,Upload conflict dialog,upload-conflict-dialog.tsx,GAPS P1-3,M5,
 G-017,P1,M,files,Zip download,lib/files-zip.ts,GAPS P1-3,M5,"open (M5 files-data: FileTransfer.DownloadZipAsync, a streaming writer with a 2 GiB cap; the menu is files-ui)"
 G-018,P1,M,files,New text file,new-file-dialog.tsx,GAPS P1-3,M5,open (M5 files-data: FileTransfer.CreateTextFileAsync; the dialog is files-ui)
 G-019,P1,M,files,"Filename download rules (filenameSpaceReplacement and siblings, postExportAction)",files-settings.ts,GAPS P1-3,M5,done (M5 files-data: FileNames.DownloadName and FileTransfer.LocalNameFor read the four filename settings; the settings rows are M6)
-G-020,P1,S,sieve,Filters: 'reject' offered even when the server does not list the reject extension,filter-rule-modal.tsx,GAPS P1-4,M6,open
-G-021,P1,S/M,sieve,"Vacation UI: reply-to audience, forward while away, keep in inbox, HTML body, templates",vacation-settings.tsx; vacation-template-picker.tsx; lib/vacation-audience.ts; vacation-forward.ts,GAPS P1-5,M6,open
-G-022,P1,S/M,sieve,Vacation: calendar out-of-office block (vacationBlockCalendar),vacation-calendar-block.tsx,GAPS P1-5,M6,open
-G-023,P1,M,identities,Identities: create and delete; Bcc,identity-manager-modal.tsx; identity-form.tsx,GAPS P1-6,M6,open
-G-024,P1,M,identities,Signatures: HTML or rich editing (signatureDetails),signature-editor.tsx; signature-details-section.tsx,GAPS P1-6,M6,open
-G-025,P1,M,identities,Identity order (preferredIdentityIds),identity-manager-modal.tsx,GAPS P1-6,M6,open
-G-026,P1,M,identities,Masked addresses (x:MaskedEmail); sub-address helper,masked-addresses-section.tsx; sub-address-helper.tsx,GAPS P1-6,M6,open
-G-027,P1,M,security,Account security: change password (x:AccountPassword),stores/account-security-store.ts; account-security-settings.tsx,GAPS P1-7,M6,open
-G-028,P1,M,security,Account security: TOTP two-factor (x:AccountSettings),account-security-settings.tsx,GAPS P1-7,M6,open
-G-029,P1,M,security,Account security: app passwords (x:AppPassword) and API keys (x:ApiKey),account-security-settings.tsx,GAPS P1-7,M6,open
-G-030,P1,M,security,Account security: encryption at rest (x:PublicKey),account-security-settings.tsx,GAPS P1-7,M6,open
+G-020,P1,S,sieve,Filters: 'reject' offered even when the server does not list the reject extension,filter-rule-modal.tsx,GAPS P1-4,M6,done: FilterRulesTests.Reject_is_offered_only_when_the_server_lists_the_extension; SrvUiFilterFormRules
+G-021,P1,S/M,sieve,"Vacation UI: reply-to audience, forward while away, keep in inbox, HTML body, templates",vacation-settings.tsx; vacation-template-picker.tsx; lib/vacation-audience.ts; vacation-forward.ts,GAPS P1-5,M6,partial: SrvUiVacationPage has audience and forwarding; HTML/template UI parity and live writes unverified
+G-022,P1,S/M,sieve,Vacation: calendar out-of-office block (vacationBlockCalendar),vacation-calendar-block.tsx,GAPS P1-5,M6,partial: VacationCalendar; FilterServiceTests calendar block lifecycle; live calendar writes unverified
+G-023,P1,M,identities,Identities: create and delete; Bcc,identity-manager-modal.tsx; identity-form.tsx,GAPS P1-6,M6,partial: AccountIdentities and AccountServicesTests fake create/update/delete; real writes unverified
+G-024,P1,M,identities,Signatures: HTML or rich editing (signatureDetails),signature-editor.tsx; signature-details-section.tsx,GAPS P1-6,M6,partial: SrvUiIdentitiesPage accepts HTML source; rich editor and live save unverified
+G-025,P1,M,identities,Identity order (preferredIdentityIds),identity-manager-modal.tsx,GAPS P1-6,M6,partial: AccountIdentityRulesTests and SrvUiIdentitiesViewModel ordering; live persistence unverified
+G-026,P1,M,identities,Masked addresses (x:MaskedEmail); sub-address helper,masked-addresses-section.tsx; sub-address-helper.tsx,GAPS P1-6,M6,"partial: subAddressDelimiter editor; masked addresses deferred (D-M6-10, enterprise)"
+G-027,P1,M,security,Account security: change password (x:AccountPassword),stores/account-security-store.ts; account-security-settings.tsx,GAPS P1-7,M6,partial: AccountSecurity and AccountServicesTests fake password validation; live security writes excluded by D-M6-09
+G-028,P1,M,security,Account security: TOTP two-factor (x:AccountSettings),account-security-settings.tsx,GAPS P1-7,M6,partial: AccountSecurity and AccountServicesTests fake TOTP; live security writes excluded by D-M6-09
+G-029,P1,M,security,Account security: app passwords (x:AppPassword) and API keys (x:ApiKey),account-security-settings.tsx,GAPS P1-7,M6,partial: AccountSecurity and AccountServicesTests fake issued secrets; live security writes excluded by D-M6-09
+G-030,P1,M,security,Account security: encryption at rest (x:PublicKey),account-security-settings.tsx,GAPS P1-7,M6,partial: AccountSecurity encryption path; real write excluded by D-M6-09
 G-031,P1,M,security,"App lock (PIN or Windows Hello, lock after) and session timeout",app-lock/; session/,GAPS P1-7,M10,open
-G-032,P1,S/M,templates,Templates: edit an existing template,template-manager-modal.tsx; template-form.tsx,GAPS P1-8,M6,open
-G-033,P1,S/M,templates,Templates: rich body,template-form.tsx,GAPS P1-8,M6,open
-G-034,P1,S/M,templates,Templates: placeholder fill on insert,placeholder-fill-modal.tsx; lib/template-merge.ts,GAPS P1-8,M6,open
-G-035,P1,S/M,templates,Templates: save the current draft as a template,quick-save-template-dialog.tsx,GAPS P1-8,M6,open
-G-036,P1,S/M,folders,Folders: subscribe and unsubscribe,organize-settings.tsx,GAPS P1-9,M6,open
-G-037,P1,S/M,folders,Folders: assign standard roles,folder-settings.tsx,GAPS P1-9,M6,open
-G-038,P1,S/M,folders,"Folders: icons and count modes (folderIcons, folderCountModes)",icon-picker.tsx,GAPS P1-9,M6,open
-G-039,P1,S/M,folders,Folders: pin,organize-settings.tsx,GAPS P1-9,M6,open
-G-040,P1,S/M,folders,Folders: mark the whole tree read,organize-settings.tsx,GAPS P1-9,M6,open
-G-041,P1,S/M,folders,Folders: per-folder notification mute (notificationMutes),folder-settings.tsx,GAPS P1-9,M6,open
-G-042,P1,S/M,folders,Folders: export and import a folder,mail-transfer/,GAPS P1-9; P1-11,M6,open
+G-032,P1,S/M,templates,Templates: edit an existing template,template-manager-modal.tsx; template-form.tsx,GAPS P1-8,M6,"partial: TemplateAdmin and SrvUiTemplatesPage edit; FilterServiceTests fake round trip, live unverified"
+G-033,P1,S/M,templates,Templates: rich body,template-form.tsx,GAPS P1-8,M6,partial: SrvUiTemplatesPage edits HTML source; visual rich editor not established
+G-034,P1,S/M,templates,Templates: placeholder fill on insert,placeholder-fill-modal.tsx; lib/template-merge.ts,GAPS P1-8,M6,partial: TemplateAdminPlaceholdersTests and composer template insertion; integrated fill flow needs evidence
+G-035,P1,S/M,templates,Templates: save the current draft as a template,quick-save-template-dialog.tsx,GAPS P1-8,M6,partial: ComposerViewModel.SaveTemplateAsync and TemplatePickerViewModel.SaveAsync; live save unverified
+G-036,P1,S/M,folders,Folders: subscribe and unsubscribe,organize-settings.tsx,GAPS P1-9,M6,partial: FolderAdmin and SrvUiFoldersViewModel SubscribeAsync; live write unverified
+G-037,P1,S/M,folders,Folders: assign standard roles,folder-settings.tsx,GAPS P1-9,M6,partial: FolderAdmin and SrvUiFoldersViewModel SetRoleAsync; live write unverified
+G-038,P1,S/M,folders,"Folders: icons and count modes (folderIcons, folderCountModes)",icon-picker.tsx,GAPS P1-9,M6,partial: FolderAdminMetadata and SrvUiFoldersViewModel SetPrefAsync; live write unverified
+G-039,P1,S/M,folders,Folders: pin,organize-settings.tsx,GAPS P1-9,M6,partial: FolderAdminMetadata and SrvUiFoldersViewModel SetPrefAsync; live write unverified
+G-040,P1,S/M,folders,Folders: mark the whole tree read,organize-settings.tsx,GAPS P1-9,M6,partial: FolderAdmin and SrvUiFoldersViewModel MarkTreeReadAsync; live write unverified
+G-041,P1,S/M,folders,Folders: per-folder notification mute (notificationMutes),folder-settings.tsx,GAPS P1-9,M6,partial: FolderAdminMetadata and SrvUiFoldersViewModel SetPrefAsync; notification behavior deferred M8
+G-042,P1,S/M,folders,Folders: export and import a folder,mail-transfer/,GAPS P1-9; P1-11,M6,"deferred: folder import/export, D-M6-10; later milestone not assigned"
 G-043,P1,M,sharing,"Sharing folders, calendars and address books with other users (Barbican shares Files only)",layout/mailbox-share-dialog.tsx; share-collection-dialog.tsx,GAPS P1-9,M6 (later),open
 G-044,P1,S/M,live-updates,"Live updates for calendars, contacts, files and identities: push types cover mail only, and there is no /changes delta for them",EventSource types,GAPS P1-10,M4/M5,partial(M5)
 G-045,P1,M,notifications,ShareNotification and CalendarEventNotification; the notification centre,share-notification-store.ts; calendar-event-notification-store.ts; notifications/notification-center.tsx,GAPS P1-10,M8,open
@@ -55,22 +55,22 @@ G-053,P1,M,reader-safety,"Per-sender trust for remote content (trustedSenders, e
 G-054,P1,S,composer,Confirm before sending to external recipients,external-recipient-confirm.tsx,GAPS P1-12,M3,done (SendWarnings + SendCoordinator; dialog is composer-ui)
 G-055,P1,M,popout,Pop-out windows: message and composer in their own windows,popout/,GAPS P1-13,M10,open
 G-056,P1,S,jmap,"Truncated bodies: a notice shows, but the full body is never fetched",lib/email (isTruncated),GAPS P1-14,M2,open
-G-057,P1,S,jmap,Quota is fetched but not shown (storage usage on the Account page),Account page,GAPS P1-14,M6,open
+G-057,P1,S,jmap,Quota is fetched but not shown (storage usage on the Account page),Account page,GAPS P1-14,M6,"partial: AccountQuota, SetUiAccountPage, AccountQuotaUsageTests; real quota read needs explicit evidence"
 G-058,P1,S,composer,"cid: images in a re-opened draft: ROADMAP says placeholders, commit b9b3e99 says restored; re-check",composer draft reopen,GAPS P1-14,M3,done (ComposeSeederTests.A_reopened_draft_keeps_its_fields_identity_and_inline_images_with_their_blob_ids)
-G-059,P2,S,settings-unwired,"Unwired: notificationSoundChoice, pushRelayUrl",settings-store.ts,GAPS P2-1,M6,open
-G-060,P2,S,settings-unwired,"Unwired: dateLocale, showOnboardingOnNewDevices",settings-store.ts,GAPS P2-1,M6,open
-G-061,P2,M,settings-unwired,"Unwired: mailLayout, toolbarPosition, sidebarAccountSwitcher, showRailAccountList, showSharedMailAccounts, compactSharedMailboxes, keepAppsLoaded",settings-store.ts,GAPS P2-1,M6,open
+G-059,P2,S,settings-unwired,"Unwired: notificationSoundChoice, pushRelayUrl",settings-store.ts,GAPS P2-1,M6,"partial: stored and labeled inert by SettingsCatalog; notification behavior deferred(M8), D-M6-A03"
+G-060,P2,S,settings-unwired,"Unwired: dateLocale, showOnboardingOnNewDevices",settings-store.ts,GAPS P2-1,M6,partial: SettingsCatalog labels unwired values; i18n scaffolding is M10; onboarding remains unavailable
+G-061,P2,M,settings-unwired,"Unwired: mailLayout, toolbarPosition, sidebarAccountSwitcher, showRailAccountList, showSharedMailAccounts, compactSharedMailboxes, keepAppsLoaded",settings-store.ts,GAPS P2-1,M6,partial: SettingsCatalog labels unwired values; individual runtime consumers require audit under D-M6-A03
 G-062,P2,S,settings-unwired,"Unwired: listColumns, messageListOrderScope",settings-store.ts,GAPS P2-1,M2,open
 G-063,P2,S,settings-unwired,"Unwired: recipientMentionsEnabled, mentionAddsRecipientTo, rtlEditingSupport",settings-store.ts,GAPS P2-1,M3,open
-G-064,P2,S,settings-unwired,Unwired: debugMode; settingsSyncDisabled (settings sync through Mailbox metadata is not implemented),lib/settings-sync.ts,GAPS P2-1,M6,open
-G-065,P2,S,settings-unwired,"No row and no code: defaultReplyMode, printTheme, hiddenCompanyCalendars",settings-store.ts,GAPS P2-1,M6,open
-G-066,P2,S,settings-unwired,"No row and no code: hiddenSharedMailAccounts, sharedMailAccountOrder, allMailFolderIds",settings-store.ts,GAPS P2-1,M6,open
-G-067,P2,S,settings-unwired,"No row and no code: attachmentReminderKeywords, sidebarApps",settings-store.ts,GAPS P2-1,M6,open
-G-068,P2,S,settings-unwired,"No row and no code: email/attachment/bundleDownloadTemplate, protocolOpenMode, hideAccountSwitcher",settings-store.ts,GAPS P2-1,M6,open
-G-069,P2,M,settings-keyless,"Keyless schema rows dropped by settings.rs schema_rows: Security, Language, Time zone, Default apps, Contacts import and export, Files display, Storage usage, Vacation audience, forward and keep (plus Export, Import, Reset, Accessibility info rows); see settings.csv S-keyless-###",settings-schema.json (info and keyless rows),GAPS cross-cutting finding 1,M6,open
+G-064,P2,S,settings-unwired,Unwired: debugMode; settingsSyncDisabled (settings sync through Mailbox metadata is not implemented),lib/settings-sync.ts,GAPS P2-1,M6,"partial: debugMode labeled unwired; settings sync deferred(M10), D-M6-10"
+G-065,P2,S,settings-unwired,"No row and no code: defaultReplyMode, printTheme, hiddenCompanyCalendars",settings-store.ts,GAPS P2-1,M6,"partial: audit individual consumers; sharing/ACLs deferred(M10), D-M6-10"
+G-066,P2,S,settings-unwired,"No row and no code: hiddenSharedMailAccounts, sharedMailAccountOrder, allMailFolderIds",settings-store.ts,GAPS P2-1,M6,"partial: sharing/ACLs deferred(M10), D-M6-10; allMailFolderIds consumer needs separate evidence"
+G-067,P2,S,settings-unwired,"No row and no code: attachmentReminderKeywords, sidebarApps",settings-store.ts,GAPS P2-1,M6,partial: reminder keywords read by ComposeSettings; sidebar apps need separate consumer evidence
+G-068,P2,S,settings-unwired,"No row and no code: email/attachment/bundleDownloadTemplate, protocolOpenMode, hideAccountSwitcher",settings-store.ts,GAPS P2-1,M6,partial: FileTransfer.LocalNameFor handles filename templates; protocol handlers deferred(M8); remaining controls need evidence
+G-069,P2,M,settings-keyless,"Keyless schema rows dropped by settings.rs schema_rows: Security, Language, Time zone, Default apps, Contacts import and export, Files display, Storage usage, Vacation audience, forward and keep (plus Export, Import, Reset, Accessibility info rows); see settings.csv S-keyless-###",settings-schema.json (info and keyless rows),GAPS cross-cutting finding 1,M6,"partial: SettingsCatalog retains keyless rows, account/security/vacation/files views supply handlers; some explicitly unavailable or deferred"
 G-070,P2,M,themes,"Themes: built-in themes, accent colours, custom themes (Barbican has light, dark and system only)",themes-settings.tsx; lib/builtin-themes.ts; theme-compiler.ts,GAPS P2-2,M10,open
 G-071,P2,L,i18n,Language (i18n); Barbican is English only,language-settings.tsx; locale-store.ts,GAPS P2-3,M10,open
-G-072,P2,S,i18n,Time zone picker (Barbican uses the OS time zone),time-zone-picker.tsx,GAPS P2-3,M6,open
+G-072,P2,S,i18n,Time zone picker (Barbican uses the OS time zone),time-zone-picker.tsx,GAPS P2-3,M6,open: current behavior uses OS time zone; M10 includes i18n scaffolding but does not explicitly defer the picker
 G-073,P2,M,message-list,"Message list extras: list tabs, list columns, hover tag picker, verification-code copy, $pinned, structured-mail cards",message-list-tabs.tsx; list-columns.tsx; structured-mail/,GAPS P2-4,"M2 (part), M10",open
 G-074,P2,S/M,printing,"Printing: conversation, contact and calendar print; print settings (Barbican prints one message)",printing-settings.tsx,GAPS P2-5,M10,open
 G-075,P2,S/M,composer-extras,Composer: @mentions of recipients,recipient-mention.tsx,GAPS P2-6,M3 (mentions) / M10,open
