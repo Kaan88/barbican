@@ -31,9 +31,9 @@
 
         <Grid x:Name="ContentGrid" Padding="{x:Bind Look.ReaderPadding, Mode=OneWay}" RowSpacing="{x:Bind Look.ReaderSpacing, Mode=OneWay}" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto,*,Auto"
               Visibility="{x:Bind views:Fmt.VisBody(Reader.BodyState, 'content'), Mode=OneWay}">
-          <!-- The order follows the prototype: Bento subject, sender line, actions; Nordic actions, subject, the "to you" line. The rows are bound (StyleState.Reader*Row). -->
+           <!-- Bulwark order: actions, subject, collapsed conversation headers, and the open message. -->
           <!-- actions: Reply, Reply all, Forward, Archive and Delete run their commands on the open message; More opens MENU-READER. Bento: icon + label (Reply all, Delete, More icon-only); Nordic: text only. -->
-          <controls:WrapRow Grid.Row="{x:Bind Look.ReaderActionsRow, Mode=OneWay}" Spacing="8" AutomationProperties.AutomationId="reader.toolbar" AutomationProperties.Name="Message actions">
+           <controls:WrapRow Grid.Row="0" Spacing="8" AutomationProperties.AutomationId="reader.toolbar" AutomationProperties.Name="Message actions">
             <Button Style="{StaticResource Button.Action}" Height="{x:Bind Look.ActionButtonHeight, Mode=OneWay}" CornerRadius="{x:Bind Look.ActionRadius, Mode=OneWay}"
                     Padding="{x:Bind Look.ActionPadding, Mode=OneWay}" Click="OnReplyClick" AutomationProperties.AutomationId="reader.reply" AutomationProperties.Name="Reply">
               <StackPanel Orientation="Horizontal" Spacing="6"><controls:SIcon Kind="Reply" Size="16" Visibility="{x:Bind Look.ToolbarIconVisibility, Mode=OneWay}" /><TextBlock Text="Reply" Visibility="{x:Bind Look.ToolbarLabelVisibility, Mode=OneWay}" /></StackPanel>
@@ -61,7 +61,7 @@
           </controls:WrapRow>
 
           <!-- header: the subject and the sender line rise a few pixels when another message opens (Motion/Rise; the prototype's header transition) -->
-          <StackPanel Grid.Row="{x:Bind Look.ReaderSubjectRow, Mode=OneWay}">
+           <StackPanel Grid.Row="1">
           <TextBlock x:Name="SubjectText" Text="{x:Bind Reader.Header.Subject, Mode=OneWay}" FontSize="{x:Bind Look.ReaderSubjectSize, Mode=OneWay}"
                      FontWeight="{x:Bind Look.ReaderSubjectWeight, Mode=OneWay}" CharacterSpacing="{x:Bind Look.ReaderSubjectSpacing, Mode=OneWay}" LineHeight="{x:Bind Look.ReaderSubjectLineHeight, Mode=OneWay}"
                      Margin="{x:Bind Look.ReaderSubjectMargin, Mode=OneWay}" Foreground="{StaticResource Text}"
@@ -92,7 +92,7 @@
             </ItemsRepeater.ItemTemplate>
           </ItemsRepeater>
           </StackPanel>
-          <Grid Grid.Row="{x:Bind Look.ReaderSenderRow, Mode=OneWay}" x:Name="SenderLine" ColumnDefinitions="Auto,*,Auto,Auto" RowDefinitions="Auto,Auto" ColumnSpacing="8" SizeChanged="OnSenderLineSizeChanged" AutomationProperties.AutomationId="reader.header" AutomationProperties.Name="Message header">
+           <Grid Grid.Row="3" x:Name="SenderLine" ColumnDefinitions="Auto,*,Auto,Auto" RowDefinitions="Auto,Auto" ColumnSpacing="8" SizeChanged="OnSenderLineSizeChanged" AutomationProperties.AutomationId="reader.header" AutomationProperties.Name="Message header">
             <Grid.RenderTransform>
               <TranslateTransform x:Name="SenderShift" />
             </Grid.RenderTransform>
@@ -136,7 +136,7 @@
           </Grid>
 
           <!-- details panel: from, to, date and the check of each authentication method (spec I-206) -->
-          <Border Grid.Row="3" x:Name="DetailsPanel" Visibility="Collapsed" CornerRadius="16" Padding="14,12" Background="{StaticResource Tile2}" BorderBrush="{StaticResource Line}" BorderThickness="1"
+           <Border Grid.Row="4" x:Name="DetailsPanel" Visibility="Collapsed" CornerRadius="8" Padding="14,12" Background="{StaticResource Tile2}" BorderBrush="{StaticResource Line}" BorderThickness="1"
                   AutomationProperties.AutomationId="reader.details" AutomationProperties.Name="Message details">
             <StackPanel Spacing="6">
               <TextBlock FontSize="12.5" Foreground="{StaticResource Dim}" TextWrapping="Wrap" IsTextSelectionEnabled="True">
@@ -163,24 +163,32 @@
             </StackPanel>
           </Border>
 
-          <!-- conversation strip: up to 5 rows visible (spec/layout/reader.md) -->
-          <Border Grid.Row="4" Visibility="{x:Bind views:Fmt.VisMany(Reader.Conversation.Count), Mode=OneWay}" CornerRadius="10" Padding="10" Background="{StaticResource Tile2}"
-                  AutomationProperties.AutomationId="reader.conversation" AutomationProperties.Name="Conversation">
-            <StackPanel Spacing="6">
-              <TextBlock Text="{x:Bind views:Fmt.Conversation(Reader.Conversation.Count), Mode=OneWay}" Style="{StaticResource Text.Label}" />
-              <ScrollViewer MaxHeight="160" VerticalScrollBarVisibility="Auto" VerticalScrollMode="Auto" HorizontalScrollMode="Disabled">
-                <ItemsRepeater ItemsSource="{x:Bind Reader.Conversation}">
+           <!-- Headers never host a body. Activating one uses the same loader as the selected message. -->
+           <Border Grid.Row="2" Visibility="{x:Bind views:Fmt.VisCount(Reader.ConversationHeaders.Count), Mode=OneWay}"
+                   AutomationProperties.AutomationId="reader.conversation" AutomationProperties.Name="Conversation">
+             <StackPanel Spacing="6">
+               <Button Style="{StaticResource Button.Action}" Click="OnShowOlderClick"
+                       Content="{x:Bind Reader.OlderConversationLabel, Mode=OneWay}"
+                       Visibility="{x:Bind views:Fmt.VisCount(Reader.HiddenConversationCount), Mode=OneWay}"
+                       AutomationProperties.AutomationId="reader.thread.older" />
+               <ScrollViewer MaxHeight="204" VerticalScrollBarVisibility="Auto" VerticalScrollMode="Auto" HorizontalScrollMode="Disabled">
+                 <ItemsRepeater ItemsSource="{x:Bind Reader.ConversationHeaders}">
                   <ItemsRepeater.Layout>
                     <StackLayout Orientation="Vertical" Spacing="2" />
                   </ItemsRepeater.Layout>
                   <ItemsRepeater.ItemTemplate>
                     <DataTemplate x:DataType="mail:ConversationItem">
-                      <Grid Height="30" Padding="8,0" ColumnDefinitions="Auto,150,*,Auto" ColumnSpacing="10" CornerRadius="8" Background="{x:Bind views:Fmt.CurrentBackground(IsCurrent)}"
-                            AutomationProperties.AutomationId="{x:Bind Id}" AutomationProperties.Name="{x:Bind Sender}">
-                        <Ellipse Width="6" Height="6" Fill="{x:Bind views:Fmt.UnreadDot(Unread)}" VerticalAlignment="Center" />
-                        <TextBlock Grid.Column="1" Text="{x:Bind Sender}" FontSize="12.5" FontWeight="{x:Bind views:Fmt.Weight(Unread)}" Foreground="{StaticResource Body}" TextTrimming="CharacterEllipsis" VerticalAlignment="Center" />
-                        <TextBlock Grid.Column="3" Text="{x:Bind TimeLabel}" FontSize="11.5" Foreground="{StaticResource Faint}" VerticalAlignment="Center" />
-                      </Grid>
+                       <Button Style="{StaticResource Button.Action}" MinHeight="56" Padding="12,8" CornerRadius="6" HorizontalAlignment="Stretch"
+                               HorizontalContentAlignment="Stretch" Tag="{x:Bind Id}" Click="OnConversationHeaderClick"
+                               AutomationProperties.AutomationId="{x:Bind views:Fmt.ConversationHeaderId(Id)}" AutomationProperties.Name="{x:Bind Sender}">
+                         <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="10">
+                           <Border Width="32" Height="32" CornerRadius="16" Background="{x:Bind views:Fmt.TintBg(TintIndex)}">
+                             <TextBlock Text="{x:Bind Initials}" HorizontalAlignment="Center" VerticalAlignment="Center" Foreground="{x:Bind views:Fmt.TintFg(TintIndex)}" />
+                           </Border>
+                           <TextBlock Grid.Column="1" Text="{x:Bind Sender}" FontSize="13" FontWeight="{x:Bind views:Fmt.Weight(Unread)}" Foreground="{StaticResource Body}" TextTrimming="CharacterEllipsis" VerticalAlignment="Center" />
+                           <TextBlock Grid.Column="2" Text="{x:Bind TimeLabel}" FontSize="12" Foreground="{StaticResource Faint}" VerticalAlignment="Center" />
+                         </Grid>
+                       </Button>
                     </DataTemplate>
                   </ItemsRepeater.ItemTemplate>
                 </ItemsRepeater>

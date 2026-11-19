@@ -38,6 +38,16 @@ public sealed partial class ReaderView : UserControl
 
     public StyleState Look { get; }
 
+    private void OnShowOlderClick(object sender, RoutedEventArgs e) => Reader.ShowOlderConversationHeaders();
+
+    private void OnConversationHeaderClick(object sender, RoutedEventArgs e)
+    {
+        if (sender is FrameworkElement { Tag: string id })
+        {
+            ViewHost.Get<Barbican.Presentation.Mail.Loading.IConversationOpener>().OpenConversationMessage(id);
+        }
+    }
+
     // Reply, Reply all and Forward run the compose commands on the message on screen (M3 composer-ui; the commands are registered by the composer)
     private void OnReplyClick(object sender, RoutedEventArgs e) => RunOnOpen(Barbican.Presentation.Commands.CommandIds.Reply);
 

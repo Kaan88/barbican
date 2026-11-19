@@ -1,6 +1,6 @@
 #if AUTOMATION
 // Mirrors: spec I-222 (a conversation card opens its message in the reader); Rust msgload.rs open :100 from the thread strip (tag rust-final).
-// The strip has no click handler of its own yet (ReaderView.xaml is shell-ui's; FABLE-REVIEW "M1 stream: body", requests). Owner body.
+// The command shows every member, including older headers not yet revealed in ReaderView.xaml.
 
 using System.Globalization;
 using Barbican.Automation;

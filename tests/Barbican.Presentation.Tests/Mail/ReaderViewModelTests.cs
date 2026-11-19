@@ -178,6 +178,39 @@ public sealed class ReaderViewModelTests
     }
 
     [Fact]
+    public void Conversation_shows_two_earlier_headers_and_can_reveal_the_rest()
+    {
+        using var reader = new ReaderViewModel();
+        var items = Enumerable.Range(0, 8).Select(i => new ConversationItem($"m{i}", $"Sender {i}", "S", 0, "Today", false, i == 7)).ToArray();
+        var snapshot = new ReaderSnapshot { EmailId = "m7", Conversation = items };
+        reader.Apply(snapshot);
+        Assert.Equal(5, reader.HiddenConversationCount);
+        Assert.Equal(["m5", "m6"], reader.ConversationHeaders.Select(x => x.Id));
+        reader.ShowOlderConversationHeaders();
+        Assert.Equal(0, reader.HiddenConversationCount);
+        Assert.Equal(items.Take(7), reader.ConversationHeaders);
+        reader.Apply(snapshot);
+        Assert.Equal(7, reader.ConversationHeaders.Count);
+        reader.Clear();
+        Assert.Empty(reader.ConversationHeaders);
+        Assert.Equal(0, reader.HiddenConversationCount);
+    }
+
+    [Fact]
+    public void Opening_an_earlier_message_keeps_later_headers_available()
+    {
+        using var reader = new ReaderViewModel();
+        var items = Enumerable.Range(0, 8).Select(i => new ConversationItem($"m{i}", $"Sender {i}", "S", 0, "Today", false, i == 4)).ToArray();
+        reader.Apply(new ReaderSnapshot { EmailId = "m4", Conversation = items });
+        Assert.Equal(2, reader.HiddenConversationCount);
+        Assert.Equal(["m2", "m3", "m5", "m6", "m7"], reader.ConversationHeaders.Select(x => x.Id));
+        reader.ShowOlderConversationHeaders();
+        reader.Apply(new ReaderSnapshot { EmailId = "new", Conversation = [] });
+        Assert.Empty(reader.ConversationHeaders);
+        Assert.Equal(0, reader.HiddenConversationCount);
+    }
+
+    [Fact]
     public void The_header_only_opener_shows_the_row_and_closing_empties_the_reader()
     {
         var reader = new ReaderViewModel();
