@@ -1708,3 +1708,7 @@ The filter modal captures the account that owns its loaded rules and their versi
 ## Codex — M6b contract preparation (Sol)
 
 - Reviewed and integrated the 186-method/58-slot source inventory as `4fff9d4`; it identifies static and conditional checks without claiming executable authorization. `docs/milestones/M6b-contracts.md` records coordinator-owned package/grant/instance/RPC/API/slot seams, frame identity, native pre-load trust and unchanged fixture acceptance. Compiling contracts/red tests and complete transitive payload schemas remain required before production implementation. Microsoft frame/security documentation was checked for the proposed Windows identity boundary; the installed SDK still needs verification. No plugin runtime or security/compatibility test was executed by this documentation change.
+
+## Codex — M6 final settings consumer classification (Sol)
+
+- The remaining 25 missing read-by entries were audited: 19 are explicitly inert under D-M6-A03 and already labeled unused by SettingsCatalog/SetUiRowsView, two recipient-mention preferences are read by ComposerService, and four Windows notification/badge preferences store values for M8. The latter now say they are not active in the product UI; M8 must replace that label when its real consumers land. This reconciles evidence without claiming inert settings work or that already-open composer drafts update live.

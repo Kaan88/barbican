@@ -1,5 +1,5 @@
 id,status,pages,kind,label,default,rust_read_by,rust_hits,csharp_read_by,notes
-S-settingsSyncDisabled,unwired,about,toggle,Settings sync,false,,,not ported,invert
+S-settingsSyncDisabled,unwired,about,toggle,Settings sync,false,,,inert (D-M6-A03): SettingsCatalog.UnwiredKeys; SetUiRowsView.Note,invert Settings sync through Mailbox metadata is deferred to M10 (D-M6-10). The UI labels this as not used.
 S-a11y.reset,wired,accessibility,button,Reset accessibility settings,null,main.rs;settings.rs,src/main.rs:1091,SetUiRowsView.ResetAccessibilityAsync,"Asks first; resets accessibility-only keys sequentially, preserving keys shared with other pages."
 S-colorBlindPalette,wired,accessibility,toggle,Colour-blind-safe colours,false,a11y.rs,src/a11y.rs:9,A11y,
 S-confirmArchive,wired,accessibility,toggle,Confirm before archiving,false,a11y.rs,src/a11y.rs:16,A11y,
@@ -29,22 +29,22 @@ S-visualAlerts,wired,accessibility,toggle,Visual alerts,false,a11y.rs,src/a11y.r
 S-wordSpacing,wired,accessibility,select,Word spacing,"""normal""",a11y.rs,src/a11y.rs:10,A11y,
 S-subAddressDelimiter,wired,account,select,Sub-address delimiter,null,compose.rs,src/compose.rs:169,SetUiRowsView.CustomText; ComposeSettings; ReplyRecipients,Custom single-character delimiter uses shared validation.
 S-colorfulSidebarIcons,wired,appearance,toggle,Colorful sidebar icons,false,mail.rs,src/mail.rs:117,FolderRowOptions,
-S-compactSharedMailboxes,unwired,appearance,toggle,Compact shared mailboxes,false,,,not ported,
+S-compactSharedMailboxes,unwired,appearance,toggle,Compact shared mailboxes,false,,,inert (D-M6-A03): SettingsCatalog.UnwiredKeys; SetUiRowsView.Note,No native compact-shared-mailbox layout consumer exists. The UI labels this as not used.
 S-composePlacement,wired,appearance,select,Compose button,null,settings.rs,src/settings.rs:53,App/Theme/StyleState; ShellPage; RailView; SidebarView,ComposePlacementRules; three synthetic Compose routes verified; unknown/unset -> floating.
 S-density,wired,appearance,select,Density,"""regular""",mail.rs;settings.rs,src/mail.rs:70,MailListSettings,
 S-enableUnifiedMailbox,wired,appearance,toggle,Unified mailbox,false,main.rs;unified.rs,src/main.rs:1005,"UnifiedSettings.From (Core/Mail/Unified; UnifiedInbox, UnifiedSectionViewModel)",
 S-includeGroupInUnified,wired,appearance,toggle,Include group inboxes,true,main.rs;unified.rs,src/main.rs:1013,"UnifiedSettings.From (Core/Mail/Unified; UnifiedInbox, UnifiedSectionViewModel)",
 S-interfaceLayout,wired,appearance,select,Interface layout,"""default""",mail.rs,src/mail.rs:584,MailListSettings,
-S-keepAppsLoaded,unwired,appearance,toggle,Keep apps loaded,false,,,not ported,
-S-mailLayout,unwired,appearance,select,Mail layout,"""split""",,,not ported,
-S-proInterface,unwired,appearance,toggle,Pro interface (experimental),false,,,not ported,
+S-keepAppsLoaded,unwired,appearance,toggle,Keep apps loaded,false,,,inert (D-M6-A03): SettingsCatalog.UnwiredKeys; SetUiRowsView.Note,No native keep-apps-loaded lifecycle consumer exists. The UI labels this as not used.
+S-mailLayout,unwired,appearance,select,Mail layout,"""split""",,,inert (D-M6-A03): SettingsCatalog.UnwiredKeys; SetUiRowsView.Note,User-selectable alternate mail layouts are not implemented; current responsive layout is automatic. The UI labels this as not used.
+S-proInterface,unwired,appearance,toggle,Pro interface (experimental),false,,,inert (D-M6-A03): SettingsCatalog.UnwiredKeys; SetUiRowsView.Note,The Pro interface is not implemented. The UI labels this as not used.
 S-showFolderTotalCount,wired,appearance,toggle,Show total message count,true,mail.rs,src/mail.rs:118,FolderRowOptions,
-S-showRailAccountList,unwired,appearance,toggle,Show account avatars on the navigation rail,false,,,not ported,
-S-showSharedMailAccounts,unwired,appearance,toggle,Show shared mail accounts,true,,,not ported,
+S-showRailAccountList,unwired,appearance,toggle,Show account avatars on the navigation rail,false,,,inert (D-M6-A03): SettingsCatalog.UnwiredKeys; SetUiRowsView.Note,A rail account-list consumer is not implemented. The UI labels this as not used.
+S-showSharedMailAccounts,unwired,appearance,toggle,Show shared mail accounts,true,,,inert (D-M6-A03): SettingsCatalog.UnwiredKeys; SetUiRowsView.Note,The setting does not currently control shared-account visibility. The UI labels this as not used.
 S-showToolbarLabels,wired,appearance,toggle,Show toolbar labels,true,main.rs,src/main.rs:2113,App/Theme/ThemeController; StyleState; ReaderView,Live reader labels/icons in Bento and Nordic; simpleMode forces labels.
-S-sidebarAccountSwitcher,unwired,appearance,toggle,Account switcher at the top of the sidebar,true,,,not ported,
+S-sidebarAccountSwitcher,unwired,appearance,toggle,Account switcher at the top of the sidebar,true,,,inert (D-M6-A03): SettingsCatalog.UnwiredKeys; SetUiRowsView.Note,The setting does not currently control sidebar account switching. The UI labels this as not used.
 S-tintListRowsByAccount,wired,appearance,select,Tell accounts apart,false,mail.rs,src/mail.rs:408,MailListSettings; MessageListViewModel; MessageRowViewModel,Composite selector writes tintListRowsByAccount and showAccountDot; two writes can be partial on failure.
-S-toolbarPosition,unwired,appearance,select,Toolbar position,"""top""",,,not ported,
+S-toolbarPosition,unwired,appearance,select,Toolbar position,"""top""",,,inert (D-M6-A03): SettingsCatalog.UnwiredKeys; SetUiRowsView.Note,Configurable toolbar placement is not implemented. The UI labels this as not used.
 S-uiStyle,wired,appearance,select,Style,"""bento""",main.rs,src/main.rs:1041,ShellViewModel,
 S-unifiedCrossAccount,wired,appearance,toggle,Across all accounts,false,main.rs;unified.rs,src/main.rs:1013,"UnifiedSettings.From (Core/Mail/Unified; UnifiedInbox, UnifiedSectionViewModel)",
 S-calendarDayEndHour,wired,calendar,select,Visible hours,20,cal_editor.rs;calendar.rs;settings.rs,src/calendar.rs:164,SetUiRowsView.CalendarHours; CalendarViewSettings,Visible start and end hour edits keep the end after the start; writes can be partially applied if a later write fails.
@@ -64,14 +64,14 @@ S-showWeekNumbers,wired,calendar,toggle,Show week numbers,false,calendar.rs,src/
 S-attachmentReminderEnabled,wired,composing,toggle,Attachment reminder,true,compose.rs,src/compose.rs:809,src/Barbican.Core/Compose/ComposeSettings.cs,
 S-autoSelectReplyIdentity,wired,composing,toggle,Reply from the address it was sent to,false,compose.rs,src/compose.rs:307,src/Barbican.Core/Compose/ComposeSettings.cs; ComposeSeeder,
 S-emptySubjectWarningEnabled,wired,composing,toggle,Empty subject warning,true,compose.rs,src/compose.rs:798,src/Barbican.Core/Compose/ComposeSettings.cs,
-S-mentionAddsRecipientTo,unwired,composing,select,Contacts in @ mentions,"""to""",,,not ported,
+S-mentionAddsRecipientTo,unwired,composing,select,Contacts in @ mentions,"""to""",,,Presentation/Compose/ComposerService.OpenAsync; ComposerContext; IMentionSource,Read when composer context opens; no claim of live mutation of an already-open draft.
 S-placeholderWarningEnabled,wired,composing,toggle,Placeholder warning,true,compose.rs,src/compose.rs:801,src/Barbican.Core/Compose/ComposeSettings.cs,
 S-plainTextMode,wired,composing,toggle,Plain text only,false,compose.rs,src/compose.rs:405,src/Barbican.Core/Compose/ComposeSettings.cs; ComposeSettings.Read,
 S-quickReplyEnabled,wired,composing,toggle,Quick reply,true,main.rs,src/main.rs:2112,src/Barbican.Core/Compose/ComposeSettings.cs,
-S-recipientMentionsEnabled,unwired,composing,toggle,Mention recipients with @,true,,,not ported,
+S-recipientMentionsEnabled,unwired,composing,toggle,Mention recipients with @,true,,,Presentation/Compose/ComposerService.OpenAsync; ComposerContext; IMentionSource,Read when composer context opens; no claim of live mutation of an already-open draft.
 S-replyIdentityMatch,wired,composing,select,Received address matching,"""domain""",compose.rs,src/compose.rs:307,src/Barbican.Core/Compose/ComposeSettings.cs; ComposeSeeder,
 S-replyUnderMessage,wired,composing,toggle,Replies under the message,true,compose.rs,src/compose.rs:426,src/Barbican.Core/Compose/ComposeSettings.cs,
-S-rtlEditingSupport,unwired,composing,toggle,Right-to-left editing support,false,,,not ported,
+S-rtlEditingSupport,unwired,composing,toggle,Right-to-left editing support,false,,,inert (D-M6-A03): SettingsCatalog.UnwiredKeys; SetUiRowsView.Note,This preference has no native editor consumer. The UI labels this as not used.
 S-sendDelaySeconds,wired,composing,select,Undo send,5,compose.rs;settings.rs,src/compose.rs:879,src/Barbican.Core/Compose/ComposeSettings.cs; SendCoordinator,
 S-signatureNewMailEnabled,wired,composing,toggle,Signature on new mail,true,compose.rs,src/compose.rs:333,src/Barbican.Core/Compose/ComposeSettings.cs; ComposeSeeder,
 S-signaturePosition,wired,composing,select,Signature position,"""below_quote""",compose.rs,src/compose.rs:339,src/Barbican.Core/Compose/ComposeSettings.cs; ComposeSeeder,
@@ -85,11 +85,11 @@ S-filenameCollapseSeparators,unwired,files,toggle,Collapse repeated separators,t
 S-filenameLowercase,unwired,files,toggle,Lowercase,false,,,FileTransfer.LocalNameFor (files-data),
 S-filenameSpaceReplacement,unwired,files,select,Spaces,"""keep""",,,FileTransfer.LocalNameFor (files-data),
 S-filenameStripDiacritics,unwired,files,toggle,Strip diacritics,false,,,FileTransfer.LocalNameFor (files-data),
-S-postExportAction,unwired,files,select,After export,"""keep""",,,not ported," (M5 files-data: the action after a mail export, so no Files code reads it; D-M5-C07)"
+S-postExportAction,unwired,files,select,After export,"""keep""",,,inert (D-M6-A03): SettingsCatalog.UnwiredKeys; SetUiRowsView.Note," (M5 files-data: the action after a mail export, so no Files code reads it; D-M5-C07) Post-export action has no consumer; D-M5-C07. The UI labels this as not used."
 S-dateFormat,wired,general,select,Date format,"""smart""",mail.rs,src/mail.rs:66,MailListSettings,
-S-dateLocale,unwired,general,select,Date format region,"""auto""",,,not ported,
+S-dateLocale,unwired,general,select,Date format region,"""auto""",,,inert (D-M6-A03): SettingsCatalog.UnwiredKeys; SetUiRowsView.Note,Date-locale selection is part of later i18n work; current formatting does not read this key. The UI labels this as not used.
 S-firstDayOfWeek,wired,general,select,First day of week,1,calendar.rs;recurrence.rs;settings.rs,src/calendar.rs:170,src/Barbican.Core/Calendar/CalendarSettings.cs,
-S-showOnboardingOnNewDevices,unwired,general,toggle,Show on new devices,false,,,not ported,
+S-showOnboardingOnNewDevices,unwired,general,toggle,Show on new devices,false,,,inert (D-M6-A03): SettingsCatalog.UnwiredKeys; SetUiRowsView.Note,New-device onboarding consumer is not implemented. The UI labels this as not used.
 S-webviewBackgroundCloseMinutes,wired,general,select,Free the mail view's memory in the background,"""5""",,,BodyBackgroundPolicy;BodyShell,Barbican only (D-WV-01); minutes in the background before the body WebView2 is closed; 0 = never
 S-timeFormat,wired,general,select,Time format,"""24h""",calendar.rs;compose.rs;files.rs;mail.rs;schedule.rs;settings.rs,src/calendar.rs:177,src/Barbican.Core/Compose/ComposeSettings.cs; ScheduleDialogViewModel,
 S-timeZone,wired,general,info,Time zone,"""auto""",agent.rs;cal_editor.rs;cal_extra.rs;calendar.rs;contacts_x.rs;invite.rs;reminders.rs;vcard.rs,src/agent.rs:409,src/Barbican.Core/Calendar/CalendarSettings.cs; src/Barbican.Core/Contacts/ContactDates.cs (Today),
@@ -100,7 +100,7 @@ S-deleteAction,wired,message_list,select,Delete action,"""trash""",mail.rs,src/m
 S-disableThreading,wired,message_list,toggle,Group messages by conversation,false,main.rs;msgload.rs,src/main.rs:334,MessageLoadRules,invert
 S-emailsPerPage,wired,message_list,select,Emails per page,50,mail.rs,src/mail.rs:68,MailListSettings,
 S-groupListByDate,wired,message_list,toggle,Group by date,false,mail.rs,src/mail.rs:64,MailListSettings,
-S-listColumns,unwired,message_list,toggle,Show the list as columns,false,,,not ported,
+S-listColumns,unwired,message_list,toggle,Show the list as columns,false,,,inert (D-M6-A03): SettingsCatalog.UnwiredKeys; SetUiRowsView.Note,Configurable message-list columns are not implemented. The UI labels this as not used.
 S-messageListOrderScope,unwired,message_list,toggle,Apply to all folders,"""inbox""",,,SetUiViewModel; ListSortResolver,Settings toggle stores inbox or all; hidden sample exercised all.
 S-mvInboxType,wired,message_list,select,Inbox type,"""unread-first""",mail.rs,src/mail.rs:584,MailListSettings,
 S-mvUnreadSectionSize,wired,message_list,select,Unread messages shown,25,mail.rs;settings.rs,src/mail.rs:587,MailListSettings,
@@ -110,19 +110,19 @@ S-showAttachmentChips,wired,message_list,toggle,Show attachments in the list,tru
 S-showPreview,wired,message_list,toggle,Show preview text,true,mail.rs;settings.rs,src/mail.rs:65,MailListSettings,
 S-showTagChips,wired,message_list,toggle,Show tags in the list,true,main.rs,src/main.rs:2114,src/Barbican.Presentation/Mail/MailListSettings.cs,
 S-showVerificationCodes,wired,message_list,toggle,Show verification codes,true,mail.rs,src/mail.rs:71,Presentation/Mail/MessageListViewModel; ReaderViewModel; VerificationCodeBannerSource,Live show/hide; age expiry and stale copy/banner guards; synthetic tests.
-S-swipeLeftAction,unwired,message_list,select,Swipe left action (mobile),"""delete""",,,not ported,
-S-swipeRightAction,unwired,message_list,select,Swipe right action (mobile),"""archive""",,,not ported,
+S-swipeLeftAction,unwired,message_list,select,Swipe left action (mobile),"""delete""",,,inert (D-M6-A03): SettingsCatalog.UnwiredKeys; SetUiRowsView.Note,Native swipe actions are not implemented. The UI labels this as not used.
+S-swipeRightAction,unwired,message_list,select,Swipe right action (mobile),"""archive""",,,inert (D-M6-A03): SettingsCatalog.UnwiredKeys; SetUiRowsView.Note,Native swipe actions are not implemented. The UI labels this as not used.
 S-tintListRowsByTag,wired,message_list,toggle,Tint list rows by tag color,false,mail.rs,src/mail.rs:72,Presentation/Mail/MailListSettings; MessageRowViewModel; App/Views/List/MessageListView,"First configured tag tint, account tint precedence; contrast/ticked suppression; TagRowTintTests."
 S-calendarNotificationSound,wired,notifications,toggle,Sound for reminders,true,reminders.rs,src/reminders.rs:415,src/Barbican.Core/Calendar/CalendarSettings.cs,
 S-calendarNotificationsEnabled,wired,notifications,toggle,Event notifications,true,reminders.rs,src/reminders.rs:414,src/Barbican.Core/Calendar/CalendarSettings.cs,
 S-doNotDisturb,wired,notifications,toggle,Pause notifications,null,a11y.rs;main.rs;reminders.rs,src/a11y.rs:17,A11y,
-S-emailNotificationSound,wired,notifications,toggle,Sound for new mail,true,main.rs,src/main.rs:567,not ported,
-S-emailNotificationsEnabled,wired,notifications,toggle,Email notifications,true,main.rs,src/main.rs:562,not ported,
+S-emailNotificationSound,wired,notifications,toggle,Sound for new mail,true,main.rs,src/main.rs:567,storage only: SettingValues; runtime deferred(M8),Windows notification/badge runtime is not implemented yet; SetUiRowsView.Note labels the stored preference as future use.
+S-emailNotificationsEnabled,wired,notifications,toggle,Email notifications,true,main.rs,src/main.rs:562,storage only: SettingValues; runtime deferred(M8),Windows notification/badge runtime is not implemented yet; SetUiRowsView.Note labels the stored preference as future use.
 S-faviconUnreadBadge,wired,notifications,toggle,Unread count on the taskbar icon,true,mail.rs,src/mail.rs:190,ShellViewModel,
-S-notificationSoundChoice,unwired,notifications,select,Tone,"""involved""",,,not ported,
-S-pushNotifyInboxOnly,wired,notifications,toggle,Inbox only,false,main.rs,src/main.rs:568,not ported,
-S-pushRelayUrl,unwired,notifications,select,Push relay,"""""",,,not ported,
-S-unreadBadgeAllAccounts,wired,notifications,toggle,Count unread mail in all accounts,true,mail.rs;main.rs;unified.rs,src/mail.rs:189,not ported,
+S-notificationSoundChoice,unwired,notifications,select,Tone,"""involved""",,,inert (D-M6-A03): SettingsCatalog.UnwiredKeys; SetUiRowsView.Note,Notification sound selection awaits M8 Windows integration. The UI labels this as not used.
+S-pushNotifyInboxOnly,wired,notifications,toggle,Inbox only,false,main.rs,src/main.rs:568,storage only: SettingValues; runtime deferred(M8),Windows notification/badge runtime is not implemented yet; SetUiRowsView.Note labels the stored preference as future use.
+S-pushRelayUrl,unwired,notifications,select,Push relay,"""""",,,inert (D-M6-A03): SettingsCatalog.UnwiredKeys; SetUiRowsView.Note,Push relay support is not implemented; M8 must assess the Windows notification transport. The UI labels this as not used.
+S-unreadBadgeAllAccounts,wired,notifications,toggle,Count unread mail in all accounts,true,mail.rs;main.rs;unified.rs,src/mail.rs:189,storage only: SettingValues; runtime deferred(M8),Windows notification/badge runtime is not implemented yet; SetUiRowsView.Note labels the stored preference as future use.
 S-nestedTags,wired,organize,toggle,Nested tags,null,main.rs;tags.rs,src/main.rs:1025,SidebarViewModel,
 S-avatars.refresh,wired,privacy,button,Refresh sender icons,null,main.rs,src/main.rs:1100,SetUiRowsView.RefreshAvatarsAsync; AvatarService.RefreshAsync,Clears profile-local avatar image cache and invalidates in-flight fetches.
 S-gravatarAvatars,wired,privacy,toggle,Gravatar photos,false,avatars.rs,src/avatars.rs:33,src/Barbican.App/Composition/Features/ReaderRegistration.cs,
@@ -135,7 +135,7 @@ S-mailAttachmentAction,wired,reading,select,Attachment click action,"""preview""
 S-markAsReadDelay,wired,reading,select,Mark as read,0,msgload.rs,src/msgload.rs:36,MessageLoadRules,
 S-messageSpacing,wired,reading,select,Message spacing,"""auto""",main.rs,src/main.rs:255,BodyAppearance,
 S-returnToListAfterAction,wired,reading,toggle,"Return to list after delete, archive, move or mark unread",true,mail.rs,src/mail.rs:1011,src/Barbican.Presentation/Mail/MessageListViewModel.Actions.cs,
-S-debugMode,unwired,troubleshooting,toggle,Detailed logging,false,,,not ported,
+S-debugMode,unwired,troubleshooting,toggle,Detailed logging,false,,,inert (D-M6-A03): SettingsCatalog.UnwiredKeys; SetUiRowsView.Note,No user-controlled debug-mode consumer exists. The UI labels this as not used.
 S-keyless-001,keyless,account,info,Email address,,,,SetUiAccountPage; SetUiSecurityViewModel,no key: dropped by Rust settings.rs schema_rows
 S-keyless-002,keyless,account,info,Username,,,,unavailable in SetUiAccountPage,no key: dropped by Rust settings.rs schema_rows
 S-keyless-003,keyless,account,info,Authentication,,,,SetUiAccountPage; SetUiSecurityViewModel,no key: dropped by Rust settings.rs schema_rows
