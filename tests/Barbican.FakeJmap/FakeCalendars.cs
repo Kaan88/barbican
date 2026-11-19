@@ -13,6 +13,7 @@ public sealed class FakeCalendars
     private readonly List<JsonObject> _calendars = [];
     private readonly List<JsonObject> _events = [];
     private readonly List<(int State, string Type, string Id, char Kind)> _log = [];
+    private readonly List<JsonObject> _participantIdentities = [];
     private int _state = 1;
     private int _expiredBefore;
     private int _next;
@@ -25,6 +26,37 @@ public sealed class FakeCalendars
 
     /// <summary>Raised after each change with the changed type and its new state (like FakeStore.Changed); the push hub wiring of cal-data listens.</summary>
     public event EventHandler<FakeStateChangedEventArgs>? Changed;
+
+    /// <summary>Adds a calendar participant identity to the fake account.</summary>
+    public void AddParticipantIdentity(string id, string name, string address, bool isDefault = false)
+    {
+        lock (_lock)
+        {
+            _participantIdentities.Add(new JsonObject { ["id"] = id, ["name"] = name, ["calendarAddress"] = address, ["isDefault"] = isDefault });
+        }
+    }
+
+    public IReadOnlyList<JsonObject> ParticipantIdentities()
+    {
+        lock (_lock)
+        {
+            return [.. _participantIdentities.Select(i => (JsonObject)i.DeepClone())];
+        }
+    }
+
+    public void SetDefaultParticipantIdentity(string id)
+    {
+        lock (_lock)
+        {
+            if (_participantIdentities.Any(i => string.Equals((string?)i["id"], id, StringComparison.Ordinal)))
+            {
+                foreach (var identity in _participantIdentities)
+                {
+                    identity["isDefault"] = string.Equals((string?)identity["id"], id, StringComparison.Ordinal);
+                }
+            }
+        }
+    }
 
     /// <summary>Adds a calendar; returns its id.</summary>
     public string AddCalendar(string name, bool isDefault = false, string color = "#3b82f6", JsonObject? extra = null)

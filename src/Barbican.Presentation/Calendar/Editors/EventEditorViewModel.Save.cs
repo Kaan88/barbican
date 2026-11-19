@@ -4,6 +4,7 @@
 using System.Globalization;
 using System.Text.Json.Nodes;
 using Barbican.Core.Calendar.Editing;
+using Barbican.Core.Jmap.Errors;
 using Barbican.Core.Plugins.Hooks;
 using Barbican.Core.Plugins.Payloads;
 using Barbican.Presentation.Actions;
@@ -288,7 +289,35 @@ public sealed partial class EventEditorViewModel
         var patch = _s.Hooks is { } hooks && hooks.HasHandlers(HookNames.OnCalendarEventFormSave)
             ? await hooks.TransformAsync(HookNames.OnCalendarEventFormSave, new CalendarEventFormSavePatch(), ct).ConfigureAwait(true)
             : null;
-        var built = _s.Rules.BuildData(BuildForm(), _event, _occurrence);
+        var form = BuildForm();
+        if (_event is null && form.Attendees.Count > 0 && _s.ParticipantIdentities is { } identities)
+        {
+            var identityResult = await identities.ListAsync(account, ct).ConfigureAwait(true);
+            if (!string.Equals(account, _s.Source.AccountKey, StringComparison.Ordinal))
+            {
+                Error = "The active account changed. Reopen the event before saving.";
+                return false;
+            }
+
+            if (!identityResult.IsOk && identityResult.Error is not MethodError { Type: "unknownMethod" })
+            {
+                Error = identityResult.Error!.Message;
+                return false;
+            }
+
+            var list = identityResult.Value;
+            var chosen = list?.FirstOrDefault(i => i.IsDefault) ?? (list is { Count: > 0 } ? list[0] : null);
+            if (chosen is not null)
+            {
+                var address = chosen.CalendarAddress.StartsWith("mailto:", StringComparison.OrdinalIgnoreCase) ? chosen.CalendarAddress[7..] : chosen.CalendarAddress;
+                if (!string.IsNullOrWhiteSpace(address))
+                {
+                    form = form with { Me = [address, .. form.Me.Where(m => !string.Equals(m, address, StringComparison.OrdinalIgnoreCase))] };
+                }
+            }
+        }
+
+        var built = _s.Rules.BuildData(form, _event, _occurrence);
         var data = built.Data;
         if (patch?.VirtualLocation is { } vl)
         {
