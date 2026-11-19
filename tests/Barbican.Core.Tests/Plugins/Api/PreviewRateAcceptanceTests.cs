@@ -5,7 +5,6 @@ namespace Barbican.Core.Tests.Plugins.Api;
 public sealed class PreviewRateAcceptanceTests
 {
     [Fact]
-    [Red("m6b-mediation")]
     public void OpenAndPrintHaveDistinctBudgetsAcrossFramesAndPackageUpdates()
     {
         var rate = PluginPresentationRateLimiter.Create(new FakeTimeProvider(), 10);
@@ -16,7 +15,6 @@ public sealed class PreviewRateAcceptanceTests
         Assert.True(rate.TryAcquire("other-profile", "probe", PluginPresentationOperation.OpenFile));
     }
     [Fact]
-    [Red("m6b-mediation")]
     public void RollingWindowExpiresAndKeyTableFailsClosedWhenFull()
     {
         var clock = new FakeTimeProvider(); var rate = PluginPresentationRateLimiter.Create(clock, 1);
