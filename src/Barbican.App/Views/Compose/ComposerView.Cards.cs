@@ -111,16 +111,20 @@ public sealed partial class ComposerView
     {
         var panel = new StackPanel { Spacing = 8, MinWidth = 260 };
         panel.Children.Add(Heading("Send"));
-        panel.Children.Add(CardButton("Send now", DialogTone.Primary, "composer.sendmenu.now", () =>
+        var send = CardButton("Send now", DialogTone.Primary, "composer.sendmenu.now", () =>
         {
             ShowPanel(CardKind.None);
             _ = vm.SendAsync();
-        }));
-        panel.Children.Add(CardButton("Schedule send…", DialogTone.Plain, "composer.sendmenu.schedule", () =>
+        });
+        send.IsEnabled = vm.CanSend;
+        panel.Children.Add(send);
+        var schedule = CardButton("Schedule send…", DialogTone.Plain, "composer.sendmenu.schedule", () =>
         {
             ShowPanel(CardKind.None);
             _ = vm.OpenScheduleAsync();
-        }));
+        });
+        schedule.IsEnabled = vm.CanSend;
+        panel.Children.Add(schedule);
         AutomationProperties.SetAutomationId(panel, "composer.sendmenu");
         return panel;
     }

@@ -450,5 +450,13 @@ public sealed partial class ComposerViewModel : ObservableObject, IMentionSource
         {
             f.TextChanged += (_, _) => OnRecipientsChanged(f);
         }
+
+        To.PropertyChanged += (_, e) =>
+        {
+            if (e.PropertyName is nameof(RecipientFieldViewModel.Input) or nameof(RecipientFieldViewModel.Text))
+            {
+                OnPropertyChanged(nameof(CanSend));
+            }
+        };
     }
 }

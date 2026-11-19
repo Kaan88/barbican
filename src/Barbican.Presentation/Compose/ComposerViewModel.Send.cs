@@ -12,20 +12,31 @@ namespace Barbican.Presentation.Compose;
 public sealed partial class ComposerViewModel
 {
     private bool _sending;
+    private bool _sendFlowActive;
     private ScheduleDialogViewModel? _schedule;
 
     /// <summary>A send is in flight (the buttons are off and the composer cannot be closed).</summary>
     public bool IsSending
     {
         get => _sending;
-        private set => SetProperty(ref _sending, value);
+        private set
+        {
+            if (SetProperty(ref _sending, value)) OnPropertyChanged(nameof(CanSend));
+        }
     }
+
+    /// <summary>Whether the send controls are available; malformed To entries remain actionable so validation can explain them.</summary>
+    public bool CanSend => !_closed && !IsSending && !_sendFlowActive && Schedule is null
+        && RecipientText.Expand([.. To.Recipients, .. string.IsNullOrWhiteSpace(To.Input) ? [] : new[] { RecipientText.ParseRecipient(To.Input) }]).Count > 0;
 
     /// <summary>The schedule dialog, or null (the view draws it over the composer).</summary>
     public ScheduleDialogViewModel? Schedule
     {
         get => _schedule;
-        private set => SetProperty(ref _schedule, value);
+        private set
+        {
+            if (SetProperty(ref _schedule, value)) OnPropertyChanged(nameof(CanSend));
+        }
     }
 
     /// <summary>Send, Ctrl+Enter. False when the checks stopped it or the send failed; true when the message went (the composer then closes).</summary>
@@ -34,7 +45,7 @@ public sealed partial class ComposerViewModel
     /// <summary>Opens the schedule dialog (Ctrl+Shift+Enter, the send arrow's "Schedule send"); the chosen time goes through the same checks as a send.</summary>
     public async Task<bool> OpenScheduleAsync()
     {
-        if (_closed || IsSending || Schedule is not null)
+        if (_closed || IsSending || _sendFlowActive || Schedule is not null)
         {
             return false;
         }
@@ -51,25 +62,35 @@ public sealed partial class ComposerViewModel
 
     private async Task<bool> SendAtAsync(DateTimeOffset? scheduledAt)
     {
-        if (_closed || IsSending)
+        if (_closed || IsSending || _sendFlowActive || Schedule is not null)
         {
             return false;
         }
 
-        CommitInputs();
-        if (await StopBeforeSendAsync().ConfigureAwait(true))
+        _sendFlowActive = true;
+        OnPropertyChanged(nameof(CanSend));
+        try
         {
-            return false;
-        }
+            CommitInputs();
+            if (await StopBeforeSendAsync().ConfigureAwait(true))
+            {
+                return false;
+            }
 
-        await WaitForSaveAsync().ConfigureAwait(true);
-        var draft = BuildDraft();
-        if (!await ConfirmSendAsync(draft).ConfigureAwait(true))
+            await WaitForSaveAsync().ConfigureAwait(true);
+            var draft = BuildDraft();
+            if (!await ConfirmSendAsync(draft).ConfigureAwait(true))
+            {
+                return false;
+            }
+
+            return await SubmitAsync(draft, scheduledAt).ConfigureAwait(true);
+        }
+        finally
         {
-            return false;
+            _sendFlowActive = false;
+            OnPropertyChanged(nameof(CanSend));
         }
-
-        return await SubmitAsync(draft, scheduledAt).ConfigureAwait(true);
     }
 
     // true when something stops the send: the pictures and files still uploading, an address that is none, no recipient, no identity

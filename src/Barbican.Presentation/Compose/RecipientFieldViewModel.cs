@@ -125,6 +125,7 @@ public sealed class RecipientFieldViewModel : ObservableObject
         }
 
         Show(text);
+        OnPropertyChanged(nameof(Input));
     }
 
     /// <summary>Puts whatever is typed into chips (on Enter, Tab, a comma, blur and before sending). Entries that are not addresses still become chips, marked invalid.</summary>

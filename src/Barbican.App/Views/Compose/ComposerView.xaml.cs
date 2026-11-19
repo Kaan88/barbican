@@ -186,6 +186,10 @@ public sealed partial class ComposerView : UserControl
             case nameof(ComposerViewModel.Dialog) or nameof(ComposerViewModel.Schedule) or nameof(ComposerViewModel.Templates):
                 RefreshCards();
                 break;
+            case nameof(ComposerViewModel.CanSend):
+                SyncAll();
+                if (_card == CardKind.SendMenu) RefreshCards();
+                break;
             default:
                 SyncAll();
                 break;
@@ -204,8 +208,8 @@ public sealed partial class ComposerView : UserControl
         BccBox.Visibility = vm.ShowBcc ? Visibility.Visible : Visibility.Collapsed;
         FromText.Text = vm.FromText;
         StatusText.Text = vm.Status;
-        SendButton.IsEnabled = !vm.IsSending;
-        SendArrow.IsEnabled = !vm.IsSending;
+        SendButton.IsEnabled = vm.CanSend;
+        SendArrow.IsEnabled = vm.CanSend;
         if (!string.Equals(SubjectBox.Text, vm.Subject, StringComparison.Ordinal))
         {
             _syncing = true;

@@ -21,6 +21,75 @@ public sealed class ComposerViewModelTests
         return c.Dialog?.Id ?? "none";
     }
 
+    [Fact]
+    public void Send_availability_tracks_to_chips_and_uncommitted_input_not_cc_or_body()
+    {
+        var c = new ComposerHarness().Open();
+        var changes = 0;
+        c.PropertyChanged += (_, e) => { if (e.PropertyName == nameof(ComposerViewModel.CanSend)) changes++; };
+        Assert.False(c.CanSend);
+        c.Subject = "Subject";
+        c.FallbackBody = "Body";
+        c.Cc.Edited("cc@example.org");
+        c.Cc.Commit();
+        Assert.False(c.CanSend);
+        c.To.Edited("  ");
+        Assert.False(c.CanSend);
+        c.To.Edited("not-an-address");
+        Assert.True(c.CanSend); // Bulwark exposes invalid-address errors on send.
+        Assert.Equal("not-an-address", c.To.Input);
+        c.To.Edited("valid@example.org");
+        Assert.True(c.CanSend);
+        c.To.Commit();
+        Assert.True(c.CanSend);
+        c.To.Remove(0);
+        Assert.False(c.CanSend);
+        Assert.True(changes >= 3);
+    }
+
+    [Fact]
+    public async Task Send_availability_keeps_validation_and_blocks_reentry_while_warning_is_open()
+    {
+        var h = new ComposerHarness();
+        var c = h.Open();
+        Assert.False(await c.SendAsync());
+        Assert.Equal("Add at least one recipient.", c.Status);
+        c.To.Edited("invalid");
+        Assert.True(c.CanSend);
+        Assert.False(await c.SendAsync());
+        Assert.Contains("Check the address:", c.Status, StringComparison.Ordinal);
+        c.To.Remove(0);
+        c.To.Edited("person@example.org");
+        var first = c.SendAsync();
+        Assert.Equal("warnings", await Next(c));
+        Assert.False(c.CanSend);
+        Assert.False(await c.SendAsync());
+        Assert.True(c.HandleChord("enter", control: true, shift: false, alt: false));
+        Assert.True(c.HandleChord("enter", control: true, shift: true, alt: false));
+        Assert.Equal("warnings", c.Dialog!.Id);
+        Assert.Null(c.Schedule);
+        c.AnswerDialog("cancel");
+        Assert.False(await first);
+        Assert.True(c.CanSend);
+        Assert.Empty(h.Sender.Sent);
+    }
+
+    [Fact]
+    public async Task Seeded_to_and_group_members_enable_send_and_scheduling_blocks_reentry()
+    {
+        var h = new ComposerHarness();
+        var c = h.Open(ComposerHarness.Seed(kind: ComposeKind.Reply, to: "Team: a@example.org, b@example.org;"));
+        Assert.True(c.CanSend);
+        var scheduling = c.OpenScheduleAsync();
+        Assert.NotNull(c.Schedule);
+        Assert.False(c.CanSend);
+        Assert.False(await c.OpenScheduleAsync());
+        Assert.False(await c.SendAsync());
+        c.CancelSchedule();
+        Assert.False(await scheduling);
+        Assert.True(c.CanSend);
+    }
+
     // ---- the leave guard -------------------------------------------------------------------------------
 
     [Fact]
