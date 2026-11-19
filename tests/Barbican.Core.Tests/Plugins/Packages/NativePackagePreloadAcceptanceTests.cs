@@ -58,15 +58,15 @@ public sealed class NativePackagePreloadAcceptanceTests
         finally { Directory.Delete(directory, recursive: true); }
     }
 
-    private static string MarkerDirectory() => Path.Combine(Path.GetTempPath(), "barbican-native-sentinel-" + Environment.ProcessId.ToString(CultureInfo.InvariantCulture));
+    internal static string MarkerDirectory() => Path.Combine(Path.GetTempPath(), "barbican-native-sentinel-" + Environment.ProcessId.ToString(CultureInfo.InvariantCulture));
 
-    private static MemoryStream NativeArchive(byte[] assembly, bool wrongHash = false, bool includeJsManifest = false)
+    internal static MemoryStream NativeArchive(byte[] assembly, bool wrongHash = false, bool includeJsManifest = false, bool mismatchedHooks = false)
     {
         var digest = wrongHash ? new string('0', 64) : Convert.ToHexStringLower(SHA256.HashData(assembly));
         var sidecar = new JsonObject
         {
             ["schemaVersion"] = 1, ["api"] = 1, ["id"] = "sentinel-fixture", ["name"] = "Sentinel", ["version"] = "1.0.0",
-            ["description"] = "Synthetic", ["mainAssembly"] = "NativeSentinel.dll", ["hooks"] = new JsonArray("email.details"),
+            ["description"] = "Synthetic", ["mainAssembly"] = "NativeSentinel.dll", ["hooks"] = mismatchedHooks ? new JsonArray("other.hook") : new JsonArray("email.details"),
             ["dependencies"] = new JsonObject { ["NativeSentinel.dll"] = digest },
         };
         var entries = new List<(string Path, byte[] Bytes)>

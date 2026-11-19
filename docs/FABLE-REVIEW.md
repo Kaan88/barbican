@@ -1892,3 +1892,7 @@ The Platform AuthenticatedPluginPackageStore now binds a host-secret MAC key and
 ### Codex - M6b native inspection paused WIP
 
 Native sidecar inspection and hash-bound full-trust consent have focused pre-load and adversarial tests. No native assembly was loaded; the sentinel checks only absence before loading and are not a positive execution test. Native full-trust loading, its positive sentinel and mismatch/race tests, dependency containment, production composition and security review remain outstanding.
+
+### Codex - M6b native loader test-first pause
+
+Three native activation acceptance cases for the actual ConsentedNativeLoader are marked Red and have executed to the intended PortPending stub: consented positive sentinel activity, sidecar/runtime manifest mismatch, and revocation during a pending authority check. The synthetic fixture manifest now agrees with the sidecar hooks. No native code was loaded; the positive execution assertion is not yet proven. Resume after resolving the atomic launch versus revocation barrier with the coordinator, then implement contained dependency resolution and lifecycle handling; ALC is not a security boundary.
