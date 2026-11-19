@@ -9,12 +9,12 @@
        attachments), the body (the editor control, or a plain text box while no editor is registered) beside the assistant slot (M6), and the footer (Send with its arrow, Templates, Attach, Options, the save status).
        Every question the composer asks (leave, warnings, schedule, templates, From, Options) is a card on the scrim of CardLayer, inside the pane, so it works docked and needs no OS window. -->
   <Grid x:Name="Host" AllowDrop="True" AutomationProperties.AutomationId="composer.host">
-    <Border x:Name="Pane" Background="{x:Bind Look.PaneBrush, Mode=OneWay}" BorderBrush="{StaticResource Line}" BorderThickness="{x:Bind Look.PaneBorder, Mode=OneWay}"
-            CornerRadius="{x:Bind Look.PaneRadius, Mode=OneWay}" MinWidth="320" MinHeight="260" AutomationProperties.AutomationId="composer" AutomationProperties.Name="New message">
-      <Border BorderBrush="{StaticResource Line}" BorderThickness="{x:Bind Look.ListHairline, Mode=OneWay}" CornerRadius="{x:Bind Look.PaneRadius, Mode=OneWay}">
-        <Grid x:Name="Inner" Padding="{x:Bind Look.ReaderPadding, Mode=OneWay}" RowSpacing="10" RowDefinitions="Auto,Auto,*,Auto">
+    <Border x:Name="Pane" BorderBrush="{StaticResource Line}"
+            MinWidth="320" MinHeight="260" AutomationProperties.AutomationId="composer" AutomationProperties.Name="New message">
+      <Border x:Name="InnerBorder" BorderBrush="{StaticResource Line}">
+        <Grid x:Name="Inner" RowSpacing="10" RowDefinitions="Auto,Auto,*,Auto">
           <!-- title row -->
-          <Grid Grid.Row="0" ColumnSpacing="8">
+          <Grid x:Name="TitleRow" Grid.Row="0" ColumnSpacing="8">
             <Grid.ColumnDefinitions>
               <ColumnDefinition Width="*" />
               <ColumnDefinition Width="Auto" />
@@ -30,7 +30,7 @@
           </Grid>
 
           <!-- header -->
-          <StackPanel Grid.Row="1" Spacing="0">
+          <StackPanel x:Name="Fields" Grid.Row="1" Spacing="0">
             <Grid x:Name="FromRow" MinHeight="34" ColumnSpacing="10" AutomationProperties.AutomationId="composer.from">
               <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="54" />
@@ -54,7 +54,7 @@
               <compose:RecipientFieldView x:Name="BccField" Label="Bcc" />
               <Border Height="1" Background="{StaticResource Line}" />
             </StackPanel>
-            <Grid MinHeight="36" ColumnSpacing="10">
+            <Grid x:Name="SubjectRow" MinHeight="36" ColumnSpacing="10">
               <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="54" />
                 <ColumnDefinition Width="*" />
@@ -74,7 +74,7 @@
           </StackPanel>
 
           <!-- body: the editor (or the stand-in text box) and the assistant slot -->
-          <Grid Grid.Row="2" ColumnSpacing="10" MinHeight="120">
+          <Grid x:Name="BodyRow" Grid.Row="2" ColumnSpacing="10" MinHeight="120">
             <Grid.ColumnDefinitions>
               <ColumnDefinition Width="*" />
               <ColumnDefinition Width="Auto" />
@@ -84,15 +84,16 @@
           </Grid>
 
           <!-- footer -->
-          <Grid Grid.Row="3" ColumnSpacing="8">
+          <Grid x:Name="Footer" Grid.Row="3" ColumnSpacing="8">
             <Grid.ColumnDefinitions>
               <ColumnDefinition Width="Auto" />
               <ColumnDefinition Width="Auto" />
               <ColumnDefinition Width="Auto" />
               <ColumnDefinition Width="Auto" />
               <ColumnDefinition Width="*" />
+              <ColumnDefinition Width="Auto" />
             </Grid.ColumnDefinitions>
-            <StackPanel Orientation="Horizontal" Spacing="2">
+            <StackPanel x:Name="SendGroup" Orientation="Horizontal" Spacing="2">
               <Button x:Name="SendButton" Style="{StaticResource Button.Primary}" Height="36" CornerRadius="18,0,0,18" Padding="18,0,14,0" Click="OnSendClick" AutomationProperties.AutomationId="composer.send" AutomationProperties.Name="Send">
                 <StackPanel Orientation="Horizontal" Spacing="7"><controls:SIcon Kind="Send" Size="15" Foreground="{StaticResource OnAccent}" /><TextBlock Text="Send" /></StackPanel>
               </Button>
@@ -101,13 +102,16 @@
               </Button>
             </StackPanel>
             <Button x:Name="TemplatesButton" Grid.Column="1" Style="{StaticResource Button.Action}" Height="36" CornerRadius="18" Click="OnTemplatesClick" AutomationProperties.AutomationId="composer.templates" AutomationProperties.Name="Templates">
-              <StackPanel Orientation="Horizontal" Spacing="6"><controls:SIcon Kind="Tpl" Size="15" /><TextBlock Text="Templates" /></StackPanel>
+              <StackPanel Orientation="Horizontal" Spacing="6"><controls:SIcon Kind="Tpl" Size="15" /><TextBlock x:Name="TemplatesLabel" Text="Templates" /></StackPanel>
             </Button>
             <Button x:Name="AttachButton" Grid.Column="2" Style="{StaticResource Button.Action}" Height="36" CornerRadius="18" Click="OnAttachClick" AutomationProperties.AutomationId="composer.attach" AutomationProperties.Name="Attach files">
-              <StackPanel Orientation="Horizontal" Spacing="6"><controls:SIcon Kind="Clip" Size="15" /><TextBlock Text="Attach" /></StackPanel>
+              <StackPanel Orientation="Horizontal" Spacing="6"><controls:SIcon Kind="Clip" Size="15" /><TextBlock x:Name="AttachLabel" Text="Attach" /></StackPanel>
             </Button>
             <Button x:Name="OptionsButton" Grid.Column="3" Style="{StaticResource Button.Action}" Height="36" CornerRadius="18" Click="OnOptionsClick" AutomationProperties.AutomationId="composer.options" AutomationProperties.Name="Options">
-              <StackPanel Orientation="Horizontal" Spacing="6"><controls:SIcon Kind="Opt" Size="15" /><TextBlock Text="Options" /></StackPanel>
+              <StackPanel Orientation="Horizontal" Spacing="6"><controls:SIcon Kind="Opt" Size="15" /><TextBlock x:Name="OptionsLabel" Text="Options" /></StackPanel>
+            </Button>
+            <Button x:Name="FooterDiscard" Grid.Column="3" Style="{StaticResource Button.Icon}" Width="36" Height="36" Visibility="Collapsed" Click="OnDiscardClick" AutomationProperties.AutomationId="composer.footer.discard" AutomationProperties.Name="Discard draft">
+              <controls:SIcon Kind="Trash" Size="16" />
             </Button>
             <TextBlock x:Name="StatusText" Grid.Column="4" HorizontalAlignment="Right" VerticalAlignment="Center" FontSize="12" Foreground="{StaticResource Faint}" TextTrimming="CharacterEllipsis"
                        AutomationProperties.AutomationId="composer.status" AutomationProperties.Name="Save status" />

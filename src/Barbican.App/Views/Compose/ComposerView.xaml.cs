@@ -9,6 +9,7 @@ using Barbican.App.Shell;
 using Barbican.App.Theme;
 using Barbican.Core.Compose;
 using Barbican.Presentation.Compose;
+using Microsoft.UI.Text;
 using Microsoft.UI.Xaml.Automation;
 using Microsoft.UI.Xaml.Input;
 using Windows.System;
@@ -19,6 +20,7 @@ namespace Barbican.App.Views.Compose;
 public sealed partial class ComposerView : UserControl
 {
     private readonly IComposerService _service = ViewHost.Get<IComposerService>();
+    private readonly ThemeController _theme = ViewHost.Get<ThemeController>();
     private ComposerViewModel? _vm;
     private bool _syncing;
 
@@ -32,14 +34,95 @@ public sealed partial class ComposerView : UserControl
         Host.DragOver += OnDragOver;
         Host.DragLeave += (_, _) => DropOverlay.Visibility = Visibility.Collapsed;
         Host.Drop += OnDrop;
+        SizeChanged += (_, _) => ApplyFooterDensity();
         ToField.Trailing = TogglesFor();
-        Loaded += (_, _) => Attach(_service.Current);
+        Loaded += OnLoaded;
+        Unloaded += OnUnloaded;
     }
 
     public StyleState Look { get; }
 
     /// <summary>The composer on screen, or null.</summary>
     public ComposerViewModel? Vm => _vm;
+
+    private void OnLoaded(object sender, RoutedEventArgs e)
+    {
+        _theme.CssApplied += OnThemeApplied;
+        Look.PropertyChanged += OnLookChanged;
+        ApplyComposerLayout();
+        Attach(_service.Current);
+    }
+
+    private void OnUnloaded(object sender, RoutedEventArgs e)
+    {
+        _theme.CssApplied -= OnThemeApplied;
+        Look.PropertyChanged -= OnLookChanged;
+    }
+
+    private void OnThemeApplied(object? sender, ThemeCssEventArgs e) => ApplyComposerLayout();
+
+    private void OnLookChanged(object? sender, PropertyChangedEventArgs e) => ApplyComposerLayout();
+
+    // Bulwark email-composer.tsx:5674-5676, 5783-5786, 5940-5948: flat header and
+    // separately ruled address rows. Keep all controls and their actions shared with legacy layouts.
+    private void ApplyComposerLayout()
+    {
+        var bulwark = _theme.Applied?.Bulwark == true;
+        Pane.Background = bulwark ? Look.TileBrush : Look.PaneBrush;
+        Pane.BorderThickness = bulwark ? new Thickness(0) : Look.PaneBorder;
+        Pane.CornerRadius = bulwark ? new CornerRadius(0) : Look.PaneRadius;
+        InnerBorder.BorderThickness = bulwark ? new Thickness(0) : Look.ListHairline;
+        InnerBorder.CornerRadius = bulwark ? new CornerRadius(0) : Look.PaneRadius;
+        Inner.Padding = bulwark ? new Thickness(0) : Look.ReaderPadding;
+        Inner.RowSpacing = bulwark ? 0 : 10;
+        TitleRow.MinHeight = bulwark ? 56 : 0;
+        TitleRow.Padding = bulwark ? new Thickness(16, 0, 16, 0) : new Thickness(0);
+        TitleRow.BorderBrush = AppResources.Brush("Line");
+        TitleRow.BorderThickness = bulwark ? new Thickness(0, 0, 0, 1) : new Thickness(0);
+        TitleText.FontSize = bulwark ? 16 : 17;
+        TitleText.FontWeight = bulwark ? FontWeights.SemiBold : FontWeights.Bold;
+        DiscardButton.Visibility = bulwark ? Visibility.Collapsed : Visibility.Visible;
+        FooterDiscard.Visibility = bulwark ? Visibility.Visible : Visibility.Collapsed;
+        Fields.Margin = bulwark ? new Thickness(16, 0, 16, 0) : new Thickness(0);
+        FromRow.MinHeight = bulwark ? 46 : 34;
+        SubjectRow.MinHeight = bulwark ? 46 : 36;
+        ToField.Margin = CcField.Margin = BccField.Margin = bulwark ? new Thickness(0, 5, 0, 5) : new Thickness(0);
+        SubjectBox.FontWeight = bulwark ? FontWeights.Normal : FontWeights.SemiBold;
+        BodyRow.Margin = bulwark ? new Thickness(12, 0, 12, 0) : new Thickness(0);
+        Footer.Padding = bulwark ? new Thickness(16, 8, 16, 8) : new Thickness(0);
+        Footer.BorderBrush = AppResources.Brush("Line");
+        Footer.BorderThickness = bulwark ? new Thickness(0, 1, 0, 0) : new Thickness(0);
+        Grid.SetColumn(SendGroup, bulwark ? 5 : 0);
+        Grid.SetColumn(AttachButton, bulwark ? 0 : 2);
+        Grid.SetColumn(TemplatesButton, 1);
+        Grid.SetColumn(OptionsButton, bulwark ? 2 : 3);
+        SendButton.CornerRadius = bulwark ? new CornerRadius(6, 0, 0, 6) : new CornerRadius(18, 0, 0, 18);
+        SendArrow.CornerRadius = bulwark ? new CornerRadius(0, 6, 6, 0) : new CornerRadius(0, 18, 18, 0);
+        TemplatesButton.CornerRadius = AttachButton.CornerRadius = OptionsButton.CornerRadius = new CornerRadius(bulwark ? 6 : 18);
+        ApplyFooterDensity();
+    }
+
+    private void ApplyFooterDensity()
+    {
+        var compact = _theme.Applied?.Bulwark == true && ActualWidth > 0 && ActualWidth < 600;
+        TemplatesLabel.Visibility = AttachLabel.Visibility = OptionsLabel.Visibility = compact ? Visibility.Collapsed : Visibility.Visible;
+        Footer.ColumnSpacing = compact ? 2 : 8;
+        foreach (var button in new[] { TemplatesButton, AttachButton, OptionsButton })
+        {
+            if (compact)
+            {
+                button.Width = 36;
+                button.MinWidth = 0;
+                button.Padding = new Thickness(0);
+            }
+            else
+            {
+                button.ClearValue(WidthProperty);
+                button.ClearValue(MinWidthProperty);
+                button.ClearValue(PaddingProperty);
+            }
+        }
+    }
 
     private void Attach(ComposerViewModel? vm)
     {

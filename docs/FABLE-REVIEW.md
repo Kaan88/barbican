@@ -23,6 +23,7 @@ placeholders (see CLAUDE.md); never write real values here.
 ## M6b quick-reply handoff (Codex stream: m6b-quick-reply, worker: GPT-6.1 Terra)
 
 - Review `src/Barbican.Core/Compose/ComposeRequest.cs`, `ComposeSeeder.cs`, and `tests/Barbican.Core.Tests/Compose/ComposeSeederTests.cs` (uncommitted): reply-only text is imported as plain text before signature placement; UI ownership, account and message binding, draft lifecycle, and sending remain outside this stream. Synthetic Core tests do not verify the eventual UI handoff.
+- Composer visual pass (Codex, GPT-6.1 Terra; uncommitted, based on palette prerequisite): review `src/Barbican.App/Views/Compose/ComposerView.xaml` and `ComposerView.xaml.cs`. Bulwark uses flat header/field rows and a compact responsive footer while the same actions and legacy layouts remain; header window controls, additional Bulwark footer actions and compact dock field behavior are not implemented. Hidden synthetic Windows captures exercise new and docked reply plus Bento/Nordic previews; actual window transitions and live accounts were not tested.
 
 ## M0, consolidated at the merge (stream: m0-review)
 
