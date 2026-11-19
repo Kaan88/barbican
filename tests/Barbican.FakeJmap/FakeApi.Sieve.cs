@@ -11,6 +11,9 @@ public sealed partial class FakeApi
 {
     private readonly List<(string Id, string Name, string BlobId, bool Active)> _scripts = [];
     private int _scriptSeq;
+    private int _scriptState;
+
+    private string SieveState => "s" + _scriptState.ToString(CultureInfo.InvariantCulture);
 
     /// <summary>The text of the active script (null when there is none), for tests.</summary>
     public string? ActiveSieveText()
@@ -29,6 +32,7 @@ public sealed partial class FakeApi
         {
             var id = (++_scriptSeq).ToString(CultureInfo.InvariantCulture);
             _scripts.Add((id, name, store.PutBlob(Encoding.UTF8.GetBytes(text)), active));
+            _scriptState++;
         }
     }
 
@@ -83,7 +87,7 @@ public sealed partial class FakeApi
                 }
             }
 
-            return (null, new JsonObject { ["accountId"] = options.AccountId, ["state"] = "s" + _scripts.Count.ToString(CultureInfo.InvariantCulture), ["list"] = list, ["notFound"] = notFound });
+            return (null, new JsonObject { ["accountId"] = options.AccountId, ["state"] = SieveState, ["list"] = list, ["notFound"] = notFound });
         }
     }
 
@@ -91,6 +95,10 @@ public sealed partial class FakeApi
     {
         lock (_lock)
         {
+            var oldState = SieveState;
+            if ((string?)args["ifInState"] is { } expected && !string.Equals(expected, oldState, StringComparison.Ordinal))
+                return Error("stateMismatch");
+            var oldActive = _scripts.FirstOrDefault(script => script.Active).Id;
             var created = new JsonObject();
             var notCreated = new JsonObject();
             var updated = new JsonObject();
@@ -132,7 +140,9 @@ public sealed partial class FakeApi
             }
 
             ActivateLocked((string?)args["onSuccessActivateScript"], refs);
-            var res = new JsonObject { ["accountId"] = options.AccountId, ["oldState"] = "s0", ["newState"] = "s" + _scripts.Count.ToString(CultureInfo.InvariantCulture) };
+            var newActive = _scripts.FirstOrDefault(script => script.Active).Id;
+            if (created.Count > 0 || updated.Count > 0 || !string.Equals(oldActive, newActive, StringComparison.Ordinal)) _scriptState++;
+            var res = new JsonObject { ["accountId"] = options.AccountId, ["oldState"] = oldState, ["newState"] = SieveState };
             res["created"] = created.Count > 0 ? created : null;
             res["updated"] = updated.Count > 0 ? updated : null;
             res["notCreated"] = notCreated.Count > 0 ? notCreated : null;

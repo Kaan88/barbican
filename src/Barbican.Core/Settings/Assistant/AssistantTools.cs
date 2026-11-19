@@ -693,7 +693,7 @@ public sealed partial class AssistantTools(
             return Fail("No rule with that name.");
         }
 
-        var saved = await filters.SaveAsync(accountKey, rules, ct).ConfigureAwait(false);
+        var saved = await filters.SaveAsync(accountKey, rules, loaded.Value.State, ct).ConfigureAwait(false);
         return saved.IsOk ? (add ? "Rule added." : "Rule removed.") : Fail(saved.Error!.Message);
     }
 

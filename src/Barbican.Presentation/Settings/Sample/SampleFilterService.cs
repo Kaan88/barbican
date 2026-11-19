@@ -4,6 +4,7 @@
 using System.Text.Json.Nodes;
 using Barbican.Core.Common;
 using Barbican.Core.Filters.Rules;
+using Barbican.Core.Jmap.Errors;
 
 namespace Barbican.Presentation.Settings.Sample;
 
@@ -11,6 +12,7 @@ namespace Barbican.Presentation.Settings.Sample;
 public sealed class SampleFilterService : IFilterService
 {
     private readonly Lock _lock = new();
+    private long _version;
     private List<JsonNode> _rules =
     [
         new JsonObject
@@ -28,19 +30,22 @@ public sealed class SampleFilterService : IFilterService
 
     public Task<Result<FilterState>> LoadAsync(string accountKey, CancellationToken ct) => SampleThreading.OffThreadAsync(() => Result<FilterState>.Ok(State()));
 
-    public async Task<Result<FilterState>> SaveAsync(string accountKey, IReadOnlyList<JsonNode> rules, CancellationToken ct)
+    public async Task<Result<FilterState>> SaveAsync(string accountKey, IReadOnlyList<JsonNode> rules, string? expectedState, CancellationToken ct)
     {
         ArgumentNullException.ThrowIfNull(rules);
         var state = await SampleThreading.OffThreadAsync(() =>
         {
             lock (_lock)
             {
+                if (!string.Equals(expectedState, _version.ToString(System.Globalization.CultureInfo.InvariantCulture), StringComparison.Ordinal))
+                    return Result<FilterState>.Fail(new ValidationError("Filters changed; reload before saving."));
                 _rules = [.. rules.Select(r => r.DeepClone())];
-                return State();
+                _version++;
+                return Result<FilterState>.Ok(State());
             }
         }).ConfigureAwait(false);
-        SampleThreading.RaiseOnPool(() => Changed?.Invoke(this, new FilterChangedEventArgs(accountKey)));
-        return Result<FilterState>.Ok(state);
+        if (state.IsOk) SampleThreading.RaiseOnPool(() => Changed?.Invoke(this, new FilterChangedEventArgs(accountKey)));
+        return state;
     }
 
     public Task<Result<FilterScan>> ScanAsync(string accountKey, JsonNode rule, long generation, CancellationToken ct) =>
@@ -53,7 +58,7 @@ public sealed class SampleFilterService : IFilterService
     {
         lock (_lock)
         {
-            return new FilterState([.. _rules.Select(r => r.DeepClone())], string.Empty, false, ["fileinto", "reject"], true);
+            return new FilterState([.. _rules.Select(r => r.DeepClone())], string.Empty, false, ["fileinto", "reject"], true) { State = _version.ToString(System.Globalization.CultureInfo.InvariantCulture) };
         }
     }
 }

@@ -5,4 +5,8 @@ using System.Text.Json.Nodes;
 namespace Barbican.Core.Filters.Rules;
 
 /// <summary>The account's filters: the rules of the metadata block, the hand-written external part, whether the script is locked (hand-edited: no visual edit, B-SIEVE-007), the server's Sieve extensions and whether it advertises reject.</summary>
-public sealed record FilterState(IReadOnlyList<JsonNode> Rules, string External, bool Locked, IReadOnlyList<string> Extensions, bool RejectAdvertised);
+public sealed record FilterState(IReadOnlyList<JsonNode> Rules, string External, bool Locked, IReadOnlyList<string> Extensions, bool RejectAdvertised)
+{
+    /// <summary>SieveScript/get state from which these rules were read; required for a save.</summary>
+    public string? State { get; init; }
+}

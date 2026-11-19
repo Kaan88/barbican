@@ -1,3 +1,7 @@
+using System.Text.Json.Nodes;
+using Barbican.Core.Jmap;
+using Barbican.Core.Jmap.Errors;
+using Barbican.Core.Tests.Contacts;
 using Barbican.Core.Settings.Folders;
 using Barbican.Core.Settings.Vacation;
 using Barbican.Core.Sieve;
@@ -15,11 +19,81 @@ public sealed class FilterServiceTests
         var rig = await FilterTestRig.StartAsync();
         var rule = SieveScript.Rule("News", "from", "contains", "news@example.org", "move", "News", false);
         rule["custom"] = "retained";
-        var saved = await rig.Filters.SaveAsync(FilterTestRig.Account, [rule], Ct);
+        var initial = await rig.Filters.LoadAsync(FilterTestRig.Account, Ct);
+        var saved = await rig.Filters.SaveAsync(FilterTestRig.Account, [rule], initial.Value!.State, Ct);
         Assert.True(saved.IsOk, saved.Error?.Message);
         var loaded = await rig.Filters.LoadAsync(FilterTestRig.Account, Ct);
         Assert.True(loaded.IsOk, loaded.Error?.Message);
         Assert.Equal("retained", (string?)Assert.Single(loaded.Value!.Rules)["custom"]);
+    }
+
+    [Fact]
+    public async Task Two_editors_cannot_overwrite_each_others_rules()
+    {
+        var rig = await FilterTestRig.StartAsync();
+        var first = await rig.Filters.LoadAsync(FilterTestRig.Account, Ct);
+        var second = await rig.Filters.LoadAsync(FilterTestRig.Account, Ct);
+        Assert.NotNull(first.Value!.State);
+        Assert.Equal(first.Value.State, second.Value!.State);
+        var ruleA = SieveScript.Rule("First editor", "from", "contains", "a@example.org", "mark_read", "", false);
+        var ruleB = SieveScript.Rule("Second editor", "from", "contains", "b@example.org", "mark_read", "", false);
+        var saved = await rig.Filters.SaveAsync(FilterTestRig.Account, [ruleA], first.Value.State, Ct);
+        Assert.True(saved.IsOk, saved.Error?.Message);
+        Assert.NotEqual(first.Value.State, saved.Value!.State, StringComparer.Ordinal);
+        var scriptAfterFirst = rig.Api.ActiveSieveText();
+        var stale = await rig.Filters.SaveAsync(FilterTestRig.Account, [ruleB], second.Value.State, Ct);
+        Assert.False(stale.IsOk);
+        Assert.Equal("stateMismatch", Assert.IsType<MethodError>(stale.Error).Type);
+        Assert.Equal(scriptAfterFirst, rig.Api.ActiveSieveText());
+        var fresh = await rig.Filters.LoadAsync(FilterTestRig.Account, Ct);
+        Assert.Equal("First editor", (string?)Assert.Single(fresh.Value!.Rules)["name"]);
+    }
+
+    [Fact]
+    public async Task A_stale_store_snapshot_does_not_update_or_activate_another_script()
+    {
+        var rig = await FilterTestRig.StartAsync();
+        var store = new SieveScriptStore(rig.Fake.Client);
+        var snapshot = await store.ReadAsync(Ct);
+        Assert.NotNull(snapshot.Value!.State);
+        rig.Api.SeedSieve("external", "# external script", true);
+        var result = await store.SaveAsync("# stale replacement", snapshot.Value, Ct);
+        Assert.False(result.IsOk);
+        Assert.Equal("stateMismatch", Assert.IsType<MethodError>(result.Error).Type);
+        Assert.Equal("# external script", rig.Api.ActiveSieveText());
+    }
+
+    [Fact]
+    public async Task A_second_write_from_the_same_snapshot_conflicts_after_an_update()
+    {
+        var rig = await FilterTestRig.StartAsync();
+        rig.Api.SeedSieve("active", "# initial", true);
+        var store = new SieveScriptStore(rig.Fake.Client);
+        var read = await store.ReadAsync(Ct);
+        var first = await store.SaveAsync("# first update", read.Value!, Ct);
+        Assert.True(first.IsOk, first.Error?.Message);
+        var stale = await store.SaveAsync("# stale update", read.Value!, Ct);
+        Assert.False(stale.IsOk);
+        Assert.Equal("stateMismatch", Assert.IsType<MethodError>(stale.Error).Type);
+        Assert.Equal("# first update", rig.Api.ActiveSieveText());
+    }
+
+    [Fact]
+    public async Task Missing_server_state_allows_reading_but_refuses_before_upload_or_set()
+    {
+        var client = new ContactScriptedClient(request => new JmapResponse
+        {
+            MethodResponses = [.. request.MethodCalls.Select(call => new JsonArray(call[0]!.DeepClone(),
+                new JsonObject { ["list"] = new JsonArray() }, call[2]!.DeepClone()))],
+        }, [SieveScriptStore.Capability]);
+        var store = new SieveScriptStore(client);
+        var read = await store.ReadAsync(Ct);
+        Assert.True(read.IsOk, read.Error?.Message);
+        Assert.Null(read.Value!.State);
+        var saved = await store.SaveAsync("# must not save", read.Value, Ct);
+        Assert.False(saved.IsOk);
+        Assert.Contains("state", saved.Error!.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Single(client.Requests);
     }
 
     [Fact]
