@@ -96,6 +96,18 @@ public sealed class SettingConcurrencyTests
         }
     }
 
+    [Fact]
+    public async Task Catalog_options_are_saved_with_their_expected_types()
+    {
+        var prefs = new BlockingPrefs();
+        using var values = new SettingValues(prefs, prefs, new HookBus());
+        Assert.True((await values.SetAsync("fontSize", JsonValue.Create("large"), TestContext.Current.CancellationToken)).IsOk);
+        Assert.Equal("large", (string?)values.Stored("fontSize"));
+        Assert.True((await values.SetAsync("mailTextScale", JsonValue.Create("1.125"), TestContext.Current.CancellationToken)).IsOk);
+        Assert.Equal(1.125, (double?)values.Stored("mailTextScale"));
+        Assert.False((await values.SetAsync("fontSize", JsonValue.Create("size"), TestContext.Current.CancellationToken)).IsOk);
+    }
+
     private sealed class BlockingPrefs : IPrefsStore, IPrefsEditor
     {
         private readonly JsonObject _values = [];

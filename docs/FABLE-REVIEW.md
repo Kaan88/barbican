@@ -1453,3 +1453,7 @@ launched; Linux unverified). Verdicts on the M2 verify items 1 to 6, 11, 12 and 
 ## Codex - M6 assistant history loading (Terra High)
 
 - Review `src/Barbican.Core/Settings/Assistant/AssistantSession.cs` and `IAssistantSession.cs`: `History` is memory-only and returns empty before `InitializeHistoryAsync`; load, ask and clear serialize per account, with file I/O outside the cache lock. The UI must call initialization on account/page changes and observe `Changed`; close integration owns that wiring. Tests cover slow reads, saved history reopening and clear during an in-flight ask; cancellation and I/O failure paths deserve further review.
+
+## Codex - M6 settings schema corrections (Terra High)
+
+- Review `src/Barbican.Core/Settings/settings-schema.json`, `Pages/SettingRules.cs`, and their tests (D-M6-A14): static options and typed numeric values follow Bulwark `lib/accessibility-settings.ts`, `lib/sub-addressing.ts`, `lib/proofreading/languages.ts`, `lib/message-list-order.ts`, `lib/notification-sound.ts`, `lib/unread-first.ts`, `lib/compose-placement.ts`, and `stores/settings-store.ts`. Dynamic identity and policy relay choices are intentionally empty until supplied by their owning UI. The composite account marker requires the UI to write two booleans; the validator rejects string labels to protect prefs. Custom delimiter and installed-checker language choices require UI integration; test and visually verify those interactions.
