@@ -45,6 +45,13 @@ accessible names and in-window tooltips. Hidden automation measured 32×32 px
 and verified entry and exit (reader x696 → x56 → x696). This is one toolbar
 control, not a restyle of the reader.
 
+Quick-reply footer: `email-viewer.tsx:6652–6684` defines a full-width
+top-ruled surface, 24 px horizontal gutters, and two/three input rows.
+Hidden Windows automation measured a 728 px footer filling the reader, a
+24 px input inset, and 58 → 78 → 58 px input heights across typing and
+Cancel. Switching to Bento restored the 56 px legacy input. The reference
+avatar, sender identity and inline Send are still missing.
+
 ## Existing parity resources
 
 Use the existing catalogues as the inventory; this page records the differences

@@ -260,9 +260,9 @@
           <body:MailBodyView Grid.Row="7" x:Name="BodySlot" MinHeight="80" HorizontalAlignment="Stretch" VerticalAlignment="Stretch" AutomationProperties.AutomationId="reader.body" AutomationProperties.Name="Message body" />
 
            <!-- Quick reply hands off to the full composer; inline delivery is not wired. -->
-           <Border Grid.Row="8" x:Name="QuickReplyBar" Visibility="Collapsed" CornerRadius="8" Padding="8" Background="{StaticResource Tile}" BorderBrush="{StaticResource Line}" BorderThickness="1" LostFocus="OnQuickReplyBlur"
+           <Border Grid.Row="8" x:Name="QuickReplyBar" Visibility="Collapsed" BorderBrush="{StaticResource Line}" LostFocus="OnQuickReplyBlur"
                    AutomationProperties.AutomationId="reader.reply-bar" AutomationProperties.Name="Quick reply">
-             <StackPanel Spacing="6">
+             <StackPanel x:Name="QuickReplyLayout">
                <TextBox x:Name="QuickReplyText" AcceptsReturn="True" TextWrapping="Wrap" MinHeight="56" MaxHeight="144" ScrollViewer.VerticalScrollBarVisibility="Auto"
                         GotFocus="OnQuickReplyFocus" TextChanged="OnQuickReplyTextChanged"
                         PlaceholderText="{x:Bind views:Fmt.ReplyHint(Reader.Header.From), Mode=OneWay}" FontSize="14"

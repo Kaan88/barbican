@@ -1,4 +1,5 @@
 using Barbican.App.Shell;
+using Barbican.App.Theme;
 using Barbican.Core.Compose;
 using Barbican.Core.Mail.Model;
 using Barbican.Core.Storage;
@@ -23,12 +24,15 @@ public sealed partial class ReaderView
         {
             Reader.PropertyChanged += OnQuickReplyReaderChanged;
             _replyComposer.OpenChanged += OnQuickReplyComposerChanged;
+            Look.PropertyChanged += OnQuickReplyStyleChanged;
+            ApplyQuickReplyStyle();
             SyncQuickReply();
         };
         Unloaded += (_, _) =>
         {
             Reader.PropertyChanged -= OnQuickReplyReaderChanged;
             _replyComposer.OpenChanged -= OnQuickReplyComposerChanged;
+            Look.PropertyChanged -= OnQuickReplyStyleChanged;
             _replyHandoff?.Cancel();
         };
     }
@@ -39,6 +43,33 @@ public sealed partial class ReaderView
     }
 
     private void OnQuickReplyComposerChanged(object? sender, EventArgs e) => SyncQuickReply();
+
+    private void OnQuickReplyStyleChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e) => ApplyQuickReplyStyle();
+
+    // Bulwark 1.21.2 email-viewer.tsx:6652-6684: a ruled footer with 24 px
+    // gutters, regular-density 12 px spacing and a two/three-row textarea.
+    private void ApplyQuickReplyStyle()
+    {
+        var bulwark = Look.IsBulwark;
+        var inset = Look.ReaderPadding;
+        QuickReplyBar.Margin = bulwark ? new Thickness(-inset.Left, 0, -inset.Right, -inset.Bottom) : new Thickness(0);
+        QuickReplyBar.BorderThickness = bulwark ? new Thickness(0, 1, 0, 0) : new Thickness(1);
+        QuickReplyBar.CornerRadius = new CornerRadius(bulwark ? 0 : 8);
+        QuickReplyBar.Padding = bulwark ? new Thickness(24, 12, 24, 12) : new Thickness(8);
+        QuickReplyBar.Background = AppResources.Brush(bulwark ? "Ground" : "Tile");
+        QuickReplyLayout.Spacing = bulwark ? 12 : 6;
+        if (bulwark)
+        {
+            QuickReplyText.Padding = new Thickness(12, 8, 12, 8);
+            QuickReplyText.CornerRadius = new CornerRadius(8);
+        }
+        else
+        {
+            QuickReplyText.ClearValue(PaddingProperty);
+            QuickReplyText.ClearValue(CornerRadiusProperty);
+        }
+        UpdateQuickReplyActions();
+    }
 
     private (string ListAccount, string Login, string ServerId)? ReplyTarget()
     {
@@ -107,7 +138,7 @@ public sealed partial class ReaderView
     {
         if (QuickReplyActions is null) return;
         var expanded = _replyExpanded || QuickReplyText.Text.Length != 0;
-        QuickReplyText.MinHeight = expanded ? 76 : 56;
+        QuickReplyText.MinHeight = (expanded ? 76 : 56) + (Look.IsBulwark ? 2 : 0);
         QuickReplyActions.Visibility = expanded ? Visibility.Visible : Visibility.Collapsed;
     }
 
