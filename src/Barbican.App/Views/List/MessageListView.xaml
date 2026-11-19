@@ -30,6 +30,7 @@
             <Grid Background="{x:Bind views:Fmt.TickedRowBackground(IsChecked, theme:StyleState.Current.IsNordic), Mode=OneWay}" Padding="{x:Bind theme:StyleState.Current.MessageRowPadding, Mode=OneWay}" ColumnSpacing="{x:Bind theme:StyleState.Current.MessageRowSpacing, Mode=OneWay}"
                   ColumnDefinitions="Auto,*" AutomationProperties.Name="{x:Bind AccessibleName}" PointerEntered="OnRowEntered" PointerExited="OnRowExited" GotFocus="OnRowFocused">
               <Border Grid.ColumnSpan="2" Background="{x:Bind views:Fmt.TintBg(AccountColorIndex)}" Opacity="0.12" IsHitTestVisible="False" Visibility="{x:Bind views:Fmt.AccountTintVis(ShowAccountTint, IsChecked), Mode=OneWay}" />
+              <Border Grid.ColumnSpan="2" Background="{x:Bind views:Fmt.TagFill(TagTintColor)}" IsHitTestVisible="False" Visibility="{x:Bind views:Fmt.AccountTintVis(ShowTagTint, IsChecked), Mode=OneWay}" />
               <Border Width="38" Height="38" VerticalAlignment="Top" Visibility="{x:Bind theme:StyleState.Current.ShowAvatar, Mode=OneWay}"
                       CornerRadius="{x:Bind theme:StyleState.Current.AvatarRadius, Mode=OneWay}" Background="{x:Bind views:Fmt.TintBg(TintIndex)}" Tapped="OnAvatarTapped"
                       AutomationProperties.AutomationId="row.tick" AutomationProperties.Name="Select message">

@@ -34,6 +34,8 @@ public sealed record RowContext
 
     public bool ShowVerificationCodes { get; init; } = true;
 
+    public bool TintListRowsByTag { get; init; }
+
     public Barbican.Core.Mail.VerificationCode.IVerificationCodeFinder? CodeFinder { get; init; }
 
     public bool MultipleAccountSources { get; init; }
