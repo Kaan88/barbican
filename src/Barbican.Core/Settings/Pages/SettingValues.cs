@@ -7,21 +7,25 @@ using Barbican.Core.Jmap.Errors;
 using Barbican.Core.Plugins.Hooks;
 using Barbican.Core.Plugins.Payloads;
 using Barbican.Core.Storage;
+using Barbican.Core.Settings.Prefs;
 
 namespace Barbican.Core.Settings.Pages;
 
 /// <summary>The default <see cref="ISettingValues"/>.</summary>
-public sealed class SettingValues(IPrefsStore prefs, IPrefsEditor editor, IHookBus hooks) : ISettingValues, IDisposable
+public sealed class SettingValues(IPrefsStore prefs, IPrefsEditor editor, IHookBus hooks, SettingWriteGate? gate = null) : ISettingValues, IDisposable
 {
     // the keys whose change is a change of the reminder keywords (D-M6-A06)
     private static readonly string[] KeywordKeys = ["attachmentReminderKeywords"];
 
-    private readonly SemaphoreSlim _gate = new(1, 1);
+    private readonly SettingWriteGate _gate = gate ?? new SettingWriteGate();
 
     /// <inheritdoc/>
     public event EventHandler<SettingChangedEventArgs>? Changed;
 
-    public void Dispose() => _gate.Dispose();
+    public void Dispose()
+    {
+        if (gate is null) _gate.Dispose();
+    }
 
     /// <inheritdoc/>
     public JsonNode? Stored(string key)
@@ -52,9 +56,9 @@ public sealed class SettingValues(IPrefsStore prefs, IPrefsEditor editor, IHookB
             next = check.Value;
         }
 
-        // one writer at a time: the previous value a plug-in sees is the value this write replaces
-        await _gate.WaitAsync(ct).ConfigureAwait(false);
-        try
+        // Interceptors may re-enter settings, so they run outside the gate. Retry if the
+        // value changed while the interceptor was deciding; never apply stale approval.
+        for (var attempt = 0; attempt < 3; attempt++)
         {
             var previous = Stored(key);
             if (!await hooks.AllowAsync(HookNames.OnBeforeSettingChange, () => new SettingChangePayload(key, next?.DeepClone(), previous?.DeepClone()), ct).ConfigureAwait(false))
@@ -62,7 +66,26 @@ public sealed class SettingValues(IPrefsStore prefs, IPrefsEditor editor, IHookB
                 return Result<Unit>.Fail(new ValidationError("A plug-in stopped this change."));
             }
 
-            editor.Put(key, next);
+            var applied = false;
+            await _gate.WaitAsync(ct).ConfigureAwait(false);
+            try
+            {
+                if (JsonNode.DeepEquals(previous, Stored(key)))
+                {
+                    editor.Put(key, next);
+                    applied = true;
+                }
+            }
+            finally
+            {
+                _gate.Release();
+            }
+
+            if (!applied)
+            {
+                continue;
+            }
+
             Changed?.Invoke(this, new SettingChangedEventArgs(key, next?.DeepClone()));
             hooks.Fire(HookNames.OnSettingChange, () => new SettingChangePayload(key, next?.DeepClone(), previous?.DeepClone()));
             if (KeywordKeys.Contains(key, StringComparer.Ordinal))
@@ -73,10 +96,8 @@ public sealed class SettingValues(IPrefsStore prefs, IPrefsEditor editor, IHookB
 
             return Result<Unit>.Ok(default);
         }
-        finally
-        {
-            _ = _gate.Release();
-        }
+
+        return Result<Unit>.Fail(new ValidationError("The setting changed while it was being saved. Try again."));
     }
 
     private static string[] Words(JsonNode? value) =>

@@ -8,6 +8,9 @@ namespace Barbican.Core.Settings.Assistant;
 /// <summary>The assistant settings of an account (desktop settings.json, key "assistant").</summary>
 public interface IAssistantSettings
 {
+    /// <summary>Loads profile settings off the UI thread before they are needed.</summary>
+    Task InitializeAsync(CancellationToken ct) => Task.CompletedTask;
+
     /// <summary>The settings of the account; defaults (OpenAI-compatible, Ask mode, memory on) when nothing is stored. A memory read.</summary>
     AssistantConfig Config(string accountKey);
 
