@@ -6,7 +6,7 @@
     <ProjectReference Include="../../src/Barbican.Core/Barbican.Core.csproj" />
     <!-- m1-jmap: the fake JMAP server, the virtual clock (push backoff and deadlines) and coverage. -->
     <ProjectReference Include="../Barbican.FakeJmap/Barbican.FakeJmap.csproj" />
-    <ProjectReference Include="Plugins/Packages/Fixtures/NativeSentinel/NativeSentinel.csproj" ReferenceOutputAssembly="false" Private="false" />
+    <ProjectReference Include="Plugins/Packages/Fixtures/NativeSentinel/NativeSentinel.csproj" ReferenceOutputAssembly="false" Private="false" OutputItemType="NativeSentinelAssembly" />
     <!-- m2-plugins (T-206): the bundled spam-score plugin is built beside the tests, not referenced, and copied to <output>/plugins/spam-score/. -->
     <ProjectReference Include="../../plugins/Barbican.Plugin.SpamScore/Barbican.Plugin.SpamScore.csproj" ReferenceOutputAssembly="false" Private="false" />
     <PackageReference Include="Microsoft.Extensions.TimeProvider.Testing" />
@@ -16,7 +16,7 @@
   </ItemGroup>
 
   <Target Name="CopyNativeSentinelFixture" AfterTargets="Build">
-    <Copy SourceFiles="$(MSBuildThisFileDirectory)Plugins/Packages/Fixtures/NativeSentinel/bin/$(Configuration)/net10.0/NativeSentinel.dll" DestinationFolder="$(OutDir)native-sentinel" />
+    <Copy SourceFiles="@(NativeSentinelAssembly)" DestinationFolder="$(OutDir)native-sentinel" SkipUnchangedFiles="true" Condition="'@(NativeSentinelAssembly)' != ''" />
   </Target>
 
   <!-- Copies the plugin's build output (the dll and its pdb) next to the tests so the plugin host test loads the real build. -->
