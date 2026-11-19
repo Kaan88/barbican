@@ -199,6 +199,11 @@ public sealed class AssistantClient : IAssistantClient, IDisposable
 #pragma warning disable MA0051 // Request setup and error mapping form one provider transaction.
     private async Task<Result<AssistantMessage>> CompleteCoreAsync(AssistantConfig config, IReadOnlyList<AssistantMessage> messages, IReadOnlyList<AssistantToolSpec> tools, CancellationToken ct)
     {
+        if (string.IsNullOrWhiteSpace(config.Model))
+        {
+            return Result<AssistantMessage>.Fail(new ValidationError("Choose a model for the AI service."));
+        }
+
         var key = await _keys.ReadAsync(ct).ConfigureAwait(false);
         if (string.IsNullOrWhiteSpace(key))
         {

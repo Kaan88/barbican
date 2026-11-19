@@ -1496,3 +1496,7 @@ Validation: focused tests 3 passed, full Presentation suite 996 passed, Windows 
 ## Codex - calendar hook catalogue reconciliation (Sol)
 
 - Eight M4 hooks remained pending in `spec/plugins/hooks.csv` despite concrete existing call sites in CalendarViewModel, EventEditorViewModel.Save and TasksViewModel. The coordinator inspected those sites and corrected the catalogue references. This records implementation sites, not proof that all eight were invoked during an end-to-end plugin run; M6b compatibility verification must exercise observer/transform payloads and permissions against these surfaces.
+
+## Codex - assistant model validation (Sol)
+
+- Provider switching can clear a recognized old default model. `AssistantClient` now rejects a blank model before key lookup or HTTP; five offline provider-client cases passed, including both providers with a blank model. Custom models remain the UI owner's responsibility to preserve when switching. No external provider was contacted.
