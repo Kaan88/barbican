@@ -1,0 +1,68 @@
+{
+  "schema": 1,
+  "source_commit": "583b40d062f077b1e9fc7e32c9faa497b869f535",
+  "scope": "Windows M6 implementation checkpoint; explicit live and visual limits remain open",
+  "tests": {
+    "passed": 2909,
+    "failed": 0,
+    "skipped": 4,
+    "total": 2913,
+    "log": "artifacts/m6-final-integrated-tests-fixed.log"
+  },
+  "build": {
+    "heads": [
+      "Windows",
+      "desktop compile only"
+    ],
+    "warnings": 0,
+    "errors": 0
+  },
+  "catalogue": {
+    "m6_rust_rows": 18,
+    "pending": 0,
+    "duplicates": 0,
+    "dangling": 0,
+    "red_markers": 0,
+    "hook_generator": "current",
+    "tokens": "current"
+  },
+  "portable": {
+    "source": "583b40d062f077b1e9fc7e32c9faa497b869f535",
+    "file": "Barbican-M6-583b40d-win-x64.zip",
+    "bytes": 149444021,
+    "sha256": "BF4C3DD121545C58A0168EBD0606E01DDA22D2842127BAC1D0A9041C5AFF1DFC",
+    "productVersion": "0.1+583b40d062f077b1e9fc7e32c9faa497b869f535",
+    "smoke": {
+      "schema": 1,
+      "ok": true,
+      "error": null,
+      "configuration": "Release",
+      "head": "win",
+      "processToLaunchedMs": 214.3,
+      "processToFirstFrameMs": 523,
+      "processToShellReadyMs": 773.3,
+      "exitCode": 0
+    }
+  },
+  "ui": {
+    "profile": "isolated synthetic auto profile",
+    "settings_captures": 4,
+    "quick_event_captures": 2,
+    "all_captures_nonuniform": true,
+    "parent_inspected": [
+      "bento-dark-general.png",
+      "nordic-light-general.png",
+      "quick-recovered.png"
+    ],
+    "quick_recovery_save": "passed",
+    "sample_write_preflight": "refused",
+    "picker_visual_overlay": "unverified",
+    "owned_sample_process": "stopped after close timeout"
+  },
+  "unverified": [
+    "No live filter or vacation write verification",
+    "No Bulwark Sieve readback",
+    "No WGC flicker proof on the private desktop",
+    "Linux excluded from this run"
+  ]
+}

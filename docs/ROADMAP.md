@@ -13,7 +13,7 @@ Current execution order: **M6 -> M6b -> M7 -> M8 -> M10 -> Astra review/fix loop
 | M3 | Compose and send with native editor | Done; manual/live limitations recorded |
 | M4 | Calendar and tasks | Done; Linux deferred |
 | M5 | Contacts and Files | Done; explicit feature carryovers remain |
-| M6 | Settings, server features and assistant | Integration/close pass active; final tests, UI/live verification, report and fresh Windows portable zip pending |
+| M6 | Settings, server features and assistant | Windows implementation checkpoint and verified fresh portable delivered at 583b40d; explicit live/visual limits in report |
 | M6b | Full plugin platform, sandbox, permissions, consent and Add-ons | Next; source inventory/planning preparation underway |
 | M7 | Admin dashboard and management | Planned |
 | M8 | Windows desktop integration and distribution | Planned |
