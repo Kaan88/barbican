@@ -6,8 +6,8 @@ namespace Barbican.Core.Plugins.Api.Composer;
 public static class PluginComposerMethods
 {
     public static IPluginApiMethod GetSnapshot(IPluginComposerAccess access) => new ComposerMethod(access, "composer.getSnapshot", "compose:read", 1);
-    public static IPluginApiMethod SetSubject(IPluginComposerAccess access) => new ComposerMethod(access, "composer.setSubject", "compose:write", 2, true);
-    public static IPluginApiMethod SetSubject(IPluginComposerAccess access, IPluginComposerEditRateLimiter limiter) => throw new Barbican.Core.Common.PortPendingException("composer edit limiter integration");
+
+    public static IPluginApiMethod SetSubject(IPluginComposerAccess access, IPluginComposerEditRateLimiter limiter) => new ComposerMethod(access, "composer.setSubject", "compose:write", 2, limiter ?? throw new ArgumentNullException(nameof(limiter)));
     public static IPluginApiMethod ReadAttachment(IPluginComposerAccess access) => new ComposerMethod(access, "composer.readAttachment", "email:blob-read", 2);
 
     private sealed class ComposerMethod : IPluginApiMethod
@@ -15,10 +15,11 @@ public static class PluginComposerMethods
         private const int MaxBytes = 25 * 1024 * 1024;
         private readonly IPluginComposerAccess _access;
         private readonly int _arguments;
-        public ComposerMethod(IPluginComposerAccess access, string name, string permission, int arguments, bool writes = false)
+        private readonly IPluginComposerEditRateLimiter? _limiter;
+        public ComposerMethod(IPluginComposerAccess access, string name, string permission, int arguments, IPluginComposerEditRateLimiter? limiter = null)
         {
-            _access = access ?? throw new ArgumentNullException(nameof(access)); _arguments = arguments;
-            Descriptor = new(name, [[permission]], TimeSpan.FromSeconds(30), mayMutate: writes);
+            _access = access ?? throw new ArgumentNullException(nameof(access)); _arguments = arguments; _limiter = limiter;
+            Descriptor = new(name, [[permission]], TimeSpan.FromSeconds(30), mayMutate: limiter is not null);
         }
         public PluginApiDescriptor Descriptor { get; }
         public PluginErrorCode? ValidateArguments(PluginValue args)
@@ -42,6 +43,7 @@ public static class PluginComposerMethods
             if (string.Equals(Descriptor.Name, "composer.getSnapshot", StringComparison.Ordinal)) return Snapshot(snapshot);
             if (string.Equals(Descriptor.Name, "composer.setSubject", StringComparison.Ordinal))
             {
+                if (!_limiter!.TryAcquire(context.Binding.Profile, context.Binding.Package.Id)) return PluginCallOutcome.Failed(PluginErrorCode.RateLimited);
                 context.MarkMutationIssued();
                 var changed = await handle.SetSubjectAsync(CleanSubject(args.Item(1).StringValue), snapshot.Revision, ct).ConfigureAwait(false);
                 return Boolean(changed);
@@ -68,15 +70,19 @@ public static class PluginComposerMethods
                 if (c <= '\u001f' || c is >= '\u007f' and <= '\u009f') { if (!controls) output.Append(' '); controls = true; }
                 else { controls = false; if (c is not ('\u200e' or '\u200f' or >= '\u202a' and <= '\u202e' or >= '\u2066' and <= '\u2069')) output.Append(c); }
             }
-            return output.ToString().Trim();
+            var text = output.ToString(); var start = 0; var end = text.Length;
+            while (start < end && IsJsWhitespace(text[start])) start++;
+            while (end > start && IsJsWhitespace(text[end - 1])) end--;
+            return text[start..end];
         }
+        private static bool IsJsWhitespace(char c) => c is '\u0009' or '\u000a' or '\u000b' or '\u000c' or '\u000d' or '\u0020' or '\u00a0' or '\u1680' or >= '\u2000' and <= '\u200a' or '\u2028' or '\u2029' or '\u202f' or '\u205f' or '\u3000' or '\ufeff';
         private static PluginCallOutcome Boolean(bool value) { var b = new PluginValueBuilder(); return PluginCallOutcome.Succeeded(b.Build(b.Boolean(value))); }
         private static PluginCallOutcome Snapshot(PluginComposerSnapshot snapshot)
         {
             var b = new PluginValueBuilder();
             int List(IEnumerable<string> values) => b.Array([.. values.Select(b.String)]);
             var files = b.Array([.. snapshot.Attachments.Select(x => b.Object(("id", b.String(x.Id)), ("name", b.String(x.Name)), ("type", b.String(x.Type)), ("size", b.Number(x.Size))))]);
-            return PluginCallOutcome.Succeeded(b.Build(b.Object(("revision", b.String(snapshot.Revision)), ("subject", b.String(snapshot.Subject)), ("text", b.String(snapshot.Text)), ("to", List(snapshot.To)), ("cc", List(snapshot.Cc)), ("bcc", List(snapshot.Bcc)), ("attachments", files), ("pending", b.Boolean(snapshot.Pending)))));
+            return PluginCallOutcome.Succeeded(b.Build(b.Object(("revision", b.String(snapshot.Revision)), ("subject", b.String(snapshot.Subject)), ("text", b.String(snapshot.Text)), ("to", List(snapshot.To)), ("cc", List(snapshot.Cc)), ("bcc", List(snapshot.Bcc)), ("attachments", files), ("pending", b.Boolean(snapshot.Pending))), new PluginValueLimits(MaxWireBytes: 100 * 1024 * 1024, MaxStringBytes: 52 * 1024 * 1024)));
         }
         private static PluginCallOutcome Attachment(PluginComposerAttachment file, PluginComposerAttachmentData data)
         {

@@ -43,7 +43,7 @@ public sealed class ComposerMediationAcceptanceTests
     public async Task SubjectRequiresPermissionAndNeverResolvesOrWritesWhenRefused()
     {
         var grant = Grant("compose:read"); var access = new Access();
-        var dispatcher = Dispatcher(PluginComposerMethods.SetSubject(access), new Authority(grant), new Sessions());
+        var dispatcher = Dispatcher(PluginComposerMethods.SetSubject(access, PluginComposerEditRateLimiter.Create(TimeProvider.System, 10)), new Authority(grant), new Sessions());
         await using var binding = PluginRuntimeBinding.Create("auto-mediation", grant, PluginFrameKind.Background);
         var result = await dispatcher.DispatchAsync(binding, Request("composer.setSubject", "[\"host-handle\",\"hello\"]"), Ct);
         Assert.Equal(PluginErrorCode.PermissionDenied, result.Error);
@@ -54,7 +54,7 @@ public sealed class ComposerMediationAcceptanceTests
     public async Task SubjectRejectsInvalidInputBeforeResolvingAndWritesCleanedValueToOwner()
     {
         var grant = Grant("compose:write"); var access = new Access();
-        var dispatcher = Dispatcher(PluginComposerMethods.SetSubject(access), new Authority(grant), new Sessions());
+        var dispatcher = Dispatcher(PluginComposerMethods.SetSubject(access, PluginComposerEditRateLimiter.Create(TimeProvider.System, 10)), new Authority(grant), new Sessions());
         await using var binding = PluginRuntimeBinding.Create("auto-mediation", grant, PluginFrameKind.Background);
         var rejected = await dispatcher.DispatchAsync(binding, Request("composer.setSubject", "[\"host-handle\",{}]"), Ct);
         Assert.Equal(PluginErrorCode.InvalidArguments, rejected.Error); Assert.Equal(0, access.Resolutions);
@@ -203,7 +203,6 @@ public sealed class ComposerMediationAcceptanceTests
         Assert.Equal("attachment_not_in_composer", PluginCallOutcome.Failed(PluginErrorCode.AttachmentNotInComposer).ErrorMessage, StringComparer.Ordinal);
     }
     [Fact]
-    [Red("m6b-mediation")]
     public async Task TwoFramesAndUpdatedContentCannotBypassSharedEditLimit()
     {
         var limiter = PluginComposerEditRateLimiter.Create(new Microsoft.Extensions.Time.Testing.FakeTimeProvider(), 10);
@@ -219,6 +218,57 @@ public sealed class ComposerMediationAcceptanceTests
         await using var replacement = PluginRuntimeBinding.Create("auto-mediation", updated, PluginFrameKind.Background);
         var denied = await afterUpdate.DispatchAsync(replacement, request, Ct);
         Assert.Equal(PluginErrorCode.RateLimited, denied.Error); Assert.Equal(60, access.Handle.Writes);
+    }
+    [Fact]
+    public async Task LargeSourceValidBodyIsProjectedBeyondDefaultGraphBudget()
+    {
+        var grant = Grant("compose:read"); var access = new Access(); access.Handle.Body = new string('x', 512 * 1024);
+        var dispatcher = Dispatcher(PluginComposerMethods.GetSnapshot(access), new Authority(grant), new Sessions());
+        await using var binding = PluginRuntimeBinding.Create("auto-mediation", grant, PluginFrameKind.Background);
+        var result = await dispatcher.DispatchAsync(binding, Request("composer.getSnapshot", "[\"host-handle\"]"), Ct);
+        Assert.True(result.IsSuccess); Assert.Equal(512 * 1024, result.Value!.Property("text").StringValue.Length);
+        var limits = new PluginValueLimits(MaxWireBytes: 100 * 1024 * 1024, MaxStringBytes: 52 * 1024 * 1024);
+        var decoded = PluginValueCodec.Decode(PluginValueCodec.Encode(result.Value, limits), limits);
+        Assert.Equal(access.Handle.Body, decoded.Property("text").StringValue, StringComparer.Ordinal);
+    }
+
+    [Fact]
+    public async Task SubjectUsesJavaScriptTrimIncludingByteOrderMark()
+    {
+        var grant = Grant("compose:write"); var access = new Access();
+        var dispatcher = Dispatcher(PluginComposerMethods.SetSubject(access, PluginComposerEditRateLimiter.Create(TimeProvider.System, 10)), new Authority(grant), new Sessions());
+        await using var binding = PluginRuntimeBinding.Create("auto-mediation", grant, PluginFrameKind.Background);
+        var result = await dispatcher.DispatchAsync(binding, Request("composer.setSubject", "[\"host-handle\",\"\\ufeff  hello \\ufeff\"]"), Ct);
+        Assert.True(result.IsSuccess); Assert.Equal("hello", access.Handle.WrittenSubject, StringComparer.Ordinal);
+    }
+    [Fact]
+    public async Task InvalidAndUnauthorizedCallsDoNotConsumeEditBudget()
+    {
+        var limiter = PluginComposerEditRateLimiter.Create(TimeProvider.System, 10); var access = new Access();
+        var deniedGrant = Grant("compose:read"); var allowedGrant = Grant("compose:write");
+        var deniedDispatcher = Dispatcher(PluginComposerMethods.SetSubject(access, limiter), new Authority(deniedGrant), new Sessions());
+        var allowedDispatcher = Dispatcher(PluginComposerMethods.SetSubject(access, limiter), new Authority(allowedGrant), new Sessions());
+        await using var deniedBinding = PluginRuntimeBinding.Create("auto-mediation", deniedGrant, PluginFrameKind.Background);
+        await using var allowedBinding = PluginRuntimeBinding.Create("auto-mediation", allowedGrant, PluginFrameKind.Background);
+        for (var i = 0; i < 60; i++)
+        {
+            Assert.Equal(PluginErrorCode.PermissionDenied, (await deniedDispatcher.DispatchAsync(deniedBinding, Request("composer.setSubject", "[\"host-handle\",\"x\"]"), Ct)).Error);
+            Assert.Equal(PluginErrorCode.InvalidArguments, (await allowedDispatcher.DispatchAsync(allowedBinding, Request("composer.setSubject", "[\"host-handle\",{}]"), Ct)).Error);
+        }
+        Assert.True((await allowedDispatcher.DispatchAsync(allowedBinding, Request("composer.setSubject", "[\"host-handle\",\"x\"]"), Ct)).IsSuccess);
+        Assert.Equal(1, access.Handle.Writes);
+    }
+
+    [Fact]
+    public async Task BackendRefusalsStillConsumeReservedEditBudget()
+    {
+        var limiter = PluginComposerEditRateLimiter.Create(TimeProvider.System, 10); var access = new Access(); access.Handle.AcceptWrites = false;
+        var grant = Grant("compose:write"); var dispatcher = Dispatcher(PluginComposerMethods.SetSubject(access, limiter), new Authority(grant), new Sessions());
+        await using var binding = PluginRuntimeBinding.Create("auto-mediation", grant, PluginFrameKind.Background);
+        var request = Request("composer.setSubject", "[\"host-handle\",\"x\"]");
+        for (var i = 0; i < 60; i++) Assert.False((await dispatcher.DispatchAsync(binding, request, Ct)).Value!.BooleanValue);
+        Assert.Equal(PluginErrorCode.RateLimited, (await dispatcher.DispatchAsync(binding, request, Ct)).Error);
+        Assert.Equal(60, access.Handle.Writes);
     }
     private sealed class Access : IPluginComposerAccess
     {
@@ -238,8 +288,10 @@ public sealed class ComposerMediationAcceptanceTests
         public int Writes { get; private set; }
         public int AttachmentReads { get; private set; }
         public long Size { get; set; } = 3;
+        public string Body { get; set; } = "text";
         public string Revision { get; set; } = "rev-1";
         public bool Member { get; set; } = true;
+        public bool AcceptWrites { get; set; } = true;
         public bool Pause { get; set; }
         public ReadOnlyMemory<byte> ReturnedBytes { get; set; } = new byte[] { 1, 2, 3 };
         public TaskCompletionSource Started { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -249,9 +301,9 @@ public sealed class ComposerMediationAcceptanceTests
         public Task<PluginComposerSnapshot> GetSnapshotAsync(CancellationToken ct)
         {
             Reads++;
-            return Task.FromResult(new PluginComposerSnapshot(Revision, "subject", "text", ["a@example.org"], [], [], Member ? [new("file", "file.txt", "text/plain", Size)] : [], false));
+            return Task.FromResult(new PluginComposerSnapshot(Revision, "subject", Body, ["a@example.org"], [], [], Member ? [new("file", "file.txt", "text/plain", Size)] : [], false));
         }
-        public Task<bool> SetSubjectAsync(string subject, string hostRevision, CancellationToken ct) { Writes++; WrittenSubject = subject; WrittenRevision = hostRevision; return Task.FromResult(true); }
+        public Task<bool> SetSubjectAsync(string subject, string hostRevision, CancellationToken ct) { Writes++; WrittenSubject = subject; WrittenRevision = hostRevision; return Task.FromResult(AcceptWrites); }
         public async Task<PluginComposerAttachmentData> ReadAttachmentAsync(string attachmentId, CancellationToken ct)
         {
             AttachmentReads++; Started.TrySetResult();

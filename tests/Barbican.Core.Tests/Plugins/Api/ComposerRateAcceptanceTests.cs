@@ -5,7 +5,6 @@ namespace Barbican.Core.Tests.Plugins.Api;
 public sealed class ComposerRateAcceptanceTests
 {
     [Fact]
-    [Red("m6b-mediation")]
     public void TwoFramesAndContentUpdatesShareStablePluginBudget()
     {
         var limiter = PluginComposerEditRateLimiter.Create(new FakeTimeProvider(), 10);
@@ -16,7 +15,6 @@ public sealed class ComposerRateAcceptanceTests
         Assert.True(limiter.TryAcquire("other-profile", "probe"));
     }
     [Fact]
-    [Red("m6b-mediation")]
     public void LimitExpiresOnlyAfterRollingWindow()
     {
         var time = new FakeTimeProvider(); var limiter = PluginComposerEditRateLimiter.Create(time, 10);
@@ -25,7 +23,6 @@ public sealed class ComposerRateAcceptanceTests
         time.Advance(TimeSpan.FromSeconds(1)); Assert.True(limiter.TryAcquire("profile", "probe"));
     }
     [Fact]
-    [Red("m6b-mediation")]
     public void FullKeyTableRefusesNewKeysUntilExpired()
     {
         var time = new FakeTimeProvider(); var limiter = PluginComposerEditRateLimiter.Create(time, 1);
