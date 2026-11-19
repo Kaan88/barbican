@@ -1,0 +1,52 @@
+# M6b coordinator contract preparation
+
+Codex / Sol, 2026-11-19. Read with M6b-plan.md and M6b-api-inventory.md. This prepares the shared implementation contract; it does not claim a working runtime. Production implementation starts after M6 closes and its final portable is verified. The coordinator must add compiling shared models and red acceptance tests before handing independent streams these contracts.
+
+## Ownership and dependency order
+
+The coordinator owns shared contracts, production composition, catalogue generation, service adapters that cross feature ownership, and final host insertion points. Runtime, package, API and slot implementations consume the same contracts; workers must request a contract change before duplicating an incompatible type. No Core reference to Presentation, App, a WebView or a platform UI type.
+
+1. Freeze package/grant/instance/RPC/slot models and acceptance fixtures; prove the composition seams compile.
+2. Package and consent stream implements inert discovery, validation and grant transitions. Runtime stream implements the actual reference JS bootstrap and frame lifecycle against fake grants. API stream implements exact per-method adapters against fake sessions.
+3. UI/slots consumes stable package/consent/slot seams. Wire real production sources, then run unchanged reference fixtures through the same production paths.
+4. Coordinator code checks, complete merged Windows suite, security/compatibility scenarios, hook/slot exercise evidence and verified portable. Later M8/M10 call sites remain explicit obligations rather than invented successful executions.
+
+## Package, consent and native trust models
+
+Core records must distinguish immutable package identity (ID, version, SHA-256 over the complete validated package), runtime kind (JavaScript or native), requested permissions and origins, provenance, verified signer and execution tier. An installed package record also carries enabled/error state and the exact grant identity. A permission snapshot contains the package hash, explicit account scope, grant generation and current capabilities; callers revalidate it at use time.
+
+Separate interfaces cover package discovery/install/update/uninstall, policy verification, consent persistence and grant lookup. Discovery reads inert metadata only. No native assembly load, static initializer, constructor or Manifest getter may occur before validation and full-trust consent. AssemblyLoadContext is a loader and unload mechanism, not a native sandbox. All dependency files belong to the package integrity check. An update changes the hash and requires a new decision even when the displayed permission list is unchanged. Revocation cancels outstanding work and invalidates callbacks, streams, hook and slot registrations.
+
+Consent requests use immutable, reviewable package data and a requested-vs-granted diff. Keystore access requires its own user consent even for managed packages. Privileged JavaScript requires verified signature, an applicable managed/admin approval and the reference crypto authority; none alone implies the others. Network, resource and account boundaries remain enforced independently. Missing policy/registry endpoints must be accurately unavailable, with real local package import supported.
+
+## Runtime and transport contract
+
+A runtime instance identity binds a validated package/hash/grant generation, captured account context, background-or-slot mode and an unforgeable host-created frame identity. Interface calls take this identity from the native transport binding, never from a plugin-supplied pluginId/accountKey field. Lifetime cancellation ends pending requests, owned callbacks and streams. Native failure details and profile paths must not be returned as plugin errors.
+
+Port the reference protocol, rather than inventing a plugin-facing API: `<bulwark>/lib/plugin-sandbox/protocol.ts` defines sandbox-ready/init/init-done/init-error, api-request/api-response, hook-invoke/hook-result, callback-invoke/callback-response, slot visibility/resize, props/locale/theme/settings/host changes, streams, and floating dropdown messages. Preserve the reference field names and structured binary semantics through any JSON/native encoding. JavaScript fixture manifest/index.js files remain unchanged. Initialization includes the trimmed manifest, CommonJS bundle, regional snapshot and theme; it must contain no credentials or host service objects.
+
+C# envelopes and validators must cover every message variant and distinguish control data, bounded binary data and owned stream IDs. Limits and deadlines come from the reference operation-specific validators, `api-timeouts.ts` and hook policies; add resource caps and adverse tests without silently breaking the unchanged fixtures. Unknown message types, fields where the reference rejects them, ownership, stale IDs and invalid result types fail closed. A generic dictionary dispatcher or raw JMAP forwarding is insufficient.
+
+Untrusted frames have opaque origins and no same-origin allowance. The reference host pins messages by `event.source === iframe.contentWindow`; retain this check in the port. Bind native frame messages to the specific live frame and stop accepting messages after navigation/destruction. Do not authenticate by the origin string `null`, a claimed ID, frame name or a shared top-level bridge alone. No host objects are exposed to plugin script. Navigation, popup, browser permission and resource handlers enforce the same boundary as CSP, including redirects and nested frames.
+
+On Windows, use the actual frame event identity where available: [CoreWebView2Frame](https://learn.microsoft.com/en-us/microsoft-edge/webview2/reference/winrt/microsoft_web_webview2_core/corewebview2frame) exposes iframe message and destruction events. [Microsoft security guidance](https://learn.microsoft.com/en-us/microsoft-edge/webview2/concepts/security) requires validating content/message sources and controlling navigation and host-object exposure. Verify the installed SDK API shape before implementation. Linux execution remains M9; compile-compatible adapters are not evidence of Linux isolation.
+
+## API and hook mediation
+
+`spec/plugins/host-api.csv` lists 186 source method names, including 17 privileged-only entries. Each implemented descriptor needs an executable input schema, base and conditional permission checks, captured session/account routing, typed adapter, projected output schema, deadline and explicit ownership/lifecycle behavior. An unknown or unimplemented adapter is unavailable, never a permissive fallback. The static permission table alone does not encode checker ownership, compose context, network/redirect, nested field or keystore consent checks.
+
+Hook contracts must represent observer, intercept, transform and takeover separately. Keep stable ordering and reference veto/error/deadline behavior. Native IPluginHooks currently exposes only Observe/Intercept and needs additive transform/takeover support. JSON projection and validated result conversion sit between every plugin and the typed host bus; serialize only an explicit transitive allowlist for that hook, current permission selector and account. Do not serialize arbitrary live service or payload objects. Unknown fields are denied. Takeover needs an explicit handled/unhandled result rather than a truthy generic value.
+
+Network requests use a dedicated broker with per-plugin declared-origin checks, validation of every redirect hop, explicit private/local address policy, size/time/concurrency limits and isolated credentials. Plugin storage is scoped to immutable plugin identity and permitted account context. OAuth and secrets use platform/user mediation; existing host credentials are not plugin-visible defaults.
+
+## Slot contract and application integration
+
+All 58 reference slots need an executable descriptor: name, kind, permission alternatives, nested input projection, supported contribution types, bounded output validator, callback ownership and mount/dispose policy. The registry emits immutable contributions for presentation. Frame mounts receive only projected props and typed callback capabilities; action/data contributions cannot smuggle arbitrary UI/native objects. Keep actual action, frame and data behavior distinct.
+
+App/Presentation owns accessible Add-ons lists, install/update consent, errors, disable/uninstall and native slot surfaces. A generic placeholder for every slot does not satisfy the actual insertion-point requirement. Every current slot needs a source-to-native mount map and an exercised contribution; future milestone surfaces remain identified until they exist. Preserve native focus/modal behavior, in-window popup constraints, high contrast/reduced motion and the selected UI guidelines.
+
+## Acceptance evidence
+
+Use the unchanged `<bulwark>/integration/fixtures/plugin-api-probe` and `proofreading-checker` plus a frame-slot sample and the existing native spam-score plugin. API probe requires real composer snapshots/subject changes, reader actions, binary file preview/print routing, send hooks/keyword projection and link parameters. Proofreading requires checker registration, ownership, results and UI integration. Declaring fixture activation successful is weaker than these operations working.
+
+The red tests must cover package/hash/signature and extraction attacks; consent updates/revocation; frame spoofing/escape/stale identity; denied API/hook/slot/nested fields; all four hook results and ordering; bounded bytes/streams/callbacks; network redirects and account/storage isolation; native pre-load consent; and disable/uninstall teardown. Per-surface evidence must name the tested source commit and production seam. The final M6b report cannot infer compatibility or security from catalogue counts or registration counts.
