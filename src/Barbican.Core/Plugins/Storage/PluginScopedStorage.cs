@@ -107,9 +107,16 @@ public sealed class PluginScopedStorage : IPluginScopedStorage
             if (values.Sum(x => prefixLength + x.Key.Length + x.Value.Length) > Quota) return Fail<Unit>();
             var bytes = PluginStorageBinary.Encode(values);
             if (!await CurrentAsync(binding, capture, ct).ConfigureAwait(false)) return Fail<Unit>();
-            var commit = await _store.CommitAsync(_profile, binding.Package.Id, capture.LocalAccountKey, snapshot.Revision, bytes, ct).ConfigureAwait(false);
-            if (!commit.IsOk) return Result<Unit>.Fail(commit.Error!);
-            return await CurrentAsync(binding, capture, ct).ConfigureAwait(false) ? Result<Unit>.Ok(default) : Fail<Unit>();
+            try
+            {
+                var commit = await _store.CommitAsync(_profile, binding.Package.Id, capture.LocalAccountKey, snapshot.Revision, bytes, ct).ConfigureAwait(false);
+                if (!commit.IsOk) return Result<Unit>.Fail(new PluginStorageUncertainError());
+                return await CurrentAsync(binding, capture, ct).ConfigureAwait(false) ? Result<Unit>.Ok(default) : Result<Unit>.Fail(new PluginStorageUncertainError());
+            }
+            catch (Exception ex) when (ex is not OutOfMemoryException and not StackOverflowException)
+            {
+                return Result<Unit>.Fail(new PluginStorageUncertainError());
+            }
         }
         catch (Exception ex) when (ex is UriFormatException or InvalidDataException or OverflowException) { return Fail<Unit>(); }
     }

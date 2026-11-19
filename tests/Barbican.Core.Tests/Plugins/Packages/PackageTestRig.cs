@@ -114,6 +114,8 @@ internal sealed class PackageTestRig
         private readonly Dictionary<(string Profile, string Plugin, string Login), PluginStoreSnapshot> _values = [];
         public TaskCompletionSource? LoadEntered { get; set; }
         public TaskCompletionSource? ReleaseLoad { get; set; }
+        public TaskCompletionSource? CommitEntered { get; set; }
+        public TaskCompletionSource? ReleaseCommit { get; set; }
         public async Task<Result<PluginStoreSnapshot>> LoadAsync(string profile, string pluginId, string localLoginKey, CancellationToken ct)
         {
             var snapshot = _values.GetValueOrDefault((profile, pluginId, localLoginKey)) ?? new PluginStoreSnapshot(0, []);
@@ -121,14 +123,16 @@ internal sealed class PackageTestRig
             if (ReleaseLoad is not null) await ReleaseLoad.Task.WaitAsync(ct);
             return Result<PluginStoreSnapshot>.Ok(snapshot);
         }
-        public Task<Result<long>> CommitAsync(string profile, string pluginId, string localLoginKey, long expectedRevision, ReadOnlyMemory<byte> data, CancellationToken ct)
+        public async Task<Result<long>> CommitAsync(string profile, string pluginId, string localLoginKey, long expectedRevision, ReadOnlyMemory<byte> data, CancellationToken ct)
         {
             var key = (profile, pluginId, localLoginKey);
             var before = _values.GetValueOrDefault(key) ?? new PluginStoreSnapshot(0, []);
-            if (before.Revision != expectedRevision) return Task.FromResult(Result<long>.Fail(new ValidationError("Synthetic conflict.")));
+            if (before.Revision != expectedRevision) return Result<long>.Fail(new ValidationError("Synthetic conflict."));
             var next = new PluginStoreSnapshot(before.Revision + 1, ImmutableArray.CreateRange(data.ToArray()));
             _values[key] = next;
-            return Task.FromResult(Result<long>.Ok(next.Revision));
+            CommitEntered?.TrySetResult();
+            if (ReleaseCommit is not null) await ReleaseCommit.Task.WaitAsync(ct);
+            return Result<long>.Ok(next.Revision);
         }
     }
 

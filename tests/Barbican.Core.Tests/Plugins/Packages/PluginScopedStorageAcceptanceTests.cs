@@ -142,6 +142,38 @@ public sealed class PluginScopedStorageAcceptanceTests
         await binding.DisposeAsync();
     }
 
+    [Fact]
+    public async Task ContextChangeAfterCommitReportsTypedUnknownOutcome()
+    {
+        var rig = new PackageTestRig();
+        var (_, storage, binding, _) = await StartAsync(rig);
+        var capture = PluginPackageManagerAcceptanceTests.Need(rig.Accounts.CaptureActive());
+        rig.Data.CommitEntered = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        rig.Data.ReleaseCommit = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        var pending = storage.SetAsync(binding, capture, "note", PackageTestRig.StringValue("synthetic"), Ct);
+        await rig.Data.CommitEntered.Task.WaitAsync(TimeSpan.FromSeconds(5), Ct);
+        rig.Accounts.Switch("login-b");
+        rig.Data.ReleaseCommit.TrySetResult();
+        var outcome = await pending;
+        Assert.IsType<PluginStorageUncertainError>(outcome.Error);
+        var owner = PluginPackageManagerAcceptanceTests.Need(rig.Accounts.CaptureOwner("login-a"));
+        Assert.Equal("synthetic", PluginPackageManagerAcceptanceTests.Need(await storage.GetAsync(binding, owner, "note", Ct))!.StringValue, StringComparer.Ordinal);
+        await binding.DisposeAsync();
+    }
+
+    [Fact]
+    public async Task EmptyBigIntTypedArrayStringifiesAsAnEmptyObject()
+    {
+        var rig = new PackageTestRig();
+        var (_, storage, binding, capture) = await StartAsync(rig);
+        var builder = new PluginValueBuilder();
+        var buffer = builder.Buffer([]);
+        var view = builder.View(buffer, PluginViewType.BigInt64, 0, 0);
+        Assert.True((await storage.SetAsync(binding, capture, "empty", builder.Build(view), Ct)).IsOk);
+        Assert.Empty(PluginPackageManagerAcceptanceTests.Need(await storage.GetAsync(binding, capture, "empty", Ct))!.PropertyNames);
+        await binding.DisposeAsync();
+    }
+
     private static async Task<(PluginPackageManager Manager, PluginScopedStorage Storage, PluginRuntimeBinding Binding, PluginSessionCapture Capture)> StartAsync(PackageTestRig rig)
     {
         var manager = rig.Manager();

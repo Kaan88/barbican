@@ -50,7 +50,11 @@ internal static class PluginStorageJson
     private static void WriteView(PluginValue value, StringBuilder text)
     {
         if (value.ViewType == PluginViewType.DataView) { text.Append("{}"); return; }
-        if (value.ViewType is PluginViewType.BigInt64 or PluginViewType.BigUint64) throw new InvalidOperationException("BigInt storage value.");
+        if (value.ViewType is PluginViewType.BigInt64 or PluginViewType.BigUint64)
+        {
+            if (value.ByteLength == 0) { text.Append("{}"); return; }
+            throw new InvalidOperationException("BigInt storage value.");
+        }
         var bytes = value.BinaryBytes();
         var width = value.ViewType switch
         {
