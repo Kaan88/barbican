@@ -50,6 +50,9 @@ public sealed partial class SidebarView : UserControl
     // The item containers differ per style; they are swapped once per style change, not per row. Tags are rows in both styles (prototype labels).
     private void ApplyStyle()
     {
+        // Only the active style owns the public automation id.
+        AutomationProperties.SetAutomationId(ComposeButton, Look.IsBulwark ? "sidebar.compose.legacy" : "sidebar.compose");
+        AutomationProperties.SetAutomationId(BulwarkComposeButton, Look.IsBulwark ? "sidebar.compose" : "sidebar.compose.bulwark");
         var width = Panes.SidebarWidth > 0 ? Panes.SidebarWidth : Look.SidebarWidth;
         if (Math.Abs(Pane.Width - width) > 0.01 || double.IsNaN(Pane.Width))
         {

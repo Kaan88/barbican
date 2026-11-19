@@ -125,8 +125,8 @@
         </Grid.Resources>
 
         <!-- Header (prototype ListHead): Bento title 24 bold with "N unread" on the right; Nordic title 28 extra bold, tight, and the greeting under it. Search stays (M1). -->
-        <StackPanel Grid.Row="0" Padding="{x:Bind Look.ListHeaderPadding, Mode=OneWay}" Spacing="12">
-          <Grid ColumnDefinitions="*,Auto">
+        <StackPanel x:Name="ListHeader" Grid.Row="0" Padding="{x:Bind Look.ListHeaderPadding, Mode=OneWay}" Spacing="12">
+          <Grid ColumnDefinitions="*,Auto" Visibility="{x:Bind views:Fmt.VisNot(Look.IsBulwark), Mode=OneWay}">
             <TextBlock Text="{x:Bind Glance.ListTitle, Mode=OneWay}" FontFamily="{x:Bind Look.AppBoldFont, Mode=OneWay}" FontSize="{x:Bind Look.ListTitleSize, Mode=OneWay}" FontWeight="{x:Bind Look.ListTitleWeight, Mode=OneWay}"
                        CharacterSpacing="{x:Bind Look.ListTitleSpacing, Mode=OneWay}" Foreground="{StaticResource Text}" TextTrimming="CharacterEllipsis"
                        AutomationProperties.AutomationId="list.title" AutomationProperties.Name="Folder title" />
@@ -135,7 +135,24 @@
           </Grid>
           <TextBlock Text="{x:Bind Glance.ListSubtitle, Mode=OneWay}" FontSize="13" Foreground="{StaticResource Dim}" TextTrimming="CharacterEllipsis" Margin="0,-8,0,0"
                      Visibility="{x:Bind Look.NordicOnly, Mode=OneWay}" />
-          <ContentPresenter x:Name="SearchSlot" />
+          <!-- Bulwark mail-app.tsx:6633-6690: select, search and folder actions share the top row. -->
+          <Grid x:Name="Toolbar" ColumnDefinitions="36,*,36" ColumnSpacing="4">
+            <Button Style="{StaticResource Button.Icon}" Width="36" Height="36" CornerRadius="18" Click="OnToolbarSelectAll"
+                    Visibility="{x:Bind views:Fmt.Vis(Look.IsBulwark), Mode=OneWay}" AutomationProperties.AutomationId="list.select-all"
+                    AutomationProperties.Name="Select all or clear selection" motion:Tip.Text="Select all or clear selection">
+              <Grid Width="16" Height="16">
+                <Border BorderBrush="{StaticResource Dim}" BorderThickness="1.5" CornerRadius="3" />
+                <TextBlock Text="&#xE73E;" FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" FontSize="13" Foreground="{StaticResource Accent}"
+                           Visibility="{x:Bind views:Fmt.Vis(List.HasChecked), Mode=OneWay}" HorizontalAlignment="Center" VerticalAlignment="Center" />
+              </Grid>
+            </Button>
+            <ContentPresenter Grid.Column="1" x:Name="SearchSlot" VerticalAlignment="Center" />
+            <Button Grid.Column="2" Style="{StaticResource Button.Icon}" Width="36" Height="36" CornerRadius="18" Click="OnFolderActions"
+                    Visibility="{x:Bind views:Fmt.Vis(Look.IsBulwark), Mode=OneWay}" AutomationProperties.AutomationId="list.folder-actions"
+                    AutomationProperties.Name="Folder actions" motion:Tip.Text="Folder actions">
+              <TextBlock Text="&#xE712;" FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" FontSize="16" />
+            </Button>
+          </Grid>
         </StackPanel>
 
         <!-- A load failure shows as a status line; the old rows stay. -->

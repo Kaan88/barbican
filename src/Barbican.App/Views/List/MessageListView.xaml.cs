@@ -5,6 +5,8 @@ using Barbican.App.Theme;
 using Barbican.Presentation.Commands;
 using Barbican.Presentation.Mail;
 using Barbican.Presentation.Shell;
+using Barbican.Presentation.Menus;
+using Barbican.Core.Mail.Model;
 using Microsoft.UI.Xaml.Automation;
 
 namespace Barbican.App.Views.List;
@@ -71,6 +73,33 @@ public sealed partial class MessageListView : UserControl
         {
             Rows.ItemContainerStyle = style;
         }
+
+        ListHeader.Padding = Look.IsBulwark ? new Thickness(12, 10, 12, 10) : Look.ListHeaderPadding;
+        ListHeader.Spacing = Look.IsBulwark ? 0 : 12;
+        Toolbar.ColumnDefinitions[0].Width = new GridLength(Look.IsBulwark ? 36 : 0);
+        Toolbar.ColumnDefinitions[2].Width = new GridLength(Look.IsBulwark ? 36 : 0);
+        Toolbar.ColumnSpacing = Look.IsBulwark ? 4 : 0;
+    }
+
+    // The default Bulwark toolbar clears any existing selection on the next click.
+    private void OnToolbarSelectAll(object sender, RoutedEventArgs e)
+    {
+        if (List.HasChecked) List.ClearChecked();
+        else List.SelectAllLoaded();
+    }
+
+    private void OnFolderActions(object sender, RoutedEventArgs e)
+    {
+        if (sender is not FrameworkElement button) return;
+        var sidebar = ViewHost.Get<SidebarViewModel>();
+        var id = List.MailboxId;
+        var key = ViewHost.Get<IActiveMail>().AccountKey ?? string.Empty;
+        var role = sidebar.Folders.FirstOrDefault(f => string.Equals(f.Id, id, StringComparison.Ordinal))?.Role ?? MailboxRole.None;
+        var mailbox = id is null ? null : new MailboxRef(key, key, id, role == MailboxRole.None ? null : role.ToString().ToLowerInvariant());
+        var at = button.TransformToVisual(null).TransformPoint(new Windows.Foundation.Point(0, button.ActualHeight));
+        ViewHost.Get<IContextMenuService>().Show(
+            new MenuContext(MenuIds.List, [], mailbox, null, null, null, CommandSurface.ContextMenu),
+            new MenuAnchor(at.X, at.Y, null));
     }
 
     private void OnListChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
