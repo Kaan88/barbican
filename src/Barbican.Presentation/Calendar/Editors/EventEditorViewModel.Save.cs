@@ -248,6 +248,12 @@ public sealed partial class EventEditorViewModel
             return false;
         }
 
+        if (_s.Source.AccountVersion != _accountVersion)
+        {
+            Error = "The active account changed. Reopen the event before saving.";
+            return false;
+        }
+
         if (_s.Source.AccountKey is not { } account)
         {
             Error = "No account is signed in.";
@@ -289,11 +295,17 @@ public sealed partial class EventEditorViewModel
         var patch = _s.Hooks is { } hooks && hooks.HasHandlers(HookNames.OnCalendarEventFormSave)
             ? await hooks.TransformAsync(HookNames.OnCalendarEventFormSave, new CalendarEventFormSavePatch(), ct).ConfigureAwait(true)
             : null;
+        if (_s.Source.AccountVersion != _accountVersion || !string.Equals(account, _s.Source.AccountKey, StringComparison.Ordinal))
+        {
+            Error = "The active account changed. Reopen the event before saving.";
+            return false;
+        }
+
         var form = BuildForm();
         if (_event is null && form.Attendees.Count > 0 && _s.ParticipantIdentities is { } identities)
         {
             var identityResult = await identities.ListAsync(account, ct).ConfigureAwait(true);
-            if (!string.Equals(account, _s.Source.AccountKey, StringComparison.Ordinal))
+            if (_s.Source.AccountVersion != _accountVersion || !string.Equals(account, _s.Source.AccountKey, StringComparison.Ordinal))
             {
                 Error = "The active account changed. Reopen the event before saving.";
                 return false;
@@ -312,7 +324,7 @@ public sealed partial class EventEditorViewModel
                 var address = chosen.CalendarAddress.StartsWith("mailto:", StringComparison.OrdinalIgnoreCase) ? chosen.CalendarAddress[7..] : chosen.CalendarAddress;
                 if (!string.IsNullOrWhiteSpace(address))
                 {
-                    form = form with { Me = [address, .. form.Me.Where(m => !string.Equals(m, address, StringComparison.OrdinalIgnoreCase))] };
+                    form = form with { PreferredOrganizer = new CalendarPerson(chosen.Name, address), Me = [address, .. form.Me.Where(m => !string.Equals(m, address, StringComparison.OrdinalIgnoreCase))] };
                 }
             }
         }

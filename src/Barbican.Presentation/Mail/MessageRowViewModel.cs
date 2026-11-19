@@ -43,6 +43,13 @@ public sealed class MessageRowViewModel : ListItemViewModel
         ShowTags = context.ShowTagChips && Tags.Count > 0;
         AttachmentNames = context.AttachmentChips ? RowText.AttachmentNames(summary, context.HideInlineImages) : [];
         HasAttachment = summary.HasAttachment;
+        if (context.AccountOfRow?.Invoke(summary.Id) is { } account)
+        {
+            AccountDescription = "Account: " + account.Name;
+            AccountColorIndex = account.Color;
+            ShowAccountTint = context.TintListRowsByAccount && !context.MoreContrast;
+            ShowAccountDot = context.MultipleAccountSources && (context.MoreContrast && context.TintListRowsByAccount || !context.TintListRowsByAccount && context.ShowAccountDot);
+        }
     }
 
     public EmailSummary Summary { get; }
@@ -78,6 +85,17 @@ public sealed class MessageRowViewModel : ListItemViewModel
 
     /// <summary>0..3: which avatar tint the sender hashes to.</summary>
     public int TintIndex { get; }
+
+    /// <summary>Accessible source account name for merged rows.</summary>
+    public string AccountDescription { get; } = string.Empty;
+
+    public int AccountColorIndex { get; }
+
+    public bool ShowAccountTint { get; }
+
+    public bool ShowAccountDot { get; }
+
+    public string AccessibleName => string.IsNullOrEmpty(AccountDescription) ? Sender + ", " + Subject : AccountDescription + ", " + Sender + ", " + Subject;
 
     public string Subject { get; }
 
@@ -116,6 +134,10 @@ public sealed class MessageRowViewModel : ListItemViewModel
         && r.Flagged == Flagged
         && r.ThreadCount == ThreadCount
         && r.HasAttachment == HasAttachment
+        && r.ShowAccountTint == ShowAccountTint
+        && r.ShowAccountDot == ShowAccountDot
+        && r.AccountColorIndex == AccountColorIndex
+        && string.Equals(r.AccountDescription, AccountDescription, StringComparison.Ordinal)
         && r.ShowTags == ShowTags
         && r.Tags.SequenceEqual(Tags)
         && r.Badges.SequenceEqual(Badges, StringComparer.Ordinal)

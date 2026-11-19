@@ -8,12 +8,15 @@
 using System.Windows.Input;
 using Barbican.Core.Mail.Lists;
 using Barbican.Core.Mail.Model;
+using Barbican.Core.Mail.Rules;
+using Barbican.Core.Mail.Unified;
 using Barbican.Core.Plugins.Hooks;
 using Barbican.Core.Plugins.Payloads;
 using Barbican.Core.Settings.Accessibility;
 using Barbican.Core.Storage;
 using Barbican.Presentation.Common;
 using Barbican.Presentation.Shell;
+using Barbican.Presentation.Unified;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 
@@ -36,6 +39,7 @@ public sealed partial class MessageListViewModel : ObservableObject, IDisposable
     private readonly TimeProvider _time;
     private readonly IListQueryShaper? _shaper;
     private readonly IListSourceResolver? _sources;
+    private readonly UnifiedInbox? _unified;
     private readonly LoadedList _loaded = new();
     private readonly Dictionary<string, IReadOnlyList<string>> _badges = new(StringComparer.Ordinal);
     private CancellationTokenSource? _cts;
@@ -66,7 +70,8 @@ public sealed partial class MessageListViewModel : ObservableObject, IDisposable
         TimeProvider time,
         IListQueryShaper? shaper = null,
         IListSourceResolver? sources = null,
-        IDispatcher? dispatcher = null)
+        IDispatcher? dispatcher = null,
+        UnifiedInbox? unified = null)
     {
         ArgumentNullException.ThrowIfNull(active);
         ArgumentNullException.ThrowIfNull(hub);
@@ -87,6 +92,7 @@ public sealed partial class MessageListViewModel : ObservableObject, IDisposable
         _time = time;
         _shaper = shaper;
         _sources = sources;
+        _unified = unified;
         LoadMoreCommand = new AsyncRelayCommand(LoadMoreAsync, () => CanLoadMore);
         _hub.EventReceived += OnSyncEvent;
         _active.Changed += OnAccountChanged;
@@ -617,6 +623,7 @@ public sealed partial class MessageListViewModel : ObservableObject, IDisposable
     {
         var settings = ReadSettings();
         var context = settings.RowContextAt(_time.GetUtcNow(), _time.LocalTimeZone);
+        context = WithAccountMarkers(context);
         var searching = !string.IsNullOrWhiteSpace(_query?.SearchText);
         int? unreadFirst = settings.UnreadFirst && _role == MailboxRole.Inbox && !searching ? settings.UnreadSectionSize : null;
         // Date headers would repeat the same stable key when priority/text order crosses date groups.
@@ -625,6 +632,35 @@ public sealed partial class MessageListViewModel : ObservableObject, IDisposable
         LastSync = ListSync.SyncBy(Rows, rows, r => r.Key, (a, b) => a.SameAs(b));
         KeepSelection();
         ApplyChecks();
+    }
+
+    private RowContext WithAccountMarkers(RowContext context)
+    {
+        if (_unified is null || !_loaded.Emails.Any(e => UnifiedRows.ParseRow(e.Id) is not null))
+        {
+            return context;
+        }
+
+        var sources = _unified.Sources();
+        var accounts = new Dictionary<string, (string Name, int Color)>(StringComparer.Ordinal);
+        foreach (var source in sources)
+        {
+            var username = source.Client.Session.Username;
+            if (string.IsNullOrWhiteSpace(username))
+            {
+                continue;
+            }
+
+            var name = source.Shared ? SharedSectionViewModel.NameOf(source) + " (" + username + ")" : username;
+            accounts[source.Key] = (name, RowText.TintIndex(username));
+        }
+
+        return context with
+        {
+            MultipleAccountSources = accounts.Count > 1,
+            AccountOfRow = id => UnifiedRows.ParseRow(id) is { } row && accounts.TryGetValue(UnifiedRows.SourceKey(row.Login, row.SharedAccount), out var account)
+                ? account : null,
+        };
     }
 
     private async Task ApplyBadgesAsync()

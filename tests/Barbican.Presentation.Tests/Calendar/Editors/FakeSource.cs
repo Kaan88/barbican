@@ -6,7 +6,20 @@ namespace Barbican.Presentation.Tests.Calendar.Editors;
 
 internal sealed class FakeSource : IEditorSource
 {
-    public string? AccountKey { get; set; } = "acct";
+    private string? _accountKey = "acct";
+    public long AccountVersion { get; private set; }
+    public string? AccountKey
+    {
+        get => _accountKey;
+        set
+        {
+            if (!string.Equals(_accountKey, value, StringComparison.Ordinal))
+            {
+                _accountKey = value;
+                AccountVersion++;
+            }
+        }
+    }
 
     public IReadOnlyList<string> Mine { get; set; } = ["me@x.example"];
 

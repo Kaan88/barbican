@@ -43,6 +43,21 @@ public sealed class AssistantClientTests
         Assert.Null(handler.Body);
     }
 
+    [Theory]
+    [InlineData(AssistantProviderKind.OpenAiCompatible)]
+    [InlineData(AssistantProviderKind.Anthropic)]
+    public async Task Blank_model_does_not_contact_provider(AssistantProviderKind provider)
+    {
+        var keys = new AssistantKeys();
+        await keys.WriteAsync("fake-api-key", TestContext.Current.CancellationToken);
+        var handler = new Handler(provider);
+        using var client = new AssistantClient(keys, handler);
+        var result = await client.CompleteAsync(Config(AssistantActionMode.Ask) with { Provider = provider, Model = "  " }, [], [], TestContext.Current.CancellationToken);
+        Assert.False(result.IsOk);
+        Assert.Equal("Choose a model for the AI service.", result.Error!.Message);
+        Assert.Null(handler.Body);
+    }
+
     private sealed class Handler(AssistantProviderKind provider) : HttpMessageHandler
     {
         public JsonNode? Body { get; private set; }

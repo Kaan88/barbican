@@ -652,7 +652,12 @@ public sealed class CalendarViewModel : ObservableObject, ICalendarViewModel, ID
             _viewPreference = preference;
             if (Volatile.Read(ref _pendingViewWrites) == 0)
             {
-                _view = ViewFromPreference(preference);
+                var view = ViewFromPreference(preference);
+                if (_view != view)
+                {
+                    _view = view;
+                    _hooks.Fire(HookNames.OnCalendarViewChange, () => new CalendarViewPayload(ViewName(view)));
+                }
             }
         }
 

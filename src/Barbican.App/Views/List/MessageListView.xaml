@@ -28,7 +28,8 @@
           <DataTemplate x:Key="MessageTemplate" x:DataType="mail:MessageRowViewModel">
             <!-- prototype rows: Bento avatar + sender 14 / subject 13.5 body / preview 12.5 faint; Nordic dot + sender 14 / subject 14 / preview 13 dim, indented 15 -->
             <Grid Background="{x:Bind views:Fmt.TickedRowBackground(IsChecked, theme:StyleState.Current.IsNordic), Mode=OneWay}" Padding="{x:Bind theme:StyleState.Current.MessageRowPadding, Mode=OneWay}" ColumnSpacing="{x:Bind theme:StyleState.Current.MessageRowSpacing, Mode=OneWay}"
-                  ColumnDefinitions="Auto,*" PointerEntered="OnRowEntered" PointerExited="OnRowExited" GotFocus="OnRowFocused">
+                  ColumnDefinitions="Auto,*" AutomationProperties.Name="{x:Bind AccessibleName}" PointerEntered="OnRowEntered" PointerExited="OnRowExited" GotFocus="OnRowFocused">
+              <Border Grid.ColumnSpan="2" Background="{x:Bind views:Fmt.TintBg(AccountColorIndex)}" Opacity="0.12" IsHitTestVisible="False" Visibility="{x:Bind views:Fmt.AccountTintVis(ShowAccountTint, IsChecked), Mode=OneWay}" />
               <Border Width="38" Height="38" VerticalAlignment="Top" Visibility="{x:Bind theme:StyleState.Current.ShowAvatar, Mode=OneWay}"
                       CornerRadius="{x:Bind theme:StyleState.Current.AvatarRadius, Mode=OneWay}" Background="{x:Bind views:Fmt.TintBg(TintIndex)}" Tapped="OnAvatarTapped"
                       AutomationProperties.AutomationId="row.tick" AutomationProperties.Name="Select message">
@@ -46,8 +47,11 @@
                   <!-- Nordic has no avatar to turn into the check, so a ticked row shows the check where the unread dot sits (UI-SWEEP-1 L-02) -->
                   <TextBlock Text="&#xE73E;" FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" FontSize="11" Foreground="{StaticResource Accent}" Margin="-2,0,-4,0" VerticalAlignment="Center"
                              Visibility="{x:Bind views:Fmt.NordicTick(IsChecked, theme:StyleState.Current.IsNordic), Mode=OneWay}" />
-                  <TextBlock Grid.Column="1" Text="{x:Bind Sender}" FontSize="{x:Bind theme:StyleState.Current.SenderSize, Mode=OneWay}" FontWeight="{x:Bind views:Fmt.SenderWeight(Unread, theme:StyleState.Current.IsNordic), Mode=OneWay}"
-                             Foreground="{StaticResource Text}" TextTrimming="CharacterEllipsis" />
+                  <Grid Grid.Column="1" ColumnDefinitions="Auto,*" ColumnSpacing="5">
+                    <Ellipse Width="7" Height="7" Fill="{x:Bind views:Fmt.TintFg(AccountColorIndex)}" Visibility="{x:Bind views:Fmt.Vis(ShowAccountDot)}" VerticalAlignment="Center" AutomationProperties.Name="{x:Bind AccountDescription}" />
+                    <TextBlock Grid.Column="1" Text="{x:Bind Sender}" FontSize="{x:Bind theme:StyleState.Current.SenderSize, Mode=OneWay}" FontWeight="{x:Bind views:Fmt.SenderWeight(Unread, theme:StyleState.Current.IsNordic), Mode=OneWay}"
+                               Foreground="{StaticResource Text}" TextTrimming="CharacterEllipsis" />
+                  </Grid>
                   <Border Grid.Column="2" CornerRadius="8" Padding="6,0" Background="{StaticResource Track}" Visibility="{x:Bind views:Fmt.VisMany(ThreadCount)}" VerticalAlignment="Center">
                     <TextBlock Text="{x:Bind views:Fmt.Thread(ThreadCount)}" FontSize="11" FontWeight="SemiBold" Foreground="{StaticResource Dim}" HorizontalAlignment="Center" VerticalAlignment="Center" />
                   </Border>
