@@ -1712,3 +1712,7 @@ The filter modal captures the account that owns its loaded rules and their versi
 ## Codex — M6 final settings consumer classification (Sol)
 
 - The remaining 25 missing read-by entries were audited: 19 are explicitly inert under D-M6-A03 and already labeled unused by SettingsCatalog/SetUiRowsView, two recipient-mention preferences are read by ComposerService, and four Windows notification/badge preferences store values for M8. The latter now say they are not active in the product UI; M8 must replace that label when its real consumers land. This reconciles evidence without claiming inert settings work or that already-open composer drafts update live.
+
+## Codex — M6 executable hook gate (Sol)
+
+- Added real-service execution cases in `tests/Barbican.Core.Tests/Settings/M6HookExecutionTests.cs`, real reply-seeding transform cases in `Compose/M6ComposeHookExecutionTests.cs`, and actual composer identity/template paths in `tests/Barbican.Presentation.Tests/Compose/M6ComposerHookExecutionTests.cs`. All 36 distinct M6 hook names are observed or transform a checked result across five passing cases (Core 4/4, Presentation 1/1). `spec/feel/M6/hooks-execution.json` maps every name to the executed case and hashes the tested files. This improves on the source-text call-site gate; it does not prove JS/native plugin bridge compatibility or permission projection, which are M6b obligations. Account security operations use FakeJmap only. Observer work is awaited with a bounded asynchronous wait because Fire queues it.

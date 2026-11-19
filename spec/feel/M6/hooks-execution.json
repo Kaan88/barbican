@@ -1,0 +1,89 @@
+{
+  "schema": 1,
+  "scope": "Windows; real service/ViewModel paths with FakeJmap and synthetic local profile; no JS plugin host or live server writes",
+  "source_parent": "65d7b6ef9899599a13ab6b0ab3102ec06513e4a1",
+  "result": {
+    "core_passed": 4,
+    "presentation_passed": 1,
+    "failed": 0,
+    "distinct_M6_hooks": 36
+  },
+  "test_file_sha256": {
+    "tests/Barbican.Core.Tests/Settings/M6HookExecutionTests.cs": "2a71edfe55ba0516bd32f369cb60d8a244756e2fa891d381a598886f1381e9b0",
+    "tests/Barbican.Core.Tests/Compose/M6ComposeHookExecutionTests.cs": "5a41d861061ef6f68552b24a2a868849c531d913235ee7fc85213e85add86174",
+    "tests/Barbican.Presentation.Tests/Compose/M6ComposerHookExecutionTests.cs": "000be131887511976905a5a6ba5f83ead331c47d6b9c3af9fba4daf0a1be5cea"
+  },
+  "cases": [
+    {
+      "project": "Core",
+      "class": "Barbican.Core.Tests.Settings.M6HookExecutionTests",
+      "method": "Profile_settings_backup_and_trust_execute_their_eight_hooks",
+      "hooks": [
+        "onBeforeSettingChange",
+        "onKeywordChange",
+        "onSettingChange",
+        "onSettingsExport",
+        "onSettingsImport",
+        "onSettingsReset",
+        "onSettingsSync",
+        "onTrustedSenderChange"
+      ]
+    },
+    {
+      "project": "Core",
+      "class": "Barbican.Core.Tests.Settings.M6HookExecutionTests",
+      "method": "Fake_account_identity_and_security_services_execute_ten_hooks",
+      "hooks": [
+        "onAppPasswordChange",
+        "onBeforeIdentityChange",
+        "onDisplayNameChange",
+        "onEncryptionChange",
+        "onIdentitiesLoaded",
+        "onIdentityCreate",
+        "onIdentityDelete",
+        "onIdentityUpdate",
+        "onPasswordChange",
+        "onTotpChange"
+      ]
+    },
+    {
+      "project": "Core",
+      "class": "Barbican.Core.Tests.Settings.M6HookExecutionTests",
+      "method": "Fake_filter_vacation_and_template_services_execute_thirteen_hooks",
+      "hooks": [
+        "onBeforeFiltersSave",
+        "onBeforeVacationUpdate",
+        "onFilterRuleChange",
+        "onFiltersLoaded",
+        "onFiltersSave",
+        "onSieveScriptChange",
+        "onSieveScriptGenerate",
+        "onTemplateCreate",
+        "onTemplateDelete",
+        "onTemplateUpdate",
+        "onTemplatesImport",
+        "onVacationLoaded",
+        "onVacationUpdate"
+      ]
+    },
+    {
+      "project": "Core",
+      "class": "Barbican.Core.Tests.Compose.M6ComposeHookExecutionTests",
+      "method": "Reply_identity_selection_and_signature_transforms_execute_and_shape_the_seed",
+      "hooks": [
+        "onSelectReplyIdentity",
+        "onSignatureRender"
+      ]
+    },
+    {
+      "project": "Presentation",
+      "class": "Barbican.Presentation.Tests.Compose.M6ComposerHookExecutionTests",
+      "method": "Identity_selection_and_template_hooks_execute_with_valid_transformed_content",
+      "hooks": [
+        "onIdentitySelect",
+        "onTemplateApply",
+        "onTemplateRender"
+      ]
+    }
+  ]
+}
