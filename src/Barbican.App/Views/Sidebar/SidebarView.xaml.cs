@@ -22,6 +22,7 @@ public sealed partial class SidebarView : UserControl
         Sidebar = ViewHost.Get<SidebarViewModel>();
         Look = ViewHost.Get<StyleState>();
         InitializeComponent();
+        ViewHost.Get<Barbican.App.Views.Accounts.AccountFlyoutKeys>().Track(HeaderAccountButton.Flyout!);
         HeaderPopover.Chosen += (_, _) => HeaderAccountButton.Flyout?.Hide();
         SlotHost.Fill(AccountHeaderSlot, SlotNames.SidebarAccountHeader);
         SlotHost.Fill(UnifiedSectionSlot, SlotNames.SidebarUnified);

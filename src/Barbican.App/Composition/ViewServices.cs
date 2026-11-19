@@ -20,6 +20,8 @@ public static class ViewServices
 
         // Replaces the inline dispatcher mailcore registers with TryAdd: the real one posts to the window's DispatcherQueue.
         services.Replace(ServiceDescriptor.Singleton<IDispatcher>(_ => new DispatcherQueueDispatcher(ViewHost.UiQueue ?? Microsoft.UI.Dispatching.DispatcherQueue.GetForCurrentThread() ?? throw new InvalidOperationException("No UI queue: the composition root must be built on the UI thread."))));
+        services.TryAddSingleton<Views.Accounts.AccountFlyoutKeys>();
+        services.AddSingleton<Barbican.Presentation.Input.IModalSurface>(sp => sp.GetRequiredService<Views.Accounts.AccountFlyoutKeys>());
         services.TryAddSingleton<StyleState>();
         services.TryAddSingleton<ShellLifecycle>();
         services.TryAddSingleton<WindowCloseController>();
