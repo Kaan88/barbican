@@ -28,7 +28,10 @@ public sealed class SampleActiveMail : IActiveMail, Barbican.Presentation.Action
                     FromEmail = "planner@example.org",
                     FromName = "Planner",
                     ReceivedAt = new DateTimeOffset(2026, 11, 1, 8, 0, 0, TimeSpan.Zero).AddHours(i * 6),
-                    Text = $"Message {i} of the planning thread.",
+                    Text = i == 6
+                        ? "Message 6 of the planning thread.\n" + string.Join("\n", Enumerable.Range(1, 12).Select(n => $"Planning item {n}."))
+                        : $"Message {i} of the planning thread.",
+                    Cc = i == 6 ? ["team@example.org"] : [],
                     ReplyTo = parent,
                 });
             }

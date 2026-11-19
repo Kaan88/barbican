@@ -153,6 +153,36 @@ public sealed class MessageLoader : IMessageOpener, IConversationOpener, IDispos
         return true;
     }
 
+    /// <summary>Begins the configured read delay after a sibling body was revealed. Collapsing it cancels the visible interval.</summary>
+    public async Task MarkCardShownAsync(ConversationExpansion card, CancellationToken ct)
+    {
+        ArgumentNullException.ThrowIfNull(card);
+        var delay = MessageLoadRules.MarkAsReadDelay(_prefs.Current);
+        if (delay < 0 || !_actions.CanWrite || card.ReadRequested || card.Body is not { Keywords.Seen: false }) return;
+        try
+        {
+            if (delay > 0) await Task.Delay(TimeSpan.FromMilliseconds(delay), _time, ct).ConfigureAwait(false);
+            await _dispatcher.InvokeAsync(async () =>
+            {
+                if (ct.IsCancellationRequested || card.ReadRequested || !_reader.Owns(card) || !_actions.CanWrite ||
+                    !string.Equals(_active.AccountKey, card.AccountKey, StringComparison.Ordinal)) return;
+                card.ReadRequested = true;
+                var result = await _actions.MarkReadAsync(card.EmailId, ct).ConfigureAwait(true);
+                if (!result.IsOk) card.ReadRequested = false;
+                else if (_reader.Owns(card))
+                {
+                    var snapshot = _reader.Current;
+                    _reader.Apply(snapshot with { Conversation = [.. snapshot.Conversation.Select(item =>
+                        string.Equals(item.Id, card.EmailId, StringComparison.Ordinal) ? item with { Unread = false } : item)] });
+                }
+            }).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            card.ReadRequested = false;
+        }
+    }
+
     private async Task LoadCardAsync(ConversationExpansion card, Barbican.Core.Mail.IMailService mail, CancellationToken ct)
     {
         EmailBody? body = null;

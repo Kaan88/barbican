@@ -11,6 +11,16 @@ public sealed class ConversationExpansion(string accountKey, string emailId) : O
     public EmailBody? Body { get; private set; }
     public string Status { get; private set; } = "Loading message…";
 
+    /// <summary>The composer consumes the physical login and server id. Shared-account compose is unavailable.</summary>
+    public MailTarget? ComposeSource()
+    {
+        if (Body is not { } body || !string.Equals(body.Id, EmailId, StringComparison.Ordinal) || body.Keywords.IsSet("$draft")) return null;
+        var target = MailTarget.OfOpen(AccountKey, body);
+        return target.AccountId.Length == 0 ? target with { AccountKey = target.Login, EmailId = target.ServerId } : null;
+    }
+
+    internal bool ReadRequested { get; set; }
+
     internal void Complete(EmailBody? body)
     {
         Body = body;

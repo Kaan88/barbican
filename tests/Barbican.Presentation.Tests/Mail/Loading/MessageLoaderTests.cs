@@ -31,6 +31,53 @@ public sealed class MessageLoaderTests
         Assert.Same(shownBody, h.Reader.Current.Body);
     }
 
+    [Theory]
+    [InlineData(-1, true, false)]
+    [InlineData(100, false, false)]
+    [InlineData(100, true, true)]
+    [InlineData(0, true, true)]
+    public async Task Revealed_card_marks_only_its_own_message_after_the_configured_delay(int delay, bool writable, bool expected)
+    {
+        using var h = new LoaderHarness(prefs: $$"""{"markAsReadDelay":{{delay}}}""", canWrite: writable);
+        var source = Barbican.Core.Mail.Unified.UnifiedRows.RowId("other-login", null, "e1");
+        var items = new[] { new ConversationItem(source, "Older", "O", 0, "", true, false), new ConversationItem("selected", "New", "N", 0, "", true, true) };
+        h.Reader.Apply(new ReaderSnapshot { EmailId = "selected", ListAccountKey = h.Active.AccountKey, Conversation = items });
+        var card = Assert.IsType<ConversationExpansion>(h.Reader.ToggleConversationCard(source));
+        card.Complete(LoaderHarness.Body(source));
+        var target = Assert.IsType<Barbican.Core.Mail.Model.MailTarget>(card.ComposeSource());
+        Assert.Equal("e1", target.EmailId);
+        Assert.Equal("other-login", target.AccountKey);
+        Assert.Empty(h.Actions.MarkedRead);
+        var mark = h.Loader.MarkCardShownAsync(card, TestContext.Current.CancellationToken);
+        if (delay > 0)
+        {
+            Assert.Empty(h.Actions.MarkedRead);
+            h.Time.Advance(TimeSpan.FromMilliseconds(delay));
+        }
+
+        await mark;
+        Assert.Equal(expected ? [source] : Array.Empty<string>(), h.Actions.MarkedRead);
+        Assert.Equal("selected", h.Reader.EmailId);
+        Assert.Equal(!expected, h.Reader.ConversationHeaders.Single().Unread);
+    }
+
+    [Fact]
+    public async Task Collapsing_a_card_cancels_its_pending_mark_and_shared_mail_cannot_open_a_personal_composer()
+    {
+        using var h = new LoaderHarness(prefs: """{"markAsReadDelay":100}""", canWrite: true);
+        var id = Barbican.Core.Mail.Unified.UnifiedRows.RowId("login", "shared", "e1");
+        var items = new[] { new ConversationItem(id, "Old", "O", 0, "", true, false), new ConversationItem("new", "New", "N", 0, "", true, true) };
+        h.Reader.Apply(new ReaderSnapshot { EmailId = "new", ListAccountKey = h.Active.AccountKey, Conversation = items });
+        var card = Assert.IsType<ConversationExpansion>(h.Reader.ToggleConversationCard(id));
+        card.Complete(LoaderHarness.Body(id));
+        Assert.Null(card.ComposeSource());
+        var mark = h.Loader.MarkCardShownAsync(card, TestContext.Current.CancellationToken);
+        h.Reader.ToggleConversationCard(id);
+        h.Time.Advance(TimeSpan.FromMilliseconds(100));
+        await mark;
+        Assert.Empty(h.Actions.MarkedRead);
+    }
+
     private sealed class QueueDispatcher : Barbican.Presentation.Common.IDispatcher
     {
         public bool Hold { get; set; }

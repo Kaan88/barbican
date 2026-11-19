@@ -1986,6 +1986,9 @@ The provisional `PluginValue` storage seam needs source-compatible `JSON.stringi
 
 - Review the independent body lifetime and unified owner routing in ConversationCardView, MessageLoader and ReaderViewModel. The selected message retains its original body shell. Secondary bodies use separate restricted shells, with external content blocked.
 - ConversationPrintDialog renders one card as text for printing. Hidden Windows sample verification stops at its preview. Shared-account replies need shared compose support. Card-specific Reply all, Forward, attachments, read marking and plugin body transformations remain open.
+
+- Follow-up: card Reply all and Forward inherit the same source login/server ID and restrictions as Reply. Read delay starts on body reveal. Native settings have no trusted per-account organisation device policy or managed-account signal (I-108, M10), so per-account noPrint remains unproven. Do not treat the print preview as managed-policy compliant.
+
 ### M6b Windows composer window (Codex)
 
 - Review the native close guard and single-view transfer in

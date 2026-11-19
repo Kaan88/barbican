@@ -13,11 +13,13 @@ using Microsoft.UI.Xaml.Automation;
 
 namespace Barbican.App.Views.Reader;
 
+[System.Diagnostics.CodeAnalysis.SuppressMessage("Design", "CA1001", Justification = "WinUI owns the control. Unload and data-context replacement both dispose its per-render cancellation source.")]
 public sealed partial class ConversationCardView : UserControl
 {
     private readonly StackPanel _layout = new() { Spacing = 4 };
     private ConversationExpansion? _card;
     private BodyShell? _shell;
+    private CancellationTokenSource? _visible;
 
     public ConversationCardView()
     {
@@ -42,6 +44,9 @@ public sealed partial class ConversationCardView : UserControl
     {
         if (_card is not null) _card.PropertyChanged -= Changed;
         _card = null;
+        _visible?.Cancel();
+        _visible?.Dispose();
+        _visible = null;
         if (_shell is not null)
         {
             ((IBodyWebViewHost)_shell).Close();
@@ -70,16 +75,62 @@ public sealed partial class ConversationCardView : UserControl
         var shell = ActivatorUtilities.CreateInstance<BodyShell>(ViewHost.Services, new Lazy<IKeyRouter>(ViewHost.Get<IKeyRouter>));
         _shell = shell;
         var view = shell.View;
-        view.Height = 96;
+        view.Height = 48;
+        _visible = new CancellationTokenSource();
+        var visible = _visible.Token;
+        view.SizeChanged += (_, args) =>
+        {
+            if (Math.Abs(args.NewSize.Width - args.PreviousSize.Width) >= 1 && shell.ShownId is not null)
+                _ = FitBodyAsync(shell, view);
+        };
         AutomationProperties.SetAutomationId(view, "reader.thread.body." + card.EmailId);
+        var to = string.Join(", ", body.To.Select(address => address.Email));
+        var cc = string.Join(", ", body.Cc.Select(address => address.Email));
+        if (to.Length > 0) _layout.Children.Add(new TextBlock { Text = "To: " + to, TextWrapping = TextWrapping.Wrap });
+        if (cc.Length > 0) _layout.Children.Add(new TextBlock { Text = "Cc: " + cc, TextWrapping = TextWrapping.Wrap });
         _layout.Children.Add(view);
-        shell.Show(new BodyRequest(card.EmailId, BodyRequest.ContentOf(body), true, () => Owned(card)));
-        var actions = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6 };
-        var target = MailTarget.OfOpen(card.AccountKey, body);
-        if (target.AccountId.Length == 0 && !body.Keywords.IsSet("$draft"))
-            actions.Children.Add(Action("Reply", "reader.thread.reply.", card, () => Reply(target)));
+        shell.Show(new BodyRequest(card.EmailId, BodyRequest.ContentOf(body), true, () => Owned(card), () =>
+        {
+            if (visible.IsCancellationRequested) return;
+            _ = FitBodyAsync(shell, view);
+            _ = ViewHost.Get<MessageLoader>().MarkCardShownAsync(card, visible);
+        }));
+        var actions = new Barbican.App.Controls.WrapRow { Spacing = 6 };
+        if (card.ComposeSource() is { } source)
+        {
+            actions.Children.Add(Action("Reply", "reader.thread.reply.", card, () => Compose(CommandIds.Reply, source)));
+            actions.Children.Add(Action("Reply all", "reader.thread.replyall.", card, () => Compose(CommandIds.ReplyAll, source)));
+            actions.Children.Add(Action("Forward", "reader.thread.forward.", card, () => Compose(CommandIds.Forward, source)));
+        }
+
         actions.Children.Add(Action("Print", "reader.thread.print.", card, () => _ = ViewHost.Get<IDialogService>().ShowAsync(new ConversationPrintRequest(card), CancellationToken.None)));
         _layout.Children.Add(actions);
+    }
+
+    private async Task FitBodyAsync(BodyShell shell, WebView2 view)
+    {
+        try
+        {
+            // The trusted shell owns the iframe. Use DOM prototypes to avoid named elements in a message shadowing a property.
+            const string measure = """
+                (() => {
+                  const frame = document.querySelector('iframe');
+                  if (!frame?.contentDocument) return 0;
+                  const body = Object.getOwnPropertyDescriptor(Document.prototype, 'body').get.call(frame.contentDocument);
+                  if (!body) return 0;
+                  const rect = Element.prototype.getBoundingClientRect.call(body);
+                  return Math.ceil(rect.height + Math.max(0, rect.top) * 2 + 2);
+                })()
+                """;
+            var raw = await shell.EvalAsync(measure);
+            if (ReferenceEquals(_shell, shell) && double.TryParse(raw, System.Globalization.NumberStyles.Float,
+                System.Globalization.CultureInfo.InvariantCulture, out var height) && double.IsFinite(height) && height > 0)
+                view.Height = Math.Clamp(height, 48, 1200);
+        }
+        catch (Exception error) when (error is InvalidOperationException or System.Runtime.InteropServices.COMException)
+        {
+            // A collapsed or recycled card has already closed its WebView.
+        }
     }
 
     private static bool Owned(ConversationExpansion card) =>
@@ -94,13 +145,11 @@ public sealed partial class ConversationCardView : UserControl
         return button;
     }
 
-    private static void Reply(MailTarget target)
+    private static void Compose(string commandId, MailTarget source)
     {
         var registry = ViewHost.Get<ICommandRegistry>();
-        // The composer reads directly from the login's mail service and takes its server id.
-        var source = target with { AccountKey = target.Login, EmailId = target.ServerId };
-        var context = new CommandContext(CommandSurface.Toolbar, [source], null, null, target.Login);
-        if (registry.TryGet(CommandIds.Reply, out var command) && command.CanExecute(context))
+        var context = new CommandContext(CommandSurface.Toolbar, [source], null, null, source.AccountKey);
+        if (registry.TryGet(commandId, out var command) && command.CanExecute(context))
             ViewHost.Get<CommandRunner>().Start(command, context);
     }
 }
