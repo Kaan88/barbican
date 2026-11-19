@@ -24,7 +24,32 @@ if [ ! -s "$pat" ]; then
   exit 2
 fi
 hard=$(head -n 1 "$pat")
-if git grep $opt -I -n -i -E "$hard" $tree -- . "$self"; then
+
+# Required, verbatim public clsx 2.1.1 MIT notice. Its upstream contact is not
+# user data. Exempt only this exact path AND reviewed LF-normalized SHA-256;
+# any edited notice fails closed and remains subject to every normal scan.
+license_path='tools/plugin-runtime-build/third-party-licenses/clsx--license'
+license_sha='9a9edad7baae52622bddf3c15b2ef8a33d2c89f2d25408ad13e8a7481c6b0c97'
+license_actual=''
+if [ -n "$opt" ]; then
+  if [ -L "$license_path" ]; then
+    license_actual=symlink-not-approved
+  elif [ -f "$license_path" ]; then
+    license_actual=$(sed 's/\r$//' "$license_path" | sha256sum | cut -d ' ' -f 1)
+  fi
+elif git cat-file -e "$tree:$license_path" 2>/dev/null; then
+  license_actual=$(git show "$tree:$license_path" | sed 's/\r$//' | sha256sum | cut -d ' ' -f 1)
+fi
+set -- . "$self"
+if [ -n "$license_actual" ]; then
+  if [ "$license_actual" = "$license_sha" ]; then
+    set -- "$@" ":(exclude)$license_path"
+  else
+    echo "privacy-check: reviewed public license content changed: $license_path" >&2
+    fail=1
+  fi
+fi
+if git grep $opt -I -n -i -E "$hard" $tree -- "$@"; then
   echo "privacy-check: personal data above (use placeholders; real values go in .local/accounts.md)" >&2
   fail=1
 fi
@@ -33,7 +58,7 @@ fi
 allow='@([a-z0-9-]+\.)*(example|example\.(org|com|net)|anthropic\.com|users\.noreply\.github\.com|okafor\.studio|stalw\.art|flytap\.com|fastmail\.de|hetzner\.com|thebrowser\.com|github\.com|barbican\.mail|prize-centre\.biz|fischer-arch\.de|studio-north\.eu|domain\.com|bulwarkmail\.org|yahoo\.com)$'
 # This exact upstream copyright notice is required by the bundled font's OFL.
 # Keep filenames and line numbers until after this one file-and-address exception.
-addrs=$(git grep $opt -I -n -o -i -E '[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}' $tree -- . "$self" \
+addrs=$(git grep $opt -I -n -o -i -E '[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}' $tree -- "$@" \
   | grep -v -i -E '(^|:)src/Barbican[.]App/Assets/Fonts/OpenDyslexic-OFL[.]txt:[0-9]+:support@abbiecod[.]es$' \
   | sed -E 's/^.*:[0-9]+://' | sort -u | grep -v -i -E "$allow" || true)
 if [ -n "$addrs" ]; then

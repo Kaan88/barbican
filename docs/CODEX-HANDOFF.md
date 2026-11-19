@@ -6,7 +6,7 @@ This is the Codex-specific continuation of the user's Claude handoff.
 
 ## Current pause (2026-11-19)
 
-The user explicitly paused again and requested progress, commit and push. All three stream branches are saved/pushed with clean worktrees. Do not resume implementation or tests until instructed. See the latest saved-state table at the top of PROGRESS.md; integration source checkpoint is 5b2f33e and newer worker drafts remain separately marked unverified. Current integration branch is `codex/m6b`; see the top of PROGRESS.md for exact reviewed baselines, worker commits, preserved unverified WIP and next actions. All three workers stopped and reported no remaining owned build/app process. M6 portable is already delivered; later roadmap, final Astra review and hidden UI walkthrough remain unfinished.
+The user explicitly paused again and requested progress, commit and push after a resumed interval. Do not resume implementation or tests until instructed. The integration source remains 5b2f33e; this pause also saves the tested exact-content public-license privacy guard. Latest worker checkpoints are A c3982dc, B f37b0b5 and C 6367077. See the top of PROGRESS.md for test evidence, unfinished drafts and next steps; worker checkpoints are not integrated or production verification. M6 portable is delivered; M6b and later milestones, final Astra review and hidden UI walkthrough remain unfinished.
 
 ## Selected UI guidelines (2026-11-19)
 
