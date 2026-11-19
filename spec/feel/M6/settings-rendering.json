@@ -1,0 +1,26 @@
+{
+  "source_commit": "30f315b1561976eee3f37619d3bfa85298a711e1",
+  "platform": "Windows",
+  "profile": "isolated synthetic auto profile",
+  "source": "CompositionTarget.Rendering",
+  "scenario": "Mail to Settings, dark theme, hidden private desktop",
+  "results": {
+    "bento": {
+      "invoke": "ok rail.settings",
+      "frames": 52,
+      "maximum_ui_frame_gap_ms": 67.39,
+      "maximum_dispatch_cost_ms": 19.25
+    },
+    "nordic": {
+      "invoke": "ok rail.settings",
+      "frames": 51,
+      "maximum_ui_frame_gap_ms": 31.470000000000027,
+      "maximum_dispatch_cost_ms": 4.210000000000001
+    }
+  },
+  "limits": [
+    "Single run during shared build load; not a performance regression comparison.",
+    "Rendering subscription induces ticks: these numbers cannot establish idle rendering or visible flicker.",
+    "WGC capture refused the private-desktop window with ArgumentException; L-053 composed-frame flicker remains unverified."
+  ]
+}

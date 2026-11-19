@@ -1764,3 +1764,7 @@ The response and script updates are separate operations, so failures can leave p
 ## Codex - M6 srv-ui (Terra High)
 
 - Rendered folder, filter, identity, template and vacation controls now retain their account generation and reject callbacks from stale controls, including A-to-B-to-A switches. Selected-row actions also check the captured selection; already-issued operations remain bound to their original account. Vacation draft edits during a pending save remain allowed. Windows Automation head built with no warnings; Presentation tests passed 1054/1054. The five affected pages opened in an isolated hidden sample; this does not prove live-server behavior. Review callback fencing and cross-account service behavior on the integration head.
+
+## Codex / Sol - M6 Settings rendering evidence
+
+- Review `spec/feel/M6/settings-rendering.json`: actual synthetic Mail-to-Settings transitions on 30f315b captured UI-thread cadence only (single run under shared build load). Peak frame gaps were 67.39 ms Bento and 31.47 ms Nordic; this is a follow-up performance observation for M10, not a regression verdict. WGC refused the private-desktop window, so L-053 flicker and idle rendering remain unverified. The owned synthetic process was stopped.
