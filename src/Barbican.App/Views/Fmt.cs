@@ -35,6 +35,8 @@ public static class Fmt
 
     public static bool Not(bool value) => !value;
 
+    public static Visibility AccountTintVis(bool tint, bool isChecked) => Vis(tint && !isChecked);
+
     public static Visibility Vis(bool visible) => visible ? Visibility.Visible : Visibility.Collapsed;
 
     public static Visibility VisNot(bool hidden) => hidden ? Visibility.Collapsed : Visibility.Visible;
