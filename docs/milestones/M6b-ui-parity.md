@@ -39,6 +39,12 @@ These are native baselines only, not parity evidence. They expose the
 title strip above the rail, spaced avatar-heavy list rows, label-heavy
 reader toolbar, and inset dark message surface for explicit comparison.
 
+Source comparison: `email-viewer.tsx:5128–5142` shows an icon-only 32 px
+fullscreen toggle. The native button now uses expand/collapse glyphs with
+accessible names and in-window tooltips. Hidden automation measured 32×32 px
+and verified entry and exit (reader x696 → x56 → x696). This is one toolbar
+control, not a restyle of the reader.
+
 ## Existing parity resources
 
 Use the existing catalogues as the inventory; this page records the differences

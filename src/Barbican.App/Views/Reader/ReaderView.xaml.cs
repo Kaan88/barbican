@@ -44,7 +44,9 @@ public sealed partial class ReaderView : UserControl
     public void SetFullscreen(bool fullscreen)
     {
         var label = fullscreen ? "Exit fullscreen" : "Fullscreen";
-        ReaderFullscreenLabel.Text = label;
+        ReaderMaximizeGlyph.Visibility = fullscreen ? Visibility.Collapsed : Visibility.Visible;
+        ReaderMinimizeGlyph.Visibility = fullscreen ? Visibility.Visible : Visibility.Collapsed;
+        Barbican.App.Motion.Tip.SetText(ReaderFullscreenButton, label);
         Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(ReaderFullscreenButton, label);
     }
 
