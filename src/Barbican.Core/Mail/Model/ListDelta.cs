@@ -21,6 +21,9 @@ public sealed record ListDelta
 
     public int? Total { get; init; }
 
+    /// <summary>A nonfatal ordering limitation discovered during refresh.</summary>
+    public string? Warning { get; init; }
+
     public string QueryState { get; init; } = "";
 
     public string EmailState { get; init; } = "";

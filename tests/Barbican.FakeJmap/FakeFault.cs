@@ -26,6 +26,9 @@ public enum FakeFault
     /// <summary>The next Email/queryChanges reports a newQueryState older than its sinceQueryState.</summary>
     QueryStateWentBack,
 
+    /// <summary>The next keyword Email/query answers unsupportedSort.</summary>
+    UnsupportedKeywordSort,
+
     /// <summary>The next Email/changes answers cannotCalculateChanges.</summary>
     EmailChangesFail,
 }

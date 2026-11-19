@@ -62,6 +62,7 @@ public sealed class UnifiedInbox : IStartupTask, IDisposable
     public void Dispose()
     {
         _hub.EventReceived -= OnEvent;
+        Source.Dispose();
         if (_overview is not null)
         {
             _overview.StatusesChanged -= OnStatuses;

@@ -16,7 +16,7 @@ namespace Barbican.Core.Mail.Unified;
 
 /// <summary>The unified inbox as a list source.</summary>
 /// <param name="sources">The sources to read now (the settings and the signed-in logins decide).</param>
-public sealed class UnifiedListSource(Func<IReadOnlyList<UnifiedSource>> sources) : IListSource
+public sealed class UnifiedListSource(Func<IReadOnlyList<UnifiedSource>> sources) : IListSource, IDisposable
 {
     private const string CursorPrefix = "unified:";
 
@@ -24,6 +24,10 @@ public sealed class UnifiedListSource(Func<IReadOnlyList<UnifiedSource>> sources
     private const int Slack = 20;
 
     private readonly Lock _lock = new();
+    private readonly SemaphoreSlim _operations = new(1, 1);
+    private long _generation;
+    private int _inFlight;
+    private bool _disposed;
     private ListQuery? _query;
     private List<EmailSummary> _rows = [];
     private string? _effectiveSort;
@@ -62,14 +66,48 @@ public sealed class UnifiedListSource(Func<IReadOnlyList<UnifiedSource>> sources
     public async Task<Result<ListPage>> QueryAsync(ListQuery query, ListCursor? after, CancellationToken ct)
     {
         ArgumentNullException.ThrowIfNull(query);
+        long generation;
+        lock (_lock)
+        {
+            ObjectDisposedException.ThrowIf(_disposed, this);
+            _inFlight++;
+            generation = after is null ? ++_generation : _generation;
+        }
+
+        try
+        {
+            await _operations.WaitAsync(ct).ConfigureAwait(false);
+            try
+            {
+                return await QueryCoreAsync(query, after, generation, ct).ConfigureAwait(false);
+            }
+            finally
+            {
+                _operations.Release();
+            }
+        }
+        finally
+        {
+            FinishOperation();
+        }
+    }
+
+    private async Task<Result<ListPage>> QueryCoreAsync(ListQuery query, ListCursor? after, long generation, CancellationToken ct)
+    {
         var from = Positions(after);
         lock (_lock)
         {
-            if (after is not null && _query == query)
+            if (generation != _generation || (after is not null && _query != query))
+            {
+                return Result<ListPage>.Fail(new ValidationError("The unified list query was superseded."));
+            }
+
+            if (after is not null)
             {
                 from = new Dictionary<string, int>(_served, StringComparer.Ordinal);
             }
         }
+
         var read = await ReadAsync(query, s => (from.GetValueOrDefault(s.Key), Math.Max(1, query.PageSize)), ct).ConfigureAwait(false);
         if (!read.IsOk)
         {
@@ -80,6 +118,11 @@ public sealed class UnifiedListSource(Func<IReadOnlyList<UnifiedSource>> sources
         var rows = fetched.Take(Math.Max(1, query.PageSize)).ToList();
         lock (_lock)
         {
+            if (generation != _generation)
+            {
+                return Result<ListPage>.Fail(new ValidationError("The unified list query was superseded."));
+            }
+
             var sortKey = MessageListOrder.ComparatorsJson(effectiveSort).ToJsonString();
             if (after is not null && _query == query && !string.Equals(_effectiveSort, sortKey, StringComparison.Ordinal))
             {
@@ -96,13 +139,7 @@ public sealed class UnifiedListSource(Func<IReadOnlyList<UnifiedSource>> sources
             }
 
             _rows.AddRange(rows.Where(r => !_rows.Exists(x => string.Equals(x.Id, r.Id, StringComparison.Ordinal))));
-            foreach (var p in pages)
-            {
-                _served[p.Key] = from.GetValueOrDefault(p.Key) + rows.Count(row => string.Equals(KeyOf(row), p.Key, StringComparison.Ordinal));
-                _unread[p.Key] = p.Unread;
-                _totals[p.Key] = p.Total;
-            }
-
+            UpdateServed(pages, rows, from);
             var more = pages.Any(p => _served[p.Key] < p.Total);
             return Result<ListPage>.Ok(new ListPage
             {
@@ -116,11 +153,70 @@ public sealed class UnifiedListSource(Func<IReadOnlyList<UnifiedSource>> sources
         }
     }
 
+    private void UpdateServed(IReadOnlyList<UnifiedSourcePage> pages, IReadOnlyList<EmailSummary> rows, Dictionary<string, int> from)
+    {
+        foreach (var p in pages)
+        {
+            _served[p.Key] = from.GetValueOrDefault(p.Key) + rows.Count(row => string.Equals(KeyOf(row), p.Key, StringComparison.Ordinal));
+            _unread[p.Key] = p.Unread;
+            _totals[p.Key] = p.Total;
+        }
+    }
+
+    /// <inheritdoc />
+    public void Dispose()
+    {
+        lock (_lock)
+        {
+            if (_disposed) return;
+            _disposed = true;
+            _generation++;
+            if (_inFlight == 0) _operations.Dispose();
+        }
+    }
+
+    private void FinishOperation()
+    {
+        lock (_lock)
+        {
+            _inFlight--;
+            if (_disposed && _inFlight == 0) _operations.Dispose();
+        }
+    }
+
     /// <summary>
     /// Reads the served window again and returns how it changed, or null when nothing was served or nothing changed. A source that fails
     /// keeps its rows (a refresh never empties the list because one server is slow).
     /// </summary>
     public async Task<Result<ListDelta?>> RefreshAsync(CancellationToken ct)
+    {
+        long generation;
+        lock (_lock)
+        {
+            ObjectDisposedException.ThrowIf(_disposed, this);
+            _inFlight++;
+            generation = _generation;
+        }
+
+        try
+        {
+            await _operations.WaitAsync(ct).ConfigureAwait(false);
+            try
+            {
+                return await RefreshCoreAsync(generation, ct).ConfigureAwait(false);
+            }
+            finally
+            {
+                _operations.Release();
+            }
+        }
+        finally
+        {
+            FinishOperation();
+        }
+    }
+
+    private async Task<Result<ListDelta?>> RefreshCoreAsync(long generation, CancellationToken ct)
     {
         ListQuery? query;
         Dictionary<string, int> served;
@@ -128,6 +224,11 @@ public sealed class UnifiedListSource(Func<IReadOnlyList<UnifiedSource>> sources
         List<EmailSummary> before;
         lock (_lock)
         {
+            if (generation != _generation)
+            {
+                return Result<ListDelta?>.Ok(null);
+            }
+
             (query, served, totals, before) = (_query, new Dictionary<string, int>(_served, StringComparer.Ordinal), new Dictionary<string, int>(_totals, StringComparer.Ordinal), [.. _rows]);
         }
 
@@ -142,7 +243,7 @@ public sealed class UnifiedListSource(Func<IReadOnlyList<UnifiedSource>> sources
             return Result<ListDelta?>.Fail(read.Error!);
         }
 
-        var (pages, _, failed, effectiveSort, _) = read.Value;
+        var (pages, _, failed, effectiveSort, warning) = read.Value;
         var after = Window(pages, before, served, failed, effectiveSort);
         var retainedTotals = totals.Where(pair => failed.Contains(pair.Key)).ToDictionary(pair => pair.Key, pair => pair.Value, StringComparer.Ordinal);
         foreach (var page in pages)
@@ -150,10 +251,10 @@ public sealed class UnifiedListSource(Func<IReadOnlyList<UnifiedSource>> sources
             retainedTotals[page.Key] = page.Total;
         }
 
-        var delta = Diff(before, after, Threads(pages), retainedTotals.Values.Sum());
+        var delta = Diff(before, after, Threads(pages), retainedTotals.Values.Sum(), warning);
         lock (_lock)
         {
-            if (_query != query)
+            if (generation != _generation || _query != query)
             {
                 return Result<ListDelta?>.Ok(null);
             }
@@ -177,6 +278,7 @@ public sealed class UnifiedListSource(Func<IReadOnlyList<UnifiedSource>> sources
     {
         lock (_lock)
         {
+            _generation++;
             _query = null;
             _totals.Clear();
             _rows = [];
@@ -185,7 +287,7 @@ public sealed class UnifiedListSource(Func<IReadOnlyList<UnifiedSource>> sources
     }
 
     /// <summary>The changes from <paramref name="before"/> to <paramref name="after"/> as a list delta (null when nothing changed).</summary>
-    public static ListDelta? Diff(IReadOnlyList<EmailSummary> before, IReadOnlyList<EmailSummary> after, IReadOnlyDictionary<string, int> threads, int total)
+    public static ListDelta? Diff(IReadOnlyList<EmailSummary> before, IReadOnlyList<EmailSummary> after, IReadOnlyDictionary<string, int> threads, int total, string? warning = null)
     {
         ArgumentNullException.ThrowIfNull(before);
         ArgumentNullException.ThrowIfNull(after);
@@ -203,12 +305,12 @@ public sealed class UnifiedListSource(Func<IReadOnlyList<UnifiedSource>> sources
             changed = after.ToDictionary(e => e.Id, StringComparer.Ordinal);
         }
 
-        if (removed.Count == 0 && added.Count == 0 && changed.Count == 0)
+        if (removed.Count == 0 && added.Count == 0 && changed.Count == 0 && warning is null)
         {
             return null;
         }
 
-        return new ListDelta { Removed = removed, Added = added, Emails = changed, Threads = threads, Total = total };
+        return new ListDelta { Removed = removed, Added = added, Emails = changed, Threads = threads, Total = total, Warning = warning };
     }
 
     // records holding dictionaries compare by reference: compare what the server sent

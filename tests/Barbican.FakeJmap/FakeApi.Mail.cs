@@ -64,7 +64,8 @@ public sealed partial class FakeApi
 
     private (string? Name, JsonObject Args) EmailQuery(JsonObject args)
     {
-        if (options.RefuseKeywordSort && (args["sort"] as JsonArray ?? []).OfType<JsonObject>().Any(c => string.Equals((string?)c["property"], "hasKeyword", StringComparison.Ordinal)))
+        if ((args["sort"] as JsonArray ?? []).OfType<JsonObject>().Any(c => string.Equals((string?)c["property"], "hasKeyword", StringComparison.Ordinal))
+            && (options.RefuseKeywordSort || TakeFault(FakeFault.UnsupportedKeywordSort)))
         {
             return Error("unsupportedSort");
         }
