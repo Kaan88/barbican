@@ -1,5 +1,5 @@
 // Mirrors: Bulwark lib/plugin-hook-catalog.ts (observer / intercept / transform), lib/plugin-mail-hooks.ts (dispatch order, a failing
-// handler never stops the app), PORT-PLAN.md M6b (host-agnostic bus first, plugin hosts later); M1-plan §4.1. Owner mailcore (M1); budgets and fail-closed
+// handler never stops the app), PORT-PLAN.md M6b (host-agnostic bus first, plugin hosts later); M1-plan Â§4.1. Owner mailcore (M1); budgets and fail-closed
 // intercepts (fable-review-2 R2-10, Bulwark lib/plugin-hooks.ts:62-66, :186-188, :290-325) owner unified (M2 wave 2).
 
 namespace Barbican.Core.Plugins.Hooks;
@@ -47,28 +47,68 @@ public sealed class HookBus : IHookBus
     /// <summary>Registers a transform (sees the previous result, returns the next); dispose the result to remove it.</summary>
     public IDisposable Transform<T>(string hook, Func<T, CancellationToken, ValueTask<T>> handler) => Add(hook, handler);
 
-#pragma warning disable CA1822 // Instance methods are pending registrations on this bus.
     /// <summary>Registers an ordered transform; equal order preserves registration order.</summary>
-    public IDisposable Transform<T>(string hook, Func<T, CancellationToken, ValueTask<T>> handler, int order) =>
-        throw new Barbican.Core.Common.PortPendingException("ordered hook transforms");
+    public IDisposable Transform<T>(string hook, Func<T, CancellationToken, ValueTask<T>> handler, int order)
+    {
+        ArgumentNullException.ThrowIfNull(handler);
+        return Add(hook, new OrderedHook(handler, order));
+    }
 
     /// <summary>Registers an ordered takeover.</summary>
-    public IDisposable TakeOver<TPayload>(string hook, Func<TPayload, CancellationToken, ValueTask<Barbican.Plugins.PluginTakeOverDecision>> handler, int order = 100) =>
-        throw new Barbican.Core.Common.PortPendingException("hook takeover registration");
-#pragma warning restore CA1822
+    public IDisposable TakeOver<TPayload>(string hook, Func<TPayload, CancellationToken, ValueTask<Barbican.Plugins.PluginTakeOverDecision>> handler, int order = 100) { ArgumentNullException.ThrowIfNull(handler); return Add(hook, new OrderedHook(new TakeOverHandler<TPayload>(handler), order)); }
 
     /// <inheritdoc />
     public ValueTask<HookTakeOverOutcome> TakeOverAsync<TPayload>(string hook, TPayload payload, CancellationToken ct) =>
-        throw new Barbican.Core.Common.PortPendingException("hook takeover dispatch");
-#pragma warning disable CA1822 // Registration is pending and will mutate this bus.
+        _handlers.TryGetValue(hook, out var list) ? TakeOverCoreAsync(hook, list, payload, ct) : ValueTask.FromResult(HookTakeOverOutcome.Default);
+
     /// <summary>Registers an ordered value interceptor.</summary>
-    public IDisposable InterceptWithValue<T>(string hook, Func<T, CancellationToken, ValueTask<HookValueDecision<T>>> handler, int order = 100) =>
-        throw new Barbican.Core.Common.PortPendingException("hook value intercept registration");
-#pragma warning restore CA1822
+    public IDisposable InterceptWithValue<T>(string hook, Func<T, CancellationToken, ValueTask<HookValueDecision<T>>> handler, int order = 100) { ArgumentNullException.ThrowIfNull(handler); return Add(hook, new OrderedHook(new ValueHandler<T>(handler), order)); }
 
     /// <inheritdoc />
     public ValueTask<HookValueInterceptResult<T>> InterceptWithValueAsync<T>(string hook, T initial, CancellationToken ct) =>
-        throw new Barbican.Core.Common.PortPendingException("hook value intercept dispatch");
+        _handlers.TryGetValue(hook, out var list) ? InterceptWithValueCoreAsync(hook, list, initial, ct) : ValueTask.FromResult(HookValueInterceptResult<T>.Accept(initial));
+
+    private async ValueTask<HookTakeOverOutcome> TakeOverCoreAsync<T>(string hook, object[] list, T payload, CancellationToken ct)
+    {
+        foreach (var item in list)
+        {
+            if (item is not OrderedHook { Handler: TakeOverHandler<T> handler }) continue;
+            try
+            {
+                var run = await RunAsync(hook, async t => await handler.Handler(payload, t).ConfigureAwait(false), ct).ConfigureAwait(false);
+                if (!run.Done) return HookTakeOverOutcome.Failed;
+                switch (run.Value)
+                {
+                    case Barbican.Plugins.PluginTakeOverDecision.Unhandled: break;
+                    case Barbican.Plugins.PluginTakeOverDecision.Handled: return HookTakeOverOutcome.Handled;
+                    case Barbican.Plugins.PluginTakeOverDecision.Aborted: return HookTakeOverOutcome.Aborted;
+                    default: return HookTakeOverOutcome.Failed;
+                }
+            }
+            catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
+            catch (Exception e) { Failed(hook, e); return HookTakeOverOutcome.Failed; }
+        }
+        return HookTakeOverOutcome.Default;
+    }
+
+    private async ValueTask<HookValueInterceptResult<T>> InterceptWithValueCoreAsync<T>(string hook, object[] list, T value, CancellationToken ct)
+    {
+        foreach (var item in list)
+        {
+            if (item is not OrderedHook { Handler: ValueHandler<T> handler }) continue;
+            try
+            {
+                var current = value;
+                var run = await RunAsync(hook, async t => await handler.Handler(current, t).ConfigureAwait(false), ct).ConfigureAwait(false);
+                if (!run.Done || run.Value is null) continue;
+                if (run.Value.Kind == HookValueDecisionKind.Veto) return HookValueInterceptResult<T>.Veto();
+                if (run.Value.Kind == HookValueDecisionKind.Replace) value = run.Value.Value!;
+            }
+            catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
+            catch (Exception e) { Failed(hook, e); }
+        }
+        return HookValueInterceptResult<T>.Accept(value);
+    }
     /// <summary>Registers an observer that takes any payload type (the native plugin host: a plugin cannot name the app's payload types).</summary>
     public IDisposable ObserveAny(string hook, Func<object?, CancellationToken, ValueTask> handler) => Add(hook, new AnyObserver(handler));
 
@@ -166,7 +206,8 @@ public sealed class HookBus : IHookBus
     {
         foreach (var d in list)
         {
-            if (d is not Func<T, CancellationToken, ValueTask<T>> transform)
+            var candidate = d is OrderedHook ordered ? ordered.Handler : d;
+            if (candidate is not Func<T, CancellationToken, ValueTask<T>> transform)
             {
                 continue;
             }
@@ -229,7 +270,7 @@ public sealed class HookBus : IHookBus
         {
             var next = new Dictionary<string, object[]>(_handlers, StringComparer.Ordinal)
             {
-                [hook] = _handlers.TryGetValue(hook, out var list) ? [.. list, handler] : [handler],
+                [hook] = _handlers.TryGetValue(hook, out var list) ? list.Append(handler).OrderBy(static x => x is OrderedHook ordered ? ordered.Order : 100).ToArray() : [handler],
             };
             _handlers = next;
         }
@@ -263,6 +304,9 @@ public sealed class HookBus : IHookBus
 
     private void Failed(string hook, Exception e) => HandlerFailed?.Invoke(this, new HookFailedEventArgs(hook, e));
 
+    private sealed record OrderedHook(object Handler, int Order);
+    private sealed record TakeOverHandler<T>(Func<T, CancellationToken, ValueTask<Barbican.Plugins.PluginTakeOverDecision>> Handler);
+    private sealed record ValueHandler<T>(Func<T, CancellationToken, ValueTask<HookValueDecision<T>>> Handler);
     private sealed record AnyObserver(Func<object?, CancellationToken, ValueTask> Handler);
 
     private sealed record AnyInterceptor(Func<object?, CancellationToken, ValueTask<bool>> Handler);

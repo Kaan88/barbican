@@ -6,7 +6,6 @@ namespace Barbican.Core.Tests.Plugins.Api;
 public sealed class HookMediationAcceptanceTests
 {
     [Fact]
-    [Red("m6b-mediation")]
     public async Task TransformsRunByOrderAndPreserveTies()
     {
         var bus = new HookBus();
@@ -17,7 +16,6 @@ public sealed class HookMediationAcceptanceTests
     }
 
     [Fact]
-    [Red("m6b-mediation")]
     public async Task TakeoverStopsAtHandledAndPreservesOrder()
     {
         var bus = new HookBus(); var calls = new List<int>();
@@ -29,7 +27,6 @@ public sealed class HookMediationAcceptanceTests
     }
 
     [Fact]
-    [Red("m6b-mediation")]
     public async Task TakeoverExceptionFailsClosed()
     {
         var bus = new HookBus();
@@ -38,7 +35,6 @@ public sealed class HookMediationAcceptanceTests
     }
 
     [Fact]
-    [Red("m6b-mediation")]
     public async Task TakeoverAbortIsDistinctFromHandledAndDefault()
     {
         var bus = new HookBus();
@@ -46,7 +42,6 @@ public sealed class HookMediationAcceptanceTests
         Assert.Equal(HookTakeOverOutcome.Aborted, await bus.TakeOverAsync("onComposeSend", 0, TestContext.Current.CancellationToken));
     }
     [Fact]
-    [Red("m6b-mediation")]
     public async Task NoTakeoverHandlerReturnsDefault()
     {
         var bus = new HookBus();
@@ -54,7 +49,6 @@ public sealed class HookMediationAcceptanceTests
     }
 
     [Fact]
-    [Red("m6b-mediation")]
     public async Task DisposedTakeoverIsNotInvoked()
     {
         var bus = new HookBus(); var invoked = false;
@@ -65,7 +59,6 @@ public sealed class HookMediationAcceptanceTests
     }
 
     [Fact]
-    [Red("m6b-mediation")]
     public async Task TakeoverTimeoutFailsClosedWithinHookBudget()
     {
         var time = new Microsoft.Extensions.Time.Testing.FakeTimeProvider();
@@ -80,7 +73,6 @@ public sealed class HookMediationAcceptanceTests
         release.SetResult(PluginTakeOverDecision.Handled);
     }
     [Fact]
-    [Red("m6b-mediation")]
     public async Task ValueInterceptUsesOneOrderedPassAndVetoStopsIt()
     {
         var bus = new HookBus(); var calls = new List<int>();
@@ -92,7 +84,6 @@ public sealed class HookMediationAcceptanceTests
     }
 
     [Fact]
-    [Red("m6b-mediation")]
     public async Task ValueInterceptExceptionFailsOpenAndLaterSeesLastAcceptedValue()
     {
         var bus = new HookBus();
@@ -101,5 +92,23 @@ public sealed class HookMediationAcceptanceTests
         using var third = bus.InterceptWithValue<int>("onBeforeOpenLink", (value, _) => ValueTask.FromResult(HookValueDecision<int>.Replace(value * 2)), 30);
         var result = await bus.InterceptWithValueAsync("onBeforeOpenLink", 3, TestContext.Current.CancellationToken);
         Assert.True(result.Allowed); Assert.Equal(8, result.Value);
+    }
+    [Fact]
+    public async Task LegacyTransformSharesDefaultOrderWithStableTies()
+    {
+        var bus = new HookBus();
+        using var first = bus.Transform<int>("hook", (x, _) => ValueTask.FromResult((x * 10) + 1), 100);
+        using var legacy = bus.Transform<int>("hook", (x, _) => ValueTask.FromResult((x * 10) + 2));
+        using var last = bus.Transform<int>("hook", (x, _) => ValueTask.FromResult((x * 10) + 3), 100);
+        Assert.Equal(123, await bus.TransformAsync("hook", 0, TestContext.Current.CancellationToken));
+    }
+
+    [Fact]
+    public void OrderedRegistrationsRejectNullHandlers()
+    {
+        var bus = new HookBus();
+        Assert.Throws<ArgumentNullException>(() => bus.Transform<int>("hook", null!, 100));
+        Assert.Throws<ArgumentNullException>(() => bus.TakeOver<int>("hook", null!));
+        Assert.Throws<ArgumentNullException>(() => bus.InterceptWithValue<int>("hook", null!));
     }
 }
