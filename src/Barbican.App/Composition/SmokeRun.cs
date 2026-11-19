@@ -69,7 +69,7 @@ internal sealed class SmokeRun
         try
         {
             var script = await File.ReadAllTextAsync(Path.Combine(AppContext.BaseDirectory, "Assets", "mail", "shell.js"));
-            await _probe.EnsureCoreWebView2Async();
+            await MailWebViewStartup.EnsureAsync(_probe, _options.IsHidden);
             _probe.NavigateToString(ShellDocument.Build(script, "#141414"));
         }
 #pragma warning disable CA1031 // a smoke run reports every failure in its report instead of crashing

@@ -27,7 +27,7 @@ public sealed class WebViewEnvironmentTests
     [Fact]
     public void A_normal_run_gets_its_profiles_folder_and_a_hidden_run_its_own_profile()
     {
-        string[] names = [ProfilePaths.Variable, WebViewEnvironment.UserDataVariable, WebViewEnvironment.ArgumentsVariable];
+        string[] names = [ProfilePaths.Variable, WebViewEnvironment.UserDataVariable];
         var saved = names.ToDictionary(n => n, Environment.GetEnvironmentVariable, StringComparer.Ordinal);
         try
         {
@@ -39,21 +39,16 @@ public sealed class WebViewEnvironmentTests
             var normal = new HiddenWindowOptions(HiddenWindowMode.Normal, null, 0, "default", null);
             WebViewEnvironment.Prepare(normal);
             Assert.Null(Environment.GetEnvironmentVariable(ProfilePaths.Variable));
-            if (OperatingSystem.IsWindows())
-            {
-                Assert.Equal(WebViewEnvironment.UserDataFolder(ProfilePaths.FromEnvironment()), Environment.GetEnvironmentVariable(WebViewEnvironment.UserDataVariable));
-                Assert.EndsWith(Path.Combine("Barbican-dev", "WebView2"), Environment.GetEnvironmentVariable(WebViewEnvironment.UserDataVariable)!, StringComparison.Ordinal);
-                Assert.Equal("--dns-prefetch-disable", Environment.GetEnvironmentVariable(WebViewEnvironment.ArgumentsVariable));
-            }
+            Assert.Null(Environment.GetEnvironmentVariable(WebViewEnvironment.UserDataVariable));
+            Assert.EndsWith(Path.Combine("Barbican-dev", "WebView2"), WebViewEnvironment.UserDataFolder(ProfilePaths.FromEnvironment()), StringComparison.Ordinal);
 
-            Environment.SetEnvironmentVariable(WebViewEnvironment.UserDataVariable, null);
             var hidden = new HiddenWindowOptions(HiddenWindowMode.OffScreen, null, 8899, "auto-8899", null);
+            var externalFolder = Path.GetFullPath("external-webview");
+            Environment.SetEnvironmentVariable(WebViewEnvironment.UserDataVariable, externalFolder);
             WebViewEnvironment.Prepare(hidden);
             Assert.Equal("auto-8899", Environment.GetEnvironmentVariable(ProfilePaths.Variable));
-            if (OperatingSystem.IsWindows())
-            {
-                Assert.EndsWith(Path.Combine("Barbican-auto-8899", "WebView2"), Environment.GetEnvironmentVariable(WebViewEnvironment.UserDataVariable)!, StringComparison.Ordinal);
-            }
+            Assert.Equal(externalFolder, Environment.GetEnvironmentVariable(WebViewEnvironment.UserDataVariable));
+            Assert.EndsWith(Path.Combine("Barbican-auto-8899", "WebView2"), WebViewEnvironment.UserDataFolder(ProfilePaths.FromEnvironment()), StringComparison.Ordinal);
         }
         finally
         {
@@ -62,5 +57,14 @@ public sealed class WebViewEnvironmentTests
                 Environment.SetEnvironmentVariable(n, v);
             }
         }
+    }
+
+    [Fact]
+    public void A_loader_override_must_match_the_requested_folder()
+    {
+        var expected = Path.GetFullPath("isolated-webview");
+        WebViewEnvironment.ValidateFolder(expected, expected + Path.DirectorySeparatorChar);
+        Assert.Throws<InvalidOperationException>(() => WebViewEnvironment.ValidateFolder(expected, Path.GetFullPath("other-webview")));
+        Assert.Throws<InvalidOperationException>(() => WebViewEnvironment.ValidateFolder(expected, "isolated-webview"));
     }
 }
