@@ -1,6 +1,7 @@
 // Mirrors: M6 plan section 4.9 (DI). Owner set-data: the settings values, backup, info, assistant and account-level services. Defaults use TryAddSingleton; the stubs have no constructor parameters until set-data replaces them.
 
 using Barbican.Core.Mail.Write;
+using Barbican.Core.Mail.Archive;
 using Barbican.Core.Settings.Account;
 using Barbican.Core.Settings.Assistant;
 using Barbican.Core.Settings.Backup;
@@ -28,6 +29,7 @@ public static class SettingsDataRegistration
         services.TryAddSingleton<IAssistantSettings, AssistantSettings>();
         services.TryAddSingleton<IAssistantClient, AssistantClient>();
         services.TryAddSingleton<IMailWriterFactory, MailWriterFactory>();
+        services.TryAddSingleton<IArchiveReorganizer, ArchiveReorganizer>();
         services.TryAddSingleton<IAssistantTools, AssistantTools>();
         services.TryAddSingleton<IAssistantSession, AssistantSession>();
         return services;
