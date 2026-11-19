@@ -38,21 +38,26 @@
           <TextBlock Visibility="{x:Bind Look.LegacyMarkVisibility, Mode=OneWay}" Text="Select a message to read it" FontSize="13" Foreground="{StaticResource Faint}" HorizontalAlignment="Center" />
         </StackPanel>
 
-        <Grid x:Name="ContentGrid" SizeChanged="OnContentSizeChanged" Padding="{x:Bind Look.ReaderPadding, Mode=OneWay}" RowSpacing="{x:Bind Look.ReaderSpacing, Mode=OneWay}" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto,*,Auto"
+        <Grid x:Name="ContentGrid" SizeChanged="OnContentSizeChanged" Padding="{x:Bind Look.ReaderPadding, Mode=OneWay}" RowSpacing="{x:Bind Look.ReaderSpacing, Mode=OneWay}" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto,*,Auto,Auto"
               Visibility="{x:Bind views:Fmt.VisBody(Reader.BodyState, 'content'), Mode=OneWay}">
            <!-- Bulwark order: actions, subject, collapsed conversation headers, and the open message. -->
           <!-- actions: Reply, Reply all, Forward, Archive and Delete run their commands on the open message; More opens MENU-READER. Bento: icon + label (Reply all, Delete, More icon-only); Nordic: text only. -->
            <Border Grid.Row="0" Margin="{x:Bind Look.ReaderBandMargin, Mode=OneWay}" Padding="{x:Bind Look.ReaderBandPadding, Mode=OneWay}" BorderThickness="{x:Bind Look.ReaderBandRule, Mode=OneWay}" BorderBrush="{StaticResource Line}">
-           <controls:WrapRow Spacing="4" AutomationProperties.AutomationId="reader.toolbar" AutomationProperties.Name="Message actions">
-            <Button Style="{x:Bind Look.ReaderActionStyle, Mode=OneWay}" Height="{x:Bind Look.ReaderActionHeight, Mode=OneWay}" CornerRadius="{x:Bind Look.ReaderActionRadius, Mode=OneWay}"
+           <controls:WrapRow x:Name="MessageToolbar" Spacing="4" AutomationProperties.AutomationId="reader.toolbar" AutomationProperties.Name="Message actions">
+            <Button x:Name="ReaderBack" Visibility="Collapsed" Width="40" Height="40" Padding="0"
+                    Style="{StaticResource Button.Icon}" Click="OnBackClick" motion:Tip.Text="Back to messages"
+                    AutomationProperties.Name="Back to messages" AutomationProperties.AutomationId="reader.back-to-list">
+              <FontIcon Glyph="&#xE72B;" FontSize="16" />
+            </Button>
+            <Button x:Name="ActionReply" Style="{x:Bind Look.ReaderActionStyle, Mode=OneWay}" Height="{x:Bind Look.ReaderActionHeight, Mode=OneWay}" CornerRadius="{x:Bind Look.ReaderActionRadius, Mode=OneWay}"
                     Padding="{x:Bind Look.ReaderActionPadding, Mode=OneWay}" MinWidth="{x:Bind Look.MinimumTarget, Mode=OneWay}" Click="OnReplyClick" motion:Tip.Text="Reply" AutomationProperties.AutomationId="reader.reply" AutomationProperties.Name="Reply">
               <StackPanel Orientation="Horizontal" Spacing="6"><controls:SIcon Kind="Reply" Size="16" Visibility="{x:Bind Look.ToolbarIconVisibility, Mode=OneWay}" /><TextBlock Text="Reply" Visibility="{x:Bind Look.ToolbarLabelVisibility, Mode=OneWay}" /></StackPanel>
             </Button>
-            <Button Style="{x:Bind Look.ReaderActionStyle, Mode=OneWay}" Height="{x:Bind Look.ReaderActionHeight, Mode=OneWay}" CornerRadius="{x:Bind Look.ReaderActionRadius, Mode=OneWay}"
+            <Button x:Name="ActionReplyAll" Style="{x:Bind Look.ReaderActionStyle, Mode=OneWay}" Height="{x:Bind Look.ReaderActionHeight, Mode=OneWay}" CornerRadius="{x:Bind Look.ReaderActionRadius, Mode=OneWay}"
                     Padding="{x:Bind Look.ReaderActionPadding, Mode=OneWay}" MinWidth="{x:Bind Look.MinimumTarget, Mode=OneWay}" Click="OnReplyAllClick" motion:Tip.Text="Reply all" AutomationProperties.AutomationId="reader.replyall" AutomationProperties.Name="Reply all">
               <StackPanel Orientation="Horizontal" Spacing="6"><controls:SIcon Kind="ReplyAll" Size="16" Visibility="{x:Bind Look.ToolbarIconVisibility, Mode=OneWay}" /><TextBlock Text="Reply all" Visibility="{x:Bind Look.SecondaryLabelVisibility, Mode=OneWay}" /></StackPanel>
             </Button>
-            <Button Style="{x:Bind Look.ReaderActionStyle, Mode=OneWay}" Height="{x:Bind Look.ReaderActionHeight, Mode=OneWay}" CornerRadius="{x:Bind Look.ReaderActionRadius, Mode=OneWay}"
+            <Button x:Name="ActionForward" Style="{x:Bind Look.ReaderActionStyle, Mode=OneWay}" Height="{x:Bind Look.ReaderActionHeight, Mode=OneWay}" CornerRadius="{x:Bind Look.ReaderActionRadius, Mode=OneWay}"
                     Padding="{x:Bind Look.ReaderActionPadding, Mode=OneWay}" MinWidth="{x:Bind Look.MinimumTarget, Mode=OneWay}" Click="OnForwardClick" motion:Tip.Text="Forward" AutomationProperties.AutomationId="reader.forward" AutomationProperties.Name="Forward">
               <StackPanel Orientation="Horizontal" Spacing="6"><controls:SIcon Kind="Fwd" Size="16" Visibility="{x:Bind Look.ToolbarIconVisibility, Mode=OneWay}" /><TextBlock Text="Forward" Visibility="{x:Bind Look.ToolbarLabelVisibility, Mode=OneWay}" /></StackPanel>
             </Button>
@@ -300,6 +305,28 @@
              </StackPanel>
              </Grid>
           </Border>
+          <Grid x:Name="PhoneActions" Grid.Row="9" ColumnDefinitions="*,*,*,*,*" MinHeight="46" Visibility="Collapsed" BorderBrush="{StaticResource Line}" BorderThickness="0,1,0,0">
+            <Button Grid.Column="0" Style="{StaticResource Button.Icon}" HorizontalAlignment="Stretch" Padding="0" Click="OnPreviousClick"
+                    AutomationProperties.Name="Previous" AutomationProperties.AutomationId="reader.mobile.previous">
+              <StackPanel Spacing="2"><FontIcon Glyph="&#xE76B;" FontSize="16" /><TextBlock Text="Previous" HorizontalAlignment="Center" FontSize="11" /></StackPanel>
+            </Button>
+            <Button Grid.Column="1" Style="{StaticResource Button.Icon}" HorizontalAlignment="Stretch" Padding="0" Click="OnReplyClick"
+                    AutomationProperties.Name="Reply" AutomationProperties.AutomationId="reader.mobile.reply">
+              <StackPanel Spacing="2"><FontIcon Glyph="&#xE97A;" FontSize="16" /><TextBlock Text="Reply" HorizontalAlignment="Center" FontSize="11" /></StackPanel>
+            </Button>
+            <Button Grid.Column="2" Style="{StaticResource Button.Icon}" HorizontalAlignment="Stretch" Padding="0" Click="OnReplyAllClick"
+                    AutomationProperties.Name="Reply all" AutomationProperties.AutomationId="reader.mobile.replyall">
+              <StackPanel Spacing="2"><FontIcon Glyph="&#xEE0A;" FontSize="16" /><TextBlock Text="Reply all" HorizontalAlignment="Center" FontSize="11" /></StackPanel>
+            </Button>
+            <Button Grid.Column="3" Style="{StaticResource Button.Icon}" HorizontalAlignment="Stretch" Padding="0" Click="OnForwardClick"
+                    AutomationProperties.Name="Forward" AutomationProperties.AutomationId="reader.mobile.forward">
+              <StackPanel Spacing="2"><FontIcon Glyph="&#xE72A;" FontSize="16" /><TextBlock Text="Forward" HorizontalAlignment="Center" FontSize="11" /></StackPanel>
+            </Button>
+            <Button Grid.Column="4" Style="{StaticResource Button.Icon}" HorizontalAlignment="Stretch" Padding="0" Click="OnNextClick"
+                    AutomationProperties.Name="Next" AutomationProperties.AutomationId="reader.mobile.next">
+              <StackPanel Spacing="2"><FontIcon Glyph="&#xE76C;" FontSize="16" /><TextBlock Text="Next" HorizontalAlignment="Center" FontSize="11" /></StackPanel>
+            </Button>
+          </Grid>
         </Grid>
       </Grid>
     </Border>

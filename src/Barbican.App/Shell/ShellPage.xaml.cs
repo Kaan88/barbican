@@ -183,7 +183,7 @@ public sealed partial class ShellPage : Page
         SidebarRegion.MaxWidth = phone ? Math.Min(180, layout.WindowWidth / 3) : double.PositiveInfinity;
         SidebarRegion.Visibility = !composerOnly && layout.SidebarShown && !hideMailPanes
             && ((!_composing && !reading) || (_look.IsBulwark && editorSpace >= 480)) ? Visibility.Visible : Visibility.Collapsed;
-        ReaderBack.Visibility = readerOnly && !fullscreen ? Visibility.Visible : Visibility.Collapsed;
+        ReaderRegion.SetCompactNavigation(readerOnly && !fullscreen, phone);
         SidebarHandle.Visibility = SidebarRegion.Visibility;
         ListColumn.Visibility = hideMailPanes || readerOnly || composerOnly ? Visibility.Collapsed : Visibility.Visible;
         ListRegion.MaxWidth = phone ? Math.Max(1, layout.WindowWidth - _look.RailWidth -
@@ -215,6 +215,7 @@ public sealed partial class ShellPage : Page
             _composerMaximized = !_composerMaximized;
             ApplyLook();
         };
+        ReaderRegion.BackRequested += OnReaderBack;
         ReaderRegion.FullscreenRequested += (_, _) => SetReaderFullscreen(!_readerFullscreen);
         ReaderRegion.Reader.PropertyChanged += (_, e) =>
         {
@@ -224,7 +225,7 @@ public sealed partial class ShellPage : Page
         };
     }
 
-    private void OnReaderBack(object sender, RoutedEventArgs e)
+    private void OnReaderBack(object? sender, EventArgs e)
     {
         ListRegion.List.CloseReader();
         ListRegion.Focus(FocusState.Programmatic);

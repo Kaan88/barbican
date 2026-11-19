@@ -41,7 +41,22 @@ public sealed partial class ReaderView : UserControl
 
     public Barbican.Presentation.Shell.RailViewModel Account { get; } = ViewHost.Get<Barbican.Presentation.Shell.RailViewModel>();
 
+    public event EventHandler? BackRequested;
+
     public event EventHandler? FullscreenRequested;
+
+    public void SetCompactNavigation(bool showBack, bool phone)
+    {
+        ReaderBack.Visibility = showBack ? Visibility.Visible : Visibility.Collapsed;
+        PhoneActions.Visibility = phone ? Visibility.Visible : Visibility.Collapsed;
+        ActionReply.Visibility = ActionReplyAll.Visibility = ActionForward.Visibility = phone ? Visibility.Collapsed : Visibility.Visible;
+    }
+
+    private void OnBackClick(object sender, RoutedEventArgs e) => BackRequested?.Invoke(this, EventArgs.Empty);
+
+    private void OnPreviousClick(object sender, RoutedEventArgs e) => _list.MoveSelection(-1, OpenReason.Click);
+
+    private void OnNextClick(object sender, RoutedEventArgs e) => _list.MoveSelection(1, OpenReason.Click);
 
     public void SetFullscreen(bool fullscreen)
     {

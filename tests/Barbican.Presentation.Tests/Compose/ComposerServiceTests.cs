@@ -105,6 +105,28 @@ public sealed class ComposerServiceTests
     }
 
     [Fact]
+    public async Task Inline_reply_can_retry_after_failure_and_undo_the_successful_send()
+    {
+        var w = new World();
+        var request = new ComposeRequest("acc", ComposeKind.Reply)
+        {
+            InlineReply = true, SourceEmailId = "m1", DraftText = "Keep this reply",
+            Prefill = new ComposePrefill { To = "to@example.net", Subject = "Re: plans", Body = "Keep this reply" },
+        };
+        var ct = TestContext.Current.CancellationToken;
+        w.Harness.Sender.Fail = true;
+        Assert.False(await w.Service.SendInlineReplyAsync(request, (_, _) => Task.FromResult<string?>("send"), ct));
+        Assert.False(w.Service.IsOpen);
+        w.Harness.Sender.Fail = false;
+        w.Harness.Sender.CanUndo = true;
+        Assert.True(await w.Service.SendInlineReplyAsync(request, (_, _) => Task.FromResult<string?>("send"), ct));
+        var undo = Assert.Single(w.Harness.Toasts.Shown, t => string.Equals(t.ActionLabel, "Undo", StringComparison.Ordinal));
+        await undo.Action!(ct);
+        Assert.True(w.Service.IsOpen);
+        Assert.Equal(2, w.Harness.Sender.Sent.Count);
+    }
+
+    [Fact]
     public async Task Opening_a_composer_seeds_it_and_makes_it_current()
     {
         var w = new World();

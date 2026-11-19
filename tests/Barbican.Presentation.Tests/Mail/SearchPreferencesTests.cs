@@ -9,6 +9,22 @@ namespace Barbican.Presentation.Tests.Mail;
 
 public sealed class SearchPreferencesTests
 {
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task Changing_folder_or_tag_closes_the_previous_message(bool tag)
+    {
+        using var h = new ListHarness();
+        h.Service.OnQuery = (_, _, _) => Task.FromResult(Barbican.Core.Common.Result<ListPage>.Ok(Mails.Page(0, 3, 3, false)));
+        await h.List.OpenFolderAsync("inbox", MailboxRole.Inbox, "Inbox");
+        Assert.True(h.List.SelectFirst());
+        var closed = h.Opener.Closed;
+        if (tag) await h.List.OpenTagAsync("red", "Red", []);
+        else await h.List.OpenFolderAsync("sent", MailboxRole.Sent, "Sent");
+        Assert.Equal(closed + 1, h.Opener.Closed);
+        Assert.Null(h.List.Selected);
+    }
+
     [Fact]
     public async Task New_search_uses_all_folders_by_default_and_clearing_returns_to_browsing_folder()
     {

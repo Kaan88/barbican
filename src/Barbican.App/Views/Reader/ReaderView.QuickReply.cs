@@ -69,11 +69,17 @@ public sealed partial class ReaderView
         QuickReplyLayout.Spacing = bulwark ? 12 : 6;
         if (bulwark)
         {
+            QuickReplyText.BorderBrush = AppResources.Brush("Line");
+            QuickReplyText.Background = AppResources.Brush("Ground");
+            QuickReplyText.Foreground = AppResources.Brush("Text");
             QuickReplyText.Padding = new Thickness(12, 8, 12, 8);
             QuickReplyText.CornerRadius = new CornerRadius(8);
         }
         else
         {
+            QuickReplyText.ClearValue(BorderBrushProperty);
+            QuickReplyText.ClearValue(BackgroundProperty);
+            QuickReplyText.ClearValue(ForegroundProperty);
             QuickReplyText.ClearValue(PaddingProperty);
             QuickReplyText.ClearValue(CornerRadiusProperty);
         }
