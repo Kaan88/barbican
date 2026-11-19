@@ -38,20 +38,20 @@ public sealed partial class FakeStore
     }
 
     /// <summary>The ids matching <paramref name="filter"/> now, newest first.</summary>
-    public IReadOnlyList<string> Query(JsonNode? filter, JsonArray? sort = null)
+    public IReadOnlyList<string> Query(JsonNode? filter, JsonArray? sort = null, bool collapse = false)
     {
         lock (_lock)
         {
-            return Sorted(_emails.Values, filter, sort);
+            return Sorted(_emails.Values, filter, sort, collapse);
         }
     }
 
     /// <summary>The ids that matched at Email state <paramref name="state"/>; null when that state is unknown.</summary>
-    public IReadOnlyList<string>? QueryAt(string state, JsonNode? filter, JsonArray? sort = null)
+    public IReadOnlyList<string>? QueryAt(string state, JsonNode? filter, JsonArray? sort = null, bool collapse = false)
     {
         lock (_lock)
         {
-            return StalwartState.ChangeId(state) is { } id && _snapshots.TryGetValue(id, out var snap) ? Sorted(snap, filter, sort) : null;
+            return StalwartState.ChangeId(state) is { } id && _snapshots.TryGetValue(id, out var snap) ? Sorted(snap, filter, sort, collapse) : null;
         }
     }
 
@@ -87,7 +87,7 @@ public sealed partial class FakeStore
         }
     }
 
-    private static List<string> Sorted(IEnumerable<JsonObject> emails, JsonNode? filter, JsonArray? sort)
+    private static List<string> Sorted(IEnumerable<JsonObject> emails, JsonNode? filter, JsonArray? sort, bool collapse)
     {
         var comparators = sort?.OfType<JsonObject>().ToList() ?? [];
         if (comparators.Count == 0)
@@ -95,10 +95,11 @@ public sealed partial class FakeStore
             comparators.Add(new JsonObject { ["property"] = "receivedAt", ["isAscending"] = false });
         }
 
-        return [.. emails.Where(e => FilterEvaluator.Matches(e, filter))
+        var sorted = emails.Where(e => FilterEvaluator.Matches(e, filter))
             .OrderBy(e => e, Comparer<JsonObject>.Create((a, b) => Compare(a, b, comparators)))
-            .ThenByDescending(e => (string?)e["id"], StringComparer.Ordinal)
-            .Select(e => (string)e["id"]!)];
+            .ThenByDescending(e => (string?)e["id"], StringComparer.Ordinal);
+        var rows = collapse ? sorted.DistinctBy(e => (string?)e["threadId"] ?? (string)e["id"]!, StringComparer.Ordinal) : sorted;
+        return [.. rows.Select(e => (string)e["id"]!)];
     }
 
     private static int Compare(JsonObject a, JsonObject b, IReadOnlyList<JsonObject> comparators)

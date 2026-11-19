@@ -11,5 +11,7 @@ public static class ActionFmt
     public static Microsoft.UI.Xaml.Media.Brush ToastText(bool isError) => Fmt.Palette(isError ? "RoseFg" : "Text");
 
     /// <summary>The banner button: "Select all N in this folder".</summary>
-    public static string SelectAllText(int total) => string.Create(CultureInfo.InvariantCulture, $"Select all {total} in this folder");
+    public static string SelectAllText(int total, bool threaded) => threaded
+        ? string.Create(CultureInfo.InvariantCulture, $"Select all messages in {total} conversations")
+        : string.Create(CultureInfo.InvariantCulture, $"Select all {total} in this folder");
 }

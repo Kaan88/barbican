@@ -448,7 +448,7 @@ public sealed class MessageLoader : IMessageOpener, IConversationOpener, IDispos
                 _shownId = id;
                 _thread = thread;
                 var currentZone = ReaderSnapshots.FromBody(body, thread, _options());
-                snapshot = snapshot with { Header = snapshot.Header with { Date = currentZone.Header.Date }, Conversation = currentZone.Conversation };
+                snapshot = snapshot with { Header = snapshot.Header with { Date = currentZone.Header.Date, CompactDate = currentZone.Header.CompactDate }, Conversation = currentZone.Conversation };
                 _reader.Apply(snapshot);
                 LastOpenToShown = _time.GetElapsedTime(_openedAt);
                 if (!string.Equals(previous, id, StringComparison.Ordinal))
@@ -582,12 +582,12 @@ public sealed class MessageLoader : IMessageOpener, IConversationOpener, IDispos
         if (current.Body is { } body)
         {
             var fresh = ReaderSnapshots.FromBody(body, _thread, _options());
-            _reader.Apply(current with { Header = current.Header with { Date = fresh.Header.Date }, Conversation = fresh.Conversation });
+            _reader.Apply(current with { Header = current.Header with { Date = fresh.Header.Date, CompactDate = fresh.Header.CompactDate }, Conversation = fresh.Conversation });
         }
         else if (_currentRow is { } row && string.Equals(row.Id, current.EmailId, StringComparison.Ordinal))
         {
             var fresh = ReaderSnapshots.Prefill(row, _options());
-            _reader.Apply(current with { Header = current.Header with { Date = fresh.Header.Date } });
+            _reader.Apply(current with { Header = current.Header with { Date = fresh.Header.Date, CompactDate = fresh.Header.CompactDate } });
         }
     });
 

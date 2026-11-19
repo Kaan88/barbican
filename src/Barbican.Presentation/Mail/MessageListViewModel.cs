@@ -473,7 +473,7 @@ public sealed partial class MessageListViewModel : ObservableObject, IDisposable
 
     private async Task LoadFirstPageAsync(ListQuery query, bool folderOpened, int rows = 0)
     {
-        query = query with { Sort = ConfiguredSort() };
+        query = query with { Sort = ConfiguredSort(), CollapseThreads = CollapseThreads(query) };
         query = _shaper is null ? query : _shaper.Shape(query);
         var generation = ++_generation;
         var old = _cts;
@@ -484,6 +484,7 @@ public sealed partial class MessageListViewModel : ObservableObject, IDisposable
         _pendingMove = 0;
         _query = query;
         OnPropertyChanged(nameof(MailboxId));
+        OnPropertyChanged(nameof(ShowsConversations));
         var mail = _active.Mail;
         if (mail is null)
         {
@@ -742,7 +743,14 @@ public sealed partial class MessageListViewModel : ObservableObject, IDisposable
         }
 
         var row = Messages.FirstOrDefault(r => string.Equals(r.Id, _selectedId, StringComparison.Ordinal));
-        if (row is null)
+        if (row is null && ShowsConversations && _selected?.Summary.ThreadId is { } thread)
+        {
+            // A new reply can replace the representative. Keep the conversation highlighted
+            // while the reader continues to own the message it actually opened.
+            row = Messages.FirstOrDefault(message => string.Equals(message.Summary.ThreadId, thread, StringComparison.Ordinal));
+            SetSelected(row);
+        }
+        else if (row is null)
         {
             SetSelected(null);
         }
@@ -863,13 +871,17 @@ public sealed partial class MessageListViewModel : ObservableObject, IDisposable
         if (_query is not null)
         {
             var next = ConfiguredSort();
-            if (_query.Sort is null || !_query.Sort.SequenceEqual(next))
+            if (_query.Sort is null || !_query.Sort.SequenceEqual(next) || _query.CollapseThreads != CollapseThreads(_query))
             {
                 _ = LoadFirstPageAsync(_query with { Sort = next }, folderOpened: false, rows: _loaded.Emails.Count);
             }
             else RebuildRows();
         }
     }
+
+    // The unread-first layout has two independently paged sections, each with its own cursor.
+    private bool CollapseThreads(ListQuery query) =>
+        Loading.MessageLoadRules.Threading(_prefs.Current) && !IsUnreadFirst(query, ReadSettings());
 
     private IReadOnlyList<SortComparator> ConfiguredSort()
     {

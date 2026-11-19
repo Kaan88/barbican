@@ -41,6 +41,17 @@ public sealed class MessageListViewModelTests
         Assert.Empty(h.Opener.Opened);
     }
 
+    [Theory]
+    [InlineData(false, true)]
+    [InlineData(true, false)]
+    public async Task Threading_preference_applies_to_initial_page_pagination_and_push(bool disabled, bool collapse)
+    {
+        using var h = await OpenedAsync(disabled ? """{"disableThreading":true}""" : "{}");
+        await h.List.LoadMoreAsync();
+        Assert.All(h.Service.Queries, request => Assert.Equal(collapse, request.Query.CollapseThreads));
+        Assert.Equal(collapse, Assert.Single(h.Sync.Watched).CollapseThreads);
+    }
+
     [Fact]
     public async Task Load_more_anchors_on_the_last_message_and_appends_without_a_reset()
     {
@@ -65,6 +76,24 @@ public sealed class MessageListViewModelTests
         Assert.Equal([NotifyCollectionChangedAction.Add], h.Changes);
         Assert.Equal("new", Assert.IsType<MessageRowViewModel>(h.List.Rows[1]).Id);
         Assert.Equal(101, h.List.Total);
+    }
+
+    [Fact]
+    public async Task New_thread_representative_keeps_selection_and_message_refresh_keeps_thread_count()
+    {
+        using var h = await OpenedAsync();
+        h.List.Selected = h.List.Messages.First();
+        var reply = Mails.Make("reply") with { ThreadId = "tm0" };
+        var copies = new Dictionary<string, EmailSummary> { [reply.Id] = reply };
+        h.Hub.Publish(new ListDeltaEvent(new ListDelta
+        {
+            Removed = ["m0"], Added = [("reply", 0)], Emails = copies,
+            Threads = new Dictionary<string, int> { ["tm0"] = 2 },
+        }));
+        h.Hub.Publish(new EmailsChangedEvent(copies, [], []));
+        Assert.Equal("reply", h.List.Selected?.Id);
+        Assert.Equal(2, h.List.Selected?.ThreadCount);
+        Assert.Single(h.Opener.Opened);
     }
 
     [Fact]

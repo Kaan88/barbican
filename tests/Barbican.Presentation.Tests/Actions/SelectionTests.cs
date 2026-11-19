@@ -91,10 +91,12 @@ public sealed class SelectionTests
         Assert.False(h.List.HasChecked);
     }
 
-    [Fact]
-    public async Task Select_all_in_folder_acts_on_the_query_ids_not_the_loaded_rows()
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task Select_all_in_folder_acts_on_the_query_ids_not_the_loaded_rows(bool threaded)
     {
-        using var h = await ActionHarness.StartAsync(prefs: """{"emailsPerPage": 10}""");
+        using var h = await ActionHarness.StartAsync(prefs: threaded ? """{"emailsPerPage":10}""" : """{"emailsPerPage":10,"disableThreading":true}""");
         var inbox = h.Folder("inbox");
         for (var i = 0; i < 14; i++)
         {
@@ -110,7 +112,8 @@ public sealed class SelectionTests
         Assert.True(h.List.AllInFolder);
         var inFolder = h.Server.Store.Query(new System.Text.Json.Nodes.JsonObject { ["inMailbox"] = inbox }).Count;
         Assert.True(inFolder > loaded);
-        Assert.Equal(inFolder, h.List.CheckedCount);
+        var visibleTotal = h.Server.Store.Query(new System.Text.Json.Nodes.JsonObject { ["inMailbox"] = inbox }, collapse: threaded).Count;
+        Assert.Equal(visibleTotal, h.List.CheckedCount);
 
         var resolved = await h.List.ResolveTargetsAsync(Ct);
         Assert.Equal(inFolder, resolved.Count);

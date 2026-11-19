@@ -80,3 +80,18 @@ Local synthetic captures in `artifacts/auto/8967/` show light and dark at
 A pane change while composing now updates the sidebar immediately. At 1280
 wide the 320/520 pane sizes fold it, then 220/330 restore it. The earlier
 conversation, inline delivery and window-flow gaps remain open.
+
+## Grouped inbox preview
+
+The regular mailbox and unified list request one representative per thread,
+with identical grouping for pagination and incremental sync. Disabling
+threading restores individual rows. The two-query unread-first layout still
+uses individual messages. Folder-wide actions enumerate every matching
+message through an independent cursor. The representative retains selection
+when a reply arrives and keeps its thread count through keyword updates.
+
+The synthetic Inbox showed five rows, including one five-message conversation
+(`artifacts/auto/8967/grouped-thread.png` and its dark counterpart). Windows
+Automation passed 3,156 tests with four skips, including grouped/ungrouped
+paging, folder-wide actions and replacement of a selected representative.
+The user requested a portable preview at this checkpoint.

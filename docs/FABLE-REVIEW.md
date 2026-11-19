@@ -1977,3 +1977,5 @@ The provisional `PluginValue` storage seam needs source-compatible `JSON.stringi
 
 ## M6b solo reader and composer verification
 - Review reader metadata, folder colours, reply hint and composer resizing against the local evidence in docs/milestones/M6b-solo-parity.md. The complete Windows tests passed. Conversation, delivery and pop-out parity are still open.
+
+- Grouped-inbox preview following a414598. Review conversation ownership during representative changes and the independent cursor for whole-folder actions in MessageListViewModel.Actions.cs. Expanded cards and the unread-first layout remain open.

@@ -58,7 +58,7 @@ public static class UnifiedFetcher
             ? "An account does not support keyword ordering; value ordering is used for all accounts." : null;
         var unread = inbox["unreadEmails"] is JsonValue u && u.TryGetValue<long>(out var n) ? n : 0;
         var b = new JmapRequestBuilder();
-        var q = b.Add("Email/query", new JsonObject
+        var request = new JsonObject
         {
             ["accountId"] = source.AccountId,
             ["filter"] = Filter(inboxId, query, boxes.Value!),
@@ -66,7 +66,9 @@ public static class UnifiedFetcher
             ["position"] = position,
             ["limit"] = Math.Max(1, limit),
             ["calculateTotal"] = true,
-        });
+        };
+        if (query.CollapseThreads is { } collapse) request["collapseThreads"] = collapse;
+        var q = b.Add("Email/query", request);
         var g = b.Add("Email/get", new JsonObject { ["accountId"] = source.AccountId, ["#ids"] = q.Ref("/ids"), ["properties"] = JmapProperties.Json(JmapProperties.EmailList) });
         var t = b.Add("Thread/get", new JsonObject { ["accountId"] = source.AccountId, ["#ids"] = g.Ref("/list/*/threadId") });
         var sent = await source.Client.SendAsync(b.Build(), ct).ConfigureAwait(false);

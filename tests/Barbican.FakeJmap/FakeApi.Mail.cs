@@ -70,13 +70,7 @@ public sealed partial class FakeApi
             return Error("unsupportedSort");
         }
 
-        var ids = store.Query(args["filter"], args["sort"] as JsonArray);
-        if ((bool?)args["collapseThreads"] == true)
-        {
-            // RFC 8621 4.4.3: only the first (newest) message of each conversation
-            var seen = new HashSet<string>(StringComparer.Ordinal);
-            ids = [.. ids.Where(id => seen.Add((string?)store.Email(id)?["threadId"] ?? id))];
-        }
+        var ids = store.Query(args["filter"], args["sort"] as JsonArray, (bool?)args["collapseThreads"] == true);
 
         var limit = Math.Min((int?)args["limit"] ?? 50, options.QueryLimitCap);
         int position;
@@ -125,12 +119,13 @@ public sealed partial class FakeApi
         }
 
         var since = (string?)args["sinceQueryState"] ?? "";
-        if (store.QueryAt(since, args["filter"], args["sort"] as JsonArray) is not { } before)
+        var collapse = (bool?)args["collapseThreads"] == true;
+        if (store.QueryAt(since, args["filter"], args["sort"] as JsonArray, collapse) is not { } before)
         {
             return Error("cannotCalculateChanges");
         }
 
-        var now = store.Query(args["filter"], args["sort"] as JsonArray);
+        var now = store.Query(args["filter"], args["sort"] as JsonArray, collapse);
         var old = before.ToHashSet(StringComparer.Ordinal);
         var current = now.ToHashSet(StringComparer.Ordinal);
         var moved = !before.Where(current.Contains).SequenceEqual(now.Where(old.Contains), StringComparer.Ordinal);

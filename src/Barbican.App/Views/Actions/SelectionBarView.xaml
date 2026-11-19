@@ -27,7 +27,7 @@
     </Border>
     <Border Background="{StaticResource Track}" CornerRadius="10" Padding="10,4" Margin="12,0,12,0" Visibility="{x:Bind views:Fmt.Vis(List.CanSelectAllInFolder), Mode=OneWay}"
             AutomationProperties.AutomationId="selection.banner">
-      <Button Style="{StaticResource Button.Chip}" Content="{x:Bind local:ActionFmt.SelectAllText(List.Total), Mode=OneWay}" Tag="list.select-all-folder" Click="OnCommand" AutomationProperties.AutomationId="selection.all-folder" AutomationProperties.Name="Select all messages in this folder" />
+      <Button Style="{StaticResource Button.Chip}" Content="{x:Bind local:ActionFmt.SelectAllText(List.Total, List.ShowsConversations), Mode=OneWay}" Tag="list.select-all-folder" Click="OnCommand" AutomationProperties.AutomationId="selection.all-folder" AutomationProperties.Name="Select all messages in this folder" />
     </Border>
   </StackPanel>
 </UserControl>

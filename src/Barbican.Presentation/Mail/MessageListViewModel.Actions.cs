@@ -5,7 +5,9 @@
 // The list is edited in place: rows leave and return through ListSync (no reset), and the checked set is re-applied to the rows after every rebuild.
 
 using System.Globalization;
+using Barbican.Core.Mail.Lists;
 using Barbican.Core.Mail.Model;
+using Barbican.Core.Mail.Unified;
 using Barbican.Presentation.Actions;
 
 namespace Barbican.Presentation.Mail;
@@ -36,6 +38,8 @@ public sealed partial class MessageListViewModel : IListEditor, IMailSelection
     /// <summary>"Select all N in folder" was taken: acting resolves the ids with Email/query (I-142).</summary>
     public bool AllInFolder => _allInFolder;
 
+    public bool ShowsConversations => _query?.CollapseThreads == true;
+
     /// <summary>"N selected · M unread" (selection-view.tsx).</summary>
     public string SelectionLabel
     {
@@ -57,7 +61,7 @@ public sealed partial class MessageListViewModel : IListEditor, IMailSelection
     }
 
     /// <summary>Every loaded message is ticked and more follow on the server: the banner offers all of them (I-142).</summary>
-    public bool CanSelectAllInFolder => SelectAllState == 2 && !_allInFolder && CanLoadMore;
+    public bool CanSelectAllInFolder => SelectAllState == 2 && !_allInFolder && (CanLoadMore || (ShowsConversations && Messages.Any(r => r.ThreadCount > 1)));
 
     /// <summary>The ticked messages, or else the open one; empty when neither.</summary>
     public IReadOnlyList<MailTarget> Current => TargetsOf(_checked.Count > 0 ? Messages.Where(r => _checked.Contains(r.Id)) : Messages.Where(r => string.Equals(r.Id, _selectedId, StringComparison.Ordinal)));
@@ -215,17 +219,25 @@ public sealed partial class MessageListViewModel : IListEditor, IMailSelection
             return Current;
         }
 
+        var generation = _generation;
+        var query = _query with { CollapseThreads = false };
+        var account = _active.AccountKey;
+        if (account is null) return [];
+        // Enumerate the whole folder independently of the visible, collapsed cursor.
+        using var unified = _unified is not null && string.Equals(query.MailboxId, UnifiedRows.FolderId, StringComparison.Ordinal)
+            ? new UnifiedListSource(_unified.Sources) : null;
+        IListSource source = (IListSource?)unified ?? _sources?.Resolve(query) ?? new MailServiceListSource(mail);
         var all = new List<EmailSummary>();
         ListCursor? after = null;
         do
         {
-            var page = await QueryPageAsync(mail, _query, after, ct).ConfigureAwait(false);
-            if (!page.IsOk || page.Value is null)
+            var page = await source.QueryAsync(query, after, ct).ConfigureAwait(true);
+            if (!page.IsOk || page.Value is null || !_allInFolder || generation != _generation || !string.Equals(account, _active.AccountKey, StringComparison.Ordinal))
             {
-                return Current;
+                return [];
             }
 
-            all.AddRange(page.Value.Items);
+            all.AddRange(page.Value.Items.Take(AllInFolderCap - all.Count));
             after = page.Value.Next;
         }
         while (after is not null && all.Count < AllInFolderCap);

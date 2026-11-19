@@ -151,7 +151,13 @@ public sealed class LoadedList
         var touched = false;
         for (var i = 0; i < _emails.Count; i++)
         {
-            if (changed.Fresh.TryGetValue(_emails[i].Id, out var fresh) && !Equals(_emails[i], fresh))
+            if (!changed.Fresh.TryGetValue(_emails[i].Id, out var fresh)) continue;
+            if (fresh.ThreadId is { } thread && _threads.TryGetValue(thread, out var count) && fresh.ThreadCount != count)
+            {
+                fresh = fresh with { ThreadCount = count };
+            }
+
+            if (!Equals(_emails[i], fresh))
             {
                 _emails[i] = fresh;
                 touched = true;

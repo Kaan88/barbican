@@ -26,6 +26,7 @@ public sealed class MessageLoaderTests
         Assert.Contains("00:30", h.Reader.Header.Date, StringComparison.Ordinal);
         h.Prefs.Set("{\"timeZone\":\"Europe/Berlin\"}");
         Assert.Contains("01:30", h.Reader.Header.Date, StringComparison.Ordinal);
+        Assert.Contains("01:30", h.Reader.Header.CompactDate, StringComparison.Ordinal);
         Assert.Equal(requests, h.Service.BodyRequests.Count(r => !r.Prefetch));
         Assert.Same(shownBody, h.Reader.Current.Body);
     }
