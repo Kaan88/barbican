@@ -1752,3 +1752,7 @@ The response and script updates are separate operations, so failures can leave p
 ## Codex - M6 srv-ui (Terra High)
 
 - Filter rules and folder choices now load for a captured account/generation. Editors, scans, apply dialogs and delete confirmations retain that generation; A-to-B-to-A rejects stale work and an already-issued apply may finish only on its original account. Recovery now passes an explicit account into its source and rejects stale rendered row actions even for colliding ids. Controlled regressions cover stale scans/editors and recovery collisions. The previous test assumption that the new account never reloads before modal construction was replaced with deterministic generation tests. Review same-account overlapping reload ordering and actual server behavior; no real writes were run.
+
+## Codex - M6 srv-ui (Terra High)
+
+- After integrating VacationSettings State and SieveState, SrvUiVacationAccountTests verifies the saved form retains both loaded tokens. The merged Windows Automation suite passed 2864 tests with four skips after removing an unused import from VacationHtmlServiceTests; both desktop and Windows heads built without warnings. Review the combined source on the final integration head.

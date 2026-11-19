@@ -50,6 +50,8 @@ public sealed class SrvUiVacationAccountTests
         await loading;
         vm.Body = "Old A write";
         var saving = vm.SaveAsync(Ct);
+        Assert.Equal("vacation-state", service.LastSaved!.State);
+        Assert.Equal("sieve-state", service.LastSaved.SieveState);
         var bLoad = service.QueueLoad();
         await accounts.SwitchToAsync(b.Key, Ct);
         var loadingB = vm.LoadAsync(Ct);
@@ -67,7 +69,7 @@ public sealed class SrvUiVacationAccountTests
         Assert.Equal(a.Key, Assert.Single(service.Saves));
     }
 
-    private static VacationSettings Value(string text) => new(false, "", text, null, null, null, null, null, false);
+    private static VacationSettings Value(string text) => new(false, "", text, null, null, null, null, null, false) { State = "vacation-state", SieveState = "sieve-state" };
 
     private static (FakeAccounts Accounts, AccountInfo A, AccountInfo B) Accounts()
     {
@@ -83,6 +85,7 @@ public sealed class SrvUiVacationAccountTests
         private readonly Queue<TaskCompletionSource<Result<VacationSettings>>> _loads = new();
         public List<string> Loads { get; } = [];
         public List<string> Saves { get; } = [];
+        public VacationSettings? LastSaved { get; private set; }
         public TaskCompletionSource<Result<VacationSettings>> SaveResult { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
         public event EventHandler<VacationChangedEventArgs>? Changed { add { } remove { } }
 
@@ -102,6 +105,7 @@ public sealed class SrvUiVacationAccountTests
         public Task<Result<VacationSettings>> SaveAsync(string accountKey, VacationSettings settings, CancellationToken ct)
         {
             Saves.Add(accountKey);
+            LastSaved = settings;
             return SaveResult.Task;
         }
     }
