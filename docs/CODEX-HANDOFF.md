@@ -6,7 +6,10 @@ This is the Codex-specific continuation of the user's Claude handoff.
 
 ## Selected UI guidelines (2026-11-19)
 
-The user selected **Bento Balanced** and **Nordic Focus** and directed all future UI work,
+The user selected **Bento Balanced**, **Nordic Focus** (integrated sender/context panel,
+with an accessible show/hide toggle and expanding reader), and **Studio** (horizontal app navigation
+and a warm editorial workspace). Modern WinUI 3 materials, depth and fluid feedback are also requested with
+accessibility and platform fallbacks. The user directed all future UI work,
 including Claude's, to use them. Read [design/UI-GUIDELINES.md](../design/UI-GUIDELINES.md)
 and the updated CLAUDE.md. Additional alternatives by the same Terra agent remain proposals.
 The selected images are stored in the repository; do not depend on a machine-local gallery.
@@ -126,8 +129,9 @@ Do not stop at each milestone for hand-test gates or routine questions. Record
 human-only checks as unproven. Maintain FABLE-REVIEW notes as work proceeds, but
 run no separate Fable reviews until the final whole-app review.
 
-Continue in this order: **M6 -> M6b -> M7 -> M8 -> M10 -> M9 (Linux last) ->
-whole-app review**. Windows-only results must be identified as such; Linux is
+The current user goal is **M6 -> M6b -> M7 -> M8 -> M10, then stop**. Produce and
+verify a fresh Windows portable zip after M6 closes. M9 (Linux last) and the final Astra
+whole-app review remain later work outside this run. Windows-only results must be identified as such; Linux is
 deferred, not passed. On pause, save and push work, stop only your own processes,
 clean test-account writes, and update PROGRESS.md with exact commits and next steps.
 

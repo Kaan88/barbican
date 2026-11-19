@@ -11,7 +11,7 @@ using Barbican.Presentation.Common;
 namespace Barbican.Presentation.Settings.Ui;
 
 /// <summary>The default <see cref="ISetUiViewModel"/>.</summary>
-public sealed class SetUiViewModel : ISetUiViewModel
+public sealed class SetUiViewModel : ISetUiViewModel, IDisposable
 {
     /// <summary>The account key of a sample-data run.</summary>
     public const string SampleKey = "sample";
@@ -22,6 +22,7 @@ public sealed class SetUiViewModel : ISetUiViewModel
     private readonly IDispatcher? _dispatcher;
     private readonly IReadOnlyList<SettingPage> _pages;
     private readonly Dictionary<string, string> _infoText = new(StringComparer.Ordinal);
+    private readonly SemaphoreSlim _filesGate = new(1, 1);
     private string _search = string.Empty;
     private bool _advanced;
     private string _lastError = string.Empty;
@@ -45,6 +46,8 @@ public sealed class SetUiViewModel : ISetUiViewModel
     }
 
     public event PropertyChangedEventHandler? PropertyChanged;
+
+    public void Dispose() => _filesGate.Dispose();
 
     public string SearchText
     {
@@ -105,7 +108,7 @@ public sealed class SetUiViewModel : ISetUiViewModel
         {
             var stored = SetUiRowRules.KeyOf(row) is { } k ? Stored(k) : null;
             _ = _infoText.TryGetValue(row.Id, out var text);
-            rows.Add(new SetUiRow(row, SetUiRowRules.EffectiveValue(row, stored), text ?? string.Empty, visible.Contains(row.Id)));
+            rows.Add(new SetUiRow(row, SetUiRowRules.FileField(row.Id) is not null ? SetUiRowRules.FileValue(row.Id, stored) : SetUiRowRules.EffectiveValue(row, stored), text ?? string.Empty, visible.Contains(row.Id)));
         }
 
         return rows;
@@ -113,10 +116,40 @@ public sealed class SetUiViewModel : ISetUiViewModel
 
     public JsonNode? ValueOf(string key) => Stored(key);
 
-    public Task SetValueAsync(string rowId, JsonNode? value, CancellationToken ct)
+    public async Task SetValueAsync(string rowId, JsonNode? value, CancellationToken ct)
     {
         var row = _pages.SelectMany(p => p.Rows).FirstOrDefault(r => string.Equals(r.Id, rowId, StringComparison.Ordinal));
-        return row is null || SetUiRowRules.KeyOf(row) is not { } key ? Task.CompletedTask : SetKeyAsync(key, value, ct);
+        if (row is null || SetUiRowRules.KeyOf(row) is not { } key)
+        {
+            return;
+        }
+
+        if (SetUiRowRules.FileField(rowId) is not { } field)
+        {
+            await SetKeyAsync(key, value, ct).ConfigureAwait(true);
+            return;
+        }
+
+        var check = SettingRules.Coerce(row, value);
+        if (!check.Ok)
+        {
+            _lastError = check.Error ?? "That value is not allowed.";
+            Raise(nameof(LastError));
+            Raise("Values");
+            return;
+        }
+
+        await _filesGate.WaitAsync(ct).ConfigureAwait(true);
+        try
+        {
+            var files = Stored(key) as JsonObject ?? new JsonObject();
+            files[field] = check.Value?.DeepClone();
+            await SetKeyAsync(key, files, ct).ConfigureAwait(true);
+        }
+        finally
+        {
+            _ = _filesGate.Release();
+        }
     }
 
     public async Task SetKeyAsync(string key, JsonNode? value, CancellationToken ct)

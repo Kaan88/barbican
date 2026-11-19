@@ -10,6 +10,7 @@ using Barbican.Core.Jmap.Json;
 using Barbican.Core.Jmap.Requests;
 using Barbican.Core.Jmap.State;
 using Barbican.Core.Mail.Model;
+using Barbican.Core.Mail.Lists;
 using Barbican.Core.Mail.Service;
 
 namespace Barbican.Core.Sync;
@@ -20,7 +21,7 @@ public static class ListDeltaFetcher
     private const int MaxChanges = 256;
 
     /// <summary>The delta, or Ok(null) when none can be calculated (the caller re-reads the list).</summary>
-    public static async Task<Result<ListDelta?>> FetchAsync(IJmapClient client, JsonObject filter, ListStates since, CancellationToken ct)
+    public static async Task<Result<ListDelta?>> FetchAsync(IJmapClient client, JsonObject filter, ListStates since, CancellationToken ct, IReadOnlyList<SortComparator>? sort = null, bool? collapseThreads = null)
     {
         ArgumentNullException.ThrowIfNull(client);
         ArgumentNullException.ThrowIfNull(filter);
@@ -31,7 +32,8 @@ public static class ListDeltaFetcher
             return Result<ListDelta?>.Ok(null);
         }
 
-        var (request, calls) = Build(client.Session.MailAccountId, filter, since, Math.Min(MaxChanges, limits.MaxObjectsInGet));
+        var resolvedSort = await ListSortResolver.ResolveAsync(client, sort, ct).ConfigureAwait(false);
+        var (request, calls) = Build(client.Session.MailAccountId, filter, since, Math.Min(MaxChanges, limits.MaxObjectsInGet), resolvedSort, collapseThreads);
         var sent = await client.SendAsync(request, ct).ConfigureAwait(false);
         if (!sent.IsOk)
         {
@@ -42,21 +44,23 @@ public static class ListDeltaFetcher
     }
 
     /// <summary>The 7-call request (public for the trace and the request-shape tests).</summary>
-    public static (JmapRequest Request, CallHandle[] Calls) Build(string acc, JsonObject filter, ListStates since, int maxChanges)
+    public static (JmapRequest Request, CallHandle[] Calls) Build(string acc, JsonObject filter, ListStates since, int maxChanges, IReadOnlyList<SortComparator>? sort = null, bool? collapseThreads = null)
     {
         ArgumentNullException.ThrowIfNull(filter);
         ArgumentNullException.ThrowIfNull(since);
         var props = JmapProperties.Json(JmapProperties.EmailList);
         var b = new JmapRequestBuilder();
         var c = b.Add("Email/changes", new JsonObject { ["accountId"] = acc, ["sinceState"] = since.Email, ["maxChanges"] = maxChanges });
-        var q = b.Add("Email/queryChanges", new JsonObject
+        var query = new JsonObject
         {
             ["accountId"] = acc,
             ["filter"] = filter.DeepClone(),
-            ["sort"] = JmapProperties.ListSort(),
+            ["sort"] = MessageListOrder.ComparatorsJson(sort),
             ["sinceQueryState"] = since.Query,
             ["calculateTotal"] = true,
-        });
+        };
+        if (collapseThreads is { } collapse) query["collapseThreads"] = collapse;
+        var q = b.Add("Email/queryChanges", query);
         var a = b.Add("Email/get", new JsonObject { ["accountId"] = acc, ["#ids"] = q.Ref("/added/*/id"), ["properties"] = props });
         var u = b.Add("Email/get", new JsonObject { ["accountId"] = acc, ["#ids"] = c.Ref("/updated"), ["properties"] = props.DeepClone() });
         var tc = b.Add("Thread/changes", new JsonObject { ["accountId"] = acc, ["sinceState"] = since.Thread, ["maxChanges"] = maxChanges });

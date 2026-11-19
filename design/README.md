@@ -1,9 +1,11 @@
 # Barbican design language
 
-**Current direction (approved 2026-11-19):** [Bento Balanced and Nordic Focus](UI-GUIDELINES.md)
+**Current direction (approved 2026-11-19):** [Bento Balanced, Nordic Focus and Studio](UI-GUIDELINES.md)
 are the UI guidelines from now on, including for Claude. The selected directions refine the
-existing two styles and take precedence where the older boards below differ. Further Terra
-alternatives are explorations until the user selects them. Keep all motion, accessibility,
+existing two styles; Studio is also approved as a distinct horizontal-navigation editorial direction.
+These guidelines take precedence where the older boards below differ. Modern WinUI 3 materials,
+subtle elevation and fluid control feedback are requested with accessible platform fallbacks.
+Further Terra alternatives, including Atlas, remain explorations until selected. Keep all motion, accessibility,
 shared-token and hidden-automation requirements.
 
 Source of truth for the UI. Canvas: `<design-canvas-url>` (link in .local/accounts.md) (page "Bento × Nordic").

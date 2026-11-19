@@ -12,6 +12,9 @@ public sealed record ListPage
 
     public int? Total { get; init; }
 
+    /// <summary>A nonfatal server limitation to show alongside the successful list.</summary>
+    public string? Warning { get; init; }
+
     public ListCursor? Next { get; init; }
 
     public string QueryState { get; init; } = "";

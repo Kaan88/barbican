@@ -222,7 +222,7 @@ public sealed partial class MailSync : IMailSync, IDisposable
             return null;
         }
 
-        var delta = w.States is null ? Result<ListDelta?>.Ok(null) : await ListDeltaFetcher.FetchAsync(_client, ListFilters.For(w.Query), w.States, ct).ConfigureAwait(false);
+        var delta = w.States is null ? Result<ListDelta?>.Ok(null) : await ListDeltaFetcher.FetchAsync(_client, ListFilters.For(w.Query), w.States, ct, w.Query.Sort, w.Query.CollapseThreads).ConfigureAwait(false);
         lock (_lock)
         {
             if (!ReferenceEquals(_watched, w))
