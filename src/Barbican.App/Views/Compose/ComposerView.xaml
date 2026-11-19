@@ -33,11 +33,11 @@
           <StackPanel x:Name="Fields" Grid.Row="1" Spacing="0">
             <Grid x:Name="FromRow" MinHeight="34" ColumnSpacing="10" AutomationProperties.AutomationId="composer.from">
               <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="54" />
+                <ColumnDefinition x:Name="FromLabelColumn" Width="54" />
                 <ColumnDefinition Width="*" />
                 <ColumnDefinition Width="Auto" />
               </Grid.ColumnDefinitions>
-              <TextBlock Text="From" FontSize="12.5" Foreground="{StaticResource Dim}" VerticalAlignment="Center" />
+              <TextBlock x:Name="FromLabel" Text="From" FontSize="12.5" Foreground="{StaticResource Dim}" VerticalAlignment="Center" />
               <TextBlock x:Name="FromText" Grid.Column="1" FontSize="13" Foreground="{StaticResource Text}" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" AutomationProperties.AutomationId="composer.from.text" />
               <Button x:Name="FromButton" Grid.Column="2" Style="{StaticResource Button.Icon}" Width="28" Height="28" CornerRadius="14" Click="OnFromClick" AutomationProperties.AutomationId="composer.from.change" AutomationProperties.Name="Change sender">
                 <controls:SIcon Kind="ChevronDown" Size="14" />
@@ -56,10 +56,10 @@
             </StackPanel>
             <Grid x:Name="SubjectRow" MinHeight="36" ColumnSpacing="10">
               <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="54" />
+                <ColumnDefinition x:Name="SubjectLabelColumn" Width="54" />
                 <ColumnDefinition Width="*" />
               </Grid.ColumnDefinitions>
-              <TextBlock Text="Subject" FontSize="12.5" Foreground="{StaticResource Dim}" VerticalAlignment="Center" TextWrapping="NoWrap" />
+              <TextBlock x:Name="SubjectLabel" Text="Subject" FontSize="12.5" Foreground="{StaticResource Dim}" VerticalAlignment="Center" TextWrapping="NoWrap" />
               <TextBox x:Name="SubjectBox" Grid.Column="1" Style="{StaticResource TextBox.Bare}" FontSize="14" FontWeight="SemiBold" VerticalContentAlignment="Center" MinHeight="30" TextChanged="OnSubjectChanged"
                        AutomationProperties.AutomationId="composer.subject" AutomationProperties.Name="Subject" />
             </Grid>

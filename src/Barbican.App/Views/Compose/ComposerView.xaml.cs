@@ -68,7 +68,7 @@ public sealed partial class ComposerView : UserControl
     private void ApplyComposerLayout()
     {
         var bulwark = _theme.Applied?.Bulwark == true;
-        Pane.Background = bulwark ? Look.TileBrush : Look.PaneBrush;
+        Pane.Background = bulwark ? AppResources.Brush("Bg") : Look.PaneBrush;
         Pane.BorderThickness = bulwark ? new Thickness(0) : Look.PaneBorder;
         Pane.CornerRadius = bulwark ? new CornerRadius(0) : Look.PaneRadius;
         InnerBorder.BorderThickness = bulwark ? new Thickness(0) : Look.ListHairline;
@@ -83,13 +83,9 @@ public sealed partial class ComposerView : UserControl
         TitleText.FontWeight = bulwark ? FontWeights.SemiBold : FontWeights.Bold;
         DiscardButton.Visibility = bulwark ? Visibility.Collapsed : Visibility.Visible;
         FooterDiscard.Visibility = bulwark ? Visibility.Visible : Visibility.Collapsed;
-        Fields.Margin = bulwark ? new Thickness(16, 0, 16, 0) : new Thickness(0);
-        FromRow.MinHeight = bulwark ? 46 : 34;
-        SubjectRow.MinHeight = bulwark ? 46 : 36;
-        ToField.Margin = CcField.Margin = BccField.Margin = bulwark ? new Thickness(0, 5, 0, 5) : new Thickness(0);
-        SubjectBox.FontWeight = bulwark ? FontWeights.Normal : FontWeights.SemiBold;
+        ApplyFieldLayout(bulwark);
         BodyRow.Margin = bulwark ? new Thickness(12, 0, 12, 0) : new Thickness(0);
-        Footer.Padding = bulwark ? new Thickness(16, 8, 16, 8) : new Thickness(0);
+        Footer.Padding = bulwark ? new Thickness(16, 10, 16, 10) : new Thickness(0);
         Footer.BorderBrush = AppResources.Brush("Line");
         Footer.BorderThickness = bulwark ? new Thickness(0, 1, 0, 0) : new Thickness(0);
         Grid.SetColumn(SendGroup, bulwark ? 5 : 0);
@@ -99,12 +95,37 @@ public sealed partial class ComposerView : UserControl
         SendButton.CornerRadius = bulwark ? new CornerRadius(6, 0, 0, 6) : new CornerRadius(18, 0, 0, 18);
         SendArrow.CornerRadius = bulwark ? new CornerRadius(0, 6, 6, 0) : new CornerRadius(0, 18, 18, 0);
         TemplatesButton.CornerRadius = AttachButton.CornerRadius = OptionsButton.CornerRadius = new CornerRadius(bulwark ? 6 : 18);
+        foreach (var button in new[] { TemplatesButton, AttachButton, OptionsButton })
+        {
+            button.BorderThickness = new Thickness(bulwark ? 0 : 1);
+            button.FontSize = bulwark ? 14 : 13;
+            button.FontWeight = bulwark ? FontWeights.Normal : FontWeights.SemiBold;
+        }
         ApplyFooterDensity();
+    }
+
+    private void ApplyFieldLayout(bool bulwark)
+    {
+        Fields.Margin = new Thickness(0);
+        FromRow.MinHeight = 34;
+        SubjectRow.MinHeight = 36;
+        FromRow.Padding = SubjectRow.Padding = bulwark ? new Thickness(16, 10, 16, 10) : new Thickness(0);
+        FromRow.ColumnSpacing = SubjectRow.ColumnSpacing = bulwark ? 8 : 10;
+        FromLabelColumn.Width = SubjectLabelColumn.Width = new GridLength(bulwark ? 64 : 54);
+        FromLabel.Text = bulwark ? "From:" : "From";
+        SubjectLabel.Text = bulwark ? "Subject:" : "Subject";
+        FromLabel.FontSize = SubjectLabel.FontSize = bulwark ? 14 : 12.5;
+        FromText.FontSize = bulwark ? 14 : 13;
+        ToField.ApplyComposerStyle(bulwark);
+        CcField.ApplyComposerStyle(bulwark);
+        BccField.ApplyComposerStyle(bulwark);
+        SubjectBox.FontWeight = bulwark ? FontWeights.Normal : FontWeights.SemiBold;
     }
 
     private void ApplyFooterDensity()
     {
-        var compact = _theme.Applied?.Bulwark == true && ActualWidth > 0 && ActualWidth < 600;
+        var bulwark = _theme.Applied?.Bulwark == true;
+        var compact = bulwark && ActualWidth > 0 && ActualWidth < 640;
         TemplatesLabel.Visibility = AttachLabel.Visibility = OptionsLabel.Visibility = compact ? Visibility.Collapsed : Visibility.Visible;
         Footer.ColumnSpacing = compact ? 2 : 8;
         foreach (var button in new[] { TemplatesButton, AttachButton, OptionsButton })
@@ -119,7 +140,14 @@ public sealed partial class ComposerView : UserControl
             {
                 button.ClearValue(WidthProperty);
                 button.ClearValue(MinWidthProperty);
-                button.ClearValue(PaddingProperty);
+                if (bulwark)
+                {
+                    button.Padding = new Thickness(10, 0, 10, 0);
+                }
+                else
+                {
+                    button.ClearValue(PaddingProperty);
+                }
             }
         }
     }

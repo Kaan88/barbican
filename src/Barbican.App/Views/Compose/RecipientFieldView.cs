@@ -84,6 +84,18 @@ public sealed class RecipientFieldView : UserControl
         set => _trailing.Content = value;
     }
 
+    /// <summary>Applies the composer theme without changing recipient behavior.</summary>
+    public void ApplyComposerStyle(bool bulwark)
+    {
+        _root.Padding = bulwark ? new Thickness(16, 10, 16, 10) : new Thickness(0);
+        _root.ColumnSpacing = bulwark ? 8 : 10;
+        _label.Width = bulwark ? 64 : 54;
+        _label.FontSize = bulwark ? 14 : 12.5;
+        _input.FontSize = bulwark ? 14 : 13;
+        var label = _label.Text.TrimEnd(':');
+        _label.Text = bulwark ? label + ":" : label;
+    }
+
     /// <summary>The input takes keyboard focus.</summary>
     public void FocusInput() => _ = _input.Focus(FocusState.Programmatic);
 
