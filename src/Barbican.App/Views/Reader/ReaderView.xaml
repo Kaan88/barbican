@@ -171,18 +171,18 @@
            <!-- Headers never host a body. Activating one uses the same loader as the selected message. -->
            <Border Grid.Row="2" Visibility="{x:Bind views:Fmt.VisCount(Reader.ConversationHeaders.Count), Mode=OneWay}"
                    AutomationProperties.AutomationId="reader.conversation" AutomationProperties.Name="Conversation">
-             <StackPanel Spacing="6">
-               <Button Style="{StaticResource Button.Action}" Click="OnShowOlderClick"
-                       Content="{x:Bind Reader.OlderConversationLabel, Mode=OneWay}"
-                       Visibility="{x:Bind views:Fmt.VisCount(Reader.HiddenConversationCount), Mode=OneWay}"
-                       AutomationProperties.AutomationId="reader.thread.older" />
                <ScrollViewer MaxHeight="204" VerticalScrollBarVisibility="Auto" VerticalScrollMode="Auto" HorizontalScrollMode="Disabled">
                  <ItemsRepeater ItemsSource="{x:Bind Reader.ConversationHeaders}">
                   <ItemsRepeater.Layout>
                     <StackLayout Orientation="Vertical" Spacing="2" />
                   </ItemsRepeater.Layout>
                   <ItemsRepeater.ItemTemplate>
-                    <DataTemplate x:DataType="mail:ConversationItem">
+                     <DataTemplate x:DataType="mail:ConversationItem">
+                       <StackPanel Spacing="4">
+                         <Button Style="{StaticResource Button.Action}" Click="OnShowOlderClick" MinHeight="32"
+                                 Content="{x:Bind OlderMessageDisclosure}"
+                                 Visibility="{x:Bind views:Fmt.VisText(OlderMessageDisclosure)}"
+                                 AutomationProperties.AutomationId="{x:Bind views:Fmt.ConversationDisclosureId(OlderMessageDisclosure)}" />
                        <Button Style="{StaticResource Button.Action}" MinHeight="56" Padding="12,8" CornerRadius="6" HorizontalAlignment="Stretch"
                                HorizontalContentAlignment="Stretch" Tag="{x:Bind Id}" Click="OnConversationHeaderClick"
                                AutomationProperties.AutomationId="{x:Bind views:Fmt.ConversationHeaderId(Id)}" AutomationProperties.Name="{x:Bind Sender}">
@@ -194,12 +194,12 @@
                            <TextBlock Grid.Column="2" Text="{x:Bind TimeLabel}" FontSize="12" Foreground="{StaticResource Faint}" VerticalAlignment="Center" />
                          </Grid>
                        </Button>
+                       </StackPanel>
                     </DataTemplate>
                   </ItemsRepeater.ItemTemplate>
                 </ItemsRepeater>
               </ScrollViewer>
-            </StackPanel>
-          </Border>
+           </Border>
 
           <!-- attachment cards: a click or right-click opens MENU-ATT (save, download all, copy the name) -->
           <StackPanel Grid.Row="5" Spacing="6" Visibility="{x:Bind views:Fmt.VisCount(Reader.Attachments.Count), Mode=OneWay}" AutomationProperties.AutomationId="reader.attachments" AutomationProperties.Name="Attachments">

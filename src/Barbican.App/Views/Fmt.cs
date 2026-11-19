@@ -158,6 +158,8 @@ public static class Fmt
 
     public static string ConversationHeaderId(string id) => "reader.thread.message." + id;
 
+    public static string? ConversationDisclosureId(string? label) => label is null ? null : "reader.thread.older";
+
     public static string TodayValue(bool hasCalendar, int count) => !hasCalendar ? "No calendar" : count switch { 0 => "No meetings", 1 => "1 meeting", _ => $"{count} meetings" };
 
     public static string FlaggedValue(bool has, int count) => !has || count == 0 ? "Nothing flagged" : count == 1 ? "1 message" : $"{count} messages";

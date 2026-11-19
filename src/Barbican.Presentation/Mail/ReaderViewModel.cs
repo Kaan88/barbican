@@ -103,8 +103,6 @@ public sealed class ReaderViewModel : ObservableObject, IDisposable
 
     public int HiddenConversationCount { get; private set; }
 
-    public string OlderConversationLabel => FormattableString.Invariant($"Show {HiddenConversationCount} older messages");
-
     public void ShowOlderConversationHeaders()
     {
         _showOlderConversationHeaders = true;
@@ -116,12 +114,17 @@ public sealed class ReaderViewModel : ObservableObject, IDisposable
         var current = 0;
         while (current < items.Count && !items[current].IsCurrent) current++;
         var hidden = !_showOlderConversationHeaders && current < items.Count ? Math.Max(0, current - 2) : 0;
-        ListSync.SyncBy(ConversationHeaders, items.Skip(hidden).Where(c => !c.IsCurrent).ToArray(), c => c.Id, EqualityComparer<ConversationItem>.Default.Equals);
+        var headers = items.Select((item, index) => (item, index))
+            .Where(x => !x.item.IsCurrent && (hidden == 0 || x.index == 0 || x.index >= current - 1))
+            .Select(x => hidden > 0 && x.index == current - 1
+                ? x.item with { OlderMessageDisclosure = FormattableString.Invariant($"Show {hidden} older messages") }
+                : x.item)
+            .ToArray();
+        ListSync.SyncBy(ConversationHeaders, headers, c => c.Id, EqualityComparer<ConversationItem>.Default.Equals);
         if (HiddenConversationCount != hidden)
         {
             HiddenConversationCount = hidden;
             OnPropertyChanged(nameof(HiddenConversationCount));
-            OnPropertyChanged(nameof(OlderConversationLabel));
         }
     }
 

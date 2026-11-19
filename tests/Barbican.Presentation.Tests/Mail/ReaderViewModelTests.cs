@@ -185,7 +185,9 @@ public sealed class ReaderViewModelTests
         var snapshot = new ReaderSnapshot { EmailId = "m7", Conversation = items };
         reader.Apply(snapshot);
         Assert.Equal(5, reader.HiddenConversationCount);
-        Assert.Equal(["m5", "m6"], reader.ConversationHeaders.Select(x => x.Id));
+        Assert.Equal(["m0", "m6"], reader.ConversationHeaders.Select(x => x.Id));
+        Assert.Null(reader.ConversationHeaders[0].OlderMessageDisclosure);
+        Assert.Equal("Show 5 older messages", reader.ConversationHeaders[1].OlderMessageDisclosure);
         reader.ShowOlderConversationHeaders();
         Assert.Equal(0, reader.HiddenConversationCount);
         Assert.Equal(items.Take(7), reader.ConversationHeaders);
@@ -203,7 +205,8 @@ public sealed class ReaderViewModelTests
         var items = Enumerable.Range(0, 8).Select(i => new ConversationItem($"m{i}", $"Sender {i}", "S", 0, "Today", false, i == 4)).ToArray();
         reader.Apply(new ReaderSnapshot { EmailId = "m4", Conversation = items });
         Assert.Equal(2, reader.HiddenConversationCount);
-        Assert.Equal(["m2", "m3", "m5", "m6", "m7"], reader.ConversationHeaders.Select(x => x.Id));
+        Assert.Equal(["m0", "m3", "m5", "m6", "m7"], reader.ConversationHeaders.Select(x => x.Id));
+        Assert.Equal("Show 2 older messages", reader.ConversationHeaders[1].OlderMessageDisclosure);
         reader.ShowOlderConversationHeaders();
         reader.Apply(new ReaderSnapshot { EmailId = "new", Conversation = [] });
         Assert.Empty(reader.ConversationHeaders);
