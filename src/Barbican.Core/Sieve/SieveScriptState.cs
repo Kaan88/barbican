@@ -11,6 +11,8 @@ public sealed record SieveScriptState(IReadOnlyList<SieveScriptInfo> Scripts, st
     /// <summary>The server's SieveScript/get state, required for a guarded save.</summary>
     public string? State { get; init; }
 
-    /// <summary>The script a save replaces: the active one, else the first; null without scripts.</summary>
-    public SieveScriptInfo? Target => Scripts.FirstOrDefault(s => s.IsActive) ?? (Scripts.Count > 0 ? Scripts[0] : null);
+    /// <summary>The managed filter script a save replaces: active first, otherwise the first non-vacation script; null when none exists.</summary>
+    public SieveScriptInfo? Target => Scripts.FirstOrDefault(s => s.IsActive && !IsVacation(s)) ?? Scripts.FirstOrDefault(s => !IsVacation(s));
+
+    private static bool IsVacation(SieveScriptInfo script) => string.Equals(script.Name, "vacation", StringComparison.Ordinal);
 }

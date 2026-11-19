@@ -10,6 +10,10 @@ public interface IVacationService
 {
     Task<Result<VacationSettings>> LoadAsync(string accountKey, CancellationToken ct);
 
+    /// <summary>Reads without firing load hooks or reconciling calendar events; implementations without this capability fail closed.</summary>
+    Task<Result<VacationSettings>> LoadSnapshotAsync(string accountKey, CancellationToken ct) =>
+        Task.FromResult(Result<VacationSettings>.Fail(new Barbican.Core.Jmap.Errors.ValidationError("A read-only vacation snapshot is unavailable.")));
+
     /// <summary>Saves (refused with <see cref="VacationRules.Problem"/> first) and returns what the server now has.</summary>
     Task<Result<VacationSettings>> SaveAsync(string accountKey, VacationSettings settings, CancellationToken ct);
 

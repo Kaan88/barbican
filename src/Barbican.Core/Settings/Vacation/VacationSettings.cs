@@ -3,4 +3,11 @@
 namespace Barbican.Core.Settings.Vacation;
 
 /// <summary>Everything the out-of-office page edits. Dates are days (UTC boundaries in the script and in VacationResponse); BlockCalendar adds the calendar out-of-office block (G-022).</summary>
-public sealed record VacationSettings(bool Enabled, string Subject, string TextBody, string? HtmlBody, DateOnly? From, DateOnly? To, VacationAudience? Audience, VacationForward? Forward, bool BlockCalendar);
+public sealed record VacationSettings(bool Enabled, string Subject, string TextBody, string? HtmlBody, DateOnly? From, DateOnly? To, VacationAudience? Audience, VacationForward? Forward, bool BlockCalendar)
+{
+    /// <summary>The VacationResponse/get state captured with these settings.</summary>
+    public string? State { get; init; }
+
+    /// <summary>The SieveScript/get state captured with the vacation extras.</summary>
+    public string? SieveState { get; init; }
+}

@@ -54,11 +54,11 @@ internal sealed class FilterTestRig
 
     public FakeApi Api => Fake.Server.Api;
 
-    public static async Task<FilterTestRig> StartAsync(FakeJmapOptions? options = null)
+    public static async Task<FilterTestRig> StartAsync(FakeJmapOptions? options = null, bool readOnly = false)
     {
         var clock = Fake.VirtualClock();
         var o = (options ?? new FakeJmapOptions { SieveCapability = true, VacationCapability = true, MetadataCapability = true }) with { Clock = clock };
-        return new FilterTestRig(await Fake.StartAsync(o, clock), clock);
+        return new FilterTestRig(await Fake.StartAsync(o, clock, readOnly), clock);
     }
 
     /// <summary>The ids of the messages in a folder.</summary>

@@ -1720,3 +1720,11 @@ The filter modal captures the account that owns its loaded rules and their versi
 ## Codex — updated whole-roadmap goal (Sol)
 
 - The user now requests all roadmap implementation except Linux M9, then an Astra review/fix loop until Astra is satisfied, then a UI walkthrough with look/feel/usability fixes. Current continuation/roadmap/progress instructions reflect the expanded scope. The brief stop preserved worker WIP and was immediately superseded by this new active goal; both UI workers resumed their exact files. This does not authorize main merges, tags, OS changes or real security writes beyond the standing rules.
+
+## Codex - M6 vacation concurrency and snapshot (Terra High)
+
+`VacationSettings.State` and `SieveState` carry the loaded VacationResponse and SieveScript versions. Saves reject missing or changed versions, use `ifInState` and exact singleton acknowledgement, and patch only changed fields. `IVacationService.LoadSnapshotAsync` does not reconcile the calendar; ordinary writable loads retain the source behavior in Bulwark `stores/vacation-store.ts:160` and `lib/vacation-calendar.ts:233-306`, while read-only loads never reconcile. The Settings editor must preserve the loaded versions and account identity.
+
+Stalwart 0.16.27 `crates/jmap/src/vacation/get.rs` and `set.rs` use the SieveScript collection for vacation state. For explicitly identified Stalwart clients on the same account, the acknowledged vacation state advances the expected Sieve state; a concurrent subsequent change produces a partial-result error. The managed script selector excludes the reserved `vacation` script, matching Bulwark `stores/filter-store.ts:422-429`. Fake tests cover vacation activation with existing filters, stale editors, post-write races, read-only loads, and non-reconciling snapshots. Windows Core: 1540 passed; Presentation: 1034 passed; no skips.
+
+The response and script updates are separate operations, so failures can leave partial changes; this is not crash-atomic. Calendar reconciliation remains source-backed and writable. No live writes or exact-restoration harness were run; restoration of raw dates, reserved scripts, activation and calendar events requires a reviewed conflict-safe procedure before live testing. Review the integrated Presentation version/account fencing and actual server behavior.

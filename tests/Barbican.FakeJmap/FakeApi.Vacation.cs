@@ -15,6 +15,10 @@ public sealed partial class FakeApi
     private readonly List<string> _vacationFailures = [];
     private FakeVacation? _vacation;
     private int _vacationState = 1;
+    private Action? _afterNextVacationSet;
+
+    /// <summary>Simulates a concurrent change after the next successful response is prepared.</summary>
+    public void AfterNextVacationSet(Action action) { lock (_lock) { _afterNextVacationSet = action; } }
 
     /// <summary>Every VacationResponse/set that arrived, with its arguments (a copy).</summary>
     public IReadOnlyList<JsonObject> VacationSetRequests
@@ -115,6 +119,7 @@ public sealed partial class FakeApi
                 if (err is null)
                 {
                     updated[id] = null;
+                    if (options.VacationSharesSieveState) ApplyVacationSieveState();
                 }
                 else
                 {
@@ -126,7 +131,7 @@ public sealed partial class FakeApi
                 }
             }
 
-            return (null, new JsonObject
+            var response = new JsonObject
             {
                 ["accountId"] = options.AccountId,
                 ["oldState"] = old,
@@ -137,8 +142,18 @@ public sealed partial class FakeApi
                 ["notUpdated"] = notUpdated,
                 ["destroyed"] = null,
                 ["notDestroyed"] = new JsonObject(((args["destroy"] as JsonArray) ?? []).Select(x => new KeyValuePair<string, JsonNode?>((string?)x ?? string.Empty, new JsonObject { ["type"] = "singleton" }))),
-            });
+            };
+            AfterVacationSet(updated);
+            return (null, response);
         }
+    }
+
+    private void AfterVacationSet(JsonObject updated)
+    {
+        if (updated.Count == 0) return;
+        var after = _afterNextVacationSet;
+        _afterNextVacationSet = null;
+        after?.Invoke();
     }
 
     // inside the lock; the SetError type, "invalid:<property>" for invalidProperties with that property, or null
@@ -188,5 +203,5 @@ public sealed partial class FakeApi
         return null;
     }
 
-    private string VacationStateText() => "v" + _vacationState.ToString(CultureInfo.InvariantCulture);
+    private string VacationStateText() => options.VacationSharesSieveState ? SieveState : "v" + _vacationState.ToString(CultureInfo.InvariantCulture);
 }
