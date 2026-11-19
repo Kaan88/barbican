@@ -26,6 +26,21 @@ source revision and symbol where possible. Keep each finding's evidence distinct
 and **native** for behavior observed in Barbican. Do not use a screenshot alone to
 claim a command works.
 
+### Source cross-index: priority mail flows
+
+Source references below use the project's pinned [Bulwark 1.21.2 reference](../../spec/README.md#pinned-references).
+The live walkthrough confirms only the named observations in the next section.
+Existing native tests can support specific rows, but the general preview smoke
+and suite pass do not establish parity for this table.
+
+| Surface | Bulwark source entry points | Barbican evidence / gap |
+|---|---|---|
+| Inbox and list threading | `components/email/email-list.tsx` (`EmailList`), `thread-list-item.tsx` (`ThreadListItem`, `ThreadCountPill`), `components/layout/mailbox-context-menu.tsx` | [List layout](../../spec/layout/mail-list.md) is a historical native baseline. `S-disableThreading`, `S-groupListByDate`, and `S-showPreview` are settings anchors. Verify row collapse/expansion, focus, sidebar, count badges and toolbar placement separately from the state of the open reader. |
+| Reader message cards | `components/email/thread-conversation-view.tsx` (`ThreadConversationView`) and `email-viewer.tsx` (`EmailViewer`), plus `conversation-message-menu.tsx` | `I-222` and `I-223` cover per-card disclosure and actions; the native automation can select a thread member but does not prove card expansion, action placement, or the older-message disclosure. |
+| Quick reply and reply dock | `components/email/email-viewer.tsx` (quick-reply gating and action row), `components/mail/mail-app.tsx` (handoff and send), `lib/outgoing/quick-reply-envelope.ts`, `components/mail/reply-dock.tsx` (`ReplyDock`, `dockLayout`) | `I-217` and `I-219`–`I-221`, `S-quickReplyEnabled` and `S-replyUnderMessage`. On the quick-reply branch, `542e527` verifies plain-text full-editor seeding and signatures/thread headers in Core only. Native gates, focus/growth, Cancel, ownership-safe handoff, direct send/undo, and Ctrl+Enter still need targeted evidence. |
+| Composer and separate windows | `components/email/email-composer.tsx` (`EmailComposer`), `reply-type-menu.tsx`, `schedule-send-dialog.tsx`, `send-warnings-dialog.tsx`, and `components/mail/mail-app.tsx` (window flow) | `I-234`–`I-269` and [compose rules](../../spec/behaviours/compose.md) cover many existing interactions. Verify the dock/full-screen/pop-out round trip and close/save/discard under the actual draft and account variants. |
+| Settings and keyboard | `lib/settings-schema.ts`, `stores/settings-store.ts`, `components/email/message-action-shortcuts.ts` | Existing settings and shortcuts catalogues list controls and defaults. Check setting behavior after restart and command availability by focus/selection; don't count a page visit or shortcut label as a passing interaction. |
+
 ## Mail, threading, quick reply, and compose
 
 | Surface | Observed in Bulwark | Barbican baseline / next verification |
