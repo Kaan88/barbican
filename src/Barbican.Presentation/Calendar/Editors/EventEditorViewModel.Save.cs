@@ -234,6 +234,15 @@ public sealed partial class EventEditorViewModel
         return !_allDay && EndDateTime < StartDateTime ? "The event ends before it starts." : _allDay && _endDate < _startDate ? "The event ends before it starts." : null;
     }
 
+    private bool EnsureNewEventZone()
+    {
+        if (_event is not null || _allDay || !string.IsNullOrEmpty(_timeZone)) return true;
+        _timeZone = _s.CurrentZone?.Invoke() ?? _s.DefaultZone ?? CalendarJson.LocalZoneId();
+        if (_timeZone.Length > 0) return true;
+        Error = "The system time zone is unavailable. Select a supported time zone in Settings, then try again.";
+        return false;
+    }
+
     /// <summary>Saves: the scope question for a series, the plugin hook, <c>EventEditor.BuildData</c>, then the writer. True when saved and closed; false (Error set, editor stays) when it failed or the user cancelled.</summary>
     public async Task<bool> SaveAsync(CancellationToken ct)
     {
@@ -247,6 +256,8 @@ public sealed partial class EventEditorViewModel
             Error = problem;
             return false;
         }
+
+        if (!EnsureNewEventZone()) return false;
 
         if (_s.Source.AccountVersion != _accountVersion)
         {

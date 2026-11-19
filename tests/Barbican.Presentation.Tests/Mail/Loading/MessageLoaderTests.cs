@@ -21,13 +21,39 @@ public sealed class MessageLoaderTests
         var body = LoaderHarness.Body("m1") with { ReceivedAt = new DateTimeOffset(2026, 3, 29, 0, 30, 0, TimeSpan.Zero) };
         h.Cache.Put(h.Active.AccountKey!, body, h.Cache.Generation);
         h.Loader.Open(h.Row(1), OpenReason.Click, ListDirection.None);
-        var requests = h.Service.BodyRequests.Count;
+        var requests = h.Service.BodyRequests.Count(r => !r.Prefetch);
         var shownBody = h.Reader.Current.Body;
         Assert.Contains("00:30", h.Reader.Header.Date, StringComparison.Ordinal);
         h.Prefs.Set("{\"timeZone\":\"Europe/Berlin\"}");
         Assert.Contains("01:30", h.Reader.Header.Date, StringComparison.Ordinal);
-        Assert.Equal(requests, h.Service.BodyRequests.Count);
+        Assert.Equal(requests, h.Service.BodyRequests.Count(r => !r.Prefetch));
         Assert.Same(shownBody, h.Reader.Current.Body);
+    }
+
+    private sealed class QueueDispatcher : Barbican.Presentation.Common.IDispatcher
+    {
+        public bool Hold { get; set; }
+        public List<Action> Pending { get; } = [];
+        public bool HasThreadAccess => true;
+        public void Post(Action action) { if (Hold) Pending.Add(action); else action(); }
+        public Task InvokeAsync(Func<Task> action) => action();
+    }
+
+    [Fact]
+    public void Queued_zone_change_cannot_update_the_reader_after_disposal()
+    {
+        var dispatcher = new QueueDispatcher();
+        using var h = new LoaderHarness(dispatcher: dispatcher);
+        var body = LoaderHarness.Body("m1") with { ReceivedAt = new DateTimeOffset(2026, 3, 29, 0, 30, 0, TimeSpan.Zero) };
+        h.Cache.Put(h.Active.AccountKey!, body, h.Cache.Generation);
+        h.Loader.Open(h.Row(1), OpenReason.Click, ListDirection.None);
+        var before = h.Reader.Header.Date;
+        dispatcher.Hold = true;
+        h.Prefs.Set("{\"timeZone\":\"Europe/Berlin\"}");
+        Assert.NotEmpty(dispatcher.Pending);
+        h.Loader.Dispose();
+        foreach (var action in dispatcher.Pending.ToArray()) action();
+        Assert.Equal(before, h.Reader.Header.Date);
     }
 
     [Fact]

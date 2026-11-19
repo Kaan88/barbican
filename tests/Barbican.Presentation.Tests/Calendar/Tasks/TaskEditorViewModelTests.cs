@@ -36,6 +36,35 @@ public sealed class TaskEditorViewModelTests
     }
 
     [Fact]
+    public async Task Unmapped_system_zone_blocks_timed_task_until_a_zone_is_selected()
+    {
+        var system = TimeZoneInfo.CreateCustomTimeZone("Unmapped/Test", TimeSpan.FromHours(3), "Test", "Test");
+        var selected = "auto";
+        string Zone() => Barbican.Core.Settings.Pages.SettingDisplayTimeZone.EventZone(selected, system);
+        var e = new TaskEditorViewModel(_source, _writer, defaultZone: Zone(), currentZone: Zone);
+        e.OpenNew(null, new DateOnly(2026, 11, 20));
+        e.Title = "Keep this";
+        e.HasTime = true;
+        Assert.False(await e.SaveAsync(CancellationToken.None));
+        Assert.Contains("Select a supported time zone", e.Error);
+        Assert.Empty(_writer.Creates);
+        Assert.Equal("Keep this", e.Title);
+        selected = "Asia/Tokyo";
+        Assert.True(await e.SaveAsync(CancellationToken.None));
+        Assert.Equal("Asia/Tokyo", (string?)Assert.Single(_writer.Creates).Data["timeZone"]);
+    }
+
+    [Fact]
+    public async Task Unmapped_zone_does_not_block_date_only_task()
+    {
+        var e = new TaskEditorViewModel(_source, _writer, defaultZone: string.Empty);
+        e.OpenNew(null, new DateOnly(2026, 11, 20));
+        e.Title = "Date only";
+        Assert.True(await e.SaveAsync(CancellationToken.None));
+        Assert.True((bool?)Assert.Single(_writer.Creates).Data["showWithoutTime"]);
+    }
+
+    [Fact]
     public async Task An_empty_title_and_a_bad_date_are_refused_with_a_message()
     {
         var e = new TaskEditorViewModel(_source, _writer);

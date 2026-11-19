@@ -34,5 +34,8 @@ public sealed class SettingRulesTests
         Assert.Equal("Future/City", (string?)SettingRules.Coerce(row, JsonValue.Create("Future/City")).Value);
         Assert.True(SettingRules.Coerce(row, null).Ok);
         Assert.False(SettingRules.Coerce(row, JsonValue.Create(true)).Ok);
+        Assert.True(SettingRules.Coerce(row, JsonValue.Create(new string('a', 256))).Ok);
+        Assert.False(SettingRules.Coerce(row, JsonValue.Create(new string('a', 257))).Ok);
+        Assert.False(SettingRules.Coerce(row, JsonValue.Create("Future/City\nInjected")).Ok);
     }
 }

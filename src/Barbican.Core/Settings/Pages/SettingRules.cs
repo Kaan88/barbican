@@ -17,7 +17,7 @@ public static class SettingRules
         if (string.Equals(row.Key, "timeZone", StringComparison.Ordinal))
         {
             if (value is null) return new SettingCheck(true, null, null);
-            return value is JsonValue v && v.TryGetValue<string>(out var zone) && !string.IsNullOrWhiteSpace(zone)
+            return value is JsonValue v && v.TryGetValue<string>(out var zone) && !string.IsNullOrWhiteSpace(zone) && zone.Length <= 256 && !zone.Any(char.IsControl)
                 ? Good(JsonValue.Create(zone.Trim())) : Bad("Choose a time zone.");
         }
 

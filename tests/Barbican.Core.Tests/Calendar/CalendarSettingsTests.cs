@@ -31,6 +31,15 @@ public sealed class CalendarSettingsTests
         Assert.Null(CalendarSettings.Read(PrefsSnapshot.FromJson(new System.Text.Json.Nodes.JsonObject { ["timeZone"] = "Mars/Olympus" })).Zone());
     }
     [Fact]
+    public void Abbreviation_search_finds_reference_zones_without_changing_their_ids()
+    {
+        Assert.True(Barbican.Core.Settings.Pages.SettingTimeZoneSearchAliases.Matches("cest", "Europe/Berlin"));
+        Assert.True(Barbican.Core.Settings.Pages.SettingTimeZoneSearchAliases.Matches("CST", "Asia/Shanghai"));
+        Assert.True(Barbican.Core.Settings.Pages.SettingTimeZoneSearchAliases.Matches("PDT", "America/Los_Angeles"));
+        Assert.False(Barbican.Core.Settings.Pages.SettingTimeZoneSearchAliases.Matches("CET", "Asia/Tokyo"));
+    }
+
+    [Fact]
     public void Display_zone_auto_unknown_and_dst_use_explicit_fallback()
     {
         var fallback = TimeZoneInfo.Utc;
