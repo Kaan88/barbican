@@ -650,7 +650,7 @@ public sealed partial class MessageListViewModel : ObservableObject, IDisposable
     private void RebuildRows()
     {
         var settings = ReadSettings();
-        var context = settings.RowContextAt(_time.GetUtcNow(), _time.LocalTimeZone) with { CodeFinder = _codeFinder };
+        var context = settings.RowContextAt(_time.GetUtcNow(), Barbican.Core.Settings.Pages.SettingDisplayTimeZone.Resolve(_prefs.Current.Str("timeZone", "auto"), _time.LocalTimeZone)) with { CodeFinder = _codeFinder };
         context = WithAccountMarkers(context);
         var searching = !string.IsNullOrWhiteSpace(_query?.SearchText);
         int? unreadFirst = settings.UnreadFirst && _role == MailboxRole.Inbox && !searching ? settings.UnreadSectionSize : null;

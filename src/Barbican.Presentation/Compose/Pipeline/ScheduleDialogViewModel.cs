@@ -11,6 +11,7 @@ namespace Barbican.Presentation.Compose.Pipeline;
 public sealed class ScheduleDialogViewModel : INotifyPropertyChanged
 {
     private readonly TimeProvider _time;
+    private readonly TimeZoneInfo _zone;
     private readonly long _maxSeconds;
     private readonly TaskCompletionSource<DateTimeOffset?> _done = new(TaskCreationOptions.RunContinuationsAsynchronously);
     private string _date;
@@ -22,15 +23,17 @@ public sealed class ScheduleDialogViewModel : INotifyPropertyChanged
     /// <param name="maxDelayedSend">The account's longest hold in seconds (<c>IScheduledSends.MaxDelayedSend</c>); 0: scheduling is not supported.</param>
     /// <param name="twelveHour">The time format setting (12h).</param>
     /// <param name="current">The message's own release time when rescheduling: the typed default while it is still ahead.</param>
-    public ScheduleDialogViewModel(ScheduleMode mode, TimeProvider time, long maxDelayedSend, bool twelveHour, DateTimeOffset? current = null)
+    /// <param name="zone">The profile display zone, or the clock's local zone when omitted.</param>
+    public ScheduleDialogViewModel(ScheduleMode mode, TimeProvider time, long maxDelayedSend, bool twelveHour, DateTimeOffset? current = null, TimeZoneInfo? zone = null)
     {
         ArgumentNullException.ThrowIfNull(time);
         _time = time;
+        _zone = zone ?? time.LocalTimeZone;
         _maxSeconds = maxDelayedSend;
         Mode = mode;
         TwelveHour = twelveHour;
         var now = time.GetUtcNow();
-        var zone = time.LocalTimeZone;
+        zone = _zone;
         Presets = [.. ScheduleRules.Presets(now, zone).Select(p => new SchedulePresetRow(p.Label, When(p.At, zone, twelveHour), p.At))];
         var start = current is { } c && c > now ? c : Presets.FirstOrDefault(p => string.Equals(p.Label, "Tomorrow morning", StringComparison.Ordinal))?.At ?? now.AddDays(1);
         var local = TimeZoneInfo.ConvertTime(start, zone);
@@ -94,7 +97,7 @@ public sealed class ScheduleDialogViewModel : INotifyPropertyChanged
     public DateTimeOffset? ChooseTyped()
     {
         var filled = Date.Trim().Length > 0 && Time.Trim().Length > 0;
-        var when = ScheduleRules.ParseLocal(Date, Time, _time.LocalTimeZone);
+        var when = ScheduleRules.ParseLocal(Date, Time, _zone);
         return Finish(ScheduleRules.Validate(when, _time.GetUtcNow(), _maxSeconds, filled));
     }
 

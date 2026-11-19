@@ -35,23 +35,7 @@ public static class ContactDates
     public static DateOnly Today(TimeProvider time, string? timeZone)
     {
         ArgumentNullException.ThrowIfNull(time);
-        var zone = TimeZoneInfo.Local;
-        if (!string.IsNullOrEmpty(timeZone) && !string.Equals(timeZone, "auto", StringComparison.Ordinal))
-        {
-            try
-            {
-                zone = TimeZoneInfo.FindSystemTimeZoneById(timeZone);
-            }
-            catch (TimeZoneNotFoundException)
-            {
-                // an unknown name: the local zone
-            }
-            catch (InvalidTimeZoneException)
-            {
-                // see above
-            }
-        }
-
+        var zone = Barbican.Core.Settings.Pages.SettingDisplayTimeZone.Resolve(timeZone, time.LocalTimeZone);
         return DateOnly.FromDateTime(TimeZoneInfo.ConvertTime(time.GetUtcNow(), zone).DateTime);
     }
 

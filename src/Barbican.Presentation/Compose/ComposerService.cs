@@ -125,6 +125,7 @@ public sealed class ComposerService : IComposerService, IDisposable
 
             var context = new ComposerContext(_s.Drafts, _s.Uploader, _s.Sender, _s.Editors, _s.Sources, _s.Hooks, _s.Time, settings)
             {
+                DisplayZone = () => Barbican.Core.Settings.Pages.SettingDisplayTimeZone.Resolve(_s.Prefs.Current.Str("timeZone", "auto"), _s.Time.LocalTimeZone),
                 Toasts = _s.Toasts,
                 Templates = _s.Templates,
                 TemplatePickers = _s.TemplatePickers,

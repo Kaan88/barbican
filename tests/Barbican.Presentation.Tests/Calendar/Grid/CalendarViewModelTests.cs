@@ -12,6 +12,18 @@ namespace Barbican.Presentation.Tests.Calendar.Grid;
 public sealed class CalendarViewModelTests
 {
     [Fact]
+    public void Today_and_now_follow_the_selected_zone_without_changing_the_clock()
+    {
+        using var h = new CalendarHarness();
+        h.Prefs.Set("{\"timeZone\":\"Pacific/Kiritimati\"}");
+        Assert.Equal(new DateOnly(2026, 11, 19), h.View.TodayDate);
+        Assert.Equal(2, h.View.Now().Hour);
+        Assert.Equal(TimeZoneInfo.Utc, h.Time.LocalTimeZone);
+        h.Prefs.Set("{\"timeZone\":\"unknown\"}");
+        Assert.Equal(new DateOnly(2026, 11, 18), h.View.TodayDate);
+    }
+
+    [Fact]
     public async Task Changing_saved_view_emits_the_calendar_view_hook()
     {
         using var h = new CalendarHarness();

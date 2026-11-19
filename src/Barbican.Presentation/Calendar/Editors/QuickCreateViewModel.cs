@@ -15,12 +15,13 @@ public sealed class QuickCreateViewModel : ObservableObject, ICloseableCard
     private readonly ICalendarWriter _writer;
     private readonly NewEventRequest _request;
     private readonly bool _twelveHour;
+    private readonly string _zone;
     private readonly TaskCompletionSource _closed = new(TaskCreationOptions.RunContinuationsAsynchronously);
     private string _title;
     private string _calendarId = string.Empty;
     private string _error = string.Empty;
 
-    public QuickCreateViewModel(IEditorSource source, ICalendarWriter writer, NewEventRequest request, bool twelveHour = false)
+    public QuickCreateViewModel(IEditorSource source, ICalendarWriter writer, NewEventRequest request, bool twelveHour = false, string? zone = null)
     {
         ArgumentNullException.ThrowIfNull(source);
         ArgumentNullException.ThrowIfNull(writer);
@@ -29,6 +30,7 @@ public sealed class QuickCreateViewModel : ObservableObject, ICloseableCard
         _writer = writer;
         _request = request;
         _twelveHour = twelveHour;
+        _zone = zone ?? CalendarJson.LocalZoneId();
         _title = request.Title;
         var subs = new HashSet<string>(source.Subscriptions, StringComparer.Ordinal);
         var usable = source.Calendars.Where(c => CalendarJson.Writable(c, subs)).ToList();
@@ -106,7 +108,7 @@ public sealed class QuickCreateViewModel : ObservableObject, ICloseableCard
         };
         if (!allDay)
         {
-            ev["timeZone"] = CalendarJson.LocalZoneId();
+            ev["timeZone"] = _zone;
         }
 
         return ev;

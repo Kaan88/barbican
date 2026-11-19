@@ -94,7 +94,7 @@ public static class CalendarCommands
     public static NewEventRequest NewRequest(CalendarCommandDeps d)
     {
         ArgumentNullException.ThrowIfNull(d);
-        var now = d.Time.GetLocalNow().DateTime;
+        var now = d.View is Barbican.Presentation.Calendar.Grid.CalendarViewModel grid ? grid.Now() : d.Time.GetLocalNow().DateTime;
         var day = d.View.Anchor;
         var start = day == DateOnly.FromDateTime(now)
             ? now.Date.AddHours(Math.Min(now.Hour + 1, 22))

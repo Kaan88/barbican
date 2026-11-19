@@ -176,6 +176,24 @@ public sealed class SetUiRowsView : StackPanel
             return section;
         }
 
+        if (string.Equals(row.Key, "timeZone", StringComparison.Ordinal))
+        {
+            string Selected() => _vm.ValueOf("timeZone") is JsonValue v && v.TryGetValue<string>(out var selectedZone) ? selectedZone : "auto";
+            string Label()
+            {
+                var currentZone = Selected();
+                if (string.Equals(currentZone, "auto", StringComparison.OrdinalIgnoreCase)) return "Automatic (" + TimeZoneInfo.Local.DisplayName + ")";
+                return SettingDisplayTimeZone.TryResolve(currentZone, out _) ? currentZone : currentZone + " (unavailable; using system zone)";
+            }
+            var button = SetUiUi.Pill(Label(), () => SetUiUi.Run(async () =>
+            {
+                var answer = await ViewHost.Get<IDialogService>().ShowAsync(new TimeZonePickerRequest(Selected()), CancellationToken.None).ConfigureAwait(true);
+                if (answer is not null) await _vm.SetKeyAsync("timeZone", JsonValue.Create(answer), CancellationToken.None).ConfigureAwait(true);
+            }), id + ".select");
+            _refresh[row.Id] = () => button.Content = Label();
+            return SetUiUi.RowOf(row.Label, desc, button, id);
+        }
+
         if (string.Equals(row.Id, "S-a11y.reset", StringComparison.Ordinal))
         {
             return SetUiUi.RowOf(row.Label, desc, SetUiUi.Pill("Reset", () => SetUiUi.Run(ResetAccessibilityAsync), id + ".button"), id);

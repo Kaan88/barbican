@@ -58,7 +58,7 @@ public static class MailPresentationRegistration
             var time = sp.GetRequiredService<TimeProvider>();
             return new HeaderOnlyMessageOpener(
                 sp.GetRequiredService<ReaderViewModel>(),
-                () => MailListSettings.Read(prefs.Current, system.Current).ReaderOptionsAt(time.GetUtcNow(), time.LocalTimeZone));
+                () => MailListSettings.Read(prefs.Current, system.Current).ReaderOptionsAt(time.GetUtcNow(), Barbican.Core.Settings.Pages.SettingDisplayTimeZone.Resolve(prefs.Current.Str("timeZone", "auto"), time.LocalTimeZone)));
         });
 
         // input and start-up

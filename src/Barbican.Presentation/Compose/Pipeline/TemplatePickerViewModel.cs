@@ -9,7 +9,7 @@ using Barbican.Core.Editor;
 namespace Barbican.Presentation.Compose.Pipeline;
 
 /// <summary>The template picker's data: the list (filtered by a search text), insert with the placeholders filled, save as template and delete.</summary>
-public sealed class TemplatePickerViewModel(ITemplateStore store, IDocCodec codec, TimeProvider time) : INotifyPropertyChanged
+public sealed class TemplatePickerViewModel(ITemplateStore store, IDocCodec codec, TimeProvider time, Barbican.Core.Storage.IPrefsStore? prefs = null) : INotifyPropertyChanged
 {
     private IReadOnlyList<MailTemplate> _all = [];
     private IReadOnlyList<MailTemplate> _items = [];
@@ -80,7 +80,7 @@ public sealed class TemplatePickerViewModel(ITemplateStore store, IDocCodec code
     public IReadOnlyList<(string Name, string Default)> PlaceholdersToAsk(MailTemplate template)
     {
         ArgumentNullException.ThrowIfNull(template);
-        var auto = TemplateText.AutoFilled(time.GetUtcNow(), SenderName, null);
+        var auto = TemplateText.AutoFilled(TimeZoneInfo.ConvertTime(time.GetUtcNow(), Barbican.Core.Settings.Pages.SettingDisplayTimeZone.Resolve(prefs?.Current.Str("timeZone", "auto"), time.LocalTimeZone)), SenderName, null);
         var defaults = TemplateText.Defaults(template);
         return [.. TemplateText.Placeholders(template).Where(n => !auto.ContainsKey(n)).Select(n => (n, defaults.TryGetValue(n, out var d) ? d : ""))];
     }
@@ -89,7 +89,7 @@ public sealed class TemplatePickerViewModel(ITemplateStore store, IDocCodec code
     public TemplateInsertion Insert(MailTemplate template, IReadOnlyDictionary<string, string>? values = null)
     {
         ArgumentNullException.ThrowIfNull(template);
-        var merged = new Dictionary<string, string>(TemplateText.AutoFilled(time.GetUtcNow(), SenderName, null), StringComparer.Ordinal);
+        var merged = new Dictionary<string, string>(TemplateText.AutoFilled(TimeZoneInfo.ConvertTime(time.GetUtcNow(), Barbican.Core.Settings.Pages.SettingDisplayTimeZone.Resolve(prefs?.Current.Str("timeZone", "auto"), time.LocalTimeZone)), SenderName, null), StringComparer.Ordinal);
         foreach (var (k, v) in TemplateText.Defaults(template))
         {
             merged[k] = v;

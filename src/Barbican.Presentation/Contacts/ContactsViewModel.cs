@@ -139,7 +139,7 @@ public sealed class ContactsViewModel : ObservableObject, IContactsViewModel, ID
 
     public JsonNode? OpenCard => _openId is null ? null : CardOf(_openId);
 
-    public IReadOnlyList<ContactLine> DetailLines => OpenCard is { } card ? ContactsDetailLines.Of(card, DateOnly.FromDateTime(_time.GetLocalNow().DateTime)) : [];
+    public IReadOnlyList<ContactLine> DetailLines => OpenCard is { } card ? ContactsDetailLines.Of(card, ContactDates.Today(_time, _prefs.Current.Str("timeZone", "auto"))) : [];
 
     public IReadOnlyList<JsonNode> Contacts => _contacts;
 

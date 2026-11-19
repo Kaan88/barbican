@@ -9,6 +9,20 @@ namespace Barbican.Presentation.Tests.Contacts;
 public sealed class ContactsViewModelTests
 {
     [Fact]
+    public void Contact_birthday_tint_follows_selected_zone_across_midnight()
+    {
+        using var h = new ContactsHarness();
+        var card = h.Store.Cards.First(c => (string?)c["id"] == "c1");
+        card["anniversaries"] = ContactsHarness.J("{\"b\":{\"kind\":\"birth\",\"date\":{\"month\":12,\"day\":3}}}");
+        h.Store.Raise();
+        h.View.Open("c1");
+        Assert.Equal(string.Empty, h.View.DetailLines.Single(l => l.Section == "DATES").Tint);
+        h.Prefs.Set("{\"timeZone\":\"Pacific/Kiritimati\"}");
+        Assert.Equal("rose", h.View.DetailLines.Single(l => l.Section == "DATES").Tint);
+        Assert.Equal(3, (int?)card["anniversaries"]!["b"]!["date"]!["day"]);
+    }
+
+    [Fact]
     public void The_list_holds_the_contacts_sorted_with_letters_and_groups_stay_in_the_sidebar()
     {
         using var h = new ContactsHarness();

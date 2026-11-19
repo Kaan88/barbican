@@ -195,7 +195,7 @@ public sealed class SendCoordinator(IMailSender sender, IScheduledSends schedule
 
     private void ToastScheduled(string accountId, SendReceipt receipt, DateTimeOffset at)
     {
-        var label = ScheduleRules.Label(at, string.Equals(prefs.Current.Str("timeFormat", "24h"), "12h", StringComparison.Ordinal), time.GetUtcNow(), time.LocalTimeZone);
+        var label = ScheduleRules.Label(at, string.Equals(prefs.Current.Str("timeFormat", "24h"), "12h", StringComparison.Ordinal), time.GetUtcNow(), Barbican.Core.Settings.Pages.SettingDisplayTimeZone.Resolve(prefs.Current.Str("timeZone", "auto"), time.LocalTimeZone));
         toasts.Show(new ToastRequest($"Scheduled for {label}.", false, "Cancel", ct => CancelScheduledAsync(accountId, receipt.SubmissionId, ct)));
     }
 

@@ -115,10 +115,10 @@ public sealed class CalendarViewModel : ObservableObject, ICalendarViewModel, ID
     public string? LoadError => _error;
 
     /// <summary>Today on the user's clock (the injected <see cref="TimeProvider"/>).</summary>
-    public DateOnly TodayDate => DateOnly.FromDateTime(_time.GetLocalNow().DateTime);
+    public DateOnly TodayDate => DateOnly.FromDateTime(Now());
 
     /// <summary>Now on the user's clock.</summary>
-    public DateTime Now() => _time.GetLocalNow().DateTime;
+    public DateTime Now() => TimeZoneInfo.ConvertTime(_time.GetUtcNow(), _settings.Core.Zone() ?? _time.LocalTimeZone).DateTime;
 
     public CalendarViewSettings Settings => _settings;
 

@@ -106,6 +106,8 @@ public sealed class SettingConcurrencyTests
         Assert.True((await values.SetAsync("mailTextScale", JsonValue.Create("1.125"), TestContext.Current.CancellationToken)).IsOk);
         Assert.Equal(1.125, (double?)values.Stored("mailTextScale"));
         Assert.False((await values.SetAsync("fontSize", JsonValue.Create("size"), TestContext.Current.CancellationToken)).IsOk);
+        Assert.True((await values.SetAsync("timeZone", JsonValue.Create("Asia/Tokyo"), TestContext.Current.CancellationToken)).IsOk);
+        Assert.Equal("Asia/Tokyo", (string?)values.Stored("timeZone"));
     }
 
     private sealed class BlockingPrefs : IPrefsStore, IPrefsEditor

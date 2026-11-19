@@ -123,7 +123,7 @@ public sealed class ComposeSeeder(IAccountManager accounts, IIdentityService ide
 
         var quote = QuoteOf(m);
         var from = First(m.From);
-        var date = QuoteHeader.Date(m.ReceivedAt ?? m.SentAt, time.LocalTimeZone);
+        var date = QuoteHeader.Date(m.ReceivedAt ?? m.SentAt, Barbican.Core.Settings.Pages.SettingDisplayTimeZone.Resolve(prefs.Current.Str("timeZone", "auto"), time.LocalTimeZone));
         var who = QuoteHeader.Who(from);
         var inline = CidHtml.InlineParts(m, quote.Html);
         List<Block> blocks;

@@ -78,6 +78,18 @@ public sealed class ScheduleDialogViewModelTests
         Assert.Equal("2026-11-17", past.Date);
     }
 
+    [Fact]
+    public void Typed_time_uses_selected_zone_and_rejects_the_dst_gap()
+    {
+        var clock = new FakeTimeProvider(new DateTimeOffset(2026, 3, 28, 12, 0, 0, TimeSpan.Zero));
+        var zone = TimeZoneInfo.FindSystemTimeZoneById("Europe/Berlin");
+        var vm = new ScheduleDialogViewModel(ScheduleMode.Compose, clock, 7 * 86400, false, zone: zone) { Date = "2026-03-29", Time = "02:30" };
+        Assert.Null(vm.ChooseTyped());
+        vm.Time = "03:30";
+        Assert.Equal(new DateTimeOffset(2026, 3, 29, 1, 30, 0, TimeSpan.Zero), vm.ChooseTyped());
+        Assert.Equal(TimeZoneInfo.Utc, clock.LocalTimeZone);
+    }
+
     private sealed class Host(DateTimeOffset? answer) : IScheduleDialogHost
     {
         public ScheduleDialogViewModel? Shown { get; private set; }

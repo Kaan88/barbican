@@ -71,6 +71,19 @@ public sealed class TaskEditorViewModelTests
         Assert.True((bool?)patch["calendarIds"]!["home"]);
     }
 
+    [Theory]
+    [InlineData("Europe/Berlin")]
+    [InlineData(null)]
+    public async Task Editing_a_timed_task_preserves_its_existing_zone(string? zone)
+    {
+        var task = JsonNode.Parse("{\"id\":\"t1\",\"@type\":\"Task\",\"title\":\"Call\",\"due\":\"2026-11-20T14:30:00\",\"showWithoutTime\":false,\"calendarIds\":{\"work\":true}}")!;
+        task["timeZone"] = zone;
+        var editor = new TaskEditorViewModel(_source, _writer, defaultZone: "Asia/Tokyo");
+        editor.OpenExisting(task);
+        Assert.True(await editor.SaveAsync(TestContext.Current.CancellationToken));
+        Assert.Equal(zone, (string?)Assert.Single(_writer.Updates).Patch["timeZone"]);
+    }
+
     [Fact]
     public async Task Delete_asks_and_destroys()
     {

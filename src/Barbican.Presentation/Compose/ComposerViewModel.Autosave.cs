@@ -178,7 +178,7 @@ public sealed partial class ComposerViewModel
         if (error is null)
         {
             DraftId = draftId;
-            Status = "Draft saved " + _c.Time.GetLocalNow().ToString("HH:mm", System.Globalization.CultureInfo.InvariantCulture);
+            Status = "Draft saved " + TimeZoneInfo.ConvertTime(_c.Time.GetUtcNow(), _c.DisplayZone?.Invoke() ?? _c.Time.LocalTimeZone).ToString("HH:mm", System.Globalization.CultureInfo.InvariantCulture);
             if (explicitSave)
             {
                 _ = _c.Toasts?.Show(new Barbican.Presentation.Actions.ToastRequest("Draft saved"));

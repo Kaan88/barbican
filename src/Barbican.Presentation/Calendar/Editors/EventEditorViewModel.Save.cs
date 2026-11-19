@@ -37,7 +37,7 @@ public sealed partial class EventEditorViewModel
         }
 
         _endTime = end.ToString("HH:mm", CultureInfo.InvariantCulture);
-        _timeZone = request.AllDay ? null : CalendarJson.LocalZoneId();
+        _timeZone = request.AllDay ? null : _s.DefaultZone ?? CalendarJson.LocalZoneId();
         _freeBusy = request.AllDay ? 1 : 0;
         _useDefaultAlerts = true;
         _notify = true;

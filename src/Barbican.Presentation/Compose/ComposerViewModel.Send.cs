@@ -39,7 +39,7 @@ public sealed partial class ComposerViewModel
             return false;
         }
 
-        var state = new ScheduleDialogViewModel(ScheduleMode.Compose, _c.Time, _c.Sender.MaxDelayedSeconds(AccountKey), twelveHour: false);
+        var state = new ScheduleDialogViewModel(ScheduleMode.Compose, _c.Time, _c.Sender.MaxDelayedSeconds(AccountKey), twelveHour: false, zone: (_c.DisplayZone?.Invoke() ?? _c.Time.LocalTimeZone));
         Schedule = state;
         var when = await state.Completion.ConfigureAwait(true);
         Schedule = null;
@@ -207,7 +207,7 @@ public sealed partial class ComposerViewModel
 
         if (scheduledAt is { } at)
         {
-            _ = toasts.Show(new ToastRequest("Scheduled for " + at.ToLocalTime().ToString("ddd d MMM, HH:mm", System.Globalization.CultureInfo.CurrentCulture)));
+            _ = toasts.Show(new ToastRequest("Scheduled for " + TimeZoneInfo.ConvertTime(at, (_c.DisplayZone?.Invoke() ?? _c.Time.LocalTimeZone)).ToString("ddd d MMM, HH:mm", System.Globalization.CultureInfo.CurrentCulture)));
             return;
         }
 

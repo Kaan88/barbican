@@ -246,7 +246,8 @@ public sealed partial class EventEditorViewModel
         }
 
         SlotsStatus = "Looking for a time…";
-        var now = (_s.Time ?? TimeProvider.System).GetLocalNow().DateTime;
+        var clock = _s.Time ?? TimeProvider.System;
+        var now = TimeZoneInfo.ConvertTime(clock.GetUtcNow(), Barbican.Core.Settings.Pages.SettingDisplayTimeZone.Resolve(_s.DefaultZone, clock.LocalTimeZone)).DateTime;
         var from = _s.Rules.ZoneToUtcMs(now, null);
         var to = from + (21L * 24 * 3600 * 1000);
         var read = await service.BusyAsync(key, [.. Guests.Select(g => g.Person.Email.ToLowerInvariant())], from, to, ct).ConfigureAwait(true);

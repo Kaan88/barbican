@@ -29,6 +29,7 @@ public static class SettingsUiRegistration
         _ = services.AddBarbicanSettingsUiViewModels();
         services.AddSingleton<IAppScreenFactory, SetUiScreenFactory>();
         services.AddSingleton<IDialogContent, AccessibilityQuickContent>();
+        services.AddSingleton<IDialogContent, TimeZonePickerContent>();
 #if AUTOMATION
         if (string.Equals(Environment.GetEnvironmentVariable("BARBICAN_SAMPLE"), "1", StringComparison.Ordinal))
         {

@@ -15,7 +15,7 @@ using CommunityToolkit.Mvvm.ComponentModel;
 namespace Barbican.Presentation.Calendar.Tasks;
 
 /// <summary>The Tasks view and the capped sidebar list over the tasks of the active login.</summary>
-public sealed class TasksViewModel : ObservableObject
+public sealed class TasksViewModel : ObservableObject, IDisposable
 {
     /// <summary>The filters in index order.</summary>
     public static IReadOnlyList<string> FilterNames { get; } = ["All", "Pending", "Overdue", "Completed"];
@@ -26,6 +26,8 @@ public sealed class TasksViewModel : ObservableObject
     private readonly IHookBus? _hooks;
     private readonly IToastService? _toasts;
     private readonly TimeProvider _time;
+    private readonly Barbican.Core.Storage.IPrefsStore? _prefs;
+    private readonly IDispatcher? _dispatcher;
     private readonly Func<bool> _twelveHour;
     private readonly Func<IReadOnlySet<string>> _hidden;
     private readonly CalendarEditorHost? _host;
@@ -47,7 +49,9 @@ public sealed class TasksViewModel : ObservableObject
         TimeProvider? time = null,
         Func<bool>? twelveHour = null,
         Func<IReadOnlySet<string>>? hiddenCalendars = null,
-        CalendarEditorHost? host = null)
+        CalendarEditorHost? host = null,
+        Barbican.Core.Storage.IPrefsStore? prefs = null,
+        IDispatcher? dispatcher = null)
     {
         ArgumentNullException.ThrowIfNull(source);
         ArgumentNullException.ThrowIfNull(writer);
@@ -61,7 +65,10 @@ public sealed class TasksViewModel : ObservableObject
         _twelveHour = twelveHour ?? (() => false);
         _hidden = hiddenCalendars ?? (() => new HashSet<string>(StringComparer.Ordinal));
         _host = host;
-        _source.Changed += (_, _) => Rebuild();
+        _prefs = prefs;
+        _dispatcher = dispatcher;
+        _source.Changed += OnSourceChanged;
+        if (_prefs is not null) _prefs.Changed += OnPrefsChanged;
     }
 
     /// <summary>The rows the view shows (filtered and sorted); replaced as a whole, so the view is told once.</summary>
@@ -149,7 +156,22 @@ public sealed class TasksViewModel : ObservableObject
 
     public bool IsEmpty => Rows.Count == 0;
 
-    private DateOnly Today() => DateOnly.FromDateTime(_time.GetLocalNow().DateTime);
+    private DateOnly Today() => DateOnly.FromDateTime(TimeZoneInfo.ConvertTime(_time.GetUtcNow(), Barbican.Core.Settings.Pages.SettingDisplayTimeZone.Resolve(_prefs?.Current.Str("timeZone", "auto"), _time.LocalTimeZone)).DateTime);
+
+    public void Dispose()
+    {
+        _source.Changed -= OnSourceChanged;
+        if (_prefs is not null) _prefs.Changed -= OnPrefsChanged;
+    }
+
+    private void OnSourceChanged(object? sender, EventArgs e) => Rebuild();
+
+    private void OnPrefsChanged(object? sender, EventArgs e)
+    {
+        void Refresh() { Rebuild(); OnPropertyChanged(nameof(QuickDueLabel)); }
+        if (_dispatcher is not null && !_dispatcher.HasThreadAccess) _dispatcher.Post(Refresh);
+        else Refresh();
+    }
 
     /// <summary>Reads the tasks of the store again (the store changed, the filter or the day changed, a calendar was hidden).</summary>
     public void Rebuild()
