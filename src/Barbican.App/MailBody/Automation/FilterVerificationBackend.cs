@@ -1,4 +1,4 @@
-#if AUTOMATION_WRITES
+#if AUTOMATION_WRITES || BARBICAN_FILTER_TESTS
 // L-040: bound to the client captured by WriteTestGuard. RFC 9661 state and RFC 8621 Inbox filters.
 using Barbican.Core.Accounts;
 using Barbican.Core.Common;

@@ -1,4 +1,4 @@
-#if AUTOMATION_WRITES
+#if AUTOMATION_WRITES || BARBICAN_FILTER_TESTS
 // L-040: synthetic Inbox filter round trip. The backend is bound to one captured client; all writes require its live guard.
 using System.Security.Cryptography;
 using System.Text.Json;

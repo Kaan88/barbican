@@ -1,4 +1,4 @@
-#if AUTOMATION_WRITES
+#if AUTOMATION_WRITES || BARBICAN_FILTER_TESTS
 using Barbican.Core.Filters.Rules;
 
 namespace Barbican.App.MailBody.Automation;

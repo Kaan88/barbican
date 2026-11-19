@@ -1,4 +1,4 @@
-#if AUTOMATION_WRITES
+#if AUTOMATION_WRITES || BARBICAN_FILTER_TESTS
 // L-040 safety predicates: RFC 9661 SieveScript state and RFC 8621 Inbox scans.
 // The write-gated runner must preserve the exact script and never apply a plan to other mail.
 using System.Text;

@@ -1,4 +1,4 @@
-#if AUTOMATION_WRITES
+#if AUTOMATION_WRITES || BARBICAN_FILTER_TESTS
 // L-040: private, bounded recovery data before synthetic filter writes. No journal data enters the automation response.
 using System.Security.Cryptography;
 using System.Text;

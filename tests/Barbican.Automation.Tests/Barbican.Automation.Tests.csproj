@@ -3,7 +3,7 @@
        mode decision (AUTOMATION and smoke runs are never shown normally), the line protocol, the popup
        guard's policy, the smoke report, and the XAML lint (every popup constrained to the window).
        The UI-free source files are compiled in from the App and the Automation project. -->
-  <PropertyGroup><DefineConstants>$(DefineConstants);AUTOMATION_WRITES</DefineConstants></PropertyGroup>
+  <PropertyGroup><DefineConstants>$(DefineConstants);BARBICAN_FILTER_TESTS</DefineConstants></PropertyGroup>
   <ItemGroup>
     <Compile Include="../../src/Barbican.App/MailBody/Automation/CapturedFilterAccount.cs" Link="Linked/CapturedFilterAccount.cs" />
     <Compile Include="../../src/Barbican.App/MailBody/Automation/WriteTestGuard.cs" Link="Linked/WriteTestGuard.cs" />

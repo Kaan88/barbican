@@ -1,4 +1,4 @@
-#if AUTOMATION_WRITES
+#if AUTOMATION_WRITES || BARBICAN_FILTER_TESTS
 // Captures one authorized session, so FilterService cannot follow active-account changes.
 using Barbican.Core.Accounts;
 using Barbican.Core.Common;

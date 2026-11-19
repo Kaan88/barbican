@@ -1787,3 +1787,7 @@ Coordinator review tightened this preparation: only a whitespace-only original s
 ## Codex / Sol - M6 filter preflight registration
 
 - Directly reviewed f1263b8 and 2d5cd81, including captured-session routing, exact synthetic plan, inert original script, conditional restoration, lost-acknowledgement artifact retention and encrypted persistent journal. Registered the command only for Windows AUTOMATION_WRITES; `filter-write-test preflight` performs captured-script eligibility reads without creating recovery material or making server writes. Registration is not evidence of live success. All existing account allow-list checks remain mandatory. Live prerequisites and cleanup must be recorded before claiming L-040.
+
+## Codex / Sol - M6 harness test compilation correction
+
+- The full write-enabled run compiled both app heads cleanly but caught an unconditional production write symbol in the new unit-test project (2907 passed, one failed, four skipped). The fixture now uses a distinct test-only symbol for linked non-UI helpers; the actual automation command remains gated by AUTOMATION_WRITES and WINDOWS. The existing invariant that only Directory.Build.props may define the production symbol is unchanged, and a new invariant prevents the fixture symbol being defined in production projects/build props. Repeat the complete suite before packaging.

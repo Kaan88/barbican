@@ -1,4 +1,4 @@
-#if AUTOMATION_WRITES
+#if AUTOMATION_WRITES || BARBICAN_FILTER_TESTS
 // Mirrors: M2 plan §6.3 step 1 (R2-14, decision M2-Q2: a proposal pending the user's OK); Rust automation.rs TEST_ACCOUNT check (the C# port
 // names no account in the source: the two .local lists decide). Every rx-* command asks this guard first; it reads both lists again on
 // every call (ReadOnlyPolicy.TestWriteRefusal), so editing a list takes effect on the next command. Owner reader.

@@ -127,6 +127,20 @@ public sealed class ReleaseContentTests
     }
 
     [Fact]
+    public void TheFilterVerificationTestSymbolIsNotDefinedInProductionProjects()
+    {
+        const string symbol = "BARBICAN_FILTER_TESTS";
+        var fixture = File.ReadAllText(TestRepo.PathOf("tests/Barbican.Automation.Tests/Barbican.Automation.Tests.csproj"));
+        Assert.Contains(symbol, fixture, StringComparison.Ordinal);
+        foreach (var file in Directory.EnumerateFiles(TestRepo.PathOf("src"), "*.csproj", SearchOption.AllDirectories)
+                     .Concat(Directory.EnumerateFiles(TestRepo.Root, "*.props", SearchOption.TopDirectoryOnly))
+                     .Concat(Directory.EnumerateFiles(TestRepo.PathOf("eng"), "*.*", SearchOption.AllDirectories).Where(f => f.EndsWith(".props", StringComparison.Ordinal) || f.EndsWith(".targets", StringComparison.Ordinal))))
+        {
+            Assert.DoesNotContain(symbol, File.ReadAllText(file), StringComparison.Ordinal);
+        }
+    }
+
+    [Fact]
     public void TheBuildScriptOnlyTakesWritesTogetherWithTheAutomationConfiguration()
     {
         var script = File.ReadAllText(TestRepo.PathOf("tools/build.ps1"));
