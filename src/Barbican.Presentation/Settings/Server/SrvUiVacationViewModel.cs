@@ -18,6 +18,15 @@ public sealed class SrvUiVacationViewModel : SrvUiPageModel
     private string _subject = string.Empty;
     private string _body = string.Empty;
     private string _htmlBody = string.Empty;
+    private bool _enabled;
+    private string _fromText = string.Empty;
+    private string _toText = string.Empty;
+    private string _audienceOnly = string.Empty;
+    private string _domainsText = string.Empty;
+    private bool _forwardOn;
+    private string _forwardTo = string.Empty;
+    private bool _forwardKeep = true;
+    private bool _blockCalendar;
     private long _draftVersion;
     private long _savedDraftVersion;
 
@@ -33,7 +42,7 @@ public sealed class SrvUiVacationViewModel : SrvUiPageModel
         };
     }
 
-    public bool Enabled { get; set; }
+    public bool Enabled { get => _enabled; set => Edit(ref _enabled, value); }
 
     public string Subject { get => _subject; set => Edit(ref _subject, value); }
 
@@ -43,24 +52,24 @@ public sealed class SrvUiVacationViewModel : SrvUiPageModel
     public string HtmlBody { get => _htmlBody; set => Edit(ref _htmlBody, value); }
 
     /// <summary>First day, yyyy-MM-dd, or empty.</summary>
-    public string FromText { get; set; } = string.Empty;
+    public string FromText { get => _fromText; set => Edit(ref _fromText, value); }
 
     /// <summary>Last day, yyyy-MM-dd, or empty.</summary>
-    public string ToText { get; set; } = string.Empty;
+    public string ToText { get => _toText; set => Edit(ref _toText, value); }
 
     /// <summary>"" (everyone), "internal" or "external".</summary>
-    public string AudienceOnly { get; set; } = string.Empty;
+    public string AudienceOnly { get => _audienceOnly; set => Edit(ref _audienceOnly, value); }
 
     /// <summary>Own domains, comma separated, for the audience choice.</summary>
-    public string DomainsText { get; set; } = string.Empty;
+    public string DomainsText { get => _domainsText; set => Edit(ref _domainsText, value); }
 
-    public bool ForwardOn { get; set; }
+    public bool ForwardOn { get => _forwardOn; set => Edit(ref _forwardOn, value); }
 
-    public string ForwardTo { get; set; } = string.Empty;
+    public string ForwardTo { get => _forwardTo; set => Edit(ref _forwardTo, value); }
 
-    public bool ForwardKeep { get; set; } = true;
+    public bool ForwardKeep { get => _forwardKeep; set => Edit(ref _forwardKeep, value); }
 
-    public bool BlockCalendar { get; set; }
+    public bool BlockCalendar { get => _blockCalendar; set => Edit(ref _blockCalendar, value); }
 
     /// <summary>"Off", "Active", "Active until ...", "Starts ...", "Ended ..." of what the server has.</summary>
     public string Status => _saved is null ? string.Empty : SrvUiVacationRules.Status(_saved, DateOnly.FromDateTime(_time.GetLocalNow().DateTime));
@@ -129,9 +138,9 @@ public sealed class SrvUiVacationViewModel : SrvUiPageModel
 
     private static string Day(DateOnly? d) => d?.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture) ?? string.Empty;
 
-    private void Edit(ref string field, string value)
+    private void Edit<T>(ref T field, T value)
     {
-        if (string.Equals(field, value, StringComparison.Ordinal)) return;
+        if (EqualityComparer<T>.Default.Equals(field, value)) return;
         field = value;
         _draftVersion++;
     }
@@ -153,19 +162,19 @@ public sealed class SrvUiVacationViewModel : SrvUiPageModel
             return;
         }
 
-        Enabled = v.Enabled;
+        _enabled = v.Enabled;
         _subject = v.Subject;
         _body = v.TextBody;
         _htmlBody = v.HtmlBody ?? string.Empty;
         _savedDraftVersion = _draftVersion;
-        FromText = Day(v.From);
-        ToText = Day(v.To);
-        AudienceOnly = v.Audience?.Only ?? string.Empty;
-        DomainsText = string.Join(", ", v.Audience?.Domains ?? []);
-        ForwardOn = v.Forward?.Enabled ?? false;
-        ForwardTo = v.Forward?.To ?? string.Empty;
-        ForwardKeep = v.Forward?.KeepCopy ?? true;
-        BlockCalendar = v.BlockCalendar;
+        _fromText = Day(v.From);
+        _toText = Day(v.To);
+        _audienceOnly = v.Audience?.Only ?? string.Empty;
+        _domainsText = string.Join(", ", v.Audience?.Domains ?? []);
+        _forwardOn = v.Forward?.Enabled ?? false;
+        _forwardTo = v.Forward?.To ?? string.Empty;
+        _forwardKeep = v.Forward?.KeepCopy ?? true;
+        _blockCalendar = v.BlockCalendar;
         Raise(nameof(Status));
         Raise(string.Empty);
     }
