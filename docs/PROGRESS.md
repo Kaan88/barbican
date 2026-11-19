@@ -42,9 +42,14 @@ deletions; leave them untouched and build from clean worktrees.
   The view and authority/consent plumbing remain open; not in the preview.
 - **Queued plugin responses:** `86f47f4` on `codex/m6b-delivery` captures
   host-only immutable grant/session checks with a successful dispatcher result.
-  All 18 focused dispatcher tests passed. The UI/native transport does not yet
-  call the check, and the async check alone is not atomic with a later send.
-  Not integrated or included in the preview.
+  `30db863` on `codex/m6b-webview-delivery` runs these checks inside the send
+  callback, with a final session check before the synchronous writer. Fake
+  native queue tests show account changes withhold result bytes and revoked
+  grants write no envelope. At this checkpoint, 16 ingress and 1760 Core tests
+  passed and Windows App Automation compiled without warnings or errors.
+  Production factory composition and actual WebView delivery remain open.
+  The checks are not atomic with concurrent authority changes.
+  This work is not integrated or included in the preview.
 
 ## Codex continuation (saved pre-resume checkpoint, 2026-11-19)
 

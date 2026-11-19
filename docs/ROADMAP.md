@@ -8,6 +8,8 @@ Current execution order: **M6 -> M6b -> M7 -> M8 -> M10 -> UI walkthrough and us
 At major progress checkpoints, produce a Windows portable ZIP, verify the extracted
 app with hidden smoke automation, and record the exact source revision and SHA-256.
 Label interim portables as previews; they do not substitute for milestone approval.
+The user requested a pause after M6b is complete. Do not start M7 until the user
+provides the next plan.
 
 | Milestone | Scope (short) | Status |
 |---|---|---|
