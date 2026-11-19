@@ -75,6 +75,10 @@
 
     <!-- M2 plan 3.3 slots: the account header (menus, I-037) above New message and the unified inbox section (unified, wave 2) below it; the shared accounts section (unified) ends the scrolling part. -->
     <StackPanel Grid.Row="0">
+    <Button x:Name="CompactBack" Visibility="Collapsed" MinHeight="40" HorizontalAlignment="Left" Style="{StaticResource Button.Icon}"
+            Padding="12,4" Click="OnCompactBack" AutomationProperties.Name="Back to messages" AutomationProperties.AutomationId="sidebar.back-to-list">
+      <StackPanel Orientation="Horizontal" Spacing="8"><FontIcon Glyph="&#xE72B;" FontSize="16" /><TextBlock Text="Messages" /></StackPanel>
+    </Button>
     <Border Visibility="{x:Bind Look.SidebarSwitcherVisibility, Mode=OneWay}" BorderBrush="{StaticResource Line}" BorderThickness="0,0,0,1" Padding="8,0" Margin="0,0,0,8">
       <Button x:Name="HeaderAccountButton" MinHeight="56" Style="{StaticResource Button.Icon}" HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch"
               Padding="8,0" AutomationProperties.AutomationId="sidebar.account" AutomationProperties.Name="Switch account">

@@ -46,9 +46,13 @@
             <ColumnDefinition Width="*" />
             <ColumnDefinition Width="Auto" />
           </Grid.ColumnDefinitions>
-          <Grid x:Name="ListColumn" Grid.Column="0">
-            <list:MessageListView x:Name="ListRegion" />
-            <Button x:Name="FloatingCompose" HorizontalAlignment="Right" VerticalAlignment="Bottom" Margin="0,0,20,20"
+          <Grid x:Name="ListColumn" Grid.Column="0" RowDefinitions="Auto,*">
+            <Button x:Name="CompactFolders" Grid.Row="0" Visibility="Collapsed" HorizontalAlignment="Left" Padding="12,4" MinHeight="40"
+                    Style="{StaticResource Button.Icon}" Click="OnCompactFolders" AutomationProperties.AutomationId="list.folders" AutomationProperties.Name="Show folders">
+              <StackPanel Orientation="Horizontal" Spacing="8"><controls:SIcon Kind="Folder" Size="16" /><TextBlock Text="Folders" /></StackPanel>
+            </Button>
+            <list:MessageListView x:Name="ListRegion" Grid.Row="1" />
+            <Button Grid.Row="1" x:Name="FloatingCompose" HorizontalAlignment="Right" VerticalAlignment="Bottom" Margin="0,0,20,20"
                     Style="{StaticResource Button.Primary}" Padding="18,0" MinHeight="{x:Bind Look.QuickTarget, Mode=OneWay}"
                     FontFamily="{x:Bind Look.AppBoldFont, Mode=OneWay}" FontSize="{x:Bind Look.BodyTextSize, Mode=OneWay}"
                     FocusVisualPrimaryThickness="{x:Bind Look.FocusThickness, Mode=OneWay}" CornerRadius="22" Click="OnFloatingComposeClick"

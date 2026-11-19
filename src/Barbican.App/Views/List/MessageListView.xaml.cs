@@ -60,9 +60,18 @@ public sealed partial class MessageListView : UserControl
     public PanesViewModel Panes { get; }
 
     // The window width also raises StyleState changes; the containers are swapped only when the style really changed.
+    private double? _compactWidth;
+
+    internal void SetCompactWidth(double? width)
+    {
+        if (_compactWidth == width) return;
+        _compactWidth = width;
+        ApplyStyle();
+    }
+
     private void ApplyStyle()
     {
-        var width = Panes.ListWidth > 0 ? Panes.ListWidth : Look.ListWidth;
+        var width = _compactWidth ?? (Panes.ListWidth > 0 ? Panes.ListWidth : Look.ListWidth);
         if (Math.Abs(Pane.Width - width) > 0.01 || double.IsNaN(Pane.Width))
         {
             Pane.Width = width;

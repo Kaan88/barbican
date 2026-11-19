@@ -40,6 +40,7 @@ public sealed partial class ShellPage : Page
     private bool _showDockMessage;
     private bool _readerFullscreen;
     private bool _composerMaximized;
+    private bool _compactFoldersOpen;
     private Views.Calendar.CalendarScreen? _calendar;
     private readonly ShellViewModel? _shell;
     private readonly IReadOnlyList<IAppScreenFactory> _factories;
@@ -66,7 +67,7 @@ public sealed partial class ShellPage : Page
         // while the remembered accounts are restored the mail screen stays (no sign-in screen flashing up before the account is back)
         _restore = _accounts is null ? null : ViewHost.Find<AccountsStartup>()?.Completion;
         InitializeComponent();
-        WireFullscreen();
+        WireReaderNavigation();
         Tip.SetHost(Overlay);
 
         // M2 hotfix 2: an in-app drag shows the small badge everywhere in the window, not the platform's snapshot of the row; outside a drop target
@@ -166,30 +167,7 @@ public sealed partial class ShellPage : Page
         MailScreen.ColumnSpacing = _look.Gap;
         if (!_look.IsBulwark) _composerMaximized = false;
         var fullscreen = _readerFullscreen && _look.IsBulwark;
-        var hideMailPanes = fullscreen || _composerMaximized;
-
-        ComposerRegion.SetMaximized(_composerMaximized);
-        // Bulwark keeps the mailbox beside an in-page composer. Fold only when the
-        // saved pane widths would leave too little room for the editor controls.
-        var panes = SidebarRegion.Panes;
-        var editorSpace = layout.WindowWidth - _look.RailWidth
-            - (panes.SidebarWidth > 0 ? panes.SidebarWidth : _look.SidebarWidth)
-            - (panes.ListWidth > 0 ? panes.ListWidth : layout.ListWidth);
-        var reading = _look.IsBulwark && !_composing && !ReaderRegion.Reader.IsEmpty;
-        var readerOnly = reading && layout.WindowWidth - _look.RailWidth - (panes.ListWidth > 0 ? panes.ListWidth : layout.ListWidth) < 480;
-        var phone = _look.IsBulwark && layout.WindowWidth < 700;
-        var composerOnly = phone && _composing;
-        RailRegion.Visibility = _composerMaximized || (phone && (reading || _composing)) ? Visibility.Collapsed : Visibility.Visible;
-        SidebarRegion.MaxWidth = phone ? Math.Min(180, layout.WindowWidth / 3) : double.PositiveInfinity;
-        SidebarRegion.Visibility = !composerOnly && layout.SidebarShown && !hideMailPanes
-            && ((!_composing && !reading) || (_look.IsBulwark && editorSpace >= 480)) ? Visibility.Visible : Visibility.Collapsed;
-        ReaderRegion.SetCompactNavigation(readerOnly && !fullscreen, phone);
-        SidebarHandle.Visibility = SidebarRegion.Visibility;
-        ListColumn.Visibility = hideMailPanes || readerOnly || composerOnly ? Visibility.Collapsed : Visibility.Visible;
-        ListRegion.MaxWidth = phone ? Math.Max(1, layout.WindowWidth - _look.RailWidth -
-            (SidebarRegion.Visibility == Visibility.Visible ? SidebarRegion.MaxWidth : 0)) : double.PositiveInfinity;
-        ListHandle.Visibility = phone ? Visibility.Collapsed : ListColumn.Visibility;
-        ReaderRegion.SetFullscreen(fullscreen);
+        ApplyMailPanes(layout, fullscreen);
         Surface.Background = _look.SurfaceBrush;
         Surface.BorderBrush = AppResources.Brush("Line");
         Surface.BorderThickness = _look.SurfaceBorder;
@@ -207,8 +185,49 @@ public sealed partial class ShellPage : Page
         _appliedNordic = _look.IsNordic;
     }
 
-    private void WireFullscreen()
+    private void ApplyMailPanes(ShellLayout layout, bool fullscreen)
     {
+        var hideMailPanes = fullscreen || _composerMaximized;
+
+        ComposerRegion.SetMaximized(_composerMaximized);
+        // Bulwark keeps the mailbox beside an in-page composer. Fold only when the
+        // saved pane widths would leave too little room for the editor controls.
+        var panes = SidebarRegion.Panes;
+        var editorSpace = layout.WindowWidth - _look.RailWidth
+            - (panes.SidebarWidth > 0 ? panes.SidebarWidth : _look.SidebarWidth)
+            - (panes.ListWidth > 0 ? panes.ListWidth : layout.ListWidth);
+        var reading = _look.IsBulwark && !_composing && !ReaderRegion.Reader.IsEmpty;
+        var readerOnly = reading && layout.WindowWidth - _look.RailWidth - (panes.ListWidth > 0 ? panes.ListWidth : layout.ListWidth) < 480;
+        var phone = _look.IsBulwark && layout.WindowWidth < 700;
+        var composerOnly = phone && _composing;
+        RailRegion.Visibility = _composerMaximized || (phone && (reading || _composing)) ? Visibility.Collapsed : Visibility.Visible;
+        if (!phone || reading || _composing) _compactFoldersOpen = false;
+        var foldersOnly = phone && _compactFoldersOpen;
+        CompactFolders.Visibility = phone && !_composing && !reading ? Visibility.Visible : Visibility.Collapsed;
+        SidebarRegion.SetCompactBack(foldersOnly);
+        SidebarRegion.Visibility = (!phone || foldersOnly) && !composerOnly && layout.SidebarShown && !hideMailPanes
+            && ((!_composing && !reading) || (_look.IsBulwark && editorSpace >= 480)) ? Visibility.Visible : Visibility.Collapsed;
+        ReaderRegion.SetCompactNavigation(readerOnly && !fullscreen, phone);
+        SidebarHandle.Visibility = phone ? Visibility.Collapsed : SidebarRegion.Visibility;
+        ListColumn.Visibility = hideMailPanes || readerOnly || composerOnly || foldersOnly ? Visibility.Collapsed : Visibility.Visible;
+        ListRegion.SetCompactWidth(phone ? Math.Max(1, layout.WindowWidth - _look.RailWidth) : null);
+        ReaderColumn.Visibility = phone && !reading && !_composing ? Visibility.Collapsed : Visibility.Visible;
+        ListHandle.Visibility = phone ? Visibility.Collapsed : ListColumn.Visibility;
+        ReaderRegion.SetFullscreen(fullscreen);
+    }
+
+    private void WireCompactNavigation()
+    {
+        SidebarRegion.MessagesRequested += (_, _) => CloseCompactFolders();
+        ListRegion.List.PropertyChanged += (_, e) =>
+        {
+            if (e.PropertyName is nameof(Barbican.Presentation.Mail.MessageListViewModel.MailboxId) or nameof(Barbican.Presentation.Mail.MessageListViewModel.TagId)) CloseCompactFolders();
+        };
+    }
+
+    private void WireReaderNavigation()
+    {
+        WireCompactNavigation();
 #if WINDOWS
         ComposerRegion.SetDetachedWindow(null);
         ComposerRegion.WindowRequested += (_, _) => ToggleComposerWindow();
@@ -227,6 +246,19 @@ public sealed partial class ShellPage : Page
             if (_readerFullscreen && ReaderRegion.Reader.IsEmpty) SetReaderFullscreen(false);
             else if (_look.IsBulwark) ApplyLook();
         };
+    }
+
+    private void OnCompactFolders(object sender, RoutedEventArgs e)
+    {
+        _compactFoldersOpen = true;
+        ApplyLook();
+    }
+
+    private void CloseCompactFolders()
+    {
+        if (!_compactFoldersOpen) return;
+        _compactFoldersOpen = false;
+        ApplyLook();
     }
 
     private void OnReaderBack(object? sender, EventArgs e)

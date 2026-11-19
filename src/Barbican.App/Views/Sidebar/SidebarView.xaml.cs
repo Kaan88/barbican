@@ -42,6 +42,12 @@ public sealed partial class SidebarView : UserControl
         FolderList.AddHandler(DropEvent, new DragEventHandler(OnFolderListDrop), handledEventsToo: true);
     }
 
+    public event EventHandler? MessagesRequested;
+
+    internal void SetCompactBack(bool visible) => CompactBack.Visibility = visible ? Visibility.Visible : Visibility.Collapsed;
+
+    private void OnCompactBack(object sender, RoutedEventArgs e) => MessagesRequested?.Invoke(this, EventArgs.Empty);
+
     public SidebarViewModel Sidebar { get; }
 
     public RailViewModel Account { get; } = ViewHost.Get<RailViewModel>();

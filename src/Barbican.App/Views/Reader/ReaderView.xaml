@@ -316,7 +316,7 @@
             </Button>
             <Button Grid.Column="2" Style="{StaticResource Button.Icon}" HorizontalAlignment="Stretch" Padding="0" Click="OnReplyAllClick"
                     AutomationProperties.Name="Reply all" AutomationProperties.AutomationId="reader.mobile.replyall">
-              <StackPanel Spacing="2"><FontIcon Glyph="&#xEE0A;" FontSize="16" /><TextBlock Text="Reply all" HorizontalAlignment="Center" FontSize="11" /></StackPanel>
+              <StackPanel Spacing="2"><controls:SIcon Kind="ReplyAll" Size="16" HorizontalAlignment="Center" /><TextBlock Text="Reply all" HorizontalAlignment="Center" FontSize="11" /></StackPanel>
             </Button>
             <Button Grid.Column="3" Style="{StaticResource Button.Icon}" HorizontalAlignment="Stretch" Padding="0" Click="OnForwardClick"
                     AutomationProperties.Name="Forward" AutomationProperties.AutomationId="reader.mobile.forward">
