@@ -51,7 +51,11 @@ public sealed class SrvUiVacationViewModel : SrvUiPageModel
         };
     }
 
-    public bool CanSave => IsLoaded(AccountKey, Interlocked.Read(ref _accountGeneration)) && !IsLoading;
+    public long FormGeneration => Interlocked.Read(ref _accountGeneration);
+
+    public bool IsCurrentForm(long generation) => generation == FormGeneration && IsLoaded(AccountKey, generation);
+
+    public bool CanSave => IsCurrentForm(FormGeneration) && !IsLoading;
 
     public bool Enabled { get => _enabled; set => Edit(ref _enabled, value); }
 
