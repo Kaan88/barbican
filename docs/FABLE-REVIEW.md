@@ -1724,3 +1724,26 @@ The filter modal captures the account that owns its loaded rules and their versi
 ## Codex - M6 srv-ui (Terra High)
 
 - Filter rules and folder choices now load for a captured account/generation. Editors, scans, apply dialogs and delete confirmations retain that generation; A-to-B-to-A rejects stale work and an already-issued apply may finish only on its original account. Recovery now passes an explicit account into its source and rejects stale rendered row actions even for colliding ids. Controlled regressions cover stale scans/editors and recovery collisions. The previous test assumption that the new account never reloads before modal construction was replaced with deterministic generation tests. Review same-account overlapping reload ordering and actual server behavior; no real writes were run.
+## Codex — M6b contract preparation (Sol)
+
+- Reviewed and integrated the 186-method/58-slot source inventory as `4fff9d4`; it identifies static and conditional checks without claiming executable authorization. `docs/milestones/M6b-contracts.md` records coordinator-owned package/grant/instance/RPC/API/slot seams, frame identity, native pre-load trust and unchanged fixture acceptance. Compiling contracts/red tests and complete transitive payload schemas remain required before production implementation. Microsoft frame/security documentation was checked for the proposed Windows identity boundary; the installed SDK still needs verification. No plugin runtime or security/compatibility test was executed by this documentation change.
+
+## Codex — M6 final settings consumer classification (Sol)
+
+- The remaining 25 missing read-by entries were audited: 19 are explicitly inert under D-M6-A03 and already labeled unused by SettingsCatalog/SetUiRowsView, two recipient-mention preferences are read by ComposerService, and four Windows notification/badge preferences store values for M8. The latter now say they are not active in the product UI; M8 must replace that label when its real consumers land. This reconciles evidence without claiming inert settings work or that already-open composer drafts update live.
+
+## Codex — M6 executable hook gate (Sol)
+
+- Added real-service execution cases in `tests/Barbican.Core.Tests/Settings/M6HookExecutionTests.cs`, real reply-seeding transform cases in `Compose/M6ComposeHookExecutionTests.cs`, and actual composer identity/template paths in `tests/Barbican.Presentation.Tests/Compose/M6ComposerHookExecutionTests.cs`. All 36 distinct M6 hook names are observed or transform a checked result across five passing cases (Core 4/4, Presentation 1/1). `spec/feel/M6/hooks-execution.json` maps every name to the executed case and hashes the tested files. This improves on the source-text call-site gate; it does not prove JS/native plugin bridge compatibility or permission projection, which are M6b obligations. Account security operations use FakeJmap only. Observer work is awaited with a bounded asynchronous wait because Fire queues it.
+
+## Codex — updated whole-roadmap goal (Sol)
+
+- The user now requests all roadmap implementation except Linux M9, then an Astra review/fix loop until Astra is satisfied, then a UI walkthrough with look/feel/usability fixes. Current continuation/roadmap/progress instructions reflect the expanded scope. The brief stop preserved worker WIP and was immediately superseded by this new active goal; both UI workers resumed their exact files. This does not authorize main merges, tags, OS changes or real security writes beyond the standing rules.
+
+## Codex - M6 vacation concurrency and snapshot (Terra High)
+
+`VacationSettings.State` and `SieveState` carry the loaded VacationResponse and SieveScript versions. Saves reject missing or changed versions, use `ifInState` and exact singleton acknowledgement, and patch only changed fields. `IVacationService.LoadSnapshotAsync` does not reconcile the calendar; ordinary writable loads retain the source behavior in Bulwark `stores/vacation-store.ts:160` and `lib/vacation-calendar.ts:233-306`, while read-only loads never reconcile. The Settings editor must preserve the loaded versions and account identity.
+
+Stalwart 0.16.27 `crates/jmap/src/vacation/get.rs` and `set.rs` use the SieveScript collection for vacation state. For explicitly identified Stalwart clients on the same account, the acknowledged vacation state advances the expected Sieve state; a concurrent subsequent change produces a partial-result error. The managed script selector excludes the reserved `vacation` script, matching Bulwark `stores/filter-store.ts:422-429`. Fake tests cover vacation activation with existing filters, stale editors, post-write races, read-only loads, and non-reconciling snapshots. Windows Core: 1540 passed; Presentation: 1034 passed; no skips.
+
+The response and script updates are separate operations, so failures can leave partial changes; this is not crash-atomic. Calendar reconciliation remains source-backed and writable. No live writes or exact-restoration harness were run; restoration of raw dates, reserved scripts, activation and calendar events requires a reviewed conflict-safe procedure before live testing. Review the integrated Presentation version/account fencing and actual server behavior.

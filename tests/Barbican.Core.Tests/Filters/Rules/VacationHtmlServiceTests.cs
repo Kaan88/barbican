@@ -9,14 +9,16 @@ public sealed class VacationHtmlServiceTests
     {
         var ct = TestContext.Current.CancellationToken;
         var rig = await FilterTestRig.StartAsync();
-        var value = new VacationSettings(true, "Away", "Plain reply", "<p>Rich <b>reply</b></p>", null, null, null, null, false);
+        var initial = await rig.Vacation.LoadSnapshotAsync(FilterTestRig.Account, ct);
+        Assert.True(initial.IsOk, initial.Error?.Message);
+        var value = initial.Value! with { Enabled = true, Subject = "Away", TextBody = "Plain reply", HtmlBody = "<p>Rich <b>reply</b></p>", BlockCalendar = false };
         var saved = await rig.Vacation.SaveAsync(FilterTestRig.Account, value, ct);
         Assert.True(saved.IsOk, saved.Error?.Message);
         var loaded = await rig.Vacation.LoadAsync(FilterTestRig.Account, ct);
         Assert.True(loaded.IsOk, loaded.Error?.Message);
         Assert.Equal(value.TextBody, loaded.Value!.TextBody);
         Assert.Equal(value.HtmlBody, loaded.Value.HtmlBody);
-        var cleared = await rig.Vacation.SaveAsync(FilterTestRig.Account, value with { HtmlBody = null }, ct);
+        var cleared = await rig.Vacation.SaveAsync(FilterTestRig.Account, loaded.Value! with { HtmlBody = null }, ct);
         Assert.True(cleared.IsOk, cleared.Error?.Message);
         loaded = await rig.Vacation.LoadAsync(FilterTestRig.Account, ct);
         Assert.Null(loaded.Value!.HtmlBody);

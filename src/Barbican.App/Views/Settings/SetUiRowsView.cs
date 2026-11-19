@@ -521,9 +521,11 @@ public sealed class SetUiRowsView : StackPanel
     }
 
     private static string Note(SettingRow row, string desc) =>
-        row.Status == SettingRowStatus.Unwired || string.Equals(row.Id, "S-keyless-059", StringComparison.Ordinal)
-            ? (desc.Length > 0 ? desc + " " : string.Empty) + "Not used by the app yet."
-            : desc;
+        row.Key is "emailNotificationSound" or "emailNotificationsEnabled" or "pushNotifyInboxOnly" or "unreadBadgeAllAccounts"
+            ? (desc.Length > 0 ? desc + " " : string.Empty) + "Windows email notifications and badges are not available yet. This setting is saved for future use."
+            : row.Status == SettingRowStatus.Unwired || string.Equals(row.Id, "S-keyless-059", StringComparison.Ordinal)
+                ? (desc.Length > 0 ? desc + " " : string.Empty) + "Not used by the app yet."
+                : desc;
 
     private JsonNode? Current(SettingRow row) => _vm.RowsOf(_pageId).FirstOrDefault(x => string.Equals(x.Row.Id, row.Id, StringComparison.Ordinal))?.Value;
 

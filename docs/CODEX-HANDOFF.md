@@ -129,10 +129,15 @@ Do not stop at each milestone for hand-test gates or routine questions. Record
 human-only checks as unproven. Maintain FABLE-REVIEW notes as work proceeds, but
 run no separate Fable reviews until the final whole-app review.
 
-The current user goal is **M6 -> M6b -> M7 -> M8 -> M10, then stop**. Produce and
-verify a fresh Windows portable zip after M6 closes. M9 (Linux last) and the final Astra
-whole-app review remain later work outside this run. Windows-only results must be identified as such; Linux is
-deferred, not passed. On pause, save and push work, stop only your own processes,
+The current user goal is **complete the roadmap except M9 (Linux)**: finish
+M6 -> M6b -> M7 -> M8 -> M10, then work with Astra to fix findings until Astra is
+satisfied, then perform a UI walkthrough and fix look, feel and usability issues.
+Produce and verify a fresh Windows portable zip after M6 closes; the delivered M6
+preview does not replace that final milestone package. Astra review is part of this
+run after implementation, not a separate review gate on every stream. Record its
+findings, fixes and explicit final disposition against current commits. The later UI
+walkthrough uses hidden native automation and synthetic data under the standing rules.
+Windows-only results must be identified as such; Linux is deferred, not passed. On pause, save and push work, stop only your own processes,
 clean test-account writes, and update PROGRESS.md with exact commits and next steps.
 
 Known carryovers: crowded calendar event titles clip; scheduled-send banner can

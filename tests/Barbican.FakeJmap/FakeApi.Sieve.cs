@@ -48,6 +48,36 @@ public sealed partial class FakeApi
         }
     }
 
+    /// <summary>Returns a named synthetic script's text for isolated test verification.</summary>
+    public string? SieveText(string name)
+    {
+        lock (_lock)
+        {
+            var script = _scripts.FirstOrDefault(s => string.Equals(s.Name, name, StringComparison.Ordinal));
+            return script.Id is null ? null : Encoding.UTF8.GetString(store.Blob(script.BlobId) ?? []);
+        }
+    }
+
+    // Stalwart 0.16.27 vacation/set operates on SyncCollection::SieveScript and activates its reserved script.
+    private void ApplyVacationSieveState()
+    {
+        var index = _scripts.FindIndex(script => string.Equals(script.Name, "vacation", StringComparison.Ordinal));
+        if (index < 0)
+        {
+            var id = (++_scriptSeq).ToString(CultureInfo.InvariantCulture);
+            _scripts.Add((id, "vacation", store.PutBlob(Encoding.UTF8.GetBytes("# fake reserved vacation")), false));
+            index = _scripts.Count - 1;
+        }
+
+        if (CurrentVacation.IsEnabled)
+        {
+            var id = _scripts[index].Id;
+            for (var i = 0; i < _scripts.Count; i++) _scripts[i] = _scripts[i] with { Active = string.Equals(_scripts[i].Id, id, StringComparison.Ordinal) };
+        }
+        else if (_scripts[index].Active) _scripts[index] = _scripts[index] with { Active = false };
+        _scriptState++;
+    }
+
     private static string? SieveError(string text)
     {
         if (text.Contains("fake-invalid-sieve", StringComparison.Ordinal))

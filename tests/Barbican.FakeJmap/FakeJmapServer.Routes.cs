@@ -233,7 +233,7 @@ public sealed partial class FakeJmapServer
     {
         if (o.SieveCapability)
         {
-            caps["urn:ietf:params:jmap:sieve"] = new JsonObject();
+            caps["urn:ietf:params:jmap:sieve"] = new JsonObject { ["sieveExtensions"] = new JsonArray([.. o.SieveExtensions.Select(value => (JsonNode?)JsonValue.Create(value))]) };
         }
 
         if (o.FileNodeCapability)
