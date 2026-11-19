@@ -73,7 +73,7 @@
     <StackPanel Grid.Row="0">
     <ContentPresenter x:Name="AccountHeaderSlot" />
     <!-- New message: runs the compose command (M3 composer-ui). -->
-    <Button x:Name="ComposeButton" Style="{StaticResource Button.Primary}" FocusVisualPrimaryThickness="{x:Bind Look.FocusThickness, Mode=OneWay}" HorizontalAlignment="Stretch" Click="OnComposeClick"
+    <Button x:Name="ComposeButton" Visibility="{x:Bind Look.SidebarComposeVisibility, Mode=OneWay}" Style="{StaticResource Button.Primary}" FocusVisualPrimaryThickness="{x:Bind Look.FocusThickness, Mode=OneWay}" HorizontalAlignment="Stretch" Click="OnComposeClick"
             Height="{x:Bind Look.ComposeHeight, Mode=OneWay}" CornerRadius="{x:Bind Look.ComposeRadius, Mode=OneWay}" Margin="{x:Bind Look.ComposeMargin, Mode=OneWay}"
             FontFamily="{x:Bind Look.AppBoldFont, Mode=OneWay}" FontSize="{x:Bind Look.ComposeFontSize, Mode=OneWay}"
             AutomationProperties.AutomationId="sidebar.compose" AutomationProperties.Name="Compose">

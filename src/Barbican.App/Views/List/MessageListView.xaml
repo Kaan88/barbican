@@ -143,7 +143,7 @@
           <ContentPresenter x:Name="SelectionBarSlot" />
         </StackPanel>
 
-        <ListView Grid.Row="2" x:Name="Rows" RenderTransformOrigin="0,0" ItemsSource="{x:Bind List.Rows}" ItemTemplateSelector="{StaticResource RowSelector}" SelectionMode="Single" Padding="{x:Bind Look.ListPadding, Mode=OneWay}"
+        <ListView Grid.Row="2" x:Name="Rows" Margin="{x:Bind Look.ListViewportMargin, Mode=OneWay}" RenderTransformOrigin="0,0" ItemsSource="{x:Bind List.Rows}" ItemTemplateSelector="{StaticResource RowSelector}" SelectionMode="Single" Padding="{x:Bind Look.ListPadding, Mode=OneWay}"
                   SelectionChanged="OnSelectionChanged" ContainerContentChanging="OnContainerContentChanging" win:ShowsScrollingPlaceholders="False"
                   CanDragItems="True" DragItemsStarting="OnDragItemsStarting" DragItemsCompleted="OnDragItemsCompleted"
                   AutomationProperties.AutomationId="list.rows" AutomationProperties.Name="Message list">
