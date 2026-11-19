@@ -38,7 +38,7 @@ public sealed class AccessibilityQuickContent : IDialogContent
             button.Height = double.NaN;
             Bind(button, Control.MinHeightProperty, nameof(StyleState.QuickTarget));
             Bind(button, Control.FontSizeProperty, nameof(StyleState.BodyTextSize));
-            Bind(button, Control.FontFamilyProperty, nameof(StyleState.AppFont));
+            Bind(button, Control.FontFamilyProperty, nameof(StyleState.AppBoldFont));
             Bind(button, Control.FocusVisualPrimaryThicknessProperty, nameof(StyleState.FocusThickness));
             return button;
         }

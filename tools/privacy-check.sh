@@ -31,8 +31,11 @@ fi
 
 # 2. Every e-mail address must use a fictional or public-service domain.
 allow='@([a-z0-9-]+\.)*(example|example\.(org|com|net)|anthropic\.com|users\.noreply\.github\.com|okafor\.studio|stalw\.art|flytap\.com|fastmail\.de|hetzner\.com|thebrowser\.com|github\.com|barbican\.mail|prize-centre\.biz|fischer-arch\.de|studio-north\.eu|domain\.com|bulwarkmail\.org|yahoo\.com)$'
-addrs=$(git grep $opt -I -h -o -i -E '[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}' $tree -- . "$self" \
-  | sort -u | grep -v -i -E "$allow" || true)
+# This exact upstream copyright notice is required by the bundled font's OFL.
+# Keep filenames and line numbers until after this one file-and-address exception.
+addrs=$(git grep $opt -I -n -o -i -E '[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}' $tree -- . "$self" \
+  | grep -v -i -E '(^|:)src/Barbican[.]App/Assets/Fonts/OpenDyslexic-OFL[.]txt:[0-9]+:support@abbiecod[.]es$' \
+  | sed -E 's/^.*:[0-9]+://' | sort -u | grep -v -i -E "$allow" || true)
 if [ -n "$addrs" ]; then
   echo "privacy-check: e-mail addresses outside the allowlist:" >&2
   echo "$addrs" >&2

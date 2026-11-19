@@ -6,3 +6,4 @@
 *.ico binary
 *.dll binary
 *.zip binary
+src/Barbican.App/Assets/Fonts/*-OFL.txt whitespace=-blank-at-eol
