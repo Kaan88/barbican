@@ -1,7 +1,7 @@
 // Mirrors: Rust jmap.rs:524 list_page (Email/query, then Email/get of /ids and Thread/get of /list/*/threadId in one request; an
 // anchor the server no longer finds falls back to the position; a page larger than maxObjectsInGet reads the ids and the states in one
-// request and the rows in chunks), :1564 thread_sizes; RFC 8620 §5.5 (query: position, anchor, anchorOffset, calculateTotal,
-// canCalculateChanges), §3.7 (result references); Bulwark lib/jmap/client.ts:3085 getEmails (rows in query order). Owner jmap.
+// request and the rows in chunks), :1564 thread_sizes; RFC 8620 Ã‚§5.5 (query: position, anchor, anchorOffset, calculateTotal,
+// canCalculateChanges), Ã‚§3.7 (result references); Bulwark lib/jmap/client.ts:3085 getEmails (rows in query order). Owner jmap.
 
 using System.Text.Json.Nodes;
 using Barbican.Core.Common;
@@ -10,6 +10,7 @@ using Barbican.Core.Jmap.Errors;
 using Barbican.Core.Jmap.Json;
 using Barbican.Core.Jmap.Requests;
 using Barbican.Core.Mail.Model;
+using Barbican.Core.Mail.Lists;
 
 namespace Barbican.Core.Mail.Service;
 
@@ -17,21 +18,29 @@ namespace Barbican.Core.Mail.Service;
 public static class ListPageFetcher
 {
     /// <summary>The page of <paramref name="filter"/> after <paramref name="after"/> (null: the first page).</summary>
-    public static async Task<Result<ListPage>> FetchAsync(IJmapClient client, JsonObject filter, ListCursor? after, int limit, CancellationToken ct, bool? collapseThreads = null)
+    public static async Task<Result<ListPage>> FetchAsync(IJmapClient client, JsonObject filter, ListCursor? after, int limit, CancellationToken ct, bool? collapseThreads = null, IReadOnlyList<SortComparator>? sort = null)
     {
         ArgumentNullException.ThrowIfNull(client);
         ArgumentNullException.ThrowIfNull(filter);
+        var resolvedSort = await ListSortResolver.ResolveAsync(client, sort, ct).ConfigureAwait(false);
         var position = after?.Position ?? 0;
         var page = limit > client.Session.Limits.MaxObjectsInGet
-            ? await ChunkedAsync(client, filter, position, after?.AnchorId, limit, collapseThreads, ct).ConfigureAwait(false)
-            : await OneRequestAsync(client, filter, position, after?.AnchorId, limit, collapseThreads, ct).ConfigureAwait(false);
+            ? await ChunkedAsync(client, filter, position, after?.AnchorId, limit, collapseThreads, resolvedSort, ct).ConfigureAwait(false)
+            : await OneRequestAsync(client, filter, position, after?.AnchorId, limit, collapseThreads, resolvedSort, ct).ConfigureAwait(false);
         if (!page.IsOk && !string.IsNullOrEmpty(after?.AnchorId) && page.Error is MethodError { Type: "anchorNotFound" })
         {
             // the anchor was deleted or moved out: read from where it stood (Rust jmap.rs:541)
-            return await FetchAsync(client, filter, after with { AnchorId = "" }, limit, ct, collapseThreads).ConfigureAwait(false);
+            return await FetchAsync(client, filter, after with { AnchorId = "" }, limit, ct, collapseThreads, sort).ConfigureAwait(false);
         }
 
-        return page;
+        if (!page.IsOk && page.Error is MethodError { Type: "unsupportedSort" } && resolvedSort?.Any(item => item.Keyword is not null) == true)
+        {
+            ListSortResolver.RefusedKeywords(client);
+            return await FetchAsync(client, filter, after, limit, ct, collapseThreads, sort).ConfigureAwait(false);
+        }
+
+        return page.IsOk && sort?.Any(item => item.Keyword is not null) == true && ListSortResolver.KeywordsUnsupported(client)
+            ? Result<ListPage>.Ok(page.Value! with { Warning = "This server cannot prioritize messages by read state, stars or tags. Other sort levels still apply." }) : page;
     }
 
     /// <summary>Conversation sizes by thread id.</summary>
@@ -54,19 +63,19 @@ public static class ListPageFetcher
         [.. list.Select(ModelReader.Summary).OfType<EmailSummary>()
             .Select(e => e.ThreadId is { } t && threads.TryGetValue(t, out var n) ? e with { ThreadCount = n } : e)];
 
-    private static JsonObject Query(IJmapClient client, JsonObject filter, int position, string? anchor, int limit, bool? collapseThreads)
+    private static JsonObject Query(IJmapClient client, JsonObject filter, int position, string? anchor, int limit, bool? collapseThreads, IReadOnlyList<SortComparator>? sort)
     {
         var q = new JsonObject
         {
             ["accountId"] = client.Session.MailAccountId,
             ["filter"] = filter.DeepClone(),
-            ["sort"] = JmapProperties.ListSort(),
+            ["sort"] = MessageListOrder.ComparatorsJson(sort),
             ["limit"] = limit,
             ["calculateTotal"] = true,
         };
         if (collapseThreads is { } collapse)
         {
-            // RFC 8621 §4.4.3: one message per conversation; opt-in (the list asks for every message, as Bulwark does), J-051
+            // RFC 8621 Ã‚§4.4.3: one message per conversation; opt-in (the list asks for every message, as Bulwark does), J-051
             q["collapseThreads"] = collapse;
         }
 
@@ -84,11 +93,11 @@ public static class ListPageFetcher
     }
 
     private static async Task<Result<ListPage>> OneRequestAsync(
-        IJmapClient client, JsonObject filter, int position, string? anchor, int limit, bool? collapseThreads, CancellationToken ct)
+        IJmapClient client, JsonObject filter, int position, string? anchor, int limit, bool? collapseThreads, IReadOnlyList<SortComparator>? sort, CancellationToken ct)
     {
         var acc = client.Session.MailAccountId;
         var b = new JmapRequestBuilder();
-        var q = b.Add("Email/query", Query(client, filter, position, anchor, limit, collapseThreads));
+        var q = b.Add("Email/query", Query(client, filter, position, anchor, limit, collapseThreads, sort));
         var g = b.Add("Email/get", new JsonObject { ["accountId"] = acc, ["#ids"] = q.Ref("/ids"), ["properties"] = JmapProperties.Json(JmapProperties.EmailList) });
         var t = b.Add("Thread/get", new JsonObject { ["accountId"] = acc, ["#ids"] = g.Ref("/list/*/threadId") });
         var sent = await client.SendAsync(b.Build(), ct).ConfigureAwait(false);
@@ -107,15 +116,18 @@ public static class ListPageFetcher
         }
 
         var threads = ThreadSizes(ta.Value!.Arr("list") ?? []);
-        return Result<ListPage>.Ok(Page(qa.Value!, Rows(ga.Value!.Arr("list") ?? [], threads), qa.Value!.Strings("ids"), threads, ga.Value!.Str("state"), ta.Value!.Str("state"), limit));
+        var ids = qa.Value!.Strings("ids");
+        var byId = Rows(ga.Value!.Arr("list") ?? [], threads).ToDictionary(item => item.Id, StringComparer.Ordinal);
+        var ordered = ids.Where(byId.ContainsKey).Select(id => byId[id]).ToList();
+        return Result<ListPage>.Ok(Page(qa.Value!, ordered, ids, threads, ga.Value!.Str("state"), ta.Value!.Str("state"), limit));
     }
 
     private static async Task<Result<ListPage>> ChunkedAsync(
-        IJmapClient client, JsonObject filter, int position, string? anchor, int limit, bool? collapseThreads, CancellationToken ct)
+        IJmapClient client, JsonObject filter, int position, string? anchor, int limit, bool? collapseThreads, IReadOnlyList<SortComparator>? sort, CancellationToken ct)
     {
         var acc = client.Session.MailAccountId;
         var b = new JmapRequestBuilder();
-        var q = b.Add("Email/query", Query(client, filter, position, anchor, limit, collapseThreads));
+        var q = b.Add("Email/query", Query(client, filter, position, anchor, limit, collapseThreads, sort));
         var e = b.Add("Email/get", new JsonObject { ["accountId"] = acc, ["ids"] = new JsonArray(), ["properties"] = new JsonArray("id") });
         var t = b.Add("Thread/get", new JsonObject { ["accountId"] = acc, ["ids"] = new JsonArray() });
         var sent = await client.SendAsync(b.Build(), ct).ConfigureAwait(false);
