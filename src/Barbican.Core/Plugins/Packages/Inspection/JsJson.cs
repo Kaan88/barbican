@@ -129,7 +129,7 @@ internal static class JsJson
         result.Append('"');
     }
 
-    private static string Number(double value)
+    internal static string Number(double value)
     {
         if (!double.IsFinite(value)) return "null";
         if (value == 0) return "0";

@@ -12,7 +12,6 @@ public sealed class PluginScopedStorageAcceptanceTests
     private static CancellationToken Ct => TestContext.Current.CancellationToken;
 
     [Fact]
-    [Red("m6b-packages")]
     public async Task StorageIsIsolatedByProfilePluginAndCapturedLogin()
     {
         var rig = new PackageTestRig();
@@ -40,7 +39,6 @@ public sealed class PluginScopedStorageAcceptanceTests
     }
 
     [Fact]
-    [Red("m6b-packages")]
     public async Task ConsentedUpdateRetainsStableDataButRejectsOldGeneration()
     {
         var rig = new PackageTestRig();
@@ -58,7 +56,6 @@ public sealed class PluginScopedStorageAcceptanceTests
     }
 
     [Fact]
-    [Red("m6b-packages")]
     public async Task ActiveLoginSwitchDuringStorageReadRefusesStaleCapturedResult()
     {
         var rig = new PackageTestRig();
@@ -75,7 +72,6 @@ public sealed class PluginScopedStorageAcceptanceTests
     }
 
     [Fact]
-    [Red("m6b-packages")]
     public async Task StorageUsesJsonStringifyRatherThanStructuredCloneEncoding()
     {
         var rig = new PackageTestRig();
@@ -96,7 +92,6 @@ public sealed class PluginScopedStorageAcceptanceTests
     }
 
     [Fact]
-    [Red("m6b-packages")]
     public async Task StorageRejectsCyclesAndTopLevelUndefinedWithoutChangingPreviousValue()
     {
         var rig = new PackageTestRig();
@@ -113,7 +108,6 @@ public sealed class PluginScopedStorageAcceptanceTests
     }
 
     [Fact]
-    [Red("m6b-packages")]
     public async Task StorageEnforcesUtf16QuotaIncludingKeysBeforeMutation()
     {
         var rig = new PackageTestRig();
@@ -125,6 +119,26 @@ public sealed class PluginScopedStorageAcceptanceTests
         var limits = new PluginValueLimits(MaxWireBytes: 5_000_000, MaxStringBytes: 3_000_000);
         Assert.False((await storage.SetAsync(binding, capture, "sample", builder.Build(large, limits), Ct)).IsOk);
         Assert.Equal("original", PluginPackageManagerAcceptanceTests.Need(await storage.GetAsync(binding, capture, "sample", Ct))!.StringValue, StringComparer.Ordinal);
+        await binding.DisposeAsync();
+    }
+
+    [Fact]
+    public async Task StorageStringifiesTypedArraysAsIndexedObjectsAndDataViewsAsEmptyObjects()
+    {
+        var rig = new PackageTestRig();
+        var (_, storage, binding, capture) = await StartAsync(rig);
+        var builder = new PluginValueBuilder();
+        var buffer = builder.Buffer([1, 255]);
+        var array = builder.View(buffer, PluginViewType.Uint8, 0, 2);
+        Assert.True((await storage.SetAsync(binding, capture, "bytes", builder.Build(array), Ct)).IsOk);
+        var value = PluginPackageManagerAcceptanceTests.Need(await storage.GetAsync(binding, capture, "bytes", Ct))!;
+        Assert.Equal("1", value.Property("0").NumberText, StringComparer.Ordinal);
+        Assert.Equal("255", value.Property("1").NumberText, StringComparer.Ordinal);
+        var viewBuilder = new PluginValueBuilder();
+        var viewBuffer = viewBuilder.Buffer([1, 2]);
+        var view = viewBuilder.View(viewBuffer, PluginViewType.DataView, 0, 2);
+        Assert.True((await storage.SetAsync(binding, capture, "view", viewBuilder.Build(view), Ct)).IsOk);
+        Assert.Empty(PluginPackageManagerAcceptanceTests.Need(await storage.GetAsync(binding, capture, "view", Ct))!.PropertyNames);
         await binding.DisposeAsync();
     }
 
