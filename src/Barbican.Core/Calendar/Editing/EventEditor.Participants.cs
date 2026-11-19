@@ -174,12 +174,12 @@ public static partial class EventEditor
     }
 
     /// <summary>The participant fields of a save (Bulwark participantFieldsToSave).</summary>
-    internal static JsonObject ParticipantFields(JsonNode? ev, IReadOnlyList<CalendarPerson> attendees, IReadOnlyList<string> me, bool rescheduled)
+    internal static JsonObject ParticipantFields(JsonNode? ev, IReadOnlyList<CalendarPerson> attendees, IReadOnlyList<string> me, bool rescheduled, CalendarPerson? preferredOrganizer = null)
     {
         var fields = new JsonObject();
         if (attendees.Count > 0 && me.Count > 0)
         {
-            var organizer = (ev is null ? null : EventOrganizer(ev)) ?? new CalendarPerson("", me[0]);
+            var organizer = (ev is null ? preferredOrganizer : EventOrganizer(ev)) ?? new CalendarPerson("", me[0]);
             var ask = rescheduled && (ev is null || UserOrganizes(ev, me));
             fields["participants"] = BuildParticipantMap(organizer, attendees, ev.Child("participants"), ask, me);
             if (ev is null || !ev.IsString("organizerCalendarAddress"))

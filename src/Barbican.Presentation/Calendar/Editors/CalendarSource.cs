@@ -10,6 +10,7 @@ public sealed class CalendarSource : IEditorSource
     private readonly ICalendarStore _store;
     private readonly IAccountManager? _accounts;
     private readonly ICalendarSubscriptions? _subscriptions;
+    private long _accountVersion;
     private IReadOnlySet<string> _feeds = new HashSet<string>(StringComparer.Ordinal);
 
     public CalendarSource(ICalendarStore store, IAccountManager? accounts = null, ICalendarSubscriptions? subscriptions = null)
@@ -19,9 +20,15 @@ public sealed class CalendarSource : IEditorSource
         _accounts = accounts;
         _subscriptions = subscriptions;
         _store.Changed += (_, _) => Changed?.Invoke(this, EventArgs.Empty);
+        if (_accounts is not null)
+        {
+            _accounts.ActiveChanged += (_, _) => Interlocked.Increment(ref _accountVersion);
+        }
     }
 
     public event EventHandler? Changed;
+
+    public long AccountVersion => Interlocked.Read(ref _accountVersion);
 
     public string? AccountKey => _accounts?.Active?.Key;
 

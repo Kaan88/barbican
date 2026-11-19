@@ -18,6 +18,7 @@ public sealed partial class EventEditorViewModel : ObservableObject
     public static IReadOnlyList<string> VisibilityChoices { get; } = ["Public", "Private", "Secret"];
 
     private readonly EventEditorServices _s;
+    private readonly long _accountVersion;
     private readonly TaskCompletionSource _closed = new(TaskCreationOptions.RunContinuationsAsynchronously);
     private JsonNode? _event;
     private (DateTime Start, DateTime End)? _occurrence;
@@ -46,6 +47,7 @@ public sealed partial class EventEditorViewModel : ObservableObject
     {
         ArgumentNullException.ThrowIfNull(services);
         _s = services;
+        _accountVersion = services.Source.AccountVersion;
         Recurrence = new RecurrenceEditorViewModel(services.Rules);
         Recurrence.PropertyChanged += (_, _) => OnPropertyChanged(nameof(RepeatSummary));
         var now = (services.Time ?? TimeProvider.System).GetLocalNow().DateTime;

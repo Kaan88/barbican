@@ -47,6 +47,7 @@ public sealed class EventEditorViewModelTests
         Assert.True(e.CommitGuest());
         Assert.True(await e.SaveAsync(CancellationToken.None));
         Assert.Equal("organizer@example.org", _rules.LastForm!.Me[0]);
+        Assert.Equal(new CalendarPerson("Other", "organizer@example.org"), _rules.LastForm.PreferredOrganizer);
     }
 
     [Fact]
@@ -59,6 +60,7 @@ public sealed class EventEditorViewModelTests
         Assert.True(e.CommitGuest());
         var save = e.SaveAsync(CancellationToken.None);
         _source.AccountKey = "other";
+        _source.AccountKey = "acct";
         identities.Answer.SetResult(Result<IReadOnlyList<CalendarParticipantIdentity>>.Ok([]));
         Assert.False(await save);
         Assert.Empty(_writer.Saves);

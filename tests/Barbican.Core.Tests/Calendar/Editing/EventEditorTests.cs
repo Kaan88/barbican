@@ -28,6 +28,21 @@ public sealed class EventEditorTests
     };
 
     [Fact]
+    public void Preferred_organizer_is_used_only_for_new_invitations()
+    {
+        var f = Form() with { Attendees = [P("Guest", "guest@example.org")], PreferredOrganizer = P("Preferred Name", "preferred@example.org"), Me = ["preferred@example.org", "me@x.example"] };
+        var created = EventEditor.BuildData(f, null, null).Data;
+        Assert.Equal("mailto:preferred@example.org", (string?)created["organizerCalendarAddress"]);
+        var owner = created["participants"]!.AsObject().Select(x => x.Value).Single(x => (bool?)x?["roles"]?["owner"] == true);
+        Assert.Equal("Preferred Name", (string?)owner!["name"]);
+        var existing = J("""{"organizerCalendarAddress":"mailto:existing@example.org","participants":{"o":{"calendarAddress":"mailto:existing@example.org","email":"existing@example.org","name":"Existing Name","roles":{"owner":true}}}}""");
+        var edited = EventEditor.BuildData(f, existing, null).Data;
+        var existingOwner = edited["participants"]!.AsObject().Select(x => x.Value).Single(x => (bool?)x?["roles"]?["owner"] == true);
+        Assert.Equal("existing@example.org", (string?)existingOwner!["email"]);
+        Assert.Equal("Existing Name", (string?)existingOwner["name"]);
+    }
+
+    [Fact]
     [RustTest("cal_editor::new_event_data")]
     public void New_event_data()
     {
