@@ -53,8 +53,13 @@
             <Button Style="{StaticResource Button.Action}" Height="{x:Bind Look.ActionButtonHeight, Mode=OneWay}" CornerRadius="{x:Bind Look.ActionRadius, Mode=OneWay}"
                     Padding="{x:Bind Look.ActionPadding, Mode=OneWay}" Click="OnDeleteClick" AutomationProperties.AutomationId="reader.delete" AutomationProperties.Name="Delete">
               <StackPanel Orientation="Horizontal" Spacing="6"><controls:SIcon Kind="Trash" Size="16" Visibility="{x:Bind Look.ToolbarIconVisibility, Mode=OneWay}" /><TextBlock Text="Delete" Visibility="{x:Bind Look.SecondaryLabelVisibility, Mode=OneWay}" /></StackPanel>
-            </Button>
-            <Button Style="{StaticResource Button.Action}" Width="{x:Bind Look.ActionButtonHeight, Mode=OneWay}" Height="{x:Bind Look.ActionButtonHeight, Mode=OneWay}" Padding="0"
+             </Button>
+             <Button x:Name="ReaderFullscreenButton" Style="{StaticResource Button.Action}" Visibility="{x:Bind views:Fmt.Vis(Look.IsBulwark), Mode=OneWay}" Click="OnFullscreenClick"
+                           MinWidth="32" MinHeight="32" Padding="7,0" AutomationProperties.AutomationId="reader.fullscreen"
+                           AutomationProperties.Name="Fullscreen">
+               <TextBlock x:Name="ReaderFullscreenLabel" Text="Fullscreen" />
+             </Button>
+             <Button Style="{StaticResource Button.Action}" Width="{x:Bind Look.ActionButtonHeight, Mode=OneWay}" Height="{x:Bind Look.ActionButtonHeight, Mode=OneWay}" Padding="0"
                     CornerRadius="{x:Bind Look.ActionRadius, Mode=OneWay}" Click="OnMoreClick" AutomationProperties.AutomationId="reader.more" AutomationProperties.Name="More actions">
               <controls:SIcon Kind="More" Size="16" />
             </Button>

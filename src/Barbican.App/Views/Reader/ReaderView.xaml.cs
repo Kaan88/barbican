@@ -39,6 +39,17 @@ public sealed partial class ReaderView : UserControl
 
     public StyleState Look { get; }
 
+    public event EventHandler? FullscreenRequested;
+
+    public void SetFullscreen(bool fullscreen)
+    {
+        var label = fullscreen ? "Exit fullscreen" : "Fullscreen";
+        ReaderFullscreenLabel.Text = label;
+        Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(ReaderFullscreenButton, label);
+    }
+
+    private void OnFullscreenClick(object sender, RoutedEventArgs e) => FullscreenRequested?.Invoke(this, EventArgs.Empty);
+
     private void OnShowOlderClick(object sender, RoutedEventArgs e) => Reader.ShowOlderConversationHeaders();
 
     private void OnConversationHeaderClick(object sender, RoutedEventArgs e)

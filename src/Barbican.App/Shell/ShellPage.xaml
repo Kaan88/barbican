@@ -46,7 +46,7 @@
             <ColumnDefinition Width="*" />
             <ColumnDefinition Width="Auto" />
           </Grid.ColumnDefinitions>
-          <Grid Grid.Column="0">
+          <Grid x:Name="ListColumn" Grid.Column="0">
             <list:MessageListView x:Name="ListRegion" />
             <Button x:Name="FloatingCompose" HorizontalAlignment="Right" VerticalAlignment="Bottom" Margin="0,0,20,20"
                     Style="{StaticResource Button.Primary}" Padding="18,0" MinHeight="{x:Bind Look.QuickTarget, Mode=OneWay}"

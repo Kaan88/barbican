@@ -35,6 +35,7 @@ public sealed partial class ShellPage : Page
     private bool? _appliedNordic;
     private readonly Barbican.Presentation.Compose.IComposerService? _composer;
     private bool _composing;
+    private bool _readerFullscreen;
     private Views.Calendar.CalendarScreen? _calendar;
     private readonly ShellViewModel? _shell;
     private readonly IReadOnlyList<IAppScreenFactory> _factories;
@@ -61,6 +62,7 @@ public sealed partial class ShellPage : Page
         // while the remembered accounts are restored the mail screen stays (no sign-in screen flashing up before the account is back)
         _restore = _accounts is null ? null : ViewHost.Find<AccountsStartup>()?.Completion;
         InitializeComponent();
+        WireReaderFullscreen();
         Tip.SetHost(Overlay);
 
         // M2 hotfix 2: an in-app drag shows the small badge everywhere in the window, not the platform's snapshot of the row; outside a drop target
@@ -153,8 +155,12 @@ public sealed partial class ShellPage : Page
         var pad = _look.WindowPadding;
         MailScreen.Padding = band ? pad : new Thickness(pad.Left, pad.Bottom, pad.Right, pad.Bottom);
         MailScreen.ColumnSpacing = _look.Gap;
-        SidebarRegion.Visibility = layout.SidebarShown && !_composing ? Visibility.Visible : Visibility.Collapsed;
+        var fullscreen = _readerFullscreen && _look.IsBulwark;
+        SidebarRegion.Visibility = layout.SidebarShown && !_composing && !fullscreen ? Visibility.Visible : Visibility.Collapsed;
         SidebarHandle.Visibility = SidebarRegion.Visibility;
+        ListColumn.Visibility = fullscreen ? Visibility.Collapsed : Visibility.Visible;
+        ListHandle.Visibility = ListColumn.Visibility;
+        ReaderRegion.SetFullscreen(fullscreen);
         Surface.Background = _look.SurfaceBrush;
         Surface.BorderBrush = AppResources.Brush("Line");
         Surface.BorderThickness = _look.SurfaceBorder;
@@ -169,6 +175,25 @@ public sealed partial class ShellPage : Page
         }
 
         _appliedNordic = _look.IsNordic;
+    }
+
+    private void WireReaderFullscreen()
+    {
+        ReaderRegion.FullscreenRequested += (_, _) => SetReaderFullscreen(!_readerFullscreen);
+        ReaderRegion.Reader.PropertyChanged += (_, e) =>
+        {
+            if (_readerFullscreen && ReaderRegion.Reader.IsEmpty &&
+                string.Equals(e.PropertyName, nameof(ReaderViewModel.IsEmpty), StringComparison.Ordinal))
+            {
+                SetReaderFullscreen(false);
+            }
+        };
+    }
+
+    private void SetReaderFullscreen(bool enabled)
+    {
+        _readerFullscreen = enabled && _look.IsBulwark && !ReaderRegion.Reader.IsEmpty;
+        ApplyLook();
     }
 
     // M3 composer-ui: the composer replaces the reader (the folders column collapses while it is open, the list stays; the summary tiles and the sender panel give way too); a reply that docks
@@ -383,6 +408,14 @@ public sealed partial class ShellPage : Page
 
     private void OnPreviewKeyDown(object sender, KeyRoutedEventArgs e)
     {
+        if (_readerFullscreen && _look.IsBulwark && !_composing &&
+            e.Key == Windows.System.VirtualKey.Escape && !IsTyping(e.OriginalSource))
+        {
+            SetReaderFullscreen(false);
+            e.Handled = true;
+            return;
+        }
+
         if (_keys is null || _composing || IsTyping(e.OriginalSource) || e.OriginalSource is DependencyObject source && (IsInside(source, SidebarHandle) || IsInside(source, ListHandle)))
         {
             return;

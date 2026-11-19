@@ -103,3 +103,20 @@ checking off inaccessible or untried controls.
   `MessageListViewModel` does not pass `CollapseThreads` to `ListPageFetcher`;
   the setting currently controls only the reader. Avoid visual deduplication
   that would break paging and message-action ownership.
+
+## Astra review and follow-up
+
+Astra reviewed `6de166e` and requested changes. Approval remains open.
+Priority gaps: expandable inbox conversations with correct paging and action
+targets; independently expandable reader cards with per-message actions and
+the older-message disclosure between the first and last visible headers;
+recipient-aware inline quick reply with send and undo; adaptive dock and window
+transitions; and inbox toolbar controls. The prior light/dark captures were
+identical, and the docked-reply capture preceded its rendered layout. Neither
+is accepted as parity evidence.
+
+Reader fullscreen follow-up: native hidden Windows automation verified the
+reader moved from x696 (728 px wide) to x56 (1368 px wide) while the app rail
+remained at x0. Exit restored the reader to x696 and the list to x312.
+This is an in-app reader mode, not a new window. Keyboard focus restoration
+still needs targeted verification.
