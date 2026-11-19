@@ -29,6 +29,10 @@ public sealed class SrvUiVacationViewModel : SrvUiPageModel
     private bool _blockCalendar;
     private long _draftVersion;
     private long _savedDraftVersion;
+    private long _accountGeneration;
+    private long _loadedGeneration = -1;
+    private long _loadSequence;
+    private string? _loadedAccount;
 
     public SrvUiVacationViewModel(IVacationService service, IAccountManager? accounts = null, IDispatcher? dispatcher = null, TimeProvider? time = null)
         : base(accounts, dispatcher)
@@ -36,6 +40,11 @@ public sealed class SrvUiVacationViewModel : SrvUiPageModel
         ArgumentNullException.ThrowIfNull(service);
         _service = service;
         _time = time ?? TimeProvider.System;
+        if (accounts is not null)
+        {
+            accounts.ActiveChanged += (_, _) => AccountChanged();
+        }
+
         _service.Changed += (_, e) =>
         {
             _ = ReloadQuietlyAsync(e.AccountKey);
@@ -85,14 +94,36 @@ public sealed class SrvUiVacationViewModel : SrvUiPageModel
     {
         IsLoading = true;
         var account = AccountKey;
+        var generation = Interlocked.Read(ref _accountGeneration);
+        var sequence = Interlocked.Increment(ref _loadSequence);
         var version = _draftVersion;
+        var preserve = IsLoaded(account, generation) && version != _savedDraftVersion;
         var result = await _service.LoadAsync(account, ct).ConfigureAwait(false);
-        await OnUiAsync(account, () => { Take(result, version != _draftVersion); IsLoading = false; }).ConfigureAwait(false);
+        await OnUiAsync(account, () =>
+        {
+            if (generation != Interlocked.Read(ref _accountGeneration) || sequence != Interlocked.Read(ref _loadSequence)) return;
+            Take(result, preserve || version != _draftVersion);
+            if (result.IsOk)
+            {
+                _loadedAccount = account;
+                _loadedGeneration = generation;
+            }
+
+            IsLoading = false;
+        }).ConfigureAwait(false);
     }
 
     public async Task SaveAsync(CancellationToken ct)
     {
         Message = string.Empty;
+        var account = AccountKey;
+        var generation = Interlocked.Read(ref _accountGeneration);
+        if (!IsLoaded(account, generation) || IsLoading)
+        {
+            Error = "Wait for this account's out-of-office settings to load.";
+            return;
+        }
+
         if (!TryDay(FromText, out var from) || !TryDay(ToText, out var to))
         {
             Error = "Enter days as yyyy-MM-dd.";
@@ -102,13 +133,25 @@ public sealed class SrvUiVacationViewModel : SrvUiPageModel
         var domains = DomainsText.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
         var audience = AudienceOnly.Length == 0 ? null : new VacationAudience(AudienceOnly, domains);
         var forward = ForwardOn || ForwardTo.Trim().Length > 0 ? new VacationForward(ForwardOn, ForwardTo.Trim(), ForwardKeep) : null;
-        var settings = new VacationSettings(Enabled, Subject.Trim(), Body, string.IsNullOrWhiteSpace(HtmlBody) ? null : HtmlBody, from, to, audience, forward, BlockCalendar);
-        IsLoading = true;
-        var account = AccountKey;
+        var settings = _saved! with
+        {
+            Enabled = Enabled,
+            Subject = Subject.Trim(),
+            TextBody = Body,
+            HtmlBody = string.IsNullOrWhiteSpace(HtmlBody) ? null : HtmlBody,
+            From = from,
+            To = to,
+            Audience = audience,
+            Forward = forward,
+            BlockCalendar = BlockCalendar,
+        };
         var version = _draftVersion;
+        var loadSequence = Interlocked.Read(ref _loadSequence);
+        IsLoading = true;
         var result = await _service.SaveAsync(account, settings, ct).ConfigureAwait(false);
         await OnUiAsync(account, () =>
         {
+            if (generation != Interlocked.Read(ref _accountGeneration) || loadSequence != Interlocked.Read(ref _loadSequence)) return;
             IsLoading = false;
             var newerEdits = version != _draftVersion;
             Take(result, newerEdits);
@@ -117,6 +160,62 @@ public sealed class SrvUiVacationViewModel : SrvUiPageModel
                 Message = newerEdits ? "Saved earlier changes. Newer edits are not saved yet." : "Saved.";
             }
         }).ConfigureAwait(false);
+    }
+
+    private bool IsLoaded(string account, long generation) =>
+        generation == _loadedGeneration && string.Equals(account, _loadedAccount, StringComparison.Ordinal);
+
+    private void AccountChanged()
+    {
+        var generation = Interlocked.Increment(ref _accountGeneration);
+        _ = Interlocked.Increment(ref _loadSequence);
+        var account = AccountKey;
+        _ = OnUiAsync(account, () =>
+        {
+            if (generation != Interlocked.Read(ref _accountGeneration)) return;
+            _loadedAccount = null;
+            _loadedGeneration = -1;
+            _saved = null;
+            _enabled = false;
+            _subject = string.Empty;
+            _body = string.Empty;
+            _htmlBody = string.Empty;
+            _fromText = string.Empty;
+            _toText = string.Empty;
+            _audienceOnly = string.Empty;
+            _domainsText = string.Empty;
+            _forwardOn = false;
+            _forwardTo = string.Empty;
+            _forwardKeep = true;
+            _blockCalendar = false;
+            _draftVersion++;
+            _savedDraftVersion = _draftVersion;
+            Error = null;
+            Message = string.Empty;
+            IsLoading = false;
+            Raise(nameof(Status));
+            Raise(string.Empty);
+            _ = LoadAfterSwitchAsync(account, generation);
+        });
+    }
+
+    private async Task LoadAfterSwitchAsync(string account, long generation)
+    {
+        try
+        {
+            await LoadAsync(CancellationToken.None).ConfigureAwait(false);
+        }
+#pragma warning disable CA1031 // A background account-change load must surface its failure on the page.
+        catch (Exception error)
+#pragma warning restore CA1031
+        {
+            await OnUiAsync(account, () =>
+            {
+                if (generation != Interlocked.Read(ref _accountGeneration)) return;
+                IsLoading = false;
+                Error = error.Message;
+            }).ConfigureAwait(false);
+        }
     }
 
     private static bool TryDay(string text, out DateOnly? day)
@@ -183,8 +282,12 @@ public sealed class SrvUiVacationViewModel : SrvUiPageModel
     {
         try
         {
+            var generation = Interlocked.Read(ref _accountGeneration);
             var result = await _service.LoadAsync(account, CancellationToken.None).ConfigureAwait(false);
-            await OnUiAsync(account, () => { if (_draftVersion == _savedDraftVersion) Take(result); }).ConfigureAwait(false);
+            await OnUiAsync(account, () =>
+            {
+                if (generation == Interlocked.Read(ref _accountGeneration) && IsLoaded(account, generation) && !IsLoading && _draftVersion == _savedDraftVersion) Take(result);
+            }).ConfigureAwait(false);
         }
         catch (OperationCanceledException)
         {

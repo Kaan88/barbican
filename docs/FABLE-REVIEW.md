@@ -1675,3 +1675,7 @@ The advertised-size-only risk in the preceding note is addressed in `Core/Mail/A
 
 - Vacation HTML source is editable independently of the plain-text part and can be cleared; saved edits are guarded against newer form changes and background reload. Review HTML safety, account switching and explicit page reload of an unsaved draft; source text is not a visual rich editor. Organization vacation templates are a policy library in Bulwark, not personal mail templates. The policy service is absent; the page says unavailable and M7 must integrate the actual library, placeholder filling and deputy validation. No real vacation write was run.
 - VacationHtmlServiceTests covers the real VacationService against FakeJmap for HTML/plain save, reload and clearing; SrvUiViewModelTests covers in-flight newer HTML edits. Hidden sample on port 8929 rendered the form and saved fake bodies; no live write was run.
+
+## Codex - M6 srv-ui (Terra High)
+
+- Vacation forms now bind to the successfully loaded account and monotonic account generation; switch clears the old form, blocks saving until the new load succeeds and fences late A-to-B-to-A loads/saves. Save builds from the loaded record to retain upcoming server state tokens. A save already issued to its original account may finish there after a switch; its result is discarded. Delayed account-switch regressions cover both cases. Other server pages still require equivalent fencing (identities, templates, folders, filters and recovery).
