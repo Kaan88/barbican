@@ -85,6 +85,40 @@ public sealed class EventEditorViewModelTests
     }
 
     [Fact]
+    public async Task Explicit_floating_zone_is_preserved_for_new_timed_events()
+    {
+        var e = new EventEditorViewModel(new EventEditorServices(_source, _writer, _rules, _questions, DefaultZone: string.Empty));
+        e.OpenNew(new NewEventRequest(Dt("2026-11-20T10:00:00"), Dt("2026-11-20T11:00:00"), false));
+        e.TimeZone = null;
+        Assert.True(await e.SaveAsync(CancellationToken.None));
+        Assert.Null(_rules.LastForm!.TimeZone);
+    }
+
+    [Fact]
+    public async Task New_all_day_changed_to_timed_uses_default_zone_unless_floating_was_chosen()
+    {
+        var e = new EventEditorViewModel(new EventEditorServices(_source, _writer, _rules, _questions, DefaultZone: "Asia/Tokyo"));
+        e.OpenNew(new NewEventRequest(Dt("2026-11-20T10:00:00"), Dt("2026-11-20T11:00:00"), true));
+        e.AllDay = false;
+        Assert.True(await e.SaveAsync(CancellationToken.None));
+        Assert.Equal("Asia/Tokyo", _rules.LastForm!.TimeZone);
+    }
+
+    [Fact]
+    public async Task Explicit_zone_after_unavailable_default_is_not_overwritten_on_retry()
+    {
+        var current = string.Empty;
+        var e = new EventEditorViewModel(new EventEditorServices(_source, _writer, _rules, _questions, DefaultZone: string.Empty, CurrentZone: () => current));
+        e.OpenNew(new NewEventRequest(Dt("2026-11-20T10:00:00"), Dt("2026-11-20T11:00:00"), false));
+        Assert.False(await e.SaveAsync(CancellationToken.None));
+        Assert.Empty(_writer.Saves);
+        current = "Asia/Tokyo";
+        e.TimeZone = "Europe/Berlin";
+        Assert.True(await e.SaveAsync(CancellationToken.None));
+        Assert.Equal("Europe/Berlin", _rules.LastForm!.TimeZone);
+    }
+
+    [Fact]
     public async Task Unmapped_zone_does_not_block_all_day_event()
     {
         var e = new EventEditorViewModel(new EventEditorServices(_source, _writer, _rules, _questions, DefaultZone: string.Empty));
@@ -307,6 +341,24 @@ public sealed class EventEditorViewModelTests
         Assert.Equal("https://meet.example/abc", e.MeetingLink);
         e.Location = "Room 4";
         Assert.Null(e.MeetingLink);
+    }
+
+    [Fact]
+    public async Task Availability_horizon_starts_at_utc_now_when_preference_zone_changes()
+    {
+        var instant = new DateTimeOffset(2026, 3, 29, 0, 30, 0, TimeSpan.Zero);
+        var clock = new Microsoft.Extensions.Time.Testing.FakeTimeProvider(instant);
+        var current = "Europe/Berlin";
+        var availability = new FakeAvailability(true);
+        var e = new EventEditorViewModel(new EventEditorServices(_source, _writer, _rules, _questions, availability, Time: clock, DefaultZone: "Asia/Tokyo", CurrentZone: () => current));
+        e.OpenNew(new NewEventRequest(Dt("2026-03-30T10:00:00"), Dt("2026-03-30T11:00:00"), false));
+        e.GuestInput = "bob@y.example";
+        Assert.True(e.CommitGuest());
+        await e.FindATimeAsync(CancellationToken.None);
+        Assert.Equal(instant.ToUnixTimeMilliseconds(), availability.LastRange!.Value.From);
+        current = "America/New_York";
+        await e.FindATimeAsync(CancellationToken.None);
+        Assert.Equal(instant.ToUnixTimeMilliseconds(), availability.LastRange!.Value.From);
     }
 
     [Fact]
