@@ -10,6 +10,9 @@ public interface IEditorSource
     /// <summary>The active login (null when none).</summary>
     string? AccountKey { get; }
 
+    /// <summary>Changes whenever the active account changes, including a return to an earlier account.</summary>
+    long AccountVersion => 0;
+
     /// <summary>The user's own addresses, lower case.</summary>
     IReadOnlyList<string> Mine { get; }
 

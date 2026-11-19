@@ -133,7 +133,7 @@ public sealed partial class FakeApi(FakeStore store, FakeJmapOptions options, Fu
             "x:ArchivedItem/query" => ArchivedItemQuery(args),
             "x:ArchivedItem/set" => ArchivedItemSet(args),
             // M5 arms (plan section 4.13): AddressBook/* and ContactCard/* are con-data's (FakeApi.Contacts.cs, FakeApi.ContactsSet.cs); each answers unknownMethod without options.Contacts
-            _ => name.StartsWith("AddressBook/", StringComparison.Ordinal) || name.StartsWith("ContactCard/", StringComparison.Ordinal) ? ContactMethod(name, args) : ServerSettingsMethod(name, args),
+            _ => name.StartsWith("ParticipantIdentity/", StringComparison.Ordinal) ? ParticipantIdentityMethod(name, args) : name.StartsWith("AddressBook/", StringComparison.Ordinal) || name.StartsWith("ContactCard/", StringComparison.Ordinal) ? ContactMethod(name, args) : ServerSettingsMethod(name, args),
         };
     }
 

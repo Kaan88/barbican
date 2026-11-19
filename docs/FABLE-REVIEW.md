@@ -1500,3 +1500,10 @@ Validation: focused tests 3 passed, full Presentation suite 996 passed, Windows 
 ## Codex - assistant model validation (Sol)
 
 - Provider switching can clear a recognized old default model. `AssistantClient` now rejects a blank model before key lookup or HTTP; five offline provider-client cases passed, including both providers with a blank model. Custom models remain the UI owner's responsibility to preserve when switching. No external provider was contacted.
+
+### Codex — M6 calendar identity and view
+
+- Review the calendar participant identity service and FakeJmap arm in `src/Barbican.Core/Calendar/CalendarParticipantIdentities.cs` and `tests/Barbican.FakeJmap/FakeApi.ParticipantIdentity.cs` (this commit): the selected address comes from `ParticipantIdentity/get` and `onSuccessSetIsDefault`; Stalwart silently ignores an unknown id so the service re-reads. Live writes were not run. Confirm account capabilities, error behavior and changes against the server during integration.
+- Review `src/Barbican.Presentation/Calendar/Editors/EventEditorViewModel.Save.cs` and `.../Calendar/Grid/CalendarViewModel.cs` (this commit): new events use the active account's default organizer without changing an existing event's organizer; account switches abort an in-flight lookup; calendar view writes are serialized. UI integration with the settings selector and live account switching remain to be verified.
+
+- **Sol code check of `76ab5ac`:** inspected ParticipantIdentity/get/set and effective-default verification, persisted month/week/day/agenda selection, new-event organizer preservation, production factory injection and monotonic account-version guards. Requested the A-to-B-to-A guard, selected organizer name, and production-composition regression; worker implemented them. Core identity tests (2), EventEditor tests (7) and calendar Presentation tests (118) passed in a clean verification worktree. Final merged Windows suite, Settings selector and hidden UI verification remain required; no live organizer write is claimed.
