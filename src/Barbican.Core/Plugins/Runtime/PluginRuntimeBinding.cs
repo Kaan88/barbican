@@ -1,0 +1,54 @@
+// Mirrors: Bulwark lib/plugin-sandbox/host-bridge.ts instance ownership and disposal.
+// Host-created object identity; native transport must authenticate its actual frame before passing this object to a broker.
+using Barbican.Core.Plugins.Packages;
+using Barbican.Core.Plugins.Permissions;
+using Barbican.Core.Storage;
+namespace Barbican.Core.Plugins.Runtime;
+public sealed class PluginRuntimeBinding : IAsyncDisposable
+{
+    private readonly CancellationTokenSource _stop = new();
+    private readonly CancellationToken _lifetime;
+    private readonly Lock _gate = new();
+    private Task? _closing;
+    private int _closed;
+    private PluginRuntimeBinding(string profile, PluginGrantSnapshot grant, PluginFrameKind kind, string? slot)
+    {
+        Profile = profile;
+        Package = grant.Package;
+        GrantGeneration = grant.Generation;
+        Tier = grant.Tier;
+        Kind = kind;
+        Slot = slot;
+        InstanceId = Guid.NewGuid();
+        _lifetime = _stop.Token;
+    }
+    public static PluginRuntimeBinding Create(string profile, PluginGrantSnapshot grant, PluginFrameKind kind, string? slot = null)
+    {
+        ArgumentNullException.ThrowIfNull(grant);
+        if (!ProfilePaths.IsValidName(profile)) throw new ArgumentException("A host profile identifier is required.", nameof(profile));
+        if (!grant.Enabled) throw new ArgumentException("Disabled authority cannot create a runtime.", nameof(grant));
+        if (!Enum.IsDefined(kind)) throw new ArgumentOutOfRangeException(nameof(kind));
+        if ((kind == PluginFrameKind.Slot && string.IsNullOrWhiteSpace(slot)) || (kind == PluginFrameKind.Background && slot is not null))
+            throw new ArgumentException("Frame kind and slot disagree.", nameof(slot));
+        return new PluginRuntimeBinding(profile, grant, kind, slot);
+    }
+    public Guid InstanceId { get; }
+    public string Profile { get; }
+    public PluginPackageIdentity Package { get; }
+    public long GrantGeneration { get; }
+    public PluginExecutionTier Tier { get; }
+    public PluginFrameKind Kind { get; }
+    public string? Slot { get; }
+    public CancellationToken Lifetime => _lifetime;
+    public bool IsAlive => Volatile.Read(ref _closed) == 0;
+    public ValueTask DisposeAsync()
+    {
+        lock (_gate) return new ValueTask(_closing ??= CloseCoreAsync());
+    }
+    private async Task CloseCoreAsync()
+    {
+        Volatile.Write(ref _closed, 1);
+        try { await _stop.CancelAsync().ConfigureAwait(false); }
+        finally { _stop.Dispose(); }
+    }
+}

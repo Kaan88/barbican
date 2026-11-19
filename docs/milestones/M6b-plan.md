@@ -18,7 +18,7 @@ Required product behavior:
 
 The reference is Bulwark lib/plugin-sandbox, plugin-types.ts, plugin-loader.ts, plugin-runtime.ts, plugin-hook-catalog.ts and plugin-slot-catalog.ts, together with its bundle fetching/signing and OAuth code. Verify the actual source paths/lines in new module headers.
 
-Untrusted plugin frames have an opaque origin and allow-scripts sandbox only. Bind each frame instance, parent and RPC channel explicitly; authenticate the exact sending frame, reject sibling-frame impersonation, navigation and stale instances, and use bounded structured-clone messages. Do not expose the privileged desktop bridge or mail-view credentials to plugin content. Apply a restrictive CSP and the reference frame/network isolation.
+Untrusted plugin frames have an opaque origin and the reference allow-scripts allow-forms sandbox (D-M6b-01), with form-action none and native navigation/resource enforcement; no allow-same-origin. Bind each frame instance, parent and RPC channel explicitly; authenticate the exact sending frame, reject sibling-frame impersonation, navigation and stale instances, and use bounded structured-clone messages. Do not expose the privileged desktop bridge or mail-view credentials to plugin content. Apply a restrictive CSP and the reference frame/network isolation.
 
 The privileged reference tier has host-origin authority. It requires the reference signature, managed/admin approval and crypto:full conditions plus applicable user consent. Signing does not make code sandboxed. Network allowlists, redirects, local/private targets, byte/time limits, account scope and secret handling require independent enforcement. Keystore access always requires user consent, even for managed packages.
 

@@ -9,7 +9,7 @@ namespace Barbican.Core.Plugins.Permissions;
 public sealed class PluginGrantSnapshot
 {
     public PluginGrantSnapshot(PluginPackageIdentity package, long generation, bool enabled,
-        IEnumerable<string> permissions, IEnumerable<string> accountKeys)
+        IEnumerable<string> permissions, IEnumerable<string> accountKeys, PluginExecutionTier tier = PluginExecutionTier.Untrusted)
     {
         ArgumentNullException.ThrowIfNull(package);
         ArgumentNullException.ThrowIfNull(permissions);
@@ -17,6 +17,8 @@ public sealed class PluginGrantSnapshot
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(generation);
         Package = package;
         Generation = generation;
+        if (!Enum.IsDefined(tier)) throw new ArgumentOutOfRangeException(nameof(tier));
+        Tier = tier;
         Enabled = enabled;
         Permissions = permissions.ToImmutableHashSet(StringComparer.Ordinal);
         AccountKeys = accountKeys.ToImmutableHashSet(StringComparer.Ordinal);
@@ -29,6 +31,7 @@ public sealed class PluginGrantSnapshot
     public PluginPackageIdentity Package { get; }
     public long Generation { get; }
     public bool Enabled { get; }
+    public PluginExecutionTier Tier { get; }
     public ImmutableHashSet<string> Permissions { get; }
     /// <summary>Authorized local-login keys; shared JMAP resource-account IDs require separate captured-session validation.</summary>
     public ImmutableHashSet<string> AccountKeys { get; }

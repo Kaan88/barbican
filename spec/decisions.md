@@ -569,3 +569,9 @@ Plan decisions are `D-M6-00..`; the streams add `D-M6-A..` (set-data), `D-M6-B..
 | D-M6-B06 | m6-set-ui | security ui | App-password and API-key deletion requires an in-window confirmation; if the dialog service is unavailable no deletion occurs. | Prevent accidental credential revocation. | I-405, I-406 |
 | D-M6-D04 | srv-ui | selection controls | Use in-window stepping buttons and typed ISO days for server settings choices and dates. | ADR 0007 prohibits windowed popups. | SrvUiKit, SrvUiVacationPage |
 | D-M6-D05 | srv-ui | templates | Import accepts pasted JSON and export exposes JSON as selectable text; HTML bodies are edited as source. | Keeps the manager in-window while preserving the service format. | SrvUiTemplatesPage |
+
+## M6b coordinator decisions
+
+### D-M6b-01 - Preserve sandboxed forms without network submission
+
+Bulwark host-bridge.ts:356-370 uses allow-scripts allow-forms, paired with proxy.ts:464-480 form-action none. Replace the earlier preparation's scripts-only assumption with those production flags so plugin form event handlers remain compatible. Untrusted frames still have opaque origins and no allow-same-origin/top-navigation/popups/native host objects. CSP and native navigation/resource/new-window enforcement must deny external form submission and route escape. The runtime stream must prove both successful form event handling and blocked POST/navigation in the actual isolated WebView; the flag choice alone is not security evidence. No OS or live-account action is authorized by this decision.

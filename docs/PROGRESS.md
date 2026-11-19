@@ -10,7 +10,7 @@ wherever they can. Safety rules stay (no real input, read-only account, admin ke
 
 ## Codex continuation (active, 2026-11-19)
 
-- **Active milestone branch `codex/m6b`:** integrated the reviewed initial package/hash/grant value contracts (four focused tests passed) and source account-routing audit. The remaining runtime/call/RPC/API/slot interfaces and adverse acceptance tests are not frozen yet; independent production streams wait for that shared contract gate. M6 remains stable on `m6` with its verified portable.
+- **Active milestone branch `codex/m6b`:** integrated the reviewed package/hash/grant values and compiled draft package/authority/runtime/API/slot service seams (ten focused tests passed), plus account-routing, package-authority and native-transport source audits. The remaining runtime/call/RPC/API/slot interfaces and adverse acceptance tests are not frozen yet; independent production streams wait for that shared contract gate. M6 remains stable on `m6` with its verified portable.
 
 - **M6 Windows checkpoint delivered at `583b40d`:** full Automation -Writes suite 2,909 passed / zero failed / four skipped; both heads compiled without warnings. Fresh portable `Barbican-M6-583b40d-win-x64.zip` (149,444,021 bytes) was extracted and passed Release smoke with matching embedded source version. See [M6 report](milestones/M6.md) and `spec/feel/M6/windows-release.json` for checksum, coverage and unverified live/visual checks. Continue to M6b; the broader goal remains active.
 
