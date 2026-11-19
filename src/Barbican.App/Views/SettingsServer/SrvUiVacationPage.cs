@@ -27,6 +27,11 @@ internal sealed class SrvUiVacationPage : SrvUiPage
         var status = SrvUiKit.Strong("Status: " + (_model.Status.Length == 0 ? "..." : _model.Status));
         AutomationProperties.SetAutomationId(status, "srv.vacation.status");
         Body.Children.Add(status);
+        if (!_model.CanSave && !_model.IsLoading)
+        {
+            Body.Children.Add(SrvUiKit.Small("Reload for this account", "srv.vacation.reload", () => SrvUiKit.Run(() => _model.LoadAsync(CancellationToken.None))));
+        }
+
         var form = new StackPanel { Spacing = 6 };
         form.Children.Add(Check("srv.vacation.enabled", "Send an automatic reply", _model.Enabled, v => _model.Enabled = v));
         form.Children.Add(Label("Subject"));
@@ -54,6 +59,6 @@ internal sealed class SrvUiVacationPage : SrvUiPage
             Body.Children.Add(SrvUiKit.Dim(_model.Message));
         }
 
-        Body.Children.Add(Btn("Save", Barbican.Presentation.Compose.DialogTone.Primary, "srv.vacation.save", () => SrvUiKit.Run(() => _model.SaveAsync(CancellationToken.None)), !_model.IsLoading));
+        Body.Children.Add(Btn("Save", Barbican.Presentation.Compose.DialogTone.Primary, "srv.vacation.save", () => SrvUiKit.Run(() => _model.SaveAsync(CancellationToken.None)), _model.CanSave));
     }
 }

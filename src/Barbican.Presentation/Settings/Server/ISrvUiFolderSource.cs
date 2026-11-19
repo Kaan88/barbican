@@ -1,12 +1,16 @@
 // Mirrors: M6 plan section 4.8 ("the folder list itself comes from the sidebar's mailbox source"). Owner srv-ui.
 
 using Barbican.Core.Settings.Folders;
+using Barbican.Core.Common;
 
 namespace Barbican.Presentation.Settings.Server;
 
 /// <summary>The folders of the active account as the Folders page and the rule editor see them.</summary>
 public interface ISrvUiFolderSource
 {
+    /// <summary>Loads a snapshot owned by the specified account; never use an unverified sidebar for writes.</summary>
+    Task<Result<IReadOnlyList<SrvUiFolderSnapshot>>> LoadAsync(string accountKey, CancellationToken ct);
+
     /// <summary>The folders now (role as the JMAP role name, lower case).</summary>
     IReadOnlyList<FolderAdminNode> Nodes();
 
@@ -19,3 +23,4 @@ public interface ISrvUiFolderSource
     /// <summary>The folders changed (raised on any thread).</summary>
     event EventHandler? Changed;
 }
+
