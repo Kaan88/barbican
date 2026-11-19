@@ -36,23 +36,23 @@
           <controls:WrapRow Grid.Row="{x:Bind Look.ReaderActionsRow, Mode=OneWay}" Spacing="8" AutomationProperties.AutomationId="reader.toolbar" AutomationProperties.Name="Message actions">
             <Button Style="{StaticResource Button.Action}" Height="{x:Bind Look.ActionButtonHeight, Mode=OneWay}" CornerRadius="{x:Bind Look.ActionRadius, Mode=OneWay}"
                     Padding="{x:Bind Look.ActionPadding, Mode=OneWay}" Click="OnReplyClick" AutomationProperties.AutomationId="reader.reply" AutomationProperties.Name="Reply">
-              <StackPanel Orientation="Horizontal" Spacing="6"><controls:SIcon Kind="Reply" Size="16" Visibility="{x:Bind Look.BentoOnly, Mode=OneWay}" /><TextBlock Text="Reply" /></StackPanel>
+              <StackPanel Orientation="Horizontal" Spacing="6"><controls:SIcon Kind="Reply" Size="16" Visibility="{x:Bind Look.ToolbarIconVisibility, Mode=OneWay}" /><TextBlock Text="Reply" Visibility="{x:Bind Look.ToolbarLabelVisibility, Mode=OneWay}" /></StackPanel>
             </Button>
             <Button Style="{StaticResource Button.Action}" Height="{x:Bind Look.ActionButtonHeight, Mode=OneWay}" CornerRadius="{x:Bind Look.ActionRadius, Mode=OneWay}"
                     Padding="{x:Bind Look.ActionPadding, Mode=OneWay}" Click="OnReplyAllClick" AutomationProperties.AutomationId="reader.replyall" AutomationProperties.Name="Reply all">
-              <StackPanel Orientation="Horizontal" Spacing="6"><controls:SIcon Kind="ReplyAll" Size="16" Visibility="{x:Bind Look.BentoOnly, Mode=OneWay}" /><TextBlock Text="Reply all" Visibility="{x:Bind Look.SecondaryLabelVisibility, Mode=OneWay}" /></StackPanel>
+              <StackPanel Orientation="Horizontal" Spacing="6"><controls:SIcon Kind="ReplyAll" Size="16" Visibility="{x:Bind Look.ToolbarIconVisibility, Mode=OneWay}" /><TextBlock Text="Reply all" Visibility="{x:Bind Look.SecondaryLabelVisibility, Mode=OneWay}" /></StackPanel>
             </Button>
             <Button Style="{StaticResource Button.Action}" Height="{x:Bind Look.ActionButtonHeight, Mode=OneWay}" CornerRadius="{x:Bind Look.ActionRadius, Mode=OneWay}"
                     Padding="{x:Bind Look.ActionPadding, Mode=OneWay}" Click="OnForwardClick" AutomationProperties.AutomationId="reader.forward" AutomationProperties.Name="Forward">
-              <StackPanel Orientation="Horizontal" Spacing="6"><controls:SIcon Kind="Fwd" Size="16" Visibility="{x:Bind Look.BentoOnly, Mode=OneWay}" /><TextBlock Text="Forward" /></StackPanel>
+              <StackPanel Orientation="Horizontal" Spacing="6"><controls:SIcon Kind="Fwd" Size="16" Visibility="{x:Bind Look.ToolbarIconVisibility, Mode=OneWay}" /><TextBlock Text="Forward" Visibility="{x:Bind Look.ToolbarLabelVisibility, Mode=OneWay}" /></StackPanel>
             </Button>
             <Button Style="{StaticResource Button.Action}" Height="{x:Bind Look.ActionButtonHeight, Mode=OneWay}" CornerRadius="{x:Bind Look.ActionRadius, Mode=OneWay}"
                     Padding="{x:Bind Look.ActionPadding, Mode=OneWay}" Click="OnArchiveClick" AutomationProperties.AutomationId="reader.archive" AutomationProperties.Name="Archive">
-              <StackPanel Orientation="Horizontal" Spacing="6"><controls:SIcon Kind="Archive" Size="16" Visibility="{x:Bind Look.BentoOnly, Mode=OneWay}" /><TextBlock Text="Archive" /></StackPanel>
+              <StackPanel Orientation="Horizontal" Spacing="6"><controls:SIcon Kind="Archive" Size="16" Visibility="{x:Bind Look.ToolbarIconVisibility, Mode=OneWay}" /><TextBlock Text="Archive" Visibility="{x:Bind Look.ToolbarLabelVisibility, Mode=OneWay}" /></StackPanel>
             </Button>
             <Button Style="{StaticResource Button.Action}" Height="{x:Bind Look.ActionButtonHeight, Mode=OneWay}" CornerRadius="{x:Bind Look.ActionRadius, Mode=OneWay}"
                     Padding="{x:Bind Look.ActionPadding, Mode=OneWay}" Click="OnDeleteClick" AutomationProperties.AutomationId="reader.delete" AutomationProperties.Name="Delete">
-              <StackPanel Orientation="Horizontal" Spacing="6"><controls:SIcon Kind="Trash" Size="16" Visibility="{x:Bind Look.BentoOnly, Mode=OneWay}" /><TextBlock Text="Delete" Visibility="{x:Bind Look.SecondaryLabelVisibility, Mode=OneWay}" /></StackPanel>
+              <StackPanel Orientation="Horizontal" Spacing="6"><controls:SIcon Kind="Trash" Size="16" Visibility="{x:Bind Look.ToolbarIconVisibility, Mode=OneWay}" /><TextBlock Text="Delete" Visibility="{x:Bind Look.SecondaryLabelVisibility, Mode=OneWay}" /></StackPanel>
             </Button>
             <Button Style="{StaticResource Button.Action}" Width="{x:Bind Look.ActionButtonHeight, Mode=OneWay}" Height="{x:Bind Look.ActionButtonHeight, Mode=OneWay}" Padding="0"
                     CornerRadius="{x:Bind Look.ActionRadius, Mode=OneWay}" Click="OnMoreClick" AutomationProperties.AutomationId="reader.more" AutomationProperties.Name="More actions">

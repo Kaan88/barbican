@@ -7,6 +7,7 @@ using Barbican.Core.Mail.Lists;
 using Barbican.Core.Mail.Model;
 using Barbican.Presentation.Actions;
 using Barbican.Presentation.Commands;
+using Barbican.Presentation.Dialogs;
 using Barbican.Presentation.Menus;
 using Microsoft.Extensions.DependencyInjection;
 
@@ -80,6 +81,18 @@ public sealed class AppCompositionTests
                 Assert.False(registry.TryGet(CommandIds.Undo, out _), "a command id without a handler is not registered (menus show it disabled)");
                 return Task.CompletedTask;
             });
+    }
+
+    [Fact]
+    public async Task Accessibility_command_resolves_headlessly_and_reports_missing_dialog_when_invoked()
+    {
+        await WithProviderAsync(_ => { }, async provider =>
+        {
+            Assert.Null(provider.GetService<IDialogService>());
+            Assert.True(provider.GetRequiredService<ICommandRegistry>().TryGet(CommandIds.OpenA11y, out var command));
+            var context = new CommandContext(CommandSurface.Keyboard, [], null, null, null);
+            await Assert.ThrowsAsync<InvalidOperationException>(() => command.ExecuteAsync(context, TestContext.Current.CancellationToken));
+        });
     }
 
     [Fact]

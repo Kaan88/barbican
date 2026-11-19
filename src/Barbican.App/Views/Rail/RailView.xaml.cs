@@ -23,6 +23,8 @@ public sealed partial class RailView : UserControl
 
     public StyleState Look { get; }
 
+    private void OnComposeClick(object sender, RoutedEventArgs e) => Run(CommandIds.Compose);
+
     private void OnMailClick(object sender, RoutedEventArgs e) => _shell.TryActivate(AppId.Mail);
 
     private void OnCalendarClick(object sender, RoutedEventArgs e) => _shell.TryActivate(AppId.Calendar);

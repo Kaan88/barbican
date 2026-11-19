@@ -50,7 +50,7 @@ public sealed class ThemeController : IDisposable
         ArgumentNullException.ThrowIfNull(root);
         _root = root;
         MotionRuntime.Scale = new MotionScale(_shell.ReduceMotion, _shell.IsRapid);
-        _style.SetAccessibility(_shell.Accessibility, _prefs.Current.Bool("showToolbarLabels", true));
+        _style.SetAccessibility(_shell.Accessibility, (_prefs.Current.Bool("showToolbarLabels", true) || _prefs.Current.Bool("simpleMode", false)), _prefs.Current.Str("composePlacement", "floating"));
         Apply(force: true);
     }
 
@@ -68,7 +68,7 @@ public sealed class ThemeController : IDisposable
         switch (e.PropertyName)
         {
             case nameof(ShellViewModel.Accessibility):
-                _style.SetAccessibility(_shell.Accessibility, _prefs.Current.Bool("showToolbarLabels", true));
+                _style.SetAccessibility(_shell.Accessibility, (_prefs.Current.Bool("showToolbarLabels", true) || _prefs.Current.Bool("simpleMode", false)), _prefs.Current.Str("composePlacement", "floating"));
                 break;
             case nameof(ShellViewModel.ReduceMotion):
             case nameof(ShellViewModel.IsRapid):

@@ -5,6 +5,7 @@
 
 using Barbican.Presentation.Shell;
 using Barbican.Core.Settings.Accessibility;
+using Barbican.Presentation.Compose;
 using CommunityToolkit.Mvvm.ComponentModel;
 using Microsoft.UI.Text;
 using Windows.UI.Text;
@@ -21,6 +22,7 @@ public sealed class StyleState : ObservableObject
     private double _windowWidth = 1400;
     private A11y _accessibility = new();
     private bool _showToolbarLabels = true;
+    private string _composePlacement = "floating";
 
     public StyleState()
     {
@@ -75,19 +77,28 @@ public sealed class StyleState : ObservableObject
             OnPropertyChanged(nameof(ListWidth));
             OnPropertyChanged(nameof(SummaryTilesVisibility));
             OnPropertyChanged(nameof(ContextVisibility));
+            OnPropertyChanged(nameof(FloatingComposeVisibility));
+            OnPropertyChanged(nameof(SidebarComposeVisibility));
+            OnPropertyChanged(nameof(ListViewportMargin));
         }
     }
 
     /// <summary>Updates typed dimensions when the shared accessibility settings change.</summary>
-    public void SetAccessibility(A11y accessibility, bool showToolbarLabels)
+    public void SetAccessibility(A11y accessibility, bool showToolbarLabels, string? composePlacement)
     {
         ArgumentNullException.ThrowIfNull(accessibility);
-        if (_accessibility == accessibility && _showToolbarLabels == showToolbarLabels) return;
+        var placement = ComposePlacementRules.Normalize(composePlacement);
+        if (_accessibility == accessibility && _showToolbarLabels == showToolbarLabels && string.Equals(_composePlacement, placement, StringComparison.Ordinal)) return;
         _accessibility = accessibility;
         _showToolbarLabels = showToolbarLabels;
+        _composePlacement = placement;
         OnPropertyChanged(string.Empty);
     }
 
+    public string ComposePlacement => _composePlacement;
+    public Visibility FloatingComposeVisibility => string.Equals(_composePlacement, "floating", StringComparison.Ordinal) || (string.Equals(_composePlacement, "sidebar", StringComparison.Ordinal) && !Layout.SidebarShown) ? Visibility.Visible : Visibility.Collapsed;
+    public Visibility SidebarComposeVisibility => string.Equals(_composePlacement, "sidebar", StringComparison.Ordinal) && Layout.SidebarShown ? Visibility.Visible : Visibility.Collapsed;
+    public Visibility RailComposeVisibility => string.Equals(_composePlacement, "rail", StringComparison.Ordinal) ? Visibility.Visible : Visibility.Collapsed;
     public bool ShowToolbarLabels => _showToolbarLabels;
     public Visibility ToolbarLabelVisibility => _showToolbarLabels ? Visibility.Visible : Visibility.Collapsed;
     public Visibility ToolbarIconVisibility => IsBento || !_showToolbarLabels ? Visibility.Visible : Visibility.Collapsed;
@@ -191,7 +202,7 @@ public sealed class StyleState : ObservableObject
     public double ReaderSpacing => IsNordic ? 18 : 14;
 
     /// <summary>Reply all, Delete and More are icon-only pills in Bento so the six M1 actions fit the prototype's three-pill width.</summary>
-    public Visibility SecondaryLabelVisibility => IsNordic && _showToolbarLabels ? Visibility.Visible : Visibility.Collapsed;
+    public Visibility SecondaryLabelVisibility => ToolbarLabelVisibility;
 
     // rail
     public Thickness RailPadding => new(0, _m.RailPadTop, 0, _m.RailPadBottom);
@@ -316,6 +327,9 @@ public sealed class StyleState : ObservableObject
     public Thickness GroupHeaderPadding => new(_m.ListPadLeft, 8, 12, 2);
 
     public Thickness ListPadding => IsBento ? new Thickness(0, 0, 0, 8) : new Thickness(0);
+
+    // The list viewport ends above the floating action, keeping every message reachable and unobscured.
+    public Thickness ListViewportMargin => FloatingComposeVisibility == Visibility.Visible ? new Thickness(0, 0, 0, QuickTarget + 40) : new Thickness(0);
 
     // sender panel
     public Thickness ContextPadding => IsBento ? new Thickness(22, 26, 22, 26) : new Thickness(22, 30, 22, 30);

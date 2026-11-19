@@ -10,6 +10,7 @@
       xmlns:signin="using:Barbican.App.Views.SignIn"
       xmlns:actions="using:Barbican.App.Views.Actions"
       xmlns:compose="using:Barbican.App.Views.Compose"
+    xmlns:controls="using:Barbican.App.Controls"
       Background="{StaticResource Ground}">
   <!-- Regions only (PORT-PLAN.md §3.2), laid out as the WinUI prototype the user approved (prototype/winui/MainWindow.xaml):
        the title band the window's content is extended into; rail | sidebar | surface, where the surface holds message list | (summary tiles over) reader | sender panel.
@@ -45,7 +46,16 @@
             <ColumnDefinition Width="*" />
             <ColumnDefinition Width="Auto" />
           </Grid.ColumnDefinitions>
-          <list:MessageListView x:Name="ListRegion" Grid.Column="0" />
+          <Grid Grid.Column="0">
+            <list:MessageListView x:Name="ListRegion" />
+            <Button x:Name="FloatingCompose" HorizontalAlignment="Right" VerticalAlignment="Bottom" Margin="0,0,20,20"
+                    Style="{StaticResource Button.Primary}" Padding="18,0" MinHeight="{x:Bind Look.QuickTarget, Mode=OneWay}"
+                    FontFamily="{x:Bind Look.AppBoldFont, Mode=OneWay}" FontSize="{x:Bind Look.BodyTextSize, Mode=OneWay}"
+                    FocusVisualPrimaryThickness="{x:Bind Look.FocusThickness, Mode=OneWay}" CornerRadius="22" Click="OnFloatingComposeClick"
+                    Visibility="{x:Bind Look.FloatingComposeVisibility, Mode=OneWay}" AutomationProperties.AutomationId="list.compose" AutomationProperties.Name="New message">
+              <StackPanel Orientation="Horizontal" Spacing="8"><controls:SIcon Kind="Pen" Size="18" /><TextBlock Text="New message" /></StackPanel>
+            </Button>
+          </Grid>
           <actions:PaneHandle x:Name="ListHandle" Grid.Column="0" Column="email-list" Target="{x:Bind ListRegion}" AutomationProperties.AutomationId="pane.list" />
           <Grid x:Name="ReaderColumn" Grid.Column="1">
             <Grid.RowDefinitions>
