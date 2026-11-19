@@ -1981,3 +1981,8 @@ The provisional `PluginValue` storage seam needs source-compatible `JSON.stringi
 - Grouped-inbox preview following a414598. Review conversation ownership during representative changes and the independent cursor for whole-folder actions in MessageListViewModel.Actions.cs. Expanded cards and the unread-first layout remain open.
 
 - Verify the composer maximize and restore path against email-composer.tsx lines 5140 and 5550. Both new and docked sample drafts retained their saved IDs and contents through the measured round trips. Native Escape routing is source-checked only.
+
+## M6b conversation cards (Codex)
+
+- Review the independent body lifetime and unified owner routing in ConversationCardView, MessageLoader and ReaderViewModel. The selected message retains its original body shell. Secondary bodies use separate restricted shells, with external content blocked.
+- ConversationPrintDialog renders one card as text for printing. Hidden Windows sample verification stops at its preview. Shared-account replies need shared compose support. Card-specific Reply all, Forward, attachments, read marking and plugin body transformations remain open.

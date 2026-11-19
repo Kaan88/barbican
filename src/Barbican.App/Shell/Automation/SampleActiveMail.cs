@@ -17,6 +17,23 @@ public sealed class SampleActiveMail : IActiveMail, Barbican.Presentation.Action
 
     public SampleActiveMail(IHookBus hooks, TimeProvider time)
     {
+        if (string.Equals(Environment.GetEnvironmentVariable("BARBICAN_SAMPLE_LONG_THREAD"), "1", StringComparison.Ordinal))
+        {
+            var parent = _server.Store.EmailIds().First(id => string.Equals((string?)_server.Store.Email(id)?["subject"], FakeSeed.ThreadSubject, StringComparison.Ordinal));
+            for (var i = 6; i <= 8; i++)
+            {
+                parent = _server.Store.Deliver(new FakeMail
+                {
+                    Subject = "Re: " + FakeSeed.ThreadSubject,
+                    FromEmail = "planner@example.org",
+                    FromName = "Planner",
+                    ReceivedAt = new DateTimeOffset(2026, 11, 1, 8, 0, 0, TimeSpan.Zero).AddHours(i * 6),
+                    Text = $"Message {i} of the planning thread.",
+                    ReplyTo = parent,
+                });
+            }
+        }
+
         // The fake is in memory: connecting finishes in milliseconds and happens once, while the composition root is built.
 #pragma warning disable VSTHRD002, MA0045 // synchronous by design: IActiveMail has no async member and the fake never leaves the process
         var client = Task.Run(() => FakeJmapHarness.ConnectAsync(_server, time)).GetAwaiter().GetResult();

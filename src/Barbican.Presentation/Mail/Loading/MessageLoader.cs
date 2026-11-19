@@ -141,15 +141,41 @@ public sealed class MessageLoader : IMessageOpener, IConversationOpener, IDispos
     public bool OpenConversationMessage(string emailId)
     {
         var summary = _thread?.Emails.FirstOrDefault(e => string.Equals(e.Id, emailId, StringComparison.Ordinal));
-        if (summary is null || _thread is null)
+        if (summary is null || _thread is null || _active.Mail is not { } mail || !string.Equals(_reader.Current.ListAccountKey, _active.AccountKey, StringComparison.Ordinal) || !_reader.ConversationHeaders.Any(c => string.Equals(c.Id, emailId, StringComparison.Ordinal)))
         {
             return false;
         }
 
         var threadId = _thread.ThreadId;
-        _hooks.Fire(HookNames.OnThreadExpand, () => new ThreadExpandPayload(threadId, [emailId], true));
-        OpenCore(new MessageRowViewModel(summary));
+        var expansion = _reader.ToggleConversationCard(emailId);
+        _hooks.Fire(HookNames.OnThreadExpand, () => new ThreadExpandPayload(threadId, [emailId], expansion is not null));
+        if (expansion is not null) _ = LoadCardAsync(expansion, mail, _openCts?.Token ?? CancellationToken.None);
         return true;
+    }
+
+    private async Task LoadCardAsync(ConversationExpansion card, Barbican.Core.Mail.IMailService mail, CancellationToken ct)
+    {
+        EmailBody? body = null;
+        try
+        {
+            var result = await _fetcher.FetchAsync(card.AccountKey, mail, card.EmailId, wantThread: false, prefetch: false, ct).ConfigureAwait(false);
+            if (result.IsOk) body = result.Value?.Body;
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            return;
+        }
+#pragma warning disable CA1031 // A failed fetch leaves this card retryable.
+        catch (Exception)
+#pragma warning restore CA1031
+        {
+        }
+
+        _dispatcher.Post(() =>
+        {
+            if (!ct.IsCancellationRequested && _reader.Owns(card) && string.Equals(_active.AccountKey, card.AccountKey, StringComparison.Ordinal))
+                card.Complete(string.Equals(body?.Id, card.EmailId, StringComparison.Ordinal) ? body : null);
+        });
     }
 
     public void Close()

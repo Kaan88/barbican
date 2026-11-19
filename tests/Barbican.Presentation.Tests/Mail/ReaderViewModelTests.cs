@@ -199,6 +199,29 @@ public sealed class ReaderViewModelTests
     }
 
     [Fact]
+    public void Cards_expand_independently_and_revoke_old_bodies_on_close_or_account_change()
+    {
+        using var reader = new ReaderViewModel();
+        var items = Enumerable.Range(0, 8).Select(i => new ConversationItem($"m{i}", $"Sender {i}", "S", 0, "", false, i == 7)).ToArray();
+        var snapshot = new ReaderSnapshot { EmailId = "m7", ListAccountKey = "first", Conversation = items };
+        reader.Apply(snapshot);
+        Assert.Null(reader.ToggleConversationCard("m3"));
+        reader.ShowOlderConversationHeaders();
+        var older = Assert.IsType<ConversationExpansion>(reader.ToggleConversationCard("m3"));
+        var first = Assert.IsType<ConversationExpansion>(reader.ToggleConversationCard("m0"));
+        reader.Apply(snapshot);
+        Assert.True(reader.Owns(older));
+        Assert.True(reader.Owns(first));
+        Assert.Equal("m7", reader.EmailId);
+        Assert.Null(reader.ToggleConversationCard("m3"));
+        Assert.False(reader.Owns(older));
+        Assert.True(reader.Owns(first));
+        reader.Apply(snapshot with { ListAccountKey = "second" });
+        Assert.False(reader.Owns(first));
+        Assert.All(reader.ConversationHeaders, header => Assert.Null(header.Expansion));
+    }
+
+    [Fact]
     public void Opening_an_earlier_message_keeps_later_headers_available()
     {
         using var reader = new ReaderViewModel();

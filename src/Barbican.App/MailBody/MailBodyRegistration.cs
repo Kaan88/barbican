@@ -78,6 +78,6 @@ public static class MailBodyRegistration
         services.AddSingleton<Barbican.Automation.IAutomationCommand, Automation.BodyCommand>();
         services.AddSingleton<Barbican.Automation.IAutomationCommand, Automation.ThreadCommand>();
 #endif
-        return services;
+        return services.AddSingleton<Barbican.App.Views.Dialogs.IDialogContent, Barbican.App.Views.Reader.ConversationPrintDialog>();
     }
 }

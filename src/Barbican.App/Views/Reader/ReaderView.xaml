@@ -2,6 +2,7 @@
     x:Class="Barbican.App.Views.Reader.ReaderView"
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:reader="using:Barbican.App.Views.Reader"
     xmlns:body="using:Barbican.App.MailBody"
     xmlns:controls="using:Barbican.App.Controls"
     xmlns:motion="using:Barbican.App.Motion"
@@ -37,7 +38,7 @@
           <TextBlock Visibility="{x:Bind Look.LegacyMarkVisibility, Mode=OneWay}" Text="Select a message to read it" FontSize="13" Foreground="{StaticResource Faint}" HorizontalAlignment="Center" />
         </StackPanel>
 
-        <Grid x:Name="ContentGrid" Padding="{x:Bind Look.ReaderPadding, Mode=OneWay}" RowSpacing="{x:Bind Look.ReaderSpacing, Mode=OneWay}" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto,*,Auto"
+        <Grid x:Name="ContentGrid" SizeChanged="OnContentSizeChanged" Padding="{x:Bind Look.ReaderPadding, Mode=OneWay}" RowSpacing="{x:Bind Look.ReaderSpacing, Mode=OneWay}" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto,*,Auto"
               Visibility="{x:Bind views:Fmt.VisBody(Reader.BodyState, 'content'), Mode=OneWay}">
            <!-- Bulwark order: actions, subject, collapsed conversation headers, and the open message. -->
           <!-- actions: Reply, Reply all, Forward, Archive and Delete run their commands on the open message; More opens MENU-READER. Bento: icon + label (Reply all, Delete, More icon-only); Nordic: text only. -->
@@ -194,10 +195,10 @@
             </StackPanel>
           </Border>
 
-           <!-- Headers never host a body. Activating one uses the same loader as the selected message. -->
+           <!-- Independently expandable conversation messages, before the selected message. -->
            <Border Grid.Row="2" Visibility="{x:Bind views:Fmt.VisCount(Reader.ConversationHeaders.Count), Mode=OneWay}"
                    AutomationProperties.AutomationId="reader.conversation" AutomationProperties.Name="Conversation">
-               <ScrollViewer MaxHeight="204" VerticalScrollBarVisibility="Auto" VerticalScrollMode="Auto" HorizontalScrollMode="Disabled">
+               <ScrollViewer x:Name="ConversationScroll" MaxHeight="204" VerticalScrollBarVisibility="Auto" VerticalScrollMode="Auto" HorizontalScrollMode="Disabled">
                  <ItemsRepeater ItemsSource="{x:Bind Reader.ConversationHeaders}">
                   <ItemsRepeater.Layout>
                     <StackLayout Orientation="Vertical" Spacing="2" />
@@ -220,6 +221,7 @@
                            <TextBlock Grid.Column="2" Text="{x:Bind TimeLabel}" FontSize="12" Foreground="{StaticResource Faint}" VerticalAlignment="Center" />
                          </Grid>
                        </Button>
+                       <reader:ConversationCardView DataContext="{x:Bind Expansion}" />
                        </StackPanel>
                     </DataTemplate>
                   </ItemsRepeater.ItemTemplate>

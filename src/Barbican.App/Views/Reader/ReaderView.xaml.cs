@@ -54,6 +54,9 @@ public sealed partial class ReaderView : UserControl
 
     private void OnFullscreenClick(object sender, RoutedEventArgs e) => FullscreenRequested?.Invoke(this, EventArgs.Empty);
 
+    private void OnContentSizeChanged(object sender, SizeChangedEventArgs e) =>
+        ConversationScroll.MaxHeight = Math.Clamp(e.NewSize.Height * 0.40, 150, 360);
+
     private void OnShowOlderClick(object sender, RoutedEventArgs e) => Reader.ShowOlderConversationHeaders();
 
     private void OnConversationHeaderClick(object sender, RoutedEventArgs e)

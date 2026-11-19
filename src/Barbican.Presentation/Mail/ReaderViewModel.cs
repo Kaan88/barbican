@@ -19,6 +19,7 @@ public sealed class ReaderViewModel : ObservableObject, IDisposable
     private readonly TimeProvider _time;
     private ITimer? _codeExpiry;
     private bool _disposed;
+    private readonly Dictionary<string, ConversationExpansion> _expanded = new(StringComparer.Ordinal);
     private bool _showOlderConversationHeaders;
 
     public ReaderViewModel(IPrefsStore? prefs = null, IVerificationCodeFinder? finder = null, TimeProvider? time = null, IDispatcher? dispatcher = null)
@@ -98,10 +99,27 @@ public sealed class ReaderViewModel : ObservableObject, IDisposable
     /// <summary>The conversation strip; the collection is never replaced, only synced in place.</summary>
     public BulkObservableCollection<ConversationItem> Conversation { get; } = [];
 
-    /// <summary>Collapsed headers only; the selected message keeps the reader's single body surface.</summary>
+    /// <summary>Visible sibling cards. Each expansion owns its body separately from the selected message.</summary>
     public BulkObservableCollection<ConversationItem> ConversationHeaders { get; } = [];
 
     public int HiddenConversationCount { get; private set; }
+
+    public ConversationExpansion? ToggleConversationCard(string id)
+    {
+        if (!_expanded.Remove(id) && _current.ListAccountKey is { } key && ConversationHeaders.Any(c => string.Equals(c.Id, id, StringComparison.Ordinal)))
+        {
+            var expansion = new ConversationExpansion(key, id);
+            _expanded.Add(id, expansion);
+            SyncConversationHeaders(_current.Conversation);
+            return expansion;
+        }
+
+        SyncConversationHeaders(_current.Conversation);
+        return null;
+    }
+
+    public bool Owns(ConversationExpansion card) =>
+        card is not null && _expanded.TryGetValue(card.EmailId, out var current) && ReferenceEquals(current, card);
 
     public void ShowOlderConversationHeaders()
     {
@@ -119,6 +137,7 @@ public sealed class ReaderViewModel : ObservableObject, IDisposable
             .Select(x => hidden > 0 && x.index == current - 1
                 ? x.item with { OlderMessageDisclosure = FormattableString.Invariant($"Show {hidden} older messages") }
                 : x.item)
+            .Select(item => item with { Expansion = _expanded.GetValueOrDefault(item.Id) })
             .ToArray();
         ListSync.SyncBy(ConversationHeaders, headers, c => c.Id, EqualityComparer<ConversationItem>.Default.Equals);
         if (HiddenConversationCount != hidden)
@@ -142,7 +161,15 @@ public sealed class ReaderViewModel : ObservableObject, IDisposable
         snapshot = WithCode(snapshot);
         _current = snapshot;
         var emailChanged = !string.Equals(previous.EmailId, snapshot.EmailId, StringComparison.Ordinal);
-        if (emailChanged || snapshot.Conversation.Count == 0) _showOlderConversationHeaders = false;
+        if (emailChanged || !string.Equals(previous.ListAccountKey, snapshot.ListAccountKey, StringComparison.Ordinal) || snapshot.Conversation.Count == 0)
+        {
+            _showOlderConversationHeaders = false;
+            _expanded.Clear();
+        }
+        else
+        {
+            foreach (var id in _expanded.Keys.Where(id => !snapshot.Conversation.Any(c => string.Equals(c.Id, id, StringComparison.Ordinal))).ToArray()) _expanded.Remove(id);
+        }
         ListSync.SyncBy(Conversation, snapshot.Conversation, c => c.Id, EqualityComparer<ConversationItem>.Default.Equals);
         SyncConversationHeaders(snapshot.Conversation);
         ListSync.SyncBy(Banners, snapshot.Banners, b => b.Id, EqualityComparer<Reader.ReaderBanner>.Default.Equals);
