@@ -192,6 +192,9 @@ public static class CalendarUiAutomation
             case "due":
                 t.DueDate = value;
                 break;
+            case "hastime":
+                t.HasTime = string.Equals(value, "true", StringComparison.OrdinalIgnoreCase) || string.Equals(value, "1", StringComparison.Ordinal);
+                break;
             case "priority":
                 t.Priority = number;
                 break;

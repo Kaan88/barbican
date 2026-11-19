@@ -23,6 +23,10 @@ public static class CalendarViewsRegistration
 #if AUTOMATION
         if (string.Equals(Environment.GetEnvironmentVariable("BARBICAN_SAMPLE"), "1", StringComparison.Ordinal))
         {
+            if (string.Equals(Environment.GetEnvironmentVariable("BARBICAN_SAMPLE_UNMAPPABLE_ZONE"), "1", StringComparison.Ordinal))
+            {
+                services.Replace(ServiceDescriptor.Singleton<TimeProvider>(new UnmappableSampleTimeProvider()));
+            }
             services.TryAddSingleton<SampleCalendarSource>();
             services.Replace(ServiceDescriptor.Singleton<ICalendarSource>(sp => sp.GetRequiredService<SampleCalendarSource>()));
             services.Replace(ServiceDescriptor.Singleton<ICalendarWriter>(sp => sp.GetRequiredService<SampleCalendarSource>()));
@@ -37,4 +41,15 @@ public static class CalendarViewsRegistration
 #endif
         return services;
     }
+#if AUTOMATION
+    private sealed class UnmappableSampleTimeProvider : TimeProvider
+    {
+        private static readonly TimeZoneInfo Unmappable = TimeZoneInfo.CreateCustomTimeZone("Sample/Unmappable", TimeSpan.FromHours(3), "Sample", "Sample");
+        public override DateTimeOffset GetUtcNow() => TimeProvider.System.GetUtcNow();
+        public override TimeZoneInfo LocalTimeZone => Unmappable;
+        public override long GetTimestamp() => TimeProvider.System.GetTimestamp();
+        public override long TimestampFrequency => TimeProvider.System.TimestampFrequency;
+        public override ITimer CreateTimer(TimerCallback callback, object? state, TimeSpan dueTime, TimeSpan period) => TimeProvider.System.CreateTimer(callback, state, dueTime, period);
+    }
+#endif
 }

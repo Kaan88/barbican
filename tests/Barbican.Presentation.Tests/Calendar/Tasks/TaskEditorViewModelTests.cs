@@ -46,10 +46,11 @@ public sealed class TaskEditorViewModelTests
         e.Title = "Keep this";
         e.HasTime = true;
         Assert.False(await e.SaveAsync(CancellationToken.None));
-        Assert.Contains("Select a supported time zone", e.Error);
+        Assert.Contains("Choose a supported time zone", e.Error);
         Assert.Empty(_writer.Creates);
         Assert.Equal("Keep this", e.Title);
-        selected = "Asia/Tokyo";
+        e.TimeZone = "Asia/Tokyo";
+        Assert.Equal("auto", selected);
         Assert.True(await e.SaveAsync(CancellationToken.None));
         Assert.Equal("Asia/Tokyo", (string?)Assert.Single(_writer.Creates).Data["timeZone"]);
     }

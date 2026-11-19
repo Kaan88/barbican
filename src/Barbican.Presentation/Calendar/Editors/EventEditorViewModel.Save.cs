@@ -37,8 +37,8 @@ public sealed partial class EventEditorViewModel
         }
 
         _endTime = end.ToString("HH:mm", CultureInfo.InvariantCulture);
-        _timeZone = request.AllDay ? null : _s.DefaultZone ?? CalendarJson.LocalZoneId();
-        _zoneExplicit = false;
+        _timeZone = request.AllDay ? null : request.TimeZone ?? _s.DefaultZone ?? CalendarJson.LocalZoneId();
+        _zoneExplicit = request.TimeZone is not null;
         _freeBusy = request.AllDay ? 1 : 0;
         _useDefaultAlerts = true;
         _notify = true;
@@ -241,7 +241,7 @@ public sealed partial class EventEditorViewModel
         if (_event is not null || _allDay || (_zoneExplicit && _timeZone is null) || !string.IsNullOrEmpty(_timeZone)) return true;
         _timeZone = _s.CurrentZone?.Invoke() ?? _s.DefaultZone ?? CalendarJson.LocalZoneId();
         if (_timeZone.Length > 0) return true;
-        Error = "The system time zone is unavailable. Select a supported time zone in Settings, then try again.";
+        Error = "The system time zone is unavailable. Choose a supported time zone, then try again.";
         return false;
     }
 

@@ -5,6 +5,9 @@
 
 using System.ComponentModel;
 using Barbican.App.Theme;
+using Barbican.App.Shell;
+using Barbican.Presentation.Dialogs;
+using Barbican.Presentation.Settings;
 using Barbican.Presentation.Calendar.Editors;
 using Barbican.Presentation.Calendar.Editors.Dialogs;
 using Barbican.Presentation.Calendar.Tasks;
@@ -38,6 +41,16 @@ public sealed partial class CalendarCardHost : Grid
         Children.Add(_questionScrim);
         host.PropertyChanged += (_, _) => DispatcherQueue.TryEnqueue(Refresh);
         Refresh();
+    }
+
+    private async Task PickZoneAsync(string selected, Action<string> apply)
+    {
+        var answer = await ViewHost.Get<IDialogService>().ShowAsync(new TimeZonePickerRequest(selected, RequireSupportedZone: true), CancellationToken.None).ConfigureAwait(true);
+        if (answer is not null)
+        {
+            apply(answer);
+            ForceRedraw();
+        }
     }
 
     private void OnScrimTapped(object sender, TappedRoutedEventArgs e)
