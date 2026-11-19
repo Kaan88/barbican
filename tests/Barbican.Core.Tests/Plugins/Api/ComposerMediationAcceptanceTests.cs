@@ -202,6 +202,24 @@ public sealed class ComposerMediationAcceptanceTests
         Assert.Equal("composer_changed", PluginCallOutcome.Failed(PluginErrorCode.ComposerChanged).ErrorMessage, StringComparer.Ordinal);
         Assert.Equal("attachment_not_in_composer", PluginCallOutcome.Failed(PluginErrorCode.AttachmentNotInComposer).ErrorMessage, StringComparer.Ordinal);
     }
+    [Fact]
+    [Red("m6b-mediation")]
+    public async Task TwoFramesAndUpdatedContentCannotBypassSharedEditLimit()
+    {
+        var limiter = PluginComposerEditRateLimiter.Create(new Microsoft.Extensions.Time.Testing.FakeTimeProvider(), 10);
+        var grant = Grant("compose:write"); var access = new Access();
+        var dispatcher = Dispatcher(PluginComposerMethods.SetSubject(access, limiter), new Authority(grant), new Sessions());
+        await using var first = PluginRuntimeBinding.Create("auto-mediation", grant, PluginFrameKind.Background);
+        await using var second = PluginRuntimeBinding.Create("auto-mediation", grant, PluginFrameKind.Background);
+        var request = Request("composer.setSubject", "[\"host-handle\",\"x\"]");
+        for (var i = 0; i < 60; i++) Assert.True((await dispatcher.DispatchAsync(i % 2 == 0 ? first : second, request, Ct)).IsSuccess);
+        var updatedPackage = new PluginPackageIdentity("probe", "1.0.0", new string('b', 64));
+        var updated = new PluginGrantSnapshot(updatedPackage, 2, true, ["compose:write"], ["a", "b"]);
+        var afterUpdate = Dispatcher(PluginComposerMethods.SetSubject(access, limiter), new Authority(updated), new Sessions());
+        await using var replacement = PluginRuntimeBinding.Create("auto-mediation", updated, PluginFrameKind.Background);
+        var denied = await afterUpdate.DispatchAsync(replacement, request, Ct);
+        Assert.Equal(PluginErrorCode.RateLimited, denied.Error); Assert.Equal(60, access.Handle.Writes);
+    }
     private sealed class Access : IPluginComposerAccess
     {
         public Handle Handle { get; set; } = new();

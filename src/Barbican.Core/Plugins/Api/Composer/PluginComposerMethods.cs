@@ -7,6 +7,7 @@ public static class PluginComposerMethods
 {
     public static IPluginApiMethod GetSnapshot(IPluginComposerAccess access) => new ComposerMethod(access, "composer.getSnapshot", "compose:read", 1);
     public static IPluginApiMethod SetSubject(IPluginComposerAccess access) => new ComposerMethod(access, "composer.setSubject", "compose:write", 2, true);
+    public static IPluginApiMethod SetSubject(IPluginComposerAccess access, IPluginComposerEditRateLimiter limiter) => throw new Barbican.Core.Common.PortPendingException("composer edit limiter integration");
     public static IPluginApiMethod ReadAttachment(IPluginComposerAccess access) => new ComposerMethod(access, "composer.readAttachment", "email:blob-read", 2);
 
     private sealed class ComposerMethod : IPluginApiMethod
