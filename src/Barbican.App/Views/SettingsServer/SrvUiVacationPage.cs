@@ -33,6 +33,10 @@ internal sealed class SrvUiVacationPage : SrvUiPage
         form.Children.Add(Text("srv.vacation.subject", _model.Subject, v => _model.Subject = v, placeholder: "Out of office"));
         form.Children.Add(Label("Message"));
         form.Children.Add(Text("srv.vacation.body", _model.Body, v => _model.Body = v, multiline: true, placeholder: "I am away and will answer when I am back."));
+        form.Children.Add(Label("HTML message (optional)"));
+        form.Children.Add(SrvUiKit.Dim("Edit HTML source here. Keep the plain message above for recipients who cannot display HTML."));
+        form.Children.Add(Text("srv.vacation.html", _model.HtmlBody, v => _model.HtmlBody = v, multiline: true, placeholder: "<p>I am away.</p>"));
+        form.Children.Add(SrvUiKit.Dim("Organization vacation templates are not available until organization policy is connected."));
         form.Children.Add(Label("Days (yyyy-MM-dd; either can stay empty)"));
         form.Children.Add(SrvUiKit.Row(Text("srv.vacation.from", _model.FromText, v => _model.FromText = v, placeholder: "First day"), Text("srv.vacation.to", _model.ToText, v => _model.ToText = v, placeholder: "Last day")));
         form.Children.Add(Label("Who gets the reply"));

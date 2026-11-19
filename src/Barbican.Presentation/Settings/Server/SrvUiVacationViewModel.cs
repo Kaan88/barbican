@@ -15,6 +15,11 @@ public sealed class SrvUiVacationViewModel : SrvUiPageModel
     private readonly TimeProvider _time;
     private VacationSettings? _saved;
     private string _message = string.Empty;
+    private string _subject = string.Empty;
+    private string _body = string.Empty;
+    private string _htmlBody = string.Empty;
+    private long _draftVersion;
+    private long _savedDraftVersion;
 
     public SrvUiVacationViewModel(IVacationService service, IAccountManager? accounts = null, IDispatcher? dispatcher = null, TimeProvider? time = null)
         : base(accounts, dispatcher)
@@ -30,9 +35,12 @@ public sealed class SrvUiVacationViewModel : SrvUiPageModel
 
     public bool Enabled { get; set; }
 
-    public string Subject { get; set; } = string.Empty;
+    public string Subject { get => _subject; set => Edit(ref _subject, value); }
 
-    public string Body { get; set; } = string.Empty;
+    public string Body { get => _body; set => Edit(ref _body, value); }
+
+    /// <summary>Optional HTML source; plain text remains independently editable.</summary>
+    public string HtmlBody { get => _htmlBody; set => Edit(ref _htmlBody, value); }
 
     /// <summary>First day, yyyy-MM-dd, or empty.</summary>
     public string FromText { get; set; } = string.Empty;
@@ -68,8 +76,9 @@ public sealed class SrvUiVacationViewModel : SrvUiPageModel
     {
         IsLoading = true;
         var account = AccountKey;
+        var version = _draftVersion;
         var result = await _service.LoadAsync(account, ct).ConfigureAwait(false);
-        await OnUiAsync(account, () => { Take(result); IsLoading = false; }).ConfigureAwait(false);
+        await OnUiAsync(account, () => { Take(result, version != _draftVersion); IsLoading = false; }).ConfigureAwait(false);
     }
 
     public async Task SaveAsync(CancellationToken ct)
@@ -84,17 +93,19 @@ public sealed class SrvUiVacationViewModel : SrvUiPageModel
         var domains = DomainsText.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
         var audience = AudienceOnly.Length == 0 ? null : new VacationAudience(AudienceOnly, domains);
         var forward = ForwardOn || ForwardTo.Trim().Length > 0 ? new VacationForward(ForwardOn, ForwardTo.Trim(), ForwardKeep) : null;
-        var settings = new VacationSettings(Enabled, Subject.Trim(), Body, _saved?.HtmlBody, from, to, audience, forward, BlockCalendar);
+        var settings = new VacationSettings(Enabled, Subject.Trim(), Body, string.IsNullOrWhiteSpace(HtmlBody) ? null : HtmlBody, from, to, audience, forward, BlockCalendar);
         IsLoading = true;
         var account = AccountKey;
+        var version = _draftVersion;
         var result = await _service.SaveAsync(account, settings, ct).ConfigureAwait(false);
         await OnUiAsync(account, () =>
         {
             IsLoading = false;
-            Take(result);
+            var newerEdits = version != _draftVersion;
+            Take(result, newerEdits);
             if (result.IsOk)
             {
-                Message = "Saved.";
+                Message = newerEdits ? "Saved earlier changes. Newer edits are not saved yet." : "Saved.";
             }
         }).ConfigureAwait(false);
     }
@@ -118,7 +129,14 @@ public sealed class SrvUiVacationViewModel : SrvUiPageModel
 
     private static string Day(DateOnly? d) => d?.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture) ?? string.Empty;
 
-    private void Take(Barbican.Core.Common.Result<VacationSettings> result)
+    private void Edit(ref string field, string value)
+    {
+        if (string.Equals(field, value, StringComparison.Ordinal)) return;
+        field = value;
+        _draftVersion++;
+    }
+
+    private void Take(Barbican.Core.Common.Result<VacationSettings> result, bool preserveDraft = false)
     {
         if (!result.IsOk)
         {
@@ -129,9 +147,17 @@ public sealed class SrvUiVacationViewModel : SrvUiPageModel
         Error = null;
         var v = result.Value!;
         _saved = v;
+        if (preserveDraft)
+        {
+            Raise(nameof(Status));
+            return;
+        }
+
         Enabled = v.Enabled;
-        Subject = v.Subject;
-        Body = v.TextBody;
+        _subject = v.Subject;
+        _body = v.TextBody;
+        _htmlBody = v.HtmlBody ?? string.Empty;
+        _savedDraftVersion = _draftVersion;
         FromText = Day(v.From);
         ToText = Day(v.To);
         AudienceOnly = v.Audience?.Only ?? string.Empty;
@@ -149,7 +175,7 @@ public sealed class SrvUiVacationViewModel : SrvUiPageModel
         try
         {
             var result = await _service.LoadAsync(account, CancellationToken.None).ConfigureAwait(false);
-            await OnUiAsync(account, () => Take(result)).ConfigureAwait(false);
+            await OnUiAsync(account, () => { if (_draftVersion == _savedDraftVersion) Take(result); }).ConfigureAwait(false);
         }
         catch (OperationCanceledException)
         {
