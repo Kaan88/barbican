@@ -5,6 +5,10 @@ change the plan: [adr/](adr/). The Rust-era roadmap is in [legacy/ROADMAP.md](le
 
 Current execution order: **M6 -> M6b -> M7 -> M8 -> M10 -> UI walkthrough and usability fixes**. M6's Windows portable was already delivered. Every major milestone requires an Astra review/fix cycle until Astra explicitly approves. M9 (Linux) is excluded. Historical hand-test gates below do not override the Astra gate. See [PROGRESS.md](PROGRESS.md) for evidence and carryovers.
 
+At major progress checkpoints, produce a Windows portable ZIP, verify the extracted
+app with hidden smoke automation, and record the exact source revision and SHA-256.
+Label interim portables as previews; they do not substitute for milestone approval.
+
 | Milestone | Scope (short) | Status |
 |---|---|---|
 | M0 | Foundation, catalogue, tokens and spikes | Done |

@@ -9,22 +9,28 @@ deletions; leave them untouched and build from clean worktrees.
 
 ### First resumed checkpoint
 
-- **Explicit Windows mail WebView environment:** `dd0c92c` is pushed on
-  `codex/m6b-webview` (`wt-m6b-webview`), not integrated. The reader and smoke
+- **Explicit Windows mail WebView environment:** integrated at `9166080`
+  (`dd0c92c` in the verification worktree). The reader and smoke
   now pass explicit profile-scoped environments, check the actual folder before
   navigation and no longer set process-global WebView2 folder/flags. Four focused
   tests passed; Windows App Automation build passed with zero warnings/errors;
   hidden smoke exited 0 and reached shell-ready in 1365.2 ms with the expected
-  isolated profile directory present. The full Automation solution build failed
-  at NativeSentinel fixture configuration (Debug output, Automation copy path).
-  Actual plugin factory wiring and cross-environment browser isolation remain open.
+  isolated profile directory present. Actual plugin factory wiring and
+  cross-environment browser isolation remain open.
+- **Automation solution build:** `bad3864` copies the fixture from MSBuild's
+  resolved project output rather than guessing the configuration directory.
+  On the equivalent source in `wt-m6b-webview` (`b2bd1ad`), the Windows Automation
+  solution built without warnings or errors and copied the 5632-byte sentinel DLL.
+  The standard focused preload filter selected zero tests because the class is Red;
+  this verifies fixture packaging, not native activation.
 - Read-only runtime and package audits confirmed that neither draft is production
   wiring. Keep pending runtime ingress behind navigation and UI delivery fences.
   Package manager, lease and authenticated store remain a dependent chain without
   production startup or crash recovery. The mediation hook audit identified a
   shared contract blocker: reference transform chains carry intermediate structured
   values and validate at the end, whereas the existing bus requires a CLR type
-  after each handler. No implementation landed from that audit.
+  after each handler. No implementation landed from that audit. Stream D has
+  started an independent Add-ons UI slice in `wt-m6b-ui`.
 
 ## Codex continuation (saved pre-resume checkpoint, 2026-11-19)
 
