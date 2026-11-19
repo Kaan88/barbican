@@ -18,7 +18,7 @@ using Barbican.Presentation.Files;
 namespace Barbican.Presentation.Reader;
 
 /// <summary>The reader and attachment commands.</summary>
-public sealed class ReaderCommands(IAttachmentSaver saver, Func<EmailBody?> open, IClipboardService clipboard, IDialogService dialogs, IToastService? toasts = null, IPrefsStore? prefs = null)
+public sealed class ReaderCommands(IAttachmentSaver saver, Func<EmailBody?> open, IClipboardService clipboard, IDialogService dialogs, IToastService? toasts = null, IPrefsStore? prefs = null, Func<string?>? activeAccount = null)
 {
     /// <summary>How many commands <see cref="Create"/> returns (the registration adds one per index).</summary>
     public const int Count = 6;
@@ -45,11 +45,18 @@ public sealed class ReaderCommands(IAttachmentSaver saver, Func<EmailBody?> open
 
     private static bool One(CommandContext c) => c.Targets.Count == 1;
 
-    private AttachmentRef? Pick(CommandContext c) =>
-        c.Targets.Count == 1 && open() is { } body && string.Equals(c.Targets[0].EmailId, body.Id, StringComparison.Ordinal)
-            && int.TryParse(c.Argument, System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out var i) && i >= 0 && i < body.Attachments.Count
-            ? new AttachmentRef(i, body.Attachments[i])
-            : null;
+    private bool AccountMatches(CommandContext context) =>
+        context.Targets.Count == 1 && (activeAccount is null || string.Equals(activeAccount(), context.Targets[0].AccountKey, StringComparison.Ordinal));
+
+    private AttachmentRef? Pick(CommandContext context) => Pick(context, out _);
+
+    private AttachmentRef? Pick(CommandContext context, out EmailBody? body)
+    {
+        body = open();
+        return AccountMatches(context) && body is not null && string.Equals(context.Targets[0].EmailId, body.Id, StringComparison.Ordinal)
+            && int.TryParse(context.Argument, System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out var index)
+            && index >= 0 && index < body.Attachments.Count ? new AttachmentRef(index, body.Attachments[index]) : null;
+    }
 
     private Result<Unit> Saved(Result<Unit> r)
     {
@@ -71,7 +78,7 @@ public sealed class ReaderCommands(IAttachmentSaver saver, Func<EmailBody?> open
     // Preview: the attachment is downloaded under the preview cap and shown in a dialog (an image, text or .eml); a plugin may take it over (onAttachmentPreview); I-228
     private async Task<Result<Unit>> PreviewAsync(CommandContext c, CancellationToken ct)
     {
-        if (Pick(c) is not { Attachment.BlobId: not null } pick)
+        if (Pick(c, out var originalBody) is not { Attachment.BlobId: not null } pick)
             return Result<Unit>.Fail(new ValidationError("The attachment is no longer open."));
         var target = c.Targets[0];
         var kind = FilesPreviewRules.KindOf(pick.Attachment.Type, pick.Attachment.Name ?? string.Empty);
@@ -82,7 +89,8 @@ public sealed class ReaderCommands(IAttachmentSaver saver, Func<EmailBody?> open
             return Saved(await saver.SaveAsync(target, pick, ct).ConfigureAwait(false));
         }
 
-        var bytes = await saver.ReadForPreviewAsync(target, pick, ct).ConfigureAwait(false);
+        var bytes = await saver.ReadForPreviewAsync(target, pick, ct).ConfigureAwait(true);
+        if (!AccountMatches(c) || !ReferenceEquals(open(), originalBody)) return Result<Unit>.Ok(default);
         if (!bytes.IsOk)
         {
             return Result<Unit>.Fail(bytes.Error!);
@@ -90,7 +98,7 @@ public sealed class ReaderCommands(IAttachmentSaver saver, Func<EmailBody?> open
 
         if (bytes.Value is { } content)
         {
-            _ = await dialogs.ShowAsync(new AttachmentPreviewDialogRequest(pick.Attachment.Name ?? "attachment", kind, content, async token => _ = Saved(await saver.SaveAsync(target, pick, token).ConfigureAwait(false))), ct).ConfigureAwait(false);
+            _ = await dialogs.ShowAsync(new AttachmentPreviewDialogRequest(pick.Attachment.Name ?? "attachment", kind, content, async token => _ = Saved(await saver.SaveAsync(target, pick, token).ConfigureAwait(false))), ct).ConfigureAwait(true);
         }
 
         return Result<Unit>.Ok(default);

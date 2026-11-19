@@ -78,6 +78,61 @@ public sealed class AttachmentActionTests
         Assert.False(open.CanExecute(ReaderCommands.AttachmentContext("visible-login", current, -1)));
     }
 
+    [Fact]
+    public async Task Switching_accounts_with_the_same_plain_message_id_rejects_the_stale_target()
+    {
+        var original = Body("same-id", "text/plain", "first.txt");
+        var current = Body("same-id", "text/plain", "second.txt");
+        var account = "account-b";
+        var saver = new Saver();
+        var command = new ReaderCommands(saver, () => current, new Clipboard(), new Dialogs(), activeAccount: () => account)
+            .Create().Single(c => string.Equals(c.Id, CommandIds.OpenAttachment, StringComparison.Ordinal));
+        var stale = ReaderCommands.AttachmentContext("account-a", original, 0);
+        Assert.False(command.CanExecute(stale));
+        Assert.False((await command.ExecuteAsync(stale, Ct)).IsOk);
+        Assert.Equal(0, saver.Previews);
+        Assert.Equal(0, saver.Saves);
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task Delayed_preview_is_discarded_when_reader_or_account_changes(bool switchAccount)
+    {
+        var current = Body("same-id", "text/plain", "first.txt");
+        var account = "account-a";
+        var saver = new Saver { Pending = new(TaskCreationOptions.RunContinuationsAsynchronously) };
+        var dialogs = new Dialogs();
+        var command = new ReaderCommands(saver, () => current, new Clipboard(), dialogs, activeAccount: () => account)
+            .Create().Single(c => string.Equals(c.Id, CommandIds.OpenAttachment, StringComparison.Ordinal));
+        var context = ReaderCommands.AttachmentContext(account, current, 0);
+        var request = command.ExecuteAsync(context, Ct);
+        Assert.Equal(1, saver.Previews);
+        if (switchAccount) account = "account-b";
+        else current = Body("same-id", "text/plain", "other.txt");
+        saver.Pending!.SetResult(Result<byte[]?>.Ok([1, 2]));
+        Assert.True((await request).IsOk);
+        Assert.Empty(dialogs.Seen);
+    }
+
+    [Fact]
+    public async Task Open_preview_save_keeps_its_captured_original_target()
+    {
+        var current = Body("same-id", "text/plain", "first.txt");
+        var account = "account-a";
+        var saver = new Saver();
+        var dialogs = new Dialogs();
+        var command = new ReaderCommands(saver, () => current, new Clipboard(), dialogs, activeAccount: () => account)
+            .Create().Single(c => string.Equals(c.Id, CommandIds.OpenAttachment, StringComparison.Ordinal));
+        Assert.True((await command.ExecuteAsync(ReaderCommands.AttachmentContext(account, current, 0), Ct)).IsOk);
+        var preview = Assert.IsType<AttachmentPreviewDialogRequest>(Assert.Single(dialogs.Seen));
+        account = "account-b";
+        current = Body("same-id", "text/plain", "other.txt");
+        await preview.Save(Ct);
+        Assert.Equal("account-a", saver.Target!.AccountKey);
+        Assert.Equal(1, saver.Saves);
+    }
+
     private static EmailBody Body(string id, string type, string name, long size = 10) => new()
     {
         Id = id, Attachments = [new Attachment { BlobId = "blob", Name = name, Type = type, Size = size }],
@@ -88,8 +143,9 @@ public sealed class AttachmentActionTests
         public int Saves { get; private set; }
         public int Previews { get; private set; }
         public MailTarget? Target { get; private set; }
+        public TaskCompletionSource<Result<byte[]?>>? Pending { get; init; }
         public Task<Result<Unit>> SaveAsync(MailTarget message, AttachmentRef attachment, CancellationToken ct) { Saves++; Target = message; return Task.FromResult(Result<Unit>.Ok(default)); }
-        public Task<Result<byte[]?>> ReadForPreviewAsync(MailTarget message, AttachmentRef attachment, CancellationToken ct) { Previews++; Target = message; return Task.FromResult(Result<byte[]?>.Ok([1, 2])); }
+        public Task<Result<byte[]?>> ReadForPreviewAsync(MailTarget message, AttachmentRef attachment, CancellationToken ct) { Previews++; Target = message; return Pending?.Task ?? Task.FromResult(Result<byte[]?>.Ok([1, 2])); }
         public Task<Result<Unit>> SaveAllAsZipAsync(MailTarget message, CancellationToken ct) => Task.FromResult(Result<Unit>.Ok(default));
         public Task<Result<Unit>> SaveEmlAsync(MailTarget message, CancellationToken ct) => Task.FromResult(Result<Unit>.Ok(default));
         public Task<Result<(byte[] Bytes, string Name)>> RawAsync(MailTarget message, CancellationToken ct) => Task.FromResult(Result<(byte[], string)>.Ok(([], "message.eml")));

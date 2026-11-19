@@ -1650,3 +1650,8 @@ Windows full Presentation suite passed 1027; Automation WinUI head built with ze
 ## Codex - M6 bounded attachment preview (Terra High)
 
 The advertised-size-only risk in the preceding note is addressed in `Core/Mail/Attachments/AttachmentSaver.cs`: preview reads at most 12 MiB plus one byte before refusing, without buffering the rest, and disposes the source on success, refusal or cancellation. Explicit saves and raw-message downloads retain their previous behavior. Six focused AttachmentSaver tests passed on Windows, including synthetic underreported oversized content, cancellation and a small successful stream; no live endpoint or write was used.
+
+
+## Codex - M6 reader stale-result guards (Terra High)
+
+Attachment commands now check the current active account along with the open message id, and recheck that account and the original body instance after an asynchronous preview read before presenting it. The production reader factory supplies the active account; an already-open preview's Save callback deliberately keeps its captured target. Late verification-code banners are revalidated against the current message and expiry before insertion. Synthetic tests cover colliding plain ids across accounts, delayed account or body changes, captured preview saves, and expiry before a late banner. AttachmentActionTests 9 passed, VerificationCodePreferencesTests 3 passed, and the Windows Automation head compiled with zero warnings. No real account write, network or clipboard was used.

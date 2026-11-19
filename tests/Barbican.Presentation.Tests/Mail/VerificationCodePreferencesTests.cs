@@ -38,6 +38,8 @@ public sealed class VerificationCodePreferencesTests
         Assert.Single(reader.Banners);
         time.Advance(TimeSpan.FromHours(25));
         Assert.Empty(reader.Banners);
+        reader.AddBanners(reader.EmailId, [banner]);
+        Assert.Empty(reader.Banners);
     }
 
     [Fact]

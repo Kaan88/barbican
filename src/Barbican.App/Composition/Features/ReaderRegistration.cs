@@ -96,7 +96,8 @@ public static class ReaderRegistration
             sp.GetRequiredService<Barbican.Presentation.Common.IClipboardService>(),
             sp.GetRequiredService<Barbican.Presentation.Dialogs.IDialogService>(),
             sp.GetService<Barbican.Presentation.Actions.IToastService>(),
-            sp.GetRequiredService<IPrefsStore>()));
+            sp.GetRequiredService<IPrefsStore>(),
+            () => sp.GetRequiredService<IActiveMail>().AccountKey));
         foreach (var i in Enumerable.Range(0, Barbican.Presentation.Reader.ReaderCommands.Count))
         {
             var index = i;
