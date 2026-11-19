@@ -1,4 +1,6 @@
+#if WINDOWS
 using Barbican.Core.Storage;
+#endif
 
 namespace Barbican.App.Composition;
 
