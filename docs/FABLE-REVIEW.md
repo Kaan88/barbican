@@ -1744,3 +1744,7 @@ The response and script updates are separate operations, so failures can leave p
 ## Codex - M6 srv-ui (Terra High)
 
 - SrvUiPageModel now tracks monotonic account generations and loaded-account stamps. Identity and template pages clear their drafts on switches, refuse writes until the current account load succeeds, and discard late results. Delete confirmations also capture generation and selected id; pasted template import text is cleared on switch. Controlled tests reject stale writes and confirmations including A-to-B-to-A. A request already issued may finish on its captured original account; its late UI result is discarded. Folder, filter and recover work remains in progress.
+
+## Codex - M6 srv-ui (Terra High)
+
+- Folder settings load account-scoped mailbox snapshots from the captured session; writes require that snapshot and matching account generation, and success refreshes it. Colliding-ID and delayed A-to-B-to-A tests pass. The sidebar fallback is not used as a write source. Folder delete confirmations and unsent name fields are fenced on account switch. Vacation account switches now invalidate and clear the draft without automatically loading a hidden page: the visible page offers Reload and disables Save until a matching load succeeds, avoiding background calendar reconciliation. An explicitly opened/reloaded writable vacation page still uses the existing reconciliation behavior.

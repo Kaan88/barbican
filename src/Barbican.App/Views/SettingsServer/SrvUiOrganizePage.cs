@@ -21,13 +21,26 @@ internal sealed class SrvUiOrganizePage : SrvUiPage
     private string _newTag = string.Empty;
     private string _renameTag = string.Empty;
     private string? _movedFor;
+    private long _accountGeneration;
 
     public SrvUiOrganizePage(SrvUiFoldersViewModel folders, SrvUiTagsViewModel tags)
         : base(SettingsPageIds.Organize, "Folders and tags", "Arrange your folders and set how each one behaves, and manage the tags you put on messages.")
     {
         _folders = folders;
         _tags = tags;
-        _folders.PropertyChanged += (_, _) => Invalidate();
+        _accountGeneration = folders.AccountGeneration;
+        _folders.PropertyChanged += (_, _) =>
+        {
+            if (_accountGeneration != _folders.AccountGeneration)
+            {
+                _accountGeneration = _folders.AccountGeneration;
+                _newName = string.Empty;
+                _renameTo = string.Empty;
+                _movedFor = null;
+            }
+
+            Invalidate();
+        };
         _tags.PropertyChanged += (_, _) => Invalidate();
     }
 
@@ -172,7 +185,8 @@ internal sealed class SrvUiOrganizePage : SrvUiPage
 
     private async Task DeleteFolderAsync(FolderAdminNode f)
     {
-        if (await SrvUiKit.AskAsync("Delete folder", "Delete the folder \"" + f.Name + "\" and every message in it? This cannot be undone.", "Delete").ConfigureAwait(true))
+        var generation = _folders.AccountGeneration;
+        if (await SrvUiKit.AskAsync("Delete folder", "Delete the folder \"" + f.Name + "\" and every message in it? This cannot be undone.", "Delete").ConfigureAwait(true) && _folders.IsCurrentGeneration(generation) && string.Equals(f.Id, _folders.SelectedId, StringComparison.Ordinal))
         {
             _ = await _folders.DeleteAsync(CancellationToken.None).ConfigureAwait(true);
         }

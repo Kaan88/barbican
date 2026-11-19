@@ -1,6 +1,7 @@
 // Mirrors: M6 plan section 3.5 (sample-data runs). A fixed folder list for BARBICAN_SAMPLE=1; the sample folder admin keeps preferences only, so this list does not change. Owner srv-ui.
 
 using Barbican.Core.Settings.Folders;
+using Barbican.Core.Common;
 
 namespace Barbican.Presentation.Settings.Server;
 
@@ -26,6 +27,9 @@ public sealed class SrvUiSampleFolders : ISrvUiFolderSource
         add { }
         remove { }
     }
+
+    public Task<Result<IReadOnlyList<SrvUiFolderSnapshot>>> LoadAsync(string accountKey, CancellationToken ct) =>
+        Task.FromResult(Result<IReadOnlyList<SrvUiFolderSnapshot>>.Ok([.. Items.Select(n => new SrvUiFolderSnapshot(n, Unread(n.Id), Subscribed(n.Id)))]));
 
     public IReadOnlyList<FolderAdminNode> Nodes() => Items;
 

@@ -51,6 +51,8 @@ public sealed class SrvUiVacationViewModel : SrvUiPageModel
         };
     }
 
+    public bool CanSave => IsLoaded(AccountKey, Interlocked.Read(ref _accountGeneration)) && !IsLoading;
+
     public bool Enabled { get => _enabled; set => Edit(ref _enabled, value); }
 
     public string Subject { get => _subject; set => Edit(ref _subject, value); }
@@ -110,6 +112,7 @@ public sealed class SrvUiVacationViewModel : SrvUiPageModel
             }
 
             IsLoading = false;
+            Raise(nameof(CanSave));
         }).ConfigureAwait(false);
     }
 
@@ -195,27 +198,8 @@ public sealed class SrvUiVacationViewModel : SrvUiPageModel
             IsLoading = false;
             Raise(nameof(Status));
             Raise(string.Empty);
-            _ = LoadAfterSwitchAsync(account, generation);
+            Raise(nameof(CanSave));
         });
-    }
-
-    private async Task LoadAfterSwitchAsync(string account, long generation)
-    {
-        try
-        {
-            await LoadAsync(CancellationToken.None).ConfigureAwait(false);
-        }
-#pragma warning disable CA1031 // A background account-change load must surface its failure on the page.
-        catch (Exception error)
-#pragma warning restore CA1031
-        {
-            await OnUiAsync(account, () =>
-            {
-                if (generation != Interlocked.Read(ref _accountGeneration)) return;
-                IsLoading = false;
-                Error = error.Message;
-            }).ConfigureAwait(false);
-        }
     }
 
     private static bool TryDay(string text, out DateOnly? day)

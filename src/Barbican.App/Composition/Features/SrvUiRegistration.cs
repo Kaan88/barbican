@@ -51,7 +51,7 @@ public static class SrvUiRegistration
         }
         else
         {
-            services.TryAddSingleton<ISrvUiFolderSource>(sp => new SrvUiSidebarFolders(sp.GetRequiredService<SidebarViewModel>()));
+            services.TryAddSingleton<ISrvUiFolderSource>(sp => new SrvUiSidebarFolders(sp.GetRequiredService<SidebarViewModel>(), sp.GetRequiredService<IAccountManager>()));
             services.TryAddSingleton<ISrvUiRecoverSource>(sp => new SrvUiArchivedSource(sp.GetRequiredService<IAccountManager>()));
         }
 
