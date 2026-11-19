@@ -4,6 +4,14 @@ Updated 2026-11-19. Read this with [CLAUDE.md](../CLAUDE.md),
 [PROGRESS.md](PROGRESS.md), and [the M6 plan](milestones/M6-plan.md).
 This is the Codex-specific continuation of the user's Claude handoff.
 
+## Current M6b UI pause (2026-11-20)
+
+The user paused work after reporting that the preview theme does not match
+Bulwark. For the current UI checkout, verified evidence, open gaps and resume
+order, read the [M6b Bulwark parity handoff](milestones/M6b-parity-handoff.md)
+first. The earlier checkpoints and visual direction below are historical;
+resume only on explicit user instruction.
+
 ## Previous pause and explicit resume (2026-11-19)
 
 The user explicitly resumed M6b after the checkpoint below. See the top of
