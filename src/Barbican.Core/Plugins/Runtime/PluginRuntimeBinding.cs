@@ -41,13 +41,16 @@ public sealed class PluginRuntimeBinding : IAsyncDisposable
     public string? Slot { get; }
     public CancellationToken Lifetime => _lifetime;
     public bool IsAlive => Volatile.Read(ref _closed) == 0;
+    // The coordinator can establish the entire generation barrier before scheduling any user cleanup.
+    internal void Invalidate() => Volatile.Write(ref _closed, 1);
+
     public ValueTask DisposeAsync()
     {
         lock (_gate) return new ValueTask(_closing ??= CloseCoreAsync());
     }
     private async Task CloseCoreAsync()
     {
-        Volatile.Write(ref _closed, 1);
+        Invalidate();
         try { await _stop.CancelAsync().ConfigureAwait(false); }
         finally { _stop.Dispose(); }
     }
