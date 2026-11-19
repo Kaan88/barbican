@@ -14,6 +14,8 @@ wherever they can. Safety rules stay (no real input, read-only account, admin ke
 
 **User explicitly requested: pause, mark progress, commit and push.** The goal is paused; do not resume implementation or tests without instruction. All stream work is committed/pushed and the three worktrees are clean. Agents reported no remaining builds or app processes they started. No real credential-store/native-browser/printing/OS operation was performed during this implementation interval.
 
+The app goal was subsequently cleared by the user. This repository remains paused; the receiving chat may resume when instructed. The current cross-chat continuation, exact branch/worktree mapping, source evidence, known races and ready-to-use resume prompt are in [CODEX-HANDOFF.md](CODEX-HANDOFF.md#continue-elsewhere-authoritative-checkpoint). Coordinator checkpoint before this handoff is ad7fd97.
+
 ### Latest saved state
 
 Latest user pause saves the resumed interval without integrating worker drafts. Integration source remains **5b2f33e**, with complete Core **1754/1754 passed**, zero warnings/errors. Full-range Date formatting covers 108 JavaScript vectors. The coordinator also saved a verbatim public clsx 2.1.1 license with an exact-path, LF-normalized SHA-256 privacy exception; five isolated scanner regression tests passed (worktree/revision, changed notice, alternate path and unrelated private data). No broad email/domain or license-directory exclusion was added.

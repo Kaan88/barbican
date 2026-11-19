@@ -8,6 +8,48 @@ This is the Codex-specific continuation of the user's Claude handoff.
 
 The user explicitly paused again and requested progress, commit and push after a resumed interval. Do not resume implementation or tests until instructed. The integration source remains 5b2f33e; this pause also saves the tested exact-content public-license privacy guard. Latest worker checkpoints are A c3982dc, B f37b0b5 and C 6367077. See the top of PROGRESS.md for test evidence, unfinished drafts and next steps; worker checkpoints are not integrated or production verification. M6 portable is delivered; M6b and later milestones, final Astra review and hidden UI walkthrough remain unfinished.
 
+## Continue elsewhere: authoritative checkpoint
+
+This is a saved handoff, not an instruction to restart work in the old chat. The user cleared the app goal after pausing and then requested this commit/push and handoff. Resume implementation only when instructed in the receiving chat. Historical goals below describe the requested scope; do not assume an app goal object still exists or recreate one without an explicit request.
+
+Open the **C# Barbican repository**, not the Rust reference checkout. Integration branch is `codex/m6b`, saved coordinator checkpoint `ad7fd97` plus this documentation commit. All three worker heads below were checked against their configured upstreams and all four worktrees were clean before this handoff edit. Worker drafts are deliberately separate from reviewed integration code.
+
+| Owner | Existing branch | Existing worktree under `<downloads>` | Saved head |
+|---|---|---|---|
+| Coordinator / Sol | `codex/m6b` | `barbican` | `ad7fd97` before this handoff commit |
+| A runtime / Terra High | `codex/m6b-runtime` | `wt-m6-a11y-quick` | `c3982dc5de6322b50e22006ba6e830eeba35861c` |
+| B packages / Terra High | `codex/m6b-packages` | `wt-m6-set-data` | `f37b0b5ba6ffbb2321df868a154b45474759338e` |
+| C mediation / Terra High | `codex/m6b-mediation` | `wt-m6b-protocol` | `63670777f69e6d62df15703a779d4ac8d47bb374` |
+
+D UI/slots remains queued. Reuse these worktrees; inspect status and current refs before assigning ownership. The previous agents stopped and reported no remaining owned app/build process. Those reports are historical, not permission to terminate other processes.
+
+### Evidence and its limits
+
+- M6 is delivered on `m6`: source `583b40d`, branch checkpoint `16cd970`. Portable `artifacts/portable/Barbican-M6-583b40d-win-x64.zip`, 149444021 bytes, SHA-256 `BF4C3DD121545C58A0168EBD0606E01DDA22D2842127BAC1D0A9041C5AFF1DFC`. Extracted Release smoke passed; see `docs/milestones/M6.md` and `spec/feel/M6/windows-release.json`. The ZIP is a local artifact, not a GitHub Release. No tag or main merge is authorized.
+- Integration source `5b2f33e` contains reviewed composer GetSnapshot/SetSubject/ReadAttachment adapters, owner/revision/session fences and shared stable-plugin rate limits. Complete Core suite passed **1754/1754**, zero warnings/errors. `aa746ee` adds JavaScript Date TimeClip formatting with 108 native Node vectors. Latest complete ordinary Windows suite was **3088 passed / four skipped at 9647d85**, not at the newer worker drafts. Historical 57 expected RED failures are not the current completion count after composer implementation.
+- A: host issuer 8aba99e, bounded parent gate b64d1e0 (42 simulated Node cases), graph Import 8617ff9 (two focused cases), ingress 5192802 (14 fake-native cases), environment guard c3982dc (Windows build zero warnings/errors). Actual SDK bootstrap, native browser lifecycle/transport and environment isolation are unfinished; the guard is not connected or browser-tested.
+- B: manager safety 9138c66, cached held lease e5308d0, full-range Date storage eb7342e, authenticated file store ca662d0 (eight temp-folder/fake-secret tests), native inert inspection d8118a6 (10 native, 39 JS inspector and 16 manager focused cases). Three native-loader acceptance tests reached intended PortPending failures at f37b0b5; no assembly executed and positive sentinel is unproven. Store crash recovery and actual OS secret-store/host wiring remain unverified.
+- C: reviewed composer-only changes through a0a538c are already integrated; do not accidentally import unfinished families with them. Hook fixes through 110193f had 15 focused cases. Preview/PDF 6367077 had 21 fake-host cases plus two rate cases; actual UI policy enforcement, production registration and source plugin-name fallback remain unfinished. HTML printing intentionally returns Unavailable.
+- `ad7fd97` preserves required clsx 2.1.1 attribution with a privacy exemption bound to one exact path and LF-normalized SHA-256. Five isolated scanner tests passed. Never strip required notices or widen the exemption to an email domain or directory. Reference bootstrap staging is outside Git; machine-local `.local/m6b-bootstrap-staging.json` records its location and pinned hashes. This staging is not guaranteed to exist on a different machine.
+
+### First coordinator work on explicit resume
+
+1. **Read and review before merging.** Read the latest PROGRESS table, each worker's FABLE-REVIEW entries, actual diffs and source-derived tests. Sol must directly check subagent code. Keep counts tied to commits; pending tests, mocks and successful compilation do not establish production behavior. Integrate independently verified pieces without importing unrelated stubs. Keep the existing Api/Composer ownership boundary.
+2. **Fix WebView environment isolation centrally.** `App/Composition/WebViewEnvironment.cs` sets process-global `WEBVIEW2_USER_DATA_FOLDER`; this overrides explicit environment folders. Inspect `App/MailBody/BodyShell.cs`, `App/Composition/SmokeRun.cs`, `App/App.xaml.cs` and `tests/Barbican.Automation.Tests/WebViewEnvironmentTests.cs`. Coordinate explicit environments for every mail/smoke WebView and each plugin instance; avoid temporarily toggling process-global state. Installed WinUI supports EnsureCoreWebView2Async(environment[, controllerOptions]); WinRT supports CreateWithOptionsAsync and actual UserDataFolder. Fail closed if the returned canonical folder differs before untrusted navigation. Named profiles alone do not establish separate data-folder isolation. No registry changes are needed or authorized.
+3. **Fence queued response delivery.** Dispatcher checks before return do not prevent an account switch while native UI posting is queued. Add a host-only immutable captured-session/grant delivery fence to successful outcomes, independent of the closed invocation context; validate at actual UI send. Never serialize that authority object or let adapters mint it. Background runtimes must still follow call-time active accounts; do not permanently pin every instance to one account.
+4. **Resolve native launch/revocation coordination before execution.** B's proposed consented loader must reload exact installed verified resources and live grants, then coordinate a host-owned atomic launch barrier with revocation. Consent is explicit full trust; AssemblyLoadContext is not a sandbox. Inert `native-plugin.json` discovery must not load DLLs or invoke module initializers, constructors or Manifest getters. Add real positive sentinel execution only after consent plus mismatch, race and dependency-containment tests using synthetic fixtures.
+5. **Review package/store safety.** Preserve invalidation even if durable writes fail, cleanup outside manager gates, generation-bound staged reviews, no silent privileged downgrade, matching held profile-root leases and exact authenticated readback. The file/secret two-resource store deliberately fails closed after interrupted commits and needs a recovery design. Ambiguous storage commits must map to UnknownOutcome rather than invite blind retries.
+6. **Complete C and D with actual host adapters.** Preview/print presenters must recheck invocation lifetime and aggregate account policy on the UI thread at issue time. Existing mail sanitizer permits styles/remote images/links and cannot alone secure HTML printing. Finish per-hook projection/selector/result validation and native/JS conversion. Change synchronous slot mutation contracts to accommodate async authority before implementing native mounts. Coordinate shared seams before workers edit them.
+7. **Finish the full contract and roadmap.** M6b requires 186 API methods (17 privileged), 218 hooks/27 groups and 58 slots (39 frame/16 action/3 data), with real adapters/mounts rather than catalogue counts or generic Unsupported responses. Then M7 -> M8 -> M10 -> final Astra review/fix until satisfied -> hidden UI/usability walkthrough. M9/Linux is excluded. No separate milestone reviewer agents before the final Astra pass.
+
+### Compatibility and authority reminders
+
+Structured-clone PluginValue graphs preserve aliases/cycles and binary types; serialize only reachable projections. Conservative default transport limits are not compatibility limits: 25 MiB file payloads and large composer snapshots need coherent operation-specific budgets on both sides. Callbacks are reusable until props replacement, replies one-shot, streams multi-chunk until end. Native bindings, exact installed hash/generation, profile, current grants and host-exposed owner handles provide authority; message tier claims or account/object IDs alone do not.
+
+Keep `http.fetch` (declared-origin HTTPS, no ambient credentials, redirect and actual-connect IP checks) separate from authenticated Bulwark `http.post` sidecar `/api/` operations. Do not expose host credentials or invent Stalwart endpoints. Keystore operations require user presence and never export private keys. Preserve UnknownOutcome after an issued mutation whose result cannot be established.
+
+The user explicitly authorized milestone pushes to **https://github.com/Kaan88/barbican**. Push every commit immediately after privacy checks, using ordinary branch pushes. That does not authorize main merges, tags, GitHub Releases, force-pushes beyond already completed specifically approved sanitation, or OS changes. Use Codex attribution in `docs/FABLE-REVIEW.md`; Astra is the eventual reviewer despite the historical filename.
+
 ## Selected UI guidelines (2026-11-19)
 
 The user selected **Bento Balanced**, **Nordic Focus** (integrated sender/context panel,
@@ -30,8 +72,8 @@ The source session was Claude's **Confirmation to proceed**. Its final
 handoff is recorded in PROGRESS.md at `9719835` on `m6`.
 
 - M4 calendar/tasks and M5 contacts/files are complete on their milestone branches.
-- M6 settings, server features, and assistant is paused across four streams.
-- No M6 implementation stream is merged into `m6`; it contains the plan and handoff notes.
+- M6 settings, server features and assistant implementation is integrated and its Windows portable delivered.
+- Current work is M6b on `codex/m6b`; the old M6 stream table below is retained only as historical context.
 - Nothing is merged to `main` or tagged. Do not do either without user authorization.
 - Treat recorded test counts and cleanup reports as historical evidence. Verify
   current branch heads, uncommitted changes, and relevant processes before acting.
@@ -80,7 +122,7 @@ or try to start all four simultaneously. Never exceed three concurrent builds.
    port/profile, cleanup duties, and required final report. Workers never merge
    their own branches into the milestone branch.
 
-## Resume M6 from these checkpoints
+## Historical M6 checkpoints (superseded; do not resume these)
 
 | Stream | Branch / worktree | Last recorded commit | Next work |
 |---|---|---|---|
@@ -133,11 +175,10 @@ Do not stop at each milestone for hand-test gates or routine questions. Record
 human-only checks as unproven. Maintain FABLE-REVIEW notes as work proceeds, but
 run no separate Fable reviews until the final whole-app review.
 
-The current user goal is **complete the roadmap except M9 (Linux)**: finish
+The recorded scope for continuation is **complete the roadmap except M9 (Linux)**: finish
 M6 -> M6b -> M7 -> M8 -> M10, then work with Astra to fix findings until Astra is
 satisfied, then perform a UI walkthrough and fix look, feel and usability issues.
-Produce and verify a fresh Windows portable zip after M6 closes; the delivered M6
-preview does not replace that final milestone package. Astra review is part of this
+The fresh Windows portable after M6 is already delivered, as recorded above; the earlier preview is historical. Astra review is part of this
 run after implementation, not a separate review gate on every stream. Record its
 findings, fixes and explicit final disposition against current commits. The later UI
 walkthrough uses hidden native automation and synthetic data under the standing rules.
@@ -151,11 +192,19 @@ Use PROGRESS.md and the milestone reports for the full list and evidence.
 
 ## Prompt for the new Codex chat
 
-> Take over the C# Barbican project. Read AGENTS.md, CLAUDE.md,
-> docs/CODEX-HANDOFF.md, docs/PROGRESS.md, the local account rules, and the M6 plan.
-> Resume all four M6 streams from their existing WIP branches/worktrees. Use Terra
-> High for stream implementation and Luna High for narrow helper work, within
-> the actual agent limit and a maximum of three concurrent builds. Coordinate
-> merges into m6 and complete the integration/close pass, then continue through
-> the recorded milestone order. Preserve all safety/privacy rules, push every
-> commit, and record defaults rather than waiting for routine hand-test gates.
+> Continue the C# Barbican project from `codex/m6b`. Read AGENTS.md, CLAUDE.md,
+> docs/CODEX-HANDOFF.md (especially "Continue elsewhere"), docs/PROGRESS.md,
+> the local account rules, docs/PORT-PLAN.md and the M6b decisions/review notes.
+> Resume M6b using the existing runtime, packages and mediation worktrees and
+> their saved checkpoints; D UI/slots is queued. Use Terra High for stream work
+> and Luna High for narrow helpers where supported. Sol directly checks all
+> subagent code before integration. Respect three concurrent build slots,
+> privacy/account rules and hidden-only UI automation. First resolve explicit
+> WebView environment isolation, queued-response account delivery fencing and
+> the native launch/revocation barrier. Finish M6b -> M7 -> M8 -> M10 (exclude
+> M9/Linux), then work with Astra until satisfied, then fix look, feel and
+> usability through a hidden UI walkthrough. Use Bento Balanced, Nordic Focus
+> with togglable context panel, and Studio as UI guidelines. Push milestone
+> commits to Kaan88/barbican as already authorized. M6 portable is already
+> delivered; do not repeat the old M6 pause work or merge/tag/publish a GitHub
+> Release without authorization.
