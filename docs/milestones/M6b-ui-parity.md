@@ -15,6 +15,13 @@ contents, identifiers, credentials, or real-account screenshots.
 | Composer | Compose opens an in-page editor. Its header offers assistant, Full screen, Open in new window, and Close. Pop-out opens a distinct browser window and removes the docked composer. The pop-out shows From, recipients/contact picker, Cc/Bcc, subject, formatting toolbar and body; the bottom toolbar exposes Attach, Templates, Options, Tags, Assistant, Proofreading, Discard, Send, and Schedule send. Empty new-message Send/Schedule are disabled. | Compare new mail and reply independently, including dock/full-screen/pop-out transitions, focus, attachment and template menus, quote visibility, and draft lifecycle. |
 | Settings | Message list exposes conversation grouping, date grouping, previews, sort levels, and quick actions. Reading exposes mark-read timing and message display. Composing has a “Replies under the message” switch. | Check native settings and restart persistence against actual behavior, not only the labels. |
 
+The conversation and individual-message action menus differ: the conversation
+menu offered forwarding as an attachment, rules, pin, message/conversation links,
+read-aloud, reader view, plain text, EML export and source; the expanded message's
+menu offered Print. Sender details expand inline rather than opening a separate
+dialog. Reader fullscreen hides the sidebar/list, retains the app rail, and
+offers Exit fullscreen without opening a new window.
+
 ## Other reference surfaces entered
 
 - Calendar: month view and Create event entry; editor walkthrough pending.
@@ -22,10 +29,13 @@ contents, identifiers, credentials, or real-account screenshots.
   individual forms still pending.
 - Files: list, sorting, details entry, New menu (uploads, folder, text file),
   and New folder dialog with empty Create disabled.
-- Settings: Message list, Reading, Composing, Folders & tags, Filters, Add-ons
-  and Assistant routes entered. Add-ons separates sidebar apps and plugins,
+- Settings: all top-level routes entered: Account, Password & sign-in, Privacy
+  & security, Sharing, Notifications, General, Offline, Appearance, Accessibility,
+  Message list, Reading, Composing, Folders & tags, Filters, Out of office, Recover
+  deleted items, Calendar, Contacts, Files, Add-ons, Assistant, Backup & import,
+  Troubleshooting and About. Add-ons separates sidebar apps and plugins,
   exposes an install action and shows expandable installed entries with toggles.
-  Remaining settings routes and nested controls are pending.
+  Nested controls and write variants are not fully exercised.
 
 Capture sanitized reference layouts and use synthetic fixtures for any committed
 native images. Track unavailable capability variants explicitly rather than
