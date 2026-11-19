@@ -22,7 +22,7 @@
                      Foreground="{StaticResource Text}" TextWrapping="Wrap" MaxLines="2" TextTrimming="CharacterEllipsis" AutomationProperties.AutomationId="context.name" />
           <TextBlock Text="{x:Bind Reader.Header.Email, Mode=OneWay}" FontSize="12.5" Foreground="{StaticResource Faint}" TextTrimming="CharacterEllipsis" IsTextSelectionEnabled="True" />
         </StackPanel>
-        <Border Height="24" CornerRadius="12" Padding="10,0" HorizontalAlignment="Left" Background="{x:Bind views:Fmt.VerdictBackground(Reader.AuthVerdict), Mode=OneWay}">
+        <Border Visibility="{x:Bind views:Fmt.VerdictVisibility(Reader.AuthVerdict), Mode=OneWay}" Height="24" CornerRadius="12" Padding="10,0" HorizontalAlignment="Left" Background="{x:Bind views:Fmt.VerdictBackground(Reader.AuthVerdict), Mode=OneWay}">
           <TextBlock Text="{x:Bind views:Fmt.AuthLabel(Reader.AuthVerdict), Mode=OneWay}" FontSize="11.5" FontWeight="SemiBold" Foreground="{x:Bind views:Fmt.VerdictForeground(Reader.AuthVerdict), Mode=OneWay}"
                      VerticalAlignment="Center" />
         </Border>

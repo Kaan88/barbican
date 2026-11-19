@@ -158,7 +158,7 @@
               <Run Text="{x:Bind views:Fmt.DateLine(Reader.Header.Date), Mode=OneWay}" />
             </TextBlock>
             <TextBlock Grid.Column="3" Text="{x:Bind Reader.Header.CompactDate, Mode=OneWay}" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" FontSize="12" Foreground="{StaticResource Dim}" Visibility="{x:Bind Look.BulwarkOnly, Mode=OneWay}" />
-            <Border Visibility="{x:Bind views:Fmt.VerdictVisibility(Reader.AuthVerdict, Look.IsBulwark), Mode=OneWay}" x:Name="VerdictPill" Grid.Column="2" Height="22" CornerRadius="11" Padding="10,0" Background="{x:Bind views:Fmt.VerdictBackground(Reader.AuthVerdict), Mode=OneWay}" VerticalAlignment="Center"
+            <Border Visibility="{x:Bind views:Fmt.VerdictVisibility(Reader.AuthVerdict), Mode=OneWay}" x:Name="VerdictPill" Grid.Column="2" Height="22" CornerRadius="11" Padding="10,0" Background="{x:Bind views:Fmt.VerdictBackground(Reader.AuthVerdict), Mode=OneWay}" VerticalAlignment="Center"
                     AutomationProperties.AutomationId="reader.verdict" AutomationProperties.Name="Authentication result">
               <TextBlock Text="{x:Bind views:Fmt.AuthLabel(Reader.AuthVerdict), Mode=OneWay}" FontSize="11" FontWeight="SemiBold" Foreground="{x:Bind views:Fmt.VerdictForeground(Reader.AuthVerdict), Mode=OneWay}"
                          TextTrimming="CharacterEllipsis" VerticalAlignment="Center" />
@@ -186,6 +186,7 @@
               <TextBlock FontSize="12.5" Foreground="{StaticResource Dim}">
                 <Run Text="Date  " /><Run Text="{x:Bind Reader.Header.Date, Mode=OneWay}" Foreground="{StaticResource Body}" />
               </TextBlock>
+              <TextBlock Text="{x:Bind views:Fmt.AuthLabel(Reader.AuthVerdict), Mode=OneWay}" FontSize="12.5" Foreground="{StaticResource Dim}" />
               <ItemsRepeater ItemsSource="{x:Bind Reader.AuthChips, Mode=OneWay}" AutomationProperties.AutomationId="reader.auth" AutomationProperties.Name="Authentication checks">
                 <ItemsRepeater.Layout>
                   <StackLayout Orientation="Horizontal" Spacing="6" />
