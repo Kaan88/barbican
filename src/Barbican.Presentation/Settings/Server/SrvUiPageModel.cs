@@ -18,11 +18,14 @@ public abstract class SrvUiPageModel : INotifyPropertyChanged
     private readonly IDispatcher? _dispatcher;
     private bool _loading;
     private string? _error;
+    private long _accountGeneration;
+    private AccountStamp? _loaded;
 
     protected SrvUiPageModel(IAccountManager? accounts, IDispatcher? dispatcher)
     {
         _accounts = accounts;
         _dispatcher = dispatcher;
+        if (accounts is not null) accounts.ActiveChanged += (_, _) => AccountSwitched();
     }
 
     public event PropertyChangedEventHandler? PropertyChanged;
@@ -42,6 +45,62 @@ public abstract class SrvUiPageModel : INotifyPropertyChanged
         get => _error;
         protected set => Set(ref _error, value);
     }
+
+    /// <summary>Account and switch generation captured together for an operation.</summary>
+    protected readonly record struct AccountStamp(string Key, long Generation);
+
+    /// <summary>Generation used by dialogs to reject a confirmation after any account switch.</summary>
+    public long AccountGeneration => Interlocked.Read(ref _accountGeneration);
+
+    public bool IsCurrentGeneration(long generation) => generation == AccountGeneration && IsLoaded(CaptureAccount());
+
+    protected AccountStamp CaptureAccount() => new(AccountKey, AccountGeneration);
+
+    protected bool IsCurrent(AccountStamp stamp) => stamp.Generation == AccountGeneration && IsMine(stamp.Key);
+
+    protected bool IsLoaded(AccountStamp stamp) => IsCurrent(stamp) && _loaded is { } loaded && loaded == stamp;
+
+    protected bool RequireLoaded(out AccountStamp stamp)
+    {
+        stamp = CaptureAccount();
+        if (IsLoaded(stamp) && !IsLoading) return true;
+        Error = "Wait for this account's settings to load.";
+        return false;
+    }
+
+    protected void MarkLoaded(AccountStamp stamp) => _loaded = stamp;
+
+    protected virtual void OnAccountSwitched() { }
+
+    protected void ReloadAfterSwitch(Func<Task> load) => _ = ReloadAfterSwitchAsync(CaptureAccount(), load);
+
+    private async Task ReloadAfterSwitchAsync(AccountStamp stamp, Func<Task> load)
+    {
+        try { await load().ConfigureAwait(false); }
+#pragma warning disable CA1031 // A background account-change load must surface errors rather than fault unobserved.
+        catch (Exception error)
+#pragma warning restore CA1031
+        {
+            await OnUiAsync(stamp, () => { IsLoading = false; Error = error.Message; }).ConfigureAwait(false);
+        }
+    }
+
+    private void AccountSwitched()
+    {
+        _ = Interlocked.Increment(ref _accountGeneration);
+        var stamp = CaptureAccount();
+        _ = OnUiAsync(stamp, () =>
+        {
+            _loaded = null;
+            Error = null;
+            IsLoading = false;
+            OnAccountSwitched();
+        });
+    }
+
+    protected Task OnUiAsync(AccountStamp stamp, Action action) => OnUiAsync(stamp.Key, () => { if (IsCurrent(stamp)) action(); });
+
+    protected Task OnUiAsync(AccountStamp stamp, Func<Task> action) => OnUiAsync(stamp.Key, () => IsCurrent(stamp) ? action() : Task.CompletedTask);
 
     /// <summary>True when the event is about the account the page shows.</summary>
     protected bool IsMine(string accountKey) => string.Equals(accountKey, AccountKey, StringComparison.Ordinal);
