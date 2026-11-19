@@ -1,3 +1,4 @@
+// Mirrors: Bulwark lib/plugin-sandbox/protocol.ts:115-334 and runtime.tsx:368-407,646-666; the tagged v1 graph is a native transport adaptation.
 #pragma warning disable CA1720 // Factory names mirror JavaScript structured-clone values.
 using System.Globalization;
 using System.Numerics;
