@@ -3,4 +3,4 @@
 namespace Barbican.Core.Mail.Model;
 
 /// <summary>One sort key of Email/query.</summary>
-public sealed record SortComparator(string Property, bool IsAscending);
+public sealed record SortComparator(string Property, bool IsAscending, string? Keyword = null);

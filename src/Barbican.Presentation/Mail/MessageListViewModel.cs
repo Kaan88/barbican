@@ -1,4 +1,4 @@
-// Mirrors: M1-plan §4.3 (Rows, Selected, Total, LoadMoreCommand, SearchText, unread-first Inbox section); Rust mail.rs (load_list :665, load_more :706,
+// Mirrors: M1-plan Ã‚§4.3 (Rows, Selected, Total, LoadMoreCommand, SearchText, unread-first Inbox section); Rust mail.rs (load_list :665, load_more :706,
 // sync :800, rebuild_list :556); spec B-SYNC-036/037, B-LST-014/016, I-119..I-156; Bulwark components/email/email-list.tsx. Owner mailcore.
 //
 // Rules this class keeps: the list is never re-assigned (every refresh goes through ListSync); the old rows stay on screen until the new page is
@@ -451,6 +451,7 @@ public sealed partial class MessageListViewModel : ObservableObject, IDisposable
 
     private async Task LoadFirstPageAsync(ListQuery query, bool folderOpened, int rows = 0)
     {
+        query = query with { Sort = ConfiguredSort() };
         var generation = ++_generation;
         var old = _cts;
         _cts = new CancellationTokenSource();
@@ -575,7 +576,7 @@ public sealed partial class MessageListViewModel : ObservableObject, IDisposable
         _pagingQuery = unreadFirst ? query with { HasKeyword = "$seen" } : null;
         _loaded.Replace(page with { Items = items.Emails });
         _badges.Clear();
-        Error = null;
+        Error = page.Warning;
         await RebuildWithBadgesAsync().ConfigureAwait(true);
         Total = _loaded.Total;
         CanLoadMore = _loaded.Next is not null;
@@ -618,7 +619,9 @@ public sealed partial class MessageListViewModel : ObservableObject, IDisposable
         var context = settings.RowContextAt(_time.GetUtcNow(), _time.LocalTimeZone);
         var searching = !string.IsNullOrWhiteSpace(_query?.SearchText);
         int? unreadFirst = settings.UnreadFirst && _role == MailboxRole.Inbox && !searching ? settings.UnreadSectionSize : null;
-        var rows = ListLayout.Build(_loaded.Emails, context, settings.GroupByDate, unreadFirst, _badges);
+        // Date headers would repeat the same stable key when priority/text order crosses date groups.
+        var chronological = _query?.Sort is not { } sort || sort.Count == 1 && sort[0] is { Property: "receivedAt", IsAscending: false };
+        var rows = ListLayout.Build(_loaded.Emails, context, settings.GroupByDate && chronological, unreadFirst, _badges);
         LastSync = ListSync.SyncBy(Rows, rows, r => r.Key, (a, b) => a.SameAs(b));
         KeepSelection();
         ApplyChecks();
@@ -769,7 +772,19 @@ public sealed partial class MessageListViewModel : ObservableObject, IDisposable
     {
         if (_query is not null)
         {
-            RebuildRows();
+            var next = ConfiguredSort();
+            if (_query.Sort is null || !_query.Sort.SequenceEqual(next))
+            {
+                _ = LoadFirstPageAsync(_query with { Sort = next }, folderOpened: false, rows: _loaded.Emails.Count);
+            }
+            else RebuildRows();
         }
+    }
+
+    private IReadOnlyList<SortComparator> ConfiguredSort()
+    {
+        var prefs = _prefs.Current;
+        var applies = string.Equals(prefs.Str("messageListOrderScope", "inbox"), "all", StringComparison.Ordinal) || _role == MailboxRole.Inbox;
+        return MessageListOrder.Build(applies ? MessageListOrder.Parse(prefs.Values["messageListOrder"]) : []);
     }
 }
