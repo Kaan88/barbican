@@ -30,7 +30,9 @@ public sealed class EventEditorViewModelTests
     private sealed class ParticipantSource : ICalendarParticipantIdentities
     {
         public TaskCompletionSource<Result<IReadOnlyList<CalendarParticipantIdentity>>> Answer { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+#pragma warning disable VSTHRD003 // the test completes this controlled task asynchronously
         public Task<Result<IReadOnlyList<CalendarParticipantIdentity>>> ListAsync(string accountKey, CancellationToken ct) => Answer.Task;
+#pragma warning restore VSTHRD003
         public Task<Result<Unit>> SetDefaultAsync(string accountKey, string id, CancellationToken ct) => throw new NotSupportedException();
     }
 
