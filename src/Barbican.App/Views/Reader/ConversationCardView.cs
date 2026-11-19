@@ -86,10 +86,10 @@ public sealed partial class ConversationCardView : UserControl
         AutomationProperties.SetAutomationId(view, "reader.thread.body." + card.EmailId);
         _layout.Children.Add(Details(card, body));
         _layout.Children.Add(view);
+        shell.PageShown += (_, _) => { if (!visible.IsCancellationRequested) _ = FitBodyAsync(shell, view); };
         shell.Show(new BodyRequest(card.EmailId, BodyRequest.ContentOf(body), true, () => Owned(card), () =>
         {
             if (visible.IsCancellationRequested) return;
-            _ = FitBodyAsync(shell, view);
             _ = ViewHost.Get<MessageLoader>().MarkCardShownAsync(card, visible);
         }));
         var actions = new Barbican.App.Controls.WrapRow { Spacing = 6 };
@@ -111,7 +111,8 @@ public sealed partial class ConversationCardView : UserControl
             // The trusted shell owns the iframe. Use DOM prototypes to avoid named elements in a message shadowing a property.
             const string measure = """
                 (() => {
-                  const frame = document.querySelector('iframe');
+                  // The previous iframe remains first during the crossfade.
+                  const frame = document.querySelector('iframe:last-of-type');
                   if (!frame?.contentDocument) return 0;
                   const body = Object.getOwnPropertyDescriptor(Document.prototype, 'body').get.call(frame.contentDocument);
                   if (!body) return 0;
@@ -119,8 +120,9 @@ public sealed partial class ConversationCardView : UserControl
                   return Math.ceil(rect.height + Math.max(0, rect.top) * 2 + 2);
                 })()
                 """;
+            var sequence = shell.DocumentSequence;
             var raw = await shell.EvalAsync(measure);
-            if (ReferenceEquals(_shell, shell) && double.TryParse(raw, System.Globalization.NumberStyles.Float,
+            if (ReferenceEquals(_shell, shell) && shell.DocumentSequence == sequence && double.TryParse(raw, System.Globalization.NumberStyles.Float,
                 System.Globalization.CultureInfo.InvariantCulture, out var height) && double.IsFinite(height) && height > 0)
                 view.Height = Math.Clamp(height, 48, 1200);
         }

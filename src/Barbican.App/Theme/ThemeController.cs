@@ -24,6 +24,7 @@ public sealed class ThemeController : IDisposable
     private ThemeVariant? _override;
     private ThemeVariant? _applied;
     private string? _appliedSetting;
+    private double _bodyTextFactor;
 
     public ThemeController(ShellViewModel shell, StyleState style, IHookBus hooks, IPrefsStore prefs)
     {
@@ -35,11 +36,15 @@ public sealed class ThemeController : IDisposable
         _style = style;
         _hooks = hooks;
         _prefs = prefs;
+        _bodyTextFactor = shell.Accessibility.TextFactor();
         _shell.PropertyChanged += OnShellChanged;
     }
 
     /// <summary>Raised on the UI thread after a variant was applied, with the CSS custom-property block of its palette (the body shell may use it).</summary>
     public event EventHandler<ThemeCssEventArgs>? CssApplied;
+
+    /// <summary>Raised on the UI thread when the resolved message text scale changes.</summary>
+    public event EventHandler? BodyTextScaleChanged;
 
     /// <summary>The variant on screen.</summary>
     public ThemeVariant? Applied => _applied;
@@ -73,6 +78,13 @@ public sealed class ThemeController : IDisposable
         {
             case nameof(ShellViewModel.Accessibility):
                 ApplyControlPreferences();
+                var factor = _shell.Accessibility.TextFactor();
+                if (factor != _bodyTextFactor)
+                {
+                    _bodyTextFactor = factor;
+                    BodyTextScaleChanged?.Invoke(this, EventArgs.Empty);
+                }
+
                 break;
             case nameof(ShellViewModel.ReduceMotion):
             case nameof(ShellViewModel.IsRapid):

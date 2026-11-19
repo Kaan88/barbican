@@ -85,10 +85,14 @@ public sealed partial class BodyShell : IBodyPresenter, IStartupTask, IDisposabl
         _log = log;
         _hidden = options.IsHidden;
         _theme.CssApplied += OnThemeApplied;
+        _theme.BodyTextScaleChanged += OnBodyTextScaleChanged;
     }
 
     /// <summary>The page on screen changed (banners: external content blocked, shown as plain text) or the loading state did.</summary>
     public event EventHandler? StateChanged;
+
+    /// <summary>The visible page was laid out, including after a change of appearance.</summary>
+    public event EventHandler? PageShown;
 
     /// <summary>The WebView the body view hosts (created on first use, on the UI thread).</summary>
     public WebView2 View => _view ??= CreateView();
@@ -226,6 +230,7 @@ public sealed partial class BodyShell : IBodyPresenter, IStartupTask, IDisposabl
     public void Dispose()
     {
         _theme.CssApplied -= OnThemeApplied;
+        _theme.BodyTextScaleChanged -= OnBodyTextScaleChanged;
         _readyTimer?.Dispose();
         Power.Dispose();
     }
@@ -437,6 +442,7 @@ public sealed partial class BodyShell : IBodyPresenter, IStartupTask, IDisposabl
         var scale = Motion.MotionRuntime.Scale;
         Command("reveal", seq, fadeMs: scale.Rapid ? 0 : scale.ViewMs);
         StateChanged?.Invoke(this, EventArgs.Empty);
+        PageShown?.Invoke(this, EventArgs.Empty);
         p.Request.OnShown?.Invoke();
     }
 
@@ -454,6 +460,8 @@ public sealed partial class BodyShell : IBodyPresenter, IStartupTask, IDisposabl
             Show(c.Request with { OnReady = static () => true, OnShown = null });
         }
     }
+
+    private void OnBodyTextScaleChanged(object? sender, EventArgs e) => Rerender();
 
     private void OnThemeApplied(object? sender, ThemeCssEventArgs e)
     {
