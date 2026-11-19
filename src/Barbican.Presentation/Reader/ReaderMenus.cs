@@ -53,7 +53,7 @@ public static class ReaderMenus
         };
         if (a.BlobId is not null && FilesPreviewRules.KindOf(a.Type, a.Name ?? string.Empty) is FilesPreviewKind.Image or FilesPreviewKind.Text or FilesPreviewKind.Eml)
         {
-            items.Insert(0, Item(MenuGlyphs.Open, "Preview", CommandIds.OpenAttachment, argument: arg));
+            items.Insert(0, Item(MenuGlyphs.Open, "Open", CommandIds.OpenAttachment, argument: arg));
         }
 
         if (open.Attachments.Count(x => x.BlobId is not null) > 1)

@@ -74,12 +74,12 @@ public sealed class ReaderMenusTests
             ],
         };
         var image = ReaderMenus.Attachment(Reader([Target("m1")], 0, MenuIds.Attachment), body);
-        Assert.Equal("Preview", image[0].Label);
+        Assert.Equal("Open", image[0].Label);
         Assert.Equal(CommandIds.OpenAttachment, image[0].CommandId);
         Assert.Equal("0", image[0].Argument);
-        Assert.Equal("Preview", ReaderMenus.Attachment(Reader([Target("m1")], 1, MenuIds.Attachment), body)[0].Label);
-        Assert.DoesNotContain(ReaderMenus.Attachment(Reader([Target("m1")], 2, MenuIds.Attachment), body), r => string.Equals(r.Label, "Preview", StringComparison.Ordinal));
-        Assert.DoesNotContain(ReaderMenus.Attachment(Reader([Target("m1")], 0, MenuIds.Attachment), Body("a.pdf")), r => string.Equals(r.Label, "Preview", StringComparison.Ordinal));
+        Assert.Equal("Open", ReaderMenus.Attachment(Reader([Target("m1")], 1, MenuIds.Attachment), body)[0].Label);
+        Assert.DoesNotContain(ReaderMenus.Attachment(Reader([Target("m1")], 2, MenuIds.Attachment), body), r => string.Equals(r.Label, "Open", StringComparison.Ordinal));
+        Assert.DoesNotContain(ReaderMenus.Attachment(Reader([Target("m1")], 0, MenuIds.Attachment), Body("a.pdf")), r => string.Equals(r.Label, "Open", StringComparison.Ordinal));
     }
 
     [Fact]

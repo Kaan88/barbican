@@ -89,13 +89,14 @@ public static class ReaderRegistration
         services.TryAddSingleton<Barbican.Presentation.Common.IClipboardService, SystemClipboard>();
         services.AddSingleton<Barbican.App.Views.Dialogs.IDialogContent, Barbican.App.Views.Dialogs.SourceDialogContent>();
         services.AddSingleton<Barbican.App.Views.Dialogs.IDialogContent, Barbican.App.Views.Dialogs.AttachmentPreviewDialogContent>();
-        services.TryAddSingleton(sp => new Barbican.App.Views.Reader.ReaderMenuOpener(sp.GetRequiredService<Barbican.Presentation.Menus.IContextMenuService>(), sp.GetRequiredService<ReaderViewModel>(), sp.GetRequiredService<IActiveMail>()));
+        services.TryAddSingleton(sp => new Barbican.App.Views.Reader.ReaderMenuOpener(sp.GetRequiredService<Barbican.Presentation.Menus.IContextMenuService>(), sp.GetRequiredService<ReaderViewModel>(), sp.GetRequiredService<IActiveMail>(), sp.GetRequiredService<Barbican.Presentation.Commands.ICommandRegistry>(), sp.GetRequiredService<Barbican.Presentation.Commands.CommandRunner>()));
         services.AddSingleton(sp => new Barbican.Presentation.Reader.ReaderCommands(
-            sp.GetRequiredService<AttachmentSaver>(),
+            sp.GetRequiredService<IAttachmentSaver>(),
             () => sp.GetRequiredService<ReaderViewModel>().Current.Body,
             sp.GetRequiredService<Barbican.Presentation.Common.IClipboardService>(),
             sp.GetRequiredService<Barbican.Presentation.Dialogs.IDialogService>(),
-            sp.GetService<Barbican.Presentation.Actions.IToastService>()));
+            sp.GetService<Barbican.Presentation.Actions.IToastService>(),
+            sp.GetRequiredService<IPrefsStore>()));
         foreach (var i in Enumerable.Range(0, Barbican.Presentation.Reader.ReaderCommands.Count))
         {
             var index = i;

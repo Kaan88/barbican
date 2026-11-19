@@ -1638,3 +1638,10 @@ Focused tests 3 passed after the expiry timer addition; the full Presentation su
 ## Codex - M6 tag row tint (Terra High)
 
 `tintListRowsByTag` now tints list rows from the first tag in the existing configured tag order, using the same accessibility-adjusted color as the tag chip; account tint takes precedence, and higher-contrast and checked rows suppress the subtle fill. The setting remains independent of tag-chip visibility. Bulwark `components/email/thread-list-item.tsx:573-590` defines precedence. Focused tests 3 passed and Windows Automation head compiled with zero warnings. Verify light, dark, selected and high-contrast appearance with a screen reader and real interaction during integrated visual review; no real desktop input was used.
+
+
+## Codex - M6 attachment activation preference (Terra High)
+
+`mailAttachmentAction` is read at attachment command execution: default preview uses the existing image/text/eml dialog and plugin transform; download or an unsupported/oversized preview uses Save as, never an OS file association. Normal card activation uses the same registered command and captured `MailTarget.OfOpen`; right-click retains MENU-ATT, whose preference-aware command is labeled Open. Direct execution rejects a stale attachment. Review `Core/Mail/Attachments/IAttachmentSaver.cs`, `Presentation/Reader/{ReaderCommands,ReaderMenus}.cs`, `App/Views/Reader/{ReaderMenuOpener,ReaderView.xaml.cs}` and reader composition. Bulwark references: `components/email/email-viewer.tsx:3370-3450`, `reader-attachments.tsx`.
+
+Windows full Presentation suite passed 1027; Automation WinUI head built with zero warnings. Five synthetic tests cover live preference, explicit save, unsupported and oversized fallback, and unified shared-account targeting; no external network or clipboard was used. Native pointer/keyboard activation and actual dialog/failure toasts remain integrated UI checks. The pre-existing preview download limit is based on advertised attachment size; `AttachmentSaver` currently buffers the actual download without enforcing that limit during streaming, which needs a separate bounded-download review.

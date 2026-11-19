@@ -42,7 +42,7 @@ header (the address); Copy email address; New message; Add to contacts; —; Fin
 ## MENU-ATT: an attachment chip [M2]
 Open; Save as…; then the reader extras: Open message (first, for an attached message), Save to Files › (when Files is available or loading), Download all (.zip) (more than one attachment); —; Copy file name.
 - **Save to Files ›**: "Loading folders…" (disabled) until loaded; then My files and every folder, indented.
-- **Built (m2-close-b):** Save as…, Download all (.zip) (more than one attachment with content), —, Copy file name. Not built yet, on purpose: Open (opening an untrusted file with the system handler needs a decision, see FABLE-REVIEW m2-close-b), Open message (Email/parse has no reader UI), Save to Files (no Files client in the reader). A click or right-click on an attachment card opens it.
+- **Built:** Open for in-app previewable attachments (uses the preview/download preference), Save as…, Download all (.zip) (more than one attachment with content), —, Copy file name. Activating a card previews supported content or saves it according to the preference; unsupported content is saved. Right-click opens this menu. Open message and Save to Files retain their existing capability restrictions.
 
 ## MENU-READER: the reader's More menu [M2]
 Opens from the ⋮ button of the reader's action row (the message on screen is the target). Built rows: View source (a dialog: the raw message cut at 2 MiB with Copy source and Save .eml), Forward as attachment (off until the composer, M3), Download (.eml), Download all attachments (.zip) [off: no attachments], then the Rules section. "Has blob" and "opened .eml" are not tracked yet: a loaded message always counts as having its blob.

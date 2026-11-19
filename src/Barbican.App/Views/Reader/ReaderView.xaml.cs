@@ -117,8 +117,9 @@ public sealed partial class ReaderView : UserControl
         }
     }
 
-    // An attachment card: a click or a right-click opens MENU-ATT at the pointer (spec I-226).
-    private void OnAttachmentTapped(object sender, TappedRoutedEventArgs e) => e.Handled = OpenAttachmentMenu(sender, e.GetPosition(XamlRoot?.Content));
+    // Activating opens or saves by preference; right-click still opens MENU-ATT.
+    private void OnAttachmentTapped(object sender, TappedRoutedEventArgs e) =>
+        e.Handled = sender is FrameworkElement { DataContext: AttachmentCard card } && ViewHost.Get<ReaderMenuOpener>().ActivateAttachment(card.Index);
 
     private void OnAttachmentRightTapped(object sender, RightTappedRoutedEventArgs e) => e.Handled = OpenAttachmentMenu(sender, e.GetPosition(XamlRoot?.Content));
 

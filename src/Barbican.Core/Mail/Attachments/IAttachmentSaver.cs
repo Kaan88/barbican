@@ -11,5 +11,11 @@ public interface IAttachmentSaver
 {
     Task<Result<Unit>> SaveAsync(MailTarget message, AttachmentRef attachment, CancellationToken ct);
 
+    Task<Result<byte[]?>> ReadForPreviewAsync(MailTarget message, AttachmentRef attachment, CancellationToken ct);
+
+    Task<Result<Unit>> SaveEmlAsync(MailTarget message, CancellationToken ct);
+
+    Task<Result<(byte[] Bytes, string Name)>> RawAsync(MailTarget message, CancellationToken ct);
+
     Task<Result<Unit>> SaveAllAsZipAsync(MailTarget message, CancellationToken ct);
 }
