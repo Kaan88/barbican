@@ -26,4 +26,15 @@ public sealed record RowContext
 
     /// <summary>Rows show the tags a message carries (Bulwark showTagChips, default on).</summary>
     public bool ShowTagChips { get; init; } = true;
+    public bool TintListRowsByAccount { get; init; }
+
+    public bool ShowAccountDot { get; init; } = true;
+
+    public bool MoreContrast { get; init; }
+
+    public bool MultipleAccountSources { get; init; }
+
+    /// <summary>Resolves a merged row id to its display name and the signed-in account's palette index.</summary>
+    public Func<string, (string Name, int Color)?>? AccountOfRow { get; init; }
+
 }

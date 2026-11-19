@@ -47,6 +47,14 @@ public sealed record MailListSettings
     /// <summary>Rows show their tags (Bulwark showTagChips).</summary>
     public bool ShowTagChips { get; init; } = true;
 
+    /// <summary>Use account tint in merged lists.</summary>
+    public bool TintListRowsByAccount { get; init; }
+
+    /// <summary>Show an account dot in merged lists when more than one source is available.</summary>
+    public bool ShowAccountDot { get; init; } = true;
+
+    public bool MoreContrast { get; init; }
+
     /// <summary>Reads the settings (the defaults for anything not stored).</summary>
     public static MailListSettings Read(PrefsSnapshot prefs, SystemAccessibility system)
     {
@@ -71,6 +79,9 @@ public sealed record MailListSettings
             UnknownTagColor = Tint(UnknownTag, cvd),
             TagNames = [.. tags.Select(t => KeyValuePair.Create(t.Id, t.Label))],
             ShowTagChips = prefs.Bool("showTagChips", true),
+            TintListRowsByAccount = prefs.Bool("tintListRowsByAccount", false),
+            ShowAccountDot = prefs.Bool("showAccountDot", true),
+            MoreContrast = A11y.From(prefs, system).MoreContrast,
         };
     }
 
@@ -86,6 +97,9 @@ public sealed record MailListSettings
         Zone = zone,
         Tags = LookupTags(),
         ShowTagChips = ShowTagChips,
+        TintListRowsByAccount = TintListRowsByAccount,
+        ShowAccountDot = ShowAccountDot,
+        MoreContrast = MoreContrast,
     };
 
     /// <summary>Names, colours and order of the tags from the tag list.</summary>
