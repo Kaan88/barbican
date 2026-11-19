@@ -78,6 +78,10 @@ public sealed partial class ShellPage : Page
         _theme.Attach(Root);
         ApplyLook();
         _look.PropertyChanged += (_, _) => ApplyLook();
+        SidebarRegion.Panes.PropertyChanged += (_, _) =>
+        {
+            if (_composing && _look.IsBulwark) ApplyLook();
+        };
         SizeChanged += (_, e) => _look.SetWindowWidth(e.NewSize.Width);
         ReaderColumn.SizeChanged += (_, _) => ApplyDockLayout();
         PreviewKeyDown += OnPreviewKeyDown;

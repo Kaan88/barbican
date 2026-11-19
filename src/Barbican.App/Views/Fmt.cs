@@ -198,6 +198,8 @@ public static class Fmt
 
     public static string ReplyHint(string from) => string.IsNullOrEmpty(from) ? "Write a reply…" : $"Reply to {from}…";
 
+    public static Visibility VerdictVisibility(AuthVerdict verdict, bool bulwark) => Vis(!bulwark || verdict != AuthVerdict.Unknown);
+
     public static string AuthLabel(AuthVerdict verdict) => verdict switch
     {
         AuthVerdict.Verified => "Verified sender",

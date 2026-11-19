@@ -69,7 +69,7 @@
             <Grid x:Name="ComposerDockHost" Grid.Row="0" Grid.RowSpan="3" RowDefinitions="Auto,*" Visibility="Collapsed" AutomationProperties.AutomationId="reply-dock.host">
               <Button x:Name="DockDisclosure" Grid.Row="0" HorizontalAlignment="Stretch" HorizontalContentAlignment="Left"
                       Padding="16,6" Click="OnDockDisclosureClick" Visibility="Collapsed"
-                      AutomationProperties.AutomationId="reply-dock.disclosure" />
+                      AutomationProperties.Name="Show the message" AutomationProperties.AutomationId="reply-dock.disclosure" />
               <compose:ComposerView x:Name="ComposerRegion" Grid.Row="1" />
             </Grid>
           </Grid>

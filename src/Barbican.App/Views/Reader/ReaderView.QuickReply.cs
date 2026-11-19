@@ -16,6 +16,7 @@ public sealed partial class ReaderView
     private readonly IPrefsStore _replyPrefs = ViewHost.Get<IPrefsStore>();
     private (string ListAccount, string Login, string ServerId)? _replyTarget;
     private CancellationTokenSource? _replyHandoff;
+    private int _hintVersion;
     private bool _replyExpanded;
 
     private void InitializeQuickReply()
@@ -34,6 +35,8 @@ public sealed partial class ReaderView
             _replyComposer.OpenChanged -= OnQuickReplyComposerChanged;
             Look.PropertyChanged -= OnQuickReplyStyleChanged;
             _replyHandoff?.Cancel();
+            _replyTarget = null;
+            _hintVersion++;
         };
     }
 
@@ -95,10 +98,36 @@ public sealed partial class ReaderView
             _replyTarget = target;
             _replyHandoff?.Cancel();
             ClearQuickReply();
+            QuickReplyText.PlaceholderText = Fmt.ReplyHint(string.Empty);
+            var version = ++_hintVersion;
+            if (target is { } recipientTarget && Reader.Current.Body is { } body)
+            {
+                _ = UpdateReplyHintAsync(recipientTarget.Login, body, version);
+            }
         }
 
         QuickReplyBar.Visibility = target is not null && !_replyComposer.IsOpen
             && ComposeSettings.Read(_replyPrefs.Current).QuickReply ? Visibility.Visible : Visibility.Collapsed;
+    }
+
+    private async Task UpdateReplyHintAsync(string login, EmailBody body, int version)
+    {
+        try
+        {
+            var identities = await ViewHost.Get<IIdentityService>().ListAsync(login, CancellationToken.None);
+            if (version != _hintVersion || !identities.IsOk) return;
+
+            var username = ViewHost.Find<Barbican.Core.Accounts.IAccountManager>()?.SessionFor(login)?.Client.Session.Username;
+            var own = identities.Value!.Select(i => i.Identity.Email).ToList();
+            if (!string.IsNullOrEmpty(username)) own.Add(username);
+            var settings = ComposeSettings.Read(_replyPrefs.Current);
+            var (to, _) = ReplyRecipients.Build(body, false, own, settings.SubAddressDelimiter);
+            QuickReplyText.PlaceholderText = Fmt.ReplyHint(string.Join(", ", to.Select(a => string.IsNullOrEmpty(a.Name) ? a.Email : a.Name)));
+        }
+        catch (Exception ex) when (ex is HttpRequestException or IOException or Barbican.Core.Common.PortPendingException)
+        {
+            // The neutral prompt stays available if identities cannot be loaded.
+        }
     }
 
     private void ClearQuickReply()

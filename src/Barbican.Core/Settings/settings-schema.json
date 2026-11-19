@@ -755,7 +755,7 @@
      "label": "Colorful sidebar icons",
      "desc": "Give folder and tag icons colors (blue Inbox, red Spam, green Sent and so on). Turn this off for gray icons.",
      "key": "colorfulSidebarIcons",
-     "default": false
+     "default": true
     },
     {
      "kind": "toggle",

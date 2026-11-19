@@ -123,7 +123,12 @@ public static class ReaderSnapshots
             string.IsNullOrWhiteSpace(subject) ? "(no subject)" : subject,
             date,
             flagged,
-            string.Join(", ", to.Select(a => !string.IsNullOrEmpty(a.Name) ? a.Name : a.Email)));
+            string.Join(", ", to.Select(a => !string.IsNullOrEmpty(a.Name) ? a.Name : a.Email)))
+        {
+            CompactDate = receivedAt is { } received
+                ? TimeZoneInfo.ConvertTime(received, options.Zone).ToString("MMM d, HH:mm", CultureInfo.InvariantCulture)
+                : string.Empty,
+        };
     }
 
     private static List<ConversationItem> Strip(ConversationThread? thread, string currentId, ReaderOptions options)

@@ -23,7 +23,7 @@ public sealed record FolderRowOptions
         var a = A11y.From(prefs, system);
         return new FolderRowOptions
         {
-            Colorful = prefs.Bool("colorfulSidebarIcons", false),
+            Colorful = prefs.Bool("colorfulSidebarIcons", true),
             ShowTotals = prefs.Bool("showFolderTotalCount", true),
             UnreadStyle = a.UnreadStyle,
             Cvd = a.Cvd,

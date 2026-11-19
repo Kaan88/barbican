@@ -13,6 +13,8 @@ public sealed record ReaderHeader(
     bool Flagged,
     string To)
 {
+    public string CompactDate { get; init; } = string.Empty;
+
     /// <summary>The tags the message carries, under the subject, each with a remove button (Bulwark email-viewer.tsx:5422; M2 hotfix 2).</summary>
     public IReadOnlyList<RowTag> Tags { get; init; } = [];
 

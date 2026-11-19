@@ -25,7 +25,7 @@
               Opacity="{x:Bind views:Fmt.MutedOpacity(Muted)}" ColumnSpacing="10" ColumnDefinitions="Auto,*,Auto">
           <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
             <Border Width="{x:Bind views:Fmt.IndentPx(Depth)}" />
-            <controls:SIcon Kind="{x:Bind views:Fmt.FolderIcon(Role)}" Size="18" Opacity="0.8" VerticalAlignment="Center"
+            <controls:SIcon Kind="{x:Bind views:Fmt.FolderIcon(Role)}" Foreground="{x:Bind views:Fmt.Rgb(ColorRgb)}" Size="16" Opacity="0.8" VerticalAlignment="Center"
                             Visibility="{x:Bind theme:StyleState.Current.FolderIconVisibility, Mode=OneWay}" />
           </StackPanel>
           <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="2" VerticalAlignment="Center">
@@ -106,7 +106,7 @@
       <Button x:Name="BulwarkComposeButton" Visibility="{x:Bind Look.SidebarComposeVisibility, Mode=OneWay}" Style="{StaticResource Button.Icon}" Background="{StaticResource Sel}" Foreground="{StaticResource SelText}"
               FocusVisualPrimaryThickness="{x:Bind Look.FocusThickness, Mode=OneWay}" HorizontalAlignment="Stretch" HorizontalContentAlignment="Left"
               MinHeight="{x:Bind Look.QuickTarget, Mode=OneWay}" CornerRadius="18" Padding="12,0" Margin="0,0,0,8" Click="OnComposeClick"
-              AutomationProperties.Name="Compose">
+              AutomationProperties.AutomationId="sidebar.compose.bulwark" AutomationProperties.Name="Compose">
         <StackPanel Orientation="Horizontal" Spacing="8">
           <controls:SIcon Kind="Pen" Size="16" />
           <TextBlock Text="Compose" VerticalAlignment="Center" />

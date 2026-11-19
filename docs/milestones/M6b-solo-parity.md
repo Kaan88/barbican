@@ -65,3 +65,18 @@ the PNGs came from ordinary **hidden** automation with WGC.
    focus, text scaling and high contrast. Structural conversation, quick-reply
    and pop-out gaps are tracked in the earlier handoff. No parity sign-off,
    Astra approval, new portable or M7 start.
+
+## Solo verification after 084ff0f
+
+Full Windows Automation suite passed with 3,152 successes and four skips.
+The five accessibility metadata failures are fixed. The reviewed schema
+matches the Bulwark appearance and colourful-folder defaults. Icons follow
+the saved preference and existing colour-blind mapping. The reader separates
+the date, address and recipients and suppresses an empty authentication badge.
+Quick reply resolves its placeholder from the reply recipients and identities.
+
+Local synthetic captures in `artifacts/auto/8967/` show light and dark at
+1280 x 720, a narrow composer at 844 x 720, and the increased-contrast theme.
+A pane change while composing now updates the sidebar immediately. At 1280
+wide the 320/520 pane sizes fold it, then 220/330 restore it. The earlier
+conversation, inline delivery and window-flow gaps remain open.

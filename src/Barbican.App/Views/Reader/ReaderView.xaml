@@ -119,7 +119,7 @@
           </StackPanel>
           </Border>
            <Border Grid.Row="3" Margin="{x:Bind Look.ReaderBandMargin, Mode=OneWay}" Padding="{x:Bind Look.ReaderBandPadding, Mode=OneWay}" BorderThickness="{x:Bind Look.ReaderBandRule, Mode=OneWay}" BorderBrush="{StaticResource Line}">
-           <Grid x:Name="SenderLine" ColumnDefinitions="Auto,*,Auto,Auto" RowDefinitions="Auto,Auto" ColumnSpacing="8" SizeChanged="OnSenderLineSizeChanged" AutomationProperties.AutomationId="reader.header" AutomationProperties.Name="Message header">
+           <Grid x:Name="SenderLine" ColumnDefinitions="Auto,*,Auto,Auto,Auto" RowDefinitions="Auto,Auto" ColumnSpacing="8" SizeChanged="OnSenderLineSizeChanged" AutomationProperties.AutomationId="reader.header" AutomationProperties.Name="Message header">
             <Grid.RenderTransform>
               <TranslateTransform x:Name="SenderShift" />
             </Grid.RenderTransform>
@@ -137,7 +137,9 @@
             <StackPanel Grid.Column="1" MinWidth="90" VerticalAlignment="Center" Visibility="{x:Bind Look.BentoOnly, Mode=OneWay}">
               <TextBlock Text="{x:Bind Reader.Header.From, Mode=OneWay}" FontSize="14" FontWeight="SemiBold" Foreground="{StaticResource Text}" TextTrimming="CharacterEllipsis" Tapped="OnSenderTapped"
                          AutomationProperties.AutomationId="reader.sender" AutomationProperties.Name="Sender" />
-              <TextBlock FontSize="12.5" Foreground="{StaticResource Dim}" TextTrimming="CharacterEllipsis">
+              <TextBlock Text="{x:Bind views:Fmt.Angle(Reader.Header.Email), Mode=OneWay}" FontSize="12" Foreground="{StaticResource Dim}" TextTrimming="CharacterEllipsis" Visibility="{x:Bind Look.BulwarkOnly, Mode=OneWay}" />
+              <TextBlock Text="{x:Bind views:Fmt.ToLine(Reader.Header.To), Mode=OneWay}" FontSize="12" Foreground="{StaticResource Dim}" TextTrimming="CharacterEllipsis" Visibility="{x:Bind Look.BulwarkOnly, Mode=OneWay}" />
+              <TextBlock Visibility="{x:Bind views:Fmt.VisNot(Look.IsBulwark), Mode=OneWay}" FontSize="12.5" Foreground="{StaticResource Dim}" TextTrimming="CharacterEllipsis">
                 <Run Text="{x:Bind Reader.Header.Email, Mode=OneWay}" /><Run Text="{x:Bind views:Fmt.ToLine(Reader.Header.To), Mode=OneWay}" Foreground="{StaticResource Faint}" />
                 <Run Text="{x:Bind views:Fmt.DateLine(Reader.Header.Date), Mode=OneWay}" Foreground="{StaticResource Faint}" />
               </TextBlock>
@@ -148,12 +150,13 @@
               <Run Text="{x:Bind views:Fmt.ToLine(Reader.Header.To), Mode=OneWay}" />
               <Run Text="{x:Bind views:Fmt.DateLine(Reader.Header.Date), Mode=OneWay}" />
             </TextBlock>
-            <Border x:Name="VerdictPill" Grid.Column="2" Height="22" CornerRadius="11" Padding="10,0" Background="{x:Bind views:Fmt.VerdictBackground(Reader.AuthVerdict), Mode=OneWay}" VerticalAlignment="Center"
+            <TextBlock Grid.Column="3" Text="{x:Bind Reader.Header.CompactDate, Mode=OneWay}" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" FontSize="12" Foreground="{StaticResource Dim}" Visibility="{x:Bind Look.BulwarkOnly, Mode=OneWay}" />
+            <Border Visibility="{x:Bind views:Fmt.VerdictVisibility(Reader.AuthVerdict, Look.IsBulwark), Mode=OneWay}" x:Name="VerdictPill" Grid.Column="2" Height="22" CornerRadius="11" Padding="10,0" Background="{x:Bind views:Fmt.VerdictBackground(Reader.AuthVerdict), Mode=OneWay}" VerticalAlignment="Center"
                     AutomationProperties.AutomationId="reader.verdict" AutomationProperties.Name="Authentication result">
               <TextBlock Text="{x:Bind views:Fmt.AuthLabel(Reader.AuthVerdict), Mode=OneWay}" FontSize="11" FontWeight="SemiBold" Foreground="{x:Bind views:Fmt.VerdictForeground(Reader.AuthVerdict), Mode=OneWay}"
                          TextTrimming="CharacterEllipsis" VerticalAlignment="Center" />
             </Border>
-            <Button Grid.Column="3" x:Name="DetailsButton" Style="{StaticResource Button.Icon}" Height="26" Padding="8,0" CornerRadius="9" Foreground="{StaticResource Dim}" Click="OnDetailsClick"
+            <Button Grid.Column="4" x:Name="DetailsButton" Style="{StaticResource Button.Icon}" Height="26" Padding="8,0" CornerRadius="9" Foreground="{StaticResource Dim}" Click="OnDetailsClick"
                     AutomationProperties.AutomationId="reader.details.toggle" AutomationProperties.Name="Details">
               <StackPanel Orientation="Horizontal" Spacing="4">
                 <TextBlock x:Name="DetailsLabel" Text="Details" FontSize="12" />
@@ -205,7 +208,7 @@
                          <Button Style="{StaticResource Button.Action}" Click="OnShowOlderClick" MinHeight="32"
                                  Content="{x:Bind OlderMessageDisclosure}"
                                  Visibility="{x:Bind views:Fmt.VisText(OlderMessageDisclosure)}"
-                                 AutomationProperties.AutomationId="{x:Bind views:Fmt.ConversationDisclosureId(OlderMessageDisclosure)}" />
+                                 AutomationProperties.Name="{x:Bind OlderMessageDisclosure}" AutomationProperties.AutomationId="{x:Bind views:Fmt.ConversationDisclosureId(OlderMessageDisclosure)}" />
                        <Button Style="{StaticResource Button.Action}" MinHeight="56" Padding="12,8" CornerRadius="6" HorizontalAlignment="Stretch"
                                HorizontalContentAlignment="Stretch" Tag="{x:Bind Id}" Click="OnConversationHeaderClick"
                                AutomationProperties.AutomationId="{x:Bind views:Fmt.ConversationHeaderId(Id)}" AutomationProperties.Name="{x:Bind Sender}">
@@ -282,11 +285,11 @@
              <StackPanel Grid.Column="1" x:Name="QuickReplyLayout">
                <TextBox x:Name="QuickReplyText" AcceptsReturn="True" TextWrapping="Wrap" MinHeight="56" MaxHeight="144" ScrollViewer.VerticalScrollBarVisibility="Auto"
                         GotFocus="OnQuickReplyFocus" TextChanged="OnQuickReplyTextChanged"
-                        PlaceholderText="{x:Bind views:Fmt.ReplyHint(Reader.Header.From), Mode=OneWay}" FontSize="14"
+                        PlaceholderText="Write a reply…" FontSize="14"
                         AutomationProperties.AutomationId="reader.reply-text" AutomationProperties.Name="Quick reply text" />
                <StackPanel x:Name="QuickReplyActions" Visibility="Collapsed" Orientation="Horizontal" HorizontalAlignment="Right" Spacing="6">
-                 <Button Content="Cancel" Style="{StaticResource Button.Action}" Click="OnQuickReplyCancel" AutomationProperties.AutomationId="reader.reply.cancel" />
-                 <Button Content="Open full editor" Style="{StaticResource Button.Primary}" Click="OnQuickReplyOpenEditor" AutomationProperties.AutomationId="reader.reply.full" />
+                 <Button Content="Cancel" Style="{StaticResource Button.Action}" Click="OnQuickReplyCancel" AutomationProperties.Name="Cancel quick reply" AutomationProperties.AutomationId="reader.reply.cancel" />
+                 <Button Content="Open full editor" Style="{StaticResource Button.Primary}" Click="OnQuickReplyOpenEditor" AutomationProperties.Name="Open full editor" AutomationProperties.AutomationId="reader.reply.full" />
                </StackPanel>
              </StackPanel>
              </Grid>
