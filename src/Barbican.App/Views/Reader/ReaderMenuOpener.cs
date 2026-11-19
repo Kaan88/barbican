@@ -9,7 +9,7 @@ using Barbican.Presentation.Menus;
 namespace Barbican.App.Views.Reader;
 
 /// <summary>Opens MENU-READER and MENU-ATT for the message on screen.</summary>
-public sealed class ReaderMenuOpener(IContextMenuService menus, ReaderViewModel reader, IActiveMail active)
+public sealed class ReaderMenuOpener(IContextMenuService menus, ReaderViewModel reader, IActiveMail active, ICommandRegistry commands, CommandRunner runner)
 {
     /// <summary>Shows MENU-READER (or MENU-ATT for <paramref name="attachment"/>) at <paramref name="anchor"/>; false when no message is open or the menu has no rows.</summary>
     public bool Open(string menuId, int? attachment, MenuAnchor anchor)
@@ -24,4 +24,14 @@ public sealed class ReaderMenuOpener(IContextMenuService menus, ReaderViewModel 
         menus.Show(new MenuContext(menuId, [target], null, null, null, attachment, CommandSurface.ContextMenu), anchor);
         return menus.IsOpen;
     }
+    /// <summary>Activates an attachment using the current reader target and preference-aware command.</summary>
+    public bool ActivateAttachment(int index)
+    {
+        if (reader.Current.Body is not { } body || active.AccountKey is not { } key || !commands.TryGet(CommandIds.OpenAttachment, out var command)) return false;
+        var context = Barbican.Presentation.Reader.ReaderCommands.AttachmentContext(key, body, index);
+        if (!command.CanExecute(context)) return false;
+        runner.Start(command, context, toastFailure: true);
+        return true;
+    }
+
 }
