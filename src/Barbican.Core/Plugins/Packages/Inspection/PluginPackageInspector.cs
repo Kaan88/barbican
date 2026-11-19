@@ -41,8 +41,7 @@ public static class PluginPackageInspector
             var files = await ReadEntriesAsync(zip, ct).ConfigureAwait(false);
             var root = RootOf(files.Keys);
             var normalized = files.ToImmutableDictionary(x => x.Key[root.Length..], x => x.Value, StringComparer.Ordinal);
-            if (normalized.ContainsKey("native-plugin.json")) return Fail("The package has ambiguous runtime manifests.");
-            if (!normalized.TryGetValue("manifest.json", out var manifestBytes) || manifestBytes.Length > ManifestLimit) return Fail("A bounded manifest.json is required.");
+            if (normalized.ContainsKey("native-plugin.json") || !normalized.TryGetValue("manifest.json", out var manifestBytes) || manifestBytes.Length > ManifestLimit) return Fail("A bounded, unambiguous manifest.json is required.");
             var manifestInput = manifestBytes.AsSpan();
             if (manifestInput.StartsWith(Encoding.UTF8.Preamble)) manifestInput = manifestInput[Encoding.UTF8.Preamble.Length..];
             // Bulwark TextDecoder replaces malformed UTF-8, while JSON escapes retain lone UTF-16 code units.

@@ -225,8 +225,7 @@ public sealed partial class PluginPackageManager : IPluginPackageManager, IPlugi
         {
             if (!_reviews.TryGetValue(decision.ReviewId, out var review) || review.Expires <= _time.GetUtcNow() || review.Definition.Identity != decision.Candidate) return Failure<PluginInstallation>("Review is invalid or expired.");
             if (!review.Definition.RequestedPermissions.SetEquals(decision.ApprovedPermissions) || decision.AccountKeys.Any(string.IsNullOrWhiteSpace)) return Failure<PluginInstallation>("The approval does not match the requested permissions.");
-            if (review.Definition.RequestedTier == PluginExecutionTier.Privileged) return Failure<PluginInstallation>("Privileged packages require verified managed signature and consent.");
-            if (review.Definition.RequestedTier == PluginExecutionTier.NativeFullTrust && !decision.ApproveNativeFullTrust) return Failure<PluginInstallation>("Native packages require explicit full-trust consent.");
+            if (!TierApproved(review.Definition.RequestedTier, decision)) return Failure<PluginInstallation>("The requested execution tier lacks verified authorization.");
             var loaded = await LoadAsync(ct).ConfigureAwait(false);
             if (!loaded.IsOk) return Result<PluginInstallation>.Fail(loaded.Error!);
             loaded.Value!.Installations.TryGetValue(review.Definition.Identity.Id, out var previous);
@@ -260,6 +259,13 @@ public sealed partial class PluginPackageManager : IPluginPackageManager, IPlugi
             foreach (var notification in notifications) Changed?.Invoke(this, notification);
         }
     }
+
+    private static bool TierApproved(PluginExecutionTier tier, PluginInstallDecision decision) => tier switch
+    {
+        PluginExecutionTier.Untrusted => true,
+        PluginExecutionTier.NativeFullTrust => decision.ApproveNativeFullTrust,
+        _ => false,
+    };
 
     private async Task<Result<Unit>> StopAsync(Loaded loaded, PluginPackageIdentity identity, List<PluginAuthorityChangedEventArgs> notifications, CancellationToken ct)
     {

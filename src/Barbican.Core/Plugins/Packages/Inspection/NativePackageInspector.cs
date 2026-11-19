@@ -36,19 +36,7 @@ public static class NativePackageInspector
             var description = Field(manifest, "description", 2000, allowEmpty: true);
             var entry = Field(manifest, "mainAssembly", 512);
             if (!IdPattern.IsMatch(id) || !ManifestInspection.ValidVersion(version) || !PluginPackageInspector.SafePath(entry) || !entry.EndsWith(".dll", StringComparison.OrdinalIgnoreCase)) return Fail();
-            if (!manifest.TryGetProperty("hooks", out var hooks) || hooks.ValueKind != JsonValueKind.Array || hooks.GetArrayLength() > 200) return Fail();
-            var names = new HashSet<string>(StringComparer.Ordinal);
-            foreach (var hook in hooks.EnumerateArray())
-                if (hook.ValueKind != JsonValueKind.String || hook.GetString() is not { Length: > 0 and <= 200 } text || !names.Add(text)) return Fail();
-            if (!manifest.TryGetProperty("dependencies", out var dependencies) || dependencies.ValueKind != JsonValueKind.Object || !dependencies.TryGetProperty(entry, out _)) return Fail();
-            var seen = 0;
-            foreach (var dep in dependencies.EnumerateObject())
-            {
-                if (!PluginPackageInspector.SafePath(dep.Name) || string.Equals(dep.Name, "native-plugin.json", StringComparison.Ordinal) || dep.Value.ValueKind != JsonValueKind.String
-                    || !resources.TryGetValue(dep.Name, out var content) || !string.Equals(dep.Value.GetString(), Convert.ToHexStringLower(SHA256.HashData(content.AsSpan())), StringComparison.OrdinalIgnoreCase)) return Fail();
-                seen++;
-            }
-            if (seen != resources.Count - 1) return Fail();
+            if (!ValidContents(manifest, entry, resources)) return Fail();
             var hash = Convert.ToHexStringLower(SHA256.HashData(bytes));
             var bundle = Convert.ToHexStringLower(SHA256.HashData(resources[entry].AsSpan()));
             var approval = Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(manifest.GetRawText() + "\n" + hash)));
@@ -56,7 +44,23 @@ public static class NativePackageInspector
             return Result<InspectedPluginPackage>.Ok(new(id, version, entry, manifest.GetRawText(), [], [], hash, bundle, approval, resources, PluginRuntimeKind.Native));
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
-        catch (Exception ex) when (ex is IOException or JsonException or ArgumentException or FormatException or InvalidOperationException or OverflowException or NotSupportedException) { return Fail(); }
+        catch (Exception ex) when (ex is InvalidDataException or IOException or JsonException or ArgumentException or FormatException or InvalidOperationException or OverflowException or NotSupportedException) { return Fail(); }
+    }
+    private static bool ValidContents(JsonElement manifest, string entry, ImmutableDictionary<string, ImmutableArray<byte>> resources)
+    {
+        if (!manifest.TryGetProperty("hooks", out var hooks) || hooks.ValueKind != JsonValueKind.Array || hooks.GetArrayLength() > 200) return false;
+        var names = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var hook in hooks.EnumerateArray())
+            if (hook.ValueKind != JsonValueKind.String || hook.GetString() is not { Length: > 0 and <= 200 } text || !names.Add(text)) return false;
+        if (!manifest.TryGetProperty("dependencies", out var dependencies) || dependencies.ValueKind != JsonValueKind.Object || !dependencies.TryGetProperty(entry, out _)) return false;
+        var seen = 0;
+        foreach (var dep in dependencies.EnumerateObject())
+        {
+            if (!PluginPackageInspector.SafePath(dep.Name) || string.Equals(dep.Name, "native-plugin.json", StringComparison.Ordinal) || dep.Value.ValueKind != JsonValueKind.String
+                || !resources.TryGetValue(dep.Name, out var content) || !string.Equals(dep.Value.GetString(), Convert.ToHexStringLower(SHA256.HashData(content.AsSpan())), StringComparison.OrdinalIgnoreCase)) return false;
+            seen++;
+        }
+        return seen == resources.Count - 1;
     }
     private static string Field(JsonElement manifest, string name, int max, bool allowEmpty = false)
     {

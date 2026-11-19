@@ -13,7 +13,6 @@ public sealed class NativePackagePreloadAcceptanceTests
     private static CancellationToken Ct => TestContext.Current.CancellationToken;
 
     [Fact]
-    [Red("m6b-packages")]
     public async Task InspectAndRejectedConsentNeverRunModuleInitializerConstructorOrManifest()
     {
         var directory = MarkerDirectory();
@@ -23,19 +22,24 @@ public sealed class NativePackagePreloadAcceptanceTests
         {
             var bytes = await File.ReadAllBytesAsync(Path.Combine(AppContext.BaseDirectory, "native-sentinel", "NativeSentinel.dll"), Ct);
             using var zip = NativeArchive(bytes);
-            var manager = new PackageTestRig().Manager();
+            var rig = new PackageTestRig();
+            var manager = rig.Manager();
             var preview = PluginPackageManagerAcceptanceTests.Need(await manager.InspectAsync(zip, PluginPackageSource.LocalImport, Ct));
             Assert.Equal(PluginRuntimeKind.Native, preview.Candidate.RuntimeKind);
             Assert.False(File.Exists(Path.Combine(directory, "activity")));
             var denied = new PluginInstallDecision(preview.ReviewId, preview.Candidate.Identity, [], ["login-a"], approveNativeFullTrust: false);
             Assert.False((await manager.InstallAsync(denied, Ct)).IsOk);
+            var approved = new PluginInstallDecision(preview.ReviewId, preview.Candidate.Identity, [], ["login-a"], approveNativeFullTrust: true);
+            var installed = PluginPackageManagerAcceptanceTests.Need(await manager.InstallAsync(approved, Ct));
+            Assert.True((await manager.SetEnabledAsync(installed.Package.Identity, true, Ct)).IsOk);
+            var grant = PluginPackageManagerAcceptanceTests.Need(await rig.Manager().GetCurrentAsync(installed.Package.Identity.Id, Ct));
+            Assert.Equal(Barbican.Core.Plugins.Permissions.PluginExecutionTier.NativeFullTrust, grant!.Tier);
             Assert.False(File.Exists(Path.Combine(directory, "activity")));
         }
         finally { Directory.Delete(directory, recursive: true); }
     }
 
     [Fact]
-    [Red("m6b-packages")]
     public async Task TamperedDependencyAndAmbiguousDualManifestAreRejectedWithoutLoading()
     {
         var directory = MarkerDirectory();

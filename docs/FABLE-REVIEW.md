@@ -1891,4 +1891,4 @@ The Platform AuthenticatedPluginPackageStore now binds a host-secret MAC key and
 
 ### Codex - M6b native inspection paused WIP
 
-Unverified native sidecar inspection and manager consent integration are saved here solely for continuation; no native assembly was loaded. The latest focused native build failed with three MA0051 method-length errors in PluginPackageInspector.InspectAsync, NativePackageInspector.InspectAsync and PluginPackageManager.InstallAsync; native tests did not run and remain Red. Resume by splitting those methods, then execute the native acceptance tests and adversarial path/hash/manifest cases before treating this code as safe. Native full-trust loading, its positive sentinel tests, production composition and security review remain outstanding.
+Native sidecar inspection and hash-bound full-trust consent have focused pre-load and adversarial tests. No native assembly was loaded; the sentinel checks only absence before loading and are not a positive execution test. Native full-trust loading, its positive sentinel and mismatch/race tests, dependency containment, production composition and security review remain outstanding.
