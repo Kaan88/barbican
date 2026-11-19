@@ -19,6 +19,7 @@ public sealed partial class ReaderView : UserControl
         Look = ViewHost.Get<StyleState>();
         InitializeComponent();
         InitializeQuickReply();
+        ApplyHeaderLayout();
         Reader.PropertyChanged += (_, e) =>
         {
             if (e.PropertyName is nameof(ReaderViewModel.Current)) RefreshExtraActions();
@@ -48,10 +49,29 @@ public sealed partial class ReaderView : UserControl
 
     public void SetCompactNavigation(bool showBack, bool phone)
     {
+        _compactHeader = showBack;
+        ApplyHeaderLayout();
         UpdateExtraActionVisibility(phone);
         ReaderBack.Visibility = showBack ? Visibility.Visible : Visibility.Collapsed;
         PhoneActions.Visibility = phone ? Visibility.Visible : Visibility.Collapsed;
         ActionReply.Visibility = ActionReplyAll.Visibility = ActionForward.Visibility = phone ? Visibility.Collapsed : Visibility.Visible;
+    }
+
+    private bool _compactHeader;
+
+    private void ApplyHeaderLayout()
+    {
+        // The desktop Bento prototype leads with the message. Compact windows keep Back first.
+        var bento = !Look.IsNordic && !Look.IsBulwark && !_compactHeader;
+        Grid.SetRow(SubjectBand, bento ? 0 : 1);
+        Grid.SetRow(ThreadBand, bento ? 1 : 2);
+        Grid.SetRow(SenderBand, bento ? 2 : 3);
+        Grid.SetRow(DetailsPanel, bento ? 3 : 4);
+        Grid.SetRow(ToolbarBand, bento ? 4 : 0);
+        ContentGrid.RowSpacing = bento ? 0 : Look.ReaderSpacing;
+        // Put space after visible bands only. Empty attachment and banner rows should take no space.
+        SubjectBand.Padding = SenderBand.Padding = ToolbarBand.Padding =
+            bento ? new Thickness(0, 0, 0, 14) : Look.ReaderBandPadding;
     }
 
     private void OnBackClick(object sender, RoutedEventArgs e) => BackRequested?.Invoke(this, EventArgs.Empty);
@@ -190,7 +210,7 @@ public sealed partial class ReaderView : UserControl
     {
         if (XamlRoot?.Content is not UIElement root) return;
         var p = button.TransformToVisual(root).TransformPoint(new Windows.Foundation.Point(0, button.ActualHeight + 4));
-        _ = ViewHost.Get<ReaderMenuOpener>().Open(menu, null, new MenuAnchor(p.X, p.Y, null), Look.IsBulwark && ExtraActions.Visibility == Visibility.Collapsed);
+        _ = ViewHost.Get<ReaderMenuOpener>().Open(menu, null, new MenuAnchor(p.X, p.Y, null), ExtraActions.Visibility == Visibility.Collapsed);
     }
 
     // The sender's name: a click opens the name popover with the contact card (I-204, M5 con-ui)

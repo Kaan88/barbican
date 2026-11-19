@@ -27,6 +27,7 @@ public sealed partial class ReaderView
             Reader.PropertyChanged += OnQuickReplyReaderChanged;
             _replyComposer.OpenChanged += OnQuickReplyComposerChanged;
             Look.PropertyChanged += OnQuickReplyStyleChanged;
+            ApplyHeaderLayout();
             ApplyQuickReplyStyle();
             SyncQuickReply();
         };
@@ -53,7 +54,11 @@ public sealed partial class ReaderView
         SyncQuickReply();
     }
 
-    private void OnQuickReplyStyleChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e) => ApplyQuickReplyStyle();
+    private void OnQuickReplyStyleChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
+    {
+        ApplyHeaderLayout();
+        ApplyQuickReplyStyle();
+    }
 
     // Bulwark 1.21.2 email-viewer.tsx:6652-6684: a ruled footer with 24 px
     // gutters, regular-density 12 px spacing and a two/three-row textarea.
@@ -63,8 +68,8 @@ public sealed partial class ReaderView
         var inset = Look.ReaderPadding;
         QuickReplyBar.Margin = bulwark ? new Thickness(-inset.Left, 0, -inset.Right, -inset.Bottom) : new Thickness(0);
         QuickReplyBar.BorderThickness = bulwark ? new Thickness(0, 1, 0, 0) : new Thickness(1);
-        QuickReplyBar.CornerRadius = new CornerRadius(bulwark ? 0 : 8);
-        QuickReplyBar.Padding = bulwark ? new Thickness(24, 12, 24, 12) : new Thickness(8);
+        QuickReplyBar.CornerRadius = bulwark ? new CornerRadius(0) : Look.ReplyRadius;
+        QuickReplyBar.Padding = bulwark ? new Thickness(24, 12, 24, 12) : new Thickness(8, 4, 8, 4);
         QuickReplyBar.Background = AppResources.Brush(bulwark ? "Ground" : "Tile");
         QuickReplyLayout.Spacing = bulwark ? 12 : 6;
         if (bulwark)
@@ -78,10 +83,10 @@ public sealed partial class ReaderView
         else
         {
             QuickReplyText.ClearValue(BorderBrushProperty);
-            QuickReplyText.ClearValue(BackgroundProperty);
+            QuickReplyText.Background = AppResources.Brush("Tile");
             QuickReplyText.ClearValue(ForegroundProperty);
             QuickReplyText.ClearValue(PaddingProperty);
-            QuickReplyText.ClearValue(CornerRadiusProperty);
+            QuickReplyText.CornerRadius = new CornerRadius(18);
         }
         UpdateQuickReplyActions();
     }
@@ -183,7 +188,7 @@ public sealed partial class ReaderView
         QuickReplySend.IsEnabled = _inlineSend is null && !string.IsNullOrWhiteSpace(QuickReplyText.Text);
         QuickReplyText.IsReadOnly = _inlineSend is not null;
         var expanded = _replyExpanded || QuickReplyText.Text.Length != 0;
-        QuickReplyText.MinHeight = (expanded ? 76 : 56) + (Look.IsBulwark ? 2 : 0);
+        QuickReplyText.MinHeight = expanded ? (Look.IsBulwark ? 78 : 76) : Look.IsBulwark ? 58 : Math.Max(40, Look.MinimumTarget);
         QuickReplyActions.Visibility = expanded ? Visibility.Visible : Visibility.Collapsed;
     }
 
