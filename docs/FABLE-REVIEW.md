@@ -1979,3 +1979,5 @@ The provisional `PluginValue` storage seam needs source-compatible `JSON.stringi
 - Review reader metadata, folder colours, reply hint and composer resizing against the local evidence in docs/milestones/M6b-solo-parity.md. The complete Windows tests passed. Conversation, delivery and pop-out parity are still open.
 
 - Grouped-inbox preview following a414598. Review conversation ownership during representative changes and the independent cursor for whole-folder actions in MessageListViewModel.Actions.cs. Expanded cards and the unread-first layout remain open.
+
+- Verify the composer maximize and restore path against email-composer.tsx lines 5140 and 5550. Both new and docked sample drafts retained their saved IDs and contents through the measured round trips. Native Escape routing is source-checked only.

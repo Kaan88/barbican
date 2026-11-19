@@ -42,6 +42,21 @@ public sealed partial class ComposerView : UserControl
 
     public StyleState Look { get; }
 
+    public event EventHandler? MaximizeRequested;
+
+    private bool _maximized;
+
+    public void SetMaximized(bool maximized)
+    {
+        _maximized = maximized;
+        var label = maximized ? "Restore composer" : "Maximize composer";
+        MaximizeGlyph.Glyph = maximized ? "\uE73F" : "\uE740";
+        AutomationProperties.SetName(MaximizeButton, label);
+        Barbican.App.Motion.Tip.SetText(MaximizeButton, label);
+    }
+
+    private void OnMaximizeClick(object sender, RoutedEventArgs e) => MaximizeRequested?.Invoke(this, EventArgs.Empty);
+
     /// <summary>The composer on screen, or null.</summary>
     public ComposerViewModel? Vm => _vm;
 
@@ -81,6 +96,7 @@ public sealed partial class ComposerView : UserControl
         TitleRow.BorderThickness = bulwark ? new Thickness(0, 0, 0, 1) : new Thickness(0);
         TitleText.FontSize = bulwark ? 16 : 17;
         TitleText.FontWeight = bulwark ? FontWeights.SemiBold : FontWeights.Bold;
+        MaximizeButton.Visibility = bulwark ? Visibility.Visible : Visibility.Collapsed;
         DiscardButton.Visibility = bulwark ? Visibility.Collapsed : Visibility.Visible;
         FooterDiscard.Visibility = bulwark ? Visibility.Visible : Visibility.Collapsed;
         ApplyFieldLayout(bulwark);
@@ -423,6 +439,10 @@ public sealed partial class ComposerView : UserControl
             else if (_card != CardKind.None)
             {
                 ShowPanel(CardKind.None);
+            }
+            else if (_maximized && !SuggestionsOpen())
+            {
+                MaximizeRequested?.Invoke(this, EventArgs.Empty);
             }
             else if (!SuggestionsOpen())
             {

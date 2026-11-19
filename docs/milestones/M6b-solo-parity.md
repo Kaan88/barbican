@@ -95,3 +95,14 @@ The synthetic Inbox showed five rows, including one five-message conversation
 Automation passed 3,156 tests with four skips, including grouped/ungrouped
 paging, folder-wide actions and replacement of a selected representative.
 The user requested a portable preview at this checkpoint.
+
+## Composer maximize and restore
+
+The Bulwark composer expands below the native title bar. Restoring it returns
+the same editor to the message pane or its reply dock. At a 1280 x 920 client
+size new mail grew from 584 x 882 to 1280 x 882, and a docked reply from
+584 x 529 to 1280 x 882. Both returned to their original bounds after a window
+resize. Hidden sample runs 8971 and 8972 compared the saved draft ID, recipient,
+subject, body and attachment before and after, and captured each visible state.
+Full Windows Automation verification passed 3,157 tests with four skips.
+The portable at c3ca11e predates this change. Pop-out remains open.

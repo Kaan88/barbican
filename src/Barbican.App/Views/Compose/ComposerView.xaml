@@ -24,6 +24,11 @@
             <Button x:Name="DiscardButton" Grid.Column="1" Style="{StaticResource Button.Icon}" Width="32" Height="32" CornerRadius="16" Click="OnDiscardClick" AutomationProperties.AutomationId="composer.discard" AutomationProperties.Name="Discard draft">
               <controls:SIcon Kind="Trash" Size="16" />
             </Button>
+            <Button x:Name="MaximizeButton" Grid.Column="1" Visibility="Collapsed" Style="{StaticResource Button.Icon}"
+                    Width="32" Height="32" Padding="0" CornerRadius="6" Click="OnMaximizeClick"
+                    AutomationProperties.AutomationId="composer.maximize" AutomationProperties.Name="Maximize composer">
+              <FontIcon x:Name="MaximizeGlyph" Glyph="&#xE740;" FontSize="16" />
+            </Button>
             <Button x:Name="CloseButton" Grid.Column="2" Style="{StaticResource Button.Icon}" Width="32" Height="32" CornerRadius="16" Click="OnCloseClick" AutomationProperties.AutomationId="composer.close" AutomationProperties.Name="Close">
               <controls:SIcon Kind="Close" Size="16" />
             </Button>

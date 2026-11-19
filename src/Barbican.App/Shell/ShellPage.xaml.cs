@@ -39,6 +39,7 @@ public sealed partial class ShellPage : Page
     private object? _dockSession;
     private bool _showDockMessage;
     private bool _readerFullscreen;
+    private bool _composerMaximized;
     private Views.Calendar.CalendarScreen? _calendar;
     private readonly ShellViewModel? _shell;
     private readonly IReadOnlyList<IAppScreenFactory> _factories;
@@ -65,7 +66,7 @@ public sealed partial class ShellPage : Page
         // while the remembered accounts are restored the mail screen stays (no sign-in screen flashing up before the account is back)
         _restore = _accounts is null ? null : ViewHost.Find<AccountsStartup>()?.Completion;
         InitializeComponent();
-        WireReaderFullscreen();
+        WireFullscreen();
         Tip.SetHost(Overlay);
 
         // M2 hotfix 2: an in-app drag shows the small badge everywhere in the window, not the platform's snapshot of the row; outside a drop target
@@ -163,17 +164,21 @@ public sealed partial class ShellPage : Page
         var pad = _look.WindowPadding;
         MailScreen.Padding = band ? pad : new Thickness(pad.Left, pad.Bottom, pad.Right, pad.Bottom);
         MailScreen.ColumnSpacing = _look.Gap;
+        if (!_look.IsBulwark) _composerMaximized = false;
         var fullscreen = _readerFullscreen && _look.IsBulwark;
+        var hideMailPanes = fullscreen || _composerMaximized;
+        RailRegion.Visibility = _composerMaximized ? Visibility.Collapsed : Visibility.Visible;
+        ComposerRegion.SetMaximized(_composerMaximized);
         // Bulwark keeps the mailbox beside an in-page composer. Fold only when the
         // saved pane widths would leave too little room for the editor controls.
         var panes = SidebarRegion.Panes;
         var editorSpace = layout.WindowWidth - _look.RailWidth
             - (panes.SidebarWidth > 0 ? panes.SidebarWidth : _look.SidebarWidth)
             - (panes.ListWidth > 0 ? panes.ListWidth : layout.ListWidth);
-        SidebarRegion.Visibility = layout.SidebarShown && !fullscreen
+        SidebarRegion.Visibility = layout.SidebarShown && !hideMailPanes
             && (!_composing || (_look.IsBulwark && editorSpace >= 480)) ? Visibility.Visible : Visibility.Collapsed;
         SidebarHandle.Visibility = SidebarRegion.Visibility;
-        ListColumn.Visibility = fullscreen ? Visibility.Collapsed : Visibility.Visible;
+        ListColumn.Visibility = hideMailPanes ? Visibility.Collapsed : Visibility.Visible;
         ListHandle.Visibility = ListColumn.Visibility;
         ReaderRegion.SetFullscreen(fullscreen);
         Surface.Background = _look.SurfaceBrush;
@@ -193,8 +198,14 @@ public sealed partial class ShellPage : Page
         _appliedNordic = _look.IsNordic;
     }
 
-    private void WireReaderFullscreen()
+    private void WireFullscreen()
     {
+        ComposerRegion.MaximizeRequested += (_, _) =>
+        {
+            if (!_composing || !_look.IsBulwark) return;
+            _composerMaximized = !_composerMaximized;
+            ApplyLook();
+        };
         ReaderRegion.FullscreenRequested += (_, _) => SetReaderFullscreen(!_readerFullscreen);
         ReaderRegion.Reader.PropertyChanged += (_, e) =>
         {
@@ -218,16 +229,14 @@ public sealed partial class ShellPage : Page
     {
         var composer = _composer?.Current;
         _composing = composer is not null;
-        var docked = composer?.IsDocked == true;
         if (!ReferenceEquals(_dockSession, composer))
         {
             _dockSession = composer;
+            _composerMaximized = false;
             _showDockMessage = false;
         }
 
         ComposerDockHost.Visibility = _composing ? Visibility.Visible : Visibility.Collapsed;
-        ComposerDockHost.SetValue(Grid.RowProperty, docked ? 2 : 0);
-        ComposerDockHost.SetValue(Grid.RowSpanProperty, docked ? 1 : 3);
         ApplyLook();
     }
 
@@ -235,7 +244,9 @@ public sealed partial class ShellPage : Page
     // the message and the still-mounted composer (reply-dock.tsx:40-70, 148-210).
     private void ApplyDockLayout()
     {
-        var docked = _composer?.Current?.IsDocked == true;
+        var docked = !_composerMaximized && _composer?.Current?.IsDocked == true;
+        Grid.SetRow(ComposerDockHost, docked ? 2 : 0);
+        Grid.SetRowSpan(ComposerDockHost, docked ? 1 : 3);
         var adaptive = _composing && docked && _look.IsBulwark;
         var layout = adaptive ? ReplyDockLayout.Compute(ReaderColumn.ActualHeight) : default;
         var takeover = adaptive && layout.Takeover;
