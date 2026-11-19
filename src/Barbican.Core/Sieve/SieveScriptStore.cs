@@ -43,7 +43,7 @@ public sealed class SieveScriptStore(IJmapClient client)
         var scripts = (r.Value!.MethodResponses[0][1].Arr("list")?.OfType<JsonObject>() ?? [])
             .Select(o => new SieveScriptInfo(o.Str("id") ?? string.Empty, o.Str("name") ?? string.Empty, o.Str("blobId") ?? string.Empty, o["isActive"] is JsonValue ia && ia.TryGetValue<bool>(out var active) && active))
             .ToList();
-        var state = new SieveScriptState(scripts, string.Empty, Extensions(acc));
+        var state = new SieveScriptState(scripts, string.Empty, Extensions(acc)) { State = r.Value.MethodResponses[0][1].Str("state") };
         if (state.Target is not { BlobId.Length: > 0 } target)
         {
             return Result<SieveScriptState>.Ok(state);
@@ -63,33 +63,44 @@ public sealed class SieveScriptStore(IJmapClient client)
     /// <summary>Uploads the text, has the server validate it, and replaces (or creates) the active script; nothing is saved when it does not validate.</summary>
     public async Task<Result<Unit>> SaveAsync(string text, SieveScriptState current, CancellationToken ct)
     {
+        var saved = await SaveWithStateAsync(text, current, ct).ConfigureAwait(false);
+        return saved.IsOk ? Result<Unit>.Ok(default) : Result<Unit>.Fail(saved.Error!);
+    }
+
+    /// <summary>Saves and returns the server's new state, when supplied.</summary>
+    public async Task<Result<string?>> SaveWithStateAsync(string text, SieveScriptState current, CancellationToken ct)
+    {
         ArgumentNullException.ThrowIfNull(current);
+        if (string.IsNullOrEmpty(current.State))
+        {
+            return Result<string?>.Fail(new ValidationError("The server did not provide a script state; reload before saving."));
+        }
         if (client is not JmapClient http)
         {
-            return Result<Unit>.Fail(new ValidationError("This connection cannot upload."));
+            return Result<string?>.Fail(new ValidationError("This connection cannot upload."));
         }
 
         var acc = client.Session.AccountFor(Capability);
         var up = await http.UploadAsync(acc, Encoding.UTF8.GetBytes(text), "application/sieve", ct).ConfigureAwait(false);
         if (!up.IsOk)
         {
-            return Result<Unit>.Fail(up.Error!);
+            return Result<string?>.Fail(up.Error!);
         }
 
         var blob = up.Value!.BlobId;
         var v = await client.CallAsync(JmapRequest.Of(JmapRequest.Call("SieveScript/validate", new JsonObject { ["accountId"] = acc, ["blobId"] = blob }, "v")), ct).ConfigureAwait(false);
         if (!v.IsOk)
         {
-            return Result<Unit>.Fail(v.Error!);
+            return Result<string?>.Fail(v.Error!);
         }
 
         if (v.Value!.MethodResponses[0][1] is JsonObject vo && vo["error"] is JsonObject err)
         {
-            return Fail(err.Str("description") ?? "invalid script");
+            return FailState(err.Str("description") ?? "invalid script");
         }
 
         var target = current.Target;
-        var set = new JsonObject { ["accountId"] = acc };
+        var set = new JsonObject { ["accountId"] = acc, ["ifInState"] = current.State };
         if (target is not null)
         {
             set["update"] = new JsonObject { [target.Id] = new JsonObject { ["blobId"] = blob } };
@@ -104,21 +115,21 @@ public sealed class SieveScriptStore(IJmapClient client)
         var r = await client.CallAsync(JmapRequest.Of(JmapRequest.Call("SieveScript/set", set, "s")), ct).ConfigureAwait(false);
         if (!r.IsOk)
         {
-            return Result<Unit>.Fail(r.Error!);
+            return Result<string?>.Fail(r.Error!);
         }
 
         var res = r.Value!.MethodResponses[0][1];
         if (res is JsonObject { } o && (o["updated"] is JsonObject || o["created"] is JsonObject))
         {
-            return Result<Unit>.Ok(default);
+            return Result<string?>.Ok(o.Str("newState"));
         }
 
         var failed = ((res?["notUpdated"] as JsonObject) ?? (res?["notCreated"] as JsonObject))?.Select(kv => kv.Value).FirstOrDefault();
         var why = failed?.Str("description");
-        return Fail(why ?? "the server refused the script");
+        return FailState(why ?? "the server refused the script");
     }
 
-    private static Result<Unit> Fail(string why) => Result<Unit>.Fail(new ValidationError("Not saved: " + why));
+    private static Result<string?> FailState(string why) => Result<string?>.Fail(new ValidationError("Not saved: " + why));
 
     private IReadOnlyList<string> Extensions(string accountId)
     {

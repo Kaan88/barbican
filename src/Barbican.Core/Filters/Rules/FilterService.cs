@@ -29,10 +29,10 @@ public sealed class FilterService(IAccountManager accounts, IHookBus hooks) : IF
     public Task<Result<FilterState>> LoadAsync(string accountKey, CancellationToken ct) => Task.Run(() => LoadCoreAsync(accountKey, ct), ct);
 
     /// <inheritdoc />
-    public Task<Result<FilterState>> SaveAsync(string accountKey, IReadOnlyList<JsonNode> rules, CancellationToken ct)
+    public Task<Result<FilterState>> SaveAsync(string accountKey, IReadOnlyList<JsonNode> rules, string? expectedState, CancellationToken ct)
     {
         ArgumentNullException.ThrowIfNull(rules);
-        return Task.Run(() => SaveCoreAsync(accountKey, rules, ct), ct);
+        return Task.Run(() => SaveCoreAsync(accountKey, rules, expectedState, ct), ct);
     }
 
     /// <inheritdoc />
@@ -89,7 +89,7 @@ public sealed class FilterService(IAccountManager accounts, IHookBus hooks) : IF
     {
         var parsed = SieveScript.Parse(read.Text);
         var rules = (parsed.Metadata["rules"] as JsonArray ?? []).OfType<JsonNode>().Select(r => r.DeepClone()).ToList();
-        return new FilterState(rules, parsed.External, parsed.Locked, read.Extensions, read.Extensions.Contains("reject", StringComparer.Ordinal));
+        return new FilterState(rules, parsed.External, parsed.Locked, read.Extensions, read.Extensions.Contains("reject", StringComparer.Ordinal)) { State = read.State };
     }
 
     private static async Task<Result<IReadOnlyList<string>>> QueryAllAsync(IJmapClient client, string account, JsonNode filter, CancellationToken ct)
@@ -134,8 +134,10 @@ public sealed class FilterService(IAccountManager accounts, IHookBus hooks) : IF
         return Result<FilterState>.Ok(state);
     }
 
-    private async Task<Result<FilterState>> SaveCoreAsync(string accountKey, IReadOnlyList<JsonNode> rules, CancellationToken ct)
+    private async Task<Result<FilterState>> SaveCoreAsync(string accountKey, IReadOnlyList<JsonNode> rules, string? expectedState, CancellationToken ct)
     {
+        if (string.IsNullOrEmpty(expectedState))
+            return Result<FilterState>.Fail(new ValidationError("The filter state is unavailable; reload before saving."));
         var client = FilterAccess.ClientFor(accounts, accountKey);
         if (!client.IsOk)
         {
@@ -150,6 +152,8 @@ public sealed class FilterService(IAccountManager accounts, IHookBus hooks) : IF
         }
 
         var current = read.Value!;
+        if (!string.Equals(current.State, expectedState, StringComparison.Ordinal))
+            return Result<FilterState>.Fail(MethodErrors.From("SieveScript/set", new JsonObject { ["type"] = "stateMismatch" }));
         var parsed = SieveScript.Parse(current.Text);
         if (parsed.Locked)
         {
@@ -163,7 +167,7 @@ public sealed class FilterService(IAccountManager accounts, IHookBus hooks) : IF
 
         var script = SieveScript.GenerateMeta(SieveScript.WithRules(parsed.Metadata, rules), parsed.External, current.Extensions);
         var shaped = await hooks.ShapeAsync(HookNames.OnSieveScriptGenerate, new FilterScriptPayload(script, accountKey, rules.Count), ct).ConfigureAwait(false);
-        var saved = await store.SaveAsync(shaped.Script, current, ct).ConfigureAwait(false);
+        var saved = await store.SaveWithStateAsync(shaped.Script, current, ct).ConfigureAwait(false);
         if (!saved.IsOk)
         {
             // a failed save changes nothing on the server; the caller keeps showing the list it had
@@ -171,7 +175,7 @@ public sealed class FilterService(IAccountManager accounts, IHookBus hooks) : IF
         }
 
         var before = (parsed.Metadata["rules"] as JsonArray ?? []).OfType<JsonNode>().ToList();
-        var state = new FilterState([.. rules.Select(r => r.DeepClone())], parsed.External, false, current.Extensions, current.Extensions.Contains("reject", StringComparer.Ordinal));
+        var state = new FilterState([.. rules.Select(r => r.DeepClone())], parsed.External, false, current.Extensions, current.Extensions.Contains("reject", StringComparer.Ordinal)) { State = saved.Value };
         foreach (var (id, change) in Changes(before, rules))
         {
             hooks.Fire(HookNames.OnFilterRuleChange, () => new FilterRuleChangePayload(id, change));

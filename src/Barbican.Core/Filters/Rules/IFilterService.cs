@@ -11,8 +11,8 @@ public interface IFilterService
 {
     Task<Result<FilterState>> LoadAsync(string accountKey, CancellationToken ct);
 
-    /// <summary>Generates the script with the Bulwark-compatible generator (spam guard on move and copy rules when the server supports it, hand-written blocks kept), validates it, saves and activates it. Refused for a locked script. Returns the state as saved.</summary>
-    Task<Result<FilterState>> SaveAsync(string accountKey, IReadOnlyList<JsonNode> rules, CancellationToken ct);
+    /// <summary>Generates the script with the Bulwark-compatible generator (spam guard on move and copy rules when the server supports it, hand-written blocks kept), validates it, saves and activates it only if the loaded state still matches. Refused for a locked script or absent state. Returns the state as saved.</summary>
+    Task<Result<FilterState>> SaveAsync(string accountKey, IReadOnlyList<JsonNode> rules, string? expectedState, CancellationToken ct);
 
     /// <summary>Scans the Inbox for the rule (Email/query narrowed by <see cref="FilterRules.QueryFilter"/>, Email/get in chunks) and builds the plan; <paramref name="generation"/> is the caller's run counter.</summary>
     Task<Result<FilterScan>> ScanAsync(string accountKey, JsonNode rule, long generation, CancellationToken ct);
