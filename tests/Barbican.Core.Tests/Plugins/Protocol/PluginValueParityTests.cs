@@ -34,6 +34,45 @@ public sealed class PluginValueParityTests
         Assert.True(value.Property("error").ErrorValue.Cause!.SameNode(value));
     }
 
+    [Theory]
+    [InlineData(double.PositiveInfinity)]
+    [InlineData(double.NegativeInfinity)]
+    [InlineData(0.5)]
+    [InlineData(8640000000000001d)]
+    public void Date_values_that_javascript_timeclip_cannot_preserve_are_rejected(double value)
+    {
+        var b = new PluginValueBuilder();
+        Assert.Throws<PluginValueFormatException>(() => b.Build(b.Date(value)));
+    }
+
+    [Fact]
+    public void Negative_zero_date_is_rejected_because_timeclip_normalizes_it()
+    {
+        var b = new PluginValueBuilder();
+        Assert.Throws<PluginValueFormatException>(() => b.Build(b.Date(BitConverter.Int64BitsToDouble(long.MinValue))));
+    }
+
+    [Theory]
+    [InlineData("Text/Plain")]
+    [InlineData("text/\u0001plain")]
+    [InlineData("text/é")]
+    public void Blob_mime_that_javascript_would_normalize_is_rejected(string type)
+    {
+        var b = new PluginValueBuilder();
+        Assert.Throws<PluginValueFormatException>(() => b.Build(b.Blob([], type)));
+    }
+
+    [Fact]
+    public void Date_nan_and_boundary_and_canonical_blob_mime_are_supported()
+    {
+        var b = new PluginValueBuilder();
+        Assert.Equal("NaN", b.Build(b.Date(double.NaN)).NumberText);
+        var c = new PluginValueBuilder();
+        Assert.Equal("8640000000000000", c.Build(c.Date(8640000000000000d)).NumberText);
+        var d = new PluginValueBuilder();
+        Assert.Equal("text/plain", d.Build(d.Blob([], "text/plain")).BlobType);
+    }
+
     [Fact]
     public void Core_encoded_fixture_matches_the_vector_consumed_by_javascript()
     {

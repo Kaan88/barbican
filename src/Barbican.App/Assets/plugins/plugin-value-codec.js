@@ -14,6 +14,13 @@ const views = Object.freeze({ DataView, Int8: Int8Array, Uint8: Uint8Array, Uint
   ...(typeof Float16Array === 'function' ? { Float16: Float16Array } : {}) });
 const errorProtos = new Map([[Error.prototype,'Error'],[TypeError.prototype,'TypeError'],[RangeError.prototype,'RangeError'],
   [ReferenceError.prototype,'ReferenceError'],[SyntaxError.prototype,'SyntaxError'],[URIError.prototype,'URIError'],[EvalError.prototype,'EvalError']]);
+// Captured before any plugin content runs, in the trusted parent realm only.
+const ownDescriptor = Object.getOwnPropertyDescriptor;
+const prototypeOf = Object.getPrototypeOf;
+const applyIntrinsic = Reflect.apply;
+const stackIntrinsic = ownDescriptor(new Error(), 'stack');
+const prepareIntrinsic = ownDescriptor(Error, 'prepareStackTrace');
+const errorToStringIntrinsic = ownDescriptor(Error.prototype, 'toString');
 const getBufferLength = Object.getOwnPropertyDescriptor(ArrayBuffer.prototype, 'byteLength').get;
 const ta = Object.getPrototypeOf(Uint8Array.prototype);
 const taBuffer = Object.getOwnPropertyDescriptor(ta, 'buffer').get;
@@ -107,6 +114,32 @@ function descriptor(object, key) {
   if (!d || !('value' in d)) fail('accessors are unsupported');
   return d.value;
 }
+function sameDescriptor(a,b) {
+  if (!a || !b) return a === b;
+  return a.value === b.value && a.get === b.get && a.set === b.set && a.configurable === b.configurable && a.enumerable === b.enumerable && a.writable === b.writable;
+}
+function errorData(error, name) {
+  for (let o = error; o !== null; o = prototypeOf(o)) {
+    const d = ownDescriptor(o, name);
+    if (d) { if (!('value' in d) || typeof d.value !== 'string') fail('unsupported error accessor'); return d.value; }
+  }
+  return '';
+}
+function errorStack(error, proto) {
+  const d = ownDescriptor(error, 'stack');
+  if (!d) return { present:false, value:'' };
+  if ('value' in d) { if (typeof d.value !== 'string') fail('unsupported error stack'); return { present:true, value:d.value }; }
+  // Some engines expose a stable intrinsic stack getter. It may format name/message
+  // and use Error.prepareStackTrace: reject if any route could invoke plugin code.
+  if (!stackIntrinsic?.get || d.get !== stackIntrinsic.get || d.set !== stackIntrinsic.set ||
+      !sameDescriptor(prepareIntrinsic, ownDescriptor(Error, 'prepareStackTrace')) ||
+      !sameDescriptor(errorToStringIntrinsic, ownDescriptor(Error.prototype, 'toString')) ||
+      (proto !== Error.prototype && prototypeOf(proto) !== Error.prototype) || prototypeOf(Error.prototype) !== Object.prototype) fail('unsupported error stack accessor');
+  errorData(error,'name'); errorData(error,'message');
+  const stack = applyIntrinsic(stackIntrinsic.get, error, []);
+  if (typeof stack !== 'string') fail('unsupported error stack');
+  return { present:true, value:stack };
+}
 function blank(id, kind) { return { id, kind, text:null, flag:false, bytes:null, links:null, keys:null, view:'DataView', offset:0, length:0 }; }
 
 // Returns bytes; the caller owns the result. Blob conversion is the only asynchronous step.
@@ -163,12 +196,11 @@ export async function encodePluginValue(value, options = {}) {
         n = blank(id,'Set'); n.links = []; let count = 0;
         for (const x of Set.prototype.values.call(v)) { if (++count > p.maxSequenceLength) fail('sequence budget'); n.links.push(add(x)); }
       } else if (errorProtos.has(proto)) {
-        n = blank(id,'Error'); const name = Object.hasOwn(v,'name') ? descriptor(v,'name') : errorProtos.get(proto);
-        const message = Object.hasOwn(v,'message') ? descriptor(v,'message') : '';
-        const hasStack = Object.hasOwn(v,'stack'), stack = hasStack ? descriptor(v,'stack') : '';
-        if (typeof name !== 'string' || typeof message !== 'string' || typeof stack !== 'string') fail('unsupported error');
-        n.keys = [text(name), text(message), text(stack)]; n.flag = hasStack; n.links = Object.hasOwn(v,'cause') ? [add(descriptor(v,'cause'))] : [];
         if (Reflect.ownKeys(v).some(k => typeof k !== 'string' || !['name','message','stack','cause'].includes(k))) fail('unsupported error property');
+        const name = errorData(v,'name'), message = errorData(v,'message');
+        const stack = errorStack(v,proto);
+        n = blank(id,'Error'); n.keys = [text(name), text(message), text(stack.value)]; n.flag = stack.present;
+        n.links = Object.hasOwn(v,'cause') ? [add(descriptor(v,'cause'))] : [];
       } else if (Array.isArray(v) && proto === Array.prototype) {
         if (v.length > p.maxSequenceLength) fail('sequence budget'); n = blank(id,'Array'); n.links = [];
         const keys = Reflect.ownKeys(v); if (keys.some(k => k !== 'length' && (typeof k !== 'string' || !/^(0|[1-9]\d*)$/.test(k) || Number(k) >= v.length))) fail('unsupported array property');
@@ -327,7 +359,7 @@ export function decodePluginValue(bytes, options = {}) {
       case 'Number': values[n.id] = numberValue(n.text); break;
       case 'String': values[n.id] = n.text; break;
       case 'BigInt': values[n.id] = BigInt(n.text); break;
-      case 'Date': { const ms = numberValue(n.text); if ((!Number.isFinite(ms) && !Number.isNaN(ms)) || (Number.isFinite(ms) && (!Number.isInteger(ms) || Math.abs(ms) > 8640000000000000))) fail('invalid date'); values[n.id] = new Date(ms); break; }
+      case 'Date': { const ms = numberValue(n.text); if (Object.is(ms,-0) || (!Number.isFinite(ms) && !Number.isNaN(ms)) || (Number.isFinite(ms) && (!Number.isInteger(ms) || Math.abs(ms) > 8640000000000000))) fail('invalid date'); values[n.id] = new Date(ms); break; }
       case 'ArrayBuffer': values[n.id] = n.data.slice().buffer; break;
       case 'Blob': { const blob = new Blob([n.data], {type:n.text}); if (blob.type !== n.text) fail('invalid blob MIME type'); values[n.id] = blob; break; }
       case 'Array': values[n.id] = []; break;

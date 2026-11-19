@@ -68,4 +68,25 @@ const weirdKey = {}; Object.defineProperty(weirdKey,'\ud800',{value:'\udc00',enu
 const weirdCopy = decodePluginValue(await encodePluginValue(weirdKey)); assert.equal(weirdCopy['\ud800'],'\udc00');
 assert.throws(() => decodePluginValue(toBytes(csGolden),{maxStringBytes:1}), /budget/);
 assert.throws(() => decodePluginValue(toBytes(csGolden),{maxBinaryBytes:1}), /budget/);
+for (const text of ['Infinity','-Infinity','0.5','8640000000000001','-0']) {
+  const invalidDate = structuredClone(csGolden); invalidDate.nodes[1].kind = 'Date'; invalidDate.nodes[1].text = text;
+  assert.throws(() => decodePluginValue(toBytes(invalidDate)), /invalid date/);
+}
+for (const type of ['Text/Plain','text/\u0001plain','text/é']) {
+  const invalidBlob = structuredClone(csGolden); invalidBlob.nodes[6].text = type;
+  assert.throws(() => decodePluginValue(toBytes(invalidBlob)), /invalid blob MIME type/);
+}
+// Only a captured intrinsic stack accessor may run; arbitrary formatting hooks and getters fail closed.
+const nativeError = structuredClone(new TypeError('cloned error'));
+const nativeCopy = decodePluginValue(await encodePluginValue(nativeError));
+assert.equal(nativeCopy.name,'TypeError'); assert.equal(nativeCopy.message,'cloned error'); assert.equal(typeof nativeCopy.stack,'string');
+let invoked = false;
+const hostileStack = new Error('x'); Object.defineProperty(hostileStack,'stack',{get() { invoked=true; return 'bad'; },configurable:true});
+await assert.rejects(() => encodePluginValue(hostileStack), /unsupported error stack accessor/); assert.equal(invoked,false);
+const hostileName = new Error('x'); Object.defineProperty(hostileName,'name',{get() { invoked=true; return 'bad'; },configurable:true});
+await assert.rejects(() => encodePluginValue(hostileName), /unsupported error accessor/); assert.equal(invoked,false);
+const originalPrepare = Object.getOwnPropertyDescriptor(Error,'prepareStackTrace');
+Object.defineProperty(Error,'prepareStackTrace',{value() { invoked=true; return 'bad'; },configurable:true,writable:true});
+try { await assert.rejects(() => encodePluginValue(new Error('x')), /unsupported error stack accessor/); assert.equal(invoked,false); }
+finally { if (originalPrepare) Object.defineProperty(Error,'prepareStackTrace',originalPrepare); else delete Error.prepareStackTrace; }
 console.log('plugin-value codec: JS/C# vectors and adversarial checks passed');

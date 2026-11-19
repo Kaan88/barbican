@@ -250,11 +250,12 @@ public static class PluginValueCodec
             {
                 PluginValueKind.Undefined or PluginValueKind.Null => n.Text is null && n.Bytes is null && n.Links is null && n.Keys is null && !n.Flag,
                 PluginValueKind.Boolean => n.Text is null && n.Bytes is null && n.Links is null && n.Keys is null,
-                PluginValueKind.Number or PluginValueKind.Date => n.Text is not null && double.TryParse(n.Text, NumberStyles.Float, CultureInfo.InvariantCulture, out _) && n.Bytes is null && n.Links is null && n.Keys is null && !n.Flag,
+                PluginValueKind.Number => n.Text is not null && double.TryParse(n.Text, NumberStyles.Float, CultureInfo.InvariantCulture, out _) && n.Bytes is null && n.Links is null && n.Keys is null && !n.Flag,
+                PluginValueKind.Date => ValidDate(n.Text) && n.Bytes is null && n.Links is null && n.Keys is null && !n.Flag,
                 PluginValueKind.BigInt => n.Text is not null && n.Text.Length <= p.MaxBigIntDigits && System.Numerics.BigInteger.TryParse(n.Text, NumberStyles.AllowLeadingSign, CultureInfo.InvariantCulture, out _) && n.Bytes is null && n.Links is null && n.Keys is null && !n.Flag,
                 PluginValueKind.String => n.Text is not null && n.Bytes is null && n.Links is null && n.Keys is null && !n.Flag,
                 PluginValueKind.ArrayBuffer => n.Bytes is not null && n.Text is null && n.Links is null && n.Keys is null && !n.Flag,
-                PluginValueKind.Blob => n.Bytes is not null && n.Text is not null && n.Links is null && n.Keys is null && !n.Flag,
+                PluginValueKind.Blob => n.Bytes is not null && ValidBlobType(n.Text) && n.Links is null && n.Keys is null && !n.Flag,
                 PluginValueKind.View => n.Bytes is null && n.Text is null && n.Keys is null && links.Length == 1 && nodes[links[0]].Kind == PluginValueKind.ArrayBuffer && n.Offset >= 0 && n.Length >= 0 && (long)n.Offset + n.Length <= (nodes[links[0]].Bytes?.Length ?? -1) && Aligned(n.View, n.Offset, n.Length) && !n.Flag,
                 PluginValueKind.Object => n.Bytes is null && n.Text is null && n.Keys is not null && n.Links is not null && n.Keys.Length == links.Length && n.Keys.Distinct(StringComparer.Ordinal).Count() == n.Keys.Length && links.Length <= p.MaxSequenceLength && !n.Flag,
                 PluginValueKind.Array or PluginValueKind.Set => n.Bytes is null && n.Text is null && n.Keys is null && n.Links is not null && links.Length <= p.MaxSequenceLength && !n.Flag,
@@ -264,6 +265,16 @@ public static class PluginValueCodec
             };
         if (!ok || (n.Kind != PluginValueKind.View && (n.View != default || n.Offset != 0 || n.Length != 0))) throw new PluginValueFormatException("Invalid node shape.");
     }
+    // ECMAScript Date TimeClip: NaN or integral finite milliseconds within +/-8.64e15.
+    private static bool ValidDate(string? text)
+    {
+        if (text is null || !double.TryParse(text, NumberStyles.Float, CultureInfo.InvariantCulture, out var value)) return false;
+        if (double.IsNaN(value)) return true;
+        return double.IsFinite(value) && Math.Abs(value) <= 8_640_000_000_000_000d && Math.Truncate(value) == value && !(value == 0 && double.IsNegative(value));
+    }
+    // Blob.type is ASCII printable and normalized to lowercase by the browser.
+    private static bool ValidBlobType(string? type) => type is not null && type.All(c => c is >= ' ' and <= '~' && c is not (>= 'A' and <= 'Z'));
+
     private static bool WellFormed(string value)
     {
         for (var i = 0; i < value.Length; i++)
