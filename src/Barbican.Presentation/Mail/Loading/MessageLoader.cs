@@ -60,6 +60,7 @@ public sealed class MessageLoader : IMessageOpener, IConversationOpener, IDispos
     private ITimer? _markTimer;
     private long _openedAt;
     private string _zoneSetting = string.Empty;
+    private int _disposed;
 
     // banners of a slow source (ReaderDepth.BannerBudget) that arrived before their page was revealed: OnReady of that open takes them
     private readonly Lock _lateGate = new();
@@ -166,6 +167,7 @@ public sealed class MessageLoader : IMessageOpener, IConversationOpener, IDispos
 
     public void Dispose()
     {
+        if (Interlocked.Exchange(ref _disposed, 1) != 0) return;
         _prefs.Changed -= OnZonePrefsChanged;
         _active.Changed -= OnAccountChanged;
         _neighbours.ListLoaded -= OnListLoaded;
@@ -572,6 +574,7 @@ public sealed class MessageLoader : IMessageOpener, IConversationOpener, IDispos
 
     private void OnZonePrefsChanged(object? sender, EventArgs e) => _dispatcher.Post(() =>
     {
+        if (Volatile.Read(ref _disposed) != 0) return;
         var setting = _prefs.Current.Str("timeZone", "auto");
         if (string.Equals(setting, _zoneSetting, StringComparison.Ordinal)) return;
         _zoneSetting = setting;

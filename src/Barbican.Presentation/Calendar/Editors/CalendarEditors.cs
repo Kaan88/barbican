@@ -62,12 +62,12 @@ public sealed class CalendarEditors : ICalendarEditors
 
     private bool TwelveHour => _prefs is not null && CalendarSettings.Read(_prefs.Current).TwelveHour;
 
-    private EventEditorServices Services() => new(_source, _writer, _rules, _host, _availability, _contacts, _hooks, _toasts, _time, TwelveHour, _participantIdentities, DefaultZone);
+    private EventEditorServices Services() => new(_source, _writer, _rules, _host, _availability, _contacts, _hooks, _toasts, _time, TwelveHour, _participantIdentities, DefaultZone, () => DefaultZone);
 
     public Task OpenQuickCreateAsync(NewEventRequest request, CancellationToken ct)
     {
         ArgumentNullException.ThrowIfNull(request);
-        var card = new QuickCreateViewModel(_source, _writer, request, TwelveHour, DefaultZone);
+        var card = new QuickCreateViewModel(_source, _writer, request, TwelveHour, DefaultZone, () => DefaultZone);
         _host.Show(card);
         _ = FinishQuickAsync(card, ct);
         return Task.CompletedTask;
@@ -106,7 +106,7 @@ public sealed class CalendarEditors : ICalendarEditors
 
         if (occurrenceId.StartsWith("task:", StringComparison.Ordinal) || CalendarJson.IsTask(ev))
         {
-            var task = new TaskEditorViewModel(_source, _writer, _host, DefaultZone);
+            var task = new TaskEditorViewModel(_source, _writer, _host, DefaultZone, () => DefaultZone);
             task.OpenExisting(ev);
             ShowTask(task);
             return Task.CompletedTask;
@@ -120,7 +120,7 @@ public sealed class CalendarEditors : ICalendarEditors
 
     public Task OpenNewTaskAsync(string? calendarId, DateOnly? due, CancellationToken ct)
     {
-        var task = new TaskEditorViewModel(_source, _writer, _host, DefaultZone);
+        var task = new TaskEditorViewModel(_source, _writer, _host, DefaultZone, () => DefaultZone);
         task.OpenNew(calendarId, due);
         ShowTask(task);
         return Task.CompletedTask;

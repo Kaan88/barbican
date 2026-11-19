@@ -20,4 +20,5 @@ public sealed record EventEditorServices(
     TimeProvider? Time = null,
     bool TwelveHour = false,
     ICalendarParticipantIdentities? ParticipantIdentities = null,
-    string? DefaultZone = null);
+    string? DefaultZone = null,
+    Func<string>? CurrentZone = null);

@@ -15,13 +15,14 @@ public sealed class QuickCreateViewModel : ObservableObject, ICloseableCard
     private readonly ICalendarWriter _writer;
     private readonly NewEventRequest _request;
     private readonly bool _twelveHour;
-    private readonly string _zone;
+    private string _zone;
+    private readonly Func<string>? _currentZone;
     private readonly TaskCompletionSource _closed = new(TaskCreationOptions.RunContinuationsAsynchronously);
     private string _title;
     private string _calendarId = string.Empty;
     private string _error = string.Empty;
 
-    public QuickCreateViewModel(IEditorSource source, ICalendarWriter writer, NewEventRequest request, bool twelveHour = false, string? zone = null)
+    public QuickCreateViewModel(IEditorSource source, ICalendarWriter writer, NewEventRequest request, bool twelveHour = false, string? zone = null, Func<string>? currentZone = null)
     {
         ArgumentNullException.ThrowIfNull(source);
         ArgumentNullException.ThrowIfNull(writer);
@@ -31,6 +32,7 @@ public sealed class QuickCreateViewModel : ObservableObject, ICloseableCard
         _request = request;
         _twelveHour = twelveHour;
         _zone = zone ?? CalendarJson.LocalZoneId();
+        _currentZone = currentZone;
         _title = request.Title;
         var subs = new HashSet<string>(source.Subscriptions, StringComparer.Ordinal);
         var usable = source.Calendars.Where(c => CalendarJson.Writable(c, subs)).ToList();
@@ -120,6 +122,16 @@ public sealed class QuickCreateViewModel : ObservableObject, ICloseableCard
         if (!CanSave || _source.AccountKey is not { } account)
         {
             return false;
+        }
+
+        if (!_request.AllDay && _zone.Length == 0)
+        {
+            _zone = _currentZone?.Invoke() ?? string.Empty;
+            if (_zone.Length == 0)
+            {
+                Error = "The system time zone is unavailable. Select a supported time zone in Settings, then try again.";
+                return false;
+            }
         }
 
         var result = await _writer.CreateAsync(account, _calendarId, BuildEvent(), ct).ConfigureAwait(true);

@@ -23,7 +23,8 @@ public sealed class TaskEditorViewModel : ObservableObject
     private readonly Editors.IEditorSource _source;
     private readonly ICalendarWriter _writer;
     private readonly Editors.CalendarEditorHost? _host;
-    private readonly string _defaultZone;
+    private string _defaultZone;
+    private readonly Func<string>? _currentZone;
     private string? _existingZone;
     private readonly TaskCompletionSource _closed = new(TaskCreationOptions.RunContinuationsAsynchronously);
     private string? _id;
@@ -39,7 +40,7 @@ public sealed class TaskEditorViewModel : ObservableObject
     private string _listId = string.Empty;
     private string _error = string.Empty;
 
-    public TaskEditorViewModel(Editors.IEditorSource source, ICalendarWriter writer, Editors.CalendarEditorHost? host = null, string? defaultZone = null)
+    public TaskEditorViewModel(Editors.IEditorSource source, ICalendarWriter writer, Editors.CalendarEditorHost? host = null, string? defaultZone = null, Func<string>? currentZone = null)
     {
         ArgumentNullException.ThrowIfNull(source);
         ArgumentNullException.ThrowIfNull(writer);
@@ -47,6 +48,7 @@ public sealed class TaskEditorViewModel : ObservableObject
         _writer = writer;
         _host = host;
         _defaultZone = defaultZone ?? Editors.CalendarJson.LocalZoneId();
+        _currentZone = currentZone;
         Lists = [.. source.Calendars
             .Where(c => !Editors.CalendarJson.IsShared(Editors.CalendarJson.Id(c)) && !source.Subscriptions.Contains(Editors.CalendarJson.Id(c)))
             .Select(c => new Editors.CalendarChoice(Editors.CalendarJson.Id(c), Editors.CalendarJson.Str(c, "name") is { Length: > 0 } n ? n : "Calendar", Editors.CalendarJson.Str(c, "color") is { Length: > 0 } col ? col : "#3b82f6"))];
@@ -172,6 +174,16 @@ public sealed class TaskEditorViewModel : ObservableObject
         {
             Error = "Give the task a title.";
             return false;
+        }
+
+        if (_id is null && _hasTime && _dueDate.Length > 0 && _defaultZone.Length == 0)
+        {
+            _defaultZone = _currentZone?.Invoke() ?? string.Empty;
+            if (_defaultZone.Length == 0)
+            {
+                Error = "The system time zone is unavailable. Select a supported time zone in Settings, then try again.";
+                return false;
+            }
         }
 
         var fields = TaskRules.Fields(_title, _notes, _dueDate, _hasTime ? _dueTime : null, _priority, _progress, _repeat, _alert, _existingZone ?? _defaultZone);

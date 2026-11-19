@@ -11,6 +11,10 @@ namespace Barbican.App.Views.Settings;
 /// <summary>Searchable, virtualized selector inside the app's dialog host.</summary>
 public sealed class TimeZonePickerContent : IDialogContent
 {
+    private readonly TimeProvider _time;
+
+    public TimeZonePickerContent(TimeProvider time) => _time = time ?? throw new ArgumentNullException(nameof(time));
+
     private static readonly string[] Common = ["UTC", "America/Los_Angeles", "America/Denver", "America/Chicago", "America/New_York", "America/Sao_Paulo", "Europe/London", "Europe/Paris", "Europe/Berlin", "Europe/Moscow", "Asia/Dubai", "Asia/Kolkata", "Asia/Shanghai", "Asia/Tokyo", "Australia/Sydney"];
     private sealed record Choice(string Id, string Label, string Search, int Rank, int Offset);
     public bool OwnButtons => true;
@@ -32,7 +36,7 @@ public sealed class TimeZonePickerContent : IDialogContent
         var shown = new List<Choice>();
         void Filter()
         {
-            var q = search.Text.Trim().Replace("UTC", "GMT", StringComparison.OrdinalIgnoreCase);
+            var q = search.Text.Trim();
             shown = string.IsNullOrEmpty(q) ? all : [.. all.Where(x => Matches(x, q))];
             list.ItemsSource = shown.Select(x => x.Label).ToList();
             status.Text = shown.Count == 0 ? "No matching time zones." : string.Empty;
@@ -55,7 +59,9 @@ public sealed class TimeZonePickerContent : IDialogContent
         panel.Children.Add(SetUiUi.Pill("Cancel", () => dialog.Complete(null), "timezone.cancel"));
         SetUiUi.Run(async () =>
         {
-            all = await Task.Run(() => Choices(request.Selected)).ConfigureAwait(true);
+            var now = _time.GetUtcNow();
+            var local = _time.LocalTimeZone;
+            all = await Task.Run(() => Choices(request.Selected, now, local)).ConfigureAwait(true);
             Filter();
         });
         return panel;
@@ -63,8 +69,8 @@ public sealed class TimeZonePickerContent : IDialogContent
 
     private static bool Matches(Choice choice, string query)
     {
-        if (choice.Search.Contains(query, StringComparison.OrdinalIgnoreCase)) return true;
-        var offset = query.StartsWith("GMT", StringComparison.OrdinalIgnoreCase) ? query[3..] : query;
+        if (SettingTimeZoneSearchAliases.Matches(query, choice.Id) || choice.Search.Contains(query, StringComparison.OrdinalIgnoreCase)) return true;
+        var offset = query.StartsWith("GMT", StringComparison.OrdinalIgnoreCase) || query.StartsWith("UTC", StringComparison.OrdinalIgnoreCase) ? query[3..] : query;
         if (offset.Length < 2 || offset[0] is not ('+' or '-')) return false;
         var parts = offset[1..].Split(':', 2);
         if (!int.TryParse(parts[0], System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out var hour)) return false;
@@ -75,12 +81,11 @@ public sealed class TimeZonePickerContent : IDialogContent
         return choice.Offset == total && choice.Rank >= 0;
     }
 
-    private static List<Choice> Choices(string selected)
+    private static List<Choice> Choices(string selected, DateTimeOffset now, TimeZoneInfo local)
     {
-        var now = DateTimeOffset.UtcNow;
         var names = TimeZones.All().ToList();
         if (!string.Equals(selected, "auto", StringComparison.OrdinalIgnoreCase) && !names.Contains(selected, StringComparer.Ordinal)) names.Add(selected);
-        var result = new List<Choice> { new("auto", "Automatic (" + TimeZoneInfo.Local.DisplayName + ")", "automatic auto", -1, int.MinValue) };
+        var result = new List<Choice> { new("auto", "Automatic (" + local.DisplayName + ")", "automatic auto", -1, int.MinValue) };
         foreach (var name in names)
         {
             var supported = SettingDisplayTimeZone.TryResolve(name, out var zone);

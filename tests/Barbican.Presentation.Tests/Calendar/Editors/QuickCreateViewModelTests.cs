@@ -31,6 +31,31 @@ public sealed class QuickCreateViewModelTests
     }
 
     [Fact]
+    public async Task Unmapped_system_zone_blocks_timed_creation_until_a_zone_is_selected()
+    {
+        var system = TimeZoneInfo.CreateCustomTimeZone("Unmapped/Test", TimeSpan.FromHours(3), "Test", "Test");
+        var selected = "auto";
+        string Zone() => Barbican.Core.Settings.Pages.SettingDisplayTimeZone.EventZone(selected, system);
+        var q = new QuickCreateViewModel(_source, _writer, new NewEventRequest(Dt("2026-11-20T09:00:00"), Dt("2026-11-20T10:00:00"), false), zone: Zone(), currentZone: Zone);
+        q.Title = "Keep this";
+        Assert.False(await q.SaveAsync(CancellationToken.None));
+        Assert.Contains("Select a supported time zone", q.Error);
+        Assert.Empty(_writer.Creates);
+        Assert.Equal("Keep this", q.Title);
+        selected = "Asia/Tokyo";
+        Assert.True(await q.SaveAsync(CancellationToken.None));
+        Assert.Equal("Asia/Tokyo", (string?)Assert.Single(_writer.Creates).Data["timeZone"]);
+    }
+
+    [Fact]
+    public async Task Unmapped_zone_does_not_block_all_day_quick_create()
+    {
+        var q = new QuickCreateViewModel(_source, _writer, new NewEventRequest(Dt("2026-11-20T00:00:00"), Dt("2026-11-20T00:00:00"), true), zone: string.Empty);
+        Assert.True(await q.SaveAsync(CancellationToken.None));
+        Assert.False(Assert.Single(_writer.Creates).Data.ContainsKey("timeZone"));
+    }
+
+    [Fact]
     public void Timed_quick_create_uses_the_selected_zone()
     {
         var q = new QuickCreateViewModel(_source, _writer, new NewEventRequest(Dt("2026-11-20T09:00:00"), Dt("2026-11-20T10:00:00"), false), zone: "Asia/Tokyo");

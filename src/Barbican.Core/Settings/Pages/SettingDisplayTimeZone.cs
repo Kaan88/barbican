@@ -25,12 +25,12 @@ public static class SettingDisplayTimeZone
 
     public static TimeZoneInfo Resolve(string? id, TimeZoneInfo fallback) => TryResolve(id, out var zone) ? zone! : fallback;
 
-    /// <summary>The valid IANA choice for a new event, or the OS zone translated to IANA.</summary>
+    /// <summary>The valid IANA choice for a new event, or the OS zone translated to IANA; empty when it cannot be mapped.</summary>
     public static string EventZone(string? id, TimeZoneInfo fallback)
     {
         if (id is not null && ZoneIds.Value.TryGetValue(id, out var known) && TryResolve(known, out _)) return known;
         var name = fallback.Id;
         if (TimeZones.All().Contains(name, StringComparer.Ordinal) || string.Equals(name, "UTC", StringComparison.Ordinal)) return name;
-        return TimeZoneInfo.TryConvertWindowsIdToIanaId(name, out var iana) ? iana : "UTC";
+        return TimeZoneInfo.TryConvertWindowsIdToIanaId(name, out var iana) ? iana : string.Empty;
     }
 }
