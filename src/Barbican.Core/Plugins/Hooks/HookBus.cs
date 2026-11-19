@@ -237,32 +237,45 @@ public sealed class HookBus : IHookBus
     /// <summary>Runs one handler; past the timeout it is told to cancel, left behind, and reported (Done is false).</summary>
     private async Task<(bool Done, T Value)> RunAsync<T>(string hook, Func<CancellationToken, Task<T>> call, CancellationToken ct, bool extendedBudget = false)
     {
-        using var handlerCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
-        var work = call(handlerCts.Token);
-        if (work.IsCompleted)
+        var handlerCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        var detached = false;
+        try
         {
-            // an answer that is already there stays synchronous: a key press only waits for such an answer (KeyRouter)
-            return (true, await work.ConfigureAwait(false));
+            var work = call(handlerCts.Token);
+            if (work.IsCompleted) return (true, await work.ConfigureAwait(false));
+            var budget = _timeout ?? _policies(hook).Budget;
+            if (_timeout is null && extendedBudget && budget < TimeSpan.FromSeconds(60)) budget = TimeSpan.FromSeconds(60);
+            using var delayCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            var delay = Task.Delay(budget, _time, delayCts.Token);
+            var first = await Task.WhenAny(work, delay).ConfigureAwait(false);
+            if (ReferenceEquals(first, work))
+            {
+                await delayCts.CancelAsync().ConfigureAwait(false);
+                return (true, await work.ConfigureAwait(false));
+            }
+            ct.ThrowIfCancellationRequested();
+            var cancellation = handlerCts.CancelAsync();
+            detached = true;
+            _ = DisposeAfterCancellationAsync(cancellation, handlerCts);
+            _ = work.ContinueWith(static t => _ = t.Exception, CancellationToken.None, TaskContinuationOptions.OnlyOnFaulted, TaskScheduler.Default);
+            Failed(hook, new TimeoutException($"A handler of '{hook}' did not finish within {budget.TotalSeconds:0.#} s and was abandoned."));
+            return (false, default!);
         }
-
-        var budget = _timeout ?? _policies(hook).Budget;
-        if (_timeout is null && extendedBudget && budget < TimeSpan.FromSeconds(60)) budget = TimeSpan.FromSeconds(60);
-        using var delayCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
-        var delay = Task.Delay(budget, _time, delayCts.Token);
-        var first = await Task.WhenAny(work, delay).ConfigureAwait(false);
-        if (ReferenceEquals(first, work))
+        finally
         {
-            await delayCts.CancelAsync().ConfigureAwait(false);
-            return (true, await work.ConfigureAwait(false));
+            if (!detached) handlerCts.Dispose();
         }
-
-        ct.ThrowIfCancellationRequested();
-        await handlerCts.CancelAsync().ConfigureAwait(false);
-        _ = work.ContinueWith(static t => _ = t.Exception, CancellationToken.None, TaskContinuationOptions.OnlyOnFaulted, TaskScheduler.Default);
-        Failed(hook, new TimeoutException($"A handler of '{hook}' did not finish within {budget.TotalSeconds:0.#} s and was abandoned."));
-        return (false, default!);
     }
 
+    private static async Task DisposeAfterCancellationAsync(Task cancellation, CancellationTokenSource source)
+    {
+        // Detached cleanup must await the cancellation task that owns its callbacks.
+#pragma warning disable VSTHRD003
+        try { await cancellation.ConfigureAwait(false); }
+#pragma warning restore VSTHRD003
+        catch (Exception e) when (e is not OutOfMemoryException and not StackOverflowException) { }
+        finally { source.Dispose(); }
+    }
     private Registration Add(string hook, object handler)
     {
         ArgumentException.ThrowIfNullOrEmpty(hook);

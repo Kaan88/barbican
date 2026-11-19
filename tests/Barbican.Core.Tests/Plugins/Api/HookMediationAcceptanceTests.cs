@@ -136,4 +136,43 @@ public sealed class HookMediationAcceptanceTests
         release.SetResult(HookValueDecision<int>.Replace(7));
         var result = await pending; Assert.True(result.Allowed); Assert.Equal(7, result.Value);
     }
+    [Fact]
+    public async Task TakeoverTimeoutDoesNotWaitForBlockedCancellationCallback()
+    {
+        var time = new Microsoft.Extensions.Time.Testing.FakeTimeProvider(); var bus = new HookBus(time, TimeSpan.FromSeconds(2));
+        using var gate = new ManualResetEventSlim();
+        var callbackStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var callbackFinished = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var work = new TaskCompletionSource<PluginTakeOverDecision>(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var registration = bus.TakeOver<int>("onComposeSend", (_, ct) =>
+        {
+            ct.Register(() => { callbackStarted.SetResult(); gate.Wait(); callbackFinished.SetResult(); });
+            return new ValueTask<PluginTakeOverDecision>(work.Task);
+        });
+        var pending = bus.TakeOverAsync("onComposeSend", 0, TestContext.Current.CancellationToken).AsTask();
+        try
+        {
+            time.Advance(TimeSpan.FromSeconds(2));
+            await callbackStarted.Task.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+            Assert.Equal(HookTakeOverOutcome.Failed, await pending.WaitAsync(TimeSpan.FromSeconds(2), TestContext.Current.CancellationToken));
+        }
+        finally
+        {
+            gate.Set(); work.TrySetResult(PluginTakeOverDecision.Unhandled);
+            await callbackFinished.Task.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+        }
+    }
+    [Fact]
+    public async Task ValueInterceptTimeoutFailsOpenWithPreviousValue()
+    {
+        var time = new Microsoft.Extensions.Time.Testing.FakeTimeProvider(); var bus = new HookBus(time, TimeSpan.FromSeconds(2));
+        var work = new TaskCompletionSource<HookValueDecision<int>>(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var first = bus.InterceptWithValue<int>("hook", (value, _) => ValueTask.FromResult(HookValueDecision<int>.Replace(value + 1)), 10);
+        using var second = bus.InterceptWithValue<int>("hook", (_, _) => new ValueTask<HookValueDecision<int>>(work.Task), 20);
+        var pending = bus.InterceptWithValueAsync("hook", 3, TestContext.Current.CancellationToken).AsTask();
+        time.Advance(TimeSpan.FromSeconds(2));
+        var result = await pending.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+        Assert.True(result.Allowed); Assert.Equal(4, result.Value);
+        work.SetResult(HookValueDecision<int>.Replace(99));
+    }
 }
