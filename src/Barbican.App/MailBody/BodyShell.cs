@@ -20,6 +20,7 @@ using System.Buffers;
 using System.Globalization;
 #endif
 using System.Text.Json;
+using Barbican.App.Composition;
 using Barbican.App.Theme;
 using Barbican.Core.Mail.Body;
 using Barbican.Core.Mail.Reader.Hooks;
@@ -55,6 +56,7 @@ public sealed partial class BodyShell : IBodyPresenter, IStartupTask, IDisposabl
     private readonly TimeProvider _time;
     private readonly ThemeController _theme;
     private readonly ILogger<BodyShell> _log;
+    private readonly bool _hidden;
     private readonly ShellMessageGate _gate = new();
     private readonly List<string> _queued = [];
     private WebView2? _view;
@@ -70,7 +72,7 @@ public sealed partial class BodyShell : IBodyPresenter, IStartupTask, IDisposabl
     private string? _allowRemoteFor;
     private string? _formattedFor;
 
-    public BodyShell(BodyAppearance appearance, Lazy<IKeyRouter> keys, ILinkRouter links, IDispatcher dispatcher, TimeProvider time, ThemeController theme, ILogger<BodyShell> log, IHookBus hooks, IPrefsStore prefs)
+    public BodyShell(BodyAppearance appearance, Lazy<IKeyRouter> keys, ILinkRouter links, IDispatcher dispatcher, TimeProvider time, ThemeController theme, ILogger<BodyShell> log, IHookBus hooks, IPrefsStore prefs, HiddenWindowOptions options)
     {
         Power = new BodyBackgroundPolicy(this, time, dispatcher, () => BodyBackgroundPolicy.ParseMinutes(prefs.Current.Str(BodyBackgroundPolicy.SettingKey, "5")));
         _hooks = hooks;
@@ -81,6 +83,7 @@ public sealed partial class BodyShell : IBodyPresenter, IStartupTask, IDisposabl
         _time = time;
         _theme = theme;
         _log = log;
+        _hidden = options.IsHidden;
         _theme.CssApplied += OnThemeApplied;
     }
 
@@ -281,7 +284,7 @@ public sealed partial class BodyShell : IBodyPresenter, IStartupTask, IDisposabl
         try
         {
             var script = await File.ReadAllTextAsync(Path.Combine(AppContext.BaseDirectory, "Assets", "mail", "shell.js")).ConfigureAwait(true);
-            await _view.EnsureCoreWebView2Async();
+            await MailWebViewStartup.EnsureAsync(_view, _hidden);
             Configure(_view);
             _view.NavigateToString(ShellDocument.Build(script, _appearance.ReaderHex));
         }

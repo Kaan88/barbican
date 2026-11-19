@@ -57,7 +57,7 @@ public partial class BarbicanApp : Application
             return;
         }
 
-        // every run: the profile's own WebView2 folder and no DNS prefetch; hidden runs also their own profile and painting flags (F-13)
+        // Select the profile before host composition; each WebView gets explicit environment options when it starts (F-13).
         WebViewEnvironment.Prepare(options);
 
         _host = AppComposition.Build(options);

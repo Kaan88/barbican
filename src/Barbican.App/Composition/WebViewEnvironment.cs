@@ -1,9 +1,12 @@
 using Barbican.Core.Storage;
+#if WINDOWS
+using Microsoft.Web.WebView2.Core;
+#endif
 
 namespace Barbican.App.Composition;
 
 /// <summary>
-/// WebView2 settings applied before any WebView exists (read from the environment when the first CoreWebView2 environment is created):
+/// WebView settings applied explicitly before navigation, without a process-wide data-folder override:
 /// <list type="bullet">
 /// <item>every run (Fable review 1 F-13): its own user-data folder under the profile's data folder
 /// (<c>%LOCALAPPDATA%\Barbican-PROFILE\WebView2</c>), never the folder next to the executable (read-only when installed, shared by all
@@ -19,7 +22,6 @@ namespace Barbican.App.Composition;
 internal static class WebViewEnvironment
 {
     public const string UserDataVariable = "WEBVIEW2_USER_DATA_FOLDER";
-    public const string ArgumentsVariable = "WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS";
 
     public static void Prepare(HiddenWindowOptions options)
     {
@@ -28,18 +30,41 @@ internal static class WebViewEnvironment
         {
             Environment.SetEnvironmentVariable(ProfilePaths.Variable, options.Profile);
         }
+    }
 
-        if (!OperatingSystem.IsWindows())
+#if WINDOWS
+    /// <summary>Creates a Windows environment for a host-selected absolute folder, verifying loader policy did not redirect it.</summary>
+    public static async Task<CoreWebView2Environment> CreateWindowsAsync(string folder, bool hidden, CancellationToken ct)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(folder);
+        if (!Path.IsPathFullyQualified(folder))
         {
-            return;
+            throw new ArgumentException("WebView2 data folder must be absolute.", nameof(folder));
         }
 
-        if (string.IsNullOrEmpty(Environment.GetEnvironmentVariable(UserDataVariable)))
+        var expected = Path.GetFullPath(folder);
+        if (Environment.GetEnvironmentVariable(UserDataVariable) is { Length: > 0 } overridden)
         {
-            Environment.SetEnvironmentVariable(UserDataVariable, UserDataFolder(ProfilePaths.FromEnvironment()));
+            ValidateFolder(expected, overridden);
         }
 
-        Environment.SetEnvironmentVariable(ArgumentsVariable, Arguments(options.IsHidden));
+        ct.ThrowIfCancellationRequested();
+        var options = new CoreWebView2EnvironmentOptions { AdditionalBrowserArguments = Arguments(hidden) };
+        var environment = await CoreWebView2Environment.CreateWithOptionsAsync(null, expected, options);
+        ct.ThrowIfCancellationRequested();
+        ValidateFolder(expected, environment.UserDataFolder);
+        return environment;
+    }
+#endif
+
+    internal static void ValidateFolder(string expected, string actual)
+    {
+        if (!Path.IsPathFullyQualified(actual) ||
+            !string.Equals(Path.TrimEndingDirectorySeparator(Path.GetFullPath(expected)),
+                Path.TrimEndingDirectorySeparator(Path.GetFullPath(actual)), StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InvalidOperationException("WebView2 selected a different data folder; startup was refused.");
+        }
     }
 
     /// <summary>The WebView2 user-data folder of a profile.</summary>
