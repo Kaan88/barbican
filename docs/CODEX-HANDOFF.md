@@ -4,9 +4,9 @@ Updated 2026-11-19. Read this with [CLAUDE.md](../CLAUDE.md),
 [PROGRESS.md](PROGRESS.md), and [the M6 plan](milestones/M6-plan.md).
 This is the Codex-specific continuation of the user's Claude handoff.
 
-## Current pause (2026-11-19)
+## Current resume (2026-11-19)
 
-The user explicitly paused the full goal. Do not restart work from historical resume text below without a new instruction to resume. Current integration branch is `codex/m6b`; see the top of PROGRESS.md for exact reviewed baselines, worker commits, preserved unverified WIP and next actions. All three workers stopped and reported no remaining owned build/app process. M6 portable is already delivered; later roadmap, final Astra review and hidden UI walkthrough remain unfinished.
+The user explicitly resumed the full goal after pause checkpoint 100357d. The three existing streams are active again; preserve their saved edits and follow the current next steps. Current integration branch is `codex/m6b`; see the top of PROGRESS.md for exact reviewed baselines, worker commits, preserved unverified WIP and next actions. All three workers stopped and reported no remaining owned build/app process. M6 portable is already delivered; later roadmap, final Astra review and hidden UI walkthrough remain unfinished.
 
 ## Selected UI guidelines (2026-11-19)
 
