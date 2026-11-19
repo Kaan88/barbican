@@ -15,4 +15,9 @@ public interface IPluginHooks
 
     /// <summary>Intercepts a hook: asked before something happens; false stops it. Dispose the result to stop.</summary>
     IDisposable Intercept(string hook, Func<HookEvent, CancellationToken, Task<bool>> handler);
+    /// <summary>Transform a permitted JSON payload. Null leaves it unchanged; the host validates any returned JSON.</summary>
+    IDisposable Transform(string hook, Func<HookEvent, CancellationToken, Task<string?>> handler, int order = 100);
+
+    /// <summary>Attempt a takeover; the host maps errors and timeouts to a failed, closed outcome.</summary>
+    IDisposable TakeOver(string hook, Func<HookEvent, CancellationToken, Task<PluginTakeOverDecision>> handler, int order = 100);
 }

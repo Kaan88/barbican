@@ -17,4 +17,7 @@ public interface IHookBus
 
     /// <summary>Transform: handlers run in order, each sees the previous result.</summary>
     ValueTask<T> TransformAsync<T>(string hook, T value, CancellationToken ct);
+    /// <summary>Takeover: explicit default, handled, aborted or failed outcome.</summary>
+    ValueTask<HookTakeOverOutcome> TakeOverAsync<TPayload>(string hook, TPayload payload, CancellationToken ct) =>
+        throw new Barbican.Core.Common.PortPendingException("hook takeover");
 }

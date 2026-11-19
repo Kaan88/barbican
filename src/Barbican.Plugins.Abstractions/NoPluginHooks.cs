@@ -18,6 +18,11 @@ public sealed class NoPluginHooks : IPluginHooks
     /// <inheritdoc />
     public IDisposable Intercept(string hook, Func<HookEvent, CancellationToken, Task<bool>> handler) => Nothing.Instance;
 
+    /// <inheritdoc />
+    public IDisposable Transform(string hook, Func<HookEvent, CancellationToken, Task<string?>> handler, int order = 100) => Nothing.Instance;
+
+    /// <inheritdoc />
+    public IDisposable TakeOver(string hook, Func<HookEvent, CancellationToken, Task<PluginTakeOverDecision>> handler, int order = 100) => Nothing.Instance;
     private sealed class Nothing : IDisposable
     {
         public static readonly Nothing Instance = new();

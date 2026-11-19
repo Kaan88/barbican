@@ -50,6 +50,11 @@ internal sealed class PluginHookBridge(NativePluginHost host, LoadedPlugin plugi
             }));
     }
 
+    public IDisposable Transform(string hook, Func<HookEvent, CancellationToken, Task<string?>> handler, int order = 100) =>
+        throw new Barbican.Core.Common.PortPendingException("native hook transform projection");
+
+    public IDisposable TakeOver(string hook, Func<HookEvent, CancellationToken, Task<PluginTakeOverDecision>> handler, int order = 100) =>
+        throw new Barbican.Core.Common.PortPendingException("native hook takeover projection");
     public void Dispose()
     {
         List<IDisposable> all;

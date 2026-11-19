@@ -47,6 +47,19 @@ public sealed class HookBus : IHookBus
     /// <summary>Registers a transform (sees the previous result, returns the next); dispose the result to remove it.</summary>
     public IDisposable Transform<T>(string hook, Func<T, CancellationToken, ValueTask<T>> handler) => Add(hook, handler);
 
+#pragma warning disable CA1822 // Instance methods are pending registrations on this bus.
+    /// <summary>Registers an ordered transform; equal order preserves registration order.</summary>
+    public IDisposable Transform<T>(string hook, Func<T, CancellationToken, ValueTask<T>> handler, int order) =>
+        throw new Barbican.Core.Common.PortPendingException("ordered hook transforms");
+
+    /// <summary>Registers an ordered takeover.</summary>
+    public IDisposable TakeOver<TPayload>(string hook, Func<TPayload, CancellationToken, ValueTask<Barbican.Plugins.PluginTakeOverDecision>> handler, int order = 100) =>
+        throw new Barbican.Core.Common.PortPendingException("hook takeover registration");
+#pragma warning restore CA1822
+
+    /// <inheritdoc />
+    public ValueTask<HookTakeOverOutcome> TakeOverAsync<TPayload>(string hook, TPayload payload, CancellationToken ct) =>
+        throw new Barbican.Core.Common.PortPendingException("hook takeover dispatch");
     /// <summary>Registers an observer that takes any payload type (the native plugin host: a plugin cannot name the app's payload types).</summary>
     public IDisposable ObserveAny(string hook, Func<object?, CancellationToken, ValueTask> handler) => Add(hook, new AnyObserver(handler));
 
