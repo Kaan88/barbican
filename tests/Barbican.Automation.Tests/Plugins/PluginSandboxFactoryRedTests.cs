@@ -48,7 +48,8 @@ public sealed class PluginSandboxFactoryRedTests
         public object RootIdentity { get; } = new();
         public Uri TrustedRoot { get; } = new("https://plugin.invalid/host/index.html");
         public Task NavigateAsync(Uri uri, CancellationToken ct) { steps.Add("navigate"); return failNavigation ? Task.FromException(new InvalidOperationException("synthetic navigation failure")) : Task.CompletedTask; }
-        public Task PostAsync(ReadOnlyMemory<byte> message, CancellationToken ct) => Task.CompletedTask;
+        public Task<bool> PostAsync(Func<Action<ReadOnlyMemory<byte>>, CancellationToken, ValueTask<bool>> deliver, CancellationToken ct) =>
+            deliver(_ => { }, ct).AsTask();
         public ValueTask DisposeAsync() { steps.Add("dispose"); return ValueTask.CompletedTask; }
     }
     private sealed class Revocation(List<string> steps) : IPluginRevocationCoordinator

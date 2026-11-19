@@ -19,6 +19,12 @@ public sealed class PluginCallOutcome
     private static readonly PluginValue Undefined = CreateUndefined();
     public static PluginCallOutcome Succeeded(PluginValue? value = null) => new(true, value ?? Undefined, null);
     internal PluginCallOutcome WithDeliveryFence(PluginDeliveryFence fence) => new(true, Value, null, fence);
+    /// <summary>Final synchronous session check after serialization and immediately before a native write.</summary>
+    public bool HasCurrentDeliverySession(PluginRuntimeBinding recipient) =>
+        !IsSuccess || (_delivery?.HasCurrentSession(recipient) ?? false);
+
+    /// <summary>Produces a value-free response when the authority for a queued result is no longer current.</summary>
+    public PluginCallOutcome RefuseDelivery() => Failed(_delivery?.Refusal ?? PluginErrorCode.StaleContext);
 
     /// <summary>
     /// Host-only check for a queued success. Call in the delivery callback, not before queueing it.
@@ -34,7 +40,7 @@ public sealed class PluginCallOutcome
         }
 
         return _delivery is { } fence && await fence.IsCurrentAsync(recipient, ct).ConfigureAwait(false)
-            ? this : Failed(_delivery?.Refusal ?? PluginErrorCode.StaleContext);
+            ? this : RefuseDelivery();
     }
     private static PluginValue CreateUndefined()
     {

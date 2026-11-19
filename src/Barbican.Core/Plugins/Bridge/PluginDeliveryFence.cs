@@ -11,6 +11,9 @@ internal sealed class PluginDeliveryFence(PluginRuntimeBinding binding, PluginGr
 {
     internal PluginErrorCode Refusal => issued ? PluginErrorCode.UnknownOutcome : PluginErrorCode.StaleContext;
 
+    internal bool HasCurrentSession(PluginRuntimeBinding recipient) =>
+        ReferenceEquals(binding, recipient) && binding.IsAlive && captures.All(sessions.IsCurrent) && binding.IsAlive;
+
     internal async ValueTask<bool> IsCurrentAsync(PluginRuntimeBinding recipient, CancellationToken ct)
     {
         ct.ThrowIfCancellationRequested();
@@ -23,6 +26,6 @@ internal sealed class PluginDeliveryFence(PluginRuntimeBinding binding, PluginGr
         ct.ThrowIfCancellationRequested();
         return current.IsOk && current.Value is { } live && PluginInvocationContext.Matches(live, binding)
             && live.Permissions.SetEquals(grant.Permissions) && live.AccountKeys.SetEquals(grant.AccountKeys)
-            && captures.All(sessions.IsCurrent) && binding.IsAlive;
+            && HasCurrentSession(recipient);
     }
 }
