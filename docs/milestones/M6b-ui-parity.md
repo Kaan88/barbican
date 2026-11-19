@@ -5,6 +5,27 @@ to Astra. This is a coverage ledger, not a completion report. Reference
 observations come from the signed-in throwaway account. Do not track mailbox
 contents, identifiers, credentials, or real-account screenshots.
 
+## Existing parity resources
+
+Use the existing catalogues as the inventory; this page records the differences
+found in this pass rather than replacing those tables.
+
+| Coverage | Existing reference |
+|---|---|
+| Features, routes, user workflows and implementation status | [Port plan](../PORT-PLAN.md), [interaction catalogue](../../spec/interactions.csv), [behavior rules](../../spec/README.md#files) and [known gaps](../../spec/gaps.csv) |
+| Context-menu entries, availability and destructive confirmations | [Menu catalogue](../../spec/menus.md), including `MENU-MAIL`, `MENU-THREAD`, and `MENU-READER` |
+| Settings keys, defaults and wiring | [Settings catalogue](../../spec/settings.csv) |
+| Keyboard and command access | [Shortcut rules](../../spec/behaviours/shortcuts.md) and [command palette rules](../../spec/behaviours/palette.md) |
+| Plugin contributions and native verification | [Hook and slot catalogues](../../spec/plugins/README.md), [hidden automation protocol](../../spec/automation-protocol.md) |
+
+The catalogues were originally baselined against the Rust app; their presence
+does not prove current Bulwark parity. Use the [upstream source](https://github.com/bulwarkmail/webmail)
+to check conditional branches that a throwaway account cannot show. Record the
+source revision and symbol where possible. Keep each finding's evidence distinct:
+**source** for available branches, **live** for paths actually exercised in Bulwark,
+and **native** for behavior observed in Barbican. Do not use a screenshot alone to
+claim a command works.
+
 ## Mail, threading, quick reply, and compose
 
 | Surface | Observed in Bulwark | Barbican baseline / next verification |
