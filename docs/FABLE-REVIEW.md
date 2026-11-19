@@ -20,6 +20,11 @@ judgement call, uncertainty, deviation from Bulwark/RFC/plan, security, privacy,
 verification) and **where** (paths, commits). Add items as you go. Accounts and paths are
 placeholders (see CLAUDE.md); never write real values here.
 
+## M6b Bulwark rail and list (Terra)
+
+- Review `src/Barbican.App/Theme/{StyleState,StyleMetrics}.cs` and `Views/{Rail/RailView,Sidebar/SidebarView,List/MessageListView,Search/SearchBoxView}.xaml` (uncommitted, based on `90a70f8`): the Bulwark rail and sidebar use their semantic palette rather than Bento tile, the unconfigured logo is absent, and list density and toolbar sizes follow upstream. Rail metrics also apply to non-mail screens in Bulwark; enlarged targets and legacy styles need visual verification. Configurable upstream logos and full icon parity are not implemented.
+- Windows Automation build passed; hidden synthetic WGC selected-message captures at 1424×884 client size in `artifacts/auto/8936/` show distinct light/dark modes and body rendering. List and reader starts measured 312 and 696 logical px; select-all measured 32×32. No live reference was used in this pass. Remaining visible differences include the Windows title band, Bento-like rounded selected rows, duplicate thread rows, toolbar/search icon and shape details, and reader styling outside this slice. Legacy, high-contrast, large-target, narrow and keyboard states were not visually verified.
+
 ## M6b quick-reply handoff (Codex stream: m6b-quick-reply, worker: GPT-6.1 Terra)
 
 - Review `src/Barbican.Core/Compose/ComposeRequest.cs`, `ComposeSeeder.cs`, and `tests/Barbican.Core.Tests/Compose/ComposeSeederTests.cs` (uncommitted): reply-only text is imported as plain text before signature placement; UI ownership, account and message binding, draft lifecycle, and sending remain outside this stream. Synthetic Core tests do not verify the eventual UI handoff.

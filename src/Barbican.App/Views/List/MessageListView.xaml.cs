@@ -74,10 +74,7 @@ public sealed partial class MessageListView : UserControl
             Rows.ItemContainerStyle = style;
         }
 
-        ListHeader.Padding = Look.IsBulwark ? new Thickness(12, 10, 12, 10) : Look.ListHeaderPadding;
         ListHeader.Spacing = Look.IsBulwark ? 0 : 12;
-        Toolbar.ColumnDefinitions[0].Width = new GridLength(Look.IsBulwark ? 36 : 0);
-        Toolbar.ColumnDefinitions[2].Width = new GridLength(Look.IsBulwark ? 36 : 0);
         Toolbar.ColumnSpacing = Look.IsBulwark ? 4 : 0;
     }
 

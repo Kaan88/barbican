@@ -128,6 +128,11 @@ public sealed class StyleState : ObservableObject
 
     public Brush PaneBrush => IsBento ? TileBrush : Transparent;
 
+    // Bulwark uses sidebar and background tokens, not Bento's raised tile.
+    public Brush RailBrush => IsBulwark ? AppResources.Brush("Rail") : PaneBrush;
+
+    public Brush ListBrush => IsBulwark ? AppResources.Brush("Bg") : PaneBrush;
+
     // window and regions
     public double TitleBarHeight => _m.TitleBarHeight;
 
@@ -174,7 +179,7 @@ public sealed class StyleState : ObservableObject
 
     public Thickness ReaderPadding => new(_m.ReaderPadSide, _m.ReaderPadTop, _m.ReaderPadSide, _m.ReaderPadBottom);
 
-    public Thickness ListHeaderPadding => new(_m.ListPadLeft, _m.ListPadTop, _m.ListPadRight, _m.ListPadBottom);
+    public Thickness ListHeaderPadding => IsBulwark ? new Thickness(12) : new Thickness(_m.ListPadLeft, _m.ListPadTop, _m.ListPadRight, _m.ListPadBottom);
 
     public double ListTitleSize => _m.ListTitleSize * TextScale;
 
@@ -219,7 +224,11 @@ public sealed class StyleState : ObservableObject
 
     public double MarkSize => _m.MarkSize;
 
-    public Thickness MarkGap => new(0, _m.MarkGap, 0, 0);
+    public Thickness MarkGap => new(0, IsBulwark ? 0 : _m.MarkGap, 0, 0);
+
+    public Visibility LegacyMarkVisibility => IsBulwark ? Visibility.Collapsed : Visibility.Visible;
+
+    public Visibility BulwarkOnly => IsBulwark ? Visibility.Visible : Visibility.Collapsed;
 
     public CornerRadius RailRadius => IsBento && !IsBulwark ? new CornerRadius(24) : new CornerRadius(0);
 
@@ -232,7 +241,7 @@ public sealed class StyleState : ObservableObject
     // sidebar: Bento is one tile (compose, folders, tags, storage); Nordic sits on the ground
     public Thickness SidebarPadding => IsNordic ? new Thickness(14, 18, 14, 22) : new Thickness(12, 14, 12, 14);
 
-    public Brush SidebarBrush => PaneBrush;
+    public Brush SidebarBrush => IsBulwark ? AppResources.Brush("Side") : PaneBrush;
 
     public Thickness SidebarBorder => IsBulwark ? new Thickness(0, 0, 1, 0) : PaneBorder;
 
@@ -274,6 +283,16 @@ public sealed class StyleState : ObservableObject
 
     public Brush SectionHeaderBrush => AppResources.Brush(IsBento ? "Faint" : "Dim");
 
+    public bool SidebarUppercaseHeaders => IsBento && !IsBulwark;
+
+    public double SidebarHeaderSize => IsBulwark ? 14 * TextScale : SectionHeaderSize;
+
+    public FontWeight SidebarHeaderWeight => IsBulwark ? FontWeights.SemiBold : FontWeights.Bold;
+
+    public int SidebarHeaderSpacing => IsBulwark ? 0 : SectionHeaderSpacing;
+
+    public Brush SidebarHeaderBrush => IsBulwark ? AppResources.Brush("Text") : SectionHeaderBrush;
+
     public Visibility BentoOnly => IsBento ? Visibility.Visible : Visibility.Collapsed;
 
     public Visibility NordicOnly => IsNordic ? Visibility.Visible : Visibility.Collapsed;
@@ -302,20 +321,24 @@ public sealed class StyleState : ObservableObject
     public CornerRadius TagRowRadius => new(IsNordic ? 22 : 14);
 
     // message rows
-    public Thickness MessageRowPadding => IsBento ? new Thickness(12, 10, 12, 10) : new Thickness(28, 14, 28, 14);
+    public Thickness MessageRowPadding => IsBulwark ? new Thickness(12) : IsBento ? new Thickness(12, 10, 12, 10) : new Thickness(28, 14, 28, 14);
 
     public double MessageRowSpacing => IsBento ? 11 : 8;
 
     public Visibility ShowAvatar => BentoOnly;
 
-    public CornerRadius AvatarRadius => new(_m.Round(_m.AvatarSize));
+    public CornerRadius AvatarRadius => new(IsBulwark ? _m.AvatarSize / 2 : _m.Round(_m.AvatarSize));
 
     /// <summary>The sender line (both styles 14), subject (13.5 Bento, 14 Nordic) and preview (12.5, 13) sizes of the prototype's rows.</summary>
     public double SenderSize => 14 * TextScale;
 
-    public double SubjectSize => (IsNordic ? 14 : 13.5) * TextScale;
+    public double SubjectSize => (IsBulwark || IsNordic ? 14 : 13.5) * TextScale;
 
-    public double PreviewSize => (IsNordic ? 13 : 12.5) * TextScale;
+    public double PreviewSize => (IsBulwark ? 14 : IsNordic ? 13 : 12.5) * TextScale;
+
+    public double ListToolbarButtonSize => Math.Max(IsBulwark ? 32 * TextScale : 36, MinimumTarget);
+
+    public double ListSearchHeight => Math.Max(IsBulwark ? 32 * TextScale : 36, MinimumTarget);
 
     public Brush SubjectBrush => AppResources.Brush(IsNordic ? "Text" : "Body");
 
