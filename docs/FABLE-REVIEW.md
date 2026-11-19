@@ -1492,3 +1492,7 @@ Implemented merged/virtual message-row account tint and dot from composite row s
 Validation: focused tests 3 passed, full Presentation suite 996 passed, Windows Automation head compiled with zero warnings. This verifies XAML compilation, not visual contrast or screen-reader output on a real desktop. Four palette colors can collide; source color metadata is not available in the current account model. The fake integration exercises two own accounts; shared-account naming follows existing `SharedSectionViewModel.NameOf` but is not separately exercised here. Astra should review actual light/dark/high-contrast rendering and selection/checked feedback.
 
 - **Sol code check:** preserved configured-order reload and date-header guards during merge. The row container still named only the subject, overriding the richer child name for list-item accessibility; the coordinator changed `MessageListView.xaml.cs` to use `row.AccessibleName`. Actual screen-reader and visual marker checks remain close-pass evidence.
+
+## Codex - calendar hook catalogue reconciliation (Sol)
+
+- Eight M4 hooks remained pending in `spec/plugins/hooks.csv` despite concrete existing call sites in CalendarViewModel, EventEditorViewModel.Save and TasksViewModel. The coordinator inspected those sites and corrected the catalogue references. This records implementation sites, not proof that all eight were invoked during an end-to-end plugin run; M6b compatibility verification must exercise observer/transform payloads and permissions against these surfaces.
