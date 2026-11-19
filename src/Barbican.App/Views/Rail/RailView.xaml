@@ -30,7 +30,7 @@
 
       <StackPanel Grid.Row="1" Margin="{x:Bind Look.MarkGap, Mode=OneWay}" Spacing="{x:Bind Look.RailSpacing, Mode=OneWay}" HorizontalAlignment="Center">
         <Grid>
-          <Button x:Name="MailButton" Style="{StaticResource Button.Icon}" Click="OnMailClick"
+          <Button x:Name="MailButton" Style="{StaticResource Button.Icon}" FocusVisualPrimaryThickness="{x:Bind Look.FocusThickness, Mode=OneWay}" Click="OnMailClick"
                   Width="{x:Bind Look.RailButton, Mode=OneWay}" Height="{x:Bind Look.RailButton, Mode=OneWay}" CornerRadius="{x:Bind Look.RailButtonRadius, Mode=OneWay}"
                   Background="{x:Bind views:Fmt.RailBackground(Rail.ActiveApp, 'Mail'), Mode=OneWay}" Foreground="{x:Bind views:Fmt.RailForeground(Rail.ActiveApp, 'Mail'), Mode=OneWay}"
                   AutomationProperties.AutomationId="rail.mail" AutomationProperties.Name="Mail" motion:Tip.Text="Mail">
@@ -42,19 +42,19 @@
             <TextBlock Text="{x:Bind Rail.MailBadge, Mode=OneWay}" FontSize="10" FontWeight="Bold" Foreground="{StaticResource OnAccent}" HorizontalAlignment="Center" VerticalAlignment="Center" />
           </Border>
         </Grid>
-        <Button x:Name="CalendarButton" Style="{StaticResource Button.Icon}" Click="OnCalendarClick"
+        <Button x:Name="CalendarButton" Style="{StaticResource Button.Icon}" FocusVisualPrimaryThickness="{x:Bind Look.FocusThickness, Mode=OneWay}" Click="OnCalendarClick"
                 Width="{x:Bind Look.RailButton, Mode=OneWay}" Height="{x:Bind Look.RailButton, Mode=OneWay}" CornerRadius="{x:Bind Look.RailButtonRadius, Mode=OneWay}"
                 Background="{x:Bind views:Fmt.RailBackground(Rail.ActiveApp, 'Calendar'), Mode=OneWay}" Foreground="{x:Bind views:Fmt.RailForeground(Rail.ActiveApp, 'Calendar'), Mode=OneWay}"
                 AutomationProperties.AutomationId="rail.calendar" AutomationProperties.Name="Calendar" motion:Tip.Text="Calendar">
           <controls:SIcon Kind="Cal" Size="20" />
         </Button>
-        <Button x:Name="ContactsButton" Style="{StaticResource Button.Icon}" Click="OnContactsClick"
+        <Button x:Name="ContactsButton" Style="{StaticResource Button.Icon}" FocusVisualPrimaryThickness="{x:Bind Look.FocusThickness, Mode=OneWay}" Click="OnContactsClick"
                 Width="{x:Bind Look.RailButton, Mode=OneWay}" Height="{x:Bind Look.RailButton, Mode=OneWay}" CornerRadius="{x:Bind Look.RailButtonRadius, Mode=OneWay}"
                 Background="{x:Bind views:Fmt.RailBackground(Rail.ActiveApp, 'Contacts'), Mode=OneWay}" Foreground="{x:Bind views:Fmt.RailForeground(Rail.ActiveApp, 'Contacts'), Mode=OneWay}"
                 AutomationProperties.AutomationId="rail.contacts" AutomationProperties.Name="Contacts" motion:Tip.Text="Contacts">
           <controls:SIcon Kind="Users" Size="20" />
         </Button>
-        <Button x:Name="FilesButton" Style="{StaticResource Button.Icon}" Click="OnFilesClick"
+        <Button x:Name="FilesButton" Style="{StaticResource Button.Icon}" FocusVisualPrimaryThickness="{x:Bind Look.FocusThickness, Mode=OneWay}" Click="OnFilesClick"
                 Width="{x:Bind Look.RailButton, Mode=OneWay}" Height="{x:Bind Look.RailButton, Mode=OneWay}" CornerRadius="{x:Bind Look.RailButtonRadius, Mode=OneWay}"
                 Background="{x:Bind views:Fmt.RailBackground(Rail.ActiveApp, 'Files'), Mode=OneWay}" Foreground="{x:Bind views:Fmt.RailForeground(Rail.ActiveApp, 'Files'), Mode=OneWay}"
                 AutomationProperties.AutomationId="rail.files" AutomationProperties.Name="Files" motion:Tip.Text="Files">
@@ -64,19 +64,25 @@
 
       <!-- Search and the shortcuts sheet (I-029, I-023) above the gear; the gear opens nothing in M1 (settings pages are M6). -->
       <StackPanel Grid.Row="3" Spacing="2" HorizontalAlignment="Center" Margin="0,0,0,10">
-        <Button x:Name="SearchButton" Style="{StaticResource Button.Icon}" Click="OnSearchClick"
+        <Button x:Name="SearchButton" Style="{StaticResource Button.Icon}" FocusVisualPrimaryThickness="{x:Bind Look.FocusThickness, Mode=OneWay}" Click="OnSearchClick"
                 Width="{x:Bind Look.RailButton, Mode=OneWay}" Height="{x:Bind Look.RailButton, Mode=OneWay}" CornerRadius="{x:Bind Look.RailButtonRadius, Mode=OneWay}"
                 Foreground="{StaticResource Faint}"
                 AutomationProperties.AutomationId="rail.search" AutomationProperties.Name="Search" motion:Tip.Text="Search">
           <controls:SIcon Kind="Search" Size="20" />
         </Button>
-        <Button x:Name="ShortcutsButton" Style="{StaticResource Button.Icon}" Click="OnShortcutsClick"
+        <Button x:Name="ShortcutsButton" Style="{StaticResource Button.Icon}" FocusVisualPrimaryThickness="{x:Bind Look.FocusThickness, Mode=OneWay}" Click="OnShortcutsClick"
                 Width="{x:Bind Look.RailButton, Mode=OneWay}" Height="{x:Bind Look.RailButton, Mode=OneWay}" CornerRadius="{x:Bind Look.RailButtonRadius, Mode=OneWay}"
                 Foreground="{StaticResource Faint}"
                 AutomationProperties.AutomationId="rail.shortcuts" AutomationProperties.Name="Keyboard shortcuts" motion:Tip.Text="Keyboard shortcuts (?)">
           <controls:SIcon Kind="Key" Size="20" />
         </Button>
-        <Button x:Name="SettingsButton" Style="{StaticResource Button.Icon}" Click="OnSettingsClick"
+        <Button x:Name="AccessibilityButton" Style="{StaticResource Button.Icon}" FocusVisualPrimaryThickness="{x:Bind Look.FocusThickness, Mode=OneWay}" Click="OnAccessibilityClick"
+                Width="{x:Bind Look.RailButton, Mode=OneWay}" Height="{x:Bind Look.RailButton, Mode=OneWay}" CornerRadius="{x:Bind Look.RailButtonRadius, Mode=OneWay}"
+                Visibility="{x:Bind views:Fmt.Vis(Rail.ShowAccessibilityButton), Mode=OneWay}" Foreground="{StaticResource Faint}"
+                AutomationProperties.AutomationId="rail.accessibility" AutomationProperties.Name="Accessibility options" motion:Tip.Text="Accessibility options (Alt + Shift + A)">
+          <TextBlock Text="A" FontWeight="Bold" FontSize="18" />
+        </Button>
+        <Button x:Name="SettingsButton" Style="{StaticResource Button.Icon}" FocusVisualPrimaryThickness="{x:Bind Look.FocusThickness, Mode=OneWay}" Click="OnSettingsClick"
                 Width="{x:Bind Look.RailButton, Mode=OneWay}" Height="{x:Bind Look.RailButton, Mode=OneWay}" CornerRadius="{x:Bind Look.RailButtonRadius, Mode=OneWay}"
                 Foreground="{StaticResource Faint}"
                 AutomationProperties.AutomationId="rail.settings" AutomationProperties.Name="Settings" motion:Tip.Text="Settings">

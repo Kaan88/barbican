@@ -3,6 +3,7 @@
 
 using Barbican.App.Shell;
 using Barbican.App.Views.Settings;
+using Barbican.App.Views.Dialogs;
 using Barbican.Presentation.Composition;
 using Microsoft.Extensions.DependencyInjection;
 #if AUTOMATION
@@ -27,6 +28,7 @@ public static class SettingsUiRegistration
         ArgumentNullException.ThrowIfNull(services);
         _ = services.AddBarbicanSettingsUiViewModels();
         services.AddSingleton<IAppScreenFactory, SetUiScreenFactory>();
+        services.AddSingleton<IDialogContent, AccessibilityQuickContent>();
 #if AUTOMATION
         if (string.Equals(Environment.GetEnvironmentVariable("BARBICAN_SAMPLE"), "1", StringComparison.Ordinal))
         {

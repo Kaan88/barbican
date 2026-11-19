@@ -32,6 +32,8 @@ public sealed class RailViewModel : ObservableObject, IDisposable
 
     public AppId ActiveApp => _shell.ActiveApp;
 
+    public bool ShowAccessibilityButton => _shell.Accessibility.ShowAccessibilityButton;
+
     /// <summary>Whether an app can be opened yet.</summary>
     public bool IsAvailable(AppId app) => _shell.AvailableApps.Contains(app);
 
@@ -80,6 +82,7 @@ public sealed class RailViewModel : ObservableObject, IDisposable
                 OnPropertyChanged(nameof(StorageFraction));
                 break;
             case nameof(ShellViewModel.Accessibility):
+                OnPropertyChanged(nameof(ShowAccessibilityButton));
                 OnPropertyChanged(nameof(MailBadge));
                 break;
             default:
