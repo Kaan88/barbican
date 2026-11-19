@@ -118,15 +118,52 @@ public sealed class SieveScriptStore(IJmapClient client)
             return Result<string?>.Fail(r.Error!);
         }
 
-        var res = r.Value!.MethodResponses[0][1];
-        if (res is JsonObject { } o && (o["updated"] is JsonObject || o["created"] is JsonObject))
+        var result = Acknowledged(r.Value!.MethodResponses[0][1], target?.Id);
+        if (!result.IsOk) return Result<string?>.Fail(result.Error!);
+        return await VerifyActiveAsync(acc, result.Value!.Id, result.Value.State, ct).ConfigureAwait(false);
+    }
+
+    private static Result<(string Id, string State)> Acknowledged(JsonNode? response, string? targetId)
+    {
+        var resultKey = targetId ?? "n";
+        var failures = response?[targetId is null ? "notCreated" : "notUpdated"] as JsonObject;
+        if (failures is not null && failures.TryGetPropertyValue(resultKey, out var error))
+            return Result<(string, string)>.Fail(SetErrors.From(resultKey, error));
+
+        // Activation only follows when every set operation succeeded (RFC 9661 section 2.4).
+        var failuresAll = SetErrors.Read(response).Failed;
+        if (failuresAll.Count > 0) return Result<(string, string)>.Fail(failuresAll[0]);
+        var id = targetId is null ? response?["created"]?[resultKey].Str("id") : targetId;
+        var acknowledged = targetId is null
+            ? !string.IsNullOrEmpty(id)
+            : response?["updated"] is JsonObject updated && updated.ContainsKey(resultKey);
+        if (!acknowledged || string.IsNullOrEmpty(id))
+            return Result<(string, string)>.Fail(new ValidationError("The server did not acknowledge the requested script; it may have been saved, so reload before retrying."));
+        if (response.Str("newState") is not { Length: > 0 } state)
+            return Result<(string, string)>.Fail(new ValidationError("The script may have been saved, but the server omitted its new state; reload before retrying."));
+        return Result<(string, string)>.Ok((id, state));
+    }
+
+    private async Task<Result<string?>> VerifyActiveAsync(string account, string id, string savedState, CancellationToken ct)
+    {
+        var args = new JsonObject { ["accountId"] = account, ["ids"] = new JsonArray(id), ["properties"] = new JsonArray("id", "isActive") };
+        Result<JmapResponse> checkedScript;
+        try
         {
-            return Result<string?>.Ok(o.Str("newState"));
+            checkedScript = await client.CallAsync(JmapRequest.Of(JmapRequest.Call("SieveScript/get", args, "verify")), ct).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            return Result<string?>.Fail(new ValidationError("The script was saved, but activation verification was cancelled; reload before retrying."));
         }
 
-        var failed = ((res?["notUpdated"] as JsonObject) ?? (res?["notCreated"] as JsonObject))?.Select(kv => kv.Value).FirstOrDefault();
-        var why = failed?.Str("description");
-        return FailState(why ?? "the server refused the script");
+        if (!checkedScript.IsOk)
+            return Result<string?>.Fail(new ValidationError("The script was saved, but activation could not be verified; reload before retrying."));
+        var result = checkedScript.Value!.MethodResponses[0][1];
+        var active = result.Arr("list")?.OfType<JsonObject>().Any(script => string.Equals(script.Str("id"), id, StringComparison.Ordinal) && script["isActive"] is JsonValue value && value.TryGetValue<bool>(out var enabled) && enabled) == true;
+        if (!active || !string.Equals(result.Str("state"), savedState, StringComparison.Ordinal))
+            return Result<string?>.Fail(new ValidationError("The script was saved, but its activation or state could not be confirmed; reload before retrying."));
+        return Result<string?>.Ok(savedState);
     }
 
     private static Result<string?> FailState(string why) => Result<string?>.Fail(new ValidationError("Not saved: " + why));

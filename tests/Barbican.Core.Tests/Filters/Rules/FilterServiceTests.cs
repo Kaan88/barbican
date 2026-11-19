@@ -50,6 +50,61 @@ public sealed class FilterServiceTests
     }
 
     [Fact]
+    public async Task Empty_updated_map_with_a_refusal_is_not_success_or_notification()
+    {
+        var rig = await FilterTestRig.StartAsync();
+        rig.Api.SeedSieve("active", "# existing", true);
+        var loaded = await rig.Filters.LoadAsync(FilterTestRig.Account, Ct);
+        var changes = 0;
+        var successHooks = 0;
+        rig.Filters.Changed += (_, _) => changes++;
+        using var observe = rig.Hooks.Observe<Barbican.Core.Plugins.Payloads.FilterAccountPayload>(Barbican.Core.Plugins.Hooks.HookNames.OnFiltersSave, (_, _) => { Interlocked.Increment(ref successHooks); return ValueTask.CompletedTask; });
+        rig.Api.RefuseNextSieveSet();
+        var rule = SieveScript.Rule("Blocked", "from", "contains", "a@example.org", "mark_read", "", false);
+        var result = await rig.Filters.SaveAsync(FilterTestRig.Account, [rule], loaded.Value!.State, Ct);
+        Assert.False(result.IsOk);
+        Assert.Equal("forbidden", Assert.IsType<SetError>(result.Error).Type);
+        Assert.Equal("# existing", rig.Api.ActiveSieveText());
+        Assert.Equal(0, changes);
+        Assert.Equal(0, Volatile.Read(ref successHooks));
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task An_unrelated_acknowledgement_does_not_report_success(bool existing)
+    {
+        var rig = await FilterTestRig.StartAsync();
+        if (existing) rig.Api.SeedSieve("active", "# existing", true);
+        var store = new SieveScriptStore(rig.Fake.Client);
+        var loaded = await store.ReadAsync(Ct);
+        rig.Api.WrongNextSieveAcknowledgement();
+        var result = await store.SaveAsync("# replacement", loaded.Value!, Ct);
+        Assert.False(result.IsOk);
+        Assert.Contains("acknowledge", result.Error!.Message, StringComparison.Ordinal);
+        Assert.Equal(existing ? "# existing" : null, rig.Api.ActiveSieveText());
+    }
+
+    [Fact]
+    public async Task An_acknowledged_but_inactive_script_is_not_reported_as_success()
+    {
+        var rig = await FilterTestRig.StartAsync();
+        var loaded = await rig.Filters.LoadAsync(FilterTestRig.Account, Ct);
+        var changes = 0;
+        var successHooks = 0;
+        rig.Filters.Changed += (_, _) => changes++;
+        using var observe = rig.Hooks.Observe<Barbican.Core.Plugins.Payloads.FilterAccountPayload>(Barbican.Core.Plugins.Hooks.HookNames.OnFiltersSave, (_, _) => { Interlocked.Increment(ref successHooks); return ValueTask.CompletedTask; });
+        rig.Api.SkipNextSieveActivation();
+        var rule = SieveScript.Rule("Inactive", "from", "contains", "a@example.org", "mark_read", "", false);
+        var result = await rig.Filters.SaveAsync(FilterTestRig.Account, [rule], loaded.Value!.State, Ct);
+        Assert.False(result.IsOk);
+        Assert.Contains("activation", result.Error!.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Null(rig.Api.ActiveSieveText());
+        Assert.Equal(0, changes);
+        Assert.Equal(0, Volatile.Read(ref successHooks));
+    }
+
+    [Fact]
     public async Task A_stale_store_snapshot_does_not_update_or_activate_another_script()
     {
         var rig = await FilterTestRig.StartAsync();

@@ -170,7 +170,7 @@ public sealed class FilterService(IAccountManager accounts, IHookBus hooks) : IF
         var saved = await store.SaveWithStateAsync(shaped.Script, current, ct).ConfigureAwait(false);
         if (!saved.IsOk)
         {
-            // a failed save changes nothing on the server; the caller keeps showing the list it had
+            // A verification failure can follow a successful write; the error tells the caller to reload.
             return Result<FilterState>.Fail(saved.Error!);
         }
 

@@ -1,6 +1,8 @@
 // Two editors with no change notification must not overwrite one another's loaded filter version.
 using System.Text.Json.Nodes;
 using Barbican.Core.Common;
+using Barbican.Core.Accounts;
+using Barbican.Presentation.Tests.Accounts;
 using Barbican.Core.Filters.Rules;
 using Barbican.Presentation.Common;
 using Barbican.Presentation.Settings.Sample;
@@ -27,6 +29,53 @@ public sealed class FilterVersionTests
         Assert.True(Assert.Single(second.Rows).Enabled);
         var remote = await service.LoadAsync("sample", ct);
         Assert.False((bool?)Assert.Single(remote.Value!.Rules)["enabled"]);
+    }
+
+    [Fact]
+    public async Task An_open_modal_rejects_stale_edits_after_a_real_change_notification()
+    {
+        var service = new SampleFilterService();
+        var page = new SrvUiFiltersViewModel(service, null, new InlineDispatcher());
+        var other = new SrvUiFiltersViewModel(service, null, new InlineDispatcher());
+        var ct = TestContext.Current.CancellationToken;
+        await page.LoadAsync(ct);
+        await other.LoadAsync(ct);
+        var id = Assert.Single(page.Rows).Id;
+        var editor = new SrvUiFilterEditorModel(page, page.RuleOf(id)) { Name = "Stale edit" };
+        var reloaded = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        page.PropertyChanged += (_, e) => { if (string.Equals(e.PropertyName, nameof(page.Rows), StringComparison.Ordinal) && page.Rows.Count == 1 && !page.Rows[0].Enabled) reloaded.TrySetResult(); };
+        await other.SetEnabledAsync(id, false, ct);
+        await reloaded.Task.WaitAsync(TimeSpan.FromSeconds(5), ct);
+        await editor.SaveAsync(ct);
+        Assert.Null(editor.Saved);
+        Assert.Contains("changed", editor.Error!, StringComparison.OrdinalIgnoreCase);
+        var remote = await service.LoadAsync("sample", ct);
+        Assert.Equal("Newsletters", (string?)Assert.Single(remote.Value!.Rules)["name"]);
+        Assert.False((bool?)Assert.Single(remote.Value.Rules)["enabled"]);
+    }
+
+    [Fact]
+    public async Task An_open_modal_cannot_save_after_switching_accounts()
+    {
+        var accounts = new FakeAccounts();
+        var a = FakeAccounts.Info("a@example.org");
+        var b = FakeAccounts.Info("b@example.org");
+        accounts.Set(new AccountStatus(a, true, false, true, null, null), new AccountStatus(b, false, false, true, null, null));
+        var service = new SampleFilterService();
+        var page = new SrvUiFiltersViewModel(service, accounts, new InlineDispatcher());
+        var ct = TestContext.Current.CancellationToken;
+        await page.LoadAsync(ct);
+        var editor = new SrvUiFilterEditorModel(page, page.RuleOf(Assert.Single(page.Rows).Id)) { Name = "Wrong account" };
+        await accounts.SwitchToAsync(b.Key, ct);
+        var duringSwitch = new SrvUiFilterEditorModel(page, page.RuleOf(Assert.Single(page.Rows).Id)) { Name = "Stale account state" };
+        await page.LoadAsync(ct);
+        await editor.SaveAsync(ct);
+        await duringSwitch.SaveAsync(ct);
+        Assert.Null(editor.Saved);
+        Assert.Null(duringSwitch.Saved);
+        Assert.Contains("changed", editor.Error!, StringComparison.OrdinalIgnoreCase);
+        var remote = await service.LoadAsync(b.Key, ct);
+        Assert.Equal("Newsletters", (string?)Assert.Single(remote.Value!.Rules)["name"]);
     }
 
     private sealed class SilentService : IFilterService
