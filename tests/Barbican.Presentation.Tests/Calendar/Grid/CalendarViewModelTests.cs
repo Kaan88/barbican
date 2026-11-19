@@ -12,6 +12,17 @@ namespace Barbican.Presentation.Tests.Calendar.Grid;
 public sealed class CalendarViewModelTests
 {
     [Fact]
+    public async Task Changing_saved_view_emits_the_calendar_view_hook()
+    {
+        using var h = new CalendarHarness();
+        var views = new List<CalendarViewPayload>();
+        using var subscription = h.Bus.Observe<CalendarViewPayload>(HookNames.OnCalendarViewChange, (p, _) => { lock (views) { views.Add(p); } return ValueTask.CompletedTask; });
+        h.Prefs.Set("""{"calendarViewMode":"agenda"}""");
+        await EventuallyAsync(() => { lock (views) { return views.Count == 1; } });
+        Assert.Equal("agenda", views[0].View);
+    }
+
+    [Fact]
     public async Task Choosing_views_persists_the_last_choice_in_order()
     {
         using var h = new CalendarHarness();
