@@ -185,6 +185,71 @@ public sealed class PluginPackageManagerAcceptanceTests
     [Fact]
     public Task AmbiguousCommitNeverExposesNewEnabledAuthority() => CommitFailureAsync(true);
 
+    [Fact]
+    public async Task RevokeClosesBindingsEvenWhenDurableDisableFailsAndTeardownMayReenter()
+    {
+        var rig = new PackageTestRig();
+        var manager = rig.Manager();
+        using var archive = PackageTestRig.Archive("export default 1", "email:read");
+        var preview = Need(await manager.InspectAsync(archive, PluginPackageSource.LocalImport, Ct));
+        var installed = Need(await manager.InstallAsync(Decision(preview, ["email:read"], ["login-a"]), Ct));
+        Assert.True((await manager.SetEnabledAsync(installed.Package.Identity, true, Ct)).IsOk);
+        rig.Persistence.FailBeforeCommit = true;
+        var reentered = false;
+        rig.Cleanup.OnRevoke = async () => { var state = await manager.GetCurrentAsync(PackageTestRig.PluginId, CancellationToken.None); reentered = state.IsOk && state.Value is null; };
+        var operation = manager.SetEnabledAsync(installed.Package.Identity, false, Ct);
+        Assert.False((await operation.WaitAsync(TimeSpan.FromSeconds(5), Ct)).IsOk);
+        Assert.True(reentered);
+        Assert.Equal(1, rig.Cleanup.Calls);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task FailedDisableInvalidatesARealTrackedRuntimeBeforeReturningFailure(bool throws)
+    {
+        var rig = new PackageTestRig();
+        var coordinator = new Barbican.Core.Plugins.Runtime.PluginRevocationCoordinator(PackageTestRig.Profile);
+        var manager = new PluginPackageManager(new(PackageTestRig.Profile, "1.21.2"), rig.Persistence, coordinator, rig.Time);
+        using var archive = PackageTestRig.Archive("export default 1", "email:read");
+        var preview = Need(await manager.InspectAsync(archive, PluginPackageSource.LocalImport, Ct));
+        var installed = Need(await manager.InstallAsync(Decision(preview, ["email:read"], ["login-a"]), Ct));
+        Assert.True((await manager.SetEnabledAsync(installed.Package.Identity, true, Ct)).IsOk);
+        var grant = Need(await manager.GetCurrentAsync(PackageTestRig.PluginId, Ct))!;
+        await using var binding = Barbican.Core.Plugins.Runtime.PluginRuntimeBinding.Create(PackageTestRig.Profile, grant, Barbican.Core.Plugins.Runtime.PluginFrameKind.Background);
+        using var registration = Need(coordinator.Track(binding, _ => ValueTask.CompletedTask));
+        rig.Persistence.FailBeforeCommit = !throws;
+        rig.Persistence.ThrowOnCommit = throws;
+        Assert.False((await manager.SetEnabledAsync(installed.Package.Identity, false, Ct)).IsOk);
+        Assert.False(binding.IsAlive);
+    }
+
+    [Fact]
+    public async Task SameHashReviewCannotRestoreAnOlderGrantGeneration()
+    {
+        var rig = new PackageTestRig();
+        var manager = rig.Manager();
+        using var archive = PackageTestRig.Archive("export default 1", "email:read");
+        var preview = Need(await manager.InspectAsync(archive, PluginPackageSource.LocalImport, Ct));
+        var installed = Need(await manager.InstallAsync(Decision(preview, ["email:read"], ["login-a"]), Ct));
+        var oldReview = Need(await manager.ReviewAsync(installed.Package.Identity, Ct));
+        Assert.True((await manager.SetEnabledAsync(installed.Package.Identity, true, Ct)).IsOk);
+        Assert.False((await manager.InstallAsync(Decision(oldReview, ["email:read"], ["login-a"]), Ct)).IsOk);
+        Assert.True(Need(await manager.GetCurrentAsync(PackageTestRig.PluginId, Ct))!.Enabled);
+    }
+
+    [Fact]
+    public async Task PrivilegedManifestIsVisibleButCannotBeInstalledByLocalConsentAlone()
+    {
+        var manager = new PackageTestRig().Manager();
+        var manifest = "{\"id\":\"fixture-plugin\",\"name\":\"Fixture\",\"version\":\"1.0.0\",\"author\":\"Example\",\"type\":\"hook\",\"tier\":\"privileged\",\"permissions\":[\"crypto:full\"]}";
+        using var archive = PackageTestRig.Zip(("manifest.json", System.Text.Encoding.UTF8.GetBytes(manifest)), ("index.js", System.Text.Encoding.UTF8.GetBytes("export default 1")));
+        var preview = Need(await manager.InspectAsync(archive, PluginPackageSource.LocalImport, Ct));
+        Assert.Equal(Barbican.Core.Plugins.Permissions.PluginExecutionTier.Privileged, preview.Candidate.RequestedTier);
+        var decision = new PluginInstallDecision(preview.ReviewId, preview.Candidate.Identity, ["crypto:full"], ["login-a"], approvePrivilegedJavaScript: true);
+        Assert.False((await manager.InstallAsync(decision, Ct)).IsOk);
+    }
+
     private static async Task CommitFailureAsync(bool afterCommit)
     {
         var rig = new PackageTestRig();

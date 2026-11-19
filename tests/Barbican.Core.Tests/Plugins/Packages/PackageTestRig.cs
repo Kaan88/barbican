@@ -70,6 +70,7 @@ internal sealed class PackageTestRig
         private readonly Dictionary<string, PluginStoreSnapshot> _indices = new(StringComparer.Ordinal);
         private readonly Dictionary<(string Profile, PluginPackageIdentity Id), ImmutableArray<byte>> _content = [];
         public bool FailBeforeCommit { get; set; }
+        public bool ThrowOnCommit { get; set; }
         public bool FailAfterCommit { get; set; }
         public bool BadAuthentication { get; set; }
         public int Deletes { get; private set; }
@@ -83,6 +84,7 @@ internal sealed class PackageTestRig
         }
         public Task<Result<long>> CommitAsync(string profile, long expectedRevision, ReadOnlyMemory<byte> index, CancellationToken ct)
         {
+            if (ThrowOnCommit) throw new IOException("Synthetic storage failure.");
             var before = _indices.GetValueOrDefault(profile) ?? new PluginStoreSnapshot(0, []);
             if (FailBeforeCommit || before.Revision != expectedRevision) return Task.FromResult(Result<long>.Fail(new ValidationError("Synthetic commit failure.")));
             var next = new PluginStoreSnapshot(before.Revision + 1, ImmutableArray.CreateRange(index.ToArray()));
@@ -134,11 +136,13 @@ internal sealed class PackageTestRig
     {
         public bool Pending { get; set; }
         public int Calls { get; private set; }
+        public Func<Task>? OnRevoke { get; set; }
         public Result<IDisposable> Track(PluginRuntimeBinding binding, Func<CancellationToken, ValueTask> teardown) => Result<IDisposable>.Ok(new Noop());
-        public Task<Result<Unit>> RevokeAsync(PluginPackageIdentity package, long throughGeneration, CancellationToken ct)
+        public async Task<Result<Unit>> RevokeAsync(PluginPackageIdentity package, long throughGeneration, CancellationToken ct)
         {
             Calls++;
-            return Task.FromResult(Pending ? Result<Unit>.Fail(new ValidationError("Synthetic cleanup pending.")) : Result<Unit>.Ok(default));
+            if (OnRevoke is not null) await OnRevoke();
+            return Pending ? Result<Unit>.Fail(new ValidationError("Synthetic cleanup pending.")) : Result<Unit>.Ok(default);
         }
         private sealed class Noop : IDisposable { public void Dispose() { } }
     }
