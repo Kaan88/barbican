@@ -95,7 +95,9 @@ internal sealed class SrvUiIdentitiesPage : SrvUiPage
 
     private async Task DeleteAsync()
     {
-        if (await SrvUiKit.AskAsync("Delete identity", "Delete the identity " + _model.Email + "? Drafts that use it keep their text.", "Delete").ConfigureAwait(true))
+        var generation = _model.AccountGeneration;
+        var id = _model.SelectedId;
+        if (await SrvUiKit.AskAsync("Delete identity", "Delete the identity " + _model.Email + "? Drafts that use it keep their text.", "Delete").ConfigureAwait(true) && _model.IsCurrentGeneration(generation) && string.Equals(id, _model.SelectedId, StringComparison.Ordinal))
         {
             await _model.DeleteAsync(CancellationToken.None).ConfigureAwait(true);
         }

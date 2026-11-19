@@ -20,6 +20,7 @@ public sealed partial class SrvUiTemplatesViewModel : SrvUiPageModel
     private IReadOnlyList<MailTemplate> _items = [];
     private string? _selectedId;
     private bool _creating;
+    private long _loadSequence;
     private string _message = string.Empty;
 
     public SrvUiTemplatesViewModel(ITemplateAdmin service, IAccountManager? accounts = null, IDispatcher? dispatcher = null)
@@ -62,9 +63,16 @@ public sealed partial class SrvUiTemplatesViewModel : SrvUiPageModel
     public async Task LoadAsync(CancellationToken ct)
     {
         IsLoading = true;
-        var account = AccountKey;
-        var result = await _service.ListAsync(account, ct).ConfigureAwait(false);
-        await OnUiAsync(account, () => { Take(result); IsLoading = false; }).ConfigureAwait(false);
+        var stamp = CaptureAccount();
+        var sequence = Interlocked.Increment(ref _loadSequence);
+        var result = await _service.ListAsync(stamp.Key, ct).ConfigureAwait(false);
+        await OnUiAsync(stamp, () =>
+        {
+            if (sequence != Interlocked.Read(ref _loadSequence)) return;
+            Take(result);
+            if (result.IsOk) MarkLoaded(stamp);
+            IsLoading = false;
+        }).ConfigureAwait(false);
     }
 
     public void StartNew()
@@ -94,11 +102,12 @@ public sealed partial class SrvUiTemplatesViewModel : SrvUiPageModel
             return;
         }
 
-        var account = AccountKey;
+        if (!RequireLoaded(out var stamp)) return;
+        var account = stamp.Key;
         var result = _selectedId is null
             ? await _service.CreateAsync(account, Name.Trim(), Subject, Body, IsHtml, ct).ConfigureAwait(false)
             : await _service.UpdateAsync(account, (_items.First(t => string.Equals(t.Id, _selectedId, StringComparison.Ordinal))) with { Name = Name.Trim(), Subject = Subject, Body = Body, IsHtml = IsHtml }, ct).ConfigureAwait(false);
-        await OnUiAsync(account, async () =>
+        await OnUiAsync(stamp, async () =>
         {
             if (!result.IsOk)
             {
@@ -121,9 +130,10 @@ public sealed partial class SrvUiTemplatesViewModel : SrvUiPageModel
             return;
         }
 
-        var account = AccountKey;
+        if (!RequireLoaded(out var stamp)) return;
+        var account = stamp.Key;
         var result = await _service.DeleteAsync(account, _selectedId, ct).ConfigureAwait(false);
-        await OnUiAsync(account, async () =>
+        await OnUiAsync(stamp, async () =>
         {
             if (!result.IsOk)
             {
@@ -138,9 +148,10 @@ public sealed partial class SrvUiTemplatesViewModel : SrvUiPageModel
 
     public async Task ExportAsync(CancellationToken ct)
     {
-        var account = AccountKey;
+        if (!RequireLoaded(out var stamp)) return;
+        var account = stamp.Key;
         var result = await _service.ExportAsync(account, ct).ConfigureAwait(false);
-        await OnUiAsync(account, () =>
+        await OnUiAsync(stamp, () =>
         {
             if (!result.IsOk)
             {
@@ -172,9 +183,10 @@ public sealed partial class SrvUiTemplatesViewModel : SrvUiPageModel
             return;
         }
 
-        var account = AccountKey;
+        if (!RequireLoaded(out var stamp)) return;
+        var account = stamp.Key;
         var result = await _service.ImportAsync(account, doc, ct).ConfigureAwait(false);
-        await OnUiAsync(account, async () =>
+        await OnUiAsync(stamp, async () =>
         {
             if (!result.IsOk)
             {
@@ -203,6 +215,18 @@ public sealed partial class SrvUiTemplatesViewModel : SrvUiPageModel
         }
     }
 
+    protected override void OnAccountSwitched()
+    {
+        _ = Interlocked.Increment(ref _loadSequence);
+        _items = [];
+        _selectedId = null;
+        _creating = false;
+        ExportText = string.Empty;
+        Message = string.Empty;
+        Select(null);
+        ReloadAfterSwitch(() => LoadAsync(CancellationToken.None));
+    }
+
     private void Take(Result<IReadOnlyList<MailTemplate>> result)
     {
         if (!result.IsOk)
@@ -227,8 +251,10 @@ public sealed partial class SrvUiTemplatesViewModel : SrvUiPageModel
     {
         try
         {
+            var stamp = CaptureAccount();
+            if (!string.Equals(account, stamp.Key, StringComparison.Ordinal)) return;
             var result = await _service.ListAsync(account, CancellationToken.None).ConfigureAwait(false);
-            await OnUiAsync(account, () => Take(result)).ConfigureAwait(false);
+            await OnUiAsync(stamp, () => { if (IsLoaded(stamp) && !IsLoading) Take(result); }).ConfigureAwait(false);
         }
         catch (OperationCanceledException)
         {

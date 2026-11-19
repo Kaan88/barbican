@@ -14,6 +14,7 @@ public sealed class SrvUiIdentitiesViewModel : SrvUiPageModel
     private IReadOnlyList<AccountIdentity> _items = [];
     private string? _selectedId;
     private bool _creating;
+    private long _loadSequence;
 
     public SrvUiIdentitiesViewModel(IAccountIdentities service, IAccountManager? accounts = null, IDispatcher? dispatcher = null)
         : base(accounts, dispatcher)
@@ -51,9 +52,16 @@ public sealed class SrvUiIdentitiesViewModel : SrvUiPageModel
     public async Task LoadAsync(CancellationToken ct)
     {
         IsLoading = true;
-        var account = AccountKey;
-        var result = await _service.ListAsync(account, ct).ConfigureAwait(false);
-        await OnUiAsync(account, () => { Take(result); IsLoading = false; }).ConfigureAwait(false);
+        var stamp = CaptureAccount();
+        var sequence = Interlocked.Increment(ref _loadSequence);
+        var result = await _service.ListAsync(stamp.Key, ct).ConfigureAwait(false);
+        await OnUiAsync(stamp, () =>
+        {
+            if (sequence != Interlocked.Read(ref _loadSequence)) return;
+            Take(result);
+            if (result.IsOk) MarkLoaded(stamp);
+            IsLoading = false;
+        }).ConfigureAwait(false);
     }
 
     /// <summary>Opens an empty form for a new identity.</summary>
@@ -87,11 +95,12 @@ public sealed class SrvUiIdentitiesViewModel : SrvUiPageModel
         }
 
         var edit = new AccountIdentityEdit(Name.Trim(), Email.Trim(), ReplyTo.Trim(), Bcc.Trim(), TextSignature, HtmlSignature);
-        var account = AccountKey;
+        if (!RequireLoaded(out var stamp)) return;
+        var account = stamp.Key;
         var result = _selectedId is null
             ? await _service.CreateAsync(account, edit, ct).ConfigureAwait(false)
             : await _service.UpdateAsync(account, _selectedId, edit, ct).ConfigureAwait(false);
-        await OnUiAsync(account, async () =>
+        await OnUiAsync(stamp, async () =>
         {
             if (!result.IsOk)
             {
@@ -113,9 +122,10 @@ public sealed class SrvUiIdentitiesViewModel : SrvUiPageModel
             return;
         }
 
-        var account = AccountKey;
+        if (!RequireLoaded(out var stamp)) return;
+        var account = stamp.Key;
         var result = await _service.DeleteAsync(account, _selectedId, ct).ConfigureAwait(false);
-        await OnUiAsync(account, async () =>
+        await OnUiAsync(stamp, async () =>
         {
             if (!result.IsOk)
             {
@@ -140,9 +150,10 @@ public sealed class SrvUiIdentitiesViewModel : SrvUiPageModel
         }
 
         (ids[at], ids[to]) = (ids[to], ids[at]);
-        var account = AccountKey;
+        if (!RequireLoaded(out var stamp)) return;
+        var account = stamp.Key;
         var result = await _service.SetOrderAsync(account, ids, ct).ConfigureAwait(false);
-        await OnUiAsync(account, async () =>
+        await OnUiAsync(stamp, async () =>
         {
             if (!result.IsOk)
             {
@@ -152,6 +163,16 @@ public sealed class SrvUiIdentitiesViewModel : SrvUiPageModel
 
             await LoadAsync(ct).ConfigureAwait(true);
         }).ConfigureAwait(false);
+    }
+
+    protected override void OnAccountSwitched()
+    {
+        _ = Interlocked.Increment(ref _loadSequence);
+        _items = [];
+        _selectedId = null;
+        _creating = false;
+        Select(null);
+        ReloadAfterSwitch(() => LoadAsync(CancellationToken.None));
     }
 
     private void Take(Barbican.Core.Common.Result<IReadOnlyList<AccountIdentity>> result)
@@ -178,8 +199,10 @@ public sealed class SrvUiIdentitiesViewModel : SrvUiPageModel
     {
         try
         {
+            var stamp = CaptureAccount();
+            if (!string.Equals(account, stamp.Key, StringComparison.Ordinal)) return;
             var result = await _service.ListAsync(account, CancellationToken.None).ConfigureAwait(false);
-            await OnUiAsync(account, () => Take(result)).ConfigureAwait(false);
+            await OnUiAsync(stamp, () => { if (IsLoaded(stamp) && !IsLoading) Take(result); }).ConfigureAwait(false);
         }
         catch (OperationCanceledException)
         {

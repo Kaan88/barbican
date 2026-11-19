@@ -11,12 +11,23 @@ internal sealed class SrvUiTemplatesPage : SrvUiPage
 {
     private readonly SrvUiTemplatesViewModel _model;
     private string _importText = string.Empty;
+    private long _accountGeneration;
 
     public SrvUiTemplatesPage(SrvUiTemplatesViewModel model)
         : base(SettingsPageIds.Templates, "Templates", "Saved messages you can insert while writing. They are kept on your account, so every device has them.")
     {
         _model = model;
-        _model.PropertyChanged += (_, _) => Invalidate();
+        _accountGeneration = model.AccountGeneration;
+        _model.PropertyChanged += (_, _) =>
+        {
+            if (_accountGeneration != _model.AccountGeneration)
+            {
+                _accountGeneration = _model.AccountGeneration;
+                _importText = string.Empty;
+            }
+
+            Invalidate();
+        };
     }
 
     protected override Task LoadAsync() => _model.LoadAsync(CancellationToken.None);
@@ -94,7 +105,9 @@ internal sealed class SrvUiTemplatesPage : SrvUiPage
 
     private async Task DeleteAsync()
     {
-        if (await SrvUiKit.AskAsync("Delete template", "Delete the template \"" + _model.Name + "\"?", "Delete").ConfigureAwait(true))
+        var generation = _model.AccountGeneration;
+        var id = _model.SelectedId;
+        if (await SrvUiKit.AskAsync("Delete template", "Delete the template \"" + _model.Name + "\"?", "Delete").ConfigureAwait(true) && _model.IsCurrentGeneration(generation) && string.Equals(id, _model.SelectedId, StringComparison.Ordinal))
         {
             await _model.DeleteAsync(CancellationToken.None).ConfigureAwait(true);
         }
