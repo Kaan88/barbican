@@ -10,6 +10,35 @@ to Astra. This is a coverage ledger, not a completion report. Reference
 observations come from the signed-in throwaway account. Do not track mailbox
 contents, identifiers, credentials, or real-account screenshots.
 
+## Visual acceptance
+
+The user assessed the checkpoint preview and found that the theme does not
+match Bulwark. The preview is a working build, not a visual baseline to approve.
+Matching the palette and pane starts, or passing interaction tests, does not
+establish visual parity.
+
+Compare Bulwark 1.21.2 and a synthetic Barbican mailbox at comparable content
+sizes in light and dark. Start with the selected inbox, expanded conversation,
+quick reply, docked reply, and new-message composer. For each state, record the
+remaining differences in typography, density, alignment, icons, backgrounds,
+separators, and control shapes. Confirm visible state before capture. Include
+the actual message body in reader comparisons; XAML-only captures leave the
+WebView blank and cannot verify that surface. Keep real-account captures local.
+Record interaction evidence separately and send both sets of evidence to Astra
+on the exact revision proposed for approval.
+
+### Native baseline after the preview
+
+Hidden synthetic Windows automation on `8f41a68` captured the selected inbox
+and reader in light and dark at 1424×884 client size. Two consecutive window
+captures matched within each mode (SHA-256 prefixes `2e21debc69dc52a9` and
+`3073b420530d2939` respectively). Both show the rendered message body. A
+settled light dock capture (`1a78947764d57222`) shows the seeded synthetic
+draft, quoted text and footer after the Send control reported nonzero bounds.
+These are native baselines only, not parity evidence. They expose the
+title strip above the rail, spaced avatar-heavy list rows, label-heavy
+reader toolbar, and inset dark message surface for explicit comparison.
+
 ## Existing parity resources
 
 Use the existing catalogues as the inventory; this page records the differences
