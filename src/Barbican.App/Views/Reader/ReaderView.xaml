@@ -69,6 +69,7 @@
                     Padding="{x:Bind Look.ReaderActionPadding, Mode=OneWay}" MinWidth="{x:Bind Look.MinimumTarget, Mode=OneWay}" Click="OnDeleteClick" motion:Tip.Text="Delete" AutomationProperties.AutomationId="reader.delete" AutomationProperties.Name="Delete">
               <StackPanel Orientation="Horizontal" Spacing="6"><controls:SIcon Kind="Trash" Size="16" Visibility="{x:Bind Look.ToolbarIconVisibility, Mode=OneWay}" /><TextBlock Text="Delete" Visibility="{x:Bind Look.SecondaryLabelVisibility, Mode=OneWay}" /></StackPanel>
              </Button>
+              <StackPanel x:Name="ExtraActions" Orientation="Horizontal" Spacing="2" Visibility="Collapsed" />
               <!-- Bulwark 1.21.2 email-viewer.tsx:5128-5142: ghost button with Maximize2 / Minimize2. -->
               <Button x:Name="ReaderFullscreenButton" Style="{StaticResource Button.Icon}" Visibility="{x:Bind views:Fmt.Vis(Look.IsBulwark), Mode=OneWay}" Click="OnFullscreenClick"
                             Width="32" Height="32" MinWidth="{x:Bind Look.MinimumTarget, Mode=OneWay}" MinHeight="{x:Bind Look.MinimumTarget, Mode=OneWay}"

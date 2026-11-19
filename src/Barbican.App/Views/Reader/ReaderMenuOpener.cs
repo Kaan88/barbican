@@ -9,21 +9,28 @@ using Barbican.Presentation.Menus;
 namespace Barbican.App.Views.Reader;
 
 /// <summary>Opens MENU-READER and MENU-ATT for the message on screen.</summary>
-public sealed class ReaderMenuOpener(IContextMenuService menus, ReaderViewModel reader, IActiveMail active, ICommandRegistry commands, CommandRunner runner)
+public sealed class ReaderMenuOpener(IContextMenuService menus, ReaderViewModel reader, IActiveMail active, ICommandRegistry commands, CommandRunner runner, MessageListViewModel list, IMenuDataSource data)
 {
     /// <summary>Shows MENU-READER (or MENU-ATT for <paramref name="attachment"/>) at <paramref name="anchor"/>; false when no message is open or the menu has no rows.</summary>
-    public bool Open(string menuId, int? attachment, MenuAnchor anchor)
+    public bool Open(string menuId, int? attachment, MenuAnchor anchor, bool includeOverflow = false)
     {
-        if (reader.Current.Body is not { } body || active.AccountKey is not { } key)
-        {
-            return false;
-        }
-
-        // the MailTarget contract (Fable review 3 R3-02): the shared account or empty, the list id; the saver resolves login and server id
-        var target = MailTarget.OfOpen(key, body);
-        menus.Show(new MenuContext(menuId, [target], null, null, null, attachment, CommandSurface.ContextMenu), anchor);
+        if (Context(menuId, attachment) is not { } context) return false;
+        menus.Show(context with { IncludeReaderOverflow = includeOverflow }, anchor);
         return menus.IsOpen;
     }
+
+    internal IEnumerable<MenuItemSpec> ToolbarActions() => Context(MenuIds.Reader, null) is { } context
+        ? Barbican.Presentation.Reader.ReaderMenus.ToolbarActions(context, data) : [];
+
+    private MenuContext? Context(string menuId, int? attachment)
+    {
+        if (reader.Current.Body is not { } body || active.AccountKey is not { } key ||
+            !string.Equals(reader.Current.ListAccountKey, key, StringComparison.Ordinal)) return null;
+        var target = MailTarget.OfOpen(key, body);
+        var folder = list.MailboxId is { } id ? new MailboxRef(key, target.AccountId, id, list.Role.ToString().ToLowerInvariant()) : null;
+        return new MenuContext(menuId, [target], folder, null, null, attachment, CommandSurface.ContextMenu);
+    }
+
     /// <summary>Activates an attachment using the current reader target and preference-aware command.</summary>
     public bool ActivateAttachment(int index)
     {

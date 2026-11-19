@@ -21,6 +21,7 @@ public sealed partial class ReaderView : UserControl
         InitializeQuickReply();
         Reader.PropertyChanged += (_, e) =>
         {
+            if (e.PropertyName is nameof(ReaderViewModel.Current)) RefreshExtraActions();
             if (!string.Equals(e.PropertyName, nameof(ReaderViewModel.EmailId), StringComparison.Ordinal))
             {
                 return;
@@ -47,6 +48,7 @@ public sealed partial class ReaderView : UserControl
 
     public void SetCompactNavigation(bool showBack, bool phone)
     {
+        UpdateExtraActionVisibility(phone);
         ReaderBack.Visibility = showBack ? Visibility.Visible : Visibility.Collapsed;
         PhoneActions.Visibility = phone ? Visibility.Visible : Visibility.Collapsed;
         ActionReply.Visibility = ActionReplyAll.Visibility = ActionForward.Visibility = phone ? Visibility.Collapsed : Visibility.Visible;
@@ -69,8 +71,45 @@ public sealed partial class ReaderView : UserControl
 
     private void OnFullscreenClick(object sender, RoutedEventArgs e) => FullscreenRequested?.Invoke(this, EventArgs.Empty);
 
-    private void OnContentSizeChanged(object sender, SizeChangedEventArgs e) =>
+    private void OnContentSizeChanged(object sender, SizeChangedEventArgs e)
+    {
         ConversationScroll.MaxHeight = Math.Clamp(e.NewSize.Height * 0.40, 150, 360);
+        UpdateExtraActionVisibility(PhoneActions.Visibility == Visibility.Visible);
+    }
+
+    private void UpdateExtraActionVisibility(bool phone)
+    {
+        var minimum = phone ? 460 : Look.ShowToolbarLabels ? 720 : 490;
+        ExtraActions.Visibility = Look.IsBulwark && ContentGrid.ActualWidth >= minimum ? Visibility.Visible : Visibility.Collapsed;
+    }
+
+    private void RefreshExtraActions()
+    {
+        var rows = ViewHost.Get<ReaderMenuOpener>().ToolbarActions().ToArray();
+        if (_extraRows.SequenceEqual(rows)) return;
+        _extraRows = rows;
+        ExtraActions.Children.Clear();
+        foreach (var row in rows)
+        {
+            var button = new Button
+            {
+                Style = (Style)Application.Current.Resources["Button.Icon"],
+                Width = 32, Height = 36, Padding = new Thickness(0), IsEnabled = row.Enabled,
+                Content = new Barbican.App.Controls.SIcon { Kind = row.Icon ?? "Mail", Size = 16 },
+            };
+            Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(button, row.Label);
+            Microsoft.UI.Xaml.Automation.AutomationProperties.SetAutomationId(button, "reader.action." + (row.CommandId ?? row.SubmenuId));
+            Tip.SetText(button, row.Label);
+            button.Click += (_, _) =>
+            {
+                if (row.SubmenuId is { } menu) OpenMenu(button, menu);
+                else if (row.CommandId is { } command) RunOnOpen(command);
+            };
+            ExtraActions.Children.Add(button);
+        }
+    }
+
+    private MenuItemSpec[] _extraRows = [];
 
     private void OnShowOlderClick(object sender, RoutedEventArgs e) => Reader.ShowOlderConversationHeaders();
 
@@ -144,11 +183,14 @@ public sealed partial class ReaderView : UserControl
     // More (the ⋮ button): MENU-READER under the button (spec I-200).
     private void OnMoreClick(object sender, RoutedEventArgs e)
     {
-        if (sender is FrameworkElement button && XamlRoot?.Content is UIElement root)
-        {
-            var p = button.TransformToVisual(root).TransformPoint(new Windows.Foundation.Point(0, button.ActualHeight + 4));
-            _ = ViewHost.Get<ReaderMenuOpener>().Open(MenuIds.Reader, null, new MenuAnchor(p.X, p.Y, null));
-        }
+        if (sender is FrameworkElement button) OpenMenu(button, MenuIds.Reader);
+    }
+
+    private void OpenMenu(FrameworkElement button, string menu)
+    {
+        if (XamlRoot?.Content is not UIElement root) return;
+        var p = button.TransformToVisual(root).TransformPoint(new Windows.Foundation.Point(0, button.ActualHeight + 4));
+        _ = ViewHost.Get<ReaderMenuOpener>().Open(menu, null, new MenuAnchor(p.X, p.Y, null), Look.IsBulwark && ExtraActions.Visibility == Visibility.Collapsed);
     }
 
     // The sender's name: a click opens the name popover with the contact card (I-204, M5 con-ui)

@@ -56,6 +56,7 @@ public static class SampleComposeServices
         {
             var p = request.Prefill;
             var to = p?.To ?? string.Empty;
+            var cc = p?.Cc ?? string.Empty;
             var subject = p?.Subject ?? string.Empty;
             var body = p?.Body ?? string.Empty;
             if (request.Kind is ComposeKind.Reply or ComposeKind.ReplyAll or ComposeKind.Forward && request.SourceEmailId is { } id && active.Mail is { } mail)
@@ -73,7 +74,10 @@ public static class SampleComposeServices
                     }
                     else
                     {
-                        var (recipients, _) = ReplyRecipients.Build(o, request.Kind == ComposeKind.ReplyAll, ["sample@example.org", "work@example.org"], "+");
+                        var own = new List<string> { "sample@example.org", "work@example.org" };
+                        if (active.AccountUser is { } username && string.Equals(request.AccountId, active.AccountKey, StringComparison.Ordinal)) own.Add(username);
+                        var (recipients, copied) = ReplyRecipients.Build(o, request.Kind == ComposeKind.ReplyAll, own, "+");
+                        cc = string.Join(", ", copied.Select(a => a.Email));
                         to = string.Join(", ", recipients.Select(a => a.Email));
                         subject = "Re: " + o.Subject;
                         body = request.InlineReply ? request.DraftText ?? string.Empty : $"{request.DraftText}\n\nOn {o.ReceivedAt:ddd d MMM}, {who?.Name ?? who?.Email} wrote:\n> {quote}";
@@ -86,6 +90,7 @@ public static class SampleComposeServices
                 AccountId = request.AccountId,
                 Kind = request.Kind,
                 To = to,
+                Cc = cc,
                 Subject = subject,
                 Body = Doc.FromText(body),
                 SourceEmailId = request.SourceEmailId,

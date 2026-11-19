@@ -21,6 +21,21 @@ public sealed class ReaderMenusTests
         new(menu, targets, null, null, null, attachment, CommandSurface.ContextMenu);
 
     [Fact]
+    public void Reader_overflow_preserves_message_state_and_folder_rights()
+    {
+        var data = new Barbican.Presentation.Tests.Menus.FakeMenuData();
+        data.FolderList[0] = data.FolderList[0] with { Rights = new MailboxRights(MayRemoveItems: false, MaySetKeywords: false) };
+        var context = Context(MenuIds.Reader, targets: [Target("m1", "$seen")]) with { IncludeReaderOverflow = true };
+        var provider = ReaderMenus.Providers(() => Body(), _ => true, data)[0];
+        var rows = provider.Build(context);
+        Assert.False(rows.Single(r => r.SubmenuId is MenuIds.MailMove).Enabled);
+        Assert.False(rows.Single(r => r.SubmenuId is MenuIds.MailTag).Enabled);
+        Assert.True(rows.Single(r => r.CommandId is CommandIds.MarkUnread).Enabled);
+        Assert.False(rows.Single(r => r.CommandId is CommandIds.ReportSpam).Enabled);
+        Assert.DoesNotContain(provider.Build(context with { IncludeReaderOverflow = false }), r => r.CommandId is CommandIds.MarkUnread);
+    }
+
+    [Fact]
     public void The_reader_menu_lists_the_message_actions_then_the_rules()
     {
         var rows = ReaderMenus.Reader(Reader([Target("m1")]), Body("a.pdf"), _ => true);

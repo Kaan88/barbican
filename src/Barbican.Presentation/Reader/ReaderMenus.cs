@@ -66,14 +66,23 @@ public static class ReaderMenus
         return items;
     }
 
+    public static IEnumerable<MenuItemSpec> ToolbarActions(MenuContext context, IMenuDataSource data) =>
+        MailMenus.Main(context, data).Where(r => r.SubmenuId is MenuIds.MailMove or MenuIds.MailTag ||
+            r.CommandId is CommandIds.MarkRead or CommandIds.MarkUnread or CommandIds.ReportSpam or CommandIds.NotSpam);
+
     /// <summary>The providers: MENU-READER and MENU-ATT over what is on screen now.</summary>
-    public static IReadOnlyList<IMenuProvider> Providers(Func<EmailBody?> open, Func<string?, bool> hasJunk)
+    public static IReadOnlyList<IMenuProvider> Providers(Func<EmailBody?> open, Func<string?, bool> hasJunk, IMenuDataSource? data = null)
     {
         ArgumentNullException.ThrowIfNull(open);
         ArgumentNullException.ThrowIfNull(hasJunk);
         return
         [
-            new DelegateMenuProvider(MenuIds.Reader, c => Reader(c, open(), hasJunk)),
+            new DelegateMenuProvider(MenuIds.Reader, c =>
+            {
+                var rows = Reader(c, open(), hasJunk);
+                if (rows.Count == 0 || !c.IncludeReaderOverflow || data is null) return rows;
+                return [.. ToolbarActions(c, data), Sep(), .. rows];
+            }),
             new DelegateMenuProvider(MenuIds.Attachment, c => Attachment(c, open())),
         ];
     }

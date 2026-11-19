@@ -15,6 +15,8 @@ public sealed record MenuContext(
     int? AttachmentIndex,
     CommandSurface Surface)
 {
+    public bool IncludeReaderOverflow { get; init; }
+
     /// <summary>M4 (additive, cal-views): what a calendar menu (MENU-EVENT, MENU-SLOT, MENU-TASK, MENU-CAL) was opened on.</summary>
     public Barbican.Presentation.Calendar.Grid.CalendarMenuTarget? Calendar { get; init; }
 

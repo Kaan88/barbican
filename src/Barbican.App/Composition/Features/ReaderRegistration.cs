@@ -92,7 +92,7 @@ public static class ReaderRegistration
         services.TryAddSingleton<Barbican.Presentation.Common.IClipboardService, SystemClipboard>();
         services.AddSingleton<Barbican.App.Views.Dialogs.IDialogContent, Barbican.App.Views.Dialogs.SourceDialogContent>();
         services.AddSingleton<Barbican.App.Views.Dialogs.IDialogContent, Barbican.App.Views.Dialogs.AttachmentPreviewDialogContent>();
-        services.TryAddSingleton(sp => new Barbican.App.Views.Reader.ReaderMenuOpener(sp.GetRequiredService<Barbican.Presentation.Menus.IContextMenuService>(), sp.GetRequiredService<ReaderViewModel>(), sp.GetRequiredService<IActiveMail>(), sp.GetRequiredService<Barbican.Presentation.Commands.ICommandRegistry>(), sp.GetRequiredService<Barbican.Presentation.Commands.CommandRunner>()));
+        services.TryAddSingleton<Barbican.App.Views.Reader.ReaderMenuOpener>();
         services.AddSingleton(sp => new Barbican.Presentation.Reader.ReaderCommands(
             sp.GetRequiredService<IAttachmentSaver>(),
             () => sp.GetRequiredService<ReaderViewModel>().Current.Body,
@@ -114,7 +114,7 @@ public static class ReaderRegistration
             {
                 var directory = sp.GetRequiredService<Barbican.Presentation.Actions.IMailboxDirectory>();
                 var reader = sp.GetRequiredService<ReaderViewModel>();
-                return Barbican.Presentation.Reader.ReaderMenus.Providers(() => reader.Current.Body, _ => directory.Tree.All.Any(m => m.Role == Barbican.Core.Mail.Model.MailboxRole.Junk))[index];
+                return Barbican.Presentation.Reader.ReaderMenus.Providers(() => reader.Current.Body, _ => directory.Tree.All.Any(m => m.Role == Barbican.Core.Mail.Model.MailboxRole.Junk), sp.GetRequiredService<Barbican.Presentation.Menus.IMenuDataSource>())[index];
             });
         }
     }
