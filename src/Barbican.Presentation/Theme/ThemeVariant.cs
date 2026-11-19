@@ -4,25 +4,26 @@
 namespace Barbican.Presentation.Theme;
 
 /// <summary>
-/// One combination of the three appearance switches. The palette has a value for every one of
-/// the eight combinations (<see cref="Tokens.Palette(ThemeVariant)"/>).
+/// One palette selection: legacy Bento/Nordic or Bulwark, each in dark/light and normal/more contrast.
 /// </summary>
 /// <param name="Dark">Dark theme (Settings › Appearance › Theme).</param>
 /// <param name="MoreContrast">Settings › Accessibility › Contrast "More" (Bulwark data-contrast="more").</param>
 /// <param name="Nordic">Settings › Appearance › Style: Nordic (one surface, pills and circles) instead of Bento (tiles).</param>
-public readonly record struct ThemeVariant(bool Dark, bool MoreContrast, bool Nordic)
+/// <param name="Bulwark">Use the Bulwark default palette instead of a legacy palette.</param>
+public readonly record struct ThemeVariant(bool Dark, bool MoreContrast, bool Nordic, bool Bulwark = false)
 {
-    /// <summary>The app's first-run look: dark, normal contrast, Bento.</summary>
-    public static ThemeVariant Default => new(Dark: true, MoreContrast: false, Nordic: false);
+    /// <summary>The fallback before system theme detection: dark, normal contrast, Bulwark.</summary>
+    public static ThemeVariant Default => new(Dark: true, MoreContrast: false, Nordic: false, Bulwark: true);
 
-    /// <summary>All eight combinations, in <see cref="Index"/> order.</summary>
+    /// <summary>All twelve palette combinations, in <see cref="Index"/> order.</summary>
     public static IReadOnlyList<ThemeVariant> All { get; } =
-        Enumerable.Range(0, 8).Select(i => new ThemeVariant(Dark: (i & 4) == 0, MoreContrast: (i & 2) != 0, Nordic: (i & 1) != 0)).ToArray();
+        Enumerable.Range(0, 8).Select(i => new ThemeVariant(Dark: (i & 4) == 0, MoreContrast: (i & 2) != 0, Nordic: (i & 1) != 0))
+            .Concat(Enumerable.Range(0, 4).Select(i => new ThemeVariant(Dark: i < 2, MoreContrast: (i & 1) != 0, Nordic: false, Bulwark: true))).ToArray();
 
-    /// <summary>Position in <see cref="All"/>: dark first, then contrast, then style.</summary>
-    public int Index => (Dark ? 0 : 4) + (MoreContrast ? 2 : 0) + (Nordic ? 1 : 0);
+    /// <summary>Position in <see cref="All"/>; the eight legacy combinations precede Bulwark.</summary>
+    public int Index => Bulwark ? 8 + (Dark ? 0 : 2) + (MoreContrast ? 1 : 0) : (Dark ? 0 : 4) + (MoreContrast ? 2 : 0) + (Nordic ? 1 : 0);
 
     /// <summary>A short stable name, used in generated code and test output.</summary>
     public override string ToString() =>
-        $"{(Dark ? "dark" : "light")}-{(MoreContrast ? "more" : "normal")}-{(Nordic ? "nordic" : "bento")}";
+        $"{(Dark ? "dark" : "light")}-{(MoreContrast ? "more" : "normal")}-{(Bulwark ? "bulwark" : Nordic ? "nordic" : "bento")}";
 }

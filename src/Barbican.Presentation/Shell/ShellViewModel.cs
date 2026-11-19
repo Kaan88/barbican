@@ -22,7 +22,7 @@ public sealed class ShellViewModel : ObservableObject, IDisposable
     private readonly TimeProvider _time;
     private AppId _activeApp = AppId.Mail;
     private IReadOnlyList<AppId> _available = [AppId.Mail];
-    private ShellStyle _style = ShellStyle.Bento;
+    private ShellStyle _style = ShellStyle.Bulwark;
     private bool _dark = true;
     private bool _systemDark = true;
     private A11y _a11y = new();
@@ -69,7 +69,7 @@ public sealed class ShellViewModel : ObservableObject, IDisposable
     public bool Dark => _dark;
 
     /// <summary>The eight-way combination the design tokens are keyed by.</summary>
-    public ThemeVariant Variant => new(_dark, MoreContrast, _style == ShellStyle.Nordic);
+    public ThemeVariant Variant => new(_dark, MoreContrast, _style == ShellStyle.Nordic, _style == ShellStyle.Bulwark);
 
     public bool MoreContrast => _a11y.MoreContrast;
 
@@ -217,7 +217,7 @@ public sealed class ShellViewModel : ObservableObject, IDisposable
         var system = _system.Current;
         _a11y = A11y.From(prefs, system);
         _motion.Apply(prefs.Str("reduceMotion", "system"), system.ReduceMotion);
-        _style = string.Equals(prefs.Str("uiStyle", "bento"), "nordic", StringComparison.Ordinal) ? ShellStyle.Nordic : ShellStyle.Bento;
+        _style = prefs.Str("uiStyle", "bulwark") switch { "nordic" => ShellStyle.Nordic, "bento" => ShellStyle.Bento, _ => ShellStyle.Bulwark };
         _dark = prefs.Str("theme", "system") switch { "dark" => true, "light" => false, _ => _systemDark };
         OnPropertyChanged(nameof(Accessibility));
         OnPropertyChanged(nameof(MoreContrast));

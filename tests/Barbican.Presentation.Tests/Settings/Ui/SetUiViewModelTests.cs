@@ -51,7 +51,7 @@ public sealed class SetUiViewModelTests
     {
         var vm = Create();
         var row = vm.RowsOf(SettingsPageIds.Appearance).Single(r => string.Equals(r.Row.Id, "S-uiStyle", StringComparison.Ordinal));
-        Assert.Equal("bento", (string?)row.Value);
+        Assert.Equal("bulwark", (string?)row.Value);
     }
 
     [Fact]

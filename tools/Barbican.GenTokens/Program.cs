@@ -33,5 +33,5 @@ foreach (var (relative, content) in Emitters.All(tokens))
     Console.WriteLine($"written     {relative}");
 }
 
-Console.WriteLine($"{tokens.ColorKeys.Count} colours x 8 variants, {tokens.ShapeKeys.Count} shape tokens x 2 styles, {tokens.Motion.Count} motion, {tokens.Ease.Count} easing, {tokens.Icons.Count} icons");
+Console.WriteLine($"{tokens.ColorKeys.Count} colours x {tokens.Palettes.Count} variants, {tokens.ShapeKeys.Count} shape tokens x 2 styles, {tokens.Motion.Count} motion, {tokens.Ease.Count} easing, {tokens.Icons.Count} icons");
 return check && stale > 0 ? 1 : 0;

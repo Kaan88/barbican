@@ -591,10 +591,14 @@
     {
      "kind": "select",
      "label": "Style",
-     "desc": "Bento puts every panel on its own tile with summary tiles above your mail. Nordic keeps one calm surface with pill buttons and round avatars.",
+     "desc": "Choose the Bulwark appearance or a legacy style.",
      "key": "uiStyle",
-     "default": "bento",
+     "default": "bulwark",
      "options": [
+      [
+       "bulwark",
+       "Bulwark"
+      ],
       [
        "bento",
        "Bento"
