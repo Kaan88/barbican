@@ -18,7 +18,7 @@ public sealed class PluginProfileAuthorityLeaseFactory : IPluginProfileAuthority
         try
         {
             ct.ThrowIfCancellationRequested();
-            var root = Path.GetFullPath(paths.ConfigDir);
+            var root = Path.TrimEndingDirectorySeparator(Path.GetFullPath(paths.ConfigDir));
             var directory = Path.Combine(root, "plugins");
             Directory.CreateDirectory(directory);
             if ((File.GetAttributes(root) & FileAttributes.ReparsePoint) == FileAttributes.ReparsePoint || (File.GetAttributes(directory) & FileAttributes.ReparsePoint) == FileAttributes.ReparsePoint) return Fail();
@@ -26,7 +26,7 @@ public sealed class PluginProfileAuthorityLeaseFactory : IPluginProfileAuthority
             if (File.Exists(path) && (File.GetAttributes(path) & FileAttributes.ReparsePoint) == FileAttributes.ReparsePoint) return Fail();
             var handle = new FileStream(path, FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None);
             if (ct.IsCancellationRequested) { handle.Dispose(); ct.ThrowIfCancellationRequested(); }
-            return Result<IPluginProfileAuthorityLease>.Ok(new Lease(paths.Profile, handle));
+            return Result<IPluginProfileAuthorityLease>.Ok(new Lease(paths.Profile, root, handle));
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException or NotSupportedException) { return Fail(); }
     }
@@ -39,8 +39,9 @@ public sealed class PluginProfileAuthorityLeaseFactory : IPluginProfileAuthority
         private int _held = 1;
         private readonly Lock _closeGate = new();
         private Task? _closing;
-        public Lease(string profile, FileStream file) { Profile = profile; _file = file; _lifetime = _stop.Token; }
+        public Lease(string profile, string configRoot, FileStream file) { Profile = profile; ConfigRoot = configRoot; _file = file; _lifetime = _stop.Token; }
         public string Profile { get; }
+        public string ConfigRoot { get; }
         public bool IsHeld => Volatile.Read(ref _held) != 0;
         public CancellationToken Lifetime => _lifetime;
         public ValueTask DisposeAsync()
