@@ -44,6 +44,7 @@ public sealed partial class MessageListViewModel : ObservableObject, IDisposable
     private readonly Dictionary<string, IReadOnlyList<string>> _badges = new(StringComparer.Ordinal);
     private CancellationTokenSource? _cts;
     private ListQuery? _query;
+    private string? _browseMailboxId;
     private ListQuery? _pagingQuery;
     private MailboxRole _role;
     private MessageRowViewModel? _selected;
@@ -189,14 +190,16 @@ public sealed partial class MessageListViewModel : ObservableObject, IDisposable
     public async Task OpenFolderAsync(string mailboxId, MailboxRole role, string title)
     {
         ArgumentException.ThrowIfNullOrEmpty(mailboxId);
-        var previous = _query?.MailboxId;
+        var previous = _browseMailboxId ?? _query?.MailboxId;
+        var preservedSearch = !_prefs.Current.Bool("clearSearchOnFolderChange", false) ? _query?.SearchText : null;
+        _browseMailboxId = mailboxId;
         SetTag(null);
         _role = role;
         Title = title ?? string.Empty;
-        _searchText = string.Empty;
+        if (string.IsNullOrWhiteSpace(preservedSearch)) _searchText = string.Empty;
         OnPropertyChanged(nameof(SearchText));
         var settings = ReadSettings();
-        await LoadFirstPageAsync(new ListQuery { MailboxId = mailboxId, PageSize = settings.PageSize }, folderOpened: true).ConfigureAwait(true);
+        await LoadFirstPageAsync(new ListQuery { MailboxId = mailboxId, SearchText = preservedSearch, PageSize = settings.PageSize }, folderOpened: true).ConfigureAwait(true);
         if (_hooks.HasHandlers(HookNames.OnMailboxChange))
         {
             var payload = new MailboxChangedPayload(mailboxId, role.ToString().ToLowerInvariant(), previous);
@@ -215,6 +218,7 @@ public sealed partial class MessageListViewModel : ObservableObject, IDisposable
     {
         ArgumentException.ThrowIfNullOrEmpty(tagId);
         ArgumentNullException.ThrowIfNull(excludedFolders);
+        _browseMailboxId = null;
         SetTag(tagId);
         _role = MailboxRole.None;
         Title = title ?? string.Empty;
@@ -246,7 +250,7 @@ public sealed partial class MessageListViewModel : ObservableObject, IDisposable
     /// <summary>Runs the search box's text over the open folder; empty text goes back to the folder.</summary>
     public async Task SearchAsync(string text)
     {
-        var folder = _query?.MailboxId;
+        var folder = _browseMailboxId ?? _query?.MailboxId;
         var inTag = TagId is not null;
         var trimmed = (text ?? string.Empty).Trim();
         _searchText = text ?? string.Empty;
@@ -268,7 +272,8 @@ public sealed partial class MessageListViewModel : ObservableObject, IDisposable
 
         var shaped = await _hooks.ShapeAsync(HookNames.OnSearch, new SearchPayload(trimmed), CancellationToken.None).ConfigureAwait(true);
         // inside a tag view the search keeps the tag and the folders the view leaves out; the header keeps naming the tag (R3-09)
-        var query = inTag ? TagQuery() with { SearchText = shaped.Query } : new ListQuery { MailboxId = folder, SearchText = shaped.Query, PageSize = ReadSettings().PageSize };
+        var scopeFolder = string.Equals(_prefs.Current.Str("searchDefaultScope", "all"), "folder", StringComparison.Ordinal) ? folder : null;
+        var query = inTag ? TagQuery() with { SearchText = shaped.Query } : new ListQuery { MailboxId = scopeFolder, SearchText = shaped.Query, PageSize = ReadSettings().PageSize };
         await LoadFirstPageAsync(query, folderOpened: false).ConfigureAwait(true);
     }
 
@@ -458,6 +463,7 @@ public sealed partial class MessageListViewModel : ObservableObject, IDisposable
     private async Task LoadFirstPageAsync(ListQuery query, bool folderOpened, int rows = 0)
     {
         query = query with { Sort = ConfiguredSort() };
+        query = _shaper is null ? query : _shaper.Shape(query);
         var generation = ++_generation;
         var old = _cts;
         _cts = new CancellationTokenSource();
@@ -511,9 +517,9 @@ public sealed partial class MessageListViewModel : ObservableObject, IDisposable
     /// </summary>
     private Task<Core.Common.Result<ListPage>> QueryPageAsync(Core.Mail.IMailService mail, ListQuery query, ListCursor? after, CancellationToken ct)
     {
-        var shaped = _shaper is null ? query : _shaper.Shape(query);
-        var source = _sources?.Resolve(shaped) ?? new MailServiceListSource(mail);
-        return source.QueryAsync(shaped, after, ct);
+        // Shape once before storing/watching the query. Paging and push deltas share the identical filter.
+        var source = _sources?.Resolve(query) ?? new MailServiceListSource(mail);
+        return source.QueryAsync(query, after, ct);
     }
 
     /// <summary>
@@ -783,6 +789,7 @@ public sealed partial class MessageListViewModel : ObservableObject, IDisposable
         _cts?.Cancel();
         _loaded.Replace(new ListPage());
         _query = null;
+        _browseMailboxId = null;
         _pagingQuery = null;
         LastSync = ListSync.SyncBy(Rows, [], r => r.Key, (a, b) => a.SameAs(b));
         SetSelected(null);

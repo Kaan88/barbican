@@ -235,9 +235,10 @@ public sealed class MessageListViewModelTests
     }
 
     [Fact]
-    public async Task Search_runs_the_text_over_the_open_folder_and_empty_text_goes_back()
+    public async Task Search_runs_the_text_over_the_open_folder_when_configured_and_empty_text_goes_back()
     {
         using var h = await OpenedAsync();
+        h.Prefs.Set("{\"searchDefaultScope\":\"folder\"}");
         h.Service.OnQuery = (q, _, _) => Task.FromResult(Ok(q.SearchText is null ? Mails.Page(0, 10, 100, true) : Mails.Page(70, 2, 2, false)));
         await h.List.SearchAsync("invoice");
         Assert.Equal("invoice", h.Service.Queries[^1].Query.SearchText);

@@ -33,7 +33,9 @@ public sealed class SearchListQueryShaper : IListQueryShaper
             return query;
         }
 
-        var filter = GlobalSearch.MailboxSearchFilter(text, query.MailboxId, RoleId);
+        var filter = query.MailboxId is null
+            ? GlobalSearch.GlobalMailFilter(GlobalSearch.Parse(text), RoleId)
+            : GlobalSearch.MailboxSearchFilter(text, query.MailboxId, RoleId);
         _snippets?.SetFilter(filter);
         return query with { Filter = filter as JsonObject ?? [] };
     }
