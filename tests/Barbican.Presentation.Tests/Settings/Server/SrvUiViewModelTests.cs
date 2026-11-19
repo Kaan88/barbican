@@ -126,9 +126,13 @@ public sealed class SrvUiViewModelTests
         vm.HtmlBody = "<p>First</p>";
         var saving = vm.SaveAsync(Ct);
         vm.HtmlBody = "<p>Newer</p>";
+        vm.ToText = "2026-12-31";
+        vm.ForwardKeep = false;
         service.Release();
         await saving;
         Assert.Equal("<p>Newer</p>", vm.HtmlBody);
+        Assert.Equal("2026-12-31", vm.ToText);
+        Assert.False(vm.ForwardKeep);
         Assert.Contains("not saved yet", vm.Message, StringComparison.Ordinal);
         var saved = await service.LoadAsync(SrvUiPageModel.SampleKey, Ct);
         Assert.Equal("<p>First</p>", saved.Value!.HtmlBody);
