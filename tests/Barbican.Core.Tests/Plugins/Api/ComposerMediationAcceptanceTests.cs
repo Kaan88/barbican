@@ -23,7 +23,6 @@ public sealed class ComposerMediationAcceptanceTests
     private static PluginApiDispatcher Dispatcher(IPluginApiMethod method, Authority authority, Sessions sessions) => new("auto-mediation", [method], authority, sessions);
 
     [Fact]
-    [Red("m6b-mediation")]
     public async Task SnapshotUsesHostExposedNonActiveOwnerAndProjectsOnlySourceFields()
     {
         var grant = Grant("compose:read");
@@ -41,7 +40,6 @@ public sealed class ComposerMediationAcceptanceTests
     }
 
     [Fact]
-    [Red("m6b-mediation")]
     public async Task SubjectRequiresPermissionAndNeverResolvesOrWritesWhenRefused()
     {
         var grant = Grant("compose:read"); var access = new Access();
@@ -53,7 +51,6 @@ public sealed class ComposerMediationAcceptanceTests
     }
 
     [Fact]
-    [Red("m6b-mediation")]
     public async Task SubjectRejectsInvalidInputBeforeResolvingAndWritesCleanedValueToOwner()
     {
         var grant = Grant("compose:write"); var access = new Access();
@@ -67,7 +64,6 @@ public sealed class ComposerMediationAcceptanceTests
     }
 
     [Fact]
-    [Red("m6b-mediation")]
     public async Task UndeliveredComposerIdDoesNotReachAnyBackend()
     {
         var grant = Grant("compose:read"); var access = new Access();
@@ -78,29 +74,26 @@ public sealed class ComposerMediationAcceptanceTests
     }
 
     [Fact]
-    [Red("m6b-mediation")]
     public async Task AttachmentMustBelongToSnapshotBeforeAnyRead()
     {
         var grant = Grant("email:blob-read"); var access = new Access();
         var dispatcher = Dispatcher(PluginComposerMethods.ReadAttachment(access), new Authority(grant), new Sessions());
         await using var binding = PluginRuntimeBinding.Create("auto-mediation", grant, PluginFrameKind.Background);
         var outcome = await dispatcher.DispatchAsync(binding, Request("composer.readAttachment", "[\"host-handle\",\"foreign\"]"), Ct);
-        Assert.False(outcome.IsSuccess); Assert.Equal(0, access.Handle.AttachmentReads);
+        Assert.Equal(PluginErrorCode.AttachmentNotInComposer, outcome.Error); Assert.Equal(0, access.Handle.AttachmentReads);
     }
 
     [Fact]
-    [Red("m6b-mediation")]
     public async Task AttachmentDeclaredOverLimitIsNeverRead()
     {
         var grant = Grant("email:blob-read"); var access = new Access(); access.Handle.Size = (25 * 1024 * 1024) + 1;
         var dispatcher = Dispatcher(PluginComposerMethods.ReadAttachment(access), new Authority(grant), new Sessions());
         await using var binding = PluginRuntimeBinding.Create("auto-mediation", grant, PluginFrameKind.Background);
         var outcome = await dispatcher.DispatchAsync(binding, Request("composer.readAttachment", "[\"host-handle\",\"file\"]"), Ct);
-        Assert.False(outcome.IsSuccess); Assert.Equal(0, access.Handle.AttachmentReads);
+        Assert.Equal(PluginErrorCode.InvalidArguments, outcome.Error); Assert.Equal(0, access.Handle.AttachmentReads);
     }
 
     [Fact]
-    [Red("m6b-mediation")]
     public async Task SnapshotIncludesRequiredRevisionAttachmentAndPendingFields()
     {
         var grant = Grant("compose:read"); var access = new Access();
@@ -113,7 +106,6 @@ public sealed class ComposerMediationAcceptanceTests
     }
 
     [Fact]
-    [Red("m6b-mediation")]
     public async Task AttachmentReturnedBytesAboveLimitAreNeverProjected()
     {
         var grant = Grant("email:blob-read"); var access = new Access(); access.Handle.ReturnedBytes = new byte[(25 * 1024 * 1024) + 1];
@@ -124,7 +116,6 @@ public sealed class ComposerMediationAcceptanceTests
     }
 
     [Fact]
-    [Red("m6b-mediation")]
     public async Task ZeroByteAttachmentIsReturnedAsAnEmptyArrayBuffer()
     {
         var grant = Grant("email:blob-read"); var access = new Access(); access.Handle.Size = 0; access.Handle.ReturnedBytes = ReadOnlyMemory<byte>.Empty;
@@ -136,7 +127,6 @@ public sealed class ComposerMediationAcceptanceTests
     }
 
     [Fact]
-    [Red("m6b-mediation")]
     public async Task AttachmentCopiesOnlyTheBackendMemorySlice()
     {
         var grant = Grant("email:blob-read"); var access = new Access();
@@ -147,7 +137,6 @@ public sealed class ComposerMediationAcceptanceTests
         Assert.True(result.IsSuccess); Assert.Equal(new byte[] { 1, 2 }, result.Value!.Property("data").BinaryBytes());
     }
     [Fact]
-    [Red("m6b-mediation")]
     public async Task AttachmentReadDropsResultAfterRevisionAndMembershipChange()
     {
         var grant = Grant("email:blob-read"); var access = new Access(); access.Handle.Pause = true;
@@ -156,11 +145,10 @@ public sealed class ComposerMediationAcceptanceTests
         var pending = dispatcher.DispatchAsync(binding, Request("composer.readAttachment", "[\"host-handle\",\"file\"]"), Ct);
         await access.Handle.Started.Task.WaitAsync(TimeSpan.FromSeconds(5), Ct);
         access.Handle.Revision = "rev-2"; access.Handle.Member = false; access.Handle.Release.SetResult();
-        var result = await pending; Assert.False(result.IsSuccess); Assert.Null(result.Value);
+        var result = await pending; Assert.Equal(PluginErrorCode.ComposerChanged, result.Error); Assert.Null(result.Value);
     }
 
     [Fact]
-    [Red("m6b-mediation")]
     public async Task AttachmentReadDropsResultIfHostHandleIsReplaced()
     {
         var grant = Grant("email:blob-read"); var access = new Access(); var original = access.Handle; original.Pause = true;
@@ -169,11 +157,10 @@ public sealed class ComposerMediationAcceptanceTests
         var pending = dispatcher.DispatchAsync(binding, Request("composer.readAttachment", "[\"host-handle\",\"file\"]"), Ct);
         await original.Started.Task.WaitAsync(TimeSpan.FromSeconds(5), Ct);
         access.Handle = new Handle(); original.Release.SetResult();
-        var result = await pending; Assert.False(result.IsSuccess); Assert.Null(result.Value); Assert.Equal(0, access.Handle.AttachmentReads);
+        var result = await pending; Assert.Equal(PluginErrorCode.ComposerChanged, result.Error); Assert.Null(result.Value); Assert.Equal(0, access.Handle.AttachmentReads);
     }
 
     [Fact]
-    [Red("m6b-mediation")]
     public async Task AttachmentReadDropsResultIfOwnerSessionIsInvalidated()
     {
         var grant = Grant("email:blob-read"); var access = new Access(); access.Handle.Pause = true; var sessions = new Sessions();
@@ -183,6 +170,37 @@ public sealed class ComposerMediationAcceptanceTests
         await access.Handle.Started.Task.WaitAsync(TimeSpan.FromSeconds(5), Ct);
         sessions.Valid = false; access.Handle.Release.SetResult();
         var result = await pending; Assert.False(result.IsSuccess); Assert.Null(result.Value);
+    }
+    [Fact]
+    public void ComposerDataCopiesSourceCollectionsAndExactByteSlice()
+    {
+        var recipients = new[] { "first@example.org" };
+        var attachments = new[] { new PluginComposerAttachment("file", "first.txt", "text/plain", 2) };
+        var snapshot = new PluginComposerSnapshot("rev", "subject", "text", recipients, [], [], attachments, false);
+        var buffer = new byte[] { 9, 1, 2, 8 };
+        var data = new PluginComposerAttachmentData("first.txt", "text/plain", buffer.AsMemory(1, 2));
+        recipients[0] = "second@example.org"; attachments[0] = new("other", "other", "x", 0); buffer[1] = 7;
+        Assert.Equal("first@example.org", snapshot.To[0], StringComparer.Ordinal);
+        Assert.Equal("file", snapshot.Attachments[0].Id, StringComparer.Ordinal);
+        Assert.Equal(new byte[] { 1, 2 }, data.Data.ToArray());
+    }
+
+    [Fact]
+    public async Task AttachmentUsesCapturedMetadataNotBackendClaims()
+    {
+        var grant = Grant("email:blob-read"); var access = new Access();
+        var dispatcher = Dispatcher(PluginComposerMethods.ReadAttachment(access), new Authority(grant), new Sessions());
+        await using var binding = PluginRuntimeBinding.Create("auto-mediation", grant, PluginFrameKind.Background);
+        var result = await dispatcher.DispatchAsync(binding, Request("composer.readAttachment", "[\"host-handle\",\"file\"]"), Ct);
+        Assert.True(result.IsSuccess);
+        Assert.Equal("file.txt", result.Value!.Property("name").StringValue, StringComparer.Ordinal);
+        Assert.Equal("text/plain", result.Value.Property("type").StringValue, StringComparer.Ordinal);
+    }
+    [Fact]
+    public void ComposerBusinessErrorsHaveFixedSourceCodes()
+    {
+        Assert.Equal("composer_changed", PluginCallOutcome.Failed(PluginErrorCode.ComposerChanged).ErrorMessage, StringComparer.Ordinal);
+        Assert.Equal("attachment_not_in_composer", PluginCallOutcome.Failed(PluginErrorCode.AttachmentNotInComposer).ErrorMessage, StringComparer.Ordinal);
     }
     private sealed class Access : IPluginComposerAccess
     {
@@ -220,7 +238,7 @@ public sealed class ComposerMediationAcceptanceTests
         {
             AttachmentReads++; Started.TrySetResult();
             if (Pause) await Release.Task.WaitAsync(ct);
-            return new PluginComposerAttachmentData("file.txt", "text/plain", ReturnedBytes);
+            return new PluginComposerAttachmentData("untrusted-name", "application/untrusted", ReturnedBytes);
         }
     }
     private sealed class Authority(PluginGrantSnapshot grant) : IPluginAuthority

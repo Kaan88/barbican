@@ -29,6 +29,8 @@ public sealed class PluginCallOutcome
         PluginErrorCode.StaleContext => "Plugin context changed; retry with current data.",
         PluginErrorCode.Unavailable => "This capability is unavailable.",
         PluginErrorCode.Conflict => "Data changed; reload before retrying.",
+        PluginErrorCode.ComposerChanged => "composer_changed",
+        PluginErrorCode.AttachmentNotInComposer => "attachment_not_in_composer",
         PluginErrorCode.RateLimited => "Plugin operation rate limit reached.",
         PluginErrorCode.Timeout => "Plugin operation timed out.",
         PluginErrorCode.Cancelled => "Plugin operation cancelled.",
