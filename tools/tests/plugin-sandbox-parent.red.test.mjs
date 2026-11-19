@@ -5,11 +5,11 @@ import assert from 'node:assert/strict';
 import { createSandboxParent } from '../../src/Barbican.App/Assets/plugins/plugin-sandbox-parent.js';
 import { decodePluginValue } from '../../src/Barbican.App/Assets/plugins/plugin-value-codec.js';
 
-function rig() {
+function rig({ tier='untrusted', hostOrigin='https://plugin.invalid' } = {}) {
   const sent = [], native = [], activities = [];
   const window = { postMessage: (...args) => sent.push(args) };
   const frame = { contentWindow: window };
-  const bridge = createSandboxParent({ frame, postNative: wire => { assert.equal(typeof wire,'string'); native.push(decodePluginValue(new TextEncoder().encode(wire))); }, onActivity: () => activities.push(1), maxMessageBytes: 4096 });
+  const bridge = createSandboxParent({ frame, tier, hostOrigin, postNative: wire => { assert.equal(typeof wire,'string'); native.push(decodePluginValue(new TextEncoder().encode(wire))); }, onActivity: () => activities.push(1), maxMessageBytes: 4096 });
   const event = (data, extra={}) => ({ source:window, origin:'null', data, ports:[], ...extra });
   return { bridge, frame, window, sent, native, activities, event };
 }
@@ -20,6 +20,22 @@ test('opaque origin alone is not authority: sibling and nested WindowProxy messa
   await r.bridge.receive(r.event({type:'sandbox-ready'}, {source:{parent:r.window}}));
   await r.bridge.receive(r.event({type:'sandbox-ready'}, {origin:'https://other.invalid'}));
   assert.equal(r.native.length,0);
+});
+test('untrusted tier accepts only opaque origin even if a message claims privileged authority', async () => {
+  const r=rig();
+  await r.bridge.receive(r.event({type:'sandbox-ready',tier:'privileged'}, {origin:'https://plugin.invalid'}));
+  assert.equal(r.native.length,0);
+  await r.bridge.receive(r.event({type:'sandbox-ready'}));
+  assert.equal(r.native.length,1);
+});
+test('host-selected privileged tier requires exact trusted origin and frame identity', async () => {
+  const r=rig({tier:'privileged',hostOrigin:'https://plugin.invalid'});
+  await r.bridge.receive(r.event({type:'sandbox-ready'}, {origin:'null'}));
+  await r.bridge.receive(r.event({type:'sandbox-ready'}, {origin:'https://other.invalid'}));
+  await r.bridge.receive(r.event({type:'sandbox-ready'}, {origin:'https://plugin.invalid',source:{}}));
+  assert.equal(r.native.length,0);
+  await r.bridge.receive(r.event({type:'sandbox-ready'}, {origin:'https://plugin.invalid'}));
+  assert.equal(r.native.length,1);
 });
 test('only the first authenticated ready owns an activity MessagePort and teardown closes it', async () => {
   const r=rig(); const first = { onmessage:null, close(){ this.closed=true; } }, second = { onmessage:null, close(){ this.closed=true; } };
