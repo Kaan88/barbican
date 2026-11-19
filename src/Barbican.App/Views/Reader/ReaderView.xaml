@@ -244,17 +244,19 @@
           <!-- the body slot: the web view of the body stream -->
           <body:MailBodyView Grid.Row="7" x:Name="BodySlot" MinHeight="80" HorizontalAlignment="Stretch" VerticalAlignment="Stretch" AutomationProperties.AutomationId="reader.body" AutomationProperties.Name="Message body" />
 
-          <!-- the reply bar: shown, disabled until M3 -->
-          <Border Grid.Row="8" CornerRadius="{x:Bind Look.ReplyRadius, Mode=OneWay}" Padding="20,8,8,8" Background="Transparent" BorderBrush="{StaticResource Line}" BorderThickness="1"
-                  AutomationProperties.AutomationId="reader.reply-bar" AutomationProperties.Name="Quick reply">
-            <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
-              <TextBox Style="{StaticResource TextBox.Bare}" IsEnabled="False" PlaceholderText="{x:Bind views:Fmt.ReplyHint(Reader.Header.From), Mode=OneWay}" FontSize="14.5"
-                       AutomationProperties.AutomationId="reader.reply-text" AutomationProperties.Name="Quick reply text" />
-              <Button Grid.Column="1" Style="{StaticResource Button.Primary}" Height="40" Padding="22,0" FontSize="13.5" CornerRadius="20" IsEnabled="False"
-                      AutomationProperties.AutomationId="reader.send" AutomationProperties.Name="Send">
-                <TextBlock Text="Send" />
-              </Button>
-            </Grid>
+           <!-- Quick reply hands off to the full composer; inline delivery is not wired. -->
+           <Border Grid.Row="8" x:Name="QuickReplyBar" Visibility="Collapsed" CornerRadius="8" Padding="8" Background="{StaticResource Tile}" BorderBrush="{StaticResource Line}" BorderThickness="1" LostFocus="OnQuickReplyBlur"
+                   AutomationProperties.AutomationId="reader.reply-bar" AutomationProperties.Name="Quick reply">
+             <StackPanel Spacing="6">
+               <TextBox x:Name="QuickReplyText" AcceptsReturn="True" TextWrapping="Wrap" MinHeight="56" MaxHeight="144" ScrollViewer.VerticalScrollBarVisibility="Auto"
+                        GotFocus="OnQuickReplyFocus" TextChanged="OnQuickReplyTextChanged"
+                        PlaceholderText="{x:Bind views:Fmt.ReplyHint(Reader.Header.From), Mode=OneWay}" FontSize="14"
+                        AutomationProperties.AutomationId="reader.reply-text" AutomationProperties.Name="Quick reply text" />
+               <StackPanel x:Name="QuickReplyActions" Visibility="Collapsed" Orientation="Horizontal" HorizontalAlignment="Right" Spacing="6">
+                 <Button Content="Cancel" Style="{StaticResource Button.Action}" Click="OnQuickReplyCancel" AutomationProperties.AutomationId="reader.reply.cancel" />
+                 <Button Content="Open full editor" Style="{StaticResource Button.Primary}" Click="OnQuickReplyOpenEditor" AutomationProperties.AutomationId="reader.reply.full" />
+               </StackPanel>
+             </StackPanel>
           </Border>
         </Grid>
       </Grid>

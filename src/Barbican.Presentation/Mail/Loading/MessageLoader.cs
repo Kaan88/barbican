@@ -300,7 +300,7 @@ public sealed class MessageLoader : IMessageOpener, IConversationOpener, IDispos
             options = _depth.Shape(options, owner, ownerMail, source);
         }
 
-        var snapshot = ReaderSnapshots.FromBody(shown, fetched.Thread, options);
+        var snapshot = ReaderSnapshots.FromBody(shown, fetched.Thread, options) with { ListAccountKey = context.AccountKey };
         _depth?.Learn(owner, snapshot.LearnedAuthServ);
         ScheduleMarkRead(id, unseen ?? !body.Keywords.Seen, delay);
         var content = BodyRequest.ContentOf(body);

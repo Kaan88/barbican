@@ -10,6 +10,9 @@ public sealed record ReaderSnapshot
 {
     public string EmailId { get; init; } = string.Empty;
 
+    /// <summary>The active list login captured by the loader when it opened this body.</summary>
+    public string? ListAccountKey { get; init; }
+
     public ReaderHeader Header { get; init; } = ReaderHeader.None;
 
     public IReadOnlyList<ConversationItem> Conversation { get; init; } = [];

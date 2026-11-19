@@ -18,6 +18,7 @@ public sealed partial class ReaderView : UserControl
         Reader = ViewHost.Get<ReaderViewModel>();
         Look = ViewHost.Get<StyleState>();
         InitializeComponent();
+        InitializeQuickReply();
         Reader.PropertyChanged += (_, e) =>
         {
             if (!string.Equals(e.PropertyName, nameof(ReaderViewModel.EmailId), StringComparison.Ordinal))

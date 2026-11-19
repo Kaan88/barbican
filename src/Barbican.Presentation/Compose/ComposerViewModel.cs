@@ -89,6 +89,8 @@ public sealed partial class ComposerViewModel : ObservableObject, IMentionSource
 
     public ComposeKind Kind => _seed.Kind;
 
+    public string? SourceEmailId => _seed.SourceEmailId;
+
     /// <summary>The composer sits under the message it answers (<see cref="ComposerDock"/>) instead of taking the pane.</summary>
     public bool IsDocked { get; set; }
 

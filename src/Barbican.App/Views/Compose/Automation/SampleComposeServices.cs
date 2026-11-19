@@ -75,7 +75,7 @@ public static class SampleComposeServices
                     {
                         to = who?.Email ?? string.Empty;
                         subject = "Re: " + o.Subject;
-                        body = $"\n\nOn {o.ReceivedAt:ddd d MMM}, {who?.Name ?? who?.Email} wrote:\n> {quote}";
+                        body = $"{request.DraftText}\n\nOn {o.ReceivedAt:ddd d MMM}, {who?.Name ?? who?.Email} wrote:\n> {quote}";
                     }
                 }
             }

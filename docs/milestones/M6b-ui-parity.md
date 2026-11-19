@@ -90,3 +90,16 @@ checking off inaccessible or untried controls.
   sample opened `e21`, revealed older headers, activated `e8` through its header
   button, and confirmed `e8 Ready`. There is still only one message body surface.
   Per-message actions and the expanded-card layout still need a parity pass.
+- Mail shell: Bulwark uses flush panes with default rail/sidebar/list widths
+  of 56/256/384 effective px, without the legacy glance/context panels.
+  The Windows title band remains. An integrated hidden capture puts the
+  list and reader at x312 and x696, matching the reference's pane starts.
+- Composer and quick reply: Bulwark uses a flat header, ruled address and
+  subject rows, and a separate footer. Integrated hidden automation verified
+  cancelling typed text, switching messages without carrying the previous text,
+  and opening the docked reply with the intended recipient and text above
+  the quote. Inline send/undo and composer full-screen/pop-out are still open.
+- Inbox grouping: the screenshot still shows duplicate rows for a thread.
+  `MessageListViewModel` does not pass `CollapseThreads` to `ListPageFetcher`;
+  the setting currently controls only the reader. Avoid visual deduplication
+  that would break paging and message-action ownership.
