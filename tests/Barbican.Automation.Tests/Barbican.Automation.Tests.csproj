@@ -23,6 +23,9 @@
     <Compile Include="../../src/Barbican.App/Composition/WebViewEnvironment.cs" Link="Linked/WebViewEnvironment.cs" />
   </ItemGroup>
   <ItemGroup>
+    <Compile Include="../../src/Barbican.App/Plugins/Sandbox/*.cs" Link="Linked/PluginSandbox/%(Filename)%(Extension)" />
+  </ItemGroup>
+  <ItemGroup>
     <ProjectReference Include="../../src/Barbican.Core/Barbican.Core.csproj" />
     <ProjectReference Include="../../src/Barbican.Platform/Barbican.Platform.csproj" />
     <ProjectReference Include="../Barbican.FakeJmap/Barbican.FakeJmap.csproj" />
