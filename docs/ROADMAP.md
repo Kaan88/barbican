@@ -26,7 +26,10 @@ provides the next plan.
 | M10 | Parity sweep, UI polish and release readiness | Planned; followed by Astra fixes and a UI walkthrough |
 | M9 | Linux | Deferred until after this run |
 
-UI work follows [Bento Balanced, Nordic Focus and Studio](../design/UI-GUIDELINES.md), including modern WinUI 3 materials, depth and responsive motion with platform/accessibility fallbacks. Atlas remains exploratory. No merge to `main`, tags, OS changes or release publication is implied by the roadmap.
+For M6b, Bulwark webmail UI parity is required before Astra review. The
+[theme and mockup direction](../design/UI-GUIDELINES.md) is on hold. See the
+[walkthrough and parity notes](milestones/M6b-ui-parity.md). No merge to `main`,
+tags, OS changes or release publication is implied by the roadmap.
 
 ## Historical milestone evidence
 

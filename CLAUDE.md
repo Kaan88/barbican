@@ -25,7 +25,16 @@ checkpoint, resume and attribution instructions.
   until Astra explicitly approves the final revision. If Astra is unavailable,
   the gate stays open; no other reviewer or passing test suite substitutes for it.
 
-## UI direction approved by the user (2026-11-19)
+## M6b UI direction: Bulwark webmail parity
+
+The theme/mockup work below is on hold. Before Astra reviews M6b, walk the live
+Bulwark reference UI using the designated throwaway account, including pages,
+menus, dialogs and pop-out windows. Compare their behavior and layout with the
+native app and fix parity gaps, prioritizing mail, conversation threading,
+quick reply and the composer. Use hidden native automation and synthetic data
+for Barbican verification. Keep reference-account data and captures out of Git.
+
+### Historical theme direction (on hold)
 
 Read [design/UI-GUIDELINES.md](design/UI-GUIDELINES.md) before UI work. The user selected
 **Bento Balanced**, **Nordic Focus** and **Studio** from the Codex / Terra High mockups and instructed
