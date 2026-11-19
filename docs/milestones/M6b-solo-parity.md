@@ -129,3 +129,32 @@ Windows Automation passed 3,165 tests, with four skipped. Hidden sample runs
 8977 and 8978 exercised cancellation followed by transfer, and confirmation
 followed by composing another reply. The portable at e716ccf contains the
 verified dock and maximize changes and predates inline delivery.
+
+## Windows visual reference and November 20 verification
+
+The user identified the original C# WinUI 3 mockup as the visual reference.
+It launches in Bento Dark. Use its 1560 × 960 window, subject-first reader,
+folder-header compose action and short, ready-to-display message transitions
+when judging Windows appearance. Continue to use Bulwark 1.21.2 for mail
+actions and responsive behavior. Keep explicit style choices available.
+
+The earlier portable at 5518b0a used Bulwark as its first-run appearance.
+A same-size capture of that generation in Bento Dark showed separate tiled
+panes but also a floating compose button, glance cards above the reader,
+toolbar-first header and unwanted space between the sender and message.
+The reader checkpoint at 5bdfa1e restores the desktop header order and
+eliminates gaps from empty grid rows. The compact reader keeps Back first.
+Local captures are under artifacts/auto/8997 and 8998.
+
+The narrow inbox now fills the list pane, shows dates and search actions,
+and lets the user go through Folders to Sent. The mobile Reply all icon was
+replaced. Reader actions include Move and Tag in the overflow on smaller
+screens. A hidden Windows walkthrough returned from Settings, Calendar,
+Contacts and Files to the same selected message across thirteen fast changes.
+The pop-out composer now protects the draft when a second open races the
+first. Independent checks accepted maximize, restore and reply-dock resizing.
+
+The Windows run through the account flyout change passed 3,178 tests with
+four skipped. A private sample run opened the account switcher and verified
+that Escape reduced the number of open popups from one to zero. Later visual
+changes require a fresh combined run and portable launch check.
