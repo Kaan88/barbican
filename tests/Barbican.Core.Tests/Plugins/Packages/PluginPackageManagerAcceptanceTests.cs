@@ -9,7 +9,6 @@ public sealed class PluginPackageManagerAcceptanceTests
     private static CancellationToken Ct => TestContext.Current.CancellationToken;
 
     [Fact]
-    [Red("m6b-packages")]
     public async Task ImportConsentInstallEnableDisableUninstallUsesLiveAuthority()
     {
         var rig = new PackageTestRig();
@@ -36,7 +35,6 @@ public sealed class PluginPackageManagerAcceptanceTests
     }
 
     [Fact]
-    [Red("m6b-packages")]
     public async Task ReviewTokenIsOneUseExpiresAndCannotApproveAnotherHash()
     {
         var rig = new PackageTestRig();
@@ -54,7 +52,6 @@ public sealed class PluginPackageManagerAcceptanceTests
     }
 
     [Fact]
-    [Red("m6b-packages")]
     public async Task ReviewsAreBoundedAndAnOldReviewCannotReplaceNewerContent()
     {
         var rig = new PackageTestRig();
@@ -77,7 +74,6 @@ public sealed class PluginPackageManagerAcceptanceTests
     }
 
     [Fact]
-    [Red("m6b-packages")]
     public async Task MalformedAuthenticatedIndexDoesNotBecomeAnEnabledGrant()
     {
         var rig = new PackageTestRig();
@@ -92,7 +88,6 @@ public sealed class PluginPackageManagerAcceptanceTests
     }
 
     [Fact]
-    [Red("m6b-packages")]
     public async Task PermissionExpansionAndSameVersionNewCodeRequireNewExactConsent()
     {
         var rig = new PackageTestRig();
@@ -115,7 +110,6 @@ public sealed class PluginPackageManagerAcceptanceTests
     }
 
     [Fact]
-    [Red("m6b-packages")]
     public async Task CallerSuppliedSourceCannotForgeTrustedProvenance()
     {
         var manager = new PackageTestRig().Manager();
@@ -127,7 +121,6 @@ public sealed class PluginPackageManagerAcceptanceTests
     }
 
     [Fact]
-    [Red("m6b-packages")]
     public async Task PendingCleanupBlocksUninstallAndReplacementWithoutDeletingContent()
     {
         var rig = new PackageTestRig();
@@ -138,6 +131,7 @@ public sealed class PluginPackageManagerAcceptanceTests
         Assert.True((await manager.SetEnabledAsync(installed.Package.Identity, true, Ct)).IsOk);
         rig.Cleanup.Pending = true;
         Assert.False((await manager.SetEnabledAsync(installed.Package.Identity, false, Ct)).IsOk);
+        Assert.False((await rig.Manager().SetEnabledAsync(installed.Package.Identity, true, Ct)).IsOk);
         var grant = await manager.GetCurrentAsync(PackageTestRig.PluginId, Ct);
         Assert.True(!grant.IsOk || grant.Value is null || !grant.Value.Enabled);
         using var replacement = PackageTestRig.Archive("export default 2", "email:read");
@@ -149,7 +143,6 @@ public sealed class PluginPackageManagerAcceptanceTests
     }
 
     [Fact]
-    [Red("m6b-packages")]
     public async Task CorruptAuthenticatedIndexOrPackageBytesNeverReviveAuthorityAfterRestart()
     {
         var rig = new PackageTestRig();
@@ -171,11 +164,9 @@ public sealed class PluginPackageManagerAcceptanceTests
     }
 
     [Fact]
-    [Red("m6b-packages")]
     public Task CommitFailureNeverExposesNewEnabledAuthority() => CommitFailureAsync(false);
 
     [Fact]
-    [Red("m6b-packages")]
     public Task AmbiguousCommitNeverExposesNewEnabledAuthority() => CommitFailureAsync(true);
 
     private static async Task CommitFailureAsync(bool afterCommit)
