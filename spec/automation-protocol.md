@@ -63,7 +63,7 @@ the port opens.
 | `caption` | Windows, M2 hotfix: attaches the normal window's chrome (`ShellPage.AttachWindow`: content in the title bar, the title band as drag area) to the hidden window and replies `scale= extended= buttons-h= caption=X,Y,W,H;... passthrough=...` from `InputNonClientPointerSource` in logical px, so a script proves no drag region covers the rail or the sidebar (a pattern invoke succeeds even where a real click would be swallowed) | M2 hotfix |
 | `bounds ID` | `X Y W H` of the element with that AutomationId, logical px relative to the window content (`tools/lookdiff.py`) | M1 look |
 | `motion reduce\|normal\|rapid\|calm` | in-memory motion settings | spike (flag only) |
-| `theme dark\|light`, `ui bento\|nordic dark\|light [more\|normal]` | in-memory style, theme, contrast | spike (theme), M1 (ui) |
+| `theme dark\|light`, `ui bulwark\|bento\|nordic dark\|light [more\|normal]` | in-memory style, theme, contrast; `ui` preserves omitted values | spike (theme), M1/M6b (ui) |
 | `anim comp\|sb` | spike-only: a 150 ms composition-thread or storyboard animation | spike |
 | `wv-eval JS` | runs JS in the web view and returns its result directly (the Rust `wv-result` poll is not needed) | spike |
 | `close` | replies `ok`, then closes the window 200 ms later | spike |

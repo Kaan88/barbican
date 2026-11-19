@@ -1,5 +1,5 @@
 #if AUTOMATION
-// Mirrors: spec/automation-protocol.md `ui bento|nordic dark|light [more|normal]` and `theme dark|light`: in memory only (ThemeController.Preview), nothing is saved.
+// Mirrors: spec/automation-protocol.md `ui bulwark|bento|nordic dark|light [more|normal]`: in memory only.
 
 using Barbican.Automation;
 using Barbican.App.Theme;
@@ -16,14 +16,16 @@ public sealed class UiCommand(ThemeController theme) : IAutomationCommand
     {
         var t = (args ?? string.Empty).Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
         var nordic = theme.Applied?.Nordic ?? false;
+        var bulwark = theme.Applied?.Bulwark ?? true;
         var dark = theme.Applied?.Dark ?? true;
         var more = theme.Applied?.MoreContrast ?? false;
         foreach (var word in t)
         {
             switch (word.ToLowerInvariant())
             {
-                case "bento": nordic = false; break;
-                case "nordic": nordic = true; break;
+                case "bulwark": nordic = false; bulwark = true; break;
+                case "bento": nordic = false; bulwark = false; break;
+                case "nordic": nordic = true; bulwark = false; break;
                 case "dark": dark = true; break;
                 case "light": dark = false; break;
                 case "more": more = true; break;
@@ -32,7 +34,7 @@ public sealed class UiCommand(ThemeController theme) : IAutomationCommand
             }
         }
 
-        theme.Preview(new ThemeVariant(dark, more, nordic));
+        theme.Preview(new ThemeVariant(dark, more, nordic, bulwark));
         return Task.FromResult("ok");
     }
 }
