@@ -84,10 +84,7 @@ public sealed partial class ConversationCardView : UserControl
                 _ = FitBodyAsync(shell, view);
         };
         AutomationProperties.SetAutomationId(view, "reader.thread.body." + card.EmailId);
-        var to = string.Join(", ", body.To.Select(address => address.Email));
-        var cc = string.Join(", ", body.Cc.Select(address => address.Email));
-        if (to.Length > 0) _layout.Children.Add(new TextBlock { Text = "To: " + to, TextWrapping = TextWrapping.Wrap });
-        if (cc.Length > 0) _layout.Children.Add(new TextBlock { Text = "Cc: " + cc, TextWrapping = TextWrapping.Wrap });
+        _layout.Children.Add(Details(card, body));
         _layout.Children.Add(view);
         shell.Show(new BodyRequest(card.EmailId, BodyRequest.ContentOf(body), true, () => Owned(card), () =>
         {

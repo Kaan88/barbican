@@ -19,6 +19,8 @@ public sealed class ConversationExpansion(string accountKey, string emailId) : O
         return target.AccountId.Length == 0 ? target with { AccountKey = target.Login, EmailId = target.ServerId } : null;
     }
 
+    public bool DetailsExpanded { get; set; }
+
     internal bool ReadRequested { get; set; }
 
     internal void Complete(EmailBody? body)
