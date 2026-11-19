@@ -304,7 +304,7 @@ public sealed partial class MessageListView : UserControl
         if (args.Item is MessageRowViewModel row)
         {
             AutomationProperties.SetAutomationId(args.ItemContainer, row.Id);
-            AutomationProperties.SetName(args.ItemContainer, row.Subject);
+            AutomationProperties.SetName(args.ItemContainer, row.AccessibleName);
         }
     }
 #pragma warning restore CA1822

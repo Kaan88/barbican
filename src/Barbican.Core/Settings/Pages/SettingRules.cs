@@ -24,6 +24,12 @@ public static class SettingRules
             return new SettingCheck(true, null, null);
         }
 
+        if (string.Equals(row.Key, "messageListOrderScope", StringComparison.Ordinal))
+        {
+            var scope = AsText(value);
+            return scope is "inbox" or "all" ? Good(JsonValue.Create(scope)) : Bad("Choose Inbox or all folders.");
+        }
+
         return row.Kind switch
         {
             SettingRowKind.Toggle => Toggle(value),

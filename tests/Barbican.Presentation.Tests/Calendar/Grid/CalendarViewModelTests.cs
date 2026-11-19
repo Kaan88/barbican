@@ -12,6 +12,48 @@ namespace Barbican.Presentation.Tests.Calendar.Grid;
 public sealed class CalendarViewModelTests
 {
     [Fact]
+    public async Task Changing_saved_view_emits_the_calendar_view_hook()
+    {
+        using var h = new CalendarHarness();
+        var views = new List<CalendarViewPayload>();
+        using var subscription = h.Bus.Observe<CalendarViewPayload>(HookNames.OnCalendarViewChange, (p, _) => { lock (views) { views.Add(p); } return ValueTask.CompletedTask; });
+        h.Prefs.Set("""{"calendarViewMode":"agenda"}""");
+        await EventuallyAsync(() => { lock (views) { return views.Count == 1; } });
+        Assert.Equal("agenda", views[0].View);
+    }
+
+    [Fact]
+    public async Task Choosing_views_persists_the_last_choice_in_order()
+    {
+        using var h = new CalendarHarness();
+        var values = new Barbican.Presentation.Settings.Sample.SampleSettingValues();
+        using var vm = new CalendarViewModel(h.Source, h.Accounts, h.Prefs, h.Bus, h.Time, new Barbican.Presentation.Common.InlineDispatcher(), null, values);
+        vm.SetView(CalendarViewKind.Day);
+        vm.SetView(CalendarViewKind.Month);
+        vm.SetView(CalendarViewKind.Agenda);
+        var deadline = DateTime.UtcNow.AddSeconds(5);
+        while (!string.Equals((string?)values.Stored("calendarViewMode"), "agenda", StringComparison.Ordinal) && DateTime.UtcNow < deadline)
+        {
+            await Task.Delay(10, TestContext.Current.CancellationToken);
+        }
+
+        Assert.Equal("agenda", (string?)values.Stored("calendarViewMode"));
+    }
+
+    [Fact]
+    public void Saved_view_is_used_and_external_changes_update_calendar()
+    {
+        using var initial = new CalendarHarness("{}");
+        Assert.Equal(CalendarViewKind.Month, initial.View.View);
+        using var h = new CalendarHarness("{\"calendarViewMode\":\"agenda\"}");
+        Assert.Equal(CalendarViewKind.Agenda, h.View.View);
+        h.Prefs.Set("{\"calendarViewMode\":\"day\"}");
+        Assert.Equal(CalendarViewKind.Day, h.View.View);
+        h.Prefs.Set("{\"calendarViewMode\":\"unknown\"}");
+        Assert.Equal(CalendarViewKind.Month, h.View.View);
+    }
+
+    [Fact]
     public void Every_view_has_its_range()
     {
         using var h = new CalendarHarness();
@@ -90,7 +132,7 @@ public sealed class CalendarViewModelTests
         Assert.Equal(3, h.View.Columns.Count);
         h.View.GoNext();
         Assert.Equal(D("2026-11-21"), h.View.Anchor);
-        h.Prefs.Set("""{"calendarNarrowWeekAllDays": true}""");
+        h.Prefs.Set("""{"calendarNarrowWeekAllDays": true, "calendarViewMode": "week"}""");
         Assert.Equal(7, h.View.Columns.Count);
     }
 

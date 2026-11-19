@@ -42,7 +42,8 @@ public static class CalendarUiPresentationRegistration
             sp.GetService<IHookBus>(),
             sp.GetService<IToastService>(),
             sp.GetService<TimeProvider>(),
-            sp.GetService<IPrefsStore>()));
+            sp.GetService<IPrefsStore>(),
+            sp.GetService<ICalendarParticipantIdentities>()));
         services.Replace(ServiceDescriptor.Singleton<ICalendarEditors>(sp => sp.GetRequiredService<CalendarEditors>()));
         services.TryAddSingleton(sp => new TasksViewModel(
             sp.GetRequiredService<IEditorSource>(),

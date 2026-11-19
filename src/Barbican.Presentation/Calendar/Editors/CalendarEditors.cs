@@ -23,6 +23,7 @@ public sealed class CalendarEditors : ICalendarEditors
     private readonly IToastService? _toasts;
     private readonly TimeProvider _time;
     private readonly IPrefsStore? _prefs;
+    private readonly ICalendarParticipantIdentities? _participantIdentities;
 
     public CalendarEditors(
         IEditorSource source,
@@ -34,7 +35,8 @@ public sealed class CalendarEditors : ICalendarEditors
         IHookBus? hooks = null,
         IToastService? toasts = null,
         TimeProvider? time = null,
-        IPrefsStore? prefs = null)
+        IPrefsStore? prefs = null,
+        ICalendarParticipantIdentities? participantIdentities = null)
     {
         ArgumentNullException.ThrowIfNull(source);
         ArgumentNullException.ThrowIfNull(writer);
@@ -50,6 +52,7 @@ public sealed class CalendarEditors : ICalendarEditors
         _toasts = toasts;
         _time = time ?? TimeProvider.System;
         _prefs = prefs;
+        _participantIdentities = participantIdentities;
     }
 
     /// <summary>The card layer.</summary>
@@ -57,7 +60,7 @@ public sealed class CalendarEditors : ICalendarEditors
 
     private bool TwelveHour => _prefs is not null && CalendarSettings.Read(_prefs.Current).TwelveHour;
 
-    private EventEditorServices Services() => new(_source, _writer, _rules, _host, _availability, _contacts, _hooks, _toasts, _time, TwelveHour);
+    private EventEditorServices Services() => new(_source, _writer, _rules, _host, _availability, _contacts, _hooks, _toasts, _time, TwelveHour, _participantIdentities);
 
     public Task OpenQuickCreateAsync(NewEventRequest request, CancellationToken ct)
     {

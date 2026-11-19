@@ -1,7 +1,9 @@
 // M4 stream cal-ui acceptance: the editor's save builds the right EventForm for a new, a timed, an all-day, a recurring and a guest event; the dirty check; the scope flow for edit and delete; alert rows; Find a time (M4 plan 6.4).
 
 using System.Text.Json.Nodes;
+using Barbican.Core.Calendar;
 using Barbican.Core.Calendar.Editing;
+using Barbican.Core.Common;
 using Barbican.Core.Calendar.Recurrence;
 using Barbican.Presentation.Calendar.Editors;
 
@@ -24,6 +26,45 @@ public sealed class EventEditorViewModelTests
          "calendarIds":{"work":true},"recurrenceRules":[{"@type":"RecurrenceRule","frequency":"daily"}],"useDefaultAlerts":false,
          "alerts":{"a1":{"trigger":{"offset":"-PT15M"}}}}
         """)!;
+
+    private sealed class ParticipantSource : ICalendarParticipantIdentities
+    {
+        public TaskCompletionSource<Result<IReadOnlyList<CalendarParticipantIdentity>>> Answer { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+#pragma warning disable VSTHRD003 // the test completes this controlled task asynchronously
+        public Task<Result<IReadOnlyList<CalendarParticipantIdentity>>> ListAsync(string accountKey, CancellationToken ct) => Answer.Task;
+#pragma warning restore VSTHRD003
+        public Task<Result<Unit>> SetDefaultAsync(string accountKey, string id, CancellationToken ct) => throw new NotSupportedException();
+    }
+
+    [Fact]
+    public async Task New_invitation_uses_the_accounts_default_calendar_identity()
+    {
+        var identities = new ParticipantSource();
+        identities.Answer.SetResult(Result<IReadOnlyList<CalendarParticipantIdentity>>.Ok([new("one", "Other", "mailto:organizer@example.org", true)]));
+        var e = new EventEditorViewModel(new EventEditorServices(_source, _writer, _rules, _questions, ParticipantIdentities: identities));
+        e.OpenNew(new NewEventRequest(Dt("2026-11-20T10:00:00"), Dt("2026-11-20T11:00:00"), false));
+        e.GuestInput = "guest@example.org";
+        Assert.True(e.CommitGuest());
+        Assert.True(await e.SaveAsync(CancellationToken.None));
+        Assert.Equal("organizer@example.org", _rules.LastForm!.Me[0]);
+        Assert.Equal(new CalendarPerson("Other", "organizer@example.org"), _rules.LastForm.PreferredOrganizer);
+    }
+
+    [Fact]
+    public async Task Switching_account_during_identity_lookup_does_not_save_to_old_account()
+    {
+        var identities = new ParticipantSource();
+        var e = new EventEditorViewModel(new EventEditorServices(_source, _writer, _rules, _questions, ParticipantIdentities: identities));
+        e.OpenNew(new NewEventRequest(Dt("2026-11-20T10:00:00"), Dt("2026-11-20T11:00:00"), false));
+        e.GuestInput = "guest@example.org";
+        Assert.True(e.CommitGuest());
+        var save = e.SaveAsync(CancellationToken.None);
+        _source.AccountKey = "other";
+        _source.AccountKey = "acct";
+        identities.Answer.SetResult(Result<IReadOnlyList<CalendarParticipantIdentity>>.Ok([]));
+        Assert.False(await save);
+        Assert.Empty(_writer.Saves);
+    }
 
     [Fact]
     public async Task A_new_timed_event_builds_the_form_and_writes_a_create()

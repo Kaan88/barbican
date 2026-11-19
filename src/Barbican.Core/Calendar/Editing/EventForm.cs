@@ -55,6 +55,9 @@ public sealed record EventForm
     /// <summary>0 public, 1 private, 2 secret; null leaves it as it is.</summary>
     public int? Privacy { get; init; }
 
+    /// <summary>The selected calendar organizer for a new invitation, when available.</summary>
+    public CalendarPerson? PreferredOrganizer { get; init; }
+
     /// <summary>The user's own addresses, lower case.</summary>
     public IReadOnlyList<string> Me { get; init; } = [];
 }

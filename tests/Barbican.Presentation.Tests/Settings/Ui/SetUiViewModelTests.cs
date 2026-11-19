@@ -110,6 +110,65 @@ public sealed class SetUiViewModelTests
     }
 
     [Fact]
+    public async Task Working_days_keep_concurrent_changes_and_refuse_an_empty_selection()
+    {
+        var vm = Create();
+        await Task.WhenAll(vm.SetWorkingDayAsync(0, true, Ct), vm.SetWorkingDayAsync(1, false, Ct));
+        var days = Assert.IsType<JsonArray>(vm.ValueOf("calendarWorkingDays"));
+        Assert.Equal("0,2,3,4,5", string.Join(',', days.Select(x => (int)x!)));
+        foreach (var day in new[] { 0, 2, 3, 4, 5 }) { await vm.SetWorkingDayAsync(day, false, Ct); }
+        Assert.Equal("Choose at least one working day.", vm.LastError);
+        Assert.Single(Assert.IsType<JsonArray>(vm.ValueOf("calendarWorkingDays")));
+    }
+
+    [Fact]
+    public async Task Account_marker_selects_two_boolean_preferences()
+    {
+        var vm = Create();
+        var row = vm.RowsOf(SettingsPageIds.Appearance).Single(r => string.Equals(r.Row.Key, "tintListRowsByAccount", StringComparison.Ordinal));
+        Assert.Equal("dot", (string?)row.Value);
+        await vm.SetValueAsync(row.Row.Id, JsonValue.Create("tint"), Ct);
+        Assert.True((bool?)vm.ValueOf("tintListRowsByAccount"));
+        Assert.False((bool?)vm.ValueOf("showAccountDot"));
+        await vm.SetValueAsync(row.Row.Id, JsonValue.Create("none"), Ct);
+        Assert.False((bool?)vm.ValueOf("tintListRowsByAccount"));
+        Assert.False((bool?)vm.ValueOf("showAccountDot"));
+    }
+
+    [Fact]
+    public async Task Calendar_hours_keep_the_end_after_the_start()
+    {
+        var vm = Create();
+        await vm.SetCalendarHourAsync(true, 22, Ct);
+        Assert.Equal(22, (int?)vm.ValueOf("calendarDayStartHour"));
+        Assert.Equal(23, (int?)vm.ValueOf("calendarDayEndHour"));
+        await vm.SetCalendarHourAsync(false, 5, Ct);
+        Assert.Equal(4, (int?)vm.ValueOf("calendarDayStartHour"));
+        Assert.Equal(5, (int?)vm.ValueOf("calendarDayEndHour"));
+    }
+
+    [Fact]
+    public async Task Calendar_default_view_validates_keyless_choices()
+    {
+        var vm = Create();
+        await vm.SetValueAsync("S-keyless-049", JsonValue.Create("agenda"), Ct);
+        Assert.Equal("agenda", (string?)vm.ValueOf("calendarViewMode"));
+        await vm.SetValueAsync("S-keyless-049", JsonValue.Create("invalid"), Ct);
+        Assert.NotEmpty(vm.LastError);
+        Assert.Equal("agenda", (string?)vm.ValueOf("calendarViewMode"));
+    }
+
+    [Fact]
+    public async Task Order_scope_toggle_stores_a_scope_string()
+    {
+        var vm = Create();
+        await vm.SetValueAsync("S-messageListOrderScope", JsonValue.Create(true), Ct);
+        Assert.Equal("all", (string?)vm.ValueOf("messageListOrderScope"));
+        await vm.SetValueAsync("S-messageListOrderScope", JsonValue.Create(false), Ct);
+        Assert.Equal("inbox", (string?)vm.ValueOf("messageListOrderScope"));
+    }
+
+    [Fact]
     public void Search_finds_rows_by_label_and_clears()
     {
         var vm = Create();

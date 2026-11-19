@@ -36,7 +36,7 @@ public static partial class EventEditor
         var changed = ev is not null && Changed(form, ev, occurrence, start, duration, rules);
         if (form.Organizer)
         {
-            foreach (var (k, v) in ParticipantFields(ev, form.Attendees, form.Me, changed))
+            foreach (var (k, v) in ParticipantFields(ev, form.Attendees, form.Me, changed, form.PreferredOrganizer))
             {
                 d[k] = v?.DeepClone();
             }
