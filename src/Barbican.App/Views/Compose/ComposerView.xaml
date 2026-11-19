@@ -19,6 +19,7 @@
               <ColumnDefinition Width="*" />
               <ColumnDefinition Width="Auto" />
               <ColumnDefinition Width="Auto" />
+              <ColumnDefinition Width="Auto" />
             </Grid.ColumnDefinitions>
             <TextBlock x:Name="TitleText" Text="New message" FontSize="17" FontWeight="Bold" Foreground="{StaticResource Text}" VerticalAlignment="Center" AutomationProperties.AutomationId="composer.title" />
             <Button x:Name="DiscardButton" Grid.Column="1" Style="{StaticResource Button.Icon}" Width="32" Height="32" CornerRadius="16" Click="OnDiscardClick" AutomationProperties.AutomationId="composer.discard" AutomationProperties.Name="Discard draft">
@@ -29,7 +30,11 @@
                     AutomationProperties.AutomationId="composer.maximize" AutomationProperties.Name="Maximize composer">
               <FontIcon x:Name="MaximizeGlyph" Glyph="&#xE740;" FontSize="16" />
             </Button>
-            <Button x:Name="CloseButton" Grid.Column="2" Style="{StaticResource Button.Icon}" Width="32" Height="32" CornerRadius="16" Click="OnCloseClick" AutomationProperties.AutomationId="composer.close" AutomationProperties.Name="Close">
+            <Button x:Name="WindowButton" Grid.Column="2" Visibility="Collapsed" Style="{StaticResource Button.Icon}"
+                    Width="32" Height="32" Padding="0" Click="OnWindowClick" AutomationProperties.AutomationId="composer.window" AutomationProperties.Name="Open in a new window">
+              <FontIcon x:Name="WindowGlyph" Glyph="&#xE8A7;" FontSize="16" />
+            </Button>
+            <Button x:Name="CloseButton" Grid.Column="3" Style="{StaticResource Button.Icon}" Width="32" Height="32" CornerRadius="16" Click="OnCloseClick" AutomationProperties.AutomationId="composer.close" AutomationProperties.Name="Close">
               <controls:SIcon Kind="Close" Size="16" />
             </Button>
           </Grid>

@@ -9,6 +9,8 @@ namespace Barbican.App.Shell;
 /// <summary>Keeps the window alive until debounced preference writes have reached disk.</summary>
 public sealed class WindowCloseController(IPrefsEditor prefs, IDispatcher dispatcher, IToastService? toasts = null)
 {
+    internal Func<Task<bool>>? BeforeClose { get; set; }
+
     private bool _closing;
 #if WINDOWS
     private bool _approved;
@@ -41,6 +43,12 @@ public sealed class WindowCloseController(IPrefsEditor prefs, IDispatcher dispat
         Trace("flush start");
         try
         {
+            if (BeforeClose is not null && !await BeforeClose().ConfigureAwait(true))
+            {
+                _closing = false;
+                return;
+            }
+
             await prefs.FlushAsync(CancellationToken.None).ConfigureAwait(false);
             Trace("flush complete");
             // A synchronous UI post must own Close: do not await a UI continuation after it tears down the dispatcher.

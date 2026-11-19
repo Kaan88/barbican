@@ -1986,3 +1986,10 @@ The provisional `PluginValue` storage seam needs source-compatible `JSON.stringi
 
 - Review the independent body lifetime and unified owner routing in ConversationCardView, MessageLoader and ReaderViewModel. The selected message retains its original body shell. Secondary bodies use separate restricted shells, with external content blocked.
 - ConversationPrintDialog renders one card as text for printing. Hidden Windows sample verification stops at its preview. Shared-account replies need shared compose support. Card-specific Reply all, Forward, attachments, read marking and plugin body transformations remain open.
+### M6b Windows composer window (Codex)
+
+- Review the native close guard and single-view transfer in
+  `src/Barbican.App/Shell/ShellPage.ComposerWindow.cs` and
+  `src/Barbican.App/Shell/WindowCloseController.cs`. The repeatable synthetic
+  scenario is `tools/check-composer-window.py`. Normal interactive window
+  placement and the OS file picker await hands-on review.

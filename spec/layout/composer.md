@@ -63,3 +63,11 @@ Source: `ui/app.slint` 3205-3860 (inline composer replacing the reader pane), `u
 |---|---|---|
 | Schedule send | width `min(400, parent - 32)`, radius 24, 1 px border, padding 20, gap 12; icon tile 36 x 36 radius 12; preset rows 40 high radius 12, padding 12 | compose-extras.slint:102-144 |
 | Scheduled bar | height 52; inner 40 high radius 14, inset 12 | compose-extras.slint:189-198 |
+
+## Windows composer window
+
+In Bulwark mode the title bar offers Open in a new window and Return to main window
+(`components/email/email-composer.tsx:5121-5131`). Moving the existing view preserves the
+draft, editor undo history, recipient input and attachments. A detached draft uses the same
+save, discard and cancel choices when either native window closes. Verify on a synthetic
+private desktop with `python tools/check-composer-window.py PORT`.

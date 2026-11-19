@@ -44,6 +44,26 @@ public sealed partial class ComposerView : UserControl
 
     public event EventHandler? MaximizeRequested;
 
+    internal event EventHandler? WindowRequested;
+#if AUTOMATION && WINDOWS
+    internal bool IsConfirmationVisible => _vm?.Dialog is not null && CardLayer.IsLoaded
+        && CardLayer.Visibility == Visibility.Visible && CardLayer.ActualHeight > 0;
+#endif
+    internal Window? DetachedWindow { get; private set; }
+    internal bool CanChangeWindow => !_pickingAttachments && _vm is { IsClosed: false, IsSending: false, Dialog: null, Schedule: null, Templates: null } && _card == CardKind.None;
+
+    private void OnWindowClick(object sender, RoutedEventArgs e) => WindowRequested?.Invoke(this, EventArgs.Empty);
+
+    internal void SetDetachedWindow(Window? window)
+    {
+        DetachedWindow = window;
+        string label = window is null ? "Open in a new window" : "Return to main window";
+        AutomationProperties.SetName(WindowButton, label);
+        Barbican.App.Motion.Tip.SetText(WindowButton, label);
+        WindowGlyph.Glyph = window is null ? "\uE8A7" : "\uE8BB";
+        ApplyComposerLayout();
+    }
+
     private bool _maximized;
 
     public void SetMaximized(bool maximized)
@@ -96,7 +116,10 @@ public sealed partial class ComposerView : UserControl
         TitleRow.BorderThickness = bulwark ? new Thickness(0, 0, 0, 1) : new Thickness(0);
         TitleText.FontSize = bulwark ? 16 : 17;
         TitleText.FontWeight = bulwark ? FontWeights.SemiBold : FontWeights.Bold;
-        MaximizeButton.Visibility = bulwark ? Visibility.Visible : Visibility.Collapsed;
+#if WINDOWS
+        WindowButton.Visibility = bulwark || DetachedWindow is not null ? Visibility.Visible : Visibility.Collapsed;
+#endif
+        MaximizeButton.Visibility = bulwark && DetachedWindow is null ? Visibility.Visible : Visibility.Collapsed;
         DiscardButton.Visibility = bulwark ? Visibility.Collapsed : Visibility.Visible;
         FooterDiscard.Visibility = bulwark ? Visibility.Visible : Visibility.Collapsed;
         ApplyFieldLayout(bulwark);
@@ -248,6 +271,7 @@ public sealed partial class ComposerView : UserControl
             return;
         }
 
+        WindowButton.IsEnabled = !vm.IsSending;
         CcBox.Visibility = vm.ShowCc ? Visibility.Visible : Visibility.Collapsed;
         BccBox.Visibility = vm.ShowBcc ? Visibility.Visible : Visibility.Collapsed;
         FromText.Text = vm.FromText;

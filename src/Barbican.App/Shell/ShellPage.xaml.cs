@@ -209,6 +209,10 @@ public sealed partial class ShellPage : Page
 
     private void WireFullscreen()
     {
+#if WINDOWS
+        ComposerRegion.SetDetachedWindow(null);
+        ComposerRegion.WindowRequested += (_, _) => ToggleComposerWindow();
+#endif
         ComposerRegion.MaximizeRequested += (_, _) =>
         {
             if (!_composing || !_look.IsBulwark) return;
@@ -242,7 +246,10 @@ public sealed partial class ShellPage : Page
     private void ApplyComposer()
     {
         var composer = _composer?.Current;
-        _composing = composer is not null;
+#if WINDOWS
+        if (_composerWindow is not null && !ReferenceEquals(_dockSession, composer)) ReturnComposer();
+#endif
+        _composing = composer is not null && ComposerRegion.DetachedWindow is null;
         if (!ReferenceEquals(_dockSession, composer))
         {
             _dockSession = composer;

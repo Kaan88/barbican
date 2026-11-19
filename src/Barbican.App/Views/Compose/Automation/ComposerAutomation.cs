@@ -15,6 +15,10 @@ namespace Barbican.App.Views.Compose.Automation;
 /// <summary>Registers the composer's automation commands (and, in a sample run, its in-memory pipeline).</summary>
 public static class ComposerAutomation
 {
+#if WINDOWS
+    internal static Func<string, string>? WindowAction { get; set; }
+#endif
+
     public static IServiceCollection AddBarbicanComposerAutomation(this IServiceCollection services)
     {
         ArgumentNullException.ThrowIfNull(services);
@@ -23,6 +27,10 @@ public static class ComposerAutomation
             SampleComposeServices.Register(services);
         }
 
+#if WINDOWS
+        Add(services, "compose-window", (_, args) => Task.FromResult(WindowAction?.Invoke(args.Trim()) ?? "error no shell"));
+#endif
+        Add(services, "compose-edit", (sp, args) => Task.FromResult(Edit(sp, args)));
         Add(services, "compose-open", ComposeOpenAsync);
         Add(services, "compose-state", (sp, _) => Task.FromResult(Describe(sp.GetRequiredService<IComposerService>())));
         Add(services, "compose-type", (sp, args) => Task.FromResult(Type(sp, args)));
@@ -38,6 +46,15 @@ public static class ComposerAutomation
         services.AddSingleton<IAutomationCommand>(sp => new LambdaAutomationCommand(name, args => run(sp, args)));
 
     private static ComposerViewModel? Current(IServiceProvider sp) => sp.GetRequiredService<IComposerService>().Current;
+
+    private static string Edit(IServiceProvider sp, string args)
+    {
+        if (Current(sp)?.Editor is not { } editor) return "error no editor";
+        if (args is "undo") return editor.Session.Undo() ? "ok" : "empty";
+        if (!args.StartsWith("insert ", StringComparison.Ordinal)) return "error expected insert TEXT or undo";
+        editor.Session.InsertText(args[7..]);
+        return "ok";
+    }
 
     private static string Text(string raw) => raw.Replace("\\n", "\n", StringComparison.Ordinal);
 

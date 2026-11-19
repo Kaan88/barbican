@@ -11,6 +11,8 @@ namespace Barbican.App.Views.Compose;
 #pragma warning disable VSTHRD100 // XAML event handlers return void; a failed attach reports itself with a toast
 public sealed partial class ComposerView
 {
+    private bool _pickingAttachments;
+
     private void OnDragOver(object sender, DragEventArgs e)
     {
         if (_vm is null || !e.DataView.Contains(StandardDataFormats.StorageItems))
@@ -48,13 +50,14 @@ public sealed partial class ComposerView
     /// <summary>The Attach button: the system file picker (never opened by an automation run, which attaches through the compose-attach command).</summary>
     private async void OnAttachClick(object sender, RoutedEventArgs e)
     {
-        if (_vm is null || ActiveWindow.Current is not { } window)
+        if (_pickingAttachments || _vm is null || (DetachedWindow ?? ActiveWindow.Current) is not { } window)
         {
             return;
         }
 
         try
         {
+            _pickingAttachments = true;
             var picker = new FileOpenPicker { SuggestedStartLocation = PickerLocationId.DocumentsLibrary };
             picker.FileTypeFilter.Add("*");
 #if WINDOWS
@@ -69,6 +72,10 @@ public sealed partial class ComposerView
         catch (Exception ex) when (ex is InvalidOperationException or NotSupportedException or System.Runtime.InteropServices.COMException)
         {
             // no picker (a bare X11 without a portal): nothing was chosen
+        }
+        finally
+        {
+            _pickingAttachments = false;
         }
     }
 
