@@ -3,7 +3,7 @@
 The plan and the full scope of each milestone: [PORT-PLAN.md](PORT-PLAN.md) §5. Decisions that
 change the plan: [adr/](adr/). The Rust-era roadmap is in [legacy/ROADMAP.md](legacy/ROADMAP.md).
 
-Current execution order: **M6 -> M6b -> M7 -> M8 -> M10**. The user directed Codex to stop after finishing M10; M9 (Linux) and the final Astra whole-app review remain outside this run. Historical hand-test gates below do not pause implementation. See [PROGRESS.md](PROGRESS.md) for evidence and carryovers.
+Current execution order: **M6 -> M6b -> M7 -> M8 -> M10 -> Astra review/fix loop -> UI walkthrough and usability fixes**. The user requests everything in the roadmap except M9 (Linux), with implementation followed by fixes until Astra is satisfied, then a look/feel/usability walkthrough. Historical hand-test gates below do not pause implementation. See [PROGRESS.md](PROGRESS.md) for evidence and carryovers.
 
 | Milestone | Scope (short) | Status |
 |---|---|---|
@@ -17,7 +17,7 @@ Current execution order: **M6 -> M6b -> M7 -> M8 -> M10**. The user directed Cod
 | M6b | Full plugin platform, sandbox, permissions, consent and Add-ons | Next; source inventory/planning preparation underway |
 | M7 | Admin dashboard and management | Planned |
 | M8 | Windows desktop integration and distribution | Planned |
-| M10 | Parity sweep, UI polish and release readiness | Planned; finish then stop this run |
+| M10 | Parity sweep, UI polish and release readiness | Planned; followed by Astra fixes and a UI walkthrough |
 | M9 | Linux | Deferred until after this run |
 
 UI work follows [Bento Balanced, Nordic Focus and Studio](../design/UI-GUIDELINES.md), including modern WinUI 3 materials, depth and responsive motion with platform/accessibility fallbacks. Atlas remains exploratory. No merge to `main`, tags, OS changes or release publication is implied by the roadmap.
