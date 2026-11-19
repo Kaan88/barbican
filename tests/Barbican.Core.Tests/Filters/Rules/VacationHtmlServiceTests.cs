@@ -1,5 +1,3 @@
-using Barbican.Core.Settings.Vacation;
-
 namespace Barbican.Core.Tests.Filters.Rules;
 
 public sealed class VacationHtmlServiceTests
