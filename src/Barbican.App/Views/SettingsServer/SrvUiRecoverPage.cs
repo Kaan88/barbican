@@ -43,6 +43,7 @@ internal sealed class SrvUiRecoverPage : SrvUiPage
         foreach (var item in _model.Items)
         {
             var id = item.Id;
+            var generation = _model.AccountGeneration;
             var label = new StackPanel { Spacing = 1 };
             label.Children.Add(SrvUiKit.Strong(item.Subject.Length == 0 ? "(no subject)" : item.Subject));
             label.Children.Add(SrvUiKit.Dim(item.ArchivedAt is { } at ? "Deleted " + at.ToString("yyyy-MM-dd HH:mm", CultureInfo.InvariantCulture) : "Deleted"));
@@ -50,7 +51,7 @@ internal sealed class SrvUiRecoverPage : SrvUiPage
             grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
             grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
             grid.Children.Add(label);
-            var restore = SrvUiKit.Small("Restore", "srv.recover.restore." + id, () => SrvUiKit.Run(() => _model.RestoreAsync(id, CancellationToken.None)));
+            var restore = SrvUiKit.Small("Restore", "srv.recover.restore." + id, () => SrvUiKit.Run(() => _model.RestoreAsync(id, generation, CancellationToken.None)));
             Grid.SetColumn(restore, 1);
             grid.Children.Add(restore);
             Body.Children.Add(SrvUiKit.Card(grid, "srv.recover.row." + id));

@@ -13,6 +13,7 @@ public sealed class SrvUiFilterEditorModel
     private readonly JsonNode? _base;
     private readonly string _account;
     private readonly string? _state;
+    private readonly long _accountGeneration;
     private readonly List<FilterCond> _conds = [];
     private readonly List<FilterAct> _acts = [];
 
@@ -23,6 +24,7 @@ public sealed class SrvUiFilterEditorModel
         _base = existing;
         _account = page.StateAccountKey ?? string.Empty;
         _state = page.State?.State;
+        _accountGeneration = page.AccountGeneration;
         Heading = existing is null ? "New rule" : "Edit rule";
         Folders = page.Folders;
         Extensions = page.State?.Extensions ?? [];
@@ -186,7 +188,7 @@ public sealed class SrvUiFilterEditorModel
             return;
         }
 
-        var saved = await _page.UpsertAsync(built.Rule, _account, _state, ct).ConfigureAwait(true);
+        var saved = await _page.UpsertAsync(built.Rule, _account, _state, _accountGeneration, ct).ConfigureAwait(true);
         Saving = false;
         if (!saved)
         {

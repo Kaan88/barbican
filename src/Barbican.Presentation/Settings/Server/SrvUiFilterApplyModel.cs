@@ -11,6 +11,8 @@ public sealed class SrvUiFilterApplyModel
 {
     private readonly ISrvUiFiltersViewModel _page;
     private readonly JsonNode _rule;
+    private readonly string _account;
+    private readonly long _accountGeneration;
     private FilterScan? _scan;
     private long _generation;
     private bool _open = true;
@@ -21,6 +23,8 @@ public sealed class SrvUiFilterApplyModel
         ArgumentNullException.ThrowIfNull(rule);
         _page = page;
         _rule = rule;
+        _account = page.StateAccountKey ?? string.Empty;
+        _accountGeneration = page.AccountGeneration;
         RuleName = SrvUiFilterBridge.Str(rule, "name");
     }
 
@@ -49,9 +53,11 @@ public sealed class SrvUiFilterApplyModel
 
         var run = ++_generation;
         Set(SrvUiApplyPhase.Scanning, "Looking through the Inbox...");
-        var result = await _page.ScanAsync(_rule, run, ct).ConfigureAwait(true);
-        if (!_open || run != _generation)
+        var result = await _page.ScanAsync(_rule, run, _account, _accountGeneration, ct).ConfigureAwait(true);
+        if (!_open || run != _generation) return;
+        if (!_page.IsCurrentGeneration(_accountGeneration))
         {
+            Set(SrvUiApplyPhase.Failed, "The account changed. Close this dialog and scan again.");
             return;
         }
 
@@ -85,9 +91,11 @@ public sealed class SrvUiFilterApplyModel
         }
 
         Set(SrvUiApplyPhase.Applying, "Applying...");
-        var result = await _page.ApplyAsync(_scan, ct).ConfigureAwait(true);
-        if (!_open)
+        var result = await _page.ApplyAsync(_scan, _account, _accountGeneration, ct).ConfigureAwait(true);
+        if (!_open) return;
+        if (!_page.IsCurrentGeneration(_accountGeneration))
         {
+            Set(SrvUiApplyPhase.Failed, "The account changed. The operation may have completed on the original account; refresh before retrying.");
             return;
         }
 

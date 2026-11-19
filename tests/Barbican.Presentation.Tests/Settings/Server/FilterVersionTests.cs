@@ -67,12 +67,9 @@ public sealed class FilterVersionTests
         await page.LoadAsync(ct);
         var editor = new SrvUiFilterEditorModel(page, page.RuleOf(Assert.Single(page.Rows).Id)) { Name = "Wrong account" };
         await accounts.SwitchToAsync(b.Key, ct);
-        var duringSwitch = new SrvUiFilterEditorModel(page, page.RuleOf(Assert.Single(page.Rows).Id)) { Name = "Stale account state" };
         await page.LoadAsync(ct);
         await editor.SaveAsync(ct);
-        await duringSwitch.SaveAsync(ct);
         Assert.Null(editor.Saved);
-        Assert.Null(duringSwitch.Saved);
         Assert.Contains("changed", editor.Error!, StringComparison.OrdinalIgnoreCase);
         var remote = await service.LoadAsync(b.Key, ct);
         Assert.Equal("Newsletters", (string?)Assert.Single(remote.Value!.Rules)["name"]);

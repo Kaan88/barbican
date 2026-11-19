@@ -23,4 +23,3 @@ public interface ISrvUiFolderSource
     /// <summary>The folders changed (raised on any thread).</summary>
     event EventHandler? Changed;
 }
-
