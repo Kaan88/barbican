@@ -3,7 +3,19 @@
        mode decision (AUTOMATION and smoke runs are never shown normally), the line protocol, the popup
        guard's policy, the smoke report, and the XAML lint (every popup constrained to the window).
        The UI-free source files are compiled in from the App and the Automation project. -->
+  <PropertyGroup><DefineConstants>$(DefineConstants);AUTOMATION_WRITES</DefineConstants></PropertyGroup>
   <ItemGroup>
+    <Compile Include="../../src/Barbican.App/MailBody/Automation/CapturedFilterAccount.cs" Link="Linked/CapturedFilterAccount.cs" />
+    <Compile Include="../../src/Barbican.App/MailBody/Automation/WriteTestGuard.cs" Link="Linked/WriteTestGuard.cs" />
+    <Compile Include="../../src/Barbican.App/MailBody/Automation/FilterVerificationBackend.cs" Link="Linked/FilterVerificationBackend.cs" />
+    <Compile Include="../../src/Barbican.App/MailBody/Automation/FilterVerificationBackend.Operations.cs" Link="Linked/FilterVerificationBackend.Operations.cs" />
+    <Compile Include="../../src/Barbican.App/MailBody/Automation/FilterRecoveryJournal.cs" Link="Linked/FilterRecoveryJournal.cs" />
+    <Compile Include="../../src/Barbican.App/MailBody/Automation/IFilterWriteBackend.cs" Link="Linked/IFilterWriteBackend.cs" />
+    <Compile Include="../../src/Barbican.App/MailBody/Automation/FilterWriteSnapshot.cs" Link="Linked/FilterWriteSnapshot.cs" />
+    <Compile Include="../../src/Barbican.App/MailBody/Automation/FilterWriteRecord.cs" Link="Linked/FilterWriteRecord.cs" />
+    <Compile Include="../../src/Barbican.App/MailBody/Automation/FilterWriteOutcome.cs" Link="Linked/FilterWriteOutcome.cs" />
+    <Compile Include="../../src/Barbican.App/MailBody/Automation/FilterWriteRun.cs" Link="Linked/FilterWriteRun.cs" />
+    <Compile Include="../../src/Barbican.App/MailBody/Automation/FilterWriteSafety.cs" Link="Linked/FilterWriteSafety.cs" />
     <Compile Include="../../src/Barbican.App/Composition/HiddenWindowMode.cs" Link="Linked/HiddenWindowMode.cs" />
     <Compile Include="../../src/Barbican.App/Composition/HiddenWindowOptions.cs" Link="Linked/HiddenWindowOptions.cs" />
     <Compile Include="../../src/Barbican.App/Composition/SmokeReport.cs" Link="Linked/SmokeReport.cs" />
@@ -12,5 +24,7 @@
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="../../src/Barbican.Core/Barbican.Core.csproj" />
+    <ProjectReference Include="../../src/Barbican.Platform/Barbican.Platform.csproj" />
+    <ProjectReference Include="../Barbican.FakeJmap/Barbican.FakeJmap.csproj" />
   </ItemGroup>
 </Project>
