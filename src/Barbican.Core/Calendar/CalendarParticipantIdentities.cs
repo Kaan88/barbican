@@ -62,4 +62,3 @@ public sealed class CalendarParticipantIdentities(IAccountManager accounts) : IC
         return r.IsOk ? r.Value!.Args("p", method) : Result<JsonObject>.Fail(r.Error!);
     }
 }
-

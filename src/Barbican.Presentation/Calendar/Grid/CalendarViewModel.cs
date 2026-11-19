@@ -663,7 +663,9 @@ public sealed class CalendarViewModel : ObservableObject, ICalendarViewModel, ID
     {
         try
         {
+#pragma warning disable VSTHRD003 // previous is this view model's own write queue, awaited off the UI context
             await previous.ConfigureAwait(false);
+#pragma warning restore VSTHRD003
             var result = await _settingValues!.SetAsync("calendarViewMode", JsonValue.Create(ViewName(view)), CancellationToken.None).ConfigureAwait(false);
             if (!result.IsOk)
             {
