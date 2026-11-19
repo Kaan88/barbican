@@ -1,6 +1,6 @@
 # M7 - Admin and organization policy implementation plan
 
-Status: preparation only. M7 starts after M6 and M6b; this document neither marks either milestone complete nor authorizes an admin request. The active goal is the full roadmap except Linux M9, followed by the Astra review/fix loop and UI walkthrough. Follow CLAUDE.md, CODEX-HANDOFF.md, PORT-PLAN sections 3.11 and M7, ADR 0007 and the approved UI guidelines. Linux verification stays deferred to M9, not silently counted as passed.
+Status: preparation only. M7 starts after M6 and M6b; this document neither marks either milestone complete nor authorizes an admin request. The roadmap scope excludes Linux M9, requires Astra review and fixes until explicit approval at each major milestone, and ends with a UI walkthrough. Follow CLAUDE.md, CODEX-HANDOFF.md, PORT-PLAN sections 3.11 and M7, ADR 0007 and the approved UI guidelines. Linux verification stays deferred to M9, not silently counted as passed.
 
 ## Scope and reference boundaries
 

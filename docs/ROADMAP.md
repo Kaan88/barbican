@@ -3,7 +3,7 @@
 The plan and the full scope of each milestone: [PORT-PLAN.md](PORT-PLAN.md) §5. Decisions that
 change the plan: [adr/](adr/). The Rust-era roadmap is in [legacy/ROADMAP.md](legacy/ROADMAP.md).
 
-Current execution order: **M6 -> M6b -> M7 -> M8 -> M10 -> Astra review/fix loop -> UI walkthrough and usability fixes**. The user requests everything in the roadmap except M9 (Linux), with implementation followed by fixes until Astra is satisfied, then a look/feel/usability walkthrough. Historical hand-test gates below do not pause implementation. See [PROGRESS.md](PROGRESS.md) for evidence and carryovers.
+Current execution order: **M6 -> M6b -> M7 -> M8 -> M10 -> UI walkthrough and usability fixes**. M6's Windows portable was already delivered. Every major milestone requires an Astra review/fix cycle until Astra explicitly approves. M9 (Linux) is excluded. Historical hand-test gates below do not override the Astra gate. See [PROGRESS.md](PROGRESS.md) for evidence and carryovers.
 
 | Milestone | Scope (short) | Status |
 |---|---|---|

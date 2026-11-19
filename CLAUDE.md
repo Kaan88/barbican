@@ -9,12 +9,21 @@ AGENTS.md points here; this file is the single source of the rules.
 
 ## Codex continuation (2026-11-19)
 
-Codex agents must also read [docs/CODEX-HANDOFF.md](docs/CODEX-HANDOFF.md).
-It carries the user's takeover instructions: Terra for former Sonnet assignments,
-Luna for former Haiku assignments, explicit reasoning settings, current agent
-limits, the four M6 pause checkpoints, and the resume prompt. Apply its
-Codex-specific model and attribution instructions when older plans name Claude
-models; all safety, privacy, build and account rules below remain in force.
+Codex agents must also read [docs/CODEX-HANDOFF.md](docs/CODEX-HANDOFF.md) for
+checkpoint, resume and attribution instructions.
+
+## Standing delegation and milestone review
+
+- Use Luna for simple work and Terra for routine implementation. Sol implements risky
+  or unusually large jobs directly and checks delegated code before integrating it.
+- Spawn as many agents as practical for independent work, within tool, agent and
+  build limits. This policy supersedes older model assignments in plans and logs.
+- Use DeepSeek Flash when it better suits the task or when the preferred model's
+  agent capacity is exhausted and another slot is permitted. Never bypass a hard
+  cap or use DeepSeek Flash as a substitute for Astra.
+- Every major milestone requires Astra review. Fix findings and repeat the review
+  until Astra explicitly approves the final revision. If Astra is unavailable,
+  the gate stays open; no other reviewer or passing test suite substitutes for it.
 
 ## UI direction approved by the user (2026-11-19)
 
@@ -157,8 +166,8 @@ Where things go:
   (DLLs, images) by hand, for example for home paths compiled into them.
 - Screenshots in the repo show sample data only (FakeJmap or fixtures), never a real mailbox.
 
-## Fable review log
-`docs/FABLE-REVIEW.md` lists what a later reviewer model (Fable) must look at. Every agent appends,
+## Astra review log
+`docs/FABLE-REVIEW.md` (historical filename) records material for Astra's mandatory milestone reviews. Every agent appends,
 in its own branch, under a heading with its stream name, one bullet per item: what to review, why
 (risk, judgement call, uncertainty, deviation from Bulwark/RFC/plan, security, privacy, anything
 verified only partially), and exact paths and commits. Add items as you go, not only at the end.

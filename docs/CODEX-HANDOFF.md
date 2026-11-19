@@ -4,13 +4,18 @@ Updated 2026-11-19. Read this with [CLAUDE.md](../CLAUDE.md),
 [PROGRESS.md](PROGRESS.md), and [the M6 plan](milestones/M6-plan.md).
 This is the Codex-specific continuation of the user's Claude handoff.
 
-## Current pause (2026-11-19)
+## Previous pause and explicit resume (2026-11-19)
 
-The user explicitly paused again and requested progress, commit and push after a resumed interval. Do not resume implementation or tests until instructed. The integration source remains 5b2f33e; this pause also saves the tested exact-content public-license privacy guard. Latest worker checkpoints are A c3982dc, B f37b0b5 and C 6367077. See the top of PROGRESS.md for test evidence, unfinished drafts and next steps; worker checkpoints are not integrated or production verification. M6 portable is delivered; M6b and later milestones, final Astra review and hidden UI walkthrough remain unfinished.
+The user explicitly resumed M6b after the checkpoint below. See the top of
+PROGRESS.md for new work and verification limits. The pre-resume worker checkpoints
+are A c3982dc, B f37b0b5 and C 6367077. M6 portable is delivered; M6b and later
+milestones, their Astra reviews and the hidden UI walkthrough remain unfinished.
 
 ## Continue elsewhere: authoritative checkpoint
 
-This is a saved handoff, not an instruction to restart work in the old chat. The user cleared the app goal after pausing and then requested this commit/push and handoff. Resume implementation only when instructed in the receiving chat. Historical goals below describe the requested scope; do not assume an app goal object still exists or recreate one without an explicit request.
+This section records the pre-resume checkpoint. The user cleared the app goal
+after pausing and then requested the commit/push and handoff. Do not assume an
+app goal object exists or recreate one without an explicit request.
 
 Open the **C# Barbican repository**, not the Rust reference checkout. Integration branch is `codex/m6b`, saved coordinator checkpoint `ad7fd97` plus this documentation commit. All three worker heads below were checked against their configured upstreams and all four worktrees were clean before this handoff edit. Worker drafts are deliberately separate from reviewed integration code.
 
@@ -40,7 +45,7 @@ D UI/slots remains queued. Reuse these worktrees; inspect status and current ref
 4. **Resolve native launch/revocation coordination before execution.** B's proposed consented loader must reload exact installed verified resources and live grants, then coordinate a host-owned atomic launch barrier with revocation. Consent is explicit full trust; AssemblyLoadContext is not a sandbox. Inert `native-plugin.json` discovery must not load DLLs or invoke module initializers, constructors or Manifest getters. Add real positive sentinel execution only after consent plus mismatch, race and dependency-containment tests using synthetic fixtures.
 5. **Review package/store safety.** Preserve invalidation even if durable writes fail, cleanup outside manager gates, generation-bound staged reviews, no silent privileged downgrade, matching held profile-root leases and exact authenticated readback. The file/secret two-resource store deliberately fails closed after interrupted commits and needs a recovery design. Ambiguous storage commits must map to UnknownOutcome rather than invite blind retries.
 6. **Complete C and D with actual host adapters.** Preview/print presenters must recheck invocation lifetime and aggregate account policy on the UI thread at issue time. Existing mail sanitizer permits styles/remote images/links and cannot alone secure HTML printing. Finish per-hook projection/selector/result validation and native/JS conversion. Change synchronous slot mutation contracts to accommodate async authority before implementing native mounts. Coordinate shared seams before workers edit them.
-7. **Finish the full contract and roadmap.** M6b requires 186 API methods (17 privileged), 218 hooks/27 groups and 58 slots (39 frame/16 action/3 data), with real adapters/mounts rather than catalogue counts or generic Unsupported responses. Then M7 -> M8 -> M10 -> final Astra review/fix until satisfied -> hidden UI/usability walkthrough. M9/Linux is excluded. No separate milestone reviewer agents before the final Astra pass.
+7. **Finish the full contract and roadmap.** M6b requires 186 API methods (17 privileged), 218 hooks/27 groups and 58 slots (39 frame/16 action/3 data), with real adapters/mounts rather than catalogue counts or generic Unsupported responses. Then M7 -> M8 -> M10, followed by the hidden UI/usability walkthrough. Each major milestone requires an Astra review/fix cycle until explicit approval. M9/Linux is excluded.
 
 ### Compatibility and authority reminders
 
@@ -48,7 +53,7 @@ Structured-clone PluginValue graphs preserve aliases/cycles and binary types; se
 
 Keep `http.fetch` (declared-origin HTTPS, no ambient credentials, redirect and actual-connect IP checks) separate from authenticated Bulwark `http.post` sidecar `/api/` operations. Do not expose host credentials or invent Stalwart endpoints. Keystore operations require user presence and never export private keys. Preserve UnknownOutcome after an issued mutation whose result cannot be established.
 
-The user explicitly authorized milestone pushes to **https://github.com/Kaan88/barbican**. Push every commit immediately after privacy checks, using ordinary branch pushes. That does not authorize main merges, tags, GitHub Releases, force-pushes beyond already completed specifically approved sanitation, or OS changes. Use Codex attribution in `docs/FABLE-REVIEW.md`; Astra is the eventual reviewer despite the historical filename.
+The user explicitly authorized milestone pushes to **https://github.com/Kaan88/barbican**. Push every commit immediately after privacy checks, using ordinary branch pushes. That does not authorize main merges, tags, GitHub Releases, force-pushes beyond already completed specifically approved sanitation, or OS changes. Use Codex attribution in `docs/FABLE-REVIEW.md`; Astra is the milestone reviewer despite the historical filename.
 
 ## Selected UI guidelines (2026-11-19)
 
@@ -80,33 +85,13 @@ handoff is recorded in PROGRESS.md at `9719835` on `m6`.
 
 ## Agent policy approved by the user
 
-Keep the plan -> independent streams -> coordinator merge/test -> close-pass
-workflow. The user explicitly authorizes delegation for continuing the project.
-For Codex, replace old Sonnet assignments with **GPT-6.1 Terra** and old Haiku
-assignments with **GPT-6 Luna**. This is a work assignment policy, not a claim
-that Terra and Sonnet have equal capability.
-
-| Role | Model and effort | Work |
-|---|---|---|
-| Coordinator | Current parent model | Own the plan, resolve contracts and merge conflicts, verify integration and milestone exit criteria. |
-| Stream implementation and UI verification | `gpt-6.1-terra`, high | Resume one owned stream; split large tasks into verifiable steps. Use hidden app automation for UI work. |
-| Narrow helper | `gpt-6-luna`, high | Mechanical edits, targeted searches, bounded fixes, test/log triage, and documentation with clear acceptance criteria. |
-| Difficult cross-cutting issue | Parent first | Investigate and resolve or assign a stronger model only when necessary; do not silently switch routine workers to expensive models. |
-
-Terra's visual abilities never authorize real mouse, keyboard, focus, or screen
-control in this project. Hidden in-app automation remains mandatory.
-
-Pass model and reasoning effort explicitly when supported. This session previously
-omitted Luna from its spawn-tool list, but the user successfully spawned Luna High
-in another chat on 2026-11-19. Recheck the new chat's actual tool capabilities;
-do not conclude Luna is unavailable to the account from an old tool list. If an
-explicit model override needs a fresh subagent context, give it a complete brief
-with the relevant paths, ownership, rules, acceptance criteria, and pause state.
-
-Run only as many workers as the current session permits. The previous Codex chat
-allowed four agents total: coordinator plus three workers. With that limit, start
-three streams and queue the fourth for the next free slot; do not lose a stream
-or try to start all four simultaneously. Never exceed three concurrent builds.
+Follow the standing policy in [CLAUDE.md](../CLAUDE.md): Luna for simple work,
+Terra for routine implementation, Sol for risky or unusually large implementation,
+and Astra for mandatory major milestone review and explicit approval. Run as many
+independent agents as practical within current tool and repository limits; queue
+remaining streams. Never exceed three concurrent builds. Give each agent a complete
+brief with ownership, rules, acceptance criteria and pause state. Hidden in-app
+automation remains mandatory for UI work.
 
 ## Read before implementation
 
@@ -172,15 +157,14 @@ Use port 8929 and an isolated automation profile for integration checks.
 
 Choose reasonable defaults following Bulwark and record them in spec/decisions.md.
 Do not stop at each milestone for hand-test gates or routine questions. Record
-human-only checks as unproven. Maintain FABLE-REVIEW notes as work proceeds, but
-run no separate Fable reviews until the final whole-app review.
+human-only checks as unproven. Maintain FABLE-REVIEW notes as work proceeds.
 
 The recorded scope for continuation is **complete the roadmap except M9 (Linux)**: finish
-M6 -> M6b -> M7 -> M8 -> M10, then work with Astra to fix findings until Astra is
-satisfied, then perform a UI walkthrough and fix look, feel and usability issues.
-The fresh Windows portable after M6 is already delivered, as recorded above; the earlier preview is historical. Astra review is part of this
-run after implementation, not a separate review gate on every stream. Record its
-findings, fixes and explicit final disposition against current commits. The later UI
+M6 -> M6b -> M7 -> M8 -> M10, then perform a UI walkthrough and fix look, feel and
+usability issues. The fresh Windows portable after M6 is already delivered, as
+recorded above; the earlier preview is historical. For every major milestone,
+record Astra's findings, fixes and explicit approval against the final revision.
+The later UI
 walkthrough uses hidden native automation and synthetic data under the standing rules.
 Windows-only results must be identified as such; Linux is deferred, not passed. On pause, save and push work, stop only your own processes,
 clean test-account writes, and update PROGRESS.md with exact commits and next steps.
@@ -196,13 +180,15 @@ Use PROGRESS.md and the milestone reports for the full list and evidence.
 > docs/CODEX-HANDOFF.md (especially "Continue elsewhere"), docs/PROGRESS.md,
 > the local account rules, docs/PORT-PLAN.md and the M6b decisions/review notes.
 > Resume M6b using the existing runtime, packages and mediation worktrees and
-> their saved checkpoints; D UI/slots is queued. Use Terra High for stream work
-> and Luna High for narrow helpers where supported. Sol directly checks all
-> subagent code before integration. Respect three concurrent build slots,
+> their saved checkpoints; D UI/slots is queued. Use Luna for simple work, Terra
+> for routine implementation and Sol for risky or unusually large implementation.
+> Parallelize independent work within the limits; Sol checks all subagent code
+> before integration. Respect three concurrent build slots,
 > privacy/account rules and hidden-only UI automation. First resolve explicit
 > WebView environment isolation, queued-response account delivery fencing and
 > the native launch/revocation barrier. Finish M6b -> M7 -> M8 -> M10 (exclude
-> M9/Linux), then work with Astra until satisfied, then fix look, feel and
+> M9/Linux), with Astra review and fixes until explicit approval at every major
+> milestone. Then fix look, feel and
 > usability through a hidden UI walkthrough. Use Bento Balanced, Nordic Focus
 > with togglable context panel, and Studio as UI guidelines. Push milestone
 > commits to Kaan88/barbican as already authorized. M6 portable is already

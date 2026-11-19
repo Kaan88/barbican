@@ -38,7 +38,7 @@ The shared protocol must include:
 - Slot definitions with executable permission-aware prop/field projection, action/data/frame contribution models, callbacks and safe disposal. Unknown slot/props fail closed.
 - Package manager, consent store, runtime, API dispatcher, slot registry and presentation seams; production composition and test fakes. Platform resources/profile/origin adapters must not depend on Presentation from Core.
 
-The coordinator owns shared contracts, generated catalogues, DI composition, integration branch, host surface insertion points, conflict resolution and direct code checks. Independent reviewer agents are deferred to the later Astra whole-app review.
+The coordinator owns shared contracts, generated catalogues, DI composition, integration branch, host surface insertion points, conflict resolution and direct code checks. M6b requires Astra review, fixes and re-review until Astra explicitly approves the final revision.
 
 ## Implementation streams
 
@@ -49,7 +49,7 @@ The coordinator owns shared contracts, generated catalogues, DI composition, int
 | C mediation | Terra High | Core/Plugins/Bridge and Api, exhaustive API adapters and tests; permission projections, typed result conversion, network/OAuth mediation and all four hook kinds. Shared service adapters require explicit coordinator ownership assignment. |
 | D UI/slots | Terra High | Presentation/Plugins, App/Views/Plugins, Add-ons/consent/error surfaces, slot mounts and hidden automation. Install/update permission diffs, keyboard/focus, accessible dialogs, themes and all slot kinds. |
 
-Use existing stream worktrees where appropriate, with explicit owned files and ports. With four total agent slots, run at most three workers and queue D until a slot opens; sequence dependent contracts before implementation. Luna High may assist only with bounded catalogue/mechanical tasks when actually available. No more than three concurrent builds; every build uses tools/build.ps1 with BARBICAN_BUILD_SLOTS=3 in the same command. Push privacy-checked commits immediately. Do not use the real mouse, keyboard or screen.
+Use existing stream worktrees where appropriate, with explicit owned files and ports. Apply the standing delegation policy in CLAUDE.md, queue work beyond available slots, and sequence dependent contracts before implementation. No more than three concurrent builds; every build uses tools/build.ps1 with BARBICAN_BUILD_SLOTS=3 in the same command. Push privacy-checked commits immediately. Do not use the real mouse, keyboard or screen.
 
 ## Acceptance and exit evidence
 

@@ -1,20 +1,38 @@
-# Progress (M6 delivered, M6b paused by user, 2026-11-19)
+# Progress (M6 delivered, M6b resumed, 2026-11-19)
 
 Completed checkpoints are pushed. Active work is recorded below. Nothing is merged to `main` or tagged.
 
-**Codex takeover (2026-11-19):** read [CODEX-HANDOFF.md](CODEX-HANDOFF.md). Use Terra High for stream work and Luna High for narrow helpers; queue streams within the actual session agent limit.
+**Codex takeover (2026-11-19):** read [CODEX-HANDOFF.md](CODEX-HANDOFF.md) and
+[CLAUDE.md](../CLAUDE.md) for the current delegation and mandatory milestone review rules.
+The user explicitly resumed M6b. The integration checkout has unrelated local test
+deletions; leave them untouched and build from clean worktrees.
 
-**Process from 2026-11-18 (the user):** no Fable reviews until one whole-app review at the very end; the user's process rules
-(gates, hand-test waits, questions) are dropped, defaults are taken and recorded in spec/decisions.md; Terra or Luna agents
-wherever they can. Safety rules stay (no real input, read-only account, admin key, Rust profile, build.ps1, privacy check).
+### First resumed checkpoint
 
-## Codex continuation (paused by user, 2026-11-19)
+- **Explicit Windows mail WebView environment:** `dd0c92c` is pushed on
+  `codex/m6b-webview` (`wt-m6b-webview`), not integrated. The reader and smoke
+  now pass explicit profile-scoped environments, check the actual folder before
+  navigation and no longer set process-global WebView2 folder/flags. Four focused
+  tests passed; Windows App Automation build passed with zero warnings/errors;
+  hidden smoke exited 0 and reached shell-ready in 1365.2 ms with the expected
+  isolated profile directory present. The full Automation solution build failed
+  at NativeSentinel fixture configuration (Debug output, Automation copy path).
+  Actual plugin factory wiring and cross-environment browser isolation remain open.
+- Read-only runtime and package audits confirmed that neither draft is production
+  wiring. Keep pending runtime ingress behind navigation and UI delivery fences.
+  Package manager, lease and authenticated store remain a dependent chain without
+  production startup or crash recovery. The mediation hook audit identified a
+  shared contract blocker: reference transform chains carry intermediate structured
+  values and validate at the end, whereas the existing bus requires a CLR type
+  after each handler. No implementation landed from that audit.
+
+## Codex continuation (saved pre-resume checkpoint, 2026-11-19)
 
 - **Resumed integration:** full-range JavaScript Date helper aa746ee passed 108 Node vectors; reviewed composer-only changes through a0a538c are integrated and the complete Core suite passed 1754/1754. Runtime host issuer/parent bridge and package lease/store/storage remain on worker branches for review; no production sandbox/186-method completion is claimed. The latest saved pause table below supersedes earlier checkpoint tables.
 
-**User explicitly requested: pause, mark progress, commit and push.** The goal is paused; do not resume implementation or tests without instruction. All stream work is committed/pushed and the three worktrees are clean. Agents reported no remaining builds or app processes they started. No real credential-store/native-browser/printing/OS operation was performed during this implementation interval.
+At the preceding pause, the user requested progress, commit and push. All stream work was committed/pushed and the three worktrees were clean. Agents reported no remaining builds or app processes they started. No real credential-store/native-browser/printing/OS operation was performed during that implementation interval.
 
-The app goal was subsequently cleared by the user. This repository remains paused; the receiving chat may resume when instructed. The current cross-chat continuation, exact branch/worktree mapping, source evidence, known races and ready-to-use resume prompt are in [CODEX-HANDOFF.md](CODEX-HANDOFF.md#continue-elsewhere-authoritative-checkpoint). Coordinator checkpoint before this handoff is ad7fd97.
+The app goal was subsequently cleared by the user. The cross-chat continuation, prior branch/worktree mapping, source evidence and known races are in [CODEX-HANDOFF.md](CODEX-HANDOFF.md#continue-elsewhere-authoritative-checkpoint). Coordinator checkpoint before that handoff was ad7fd97.
 
 ### Latest saved state
 
@@ -26,7 +44,7 @@ Latest user pause saves the resumed interval without integrating worker drafts. 
 | B packages (`wt-m6-set-data`, `codex/m6b-packages`) | `f37b0b5` | Inert native inspection d8118a6: 10 focused native cases, 39 JS inspector cases and 16 manager cases passed, zero warnings/errors. Native activation is test-first WIP: three Red acceptance cases reached the intended PortPending stub; no assembly executed and positive sentinel remains unproven. Resolve atomic launch/revocation barrier before implementation. Authenticated store, cache, lease and storage still require coordinator and production integration review. |
 | C mediation (`wt-m6b-protocol`, `codex/m6b-mediation`) | `6367077` | Preview/PDF draft saved for coordinator review: 21 focused fake-host cases plus two rate cases passed; rate RED markers removed after execution. Actual presenter/UI-thread lifetime and aggregate-policy checks, host-owned plugin name, transport budgets and production registration remain unfinished. HTML printing remains Unavailable pending isolated sanitizer/renderer/watermark. Hook fixes through 110193f await integration review. |
 
-Resume priorities: directly inspect current heads before integration; finish actual SDK/bootstrap and isolated native WebView wiring without process-global environment races. Add a host-only captured-account delivery fence so queued UI responses cannot expose a stale account after dispatch. Complete native launch/revocation coordination, package/store crash recovery, all required API/hook/slot surfaces and async-authority-compatible slot mutations. D UI/slots remains queued. M7, M8, M10, final Astra review/fix and hidden UI walkthrough remain required; M9/Linux is excluded. M6 portable is already delivered. No real credential-store, native browser or printing proof is implied by simulated tests.
+Resume priorities: directly inspect current heads before integration; finish actual SDK/bootstrap and isolated native WebView wiring without process-global environment races. Add a host-only captured-account delivery fence so queued UI responses cannot expose a stale account after dispatch. Complete native launch/revocation coordination, package/store crash recovery, all required API/hook/slot surfaces and async-authority-compatible slot mutations. D UI/slots remains queued. M6b, M7, M8 and M10 each require an Astra review/fix cycle until explicit approval. The hidden UI walkthrough remains required; M9/Linux is excluded. M6 portable is already delivered. No real credential-store, native browser or printing proof is implied by simulated tests.
 
 The integration checkpoint includes reviewed runtime RED baseline f1729fb plus composer/package baselines. Full combined red-check proved **57 expected PortPending failures, zero unexpected passes/wrong reasons** (runtime 26, packages 18, composer 13). Root's complete Core suite passed **1728/1728** on the preceding package/composer baseline. These tests prove intended missing entry points, not completed runtime behavior. The latest fully integrated ordinary Windows suite remains **3088 passed / four skipped** at 9647d85, followed by the passing singleton graph and encoding checks. New implementation drafts listed below are not integrated or claimed verified by those counts.
 
