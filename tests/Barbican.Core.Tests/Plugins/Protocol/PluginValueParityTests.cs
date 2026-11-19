@@ -55,7 +55,7 @@ public sealed class PluginValueParityTests
     [Theory]
     [InlineData("Text/Plain")]
     [InlineData("text/\u0001plain")]
-    [InlineData("text/é")]
+    [InlineData("text/\u00e9")]
     public void Blob_mime_that_javascript_would_normalize_is_rejected(string type)
     {
         var b = new PluginValueBuilder();
