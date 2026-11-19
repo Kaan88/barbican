@@ -124,7 +124,7 @@
         <!-- Header (prototype ListHead): Bento title 24 bold with "N unread" on the right; Nordic title 28 extra bold, tight, and the greeting under it. Search stays (M1). -->
         <StackPanel Grid.Row="0" Padding="{x:Bind Look.ListHeaderPadding, Mode=OneWay}" Spacing="12">
           <Grid ColumnDefinitions="*,Auto">
-            <TextBlock Text="{x:Bind Glance.ListTitle, Mode=OneWay}" FontFamily="{x:Bind Look.AppFont, Mode=OneWay}" FontSize="{x:Bind Look.ListTitleSize, Mode=OneWay}" FontWeight="{x:Bind Look.ListTitleWeight, Mode=OneWay}"
+            <TextBlock Text="{x:Bind Glance.ListTitle, Mode=OneWay}" FontFamily="{x:Bind Look.AppBoldFont, Mode=OneWay}" FontSize="{x:Bind Look.ListTitleSize, Mode=OneWay}" FontWeight="{x:Bind Look.ListTitleWeight, Mode=OneWay}"
                        CharacterSpacing="{x:Bind Look.ListTitleSpacing, Mode=OneWay}" Foreground="{StaticResource Text}" TextTrimming="CharacterEllipsis"
                        AutomationProperties.AutomationId="list.title" AutomationProperties.Name="Folder title" />
             <TextBlock Grid.Column="1" Text="{x:Bind views:Fmt.UnreadText(Glance.ListUnread), Mode=OneWay}" FontSize="12.5" Foreground="{StaticResource Dim}" VerticalAlignment="Center"

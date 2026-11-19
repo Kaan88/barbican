@@ -97,11 +97,14 @@ public sealed class StyleState : ObservableObject
     public double MinimumTarget => _accessibility.LargeTargets ? 44 : 0;
     public double QuickTarget => Math.Max(36 * TextScale, MinimumTarget);
     public Thickness FocusThickness => new(Math.Max(1, _accessibility.FocusRing));
+    public FontFamily AppBoldFont => string.Equals(_accessibility.AppFont, "opendyslexic", StringComparison.Ordinal)
+        ? new FontFamily("ms-appx:///Assets/Fonts/OpenDyslexic-Bold.otf#OpenDyslexic")
+        : AppFont;
     public FontFamily AppFont => new(_accessibility.AppFont switch
     {
-        "atkinson" => "Atkinson Hyperlegible Next, Segoe UI",
-        "lexend" => "Lexend, Segoe UI",
-        "opendyslexic" => "OpenDyslexic, Segoe UI",
+        "atkinson" => "ms-appx:///Assets/Fonts/AtkinsonHyperlegibleNext.ttf#Atkinson Hyperlegible Next",
+        "lexend" => "ms-appx:///Assets/Fonts/Lexend.ttf#Lexend",
+        "opendyslexic" => "ms-appx:///Assets/Fonts/OpenDyslexic-Regular.otf#OpenDyslexic",
         _ => "Segoe UI",
     });
 
