@@ -10,6 +10,9 @@ public sealed record ComposeRequest(string AccountId, ComposeKind Kind)
 
     public ComposePrefill? Prefill { get; init; }
 
+    /// <summary>Optional plain-text handoff inserted into replies and reply-all only.</summary>
+    public string? DraftText { get; init; }
+
     /// <summary>Rich text unless the plain-text setting (or the account) says otherwise.</summary>
     public bool Plain { get; init; }
 }

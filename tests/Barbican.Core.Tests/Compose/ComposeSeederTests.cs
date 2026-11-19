@@ -157,6 +157,72 @@ public sealed class ComposeSeederTests
         Assert.Equal(["", "Test User", "Example Ltd", "", "On Tue 10 Nov 2026, 11:00, Customer <customer@example.net> wrote:", "<quoted>"], Texts(seed));
     }
 
+    [Theory]
+    [InlineData(ComposeKind.Reply, "above_quote")]
+    [InlineData(ComposeKind.Reply, "below_quote")]
+    [InlineData(ComposeKind.ReplyAll, "above_quote")]
+    [InlineData(ComposeKind.ReplyAll, "below_quote")]
+    public async Task Quick_reply_text_is_plain_and_precedes_quote_without_changing_reply_fields(ComposeKind kind, string position)
+    {
+        var prefs = new JsonObject { ["signaturePosition"] = position };
+        var rig = await PipelineRig.StartAsync(prefs: prefs, codec: new DocHtmlCodec());
+        var request = new ComposeRequest(PipelineRig.Account, kind) { SourceEmailId = rig.Seeded(FakeSeed.ReplyToSubject) };
+        var baseline = (await rig.Seeder.SeedAsync(request, Ct)).Value!;
+        var result = await rig.Seeder.SeedAsync(request with { DraftText = "Hello <b>world</b>\n\nNext & last" }, Ct);
+        Assert.True(result.IsOk, result.Error?.Message);
+        var seed = result.Value!;
+        Assert.Equal(baseline.To, seed.To);
+        Assert.Equal(baseline.Cc, seed.Cc);
+        Assert.Equal(baseline.Bcc, seed.Bcc);
+        Assert.Equal(baseline.Subject, seed.Subject);
+        Assert.Equal(baseline.IdentityId, seed.IdentityId);
+        Assert.Equal(baseline.FromOverride, seed.FromOverride);
+        Assert.Equal(baseline.SourceEmailId, seed.SourceEmailId);
+        Assert.Equal(baseline.InReplyTo, seed.InReplyTo);
+        Assert.Equal(baseline.References, seed.References);
+        Assert.Equal(baseline.SignatureTexts, seed.SignatureTexts);
+        var texts = Texts(seed);
+        Assert.Equal("Hello <b>world</b>", texts[0]);
+        Assert.Equal("", texts[1]);
+        Assert.Equal("Next & last", texts[2]);
+        var quote = seed.Body.Blocks.ToList().FindIndex(b => b.Kind is BlockKind.Quoted);
+        var signature = texts.ToList().IndexOf("-- ");
+        Assert.True(quote > 2);
+        Assert.True(position == "above_quote" ? signature > 2 && signature < quote : signature > quote);
+        var html = DocHtml.Export(seed.Body);
+        Assert.Contains("&lt;b&gt;world&lt;/b&gt;", html, StringComparison.Ordinal);
+        Assert.DoesNotContain("<b>world</b>", html, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData(ComposeKind.New)]
+    [InlineData(ComposeKind.Forward)]
+    [InlineData(ComposeKind.ForwardAsAttachment)]
+    [InlineData(ComposeKind.EditDraft)]
+    public async Task Quick_reply_text_is_ignored_outside_reply_modes(ComposeKind kind)
+    {
+        var rig = await PipelineRig.StartAsync(codec: new DocHtmlCodec());
+        var source = kind == ComposeKind.EditDraft
+            ? (await rig.Drafts.SaveAsync(PipelineRig.NewDraft(), Ct)).Value!.DraftId
+            : rig.Seeded(FakeSeed.InlineThreadSubject);
+        var request = new ComposeRequest(PipelineRig.Account, kind) { SourceEmailId = source };
+        var baseline = (await rig.Seeder.SeedAsync(request, Ct)).Value!;
+        var seed = (await rig.Seeder.SeedAsync(request with { DraftText = "not for this composer" }, Ct)).Value!;
+        Assert.Equal(DocHtml.Export(baseline.Body), DocHtml.Export(seed.Body));
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    public async Task Empty_quick_reply_text_preserves_existing_reply_body(string? text)
+    {
+        var rig = await PipelineRig.StartAsync(codec: new DocHtmlCodec());
+        var request = new ComposeRequest(PipelineRig.Account, ComposeKind.Reply) { SourceEmailId = rig.Seeded(FakeSeed.ReplyToSubject) };
+        var baseline = (await rig.Seeder.SeedAsync(request, Ct)).Value!;
+        var seed = (await rig.Seeder.SeedAsync(request with { DraftText = text }, Ct)).Value!;
+        Assert.Equal(DocHtml.Export(baseline.Body), DocHtml.Export(seed.Body));
+    }
+
     [Fact]
     public async Task A_prefill_from_a_mailto_link_fills_the_fields_and_the_body_above_the_signature()
     {

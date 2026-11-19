@@ -135,6 +135,10 @@ public sealed class ComposeSeeder(IAccountManager accounts, IIdentityService ide
         {
             var header = await HeaderAsync(request.Kind, who, date, from, m, subject, ct).ConfigureAwait(false);
             (seed, blocks) = ReplyOf(seed, m, quote, inline, header, request.Kind == ComposeKind.ReplyAll, own, settings);
+            if (request.Kind is ComposeKind.Reply or ComposeKind.ReplyAll && request.DraftText is { Length: > 0 } draftText)
+            {
+                blocks.InsertRange(0, codec.ImportText(draftText));
+            }
         }
 
         var (body, texts) = Sign(blocks, index is { } si ? await ShapedAsync(ids[si], ct).ConfigureAwait(false) : null, settings, isNew: false);
