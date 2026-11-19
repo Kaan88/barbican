@@ -174,6 +174,20 @@ public sealed class PluginScopedStorageAcceptanceTests
         await binding.DisposeAsync();
     }
 
+    [Theory]
+    [InlineData(-8640000000000000d, "-271821-04-20T00:00:00.000Z")]
+    [InlineData(-62167219200000d, "0000-01-01T00:00:00.000Z")]
+    [InlineData(8640000000000000d, "+275760-09-13T00:00:00.000Z")]
+    public async Task FullEcmaDateRangeRoundTripsThroughStorage(double milliseconds, string expected)
+    {
+        var rig = new PackageTestRig();
+        var (_, storage, binding, capture) = await StartAsync(rig);
+        var builder = new PluginValueBuilder();
+        Assert.True((await storage.SetAsync(binding, capture, "date", builder.Build(builder.Date(milliseconds)), Ct)).IsOk);
+        Assert.Equal(expected, PluginPackageManagerAcceptanceTests.Need(await storage.GetAsync(binding, capture, "date", Ct))!.StringValue, StringComparer.Ordinal);
+        await binding.DisposeAsync();
+    }
+
     private static async Task<(PluginPackageManager Manager, PluginScopedStorage Storage, PluginRuntimeBinding Binding, PluginSessionCapture Capture)> StartAsync(PackageTestRig rig)
     {
         var manager = rig.Manager();

@@ -8,4 +8,3 @@ public interface IPluginProfileAuthorityLease : IAsyncDisposable
     bool IsHeld { get; }
     CancellationToken Lifetime { get; }
 }
-

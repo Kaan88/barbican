@@ -41,10 +41,8 @@ internal static class PluginStorageJson
     private static void WriteDate(PluginValue value, StringBuilder text)
     {
         var milliseconds = double.Parse(value.NumberText, CultureInfo.InvariantCulture);
-        if (!double.IsFinite(milliseconds)) { text.Append("null"); return; }
-        try { Quote(text, DateTimeOffset.FromUnixTimeMilliseconds(checked((long)milliseconds)).UtcDateTime.ToString("yyyy-MM-dd'T'HH:mm:ss.fff'Z'", CultureInfo.InvariantCulture)); }
-        catch (ArgumentOutOfRangeException ex) { throw new InvalidOperationException("Date is outside the supported storage range.", ex); }
-        catch (OverflowException) { text.Append("null"); }
+        var formatted = PluginEcmaDate.Format(milliseconds);
+        if (formatted is null) text.Append("null"); else Quote(text, formatted);
     }
 
     private static void WriteView(PluginValue value, StringBuilder text)

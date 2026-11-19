@@ -1877,7 +1877,7 @@ Review risks: managers use the trusted store's CAS and authentication contract; 
 
 Scoped storage uses stable plugin id, host profile and captured local login; each operation rechecks live authority and the captured session around storage awaits. A bounded UTF-16 envelope preserves storage keys and JSON text, and the quota includes the upstream namespace prefix, keys and JSON values. Tests use an in-memory compare-and-commit store, not production persistence.
 
-Limitations for review: an invalidation after the final precommit check but during the store commit can leave a committed write; the service returns PluginStorageUncertainError and the bridge must map it to UnknownOutcome without retrying automatically. JSON.stringify coverage includes ordinary graphs, undefined, nonfinite numbers, common dates and typed arrays; extended JavaScript Date years and values exceeding the native graph budget are currently refused rather than silently changed and require a follow-up. User-storage persistence, account-signout cleanup, and production profile lease remain pending.
+Limitations for review: an invalidation after the final precommit check but during the store commit can leave a committed write; the service returns PluginStorageUncertainError and the bridge must map it to UnknownOutcome without retrying automatically. JSON.stringify coverage includes ordinary graphs, undefined, nonfinite numbers, common dates and typed arrays; JavaScript Date formatting uses the full-range helper and boundary round-trip tests; values exceeding the native graph budget are refused rather than silently changed. User-storage persistence, account-signout cleanup, and production profile lease remain pending.
 
 ### Codex - M6b profile lease and authority cache
 
