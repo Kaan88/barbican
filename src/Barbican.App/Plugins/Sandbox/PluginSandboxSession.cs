@@ -1,11 +1,12 @@
 // Mirrors: Bulwark lib/plugin-sandbox/host-bridge.ts:427-477,740-771; native route events revoke before message acceptance.
 using Barbican.Core.Plugins.Bridge;
 using Barbican.Core.Plugins.Protocol;
+using Barbican.Core.Plugins.Permissions;
 using Barbican.Core.Plugins.Protocol.Messages;
 using Barbican.Core.Plugins.Runtime;
 namespace Barbican.App.Plugins.Sandbox;
 /// <summary>Native ingress gate; transport identities are supplied only by the native adapter.</summary>
-public sealed class PluginSandboxSession(PluginRuntimeBinding binding, IPluginSandboxWebView view, IPluginApiDispatcher dispatcher) : IAsyncDisposable
+public sealed class PluginSandboxSession(PluginRuntimeBinding binding, IPluginSandboxWebView view, IPluginApiDispatcher dispatcher, IPluginAuthority authority) : IAsyncDisposable
 {
     private static readonly PluginValueLimits WireLimits = new(MaxWireBytes:40 * 1024 * 1024, MaxBinaryBytes:25 * 1024 * 1024, MaxStringBytes:50 * 1024 * 1024);
     private static readonly PluginMessageLimits MessageLimits = new(MaxStringLength:25 * 1024 * 1024, MaxGraphStringLength:25 * 1024 * 1024, MaxGraphBinaryBytes:25 * 1024 * 1024);
@@ -16,6 +17,7 @@ public sealed class PluginSandboxSession(PluginRuntimeBinding binding, IPluginSa
     public PluginRuntimeBinding Binding { get; } = binding;
     public IPluginSandboxWebView View { get; } = view;
     public IPluginApiDispatcher Dispatcher { get; } = dispatcher;
+    private IPluginAuthority Authority { get; } = authority;
     private bool Active => !_disposed && Binding.IsAlive;
     /// <summary>Direct frame events are rejected without invoking readPayload.</summary>
     public async Task<bool> ReceiveAsync(object sourceView, bool topLevel, Uri source, Func<ReadOnlyMemory<byte>> readPayload, CancellationToken ct)
@@ -53,14 +55,29 @@ public sealed class PluginSandboxSession(PluginRuntimeBinding binding, IPluginSa
         }
         try
         {
-            var outcome = await Dispatcher.DispatchAsync(Binding,request,ct).ConfigureAwait(false);
-            lock (_gate) if (!Active) return false;
+            using var linked = CancellationTokenSource.CreateLinkedTokenSource(ct,Binding.Lifetime);
+            if (!await HasAuthorityAsync(linked.Token).ConfigureAwait(false)) return false;
+            var outcome = await Dispatcher.DispatchAsync(Binding,request,linked.Token).ConfigureAwait(false);
+            if (!await HasAuthorityAsync(linked.Token).ConfigureAwait(false)) return false;
             var encoded = EncodeResponse(request.Id,outcome);
+            if (!await HasAuthorityAsync(linked.Token).ConfigureAwait(false)) return false;
             lock (_gate) if (!Active) return false;
-            await View.PostAsync(encoded,ct).ConfigureAwait(false);
+            await View.PostAsync(encoded,linked.Token).ConfigureAwait(false);
             return Binding.IsAlive;
         }
+        catch (OperationCanceledException) when (!Binding.IsAlive) { return false; }
         finally { lock (_gate) _requests.Remove(request.Id); }
+    }
+    private async Task<bool> HasAuthorityAsync(CancellationToken ct)
+    {
+        lock (_gate) if (!Active) return false;
+        var current = await Authority.GetCurrentAsync(Binding.Package.Id,ct).ConfigureAwait(false);
+        lock (_gate)
+        {
+            var grant = current.Value;
+            return Active && current.IsOk && grant is not null && grant.Enabled && grant.Package == Binding.Package &&
+                grant.Generation == Binding.GrantGeneration && grant.Tier == Binding.Tier;
+        }
     }
     private static byte[] EncodeResponse(string id, PluginCallOutcome outcome)
     {
@@ -82,8 +99,10 @@ public sealed class PluginSandboxSession(PluginRuntimeBinding binding, IPluginSa
             !string.Equals(payload.Property("tier").StringValue,Binding.Tier.ToString(),StringComparison.OrdinalIgnoreCase) ||
             !string.Equals(payload.Property("mode").StringValue,Binding.Kind.ToString(),StringComparison.OrdinalIgnoreCase)) return false;
         var encoded = PluginValueCodec.Encode(message,WireLimits);
+        if (!await HasAuthorityAsync(ct).ConfigureAwait(false)) return false;
         lock (_gate) { if (!Active || !_ready || _initIssued) return false; _initIssued = true; }
-        try { await View.PostAsync(encoded,ct).ConfigureAwait(false); return Binding.IsAlive; }
+        using var linked = CancellationTokenSource.CreateLinkedTokenSource(ct,Binding.Lifetime);
+        try { await View.PostAsync(encoded,linked.Token).ConfigureAwait(false); return Binding.IsAlive; }
         catch { await DisposeAsync().ConfigureAwait(false); throw; }
     }
     /// <summary>Invalidates the binding synchronously before asynchronous cleanup starts.</summary>
