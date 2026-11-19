@@ -55,6 +55,8 @@ public sealed record MailListSettings
 
     public bool MoreContrast { get; init; }
 
+    public bool ShowVerificationCodes { get; init; } = true;
+
     /// <summary>Reads the settings (the defaults for anything not stored).</summary>
     public static MailListSettings Read(PrefsSnapshot prefs, SystemAccessibility system)
     {
@@ -82,6 +84,7 @@ public sealed record MailListSettings
             TintListRowsByAccount = prefs.Bool("tintListRowsByAccount", false),
             ShowAccountDot = prefs.Bool("showAccountDot", true),
             MoreContrast = A11y.From(prefs, system).MoreContrast,
+            ShowVerificationCodes = prefs.Bool("showVerificationCodes", true),
         };
     }
 
@@ -97,6 +100,7 @@ public sealed record MailListSettings
         Zone = zone,
         Tags = LookupTags(),
         ShowTagChips = ShowTagChips,
+        ShowVerificationCodes = ShowVerificationCodes,
         TintListRowsByAccount = TintListRowsByAccount,
         ShowAccountDot = ShowAccountDot,
         MoreContrast = MoreContrast,

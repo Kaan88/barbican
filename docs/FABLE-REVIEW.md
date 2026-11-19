@@ -1626,3 +1626,10 @@ Nine fake-server tests pass on Windows: capped paging in year/month modes, exist
 ## Codex - M6 archive membership preservation (Terra High)
 
 The archive reorganization now removes only the root Archive membership while adding the dated destination, preserving other mailbox labels. This deliberately differs from Bulwark `batchMoveEmails`, which replaces all mailbox IDs. The existing `JsonNodeExtensions.AsNumber` rejects negative and fractional totals before conversion; service-level tests pin refusal before any writes.
+
+
+## Codex - M6 verification-code preference (Terra High)
+
+Review `Presentation/Reader/VerificationCodeBannerSource.cs`, `Presentation/Mail/{ReaderViewModel,MessageListViewModel,MessageRowViewModel,RowContext,MailListSettings}.cs`, the production reader factory, and the list and body views. `showVerificationCodes` gates fresh reader and list codes; existing body loading remains unchanged. Chips expire automatically using the injected clock, with five minutes of future-clock slack, and list copying rechecks current row, setting, and age. Reader copying uses the injected clipboard service and rejects a stale banner. Synthetic tests cover preference toggles, late banners, DI, preview-hidden extraction, freshness and fake clipboard; no real clipboard or message data was used.
+
+Focused tests 3 passed after the expiry timer addition; the full Presentation suite passed 1019 before that addition. Windows Automation head built with zero warnings after the change. Review real keyboard/pointer routing and screen-reader interaction for the list button, and live themes; no real desktop input or visual evidence was taken.

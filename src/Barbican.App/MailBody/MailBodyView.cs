@@ -142,10 +142,10 @@ public sealed partial class MailBodyView : UserControl
     {
         if (string.Equals(actionId, VerificationCodeBannerSource.Copy, StringComparison.Ordinal))
         {
-            // the code is the last word of the chip's title
-            var package = new Windows.ApplicationModel.DataTransfer.DataPackage();
-            package.SetText(banner.Title[(banner.Title.LastIndexOf(' ') + 1)..]);
-            Windows.ApplicationModel.DataTransfer.Clipboard.SetContent(package);
+            // The banner can have disappeared after a preference or message change.
+            if (_reader is not null && string.Equals(_reader.EmailId, emailId, StringComparison.Ordinal)
+                && _reader.Banners.Contains(banner))
+                ViewHost.Find<Barbican.Presentation.Common.IClipboardService>()?.SetText(banner.Title[(banner.Title.LastIndexOf(' ') + 1)..]);
             return;
         }
 

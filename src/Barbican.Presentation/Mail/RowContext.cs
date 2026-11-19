@@ -32,6 +32,10 @@ public sealed record RowContext
 
     public bool MoreContrast { get; init; }
 
+    public bool ShowVerificationCodes { get; init; } = true;
+
+    public Barbican.Core.Mail.VerificationCode.IVerificationCodeFinder? CodeFinder { get; init; }
+
     public bool MultipleAccountSources { get; init; }
 
     /// <summary>Resolves a merged row id to its display name and the signed-in account's palette index.</summary>

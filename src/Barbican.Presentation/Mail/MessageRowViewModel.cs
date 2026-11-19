@@ -43,6 +43,8 @@ public sealed class MessageRowViewModel : ListItemViewModel
         ShowTags = context.ShowTagChips && Tags.Count > 0;
         AttachmentNames = context.AttachmentChips ? RowText.AttachmentNames(summary, context.HideInlineImages) : [];
         HasAttachment = summary.HasAttachment;
+        if (context.ShowVerificationCodes && Barbican.Presentation.Reader.VerificationCodeBannerSource.IsFresh(summary.ReceivedAt, context.Now))
+            VerificationCode = context.CodeFinder?.Find(summary.Subject, summary.Preview);
         if (context.AccountOfRow?.Invoke(summary.Id) is { } account)
         {
             AccountDescription = "Account: " + account.Name;
@@ -101,6 +103,10 @@ public sealed class MessageRowViewModel : ListItemViewModel
 
     public string Preview { get; }
 
+    public string? VerificationCode { get; }
+
+    public bool ShowVerificationCode => VerificationCode is not null;
+
     public string TimeLabel { get; }
 
     public bool Unread { get; }
@@ -134,6 +140,7 @@ public sealed class MessageRowViewModel : ListItemViewModel
         && r.Flagged == Flagged
         && r.ThreadCount == ThreadCount
         && r.HasAttachment == HasAttachment
+        && string.Equals(r.VerificationCode, VerificationCode, StringComparison.Ordinal)
         && r.ShowAccountTint == ShowAccountTint
         && r.ShowAccountDot == ShowAccountDot
         && r.AccountColorIndex == AccountColorIndex

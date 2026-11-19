@@ -3,13 +3,75 @@
 
 using CommunityToolkit.Mvvm.ComponentModel;
 using Barbican.Presentation.Common;
+using Barbican.Presentation.Reader;
+using Barbican.Core.Mail.VerificationCode;
+using Barbican.Core.Storage;
 
 namespace Barbican.Presentation.Mail;
 
 /// <summary>The reader. <see cref="Apply"/> changes everything in one call, so the header and the body of one message never show apart.</summary>
-public sealed class ReaderViewModel : ObservableObject
+public sealed class ReaderViewModel : ObservableObject, IDisposable
 {
     private ReaderSnapshot _current = ReaderSnapshot.Empty;
+    private readonly IPrefsStore? _prefs;
+    private readonly IDispatcher? _dispatcher;
+    private readonly VerificationCodeBannerSource? _code;
+    private readonly TimeProvider _time;
+    private ITimer? _codeExpiry;
+    private bool _disposed;
+
+    public ReaderViewModel(IPrefsStore? prefs = null, IVerificationCodeFinder? finder = null, TimeProvider? time = null, IDispatcher? dispatcher = null)
+    {
+        _prefs = prefs;
+        _dispatcher = dispatcher;
+        _time = time ?? TimeProvider.System;
+        _code = finder is null ? null : new VerificationCodeBannerSource(finder, _time, prefs);
+        if (_prefs is not null) _prefs.Changed += OnPrefsChanged;
+    }
+
+    public void Dispose()
+    {
+        _disposed = true;
+        _codeExpiry?.Dispose();
+        if (_prefs is not null) _prefs.Changed -= OnPrefsChanged;
+    }
+
+    private void OnPrefsChanged(object? sender, EventArgs e)
+    {
+        if (_dispatcher is not null && !_dispatcher.HasThreadAccess) _dispatcher.Post(RefreshCode);
+        else RefreshCode();
+    }
+
+    private void RefreshCode()
+    {
+        if (!_disposed) Apply(_current);
+    }
+
+    private void ScheduleCodeExpiry(DateTimeOffset? received)
+    {
+        if (received is null)
+        {
+            _codeExpiry?.Change(Timeout.InfiniteTimeSpan, Timeout.InfiniteTimeSpan);
+            return;
+        }
+
+        _codeExpiry ??= _time.CreateTimer(_ => OnPrefsChanged(this, EventArgs.Empty), null, Timeout.InfiniteTimeSpan, Timeout.InfiniteTimeSpan);
+        var due = received.Value + VerificationCodeBannerSource.Fresh + TimeSpan.FromMilliseconds(1) - _time.GetUtcNow();
+        _codeExpiry.Change(due > TimeSpan.Zero ? due : TimeSpan.FromMilliseconds(1), Timeout.InfiniteTimeSpan);
+    }
+
+    private ReaderSnapshot WithCode(ReaderSnapshot snapshot)
+    {
+        if (_code is null) return snapshot;
+        var banners = snapshot.Banners.Where(b => !string.Equals(b.Id, VerificationCodeBannerSource.Id, StringComparison.Ordinal)).ToList();
+        if (_code.CodeOf(snapshot) is { } code)
+        {
+            banners.Add(new ReaderBanner(VerificationCodeBannerSource.Id, $"Verification code {code}", null, false, [(VerificationCodeBannerSource.Copy, "Copy code")]));
+            ScheduleCodeExpiry(snapshot.Body?.ReceivedAt);
+        }
+        else ScheduleCodeExpiry(null);
+        return snapshot with { Banners = banners };
+    }
 
     /// <summary>The snapshot on screen.</summary>
     public ReaderSnapshot Current => _current;
@@ -46,6 +108,7 @@ public sealed class ReaderViewModel : ObservableObject
     {
         ArgumentNullException.ThrowIfNull(snapshot);
         var previous = _current;
+        snapshot = WithCode(snapshot);
         _current = snapshot;
         ListSync.SyncBy(Conversation, snapshot.Conversation, c => c.Id, EqualityComparer<ConversationItem>.Default.Equals);
         ListSync.SyncBy(Banners, snapshot.Banners, b => b.Id, EqualityComparer<Reader.ReaderBanner>.Default.Equals);
@@ -111,7 +174,7 @@ public sealed class ReaderViewModel : ObservableObject
             return;
         }
 
-        var fresh = banners.Where(b => !_current.Banners.Any(x => string.Equals(x.Id, b.Id, StringComparison.Ordinal))).ToList();
+        var fresh = banners.Where(b => (_code?.Enabled != false || !string.Equals(b.Id, VerificationCodeBannerSource.Id, StringComparison.Ordinal)) && !_current.Banners.Any(x => string.Equals(x.Id, b.Id, StringComparison.Ordinal))).ToList();
         if (fresh.Count == 0)
         {
             return;

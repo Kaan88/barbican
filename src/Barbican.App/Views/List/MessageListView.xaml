@@ -81,6 +81,8 @@
                 </Grid>
                 <TextBlock local:Snippet.Id="{x:Bind Id}" local:Snippet.Part="preview" local:Snippet.Plain="{x:Bind Preview}" FontSize="{x:Bind theme:StyleState.Current.PreviewSize, Mode=OneWay}" Foreground="{x:Bind theme:StyleState.Current.PreviewBrush, Mode=OneWay}"
                            TextTrimming="CharacterEllipsis" MaxLines="1" Margin="{x:Bind theme:StyleState.Current.PreviewMargin, Mode=OneWay}" />
+                <Button Content="{x:Bind VerificationCode}" Visibility="{x:Bind views:Fmt.Vis(ShowVerificationCode)}" Click="OnCopyVerificationCode"
+                        HorizontalAlignment="Left" Margin="0,4,0,0" Padding="8,2" AutomationProperties.Name="Copy verification code" AutomationProperties.AutomationId="row.copy-code" />
                 <ItemsRepeater ItemsSource="{x:Bind views:Fmt.Chips(AttachmentNames)}" Visibility="{x:Bind views:Fmt.VisChips(AttachmentNames.Count)}" Margin="0,4,0,0"
                                AutomationProperties.Name="Attachments">
                   <ItemsRepeater.Layout>
