@@ -3,6 +3,7 @@ using Barbican.Core.Plugins.Bridge;
 using Barbican.Core.Plugins.Packages;
 using Barbican.Core.Plugins.Permissions;
 using Barbican.Core.Plugins.Runtime;
+using Barbican.Core.Plugins.Protocol;
 
 namespace Barbican.Core.Tests.Plugins;
 
@@ -40,25 +41,58 @@ public sealed class PluginRuntimeContractTests
     {
         PluginApiRequest request;
         PluginCallOutcome result;
-        using (var args = JsonDocument.Parse("[{\"value\":7}]")) request = new PluginApiRequest("request-1", "storage.get", args.RootElement);
-        using (var value = JsonDocument.Parse("{\"value\":9}")) result = PluginCallOutcome.Succeeded(value.RootElement);
-        Assert.Equal(7, request.Arguments[0].GetProperty("value").GetInt32());
-        Assert.Equal(9, result.Value!.Value.GetProperty("value").GetInt32());
+        using (var args = JsonDocument.Parse("[{\"value\":7}]")) request = new PluginApiRequest("request-1", "storage.get", PluginValue.FromJson(args.RootElement));
+        using (var value = JsonDocument.Parse("{\"value\":9}")) result = PluginCallOutcome.Succeeded(PluginValue.FromJson(value.RootElement));
+        Assert.Equal(7, request.Arguments.Item(0).Property("value").ToJson().GetInt32());
+        Assert.Equal(9, result.Value!.Property("value").ToJson().GetInt32());
         Assert.Null(result.Error);
         Assert.Null(result.ErrorMessage);
-        Assert.Null(PluginCallOutcome.Succeeded().Value);
+        Assert.Equal(PluginValueKind.Undefined, PluginCallOutcome.Succeeded().Value!.Kind);
     }
 
     [Fact]
     public void JsonNullRemainsDifferentFromUndefinedAndFailureHasNoData()
     {
         using var doc = JsonDocument.Parse("null");
-        Assert.Equal(JsonValueKind.Null, PluginCallOutcome.Succeeded(doc.RootElement).Value!.Value.ValueKind);
+        Assert.Equal(PluginValueKind.Null, PluginCallOutcome.Succeeded(PluginValue.FromJson(doc.RootElement)).Value!.Kind);
         var failed = PluginCallOutcome.Failed(PluginErrorCode.PermissionDenied);
         Assert.False(failed.IsSuccess);
         Assert.Null(failed.Value);
         Assert.Equal("Plugin permission denied.", failed.ErrorMessage, StringComparer.Ordinal);
-        Assert.Throws<ArgumentException>(() => new PluginApiRequest("id", "method", doc.RootElement));
+        Assert.Throws<ArgumentException>(() => new PluginApiRequest("id", "method", PluginValue.FromJson(doc.RootElement)));
+    }
+
+    [Fact]
+    public void ApiBinaryArgumentsAndResultsPreserveSharedBufferIdentityAndUndefined()
+    {
+        var bytes = new byte[] { 1, 2, 3, 4 };
+        var graph = new PluginValueBuilder();
+        var buffer = graph.Buffer(bytes);
+        var view = graph.View(buffer, PluginViewType.Uint8, 1, 2);
+        var value = graph.Build(graph.Array(buffer, view, graph.Undefined()));
+        var request = new PluginApiRequest("binary", "files.preview", value);
+        var result = PluginCallOutcome.Succeeded(value);
+        bytes[1] = 99;
+        Assert.Equal(new byte[] { 2, 3 }, request.Arguments.Item(1).BinaryBytes());
+        Assert.True(request.Arguments.Item(0).SameNode(result.Value!.Item(1).BackingBuffer));
+        Assert.Equal(PluginValueKind.Undefined, result.Value.Item(2).Kind);
+        Assert.Throws<ArgumentOutOfRangeException>(() => PluginCallOutcome.Failed((PluginErrorCode)int.MaxValue));
+    }
+
+    [Theory]
+    [InlineData(PluginErrorCode.KeystoreCancelled, "keystore:cancelled")]
+    [InlineData(PluginErrorCode.KeystoreAskFirst, "keystore:ask-first")]
+    [InlineData(PluginErrorCode.KeystoreNotFound, "keystore:not-found")]
+    [InlineData(PluginErrorCode.KeystoreUnsupported, "keystore:unsupported")]
+    [InlineData(PluginErrorCode.KeystoreLocked, "keystore:locked")]
+    [InlineData(PluginErrorCode.KeystoreInvalid, "keystore:invalid")]
+    [InlineData(PluginErrorCode.KeystoreFailed, "keystore:failed")]
+    public void KeystoreBusinessErrorsKeepSourceCodesWithoutNativeExceptionData(PluginErrorCode code, string expected)
+    {
+        var result = PluginCallOutcome.Failed(code);
+        Assert.False(result.IsSuccess);
+        Assert.Null(result.Value);
+        Assert.Equal(expected, result.ErrorMessage, StringComparer.Ordinal);
     }
 
     [Fact]
