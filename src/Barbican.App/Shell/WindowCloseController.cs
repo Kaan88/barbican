@@ -10,8 +10,11 @@ namespace Barbican.App.Shell;
 public sealed class WindowCloseController(IPrefsEditor prefs, IDispatcher dispatcher, IToastService? toasts = null)
 {
     private bool _closing;
+#if WINDOWS
     private bool _approved;
+#endif
 
+#pragma warning disable CA1822 // The Windows implementation captures this controller; native Uno close is deferred to M9.
     public void Attach(Window window)
     {
         ArgumentNullException.ThrowIfNull(window);
@@ -28,6 +31,8 @@ public sealed class WindowCloseController(IPrefsEditor prefs, IDispatcher dispat
 #endif
     }
 
+#pragma warning restore CA1822
+
     public async Task CloseAsync(Window window)
     {
         ArgumentNullException.ThrowIfNull(window);
@@ -42,7 +47,9 @@ public sealed class WindowCloseController(IPrefsEditor prefs, IDispatcher dispat
             dispatcher.Post(() =>
             {
                 Trace("close on UI");
+#if WINDOWS
                 _approved = true;
+#endif
                 window.Close();
                 Trace("close returned");
             });

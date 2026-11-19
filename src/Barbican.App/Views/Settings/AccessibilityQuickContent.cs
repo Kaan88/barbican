@@ -123,19 +123,21 @@ public sealed class AccessibilityQuickContent : IDialogContent
         {
             if (pending) return;
             pending = true;
-            var before = new Dictionary<string, JsonNode?>(StringComparer.Ordinal);
             try
             {
-                foreach (var (key, value) in changes)
+                var result = await model.ApplyAsync(changes, CancellationToken.None).ConfigureAwait(true);
+                status.Text = result.Error ?? string.Empty;
+                if (remember)
                 {
-                    var old = model.Stored(key);
-                    if (JsonNode.DeepEquals(old, value)) continue;
-                    var result = await model.SetAsync(key, value?.DeepClone(), CancellationToken.None).ConfigureAwait(true);
-                    if (!result.IsOk) { status.Text = result.Error?.Message ?? "Could not save every setting."; break; }
-                    before[key] = old?.DeepClone();
+                    undo = new Dictionary<string, JsonNode?>(result.Previous, StringComparer.Ordinal);
+                    if (result.Error is null) status.Text = $"{undo.Count} settings changed.";
                 }
-                if (remember) { undo = before; undoButton.IsEnabled = undo.Count > 0; if (status.Text.Length == 0) status.Text = $"{undo.Count} settings changed."; }
-                else { undo.Clear(); undoButton.IsEnabled = false; }
+                else
+                {
+                    foreach (var key in result.Completed) _ = undo.Remove(key);
+                }
+
+                undoButton.IsEnabled = undo.Count > 0;
             }
             finally { pending = false; Refresh(); }
         }

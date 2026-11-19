@@ -10,6 +10,8 @@ using Barbican.Core.Accounts;
 using Barbican.Presentation.Accounts;
 using Barbican.Presentation.Calendar.Grid;
 using Barbican.Presentation.Input;
+using Barbican.Presentation.Commands;
+using Barbican.Presentation.Mail;
 using Barbican.Presentation.Shell;
 using Microsoft.UI.Xaml.Controls.Primitives;
 using Microsoft.UI.Xaml.Input;
@@ -93,6 +95,19 @@ public sealed partial class ShellPage : Page
         }
 
         Loaded += (_, _) => ViewHost.Get<ShellLifecycle>().Start(DispatcherQueue, _accounts?.Active?.Key);
+    }
+
+    public StyleState Look => _look;
+
+    private void OnFloatingComposeClick(object sender, RoutedEventArgs e)
+    {
+        var registry = ViewHost.Find<ICommandRegistry>();
+        if (registry is null || !registry.TryGet(CommandIds.Compose, out var command)) return;
+        var context = new CommandContext(CommandSurface.Toolbar, [], null, null, ViewHost.Find<IActiveMail>()?.AccountKey);
+        if (command.CanExecute(context))
+        {
+            (ViewHost.Find<CommandRunner>() ?? new CommandRunner(ViewHost.Find<Barbican.Presentation.Actions.IToastService>())).Start(command, context, toastFailure: true);
+        }
     }
 
     // the sign-in screen follows the account rows (a refusal, R2-01), the active account and the popover's requests (R2-03)

@@ -40,7 +40,8 @@ public sealed class SampleFakesThreadingTests
     public async Task Filters_raise_changed_on_a_pool_thread()
     {
         var fake = new SampleFilterService();
-        await AssertRaisedOnPoolAsync(on => fake.Changed += (_, _) => on(Thread.CurrentThread.IsThreadPoolThread), () => fake.SaveAsync("a", [], Ct));
+        var loaded = await fake.LoadAsync("a", Ct);
+        await AssertRaisedOnPoolAsync(on => fake.Changed += (_, _) => on(Thread.CurrentThread.IsThreadPoolThread), () => fake.SaveAsync("a", [], loaded.Value!.State, Ct));
         Assert.Empty((await fake.LoadAsync("a", Ct)).Value!.Rules);
     }
 

@@ -236,7 +236,7 @@ public sealed class VacationService(IAccountManager accounts, IHookBus hooks, Ti
         var extras = await SaveExtrasAsync(http, settings, ct).ConfigureAwait(false);
         if (!extras.IsOk)
         {
-            return Result<VacationSettings>.Fail(new ValidationError("The auto-reply was saved, but forwarding or its recipients were not: " + extras.Error!.Message));
+            return Result<VacationSettings>.Fail(new ValidationError("The auto-reply may have been saved, but forwarding or its recipients could not be confirmed: " + extras.Error!.Message));
         }
 
         var loaded = await LoadCoreAsync(accountKey, false, ct).ConfigureAwait(false);

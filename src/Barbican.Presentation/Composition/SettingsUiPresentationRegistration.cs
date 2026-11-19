@@ -37,7 +37,7 @@ public static class SettingsUiPresentationRegistration
         services.TryAddSingleton(sp => new SetUiAssistantViewModel(sp.GetRequiredService<IAssistantSession>(), sp.GetRequiredService<ISetUiViewModel>(), sp.GetService<IDispatcher>()));
         services.TryAddSingleton(sp => new SetUiBackupViewModel(sp.GetRequiredService<ISettingBackup>(), sp.GetService<IDialogService>()));
         services.TryAddSingleton<AccessibilityQuickModel>();
-        services.TryAddSingleton(sp => new SetUiCommandSet(SetUiCommandFactory.Create(sp.GetRequiredService<ShellViewModel>(), sp.GetRequiredService<ISettingsNavigation>(), sp.GetRequiredService<ISetUiViewModel>(), sp.GetRequiredService<IDialogService>(), sp.GetRequiredService<AccessibilityQuickModel>())));
+        services.TryAddSingleton(sp => new SetUiCommandSet(SetUiCommandFactory.Create(sp.GetRequiredService<ShellViewModel>(), sp.GetRequiredService<ISettingsNavigation>(), sp.GetRequiredService<ISetUiViewModel>(), () => sp.GetRequiredService<IDialogService>(), sp.GetRequiredService<AccessibilityQuickModel>())));
         for (var i = 0; i < SetUiCommands.Count; i++)
         {
             var index = i;

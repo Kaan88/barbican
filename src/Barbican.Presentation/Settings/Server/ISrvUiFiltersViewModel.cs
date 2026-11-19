@@ -13,6 +13,11 @@ public interface ISrvUiFiltersViewModel : INotifyPropertyChanged
 {
     IReadOnlyList<SrvUiFilterRow> Rows { get; }
 
+    string AccountKey { get; }
+
+    /// <summary>The account that owns the currently loaded rules.</summary>
+    string? StateAccountKey { get; }
+
     /// <summary>The script was hand-edited: the page is read-only and says so (B-SIEVE-007).</summary>
     bool Locked { get; }
 
@@ -41,7 +46,7 @@ public interface ISrvUiFiltersViewModel : INotifyPropertyChanged
     JsonNode? RuleOf(string ruleId);
 
     /// <summary>Adds the rule, or replaces the one with its id; the list is saved and the script regenerated.</summary>
-    Task<bool> UpsertAsync(JsonNode rule, CancellationToken ct);
+    Task<bool> UpsertAsync(JsonNode rule, string expectedAccount, string? expectedState, CancellationToken ct);
 
     /// <summary>The generated Sieve script, read-only (the metadata block, the rules and the hand-written part).</summary>
     string SieveText();

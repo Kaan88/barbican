@@ -30,7 +30,7 @@ S-wordSpacing,wired,accessibility,select,Word spacing,"""normal""",a11y.rs,src/a
 S-subAddressDelimiter,wired,account,select,Sub-address delimiter,null,compose.rs,src/compose.rs:169,SetUiRowsView.CustomText; ComposeSettings; ReplyRecipients,Custom single-character delimiter uses shared validation.
 S-colorfulSidebarIcons,wired,appearance,toggle,Colorful sidebar icons,false,mail.rs,src/mail.rs:117,FolderRowOptions,
 S-compactSharedMailboxes,unwired,appearance,toggle,Compact shared mailboxes,false,,,not ported,
-S-composePlacement,wired,appearance,select,Compose button,null,settings.rs,src/settings.rs:53,not ported,
+S-composePlacement,wired,appearance,select,Compose button,null,settings.rs,src/settings.rs:53,App/Theme/StyleState; ShellPage; RailView; SidebarView,ComposePlacementRules; three synthetic Compose routes verified; unknown/unset -> floating.
 S-density,wired,appearance,select,Density,"""regular""",mail.rs;settings.rs,src/mail.rs:70,MailListSettings,
 S-enableUnifiedMailbox,wired,appearance,toggle,Unified mailbox,false,main.rs;unified.rs,src/main.rs:1005,"UnifiedSettings.From (Core/Mail/Unified; UnifiedInbox, UnifiedSectionViewModel)",
 S-includeGroupInUnified,wired,appearance,toggle,Include group inboxes,true,main.rs;unified.rs,src/main.rs:1013,"UnifiedSettings.From (Core/Mail/Unified; UnifiedInbox, UnifiedSectionViewModel)",
@@ -41,7 +41,7 @@ S-proInterface,unwired,appearance,toggle,Pro interface (experimental),false,,,no
 S-showFolderTotalCount,wired,appearance,toggle,Show total message count,true,mail.rs,src/mail.rs:118,FolderRowOptions,
 S-showRailAccountList,unwired,appearance,toggle,Show account avatars on the navigation rail,false,,,not ported,
 S-showSharedMailAccounts,unwired,appearance,toggle,Show shared mail accounts,true,,,not ported,
-S-showToolbarLabels,wired,appearance,toggle,Show toolbar labels,true,main.rs,src/main.rs:2113,not ported,
+S-showToolbarLabels,wired,appearance,toggle,Show toolbar labels,true,main.rs,src/main.rs:2113,App/Theme/ThemeController; StyleState; ReaderView,Live reader labels/icons in Bento and Nordic; simpleMode forces labels.
 S-sidebarAccountSwitcher,unwired,appearance,toggle,Account switcher at the top of the sidebar,true,,,not ported,
 S-tintListRowsByAccount,wired,appearance,select,Tell accounts apart,false,mail.rs,src/mail.rs:408,MailListSettings; MessageListViewModel; MessageRowViewModel,Composite selector writes tintListRowsByAccount and showAccountDot; two writes can be partial on failure.
 S-toolbarPosition,unwired,appearance,select,Toolbar position,"""top""",,,not ported,
@@ -94,7 +94,7 @@ S-webviewBackgroundCloseMinutes,wired,general,select,Free the mail view's memory
 S-timeFormat,wired,general,select,Time format,"""24h""",calendar.rs;compose.rs;files.rs;mail.rs;schedule.rs;settings.rs,src/calendar.rs:177,src/Barbican.Core/Compose/ComposeSettings.cs; ScheduleDialogViewModel,
 S-timeZone,wired,general,info,Time zone,"""auto""",agent.rs;cal_editor.rs;cal_extra.rs;calendar.rs;contacts_x.rs;invite.rs;reminders.rs;vcard.rs,src/agent.rs:409,src/Barbican.Core/Calendar/CalendarSettings.cs; src/Barbican.Core/Contacts/ContactDates.cs (Today),
 S-archiveMode,wired,message_list,select,Archive in,"""single""",mail.rs,src/mail.rs:990,src/Barbican.Presentation/Actions/ActionSettings.cs,
-S-clearSearchOnFolderChange,wired,message_list,toggle,Clear search when switching folders,false,main.rs,src/main.rs:846,not ported,
+S-clearSearchOnFolderChange,wired,message_list,toggle,Clear search when switching folders,false,main.rs,src/main.rs:846,Presentation/Mail/MessageListViewModel,Search preservation and explicit clear-on-folder-change regressions; default false.
 S-confirmBulkDelete,wired,message_list,toggle,Confirm before deleting several messages,true,ctxmenu.rs;mail.rs,src/ctxmenu.rs:537,src/Barbican.Presentation/Actions/ActionSettings.cs; src/Barbican.Presentation/Menus/MailboxMenuData.cs,
 S-deleteAction,wired,message_list,select,Delete action,"""trash""",mail.rs,src/mail.rs:1029,src/Barbican.Presentation/Actions/ActionSettings.cs,
 S-disableThreading,wired,message_list,toggle,Group messages by conversation,false,main.rs;msgload.rs,src/main.rs:334,MessageLoadRules,invert
@@ -105,14 +105,14 @@ S-messageListOrderScope,unwired,message_list,toggle,Apply to all folders,"""inbo
 S-mvInboxType,wired,message_list,select,Inbox type,"""unread-first""",mail.rs,src/mail.rs:584,MailListSettings,
 S-mvUnreadSectionSize,wired,message_list,select,Unread messages shown,25,mail.rs;settings.rs,src/mail.rs:587,MailListSettings,
 S-permanentlyDeleteJunk,wired,message_list,toggle,Permanently delete Junk,false,mail.rs,src/mail.rs:984,src/Barbican.Presentation/Actions/ActionSettings.cs,
-S-searchDefaultScope,wired,message_list,select,Search in,"""all""",main.rs,src/main.rs:1599,not ported,
+S-searchDefaultScope,wired,message_list,select,Search in,"""all""",main.rs,src/main.rs:1599,Presentation/Mail/MessageListViewModel; SearchListQueryShaper,"Default all; stored filter shared by first page, paging and watch; browsing folder restored after clear."
 S-showAttachmentChips,wired,message_list,toggle,Show attachments in the list,true,mail.rs,src/mail.rs:70,MailListSettings,
 S-showPreview,wired,message_list,toggle,Show preview text,true,mail.rs;settings.rs,src/mail.rs:65,MailListSettings,
 S-showTagChips,wired,message_list,toggle,Show tags in the list,true,main.rs,src/main.rs:2114,src/Barbican.Presentation/Mail/MailListSettings.cs,
-S-showVerificationCodes,wired,message_list,toggle,Show verification codes,true,mail.rs,src/mail.rs:71,not ported,
+S-showVerificationCodes,wired,message_list,toggle,Show verification codes,true,mail.rs,src/mail.rs:71,Presentation/Mail/MessageListViewModel; ReaderViewModel; VerificationCodeBannerSource,Live show/hide; age expiry and stale copy/banner guards; synthetic tests.
 S-swipeLeftAction,unwired,message_list,select,Swipe left action (mobile),"""delete""",,,not ported,
 S-swipeRightAction,unwired,message_list,select,Swipe right action (mobile),"""archive""",,,not ported,
-S-tintListRowsByTag,wired,message_list,toggle,Tint list rows by tag color,false,mail.rs,src/mail.rs:72,not ported,
+S-tintListRowsByTag,wired,message_list,toggle,Tint list rows by tag color,false,mail.rs,src/mail.rs:72,Presentation/Mail/MailListSettings; MessageRowViewModel; App/Views/List/MessageListView,"First configured tag tint, account tint precedence; contrast/ticked suppression; TagRowTintTests."
 S-calendarNotificationSound,wired,notifications,toggle,Sound for reminders,true,reminders.rs,src/reminders.rs:415,src/Barbican.Core/Calendar/CalendarSettings.cs,
 S-calendarNotificationsEnabled,wired,notifications,toggle,Event notifications,true,reminders.rs,src/reminders.rs:414,src/Barbican.Core/Calendar/CalendarSettings.cs,
 S-doNotDisturb,wired,notifications,toggle,Pause notifications,null,a11y.rs;main.rs;reminders.rs,src/a11y.rs:17,A11y,
@@ -131,7 +131,7 @@ S-showAvatarsInJunk,wired,privacy,toggle,Show avatars in the Junk folder,false,a
 S-attachmentImagePreviewsEnabled,wired,reading,toggle,Show image previews in attachments,true,attachments.rs,src/attachments.rs:60,MailListSettings,
 S-emailAlwaysLightMode,wired,reading,toggle,Always show emails in light mode,false,main.rs,src/main.rs:233,BodyAppearance,
 S-hideInlineImageAttachments,wired,reading,toggle,Hide inline images from attachments,true,mail.rs;msgload.rs;reader.rs,src/mail.rs:73,MailListSettings,
-S-mailAttachmentAction,wired,reading,select,Attachment click action,"""preview""",main.rs,src/main.rs:1747,not ported,
+S-mailAttachmentAction,wired,reading,select,Attachment click action,"""preview""",main.rs,src/main.rs:1747,Presentation/Reader/ReaderCommands; App/Views/Reader/ReaderMenuOpener,Preference-aware activation; explicit Save unchanged; unsupported preview falls back to save; bounded preview read and stale account/message guard.
 S-markAsReadDelay,wired,reading,select,Mark as read,0,msgload.rs,src/msgload.rs:36,MessageLoadRules,
 S-messageSpacing,wired,reading,select,Message spacing,"""auto""",main.rs,src/main.rs:255,BodyAppearance,
 S-returnToListAfterAction,wired,reading,toggle,"Return to list after delete, archive, move or mark unread",true,mail.rs,src/mail.rs:1011,src/Barbican.Presentation/Mail/MessageListViewModel.Actions.cs,

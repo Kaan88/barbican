@@ -18,6 +18,7 @@ public sealed class SrvUiFiltersViewModel : SrvUiPageModel, ISrvUiFiltersViewMod
     private readonly ISrvUiFolderSource? _folders;
     private IReadOnlyList<SrvUiFilterRow> _rows = [];
     private FilterState? _state;
+    private string? _stateAccount;
     private string? _saveError;
 
     public SrvUiFiltersViewModel(IFilterService service, IAccountManager? accounts = null, IDispatcher? dispatcher = null, ISrvUiFolderSource? folders = null)
@@ -46,6 +47,8 @@ public sealed class SrvUiFiltersViewModel : SrvUiPageModel, ISrvUiFiltersViewMod
 
     public FilterState? State => _state;
 
+    public string? StateAccountKey => _stateAccount;
+
     public IReadOnlyList<FilterFolder> Folders
     {
         get
@@ -60,7 +63,7 @@ public sealed class SrvUiFiltersViewModel : SrvUiPageModel, ISrvUiFiltersViewMod
         IsLoading = true;
         var account = AccountKey;
         var result = await _service.LoadAsync(account, ct).ConfigureAwait(false);
-        await OnUiAsync(account, () => { Apply(result); IsLoading = false; }).ConfigureAwait(false);
+        await OnUiAsync(account, () => { Apply(result, account); IsLoading = false; }).ConfigureAwait(false);
     }
 
     public Task MoveAsync(string ruleId, int direction, CancellationToken ct) =>
@@ -84,7 +87,7 @@ public sealed class SrvUiFiltersViewModel : SrvUiPageModel, ISrvUiFiltersViewMod
 
     public JsonNode? RuleOf(string ruleId) => _state?.Rules.FirstOrDefault(r => string.Equals(IdOf(r), ruleId, StringComparison.Ordinal))?.DeepClone();
 
-    public Task<bool> UpsertAsync(JsonNode rule, CancellationToken ct)
+    public Task<bool> UpsertAsync(JsonNode rule, string expectedAccount, string? expectedState, CancellationToken ct)
     {
         ArgumentNullException.ThrowIfNull(rule);
         var id = IdOf(rule);
@@ -103,7 +106,7 @@ public sealed class SrvUiFiltersViewModel : SrvUiPageModel, ISrvUiFiltersViewMod
 
                 return rules;
             },
-            ct);
+            ct, expectedAccount, expectedState);
     }
 
     public string SieveText()
@@ -142,9 +145,22 @@ public sealed class SrvUiFiltersViewModel : SrvUiPageModel, ISrvUiFiltersViewMod
         return string.Join('/', parts);
     }
 
-    private async Task<bool> WriteAsync(Func<List<JsonNode>, IReadOnlyList<JsonNode>> change, CancellationToken ct)
+    private async Task<bool> WriteAsync(Func<List<JsonNode>, IReadOnlyList<JsonNode>> change, CancellationToken ct, string? expectedAccount = null, string? expectedState = null)
     {
-        if (_state is null || _state.Locked)
+        if (_state is null || !string.Equals(_stateAccount, AccountKey, StringComparison.Ordinal))
+        {
+            SaveError = "Reload filters for this account before saving.";
+            return false;
+        }
+
+        if (expectedAccount is not null && (!string.Equals(expectedAccount, AccountKey, StringComparison.Ordinal)
+            || string.IsNullOrEmpty(expectedState) || !string.Equals(expectedState, _state.State, StringComparison.Ordinal)))
+        {
+            SaveError = "Filters changed while this editor was open; reload and edit again.";
+            return false;
+        }
+
+        if (_state.Locked)
         {
             SaveError = "The script was edited by hand, so the rules are read-only here.";
             return false;
@@ -153,13 +169,13 @@ public sealed class SrvUiFiltersViewModel : SrvUiPageModel, ISrvUiFiltersViewMod
         var next = change([.. _state.Rules.Select(r => r.DeepClone())]);
         SaveError = null;
         var account = AccountKey;
-        var result = await _service.SaveAsync(account, next, ct).ConfigureAwait(false);
+        var result = await _service.SaveAsync(account, next, _state.State, ct).ConfigureAwait(false);
         var applied = false;
         await OnUiAsync(account, () =>
         {
             if (result.IsOk)
             {
-                Apply(result);
+                Apply(result, account);
                 applied = true;
             }
             else
@@ -171,7 +187,7 @@ public sealed class SrvUiFiltersViewModel : SrvUiPageModel, ISrvUiFiltersViewMod
         return applied;
     }
 
-    private void Apply(Result<FilterState> result)
+    private void Apply(Result<FilterState> result, string account)
     {
         if (!result.IsOk)
         {
@@ -181,10 +197,12 @@ public sealed class SrvUiFiltersViewModel : SrvUiPageModel, ISrvUiFiltersViewMod
 
         Error = null;
         _state = result.Value;
+        _stateAccount = account;
         _rows = [.. result.Value!.Rules.Select(r => new SrvUiFilterRow(IdOf(r), SrvUiFilterBridge.Str(r, "name"), SrvUiFilterBridge.Summary(r), r["enabled"]?.GetValue<bool>() ?? true))];
         Raise(nameof(Rows));
         Raise(nameof(Locked));
         Raise(nameof(State));
+        Raise(nameof(StateAccountKey));
     }
 
     private async Task ReloadQuietlyAsync(string account)
@@ -192,7 +210,7 @@ public sealed class SrvUiFiltersViewModel : SrvUiPageModel, ISrvUiFiltersViewMod
         try
         {
             var result = await _service.LoadAsync(account, CancellationToken.None).ConfigureAwait(false);
-            await OnUiAsync(account, () => Apply(result)).ConfigureAwait(false);
+            await OnUiAsync(account, () => Apply(result, account)).ConfigureAwait(false);
         }
         catch (OperationCanceledException)
         {

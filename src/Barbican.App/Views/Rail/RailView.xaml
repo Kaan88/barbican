@@ -29,6 +29,12 @@
       </Grid>
 
       <StackPanel Grid.Row="1" Margin="{x:Bind Look.MarkGap, Mode=OneWay}" Spacing="{x:Bind Look.RailSpacing, Mode=OneWay}" HorizontalAlignment="Center">
+        <Button x:Name="ComposeButton" Style="{StaticResource Button.Primary}" Click="OnComposeClick"
+                Width="{x:Bind Look.RailButton, Mode=OneWay}" Height="{x:Bind Look.RailButton, Mode=OneWay}" CornerRadius="{x:Bind Look.RailButtonRadius, Mode=OneWay}" Padding="0"
+                Visibility="{x:Bind Look.RailComposeVisibility, Mode=OneWay}" FocusVisualPrimaryThickness="{x:Bind Look.FocusThickness, Mode=OneWay}"
+                AutomationProperties.AutomationId="rail.compose" AutomationProperties.Name="New message" motion:Tip.Text="New message">
+          <controls:SIcon Kind="Pen" Size="20" />
+        </Button>
         <Grid>
           <Button x:Name="MailButton" Style="{StaticResource Button.Icon}" FocusVisualPrimaryThickness="{x:Bind Look.FocusThickness, Mode=OneWay}" Click="OnMailClick"
                   Width="{x:Bind Look.RailButton, Mode=OneWay}" Height="{x:Bind Look.RailButton, Mode=OneWay}" CornerRadius="{x:Bind Look.RailButtonRadius, Mode=OneWay}"
