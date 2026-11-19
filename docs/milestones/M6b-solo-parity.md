@@ -1,6 +1,6 @@
 # Bulwark default-theme parity (2026-11-20)
 
-The original pause is recorded below. Work resumed with one additional Astra reviewer/developer at the user’s request. Use the existing
+The original pause is recorded below. Work resumed with one additional Astra reviewer/developer at the userï¿½s request. Use the existing
 `wt-m6b-bulwark-ui` worktree, branch `codex/m6b-bulwark-ui`. In a new clone use
 that remote branch. This checkpoint follows `585056f`; find it with
 `git log -1 -- docs/milestones/M6b-solo-parity.md`. The `barbican` coordinator
@@ -132,10 +132,10 @@ verified dock and maximize changes and predates inline delivery.
 
 ## Windows visual reference and November 20 verification
 
-The user identified the original C# WinUI 3 mockup as the visual reference.
+Keep Bulwark as the default theme. The user identified the original C# WinUI 3 mockup as the interaction reference.
 It launches in Bento Dark. Use its 1560 Ã— 960 window, subject-first reader,
 folder-header compose action and short, ready-to-display message transitions
-when judging Windows appearance. Continue to use Bulwark 1.21.2 for mail
+when reviewing ease of use. Retain the default Bulwark palette and shell. Use Bulwark 1.21.2 for mail
 actions and responsive behavior. Keep explicit style choices available.
 
 The earlier portable at 5518b0a used Bulwark as its first-run appearance.
