@@ -7,7 +7,6 @@ namespace Barbican.Automation.Tests.Plugins;
 public sealed class PluginSandboxOwnedCallsRedTests
 {
     private static PluginRuntimeBinding Binding() => PluginRuntimeBinding.Create("auto-8931", new PluginGrantSnapshot(new PluginPackageIdentity("fixture","1.0.0",new string('a',64)),1,true,[],[]), PluginFrameKind.Background);
-    [Red("m6b-runtime")]
     [Fact]
     public void Prop_callback_is_reusable_owned_and_revoked_on_replacement()
     {
@@ -21,7 +20,6 @@ public sealed class PluginSandboxOwnedCallsRedTests
         Assert.False(calls.CanInvokePropCallback(owner,"first")); Assert.True(calls.CanInvokePropCallback(owner,"next"));
         calls.Dispose(); Assert.False(calls.CanInvokePropCallback(owner,"next"));
     }
-    [Red("m6b-runtime")]
     [Fact]
     public void Pending_reply_is_owned_bounded_and_consumed_exactly_once()
     {
@@ -30,7 +28,6 @@ public sealed class PluginSandboxOwnedCallsRedTests
         Assert.False(calls.TakePendingReply(sibling,"reply")); Assert.True(calls.TakePendingReply(owner,"reply"));
         Assert.False(calls.TakePendingReply(owner,"reply")); calls.Dispose();
     }
-    [Red("m6b-runtime")]
     [Fact]
     public void Stream_accepts_multiple_owned_chunks_until_end()
     {
@@ -41,7 +38,6 @@ public sealed class PluginSandboxOwnedCallsRedTests
         Assert.False(calls.EndStream(sibling,"stream")); Assert.True(calls.EndStream(owner,"stream"));
         Assert.False(calls.AcceptStreamChunk(owner,"stream")); Assert.False(calls.EndStream(owner,"stream")); calls.Dispose();
     }
-    [Red("m6b-runtime")]
     [Fact]
     public async Task Revocation_and_dispose_remove_all_owned_capabilities()
     {
@@ -50,5 +46,15 @@ public sealed class PluginSandboxOwnedCallsRedTests
         await owner.DisposeAsync();
         Assert.False(calls.AcceptStreamChunk(owner,"stream")); Assert.False(calls.CanInvokePropCallback(owner,"callback")); Assert.False(calls.TakePendingReply(owner,"pending"));
         calls.Dispose(); Assert.False(calls.BeginStream("later"));
+    }    [Fact]
+    public void Retired_ids_and_invalid_ids_cannot_be_resurrected()
+    {
+        var owner=Binding(); var calls=new PluginSandboxOwnedCalls(owner,2,2,2);
+        Assert.True(calls.ReplacePropCallbacks(["old"])); Assert.True(calls.ReplacePropCallbacks(["new"]));
+        Assert.False(calls.ReplacePropCallbacks(["old"])); Assert.True(calls.CanInvokePropCallback(owner,"new"));
+        Assert.True(calls.AddPendingReply("reply")); Assert.True(calls.TakePendingReply(owner,"reply")); Assert.False(calls.AddPendingReply("reply"));
+        Assert.True(calls.BeginStream("stream")); Assert.True(calls.EndStream(owner,"stream")); Assert.False(calls.BeginStream("stream"));
+        Assert.False(calls.AddPendingReply("bad\nvalue")); Assert.False(calls.BeginStream(new string('x',257))); calls.Dispose();
     }
+
 }
