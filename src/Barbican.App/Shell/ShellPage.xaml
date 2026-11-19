@@ -67,6 +67,13 @@
             <reader:ReaderView x:Name="ReaderRegion" Grid.Row="1" />
             <!-- M3 composer-ui: the composer takes the reader's place (the folders column collapses and the list stays), or sits under the reader when it answers a message (ComposerDock) -->
             <Grid x:Name="ComposerDockHost" Grid.Row="0" Grid.RowSpan="3" RowDefinitions="Auto,*" Visibility="Collapsed" AutomationProperties.AutomationId="reply-dock.host">
+              <ContentControl x:Name="DockResize" Grid.Row="0" Height="10" Background="Transparent" Visibility="Collapsed"
+                              HorizontalContentAlignment="Center" VerticalContentAlignment="Center" IsTabStop="True" UseSystemFocusVisuals="True"
+                              PointerPressed="OnDockPress" PointerMoved="OnDockMove" PointerReleased="OnDockRelease"
+                              PointerCaptureLost="OnDockCaptureLost" DoubleTapped="OnDockReset" KeyDown="OnDockResizeKey"
+                              AutomationProperties.AutomationId="reply-dock.resize" AutomationProperties.Name="Resize reply. Use Up or Down to resize, or Home to reset.">
+                <Border Width="36" Height="2" CornerRadius="1" Background="{StaticResource Faint}" />
+              </ContentControl>
               <Button x:Name="DockDisclosure" Grid.Row="0" HorizontalAlignment="Stretch" HorizontalContentAlignment="Left"
                       Padding="16,6" Click="OnDockDisclosureClick" Visibility="Collapsed"
                       AutomationProperties.Name="Show the message" AutomationProperties.AutomationId="reply-dock.disclosure" />

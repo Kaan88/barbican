@@ -248,9 +248,10 @@ public sealed partial class ShellPage : Page
         Grid.SetRow(ComposerDockHost, docked ? 2 : 0);
         Grid.SetRowSpan(ComposerDockHost, docked ? 1 : 3);
         var adaptive = _composing && docked && _look.IsBulwark;
-        var layout = adaptive ? ReplyDockLayout.Compute(ReaderColumn.ActualHeight) : default;
+        var layout = adaptive ? ReplyDockLayout.Compute(ReaderColumn.ActualHeight, _dockShare) : default;
         var takeover = adaptive && layout.Takeover;
         var showingMessage = takeover && _showDockMessage;
+        DockResize.Visibility = adaptive && !takeover && layout.Height > 0 ? Visibility.Visible : Visibility.Collapsed;
         DockDisclosure.Visibility = takeover ? Visibility.Visible : Visibility.Collapsed;
         DockDisclosure.Content = showingMessage ? "Back to reply" : "Show the message";
         AutomationProperties.SetName(DockDisclosure, (string)DockDisclosure.Content);

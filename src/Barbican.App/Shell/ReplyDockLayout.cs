@@ -10,7 +10,7 @@ public readonly record struct ReplyDockLayout(bool Takeover, double Height)
     public const double MinNativeReader = 200;
     public const double DefaultShare = 0.6;
 
-    public static ReplyDockLayout Compute(double paneHeight)
+    public static ReplyDockLayout Compute(double paneHeight, double share = DefaultShare)
     {
         if (!double.IsFinite(paneHeight) || paneHeight <= 0)
         {
@@ -22,7 +22,8 @@ public readonly record struct ReplyDockLayout(bool Takeover, double Height)
             return new ReplyDockLayout(true, paneHeight);
         }
 
-        var desired = Math.Round(paneHeight * DefaultShare, MidpointRounding.AwayFromZero);
+        var validShare = double.IsFinite(share) && share > 0 && share < 1 ? share : DefaultShare;
+        var desired = Math.Round(paneHeight * validShare, MidpointRounding.AwayFromZero);
         return new ReplyDockLayout(false, Math.Clamp(desired, MinDock, paneHeight - MinNativeReader));
     }
 }

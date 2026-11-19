@@ -106,3 +106,13 @@ resize. Hidden sample runs 8971 and 8972 compared the saved draft ID, recipient,
 subject, body and attachment before and after, and captured each visible state.
 Full Windows Automation verification passed 3,157 tests with four skips.
 The portable at c3ca11e predates this change. Pop-out remains open.
+
+## Reply dock divider
+
+The dock remembers the reader/composer split. Arrow keys adjust it in 16 px
+steps. Home or a double tap restores the default. Hidden sample run 8974
+measured 529 px for the default composer and 662 px after reopening with a
+75% preference. The 10 px divider spanned the composer width. Both layouts
+recovered their original bounds after shrinking to takeover height. Windows
+Automation passed 3,161 tests with four skips. The hidden run exercised
+preference restoration and layout; pointer dragging awaits hands-on review.

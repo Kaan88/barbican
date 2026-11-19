@@ -26,6 +26,17 @@ public sealed class ReplyDockLayoutTests
         Assert.Equal(pane, layout.Height);
     }
 
+    [Theory]
+    [InlineData(0.75, 675)]
+    [InlineData(0.95, 700)]
+    [InlineData(0.2, 320)]
+    [InlineData(double.NaN, 540)]
+    public void SavedShareFitsTheAvailablePane(double share, double expected)
+    {
+        Assert.Equal(expected, ReplyDockLayout.Compute(900, share).Height);
+        Assert.True(ReplyDockLayout.Compute(650, share).Takeover);
+    }
+
     [Fact]
     public void UnmeasuredPaneWaitsForLayout()
     {
