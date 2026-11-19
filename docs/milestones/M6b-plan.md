@@ -1,6 +1,6 @@
 # M6b plan: full plugin platform
 
-Prepared by Codex / Sol on 2026-11-19. Implementation starts after M6 closes and its fresh Windows portable zip is verified. This milestone implements PORT-PLAN section 5 M6b; it does not reduce compatibility to a plugin demo. Follow CLAUDE.md and CODEX-HANDOFF.md. Windows verification is required here; Linux/WebKit verification stays deferred to M9. The active run stops after M10, before M9 and the final Astra review.
+Prepared by Codex / Sol on 2026-11-19. Implementation starts after M6 closes and its fresh Windows portable zip is verified. This milestone implements PORT-PLAN section 5 M6b; it does not reduce compatibility to a plugin demo. Follow CLAUDE.md and CODEX-HANDOFF.md. Windows verification is required here; Linux/WebKit verification stays deferred to M9.
 
 ## Current evidence and scope
 
