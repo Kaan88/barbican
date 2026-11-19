@@ -15,6 +15,7 @@ public static class CalendarDataRegistration
         ArgumentNullException.ThrowIfNull(services);
         services.TryAddSingleton<ICalendarPush, CalendarPushRelay>();
         services.TryAddSingleton<ICalendarStore, CalendarStore>();
+        services.TryAddSingleton<ICalendarParticipantIdentities, CalendarParticipantIdentities>();
         services.TryAddSingleton<IReminderStateStore, ReminderStateStore>();
         services.TryAddSingleton<IReminderScheduler, ReminderScheduler>();
         return services;

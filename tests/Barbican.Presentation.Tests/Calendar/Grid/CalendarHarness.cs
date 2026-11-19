@@ -143,7 +143,7 @@ internal sealed class RecordingEditors : ICalendarEditors
 
 internal sealed class CalendarHarness : IDisposable
 {
-    public CalendarHarness(string prefs = "{}")
+    public CalendarHarness(string prefs = "{\"calendarViewMode\":\"week\"}")
     {
         Time = new FakeTimeProvider(new DateTimeOffset(2026, 11, 18, 12, 0, 0, TimeSpan.Zero));
         Time.SetLocalTimeZone(TimeZoneInfo.Utc);

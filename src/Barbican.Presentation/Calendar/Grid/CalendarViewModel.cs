@@ -7,6 +7,8 @@ using Barbican.Core.Calendar;
 using Barbican.Core.Common;
 using Barbican.Core.Plugins.Hooks;
 using Barbican.Core.Storage;
+using Barbican.Core.Settings.Pages;
+using System.Text.Json.Nodes;
 using Barbican.Presentation.Calendar.Editors;
 using Barbican.Presentation.Common;
 using CommunityToolkit.Mvvm.ComponentModel;
@@ -24,7 +26,11 @@ public sealed class CalendarViewModel : ObservableObject, ICalendarViewModel, ID
     private readonly IDispatcher _dispatcher;
     private readonly ICalendarEditors? _editors;
     private readonly HashSet<string> _hidden = new(StringComparer.Ordinal);
-    private CalendarViewKind _view = CalendarViewKind.Week;
+    private CalendarViewKind _view;
+    private string _viewPreference = string.Empty;
+    private readonly ISettingValues? _settingValues;
+    private Task _viewWrites = Task.CompletedTask;
+    private int _pendingViewWrites;
     private DateOnly _anchor;
     private DateOnly _mini;
     private bool _narrow;
@@ -43,7 +49,7 @@ public sealed class CalendarViewModel : ObservableObject, ICalendarViewModel, ID
     private string? _loadedFor;
     private bool _disposed;
 
-    public CalendarViewModel(ICalendarSource source, IAccountManager accounts, IPrefsStore prefs, IHookBus hooks, TimeProvider time, IDispatcher dispatcher, ICalendarEditors? editors = null)
+    public CalendarViewModel(ICalendarSource source, IAccountManager accounts, IPrefsStore prefs, IHookBus hooks, TimeProvider time, IDispatcher dispatcher, ICalendarEditors? editors = null, ISettingValues? settingValues = null)
     {
         ArgumentNullException.ThrowIfNull(source);
         ArgumentNullException.ThrowIfNull(accounts);
@@ -58,6 +64,9 @@ public sealed class CalendarViewModel : ObservableObject, ICalendarViewModel, ID
         _time = time;
         _dispatcher = dispatcher;
         _editors = editors;
+        _settingValues = settingValues;
+        _viewPreference = prefs.Current.Str("calendarViewMode", "month");
+        _view = ViewFromPreference(_viewPreference);
         _settings = CalendarViewSettings.Read(prefs.Current);
         _anchor = TodayDate;
         _mini = FirstOfMonth(_anchor);
@@ -215,6 +224,11 @@ public sealed class CalendarViewModel : ObservableObject, ICalendarViewModel, ID
         _view = view;
         Recompute(notify: true);
         _hooks.Fire(HookNames.OnCalendarViewChange, () => new CalendarViewPayload(ViewName(view)));
+        if (view != CalendarViewKind.Tasks && _settingValues is not null)
+        {
+            Interlocked.Increment(ref _pendingViewWrites);
+            _viewWrites = SaveViewAsync(_viewWrites, view);
+        }
     }
 
     public void Today()
@@ -632,8 +646,43 @@ public sealed class CalendarViewModel : ObservableObject, ICalendarViewModel, ID
     private void OnPrefsChanged(object? sender, EventArgs e) => OnUi(() =>
     {
         _settings = CalendarViewSettings.Read(_prefs.Current);
+        var preference = _prefs.Current.Str("calendarViewMode", "month");
+        if (!string.Equals(preference, _viewPreference, StringComparison.Ordinal))
+        {
+            _viewPreference = preference;
+            if (Volatile.Read(ref _pendingViewWrites) == 0)
+            {
+                _view = ViewFromPreference(preference);
+            }
+        }
+
         Recompute(notify: true);
     });
+
+    private async Task SaveViewAsync(Task previous, CalendarViewKind view)
+    {
+        try
+        {
+            await previous.ConfigureAwait(false);
+            var result = await _settingValues!.SetAsync("calendarViewMode", JsonValue.Create(ViewName(view)), CancellationToken.None).ConfigureAwait(false);
+            if (!result.IsOk)
+            {
+                OnUi(() => { _error = result.Error?.Message ?? "The calendar view was not saved."; OnPropertyChanged(nameof(LoadError)); });
+            }
+        }
+        finally
+        {
+            Interlocked.Decrement(ref _pendingViewWrites);
+        }
+    }
+
+    private static CalendarViewKind ViewFromPreference(string value) => value switch
+    {
+        "day" => CalendarViewKind.Day,
+        "week" => CalendarViewKind.Week,
+        "agenda" => CalendarViewKind.Agenda,
+        _ => CalendarViewKind.Month,
+    };
 
     private void OnAccountChanged(object? sender, ActiveAccountChangedEventArgs e) => OnUi(() =>
     {

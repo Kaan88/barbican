@@ -12,6 +12,19 @@ namespace Barbican.Presentation.Tests.Calendar.Grid;
 public sealed class CalendarViewModelTests
 {
     [Fact]
+    public void Saved_view_is_used_and_external_changes_update_calendar()
+    {
+        using var initial = new CalendarHarness("{}");
+        Assert.Equal(CalendarViewKind.Month, initial.View.View);
+        using var h = new CalendarHarness("{\"calendarViewMode\":\"agenda\"}");
+        Assert.Equal(CalendarViewKind.Agenda, h.View.View);
+        h.Prefs.Set("{\"calendarViewMode\":\"day\"}");
+        Assert.Equal(CalendarViewKind.Day, h.View.View);
+        h.Prefs.Set("{\"calendarViewMode\":\"unknown\"}");
+        Assert.Equal(CalendarViewKind.Month, h.View.View);
+    }
+
+    [Fact]
     public void Every_view_has_its_range()
     {
         using var h = new CalendarHarness();
