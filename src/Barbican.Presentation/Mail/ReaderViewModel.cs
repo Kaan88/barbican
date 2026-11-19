@@ -19,6 +19,7 @@ public sealed class ReaderViewModel : ObservableObject, IDisposable
     private readonly TimeProvider _time;
     private ITimer? _codeExpiry;
     private bool _disposed;
+    private bool _showOlderConversationHeaders;
 
     public ReaderViewModel(IPrefsStore? prefs = null, IVerificationCodeFinder? finder = null, TimeProvider? time = null, IDispatcher? dispatcher = null)
     {
@@ -97,6 +98,33 @@ public sealed class ReaderViewModel : ObservableObject, IDisposable
     /// <summary>The conversation strip; the collection is never replaced, only synced in place.</summary>
     public BulkObservableCollection<ConversationItem> Conversation { get; } = [];
 
+    /// <summary>Collapsed headers only; the selected message keeps the reader's single body surface.</summary>
+    public BulkObservableCollection<ConversationItem> ConversationHeaders { get; } = [];
+
+    public int HiddenConversationCount { get; private set; }
+
+    public string OlderConversationLabel => FormattableString.Invariant($"Show {HiddenConversationCount} older messages");
+
+    public void ShowOlderConversationHeaders()
+    {
+        _showOlderConversationHeaders = true;
+        SyncConversationHeaders(_current.Conversation);
+    }
+
+    private void SyncConversationHeaders(IReadOnlyList<ConversationItem> items)
+    {
+        var current = 0;
+        while (current < items.Count && !items[current].IsCurrent) current++;
+        var hidden = !_showOlderConversationHeaders && current < items.Count ? Math.Max(0, current - 2) : 0;
+        ListSync.SyncBy(ConversationHeaders, items.Skip(hidden).Where(c => !c.IsCurrent).ToArray(), c => c.Id, EqualityComparer<ConversationItem>.Default.Equals);
+        if (HiddenConversationCount != hidden)
+        {
+            HiddenConversationCount = hidden;
+            OnPropertyChanged(nameof(HiddenConversationCount));
+            OnPropertyChanged(nameof(OlderConversationLabel));
+        }
+    }
+
     /// <summary>The attachment tiles; synced in place so a thumbnail arriving touches one tile.</summary>
     public BulkObservableCollection<AttachmentCard> Attachments { get; } = [];
 
@@ -110,11 +138,14 @@ public sealed class ReaderViewModel : ObservableObject, IDisposable
         var previous = _current;
         snapshot = WithCode(snapshot);
         _current = snapshot;
+        var emailChanged = !string.Equals(previous.EmailId, snapshot.EmailId, StringComparison.Ordinal);
+        if (emailChanged || snapshot.Conversation.Count == 0) _showOlderConversationHeaders = false;
         ListSync.SyncBy(Conversation, snapshot.Conversation, c => c.Id, EqualityComparer<ConversationItem>.Default.Equals);
+        SyncConversationHeaders(snapshot.Conversation);
         ListSync.SyncBy(Banners, snapshot.Banners, b => b.Id, EqualityComparer<Reader.ReaderBanner>.Default.Equals);
         ListSync.SyncBy(Attachments, snapshot.Attachments, a => a.Index.ToString(System.Globalization.CultureInfo.InvariantCulture), AttachmentCardsEqual);
         OnPropertyChanged(nameof(Current));
-        if (!string.Equals(previous.EmailId, snapshot.EmailId, StringComparison.Ordinal))
+        if (emailChanged)
         {
             OnPropertyChanged(nameof(EmailId));
         }
