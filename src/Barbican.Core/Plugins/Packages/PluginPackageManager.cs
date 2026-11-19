@@ -1,4 +1,5 @@
 // Source: Bulwark stores/plugin-store.ts:188-320, 467-516; M6b adds exact review/generation and authenticated persistence boundaries.
+using System.Collections.Concurrent;
 using System.Security.Cryptography;
 using System.Text.Json;
 using System.Text.Json.Serialization;
@@ -19,6 +20,10 @@ public sealed partial class PluginPackageManager : IPluginPackageManager, IPlugi
     private readonly IPluginRevocationCoordinator _revocation;
     private readonly TimeProvider _time;
     private readonly SemaphoreSlim _gate = new(1, 1);
+    private readonly IPluginProfileAuthorityLease? _lease;
+    private readonly CancellationTokenRegistration _leaseRegistration;
+    private readonly ConcurrentDictionary<PluginPackageIdentity, long> _issued = new();
+    private Loaded? _cache;
     private readonly Dictionary<string, Review> _reviews = new(StringComparer.Ordinal);
     private readonly HashSet<string> _blocked = new(StringComparer.Ordinal);
     private sealed record Review(InspectedPluginPackage Inspection, byte[] Archive, PluginPackageDefinition Definition, PluginPackageIdentity? Previous, long? PreviousGeneration, DateTimeOffset Expires);
@@ -26,7 +31,13 @@ public sealed partial class PluginPackageManager : IPluginPackageManager, IPlugi
     internal sealed record Index(long NextGeneration, List<Entry> Entries);
     private sealed record Loaded(long Revision, Index Index, Dictionary<string, PluginInstallation> Installations);
 
-    public PluginPackageManager(PluginPackageManagerOptions options, IPluginPackageStore store, IPluginRevocationCoordinator revocation, TimeProvider time)
+    internal PluginPackageManager(PluginPackageManagerOptions options, IPluginPackageStore store, IPluginRevocationCoordinator revocation, TimeProvider time)
+        : this(options, store, revocation, time, null, testOnly: true) { }
+
+    public PluginPackageManager(PluginPackageManagerOptions options, IPluginPackageStore store, IPluginRevocationCoordinator revocation, TimeProvider time, IPluginProfileAuthorityLease lease)
+        : this(options, store, revocation, time, lease ?? throw new ArgumentNullException(nameof(lease)), testOnly: false) { }
+
+    private PluginPackageManager(PluginPackageManagerOptions options, IPluginPackageStore store, IPluginRevocationCoordinator revocation, TimeProvider time, IPluginProfileAuthorityLease? lease, bool testOnly)
     {
         ArgumentNullException.ThrowIfNull(options);
         if (string.IsNullOrWhiteSpace(options.Profile)) throw new ArgumentException("A host profile is required.", nameof(options));
@@ -38,12 +49,31 @@ public sealed partial class PluginPackageManager : IPluginPackageManager, IPlugi
         _store = store;
         _revocation = revocation;
         _time = time;
+        if (!testOnly && (lease is null || !lease.IsHeld || lease.Lifetime.IsCancellationRequested || !string.Equals(lease.Profile, options.Profile, StringComparison.Ordinal))) throw new ArgumentException("A held matching profile lease is required.", nameof(lease));
+        _lease = lease;
+        _leaseRegistration = lease?.Lifetime.Register(OnLeaseLost) ?? default;
     }
 
     [JsonSerializable(typeof(Index))]
     internal sealed partial class PackageIndexJsonContext : JsonSerializerContext;
 
-    public void Dispose() => _gate.Dispose();
+    public void Dispose()
+    {
+        _leaseRegistration.Dispose();
+        _gate.Dispose();
+    }
+
+    private bool HasAuthority => _lease is null || (_lease.IsHeld && !_lease.Lifetime.IsCancellationRequested);
+    private void OnLeaseLost()
+    {
+        // The coordinator invalidates bindings synchronously before its first await. Do not wait
+        // for teardown here; the lease file remains held until these barriers are established.
+        foreach (var (identity, generation) in _issued)
+        {
+            try { _ = _revocation.RevokeAsync(identity, generation, CancellationToken.None); }
+            catch (Exception ex) when (ex is not OutOfMemoryException and not StackOverflowException) { }
+        }
+    }
 
     public event EventHandler<PluginAuthorityChangedEventArgs>? Changed;
     private static Result<T> Failure<T>(string message) => Result<T>.Fail(new ValidationError(message));
@@ -58,7 +88,10 @@ public sealed partial class PluginPackageManager : IPluginPackageManager, IPlugi
 
     private async Task<Result<Loaded>> LoadAsync(CancellationToken ct)
     {
+        if (!HasAuthority) return Failure<Loaded>("Plugin profile authority is unavailable.");
+        if (_lease is not null && _cache is not null) return Result<Loaded>.Ok(_cache);
         var stored = await _store.LoadAsync(_options.Profile, ct).ConfigureAwait(false);
+        if (!HasAuthority) return Failure<Loaded>("Plugin profile authority is unavailable.");
         if (!stored.IsOk) return Result<Loaded>.Fail(stored.Error!);
         try
         {
@@ -80,7 +113,8 @@ public sealed partial class PluginPackageManager : IPluginPackageManager, IPlugi
                 if (definition.RequestedTier != PluginExecutionTier.Untrusted || !definition.RequestedPermissions.SetEquals(entry.Permissions) || entry.Accounts.Any(string.IsNullOrWhiteSpace)) return Failure<Loaded>("Invalid package grant.");
                 if (!installations.TryAdd(entry.Id, new(definition, entry.Enabled && !_blocked.Contains(entry.Id), Grant(entry)))) return Failure<Loaded>("Duplicate package identity.");
             }
-            return Result<Loaded>.Ok(new(snapshot.Revision, index, installations));
+            if (!HasAuthority) return Failure<Loaded>("Plugin profile authority is unavailable.");
+            return Publish(snapshot.Revision, index, installations);
         }
         catch (Exception ex) when (ex is JsonException or ArgumentException or InvalidOperationException or OverflowException)
         {
@@ -88,15 +122,26 @@ public sealed partial class PluginPackageManager : IPluginPackageManager, IPlugi
         }
     }
 
+    private Result<Loaded> Publish(long revision, Index index, Dictionary<string, PluginInstallation> installations)
+    {
+        var loaded = new Loaded(revision, index, installations);
+        foreach (var entry in index.Entries) _issued.AddOrUpdate(Identity(entry), entry.Generation, (_, old) => Math.Max(old, entry.Generation));
+        if (_lease is not null) _cache = loaded;
+        return Result<Loaded>.Ok(loaded);
+    }
+
     private async Task<Result<Unit>> CommitAsync(Loaded previous, Index next, CancellationToken ct)
     {
+        _cache = null;
+        if (!HasAuthority) return Failure<Unit>("Plugin profile authority is unavailable.");
         var data = JsonSerializer.SerializeToUtf8Bytes(next, PackageIndexJsonContext.Default.Index);
         if (data.Length > 4 * 1024 * 1024) return Failure<Unit>("Package index exceeds the host limit.");
         var committed = await _store.CommitAsync(_options.Profile, previous.Revision, data, ct).ConfigureAwait(false);
+        if (!HasAuthority) return Failure<Unit>("Plugin profile authority is unavailable.");
         if (committed.IsOk) return Result<Unit>.Ok(default);
         // An uncertain acknowledgement is only successful after an authenticated exact readback.
         var readback = await _store.LoadAsync(_options.Profile, ct).ConfigureAwait(false);
-        return readback.IsOk && readback.Value!.Revision > previous.Revision && readback.Value.Index.AsSpan().SequenceEqual(data)
+        return HasAuthority && readback.IsOk && readback.Value!.Revision > previous.Revision && readback.Value.Index.AsSpan().SequenceEqual(data)
             ? Result<Unit>.Ok(default) : Result<Unit>.Fail(committed.Error!);
     }
 
@@ -157,6 +202,7 @@ public sealed partial class PluginPackageManager : IPluginPackageManager, IPlugi
             var bytes = content.Value.ToArray();
             using var input = new MemoryStream(bytes, writable: false);
             var inspected = await PluginPackageInspector.InspectAsync(input, _options.BulwarkCompatibilityVersion, ct).ConfigureAwait(false);
+            if (!HasAuthority) return Failure<PluginInstallPreview>("Plugin profile authority is unavailable.");
             return inspected.IsOk ? Stage(inspected.Value!, bytes, current.Package, current) : Result<PluginInstallPreview>.Fail(inspected.Error!);
         }
         finally { _gate.Release(); }
@@ -210,6 +256,7 @@ public sealed partial class PluginPackageManager : IPluginPackageManager, IPlugi
     {
         var entry = loaded.Index.Entries.SingleOrDefault(x => Identity(x) == identity);
         if (entry is null) return Failure<Unit>("Installed package changed.");
+        _cache = null;
         _blocked.Add(identity.Id);
         var through = entry.CleanupThrough ?? entry.Generation;
         Result<Unit> persisted = Result<Unit>.Ok(default);
@@ -332,7 +379,7 @@ public sealed partial class PluginPackageManager : IPluginPackageManager, IPlugi
             using var archive = new MemoryStream(content.Value.ToArray(), writable: false);
             var inspected = await PluginPackageInspector.InspectAsync(archive, _options.BulwarkCompatibilityVersion, ct).ConfigureAwait(false);
             if (!inspected.IsOk || Definition(inspected.Value!).Identity != package || !inspected.Value!.Resources.TryGetValue(resource, out var bytes)) return Failure<Stream>("Package resource is unavailable.");
-            return Result<Stream>.Ok(new MemoryStream(bytes.ToArray(), writable: false));
+            return HasAuthority ? Result<Stream>.Ok(new MemoryStream(bytes.ToArray(), writable: false)) : Failure<Stream>("Plugin profile authority is unavailable.");
         }
         finally { _gate.Release(); }
     }

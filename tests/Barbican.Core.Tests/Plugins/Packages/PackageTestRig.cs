@@ -75,12 +75,16 @@ internal sealed class PackageTestRig
         public bool BadAuthentication { get; set; }
         public int Deletes { get; private set; }
         public int Loads { get; private set; }
-        public Task<Result<PluginStoreSnapshot>> LoadAsync(string profile, CancellationToken ct)
+        public TaskCompletionSource? LoadEntered { get; set; }
+        public TaskCompletionSource? ReleaseLoad { get; set; }
+        public async Task<Result<PluginStoreSnapshot>> LoadAsync(string profile, CancellationToken ct)
         {
             Loads++;
-            return Task.FromResult(BadAuthentication
+            LoadEntered?.TrySetResult();
+            if (ReleaseLoad is not null) await ReleaseLoad.Task.WaitAsync(ct);
+            return BadAuthentication
                 ? Result<PluginStoreSnapshot>.Fail(new ValidationError("Synthetic authentication failure."))
-                : Result<PluginStoreSnapshot>.Ok(_indices.GetValueOrDefault(profile) ?? new PluginStoreSnapshot(0, [])));
+                : Result<PluginStoreSnapshot>.Ok(_indices.GetValueOrDefault(profile) ?? new PluginStoreSnapshot(0, []));
         }
         public Task<Result<long>> CommitAsync(string profile, long expectedRevision, ReadOnlyMemory<byte> index, CancellationToken ct)
         {
