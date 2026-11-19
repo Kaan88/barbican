@@ -33,12 +33,45 @@ public sealed class PluginValueAdversarialTests
     }
 
     [Fact]
+    public void Encoding_a_subvalue_omits_unreachable_private_siblings_and_keeps_cycles()
+    {
+        var b = new PluginValueBuilder();
+        var selected = b.Reserve();
+        var publicBuffer = b.Buffer([1, 2, 3]);
+        var view = b.View(publicBuffer, PluginViewType.Uint8, 1, 2);
+        b.SetObject(selected, ("self", selected), ("view", view));
+        var privateBuffer = b.Buffer([90, 91, 92, 93]);
+        var privateText = b.String("private-sibling-secret");
+        var root = b.Build(b.Object(("public", selected), ("private", privateText), ("privateBytes", privateBuffer)));
+        var wire = PluginValueCodec.Encode(root.Property("public"));
+        var json = System.Text.Encoding.UTF8.GetString(wire);
+        Assert.DoesNotContain("private-sibling-secret", json, StringComparison.Ordinal);
+        Assert.DoesNotContain(Convert.ToBase64String([90, 91, 92, 93]), json, StringComparison.Ordinal);
+        using var doc = System.Text.Json.JsonDocument.Parse(wire);
+        Assert.Equal(3, doc.RootElement.GetProperty("nodes").GetArrayLength());
+        var copy = PluginValueCodec.Decode(wire);
+        Assert.True(copy.SameNode(copy.Property("self")));
+        Assert.Equal([2, 3], copy.Property("view").BinaryBytes());
+        var viewWire = PluginValueCodec.Encode(root.Property("public").Property("view"));
+        using var viewDoc = System.Text.Json.JsonDocument.Parse(viewWire);
+        Assert.Equal(2, viewDoc.RootElement.GetProperty("nodes").GetArrayLength());
+        Assert.DoesNotContain("private-sibling-secret", System.Text.Encoding.UTF8.GetString(viewWire), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Tiny_wire_limit_rejects_large_binary_before_serialization()
+    {
+        var value = PluginValue.FromBinary(new byte[512_000]);
+        Assert.Throws<PluginValueFormatException>(() => PluginValueCodec.Encode(value, new PluginValueLimits(MaxWireBytes: 16)));
+    }
+
+    [Fact]
     public void Decoder_rejects_valid_envelope_with_invalid_reference_and_duplicate_id()
     {
         var b = new PluginValueBuilder();
         var value = b.Build(b.Array(b.Null()));
         var wire = Wire(value);
-        wire["nodes"]![1]!["links"]![0] = 300;
+        wire["nodes"]![0]!["links"]![0] = 300;
         Assert.Throws<PluginValueFormatException>(() => PluginValueCodec.Decode(Bytes(wire)));
         wire = Wire(value);
         wire["nodes"]![1]!["id"] = 0;
@@ -52,14 +85,14 @@ public sealed class PluginValueAdversarialTests
         var buffer = b.Buffer([1, 2, 3, 4]);
         var value = b.Build(b.View(buffer, PluginViewType.Uint8, 1, 2));
         var wire = Wire(value);
-        wire["nodes"]![1]!["length"] = 5;
+        wire["nodes"]![0]!["length"] = 5;
         Assert.Throws<PluginValueFormatException>(() => PluginValueCodec.Decode(Bytes(wire)));
         wire = Wire(value);
-        wire["nodes"]![0]!["kind"] = "Null";
-        wire["nodes"]![0]!["bytes"] = null;
+        wire["nodes"]![1]!["kind"] = "Null";
+        wire["nodes"]![1]!["bytes"] = null;
         Assert.Throws<PluginValueFormatException>(() => PluginValueCodec.Decode(Bytes(wire)));
         wire = Wire(value);
-        wire["nodes"]![0]!["bytes"] = "a===";
+        wire["nodes"]![1]!["bytes"] = "a===";
         Assert.Throws<PluginValueFormatException>(() => PluginValueCodec.Decode(Bytes(wire)));
     }
 

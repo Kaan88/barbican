@@ -1,4 +1,3 @@
-#pragma warning disable MA0051 // Explicit token reader and writer enforce the protocol budgets.
 using System.Text;
 using System.Text.Json;
 
@@ -72,28 +71,34 @@ public sealed class PluginValue
             case JsonTokenType.False: return builder.Boolean(false);
             case JsonTokenType.String: return builder.String(ReadJsonString(ref reader, p, ref strings));
             case JsonTokenType.Number: return builder.AddRaw(new(PluginValueKind.Number, Text: Encoding.UTF8.GetString(reader.ValueSpan)));
-            case JsonTokenType.StartArray:
-                var items = new List<int>();
-                while (reader.Read() && reader.TokenType != JsonTokenType.EndArray)
-                {
-                    if (items.Count >= p.MaxSequenceLength) throw new PluginValueFormatException("JSON sequence limit exceeded.");
-                    items.Add(ReadJson(ref reader, builder, p, depth + 1, ref count, ref strings));
-                }
-                if (reader.TokenType != JsonTokenType.EndArray) throw new PluginValueFormatException("Truncated array.");
-                return builder.Array([.. items]);
-            case JsonTokenType.StartObject:
-                var properties = new List<(string Key, int Value)>();
-                while (reader.Read() && reader.TokenType != JsonTokenType.EndObject)
-                {
-                    if (reader.TokenType != JsonTokenType.PropertyName || properties.Count >= p.MaxSequenceLength) throw new PluginValueFormatException("Invalid JSON object.");
-                    var key = ReadJsonString(ref reader, p, ref strings);
-                    if (!reader.Read()) throw new PluginValueFormatException("Truncated object.");
-                    properties.Add((key, ReadJson(ref reader, builder, p, depth + 1, ref count, ref strings)));
-                }
-                if (reader.TokenType != JsonTokenType.EndObject) throw new PluginValueFormatException("Truncated object.");
-                return builder.Object([.. properties]);
+            case JsonTokenType.StartArray: return ReadJsonArray(ref reader, builder, p, depth, ref count, ref strings);
+            case JsonTokenType.StartObject: return ReadJsonObject(ref reader, builder, p, depth, ref count, ref strings);
             default: throw new PluginValueFormatException("Unsupported JSON value.");
         }
+    }
+    private static int ReadJsonArray(ref Utf8JsonReader reader, PluginValueBuilder builder, PluginValueLimits p, int depth, ref int count, ref long strings)
+    {
+        var items = new List<int>();
+        while (reader.Read() && reader.TokenType != JsonTokenType.EndArray)
+        {
+            if (items.Count >= p.MaxSequenceLength) throw new PluginValueFormatException("JSON sequence limit exceeded.");
+            items.Add(ReadJson(ref reader, builder, p, depth + 1, ref count, ref strings));
+        }
+        if (reader.TokenType != JsonTokenType.EndArray) throw new PluginValueFormatException("Truncated array.");
+        return builder.Array([.. items]);
+    }
+    private static int ReadJsonObject(ref Utf8JsonReader reader, PluginValueBuilder builder, PluginValueLimits p, int depth, ref int count, ref long strings)
+    {
+        var properties = new List<(string Key, int Value)>();
+        while (reader.Read() && reader.TokenType != JsonTokenType.EndObject)
+        {
+            if (reader.TokenType != JsonTokenType.PropertyName || properties.Count >= p.MaxSequenceLength) throw new PluginValueFormatException("Invalid JSON object.");
+            var key = ReadJsonString(ref reader, p, ref strings);
+            if (!reader.Read()) throw new PluginValueFormatException("Truncated object.");
+            properties.Add((key, ReadJson(ref reader, builder, p, depth + 1, ref count, ref strings)));
+        }
+        if (reader.TokenType != JsonTokenType.EndObject) throw new PluginValueFormatException("Truncated object.");
+        return builder.Object([.. properties]);
     }
     private static string ReadJsonString(ref Utf8JsonReader reader, PluginValueLimits p, ref long total)
     {
@@ -120,6 +125,7 @@ public sealed class PluginValue
         return result.ToString();
     }
     /// <summary>Converts only acyclic JSON-compatible values; aliases expand within the output budget.</summary>
+#pragma warning disable MA0051 // JSON emission keeps bounded quoting and cycle detection in one scope.
     public JsonElement ToJson()
     {
         var output = new StringBuilder();
@@ -174,4 +180,5 @@ public sealed class PluginValue
         using var doc = JsonDocument.Parse(output.ToString(), new JsonDocumentOptions { MaxDepth = _limits.MaxDepth + 1 });
         return doc.RootElement.Clone();
     }
+#pragma warning restore MA0051
 }

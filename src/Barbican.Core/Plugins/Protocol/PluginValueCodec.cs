@@ -1,5 +1,5 @@
-#pragma warning disable MA0051 // Codec and validator are deliberately kept together for protocol audit.
 using System.Globalization;
+using System.Text;
 using System.Text.Json;
 
 namespace Barbican.Core.Plugins.Protocol;
@@ -13,21 +13,17 @@ public static class PluginValueCodec
     {
         ArgumentNullException.ThrowIfNull(value);
         var policy = limits ?? new();
-        Validate(value.Nodes, value.Id, policy);
+        CheckLimits(policy);
+        var nodes = Compact(value.Nodes, value.Id, policy);
+        Validate(nodes, 0, policy);
+        PreflightWire(nodes, policy);
         using var stream = new MemoryStream();
         using (var writer = new Utf8JsonWriter(stream))
         {
-            writer.WriteStartObject(); writer.WriteNumber("version", 1); writer.WriteNumber("root", value.Id); writer.WriteStartArray("nodes");
-            for (var i = 0; i < value.Nodes.Length; i++)
+            writer.WriteStartObject(); writer.WriteNumber("version", 1); writer.WriteNumber("root", 0); writer.WriteStartArray("nodes");
+            for (var i = 0; i < nodes.Length; i++)
             {
-                var n = value.Nodes[i];
-                writer.WriteStartObject(); writer.WriteNumber("id", i); writer.WriteString("kind", n.Kind.ToString());
-                writer.WritePropertyName("text"); WriteString(writer, n.Text);
-                writer.WriteBoolean("flag", n.Flag);
-                if (n.Bytes is null) writer.WriteNull("bytes"); else writer.WriteBase64String("bytes", n.Bytes);
-                if (n.Links is null) writer.WriteNull("links"); else { writer.WriteStartArray("links"); foreach (var link in n.Links) writer.WriteNumberValue(link); writer.WriteEndArray(); }
-                if (n.Keys is null) writer.WriteNull("keys"); else { writer.WriteStartArray("keys"); foreach (var key in n.Keys) WriteString(writer, key); writer.WriteEndArray(); }
-                writer.WriteString("view", n.View.ToString()); writer.WriteNumber("offset", n.Offset); writer.WriteNumber("length", n.Length); writer.WriteEndObject();
+                WriteNode(writer, i, nodes[i]);
                 writer.Flush();
                 if (stream.Length > policy.MaxWireBytes) throw new PluginValueFormatException("Encoded message exceeds limit.");
             }
@@ -36,6 +32,57 @@ public static class PluginValueCodec
         if (stream.Length > policy.MaxWireBytes) throw new PluginValueFormatException("Encoded message exceeds limit.");
         return stream.ToArray();
     }
+
+    private static void WriteNode(Utf8JsonWriter writer, int id, PluginNode node)
+    {
+        writer.WriteStartObject(); writer.WriteNumber("id", id); writer.WriteString("kind", node.Kind.ToString());
+        writer.WritePropertyName("text"); WriteString(writer, node.Text);
+        writer.WriteBoolean("flag", node.Flag);
+        if (node.Bytes is null) writer.WriteNull("bytes"); else writer.WriteBase64String("bytes", node.Bytes);
+        if (node.Links is null) writer.WriteNull("links"); else { writer.WriteStartArray("links"); foreach (var link in node.Links) writer.WriteNumberValue(link); writer.WriteEndArray(); }
+        if (node.Keys is null) writer.WriteNull("keys"); else { writer.WriteStartArray("keys"); foreach (var key in node.Keys) WriteString(writer, key); writer.WriteEndArray(); }
+        writer.WriteString("view", node.View.ToString()); writer.WriteNumber("offset", node.Offset); writer.WriteNumber("length", node.Length); writer.WriteEndObject();
+    }
+
+    // A subvalue owns only its reachable projection, never siblings from its source graph.
+    private static PluginNode[] Compact(PluginNode[] source, int root, PluginValueLimits limits)
+    {
+        var remap = new Dictionary<int, int>();
+        var pending = new Queue<int>();
+        void Add(int id)
+        {
+            if (remap.ContainsKey(id)) return;
+            if (remap.Count >= limits.MaxNodes) throw new PluginValueFormatException("Node limit exceeded.");
+            remap.Add(id, remap.Count);
+            pending.Enqueue(id);
+        }
+        Add(root);
+        while (pending.TryDequeue(out var id))
+            foreach (var link in source[id].Links ?? []) Add(link);
+        var result = new PluginNode[remap.Count];
+        foreach (var (oldId, newId) in remap)
+        {
+            var node = source[oldId];
+            result[newId] = node with { Links = node.Links?.Select(link => remap[link]).ToArray() };
+        }
+        return result;
+    }
+
+    // Lower bound: reject before Utf8JsonWriter can allocate a base64 or text payload larger than the wire budget.
+    private static void PreflightWire(PluginNode[] nodes, PluginValueLimits limits)
+    {
+        long minimum = 0;
+        foreach (var node in nodes)
+        {
+            if (node.Bytes is not null) minimum += 4L * ((node.Bytes.Length + 2L) / 3L);
+            if (node.Text is not null) minimum += MinimumStringBytes(node.Text);
+            if (node.Keys is not null) foreach (var key in node.Keys) minimum += MinimumStringBytes(key);
+            if (minimum > limits.MaxWireBytes) throw new PluginValueFormatException("Encoded message exceeds limit.");
+        }
+    }
+    private static long MinimumStringBytes(string value) => WellFormed(value)
+        ? Encoding.UTF8.GetByteCount(value)
+        : 4L * (((value.Length * 2L) + 2L) / 3L);
 
     public static PluginValue Decode(ReadOnlyMemory<byte> utf8, PluginValueLimits? limits = null)
     {
@@ -58,27 +105,7 @@ public static class PluginValueCodec
                 Exact(item, Fields);
                 var id = item.GetProperty("id").GetInt32();
                 if (id < 0 || id >= nodes.Length || nodes[id] is not null) throw new PluginValueFormatException("Duplicate or invalid node id.");
-                var kindName = item.GetProperty("kind").GetString();
-                if (!Enum.TryParse<PluginValueKind>(kindName, false, out var kind) || !Enum.IsDefined(kind) || !string.Equals(kind.ToString(), kindName, StringComparison.Ordinal)) throw new PluginValueFormatException("Unknown node kind.");
-                var viewName = item.GetProperty("view").GetString();
-                if (!Enum.TryParse<PluginViewType>(viewName, false, out var view) || !Enum.IsDefined(view) || !string.Equals(view.ToString(), viewName, StringComparison.Ordinal)) throw new PluginValueFormatException("Unknown view kind.");
-                var text = ReadString(item.GetProperty("text"), p, ref stringBytes);
-                var rawBytes = item.GetProperty("bytes");
-                byte[]? bytes = null;
-                if (rawBytes.ValueKind != JsonValueKind.Null)
-                {
-                    var encoded = rawBytes.GetString() ?? throw new PluginValueFormatException("Invalid base64.");
-                    if (encoded.Length % 4 != 0 || ((long)encoded.Length / 4 * 3) > (long)p.MaxBinaryBytes + 2) throw new PluginValueFormatException("Binary limit exceeded.");
-                    var padding = encoded.EndsWith("==", StringComparison.Ordinal) ? 2 : encoded.EndsWith('=') ? 1 : 0;
-                    var decodedLength = ((long)encoded.Length / 4 * 3) - padding;
-                    binaryBytes += decodedLength;
-                    if (binaryBytes > p.MaxBinaryBytes) throw new PluginValueFormatException("Binary limit exceeded.");
-                    bytes = Convert.FromBase64String(encoded);
-                    if (bytes.Length != decodedLength || !string.Equals(Convert.ToBase64String(bytes), encoded, StringComparison.Ordinal)) throw new PluginValueFormatException("Invalid base64.");
-                }
-                var links = Ints(item.GetProperty("links"), p.MaxSequenceLength * 2L);
-                var keys = Strings(item.GetProperty("keys"), p, ref stringBytes);
-                nodes[id] = new(kind, text, item.GetProperty("flag").GetBoolean(), bytes, links, keys, view, item.GetProperty("offset").GetInt32(), item.GetProperty("length").GetInt32());
+                nodes[id] = ReadNode(item, p, ref binaryBytes, ref stringBytes);
             }
             if (nodes.Any(x => x is null)) throw new PluginValueFormatException("Missing node id.");
             var graph = nodes.Select(x => x!).ToArray();
@@ -88,6 +115,32 @@ public static class PluginValueCodec
         catch (PluginValueFormatException) { throw; }
         catch (Exception ex) when (ex is JsonException or InvalidOperationException or FormatException or OverflowException or ArgumentException)
         { throw new PluginValueFormatException("Malformed plugin value.", ex); }
+    }
+
+    private static PluginNode ReadNode(JsonElement item, PluginValueLimits p, ref long binaryBytes, ref long stringBytes)
+    {
+        var kindName = item.GetProperty("kind").GetString();
+        if (!Enum.TryParse<PluginValueKind>(kindName, false, out var kind) || !Enum.IsDefined(kind) || !string.Equals(kind.ToString(), kindName, StringComparison.Ordinal)) throw new PluginValueFormatException("Unknown node kind.");
+        var viewName = item.GetProperty("view").GetString();
+        if (!Enum.TryParse<PluginViewType>(viewName, false, out var view) || !Enum.IsDefined(view) || !string.Equals(view.ToString(), viewName, StringComparison.Ordinal)) throw new PluginValueFormatException("Unknown view kind.");
+        var text = ReadString(item.GetProperty("text"), p, ref stringBytes);
+        var bytes = ReadBinary(item.GetProperty("bytes"), p, ref binaryBytes);
+        var links = Ints(item.GetProperty("links"), p.MaxSequenceLength * 2L);
+        var keys = Strings(item.GetProperty("keys"), p, ref stringBytes);
+        return new(kind, text, item.GetProperty("flag").GetBoolean(), bytes, links, keys, view, item.GetProperty("offset").GetInt32(), item.GetProperty("length").GetInt32());
+    }
+    private static byte[]? ReadBinary(JsonElement rawBytes, PluginValueLimits p, ref long binaryBytes)
+    {
+        if (rawBytes.ValueKind == JsonValueKind.Null) return null;
+        var encoded = rawBytes.GetString() ?? throw new PluginValueFormatException("Invalid base64.");
+        if (encoded.Length % 4 != 0 || ((long)encoded.Length / 4 * 3) > (long)p.MaxBinaryBytes + 2) throw new PluginValueFormatException("Binary limit exceeded.");
+        var padding = encoded.EndsWith("==", StringComparison.Ordinal) ? 2 : encoded.EndsWith('=') ? 1 : 0;
+        var decodedLength = ((long)encoded.Length / 4 * 3) - padding;
+        binaryBytes += decodedLength;
+        if (binaryBytes > p.MaxBinaryBytes) throw new PluginValueFormatException("Binary limit exceeded.");
+        var bytes = Convert.FromBase64String(encoded);
+        if (bytes.Length != decodedLength || !string.Equals(Convert.ToBase64String(bytes), encoded, StringComparison.Ordinal)) throw new PluginValueFormatException("Invalid base64.");
+        return bytes;
     }
 
     private static void Exact(JsonElement obj, string[] expected)
@@ -172,23 +225,7 @@ public static class PluginValueCodec
             if (binary > p.MaxBinaryBytes || strings > p.MaxStringBytes) throw new PluginValueFormatException("Graph byte budget exceeded.");
             var links = n.Links ?? [];
             if (links.LongLength > p.MaxSequenceLength * 2L || links.Any(x => x < 0 || x >= nodes.Length)) throw new PluginValueFormatException("Invalid graph references.");
-            var ok = n.Kind switch
-            {
-                PluginValueKind.Undefined or PluginValueKind.Null => n.Text is null && n.Bytes is null && n.Links is null && n.Keys is null && !n.Flag,
-                PluginValueKind.Boolean => n.Text is null && n.Bytes is null && n.Links is null && n.Keys is null,
-                PluginValueKind.Number or PluginValueKind.Date => n.Text is not null && double.TryParse(n.Text, NumberStyles.Float, CultureInfo.InvariantCulture, out _) && n.Bytes is null && n.Links is null && n.Keys is null && !n.Flag,
-                PluginValueKind.BigInt => n.Text is not null && n.Text.Length <= p.MaxBigIntDigits && System.Numerics.BigInteger.TryParse(n.Text, NumberStyles.AllowLeadingSign, CultureInfo.InvariantCulture, out _) && n.Bytes is null && n.Links is null && n.Keys is null && !n.Flag,
-                PluginValueKind.String => n.Text is not null && n.Bytes is null && n.Links is null && n.Keys is null && !n.Flag,
-                PluginValueKind.ArrayBuffer => n.Bytes is not null && n.Text is null && n.Links is null && n.Keys is null && !n.Flag,
-                PluginValueKind.Blob => n.Bytes is not null && n.Text is not null && n.Links is null && n.Keys is null && !n.Flag,
-                PluginValueKind.View => n.Bytes is null && n.Text is null && n.Keys is null && links.Length == 1 && nodes[links[0]].Kind == PluginValueKind.ArrayBuffer && n.Offset >= 0 && n.Length >= 0 && (long)n.Offset + n.Length <= (nodes[links[0]].Bytes?.Length ?? -1) && Aligned(n.View, n.Offset, n.Length) && !n.Flag,
-                PluginValueKind.Object => n.Bytes is null && n.Text is null && n.Keys is not null && n.Links is not null && n.Keys.Length == links.Length && n.Keys.Distinct(StringComparer.Ordinal).Count() == n.Keys.Length && links.Length <= p.MaxSequenceLength && !n.Flag,
-                PluginValueKind.Array or PluginValueKind.Set => n.Bytes is null && n.Text is null && n.Keys is null && n.Links is not null && links.Length <= p.MaxSequenceLength && !n.Flag,
-                PluginValueKind.Map => n.Bytes is null && n.Text is null && n.Keys is null && n.Links is not null && links.Length % 2 == 0 && links.Length / 2 <= p.MaxSequenceLength && !n.Flag,
-                PluginValueKind.Error => n.Bytes is null && n.Text is null && n.Keys is { Length: 3 } && n.Links is not null && links.Length <= 1,
-                _ => false,
-            };
-            if (!ok || (n.Kind != PluginValueKind.View && (n.View != default || n.Offset != 0 || n.Length != 0))) throw new PluginValueFormatException("Invalid node shape.");
+            ValidateShape(n, links, nodes, p);
         }
         var path = new HashSet<int>();
         var deepest = new int[nodes.Length];
@@ -205,6 +242,26 @@ public static class PluginValueCodec
         }
         Walk(root, 1);
         foreach (var id in Enumerable.Range(0, nodes.Length)) if (deepest[id] == 0) Walk(id, 1);
+    }
+    private static void ValidateShape(PluginNode n, int[] links, PluginNode[] nodes, PluginValueLimits p)
+    {
+        var ok = n.Kind switch
+            {
+                PluginValueKind.Undefined or PluginValueKind.Null => n.Text is null && n.Bytes is null && n.Links is null && n.Keys is null && !n.Flag,
+                PluginValueKind.Boolean => n.Text is null && n.Bytes is null && n.Links is null && n.Keys is null,
+                PluginValueKind.Number or PluginValueKind.Date => n.Text is not null && double.TryParse(n.Text, NumberStyles.Float, CultureInfo.InvariantCulture, out _) && n.Bytes is null && n.Links is null && n.Keys is null && !n.Flag,
+                PluginValueKind.BigInt => n.Text is not null && n.Text.Length <= p.MaxBigIntDigits && System.Numerics.BigInteger.TryParse(n.Text, NumberStyles.AllowLeadingSign, CultureInfo.InvariantCulture, out _) && n.Bytes is null && n.Links is null && n.Keys is null && !n.Flag,
+                PluginValueKind.String => n.Text is not null && n.Bytes is null && n.Links is null && n.Keys is null && !n.Flag,
+                PluginValueKind.ArrayBuffer => n.Bytes is not null && n.Text is null && n.Links is null && n.Keys is null && !n.Flag,
+                PluginValueKind.Blob => n.Bytes is not null && n.Text is not null && n.Links is null && n.Keys is null && !n.Flag,
+                PluginValueKind.View => n.Bytes is null && n.Text is null && n.Keys is null && links.Length == 1 && nodes[links[0]].Kind == PluginValueKind.ArrayBuffer && n.Offset >= 0 && n.Length >= 0 && (long)n.Offset + n.Length <= (nodes[links[0]].Bytes?.Length ?? -1) && Aligned(n.View, n.Offset, n.Length) && !n.Flag,
+                PluginValueKind.Object => n.Bytes is null && n.Text is null && n.Keys is not null && n.Links is not null && n.Keys.Length == links.Length && n.Keys.Distinct(StringComparer.Ordinal).Count() == n.Keys.Length && links.Length <= p.MaxSequenceLength && !n.Flag,
+                PluginValueKind.Array or PluginValueKind.Set => n.Bytes is null && n.Text is null && n.Keys is null && n.Links is not null && links.Length <= p.MaxSequenceLength && !n.Flag,
+                PluginValueKind.Map => n.Bytes is null && n.Text is null && n.Keys is null && n.Links is not null && links.Length % 2 == 0 && links.Length / 2 <= p.MaxSequenceLength && !n.Flag,
+                PluginValueKind.Error => n.Bytes is null && n.Text is null && n.Keys is { Length: 3 } && n.Links is not null && links.Length <= 1,
+                _ => false,
+            };
+        if (!ok || (n.Kind != PluginValueKind.View && (n.View != default || n.Offset != 0 || n.Length != 0))) throw new PluginValueFormatException("Invalid node shape.");
     }
     private static bool WellFormed(string value)
     {
