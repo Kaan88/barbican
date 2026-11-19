@@ -1466,3 +1466,7 @@ launched; Linux unverified). Verdicts on the M2 verify items 1 to 6, 11, 12 and 
 ## Codex - approved Atlas and native polish direction (Sol)
 
 - User approved Atlas alongside Bento Balanced and Nordic Focus and requested modern WinUI 3 polish. Review `design/UI-GUIDELINES.md`, `CLAUDE.md` and the approved Atlas reference images when assessing later adoption: horizontal deck keyboard/list semantics, small-window reader height, palette contrast, sender-panel toggling, material fallbacks and reduced-motion behavior need native implementation evidence. The gallery selection/labels were checked by Terra and the coordinator inspected the synthetic image; this documentation checkpoint does not implement a third production style or prove native material/performance behavior.
+
+## Codex - Studio selection correction (Sol)
+
+- The user corrected the preceding Atlas selection to Studio. Current approved directions are Bento Balanced, Nordic Focus and Studio; Atlas is exploratory. `design/UI-GUIDELINES.md`, `CLAUDE.md`, handoff/progress and the gallery now record the corrected selection. Apply the modern WinUI polish requirements to these approved directions; verify Studio top-navigation focus order, context toggle, adaptive layout, palette contrast and material fallbacks during implementation. The preceding Atlas approval entry is historical and superseded.

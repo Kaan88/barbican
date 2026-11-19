@@ -19,11 +19,11 @@ models; all safety, privacy, build and account rules below remain in force.
 ## UI direction approved by the user (2026-11-19)
 
 Read [design/UI-GUIDELINES.md](design/UI-GUIDELINES.md) before UI work. The user selected
-**Bento Balanced**, **Nordic Focus** and **Atlas** from the Codex / Terra High mockups and instructed
+**Bento Balanced**, **Nordic Focus** and **Studio** from the Codex / Terra High mockups and instructed
 that these are the UI guidelines from now on, including for Claude. Refine the existing
 Bento and Nordic styles toward those baselines; where older boards differ, the selected
 directions win. Nordic Focus uses the integrated sender/context panel, with a user-controlled
-show/hide toggle; the reader expands when hidden. Atlas adds the approved horizontal message-deck
+show/hide toggle; the reader expands when hidden. Studio adds the approved horizontal app-navigation and warm editorial
 direction. The user also requests modern WinUI 3 polish: layered materials where supported, subtle
 elevation, expressive control states and short fluid transitions, with solid-material, Uno,
 high-contrast and reduced-motion fallbacks. Preserve behavior, shared tokens, native

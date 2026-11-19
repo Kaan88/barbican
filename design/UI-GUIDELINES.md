@@ -2,7 +2,7 @@
 
 Approved by the user on 2026-11-19. Design studies by Codex / Terra High; direction recorded by the Sol coordinator.
 
-The selected directions are **Bento Balanced**, **Nordic Focus** and **Atlas**. Use these as the UI guidelines from now on, including work by Claude and future Codex agents. Bento Balanced and Nordic Focus refine the existing styles; Atlas is also approved as a distinct layout direction. Record its production integration in the milestone plan before extending the current two-style selector. Where the older design boards differ, these directions take precedence. Preserve established functionality, accessibility and safety rules while applying the selected visual language.
+The selected directions are **Bento Balanced**, **Nordic Focus** and **Studio**. Use these as the UI guidelines from now on, including work by Claude and future Codex agents. Bento Balanced and Nordic Focus refine the existing styles; Studio is also approved as a distinct layout direction. Record its production integration in the milestone plan before extending the current two-style selector. Where the older design boards differ, these directions take precedence. Preserve established functionality, accessibility and safety rules while applying the selected visual language.
 
 ## Bento Balanced
 
@@ -20,13 +20,13 @@ Keep the rail and folders on the ground, with one continuous rounded list/reader
 
 Starting dimensions: 76 rail, approximately 210-228 folders, 330-350 list, flexible reader and about 190-210 for the context panel when open. Keep the existing shell breakpoints; collapse auxiliary context before compressing the reading area below roughly 420, with its show/hide control still accessible. At narrow widths use list/reader navigation rather than squeezing the entire desktop layout.
 
-## Atlas
+## Studio
 
-![Approved Atlas direction](mockups/approved-2026-11-19/atlas-light.png)
+![Approved Studio direction](mockups/approved-2026-11-19/studio-light.png)
 
-Atlas is an approved direction, selected by the user on 2026-11-19. Keep the cool ink/blue character, crisp 8-12 pixel corners and outlined selected card. Its defining layout is a horizontally scrollable message deck above the reader, with folders at the side and an optional sender/context panel. Preserve message-list semantics, unread indicators, accessible keyboard navigation and obvious scrolling. Sender/context panels must have a show/hide control that returns space to the reader.
+Studio is an approved direction, selected by the user on 2026-11-19. Keep its horizontal app navigation bar, warm parchment/umber character, muted teal accent and restrained 7-10 pixel corners. Retain the folder column, vertical message list and spacious editorial reader. Sender/context information lives behind an accessible show/hide control that returns space to the reader when hidden. Preserve commands, keyboard navigation and focus order when moving app navigation from the rail to the top bar.
 
-Starting dimensions: about 190 for folders, 250 high for the message deck and 210 for open context. Use a virtualized horizontal list and existing reader/context views. At narrow widths or with enlarged text, switch to a vertical list or list/reader navigation; do not sacrifice readable mail height to fixed card dimensions. Map the blue palette through shared semantic tokens, including dark and high-contrast modes, rather than copying local colors into controls.
+Starting dimensions: about 62 high for top navigation, 205 for folders and 405 for the message list, with a flexible reader. Use native Grid, Button, Border and virtualized ListView controls with existing reader/context views. At narrow widths or with enlarged text, adapt navigation and use list/reader navigation rather than compressing text. Map Studio's palette through shared semantic tokens, including dark and high-contrast modes. Atlas remains an unapproved exploration; the user's correction selects Studio instead.
 
 ## Modern WinUI 3 polish
 
