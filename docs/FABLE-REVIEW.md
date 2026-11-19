@@ -20,6 +20,10 @@ judgement call, uncertainty, deviation from Bulwark/RFC/plan, security, privacy,
 verification) and **where** (paths, commits). Add items as you go. Accounts and paths are
 placeholders (see CLAUDE.md); never write real values here.
 
+## M6b quick-reply handoff (Codex stream: m6b-quick-reply, worker: GPT-6.1 Terra)
+
+- Review `src/Barbican.Core/Compose/ComposeRequest.cs`, `ComposeSeeder.cs`, and `tests/Barbican.Core.Tests/Compose/ComposeSeederTests.cs` (uncommitted): reply-only text is imported as plain text before signature placement; UI ownership, account and message binding, draft lifecycle, and sending remain outside this stream. Synthetic Core tests do not verify the eventual UI handoff.
+
 ## M0, consolidated at the merge (stream: m0-review)
 
 The seven M0 streams' sections are archived verbatim in
