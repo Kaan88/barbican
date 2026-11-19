@@ -1,4 +1,4 @@
-// Generated from Bulwark lib/plugin-types.ts ALL_PERMISSIONS and plugin-sandbox/assistant/*.types.ts.
+// Source: Bulwark lib/plugin-types.ts:1662-1748 and lib/plugin-sandbox/assistant/{b,c,d,f}.types.ts:5-11 (known permissions).
 namespace Barbican.Core.Plugins.Packages.Inspection;
 
 internal static class ManifestPermissions

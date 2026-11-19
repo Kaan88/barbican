@@ -1,3 +1,4 @@
+// Source: Bulwark lib/extension-package.ts:54-96 (bounded ZIP entries); CRC validation is a host-added integrity rule, not an upstream trust verdict.
 namespace Barbican.Core.Plugins.Packages.Inspection;
 
 // ZIP uses the ISO-HDLC CRC-32 polynomial; this checks integrity, not trust or authenticity.

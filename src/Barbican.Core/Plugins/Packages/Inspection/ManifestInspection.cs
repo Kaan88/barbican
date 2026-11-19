@@ -1,4 +1,4 @@
-// Bulwark lib/extension-package.ts:176-220, 401-499.
+// Source: Bulwark lib/extension-package.ts:176-220, 401-499 (manifest, permissions and version compatibility).
 using System.Globalization;
 using System.Text.RegularExpressions;
 using Barbican.Core.Common;

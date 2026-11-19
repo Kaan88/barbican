@@ -1,4 +1,4 @@
-// Bulwark lib/extension-package.ts:223-398 and lib/extension-origins.ts.
+// Source: Bulwark lib/extension-package.ts:223-398 and lib/extension-origins.ts:18-78 (schemas, locales, origins and paths).
 using System.Text.RegularExpressions;
 
 namespace Barbican.Core.Plugins.Packages.Inspection;

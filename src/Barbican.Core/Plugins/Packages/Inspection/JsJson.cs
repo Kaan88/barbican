@@ -1,4 +1,4 @@
-// Canonicalization matches Bulwark lib/extension-package.ts canonicalJson and JSON.stringify.
+// Source: Bulwark lib/extension-package.ts:517-536 (canonical JSON and approval hash); UTF-16-preserving decoding and canonicalization are host implementations.
 using System.Globalization;
 using System.Text;
 using System.Text.Json;

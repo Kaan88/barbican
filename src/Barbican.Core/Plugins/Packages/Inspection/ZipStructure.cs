@@ -1,4 +1,4 @@
-// Cross-check ZIP central and local headers before ZipArchive exposes entries. No filesystem extraction.
+// Source: Bulwark lib/extension-package.ts:54-96; local/central consistency, overlap, ZIP64 and multi-disk checks are host-added restrictions.
 using System.Buffers.Binary;
 
 namespace Barbican.Core.Plugins.Packages.Inspection;

@@ -1,4 +1,4 @@
-// Bulwark lib/extension-package.ts: bounded archive inspection only; no code is loaded or executed.
+// Source: Bulwark lib/extension-package.ts:31-34, 54-96, 401-499, 517-569; aggregate limits and stricter ZIP checks are host-added restrictions.
 using System.Collections.Immutable;
 using System.IO.Compression;
 using System.Security.Cryptography;

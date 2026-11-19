@@ -1,4 +1,4 @@
-// Bulwark lib/plugin-secrets/credentials.ts: bounded credential declarations, never secret values.
+// Source: Bulwark lib/plugin-secrets/credentials.ts:92-112, 126-212; injected private-origin policy is a host-added input and never grants network access.
 using System.Text.RegularExpressions;
 
 namespace Barbican.Core.Plugins.Packages.Inspection;

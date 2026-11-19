@@ -1,3 +1,4 @@
+// Source: Bulwark lib/extension-package.ts:401-499, 517-569 and lib/plugin-sandbox/bundle-integrity.ts:48-79; immutable snapshots and archive identity are host-added boundaries.
 using System.Collections.Immutable;
 
 namespace Barbican.Core.Plugins.Packages.Inspection;

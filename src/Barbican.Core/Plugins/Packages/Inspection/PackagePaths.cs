@@ -1,3 +1,4 @@
+// Source: Bulwark lib/extension-package.ts:54-96, 203-207; implicit directory alias and Windows path checks are host-added restrictions.
 namespace Barbican.Core.Plugins.Packages.Inspection;
 
 // Track implicit directories too: folder/A and FOLDER/b are an alias even when no directory entry exists.
