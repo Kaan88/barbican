@@ -275,7 +275,6 @@
           <!-- the body slot: the web view of the body stream -->
           <body:MailBodyView Grid.Row="7" x:Name="BodySlot" MinHeight="80" HorizontalAlignment="Stretch" VerticalAlignment="Stretch" AutomationProperties.AutomationId="reader.body" AutomationProperties.Name="Message body" />
 
-           <!-- Quick reply hands off to the full composer; inline delivery is not wired. -->
            <Border Grid.Row="8" x:Name="QuickReplyBar" Visibility="Collapsed" BorderBrush="{StaticResource Line}" LostFocus="OnQuickReplyBlur"
                    AutomationProperties.AutomationId="reader.reply-bar" AutomationProperties.Name="Quick reply">
              <Grid ColumnDefinitions="Auto,*">
@@ -286,10 +285,15 @@
                <TextBox x:Name="QuickReplyText" AcceptsReturn="True" TextWrapping="Wrap" MinHeight="56" MaxHeight="144" ScrollViewer.VerticalScrollBarVisibility="Auto"
                         GotFocus="OnQuickReplyFocus" TextChanged="OnQuickReplyTextChanged"
                         PlaceholderText="Write a reply…" FontSize="14"
-                        AutomationProperties.AutomationId="reader.reply-text" AutomationProperties.Name="Quick reply text" />
+                        AutomationProperties.AutomationId="reader.reply-text" AutomationProperties.Name="Quick reply text">
+                 <TextBox.KeyboardAccelerators>
+                   <KeyboardAccelerator Key="Enter" Modifiers="Control" Invoked="OnQuickReplySendKey" />
+                 </TextBox.KeyboardAccelerators>
+               </TextBox>
                <StackPanel x:Name="QuickReplyActions" Visibility="Collapsed" Orientation="Horizontal" HorizontalAlignment="Right" Spacing="6">
                  <Button Content="Cancel" Style="{StaticResource Button.Action}" Click="OnQuickReplyCancel" AutomationProperties.Name="Cancel quick reply" AutomationProperties.AutomationId="reader.reply.cancel" />
-                 <Button Content="Open full editor" Style="{StaticResource Button.Primary}" Click="OnQuickReplyOpenEditor" AutomationProperties.Name="Open full editor" AutomationProperties.AutomationId="reader.reply.full" />
+                 <Button Content="Open full editor" Style="{StaticResource Button.Action}" Click="OnQuickReplyOpenEditor" AutomationProperties.Name="Open full editor" AutomationProperties.AutomationId="reader.reply.full" />
+                 <Button x:Name="QuickReplySend" Content="Send" Style="{StaticResource Button.Primary}" Click="OnQuickReplySend" AutomationProperties.Name="Send quick reply" AutomationProperties.AutomationId="reader.reply.send" />
                </StackPanel>
              </StackPanel>
              </Grid>

@@ -16,6 +16,7 @@ public sealed partial class ReaderView
     private readonly IPrefsStore _replyPrefs = ViewHost.Get<IPrefsStore>();
     private (string ListAccount, string Login, string ServerId)? _replyTarget;
     private CancellationTokenSource? _replyHandoff;
+    private CancellationTokenSource? _inlineSend;
     private int _hintVersion;
     private bool _replyExpanded;
 
@@ -35,6 +36,7 @@ public sealed partial class ReaderView
             _replyComposer.OpenChanged -= OnQuickReplyComposerChanged;
             Look.PropertyChanged -= OnQuickReplyStyleChanged;
             _replyHandoff?.Cancel();
+            _inlineSend?.Cancel();
             _replyTarget = null;
             _hintVersion++;
         };
@@ -45,7 +47,11 @@ public sealed partial class ReaderView
         if (string.Equals(e.PropertyName, nameof(ReaderViewModel.Current), StringComparison.Ordinal)) SyncQuickReply();
     }
 
-    private void OnQuickReplyComposerChanged(object? sender, EventArgs e) => SyncQuickReply();
+    private void OnQuickReplyComposerChanged(object? sender, EventArgs e)
+    {
+        if (_replyComposer.IsOpen) _inlineSend?.Cancel();
+        SyncQuickReply();
+    }
 
     private void OnQuickReplyStyleChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e) => ApplyQuickReplyStyle();
 
@@ -95,6 +101,7 @@ public sealed partial class ReaderView
         var target = ReplyTarget();
         if (target != _replyTarget)
         {
+            _inlineSend?.Cancel();
             _replyTarget = target;
             _replyHandoff?.Cancel();
             ClearQuickReply();
@@ -118,6 +125,7 @@ public sealed partial class ReaderView
             if (version != _hintVersion || !identities.IsOk) return;
 
             var username = ViewHost.Find<Barbican.Core.Accounts.IAccountManager>()?.SessionFor(login)?.Client.Session.Username;
+            if (string.Equals(login, _replyMail.AccountKey, StringComparison.Ordinal)) username ??= _replyMail.AccountUser;
             var own = identities.Value!.Select(i => i.Identity.Email).ToList();
             if (!string.IsNullOrEmpty(username)) own.Add(username);
             var settings = ComposeSettings.Read(_replyPrefs.Current);
@@ -165,14 +173,63 @@ public sealed partial class ReaderView
 
     private void UpdateQuickReplyActions()
     {
-        if (QuickReplyActions is null) return;
+        if (QuickReplyActions is null || QuickReplySend is null) return;
+        QuickReplySend.IsEnabled = _inlineSend is null && !string.IsNullOrWhiteSpace(QuickReplyText.Text);
+        QuickReplyText.IsReadOnly = _inlineSend is not null;
         var expanded = _replyExpanded || QuickReplyText.Text.Length != 0;
         QuickReplyText.MinHeight = (expanded ? 76 : 56) + (Look.IsBulwark ? 2 : 0);
         QuickReplyActions.Visibility = expanded ? Visibility.Visible : Visibility.Collapsed;
     }
 
+    private void OnQuickReplySend(object sender, RoutedEventArgs e) => _ = SendQuickReplyAsync();
+
+    private void OnQuickReplySendKey(Microsoft.UI.Xaml.Input.KeyboardAccelerator sender, Microsoft.UI.Xaml.Input.KeyboardAcceleratorInvokedEventArgs e)
+    {
+        e.Handled = true;
+        _ = SendQuickReplyAsync();
+    }
+
+    private async Task SendQuickReplyAsync()
+    {
+        if (_inlineSend is not null || _replyHandoff is not null || _replyComposer.IsOpen ||
+            QuickReplyBar.Visibility != Visibility.Visible || _replyTarget is not { } target || ReplyTarget() != target) return;
+        var text = QuickReplyText.Text;
+        if (string.IsNullOrWhiteSpace(text)) return;
+        using var sending = new CancellationTokenSource();
+        _inlineSend = sending;
+        UpdateQuickReplyActions();
+        try
+        {
+            var request = new ComposeRequest(target.Login, ComposeKind.Reply) { InlineReply = true, DraftText = text, SourceEmailId = target.ServerId };
+            if (await _replyComposer.SendInlineReplyAsync(request, AskInlineAsync, sending.Token) && ReplyTarget() == target && string.Equals(QuickReplyText.Text, text, StringComparison.Ordinal))
+            {
+                DetailsButton.Focus(FocusState.Programmatic);
+                ClearQuickReply();
+            }
+        }
+        catch (OperationCanceledException) when (sending.IsCancellationRequested) { }
+        catch (Exception)
+        {
+            _ = ViewHost.Get<IToastService>().Show(new ToastRequest("Could not send the quick reply.", IsError: true));
+        }
+        finally
+        {
+            _inlineSend = null;
+            UpdateQuickReplyActions();
+        }
+    }
+
+    private static async Task<string?> AskInlineAsync(ComposerDialog dialog, CancellationToken ct)
+    {
+        var choice = dialog.Choices[0];
+        var description = string.Join(Environment.NewLine, new[] { dialog.Message }.Concat(dialog.Lines));
+        var request = new Barbican.Presentation.Dialogs.ConfirmDialogRequest(dialog.Title, description, choice.Label);
+        return await ViewHost.Get<Barbican.Presentation.Dialogs.IDialogService>().ShowAsync(request, ct) ? choice.Id : null;
+    }
+
     private void OnQuickReplyCancel(object sender, RoutedEventArgs e)
     {
+        if (_inlineSend is not null) return;
         _replyHandoff?.Cancel();
         DetailsButton.Focus(FocusState.Programmatic);
         ClearQuickReply();
@@ -182,7 +239,7 @@ public sealed partial class ReaderView
 
     private async Task OpenQuickReplyEditorAsync()
     {
-        if (_replyHandoff is not null || QuickReplyBar.Visibility != Visibility.Visible ||
+        if (_inlineSend is not null || _replyHandoff is not null || QuickReplyBar.Visibility != Visibility.Visible ||
             _replyTarget is not { } target || ReplyTarget() != target)
         {
             return;

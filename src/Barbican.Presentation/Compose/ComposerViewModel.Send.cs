@@ -42,6 +42,8 @@ public sealed partial class ComposerViewModel
     /// <summary>Send, Ctrl+Enter. False when the checks stopped it or the send failed; true when the message went (the composer then closes).</summary>
     public Task<bool> SendAsync() => SendAtAsync(null);
 
+    internal Task<bool> SendInlineAsync(CancellationToken ct) => SendAtAsync(null, ct);
+
     /// <summary>Opens the schedule dialog (Ctrl+Shift+Enter, the send arrow's "Schedule send"); the chosen time goes through the same checks as a send.</summary>
     public async Task<bool> OpenScheduleAsync()
     {
@@ -60,7 +62,7 @@ public sealed partial class ComposerViewModel
     /// <summary>The view calls this when the schedule dialog is dismissed (Escape).</summary>
     public void CancelSchedule() => Schedule?.Cancel();
 
-    private async Task<bool> SendAtAsync(DateTimeOffset? scheduledAt)
+    private async Task<bool> SendAtAsync(DateTimeOffset? scheduledAt, CancellationToken ct = default)
     {
         if (_closed || IsSending || _sendFlowActive || Schedule is not null)
         {
@@ -84,6 +86,7 @@ public sealed partial class ComposerViewModel
                 return false;
             }
 
+            ct.ThrowIfCancellationRequested();
             return await SubmitAsync(draft, scheduledAt).ConfigureAwait(true);
         }
         finally

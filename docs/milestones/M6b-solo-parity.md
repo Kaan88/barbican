@@ -1,6 +1,6 @@
-# Paused: Bulwark default-theme pass (2026-11-20)
+# Bulwark default-theme parity (2026-11-20)
 
-Resume only when asked; do the work yourself, without subagents. Open the existing
+The original pause is recorded below. Work resumed with one additional Astra reviewer/developer at the user’s request. Use the existing
 `wt-m6b-bulwark-ui` worktree, branch `codex/m6b-bulwark-ui`. In a new clone use
 that remote branch. This checkpoint follows `585056f`; find it with
 `git log -1 -- docs/milestones/M6b-solo-parity.md`. The `barbican` coordinator
@@ -116,3 +116,16 @@ measured 529 px for the default composer and 662 px after reopening with a
 recovered their original bounds after shrinking to takeover height. Windows
 Automation passed 3,161 tests with four skips. The hidden run exercised
 preference restoration and layout; pointer dragging awaits hands-on review.
+
+## Inline reply delivery
+
+The reader's Send button and Ctrl+Enter run the composer checks and confirmation
+dialog. An inline reply uses the selected message's account, threading headers,
+own identities and signature. It omits quoted content, inline attachments from
+the original and catch-all From overrides. A declined confirmation keeps the
+text available for revision or transfer into the full editor.
+
+Windows Automation passed 3,165 tests, with four skipped. Hidden sample runs
+8977 and 8978 exercised cancellation followed by transfer, and confirmation
+followed by composing another reply. The portable at e716ccf contains the
+verified dock and maximize changes and predates inline delivery.

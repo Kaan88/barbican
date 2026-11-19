@@ -89,6 +89,7 @@ public sealed partial class ComposerViewModel
     public async Task<string?> AskAsync(ComposerDialog dialog)
     {
         ArgumentNullException.ThrowIfNull(dialog);
+        if (_c.AskInline is { } ask) return await ask(dialog).ConfigureAwait(true);
         Dialog?.Complete(null);
         Dialog = dialog;
         #pragma warning disable VSTHRD003 // the dialog is completed by its buttons

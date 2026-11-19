@@ -22,6 +22,8 @@ public sealed record ComposerContext(
     /// <summary>The current profile display zone; the clock remains unchanged.</summary>
     public Func<TimeZoneInfo>? DisplayZone { get; init; }
 
+    internal Func<ComposerDialog, Task<string?>>? AskInline { get; init; }
+
     public IToastService? Toasts { get; init; }
 
     /// <summary>Opens a seed in a (new) composer: undo send and "Cancel and edit" come back here.</summary>

@@ -111,33 +111,8 @@ public sealed class ComposerService : IComposerService, IDisposable
         await _opening.WaitAsync(ct).ConfigureAwait(true);
         try
         {
-            var settings = ComposeSettings.Read(_s.Prefs.Current);
-            IReadOnlyList<ComposeIdentity> identities = [];
-            try
-            {
-                var ids = await _s.Identities.ListAsync(seed.AccountId, ct).ConfigureAwait(true);
-                identities = ids.IsOk ? ids.Value! : [];
-            }
-            catch (PortPendingException)
-            {
-                // no identity service yet: the From select stays empty and a send says so
-            }
-
-            var context = new ComposerContext(_s.Drafts, _s.Uploader, _s.Sender, _s.Editors, _s.Sources, _s.Hooks, _s.Time, settings)
-            {
-                DisplayZone = () => Barbican.Core.Settings.Pages.SettingDisplayTimeZone.Resolve(_s.Prefs.Current.Str("timeZone", "auto"), _s.Time.LocalTimeZone),
-                Toasts = _s.Toasts,
-                Templates = _s.Templates,
-                TemplatePickers = _s.TemplatePickers,
-                Reopen = OpenSeedAsync,
-                MentionsEnabled = _s.Prefs.Current.Bool("recipientMentionsEnabled", true),
-                MentionAddsRecipientTo = _s.Prefs.Current.Str("mentionAddsRecipientTo", "to"),
-                ConfirmExternalRecipients = _s.Prefs.Current.Bool("externalRecipientConfirm", false),
-            };
-            var composer = new ComposerViewModel(context, seed, identities)
-            {
-                IsDocked = ComposerDock.ShouldDock(settings.ReplyUnderMessage, kind == ComposeKind.New, _s.MessageOpen(), kind == ComposeKind.EditDraft),
-            };
+            var composer = await CreateComposerAsync(seed, kind, null, ct).ConfigureAwait(true);
+            ct.ThrowIfCancellationRequested();
             composer.Closed += OnClosed;
             _current = composer;
             _timer = _s.Time.CreateTimer(_ => _s.Dispatcher.Post(composer.Tick), null, AutosaveState.Tick, AutosaveState.Tick);
@@ -149,6 +124,58 @@ public sealed class ComposerService : IComposerService, IDisposable
         {
             _ = _opening.Release();
         }
+    }
+
+    public async Task<bool> SendInlineReplyAsync(ComposeRequest request, Func<ComposerDialog, CancellationToken, Task<string?>> ask, CancellationToken ct)
+    {
+        if (IsOpen || request.Kind != ComposeKind.Reply || !request.InlineReply || string.IsNullOrWhiteSpace(request.DraftText)) return false;
+        if (!await AllowAsync(request, ct).ConfigureAwait(true)) return false;
+        var result = await _s.Seeder.SeedAsync(request, ct).ConfigureAwait(true);
+        if (!result.IsOk)
+        {
+            _ = _s.Toasts?.Show(new ToastRequest(result.Error!.Message, IsError: true));
+            return false;
+        }
+
+        using var composer = await CreateComposerAsync(result.Value!, request.Kind, d => ask(d, ct), ct).ConfigureAwait(true);
+        ct.ThrowIfCancellationRequested();
+        if (IsOpen) return false;
+        var sent = await composer.SendInlineAsync(ct).ConfigureAwait(true);
+        if (!sent && composer.Status.StartsWith("Not sent", StringComparison.Ordinal))
+            _ = _s.Toasts?.Show(new ToastRequest(composer.Status, IsError: true));
+        return sent;
+    }
+
+    private async Task<ComposerViewModel> CreateComposerAsync(ComposeSeed seed, ComposeKind kind, Func<ComposerDialog, Task<string?>>? ask, CancellationToken ct)
+    {
+        var settings = ComposeSettings.Read(_s.Prefs.Current);
+        IReadOnlyList<ComposeIdentity> identities = [];
+        try
+        {
+            var ids = await _s.Identities.ListAsync(seed.AccountId, ct).ConfigureAwait(true);
+            identities = ids.IsOk ? ids.Value! : [];
+        }
+        catch (PortPendingException)
+        {
+            // no identity service yet: the From select stays empty and a send says so
+        }
+
+        var context = new ComposerContext(_s.Drafts, _s.Uploader, _s.Sender, _s.Editors, _s.Sources, _s.Hooks, _s.Time, settings)
+        {
+            DisplayZone = () => Barbican.Core.Settings.Pages.SettingDisplayTimeZone.Resolve(_s.Prefs.Current.Str("timeZone", "auto"), _s.Time.LocalTimeZone),
+            AskInline = ask,
+            Toasts = _s.Toasts,
+            Templates = _s.Templates,
+            TemplatePickers = _s.TemplatePickers,
+            Reopen = OpenSeedAsync,
+            MentionsEnabled = _s.Prefs.Current.Bool("recipientMentionsEnabled", true),
+            MentionAddsRecipientTo = _s.Prefs.Current.Str("mentionAddsRecipientTo", "to"),
+            ConfirmExternalRecipients = _s.Prefs.Current.Bool("externalRecipientConfirm", false),
+        };
+        return new ComposerViewModel(context, seed, identities)
+        {
+            IsDocked = ComposerDock.ShouldDock(settings.ReplyUnderMessage, kind == ComposeKind.New, _s.MessageOpen(), kind == ComposeKind.EditDraft),
+        };
     }
 
     private async Task LoadSourcesAsync(ComposerViewModel composer)

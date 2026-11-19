@@ -73,9 +73,10 @@ public static class SampleComposeServices
                     }
                     else
                     {
-                        to = who?.Email ?? string.Empty;
+                        var (recipients, _) = ReplyRecipients.Build(o, request.Kind == ComposeKind.ReplyAll, ["sample@example.org", "work@example.org"], "+");
+                        to = string.Join(", ", recipients.Select(a => a.Email));
                         subject = "Re: " + o.Subject;
-                        body = $"{request.DraftText}\n\nOn {o.ReceivedAt:ddd d MMM}, {who?.Name ?? who?.Email} wrote:\n> {quote}";
+                        body = request.InlineReply ? request.DraftText ?? string.Empty : $"{request.DraftText}\n\nOn {o.ReceivedAt:ddd d MMM}, {who?.Name ?? who?.Email} wrote:\n> {quote}";
                     }
                 }
             }

@@ -114,11 +114,17 @@ public sealed class ComposeSeeder(IAccountManager accounts, IIdentityService ide
             Body = new Doc([Block.Para("")]),
             SourceEmailId = m.Id,
             IdentityId = index is { } i ? ids[i].Identity.Id : null,
-            FromOverride = choice?.Override,
+            FromOverride = request.InlineReply ? null : choice?.Override,
         };
         if (request.Kind == ComposeKind.ForwardAsAttachment)
         {
             return Result<ComposeSeed>.Ok(await ForwardAsAttachmentAsync(seed, m, subject, ids, index, settings, ct).ConfigureAwait(false));
+        }
+
+        if (request.InlineReply && request.Kind == ComposeKind.Reply)
+        {
+            var (signed, signatures) = Sign(codec.ImportText(request.DraftText ?? "").ToList(), index is { } chosen ? await ShapedAsync(ids[chosen], ct).ConfigureAwait(false) : null, settings, isNew: false);
+            return Result<ComposeSeed>.Ok(ReplyEnvelope(seed, m, false, own, settings) with { Body = new Doc(signed), SignatureTexts = signatures });
         }
 
         var quote = QuoteOf(m);
@@ -184,17 +190,22 @@ public sealed class ComposeSeeder(IAccountManager accounts, IIdentityService ide
     private static (ComposeSeed Seed, List<Block> Blocks) ReplyOf(ComposeSeed seed, EmailBody m, (string Html, string Text) quote, IReadOnlyList<(string Cid, DraftAttachment Part)> inline, string header, bool all, List<string> own, ComposeSettings settings)
     {
         var blocks = new List<Block> { Block.Para(""), Block.Para(header), new Block(new BlockKind.Quoted(quote.Html, quote.Text, false, true)) };
+        var reply = ReplyEnvelope(seed, m, all, own, settings);
+        return (reply with { Attachments = [.. inline.Select(p => p.Part)] }, blocks);
+    }
+
+    private static ComposeSeed ReplyEnvelope(ComposeSeed seed, EmailBody m, bool all, List<string> own, ComposeSettings settings)
+    {
         var (to, cc) = ReplyRecipients.Build(m, all, own, settings.SubAddressDelimiter);
         var msgId = First(m.MessageId);
-        return (seed with
+        return seed with
         {
             To = string.Join(", ", to.Select(a => QuoteHeader.FormatRecipient(a.Name, a.Email))),
             Cc = string.Join(", ", cc.Select(a => QuoteHeader.FormatRecipient(a.Name, a.Email))),
             Subject = Prefixed(m.Subject ?? "", "Re:"),
             InReplyTo = msgId,
             References = [.. Or(m.References), .. msgId is null ? [] : new[] { msgId }],
-            Attachments = [.. inline.Select(p => p.Part)],
-        }, blocks);
+        };
     }
 
     private async Task<ComposeSeed> ForwardAsAttachmentAsync(ComposeSeed seed, EmailBody m, string subject, IReadOnlyList<ComposeIdentity> ids, int? index, ComposeSettings settings, CancellationToken ct)

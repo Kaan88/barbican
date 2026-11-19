@@ -80,6 +80,30 @@ public sealed class ComposerServiceTests
         public bool MessageOpen { get; set; }
     }
 
+    [Theory]
+    [InlineData("send", true)]
+    [InlineData("cancel", false)]
+    public async Task Inline_reply_uses_send_confirmation_without_opening_an_editor(string answer, bool expected)
+    {
+        var w = new World(prefs: """{"sendConfirmation":true}""");
+        var request = new ComposeRequest("acc", ComposeKind.Reply)
+        {
+            InlineReply = true, SourceEmailId = "m1", DraftText = "Hello",
+            Prefill = new ComposePrefill { To = "to@example.net", Subject = "Re: Hello", Body = "Hello" },
+        };
+        var shown = 0;
+        var sent = await w.Service.SendInlineReplyAsync(request, (dialog, _) =>
+        {
+            Assert.Equal("confirm", dialog.Id);
+            shown++;
+            return Task.FromResult<string?>(answer);
+        }, TestContext.Current.CancellationToken);
+        Assert.Equal(1, shown);
+        Assert.Equal(expected, sent);
+        Assert.Equal(expected ? 1 : 0, w.Harness.Sender.Sent.Count);
+        Assert.False(w.Service.IsOpen);
+    }
+
     [Fact]
     public async Task Opening_a_composer_seeds_it_and_makes_it_current()
     {

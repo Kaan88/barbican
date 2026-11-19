@@ -14,5 +14,7 @@ public sealed record ComposeRequest(string AccountId, ComposeKind Kind)
     public string? DraftText { get; init; }
 
     /// <summary>Rich text unless the plain-text setting (or the account) says otherwise.</summary>
+    public bool InlineReply { get; init; }
+
     public bool Plain { get; init; }
 }

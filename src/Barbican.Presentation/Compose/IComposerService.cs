@@ -16,6 +16,8 @@ public interface IComposerService
 
     event EventHandler? OpenChanged;
 
+    Task<bool> SendInlineReplyAsync(ComposeRequest request, Func<ComposerDialog, CancellationToken, Task<string?>> ask, CancellationToken ct) => Task.FromResult(false);
+
     /// <summary>Prepares and opens a composer (the plugin's onBeforeCompose / onBeforeReply hooks run first and can stop it). Asks before replacing an open composer that holds unsaved work.</summary>
     Task OpenAsync(ComposeRequest request, CancellationToken ct);
 

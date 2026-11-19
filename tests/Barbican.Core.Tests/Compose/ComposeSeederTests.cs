@@ -42,6 +42,31 @@ public sealed class ComposeSeederTests
         Assert.Equal("Re: Already", again.Subject);
     }
 
+    [Theory]
+    [InlineData(FakeSeed.ReplyToSubject, "boss@example.net")]
+    [InlineData(FakeSeed.SelfSentSubject, "erin@example.net")]
+    public async Task Inline_reply_keeps_the_thread_and_signature_without_quoting_the_source(string subject, string recipient)
+    {
+        var rig = await PipelineRig.StartAsync();
+        var request = new ComposeRequest(PipelineRig.Account, ComposeKind.Reply)
+        {
+            SourceEmailId = rig.Seeded(subject),
+            DraftText = "Thanks for the update.",
+            InlineReply = true,
+        };
+        var seed = (await rig.Seeder.SeedAsync(request, Ct)).Value!;
+        var full = await SeedAsync(rig, ComposeKind.Reply, subject);
+        Assert.Equal(recipient, seed.To);
+        Assert.Equal(full.InReplyTo, seed.InReplyTo);
+        Assert.Equal(full.References, seed.References);
+        Assert.Equal(full.SignatureTexts, seed.SignatureTexts);
+        Assert.Equal(full.IdentityId, seed.IdentityId);
+        Assert.Null(seed.FromOverride);
+        Assert.Empty(seed.Attachments);
+        Assert.Equal("Thanks for the update.", Texts(seed)[0]);
+        Assert.DoesNotContain("<quoted>", Texts(seed));
+    }
+
     [Fact]
     public async Task Reply_all_drops_own_addresses_with_their_tags_and_folds_duplicates()
     {
