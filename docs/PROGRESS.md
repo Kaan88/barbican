@@ -10,6 +10,8 @@ wherever they can. Safety rules stay (no real input, read-only account, admin ke
 
 ## Codex continuation (resumed by user, 2026-11-19)
 
+- **Resumed integration:** full-range JavaScript Date helper aa746ee passed 108 Node vectors; reviewed composer-only changes through a0a538c are integrated and the complete Core suite passed 1754/1754. Runtime host issuer/parent bridge and package lease/store/storage remain on worker branches for review; no production sandbox/186-method completion is claimed. The saved pause table below is historical.
+
 **User explicitly resumed the full goal after the saved pause at 100357d. All three streams are running again.** Goal remains the full M6b -> M7 -> M8 -> M10 roadmap (M9/Linux excluded), then Astra review/fix until satisfied, then hidden UI/usability walkthrough. M6 portable remains delivered. Agents stopped; their housekeeping inspections found no remaining owned build/app process. No live account, key, OS store or native plugin operation was performed in this phase.
 
 The integration checkpoint includes reviewed runtime RED baseline f1729fb plus composer/package baselines. Full combined red-check proved **57 expected PortPending failures, zero unexpected passes/wrong reasons** (runtime 26, packages 18, composer 13). Root's complete Core suite passed **1728/1728** on the preceding package/composer baseline. These tests prove intended missing entry points, not completed runtime behavior. The latest fully integrated ordinary Windows suite remains **3088 passed / four skipped** at 9647d85, followed by the passing singleton graph and encoding checks. New implementation drafts listed below are not integrated or claimed verified by those counts.
