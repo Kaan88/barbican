@@ -14,7 +14,7 @@ Current execution order: **M6 -> M6b -> M7 -> M8 -> M10 -> Astra review/fix loop
 | M4 | Calendar and tasks | Done; Linux deferred |
 | M5 | Contacts and Files | Done; explicit feature carryovers remain |
 | M6 | Settings, server features and assistant | Windows implementation checkpoint and verified fresh portable delivered at 583b40d; explicit live/visual limits in report |
-| M6b | Full plugin platform, sandbox, permissions, consent and Add-ons | Next; source inventory/planning preparation underway |
+| M6b | Full plugin platform, sandbox, permissions, consent and Add-ons | Shared contract foundation active on codex/m6b; runtime/API/packages/slots implementation remains pending |
 | M7 | Admin dashboard and management | Planned |
 | M8 | Windows desktop integration and distribution | Planned |
 | M10 | Parity sweep, UI polish and release readiness | Planned; followed by Astra fixes and a UI walkthrough |
