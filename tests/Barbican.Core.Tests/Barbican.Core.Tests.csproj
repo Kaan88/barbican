@@ -2,9 +2,11 @@
   <!-- The Core spec suite: ported Rust tests first ([RustTest]), then new tests (PORT-PLAN.md §2.4, §4.2).
        Shared test settings: tests/Directory.Build.props. -->
   <ItemGroup>
+    <Compile Remove="Plugins/Packages/Fixtures/NativeSentinel/**/*.cs" />
     <ProjectReference Include="../../src/Barbican.Core/Barbican.Core.csproj" />
     <!-- m1-jmap: the fake JMAP server, the virtual clock (push backoff and deadlines) and coverage. -->
     <ProjectReference Include="../Barbican.FakeJmap/Barbican.FakeJmap.csproj" />
+    <ProjectReference Include="Plugins/Packages/Fixtures/NativeSentinel/NativeSentinel.csproj" ReferenceOutputAssembly="false" Private="false" />
     <!-- m2-plugins (T-206): the bundled spam-score plugin is built beside the tests, not referenced, and copied to <output>/plugins/spam-score/. -->
     <ProjectReference Include="../../plugins/Barbican.Plugin.SpamScore/Barbican.Plugin.SpamScore.csproj" ReferenceOutputAssembly="false" Private="false" />
     <PackageReference Include="Microsoft.Extensions.TimeProvider.Testing" />
@@ -12,6 +14,10 @@
     <!-- M4 cal-data: the differential oracle of the recurrence tests (test-side only, D-M4-03). -->
     <PackageReference Include="Ical.Net" />
   </ItemGroup>
+
+  <Target Name="CopyNativeSentinelFixture" AfterTargets="Build">
+    <Copy SourceFiles="$(MSBuildThisFileDirectory)Plugins/Packages/Fixtures/NativeSentinel/bin/$(Configuration)/net10.0/NativeSentinel.dll" DestinationFolder="$(OutDir)native-sentinel" />
+  </Target>
 
   <!-- Copies the plugin's build output (the dll and its pdb) next to the tests so the plugin host test loads the real build. -->
   <Target Name="CopySpamScorePlugin" AfterTargets="Build">
