@@ -17,6 +17,9 @@ namespace Barbican.Core.Mail.Avatars;
 public sealed class AvatarService(IGuardedHttp http, Func<AvatarPrefs> prefs, IHookBus hooks, TimeProvider time, Func<string, CancellationToken, Task<string?>>? txt, string? cacheDir) : IAvatarService
 {
     private static readonly TimeSpan CacheAge = TimeSpan.FromDays(7);
+    // Disk operations use a separate lock: TryGet/Request never waits for file IO.
+    // Background code takes disk before refresh when both are needed.
+    private readonly Lock _diskLock = new();
     private readonly Lock _refreshLock = new();
     private long _generation;
     private readonly AvatarJobs _jobs = new();
@@ -40,14 +43,18 @@ public sealed class AvatarService(IGuardedHttp http, Func<AvatarPrefs> prefs, IH
     private void Refresh(CancellationToken ct)
     {
         string[] owners;
-        lock (_refreshLock)
+        lock (_diskLock)
         {
-            ct.ThrowIfCancellationRequested();
-            _generation++;
-            _jobs.Clear();
-            owners = [.. _owner.Values.Distinct(StringComparer.Ordinal)];
-            _owner.Clear();
-            _slots.Clear();
+            lock (_refreshLock)
+            {
+                ct.ThrowIfCancellationRequested();
+                _generation++;
+                _jobs.Clear();
+                owners = [.. _owner.Values.Distinct(StringComparer.Ordinal)];
+                _owner.Clear();
+                _slots.Clear();
+            }
+
             if (cacheDir is not null && Directory.Exists(cacheDir))
             {
                 foreach (var path in Directory.EnumerateFiles(cacheDir, "*.img", SearchOption.TopDirectoryOnly))
@@ -144,9 +151,15 @@ public sealed class AvatarService(IGuardedHttp http, Func<AvatarPrefs> prefs, IH
         }
 
         byte[]? bytes;
-        lock (_refreshLock)
+        lock (_diskLock)
         {
-            bytes = generation == _generation ? Cached(key) : null;
+            bool current;
+            lock (_refreshLock)
+            {
+                current = generation == _generation;
+            }
+
+            bytes = current ? Cached(key) : null;
         }
 
         bytes ??= await FetchAsync(uri, ct).ConfigureAwait(false);
@@ -155,11 +168,14 @@ public sealed class AvatarService(IGuardedHttp http, Func<AvatarPrefs> prefs, IH
             return null;
         }
 
-        lock (_refreshLock)
+        lock (_diskLock)
         {
-            if (generation != _generation)
+            lock (_refreshLock)
             {
-                return null;
+                if (generation != _generation)
+                {
+                    return null;
+                }
             }
 
             Store(key, bytes);

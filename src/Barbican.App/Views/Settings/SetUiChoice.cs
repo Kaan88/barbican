@@ -6,7 +6,7 @@ internal sealed class SetUiChoice : StackPanel
     private readonly List<Button> _buttons = [];
     private int _selected;
 
-    public SetUiChoice(IEnumerable<string> labels, int selected, Action<int> changed)
+    public SetUiChoice(IEnumerable<string> labels, int selected, Action<int> changed, string id)
     {
         Spacing = 6;
         StackPanel? row = null;
@@ -20,6 +20,8 @@ internal sealed class SetUiChoice : StackPanel
             }
 
             var button = new Button { Content = label, Height = 30, CornerRadius = new CornerRadius(15), FontSize = 12.5, Padding = new Thickness(12, 0, 12, 0) };
+            Microsoft.UI.Xaml.Automation.AutomationProperties.SetAutomationId(button, id + ".option." + index.ToString(System.Globalization.CultureInfo.InvariantCulture));
+            Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(button, label);
             button.Click += (_, _) => { Selected = index; changed(index); };
             _buttons.Add(button);
             row!.Children.Add(button);

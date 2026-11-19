@@ -63,6 +63,8 @@ public sealed class SettingsCatalogTests
         Assert.True(number.Ok);
         Assert.Equal(1.125, (double?)number.Value);
         Assert.False(SettingRules.Coerce(scale, System.Text.Json.Nodes.JsonValue.Create("9")).Ok);
+        Assert.True(SettingRules.Coerce(SettingsCatalog.RowOfKey("messageListOrderScope")!, System.Text.Json.Nodes.JsonValue.Create("all")).Ok);
+        Assert.False(SettingRules.Coerce(SettingsCatalog.RowOfKey("messageListOrderScope")!, System.Text.Json.Nodes.JsonValue.Create("wrong")).Ok);
         Assert.True(SettingRules.Coerce(SettingsCatalog.RowOfKey("subAddressDelimiter")!, System.Text.Json.Nodes.JsonValue.Create("#")).Ok);
         Assert.False(SettingRules.Coerce(SettingsCatalog.RowOfKey("subAddressDelimiter")!, System.Text.Json.Nodes.JsonValue.Create("ab")).Ok);
         Assert.True(SettingRules.Coerce(SettingsCatalog.RowOfKey("writingLanguage")!, System.Text.Json.Nodes.JsonValue.Create("de-CH")).Ok);

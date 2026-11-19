@@ -17,6 +17,8 @@ internal static class SetUiAccountPage
     {
         var model = ViewHost.Get<SetUiSecurityViewModel>();
         var accounts = ViewHost.Find<IAccountManager>();
+        var overview = ViewHost.Find<IAccountOverview>();
+        var maintenance = ViewHost.Find<IAccountMaintenance>();
         var panel = SetUiUi.Page("Account");
         var info = new StackPanel();
         var storage = new StackPanel { Spacing = 6 };
@@ -68,8 +70,11 @@ internal static class SetUiAccountPage
                 list.Children.Add(SetUiUi.Meta("Sample account (no sign-in in this run)."));
             }
 
-            foreach (var a in all)
+            for (var index = 0; index < all.Count; index++)
             {
+                var a = all[index];
+                var at = index;
+                var isDefault = overview?.Statuses.Any(s => s.IsDefault && string.Equals(s.Account.Key, a.Key, StringComparison.Ordinal)) == true;
                 var key = a.Key;
                 var isActive = accounts?.Active is { } act && string.Equals(act.Key, key, StringComparison.Ordinal);
                 var buttons = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
@@ -78,8 +83,38 @@ internal static class SetUiAccountPage
                     buttons.Children.Add(SetUiUi.Pill("Switch", () => SetUiUi.Run(async () => _ = await accounts!.SwitchToAsync(key, CancellationToken.None).ConfigureAwait(true)), "set.account.switch." + key));
                 }
 
+                if (maintenance is not null)
+                {
+                    if (!isDefault)
+                    {
+                        buttons.Children.Add(SetUiUi.Pill("Make default", () => SetUiUi.Run(async () =>
+                        {
+                            var result = await maintenance.SetDefaultAsync(key, CancellationToken.None).ConfigureAwait(true);
+                            if (!result.IsOk) status.Text = result.Error!.Message;
+                        }), "set.account.default." + key));
+                    }
+
+                    if (at > 0)
+                    {
+                        buttons.Children.Add(SetUiUi.Pill("Up", () => SetUiUi.Run(async () =>
+                        {
+                            var result = await maintenance.MoveAsync(key, at - 1, CancellationToken.None).ConfigureAwait(true);
+                            if (!result.IsOk) status.Text = result.Error!.Message;
+                        }), "set.account.up." + key));
+                    }
+
+                    if (at + 1 < all.Count)
+                    {
+                        buttons.Children.Add(SetUiUi.Pill("Down", () => SetUiUi.Run(async () =>
+                        {
+                            var result = await maintenance.MoveAsync(key, at + 1, CancellationToken.None).ConfigureAwait(true);
+                            if (!result.IsOk) status.Text = result.Error!.Message;
+                        }), "set.account.down." + key));
+                    }
+                }
+
                 buttons.Children.Add(SetUiUi.Pill("Sign out", () => SetUiUi.Run(() => SignOutAsync(key, a.User)), "set.account.signout." + key));
-                list.Children.Add(SetUiUi.RowOf(a.User + (isActive ? " (active)" : string.Empty), a.Server, buttons, "set.account.row." + key));
+                list.Children.Add(SetUiUi.RowOf(a.User + (isActive ? " (active)" : string.Empty) + (isDefault ? " (default)" : string.Empty), a.Server, buttons, "set.account.row." + key));
             }
 
             status.Text = model.Status;
@@ -89,11 +124,23 @@ internal static class SetUiAccountPage
             }
         }
 
+        void OnStatusesChanged(object? sender, EventArgs e) => panel.DispatcherQueue.TryEnqueue(Render);
+        panel.Loaded += (_, _) =>
+        {
+            if (overview is not null) overview.StatusesChanged += OnStatusesChanged;
+            Render();
+        };
+        panel.Unloaded += (_, _) =>
+        {
+            if (overview is not null) overview.StatusesChanged -= OnStatusesChanged;
+        };
+
         model.PropertyChanged += (_, e) =>
         {
             if (string.Equals(e.PropertyName, nameof(model.AccountKey), StringComparison.Ordinal))
             {
                 name.Text = string.Empty;
+                SetUiUi.Run(() => model.RefreshAsync(CancellationToken.None));
             }
 
             Render();

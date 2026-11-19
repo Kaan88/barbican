@@ -59,7 +59,15 @@ public sealed class SetUiAssistantColumn : UserControl
         root.Children.Add(bar);
         Content = root;
         AutomationProperties.SetAutomationId(this, "set.assistant.column");
-        _vm.PropertyChanged += (_, _) => Render();
+        _vm.PropertyChanged += (_, e) =>
+        {
+            if (string.Equals(e.PropertyName, nameof(_vm.AccountKey), StringComparison.Ordinal))
+            {
+                _input.Text = string.Empty;
+            }
+
+            Render();
+        };
         Render();
     }
 

@@ -13,6 +13,7 @@ using Barbican.Core.Contacts;
 using Barbican.Core.Mail.Avatars;
 using Barbican.Core.Sync;
 using Barbican.Presentation.Settings;
+using Barbican.Presentation.Shell;
 using Barbican.Core.Settings.Pages;
 using Barbican.Presentation.Settings.Ui;
 using Microsoft.UI.Xaml.Automation;
@@ -30,6 +31,7 @@ public sealed class SetUiRowsView : StackPanel
     private readonly ISetUiViewModel _vm = SetUiUi.Model;
     private readonly Dictionary<string, FrameworkElement> _byId = new(StringComparer.Ordinal);
     private readonly Dictionary<string, Action> _refresh = new(StringComparer.Ordinal);
+    private readonly List<IDisposable> _childrenToDispose = [];
     private bool _updating;
     private TextBlock? _error;
 
@@ -65,6 +67,8 @@ public sealed class SetUiRowsView : StackPanel
     /// <summary>Redraws the rows (the page opened, or the filters changed).</summary>
     public void Render()
     {
+        foreach (var child in _childrenToDispose) { child.Dispose(); }
+        _childrenToDispose.Clear();
         Children.Clear();
         _byId.Clear();
         _refresh.Clear();
@@ -152,6 +156,40 @@ public sealed class SetUiRowsView : StackPanel
             return SetUiUi.RowOf(row.Label, desc, SetUiUi.Pill("Refresh", () => SetUiUi.Run(RefreshDataAsync), id + ".button"), id);
         }
 
+        if (string.Equals(row.Id, "S-keyless-050", StringComparison.Ordinal))
+        {
+            var editor = new SetUiCalendarIdentityEditor(_vm);
+            _childrenToDispose.Add(editor);
+            return SetUiUi.RowOf(row.Label, desc, editor, id);
+        }
+
+        if (string.Equals(row.Id, "S-keyless-039", StringComparison.Ordinal))
+        {
+            var editor = new SetUiOrderEditor(_vm);
+            _childrenToDispose.Add(editor);
+            return SetUiUi.RowOf(row.Label, desc, editor, id);
+        }
+
+        if (string.Equals(row.Key, "calendarDayEndHour", StringComparison.Ordinal))
+        {
+            return CalendarHours(row, id);
+        }
+
+        if (row.Key is "subAddressDelimiter" or "writingLanguage")
+        {
+            return CustomText(row, r.Value, desc, id);
+        }
+
+        if (string.Equals(row.Id, "S-keyless-051", StringComparison.Ordinal))
+        {
+            return WorkingDays(row, desc, id);
+        }
+
+        if (row.Id is "S-keyless-052" or "S-keyless-053")
+        {
+            return SetUiUi.RowOf(row.Label, desc, SetUiUi.Pill("Open Contacts", () => ViewHost.Get<ShellViewModel>().TryActivate(AppId.Contacts), id + ".link"), id);
+        }
+
         if (string.Equals(row.Id, "S-keyless-030", StringComparison.Ordinal))
         {
             return SetUiUi.RowOf(row.Label, desc, SetUiUi.Pill("Open", () => SetUiUi.Run(ShowShortcutsAsync), id + ".link"), id);
@@ -166,6 +204,7 @@ public sealed class SetUiRowsView : StackPanel
         if (key is not null && row.Kind == SettingRowKind.Toggle)
         {
             var toggle = new ToggleSwitch { OnContent = string.Empty, OffContent = string.Empty, MinWidth = 0, IsOn = SetUiRowRules.ToggleOn(row, r.Value) };
+            AutomationProperties.SetName(toggle, row.Label);
             toggle.Toggled += (_, _) =>
             {
                 if (!_updating)
@@ -186,7 +225,7 @@ public sealed class SetUiRowsView : StackPanel
                 {
                     SetUiUi.Run(() => _vm.SetValueAsync(row.Id, JsonValue.Create(row.Options[index].Value), CancellationToken.None));
                 }
-            });
+            }, id + ".select");
             _refresh[row.Id] = () => choice.Selected = IndexOf(Current(row));
             return SetUiUi.RowOf(row.Label, Note(row, desc), SetUiUi.Id(choice, id + ".select"), id);
         }
@@ -221,7 +260,8 @@ public sealed class SetUiRowsView : StackPanel
         }
 
         // keyless: an info row shows its text; a control without a key is not wired yet
-        var text = r.InfoText.Length > 0 ? r.InfoText : row.Kind is SettingRowKind.Toggle or SettingRowKind.Select or SettingRowKind.Text ? "Not available yet" : string.Empty;
+        var unavailable = row.Id is "S-keyless-019" or "S-keyless-020" or "S-keyless-021" or "S-keyless-022" or "S-keyless-023" or "S-keyless-024" or "S-keyless-040";
+        var text = unavailable ? "Not available yet" : r.InfoText.Length > 0 ? r.InfoText : row.Kind is SettingRowKind.Toggle or SettingRowKind.Select or SettingRowKind.Text ? "Not available yet" : string.Empty;
         var value = text.Length > 0 ? SetUiUi.Meta(text) : null;
         if (value is not null)
         {
@@ -232,8 +272,88 @@ public sealed class SetUiRowsView : StackPanel
         return SetUiUi.RowOf(row.Label, desc, value, id);
     }
 
+    private Grid CustomText(SettingRow row, JsonNode? value, string desc, string id)
+    {
+        var box = new TextBox { MinWidth = 160, Text = Plain(value), PlaceholderText = string.Equals(row.Key, "writingLanguage", StringComparison.Ordinal) ? "auto or language tag" : "+" };
+        AutomationProperties.SetName(box, row.Label);
+        AutomationProperties.SetAutomationId(box, id + ".text");
+        box.LostFocus += (_, _) => SetUiUi.Run(() => _vm.SetValueAsync(row.Id, JsonValue.Create(box.Text.Trim()), CancellationToken.None));
+        box.KeyDown += (_, e) =>
+        {
+            if (e.Key == VirtualKey.Enter) { SetUiUi.Run(() => _vm.SetValueAsync(row.Id, JsonValue.Create(box.Text.Trim()), CancellationToken.None)); }
+        };
+        _refresh[row.Id] = () => { if (box.FocusState == FocusState.Unfocused) { box.Text = Plain(Current(row)); } };
+        return SetUiUi.RowOf(row.Label, desc, box, id);
+    }
+
+    private Grid CalendarHours(SettingRow row, string id)
+    {
+        var start = new TextBox { Width = 72, Header = "From" };
+        var end = new TextBox { Width = 72, Header = "Until" };
+        AutomationProperties.SetAutomationId(start, id + ".start");
+        AutomationProperties.SetAutomationId(end, id + ".end");
+        void Commit(TextBox box, bool isStart)
+        {
+            if (!int.TryParse(box.Text, System.Globalization.NumberStyles.Integer, System.Globalization.CultureInfo.InvariantCulture, out var hour))
+            {
+                _ = ViewHost.Find<IToastService>()?.Show(new ToastRequest("Enter a whole hour.", IsError: true));
+                return;
+            }
+
+            SetUiUi.Run(() => _vm.SetCalendarHourAsync(isStart, hour, CancellationToken.None));
+        }
+
+        start.LostFocus += (_, _) => Commit(start, true);
+        end.LostFocus += (_, _) => Commit(end, false);
+        start.KeyDown += (_, e) => { if (e.Key == VirtualKey.Enter) { Commit(start, true); } };
+        end.KeyDown += (_, e) => { if (e.Key == VirtualKey.Enter) { Commit(end, false); } };
+        void Refresh()
+        {
+            if (start.FocusState == FocusState.Unfocused) { start.Text = Plain(_vm.ValueOf("calendarDayStartHour") ?? JsonValue.Create(8)); }
+            if (end.FocusState == FocusState.Unfocused) { end.Text = Plain(_vm.ValueOf("calendarDayEndHour") ?? JsonValue.Create(20)); }
+        }
+
+        _refresh[row.Id] = Refresh;
+        Refresh();
+        var panel = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
+        panel.Children.Add(start);
+        panel.Children.Add(end);
+        return SetUiUi.RowOf("Visible hours", "Whole hours from 0 to 24; the end stays after the start.", panel, id);
+    }
+
+    private Grid WorkingDays(SettingRow row, string desc, string id)
+    {
+        string[] names = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+        var panel = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 4 };
+        var boxes = new Dictionary<int, CheckBox>();
+        var first = _vm.ValueOf("firstDayOfWeek") is JsonValue firstValue && firstValue.TryGetValue<int>(out var firstDay) ? Math.Clamp(firstDay, 0, 6) : 1;
+        for (var i = 0; i < names.Length; i++)
+        {
+            var day = (first + i) % 7;
+            var box = new CheckBox { Content = names[day] };
+            AutomationProperties.SetAutomationId(box, id + ".day." + day.ToString(System.Globalization.CultureInfo.InvariantCulture));
+            box.Checked += (_, _) => { if (!_updating) { SetUiUi.Run(() => _vm.SetWorkingDayAsync(day, true, CancellationToken.None)); } };
+            box.Unchecked += (_, _) => { if (!_updating) { SetUiUi.Run(() => _vm.SetWorkingDayAsync(day, false, CancellationToken.None)); } };
+            boxes.Add(day, box);
+            panel.Children.Add(box);
+        }
+
+        void Refresh()
+        {
+            var stored = _vm.ValueOf("calendarWorkingDays") as JsonArray;
+            var days = stored is null ? new HashSet<int>([1, 2, 3, 4, 5]) : stored.OfType<JsonValue>().Select(v => v.TryGetValue<int>(out var d) ? d : -1).ToHashSet();
+            foreach (var (day, box) in boxes) { box.IsChecked = days.Contains(day); }
+        }
+
+        _refresh[row.Id] = Refresh;
+        _updating = true;
+        try { Refresh(); } finally { _updating = false; }
+        return SetUiUi.RowOf(row.Label, desc, panel, id);
+    }
+
     private static string? LinkPage(string id) => id switch
     {
+        "S-keyless-026" => SettingsPageIds.Accessibility,
         "S-keyless-027" or "S-keyless-028" => SettingsPageIds.Appearance,
         "S-keyless-029" or "S-keyless-034" => SettingsPageIds.Reading,
         "S-keyless-031" or "S-keyless-033" or "S-keyless-036" => SettingsPageIds.MessageList,
