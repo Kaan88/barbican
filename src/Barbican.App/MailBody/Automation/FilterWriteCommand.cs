@@ -1,5 +1,5 @@
 #if AUTOMATION_WRITES && WINDOWS
-// L-040: prepared hidden command, never registered outside AUTOMATION_WRITES. The caller must approve execution separately.
+// L-040: prepared hidden command, never registered outside AUTOMATION_WRITES. Execution requires the live write-test guard.
 using Barbican.Automation;
 using Barbican.Core.Mail.Write;
 using Barbican.Core.Plugins.Hooks;
@@ -17,7 +17,8 @@ public sealed class FilterWriteCommand(WriteTestGuard guard, IHookBus hooks, IMa
 
     private async Task<string> RunCoreAsync(string args, CancellationToken ct)
     {
-        if (!string.IsNullOrWhiteSpace(args)) return "error filter-write-test takes no arguments";
+        var preflight = string.Equals(args.Trim(), "preflight", StringComparison.Ordinal);
+        if (!preflight && !string.IsNullOrWhiteSpace(args)) return "error usage: filter-write-test [preflight]";
         var (session, refusal) = guard.Check();
         if (session is null || refusal is not null) return "error refused";
         FilterRecoveryJournal? journal = null;
@@ -26,6 +27,11 @@ public sealed class FilterWriteCommand(WriteTestGuard guard, IHookBus hooks, IMa
         try
         {
             var backend = new FilterVerificationBackend(guard, session, hooks, writers, time);
+            if (preflight)
+            {
+                await backend.CaptureAsync(ct).ConfigureAwait(false);
+                return "ok eligible=1 writes=0";
+            }
             var secretStore = new WindowsSecretStore(profile.Profile);
             enteredJournalCreation = true;
             journal = await FilterRecoveryJournal.CreateAsync(secretStore, Path.Combine(profile.DataDir, "filter-write-recovery"), ct).ConfigureAwait(false);

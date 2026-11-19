@@ -79,6 +79,9 @@ public static class ReaderRegistration
         services.AddSingleton<Barbican.Automation.IAutomationCommand, Barbican.App.MailBody.Automation.RxImportCommand>();
         services.AddSingleton<Barbican.Automation.IAutomationCommand, Barbican.App.MailBody.Automation.RxFindCommand>();
         services.AddSingleton<Barbican.Automation.IAutomationCommand, Barbican.App.MailBody.Automation.RxDestroyCommand>();
+#if WINDOWS
+        services.AddSingleton<Barbican.Automation.IAutomationCommand, Barbican.App.MailBody.Automation.FilterWriteCommand>();
+#endif
 #endif
         return services;
     }
