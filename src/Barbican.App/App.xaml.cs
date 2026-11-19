@@ -73,6 +73,7 @@ public partial class BarbicanApp : Application
         _window.Content = content;
         // Window activation, visibility and closing reach the shell ViewModel (onWindowFocus/Blur, onVisibilityChange, onBeforeUnload).
         _host.Services.GetRequiredService<Shell.ShellLifecycle>().AttachWindow(_window);
+        _host.Services.GetRequiredService<Shell.WindowCloseController>().Attach(_window);
         switch (options.Mode)
         {
             case HiddenWindowMode.OffScreen:
@@ -108,7 +109,8 @@ public partial class BarbicanApp : Application
 #else
         _ = shell;   // the caption command is Windows only
 #endif
-        Barbican.Automation.AutomationHost.Start(_window!, _host!.Services, port);
+        Barbican.Automation.AutomationHost.Start(_window!, _host!.Services, port,
+            () => _host.Services.GetRequiredService<Shell.WindowCloseController>().CloseAsync(_window!));
     }
 #endif
 }

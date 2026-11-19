@@ -6,9 +6,10 @@ namespace Barbican.Automation;
 /// <summary>The window under automation and the helpers every command uses (UI-thread hops, the clock).</summary>
 internal sealed class AutomationContext
 {
-    public AutomationContext(Window window)
+    public AutomationContext(Window window, Func<Task>? close = null)
     {
         Window = window;
+        Close = close;
         Dispatcher = window.DispatcherQueue;
 #if WINDOWS
         Hwnd = WinRT.Interop.WindowNative.GetWindowHandle(window);
@@ -16,6 +17,8 @@ internal sealed class AutomationContext
     }
 
     public Window Window { get; }
+
+    public Func<Task>? Close { get; }
 
     public DispatcherQueue Dispatcher { get; }
 

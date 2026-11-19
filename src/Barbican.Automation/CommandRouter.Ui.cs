@@ -156,10 +156,16 @@ internal sealed partial class CommandRouter
             case "close":
             {
                 // After the reply is written: closing tears down the server.
+                if (_closeTimer is not null) return "ok";
                 var t = _context.Dispatcher.CreateTimer();
+                _closeTimer = t; // Keep the one-shot timer alive until its tick.
                 t.Interval = TimeSpan.FromMilliseconds(200);
                 t.IsRepeating = false;
-                t.Tick += (_, _) => _context.Window.Close();
+                t.Tick += (_, _) =>
+                {
+                    _closeTimer = null;
+                    _ = CloseAfterReplyAsync();
+                };
                 t.Start();
                 return "ok";
             }
@@ -476,4 +482,19 @@ internal sealed partial class CommandRouter
         timer.Start();
         return "ok";
     }
+    private async Task CloseAfterReplyAsync()
+    {
+        try
+        {
+            if (_context.Close is { } close) await close().ConfigureAwait(false);
+            else _context.Window.Close();
+        }
+#pragma warning disable CA1031 // A deferred command failure must be observable without escaping a timer callback.
+        catch (Exception error)
+#pragma warning restore CA1031
+        {
+            await Console.Error.WriteLineAsync("[automation] close failed: " + error.GetType().Name).ConfigureAwait(false);
+        }
+    }
+
 }

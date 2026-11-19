@@ -7,4 +7,3 @@ public interface IArchiveReorganizer
 {
     Task<Result<ArchiveReorganizationReport>> ReorganizeAsync(string accountKey, string mode, CancellationToken ct);
 }
-

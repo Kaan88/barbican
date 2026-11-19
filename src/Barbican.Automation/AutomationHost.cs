@@ -13,7 +13,7 @@ public static class AutomationHost
     private static AutomationServer? _server;
     private static bool _started;
 
-    public static void Start(Window window, IServiceProvider services, int port)
+    public static void Start(Window window, IServiceProvider services, int port, Func<Task>? close = null)
     {
         ArgumentNullException.ThrowIfNull(window);
         ArgumentNullException.ThrowIfNull(services);
@@ -25,7 +25,7 @@ public static class AutomationHost
         _started = true;
 
         // the popup guard runs whether or not the port opens: a hidden window must never show a popup on the user's screen
-        var context = new AutomationContext(window);
+        var context = new AutomationContext(window, close);
         var guard = new PopupGuard(context);
         guard.Start();
         if (AutomationConnection.TokenFromEnvironment() is not { } token)

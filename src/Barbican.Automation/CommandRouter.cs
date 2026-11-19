@@ -18,6 +18,7 @@ internal sealed partial class CommandRouter : IDisposable
     private readonly Dictionary<string, IAutomationCommand> _extensions;
     private readonly FrameProbe _probe;
     private readonly Burst _burst;
+    private Microsoft.UI.Dispatching.DispatcherQueueTimer? _closeTimer;
 #if WINDOWS
     private readonly Uia _uia;
 #endif
@@ -64,6 +65,8 @@ internal sealed partial class CommandRouter : IDisposable
 
     public void Dispose()
     {
+        _closeTimer?.Stop();
+        _closeTimer = null;
 #if WINDOWS
         _uia.Dispose();
 #endif

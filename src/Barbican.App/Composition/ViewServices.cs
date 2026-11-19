@@ -22,6 +22,7 @@ public static class ViewServices
         services.Replace(ServiceDescriptor.Singleton<IDispatcher>(_ => new DispatcherQueueDispatcher(ViewHost.UiQueue ?? Microsoft.UI.Dispatching.DispatcherQueue.GetForCurrentThread() ?? throw new InvalidOperationException("No UI queue: the composition root must be built on the UI thread."))));
         services.TryAddSingleton<StyleState>();
         services.TryAddSingleton<ShellLifecycle>();
+        services.TryAddSingleton<WindowCloseController>();
         services.TryAddSingleton<ThemeController>();
 
         // the sign-in view and the account popover bind to Presentation's SignInViewModel and AccountsViewModel (AddBarbicanAccountsPresentation; R2-03)
