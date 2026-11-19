@@ -174,7 +174,10 @@ public sealed class ReaderViewModel : ObservableObject, IDisposable
             return;
         }
 
-        var fresh = banners.Where(b => (_code?.Enabled != false || !string.Equals(b.Id, VerificationCodeBannerSource.Id, StringComparison.Ordinal)) && !_current.Banners.Any(x => string.Equals(x.Id, b.Id, StringComparison.Ordinal))).ToList();
+        var expectedCode = _code?.CodeOf(_current);
+        var fresh = banners.Where(b => (!string.Equals(b.Id, VerificationCodeBannerSource.Id, StringComparison.Ordinal)
+                || _code is null || (expectedCode is not null && string.Equals(b.Title, $"Verification code {expectedCode}", StringComparison.Ordinal)))
+            && !_current.Banners.Any(x => string.Equals(x.Id, b.Id, StringComparison.Ordinal))).ToList();
         if (fresh.Count == 0)
         {
             return;
