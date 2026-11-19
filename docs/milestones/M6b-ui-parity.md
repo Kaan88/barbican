@@ -134,3 +134,10 @@ had different SHA-256 prefixes (`76797478090b` and `00cc55626018`).
 The dock capture (`d0c5697e03e7`) was taken only after the subject and Send
 controls reported nonzero bounds. These captures verify native chrome, not
 WebView message content; they are local synthetic artifacts.
+
+Adaptive reply dock: the short layout now switches between the message and the
+same composer instance, while a tall layout gives the composer a 60% initial
+share. Seven layout tests passed. Hidden sample automation measured a 508 px
+dock in an 846 px pane and preserved the draft subject through the short-layout
+round trip. A draggable divider remains open. The Windows x64 preview at this
+checkpoint has an [extraction and smoke record](../../spec/feel/M6b/windows-bulwark-preview.json).

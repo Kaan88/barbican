@@ -1,0 +1,23 @@
+{
+  "kind": "interim-bulwark-preview",
+  "sourceRevision": "9ce77a78cdafe8aedb7d892b476ac04618fc9b87",
+  "productVersion": "0.1+9ce77a78cdafe8aedb7d892b476ac04618fc9b87",
+  "artifact": "artifacts/portable/Barbican-M6b-Bulwark-preview-9ce77a78cdaf-win-x64.zip",
+  "bytes": 144546896,
+  "sha256": "B67CF1D1B6CDFE965E8CE1E9171C370C8FBCC6B356685826029A042CB6C0D056",
+  "checkpointTests": {
+    "suite": "ReplyDockLayoutTests",
+    "passed": 7,
+    "failed": 0,
+    "skipped": 0
+  },
+  "extractedSmoke": {
+    "ok": true,
+    "configuration": "Release",
+    "head": "win",
+    "processToLaunchedMs": 201.2,
+    "processToFirstFrameMs": 574.8,
+    "processToShellReadyMs": 884.7,
+    "exitCode": 0
+  }
+}
