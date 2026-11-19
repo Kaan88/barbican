@@ -1888,3 +1888,7 @@ Review: the host must stop and drain all owned runtimes before disposing the lea
 ### Codex - M6b authenticated package store acceptance
 
 The Platform AuthenticatedPluginPackageStore now binds a host-secret MAC key and current revision/digest to bounded index bytes, verifies exact readback, and uses hash-addressed archives under a matching exclusive profile-root lease. Eight focused tests pass with isolated temporary profiles and in-memory secrets, including rollback, tamper, missing key, ambiguous acknowledgement and a fault between file and secret updates. Review the adapter and crash recovery: interrupted two-resource commits intentionally fail closed and currently require recovery rather than automatic repair. OS credential-store and production startup composition remain untested.
+
+### Codex - M6b native inspection paused WIP
+
+Unverified native sidecar inspection and manager consent integration are saved here solely for continuation; no native assembly was loaded. The latest focused native build failed with three MA0051 method-length errors in PluginPackageInspector.InspectAsync, NativePackageInspector.InspectAsync and PluginPackageManager.InstallAsync; native tests did not run and remain Red. Resume by splitting those methods, then execute the native acceptance tests and adversarial path/hash/manifest cases before treating this code as safe. Native full-trust loading, its positive sentinel tests, production composition and security review remain outstanding.

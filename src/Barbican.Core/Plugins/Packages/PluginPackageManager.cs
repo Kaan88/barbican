@@ -81,10 +81,18 @@ public sealed partial class PluginPackageManager : IPluginPackageManager, IPlugi
     private static PluginPackageDefinition Definition(InspectedPluginPackage inspected)
     {
         using var manifest = JsonDocument.Parse(inspected.ManifestJson);
-        var tier = manifest.RootElement.TryGetProperty("tier", out var requested) && string.Equals(requested.GetString(), "privileged", StringComparison.Ordinal) ? PluginExecutionTier.Privileged : PluginExecutionTier.Untrusted;
-        return new PluginPackageDefinition(new(inspected.Id, inspected.Version, inspected.WholeArchiveSha256), PluginRuntimeKind.JavaScript, inspected.EntryPoint, manifest.RootElement, inspected.Permissions, PluginPackageSource.LocalImport, tier);
+        var tier = inspected.RuntimeKind == PluginRuntimeKind.Native ? PluginExecutionTier.NativeFullTrust : manifest.RootElement.TryGetProperty("tier", out var requested) && string.Equals(requested.GetString(), "privileged", StringComparison.Ordinal) ? PluginExecutionTier.Privileged : PluginExecutionTier.Untrusted;
+        return new PluginPackageDefinition(new(inspected.Id, inspected.Version, inspected.WholeArchiveSha256), inspected.RuntimeKind, inspected.EntryPoint, manifest.RootElement, inspected.Permissions, PluginPackageSource.LocalImport, tier);
     }
-    private static PluginGrantSnapshot Grant(Entry e) => new(Identity(e), e.Generation, e.Enabled, e.Permissions, e.Accounts);
+    private static PluginGrantSnapshot Grant(Entry e, PluginPackageDefinition definition) => new(Identity(e), e.Generation, e.Enabled, e.Permissions, e.Accounts, definition.RequestedTier);
+
+    private async Task<Result<InspectedPluginPackage>> InspectAnyAsync(MemoryStream input, CancellationToken ct)
+    {
+        var javascript = await PluginPackageInspector.InspectAsync(input, _options.BulwarkCompatibilityVersion, ct).ConfigureAwait(false);
+        if (javascript.IsOk) return javascript;
+        input.Position = 0;
+        return await NativePackageInspector.InspectAsync(input, ct).ConfigureAwait(false);
+    }
 
     private async Task<Result<Loaded>> LoadAsync(CancellationToken ct)
     {
@@ -107,11 +115,11 @@ public sealed partial class PluginPackageManager : IPluginPackageManager, IPlugi
                 var bytes = await _store.ReadContentAsync(_options.Profile, identity, ct).ConfigureAwait(false);
                 if (!bytes.IsOk || bytes.Value.IsDefault || bytes.Value.Length > 5 * 1024 * 1024) return Failure<Loaded>("Package content is unavailable.");
                 using var input = new MemoryStream(bytes.Value.ToArray(), writable: false);
-                var inspected = await PluginPackageInspector.InspectAsync(input, _options.BulwarkCompatibilityVersion, ct).ConfigureAwait(false);
+                var inspected = await InspectAnyAsync(input, ct).ConfigureAwait(false);
                 if (!inspected.IsOk || Definition(inspected.Value!).Identity != identity) return Failure<Loaded>("Package content does not match its authenticated identity.");
                 var definition = Definition(inspected.Value!);
-                if (definition.RequestedTier != PluginExecutionTier.Untrusted || !definition.RequestedPermissions.SetEquals(entry.Permissions) || entry.Accounts.Any(string.IsNullOrWhiteSpace)) return Failure<Loaded>("Invalid package grant.");
-                if (!installations.TryAdd(entry.Id, new(definition, entry.Enabled && !_blocked.Contains(entry.Id), Grant(entry)))) return Failure<Loaded>("Duplicate package identity.");
+                if (definition.RequestedTier == PluginExecutionTier.Privileged || !definition.RequestedPermissions.SetEquals(entry.Permissions) || entry.Accounts.Any(string.IsNullOrWhiteSpace)) return Failure<Loaded>("Invalid package grant.");
+                if (!installations.TryAdd(entry.Id, new(definition, entry.Enabled && !_blocked.Contains(entry.Id), Grant(entry, definition)))) return Failure<Loaded>("Duplicate package identity.");
             }
             if (!HasAuthority) return Failure<Loaded>("Plugin profile authority is unavailable.");
             return Publish(snapshot.Revision, index, installations);
@@ -164,7 +172,7 @@ public sealed partial class PluginPackageManager : IPluginPackageManager, IPlugi
         }
         catch (IOException) { return Failure<PluginInstallPreview>("Unable to read package."); }
         using var input = new MemoryStream(bytes, writable: false);
-        var inspected = await PluginPackageInspector.InspectAsync(input, _options.BulwarkCompatibilityVersion, ct).ConfigureAwait(false);
+        var inspected = await InspectAnyAsync(input, ct).ConfigureAwait(false);
         if (!inspected.IsOk) return Result<PluginInstallPreview>.Fail(inspected.Error!);
         await _gate.WaitAsync(ct).ConfigureAwait(false);
         try
@@ -201,7 +209,7 @@ public sealed partial class PluginPackageManager : IPluginPackageManager, IPlugi
             if (!content.IsOk) return Result<PluginInstallPreview>.Fail(content.Error!);
             var bytes = content.Value.ToArray();
             using var input = new MemoryStream(bytes, writable: false);
-            var inspected = await PluginPackageInspector.InspectAsync(input, _options.BulwarkCompatibilityVersion, ct).ConfigureAwait(false);
+            var inspected = await InspectAnyAsync(input, ct).ConfigureAwait(false);
             if (!HasAuthority) return Failure<PluginInstallPreview>("Plugin profile authority is unavailable.");
             return inspected.IsOk ? Stage(inspected.Value!, bytes, current.Package, current) : Result<PluginInstallPreview>.Fail(inspected.Error!);
         }
@@ -217,7 +225,8 @@ public sealed partial class PluginPackageManager : IPluginPackageManager, IPlugi
         {
             if (!_reviews.TryGetValue(decision.ReviewId, out var review) || review.Expires <= _time.GetUtcNow() || review.Definition.Identity != decision.Candidate) return Failure<PluginInstallation>("Review is invalid or expired.");
             if (!review.Definition.RequestedPermissions.SetEquals(decision.ApprovedPermissions) || decision.AccountKeys.Any(string.IsNullOrWhiteSpace)) return Failure<PluginInstallation>("The approval does not match the requested permissions.");
-            if (review.Definition.RequestedTier != PluginExecutionTier.Untrusted) return Failure<PluginInstallation>("Privileged packages require verified managed signature and consent.");
+            if (review.Definition.RequestedTier == PluginExecutionTier.Privileged) return Failure<PluginInstallation>("Privileged packages require verified managed signature and consent.");
+            if (review.Definition.RequestedTier == PluginExecutionTier.NativeFullTrust && !decision.ApproveNativeFullTrust) return Failure<PluginInstallation>("Native packages require explicit full-trust consent.");
             var loaded = await LoadAsync(ct).ConfigureAwait(false);
             if (!loaded.IsOk) return Result<PluginInstallation>.Fail(loaded.Error!);
             loaded.Value!.Installations.TryGetValue(review.Definition.Identity.Id, out var previous);
@@ -243,7 +252,7 @@ public sealed partial class PluginPackageManager : IPluginPackageManager, IPlugi
             _reviews.Remove(decision.ReviewId);
             _blocked.Remove(entry.Id);
             notifications.Add(new(entry.Id, entry.Generation));
-            return Result<PluginInstallation>.Ok(new(review.Definition, false, Grant(entry)));
+            return Result<PluginInstallation>.Ok(new(review.Definition, false, Grant(entry, review.Definition)));
         }
         finally
         {
@@ -377,7 +386,7 @@ public sealed partial class PluginPackageManager : IPluginPackageManager, IPlugi
             var content = await _store.ReadContentAsync(_options.Profile, package, ct).ConfigureAwait(false);
             if (!content.IsOk) return Result<Stream>.Fail(content.Error!);
             using var archive = new MemoryStream(content.Value.ToArray(), writable: false);
-            var inspected = await PluginPackageInspector.InspectAsync(archive, _options.BulwarkCompatibilityVersion, ct).ConfigureAwait(false);
+            var inspected = await InspectAnyAsync(archive, ct).ConfigureAwait(false);
             if (!inspected.IsOk || Definition(inspected.Value!).Identity != package || !inspected.Value!.Resources.TryGetValue(resource, out var bytes)) return Failure<Stream>("Package resource is unavailable.");
             return HasAuthority ? Result<Stream>.Ok(new MemoryStream(bytes.ToArray(), writable: false)) : Failure<Stream>("Plugin profile authority is unavailable.");
         }

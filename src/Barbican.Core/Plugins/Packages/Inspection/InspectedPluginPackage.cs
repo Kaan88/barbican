@@ -14,4 +14,5 @@ public sealed record InspectedPluginPackage(
     string WholeArchiveSha256,
     string BundleHash,
     string ApprovalHash,
-    ImmutableDictionary<string, ImmutableArray<byte>> Resources);
+    ImmutableDictionary<string, ImmutableArray<byte>> Resources,
+    PluginRuntimeKind RuntimeKind = PluginRuntimeKind.JavaScript);

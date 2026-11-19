@@ -41,6 +41,7 @@ public static class PluginPackageInspector
             var files = await ReadEntriesAsync(zip, ct).ConfigureAwait(false);
             var root = RootOf(files.Keys);
             var normalized = files.ToImmutableDictionary(x => x.Key[root.Length..], x => x.Value, StringComparer.Ordinal);
+            if (normalized.ContainsKey("native-plugin.json")) return Fail("The package has ambiguous runtime manifests.");
             if (!normalized.TryGetValue("manifest.json", out var manifestBytes) || manifestBytes.Length > ManifestLimit) return Fail("A bounded manifest.json is required.");
             var manifestInput = manifestBytes.AsSpan();
             if (manifestInput.StartsWith(Encoding.UTF8.Preamble)) manifestInput = manifestInput[Encoding.UTF8.Preamble.Length..];
@@ -68,7 +69,7 @@ public static class PluginPackageInspector
         }
     }
 
-    private static async Task<Dictionary<string, ImmutableArray<byte>>> ReadEntriesAsync(ZipArchive zip, CancellationToken ct)
+    internal static async Task<Dictionary<string, ImmutableArray<byte>>> ReadEntriesAsync(ZipArchive zip, CancellationToken ct, bool native = false)
     {
         var paths = new PackagePaths();
         var root = RootOf(zip.Entries.Where(e => !e.FullName.EndsWith('/')).Select(e => e.FullName));
@@ -80,7 +81,7 @@ public static class PluginPackageInspector
             if (!SafePath(name) || !paths.Add(name, name.EndsWith('/')) || IsLink(entry)) throw new InvalidDataException();
             if (name.EndsWith('/')) continue;
             var ext = Path.GetExtension(name);
-            if (ext.Length > 0 && !Extensions.Contains(ext)) throw new InvalidDataException();
+            if (!native && ext.Length > 0 && !Extensions.Contains(ext)) throw new InvalidDataException();
             using var stream = await entry.OpenAsync(ct).ConfigureAwait(false);
             var bytes = await ReadBoundedAsync(stream, (int)Math.Min(TotalLimit - total, string.Equals(name, root + "manifest.json", StringComparison.Ordinal) ? ManifestLimit : EntryLimit), ct).ConfigureAwait(false);
             if (Crc32.Compute(bytes) != entry.Crc32) throw new InvalidDataException();
@@ -97,7 +98,7 @@ public static class PluginPackageInspector
         return mode is 0xA000 or 0x6000 or 0x2000 or 0x1000 or 0xC000 || (entry.ExternalAttributes & 0x400) != 0;
     }
 
-    private static bool SafePath(string path)
+    internal static bool SafePath(string path)
     {
         if (path.Length == 0 || path.Length > 512 || !path.IsNormalized(NormalizationForm.FormC) || path[0] == '/' || path.Contains('\\', StringComparison.Ordinal) || path.IndexOfAny([':', '<', '>', '"', '|', '?', '*']) >= 0) return false;
         var parts = path.TrimEnd('/').Split('/');
@@ -114,7 +115,7 @@ public static class PluginPackageInspector
         return true;
     }
 
-    private static string RootOf(IEnumerable<string> paths)
+    internal static string RootOf(IEnumerable<string> paths)
     {
         var all = paths.ToArray();
         if (all.Length == 0) return string.Empty;
@@ -124,7 +125,7 @@ public static class PluginPackageInspector
         return all.All(p => p.StartsWith(root, StringComparison.Ordinal)) ? root : string.Empty;
     }
 
-    private static async Task<byte[]> ReadBoundedAsync(Stream stream, int limit, CancellationToken ct)
+    internal static async Task<byte[]> ReadBoundedAsync(Stream stream, int limit, CancellationToken ct)
     {
         using var output = new MemoryStream();
         var chunk = new byte[8192];
