@@ -49,6 +49,7 @@ public static class ContactsUiPresentationRegistration
             sp.GetRequiredService<IContactsChrome>(),
             sp.GetRequiredService<TimeProvider>())
         {
+            Prefs = sp.GetService<IPrefsStore>(),
             Dialogs = sp.GetService<IDialogService>(),
             Composer = sp.GetService<IComposerService>(),
             Clipboard = sp.GetService<IClipboardService>(),

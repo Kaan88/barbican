@@ -15,6 +15,22 @@ namespace Barbican.Presentation.Tests.Mail.Loading;
 public sealed class MessageLoaderTests
 {
     [Fact]
+    public void Open_reader_reformats_date_on_zone_change_without_refetching()
+    {
+        using var h = new LoaderHarness();
+        var body = LoaderHarness.Body("m1") with { ReceivedAt = new DateTimeOffset(2026, 3, 29, 0, 30, 0, TimeSpan.Zero) };
+        h.Cache.Put(h.Active.AccountKey!, body, h.Cache.Generation);
+        h.Loader.Open(h.Row(1), OpenReason.Click, ListDirection.None);
+        var requests = h.Service.BodyRequests.Count;
+        var shownBody = h.Reader.Current.Body;
+        Assert.Contains("00:30", h.Reader.Header.Date, StringComparison.Ordinal);
+        h.Prefs.Set("{\"timeZone\":\"Europe/Berlin\"}");
+        Assert.Contains("01:30", h.Reader.Header.Date, StringComparison.Ordinal);
+        Assert.Equal(requests, h.Service.BodyRequests.Count);
+        Assert.Same(shownBody, h.Reader.Current.Body);
+    }
+
+    [Fact]
     public void A_cached_switch_applies_header_and_body_in_one_apply()
     {
         using var h = new LoaderHarness();

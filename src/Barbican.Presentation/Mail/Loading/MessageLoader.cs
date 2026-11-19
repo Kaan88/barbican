@@ -59,6 +59,7 @@ public sealed class MessageLoader : IMessageOpener, IConversationOpener, IDispos
     private ITimer? _slowTimer;
     private ITimer? _markTimer;
     private long _openedAt;
+    private string _zoneSetting = string.Empty;
 
     // banners of a slow source (ReaderDepth.BannerBudget) that arrived before their page was revealed: OnReady of that open takes them
     private readonly Lock _lateGate = new();
@@ -106,6 +107,8 @@ public sealed class MessageLoader : IMessageOpener, IConversationOpener, IDispos
         _prefs = prefs;
         _options = options;
         _depth = depth;
+        _zoneSetting = _prefs.Current.Str("timeZone", "auto");
+        _prefs.Changed += OnZonePrefsChanged;
         _active.Changed += OnAccountChanged;
         _neighbours.ListLoaded += OnListLoaded;
     }
@@ -163,6 +166,7 @@ public sealed class MessageLoader : IMessageOpener, IConversationOpener, IDispos
 
     public void Dispose()
     {
+        _prefs.Changed -= OnZonePrefsChanged;
         _active.Changed -= OnAccountChanged;
         _neighbours.ListLoaded -= OnListLoaded;
         _openCts?.Cancel();
@@ -441,6 +445,8 @@ public sealed class MessageLoader : IMessageOpener, IConversationOpener, IDispos
                 var previous = _shownId;
                 _shownId = id;
                 _thread = thread;
+                var currentZone = ReaderSnapshots.FromBody(body, thread, _options());
+                snapshot = snapshot with { Header = snapshot.Header with { Date = currentZone.Header.Date }, Conversation = currentZone.Conversation };
                 _reader.Apply(snapshot);
                 LastOpenToShown = _time.GetElapsedTime(_openedAt);
                 if (!string.Equals(previous, id, StringComparison.Ordinal))
@@ -563,6 +569,24 @@ public sealed class MessageLoader : IMessageOpener, IConversationOpener, IDispos
             _prefetcher.Top(_neighbours.Rows, new PrefetchContext(account, mail, MessageLoadRules.Threading(_prefs.Current)));
         }
     }
+
+    private void OnZonePrefsChanged(object? sender, EventArgs e) => _dispatcher.Post(() =>
+    {
+        var setting = _prefs.Current.Str("timeZone", "auto");
+        if (string.Equals(setting, _zoneSetting, StringComparison.Ordinal)) return;
+        _zoneSetting = setting;
+        var current = _reader.Current;
+        if (current.Body is { } body)
+        {
+            var fresh = ReaderSnapshots.FromBody(body, _thread, _options());
+            _reader.Apply(current with { Header = current.Header with { Date = fresh.Header.Date }, Conversation = fresh.Conversation });
+        }
+        else if (_currentRow is { } row && string.Equals(row.Id, current.EmailId, StringComparison.Ordinal))
+        {
+            var fresh = ReaderSnapshots.Prefill(row, _options());
+            _reader.Apply(current with { Header = current.Header with { Date = fresh.Header.Date } });
+        }
+    });
 
     private void OnAccountChanged(object? sender, EventArgs e) => _dispatcher.Post(() =>
     {

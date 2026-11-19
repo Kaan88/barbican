@@ -26,4 +26,13 @@ public sealed class SettingRulesTests
         Assert.False(SettingRules.Coerce(Row(SettingRowKind.Info), JsonValue.Create("x")).Ok);
         Assert.False(SettingRules.Coerce(Row(SettingRowKind.Section), JsonValue.Create("x")).Ok);
     }
+    [Fact]
+    public void Time_zone_info_row_allows_setting_and_preserves_unknown_synced_ids()
+    {
+        var row = SettingsCatalog.RowOfKey("timeZone")!;
+        Assert.True(SettingRules.Coerce(row, JsonValue.Create("Europe/Berlin")).Ok);
+        Assert.Equal("Future/City", (string?)SettingRules.Coerce(row, JsonValue.Create("Future/City")).Value);
+        Assert.True(SettingRules.Coerce(row, null).Ok);
+        Assert.False(SettingRules.Coerce(row, JsonValue.Create(true)).Ok);
+    }
 }

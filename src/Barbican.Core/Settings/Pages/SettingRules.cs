@@ -14,6 +14,13 @@ public static class SettingRules
     public static SettingCheck Coerce(SettingRow row, JsonNode? value)
     {
         ArgumentNullException.ThrowIfNull(row);
+        if (string.Equals(row.Key, "timeZone", StringComparison.Ordinal))
+        {
+            if (value is null) return new SettingCheck(true, null, null);
+            return value is JsonValue v && v.TryGetValue<string>(out var zone) && !string.IsNullOrWhiteSpace(zone)
+                ? Good(JsonValue.Create(zone.Trim())) : Bad("Choose a time zone.");
+        }
+
         if (row.Kind is SettingRowKind.Info or SettingRowKind.Button or SettingRowKind.Section)
         {
             return Bad("This row holds no value.");

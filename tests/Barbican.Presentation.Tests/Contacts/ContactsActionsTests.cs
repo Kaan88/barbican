@@ -82,6 +82,7 @@ internal sealed class ActionsHarness : IDisposable
         Actions = new ContactsActions(new ContactsActionDeps(H.View, H.Writer, new NoBooks(), Picker, new NoContactsEditors(), new NoContactsChrome(), H.Time)
         {
             Dialogs = Dialogs,
+            Prefs = H.Prefs,
             Composer = Composer,
             Clipboard = Clip,
         });
@@ -205,6 +206,21 @@ public sealed class ContactsActionsTests
         Assert.Equal("contacts.vcf", ContactsActions.ExportName([ContactsHarness.Card("a", "A", "a@x.example", "b1"), ContactsHarness.Card("b", "B", "b@x.example", "b1")]));
         Assert.Equal("Ada_ Lovelace_.vcf", ContactsActions.ExportName([ContactsHarness.Card("a", "Ada: Lovelace?", "a@x.example", "b1")]));
         Assert.Equal("contacts.vcf", ContactsActions.ExportName([ContactsHarness.J("""{"id": "x"}""")]));
+    }
+
+    [Fact]
+    public async Task Print_uses_the_selected_zone_for_birthday_tint()
+    {
+        using var h = new ActionsHarness();
+        var card = h.H.Store.Cards.First(c => (string?)c["id"] == "c1");
+        card["anniversaries"] = ContactsHarness.J("{\"b\":{\"kind\":\"birth\",\"date\":{\"month\":12,\"day\":3}}}");
+        h.H.Store.Raise();
+        h.H.Prefs.Set("{\"timeZone\":\"Pacific/Kiritimati\"}");
+        _ = await h.Actions.PrintAsync("c1", TestContext.Current.CancellationToken);
+        var print = Assert.IsType<ContactsPrintRequest>(Assert.Single(h.Dialogs.Shown));
+        var line = Assert.Single(Assert.Single(Assert.Single(print.Document.Pages).Blocks).Lines, l => l.Section == "DATES");
+        Assert.Equal("rose", line.Tint);
+        Assert.Equal(3, (int?)card["anniversaries"]!["b"]!["date"]!["day"]);
     }
 
     [Fact]

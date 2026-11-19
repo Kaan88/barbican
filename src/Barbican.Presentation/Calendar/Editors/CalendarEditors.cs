@@ -58,14 +58,16 @@ public sealed class CalendarEditors : ICalendarEditors
     /// <summary>The card layer.</summary>
     public CalendarEditorHost Host => _host;
 
+    private string DefaultZone => Barbican.Core.Settings.Pages.SettingDisplayTimeZone.EventZone(_prefs?.Current.Str("timeZone", "auto"), _time.LocalTimeZone);
+
     private bool TwelveHour => _prefs is not null && CalendarSettings.Read(_prefs.Current).TwelveHour;
 
-    private EventEditorServices Services() => new(_source, _writer, _rules, _host, _availability, _contacts, _hooks, _toasts, _time, TwelveHour, _participantIdentities);
+    private EventEditorServices Services() => new(_source, _writer, _rules, _host, _availability, _contacts, _hooks, _toasts, _time, TwelveHour, _participantIdentities, DefaultZone);
 
     public Task OpenQuickCreateAsync(NewEventRequest request, CancellationToken ct)
     {
         ArgumentNullException.ThrowIfNull(request);
-        var card = new QuickCreateViewModel(_source, _writer, request, TwelveHour);
+        var card = new QuickCreateViewModel(_source, _writer, request, TwelveHour, DefaultZone);
         _host.Show(card);
         _ = FinishQuickAsync(card, ct);
         return Task.CompletedTask;
@@ -104,7 +106,7 @@ public sealed class CalendarEditors : ICalendarEditors
 
         if (occurrenceId.StartsWith("task:", StringComparison.Ordinal) || CalendarJson.IsTask(ev))
         {
-            var task = new TaskEditorViewModel(_source, _writer, _host);
+            var task = new TaskEditorViewModel(_source, _writer, _host, DefaultZone);
             task.OpenExisting(ev);
             ShowTask(task);
             return Task.CompletedTask;
@@ -118,7 +120,7 @@ public sealed class CalendarEditors : ICalendarEditors
 
     public Task OpenNewTaskAsync(string? calendarId, DateOnly? due, CancellationToken ct)
     {
-        var task = new TaskEditorViewModel(_source, _writer, _host);
+        var task = new TaskEditorViewModel(_source, _writer, _host, DefaultZone);
         task.OpenNew(calendarId, due);
         ShowTask(task);
         return Task.CompletedTask;

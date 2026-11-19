@@ -52,26 +52,7 @@ public sealed record CalendarSettings
     public string TimeZone { get; init; } = "auto";
 
     /// <summary>The user's zone for floating times and the views: null for "auto" or a name this machine does not know (the machine's zone then).</summary>
-    public TimeZoneInfo? Zone()
-    {
-        if (string.IsNullOrWhiteSpace(TimeZone) || string.Equals(TimeZone, "auto", StringComparison.OrdinalIgnoreCase))
-        {
-            return null;
-        }
-
-        try
-        {
-            return TimeZoneInfo.FindSystemTimeZoneById(TimeZone);
-        }
-        catch (TimeZoneNotFoundException)
-        {
-            return null;
-        }
-        catch (InvalidTimeZoneException)
-        {
-            return null;
-        }
-    }
+    public TimeZoneInfo? Zone() => Barbican.Core.Settings.Pages.SettingDisplayTimeZone.TryResolve(TimeZone, out var zone) ? zone : null;
 
     public static CalendarSettings Read(PrefsSnapshot prefs)
     {

@@ -50,7 +50,8 @@ public sealed partial class EventEditorViewModel : ObservableObject
         _accountVersion = services.Source.AccountVersion;
         Recurrence = new RecurrenceEditorViewModel(services.Rules);
         Recurrence.PropertyChanged += (_, _) => OnPropertyChanged(nameof(RepeatSummary));
-        var now = (services.Time ?? TimeProvider.System).GetLocalNow().DateTime;
+        var clock = services.Time ?? TimeProvider.System;
+        var now = TimeZoneInfo.ConvertTime(clock.GetUtcNow(), Barbican.Core.Settings.Pages.SettingDisplayTimeZone.Resolve(services.DefaultZone, clock.LocalTimeZone)).DateTime;
         _startDate = _endDate = DateOnly.FromDateTime(now);
     }
 

@@ -31,6 +31,13 @@ public sealed class QuickCreateViewModelTests
     }
 
     [Fact]
+    public void Timed_quick_create_uses_the_selected_zone()
+    {
+        var q = new QuickCreateViewModel(_source, _writer, new NewEventRequest(Dt("2026-11-20T09:00:00"), Dt("2026-11-20T10:00:00"), false), zone: "Asia/Tokyo");
+        Assert.Equal("Asia/Tokyo", (string?)q.BuildEvent()["timeZone"]);
+    }
+
+    [Fact]
     public void A_dragged_range_of_days_is_an_all_day_event_of_that_many_days()
     {
         var q = new QuickCreateViewModel(_source, _writer, new NewEventRequest(Dt("2026-11-20T00:00:00"), Dt("2026-11-22T00:00:00"), true));

@@ -54,7 +54,9 @@ public static class CalendarUiPresentationRegistration
             sp.GetService<TimeProvider>(),
             () => sp.GetService<IPrefsStore>() is { } p && CalendarSettings.Read(p.Current).TwelveHour,
             null,
-            sp.GetRequiredService<CalendarEditorHost>()));
+            sp.GetRequiredService<CalendarEditorHost>(),
+            sp.GetService<IPrefsStore>(),
+            sp.GetService<Barbican.Presentation.Common.IDispatcher>()));
         return services.AddCalendarCommandServices();
     }
 

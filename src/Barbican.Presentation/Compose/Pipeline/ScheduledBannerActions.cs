@@ -52,7 +52,7 @@ public sealed class ScheduledBannerActions(IScheduledSends scheduled, IActiveMai
 
     private async Task<string> RescheduleAsync(string account, ScheduledMessage message, CancellationToken ct)
     {
-        var dialog = new ScheduleDialogViewModel(ScheduleMode.Reschedule, time, scheduled.MaxDelayedSend(account), TwelveHour, message.At);
+        var dialog = new ScheduleDialogViewModel(ScheduleMode.Reschedule, time, scheduled.MaxDelayedSend(account), TwelveHour, message.At, Barbican.Core.Settings.Pages.SettingDisplayTimeZone.Resolve(prefs.Current.Str("timeZone", "auto"), time.LocalTimeZone));
         var chosen = await dialogs.ShowAsync(dialog, ct).ConfigureAwait(false);
         if (chosen is not { } at)
         {
@@ -62,7 +62,7 @@ public sealed class ScheduledBannerActions(IScheduledSends scheduled, IActiveMai
         toasts.Show(new ToastRequest("Rescheduling..."));
         var r = await scheduled.RescheduleAsync(account, message.SubmissionId, at, ct).ConfigureAwait(false);
         return r.IsOk
-            ? Say($"Rescheduled for {ScheduleRules.Label(at, TwelveHour, time.GetUtcNow(), time.LocalTimeZone)}.", false)
+            ? Say($"Rescheduled for {ScheduleRules.Label(at, TwelveHour, time.GetUtcNow(), Barbican.Core.Settings.Pages.SettingDisplayTimeZone.Resolve(prefs.Current.Str("timeZone", "auto"), time.LocalTimeZone))}.", false)
             : Say(r.Error!.Message, true);
     }
 

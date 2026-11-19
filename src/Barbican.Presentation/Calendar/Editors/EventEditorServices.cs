@@ -19,4 +19,5 @@ public sealed record EventEditorServices(
     IToastService? Toasts = null,
     TimeProvider? Time = null,
     bool TwelveHour = false,
-    ICalendarParticipantIdentities? ParticipantIdentities = null);
+    ICalendarParticipantIdentities? ParticipantIdentities = null,
+    string? DefaultZone = null);

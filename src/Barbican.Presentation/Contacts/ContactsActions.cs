@@ -27,6 +27,8 @@ public sealed record ContactsActionDeps(
     IContactsChrome Chrome,
     TimeProvider Time)
 {
+    public Barbican.Core.Storage.IPrefsStore? Prefs { get; init; }
+
     public IDialogService? Dialogs { get; init; }
 
     public IComposerService? Composer { get; init; }
@@ -452,7 +454,7 @@ public sealed class ContactsActions(ContactsActionDeps d)
             return Done;
         }
 
-        await ShowAsync(new ContactsPrintRequest(ContactsPrintModel.Build(cards, DateOnly.FromDateTime(d.Time.GetLocalNow().DateTime))), ct).ConfigureAwait(true);
+        await ShowAsync(new ContactsPrintRequest(ContactsPrintModel.Build(cards, ContactDates.Today(d.Time, d.Prefs?.Current.Str("timeZone", "auto")))), ct).ConfigureAwait(true);
         return Done;
     }
 

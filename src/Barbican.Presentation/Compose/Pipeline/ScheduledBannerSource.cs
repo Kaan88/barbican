@@ -32,7 +32,7 @@ public sealed class ScheduledBannerSource(IScheduledSends scheduled, IActiveMail
             yield break;
         }
 
-        var label = ScheduleRules.Label(message.At, string.Equals(prefs.Current.Str("timeFormat", "24h"), "12h", StringComparison.Ordinal), time.GetUtcNow(), time.LocalTimeZone);
+        var label = ScheduleRules.Label(message.At, string.Equals(prefs.Current.Str("timeFormat", "24h"), "12h", StringComparison.Ordinal), time.GetUtcNow(), Barbican.Core.Settings.Pages.SettingDisplayTimeZone.Resolve(prefs.Current.Str("timeZone", "auto"), time.LocalTimeZone));
         yield return new ReaderBanner(Id, $"Scheduled to send at {label}", null, false, [(Reschedule, "Reschedule"), (CancelAndEdit, "Cancel and edit"), (CancelSend, "Cancel send")]);
     }
 }

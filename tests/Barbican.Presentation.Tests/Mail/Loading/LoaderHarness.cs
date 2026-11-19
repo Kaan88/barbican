@@ -55,7 +55,7 @@ internal sealed class LoaderHarness : IDisposable
             new InlineDispatcher(),
             Time,
             Prefs,
-            () => new ReaderOptions { Now = Mails.Now, Zone = TimeZoneInfo.Utc },
+            () => new ReaderOptions { Now = Mails.Now, Zone = Barbican.Core.Settings.Pages.SettingDisplayTimeZone.Resolve(Prefs.Current.Str("timeZone", "auto"), Time.LocalTimeZone) },
             depth);
     }
 

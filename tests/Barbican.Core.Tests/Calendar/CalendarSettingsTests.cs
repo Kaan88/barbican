@@ -30,4 +30,20 @@ public sealed class CalendarSettingsTests
         Assert.NotNull(berlin.Zone());
         Assert.Null(CalendarSettings.Read(PrefsSnapshot.FromJson(new System.Text.Json.Nodes.JsonObject { ["timeZone"] = "Mars/Olympus" })).Zone());
     }
+    [Fact]
+    public void Display_zone_auto_unknown_and_dst_use_explicit_fallback()
+    {
+        var fallback = TimeZoneInfo.Utc;
+        Assert.Same(fallback, Barbican.Core.Settings.Pages.SettingDisplayTimeZone.Resolve("auto", fallback));
+        Assert.Same(fallback, Barbican.Core.Settings.Pages.SettingDisplayTimeZone.Resolve("Mars/Olympus", fallback));
+        Assert.False(Barbican.Core.Settings.Pages.SettingDisplayTimeZone.TryResolve("Mars/Olympus", out _));
+        var berlin = Barbican.Core.Settings.Pages.SettingDisplayTimeZone.Resolve("europe/berlin", fallback);
+        var winter = new DateTimeOffset(2026, 3, 29, 0, 30, 0, TimeSpan.Zero);
+        var summer = winter.AddHours(1);
+        Assert.Equal(1, TimeZoneInfo.ConvertTime(winter, berlin).Hour);
+        Assert.Equal(3, TimeZoneInfo.ConvertTime(summer, berlin).Hour);
+        Assert.Equal("Europe/Berlin", Barbican.Core.Settings.Pages.SettingDisplayTimeZone.EventZone("europe/berlin", fallback));
+        Assert.Equal("UTC", Barbican.Core.Settings.Pages.SettingDisplayTimeZone.EventZone("Mars/Olympus", fallback));
+    }
+
 }

@@ -68,7 +68,7 @@ public static class MailBodyRegistration
                 sp.GetRequiredService<IDispatcher>(),
                 time,
                 prefs,
-                () => MailListSettings.Read(prefs.Current, system.Current).ReaderOptionsAt(time.GetUtcNow(), time.LocalTimeZone),
+                () => MailListSettings.Read(prefs.Current, system.Current).ReaderOptionsAt(time.GetUtcNow(), Barbican.Core.Settings.Pages.SettingDisplayTimeZone.Resolve(prefs.Current.Str("timeZone", "auto"), time.LocalTimeZone)),
                 sp.GetService<ReaderDepth>());
         });
         services.Replace(ServiceDescriptor.Singleton<IMessageOpener>(sp => sp.GetRequiredService<MessageLoader>()));
