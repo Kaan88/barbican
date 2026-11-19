@@ -41,14 +41,14 @@ public sealed class PluginSandboxIngressRedTests
     }
     private sealed class Dispatcher : IPluginApiDispatcher
     {
+        public Func<Task<PluginCallOutcome>>? Outcome { get; set; }
         public List<PluginRuntimeBinding> Seen { get; } = [];
         public string Account { get; set; } = "account-a";
         public List<string> Accounts { get; } = [];
         public Task<PluginCallOutcome> DispatchAsync(PluginRuntimeBinding binding, PluginApiRequest request, CancellationToken ct)
-        { Seen.Add(binding); Accounts.Add(Account); return Task.FromResult(PluginCallOutcome.Succeeded()); }
+        { Seen.Add(binding); Accounts.Add(Account); return Outcome?.Invoke() ?? Task.FromResult(PluginCallOutcome.Succeeded()); }
     }
 
-    [Red("m6b-runtime")]
     [Fact]
     public async Task Api_is_rejected_before_ready_but_allowed_during_activation_after_init_is_issued()
     {
@@ -60,7 +60,6 @@ public sealed class PluginSandboxIngressRedTests
         Assert.Single(dispatch.Seen);
     }
 
-    [Red("m6b-runtime")]
     [Fact]
     public async Task Direct_iframe_message_is_rejected_without_reading_its_payload()
     {
@@ -71,7 +70,6 @@ public sealed class PluginSandboxIngressRedTests
         Assert.False(read); Assert.Empty(dispatch.Seen);
     }
 
-    [Red("m6b-runtime")]
     [Fact]
     public async Task Another_webview_or_top_level_route_cannot_claim_this_instance()
     {
@@ -82,7 +80,6 @@ public sealed class PluginSandboxIngressRedTests
         Assert.Empty(dispatch.Seen);
     }
 
-    [Red("m6b-runtime")]
     [Fact]
     public async Task Authenticated_top_level_dispatch_uses_host_created_binding()
     {
@@ -92,7 +89,6 @@ public sealed class PluginSandboxIngressRedTests
         Assert.Same(binding, Assert.Single(dispatch.Seen));
     }
 
-    [Red("m6b-runtime")]
     [Fact]
     public async Task Background_frame_uses_dispatcher_account_capture_for_each_call()
     {
@@ -107,7 +103,6 @@ public sealed class PluginSandboxIngressRedTests
         Assert.All(dispatch.Seen, x => Assert.Same(binding, x));
     }
 
-    [Red("m6b-runtime")]
     [Fact]
     public async Task Claimed_authority_fields_cannot_replace_native_binding()
     {
@@ -118,7 +113,6 @@ public sealed class PluginSandboxIngressRedTests
         Assert.True(!accepted || dispatch.Seen.All(x => ReferenceEquals(x, binding)));
     }
 
-    [Red("m6b-runtime")]
     [Fact]
     public async Task Navigation_start_invalidates_binding_before_any_queued_message_can_dispatch()
     {
@@ -130,7 +124,6 @@ public sealed class PluginSandboxIngressRedTests
         await cleanup; Assert.Empty(dispatch.Seen);
     }
 
-    [Red("m6b-runtime")]
     [Fact]
     public async Task Revoked_or_disposed_instances_never_dispatch_late_messages()
     {
@@ -141,7 +134,6 @@ public sealed class PluginSandboxIngressRedTests
         Assert.Empty(dispatch.Seen);
     }
 
-    [Red("m6b-runtime")]
     [Fact]
     public async Task Malformed_native_messages_do_not_reach_dispatcher()
     {
@@ -151,7 +143,6 @@ public sealed class PluginSandboxIngressRedTests
         Assert.Empty(dispatch.Seen);
     }
 
-    [Red("m6b-runtime")]
     [Fact]
     public async Task Valid_encoded_message_over_the_native_limit_does_not_reach_dispatcher()
     {
@@ -166,5 +157,30 @@ public sealed class PluginSandboxIngressRedTests
         Assert.False(await session.ReceiveAsync(view.RootIdentity, true, view.TrustedRoot, () => bytes, TestContext.Current.CancellationToken));
         Assert.Empty(dispatch.Seen);
     }
+    [Fact]
+    public async Task Api_response_preserves_binary_and_aliases()
+    {
+        var view=new View(); var dispatch=new Dispatcher(); var builder=new PluginValueBuilder();
+        var buffer=builder.Buffer(new byte[] { 1,2,3 }); var array=builder.Array(buffer,buffer);
+        dispatch.Outcome=() => Task.FromResult(PluginCallOutcome.Succeeded(builder.Build(array)));
+        var session=new PluginSandboxSession(Binding(),view,dispatch); await InitializeAsync(session,view);
+        Assert.True(await session.ReceiveAsync(view.RootIdentity,true,view.TrustedRoot,() => Api(),TestContext.Current.CancellationToken));
+        var response=PluginValueCodec.Decode(view.Sent[^1]); var result=response.Property("result");
+        Assert.True(result.Item(0).SameNode(result.Item(1))); Assert.Equal(new byte[] {1,2,3},result.Item(0).BinaryBytes());
+    }
+    [Fact]
+    public async Task Revocation_while_dispatch_is_pending_suppresses_response()
+    {
+        var view=new View(); var dispatch=new Dispatcher(); var started=new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release=new TaskCompletionSource<PluginCallOutcome>(TaskCreationOptions.RunContinuationsAsynchronously);
+#pragma warning disable VSTHRD003 // Deliberately controlled completion models in-flight dispatch.
+        dispatch.Outcome=() => { started.SetResult(); return release.Task; };
+#pragma warning restore VSTHRD003
+        var session=new PluginSandboxSession(Binding(),view,dispatch); await InitializeAsync(session,view); var before=view.Sent.Count;
+        var call=session.ReceiveAsync(view.RootIdentity,true,view.TrustedRoot,() => Api(),TestContext.Current.CancellationToken);
+        await started.Task; await session.NavigationStartingAsync(view.RootIdentity,TestContext.Current.CancellationToken);
+        release.SetResult(PluginCallOutcome.Succeeded()); Assert.False(await call); Assert.Equal(before,view.Sent.Count);
+    }
+
 }
 
