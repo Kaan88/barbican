@@ -4,26 +4,21 @@ using Barbican.Core.Plugins.Permissions;
 namespace Barbican.Automation.Tests.Plugins;
 public sealed class PluginSandboxPolicyRedTests
 {
-    [Red("m6b-runtime")]
     [Fact]
     public void Untrusted_frame_retains_form_events_but_cannot_submit_or_gain_same_origin()
     {
         var policy = new PluginSandboxResourcePolicy();
-        Assert.Contains("allow-scripts", policy.SandboxFlags, StringComparison.Ordinal);
-        Assert.Contains("allow-forms", policy.SandboxFlags, StringComparison.Ordinal);
-        Assert.DoesNotContain("allow-same-origin", policy.SandboxFlags, StringComparison.Ordinal);
+        Assert.Equal("allow-scripts allow-forms", policy.SandboxFlags);
         Assert.Contains("form-action 'none'", policy.ContentSecurityPolicy, StringComparison.Ordinal);
     }
-    [Red("m6b-runtime")]
     [Fact]
     public void Verified_privileged_tier_has_same_origin_while_untrusted_tier_does_not()
     {
         var policy = new PluginSandboxResourcePolicy();
-        Assert.Contains("allow-same-origin", policy.FlagsFor(PluginExecutionTier.Privileged), StringComparison.Ordinal);
-        Assert.DoesNotContain("allow-same-origin", policy.FlagsFor(PluginExecutionTier.Untrusted), StringComparison.Ordinal);
+        Assert.Equal("allow-scripts allow-same-origin", policy.FlagsFor(PluginExecutionTier.Privileged));
+        Assert.Equal("allow-scripts allow-forms", policy.FlagsFor(PluginExecutionTier.Untrusted));
         Assert.Contains("form-action 'none'", policy.ContentSecurityPolicy, StringComparison.Ordinal);
     }
-    [Red("m6b-runtime")]
     [Fact]
     public void Native_full_trust_is_not_a_javascript_sandbox_tier()
     {
@@ -32,7 +27,6 @@ public sealed class PluginSandboxPolicyRedTests
         catch (ArgumentOutOfRangeException) { return; }
         Assert.Fail("Native full trust must not select a JavaScript sandbox.");
     }
-    [Red("m6b-runtime")]
     [Fact]
     public void Arbitrary_network_filesystem_and_route_escape_are_denied()
     {
@@ -42,5 +36,65 @@ public sealed class PluginSandboxPolicyRedTests
         Assert.False(policy.Allows(new Uri("file:///private.txt"), "script"));
         Assert.False(policy.Allows(new Uri("https://plugin.invalid/mail/credentials"), "fetch"));
         Assert.False(policy.Allows(new Uri("https://example.org/redirect"), "navigation"));
+    }
+    [Fact]
+    public void Only_exact_host_documents_and_verified_bootstrap_assets_are_allowed()
+    {
+        var policy = new PluginSandboxResourcePolicy([("/assets/runtime-a1.js", "script"), ("/assets/kit-a1.css", "style")]);
+        Assert.True(policy.Allows(new Uri("https://plugin.invalid/host/index.html"), "top-navigation"));
+        Assert.True(policy.Allows(new Uri("https://plugin.invalid/sandbox/index.html?frame=slot"), "frame-navigation"));
+        Assert.True(policy.Allows(new Uri("https://plugin.invalid/sandbox/index.html"), "frame-navigation"));
+        Assert.True(policy.Allows(new Uri("https://plugin.invalid/assets/kit-a1.css"), "style"));
+        Assert.True(policy.Allows(new Uri("https://plugin.invalid/assets/runtime-a1.js"), "script"));
+        Assert.False(policy.Allows(new Uri("https://plugin.invalid/assets/kit-a1.css"), "script"));
+        Assert.False(policy.Allows(new Uri("https://plugin.invalid/assets/runtime-a1.js"), "style"));
+        Assert.False(policy.Allows(new Uri("https://plugin.invalid/privileged/index.html"), "frame-navigation"));
+        Assert.False(policy.Allows(new Uri("https://plugin.invalid/assets/runtime-a1.js"), "fetch"));
+        Assert.False(policy.Allows(new Uri("https://plugin.invalid/assets/not-reviewed.js"), "script"));
+        Assert.False(policy.Allows(new Uri("https://plugin.invalid/sandbox/index.html"), "top-navigation"));
+        Assert.False(policy.Allows(new Uri("https://plugin.invalid/host/index.html?extra=1"), "top-navigation"));
+        Assert.False(policy.Allows(new Uri("https://plugin.invalid/assets/%72untime-a1.js"), "script"));
+    }
+
+    [Theory]
+    [InlineData("https://plugin.invalid:443/host/index.html", "top-navigation")]
+    [InlineData("https://plugin.invalid/host/%69ndex.html", "top-navigation")]
+    [InlineData("https://plugin.invalid/host/index.html ", "top-navigation")]
+    [InlineData("https://plugin.invalid.evil/host/index.html", "top-navigation")]
+    [InlineData("https://plugin.invalid:444/host/index.html", "top-navigation")]
+    [InlineData("https://plugin.invalid/host/../host/index.html", "top-navigation")]
+    [InlineData("https://plugin.invalid/host/./index.html", "top-navigation")]
+    [InlineData("https://plugin.invalid/host/index.html#", "top-navigation")]
+    [InlineData("https://plugin.invalid/host/index.html?", "top-navigation")]
+    [InlineData("https://plugin.invalid/sandbox/index.html?frame=background", "frame-navigation")]
+    [InlineData("https://plugin.invalid/sandbox/index.html?frame=slot&x=1", "frame-navigation")]
+    [InlineData("https://plugin.invalid/assets/runtime-a1.js?x=1", "script")]
+    [InlineData("https://plugin.invalid/assets/runtime-a1.js", "navigation")]
+    [InlineData("https://plugin.invalid/assets/runtime-a1.js", "fetch")]
+    [InlineData("https://plugin.invalid/host/index.html", "frame-navigation")]
+    public void Alternate_urls_queries_and_purposes_are_denied(string url, string purpose)
+    {
+        var policy = new PluginSandboxResourcePolicy([("/assets/runtime-a1.js", "script")]);
+        Assert.False(policy.Allows(new Uri(url), purpose));
+    }
+
+    [Fact]
+    public void Bootstrap_manifest_is_closed_and_rejects_unsafe_or_duplicate_paths()
+    {
+        Assert.Throws<ArgumentException>(() => new PluginSandboxResourcePolicy([("/assets/../secret", "script")]));
+        Assert.Throws<ArgumentException>(() => new PluginSandboxResourcePolicy([("/assets/a.js", "script"), ("/assets/a.js", "style")]));
+        Assert.Throws<ArgumentException>(() => new PluginSandboxResourcePolicy([("/assets/a.js", "fetch")]));
+        var policy = new PluginSandboxResourcePolicy();
+        Assert.False(policy.Allows(new Uri("https://plugin.invalid/assets/a.js"), "script"));
+        Assert.False(policy.Allows(new Uri("relative", UriKind.Relative), "script"));
+        Assert.False(policy.Allows(new Uri("https://plugin.invalid/host/index.html"), "unknown"));
+    }
+
+
+    [Fact]
+    public void BootstrapUrlWithUserInformationIsDenied()
+    {
+        var uri = new UriBuilder("https", "plugin.invalid", -1, "/host/index.html") { UserName = "fixture" }.Uri;
+        Assert.False(new PluginSandboxResourcePolicy().Allows(uri, "top-navigation"));
     }
 }

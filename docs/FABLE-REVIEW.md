@@ -2068,3 +2068,11 @@ versions 1.0.0 and 2.0.0 as disabled after their approved installs. The run
 had no connected mail account and supplied an inert fixture in place of the
 native file picker. Picker interaction and populated account selection
 remain unverified.
+
+## Codex / Astra review of Windows bootstrap resource policy (2026-11-20)
+
+The isolated bootstrap policy accepts exact document routes and verified
+manifest assets for their declared resource purposes. Astra closed the flag
+and cross-purpose findings. All 22 focused Windows Automation policy cases
+passed. The privileged document route remains unavailable. Native WebView
+wiring and enforcement are separate pending work.
