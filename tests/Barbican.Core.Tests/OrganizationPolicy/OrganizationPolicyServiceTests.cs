@@ -35,20 +35,16 @@ public sealed class OrganizationPolicyServiceTests
     }
 
     [Fact]
-    public async Task Basic_and_mismatched_route_fail_before_policy_request()
+    public async Task Basic_enrollment_is_refused_before_policy_request()
     {
         using var rig = await Rig.CreateAsync();
         rig.Accounts.Current = new Session(rig.Basic, rig.Server);
-        Assert.True(rig.Service.ConfigureProvider(Key, rig.Server, PolicyOrigin));
-        Assert.Equal(OrganizationPolicyTransportStatus.Unauthorized, (await rig.Service.ReadAsync(Key, CancellationToken.None)).Status);
-        rig.Accounts.Current = new Session(rig.Client, rig.Server);
-        Assert.True(rig.Service.ConfigureProvider(Key, new Uri("https://wrong.example.org/"), PolicyOrigin));
-        Assert.Equal(OrganizationPolicyTransportStatus.Untrusted, (await rig.Service.ReadAsync(Key, CancellationToken.None)).Status);
+        Assert.False(rig.Service.ConfigureProvider(rig.Accounts.Active(), PolicyOrigin));
         Assert.Equal(0, rig.Handler.Count);
     }
 
     [Fact]
-    public async Task Replacement_requires_a_new_route_and_paths_match_exactly()
+    public async Task Replacement_requires_explicit_reenrollment()
     {
         using var rig = await Rig.CreateAsync();
         var before = await rig.Service.ReadAsync(Key, CancellationToken.None);
@@ -56,10 +52,85 @@ public sealed class OrganizationPolicyServiceTests
         rig.Accounts.Current = new Session(rig.Client, rig.Server);
         Assert.Equal(OrganizationPolicyTransportStatus.Stale, (await rig.Service.ReadAsync(Key, CancellationToken.None)).Status);
         Assert.False(before.Snapshot.TryRunWhileCurrent(() => true));
-        Assert.True(rig.Service.ConfigureProvider(Key, new Uri(rig.Server, "jmap/"), PolicyOrigin));
-        Assert.Equal(OrganizationPolicyTransportStatus.Untrusted, (await rig.Service.ReadAsync(Key, CancellationToken.None)).Status);
-        Assert.True(rig.Service.ConfigureProvider(Key, rig.Server, PolicyOrigin));
+        var replacement = rig.Accounts.Active();
+        Assert.Null(rig.Service.ProviderFor(replacement));
+        Assert.True(rig.Service.ConfigureProvider(replacement, PolicyOrigin));
         Assert.Equal(OrganizationPolicyTransportStatus.Authoritative, (await rig.Service.ReadAsync(Key, CancellationToken.None)).Status);
+    }
+
+    [Fact]
+    public async Task Stale_active_selection_cannot_change_or_remove_current_provider_after_aba()
+    {
+        using var rig = await Rig.CreateAsync();
+        var first = rig.Accounts.Active();
+        var original = rig.Accounts.Session;
+        rig.Accounts.Current = new Session(rig.Client, rig.Server);
+        rig.Accounts.Current = original;
+        var current = rig.Accounts.Active();
+        Assert.False(rig.Service.ConfigureProvider(first, new Uri("https://other.example.org/")));
+        Assert.False(rig.Service.RemoveProvider(first));
+        Assert.Equal(PolicyOrigin, rig.Service.ProviderFor(current));
+        Assert.True(rig.Service.RemoveProvider(current));
+        Assert.Null(rig.Service.ProviderFor(current));
+    }
+
+    [Theory]
+    [InlineData("http://policy.example.org/")]
+    [InlineData("https://user@policy.example.org/")]
+    [InlineData("https://policy.example.org/path")]
+    [InlineData("https://policy.example.org/?next=other")]
+    [InlineData("https://policy.example.org/#fragment")]
+    public async Task Invalid_provider_origin_does_not_replace_existing_route(string candidate)
+    {
+        using var rig = await Rig.CreateAsync();
+        var current = rig.Accounts.Active();
+        Assert.False(rig.Service.ConfigureProvider(current, new Uri(candidate)));
+        Assert.Equal(PolicyOrigin, rig.Service.ProviderFor(current));
+        Assert.Equal(OrganizationPolicyTransportStatus.Authoritative, (await rig.Service.ReadAsync(Key, CancellationToken.None)).Status);
+    }
+
+    [Fact]
+    public async Task Disconnected_account_cannot_use_or_change_a_route()
+    {
+        using var rig = await Rig.CreateAsync();
+        var current = rig.Accounts.Active();
+        var existing = await rig.Service.ReadAsync(Key, CancellationToken.None);
+        Assert.NotNull(existing.Snapshot);
+        rig.Accounts.Disconnect();
+        Assert.Null(rig.Service.ProviderFor(current));
+        Assert.False(rig.Service.RemoveProvider(current));
+        Assert.False(rig.Service.ConfigureProvider(current, PolicyOrigin));
+        Assert.False(existing.Snapshot.TryRunWhileCurrent(() => true));
+    }
+
+    [Fact]
+    public async Task Selected_read_refuses_stale_generation_before_transport()
+    {
+        using var rig = await Rig.CreateAsync();
+        var selected = rig.Accounts.Active();
+        var original = rig.Accounts.Session;
+        rig.Accounts.Current = new Session(rig.Client, rig.Server);
+        rig.Accounts.Current = original;
+        var result = await rig.Service.ReadAsync(selected, CancellationToken.None);
+        Assert.Equal(OrganizationPolicyTransportStatus.Stale, result.Status);
+        Assert.Equal(0, rig.Handler.Count);
+    }
+
+    [Fact]
+    public async Task Selected_read_refuses_response_after_selection_changes_and_returns()
+    {
+        using var rig = await Rig.CreateAsync();
+        var selected = rig.Accounts.Active();
+        var original = rig.Accounts.Session;
+        rig.Handler.Hold = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var pending = rig.Service.ReadAsync(selected, CancellationToken.None);
+        await rig.Handler.Entered.Task.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+        rig.Accounts.Current = new Session(rig.Client, rig.Server);
+        rig.Accounts.Current = original;
+        rig.Handler.Hold.SetResult();
+        var result = await pending;
+        Assert.Equal(OrganizationPolicyTransportStatus.Stale, result.Status);
+        Assert.Null(result.Snapshot);
     }
 
     [Fact]
@@ -71,6 +142,62 @@ public sealed class OrganizationPolicyServiceTests
         rig.Client.Auth.Close(new Barbican.Core.Jmap.Errors.AuthError("synthetic refusal", true));
         Assert.False(result.Snapshot.TryRunWhileCurrent(() => true));
         Assert.Equal(OrganizationPolicyTransportStatus.Unauthorized, (await rig.Service.ReadAsync(Key, CancellationToken.None)).Status);
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task Failed_verification_preserves_existing_route_or_leaves_none(bool initiallyConfigured)
+    {
+        using var rig = await Rig.CreateAsync();
+        var selected = rig.Accounts.Active();
+        if (!initiallyConfigured) Assert.True(rig.Service.RemoveProvider(selected));
+        rig.Handler.IsPublic = true;
+        var result = await rig.Service.VerifyProviderAsync(selected, new Uri("https://candidate.example.org/"), CancellationToken.None);
+        Assert.Equal(OrganizationPolicyTransportStatus.Public, result.Status);
+        Assert.Null(result.Snapshot);
+        Assert.Equal(initiallyConfigured ? PolicyOrigin : null, rig.Service.ProviderFor(selected));
+    }
+
+    [Fact]
+    public async Task First_successful_promotion_wins_over_older_pending_candidate()
+    {
+        using var rig = await Rig.CreateAsync();
+        var selected = rig.Accounts.Active();
+        var gate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        rig.Handler.Hold = gate;
+        var first = rig.Service.VerifyProviderAsync(selected, new Uri("https://first.example.org/"), CancellationToken.None);
+        await rig.Handler.Entered.Task.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+        rig.Handler.Hold = null;
+        var winner = await rig.Service.VerifyProviderAsync(selected, new Uri("https://winner.example.org/"), CancellationToken.None);
+        Assert.Equal(OrganizationPolicyTransportStatus.Authoritative, winner.Status);
+        Assert.NotNull(winner.Snapshot);
+        Assert.True(winner.Snapshot.TryRunWhileCurrent(() => true));
+        gate.SetResult();
+        var loser = await first;
+        Assert.Equal(OrganizationPolicyTransportStatus.Stale, loser.Status);
+        Assert.Null(loser.Snapshot);
+        Assert.Equal(new Uri("https://winner.example.org/"), rig.Service.ProviderFor(selected));
+        Assert.True(winner.Snapshot.TryRunWhileCurrent(() => true));
+    }
+
+    [Fact]
+    public async Task Selection_change_during_candidate_read_prevents_promotion()
+    {
+        using var rig = await Rig.CreateAsync();
+        var selected = rig.Accounts.Active();
+        var original = rig.Accounts.Session;
+        var gate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        rig.Handler.Hold = gate;
+        var pending = rig.Service.VerifyProviderAsync(selected, new Uri("https://candidate.example.org/"), CancellationToken.None);
+        await rig.Handler.Entered.Task.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+        rig.Accounts.Current = new Session(rig.Client, rig.Server);
+        rig.Accounts.Current = original;
+        gate.SetResult();
+        var result = await pending;
+        Assert.Equal(OrganizationPolicyTransportStatus.Stale, result.Status);
+        Assert.Null(result.Snapshot);
+        Assert.Equal(PolicyOrigin, rig.Service.ProviderFor(rig.Accounts.Active()));
     }
 
     [Theory]
@@ -99,8 +226,9 @@ public sealed class OrganizationPolicyServiceTests
         await rig.Handler.Entered.Task.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
         if (provider)
         {
-            rig.Service.RemoveProvider(Key);
-            Assert.True(rig.Service.ConfigureProvider(Key, rig.Server, PolicyOrigin));
+            var active = rig.Accounts.Active();
+            Assert.True(rig.Service.RemoveProvider(active));
+            Assert.True(rig.Service.ConfigureProvider(active, PolicyOrigin));
         }
         else
         {
@@ -138,7 +266,7 @@ public sealed class OrganizationPolicyServiceTests
             var handler = new Handler();
             var transport = new OrganizationPolicyTransport(handler);
             var service = new OrganizationPolicyService(accounts, transport);
-            Assert.True(service.ConfigureProvider(Key, server, PolicyOrigin));
+            Assert.True(service.ConfigureProvider(accounts.Active(), PolicyOrigin));
             return new Rig { _actualOAuth = oauth, _tokens = tokens, _transport = transport, Client = client, Basic = basic, Accounts = accounts, Handler = handler, Service = service, Server = server };
         }
         private OAuthRig? _actualOAuth;
@@ -156,13 +284,25 @@ public sealed class OrganizationPolicyServiceTests
     private sealed class Snapshots(IAccountSession session) : IAccountSessionSnapshots
     {
         private readonly Lock _gate = new();
-        private IAccountSession _current = session;
-        public IAccountSession Current { set { lock (_gate) _current = value; } }
-        public Result<AccountSessionSnapshot> CaptureActiveSession() { lock (_gate) return Result<AccountSessionSnapshot>.Ok(new(_current, null)); }
-        public Result<AccountSessionSnapshot> CaptureOwnerSession(string localAccountKey) => CaptureActiveSession();
-        public bool IsSessionCurrent(AccountSessionSnapshot snapshot) { lock (_gate) return ReferenceEquals(snapshot.Session, _current); }
+        private IAccountSession? _current = session;
+        private long _generation = 1;
+        public IAccountSession Session { get { lock (_gate) return _current!; } }
+        public IAccountSession Current { set { lock (_gate) { _current = value; _generation++; } } }
+        public void Disconnect() { lock (_gate) { _current = null; _generation++; } }
+        public AccountSessionSnapshot Active() => CaptureActiveSession().Value!;
+        public Result<AccountSessionSnapshot> CaptureActiveSession()
+        {
+            lock (_gate) return _current is null ? Result<AccountSessionSnapshot>.Fail(new Barbican.Core.Jmap.Errors.ValidationError("No account.")) : Result<AccountSessionSnapshot>.Ok(new(_current, _generation));
+        }
+        public Result<AccountSessionSnapshot> CaptureOwnerSession(string localAccountKey)
+        {
+            lock (_gate) return _current is null ? Result<AccountSessionSnapshot>.Fail(new Barbican.Core.Jmap.Errors.ValidationError("No account.")) : Result<AccountSessionSnapshot>.Ok(new(_current, null));
+        }
+        private bool CurrentSnapshot(AccountSessionSnapshot snapshot) => ReferenceEquals(snapshot.Session, _current) &&
+            (snapshot.ActiveSelectionGeneration is null || snapshot.ActiveSelectionGeneration == _generation);
+        public bool IsSessionCurrent(AccountSessionSnapshot snapshot) { lock (_gate) return CurrentSnapshot(snapshot); }
         public bool TryRunWhileCurrent(IReadOnlyList<AccountSessionSnapshot> snapshots, Func<bool> write)
-        { lock (_gate) return snapshots.All(x => ReferenceEquals(x.Session, _current)) && write(); }
+        { lock (_gate) return snapshots.All(CurrentSnapshot) && write(); }
     }
 
     private sealed class Handler : HttpMessageHandler

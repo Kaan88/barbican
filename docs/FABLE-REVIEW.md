@@ -2777,3 +2777,21 @@ OAuth revocation and provider or login replacement during a read.
 
 Native provider enrollment and the add-on print and raw-send policy
 checks remain open.
+
+## Codex / Astra review of Windows policy-provider enrollment (2026-11-20)
+
+Windows Account settings can connect a policy provider for the current
+OAuth login. Consent names the canonical HTTPS origin and the selected
+login. A candidate replaces the current provider only after an
+authoritative response and a final check of the login, account selection
+and previous route. Disconnect revokes the route for that login.
+Connections last for the current sign-in session.
+
+Astra approved the changes. The private Windows walkthrough used an
+in-process OAuth account and policy endpoint to connect, read a print
+restriction, reject a replacement while keeping the previous provider,
+and disconnect. Windows Automation passed 3,512 tests with four skips.
+Windows Release built with zero warnings and errors.
+
+The connection panel reports the provider's policy. Enforcement in
+add-on printing and raw sending remains open.

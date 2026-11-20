@@ -46,6 +46,11 @@ public static class ViewServices
             if (string.Equals(Environment.GetEnvironmentVariable("BARBICAN_SAMPLE_ADDON_ACCOUNT"), "1", StringComparison.Ordinal))
             {
                 services.AddSingleton(sp => new SampleAddOnAccount((SampleActiveMail)sp.GetRequiredService<IActiveMail>()));
+                if (string.Equals(Environment.GetEnvironmentVariable("BARBICAN_SAMPLE_ORGANIZATION_POLICY"), "1", StringComparison.Ordinal))
+                {
+                    services.Replace(ServiceDescriptor.Singleton<Barbican.Core.OrganizationPolicy.OrganizationPolicyTransport>(sp =>
+                        SamplePolicyFixture.Enabled(sp.GetRequiredService<IProfilePaths>()) ? SamplePolicyFixture.Transport() : new Barbican.Core.OrganizationPolicy.OrganizationPolicyTransport()));
+                }
                 if (string.Equals(Environment.GetEnvironmentVariable("BARBICAN_SAMPLE_SEND_PIPELINE"), "1", StringComparison.Ordinal))
                 {
                     services.Replace(ServiceDescriptor.Singleton<IAccountManager>(sp =>

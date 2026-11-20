@@ -14,6 +14,9 @@ public sealed class SampleActiveMail : IActiveMail, Barbican.Presentation.Action
 {
     private readonly FakeJmapServer _server = new(Options());
     private readonly Barbican.Core.Jmap.Transport.JmapClient _client;
+#if WINDOWS
+    private readonly SamplePolicyFixture? _policyFixture;
+#endif
 
     private static FakeJmapOptions Options()
     {
@@ -27,7 +30,7 @@ public sealed class SampleActiveMail : IActiveMail, Barbican.Presentation.Action
         return options;
     }
 
-    public SampleActiveMail(IHookBus hooks, TimeProvider time)
+    public SampleActiveMail(IHookBus hooks, TimeProvider time, Barbican.Core.Storage.IProfilePaths paths)
     {
         if (string.Equals(Environment.GetEnvironmentVariable("BARBICAN_SAMPLE_LONG_THREAD"), "1", StringComparison.Ordinal))
         {
@@ -53,6 +56,14 @@ public sealed class SampleActiveMail : IActiveMail, Barbican.Presentation.Action
 #pragma warning disable VSTHRD002, MA0045 // synchronous by design: IActiveMail has no async member and the fake never leaves the process
         var client = Task.Run(() => FakeJmapHarness.ConnectAsync(_server, time)).GetAwaiter().GetResult();
 #pragma warning restore VSTHRD002, MA0045
+#if WINDOWS
+        if (SamplePolicyFixture.Enabled(paths))
+        {
+            _policyFixture = new SamplePolicyFixture(_server, client, paths, time);
+            client.Dispose();
+            client = _policyFixture.Client;
+        }
+#endif
         _client = client;
         var service = new MailService(client, time);
         Mail = service;
@@ -61,7 +72,13 @@ public sealed class SampleActiveMail : IActiveMail, Barbican.Presentation.Action
         AccountUser = _server.Options.Username;
     }
 
-    public void Dispose() => _server.Dispose();
+    public void Dispose()
+    {
+#if WINDOWS
+        _policyFixture?.Dispose();
+#endif
+        _server.Dispose();
+    }
 
     /// <summary>The sample account is writable (the fake server is in memory); every write of a sample run goes to it.</summary>
     public Barbican.Core.Mail.Write.IMailWriter? WriterOf(string accountKey) => new Barbican.Core.Mail.Write.MailWriter(_client, _server.Options.AccountId);

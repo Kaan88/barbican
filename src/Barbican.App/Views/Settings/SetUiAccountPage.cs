@@ -31,6 +31,9 @@ internal static class SetUiAccountPage
 
         panel.Children.Add(SetUiUi.Heading("Your account"));
         panel.Children.Add(info);
+#if WINDOWS
+        panel.Children.Add(new SetUiOrganizationPolicy());
+#endif
         panel.Children.Add(SetUiUi.Heading("Storage"));
         panel.Children.Add(storage);
         panel.Children.Add(SetUiUi.Heading("Logged-in accounts"));

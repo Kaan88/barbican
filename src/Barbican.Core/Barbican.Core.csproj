@@ -34,5 +34,6 @@
 
   <ItemGroup>
     <InternalsVisibleTo Include="Barbican.Core.Tests" />
+    <InternalsVisibleTo Include="Barbican" Condition="'$(Configuration)' == 'Automation'" />
   </ItemGroup>
 </Project>

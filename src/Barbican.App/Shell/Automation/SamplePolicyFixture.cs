@@ -1,0 +1,70 @@
+#if WINDOWS && AUTOMATION
+using System.Net;
+using System.Net.Http.Headers;
+using System.Text;
+using Barbican.Core.Auth;
+using Barbican.Core.Jmap;
+using Barbican.Core.Jmap.Transport;
+using Barbican.Core.OrganizationPolicy;
+using Barbican.Core.Storage;
+using Barbican.FakeJmap;
+
+namespace Barbican.App.Shell.Automation;
+
+/// <summary>In-process OAuth and policy endpoints used only by explicit synthetic automation runs.</summary>
+internal sealed class SamplePolicyFixture : IDisposable
+{
+    internal const string Token = "synthetic-policy-access-123";
+    private readonly JmapHttp _http;
+    private readonly OAuthTokenSource _tokens;
+    internal SamplePolicyFixture(FakeJmapServer server, JmapClient initial, IProfilePaths paths, TimeProvider time)
+    {
+        _http = new JmapHttp(() => new FakeJmapBearerHandler(server));
+        _tokens = new OAuthTokenSource(new OAuthHttp(_http, time), new EmptyRefreshStore(), paths, time, "sample",
+            new OAuthTokens(Token, null, null, new Uri(server.Base + "/oauth/token"), "sample"));
+        Client = new JmapClient(_http, _tokens, initial.Session, new JmapClientOptions(), time, JmapTrace.Off);
+    }
+    internal JmapClient Client { get; }
+    internal static OrganizationPolicyTransport Transport() => new(new PolicyHandler());
+    internal static bool Enabled(IProfilePaths paths) => ProfilePaths.IsAutomationProfile(paths.Profile) &&
+        Enabled("BARBICAN_SAMPLE") && Enabled("BARBICAN_SAMPLE_ADDON_ACCOUNT") && Enabled("BARBICAN_SAMPLE_ORGANIZATION_POLICY");
+    private static bool Enabled(string name) => string.Equals(Environment.GetEnvironmentVariable(name), "1", StringComparison.Ordinal);
+    public void Dispose() { Client.Dispose(); _tokens.Dispose(); _http.Dispose(); }
+
+    private sealed class EmptyRefreshStore : IRefreshTokenStore
+    {
+        public Task<string?> ReadAsync(string accountKey, CancellationToken ct) => Task.FromResult<string?>(null);
+        public Task WriteAsync(string accountKey, string refresh, CancellationToken ct) => Task.CompletedTask;
+    }
+
+    private sealed class FakeJmapBearerHandler(FakeJmapServer server) : HttpMessageHandler
+    {
+        private readonly HttpMessageInvoker _fake = new(server, disposeHandler: false);
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            if (!string.Equals(request.RequestUri?.GetLeftPart(UriPartial.Authority), server.Options.Origin, StringComparison.Ordinal) ||
+                !string.Equals(request.Headers.Authorization?.Scheme, "Bearer", StringComparison.Ordinal) ||
+                !string.Equals(request.Headers.Authorization?.Parameter, Token, StringComparison.Ordinal))
+                return Task.FromResult(new HttpResponseMessage(HttpStatusCode.Forbidden));
+            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", FakeJmapServer.AccessToken);
+            return _fake.SendAsync(request, cancellationToken);
+        }
+        protected override void Dispose(bool disposing) { if (disposing) _fake.Dispose(); base.Dispose(disposing); }
+    }
+
+    private sealed class PolicyHandler : HttpMessageHandler
+    {
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            if (request.Method != HttpMethod.Get || !string.Equals(request.RequestUri?.AbsoluteUri, "https://policy.example.org/api/admin/policy", StringComparison.Ordinal) ||
+                !string.Equals(request.Headers.Authorization?.Scheme, "Bearer", StringComparison.Ordinal) ||
+                !string.Equals(request.Headers.Authorization?.Parameter, Token, StringComparison.Ordinal) ||
+                !request.Headers.TryGetValues("X-JMAP-Server-Url", out var values) || !values.SequenceEqual(["https://jmap.example.org/"], StringComparer.Ordinal))
+                return Task.FromResult(new HttpResponseMessage(HttpStatusCode.Forbidden));
+            var response = new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent("{\"organisation\":{\"devices\":{\"noPrint\":true}},\"scopes\":[]}", Encoding.UTF8, "application/json") };
+            response.Headers.TryAddWithoutValidation("X-Bulwark-Policy-Domains", "example.org");
+            return Task.FromResult(response);
+        }
+    }
+}
+#endif
