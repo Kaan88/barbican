@@ -2285,3 +2285,21 @@ profile lease can be acquired again while delayed cleanup completes.
 Windows Automation passed 3,317 tests with four skips and zero failures.
 Both native probes passed again. Normal app composition started and closed
 successfully in a separate hidden sample profile.
+
+## Codex / Astra review of optional Windows portable packaging (2026-11-20)
+
+The portable packager accepts a pair of optional directories for the
+eight app-pinned bootstrap files and the nine runtime license texts.
+It stages them in the ZIP alongside the publish output and adds a source
+reference without writing to the publish tree. This mode checks the
+payload paths, verifies ZIP entry names and hashes, and refuses to replace
+an existing archive. The existing invocation still produces its original
+archive layout.
+
+Astra approved the local packaging change. Synthetic fixtures passed on
+Windows PowerShell 5.1.26100.9818 and PowerShell 7.6.9. They checked the
+ZIP layout and hashes, existing output, invalid or incomplete arguments,
+junctions, and rejection of output inside the source before directory
+creation. Mapped drives, SUBST drives, concurrent output creation, and
+packaging a real application publish remain untested. No release archive
+was produced. Distribution still requires artifact privacy and notice review.
