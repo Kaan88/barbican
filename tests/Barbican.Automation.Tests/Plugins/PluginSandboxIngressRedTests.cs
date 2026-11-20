@@ -2,6 +2,10 @@
 using System.Text;
 using System.Text.Json;
 using Barbican.App.Plugins.Sandbox;
+using Barbican.Core.Accounts;
+using Barbican.Core.Common;
+using Barbican.Core.Jmap;
+using Barbican.Core.Mail;
 using Barbican.Core.Plugins.Bridge;
 using Barbican.Core.Plugins.Packages;
 using Barbican.Core.Plugins.Permissions;
@@ -15,8 +19,23 @@ public sealed class PluginSandboxIngressRedTests
     private static PluginRuntimeBinding Binding()
     {
         var package = new PluginPackageIdentity("fixture", "1.0.0", new string('a', 64));
-        return PluginRuntimeBinding.Create("auto-8931", new PluginGrantSnapshot(package, 1, true, ["storage:read"], []), PluginFrameKind.Background);
+        return PluginRuntimeBinding.Create("auto-8931", new PluginGrantSnapshot(package, 1, true, ["storage:read"], ["a", "b"]), PluginFrameKind.Background);
     }
+    private sealed class Authority(PluginRuntimeBinding binding) : IPluginDeliveryAuthority
+    {
+        public PluginGrantSnapshot Current { get; set; } = new(binding.Package,binding.GrantGeneration,true,["storage:read"],["a", "b"],binding.Tier);
+        public event EventHandler<PluginAuthorityChangedEventArgs>? Changed { add { } remove { } }
+        public Task<Barbican.Core.Common.Result<PluginGrantSnapshot?>> GetCurrentAsync(string pluginId, CancellationToken ct) =>
+            Task.FromResult(Barbican.Core.Common.Result<PluginGrantSnapshot?>.Ok(Current));
+
+        public Task<bool> TryPostAsync(PluginRuntimeBinding recipient, Func<PluginGrantSnapshot, bool> write, CancellationToken ct)
+        {
+            var grant = Current;
+            return Task.FromResult(!ct.IsCancellationRequested && grant.Enabled && grant.Package == recipient.Package
+                && grant.Generation == recipient.GrantGeneration && grant.Tier == recipient.Tier && write(grant));
+        }
+    }
+    private static PluginSandboxSession Session(PluginRuntimeBinding binding, View view, Dispatcher dispatch) => new(binding,view,dispatch,new Authority(binding));
     private static byte[] Api(string extra = "")
     {
         using var json = JsonDocument.Parse("{\"type\":\"api-request\",\"id\":\"one\",\"method\":\"storage.get\",\"args\":[]" + extra + "}");
@@ -35,24 +54,55 @@ public sealed class PluginSandboxIngressRedTests
         public object RootIdentity { get; } = new();
         public Uri TrustedRoot { get; } = new("https://plugin.invalid/host/index.html");
         public List<byte[]> Sent { get; } = [];
+        public Action? BeforeDelivery { get; set; }
         public Task NavigateAsync(Uri uri, CancellationToken ct) => Task.CompletedTask;
-        public Task PostAsync(ReadOnlyMemory<byte> message, CancellationToken ct) { Sent.Add(message.ToArray()); return Task.CompletedTask; }
+        public Task<bool> PostAsync(Func<Action<string>, CancellationToken, ValueTask<bool>> deliver, CancellationToken ct)
+        {
+            BeforeDelivery?.Invoke();
+            return deliver(message => Sent.Add(Encoding.UTF8.GetBytes(message)), ct).AsTask();
+        }
         public ValueTask DisposeAsync() => ValueTask.CompletedTask;
     }
     private sealed class Dispatcher : IPluginApiDispatcher
     {
+        public Func<Task<PluginCallOutcome>>? Outcome { get; set; }
         public List<PluginRuntimeBinding> Seen { get; } = [];
         public string Account { get; set; } = "account-a";
         public List<string> Accounts { get; } = [];
         public Task<PluginCallOutcome> DispatchAsync(PluginRuntimeBinding binding, PluginApiRequest request, CancellationToken ct)
-        { Seen.Add(binding); Accounts.Add(Account); return Task.FromResult(PluginCallOutcome.Succeeded()); }
+        { Seen.Add(binding); Accounts.Add(Account); return Outcome?.Invoke() ?? Task.FromResult(PluginCallOutcome.Failed(PluginErrorCode.Unavailable)); }
     }
 
-    [Red("m6b-runtime")]
+    private sealed class Method(Func<IPluginInvocationContext, PluginCallOutcome> invoke) : IPluginApiMethod
+    {
+        public PluginApiDescriptor Descriptor { get; } = new("storage.get", [["storage:read"]], TimeSpan.FromSeconds(5));
+        public PluginErrorCode? ValidateArguments(PluginValue arguments) => null;
+        public Task<PluginCallOutcome> InvokeAsync(IPluginInvocationContext context, PluginValue arguments, CancellationToken ct) => Task.FromResult(invoke(context));
+    }
+
+    private sealed class Sessions : IPluginSessionSource
+    {
+        private IAccountSession _active = new FakeSession("a");
+        private long _epoch = 1;
+        public void Switch() { _active = new FakeSession("b"); _epoch++; }
+        public Result<PluginSessionCapture> CaptureActive() => Result<PluginSessionCapture>.Ok(new(_active, _epoch));
+        public Result<PluginSessionCapture> CaptureOwner(string localAccountKey) => throw new NotSupportedException();
+        public bool IsCurrent(PluginSessionCapture capture) => ReferenceEquals(_active, capture.Session) && _epoch == capture.ActiveSelectionGeneration;
+        public bool TryRunWhileCurrent(IReadOnlyList<PluginSessionCapture> captures, Func<bool> write) => captures.All(IsCurrent) && write();
+    }
+
+    private sealed class FakeSession(string key) : IAccountSession
+    {
+        public AccountInfo Account { get; } = new(key, "sample@example.org", "https://jmap.example.org");
+        public IJmapClient Client => throw new NotSupportedException();
+        public IMailService Mail => throw new NotSupportedException();
+        public IMailSync Sync => throw new NotSupportedException();
+    }
+
     [Fact]
     public async Task Api_is_rejected_before_ready_but_allowed_during_activation_after_init_is_issued()
     {
-        var view = new View(); var dispatch = new Dispatcher(); var session = new PluginSandboxSession(Binding(),view,dispatch);
+        var view = new View(); var dispatch = new Dispatcher(); var session = Session(Binding(),view,dispatch);
         Assert.False(await session.ReceiveAsync(view.RootIdentity,true,view.TrustedRoot,() => Api(),TestContext.Current.CancellationToken));
         Assert.Empty(dispatch.Seen);
         await InitializeAsync(session,view);
@@ -60,43 +110,39 @@ public sealed class PluginSandboxIngressRedTests
         Assert.Single(dispatch.Seen);
     }
 
-    [Red("m6b-runtime")]
     [Fact]
     public async Task Direct_iframe_message_is_rejected_without_reading_its_payload()
     {
-        var view = new View(); var dispatch = new Dispatcher(); var session = new PluginSandboxSession(Binding(), view, dispatch);
+        var view = new View(); var dispatch = new Dispatcher(); var session = Session(Binding(), view, dispatch);
         await InitializeAsync(session, view);
         var read = false;
         Assert.False(await session.ReceiveAsync(view.RootIdentity, false, view.TrustedRoot, () => { read = true; return Api(); }, TestContext.Current.CancellationToken));
         Assert.False(read); Assert.Empty(dispatch.Seen);
     }
 
-    [Red("m6b-runtime")]
     [Fact]
     public async Task Another_webview_or_top_level_route_cannot_claim_this_instance()
     {
-        var view = new View(); var dispatch = new Dispatcher(); var session = new PluginSandboxSession(Binding(), view, dispatch);
+        var view = new View(); var dispatch = new Dispatcher(); var session = Session(Binding(), view, dispatch);
         await InitializeAsync(session, view);
         Assert.False(await session.ReceiveAsync(new object(), true, view.TrustedRoot, () => Api(), TestContext.Current.CancellationToken));
         Assert.False(await session.ReceiveAsync(view.RootIdentity, true, new Uri("https://plugin.invalid/other"), () => Api(), TestContext.Current.CancellationToken));
         Assert.Empty(dispatch.Seen);
     }
 
-    [Red("m6b-runtime")]
     [Fact]
     public async Task Authenticated_top_level_dispatch_uses_host_created_binding()
     {
-        var view = new View(); var dispatch = new Dispatcher(); var binding = Binding(); var session = new PluginSandboxSession(binding, view, dispatch);
+        var view = new View(); var dispatch = new Dispatcher(); var binding = Binding(); var session = Session(binding, view, dispatch);
         await InitializeAsync(session, view);
         Assert.True(await session.ReceiveAsync(view.RootIdentity, true, view.TrustedRoot, () => Api(), TestContext.Current.CancellationToken));
         Assert.Same(binding, Assert.Single(dispatch.Seen));
     }
 
-    [Red("m6b-runtime")]
     [Fact]
     public async Task Background_frame_uses_dispatcher_account_capture_for_each_call()
     {
-        var view = new View(); var dispatch = new Dispatcher(); var binding = Binding(); var session = new PluginSandboxSession(binding, view, dispatch);
+        var view = new View(); var dispatch = new Dispatcher(); var binding = Binding(); var session = Session(binding, view, dispatch);
         await InitializeAsync(session, view);
         Assert.True(await session.ReceiveAsync(view.RootIdentity, true, view.TrustedRoot, () => Api(), TestContext.Current.CancellationToken));
         dispatch.Account = "account-b";
@@ -107,22 +153,20 @@ public sealed class PluginSandboxIngressRedTests
         Assert.All(dispatch.Seen, x => Assert.Same(binding, x));
     }
 
-    [Red("m6b-runtime")]
     [Fact]
     public async Task Claimed_authority_fields_cannot_replace_native_binding()
     {
-        var view = new View(); var dispatch = new Dispatcher(); var binding = Binding(); var session = new PluginSandboxSession(binding, view, dispatch);
+        var view = new View(); var dispatch = new Dispatcher(); var binding = Binding(); var session = Session(binding, view, dispatch);
         await InitializeAsync(session, view);
         var bytes = Api(",\"pluginId\":\"other\",\"grantGeneration\":999");
         var accepted = await session.ReceiveAsync(view.RootIdentity, true, view.TrustedRoot, () => bytes, TestContext.Current.CancellationToken);
         Assert.True(!accepted || dispatch.Seen.All(x => ReferenceEquals(x, binding)));
     }
 
-    [Red("m6b-runtime")]
     [Fact]
     public async Task Navigation_start_invalidates_binding_before_any_queued_message_can_dispatch()
     {
-        var view = new View(); var dispatch = new Dispatcher(); var binding = Binding(); var session = new PluginSandboxSession(binding, view, dispatch);
+        var view = new View(); var dispatch = new Dispatcher(); var binding = Binding(); var session = Session(binding, view, dispatch);
         await InitializeAsync(session, view);
         var cleanup = session.NavigationStartingAsync(view.RootIdentity, TestContext.Current.CancellationToken);
         Assert.False(binding.IsAlive);
@@ -130,32 +174,29 @@ public sealed class PluginSandboxIngressRedTests
         await cleanup; Assert.Empty(dispatch.Seen);
     }
 
-    [Red("m6b-runtime")]
     [Fact]
     public async Task Revoked_or_disposed_instances_never_dispatch_late_messages()
     {
-        var view = new View(); var dispatch = new Dispatcher(); var binding = Binding(); var session = new PluginSandboxSession(binding, view, dispatch);
+        var view = new View(); var dispatch = new Dispatcher(); var binding = Binding(); var session = Session(binding, view, dispatch);
         await InitializeAsync(session, view);
         await binding.DisposeAsync();
         Assert.False(await session.ReceiveAsync(view.RootIdentity, true, view.TrustedRoot, () => Api(), TestContext.Current.CancellationToken));
         Assert.Empty(dispatch.Seen);
     }
 
-    [Red("m6b-runtime")]
     [Fact]
     public async Task Malformed_native_messages_do_not_reach_dispatcher()
     {
-        var view = new View(); var dispatch = new Dispatcher(); var session = new PluginSandboxSession(Binding(), view, dispatch);
+        var view = new View(); var dispatch = new Dispatcher(); var session = Session(Binding(), view, dispatch);
         await InitializeAsync(session, view);
         Assert.False(await session.ReceiveAsync(view.RootIdentity, true, view.TrustedRoot, () => Encoding.UTF8.GetBytes("{"), TestContext.Current.CancellationToken));
         Assert.Empty(dispatch.Seen);
     }
 
-    [Red("m6b-runtime")]
     [Fact]
     public async Task Valid_encoded_message_over_the_native_limit_does_not_reach_dispatcher()
     {
-        var view = new View(); var dispatch = new Dispatcher(); var session = new PluginSandboxSession(Binding(), view, dispatch);
+        var view = new View(); var dispatch = new Dispatcher(); var session = Session(Binding(), view, dispatch);
         var b = new PluginValueBuilder();
         var args = b.Array(b.String(new string('x', 1_100_000)));
         var root = b.Object(("type",b.String("api-request")), ("id",b.String("large")), ("method",b.String("storage.get")), ("args",args));
@@ -166,5 +207,91 @@ public sealed class PluginSandboxIngressRedTests
         Assert.False(await session.ReceiveAsync(view.RootIdentity, true, view.TrustedRoot, () => bytes, TestContext.Current.CancellationToken));
         Assert.Empty(dispatch.Seen);
     }
-}
+    [Fact]
+    public async Task Api_response_preserves_binary_and_aliases()
+    {
+        var view=new View(); var binding=Binding(); var authority=new Authority(binding); var builder=new PluginValueBuilder();
+        var buffer=builder.Buffer(new byte[] { 1,2,3 }); var array=builder.Array(buffer,buffer);
+        var dispatch=new PluginApiDispatcher(binding.Profile, [new Method(_ => PluginCallOutcome.Succeeded(builder.Build(array)))], authority, new Sessions());
+        await using var session=new PluginSandboxSession(binding,view,dispatch,authority);
+        await InitializeAsync(session,view);
+        Assert.True(await session.ReceiveAsync(view.RootIdentity,true,view.TrustedRoot,() => Api(),TestContext.Current.CancellationToken));
+        var response=PluginValueCodec.Decode(view.Sent[^1]); var result=response.Property("result");
+        Assert.True(result.Item(0).SameNode(result.Item(1))); Assert.Equal(new byte[] {1,2,3},result.Item(0).BinaryBytes());
+    }
 
+    [Fact]
+    public async Task Account_change_at_queued_delivery_withholds_result_and_next_call_uses_current_account()
+    {
+        var view = new View(); var binding = Binding(); var authority = new Authority(binding); var accounts = new Sessions();
+        var method = new Method(context =>
+        {
+            var builder = new PluginValueBuilder();
+            return PluginCallOutcome.Succeeded(builder.Build(builder.String(context.CaptureActive().Value!.LocalAccountKey)));
+        });
+        var dispatcher = new PluginApiDispatcher(binding.Profile, [method], authority, accounts);
+        await using var session = new PluginSandboxSession(binding, view, dispatcher, authority);
+        await InitializeAsync(session, view);
+        var ct = TestContext.Current.CancellationToken;
+        view.BeforeDelivery = accounts.Switch;
+        Assert.True(await session.ReceiveAsync(view.RootIdentity, true, view.TrustedRoot, () => Api(), ct));
+        var refused = PluginValueCodec.Decode(view.Sent[^1]);
+        Assert.False(refused.Property("ok").BooleanValue);
+        Assert.Equal("Plugin context changed; retry with current data.", refused.Property("error").StringValue);
+        Assert.DoesNotContain("result", refused.PropertyNames, StringComparer.Ordinal);
+
+        view.BeforeDelivery = null;
+        Assert.True(await session.ReceiveAsync(view.RootIdentity, true, view.TrustedRoot, () => Api(), ct));
+        Assert.Equal("b", PluginValueCodec.Decode(view.Sent[^1]).Property("result").StringValue);
+    }
+
+    [Fact]
+    public async Task Grant_change_at_queued_delivery_writes_no_envelope()
+    {
+        var view = new View(); var binding = Binding(); var authority = new Authority(binding); var accounts = new Sessions();
+        var dispatcher = new PluginApiDispatcher(binding.Profile, [new Method(_ => PluginCallOutcome.Succeeded())], authority, accounts);
+        await using var session = new PluginSandboxSession(binding, view, dispatcher, authority);
+        await InitializeAsync(session, view);
+        var count = view.Sent.Count;
+        view.BeforeDelivery = () => authority.Current = new(binding.Package, binding.GrantGeneration + 1, true, ["storage:read"], ["a", "b"]);
+        Assert.False(await session.ReceiveAsync(view.RootIdentity, true, view.TrustedRoot, () => Api(), TestContext.Current.CancellationToken));
+        Assert.Equal(count, view.Sent.Count);
+    }
+    [Fact]
+    public async Task Revocation_while_dispatch_is_pending_suppresses_response()
+    {
+        var view=new View(); var dispatch=new Dispatcher(); var started=new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release=new TaskCompletionSource<PluginCallOutcome>(TaskCreationOptions.RunContinuationsAsynchronously);
+#pragma warning disable VSTHRD003 // Deliberately controlled completion models in-flight dispatch.
+        dispatch.Outcome=() => { started.SetResult(); return release.Task; };
+#pragma warning restore VSTHRD003
+        var session=Session(Binding(),view,dispatch); await InitializeAsync(session,view); var before=view.Sent.Count;
+        var call=session.ReceiveAsync(view.RootIdentity,true,view.TrustedRoot,() => Api(),TestContext.Current.CancellationToken);
+        await started.Task; await session.NavigationStartingAsync(view.RootIdentity,TestContext.Current.CancellationToken);
+        release.SetResult(PluginCallOutcome.Succeeded()); Assert.False(await call); Assert.Equal(before,view.Sent.Count);
+    }
+
+    [Fact]
+    public async Task Changed_grant_during_dispatch_suppresses_response()
+    {
+        var view=new View(); var dispatch=new Dispatcher(); var binding=Binding(); var authority=new Authority(binding);
+        var started=new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release=new TaskCompletionSource<PluginCallOutcome>(TaskCreationOptions.RunContinuationsAsynchronously);
+#pragma warning disable VSTHRD003 // Deliberately controlled completion models in-flight dispatch.
+        dispatch.Outcome=() => { started.SetResult(); return release.Task; };
+#pragma warning restore VSTHRD003
+        var session=new PluginSandboxSession(binding,view,dispatch,authority); await InitializeAsync(session,view); var before=view.Sent.Count;
+        var call=session.ReceiveAsync(view.RootIdentity,true,view.TrustedRoot,() => Api(),TestContext.Current.CancellationToken);
+        await started.Task; authority.Current=new PluginGrantSnapshot(binding.Package,binding.GrantGeneration+1,true,["storage:read"],[]);
+        release.SetResult(PluginCallOutcome.Succeeded()); Assert.False(await call); Assert.Equal(before,view.Sent.Count);
+    }
+    [Fact]
+    public async Task Changed_grant_before_request_prevents_dispatch()
+    {
+        var view=new View(); var dispatch=new Dispatcher(); var binding=Binding(); var authority=new Authority(binding);
+        var session=new PluginSandboxSession(binding,view,dispatch,authority); await InitializeAsync(session,view);
+        authority.Current=new PluginGrantSnapshot(binding.Package,binding.GrantGeneration+1,true,["storage:read"],[]);
+        Assert.False(await session.ReceiveAsync(view.RootIdentity,true,view.TrustedRoot,() => Api(),TestContext.Current.CancellationToken)); Assert.Empty(dispatch.Seen);
+    }
+
+}

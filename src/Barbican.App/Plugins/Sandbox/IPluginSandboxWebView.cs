@@ -6,5 +6,6 @@ public interface IPluginSandboxWebView : IAsyncDisposable
     object RootIdentity { get; }
     Uri TrustedRoot { get; }
     Task NavigateAsync(Uri uri, CancellationToken ct);
-    Task PostAsync(ReadOnlyMemory<byte> message, CancellationToken ct);
+    /// <summary>Runs delivery inside the native UI queue. The writer posts synchronously and may not enqueue again.</summary>
+    Task<bool> PostAsync(Func<Action<string>, CancellationToken, ValueTask<bool>> deliver, CancellationToken ct);
 }

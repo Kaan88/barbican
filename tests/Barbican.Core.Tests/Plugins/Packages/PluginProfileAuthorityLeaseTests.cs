@@ -27,6 +27,49 @@ public sealed class PluginProfileAuthorityLeaseTests
         }
         finally { Directory.Delete(root, recursive: true); }
     }
+    [Fact]
+    public async Task LeaseRemainsHeldUntilAnAdmittedWriteFinishes()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var root = Directory.CreateTempSubdirectory("barbican-post-lease-");
+        try
+        {
+            var paths = ProfilePaths.At("agent-lease", root.FullName, root.FullName);
+            await using var lease = PluginPackageManagerAcceptanceTests.Need(
+                await new PluginProfileAuthorityLeaseFactory().AcquireAsync(paths, ct));
+            await VerifyLeasePostAsync(lease, ct);
+        }
+        finally { root.Delete(recursive: true); }
+    }
+
+    private static async Task VerifyLeasePostAsync(IPluginProfileAuthorityLease lease, CancellationToken ct)
+    {
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var closing = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var release = new ManualResetEventSlim();
+        var write = Task.Run(() => lease.TryRunWhileHeld(() =>
+        {
+            entered.SetResult();
+            return release.Wait(TimeSpan.FromSeconds(5)) && lease.IsHeld;
+        }), ct);
+        await entered.Task.WaitAsync(TimeSpan.FromSeconds(5), ct);
+        var close = Task.Run(async () =>
+        {
+            closing.SetResult();
+            await lease.DisposeAsync();
+        }, ct);
+        try
+        {
+            await closing.Task.WaitAsync(TimeSpan.FromSeconds(5), ct);
+            Assert.False(close.IsCompleted);
+        }
+        finally { release.Set(); }
+
+        Assert.True(await write);
+        await close;
+        Assert.False(lease.TryRunWhileHeld(() => throw new InvalidOperationException("Released lease posted.")));
+    }
+
     [Theory]
     [InlineData(false)]
     [InlineData(true)]

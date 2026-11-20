@@ -22,6 +22,44 @@ public sealed partial class AccountManagerTests
         Assert.Same(active.Session, fresh.Session);
         Assert.True(fresh.ActiveSelectionGeneration > active.ActiveSelectionGeneration);
         Assert.True(source.IsCurrent(fresh));
+        Assert.False(source.TryRunWhileCurrent([owner, active], () => throw new InvalidOperationException("Stale active capture posted.")));
+        var posted = false;
+        Assert.True(source.TryRunWhileCurrent([owner, fresh], () => posted = true));
+        Assert.True(posted);
+    }
+
+    [Fact]
+    public async Task AccountSwitchCannotReplaceAnAdmittedPluginReplyCaptureMidWrite()
+    {
+        var first = (await SignInAAsync()).Value!;
+        _ = await SignInBAsync();
+        var source = new PluginSessionSource(_manager);
+        var captured = source.CaptureActive().Value!;
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var switching = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var release = new ManualResetEventSlim();
+        var write = Task.Run(() => source.TryRunWhileCurrent([captured], () =>
+        {
+            entered.SetResult();
+            if (!release.Wait(TimeSpan.FromSeconds(5))) return false;
+            return source.IsCurrent(captured);
+        }), Ct);
+        await entered.Task.WaitAsync(TimeSpan.FromSeconds(5), Ct);
+        var switchAccount = Task.Run(async () =>
+        {
+            switching.SetResult();
+            return await _manager.SwitchToAsync(first.Key, Ct);
+        }, Ct);
+        try
+        {
+            await switching.Task.WaitAsync(TimeSpan.FromSeconds(5), Ct);
+            Assert.False(switchAccount.IsCompleted);
+        }
+        finally { release.Set(); }
+
+        Assert.True(await write);
+        Assert.True((await switchAccount).IsOk);
+        Assert.False(source.TryRunWhileCurrent([captured], () => throw new InvalidOperationException("Stale reply was posted.")));
     }
 
     [Fact]

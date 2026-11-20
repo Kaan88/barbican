@@ -27,11 +27,26 @@ public sealed partial class AccountManager
         ArgumentNullException.ThrowIfNull(snapshot);
         lock (_lock)
         {
-            var key = snapshot.Session.Account.Key;
-            return _entries.TryGetValue(key, out var entry) && ReferenceEquals(entry.Session, snapshot.Session)
-                && (snapshot.ActiveSelectionGeneration is null || (snapshot.ActiveSelectionGeneration == _selectionGeneration
-                    && string.Equals(_activeKey, key, StringComparison.Ordinal)));
+            return IsSessionCurrentUnderLock(snapshot);
         }
+    }
+
+    public bool TryRunWhileCurrent(IReadOnlyList<AccountSessionSnapshot> snapshots, Func<bool> write)
+    {
+        ArgumentNullException.ThrowIfNull(snapshots);
+        ArgumentNullException.ThrowIfNull(write);
+        lock (_lock)
+        {
+            return snapshots.All(IsSessionCurrentUnderLock) && write();
+        }
+    }
+
+    private bool IsSessionCurrentUnderLock(AccountSessionSnapshot snapshot)
+    {
+        var key = snapshot.Session.Account.Key;
+        return _entries.TryGetValue(key, out var entry) && ReferenceEquals(entry.Session, snapshot.Session)
+            && (snapshot.ActiveSelectionGeneration is null || (snapshot.ActiveSelectionGeneration == _selectionGeneration
+                && string.Equals(_activeKey, key, StringComparison.Ordinal)));
     }
     private static Result<AccountSessionSnapshot> NoSession() => Result<AccountSessionSnapshot>.Fail(new AuthError("No active account session.", NeedsSignIn: false));
 }

@@ -209,6 +209,48 @@ public sealed class PluginPackageManagerAcceptanceTests
     }
 
     [Fact]
+    public async Task GrantRevocationWaitsForAnAuthorizedNativePostThenRejectsFurtherPosts()
+    {
+        var root = Directory.CreateTempSubdirectory("barbican-delivery-test-");
+        try { await VerifyGrantRevocationAsync(root.FullName); }
+        finally { root.Delete(recursive: true); }
+    }
+
+    private static async Task VerifyGrantRevocationAsync(string root)
+    {
+        var rig = new PackageTestRig();
+        var paths = Barbican.Core.Storage.ProfilePaths.At(PackageTestRig.Profile, root, root);
+        await using var lease = Need(await new Barbican.Core.Plugins.Persistence.PluginProfileAuthorityLeaseFactory().AcquireAsync(paths, Ct));
+        using var manager = new PluginPackageManager(new(PackageTestRig.Profile, "1.21.2"), rig.Persistence, rig.Cleanup, rig.Time, lease);
+        using var unleasedManager = rig.Manager();
+        using var archive = PackageTestRig.Archive();
+        var preview = Need(await manager.InspectAsync(archive, PluginPackageSource.LocalImport, Ct));
+        var identity = Need(await manager.InstallAsync(Decision(preview, [], []), Ct)).Package.Identity;
+        Assert.True((await manager.SetEnabledAsync(identity, true, Ct)).IsOk);
+        var grant = Need(await manager.GetCurrentAsync(identity.Id, Ct))!;
+        await using var binding = Barbican.Core.Plugins.Runtime.PluginRuntimeBinding.Create(PackageTestRig.Profile, grant,
+            Barbican.Core.Plugins.Runtime.PluginFrameKind.Background);
+
+        Assert.False(await unleasedManager.TryPostAsync(binding, _ => throw new InvalidOperationException("Unleased authority posted."), Ct));
+
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var release = new ManualResetEventSlim();
+        var write = Task.Run(() => manager.TryPostAsync(binding, _ =>
+        {
+            entered.TrySetResult();
+            return release.Wait(TimeSpan.FromSeconds(5));
+        }, Ct), Ct);
+        await entered.Task.WaitAsync(TimeSpan.FromSeconds(5), Ct);
+        var disabling = manager.SetEnabledAsync(identity, false, Ct);
+        try { Assert.False(disabling.IsCompleted); }
+        finally { release.Set(); }
+
+        Assert.True(await write);
+        Assert.True((await disabling).IsOk);
+        Assert.False(await manager.TryPostAsync(binding, _ => throw new InvalidOperationException("Revoked grant posted."), Ct));
+    }
+
+    [Fact]
     public async Task AuthorityChangeObserverMayReadCurrentAuthoritySynchronously()
     {
         var rig = new PackageTestRig();

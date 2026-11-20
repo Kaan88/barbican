@@ -10,4 +10,7 @@ public interface IPluginProfileAuthorityLease : IAsyncDisposable
     string ConfigRoot { get; }
     bool IsHeld { get; }
     CancellationToken Lifetime { get; }
+
+    /// <summary>Runs a synchronous transport write before the lease can begin closing.</summary>
+    bool TryRunWhileHeld(Func<bool> write);
 }

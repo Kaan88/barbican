@@ -9,6 +9,7 @@ namespace Barbican.Core.Plugins.Protocol;
 public sealed class PluginValueBuilder
 {
     private readonly List<PluginNode?> _nodes = [];
+    private readonly Dictionary<PluginNode[], Dictionary<int, int>> _imports = new(ReferenceEqualityComparer.Instance);
     public int Reserve() { _nodes.Add(null); return _nodes.Count - 1; }
     private int Add(PluginNode node) { var id = Reserve(); _nodes[id] = node; return id; }
     public int Undefined() => Add(new(PluginValueKind.Undefined));
@@ -34,6 +35,34 @@ public sealed class PluginValueBuilder
     {
         if (id < 0 || id >= _nodes.Count || _nodes[id] is not null) throw new ArgumentException("Node is not reserved.", nameof(id));
         _nodes[id] = node;
+    }
+    /// <summary>Imports only reachable nodes, preserving aliases across imports from the same source graph.</summary>
+    public int Import(PluginValue value)
+    {
+        ArgumentNullException.ThrowIfNull(value);
+        var source = value.Nodes;
+        if (!_imports.TryGetValue(source, out var map))
+        {
+            map = [];
+            _imports.Add(source, map);
+        }
+        var queue = new Queue<int>();
+        int ReserveSource(int id)
+        {
+            if (map.TryGetValue(id, out var existing)) return existing;
+            var destination = Reserve();
+            map.Add(id, destination);
+            queue.Enqueue(id);
+            return destination;
+        }
+        var root = ReserveSource(value.Id);
+        while (queue.TryDequeue(out var id))
+        {
+            var node = source[id];
+            var links = node.Links?.Select(ReserveSource).ToArray();
+            _nodes[map[id]] = node with { Links = links };
+        }
+        return root;
     }
     internal int AddRaw(PluginNode node) => Add(node);
     public PluginValue Build(int root, PluginValueLimits? limits = null)

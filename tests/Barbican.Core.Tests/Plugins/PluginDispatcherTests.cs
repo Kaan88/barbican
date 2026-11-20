@@ -77,6 +77,62 @@ public sealed class PluginDispatcherTests
         Assert.True(binding.IsAlive);
     }
 
+    [Theory]
+    [InlineData(false, PluginErrorCode.StaleContext)]
+    [InlineData(true, PluginErrorCode.UnknownOutcome)]
+    public async Task QueuedResultRetainsItsCaptureAfterInvocationCloses(bool issue, PluginErrorCode expected)
+    {
+        var sessions = new Sessions();
+        var method = new Method(async (context, ct) =>
+        {
+            var active = context.CaptureActive().Value!;
+            if (issue)
+            {
+                Assert.True(await context.CheckCurrentAsync(ct));
+                context.MarkMutationIssued();
+            }
+
+            return Text(active.LocalAccountKey);
+        }, mayMutate: issue);
+        var dispatcher = new PluginApiDispatcher("auto-dispatch", [method], new Authority(Grant()), sessions);
+        await using var binding = PluginRuntimeBinding.Create("auto-dispatch", Grant(), PluginFrameKind.Background);
+
+        var first = await dispatcher.DispatchAsync(binding, Request(), Ct);
+        Assert.True(first.IsSuccess);
+        Assert.True(first.TryWriteForDelivery(binding, Grant(), () => Assert.Equal("a", first.Value!.StringValue)));
+        sessions.Switch("b");
+        Assert.False(first.TryWriteForDelivery(binding, Grant(), () => throw new InvalidOperationException("Stale reply posted.")));
+        var rejected = first.RefuseDelivery();
+        Assert.Equal(expected, rejected.Error);
+        Assert.Null(rejected.Value);
+
+        var next = await dispatcher.DispatchAsync(binding, Request(), Ct);
+        Assert.True(next.TryWriteForDelivery(binding, Grant(), () => Assert.Equal("b", next.Value!.StringValue)));
+    }
+
+    [Fact]
+    public async Task QueuedResultWithoutAnAccountStillRequiresItsOriginalLiveGrantAndBinding()
+    {
+        var authority = new Authority(Grant());
+        var dispatcher = new PluginApiDispatcher("auto-dispatch", [new Method((_, _) => Task.FromResult(Text("value")))], authority, new Sessions());
+        await using var binding = PluginRuntimeBinding.Create("auto-dispatch", Grant(), PluginFrameKind.Background);
+        await using var sibling = PluginRuntimeBinding.Create("auto-dispatch", Grant(), PluginFrameKind.Background);
+        var outcome = await dispatcher.DispatchAsync(binding, Request(), Ct);
+        Assert.True(outcome.TryWriteForDelivery(binding, Grant(), () => { }));
+        Assert.False(outcome.TryWriteForDelivery(sibling, Grant(), () => throw new InvalidOperationException("Sibling reply posted.")));
+        authority.Current = Grant(2);
+        Assert.False(outcome.TryWriteForDelivery(binding, Grant(2), () => throw new InvalidOperationException("Old grant replied.")));
+    }
+
+    [Fact]
+    public async Task UnfencedSuccessCannotPassAHostDeliveryCheck()
+    {
+        await using var binding = PluginRuntimeBinding.Create("auto-dispatch", Grant(), PluginFrameKind.Background);
+        var outcome = Text("adapter-only");
+        Assert.False(outcome.TryWriteForDelivery(binding, Grant(), () => throw new InvalidOperationException("Unfenced reply posted.")));
+        Assert.Equal(PluginErrorCode.StaleContext, outcome.RefuseDelivery().Error);
+    }
+
     [Fact]
     public async Task ActiveAccountAbaInvalidatesResultWithoutChangingCapturedClient()
     {
@@ -260,6 +316,8 @@ public sealed class PluginDispatcherTests
             OwnerLookups.Add(localAccountKey);
             return _sessions.TryGetValue(localAccountKey, out var session) ? Result<PluginSessionCapture>.Ok(new(session, null)) : Result<PluginSessionCapture>.Fail(new ValidationError("Unknown login."));
         }
+        public bool TryRunWhileCurrent(IReadOnlyList<PluginSessionCapture> captures, Func<bool> write) =>
+            captures.All(IsCurrent) && write();
         public bool IsCurrent(PluginSessionCapture capture) => _sessions.TryGetValue(capture.LocalAccountKey, out var session) && ReferenceEquals(session, capture.Session)
             && (capture.ActiveSelectionGeneration is null || capture.ActiveSelectionGeneration == _epoch);
     }

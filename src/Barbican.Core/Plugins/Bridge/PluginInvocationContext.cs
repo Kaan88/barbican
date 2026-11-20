@@ -93,6 +93,21 @@ internal sealed class PluginInvocationContext : IPluginInvocationContext
             _checked = false;
         }
     }
+    internal PluginDeliveryFence? SealForDelivery()
+    {
+        lock (_gate)
+        {
+            if (!_checked || !IsLive() || !_captures.TrueForAll(_sessions.IsCurrent))
+            {
+                return null;
+            }
+
+            _closed = true;
+            _checked = false;
+            return new PluginDeliveryFence(Binding, Grant, _sessions, [.. _captures], _issued);
+        }
+    }
+
     internal bool Close()
     {
         bool issued;

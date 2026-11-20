@@ -13,5 +13,8 @@ public sealed class PluginSessionSource(IAccountSessionSnapshots sessions) : IPl
         ArgumentNullException.ThrowIfNull(capture);
         return sessions.IsSessionCurrent(new(capture.Session, capture.ActiveSelectionGeneration));
     }
+    public bool TryRunWhileCurrent(IReadOnlyList<PluginSessionCapture> captures, Func<bool> write) =>
+        sessions.TryRunWhileCurrent([.. captures.Select(c => new AccountSessionSnapshot(c.Session, c.ActiveSelectionGeneration))], write);
+
     private static Result<PluginSessionCapture> Convert(Result<AccountSessionSnapshot> result) => result.Map(snapshot => new PluginSessionCapture(snapshot.Session, snapshot.ActiveSelectionGeneration));
 }

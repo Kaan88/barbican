@@ -28,6 +28,38 @@ public sealed class PluginRevocationTests
     }
 
     [Fact]
+    public async Task BindingDisposalIsOrderedWithTheSynchronousNativePost()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        await using var binding = Binding();
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var closing = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var release = new ManualResetEventSlim();
+        var write = Task.Run(() => binding.TryWriteWhileAlive(() =>
+        {
+            entered.SetResult();
+            Assert.True(release.Wait(TimeSpan.FromSeconds(5)));
+            Assert.True(binding.IsAlive);
+        }), ct);
+        await entered.Task.WaitAsync(TimeSpan.FromSeconds(5), ct);
+        var close = Task.Run(async () =>
+        {
+            closing.SetResult();
+            await binding.DisposeAsync();
+        }, ct);
+        try
+        {
+            await closing.Task.WaitAsync(TimeSpan.FromSeconds(5), ct);
+            Assert.False(close.IsCompleted);
+        }
+        finally { release.Set(); }
+
+        Assert.True(await write);
+        await close;
+        Assert.False(binding.TryWriteWhileAlive(() => throw new InvalidOperationException("Closed binding posted.")));
+    }
+
+    [Fact]
     public async Task AllAffectedBindingsCloseBeforeAnyTeardownRuns()
     {
         var coordinator = new PluginRevocationCoordinator("auto-revoke");

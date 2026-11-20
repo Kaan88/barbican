@@ -9,6 +9,7 @@ public sealed class PluginRuntimeBinding : IAsyncDisposable
     private readonly CancellationTokenSource _stop = new();
     private readonly CancellationToken _lifetime;
     private readonly Lock _gate = new();
+    private readonly Lock _deliveryGate = new();
     private Task? _closing;
     private int _closed;
     private PluginRuntimeBinding(string profile, PluginGrantSnapshot grant, PluginFrameKind kind, string? slot)
@@ -42,7 +43,22 @@ public sealed class PluginRuntimeBinding : IAsyncDisposable
     public CancellationToken Lifetime => _lifetime;
     public bool IsAlive => Volatile.Read(ref _closed) == 0;
     // The coordinator can establish the entire generation barrier before scheduling any user cleanup.
-    internal void Invalidate() => Volatile.Write(ref _closed, 1);
+    internal void Invalidate()
+    {
+        lock (_deliveryGate) Volatile.Write(ref _closed, 1);
+    }
+
+    /// <summary>Orders a synchronous native write against binding invalidation.</summary>
+    public bool TryWriteWhileAlive(Action write)
+    {
+        ArgumentNullException.ThrowIfNull(write);
+        lock (_deliveryGate)
+        {
+            if (!IsAlive) return false;
+            write();
+            return true;
+        }
+    }
 
     public ValueTask DisposeAsync()
     {

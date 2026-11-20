@@ -2076,3 +2076,16 @@ manifest assets for their declared resource purposes. Astra closed the flag
 and cross-purpose findings. All 22 focused Windows Automation policy cases
 passed. The privileged document route remains unavailable. Native WebView
 wiring and enforcement are separate pending work.
+
+## Codex / Astra review of queued Windows plugin replies (2026-11-20)
+
+The synchronous post now stays inside the live package grant, held profile
+lease, captured account selection, and runtime binding. Serialization
+finishes before the write guards are held. Missing lease or revoked grant
+suppresses delivery. Stale account captures permit a value-free error only.
+
+Astra approved this ordering after the lease and lifetime fixes.
+The Windows Automation suite built cleanly and passed 3,269 tests with four
+skips and no failures. Coverage includes concurrent grant disable, account
+switch, lease release, binding close, and synthetic ingress. The production
+WebView factory and end-to-end browser enforcement remain pending.

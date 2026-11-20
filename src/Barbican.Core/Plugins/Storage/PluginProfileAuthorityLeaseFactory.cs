@@ -38,18 +38,25 @@ public sealed class PluginProfileAuthorityLeaseFactory : IPluginProfileAuthority
         private readonly CancellationToken _lifetime;
         private int _held = 1;
         private readonly Lock _closeGate = new();
+        private readonly Lock _deliveryGate = new();
         private Task? _closing;
         public Lease(string profile, string configRoot, FileStream file) { Profile = profile; ConfigRoot = configRoot; _file = file; _lifetime = _stop.Token; }
         public string Profile { get; }
         public string ConfigRoot { get; }
         public bool IsHeld => Volatile.Read(ref _held) != 0;
         public CancellationToken Lifetime => _lifetime;
+        public bool TryRunWhileHeld(Func<bool> write)
+        {
+            ArgumentNullException.ThrowIfNull(write);
+            lock (_deliveryGate) return IsHeld && write();
+        }
+
         public ValueTask DisposeAsync()
         {
             lock (_closeGate)
             {
                 if (_closing is not null) return new ValueTask(_closing);
-                Volatile.Write(ref _held, 0);
+                lock (_deliveryGate) Volatile.Write(ref _held, 0);
                 return new ValueTask(_closing = CloseAsync());
             }
         }

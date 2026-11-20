@@ -12,7 +12,7 @@ using Barbican.Core.Plugins.Persistence;
 namespace Barbican.Core.Plugins.Packages;
 
 /// <summary>Package lifecycle with expiring reviews and authenticated host persistence; never loads executable code.</summary>
-public sealed partial class PluginPackageManager : IPluginPackageManager, IPluginAuthority, IDisposable
+public sealed partial class PluginPackageManager : IPluginPackageManager, IPluginDeliveryAuthority, IDisposable
 {
     private const int MaxInstalledPackages = 1000;
 
@@ -421,6 +421,32 @@ public sealed partial class PluginPackageManager : IPluginPackageManager, IPlugi
     {
         var item = await FindAsync(pluginId, ct).ConfigureAwait(false);
         return item.IsOk ? Result<PluginGrantSnapshot?>.Ok(item.Value?.Enabled == true ? item.Value.Grant : null) : Result<PluginGrantSnapshot?>.Fail(item.Error!);
+    }
+
+    public async Task<bool> TryPostAsync(PluginRuntimeBinding binding, Func<PluginGrantSnapshot, bool> write, CancellationToken ct)
+    {
+        ArgumentNullException.ThrowIfNull(binding);
+        ArgumentNullException.ThrowIfNull(write);
+        if (_lease is not { } lease) return false;
+        await _gate.WaitAsync(ct).ConfigureAwait(true);
+        try
+        {
+            var loaded = await LoadAsync(ct).ConfigureAwait(true);
+            if (!loaded.IsOk) return false;
+
+            // Keep both the loaded grant and the held profile lease current until the native post.
+            lock (_issuanceGate)
+            {
+                if (!HasAuthority || ct.IsCancellationRequested || !string.Equals(binding.Profile, _options.Profile, StringComparison.Ordinal)
+                    || !loaded.Value!.Installations.TryGetValue(binding.Package.Id, out var item) || !item.Enabled
+                    || item.Grant is not { } grant || grant.Package != binding.Package
+                    || grant.Generation != binding.GrantGeneration || grant.Tier != binding.Tier)
+                    return false;
+
+                return lease.TryRunWhileHeld(() => !ct.IsCancellationRequested && binding.IsAlive && write(grant));
+            }
+        }
+        finally { _gate.Release(); }
     }
 
     public async Task<Result<Unit>> SetEnabledAsync(PluginPackageIdentity package, bool enabled, CancellationToken ct)

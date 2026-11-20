@@ -1,14 +1,32 @@
 // Mirrors: Bulwark protocol.ts API result/error union, with fixed safe failure text at the native boundary.
+using Barbican.Core.Plugins.Permissions;
 using Barbican.Core.Plugins.Protocol;
+using Barbican.Core.Plugins.Runtime;
 namespace Barbican.Core.Plugins.Bridge;
 public sealed class PluginCallOutcome
 {
-    private PluginCallOutcome(bool success, PluginValue? value, PluginErrorCode? error) { IsSuccess = success; Value = value; Error = error; }
+    private readonly PluginDeliveryFence? _delivery;
+
+    private PluginCallOutcome(bool success, PluginValue? value, PluginErrorCode? error, PluginDeliveryFence? delivery = null)
+    {
+        IsSuccess = success;
+        Value = value;
+        Error = error;
+        _delivery = delivery;
+    }
     public bool IsSuccess { get; }
     public PluginValue? Value { get; }
     public PluginErrorCode? Error { get; }
     private static readonly PluginValue Undefined = CreateUndefined();
     public static PluginCallOutcome Succeeded(PluginValue? value = null) => new(true, value ?? Undefined, null);
+    internal PluginCallOutcome WithDeliveryFence(PluginDeliveryFence fence) => new(true, Value, null, fence);
+    /// <summary>Posts synchronously while the caller holds the live grant and the captured sessions remain current.</summary>
+    public bool TryWriteForDelivery(PluginRuntimeBinding recipient, PluginGrantSnapshot live, Action write) =>
+        IsSuccess ? _delivery?.TryWrite(recipient, live, write) == true : recipient.TryWriteWhileAlive(write);
+
+    /// <summary>Produces a value-free response when the authority for a queued result is no longer current.</summary>
+    public PluginCallOutcome RefuseDelivery() => Failed(_delivery?.Refusal ?? PluginErrorCode.StaleContext);
+
     private static PluginValue CreateUndefined()
     {
         var builder = new PluginValueBuilder();
