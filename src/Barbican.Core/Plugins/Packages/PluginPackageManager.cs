@@ -5,6 +5,7 @@ using System.Text.Json.Serialization;
 using Barbican.Core.Common;
 using Barbican.Core.Jmap.Errors;
 using Barbican.Core.Plugins.Packages.Inspection;
+using Barbican.Core.Plugins.Packages.Managed;
 using Barbican.Core.Plugins.Permissions;
 using Barbican.Core.Plugins.Runtime;
 using Barbican.Core.Plugins.Persistence;
@@ -30,11 +31,13 @@ public sealed partial class PluginPackageManager : IPluginPackageManager, IPlugi
     private Loaded? _cache;
     private readonly Dictionary<string, Review> _reviews = new(StringComparer.Ordinal);
     private readonly HashSet<string> _blocked = new(StringComparer.Ordinal);
-    private sealed record Review(InspectedPluginPackage Inspection, byte[] Archive, PluginPackageDefinition Definition, PluginPackageIdentity? Previous, long? PreviousGeneration, DateTimeOffset Expires);
+    private sealed record Review(InspectedPluginPackage Inspection, byte[] Archive, PluginPackageDefinition Definition, PluginPackageIdentity? Previous,
+        long? PreviousGeneration, DateTimeOffset Expires, ManagedPluginCandidate? Managed);
     internal sealed record Entry(string Id, string Version, string Hash, bool Enabled, long Generation, string[] Permissions,
         string[] Accounts, long? CleanupThrough = null,
         [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)] bool NativeFullTrustApproved = false,
-        [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string[]? ApprovedHttpOrigins = null);
+        [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string[]? ApprovedHttpOrigins = null,
+        [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] ManagedApproval? Managed = null);
     internal sealed record Index(long NextGeneration, List<Entry> Entries, List<PluginPackageIdentity>? RetiredArchives = null);
     private sealed record Loaded(long Revision, Index Index, Dictionary<string, PluginInstallation> Installations);
 
@@ -97,25 +100,30 @@ public sealed partial class PluginPackageManager : IPluginPackageManager, IPlugi
     public event EventHandler<PluginAuthorityChangedEventArgs>? Changed;
     private static Result<T> Failure<T>(string message) => Result<T>.Fail(new ValidationError(message));
     private static PluginPackageIdentity Identity(Entry entry) => new(entry.Id, entry.Version, entry.Hash);
-    private static PluginPackageDefinition Definition(InspectedPluginPackage inspected)
+    private static PluginPackageDefinition Definition(InspectedPluginPackage inspected, PluginPackageSource source = PluginPackageSource.LocalImport)
     {
         using var manifest = JsonDocument.Parse(inspected.ManifestJson);
         var tier = inspected.RuntimeKind == PluginRuntimeKind.Native
             ? PluginExecutionTier.NativeFullTrust
             : JavaScriptTier(manifest.RootElement);
         return new PluginPackageDefinition(new(inspected.Id, inspected.Version, inspected.WholeArchiveSha256), inspected.RuntimeKind,
-            inspected.EntryPoint, manifest.RootElement, inspected.Permissions, PluginPackageSource.LocalImport, tier);
+            inspected.EntryPoint, manifest.RootElement, inspected.Permissions, source, tier);
     }
     private static PluginExecutionTier JavaScriptTier(JsonElement manifest) =>
         manifest.TryGetProperty("tier", out var requested) && string.Equals(requested.GetString(), "privileged", StringComparison.Ordinal)
             ? PluginExecutionTier.Privileged : PluginExecutionTier.Untrusted;
 
+    private static PluginExecutionTier Tier(Entry e) => e.NativeFullTrustApproved ? PluginExecutionTier.NativeFullTrust :
+        e.Managed is null ? PluginExecutionTier.Untrusted : PluginExecutionTier.Privileged;
+
     private static PluginGrantSnapshot Grant(Entry e) => new(Identity(e), e.Generation, e.Enabled, e.Permissions, e.Accounts,
-        e.ApprovedHttpOrigins, e.NativeFullTrustApproved ? PluginExecutionTier.NativeFullTrust : PluginExecutionTier.Untrusted);
+        e.ApprovedHttpOrigins, Tier(e));
 
     private static bool MatchesSavedApproval(PluginPackageDefinition definition, Entry entry) =>
-        definition.RequestedTier == (entry.NativeFullTrustApproved ? PluginExecutionTier.NativeFullTrust : PluginExecutionTier.Untrusted) &&
+        definition.RequestedTier == Tier(entry) &&
         (!entry.NativeFullTrustApproved || entry.Accounts.Length == 0) &&
+        (entry.Managed is not { } managed || (!entry.Enabled && !entry.NativeFullTrustApproved && entry.Accounts.Length == 1 &&
+            string.Equals(entry.Accounts[0], managed.AccountKey, StringComparison.Ordinal))) &&
         (entry.ApprovedHttpOrigins is null || definition.RequestedHttpOrigins.SetEquals(entry.ApprovedHttpOrigins)) &&
         definition.RequestedPermissions.SetEquals(entry.Permissions) && !entry.Accounts.Any(string.IsNullOrWhiteSpace);
 
@@ -138,16 +146,9 @@ public sealed partial class PluginPackageManager : IPluginPackageManager, IPlugi
                 if (entry.Permissions is null || entry.Accounts is null || entry.Generation <= 0 || entry.Generation >= index.NextGeneration
                     || (entry.CleanupThrough is { } through && (through <= 0 || through >= entry.Generation || entry.Enabled)))
                     return Failure<Loaded>("Invalid package grant.");
-                var identity = Identity(entry);
-                var bytes = await _store.ReadContentAsync(_options.Profile, identity, ct).ConfigureAwait(false);
-                if (!bytes.IsOk || bytes.Value.IsDefault || bytes.Value.Length > 5 * 1024 * 1024) return Failure<Loaded>("Package content is unavailable.");
-                using var input = new MemoryStream(bytes.Value.ToArray(), writable: false);
-                var inspected = await PluginPackageInspector.InspectAsync(input, _options.BulwarkCompatibilityVersion, ct).ConfigureAwait(false);
-                if (!inspected.IsOk) return Failure<Loaded>("Package content does not match its authenticated identity.");
-                var definition = Definition(inspected.Value!);
-                if (definition.Identity != identity) return Failure<Loaded>("Package content does not match its authenticated identity.");
-                if (!MatchesSavedApproval(definition, entry)) return Failure<Loaded>("Invalid package grant.");
-                if (!installations.TryAdd(entry.Id, new(definition, entry.Enabled && !_blocked.Contains(entry.Id), Grant(entry)))) return Failure<Loaded>("Duplicate package identity.");
+                var installation = await ReadInstallationAsync(entry, ct).ConfigureAwait(false);
+                if (!installation.IsOk) return Result<Loaded>.Fail(installation.Error!);
+                if (!installations.TryAdd(entry.Id, installation.Value!)) return Failure<Loaded>("Duplicate package identity.");
             }
             if (!HasAuthority) return Failure<Loaded>("Plugin profile authority is unavailable.");
             return Publish(snapshot.Revision, index, installations);
@@ -156,6 +157,24 @@ public sealed partial class PluginPackageManager : IPluginPackageManager, IPlugi
         {
             return Failure<Loaded>("Invalid authenticated package index.");
         }
+    }
+
+    private async Task<Result<PluginInstallation>> ReadInstallationAsync(Entry entry, CancellationToken ct)
+    {
+        var identity = Identity(entry);
+        var bytes = await _store.ReadContentAsync(_options.Profile, identity, ct).ConfigureAwait(false);
+        if (!bytes.IsOk || bytes.Value.IsDefault || bytes.Value.Length > 5 * 1024 * 1024)
+            return Failure<PluginInstallation>("Package content is unavailable.");
+        using var input = new MemoryStream(bytes.Value.ToArray(), writable: false);
+        var inspected = await PluginPackageInspector.InspectAsync(input, _options.BulwarkCompatibilityVersion, ct).ConfigureAwait(false);
+        if (!inspected.IsOk || inspected.Value is not { } package)
+            return Failure<PluginInstallation>("Package content does not match its authenticated identity.");
+        if (entry.Managed is { } managed && !ValidManaged(managed, package))
+            return Failure<PluginInstallation>("Invalid managed add-on approval.");
+        var definition = Definition(package, entry.Managed is null ? PluginPackageSource.LocalImport : PluginPackageSource.Managed);
+        if (definition.Identity != identity) return Failure<PluginInstallation>("Package content does not match its authenticated identity.");
+        if (!MatchesSavedApproval(definition, entry)) return Failure<PluginInstallation>("Invalid package grant.");
+        return Result<PluginInstallation>.Ok(new(definition, entry.Enabled && !_blocked.Contains(entry.Id), Grant(entry)));
     }
 
     private static bool ValidIndex(Index index)
@@ -191,14 +210,17 @@ public sealed partial class PluginPackageManager : IPluginPackageManager, IPlugi
         }
     }
 
-    private async Task<Result<Unit>> CommitAsync(Loaded previous, Index next, CancellationToken ct)
+    private Task<Result<Unit>> CommitAsync(Loaded previous, Index next, CancellationToken ct) => CommitAsync(previous, next, null, ct);
+
+    private async Task<Result<Unit>> CommitAsync(Loaded previous, Index next, Func<Func<bool>, bool>? authorize, CancellationToken ct)
     {
         _cache = null;
         if (!HasAuthority) return Failure<Unit>("Plugin profile authority is unavailable.");
         if (!HasGenerationCapacity(next)) return Failure<Unit>("The package generation limit has been reached.");
         var data = JsonSerializer.SerializeToUtf8Bytes(next, PackageIndexJsonContext.Default.Index);
         if (data.Length > 4 * 1024 * 1024) return Failure<Unit>("Package index exceeds the host limit.");
-        var committed = await _store.CommitAsync(_options.Profile, previous.Revision, data, ct).ConfigureAwait(false);
+        var committed = await (authorize is null ? _store.CommitAsync(_options.Profile, previous.Revision, data, ct)
+            : _store.CommitAsync(_options.Profile, previous.Revision, data, authorize, ct)).ConfigureAwait(false);
         if (!HasAuthority) return Failure<Unit>("Plugin profile authority is unavailable.");
         if (committed.IsOk) return Result<Unit>.Ok(default);
         // An uncertain acknowledgement is only successful after an authenticated exact readback.
@@ -235,20 +257,27 @@ public sealed partial class PluginPackageManager : IPluginPackageManager, IPlugi
             if (!loaded.IsOk) return Result<PluginInstallPreview>.Fail(loaded.Error!);
             var definition = Definition(inspected.Value!);
             loaded.Value!.Installations.TryGetValue(definition.Identity.Id, out var previous);
+            if (previous?.Package.Source == PluginPackageSource.Managed)
+                return Failure<PluginInstallPreview>("A managed add-on must be updated from its verified provider.");
             return Stage(inspected.Value!, bytes, definition, previous);
         }
         finally { _gate.Release(); }
     }
 
-    private Result<PluginInstallPreview> Stage(InspectedPluginPackage inspected, byte[] bytes, PluginPackageDefinition definition, PluginInstallation? previous)
+    private Result<PluginInstallPreview> Stage(InspectedPluginPackage inspected, byte[] bytes, PluginPackageDefinition definition,
+        PluginInstallation? previous, ManagedPluginCandidate? managed = null)
     {
         foreach (var expired in _reviews.Where(x => x.Value.Expires <= _time.GetUtcNow()).Select(x => x.Key).ToArray()) _reviews.Remove(expired);
         var size = inspected.Resources.Sum(x => (long)x.Value.Length);
         var used = _reviews.Values.Sum(x => x.Inspection.Resources.Sum(y => (long)y.Value.Length));
         if (_reviews.Count >= _options.MaxPendingReviews || size > _options.MaxExpandedStagingBytes - used) return Failure<PluginInstallPreview>("Review staging is full.");
         var token = Convert.ToHexStringLower(RandomNumberGenerator.GetBytes(32));
-        _reviews.Add(token, new(inspected, bytes, definition, previous?.Package.Identity, previous?.Grant?.Generation, _time.GetUtcNow() + _options.ReviewLifetime));
-        return Result<PluginInstallPreview>.Ok(new(token, definition, previous));
+        _reviews.Add(token, new(inspected, bytes, definition, previous?.Package.Identity, previous?.Grant?.Generation,
+            _time.GetUtcNow() + _options.ReviewLifetime, managed));
+        return Result<PluginInstallPreview>.Ok(new(token, definition, previous, managed?.Artifact.SignerSha256, managed is not null)
+        {
+            ManagedOrigin = managed?.Origin, ManagedAccountKey = managed?.LocalAccountKey,
+        });
     }
 
     public async Task<Result<PluginInstallPreview>> ReviewAsync(PluginPackageIdentity installed, CancellationToken ct)
@@ -259,6 +288,8 @@ public sealed partial class PluginPackageManager : IPluginPackageManager, IPlugi
             var loaded = await LoadAsync(ct).ConfigureAwait(false);
             if (!loaded.IsOk) return Result<PluginInstallPreview>.Fail(loaded.Error!);
             if (!loaded.Value!.Installations.TryGetValue(installed.Id, out var current) || current.Package.Identity != installed) return Failure<PluginInstallPreview>("Installed package changed.");
+            if (current.Package.Source == PluginPackageSource.Managed)
+                return Failure<PluginInstallPreview>("Review this managed add-on from its verified provider.");
             var content = await _store.ReadContentAsync(_options.Profile, installed, ct).ConfigureAwait(false);
             if (!content.IsOk) return Result<PluginInstallPreview>.Fail(content.Error!);
             var bytes = content.Value.ToArray();
@@ -290,7 +321,7 @@ public sealed partial class PluginPackageManager : IPluginPackageManager, IPlugi
         try
         {
             if (!_reviews.TryGetValue(decision.ReviewId, out var review) || review.Expires <= _time.GetUtcNow() || review.Definition.Identity != decision.Candidate) return Failure<PluginInstallation>("Review is invalid or expired.");
-            if (ApprovalError(review.Definition, decision) is { } approvalError) return Result<PluginInstallation>.Fail(approvalError);
+            if (ApprovalError(review, decision) is { } approvalError) return Result<PluginInstallation>.Fail(approvalError);
             var loaded = await LoadAsync(ct).ConfigureAwait(false);
             if (!loaded.IsOk) return Result<PluginInstallation>.Fail(loaded.Error!);
             loaded.Value!.Installations.TryGetValue(review.Definition.Identity.Id, out var previous);
@@ -326,14 +357,15 @@ public sealed partial class PluginPackageManager : IPluginPackageManager, IPlugi
         }
     }
 
-    private static ValidationError? ApprovalError(PluginPackageDefinition definition, PluginInstallDecision decision)
+    private static ValidationError? ApprovalError(Review review, PluginInstallDecision decision)
     {
+        var definition = review.Definition;
         if (!definition.RequestedPermissions.SetEquals(decision.ApprovedPermissions) || decision.AccountKeys.Any(string.IsNullOrWhiteSpace))
             return new ValidationError("The approval does not match the requested permissions.");
         if (!definition.RequestedHttpOrigins.SetEquals(decision.ApprovedHttpOrigins))
             return new ValidationError("The approval does not match the requested websites.");
         if (definition.RequestedTier == PluginExecutionTier.Privileged)
-            return new ValidationError("Privileged packages require verified managed signature and consent.");
+            return ManagedApprovalError(review, decision);
         if (definition.RequestedTier == PluginExecutionTier.NativeFullTrust)
             return decision.ApproveNativeFullTrust && !decision.ApprovePrivilegedJavaScript && decision.AccountKeys.IsEmpty
                 ? null : new ValidationError("Native add-ons require explicit full-access approval.");
@@ -349,7 +381,8 @@ public sealed partial class PluginPackageManager : IPluginPackageManager, IPlugi
             decision.ApprovedPermissions.ToArray(), decision.AccountKeys.ToArray(),
             NativeFullTrustApproved: review.Definition.RequestedTier == PluginExecutionTier.NativeFullTrust,
             ApprovedHttpOrigins: decision.ApprovedHttpOrigins.IsEmpty ? null :
-                review.Definition.RequestedHttpOrigins.Order(StringComparer.OrdinalIgnoreCase).ToArray());
+                review.Definition.RequestedHttpOrigins.Order(StringComparer.OrdinalIgnoreCase).ToArray(),
+            Managed: review.Managed is null ? null : Approval(review.Managed));
         List<Entry> entries = [.. current.Entries.Where(x => !string.Equals(x.Id, identity.Id, StringComparison.Ordinal)), entry];
         var next = WithRetiredArchive(current, entries, review.Previous) with { NextGeneration = current.NextGeneration + 1 };
         if (!HasGenerationCapacity(next)) return Failure<Entry>("The package generation limit has been reached.");
@@ -360,7 +393,7 @@ public sealed partial class PluginPackageManager : IPluginPackageManager, IPlugi
         var put = await _store.PutContentAsync(_options.Profile, identity, review.Archive, ct).ConfigureAwait(false);
         if (!put.IsOk) return Result<Entry>.Fail(put.Error!);
 
-        var committed = await CommitAsync(loaded, next, ct).ConfigureAwait(false);
+        var committed = await CommitAsync(loaded, next, review.Managed?.TryRunWhileCurrent, ct).ConfigureAwait(false);
         if (!committed.IsOk) return Result<Entry>.Fail(committed.Error!);
 
         // The replacement is already durable. Failed deletion stays in the index for retry.
@@ -535,6 +568,7 @@ public sealed partial class PluginPackageManager : IPluginPackageManager, IPlugi
             var entry = loaded.Value!.Index.Entries.SingleOrDefault(x => Identity(x) == package);
             if (entry is null) return Failure<Unit>("Installed package changed.");
             if (!enabled) return await StopAsync(loaded.Value, package, notifications, ct).ConfigureAwait(false);
+            if (entry.Managed is not null) return Failure<Unit>("Managed add-on startup is unavailable.");
             if (_blocked.Contains(package.Id) || entry.CleanupThrough is not null) return Failure<Unit>("Package cleanup is pending.");
             if (entry.NativeFullTrustApproved && !(await ReadNativeArchiveAsync(package, ct).ConfigureAwait(false)).IsOk)
                 return Failure<Unit>("The approved native add-on archive is unavailable.");
@@ -664,6 +698,7 @@ public sealed partial class PluginPackageManager : IPluginPackageManager, IPlugi
             var loaded = await LoadAsync(ct).ConfigureAwait(false);
             if (!loaded.IsOk) return Result<Stream>.Fail(loaded.Error!);
             if (!loaded.Value!.Installations.TryGetValue(package.Id, out var installation) || installation.Package.Identity != package) return Failure<Stream>("Installed package changed.");
+            if (installation.Package.Source == PluginPackageSource.Managed) return Failure<Stream>("Managed add-on startup is unavailable.");
             var content = await _store.ReadContentAsync(_options.Profile, package, ct).ConfigureAwait(false);
             if (!content.IsOk) return Result<Stream>.Fail(content.Error!);
             using var archive = new MemoryStream(content.Value.ToArray(), writable: false);

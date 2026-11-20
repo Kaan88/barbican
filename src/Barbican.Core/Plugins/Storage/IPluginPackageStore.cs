@@ -11,6 +11,9 @@ public interface IPluginPackageStore
 {
     Task<Result<PluginStoreSnapshot>> LoadAsync(string profile, CancellationToken ct);
     Task<Result<long>> CommitAsync(string profile, long expectedRevision, ReadOnlyMemory<byte> index, CancellationToken ct);
+    /// <summary>Checks authority at publication of the authenticated index pointer.</summary>
+    Task<Result<long>> CommitAsync(string profile, long expectedRevision, ReadOnlyMemory<byte> index,
+        Func<Func<bool>, bool> publishWhileCurrent, CancellationToken ct);
     Task<Result<Unit>> PutContentAsync(string profile, PluginPackageIdentity identity, ReadOnlyMemory<byte> archive, CancellationToken ct);
     Task<Result<ImmutableArray<byte>>> ReadContentAsync(string profile, PluginPackageIdentity identity, CancellationToken ct);
     Task<Result<Unit>> DeleteContentAsync(string profile, PluginPackageIdentity identity, CancellationToken ct);

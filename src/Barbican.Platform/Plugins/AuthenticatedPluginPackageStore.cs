@@ -122,12 +122,17 @@ public sealed partial class AuthenticatedPluginPackageStore : IPluginPackageStor
     }
 
     public Task<Result<long>> CommitAsync(string profile, long expectedRevision, ReadOnlyMemory<byte> index, CancellationToken ct)
+        => CommitAsync(profile, expectedRevision, index, null, ct);
+
+    public Task<Result<long>> CommitAsync(string profile, long expectedRevision, ReadOnlyMemory<byte> index,
+        Func<Func<bool>, bool>? publishWhileCurrent, CancellationToken ct)
     {
         if (index.Length > 4 * 1024 * 1024 || !Current(profile)) return Task.FromResult(Fail<long>());
         var copy = index.ToArray(); // Snapshot caller-owned memory before the first await.
-        return CommitCoreAsync(profile, expectedRevision, copy, ct);
+        return CommitCoreAsync(profile, expectedRevision, copy, publishWhileCurrent, ct);
     }
-    private async Task<Result<long>> CommitCoreAsync(string profile, long expectedRevision, byte[] index, CancellationToken ct)
+    private async Task<Result<long>> CommitCoreAsync(string profile, long expectedRevision, byte[] index,
+        Func<Func<bool>, bool>? publishWhileCurrent, CancellationToken ct)
     {
         try
         {
@@ -148,7 +153,7 @@ public sealed partial class AuthenticatedPluginPackageStore : IPluginPackageStor
                     ? AlternateIndexPath : PrimaryIndexPath;
                 await Task.Run(() => AtomicWrite(destination, envelope), ct).ConfigureAwait(false);
                 if (!Current(profile)) return Fail<long>();
-                var saved = await _secrets.WriteAsync(_secretName, Secret(key, revision, envelope), ct).ConfigureAwait(false);
+                var saved = await PublishIndexAsync(profile, Secret(key, revision, envelope), publishWhileCurrent, ct).ConfigureAwait(false);
                 if (!saved.IsOk || !Current(profile)) return Fail<long>();
                 var readback = await ReadLockedAsync(ct).ConfigureAwait(false);
                 return Current(profile) && readback.IsOk && readback.Value!.Snapshot.Revision == revision && readback.Value.Snapshot.Index.AsSpan().SequenceEqual(index) ? Result<long>.Ok(revision) : Fail<long>();
@@ -156,6 +161,14 @@ public sealed partial class AuthenticatedPluginPackageStore : IPluginPackageStor
             finally { CryptographicOperations.ZeroMemory(key); }
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or FormatException or CryptographicException or OverflowException) { return Fail<long>(); }
+    }
+
+    private Task<Result<Unit>> PublishIndexAsync(string profile, string value, Func<Func<bool>, bool>? publishWhileCurrent, CancellationToken ct)
+    {
+        if (publishWhileCurrent is null) return _secrets.WriteAsync(_secretName, value, ct);
+        if (_secrets is not IGuardedSecretStore guarded) return Task.FromResult(Fail<Unit>());
+        return guarded.WriteWhileCurrentAsync(_secretName, value, write => publishWhileCurrent(() =>
+            _lease.TryRunWhileHeld(() => Current(profile) && !ct.IsCancellationRequested && write())), ct);
     }
 
     public Task<Result<Unit>> PutContentAsync(string profile, PluginPackageIdentity identity, ReadOnlyMemory<byte> archive, CancellationToken ct)

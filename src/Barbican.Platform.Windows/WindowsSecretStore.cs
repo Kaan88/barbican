@@ -11,7 +11,7 @@ using Barbican.Core.Jmap.Errors;
 namespace Barbican.Platform.Windows;
 
 /// <summary>Secrets in the Windows Credential Manager, under this profile's own target names.</summary>
-public sealed class WindowsSecretStore(string profile) : ISecretStore
+public sealed class WindowsSecretStore(string profile) : IGuardedSecretStore
 {
     private static readonly UTF8Encoding Utf8 = new(encoderShouldEmitUTF8Identifier: false, throwOnInvalidBytes: true);
 
@@ -26,6 +26,24 @@ public sealed class WindowsSecretStore(string profile) : ISecretStore
     {
         ArgumentNullException.ThrowIfNull(value);
         return Task.Run(() => Write(SecretTarget.Format(Profile, name), name.Kind, value), ct);
+    }
+
+    public Task<Result<Unit>> WriteWhileCurrentAsync(SecretName name, string value, Func<Func<bool>, bool> publishWhileCurrent, CancellationToken ct)
+    {
+        ArgumentNullException.ThrowIfNull(value);
+        ArgumentNullException.ThrowIfNull(publishWhileCurrent);
+        return Task.Run(() =>
+        {
+            Result<Unit>? result = null;
+            var published = publishWhileCurrent(() =>
+            {
+                if (ct.IsCancellationRequested) return false;
+                result = Write(SecretTarget.Format(Profile, name), name.Kind, value);
+                return true;
+            });
+            return published && result is { } saved ? saved :
+                Result<Unit>.Fail(new ValidationError("Secret write approval is no longer current."));
+        }, ct);
     }
 
     /// <inheritdoc/>

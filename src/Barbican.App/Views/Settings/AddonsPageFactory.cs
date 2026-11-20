@@ -20,7 +20,7 @@ using Microsoft.UI.Xaml.Automation.Peers;
 namespace Barbican.App.Views.Settings;
 
 /// <summary>Lists packages and reviews local archives before installation.</summary>
-internal sealed class AddonsPageFactory(PluginPackageHost packages, PluginBackgroundRuntimes runtimes,
+internal sealed partial class AddonsPageFactory(PluginPackageHost packages, PluginBackgroundRuntimes runtimes,
     IPrefsStore prefs, IPrefsEditor editor) : ISettingsPageFactory
 {
     private StackPanel? _list;
@@ -67,6 +67,9 @@ internal sealed class AddonsPageFactory(PluginPackageHost packages, PluginBackgr
         panel.Children.Add(_refresh);
         _import = SetUiUi.Pill("Import ZIP…", () => SetUiUi.Run(ImportAsync), "set.addons.import");
         panel.Children.Add(_import);
+#if WINDOWS
+        AddManagedReviewControls(panel);
+#endif
         _reviewPanel = SetUiUi.Id(new StackPanel { Spacing = 6 }, "set.addons.review");
         panel.Children.Add(_reviewPanel);
         panel.Unloaded += (_, _) => OnHidden();
@@ -93,6 +96,9 @@ internal sealed class AddonsPageFactory(PluginPackageHost packages, PluginBackgr
     {
         if (_visible) runtimes.RunningChanged -= OnRunningChanged;
         _visible = false;
+#if WINDOWS
+        ClearManagedSelection();
+#endif
         _reviewGeneration++;
         SetUiUi.Run(ClearReviewAsync);
     }
@@ -114,7 +120,8 @@ internal sealed class AddonsPageFactory(PluginPackageHost packages, PluginBackgr
         var state = installation.Enabled ? running ? "Running" : "Enabled · Stopped" : "Disabled";
         if (installation.Package.RuntimeKind == PluginRuntimeKind.Native) state += " · Native";
         if (installation.Error is not null) state += " · Needs attention";
-        if (NeedsWebsiteReview(installation)) state += " · Review websites";
+        if (installation.Package.Source == PluginPackageSource.Managed) state += " · Managed · Runtime unavailable";
+        else if (NeedsWebsiteReview(installation)) state += " · Review websites";
         detail.Text = $"Version {installation.Package.Identity.Version} · {state}";
         if (start is not null) start.Visibility = running ? Visibility.Collapsed : Visibility.Visible;
     }
@@ -186,12 +193,13 @@ internal sealed class AddonsPageFactory(PluginPackageHost packages, PluginBackgr
         var detail = SetUiUi.Id(SetUiUi.Meta(string.Empty), "set.addons.state." + identity.Id);
         AutomationProperties.SetLiveSetting(detail, AutomationLiveSetting.Polite);
         var actions = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6 };
-        var start = installation is { Enabled: true, Error: null }
+        var managed = installation.Package.Source == PluginPackageSource.Managed;
+        var start = !managed && installation is { Enabled: true, Error: null }
             ? AddAction("Start", "start", enabled: true, remove: false)
             : null;
-        AddAction(installation.Enabled ? "Disable" : "Enable", "enable", enabled: !installation.Enabled, remove: false);
+        if (!managed) AddAction(installation.Enabled ? "Disable" : "Enable", "enable", enabled: !installation.Enabled, remove: false);
         AddAction("Remove", "remove", enabled: false, remove: true);
-        if (NeedsWebsiteReview(installation))
+        if (!managed && NeedsWebsiteReview(installation))
         {
             var review = SetUiUi.Pill("Review websites", () => SetUiUi.Run(() => ReviewInstalledAsync(identity)), $"set.addons.review-websites.{identity.Id}");
             actions.Children.Add(review);
@@ -389,6 +397,14 @@ internal sealed class AddonsPageFactory(PluginPackageHost packages, PluginBackgr
             if (preview.Previous?.Grant is { } grant)
                 _reviewPanel.Children.Add(SetUiUi.Meta("Previously approved websites: " + Describe(grant.ApprovedHttpOrigins.Order(StringComparer.OrdinalIgnoreCase))));
         }
+#if WINDOWS
+        if (candidate.RequestedTier == PluginExecutionTier.Privileged && preview.ManagedApprovalVerified &&
+            !string.IsNullOrWhiteSpace(preview.VerifiedSigner) && _managedSelection is not null)
+        {
+            ShowManagedConsent(preview, _reviewPanel);
+            return;
+        }
+#endif
         if (candidate.RequestedTier != PluginExecutionTier.Untrusted)
         {
             _reviewPanel.Children.Add(SetUiUi.Body("Privileged add-ons require verified managed approval."));
@@ -492,9 +508,14 @@ internal sealed class AddonsPageFactory(PluginPackageHost packages, PluginBackgr
             ? $"{user} ({server.GetComponents(UriComponents.SchemeAndServer | UriComponents.Path, UriFormat.SafeUnescaped)})"
             : user;
 
-    private async Task InstallAsync(PluginInstallPreview preview, List<(string Key, CheckBox Choice)> choices, bool approveNative = false)
+    private async Task InstallAsync(PluginInstallPreview preview, List<(string Key, CheckBox Choice)> choices, bool approveNative = false, bool approvePrivileged = false)
     {
         if (!_visible || _importing || _mutating || _loading || !ReferenceEquals(_review, preview) || _status is null) return;
+#if WINDOWS
+        if (approvePrivileged && !ManagedSelectionCurrent()) { _status.Text = "The selected account changed. Review again."; return; }
+#else
+        if (approvePrivileged) return;
+#endif
         var generation = _reviewGeneration;
         _importing = true;
         _review = null;
@@ -504,7 +525,7 @@ internal sealed class AddonsPageFactory(PluginPackageHost packages, PluginBackgr
         {
             var decision = new PluginInstallDecision(preview.ReviewId, preview.Candidate.Identity,
                 preview.Candidate.RequestedPermissions, choices.Where(x => x.Choice.IsChecked == true).Select(x => x.Key),
-                approvedHttpOrigins: preview.Candidate.RequestedHttpOrigins, approveNativeFullTrust: approveNative);
+                approvedHttpOrigins: preview.Candidate.RequestedHttpOrigins, approveNativeFullTrust: approveNative, approvePrivilegedJavaScript: approvePrivileged);
             var result = await packages.InstallAsync(decision, CancellationToken.None).ConfigureAwait(true);
             if (!IsCurrent(generation)) return;
             if (!result.IsOk || result.Value is null)
@@ -539,6 +560,9 @@ internal sealed class AddonsPageFactory(PluginPackageHost packages, PluginBackgr
 
     private async Task ClearReviewAsync()
     {
+#if WINDOWS
+        ClearManagedSelection();
+#endif
         var review = _review;
         _review = null;
         _reviewPanel?.Children.Clear();

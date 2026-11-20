@@ -321,15 +321,50 @@ public sealed class AuthenticatedPluginPackageStoreTests
         });
     }
 
-    private sealed class TestSecrets : ISecretStore
+    [Fact]
+    public async Task RevocationBeforeGuardedPointerWritePreservesCommittedIndexAndAllowsRetry()
+    {
+        await WithProfileAsync(async (paths, lease, secrets) =>
+        {
+            using var store = Need(await AuthenticatedPluginPackageStore.OpenAsync(paths, lease, secrets, Ct));
+            Assert.Equal(1, Need(await store.CommitAsync(paths.Profile, 0, new byte[] { 7 }, Ct)));
+            var secretName = new SecretName("plugin-authority-v1", paths.Profile);
+            var originalPointer = Need(await secrets.ReadAsync(secretName, Ct));
+            var allowed = 1;
+            secrets.BlockNextGuardedWrite = true;
+            var pending = store.CommitAsync(paths.Profile, 1, new byte[] { 8 },
+                publish => Volatile.Read(ref allowed) != 0 && publish(), Ct);
+            await secrets.GuardedWriteEntered.Task.WaitAsync(TimeSpan.FromSeconds(5), Ct);
+            Volatile.Write(ref allowed, 0);
+            secrets.ReleaseGuardedWrite.TrySetResult();
+            Assert.False((await pending).IsOk);
+            Assert.Equal(originalPointer, Need(await secrets.ReadAsync(secretName, Ct)));
+            using var reopened = Need(await AuthenticatedPluginPackageStore.OpenAsync(paths, lease, secrets, Ct));
+            var unchanged = Need(await reopened.LoadAsync(paths.Profile, Ct));
+            Assert.Equal(1, unchanged.Revision);
+            Assert.Equal(new byte[] { 7 }, unchanged.Index.ToArray());
+
+            Volatile.Write(ref allowed, 1);
+            Assert.Equal(2, Need(await reopened.CommitAsync(paths.Profile, 1, new byte[] { 9 },
+                publish => Volatile.Read(ref allowed) != 0 && publish(), Ct)));
+            var retried = Need(await reopened.LoadAsync(paths.Profile, Ct));
+            Assert.Equal(2, retried.Revision);
+            Assert.Equal(new byte[] { 9 }, retried.Index.ToArray());
+        });
+    }
+
+    private sealed class TestSecrets : IGuardedSecretStore
     {
         private readonly InMemorySecretStore _inner = new();
         public bool FailWrites { get; set; }
         public bool FailAfterWrite { get; set; }
         public bool FailReads { get; set; }
         public bool BlockNextRead { get; set; }
+        public bool BlockNextGuardedWrite { get; set; }
         public TaskCompletionSource ReadEntered { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
         public TaskCompletionSource ReleaseRead { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public TaskCompletionSource GuardedWriteEntered { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public TaskCompletionSource ReleaseGuardedWrite { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
         public async Task<Barbican.Core.Common.Result<string?>> ReadAsync(SecretName name, CancellationToken ct)
         {
             if (FailReads) return Barbican.Core.Common.Result<string?>.Fail(new Barbican.Core.Jmap.Errors.ValidationError("Synthetic vault failure."));
@@ -346,6 +381,17 @@ public sealed class AuthenticatedPluginPackageStoreTests
             if (FailWrites) return Barbican.Core.Common.Result<Barbican.Core.Common.Unit>.Fail(new Barbican.Core.Jmap.Errors.ValidationError("Synthetic secret write failure."));
             var result = await _inner.WriteAsync(name, value, ct);
             return FailAfterWrite ? Barbican.Core.Common.Result<Barbican.Core.Common.Unit>.Fail(new Barbican.Core.Jmap.Errors.ValidationError("Synthetic lost acknowledgement.")) : result;
+        }
+        public async Task<Barbican.Core.Common.Result<Barbican.Core.Common.Unit>> WriteWhileCurrentAsync(SecretName name, string value,
+            Func<Func<bool>, bool> publishWhileCurrent, CancellationToken ct)
+        {
+            if (BlockNextGuardedWrite)
+            {
+                BlockNextGuardedWrite = false;
+                GuardedWriteEntered.TrySetResult();
+                await ReleaseGuardedWrite.Task.WaitAsync(ct);
+            }
+            return await _inner.WriteWhileCurrentAsync(name, value, publishWhileCurrent, ct);
         }
         public Task<Barbican.Core.Common.Result<Barbican.Core.Common.Unit>> DeleteAsync(SecretName name, CancellationToken ct) => _inner.DeleteAsync(name, ct);
     }

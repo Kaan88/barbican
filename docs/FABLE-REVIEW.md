@@ -2912,3 +2912,32 @@ enrollment UI, managed package approval and persistence, and privileged
 WebView startup remain open. The new path is exercised with synthetic
 HTTP and signing keys. Windows Automation passed 3,595 tests with four
 skips. Windows Release built without warnings or errors.
+
+## Codex / Astra review of managed add-on installation (2026-11-20)
+
+Windows Add-ons accepts an administrator-provided HTTPS origin, public
+signing key and add-on ID. It shows the exact selected account and
+provider before requesting separate consent to share the OAuth access
+token. After signature and registry verification, it shows the package
+permissions, signer fingerprint and explicit privileged installation
+consent. Canceling or leaving the page stops an in-flight review.
+
+The installed record binds the verified origin, signer, account and
+archive to the authenticated package index. A local import and a
+different managed source cannot replace the same ID. Updating a managed
+package requires a new verified review and consent. The account,
+provider and profile lease are checked when each request starts and
+when the authenticated index pointer is written. Unauthorized staging
+bytes do not become an installation.
+
+Managed packages are installed disabled. Windows currently withholds
+their runtime grant and executable resources until privileged startup
+is available.
+
+Windows Automation passed 3,607 tests with four skips. A private Windows
+desktop verified the two consent steps, signer fingerprint, permission
+list and disabled installation using the synthetic provider. A second
+review with a different key returned a signature mismatch and preserved
+the installed row. The disabled row exposed no Enable action.
+Windows Release built without warnings or errors. The M6b specification
+gate and generated hook check passed. Astra approved this checkpoint.

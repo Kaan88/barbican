@@ -10,6 +10,7 @@ using Barbican.Core.Plugins.Hooks;
 using Barbican.Core.Plugins.Native;
 using Barbican.Core.Plugins.OAuth;
 using Barbican.Core.Plugins.Packages;
+using Barbican.Core.Plugins.Packages.Managed;
 using Barbican.Core.Plugins.Permissions;
 using Barbican.Core.Plugins.Persistence;
 using Barbican.Core.Plugins.Runtime;
@@ -19,7 +20,8 @@ using Barbican.Platform.Plugins;
 
 namespace Barbican.App.Plugins;
 
-internal sealed class PluginPackageHost(IProfilePaths paths, ISecretStore secrets, TimeProvider time, IAccountOverview accounts) : IAsyncDisposable
+internal sealed class PluginPackageHost(IProfilePaths paths, ISecretStore secrets, TimeProvider time, IAccountOverview accounts,
+    ManagedPluginSource? managed = null) : IAsyncDisposable
 {
     private readonly SemaphoreSlim _gate = new(1, 1);
     private PluginPackageManager? _manager;
@@ -95,6 +97,14 @@ internal sealed class PluginPackageHost(IProfilePaths paths, ISecretStore secret
 
     internal Task<Result<PluginInstallPreview>> ReviewAsync(PluginPackageIdentity package, CancellationToken ct) =>
         WithManagerAsync(manager => manager.ReviewAsync(package, ct), ct);
+
+    internal async Task<Result<PluginInstallPreview>> ReviewManagedAsync(AccountSessionSnapshot selected, Uri origin, string pinnedKey, string pluginId, CancellationToken ct)
+    {
+        if (managed is null) return Result<PluginInstallPreview>.Fail(new ValidationError("Managed add-on review is unavailable."));
+        var opened = await WithManagerAsync(manager => Task.FromResult(Result<PluginPackageManager>.Ok(manager)), ct).ConfigureAwait(false);
+        return opened.IsOk ? await opened.Value!.ReviewManagedAsync(managed, selected, origin, pinnedKey, pluginId, ct).ConfigureAwait(false)
+            : Result<PluginInstallPreview>.Fail(opened.Error!);
+    }
 
     public Task<Result<PluginInstallation>> InstallAsync(PluginInstallDecision decision, CancellationToken ct)
     {

@@ -10,6 +10,10 @@ using Barbican.Core.Plugins.Bridge;
 #if WINDOWS
 using Barbican.Core.Accounts;
 using Barbican.Core.Plugins.Notifications;
+using Barbican.Core.Plugins.Packages.Managed;
+#if AUTOMATION
+using Barbican.Core.Storage;
+#endif
 #endif
 using Barbican.Presentation.Composition;
 using Microsoft.Extensions.DependencyInjection;
@@ -37,6 +41,7 @@ public static class SettingsUiRegistration
         services.AddSingleton<IAppScreenFactory, SetUiScreenFactory>();
         services.AddSingleton<PluginPackageHost>();
 #if WINDOWS
+        services.AddSingleton(CreateManagedPluginSource);
         services.AddSingleton<IAccountSignOutCleanup>(sp => new PluginAccountSignOutCleanup(() => sp.GetRequiredService<PluginPackageHost>()));
         services.AddSingleton<Views.Plugins.PluginFilePresenter>();
         services.AddSingleton<Barbican.Core.OrganizationPolicy.OrganizationPrintPolicy>();
@@ -82,4 +87,18 @@ public static class SettingsUiRegistration
 #endif
         return services;
     }
+
+#if WINDOWS
+    private static ManagedPluginSource CreateManagedPluginSource(IServiceProvider services)
+    {
+        var snapshots = services.GetRequiredService<IAccountSessionSnapshots>();
+#if AUTOMATION
+        if (Shell.Automation.SamplePolicyFixture.Enabled(services.GetRequiredService<IProfilePaths>()) &&
+            string.Equals(Environment.GetEnvironmentVariable("BARBICAN_SAMPLE_SEND_PIPELINE"), "1", StringComparison.Ordinal) &&
+            string.Equals(Environment.GetEnvironmentVariable("BARBICAN_SAMPLE_MANAGED_ADDONS"), "1", StringComparison.Ordinal))
+            return Shell.Automation.SampleManagedPluginFixture.Create(snapshots);
+#endif
+        return new ManagedPluginSource(snapshots);
+    }
+#endif
 }

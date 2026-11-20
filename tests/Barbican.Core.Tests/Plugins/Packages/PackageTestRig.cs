@@ -91,6 +91,8 @@ internal sealed class PackageTestRig
         public int Loads { get; private set; }
         public TaskCompletionSource? LoadEntered { get; set; }
         public TaskCompletionSource? ReleaseLoad { get; set; }
+        public TaskCompletionSource? PublishEntered { get; set; }
+        public TaskCompletionSource? ReleasePublish { get; set; }
         public async Task<Result<PluginStoreSnapshot>> LoadAsync(string profile, CancellationToken ct)
         {
             Loads++;
@@ -101,13 +103,32 @@ internal sealed class PackageTestRig
                 : Result<PluginStoreSnapshot>.Ok(_indices.GetValueOrDefault(profile) ?? new PluginStoreSnapshot(0, []));
         }
         public Task<Result<long>> CommitAsync(string profile, long expectedRevision, ReadOnlyMemory<byte> index, CancellationToken ct)
+            => Task.FromResult(Commit(profile, expectedRevision, index));
+
+        public async Task<Result<long>> CommitAsync(string profile, long expectedRevision, ReadOnlyMemory<byte> index,
+            Func<Func<bool>, bool> publishWhileCurrent, CancellationToken ct)
+        {
+            var copy = index.ToArray();
+            PublishEntered?.TrySetResult();
+            if (ReleasePublish is not null) await ReleasePublish.Task.WaitAsync(ct);
+            var result = Result<long>.Fail(new ValidationError("Synthetic publication was refused."));
+            _ = publishWhileCurrent(() =>
+            {
+                if (ct.IsCancellationRequested) return false;
+                result = Commit(profile, expectedRevision, copy);
+                return true;
+            });
+            return result;
+        }
+
+        private Result<long> Commit(string profile, long expectedRevision, ReadOnlyMemory<byte> index)
         {
             if (ThrowOnCommit) throw new IOException("Synthetic storage failure.");
             var before = _indices.GetValueOrDefault(profile) ?? new PluginStoreSnapshot(0, []);
-            if (FailBeforeCommit || FailCommitAtRevision == expectedRevision || before.Revision != expectedRevision) return Task.FromResult(Result<long>.Fail(new ValidationError("Synthetic commit failure.")));
+            if (FailBeforeCommit || FailCommitAtRevision == expectedRevision || before.Revision != expectedRevision) return Result<long>.Fail(new ValidationError("Synthetic commit failure."));
             var next = new PluginStoreSnapshot(before.Revision + 1, ImmutableArray.CreateRange(index.ToArray()));
             _indices[profile] = next;
-            return Task.FromResult(FailAfterCommit ? Result<long>.Fail(new ValidationError("Synthetic uncertain acknowledgement.")) : Result<long>.Ok(next.Revision));
+            return FailAfterCommit ? Result<long>.Fail(new ValidationError("Synthetic uncertain acknowledgement.")) : Result<long>.Ok(next.Revision);
         }
         public Task<Result<Unit>> PutContentAsync(string profile, PluginPackageIdentity identity, ReadOnlyMemory<byte> archive, CancellationToken ct)
         {

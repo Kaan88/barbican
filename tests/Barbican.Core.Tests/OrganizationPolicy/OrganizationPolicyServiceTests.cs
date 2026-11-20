@@ -61,6 +61,30 @@ public sealed class OrganizationPolicyServiceTests
         Assert.Equal(1, handler.Calls);
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Managed_review_cancellation_or_host_revocation_before_request_sends_no_credential(bool cancel)
+    {
+        using var rig = await Rig.CreateAsync();
+        var handler = new ManagedContextHandler();
+        using var source = new ManagedPluginSource(rig.Accounts, new ManagedPluginTransport(handler));
+        using var stop = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
+        var handoffs = 0;
+        bool HostFence(Func<bool> issue)
+        {
+            if (++handoffs == 1) return issue();
+            if (!cancel) return false;
+            stop.Cancel();
+            return issue();
+        }
+        Task<Result<ManagedPluginCandidate>> FetchAsync() => source.AcquireForReviewAsync(rig.Accounts.Active(), PolicyOrigin, ManagedKey,
+            "managed-probe", "1.21.2", HostFence, stop.Token);
+        if (cancel) await Assert.ThrowsAnyAsync<OperationCanceledException>(() => FetchAsync());
+        else Assert.False((await FetchAsync()).IsOk);
+        Assert.Equal(0, handler.Calls);
+    }
+
     private sealed class ManagedContextHandler : HttpMessageHandler
     {
         public int Calls { get; private set; }
