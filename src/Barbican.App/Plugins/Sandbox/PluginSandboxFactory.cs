@@ -1,17 +1,139 @@
-// Mirrors: Bulwark lib/plugin-sandbox/loader.ts and host-bridge.ts:327-459; authority must be re-read and revocation tracked before plugin code runs.
+// Mirrors: Bulwark lib/plugin-sandbox/loader.ts and host-bridge.ts:327-459.
+using System.Text;
 using Barbican.Core.Common;
+using Barbican.Core.Jmap.Errors;
 using Barbican.Core.Plugins.Bridge;
 using Barbican.Core.Plugins.Packages;
 using Barbican.Core.Plugins.Permissions;
 using Barbican.Core.Plugins.Runtime;
+using Barbican.Core.Storage;
+
 namespace Barbican.App.Plugins.Sandbox;
-/// <summary>Production factory contract; implementation is intentionally pending until red acceptance tests are reviewed.</summary>
-public sealed class PluginSandboxFactory(IPluginPackageManager packages, IPluginAuthority authority, IPluginRevocationCoordinator revocation, IPluginApiDispatcher dispatcher, IPluginSandboxWebViewFactory views) : IPluginRuntimeFactory
+
+/// <summary>Starts an isolated untrusted JavaScript runtime from current installed authority.</summary>
+public sealed class PluginSandboxFactory(IPluginPackageManager packages, IPluginAuthority authority,
+    IPluginRevocationCoordinator revocation, IPluginApiDispatcher dispatcher, IPluginSandboxWebViewFactory views,
+    IPluginSandboxStartup? startup = null) : IPluginRuntimeFactory
 {
-    private readonly IPluginPackageManager _packages = packages;
-    private readonly IPluginAuthority _authority = authority;
-    private readonly IPluginRevocationCoordinator _revocation = revocation;
-    private readonly IPluginApiDispatcher _dispatcher = dispatcher;
-    private readonly IPluginSandboxWebViewFactory _views = views;
-    public Task<Result<IPluginRuntimeInstance>> StartAsync(PluginRuntimeStart request, CancellationToken ct) => throw new PortPendingException("M6b production WebView runtime");
+    private const int MaxEntrypointBytes = 20 * 1024 * 1024;
+    private static readonly UTF8Encoding StrictUtf8 = new(false, true);
+
+    public async Task<Result<IPluginRuntimeInstance>> StartAsync(PluginRuntimeStart request, CancellationToken ct)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        if (startup is null || !ProfilePaths.IsValidName(request.Profile)) return Fail();
+
+        try
+        {
+            var trusted = await CurrentAsync(request, ct).ConfigureAwait(false);
+            if (trusted is null) return Fail();
+
+            var code = await ReadEntrypointAsync(trusted, ct).ConfigureAwait(false);
+            if (code is null || await CurrentAsync(trusted, ct).ConfigureAwait(false) is null) return Fail();
+
+            return await StartIsolatedAsync(startup, trusted, code, ct).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
+        catch (Exception error) when (error is not OutOfMemoryException and not StackOverflowException) { return Fail(); }
+    }
+
+    private async Task<Result<IPluginRuntimeInstance>> StartIsolatedAsync(IPluginSandboxStartup activator,
+        PluginRuntimeStart trusted, string code, CancellationToken ct)
+    {
+        var binding = PluginRuntimeBinding.Create(trusted.Profile, trusted.Grant, trusted.Kind, trusted.Slot);
+        PluginSandboxStartupLifetime? lifetime = null;
+        var transferred = false;
+        try
+        {
+            var view = await views.CreateAsync("plugin-" + Guid.NewGuid().ToString("N"), ct).ConfigureAwait(false);
+            var session = new PluginSandboxSession(binding, view, dispatcher, authority);
+            lifetime = new PluginSandboxStartupLifetime(session);
+            if (await CurrentAsync(trusted, ct).ConfigureAwait(false) is null) return Fail();
+
+            var tracked = revocation.Track(binding, _ => lifetime.DisposeAsync());
+            if (!tracked.IsOk || tracked.Value is not { } registration) return Fail();
+            lifetime.AttachRegistration(registration);
+
+            if (!binding.IsAlive || await CurrentAsync(trusted, ct).ConfigureAwait(false) is not { } current) return Fail();
+            using var linked = CancellationTokenSource.CreateLinkedTokenSource(ct, binding.Lifetime);
+            var instance = await ActivateAsync(activator, session, lifetime, current, code, linked.Token).ConfigureAwait(false);
+            if (instance is null) return Fail();
+
+            if (await CurrentAsync(current, ct).ConfigureAwait(false) is null || !binding.IsAlive) return Fail();
+            ct.ThrowIfCancellationRequested();
+            transferred = true;
+            return Result<IPluginRuntimeInstance>.Ok(new PluginSandboxStartupOwnedInstance(instance, lifetime));
+        }
+        finally
+        {
+            if (!transferred)
+            {
+                if (lifetime is null) await binding.DisposeAsync().ConfigureAwait(false);
+                else await lifetime.DisposeAsync().ConfigureAwait(false);
+            }
+        }
+    }
+
+    private static async Task<IPluginRuntimeInstance?> ActivateAsync(IPluginSandboxStartup activator, PluginSandboxSession session,
+        PluginSandboxStartupLifetime lifetime, PluginRuntimeStart current, string code, CancellationToken ct)
+    {
+        ct.ThrowIfCancellationRequested();
+        if (!lifetime.TryBeginActivation()) return null;
+
+        IPluginRuntimeInstance? instance = null;
+        bool accepted;
+        try
+        {
+            var result = await activator.ActivateAsync(session, current, code, ct).ConfigureAwait(false);
+            if (result.IsOk) instance = result.Value;
+        }
+        finally { accepted = lifetime.FinishActivation(instance); }
+
+        return accepted ? instance : null;
+    }
+
+    private async Task<string?> ReadEntrypointAsync(PluginRuntimeStart request, CancellationToken ct)
+    {
+        var opened = await packages.OpenResourceAsync(request.Grant.Package, request.Installation.Package.Entrypoint, ct).ConfigureAwait(false);
+        if (!opened.IsOk || opened.Value is null) return null;
+
+        await using var stream = opened.Value;
+        using var data = new MemoryStream();
+        var buffer = new byte[81920];
+        int count;
+        while ((count = await stream.ReadAsync(buffer, ct).ConfigureAwait(false)) != 0)
+        {
+            if (data.Length + count > MaxEntrypointBytes) return null;
+            await data.WriteAsync(buffer.AsMemory(0, count), ct).ConfigureAwait(false);
+        }
+        return DecodeEntrypoint(data.ToArray());
+    }
+
+    private static string DecodeEntrypoint(ReadOnlySpan<byte> bytes)
+    {
+        if (bytes.StartsWith(Encoding.UTF8.Preamble)) bytes = bytes[Encoding.UTF8.Preamble.Length..];
+        return StrictUtf8.GetString(bytes);
+    }
+
+    private async Task<PluginRuntimeStart?> CurrentAsync(PluginRuntimeStart request, CancellationToken ct)
+    {
+        var installed = await packages.FindAsync(request.Grant.Package.Id, ct).ConfigureAwait(false);
+        if (!installed.IsOk || installed.Value is not { Enabled: true, Error: null } item
+            || item.Package.Identity != request.Grant.Package || item.Package.Identity != request.Installation.Package.Identity
+            || item.Package.RuntimeKind != PluginRuntimeKind.JavaScript || item.Package.RequestedTier != PluginExecutionTier.Untrusted)
+            return null;
+
+        var result = await authority.GetCurrentAsync(request.Grant.Package.Id, ct).ConfigureAwait(false);
+        if (!result.IsOk || result.Value is not { Enabled: true, Tier: PluginExecutionTier.Untrusted } grant
+            || !request.Grant.Enabled || grant.Package != request.Grant.Package || grant.Generation != request.Grant.Generation
+            || grant.Tier != request.Grant.Tier || !grant.Permissions.SetEquals(request.Grant.Permissions)
+            || !grant.AccountKeys.SetEquals(request.Grant.AccountKeys))
+            return null;
+
+        // The activation request takes package metadata from the authenticated store.
+        return new PluginRuntimeStart(item, grant, request.Profile, request.Kind, request.Slot, request.Props, request.HostState);
+    }
+
+    private static Result<IPluginRuntimeInstance> Fail() =>
+        Result<IPluginRuntimeInstance>.Fail(new ValidationError("Plugin startup was refused or could not be activated."));
 }

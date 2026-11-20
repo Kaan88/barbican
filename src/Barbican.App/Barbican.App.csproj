@@ -85,6 +85,7 @@
   <ItemGroup>
     <!-- The body shell's scripts and the dark-mail pass, read at run time (PORT-PLAN.md §3.6). -->
     <Content Include="Assets/mail/*.js" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="Assets/plugins/*.js" CopyToOutputDirectory="PreserveNewest" />
     <Content Include="Assets/Fonts/*.ttf;Assets/Fonts/*.otf;Assets/Fonts/*-OFL.txt" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
   <Import Project="../../eng/Uno.WebView2Name.targets" />

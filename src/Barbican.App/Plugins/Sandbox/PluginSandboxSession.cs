@@ -31,6 +31,12 @@ public sealed class PluginSandboxSession(PluginRuntimeBinding binding, IPluginSa
         {
             bytes = readPayload();
             if (bytes.Length > WireLimits.MaxWireBytes) return false;
+            // This control is emitted by the trusted parent, never relayed from a plugin message.
+            if (bytes.Span.SequenceEqual("barbican-sandbox-transport-closed"u8))
+            {
+                await DisposeAsync().ConfigureAwait(false);
+                return true;
+            }
             value = PluginValueCodec.Decode(bytes, WireLimits);
             if (!PluginMessageValidator.Validate(value,PluginMessageDirection.SandboxToHost,MessageLimits)) return false;
         }

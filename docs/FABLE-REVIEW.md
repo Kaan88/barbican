@@ -2089,3 +2089,17 @@ The Windows Automation suite built cleanly and passed 3,269 tests with four
 skips and no failures. Coverage includes concurrent grant disable, account
 switch, lease release, binding close, and synthetic ingress. The production
 WebView factory and end-to-end browser enforcement remain pending.
+
+## Codex / Astra review of Windows sandbox startup and parent bridge (2026-11-20)
+
+The startup seam loads the verified entry point and binds it to the current
+package grant. Revocation waits for canceled activation to unwind and disposes
+any instance returned during teardown. A failed disposal of the activated
+instance can be retried. Queue saturation closes the parent transport and
+signals the native session to revoke the binding.
+
+Astra approved the startup lifetime and queue fixes within that scope. The
+Windows Automation build was clean and 3,281 tests passed with four skips
+and zero failures. All 46 JavaScript bridge tests passed. The Windows build
+contains the three bridge scripts. Production WebView activation, frame
+navigation enforcement, and end-to-end runtime verification are pending.

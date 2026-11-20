@@ -111,6 +111,21 @@ public sealed class PluginSandboxIngressRedTests
     }
 
     [Fact]
+    public async Task OnlyTheTrustedParentCanSignalTransportShutdown()
+    {
+        var view = new View();
+        var binding = Binding();
+        await using var session = Session(binding, view, new Dispatcher());
+        var bytes = "barbican-sandbox-transport-closed"u8.ToArray();
+        var ct = TestContext.Current.CancellationToken;
+        Assert.False(await session.ReceiveAsync(view.RootIdentity, false, view.TrustedRoot, () => bytes, ct));
+        Assert.True(binding.IsAlive);
+
+        Assert.True(await session.ReceiveAsync(view.RootIdentity, true, view.TrustedRoot, () => bytes, ct));
+        Assert.False(binding.IsAlive);
+    }
+
+    [Fact]
     public async Task Direct_iframe_message_is_rejected_without_reading_its_payload()
     {
         var view = new View(); var dispatch = new Dispatcher(); var session = Session(Binding(), view, dispatch);
