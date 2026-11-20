@@ -8,6 +8,7 @@ using Barbican.Core.Jmap.Errors;
 using Barbican.Core.Jmap.Json;
 using Barbican.Core.Jmap.Submission;
 using Barbican.Core.Jmap.Transport;
+using Barbican.Core.OrganizationPolicy;
 
 namespace Barbican.Core.Compose;
 
@@ -17,13 +18,34 @@ public sealed class RawMessageSender(IAccountManager accounts, TimeProvider time
     private const int MaxBytes = 50 * 1024 * 1024;
     private const int MaxRecipients = 200;
 
-    public async Task<Result<RawMessageReceipt>> SendAsync(IAccountSession session, RawMessageRequest request,
+    public Task<Result<RawMessageReceipt>> SendAsync(IAccountSession session, RawMessageRequest request,
         Func<Func<bool>, CancellationToken, Task<bool>> beforeSend, CancellationToken ct)
     {
         ArgumentNullException.ThrowIfNull(session);
         ArgumentNullException.ThrowIfNull(request);
         ArgumentNullException.ThrowIfNull(beforeSend);
+        if (request.EnvelopeRecipients is null) return Task.FromResult(Failure("Invalid raw message or envelope."));
+        return SendAsync(new(session, null), request, null,
+            (_, guard, issue, token) => beforeSend(() => guard(issue), token), ct);
+    }
+
+    /// <summary>Sends a standalone add-on message after verifying the identity and applicable organization policy.</summary>
+    public Task<Result<RawMessageReceipt>> SendUnderPolicyAsync(AccountSessionSnapshot captured, RawMessageRequest request,
+        OrganizationPolicyService policy, Func<bool, Func<Func<bool>, bool>, Func<bool>, CancellationToken, Task<bool>> authorize, CancellationToken ct)
+    {
+        ArgumentNullException.ThrowIfNull(captured);
+        ArgumentNullException.ThrowIfNull(policy);
+        ArgumentNullException.ThrowIfNull(authorize);
+        if (captured.ActiveSelectionGeneration is null) return Task.FromResult(PolicyDenied());
+        return SendAsync(captured, request, policy, authorize, ct);
+    }
+
+    private async Task<Result<RawMessageReceipt>> SendAsync(AccountSessionSnapshot captured, RawMessageRequest request,
+        OrganizationPolicyService? policy, Func<bool, Func<Func<bool>, bool>, Func<bool>, CancellationToken, Task<bool>> authorize, CancellationToken ct)
+    {
+        ArgumentNullException.ThrowIfNull(request);
         if (!TrySnapshot(request, out var bytes, out var recipients)) return Failure("Invalid raw message or envelope.");
+        var session = captured.Session;
         if (!ReferenceEquals(accounts.SessionFor(request.LocalAccountKey), session) || session.Client is not JmapClient client || client.IsReadOnly)
             return Failure("The sending account is unavailable.");
         var resolved = ComposeContext.For(accounts, request.LocalAccountKey);
@@ -39,7 +61,26 @@ public sealed class RawMessageSender(IAccountManager accounts, TimeProvider time
         if (!found.IsOk) return Result<RawMessageReceipt>.Fail(found.Error!);
         var identity = found.Value!.Select(item => item.Identity).FirstOrDefault(item => string.Equals(item.Id, request.IdentityId, StringComparison.Ordinal));
         if (identity is null || !RecipientText.IsValidEmail(identity.Email)) return Failure("The sending identity is unavailable.");
-        if (!RawMessageHeaders.MatchFrom(bytes, identity.Email)) return Failure("The raw message From does not match the sending identity.");
+        if (!RawMessageHeaders.TryRead(bytes, identity.Email, policy is not null, recipients is null, out var derived))
+            return Failure("The raw message sender or envelope is invalid.");
+        return await SendVerifiedAsync(ctx, jmapSession, captured, request with { Bytes = bytes, EnvelopeRecipients = recipients ?? derived },
+            identity.Email, policy, authorize, ct).ConfigureAwait(false);
+    }
+
+    private async Task<Result<RawMessageReceipt>> SendVerifiedAsync(ComposeContext ctx, JmapSession jmapSession, AccountSessionSnapshot captured,
+        RawMessageRequest request, string sender, OrganizationPolicyService? policy,
+        Func<bool, Func<Func<bool>, bool>, Func<bool>, CancellationToken, Task<bool>> authorize, CancellationToken ct)
+    {
+        var initial = policy is null ? null : await ReadPolicyAsync(policy, captured, sender, ct).ConfigureAwait(false);
+        if (policy is not null && initial is null) return PolicyDenied();
+        var bytes = request.Bytes;
+        if (initial is { } start)
+        {
+            var classified = RawClassification.Apply(bytes, start.Labels);
+            if (!classified.IsOk) return PolicyDenied();
+            bytes = classified.Value!;
+            if (!RawMessageHeaders.TryRead(bytes, sender, true, false, out _)) return PolicyDenied();
+        }
         long? hold = null;
         if (request.ScheduledAt is { } scheduled)
         {
@@ -50,26 +91,67 @@ public sealed class RawMessageSender(IAccountManager accounts, TimeProvider time
         var roles = await ctx.RolesAsync(false, ct).ConfigureAwait(false);
         if (!roles.IsOk) return Result<RawMessageReceipt>.Fail(roles.Error!);
         if (!request.SubmitOnly && roles.Value!.Sent is null) return Failure("No Sent folder.");
-        var snapshots = accounts as IAccountSessionSnapshots;
-        IReadOnlyList<AccountSessionSnapshot> captured = [new(session, null)];
-        bool AccountIssue(Func<bool> issue, CancellationToken token) => !token.IsCancellationRequested &&
-            (snapshots is null
-                ? ReferenceEquals(accounts.SessionFor(request.LocalAccountKey), session) && client.TryRunWhileSessionCurrent(jmapSession, issue)
-                : snapshots.TryRunWhileCurrent(captured, () => client.TryRunWhileSessionCurrent(jmapSession, issue)));
-        Task<bool> AccountFenceAsync(Func<bool> issue, CancellationToken token) => Task.FromResult(AccountIssue(issue, token));
-        Task<bool> FenceAsync(Func<bool> issue, CancellationToken token) => beforeSend(() => AccountIssue(issue, token), token);
-        var upload = await client.UploadAsync(ctx.Account, bytes, "message/rfc822", FenceAsync, ct).ConfigureAwait(false);
+        var policyChanged = false;
+        async Task<bool> IssueAsync(bool submission, Func<bool> issue, CancellationToken token)
+        {
+            var latest = initial;
+            if (submission && policy is not null)
+                latest = await ReadPolicyAsync(policy, captured, sender, token).ConfigureAwait(false);
+            if (initial is { } expected && (latest is not { } current || !SameLabels(expected.Labels, current.Labels)))
+            {
+                policyChanged = true;
+                return false;
+            }
+            bool IssueWhileAccountCurrent(Func<bool> write) => AccountIssue(captured, jmapSession, write, token);
+            bool Guard(Func<bool> write) => initial is { } authorized && latest is { } checkedPolicy
+                ? authorized.Snapshot.TryRunWhileCurrent(() => checkedPolicy.Snapshot.TryRunWhileCurrent(() => IssueWhileAccountCurrent(write)))
+                : IssueWhileAccountCurrent(write);
+            return await authorize(submission, Guard, issue, token).ConfigureAwait(false);
+        }
+        Task<bool> CleanupFenceAsync(Func<bool> issue, CancellationToken token) =>
+            Task.FromResult(AccountIssue(new(captured.Session, null), jmapSession, issue, token));
+        Task<bool> ReadbackFenceAsync(Func<bool> issue, CancellationToken token) =>
+            authorize(false, write => AccountIssue(captured, jmapSession, write, token), issue, token);
+        var client = (JmapClient)ctx.Client;
+        var upload = await client.UploadAsync(ctx.Account, bytes, "message/rfc822",
+            (issue, token) => IssueAsync(false, issue, token), ct).ConfigureAwait(false);
         if (!upload.IsOk) return Result<RawMessageReceipt>.Fail(upload.Error!);
-        return await SubmitUploadedAsync(ctx, request, identity.Email, recipients, hold, roles.Value!, upload.Value!.BlobId, FenceAsync, AccountFenceAsync, ct).ConfigureAwait(false);
+        var result = await SubmitUploadedAsync(ctx, request, sender, request.EnvelopeRecipients!, hold, roles.Value!, upload.Value!.BlobId,
+            (issue, token) => IssueAsync(true, issue, token), CleanupFenceAsync, ReadbackFenceAsync, ct).ConfigureAwait(false);
+        return policyChanged && result.Error is not RawMessageOutcomeUnknown ? PolicyDenied() : result;
     }
 
-    private static bool TrySnapshot(RawMessageRequest request, out byte[] bytes, out string[] recipients)
+    private bool AccountIssue(AccountSessionSnapshot captured, JmapSession jmapSession, Func<bool> issue, CancellationToken ct)
+    {
+        if (ct.IsCancellationRequested || captured.Session.Client is not JmapClient client) return false;
+        bool Run() => client.TryRunWhileSessionCurrent(jmapSession, issue);
+        return accounts is IAccountSessionSnapshots snapshots
+            ? snapshots.TryRunWhileCurrent([captured], Run)
+            : ReferenceEquals(accounts.SessionFor(captured.Session.Account.Key), captured.Session) && Run();
+    }
+
+    private static async Task<(OrganizationPolicySnapshot Snapshot, ClassificationPolicy Labels)?> ReadPolicyAsync(
+        OrganizationPolicyService policy, AccountSessionSnapshot captured, string sender, CancellationToken ct)
+    {
+        var lookup = await policy.ReadForSessionAsync(captured, ct).ConfigureAwait(false);
+        return lookup.Snapshot is { } snapshot && snapshot.ForSender(sender) is { } effective
+            ? (snapshot, effective.Labels) : null;
+    }
+
+    private static bool SameLabels(ClassificationPolicy first, ClassificationPolicy second) =>
+        first.Required == second.Required && string.Equals(first.DefaultId, second.DefaultId, StringComparison.Ordinal) &&
+        string.Equals(first.ExtraHeader, second.ExtraHeader, StringComparison.Ordinal) && first.List.SequenceEqual(second.List);
+
+    private static Result<RawMessageReceipt> PolicyDenied() => Result<RawMessageReceipt>.Fail(new RawMessagePolicyDenied());
+
+    private static bool TrySnapshot(RawMessageRequest request, out byte[] bytes, out string[]? recipients)
     {
         bytes = [];
-        recipients = [];
-        if (request.Bytes is not { Length: > 0 and <= MaxBytes } || request.EnvelopeRecipients is null ||
+        recipients = null;
+        if (request.Bytes is not { Length: > 0 and <= MaxBytes } ||
             string.IsNullOrWhiteSpace(request.LocalAccountKey) || string.IsNullOrWhiteSpace(request.IdentityId)) return false;
         bytes = (byte[])request.Bytes.Clone();
+        if (request.EnvelopeRecipients is null) return true;
         recipients = request.EnvelopeRecipients.ToArray();
         return recipients.Length is > 0 and <= MaxRecipients &&
             recipients.All(address => !string.IsNullOrWhiteSpace(address) && RecipientText.IsValidEmail(address) && !address.Any(char.IsControl));
@@ -77,7 +159,8 @@ public sealed class RawMessageSender(IAccountManager accounts, TimeProvider time
 
     private async Task<Result<RawMessageReceipt>> SubmitUploadedAsync(ComposeContext ctx, RawMessageRequest request, string fromAddress,
         IReadOnlyList<string> recipients, long? hold, MailboxRoles roles, string blobId,
-        Func<Func<bool>, CancellationToken, Task<bool>> fence, Func<Func<bool>, CancellationToken, Task<bool>> accountFence, CancellationToken ct)
+        Func<Func<bool>, CancellationToken, Task<bool>> fence, Func<Func<bool>, CancellationToken, Task<bool>> accountFence,
+        Func<Func<bool>, CancellationToken, Task<bool>> readbackFence, CancellationToken ct)
     {
         var importArgs = new JsonObject { ["accountId"] = ctx.Account, ["emails"] = new JsonObject { ["raw-import"] = new JsonObject
         {
@@ -107,8 +190,34 @@ public sealed class RawMessageSender(IAccountManager accounts, TimeProvider time
                 await CleanupAsync(ctx, imported.Value!, accountFence).ConfigureAwait(false);
             return Result<RawMessageReceipt>.Fail(created.Error!);
         }
-        return Result<RawMessageReceipt>.Ok(new(request.LocalAccountKey, ctx.Account, request.SubmitOnly ? null : imported.Value!, created.Value!,
-            hold is { } secondsHeld ? time.GetUtcNow().AddSeconds(secondsHeld) : null));
+        var receipt = new RawMessageReceipt(request.LocalAccountKey, ctx.Account, request.SubmitOnly ? null : imported.Value!, created.Value!, null)
+        {
+            Scheduled = hold is not null,
+        };
+        var createBody = result.Value!.Args("s", "EmailSubmission/set").Value;
+        var creation = createBody?["created"]?["raw-submit"] as JsonObject;
+        return await ObserveSubmissionAsync(ctx, receipt, creation, recipients, accountFence, readbackFence, ct).ConfigureAwait(false);
+    }
+
+    private static async Task<Result<RawMessageReceipt>> ObserveSubmissionAsync(ComposeContext ctx, RawMessageReceipt receipt, JsonObject? creation,
+        IReadOnlyList<string> recipients, Func<Func<bool>, CancellationToken, Task<bool>> accountFence,
+        Func<Func<bool>, CancellationToken, Task<bool>> readbackFence, CancellationToken ct)
+    {
+        var initial = creation is null ? null : RawSubmissionReadback.Parse(creation, recipients);
+        RawSubmissionObservation? observed = null;
+        try { observed = await RawSubmissionReadback.ReadAsync(ctx, receipt.SubmissionId, recipients, readbackFence, ct).ConfigureAwait(false); }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested) { }
+        var readback = RawSubmissionReadback.Merge(initial, observed);
+        if (readback is { AllRefused: true })
+        {
+            if (receipt.EmailId is { } id) await CleanupAsync(ctx, id, accountFence).ConfigureAwait(false);
+            return Result<RawMessageReceipt>.Fail(new SetError(receipt.SubmissionId, "recipientsRejected", null, null));
+        }
+        return Result<RawMessageReceipt>.Ok(receipt with
+        {
+            ReleaseAt = receipt.Scheduled ? readback?.SendAt : null,
+            RejectedRecipients = readback?.RejectedRecipients ?? [],
+        });
     }
 
     private static JsonObject BuildSubmission(ComposeContext ctx, RawMessageRequest request, string fromAddress,

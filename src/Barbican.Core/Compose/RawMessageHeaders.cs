@@ -1,4 +1,6 @@
 // RFC 5322 sender verification without changing the signed MIME bytes.
+using Barbican.Core.Compose.Recipients;
+using Barbican.Core.OrganizationPolicy;
 using MimeKit;
 
 namespace Barbican.Core.Compose;
@@ -7,8 +9,10 @@ internal static class RawMessageHeaders
 {
     private const int MaxHeaderBytes = 64 * 1024;
 
-    internal static bool MatchFrom(byte[] bytes, string identity)
+    internal static bool TryRead(byte[] bytes, string identity, bool protectBlindRecipients, bool deriveRecipients, out string[] recipients)
     {
+        recipients = [];
+        if (protectBlindRecipients && !RawClassification.HasValidHeaderBlock(bytes)) return false;
         var length = HeaderLength(bytes);
         if (length == 0) return false;
         try
@@ -17,11 +21,33 @@ internal static class RawMessageHeaders
             var options = new ParserOptions { AddressParserComplianceMode = RfcComplianceMode.Strict };
             var headers = new MimeParser(options, stream, false).ParseHeaders();
             var from = headers.Where(header => header.Id == HeaderId.From).ToArray();
-            return from.Length == 1 && InternetAddressList.TryParse(options, from[0].Value, out var addresses) &&
-                addresses.Count == 1 && addresses[0] is MailboxAddress mailbox &&
-                string.Equals(mailbox.Address, identity, StringComparison.OrdinalIgnoreCase);
+            if (from.Length != 1 || !InternetAddressList.TryParse(options, from[0].Value, out var addresses) ||
+                addresses.Count != 1 || addresses[0] is not MailboxAddress mailbox ||
+                !string.Equals(mailbox.Address, identity, StringComparison.OrdinalIgnoreCase)) return false;
+
+            // Blind recipients belong only in the SMTP envelope so the signed source can be sent as supplied.
+            if (protectBlindRecipients && headers.Any(header => header.Id is HeaderId.Bcc or HeaderId.ResentBcc &&
+                !string.IsNullOrWhiteSpace(header.Value))) return false;
+            return !deriveRecipients || TryReadRecipients(headers, options, out recipients);
         }
         catch (Exception error) when (error is FormatException or IOException or ArgumentException) { return false; }
+    }
+
+    private static bool TryReadRecipients(HeaderList headers, ParserOptions options, out string[] recipients)
+    {
+        recipients = [];
+        var result = new List<string>();
+        foreach (var header in headers.Where(header => header.Id is HeaderId.To or HeaderId.Cc))
+        {
+            if (!InternetAddressList.TryParse(options, header.Value, out var addresses)) return false;
+            foreach (var mailbox in addresses.Mailboxes)
+            {
+                if (result.Count == 200 || !RecipientText.IsValidEmail(mailbox.Address)) return false;
+                result.Add(RecipientText.ToAsciiEmail(mailbox.Address));
+            }
+        }
+        recipients = [.. result.Distinct(StringComparer.Ordinal)];
+        return recipients.Length > 0;
     }
 
     private static int HeaderLength(byte[] bytes)

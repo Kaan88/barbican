@@ -177,6 +177,7 @@ public sealed class JmapClient : IJmapClient, IDisposable
             }
 
             var v = ParseObject(text);
+            if (beforeSend is not null) return ReadGuardedUpload(v, accountId, data.Length, mime);
             return v.Str("blobId") is { } blob
                 ? Result<UploadedBlob>.Ok(new UploadedBlob(blob, v.Number("size") is var s and > 0 ? (long)s : data.Length, v.Str("type") ?? mime))
                 : Result<UploadedBlob>.Fail(new TransportError("No blobId in upload response", Retryable: false));
@@ -185,6 +186,16 @@ public sealed class JmapClient : IJmapClient, IDisposable
         {
             _uploads.Release();
         }
+    }
+
+    private static Result<UploadedBlob> ReadGuardedUpload(JsonObject? response, string accountId, int length, string mime)
+    {
+        if (response is null || !string.Equals(response.Str("accountId"), accountId, StringComparison.Ordinal) ||
+            response.Str("blobId") is not { Length: > 0 and <= 255 } blob ||
+            blob.Any(c => !(char.IsAsciiLetterOrDigit(c) || c is '-' or '_')) ||
+            response["size"] is not JsonValue sizeValue || !sizeValue.TryGetValue<long>(out var size) || size != length)
+            return Result<UploadedBlob>.Fail(new TransportError("The guarded upload returned an invalid receipt.", Retryable: false));
+        return Result<UploadedBlob>.Ok(new UploadedBlob(blob, size, response.Str("type") ?? mime));
     }
 
     /// <inheritdoc/>

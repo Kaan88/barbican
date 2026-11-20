@@ -73,6 +73,9 @@ public sealed partial class FakeJmapServer : HttpMessageHandler
     /// <summary>The most recently uploaded blob id, for synthetic fixture inspection.</summary>
     public string? LastUploadedBlobId { get; private set; }
 
+    /// <summary>Optional edit of the successful synthetic upload response before it is serialized.</summary>
+    public Action<JsonObject>? EditUploadReceipt { get; set; }
+
     /// <summary>The URL the client starts from.</summary>
     public string Base => Options.Origin;
 

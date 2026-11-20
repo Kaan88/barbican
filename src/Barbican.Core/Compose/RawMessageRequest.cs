@@ -2,7 +2,7 @@
 namespace Barbican.Core.Compose;
 
 /// <summary>A raw message and its host-approved envelope.</summary>
-public sealed record RawMessageRequest(string LocalAccountKey, string IdentityId, byte[] Bytes, IReadOnlyList<string> EnvelopeRecipients)
+public sealed record RawMessageRequest(string LocalAccountKey, string IdentityId, byte[] Bytes, IReadOnlyList<string>? EnvelopeRecipients)
 {
     public DateTimeOffset? ScheduledAt { get; init; }
     public bool SubmitOnly { get; init; }

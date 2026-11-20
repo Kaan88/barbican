@@ -43,11 +43,12 @@ internal sealed class AddonsFixtureCommand(IProfilePaths paths, ISettingsNavigat
             return records.IsOk ? records.Value! : "error unavailable sample records";
         }
 #if WINDOWS
+        if (mode is "raw-probe" && (!SamplePolicyFixture.Enabled(paths) || !string.Equals(Environment.GetEnvironmentVariable("BARBICAN_SAMPLE_SEND_PIPELINE"), "1", StringComparison.Ordinal))) return "error raw fixture is not enabled";
         if (mode is "print-probe" && !SamplePolicyFixture.PrintEnabled(paths)) return "error print fixture is not enabled";
 #else
-        if (mode is "print-probe") return "error print fixture is unavailable";
+        if (mode is "raw-probe" or "print-probe") return "error fixture is unavailable";
 #endif
-        if (mode is not ("print-probe" or "install" or "update" or "native" or "origins" or "composer-probe" or "send-policy" or "send-observer" or "toast" or "progress-toast"))
+        if (mode is not ("raw-probe" or "print-probe" or "install" or "update" or "native" or "origins" or "composer-probe" or "send-policy" or "send-observer" or "toast" or "progress-toast"))
             return "error unknown add-on fixture";
         if (!shell.TryActivate(AppId.Settings)) return "error Settings is unavailable";
 
@@ -118,6 +119,7 @@ internal sealed class AddonsFixtureCommand(IProfilePaths paths, ISettingsNavigat
                 "send-policy" => """{"id":"sample-send-policy","name":"Sample send policy","version":"1.0.0","author":"Example","type":"hook","permissions":["email:send"]}""",
                 "send-observer" => """{"id":"sample-send-observer","name":"Sample send observer","version":"1.0.0","author":"Example","type":"hook","permissions":["email:read"]}""",
                 "toast" => """{"id":"sample-toast","name":"Sample notification","version":"1.0.0","author":"Example","type":"hook","permissions":[]}""",
+                "raw-probe" => """{"id":"sample-raw-probe","name":"Sample raw probe","version":"1.0.0","author":"Example","type":"hook","permissions":["ui:composer-toolbar","email:raw-send"]}""",
                 "print-probe" => """{"id":"sample-print-probe","name":"Sample print probe","version":"1.0.0","author":"Example","type":"hook","permissions":["ui:composer-toolbar"]}""",
                 "progress-toast" => """{"id":"sample-progress","name":"Sample progress","version":"1.0.0","author":"Example","type":"hook","permissions":["ui:composer-toolbar"]}""",
                 _ => """{"id":"fixture-addon","name":"Fixture Add-on","version":"1.0.0","author":"Example","type":"hook","permissions":["email:read"]}""",
@@ -138,6 +140,7 @@ internal sealed class AddonsFixtureCommand(IProfilePaths paths, ISettingsNavigat
                 "toast" => """exports.activate = api => api.toast.warning('Synthetic\nnotification\u202E.');""",
                 "progress-toast" => ProgressFixture,
                 "print-probe" => PrintFixture,
+                "raw-probe" => RawFixture,
                 "send-policy" => completionRecorder + "\n" + """
                 exports.hooks = {
                     onBeforeEmailSend(email) { if (email.subject === 'Synthetic veto') return false; },
@@ -156,6 +159,35 @@ internal sealed class AddonsFixtureCommand(IProfilePaths paths, ISettingsNavigat
         return archive;
     }
 
+    private const string RawFixture = """
+        let api;
+        exports.activate = async host => {
+            api = host;
+            await api.ui.setActions('composer-header-actions', [
+                { id: 'raw-send', label: 'Send synthetic raw message', icon: 'send' },
+                { id: 'raw-submit', label: 'Submit synthetic raw message', icon: 'send' },
+            ]);
+        };
+        exports.hooks = {
+            async onAction(event) {
+                if (event.actionId !== 'raw-send' && event.actionId !== 'raw-submit') return;
+                const subject = event.actionId === 'raw-send' ? 'Synthetic raw sent' : 'Synthetic raw submit only';
+                const text = 'From: user@example.org\r\nTo: approved@example.net\r\nSubject: ' + subject +
+                    '\r\nSIO-Label: forged\r\n continued\r\nMIME-Version: 1.0\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nSynthetic body\r\n';
+                const bytes = new TextEncoder().encode(text);
+                try {
+                    const sent = event.actionId === 'raw-send';
+                    const receipt = sent
+                        ? await api.jmap.sendRaw(bytes, 'i1', { envelopeRecipients: ['blind@example.net'] })
+                        : await api.jmap.submitRaw(bytes, 'i1');
+                    if (!receipt.emailSubmissionId || !receipt.submissionAccountId || receipt.isSmime !== true ||
+                        receipt.scheduled !== false || Boolean(receipt.emailId) !== sent)
+                        throw new Error('Unexpected raw-send receipt');
+                    await api.toast.success(subject + ' accepted');
+                } catch (error) { await api.toast.error(subject + ' failed: ' + String(error)); }
+            },
+        };
+        """;
     private const string ProgressFixture = """
         let api, handle;
         exports.activate = async host => {

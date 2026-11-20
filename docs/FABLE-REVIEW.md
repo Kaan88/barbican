@@ -2818,3 +2818,33 @@ prevented page delivery. Automation substituted a synthetic page sink
 for the native dialog. Windows Automation passed 3,519 tests with four
 skips. Windows Release built with zero warnings and errors. Physical
 printer output remains unverified.
+
+## Codex / Astra review of Windows standalone raw sending (2026-11-20)
+
+Windows add-ons with an active-account `email:raw-send` grant can call
+`jmap.sendRaw` to keep a Sent copy or `jmap.submitRaw` to submit without
+one. The host verifies the selected login, exact JMAP session and sender
+identity. It requires verified provider policy for that sender and checks
+the current policy again before submission. Optional classification
+replaces add-on-supplied classification headers with the verified default
+when one is configured, preserving the MIME body. Required classification
+blocks standalone calls. The caller can supply a separate recipient
+envelope, including blind recipients, or derive an envelope from To and Cc.
+
+The host checks the upload receipt before referencing the blob and submits
+the import and submission in one JMAP request. Receipts report observed
+server timing and recipient refusals. A lost submission response remains an
+unknown outcome. A consistent, complete refusal can remove the Sent copy.
+
+The standalone path takes up to 25 MiB of binary input and accepts
+scheduled timestamps with a time-zone offset. Composer takeover and
+composer-selected required labels remain open.
+
+Astra approved the source, including the upload and receipt guards.
+Windows Automation passed 3,557 tests with four skips. Private Windows
+walkthroughs with an in-process server verified both SDK methods and
+their Sent-copy results, default classification, blind recipient
+delivery through a separate envelope, and recipient derivation. A
+required-label policy and an unconnected provider each produced zero
+uploads and zero submissions. Windows Release built with zero warnings
+or errors.

@@ -1,4 +1,5 @@
 using System.Text;
+using System.Text.Json.Nodes;
 using Barbican.Core.Common;
 using Barbican.Core.Compose;
 using Barbican.Core.Jmap.Errors;
@@ -59,6 +60,35 @@ public sealed class RawMessageSenderTests
         Assert.DoesNotContain(rig.Fake.Server.ApiCalls, call => call.Contains("Email/import", StringComparison.Ordinal));
         Assert.Empty(rig.Api.Submissions);
         Assert.Empty(rig.InFolder("drafts"));
+    }
+
+    [Theory]
+    [InlineData("accountId", "other-account")]
+    [InlineData("blobId", " ")]
+    [InlineData("size", "not-a-size")]
+    public async Task An_unverified_upload_receipt_never_reaches_submission(string property, string replacement)
+    {
+        var rig = await PipelineRig.StartAsync();
+        rig.Fake.Server.EditUploadReceipt = receipt => receipt[property] = replacement;
+
+        var result = await SendAsync(rig, Request(), AllowAsync);
+
+        Assert.IsType<TransportError>(result.Error);
+        Assert.NotNull(rig.Fake.Server.LastUploadedBlobId);
+        Assert.DoesNotContain(rig.Fake.Server.ApiCalls, call => call.Contains("Email/import", StringComparison.Ordinal));
+        Assert.Empty(rig.Api.Submissions);
+    }
+
+    [Fact]
+    public async Task A_mismatched_upload_size_never_reaches_submission()
+    {
+        var rig = await PipelineRig.StartAsync();
+        rig.Fake.Server.EditUploadReceipt = receipt => receipt["size"] = 1;
+
+        var result = await SendAsync(rig, Request(), AllowAsync);
+
+        Assert.IsType<TransportError>(result.Error);
+        Assert.Empty(rig.Api.Submissions);
     }
 
     [Theory]
@@ -133,6 +163,30 @@ public sealed class RawMessageSenderTests
     }
 
     [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Only_consistent_all_refused_readback_may_remove_the_sent_copy(bool contradictory)
+    {
+        var rig = await PipelineRig.StartAsync();
+        rig.Api.EditSubmissionGet = body =>
+        {
+            var entry = (JsonObject)body["list"]![0]!;
+            entry["deliveryStatus"] = new JsonObject
+            {
+                [EnvelopeRecipient] = new JsonObject { ["delivered"] = "no", ["smtpReply"] = "550 Refused" },
+            };
+            if (contradictory) body["notFound"] = new JsonArray((string?)entry["id"]);
+        };
+
+        var result = await SendAsync(rig, Request(), AllowAsync);
+
+        Assert.Equal(contradictory, result.IsOk);
+        var accepted = Assert.Single(rig.Api.SubmissionStates);
+        Assert.Equal(contradictory, rig.InFolder("sent").Contains(accepted.EmailId, StringComparer.Ordinal));
+        if (!contradictory) Assert.Equal("recipientsRejected", Assert.IsType<SetError>(result.Error).Type);
+    }
+
+    [Theory]
     [InlineData("From: other@example.org\r\n")]
     [InlineData("From: user@example.org\r\nFrom: other@example.org\r\n")]
     [InlineData("From: user@example.org, other@example.org\r\n")]
@@ -144,6 +198,28 @@ public sealed class RawMessageSenderTests
         Assert.IsType<ValidationError>(result.Error);
         Assert.DoesNotContain(rig.Fake.Server.Requests, call => call.StartsWith("POST upload", StringComparison.Ordinal));
         Assert.Empty(rig.Api.Submissions);
+    }
+
+    [Fact]
+    public void Raw_header_envelope_uses_visible_group_and_cc_addresses()
+    {
+        var bytes = Encoding.UTF8.GetBytes("From: user@example.org\r\nTo: Group: one@example.net, two@example.net;\r\n" +
+            "Cc: three@example.net\r\nBcc:\r\n\r\nBody");
+
+        Assert.True(RawMessageHeaders.TryRead(bytes, SenderAddress, true, true, out var recipients));
+        Assert.Equal(["one@example.net", "two@example.net", "three@example.net"], recipients, StringComparer.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("Bcc: blind@example.org\r\n")]
+    [InlineData("Resent-Bcc:\r\n blind@example.org\r\n")]
+    [InlineData("Bcc : blind@example.org\r\n")]
+    [InlineData("X-Injected: text\rBcc: blind@example.org\r\n")]
+    public void Raw_blind_recipient_headers_are_rejected_even_with_an_explicit_envelope(string header)
+    {
+        var request = Request("From: user@example.org\r\n" + header);
+
+        Assert.False(RawMessageHeaders.TryRead(request.Bytes, SenderAddress, true, false, out _));
     }
 
     private static RawMessageRequest Request(string from = "From: Test Sender <user@example.org>\r\n") => new(

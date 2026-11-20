@@ -27,6 +27,12 @@ public static class ComposerRegistration
         services.AddSingleton<IDialogContent, AccountPickDialogContent>();
         services.AddSingleton<IDialogContent, ScheduleDialogContent>();
 #if WINDOWS
+        services.AddSingleton<Barbican.Core.Compose.RawMessageSender>();
+        services.AddSingleton<Barbican.Core.Plugins.Api.RawSend.IPluginRawSendHost, Barbican.App.Plugins.PluginRawSendHost>();
+        services.AddSingleton<IPluginApiMethod>(sp => Barbican.Core.Plugins.Api.RawSend.PluginRawSendMethods.SendRaw(
+            sp.GetRequiredService<Barbican.Core.Plugins.Api.RawSend.IPluginRawSendHost>()));
+        services.AddSingleton<IPluginApiMethod>(sp => Barbican.Core.Plugins.Api.RawSend.PluginRawSendMethods.SubmitRaw(
+            sp.GetRequiredService<Barbican.Core.Plugins.Api.RawSend.IPluginRawSendHost>()));
         services.AddSingleton<PluginComposerAccess>();
         services.AddSingleton<IComposeLinkAddOns, Barbican.App.Plugins.PluginComposeLinks>();
         services.AddSingleton<Barbican.Core.Compose.IOutgoingAddOnHooks>(sp => new Barbican.App.Plugins.PluginOutgoingSendHooks(

@@ -186,7 +186,9 @@ public sealed partial class FakeJmapServer
         var id = Store.PutBlob(bytes);
         LastUploadedBlobId = id;
         var type = request.Content?.Headers.ContentType?.MediaType ?? "application/octet-stream";
-        return Json(HttpStatusCode.Created, new JsonObject { ["accountId"] = Options.AccountId, ["blobId"] = id, ["type"] = type, ["size"] = bytes.Length });
+        var receipt = new JsonObject { ["accountId"] = Options.AccountId, ["blobId"] = id, ["type"] = type, ["size"] = bytes.Length };
+        EditUploadReceipt?.Invoke(receipt);
+        return Json(HttpStatusCode.Created, receipt);
     }
 
     private HttpResponseMessage EventSource(HttpRequestMessage request)

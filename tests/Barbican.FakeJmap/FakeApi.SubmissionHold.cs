@@ -315,6 +315,9 @@ public sealed partial class FakeApi
         return (updated, notUpdated);
     }
 
+    /// <summary>Optional edit of the synthetic EmailSubmission/get response.</summary>
+    public Action<JsonObject>? EditSubmissionGet { get; set; }
+
     private (string? Name, JsonObject Args) EmailSubmissionGet(JsonObject args)
     {
         lock (_lock)
@@ -323,13 +326,15 @@ public sealed partial class FakeApi
             var ids = (args["ids"] as JsonArray)?.Select(x => (string?)x).OfType<string>().ToList();
             var chosen = ids is null ? _held : [.. _held.Where(h => ids.Contains(h.Id, StringComparer.Ordinal))];
             var notFound = ids is null ? [] : ids.Where(i => !_held.Any(h => string.Equals(h.Id, i, StringComparison.Ordinal))).ToList();
-            return (null, new JsonObject
+            var body = new JsonObject
             {
                 ["accountId"] = options.AccountId,
                 ["state"] = SubmissionState(),
                 ["list"] = new JsonArray([.. chosen.Select(h => (JsonNode?)Project(h.ToJson(), args["properties"] as JsonArray))]),
                 ["notFound"] = new JsonArray([.. notFound.Select(i => (JsonNode?)i)]),
-            });
+            };
+            EditSubmissionGet?.Invoke(body);
+            return (null, body);
         }
     }
 

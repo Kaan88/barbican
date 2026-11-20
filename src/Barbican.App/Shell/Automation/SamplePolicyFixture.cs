@@ -68,10 +68,21 @@ internal sealed class SamplePolicyFixture : IDisposable
                 Enabled("BARBICAN_SAMPLE_ORGANIZATION_POLICY") && Enabled("BARBICAN_SAMPLE_PRINT") &&
                 (Environment.GetEnvironmentVariable("BARBICAN_SAMPLE_PRINT_POLICY") is "allow" or "watermark");
             var watermark = printing && string.Equals(Environment.GetEnvironmentVariable("BARBICAN_SAMPLE_PRINT_POLICY"), "watermark", StringComparison.Ordinal);
-            var json = "{\"organisation\":{\"devices\":{\"noPrint\":" + (printing ? "false" : "true") + ",\"watermark\":" + (watermark ? "true" : "false") + "}},\"scopes\":[]}";
+            var labels = SampleLabels(profile);
+            var json = "{\"organisation\":{\"devices\":{\"noPrint\":" + (printing ? "false" : "true") + ",\"watermark\":" + (watermark ? "true" : "false") + "}" + labels + "},\"scopes\":[]}";
             var response = new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(json, Encoding.UTF8, "application/json") };
             response.Headers.TryAddWithoutValidation("X-Bulwark-Policy-Domains", "example.org");
             return Task.FromResult(response);
+        }
+
+        private static string SampleLabels(string profile)
+        {
+            var mode = Environment.GetEnvironmentVariable("BARBICAN_SAMPLE_RAW_LABELS");
+            if (!ProfilePaths.IsAutomationProfile(profile) || !Enabled("BARBICAN_SAMPLE") || !Enabled("BARBICAN_SAMPLE_ADDON_ACCOUNT") ||
+                !Enabled("BARBICAN_SAMPLE_ORGANIZATION_POLICY") || !Enabled("BARBICAN_SAMPLE_SEND_PIPELINE") || mode is not ("1" or "required"))
+                return string.Empty;
+            var required = mode is "required" ? "true" : "false";
+            return ",\"labels\":{\"list\":[{\"id\":\"synthetic\",\"name\":\"Synthetic label\",\"color\":\"#d97706\"}],\"defaultId\":\"synthetic\",\"required\":" + required + "}";
         }
     }
 }

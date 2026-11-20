@@ -25,7 +25,7 @@ public sealed class SampleActiveMail : IActiveMail, Barbican.Presentation.Action
         if (Barbican.Core.Storage.ProfilePaths.IsAutomationProfile(Environment.GetEnvironmentVariable("BARBICAN_PROFILE")) &&
             string.Equals(Environment.GetEnvironmentVariable("BARBICAN_SAMPLE_ADDON_ACCOUNT"), "1", StringComparison.Ordinal) &&
             string.Equals(Environment.GetEnvironmentVariable("BARBICAN_SAMPLE_SEND_PIPELINE"), "1", StringComparison.Ordinal))
-            return options with { SubmissionExtensions = ["FUTURERELEASE"] };
+            return options with { SubmissionExtensions = ["FUTURERELEASE"], RfcSubmissionFollowupResponse = true };
 #endif
         return options;
     }
@@ -95,6 +95,23 @@ public sealed class SampleActiveMail : IActiveMail, Barbican.Presentation.Action
     public IMailSync? Sync { get; }
 
 #if WINDOWS
+    internal string ReadRawState()
+    {
+        var sent = _server.Store.MailboxId("sent");
+        var emails = _server.Store.EmailIds().Select(_server.Store.Email).Where(e => e is not null).ToArray();
+        var submissions = _server.Api.SubmissionStates;
+        var submitted = _server.Api.Submissions;
+        var uploadedId = _server.LastUploadedBlobId;
+        var upload = uploadedId is null ? null : _server.Store.Blob(uploadedId);
+        return System.Text.Json.JsonSerializer.Serialize(new
+        {
+            submissions = submissions.Count,
+            retainedSent = emails.Count(e => string.Equals((string?)e!["subject"], "Synthetic raw sent", StringComparison.Ordinal) && sent is not null && e["mailboxIds"]?[sent] is not null),
+            retainedSubmitOnly = emails.Count(e => string.Equals((string?)e!["subject"], "Synthetic raw submit only", StringComparison.Ordinal)),
+            lastEnvelopeRecipient = submitted.Count == 0 ? null : (string?)submitted[^1]["envelope"]?["rcptTo"]?[0]?["email"],
+            lastUpload = upload is null ? null : System.Text.Encoding.UTF8.GetString(upload),
+        });
+    }
     internal string ReadSentKeywords(string subject)
     {
         var sent = _server.Store.MailboxId("sent");
