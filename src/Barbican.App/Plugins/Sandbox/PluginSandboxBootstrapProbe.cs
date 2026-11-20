@@ -78,10 +78,22 @@ internal static class PluginSandboxBootstrapProbe
 
     private static async Task RunAndExitAsync(DispatcherQueue queue, Panel mount, IProfilePaths paths, HiddenWindowOptions options, string root)
     {
-        var status = await RunAsync(queue, mount, paths, options, root, CancellationToken.None).ConfigureAwait(false);
+        var slot = IsRequested("BARBICAN_BOOTSTRAP_CHECK_SLOT");
+        var network = IsRequested("BARBICAN_BOOTSTRAP_CHECK_NETWORK");
+        var package = IsRequested("BARBICAN_BOOTSTRAP_CHECK_PACKAGE");
+        var status = (slot, network, package) switch
+        {
+            (true, false, false) => await PluginSandboxSlotProbe.RunAsync(queue, mount, paths, options, root, CancellationToken.None).ConfigureAwait(false),
+            (false, false, true) => await PluginSandboxPackageProbe.RunAsync(queue, mount, paths, options, root, CancellationToken.None).ConfigureAwait(false),
+            (false, _, false) => await RunAsync(queue, mount, paths, options, root, network, CancellationToken.None).ConfigureAwait(false),
+            _ => "bootstrap refused",
+        };
         Console.WriteLine(status);
-        Environment.Exit(status is "bootstrap ok" or "bootstrap network ok" ? 0 : 1);
+        Environment.Exit(status is "bootstrap ok" or "bootstrap network ok" or "bootstrap slot ok" or "package probe ok" ? 0 : 1);
     }
+
+    private static bool IsRequested(string variable) =>
+        string.Equals(Environment.GetEnvironmentVariable(variable), "1", StringComparison.Ordinal);
 
     private static bool Allowed(HiddenWindowOptions options, IProfilePaths paths, string? bootstrapRoot) =>
         options.Mode == HiddenWindowMode.OffScreen && options.Error is null &&
@@ -90,8 +102,8 @@ internal static class PluginSandboxBootstrapProbe
         string.Equals(paths.Profile, options.Profile, StringComparison.Ordinal) &&
         !string.IsNullOrEmpty(bootstrapRoot) && Path.IsPathFullyQualified(bootstrapRoot);
 
-    internal static async Task<string> RunAsync(DispatcherQueue queue, Panel mount, IProfilePaths paths,
-        HiddenWindowOptions options, string? bootstrapRoot, CancellationToken ct)
+    private static async Task<string> RunAsync(DispatcherQueue queue, Panel mount, IProfilePaths paths,
+        HiddenWindowOptions options, string? bootstrapRoot, bool networkCheck, CancellationToken ct)
     {
         if (!Allowed(options, paths, bootstrapRoot))
             return "bootstrap refused";
@@ -101,7 +113,6 @@ internal static class PluginSandboxBootstrapProbe
         IPluginSandboxWebView? view = null;
         var passed = false;
         var cleaned = false;
-        var networkCheck = string.Equals(Environment.GetEnvironmentVariable("BARBICAN_BOOTSTRAP_CHECK_NETWORK"), "1", StringComparison.Ordinal);
         var networkPassed = false;
         using var budget = CancellationTokenSource.CreateLinkedTokenSource(ct);
         budget.CancelAfter(TimeSpan.FromSeconds(30));

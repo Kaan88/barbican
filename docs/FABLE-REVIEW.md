@@ -2252,3 +2252,21 @@ Automation suite passed 3,315 tests with four skips and zero failures.
 The focused case verifies allowed lifecycle delivery, exclusion of a mail
 hook and observer detachment after revocation. Live Windows package
 activation and production composition remain pending.
+
+## Codex / Astra review of Windows leased activation and slot rendering (2026-11-20)
+
+Separate hidden Windows runs with fresh automation profiles passed using
+the exact Bulwark 1.21.2 runtime. The package probe used a fixed synthetic
+archive, an authenticated package store, the held profile lease, and an
+in-memory secret service. It refused the disabled install, started under
+the new grant after enablement, observed the empty lifecycle payload through
+a fixed in-memory API witness, detached on disablement, and refused the old
+grant after re-enable. The probe disabled the fixture again during cleanup.
+
+The slot probe rendered a fixed synthetic component and checked its exact
+text and 123 by 37 CSS pixel bounds. The native query was confined to the
+captured child frame and required its exact URL and opaque origin. The
+probe leaves production placement, focus, and resize routing to later tests.
+Astra approved both hidden probes and their cleanup. Windows Automation
+passed 3,315 tests on rerun with four skips. The preceding run had one
+failure whose identity was not retained.
