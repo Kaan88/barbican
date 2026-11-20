@@ -13,7 +13,10 @@ public sealed class PluginSandboxSession(PluginRuntimeBinding binding, IPluginSa
     private static readonly PluginMessageLimits MessageLimits = new(MaxStringLength:25 * 1024 * 1024, MaxGraphStringLength:25 * 1024 * 1024, MaxGraphBinaryBytes:25 * 1024 * 1024);
     private readonly Lock _gate = new();
     private readonly HashSet<string> _requests = new(StringComparer.Ordinal);
+    private readonly TaskCompletionSource _readySignal = new(TaskCreationOptions.RunContinuationsAsynchronously);
+    private readonly TaskCompletionSource<PluginValue?> _initializationSignal = new(TaskCreationOptions.RunContinuationsAsynchronously);
     private bool _ready, _initQueued, _initIssued, _disposed;
+    private bool _activationFailed;
     private Task? _cleanup;
     public PluginRuntimeBinding Binding { get; } = binding;
     public IPluginSandboxWebView View { get; } = view;
@@ -44,10 +47,51 @@ public sealed class PluginSandboxSession(PluginRuntimeBinding binding, IPluginSa
         var type = value.Property("type").StringValue;
         if (string.Equals(type,"sandbox-ready",StringComparison.Ordinal))
         {
-            lock (_gate) { if (!Active || _ready) return false; _ready = true; return true; }
+            lock (_gate) { if (!Active || _ready) return false; _ready = true; _readySignal.TrySetResult(); return true; }
+        }
+        if (string.Equals(type,"init-done",StringComparison.Ordinal) || string.Equals(type,"init-error",StringComparison.Ordinal))
+        {
+            return await CompleteInitializationAsync(string.Equals(type,"init-done",StringComparison.Ordinal) ? value : null).ConfigureAwait(false);
         }
         if (!string.Equals(type,"api-request",StringComparison.Ordinal)) return false; // Other protocol handlers land with their ownership registries.
         return await DispatchRequestAsync(value,bytes.Length,ct).ConfigureAwait(false);
+    }
+    /// <summary>Waits for authenticated readiness or cancellation of the caller or binding.</summary>
+    public async Task WaitForReadyAsync(CancellationToken ct)
+    {
+        using var linked = CancellationTokenSource.CreateLinkedTokenSource(ct, Binding.Lifetime);
+        await _readySignal.Task.WaitAsync(linked.Token).ConfigureAwait(false);
+    }
+    /// <summary>Returns the authenticated initialization result, or null for an initialization error.</summary>
+    public async Task<PluginValue?> WaitForInitializationAsync(CancellationToken ct)
+    {
+        ct.ThrowIfCancellationRequested();
+        using var linked = CancellationTokenSource.CreateLinkedTokenSource(ct, Binding.Lifetime);
+        try
+        {
+            return await _initializationSignal.Task.WaitAsync(linked.Token).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (!ct.IsCancellationRequested && Volatile.Read(ref _activationFailed))
+        {
+            // Closing the failed binding can wake the waiter before its result continuation runs.
+            return null;
+        }
+    }
+
+    private async Task<bool> CompleteInitializationAsync(PluginValue? value)
+    {
+        ValueTask close;
+        lock (_gate)
+        {
+            if (!Active || !_initIssued || _initializationSignal.Task.IsCompleted) return false;
+            _initializationSignal.TrySetResult(value);
+            if (value is not null) return true;
+            Volatile.Write(ref _activationFailed, true);
+            close = DisposeAsync();
+        }
+
+        await close.ConfigureAwait(false);
+        return true;
     }
     private async Task<bool> DispatchRequestAsync(PluginValue value, int wireLength, CancellationToken ct)
     {

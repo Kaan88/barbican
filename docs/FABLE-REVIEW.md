@@ -2103,3 +2103,25 @@ Windows Automation build was clean and 3,281 tests passed with four skips
 and zero failures. All 46 JavaScript bridge tests passed. The Windows build
 contains the three bridge scripts. Production WebView activation, frame
 navigation enforcement, and end-to-end runtime verification are pending.
+
+## Codex / Astra review of Windows sandbox activation acknowledgements (2026-11-20)
+
+The session accepts one authenticated initialization outcome after posting
+init. Initialization failure revokes the binding before any further ingress
+or delivery. Caller cancellation is preserved. The navigation gate admits one
+trusted parent and one child at the selected route. The native event adapter
+uses the session's own WebView, handles navigation and renderer failures,
+denies popups, permissions and downloads, and requires revocation before
+detaching its event handlers.
+
+Astra approved the acknowledgement, navigation and event adapter changes
+after review fixes. The Windows Automation build had zero warnings and
+errors, with 3,292 tests passed and four skipped. The adapter has no
+production registration yet. WebView creation, resource filtering, and
+actual browser events still require integration and verification.
+
+The staged reference runtime's lock and generated manifest matched their
+pinned hashes. A rebuild matched the CSS byte-for-byte and the JavaScript
+after normalizing generated import filenames. The repository privacy scan
+flagged a generated chunk and required upstream notices, so the runtime
+bundle is still preserved in local staging with the notices intact.

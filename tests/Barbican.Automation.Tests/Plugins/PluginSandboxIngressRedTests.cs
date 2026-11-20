@@ -41,6 +41,74 @@ public sealed class PluginSandboxIngressRedTests
         using var json = JsonDocument.Parse("{\"type\":\"api-request\",\"id\":\"one\",\"method\":\"storage.get\",\"args\":[]" + extra + "}");
         return PluginValueCodec.Encode(PluginValue.FromJson(json.RootElement));
     }
+    private static byte[] Message(string json)
+    {
+        using var document = JsonDocument.Parse(json);
+        return PluginValueCodec.Encode(PluginValue.FromJson(document.RootElement));
+    }
+    private const string InitDone = "{\"type\":\"init-done\",\"hooks\":[],\"slots\":[],\"shortcuts\":[]}";
+    private const string InitError = "{\"type\":\"init-error\",\"error\":\"failed\"}";
+
+    [Fact]
+    public async Task Initialization_acknowledgements_require_authenticated_issued_init_and_accept_only_one_outcome()
+    {
+        var view = new View();
+        await using var session = Session(Binding(), view, new Dispatcher());
+        var ct = TestContext.Current.CancellationToken;
+        var ready = session.WaitForReadyAsync(ct);
+        var initialized = session.WaitForInitializationAsync(ct);
+        var done = Message(InitDone);
+        Assert.False(await session.ReceiveAsync(view.RootIdentity, true, view.TrustedRoot, () => done, ct));
+        Assert.False(await session.ReceiveAsync(view.RootIdentity, false, view.TrustedRoot, () => Message("{\"type\":\"sandbox-ready\"}"), ct));
+        Assert.False(ready.IsCompleted);
+        await InitializeAsync(session, view);
+        await ready;
+        Assert.False(await session.ReceiveAsync(new object(), true, view.TrustedRoot, () => done, ct));
+        Assert.False(initialized.IsCompleted);
+        Assert.True(await session.ReceiveAsync(view.RootIdentity, true, view.TrustedRoot, () => done, ct));
+        Assert.Equal("init-done", (await initialized)!.Property("type").StringValue);
+        Assert.False(await session.ReceiveAsync(view.RootIdentity, true, view.TrustedRoot, () => Message(InitError), ct));
+        Assert.False(await session.ReceiveAsync(view.RootIdentity, true, view.TrustedRoot, () => done, ct));
+    }
+
+    [Fact]
+    public async Task Initialization_error_closes_ingress_without_losing_the_failed_outcome()
+    {
+        var view = new View();
+        var dispatch = new Dispatcher();
+        await using var session = Session(Binding(), view, dispatch);
+        var ct = TestContext.Current.CancellationToken;
+        await InitializeAsync(session, view);
+        var waiting = session.WaitForInitializationAsync(ct);
+        Assert.True(await session.ReceiveAsync(view.RootIdentity, true, view.TrustedRoot, () => Message(InitError), ct));
+        Assert.False(session.Binding.IsAlive);
+        Assert.Null(await waiting);
+        Assert.Null(await session.WaitForInitializationAsync(ct));
+        Assert.False(await session.ReceiveAsync(view.RootIdentity, true, view.TrustedRoot, () => Message(InitDone), ct));
+        Assert.False(await session.ReceiveAsync(view.RootIdentity, true, view.TrustedRoot, () => Api(), ct));
+        Assert.Empty(dispatch.Seen);
+        Assert.Single(view.Sent);
+    }
+
+    [Fact]
+    public async Task Startup_waits_cancel_with_caller_or_binding_without_affecting_other_waiters()
+    {
+        var view = new View();
+        var binding = Binding();
+        await using var session = Session(binding, view, new Dispatcher());
+        using var cancel = new CancellationTokenSource();
+        var canceled = session.WaitForReadyAsync(cancel.Token);
+        var ready = session.WaitForReadyAsync(TestContext.Current.CancellationToken);
+        var initialized = session.WaitForInitializationAsync(TestContext.Current.CancellationToken);
+        await cancel.CancelAsync();
+#pragma warning disable VSTHRD003 // The test starts each waiter above so it can observe cancellation while they are pending.
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => canceled);
+        Assert.False(ready.IsCompleted);
+        await binding.DisposeAsync();
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => ready);
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => initialized);
+#pragma warning restore VSTHRD003
+    }
     private static async Task InitializeAsync(PluginSandboxSession session, View view)
     {
         using var ready = JsonDocument.Parse("{\"type\":\"sandbox-ready\"}");
