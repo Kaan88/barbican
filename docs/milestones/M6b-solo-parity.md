@@ -130,21 +130,14 @@ Windows Automation passed 3,165 tests, with four skipped. Hidden sample runs
 followed by composing another reply. The portable at e716ccf contains the
 verified dock and maximize changes and predates inline delivery.
 
-## Windows visual reference and November 20 verification
+## Windows interaction reference and November 20 verification
 
-Keep Bulwark as the default theme. The user identified the original C# WinUI 3 mockup as the interaction reference.
-It launches in Bento Dark. Use its 1560 × 960 window, subject-first reader,
-folder-header compose action and short, ready-to-display message transitions
-when reviewing ease of use. Retain the default Bulwark palette and shell. Use Bulwark 1.21.2 for mail
-actions and responsive behavior. Keep explicit style choices available.
-
-The earlier portable at 5518b0a used Bulwark as its first-run appearance.
-A same-size capture of that generation in Bento Dark showed separate tiled
-panes but also a floating compose button, glance cards above the reader,
-toolbar-first header and unwanted space between the sender and message.
-The reader checkpoint at 5bdfa1e restores the desktop header order and
-eliminates gaps from empty grid rows. The compact reader keeps Back first.
-Local captures are under artifacts/auto/8997 and 8998.
+Bulwark remains the default theme. The original native WinUI mockup is a
+reference for interaction feedback, animation and transitions only. Keep
+the existing appearance, layout, controls and settings choices in both
+Bulwark and Bento. Judge motion by opening mail, switching folders, returning
+to the list and reversing direction before an animation finishes. Keep input
+available during transitions and respect reduced motion.
 
 The narrow inbox now fills the list pane, shows dates and search actions,
 and lets the user go through Folders to Sent. The mobile Reply all icon was
