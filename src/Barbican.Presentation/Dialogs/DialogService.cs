@@ -27,7 +27,8 @@ public sealed class DialogService : ObservableObject, IDialogService, IModalSurf
         ArgumentNullException.ThrowIfNull(request);
         await _one.WaitAsync(ct).ConfigureAwait(true);
         var done = new TaskCompletionSource<object?>(TaskCreationOptions.RunContinuationsAsynchronously);
-        var dialog = new ActiveDialog(request, request.Title, (request as PromptDialogRequest)?.Initial ?? string.Empty, done.SetResult);
+        var dialog = new ActiveDialog(request, request.Title, (request as PromptDialogRequest)?.Initial ?? string.Empty,
+            answer => done.TrySetResult(answer));
         using var cancel = ct.Register(() => done.TrySetResult(null));
         try
         {

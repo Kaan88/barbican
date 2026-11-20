@@ -10,7 +10,8 @@ namespace Barbican.App.Plugins.Sandbox;
 
 public sealed partial class PluginSandboxSession
 {
-    internal async Task<Result<PluginValue>> InvokeHookAsync(string hookName, PluginValue arguments, TimeSpan budget, CancellationToken ct)
+    internal async Task<Result<PluginValue>> InvokeHookAsync(string hookName, PluginValue arguments, TimeSpan budget,
+        CancellationToken ct, Func<Func<bool>, bool>? runWhileCurrent = null)
     {
         ct.ThrowIfCancellationRequested();
         if (arguments.Kind != PluginValueKind.Array || budget <= TimeSpan.Zero || budget > TimeSpan.FromMinutes(10) ||
@@ -30,7 +31,9 @@ public sealed partial class PluginSandboxSession
         {
             var wire = EncodeHook(hookName, id, arguments);
             if (wire is null || !await View.PostAsync((write, postToken) =>
-                new(delivery.TryPostAsync(Binding, _ => PostHook(id, wire, write, postToken), postToken)), token).ConfigureAwait(false))
+                new(delivery.TryPostAsync(Binding, _ => runWhileCurrent is null
+                    ? PostHook(id, wire, write, postToken)
+                    : runWhileCurrent(() => PostHook(id, wire, write, postToken)), postToken)), token).ConfigureAwait(false))
                 return HookUnavailable();
 
             var reply = await pending.WaitAsync(token).ConfigureAwait(false);

@@ -119,6 +119,7 @@ public sealed partial class DialogHostView : UserControl
     private void Hide()
     {
         DialogPopup.IsOpen = false;
+        CustomContent.Content = null;
         if (_covered)
         {
             _body?.Uncover();

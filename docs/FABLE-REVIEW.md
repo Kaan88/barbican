@@ -2576,3 +2576,31 @@ account adapter is available only to Windows Automation with both
 automation profile. Reader actions currently register during activation.
 Reader mounting, file preview, printing, send hooks and compose-link
 checks remain open.
+
+## Codex / Astra review of Windows reader actions and add-on preview (2026-11-20)
+
+The reader mounts authorized add-on actions beside the message toolbar.
+A constrained menu holds the actions when the reader is narrow. The
+ordinary reader supplies the message ID only to add-ons with read
+permission. The native post checks the selected reader snapshot, active
+account session, registered action, running frame and held package grant.
+Cross-account reader selection and per-card actions remain open.
+
+`ui.openFile` accepts up to 25 MiB of PDF or raster bytes with a matching
+signature. It sanitizes the displayed filename and limits each add-on to
+five previews a minute. Windows renders PDFs one bounded page at a time
+and decodes raster images in memory. The dialog opens only after the first
+page or image decodes and the profile lease and exact grant are checked at
+presentation. Disabling the owner cancels the dialog. Windows codec
+availability governs raster support. Printing, download and full image
+behavior parity remain open.
+
+Astra approved the reader and preview changes after the dialog lifetime,
+grant and byte allocation fixes. Windows Automation passed 3,416 tests
+with four skips. Windows Release built with zero warnings and errors.
+The unchanged Bulwark fixture opened `Akte 01-2026.pdf` through both the
+toolbar button and the overflow menu on the private sample desktop.
+Native dialog state confirmed the preview opened and stayed within the
+window. Closing the preview and disabling the installed add-on both
+dismissed it. The private desktop capture command did not produce a
+screenshot.

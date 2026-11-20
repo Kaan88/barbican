@@ -34,10 +34,11 @@ public sealed class PluginValue
     public string BlobType => Kind == PluginValueKind.Blob ? Node.Text! : throw new InvalidOperationException("Not a blob.");
     public PluginValue BackingBuffer => Kind == PluginValueKind.View ? new(_nodes, Node.Links![0], _limits) : throw new InvalidOperationException("Not a view.");
     public (string Name, string Message, string? Stack, PluginValue? Cause) ErrorValue => Kind == PluginValueKind.Error ? (Node.Keys![0], Node.Keys[1], Node.Flag ? Node.Keys[2] : null, Node.Links!.Length == 0 ? null : new(_nodes, Node.Links[0], _limits)) : throw new InvalidOperationException("Not an error.");
-    public byte[] BinaryBytes() => Kind switch
+    public byte[] BinaryBytes() => BinarySpan().ToArray();
+    internal ReadOnlySpan<byte> BinarySpan() => Kind switch
     {
-        PluginValueKind.ArrayBuffer or PluginValueKind.Blob => Node.Bytes!.ToArray(),
-        PluginValueKind.View => _nodes[Node.Links![0]].Bytes!.AsSpan(Node.Offset, Node.Length).ToArray(),
+        PluginValueKind.ArrayBuffer or PluginValueKind.Blob => Node.Bytes!,
+        PluginValueKind.View => _nodes[Node.Links![0]].Bytes!.AsSpan(Node.Offset, Node.Length),
         _ => throw new InvalidOperationException("Not binary."),
     };
     public bool SameNode(PluginValue other) => other is not null && ReferenceEquals(_nodes, other._nodes) && _id == other._id;

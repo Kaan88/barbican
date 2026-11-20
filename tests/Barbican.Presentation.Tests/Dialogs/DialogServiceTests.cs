@@ -62,4 +62,16 @@ public sealed class DialogServiceTests
         Assert.False(await task);
         Assert.False(dialogs.IsOpen);
     }
+
+    [Fact]
+    public async Task A_queued_click_after_cancellation_cannot_complete_the_dialog_again()
+    {
+        using var dialogs = new DialogService();
+        using var cts = new CancellationTokenSource();
+        var task = dialogs.ShowAsync(new ConfirmDialogRequest("One", "a"), cts.Token);
+        var dialog = dialogs.Current!;
+        await cts.CancelAsync();
+        dialog.Complete(true);
+        Assert.False(await task);
+    }
 }

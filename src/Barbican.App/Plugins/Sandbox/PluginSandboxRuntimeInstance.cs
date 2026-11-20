@@ -5,7 +5,7 @@ using Barbican.Core.Plugins.Runtime;
 
 namespace Barbican.App.Plugins.Sandbox;
 
-internal sealed class PluginSandboxRuntimeInstance(PluginSandboxSession session, PluginActivation activation) : IPluginRuntimeInstance
+internal sealed class PluginSandboxRuntimeInstance(PluginSandboxSession session, PluginActivation activation) : IPluginRuntimeInstance, IPluginFencedHookRuntime
 {
     public PluginRuntimeBinding Binding => session.Binding;
     public PluginActivation Activation { get; } = activation;
@@ -15,6 +15,15 @@ internal sealed class PluginSandboxRuntimeInstance(PluginSandboxSession session,
         ct.ThrowIfCancellationRequested();
         return Activation.Hooks.Contains(hookName, StringComparer.Ordinal)
             ? session.InvokeHookAsync(hookName, arguments, budget, ct)
+            : UnavailableAsync<PluginValue>(ct);
+    }
+
+    public Task<Result<PluginValue>> InvokeHookWhileCurrentAsync(string hookName, PluginValue arguments,
+        TimeSpan budget, Func<Func<bool>, bool> runWhileCurrent, CancellationToken ct)
+    {
+        ct.ThrowIfCancellationRequested();
+        return Activation.Hooks.Contains(hookName, StringComparer.Ordinal)
+            ? session.InvokeHookAsync(hookName, arguments, budget, ct, runWhileCurrent)
             : UnavailableAsync<PluginValue>(ct);
     }
 

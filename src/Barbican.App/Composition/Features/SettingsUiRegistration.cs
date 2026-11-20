@@ -37,6 +37,10 @@ public static class SettingsUiRegistration
         services.AddSingleton<PluginPackageHost>();
 #if WINDOWS
         services.AddSingleton<IAccountSignOutCleanup>(sp => new PluginAccountSignOutCleanup(() => sp.GetRequiredService<PluginPackageHost>()));
+        services.AddSingleton<Views.Plugins.PluginFilePresenter>();
+        services.AddSingleton<IDialogContent, Views.Plugins.PluginFilePreviewContent>();
+        services.AddSingleton<IPluginApiMethod>(sp => new PluginOpenFile(sp.GetRequiredService<TimeProvider>(),
+            sp.GetRequiredService<Views.Plugins.PluginFilePresenter>().ShowAsync));
 #endif
         services.AddSingleton<PluginBackgroundRuntimes>();
         services.AddSingleton<IPluginSessionSource, PluginSessionSource>();

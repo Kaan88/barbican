@@ -19,9 +19,19 @@ public sealed partial class ReaderView : UserControl
         Look = ViewHost.Get<StyleState>();
         InitializeComponent();
         InitializeQuickReply();
+#if WINDOWS
+        Loaded += (_, _) => WatchReaderAddOns();
+        Unloaded += (_, _) => UnwatchReaderAddOns();
+#endif
         Reader.PropertyChanged += (_, e) =>
         {
-            if (e.PropertyName is nameof(ReaderViewModel.Current)) RefreshExtraActions();
+            if (e.PropertyName is nameof(ReaderViewModel.Current))
+            {
+                RefreshExtraActions();
+#if WINDOWS
+                RefreshReaderAddOns();
+#endif
+            }
             if (!string.Equals(e.PropertyName, nameof(ReaderViewModel.EmailId), StringComparison.Ordinal))
             {
                 return;
@@ -75,6 +85,10 @@ public sealed partial class ReaderView : UserControl
     {
         ConversationScroll.MaxHeight = Math.Clamp(e.NewSize.Height * 0.40, 150, 360);
         UpdateExtraActionVisibility(PhoneActions.Visibility == Visibility.Visible);
+#if WINDOWS
+        if (UseReaderAddOnOverflow(e.PreviousSize.Width) != UseReaderAddOnOverflow(e.NewSize.Width))
+            RefreshReaderAddOns();
+#endif
     }
 
     private void UpdateExtraActionVisibility(bool phone)

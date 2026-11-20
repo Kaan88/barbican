@@ -10,6 +10,7 @@ using Barbican.Core.Plugins.Hooks;
 using Barbican.Core.Plugins.Native;
 using Barbican.Core.Plugins.OAuth;
 using Barbican.Core.Plugins.Packages;
+using Barbican.Core.Plugins.Permissions;
 using Barbican.Core.Plugins.Persistence;
 using Barbican.Core.Plugins.Runtime;
 using Barbican.Core.Storage;
@@ -45,6 +46,9 @@ internal sealed class PluginPackageHost(IProfilePaths paths, ISecretStore secret
 
     internal Task<Result<PluginInstallation?>> FindAsync(string id, CancellationToken ct) =>
         WithManagerAsync(manager => manager.FindAsync(id, ct), ct);
+
+    internal Task<bool> TryPostAsync(PluginRuntimeBinding binding, Func<PluginGrantSnapshot, bool> write, CancellationToken ct) =>
+        Volatile.Read(ref _manager) is { } manager ? manager.TryPostAsync(binding, write, ct) : Task.FromResult(false);
 
     public IReadOnlyList<AccountStatus> AccountStatuses => accounts.Statuses;
 
