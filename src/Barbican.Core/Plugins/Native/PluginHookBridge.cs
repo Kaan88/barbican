@@ -3,6 +3,7 @@
 // Owner unified (M2 wave 2).
 
 using Barbican.Core.Plugins.Hooks;
+using Barbican.Core.Plugins.Payloads;
 using Barbican.Plugins;
 
 namespace Barbican.Core.Plugins.Native;
@@ -10,6 +11,8 @@ namespace Barbican.Core.Plugins.Native;
 /// <summary>A plugin's subscriptions to catalogue hooks on the app's <see cref="HookBus"/>.</summary>
 internal sealed class PluginHookBridge(NativePluginHost host, LoadedPlugin plugin, HookBus? bus) : IPluginHooks, IDisposable
 {
+    private static readonly string[] ArchiveObservers = [HookNames.OnWindowFocus, HookNames.OnWindowBlur,
+        HookNames.OnOnline, HookNames.OnOffline, HookNames.OnBeforeUnload];
     private readonly Lock _gate = new();
     private readonly List<IDisposable> _subscriptions = [];
     private bool _closed;
@@ -20,6 +23,14 @@ internal sealed class PluginHookBridge(NativePluginHost host, LoadedPlugin plugi
         if (Refused(hook) is { } why)
         {
             throw new InvalidOperationException(why);
+        }
+
+        if (plugin.IsArchive)
+        {
+            if (!ArchiveObservers.Contains(hook, StringComparer.Ordinal))
+                throw new InvalidOperationException("This native hook does not have an approved payload projection.");
+            return bus is null ? Track(Nothing.Instance) : Track(bus.Observe<EmptyPayload>(hook,
+                (_, ct) => InvokeArchiveObserverAsync(hook, handler, ct)));
         }
 
         return bus is null
@@ -36,6 +47,7 @@ internal sealed class PluginHookBridge(NativePluginHost host, LoadedPlugin plugi
     public IDisposable Intercept(string hook, Func<HookEvent, CancellationToken, Task<bool>> handler)
     {
         ArgumentNullException.ThrowIfNull(handler);
+        if (plugin.IsArchive) throw new InvalidOperationException("This native hook does not have an approved intercept projection.");
         if (Refused(hook) is { } why)
         {
             throw new InvalidOperationException(why);
@@ -48,6 +60,15 @@ internal sealed class PluginHookBridge(NativePluginHost host, LoadedPlugin plugi
                 var e = new HookEvent(hook, NativePluginHost.PayloadAsJson(payload));
                 return new ValueTask<bool>(Task.Run(() => handler(e, t), t));
             }));
+    }
+
+    private async ValueTask InvokeArchiveObserverAsync(string hook, Func<HookEvent, CancellationToken, Task> handler, CancellationToken ct)
+    {
+        _ = await host.RunArchiveAsync(plugin, hook, HookPolicies.For(hook).Budget, async token =>
+        {
+            await handler(new HookEvent(hook, "{}"), token).ConfigureAwait(false);
+            return true;
+        }, ct).ConfigureAwait(false);
     }
 
     public void Dispose()

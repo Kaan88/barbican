@@ -2431,3 +2431,35 @@ confirmed the imported package stayed disabled, and removed it. The
 existing hidden JavaScript package and storage probe passed. The M6b
 specification checker reports no remaining Red cases. Native activation,
 hook and slot integration, and the M6b portable remain open.
+
+## Codex / Astra review of Windows native add-on activation (2026-11-20)
+
+A separate Enable action starts an approved native add-on. The runtime
+reopens the authenticated package, checks the complete archive against the
+enabled grant, and obtains startup authority from the held profile lease.
+It loads the reviewed entry point and its managed dependencies from memory.
+The native manifest must match the approved ID, version, API and hook list.
+The app keeps bundled plug-in discovery and data directories separate.
+Native package activation works independently of the WebView bootstrap.
+
+Windows routes imported native reader details and the five empty window and
+connectivity observers through the managed API. Other native hook projections
+and slot contributions remain open. Native add-ons run with the application's
+full access after approval. Their API can supply a profile data directory and
+has no on-disk archive directory.
+
+Disable and shutdown invalidate the binding immediately. Teardown drains
+initialization, admitted callbacks and their cancellation handlers before
+disposing the loaded plug-in. A timed-out hook returns to the caller while
+teardown continues to track the foreign work. The window and profile lease
+stay open when the shutdown cleanup budget expires, and closing again retries
+the cleanup. Astra reviewed the fixes for the reader deadline and lease
+ownership races and approved the changes.
+
+Windows Automation passed 3,371 tests with four skips. The private
+Settings walkthrough canceled a review, approved and installed the
+synthetic package disabled, enabled it, verified its detail in the
+reader, disabled it, verified the detail was gone on the next message,
+and confirmed removal. Windows Release built with zero warnings and errors
+and excludes the Automation fixture. The M6b specification checker passed
+and still reports the plug-in OAuth callback as unwired.

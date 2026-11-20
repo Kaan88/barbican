@@ -58,15 +58,16 @@ internal sealed partial class WindowCloseController(IPrefsEditor prefs, IDispatc
             await packages.BeginRuntimeShutdownAsync().ConfigureAwait(false);
             if (!await draining.ConfigureAwait(false))
             {
-                dispatcher.Post(() =>
-                {
-                    _closing = false;
-                    toasts?.Show(new ToastRequest("An add-on is still closing. Try closing the window again shortly.", IsError: true));
-                });
+                ReportPendingCleanup();
                 return;
             }
             var stopped = await packages.ShutdownAsync().ConfigureAwait(false);
-            if (!stopped.IsOk) LogAddOnCleanupIncomplete(log);
+            if (!stopped.IsOk)
+            {
+                LogAddOnCleanupIncomplete(log);
+                ReportPendingCleanup();
+                return;
+            }
             // A synchronous UI post must own Close: do not await a UI continuation after it tears down the dispatcher.
             dispatcher.Post(() =>
             {
@@ -88,6 +89,12 @@ internal sealed partial class WindowCloseController(IPrefsEditor prefs, IDispatc
             });
         }
     }
+
+    private void ReportPendingCleanup() => dispatcher.Post(() =>
+    {
+        _closing = false;
+        toasts?.Show(new ToastRequest("An add-on is still closing. Try closing the window again shortly.", IsError: true));
+    });
 
     [LoggerMessage(EventId = 811, Level = LogLevel.Warning, Message = "Add-on teardown was incomplete during window close.")]
     private static partial void LogAddOnCleanupIncomplete(ILogger logger);

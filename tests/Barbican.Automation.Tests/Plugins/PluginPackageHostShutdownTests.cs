@@ -200,14 +200,13 @@ public sealed class PluginPackageHostShutdownTests
     }
 
     [Fact]
-    public async Task Shutdown_shares_failure_invalidates_runtime_and_releases_the_lease()
+    public async Task Shutdown_retains_the_lease_until_pending_runtime_cleanup_completes()
     {
         var root = Directory.CreateTempSubdirectory("barbican-host-test-");
         var paths = ProfilePaths.At("fixture-shutdown", root.FullName, root.FullName);
         var host = new PluginPackageHost(paths, new InMemorySecretStore(), TimeProvider.System, new Accounts());
         var startup = new Startup();
         var ct = TestContext.Current.CancellationToken;
-        var shutdownFailed = false;
         try
         {
             var current = await InstallEnabledAsync(host, ct);
@@ -225,11 +224,15 @@ public sealed class PluginPackageHostShutdownTests
             Assert.False(binding.IsAlive);
             var results = await Task.WhenAll(first, second).WaitAsync(TimeSpan.FromSeconds(12), ct);
             Assert.All(results, result => Assert.False(result.IsOk));
-            shutdownFailed = true;
             Assert.False((await factory.StartAsync(request, ct)).IsOk);
             Assert.False((await host.CreateSandboxFactoryAsync(new Views(), startup, new HookBus(), new Sessions(), [], ct)).IsOk);
 
             var leaseResult = await new PluginProfileAuthorityLeaseFactory().AcquireAsync(paths, ct);
+            Assert.False(leaseResult.IsOk);
+            startup.Release.TrySetResult();
+            await startup.Closed.Task.WaitAsync(TimeSpan.FromSeconds(10), ct);
+            Assert.True((await host.ShutdownAsync()).IsOk);
+            leaseResult = await new PluginProfileAuthorityLeaseFactory().AcquireAsync(paths, ct);
             Assert.True(leaseResult.IsOk);
             await leaseResult.Value!.DisposeAsync();
         }
@@ -237,8 +240,7 @@ public sealed class PluginPackageHostShutdownTests
         {
             startup.Release.TrySetResult();
             if (startup.WasClosing) await startup.Closed.Task.WaitAsync(TimeSpan.FromSeconds(10), CancellationToken.None);
-            if (shutdownFailed) await Assert.ThrowsAsync<InvalidOperationException>(() => host.DisposeAsync().AsTask());
-            else await host.DisposeAsync();
+            await host.DisposeAsync();
             root.Delete(recursive: true);
         }
     }

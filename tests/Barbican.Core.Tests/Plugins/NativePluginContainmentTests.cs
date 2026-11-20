@@ -5,7 +5,11 @@
 using System.Diagnostics;
 using Barbican.Core.Plugins.Hooks;
 using Barbican.Core.Plugins.Native;
+using Barbican.Core.Plugins.Packages;
+using Barbican.Core.Plugins.Permissions;
+using Barbican.Core.Plugins.Runtime;
 using Barbican.Plugins;
+using Microsoft.Extensions.Time.Testing;
 
 namespace Barbican.Core.Tests.Plugins;
 
@@ -48,6 +52,55 @@ public sealed class NativePluginContainmentTests
         Assert.True(watch.Elapsed < TimeSpan.FromSeconds(3), $"the call took {watch.Elapsed}");
         Assert.Equal("rows", Assert.Single(rows).Label);
         Assert.IsType<TimeoutException>(Assert.Single(failures).Error);
+    }
+
+    [Fact]
+    public async Task Archive_deadline_leaves_slow_cancellation_callbacks_in_the_teardown_drain()
+    {
+        var time = new FakeTimeProvider();
+        using var host = NativePluginHost.CreateArchiveHost(new() { Time = time, DataRoot = Path.GetTempPath() });
+        var identity = new PluginPackageIdentity("fixture", "1.0.0", new string('a', 64));
+        await using var binding = PluginRuntimeBinding.Create("fixture",
+            new(identity, 1, true, [], [], PluginExecutionTier.NativeFullTrust), PluginFrameKind.Background);
+        var plugin = new LoadedPlugin(new(identity.Id, "Fixture", identity.Version, []), new TestPlugin(identity.Id), null, binding);
+        plugin.Publish();
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var cancellationEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var completeWork = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var releaseCancellation = new ManualResetEventSlim();
+        var budget = TimeSpan.FromSeconds(1);
+
+        var invocation = host.RunArchiveAsync(plugin, NativePluginHost.EmailDetailsHook, budget, async token =>
+        {
+            _ = token.Register(() =>
+            {
+                cancellationEntered.TrySetResult();
+                releaseCancellation.Wait(TimeSpan.FromSeconds(10));
+                throw new InvalidOperationException("Synthetic cancellation failure.");
+            });
+            entered.TrySetResult();
+#pragma warning disable VSTHRD003 // The test explicitly releases this pool task without the test synchronization context.
+            await completeWork.Task.ConfigureAwait(false);
+#pragma warning restore VSTHRD003
+            return true;
+        }, Ct);
+        try
+        {
+            await entered.Task.WaitAsync(TimeSpan.FromSeconds(3), Ct);
+            time.Advance(budget);
+            await cancellationEntered.Task.WaitAsync(TimeSpan.FromSeconds(3), Ct);
+            Assert.False((await invocation.WaitAsync(TimeSpan.FromSeconds(3), Ct)).Done);
+            completeWork.TrySetResult();
+            var drain = plugin.DrainCallsAsync();
+            Assert.False(drain.IsCompleted);
+            Assert.False(plugin.TryEnterCall());
+        }
+        finally
+        {
+            completeWork.TrySetResult();
+            releaseCancellation.Set();
+            await plugin.DrainCallsAsync().WaitAsync(TimeSpan.FromSeconds(3), Ct);
+        }
     }
 
     [Fact]

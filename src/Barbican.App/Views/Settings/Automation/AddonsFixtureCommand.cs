@@ -37,13 +37,13 @@ internal sealed class AddonsFixtureCommand(IProfilePaths paths, ISettingsNavigat
 
     private static async Task<MemoryStream> MakeNativeArchiveAsync(CancellationToken ct)
     {
-        // Use only the fixed bundled DLL as inert archive input. The review never activates this fixture.
-        const string library = "Barbican.Plugin.SpamScore.dll";
-        var path = Path.Combine(AppContext.BaseDirectory, "plugins", "spam-score", library);
+        // Use only the fixed Automation fixture built with the test graph.
+        const string library = "NativeSentinel.dll";
+        var path = Path.Combine(AppContext.BaseDirectory, "native-sentinel", library);
         var bytes = await File.ReadAllBytesAsync(path, ct).ConfigureAwait(false);
         var digest = Convert.ToHexStringLower(SHA256.HashData(bytes));
         var sidecar = $$"""
-            {"schemaVersion":1,"api":1,"id":"fixture-native","name":"Native Fixture","version":"1.0.0","description":"Synthetic review",
+            {"schemaVersion":1,"api":1,"id":"sentinel-fixture","name":"Native Fixture","version":"1.0.0","description":"Synthetic review",
              "mainAssembly":"{{library}}","hooks":["email.details"],"dependencies":{"{{library}}":"{{digest}}" } }
             """;
         var archive = new MemoryStream();

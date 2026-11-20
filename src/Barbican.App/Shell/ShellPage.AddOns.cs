@@ -4,6 +4,7 @@ using Barbican.App.Plugins;
 using Barbican.App.Plugins.Sandbox;
 using Barbican.Core.Plugins.Bridge;
 using Barbican.Core.Plugins.Hooks;
+using Barbican.Core.Plugins.Native;
 using Barbican.Core.Storage;
 using Microsoft.Extensions.Logging;
 
@@ -14,7 +15,7 @@ public sealed partial class ShellPage
     private void StartAddOnRuntimes()
     {
         var bootstrap = Path.Combine(AppContext.BaseDirectory, "Assets", "plugin-sandbox-bootstrap");
-        if (!Directory.Exists(bootstrap)) return;
+        var hasBootstrap = Directory.Exists(bootstrap);
 
         var packages = ViewHost.Get<PluginPackageHost>();
         var paths = ViewHost.Get<IProfilePaths>();
@@ -22,10 +23,12 @@ public sealed partial class ShellPage
         var hooks = ViewHost.Get<HookBus>();
         var sessions = ViewHost.Get<IPluginSessionSource>();
         var methods = ViewHost.Get<IEnumerable<IPluginApiMethod>>();
-        var views = new PluginSandboxWindowsViewFactory(DispatcherQueue, () => AddOnRuntimeMount, paths, options);
-        var startup = new PluginSandboxWindowsStartup(bootstrap, ViewHost.Get<ILogger<PluginSandboxWindowsStartup>>());
+        var views = hasBootstrap ? new PluginSandboxWindowsViewFactory(DispatcherQueue, () => AddOnRuntimeMount, paths, options) : null;
+        var startup = hasBootstrap ? new PluginSandboxWindowsStartup(bootstrap, ViewHost.Get<ILogger<PluginSandboxWindowsStartup>>()) : null;
+        var native = ViewHost.Get<NativePlugins>();
         _ = ViewHost.Get<PluginBackgroundRuntimes>().InitializeAsync(
-            ct => packages.CreateSandboxFactoryAsync(views, startup, hooks, sessions, methods, ct, includeUserStorage: true), CancellationToken.None);
+            ct => packages.CreateAddOnFactoryAsync(views, startup, hooks, sessions, methods, includeUserStorage: true, native, ct),
+            CancellationToken.None, javaScriptAvailable: hasBootstrap);
     }
 }
 #endif

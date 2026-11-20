@@ -114,7 +114,7 @@ public sealed partial class PluginPackageManager : IPluginPackageManager, IPlugi
 
     private static bool MatchesSavedApproval(PluginPackageDefinition definition, Entry entry) =>
         definition.RequestedTier == (entry.NativeFullTrustApproved ? PluginExecutionTier.NativeFullTrust : PluginExecutionTier.Untrusted) &&
-        (!entry.NativeFullTrustApproved || (!entry.Enabled && entry.Accounts.Length == 0)) &&
+        (!entry.NativeFullTrustApproved || entry.Accounts.Length == 0) &&
         definition.RequestedPermissions.SetEquals(entry.Permissions) && !entry.Accounts.Any(string.IsNullOrWhiteSpace);
 
     private async Task<Result<Loaded>> LoadAsync(CancellationToken ct)
@@ -493,8 +493,9 @@ public sealed partial class PluginPackageManager : IPluginPackageManager, IPlugi
             var entry = loaded.Value!.Index.Entries.SingleOrDefault(x => Identity(x) == package);
             if (entry is null) return Failure<Unit>("Installed package changed.");
             if (!enabled) return await StopAsync(loaded.Value, package, notifications, ct).ConfigureAwait(false);
-            if (entry.NativeFullTrustApproved) return Failure<Unit>("Starting native add-ons is unavailable.");
             if (_blocked.Contains(package.Id) || entry.CleanupThrough is not null) return Failure<Unit>("Package cleanup is pending.");
+            if (entry.NativeFullTrustApproved && !(await ReadNativeArchiveAsync(package, ct).ConfigureAwait(false)).IsOk)
+                return Failure<Unit>("The approved native add-on archive is unavailable.");
             if (entry.Enabled) return Result<Unit>.Ok(default);
             var updated = entry with { Enabled = true, Generation = loaded.Value.Index.NextGeneration };
             var index = loaded.Value.Index with { NextGeneration = loaded.Value.Index.NextGeneration + 1, Entries = [.. loaded.Value.Index.Entries.Select(x => x == entry ? updated : x)] };
@@ -579,6 +580,38 @@ public sealed partial class PluginPackageManager : IPluginPackageManager, IPlugi
         if (!deleted.IsOk) return deleted;
         var next = loaded.Index with { RetiredArchives = [.. pending.Where(archive => archive != package)] };
         return await CommitAsync(loaded, next, CancellationToken.None).ConfigureAwait(false);
+    }
+
+    internal async Task<Result<InspectedPluginPackage>> ReadApprovedNativePackageAsync(PluginRuntimeBinding binding, CancellationToken ct)
+    {
+        await _gate.WaitAsync(ct).ConfigureAwait(false);
+        try
+        {
+            var loaded = await LoadAsync(ct).ConfigureAwait(false);
+            if (!loaded.IsOk) return Result<InspectedPluginPackage>.Fail(loaded.Error!);
+            if (_lease is null || !binding.IsAlive || binding.Kind != PluginFrameKind.Background ||
+                !string.Equals(binding.Profile, _options.Profile, StringComparison.Ordinal) ||
+                !loaded.Value!.Installations.TryGetValue(binding.Package.Id, out var item) ||
+                item is not { Enabled: true, Error: null, Grant: { Enabled: true, Tier: PluginExecutionTier.NativeFullTrust } grant } ||
+                item.Package.RuntimeKind != PluginRuntimeKind.Native || grant.Package != binding.Package ||
+                grant.Generation != binding.GrantGeneration || grant.Tier != binding.Tier)
+                return Failure<InspectedPluginPackage>("Current native add-on approval is required.");
+
+            return await ReadNativeArchiveAsync(grant.Package, ct).ConfigureAwait(false);
+        }
+        finally { _gate.Release(); }
+    }
+
+    private async Task<Result<InspectedPluginPackage>> ReadNativeArchiveAsync(PluginPackageIdentity package, CancellationToken ct)
+    {
+        var content = await _store.ReadContentAsync(_options.Profile, package, ct).ConfigureAwait(false);
+        if (!content.IsOk) return Result<InspectedPluginPackage>.Fail(content.Error!);
+        using var archive = new MemoryStream(content.Value.ToArray(), writable: false);
+        var inspected = await PluginPackageInspector.InspectAsync(archive, _options.BulwarkCompatibilityVersion, ct).ConfigureAwait(false);
+        return HasAuthority && inspected.IsOk && inspected.Value is { RuntimeKind: PluginRuntimeKind.Native } data &&
+            Definition(data).Identity == package
+            ? inspected
+            : Failure<InspectedPluginPackage>("The approved native add-on archive is unavailable.");
     }
 
     public async Task<Result<Stream>> OpenResourceAsync(PluginPackageIdentity package, string resource, CancellationToken ct)

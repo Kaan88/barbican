@@ -5,6 +5,7 @@ using Barbican.Core.Jmap.Errors;
 using Barbican.App.Plugins.Sandbox;
 using Barbican.Core.Plugins.Bridge;
 using Barbican.Core.Plugins.Hooks;
+using Barbican.Core.Plugins.Native;
 using Barbican.Core.Plugins.Packages;
 using Barbican.Core.Plugins.Persistence;
 using Barbican.Core.Plugins.Runtime;
@@ -25,6 +26,7 @@ internal sealed class PluginPackageHost(IProfilePaths paths, ISecretStore secret
     private Task<Result<Unit>>? _shutdown;
     private Task<Result<Unit>>? _runtimeShutdown;
     private bool _closed;
+    private bool _cleanupNeedsRetry;
 
     public Task<Result<IReadOnlyList<PluginInstallation>>> ListAsync(CancellationToken ct) =>
         WithManagerAsync(manager => manager.ListAsync(ct), ct);
@@ -110,16 +112,42 @@ internal sealed class PluginPackageHost(IProfilePaths paths, ISecretStore secret
     internal Task<Result<IPluginRuntimeFactory>> CreateSandboxFactoryAsync(
         IPluginSandboxWebViewFactory views, IPluginSandboxStartup startup, HookBus hooks,
         IPluginSessionSource sessions, IEnumerable<IPluginApiMethod> methods, CancellationToken ct, bool includeUserStorage = false) =>
+        CreateAddOnFactoryAsync(views, startup, hooks, sessions, methods, includeUserStorage, nativePlugins: null, ct);
+
+    internal Task<Result<IPluginRuntimeFactory>> CreateAddOnFactoryAsync(
+        IPluginSandboxWebViewFactory? views, IPluginSandboxStartup? startup, HookBus hooks,
+        IPluginSessionSource sessions, IEnumerable<IPluginApiMethod> methods, bool includeUserStorage,
+        NativePlugins? nativePlugins, CancellationToken ct) =>
         WithManagerAsync(manager =>
         {
             // Lifecycle writes and runtime calls share the same leased authority and revocation coordinator.
-            var adapters = includeUserStorage
-                ? methods.Concat(PluginStorageMethods.For(new PluginScopedStorage(paths.Profile, manager, sessions, _store!)))
-                : methods;
-            var dispatcher = new PluginApiDispatcher(paths.Profile, adapters, manager, sessions, time);
-            var factory = new PluginSandboxFactory(manager, manager, _revocation!, dispatcher, views, startup, hooks);
-            return Task.FromResult(Result<IPluginRuntimeFactory>.Ok(factory));
+            IPluginRuntimeFactory? sandbox = null;
+            if (views is not null && startup is not null)
+            {
+                var adapters = includeUserStorage
+                    ? methods.Concat(PluginStorageMethods.For(new PluginScopedStorage(paths.Profile, manager, sessions, _store!)))
+                    : methods;
+                var dispatcher = new PluginApiDispatcher(paths.Profile, adapters, manager, sessions, time);
+                sandbox = new PluginSandboxFactory(manager, manager, _revocation!, dispatcher, views, startup, hooks);
+            }
+            var native = nativePlugins?.CreatePackageFactory(manager, _revocation!);
+            return Task.FromResult(Result<IPluginRuntimeFactory>.Ok(new PackageRuntimeFactory(sandbox, native)));
         }, ct);
+
+    private sealed class PackageRuntimeFactory(IPluginRuntimeFactory? sandbox, IPluginRuntimeFactory? native) : IPluginRuntimeFactory
+    {
+        public Task<Result<IPluginRuntimeInstance>> StartAsync(PluginRuntimeStart request, CancellationToken ct)
+        {
+            var factory = request.Installation.Package.RuntimeKind switch
+            {
+                PluginRuntimeKind.JavaScript => sandbox,
+                PluginRuntimeKind.Native => native,
+                _ => null,
+            };
+            return factory?.StartAsync(request, ct) ??
+                Task.FromResult(Result<IPluginRuntimeInstance>.Fail(new ValidationError("Add-on startup is unavailable.")));
+        }
+    }
 
     public async Task DiscardReviewAsync(string reviewId, CancellationToken ct)
     {
@@ -203,6 +231,11 @@ internal sealed class PluginPackageHost(IProfilePaths paths, ISecretStore secret
         try
         {
             CloseAdmissionAndInvalidateBindings();
+            if (_shutdown is { IsCompleted: true } && Volatile.Read(ref _cleanupNeedsRetry))
+            {
+                _shutdown = null;
+                _runtimeShutdown = StopRuntimesAsync();
+            }
             shutdown = _shutdown ??= CloseAsync();
         }
         finally { _gate.Release(); }
@@ -222,14 +255,19 @@ internal sealed class PluginPackageHost(IProfilePaths paths, ISecretStore secret
         if (_runtimeShutdown is not null) return;
         _closed = true;
         _manager?.Dispose();
-        _runtimeShutdown = _revocation?.CloseAsync(CancellationToken.None) ?? Task.FromResult(Result<Unit>.Ok(default));
+        _runtimeShutdown = StopRuntimesAsync();
     }
+
+    private Task<Result<Unit>> StopRuntimesAsync() =>
+        _revocation?.CloseAsync(CancellationToken.None) ?? Task.FromResult(Result<Unit>.Ok(default));
 
     private async Task<Result<Unit>> CloseAsync()
     {
 #pragma warning disable VSTHRD003 // The shared revocation task runs bounded teardown with the UI dispatcher kept alive.
         var stopped = await _runtimeShutdown!.ConfigureAwait(false);
 #pragma warning restore VSTHRD003
+        Volatile.Write(ref _cleanupNeedsRetry, !stopped.IsOk);
+        if (!stopped.IsOk) return stopped;
         _store?.Dispose();
         if (_lease is { } lease) await lease.DisposeAsync().ConfigureAwait(false);
         if (_automationRoot is { } root)

@@ -6,6 +6,7 @@
 // before its first await is bounded by the budget too. Owner unified (M2 wave 2). Nothing here assumes the JS host (M6b).
 
 using System.Diagnostics.CodeAnalysis;
+using System.Reflection;
 using System.Runtime.CompilerServices;
 using System.Text.Json;
 using System.Text.Json.Nodes;
@@ -13,6 +14,8 @@ using System.Text.Json.Serialization.Metadata;
 using Barbican.Core.Common;
 using Barbican.Core.Jmap.Errors;
 using Barbican.Core.Plugins.Hooks;
+using Barbican.Core.Plugins.Packages.Inspection;
+using Barbican.Core.Plugins.Runtime;
 using Barbican.Plugins;
 
 namespace Barbican.Core.Plugins.Native;
@@ -29,6 +32,7 @@ public sealed class NativePluginHost : INativePluginHost, IDisposable
     private static JsonSerializerOptions? _payloadJson;
 
     private readonly NativePluginHostOptions _options;
+    private readonly Lock _lifecycle = new();
     private readonly List<LoadedPlugin> _loaded = [];
     private readonly List<string> _errors = [];
     private bool _disposed;
@@ -38,11 +42,17 @@ public sealed class NativePluginHost : INativePluginHost, IDisposable
         _options = options;
     }
 
+    internal static NativePluginHost CreateArchiveHost(NativePluginHostOptions options) =>
+        new(options with
+        {
+            DataRoot = Path.Combine(options.DataRoot ?? throw new InvalidOperationException("Native add-on storage is unavailable."), "native-packages"),
+        });
+
     /// <summary>A plugin failed to load, threw, or ran past its budget; the app carried on.</summary>
     public event EventHandler<PluginFailedEventArgs>? PluginFailed;
 
     /// <inheritdoc />
-    public IReadOnlyList<PluginInfo> Plugins => _loaded.Select(p => p.Info).ToList();
+    public IReadOnlyList<PluginInfo> Plugins => Snapshot().Where(p => p.AcceptsCalls).Select(p => p.Info).ToList();
 
     /// <inheritdoc />
     public IReadOnlyList<string> LoadErrors => _errors;
@@ -110,9 +120,12 @@ public sealed class NativePluginHost : INativePluginHost, IDisposable
     public async Task<IReadOnlyList<EmailDetailRow>> EmailDetailsAsync(EmailDetailsView view, CancellationToken ct)
     {
         ArgumentNullException.ThrowIfNull(view);
-        var calls = _loaded
-            .Where(p => p.Info.Enabled && !p.Ready.IsFaulted && p.Info.Handles(EmailDetailsHook))
-            .Select(p => RunAsync(p, EmailDetailsHook, _options.DetailsBudget, t => p.Plugin.OnEmailDetailsAsync(view, t), ct))
+        var calls = Snapshot()
+            .Where(p => p.AcceptsCalls && p.Info.Enabled && !p.Ready.IsFaulted && p.Info.Handles(EmailDetailsHook))
+            .Select(p => p.IsArchive
+                ? RunArchiveAsync<IReadOnlyList<EmailDetailRow>>(p, EmailDetailsHook, _options.DetailsBudget,
+                    async t => (await p.Plugin.OnEmailDetailsAsync(view, t).ConfigureAwait(false)).ToArray(), ct)
+                : RunAsync(p, EmailDetailsHook, _options.DetailsBudget, t => p.Plugin.OnEmailDetailsAsync(view, t), ct))
             .ToList();
         var results = await Task.WhenAll(calls).ConfigureAwait(false);
         var rows = new List<EmailDetailRow>();
@@ -130,13 +143,16 @@ public sealed class NativePluginHost : INativePluginHost, IDisposable
     /// <summary>Unsubscribes every plugin from the hook bus and unloads their load contexts.</summary>
     public void Dispose()
     {
-        if (_disposed)
+        LoadedPlugin[] plugins;
+        lock (_lifecycle)
         {
-            return;
+            if (_disposed) return;
+            _disposed = true;
+            plugins = [.. _loaded];
+            _loaded.Clear();
         }
 
-        _disposed = true;
-        foreach (var p in _loaded)
+        foreach (var p in plugins)
         {
             p.Bridge.Dispose();
             if (p.Plugin is IDisposable d)
@@ -153,9 +169,57 @@ public sealed class NativePluginHost : INativePluginHost, IDisposable
 
             p.Context?.Unload();
         }
-
-        _loaded.Clear();
     }
+
+    private LoadedPlugin[] Snapshot()
+    {
+        lock (_lifecycle) return [.. _loaded];
+    }
+
+    [UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "Only approved packages run in the Windows JIT application.")]
+    internal async Task InitializeApprovedArchiveAsync(InspectedPluginPackage package, PluginRuntimeBinding binding, CancellationToken ct)
+    {
+        ct.ThrowIfCancellationRequested();
+        if (!binding.IsAlive || !RuntimeFeature.IsDynamicCodeSupported) throw new InvalidOperationException("Native startup is unavailable.");
+        var loadContext = new NativeArchiveLoadContext(package);
+        IBarbicanPlugin? plugin = null;
+        try
+        {
+            plugin = CreatePlugin(loadContext.LoadMain(package.EntryPoint), requireSingle: true)
+                ?? throw new InvalidOperationException("The reviewed assembly needs one public native plug-in type.");
+            using var document = JsonDocument.Parse(package.ManifestJson);
+            var approvedHooks = document.RootElement.GetProperty("hooks").EnumerateArray().Select(hook => hook.GetString()!).ToArray();
+            var manifest = plugin.Manifest;
+            if (manifest is null || manifest.Api != ApiVersion ||
+                !string.Equals(manifest.Id, package.Id, StringComparison.Ordinal) ||
+                !string.Equals(manifest.Version, package.Version, StringComparison.Ordinal) ||
+                !(manifest.Hooks ?? []).ToHashSet(StringComparer.Ordinal).SetEquals(approvedHooks))
+                throw new InvalidOperationException("The native manifest differs from the reviewed package.");
+
+            var info = new PluginInfo(package.Id, document.RootElement.GetProperty("name").GetString()!, package.Version, approvedHooks)
+            {
+                Description = document.RootElement.GetProperty("description").GetString()!,
+            };
+            var loaded = new LoadedPlugin(info, plugin, loadContext, binding);
+            loaded.Bridge = new PluginHookBridge(this, loaded, _options.Bus);
+            lock (_lifecycle) _loaded.Add(loaded);
+        }
+        catch
+        {
+            try { (plugin as IDisposable)?.Dispose(); }
+            finally { loadContext.Unload(); }
+            throw;
+        }
+
+        var registered = Snapshot().Single();
+        ct.ThrowIfCancellationRequested();
+        if (!binding.IsAlive) throw new InvalidOperationException("Native add-on approval expired during startup.");
+        var context = new PluginContext(string.Empty, Path.Combine(_options.DataRoot!, package.Id)) { Hooks = registered.Bridge };
+        await registered.Plugin.InitializeAsync(context, ct).ConfigureAwait(false);
+    }
+
+    internal void PublishApprovedArchive() => Snapshot().Single().Publish();
+    internal Task DrainArchiveCallsAsync() => Task.WhenAll(Snapshot().Select(plugin => plugin.DrainCallsAsync()));
 
     /// <summary>A hook payload as a plugin sees it: JSON with camel-case names (the plugin cannot see the app's types).</summary>
     [UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "The plugin host runs only in the JIT app (RuntimeFeature.IsDynamicCodeSupported); payloads are app records kept by their call sites.")]
@@ -172,6 +236,70 @@ public sealed class NativePluginHost : INativePluginHost, IDisposable
     }
 
     internal void Report(string pluginId, string where, Exception error) => PluginFailed?.Invoke(this, new PluginFailedEventArgs(pluginId, where, error));
+
+    internal async Task<(bool Done, T? Value)> RunArchiveAsync<T>(
+        LoadedPlugin plugin, string where, TimeSpan budget, Func<CancellationToken, Task<T>> call, CancellationToken ct)
+    {
+        ct.ThrowIfCancellationRequested();
+        using var deadlineSignal = CancellationTokenSource.CreateLinkedTokenSource(ct, plugin.Lifetime);
+        if (deadlineSignal.IsCancellationRequested || !plugin.TryEnterCall()) return (false, default);
+
+        var callStop = new CancellationTokenSource();
+        var work = Task.Run(async () =>
+        {
+            if (!plugin.AcceptsCalls || callStop.IsCancellationRequested) return default;
+            return await call(callStop.Token).ConfigureAwait(false);
+        });
+        var deadline = Task.Delay(budget, _options.Time, deadlineSignal.Token);
+        if (!ReferenceEquals(await Task.WhenAny(work, deadline).ConfigureAwait(false), work))
+        {
+            // Foreign cancellation callbacks are work too. Returning the deadline to the
+            // reader or bus does not release their place in the runtime's teardown drain.
+            _ = StopArchiveCallAsync(plugin, callStop, work, where);
+            ct.ThrowIfCancellationRequested();
+            if (plugin.AcceptsCalls) Report(plugin.Info.Id, where, new TimeoutException("The native add-on missed the hook deadline."));
+            return (false, default);
+        }
+
+        try
+        {
+            var value = await work.ConfigureAwait(false);
+            ct.ThrowIfCancellationRequested();
+            return plugin.AcceptsCalls ? (true, value) : (false, default);
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
+        catch (Exception error) when (error is not OutOfMemoryException and not StackOverflowException)
+        {
+            if (plugin.AcceptsCalls) Report(plugin.Info.Id, where, error);
+            return (false, default);
+        }
+        finally
+        {
+            // The deadline token has no foreign registrations.
+            await deadlineSignal.CancelAsync().ConfigureAwait(false);
+            callStop.Dispose();
+            plugin.ExitCall();
+        }
+    }
+
+    private async Task StopArchiveCallAsync(LoadedPlugin plugin, CancellationTokenSource callStop, Task work, string where)
+    {
+        try
+        {
+#pragma warning disable VSTHRD003 // The foreign call and cancellation callbacks run on the pool.
+            await Task.WhenAll(callStop.CancelAsync(), work).ConfigureAwait(false);
+#pragma warning restore VSTHRD003
+        }
+        catch (Exception error) when (error is not OutOfMemoryException and not StackOverflowException)
+        {
+            if (error is not OperationCanceledException && plugin.AcceptsCalls) Report(plugin.Info.Id, where, error);
+        }
+        finally
+        {
+            callStop.Dispose();
+            plugin.ExitCall();
+        }
+    }
 
     /// <summary>
     /// Runs one plugin call on the thread pool, bounded by <paramref name="budget"/>. A call that throws or runs late is reported and counts as not done;
@@ -339,25 +467,27 @@ public sealed class NativePluginHost : INativePluginHost, IDisposable
         return unknown.Count > 0 ? $"unknown hook {string.Join(", ", unknown)} (not in the catalogue)" : null;
     }
 
-    [UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "Loading a plugin is reflection by nature; the host runs only with dynamic code (checked in Load).")]
-    [UnconditionalSuppressMessage("Trimming", "IL2072", Justification = "As above: the plugin type is found at run time and needs its public parameterless constructor.")]
-    [UnconditionalSuppressMessage("Trimming", "IL2070", Justification = "As above.")]
-    [UnconditionalSuppressMessage("Trimming", "IL2075", Justification = "As above.")]
+    [UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "The bundled native path requires a JIT build.")]
     private static IBarbicanPlugin? CreatePlugin(PluginLoadContext context, List<string> dlls)
     {
         foreach (var dll in dlls)
         {
-            var assembly = context.LoadFromAssemblyPath(dll);
-            foreach (var type in assembly.GetExportedTypes())
-            {
-                if (type is { IsClass: true, IsAbstract: false } && typeof(IBarbicanPlugin).IsAssignableFrom(type) && type.GetConstructor(Type.EmptyTypes) is not null)
-                {
-                    return (IBarbicanPlugin)Activator.CreateInstance(type)!;
-                }
-            }
+            if (CreatePlugin(context.LoadFromAssemblyPath(dll), requireSingle: false) is { } plugin) return plugin;
         }
 
         return null;
+    }
+
+    [UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "Loading a plugin is reflection by nature; both native paths require the JIT.")]
+    [UnconditionalSuppressMessage("Trimming", "IL2072", Justification = "The plugin type is found at run time and needs its public parameterless constructor.")]
+    [UnconditionalSuppressMessage("Trimming", "IL2070", Justification = "The plug-in's type is found at run time.")]
+    [UnconditionalSuppressMessage("Trimming", "IL2075", Justification = "The plug-in's type is found at run time.")]
+    private static IBarbicanPlugin? CreatePlugin(Assembly assembly, bool requireSingle)
+    {
+        var types = assembly.GetExportedTypes().Where(type => type is { IsClass: true, IsAbstract: false }
+            && typeof(IBarbicanPlugin).IsAssignableFrom(type) && type.GetConstructor(Type.EmptyTypes) is not null);
+        var selected = requireSingle ? types.SingleOrDefault() : types.FirstOrDefault();
+        return selected is null ? null : (IBarbicanPlugin)Activator.CreateInstance(selected)!;
     }
 
     private async Task InitializeAsync(LoadedPlugin plugin)

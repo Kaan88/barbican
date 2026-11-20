@@ -167,8 +167,7 @@ internal sealed class AddonsPageFactory(PluginPackageHost packages, PluginBackgr
         var start = installation is { Enabled: true, Error: null }
             ? AddAction("Start", "start", enabled: true, remove: false)
             : null;
-        if (installation.Package.RuntimeKind != PluginRuntimeKind.Native || installation.Enabled)
-            AddAction(installation.Enabled ? "Disable" : "Enable", "enable", enabled: !installation.Enabled, remove: false);
+        AddAction(installation.Enabled ? "Disable" : "Enable", "enable", enabled: !installation.Enabled, remove: false);
         AddAction("Remove", "remove", enabled: false, remove: true);
         _rows.Add((installation, detail, start));
         UpdateRunningState(installation, detail, start);
@@ -337,7 +336,7 @@ internal sealed class AddonsPageFactory(PluginPackageHost packages, PluginBackgr
         if (preview.Previous is { } previous)
             panel.Children.Add(SetUiUi.Body($"Update from version {previous.Package.Identity.Version}"));
         panel.Children.Add(SetUiUi.Heading("Native add-on with full access"));
-        panel.Children.Add(SetUiUi.Body("Native add-ons can access the same files and accounts as Barbican when enabled. This version installs the add-on disabled."));
+        panel.Children.Add(SetUiUi.Body("Native add-ons can access the same files and accounts as Barbican. After installation, choose Enable to run this add-on."));
         var hooks = preview.Candidate.Manifest.GetProperty("hooks").EnumerateArray().Select(hook => hook.GetString()!);
         panel.Children.Add(SetUiUi.Meta("Declared hooks: " + Describe(hooks)));
         var consent = SetUiUi.Id(new CheckBox { Content = "I trust this native add-on." }, "set.addons.native.consent");

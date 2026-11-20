@@ -28,8 +28,8 @@ internal sealed class PackageTestRig
     public readonly Revocation Cleanup = new();
     public readonly Sessions Accounts = new();
     public PluginPackageManager Manager() => new(new PluginPackageManagerOptions(Profile, "1.21.2"), Persistence, Cleanup, Time);
-    public PluginPackageManager LeasedManager(string profile = Profile) =>
-        new(new PluginPackageManagerOptions(profile, "1.21.2"), Persistence, Cleanup, Time, new TestLease(profile));
+    public PluginPackageManager LeasedManager(string profile = Profile, IPluginRevocationCoordinator? revocation = null) =>
+        new(new PluginPackageManagerOptions(profile, "1.21.2"), Persistence, revocation ?? Cleanup, Time, new TestLease(profile));
     public PluginScopedStorage Storage(PluginPackageManager manager, string profile = Profile) => new(profile, manager, Accounts, Data);
 
     private sealed class TestLease(string profile) : IPluginProfileAuthorityLease

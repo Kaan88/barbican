@@ -14,7 +14,7 @@ using Microsoft.Extensions.Logging;
 
 namespace Barbican.App.Plugins;
 
-/// <summary>Reconciles one background runtime per enabled untrusted JavaScript add-on.</summary>
+/// <summary>Reconciles one background runtime per supported, enabled add-on.</summary>
 internal sealed partial class PluginBackgroundRuntimes(
     PluginPackageHost packages, IProfilePaths paths, IPrefsStore prefs, ILogger<PluginBackgroundRuntimes> log) : IAsyncDisposable
 {
@@ -28,6 +28,7 @@ internal sealed partial class PluginBackgroundRuntimes(
     private Task? _stopping;
     private Func<CancellationToken, Task<Result<IPluginRuntimeFactory>>>? _create;
     private IPluginRuntimeFactory? _factory;
+    private bool _javaScriptAvailable = true;
     private int _operations;
 
     internal event EventHandler? RunningChanged;
@@ -37,9 +38,10 @@ internal sealed partial class PluginBackgroundRuntimes(
         _active.TryGetValue(grant.Package.Id, out var instance) && Matches(instance.Binding, grant);
 
     internal async Task InitializeAsync(
-        Func<CancellationToken, Task<Result<IPluginRuntimeFactory>>> create, CancellationToken ct)
+        Func<CancellationToken, Task<Result<IPluginRuntimeFactory>>> create, CancellationToken ct, bool javaScriptAvailable = true)
     {
         if (Interlocked.CompareExchange(ref _create, create, null) is not null) return;
+        Volatile.Write(ref _javaScriptAvailable, javaScriptAvailable);
         var operation = Begin(ct);
         if (operation is null) return;
         var token = operation.Token;
@@ -206,12 +208,17 @@ internal sealed partial class PluginBackgroundRuntimes(
         finally { _changes.Release(); }
     }
 
-    private static bool IsSupported(PluginInstallation installation) =>
-        installation.Error is null && installation.Package.RuntimeKind == PluginRuntimeKind.JavaScript &&
-        installation.Package.RequestedTier == PluginExecutionTier.Untrusted;
+    private bool IsSupported(PluginInstallation installation) =>
+        installation.Error is null && installation.Grant?.Tier == installation.Package.RequestedTier &&
+        (installation.Package.RuntimeKind, installation.Package.RequestedTier) switch
+        {
+            (PluginRuntimeKind.JavaScript, PluginExecutionTier.Untrusted) => Volatile.Read(ref _javaScriptAvailable),
+            (PluginRuntimeKind.Native, PluginExecutionTier.NativeFullTrust) => OperatingSystem.IsWindows(),
+            _ => false,
+        };
 
-    private static bool CanStart(PluginInstallation installation) =>
-        IsSupported(installation) && installation is { Enabled: true, Grant: { Enabled: true, Tier: PluginExecutionTier.Untrusted } };
+    private bool CanStart(PluginInstallation installation) =>
+        IsSupported(installation) && installation is { Enabled: true, Grant.Enabled: true };
 
     private static bool Matches(PluginRuntimeBinding binding, PluginGrantSnapshot grant) =>
         binding.IsAlive && binding.Package == grant.Package && binding.GrantGeneration == grant.Generation &&
@@ -283,7 +290,7 @@ internal sealed partial class PluginBackgroundRuntimes(
         catch (TimeoutException) { return false; }
     }
 
-    // The package host and its revocation coordinator own teardown of active native instances.
+    // The package host and its revocation coordinator own teardown of active instances.
     public async ValueTask DisposeAsync()
     {
         await DrainAsync().ConfigureAwait(false);

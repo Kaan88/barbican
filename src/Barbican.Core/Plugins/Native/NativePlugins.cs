@@ -2,9 +2,12 @@
 // verdict), plugins.rs:107 email_details; spec B-SPAM-004 (a clean verdict shows only with "show for clean mail too"); M2 plan 6.5 and 8 (the bundled spam
 // score loaded off the UI thread, its start-up cost measured). Owner unified (M2 wave 2).
 
+using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Text.Json.Nodes;
 using Barbican.Core.Mail.Model;
+using Barbican.Core.Plugins.Packages;
+using Barbican.Core.Plugins.Runtime;
 using Barbican.Plugins;
 
 namespace Barbican.Core.Plugins.Native;
@@ -18,6 +21,7 @@ public sealed class NativePlugins : INativePluginHost, IEmailDetailsSource, IDis
     private readonly Func<NativePluginHostOptions> _options;
     private readonly Func<bool> _showClean;
     private readonly Lock _gate = new();
+    private readonly ConcurrentDictionary<string, NativePackageRuntime> _archives = new(StringComparer.Ordinal);
     private Task<NativePluginHost>? _host;
     private NativePluginHost? _loaded;
 
@@ -37,10 +41,31 @@ public sealed class NativePlugins : INativePluginHost, IEmailDetailsSource, IDis
     public TimeSpan? LoadTime { get; private set; }
 
     /// <inheritdoc />
-    public IReadOnlyList<PluginInfo> Plugins => _loaded?.Plugins ?? [];
+    public IReadOnlyList<PluginInfo> Plugins => [.. (_loaded?.Plugins ?? []), .. ActiveArchives().SelectMany(runtime => runtime.Host.Plugins)];
 
     /// <inheritdoc />
     public IReadOnlyList<string> LoadErrors => _loaded?.LoadErrors ?? [];
+
+    /// <summary>Creates the Windows package runtime over the profile's leased store and revocation coordinator.</summary>
+    public IPluginRuntimeFactory CreatePackageFactory(PluginPackageManager packages, IPluginRevocationCoordinator revocation) =>
+        new NativePackageFactory(this, packages, revocation);
+
+    internal NativePluginHost CreateArchiveHost()
+    {
+        var host = NativePluginHost.CreateArchiveHost(_options());
+        host.PluginFailed += (_, e) => PluginFailed?.Invoke(this, e);
+        return host;
+    }
+
+    internal bool Reserve(NativePackageRuntime runtime) =>
+        _archives.TryAdd(runtime.Binding.Package.Id, runtime);
+
+    internal void Detach(NativePackageRuntime runtime) =>
+        _archives.TryRemove(KeyValuePair.Create(runtime.Binding.Package.Id, runtime));
+
+    private IEnumerable<NativePackageRuntime> ActiveArchives() =>
+        _archives.Values.Where(runtime => runtime.Binding.IsAlive && runtime.IsPublished)
+            .OrderBy(runtime => runtime.Binding.Package.Id, StringComparer.Ordinal);
 
     /// <summary>Starts loading on the thread pool (once) and returns the host when it is loaded.</summary>
     public Task<NativePluginHost> LoadAsync()
@@ -60,19 +85,45 @@ public sealed class NativePlugins : INativePluginHost, IEmailDetailsSource, IDis
     }
 
     /// <inheritdoc />
-    public async Task<IReadOnlyList<EmailDetailRow>> EmailDetailsAsync(JsonNode email, CancellationToken ct)
-    {
-        var host = await LoadAsync().ConfigureAwait(false);
-        return Filter(await host.EmailDetailsAsync(email, ct).ConfigureAwait(false));
-    }
+    public Task<IReadOnlyList<EmailDetailRow>> EmailDetailsAsync(JsonNode email, CancellationToken ct) =>
+        ReadRowsAsync((host, token) => host.EmailDetailsAsync(email, token), ct);
 
     /// <inheritdoc />
-    public async Task<IReadOnlyList<EmailDetailRow>> RowsForAsync(EmailBody email, CancellationToken ct)
+    public Task<IReadOnlyList<EmailDetailRow>> RowsForAsync(EmailBody email, CancellationToken ct)
     {
         ArgumentNullException.ThrowIfNull(email);
-        var host = await LoadAsync().ConfigureAwait(false);
         var view = new EmailDetailsView(email.Headers.Select(h => new HeaderView(h.Name, h.Value)).ToList());
-        return Filter(await host.EmailDetailsAsync(view, ct).ConfigureAwait(false));
+        return ReadRowsAsync((host, token) => host.EmailDetailsAsync(view, token), ct);
+    }
+
+    private async Task<IReadOnlyList<EmailDetailRow>> ReadRowsAsync(
+        Func<NativePluginHost, CancellationToken, Task<IReadOnlyList<EmailDetailRow>>> read, CancellationToken ct)
+    {
+        var host = await LoadAsync().ConfigureAwait(false);
+        var bundled = read(host, ct);
+        var archives = CollectArchiveRowsAsync(read, ct);
+        await Task.WhenAll(bundled, archives).ConfigureAwait(false);
+        return [.. Filter(await bundled.ConfigureAwait(false)), .. await archives.ConfigureAwait(false)];
+    }
+
+    private async Task<EmailDetailRow[]> CollectArchiveRowsAsync(
+        Func<NativePluginHost, CancellationToken, Task<IReadOnlyList<EmailDetailRow>>> read, CancellationToken ct)
+    {
+        var calls = ActiveArchives().Select(async runtime =>
+        {
+            using var linked = CancellationTokenSource.CreateLinkedTokenSource(ct, runtime.Binding.Lifetime);
+            try
+            {
+                var rows = await read(runtime.Host, linked.Token).ConfigureAwait(false);
+                return (Runtime: runtime, Rows: rows);
+            }
+            catch (OperationCanceledException) when (!ct.IsCancellationRequested && !runtime.Binding.IsAlive)
+            {
+                return (Runtime: runtime, Rows: Array.Empty<EmailDetailRow>());
+            }
+        });
+        var results = await Task.WhenAll(calls).ConfigureAwait(false);
+        return [.. results.Where(result => result.Runtime.Binding.IsAlive).SelectMany(result => result.Rows)];
     }
 
     /// <inheritdoc />

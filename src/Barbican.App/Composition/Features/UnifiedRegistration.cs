@@ -132,7 +132,7 @@ public static class UnifiedRegistration
             var paths = sp.GetRequiredService<IProfilePaths>();
             var prefs = sp.GetRequiredService<IPrefsStore>();
             return new NativePlugins(
-                // user plugins (<config>/plugins) stay off until the M6b permission UI: ForApp sets no user root (Fable review 3 R3-04)
+                // User packages come from the leased archive store, so ForApp sets no loose user directory.
                 () => NativePluginHostOptions.ForApp(AppContext.BaseDirectory, paths.DataDir) with
                 {
                     Disabled = Disabled(prefs),
