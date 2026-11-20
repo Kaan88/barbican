@@ -124,6 +124,19 @@ internal sealed class PluginPackageHost(IProfilePaths paths, ISecretStore secret
     internal Task<Result<Unit>> SetEnabledAsync(PluginPackageIdentity package, bool enabled, CancellationToken ct) =>
         WithManagerAsync(manager => manager.SetEnabledAsync(package, enabled, ct), ct);
 
+    internal async Task<Result<PluginInstallation>> EnableManagedAsync(PluginPackageIdentity package, CancellationToken ct)
+    {
+        if (managed is null) return Result<PluginInstallation>.Fail(new ValidationError("Managed add-on startup is unavailable."));
+        var opened = await WithManagerAsync(manager => Task.FromResult(Result<PluginPackageManager>.Ok(manager)), ct).ConfigureAwait(false);
+        return opened.IsOk ? await opened.Value!.EnableManagedForSessionAsync(package, managed, ct).ConfigureAwait(false)
+            : Result<PluginInstallation>.Fail(opened.Error!);
+    }
+
+    internal Task<Result<Unit>> RollBackManagedAsync(PluginGrantSnapshot grant) =>
+        Volatile.Read(ref _manager) is { } manager
+            ? manager.RollBackManagedRuntimeAsync(grant, CancellationToken.None)
+            : Task.FromResult(Result<Unit>.Ok(default));
+
     internal async Task<bool> TryHoldStorageAuthorityAsync(CancellationToken ct)
     {
         await _gate.WaitAsync(ct).ConfigureAwait(false);

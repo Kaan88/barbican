@@ -30,6 +30,16 @@ internal sealed class AddonsFixtureCommand(IProfilePaths paths, ISettingsNavigat
             return "error requires a synthetic automation profile";
 
         var mode = args.Trim();
+#if WINDOWS
+        if (mode is "managed-revoke-owner")
+        {
+            if (!SamplePolicyFixture.Enabled(paths) ||
+                !string.Equals(Environment.GetEnvironmentVariable("BARBICAN_SAMPLE_MANAGED_ADDONS"), "1", StringComparison.Ordinal))
+                return "error the managed sample fixture is unavailable";
+            Barbican.App.Shell.ViewHost.Get<SampleAddOnAccount>().RevokeOwner();
+            return "ok";
+        }
+#endif
         var recordFixture = mode switch
         {
             "send-records" => "it-plugin-api-probe",
@@ -48,7 +58,7 @@ internal sealed class AddonsFixtureCommand(IProfilePaths paths, ISettingsNavigat
 #else
         if (mode is "raw-probe" or "takeover-probe" or "print-probe") return "error fixture is unavailable";
 #endif
-        if (mode is not ("raw-probe" or "takeover-probe" or "print-probe" or "install" or "update" or "native" or "origins" or "composer-probe" or "send-policy" or "send-observer" or "toast" or "progress-toast"))
+        if (mode is not ("raw-probe" or "takeover-probe" or "print-probe" or "install" or "update" or "native" or "origins" or "composer-probe" or "proofreading-checker" or "send-policy" or "send-observer" or "toast" or "progress-toast"))
             return "error unknown add-on fixture";
         if (!shell.TryActivate(AppId.Settings)) return "error Settings is unavailable";
 
@@ -57,7 +67,12 @@ internal sealed class AddonsFixtureCommand(IProfilePaths paths, ISettingsNavigat
         using var archive = mode switch
         {
             "native" => await MakeNativeArchiveAsync(cancellationToken).ConfigureAwait(true),
-            "composer-probe" => await MakeComposerProbeAsync(cancellationToken).ConfigureAwait(true),
+            "composer-probe" => await MakePinnedFixtureAsync("plugin-api-probe",
+                "BE592992AD1140E773DBA9965A04E62CE1145155A6CFC195FB8CBBBA3B46E300",
+                "E267B5ACD3DBD85DD2084CE62D3694E8EC1A2AEA7E174AEB523D9616FBCB2583", cancellationToken).ConfigureAwait(true),
+            "proofreading-checker" => await MakePinnedFixtureAsync("proofreading-checker",
+                "6DF3A7CC6228FBFCB0D7F77A96DCC040C5ED2D93B0E20275EBC7E8E5AAA34798",
+                "5279E1B8345A0CC9CC07AC1D1CD800FF39521A10998EB240E0217E719666B0BB", cancellationToken).ConfigureAwait(true),
             _ => MakeArchive(mode),
         };
         cancellationToken.ThrowIfCancellationRequested();
@@ -65,14 +80,14 @@ internal sealed class AddonsFixtureCommand(IProfilePaths paths, ISettingsNavigat
         return "ok";
     }
 
-    private static async Task<MemoryStream> MakeComposerProbeAsync(CancellationToken ct)
+    private static async Task<MemoryStream> MakePinnedFixtureAsync(string fixture, string manifestHash, string scriptHash, CancellationToken ct)
     {
-        var root = Path.Combine(AppContext.BaseDirectory, "Assets", "plugin-api-probe");
+        var root = Path.Combine(AppContext.BaseDirectory, "Assets", fixture);
         var archive = new MemoryStream();
         using (var zip = new ZipArchive(archive, ZipArchiveMode.Create, leaveOpen: true))
         {
-            await AddPinnedAsync("manifest.json", "BE592992AD1140E773DBA9965A04E62CE1145155A6CFC195FB8CBBBA3B46E300").ConfigureAwait(false);
-            await AddPinnedAsync("index.js", "E267B5ACD3DBD85DD2084CE62D3694E8EC1A2AEA7E174AEB523D9616FBCB2583").ConfigureAwait(false);
+            await AddPinnedAsync("manifest.json", manifestHash).ConfigureAwait(false);
+            await AddPinnedAsync("index.js", scriptHash).ConfigureAwait(false);
 
             async Task AddPinnedAsync(string name, string digest)
             {
@@ -164,6 +179,10 @@ internal sealed class AddonsFixtureCommand(IProfilePaths paths, ISettingsNavigat
     private const string TakeoverFixture = """
         let api;
         exports.activate = host => { api = host; };
+        """ + TakeoverHook;
+
+    internal const string TakeoverHook = """
+
         exports.hooks = {
             async onComposeSend(request) {
                 if (request.subject.includes('Synthetic takeover abort')) return { abort: true };

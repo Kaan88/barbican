@@ -87,3 +87,58 @@ The following 58 rows are extracted from `<bulwark>/lib/plugin-slot-catalog.ts`;
 Action lists are bounded and validated (`<bulwark>/lib/plugin-sandbox/actions.ts:85-177`); list filters, pages and day labels have separate limits (`list-filters.ts:38-70`, `pages.ts:17-25`, `day-labels.ts:21-27`). Implement these as per-operation validators, not as a shared permissive dictionary. Automated tests should cover missing/revoked grants, selectors, nested projection, invalid result types, timeouts, origin redirects, account switches, ownership and tier boundaries.
 
 Extraction confidence: all 186 literal permission entries matched case labels in their defining files, after deduplicating three equal entries; 58 slot declarations matched the catalog. This does not prove that nested helper checks or every hook payload schema have been fully catalogued. Resolve those gaps before exposing affected operations. No plugin host was built or executed as part of this inventory.
+
+## Windows execution evidence for the November 20 continuation
+
+| Methods | Executable evidence |
+|---|---|
+| `composer.getSnapshot`, `composer.setSubject` | The unchanged API probe read the scoped composer and prefixed its subject. Ownership, stale handles and attachment membership are covered by [composer mediation tests](../../tests/Barbican.Core.Tests/Plugins/Api/ComposerMediationAcceptanceTests.cs). |
+| `composer.readAttachment` | [Composer mediation tests](../../tests/Barbican.Core.Tests/Plugins/Api/ComposerMediationAcceptanceTests.cs) cover bounded data for a named attachment in the captured draft and discard stale reads. |
+| `jmap.sendRaw`, `jmap.submitRaw` | The signed fixture used `sendRaw` inside `onComposeSend` against FakeJmap. The host published one approved raw submission. The fixture's refused recipient added no upload or submission. Both methods have [bridge tests](../../tests/Barbican.Core.Tests/Plugins/Api/PluginRawSendMethodsTests.cs), including denial by tier. [Managed walkthrough](M6b-solo-parity.md#managed-add-on-activation-and-takeover) |
+| `http.fetch` | [Network tests](../../tests/Barbican.Core.Tests/Plugins/PluginHttpFetchTests.cs) execute scoped requests, redirects, denied private destinations and grant revocation. |
+| `oauth.createState`, `oauth.getRedirectUri`, `ui.openExternalUrl` | [OAuth tests](../../tests/Barbican.Core.Tests/Plugins/PluginOAuthCallbacksTests.cs) execute loopback delivery with expiry, ownership, one-use state and browser confirmation. |
+| `storage.get`, `storage.keys`, `storage.remove`, `storage.set` | [Storage tests](../../tests/Barbican.Core.Tests/Plugins/Packages/PluginScopedStorageAcceptanceTests.cs) cover per-account and per-add-on scope. The [managed test](../../tests/Barbican.Core.Tests/Plugins/Packages/ManagedPluginInstallationTests.cs) withdraws authority after staging and checks the stored revision and bytes. |
+| `toast.dismiss`, `toast.error`, `toast.info`, `toast.progress`, `toast.success`, `toast.warning` | [Toast method tests](../../tests/Barbican.Core.Tests/Plugins/Notifications/PluginToastMethodsTests.cs) cover payload handling, progress and dismissal, rate budgets and refused host operations. |
+| `ui.setActions`, `ui.openFile`, `ui.print` | The unchanged API probe exercised the composer and reader buttons, the constrained PDF preview and a simulated print. Provider withdrawal during a second print prevented delivery. [Fixture walkthrough](M6b-solo-parity.md#unchanged-bulwark-fixtures) |
+
+The managed Windows sample rendered the `composer-header-actions` contribution. The unchanged API probe also invoked that slot and the `reader-actions` slot, including its compact overflow menu, and Disable removed the actions. The `sidebar-widget` bootstrap probe exercises renderer output in an isolated mount. Production evidence for the other catalogue slots remains open in the owning areas listed under [Slot projection](#slot-projection).
+
+The unchanged fixture observed `onComposeFromLink`, `onBeforeEmailSend` and `onTransformOutgoingEmail` and exercised `onAction` on both UI surfaces. The managed fixture exercised `onComposeSend`. `onAfterEmailSend` has [send-completion evidence](../FABLE-REVIEW.md#codex--astra-review-of-windows-send-completion-2026-11-20), and `onOAuthCallback` has [synthetic loopback tests](../../tests/Barbican.Core.Tests/Plugins/PluginOAuthCallbacksTests.cs). These six M6b hook call sites and the remaining hook catalogue are tracked in [hooks.csv](../../spec/plugins/hooks.csv).
+
+### Methods still requiring executable evidence
+
+The unchanged proofreading fixture reached Enabled · Stopped. Its activation calls `composer.registerChecker`, which has no native dispatcher registration. The PDF preview and print flows leave the generic dialog APIs open. The reader action carried the current email ID. Scoped reads such as `email.get`, `email.list` and `email.search` still need verified authorization and result evidence.
+
+| Owning surface | Open method names |
+|---|---|
+| Account settings | `accountData.get`, `accountData.set` |
+| Contacts | `addressbook.create`, `addressbook.list` |
+| Organization administration (M7) | `admin.deleteConfig`, `admin.getAllConfig`, `admin.getConfig`, `admin.setConfig` |
+| Settings and app shell | `app.describeSettings`, `app.getInfo`, `app.getSettings`, `app.searchSettings`, `app.setSettings`, `app.undoSettings` |
+| Calendar | `calendar.createEvent`, `calendar.deleteEvent`, `calendar.getEvent`, `calendar.getEvents`, `calendar.listCalendars`, `calendar.respond`, `calendar.undoDelete`, `calendar.updateEvent` |
+| Composer | `compose.open`, `compose.reply` |
+| Composer and proofreading | `composer.attach`, `composer.getBody`, `composer.getCheckText`, `composer.getSelection`, `composer.recheck`, `composer.registerChecker`, `composer.replaceBody`, `composer.replaceSelection`, `composer.setAnnotations`, `composer.unregisterChecker`, `composer.updateChecker` |
+| Contacts | `contact.create`, `contact.delete`, `contact.get`, `contact.list`, `contact.search`, `contact.update` |
+| Account and cryptography | `crypto.createPublicKey`, `crypto.createWebAuthn`, `crypto.getEncryptionAtRest`, `crypto.getPublicKeyFromWKD`, `crypto.getPublicKeys`, `crypto.getWebAuthn`, `crypto.removePublicKey`, `crypto.setEncryptionAtRest` |
+| Composer and drafts | `drafts.create` |
+| Mail reader, search and message actions | `email.archive`, `email.batch`, `email.forward`, `email.get`, `email.getAttachment`, `email.getAttachmentImage`, `email.getAttachmentText`, `email.getRaw`, `email.getThread`, `email.getThreadCount`, `email.list`, `email.move`, `email.removeKeyword`, `email.search`, `email.setKeyword`, `email.undoBatch`, `email.updateKeywords` |
+| Files | `files.attach`, `files.create`, `files.createFolder`, `files.find`, `files.getImage`, `files.getText`, `files.list`, `files.move`, `files.rename`, `files.saveAttachments` |
+| Mail rules | `filters.create`, `filters.list`, `filters.undo` |
+| Add-on network mediation | `http.post` |
+| Accounts and composer | `identities.update` |
+| Scoped JMAP mail mediation | `jmap.fetchBlob`, `jmap.getKeywords`, `jmap.importRaw`, `jmap.removeKeyword`, `jmap.setKeyword`, `jmap.setKeywords`, `jmap.uploadBlob` |
+| Cryptography and consent | `keystore.agree`, `keystore.decrypt`, `keystore.list`, `keystore.sign` |
+| Mail tags | `keywords.add`, `keywords.discover`, `keywords.getCounts`, `keywords.list`, `keywords.refreshCounts`, `keywords.remove`, `keywords.reorder`, `keywords.update` |
+| Mail folders | `mailboxes.list` |
+| Notifications | `notifications.show` |
+| Add-on settings | `plugin.getConfig` |
+| Add-on network mediation | `proxy.accounts`, `proxy.cancel`, `proxy.connect`, `proxy.disconnect`, `proxy.fetch` |
+| Mail search | `search.clear`, `search.run` |
+| Mail rules | `sieve.getActiveScript`, `sieve.isSupported`, `sieve.regenerate`, `sieve.validateScript` |
+| Mail list | `tabs.categorize`, `tabs.clear`, `tabs.getState`, `tabs.refreshCounts`, `tabs.set` |
+| Calendar and tasks | `tasks.acknowledgeAlert`, `tasks.create`, `tasks.delete`, `tasks.get`, `tasks.list`, `tasks.setComplete`, `tasks.update` |
+| Composer templates | `templates.create`, `templates.delete`, `templates.get`, `templates.list`, `templates.update` |
+| Native UI and slot hosts | `ui.alert`, `ui.confirm`, `ui.downloadFile`, `ui.openCalendar`, `ui.openDialog`, `ui.openEmail`, `ui.openPage`, `ui.openTask`, `ui.prompt`, `ui.refreshRowBadges`, `ui.registerPrintTheme`, `ui.rerenderEmail`, `ui.rerenderFetchedEmails`, `ui.setDayLabels`, `ui.setListFilters`, `ui.setPages`, `ui.setPanel`, `ui.setSectionTitle`, `ui.setSidePanel`, `ui.unregisterPrintTheme` |
+| Attachments and files | `upfiles.get`, `upfiles.save` |
+| Account access and identity | `user.findPeople`, `user.getAccounts`, `user.getIdentities`, `user.getMailAccounts`, `user.getSelf`, `user.getTimeZone`, `user.logout`, `user.returnToOwnAccount` |
+| Mail settings | `vacation.get`, `vacation.set` |

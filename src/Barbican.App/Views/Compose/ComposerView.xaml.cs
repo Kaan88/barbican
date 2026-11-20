@@ -23,6 +23,7 @@ public sealed partial class ComposerView : UserControl
     private readonly ThemeController _theme = ViewHost.Get<ThemeController>();
     private ComposerViewModel? _vm;
     private bool _syncing;
+    private bool _footerBulwark = true;
 
     public ComposerView()
     {
@@ -34,6 +35,7 @@ public sealed partial class ComposerView : UserControl
         Host.DragOver += OnDragOver;
         Host.DragLeave += (_, _) => DropOverlay.Visibility = Visibility.Collapsed;
         Host.Drop += OnDrop;
+        Barbican.App.Motion.Tip.SetText(FooterDiscard, "Discard draft");
         SizeChanged += (_, _) =>
         {
             ApplyFooterDensity();
@@ -138,6 +140,11 @@ public sealed partial class ComposerView : UserControl
         FooterDiscard.Visibility = bulwark ? Visibility.Visible : Visibility.Collapsed;
         ApplyFieldLayout(bulwark);
         BodyRow.Margin = bulwark ? new Thickness(12, 0, 12, 0) : new Thickness(0);
+        ApplyFooterLayout(bulwark);
+    }
+
+    private void ApplyFooterLayout(bool bulwark)
+    {
         Footer.Padding = bulwark ? new Thickness(16, 10, 16, 10) : new Thickness(0);
         Footer.BorderBrush = AppResources.Brush("Line");
         Footer.BorderThickness = bulwark ? new Thickness(0, 1, 0, 0) : new Thickness(0);
@@ -145,6 +152,7 @@ public sealed partial class ComposerView : UserControl
         Grid.SetColumn(AttachButton, bulwark ? 0 : 2);
         Grid.SetColumn(TemplatesButton, 1);
         Grid.SetColumn(OptionsButton, bulwark ? 2 : 3);
+        ApplyFooterTabOrder(bulwark);
         SendButton.CornerRadius = bulwark ? new CornerRadius(6, 0, 0, 6) : new CornerRadius(18, 0, 0, 18);
         SendArrow.CornerRadius = bulwark ? new CornerRadius(0, 6, 6, 0) : new CornerRadius(0, 18, 18, 0);
         TemplatesButton.CornerRadius = AttachButton.CornerRadius = OptionsButton.CornerRadius = new CornerRadius(bulwark ? 6 : 18);
@@ -155,6 +163,23 @@ public sealed partial class ComposerView : UserControl
             button.FontWeight = bulwark ? FontWeights.Normal : FontWeights.SemiBold;
         }
         ApplyFooterDensity();
+    }
+
+    private void ApplyFooterTabOrder(bool bulwark)
+    {
+        if (_footerBulwark == bulwark) return;
+        _footerBulwark = bulwark;
+        var focused = XamlRoot is { } root ? FocusManager.GetFocusedElement(root) as Button : null;
+        var children = Footer.Children;
+        // Follow each layout's visual order without taking these buttons out of the composer's tab flow.
+        children.Remove(SendGroup);
+        children.Insert(bulwark ? 3 : 0, SendGroup);
+        children.Remove(AttachButton);
+        children.Insert(bulwark ? 0 : 2, AttachButton);
+        if (focused is not null && (ReferenceEquals(focused, AttachButton) || ReferenceEquals(focused, SendButton) || ReferenceEquals(focused, SendArrow)))
+        {
+            _ = focused.Focus(FocusState.Programmatic);
+        }
     }
 
     private void ApplyFieldLayout(bool bulwark)

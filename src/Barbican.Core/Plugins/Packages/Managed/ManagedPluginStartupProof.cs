@@ -18,6 +18,8 @@ public sealed class ManagedPluginStartupProof
     public PluginPackageIdentity Package { get; }
     public long InstalledGeneration { get; }
 
+    internal bool TryRunWhileCurrent(Func<bool> issue) => _whileCurrent(issue);
+
     /// <summary>Hands the verified entrypoint to a synchronous host operation while its authority is held.</summary>
     public bool TryReadEntrypoint(Func<string, bool> read)
     {

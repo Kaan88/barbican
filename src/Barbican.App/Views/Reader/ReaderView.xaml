@@ -300,11 +300,7 @@
                <TextBox x:Name="QuickReplyText" AcceptsReturn="True" TextWrapping="Wrap" MinHeight="56" MaxHeight="144" ScrollViewer.VerticalScrollBarVisibility="Auto"
                         GotFocus="OnQuickReplyFocus" TextChanged="OnQuickReplyTextChanged"
                         PlaceholderText="Write a reply…" FontSize="14"
-                        AutomationProperties.AutomationId="reader.reply-text" AutomationProperties.Name="Quick reply text">
-                 <TextBox.KeyboardAccelerators>
-                   <KeyboardAccelerator Key="Enter" Modifiers="Control" Invoked="OnQuickReplySendKey" />
-                 </TextBox.KeyboardAccelerators>
-               </TextBox>
+                        AutomationProperties.AutomationId="reader.reply-text" AutomationProperties.Name="Quick reply text" />
                <StackPanel x:Name="QuickReplyActions" Visibility="Collapsed" Orientation="Horizontal" HorizontalAlignment="Right" Spacing="6">
                  <Button Content="Cancel" Style="{StaticResource Button.Action}" Click="OnQuickReplyCancel" AutomationProperties.Name="Cancel quick reply" AutomationProperties.AutomationId="reader.reply.cancel" />
                  <Button Content="Open full editor" Style="{StaticResource Button.Action}" Click="OnQuickReplyOpenEditor" AutomationProperties.Name="Open full editor" AutomationProperties.AutomationId="reader.reply.full" />

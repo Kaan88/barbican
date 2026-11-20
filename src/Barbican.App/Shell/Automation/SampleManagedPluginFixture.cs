@@ -8,6 +8,7 @@ using System.Text.Json.Nodes;
 using Barbican.Core.Accounts;
 using Barbican.Core.Plugins.Packages.Managed;
 using Barbican.Core.Storage;
+using Barbican.App.Views.Settings.Automation;
 using Org.BouncyCastle.Crypto.Parameters;
 using Org.BouncyCastle.Crypto.Signers;
 
@@ -19,7 +20,22 @@ internal static class SampleManagedPluginFixture
     internal const string Origin = "https://managed.example.org";
     internal const string PublicKey = "11qYAYKxCrfVS/7TyWQHOg7hcvPapiMlrwIaaPcHURo=";
     private const string ContextCookie = "synthetic-managed-cookie";
-    private static readonly byte[] Code = Encoding.UTF8.GetBytes("exports.activate = () => {};\n");
+    private const string ManagedActions = """
+        let api;
+        exports.activate = async host => {
+            api = host;
+            await api.ui.setActions('composer-header-actions', [
+                { id: 'managed-proof', label: 'Check managed add-on', icon: 'edit' },
+            ]);
+        };
+        """;
+    private const string ManagedActionHook = """
+
+        exports.hooks.onAction = async event => {
+            if (event.actionId === 'managed-proof' && event.context?.composerId)
+                await api.toast.success('Managed composer action ran');
+        };
+        """;
 
     internal static ManagedPluginSource Create(IAccountSessionSnapshots accounts)
     {
@@ -27,13 +43,17 @@ internal static class SampleManagedPluginFixture
         if (!ProfilePaths.IsAutomationProfile(profile) || !Enabled("BARBICAN_SAMPLE") || !Enabled("BARBICAN_SAMPLE_ADDON_ACCOUNT") ||
             !Enabled("BARBICAN_SAMPLE_ORGANIZATION_POLICY") || !Enabled("BARBICAN_SAMPLE_MANAGED_ADDONS"))
             throw new InvalidOperationException("Managed sample fixture is unavailable.");
-        return new ManagedPluginSource(accounts, new ManagedPluginTransport(new Handler()));
+        var compose = Enabled("BARBICAN_SAMPLE_SEND_PIPELINE") && Enabled("BARBICAN_SAMPLE_MANAGED_COMPOSER");
+        return new ManagedPluginSource(accounts, new ManagedPluginTransport(new Handler(compose)));
     }
 
     private static bool Enabled(string name) => string.Equals(Environment.GetEnvironmentVariable(name), "1", StringComparison.Ordinal);
 
-    private sealed class Handler : HttpMessageHandler
+    private sealed class Handler(bool compose) : HttpMessageHandler
     {
+        private readonly byte[] _code = Encoding.UTF8.GetBytes(compose
+            ? ManagedActions + AddonsFixtureCommand.TakeoverHook + ManagedActionHook : "exports.activate = () => {};\n");
+
         protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
         {
             if (request.RequestUri is not { } uri || !string.Equals(uri.GetLeftPart(UriPartial.Authority), Origin, StringComparison.Ordinal) ||
@@ -67,21 +87,23 @@ internal static class SampleManagedPluginFixture
             return response;
         }
 
-        private static string Registry() => new JsonObject { ["plugins"] = new JsonArray(new JsonObject
+        private string Registry() => new JsonObject { ["plugins"] = new JsonArray(new JsonObject
         {
             ["id"] = PluginId, ["name"] = "Synthetic managed probe", ["author"] = "Example", ["version"] = "1.0.0",
             ["type"] = "hook", ["tier"] = "privileged", ["dev"] = false, ["refused"] = false,
-            ["entrypoint"] = "scripts/plugin.js", ["bundleHash"] = Convert.ToHexStringLower(SHA256.HashData(Code)),
-            ["permissions"] = new JsonArray("crypto:full", "email:raw-send"),
+            ["entrypoint"] = "scripts/plugin.js", ["bundleHash"] = Convert.ToHexStringLower(SHA256.HashData(_code)),
+            ["permissions"] = compose
+                ? new JsonArray("crypto:full", "email:raw-send", "email:send", "ui:composer-toolbar")
+                : new JsonArray("crypto:full", "email:raw-send"),
         }) }.ToJsonString();
 
-        private static HttpResponseMessage Bundle()
+        private HttpResponseMessage Bundle()
         {
             var seed = Convert.FromHexString("9d61b19deffd5a60ba844af492ec2cc44449c5697b326919703bac031cae7f60");
             var signer = new Ed25519Signer();
             signer.Init(true, new Ed25519PrivateKeyParameters(seed));
-            signer.BlockUpdate(Code, 0, Code.Length);
-            var response = new HttpResponseMessage(HttpStatusCode.OK) { Content = new ByteArrayContent(Code) };
+            signer.BlockUpdate(_code, 0, _code.Length);
+            var response = new HttpResponseMessage(HttpStatusCode.OK) { Content = new ByteArrayContent(_code) };
             response.Headers.TryAddWithoutValidation("X-Bundle-Signature", Convert.ToBase64String(signer.GenerateSignature()));
             return response;
         }

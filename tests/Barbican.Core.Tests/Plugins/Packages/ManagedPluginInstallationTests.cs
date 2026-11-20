@@ -6,6 +6,7 @@ using Barbican.Core.Common;
 using Barbican.Core.Plugins.Packages;
 using Barbican.Core.Plugins.Packages.Managed;
 using Barbican.Core.Plugins.Permissions;
+using Barbican.Core.Plugins.Runtime;
 using Org.BouncyCastle.Crypto.Parameters;
 using Org.BouncyCastle.Crypto.Signers;
 
@@ -139,6 +140,159 @@ public sealed class ManagedPluginInstallationTests
     }
 
     [Fact]
+    public async Task SessionGrantFencesAllDeliveryPathsAndDoesNotSurviveRestart()
+    {
+        var rig = new PackageTestRig();
+        using var manager = rig.LeasedManager();
+        var current = true;
+        var candidate = await CandidateAsync(current: issue => current && issue());
+        var installed = await InstallManagedAsync(manager, candidate);
+        var package = installed.Package.Identity;
+        var enabled = Need(await manager.EnableManagedForSessionAsync(package, (_, _) =>
+            Task.FromResult(Result<ManagedPluginCandidate>.Ok(candidate)), Ct));
+        var grant = enabled.Grant!;
+        Assert.True(enabled.Enabled);
+        Assert.True(grant.Generation > installed.Grant!.Generation);
+        Assert.Equal(grant.Generation, Need(await manager.GetCurrentAsync(Id, Ct))!.Generation);
+        await using var binding = PluginRuntimeBinding.Create(PackageTestRig.Profile, grant, PluginFrameKind.Background);
+        Assert.True(await manager.TryPostAsync(binding, delivered => delivered.Generation == grant.Generation, Ct));
+        Assert.True(manager.TryContinuePost(binding, static () => true));
+        Assert.True(await manager.TryRunWithGrantsAsync([binding], static () => true, Ct));
+        Assert.True((await manager.GetManagedRuntimeProofAsync(binding, Ct)).IsOk);
+
+        using (var restarted = rig.Manager())
+        {
+            Assert.False(Assert.Single(Need(await restarted.ListAsync(Ct))).Enabled);
+            Assert.Null(Need(await restarted.GetCurrentAsync(Id, Ct)));
+        }
+
+        current = false;
+        Assert.False(await manager.TryPostAsync(binding, _ => throw new InvalidOperationException("Expired grant posted."), Ct));
+        Assert.False(manager.TryContinuePost(binding, static () => throw new InvalidOperationException("Expired grant continued.")));
+        Assert.False(await manager.TryRunWithGrantsAsync([binding], static () => throw new InvalidOperationException("Expired grant took over."), Ct));
+        Assert.False((await manager.GetManagedRuntimeProofAsync(binding, Ct)).IsOk);
+        Assert.False(Assert.Single(Need(await manager.ListAsync(Ct))).Enabled);
+        Assert.True((await manager.SetEnabledAsync(package, false, Ct)).IsOk);
+    }
+
+    [Fact]
+    public async Task DisableCancelsPendingEnableAndStaleRollbackLeavesNewGrantAlone()
+    {
+        var rig = new PackageTestRig();
+        using var manager = rig.LeasedManager();
+        var candidate = await CandidateAsync();
+        var package = (await InstallManagedAsync(manager, candidate)).Package.Identity;
+        var response = Result<ManagedPluginCandidate>.Ok(candidate);
+        var requested = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var pending = manager.EnableManagedForSessionAsync(package, async (_, authorize) =>
+        {
+            requested.SetResult();
+            await release.Task.WaitAsync(Ct);
+            Assert.False(authorize(static () => throw new InvalidOperationException("Disabled attempt used the provider.")));
+            return response;
+        }, Ct);
+        await requested.Task.WaitAsync(TimeSpan.FromSeconds(5), Ct);
+        Assert.False((await manager.EnableManagedForSessionAsync(package, (_, _) => Task.FromResult(response), Ct)).IsOk);
+        Assert.True((await manager.SetEnabledAsync(package, false, Ct)).IsOk);
+        var next = Need(await manager.EnableManagedForSessionAsync(package, (_, _) => Task.FromResult(response), Ct)).Grant!;
+        release.SetResult();
+        Assert.False((await pending).IsOk);
+
+        Assert.True((await manager.SetEnabledAsync(package, false, Ct)).IsOk);
+        var active = Need(await manager.EnableManagedForSessionAsync(package, (_, _) => Task.FromResult(response), Ct)).Grant!;
+        Assert.True((await manager.RollBackManagedRuntimeAsync(next, Ct)).IsOk);
+        Assert.Equal(active.Generation, Need(await manager.GetCurrentAsync(Id, Ct))!.Generation);
+        Assert.True((await manager.RollBackManagedRuntimeAsync(active, Ct)).IsOk);
+        Assert.Null(Need(await manager.GetCurrentAsync(Id, Ct)));
+    }
+
+    [Fact]
+    public async Task ManagedStoragePublicationStopsAtRevokedProviderWithoutWaitingForExpiry()
+    {
+        var rig = new PackageTestRig();
+        using var manager = rig.LeasedManager();
+        var owner = Need(rig.Accounts.CaptureActive());
+        var current = 1;
+        var candidate = await CandidateAsync(account: owner.LocalAccountKey, current: issue => Volatile.Read(ref current) == 1 && issue());
+        var installed = await InstallManagedAsync(manager, candidate);
+        var grant = Need(await manager.EnableManagedForSessionAsync(installed.Package.Identity, (_, _) =>
+            Task.FromResult(Result<ManagedPluginCandidate>.Ok(candidate)), Ct)).Grant!;
+        await using var binding = PluginRuntimeBinding.Create(PackageTestRig.Profile, grant, PluginFrameKind.Background);
+        var storage = rig.Storage(manager);
+        Assert.True((await storage.SetAsync(binding, owner, "entry", PackageTestRig.StringValue("before"), Ct)).IsOk);
+        var before = Need(await rig.Data.LoadAsync(PackageTestRig.Profile, Id, owner.LocalAccountKey, Ct));
+        rig.Data.Staged = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        rig.Data.ReleaseStage = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        var pending = storage.SetAsync(binding, owner, "entry", PackageTestRig.StringValue("after"), Ct);
+        await rig.Data.Staged.Task.WaitAsync(TimeSpan.FromSeconds(5), Ct);
+        Volatile.Write(ref current, 0);
+        Assert.True(binding.IsAlive);
+        rig.Data.ReleaseStage.SetResult();
+        Assert.False((await pending).IsOk);
+        var after = Need(await rig.Data.LoadAsync(PackageTestRig.Profile, Id, owner.LocalAccountKey, Ct));
+        Assert.Equal(before.Revision, after.Revision);
+        Assert.True(before.Index.AsSpan().SequenceEqual(after.Index.AsSpan()));
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task EnableRetriesFailedTeardownBeforeIssuingNewGrant(bool expired)
+    {
+        var rig = new PackageTestRig();
+        using var manager = rig.LeasedManager();
+        var current = true;
+        var candidate = await CandidateAsync(current: issue => current && issue());
+        var package = (await InstallManagedAsync(manager, candidate)).Package.Identity;
+        var response = Result<ManagedPluginCandidate>.Ok(candidate);
+        var earlier = Need(await manager.EnableManagedForSessionAsync(package, (_, _) => Task.FromResult(response), Ct)).Grant!;
+        rig.Cleanup.Pending = true;
+        if (expired)
+        {
+            current = false;
+            rig.Time.Advance(TimeSpan.FromSeconds(1));
+            current = true;
+        }
+        else
+        {
+            Assert.False((await manager.SetEnabledAsync(package, false, Ct)).IsOk);
+        }
+        Assert.Null(Need(await manager.GetCurrentAsync(Id, Ct)));
+        Assert.False((await manager.EnableManagedForSessionAsync(package, (_, _) =>
+            throw new InvalidOperationException("Provider accessed before cleanup."), Ct)).IsOk);
+
+        rig.Cleanup.Pending = false;
+        var next = Need(await manager.EnableManagedForSessionAsync(package, (_, _) => Task.FromResult(response), Ct));
+        Assert.True(next.Enabled);
+        Assert.True(next.Grant!.Generation > earlier.Generation);
+    }
+
+    [Fact]
+    public async Task TakeoverRequiresEveryContributingManagedGrantAtDelivery()
+    {
+        var rig = new PackageTestRig();
+        using var manager = rig.LeasedManager();
+        var current = true;
+        var active = await CandidateAsync();
+        var revoked = await CandidateAsync(id: "second-probe", current: issue => current && issue());
+        async Task<PluginRuntimeBinding> EnableAsync(ManagedPluginCandidate candidate)
+        {
+            var installed = await InstallManagedAsync(manager, candidate);
+            var grant = Need(await manager.EnableManagedForSessionAsync(installed.Package.Identity, (_, _) =>
+                Task.FromResult(Result<ManagedPluginCandidate>.Ok(candidate)), Ct)).Grant!;
+            return PluginRuntimeBinding.Create(PackageTestRig.Profile, grant, PluginFrameKind.Background);
+        }
+        await using var first = await EnableAsync(active);
+        await using var second = await EnableAsync(revoked);
+        Assert.True(await manager.TryRunWithGrantsAsync([first, second], static () => true, Ct));
+        current = false;
+        Assert.True(await manager.TryRunWithGrantsAsync([first], static () => true, Ct));
+        Assert.False(await manager.TryRunWithGrantsAsync([first, second], static () =>
+            throw new InvalidOperationException("Partially authorized takeover issued."), Ct));
+    }
+
+    [Fact]
     public async Task RevocationBeforeGuardedPublicationLeavesNoInstalledRecordOrGrantAfterRestart()
     {
         var rig = new PackageTestRig();
@@ -218,29 +372,29 @@ public sealed class ManagedPluginInstallationTests
     private static async Task<PluginInstallation> InstallManagedAsync(PluginPackageManager manager, ManagedPluginCandidate candidate)
     {
         var preview = Need(await manager.ReviewManagedCandidateAsync(candidate, Ct));
-        return Need(await manager.InstallAsync(Decision(preview, [Account], approved: true), Ct));
+        return Need(await manager.InstallAsync(Decision(preview, [candidate.LocalAccountKey], approved: true), Ct));
     }
 
     private static async Task<ManagedPluginCandidate> CandidateAsync(string codeText = "exports.activate = () => 1;", byte seed = 0,
-        Uri? origin = null, string account = Account, Func<Func<bool>, bool>? current = null, string name = "Managed probe")
+        Uri? origin = null, string account = Account, Func<Func<bool>, bool>? current = null, string name = "Managed probe", string id = Id)
     {
         var code = System.Text.Encoding.UTF8.GetBytes(codeText);
         var metadata = new JsonObject { ["plugins"] = new JsonArray(new JsonObject
         {
-            ["id"] = Id, ["name"] = name, ["author"] = "Example", ["version"] = "1.0.0", ["type"] = "hook",
+            ["id"] = id, ["name"] = name, ["author"] = "Example", ["version"] = "1.0.0", ["type"] = "hook",
             ["tier"] = "privileged", ["dev"] = false, ["entrypoint"] = "scripts/plugin.js", ["bundleHash"] = Convert.ToHexStringLower(SHA256.HashData(code)),
             ["permissions"] = new JsonArray("crypto:full", "email:raw-send"),
         }) };
         using var json = JsonDocument.Parse(metadata.ToJsonString());
         var registry = Need(ManagedPluginRegistry.Parse(json.RootElement));
-        Assert.NotNull(registry.FindEligible(Id));
+        Assert.NotNull(registry.FindEligible(id));
         var keyBytes = new byte[32];
         keyBytes[0] = seed;
         var key = new Ed25519PrivateKeyParameters(keyBytes);
         var signer = new Ed25519Signer();
         signer.Init(true, key);
         signer.BlockUpdate(code, 0, code.Length);
-        var artifact = Need(await ManagedPluginArtifactFactory.CreateAsync(registry, Id, code,
+        var artifact = Need(await ManagedPluginArtifactFactory.CreateAsync(registry, id, code,
             Convert.ToBase64String(key.GeneratePublicKey().GetEncoded()), Convert.ToBase64String(signer.GenerateSignature()), "1.21.2", Ct));
         return new(artifact, origin ?? Origin, account, current ?? (issue => issue()));
     }

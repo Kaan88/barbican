@@ -160,6 +160,35 @@ public sealed class OrganizationPolicyServiceTests
     }
 
     [Fact]
+    public async Task PolicyRefreshCanOverlapManagedAccountFencedDelivery()
+    {
+        using var rig = await Rig.CreateAsync();
+        var ct = TestContext.Current.CancellationToken;
+        var captured = rig.Accounts.Active();
+        var initial = await rig.Service.ReadAsync(captured, ct);
+        Assert.NotNull(initial.Snapshot);
+        var held = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var refreshAtAccountFence = new ManualResetEventSlim();
+
+        var delivery = Task.Run(() => rig.Accounts.TryRunWhileCurrent([captured], () =>
+        {
+            var owner = Environment.CurrentManagedThreadId;
+            rig.Accounts.BeforeFence = () =>
+            {
+                if (Environment.CurrentManagedThreadId != owner) refreshAtAccountFence.Set();
+            };
+            held.SetResult();
+            return refreshAtAccountFence.Wait(TimeSpan.FromSeconds(5), ct) &&
+                initial.Snapshot.TryRunWhileCurrent(static () => true);
+        }), ct);
+        await held.Task.WaitAsync(TimeSpan.FromSeconds(5), ct);
+        var refresh = Task.Run(() => rig.Service.ReadAsync(captured, ct), ct);
+        Assert.True(await delivery.WaitAsync(TimeSpan.FromSeconds(8), ct));
+        Assert.Equal(OrganizationPolicyTransportStatus.Authoritative, (await refresh.WaitAsync(TimeSpan.FromSeconds(8), ct)).Status);
+        rig.Accounts.BeforeFence = null;
+    }
+
+    [Fact]
     public async Task Basic_enrollment_is_refused_before_policy_request()
     {
         using var rig = await Rig.CreateAsync();
@@ -411,6 +440,7 @@ public sealed class OrganizationPolicyServiceTests
         private readonly Lock _gate = new();
         private IAccountSession? _current = session;
         private long _generation = 1;
+        public Action? BeforeFence { get; set; }
         public IAccountSession Session { get { lock (_gate) return _current!; } }
         public IAccountSession Current { set { lock (_gate) { _current = value; _generation++; } } }
         public void Disconnect() { lock (_gate) { _current = null; _generation++; } }
@@ -427,7 +457,12 @@ public sealed class OrganizationPolicyServiceTests
             (snapshot.ActiveSelectionGeneration is null || snapshot.ActiveSelectionGeneration == _generation);
         public bool IsSessionCurrent(AccountSessionSnapshot snapshot) { lock (_gate) return CurrentSnapshot(snapshot); }
         public bool TryRunWhileCurrent(IReadOnlyList<AccountSessionSnapshot> snapshots, Func<bool> write)
-        { lock (_gate) return snapshots.All(CurrentSnapshot) && write(); }
+        {
+            BeforeFence?.Invoke();
+            if (!_gate.TryEnter(TimeSpan.FromSeconds(4))) return false;
+            try { return snapshots.All(CurrentSnapshot) && write(); }
+            finally { _gate.Exit(); }
+        }
     }
 
     private sealed class Handler : HttpMessageHandler

@@ -114,16 +114,13 @@ public sealed partial class AuthenticatedPluginPackageStore
         var published = false;
         AtomicWrite(path, envelope, temp =>
         {
-            published = _lease.TryRunWhileHeld(() =>
+            published = publishWhileCurrent(() => _lease.TryRunWhileHeld(() =>
             {
                 if (!Current(_profile) || ct.IsCancellationRequested) return false;
                 if (!RequireUserDirectory(Path.GetDirectoryName(path)!, create: false)) return false;
-                return publishWhileCurrent(() =>
-                {
-                    File.Move(temp, path, overwrite: expectedRevision != 0);
-                    return true;
-                });
-            });
+                File.Move(temp, path, overwrite: expectedRevision != 0);
+                return true;
+            }));
         }, Path.GetFileNameWithoutExtension(path) + "-");
         return published ? Result<long>.Ok(revision) : Fail<long>();
     }

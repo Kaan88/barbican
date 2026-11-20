@@ -82,11 +82,18 @@ public sealed partial class PluginPackageManager : IPluginPackageManager, IPlugi
     private void OnLeaseLost()
     {
         KeyValuePair<PluginPackageIdentity, long>[] issued;
+        ITimer? managedTimer;
         lock (_issuanceGate)
         {
             Volatile.Write(ref _authorityClosed, 1);
             issued = [.. _issued];
+            managedTimer = _managedTimer;
+            _managedTimer = null;
+            _managedStarts.Clear();
+            _managedRuntimes.Clear();
+            _managedRevoking.Clear();
         }
+        managedTimer?.Dispose();
 
         // Both shutdown paths establish the same idempotent barrier. A lease callback
         // racing Dispose must finish its own barrier before the lease handle is released.
@@ -423,10 +430,16 @@ public sealed partial class PluginPackageManager : IPluginPackageManager, IPlugi
             : Result<Loaded>.Fail(committed.Error!);
     }
 
-    private async Task<Result<Unit>> StopAsync(Loaded loaded, PluginPackageIdentity identity, List<PluginAuthorityChangedEventArgs> notifications, CancellationToken ct)
+    private Task<Result<Unit>> StopAsync(Loaded loaded, PluginPackageIdentity identity, List<PluginAuthorityChangedEventArgs> notifications, CancellationToken ct)
     {
         var entry = loaded.Index.Entries.SingleOrDefault(x => Identity(x) == identity);
-        if (entry is null) return Failure<Unit>("Installed package changed.");
+        if (entry is null) return Task.FromResult(Failure<Unit>("Installed package changed."));
+        return entry.Managed is not null ? StopManagedRuntimeAsync(identity.Id) : StopPersistedAsync(loaded, identity, entry, notifications, ct);
+    }
+
+    private async Task<Result<Unit>> StopPersistedAsync(Loaded loaded, PluginPackageIdentity identity, Entry entry,
+        List<PluginAuthorityChangedEventArgs> notifications, CancellationToken ct)
+    {
         if (!entry.Enabled && entry.CleanupThrough is null && !_blocked.Contains(identity.Id)) return Result<Unit>.Ok(default);
         _cache = null;
         _blocked.Add(identity.Id);
@@ -473,7 +486,7 @@ public sealed partial class PluginPackageManager : IPluginPackageManager, IPlugi
             if (!loaded.IsOk) return Result<IReadOnlyList<PluginInstallation>>.Fail(loaded.Error!);
             await RetryRetiredArchivesAsync(loaded.Value!, ct).ConfigureAwait(false);
             return HasAuthority
-                ? Result<IReadOnlyList<PluginInstallation>>.Ok(loaded.Value!.Installations.Values.ToArray())
+                ? Result<IReadOnlyList<PluginInstallation>>.Ok(loaded.Value!.Installations.Values.Select(ProjectManagedRuntime).ToArray())
                 : Failure<IReadOnlyList<PluginInstallation>>("Plugin profile authority is unavailable.");
         }
         finally { _gate.Release(); }
@@ -485,9 +498,9 @@ public sealed partial class PluginPackageManager : IPluginPackageManager, IPlugi
         try
         {
             var loaded = await LoadAsync(ct).ConfigureAwait(false);
-            return loaded.IsOk
-                ? Result<PluginInstallation?>.Ok(loaded.Value!.Installations.GetValueOrDefault(pluginId))
-                : Result<PluginInstallation?>.Fail(loaded.Error!);
+            if (!loaded.IsOk) return Result<PluginInstallation?>.Fail(loaded.Error!);
+            var installation = loaded.Value!.Installations.GetValueOrDefault(pluginId);
+            return Result<PluginInstallation?>.Ok(installation is null ? null : ProjectManagedRuntime(installation));
         }
         finally { _gate.Release(); }
     }
@@ -513,7 +526,13 @@ public sealed partial class PluginPackageManager : IPluginPackageManager, IPlugi
             lock (_issuanceGate)
             {
                 if (!HasAuthority || ct.IsCancellationRequested || !string.Equals(binding.Profile, _options.Profile, StringComparison.Ordinal)
-                    || !loaded.Value!.Installations.TryGetValue(binding.Package.Id, out var item) || !item.Enabled
+                    || !loaded.Value!.Installations.TryGetValue(binding.Package.Id, out var item))
+                    return false;
+
+                if (item.Package.Source == PluginPackageSource.Managed)
+                    return TryUseManagedRuntime(binding, () => !ct.IsCancellationRequested && write(_managedRuntimes[binding.Package.Id].Grant));
+
+                if (!item.Enabled
                     || item.Grant is not { } grant || grant.Package != binding.Package
                     || grant.Generation != binding.GrantGeneration || grant.Tier != binding.Tier)
                     return false;
@@ -524,7 +543,6 @@ public sealed partial class PluginPackageManager : IPluginPackageManager, IPlugi
         finally { _gate.Release(); }
     }
 
-    /// <summary>Runs one synchronous host operation while every contributing runtime retains its package authority.</summary>
     /// <summary>Rechecks the profile lease for a native callback that was already admitted by TryPostAsync.</summary>
     public bool TryContinuePost(PluginRuntimeBinding binding, Func<bool> issue)
     {
@@ -532,11 +550,13 @@ public sealed partial class PluginPackageManager : IPluginPackageManager, IPlugi
         ArgumentNullException.ThrowIfNull(issue);
         lock (_issuanceGate)
         {
+            if (binding.Tier == PluginExecutionTier.Privileged) return TryUseManagedRuntime(binding, issue);
             return HasAuthority && _lease is { } lease && string.Equals(binding.Profile, _options.Profile, StringComparison.Ordinal) &&
                 lease.TryRunWhileHeld(() => binding.IsAlive && issue());
         }
     }
 
+    /// <summary>Runs one synchronous host operation while every contributing runtime retains its package authority.</summary>
     public async Task<bool> TryRunWithGrantsAsync(IReadOnlyCollection<PluginRuntimeBinding> bindings, Func<bool> issue, CancellationToken ct)
     {
         ArgumentNullException.ThrowIfNull(bindings);
@@ -549,12 +569,22 @@ public sealed partial class PluginPackageManager : IPluginPackageManager, IPlugi
             if (!loaded.IsOk) return false;
             lock (_issuanceGate)
             {
-                if (!HasAuthority || ct.IsCancellationRequested ||
-                    !bindings.All(binding => binding.IsAlive && string.Equals(binding.Profile, _options.Profile, StringComparison.Ordinal) &&
-                        loaded.Value!.Installations.TryGetValue(binding.Package.Id, out var item) && item.Enabled &&
-                        item.Grant is { Enabled: true } grant && grant.Package == binding.Package &&
-                        grant.Generation == binding.GrantGeneration && grant.Tier == binding.Tier)) return false;
-                return lease.TryRunWhileHeld(() => !ct.IsCancellationRequested && bindings.All(binding => binding.IsAlive) && issue());
+                if (!HasAuthority || ct.IsCancellationRequested) return false;
+                foreach (var binding in bindings)
+                {
+                    if (!binding.IsAlive || !string.Equals(binding.Profile, _options.Profile, StringComparison.Ordinal) ||
+                        !loaded.Value!.Installations.TryGetValue(binding.Package.Id, out var item) || item.Package.Identity != binding.Package)
+                        return false;
+                    if (item.Package.Source == PluginPackageSource.Managed)
+                    {
+                        if (binding.Tier != PluginExecutionTier.Privileged) return false;
+                    }
+                    else if (!item.Enabled || item.Grant is not { Enabled: true } grant ||
+                        grant.Generation != binding.GrantGeneration || grant.Tier != binding.Tier) return false;
+                }
+                var managed = bindings.Where(binding => binding.Tier == PluginExecutionTier.Privileged).ToArray();
+                return lease.TryRunWhileHeld(() => TryRunWithManagedBindings(managed, 0,
+                    () => !ct.IsCancellationRequested && bindings.All(binding => binding.IsAlive) && issue()));
             }
         }
         finally { _gate.Release(); }

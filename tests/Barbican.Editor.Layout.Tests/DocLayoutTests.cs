@@ -53,6 +53,26 @@ public sealed class DocLayoutTests
     }
 
     [Fact]
+    public void Changing_palette_rebuilds_cached_text_and_keeps_preedit()
+    {
+        var doc = Doc.FromText("One block\nAnother block");
+        var layout = new DocLayout(new RichTextKitEngine(), TestFonts.Style);
+        layout.SetPreedit(new Pos(1, 0), "Text");
+        layout.Build(doc, 400f);
+        var before = layout.Blocks[0].Text;
+        layout.Build(doc, 400f);
+        Assert.Same(before, layout.Blocks[0].Text);
+
+        var dark = TestFonts.Style with { Text = SKColors.White };
+        Assert.True(layout.SetStyle(dark));
+        layout.Build(doc, 400f);
+
+        Assert.NotSame(before, layout.Blocks[0].Text);
+        Assert.Equal(new Pos(1, 4), layout.PreeditEnd);
+        Assert.False(layout.SetStyle(dark));
+    }
+
+    [Fact]
     public void Selection_spans_blocks_and_paints_ink()
     {
         var d = Sample();

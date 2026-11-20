@@ -134,7 +134,7 @@ internal sealed partial class AddonsPageFactory
             return;
         }
         panel.Children.Add(SetUiUi.Heading("Privileged JavaScript add-on"));
-        panel.Children.Add(SetUiUi.Body("This add-on requests privileged access. It will be installed disabled while its runtime is unavailable."));
+        panel.Children.Add(SetUiUi.Body("This add-on requests privileged access. It will be installed disabled; choose Enable to start it for this session."));
         panel.Children.Add(SetUiUi.Meta("Account: " + AccountLabel(selected.Account.Session.Account)));
         panel.Children.Add(SetUiUi.Meta("Verified signing key SHA-256: " + preview.VerifiedSigner));
         var consent = SetUiUi.Id(new CheckBox { Content = "I approve this privileged add-on and its requested permissions for this account." }, "set.addons.managed.privileged-consent");

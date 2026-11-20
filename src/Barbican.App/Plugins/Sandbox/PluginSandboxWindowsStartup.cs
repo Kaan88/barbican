@@ -3,6 +3,7 @@ using System.Collections.Immutable;
 using Barbican.Core.Common;
 using Barbican.Core.Jmap.Errors;
 using Barbican.Core.Plugins.Runtime;
+using Barbican.Core.Plugins.Packages.Managed;
 using Microsoft.Extensions.Logging;
 using Microsoft.Web.WebView2.Core;
 
@@ -16,13 +17,19 @@ internal sealed class PluginSandboxWindowsStartup(
     private static readonly string[] HostScripts = ["plugin-sandbox-host.js", "plugin-sandbox-parent.js",
         "plugin-value-codec.js", "plugin-sandbox-network.js"];
 
-    public async Task<Result<IPluginRuntimeInstance>> ActivateAsync(PluginSandboxSession session, PluginRuntimeStart trustedRequest,
-        string verifiedCode, CancellationToken ct)
+    public Task<Result<IPluginRuntimeInstance>> ActivateAsync(PluginSandboxSession session, PluginRuntimeStart trustedRequest,
+        string verifiedCode, CancellationToken ct) => ActivateCoreAsync(session, trustedRequest, verifiedCode, null, ct);
+
+    public Task<Result<IPluginRuntimeInstance>> ActivateManagedAsync(PluginSandboxSession session, PluginRuntimeStart trustedRequest,
+        ManagedPluginStartupProof proof, CancellationToken ct) => ActivateCoreAsync(session, trustedRequest, null, proof, ct);
+
+    private async Task<Result<IPluginRuntimeInstance>> ActivateCoreAsync(PluginSandboxSession session, PluginRuntimeStart trustedRequest,
+        string? verifiedCode, ManagedPluginStartupProof? proof, CancellationToken ct)
     {
         if (session.View is not PluginSandboxWindowsView view || view.RootIdentity is not CoreWebView2 core)
             return Refused();
 
-        var init = PluginSandboxInitMessage.Create(trustedRequest, verifiedCode);
+        var init = verifiedCode is null ? null : PluginSandboxInitMessage.Create(trustedRequest, verifiedCode);
         using var budget = CancellationTokenSource.CreateLinkedTokenSource(ct);
         budget.CancelAfter(TimeSpan.FromSeconds(20));
         var token = budget.Token;
@@ -32,7 +39,10 @@ internal sealed class PluginSandboxWindowsStartup(
         await view.AttachGuardsAsync(resources, () => new PluginSandboxWindowsEvents(session, resources.Attach(core), log), token).ConfigureAwait(false);
         await view.NavigateAsync(view.TrustedRoot, token).ConfigureAwait(false);
         await session.WaitForReadyAsync(token).ConfigureAwait(false);
-        if (!await session.IssueInitAsync(init, token).ConfigureAwait(false)) return Refused();
+        var issued = proof is not null
+            ? await session.IssueManagedInitAsync(trustedRequest, proof, token).ConfigureAwait(false)
+            : init is not null && await session.IssueInitAsync(init, token).ConfigureAwait(false);
+        if (!issued) return Refused();
         var acknowledgement = await session.WaitForInitializationAsync(token).ConfigureAwait(false);
         if (acknowledgement is null || !session.Binding.IsAlive) return Refused();
         token.ThrowIfCancellationRequested();

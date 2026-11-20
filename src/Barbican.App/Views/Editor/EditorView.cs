@@ -25,6 +25,7 @@ public sealed partial class EditorView : UserControl
     private const double PadY = 6;
 
     private readonly EditorCanvas _canvas = new() { IsHitTestVisible = false };
+    private readonly ThemeController _theme = ViewHost.Get<ThemeController>();
     private readonly ScrollViewer _scroll = new() { VerticalScrollBarVisibility = ScrollBarVisibility.Auto, HorizontalScrollMode = ScrollMode.Disabled, Background = null };
     private readonly Grid _spacer = new() { Background = new SolidColorBrush(Microsoft.UI.Colors.Transparent), AllowDrop = true };
     private readonly Grid _body = new();
@@ -42,7 +43,6 @@ public sealed partial class EditorView : UserControl
     private IEditorSession? _session;
     private DocLayout? _layout;
     private EditorController? _ctl;
-    private LayoutStyle _style = new();
     private bool _blinkOn = true;
     private bool _composing;
     private bool _settingSource;
@@ -209,8 +209,7 @@ public sealed partial class EditorView : UserControl
         }
 
         _vm.RtlSupport = _rtl;
-        _style = EditorPalette.Current();
-        _layout = new DocLayout(new RichTextKitEngine(), _style);
+        _layout = new DocLayout(new RichTextKitEngine(), EditorPalette.Current());
         _ctl = new EditorController(_session, _layout);
         _canvas.Draw = Paint;
         _session.Changed += OnSessionChanged;
@@ -223,14 +222,13 @@ public sealed partial class EditorView : UserControl
 
     private void OnLoaded()
     {
+        _theme.CssApplied += OnThemeApplied;
         if (_vm is null)
         {
             return;
         }
 
-        _style = EditorPalette.Current();
-        _layout = new DocLayout(new RichTextKitEngine(), _style);
-        _ctl = new EditorController(_vm.Session, _layout);
+        _ = _layout?.SetStyle(EditorPalette.Current());
         _blink.Tick += OnBlink;
         _blink.Start();
         Refresh(scrollToCaret: false);
@@ -238,12 +236,18 @@ public sealed partial class EditorView : UserControl
 
     private void OnUnloaded()
     {
+        _theme.CssApplied -= OnThemeApplied;
         _blink.Stop();
         _blink.Tick -= OnBlink;
         if (_vm is not null)
         {
             ViewHost.Find<ActiveEditor>()?.Deactivate(_vm);
         }
+    }
+
+    private void OnThemeApplied(object? sender, ThemeCssEventArgs e)
+    {
+        if (_layout?.SetStyle(EditorPalette.Current()) == true) Refresh(scrollToCaret: false);
     }
 
     private void OnFocusRequested(object? sender, EventArgs e) => FocusEditor();

@@ -25,6 +25,7 @@ public sealed partial class ShellPage : Page
     private readonly StyleState _look;
     private readonly ThemeController _theme;
     private readonly IKeyRouter? _keys;
+    private readonly IReadOnlyList<IModalSurface> _keyModals = ViewHost.Get<IEnumerable<IModalSurface>>().ToArray();
     private readonly IAccountManager? _accounts;
     private IAccountOverview? _overview;
     private SignInViewModel? _signIn;
@@ -553,7 +554,7 @@ public sealed partial class ShellPage : Page
             return;
         }
 
-        if (_keys is null || _composing || IsTyping(e.OriginalSource) || e.OriginalSource is DependencyObject source && (IsInside(source, SidebarHandle) || IsInside(source, ListHandle)))
+        if (_composing)
         {
             return;
         }
@@ -563,6 +564,17 @@ public sealed partial class ShellPage : Page
             IsDown(Windows.System.VirtualKey.Control),
             IsDown(Windows.System.VirtualKey.Shift),
             IsDown(Windows.System.VirtualKey.Menu));
+        if (chord is { } focused && TryHandleFocusedKey(focused, e.KeyStatus.WasKeyDown))
+        {
+            e.Handled = true;
+            return;
+        }
+
+        if (_keys is null || IsTyping(e.OriginalSource) || e.OriginalSource is DependencyObject source && (IsInside(source, SidebarHandle) || IsInside(source, ListHandle)))
+        {
+            return;
+        }
+
         if (chord is { } c
             && (!e.KeyStatus.WasKeyDown || KeyGate.RepeatRoutes(c))
             && KeyGate.Routes(c, SignInRegion.Visibility == Visibility.Visible, Activates(e.OriginalSource))
@@ -571,6 +583,11 @@ public sealed partial class ShellPage : Page
             e.Handled = true;
         }
     }
+
+    internal bool TryHandleFocusedKey(KeyChord chord, bool isRepeat = false) =>
+        chord is { Key: "Enter", Control: true, Shift: false, Alt: false } &&
+        !_composing && SignInRegion.Visibility != Visibility.Visible &&
+        !_keyModals.Any(modal => modal.IsOpen) && ReaderRegion.TrySendFocusedQuickReply(isRepeat);
 
     // R2-11: punctuation ("/", "?", "!", "#") is the typed character, whatever the layout (a German "/" is Shift+7); the virtual key path leaves it out (KeyChordMapper.MapKeyDown)
     private void OnCharacterReceived(UIElement sender, CharacterReceivedRoutedEventArgs e)

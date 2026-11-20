@@ -6,13 +6,14 @@ using Barbican.Core.Plugins.Bridge;
 using Barbican.Core.Plugins.Hooks;
 using Barbican.Core.Plugins.OAuth;
 using Barbican.Core.Plugins.Packages;
+using Barbican.Core.Plugins.Packages.Managed;
 using Barbican.Core.Plugins.Permissions;
 using Barbican.Core.Plugins.Runtime;
 using Barbican.Core.Storage;
 
 namespace Barbican.App.Plugins.Sandbox;
 
-/// <summary>Starts an isolated untrusted JavaScript runtime from current installed authority.</summary>
+/// <summary>Starts an isolated JavaScript runtime under the current package grant.</summary>
 public sealed class PluginSandboxFactory(IPluginPackageManager packages, IPluginAuthority authority,
     IPluginRevocationCoordinator revocation, IPluginApiDispatcher dispatcher, IPluginSandboxWebViewFactory views,
     IPluginSandboxStartup? startup = null, HookBus? hooks = null, PluginOAuthCallbacks? oauth = null) : IPluginRuntimeFactory
@@ -30,8 +31,8 @@ public sealed class PluginSandboxFactory(IPluginPackageManager packages, IPlugin
             var trusted = await CurrentAsync(request, ct).ConfigureAwait(false);
             if (trusted is null) return Fail();
 
-            var code = await ReadEntrypointAsync(trusted, ct).ConfigureAwait(false);
-            if (code is null || await CurrentAsync(trusted, ct).ConfigureAwait(false) is null) return Fail();
+            var code = trusted.Grant.Tier == PluginExecutionTier.Privileged ? null : await ReadEntrypointAsync(trusted, ct).ConfigureAwait(false);
+            if ((trusted.Grant.Tier != PluginExecutionTier.Privileged && code is null) || await CurrentAsync(trusted, ct).ConfigureAwait(false) is null) return Fail();
 
             return await StartIsolatedAsync(startup, trusted, code, ct).ConfigureAwait(false);
         }
@@ -40,7 +41,7 @@ public sealed class PluginSandboxFactory(IPluginPackageManager packages, IPlugin
     }
 
     private async Task<Result<IPluginRuntimeInstance>> StartIsolatedAsync(IPluginSandboxStartup activator,
-        PluginRuntimeStart trusted, string code, CancellationToken ct)
+        PluginRuntimeStart trusted, string? code, CancellationToken ct)
     {
         var binding = PluginRuntimeBinding.Create(trusted.Profile, trusted.Grant, trusted.Kind, trusted.Slot);
         PluginSandboxStartupLifetime? lifetime = null;
@@ -57,8 +58,16 @@ public sealed class PluginSandboxFactory(IPluginPackageManager packages, IPlugin
             lifetime.AttachRegistration(registration);
 
             if (!binding.IsAlive || await CurrentAsync(trusted, ct).ConfigureAwait(false) is not { } current) return Fail();
+            ManagedPluginStartupProof? proof = null;
+            if (current.Grant.Tier == PluginExecutionTier.Privileged)
+            {
+                if (packages is not PluginPackageManager manager) return Fail();
+                var found = await manager.GetManagedRuntimeProofAsync(binding, ct).ConfigureAwait(false);
+                if (!found.IsOk || found.Value is not { } verified || verified.Package != binding.Package) return Fail();
+                proof = verified;
+            }
             using var linked = CancellationTokenSource.CreateLinkedTokenSource(ct, binding.Lifetime);
-            var instance = await ActivateAsync(activator, session, lifetime, current, code, linked.Token).ConfigureAwait(false);
+            var instance = await ActivateAsync(activator, session, lifetime, current, code, proof, linked.Token).ConfigureAwait(false);
             if (instance is null) return Fail();
 
             if (await CurrentAsync(current, ct).ConfigureAwait(false) is null || !binding.IsAlive) return Fail();
@@ -77,7 +86,7 @@ public sealed class PluginSandboxFactory(IPluginPackageManager packages, IPlugin
     }
 
     private async Task<IPluginRuntimeInstance?> ActivateAsync(IPluginSandboxStartup activator, PluginSandboxSession session,
-        PluginSandboxStartupLifetime lifetime, PluginRuntimeStart current, string code, CancellationToken ct)
+        PluginSandboxStartupLifetime lifetime, PluginRuntimeStart current, string? code, ManagedPluginStartupProof? proof, CancellationToken ct)
     {
         ct.ThrowIfCancellationRequested();
         if (!lifetime.TryBeginActivation()) return null;
@@ -88,7 +97,9 @@ public sealed class PluginSandboxFactory(IPluginPackageManager packages, IPlugin
         bool accepted;
         try
         {
-            var result = await activator.ActivateAsync(session, current, code, ct).ConfigureAwait(false);
+            var result = proof is not null
+                ? await activator.ActivateManagedAsync(session, current, proof, ct).ConfigureAwait(false)
+                : code is not null ? await activator.ActivateAsync(session, current, code, ct).ConfigureAwait(false) : Fail();
             if (result.IsOk)
             {
                 instance = result.Value;
@@ -133,13 +144,15 @@ public sealed class PluginSandboxFactory(IPluginPackageManager packages, IPlugin
         var installed = await packages.FindAsync(request.Grant.Package.Id, ct).ConfigureAwait(false);
         if (!installed.IsOk || installed.Value is not { Enabled: true, Error: null } item
             || item.Package.Identity != request.Grant.Package || item.Package.Identity != request.Installation.Package.Identity
-            || item.Package.RuntimeKind != PluginRuntimeKind.JavaScript || item.Package.RequestedTier != PluginExecutionTier.Untrusted)
+            || item.Package.RuntimeKind != PluginRuntimeKind.JavaScript ||
+            !((item.Package.Source == PluginPackageSource.Managed && item.Package.RequestedTier == PluginExecutionTier.Privileged) ||
+              (item.Package.Source != PluginPackageSource.Managed && item.Package.RequestedTier == PluginExecutionTier.Untrusted)))
             return null;
 
         var result = await authority.GetCurrentAsync(request.Grant.Package.Id, ct).ConfigureAwait(false);
-        if (!result.IsOk || result.Value is not { Enabled: true, Tier: PluginExecutionTier.Untrusted } grant
+        if (!result.IsOk || result.Value is not { Enabled: true } grant
             || !request.Grant.Enabled || grant.Package != request.Grant.Package || grant.Generation != request.Grant.Generation
-            || grant.Tier != request.Grant.Tier || !grant.Permissions.SetEquals(request.Grant.Permissions)
+            || grant.Tier != request.Grant.Tier || grant.Tier != item.Package.RequestedTier || !grant.Permissions.SetEquals(request.Grant.Permissions)
             || !grant.AccountKeys.SetEquals(request.Grant.AccountKeys) ||
             !grant.ApprovedHttpOrigins.SetEquals(request.Grant.ApprovedHttpOrigins))
             return null;

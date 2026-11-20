@@ -52,12 +52,23 @@ public sealed class ManagedPluginSource : IDisposable
             !ManagedBundleVerifier.IsValidKey(pinnedKey) || !OAuthClient(selected, out var client)) return null;
         var pinned = client.Session;
         if (!Uri.TryCreate(pinned.ServerUrl, UriKind.Absolute, out var server) || !ValidServer(server)) return null;
-        var route = new Route(provider, server, pinnedKey, new(selected.Session));
-        lock (_gate) return !_disposed && _accounts.TryRunWhileCurrent([selected], () =>
+        Route? route = null;
+        return _accounts.TryRunWhileCurrent([selected], () =>
             client.TryRunWhileSessionCurrent(pinned, () => client.Auth.TryRunWhileOpen(() =>
             {
-                _routes[selected.Session.Account.Key] = route;
-                return true;
+                lock (_gate)
+                {
+                    if (_disposed) return false;
+                    var key = selected.Session.Account.Key;
+                    var existing = _routes.GetValueOrDefault(key);
+                    route = existing is not null && existing.Owns(selected.Session) &&
+                        string.Equals(existing.Origin.AbsoluteUri, provider.AbsoluteUri, StringComparison.Ordinal) &&
+                        string.Equals(existing.Server.AbsoluteUri, server.AbsoluteUri, StringComparison.Ordinal) &&
+                        string.Equals(existing.PinnedKey, pinnedKey, StringComparison.Ordinal)
+                        ? existing : new Route(provider, server, pinnedKey, new(selected.Session));
+                    _routes[key] = route;
+                    return true;
+                }
             }))) ? route : null;
     }
 
@@ -74,8 +85,10 @@ public sealed class ManagedPluginSource : IDisposable
         ArgumentNullException.ThrowIfNull(selected);
         if (selected.ActiveSelectionGeneration is null) return false;
         var key = selected.Session.Account.Key;
-        lock (_gate) return _accounts.TryRunWhileCurrent([selected], () =>
-            _routes.GetValueOrDefault(key)?.Owns(selected.Session) == true && _routes.Remove(key));
+        return _accounts.TryRunWhileCurrent([selected], () =>
+        {
+            lock (_gate) return _routes.GetValueOrDefault(key)?.Owns(selected.Session) == true && _routes.Remove(key);
+        });
     }
 
     internal async Task<Result<ManagedPluginCandidate>> FetchAsync(string localAccountKey, string pluginId,
@@ -115,12 +128,12 @@ public sealed class ManagedPluginSource : IDisposable
             !string.Equals(route.Server.AbsoluteUri, currentServer.AbsoluteUri, StringComparison.Ordinal) ||
             string.IsNullOrWhiteSpace(pinned.Username)) return Refused();
 
-        bool RunUnderProvider(Func<bool> issue)
+        bool RunUnderProvider(Func<bool> issue) => _accounts.TryRunWhileCurrent([owner], () =>
+            client.TryRunWhileSessionCurrent(pinned, () => client.Auth.TryRunWhileOpen(() =>
         {
             lock (_gate)
-                return ReferenceEquals(_routes.GetValueOrDefault(localAccountKey), route) &&
-                    _accounts.TryRunWhileCurrent([owner], () => client.TryRunWhileSessionCurrent(pinned, () => client.Auth.TryRunWhileOpen(issue)));
-        }
+                return ReferenceEquals(_routes.GetValueOrDefault(localAccountKey), route) && issue();
+        })));
         bool Run(Func<bool> issue) => hostFence(() => RunUnderProvider(issue));
         ct.ThrowIfCancellationRequested();
         if (!Run(static () => true)) return Refused();

@@ -6,4 +6,8 @@ namespace Barbican.Core.Plugins.Permissions;
 public interface IPluginDeliveryAuthority : IPluginAuthority
 {
     Task<bool> TryPostAsync(PluginRuntimeBinding binding, Func<PluginGrantSnapshot, bool> write, CancellationToken ct);
+
+    /// <summary>Rechecks authority at publication for an already admitted operation.</summary>
+    bool TryContinuePost(PluginRuntimeBinding binding, Func<bool> issue) =>
+        binding.Tier != PluginExecutionTier.Privileged && binding.IsAlive && issue();
 }

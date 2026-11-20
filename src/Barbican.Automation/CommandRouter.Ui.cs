@@ -143,6 +143,8 @@ internal sealed partial class CommandRouter
                 return await WebEvalAsync(line.Argument);
             case "focus-id":
                 return FocusedId();
+            case "focus":
+                return FocusById(line.Argument.Trim());
             case "focus-guard":
 #if WINDOWS
                 return Native.FocusReport(_context.Hwnd);

@@ -5,6 +5,7 @@ using Barbican.App.Composition;
 using Barbican.Core.Common;
 using Barbican.Core.Plugins.Bridge;
 using Barbican.Core.Plugins.Packages;
+using Barbican.Core.Plugins.Packages.Managed;
 using Barbican.Core.Plugins.Permissions;
 using Barbican.Core.Plugins.Protocol;
 using Barbican.Core.Plugins.Runtime;
@@ -39,7 +40,7 @@ internal static class PluginSandboxManagedProbe
         """;
 
     internal static async Task<string> RunAsync(DispatcherQueue queue, Panel mount, IProfilePaths paths,
-        HiddenWindowOptions options, string root, CancellationToken ct)
+        HiddenWindowOptions options, string root, bool revokeAtDelivery, CancellationToken ct)
     {
         PluginRuntimeBinding? binding = null;
         PluginSandboxSession? session = null;
@@ -55,16 +56,9 @@ internal static class PluginSandboxManagedProbe
             var factory = new PluginSandboxWindowsViewFactory(queue, () => mount, paths, options);
             view = await factory.CreateAsync("plugin-" + Guid.NewGuid().ToString("N"), budget.Token).ConfigureAwait(false);
             var dispatcher = new CountingDispatcher();
-            session = new PluginSandboxSession(binding, view, dispatcher, new Authority(request.Grant));
-            var startup = new PluginSandboxWindowsStartup(root, NullLogger<PluginSandboxWindowsStartup>.Instance);
-            var result = await startup.ActivateAsync(session, request, Code, budget.Token).ConfigureAwait(false);
-            if (result.IsOk && result.Value is { } instance && instance.Activation.Hooks.Contains(Hook, StringComparer.Ordinal))
-            {
-                var first = await InvokeAsync(instance, "first", budget.Token).ConfigureAwait(false);
-                await Task.Delay(250, budget.Token).ConfigureAwait(false);
-                var second = await InvokeAsync(instance, "second", budget.Token).ConfigureAwait(false);
-                passed = first && second && dispatcher.Calls == 0 && binding.IsAlive;
-            }
+            var authority = new Authority(request.Grant, revokeAtDelivery);
+            session = new PluginSandboxSession(binding, view, dispatcher, authority);
+            passed = await CheckDeliveryAsync(session, request, root, authority, dispatcher, budget.Token).ConfigureAwait(false);
         }
 #pragma warning disable CA1031 // Probe reports only fixed status, not renderer or profile details.
         catch (Exception) { passed = false; }
@@ -85,7 +79,31 @@ internal static class PluginSandboxManagedProbe
             catch (Exception) { cleaned = false; }
 #pragma warning restore CA1031
         }
-        return passed && cleaned ? "bootstrap managed ok" : "bootstrap managed failed";
+        return passed && cleaned
+            ? revokeAtDelivery ? "bootstrap managed revoked ok" : "bootstrap managed ok"
+            : "bootstrap managed failed";
+    }
+
+    private static async Task<bool> CheckDeliveryAsync(PluginSandboxSession session, PluginRuntimeStart request, string root,
+        Authority authority, CountingDispatcher dispatcher, CancellationToken ct)
+    {
+        var released = 0;
+        var proof = new ManagedPluginStartupProof(request.Grant.Package, request.Grant.Generation, Code, issue =>
+        {
+            if (!authority.ProofCurrent) return false;
+            released++;
+            return issue();
+        });
+        var startup = new PluginSandboxWindowsStartup(root, NullLogger<PluginSandboxWindowsStartup>.Instance);
+        var result = await startup.ActivateManagedAsync(session, request, proof, ct).ConfigureAwait(false);
+        if (authority.RevokesAtDelivery)
+            return !result.IsOk && authority.PostAttempts == 1 && released == 0 && !session.InitIssued && dispatcher.Calls == 0;
+        if (!result.IsOk || result.Value is not { } instance || !instance.Activation.Hooks.Contains(Hook, StringComparer.Ordinal))
+            return false;
+        var first = await InvokeAsync(instance, "first", ct).ConfigureAwait(false);
+        await Task.Delay(250, ct).ConfigureAwait(false);
+        var second = await InvokeAsync(instance, "second", ct).ConfigureAwait(false);
+        return first && second && released == 1 && session.InitIssued && dispatcher.Calls == 0 && session.Binding.IsAlive;
     }
 
     private static async Task<bool> InvokeAsync(IPluginRuntimeInstance instance, string input, CancellationToken ct)
@@ -110,14 +128,21 @@ internal static class PluginSandboxManagedProbe
         return new(new(package, true, grant), grant, profile, PluginFrameKind.Background, null, values.Build(values.Object()), state);
     }
 
-    private sealed class Authority(PluginGrantSnapshot grant) : IPluginDeliveryAuthority
+    private sealed class Authority(PluginGrantSnapshot grant, bool revokeAtDelivery) : IPluginDeliveryAuthority
     {
+        public int PostAttempts { get; private set; }
+        public bool RevokesAtDelivery { get; } = revokeAtDelivery;
+        public bool ProofCurrent => !RevokesAtDelivery || PostAttempts == 0;
         public event EventHandler<PluginAuthorityChangedEventArgs>? Changed { add { } remove { } }
         public Task<Result<PluginGrantSnapshot?>> GetCurrentAsync(string pluginId, CancellationToken ct) =>
             Task.FromResult(Result<PluginGrantSnapshot?>.Ok(string.Equals(pluginId, grant.Package.Id, StringComparison.Ordinal) ? grant : null));
-        public Task<bool> TryPostAsync(PluginRuntimeBinding binding, Func<PluginGrantSnapshot, bool> write, CancellationToken ct) =>
-            Task.FromResult(!ct.IsCancellationRequested && binding.IsAlive && binding.Package == grant.Package &&
+        public Task<bool> TryPostAsync(PluginRuntimeBinding binding, Func<PluginGrantSnapshot, bool> write, CancellationToken ct)
+        {
+            // The first native post is admitted only after the real managed frame has reported ready.
+            PostAttempts++;
+            return Task.FromResult(!ct.IsCancellationRequested && binding.IsAlive && binding.Package == grant.Package &&
                 binding.GrantGeneration == grant.Generation && binding.Tier == grant.Tier && write(grant));
+        }
     }
 
     private sealed class CountingDispatcher : IPluginApiDispatcher

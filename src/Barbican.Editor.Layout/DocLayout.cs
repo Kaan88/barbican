@@ -22,8 +22,8 @@ public sealed class DocLayout
     private const float DefaultImageHeight = 56f;
 
     private readonly ITextLayoutEngine _engine;
-    private readonly LayoutStyle _style;
-    private readonly LayoutStyle _dimStyle;
+    private LayoutStyle _style;
+    private LayoutStyle _dimStyle;
     private readonly Dictionary<(int Hash, int Length, float Width, bool Dim), IBlockLayout> _cache = [];
     private readonly Dictionary<(string Family, bool Bold), SKTypeface> _faces = [];
     private List<BlockGeometry> _geo = [];
@@ -35,6 +35,17 @@ public sealed class DocLayout
         _engine = engine;
         _style = style;
         _dimStyle = style with { Text = style.Dim };
+    }
+
+    /// <summary>Updates the palette and invalidates styled block layouts before the next build.</summary>
+    public bool SetStyle(LayoutStyle style)
+    {
+        ArgumentNullException.ThrowIfNull(style);
+        if (_style == style) return false;
+        _style = style;
+        _dimStyle = style with { Text = style.Dim };
+        _cache.Clear();
+        return true;
     }
 
     public IReadOnlyList<BlockGeometry> Blocks => _geo;

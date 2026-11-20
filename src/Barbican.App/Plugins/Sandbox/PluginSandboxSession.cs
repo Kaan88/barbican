@@ -24,6 +24,10 @@ public sealed partial class PluginSandboxSession(PluginRuntimeBinding binding, I
     public IPluginApiDispatcher Dispatcher { get; } = dispatcher;
     private IPluginAuthority Authority { get; } = authority;
     private bool Active => !_disposed && Binding.IsAlive;
+#if AUTOMATION
+    internal bool InitIssued { get { lock (_gate) return _initIssued; } }
+#endif
+
     /// <summary>Direct frame events are rejected without invoking readPayload.</summary>
     public async Task<bool> ReceiveAsync(object sourceView, bool topLevel, Uri source, Func<ReadOnlyMemory<byte>> readPayload, CancellationToken ct)
     {
@@ -187,6 +191,41 @@ public sealed partial class PluginSandboxSession(PluginRuntimeBinding binding, I
                     if (!Active || token.IsCancellationRequested || !Binding.TryWriteWhileAlive(() => write(encoded))) return false;
                     _initIssued = true;
                     return true;
+                }
+            }, token)), linked.Token).ConfigureAwait(false);
+        }
+        catch { await DisposeAsync().ConfigureAwait(false); throw; }
+        finally { lock (_gate) _initQueued = false; }
+    }
+    /// <summary>Issues managed init only while the exact startup proof remains current at the native write.</summary>
+    public async Task<bool> IssueManagedInitAsync(PluginRuntimeStart request,
+        Barbican.Core.Plugins.Packages.Managed.ManagedPluginStartupProof proof, CancellationToken ct)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        ArgumentNullException.ThrowIfNull(proof);
+        if (Binding.Tier != Barbican.Core.Plugins.Permissions.PluginExecutionTier.Privileged || proof.Package != Binding.Package ||
+            request.Grant.Package != Binding.Package || request.Grant.Generation != Binding.GrantGeneration ||
+            request.Grant.Tier != Binding.Tier || request.Kind != Binding.Kind || request.Installation.Package.Identity != Binding.Package ||
+            !string.Equals(request.Profile, Binding.Profile, StringComparison.Ordinal) || !string.Equals(request.Slot, Binding.Slot, StringComparison.Ordinal) ||
+            !await HasAuthorityAsync(ct).ConfigureAwait(false)) return false;
+        lock (_gate) { if (!Active || !_ready || _initQueued || _initIssued) return false; _initQueued = true; }
+        using var linked = CancellationTokenSource.CreateLinkedTokenSource(ct, Binding.Lifetime);
+        try
+        {
+            if (Authority is not IPluginDeliveryAuthority delivery) return false;
+            return await View.PostAsync((write, token) => new(delivery.TryPostAsync(Binding, _ =>
+            {
+                lock (_gate)
+                {
+                    if (!Active || token.IsCancellationRequested) return false;
+                    return proof.TryReadEntrypoint(code =>
+                    {
+                        var message = PluginSandboxInitMessage.Create(request, code);
+                        var encoded = Encoding.UTF8.GetString(PluginValueCodec.Encode(message, WireLimits));
+                        if (token.IsCancellationRequested || !Binding.TryWriteWhileAlive(() => write(encoded))) return false;
+                        _initIssued = true;
+                        return true;
+                    });
                 }
             }, token)), linked.Token).ConfigureAwait(false);
         }

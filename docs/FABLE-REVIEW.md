@@ -2978,3 +2978,27 @@ the Windows activation flow consumes this proof at the code handoff.
 Windows Automation passed 3,615 tests with four skips. Windows Release
 built without warnings or errors. The M6b specification gate and generated
 hook check passed. Astra approved the proof checkpoint.
+
+## Codex / Astra early review of managed activation (2026-11-20)
+
+The activation grant exists for the current verified provider and
+account session. The authenticated installation stays disabled. The
+runtime generation, authorization at the native write, and exact
+installed archive govern WebView initialization and privileged delivery.
+
+| Finding | Correction and executable check |
+|---|---|
+| A previously admitted storage write could publish after the managed provider lost authority. | The grant now encloses final storage publication. A paused write resumes after withdrawal and leaves both revision and bytes unchanged. |
+| An organization-policy refresh could acquire the policy lock before the account lock while managed send or print acquired them in the opposite order. | Both routes now acquire account and JMAP authority before the route locks. A barrier test overlaps policy refresh with an account-fenced delivery and requires both to complete. |
+| A failed teardown prevented Enable and Retry from recovering. | An activation attempt first finishes pending cleanup. Tests inject failed teardown after explicit Disable and session expiry, verify no fresh provider request during failure, then confirm retry issues a newer generation. |
+
+A test with two contributing managed grants withdraws one and verifies
+the delivery callback is never called. The focused Windows Debug run
+passed 62 tests. GPT-6.2 Astra on High approved the three fixes after
+reviewing the new source and the reported tests. This is the early
+authority review. The combined milestone acceptance is still open.
+
+The private Windows sample later verified managed and ordinary startup,
+managed Disable and account loss, a composer action contribution, and
+the signed takeover with one in-scope submission. The fixture refused
+an out-of-scope recipient and kept the draft. [Walkthrough](milestones/M6b-solo-parity.md#managed-add-on-activation-and-takeover)

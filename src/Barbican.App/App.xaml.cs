@@ -108,11 +108,10 @@ public partial class BarbicanApp : Application
 #if AUTOMATION
     private void StartAutomation(Shell.ShellPage shell, int port)
     {
+        Shell.Automation.KeyCommand.Shell = shell;
 #if WINDOWS
         Views.Compose.Automation.ComposerAutomation.WindowAction = shell.InspectComposerWindowAsync;
         Shell.Automation.CaptionCommand.Use(_window!, shell);
-#else
-        _ = shell;   // the caption command is Windows only
 #endif
         Barbican.Automation.AutomationHost.Start(_window!, _host!.Services, port,
             () => _host.Services.GetRequiredService<Shell.WindowCloseController>().CloseAsync(_window!));

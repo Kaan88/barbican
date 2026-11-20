@@ -86,12 +86,14 @@ internal static class PluginSandboxBootstrapProbe
         {
             (true, false, false, false) => await PluginSandboxSlotProbe.RunAsync(queue, mount, paths, options, root, CancellationToken.None).ConfigureAwait(false),
             (false, false, true, false) => await PluginSandboxPackageProbe.RunAsync(queue, mount, paths, options, root, CancellationToken.None).ConfigureAwait(false),
-            (false, false, false, true) => await PluginSandboxManagedProbe.RunAsync(queue, mount, paths, options, root, CancellationToken.None).ConfigureAwait(false),
+            (false, false, false, true) => await PluginSandboxManagedProbe.RunAsync(queue, mount, paths, options, root,
+                IsRequested("BARBICAN_BOOTSTRAP_REVOKE_MANAGED"), CancellationToken.None).ConfigureAwait(false),
             (false, _, false, false) => await RunAsync(queue, mount, paths, options, root, network, CancellationToken.None).ConfigureAwait(false),
             _ => "bootstrap refused",
         };
         Console.WriteLine(status);
-        Environment.Exit(status is "bootstrap ok" or "bootstrap network ok" or "bootstrap slot ok" or "package probe ok" or "bootstrap managed ok" ? 0 : 1);
+        Environment.Exit(status is "bootstrap ok" or "bootstrap network ok" or "bootstrap slot ok" or "package probe ok" or
+            "bootstrap managed ok" or "bootstrap managed revoked ok" ? 0 : 1);
     }
 
     private static bool IsRequested(string variable) =>

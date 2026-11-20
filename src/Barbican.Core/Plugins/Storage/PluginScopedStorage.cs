@@ -126,11 +126,11 @@ public sealed class PluginScopedStorage : IPluginScopedStorage
     }
 
     private bool Publish(PluginRuntimeBinding binding, PluginSessionCapture owner, Func<bool> write, CancellationToken ct) =>
-        _sessions.TryRunWhileCurrent([owner], () =>
+        _authority.TryContinuePost(binding, () => _sessions.TryRunWhileCurrent([owner], () =>
         {
             var published = false;
             return !ct.IsCancellationRequested && binding.TryWriteWhileAlive(() => published = write()) && published;
-        });
+        }));
 
     private async Task<PluginStorageSnapshot?> LoadAsync(PluginRuntimeBinding binding, PluginSessionCapture capture, CancellationToken ct)
     {

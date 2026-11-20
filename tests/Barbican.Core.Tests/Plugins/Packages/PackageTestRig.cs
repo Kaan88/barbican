@@ -156,6 +156,8 @@ internal sealed class PackageTestRig
         public TaskCompletionSource? ReleaseLoad { get; set; }
         public TaskCompletionSource? CommitEntered { get; set; }
         public TaskCompletionSource? ReleaseCommit { get; set; }
+        public TaskCompletionSource? Staged { get; set; }
+        public TaskCompletionSource? ReleaseStage { get; set; }
         public async Task<Result<PluginStoreSnapshot>> LoadAsync(string profile, string pluginId, string localLoginKey, CancellationToken ct)
         {
             var snapshot = _values.GetValueOrDefault((profile, pluginId, localLoginKey)) ?? new PluginStoreSnapshot(0, []);
@@ -170,6 +172,8 @@ internal sealed class PackageTestRig
             var before = _values.GetValueOrDefault(key) ?? new PluginStoreSnapshot(0, []);
             if (before.Revision != expectedRevision) return Result<long>.Fail(new ValidationError("Synthetic conflict."));
             var next = new PluginStoreSnapshot(before.Revision + 1, ImmutableArray.CreateRange(data.ToArray()));
+            Staged?.TrySetResult();
+            if (ReleaseStage is not null) await ReleaseStage.Task.WaitAsync(ct);
             if (!publishWhileCurrent(() => { _values[key] = next; return true; }))
                 return Result<long>.Fail(new ValidationError("Synthetic publication refused."));
             CommitEntered?.TrySetResult();

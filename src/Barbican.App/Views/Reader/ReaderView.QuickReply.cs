@@ -6,6 +6,7 @@ using Barbican.Core.Storage;
 using Barbican.Presentation.Actions;
 using Barbican.Presentation.Compose;
 using Barbican.Presentation.Mail;
+using Microsoft.UI.Xaml.Input;
 
 namespace Barbican.App.Views.Reader;
 
@@ -189,10 +190,13 @@ public sealed partial class ReaderView
 
     private void OnQuickReplySend(object sender, RoutedEventArgs e) => _ = SendQuickReplyAsync();
 
-    private void OnQuickReplySendKey(Microsoft.UI.Xaml.Input.KeyboardAccelerator sender, Microsoft.UI.Xaml.Input.KeyboardAcceleratorInvokedEventArgs e)
+    internal bool TrySendFocusedQuickReply(bool isRepeat)
     {
-        e.Handled = true;
-        _ = SendQuickReplyAsync();
+        if (QuickReplyBar.Visibility != Visibility.Visible || XamlRoot is not { } root ||
+            !ReferenceEquals(FocusManager.GetFocusedElement(root), QuickReplyText)) return false;
+
+        if (!isRepeat) _ = SendQuickReplyAsync();
+        return true;
     }
 
     private async Task SendQuickReplyAsync()

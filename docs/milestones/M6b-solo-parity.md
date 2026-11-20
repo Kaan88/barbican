@@ -215,3 +215,114 @@ disabled state while production managed activation is still in progress.
 
 The ZIP is 151,701,278 bytes. Its SHA-256 is
 `A910A72B110CFFBB74948FCAB7019B5815031827D5F9DCB680C66B4F312C42F3`.
+
+## Bulwark composer footer and form walkthrough
+
+The populated synthetic composer matches the reference's desktop placement
+of Discard just before Send (`components/email/email-composer.tsx:6690–6754`).
+At 1280 × 720 and 844 × 720, the Discard button measured 36 × 36 effective
+pixels with an 8 px gap before Send. The available actions fit at both widths.
+Tab moved from the editor to Attach, Templates, Options, Discard, Send and
+Send options at both sizes. Shift+Tab from Attach returned to the editor.
+Bento retained its header Discard and its Send-first footer order.
+The confirmation's Keep editing action preserved the open draft, including
+its recipient, subject, body, saved status and draft ID (I-236).
+
+Light and dark screenshots use scale 1, the same synthetic mailbox and
+draft, and default pane widths. The original dark capture exposed stale rich
+text colors when switching themes with a draft open. Opening a fresh draft
+in dark mode showed readable text. The editor now refreshes styled block
+layouts when the palette changes and keeps the draft open. The initial
+light-to-dark reproduction and compact comparison use the same draft.
+The before captures are in `artifacts/auto/9191/`. Run `artifacts/auto/9196/`
+has the after captures, the discard confirmation and restored draft, and the
+keyboard transcripts. The isolated Windows Automation build had zero warnings
+and errors. The focused composer tests passed 77 of 77 and editor layout tests
+passed 46 of 46.
+
+In FakeJmap quick reply, `key Ctrl+Enter` went through the same focused shell
+handler as Windows KeyDown. With focus outside quick reply and with an empty
+focused draft, submission count stayed at zero. Pressing it with the populated
+focused draft submitted once to the synthetic recipient. A second press after
+focus left kept the count at one (I-220). The final isolated run and captures
+are in `artifacts/auto/9197/`.
+
+Calendar's New event button opened the editor with the title, calendar,
+all-day, location and description fields visible. Cancel opened the dirty
+check. Keep editing kept the typed title and Discard closed the editor.
+The two plain date/time field pairs differ from Bulwark's date/time inputs,
+and the calendar choices appear as chips. The capture set is
+`artifacts/auto/9194/calendar-*.png`. The remaining comparison follows M4,
+I-333–I-335 (`components/calendar/event-modal.tsx:1401–1474,1587–1596`).
+
+Contacts' New contact action opened the form, accepted a synthetic first
+name and Cancel returned to the same 12 contacts with no saved edit. See
+`artifacts/auto/9194/contacts-new-form.png` and the private-desktop transcript
+`artifacts/auto/9198/contacts-private-run.txt`. The form
+uses a centered card with a scroll area and visible Cancel and Save. Bulwark's
+form uses a scrollable panel with the address book and contact type near the top.
+The reference also combines contact, group, address book and import in the
+New menu, which are separate actions in the native app. These differences
+follow M5, I-345 and I-364–I-366 (`components/contacts/contacts-sidebar.tsx:294`,
+`components/contacts/contact-form.tsx:873–971`).
+## Managed add-on activation and takeover
+
+Windows Automation run 9210 exercised the signed sample through the
+production Add-ons page on a private desktop. It approved the synthetic
+OAuth route and the install independently. The package started disabled.
+An outdated runtime asset set caused startup to fail and Settings offered
+Retry while the package remained disabled. With all eight pinned assets
+in place, Retry reached Running. Disable stopped it. After a fresh Enable,
+withdrawing the synthetic account stopped the running add-on and blocked
+another Enable. The ordinary JavaScript fixture reached Running and
+stopped through the same Settings page.
+
+The approved managed package contributed a composer header button. With
+the sample organization policy connected, the classified composer sent
+one raw message to the approved synthetic recipient. FakeJmap recorded
+the retained Sent copy, the selected classification and clean marking
+header, and deletion of the original draft. The fixture declined a
+second recipient outside its permitted example. That draft kept its
+recipient, subject, body and saved ID. FakeJmap recorded no new upload
+or submission.
+
+Local evidence is in `artifacts/auto/9210/`. The Settings images are
+`installed-disabled.png`, `managed-startup-refused.png`,
+`managed-running.png`, `managed-disabled.png`, and
+`managed-owner-revoked.png`. `managed-composer-action.png` shows the
+header contribution. `managed-takeover-send.txt` contains the accepted
+send readback. `managed-takeover-denied.txt` and
+`managed-takeover-refused.png` capture the retained draft.
+
+The private WebView probes on ports 9211 and 9212 used the same pinned
+runtime. The current proof released the entrypoint and completed two
+hook round trips. Revoking the proof at the first dispatcher write
+after frame readiness produced zero initialization writes and zero
+API dispatches. Both processes exited successfully.
+
+## Unchanged Bulwark fixtures
+
+The two fixture files for each add-on matched their SHA-256 pins.
+The `plugin-api-probe` fixture changed the subject through a composer
+header action. Its action, send check and transform shared the same
+composer ID. FakeJmap recorded one submission with the expected
+keywords. The compose-link hook used the first duplicate parameter and
+ignored an unrelated add-on parameter.
+
+The reader action carried the selected message ID and opened a
+root-constrained PDF preview in both the toolbar and compact overflow
+menu. Escape dismissed the preview. After explicit policy consent the
+in-memory print sink received one watermarked page. Revoking the
+provider during a second print left the count at one. Disable removed
+the contributed actions. Physical printing was outside the run.
+
+The `proofreading-checker` fixture installed disabled and became Enabled
+· Stopped after Enable. Its unchanged entrypoint calls
+`composer.registerChecker`, which still needs a native adapter and the
+composer's proofreading UI. The generic dialog and scoped mail-read
+APIs also remain open. [API evidence and open methods](M6b-api-inventory.md#windows-execution-evidence-for-the-november-20-continuation)
+
+Local logs and images are in `artifacts/auto/9223/` for the API probe
+and `artifacts/auto/9213/` for the proofreading fixture. The frame
+probe results are in `artifacts/auto/9211/stdout.txt` and
+`artifacts/auto/9212/stdout.txt`.

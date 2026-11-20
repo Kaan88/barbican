@@ -19,7 +19,10 @@ public sealed class OrganizationPolicyService(IAccountSessionSnapshots accounts,
         if (!ValidAddress(jmapServer) || !IsProviderOrigin(policyOrigin)) return false;
         var captured = accounts.CaptureOwnerSession(localAccountKey).Value;
         if (captured is null || !string.Equals(captured.Session.Account.Key, localAccountKey, StringComparison.Ordinal)) return false;
-        lock (_gate) return accounts.TryRunWhileCurrent([captured], () => StoreRoute(captured, jmapServer, policyOrigin));
+        return accounts.TryRunWhileCurrent([captured], () =>
+        {
+            lock (_gate) return StoreRoute(captured, jmapServer, policyOrigin);
+        });
     }
 
     /// <summary>Checks whether the exact selected login can share its OAuth access token with a policy provider.</summary>
@@ -34,10 +37,10 @@ public sealed class OrganizationPolicyService(IAccountSessionSnapshots accounts,
     {
         ArgumentNullException.ThrowIfNull(captured);
         if (!IsProviderOrigin(policyOrigin) || !TryGetEnrollment(captured, out var client, out var pinned, out var server)) return false;
-        lock (_gate)
+        return RunForSession(captured, client, pinned, () =>
         {
-            return RunForSession(captured, client, pinned, () => StoreRoute(captured, server, policyOrigin));
-        }
+            lock (_gate) return StoreRoute(captured, server, policyOrigin);
+        });
     }
 
     /// <summary>Checks a consented candidate privately, replacing the current route only after an authoritative response.</summary>
@@ -63,11 +66,14 @@ public sealed class OrganizationPolicyService(IAccountSessionSnapshots accounts,
     public Uri? ProviderFor(AccountSessionSnapshot captured)
     {
         ArgumentNullException.ThrowIfNull(captured);
-        lock (_gate)
+        if (captured.ActiveSelectionGeneration is null) return null;
+        Uri? origin = null;
+        _ = accounts.TryRunWhileCurrent([captured], () =>
         {
-            return captured.ActiveSelectionGeneration is not null && accounts.IsSessionCurrent(captured) &&
-                RouteFor(captured) is { } route ? route.PolicyOrigin : null;
-        }
+            lock (_gate) origin = RouteFor(captured)?.PolicyOrigin;
+            return true;
+        });
+        return origin;
     }
 
     /// <summary>Revokes the provider route and invalidates policy reads issued under that configuration.</summary>
@@ -81,15 +87,15 @@ public sealed class OrganizationPolicyService(IAccountSessionSnapshots accounts,
     public bool RemoveProvider(AccountSessionSnapshot captured)
     {
         ArgumentNullException.ThrowIfNull(captured);
-        lock (_gate)
+        return captured.ActiveSelectionGeneration is not null && accounts.TryRunWhileCurrent([captured], () =>
         {
-            return captured.ActiveSelectionGeneration is not null && accounts.TryRunWhileCurrent([captured], () =>
+            lock (_gate)
             {
                 var removed = RouteFor(captured) is not null;
                 _routes[captured.Session.Account.Key] = new(Route: null);
                 return removed;
-            });
-        }
+            }
+        });
     }
 
     public async Task<OrganizationPolicyLookup> ReadAsync(string localAccountKey, CancellationToken ct)
@@ -115,9 +121,10 @@ public sealed class OrganizationPolicyService(IAccountSessionSnapshots accounts,
     {
         ArgumentNullException.ThrowIfNull(captured);
         ArgumentNullException.ThrowIfNull(issue);
-        lock (_gate)
-            return _routes.GetValueOrDefault(captured.Session.Account.Key)?.Route is null &&
-                accounts.TryRunWhileCurrent([captured], issue);
+        return accounts.TryRunWhileCurrent([captured], () =>
+        {
+            lock (_gate) return _routes.GetValueOrDefault(captured.Session.Account.Key)?.Route is null && issue();
+        });
     }
 
     private async Task<OrganizationPolicyLookup> ReadAsync(string localAccountKey, AccountSessionSnapshot? selection, CancellationToken ct)
@@ -228,16 +235,16 @@ public sealed class OrganizationPolicyService(IAccountSessionSnapshots accounts,
             return true;
         });
 
-        public bool Run(Func<bool> issue)
+        // Managed send and print already hold the account and client authority when they consult a policy.
+        public bool Run(Func<bool> issue) => Service.RunForSession(Captured, Client, Pinned, () =>
         {
             lock (Service._gate)
             {
                 var current = Service._routes.GetValueOrDefault(LocalAccountKey);
                 var routeIsCurrent = _pending ? ReferenceEquals(current, PreviousRoute) : ReferenceEquals(current?.Route, Route);
-                return routeIsCurrent &&
-                    Service.RunForSession(Captured, Client, Pinned, issue);
+                return routeIsCurrent && issue();
             }
-        }
+        });
     }
 
     private bool RunForSession(AccountSessionSnapshot captured, JmapClient client, JmapSession pinned, Func<bool> issue) =>

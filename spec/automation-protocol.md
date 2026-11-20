@@ -32,7 +32,7 @@ the port opens.
 | `peer-click X Y` | in-process AutomationPeer path (needed for XAML drawn over a WebView2, invisible to UIA clients) | spike |
 | `scroll X Y DY` | `ScrollViewer.ChangeView` under the point (DY in px, positive = down) | spike |
 | `type TEXT` | appends to the Value pattern of the XAML-focused element | spike |
-| `key CHORD` | `KeyRouter.Handle` (Enter, Escape, Tab, Up, Down, Ctrl+N in the spike; the full table with the app). F1 replies `error no key router yet`; the stream that owns the KeyRouter registers `key` as an `IAutomationCommand` | spike, M1 |
+| `key CHORD` | Routes focused quick reply Ctrl+Enter and `KeyRouter.Handle` through the app. For unhandled Tab or Shift+Tab, advances focus through the XAML tab order. | spike, M1, M6b |
 | `move X Y` | accepted as a no-op (no hover injection in-process) | spike (no-op) |
 | `vstate ID STATE` | `VisualStateManager.GoToState` on the control with that AutomationId (`PointerOver`, `Normal`, `Pressed`, ...): the hover stand-in for screenshots; no pointer moves | M1 look |
 | `drag X1 Y1 X2 Y2` | not possible in-process | n/a (Layer C) |
@@ -47,6 +47,7 @@ the port opens.
 | `uia-find TEXT`, `uia-tree`, `tree` | debugging: UIA elements by name with rectangle and patterns; elements that carry an AutomationId | spike |
 | `patterns X Y` | peer classes and patterns along the ancestors of the point (debugging) | spike |
 | `status` | spike-only status text | spike (drop) |
+| `focus ID`, `focus-id` | Sets programmatic XAML focus within the hidden app and reports the focused AutomationId. | F1, M6b |
 | `focus-guard` | `fg=<hwnd> own=<hwnd> own-is-foreground=yes\|no cursor=X,Y`: the no-focus proof (Windows) | F1 |
 | `popup-guard` | `open N closed M[: types]`: the fail-closed popup guard's view (see Rules) | F1 |
 | `popup-probe KIND [free]` | opens one popup control in code (menuflyout, flyout, commandbarflyout, popup, teachingtip, combobox, tooltip, autosuggest, contentdialog), replies `probe KIND constrained=yes\|no\|none guard-closed=N` or the guard's error. **Only on a private desktop** (`tools/auto-run.ps1 start -PrivateDesktop`) | F1 |

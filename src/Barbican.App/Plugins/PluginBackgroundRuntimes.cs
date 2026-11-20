@@ -100,6 +100,10 @@ internal sealed partial class PluginBackgroundRuntimes(
         try
         {
             if (await GetFactoryAsync(token).ConfigureAwait(false) is not { } factory) return Failed("Add-on startup is unavailable.");
+            var current = await packages.FindAsync(package.Id, token).ConfigureAwait(false);
+            if (current.IsOk && current.Value is { } item && item.Package.Identity == package &&
+                item.Package.Source == PluginPackageSource.Managed)
+                return await StartManagedAsync(factory, item, token).ConfigureAwait(false);
             var enabledItem = await CommitEnablementAsync(package, token).ConfigureAwait(false);
             if (!enabledItem.IsOk) return Result<Unit>.Fail(enabledItem.Error!);
             return await StartAsync(factory, enabledItem.Value!, token).ConfigureAwait(false)
@@ -107,6 +111,25 @@ internal sealed partial class PluginBackgroundRuntimes(
                 : Failed("The add-on is enabled but could not start.");
         }
         finally { End(operation); }
+    }
+
+    private async Task<Result<Unit>> StartManagedAsync(IPluginRuntimeFactory factory, PluginInstallation item, CancellationToken ct)
+    {
+        if (!IsSupported(item)) return Failed("Managed add-on startup is unavailable.");
+        if (IsRunning(item)) return Result<Unit>.Ok(default);
+        if (item.Enabled) return Failed("The managed add-on is already starting or needs to be disabled before retrying.");
+        var enabled = await packages.EnableManagedAsync(item.Package.Identity, ct).ConfigureAwait(false);
+        if (!enabled.IsOk) return Result<Unit>.Fail(enabled.Error!);
+        var started = false;
+        try
+        {
+            started = await StartAsync(factory, enabled.Value!, ct).ConfigureAwait(false);
+            return started ? Result<Unit>.Ok(default) : Failed("Could not start the managed add-on.");
+        }
+        finally
+        {
+            if (!started) _ = await packages.RollBackManagedAsync(enabled.Value!.Grant!).ConfigureAwait(false);
+        }
     }
 
     private async Task<IPluginRuntimeFactory?> GetFactoryAsync(CancellationToken ct)
@@ -233,6 +256,8 @@ internal sealed partial class PluginBackgroundRuntimes(
         (installation.Package.RuntimeKind, installation.Package.RequestedTier) switch
         {
             (PluginRuntimeKind.JavaScript, PluginExecutionTier.Untrusted) => Volatile.Read(ref _javaScriptAvailable),
+            (PluginRuntimeKind.JavaScript, PluginExecutionTier.Privileged) =>
+                OperatingSystem.IsWindows() && Volatile.Read(ref _javaScriptAvailable) && installation.Package.Source == PluginPackageSource.Managed,
             (PluginRuntimeKind.Native, PluginExecutionTier.NativeFullTrust) => OperatingSystem.IsWindows(),
             _ => false,
         };

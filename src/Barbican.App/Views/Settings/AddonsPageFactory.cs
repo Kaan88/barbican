@@ -32,7 +32,8 @@ internal sealed partial class AddonsPageFactory(PluginPackageHost packages, Plug
     private bool _importing;
     private bool _mutating;
     private readonly List<Button> _actions = [];
-    private readonly List<(PluginInstallation Installation, TextBlock Detail, Button? Start)> _rows = [];
+    private readonly List<(PluginInstallation Installation, TextBlock Detail, Button? Start, Button? Managed)> _rows = [];
+    private readonly HashSet<PluginPackageIdentity> _managedFailures = [];
     private StackPanel? _reviewPanel;
     private PluginInstallPreview? _review;
     private Button? _import;
@@ -110,20 +111,37 @@ internal sealed partial class AddonsPageFactory(PluginPackageHost packages, Plug
         _ = _list?.DispatcherQueue.TryEnqueue(() =>
         {
             if (!_visible) return;
-            foreach (var (installation, detail, start) in _rows) UpdateRunningState(installation, detail, start);
+            foreach (var (installation, detail, start, managed) in _rows) UpdateRunningState(installation, detail, start, managed);
+            if (_review is null && !_importing && _rows.Any(row => row.Managed is not null))
+                SetUiUi.Run(LoadAsync);
         });
     }
 
-    private void UpdateRunningState(PluginInstallation installation, TextBlock detail, Button? start)
+    private void UpdateRunningState(PluginInstallation installation, TextBlock detail, Button? start, Button? managed)
     {
+        var isManaged = installation.Package.Source == PluginPackageSource.Managed;
         var running = runtimes.IsRunning(installation);
         var state = installation.Enabled ? running ? "Running" : "Enabled · Stopped" : "Disabled";
         if (installation.Package.RuntimeKind == PluginRuntimeKind.Native) state += " · Native";
         if (installation.Error is not null) state += " · Needs attention";
-        if (installation.Package.Source == PluginPackageSource.Managed) state += " · Managed · Runtime unavailable";
+        if (isManaged)
+        {
+#if WINDOWS
+            state = running ? "Running · Managed" : installation.Enabled ? "Enabled · Stopped · Managed" : "Disabled · Managed";
+            if (installation.Error is not null) state += " · Needs attention";
+#else
+            state += " · Managed · Runtime unavailable";
+#endif
+        }
         else if (NeedsWebsiteReview(installation)) state += " · Review websites";
         detail.Text = $"Version {installation.Package.Identity.Version} · {state}";
         if (start is not null) start.Visibility = running ? Visibility.Collapsed : Visibility.Visible;
+        if (managed is not null)
+        {
+            var label = installation.Enabled ? "Disable" : _managedFailures.Contains(installation.Package.Identity) ? "Retry" : "Enable";
+            managed.Content = label;
+            AutomationProperties.SetName(managed, label + " " + installation.Package.Identity.Id);
+        }
     }
 
     private void SetActionsEnabled(bool enabled)
@@ -194,6 +212,15 @@ internal sealed partial class AddonsPageFactory(PluginPackageHost packages, Plug
         AutomationProperties.SetLiveSetting(detail, AutomationLiveSetting.Polite);
         var actions = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6 };
         var managed = installation.Package.Source == PluginPackageSource.Managed;
+        Button? managedAction = null;
+#if WINDOWS
+        if (managed)
+        {
+            managedAction = SetUiUi.Pill("Enable", () => SetUiUi.Run(() => ChangeAsync(identity, !installation.Enabled, remove: false, managed: true)), $"set.addons.managed.toggle.{identity.Id}");
+            actions.Children.Add(managedAction);
+            _actions.Add(managedAction);
+        }
+#endif
         var start = !managed && installation is { Enabled: true, Error: null }
             ? AddAction("Start", "start", enabled: true, remove: false)
             : null;
@@ -205,8 +232,8 @@ internal sealed partial class AddonsPageFactory(PluginPackageHost packages, Plug
             actions.Children.Add(review);
             _actions.Add(review);
         }
-        _rows.Add((installation, detail, start));
-        UpdateRunningState(installation, detail, start);
+        _rows.Add((installation, detail, start, managedAction));
+        UpdateRunningState(installation, detail, start, managedAction);
         list.Children.Add(SetUiUi.RowWithDescription(identity.Id, detail, actions, "set.addons.item." + identity.Id));
 
         Button AddAction(string label, string action, bool enabled, bool remove)
@@ -245,7 +272,7 @@ internal sealed partial class AddonsPageFactory(PluginPackageHost packages, Plug
         }
     }
 
-    private async Task ChangeAsync(PluginPackageIdentity identity, bool enabled, bool remove)
+    private async Task ChangeAsync(PluginPackageIdentity identity, bool enabled, bool remove, bool managed = false)
     {
         if (!_visible || _loading || _importing || _mutating || _review is not null || _status is null) return;
         _mutating = true;
@@ -264,13 +291,19 @@ internal sealed partial class AddonsPageFactory(PluginPackageHost packages, Plug
             var result = remove
                 ? await runtimes.UninstallAsync(identity, CancellationToken.None).ConfigureAwait(true)
                 : await runtimes.SetEnabledAsync(identity, enabled, CancellationToken.None).ConfigureAwait(true);
-            message = result.IsOk ? "Add-on settings updated." : "Could not complete the change. Check its current state below.";
+            if (managed && enabled && !result.IsOk) _managedFailures.Add(identity);
+            else if (managed && result.IsOk) _managedFailures.Remove(identity);
+            message = result.IsOk ? "Add-on settings updated." : managed && enabled
+                ? (result.Error?.Message ?? "Could not enable the managed add-on.") + " Review the managed source again if needed."
+                : "Could not complete the change. Check its current state below.";
         }
 #pragma warning disable CA1031 // The operation may have partially completed; reload without exposing internal errors.
         catch (Exception)
 #pragma warning restore CA1031
         {
-            message = "Could not complete the change. Check its current state below.";
+            if (managed && enabled) _managedFailures.Add(identity);
+            message = managed && enabled ? "Could not enable the managed add-on. Review the managed source again if needed."
+                : "Could not complete the change. Check its current state below.";
         }
         finally
         {
