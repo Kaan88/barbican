@@ -2013,3 +2013,25 @@ post, and deterministic coverage of an account switch, grant revocation
 and binding cancellation at that boundary. The reviewed commits were
 inspected in place. The Windows suite and portable smoke at `06ad154`
 cover the baseline before those commits.
+
+## Codex / Astra review of local plugin package recovery (2026-11-20)
+
+Integrated the local package manager, profile lease and authenticated package
+store from the package stream through `ca662d0`. Fixed the installed-package
+limit before content writes, separated the committed and pending index files,
+and serialized authority publication with shutdown revocation. An unreadable
+inactive index now permits checking the other file against the same secret.
+An overlapping manager close returns after the revocation barrier starts.
+
+The package index records cleanup intent before candidate bytes are written
+and records retirement with uninstall or replacement. Listing packages retries
+failed cleanup. Authority lookups do not trigger archive I/O for cleanup.
+Reinstalling the same hash cancels its retirement, and enabled packages retain
+enough generation capacity for durable disable after restart.
+
+Astra closed the findings above after re-review of these paths. The package
+acceptance class passed 26 tests. Windows Automation passed 3,219 tests with
+four skips, zero failures, and a build with zero warnings or errors. Store
+tests used temporary folders and in-memory secrets. Production App and Add-ons
+composition, JavaScript activation, native user package loading, and signed
+managed acquisition remain outside this verification.
