@@ -200,3 +200,16 @@ unchanged during the hidden run. The archive has the base Windows app
 and requires separately packaged sandbox assets for JavaScript add-ons.
 Its SHA-256 is
 `CA6BB73FFB3D0950C6D542D64DC90B1D607C492BE5BE2CE0D9E8C80C915A338A`.
+
+## Windows portable preview at 4c46940
+
+`Barbican-4c46940318d3-win-x64.zip` was built from a clean detached
+checkout of `4c46940318d3f77c38a48c2d1ac106b447cd37f1`. The extracted
+Windows x64 Release app reported that revision and passed the isolated
+launch check with exit code 0. Foreground and cursor position were
+unchanged. The archive includes eight verified sandbox runtime assets
+and nine license notices. Managed installation is available in the
+disabled state while production managed activation is still in progress.
+
+The ZIP is 151,701,278 bytes. Its SHA-256 is
+`A910A72B110CFFBB74948FCAB7019B5815031827D5F9DCB680C66B4F312C42F3`.
