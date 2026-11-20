@@ -50,6 +50,58 @@ public sealed class PluginSandboxIngressRedTests
     private const string InitError = "{\"type\":\"init-error\",\"error\":\"failed\"}";
 
     [Fact]
+    public async Task Hook_replies_require_the_authenticated_parent_and_a_live_grant()
+    {
+        var view = new View();
+        var binding = Binding();
+        var authority = new Authority(binding);
+        await using var session = new PluginSandboxSession(binding, view, new Dispatcher(), authority);
+        var ct = TestContext.Current.CancellationToken;
+        var builder = new PluginValueBuilder();
+        var arguments = builder.Build(builder.Array(builder.String("fixture")));
+
+        Assert.False((await session.InvokeHookAsync("fixture-hook", arguments, TimeSpan.FromSeconds(5), ct)).IsOk);
+        await InitializeAsync(session, view);
+        Assert.True(await session.ReceiveAsync(view.RootIdentity, true, view.TrustedRoot, () => Message(InitDone), ct));
+        var pending = session.InvokeHookAsync("fixture-hook", arguments, TimeSpan.FromSeconds(5), ct);
+        var request = PluginValueCodec.Decode(view.Sent[^1]);
+        Assert.Equal("hook-invoke", request.Property("type").StringValue);
+        Assert.Equal("fixture", request.Property("args").Item(0).StringValue);
+        var reply = Message($$"""{"type":"hook-result","id":"{{request.Property("id").StringValue}}","ok":true,"result":"response"}""");
+        Assert.False(await session.ReceiveAsync(view.RootIdentity, false, view.TrustedRoot, () => reply, ct));
+        Assert.True(await session.ReceiveAsync(view.RootIdentity, true, view.TrustedRoot, () => reply, ct));
+        Assert.Equal("response", (await pending).Value!.StringValue);
+        Assert.False(await session.ReceiveAsync(view.RootIdentity, true, view.TrustedRoot, () => reply, ct));
+
+        var revoked = session.InvokeHookAsync("fixture-hook", arguments, TimeSpan.FromSeconds(5), ct);
+        request = PluginValueCodec.Decode(view.Sent[^1]);
+        reply = Message($$"""{"type":"hook-result","id":"{{request.Property("id").StringValue}}","ok":true,"result":"revoked"}""");
+        authority.Current = new(binding.Package, binding.GrantGeneration + 1, true, ["storage:read"], ["a", "b"], binding.Tier);
+        Assert.True(await session.ReceiveAsync(view.RootIdentity, true, view.TrustedRoot, () => reply, ct));
+        Assert.False((await revoked).IsOk);
+    }
+
+    [Fact]
+    public async Task A_failed_native_hook_post_returns_a_generic_transport_error()
+    {
+        var view = new View();
+        await using var session = Session(Binding(), view, new Dispatcher());
+        var ct = TestContext.Current.CancellationToken;
+        var builder = new PluginValueBuilder();
+        await InitializeAsync(session, view);
+        Assert.True(await session.ReceiveAsync(view.RootIdentity, true, view.TrustedRoot, () => Message(InitDone), ct));
+#pragma warning disable CA2201 // Simulate the exception raised by the native WebView transport.
+        view.BeforeDelivery = static () => throw new System.Runtime.InteropServices.COMException("private native detail");
+#pragma warning restore CA2201
+
+        var result = await session.InvokeHookAsync("fixture-hook", builder.Build(builder.Array()), TimeSpan.FromSeconds(5), ct);
+
+        Assert.IsType<Barbican.Core.Jmap.Errors.TransportError>(result.Error);
+        Assert.DoesNotContain("private native detail", result.Error!.Message, StringComparison.Ordinal);
+        Assert.Single(view.Sent);
+    }
+
+    [Fact]
     public async Task Initialization_acknowledgements_require_authenticated_issued_init_and_accept_only_one_outcome()
     {
         var view = new View();

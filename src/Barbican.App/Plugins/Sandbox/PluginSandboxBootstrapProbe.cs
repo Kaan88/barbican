@@ -18,7 +18,7 @@ internal static class PluginSandboxBootstrapProbe
 {
     private const string ProfilePrefix = "auto-wv-";
     private const string ProbeHook = "onBootstrapProbe";
-    private const string ProbeCode = "module.exports = { hooks: { onBootstrapProbe: () => null } };";
+    private const string ProbeCode = "module.exports = { hooks: { onBootstrapProbe: value => 'received:' + value } };";
 
     public static bool TryStart(HiddenWindowOptions options, out Window? window)
     {
@@ -94,14 +94,10 @@ internal static class PluginSandboxBootstrapProbe
             var views = new PluginSandboxWindowsViewFactory(queue, () => mount, paths, options);
             view = await views.CreateAsync("plugin-" + Guid.NewGuid().ToString("N"), budget.Token).ConfigureAwait(false);
             session = new PluginSandboxSession(binding, view, new RefusingDispatcher(), new ProbeAuthority(grant));
-            var startup = new PluginSandboxWindowsStartup(bootstrapRoot!,
-                (current, activation) => new ProbeInstance(current.Binding, activation),
-                NullLogger<PluginSandboxWindowsStartup>.Instance);
+            var startup = new PluginSandboxWindowsStartup(bootstrapRoot!, NullLogger<PluginSandboxWindowsStartup>.Instance);
             var result = await startup.ActivateAsync(session, request, ProbeCode, budget.Token).ConfigureAwait(false);
-            passed = result.IsOk && result.Value is { } instance && binding.IsAlive &&
-                instance.Activation.Hooks.Length == 1 &&
-                string.Equals(instance.Activation.Hooks[0], ProbeHook, StringComparison.Ordinal) &&
-                instance.Activation.Slots.IsEmpty && instance.Activation.Shortcuts.IsEmpty;
+            passed = result.IsOk && result.Value is { } instance &&
+                await VerifyHookAsync(instance, budget.Token).ConfigureAwait(false);
         }
 #pragma warning disable CA1031 // Probe output must not disclose paths or renderer messages.
         catch (Exception) { passed = false; }
@@ -125,6 +121,18 @@ internal static class PluginSandboxBootstrapProbe
         return passed && cleaned ? "bootstrap ok" : "bootstrap failed";
     }
 
+    private static async Task<bool> VerifyHookAsync(IPluginRuntimeInstance instance, CancellationToken ct)
+    {
+        if (!instance.Binding.IsAlive || instance.Activation.Hooks.Length != 1 ||
+            !string.Equals(instance.Activation.Hooks[0], ProbeHook, StringComparison.Ordinal) ||
+            !instance.Activation.Slots.IsEmpty || !instance.Activation.Shortcuts.IsEmpty) return false;
+        var arguments = new PluginValueBuilder();
+        var result = await instance.InvokeHookAsync(ProbeHook, arguments.Build(arguments.Array(arguments.String("fixture"))),
+            TimeSpan.FromSeconds(5), ct).ConfigureAwait(false);
+        return result.IsOk && result.Value is { Kind: PluginValueKind.String } value &&
+            string.Equals(value.StringValue, "received:fixture", StringComparison.Ordinal);
+    }
+
     private sealed class ProbeAuthority(PluginGrantSnapshot grant) : IPluginDeliveryAuthority
     {
         public event EventHandler<PluginAuthorityChangedEventArgs>? Changed { add { } remove { } }
@@ -141,15 +149,5 @@ internal static class PluginSandboxBootstrapProbe
             Task.FromResult(PluginCallOutcome.Failed(PluginErrorCode.Unavailable));
     }
 
-    private sealed class ProbeInstance(PluginRuntimeBinding binding, PluginActivation activation) : IPluginRuntimeInstance
-    {
-        public PluginRuntimeBinding Binding { get; } = binding;
-        public PluginActivation Activation { get; } = activation;
-        public Task<Result<PluginValue>> InvokeHookAsync(string name, PluginValue args, TimeSpan budget, CancellationToken ct) => throw new NotSupportedException();
-        public Task<Result<PluginValue>> InvokeCallbackAsync(string id, PluginValue args, TimeSpan budget, CancellationToken ct) => throw new NotSupportedException();
-        public Task<Result<bool>> ShouldShowAsync(string slot, PluginValue context, CancellationToken ct) => throw new NotSupportedException();
-        public Task<Result<Unit>> SendAsync(PluginValue message, CancellationToken ct) => throw new NotSupportedException();
-        public ValueTask DisposeAsync() => ValueTask.CompletedTask;
-    }
 }
 #endif

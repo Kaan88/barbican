@@ -11,7 +11,6 @@ namespace Barbican.App.Plugins.Sandbox;
 /// <summary>Performs the trusted-parent and verified-runtime handshake on Windows.</summary>
 internal sealed class PluginSandboxWindowsStartup(
     string bootstrapRoot,
-    Func<PluginSandboxSession, PluginActivation, IPluginRuntimeInstance> createInstance,
     ILogger<PluginSandboxWindowsStartup> log) : IPluginSandboxStartup
 {
     private static readonly string[] HostScripts = ["plugin-sandbox-host.js", "plugin-sandbox-parent.js", "plugin-value-codec.js"];
@@ -37,7 +36,7 @@ internal sealed class PluginSandboxWindowsStartup(
         if (acknowledgement is null || !session.Binding.IsAlive) return Refused();
         token.ThrowIfCancellationRequested();
         var activation = PluginSandboxInitMessage.ParseActivation(acknowledgement);
-        return Result<IPluginRuntimeInstance>.Ok(createInstance(session, activation));
+        return Result<IPluginRuntimeInstance>.Ok(new PluginSandboxRuntimeInstance(session, activation));
     }
 
     private static async Task<ImmutableDictionary<string, ImmutableArray<byte>>> LoadHostScriptsAsync(CancellationToken ct)

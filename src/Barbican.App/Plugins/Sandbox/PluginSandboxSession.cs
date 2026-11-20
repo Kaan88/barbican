@@ -7,12 +7,13 @@ using Barbican.Core.Plugins.Protocol.Messages;
 using Barbican.Core.Plugins.Runtime;
 namespace Barbican.App.Plugins.Sandbox;
 /// <summary>Native ingress gate; transport identities are supplied only by the native adapter.</summary>
-public sealed class PluginSandboxSession(PluginRuntimeBinding binding, IPluginSandboxWebView view, IPluginApiDispatcher dispatcher, IPluginAuthority authority) : IAsyncDisposable
+public sealed partial class PluginSandboxSession(PluginRuntimeBinding binding, IPluginSandboxWebView view, IPluginApiDispatcher dispatcher, IPluginAuthority authority) : IAsyncDisposable
 {
     private static readonly PluginValueLimits WireLimits = new(MaxWireBytes:40 * 1024 * 1024, MaxBinaryBytes:25 * 1024 * 1024, MaxStringBytes:50 * 1024 * 1024);
     private static readonly PluginMessageLimits MessageLimits = new(MaxStringLength:25 * 1024 * 1024, MaxGraphStringLength:25 * 1024 * 1024, MaxGraphBinaryBytes:25 * 1024 * 1024);
     private readonly Lock _gate = new();
     private readonly HashSet<string> _requests = new(StringComparer.Ordinal);
+    private readonly PluginSandboxHookReplies _hookReplies = new(binding);
     private readonly TaskCompletionSource _readySignal = new(TaskCreationOptions.RunContinuationsAsynchronously);
     private readonly TaskCompletionSource<PluginValue?> _initializationSignal = new(TaskCreationOptions.RunContinuationsAsynchronously);
     private bool _ready, _initQueued, _initIssued, _disposed;
@@ -53,7 +54,12 @@ public sealed class PluginSandboxSession(PluginRuntimeBinding binding, IPluginSa
         {
             return await CompleteInitializationAsync(string.Equals(type,"init-done",StringComparison.Ordinal) ? value : null).ConfigureAwait(false);
         }
-        if (!string.Equals(type,"api-request",StringComparison.Ordinal)) return false; // Other protocol handlers land with their ownership registries.
+        if (string.Equals(type, "hook-result", StringComparison.Ordinal))
+        {
+            var id = value.Property("id").StringValue;
+            lock (_gate) return Active && _hookReplies.TryComplete(Binding, id, value);
+        }
+        if (!string.Equals(type,"api-request",StringComparison.Ordinal)) return false;
         return await DispatchRequestAsync(value,bytes.Length,ct).ConfigureAwait(false);
     }
     /// <summary>Waits for authenticated readiness or cancellation of the caller or binding.</summary>
@@ -195,6 +201,7 @@ public sealed class PluginSandboxSession(PluginRuntimeBinding binding, IPluginSa
             if (_cleanup is not null) return new(_cleanup);
             _disposed = true;
             var close = Binding.DisposeAsync(); // Binding invalidation occurs synchronously.
+            _hookReplies.Dispose();
             return new(_cleanup = CloseAsync(close));
         }
     }

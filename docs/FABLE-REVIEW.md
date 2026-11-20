@@ -2166,3 +2166,27 @@ Production add-on registration and distribution are pending. The WebRTC
 and redirect restrictions are declared in the two document responses.
 Actual network isolation, hook invocation and visible slot behavior still
 require end-to-end verification.
+
+## Codex / Astra review of the Windows JavaScript hook round trip (2026-11-20)
+
+The runtime invokes a hook registered by its authenticated activation.
+Each frame has bounded pending requests with unique IDs, accepted only
+after posting and consumed once. The host checks the live grant before
+posting arguments and before returning the result. Cancellation and session
+closure remove pending requests. Expected native failures return a generic
+transport error, and plugin error details stay inside the sandbox.
+
+Astra approved the transport scope after reviewing the failure handling.
+Windows Automation passed 3,308 tests with four skips and zero failures.
+The hidden WebView2 probe delivered the synthetic argument to the registered
+hook, received the expected value, closed the session, and exited zero.
+Per-hook permission and account policy at the production hook bus are
+pending, along with slot rendering and later protocol variants.
+
+The pinned probe runtime is a local test input. The published Bulwark
+1.21.2 tag resolves to 933bc18f517135e38245821c5cc1bc7117ce2d64.
+Thirty of 32 staged runtime source files match that commit by Git blob
+hash. The remaining differences are a slot description and a runtime
+comment. The build script and license match. The reduced staging lock has
+different Tailwind CSS resolutions, so the existing bundle's tag-exact
+release provenance has not been established.
