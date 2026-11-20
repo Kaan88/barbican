@@ -173,8 +173,11 @@ public sealed partial class ReaderView : UserControl
     {
         var scale = MotionRuntime.Scale;
         var ms = scale.Rapid || string.IsNullOrEmpty(Reader.EmailId) ? 0 : scale.ViewMs;
-        Rise.Run(SubjectText, SubjectShift, ms, fromOpacity: 0.55, fromY: 6);
-        Rise.Run(SenderLine, SenderShift, ms, fromOpacity: 0.55, fromY: 6);
+        // Keep the compact Bulwark header legible on the first frame of a message switch.
+        var opacity = Look.IsBulwark ? 1.0 : 0.55;
+        var offset = Look.IsBulwark ? 2 : 6;
+        Rise.Run(SubjectText, SubjectShift, ms, fromOpacity: opacity, fromY: offset);
+        Rise.Run(SenderLine, SenderShift, ms, fromOpacity: opacity, fromY: offset);
     }
 
     // "Try again" opens the selected message once more (spec I-230).
