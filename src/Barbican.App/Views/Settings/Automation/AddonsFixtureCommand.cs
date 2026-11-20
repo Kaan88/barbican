@@ -35,7 +35,7 @@ internal sealed class AddonsFixtureCommand(IProfilePaths paths, ISettingsNavigat
             var records = await packages.ReadSampleSendFixtureAsync(recordFixture, cancellationToken).ConfigureAwait(true);
             return records.IsOk ? records.Value! : "error unavailable sample records";
         }
-        if (mode is not ("install" or "update" or "native" or "origins" or "composer-probe" or "send-policy" or "send-observer"))
+        if (mode is not ("install" or "update" or "native" or "origins" or "composer-probe" or "send-policy" or "send-observer" or "toast"))
             return "error unknown add-on fixture";
         if (!shell.TryActivate(AppId.Settings)) return "error Settings is unavailable";
 
@@ -105,6 +105,7 @@ internal sealed class AddonsFixtureCommand(IProfilePaths paths, ISettingsNavigat
                 "origins" => """{"id":"fixture-addon","name":"Fixture Add-on","version":"1.0.0","author":"Example","type":"hook","permissions":["http:fetch"],"httpOrigins":["https://api.example.org","https://*.service.example.org"]}""",
                 "send-policy" => """{"id":"sample-send-policy","name":"Sample send policy","version":"1.0.0","author":"Example","type":"hook","permissions":["email:send"]}""",
                 "send-observer" => """{"id":"sample-send-observer","name":"Sample send observer","version":"1.0.0","author":"Example","type":"hook","permissions":["email:read"]}""",
+                "toast" => """{"id":"sample-toast","name":"Sample notification","version":"1.0.0","author":"Example","type":"hook","permissions":[]}""",
                 _ => """{"id":"fixture-addon","name":"Fixture Add-on","version":"1.0.0","author":"Example","type":"hook","permissions":["email:read"]}""",
             };
             Write(zip, "manifest.json", manifest);
@@ -120,6 +121,7 @@ internal sealed class AddonsFixtureCommand(IProfilePaths paths, ISettingsNavigat
             var script = mode switch
             {
                 "send-observer" => completionRecorder + "\nexports.hooks = { onAfterEmailSend: afterSend };",
+                "toast" => """exports.activate = api => api.toast.warning('Synthetic\nnotification\u202E.');""",
                 "send-policy" => completionRecorder + "\n" + """
                 exports.hooks = {
                     onBeforeEmailSend(email) { if (email.subject === 'Synthetic veto') return false; },

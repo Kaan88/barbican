@@ -13,15 +13,31 @@ public sealed partial class ToastHostView : UserControl
     {
         Toasts = ViewHost.Get<ToastService>();
         InitializeComponent();
-        Toasts.Announced += OnAnnounced;
-        Unloaded += (_, _) => Toasts.Announced -= OnAnnounced;
+        Loaded += OnLoaded;
+        Unloaded += OnUnloaded;
     }
 
     public ToastService Toasts { get; }
 
+    private bool _subscribed;
+
+    private void OnLoaded(object sender, RoutedEventArgs e)
+    {
+        if (_subscribed) return;
+        Toasts.Announced += OnAnnounced;
+        _subscribed = true;
+    }
+
+    private void OnUnloaded(object sender, RoutedEventArgs e)
+    {
+        if (!_subscribed) return;
+        Toasts.Announced -= OnAnnounced;
+        _subscribed = false;
+    }
+
     private void OnAnnounced(object? sender, ToastAnnouncedEventArgs e)
     {
-        var message = e.Toast.Message;
+        var message = e.Toast.AccessibleName;
         var kind = e.Toast.IsError ? AutomationNotificationKind.ActionAborted : AutomationNotificationKind.ActionCompleted;
         _ = DispatcherQueue.TryEnqueue(() =>
         {

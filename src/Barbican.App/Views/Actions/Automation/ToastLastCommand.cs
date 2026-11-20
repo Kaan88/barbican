@@ -11,7 +11,13 @@ public sealed class ToastLastCommand(ToastService toasts) : IAutomationCommand
 {
     public string Name => "toast-last";
 
-    public Task<string> RunAsync(string args, CancellationToken cancellationToken) =>
-        Task.FromResult(toasts.LastShown is { } t ? $"ok {t.Message}|{t.ActionLabel}|{(t.IsError ? "error" : "info")}|{(toasts.Toasts.Contains(t) ? "visible" : "gone")}" : "none");
+    public Task<string> RunAsync(string args, CancellationToken cancellationToken)
+    {
+        if (toasts.LastShown is not { } toast) return Task.FromResult("none");
+        if (string.Equals(args.Trim(), "source", StringComparison.Ordinal))
+            return Task.FromResult($"ok {toast.DisplaySource}|{toast.Severity}|{toast.Message}");
+        var visibility = toasts.Toasts.Contains(toast) ? "visible" : "gone";
+        return Task.FromResult($"ok {toast.Message}|{toast.ActionLabel}|{(toast.IsError ? "error" : "info")}|{visibility}");
+    }
 }
 #endif

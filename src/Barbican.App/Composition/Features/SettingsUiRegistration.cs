@@ -38,6 +38,12 @@ public static class SettingsUiRegistration
 #if WINDOWS
         services.AddSingleton<IAccountSignOutCleanup>(sp => new PluginAccountSignOutCleanup(() => sp.GetRequiredService<PluginPackageHost>()));
         services.AddSingleton<Views.Plugins.PluginFilePresenter>();
+        services.AddSingleton<Views.Plugins.PluginToastPresenter>();
+        for (var toastMethod = 0; toastMethod < 4; toastMethod++)
+        {
+            var method = toastMethod;
+            services.AddSingleton<IPluginApiMethod>(sp => sp.GetRequiredService<Views.Plugins.PluginToastPresenter>().Methods[method]);
+        }
         services.AddSingleton<IDialogContent, Views.Plugins.PluginFilePreviewContent>();
         services.AddSingleton<IPluginApiMethod>(sp => new PluginOpenFile(sp.GetRequiredService<TimeProvider>(),
             sp.GetRequiredService<Views.Plugins.PluginFilePresenter>().ShowAsync));

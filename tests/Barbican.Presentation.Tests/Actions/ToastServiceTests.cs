@@ -77,6 +77,37 @@ public sealed class ToastServiceTests
     }
 
     [Fact]
+    public void Replacement_respects_source_identity_and_effective_severity()
+    {
+        var (toasts, _) = Make();
+        var first = toasts.Show(new ToastRequest("shared") { Source = "Add-on", SourceId = "a", Severity = ToastSeverity.Warning });
+        var second = toasts.Show(new ToastRequest("shared") { Source = "Add-on", SourceId = "b", Severity = ToastSeverity.Warning });
+        var core = toasts.Show(new ToastRequest("shared"));
+        Assert.Equal(3, toasts.Toasts.Count);
+        var replacement = toasts.Show(new ToastRequest("shared") { Source = "Add-on", SourceId = "a", Severity = ToastSeverity.Warning });
+        Assert.Equal([second, core, replacement], toasts.Toasts.Select(t => t.Handle));
+        Assert.DoesNotContain(toasts.Toasts, t => t.Handle == first);
+        toasts.Dismiss(second);
+        toasts.Show(new ToastRequest("shared") { Source = "Add-on", SourceId = "a", Severity = ToastSeverity.Success });
+        Assert.Contains(toasts.Toasts, t => t.Handle == replacement);
+        Assert.Equal(3, toasts.Toasts.Count);
+    }
+
+    [Fact]
+    public void Attribution_is_host_framed_for_visual_and_accessible_text()
+    {
+        var (toasts, _) = Make();
+        toasts.Show(new ToastRequest("Done") { Source = "Sample", SourceId = "sample" });
+        var item = Assert.Single(toasts.Toasts);
+        Assert.Equal("Sample", item.Source);
+        Assert.Equal("Add-on: Sample (sample)", item.DisplaySource);
+        Assert.Equal("Add-on: Sample (sample): Done", item.AccessibleName);
+        toasts.Show(new ToastRequest("Core"));
+        Assert.Null(toasts.LastShown!.DisplaySource);
+        Assert.Equal("Core", toasts.LastShown.AccessibleName);
+    }
+
+    [Fact]
     public void Every_toast_is_announced()
     {
         var (toasts, _) = Make();

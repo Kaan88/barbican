@@ -8,7 +8,13 @@ namespace Barbican.App.Views.Actions;
 public static class ActionFmt
 {
     /// <summary>The toast text brush: the palette text, or the red of an error.</summary>
-    public static Microsoft.UI.Xaml.Media.Brush ToastText(bool isError) => Fmt.Palette(isError ? "RoseFg" : "Text");
+    public static Microsoft.UI.Xaml.Media.Brush ToastText(Barbican.Presentation.Actions.ToastSeverity severity) => Fmt.Palette(severity switch
+    {
+        Barbican.Presentation.Actions.ToastSeverity.Error => "RoseFg",
+        Barbican.Presentation.Actions.ToastSeverity.Warning => "AmberFg",
+        Barbican.Presentation.Actions.ToastSeverity.Success => "MintFg",
+        _ => "Text",
+    });
 
     /// <summary>The banner button: "Select all N in this folder".</summary>
     public static string SelectAllText(int total, bool threaded) => threaded

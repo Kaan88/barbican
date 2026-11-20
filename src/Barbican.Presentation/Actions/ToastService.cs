@@ -71,8 +71,11 @@ public sealed class ToastService : IToastService, IDisposable
         ToastItem item;
         lock (_lock)
         {
-            // the same words again replace the toast instead of stacking another one
-            var same = Toasts.FirstOrDefault(t => string.Equals(t.Message, toast.Message, StringComparison.Ordinal) && t.IsError == toast.IsError);
+            // Replace only the same message, severity, and attributed source.
+            var same = Toasts.FirstOrDefault(t => string.Equals(t.Message, toast.Message, StringComparison.Ordinal)
+                && t.Request.EffectiveSeverity == toast.EffectiveSeverity
+                && string.Equals(t.Request.Source, toast.Source, StringComparison.Ordinal)
+                && string.Equals(t.Request.SourceId, toast.SourceId, StringComparison.Ordinal));
             if (same is not null)
             {
                 DismissLocked(same.Handle);
@@ -140,7 +143,7 @@ public sealed class ToastService : IToastService, IDisposable
         }
 
         var setting = TimeSpan.FromSeconds(seconds);
-        var floor = toast.IsError ? ErrorDuration : toast.Action is not null ? UndoDuration : TimeSpan.Zero;
+        var floor = toast.EffectiveSeverity == ToastSeverity.Error ? ErrorDuration : toast.Action is not null ? UndoDuration : TimeSpan.Zero;
         return setting > floor ? setting : floor;
     }
 

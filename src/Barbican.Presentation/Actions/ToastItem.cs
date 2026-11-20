@@ -10,6 +10,17 @@ public sealed record ToastItem(ToastHandle Handle, ToastRequest Request)
     /// <summary>The text the toast shows (and Narrator announces).</summary>
     public string Message => Request.Message;
 
+    /// <summary>The optional host-supplied notification source.</summary>
+    public string? Source => Request.Source;
+
+    /// <summary>The host-framed source, or null for an unattributed notification.</summary>
+    public string? DisplaySource => string.IsNullOrWhiteSpace(Source) ? null :
+        string.IsNullOrWhiteSpace(Request.SourceId) || string.Equals(Source, Request.SourceId, StringComparison.Ordinal)
+            ? "Add-on: " + Source : "Add-on: " + Source + " (" + Request.SourceId + ")";
+
+    /// <summary>The complete accessible name, including attribution.</summary>
+    public string AccessibleName => DisplaySource is { } source ? source + ": " + Message : Message;
+
     /// <summary>The action button's label (Undo), or null.</summary>
     public string? ActionLabel => Request.ActionLabel;
 
@@ -17,5 +28,8 @@ public sealed record ToastItem(ToastHandle Handle, ToastRequest Request)
     public string? SecondaryLabel => Request.SecondaryLabel;
 
     /// <summary>An error toast (stays longer, announced as an alert).</summary>
-    public bool IsError => Request.IsError;
+    public bool IsError => Request.EffectiveSeverity == ToastSeverity.Error;
+
+    /// <summary>The notification severity.</summary>
+    public ToastSeverity Severity => Request.EffectiveSeverity;
 }

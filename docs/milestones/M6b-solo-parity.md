@@ -189,3 +189,14 @@ reached shell-ready in 978 ms and exited 0. The archive SHA-256 is
 `1528786F81F2589CA9A0A49460077A5DE6E1E4E602FFA44D993E39F27A95F853`.
 The smoke report is local at `artifacts/auto/9071/release-smoke.json`.
 This verification covers the UI checkpoint. M6b plugin acceptance remains open.
+
+## Windows portable verification at 004b9f0
+
+The Windows x64 Release archive was built from a clean checkout of
+`004b9f08e40f3e2fc8c4e12cf45db02ba8d03342`. The extracted app reported
+that source revision, reached shell-ready in 855 ms in an isolated
+profile, and exited 0. Foreground window and cursor position were
+unchanged during the hidden run. The archive has the base Windows app
+and requires separately packaged sandbox assets for JavaScript add-ons.
+Its SHA-256 is
+`CA6BB73FFB3D0950C6D542D64DC90B1D607C492BE5BE2CE0D9E8C80C915A338A`.

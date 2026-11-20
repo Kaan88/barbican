@@ -13,9 +13,12 @@
     <ItemsControl.ItemTemplate>
       <DataTemplate x:DataType="actions:ToastItem">
         <Border Background="{StaticResource Popup}" BorderBrush="{StaticResource Line}" BorderThickness="1" CornerRadius="12" Padding="16,8,8,8" Margin="0,4,0,0"
-                AutomationProperties.AutomationId="toast" AutomationProperties.Name="{x:Bind Message}">
+                AutomationProperties.AutomationId="toast" AutomationProperties.Name="{x:Bind AccessibleName}">
           <StackPanel Orientation="Horizontal" Spacing="12">
-            <TextBlock Text="{x:Bind Message}" Foreground="{x:Bind local:ActionFmt.ToastText(IsError)}" FontSize="13" VerticalAlignment="Center" MaxWidth="460" TextWrapping="Wrap" />
+            <StackPanel VerticalAlignment="Center" MaxWidth="460" Spacing="2">
+              <TextBlock Text="{x:Bind DisplaySource}" Visibility="{x:Bind views:Fmt.VisText(DisplaySource)}" FontSize="12" FontWeight="SemiBold" TextWrapping="Wrap" />
+              <TextBlock Text="{x:Bind Message}" Foreground="{x:Bind local:ActionFmt.ToastText(Severity)}" FontSize="13" TextWrapping="Wrap" />
+            </StackPanel>
             <Button Content="{x:Bind ActionLabel}" Style="{StaticResource Button.Chip}" Visibility="{x:Bind views:Fmt.VisText(ActionLabel)}" Tag="{x:Bind}" Click="OnAction"
                     AutomationProperties.AutomationId="toast.action" AutomationProperties.Name="{x:Bind ActionLabel}" />
             <Button Content="{x:Bind SecondaryLabel}" Style="{StaticResource Button.Chip}" Visibility="{x:Bind views:Fmt.VisText(SecondaryLabel)}" Tag="{x:Bind}" Click="OnSecondary"

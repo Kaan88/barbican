@@ -2716,3 +2716,22 @@ refresh, lost responses after acceptance and cleanup after refusal.
 JavaScript raw send and compose takeover remain open. The host needs to
 apply the sending account's classification policy before exposing either
 capability.
+
+## Codex / Astra review of Windows add-on notifications (2026-11-20)
+
+Windows JavaScript add-ons can display success, error, information and
+warning toasts through the existing notification host. The host labels
+each toast with the installed add-on's name and ID, also used in the
+accessibility announcement. It revalidates the profile grant and live
+frame when displaying the toast. Each add-on shares a limit of five
+notifications per ten seconds across its frames and severities.
+
+Astra approved the changes. Windows Automation passed 3,462 tests with
+four skips. Windows Release built with zero warnings and errors. A
+private Windows walkthrough attached the normal shell to its hidden
+window, installed and enabled a synthetic add-on without account grants,
+and verified its attributed warning with the newline and bidi control
+removed from the displayed message.
+
+The ordinary methods accept strings and primitive values. Complex
+objects and the persistent progress and dismiss methods remain open.
