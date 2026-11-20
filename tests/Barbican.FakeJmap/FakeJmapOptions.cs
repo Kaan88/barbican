@@ -5,6 +5,9 @@ namespace Barbican.FakeJmap;
 /// <summary>How the fake server presents itself.</summary>
 public sealed record FakeJmapOptions
 {
+    /// <summary>Return RFC-shaped empty set maps and the implicit Email/set response for synthetic raw submissions.</summary>
+    public bool RfcSubmissionFollowupResponse { get; init; }
+
     /// <summary>The server origin.</summary>
     public string Origin { get; init; } = "https://jmap.example.org";
 

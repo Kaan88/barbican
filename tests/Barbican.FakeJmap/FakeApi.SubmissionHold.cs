@@ -150,6 +150,13 @@ public sealed partial class FakeApi
 
                 created[key] = new JsonObject { ["id"] = record.Id, ["undoStatus"] = record.UndoStatus, ["sendAt"] = record.SendAt?.ToString("yyyy-MM-ddTHH:mm:ssZ", CultureInfo.InvariantCulture) };
                 ApplyOnSuccess(args["onSuccessUpdateEmail"] as JsonObject, key, record.EmailId);
+                // A submission creation reference names the associated Email, not the submission id.
+                // Refused creations never reach this branch, so their imported message is retained.
+                if (args["onSuccessDestroyEmail"] is JsonArray destroyEmails &&
+                    destroyEmails.Any(item => string.Equals((string?)item, "#" + key, StringComparison.Ordinal)))
+                {
+                    store.Destroy(record.EmailId);
+                }
             }
 
             var (updated, notUpdated) = UpdateSubmissions(args["update"] as JsonObject ?? []);

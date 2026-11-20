@@ -114,6 +114,18 @@ public sealed class TransportTests
     }
 
     [Fact]
+    public async Task Linked_calls_over_the_limit_are_refused_without_partial_dispatch()
+    {
+        var f = await Fake.StartAsync(new FakeJmapOptions { MaxCallsInRequest = 1 });
+        var request = Echo(2) with { RequireSingleRequest = true };
+
+        var result = await f.Client.SendAsync(request, Ct);
+
+        Assert.IsType<ValidationError>(result.Error);
+        Assert.Empty(f.Server.ApiCalls);
+    }
+
+    [Fact]
     [Rfc("J-008", "RFC 8620 5.1")]
     [Rfc("J-009", "RFC 8620 5.3")]
     public async Task GetAll_chunks_by_maxObjectsInGet_and_limits_are_read()
@@ -167,6 +179,23 @@ public sealed class TransportTests
         var ok = await f.Client.UploadAsync("b", "hello"u8.ToArray(), "text/plain", Ct);
         Assert.Equal(5, ok.Value!.Size);
         Assert.Equal("hello"u8.ToArray(), f.Server.Store.Blob(ok.Value.BlobId));
+    }
+
+    [Fact]
+    public async Task Upload_rechecks_host_authority_at_HTTP_handoff()
+    {
+        var f = await Fake.StartAsync();
+        var checks = 0;
+        var denied = await f.Client.UploadAsync("b", "synthetic upload"u8.ToArray(), "message/rfc822",
+            (_, _) => { checks++; return Task.FromResult(false); }, Ct);
+        Assert.False(denied.IsOk);
+        Assert.Equal(1, checks);
+        Assert.DoesNotContain("POST upload", f.Server.Requests, StringComparer.Ordinal);
+
+        var accepted = await f.Client.UploadAsync("b", "synthetic upload"u8.ToArray(), "message/rfc822",
+            (issue, _) => Task.FromResult(issue()), Ct);
+        Assert.True(accepted.IsOk);
+        Assert.Equal("synthetic upload"u8.ToArray(), f.Server.Store.Blob(accepted.Value!.BlobId));
     }
 
     [Fact]

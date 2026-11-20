@@ -25,6 +25,7 @@ public sealed class JmapClient : IJmapClient, IDisposable
     private readonly TimeProvider _time;
     private readonly SemaphoreSlim _requests;
     private readonly SemaphoreSlim _uploads;
+    private readonly Lock _sessionGate = new();
     private JmapSession _session;
 
     public JmapClient(IJmapHttp http, IAccessTokenSource auth, JmapSession session, JmapClientOptions options, TimeProvider time, JmapTrace trace)
@@ -70,6 +71,11 @@ public sealed class JmapClient : IJmapClient, IDisposable
         }
 
         var session = Session;
+        if (request.RequireSingleRequest && request.MethodCalls.Count > session.Limits.MaxCallsInRequest)
+        {
+            return Result<JmapResponse>.Fail(new ValidationError("The server cannot accept all linked calls in a single request."));
+        }
+
         var use = request.Using.Count > 0 ? request.Using : session.CapabilityNames;
         var responses = new List<JsonArray>();
         var sessionState = "";
@@ -120,7 +126,11 @@ public sealed class JmapClient : IJmapClient, IDisposable
     }
 
     /// <summary>Uploads a blob (RFC 8620 §6.1): checked against maxSizeUpload first, through the maxConcurrentUpload gate.</summary>
-    public async Task<Result<UploadedBlob>> UploadAsync(string accountId, ReadOnlyMemory<byte> data, string type, CancellationToken ct)
+    public Task<Result<UploadedBlob>> UploadAsync(string accountId, ReadOnlyMemory<byte> data, string type, CancellationToken ct) =>
+        UploadAsync(accountId, data, type, beforeSend: null, ct);
+
+    internal async Task<Result<UploadedBlob>> UploadAsync(string accountId, ReadOnlyMemory<byte> data, string type,
+        Func<Func<bool>, CancellationToken, Task<bool>>? beforeSend, CancellationToken ct)
     {
         if (IsReadOnly)
         {
@@ -147,7 +157,7 @@ public sealed class JmapClient : IJmapClient, IDisposable
             {
                 Content = new ReadOnlyMemoryContent(data) { Headers = { ContentType = MediaTypeHeaderValue.Parse(mime) } },
             };
-            var sent = await AuthorizedHttp.SendAsync(_http.ClientFor(url), _auth, url, Allowed, Make, HttpCompletionOption.ResponseContentRead, ct).ConfigureAwait(false);
+            var sent = await AuthorizedHttp.SendAsync(_http.ClientFor(url), _auth, url, Allowed, Make, HttpCompletionOption.ResponseContentRead, ct, beforeSend).ConfigureAwait(false);
             if (!sent.IsOk)
             {
                 return Result<UploadedBlob>.Fail(sent.Error!);
@@ -256,8 +266,21 @@ public sealed class JmapClient : IJmapClient, IDisposable
             return false;
         }
 
-        Volatile.Write(ref _session, fetched.Value!);
+        lock (_sessionGate)
+        {
+            Volatile.Write(ref _session, fetched.Value!);
+        }
+
         return true;
+    }
+
+    /// <summary>Hands off a guarded request while the validated JMAP routing is still current.</summary>
+    internal bool TryRunWhileSessionCurrent(JmapSession expected, Func<bool> issue)
+    {
+        lock (_sessionGate)
+        {
+            return ReferenceEquals(_session, expected) && issue();
+        }
     }
 
     /// <inheritdoc/>

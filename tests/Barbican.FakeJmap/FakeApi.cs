@@ -51,9 +51,33 @@ public sealed partial class FakeApi(FakeStore store, FakeJmapOptions options, Fu
             var name = (string?)call[0] ?? "";
             var id = (string?)call[2] ?? "";
             var args = call[1] is JsonObject a ? ResultReferences.Resolve(a, responses) : null;
+            var rawImport = options.RfcSubmissionFollowupResponse && string.Equals(name, "Email/import", StringComparison.Ordinal) &&
+                args?["emails"]?["raw-import"] is not null;
+            var rawSubmission = options.RfcSubmissionFollowupResponse && string.Equals(name, "EmailSubmission/set", StringComparison.Ordinal) &&
+                args?["create"]?["raw-submit"] is not null;
+            var oldEmailState = rawSubmission ? store.State("Email") : null;
             var result = args is null ? Error("invalidResultReference") : Method(name, args);
-            responses.Add([result.Name ?? name, result.Args, id]);
             RememberCreations(result.Args);
+            if ((rawImport || rawSubmission) && result.Name is null)
+            {
+                if (result.Args["created"] is JsonObject { Count: 0 }) result.Args["created"] = null;
+                if (result.Args["notCreated"] is JsonObject { Count: 0 }) result.Args["notCreated"] = null;
+            }
+            responses.Add([result.Name ?? name, result.Args, id]);
+            if (rawSubmission && result.Name is null && result.Args["created"]?["raw-submit"] is not null &&
+                ResolveCreation("#raw-import") is { } emailId && !emailId.StartsWith('#'))
+            {
+                var destroyed = args?["onSuccessDestroyEmail"] is JsonArray destroy &&
+                    destroy.Any(item => string.Equals((string?)item, "#raw-submit", StringComparison.Ordinal));
+                var updated = args?["onSuccessUpdateEmail"]?["#raw-submit"] is JsonObject;
+                if (destroyed || updated)
+                {
+                    var followup = new JsonObject { ["accountId"] = options.AccountId, ["oldState"] = oldEmailState, ["newState"] = store.State("Email"),
+                        ["created"] = null, ["notCreated"] = null, ["updated"] = updated ? new JsonObject { [emailId] = null } : null,
+                        ["notUpdated"] = null, ["destroyed"] = destroyed ? new JsonArray(emailId) : null, ["notDestroyed"] = null };
+                    responses.Add(["Email/set", followup, id]);
+                }
+            }
         }
 
         return (200, new JsonObject { ["methodResponses"] = new JsonArray([.. responses]), ["sessionState"] = sessionState() });

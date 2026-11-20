@@ -2693,3 +2693,26 @@ walkthrough used in-process JMAP and verified hold expiry, Send now, Undo,
 the scheduled timestamp, observer failure isolation and the read grant.
 The synthetic send profile advertises `FUTURERELEASE` for these checks.
 JavaScript send takeover remains open.
+
+## Codex / Astra review of the raw JMAP submission service (2026-11-20)
+
+The Core service submits an RFC 822 message with its original bytes and
+an explicit envelope. It checks the From header against the selected
+identity. Upload and submission both require the caller's current
+authority for the captured account. The import and submission travel in
+one JMAP request so the submission can reference the new message.
+
+The service supports filing the message in Sent and submitting without a
+retained copy. A definite refusal triggers best-effort cleanup of the
+temporary draft. A lost or contradictory response returns an unknown
+outcome and preserves the server's state for reconciliation.
+
+Astra approved the Core and transport changes. Windows Automation passed
+3,449 tests with four skips. Windows Release built with zero warnings and
+errors. The synthetic tests cover exact bytes,
+explicit recipients, the server's implicit filing response, account
+refresh, lost responses after acceptance and cleanup after refusal.
+
+JavaScript raw send and compose takeover remain open. The host needs to
+apply the sending account's classification policy before exposing either
+capability.

@@ -15,6 +15,7 @@ public sealed partial class FakeJmapServer
     {
         _ = path;
         var o = Options;
+        var (primaryAccount, sessionState) = AdvertisedSession();
         string Url(string p) => o.RelativeUrls ? p : (o.SessionUrlOrigin ?? o.Origin) + p;
         var core = new JsonObject
         {
@@ -40,7 +41,6 @@ public sealed partial class FakeJmapServer
         }
 
         AddM2Capabilities(caps, o);
-
         var accountCaps = new JsonObject
         {
             ["urn:ietf:params:jmap:mail"] = new JsonObject { ["maxMailboxesPerEmail"] = null, ["maxMailboxDepth"] = 10, ["emailQuerySortOptions"] = new JsonArray("receivedAt"), ["maxSizeAttachmentsPerEmail"] = o.MaxSizeAttachmentsPerEmail },
@@ -50,18 +50,18 @@ public sealed partial class FakeJmapServer
         var session = new JsonObject
         {
             ["capabilities"] = caps,
-            ["accounts"] = new JsonObject { [o.AccountId] = new JsonObject { ["name"] = o.Username, ["isPersonal"] = true, ["isReadOnly"] = false, ["accountCapabilities"] = accountCaps } },
+            ["accounts"] = new JsonObject { [primaryAccount] = new JsonObject { ["name"] = o.Username, ["isPersonal"] = true, ["isReadOnly"] = false, ["accountCapabilities"] = accountCaps } },
             ["primaryAccounts"] = new JsonObject
             {
-                ["urn:ietf:params:jmap:mail"] = o.AccountId,
-                ["urn:ietf:params:jmap:submission"] = o.AccountId,
-                ["urn:ietf:params:jmap:quota"] = o.AccountId,
+                ["urn:ietf:params:jmap:mail"] = primaryAccount,
+                ["urn:ietf:params:jmap:submission"] = primaryAccount,
+                ["urn:ietf:params:jmap:quota"] = primaryAccount,
             },
             ["username"] = o.Username,
             ["apiUrl"] = Url("/jmap/"),
             ["downloadUrl"] = Url("/jmap/download/{accountId}/{blobId}/{name}?accept={type}"),
             ["uploadUrl"] = Url("/jmap/upload/{accountId}/"),
-            ["state"] = "S" + Volatile.Read(ref _sessionState).ToString(CultureInfo.InvariantCulture),
+            ["state"] = "S" + sessionState.ToString(CultureInfo.InvariantCulture),
         };
         AddSharedAccounts(session, o, accountCaps);
         AddSharedCalendarAccounts(session, o);
@@ -72,6 +72,14 @@ public sealed partial class FakeJmapServer
         }
 
         return session;
+    }
+
+    private (string Account, int State) AdvertisedSession()
+    {
+        lock (_lock)
+        {
+            return (_advertisedPrimaryAccount ?? Options.AccountId, Volatile.Read(ref _sessionState));
+        }
     }
 
     private async Task<HttpResponseMessage> ApiAsync(HttpRequestMessage request, CancellationToken ct)
@@ -109,9 +117,17 @@ public sealed partial class FakeJmapServer
                 return Json((HttpStatusCode)failStatus, failJson, "application/problem+json");
             }
 
+            bool loseResponse;
+            lock (_lock)
+            {
+                loseResponse = _failApiResponseAfterApplying;
+                _failApiResponseAfterApplying = false;
+            }
+
             var (status, json) = bytes.Length > Options.MaxSizeRequest
                 ? FakeApi.Problem(400, "urn:ietf:params:jmap:error:limit", "Request too large.", "maxSizeRequest")
                 : body is null ? FakeApi.Problem(400, "urn:ietf:params:jmap:error:notJSON", "Not JSON.", null) : Api.Run(body);
+            if (loseResponse) throw new HttpRequestException("Injected loss after applying API request.");
             return Json((HttpStatusCode)status, json, status == 200 ? "application/json" : "application/problem+json");
         }
         finally
@@ -168,6 +184,7 @@ public sealed partial class FakeJmapServer
         }
 
         var id = Store.PutBlob(bytes);
+        LastUploadedBlobId = id;
         var type = request.Content?.Headers.ContentType?.MediaType ?? "application/octet-stream";
         return Json(HttpStatusCode.Created, new JsonObject { ["accountId"] = Options.AccountId, ["blobId"] = id, ["type"] = type, ["size"] = bytes.Length });
     }

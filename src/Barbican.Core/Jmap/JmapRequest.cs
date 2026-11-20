@@ -17,6 +17,9 @@ public sealed record JmapRequest
     /// <summary>Host-side authorization at transport handoff, including retries.</summary>
     internal Func<Func<bool>, CancellationToken, Task<bool>>? BeforeSend { get; init; }
 
+    /// <summary>Keep creation references and their dependent calls in one HTTP request.</summary>
+    internal bool RequireSingleRequest { get; init; }
+
     /// <summary>A request of the given calls.</summary>
     public static JmapRequest Of(params JsonArray[] calls) => new() { MethodCalls = calls };
 

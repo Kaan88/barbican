@@ -17,10 +17,12 @@ public sealed partial class FakeJmapServer : HttpMessageHandler
     private readonly Queue<FakeFault> _httpFaults = new();
     private int _apiRequests;
     private int _failApiAt = -1;
+    private bool _failApiResponseAfterApplying;
     private readonly HashSet<string> _tokens = new(StringComparer.Ordinal) { "fake-access-1" };
     private readonly List<string> _requests = [];
     private TaskCompletionSource? _hold;
     private int _sessionState = 1;
+    private string? _advertisedPrimaryAccount;
     private int _inFlight;
     private int _tokenSerial = 1;
 
@@ -68,6 +70,9 @@ public sealed partial class FakeJmapServer : HttpMessageHandler
 
     public PushHub Push { get; }
 
+    /// <summary>The most recently uploaded blob id, for synthetic fixture inspection.</summary>
+    public string? LastUploadedBlobId { get; private set; }
+
     /// <summary>The URL the client starts from.</summary>
     public string Base => Options.Origin;
 
@@ -113,6 +118,15 @@ public sealed partial class FakeJmapServer : HttpMessageHandler
         }
     }
 
+    /// <summary>Executes the next API request, then simulates losing its response.</summary>
+    public void FailApiResponseAfterApplyingRequest()
+    {
+        lock (_lock)
+        {
+            _failApiResponseAfterApplying = true;
+        }
+    }
+
     /// <summary>Queues an HTTP-level fault for the next matching request.</summary>
     public void Inject(FakeFault fault)
     {
@@ -125,6 +139,17 @@ public sealed partial class FakeJmapServer : HttpMessageHandler
         lock (_lock)
         {
             _httpFaults.Enqueue(fault);
+        }
+    }
+
+    /// <summary>Changes the advertised primary mail and submission account without changing fake backing data.</summary>
+    public void ChangeAdvertisedPrimaryAccount(string accountId)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(accountId);
+        lock (_lock)
+        {
+            _advertisedPrimaryAccount = accountId;
+            Interlocked.Increment(ref _sessionState);
         }
     }
 

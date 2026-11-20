@@ -3,6 +3,8 @@
 using System.Text.Json.Nodes;
 using Barbican.Core.Accounts;
 using Barbican.Core.Common;
+using Barbican.Core.Jmap;
+using Barbican.Core.Jmap.Errors;
 using Barbican.Core.Jmap.Json;
 using Barbican.Core.Mail.Reader;
 
@@ -19,15 +21,22 @@ public sealed class IdentityService(IAccountManager accounts) : IIdentityService
             return Result<IReadOnlyList<ComposeIdentity>>.Fail(ctx.Error!);
         }
 
-        var r = await ReaderCalls.CallAsync(ctx.Value!.Client, "Identity/get", new JsonObject { ["accountId"] = ctx.Value.SubmissionAccount, ["ids"] = null }, ct).ConfigureAwait(false);
-        if (!r.IsOk)
-        {
-            return Result<IReadOnlyList<ComposeIdentity>>.Fail(r.Error!);
-        }
+        return await ListCapturedAsync(ctx.Value!.Client, ctx.Value.SubmissionAccount, ct).ConfigureAwait(false);
+    }
+
+    internal static async Task<Result<IReadOnlyList<ComposeIdentity>>> ListCapturedAsync(IJmapClient client, string jmapAccountId, CancellationToken ct)
+    {
+        ArgumentNullException.ThrowIfNull(client);
+        ArgumentException.ThrowIfNullOrWhiteSpace(jmapAccountId);
+        var r = await ReaderCalls.CallAsync(client, "Identity/get", new JsonObject { ["accountId"] = jmapAccountId, ["ids"] = null }, ct).ConfigureAwait(false);
+        if (!r.IsOk) return Result<IReadOnlyList<ComposeIdentity>>.Fail(r.Error!);
+        if (r.Value is not { } body || !string.Equals(body.Str("accountId"), jmapAccountId, StringComparison.Ordinal) ||
+            body["list"] is not JsonArray rows)
+            return Result<IReadOnlyList<ComposeIdentity>>.Fail(new ValidationError("The identity response did not match its account."));
 
         IReadOnlyList<ComposeIdentity> list =
         [
-            .. (r.Value!["list"] as JsonArray ?? []).OfType<JsonNode>()
+            .. rows.OfType<JsonNode>()
                 .Select(n => (Node: n, Identity: ModelReader.Identity(n)))
                 .Where(x => x.Identity is not null)
                 .Select(x => new ComposeIdentity(x.Identity!, x.Node.Str("textSignature") ?? "", x.Node.Str("htmlSignature") ?? "")),
