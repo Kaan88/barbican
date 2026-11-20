@@ -273,6 +273,7 @@ public sealed class ComposeSeeder(IAccountManager accounts, IIdentityService ide
             DraftId = m.Id,
             InReplyTo = First(m.InReplyTo),
             References = Or(m.References),
+            Keywords = OutgoingKeywords.Clean(m.Keywords.Map.Where(keyword => keyword.Value).Select(keyword => keyword.Key)),
             IsSaved = true,
         });
     }

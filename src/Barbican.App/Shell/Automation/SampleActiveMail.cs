@@ -66,6 +66,15 @@ public sealed class SampleActiveMail : IActiveMail, Barbican.Presentation.Action
     public IMailSync? Sync { get; }
 
 #if WINDOWS
+    internal string ReadSentKeywords(string subject)
+    {
+        var sent = _server.Store.MailboxId("sent");
+        if (sent is null) return "error no sent mailbox";
+        var matches = _server.Store.EmailIds().Select(_server.Store.Email).Where(e => e is not null && string.Equals((string?)e["subject"], subject, StringComparison.Ordinal) && e["mailboxIds"]?[sent] is not null).ToArray();
+        if (matches.Length != 1) return "error expected exactly one sent message; found " + matches.Length;
+        return System.Text.Json.JsonSerializer.Serialize(new { subject, keywords = (matches[0]!["keywords"] as System.Text.Json.Nodes.JsonObject)?.Select(k => k.Key).Order(StringComparer.Ordinal).ToArray() ?? [] });
+    }
+
     internal Barbican.Core.Accounts.IAccountSession CreateAddOnSession() =>
         new Barbican.Core.Accounts.AccountSession(new("sample", _server.Options.Username, _server.Options.Origin),
             _client, Mail!, Sync!, tokens: null, allowsAddOnStorage: true);

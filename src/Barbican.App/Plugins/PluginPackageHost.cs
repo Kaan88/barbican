@@ -39,6 +39,29 @@ internal sealed class PluginPackageHost(IProfilePaths paths, ISecretStore secret
 
 #if AUTOMATION
     internal bool UseSyntheticHttpProbe { private get; init; }
+
+    internal Task<Result<string>> ReadSampleSendFixtureAsync(CancellationToken ct) =>
+        WithManagerAsync(async _ =>
+        {
+            if (!ProfilePaths.IsAutomationProfile(paths.Profile) ||
+                !SampleEnabled("BARBICAN_SAMPLE") || !SampleEnabled("BARBICAN_SAMPLE_ADDON_ACCOUNT") ||
+                !SampleEnabled("BARBICAN_SAMPLE_SEND_PIPELINE"))
+                return Result<string>.Fail(new ValidationError("Sample send records are unavailable."));
+            var snapshot = await _store!.LoadAsync(paths.Profile, "it-plugin-api-probe", "sample", ct).ConfigureAwait(false);
+            if (!snapshot.IsOk || snapshot.Value!.Index.IsEmpty)
+                return Result<string>.Fail(new ValidationError("The sample fixture has no send records."));
+            using var document = System.Text.Json.JsonDocument.Parse(snapshot.Value.Index.AsMemory());
+            var records = new Dictionary<string, System.Text.Json.JsonElement>(StringComparer.Ordinal);
+            foreach (var pair in document.RootElement.EnumerateArray())
+            {
+                if (pair[0].GetString() is "actions" or "sendChecks" or "transforms" && pair[1].ValueKind == System.Text.Json.JsonValueKind.Array)
+                    records[pair[0].GetString()!] = pair[1];
+            }
+            return Result<string>.Ok(System.Text.Json.JsonSerializer.Serialize(records));
+        }, ct);
+
+    private static bool SampleEnabled(string name) =>
+        string.Equals(Environment.GetEnvironmentVariable(name), "1", StringComparison.Ordinal);
 #endif
 
     public Task<Result<IReadOnlyList<PluginInstallation>>> ListAsync(CancellationToken ct) =>
@@ -49,6 +72,9 @@ internal sealed class PluginPackageHost(IProfilePaths paths, ISecretStore secret
 
     internal Task<bool> TryPostAsync(PluginRuntimeBinding binding, Func<PluginGrantSnapshot, bool> write, CancellationToken ct) =>
         Volatile.Read(ref _manager) is { } manager ? manager.TryPostAsync(binding, write, ct) : Task.FromResult(false);
+
+    internal Task<bool> TryRunWithGrantsAsync(IReadOnlyCollection<PluginRuntimeBinding> bindings, Func<bool> issue, CancellationToken ct) =>
+        Volatile.Read(ref _manager) is { } manager ? manager.TryRunWithGrantsAsync(bindings, issue, ct) : Task.FromResult(false);
 
     public IReadOnlyList<AccountStatus> AccountStatuses => accounts.Statuses;
 

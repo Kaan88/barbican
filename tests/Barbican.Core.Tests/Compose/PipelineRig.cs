@@ -20,22 +20,25 @@ internal sealed class PipelineRig
 {
     public const string Account = "acct";
 
-    private PipelineRig(Fake fake, FakeTimeProvider clock, HookBus hooks, IPrefsStore prefs, IDocCodec codec)
+    private PipelineRig(Fake fake, FakeTimeProvider clock, HookBus hooks, IPrefsStore prefs, IDocCodec codec, IOutgoingAddOnHooks? addOns)
     {
         Fake = fake;
         Clock = clock;
         Hooks = hooks;
         Prefs = prefs;
         var accounts = new FakeAccounts(fake.Client, clock);
+        Accounts = accounts;
         Codec = codec;
         Identities = new IdentityService(accounts);
         Seeder = new ComposeSeeder(accounts, Identities, prefs, hooks, Codec, clock);
         Drafts = new DraftService(accounts, Identities, hooks, Codec);
-        Sender = new MailSender(accounts, Identities, Seeder, hooks, Codec, clock);
+        Sender = new MailSender(accounts, Identities, Seeder, hooks, Codec, clock, addOns);
         Scheduled = new ScheduledSends(accounts, clock);
         Templates = new TemplateStore(accounts, clock);
         Uploader = new AttachmentUploader(accounts, hooks);
     }
+
+    public IAccountManager Accounts { get; }
 
     public Fake Fake { get; }
 
@@ -76,12 +79,12 @@ internal sealed class PipelineRig
         StrictMailFrom = true,
     };
 
-    public static async Task<PipelineRig> StartAsync(FakeJmapOptions? options = null, JsonObject? prefs = null, IDocCodec? codec = null)
+    public static async Task<PipelineRig> StartAsync(FakeJmapOptions? options = null, JsonObject? prefs = null, IDocCodec? codec = null, IOutgoingAddOnHooks? addOns = null)
     {
         var clock = Fake.VirtualClock();
         var o = (options ?? M3Options()) with { Clock = clock };
         var fake = await Fake.StartAsync(o, clock);
-        return new PipelineRig(fake, clock, new HookBus(clock), new FixedPrefs(PrefsSnapshot.FromJson(prefs ?? [])), codec ?? new TestCodec());
+        return new PipelineRig(fake, clock, new HookBus(clock), new FixedPrefs(PrefsSnapshot.FromJson(prefs ?? [])), codec ?? new TestCodec(), addOns);
     }
 
     /// <summary>The id of the seeded message with <paramref name="subject"/>.</summary>
@@ -132,7 +135,8 @@ internal sealed class PipelineRig
 
         public Task<Result<Unit>> SwitchToAsync(string accountKey, CancellationToken ct) => throw new NotSupportedException();
 
-        public IAccountSession? SessionFor(string accountKey) => string.Equals(accountKey, Account, StringComparison.Ordinal) ? new Session(client, time) : null;
+        private readonly IAccountSession _session = new Session(client, time);
+        public IAccountSession? SessionFor(string accountKey) => string.Equals(accountKey, Account, StringComparison.Ordinal) ? _session : null;
     }
 
     private sealed class Session(IJmapClient client, TimeProvider time) : IAccountSession

@@ -287,6 +287,7 @@ public sealed partial class ComposerViewModel : ObservableObject, IMentionSource
             Attachments = [.. Attachments.Where(a => a.State == AttachmentState.Done).Select(a => a.Attachment), .. _inline],
             InReplyTo = _seed.InReplyTo,
             References = _seed.References,
+            Keywords = _seed.Keywords,
             ReadReceipt = _readReceipt,
             Priority = _priority,
         };

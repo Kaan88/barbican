@@ -23,8 +23,10 @@ internal static class AuthorizedHttp
     /// <param name="make">Builds the request (once per attempt).</param>
     /// <param name="completion">When the send completes.</param>
     /// <param name="ct">Cancels the send.</param>
+    /// <param name="beforeSend">Optional host authority for each actual HTTP attempt.</param>
     public static async Task<Result<HttpResponseMessage>> SendAsync(
-        HttpClient http, IAccessTokenSource auth, Uri target, Func<Uri, bool> allowed, Func<HttpRequestMessage> make, HttpCompletionOption completion, CancellationToken ct)
+        HttpClient http, IAccessTokenSource auth, Uri target, Func<Uri, bool> allowed, Func<HttpRequestMessage> make,
+        HttpCompletionOption completion, CancellationToken ct, Func<Func<bool>, CancellationToken, Task<bool>>? beforeSend = null)
     {
         if (!allowed(target))
         {
@@ -40,11 +42,9 @@ internal static class AuthorizedHttp
         var current = header.Value!;
         for (var renewed = false; ; renewed = true)
         {
-            var response = await SendOnceAsync(http, target, make, current, completion, ct).ConfigureAwait(false);
-            if (response is null)
-            {
-                return Result<HttpResponseMessage>.Fail(Refused(target));
-            }
+            var attempt = await SendOnceAsync(http, target, make, current, completion, beforeSend, ct).ConfigureAwait(false);
+            if (!attempt.IsOk) return attempt;
+            var response = attempt.Value!;
 
             if (response.StatusCode != HttpStatusCode.Unauthorized)
             {
@@ -73,17 +73,29 @@ internal static class AuthorizedHttp
     public static TransportError Refused(Uri target) =>
         new($"Barbican did not send your sign-in to {target.Host}: it is not this account's server.", Retryable: false);
 
-    // null: the request built does not go where the caller checked (the header is never attached)
-    private static async Task<HttpResponseMessage?> SendOnceAsync(
-        HttpClient http, Uri target, Func<HttpRequestMessage> make, AuthenticationHeaderValue header, HttpCompletionOption completion, CancellationToken ct)
+    private static async Task<Result<HttpResponseMessage>> SendOnceAsync(
+        HttpClient http, Uri target, Func<HttpRequestMessage> make, AuthenticationHeaderValue header, HttpCompletionOption completion,
+        Func<Func<bool>, CancellationToken, Task<bool>>? beforeSend, CancellationToken ct)
     {
         using var request = make();
         if (request.RequestUri != target)
         {
-            return null;
+            return Result<HttpResponseMessage>.Fail(Refused(target));
         }
 
         request.Headers.Authorization = header;
-        return await http.SendAsync(request, completion, ct).ConfigureAwait(false);
+        if (beforeSend is null)
+            return Result<HttpResponseMessage>.Ok(await http.SendAsync(request, completion, ct).ConfigureAwait(false));
+
+        Task<HttpResponseMessage>? pending = null;
+        bool Issue()
+        {
+            if (ct.IsCancellationRequested || pending is not null) return false;
+            pending = http.SendAsync(request, completion, ct);
+            return true;
+        }
+        if (!await beforeSend(Issue, ct).ConfigureAwait(false) || pending is null)
+            return Result<HttpResponseMessage>.Fail(new ValidationError("The sending authority changed."));
+        return Result<HttpResponseMessage>.Ok(await pending.ConfigureAwait(false));
     }
 }

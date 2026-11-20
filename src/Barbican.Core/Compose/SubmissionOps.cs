@@ -42,12 +42,12 @@ internal static class SubmissionOps
     /// undoStatus canceled (and the check that it took: a message already released says so), then the canceled record is destroyed (housekeeping: it only counts against the submission limit).
     /// Returns the message's id.
     /// </summary>
-    public static async Task<Result<string?>> CancelAsync(ComposeContext ctx, string submissionId, CancellationToken ct)
+    public static async Task<Result<string?>> CancelAsync(ComposeContext ctx, string submissionId, CancellationToken ct, Func<Func<bool>, CancellationToken, Task<bool>>? beforeSend = null)
     {
         var request = JmapRequest.Of(
             JmapRequest.Call("EmailSubmission/set", new JsonObject { ["accountId"] = ctx.SubmissionAccount, ["update"] = new JsonObject { [submissionId] = new JsonObject { ["undoStatus"] = "canceled" } } }, "c"),
             JmapRequest.Call("EmailSubmission/get", new JsonObject { ["accountId"] = ctx.SubmissionAccount, ["ids"] = new JsonArray(submissionId), ["properties"] = new JsonArray("emailId", "undoStatus") }, "g"));
-        var sent = await ctx.Client.SendAsync(request, ct).ConfigureAwait(false);
+        var sent = await ctx.Client.SendAsync(request with { BeforeSend = beforeSend }, ct).ConfigureAwait(false);
         if (!sent.IsOk)
         {
             return Result<string?>.Fail(sent.Error!);
@@ -71,15 +71,15 @@ internal static class SubmissionOps
             return Result<string?>.Fail(new ValidationError("The message has already been sent."));
         }
 
-        await DestroyRecordAsync(ctx, submissionId, ct).ConfigureAwait(false);
+        await DestroyRecordAsync(ctx, submissionId, ct, beforeSend).ConfigureAwait(false);
         return Result<string?>.Ok(sub.Str("emailId"));
     }
 
-    public static async Task DestroyRecordAsync(ComposeContext ctx, string submissionId, CancellationToken ct) =>
-        _ = await ReaderCalls.CallAsync(ctx.Client, "EmailSubmission/set", new JsonObject { ["accountId"] = ctx.SubmissionAccount, ["destroy"] = new JsonArray(submissionId) }, ct).ConfigureAwait(false);
+    public static async Task DestroyRecordAsync(ComposeContext ctx, string submissionId, CancellationToken ct, Func<Func<bool>, CancellationToken, Task<bool>>? beforeSend = null) =>
+        _ = await CallAsync(ctx, "EmailSubmission/set", new JsonObject { ["accountId"] = ctx.SubmissionAccount, ["destroy"] = new JsonArray(submissionId) }, beforeSend, ct).ConfigureAwait(false);
 
     /// <summary>The message back into Drafts with <c>$draft</c> (retried once with fresh folder roles); false when it could not.</summary>
-    public static async Task<bool> RestoreDraftAsync(ComposeContext ctx, string emailId, CancellationToken ct)
+    public static async Task<bool> RestoreDraftAsync(ComposeContext ctx, string emailId, CancellationToken ct, Func<Func<bool>, CancellationToken, Task<bool>>? beforeSend = null)
     {
         for (var attempt = 0; attempt < 2; attempt++)
         {
@@ -90,7 +90,7 @@ internal static class SubmissionOps
             }
 
             var patch = new JsonObject { ["mailboxIds"] = new JsonObject { [roles.Value!.Drafts] = true }, ["keywords/$draft"] = true };
-            var r = await ReaderCalls.CallAsync(ctx.Client, "Email/set", new JsonObject { ["accountId"] = ctx.Account, ["update"] = new JsonObject { [emailId] = patch } }, ct).ConfigureAwait(false);
+            var r = await CallAsync(ctx, "Email/set", new JsonObject { ["accountId"] = ctx.Account, ["update"] = new JsonObject { [emailId] = patch } }, beforeSend, ct).ConfigureAwait(false);
             if (r.IsOk && SetErrors.Read(r.Value).Failed.Count == 0)
             {
                 return true;
@@ -104,7 +104,7 @@ internal static class SubmissionOps
     /// A submission of an existing message (reschedule, send now): the envelope with HOLDFOR when <paramref name="holdSeconds"/> is set, and the message filed in Sent with <c>$draft</c> dropped when the server finishes it.
     /// Returns the new submission's id.
     /// </summary>
-    public static async Task<Result<string>> CreateAsync(ComposeContext ctx, string emailId, string identityId, string mailFrom, IReadOnlyList<string> recipients, long? holdSeconds, string? sentId, CancellationToken ct)
+    public static async Task<Result<string>> CreateAsync(ComposeContext ctx, string emailId, string identityId, string mailFrom, IReadOnlyList<string> recipients, long? holdSeconds, string? sentId, CancellationToken ct, Func<Func<bool>, CancellationToken, Task<bool>>? beforeSend = null)
     {
         var from = new JsonObject { ["email"] = mailFrom };
         if (holdSeconds is { } h)
@@ -124,7 +124,7 @@ internal static class SubmissionOps
             args["onSuccessUpdateEmail"] = new JsonObject { ["#n"] = new JsonObject { ["mailboxIds"] = new JsonObject { [sentId] = true }, ["keywords/$draft"] = null } };
         }
 
-        var r = await ReaderCalls.CallAsync(ctx.Client, "EmailSubmission/set", args, ct).ConfigureAwait(false);
+        var r = await CallAsync(ctx, "EmailSubmission/set", args, beforeSend, ct).ConfigureAwait(false);
         return r.IsOk ? ReaderCalls.Created(r.Value!, "n") : Result<string>.Fail(r.Error!);
     }
 
@@ -147,6 +147,21 @@ internal static class SubmissionOps
         IReadOnlyList<string> rc = [.. RecipientKeys.SelectMany(k => (m?[k] as JsonArray ?? []).Select(x => x.Str("email"))).OfType<string>()];
         var fromEmail = (m?["from"] as JsonArray is { Count: > 0 } fa ? fa[0] : null).Str("email");
         return Result<(string, IReadOnlyList<string>)>.Ok((string.IsNullOrEmpty(fromEmail) ? ctx.Username : fromEmail, rc));
+    }
+
+    /// <summary>Removes a canceled copy only while the originating account session is current.</summary>
+    public static async Task<Result<Unit>> DestroyEmailAsync(ComposeContext ctx, string emailId, CancellationToken ct, Func<Func<bool>, CancellationToken, Task<bool>>? beforeSend = null)
+    {
+        var result = await CallAsync(ctx, "Email/set", new JsonObject { ["accountId"] = ctx.Account, ["destroy"] = new JsonArray(emailId) }, beforeSend, ct).ConfigureAwait(false);
+        return result.IsOk ? Result<Unit>.Ok(default) : Result<Unit>.Fail(result.Error!);
+    }
+
+    private static async Task<Result<JsonObject>> CallAsync(ComposeContext ctx, string method, JsonObject args,
+        Func<Func<bool>, CancellationToken, Task<bool>>? beforeSend, CancellationToken ct)
+    {
+        var request = JmapRequest.Of(JmapRequest.Call(method, args, "r")) with { BeforeSend = beforeSend };
+        var result = await ctx.Client.SendAsync(request, ct).ConfigureAwait(false);
+        return result.IsOk ? result.Value!.Args("r", method) : Result<JsonObject>.Fail(result.Error!);
     }
 
     private static readonly string[] RecipientKeys = ["to", "cc", "bcc"];

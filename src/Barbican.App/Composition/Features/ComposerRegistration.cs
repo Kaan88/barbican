@@ -29,6 +29,10 @@ public static class ComposerRegistration
 #if WINDOWS
         services.AddSingleton<PluginComposerAccess>();
         services.AddSingleton<IComposeLinkAddOns, Barbican.App.Plugins.PluginComposeLinks>();
+        services.AddSingleton<Barbican.Core.Compose.IOutgoingAddOnHooks>(sp => new Barbican.App.Plugins.PluginOutgoingSendHooks(
+            sp.GetRequiredService<Barbican.App.Plugins.PluginBackgroundRuntimes>(),
+            sp.GetRequiredService<Barbican.App.Plugins.PluginPackageHost>(), sp.GetRequiredService<IPluginSessionSource>(),
+            () => sp.GetRequiredService<IComposerService>().Current, sp.GetRequiredService<Barbican.Presentation.Common.IDispatcher>()));
         services.AddSingleton<Barbican.App.Plugins.PluginActionRegistration>();
         services.AddSingleton<IPluginApiMethod>(sp => sp.GetRequiredService<Barbican.App.Plugins.PluginActionRegistration>());
         services.AddSingleton<IPluginApiMethod>(sp => PluginComposerMethods.GetSnapshot(sp.GetRequiredService<PluginComposerAccess>()));

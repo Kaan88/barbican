@@ -2633,3 +2633,38 @@ add-on's parameter retained its original subject. Astra approved the
 delivery and startup wait. Windows Automation passed 3,422 tests with
 four skips and Windows Release built with zero warnings and errors.
 The Windows protocol association and Bulwark's browser URL remain open.
+
+## Codex / Astra review of Windows add-on send hooks (2026-11-20)
+
+Windows connects `onBeforeEmailSend` and `onTransformOutgoingEmail`
+to the normal send pipeline. Both require `email:send` for the sending
+account. The outgoing snapshot keeps the composer ID used by toolbar
+actions. An explicit veto or failed check stops the send. If a
+transformation changes who receives the message, the checks run again.
+
+The host keeps the account, sender, identity, composer ID and attachments
+from the original snapshot. Keyword changes require `email:write`. Up
+to ten valid outgoing keywords survive, including custom keywords,
+`$flagged` and tags. The server copy keeps the host-managed `$seen`
+state. Reopened drafts carry their existing eligible keywords.
+
+Each HTTP attempt checks the captured account and contributing package
+grants at transport handoff, after a connection slot and credentials
+become available. A credential renewal or forbidden-sender retry checks
+again. Operations on an already accepted held send use the captured
+account session through cancellation, resubmission, restoration and
+cleanup.
+
+In the opt-in private Windows run, the byte-for-byte Bulwark fixture saw
+the same composer ID in its toolbar action, send check and transform. The
+in-process JMAP server's Sent copy contained `akte-01-2026`, `$flagged`
+and the host's `$seen`. A separate fixture with only `email:send`
+changed the subject and could not add keywords. Its veto kept the draft
+open and produced no Sent copy. The ordinary Windows service graph
+started in a clean automation profile. Astra approved the checkpoint.
+Windows Automation passed 3,431 tests with four skips, and Windows
+Release built with zero warnings and errors.
+
+Send checks derive external recipients from sending-account identity
+domains. Organization domains, attachment text excerpts, custom outgoing
+headers and JavaScript send takeover and completion hooks remain open.

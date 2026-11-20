@@ -60,6 +60,29 @@ public sealed class PluginRuntimeBinding : IAsyncDisposable
         }
     }
 
+    /// <summary>Orders one synchronous write against invalidation of all participating bindings.</summary>
+    public static bool TryWriteWhileAllAlive(IEnumerable<PluginRuntimeBinding> bindings, Func<bool> write)
+    {
+        ArgumentNullException.ThrowIfNull(bindings);
+        ArgumentNullException.ThrowIfNull(write);
+        var ordered = bindings.Distinct().OrderBy(binding => binding.InstanceId).ToArray();
+        var held = 0;
+        try
+        {
+            foreach (var binding in ordered)
+            {
+                binding._deliveryGate.Enter();
+                held++;
+                if (!binding.IsAlive) return false;
+            }
+            return write();
+        }
+        finally
+        {
+            while (held > 0) ordered[--held]._deliveryGate.Exit();
+        }
+    }
+
     public ValueTask DisposeAsync()
     {
         lock (_gate) return new ValueTask(_closing ??= CloseCoreAsync());

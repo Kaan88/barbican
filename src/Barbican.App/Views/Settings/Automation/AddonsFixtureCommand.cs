@@ -2,6 +2,7 @@
 using System.IO.Compression;
 using System.Security.Cryptography;
 using System.Text;
+using Barbican.App.Plugins;
 using Barbican.App.Settings;
 using Barbican.Automation;
 using Barbican.Core.Storage;
@@ -11,7 +12,7 @@ using Barbican.Presentation.Shell;
 namespace Barbican.App.Views.Settings.Automation;
 
 internal sealed class AddonsFixtureCommand(IProfilePaths paths, ISettingsNavigation navigation,
-    ShellViewModel shell, IEnumerable<ISettingsPageFactory> pages) : IAutomationCommand
+    ShellViewModel shell, IEnumerable<ISettingsPageFactory> pages, PluginPackageHost packages) : IAutomationCommand
 {
     public string Name => "addons-fixture";
 
@@ -22,7 +23,12 @@ internal sealed class AddonsFixtureCommand(IProfilePaths paths, ISettingsNavigat
             return "error requires a synthetic automation profile";
 
         var mode = args.Trim();
-        if (mode is not ("install" or "update" or "native" or "origins" or "composer-probe")) return "error unknown add-on fixture";
+        if (string.Equals(mode, "send-records", StringComparison.Ordinal))
+        {
+            var records = await packages.ReadSampleSendFixtureAsync(cancellationToken).ConfigureAwait(true);
+            return records.IsOk ? records.Value! : "error unavailable sample records";
+        }
+        if (mode is not ("install" or "update" or "native" or "origins" or "composer-probe" or "send-policy")) return "error unknown add-on fixture";
         if (!shell.TryActivate(AppId.Settings)) return "error Settings is unavailable";
 
         navigation.Open(SettingsPageIds.Addons);
@@ -89,10 +95,21 @@ internal sealed class AddonsFixtureCommand(IProfilePaths paths, ISettingsNavigat
             {
                 "update" => """{"id":"fixture-addon","name":"Fixture Add-on","version":"2.0.0","author":"Example","type":"hook","permissions":["email:read","email:write"]}""",
                 "origins" => """{"id":"fixture-addon","name":"Fixture Add-on","version":"1.0.0","author":"Example","type":"hook","permissions":["http:fetch"],"httpOrigins":["https://api.example.org","https://*.service.example.org"]}""",
+                "send-policy" => """{"id":"sample-send-policy","name":"Sample send policy","version":"1.0.0","author":"Example","type":"hook","permissions":["email:send"]}""",
                 _ => """{"id":"fixture-addon","name":"Fixture Add-on","version":"1.0.0","author":"Example","type":"hook","permissions":["email:read"]}""",
             };
             Write(zip, "manifest.json", manifest);
-            Write(zip, "index.js", "module.exports = { activate() {} };");
+            var script = string.Equals(mode, "send-policy", StringComparison.Ordinal) ? """
+                exports.hooks = {
+                    onBeforeEmailSend(email) { if (email.subject === 'Synthetic veto') return false; },
+                    onTransformOutgoingEmail(email) {
+                        if (email.subject === 'Synthetic without write')
+                            return {...email, subject: 'Synthetic transformed', keywords: ['forbidden-keyword', '$flagged']};
+                    },
+                };
+                """
+                : "module.exports = { activate() {} };";
+            Write(zip, "index.js", script);
         }
         archive.Position = 0;
         return archive;

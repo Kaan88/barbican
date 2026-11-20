@@ -46,6 +46,13 @@ public static class ViewServices
             if (string.Equals(Environment.GetEnvironmentVariable("BARBICAN_SAMPLE_ADDON_ACCOUNT"), "1", StringComparison.Ordinal))
             {
                 services.AddSingleton(sp => new SampleAddOnAccount((SampleActiveMail)sp.GetRequiredService<IActiveMail>()));
+                if (string.Equals(Environment.GetEnvironmentVariable("BARBICAN_SAMPLE_SEND_PIPELINE"), "1", StringComparison.Ordinal))
+                {
+                    services.Replace(ServiceDescriptor.Singleton<IAccountManager>(sp =>
+                        ProfilePaths.IsAutomationProfile(sp.GetRequiredService<IProfilePaths>().Profile)
+                            ? sp.GetRequiredService<SampleAddOnAccount>() : sp.GetRequiredService<AccountManager>()));
+                    services.AddSingleton<Barbican.Automation.IAutomationCommand>(sp => new SampleSentReadbackCommand((SampleActiveMail)sp.GetRequiredService<IActiveMail>(), sp.GetRequiredService<IProfilePaths>()));
+                }
                 services.Replace(ServiceDescriptor.Singleton<IAccountOverview>(sp =>
                     ProfilePaths.IsAutomationProfile(sp.GetRequiredService<IProfilePaths>().Profile)
                         ? sp.GetRequiredService<SampleAddOnAccount>() : sp.GetRequiredService<AccountManager>()));

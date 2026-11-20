@@ -12,6 +12,16 @@ public sealed record ComposeDraft
 
     public ComposeKind Kind { get; init; }
 
+    /// <summary>The host-issued composer handle, never supplied by an add-on.</summary>
+    public string? ComposerId { get; init; }
+
+    public string? AuthoredText { get; init; }
+
+    public bool IsQuickReply { get; init; }
+
+    /// <summary>Selected keywords for the sent copy.</summary>
+    public IReadOnlyList<string> Keywords { get; init; } = [];
+
     /// <summary>The draft on the server this composer replaced or reopened; null before the first save.</summary>
     public string? DraftId { get; init; }
 

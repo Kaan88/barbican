@@ -17,6 +17,7 @@ internal static class DraftBuilder
         ArgumentNullException.ThrowIfNull(identity);
         var from = SubmissionRules.HeaderFrom(Outgoing(draft), identity, username);
         var keywords = new JsonObject { ["$seen"] = true };
+        foreach (var keyword in OutgoingKeywords.Clean(draft.Keywords)) keywords[keyword] = true;
         if (asDraft)
         {
             keywords["$draft"] = true;

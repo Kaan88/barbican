@@ -19,15 +19,45 @@ public static class SampleComposeServices
     public static void Register(IServiceCollection services)
     {
         var drafts = new SampleDrafts();
-        services.Replace(ServiceDescriptor.Singleton<IComposeSeeder>(sp => new SampleSeeder(sp.GetRequiredService<IActiveMail>())));
-        services.Replace(ServiceDescriptor.Singleton<IIdentityService, SampleIdentities>());
-        services.Replace(ServiceDescriptor.Singleton<IDraftService>(drafts));
-        services.Replace(ServiceDescriptor.Singleton<IMailSender>(new SampleSender(drafts)));
+#if WINDOWS
+        if (string.Equals(Environment.GetEnvironmentVariable("BARBICAN_SAMPLE_ADDON_ACCOUNT"), "1", StringComparison.Ordinal) &&
+            string.Equals(Environment.GetEnvironmentVariable("BARBICAN_SAMPLE_SEND_PIPELINE"), "1", StringComparison.Ordinal))
+        {
+            bool Enabled(IServiceProvider sp) => Barbican.Core.Storage.ProfilePaths.IsAutomationProfile(sp.GetRequiredService<Barbican.Core.Storage.IProfilePaths>().Profile);
+            services.Replace(ServiceDescriptor.Singleton<IComposeSeeder>(sp => Enabled(sp) ? ActivatorUtilities.CreateInstance<ComposeSeeder>(sp) : new SampleSeeder(sp.GetRequiredService<IActiveMail>())));
+            services.Replace(ServiceDescriptor.Singleton<IIdentityService>(sp => Enabled(sp) ? ActivatorUtilities.CreateInstance<IdentityService>(sp) : new SampleIdentities()));
+            services.Replace(ServiceDescriptor.Singleton<IDraftService>(sp => Enabled(sp) ? ActivatorUtilities.CreateInstance<DraftService>(sp) : drafts));
+            services.Replace(ServiceDescriptor.Singleton<IMailSender>(sp => Enabled(sp) ? new SampleGuardedSender(ActivatorUtilities.CreateInstance<MailSender>(sp)) : new SampleSender(drafts)));
+        }
+        else
+#endif
+        {
+            services.Replace(ServiceDescriptor.Singleton<IComposeSeeder>(sp => new SampleSeeder(sp.GetRequiredService<IActiveMail>())));
+            services.Replace(ServiceDescriptor.Singleton<IIdentityService, SampleIdentities>());
+            services.Replace(ServiceDescriptor.Singleton<IDraftService>(drafts));
+            services.Replace(ServiceDescriptor.Singleton<IMailSender>(new SampleSender(drafts)));
+        }
         services.Replace(ServiceDescriptor.Singleton<IAttachmentUploader, SampleUploader>());
         services.Replace(ServiceDescriptor.Singleton<ITemplateStore, SampleTemplates>());
         services.Replace(ServiceDescriptor.Singleton<IScheduledSends, SampleScheduled>());
         services.Replace(ServiceDescriptor.Singleton<Barbican.Core.Compose.Recipients.IRecipientSources, SampleRecipients>());
     }
+
+#if WINDOWS
+    private sealed class SampleGuardedSender(MailSender sender) : IMailSender
+    {
+        public Task<Result<SendReceipt>> SendAsync(ComposeDraft draft, SendOptions options, CancellationToken ct)
+        {
+            var addresses = Barbican.Core.Jmap.Submission.AddressParser.Parse(string.Join(",", draft.To, draft.Cc, draft.Bcc));
+            if (addresses.Count == 0 || addresses.Any(a => !IsSynthetic(a.Email)))
+                return Task.FromResult(Result<SendReceipt>.Fail(new ValidationError("Sample sends require synthetic example-domain recipients.")));
+            return sender.SendAsync(draft, options, ct);
+        }
+        private static bool IsSynthetic(string address) => address.EndsWith("@example.org", StringComparison.OrdinalIgnoreCase) || address.EndsWith("@example.com", StringComparison.OrdinalIgnoreCase) || address.EndsWith("@example.net", StringComparison.OrdinalIgnoreCase);
+        public Task<Result<ComposeSeed>> UndoAsync(SendReceipt receipt, CancellationToken ct) => sender.UndoAsync(receipt, ct);
+        public Task<Result<Unit>> SendNowAsync(SendReceipt receipt, CancellationToken ct) => sender.SendNowAsync(receipt, ct);
+    }
+#endif
 
     private sealed class SampleRecipients : Barbican.Core.Compose.Recipients.IRecipientSources
     {

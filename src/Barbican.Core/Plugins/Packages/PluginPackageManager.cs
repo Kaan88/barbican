@@ -488,6 +488,30 @@ public sealed partial class PluginPackageManager : IPluginPackageManager, IPlugi
         finally { _gate.Release(); }
     }
 
+    /// <summary>Runs one synchronous host operation while every contributing runtime retains its package authority.</summary>
+    public async Task<bool> TryRunWithGrantsAsync(IReadOnlyCollection<PluginRuntimeBinding> bindings, Func<bool> issue, CancellationToken ct)
+    {
+        ArgumentNullException.ThrowIfNull(bindings);
+        ArgumentNullException.ThrowIfNull(issue);
+        if (_lease is not { } lease || bindings.Count == 0) return false;
+        await _gate.WaitAsync(ct).ConfigureAwait(true);
+        try
+        {
+            var loaded = await LoadAsync(ct).ConfigureAwait(true);
+            if (!loaded.IsOk) return false;
+            lock (_issuanceGate)
+            {
+                if (!HasAuthority || ct.IsCancellationRequested ||
+                    !bindings.All(binding => binding.IsAlive && string.Equals(binding.Profile, _options.Profile, StringComparison.Ordinal) &&
+                        loaded.Value!.Installations.TryGetValue(binding.Package.Id, out var item) && item.Enabled &&
+                        item.Grant is { Enabled: true } grant && grant.Package == binding.Package &&
+                        grant.Generation == binding.GrantGeneration && grant.Tier == binding.Tier)) return false;
+                return lease.TryRunWhileHeld(() => !ct.IsCancellationRequested && bindings.All(binding => binding.IsAlive) && issue());
+            }
+        }
+        finally { _gate.Release(); }
+    }
+
     public async Task<Result<Unit>> SetEnabledAsync(PluginPackageIdentity package, bool enabled, CancellationToken ct)
     {
         var notifications = new List<PluginAuthorityChangedEventArgs>();

@@ -6,9 +6,18 @@ using Barbican.Core.Jmap.Errors;
 namespace Barbican.App.Shell.Automation;
 
 /// <summary>Exposes the in-process sample mailbox to the Windows add-on integration walkthrough.</summary>
-internal sealed class SampleAddOnAccount(SampleActiveMail mail) : IAccountOverview, IAccountSessionSnapshots
+internal sealed class SampleAddOnAccount(SampleActiveMail mail) : IAccountOverview, IAccountSessionSnapshots, IAccountManager
 {
     private readonly IAccountSession _session = mail.CreateAddOnSession();
+
+    public IReadOnlyList<AccountInfo> Accounts => [_session.Account];
+    public AccountInfo? Active => _session.Account;
+    public event EventHandler<ActiveAccountChangedEventArgs>? ActiveChanged { add { } remove { } }
+    public IAccountSession? SessionFor(string accountKey) => string.Equals(accountKey, _session.Account.Key, StringComparison.Ordinal) ? _session : null;
+    public Task<Result<AccountInfo>> SignInWithPasswordAsync(PasswordSignIn request, CancellationToken ct) => RefusedAsync<AccountInfo>();
+    public Task<Result<AccountInfo>> SignInWithOAuthAsync(OAuthSignIn request, CancellationToken ct) => RefusedAsync<AccountInfo>();
+    public Task<Result<Unit>> SwitchToAsync(string accountKey, CancellationToken ct) => RefusedAsync<Unit>();
+    private static Task<Result<T>> RefusedAsync<T>() => Task.FromResult(Result<T>.Fail(new ValidationError("The sample account is fixed.")));
 
     public IReadOnlyList<AccountStatus> Statuses => [new(_session.Account, true, true, true, null, null)];
 

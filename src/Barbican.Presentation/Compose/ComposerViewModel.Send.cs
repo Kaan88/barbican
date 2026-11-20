@@ -80,14 +80,20 @@ public sealed partial class ComposerViewModel
             }
 
             await WaitForSaveAsync().ConfigureAwait(true);
-            var draft = BuildDraft();
+            var draft = BuildDraft() with
+            {
+                ComposerId = Id,
+                AuthoredText = PluginBodyText(),
+                IsQuickReply = _c.AskInline is not null,
+                Body = CurrentDoc().Clone(),
+            };
             if (!await ConfirmSendAsync(draft).ConfigureAwait(true))
             {
                 return false;
             }
 
             ct.ThrowIfCancellationRequested();
-            return await SubmitAsync(draft, scheduledAt).ConfigureAwait(true);
+            return await SubmitAsync(draft, scheduledAt, ct).ConfigureAwait(true);
         }
         finally
         {
@@ -179,7 +185,7 @@ public sealed partial class ComposerViewModel
         }
     }
 
-    private async Task<bool> SubmitAsync(ComposeDraft draft, DateTimeOffset? scheduledAt)
+    private async Task<bool> SubmitAsync(ComposeDraft draft, DateTimeOffset? scheduledAt, CancellationToken ct)
     {
         IsSending = true;
         Status = scheduledAt is null ? "Sending…" : "Scheduling…";
@@ -189,11 +195,15 @@ public sealed partial class ComposerViewModel
         SendReceipt? receipt = null;
         try
         {
-            var res = await _c.Sender.SendAsync(draft, options, CancellationToken.None).ConfigureAwait(true);
+            var res = await _c.Sender.SendAsync(draft, options, ct).ConfigureAwait(true);
             receipt = res.IsOk ? res.Value : null;
             error = res.IsOk ? null : res.Error!.Message;
         }
 #pragma warning disable CA1031 // a send that throws is a failed send: the composer stays open with the text intact
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            error = "Send cancelled.";
+        }
         catch (Exception e) when (e is not OperationCanceledException)
 #pragma warning restore CA1031
         {

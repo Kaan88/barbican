@@ -14,6 +14,9 @@ public sealed record JmapRequest
     /// <summary>The method calls, each a JSON array <c>[name, args, callId]</c>.</summary>
     public IReadOnlyList<JsonArray> MethodCalls { get; init; } = [];
 
+    /// <summary>Host-side authorization at transport handoff, including retries.</summary>
+    internal Func<Func<bool>, CancellationToken, Task<bool>>? BeforeSend { get; init; }
+
     /// <summary>A request of the given calls.</summary>
     public static JmapRequest Of(params JsonArray[] calls) => new() { MethodCalls = calls };
 

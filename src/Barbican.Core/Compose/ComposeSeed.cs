@@ -38,6 +38,8 @@ public sealed record ComposeSeed
 
     public IReadOnlyList<string> References { get; init; } = [];
 
+    public IReadOnlyList<string> Keywords { get; init; } = [];
+
     /// <summary>The signature texts the pipeline put in the body, so "blank draft" and the autosave baseline can ignore them (<see cref="ComposeRules.IsBlank"/>).</summary>
     public IReadOnlyList<string> SignatureTexts { get; init; } = [];
 

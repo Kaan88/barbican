@@ -75,7 +75,7 @@ public sealed class JmapClient : IJmapClient, IDisposable
         var sessionState = "";
         foreach (var batch in RequestSplitter.SplitCalls(request.MethodCalls, session.Limits.MaxCallsInRequest))
         {
-            var r = await PostAsync(use, [.. batch.Cast<JsonArray>()], ct).ConfigureAwait(false);
+            var r = await PostAsync(use, [.. batch.Cast<JsonArray>()], request.BeforeSend, ct).ConfigureAwait(false);
             if (!r.IsOk)
             {
                 return Result<JmapResponse>.Fail(r.Error!);
@@ -287,7 +287,8 @@ public sealed class JmapClient : IJmapClient, IDisposable
         }
     }
 
-    private async Task<Result<JmapResponse>> PostAsync(IReadOnlyList<string> use, IReadOnlyList<JsonArray> calls, CancellationToken ct)
+    private async Task<Result<JmapResponse>> PostAsync(IReadOnlyList<string> use, IReadOnlyList<JsonArray> calls,
+        Func<Func<bool>, CancellationToken, Task<bool>>? beforeSend, CancellationToken ct)
     {
         var session = Session;
         var body = RequestBody(use, calls);
@@ -301,7 +302,7 @@ public sealed class JmapClient : IJmapClient, IDisposable
         var readOnly = calls.All(c => c.Count > 0 && c[0].AsString() is { } m && ReadOnlyGuard.IsReadMethod(m));
         for (var attempt = 0; ; attempt++)
         {
-            var sent = await TimedAsync(c => PostOnceAsync(api, body, c), ct).ConfigureAwait(false);
+            var sent = await TimedAsync(c => PostOnceAsync(api, body, beforeSend, c), ct).ConfigureAwait(false);
             if (!sent.IsOk)
             {
                 Trace.Request(calls, null);
@@ -320,7 +321,8 @@ public sealed class JmapClient : IJmapClient, IDisposable
         }
     }
 
-    private async Task<Result<(HttpStatusCode Status, RetryConditionHeaderValue? Retry, string Text)>> PostOnceAsync(Uri api, byte[] body, CancellationToken ct)
+    private async Task<Result<(HttpStatusCode Status, RetryConditionHeaderValue? Retry, string Text)>> PostOnceAsync(
+        Uri api, byte[] body, Func<Func<bool>, CancellationToken, Task<bool>>? beforeSend, CancellationToken ct)
     {
         await _requests.WaitAsync(ct).ConfigureAwait(false);
         try
@@ -333,7 +335,7 @@ public sealed class JmapClient : IJmapClient, IDisposable
                 return m;
             }
 
-            var sent = await AuthorizedHttp.SendAsync(_http.ClientFor(api), _auth, api, Allowed, Make, HttpCompletionOption.ResponseContentRead, ct).ConfigureAwait(false);
+            var sent = await AuthorizedHttp.SendAsync(_http.ClientFor(api), _auth, api, Allowed, Make, HttpCompletionOption.ResponseContentRead, ct, beforeSend).ConfigureAwait(false);
             if (!sent.IsOk)
             {
                 return Result<(HttpStatusCode, RetryConditionHeaderValue?, string)>.Fail(sent.Error!);
