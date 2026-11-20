@@ -2142,3 +2142,27 @@ The original local staging matches all eight pins. Astra approved these
 source changes. Windows Automation built with zero warnings or errors and
 passed 3,300 tests with four skips. Production registration, serving the
 bootstrap documents, and running an isolated add-on in WebView2 are pending.
+
+## Codex / Astra review of the Windows WebView2 startup proof (2026-11-20)
+
+The Windows startup adapter prepares fixed parent and isolated child
+documents and immutable native response streams before navigation. Requests
+default to HTTP 403 and may receive only approved routes and resource
+types. The view owns response streams through native close, including
+partial attachment. The event subscription authenticates the session's
+top-level native core and exact source. WebView2 delivered a different
+managed sender wrapper in the hidden test, which explained the original
+readiness timeout.
+
+Astra approved the scope after the resource lifetime and sender changes.
+Windows Automation passed 3,303 tests, with four skips and zero failures.
+The exact source also passed a hidden synthetic background activation on
+WebView2 157.0.4341.60. The probe used the pinned local runtime, received the
+expected single hook registration from the child, closed the session, and
+exited zero. The probe bypasses normal app composition and uses a new
+automation profile, no account or real input.
+
+Production add-on registration and distribution are pending. The WebRTC
+and redirect restrictions are declared in the two document responses.
+Actual network isolation, hook invocation and visible slot behavior still
+require end-to-end verification.

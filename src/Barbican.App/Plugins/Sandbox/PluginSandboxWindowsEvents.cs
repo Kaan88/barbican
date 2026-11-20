@@ -32,24 +32,27 @@ internal sealed partial class PluginSandboxWindowsEvents : IDisposable
         _core.SourceChanged += OnSourceChanged;
         _core.ProcessFailed += OnProcessFailed;
         _core.NewWindowRequested += OnNewWindowRequested;
+        _core.LaunchingExternalUriScheme += OnLaunchingExternalUriScheme;
         _core.PermissionRequested += OnPermissionRequested;
         _core.DownloadStarting += OnDownloadStarting;
     }
 
     private void OnWebMessageReceived(CoreWebView2 sender, CoreWebView2WebMessageReceivedEventArgs args)
     {
-        if (_disposed || !ReferenceEquals(sender, _core) ||
+        if (_disposed ||
             !string.Equals(args.Source, _session.View.TrustedRoot.OriginalString, StringComparison.Ordinal))
             return;
 
-        _ = ReceiveAsync(sender, args);
+        // The subscription is on the session's own top-level core. The WinRT
+        // event projects its sender as a different managed wrapper.
+        _ = ReceiveAsync(args);
     }
 
-    private async Task ReceiveAsync(CoreWebView2 sender, CoreWebView2WebMessageReceivedEventArgs args)
+    private async Task ReceiveAsync(CoreWebView2WebMessageReceivedEventArgs args)
     {
         try
         {
-            await _session.ReceiveAsync(sender, true, _session.View.TrustedRoot, () => ReadWire(args),
+            await _session.ReceiveAsync(_core, true, _session.View.TrustedRoot, () => ReadWire(args),
                 _session.Binding.Lifetime).ConfigureAwait(false);
         }
         catch (OperationCanceledException) when (!_session.Binding.IsAlive) { }
@@ -99,6 +102,8 @@ internal sealed partial class PluginSandboxWindowsEvents : IDisposable
 
     private void OnNewWindowRequested(CoreWebView2 sender, CoreWebView2NewWindowRequestedEventArgs args) => args.Handled = true;
 
+    private void OnLaunchingExternalUriScheme(CoreWebView2 sender, CoreWebView2LaunchingExternalUriSchemeEventArgs args) => args.Cancel = true;
+
     private void OnPermissionRequested(CoreWebView2 sender, CoreWebView2PermissionRequestedEventArgs args)
     {
         args.State = CoreWebView2PermissionState.Deny;
@@ -143,6 +148,7 @@ internal sealed partial class PluginSandboxWindowsEvents : IDisposable
         _core.SourceChanged -= OnSourceChanged;
         _core.ProcessFailed -= OnProcessFailed;
         _core.NewWindowRequested -= OnNewWindowRequested;
+        _core.LaunchingExternalUriScheme -= OnLaunchingExternalUriScheme;
         _core.PermissionRequested -= OnPermissionRequested;
         _core.DownloadStarting -= OnDownloadStarting;
     }

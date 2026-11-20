@@ -50,6 +50,10 @@ public partial class BarbicanApp : Application
             return;
         }
 
+#if AUTOMATION && WINDOWS
+        if (Plugins.Sandbox.PluginSandboxBootstrapProbe.TryStart(options, out _window)) return;
+#endif
+
         // a mailto: link on the command line while another Barbican of this profile runs goes to that one, and this process ends without a window (M3 composer-ui, PORT-PLAN 3.9)
         if (!options.IsSmoke && Composition.SingleInstanceStart.ForwardLink(Environment.GetCommandLineArgs().Skip(1).ToArray()))
         {

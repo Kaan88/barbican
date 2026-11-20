@@ -23,7 +23,8 @@ public sealed class PluginSandboxResourcePolicy
         PluginExecutionTier.Privileged => "allow-scripts allow-same-origin",
         _ => throw new ArgumentOutOfRangeException(nameof(hostSelectedTier)),
     };
-    public string ContentSecurityPolicy => "default-src 'none'; script-src 'self' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'none'; frame-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'; worker-src blob:";
+    internal const string ChildContentSecurityPolicy = "default-src 'none'; script-src 'self' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'none'; webrtc 'block'; frame-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'; worker-src blob:; frame-ancestors https://plugin.invalid";
+    public string ContentSecurityPolicy => ChildContentSecurityPolicy;
 
     /// <summary>Only known documents and exact verified bootstrap assets may be served. Network requests remain denied.</summary>
     public bool Allows(Uri uri, string purpose)

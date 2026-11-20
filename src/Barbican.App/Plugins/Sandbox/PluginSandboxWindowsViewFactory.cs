@@ -53,6 +53,7 @@ internal sealed class PluginSandboxWindowsViewFactory(
             core.Settings.AreHostObjectsAllowed = false;
             core.Settings.AreDevToolsEnabled = false;
             core.Settings.AreDefaultContextMenusEnabled = false;
+            core.Settings.AreDefaultScriptDialogsEnabled = false;
             core.Settings.AreBrowserAcceleratorKeysEnabled = false;
             core.Settings.IsStatusBarEnabled = false;
             return new PluginSandboxWindowsView(view, mount, temporaryProfile);

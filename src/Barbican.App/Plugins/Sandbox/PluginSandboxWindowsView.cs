@@ -11,14 +11,27 @@ internal sealed class PluginSandboxWindowsView(WebView2 view, Panel mount, Plugi
     private readonly Lock _closeGate = new();
     private Task? _closing;
     private IDisposable? _guards;
+    private PluginSandboxWindowsResources? _resources;
 
     public object RootIdentity { get; } = view.CoreWebView2
         ?? throw new ArgumentException("The isolated WebView must be initialized.", nameof(view));
 
     public Uri TrustedRoot { get; } = new("https://plugin.invalid/host/index.html");
 
-    public Task AttachGuardsAsync(Func<IDisposable> attach, CancellationToken ct) =>
-        _ui.InvokeAsync(() =>
+    /// <summary>Consumes the prepared resources before attaching any native handlers.</summary>
+    public Task AttachGuardsAsync(PluginSandboxWindowsResources resources, Func<IDisposable> attach, CancellationToken ct)
+    {
+        lock (_closeGate)
+        {
+            if (_closing is not null || _resources is not null)
+            {
+                if (!ReferenceEquals(_resources, resources)) resources.Dispose();
+                throw new InvalidOperationException("The plugin WebView cannot own resources in its current state.");
+            }
+            _resources = resources;
+        }
+
+        return _ui.InvokeAsync(() =>
         {
             ct.ThrowIfCancellationRequested();
             lock (_closeGate)
@@ -29,6 +42,7 @@ internal sealed class PluginSandboxWindowsView(WebView2 view, Panel mount, Plugi
             }
             return Task.CompletedTask;
         });
+    }
 
     public Task NavigateAsync(Uri uri, CancellationToken ct) =>
         _ui.InvokeAsync(() =>
@@ -94,6 +108,7 @@ internal sealed class PluginSandboxWindowsView(WebView2 view, Panel mount, Plugi
             {
                 view.Close();
                 temporaryProfile.MarkBrowserClosed();
+                _resources?.Dispose();
             }
             finally { mount.Children.Remove(view); }
         }
