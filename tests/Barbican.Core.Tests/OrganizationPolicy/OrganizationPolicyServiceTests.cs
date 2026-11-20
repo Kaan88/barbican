@@ -7,6 +7,7 @@ using Barbican.Core.Jmap;
 using Barbican.Core.Jmap.Transport;
 using Barbican.Core.Mail;
 using Barbican.Core.OrganizationPolicy;
+using Barbican.Core.Plugins.Packages.Managed;
 using Barbican.Core.Tests.Auth;
 using Barbican.FakeJmap;
 
@@ -18,6 +19,66 @@ public sealed class OrganizationPolicyServiceTests
     private const string Access = "synthetic-access-token-123";
     private static readonly Uri PolicyOrigin = new("https://policy.example.org/");
     private const string Policy = """{"organisation":{"devices":{"noPrint":false}},"scopes":[{"id":"example","match":{"domains":["example.org"]},"policy":{"organisation":{"devices":{"noPrint":true}}}}]}""";
+    private static readonly string ManagedKey = Convert.ToBase64String(Convert.FromHexString("3d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660c"));
+
+    [Fact]
+    public async Task Existing_organization_policy_consent_does_not_approve_managed_registry_credentials()
+    {
+        using var rig = await Rig.CreateAsync();
+        var handler = new ManagedContextHandler();
+        using var transport = new ManagedPluginTransport(handler);
+        var source = new ManagedPluginSource(rig.Accounts, transport);
+        var ct = TestContext.Current.CancellationToken;
+        Assert.False((await source.FetchAsync(Key, "managed-probe", "1.21.2", ct)).IsOk);
+        Assert.Equal(0, handler.Calls);
+
+        var original = rig.Accounts.Active();
+        rig.Accounts.Current = new Session(rig.Client, rig.Server);
+        Assert.False(source.ApproveProvider(original, PolicyOrigin, ManagedKey));
+        Assert.True(source.ApproveProvider(rig.Accounts.Active(), PolicyOrigin, ManagedKey));
+        rig.Accounts.Current = original.Session;
+        Assert.False((await source.FetchAsync(Key, "managed-probe", "1.21.2", ct)).IsOk);
+        Assert.Equal(0, handler.Calls);
+    }
+
+    [Fact]
+    public async Task Managed_provider_disconnect_blocks_registry_request_after_context_creation()
+    {
+        using var rig = await Rig.CreateAsync();
+        var handler = new ManagedContextHandler();
+        using var transport = new ManagedPluginTransport(handler);
+        var source = new ManagedPluginSource(rig.Accounts, transport);
+        var selected = rig.Accounts.Active();
+        Assert.False(source.ApproveProvider(selected, PolicyOrigin, "invalid-key"));
+        Assert.True(source.ApproveProvider(selected, PolicyOrigin, ManagedKey));
+        var ct = TestContext.Current.CancellationToken;
+        var pending = source.FetchAsync(Key, "managed-probe", "1.21.2", ct);
+        await handler.Entered.Task.WaitAsync(TimeSpan.FromSeconds(5), ct);
+        Assert.True(source.Disconnect(selected));
+        handler.Release.SetResult();
+
+        Assert.False((await pending).IsOk);
+        Assert.Equal(1, handler.Calls);
+    }
+
+    private sealed class ManagedContextHandler : HttpMessageHandler
+    {
+        public int Calls { get; private set; }
+        public TaskCompletionSource Entered { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public TaskCompletionSource Release { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            Calls++;
+            Assert.Equal(HttpMethod.Post, request.Method);
+            Assert.Equal(new Uri(PolicyOrigin, "/api/auth/stalwart-context"), request.RequestUri);
+            Entered.TrySetResult();
+            await Release.Task.WaitAsync(cancellationToken);
+            var reply = new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent("""{"ok":true}""") };
+            reply.Headers.TryAddWithoutValidation("Set-Cookie", "jmap_stalwart_ctx=synthetic-registry-context; Path=/; Secure; HttpOnly");
+            return reply;
+        }
+    }
 
     [Fact]
     public async Task OAuth_route_supplies_bound_bearer_and_resolves_scope()

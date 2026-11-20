@@ -2889,3 +2889,26 @@ original saved draft. A separate profile with an unprivileged
 `email:raw-send` grant attempted both raw methods and produced zero
 uploads and zero submissions. Tests used an in-process policy provider
 and mail server.
+
+## Codex / Astra review of managed add-on acquisition (2026-11-20)
+
+The managed acquisition service requires separate approval of an HTTPS
+provider and an Ed25519 public key for the exact signed-in OAuth account.
+It uses Bulwark's context sign-in route to obtain a session cookie,
+reads the instance registry, and fetches the eligible bundle from the
+same origin. It rechecks the provider, account, JMAP session and OAuth
+state at each request. It keeps the cookie in memory for this acquisition
+and rejects redirects. Existing organization-policy consent grants no
+managed acquisition access.
+
+The builder verifies strict UTF-8 code against the registry SHA-256 and
+the pinned Ed25519 key. It constructs a package archive from the registry
+manifest fields and the signed entrypoint. Development, device-refused
+and ordinary-tier records cannot produce a privileged candidate. A normal
+local import still cannot acquire managed authority or privileged grants.
+
+This checkpoint covers acquisition and verification. Windows provider
+enrollment UI, managed package approval and persistence, and privileged
+WebView startup remain open. The new path is exercised with synthetic
+HTTP and signing keys. Windows Automation passed 3,595 tests with four
+skips. Windows Release built without warnings or errors.
