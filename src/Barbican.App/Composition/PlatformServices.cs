@@ -11,6 +11,7 @@ using Barbican.Presentation.Accounts;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 #if WINDOWS
+using Barbican.Core.OrganizationPolicy;
 using Barbican.Platform.Windows;
 #else
 using Barbican.Platform.Linux;
@@ -51,6 +52,8 @@ public static class PlatformServices
         services.TryAddSingleton<IAssistantKeys, SecretAssistantKeys>();
         services.TryAddSingleton<IAccountVault>(sp => new SecretAccountVault(sp.GetRequiredService<ISecretStore>()));
 #if WINDOWS
+        services.TryAddSingleton<OrganizationPolicyTransport>();
+        services.TryAddSingleton<OrganizationPolicyService>();
         services.TryAddSingleton<ILegacyCredentialSource, WindowsLegacyCredentialSource>();
         // M3 editor-core: the spell checker behind ISpellEngine is Windows' ISpellChecker (replaces the empty default of AddBarbicanEditorCore; Linux keeps it until M9)
         services.Replace(ServiceDescriptor.Singleton<Barbican.Core.Editor.Spell.ISpellCheckerFactory, Barbican.Platform.Windows.Spelling.WindowsSpellCheckerFactory>());

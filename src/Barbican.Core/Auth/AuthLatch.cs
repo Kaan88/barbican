@@ -20,6 +20,7 @@ namespace Barbican.Core.Auth;
 public sealed class AuthLatch : IAccessTokenSource
 {
     private AuthError? _closed;
+    private readonly Lock _authorityGate = new();
 
     public AuthLatch(IAccessTokenSource inner)
     {
@@ -72,9 +73,21 @@ public sealed class AuthLatch : IAccessTokenSource
     public void Close(AuthError reason)
     {
         ArgumentNullException.ThrowIfNull(reason);
-        if (Interlocked.CompareExchange(ref _closed, reason, null) is null)
+        lock (_authorityGate)
         {
-            Closed?.Invoke(this, EventArgs.Empty);
+            if (_closed is not null) return;
+            Volatile.Write(ref _closed, reason);
+        }
+
+        Closed?.Invoke(this, EventArgs.Empty);
+    }
+
+    /// <summary>Orders the synchronous handoff of account-scoped work against credential revocation.</summary>
+    internal bool TryRunWhileOpen(Func<bool> issue)
+    {
+        lock (_authorityGate)
+        {
+            return _closed is null && issue();
         }
     }
 

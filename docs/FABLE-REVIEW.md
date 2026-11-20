@@ -2752,3 +2752,28 @@ attributed progress. It verified dismissal through the add-on, the
 native Close button, and disabling the add-on while progress remained
 visible. Windows Automation passed 3,468 tests with four skips, and
 Windows Release built with zero warnings and errors.
+
+## Codex / Astra review of the organization-policy reader (2026-11-20)
+
+The Windows service graph registers a reader for an explicitly trusted
+Bulwark policy origin. That trust binds to one OAuth login and its exact
+JMAP server URL. The reader requests the fixed policy endpoint and
+checks the provider route, captured session and credential state at
+handoff. It requires authenticated domain coverage and a complete policy
+body. Principal lookup verifies group membership when shared account
+addresses are present.
+
+The reader resolves printing restrictions, print watermarking and
+outgoing classification labels, applying domain scopes before group
+scopes. It discards a response if the provider or login changes while
+the request is pending. Public, malformed and uncovered responses yield
+no policy snapshot. Transport tests use a synthetic provider.
+
+Astra approved the reader and its authority checks. Windows Automation
+passed 3,499 tests with four skips, and Windows Release built with zero
+warnings and errors. The new cases cover exact endpoint
+binding, public and uncovered responses, internationalized domains,
+OAuth revocation and provider or login replacement during a read.
+
+Native provider enrollment and the add-on print and raw-send policy
+checks remain open.
