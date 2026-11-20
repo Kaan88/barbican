@@ -12,6 +12,10 @@ light and dark modes, keyboard focus, high contrast, reduced motion, narrow
 layouts, and any changed commands. Keep screenshots that contain real-account
 data out of the repository; use synthetic native fixtures for review evidence.
 
+The original native WinUI mockup supplies the motion and interaction reference when opening mail, switching folders, returning to the list and reversing an in-flight transition. Use it to judge feedback, timing and focus. Preserve saved appearance choices. See the [verified interaction checkpoint](../docs/milestones/M6b-solo-parity.md#native-interaction-check) and [motion rules](MOTION.md).
+
+For a visual change, use the same viewport in effective pixels, theme, text scale, pane widths and preferences on both sides. Record unavoidable fixture or platform differences. Compare one settled native render with its reference and exercise the controls that changed. Use a whole-window capture for WebView content. The [M6b work list](../docs/milestones/M6b-plan.md#current-work) names the first comparison.
+
 ## Historical studies — on hold
 
 Bento Balanced, Nordic Focus, and Studio were selected on 2026-11-19. Their

@@ -8,7 +8,7 @@ its server data (Sieve filters, templates, tags, settings), with a native UI: th
 is the body of an e-mail. It is a port of an earlier Rust/Slint version; the plan, the decisions
 and what was learned there are in [docs/PORT-PLAN.md](docs/PORT-PLAN.md).
 
-**Status:** milestone M0 (foundation). Nothing to install yet.
+Windows development is at M6b. M6 delivered a portable preview. The [roadmap](docs/ROADMAP.md) tracks milestones and the [M6b work list](docs/milestones/M6b-plan.md#current-work) identifies the next visible fixes and add-on checks.
 
 ## Build
 Requirements: the .NET 10 SDK. On Windows the app head also needs the Windows App SDK (restored

@@ -10,6 +10,8 @@ to Astra. This is a coverage ledger, not a completion report. Reference
 observations come from the signed-in throwaway account. Do not track mailbox
 contents, identifiers, credentials, or real-account screenshots.
 
+Use the [current M6b work list](M6b-plan.md#current-work) for the open fixes and the [November 20 Windows results](M6b-solo-parity.md#native-interaction-check) for grouped conversations, inline reply and composer windows. The tables and review findings below describe what was seen at the named early revisions. A dated gap here only re-enters the work list when it still reproduces or its original check remains outstanding.
+
 ## Visual acceptance
 
 The user assessed the checkpoint preview and found that the theme does not

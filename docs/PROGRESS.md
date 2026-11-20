@@ -1,11 +1,10 @@
-# Progress (M6 delivered, M6b resumed, 2026-11-19)
+# Progress
 
-Completed checkpoints are pushed. Active work is recorded below. Nothing is merged to `main` or tagged.
+For the active branch, next actions and evidence, use [M6b current work](milestones/M6b-plan.md#current-work). The [roadmap](ROADMAP.md) tracks milestone order.
 
-**Codex takeover (2026-11-19):** read [CODEX-HANDOFF.md](CODEX-HANDOFF.md) and
-[CLAUDE.md](../CLAUDE.md) for the current delegation and mandatory milestone review rules.
-The user explicitly resumed M6b. The integration checkout has unrelated local test
-deletions; leave them untouched and build from clean worktrees.
+## Checkpoint history through November 19
+
+Read the entries below as dated observations. The current work list supersedes their restart prompts.
 
 ### First resumed checkpoint
 
@@ -57,7 +56,7 @@ deletions; leave them untouched and build from clean worktrees.
 
 At the preceding pause, the user requested progress, commit and push. All stream work was committed/pushed and the three worktrees were clean. Agents reported no remaining builds or app processes they started. No real credential-store/native-browser/printing/OS operation was performed during that implementation interval.
 
-The app goal was subsequently cleared by the user. The cross-chat continuation, prior branch/worktree mapping, source evidence and known races are in [CODEX-HANDOFF.md](CODEX-HANDOFF.md#continue-elsewhere-authoritative-checkpoint). Coordinator checkpoint before that handoff was ad7fd97.
+The app goal was subsequently cleared by the user. The cross-chat continuation, prior branch/worktree mapping, source evidence and known races are in the continuation guide at revision `0bc5f0c`. Coordinator checkpoint before that handoff was ad7fd97.
 
 ### Latest saved state
 

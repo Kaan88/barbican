@@ -1,5 +1,7 @@
 # Bulwark default-theme parity (2026-11-20)
 
+This is the chronological Windows verification record. The [active work list](M6b-plan.md#current-work) identifies what to do next. Earlier failures and restart steps below belong to the specified builds.
+
 The original pause is recorded below. Work resumed with one additional Astra reviewer/developer at the user�s request. Use the existing
 `wt-m6b-bulwark-ui` worktree, branch `codex/m6b-bulwark-ui`. In a new clone use
 that remote branch. This checkpoint follows `585056f`; find it with

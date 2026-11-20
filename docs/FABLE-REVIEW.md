@@ -1,24 +1,8 @@
 # Implementation review log (Astra)
 
-Astra will review the implementations at the final whole-app review. This file keeps its
-historical name so existing links and earlier Fable review records remain valid.
+Astra reviews the integrated candidate at each major milestone and can review a sensitive change early. Sol checks delegated work at integration. For the review cadence and completion criteria, see [the project rules](../CLAUDE.md#active-milestone-and-review) and the [milestone work list](milestones/M6b-plan.md#current-work).
 
-**Codex continuation (2026-11-19, user instruction):** mark new entries as Codex and name
-the stream and worker model. Record what Astra should review, including exact paths and
-commits, remaining risks, and the limits of the test evidence. Keep earlier entries and
-review outcomes intact. Do not run separate milestone reviews before the whole-app review.
-
-**Coordinator code checks (2026-11-19, user instruction):** Sol checks subagent code
-during integration. These checks are part of implementation, not a separate review
-stage. Codex entries record the inspected paths and source commits, concrete findings,
-fixes and executed checks. Astra still performs the later independent whole-app review;
-a stream report or green test count alone is not a coordinator code check.
-
-Every agent appends in its own branch, under
-a heading with its stream name: one bullet per item with **what** to review, **why** (risk,
-judgement call, uncertainty, deviation from Bulwark/RFC/plan, security, privacy, partial
-verification) and **where** (paths, commits). Add items as you go. Accounts and paths are
-placeholders (see CLAUDE.md); never write real values here.
+Record the scope and candidate, the affected outcome, any reproduction and fix, the evidence examined and the reviewer's decision. Mark an approval's scope explicitly. The entries below are historical records of the revisions they name.
 
 ## M6b Bulwark rail and list (Terra)
 

@@ -1,6 +1,6 @@
 # M6b Bulwark parity handoff
 
-**2026-11-20 · Paused by the user. Resume only on explicit instruction.**
+**Historical UI checkpoint, November 20.** Later verification is in the [Windows results](M6b-solo-parity.md#native-interaction-check). Use the [current work list](M6b-plan.md#current-work) when resuming. The following is the original pause record.
 The user reported that the preview theme does not match Bulwark.
 Treat visual and interaction parity as unfinished. **Astra has not approved
 parity.** Astra reviewed `6de166e` and requested changes; later fixes have not

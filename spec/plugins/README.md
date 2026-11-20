@@ -31,7 +31,7 @@ builds through a host-agnostic bus (`IHookBus`), no plugin host yet.
 - `python tools/gen-hooks.py` writes `src/Barbican.Core/Plugins/Hooks/HookNames.g.cs` (one constant per hook); `--check` fails if stale.
 - `HookNamesTests` (green) pins the constants to the CSV and the counts; `HookCallSiteTests` (one red test per owner until its stream
   fires its hooks) asserts every `M1` hook has a call site under `src/`, as Bulwark's `lib/__tests__/plugin-hook-catalog.test.ts` does.
-- `python tools/spec-check.py` prints hooks per milestone and how many are fired.
+- `python tools/spec-check.py` lists hooks per milestone and counts names referenced in source. For runtime delivery and slot evidence, use the [M6b work list](../../docs/milestones/M6b-plan.md#current-work).
 
 ## Deliberate changes
 - **M2 stage F (2026-11-17): 14 hooks moved out of M2** because M2 does not build the surface that fires them (the CSV keeps `owner` empty for them until their milestone):

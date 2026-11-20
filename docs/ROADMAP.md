@@ -3,13 +3,11 @@
 The plan and the full scope of each milestone: [PORT-PLAN.md](PORT-PLAN.md) §5. Decisions that
 change the plan: [adr/](adr/). The Rust-era roadmap is in [legacy/ROADMAP.md](legacy/ROADMAP.md).
 
-Current execution order: **M6 -> M6b -> M7 -> M8 -> M10 -> UI walkthrough and usability fixes**. M6's Windows portable was already delivered. Every major milestone requires an Astra review/fix cycle until Astra explicitly approves. M9 (Linux) is excluded. Historical hand-test gates below do not override the Astra gate. See [PROGRESS.md](PROGRESS.md) for evidence and carryovers.
+**Windows milestone order**
 
-At major progress checkpoints, produce a Windows portable ZIP, verify the extracted
-app with hidden smoke automation, and record the exact source revision and SHA-256.
-Label interim portables as previews; they do not substitute for milestone approval.
-The user requested a pause after M6b is complete. Do not start M7 until the user
-provides the next plan.
+M6 delivered → M6b → M7 admin → M8 Windows integration and distribution → M10 parity and release polish → final UI walkthrough and fixes. M9 Linux is deferred. The implementation pause on November 20 occurred inside M6b. The [active work list](milestones/M6b-plan.md#current-work) is the restart point when implementation resumes.
+
+Astra approves each major milestone on the combined candidate. Supply a verified portable at major checkpoints and on user request. Record its exact source, checksum and extracted launch result. The [project rules](../CLAUDE.md#active-milestone-and-review) describe the checks during implementation.
 
 | Milestone | Scope (short) | Status |
 |---|---|---|
@@ -20,16 +18,13 @@ provides the next plan.
 | M4 | Calendar and tasks | Done; Linux deferred |
 | M5 | Contacts and Files | Done; explicit feature carryovers remain |
 | M6 | Settings, server features and assistant | Windows implementation checkpoint and verified fresh portable delivered at 583b40d; explicit live/visual limits in report |
-| M6b | Full plugin platform, sandbox, permissions, consent and Add-ons | Shared contract foundation active on codex/m6b; runtime/API/packages/slots implementation remains pending |
+| M6b | Full plugin platform, sandbox, permissions, consent and Add-ons | Windows preview delivered. Managed install, isolated runtime and startup proof verified separately. Session activation, compatibility coverage, visible UI differences and final acceptance remain open |
 | M7 | Admin dashboard and management | Planned |
 | M8 | Windows desktop integration and distribution | Planned |
 | M10 | Parity sweep, UI polish and release readiness | Planned; followed by Astra fixes and a UI walkthrough |
 | M9 | Linux | Deferred until after this run |
 
-For M6b, Bulwark webmail UI parity is required before Astra review. The
-[theme and mockup direction](../design/UI-GUIDELINES.md) is on hold. See the
-[walkthrough and parity notes](milestones/M6b-ui-parity.md). No merge to `main`,
-tags, OS changes or release publication is implied by the roadmap.
+The [UI guidelines](../design/UI-GUIDELINES.md) identify the visual and motion references. The [walkthrough](milestones/M6b-ui-parity.md) records what has been seen in Bulwark. Branch pushes are authorized. Main merges, tags and release publication require separate authorization.
 
 ## Historical milestone evidence
 

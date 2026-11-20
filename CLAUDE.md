@@ -7,48 +7,17 @@ AGENTS.md points here; this file is the single source of the rules.
 
 **This repository is PUBLIC.** Read "Privacy" before you write anything.
 
-## Codex continuation (2026-11-19)
+## Active milestone and review
 
-Codex agents must also read [docs/CODEX-HANDOFF.md](docs/CODEX-HANDOFF.md) for
-checkpoint, resume and attribution instructions.
+Both Codex and Claude use the [roadmap](docs/ROADMAP.md) to find the active milestone. Its work list owns the next actions and the evidence for each result. For M6b use [Current work](docs/milestones/M6b-plan.md#current-work). Codex-specific checkout and attribution details are in the [handoff](docs/CODEX-HANDOFF.md).
 
-## Standing delegation and milestone review
+- Sol coordinates, checks delegated diffs, and owns integration. Use Luna for simple tasks and Terra for routine implementation, subject to availability. Sol handles unusually large or risky changes. DeepSeek Flash can take suitable independent work within the same limits. Give each worker a user-visible outcome, owned files and a focused check. Independent work can continue while another flow needs a fix or reviewer.
+- During implementation, run the affected tests and exercise the changed path. Seek early independent review when decisions change who can access an account, run add-on code or send mail. Bring a working flow, its denied case and the relevant diff to that review.
+- At each major milestone the coordinator brings Astra the integrated candidate, full verification, visual comparisons for changed screens and open findings. Astra explicitly approves the final revision. For a finding, record the failing path, expected result, fix and retest together. Carry forward evidence for unaffected paths and rerun checks affected by the fix. A new requirement goes to its owning milestone unless it breaks the current acceptance criteria. If the same finding returns, the coordinator and reviewer reproduce it together against the agreed criterion before requesting another pass. If Astra is unavailable, keep the milestone open.
 
-- Use Luna for simple work and Terra for routine implementation. Sol implements risky
-  or unusually large jobs directly and checks delegated code before integrating it.
-- Spawn as many agents as practical for independent work, within tool, agent and
-  build limits. This policy supersedes older model assignments in plans and logs.
-- Use DeepSeek Flash when it better suits the task or when the preferred model's
-  agent capacity is exhausted and another slot is permitted. Never bypass a hard
-  cap or use DeepSeek Flash as a substitute for Astra.
-- Every major milestone requires Astra review. Fix findings and repeat the review
-  until Astra explicitly approves the final revision. If Astra is unavailable,
-  the gate stays open; no other reviewer or passing test suite substitutes for it.
+## UI references
 
-## M6b UI direction: Bulwark webmail parity
-
-The theme/mockup work below is on hold. Before Astra reviews M6b, walk the live
-Bulwark reference UI using the designated throwaway account, including pages,
-menus, dialogs and pop-out windows. Compare their behavior and layout with the
-native app and fix parity gaps, prioritizing mail, conversation threading,
-quick reply and the composer. Use hidden native automation and synthetic data
-for Barbican verification. Keep reference-account data and captures out of Git.
-
-### Historical theme direction (on hold)
-
-Read [design/UI-GUIDELINES.md](design/UI-GUIDELINES.md) before UI work. The user selected
-**Bento Balanced**, **Nordic Focus** and **Studio** from the Codex / Terra High mockups and instructed
-that these are the UI guidelines from now on, including for Claude. Refine the existing
-Bento and Nordic styles toward those baselines; where older boards differ, the selected
-directions win. Nordic Focus uses the integrated sender/context panel, with a user-controlled
-show/hide toggle; the reader expands when hidden. Studio adds the approved horizontal app-navigation and warm editorial
-direction. The user also requests modern WinUI 3 polish: layered materials where supported, subtle
-elevation, expressive control states and short fluid transitions, with solid-material, Uno,
-high-contrast and reduced-motion fallbacks. Preserve behavior, shared tokens, native
-WinUI 3 feasibility, accessibility,
-reduced motion and the hidden-automation rules. Further mockup alternatives remain proposals
-until selected; do not silently adopt them. Reference images are checked into
-`design/mockups/approved-2026-11-19/`.
+Use [UI guidelines](design/UI-GUIDELINES.md) for appearance and motion. M6b uses Bulwark 1.21.2 for default appearance and behavior and the original native WinUI prototype for interaction feedback and transitions. The walkthrough with the designated throwaway reference account is indexed in the [UI ledger](docs/milestones/M6b-ui-parity.md). Reuse recorded observations and target missing states. Capture Barbican with hidden automation and synthetic mail. Keep real-account material out of Git.
 
 ## Start of every session
 1. Read `.local/accounts.md` (gitignored, machine-local). It maps the placeholders used in this repo
@@ -82,7 +51,7 @@ until selected; do not silently adopt them. Reference images are checked into
   Bulwark file:line and the Stalwart path for every JMAP behaviour, in the code's module header.
 - **Port the spec tests first** (PORT-PLAN.md §2.4), and update `spec/` status in the same commit
   as the code.
-- **Commit messages** say the behaviour decided and why, and end with
+- **Commit messages** say what changed and why. Codex uses accurate Codex attribution. For Claude-authored work use
   `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>`.
 
 ## Build limits (the machine froze under parallel builds)
@@ -122,8 +91,7 @@ until selected; do not silently adopt them. Reference images are checked into
 Run PowerShell scripts with `powershell -NoProfile -ExecutionPolicy Bypass -File tools/<script>.ps1 …`
 if the execution policy blocks them.
 
-**Green** means: `tools/build.ps1 test` passes locally **and** `tools/linux.ps1 test` passes on
-the VM. There is **no GitHub CI** (the user's decision, docs/adr/0002): never add a workflow that
+For the current Windows milestones, report the Windows configuration and actual suite result. Linux verification is deferred to M9. A cross-platform green claim requires both `tools/build.ps1 test` locally and `tools/linux.ps1 test` on the VM. There is **no GitHub CI** (the user's decision, docs/adr/0002): never add a workflow that
 runs on push or pull request. Wherever the plan says "CI", use the two commands above.
 
 ## Layout
@@ -176,7 +144,5 @@ Where things go:
 - Screenshots in the repo show sample data only (FakeJmap or fixtures), never a real mailbox.
 
 ## Astra review log
-`docs/FABLE-REVIEW.md` (historical filename) records material for Astra's mandatory milestone reviews. Every agent appends,
-in its own branch, under a heading with its stream name, one bullet per item: what to review, why
-(risk, judgement call, uncertainty, deviation from Bulwark/RFC/plan, security, privacy, anything
-verified only partially), and exact paths and commits. Add items as you go, not only at the end.
+
+[The review log](docs/FABLE-REVIEW.md) holds decisions and outstanding findings. The coordinator records the candidate, reviewed scope, evidence, fixes and Astra's decision together. A worker can add a material risk or disagreement as soon as it arises. Routine passing checks belong with the flow they exercise.

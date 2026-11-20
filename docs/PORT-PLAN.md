@@ -2,6 +2,8 @@
 
 Written 2026-11-17, after the user's decision to retire Rust/Slint. This is the master plan. It is the first document to move into the new repository, and every milestone report links back to it.
 
+Use this document for product scope. The [roadmap](ROADMAP.md) and its active milestone work list carry subsequent decisions on sequencing, review and visual references.
+
 Inputs read for this plan:
 - Knowledge documents: ROADMAP.md, GAPS.md, INTERACTIONS.md, PARITY-ROUND2.md, JMAP-COMPLIANCE.md, PLUGINS.md, design/README.md, design/MOTION.md, design/mockups, tools/.
 - The header, public API and tests of every module in src/ (42,434 lines, 353 `#[test]`s) and ui/ (13,261 lines including settings-schema.json).

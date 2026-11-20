@@ -130,7 +130,7 @@ def catalogue_ids() -> tuple[Counter[str], set[str], list[str]]:
 
 
 def hooks_summary() -> list[str]:
-    """Rows of spec/plugins/hooks.csv per milestone, and how many are fired somewhere under src/."""
+    """Count hooks per milestone and hooks with a static HookNames reference under src/."""
     path = SPEC / "plugins" / "hooks.csv"
     if not path.exists():
         return []
@@ -148,10 +148,10 @@ def hooks_summary() -> list[str]:
         per[r["milestone"]][0] += 1
         if name in used:
             per[r["milestone"]][1] += 1
-    out = [f"plugin hooks (spec/plugins/hooks.csv): {len(rows)} hooks in {len({r['group'] for r in rows})} groups",
-           f"  {'milestone':<10}{'hooks':>6}{'fired':>7}"]
+    out = [f"plugin hooks (spec/plugins/hooks.csv): {len(rows)} hooks in {len({r['group'] for r in rows})} groups. Counts use static call-site references under src/",
+           f"  {'milestone':<10}{'hooks':>6}{'hooks with refs':>17}"]
     for ms in sorted(per, key=lambda m: (int(re.sub(r"\D", "", m)) if re.sub(r"\D", "", m) else 99, m)):
-        out.append(f"  {ms:<10}{per[ms][0]:>6}{per[ms][1]:>7}")
+        out.append(f"  {ms:<10}{per[ms][0]:>6}{per[ms][1]:>17}")
     slots = SPEC / "plugins" / "slots.csv"
     if slots.exists():
         with slots.open(encoding="utf-8", newline="") as f:
@@ -262,7 +262,11 @@ def main() -> int:
     gate_failed = False
     if a.milestone:
         left = open_rows.get(a.milestone, [])
-        print(f"{a.milestone}: {len(left)} T- rows without a passing C# test or a D- entry")
+        assigned = sum(per[a.milestone].values())
+        print(f"{a.milestone} catalogue consistency: {assigned} assigned Rust test rows, "
+              f"{len(left)} without a C# test mapping or recorded drop.")
+        if a.milestone == "M6b":
+            print("M6b flow acceptance and evidence: docs/milestones/M6b-plan.md#current-work")
         for r in left:
             print(f"  {r['id']} {tag_of(r)}{'  (only a [Red] test)' if r.get('red_only') else ''}")
         red = red_counts()
