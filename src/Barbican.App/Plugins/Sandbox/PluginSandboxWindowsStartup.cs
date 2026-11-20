@@ -11,7 +11,8 @@ namespace Barbican.App.Plugins.Sandbox;
 /// <summary>Performs the trusted-parent and verified-runtime handshake on Windows.</summary>
 internal sealed class PluginSandboxWindowsStartup(
     string bootstrapRoot,
-    ILogger<PluginSandboxWindowsStartup> log) : IPluginSandboxStartup
+    ILogger<PluginSandboxWindowsStartup> log,
+    bool observeNetworkPolicy = false) : IPluginSandboxStartup
 {
     private static readonly string[] HostScripts = ["plugin-sandbox-host.js", "plugin-sandbox-parent.js", "plugin-value-codec.js"];
 
@@ -27,7 +28,7 @@ internal sealed class PluginSandboxWindowsStartup(
         var token = budget.Token;
         var runtimeAssets = await PluginSandboxBootstrapAssets.LoadAsync(bootstrapRoot, token).ConfigureAwait(false);
         var hostScripts = await LoadHostScriptsAsync(token).ConfigureAwait(false);
-        var resources = await PluginSandboxWindowsResources.PrepareAsync(session.Binding, runtimeAssets, hostScripts, token).ConfigureAwait(false);
+        var resources = await PluginSandboxWindowsResources.PrepareAsync(session.Binding, runtimeAssets, hostScripts, observeNetworkPolicy, token).ConfigureAwait(false);
         await view.AttachGuardsAsync(resources, () => new PluginSandboxWindowsEvents(session, resources.Attach(core), log), token).ConfigureAwait(false);
         await view.NavigateAsync(view.TrustedRoot, token).ConfigureAwait(false);
         await session.WaitForReadyAsync(token).ConfigureAwait(false);

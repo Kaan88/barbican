@@ -38,4 +38,15 @@ public sealed class PluginSandboxDocumentsTests
         Assert.Contains("Cache-Control: no-store", headers, StringComparison.Ordinal);
         Assert.Contains("X-Content-Type-Options: nosniff", headers, StringComparison.Ordinal);
     }
+
+    [Fact]
+    public void Probe_can_observe_locally_without_a_report_destination()
+    {
+        var (_, normalHeaders) = PluginSandboxDocuments.Child();
+        var (_, probeHeaders) = PluginSandboxDocuments.Child(observeNetworkPolicy: true);
+
+        Assert.Equal(normalHeaders.Replace("webrtc=block\r\n", "webrtc=block; report-to=barbican-local-probe\r\n",
+            StringComparison.Ordinal), probeHeaders);
+        Assert.DoesNotContain("Reporting-Endpoints", probeHeaders, StringComparison.OrdinalIgnoreCase);
+    }
 }

@@ -2190,3 +2190,28 @@ hash. The remaining differences are a slot description and a runtime
 comment. The build script and license match. The reduced staging lock has
 different Tailwind CSS resolutions, so the existing bundle's tag-exact
 release provenance has not been established.
+
+## Codex / Astra review of the exact Bulwark runtime and WebRTC observation (2026-11-20)
+
+The runtime verifier now pins the eight files built from the published
+Bulwark 1.21.2 release revision 933bc18f517135e38245821c5cc1bc7117ce2d64
+and its full lockfile. Two fresh checkouts and separate dependency caches
+produced byte-identical files on this Windows machine using Node 26.11.1
+and npm 11.20.0. All eight lengths and hashes were independently matched
+against the application pins. This replaces the earlier test-only bundle.
+[Bulwark 1.21.2 source](https://github.com/bulwarkmail/webmail/tree/933bc18f517135e38245821c5cc1bc7117ce2d64)
+
+The default hidden probe passed with the exact-release bundle. A separate
+hidden run observed the browser's enforced WebRTC restriction inside the
+opaque child on WebView2 157.0.4341.60. That run used a fresh profile, named
+a local reporting group with no destination, and passed only on the matching
+browser report. The original headers produced an inconclusive report check.
+Astra approved the scoped diagnostic and pins. Windows Automation passed
+3,309 tests with four skips and zero failures.
+[Chromium's WebRTC reporting implementation](https://chromium.googlesource.com/chromium/src/+/d82acd12a7d48882d45071d5dd96d3a5f25fb19d%5E%21/)
+
+The runtime artifacts and notices are retained in local build staging.
+The emitted-code audit identified the third-party license texts for the
+runtime. The icon chunk still triggers the privacy scanner. Production
+registration, portable packaging, independent-machine reproducibility,
+and broader network and slot behavior remain pending.

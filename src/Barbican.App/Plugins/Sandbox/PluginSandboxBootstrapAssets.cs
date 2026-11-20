@@ -6,19 +6,20 @@ namespace Barbican.App.Plugins.Sandbox;
 
 // The root is supplied by the trusted host, not by plugin content. The manifest
 // is just another pinned file and never supplies names or hashes to this verifier.
+// Bulwark 1.21.2 source revision 933bc18f517135e38245821c5cc1bc7117ce2d64.
 internal static class PluginSandboxBootstrapAssets
 {
-    internal const string EntryScript = "runtime-JRFGH365.js";
-    internal const string Style = "kit-e47fb88e574e.css";
+    internal const string EntryScript = "runtime-7YZTQ2LX.js";
+    internal const string Style = "kit-556dca3ab5af.css";
 
     private static readonly ImmutableArray<AssetPin> Pins =
     [
-        new("manifest.json", 172, "32656D1EDB5E794E11650D7CA85AEBBEA0FB5684E39616B3BF1CA8A69B0F488C", "manifest"),
-        new(EntryScript, 34688, "58A0FE4532B4FC1EEB66B24D3E5E2FFFD9DEF61A96510A28038B7BFAF8B69516", "entry script"),
-        new(Style, 34514, "E47FB88E574E9F3C485F1024679990CEAEB57BBC8F0F227847438D9B5ED9AEE5", "stylesheet"),
+        new("manifest.json", 172, "D6FEE1ED99C3E67548D99B894AF0A5AAE7DB764E082750BB4D6A3454629CB7B9", "manifest"),
+        new(EntryScript, 34612, "19661279909ED661AB3F5844EC096D225105E1FB531A6695A8C738FC1733F3A5", "entry script"),
+        new(Style, 34515, "556DCA3AB5AF52E3882ED907D7C49FA3961E495AAD48DE67CFC3E33D2006184D", "stylesheet"),
         new("chunk-BWK7OKB3.js", 8534, "E3C6E952AF788637C143A8BDE4C23C178FB5A985D96FB69909FF3A9F0F1D15E4", "static preload"),
         new("chunk-DQG63ATX.js", 1593, "69409106994D2F4204CFEA8AD119B324B04FE62B1EC4E34ADB5077F16F34A92D", "static preload"),
-        new("chunk-SWJKRV7K.js", 297305, "95D64EE5DF4C5DB7B80F1BF558B0C0966A996C084C5EDD0F24AC728E85FEBDCF", "slot preload"),
+        new("chunk-PIOFL43R.js", 297281, "CE546EEEF09A50217DEA942EDB397E3E8B87D7DF1B71B39DC136F0D876545F14", "slot preload"),
         new("chunk-CT56IUXM.js", 93637, "87B89A99C2DCC560F9D857787E60263C603C16386CDDA95F51389D0FA3AB7E63", "slot preload"),
         new("chunk-IQHV4AYX.js", 2486061, "BE5125664A99C94F2B64F5D5C312B7699F47FDA3E5AAE76320FC40FB6B2C572B", "dynamic icons"),
     ];
