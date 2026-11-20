@@ -25,18 +25,28 @@ public sealed class BodyAppearance(ThemeController theme, IPrefsStore prefs, ISy
     /// <summary>The accessibility settings now.</summary>
     public A11y A11y => A11y.From(prefs.Current, system.Current);
 
-    /// <summary>The options for a page; <paramref name="allowRemote"/> is the per-message "Load external content".</summary>
-    public MailPageOptions Options(bool allowRemote) => new()
+    internal (bool AlwaysLight, string PlainTextFont, string MessageSpacing) ReadingPreferences()
     {
-        Dark = Variant.Dark,
-        AlwaysLight = prefs.Current.Bool("emailAlwaysLightMode", false),
-        A11y = A11y,
-        PlainTextFont = prefs.Current.Str("plainTextFont", "sans"),
-        MessageSpacing = prefs.Current.Str("messageSpacing", "auto"),
-        Nordic = Variant.Nordic,
-        AllowRemote = allowRemote,
-        ReaderBackground = ReaderHex,
-    };
+        var current = prefs.Current;
+        return (current.Bool("emailAlwaysLightMode", false), current.Str("plainTextFont", "sans"), current.Str("messageSpacing", "auto"));
+    }
+
+    /// <summary>The options for a page; <paramref name="allowRemote"/> is the per-message "Load external content".</summary>
+    public MailPageOptions Options(bool allowRemote)
+    {
+        var reading = ReadingPreferences();
+        return new MailPageOptions
+        {
+            Dark = Variant.Dark,
+            AlwaysLight = reading.AlwaysLight,
+            A11y = A11y,
+            PlainTextFont = reading.PlainTextFont,
+            MessageSpacing = reading.MessageSpacing,
+            Nordic = Variant.Nordic,
+            AllowRemote = allowRemote,
+            ReaderBackground = ReaderHex,
+        };
+    }
 
     /// <summary>A CSS hex colour as a colour (opaque).</summary>
     public static Color Parse(string hex)

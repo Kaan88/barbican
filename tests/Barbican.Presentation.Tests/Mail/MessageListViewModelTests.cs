@@ -17,7 +17,7 @@ public sealed class MessageListViewModelTests
 {
     private static Result<ListPage> Ok(ListPage p) => Result<ListPage>.Ok(p);
 
-    private static async Task<ListHarness> OpenedAsync(string prefs = "{}", int count = 10, int total = 100, bool more = true, MailboxRole role = MailboxRole.Inbox)
+    private static async Task<ListHarness> OpenedAsync(string prefs = """{"groupListByDate":true}""", int count = 10, int total = 100, bool more = true, MailboxRole role = MailboxRole.Inbox)
     {
         var h = new ListHarness(prefs);
         h.Service.OnQuery = (_, after, _) => Task.FromResult(Ok(after is null ? Mails.Page(0, count, total, more) : Mails.Page(count, count, total, more)));
@@ -39,6 +39,19 @@ public sealed class MessageListViewModelTests
         Assert.Single(h.Sync.Loaded);
         Assert.True(h.List.LastSync.Reset);
         Assert.Empty(h.Opener.Opened);
+    }
+
+    [Fact]
+    public async Task Date_grouping_starts_off_and_follows_explicit_preferences()
+    {
+        using var h = await OpenedAsync("{}");
+        Assert.DoesNotContain(h.List.Rows, row => row is GroupHeaderViewModel);
+
+        h.Prefs.Set("""{"groupListByDate":true}""");
+        Assert.Equal("Today", Assert.IsType<GroupHeaderViewModel>(h.List.Rows[0]).Title);
+
+        h.Prefs.Set("""{"groupListByDate":false}""");
+        Assert.DoesNotContain(h.List.Rows, row => row is GroupHeaderViewModel);
     }
 
     [Theory]
@@ -309,7 +322,7 @@ public sealed class MessageListViewModelTests
     [Fact]
     public async Task Other_folders_keep_the_date_order_even_in_the_unread_first_layout()
     {
-        using var h = new ListHarness("""{"interfaceLayout": "mountain-view"}""");
+        using var h = new ListHarness("""{"interfaceLayout":"mountain-view","groupListByDate":true}""");
         h.Service.OnQuery = (_, _, _) => Task.FromResult(Ok(Mails.Page(0, 3, 3, false)));
         await h.List.OpenFolderAsync("sent", MailboxRole.Sent, "Sent");
         Assert.Equal("Today", Assert.IsType<GroupHeaderViewModel>(h.List.Rows[0]).Title);

@@ -361,3 +361,42 @@ The report is `artifacts/auto/9226/smoke.json`.
 
 Astra approved the checkpoint. The M6b acceptance gate remains open.
 [Review decision](../FABLE-REVIEW.md#codex--astra-windows-checkpoint-at-3791df4)
+
+## Nested Settings and restart
+
+The private Windows walkthrough used revision `ea8707d` and repeated the
+affected paths with the Settings fixes. It exercised Message list, Reading
+and Composing through their actual controls in a synthetic profile.
+
+- **Message list.** Turning conversation grouping off exposed individual
+  messages and reduced the selected reader's eight-message conversation to
+  a single message. Turning previews off removed the list snippet and kept
+  the selected message body. The Starred first preset brought the flagged
+  sample message to the top. Adding Unread and moving it up and down changed
+  the stored order. Group by date showed Off on the baseline profile while
+  the inbox displayed headings. The fresh inbox now starts without date
+  headings, matching the switch and Bulwark's default. Turning the switch On
+  showed Last month and turning it Off removed it. The existing row hover
+  strip appeared under simulated hover. Configuring its actions, placement
+  and corner remains on I-419 in M6. [Interaction rows](../../spec/interactions.csv)
+- **Reading.** Never kept the sample message unread. After 3 seconds showed
+  Mark as read before the delay and Mark as unread afterward. On the baseline,
+  the open email kept its old display until it was reopened. With the fix,
+  Edge to edge, Always show emails in light mode and Monospace changed the
+  same selected email from 16 px to 0 px gutters, dark to white background,
+  and Segoe UI to the monospace stack. Changing the unrelated Return to list
+  setting kept the current body document sequence. [Reading interaction](../../spec/interactions.csv)
+- **Composing.** Quick reply Off hid the reply box on the same open message.
+  Replies under the message Off opened an undocked draft and On opened a
+  docked draft. At `ea8707d`, the proofreading row displayed its label with
+  no input control. The proofreading integration has its own acceptance
+  evidence. [Composing interaction](../../spec/interactions.csv)
+
+After restarting the test profile, the nine stored settings matched the
+values selected before exit. The flagged message still opened first, the
+mail body retained its light edge-to-edge display, Quick reply stayed
+hidden, and Reply still opened docked. The local Settings captures and
+interaction logs are in `artifacts/auto/9242/`. The fixed fresh-profile
+captures and transcript are in `artifacts/auto/9245/`. The focused Windows
+Automation build completed with zero warnings and errors. Presentation
+passed 1,138 tests and the mail-page builder passed 16 tests.

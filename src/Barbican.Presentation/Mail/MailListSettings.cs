@@ -14,7 +14,7 @@ public sealed record MailListSettings
 {
     private const uint UnknownTag = 0x9ca3af;
 
-    public bool GroupByDate { get; init; } = true;
+    public bool GroupByDate { get; init; }
 
     /// <summary>How many messages a page holds (10 to 200, default 50).</summary>
     public int PageSize { get; init; } = 50;
@@ -68,7 +68,7 @@ public sealed record MailListSettings
         var tags = TagRules.Parse(prefs.Values["emailKeywords"]);
         return new MailListSettings
         {
-            GroupByDate = prefs.Bool("groupListByDate", true),
+            GroupByDate = prefs.Bool("groupListByDate", false),
             PageSize = (int)Math.Clamp(prefs.Number("emailsPerPage", 50), 10, 200),
             UnreadFirst = string.Equals(prefs.Str("interfaceLayout", "default"), "mountain-view", StringComparison.Ordinal)
                 && string.Equals(prefs.Str("mvInboxType", "unread-first"), "unread-first", StringComparison.Ordinal),

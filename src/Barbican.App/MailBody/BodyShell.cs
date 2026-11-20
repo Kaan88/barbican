@@ -55,6 +55,7 @@ public sealed partial class BodyShell : IBodyPresenter, IStartupTask, IDisposabl
     private readonly IDispatcher _dispatcher;
     private readonly TimeProvider _time;
     private readonly ThemeController _theme;
+    private readonly IPrefsStore _prefs;
     private readonly ILogger<BodyShell> _log;
     private readonly bool _hidden;
     private readonly ShellMessageGate _gate = new();
@@ -71,6 +72,8 @@ public sealed partial class BodyShell : IBodyPresenter, IStartupTask, IDisposabl
     private bool _loaderLoading;
     private string? _allowRemoteFor;
     private string? _formattedFor;
+    private (bool AlwaysLight, string PlainTextFont, string MessageSpacing) _readingPreferences;
+    private bool _disposed;
 
     public BodyShell(BodyAppearance appearance, Lazy<IKeyRouter> keys, ILinkRouter links, IDispatcher dispatcher, TimeProvider time, ThemeController theme, ILogger<BodyShell> log, IHookBus hooks, IPrefsStore prefs, HiddenWindowOptions options)
     {
@@ -82,10 +85,13 @@ public sealed partial class BodyShell : IBodyPresenter, IStartupTask, IDisposabl
         _dispatcher = dispatcher;
         _time = time;
         _theme = theme;
+        _prefs = prefs;
         _log = log;
         _hidden = options.IsHidden;
         _theme.CssApplied += OnThemeApplied;
         _theme.BodyTextScaleChanged += OnBodyTextScaleChanged;
+        _readingPreferences = _appearance.ReadingPreferences();
+        _prefs.Changed += OnReadingPreferencesChanged;
     }
 
     /// <summary>The page on screen changed (banners: external content blocked, shown as plain text) or the loading state did.</summary>
@@ -229,8 +235,10 @@ public sealed partial class BodyShell : IBodyPresenter, IStartupTask, IDisposabl
 
     public void Dispose()
     {
+        _disposed = true;
         _theme.CssApplied -= OnThemeApplied;
         _theme.BodyTextScaleChanged -= OnBodyTextScaleChanged;
+        _prefs.Changed -= OnReadingPreferencesChanged;
         _readyTimer?.Dispose();
         Power.Dispose();
     }
@@ -462,6 +470,15 @@ public sealed partial class BodyShell : IBodyPresenter, IStartupTask, IDisposabl
     }
 
     private void OnBodyTextScaleChanged(object? sender, EventArgs e) => Rerender();
+
+    private void OnReadingPreferencesChanged(object? sender, EventArgs e) => _dispatcher.Post(() =>
+    {
+        if (_disposed) return;
+        var reading = _appearance.ReadingPreferences();
+        if (reading == _readingPreferences) return;
+        _readingPreferences = reading;
+        Rerender();
+    });
 
     private void OnThemeApplied(object? sender, ThemeCssEventArgs e)
     {

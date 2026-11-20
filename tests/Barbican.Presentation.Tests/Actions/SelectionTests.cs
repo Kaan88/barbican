@@ -36,7 +36,7 @@ public sealed class SelectionTests
     [Fact]
     public async Task A_shift_range_runs_across_a_date_group_header()
     {
-        using var h = await ActionHarness.StartAsync();
+        using var h = await ActionHarness.StartAsync(prefs: """{"groupListByDate":true}""");
         var inbox = h.Folder("inbox");
         h.Server.Store.Deliver(new FakeMail { Subject = "today", Text = "x", ReceivedAt = new DateTimeOffset(2026, 11, 17, 10, 0, 0, TimeSpan.Zero) }, inbox);
         h.Server.Store.Deliver(new FakeMail { Subject = "yesterday", Text = "x", ReceivedAt = new DateTimeOffset(2026, 11, 16, 10, 0, 0, TimeSpan.Zero) }, inbox);
