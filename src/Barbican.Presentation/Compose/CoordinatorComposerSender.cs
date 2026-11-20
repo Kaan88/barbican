@@ -19,10 +19,11 @@ public sealed class CoordinatorComposerSender(Lazy<SendCoordinator> coordinator,
     {
         ArgumentNullException.ThrowIfNull(draft);
         ArgumentNullException.ThrowIfNull(options);
-        var outcome = await coordinator.Value.RunAsync(draft, options.ScheduledAt is { } at ? SendMode.At(at) : SendMode.Now, ct).ConfigureAwait(true);
+        var mode = new SendMode(options.ScheduledAt) { ClassificationChoice = options.ClassificationChoice };
+        var outcome = await coordinator.Value.RunAsync(draft, mode, ct).ConfigureAwait(true);
         return outcome.IsAccepted && outcome.Receipt is { } receipt
             ? Result<SendReceipt>.Ok(receipt)
-            : Result<SendReceipt>.Fail(new ValidationError(outcome.Message ?? "The message was not sent."));
+            : Result<SendReceipt>.Fail(outcome.Error ?? new ValidationError(outcome.Message ?? "The message was not sent."));
     }
 
     public Task<Result<ComposeSeed>> UndoAsync(SendReceipt receipt, CancellationToken ct) => sender.UndoAsync(receipt, ct);

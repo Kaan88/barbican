@@ -86,6 +86,14 @@
                        AutomationProperties.AutomationId="composer.subject" AutomationProperties.Name="Subject" />
             </Grid>
             <Border Height="1" Background="{StaticResource Line}" />
+            <Grid x:Name="ClassificationRow" Visibility="Collapsed" MinHeight="40" ColumnSpacing="10" Padding="0,4">
+              <Grid.ColumnDefinitions><ColumnDefinition Width="Auto" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
+              <TextBlock Text="Classification" Foreground="{StaticResource Dim}" VerticalAlignment="Center" />
+              <Button x:Name="ClassificationPicker" Grid.Column="1" HorizontalAlignment="Stretch" HorizontalContentAlignment="Left"
+                      AutomationProperties.AutomationId="composer.classification" AutomationProperties.Name="Classification">
+                <Button.Flyout><MenuFlyout x:Name="ClassificationMenu" win:ShouldConstrainToRootBounds="True" /></Button.Flyout>
+              </Button>
+            </Grid>
             <ItemsControl x:Name="AttachmentList" Margin="0,8,0,0" AutomationProperties.AutomationId="composer.attachments" AutomationProperties.Name="Attachments" Visibility="Collapsed">
               <ItemsControl.ItemsPanel>
                 <ItemsPanelTemplate>

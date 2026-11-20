@@ -16,7 +16,8 @@ public static class PluginRawSendMethods
     private sealed class RawSendMethod(IPluginRawSendHost host, bool submitOnly) : IPluginApiMethod
     {
         private const int MaxBytes = 25 * 1024 * 1024;
-        public PluginApiDescriptor Descriptor { get; } = new(submitOnly ? "jmap.submitRaw" : "jmap.sendRaw", [["email:raw-send"]], TimeSpan.FromMinutes(2), mayMutate: true);
+        public PluginApiDescriptor Descriptor { get; } = new(submitOnly ? "jmap.submitRaw" : "jmap.sendRaw", [["email:raw-send"]], TimeSpan.FromMinutes(2),
+            privilegedOnly: true, mayMutate: true);
         public PluginErrorCode? ValidateArguments(PluginValue arguments) => Parse(arguments, submitOnly) is null ? PluginErrorCode.InvalidArguments : null;
         public async Task<PluginCallOutcome> InvokeAsync(IPluginInvocationContext context, PluginValue arguments, CancellationToken ct)
         {

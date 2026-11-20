@@ -101,7 +101,7 @@ public static class HookNames
     /// <summary>mail-send, transform: right before the message is submitted</summary>
     public const string OnTransformOutgoingEmail = "onTransformOutgoingEmail";
 
-    /// <summary>mail-send, takeover: at the start of sending; may send the message itself</summary>
+    /// <summary>mail-send, takeover: after send checks and before outgoing transforms; may submit through the scoped raw API</summary>
     public const string OnComposeSend = "onComposeSend";
 
     /// <summary>mail-send, observer: after the server accepted the message</summary>

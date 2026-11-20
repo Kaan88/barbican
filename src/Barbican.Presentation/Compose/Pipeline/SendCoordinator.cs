@@ -96,11 +96,11 @@ public sealed class SendCoordinator(IMailSender sender, IScheduledSends schedule
             return new SendOutcome(SendOutcomeStatus.Cancelled);
         }
 
-        var options = new SendOptions { UndoSeconds = settings.SendDelaySeconds, ScheduledAt = mode.ScheduledAt };
+        var options = new SendOptions { UndoSeconds = settings.SendDelaySeconds, ScheduledAt = mode.ScheduledAt, ClassificationChoice = mode.ClassificationChoice };
         var sent = await sender.SendAsync(draft, options, ct).ConfigureAwait(false);
         if (!sent.IsOk)
         {
-            return Refuse(SendOutcomeStatus.Failed, sent.Error!.Message);
+            return Refuse(SendOutcomeStatus.Failed, sent.Error!.Message) with { Error = sent.Error };
         }
 
         var receipt = sent.Value!;

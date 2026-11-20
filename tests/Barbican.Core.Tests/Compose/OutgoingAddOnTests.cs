@@ -38,6 +38,59 @@ public sealed class OutgoingAddOnTests
         Assert.Equal(rig.Fake.Client.Session.MailAccountId, notification.JmapAccountId, StringComparer.Ordinal);
     }
 
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task TakeoverFailureStopsBeforeTransformOrOrdinarySubmission(bool unknown)
+    {
+        var hooks = new Hooks { TakeoverError = unknown ? new RawMessageOutcomeUnknown() : new Barbican.Core.Jmap.Errors.ValidationError("Stopped by add-on.") };
+        var rig = await PipelineRig.StartAsync(addOns: hooks);
+        var draft = PipelineRig.NewDraft() with { ComposerId = "composer-1", ComposerRevision = "revision-1" };
+        var result = await rig.Sender.SendAsync(draft, new SendOptions(), Ct);
+        Assert.False(result.IsOk);
+        if (unknown) Assert.IsType<RawMessageOutcomeUnknown>(result.Error);
+        Assert.Equal(1, hooks.TakeoverCount);
+        Assert.Equal("composer-1", hooks.TakeoverRequest!.ComposerId, StringComparer.Ordinal);
+        Assert.Equal("revision-1", hooks.TakeoverRequest.Revision, StringComparer.Ordinal);
+        Assert.Equal(0, hooks.TransformCount);
+        Assert.Equal(0, hooks.IssueCount);
+        Assert.Empty(rig.Api.Submissions);
+        Assert.Empty(hooks.Sent);
+    }
+
+    [Fact]
+    public async Task TakeoverReceiptIsAcceptedWithoutTransformOrPlaintextSubmission()
+    {
+        var hooks = new Hooks();
+        var rig = await PipelineRig.StartAsync(addOns: hooks);
+        hooks.TakeoverReceipt = new RawMessageReceipt(PipelineRig.Account, rig.Fake.Client.Session.MailAccountId, "taken-email", "taken-submission", null);
+        var draft = PipelineRig.NewDraft() with { ComposerId = "composer-1", ComposerRevision = "revision-1" };
+        var result = await rig.Sender.SendAsync(draft, new SendOptions(), Ct);
+        Assert.True(result.IsOk, result.Error?.Message);
+        Assert.Equal("taken-email", result.Value!.EmailId, StringComparer.Ordinal);
+        Assert.Equal("taken-submission", result.Value.SubmissionId, StringComparer.Ordinal);
+        Assert.Equal(1, hooks.TakeoverCount);
+        Assert.Equal(0, hooks.TransformCount);
+        Assert.Equal(0, hooks.IssueCount);
+        Assert.Empty(rig.Api.Submissions);
+        Assert.Equal("taken-submission", Assert.Single(hooks.Sent).SubmissionId, StringComparer.Ordinal);
+    }
+
+    [Fact]
+    public async Task NoTakeoverRunsTransformAndOrdinarySubmission()
+    {
+        var hooks = new Hooks();
+        var rig = await PipelineRig.StartAsync(addOns: hooks);
+        var draft = PipelineRig.NewDraft() with { ComposerId = "composer-1", ComposerRevision = "revision-1" };
+        var result = await rig.Sender.SendAsync(draft, new SendOptions(), Ct);
+        Assert.True(result.IsOk, result.Error?.Message);
+        Assert.Equal(1, hooks.TakeoverCount);
+        Assert.Equal(1, hooks.TransformCount);
+        Assert.Equal(1, hooks.IssueCount);
+        Assert.Single(rig.Api.Submissions);
+        Assert.Equal("audit@example.net", hooks.Checks[1].Bcc, StringComparer.Ordinal);
+    }
+
     [Fact]
     public async Task ChangedRecipientsMustPassSecondCheck()
     {
@@ -162,6 +215,11 @@ public sealed class OutgoingAddOnTests
         public IAccountSession? Session { get; private set; }
         public int StartCount { get; private set; }
         public int IssueCount { get; private set; }
+        public int TakeoverCount { get; private set; }
+        public int TransformCount { get; private set; }
+        public ComposerTakeoverRequest? TakeoverRequest { get; private set; }
+        public RawMessageReceipt? TakeoverReceipt { get; set; }
+        public Barbican.Core.Jmap.Errors.JmapError? TakeoverError { get; init; }
         public bool RejectSecond { get; init; }
         public bool DenyIssue { get; init; }
         public IOutgoingAddOnSend Start(IAccountSession sendingSession)
@@ -173,8 +231,17 @@ public sealed class OutgoingAddOnTests
             Checks.Add(outgoing);
             return Task.FromResult(!RejectSecond || Checks.Count == 1);
         }
-        public Task<OutgoingEmailPayload> TransformAsync(OutgoingEmailPayload outgoing, CancellationToken ct) =>
-            Task.FromResult(outgoing with { AccountId = "forged", IdentityId = "forged", ComposerId = "forged", Bcc = "audit@example.net", Keywords = ["case-1", "$flagged", "$seen", "$answered"] });
+        public Task<OutgoingEmailPayload> TransformAsync(OutgoingEmailPayload outgoing, CancellationToken ct)
+        {
+            TransformCount++;
+            return Task.FromResult(outgoing with { AccountId = "forged", IdentityId = "forged", ComposerId = "forged", Bcc = "audit@example.net", Keywords = ["case-1", "$flagged", "$seen", "$answered"] });
+        }
+        public Task<Result<RawMessageReceipt?>> TakeOverAsync(ComposerTakeoverRequest request, CancellationToken ct)
+        {
+            TakeoverCount++;
+            TakeoverRequest = request;
+            return Task.FromResult(TakeoverError is { } error ? Result<RawMessageReceipt?>.Fail(error) : Result<RawMessageReceipt?>.Ok(TakeoverReceipt));
+        }
         public Task<bool> TryIssueAsync(Func<bool> issue, CancellationToken ct)
         {
             IssueCount++;

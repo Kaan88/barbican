@@ -93,6 +93,7 @@ public sealed partial class ComposerView : UserControl
         ApplyComposerLayout();
         Attach(_service.Current);
 #if WINDOWS
+        RefreshClassification();
         WatchAddOnActions();
 #endif
     }
@@ -102,6 +103,7 @@ public sealed partial class ComposerView : UserControl
         _theme.CssApplied -= OnThemeApplied;
         Look.PropertyChanged -= OnLookChanged;
 #if WINDOWS
+        StopClassification();
         UnwatchAddOnActions();
 #endif
     }
@@ -224,6 +226,9 @@ public sealed partial class ComposerView : UserControl
         _card = CardKind.None;
         if (vm is null)
         {
+#if WINDOWS
+            RefreshClassification();
+#endif
             ToField.Bind(null);
             CcField.Bind(null);
             BccField.Bind(null);
@@ -234,6 +239,9 @@ public sealed partial class ComposerView : UserControl
 
         vm.PropertyChanged += OnVmChanged;
         vm.Attachments.CollectionChanged += OnAttachmentsChanged;
+#if WINDOWS
+        RefreshClassification();
+#endif
         ToField.Bind(vm.To);
         CcField.Bind(vm.Cc);
         BccField.Bind(vm.Bcc);
@@ -244,6 +252,9 @@ public sealed partial class ComposerView : UserControl
         _syncing = false;
         BuildBody();
         SyncAll();
+#if WINDOWS
+        SyncClassification();
+#endif
         _ = DispatcherQueue.TryEnqueue(() => (vm.To.Recipients.Count == 0 ? ToField : null)?.FocusInput());
     }
 
@@ -262,6 +273,16 @@ public sealed partial class ComposerView : UserControl
     {
         switch (e.PropertyName)
         {
+#if WINDOWS
+            case nameof(ComposerViewModel.SelectedIdentityId) or nameof(ComposerViewModel.FromOverrideEnabled) or
+                 nameof(ComposerViewModel.FromOverrideEmail) or nameof(ComposerViewModel.SubAddressTag) or nameof(ComposerViewModel.FromText):
+                RefreshClassification();
+                SyncAll();
+                break;
+            case nameof(ComposerViewModel.ClassificationPolicy) or nameof(ComposerViewModel.ClassificationChoice) or nameof(ComposerViewModel.ClassificationReady):
+                SyncClassification();
+                break;
+#endif
             case nameof(ComposerViewModel.Editor) or nameof(ComposerViewModel.PlainText):
                 BuildBody();
                 break;

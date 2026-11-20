@@ -98,6 +98,7 @@ public sealed class SampleActiveMail : IActiveMail, Barbican.Presentation.Action
     internal string ReadRawState()
     {
         var sent = _server.Store.MailboxId("sent");
+        var drafts = _server.Store.MailboxId("drafts");
         var emails = _server.Store.EmailIds().Select(_server.Store.Email).Where(e => e is not null).ToArray();
         var submissions = _server.Api.SubmissionStates;
         var submitted = _server.Api.Submissions;
@@ -107,6 +108,11 @@ public sealed class SampleActiveMail : IActiveMail, Barbican.Presentation.Action
         {
             submissions = submissions.Count,
             retainedSent = emails.Count(e => string.Equals((string?)e!["subject"], "Synthetic raw sent", StringComparison.Ordinal) && sent is not null && e["mailboxIds"]?[sent] is not null),
+            takeoverSent = emails.Count(e => ((string?)e!["subject"])?.EndsWith("Synthetic takeover send", StringComparison.Ordinal) == true && sent is not null && e["mailboxIds"]?[sent] is not null),
+            takeoverAbort = emails.Count(e => ((string?)e!["subject"])?.EndsWith("Synthetic takeover abort", StringComparison.Ordinal) == true),
+            takeoverFalse = emails.Count(e => ((string?)e!["subject"])?.EndsWith("Synthetic takeover false", StringComparison.Ordinal) == true),
+            takeoverContinue = emails.Count(e => ((string?)e!["subject"])?.EndsWith("Synthetic takeover continue", StringComparison.Ordinal) == true && sent is not null && e["mailboxIds"]?[sent] is not null),
+            draftTakeover = emails.Count(e => ((string?)e!["subject"])?.EndsWith("Synthetic takeover send", StringComparison.Ordinal) == true && drafts is not null && e["mailboxIds"]?[drafts] is not null),
             retainedSubmitOnly = emails.Count(e => string.Equals((string?)e!["subject"], "Synthetic raw submit only", StringComparison.Ordinal)),
             lastEnvelopeRecipient = submitted.Count == 0 ? null : (string?)submitted[^1]["envelope"]?["rcptTo"]?[0]?["email"],
             lastUpload = upload is null ? null : System.Text.Encoding.UTF8.GetString(upload),

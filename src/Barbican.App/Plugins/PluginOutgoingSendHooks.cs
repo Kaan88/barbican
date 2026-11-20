@@ -2,7 +2,10 @@
 // Mirrors Bulwark lib/outgoing/plugin-send-check.ts and lib/plugin-sandbox/hook-payload.ts.
 using Barbican.App.Plugins.Sandbox;
 using Barbican.Core.Accounts;
+using Barbican.Core.Common;
 using Barbican.Core.Compose;
+using Barbican.Core.Jmap.Errors;
+using Barbican.Core.Plugins.Api.ComposeSend;
 using Barbican.Core.Plugins.Bridge;
 using Barbican.Core.Plugins.Hooks;
 using Barbican.Core.Plugins.Payloads;
@@ -15,18 +18,19 @@ namespace Barbican.App.Plugins;
 
 internal sealed class PluginOutgoingSendHooks(
     PluginBackgroundRuntimes runtimes, PluginPackageHost packages, IPluginSessionSource sessions,
-    Func<ComposerViewModel?> currentComposer, IDispatcher dispatcher) : IOutgoingAddOnHooks
+    Func<ComposerViewModel?> currentComposer, IDispatcher dispatcher, PluginComposeTakeovers takeovers) : IOutgoingAddOnHooks
 {
     public IOutgoingAddOnSend Start(IAccountSession sendingSession) => new Attempt(
-        runtimes, packages, sessions, currentComposer, dispatcher, new PluginSessionCapture(sendingSession, null));
+        runtimes, packages, sessions, currentComposer, dispatcher, takeovers, new PluginSessionCapture(sendingSession, null));
 
     private sealed class Attempt(
         PluginBackgroundRuntimes runtimes, PluginPackageHost packages, IPluginSessionSource sessions,
-        Func<ComposerViewModel?> currentComposer, IDispatcher dispatcher, PluginSessionCapture owner) : IOutgoingAddOnSend
+        Func<ComposerViewModel?> currentComposer, IDispatcher dispatcher, PluginComposeTakeovers takeovers, PluginSessionCapture owner) : IOutgoingAddOnSend
     {
         private readonly IReadOnlyList<PluginSessionCapture> _captures = [owner];
         private readonly HashSet<PluginRuntimeBinding> _contributors = [];
         private (string? ComposerId, bool IsQuickReply, string AccountId)? _draft;
+        private string? _sendRevision;
 
         public async Task<bool> CheckAsync(OutgoingEmailPayload outgoing, CancellationToken ct)
         {
@@ -67,11 +71,13 @@ internal sealed class PluginOutgoingSendHooks(
             return outgoing;
         }
 
-        public async Task<bool> TryIssueAsync(Func<bool> issue, CancellationToken ct)
+        public Task<bool> TryIssueAsync(Func<bool> issue, CancellationToken ct) => TryIssueAsync(run => run(), issue, ct);
+
+        public async Task<bool> TryIssueAsync(Func<Func<bool>, bool> guard, Func<bool> issue, CancellationToken ct)
         {
             var accepted = false;
-            bool Issue() => sessions.TryRunWhileCurrent(_captures, () =>
-                !ct.IsCancellationRequested && DraftIsCurrent() && PluginRuntimeBinding.TryWriteWhileAllAlive(_contributors, issue));
+            bool Issue() => guard(() => sessions.TryRunWhileCurrent(_captures, () =>
+                !ct.IsCancellationRequested && DraftIsCurrent() && PluginRuntimeBinding.TryWriteWhileAllAlive(_contributors, issue)));
             await dispatcher.InvokeAsync(async () =>
             {
                 accepted = _contributors.Count == 0
@@ -80,6 +86,56 @@ internal sealed class PluginOutgoingSendHooks(
             }).ConfigureAwait(false);
             return accepted;
         }
+
+        public async Task<Result<RawMessageReceipt?>> TakeOverAsync(ComposerTakeoverRequest request, CancellationToken ct)
+        {
+            const string hook = HookNames.OnComposeSend;
+            _sendRevision = request.Revision;
+            foreach (var runtime in Owners(hook))
+            {
+                if (runtime is not IPluginFencedHookRuntime fenced) return TakeoverFailed();
+                var result = await InvokeTakeoverAsync(runtime, fenced, request, ct).ConfigureAwait(false);
+                if (!result.IsOk || result.Value is not null) return result;
+                _contributors.Add(runtime.Binding);
+            }
+            return Result<RawMessageReceipt?>.Ok(null);
+        }
+
+        private async Task<Result<RawMessageReceipt?>> InvokeTakeoverAsync(IPluginRuntimeInstance runtime,
+            IPluginFencedHookRuntime fenced, ComposerTakeoverRequest request, CancellationToken ct)
+        {
+            const string hook = HookNames.OnComposeSend;
+            bool IsCurrent() => HasGrant(runtime, "email:send") &&
+                currentComposer() is { IsSending: true } draft &&
+                string.Equals(draft.Id, request.ComposerId, StringComparison.Ordinal) &&
+                string.Equals(draft.SendAttemptRevision, request.Revision, StringComparison.Ordinal) &&
+                string.Equals(draft.AccountKey, owner.LocalAccountKey, StringComparison.Ordinal);
+            var scope = new PluginComposeTakeover(runtime.Binding, owner, request, _contributors, IsCurrent, ct);
+            if (!takeovers.TryOpen(scope)) return TakeoverFailed();
+            PluginValue? result = null;
+            try
+            {
+                var args = PluginComposeSendPayload.Encode(request.Payload with { LabelToken = scope.Token });
+                var answer = await fenced.InvokeHookWhileCurrentAsync(hook, args, HookPolicies.For(hook).Budget,
+                    write => sessions.TryRunWhileCurrent(_captures, () => !ct.IsCancellationRequested && IsCurrent() && write()), ct).ConfigureAwait(false);
+                if (answer.IsOk) result = answer.Value;
+            }
+            catch (PluginValueFormatException) { }
+            catch (OperationCanceledException) when (ct.IsCancellationRequested || runtime.Binding.Lifetime.IsCancellationRequested) { }
+            finally { takeovers.Close(scope); }
+            var (issued, receipt) = scope.Outcome();
+            if (receipt is not null) return Result<RawMessageReceipt?>.Ok(receipt);
+            if (issued) return Result<RawMessageReceipt?>.Fail(new RawMessageOutcomeUnknown());
+            if (result is null) return TakeoverFailed();
+            if (result is { Kind: PluginValueKind.Boolean, BooleanValue: false } ||
+                (result.Kind == PluginValueKind.Object && result.PropertyNames.Contains("abort", StringComparer.Ordinal) &&
+                    result.Property("abort") is { Kind: PluginValueKind.Boolean, BooleanValue: true }))
+                return Result<RawMessageReceipt?>.Fail(new ValidationError("An add-on stopped this send."));
+            return Result<RawMessageReceipt?>.Ok(null);
+        }
+
+        private static Result<RawMessageReceipt?> TakeoverFailed() =>
+            Result<RawMessageReceipt?>.Fail(new ValidationError("An add-on could not complete the send."));
 
         public void NotifySent(EmailSentPayload payload) => _ = DeliverSentAsync(payload);
 
@@ -124,6 +180,7 @@ internal sealed class PluginOutgoingSendHooks(
             _draft is { } outgoing && (outgoing.ComposerId is null || outgoing.IsQuickReply ||
                 (currentComposer() is { IsSending: true } draft &&
                     string.Equals(draft.Id, outgoing.ComposerId, StringComparison.Ordinal) &&
+                    (_sendRevision is null || string.Equals(draft.SendAttemptRevision, _sendRevision, StringComparison.Ordinal)) &&
                     string.Equals(draft.AccountKey, outgoing.AccountId, StringComparison.Ordinal)));
     }
 }

@@ -17,11 +17,18 @@ public static class RawClassification
         ArgumentNullException.ThrowIfNull(raw);
         ArgumentNullException.ThrowIfNull(policy);
         if (policy.Required) return Fail("A classification label is required for messages sent outside the composer.");
+        var label = policy.List.FirstOrDefault(item => string.Equals(item.Id, policy.DefaultId, StringComparison.Ordinal));
+        return ApplySelected(raw, policy, label);
+    }
+
+    internal static Result<byte[]> ApplySelected(byte[] raw, ClassificationPolicy policy, ClassificationLabel? label)
+    {
+        if ((policy.Required && label is null) || (label is not null && !policy.List.Contains(label)))
+            return Fail("The composer classification choice is unavailable.");
         if (policy.List.Count == 0) return Result<byte[]>.Ok((byte[])raw.Clone());
         var reserved = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "sio-label", "sio-label-history", "sensitivity", "x-bulwark-label" };
         if (!string.IsNullOrEmpty(policy.ExtraHeader)) reserved.Add(policy.ExtraHeader);
         if (!TryHeaders(raw, reserved, out var retained, out var bodyStart, out var newline)) return Fail("The message has an invalid header block.");
-        var label = policy.List.FirstOrDefault(item => string.Equals(item.Id, policy.DefaultId, StringComparison.Ordinal));
         var additions = label is null ? Array.Empty<byte>() : Encoding.Latin1.GetBytes(string.Join(newline, HeaderLines(label, policy.ExtraHeader, newline)) + newline);
         var ending = Encoding.ASCII.GetBytes(newline);
         var headerSize = retained.Sum(line => line.Length) + additions.Length + ending.Length;
@@ -107,6 +114,14 @@ public static class RawClassification
 
     private static IEnumerable<string> HeaderLines(ClassificationLabel label, string extra, string newline)
     {
+        yield return FormatSioLabel(label, newline);
+        if (!string.IsNullOrEmpty(label.Sensitivity)) yield return "Sensitivity:" + FoldValue("Sensitivity", label.Sensitivity, newline);
+        var extraValue = label.ExtraHeaderValue.Trim();
+        if (!string.IsNullOrEmpty(extra) && extraValue.Length != 0) yield return extra + ":" + FoldValue(extra, extraValue, newline);
+    }
+
+    internal static string FormatSioLabel(ClassificationLabel label, string newline)
+    {
         var marking = (string.IsNullOrEmpty(label.Marking) ? label.Name : label.Marking).Trim().Replace("\"", "", StringComparison.Ordinal).Replace("\\", "", StringComparison.Ordinal).Replace("\r", "", StringComparison.Ordinal).Replace("\n", "", StringComparison.Ordinal);
         var parameters = Marking(marking);
         parameters.Add("fgcolor=" + Foreground(label.Color));
@@ -120,10 +135,7 @@ public static class RawClassification
             value.Append(fold ? newline : "").Append(' ').Append(piece);
             column = fold ? 1 + piece.Length : column + 1 + piece.Length;
         }
-        yield return value.ToString();
-        if (!string.IsNullOrEmpty(label.Sensitivity)) yield return "Sensitivity:" + FoldValue("Sensitivity", label.Sensitivity, newline);
-        var extraValue = label.ExtraHeaderValue.Trim();
-        if (!string.IsNullOrEmpty(extra) && extraValue.Length != 0) yield return extra + ":" + FoldValue(extra, extraValue, newline);
+        return value.ToString();
     }
 
     private static List<string> Marking(string text)

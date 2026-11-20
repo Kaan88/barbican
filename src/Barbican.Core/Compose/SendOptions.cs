@@ -10,4 +10,7 @@ public sealed record SendOptions
 
     /// <summary>Release time of a scheduled send (sent as HOLDFOR, computed just before the request).</summary>
     public DateTimeOffset? ScheduledAt { get; init; }
+
+    /// <summary>The user's choice for this send. A missing choice selects the effective default.</summary>
+    public ComposerClassificationChoice? ClassificationChoice { get; init; }
 }

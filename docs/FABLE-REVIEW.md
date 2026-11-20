@@ -2848,3 +2848,44 @@ delivery through a separate envelope, and recipient derivation. A
 required-label policy and an unconnected provider each produced zero
 uploads and zero submissions. Windows Release built with zero warnings
 or errors.
+
+## Codex / Astra review of Windows composer classification and takeover (2026-11-20)
+
+The Windows composer offers a classification picker under the verified
+policy for its sending login and effective From address. The send pipeline
+rechecks the choice and applies the label headers and subject prefix
+after outgoing transforms on the standard path. A required label with
+no default or selection stops submission. The picker uses the constrained
+menu used elsewhere in the composer.
+
+JavaScript `onComposeSend` runs after send checks and before transforms.
+Each handler gets a one-use token scoped to its runtime and the current
+composer attempt. The raw path checks the original sender, subject,
+envelope, release options, current policy, and the grants of every
+contributing handler. It never falls through to the standard path after
+an attempted raw submission. A verified receipt completes the composer
+send and starts cleanup of the original saved draft. An abort or false without a
+receipt leaves the composer open. An uncertain result keeps the draft
+and tells the user to verify the submission before retrying.
+
+The upstream raw methods require privileged tier as well as `email:raw-send`.
+The previous checkpoint had the account and policy checks but omitted the
+tier check. Both methods now enforce it in the dispatcher and at host entry
+before a claim or upload. Windows managed-signature enrollment and privileged
+JavaScript startup are pending, so the shipped package manager cannot yet
+activate the privileged raw path.
+
+Classification selection is held by the open composer. Persistence across
+a saved draft reload and inherited classification for replies and forwards
+remain open. Compatibility with third-party signing and encryption
+packages requires additional runtime verification.
+
+Windows Automation passed 3,569 tests with four skips. Windows Release
+built without warnings or errors. The private synthetic walkthrough
+verified required-label refusal, choosing a label, and a normal Sent
+copy with the chosen prefix. Abort and false without a receipt left
+the composer open with zero sends. An unprivileged takeover kept its
+original saved draft. A separate profile with an unprivileged
+`email:raw-send` grant attempted both raw methods and produced zero
+uploads and zero submissions. Tests used an in-process policy provider
+and mail server.

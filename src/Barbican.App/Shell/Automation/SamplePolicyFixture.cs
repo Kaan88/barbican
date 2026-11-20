@@ -79,8 +79,10 @@ internal sealed class SamplePolicyFixture : IDisposable
         {
             var mode = Environment.GetEnvironmentVariable("BARBICAN_SAMPLE_RAW_LABELS");
             if (!ProfilePaths.IsAutomationProfile(profile) || !Enabled("BARBICAN_SAMPLE") || !Enabled("BARBICAN_SAMPLE_ADDON_ACCOUNT") ||
-                !Enabled("BARBICAN_SAMPLE_ORGANIZATION_POLICY") || !Enabled("BARBICAN_SAMPLE_SEND_PIPELINE") || mode is not ("1" or "required"))
+                !Enabled("BARBICAN_SAMPLE_ORGANIZATION_POLICY") || !Enabled("BARBICAN_SAMPLE_SEND_PIPELINE") || mode is not ("1" or "required" or "takeover"))
                 return string.Empty;
+            if (mode is "takeover")
+                return ",\"labels\":{\"list\":[{\"id\":\"protected\",\"name\":\"Synthetic protected\",\"color\":\"#d97706\",\"subjectPrefix\":\"[Protected]\"},{\"id\":\"internal\",\"name\":\"Synthetic internal\",\"color\":\"#2563eb\"}],\"required\":true}";
             var required = mode is "required" ? "true" : "false";
             return ",\"labels\":{\"list\":[{\"id\":\"synthetic\",\"name\":\"Synthetic label\",\"color\":\"#d97706\"}],\"defaultId\":\"synthetic\",\"required\":" + required + "}";
         }

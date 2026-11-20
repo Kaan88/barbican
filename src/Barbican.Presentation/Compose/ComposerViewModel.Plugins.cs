@@ -24,7 +24,10 @@ public sealed partial class ComposerViewModel
         _pluginSeedGeneratedText = HasGeneratedText(_seed.Body);
         PropertyChanged += (_, change) =>
         {
-            if (change.PropertyName is nameof(Subject) or nameof(FallbackBody) or nameof(Editor) or nameof(IsSending)) _pluginRevision++;
+            if (change.PropertyName is nameof(Subject) or nameof(FallbackBody) or nameof(Editor) or nameof(IsSending) or
+                nameof(SelectedIdentityId) or nameof(FromOverrideEnabled) or nameof(FromOverrideEmail) or nameof(FromOverrideName) or
+                nameof(SubAddressTag) or nameof(ClassificationChoice) or nameof(PlainText) or nameof(Priority) or nameof(ReadReceipt))
+                _pluginRevision++;
         };
         foreach (var field in new[] { To, Cc, Bcc }) field.TextChanged += (_, _) => _pluginRevision++;
         Attachments.CollectionChanged += (_, _) => ObservePluginAttachments();

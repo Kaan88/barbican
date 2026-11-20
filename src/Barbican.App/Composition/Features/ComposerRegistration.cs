@@ -27,6 +27,8 @@ public static class ComposerRegistration
         services.AddSingleton<IDialogContent, AccountPickDialogContent>();
         services.AddSingleton<IDialogContent, ScheduleDialogContent>();
 #if WINDOWS
+        services.AddSingleton<Barbican.Core.Compose.ComposerClassification>();
+        services.AddSingleton<Barbican.App.Plugins.PluginComposeTakeovers>();
         services.AddSingleton<Barbican.Core.Compose.RawMessageSender>();
         services.AddSingleton<Barbican.Core.Plugins.Api.RawSend.IPluginRawSendHost, Barbican.App.Plugins.PluginRawSendHost>();
         services.AddSingleton<IPluginApiMethod>(sp => Barbican.Core.Plugins.Api.RawSend.PluginRawSendMethods.SendRaw(
@@ -38,7 +40,8 @@ public static class ComposerRegistration
         services.AddSingleton<Barbican.Core.Compose.IOutgoingAddOnHooks>(sp => new Barbican.App.Plugins.PluginOutgoingSendHooks(
             sp.GetRequiredService<Barbican.App.Plugins.PluginBackgroundRuntimes>(),
             sp.GetRequiredService<Barbican.App.Plugins.PluginPackageHost>(), sp.GetRequiredService<IPluginSessionSource>(),
-            () => sp.GetRequiredService<IComposerService>().Current, sp.GetRequiredService<Barbican.Presentation.Common.IDispatcher>()));
+            () => sp.GetRequiredService<IComposerService>().Current, sp.GetRequiredService<Barbican.Presentation.Common.IDispatcher>(),
+            sp.GetRequiredService<Barbican.App.Plugins.PluginComposeTakeovers>()));
         services.AddSingleton<Barbican.App.Plugins.PluginActionRegistration>();
         services.AddSingleton<IPluginApiMethod>(sp => sp.GetRequiredService<Barbican.App.Plugins.PluginActionRegistration>());
         services.AddSingleton<IPluginApiMethod>(sp => PluginComposerMethods.GetSnapshot(sp.GetRequiredService<PluginComposerAccess>()));

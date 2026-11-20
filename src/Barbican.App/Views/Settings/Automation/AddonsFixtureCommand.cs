@@ -43,12 +43,12 @@ internal sealed class AddonsFixtureCommand(IProfilePaths paths, ISettingsNavigat
             return records.IsOk ? records.Value! : "error unavailable sample records";
         }
 #if WINDOWS
-        if (mode is "raw-probe" && (!SamplePolicyFixture.Enabled(paths) || !string.Equals(Environment.GetEnvironmentVariable("BARBICAN_SAMPLE_SEND_PIPELINE"), "1", StringComparison.Ordinal))) return "error raw fixture is not enabled";
+        if (mode is ("raw-probe" or "takeover-probe") && (!SamplePolicyFixture.Enabled(paths) || !string.Equals(Environment.GetEnvironmentVariable("BARBICAN_SAMPLE_SEND_PIPELINE"), "1", StringComparison.Ordinal))) return "error raw fixture is not enabled";
         if (mode is "print-probe" && !SamplePolicyFixture.PrintEnabled(paths)) return "error print fixture is not enabled";
 #else
-        if (mode is "raw-probe" or "print-probe") return "error fixture is unavailable";
+        if (mode is "raw-probe" or "takeover-probe" or "print-probe") return "error fixture is unavailable";
 #endif
-        if (mode is not ("raw-probe" or "print-probe" or "install" or "update" or "native" or "origins" or "composer-probe" or "send-policy" or "send-observer" or "toast" or "progress-toast"))
+        if (mode is not ("raw-probe" or "takeover-probe" or "print-probe" or "install" or "update" or "native" or "origins" or "composer-probe" or "send-policy" or "send-observer" or "toast" or "progress-toast"))
             return "error unknown add-on fixture";
         if (!shell.TryActivate(AppId.Settings)) return "error Settings is unavailable";
 
@@ -119,6 +119,7 @@ internal sealed class AddonsFixtureCommand(IProfilePaths paths, ISettingsNavigat
                 "send-policy" => """{"id":"sample-send-policy","name":"Sample send policy","version":"1.0.0","author":"Example","type":"hook","permissions":["email:send"]}""",
                 "send-observer" => """{"id":"sample-send-observer","name":"Sample send observer","version":"1.0.0","author":"Example","type":"hook","permissions":["email:read"]}""",
                 "toast" => """{"id":"sample-toast","name":"Sample notification","version":"1.0.0","author":"Example","type":"hook","permissions":[]}""",
+                "takeover-probe" => """{"id":"sample-takeover-probe","name":"Sample takeover probe","version":"1.0.0","author":"Example","type":"hook","permissions":["email:send","email:raw-send"]}""",
                 "raw-probe" => """{"id":"sample-raw-probe","name":"Sample raw probe","version":"1.0.0","author":"Example","type":"hook","permissions":["ui:composer-toolbar","email:raw-send"]}""",
                 "print-probe" => """{"id":"sample-print-probe","name":"Sample print probe","version":"1.0.0","author":"Example","type":"hook","permissions":["ui:composer-toolbar"]}""",
                 "progress-toast" => """{"id":"sample-progress","name":"Sample progress","version":"1.0.0","author":"Example","type":"hook","permissions":["ui:composer-toolbar"]}""",
@@ -141,6 +142,7 @@ internal sealed class AddonsFixtureCommand(IProfilePaths paths, ISettingsNavigat
                 "progress-toast" => ProgressFixture,
                 "print-probe" => PrintFixture,
                 "raw-probe" => RawFixture,
+                "takeover-probe" => TakeoverFixture,
                 "send-policy" => completionRecorder + "\n" + """
                 exports.hooks = {
                     onBeforeEmailSend(email) { if (email.subject === 'Synthetic veto') return false; },
@@ -159,6 +161,29 @@ internal sealed class AddonsFixtureCommand(IProfilePaths paths, ISettingsNavigat
         return archive;
     }
 
+    private const string TakeoverFixture = """
+        let api;
+        exports.activate = host => { api = host; };
+        exports.hooks = {
+            async onComposeSend(request) {
+                if (request.subject.includes('Synthetic takeover abort')) return { abort: true };
+                if (request.subject.includes('Synthetic takeover false')) return false;
+                if (!request.subject.includes('Synthetic takeover send')) return;
+                if (request.fromEmail !== 'user@example.org' || request.identityId !== 'i1' ||
+                    request.to.length !== 1 || request.to[0] !== 'approved@example.org' || request.cc.length || request.bcc.length ||
+                    request.attachments.length || /[^\x20-\x7e]/.test(request.subject) ||
+                    typeof request.labelToken !== 'string' || !request.labelToken) return { abort: true };
+                const raw = 'From: ' + request.fromEmail + '\r\nTo: ' + request.to[0] + '\r\nSubject: ' + request.subject +
+                    '\r\nSIO-Label: forged\r\n continued\r\nMIME-Version: 1.0\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nSynthetic takeover body\r\n';
+                const options = { envelopeRecipients: [...request.to], labelToken: request.labelToken };
+                if (request.delayedUntil !== undefined) options.delayedUntil = request.delayedUntil;
+                const result = await api.jmap.sendRaw(new TextEncoder().encode(raw), request.identityId, options);
+                if (!result || result.isSmime !== true || !result.emailSubmissionId || !result.emailId ||
+                    result.scheduled !== (request.delayedUntil !== undefined)) throw new Error('Synthetic raw receipt invalid');
+                return false;
+            },
+        };
+        """;
     private const string RawFixture = """
         let api;
         exports.activate = async host => {

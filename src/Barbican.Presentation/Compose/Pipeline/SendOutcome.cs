@@ -1,6 +1,7 @@
 // Mirrors: see SendOutcomeStatus. Owner send-pipeline.
 
 using Barbican.Core.Compose;
+using Barbican.Core.Jmap.Errors;
 
 namespace Barbican.Presentation.Compose.Pipeline;
 
@@ -10,6 +11,8 @@ public sealed record SendOutcome(SendOutcomeStatus Status)
     public SendReceipt? Receipt { get; init; }
 
     public string? Message { get; init; }
+
+    public JmapError? Error { get; init; }
 
     /// <summary>The entries that are no address (<see cref="SendOutcomeStatus.InvalidAddresses"/>).</summary>
     public IReadOnlyList<string> InvalidAddresses { get; init; } = [];

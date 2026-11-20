@@ -25,7 +25,7 @@ public sealed class RawMessageSender(IAccountManager accounts, TimeProvider time
         ArgumentNullException.ThrowIfNull(request);
         ArgumentNullException.ThrowIfNull(beforeSend);
         if (request.EnvelopeRecipients is null) return Task.FromResult(Failure("Invalid raw message or envelope."));
-        return SendAsync(new(session, null), request, null,
+        return SendAsync(new(session, null), request, null, null,
             (_, guard, issue, token) => beforeSend(() => guard(issue), token), ct);
     }
 
@@ -37,11 +37,27 @@ public sealed class RawMessageSender(IAccountManager accounts, TimeProvider time
         ArgumentNullException.ThrowIfNull(policy);
         ArgumentNullException.ThrowIfNull(authorize);
         if (captured.ActiveSelectionGeneration is null) return Task.FromResult(PolicyDenied());
-        return SendAsync(captured, request, policy, authorize, ct);
+        return SendAsync(captured, request, policy, null, authorize, ct);
+    }
+
+    /// <summary>Submits the raw form of one host-authorized composer attempt.</summary>
+    public Task<Result<RawMessageReceipt>> SendTakeoverAsync(AccountSessionSnapshot captured, RawMessageRequest request,
+        ComposerTakeoverRequest takeover, Func<bool, Func<Func<bool>, bool>, Func<bool>, CancellationToken, Task<bool>> authorize,
+        CancellationToken ct)
+    {
+        ArgumentNullException.ThrowIfNull(captured);
+        ArgumentNullException.ThrowIfNull(request);
+        ArgumentNullException.ThrowIfNull(takeover);
+        ArgumentNullException.ThrowIfNull(authorize);
+        if (takeover.Classification is null || !string.Equals(request.IdentityId, takeover.Payload.IdentityId, StringComparison.Ordinal))
+            return Task.FromResult(PolicyDenied());
+        return SendAsync(captured, request with { EnvelopeRecipients = takeover.EnvelopeRecipients, ScheduledAt = takeover.Options.ScheduledAt },
+            null, takeover, authorize, ct);
     }
 
     private async Task<Result<RawMessageReceipt>> SendAsync(AccountSessionSnapshot captured, RawMessageRequest request,
-        OrganizationPolicyService? policy, Func<bool, Func<Func<bool>, bool>, Func<bool>, CancellationToken, Task<bool>> authorize, CancellationToken ct)
+        OrganizationPolicyService? policy, ComposerTakeoverRequest? takeover,
+        Func<bool, Func<Func<bool>, bool>, Func<bool>, CancellationToken, Task<bool>> authorize, CancellationToken ct)
     {
         ArgumentNullException.ThrowIfNull(request);
         if (!TrySnapshot(request, out var bytes, out var recipients)) return Failure("Invalid raw message or envelope.");
@@ -61,32 +77,38 @@ public sealed class RawMessageSender(IAccountManager accounts, TimeProvider time
         if (!found.IsOk) return Result<RawMessageReceipt>.Fail(found.Error!);
         var identity = found.Value!.Select(item => item.Identity).FirstOrDefault(item => string.Equals(item.Id, request.IdentityId, StringComparison.Ordinal));
         if (identity is null || !RecipientText.IsValidEmail(identity.Email)) return Failure("The sending identity is unavailable.");
-        if (!RawMessageHeaders.TryRead(bytes, identity.Email, policy is not null, recipients is null, out var derived))
+        var sender = takeover?.Payload.FromEmail ?? identity.Email;
+        if (takeover is not null && (takeover.Classification?.Matches(session, sender) != true ||
+            !ComposerClassification.CoversSender(identity, sender, takeover.FromSubAddressDelimiter)))
+            return PolicyDenied();
+        var visible = takeover is null ? null : AddressParser.Parse(string.Join(",", takeover.Payload.To.Concat(takeover.Payload.Cc)))
+            .Select(address => RecipientText.ToAsciiEmail(address.Email)).ToArray();
+        if (!RawMessageHeaders.TryRead(bytes, sender, policy is not null || takeover is not null, recipients is null,
+            out var derived, takeover?.Payload.Subject, visible))
             return Failure("The raw message sender or envelope is invalid.");
         return await SendVerifiedAsync(ctx, jmapSession, captured, request with { Bytes = bytes, EnvelopeRecipients = recipients ?? derived },
-            identity.Email, policy, authorize, ct).ConfigureAwait(false);
+            sender, policy, takeover, authorize, ct).ConfigureAwait(false);
     }
 
     private async Task<Result<RawMessageReceipt>> SendVerifiedAsync(ComposeContext ctx, JmapSession jmapSession, AccountSessionSnapshot captured,
-        RawMessageRequest request, string sender, OrganizationPolicyService? policy,
+        RawMessageRequest request, string sender, OrganizationPolicyService? policy, ComposerTakeoverRequest? takeover,
         Func<bool, Func<Func<bool>, bool>, Func<bool>, CancellationToken, Task<bool>> authorize, CancellationToken ct)
     {
         var initial = policy is null ? null : await ReadPolicyAsync(policy, captured, sender, ct).ConfigureAwait(false);
         if (policy is not null && initial is null) return PolicyDenied();
-        var bytes = request.Bytes;
-        if (initial is { } start)
-        {
-            var classified = RawClassification.Apply(bytes, start.Labels);
-            if (!classified.IsOk) return PolicyDenied();
-            bytes = classified.Value!;
-            if (!RawMessageHeaders.TryRead(bytes, sender, true, false, out _)) return PolicyDenied();
-        }
+        var prepared = PrepareBytes(request.Bytes, sender, initial?.Labels, takeover?.Classification);
+        if (prepared is null) return PolicyDenied();
         long? hold = null;
         if (request.ScheduledAt is { } scheduled)
         {
             var duration = DelayedSend.ScheduledHold(scheduled.ToUnixTimeMilliseconds(), time.GetUtcNow().ToUnixTimeMilliseconds(), SubmissionOps.MaxDelayedSend(ctx));
             if (!duration.IsOk) return Result<RawMessageReceipt>.Fail(duration.Error!);
             hold = duration.Value;
+        }
+        else if (takeover?.Options.UndoSeconds is > 0 and var undo)
+        {
+            var max = SubmissionOps.MaxDelayedSend(ctx);
+            if (max > 0) hold = Math.Min(undo, max);
         }
         var roles = await ctx.RolesAsync(false, ct).ConfigureAwait(false);
         if (!roles.IsOk) return Result<RawMessageReceipt>.Fail(roles.Error!);
@@ -97,6 +119,11 @@ public sealed class RawMessageSender(IAccountManager accounts, TimeProvider time
             var latest = initial;
             if (submission && policy is not null)
                 latest = await ReadPolicyAsync(policy, captured, sender, token).ConfigureAwait(false);
+            if (takeover?.Classification is { } selected && !await selected.IsStillApplicableAsync(token).ConfigureAwait(false))
+            {
+                policyChanged = true;
+                return false;
+            }
             if (initial is { } expected && (latest is not { } current || !SameLabels(expected.Labels, current.Labels)))
             {
                 policyChanged = true;
@@ -105,7 +132,7 @@ public sealed class RawMessageSender(IAccountManager accounts, TimeProvider time
             bool IssueWhileAccountCurrent(Func<bool> write) => AccountIssue(captured, jmapSession, write, token);
             bool Guard(Func<bool> write) => initial is { } authorized && latest is { } checkedPolicy
                 ? authorized.Snapshot.TryRunWhileCurrent(() => checkedPolicy.Snapshot.TryRunWhileCurrent(() => IssueWhileAccountCurrent(write)))
-                : IssueWhileAccountCurrent(write);
+                : takeover?.Classification is { } selection ? selection.TryIssue(() => IssueWhileAccountCurrent(write)) : IssueWhileAccountCurrent(write);
             return await authorize(submission, Guard, issue, token).ConfigureAwait(false);
         }
         Task<bool> CleanupFenceAsync(Func<bool> issue, CancellationToken token) =>
@@ -113,12 +140,21 @@ public sealed class RawMessageSender(IAccountManager accounts, TimeProvider time
         Task<bool> ReadbackFenceAsync(Func<bool> issue, CancellationToken token) =>
             authorize(false, write => AccountIssue(captured, jmapSession, write, token), issue, token);
         var client = (JmapClient)ctx.Client;
-        var upload = await client.UploadAsync(ctx.Account, bytes, "message/rfc822",
+        var upload = await client.UploadAsync(ctx.Account, prepared, "message/rfc822",
             (issue, token) => IssueAsync(false, issue, token), ct).ConfigureAwait(false);
         if (!upload.IsOk) return Result<RawMessageReceipt>.Fail(upload.Error!);
         var result = await SubmitUploadedAsync(ctx, request, sender, request.EnvelopeRecipients!, hold, roles.Value!, upload.Value!.BlobId,
             (issue, token) => IssueAsync(true, issue, token), CleanupFenceAsync, ReadbackFenceAsync, ct).ConfigureAwait(false);
         return policyChanged && result.Error is not RawMessageOutcomeUnknown ? PolicyDenied() : result;
+    }
+
+    private static byte[]? PrepareBytes(byte[] bytes, string sender, ClassificationPolicy? standalone, ComposerClassificationDecision? takeover)
+    {
+        if (standalone is null && takeover?.Policy is null) return bytes;
+        var classified = standalone is not null ? RawClassification.Apply(bytes, standalone) :
+            RawClassification.ApplySelected(bytes, takeover!.Policy!, takeover.Label);
+        return classified.IsOk && classified.Value is { } labelled &&
+            RawMessageHeaders.TryRead(labelled, sender, true, false, out _) ? labelled : null;
     }
 
     private bool AccountIssue(AccountSessionSnapshot captured, JmapSession jmapSession, Func<bool> issue, CancellationToken ct)

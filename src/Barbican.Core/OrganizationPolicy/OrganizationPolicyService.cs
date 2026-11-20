@@ -110,6 +110,16 @@ public sealed class OrganizationPolicyService(IAccountSessionSnapshots accounts,
     internal Task<OrganizationPolicyLookup> ReadForSessionAsync(AccountSessionSnapshot captured, CancellationToken ct) =>
         ReadAsync(captured.Session.Account.Key, captured, ct);
 
+    /// <summary>Orders one synchronous operation against provider connection and replacement of the sending login.</summary>
+    public bool TryRunWithoutProvider(AccountSessionSnapshot captured, Func<bool> issue)
+    {
+        ArgumentNullException.ThrowIfNull(captured);
+        ArgumentNullException.ThrowIfNull(issue);
+        lock (_gate)
+            return _routes.GetValueOrDefault(captured.Session.Account.Key)?.Route is null &&
+                accounts.TryRunWhileCurrent([captured], issue);
+    }
+
     private async Task<OrganizationPolicyLookup> ReadAsync(string localAccountKey, AccountSessionSnapshot? selection, CancellationToken ct)
     {
         Route? route;

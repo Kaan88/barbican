@@ -9,7 +9,8 @@ internal static class RawMessageHeaders
 {
     private const int MaxHeaderBytes = 64 * 1024;
 
-    internal static bool TryRead(byte[] bytes, string identity, bool protectBlindRecipients, bool deriveRecipients, out string[] recipients)
+    internal static bool TryRead(byte[] bytes, string identity, bool protectBlindRecipients, bool deriveRecipients, out string[] recipients,
+        string? expectedSubject = null, IReadOnlyList<string>? visibleRecipients = null)
     {
         recipients = [];
         if (protectBlindRecipients && !RawClassification.HasValidHeaderBlock(bytes)) return false;
@@ -28,12 +29,22 @@ internal static class RawMessageHeaders
             // Blind recipients belong only in the SMTP envelope so the signed source can be sent as supplied.
             if (protectBlindRecipients && headers.Any(header => header.Id is HeaderId.Bcc or HeaderId.ResentBcc &&
                 !string.IsNullOrWhiteSpace(header.Value))) return false;
+            if (expectedSubject is not null && !MatchesSubject(headers, expectedSubject)) return false;
+            if (visibleRecipients is not null && (!TryReadRecipients(headers, options, out var visible, allowEmpty: true) ||
+                !visible.All(address => visibleRecipients.Contains(address, StringComparer.Ordinal)))) return false;
             return !deriveRecipients || TryReadRecipients(headers, options, out recipients);
         }
         catch (Exception error) when (error is FormatException or IOException or ArgumentException) { return false; }
     }
 
-    private static bool TryReadRecipients(HeaderList headers, ParserOptions options, out string[] recipients)
+    private static bool MatchesSubject(HeaderList headers, string expected)
+    {
+        var subjects = headers.Where(header => header.Id == HeaderId.Subject).ToArray();
+        return subjects.Length == 0 ? expected.Length == 0 : subjects.Length == 1 &&
+            string.Equals(subjects[0].Value, expected, StringComparison.Ordinal);
+    }
+
+    private static bool TryReadRecipients(HeaderList headers, ParserOptions options, out string[] recipients, bool allowEmpty = false)
     {
         recipients = [];
         var result = new List<string>();
@@ -47,7 +58,7 @@ internal static class RawMessageHeaders
             }
         }
         recipients = [.. result.Distinct(StringComparer.Ordinal)];
-        return recipients.Length > 0;
+        return allowEmpty || recipients.Length > 0;
     }
 
     private static int HeaderLength(byte[] bytes)

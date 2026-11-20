@@ -11,7 +11,8 @@ namespace Barbican.Core.Tests.Plugins.Api;
 
 public sealed class PluginRawSendMethodsTests
 {
-    private static readonly PluginGrantSnapshot Grant = new(new PluginPackageIdentity("probe", "1.0.0", new string('a', 64)), 1, true, ["email:raw-send"], ["sample"]);
+    private static readonly PluginGrantSnapshot Grant = new(new PluginPackageIdentity("probe", "1.0.0", new string('a', 64)), 1, true,
+        ["email:raw-send"], ["sample"], PluginExecutionTier.Privileged);
     private static CancellationToken Ct => TestContext.Current.CancellationToken;
 
     [Theory]
@@ -22,6 +23,7 @@ public sealed class PluginRawSendMethodsTests
         var host = new Host { Receipt = new("sample", "account", submitOnly ? null : "email", "submission", null) };
         var method = submitOnly ? PluginRawSendMethods.SubmitRaw(host) : PluginRawSendMethods.SendRaw(host);
         Assert.True(method.Descriptor.MayMutate);
+        Assert.True(method.Descriptor.PrivilegedOnly);
         Assert.Contains("email:raw-send", method.Descriptor.PermissionAlternatives[0], StringComparer.Ordinal);
         var builder = new PluginValueBuilder();
         var buffer = builder.Buffer("xxRAWyy"u8);

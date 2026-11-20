@@ -278,6 +278,7 @@ public sealed partial class ComposerViewModel : ObservableObject, IMentionSource
             SourceEmailId = _seed.SourceEmailId,
             IdentityId = _identityId ?? string.Empty,
             FromOverride = FromOverrideValue(),
+            FromSubAddressDelimiter = ClassificationSubAddressDelimiter,
             To = RecipientText.ExpandForSend(To.Text),
             Cc = RecipientText.ExpandForSend(Cc.Text),
             Bcc = RecipientText.ExpandForSend(Bcc.Text),

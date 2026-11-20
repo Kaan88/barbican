@@ -25,6 +25,9 @@ public sealed partial class ComposerViewModel
         }
     }
 
+    /// <summary>Identifies the send input while the composer is submitting it.</summary>
+    public string? SendAttemptRevision => IsSending ? PluginRevision : null;
+
     /// <summary>Whether the send controls are available; malformed To entries remain actionable so validation can explain them.</summary>
     public bool CanSend => !_closed && !IsSending && !_sendFlowActive && Schedule is null
         && RecipientText.Expand([.. To.Recipients, .. string.IsNullOrWhiteSpace(To.Input) ? [] : new[] { RecipientText.ParseRecipient(To.Input) }]).Count > 0;
@@ -87,8 +90,14 @@ public sealed partial class ComposerViewModel
                 IsQuickReply = _c.AskInline is not null,
                 Body = CurrentDoc().Clone(),
             };
+            var revision = PluginRevision;
             if (!await ConfirmSendAsync(draft).ConfigureAwait(true))
             {
+                return false;
+            }
+            if (!string.Equals(revision, PluginRevision, StringComparison.Ordinal))
+            {
+                Notify("The message changed. Review it before sending again.", error: true);
                 return false;
             }
 
@@ -190,14 +199,22 @@ public sealed partial class ComposerViewModel
         IsSending = true;
         Status = scheduledAt is null ? "Sending…" : "Scheduling…";
         var gen = _autosave.Begin();
-        var options = new SendOptions { UndoSeconds = scheduledAt is null ? _c.Settings.SendDelaySeconds : 0, ScheduledAt = scheduledAt };
+        draft = draft with { ComposerRevision = SendAttemptRevision };
+        var options = new SendOptions
+        {
+            UndoSeconds = scheduledAt is null ? _c.Settings.SendDelaySeconds : 0,
+            ScheduledAt = scheduledAt,
+            ClassificationChoice = ClassificationChoice,
+        };
         string? error = null;
+        var unknown = false;
         SendReceipt? receipt = null;
         try
         {
             var res = await _c.Sender.SendAsync(draft, options, ct).ConfigureAwait(true);
             receipt = res.IsOk ? res.Value : null;
             error = res.IsOk ? null : res.Error!.Message;
+            unknown = res.Error is RawMessageOutcomeUnknown;
         }
 #pragma warning disable CA1031 // a send that throws is a failed send: the composer stays open with the text intact
         catch (OperationCanceledException) when (ct.IsCancellationRequested)
@@ -214,6 +231,12 @@ public sealed partial class ComposerViewModel
         IsSending = false;
         if (receipt is null)
         {
+            if (unknown)
+            {
+                Status = error!;
+                if (!_c.Sender.ShowsToasts) Notify(Status, error: true);
+                return false;
+            }
             if (_c.Sender.ShowsToasts)
             {
                 // the coordinator toasts most refusals, but a quiet one (a cancelled question, a thrown error) would leave only "Not sent": keep the reason on screen (UI-SWEEP-1 C-05)

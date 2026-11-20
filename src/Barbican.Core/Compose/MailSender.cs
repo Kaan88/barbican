@@ -3,9 +3,11 @@
 // RFC 8621 section 7.5 (EmailSubmission/set, undoStatus, onSuccessUpdateEmail), RFC 4865 (FUTURERELEASE / HOLDFOR); Stalwart crates/jmap/src/submission/set.rs (HOLDFOR in the envelope parameters; forbiddenFrom for a MAIL FROM the identity does not own).
 // Decisions: D-M3A-02 (onComposeSend is an intercept: false means a plugin sent the message itself), D-M3A-03 (Send now = cancel and resubmit without a hold; M3 plan section 9 item 6), D-M3A-04 (a failed send takes its server copy out again, so no stray draft is left).
 
+using System.Globalization;
 using System.Text.Json.Nodes;
 using Barbican.Core.Accounts;
 using Barbican.Core.Common;
+using Barbican.Core.Compose.Recipients;
 using Barbican.Core.Jmap;
 using Barbican.Core.Jmap.Errors;
 using Barbican.Core.Jmap.Json;
@@ -13,12 +15,14 @@ using Barbican.Core.Jmap.Submission;
 using Barbican.Core.Mail.Model;
 using Barbican.Core.Mail.Reader;
 using Barbican.Core.Plugins.Hooks;
+using Barbican.Core.Plugins.Api.ComposeSend;
 using Barbican.Core.Plugins.Payloads;
 
 namespace Barbican.Core.Compose;
 
 /// <summary>Submits a composed message and undoes or releases a held one.</summary>
-public sealed partial class MailSender(IAccountManager accounts, IIdentityService identities, IComposeSeeder seeder, IHookBus hooks, IDocCodec codec, TimeProvider time, IOutgoingAddOnHooks? addOns = null) : IMailSender, IDisposable
+public sealed partial class MailSender(IAccountManager accounts, IIdentityService identities, IComposeSeeder seeder, IHookBus hooks, IDocCodec codec, TimeProvider time,
+    IOutgoingAddOnHooks? addOns = null, ComposerClassification? classification = null) : IMailSender, IDisposable
 {
     public async Task<Result<SendReceipt>> SendAsync(ComposeDraft draft, SendOptions options, CancellationToken ct)
     {
@@ -54,14 +58,17 @@ public sealed partial class MailSender(IAccountManager accounts, IIdentityServic
         }
 
         var addOnSend = addOns?.Start(ctx.Value!.Session);
-        var hooked = await RunHooksAsync(draft, identity, options, addOnSend, ids.Value!, ct).ConfigureAwait(false);
+        var hookOptions = options.ScheduledAt is null ? options with { UndoSeconds = (int)(hold.Value ?? 0) } : options;
+        var hooked = await RunHooksAsync(ctx.Value!, draft, identity, hookOptions, addOnSend, ids.Value!, ct).ConfigureAwait(false);
         if (!hooked.IsOk)
         {
             return Result<SendReceipt>.Fail(hooked.Error!);
         }
 
-        var (sendDraft, html, text) = hooked.Value;
-        var sent = await SubmitAsync(ctx.Value!, sendDraft, identity, hold.Value, html, text, addOnSend, ct).ConfigureAwait(false);
+        var prepared = hooked.Value!;
+        if (prepared.Takeover is { } taken)
+            return await FinishTakeoverAsync(ctx.Value!, draft, prepared.Draft, taken, options, addOnSend).ConfigureAwait(false);
+        var sent = await SubmitAsync(ctx.Value!, prepared, identity, hold.Value, addOnSend, ct).ConfigureAwait(false);
         if (!sent.IsOk)
         {
             return Result<SendReceipt>.Fail(sent.Error!);
@@ -73,7 +80,7 @@ public sealed partial class MailSender(IAccountManager accounts, IIdentityServic
             CanUndo = hold.Value is > 0,
             Draft = draft,
         };
-        AnnounceAccepted(ctx.Value!, receipt, sendDraft, options.ScheduledAt, addOnSend);
+        AnnounceAccepted(ctx.Value!, receipt, prepared.Draft, options.ScheduledAt, addOnSend);
         return Result<SendReceipt>.Ok(receipt);
     }
 
@@ -215,12 +222,13 @@ public sealed partial class MailSender(IAccountManager accounts, IIdentityServic
         return Result<long?>.Ok(options.UndoSeconds > 0 && max > 0 ? Math.Min(options.UndoSeconds, max) : null);
     }
 
-    private async Task<Result<(ComposeDraft Draft, string Html, string Text)>> RunHooksAsync(ComposeDraft draft, Identity identity, SendOptions options, IOutgoingAddOnSend? addOnSend, IReadOnlyList<ComposeIdentity> identities, CancellationToken ct)
+    private async Task<Result<PreparedComposeSend>> RunHooksAsync(ComposeContext context, ComposeDraft draft, Identity identity, SendOptions options,
+        IOutgoingAddOnSend? addOnSend, IReadOnlyList<ComposeIdentity> identities, CancellationToken ct)
     {
         var html = draft.PlainText ? "" : codec.Export(draft.Body);
         var text = codec.ToText(draft.Body);
-        var from = SubmissionRules.HeaderFrom(DraftBuilder.Outgoing(draft), identity, "").Email;
-        var outgoing = new OutgoingEmailPayload(draft.AccountId, identity.Id, from, draft.To, draft.Cc, draft.Bcc, draft.Subject, html, text)
+        var from = SubmissionRules.HeaderFrom(DraftBuilder.Outgoing(draft), identity, context.Username);
+        var outgoing = new OutgoingEmailPayload(draft.AccountId, identity.Id, from.Email, draft.To, draft.Cc, draft.Bcc, draft.Subject, html, text)
         {
             ComposerId = draft.ComposerId,
             AuthoredText = draft.AuthoredText,
@@ -241,14 +249,35 @@ public sealed partial class MailSender(IAccountManager accounts, IIdentityServic
                 (addOnSend is null || await addOnSend.CheckAsync(check, ct).ConfigureAwait(false));
         if (!await AllowedAsync(outgoing).ConfigureAwait(false))
         {
-            return Result<(ComposeDraft, string, string)>.Fail(new ValidationError("A plugin stopped this message from being sent."));
+            return Result<PreparedComposeSend>.Fail(new ValidationError("A plugin stopped this message from being sent."));
         }
 
         if (!await hooks.AllowAsync(HookNames.OnComposeSend, () => new ComposeSendRequestPayload(outgoing, options.UndoSeconds, options.ScheduledAt), ct).ConfigureAwait(false))
         {
-            return Result<(ComposeDraft, string, string)>.Fail(new ValidationError("A plugin took over sending this message."));
+            return Result<PreparedComposeSend>.Fail(new ValidationError("A plugin took over sending this message."));
         }
 
+        Result<ComposerClassificationDecision>? decision = classification is null ? null :
+            await classification.ResolveAsync(context.Session, from.Email, options.ClassificationChoice, ct).ConfigureAwait(false);
+        if (decision is { IsOk: false }) return Result<PreparedComposeSend>.Fail(decision.Value.Error!);
+        var labels = decision?.Value;
+        if (labels?.Policy is not null && !ComposerClassification.CoversSender(identity, from.Email, draft.FromSubAddressDelimiter))
+            return Result<PreparedComposeSend>.Fail(new ValidationError("The sender could not be verified under the classification policy."));
+        var labelled = draft with { Subject = labels?.ApplySubjectPrefix(draft.Subject) ?? draft.Subject };
+        if (addOnSend is not null && !draft.IsQuickReply && draft.ComposerId is { } id && draft.ComposerRevision is { } revision)
+        {
+            var request = MakeTakeoverRequest(id, revision, labelled, outgoing, from, options, labels);
+            var takeover = await addOnSend.TakeOverAsync(request, ct).ConfigureAwait(false);
+            if (!takeover.IsOk) return Result<PreparedComposeSend>.Fail(takeover.Error!);
+            if (takeover.Value is { } receipt) return Result<PreparedComposeSend>.Ok(new(labelled, html, text, labels, receipt));
+        }
+        return await TransformAsync(draft, outgoing, addOnSend, identities, labels, AllowedAsync, ct).ConfigureAwait(false);
+    }
+
+    private async Task<Result<PreparedComposeSend>> TransformAsync(ComposeDraft draft, OutgoingEmailPayload outgoing,
+        IOutgoingAddOnSend? addOnSend, IReadOnlyList<ComposeIdentity> identities, ComposerClassificationDecision? labels,
+        Func<OutgoingEmailPayload, Task<bool>> allowed, CancellationToken ct)
+    {
         var changed = hooks.HasHandlers(HookNames.OnTransformOutgoingEmail)
             ? await hooks.TransformAsync(HookNames.OnTransformOutgoingEmail, outgoing, ct).ConfigureAwait(false) : outgoing;
         if (addOnSend is not null) changed = await addOnSend.TransformAsync(changed with
@@ -262,19 +291,56 @@ public sealed partial class MailSender(IAccountManager accounts, IIdentityServic
         };
         var targets = DraftBuilder.Recipients(finalDraft);
         if (targets.Count == 0)
-            return Result<(ComposeDraft, string, string)>.Fail(new ValidationError("Add at least one recipient."));
+            return Result<PreparedComposeSend>.Fail(new ValidationError("Add at least one recipient."));
         if (!targets.Order(StringComparer.OrdinalIgnoreCase).SequenceEqual(
                 DraftBuilder.Recipients(draft).Order(StringComparer.OrdinalIgnoreCase), StringComparer.OrdinalIgnoreCase) &&
-            !await AllowedAsync(outgoing with
+            !await allowed(outgoing with
             {
                 To = finalDraft.To, Cc = finalDraft.Cc, Bcc = finalDraft.Bcc,
                 ExternalRecipients = ExternalRecipients(finalDraft, identities),
             }).ConfigureAwait(false))
-            return Result<(ComposeDraft, string, string)>.Fail(new ValidationError("A plugin stopped this message from being sent."));
+            return Result<PreparedComposeSend>.Fail(new ValidationError("A plugin stopped this message from being sent."));
 
-        html = finalDraft.PlainText ? "" : changed.Html;
-        text = changed.Text;
-        return Result<(ComposeDraft, string, string)>.Ok((finalDraft, html, text));
+        var labelled = finalDraft with { Subject = labels?.ApplySubjectPrefix(finalDraft.Subject) ?? finalDraft.Subject };
+        return Result<PreparedComposeSend>.Ok(new(labelled, labelled.PlainText ? "" : changed.Html, changed.Text, labels));
+    }
+
+    private ComposerTakeoverRequest MakeTakeoverRequest(string id, string revision, ComposeDraft draft, OutgoingEmailPayload outgoing,
+        EmailAddress from, SendOptions options, ComposerClassificationDecision? decision)
+    {
+        static IReadOnlyList<string> Recipients(string field) => [.. RecipientText.Expand(RecipientText.ParseList(field))
+            .Select(recipient => RecipientText.FormatRecipient(recipient.Name, recipient.Email))];
+        var delay = options.ScheduledAt ?? (options.UndoSeconds > 0 ? time.GetUtcNow().AddSeconds(options.UndoSeconds) : null);
+        var payload = new PluginComposeSendRequest(Recipients(draft.To), Recipients(draft.Cc), Recipients(draft.Bcc),
+            draft.Subject, outgoing.Html, outgoing.Text, outgoing.IdentityId, from.Email, from.Name ?? "",
+            draft.InReplyTo, draft.References.Count > 0 ? draft.References : null,
+            delay?.ToUniversalTime().ToString("O", CultureInfo.InvariantCulture), null, draft.Attachments);
+        return new(id, revision, payload, DraftBuilder.Recipients(draft), options, decision, draft.FromSubAddressDelimiter);
+    }
+
+    private async Task<Result<SendReceipt>> FinishTakeoverAsync(ComposeContext ctx, ComposeDraft original, ComposeDraft sent, RawMessageReceipt raw,
+        SendOptions options, IOutgoingAddOnSend? addOnSend)
+    {
+        if (!string.Equals(raw.LocalAccountKey, original.AccountId, StringComparison.Ordinal) ||
+            !string.Equals(raw.JmapAccountId, ctx.Account, StringComparison.Ordinal))
+            return Result<SendReceipt>.Fail(new RawMessageOutcomeUnknown());
+        if (original.DraftId is { Length: > 0 } draftId && !string.Equals(draftId, raw.EmailId, StringComparison.Ordinal))
+            await RemoveTakenOverDraftAsync(ctx, original.AccountId, draftId).ConfigureAwait(false);
+        var receipt = new SendReceipt(original.AccountId, raw.EmailId ?? "", raw.SubmissionId)
+        {
+            Draft = original,
+            ReleaseAt = raw.ReleaseAt,
+            CanUndo = raw.EmailId is not null && raw.ReleaseAt is { } release && release > time.GetUtcNow(),
+        };
+        if (raw.EmailId is not null) AnnounceAccepted(ctx, receipt, sent, options.ScheduledAt, addOnSend);
+        return Result<SendReceipt>.Ok(receipt);
+    }
+
+    private async Task RemoveTakenOverDraftAsync(ComposeContext ctx, string accountKey, string draftId)
+    {
+        using var cleanup = new CancellationTokenSource(TimeSpan.FromSeconds(10), time);
+        try { _ = await SubmissionOps.DestroyEmailAsync(ctx, draftId, cleanup.Token, AccountGuard(ctx, accountKey)).ConfigureAwait(false); }
+        catch (OperationCanceledException) when (cleanup.IsCancellationRequested) { }
     }
 
     private static IReadOnlyList<string> ExternalRecipients(ComposeDraft draft, IReadOnlyList<ComposeIdentity> identities)
@@ -285,8 +351,10 @@ public sealed partial class MailSender(IAccountManager accounts, IIdentityServic
             .Select(email => email.ToLowerInvariant()).Distinct(StringComparer.Ordinal)];
     }
 
-    private async Task<Result<SendReceipt>> SubmitAsync(ComposeContext ctx, ComposeDraft draft, Identity identity, long? hold, string html, string text, IOutgoingAddOnSend? addOnSend, CancellationToken ct)
+    private async Task<Result<SendReceipt>> SubmitAsync(ComposeContext ctx, PreparedComposeSend prepared, Identity identity, long? hold,
+        IOutgoingAddOnSend? addOnSend, CancellationToken ct)
     {
+        var draft = prepared.Draft;
         var roles = await ctx.RolesAsync(false, ct).ConfigureAwait(false);
         if (!roles.IsOk)
         {
@@ -313,9 +381,16 @@ public sealed partial class MailSender(IAccountManager accounts, IIdentityServic
 
         var onSuccess = OnSuccess(roles.Value!);
         var accountGuard = AccountGuard(ctx, draft.AccountId);
-        var beforeSend = addOnSend is null ? accountGuard : addOnSend.TryIssueAsync;
-        var request = JmapRequest.Of([.. Calls(ctx, draft, identity, roles.Value!.Drafts, html, text, Submission("#d", mailFrom), onSuccess)])
-            with { BeforeSend = beforeSend };
+        async Task<bool> BeforeSendAsync(Func<bool> issue, CancellationToken token)
+        {
+            if (prepared.Classification is not { } labels)
+                return await (addOnSend is null ? accountGuard(issue, token) : addOnSend.TryIssueAsync(issue, token)).ConfigureAwait(false);
+            if (!await labels.IsStillApplicableAsync(token).ConfigureAwait(false)) return false;
+            return await (addOnSend is null ? Task.FromResult(!token.IsCancellationRequested && labels.TryIssue(issue))
+                : addOnSend.TryIssueAsync(labels.TryIssue, issue, token)).ConfigureAwait(false);
+        }
+        var request = JmapRequest.Of([.. Calls(ctx, prepared, identity, roles.Value!.Drafts, Submission("#d", mailFrom), onSuccess)])
+            with { BeforeSend = BeforeSendAsync };
         var response = await ctx.Client.SendAsync(request, ct).ConfigureAwait(false);
         if (!response.IsOk)
         {
@@ -325,7 +400,7 @@ public sealed partial class MailSender(IAccountManager accounts, IIdentityServic
         return await CompleteSubmissionAsync(ctx, draft.AccountId, response.Value!,
             string.Equals(mailFrom, identityMailFrom, StringComparison.OrdinalIgnoreCase) ? null
                 : emailId => Submission(emailId, identityMailFrom),
-            onSuccess, beforeSend, accountGuard, ct).ConfigureAwait(false);
+            onSuccess, BeforeSendAsync, accountGuard, ct).ConfigureAwait(false);
     }
 
     private Func<Func<bool>, CancellationToken, Task<bool>> AccountGuard(ComposeContext ctx, string accountKey)
@@ -393,12 +468,16 @@ public sealed partial class MailSender(IAccountManager accounts, IIdentityServic
         return retry.IsOk ? ReaderCalls.Created(retry.Value!, "s") : Result<string>.Fail(retry.Error!);
     }
 
-    private static List<JsonArray> Calls(ComposeContext ctx, ComposeDraft draft, Identity identity, string draftsId, string html, string text, JsonObject submission, JsonObject onSuccess)
+    private static List<JsonArray> Calls(ComposeContext ctx, PreparedComposeSend prepared, Identity identity, string draftsId, JsonObject submission, JsonObject onSuccess)
     {
+        var draft = prepared.Draft;
+        var message = DraftBuilder.Build(draft, identity, ctx.Username, draftsId, true, prepared.Html, prepared.Text);
+        if (prepared.Classification is { } labels)
+            foreach (var header in labels.Headers) message[header.Key] = header.Value;
         var emailSet = new JsonObject
         {
             ["accountId"] = ctx.Account,
-            ["create"] = new JsonObject { ["d"] = DraftBuilder.Build(draft, identity, ctx.Username, draftsId, true, html, text) },
+            ["create"] = new JsonObject { ["d"] = message },
         };
         if (draft.DraftId is { Length: > 0 } old)
         {

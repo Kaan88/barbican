@@ -3,6 +3,7 @@ using Barbican.Core.Common;
 using Barbican.Core.Jmap;
 using Barbican.Core.Jmap.Errors;
 using Barbican.Core.Mail;
+using Barbican.Core.Plugins.Api.RawSend;
 using Barbican.Core.Plugins.Bridge;
 using Barbican.Core.Plugins.Packages;
 using Barbican.Core.Plugins.Permissions;
@@ -48,6 +49,35 @@ public sealed class PluginDispatcherTests
         authority.Current = Grant();
         method.Descriptor = new("probe.read", [["email:read"]], TimeSpan.FromSeconds(5), privilegedOnly: true);
         Assert.Equal(PluginErrorCode.PermissionDenied, (await dispatcher.DispatchAsync(binding, Request(), Ct)).Error);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task RawSendGrantAloneCannotReachEitherRawHostMethod(bool submitOnly)
+    {
+        var grant = Grant(permissions: ["email:raw-send"]);
+        var host = new UnreachableRawHost();
+        var method = submitOnly ? PluginRawSendMethods.SubmitRaw(host) : PluginRawSendMethods.SendRaw(host);
+        var dispatcher = new PluginApiDispatcher("auto-dispatch", [method], new Authority(grant), new Sessions());
+        await using var binding = PluginRuntimeBinding.Create("auto-dispatch", grant, PluginFrameKind.Background);
+        var values = new PluginValueBuilder();
+        var args = values.Build(values.Array(values.Buffer("synthetic"u8), values.String("identity")));
+        var result = await dispatcher.DispatchAsync(binding, new PluginApiRequest("id", method.Descriptor.Name, args), Ct);
+
+        Assert.Equal(PluginErrorCode.PermissionDenied, result.Error);
+        Assert.Equal(0, host.Calls);
+    }
+
+    private sealed class UnreachableRawHost : IPluginRawSendHost
+    {
+        public int Calls { get; private set; }
+
+        public Task<PluginRawSendOutcome> SendAsync(IPluginInvocationContext context, PluginRawSendRequest request, CancellationToken ct)
+        {
+            Calls++;
+            return Task.FromResult(new PluginRawSendOutcome(null, PluginErrorCode.Failed));
+        }
     }
 
     [Fact]
