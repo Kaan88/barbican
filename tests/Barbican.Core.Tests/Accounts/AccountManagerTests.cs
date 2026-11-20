@@ -42,7 +42,8 @@ public sealed partial class AccountManagerTests : IAsyncDisposable
         var oauthHttp = new OAuthHttp(_http, time);
         _clients = new OAuthClientRegistry(oauthHttp, paths);
         var flow = new OAuthFlow(new OAuthDiscovery(oauthHttp), _clients, oauthHttp, new RedirectFollowingLauncher(_http), new OAuthFlowOptions { LoopbackPort = 0 }, time);
-        _manager = new AccountManager(new JmapClientFactory(_http, time), new MailAccountFactory(_hooks, time), _store, flow, oauthHttp, paths, ReadOnlyPolicy.AllReadOnly, _hooks, time);
+        _manager = new AccountManager(new JmapClientFactory(_http, time), new MailAccountFactory(_hooks, time), _store, flow, oauthHttp, paths,
+            ReadOnlyPolicy.AllReadOnly, _hooks, time, signOutCleanup: _signOutCleanup);
     }
 
     private static CancellationToken Ct => TestContext.Current.CancellationToken;

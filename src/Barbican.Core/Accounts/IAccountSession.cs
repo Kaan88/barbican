@@ -15,4 +15,7 @@ public interface IAccountSession
     IMailService Mail { get; }
 
     IMailSync Sync { get; }
+
+    /// <summary>Whether the host owned add-on storage before establishing this login session.</summary>
+    bool AllowsAddOnStorage => false;
 }

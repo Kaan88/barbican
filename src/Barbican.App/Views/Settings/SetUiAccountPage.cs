@@ -2,6 +2,7 @@
 
 using Barbican.App.Shell;
 using Barbican.Core.Accounts;
+using Barbican.Presentation.Actions;
 using Barbican.Presentation.Dialogs;
 using Barbican.Presentation.Settings;
 using Barbican.Presentation.Settings.Ui;
@@ -178,6 +179,8 @@ internal static class SetUiAccountPage
             }
         }
 
-        _ = await maintenance.SignOutAsync(key, CancellationToken.None).ConfigureAwait(true);
+        var result = await maintenance.SignOutAsync(key, CancellationToken.None).ConfigureAwait(true);
+        if (!result.IsOk)
+            ViewHost.Find<IToastService>()?.Show(new ToastRequest(result.Error!.Message, IsError: true));
     }
 }

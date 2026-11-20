@@ -96,7 +96,7 @@ internal static class PluginSandboxPackageProbe
             if (!(await host.SetEnabledAsync(request.Grant.Package, true, budget.Token).ConfigureAwait(false)).IsOk)
                 throw new InvalidOperationException("Synthetic re-enable failed.");
             await RequireRefusalAsync(factory, request, budget.Token).ConfigureAwait(false);
-            instance = await VerifyRestartAsync(host, factory, request, budget.Token).ConfigureAwait(false);
+            instance = await VerifyRestartAsync(host, factory, request, accounts, budget.Token).ConfigureAwait(false);
             passed = true;
         }
 #pragma warning disable CA1031 // Status must never disclose paths, package content, or renderer messages.
@@ -120,7 +120,7 @@ internal static class PluginSandboxPackageProbe
     }
 
     private static async Task<IPluginRuntimeInstance> VerifyRestartAsync(PluginPackageHost host, IPluginRuntimeFactory factory,
-        PluginRuntimeStart request, CancellationToken ct)
+        PluginRuntimeStart request, ProbeAccounts accounts, CancellationToken ct)
     {
         var current = await host.FindAsync(PackageId, ct).ConfigureAwait(false);
         if (!current.IsOk || current.Value is not { Enabled: true, Grant: { Enabled: true } } installation)
@@ -131,6 +131,7 @@ internal static class PluginSandboxPackageProbe
         try
         {
             await RequireStorageAsync(runtime, "read", "focus", ct).ConfigureAwait(false);
+            await VerifySignOutAsync(host, runtime, accounts, ct).ConfigureAwait(false);
             if (!(await host.UninstallAsync(installation.Package.Identity, ct).ConfigureAwait(false)).IsOk || runtime.Binding.IsAlive)
                 throw new InvalidOperationException("Synthetic removal failed.");
             return runtime;
@@ -140,6 +141,30 @@ internal static class PluginSandboxPackageProbe
             await runtime.DisposeAsync().ConfigureAwait(false);
             throw;
         }
+    }
+
+    private static async Task VerifySignOutAsync(PluginPackageHost host, IPluginRuntimeInstance runtime, ProbeAccounts accounts,
+        CancellationToken ct)
+    {
+        accounts.SwitchToSecond(true);
+        await RequireStorageAsync(runtime, "write", "second", ct).ConfigureAwait(false);
+
+        accounts.SetSignOutFence(true, allAccounts: false);
+        var erased = await host.PrepareSignOutAsync([FirstLogin], allAccounts: false, ct).ConfigureAwait(false);
+        if (!erased.IsOk) throw new InvalidOperationException("Synthetic single-account erasure failed.");
+        accounts.SetSignOutFence(false, allAccounts: false);
+        await RequireStorageAsync(runtime, "read", "second", ct).ConfigureAwait(false);
+        accounts.SwitchToSecond(false);
+        await RequireStorageAsync(runtime, "read", "empty", ct).ConfigureAwait(false);
+        await RequireStorageAsync(runtime, "write", "second", ct).ConfigureAwait(false);
+
+        accounts.SetSignOutFence(true, allAccounts: true);
+        erased = await host.PrepareSignOutAsync([FirstLogin, SecondLogin], allAccounts: true, ct).ConfigureAwait(false);
+        if (!erased.IsOk) throw new InvalidOperationException("Synthetic full sign-out erasure failed.");
+        accounts.SetSignOutFence(false, allAccounts: true);
+        await RequireStorageAsync(runtime, "read", "empty", ct).ConfigureAwait(false);
+        accounts.SwitchToSecond(true);
+        await RequireStorageAsync(runtime, "read", "empty", ct).ConfigureAwait(false);
     }
 
     private static async Task RequireStorageAsync(IPluginRuntimeInstance runtime, string action, string expected, CancellationToken ct)
@@ -234,21 +259,45 @@ internal static class PluginSandboxPackageProbe
     private sealed class ProbeAccounts : IAccountOverview, IPluginSessionSource
     {
         private readonly Lock _gate = new();
-        private readonly ProbeSession _first = new(FirstLogin);
-        private readonly ProbeSession _second = new(SecondLogin);
+        private ProbeSession _first = new(FirstLogin);
+        private ProbeSession _second = new(SecondLogin);
         private long _generation = 1;
         private bool _useSecond;
+        private bool _blockFirst;
+        private bool _blockSecond;
 
-        public IReadOnlyList<AccountStatus> Statuses =>
-            [new(_first.Account, false, true, true, null, null), new(_second.Account, false, false, true, null, null)];
+        public IReadOnlyList<AccountStatus> Statuses
+        {
+            get
+            {
+                lock (_gate) return [new(_first.Account, false, true, true, null, null), new(_second.Account, false, false, true, null, null)];
+            }
+        }
         public event EventHandler? StatusesChanged { add { } remove { } }
         public void SwitchToSecond(bool useSecond)
         {
             lock (_gate) { _useSecond = useSecond; _generation++; }
         }
+        public void SetSignOutFence(bool pending, bool allAccounts)
+        {
+            lock (_gate)
+            {
+                _blockFirst = pending;
+                _blockSecond = pending && allAccounts;
+                _generation++;
+                if (pending) return;
+                _first = new ProbeSession(FirstLogin);
+                if (allAccounts) _second = new ProbeSession(SecondLogin);
+            }
+        }
         public Result<PluginSessionCapture> CaptureActive()
         {
-            lock (_gate) return Result<PluginSessionCapture>.Ok(new(_useSecond ? _second : _first, _generation));
+            lock (_gate)
+            {
+                return (_useSecond ? _blockSecond : _blockFirst)
+                    ? Result<PluginSessionCapture>.Fail(new ValidationError("The synthetic login is signing out."))
+                    : Result<PluginSessionCapture>.Ok(new(_useSecond ? _second : _first, _generation));
+            }
         }
         public Result<PluginSessionCapture> CaptureOwner(string localAccountKey) =>
             Result<PluginSessionCapture>.Fail(new ValidationError("No explicit login is used by this probe."));
@@ -261,12 +310,15 @@ internal static class PluginSandboxPackageProbe
             lock (_gate) return captures.All(Current) && write();
         }
         private bool Current(PluginSessionCapture capture) =>
-            capture.ActiveSelectionGeneration == _generation && ReferenceEquals(capture.Session, _useSecond ? _second : _first);
+            ((ReferenceEquals(capture.Session, _first) && !_blockFirst) || (ReferenceEquals(capture.Session, _second) && !_blockSecond)) &&
+            (capture.ActiveSelectionGeneration is null ||
+                (capture.ActiveSelectionGeneration == _generation && ReferenceEquals(capture.Session, _useSecond ? _second : _first)));
     }
 
     private sealed class ProbeSession(string key) : IAccountSession
     {
         public AccountInfo Account { get; } = new(key, "example", "https://jmap.example.org");
+        public bool AllowsAddOnStorage => true;
         public IJmapClient Client => throw new NotSupportedException();
         public IMailService Mail => throw new NotSupportedException();
         public IMailSync Sync => throw new NotSupportedException();

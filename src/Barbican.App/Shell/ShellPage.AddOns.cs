@@ -25,7 +25,7 @@ public sealed partial class ShellPage
         var views = new PluginSandboxWindowsViewFactory(DispatcherQueue, () => AddOnRuntimeMount, paths, options);
         var startup = new PluginSandboxWindowsStartup(bootstrap, ViewHost.Get<ILogger<PluginSandboxWindowsStartup>>());
         _ = ViewHost.Get<PluginBackgroundRuntimes>().InitializeAsync(
-            ct => packages.CreateSandboxFactoryAsync(views, startup, hooks, sessions, methods, ct), CancellationToken.None);
+            ct => packages.CreateSandboxFactoryAsync(views, startup, hooks, sessions, methods, ct, includeUserStorage: true), CancellationToken.None);
     }
 }
 #endif

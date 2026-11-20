@@ -6,7 +6,8 @@ using Barbican.Core.Mail;
 namespace Barbican.Core.Accounts;
 
 /// <summary>The live objects of one signed-in account.</summary>
-public sealed class AccountSession(AccountInfo account, IJmapClient client, IMailService mail, IMailSync sync, IDisposable? tokens) : IAccountSession, IDisposable
+public sealed class AccountSession(AccountInfo account, IJmapClient client, IMailService mail, IMailSync sync, IDisposable? tokens,
+    bool allowsAddOnStorage = false) : IAccountSession, IDisposable
 {
     /// <inheritdoc/>
     public AccountInfo Account { get; } = account;
@@ -19,6 +20,9 @@ public sealed class AccountSession(AccountInfo account, IJmapClient client, IMai
 
     /// <inheritdoc/>
     public IMailSync Sync { get; } = sync;
+
+    /// <inheritdoc/>
+    public bool AllowsAddOnStorage { get; } = allowsAddOnStorage;
 
     public void Dispose()
     {

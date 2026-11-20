@@ -2372,3 +2372,34 @@ confirmed removal on this source. Number formatting was checked against
 representative JavaScript boundary values.
 The specification checker still reports two M6b Red cases for native
 package consent and inert discovery.
+
+## Codex / Astra review of Windows add-on storage at sign-out (2026-11-20)
+
+The normal Windows shell now registers the four scoped storage methods.
+Fresh and restored logins receive storage access only if the app held
+the exclusive profile lease before establishing the login. A successful
+fresh vault read is required for storage access on restore. A previously
+restored session keeps its original eligibility after a lease handoff.
+
+Sign-out fences new storage captures and final publication before erasing
+the selected login's snapshots and abandoned staging files. Full sign-out
+removes all add-on storage and includes remembered logins absent from
+the current window. Single-row sign-out clears all scopes only when the
+fresh remembered account list confirms the last login. Empty storage
+trees and full erasure can proceed independently of the add-on vault key
+and package index. A competing profile owner or a failed data erase
+leaves the account signed in and reports the failure.
+
+Astra approved the account lifetime, scoped mutation and erasure paths.
+The synthetic regressions cover a stale in-memory login, a stale vault
+cache before restore, a remembered login absent from another window,
+queued sign-out across sign-in, and a staged write reaching publication
+after its login was fenced.
+
+Windows Automation passed 3,364 tests with four skips. A hidden native
+WebView2 run verified selective and full erasure through the hosted storage
+API across synthetic reauthentication. The normal private Windows Settings
+walkthrough also passed package install, enable, disable and confirmed
+removal. The Windows Release build passed with zero warnings and errors.
+The active-account race tests use synthetic mail sessions. No real account
+was used.

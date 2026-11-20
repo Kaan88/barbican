@@ -21,6 +21,8 @@ internal sealed class RecordingHooks : IHookBus
 
     public bool HasHandlers(string hook) => true;
 
+    public Func<string, CancellationToken, ValueTask>? OnNotification { get; set; }
+
     public ValueTask NotifyAsync<TPayload>(string hook, TPayload payload, CancellationToken ct)
     {
         lock (_seen)
@@ -28,7 +30,7 @@ internal sealed class RecordingHooks : IHookBus
             _seen.Add((hook, payload));
         }
 
-        return ValueTask.CompletedTask;
+        return OnNotification?.Invoke(hook, ct) ?? ValueTask.CompletedTask;
     }
 
     public ValueTask<bool> InterceptAsync<TPayload>(string hook, TPayload payload, CancellationToken ct) => ValueTask.FromResult(true);

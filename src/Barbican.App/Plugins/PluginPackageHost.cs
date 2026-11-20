@@ -58,6 +58,39 @@ internal sealed class PluginPackageHost(IProfilePaths paths, ISecretStore secret
     internal Task<Result<Unit>> SetEnabledAsync(PluginPackageIdentity package, bool enabled, CancellationToken ct) =>
         WithManagerAsync(manager => manager.SetEnabledAsync(package, enabled, ct), ct);
 
+    internal async Task<bool> TryHoldStorageAuthorityAsync(CancellationToken ct)
+    {
+        await _gate.WaitAsync(ct).ConfigureAwait(false);
+        try
+        {
+            if (_closed) return false;
+            var acquired = await GetLeaseAsync(await PackagePathsAsync(ct).ConfigureAwait(false), ct).ConfigureAwait(false);
+            if (!acquired.IsOk || acquired.Value is not { IsHeld: true } lease) return false;
+            _lease = lease;
+            return !lease.Lifetime.IsCancellationRequested;
+        }
+        finally { _gate.Release(); }
+    }
+
+    internal async Task<Result<Unit>> PrepareSignOutAsync(IReadOnlyList<string> localAccountKeys, bool allAccounts, CancellationToken ct)
+    {
+        await _gate.WaitAsync(ct).ConfigureAwait(false);
+        try
+        {
+            var failure = Result<Unit>.Fail(new ValidationError("Could not erase add-on data. Try signing out again."));
+            if (_closed) return failure;
+            var packagePaths = await PackagePathsAsync(ct).ConfigureAwait(false);
+            var acquired = await GetLeaseAsync(packagePaths, ct).ConfigureAwait(false);
+            if (!acquired.IsOk) return failure;
+            // Keep the profile fenced while the account manager detaches and forgets the login.
+            _lease = acquired.Value!;
+            var erased = await AuthenticatedPluginPackageStore.ClearSignedOutProfileAsync(packagePaths, _lease, secrets,
+                localAccountKeys, allAccounts, ct).ConfigureAwait(false);
+            return erased.IsOk ? erased : failure;
+        }
+        finally { _gate.Release(); }
+    }
+
     internal Task<Result<Unit>> UninstallAsync(PluginPackageIdentity package, CancellationToken ct) =>
         WithManagerAsync(async manager =>
         {
@@ -118,7 +151,7 @@ internal sealed class PluginPackageHost(IProfilePaths paths, ISecretStore secret
     {
         if (_manager is { } existing) return Result<PluginPackageManager>.Ok(existing);
         var packagePaths = await PackagePathsAsync(ct).ConfigureAwait(false);
-        var acquired = await new PluginProfileAuthorityLeaseFactory().AcquireAsync(packagePaths, ct).ConfigureAwait(false);
+        var acquired = await GetLeaseAsync(packagePaths, ct).ConfigureAwait(false);
         if (!acquired.IsOk) return Result<PluginPackageManager>.Fail(acquired.Error!);
 
         var lease = acquired.Value!;
@@ -143,6 +176,10 @@ internal sealed class PluginPackageHost(IProfilePaths paths, ISecretStore secret
             }
         }
     }
+
+    private Task<Result<IPluginProfileAuthorityLease>> GetLeaseAsync(IProfilePaths packagePaths, CancellationToken ct) =>
+        _lease is { } held ? Task.FromResult(Result<IPluginProfileAuthorityLease>.Ok(held))
+            : new PluginProfileAuthorityLeaseFactory().AcquireAsync(packagePaths, ct);
 
     private async Task<IProfilePaths> PackagePathsAsync(CancellationToken ct)
     {

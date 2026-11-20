@@ -224,16 +224,115 @@ public sealed class AuthenticatedPluginPackageStoreTests
         });
     }
 
+    [Fact]
+    public async Task SignOutErasesOnlyTheSelectedLoginThenAllRemainingScopes()
+    {
+        await WithProfileAsync(async (paths, lease, secrets) =>
+        {
+            using var store = Need(await AuthenticatedPluginPackageStore.OpenAsync(paths, lease, secrets, Ct));
+            var profile = paths.Profile;
+            Assert.True((await store.CommitAsync(profile, "first", "login-a", 0, new byte[] { 1 }, Ct)).IsOk);
+            Assert.True((await store.CommitAsync(profile, "first", "login-b", 0, new byte[] { 2 }, Ct)).IsOk);
+            Assert.True((await store.CommitAsync(profile, "second", "login-a", 0, new byte[] { 3 }, Ct)).IsOk);
+            var folder = Path.Combine(paths.ConfigDir, "plugins", "packages", "user-v1");
+            var package = Assert.Single(Directory.GetDirectories(folder), path => Directory.GetFiles(path, "*.data").Length == 1);
+            var accountScope = Path.GetFileNameWithoutExtension(Assert.Single(Directory.GetFiles(package, "*.data")));
+            var abandoned = Path.Combine(package, "." + accountScope + "-" + Guid.NewGuid().ToString("N") + ".tmp");
+            var legacy = Path.Combine(package, "." + Guid.NewGuid().ToString("N") + ".tmp");
+            await File.WriteAllBytesAsync(abandoned, new byte[] { 4 }, Ct);
+            await File.WriteAllBytesAsync(legacy, new byte[] { 5 }, Ct);
+
+            Assert.True((await store.ClearSignedOutStorageAsync(profile, ["login-a"], false, Ct)).IsOk);
+            Assert.False(File.Exists(abandoned));
+            Assert.False(File.Exists(legacy));
+            using var reopened = Need(await AuthenticatedPluginPackageStore.OpenAsync(paths, lease, secrets, Ct));
+            Assert.Empty(Need(await reopened.LoadAsync(profile, "first", "login-a", Ct)).Index);
+            Assert.Empty(Need(await reopened.LoadAsync(profile, "second", "login-a", Ct)).Index);
+            Assert.Equal(2, Assert.Single(Need(await reopened.LoadAsync(profile, "first", "login-b", Ct)).Index));
+
+            Assert.True((await reopened.ClearSignedOutStorageAsync(profile, [], true, Ct)).IsOk);
+            Assert.False(Directory.Exists(folder));
+            Assert.Empty(Need(await reopened.LoadAsync(profile, "first", "login-b", Ct)).Index);
+        });
+    }
+
+    [Fact]
+    public async Task AnEmptyProfileCanSignOutWithoutAPackageIndexOrVaultAccess()
+    {
+        await WithProfileAsync(async (paths, lease, secrets) =>
+        {
+            secrets.FailReads = true;
+            Assert.True((await AuthenticatedPluginPackageStore.ClearSignedOutProfileAsync(paths, lease, secrets, ["login-a"], false, Ct)).IsOk);
+            Assert.False(Directory.Exists(Path.Combine(paths.ConfigDir, "plugins", "packages")));
+            await lease.DisposeAsync();
+            Assert.False((await AuthenticatedPluginPackageStore.ClearSignedOutProfileAsync(paths, lease, secrets, [], true, Ct)).IsOk);
+        });
+    }
+
+    [Fact]
+    public async Task EmptyScopeDirectoriesDoNotRequireTheVaultDuringSelectiveSignOut()
+    {
+        await WithProfileAsync(async (paths, lease, secrets) =>
+        {
+            var folder = Path.Combine(paths.ConfigDir, "plugins", "packages", "user-v1", new string('0', 64));
+            Directory.CreateDirectory(folder);
+            secrets.FailReads = true;
+            Assert.True((await AuthenticatedPluginPackageStore.ClearSignedOutProfileAsync(paths, lease, secrets, ["login-a"], false, Ct)).IsOk);
+            Assert.Empty(Directory.GetFileSystemEntries(folder));
+        });
+    }
+
+    [Fact]
+    public async Task FullErasureDoesNotDependOnThePackageIndexOrVaultAccess()
+    {
+        await WithProfileAsync(async (paths, lease, secrets) =>
+        {
+            using var store = Need(await AuthenticatedPluginPackageStore.OpenAsync(paths, lease, secrets, Ct));
+            Assert.True((await store.CommitAsync(paths.Profile, "notes", "login-a", 0, new byte[] { 4 }, Ct)).IsOk);
+            secrets.FailReads = true;
+            var index = Path.Combine(paths.ConfigDir, "plugins", "packages", "index.dat");
+            await File.WriteAllBytesAsync(index, new byte[] { 12 }, Ct);
+            Assert.True((await AuthenticatedPluginPackageStore.ClearSignedOutProfileAsync(paths, lease, secrets, [], true, Ct)).IsOk);
+            Assert.True(File.Exists(index));
+            Assert.False(Directory.Exists(Path.Combine(Path.GetDirectoryName(index)!, "user-v1")));
+        });
+    }
+
+    [Fact]
+    public async Task APreparedUserSnapshotCannotPublishAfterItsOwnerIsFenced()
+    {
+        await WithProfileAsync(async (paths, lease, secrets) =>
+        {
+            using var store = Need(await AuthenticatedPluginPackageStore.OpenAsync(paths, lease, secrets, Ct));
+            IPluginUserStorageStore data = store;
+            var profile = paths.Profile;
+            Assert.True((await store.CommitAsync(profile, "notes", "login-a", 0, new byte[] { 6 }, Ct)).IsOk);
+            secrets.BlockNextRead = true;
+            var allowed = 1;
+            var commit = data.CommitAsync(profile, "notes", "login-a", 1, new byte[] { 7 },
+                publish => Volatile.Read(ref allowed) != 0 && publish(), Ct);
+            await secrets.ReadEntered.Task.WaitAsync(TimeSpan.FromSeconds(5), Ct);
+            Volatile.Write(ref allowed, 0);
+            secrets.ReleaseRead.TrySetResult();
+            Assert.False((await commit).IsOk);
+            var unchanged = Need(await store.LoadAsync(profile, "notes", "login-a", Ct));
+            Assert.Equal(1, unchanged.Revision);
+            Assert.Equal(6, Assert.Single(unchanged.Index));
+        });
+    }
+
     private sealed class TestSecrets : ISecretStore
     {
         private readonly InMemorySecretStore _inner = new();
         public bool FailWrites { get; set; }
         public bool FailAfterWrite { get; set; }
+        public bool FailReads { get; set; }
         public bool BlockNextRead { get; set; }
         public TaskCompletionSource ReadEntered { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
         public TaskCompletionSource ReleaseRead { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
         public async Task<Barbican.Core.Common.Result<string?>> ReadAsync(SecretName name, CancellationToken ct)
         {
+            if (FailReads) return Barbican.Core.Common.Result<string?>.Fail(new Barbican.Core.Jmap.Errors.ValidationError("Synthetic vault failure."));
             if (BlockNextRead)
             {
                 BlockNextRead = false;

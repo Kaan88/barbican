@@ -8,5 +8,6 @@ namespace Barbican.Core.Plugins.Persistence;
 public interface IPluginUserStorageStore
 {
     Task<Result<PluginStoreSnapshot>> LoadAsync(string profile, string pluginId, string localLoginKey, CancellationToken ct);
-    Task<Result<long>> CommitAsync(string profile, string pluginId, string localLoginKey, long expectedRevision, ReadOnlyMemory<byte> data, CancellationToken ct);
+    Task<Result<long>> CommitAsync(string profile, string pluginId, string localLoginKey, long expectedRevision, ReadOnlyMemory<byte> data,
+        Func<Func<bool>, bool> publishWhileCurrent, CancellationToken ct);
 }

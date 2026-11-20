@@ -49,6 +49,20 @@ public sealed class AccountStore(IAccountVault vault, IProfilePaths? paths = nul
         }
     }
 
+    /// <summary>Reads the authoritative vault again without treating an older cache as current.</summary>
+    internal async Task<Result<IReadOnlyList<StoredAccount>>> ReadFreshAsync(CancellationToken ct)
+    {
+        await _gate.WaitAsync(ct).ConfigureAwait(false);
+        try
+        {
+            var fresh = await vault.LoadAsync(ct).ConfigureAwait(false);
+            LastError = fresh.IsOk ? null : fresh.Error!.Message;
+            if (fresh.IsOk) _list = [.. fresh.Value!];
+            return fresh;
+        }
+        finally { _gate.Release(); }
+    }
+
     /// <summary>Remembers <paramref name="account"/> at the front (replacing its old entry; the default flag is kept, or set on the first one).</summary>
     public Task<Result<Unit>> RememberAsync(StoredAccount account, CancellationToken ct)
     {

@@ -34,18 +34,22 @@ public sealed partial class AuthenticatedPluginPackageStore : IPluginPackageStor
         ArgumentNullException.ThrowIfNull(paths);
         ArgumentNullException.ThrowIfNull(lease);
         ArgumentNullException.ThrowIfNull(secrets);
-        if (!ProfilePaths.IsValidName(paths.Profile) || !Path.IsPathFullyQualified(paths.ConfigDir) || !lease.IsHeld || lease.Lifetime.IsCancellationRequested || !string.Equals(paths.Profile, lease.Profile, StringComparison.Ordinal)) return Fail<AuthenticatedPluginPackageStore>();
         try
         {
-            var root = Path.TrimEndingDirectorySeparator(Path.GetFullPath(paths.ConfigDir));
-            var comparison = OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
-            if (!string.Equals(root, lease.ConfigRoot, comparison)) return Fail<AuthenticatedPluginPackageStore>();
+            if (!OwnsProfile(paths, lease)) return Fail<AuthenticatedPluginPackageStore>();
             var store = new AuthenticatedPluginPackageStore(paths, lease, secrets);
             var opened = await store.InitializeAsync(ct).ConfigureAwait(false);
             return opened.IsOk && store.Current(paths.Profile) ? Result<AuthenticatedPluginPackageStore>.Ok(store) : Fail<AuthenticatedPluginPackageStore>();
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException or FormatException or CryptographicException) { return Fail<AuthenticatedPluginPackageStore>(); }
     }
+
+    private static bool OwnsProfile(IProfilePaths paths, IPluginProfileAuthorityLease lease) =>
+        ProfilePaths.IsValidName(paths.Profile) && Path.IsPathFullyQualified(paths.ConfigDir) &&
+        lease.IsHeld && !lease.Lifetime.IsCancellationRequested &&
+        string.Equals(paths.Profile, lease.Profile, StringComparison.Ordinal) &&
+        string.Equals(Path.TrimEndingDirectorySeparator(Path.GetFullPath(paths.ConfigDir)), lease.ConfigRoot,
+            OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal);
 
     private async Task<Result<Unit>> InitializeAsync(CancellationToken ct)
     {

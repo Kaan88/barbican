@@ -111,23 +111,32 @@ public sealed class PluginScopedStorage : IPluginScopedStorage
         Action? issued, CancellationToken ct)
     {
         Task<Result<long>>? commit = null;
+        var owner = new PluginSessionCapture(capture.Session, null);
         var admitted = await _authority.TryPostAsync(binding, grant =>
             Matches(grant, binding, capture) && _sessions.TryRunWhileCurrent([capture], () =>
                 !ct.IsCancellationRequested && binding.TryWriteWhileAlive(() =>
                 {
                     issued?.Invoke();
-                    commit = _store.CommitAsync(_profile, binding.Package.Id, capture.LocalAccountKey, revision, data, ct);
+                    commit = _store.CommitAsync(_profile, binding.Package.Id, capture.LocalAccountKey, revision, data,
+                        publish => Publish(binding, owner, publish, ct), ct);
                 })), ct).ConfigureAwait(false);
         if (!admitted || commit is null) return false;
         var result = await commit.ConfigureAwait(false);
         return result.IsOk;
     }
 
+    private bool Publish(PluginRuntimeBinding binding, PluginSessionCapture owner, Func<bool> write, CancellationToken ct) =>
+        _sessions.TryRunWhileCurrent([owner], () =>
+        {
+            var published = false;
+            return !ct.IsCancellationRequested && binding.TryWriteWhileAlive(() => published = write()) && published;
+        });
+
     private async Task<PluginStorageSnapshot?> LoadAsync(PluginRuntimeBinding binding, PluginSessionCapture capture, CancellationToken ct)
     {
         ArgumentNullException.ThrowIfNull(binding);
         ArgumentNullException.ThrowIfNull(capture);
-        if (!await IsCurrentAsync(binding, capture, ct).ConfigureAwait(false)) return null;
+        if (!capture.Session.AllowsAddOnStorage || !await IsCurrentAsync(binding, capture, ct).ConfigureAwait(false)) return null;
         var current = await _store.LoadAsync(_profile, binding.Package.Id, capture.LocalAccountKey, ct).ConfigureAwait(false);
         return current.IsOk && current.Value is { } snapshot
             ? PluginStorageSnapshot.Decode(snapshot, binding.Package.Id, capture.LocalAccountKey)

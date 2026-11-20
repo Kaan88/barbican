@@ -16,32 +16,29 @@ namespace Barbican.Core.Accounts;
 /// <summary>Sign-out, default account and order (IAccountMaintenance).</summary>
 public sealed partial class AccountManager : IAccountMaintenance
 {
+    private readonly SemaphoreSlim _accountLifecycle = new(1, 1);
+    private IReadOnlyList<string> _pluginSignOutKeys = [];
+    private bool _pluginSignOutAll;
+
     /// <inheritdoc/>
     public Task<Result<Unit>> SignOutAsync(string accountKey, CancellationToken ct)
     {
         ArgumentNullException.ThrowIfNull(accountKey);
+        object identity;
         lock (_lock)
         {
-            if (!_entries.ContainsKey(accountKey))
+            if (!_entries.TryGetValue(accountKey, out var entry))
             {
                 return Task.FromResult(Result<Unit>.Fail(new ValidationError("No such account.")));
             }
+            identity = entry.LoginIdentity;
         }
 
-        return SignOutManyAsync([accountKey], ct);
+        return SignOutManyAsync(accountKey, identity, ct);
     }
 
     /// <inheritdoc/>
-    public Task<Result<Unit>> SignOutAllAsync(CancellationToken ct)
-    {
-        List<string> keys;
-        lock (_lock)
-        {
-            keys = [.. _order];
-        }
-
-        return SignOutManyAsync(keys, ct);
-    }
+    public Task<Result<Unit>> SignOutAllAsync(CancellationToken ct) => SignOutManyAsync(null, null, ct);
 
     /// <inheritdoc/>
     public async Task<Result<Unit>> SetDefaultAsync(string accountKey, CancellationToken ct)
@@ -91,13 +88,74 @@ public sealed partial class AccountManager : IAccountMaintenance
         return await _store.MoveAsync(accountKey, newIndex, ct).ConfigureAwait(false);
     }
 
-    private async Task<Result<Unit>> SignOutManyAsync(IReadOnlyList<string> keys, CancellationToken ct)
+    private async Task<Result<Unit>> SignOutManyAsync(string? accountKey, object? identity, CancellationToken ct)
     {
-        foreach (var key in keys)
+        await _accountLifecycle.WaitAsync(ct).ConfigureAwait(false);
+        try
         {
-            await NotifyAsync(HookNames.OnBeforeLogout, new AccountHookPayload(key), ct).ConfigureAwait(false);
+            IReadOnlyList<string> keys;
+            bool allAccounts;
+            lock (_lock)
+            {
+                if (accountKey is not null &&
+                    (!_entries.TryGetValue(accountKey, out var entry) || !ReferenceEquals(entry.LoginIdentity, identity)))
+                    return Result<Unit>.Fail(new ValidationError("The account changed. Review it before signing out."));
+                keys = accountKey is null ? [.. _order] : [accountKey];
+                allAccounts = accountKey is null || _entries.Count == 1;
+            }
+            JmapError? vaultError = null;
+            if (_signOutCleanup is not null)
+            {
+                if (!await TryHoldAddOnStorageAsync(ct).ConfigureAwait(false))
+                    return Result<Unit>.Fail(new ValidationError("Could not get access to add-on data. Try signing out again."));
+                if (allAccounts) (keys, allAccounts, vaultError) = await ResolveFullSignOutAsync(keys, accountKey, ct).ConfigureAwait(false);
+            }
+            foreach (var key in keys)
+            {
+                await NotifyAsync(HookNames.OnBeforeLogout, new AccountHookPayload(key), ct).ConfigureAwait(false);
+            }
+            if (_signOutCleanup is not null)
+            {
+                lock (_lock)
+                {
+                    _pluginSignOutKeys = keys;
+                    _pluginSignOutAll = allAccounts;
+                    if (_activeKey is { } key && IsPluginSignOutPending(key)) _selectionGeneration++;
+                }
+                var erased = await _signOutCleanup.PrepareAsync(keys, allAccounts, ct).ConfigureAwait(false);
+                if (!erased.IsOk) return erased;
+            }
+            var signedOut = await CompleteSignOutAsync(keys, ct).ConfigureAwait(false);
+            return signedOut.IsOk && vaultError is not null ? Result<Unit>.Fail(vaultError) : signedOut;
         }
+        finally
+        {
+            lock (_lock)
+            {
+                _pluginSignOutKeys = [];
+                _pluginSignOutAll = false;
+            }
+            _accountLifecycle.Release();
+        }
+    }
 
+    private async Task<(IReadOnlyList<string> Keys, bool All, JmapError? VaultError)> ResolveFullSignOutAsync(
+        IReadOnlyList<string> localKeys, string? accountKey, CancellationToken ct)
+    {
+        var remembered = await _store.ReadFreshAsync(ct).ConfigureAwait(false);
+        if (accountKey is not null)
+        {
+            var last = remembered.IsOk && remembered.Value!.All(account => string.Equals(account.Key, accountKey, StringComparison.Ordinal));
+            return (localKeys, last, null);
+        }
+        if (!remembered.IsOk) return (localKeys, true, remembered.Error);
+        return ([.. localKeys.Union(remembered.Value!.Select(account => account.Key), StringComparer.Ordinal)], true, null);
+    }
+
+    private bool IsPluginSignOutPending(string login) => _pluginSignOutAll || _pluginSignOutKeys.Contains(login, StringComparer.Ordinal);
+
+    private async Task<Result<Unit>> CompleteSignOutAsync(IReadOnlyList<string> keys, CancellationToken ct)
+    {
         var (sessions, previous, next) = Detach(keys);
         Changed();
         if (previous is not null)

@@ -142,13 +142,15 @@ internal sealed class PackageTestRig
             if (ReleaseLoad is not null) await ReleaseLoad.Task.WaitAsync(ct);
             return Result<PluginStoreSnapshot>.Ok(snapshot);
         }
-        public async Task<Result<long>> CommitAsync(string profile, string pluginId, string localLoginKey, long expectedRevision, ReadOnlyMemory<byte> data, CancellationToken ct)
+        public async Task<Result<long>> CommitAsync(string profile, string pluginId, string localLoginKey, long expectedRevision,
+            ReadOnlyMemory<byte> data, Func<Func<bool>, bool> publishWhileCurrent, CancellationToken ct)
         {
             var key = (profile, pluginId, localLoginKey);
             var before = _values.GetValueOrDefault(key) ?? new PluginStoreSnapshot(0, []);
             if (before.Revision != expectedRevision) return Result<long>.Fail(new ValidationError("Synthetic conflict."));
             var next = new PluginStoreSnapshot(before.Revision + 1, ImmutableArray.CreateRange(data.ToArray()));
-            _values[key] = next;
+            if (!publishWhileCurrent(() => { _values[key] = next; return true; }))
+                return Result<long>.Fail(new ValidationError("Synthetic publication refused."));
             CommitEntered?.TrySetResult();
             if (ReleaseCommit is not null) await ReleaseCommit.Task.WaitAsync(ct);
             return Result<long>.Ok(next.Revision);
@@ -198,6 +200,7 @@ internal sealed class PackageTestRig
     private sealed class Session(string key) : IAccountSession
     {
         public AccountInfo Account { get; } = new(key, "sample@example.org", "https://jmap.example.org");
+        public bool AllowsAddOnStorage => true;
         public IJmapClient Client => throw new NotSupportedException();
         public IMailService Mail => throw new NotSupportedException();
         public IMailSync Sync => throw new NotSupportedException();

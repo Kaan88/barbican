@@ -102,10 +102,10 @@ public sealed partial class AuthenticatedPluginPackageStore
         }
         return output.ToArray();
     }
-    private static void AtomicWrite(string path, byte[] content, Action<string>? publish = null)
+    private static void AtomicWrite(string path, byte[] content, Action<string>? publish = null, string scopePrefix = "")
     {
         var directory = Path.GetDirectoryName(path)!;
-        var temp = Path.Combine(directory, "." + Guid.NewGuid().ToString("N", CultureInfo.InvariantCulture) + ".tmp");
+        var temp = Path.Combine(directory, "." + scopePrefix + Guid.NewGuid().ToString("N", CultureInfo.InvariantCulture) + ".tmp");
         try
         {
             using (var output = new FileStream(temp, FileMode.CreateNew, FileAccess.Write, FileShare.None))

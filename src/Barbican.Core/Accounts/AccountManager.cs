@@ -47,6 +47,7 @@ public sealed partial class AccountManager : IAccountManager, IAccountOverview, 
     private readonly TimeProvider _time;
     private readonly JmapClientOptions _options;
     private readonly Mail.Cache.IBodyCache? _bodies;
+    private readonly IAccountSignOutCleanup? _signOutCleanup;
     private readonly Lock _lock = new();
     private readonly Dictionary<string, Entry> _entries = new(StringComparer.Ordinal);
     private readonly List<string> _order = [];
@@ -68,7 +69,8 @@ public sealed partial class AccountManager : IAccountManager, IAccountOverview, 
         IHookBus hooks,
         TimeProvider time,
         JmapClientOptions? options = null,
-        Mail.Cache.IBodyCache? bodies = null)
+        Mail.Cache.IBodyCache? bodies = null,
+        IAccountSignOutCleanup? signOutCleanup = null)
     {
         _jmap = jmap;
         _mail = mail;
@@ -81,6 +83,7 @@ public sealed partial class AccountManager : IAccountManager, IAccountOverview, 
         _time = time;
         _options = options ?? new JmapClientOptions();
         _bodies = bodies;
+        _signOutCleanup = signOutCleanup;
     }
 
     /// <inheritdoc/>
@@ -133,16 +136,7 @@ public sealed partial class AccountManager : IAccountManager, IAccountOverview, 
     /// </summary>
     public async Task<AccountInfo?> RestoreAsync(CancellationToken ct)
     {
-        var stored = await _store.AllAsync(ct).ConfigureAwait(false);
-        lock (_lock)
-        {
-            foreach (var s in stored.Where(s => !_entries.ContainsKey(s.Key)))
-            {
-                _entries[s.Key] = new Entry(s.ToInfo(_policy.IsReadOnly(s.User, s.ReadOnly))) { Stored = s, IsDefault = s.IsDefault };
-                _order.Add(s.Key);
-            }
-        }
-
+        var stored = await LoadRememberedEntriesAsync(ct).ConfigureAwait(false);
         StartUnreadWatch();
         Changed();
         if (stored.Count == 0)
@@ -157,7 +151,7 @@ public sealed partial class AccountManager : IAccountManager, IAccountOverview, 
             var r = await task.WaitAsync(ct).ConfigureAwait(false);
             if (r.IsOk)
             {
-                await ActivateAsync(key, ct).ConfigureAwait(false);
+                await ActivateAsync(key, ct, expected: r.Value).ConfigureAwait(false);
                 StartRetry();
                 return Active;
             }
@@ -177,6 +171,36 @@ public sealed partial class AccountManager : IAccountManager, IAccountOverview, 
         await ActivateAsync(unreachable, ct).ConfigureAwait(false);
         StartRetry();
         return Active;
+    }
+
+    private async Task<IReadOnlyList<StoredAccount>> LoadRememberedEntriesAsync(CancellationToken ct)
+    {
+        await _accountLifecycle.WaitAsync(ct).ConfigureAwait(false);
+        try
+        {
+            IReadOnlyList<StoredAccount>? current = null;
+            if (await TryHoldAddOnStorageAsync(ct).ConfigureAwait(false))
+            {
+                var fresh = await _store.ReadFreshAsync(ct).ConfigureAwait(false);
+                if (fresh.IsOk) current = fresh.Value;
+            }
+            var stored = current ?? await _store.AllAsync(ct).ConfigureAwait(false);
+            lock (_lock)
+            {
+                foreach (var s in stored.Where(s => !_entries.ContainsKey(s.Key)))
+                {
+                    _entries[s.Key] = new Entry(s.ToInfo(_policy.IsReadOnly(s.User, s.ReadOnly)))
+                    {
+                        Stored = s,
+                        IsDefault = s.IsDefault,
+                        AllowsAddOnStorage = current is not null,
+                    };
+                    _order.Add(s.Key);
+                }
+            }
+            return stored;
+        }
+        finally { _accountLifecycle.Release(); }
     }
 
     /// <inheritdoc/>
@@ -285,7 +309,7 @@ public sealed partial class AccountManager : IAccountManager, IAccountOverview, 
             return Result<Unit>.Fail(new AuthError($"Could not switch to {user}: {connected.Error!.Message}", connected.Error is AuthError { NeedsSignIn: true }));
         }
 
-        await ActivateAsync(accountKey, ct).ConfigureAwait(false);
+        await ActivateAsync(accountKey, ct, expected: connected.Value).ConfigureAwait(false);
         await _store.TouchAsync(accountKey, ct).ConfigureAwait(false);
         return Result<Unit>.Ok(default);
     }
@@ -352,9 +376,53 @@ public sealed partial class AccountManager : IAccountManager, IAccountOverview, 
 
     private async Task<AccountInfo> AddAsync(StoredAccount stored, IJmapClient client, OAuthTokenSource? tokens, AuthLatch latch, bool remember, CancellationToken ct)
     {
+        try { await _accountLifecycle.WaitAsync(ct).ConfigureAwait(false); }
+        catch (OperationCanceledException)
+        {
+            tokens?.Dispose();
+            throw;
+        }
+        AccountSession session;
+        bool added;
+        try
+        {
+            bool allowsAddOnStorage;
+            try { allowsAddOnStorage = await TryHoldAddOnStorageAsync(ct).ConfigureAwait(false); }
+            catch (OperationCanceledException)
+            {
+                tokens?.Dispose();
+                throw;
+            }
+            (session, added) = PublishSignedInAccount(stored, client, tokens, latch, allowsAddOnStorage);
+            if (remember) await _store.RememberAsync(stored, ct).ConfigureAwait(false);
+        }
+        finally { _accountLifecycle.Release(); }
+
+        var info = session.Account;
+        await NotifyAsync(HookNames.OnLogin, new LoginHookPayload(info.Key, info.User), ct).ConfigureAwait(false);
+        if (!ReferenceEquals(SessionFor(info.Key), session)) return info;
+        await NotifyAsync(HookNames.OnAuthReady, new AccountHookPayload(info.Key), ct).ConfigureAwait(false);
+        if (!ReferenceEquals(SessionFor(info.Key), session)) return info;
+        if (added && Accounts.Count > 1)
+        {
+            await NotifyAsync(HookNames.OnAccountAdd, new AccountHookPayload(info.Key), ct).ConfigureAwait(false);
+        }
+
+        StartUnreadWatch();
+        await ActivateAsync(info.Key, ct, renewed: true, expected: session).ConfigureAwait(false);
+        if (ReferenceEquals(SessionFor(info.Key), session)) _ = RefreshUnreadOfAsync(info.Key, session, _life.Token);
+        return info;
+    }
+
+    private Task<bool> TryHoldAddOnStorageAsync(CancellationToken ct) =>
+        _signOutCleanup?.TryHoldStorageAuthorityAsync(ct) ?? Task.FromResult(false);
+
+    private (AccountSession Session, bool Added) PublishSignedInAccount(StoredAccount stored, IJmapClient client,
+        OAuthTokenSource? tokens, AuthLatch latch, bool allowsAddOnStorage)
+    {
         var info = stored.ToInfo(client.IsReadOnly);
         var service = _mail.CreateService(client);
-        var session = new AccountSession(info, client, service, _mail.CreateSync(service), tokens);
+        var session = new AccountSession(info, client, service, _mail.CreateSync(service), tokens, allowsAddOnStorage);
         Watch(tokens);
         AccountSession? replaced;
         bool added;
@@ -368,6 +436,8 @@ public sealed partial class AccountManager : IAccountManager, IAccountOverview, 
             e.Error = null;
             e.Rejected = false;
             e.Stored = stored;
+            e.LoginIdentity = new object();
+            e.AllowsAddOnStorage = allowsAddOnStorage;
             _entries[info.Key] = e;
             _order.Remove(info.Key);
             _order.Insert(0, info.Key);
@@ -375,22 +445,7 @@ public sealed partial class AccountManager : IAccountManager, IAccountOverview, 
 
         replaced?.Dispose();
         WatchRefusal(info.Key, session, latch);
-        if (remember)
-        {
-            await _store.RememberAsync(stored, ct).ConfigureAwait(false);
-        }
-
-        await NotifyAsync(HookNames.OnLogin, new LoginHookPayload(info.Key, info.User), ct).ConfigureAwait(false);
-        await NotifyAsync(HookNames.OnAuthReady, new AccountHookPayload(info.Key), ct).ConfigureAwait(false);
-        if (added && Accounts.Count > 1)
-        {
-            await NotifyAsync(HookNames.OnAccountAdd, new AccountHookPayload(info.Key), ct).ConfigureAwait(false);
-        }
-
-        StartUnreadWatch();
-        await ActivateAsync(info.Key, ct, renewed: true).ConfigureAwait(false);
-        _ = RefreshUnreadOfAsync(info.Key, session, _life.Token);
-        return info;
+        return (session, added);
     }
 
     // connects a known account once; concurrent callers share the attempt
@@ -401,7 +456,8 @@ public sealed partial class AccountManager : IAccountManager, IAccountOverview, 
         TaskCompletionSource<Result<AccountSession>> attempt;
         lock (_lock)
         {
-            e = _entries[key];
+            if (!_entries.TryGetValue(key, out e!))
+                return Task.FromResult(Result<AccountSession>.Fail(new AuthError("The account was signed out.", NeedsSignIn: false)));
             if (e.Session is { } s)
             {
                 return Task.FromResult(Result<AccountSession>.Ok(s));
@@ -513,12 +569,12 @@ public sealed partial class AccountManager : IAccountManager, IAccountOverview, 
     {
         var info = stored.ToInfo(client.IsReadOnly);
         var service = _mail.CreateService(client);
-        var session = new AccountSession(info, client, service, _mail.CreateSync(service), oauth);
+        var session = new AccountSession(info, client, service, _mail.CreateSync(service), oauth, e.AllowsAddOnStorage);
         Watch(oauth);
         bool active;
         lock (_lock)
         {
-            if (!_entries.TryGetValue(info.Key, out var current) || !ReferenceEquals(current, e))
+            if (!_entries.TryGetValue(info.Key, out var current) || !ReferenceEquals(current, e) || !ReferenceEquals(e.Stored, stored))
             {
                 session.Dispose();
                 return null;
@@ -639,14 +695,15 @@ public sealed partial class AccountManager : IAccountManager, IAccountOverview, 
     }
 
     // renewed: the account got a new session (a new sign-in of the account on screen); its mail must reload even though the key is the same
-    private async Task ActivateAsync(string key, CancellationToken ct, bool renewed = false)
+    private async Task ActivateAsync(string key, CancellationToken ct, bool renewed = false, AccountSession? expected = null)
     {
         AccountInfo? previous;
         AccountInfo current;
         lock (_lock)
         {
-            previous = _activeKey is { } p ? _entries[p].Info : null;
-            current = _entries[key].Info;
+            if (!_entries.TryGetValue(key, out var entry) || (expected is not null && !ReferenceEquals(entry.Session, expected))) return;
+            previous = _activeKey is { } p ? _entries.GetValueOrDefault(p)?.Info : null;
+            current = entry.Info;
             _activeKey = key;
             _selectionGeneration++;
         }
@@ -709,7 +766,8 @@ public sealed partial class AccountManager : IAccountManager, IAccountOverview, 
     {
         lock (_lock)
         {
-            _unreadTimer ??= _time.CreateTimer(_ => _ = RefreshUnreadAsync(_life.Token), null, UnreadInterval, UnreadInterval);
+            if (_entries.Count > 0)
+                _unreadTimer ??= _time.CreateTimer(_ => _ = RefreshUnreadAsync(_life.Token), null, UnreadInterval, UnreadInterval);
         }
     }
 
@@ -736,6 +794,8 @@ public sealed partial class AccountManager : IAccountManager, IAccountOverview, 
         public AccountInfo Info { get; set; } = info;
 
         public StoredAccount? Stored { get; set; }
+        public object LoginIdentity { get; set; } = new();
+        public bool AllowsAddOnStorage { get; set; }
 
         public AccountSession? Session { get; set; }
 

@@ -59,7 +59,8 @@ public static class AccountsRegistration
             sp.GetRequiredService<Plugins.Hooks.IHookBus>(),
             sp.GetRequiredService<TimeProvider>(),
             sp.GetRequiredService<JmapClientOptions>(),
-            sp.GetService<IBodyCache>()));
+            sp.GetService<IBodyCache>(),
+            sp.GetService<IAccountSignOutCleanup>()));
         services.TryAddSingleton<IAccountManager>(sp => sp.GetRequiredService<AccountManager>());
         services.TryAddSingleton<IAccountSessionSnapshots>(sp => sp.GetRequiredService<AccountManager>());
         services.TryAddSingleton<IAccountOverview>(sp => sp.GetRequiredService<AccountManager>());

@@ -23,6 +23,28 @@ namespace Barbican.Automation.Tests.Plugins;
 public sealed class PluginPackageHostShutdownTests
 {
     [Fact]
+    public async Task TheCleanupLeaseIsHeldUntilHostShutdown()
+    {
+        var root = Directory.CreateTempSubdirectory("barbican-host-test-");
+        var paths = ProfilePaths.At("fixture-storage-owner", root.FullName, root.FullName);
+        var secrets = new InMemorySecretStore();
+        var ct = TestContext.Current.CancellationToken;
+        try
+        {
+            await using var first = new PluginPackageHost(paths, secrets, TimeProvider.System, new Accounts());
+            await using var second = new PluginPackageHost(paths, secrets, TimeProvider.System, new Accounts());
+            Assert.True(await first.TryHoldStorageAuthorityAsync(ct));
+            Assert.False(await second.TryHoldStorageAuthorityAsync(ct));
+            Assert.True((await first.PrepareSignOutAsync([], true, ct)).IsOk);
+            Assert.False(await second.TryHoldStorageAuthorityAsync(ct));
+            Assert.True((await first.ShutdownAsync()).IsOk);
+            Assert.True(await second.TryHoldStorageAuthorityAsync(ct));
+            Assert.False(Directory.Exists(Path.Combine(root.FullName, "plugins", "packages")));
+        }
+        finally { root.Delete(recursive: true); }
+    }
+
+    [Fact]
     public async Task RemovalCanBeRetriedAfterDataErasureFailsAndTheHostReopens()
     {
         var root = Directory.CreateTempSubdirectory("barbican-host-test-");

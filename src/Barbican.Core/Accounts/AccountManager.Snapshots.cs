@@ -9,7 +9,7 @@ public sealed partial class AccountManager
     {
         lock (_lock)
         {
-            return _activeKey is { } key && _entries.TryGetValue(key, out var entry) && entry.Session is { } session
+            return _activeKey is { } key && !IsPluginSignOutPending(key) && _entries.TryGetValue(key, out var entry) && entry.Session is { } session
                 ? Result<AccountSessionSnapshot>.Ok(new(session, _selectionGeneration)) : NoSession();
         }
     }
@@ -18,7 +18,7 @@ public sealed partial class AccountManager
         ArgumentException.ThrowIfNullOrWhiteSpace(localAccountKey);
         lock (_lock)
         {
-            return _entries.TryGetValue(localAccountKey, out var entry) && entry.Session is { } session
+            return !IsPluginSignOutPending(localAccountKey) && _entries.TryGetValue(localAccountKey, out var entry) && entry.Session is { } session
                 ? Result<AccountSessionSnapshot>.Ok(new(session, null)) : NoSession();
         }
     }
@@ -44,7 +44,7 @@ public sealed partial class AccountManager
     private bool IsSessionCurrentUnderLock(AccountSessionSnapshot snapshot)
     {
         var key = snapshot.Session.Account.Key;
-        return _entries.TryGetValue(key, out var entry) && ReferenceEquals(entry.Session, snapshot.Session)
+        return !IsPluginSignOutPending(key) && _entries.TryGetValue(key, out var entry) && ReferenceEquals(entry.Session, snapshot.Session)
             && (snapshot.ActiveSelectionGeneration is null || (snapshot.ActiveSelectionGeneration == _selectionGeneration
                 && string.Equals(_activeKey, key, StringComparison.Ordinal)));
     }
