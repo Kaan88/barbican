@@ -3,6 +3,7 @@ using System.IO.Compression;
 using System.Net;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using Barbican.App.Composition;
 using Barbican.Core.Accounts;
 using Barbican.Core.Common;
@@ -30,9 +31,10 @@ internal static class PluginSandboxPackageProbe
     private const string OtherPackageId = "synthetic-oauth-other";
     private const string ProbeHook = "onStorageProbe";
     private const string OAuthProbeHook = "onOAuthProbe";
+    private const string HttpProbeHook = "onHttpFetchProbe";
     private const string FirstLogin = "synthetic-login-a";
     private const string SecondLogin = "synthetic-login-b";
-    private const string Manifest = """{"id":"synthetic-lifecycle-probe","name":"Synthetic lifecycle probe","version":"1.0.0","author":"Example","type":"hook","permissions":["app:lifecycle","http:fetch"]}""";
+    private const string Manifest = """{"id":"synthetic-lifecycle-probe","name":"Synthetic lifecycle probe","version":"1.0.0","author":"Example","type":"hook","permissions":["app:lifecycle","http:fetch"],"httpOrigins":["https://probe.example.org"]}""";
     private const string Code = """
         let host;
         let responses = [];
@@ -43,6 +45,23 @@ internal static class PluginSandboxPackageProbe
             onOAuthProbe: async action => action === 'issue'
               ? { state: await host.oauth.createState(), redirect: await host.oauth.getRedirectUri() }
               : responses,
+            onHttpFetchProbe: async path => {
+              try {
+                const response = await host.http.fetch('https://probe.example.org/' + path);
+                const max = 25 * 1024 * 1024;
+                if (path !== 'max') return 'redirect unexpectedly succeeded';
+                return response.ok && response.status === 200 && response.statusText === 'OK' &&
+                  response.headers['x-probe'] === 'synthetic' &&
+                  response.bodyBytes instanceof Uint8Array && response.bodyBytes.length === max &&
+                  response.bodyText.length === max && response.bodyText[0] === 'x' && response.bodyText[max - 1] === 'x' &&
+                  !Object.hasOwn(response, 'decodeFetchBody') ? 'body verified' : 'unexpected response shape';
+              } catch (error) {
+                if (error?.message === 'Plugin permission denied.') return 'permission denied';
+                if (error?.message === 'Unknown plugin operation.') return 'method unavailable';
+                if (error?.message === 'Invalid plugin operation arguments.') return 'arguments refused';
+                return 'unexpected fetch error';
+              }
+            },
             onWindowFocus: async value => {
               if (value && typeof value === 'object' && !Array.isArray(value) && Object.keys(value).length === 0)
                 await host.storage.set('lifecycle-probe', 'focus');
@@ -73,17 +92,19 @@ internal static class PluginSandboxPackageProbe
 
         var accounts = new ProbeAccounts();
         var hooks = new HookBus(handlerTimeout: TimeSpan.FromSeconds(8));
-        var host = new PluginPackageHost(paths, new InMemorySecretStore(), TimeProvider.System, accounts);
+        var host = new PluginPackageHost(paths, new InMemorySecretStore(), TimeProvider.System, accounts) { UseSyntheticHttpProbe = true };
         IPluginRuntimeInstance? instance = null;
         var passed = false;
         var cleaned = false;
+        var phase = "factory";
         using var budget = CancellationTokenSource.CreateLinkedTokenSource(ct);
-        budget.CancelAfter(TimeSpan.FromSeconds(45));
+        budget.CancelAfter(TimeSpan.FromSeconds(52));
         try
         {
             var views = new PluginSandboxWindowsViewFactory(queue, () => mount, paths, options);
             var startup = new PluginSandboxWindowsStartup(bootstrapRoot!, NullLogger<PluginSandboxWindowsStartup>.Instance);
-            var factoryResult = await host.CreateSandboxFactoryAsync(views, startup, hooks, accounts, [], budget.Token, includeUserStorage: true).ConfigureAwait(false);
+            var factoryResult = await host.CreateAddOnFactoryAsync(views, startup, hooks, accounts, [], includeUserStorage: true,
+                nativePlugins: null, oauthBrowser: null, networkPrefs: new ProbeNetworkPrefs(), budget.Token).ConfigureAwait(false);
             if (!factoryResult.IsOk || factoryResult.Value is not { } factory)
                 throw new InvalidOperationException("Synthetic factory unavailable.");
 
@@ -96,6 +117,9 @@ internal static class PluginSandboxPackageProbe
                 throw new InvalidOperationException("Synthetic activation failed.");
             await hooks.NotifyAsync(HookNames.OnWindowFocus, new EmptyPayload(), budget.Token).ConfigureAwait(false);
             await VerifyStorageAsync(active, accounts, budget.Token).ConfigureAwait(false);
+            phase = "HTTP fetch";
+            await VerifyHttpFetchAsync(active, budget.Token).ConfigureAwait(false);
+            phase = "OAuth";
             var lateCallback = await VerifyOAuthAsync(host, factory, active, options.Profile, budget.Token).ConfigureAwait(false);
 
             if (!(await host.SetEnabledAsync(request.Grant.Package, false, budget.Token).ConfigureAwait(false)).IsOk ||
@@ -110,10 +134,26 @@ internal static class PluginSandboxPackageProbe
             passed = true;
         }
 #pragma warning disable CA1031 // Status must never disclose paths, package content, or renderer messages.
-        catch (Exception) { passed = false; }
+        catch (Exception) { Console.WriteLine("package probe failed at " + phase); }
 #pragma warning restore CA1031
         finally { cleaned = await CloseAsync(host, instance, hooks).ConfigureAwait(false); }
         return passed && cleaned ? "package probe ok" : "package probe failed";
+    }
+
+    private static async Task VerifyHttpFetchAsync(IPluginRuntimeInstance runtime, CancellationToken ct)
+    {
+        foreach (var (path, expected) in new[] { ("redirect", "permission denied"), ("max", "body verified") })
+        {
+            var builder = new PluginValueBuilder();
+            var result = await runtime.InvokeHookAsync(HttpProbeHook, builder.Build(builder.Array(builder.String(path))),
+                TimeSpan.FromSeconds(35), ct).ConfigureAwait(false);
+            var observed = result.IsOk && result.Value is { Kind: PluginValueKind.String } value ? value.StringValue : "no hook result";
+            if (!string.Equals(observed, expected, StringComparison.Ordinal))
+            {
+                Console.WriteLine("synthetic HTTP fetch probe " + path + ": " + observed);
+                throw new InvalidOperationException("Synthetic HTTP fetch did not preserve the authorized response or redirect refusal.");
+            }
+        }
     }
 
     private static async Task<Uri> VerifyOAuthAsync(PluginPackageHost host, IPluginRuntimeFactory factory,
@@ -258,7 +298,8 @@ internal static class PluginSandboxPackageProbe
         if (!review.IsOk || review.Value is not { } preview ||
             !string.Equals(preview.Candidate.Identity.Id, id, StringComparison.Ordinal))
             throw new InvalidOperationException("Synthetic inspection failed.");
-        var consent = new PluginInstallDecision(preview.ReviewId, preview.Candidate.Identity, ["app:lifecycle", "http:fetch"], [FirstLogin, SecondLogin]);
+        var consent = new PluginInstallDecision(preview.ReviewId, preview.Candidate.Identity, ["app:lifecycle", "http:fetch"], [FirstLogin, SecondLogin],
+            approvedHttpOrigins: preview.Candidate.RequestedHttpOrigins);
         var installed = await host.InstallAsync(consent, ct).ConfigureAwait(false);
         if (!installed.IsOk || installed.Value is not { Enabled: false, Grant: { Enabled: false } } disabled ||
             disabled.Package.Identity != preview.Candidate.Identity)
@@ -380,6 +421,12 @@ internal static class PluginSandboxPackageProbe
         public IJmapClient Client => throw new NotSupportedException();
         public IMailService Mail => throw new NotSupportedException();
         public IMailSync Sync => throw new NotSupportedException();
+    }
+
+    private sealed class ProbeNetworkPrefs : IPrefsStore
+    {
+        public PrefsSnapshot Current { get; } = PrefsSnapshot.FromJson(new JsonObject { [PluginNetworkPolicy.Preference] = false });
+        public event EventHandler? Changed { add { } remove { } }
     }
 }
 #endif

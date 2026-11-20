@@ -4,8 +4,11 @@ using Barbican.App.Shell;
 using Barbican.Presentation.Dialogs;
 using Barbican.Core.Accounts;
 using Barbican.Core.Common;
+using Barbican.Core.Plugins.Bridge;
 using Barbican.Core.Plugins.Packages;
 using Barbican.Core.Plugins.Permissions;
+using Barbican.Core.Storage;
+using System.Text.Json.Nodes;
 #if !AUTOMATION
 using Windows.Storage.Pickers;
 #endif
@@ -17,7 +20,8 @@ using Microsoft.UI.Xaml.Automation.Peers;
 namespace Barbican.App.Views.Settings;
 
 /// <summary>Lists packages and reviews local archives before installation.</summary>
-internal sealed class AddonsPageFactory(PluginPackageHost packages, PluginBackgroundRuntimes runtimes) : ISettingsPageFactory
+internal sealed class AddonsPageFactory(PluginPackageHost packages, PluginBackgroundRuntimes runtimes,
+    IPrefsStore prefs, IPrefsEditor editor) : ISettingsPageFactory
 {
     private StackPanel? _list;
     private TextBlock? _status;
@@ -32,6 +36,7 @@ internal sealed class AddonsPageFactory(PluginPackageHost packages, PluginBackgr
     private StackPanel? _reviewPanel;
     private PluginInstallPreview? _review;
     private Button? _import;
+    private ToggleSwitch? _webRequests;
     private int _reviewGeneration;
 
     public string PageId => SettingsPageIds.Addons;
@@ -44,6 +49,20 @@ internal sealed class AddonsPageFactory(PluginPackageHost packages, PluginBackgr
         }
 
         var panel = SetUiUi.Page("Installed add-ons");
+        _webRequests = SetUiUi.Id(new ToggleSwitch
+        {
+            IsOn = !PluginNetworkPolicy.IsBlocked(prefs),
+            IsEnabled = !PluginNetworkPolicy.IsManaged,
+        }, "set.addons.web-requests");
+        AutomationProperties.SetName(_webRequests, "Allow add-on web requests");
+        _webRequests.Toggled += (_, _) =>
+        {
+            var blocked = !_webRequests.IsOn;
+            if (!PluginNetworkPolicy.IsManaged && blocked != PluginNetworkPolicy.IsBlocked(prefs))
+                editor.Put(PluginNetworkPolicy.Preference, JsonValue.Create(blocked));
+        };
+        panel.Children.Add(SetUiUi.RowWithDescription("Allow add-on web requests",
+            SetUiUi.Meta("JavaScript add-ons can contact websites you approved for them."), _webRequests, "set.addons.network"));
         _refresh = SetUiUi.Pill("Refresh", () => SetUiUi.Run(LoadAsync), "set.addons.refresh");
         panel.Children.Add(_refresh);
         _import = SetUiUi.Pill("Import ZIP…", () => SetUiUi.Run(ImportAsync), "set.addons.import");
@@ -65,6 +84,7 @@ internal sealed class AddonsPageFactory(PluginPackageHost packages, PluginBackgr
         _ = Create();
         if (_visible) return;
         _visible = true;
+        if (_webRequests is not null) _webRequests.IsOn = !PluginNetworkPolicy.IsBlocked(prefs);
         runtimes.RunningChanged += OnRunningChanged;
         SetUiUi.Run(LoadAsync);
     }

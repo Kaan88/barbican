@@ -14,7 +14,7 @@ using Barbican.Core.Jmap.Errors;
 namespace Barbican.Core.Net;
 
 /// <summary>The only HTTP client besides the JMAP transport.</summary>
-public sealed class GuardedHttp : IGuardedHttp, IDisposable
+public sealed partial class GuardedHttp : IGuardedHttp, IDisposable
 {
     /// <summary>The body cap: a larger answer is a failure (avatars and logos are far smaller; a one-click answer is ignored).</summary>
     public const int DefaultMaxBodyBytes = 2 * 1024 * 1024;
@@ -36,7 +36,8 @@ public sealed class GuardedHttp : IGuardedHttp, IDisposable
     }
 
     /// <summary>The test seam: <paramref name="loopbackHttp"/> also allows plain http and loopback addresses (still refusing every other private one).</summary>
-    internal GuardedHttp(bool loopbackHttp, Func<string, CancellationToken, Task<IPAddress[]>> resolve, TimeProvider time, int maxBodyBytes, TimeSpan timeout)
+    internal GuardedHttp(bool loopbackHttp, Func<string, CancellationToken, Task<IPAddress[]>> resolve, TimeProvider time,
+        int maxBodyBytes, TimeSpan timeout, DecompressionMethods decompression = DecompressionMethods.None)
     {
         _loopbackHttp = loopbackHttp;
         _resolve = resolve;
@@ -51,7 +52,7 @@ public sealed class GuardedHttp : IGuardedHttp, IDisposable
             Proxy = null,
             Credentials = null,
             PreAuthenticate = false,
-            AutomaticDecompression = DecompressionMethods.None,
+            AutomaticDecompression = decompression,
             ConnectTimeout = timeout,
             PooledConnectionLifetime = TimeSpan.FromMinutes(2),
             MaxResponseHeadersLength = 64,
@@ -204,6 +205,9 @@ public sealed class GuardedHttp : IGuardedHttp, IDisposable
     // addresses in order; the name is never handed to the socket.
     private async ValueTask<Stream> ConnectAsync(SocketsHttpConnectionContext context, CancellationToken ct)
     {
+        var options = context.InitialRequestMessage.Options;
+        _ = options.TryGetValue(PluginConnectPolicy, out var canConnect);
+        CheckPluginPolicy(canConnect, ct);
         var host = context.DnsEndPoint.Host.Trim('[', ']');
         var addresses = IPAddress.TryParse(host, out var literal) ? [literal] : await _resolve(host, ct).ConfigureAwait(false);
         if (addresses.Length == 0)
@@ -216,9 +220,12 @@ public sealed class GuardedHttp : IGuardedHttp, IDisposable
             throw new GuardedRefusal(PrivateNetwork);
         }
 
+        CheckPluginPolicy(canConnect, ct);
+
         SocketException? last = null;
         foreach (var address in addresses)
         {
+            CheckPluginPolicy(canConnect, ct);
             var socket = new Socket(address.AddressFamily, SocketType.Stream, ProtocolType.Tcp) { NoDelay = true };
             try
             {
@@ -238,5 +245,11 @@ public sealed class GuardedHttp : IGuardedHttp, IDisposable
         }
 
         throw last ?? new SocketException((int)SocketError.HostUnreachable);
+    }
+
+    private static void CheckPluginPolicy(Func<bool>? canConnect, CancellationToken ct)
+    {
+        ct.ThrowIfCancellationRequested();
+        if (canConnect?.Invoke() == false) throw new GuardedRefusal("Add-on network authority expired.");
     }
 }

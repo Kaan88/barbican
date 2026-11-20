@@ -2516,3 +2516,35 @@ Settings walkthrough verified exact and wildcard website display,
 cancel, explicit approval, disabled installation and removal. The
 private WebView2 OAuth probe continued to pass. Windows Release built
 with zero warnings and errors.
+
+## Codex / Astra review of Windows add-on HTTP fetch (2026-11-20)
+
+Windows exposes `http.fetch` through the authenticated add-on API
+dispatcher. Settings starts with add-on web requests blocked. The profile
+can allow them for reviewed websites, subject to the managed
+`NO_THIRD_PARTY_TRAFFIC` setting. The host checks the live grant and
+profile policy on each hop and before returning the response.
+
+The guarded transport sends HTTPS requests to approved DNS origins and
+exact ports. It checks resolved addresses before connecting and refuses
+answers with a private address. The transport uses no ambient cookies,
+proxy or credentials. Browser fetch method rewrites apply to redirects.
+Cross-origin redirects drop add-on-supplied headers and refuse body
+replay. Managed and profile controls are checked before DNS and each
+connection attempt. [Fetch Standard redirect handling](https://fetch.spec.whatwg.org/#http-redirect-fetch)
+
+The response cap is 25 MiB after decompression. The native wire carries
+one binary copy and the trusted parent reconstructs the SDK's text field
+before sending the result to the add-on. A single gzip, Brotli or deflate
+encoding is supported. The guarded adapter rejects layered encodings.
+[.NET decompression behavior](https://learn.microsoft.com/en-us/dotnet/api/system.net.http.socketshttphandler.automaticdecompression?view=net-10.0)
+
+The private WebView2 run verified the exact permission-denied result for
+an unapproved redirect and delivered a full synthetic 25 MiB response as
+both text and bytes. The first run exposed stack exhaustion in the
+base64 validator. The replacement retains the preflight size checks and
+requires an exact canonical round trip. The corrected JavaScript bridge
+passed 49 checks. Windows Automation passed 3,405 tests with four skips.
+The private Settings walkthrough toggled the profile policy on and off.
+Windows Release built cleanly with the corrected decoder and excludes the
+synthetic transport. Astra approved the final transport and decoder changes.

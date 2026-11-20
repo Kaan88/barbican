@@ -26,13 +26,14 @@ public sealed partial class ShellPage
         var hooks = ViewHost.Get<HookBus>();
         var sessions = ViewHost.Get<IPluginSessionSource>();
         var methods = ViewHost.Get<IEnumerable<IPluginApiMethod>>();
+        var prefs = ViewHost.Get<IPrefsStore>();
         var views = hasBootstrap ? new PluginSandboxWindowsViewFactory(DispatcherQueue, () => AddOnRuntimeMount, paths, options) : null;
         var startup = hasBootstrap ? new PluginSandboxWindowsStartup(bootstrap, ViewHost.Get<ILogger<PluginSandboxWindowsStartup>>()) : null;
         var native = ViewHost.Get<NativePlugins>();
         var oauthBrowser = new PluginPackageHost.PluginOAuthBrowser(
             new BrowserAuthorizationLauncher(ViewHost.Get<IBrowserLauncher>()), ConfirmAddOnOAuthAsync);
         _ = ViewHost.Get<PluginBackgroundRuntimes>().InitializeAsync(
-            ct => packages.CreateAddOnFactoryAsync(views, startup, hooks, sessions, methods, includeUserStorage: true, native, oauthBrowser, ct),
+            ct => packages.CreateAddOnFactoryAsync(views, startup, hooks, sessions, methods, includeUserStorage: true, native, oauthBrowser, prefs, ct),
             CancellationToken.None, javaScriptAvailable: hasBootstrap);
     }
 

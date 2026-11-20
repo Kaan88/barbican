@@ -2,6 +2,7 @@
 using System.Collections.Concurrent;
 using System.Globalization;
 using System.Text.Json;
+using Barbican.Core.Plugins.Bridge;
 using Barbican.Core.Common;
 using Barbican.Core.Jmap.Errors;
 using Barbican.Core.Plugins.Packages;
@@ -240,10 +241,13 @@ internal sealed partial class PluginBackgroundRuntimes(
             firstDayOfWeek = weekStart is 0 or 1 or 6 ? (int)weekStart : 1,
         });
         using var empty = JsonDocument.Parse("{}");
-        using var features = JsonDocument.Parse("""
-            {"externalSenderLabel":false,"externalRecipientWarning":false,"noThirdPartyTraffic":true}
-            """);
-        var state = new PluginHostState(locale, regional, empty.RootElement, empty.RootElement, features.RootElement);
+        var features = JsonSerializer.SerializeToElement(new
+        {
+            externalSenderLabel = false,
+            externalRecipientWarning = false,
+            noThirdPartyTraffic = PluginNetworkPolicy.IsBlocked(prefs),
+        });
+        var state = new PluginHostState(locale, regional, empty.RootElement, empty.RootElement, features);
         var value = new PluginValueBuilder();
         return new PluginRuntimeStart(installation, installation.Grant!, paths.Profile, PluginFrameKind.Background, null,
             value.Build(value.Object()), state);

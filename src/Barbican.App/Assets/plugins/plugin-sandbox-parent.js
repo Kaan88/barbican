@@ -125,6 +125,14 @@ export function createSandboxParent({ frame, tier, hostOrigin, postNative, onAct
       const bytes = result.bytes;
       if (!current()) throw new Error('Sandbox is no longer active');
       const clone = decodePluginValue(bytes, limits);
+      // Native sends one copy of the fetch body. Rebuild the public text field
+      // in this trusted realm after the native transport budget checks.
+      if (kind === 'api-response' && Object.hasOwn(clone, 'decodeFetchBody')) {
+        if (clone.decodeFetchBody !== true || clone.ok !== true || clone.result?.bodyText !== null ||
+            !(clone.result.bodyBytes instanceof Uint8Array)) throw new Error('Invalid fetch response');
+        clone.result.bodyText = text.decode(clone.result.bodyBytes);
+        delete clone.decodeFetchBody;
+      }
       const transfer = kind === 'stream-chunk' && clone.chunk instanceof ArrayBuffer ? [clone.chunk] : [];
       target.postMessage(clone, targetOrigin, transfer);
       if (kind === 'init') initialized = true;

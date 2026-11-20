@@ -5,11 +5,12 @@ import assert from 'node:assert/strict';
 import { createSandboxParent } from '../../src/Barbican.App/Assets/plugins/plugin-sandbox-parent.js';
 import { decodePluginValue } from '../../src/Barbican.App/Assets/plugins/plugin-value-codec.js';
 
-function rig({ tier='untrusted', hostOrigin='https://plugin.invalid', maxPendingMessages=8, maxPendingBytes=8192 } = {}) {
+function rig({ tier='untrusted', hostOrigin='https://plugin.invalid', maxPendingMessages=8, maxPendingBytes=8192,
+  maxMessageBytes=4096 } = {}) {
   const sent = [], native = [], activities = [];
   const window = { postMessage: (...args) => sent.push(args) };
   const frame = { contentWindow: window };
-  const bridge = createSandboxParent({ frame, tier, hostOrigin, postNative: wire => { assert.equal(typeof wire,'string'); native.push(decodePluginValue(new TextEncoder().encode(wire))); }, onActivity: () => activities.push(1), maxMessageBytes: 4096, maxPendingMessages, maxPendingBytes });
+  const bridge = createSandboxParent({ frame, tier, hostOrigin, postNative: wire => { assert.equal(typeof wire,'string'); native.push(decodePluginValue(new TextEncoder().encode(wire))); }, onActivity: () => activities.push(1), maxMessageBytes, maxPendingMessages, maxPendingBytes });
   const event = (data, extra={}) => ({ source:window, origin:'null', data, ports:[], ...extra });
   return { bridge, frame, window, sent, native, activities, event };
 }
@@ -56,6 +57,32 @@ test('replaced iframe, navigation and disposal reject queued messages and sends'
 });
 const init = {type:'init',payload:{mode:'background',pluginId:'fixture',tier:'untrusted',manifest:{id:'fixture',version:'1',permissions:[],settings:{}},code:'',locale:'en'}};
 async function readyAndInit(r) { await r.bridge.receive(r.event({type:'sandbox-ready'})); await r.bridge.send(init); }
+
+test('native compact fetch reply becomes the public text and byte response', async () => {
+  const r = rig();
+  await readyAndInit(r);
+  const bodyBytes = new Uint8Array([0xef, 0xbb, 0xbf, 0x6f, 0x6b, 0xff]);
+  await r.bridge.send({ type: 'api-response', id: 'fetch', ok: true, decodeFetchBody: true,
+    result: { bodyBytes, bodyText: null } });
+  assert.deepEqual(r.sent.at(-1)[0], { type: 'api-response', id: 'fetch', ok: true,
+    result: { bodyBytes, bodyText: 'ok\uFFFD' } });
+  await assert.rejects(() => r.bridge.send({ type: 'api-response', id: 'bad', ok: true, decodeFetchBody: true,
+    result: { bodyBytes: new Uint16Array(1), bodyText: null } }), /Invalid fetch response/);
+  assert.equal(r.sent.at(-1)[0].id, 'fetch');
+});
+
+test('maximum fetch body fits the compact bridge budget', async () => {
+  const mib = 1024 * 1024;
+  const r = rig({ maxMessageBytes: 40 * mib, maxPendingBytes: 80 * mib });
+  await readyAndInit(r);
+  const bodyBytes = new Uint8Array(25 * mib).fill(0x78);
+  await r.bridge.send({ type: 'api-response', id: 'max-fetch', ok: true, decodeFetchBody: true,
+    result: { bodyBytes, bodyText: null } });
+  const { result } = r.sent.at(-1)[0];
+  assert.equal(result.bodyText.length, bodyBytes.length);
+  assert.equal(result.bodyText.at(-1), 'x');
+  assert.equal(result.bodyBytes.length, bodyBytes.length);
+});
 
 test('API requests are rejected before init and accepted during activation', async () => {
   const r=rig(); await r.bridge.receive(r.event({type:'sandbox-ready'}));

@@ -3,6 +3,7 @@ using Barbican.Core.Accounts;
 using Barbican.Core.Auth;
 using Barbican.Core.Common;
 using Barbican.Core.Jmap.Errors;
+using Barbican.Core.Net;
 using Barbican.App.Plugins.Sandbox;
 using Barbican.Core.Plugins.Bridge;
 using Barbican.Core.Plugins.Hooks;
@@ -25,6 +26,8 @@ internal sealed class PluginPackageHost(IProfilePaths paths, ISecretStore secret
     private PluginOAuthCallbacks? _oauth;
     private PluginOAuthRedirect? _oauthRedirect;
     private Task? _oauthStop;
+    private GuardedHttp? _network;
+    private PluginHttpFetch? _httpFetch;
     private AuthenticatedPluginPackageStore? _store;
     private IPluginProfileAuthorityLease? _lease;
     private DirectoryInfo? _automationRoot;
@@ -32,6 +35,10 @@ internal sealed class PluginPackageHost(IProfilePaths paths, ISecretStore secret
     private Task<Result<Unit>>? _runtimeShutdown;
     private bool _closed;
     private bool _cleanupNeedsRetry;
+
+#if AUTOMATION
+    internal bool UseSyntheticHttpProbe { private get; init; }
+#endif
 
     public Task<Result<IReadOnlyList<PluginInstallation>>> ListAsync(CancellationToken ct) =>
         WithManagerAsync(manager => manager.ListAsync(ct), ct);
@@ -120,12 +127,13 @@ internal sealed class PluginPackageHost(IProfilePaths paths, ISecretStore secret
     internal Task<Result<IPluginRuntimeFactory>> CreateSandboxFactoryAsync(
         IPluginSandboxWebViewFactory views, IPluginSandboxStartup startup, HookBus hooks,
         IPluginSessionSource sessions, IEnumerable<IPluginApiMethod> methods, CancellationToken ct, bool includeUserStorage = false) =>
-        CreateAddOnFactoryAsync(views, startup, hooks, sessions, methods, includeUserStorage, nativePlugins: null, oauthBrowser: null, ct);
+        CreateAddOnFactoryAsync(views, startup, hooks, sessions, methods, includeUserStorage, nativePlugins: null, oauthBrowser: null,
+            networkPrefs: null, ct);
 
     internal Task<Result<IPluginRuntimeFactory>> CreateAddOnFactoryAsync(
         IPluginSandboxWebViewFactory? views, IPluginSandboxStartup? startup, HookBus hooks,
         IPluginSessionSource sessions, IEnumerable<IPluginApiMethod> methods, bool includeUserStorage,
-        NativePlugins? nativePlugins, PluginOAuthBrowser? oauthBrowser, CancellationToken ct) =>
+        NativePlugins? nativePlugins, PluginOAuthBrowser? oauthBrowser, IPrefsStore? networkPrefs, CancellationToken ct) =>
         WithManagerAsync(manager =>
         {
             // Lifecycle writes and runtime calls share the same leased authority and revocation coordinator.
@@ -137,6 +145,11 @@ internal sealed class PluginPackageHost(IProfilePaths paths, ISecretStore secret
                     : methods;
                 _oauth ??= new PluginOAuthCallbacks(manager, time);
                 _oauthRedirect ??= new PluginOAuthRedirect(_oauth, time);
+                if (networkPrefs is not null)
+                {
+                    _httpFetch ??= CreateHttpAdapter(manager, networkPrefs);
+                    adapters = adapters.Append(_httpFetch);
+                }
                 var dispatcher = new PluginApiDispatcher(paths.Profile,
                     adapters.Concat(PluginOAuthMethods.For(_oauth, _oauthRedirect, manager, oauthBrowser?.Launcher, oauthBrowser?.Confirm)),
                     manager, sessions, time);
@@ -145,6 +158,15 @@ internal sealed class PluginPackageHost(IProfilePaths paths, ISecretStore secret
             var native = nativePlugins?.CreatePackageFactory(manager, _revocation!);
             return Task.FromResult(Result<IPluginRuntimeFactory>.Ok(new PackageRuntimeFactory(sandbox, native)));
         }, ct);
+
+    private PluginHttpFetch CreateHttpAdapter(PluginPackageManager manager, IPrefsStore prefs)
+    {
+#if AUTOMATION
+        if (UseSyntheticHttpProbe) return PluginHttpFetch.ForSyntheticProbe(manager, prefs);
+#endif
+        _network ??= GuardedHttp.ForPluginFetch();
+        return new PluginHttpFetch(manager, _network, prefs);
+    }
 
     internal sealed record PluginOAuthBrowser(IAuthorizationLauncher Launcher, Func<PluginRuntimeBinding, Uri, CancellationToken, Task<bool>> Confirm);
 
@@ -286,6 +308,7 @@ internal sealed class PluginPackageHost(IProfilePaths paths, ISecretStore secret
 #pragma warning disable VSTHRD003 // The loopback listener's shutdown is independent of UI and package locks.
         if (_oauthStop is { } oauthStop) await oauthStop.ConfigureAwait(false);
 #pragma warning restore VSTHRD003
+        _network?.Dispose();
         _store?.Dispose();
         if (_lease is { } lease) await lease.DisposeAsync().ConfigureAwait(false);
         if (_automationRoot is { } root)

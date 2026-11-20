@@ -153,8 +153,13 @@ public sealed partial class PluginSandboxSession(PluginRuntimeBinding binding, I
     {
         var response = new PluginValueBuilder();
         var result = outcome.IsSuccess ? response.Import(outcome.Value!) : response.String(outcome.ErrorMessage!);
-        var envelope = response.Build(response.Object(("type",response.String("api-response")),("id",response.String(id)),
-            ("ok",response.Boolean(outcome.IsSuccess)),(outcome.IsSuccess ? "result" : "error",result)),WireLimits);
+        var fields = new List<(string, int)>
+        {
+            ("type", response.String("api-response")), ("id", response.String(id)),
+            ("ok", response.Boolean(outcome.IsSuccess)), (outcome.IsSuccess ? "result" : "error", result),
+        };
+        if (outcome.ReconstructFetchBodyText) fields.Add(("decodeFetchBody", response.Boolean(true)));
+        var envelope = response.Build(response.Object([.. fields]), WireLimits);
         return PluginValueCodec.Encode(envelope,WireLimits);
     }
     /// <summary>Issues init after authenticated ready; API calls may arrive during activation.</summary>

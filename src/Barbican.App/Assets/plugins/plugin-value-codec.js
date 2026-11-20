@@ -50,12 +50,13 @@ function b64(bytes) {
   return result;
 }
 function unb64(s, cap, counter) {
-  if (typeof s !== 'string' || s.length % 4 !== 0 || !/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(s)) fail('bad base64');
+  if (typeof s !== 'string' || s.length % 4 !== 0) fail('bad base64');
   const n = s.length / 4 * 3 - (s.endsWith('==') ? 2 : s.endsWith('=') ? 1 : 0);
   counter.n += n;
   if (n > cap || counter.n > cap) fail('byte budget');
-  const decoded = atob(s);
-  if (btoa(decoded) !== s) fail('noncanonical base64');
+  let decoded;
+  try { decoded = atob(s); } catch { fail('bad base64'); }
+  if (decoded.length !== n || btoa(decoded) !== s) fail('noncanonical base64');
   const result = new Uint8Array(n);
   for (let i = 0; i < n; i++) result[i] = decoded.charCodeAt(i);
   return result;
