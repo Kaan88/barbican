@@ -2215,3 +2215,27 @@ The emitted-code audit identified the third-party license texts for the
 runtime. The icon chunk still triggers the privacy scanner. Production
 registration, portable packaging, independent-machine reproducibility,
 and broader network and slot behavior remain pending.
+
+## Codex / Astra review of Windows runtime preparation and lifecycle observers (2026-11-20)
+
+The preparation script exports the pinned upstream Git revision to an
+exclusively created folder outside both checkouts. It uses isolated tool
+processes with an explicit environment, the full release lockfile, and
+verified Node and npm versions. It reproduces the Windows checkout's CRLF
+conversion and checks the eight filenames, byte lengths and hashes against
+the app inventory. The in-repo script passed an independent clean build
+with deliberately invalid ambient Node and npm settings, and rejected both
+an existing output directory and a destination inside a checkout. Astra
+approved the final script.
+
+The lifecycle adapter projects the five approved empty observer events
+to a live, untrusted background binding using Bulwark's implicit lifecycle
+permission. It uses a fixed empty object, checks the current grant, and
+detaches on binding closure. Astra approved the scoped adapter. Windows
+Automation passed 3,314 tests with four skips and zero failures. The runtime
+owner still needs to attach the adapter once per activated binding.
+
+Two independent checks located the icon chunk's one distinct privacy
+pattern match in the locked public dependency source. The generated chunk
+and runtime notices remain in local staging. The repository privacy
+scanner and artifact distribution policy remain in force.
