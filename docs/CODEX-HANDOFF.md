@@ -1,10 +1,17 @@
-# Codex continuation
+# Claude / Codex continuation
 
 **Start in the C# milestone checkout.** The active branch is `codex/m6b-bulwark-ui`, in `<downloads>/wt-m6b-bulwark-ui`. A chat opened in `webmail-main/desktop` starts in the retired Rust reference. The older coordinator checkout at `<downloads>/barbican` holds unrelated local test deletions. Preserve them.
 
-Read [CLAUDE.md](../CLAUDE.md), then the [current M6b work list](milestones/M6b-plan.md#current-work). Use `git status --short --branch` in the milestone worktree before resuming. The Windows checkpoint at `3791df4` includes managed activation and the composer footer. Its [verification history](milestones/M6b-solo-parity.md#windows-checkpoint-at-3791df4) records the reviewed portable. The branch subsequently verified [nested Settings](milestones/M6b-solo-parity.md#nested-settings-and-restart) and [typing proofreading](milestones/M6b-solo-parity.md#typing-checker-on-windows). The local managed activation handoff, when present, describes the earlier pause.
+Read [CLAUDE.md](../CLAUDE.md), then the [current M6b work list](milestones/M6b-plan.md#current-work). Use `git status --short --branch` in the milestone worktree before resuming. The Windows checkpoint at `3791df4` includes managed activation and the composer footer. Its [verification history](milestones/M6b-solo-parity.md#windows-checkpoint-at-3791df4) records the reviewed portable. The branch subsequently verified [nested Settings](milestones/M6b-solo-parity.md#nested-settings-and-restart) and [typing proofreading](milestones/M6b-solo-parity.md#typing-checker-on-windows). The [Claude review packet](FABLE-REVIEW.md#claude-continuation-review-packet-2026-11-20) summarizes all 77 commits since the last Claude-attributed revision, `b459504`, through current code `bff8a91`. The managed activation handoff is historical; its draft landed at `3791df4`.
 
 At the current pause, `artifacts/m6b-paused/dialog-source/` holds the later buildable dialog files relative to the checkout root. The isolated Windows build and 11 focused tests passed. Resume with the private `addons-fixture dialog-probe` walkthrough. `artifacts/m6b-paused/scoped-mail.patch` is unverified transport and delivery fencing work for scoped mail reads. The M6b work list owns the remaining compatibility gates and the final integrated candidate review.
+
+## Restart checklist
+
+1. Read the review packet and current work list before editing. Current code and the observed remote-tracking head are `bff8a91`; verify remote state before publishing. There are no pending tracked application edits at this handoff.
+2. Read the private account mapping. This worktree has no `.local/accounts.md`; the existing mapping is in the main C# checkout at `<downloads>/barbican/.local/accounts.md`. Never copy its values into public docs. The configured identity is GitHub noreply and `core.hooksPath` is already `.githooks`.
+3. Preserve `.cortexkit/` and ignored `artifacts/m6b-paused/`. The `dialog-source/` snapshot supersedes `dialogs.patch` plus `dialog-new-files/`; compare and restore deliberately, then replay the private dialog probe. Keep the unverified scoped-mail patch separate. A fresh clone will need these local artifacts transferred privately or the work reconstructed.
+4. Continue M6b compatibility, then obtain the combined candidate review. Do not mistake the older portable or scoped fix approvals for approval of current HEAD or milestone completion.
 
 ## Working in this checkout
 

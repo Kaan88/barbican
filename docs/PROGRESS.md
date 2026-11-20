@@ -2,6 +2,15 @@
 
 For the active branch, next actions and evidence, use [M6b current work](milestones/M6b-plan.md#current-work). The [roadmap](ROADMAP.md) tracks milestone order.
 
+## November 20: handoff to Claude
+
+- [x] Reconciled the 77 commits since Claude's `b459504` through `bff8a91`: mail/composer parity, production Windows add-on lifecycle and APIs, organization policy, signed managed activation, Settings fixes and typing proofreading. [Review packet](FABLE-REVIEW.md#claude-continuation-review-packet-2026-11-20)
+- [x] Recorded the latest full Windows Automation evidence: 3,638 passed, zero failed, four skipped. The last approved combined portable is still `3791df4`; it does not include the later Settings/checker changes.
+- [x] Reconciled restart guidance and marked the older managed-activation draft handoff as historical. Paused dialog and scoped-mail work remains local and outside the committed implementation.
+- [ ] Finish remaining proofreading APIs, native dialogs, scoped mail reads and production slot evidence, then verify and review the integrated M6b candidate. M6b remains open; M7/M8/M10 follow and Linux/M9 stays deferred.
+
+Start with [CODEX-HANDOFF.md](CODEX-HANDOFF.md), which now serves either agent. The records below are historical, not current branch instructions.
+
 ## Checkpoint history through November 19
 
 Read the entries below as dated observations. The current work list supersedes their restart prompts.

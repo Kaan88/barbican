@@ -18,7 +18,7 @@ Astra approves each major milestone on the combined candidate. Supply a verified
 | M4 | Calendar and tasks | Done; Linux deferred |
 | M5 | Contacts and Files | Done; explicit feature carryovers remain |
 | M6 | Settings, server features and assistant | Windows implementation checkpoint and verified fresh portable delivered at 583b40d; explicit live/visual limits in report |
-| M6b | Full plugin platform, sandbox, permissions, consent and Add-ons | Windows preview delivered. Managed install, isolated runtime and startup proof verified separately. Session activation, compatibility coverage, visible UI differences and final acceptance remain open |
+| M6b | Full plugin platform, sandbox, permissions, consent and Add-ons | Windows checkpoint/portable approved at `3791df4`, including managed session activation. Settings and typing-checker fixes landed through `bff8a91` (3,638 Automation tests passed, four skipped). Remaining proofreading APIs, dialogs, scoped reads, slot coverage and final integrated acceptance remain open |
 | M7 | Admin dashboard and management | Planned |
 | M8 | Windows desktop integration and distribution | Planned |
 | M10 | Parity sweep, UI polish and release readiness | Planned; followed by Astra fixes and a UI walkthrough |

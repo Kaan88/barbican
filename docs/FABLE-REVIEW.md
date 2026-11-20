@@ -4,6 +4,35 @@ Astra reviews the integrated candidate at each major milestone and can review a 
 
 Record the scope and candidate, the affected outcome, any reproduction and fix, the evidence examined and the reviewer's decision. Mark an approval's scope explicitly. The entries below are historical records of the revisions they name.
 
+## Claude continuation review packet (2026-11-20)
+
+**Ready for review, not milestone completion.** The last Claude-attributed commit on this branch is `b459504001c63b7abff3884f7f5ec5adbfc50657` (Match Bulwark inbox surfaces and toolbar density). This packet covers the 77 subsequent commits through `bff8a915aa2c175717e409d55d62eac3eda41d1c`. Attribution was checked in Git trailers on the branch's first-parent history. Review the net diff with `git diff b459504..bff8a91`; intermediate UI experiments include reversions, so commit titles alone do not describe the final behavior.
+
+| Completed work in the range | Review anchors and evidence |
+|---|---|
+| Bulwark mail surfaces and interactions: conversation grouping across pages, per-message headers/actions, narrow navigation, resizable docked replies, maximize/pop-out/return preserving the editor, inline send and keyboard guards | `c3ca11e`, `a6e3b36`, `5518b0a`, `2bd56bc`, `06ad154`; [Windows interaction and visual record](milestones/M6b-solo-parity.md). Bulwark remains the appearance reference; the native prototype supplies motion and feedback. |
+| Local ZIP review/consent, recoverable package authority, authenticated WebView startup, exact pinned runtime assets, shared profile lease, shutdown and Settings activation | `b928ee8` through `1028e55`; package, runtime and Windows probe entries below. Ordinary installed add-ons have an executable Windows lifecycle. |
+| Scoped persistent storage and sign-out cleanup, explicit native trust before loading, native activation, owned OAuth callbacks and reviewed HTTP website grants | `3dfc99d` through `7e02bda`; corresponding authority reviews below. Native add-ons remain full-trust code. |
+| Composer/reader actions, bounded previews, compose-link routing, send checks/transforms/observers, guarded raw submission and attributed toast/progress notifications | `93366cf` through `849855e`; [API coverage and remaining methods](milestones/M6b-api-inventory.md#windows-execution-evidence-for-the-november-20-continuation). Preview/print evidence uses synthetic sinks, not physical printing. |
+| Trusted OAuth organization policy, policy-mediated print/send/classification, authenticated signed managed acquisition/install, isolated managed origin, fresh startup proof and session activation | `d7ba9f0` through `3791df4`; [managed activation and takeover](milestones/M6b-solo-parity.md#managed-add-on-activation-and-takeover). Includes denied recipient, revoked initialization and recovery cases. |
+| Immediate Reading/list preference application and persisted Settings walkthrough | `9ae9a57`; [nested Settings](milestones/M6b-solo-parity.md#nested-settings-and-restart): 1,138 Presentation and 16 mail-page tests reported passing. |
+| Unchanged proofreading fixture runs in the Windows composer, with typing annotations, guarded replacement, send warning, opt-out and queued-policy denial | `bff8a91`; [typing checker](milestones/M6b-solo-parity.md#typing-checker-on-windows). Long drafts, on-demand APIs, callbacks, navigation and per-checker controls remain open. |
+
+### Verification and approval boundaries
+
+- Latest recorded full Windows Automation result: **3,638 passed, zero failed, four skipped** for the typing-checker checkpoint. The local `artifacts/m6b-paused/windows-automation.log` retains this summary. Strict M6b catalogue and generated hooks checks were reported passing. These are carried evidence, not tests rerun during this documentation handoff.
+- Last explicitly approved combined Windows code/portable checkpoint: **`3791df4`**, with 3,623 passing Automation tests and four skips, clean Release build, catalogue/hooks/tokens checks and extracted portable smoke. [Exact ZIP checksum and source](milestones/M6b-solo-parity.md#windows-checkpoint-at-3791df4). This portable predates the Settings and typing-checker commits.
+- Astra's later typing-checker approval covers the reviewed fixes; it does not approve the final M6b candidate. No new Claude or Astra approval is asserted by this packet. Linux remains deferred to M9.
+
+### Requested continuation review
+
+1. Read [the continuation guide](CODEX-HANDOFF.md) and [current work](milestones/M6b-plan.md#current-work). Review the net changes since `b459504`, prioritizing package/session authority, WebView delivery, policy and send fences, then the UI changes and evidence above.
+2. Preserve the local paused drafts. `artifacts/m6b-paused/dialog-source/` is the later dialog source snapshot (reported isolated Windows build and 11 focused tests passed); `dialogs.patch` and `dialog-new-files/` are earlier snapshots. Compare against the current tree before restoring anything; do not apply both versions. Resume the private synthetic `addons-fixture dialog-probe` replay. Native dialog behavior is not yet accepted.
+3. `artifacts/m6b-paused/scoped-mail.patch` is unverified transport/delivery fencing work. Inspect it independently before applying, testing and exercising allowed/denied/stale-account mail-read results. These ignored artifacts are machine-local and are absent from a fresh clone.
+4. Complete the remaining proofreading methods, dialog flow, scoped reads and production slot mounts. Track each outcome in the current work list/API inventory. Then run the combined Windows suite and Release build, affected synthetic walkthroughs, catalogue/generator checks and a fresh extracted portable smoke; obtain explicit Astra approval before closing M6b or starting M7.
+
+This documentation pass changes no application code. It preserves the existing `.cortexkit/` material and paused source artifacts. Main merges, tags and release publication remain separately authorized actions.
+
 ## M6b Bulwark rail and list (Terra)
 
 - Review `src/Barbican.App/Theme/{StyleState,StyleMetrics}.cs` and `Views/{Rail/RailView,Sidebar/SidebarView,List/MessageListView,Search/SearchBoxView}.xaml` (uncommitted, based on `90a70f8`): the Bulwark rail and sidebar use their semantic palette rather than Bento tile, the unconfigured logo is absent, and list density and toolbar sizes follow upstream. Rail metrics also apply to non-mail screens in Bulwark; enlarged targets and legacy styles need visual verification. Configurable upstream logos and full icon parity are not implemented.
