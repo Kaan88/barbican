@@ -2,6 +2,8 @@
 
 using Barbican.App.Views.Compose;
 using Barbican.App.Views.Dialogs;
+using Barbican.Core.Plugins.Api.Composer;
+using Barbican.Core.Plugins.Bridge;
 using Barbican.Core.Mail.Body;
 using Barbican.Presentation.Composition;
 using Barbican.Presentation.Compose;
@@ -24,6 +26,15 @@ public static class ComposerRegistration
         ComposerBodyHost.EditorFactory = vm => new Views.Editor.EditorView(vm);
         services.AddSingleton<IDialogContent, AccountPickDialogContent>();
         services.AddSingleton<IDialogContent, ScheduleDialogContent>();
+#if WINDOWS
+        services.AddSingleton<PluginComposerAccess>();
+        services.AddSingleton<Barbican.App.Plugins.PluginActionRegistration>();
+        services.AddSingleton<IPluginApiMethod>(sp => sp.GetRequiredService<Barbican.App.Plugins.PluginActionRegistration>());
+        services.AddSingleton<IPluginApiMethod>(sp => PluginComposerMethods.GetSnapshot(sp.GetRequiredService<PluginComposerAccess>()));
+        services.AddSingleton<IPluginApiMethod>(sp => PluginComposerMethods.SetSubject(sp.GetRequiredService<PluginComposerAccess>(),
+            PluginComposerEditRateLimiter.Create(sp.GetRequiredService<TimeProvider>(), 10)));
+        services.AddSingleton<IPluginApiMethod>(sp => PluginComposerMethods.ReadAttachment(sp.GetRequiredService<PluginComposerAccess>()));
+#endif
 
         // a mailto: link clicked in a message opens the composer, never the OS handler (B-COMP-034); everything else keeps the reader's link check
         services.Replace(ServiceDescriptor.Singleton<ILinkRouter>(sp => new ComposerLinkRouter(sp.GetRequiredService<CheckedLinkRouter>(), sp.GetRequiredService<MailtoRouter>())));

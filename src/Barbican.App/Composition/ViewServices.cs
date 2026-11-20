@@ -4,6 +4,12 @@ using Barbican.Presentation.Common;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Logging;
+#if WINDOWS && AUTOMATION
+using Barbican.Core.Accounts;
+using Barbican.Core.Storage;
+using Barbican.Presentation.Mail;
+using Barbican.App.Shell.Automation;
+#endif
 
 namespace Barbican.App.Composition;
 
@@ -36,6 +42,18 @@ public static class ViewServices
         if (string.Equals(Environment.GetEnvironmentVariable("BARBICAN_SAMPLE"), "1", StringComparison.Ordinal))
         {
             services.Replace(ServiceDescriptor.Singleton<Barbican.Presentation.Mail.IActiveMail, Shell.Automation.SampleActiveMail>());
+#if WINDOWS
+            if (string.Equals(Environment.GetEnvironmentVariable("BARBICAN_SAMPLE_ADDON_ACCOUNT"), "1", StringComparison.Ordinal))
+            {
+                services.AddSingleton(sp => new SampleAddOnAccount((SampleActiveMail)sp.GetRequiredService<IActiveMail>()));
+                services.Replace(ServiceDescriptor.Singleton<IAccountOverview>(sp =>
+                    ProfilePaths.IsAutomationProfile(sp.GetRequiredService<IProfilePaths>().Profile)
+                        ? sp.GetRequiredService<SampleAddOnAccount>() : sp.GetRequiredService<AccountManager>()));
+                services.Replace(ServiceDescriptor.Singleton<IAccountSessionSnapshots>(sp =>
+                    ProfilePaths.IsAutomationProfile(sp.GetRequiredService<IProfilePaths>().Profile)
+                        ? sp.GetRequiredService<SampleAddOnAccount>() : sp.GetRequiredService<AccountManager>()));
+            }
+#endif
         }
 
         services.AddSingleton<Barbican.Automation.IAutomationCommand, Shell.Automation.KeyCommand>();

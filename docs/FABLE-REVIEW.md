@@ -2548,3 +2548,31 @@ passed 49 checks. Windows Automation passed 3,405 tests with four skips.
 The private Settings walkthrough toggled the profile policy on and off.
 Windows Release built cleanly with the corrected decoder and excludes the
 synthetic transport. Astra approved the final transport and decoder changes.
+
+## Codex / Astra review of Windows composer add-on actions (2026-11-20)
+
+The Windows composer mounts account-scoped add-on actions in its header
+and uses a constrained overflow menu when space is limited. A click
+exposes the exact draft to the owning background runtime. Snapshot,
+subject and attachment methods check the live grant and account. Subject
+writes compare revisions on the UI thread. Attachment reads require the
+current draft's opaque attachment identifier and exclude inline originals.
+
+Composer snapshots omit generated signatures, reply attribution and
+quoted messages. Saved MIME lacks reliable authorship information, so
+reopened drafts withhold imported body text from add-ons. Newly typed
+text remains available. Tests cover repeated subject values, stale draft
+handles, reopened content, and inline attachment isolation.
+
+Astra approved the composer, overflow menu and Windows Automation
+account adapter. Windows Automation passed 3,409 tests with four skips,
+and Windows Release built with zero warnings and errors.
+The private desktop walkthrough reviewed and enabled the byte-for-byte
+Bulwark `plugin-api-probe` fixture for an in-process mailbox. Its
+`Probe: case subject` action updated the draft through both the header
+button and the constrained menu at 480 logical pixels. The sample
+account adapter is available only to Windows Automation with both
+`BARBICAN_SAMPLE=1` and `BARBICAN_SAMPLE_ADDON_ACCOUNT=1` on an
+automation profile. Reader actions currently register during activation.
+Reader mounting, file preview, printing, send hooks and compose-link
+checks remain open.

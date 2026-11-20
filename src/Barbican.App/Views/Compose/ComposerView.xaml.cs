@@ -34,7 +34,13 @@ public sealed partial class ComposerView : UserControl
         Host.DragOver += OnDragOver;
         Host.DragLeave += (_, _) => DropOverlay.Visibility = Visibility.Collapsed;
         Host.Drop += OnDrop;
-        SizeChanged += (_, _) => ApplyFooterDensity();
+        SizeChanged += (_, _) =>
+        {
+            ApplyFooterDensity();
+#if WINDOWS
+            RefreshAddOnActions();
+#endif
+        };
         ToField.Trailing = TogglesFor();
         Loaded += OnLoaded;
         Unloaded += OnUnloaded;
@@ -86,12 +92,18 @@ public sealed partial class ComposerView : UserControl
         Look.PropertyChanged += OnLookChanged;
         ApplyComposerLayout();
         Attach(_service.Current);
+#if WINDOWS
+        WatchAddOnActions();
+#endif
     }
 
     private void OnUnloaded(object sender, RoutedEventArgs e)
     {
         _theme.CssApplied -= OnThemeApplied;
         Look.PropertyChanged -= OnLookChanged;
+#if WINDOWS
+        UnwatchAddOnActions();
+#endif
     }
 
     private void OnThemeApplied(object? sender, ThemeCssEventArgs e) => ApplyComposerLayout();
@@ -206,6 +218,9 @@ public sealed partial class ComposerView : UserControl
         }
 
         _vm = vm;
+#if WINDOWS
+        RefreshAddOnActions();
+#endif
         _card = CardKind.None;
         if (vm is null)
         {

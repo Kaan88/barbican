@@ -171,8 +171,8 @@ public sealed class ComposeSeeder(IAccountManager accounts, IIdentityService ide
         var blocks = new List<Block>
         {
             Block.Para(""),
-            Block.Para(QuoteHeader.ForwardedBanner),
-            Block.Para($"From: {who}\nDate: {date}\nSubject: {subject}"),
+            MarkComposerContext(Block.Para(QuoteHeader.ForwardedBanner)),
+            MarkComposerContext(Block.Para($"From: {who}\nDate: {date}\nSubject: {subject}")),
             new Block(new BlockKind.Quoted(quote.Html, quote.Text, true, false)),
         };
         var inlineBlobs = inline.Select(p => p.Part.BlobId).ToHashSet(StringComparer.Ordinal);
@@ -189,7 +189,7 @@ public sealed class ComposeSeeder(IAccountManager accounts, IIdentityService ide
 
     private static (ComposeSeed Seed, List<Block> Blocks) ReplyOf(ComposeSeed seed, EmailBody m, (string Html, string Text) quote, IReadOnlyList<(string Cid, DraftAttachment Part)> inline, string header, bool all, List<string> own, ComposeSettings settings)
     {
-        var blocks = new List<Block> { Block.Para(""), Block.Para(header), new Block(new BlockKind.Quoted(quote.Html, quote.Text, false, true)) };
+        var blocks = new List<Block> { Block.Para(""), MarkComposerContext(Block.Para(header)), new Block(new BlockKind.Quoted(quote.Html, quote.Text, false, true)) };
         var reply = ReplyEnvelope(seed, m, all, own, settings);
         return (reply with { Attachments = [.. inline.Select(p => p.Part)] }, blocks);
     }
@@ -255,6 +255,9 @@ public sealed class ComposeSeeder(IAccountManager accounts, IIdentityService ide
             Cid = IsInline(a) ? a.Cid!.Trim('<', '>') : null,
         }).ToList();
         await RestoreImagesAsync(blocks, attachments, ctx, ct).ConfigureAwait(false);
+        // Stored MIME can flatten the reply attribution and signature into normal text.
+        // Treat imported runs as un-attributed until the user edits the re-opened composer.
+        foreach (var block in blocks) MarkComposerContext(block);
         return Result<ComposeSeed>.Ok(new ComposeSeed
         {
             AccountId = request.AccountId,
@@ -362,6 +365,7 @@ public sealed class ComposeSeeder(IAccountManager accounts, IIdentityService ide
         }
 
         sig.AddRange(htmlText.Trim().Length > 0 ? codec.Import(identity.HtmlSignature) : codec.ImportText(identity.TextSignature.TrimEnd()));
+        foreach (var block in sig) MarkComposerContext(block);
         var quoted = blocks.FindIndex(b => b.Kind is BlockKind.Quoted);
         int at;
         if (quoted >= 0 && string.Equals(settings.SignaturePosition, "above_quote", StringComparison.Ordinal))
@@ -378,6 +382,12 @@ public sealed class ComposeSeeder(IAccountManager accounts, IIdentityService ide
 
         blocks.InsertRange(Math.Min(at, blocks.Count), sig);
         return (blocks, [(htmlText.Trim().Length > 0 ? htmlText : identity.TextSignature).Trim()]);
+    }
+
+    private static Block MarkComposerContext(Block block)
+    {
+        for (var i = 0; i < block.Runs.Count; i++) block.Runs[i] = block.Runs[i] with { IsComposerContext = true };
+        return block;
     }
 
     private static IReadOnlyList<T> Or<T>(IReadOnlyList<T>? list) => list ?? [];

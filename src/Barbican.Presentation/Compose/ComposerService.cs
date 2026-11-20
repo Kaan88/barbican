@@ -30,7 +30,7 @@ public sealed class ComposerService : IComposerService, IDisposable
     public bool IsOpen => _current is not null;
 
     /// <inheritdoc />
-    public ComposerViewModel? Current => _current;
+    public ComposerViewModel? Current => Volatile.Read(ref _current);
 
     /// <inheritdoc />
     public async Task OpenAsync(ComposeRequest request, CancellationToken ct)
@@ -135,7 +135,7 @@ public sealed class ComposerService : IComposerService, IDisposable
             }
 
             composer.Closed += OnClosed;
-            _current = composer;
+            Volatile.Write(ref _current, composer);
             _timer = _s.Time.CreateTimer(_ => _s.Dispatcher.Post(composer.Tick), null, AutosaveState.Tick, AutosaveState.Tick);
             OpenChanged?.Invoke(this, EventArgs.Empty);
             _s.Hooks.Fire(HookNames.OnComposerOpen, () => new ComposerContextPayload(composer.Id, composer.AccountKey, kind.ToString(), composer.DraftId));
@@ -226,7 +226,7 @@ public sealed class ComposerService : IComposerService, IDisposable
 
         _timer?.Dispose();
         _timer = null;
-        _current = null;
+        Volatile.Write(ref _current, null);
         composer.Dispose();
         OpenChanged?.Invoke(this, EventArgs.Empty);
         _s.Hooks.Fire(HookNames.OnComposerClose, () => new ComposerClosedPayload(e.DraftId, e.Sent));

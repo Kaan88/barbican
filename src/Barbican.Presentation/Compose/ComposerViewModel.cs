@@ -71,8 +71,10 @@ public sealed partial class ComposerViewModel : ObservableObject, IMentionSource
         DraftId = seed.DraftId;
         Attachments = [.. seed.Attachments.Select(a => new AttachmentItem(a, AttachmentState.Done, null))];
         _fallbackBody = string.Empty;
+        seed.Body.HasComposerProvenance = true;
         (Editor, _fallbackBody) = CreateBody(seed.Body, _plain);
         WireFields();
+        TrackPluginRevision();
         _autosave.Start(ComputeKey(), seed.IsSaved);
         _lastNotified = ComputeKey();
         if (seed.IsSaved)

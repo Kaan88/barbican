@@ -21,7 +21,7 @@ internal sealed partial class PluginBackgroundRuntimes(
 {
     private readonly SemaphoreSlim _changes = new(1, 1);
     private readonly ConcurrentDictionary<string, SemaphoreSlim> _starts = new(StringComparer.Ordinal);
-    private readonly ConcurrentDictionary<string, IPluginRuntimeInstance> _active = new(StringComparer.Ordinal);
+    private readonly ConcurrentDictionary<string, ActiveAddOn> _active = new(StringComparer.Ordinal);
     private readonly Dictionary<PluginPackageIdentity, CancellationTokenSource> _starting = [];
     private readonly Lock _lifecycle = new();
     private readonly CancellationTokenSource _stop = new();
@@ -34,9 +34,13 @@ internal sealed partial class PluginBackgroundRuntimes(
 
     internal event EventHandler? RunningChanged;
 
+    internal IPluginRuntimeInstance? ActiveRuntime(PluginRuntimeBinding binding, string accountKey, string permission) =>
+        binding.IsAlive && _active.TryGetValue(binding.Package.Id, out var active) && ReferenceEquals(active.Instance.Binding, binding) &&
+        active.Grant.Authorizes(binding.Package, binding.GrantGeneration, permission, accountKey) ? active.Instance : null;
+
     internal bool IsRunning(PluginInstallation installation) =>
         installation is { Enabled: true, Error: null, Grant: { Enabled: true } grant } &&
-        _active.TryGetValue(grant.Package.Id, out var instance) && Matches(instance.Binding, grant);
+        _active.TryGetValue(grant.Package.Id, out var active) && Matches(active.Instance.Binding, grant);
 
     internal async Task InitializeAsync(
         Func<CancellationToken, Task<Result<IPluginRuntimeFactory>>> create, CancellationToken ct, bool javaScriptAvailable = true)
@@ -143,7 +147,7 @@ internal sealed partial class PluginBackgroundRuntimes(
                     ? await packages.UninstallAsync(package, token).ConfigureAwait(false)
                     : await packages.SetEnabledAsync(package, false, token).ConfigureAwait(false);
                 if (result.IsOk && _active.TryGetValue(package.Id, out var previous) &&
-                    previous.Binding.Package == package && !previous.Binding.IsAlive)
+                    previous.Instance.Binding.Package == package && !previous.Instance.Binding.IsAlive)
                     _active.TryRemove(KeyValuePair.Create(package.Id, previous));
                 return result;
             }
@@ -165,8 +169,8 @@ internal sealed partial class PluginBackgroundRuntimes(
             {
                 if (_active.TryGetValue(grant.Package.Id, out var previous))
                 {
-                    if (Matches(previous.Binding, grant)) return !budget.IsCancellationRequested;
-                    await previous.DisposeAsync().ConfigureAwait(false);
+                    if (Matches(previous.Instance.Binding, grant)) return !budget.IsCancellationRequested;
+                    await previous.Instance.DisposeAsync().ConfigureAwait(false);
                     _active.TryRemove(KeyValuePair.Create(grant.Package.Id, previous));
                 }
                 budget.Token.ThrowIfCancellationRequested();
@@ -179,7 +183,7 @@ internal sealed partial class PluginBackgroundRuntimes(
                     return false;
                 }
 
-                _active[grant.Package.Id] = instance;
+                _active[grant.Package.Id] = new(instance, grant);
                 _ = instance.Binding.Lifetime.Register(() => RunningChanged?.Invoke(this, EventArgs.Empty));
                 RunningChanged?.Invoke(this, EventArgs.Empty);
                 return instance.Binding.IsAlive;
@@ -254,6 +258,8 @@ internal sealed partial class PluginBackgroundRuntimes(
     }
 
     private static Result<Unit> Failed(string message) => Result<Unit>.Fail(new ValidationError(message));
+
+    private sealed record ActiveAddOn(IPluginRuntimeInstance Instance, PluginGrantSnapshot Grant);
 
     private CancellationTokenSource? Begin(CancellationToken ct)
     {

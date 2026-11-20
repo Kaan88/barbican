@@ -4,4 +4,8 @@
 namespace Barbican.Core.Editor;
 
 /// <summary>A piece of text with one set of marks. Offsets into it are UTF-16 code units.</summary>
-public sealed record Run(string Text, Marks Marks);
+public sealed record Run(string Text, Marks Marks)
+{
+    /// <summary>Text inserted by the composer as reply context or a signature.</summary>
+    public bool IsComposerContext { get; init; }
+}

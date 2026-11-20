@@ -26,6 +26,9 @@ public sealed class Doc
 
     public IList<Block> Blocks => _blocks;
 
+    /// <summary>True while the editor can distinguish generated composer text from text entered in this draft.</summary>
+    public bool HasComposerProvenance { get; set; }
+
     public Pos End => new(Blocks.Count - 1, Blocks[^1].Length);
 
     public bool IsEmpty => _blocks.TrueForAll(b => b.IsEmpty && b.Kind is BlockKind.Para);
@@ -33,7 +36,7 @@ public sealed class Doc
     public int NewTableId => Blocks.Select(b => b.Kind.Table).Max() is int t ? t + 1 : 0;
 
     /// <summary>A deep copy (blocks are cloned, runs are immutable records): the undo history stores these.</summary>
-    public Doc Clone() => new(_blocks.Select(b => b.Clone()));
+    public Doc Clone() => new(_blocks.Select(b => b.Clone())) { HasComposerProvenance = HasComposerProvenance };
 
     public static Doc FromText(string text)
     {

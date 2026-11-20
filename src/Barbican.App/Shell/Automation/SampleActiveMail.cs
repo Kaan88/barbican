@@ -65,6 +65,12 @@ public sealed class SampleActiveMail : IActiveMail, Barbican.Presentation.Action
 
     public IMailSync? Sync { get; }
 
+#if WINDOWS
+    internal Barbican.Core.Accounts.IAccountSession CreateAddOnSession() =>
+        new Barbican.Core.Accounts.AccountSession(new("sample", _server.Options.Username, _server.Options.Origin),
+            _client, Mail!, Sync!, tokens: null, allowsAddOnStorage: true);
+#endif
+
     public event EventHandler? Changed
     {
         add { }

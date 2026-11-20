@@ -73,7 +73,7 @@ public sealed class Block
                 continue;
             }
 
-            if (output.Count > 0 && output[^1].Marks == r.Marks)
+            if (output.Count > 0 && output[^1].Marks == r.Marks && output[^1].IsComposerContext == r.IsComposerContext)
             {
                 output[^1] = output[^1] with { Text = output[^1].Text + r.Text };
             }

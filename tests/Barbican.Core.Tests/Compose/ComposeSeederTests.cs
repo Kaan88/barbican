@@ -95,6 +95,8 @@ public sealed class ComposeSeederTests
         Assert.True(quoted.Cite);
         Assert.Contains("cid:sketch@example.net", quoted.Html, StringComparison.Ordinal);
         Assert.Equal(["Test User\nExample Ltd"], seed.SignatureTexts);
+        Assert.All(seed.Body.Blocks[1].Runs, run => Assert.True(run.IsComposerContext));
+        Assert.All(seed.Body.Blocks.Skip(4).SelectMany(block => block.Runs), run => Assert.True(run.IsComposerContext));
     }
 
     [Fact]
@@ -300,6 +302,9 @@ public sealed class ComposeSeederTests
         var saved = (await rig.Drafts.SaveAsync(new ComposeDraft { AccountId = PipelineRig.Account, IdentityId = "i1", To = reply.To, Subject = reply.Subject, Body = reply.Body }, Ct)).Value!;
         var seed = (await rig.Seeder.SeedAsync(new ComposeRequest(PipelineRig.Account, ComposeKind.EditDraft) { SourceEmailId = saved.DraftId }, Ct)).Value!;
         Assert.Contains("<quoted>", Texts(seed));
+        var runs = seed.Body.Blocks.SelectMany(block => block.Runs).ToArray();
+        Assert.NotEmpty(runs);
+        Assert.All(runs, run => Assert.True(run.IsComposerContext));
     }
 
     [Fact]
