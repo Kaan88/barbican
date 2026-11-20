@@ -2303,3 +2303,41 @@ junctions, and rejection of output inside the source before directory
 creation. Mapped drives, SUBST drives, concurrent output creation, and
 packaging a real application publish remain untested. No release archive
 was produced. Distribution still requires artifact privacy and notice review.
+
+## Codex / Astra review of Windows background add-on activation (2026-11-20)
+
+The normal Windows shell restores enabled untrusted JavaScript add-ons
+using the packaged, hash-pinned runtime. The Add-ons page enables, starts,
+disables and removes a local package through the same profile lease. It
+shows a live runtime acknowledgement separately from saved enablement.
+Imports and updates still require fresh review and install disabled.
+Explicit Start and Enable can retry a transient package-store failure.
+
+The opaque child requires an enforcing local WebRTC policy report before
+loading the SDK. The trusted check configures no ICE servers or report
+destination and performs no negotiation. Missing or report-only evidence
+leaves the SDK unloaded. This verifies the same-frame WebRTC gate on the
+tested WebView2 version. Broader network behavior and other installed
+browser versions remain outside this evidence.
+
+Shutdown first refuses new starts and invalidates tracked add-ons. The
+window retains its dispatcher and the host retains the profile lease
+while a startup that has yet to register drains. A deterministic fixture
+kept one runtime active and blocked a second before tracking. Disabling
+the second took effect before it could activate, and the shutdown
+barrier invalidated the first before releasing the lease.
+
+Astra approved the final slice. Windows Automation passed 3,320 tests
+with four skips and 48 Node checks passed. A private Windows walkthrough
+with the exact Bulwark 1.21.2 files used normal Settings composition to
+review and install a synthetic package disabled, enable it, observe it
+running, disable and re-enable it, cancel one removal, and confirm
+another. Both removal prompts were constrained to the window. The slot
+and network probes passed separately. The Windows Release build completed
+with zero warnings and errors. No real account or real input was used.
+Account API adapters, additional hook families, visible slot placement
+and final portable verification remain open.
+
+The catalogue checker now reads the existing conversation loading label
+as UTF-8. It reports no duplicate or dangling IDs and still reports 12
+M6b Red cases, eight for packages and four for runtime.

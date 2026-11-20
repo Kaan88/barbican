@@ -25,6 +25,7 @@
   <ItemGroup>
     <Compile Include="../../src/Barbican.App/Plugins/Sandbox/*.cs" Link="Linked/PluginSandbox/%(Filename)%(Extension)" />
     <Compile Include="../../src/Barbican.App/Plugins/PluginPackageHost.cs" Link="Linked/PluginPackageHost.cs" />
+    <Compile Include="../../src/Barbican.App/Plugins/PluginBackgroundRuntimes.cs" Link="Linked/PluginBackgroundRuntimes.cs" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="../../src/Barbican.Core/Barbican.Core.csproj" />

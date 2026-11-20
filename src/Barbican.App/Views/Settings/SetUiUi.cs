@@ -52,16 +52,19 @@ public static class SetUiUi
     }
 
     /// <summary>A label and its description on the left, the control on the right.</summary>
-    public static Grid RowOf(string label, string description, FrameworkElement? control, string id)
+    public static Grid RowOf(string label, string description, FrameworkElement? control, string id) =>
+        RowWithDescription(label, description.Length > 0 ? Meta(description) : null, control, id);
+
+    internal static Grid RowWithDescription(string label, TextBlock? description, FrameworkElement? control, string id)
     {
         var grid = new Grid { ColumnSpacing = 16, Padding = new Thickness(0, 8, 0, 8), BorderBrush = AppResources.Brush("Line"), BorderThickness = new Thickness(0, 0, 0, 1) };
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         var left = new StackPanel { Spacing = 2 };
         left.Children.Add(Body(label));
-        if (description.Length > 0)
+        if (description is not null)
         {
-            left.Children.Add(Meta(description));
+            left.Children.Add(description);
         }
 
         grid.Children.Add(left);

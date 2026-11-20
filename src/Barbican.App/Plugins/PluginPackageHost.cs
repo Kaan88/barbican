@@ -23,10 +23,14 @@ internal sealed class PluginPackageHost(IProfilePaths paths, ISecretStore secret
     private IPluginProfileAuthorityLease? _lease;
     private DirectoryInfo? _automationRoot;
     private Task<Result<Unit>>? _shutdown;
+    private Task<Result<Unit>>? _runtimeShutdown;
     private bool _closed;
 
     public Task<Result<IReadOnlyList<PluginInstallation>>> ListAsync(CancellationToken ct) =>
         WithManagerAsync(manager => manager.ListAsync(ct), ct);
+
+    internal Task<Result<PluginInstallation?>> FindAsync(string id, CancellationToken ct) =>
+        WithManagerAsync(manager => manager.FindAsync(id, ct), ct);
 
     public IReadOnlyList<AccountStatus> AccountStatuses => accounts.Statuses;
 
@@ -53,6 +57,9 @@ internal sealed class PluginPackageHost(IProfilePaths paths, ISecretStore secret
 
     internal Task<Result<Unit>> SetEnabledAsync(PluginPackageIdentity package, bool enabled, CancellationToken ct) =>
         WithManagerAsync(manager => manager.SetEnabledAsync(package, enabled, ct), ct);
+
+    internal Task<Result<Unit>> UninstallAsync(PluginPackageIdentity package, CancellationToken ct) =>
+        WithManagerAsync(manager => manager.UninstallAsync(package, ct), ct);
 
     internal Task<Result<IPluginRuntimeFactory>> CreateSandboxFactoryAsync(
         IPluginSandboxWebViewFactory views, IPluginSandboxStartup startup, HookBus hooks,
@@ -142,23 +149,34 @@ internal sealed class PluginPackageHost(IProfilePaths paths, ISecretStore secret
         await _gate.WaitAsync(CancellationToken.None).ConfigureAwait(false);
         try
         {
-            if (_shutdown is null)
-            {
-                _closed = true;
-                _shutdown = CloseAsync();
-            }
-            shutdown = _shutdown;
+            CloseAdmissionAndInvalidateBindings();
+            shutdown = _shutdown ??= CloseAsync();
         }
         finally { _gate.Release(); }
         return await shutdown.ConfigureAwait(false);
     }
 
+    /// <summary>Refuses new package operations and invalidates tracked runtimes while retaining the lease.</summary>
+    internal async Task BeginRuntimeShutdownAsync()
+    {
+        await _gate.WaitAsync(CancellationToken.None).ConfigureAwait(false);
+        try { CloseAdmissionAndInvalidateBindings(); }
+        finally { _gate.Release(); }
+    }
+
+    private void CloseAdmissionAndInvalidateBindings()
+    {
+        if (_runtimeShutdown is not null) return;
+        _closed = true;
+        _manager?.Dispose();
+        _runtimeShutdown = _revocation?.CloseAsync(CancellationToken.None) ?? Task.FromResult(Result<Unit>.Ok(default));
+    }
+
     private async Task<Result<Unit>> CloseAsync()
     {
-        _manager?.Dispose();
-        var stopped = _revocation is { } revocation
-            ? await revocation.CloseAsync(CancellationToken.None).ConfigureAwait(false)
-            : Result<Unit>.Ok(default);
+#pragma warning disable VSTHRD003 // The shared revocation task runs bounded teardown with the UI dispatcher kept alive.
+        var stopped = await _runtimeShutdown!.ConfigureAwait(false);
+#pragma warning restore VSTHRD003
         _store?.Dispose();
         if (_lease is { } lease) await lease.DisposeAsync().ConfigureAwait(false);
         if (_automationRoot is { } root)

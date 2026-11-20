@@ -101,5 +101,7 @@
     <signin:SignInView x:Name="SignInRegion" Grid.Row="1" Visibility="Collapsed" />
     <!-- in-window tooltips (motion:Tip) draw here; never a ToolTip popup (ADR 0007) -->
     <Canvas x:Name="Overlay" Grid.RowSpan="2" IsHitTestVisible="False" />
+    <Grid x:Name="AddOnRuntimeMount" Grid.Row="1" Width="0" Height="0" Opacity="0"
+          HorizontalAlignment="Left" VerticalAlignment="Top" IsHitTestVisible="False" />
   </Grid>
 </Page>

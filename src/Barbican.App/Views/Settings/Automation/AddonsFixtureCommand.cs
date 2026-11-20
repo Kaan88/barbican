@@ -41,7 +41,7 @@ internal sealed class AddonsFixtureCommand(IProfilePaths paths, ISettingsNavigat
                 ? """{"id":"fixture-addon","name":"Fixture Add-on","version":"2.0.0","author":"Example","type":"hook","permissions":["email:read","email:write"]}"""
                 : """{"id":"fixture-addon","name":"Fixture Add-on","version":"1.0.0","author":"Example","type":"hook","permissions":["email:read"]}""";
             Write(zip, "manifest.json", manifest);
-            Write(zip, "index.js", "export default {}");
+            Write(zip, "index.js", "module.exports = { activate() {} };");
         }
         archive.Position = 0;
         return archive;

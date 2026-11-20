@@ -9,7 +9,7 @@ public sealed class ConversationExpansion(string accountKey, string emailId) : O
     public string AccountKey { get; } = accountKey;
     public string EmailId { get; } = emailId;
     public EmailBody? Body { get; private set; }
-    public string Status { get; private set; } = "Loading message…";
+    public string Status { get; private set; } = "Loading messageâ€¦";
 
     /// <summary>The composer consumes the physical login and server id. Shared-account compose is unavailable.</summary>
     public MailTarget? ComposeSource()

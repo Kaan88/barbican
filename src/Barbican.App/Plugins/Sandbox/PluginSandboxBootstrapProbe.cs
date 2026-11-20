@@ -123,7 +123,7 @@ internal static class PluginSandboxBootstrapProbe
             var views = new PluginSandboxWindowsViewFactory(queue, () => mount, paths, options);
             view = await views.CreateAsync("plugin-" + Guid.NewGuid().ToString("N"), budget.Token).ConfigureAwait(false);
             session = new PluginSandboxSession(binding, view, new RefusingDispatcher(), new ProbeAuthority(request.Grant));
-            var startup = new PluginSandboxWindowsStartup(bootstrapRoot!, NullLogger<PluginSandboxWindowsStartup>.Instance, networkCheck);
+            var startup = new PluginSandboxWindowsStartup(bootstrapRoot!, NullLogger<PluginSandboxWindowsStartup>.Instance);
             var result = await startup.ActivateAsync(session, request, networkCheck ? NetworkProbeCode : ProbeCode, budget.Token).ConfigureAwait(false);
             passed = result.IsOk && result.Value is { } instance &&
                 await VerifyHookAsync(instance, networkCheck, budget.Token).ConfigureAwait(false);

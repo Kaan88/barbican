@@ -1,10 +1,11 @@
-// Installed package metadata only; enabled status does not assert that a runtime is running.
+// Installed package management with a separate live background-runtime status.
 using Barbican.App.Settings;
+using Barbican.App.Shell;
+using Barbican.Presentation.Dialogs;
 using Barbican.Core.Accounts;
 using Barbican.Core.Plugins.Packages;
 using Barbican.Core.Plugins.Permissions;
 #if !AUTOMATION
-using Barbican.App.Shell;
 using Windows.Storage.Pickers;
 #endif
 using Barbican.App.Plugins;
@@ -15,7 +16,7 @@ using Microsoft.UI.Xaml.Automation.Peers;
 namespace Barbican.App.Views.Settings;
 
 /// <summary>Lists packages and reviews local archives before installation.</summary>
-internal sealed class AddonsPageFactory(PluginPackageHost packages) : ISettingsPageFactory
+internal sealed class AddonsPageFactory(PluginPackageHost packages, PluginBackgroundRuntimes runtimes) : ISettingsPageFactory
 {
     private StackPanel? _list;
     private TextBlock? _status;
@@ -24,6 +25,9 @@ internal sealed class AddonsPageFactory(PluginPackageHost packages) : ISettingsP
     private bool _visible;
     private bool _loading;
     private bool _importing;
+    private bool _mutating;
+    private readonly List<Button> _actions = [];
+    private readonly List<(PluginInstallation Installation, TextBlock Detail, Button? Start)> _rows = [];
     private StackPanel? _reviewPanel;
     private PluginInstallPreview? _review;
     private Button? _import;
@@ -60,17 +64,42 @@ internal sealed class AddonsPageFactory(PluginPackageHost packages) : ISettingsP
         _ = Create();
         if (_visible) return;
         _visible = true;
+        runtimes.RunningChanged += OnRunningChanged;
         SetUiUi.Run(LoadAsync);
     }
 
     public void OnHidden()
     {
+        if (_visible) runtimes.RunningChanged -= OnRunningChanged;
         _visible = false;
         _reviewGeneration++;
         SetUiUi.Run(ClearReviewAsync);
     }
 
     private bool IsCurrent(int generation) => _visible && generation == _reviewGeneration;
+
+    private void OnRunningChanged(object? sender, EventArgs args)
+    {
+        _ = _list?.DispatcherQueue.TryEnqueue(() =>
+        {
+            if (!_visible) return;
+            foreach (var (installation, detail, start) in _rows) UpdateRunningState(installation, detail, start);
+        });
+    }
+
+    private void UpdateRunningState(PluginInstallation installation, TextBlock detail, Button? start)
+    {
+        var running = runtimes.IsRunning(installation);
+        var state = installation.Enabled ? running ? "Running" : "Enabled · Stopped" : "Disabled";
+        if (installation.Error is not null) state += " · Needs attention";
+        detail.Text = $"Version {installation.Package.Identity.Version} · {state}";
+        if (start is not null) start.Visibility = running ? Visibility.Collapsed : Visibility.Visible;
+    }
+
+    private void SetActionsEnabled(bool enabled)
+    {
+        foreach (var action in _actions) action.IsEnabled = enabled;
+    }
 
     public void Reveal(string anchor)
     {
@@ -79,18 +108,23 @@ internal sealed class AddonsPageFactory(PluginPackageHost packages) : ISettingsP
 
     private async Task LoadAsync()
     {
-        if (_loading || _status is null || _list is null || _refresh is null)
+        if (!_visible || _loading || _mutating || _status is null || _list is null || _refresh is null)
         {
             return;
         }
 
+        var generation = _reviewGeneration;
         _loading = true;
         _refresh.IsEnabled = false;
+        if (_import is not null) _import.IsEnabled = false;
+        _actions.Clear();
+        _rows.Clear();
         _list.Children.Clear();
         _status.Text = "Loading installed add-ons…";
         try
         {
             var result = await packages.ListAsync(CancellationToken.None).ConfigureAwait(true);
+            if (!IsCurrent(generation)) return;
             if (!result.IsOk || result.Value is null)
             {
                 _status.Text = "Could not load installed add-ons. Try refreshing.";
@@ -103,18 +137,7 @@ internal sealed class AddonsPageFactory(PluginPackageHost packages) : ISettingsP
                 return;
             }
 
-            foreach (var installation in result.Value)
-            {
-                var identity = installation.Package.Identity;
-                var state = installation.Enabled ? "Enabled in settings" : "Disabled in settings";
-                var detail = $"Version {identity.Version} · {state}";
-                if (!string.IsNullOrWhiteSpace(installation.Error))
-                {
-                    detail += " · Needs attention";
-                }
-
-                _list.Children.Add(SetUiUi.RowOf(identity.Id, detail, null, "set.addons.item." + identity.Id));
-            }
+            foreach (var installation in result.Value) AddInstallationRow(_list, installation);
 
             _status.Text = $"Installed add-ons: {result.Value.Count}";
         }
@@ -122,20 +145,88 @@ internal sealed class AddonsPageFactory(PluginPackageHost packages) : ISettingsP
         catch (Exception)
 #pragma warning restore CA1031
         {
-            _status.Text = "Could not load installed add-ons. Try refreshing.";
+            if (IsCurrent(generation)) _status.Text = "Could not load installed add-ons. Try refreshing.";
         }
         finally
         {
             _loading = false;
-            _refresh.IsEnabled = true;
+            _refresh.IsEnabled = !_mutating;
+            if (_import is not null) _import.IsEnabled = !_importing && !_mutating;
+            SetActionsEnabled(!_mutating && !_importing && _review is null);
+            if (_visible && _review is null && !IsCurrent(generation)) SetUiUi.Run(LoadAsync);
         }
     }
+
+    private void AddInstallationRow(StackPanel list, PluginInstallation installation)
+    {
+        var identity = installation.Package.Identity;
+        var detail = SetUiUi.Id(SetUiUi.Meta(string.Empty), "set.addons.state." + identity.Id);
+        AutomationProperties.SetLiveSetting(detail, AutomationLiveSetting.Polite);
+        var actions = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6 };
+        var start = installation is { Enabled: true, Error: null }
+            ? AddAction("Start", "start", enabled: true, remove: false)
+            : null;
+        AddAction(installation.Enabled ? "Disable" : "Enable", "enable", enabled: !installation.Enabled, remove: false);
+        AddAction("Remove", "remove", enabled: false, remove: true);
+        _rows.Add((installation, detail, start));
+        UpdateRunningState(installation, detail, start);
+        list.Children.Add(SetUiUi.RowWithDescription(identity.Id, detail, actions, "set.addons.item." + identity.Id));
+
+        Button AddAction(string label, string action, bool enabled, bool remove)
+        {
+            var button = SetUiUi.Pill(label, () => SetUiUi.Run(() => ChangeAsync(identity, enabled, remove)), $"set.addons.{action}.{identity.Id}");
+            AutomationProperties.SetName(button, label + " " + identity.Id);
+            actions.Children.Add(button);
+            _actions.Add(button);
+            return button;
+        }
+    }
+
+    private async Task ChangeAsync(PluginPackageIdentity identity, bool enabled, bool remove)
+    {
+        if (!_visible || _loading || _importing || _mutating || _review is not null || _status is null) return;
+        _mutating = true;
+        var generation = _reviewGeneration;
+        if (_refresh is not null) _refresh.IsEnabled = false;
+        if (_import is not null) _import.IsEnabled = false;
+        SetActionsEnabled(false);
+        string? message = null;
+        try
+        {
+            if (remove)
+            {
+                var dialogs = ViewHost.Find<IDialogService>();
+                if (dialogs is null || !await dialogs.ShowAsync(new ConfirmDialogRequest("Remove add-on", "Remove " + identity.Id + "?", "Remove", true), CancellationToken.None).ConfigureAwait(true) || !IsCurrent(generation)) return;
+            }
+            var result = remove
+                ? await runtimes.UninstallAsync(identity, CancellationToken.None).ConfigureAwait(true)
+                : await runtimes.SetEnabledAsync(identity, enabled, CancellationToken.None).ConfigureAwait(true);
+            message = result.IsOk ? "Add-on settings updated." : "Could not complete the change. Check its current state below.";
+        }
+#pragma warning disable CA1031 // The operation may have partially completed; reload without exposing internal errors.
+        catch (Exception)
+#pragma warning restore CA1031
+        {
+            message = "Could not complete the change. Check its current state below.";
+        }
+        finally
+        {
+            _mutating = false;
+            if (_refresh is not null) _refresh.IsEnabled = true;
+            if (_import is not null) _import.IsEnabled = !_importing;
+            SetActionsEnabled(true);
+            if (_visible) await LoadAsync().ConfigureAwait(true);
+            if (message is not null && IsCurrent(generation)) _status.Text = message;
+        }
+    }
+
     private async Task ImportAsync()
     {
-        if (!_visible || _importing || _import is null || _status is null) return;
+        if (!_visible || _importing || _mutating || _loading || _import is null || _status is null) return;
         var generation = ++_reviewGeneration;
         _importing = true;
         _import.IsEnabled = false;
+        SetActionsEnabled(false);
         try
         {
             await ClearReviewAsync().ConfigureAwait(true);
@@ -174,13 +265,14 @@ internal sealed class AddonsPageFactory(PluginPackageHost packages) : ISettingsP
         {
             _importing = false;
             _import.IsEnabled = true;
+            SetActionsEnabled(_review is null);
         }
     }
 
 #if AUTOMATION
     internal async Task ReviewArchiveAsync(Stream archive)
     {
-        if (!_visible || _importing) return;
+        if (!_visible || _importing || _mutating) return;
         var generation = ++_reviewGeneration;
         await ClearReviewAsync().ConfigureAwait(true);
         if (IsCurrent(generation)) await InspectArchiveAsync(archive, generation).ConfigureAwait(true);
@@ -202,6 +294,7 @@ internal sealed class AddonsPageFactory(PluginPackageHost packages) : ISettingsP
             return;
         }
         _review = result.Value;
+        SetActionsEnabled(false);
         ShowReview(result.Value);
         _status!.Text = "Review the add-on before installing.";
     }
@@ -305,7 +398,7 @@ internal sealed class AddonsPageFactory(PluginPackageHost packages) : ISettingsP
 
     private async Task InstallAsync(PluginInstallPreview preview, List<(string Key, CheckBox Choice)> choices)
     {
-        if (!_visible || _importing || !ReferenceEquals(_review, preview) || _status is null) return;
+        if (!_visible || _importing || _mutating || _loading || !ReferenceEquals(_review, preview) || _status is null) return;
         var generation = _reviewGeneration;
         _importing = true;
         _review = null;
@@ -336,6 +429,7 @@ internal sealed class AddonsPageFactory(PluginPackageHost packages) : ISettingsP
             await packages.DiscardReviewAsync(preview.ReviewId, CancellationToken.None).ConfigureAwait(true);
             _importing = false;
             if (_import is not null) _import.IsEnabled = true;
+            SetActionsEnabled(!_loading && !_mutating && _review is null);
         }
     }
 
@@ -351,6 +445,7 @@ internal sealed class AddonsPageFactory(PluginPackageHost packages) : ISettingsP
         var review = _review;
         _review = null;
         _reviewPanel?.Children.Clear();
+        SetActionsEnabled(!_importing && !_loading && !_mutating);
         if (review is not null)
             await packages.DiscardReviewAsync(review.ReviewId, CancellationToken.None).ConfigureAwait(true);
     }

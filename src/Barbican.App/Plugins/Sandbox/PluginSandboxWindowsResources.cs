@@ -21,13 +21,13 @@ internal sealed class PluginSandboxWindowsResources(PluginRuntimeBinding binding
 
     public static async Task<PluginSandboxWindowsResources> PrepareAsync(PluginRuntimeBinding binding,
         IReadOnlyDictionary<string, PluginSandboxBootstrapAsset> runtimeAssets,
-        ImmutableDictionary<string, ImmutableArray<byte>> hostScripts, bool observeNetworkPolicy, CancellationToken ct)
+        ImmutableDictionary<string, ImmutableArray<byte>> hostScripts, CancellationToken ct)
     {
         var resources = new PluginSandboxWindowsResources(binding);
         try
         {
             resources._host = await EncodeAsync(PluginSandboxDocuments.Host(binding.Kind), ct).ConfigureAwait(false);
-            resources._child = await EncodeAsync(PluginSandboxDocuments.Child(observeNetworkPolicy), ct).ConfigureAwait(false);
+            resources._child = await EncodeAsync(PluginSandboxDocuments.Child(), ct).ConfigureAwait(false);
             foreach (var (name, asset) in runtimeAssets)
             {
                 if (string.Equals(asset.Purpose, "manifest", StringComparison.Ordinal)) continue;

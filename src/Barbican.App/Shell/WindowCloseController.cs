@@ -9,7 +9,7 @@ using Microsoft.Extensions.Logging;
 namespace Barbican.App.Shell;
 
 /// <summary>Keeps the window alive until debounced preference writes have reached disk.</summary>
-internal sealed partial class WindowCloseController(IPrefsEditor prefs, IDispatcher dispatcher, PluginPackageHost packages,
+internal sealed partial class WindowCloseController(IPrefsEditor prefs, IDispatcher dispatcher, PluginPackageHost packages, PluginBackgroundRuntimes runtimes,
     ILogger<WindowCloseController> log, IToastService? toasts = null)
 {
     internal Func<Task<bool>>? BeforeClose { get; set; }
@@ -54,6 +54,17 @@ internal sealed partial class WindowCloseController(IPrefsEditor prefs, IDispatc
 
             await prefs.FlushAsync(CancellationToken.None).ConfigureAwait(false);
             Trace("flush complete");
+            var draining = runtimes.StopAsync();
+            await packages.BeginRuntimeShutdownAsync().ConfigureAwait(false);
+            if (!await draining.ConfigureAwait(false))
+            {
+                dispatcher.Post(() =>
+                {
+                    _closing = false;
+                    toasts?.Show(new ToastRequest("An add-on is still closing. Try closing the window again shortly.", IsError: true));
+                });
+                return;
+            }
             var stopped = await packages.ShutdownAsync().ConfigureAwait(false);
             if (!stopped.IsOk) LogAddOnCleanupIncomplete(log);
             // A synchronous UI post must own Close: do not await a UI continuation after it tears down the dispatcher.

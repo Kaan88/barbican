@@ -106,7 +106,15 @@ public sealed partial class ShellPage : Page
             _ = ShowWhenRestoredAsync(restoring);
         }
 
-        Loaded += (_, _) => ViewHost.Get<ShellLifecycle>().Start(DispatcherQueue, _accounts?.Active?.Key);
+        Loaded += OnShellLoaded;
+    }
+
+    private void OnShellLoaded(object sender, RoutedEventArgs args)
+    {
+        ViewHost.Get<ShellLifecycle>().Start(DispatcherQueue, _accounts?.Active?.Key);
+#if WINDOWS
+        StartAddOnRuntimes();
+#endif
     }
 
     public StyleState Look => _look;

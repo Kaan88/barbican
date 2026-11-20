@@ -19,16 +19,16 @@ internal static class PluginSandboxDocuments
             _ => throw new ArgumentOutOfRangeException(nameof(kind)),
         };
         return ($"<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\"><meta name=\"robots\" content=\"noindex, nofollow\"><title>Plugin host</title><style>html,body{{margin:0;width:100%;height:100%}}iframe{{display:block;border:0}}</style><script type=\"module\" src=\"/assets/plugin-sandbox-host.js\"></script></head><body data-frame-kind=\"{frameKind}\"></body></html>",
-            Headers(HostPolicy, observeNetworkPolicy: false));
+            Headers(HostPolicy, reportLocally: false));
     }
 
-    internal static (string Html, string Headers) Child(bool observeNetworkPolicy = false) =>
-        ($"<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\"><meta name=\"robots\" content=\"noindex, nofollow\"><title>Plugin sandbox</title><link rel=\"stylesheet\" href=\"/assets/{PluginSandboxBootstrapAssets.Style}\"><script type=\"module\" src=\"/assets/{PluginSandboxBootstrapAssets.EntryScript}\"></script></head><body style=\"margin:0;padding:0;background:transparent\"><div id=\"plugin-sandbox-root\"></div></body></html>",
-            Headers(PluginSandboxResourcePolicy.ChildContentSecurityPolicy, observeNetworkPolicy));
+    internal static (string Html, string Headers) Child() =>
+        ($"<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\"><meta name=\"robots\" content=\"noindex, nofollow\"><meta name=\"barbican-runtime\" content=\"/assets/{PluginSandboxBootstrapAssets.EntryScript}\"><title>Plugin sandbox</title><link rel=\"stylesheet\" href=\"/assets/{PluginSandboxBootstrapAssets.Style}\"><script type=\"module\" src=\"/assets/plugin-sandbox-network.js\"></script></head><body style=\"margin:0;padding:0;background:transparent\"><div id=\"plugin-sandbox-root\"></div></body></html>",
+            Headers(PluginSandboxResourcePolicy.ChildContentSecurityPolicy, reportLocally: true));
 
     // Chromium queues WebRTC policy reports only when a group is named. The
-    // hidden child names a group without registering a reporting destination.
-    private static string Headers(string csp, bool observeNetworkPolicy) =>
-        CommonHeaders + ConnectionPolicy + (observeNetworkPolicy ? "; report-to=barbican-local-probe" : "") +
+    // child names a group without registering a reporting destination.
+    private static string Headers(string csp, bool reportLocally) =>
+        CommonHeaders + ConnectionPolicy + (reportLocally ? "; report-to=barbican-local-probe" : "") +
         "\r\nContent-Security-Policy: " + csp + "\r\n";
 }

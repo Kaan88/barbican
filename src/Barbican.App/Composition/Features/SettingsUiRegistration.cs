@@ -6,6 +6,7 @@ using Barbican.App.Settings;
 using Barbican.App.Shell;
 using Barbican.App.Views.Settings;
 using Barbican.App.Views.Dialogs;
+using Barbican.Core.Plugins.Bridge;
 using Barbican.Presentation.Composition;
 using Microsoft.Extensions.DependencyInjection;
 #if AUTOMATION
@@ -31,6 +32,8 @@ public static class SettingsUiRegistration
         _ = services.AddBarbicanSettingsUiViewModels();
         services.AddSingleton<IAppScreenFactory, SetUiScreenFactory>();
         services.AddSingleton<PluginPackageHost>();
+        services.AddSingleton<PluginBackgroundRuntimes>();
+        services.AddSingleton<IPluginSessionSource, PluginSessionSource>();
         services.AddSingleton<ISettingsPageFactory, AddonsPageFactory>();
         services.AddSingleton<IDialogContent, AccessibilityQuickContent>();
         services.AddSingleton<IDialogContent, TimeZonePickerContent>();
