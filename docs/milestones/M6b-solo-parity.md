@@ -151,3 +151,22 @@ The Windows run through the account flyout change passed 3,178 tests with
 four skipped. A private sample run opened the account switcher and verified
 that Escape reduced the number of open popups from one to zero. Later visual
 changes require a fresh combined run and portable launch check.
+
+### Native interaction check
+
+Independent Windows review accepted the M6b consumer reader, conversation
+and compact navigation at 7e53be1. The tested flows include independently
+expanded conversation details, message-specific Reply all and Forward,
+live text-size changes, visible card height, and rapid list, reader and folder
+navigation with reduced motion enabled and disabled. The native composer
+maximize, restore, dock and detached-window checks passed separately.
+The organization print policy remains tracked under M10/I-108.
+
+Compact navigation uses a 110 ms incoming transition with input available
+throughout. In Bulwark, the reader heading now stays fully legible while
+rising two pixels. Three paired Windows capture runs showed no dimmed heading
+frames after this change across 76 frames. Short sample messages opened
+in 11–18 ms. The large synthetic export took 185–241 ms; the list highlight
+appeared within 40 ms even on that message. These timings cover the local
+sample account in hidden Windows runs. They do not measure a live mail server
+or physical pointing-device input.
