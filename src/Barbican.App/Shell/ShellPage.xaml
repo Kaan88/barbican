@@ -36,7 +36,9 @@
         <ColumnDefinition Width="*" />
       </Grid.ColumnDefinitions>
       <rail:RailView x:Name="RailRegion" Grid.Column="0" />
-      <sidebar:SidebarView x:Name="SidebarRegion" Grid.Column="1" />
+      <sidebar:SidebarView x:Name="SidebarRegion" Grid.Column="1">
+        <sidebar:SidebarView.RenderTransform><TranslateTransform /></sidebar:SidebarView.RenderTransform>
+      </sidebar:SidebarView>
       <!-- M2 plan 6.1: the pane handles sit on the edge of the sidebar and of the list (in this grid, so no layout changes); widths: PanesViewModel -->
       <actions:PaneHandle x:Name="SidebarHandle" Grid.Column="1" Column="sidebar" Target="{x:Bind SidebarRegion}" AutomationProperties.AutomationId="pane.sidebar" AutomationProperties.Name="Resize sidebar" />
       <Border x:Name="Surface" Grid.Column="2" AutomationProperties.AutomationId="surface" AutomationProperties.Name="Mail">
@@ -47,6 +49,7 @@
             <ColumnDefinition Width="Auto" />
           </Grid.ColumnDefinitions>
           <Grid x:Name="ListColumn" Grid.Column="0" RowDefinitions="Auto,*">
+            <Grid.RenderTransform><TranslateTransform /></Grid.RenderTransform>
             <Button x:Name="CompactFolders" Grid.Row="0" Visibility="Collapsed" HorizontalAlignment="Left" Padding="12,4" MinHeight="40"
                     Style="{StaticResource Button.Icon}" Click="OnCompactFolders" AutomationProperties.AutomationId="list.folders" AutomationProperties.Name="Show folders">
               <StackPanel Orientation="Horizontal" Spacing="8"><controls:SIcon Kind="Folder" Size="16" /><TextBlock Text="Folders" /></StackPanel>
@@ -62,6 +65,7 @@
           </Grid>
           <actions:PaneHandle x:Name="ListHandle" Grid.Column="0" Column="email-list" Target="{x:Bind ListRegion}" AutomationProperties.AutomationId="pane.list" AutomationProperties.Name="Resize message list" />
           <Grid x:Name="ReaderColumn" Grid.Column="1">
+            <Grid.RenderTransform><TranslateTransform /></Grid.RenderTransform>
             <Grid.RowDefinitions>
               <RowDefinition Height="Auto" />
               <RowDefinition Height="*" />

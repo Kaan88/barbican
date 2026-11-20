@@ -214,6 +214,25 @@ public sealed partial class ShellPage : Page
         ReaderColumn.Visibility = phone && !reading && !_composing ? Visibility.Collapsed : Visibility.Visible;
         ListHandle.Visibility = phone ? Visibility.Collapsed : ListColumn.Visibility;
         ReaderRegion.SetFullscreen(fullscreen);
+        UIElement? incoming = foldersOnly ? SidebarRegion : ReaderColumn.Visibility == Visibility.Visible ? ReaderColumn : ListColumn;
+        UpdateCompactTransition(phone ? incoming : null);
+    }
+
+    private UIElement? _compactPane;
+
+    private void UpdateCompactTransition(UIElement? incoming)
+    {
+        if (ReferenceEquals(_compactPane, incoming)) return;
+
+        // Only an actual navigation animates. Opening the window and resizing across
+        // the breakpoint keep their geometry immediately, including with reduced motion.
+        var previous = _compactPane;
+        _compactPane = incoming;
+        if (previous?.RenderTransform is not TranslateTransform outgoingShift) return;
+        Rise.Run(previous, outgoingShift, 0);
+        if (incoming?.RenderTransform is not TranslateTransform shift) return;
+        var scale = MotionRuntime.Scale;
+        Rise.Run(incoming, shift, scale.Rapid ? 0 : scale.ViewMs, fromOpacity: 0.94, fromY: 3);
     }
 
     private void WireCompactNavigation()

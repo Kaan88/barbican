@@ -32,7 +32,7 @@ public static class Rise
             return;
         }
 
-        var board = new Storyboard();
+        var board = new Storyboard { FillBehavior = FillBehavior.Stop };
         board.Children.Add(Frames(element, "Opacity", fromOpacity, 1, ms));
         board.Children.Add(Frames(shift, "Y", fromY, 0, ms));
         board.Completed += (_, _) =>
