@@ -9,6 +9,9 @@ public interface IOutgoingAddOnSend
     Task<bool> CheckAsync(OutgoingEmailPayload outgoing, CancellationToken ct);
     Task<OutgoingEmailPayload> TransformAsync(OutgoingEmailPayload outgoing, CancellationToken ct);
 
+    /// <summary>Reports a completed send without affecting its result.</summary>
+    void NotifySent(EmailSentPayload payload) { }
+
     /// <summary>Starts an operation synchronously under its authority; the operation is awaited after this returns.</summary>
     Task<bool> TryIssueAsync(Func<bool> issue, CancellationToken ct);
 }

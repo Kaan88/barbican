@@ -44,7 +44,7 @@ public static class SampleComposeServices
     }
 
 #if WINDOWS
-    private sealed class SampleGuardedSender(MailSender sender) : IMailSender
+    private sealed class SampleGuardedSender(MailSender sender) : IMailSender, IDisposable
     {
         public Task<Result<SendReceipt>> SendAsync(ComposeDraft draft, SendOptions options, CancellationToken ct)
         {
@@ -56,6 +56,8 @@ public static class SampleComposeServices
         private static bool IsSynthetic(string address) => address.EndsWith("@example.org", StringComparison.OrdinalIgnoreCase) || address.EndsWith("@example.com", StringComparison.OrdinalIgnoreCase) || address.EndsWith("@example.net", StringComparison.OrdinalIgnoreCase);
         public Task<Result<ComposeSeed>> UndoAsync(SendReceipt receipt, CancellationToken ct) => sender.UndoAsync(receipt, ct);
         public Task<Result<Unit>> SendNowAsync(SendReceipt receipt, CancellationToken ct) => sender.SendNowAsync(receipt, ct);
+
+        public void Dispose() => sender.Dispose();
     }
 #endif
 

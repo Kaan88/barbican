@@ -40,21 +40,23 @@ internal sealed class PluginPackageHost(IProfilePaths paths, ISecretStore secret
 #if AUTOMATION
     internal bool UseSyntheticHttpProbe { private get; init; }
 
-    internal Task<Result<string>> ReadSampleSendFixtureAsync(CancellationToken ct) =>
+    internal Task<Result<string>> ReadSampleSendFixtureAsync(string fixtureId, CancellationToken ct) =>
         WithManagerAsync(async _ =>
         {
-            if (!ProfilePaths.IsAutomationProfile(paths.Profile) ||
+            if (fixtureId is not ("it-plugin-api-probe" or "sample-send-observer" or "sample-send-policy") ||
+                !ProfilePaths.IsAutomationProfile(paths.Profile) ||
                 !SampleEnabled("BARBICAN_SAMPLE") || !SampleEnabled("BARBICAN_SAMPLE_ADDON_ACCOUNT") ||
                 !SampleEnabled("BARBICAN_SAMPLE_SEND_PIPELINE"))
                 return Result<string>.Fail(new ValidationError("Sample send records are unavailable."));
-            var snapshot = await _store!.LoadAsync(paths.Profile, "it-plugin-api-probe", "sample", ct).ConfigureAwait(false);
+            var snapshot = await _store!.LoadAsync(paths.Profile, fixtureId, "sample", ct).ConfigureAwait(false);
             if (!snapshot.IsOk || snapshot.Value!.Index.IsEmpty)
                 return Result<string>.Fail(new ValidationError("The sample fixture has no send records."));
             using var document = System.Text.Json.JsonDocument.Parse(snapshot.Value.Index.AsMemory());
             var records = new Dictionary<string, System.Text.Json.JsonElement>(StringComparer.Ordinal);
             foreach (var pair in document.RootElement.EnumerateArray())
             {
-                if (pair[0].GetString() is "actions" or "sendChecks" or "transforms" && pair[1].ValueKind == System.Text.Json.JsonValueKind.Array)
+                if (pair[0].GetString() is "actions" or "sendChecks" or "transforms" or "afterSend" &&
+                    pair[1].ValueKind == System.Text.Json.JsonValueKind.Array)
                     records[pair[0].GetString()!] = pair[1];
             }
             return Result<string>.Ok(System.Text.Json.JsonSerializer.Serialize(records));

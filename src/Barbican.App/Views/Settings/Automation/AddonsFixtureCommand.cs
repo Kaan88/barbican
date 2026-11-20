@@ -23,12 +23,20 @@ internal sealed class AddonsFixtureCommand(IProfilePaths paths, ISettingsNavigat
             return "error requires a synthetic automation profile";
 
         var mode = args.Trim();
-        if (string.Equals(mode, "send-records", StringComparison.Ordinal))
+        var recordFixture = mode switch
         {
-            var records = await packages.ReadSampleSendFixtureAsync(cancellationToken).ConfigureAwait(true);
+            "send-records" => "it-plugin-api-probe",
+            "send-observer-records" => "sample-send-observer",
+            "send-policy-records" => "sample-send-policy",
+            _ => null,
+        };
+        if (recordFixture is not null)
+        {
+            var records = await packages.ReadSampleSendFixtureAsync(recordFixture, cancellationToken).ConfigureAwait(true);
             return records.IsOk ? records.Value! : "error unavailable sample records";
         }
-        if (mode is not ("install" or "update" or "native" or "origins" or "composer-probe" or "send-policy")) return "error unknown add-on fixture";
+        if (mode is not ("install" or "update" or "native" or "origins" or "composer-probe" or "send-policy" or "send-observer"))
+            return "error unknown add-on fixture";
         if (!shell.TryActivate(AppId.Settings)) return "error Settings is unavailable";
 
         navigation.Open(SettingsPageIds.Addons);
@@ -96,19 +104,34 @@ internal sealed class AddonsFixtureCommand(IProfilePaths paths, ISettingsNavigat
                 "update" => """{"id":"fixture-addon","name":"Fixture Add-on","version":"2.0.0","author":"Example","type":"hook","permissions":["email:read","email:write"]}""",
                 "origins" => """{"id":"fixture-addon","name":"Fixture Add-on","version":"1.0.0","author":"Example","type":"hook","permissions":["http:fetch"],"httpOrigins":["https://api.example.org","https://*.service.example.org"]}""",
                 "send-policy" => """{"id":"sample-send-policy","name":"Sample send policy","version":"1.0.0","author":"Example","type":"hook","permissions":["email:send"]}""",
+                "send-observer" => """{"id":"sample-send-observer","name":"Sample send observer","version":"1.0.0","author":"Example","type":"hook","permissions":["email:read"]}""",
                 _ => """{"id":"fixture-addon","name":"Fixture Add-on","version":"1.0.0","author":"Example","type":"hook","permissions":["email:read"]}""",
             };
             Write(zip, "manifest.json", manifest);
-            var script = string.Equals(mode, "send-policy", StringComparison.Ordinal) ? """
+            const string completionRecorder = """
+                let api;
+                exports.activate = host => { api = host; };
+                async function afterSend(event) {
+                    if (event.subject === 'Synthetic observer exception') throw new Error('Synthetic observer exception');
+                    const prior = (await api.storage.get('afterSend')) || [];
+                    await api.storage.set('afterSend', [...prior, event]);
+                }
+                """;
+            var script = mode switch
+            {
+                "send-observer" => completionRecorder + "\nexports.hooks = { onAfterEmailSend: afterSend };",
+                "send-policy" => completionRecorder + "\n" + """
                 exports.hooks = {
                     onBeforeEmailSend(email) { if (email.subject === 'Synthetic veto') return false; },
                     onTransformOutgoingEmail(email) {
                         if (email.subject === 'Synthetic without write')
                             return {...email, subject: 'Synthetic transformed', keywords: ['forbidden-keyword', '$flagged']};
                     },
+                    onAfterEmailSend: afterSend,
                 };
-                """
-                : "module.exports = { activate() {} };";
+                """,
+                _ => "module.exports = { activate() {} };",
+            };
             Write(zip, "index.js", script);
         }
         archive.Position = 0;

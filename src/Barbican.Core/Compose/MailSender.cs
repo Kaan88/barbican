@@ -18,7 +18,7 @@ using Barbican.Core.Plugins.Payloads;
 namespace Barbican.Core.Compose;
 
 /// <summary>Submits a composed message and undoes or releases a held one.</summary>
-public sealed class MailSender(IAccountManager accounts, IIdentityService identities, IComposeSeeder seeder, IHookBus hooks, IDocCodec codec, TimeProvider time, IOutgoingAddOnHooks? addOns = null) : IMailSender
+public sealed partial class MailSender(IAccountManager accounts, IIdentityService identities, IComposeSeeder seeder, IHookBus hooks, IDocCodec codec, TimeProvider time, IOutgoingAddOnHooks? addOns = null) : IMailSender, IDisposable
 {
     public async Task<Result<SendReceipt>> SendAsync(ComposeDraft draft, SendOptions options, CancellationToken ct)
     {
@@ -73,11 +73,7 @@ public sealed class MailSender(IAccountManager accounts, IIdentityService identi
             CanUndo = hold.Value is > 0,
             Draft = draft,
         };
-        if (hooks.HasHandlers(HookNames.OnAfterEmailSend))
-        {
-            hooks.Fire(HookNames.OnAfterEmailSend, () => new EmailSentPayload(receipt.EmailId, receipt.AccountId, receipt.SubmissionId, sendDraft.To, sendDraft.Cc, sendDraft.Bcc, sendDraft.Subject, options.ScheduledAt));
-        }
-
+        AnnounceAccepted(ctx.Value!, receipt, sendDraft, options.ScheduledAt, addOnSend);
         return Result<SendReceipt>.Ok(receipt);
     }
 
@@ -96,12 +92,17 @@ public sealed class MailSender(IAccountManager accounts, IIdentityService identi
         }
 
         var guard = AccountGuard(ctx.Value!, receipt.AccountId);
+        using var change = TryChangeHeld(receipt);
+        if (change is null) return Result<ComposeSeed>.Fail(new ValidationError("This held send is already being changed."));
+        change.Outcome = HeldOutcome.Reconcile;
         var cancelled = await SubmissionOps.CancelAsync(ctx.Value!, receipt.SubmissionId, ct, guard).ConfigureAwait(false);
         if (!cancelled.IsOk)
         {
+            change.Outcome = await ReadHeldOutcomeAsync(ctx.Value!, receipt.SubmissionId, ct).ConfigureAwait(false);
             return Result<ComposeSeed>.Fail(cancelled.Error!);
         }
 
+        change.Outcome = HeldOutcome.Drop;
         var emailId = cancelled.Value ?? receipt.EmailId;
         if (await SubmissionOps.RestoreDraftAsync(ctx.Value!, emailId, ct, guard).ConfigureAwait(false))
         {
@@ -129,6 +130,8 @@ public sealed class MailSender(IAccountManager accounts, IIdentityService identi
         }
 
         var guard = AccountGuard(ctx.Value!, receipt.AccountId);
+        using var change = TryChangeHeld(receipt);
+        if (change is null) return Result<Unit>.Fail(new ValidationError("This held send is already being changed."));
         var got = await SubmissionOps.GetAsync(ctx.Value!, receipt.SubmissionId, ct).ConfigureAwait(false);
         if (!got.IsOk)
         {
@@ -138,11 +141,13 @@ public sealed class MailSender(IAccountManager accounts, IIdentityService identi
         var sub = got.Value;
         if (sub is null)
         {
+            change.Outcome = HeldOutcome.Drop;
             return Result<Unit>.Fail(new ValidationError("This message is no longer held."));
         }
 
         if (!string.Equals(sub.Str("undoStatus"), "pending", StringComparison.Ordinal))
         {
+            change.Outcome = string.Equals(sub.Str("undoStatus"), "final", StringComparison.Ordinal) ? HeldOutcome.Released : HeldOutcome.Drop;
             return Result<Unit>.Fail(new ValidationError("The message has already been sent."));
         }
 
@@ -153,16 +158,21 @@ public sealed class MailSender(IAccountManager accounts, IIdentityService identi
             return Result<Unit>.Fail(envelope.Error!);
         }
 
+        change.Outcome = HeldOutcome.Reconcile;
         var cancelled = await SubmissionOps.CancelAsync(ctx.Value!, receipt.SubmissionId, ct, guard).ConfigureAwait(false);
         if (!cancelled.IsOk)
         {
+            change.Outcome = await ReadHeldOutcomeAsync(ctx.Value!, receipt.SubmissionId, ct).ConfigureAwait(false);
             return Result<Unit>.Fail(cancelled.Error!);
         }
 
+        change.Outcome = HeldOutcome.Drop;
         var roles = await ctx.Value!.RolesAsync(false, ct).ConfigureAwait(false);
         var again = await SubmissionOps.CreateAsync(ctx.Value, emailId, sub.Str("identityId") ?? "", envelope.Value.From, envelope.Value.Recipients, null, roles.IsOk ? roles.Value!.Sent : null, ct, guard).ConfigureAwait(false);
         if (again.IsOk)
         {
+            change.Outcome = HeldOutcome.Released;
+            change.NewSubmissionId = again.Value!;
             return Result<Unit>.Ok(default);
         }
 

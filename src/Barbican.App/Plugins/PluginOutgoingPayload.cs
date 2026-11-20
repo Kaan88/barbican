@@ -1,4 +1,5 @@
 // Mirrors: Bulwark lib/plugin-types.ts:1276-1359 and lib/plugin-sandbox/hook-payload.ts:81-105.
+using System.Globalization;
 using Barbican.Core.Compose;
 using Barbican.Core.Compose.Recipients;
 using Barbican.Core.Jmap.Submission;
@@ -28,7 +29,6 @@ internal static class PluginOutgoingPayload
         ArgumentNullException.ThrowIfNull(payload);
         var b = new PluginValueBuilder();
         int Strings(IEnumerable<string> values) => b.Array([.. values.Select(b.String)]);
-        int Recipients(string value) => Strings(AddressParser.Parse(value).Select(a => a.Name is null ? a.Email : "\"" + a.Name.Replace("\\", "\\\\", StringComparison.Ordinal).Replace("\"", "\\\"", StringComparison.Ordinal) + "\" <" + a.Email + ">"));
         var attachments = payload.Attachments.Select(a =>
         {
             var fields = new List<(string, int)> { ("name", b.String(a.Name)), ("type", b.String(a.Type)), ("size", b.Number(a.Size)) };
@@ -38,7 +38,7 @@ internal static class PluginOutgoingPayload
         }).ToArray();
         var properties = new List<(string, int)>
         {
-            ("to", Recipients(payload.To)), ("cc", Recipients(payload.Cc)), ("bcc", Recipients(payload.Bcc)),
+            ("to", Recipients(b, payload.To)), ("cc", Recipients(b, payload.Cc)), ("bcc", Recipients(b, payload.Bcc)),
             ("subject", b.String(payload.Subject)), ("htmlBody", b.String(payload.Html)), ("textBody", b.String(payload.Text)),
             ("identityId", b.String(payload.IdentityId)), ("fromEmail", b.String(payload.From)), ("attachments", b.Array(attachments)),
         };
@@ -54,6 +54,23 @@ internal static class PluginOutgoingPayload
         else properties.Add(("keywords", Strings(payload.Keywords)));
         return b.Build(b.Array(b.Object([.. properties])), SendLimits);
     }
+
+    internal static PluginValue? TryEncodeSent(EmailSentPayload payload)
+    {
+        var b = new PluginValueBuilder();
+        int Text(string? value) => value is null ? b.Null() : b.String(value);
+        var record = b.Object(("emailId", Text(payload.EmailId)), ("accountId", Text(payload.JmapAccountId)),
+            ("submissionId", Text(payload.SubmissionId)), ("to", Recipients(b, payload.To)), ("cc", Recipients(b, payload.Cc)),
+            ("bcc", Recipients(b, payload.Bcc)), ("subject", b.String(payload.Subject)),
+            ("scheduledFor", Text(payload.ScheduledFor?.UtcDateTime.ToString("yyyy-MM-dd'T'HH:mm:ss.fff'Z'", CultureInfo.InvariantCulture))),
+            ("composerId", Text(payload.ComposerId)));
+        try { return b.Build(b.Array(record), SendLimits); }
+        catch (PluginValueFormatException) { return null; }
+    }
+
+    private static int Recipients(PluginValueBuilder b, string field) => b.Array([.. AddressParser.Parse(field).Select(a =>
+        b.String(a.Name is null ? a.Email : "\"" + a.Name.Replace("\\", "\\\\", StringComparison.Ordinal)
+            .Replace("\"", "\\\"", StringComparison.Ordinal) + "\" <" + a.Email + ">"))]);
 
     internal static OutgoingEmailPayload Mediate(OutgoingEmailPayload current, PluginValue result, bool permitKeywords)
     {

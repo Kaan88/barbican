@@ -1,6 +1,7 @@
 // Bulwark lib/outgoing/outgoing-keywords.ts and components/email/email-composer.tsx send hooks.
 using Barbican.Core.Accounts;
 using Barbican.Core.Compose;
+using Barbican.Core.Common;
 using Barbican.Core.Plugins.Payloads;
 
 namespace Barbican.Core.Tests.Compose;
@@ -30,6 +31,11 @@ public sealed class OutgoingAddOnTests
         Assert.NotNull(hooks.Session);
         Assert.Equal(1, hooks.StartCount);
         Assert.Equal(1, hooks.IssueCount);
+        var notification = Assert.Single(hooks.Sent);
+        Assert.Equal("composer-1", notification.ComposerId, StringComparer.Ordinal);
+        Assert.Equal("audit@example.net", notification.Bcc, StringComparer.Ordinal);
+        Assert.Equal(sent.Value!.EmailId, notification.EmailId, StringComparer.Ordinal);
+        Assert.Equal(rig.Fake.Client.Session.MailAccountId, notification.JmapAccountId, StringComparer.Ordinal);
     }
 
     [Fact]
@@ -40,6 +46,7 @@ public sealed class OutgoingAddOnTests
         var sent = await rig.Sender.SendAsync(PipelineRig.NewDraft(), new SendOptions(), Ct);
         Assert.False(sent.IsOk);
         Assert.Empty(rig.Api.Submissions);
+        Assert.Empty(hooks.Sent);
     }
 
     [Fact]
@@ -55,6 +62,79 @@ public sealed class OutgoingAddOnTests
     }
 
     [Fact]
+    public async Task UndoHoldNotifiesOnceOnSendNowAndNeverOnUndo()
+    {
+        var hooks = new Hooks();
+        var rig = await PipelineRig.StartAsync(addOns: hooks);
+        var first = await rig.Sender.SendAsync(PipelineRig.NewDraft(), new SendOptions { UndoSeconds = 20 }, Ct);
+        Assert.True(first.IsOk, first.Error?.Message);
+        Assert.Empty(hooks.Sent);
+        Assert.True((await rig.Sender.SendNowAsync(first.Value!, Ct)).IsOk);
+        var released = Assert.Single(hooks.Sent);
+        var actualSubmission = Assert.Single(rig.Api.SubmissionStates).Id;
+        Assert.Equal(actualSubmission, released.SubmissionId, StringComparer.Ordinal);
+        Assert.NotEqual(first.Value!.SubmissionId, released.SubmissionId, StringComparer.Ordinal);
+        rig.Clock.Advance(TimeSpan.FromSeconds(30));
+        Assert.Single(hooks.Sent);
+        var second = await rig.Sender.SendAsync(PipelineRig.NewDraft(), new SendOptions { UndoSeconds = 20 }, Ct);
+        Assert.True(second.IsOk, second.Error?.Message);
+        Assert.True((await rig.Sender.UndoAsync(second.Value!, Ct)).IsOk);
+        rig.Clock.Advance(TimeSpan.FromSeconds(30));
+        Assert.Single(hooks.Sent);
+    }
+
+    [Fact]
+    public async Task NaturalExpiryNotifiesOnceAndLaterSendNowCannotDuplicateIt()
+    {
+        var hooks = new Hooks();
+        var rig = await PipelineRig.StartAsync(addOns: hooks);
+        var sent = await rig.Sender.SendAsync(PipelineRig.NewDraft(), new SendOptions { UndoSeconds = 20 }, Ct);
+        Assert.True(sent.IsOk, sent.Error?.Message);
+        rig.Clock.Advance(TimeSpan.FromSeconds(19));
+        Assert.Empty(hooks.Sent);
+        rig.Clock.Advance(TimeSpan.FromSeconds(1));
+        var notification = Assert.Single(hooks.Sent);
+        Assert.Equal(sent.Value!.SubmissionId, notification.SubmissionId, StringComparer.Ordinal);
+        rig.Clock.Advance(TimeSpan.FromMinutes(1));
+        _ = await rig.Sender.SendNowAsync(sent.Value, Ct);
+        Assert.Single(hooks.Sent);
+    }
+
+    [Fact]
+    public async Task SameSubmissionIdInDifferentAccountsHasIndependentExpiry()
+    {
+        var hooks = new Hooks();
+        var first = await PipelineRig.StartAsync();
+        var second = await PipelineRig.StartAsync();
+        var accounts = new TwoAccounts(first.Accounts.SessionFor(PipelineRig.Account)!, second.Accounts.SessionFor(PipelineRig.Account)!);
+        using var sender = new MailSender(accounts, new IdentityService(accounts), first.Seeder, first.Hooks, first.Codec, first.Clock, hooks);
+        var one = await sender.SendAsync(PipelineRig.NewDraft() with { AccountId = "first" }, new SendOptions { UndoSeconds = 20 }, Ct);
+        Assert.True(one.IsOk, one.Error?.Message);
+        first.Clock.Advance(TimeSpan.FromSeconds(5));
+        var two = await sender.SendAsync(PipelineRig.NewDraft() with { AccountId = "second" }, new SendOptions { UndoSeconds = 20 }, Ct);
+        Assert.True(two.IsOk, two.Error?.Message);
+        Assert.Equal(one.Value!.SubmissionId, two.Value!.SubmissionId, StringComparer.Ordinal);
+        first.Clock.Advance(TimeSpan.FromSeconds(15));
+        Assert.Equal("first", Assert.Single(hooks.Sent).AccountId, StringComparer.Ordinal);
+        first.Clock.Advance(TimeSpan.FromSeconds(5));
+        Assert.Equal(2, hooks.Sent.Count);
+        Assert.Equal("second", hooks.Sent[1].AccountId, StringComparer.Ordinal);
+        first.Clock.Advance(TimeSpan.FromMinutes(1));
+        Assert.Equal(2, hooks.Sent.Count);
+    }
+
+    [Fact]
+    public async Task ExplicitScheduledSendNotifiesImmediately()
+    {
+        var hooks = new Hooks();
+        var rig = await PipelineRig.StartAsync(addOns: hooks);
+        var at = rig.Clock.GetUtcNow().AddHours(1);
+        var sent = await rig.Sender.SendAsync(PipelineRig.NewDraft(), new SendOptions { ScheduledAt = at }, Ct);
+        Assert.True(sent.IsOk, sent.Error?.Message);
+        Assert.Equal(at, Assert.Single(hooks.Sent).ScheduledFor);
+    }
+
+    [Fact]
     public void KeywordValidationIsBoundedAndCaseInsensitive()
     {
         var values = OutgoingKeywords.Clean(["ONE", "one", "$seen", "$flagged", "$label:", "$label:x", "bad space", "bad/ok", "bad]", .. Enumerable.Range(0, 20).Select(i => "k" + i)]);
@@ -63,9 +143,22 @@ public sealed class OutgoingAddOnTests
         Assert.DoesNotContain("$seen", values, StringComparer.OrdinalIgnoreCase);
     }
 
+    private sealed class TwoAccounts(IAccountSession first, IAccountSession second) : IAccountManager
+    {
+        public IReadOnlyList<AccountInfo> Accounts => [];
+        public AccountInfo? Active => null;
+        public event EventHandler<ActiveAccountChangedEventArgs>? ActiveChanged { add { } remove { } }
+        public IAccountSession? SessionFor(string key) => key switch { "first" => first, "second" => second, _ => null };
+        public Task<Result<AccountInfo>> SignInWithPasswordAsync(PasswordSignIn request, CancellationToken ct) => throw new NotSupportedException();
+        public Task<Result<AccountInfo>> SignInWithOAuthAsync(OAuthSignIn request, CancellationToken ct) => throw new NotSupportedException();
+        public Task<Result<Unit>> SwitchToAsync(string key, CancellationToken ct) => throw new NotSupportedException();
+    }
+
     private sealed class Hooks : IOutgoingAddOnHooks, IOutgoingAddOnSend
     {
         public List<OutgoingEmailPayload> Checks { get; } = [];
+        public List<EmailSentPayload> Sent { get; } = [];
+        public void NotifySent(EmailSentPayload payload) => Sent.Add(payload);
         public IAccountSession? Session { get; private set; }
         public int StartCount { get; private set; }
         public int IssueCount { get; private set; }

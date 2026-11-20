@@ -2668,3 +2668,28 @@ Release built with zero warnings and errors.
 Send checks derive external recipients from sending-account identity
 domains. Organization domains, attachment text excerpts, custom outgoing
 headers and JavaScript send takeover and completion hooks remain open.
+
+## Codex / Astra review of Windows send completion (2026-11-20)
+
+Windows delivers `onAfterEmailSend` to current JavaScript add-ons with
+`email:read` for the sending account. The payload uses the accepted email
+and submission IDs, the JMAP mail account, actual post-transform recipients
+and subject, the originating composer ID, and a UTC schedule when present.
+The native post rechecks the captured account session, runtime and package
+grant. Observer failures leave the accepted send and other observers alone.
+
+Regular sends without an undo hold and explicitly scheduled sends notify
+after acceptance. An undo hold defers the event until expiry. Undo drops the
+event and Send now reports the replacement submission accepted by the
+server. Held events are keyed by account and submission. An interrupted
+cancel keeps the event pending until a status read resolves the outcome.
+Pending events and reconciliation timers are held in memory for the life of
+the app.
+
+Astra approved the delivery, reconciliation and automation changes.
+Windows Automation passed 3,436 tests with four skips, and Release built
+with zero warnings and errors. The private Windows
+walkthrough used in-process JMAP and verified hold expiry, Send now, Undo,
+the scheduled timestamp, observer failure isolation and the read grant.
+The synthetic send profile advertises `FUTURERELEASE` for these checks.
+JavaScript send takeover remains open.

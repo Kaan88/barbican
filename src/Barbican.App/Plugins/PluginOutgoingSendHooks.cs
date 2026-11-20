@@ -26,12 +26,12 @@ internal sealed class PluginOutgoingSendHooks(
     {
         private readonly IReadOnlyList<PluginSessionCapture> _captures = [owner];
         private readonly HashSet<PluginRuntimeBinding> _contributors = [];
-        private OutgoingEmailPayload? _draft;
+        private (string? ComposerId, bool IsQuickReply, string AccountId)? _draft;
 
         public async Task<bool> CheckAsync(OutgoingEmailPayload outgoing, CancellationToken ct)
         {
             const string hook = HookNames.OnBeforeEmailSend;
-            _draft ??= outgoing;
+            _draft ??= (outgoing.ComposerId, outgoing.IsQuickReply, outgoing.AccountId);
             await runtimes.WaitUntilInitializedAsync(ct).ConfigureAwait(false);
             if (!Owns(outgoing)) return false;
             PluginValue? payload = null;
@@ -81,11 +81,36 @@ internal sealed class PluginOutgoingSendHooks(
             return accepted;
         }
 
+        public void NotifySent(EmailSentPayload payload) => _ = DeliverSentAsync(payload);
+
+        private async Task DeliverSentAsync(EmailSentPayload payload)
+        {
+            const string hook = HookNames.OnAfterEmailSend;
+            if (!string.Equals(owner.LocalAccountKey, payload.AccountId, StringComparison.Ordinal) || !sessions.IsCurrent(owner)) return;
+            PluginValue? args = null;
+            foreach (var runtime in Owners(hook, "email:read"))
+            {
+                if (runtime is not IPluginFencedHookRuntime fenced) continue;
+                args ??= PluginOutgoingPayload.TryEncodeSent(payload);
+                if (args is null) return;
+                try
+                {
+                    _ = await fenced.InvokeHookWhileCurrentAsync(hook, args, HookPolicies.For(hook).Budget,
+                        write => sessions.TryRunWhileCurrent(_captures, () =>
+                            HasGrant(runtime, "email:read") && write()), runtime.Binding.Lifetime).ConfigureAwait(false);
+                }
+                catch (OperationCanceledException) when (runtime.Binding.Lifetime.IsCancellationRequested) { }
+#pragma warning disable CA1031 // A failed observer must leave the send and other observers alone.
+                catch (Exception error) when (error is not OutOfMemoryException and not StackOverflowException) { }
+#pragma warning restore CA1031
+            }
+        }
+
         private bool Owns(OutgoingEmailPayload outgoing) =>
             string.Equals(owner.LocalAccountKey, outgoing.AccountId, StringComparison.Ordinal) && sessions.IsCurrent(owner);
 
-        private IPluginRuntimeInstance[] Owners(string hook) =>
-            runtimes.HookOwners(hook).Where(runtime => HasGrant(runtime, "email:send"))
+        private IPluginRuntimeInstance[] Owners(string hook, string permission = "email:send") =>
+            runtimes.HookOwners(hook).Where(runtime => HasGrant(runtime, permission))
                 .OrderBy(runtime => runtime.Binding.Package.Id, StringComparer.Ordinal).ToArray();
 
         private bool HasGrant(IPluginRuntimeInstance runtime, string permission) =>

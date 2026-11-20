@@ -12,8 +12,20 @@ namespace Barbican.App.Shell.Automation;
 /// <summary>The active mail of a sample-data run: the real MailService and MailSync over the fake server's seed.</summary>
 public sealed class SampleActiveMail : IActiveMail, Barbican.Presentation.Actions.IMailWriterSource, IDisposable
 {
-    private readonly FakeJmapServer _server = new(new FakeJmapOptions { SieveCapability = true });
+    private readonly FakeJmapServer _server = new(Options());
     private readonly Barbican.Core.Jmap.Transport.JmapClient _client;
+
+    private static FakeJmapOptions Options()
+    {
+        var options = new FakeJmapOptions { SieveCapability = true };
+#if WINDOWS
+        if (Barbican.Core.Storage.ProfilePaths.IsAutomationProfile(Environment.GetEnvironmentVariable("BARBICAN_PROFILE")) &&
+            string.Equals(Environment.GetEnvironmentVariable("BARBICAN_SAMPLE_ADDON_ACCOUNT"), "1", StringComparison.Ordinal) &&
+            string.Equals(Environment.GetEnvironmentVariable("BARBICAN_SAMPLE_SEND_PIPELINE"), "1", StringComparison.Ordinal))
+            return options with { SubmissionExtensions = ["FUTURERELEASE"] };
+#endif
+        return options;
+    }
 
     public SampleActiveMail(IHookBus hooks, TimeProvider time)
     {
