@@ -65,7 +65,8 @@ public sealed class ThemeController : IDisposable
 
     private void ApplyControlPreferences() => _style.SetAccessibility(_shell.Accessibility,
         _prefs.Current.Bool("showToolbarLabels", true) || _prefs.Current.Bool("simpleMode", false),
-        _prefs.Current.Str("composePlacement", "floating"), _prefs.Current.Bool("sidebarAccountSwitcher", true));
+        _prefs.Current.Str("composePlacement", "style"), _prefs.Current.Bool("sidebarAccountSwitcher", true),
+        _prefs.Current.Bool("showMailSummaryTiles", false));
 
     private void OnShellChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
     {

@@ -18,10 +18,10 @@ public readonly record struct ShellLayout(double WindowWidth, bool Nordic, bool 
     public const double TilesMinReader = 330;
 
     /// <summary>Computes the layout of the mail screen.</summary>
-    public static ShellLayout Compute(double windowWidth, bool nordic, bool sidebarShown = true)
-        => Compute(windowWidth, nordic ? ShellStyle.Nordic : ShellStyle.Bento, sidebarShown);
+    public static ShellLayout Compute(double windowWidth, bool nordic, bool sidebarShown = true, bool showSummaryTiles = false)
+        => Compute(windowWidth, nordic ? ShellStyle.Nordic : ShellStyle.Bento, sidebarShown, showSummaryTiles);
 
-    public static ShellLayout Compute(double windowWidth, ShellStyle style, bool sidebarShown = true)
+    public static ShellLayout Compute(double windowWidth, ShellStyle style, bool sidebarShown = true, bool showSummaryTiles = false)
     {
         var m = StyleMetrics.For(style);
         var list = m.ListWidth(windowWidth);
@@ -34,6 +34,6 @@ public readonly record struct ShellLayout(double WindowWidth, bool Nordic, bool 
             reader = withContext;
         }
 
-        return new ShellLayout(windowWidth, m.Nordic, sidebarShown, !m.Bulwark && !m.Nordic && reader >= TilesMinReader, list, reader, context);
+        return new ShellLayout(windowWidth, m.Nordic, sidebarShown, showSummaryTiles && !m.Nordic && reader >= TilesMinReader, list, reader, context);
     }
 }

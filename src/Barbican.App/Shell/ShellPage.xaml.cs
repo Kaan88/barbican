@@ -82,7 +82,7 @@ public sealed partial class ShellPage : Page
         _look.PropertyChanged += (_, _) => ApplyLook();
         SidebarRegion.Panes.PropertyChanged += (_, _) =>
         {
-            if (_look.IsBulwark) ApplyLook();
+            if (_look.IsBento) ApplyLook();
         };
         SizeChanged += (_, e) => _look.SetWindowWidth(e.NewSize.Width);
         ReaderColumn.SizeChanged += (_, _) => ApplyDockLayout();
@@ -165,16 +165,17 @@ public sealed partial class ShellPage : Page
         var pad = _look.WindowPadding;
         MailScreen.Padding = band ? pad : new Thickness(pad.Left, pad.Bottom, pad.Right, pad.Bottom);
         MailScreen.ColumnSpacing = _look.Gap;
-        if (!_look.IsBulwark) _composerMaximized = false;
-        var fullscreen = _readerFullscreen && _look.IsBulwark;
+        if (!_look.IsBento) _composerMaximized = false;
+        var fullscreen = _readerFullscreen && _look.IsBento;
         ApplyMailPanes(layout, fullscreen);
         Surface.Background = _look.SurfaceBrush;
         Surface.BorderBrush = AppResources.Brush("Line");
         Surface.BorderThickness = _look.SurfaceBorder;
         Surface.CornerRadius = _look.SurfaceRadius;
         SurfaceGrid.ColumnSpacing = _look.Gap;
-        ReaderColumn.RowSpacing = _look.Gap;
-        GlanceRegion.Visibility = layout.SummaryTilesShown && _look.IsBento && !_composing ? Visibility.Visible : Visibility.Collapsed;
+        var glance = layout.SummaryTilesShown && !_composing;
+        ReaderColumn.RowSpacing = glance ? _look.Gap : 0;
+        GlanceRegion.Visibility = glance ? Visibility.Visible : Visibility.Collapsed;
         ContextRegion.Visibility = layout.ContextShown && !_composing ? Visibility.Visible : Visibility.Collapsed;
         ApplyDockLayout();
         if (_appliedNordic is { } before && before != _look.IsNordic)
@@ -196,9 +197,9 @@ public sealed partial class ShellPage : Page
         var editorSpace = layout.WindowWidth - _look.RailWidth
             - (panes.SidebarWidth > 0 ? panes.SidebarWidth : _look.SidebarWidth)
             - (panes.ListWidth > 0 ? panes.ListWidth : layout.ListWidth);
-        var reading = _look.IsBulwark && !_composing && !ReaderRegion.Reader.IsEmpty;
+        var reading = _look.IsBento && !_composing && !ReaderRegion.Reader.IsEmpty;
         var readerOnly = reading && layout.WindowWidth - _look.RailWidth - (panes.ListWidth > 0 ? panes.ListWidth : layout.ListWidth) < 480;
-        var phone = _look.IsBulwark && layout.WindowWidth < 700;
+        var phone = _look.IsBento && layout.WindowWidth < 700;
         var composerOnly = phone && _composing;
         RailRegion.Visibility = _composerMaximized || (phone && (reading || _composing)) ? Visibility.Collapsed : Visibility.Visible;
         if (!phone || reading || _composing) _compactFoldersOpen = false;
@@ -206,13 +207,15 @@ public sealed partial class ShellPage : Page
         CompactFolders.Visibility = phone && !_composing && !reading ? Visibility.Visible : Visibility.Collapsed;
         SidebarRegion.SetCompactBack(foldersOnly);
         SidebarRegion.Visibility = (!phone || foldersOnly) && !composerOnly && layout.SidebarShown && !hideMailPanes
-            && ((!_composing && !reading) || (_look.IsBulwark && editorSpace >= 480)) ? Visibility.Visible : Visibility.Collapsed;
+            && ((!_composing && !reading) || (_look.IsBento && editorSpace >= 480)) ? Visibility.Visible : Visibility.Collapsed;
         ReaderRegion.SetCompactNavigation(readerOnly && !fullscreen, phone);
         SidebarHandle.Visibility = phone ? Visibility.Collapsed : SidebarRegion.Visibility;
         ListColumn.Visibility = hideMailPanes || readerOnly || composerOnly || foldersOnly ? Visibility.Collapsed : Visibility.Visible;
         ListRegion.SetCompactWidth(phone ? Math.Max(1, layout.WindowWidth - _look.RailWidth) : null);
         ReaderColumn.Visibility = phone && !reading && !_composing ? Visibility.Collapsed : Visibility.Visible;
         ListHandle.Visibility = phone ? Visibility.Collapsed : ListColumn.Visibility;
+        FloatingCompose.Visibility = _look.ComposePlacement is "sidebar" && SidebarRegion.Visibility == Visibility.Collapsed
+            ? Visibility.Visible : _look.FloatingComposeVisibility;
         ReaderRegion.SetFullscreen(fullscreen);
     }
 
@@ -234,7 +237,7 @@ public sealed partial class ShellPage : Page
 #endif
         ComposerRegion.MaximizeRequested += (_, _) =>
         {
-            if (!_composing || !_look.IsBulwark) return;
+            if (!_composing || !_look.IsBento) return;
             _composerMaximized = !_composerMaximized;
             ApplyLook();
         };
@@ -244,7 +247,7 @@ public sealed partial class ShellPage : Page
         {
             if (!string.Equals(e.PropertyName, nameof(ReaderViewModel.IsEmpty), StringComparison.Ordinal)) return;
             if (_readerFullscreen && ReaderRegion.Reader.IsEmpty) SetReaderFullscreen(false);
-            else if (_look.IsBulwark) ApplyLook();
+            else if (_look.IsBento) ApplyLook();
         };
     }
 
@@ -269,7 +272,7 @@ public sealed partial class ShellPage : Page
 
     private void SetReaderFullscreen(bool enabled)
     {
-        _readerFullscreen = enabled && _look.IsBulwark && !ReaderRegion.Reader.IsEmpty;
+        _readerFullscreen = enabled && _look.IsBento && !ReaderRegion.Reader.IsEmpty;
         ApplyLook();
     }
 
@@ -300,7 +303,7 @@ public sealed partial class ShellPage : Page
         var docked = !_composerMaximized && _composer?.Current?.IsDocked == true;
         Grid.SetRow(ComposerDockHost, docked ? 2 : 0);
         Grid.SetRowSpan(ComposerDockHost, docked ? 1 : 3);
-        var adaptive = _composing && docked && _look.IsBulwark;
+        var adaptive = _composing && docked && _look.IsBento;
         var layout = adaptive ? ReplyDockLayout.Compute(ReaderColumn.ActualHeight, _dockShare) : default;
         var takeover = adaptive && layout.Takeover;
         var showingMessage = takeover && _showDockMessage;
@@ -518,7 +521,7 @@ public sealed partial class ShellPage : Page
 
     private void OnPreviewKeyDown(object sender, KeyRoutedEventArgs e)
     {
-        if (_readerFullscreen && _look.IsBulwark && !_composing &&
+        if (_readerFullscreen && _look.IsBento && !_composing &&
             e.Key == Windows.System.VirtualKey.Escape && !IsTyping(e.OriginalSource))
         {
             SetReaderFullscreen(false);
