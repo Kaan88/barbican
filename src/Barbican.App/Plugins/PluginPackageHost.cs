@@ -47,6 +47,9 @@ internal sealed class PluginPackageHost(IProfilePaths paths, ISecretStore secret
     public Task<Result<PluginInstallPreview>> InspectAsync(Stream archive, CancellationToken ct) =>
         WithManagerAsync(manager => manager.InspectAsync(archive, PluginPackageSource.LocalImport, ct), ct);
 
+    internal Task<Result<PluginInstallPreview>> ReviewAsync(PluginPackageIdentity package, CancellationToken ct) =>
+        WithManagerAsync(manager => manager.ReviewAsync(package, ct), ct);
+
     public Task<Result<PluginInstallation>> InstallAsync(PluginInstallDecision decision, CancellationToken ct)
     {
         ArgumentNullException.ThrowIfNull(decision);

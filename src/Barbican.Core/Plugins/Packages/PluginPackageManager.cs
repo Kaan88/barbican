@@ -33,7 +33,8 @@ public sealed partial class PluginPackageManager : IPluginPackageManager, IPlugi
     private sealed record Review(InspectedPluginPackage Inspection, byte[] Archive, PluginPackageDefinition Definition, PluginPackageIdentity? Previous, long? PreviousGeneration, DateTimeOffset Expires);
     internal sealed record Entry(string Id, string Version, string Hash, bool Enabled, long Generation, string[] Permissions,
         string[] Accounts, long? CleanupThrough = null,
-        [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)] bool NativeFullTrustApproved = false);
+        [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)] bool NativeFullTrustApproved = false,
+        [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string[]? ApprovedHttpOrigins = null);
     internal sealed record Index(long NextGeneration, List<Entry> Entries, List<PluginPackageIdentity>? RetiredArchives = null);
     private sealed record Loaded(long Revision, Index Index, Dictionary<string, PluginInstallation> Installations);
 
@@ -110,11 +111,12 @@ public sealed partial class PluginPackageManager : IPluginPackageManager, IPlugi
             ? PluginExecutionTier.Privileged : PluginExecutionTier.Untrusted;
 
     private static PluginGrantSnapshot Grant(Entry e) => new(Identity(e), e.Generation, e.Enabled, e.Permissions, e.Accounts,
-        e.NativeFullTrustApproved ? PluginExecutionTier.NativeFullTrust : PluginExecutionTier.Untrusted);
+        e.ApprovedHttpOrigins, e.NativeFullTrustApproved ? PluginExecutionTier.NativeFullTrust : PluginExecutionTier.Untrusted);
 
     private static bool MatchesSavedApproval(PluginPackageDefinition definition, Entry entry) =>
         definition.RequestedTier == (entry.NativeFullTrustApproved ? PluginExecutionTier.NativeFullTrust : PluginExecutionTier.Untrusted) &&
         (!entry.NativeFullTrustApproved || entry.Accounts.Length == 0) &&
+        (entry.ApprovedHttpOrigins is null || definition.RequestedHttpOrigins.SetEquals(entry.ApprovedHttpOrigins)) &&
         definition.RequestedPermissions.SetEquals(entry.Permissions) && !entry.Accounts.Any(string.IsNullOrWhiteSpace);
 
     private async Task<Result<Loaded>> LoadAsync(CancellationToken ct)
@@ -328,6 +330,8 @@ public sealed partial class PluginPackageManager : IPluginPackageManager, IPlugi
     {
         if (!definition.RequestedPermissions.SetEquals(decision.ApprovedPermissions) || decision.AccountKeys.Any(string.IsNullOrWhiteSpace))
             return new ValidationError("The approval does not match the requested permissions.");
+        if (!definition.RequestedHttpOrigins.SetEquals(decision.ApprovedHttpOrigins))
+            return new ValidationError("The approval does not match the requested websites.");
         if (definition.RequestedTier == PluginExecutionTier.Privileged)
             return new ValidationError("Privileged packages require verified managed signature and consent.");
         if (definition.RequestedTier == PluginExecutionTier.NativeFullTrust)
@@ -343,7 +347,9 @@ public sealed partial class PluginPackageManager : IPluginPackageManager, IPlugi
         var current = loaded.Index;
         var entry = new Entry(identity.Id, identity.Version, identity.Sha256, false, current.NextGeneration,
             decision.ApprovedPermissions.ToArray(), decision.AccountKeys.ToArray(),
-            NativeFullTrustApproved: review.Definition.RequestedTier == PluginExecutionTier.NativeFullTrust);
+            NativeFullTrustApproved: review.Definition.RequestedTier == PluginExecutionTier.NativeFullTrust,
+            ApprovedHttpOrigins: decision.ApprovedHttpOrigins.IsEmpty ? null :
+                review.Definition.RequestedHttpOrigins.Order(StringComparer.OrdinalIgnoreCase).ToArray());
         List<Entry> entries = [.. current.Entries.Where(x => !string.Equals(x.Id, identity.Id, StringComparison.Ordinal)), entry];
         var next = WithRetiredArchive(current, entries, review.Previous) with { NextGeneration = current.NextGeneration + 1 };
         if (!HasGenerationCapacity(next)) return Failure<Entry>("The package generation limit has been reached.");

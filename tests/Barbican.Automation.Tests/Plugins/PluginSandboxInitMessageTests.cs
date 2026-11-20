@@ -9,7 +9,7 @@ namespace Barbican.Automation.Tests.Plugins;
 
 public sealed class PluginSandboxInitMessageTests
 {
-    private static PluginRuntimeStart Start(PluginFrameKind kind)
+    private static PluginRuntimeStart Start(PluginFrameKind kind, bool approvedOrigins = false)
     {
         using var manifest = JsonDocument.Parse("""{"locales":{"de":{"greeting":"Hallo"},"en":{"greeting":"Hello"},"fr":{"greeting":"Bonjour"}},"httpOrigins":["https://example.org"],"secret":"must-not-appear"}""");
         using var regional = JsonDocument.Parse("""{"locale":"de-CH","dateLocale":"de-CH","hour12":false,"timeZone":"UTC","firstDayOfWeek":1}""");
@@ -17,8 +17,9 @@ public sealed class PluginSandboxInitMessageTests
         using var settings = JsonDocument.Parse("""{"enabled":true}""");
         using var features = JsonDocument.Parse("""{"externalSenderLabel":false,"externalRecipientWarning":true,"noThirdPartyTraffic":false}""");
         var identity = new PluginPackageIdentity("fixture", "1.0.0", new string('a', 64));
-        var grant = new PluginGrantSnapshot(identity, 1, true, ["storage:read"], ["private-account"]);
-        var package = new PluginPackageDefinition(identity, PluginRuntimeKind.JavaScript, "index.js", manifest.RootElement, ["storage:read", "mail:read"], PluginPackageSource.LocalImport);
+        var grant = new PluginGrantSnapshot(identity, 1, true, approvedOrigins ? ["storage:read", "http:fetch"] : ["storage:read"], ["private-account"],
+            approvedHttpOrigins: approvedOrigins ? ["https://example.org"] : []);
+        var package = new PluginPackageDefinition(identity, PluginRuntimeKind.JavaScript, "index.js", manifest.RootElement, ["storage:read", "mail:read", "http:fetch"], PluginPackageSource.LocalImport);
         var b = new PluginValueBuilder();
         return new(new(package, true, grant), grant, "auto-8931", kind, kind == PluginFrameKind.Slot ? "sidebar-widget" : null,
             b.Build(b.Object(("example", b.String("value")))), new("de-CH", regional.RootElement, theme.RootElement, settings.RootElement, features.RootElement));
@@ -36,6 +37,14 @@ public sealed class PluginSandboxInitMessageTests
         Assert.DoesNotContain("slot", payload.PropertyNames, StringComparer.Ordinal);
         Assert.DoesNotContain("theme", payload.PropertyNames, StringComparer.Ordinal);
         Assert.Equal(["de", "en"], manifest.Property("locales").PropertyNames);
+        Assert.DoesNotContain("httpOrigins", manifest.PropertyNames, StringComparer.Ordinal);
+    }
+
+    [Fact]
+    public void Background_projection_includes_the_reviewed_websites()
+    {
+        var request = Start(PluginFrameKind.Background, approvedOrigins: true);
+        var manifest = PluginSandboxInitMessage.Create(request, "code").Property("payload").Property("manifest");
         Assert.Equal("https://example.org", manifest.Property("httpOrigins").Item(0).StringValue);
     }
 

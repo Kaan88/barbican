@@ -3,6 +3,7 @@ using Barbican.App.Settings;
 using Barbican.App.Shell;
 using Barbican.Presentation.Dialogs;
 using Barbican.Core.Accounts;
+using Barbican.Core.Common;
 using Barbican.Core.Plugins.Packages;
 using Barbican.Core.Plugins.Permissions;
 #if !AUTOMATION
@@ -93,6 +94,7 @@ internal sealed class AddonsPageFactory(PluginPackageHost packages, PluginBackgr
         var state = installation.Enabled ? running ? "Running" : "Enabled · Stopped" : "Disabled";
         if (installation.Package.RuntimeKind == PluginRuntimeKind.Native) state += " · Native";
         if (installation.Error is not null) state += " · Needs attention";
+        if (NeedsWebsiteReview(installation)) state += " · Review websites";
         detail.Text = $"Version {installation.Package.Identity.Version} · {state}";
         if (start is not null) start.Visibility = running ? Visibility.Collapsed : Visibility.Visible;
     }
@@ -169,6 +171,12 @@ internal sealed class AddonsPageFactory(PluginPackageHost packages, PluginBackgr
             : null;
         AddAction(installation.Enabled ? "Disable" : "Enable", "enable", enabled: !installation.Enabled, remove: false);
         AddAction("Remove", "remove", enabled: false, remove: true);
+        if (NeedsWebsiteReview(installation))
+        {
+            var review = SetUiUi.Pill("Review websites", () => SetUiUi.Run(() => ReviewInstalledAsync(identity)), $"set.addons.review-websites.{identity.Id}");
+            actions.Children.Add(review);
+            _actions.Add(review);
+        }
         _rows.Add((installation, detail, start));
         UpdateRunningState(installation, detail, start);
         list.Children.Add(SetUiUi.RowWithDescription(identity.Id, detail, actions, "set.addons.item." + identity.Id));
@@ -180,6 +188,32 @@ internal sealed class AddonsPageFactory(PluginPackageHost packages, PluginBackgr
             actions.Children.Add(button);
             _actions.Add(button);
             return button;
+        }
+    }
+
+    private static bool NeedsWebsiteReview(PluginInstallation item) =>
+        item.Error is null && !item.Package.RequestedHttpOrigins.IsEmpty && item.Grant is { ApprovedHttpOrigins.IsEmpty: true };
+
+    private async Task ReviewInstalledAsync(PluginPackageIdentity identity)
+    {
+        if (!_visible || _importing || _mutating || _loading || _review is not null || _status is null || _import is null) return;
+        var generation = ++_reviewGeneration;
+        _importing = true;
+        _import.IsEnabled = false;
+        SetActionsEnabled(false);
+        try
+        {
+            var result = await packages.ReviewAsync(identity, CancellationToken.None).ConfigureAwait(true);
+            await ApplyReviewAsync(result, generation).ConfigureAwait(true);
+        }
+#pragma warning disable CA1031 // Report package review failures without exposing internal paths from Settings.
+        catch (Exception) { if (IsCurrent(generation)) _status.Text = "Could not review the add-on. Try again."; }
+#pragma warning restore CA1031
+        finally
+        {
+            _importing = false;
+            _import.IsEnabled = true;
+            SetActionsEnabled(_review is null);
         }
     }
 
@@ -283,6 +317,11 @@ internal sealed class AddonsPageFactory(PluginPackageHost packages, PluginBackgr
     private async Task InspectArchiveAsync(Stream archive, int generation)
     {
         var result = await packages.InspectAsync(archive, CancellationToken.None).ConfigureAwait(true);
+        await ApplyReviewAsync(result, generation).ConfigureAwait(true);
+    }
+
+    private async Task ApplyReviewAsync(Result<PluginInstallPreview> result, int generation)
+    {
         if (!IsCurrent(generation))
         {
             if (result.IsOk && result.Value is { } abandoned)
@@ -322,6 +361,14 @@ internal sealed class AddonsPageFactory(PluginPackageHost packages, PluginBackgr
         }
         _reviewPanel.Children.Add(SetUiUi.Heading("Requested permissions"));
         _reviewPanel.Children.Add(SetUiUi.Body(Describe(candidate.RequestedPermissions.OrderBy(x => x, StringComparer.Ordinal))));
+        if (!candidate.RequestedHttpOrigins.IsEmpty || preview.Previous?.Grant is { ApprovedHttpOrigins.IsEmpty: false })
+        {
+            _reviewPanel.Children.Add(SetUiUi.Heading("Requested websites"));
+            _reviewPanel.Children.Add(SetUiUi.Id(SetUiUi.Body(Describe(candidate.RequestedHttpOrigins.Order(StringComparer.OrdinalIgnoreCase))),
+                "set.addons.http-origins"));
+            if (preview.Previous?.Grant is { } grant)
+                _reviewPanel.Children.Add(SetUiUi.Meta("Previously approved websites: " + Describe(grant.ApprovedHttpOrigins.Order(StringComparer.OrdinalIgnoreCase))));
+        }
         if (candidate.RequestedTier != PluginExecutionTier.Untrusted)
         {
             _reviewPanel.Children.Add(SetUiUi.Body("Privileged add-ons require verified managed approval."));
@@ -365,7 +412,9 @@ internal sealed class AddonsPageFactory(PluginPackageHost packages, PluginBackgr
         if (choices.Count == 0) panel.Children.Add(SetUiUi.Meta("No connected mail accounts are available."));
         var consent = SetUiUi.Id(new CheckBox
         {
-            Content = "I reviewed and approve the requested permissions and selected accounts.",
+            Content = preview.Candidate.RequestedHttpOrigins.IsEmpty
+                ? "I reviewed and approve the requested permissions and selected accounts."
+                : "I approve the requested permissions, websites and selected accounts.",
         }, "set.addons.consent");
         var scope = SetUiUi.Id(SetUiUi.Meta(string.Empty), "set.addons.scope");
         if (preview.Previous is not null) panel.Children.Add(scope);
@@ -435,7 +484,7 @@ internal sealed class AddonsPageFactory(PluginPackageHost packages, PluginBackgr
         {
             var decision = new PluginInstallDecision(preview.ReviewId, preview.Candidate.Identity,
                 preview.Candidate.RequestedPermissions, choices.Where(x => x.Choice.IsChecked == true).Select(x => x.Key),
-                approveNativeFullTrust: approveNative);
+                approvedHttpOrigins: preview.Candidate.RequestedHttpOrigins, approveNativeFullTrust: approveNative);
             var result = await packages.InstallAsync(decision, CancellationToken.None).ConfigureAwait(true);
             if (!IsCurrent(generation)) return;
             if (!result.IsOk || result.Value is null)

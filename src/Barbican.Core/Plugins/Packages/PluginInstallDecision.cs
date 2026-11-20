@@ -5,6 +5,13 @@ public sealed class PluginInstallDecision
 {
     public PluginInstallDecision(string reviewId, PluginPackageIdentity candidate, IEnumerable<string> approvedPermissions,
         IEnumerable<string> accountKeys, bool approveNativeFullTrust = false, bool approvePrivilegedJavaScript = false)
+        : this(reviewId, candidate, approvedPermissions, accountKeys, null, approveNativeFullTrust, approvePrivilegedJavaScript)
+    {
+    }
+
+    public PluginInstallDecision(string reviewId, PluginPackageIdentity candidate, IEnumerable<string> approvedPermissions,
+        IEnumerable<string> accountKeys, IEnumerable<string>? approvedHttpOrigins,
+        bool approveNativeFullTrust = false, bool approvePrivilegedJavaScript = false)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(reviewId);
         ArgumentNullException.ThrowIfNull(candidate);
@@ -16,6 +23,7 @@ public sealed class PluginInstallDecision
         AccountKeys = accountKeys.ToImmutableHashSet(StringComparer.Ordinal);
         ApproveNativeFullTrust = approveNativeFullTrust;
         ApprovePrivilegedJavaScript = approvePrivilegedJavaScript;
+        ApprovedHttpOrigins = (approvedHttpOrigins ?? []).ToImmutableHashSet(StringComparer.OrdinalIgnoreCase);
     }
     public string ReviewId { get; }
     public PluginPackageIdentity Candidate { get; }
@@ -23,4 +31,5 @@ public sealed class PluginInstallDecision
     public ImmutableHashSet<string> AccountKeys { get; }
     public bool ApproveNativeFullTrust { get; }
     public bool ApprovePrivilegedJavaScript { get; }
+    public ImmutableHashSet<string> ApprovedHttpOrigins { get; }
 }

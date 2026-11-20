@@ -140,7 +140,8 @@ public sealed class PluginSandboxFactory(IPluginPackageManager packages, IPlugin
         if (!result.IsOk || result.Value is not { Enabled: true, Tier: PluginExecutionTier.Untrusted } grant
             || !request.Grant.Enabled || grant.Package != request.Grant.Package || grant.Generation != request.Grant.Generation
             || grant.Tier != request.Grant.Tier || !grant.Permissions.SetEquals(request.Grant.Permissions)
-            || !grant.AccountKeys.SetEquals(request.Grant.AccountKeys))
+            || !grant.AccountKeys.SetEquals(request.Grant.AccountKeys) ||
+            !grant.ApprovedHttpOrigins.SetEquals(request.Grant.ApprovedHttpOrigins))
             return null;
 
         // The activation request takes package metadata from the authenticated store.

@@ -2494,3 +2494,25 @@ and refusal after disabling the owner. Browser launch approval used a
 synthetic launcher in the dispatcher tests. The separate private slot
 probe passed. Windows Release built with zero warnings and errors. The
 specification checker reports the M6b OAuth hook wired.
+
+## Codex / Astra review of Windows add-on website approval (2026-11-20)
+
+Settings shows the HTTPS websites requested by a JavaScript add-on with
+`http:fetch` before asking for consent. Approval records the exact list
+for the reviewed archive and grant generation. The sandbox receives the
+approved list. The bridge checks it alongside permissions and account
+scope when revalidating the current grant. The installer ignores malformed
+website patterns.
+
+Older authenticated installations keep their existing permissions and
+receive an empty website list. The installed add-on's Review websites
+action opens its existing archive for review. Approval advances its grant
+generation and leaves the add-on disabled until the user enables it. The
+host HTTP request adapter and redirect checks are still open.
+
+Astra approved the review, legacy migration and projection changes.
+Windows Automation passed 3,386 tests with four skips. The private
+Settings walkthrough verified exact and wildcard website display,
+cancel, explicit approval, disabled installation and removal. The
+private WebView2 OAuth probe continued to pass. Windows Release built
+with zero warnings and errors.

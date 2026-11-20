@@ -29,7 +29,8 @@ public static class PluginSandboxInitMessage
             ("permissions", b.Array([.. grant.Permissions.Order(StringComparer.Ordinal).Select(b.String)])),
             ("settings", Json(request.HostState.Settings)), ("locales", LocaleTables(b, package.Manifest, request.HostState.Locale)),
         };
-        if (package.Manifest.TryGetProperty("httpOrigins", out var origins)) manifest.Add(("httpOrigins", Json(origins)));
+        if (!grant.ApprovedHttpOrigins.IsEmpty)
+            manifest.Add(("httpOrigins", b.Array([.. grant.ApprovedHttpOrigins.Order(StringComparer.OrdinalIgnoreCase).Select(b.String)])));
         var payload = new List<(string, int)>
         {
             ("mode", b.String(request.Kind == PluginFrameKind.Background ? "background" : "slot")),

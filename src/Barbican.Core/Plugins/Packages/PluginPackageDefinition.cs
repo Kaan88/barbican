@@ -19,6 +19,11 @@ public sealed class PluginPackageDefinition
         Entrypoint = entrypoint;
         Manifest = manifest.Clone();
         RequestedPermissions = requestedPermissions.ToImmutableHashSet(StringComparer.Ordinal);
+        RequestedHttpOrigins = RequestedPermissions.Contains("http:fetch") &&
+            Manifest.TryGetProperty("httpOrigins", out var origins) && origins.ValueKind == JsonValueKind.Array
+            ? origins.EnumerateArray().Where(origin => origin.ValueKind == JsonValueKind.String)
+                .Select(origin => origin.GetString()!).ToImmutableHashSet(StringComparer.OrdinalIgnoreCase)
+            : ImmutableHashSet.Create<string>(StringComparer.OrdinalIgnoreCase);
         Source = source;
         RequestedTier = requestedTier;
     }
@@ -27,6 +32,7 @@ public sealed class PluginPackageDefinition
     public string Entrypoint { get; }
     public JsonElement Manifest { get; }
     public ImmutableHashSet<string> RequestedPermissions { get; }
+    public ImmutableHashSet<string> RequestedHttpOrigins { get; }
     public PluginPackageSource Source { get; }
     public PluginExecutionTier RequestedTier { get; }
 }

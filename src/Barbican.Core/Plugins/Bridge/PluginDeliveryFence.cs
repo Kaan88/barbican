@@ -14,5 +14,6 @@ internal sealed class PluginDeliveryFence(PluginRuntimeBinding binding, PluginGr
     internal bool TryWrite(PluginRuntimeBinding recipient, PluginGrantSnapshot live, Action write) =>
         ReferenceEquals(binding, recipient) && PluginInvocationContext.Matches(live, binding)
         && live.Permissions.SetEquals(grant.Permissions) && live.AccountKeys.SetEquals(grant.AccountKeys)
+        && live.ApprovedHttpOrigins.SetEquals(grant.ApprovedHttpOrigins)
         && sessions.TryRunWhileCurrent(captures, () => recipient.TryWriteWhileAlive(write));
 }

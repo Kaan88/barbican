@@ -7,7 +7,7 @@ internal static partial class ManifestInspection
 {
     private static readonly Regex FieldName = new("^[A-Za-z][A-Za-z0-9_]{0,63}$", RegexOptions.CultureInvariant | RegexOptions.NonBacktracking);
     private static readonly Regex LocaleName = new("^[A-Za-z]{2,3}(?:-[A-Za-z0-9]{2,8})*$", RegexOptions.CultureInvariant | RegexOptions.NonBacktracking);
-    private static readonly Regex Origin = new("^https://(?:\\*\\.)?(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?)(?:\\.(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?))*\\.(?:[a-z](?:[a-z0-9-]*[a-z0-9])?)(?::[0-9]{1,5})?$", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.NonBacktracking);
+    private static readonly Regex Origin = new("\\Ahttps://(?:\\*\\.)?(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?)(?:\\.(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?))*\\.(?:[a-z](?:[a-z0-9-]*[a-z0-9])?)(?::[0-9]{1,5})?\\z", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.NonBacktracking);
     private static readonly Regex ApiPath = new("^/api/[A-Za-z0-9._-]+[/A-Za-z0-9._-]*$", RegexOptions.CultureInvariant | RegexOptions.NonBacktracking);
 
     private static void AddSchemas(Dictionary<string, object?> input, Dictionary<string, object?> output, List<string> warnings, IReadOnlySet<string> privateOrigins)
@@ -113,7 +113,9 @@ internal static partial class ManifestInspection
 
     private static bool ValidOrigin(string name, string value) => value.Length <= 200 && (string.Equals(name, "apiPostPaths", StringComparison.Ordinal)
         ? !value.Contains("..", StringComparison.Ordinal) && ApiPath.IsMatch(value)
-        : Origin.IsMatch(value));
+        : Origin.IsMatch(value) && (!string.Equals(name, "httpOrigins", StringComparison.Ordinal) ||
+            Uri.TryCreate(value.Replace("://*.", "://subdomain.", StringComparison.Ordinal), UriKind.Absolute, out var origin) &&
+            origin.Port > 0));
 
     private static Dictionary<string, object?> AsObject(object? value) => value as Dictionary<string, object?> ?? throw new InvalidDataException("Expected an object.");
 }

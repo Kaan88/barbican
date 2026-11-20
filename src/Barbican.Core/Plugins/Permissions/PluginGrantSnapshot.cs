@@ -10,6 +10,13 @@ public sealed class PluginGrantSnapshot
 {
     public PluginGrantSnapshot(PluginPackageIdentity package, long generation, bool enabled,
         IEnumerable<string> permissions, IEnumerable<string> accountKeys, PluginExecutionTier tier = PluginExecutionTier.Untrusted)
+        : this(package, generation, enabled, permissions, accountKeys, null, tier)
+    {
+    }
+
+    public PluginGrantSnapshot(PluginPackageIdentity package, long generation, bool enabled,
+        IEnumerable<string> permissions, IEnumerable<string> accountKeys, IEnumerable<string>? approvedHttpOrigins,
+        PluginExecutionTier tier = PluginExecutionTier.Untrusted)
     {
         ArgumentNullException.ThrowIfNull(package);
         ArgumentNullException.ThrowIfNull(permissions);
@@ -22,10 +29,13 @@ public sealed class PluginGrantSnapshot
         Enabled = enabled;
         Permissions = permissions.ToImmutableHashSet(StringComparer.Ordinal);
         AccountKeys = accountKeys.ToImmutableHashSet(StringComparer.Ordinal);
+        ApprovedHttpOrigins = (approvedHttpOrigins ?? []).ToImmutableHashSet(StringComparer.OrdinalIgnoreCase);
         if (Permissions.Any(string.IsNullOrWhiteSpace))
             throw new ArgumentException("Grant entries must be nonempty exact names.", nameof(permissions));
         if (AccountKeys.Any(string.IsNullOrWhiteSpace))
             throw new ArgumentException("Grant entries must be nonempty exact names.", nameof(accountKeys));
+        if (ApprovedHttpOrigins.Any(string.IsNullOrWhiteSpace) || (!ApprovedHttpOrigins.IsEmpty && !Permissions.Contains("http:fetch")))
+            throw new ArgumentException("HTTP origins require the HTTP permission.", nameof(approvedHttpOrigins));
     }
 
     public PluginPackageIdentity Package { get; }
@@ -35,6 +45,8 @@ public sealed class PluginGrantSnapshot
     public ImmutableHashSet<string> Permissions { get; }
     /// <summary>Authorized local-login keys; shared JMAP resource-account IDs require separate captured-session validation.</summary>
     public ImmutableHashSet<string> AccountKeys { get; }
+    /// <summary>HTTPS origins reviewed for this exact package. Legacy approvals without a reviewed list have no HTTP origins.</summary>
+    public ImmutableHashSet<string> ApprovedHttpOrigins { get; }
 
     /// <summary>Checks a trusted transport binding against this snapshot. Null account is only for host-scoped methods.</summary>
     public bool Authorizes(PluginPackageIdentity package, long generation, string permission, string? accountKey) =>

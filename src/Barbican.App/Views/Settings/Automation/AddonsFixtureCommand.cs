@@ -22,14 +22,14 @@ internal sealed class AddonsFixtureCommand(IProfilePaths paths, ISettingsNavigat
             return "error requires a synthetic automation profile";
 
         var mode = args.Trim();
-        if (mode is not ("install" or "update" or "native")) return "error use install, update or native";
+        if (mode is not ("install" or "update" or "native" or "origins")) return "error use install, update, native or origins";
         if (!shell.TryActivate(AppId.Settings)) return "error Settings is unavailable";
 
         navigation.Open(SettingsPageIds.Addons);
         var page = pages.OfType<AddonsPageFactory>().Single();
         using var archive = string.Equals(mode, "native", StringComparison.Ordinal)
             ? await MakeNativeArchiveAsync(cancellationToken).ConfigureAwait(true)
-            : MakeArchive(string.Equals(mode, "update", StringComparison.Ordinal));
+            : MakeArchive(mode);
         cancellationToken.ThrowIfCancellationRequested();
         await page.ReviewArchiveAsync(archive).ConfigureAwait(true);
         return "ok";
@@ -56,14 +56,17 @@ internal sealed class AddonsFixtureCommand(IProfilePaths paths, ISettingsNavigat
         return archive;
     }
 
-    private static MemoryStream MakeArchive(bool update)
+    private static MemoryStream MakeArchive(string mode)
     {
         var archive = new MemoryStream();
         using (var zip = new ZipArchive(archive, ZipArchiveMode.Create, leaveOpen: true))
         {
-            var manifest = update
-                ? """{"id":"fixture-addon","name":"Fixture Add-on","version":"2.0.0","author":"Example","type":"hook","permissions":["email:read","email:write"]}"""
-                : """{"id":"fixture-addon","name":"Fixture Add-on","version":"1.0.0","author":"Example","type":"hook","permissions":["email:read"]}""";
+            var manifest = mode switch
+            {
+                "update" => """{"id":"fixture-addon","name":"Fixture Add-on","version":"2.0.0","author":"Example","type":"hook","permissions":["email:read","email:write"]}""",
+                "origins" => """{"id":"fixture-addon","name":"Fixture Add-on","version":"1.0.0","author":"Example","type":"hook","permissions":["http:fetch"],"httpOrigins":["https://api.example.org","https://*.service.example.org"]}""",
+                _ => """{"id":"fixture-addon","name":"Fixture Add-on","version":"1.0.0","author":"Example","type":"hook","permissions":["email:read"]}""",
+            };
             Write(zip, "manifest.json", manifest);
             Write(zip, "index.js", "module.exports = { activate() {} };");
         }

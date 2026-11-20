@@ -79,6 +79,7 @@ internal sealed class PluginInvocationContext : IPluginInvocationContext
             var value = current.Value;
             _checked = IsLive() && current.IsOk && value is not null && Matches(value, Binding)
                 && value.Permissions.SetEquals(Grant.Permissions) && value.AccountKeys.SetEquals(Grant.AccountKeys)
+                && value.ApprovedHttpOrigins.SetEquals(Grant.ApprovedHttpOrigins)
                 && _captures.TrueForAll(_sessions.IsCurrent);
             return _checked;
         }
