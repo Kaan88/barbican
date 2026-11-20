@@ -10,7 +10,7 @@ internal sealed class PluginSandboxHookReplies : IDisposable
     private readonly Lock _gate = new();
     private readonly Dictionary<string, Pending> _pending = new(StringComparer.Ordinal);
     private readonly PluginRuntimeBinding _owner;
-    private readonly int _maximum;
+    private readonly PluginSandboxOwnedCalls _owned;
     private long _sequence;
     private bool _closed;
 
@@ -19,7 +19,7 @@ internal sealed class PluginSandboxHookReplies : IDisposable
         ArgumentNullException.ThrowIfNull(owner);
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(maxPending);
         _owner = owner;
-        _maximum = maxPending;
+        _owned = new PluginSandboxOwnedCalls(owner, 0, maxPending, 0);
     }
 
     internal bool TryBegin(CancellationToken cancellationToken, out string id, out Task<PluginValue> reply)
@@ -29,9 +29,9 @@ internal sealed class PluginSandboxHookReplies : IDisposable
         {
             id = string.Empty;
             reply = Task.FromCanceled<PluginValue>(new CancellationToken(true));
-            if (_closed || !_owner.IsAlive || cancellationToken.IsCancellationRequested || _pending.Count >= _maximum || _sequence == long.MaxValue)
+            if (_closed || !_owner.IsAlive || cancellationToken.IsCancellationRequested || _pending.Count >= _owned.MaxPending || _sequence == long.MaxValue)
                 return false;
-            id = string.Concat(Guid.NewGuid().ToString("N"), ":h:", (++_sequence).ToString(System.Globalization.CultureInfo.InvariantCulture));
+            if (!_owned.AddHookReply(++_sequence, out id)) return false;
             entry = new Pending(id, CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, _owner.Lifetime));
             _pending.Add(id, entry);
             entry.Registration = entry.Stop.Token.Register(() => Cancel(entry));
@@ -60,6 +60,7 @@ internal sealed class PluginSandboxHookReplies : IDisposable
         {
             if (_closed || !_owner.IsAlive || !_pending.TryGetValue(id, out var entry) || !entry.Posted || entry.Stop.IsCancellationRequested)
                 return false;
+            if (!_owned.TakePendingReply(claimant, id)) return false;
             _pending.Remove(id);
             entry.Completion.TrySetResult(validatedEnvelope);
             return true;
@@ -71,6 +72,7 @@ internal sealed class PluginSandboxHookReplies : IDisposable
         lock (_gate)
         {
             if (!_pending.TryGetValue(entry.Id, out var current) || !ReferenceEquals(current, entry)) return;
+            _owned.TakePendingReply(_owner, entry.Id);
             _pending.Remove(entry.Id);
             entry.Completion.TrySetCanceled(entry.Stop.Token);
         }
@@ -95,6 +97,7 @@ internal sealed class PluginSandboxHookReplies : IDisposable
         {
             if (_closed) return;
             _closed = true;
+            _owned.Dispose();
             foreach (var entry in _pending.Values) entry.Completion.TrySetCanceled();
             _pending.Clear();
         }

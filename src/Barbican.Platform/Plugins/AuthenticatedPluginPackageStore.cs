@@ -9,7 +9,7 @@ using Barbican.Core.Storage;
 namespace Barbican.Platform.Plugins;
 
 /// <summary>Secret-authenticated index and hash-addressed archives within a held host profile lease.</summary>
-public sealed partial class AuthenticatedPluginPackageStore : IPluginPackageStore, IDisposable
+public sealed partial class AuthenticatedPluginPackageStore : IPluginPackageStore, IPluginUserStorageStore, IDisposable
 {
     private readonly string _profile;
     private readonly string _directory;

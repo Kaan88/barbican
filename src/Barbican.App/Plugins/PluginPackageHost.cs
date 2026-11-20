@@ -59,15 +59,31 @@ internal sealed class PluginPackageHost(IProfilePaths paths, ISecretStore secret
         WithManagerAsync(manager => manager.SetEnabledAsync(package, enabled, ct), ct);
 
     internal Task<Result<Unit>> UninstallAsync(PluginPackageIdentity package, CancellationToken ct) =>
-        WithManagerAsync(manager => manager.UninstallAsync(package, ct), ct);
+        WithManagerAsync(async manager =>
+        {
+            var installed = await manager.FindAsync(package.Id, ct).ConfigureAwait(false);
+            if (!installed.IsOk) return Result<Unit>.Fail(installed.Error!);
+            if (installed.Value?.Package.Identity == package)
+            {
+                var disabled = await manager.SetEnabledAsync(package, false, ct).ConfigureAwait(false);
+                if (!disabled.IsOk) return disabled;
+                // Keep the disabled package visible and retryable until its data has been erased.
+                var cleared = await _store!.ClearUserStorageAsync(paths.Profile, package.Id, ct).ConfigureAwait(false);
+                if (!cleared.IsOk) return cleared;
+            }
+            return await manager.UninstallAsync(package, ct).ConfigureAwait(false);
+        }, ct);
 
     internal Task<Result<IPluginRuntimeFactory>> CreateSandboxFactoryAsync(
         IPluginSandboxWebViewFactory views, IPluginSandboxStartup startup, HookBus hooks,
-        IPluginSessionSource sessions, IEnumerable<IPluginApiMethod> methods, CancellationToken ct) =>
+        IPluginSessionSource sessions, IEnumerable<IPluginApiMethod> methods, CancellationToken ct, bool includeUserStorage = false) =>
         WithManagerAsync(manager =>
         {
             // Lifecycle writes and runtime calls share the same leased authority and revocation coordinator.
-            var dispatcher = new PluginApiDispatcher(paths.Profile, methods, manager, sessions, time);
+            var adapters = includeUserStorage
+                ? methods.Concat(PluginStorageMethods.For(new PluginScopedStorage(paths.Profile, manager, sessions, _store!)))
+                : methods;
+            var dispatcher = new PluginApiDispatcher(paths.Profile, adapters, manager, sessions, time);
             var factory = new PluginSandboxFactory(manager, manager, _revocation!, dispatcher, views, startup, hooks);
             return Task.FromResult(Result<IPluginRuntimeFactory>.Ok(factory));
         }, ct);

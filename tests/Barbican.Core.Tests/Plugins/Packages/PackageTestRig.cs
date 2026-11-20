@@ -28,7 +28,19 @@ internal sealed class PackageTestRig
     public readonly Revocation Cleanup = new();
     public readonly Sessions Accounts = new();
     public PluginPackageManager Manager() => new(new PluginPackageManagerOptions(Profile, "1.21.2"), Persistence, Cleanup, Time);
+    public PluginPackageManager LeasedManager(string profile = Profile) =>
+        new(new PluginPackageManagerOptions(profile, "1.21.2"), Persistence, Cleanup, Time, new TestLease(profile));
     public PluginScopedStorage Storage(PluginPackageManager manager, string profile = Profile) => new(profile, manager, Accounts, Data);
+
+    private sealed class TestLease(string profile) : IPluginProfileAuthorityLease
+    {
+        public string Profile { get; } = profile;
+        public string ConfigRoot => string.Empty;
+        public bool IsHeld => true;
+        public CancellationToken Lifetime => CancellationToken.None;
+        public bool TryRunWhileHeld(Func<bool> write) => write();
+        public ValueTask DisposeAsync() => ValueTask.CompletedTask;
+    }
 
     public static MemoryStream Archive(string source = "export default 1", params string[] permissions) => ArchiveForId(PluginId, source, permissions);
 
@@ -161,13 +173,25 @@ internal sealed class PackageTestRig
     internal sealed class Sessions : IPluginSessionSource
     {
         private readonly Dictionary<string, IAccountSession> _sessions = new(StringComparer.Ordinal) { ["login-a"] = new Session("login-a"), ["login-b"] = new Session("login-b") };
+        private readonly Lock _gate = new();
         private string _active = "login-a";
         private long _generation = 1;
-        public void Switch(string login) { _active = login; _generation++; }
-        public Result<PluginSessionCapture> CaptureActive() => Result<PluginSessionCapture>.Ok(new(_sessions[_active], _generation));
+        public void Switch(string login) { lock (_gate) { _active = login; _generation++; } }
+        public Result<PluginSessionCapture> CaptureActive()
+        {
+            lock (_gate) return Result<PluginSessionCapture>.Ok(new(_sessions[_active], _generation));
+        }
         public Result<PluginSessionCapture> CaptureOwner(string localAccountKey) => _sessions.TryGetValue(localAccountKey, out var session)
             ? Result<PluginSessionCapture>.Ok(new(session, null)) : Result<PluginSessionCapture>.Fail(new ValidationError("Unknown synthetic login."));
-        public bool IsCurrent(PluginSessionCapture capture) => _sessions.TryGetValue(capture.LocalAccountKey, out var session)
+        public bool IsCurrent(PluginSessionCapture capture)
+        {
+            lock (_gate) return Current(capture);
+        }
+        public bool TryRunWhileCurrent(IReadOnlyList<PluginSessionCapture> captures, Func<bool> write)
+        {
+            lock (_gate) return captures.All(Current) && write();
+        }
+        private bool Current(PluginSessionCapture capture) => _sessions.TryGetValue(capture.LocalAccountKey, out var session)
             && ReferenceEquals(session, capture.Session) && (capture.ActiveSelectionGeneration is null || capture.ActiveSelectionGeneration == _generation);
     }
 

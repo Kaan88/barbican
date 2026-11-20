@@ -176,6 +176,54 @@ public sealed class AuthenticatedPluginPackageStoreTests
         });
     }
 
+    [Fact]
+    public async Task UserSnapshotsReopenAndRejectCrossAccountFileSubstitution()
+    {
+        await WithProfileAsync(async (paths, lease, secrets) =>
+        {
+            using var store = Need(await AuthenticatedPluginPackageStore.OpenAsync(paths, lease, secrets, Ct));
+            Assert.Equal(1, Need(await store.CommitAsync(paths.Profile, "notes", "login-a", 0, new byte[] { 7, 8, 9 }, Ct)));
+            var folder = Path.Combine(paths.ConfigDir, "plugins", "packages", "user-v1");
+            var fileA = Assert.Single(Directory.GetFiles(folder, "*.data", SearchOption.AllDirectories));
+
+            using var reopened = Need(await AuthenticatedPluginPackageStore.OpenAsync(paths, lease, secrets, Ct));
+            Assert.Equal(new byte[] { 7, 8, 9 }, Need(await reopened.LoadAsync(paths.Profile, "notes", "login-a", Ct)).Index.ToArray());
+            Assert.Empty(Need(await reopened.LoadAsync(paths.Profile, "notes", "login-b", Ct)).Index);
+            Assert.Empty(Need(await reopened.LoadAsync(paths.Profile, "other", "login-a", Ct)).Index);
+            Assert.Equal(1, Need(await reopened.CommitAsync(paths.Profile, "notes", "login-b", 0, new byte[] { 3 }, Ct)));
+            var fileB = Assert.Single(Directory.GetFiles(folder, "*.data", SearchOption.AllDirectories),
+                path => !string.Equals(path, fileA, StringComparison.Ordinal));
+            File.Copy(fileA, fileB, overwrite: true);
+            Assert.False((await reopened.LoadAsync(paths.Profile, "notes", "login-b", Ct)).IsOk);
+            Assert.False((await reopened.CommitAsync(paths.Profile, "notes", "login-b", 1, new byte[] { 4 }, Ct)).IsOk);
+            Assert.True((await reopened.ClearUserStorageAsync(paths.Profile, "notes", Ct)).IsOk);
+            Assert.Empty(Need(await store.LoadAsync(paths.Profile, "notes", "login-a", Ct)).Index);
+            Assert.Empty(Need(await store.LoadAsync(paths.Profile, "notes", "login-b", Ct)).Index);
+        });
+    }
+
+    [Fact]
+    public async Task UserSnapshotCommitsShareTheRevisionFenceAcrossStoreInstances()
+    {
+        await WithProfileAsync(async (paths, lease, secrets) =>
+        {
+            using var first = Need(await AuthenticatedPluginPackageStore.OpenAsync(paths, lease, secrets, Ct));
+            using var second = Need(await AuthenticatedPluginPackageStore.OpenAsync(paths, lease, secrets, Ct));
+            Assert.Equal(1, Need(await first.CommitAsync(paths.Profile, "notes", "login-a", 0, new byte[] { 0 }, Ct)));
+
+            var operations = await Task.WhenAll(
+                first.CommitAsync(paths.Profile, "notes", "login-a", 1, new byte[] { 1 }, Ct),
+                second.CommitAsync(paths.Profile, "notes", "login-a", 1, new byte[] { 2 }, Ct));
+            Assert.Single(operations, result => result.IsOk);
+            var snapshot = Need(await second.LoadAsync(paths.Profile, "notes", "login-a", Ct));
+            Assert.Equal(2, snapshot.Revision);
+            Assert.Equal(operations[0].IsOk ? (byte)1 : (byte)2, Assert.Single(snapshot.Index));
+
+            await lease.DisposeAsync();
+            Assert.False((await first.LoadAsync(paths.Profile, "notes", "login-a", Ct)).IsOk);
+        });
+    }
+
     private sealed class TestSecrets : ISecretStore
     {
         private readonly InMemorySecretStore _inner = new();

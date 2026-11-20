@@ -6,6 +6,8 @@ using Barbican.App.Composition;
 using Barbican.Core.Accounts;
 using Barbican.Core.Common;
 using Barbican.Core.Jmap.Errors;
+using Barbican.Core.Jmap;
+using Barbican.Core.Mail;
 using Barbican.Core.Plugins.Bridge;
 using Barbican.Core.Plugins.Hooks;
 using Barbican.Core.Plugins.Packages;
@@ -19,20 +21,34 @@ using Microsoft.UI.Dispatching;
 
 namespace Barbican.App.Plugins.Sandbox;
 
-// Opt-in hidden automation only. All package data and the witness are fixed in this assembly.
+// Opt-in hidden automation only. Package data and both synthetic login sessions are fixed in this assembly.
 internal static class PluginSandboxPackageProbe
 {
     private const string ProfilePrefix = "auto-wv-";
     private const string PackageId = "synthetic-lifecycle-probe";
+    private const string ProbeHook = "onStorageProbe";
+    private const string FirstLogin = "synthetic-login-a";
+    private const string SecondLogin = "synthetic-login-b";
     private const string Manifest = """{"id":"synthetic-lifecycle-probe","name":"Synthetic lifecycle probe","version":"1.0.0","author":"Example","type":"hook","permissions":["app:lifecycle"]}""";
     private const string Code = """
         let host;
         module.exports = {
           activate(api) { host = api; },
-          hooks: { onWindowFocus: async value => {
-            if (value && typeof value === 'object' && !Array.isArray(value) && Object.keys(value).length === 0)
-              await host.storage.get('lifecycle-probe');
-          } }
+          hooks: {
+            onWindowFocus: async value => {
+              if (value && typeof value === 'object' && !Array.isArray(value) && Object.keys(value).length === 0)
+                await host.storage.set('lifecycle-probe', 'focus');
+            },
+            onStorageProbe: async action => {
+              if (action === 'write') await host.storage.set('lifecycle-probe', 'second');
+              if (action === 'remove') await host.storage.remove('lifecycle-probe');
+              const value = await host.storage.get('lifecycle-probe');
+              const keys = await host.storage.keys();
+              if (value === null && keys.length === 0) return 'empty';
+              if (keys.length === 1 && keys[0] === 'lifecycle-probe') return value;
+              return 'unexpected';
+            }
+          }
         };
         """;
 
@@ -47,9 +63,9 @@ internal static class PluginSandboxPackageProbe
             Path.Exists(paths.DataDir) || Path.Exists(paths.ConfigDir))
             return "package probe refused";
 
-        var witness = new Witness();
+        var accounts = new ProbeAccounts();
         var hooks = new HookBus(handlerTimeout: TimeSpan.FromSeconds(8));
-        var host = new PluginPackageHost(paths, new InMemorySecretStore(), TimeProvider.System, new EmptyAccounts());
+        var host = new PluginPackageHost(paths, new InMemorySecretStore(), TimeProvider.System, accounts);
         IPluginRuntimeInstance? instance = null;
         var passed = false;
         var cleaned = false;
@@ -59,7 +75,7 @@ internal static class PluginSandboxPackageProbe
         {
             var views = new PluginSandboxWindowsViewFactory(queue, () => mount, paths, options);
             var startup = new PluginSandboxWindowsStartup(bootstrapRoot!, NullLogger<PluginSandboxWindowsStartup>.Instance);
-            var factoryResult = await host.CreateSandboxFactoryAsync(views, startup, hooks, new NoSessions(), [witness], budget.Token).ConfigureAwait(false);
+            var factoryResult = await host.CreateSandboxFactoryAsync(views, startup, hooks, accounts, [], budget.Token, includeUserStorage: true).ConfigureAwait(false);
             if (!factoryResult.IsOk || factoryResult.Value is not { } factory)
                 throw new InvalidOperationException("Synthetic factory unavailable.");
 
@@ -71,8 +87,7 @@ internal static class PluginSandboxPackageProbe
                 !hooks.HasHandlers(HookNames.OnWindowFocus))
                 throw new InvalidOperationException("Synthetic activation failed.");
             await hooks.NotifyAsync(HookNames.OnWindowFocus, new EmptyPayload(), budget.Token).ConfigureAwait(false);
-            await witness.Seen.Task.WaitAsync(TimeSpan.FromSeconds(8), budget.Token).ConfigureAwait(false);
-            if (witness.Count != 1) throw new InvalidOperationException("Lifecycle witness did not match.");
+            await VerifyStorageAsync(active, accounts, budget.Token).ConfigureAwait(false);
 
             if (!(await host.SetEnabledAsync(request.Grant.Package, false, budget.Token).ConfigureAwait(false)).IsOk ||
                 active.Binding.IsAlive || hooks.HasHandlers(HookNames.OnWindowFocus))
@@ -81,15 +96,59 @@ internal static class PluginSandboxPackageProbe
             if (!(await host.SetEnabledAsync(request.Grant.Package, true, budget.Token).ConfigureAwait(false)).IsOk)
                 throw new InvalidOperationException("Synthetic re-enable failed.");
             await RequireRefusalAsync(factory, request, budget.Token).ConfigureAwait(false);
-            if (!(await host.SetEnabledAsync(request.Grant.Package, false, budget.Token).ConfigureAwait(false)).IsOk)
-                throw new InvalidOperationException("Synthetic final disable failed.");
-            passed = witness.Count == 1;
+            instance = await VerifyRestartAsync(host, factory, request, budget.Token).ConfigureAwait(false);
+            passed = true;
         }
 #pragma warning disable CA1031 // Status must never disclose paths, package content, or renderer messages.
         catch (Exception) { passed = false; }
 #pragma warning restore CA1031
         finally { cleaned = await CloseAsync(host, instance, hooks).ConfigureAwait(false); }
         return passed && cleaned ? "package probe ok" : "package probe failed";
+    }
+
+    private static async Task VerifyStorageAsync(IPluginRuntimeInstance active, ProbeAccounts accounts, CancellationToken ct)
+    {
+        await RequireStorageAsync(active, "read", "focus", ct).ConfigureAwait(false);
+        accounts.SwitchToSecond(true);
+        await RequireStorageAsync(active, "read", "empty", ct).ConfigureAwait(false);
+        await RequireStorageAsync(active, "write", "second", ct).ConfigureAwait(false);
+        accounts.SwitchToSecond(false);
+        await RequireStorageAsync(active, "read", "focus", ct).ConfigureAwait(false);
+        accounts.SwitchToSecond(true);
+        await RequireStorageAsync(active, "remove", "empty", ct).ConfigureAwait(false);
+        accounts.SwitchToSecond(false);
+    }
+
+    private static async Task<IPluginRuntimeInstance> VerifyRestartAsync(PluginPackageHost host, IPluginRuntimeFactory factory,
+        PluginRuntimeStart request, CancellationToken ct)
+    {
+        var current = await host.FindAsync(PackageId, ct).ConfigureAwait(false);
+        if (!current.IsOk || current.Value is not { Enabled: true, Grant: { Enabled: true } } installation)
+            throw new InvalidOperationException("Synthetic grant unavailable.");
+        var restarted = await factory.StartAsync(Request(installation, request.Profile), ct).ConfigureAwait(false);
+        if (!restarted.IsOk || restarted.Value is not { } runtime)
+            throw new InvalidOperationException("Synthetic restart failed.");
+        try
+        {
+            await RequireStorageAsync(runtime, "read", "focus", ct).ConfigureAwait(false);
+            if (!(await host.UninstallAsync(installation.Package.Identity, ct).ConfigureAwait(false)).IsOk || runtime.Binding.IsAlive)
+                throw new InvalidOperationException("Synthetic removal failed.");
+            return runtime;
+        }
+        catch
+        {
+            await runtime.DisposeAsync().ConfigureAwait(false);
+            throw;
+        }
+    }
+
+    private static async Task RequireStorageAsync(IPluginRuntimeInstance runtime, string action, string expected, CancellationToken ct)
+    {
+        var builder = new PluginValueBuilder();
+        var arguments = builder.Build(builder.Array(builder.String(action)));
+        var result = await runtime.InvokeHookAsync(ProbeHook, arguments, TimeSpan.FromSeconds(8), ct).ConfigureAwait(false);
+        if (!result.IsOk || result.Value is not { Kind: PluginValueKind.String } value || !string.Equals(value.StringValue, expected, StringComparison.Ordinal))
+            throw new InvalidOperationException("Synthetic storage did not match.");
     }
 
     private static async Task<bool> CloseAsync(PluginPackageHost host, IPluginRuntimeInstance? instance, HookBus hooks)
@@ -116,7 +175,7 @@ internal static class PluginSandboxPackageProbe
         if (!review.IsOk || review.Value is not { } preview ||
             !string.Equals(preview.Candidate.Identity.Id, PackageId, StringComparison.Ordinal))
             throw new InvalidOperationException("Synthetic inspection failed.");
-        var consent = new PluginInstallDecision(preview.ReviewId, preview.Candidate.Identity, ["app:lifecycle"], []);
+        var consent = new PluginInstallDecision(preview.ReviewId, preview.Candidate.Identity, ["app:lifecycle"], [FirstLogin, SecondLogin]);
         var installed = await host.InstallAsync(consent, ct).ConfigureAwait(false);
         if (!installed.IsOk || installed.Value is not { Enabled: false, Grant: { Enabled: false } } disabled ||
             disabled.Package.Identity != preview.Candidate.Identity)
@@ -172,34 +231,45 @@ internal static class PluginSandboxPackageProbe
         stream.Write(bytes);
     }
 
-    private sealed class EmptyAccounts : IAccountOverview
+    private sealed class ProbeAccounts : IAccountOverview, IPluginSessionSource
     {
-        public IReadOnlyList<AccountStatus> Statuses => [];
+        private readonly Lock _gate = new();
+        private readonly ProbeSession _first = new(FirstLogin);
+        private readonly ProbeSession _second = new(SecondLogin);
+        private long _generation = 1;
+        private bool _useSecond;
+
+        public IReadOnlyList<AccountStatus> Statuses =>
+            [new(_first.Account, false, true, true, null, null), new(_second.Account, false, false, true, null, null)];
         public event EventHandler? StatusesChanged { add { } remove { } }
-    }
-
-    private sealed class NoSessions : IPluginSessionSource
-    {
-        public Result<PluginSessionCapture> CaptureActive() => Result<PluginSessionCapture>.Fail(new ValidationError("No synthetic account."));
-        public Result<PluginSessionCapture> CaptureOwner(string localAccountKey) => Result<PluginSessionCapture>.Fail(new ValidationError("No synthetic account."));
-        public bool IsCurrent(PluginSessionCapture capture) => false;
-    }
-
-    private sealed class Witness : IPluginApiMethod
-    {
-        private int _count;
-        public TaskCompletionSource Seen { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
-        public int Count => Volatile.Read(ref _count);
-        public PluginApiDescriptor Descriptor { get; } = new("storage.get", [], TimeSpan.FromSeconds(5));
-        public PluginErrorCode? ValidateArguments(PluginValue args) => args.Kind == PluginValueKind.Array && args.Count == 1 &&
-            args.Item(0).Kind == PluginValueKind.String && string.Equals(args.Item(0).StringValue, "lifecycle-probe", StringComparison.Ordinal)
-                ? null : PluginErrorCode.InvalidArguments;
-        public Task<PluginCallOutcome> InvokeAsync(IPluginInvocationContext context, PluginValue args, CancellationToken ct)
+        public void SwitchToSecond(bool useSecond)
         {
-            Interlocked.Increment(ref _count);
-            Seen.TrySetResult();
-            return Task.FromResult(PluginCallOutcome.Succeeded());
+            lock (_gate) { _useSecond = useSecond; _generation++; }
         }
+        public Result<PluginSessionCapture> CaptureActive()
+        {
+            lock (_gate) return Result<PluginSessionCapture>.Ok(new(_useSecond ? _second : _first, _generation));
+        }
+        public Result<PluginSessionCapture> CaptureOwner(string localAccountKey) =>
+            Result<PluginSessionCapture>.Fail(new ValidationError("No explicit login is used by this probe."));
+        public bool IsCurrent(PluginSessionCapture capture)
+        {
+            lock (_gate) return Current(capture);
+        }
+        public bool TryRunWhileCurrent(IReadOnlyList<PluginSessionCapture> captures, Func<bool> write)
+        {
+            lock (_gate) return captures.All(Current) && write();
+        }
+        private bool Current(PluginSessionCapture capture) =>
+            capture.ActiveSelectionGeneration == _generation && ReferenceEquals(capture.Session, _useSecond ? _second : _first);
+    }
+
+    private sealed class ProbeSession(string key) : IAccountSession
+    {
+        public AccountInfo Account { get; } = new(key, "example", "https://jmap.example.org");
+        public IJmapClient Client => throw new NotSupportedException();
+        public IMailService Mail => throw new NotSupportedException();
+        public IMailSync Sync => throw new NotSupportedException();
     }
 }
 #endif

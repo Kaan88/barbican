@@ -102,7 +102,7 @@ public sealed partial class AuthenticatedPluginPackageStore
         }
         return output.ToArray();
     }
-    private static void AtomicWrite(string path, byte[] content)
+    private static void AtomicWrite(string path, byte[] content, Action<string>? publish = null)
     {
         var directory = Path.GetDirectoryName(path)!;
         var temp = Path.Combine(directory, "." + Guid.NewGuid().ToString("N", CultureInfo.InvariantCulture) + ".tmp");
@@ -113,7 +113,8 @@ public sealed partial class AuthenticatedPluginPackageStore
                 output.Write(content);
                 output.Flush(flushToDisk: true);
             }
-            File.Move(temp, path, overwrite: true);
+            if (publish is null) File.Move(temp, path, overwrite: true);
+            else publish(temp);
         }
         finally { if (File.Exists(temp)) File.Delete(temp); }
     }

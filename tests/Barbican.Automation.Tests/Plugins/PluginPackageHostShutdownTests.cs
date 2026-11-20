@@ -15,12 +15,55 @@ using Barbican.Core.Plugins.Protocol;
 using Barbican.Core.Plugins.Runtime;
 using Barbican.Core.Storage;
 using Barbican.Platform;
+using Barbican.Platform.Plugins;
 using Microsoft.Extensions.Logging.Abstractions;
 
 namespace Barbican.Automation.Tests.Plugins;
 
 public sealed class PluginPackageHostShutdownTests
 {
+    [Fact]
+    public async Task RemovalCanBeRetriedAfterDataErasureFailsAndTheHostReopens()
+    {
+        var root = Directory.CreateTempSubdirectory("barbican-host-test-");
+        var paths = ProfilePaths.At("fixture-erase-retry", root.FullName, root.FullName);
+        var secrets = new InMemorySecretStore();
+        var ct = TestContext.Current.CancellationToken;
+        try
+        {
+            var opened = await new PluginProfileAuthorityLeaseFactory().AcquireAsync(paths, ct);
+            Assert.True(opened.IsOk);
+            await using (var lease = opened.Value!)
+            {
+                var stored = await AuthenticatedPluginPackageStore.OpenAsync(paths, lease, secrets, ct);
+                Assert.True(stored.IsOk);
+                using var store = stored.Value!;
+                Assert.True((await store.CommitAsync(paths.Profile, "fixture-plugin", "synthetic-login", 0, new byte[] { 1 }, ct)).IsOk);
+            }
+            var dataRoot = Path.Combine(root.FullName, "plugins", "packages", "user-v1");
+            var scoped = Assert.Single(Directory.GetDirectories(dataRoot));
+            var blocker = Path.Combine(scoped, "unexpected.txt");
+            await File.WriteAllTextAsync(blocker, "synthetic", ct);
+
+            var host = new PluginPackageHost(paths, secrets, TimeProvider.System, new Accounts());
+            PluginPackageIdentity package;
+            await using (host)
+            {
+                package = (await InstallEnabledAsync(host, ct)).Package.Identity;
+                Assert.False((await host.UninstallAsync(package, ct)).IsOk);
+                Assert.False((await host.FindAsync(package.Id, ct)).Value!.Enabled);
+                Assert.Single(Directory.GetFiles(scoped, "*.data"));
+            }
+
+            File.Delete(blocker);
+            await using var reopened = new PluginPackageHost(paths, secrets, TimeProvider.System, new Accounts());
+            Assert.True((await reopened.UninstallAsync(package, ct)).IsOk);
+            Assert.Empty((await reopened.ListAsync(ct)).Value!);
+            Assert.False(Directory.Exists(scoped));
+        }
+        finally { root.Delete(recursive: true); }
+    }
+
     [Fact]
     public async Task Disable_and_window_drain_handle_a_restore_blocked_before_runtime_tracking()
     {

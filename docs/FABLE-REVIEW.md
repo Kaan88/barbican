@@ -2341,3 +2341,34 @@ and final portable verification remain open.
 The catalogue checker now reads the existing conversation loading label
 as UTF-8. It reports no duplicate or dangling IDs and still reports 12
 M6b Red cases, eight for packages and four for runtime.
+
+## Codex / Astra review of Windows add-on owned calls and scoped storage (2026-11-20)
+
+The runtime registry rejects reuse of retired callback, reply and stream
+identities. Externally supplied identities have bounded histories. Native
+hook requests use owner-specific monotonic identities and keep a single
+high-water mark, including after a reply is consumed. Hook replies now
+use this registry in the Windows transport. Slot callback and stream
+routing still need production consumers.
+
+The scoped storage service uses the current grant and a captured login.
+It serializes writes within a namespace, applies the reference UTF-16
+quota to the projected JSON, and reserves capacity for the native response.
+Durable snapshots are encrypted, use opaque scope names and authenticate
+the revision and scope. A blocked erase leaves the add-on disabled and
+available for removal retry, including after the package host reopens.
+Same-namespace rollback by a locally privileged process is outside the
+user-data integrity claim.
+
+Astra approved both scopes after fixes. A hidden Windows package probe used
+the production dispatcher and encrypted store with two fixed synthetic
+sessions and in-memory secrets. It exercised all four JavaScript storage
+calls, isolation across switches, retained data across a fresh runtime
+grant, and removal. Storage activation remains limited to this probe
+pending durable erasure for individual and full sign-out in the app.
+Windows Automation passed 3,348 tests with four skips. The private Settings
+walkthrough also passed install, enable, disable, cancel removal and
+confirmed removal on this source. Number formatting was checked against
+representative JavaScript boundary values.
+The specification checker still reports two M6b Red cases for native
+package consent and inert discovery.

@@ -1,4 +1,4 @@
-// RED acceptance for the real PluginScopedStorage and PluginPackageManager; Bulwark host-api.ts:407-447 and M6b account-routing.
+// Acceptance for the real PluginScopedStorage and PluginPackageManager; Bulwark host-api.ts:407-447 and M6b account-routing.
 using Barbican.Core.Plugins.Bridge;
 using Barbican.Core.Plugins.Packages;
 using Barbican.Core.Plugins.Protocol;
@@ -12,7 +12,6 @@ public sealed class PluginScopedStorageAcceptanceTests
     private static CancellationToken Ct => TestContext.Current.CancellationToken;
 
     [Fact]
-    [Red("m6b-packages")]
     public async Task StorageIsIsolatedByProfilePluginAndCapturedLogin()
     {
         var rig = new PackageTestRig();
@@ -28,7 +27,7 @@ public sealed class PluginScopedStorageAcceptanceTests
         var separateGrant = PluginPackageManagerAcceptanceTests.Need(await manager.GetCurrentAsync("other-plugin", Ct))!;
         await using var separateBinding = PluginRuntimeBinding.Create(PackageTestRig.Profile, separateGrant, PluginFrameKind.Background);
         Assert.Null(PluginPackageManagerAcceptanceTests.Need(await storage.GetAsync(separateBinding, a, "note", Ct)));
-        var otherManager = new PluginPackageManager(new PluginPackageManagerOptions("agent-other", "1.21.2"), rig.Persistence, rig.Cleanup, rig.Time);
+        using var otherManager = rig.LeasedManager("agent-other");
         using var archive = PackageTestRig.Archive("export default 1", "email:read");
         var preview = PluginPackageManagerAcceptanceTests.Need(await otherManager.InspectAsync(archive, PluginPackageSource.LocalImport, Ct));
         var installed = PluginPackageManagerAcceptanceTests.Need(await otherManager.InstallAsync(PluginPackageManagerAcceptanceTests.Decision(preview, ["email:read"], ["login-a"]), Ct));
@@ -40,7 +39,6 @@ public sealed class PluginScopedStorageAcceptanceTests
     }
 
     [Fact]
-    [Red("m6b-packages")]
     public async Task ConsentedUpdateRetainsStableDataButRejectsOldGeneration()
     {
         var rig = new PackageTestRig();
@@ -58,7 +56,6 @@ public sealed class PluginScopedStorageAcceptanceTests
     }
 
     [Fact]
-    [Red("m6b-packages")]
     public async Task ActiveLoginSwitchDuringStorageReadRefusesStaleCapturedResult()
     {
         var rig = new PackageTestRig();
@@ -75,7 +72,6 @@ public sealed class PluginScopedStorageAcceptanceTests
     }
 
     [Fact]
-    [Red("m6b-packages")]
     public async Task StorageUsesJsonStringifyRatherThanStructuredCloneEncoding()
     {
         var rig = new PackageTestRig();
@@ -96,7 +92,99 @@ public sealed class PluginScopedStorageAcceptanceTests
     }
 
     [Fact]
-    [Red("m6b-packages")]
+    public async Task ActiveLoginSwitchBeforeIssuanceCannotChangeStoredData()
+    {
+        var rig = new PackageTestRig();
+        var (manager, storage, binding, owner) = await StartAsync(rig);
+        using (manager)
+        await using (binding)
+        {
+            var capture = PluginPackageManagerAcceptanceTests.Need(rig.Accounts.CaptureActive());
+            rig.Data.LoadEntered = new(TaskCreationOptions.RunContinuationsAsynchronously);
+            rig.Data.ReleaseLoad = new(TaskCreationOptions.RunContinuationsAsynchronously);
+            rig.Data.CommitEntered = new(TaskCreationOptions.RunContinuationsAsynchronously);
+            var pending = storage.SetAsync(binding, capture, "note", PackageTestRig.StringValue("stale"), Ct);
+            await rig.Data.LoadEntered.Task.WaitAsync(TimeSpan.FromSeconds(5), Ct);
+            rig.Accounts.Switch("login-b");
+            rig.Accounts.Switch("login-a");
+            rig.Data.ReleaseLoad.TrySetResult();
+            Assert.False((await pending).IsOk);
+            Assert.False(rig.Data.CommitEntered.Task.IsCompleted);
+            Assert.Null(PluginPackageManagerAcceptanceTests.Need(await storage.GetAsync(binding, owner, "note", Ct)));
+        }
+    }
+
+    [Fact]
+    public async Task ACommitAlreadyIssuedStaysInTheOriginalLoginAndItsStaleResultIsRefused()
+    {
+        var rig = new PackageTestRig();
+        var (manager, storage, binding, owner) = await StartAsync(rig);
+        using (manager)
+        await using (binding)
+        {
+            var capture = PluginPackageManagerAcceptanceTests.Need(rig.Accounts.CaptureActive());
+            rig.Data.CommitEntered = new(TaskCreationOptions.RunContinuationsAsynchronously);
+            rig.Data.ReleaseCommit = new(TaskCreationOptions.RunContinuationsAsynchronously);
+            var pending = storage.SetAsync(binding, capture, "note", PackageTestRig.StringValue("remember"), Ct);
+            await rig.Data.CommitEntered.Task.WaitAsync(TimeSpan.FromSeconds(5), Ct);
+            rig.Accounts.Switch("login-b");
+            rig.Data.ReleaseCommit.TrySetResult();
+            Assert.False((await pending).IsOk);
+            var active = PluginPackageManagerAcceptanceTests.Need(rig.Accounts.CaptureActive());
+            Assert.Null(PluginPackageManagerAcceptanceTests.Need(await storage.GetAsync(binding, active, "note", Ct)));
+            Assert.Equal("remember", PluginPackageManagerAcceptanceTests.Need(await storage.GetAsync(binding, owner, "note", Ct))!.StringValue);
+        }
+    }
+
+    [Fact]
+    public async Task ConcurrentWritesKeepBothKeysInOneNamespace()
+    {
+        var rig = new PackageTestRig();
+        var (manager, storage, binding, capture) = await StartAsync(rig);
+        using (manager)
+        await using (binding)
+        {
+            rig.Data.LoadEntered = new(TaskCreationOptions.RunContinuationsAsynchronously);
+            rig.Data.ReleaseLoad = new(TaskCreationOptions.RunContinuationsAsynchronously);
+            var first = storage.SetAsync(binding, capture, "first", PackageTestRig.StringValue("1"), Ct);
+            await rig.Data.LoadEntered.Task.WaitAsync(TimeSpan.FromSeconds(5), Ct);
+            var otherAdapter = rig.Storage(manager);
+            var second = otherAdapter.SetAsync(binding, capture, "second", PackageTestRig.StringValue("2"), Ct);
+            rig.Data.ReleaseLoad.TrySetResult();
+            Assert.All(await Task.WhenAll(first, second), result => Assert.True(result.IsOk));
+            Assert.Collection(PluginPackageManagerAcceptanceTests.Need(await storage.KeysAsync(binding, capture, Ct)),
+                key => Assert.Equal("first", key), key => Assert.Equal("second", key));
+        }
+    }
+
+    [Fact]
+    public void MaximallySizedStorageResultFitsItsNativeResponseEnvelope()
+    {
+        var limits = PluginStorageSnapshot.ValueLimits;
+        var value = new PluginValueBuilder();
+        var keys = value.Array([.. Enumerable.Range(0, limits.MaxNodes - 1).Select(_ => value.String("sample"))]);
+        var response = new PluginValueBuilder();
+        var result = response.Import(value.Build(keys, limits));
+        var wire = response.Build(response.Object(("type", response.String("api-response")), ("id", response.String("sample-response")),
+            ("ok", response.Boolean(true)), ("result", result)));
+        Assert.NotEmpty(PluginValueCodec.Encode(wire));
+    }
+
+    [Theory]
+    [InlineData(1e-6, "0.000001")]
+    [InlineData(1e-7, "1e-7")]
+    [InlineData(1e20, "100000000000000000000")]
+    [InlineData(1e21, "1e+21")]
+    [InlineData(1e23, "1e+23")]
+    [InlineData(double.Epsilon, "5e-324")]
+    [InlineData(1000000000000000128d, "1000000000000000100")]
+    public void JsonStringifyNumberUsesTheJavaScriptSpelling(double number, string text)
+    {
+        var builder = new PluginValueBuilder();
+        Assert.Equal(text, PluginStorageJson.Stringify(builder.Build(builder.Number(number)), 100));
+    }
+
+    [Fact]
     public async Task StorageRejectsCyclesAndTopLevelUndefinedWithoutChangingPreviousValue()
     {
         var rig = new PackageTestRig();
@@ -113,7 +201,6 @@ public sealed class PluginScopedStorageAcceptanceTests
     }
 
     [Fact]
-    [Red("m6b-packages")]
     public async Task StorageEnforcesUtf16QuotaIncludingKeysBeforeMutation()
     {
         var rig = new PackageTestRig();
@@ -130,7 +217,7 @@ public sealed class PluginScopedStorageAcceptanceTests
 
     private static async Task<(PluginPackageManager Manager, PluginScopedStorage Storage, PluginRuntimeBinding Binding, PluginSessionCapture Capture)> StartAsync(PackageTestRig rig)
     {
-        var manager = rig.Manager();
+        var manager = rig.LeasedManager();
         using var archive = PackageTestRig.Archive("export default 1", "email:read");
         var preview = PluginPackageManagerAcceptanceTests.Need(await manager.InspectAsync(archive, PluginPackageSource.LocalImport, Ct));
         var installed = PluginPackageManagerAcceptanceTests.Need(await manager.InstallAsync(PluginPackageManagerAcceptanceTests.Decision(preview, ["email:read"], ["login-a", "login-b"]), Ct));
