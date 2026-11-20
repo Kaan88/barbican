@@ -38,11 +38,11 @@
           <TextBlock Visibility="{x:Bind Look.LegacyMarkVisibility, Mode=OneWay}" Text="Select a message to read it" FontSize="13" Foreground="{StaticResource Faint}" HorizontalAlignment="Center" />
         </StackPanel>
 
-        <Grid x:Name="ContentGrid" SizeChanged="OnContentSizeChanged" Padding="{x:Bind Look.ReaderPadding, Mode=OneWay}" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto,*,Auto,Auto"
+        <Grid x:Name="ContentGrid" SizeChanged="OnContentSizeChanged" Padding="{x:Bind Look.ReaderPadding, Mode=OneWay}" RowSpacing="{x:Bind Look.ReaderSpacing, Mode=OneWay}" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto,*,Auto,Auto"
               Visibility="{x:Bind views:Fmt.VisBody(Reader.BodyState, 'content'), Mode=OneWay}">
            <!-- Bulwark order: actions, subject, collapsed conversation headers, and the open message. -->
           <!-- actions: Reply, Reply all, Forward, Archive and Delete run their commands on the open message; More opens MENU-READER. Bento: icon + label (Reply all, Delete, More icon-only); Nordic: text only. -->
-           <Border x:Name="ToolbarBand" Grid.Row="0" Margin="{x:Bind Look.ReaderBandMargin, Mode=OneWay}" BorderThickness="{x:Bind Look.ReaderBandRule, Mode=OneWay}" BorderBrush="{StaticResource Line}">
+           <Border Grid.Row="0" Margin="{x:Bind Look.ReaderBandMargin, Mode=OneWay}" Padding="{x:Bind Look.ReaderBandPadding, Mode=OneWay}" BorderThickness="{x:Bind Look.ReaderBandRule, Mode=OneWay}" BorderBrush="{StaticResource Line}">
            <controls:WrapRow x:Name="MessageToolbar" Spacing="4" AutomationProperties.AutomationId="reader.toolbar" AutomationProperties.Name="Message actions">
             <Button x:Name="ReaderBack" Visibility="Collapsed" Width="40" Height="40" Padding="0"
                     Style="{StaticResource Button.Icon}" Click="OnBackClick" motion:Tip.Text="Back to messages"
@@ -71,7 +71,7 @@
              </Button>
               <StackPanel x:Name="ExtraActions" Orientation="Horizontal" Spacing="2" Visibility="Collapsed" />
               <!-- Bulwark 1.21.2 email-viewer.tsx:5128-5142: ghost button with Maximize2 / Minimize2. -->
-              <Button x:Name="ReaderFullscreenButton" Style="{StaticResource Button.Icon}" Click="OnFullscreenClick"
+              <Button x:Name="ReaderFullscreenButton" Style="{StaticResource Button.Icon}" Visibility="{x:Bind views:Fmt.Vis(Look.IsBulwark), Mode=OneWay}" Click="OnFullscreenClick"
                             Width="32" Height="32" MinWidth="{x:Bind Look.MinimumTarget, Mode=OneWay}" MinHeight="{x:Bind Look.MinimumTarget, Mode=OneWay}"
                             CornerRadius="6" Padding="0" AutomationProperties.AutomationId="reader.fullscreen"
                             AutomationProperties.Name="Fullscreen" motion:Tip.Text="Fullscreen">
@@ -92,7 +92,7 @@
           </Border>
 
           <!-- header: the subject and the sender line rise a few pixels when another message opens (Motion/Rise; the prototype's header transition) -->
-           <Border x:Name="SubjectBand" Grid.Row="1" Margin="{x:Bind Look.ReaderBandMargin, Mode=OneWay}" BorderThickness="{x:Bind Look.ReaderBandRule, Mode=OneWay}" BorderBrush="{StaticResource Line}">
+           <Border Grid.Row="1" Margin="{x:Bind Look.ReaderBandMargin, Mode=OneWay}" Padding="{x:Bind Look.ReaderBandPadding, Mode=OneWay}" BorderThickness="{x:Bind Look.ReaderBandRule, Mode=OneWay}" BorderBrush="{StaticResource Line}">
            <StackPanel>
           <TextBlock x:Name="SubjectText" Text="{x:Bind Reader.Header.Subject, Mode=OneWay}" FontSize="{x:Bind Look.ReaderSubjectSize, Mode=OneWay}"
                      FontWeight="{x:Bind Look.ReaderSubjectWeight, Mode=OneWay}" CharacterSpacing="{x:Bind Look.ReaderSubjectSpacing, Mode=OneWay}" LineHeight="{x:Bind Look.ReaderSubjectLineHeight, Mode=OneWay}"
@@ -125,7 +125,7 @@
           </ItemsRepeater>
           </StackPanel>
           </Border>
-           <Border x:Name="SenderBand" Grid.Row="3" Margin="{x:Bind Look.ReaderBandMargin, Mode=OneWay}" BorderThickness="{x:Bind Look.ReaderBandRule, Mode=OneWay}" BorderBrush="{StaticResource Line}">
+           <Border Grid.Row="3" Margin="{x:Bind Look.ReaderBandMargin, Mode=OneWay}" Padding="{x:Bind Look.ReaderBandPadding, Mode=OneWay}" BorderThickness="{x:Bind Look.ReaderBandRule, Mode=OneWay}" BorderBrush="{StaticResource Line}">
            <Grid x:Name="SenderLine" ColumnDefinitions="Auto,*,Auto,Auto,Auto" RowDefinitions="Auto,Auto" ColumnSpacing="8" SizeChanged="OnSenderLineSizeChanged" AutomationProperties.AutomationId="reader.header" AutomationProperties.Name="Message header">
             <Grid.RenderTransform>
               <TranslateTransform x:Name="SenderShift" />
@@ -203,7 +203,7 @@
           </Border>
 
            <!-- Independently expandable conversation messages, before the selected message. -->
-           <Border x:Name="ThreadBand" Grid.Row="2" Visibility="{x:Bind views:Fmt.VisCount(Reader.ConversationHeaders.Count), Mode=OneWay}"
+           <Border Grid.Row="2" Visibility="{x:Bind views:Fmt.VisCount(Reader.ConversationHeaders.Count), Mode=OneWay}"
                    AutomationProperties.AutomationId="reader.conversation" AutomationProperties.Name="Conversation">
                <ScrollViewer x:Name="ConversationScroll" MaxHeight="204" VerticalScrollBarVisibility="Auto" VerticalScrollMode="Auto" HorizontalScrollMode="Disabled">
                  <ItemsRepeater ItemsSource="{x:Bind Reader.ConversationHeaders}">
