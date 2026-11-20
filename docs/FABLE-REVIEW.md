@@ -3002,3 +3002,26 @@ The private Windows sample later verified managed and ordinary startup,
 managed Disable and account loss, a composer action contribution, and
 the signed takeover with one in-scope submission. The fixture refused
 an out-of-scope recipient and kept the draft. [Walkthrough](milestones/M6b-solo-parity.md#managed-add-on-activation-and-takeover)
+
+## Codex / Astra Windows checkpoint at 3791df4
+
+GPT-6.2 Astra on High explicitly approved revision
+`3791df4143ad616727721464a032779c5bce2e40` as a Windows checkpoint.
+Astra inspected the source, the light and dark comparisons, compact footer,
+Discard confirmation, managed Running and revoked states, and the denied
+draft. It reviewed the keyboard and send transcripts, the after-ready
+refusal probe, and the Windows build and extraction logs. The three
+earlier authority findings stayed closed. Astra reported no new blocking
+regression in this checkpoint.
+
+Windows Automation passed 3,623 tests with four skips. Release built
+with zero warnings and errors. The strict M6b catalogue and generated
+hook checks passed. The extracted portable reported the candidate
+revision and reached shell-ready in 933.1 ms before exiting with code 0.
+[Candidate evidence](milestones/M6b-solo-parity.md#windows-checkpoint-at-3791df4)
+
+M6b remains open. The unchanged proofreading fixture reached Enabled ·
+Stopped because `composer.registerChecker` lacks a native adapter.
+Generic dialogs, scoped mail-read results and denials, and the remaining
+production slot integrations still require implementation and executable
+evidence. [M6b API evidence and open methods](milestones/M6b-api-inventory.md#windows-execution-evidence-for-the-november-20-continuation)

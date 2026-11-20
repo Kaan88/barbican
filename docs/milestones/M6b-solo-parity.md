@@ -326,3 +326,38 @@ Local logs and images are in `artifacts/auto/9223/` for the API probe
 and `artifacts/auto/9213/` for the proofreading fixture. The frame
 probe results are in `artifacts/auto/9211/stdout.txt` and
 `artifacts/auto/9212/stdout.txt`.
+
+## Windows checkpoint at 3791df4
+
+The reviewed code revision is `3791df4143ad616727721464a032779c5bce2e40`.
+Windows Automation passed 3,623 tests, with zero failures and four
+skips. Three live read-only checks require opt-in and one Secret Service
+test needs a Linux session bus. The Windows Release build completed
+with zero warnings and errors. The strict M6b catalogue, generated
+hooks, and design-token checks passed.
+
+The integrated composer and quick-reply replays are in
+`artifacts/auto/9224/` and `artifacts/auto/9225/`. The light, dark,
+compact, and Discard screenshots are named `candidate-composer-*.png`
+and `candidate-discard-confirmation.png`. The matched baseline images
+are in `artifacts/auto/9191/`. Quick reply's submission counts were
+0 after the unfocused press, 0 after the empty focused press, 1 after the
+populated focused press, and 1 after another press once focus had left.
+
+The integrated private Settings and signed-send run is in
+`artifacts/auto/9227/`. It also invoked the managed composer header
+action and observed a toast attributed to the add-on. The durable
+disabled state after a package-manager restart is covered by
+`ManagedPluginInstallationTests`. The hidden Automation app uses
+process-local package stores and secrets.
+
+The Windows x64 ZIP is `Barbican-3791df4143ad-win-x64.zip` under
+`artifacts/portable/`. It is 151,747,099 bytes and contains eight
+verified runtime assets and nine notices. Its SHA-256 is
+`A642DF9D161C79878983E37FAC6B2E90454D3694331730506A898108DF181819`.
+The extracted Release assembly reported the candidate revision.
+The isolated smoke run reached shell-ready in 933.1 ms and exited 0.
+The report is `artifacts/auto/9226/smoke.json`.
+
+Astra approved the checkpoint. The M6b acceptance gate remains open.
+[Review decision](../FABLE-REVIEW.md#codex--astra-windows-checkpoint-at-3791df4)

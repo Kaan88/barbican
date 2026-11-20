@@ -2,7 +2,7 @@
 
 **Start in the C# milestone checkout.** The active branch is `codex/m6b-bulwark-ui`, in `<downloads>/wt-m6b-bulwark-ui`. A chat opened in `webmail-main/desktop` starts in the retired Rust reference. The older coordinator checkout at `<downloads>/barbican` holds unrelated local test deletions. Preserve them.
 
-Read [CLAUDE.md](../CLAUDE.md), then the [current M6b work list](milestones/M6b-plan.md#current-work). Use `git status --short --branch` in the milestone worktree before resuming. The implementation was paused during managed activation on November 20. The local technical handoff, when present, is `docs/milestones/M6b-managed-activation-handoff.md`. It identifies the uncommitted files and their dependencies. The branch work list can also be used from a fresh clone. The Windows preview and UI evidence are in the [verification history](milestones/M6b-solo-parity.md#windows-portable-preview-at-4c46940).
+Read [CLAUDE.md](../CLAUDE.md), then the [current M6b work list](milestones/M6b-plan.md#current-work). Use `git status --short --branch` in the milestone worktree before resuming. The Windows checkpoint at `3791df4` includes the managed activation work and the composer footer. The verification history records the [reviewed revision, portable and interaction evidence](milestones/M6b-solo-parity.md#windows-checkpoint-at-3791df4). The current work list records the compatibility gates that remain open. The local managed activation handoff, when present, describes the earlier pause.
 
 ## Working in this checkout
 
