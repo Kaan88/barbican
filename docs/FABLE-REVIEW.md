@@ -2239,3 +2239,16 @@ Two independent checks located the icon chunk's one distinct privacy
 pattern match in the locked public dependency source. The generated chunk
 and runtime notices remain in local staging. The repository privacy
 scanner and artifact distribution policy remain in force.
+
+## Codex / Astra review of shared Windows package authority (2026-11-20)
+
+The app package host now builds the sandbox factory with the same leased
+manager and revocation coordinator used for installed-package changes.
+The factory attaches the five safe lifecycle observers only for its own
+activated binding and gives their cleanup to the tracked startup lifetime.
+
+Astra approved the shared authority and observer ownership. The Windows
+Automation suite passed 3,315 tests with four skips and zero failures.
+The focused case verifies allowed lifecycle delivery, exclusion of a mail
+hook and observer detachment after revocation. Live Windows package
+activation and production composition remain pending.

@@ -8,6 +8,7 @@ internal sealed class PluginSandboxStartupLifetime(PluginSandboxSession session)
     private readonly Lock _gate = new();
     private IDisposable? _registration;
     private IPluginRuntimeInstance? _instance;
+    private IDisposable? _observers;
     private TaskCompletionSource? _activation;
     private TaskCompletionSource? _closeAttempt;
     private bool _closing;
@@ -38,11 +39,12 @@ internal sealed class PluginSandboxStartupLifetime(PluginSandboxSession session)
         }
     }
 
-    public bool FinishActivation(IPluginRuntimeInstance? instance)
+    public bool FinishActivation(IPluginRuntimeInstance? instance, IDisposable? observers)
     {
         lock (_gate)
         {
             _instance = instance;
+            _observers = observers;
             _activation!.SetResult();
             return !_closing && instance is not null && session.Binding.IsAlive
                 && ReferenceEquals(session.Binding, instance.Binding);
@@ -107,6 +109,8 @@ internal sealed class PluginSandboxStartupLifetime(PluginSandboxSession session)
         {
             // Closing the session cancels activation. Wait for it to hand back any late instance.
             await activationFinished.ConfigureAwait(false);
+            _observers?.Dispose();
+            _observers = null;
             if (_instance is { } instance)
             {
                 await instance.DisposeAsync().ConfigureAwait(false);

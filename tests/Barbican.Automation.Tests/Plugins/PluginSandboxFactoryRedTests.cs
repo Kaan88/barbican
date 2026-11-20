@@ -3,7 +3,9 @@ using System.Text.Json;
 using Barbican.App.Plugins.Sandbox;
 using Barbican.Core.Common;
 using Barbican.Core.Plugins.Bridge;
+using Barbican.Core.Plugins.Hooks;
 using Barbican.Core.Plugins.Packages;
+using Barbican.Core.Plugins.Payloads;
 using Barbican.Core.Plugins.Permissions;
 using Barbican.Core.Plugins.Protocol;
 using Barbican.Core.Plugins.Runtime;
@@ -31,12 +33,15 @@ public sealed class PluginSandboxFactoryRedTests
                 new MemoryStream(System.Text.Encoding.UTF8.GetBytes("export default {}"))));
         }
     }
-    private sealed class Authority(PluginGrantSnapshot? current) : IPluginAuthority
+    private sealed class Authority(PluginGrantSnapshot? current) : IPluginDeliveryAuthority
     {
         public int Reads { get; private set; }
         public PluginGrantSnapshot? Current { get; set; } = current;
         public event EventHandler<PluginAuthorityChangedEventArgs>? Changed { add { } remove { } }
         public Task<Result<PluginGrantSnapshot?>> GetCurrentAsync(string pluginId, CancellationToken ct) { Reads++; return Task.FromResult(Result<PluginGrantSnapshot?>.Ok(Current)); }
+        public Task<bool> TryPostAsync(PluginRuntimeBinding binding, Func<PluginGrantSnapshot, bool> write, CancellationToken ct) =>
+            Task.FromResult(!ct.IsCancellationRequested && binding.IsAlive && Current is { Enabled: true } grant &&
+                grant.Package == binding.Package && grant.Generation == binding.GrantGeneration && grant.Tier == binding.Tier && write(grant));
     }
     private sealed class Dispatcher : IPluginApiDispatcher
     {
@@ -66,7 +71,8 @@ public sealed class PluginSandboxFactoryRedTests
             return Result<IPluginRuntimeInstance>.Fail(new Barbican.Core.Jmap.Errors.ValidationError("Synthetic activation failure."));
         }
     }
-    private sealed class SuccessfulStartup(Func<PluginSandboxSession, PluginRuntimeStart, Task>? beforeActivation = null, bool failFirstDisposal = false) : IPluginSandboxStartup
+    private sealed class SuccessfulStartup(Func<PluginSandboxSession, PluginRuntimeStart, Task>? beforeActivation = null,
+        bool failFirstDisposal = false, string[]? hooks = null) : IPluginSandboxStartup
     {
         public ActivatedInstance? Instance { get; private set; }
 
@@ -76,7 +82,11 @@ public sealed class PluginSandboxFactoryRedTests
             await session.View.NavigateAsync(session.View.TrustedRoot, ct);
             Assert.Equal("export default {}", verifiedCode, StringComparer.Ordinal);
             if (beforeActivation is not null) await beforeActivation(session, trustedRequest);
-            Instance = new ActivatedInstance(session.Binding) { FailFirstDisposal = failFirstDisposal };
+            Instance = new ActivatedInstance(session.Binding)
+            {
+                FailFirstDisposal = failFirstDisposal,
+                Activation = new([.. hooks ?? []], [], []),
+            };
             return Result<IPluginRuntimeInstance>.Ok(Instance);
         }
     }
@@ -84,12 +94,16 @@ public sealed class PluginSandboxFactoryRedTests
     private sealed class ActivatedInstance(PluginRuntimeBinding binding) : IPluginRuntimeInstance
     {
         public PluginRuntimeBinding Binding { get; } = binding;
-        public PluginActivation Activation { get; } = new([], [], []);
+        public PluginActivation Activation { get; init; } = new([], [], []);
+        public List<string> InvocationNames { get; } = [];
         public int Disposals { get; private set; }
         public bool FailFirstDisposal { get; init; }
 
-        public Task<Result<PluginValue>> InvokeHookAsync(string hookName, PluginValue arguments, TimeSpan budget, CancellationToken ct) =>
-            throw new NotSupportedException();
+        public Task<Result<PluginValue>> InvokeHookAsync(string hookName, PluginValue arguments, TimeSpan budget, CancellationToken ct)
+        {
+            InvocationNames.Add(hookName);
+            return Task.FromResult(Result<PluginValue>.Ok(arguments));
+        }
         public Task<Result<PluginValue>> InvokeCallbackAsync(string callbackId, PluginValue arguments, TimeSpan budget, CancellationToken ct) =>
             throw new NotSupportedException();
         public Task<Result<bool>> ShouldShowAsync(string slot, PluginValue context, CancellationToken ct) => throw new NotSupportedException();
@@ -118,6 +132,30 @@ public sealed class PluginSandboxFactoryRedTests
         var state = new PluginHostState("en",doc.RootElement,doc.RootElement,doc.RootElement,doc.RootElement);
         var b = new PluginValueBuilder();
         return (new PluginRuntimeStart(installation,grant,"auto-8931",PluginFrameKind.Background,null,b.Build(b.Object()),state),installation,grant);
+    }
+
+    [Fact]
+    public async Task Factory_attaches_safe_background_observers_until_its_grant_is_revoked()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var (start, installation, grant) = Input();
+        var startup = new SuccessfulStartup(hooks: [HookNames.OnWindowFocus, "onEmailOpen"]);
+        var revocation = new PluginRevocationCoordinator(start.Profile);
+        var bus = new HookBus();
+        var factory = new PluginSandboxFactory(new Packages(installation), new Authority(grant), revocation,
+            new Dispatcher(), new Views([]), startup, bus);
+
+        var result = await factory.StartAsync(start, ct);
+        Assert.True(result.IsOk);
+        await using var runtime = result.Value!;
+        Assert.True(bus.HasHandlers(HookNames.OnWindowFocus));
+        Assert.False(bus.HasHandlers("onEmailOpen"));
+        await bus.NotifyAsync(HookNames.OnWindowFocus, new EmptyPayload(), ct);
+        Assert.Equal(HookNames.OnWindowFocus, Assert.Single(startup.Instance!.InvocationNames));
+
+        Assert.True((await revocation.RevokeAsync(grant.Package, grant.Generation, ct)).IsOk);
+        Assert.False(runtime.Binding.IsAlive);
+        Assert.False(bus.HasHandlers(HookNames.OnWindowFocus));
     }
     [Fact]
     public async Task Supplied_snapshot_does_not_override_disabled_or_replaced_installed_package()

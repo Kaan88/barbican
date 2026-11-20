@@ -2,6 +2,9 @@
 using Barbican.Core.Accounts;
 using Barbican.Core.Common;
 using Barbican.Core.Jmap.Errors;
+using Barbican.App.Plugins.Sandbox;
+using Barbican.Core.Plugins.Bridge;
+using Barbican.Core.Plugins.Hooks;
 using Barbican.Core.Plugins.Packages;
 using Barbican.Core.Plugins.Persistence;
 using Barbican.Core.Plugins.Runtime;
@@ -15,6 +18,7 @@ internal sealed class PluginPackageHost(IProfilePaths paths, ISecretStore secret
 {
     private readonly SemaphoreSlim _gate = new(1, 1);
     private PluginPackageManager? _manager;
+    private PluginRevocationCoordinator? _revocation;
     private AuthenticatedPluginPackageStore? _store;
     private IPluginProfileAuthorityLease? _lease;
     private DirectoryInfo? _automationRoot;
@@ -45,6 +49,20 @@ internal sealed class PluginPackageHost(IProfilePaths paths, ISecretStore secret
             return manager.InstallAsync(decision, ct);
         }, ct);
     }
+
+    internal Task<Result<Unit>> SetEnabledAsync(PluginPackageIdentity package, bool enabled, CancellationToken ct) =>
+        WithManagerAsync(manager => manager.SetEnabledAsync(package, enabled, ct), ct);
+
+    internal Task<Result<IPluginRuntimeFactory>> CreateSandboxFactoryAsync(
+        IPluginSandboxWebViewFactory views, IPluginSandboxStartup startup, HookBus hooks,
+        IPluginSessionSource sessions, IEnumerable<IPluginApiMethod> methods, CancellationToken ct) =>
+        WithManagerAsync(manager =>
+        {
+            // Lifecycle writes and runtime calls share the same leased authority and revocation coordinator.
+            var dispatcher = new PluginApiDispatcher(paths.Profile, methods, manager, sessions, time);
+            var factory = new PluginSandboxFactory(manager, manager, _revocation!, dispatcher, views, startup, hooks);
+            return Task.FromResult(Result<IPluginRuntimeFactory>.Ok(factory));
+        }, ct);
 
     public async Task DiscardReviewAsync(string reviewId, CancellationToken ct)
     {
@@ -86,7 +104,8 @@ internal sealed class PluginPackageHost(IProfilePaths paths, ISecretStore secret
             if (!opened.IsOk) return Result<PluginPackageManager>.Fail(opened.Error!);
 
             _store = opened.Value!;
-            _manager = new PluginPackageManager(new(paths.Profile, "1.21.2"), _store, new PluginRevocationCoordinator(paths.Profile, time), time, lease);
+            _revocation = new PluginRevocationCoordinator(paths.Profile, time);
+            _manager = new PluginPackageManager(new(paths.Profile, "1.21.2"), _store, _revocation, time, lease);
             _lease = lease;
             return Result<PluginPackageManager>.Ok(_manager);
         }
