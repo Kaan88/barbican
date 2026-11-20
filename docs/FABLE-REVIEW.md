@@ -2795,3 +2795,26 @@ Windows Release built with zero warnings and errors.
 
 The connection panel reports the provider's policy. Enforcement in
 add-on printing and raw sending remains open.
+
+## Codex / Astra review of policy-controlled Windows add-on printing (2026-11-20)
+
+Windows accepts HTML or PDF through `ui.print`. HTML is sanitized and
+converted in an offline WebView before entering the PDF page renderer.
+Preparation is bounded to 30 seconds, 25 MiB of PDF data and 20 pages.
+The print path requires verified permission from every connected account.
+A watermark required by any account is applied to every prepared page
+using the active login's address and a UTC timestamp.
+
+The package lease, running frame and account policy are checked at
+dialog admission and again when supplying the source, preview or output
+pages. A print call reports success once the dialog is displayed. The
+window lease remains in place until the claimed print task ends.
+
+Astra approved the changes. The private Windows walkthrough inspected
+the prepared HTML and PDF page trees, including a contrasting watermark
+on each sample page. A second profile with verified no-print policy
+delivered zero pages. Revoking the provider after admission also
+prevented page delivery. Automation substituted a synthetic page sink
+for the native dialog. Windows Automation passed 3,519 tests with four
+skips. Windows Release built with zero warnings and errors. Physical
+printer output remains unverified.

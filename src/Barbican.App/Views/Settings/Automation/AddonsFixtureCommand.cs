@@ -3,6 +3,13 @@ using System.IO.Compression;
 using System.Security.Cryptography;
 using System.Text;
 using Barbican.App.Plugins;
+#if WINDOWS
+using Barbican.App.Shell.Automation;
+using Barbican.App.Views.Plugins;
+using Barbican.Core.Accounts;
+using Barbican.Core.OrganizationPolicy;
+using Microsoft.UI.Xaml.Automation;
+#endif
 using Barbican.App.Settings;
 using Barbican.Automation;
 using Barbican.Core.Storage;
@@ -35,7 +42,12 @@ internal sealed class AddonsFixtureCommand(IProfilePaths paths, ISettingsNavigat
             var records = await packages.ReadSampleSendFixtureAsync(recordFixture, cancellationToken).ConfigureAwait(true);
             return records.IsOk ? records.Value! : "error unavailable sample records";
         }
-        if (mode is not ("install" or "update" or "native" or "origins" or "composer-probe" or "send-policy" or "send-observer" or "toast" or "progress-toast"))
+#if WINDOWS
+        if (mode is "print-probe" && !SamplePolicyFixture.PrintEnabled(paths)) return "error print fixture is not enabled";
+#else
+        if (mode is "print-probe") return "error print fixture is unavailable";
+#endif
+        if (mode is not ("print-probe" or "install" or "update" or "native" or "origins" or "composer-probe" or "send-policy" or "send-observer" or "toast" or "progress-toast"))
             return "error unknown add-on fixture";
         if (!shell.TryActivate(AppId.Settings)) return "error Settings is unavailable";
 
@@ -106,6 +118,7 @@ internal sealed class AddonsFixtureCommand(IProfilePaths paths, ISettingsNavigat
                 "send-policy" => """{"id":"sample-send-policy","name":"Sample send policy","version":"1.0.0","author":"Example","type":"hook","permissions":["email:send"]}""",
                 "send-observer" => """{"id":"sample-send-observer","name":"Sample send observer","version":"1.0.0","author":"Example","type":"hook","permissions":["email:read"]}""",
                 "toast" => """{"id":"sample-toast","name":"Sample notification","version":"1.0.0","author":"Example","type":"hook","permissions":[]}""",
+                "print-probe" => """{"id":"sample-print-probe","name":"Sample print probe","version":"1.0.0","author":"Example","type":"hook","permissions":["ui:composer-toolbar"]}""",
                 "progress-toast" => """{"id":"sample-progress","name":"Sample progress","version":"1.0.0","author":"Example","type":"hook","permissions":["ui:composer-toolbar"]}""",
                 _ => """{"id":"fixture-addon","name":"Fixture Add-on","version":"1.0.0","author":"Example","type":"hook","permissions":["email:read"]}""",
             };
@@ -124,6 +137,7 @@ internal sealed class AddonsFixtureCommand(IProfilePaths paths, ISettingsNavigat
                 "send-observer" => completionRecorder + "\nexports.hooks = { onAfterEmailSend: afterSend };",
                 "toast" => """exports.activate = api => api.toast.warning('Synthetic\nnotification\u202E.');""",
                 "progress-toast" => ProgressFixture,
+                "print-probe" => PrintFixture,
                 "send-policy" => completionRecorder + "\n" + """
                 exports.hooks = {
                     onBeforeEmailSend(email) { if (email.subject === 'Synthetic veto') return false; },
@@ -164,6 +178,36 @@ internal sealed class AddonsFixtureCommand(IProfilePaths paths, ISettingsNavigat
         };
         """;
 
+    private const string PrintFixture = """
+        let api;
+        function pdfBytes(text) {
+            const stream = 'BT /F1 24 Tf 72 760 Td (' + text + ') Tj ET';
+            const objects = ['<< /Type /Catalog /Pages 2 0 R >>', '<< /Type /Pages /Kids [3 0 R] /Count 1 >>',
+                '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> >>',
+                '<< /Length ' + stream.length + ' >>\nstream\n' + stream + '\nendstream', '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>'];
+            let out = '%PDF-1.4\n'; const offsets = [];
+            objects.forEach((body, i) => { offsets.push(out.length); out += (i + 1) + ' 0 obj\n' + body + '\nendobj\n'; });
+            const xref = out.length; out += 'xref\n0 ' + (objects.length + 1) + '\n0000000000 65535 f \n';
+            offsets.forEach(offset => { out += ('0000000000' + offset).slice(-10) + ' 00000 n \n'; });
+            out += 'trailer\n<< /Size ' + (objects.length + 1) + ' /Root 1 0 R >>\nstartxref\n' + xref + '\n%%EOF\n';
+            const bytes = new Uint8Array(out.length); for (let i = 0; i < out.length; i++) bytes[i] = out.charCodeAt(i);
+            return bytes;
+        }
+        exports.activate = async host => {
+            api = host;
+            await api.ui.setActions('composer-header-actions', [
+                { id: 'print-html', label: 'Print synthetic page', icon: 'print' },
+                { id: 'print-pdf', label: 'Print synthetic PDF', icon: 'print' },
+            ]);
+        };
+        exports.hooks = {
+            async onAction(event) {
+                if (event.actionId === 'print-html') await api.ui.print({title: 'Synthetic page', html: '<p>Synthetic print page</p>'});
+                if (event.actionId === 'print-pdf') await api.ui.print({title: 'Synthetic PDF', pdf: pdfBytes('Synthetic PDF').buffer});
+            },
+        };
+        """;
+
     private static void Write(ZipArchive zip, string file, string contents) => Write(zip, file, Encoding.UTF8.GetBytes(contents));
 
     private static void Write(ZipArchive zip, string file, ReadOnlySpan<byte> contents)
@@ -174,4 +218,82 @@ internal sealed class AddonsFixtureCommand(IProfilePaths paths, ISettingsNavigat
         output.Write(contents);
     }
 }
+#if WINDOWS
+#pragma warning disable MA0048 // The fixture and its readback share one automation-only implementation file.
+/// <summary>Reads only the explicitly enabled synthetic print issue and its actual page trees.</summary>
+internal sealed class AddonsPrintStateCommand : IAutomationCommand
+{
+    private readonly bool _enabled;
+    private readonly IAccountSessionSnapshots _accounts;
+    private readonly OrganizationPolicyService _policy;
+    private AccountSessionSnapshot? _revokeNext;
+    private int _issues;
+    private int _revoked;
+    private int _lateDenied;
+    private int _lateAllowed;
+    private PageState[] _pages = [];
+
+    public AddonsPrintStateCommand(IProfilePaths paths, IAccountSessionSnapshots accounts, OrganizationPolicyService policy)
+    {
+        _accounts = accounts;
+        _policy = policy;
+        _enabled = SamplePolicyFixture.PrintEnabled(paths);
+        if (_enabled)
+        {
+            PluginNativePrint.SyntheticIssue = Capture;
+            PluginNativePrint.SyntheticAfterIssue = AfterIssueAsync;
+        }
+    }
+
+    public string Name => "addons-print-state";
+
+    public Task<string> RunAsync(string args, CancellationToken cancellationToken)
+    {
+        if (!_enabled) return Task.FromResult("error print fixture is not enabled");
+        if (string.Equals(args.Trim(), "reset", StringComparison.Ordinal)) { _issues = _revoked = _lateDenied = _lateAllowed = 0; _pages = []; _revokeNext = null; }
+        else if (string.Equals(args.Trim(), "revoke-next", StringComparison.Ordinal))
+        {
+            var selected = _accounts.CaptureActiveSession().Value;
+            if (selected is null || _policy.ProviderFor(selected) is null) return Task.FromResult("error no active policy provider");
+            _revokeNext = selected;
+        }
+        else if (!string.IsNullOrWhiteSpace(args)) return Task.FromResult("error expected reset, revoke-next, or no argument");
+        return Task.FromResult(System.Text.Json.JsonSerializer.Serialize(new { issues = _issues, revoked = _revoked, lateDenied = _lateDenied, lateAllowed = _lateAllowed, pages = _pages }));
+    }
+
+    private Task AfterIssueAsync(Func<bool> continuation, CancellationToken ct)
+    {
+        ct.ThrowIfCancellationRequested();
+        var selected = _revokeNext;
+        _revokeNext = null;
+        if (selected is not null && _policy.RemoveProvider(selected)) _revoked++;
+        if (continuation()) _lateAllowed++;
+        else _lateDenied++;
+        return Task.CompletedTask;
+    }
+
+    private void Capture(IReadOnlyList<FrameworkElement> pages)
+    {
+        _issues++;
+        _pages = [.. pages.Select(Inspect)];
+    }
+
+    private static PageState Inspect(FrameworkElement page)
+    {
+        if (page is not Grid grid) return new(false, false, null, false, false, false);
+        var image = grid.Children.OfType<Image>().Any(item => item.Source is not null);
+        var border = grid.Children.OfType<Border>().FirstOrDefault(item => item.Child is TextBlock text &&
+            string.Equals(AutomationProperties.GetAutomationId(text), "plugin.print.watermark", StringComparison.Ordinal));
+        if (border?.Child is not TextBlock mark) return new(image, false, null, false, false, false);
+        var white = border.Background is SolidColorBrush bg && bg.Color == Microsoft.UI.Colors.White && border.Opacity >= 1 && bg.Opacity >= 1;
+        var black = mark.Foreground is SolidColorBrush fg && fg.Color == Microsoft.UI.Colors.Black && mark.Opacity >= 1 && fg.Opacity >= 1;
+        var visible = page.Visibility == Visibility.Visible && grid.Opacity > 0 && border.Visibility == Visibility.Visible &&
+            mark.Visibility == Visibility.Visible && mark.FontSize > 0 && !string.IsNullOrWhiteSpace(mark.Text);
+        return new(image, true, mark.Text, white, black, visible);
+    }
+
+    private sealed record PageState(bool Image, bool HasWatermark, string? Watermark, bool WhiteBacking, bool BlackText, bool Visible);
+}
+#pragma warning restore MA0048
+#endif
 #endif

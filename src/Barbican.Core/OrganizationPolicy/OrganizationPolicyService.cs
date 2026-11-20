@@ -107,6 +107,9 @@ public sealed class OrganizationPolicyService(IAccountSessionSnapshots accounts,
             : ReadAsync(captured.Session.Account.Key, captured, ct);
     }
 
+    internal Task<OrganizationPolicyLookup> ReadForSessionAsync(AccountSessionSnapshot captured, CancellationToken ct) =>
+        ReadAsync(captured.Session.Account.Key, captured, ct);
+
     private async Task<OrganizationPolicyLookup> ReadAsync(string localAccountKey, AccountSessionSnapshot? selection, CancellationToken ct)
     {
         Route? route;

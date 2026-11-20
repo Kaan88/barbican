@@ -18,6 +18,8 @@ internal static class CalendarPrinter
         }
 
         var hwnd = WinRT.Interop.WindowNative.GetWindowHandle(window);
+        using var lease = NativePrintLease.TryAcquire(hwnd);
+        if (lease is null) return;
         var document = new Microsoft.UI.Xaml.Printing.PrintDocument();
         document.Paginate += (_, _) => document.SetPreviewPageCount(pages.Count, Microsoft.UI.Xaml.Printing.PreviewPageCountType.Final);
         document.GetPreviewPage += (_, e) => document.SetPreviewPage(e.PageNumber, pages[Math.Clamp(e.PageNumber - 1, 0, pages.Count - 1)]);

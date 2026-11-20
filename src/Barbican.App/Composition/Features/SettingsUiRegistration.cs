@@ -39,6 +39,10 @@ public static class SettingsUiRegistration
 #if WINDOWS
         services.AddSingleton<IAccountSignOutCleanup>(sp => new PluginAccountSignOutCleanup(() => sp.GetRequiredService<PluginPackageHost>()));
         services.AddSingleton<Views.Plugins.PluginFilePresenter>();
+        services.AddSingleton<Barbican.Core.OrganizationPolicy.OrganizationPrintPolicy>();
+        services.AddSingleton<Views.Plugins.PluginPrintPresenter>();
+        services.AddSingleton<IPluginApiMethod>(sp => new PluginPrint(sp.GetRequiredService<TimeProvider>(),
+            sp.GetRequiredService<Views.Plugins.PluginPrintPresenter>().ShowAsync));
         services.AddSingleton<Views.Plugins.PluginProgressToasts>();
         services.AddSingleton<Views.Plugins.PluginToastPresenter>();
         for (var toastMethod = 0; toastMethod < PluginToastMethods.FullMethodCount; toastMethod++)
@@ -67,6 +71,9 @@ public static class SettingsUiRegistration
         }
 
         services.AddSingleton<IAutomationCommand, AddonsFixtureCommand>();
+#if WINDOWS
+        services.AddSingleton<IAutomationCommand, AddonsPrintStateCommand>();
+#endif
         for (var i = 0; i < SetUiCommand.Count; i++)
         {
             var index = i;

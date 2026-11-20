@@ -28,6 +28,8 @@ internal sealed class SamplePolicyFixture : IDisposable
     internal static OrganizationPolicyTransport Transport() => new(new PolicyHandler());
     internal static bool Enabled(IProfilePaths paths) => ProfilePaths.IsAutomationProfile(paths.Profile) &&
         Enabled("BARBICAN_SAMPLE") && Enabled("BARBICAN_SAMPLE_ADDON_ACCOUNT") && Enabled("BARBICAN_SAMPLE_ORGANIZATION_POLICY");
+    internal static bool PrintEnabled(IProfilePaths paths) => Enabled(paths) && Enabled("BARBICAN_SAMPLE_PRINT") &&
+        (Environment.GetEnvironmentVariable("BARBICAN_SAMPLE_PRINT_POLICY") is "allow" or "watermark" or "deny");
     private static bool Enabled(string name) => string.Equals(Environment.GetEnvironmentVariable(name), "1", StringComparison.Ordinal);
     public void Dispose() { Client.Dispose(); _tokens.Dispose(); _http.Dispose(); }
 
@@ -61,7 +63,13 @@ internal sealed class SamplePolicyFixture : IDisposable
                 !string.Equals(request.Headers.Authorization?.Parameter, Token, StringComparison.Ordinal) ||
                 !request.Headers.TryGetValues("X-JMAP-Server-Url", out var values) || !values.SequenceEqual(["https://jmap.example.org/"], StringComparer.Ordinal))
                 return Task.FromResult(new HttpResponseMessage(HttpStatusCode.Forbidden));
-            var response = new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent("{\"organisation\":{\"devices\":{\"noPrint\":true}},\"scopes\":[]}", Encoding.UTF8, "application/json") };
+            var profile = Environment.GetEnvironmentVariable("BARBICAN_PROFILE") ?? string.Empty;
+            var printing = ProfilePaths.IsAutomationProfile(profile) && Enabled("BARBICAN_SAMPLE") && Enabled("BARBICAN_SAMPLE_ADDON_ACCOUNT") &&
+                Enabled("BARBICAN_SAMPLE_ORGANIZATION_POLICY") && Enabled("BARBICAN_SAMPLE_PRINT") &&
+                (Environment.GetEnvironmentVariable("BARBICAN_SAMPLE_PRINT_POLICY") is "allow" or "watermark");
+            var watermark = printing && string.Equals(Environment.GetEnvironmentVariable("BARBICAN_SAMPLE_PRINT_POLICY"), "watermark", StringComparison.Ordinal);
+            var json = "{\"organisation\":{\"devices\":{\"noPrint\":" + (printing ? "false" : "true") + ",\"watermark\":" + (watermark ? "true" : "false") + "}},\"scopes\":[]}";
+            var response = new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(json, Encoding.UTF8, "application/json") };
             response.Headers.TryAddWithoutValidation("X-Bulwark-Policy-Domains", "example.org");
             return Task.FromResult(response);
         }

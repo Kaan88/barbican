@@ -23,6 +23,8 @@ public sealed class OrganizationPolicySnapshot
 
     public string LocalAccountKey { get; }
 
+    internal string AccountAddress => _subject.Email;
+
     public EffectiveOrganizationPolicy Effective { get; }
 
     /// <summary>Resolves a caller-verified sender only if the server response covers its address domain.</summary>

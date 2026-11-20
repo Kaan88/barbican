@@ -489,6 +489,18 @@ public sealed partial class PluginPackageManager : IPluginPackageManager, IPlugi
     }
 
     /// <summary>Runs one synchronous host operation while every contributing runtime retains its package authority.</summary>
+    /// <summary>Rechecks the profile lease for a native callback that was already admitted by TryPostAsync.</summary>
+    public bool TryContinuePost(PluginRuntimeBinding binding, Func<bool> issue)
+    {
+        ArgumentNullException.ThrowIfNull(binding);
+        ArgumentNullException.ThrowIfNull(issue);
+        lock (_issuanceGate)
+        {
+            return HasAuthority && _lease is { } lease && string.Equals(binding.Profile, _options.Profile, StringComparison.Ordinal) &&
+                lease.TryRunWhileHeld(() => binding.IsAlive && issue());
+        }
+    }
+
     public async Task<bool> TryRunWithGrantsAsync(IReadOnlyCollection<PluginRuntimeBinding> bindings, Func<bool> issue, CancellationToken ct)
     {
         ArgumentNullException.ThrowIfNull(bindings);
