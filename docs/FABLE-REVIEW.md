@@ -2604,3 +2604,32 @@ Native dialog state confirmed the preview opened and stayed within the
 window. Closing the preview and disabling the installed add-on both
 dismissed it. The private desktop capture command did not produce a
 screenshot.
+
+## Codex / Astra review of Windows compose links (2026-11-20)
+
+Windows routes `mailto:` links and the desktop `bulwark://new` target
+through the composer. The desktop target accepts add-on parameters and
+opens a blank message. A second launch can forward either link to an
+existing instance of the same profile through its authenticated loopback
+handoff.
+
+The composer service returns the exact new draft. A canceled account
+choice, stopped request, or canceled replacement produces no draft for
+the add-on hook. Link parameter names are lowercased and bounded. The
+first value wins and the longest matching registered add-on ID owns the
+parameter. The general mailto interceptor receives a URL with the
+add-on parameters removed.
+
+`onComposeFromLink` waits for initial add-on startup and delivers
+`{ composerId, params }` to the owner with both composer grants. The
+native post checks the exact draft, account session, running binding and
+package grant. The draft is exposed through the same revision-backed
+composer API used by toolbar actions.
+
+The unchanged Bulwark fixture updated the synthetic draft after both the
+desktop second-launch handoff and the native mailto route. The first
+duplicate won in the desktop case, and a link carrying only an unknown
+add-on's parameter retained its original subject. Astra approved the
+delivery and startup wait. Windows Automation passed 3,422 tests with
+four skips and Windows Release built with zero warnings and errors.
+The Windows protocol association and Bulwark's browser URL remain open.

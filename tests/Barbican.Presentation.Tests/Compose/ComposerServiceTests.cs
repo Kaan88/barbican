@@ -333,6 +333,56 @@ public sealed class ComposerServiceTests
     }
 
     [Fact]
+    public async Task Private_link_parameters_reach_the_new_draft_and_stay_out_of_the_general_interceptor()
+    {
+        var (_, w, accounts) = Router(null, Ana);
+        var addOns = new RecordingLinkAddOns();
+        var router = new MailtoRouter(w.Service, accounts, w.Hooks, addOns: addOns);
+        MailtoContextPayload? intercepted = null;
+        using var sub = w.Hooks.Intercept<MailtoContextPayload>(HookNames.OnMailtoIntercept, (payload, _) =>
+        {
+            intercepted = payload;
+            return ValueTask.FromResult(true);
+        });
+        var opened = await router.HandleAsync("mailto:a@example.org?%78-Akte-Case=01%2F2026&subject=Initial",
+            TestContext.Current.CancellationToken);
+        Assert.True(opened);
+        var (draft, parameters) = Assert.Single(addOns.Deliveries);
+        Assert.Same(w.Service.Current, draft);
+        Assert.Equal("01/2026", parameters["x-akte-case"], StringComparer.Ordinal);
+        Assert.Equal("mailto:a@example.org?subject=Initial", intercepted?.Url, StringComparer.Ordinal);
+    }
+
+    [Fact]
+    public async Task Cancelling_the_replacement_never_sends_link_parameters_to_the_existing_draft()
+    {
+        var (_, w, accounts) = Router(null, Ana);
+        var addOns = new RecordingLinkAddOns();
+        var router = new MailtoRouter(w.Service, accounts, w.Hooks, addOns: addOns);
+        var ct = TestContext.Current.CancellationToken;
+        var original = (await w.Service.OpenAsync(new ComposeRequest(Ana.Key, ComposeKind.New), ct))!;
+        original.Subject = "Existing draft";
+        var pending = router.HandleAsync("bulwark://new?x-akte-case=01%2F2026", ct);
+        Assert.Equal("leave", original.Dialog?.Id);
+        original.AnswerDialog("cancel");
+        Assert.False(await pending);
+        Assert.Same(original, w.Service.Current);
+        Assert.Equal("Existing draft", original.Subject, StringComparer.Ordinal);
+        Assert.Empty(addOns.Deliveries);
+    }
+
+    private sealed class RecordingLinkAddOns : IComposeLinkAddOns
+    {
+        public List<(ComposerViewModel Draft, IReadOnlyDictionary<string, string> Parameters)> Deliveries { get; } = [];
+
+        public Task DeliverAsync(ComposerViewModel draft, IReadOnlyDictionary<string, string> parameters, CancellationToken ct)
+        {
+            Deliveries.Add((draft, parameters));
+            return Task.CompletedTask;
+        }
+    }
+
+    [Fact]
     public async Task Links_wait_for_a_sign_in_and_open_when_an_account_arrives()
     {
         var (router, w, accounts) = Router(null);

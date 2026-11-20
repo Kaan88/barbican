@@ -9,7 +9,7 @@ namespace Barbican.Core.Tests.Instance;
 /// <summary>The 3 tests of Rust src/instance.rs, ported (M3 stream composer-ui) on loopback sockets with port 0 only; nothing leaves the machine. D-241.</summary>
 public sealed class InstanceHandoffTests
 {
-    private static string? Arg(params string[] args) => InstanceHandoff.MailtoArg(args);
+    private static string? Arg(params string[] args) => InstanceHandoff.ComposeLinkArg(args);
 
     private static MemoryStream Bytes(string text) => new(Encoding.UTF8.GetBytes(text));
 
@@ -22,6 +22,17 @@ public sealed class InstanceHandoffTests
         Assert.Equal("mailto:a@x.example", InstanceHandoff.ReadRequest(Bytes("tok\nmailto:a@x.example\n"), "tok"));
         Assert.Null(InstanceHandoff.ReadRequest(Bytes("bad\nmailto:a@x.example\n"), "tok"));
         Assert.Null(InstanceHandoff.ReadRequest(Bytes("tok\nfile:///etc/passwd\n"), "tok"));
+    }
+
+    [Fact]
+    public void Only_the_desktop_new_message_target_can_use_the_compose_link_handoff()
+    {
+        const string uri = "bulwark://new?x-akte-case=01%2F2026";
+        Assert.Equal(uri, Arg("--flag", uri), StringComparer.Ordinal);
+        Assert.Equal(uri, InstanceHandoff.ReadRequest(Bytes($"tok\n{uri}\n"), "tok"), StringComparer.Ordinal);
+        Assert.Null(InstanceHandoff.ReadRequest(Bytes($"wrong\n{uri}\n"), "tok"));
+        Assert.Null(Arg("bulwark://open?url=file:///example"));
+        Assert.Null(Arg("https://example.org/?compose=1"));
     }
 
     [Fact]

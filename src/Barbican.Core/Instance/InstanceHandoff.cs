@@ -19,14 +19,14 @@ public static class InstanceHandoff
     /// <summary>The most bytes read from one connection.</summary>
     public const int MaxRequestBytes = 256 * 1024;
 
-    /// <summary>The first command-line argument that is a mailto: link (as the OS passes it, quoted "%1").</summary>
-    public static string? MailtoArg(IReadOnlyList<string> args)
+    /// <summary>The first command-line argument that is a supported compose link.</summary>
+    public static string? ComposeLinkArg(IReadOnlyList<string> args)
     {
         ArgumentNullException.ThrowIfNull(args);
-        return args.Select(a => a.Trim().Trim('"')).FirstOrDefault(a => MailtoLink.Parse(a) is not null);
+        return args.Select(a => a.Trim().Trim('"')).FirstOrDefault(IsComposeLink);
     }
 
-    /// <summary>One handoff from a connection: the URL when the token matches and the line is a mailto: link, else null (a foreign scheme such as file: is refused).</summary>
+    /// <summary>One handoff from a connection, with its secret token and a supported compose URL.</summary>
     public static string? ReadRequest(Stream stream, string token)
     {
         ArgumentNullException.ThrowIfNull(stream);
@@ -67,8 +67,10 @@ public static class InstanceHandoff
         }
 
         var url = parts[1].Trim();
-        return MailtoLink.Parse(url) is not null ? url : null;
+        return IsComposeLink(url) ? url : null;
     }
+
+    private static bool IsComposeLink(string url) => MailtoLink.Parse(url) is not null || MailtoLink.ParseComposeUri(url) is not null;
 
     /// <summary>Hands <paramref name="url"/> to the instance at <paramref name="endpoint"/>: connects, checks the server's greeting, sends the token and the URL. False when the greeting is wrong (a foreign program on a stale port gets nothing) or the token is refused.</summary>
     public static bool Send(HandoffEndpoint endpoint, string url)

@@ -26,6 +26,7 @@ internal sealed partial class PluginBackgroundRuntimes(
     private readonly Lock _lifecycle = new();
     private readonly CancellationTokenSource _stop = new();
     private readonly TaskCompletionSource _drained = new(TaskCreationOptions.RunContinuationsAsynchronously);
+    private readonly TaskCompletionSource _initialized = new(TaskCreationOptions.RunContinuationsAsynchronously);
     private Task? _stopping;
     private Func<CancellationToken, Task<Result<IPluginRuntimeFactory>>>? _create;
     private IPluginRuntimeFactory? _factory;
@@ -33,6 +34,12 @@ internal sealed partial class PluginBackgroundRuntimes(
     private int _operations;
 
     internal event EventHandler? RunningChanged;
+
+    internal Task WaitUntilInitializedAsync(CancellationToken ct) => _initialized.Task.WaitAsync(ct);
+
+    internal IReadOnlyList<IPluginRuntimeInstance> HookOwners(string hook) =>
+        [.. _active.Values.Select(active => active.Instance)
+            .Where(runtime => runtime.Binding.IsAlive && runtime.Activation.Hooks.Contains(hook, StringComparer.Ordinal))];
 
     internal IPluginRuntimeInstance? ActiveRuntime(PluginRuntimeBinding binding, string accountKey, string permission) =>
         binding.IsAlive && _active.TryGetValue(binding.Package.Id, out var active) && ReferenceEquals(active.Instance.Binding, binding) &&
@@ -48,7 +55,11 @@ internal sealed partial class PluginBackgroundRuntimes(
         if (Interlocked.CompareExchange(ref _create, create, null) is not null) return;
         Volatile.Write(ref _javaScriptAvailable, javaScriptAvailable);
         var operation = Begin(ct);
-        if (operation is null) return;
+        if (operation is null)
+        {
+            _initialized.TrySetResult();
+            return;
+        }
         var token = operation.Token;
         try
         {
@@ -73,7 +84,11 @@ internal sealed partial class PluginBackgroundRuntimes(
 #pragma warning disable CA1031 // A failed profile restore must not take down the mail window or expose plugin content.
         catch (Exception) { LogRestoreIncomplete(log); }
 #pragma warning restore CA1031
-        finally { End(operation); }
+        finally
+        {
+            _initialized.TrySetResult();
+            End(operation);
+        }
     }
 
     internal async Task<Result<Unit>> SetEnabledAsync(PluginPackageIdentity package, bool enabled, CancellationToken ct)

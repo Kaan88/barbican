@@ -41,10 +41,10 @@ internal sealed class RecordingComposer : IComposerService
         remove { }
     }
 
-    public Task OpenAsync(ComposeRequest request, CancellationToken ct)
+    public Task<ComposerViewModel?> OpenAsync(ComposeRequest request, CancellationToken ct)
     {
         Opened.Add(request);
-        return Task.CompletedTask;
+        return Task.FromResult<ComposerViewModel?>(null);
     }
 
     public Task OpenSeedAsync(ComposeSeed seed, CancellationToken ct) => Task.CompletedTask;

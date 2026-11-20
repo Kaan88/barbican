@@ -80,8 +80,41 @@ public static class MailtoLink
             Bcc = bcc,
             Subject = Truncate(StripControl(Get("subject")), MaxSubject),
             Body = CleanBody(Get("body")),
-            Extra = prms.Where(p => p.Key.StartsWith("x-", StringComparison.OrdinalIgnoreCase)).GroupBy(p => p.Key.ToLowerInvariant(), StringComparer.Ordinal).ToDictionary(g => g.Key, g => string.Join(',', g.Select(p => p.Value)), StringComparer.Ordinal),
+            Extra = ComposeLinkParameters.Parse(prms.Select(p => KeyValuePair.Create(p.Key, p.Value))),
         };
+    }
+
+    /// <summary>Parses a desktop new-message URI; only add-on parameters are carried into the new draft.</summary>
+    public static MailtoFields? ParseComposeUri(string raw)
+    {
+        ArgumentNullException.ThrowIfNull(raw);
+        if (!Uri.TryCreate(raw, UriKind.Absolute, out var uri) ||
+            !string.Equals(uri.Scheme, "bulwark", StringComparison.OrdinalIgnoreCase) ||
+            !string.Equals(uri.Host, "new", StringComparison.OrdinalIgnoreCase) ||
+            !string.IsNullOrEmpty(uri.UserInfo) || !uri.IsDefaultPort ||
+            uri.AbsolutePath is not ("" or "/") || !string.IsNullOrEmpty(uri.Fragment)) return null;
+        var query = uri.Query.TrimStart('?');
+        var parameters = query.Split('&', StringSplitOptions.RemoveEmptyEntries).Select(part =>
+        {
+            var equals = part.IndexOf('=', StringComparison.Ordinal);
+            var key = equals < 0 ? part : part[..equals];
+            var value = equals < 0 ? "" : part[(equals + 1)..];
+            return KeyValuePair.Create(DecodeLenient(key.Replace('+', ' ')), DecodeLenient(value.Replace('+', ' ')));
+        });
+        return new MailtoFields { Extra = ComposeLinkParameters.Parse(parameters) };
+    }
+
+    /// <summary>Removes add-on query parameters from a link sent to a general mailto observer.</summary>
+    public static string WithoutAddOnParameters(string raw)
+    {
+        ArgumentNullException.ThrowIfNull(raw);
+        var value = raw.Split('#', 2)[0];
+        var question = value.IndexOf('?', StringComparison.Ordinal);
+        if (question < 0) return value;
+        var standard = value[(question + 1)..].Split('&', StringSplitOptions.RemoveEmptyEntries).Where(part =>
+            !DecodeLenient(part.Split('=', 2)[0]).Trim().StartsWith("x-", StringComparison.OrdinalIgnoreCase));
+        var rest = string.Join('&', standard);
+        return rest.Length > 0 ? value[..(question + 1)] + rest : value[..question];
     }
 
     /// <summary>Appends a link to the pending list, keeping the newest <see cref="MaxPending"/>.</summary>

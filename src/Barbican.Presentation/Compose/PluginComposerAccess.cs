@@ -25,12 +25,16 @@ public sealed class PluginComposerAccess : IPluginComposerAccess, IDisposable
 
     public bool Expose(PluginRuntimeBinding binding, string id, string ownerKey)
     {
-        if (!binding.IsAlive || _composer.Current is not { } current ||
-            !string.Equals(current.Id, id, StringComparison.Ordinal) ||
-            !string.Equals(current.AccountKey, ownerKey, StringComparison.Ordinal)) return false;
         var captured = _sessions.CaptureOwner(ownerKey);
-        if (!captured.IsOk || captured.Value is not { } owner ||
-            !string.Equals(owner.LocalAccountKey, ownerKey, StringComparison.Ordinal)) return false;
+        return captured.IsOk && captured.Value is { } owner &&
+            string.Equals(owner.LocalAccountKey, ownerKey, StringComparison.Ordinal) && Expose(binding, id, owner);
+    }
+
+    public bool Expose(PluginRuntimeBinding binding, string id, PluginSessionCapture owner)
+    {
+        if (!binding.IsAlive || !_sessions.IsCurrent(owner) || _composer.Current is not { } current ||
+            !string.Equals(current.Id, id, StringComparison.Ordinal) ||
+            !string.Equals(current.AccountKey, owner.LocalAccountKey, StringComparison.Ordinal)) return false;
         lock (_gate)
         {
             if (!binding.IsAlive || !ReferenceEquals(_composer.Current, current)) return false;

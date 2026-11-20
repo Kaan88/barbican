@@ -3,4 +3,4 @@
 namespace Barbican.Core.Plugins.Payloads;
 
 /// <summary>The parameters a link carried for one plugin (<c>x-&lt;plugin id&gt;-&lt;name&gt;=&lt;value&gt;</c>), with the prefix gone; only that plugin hears it.</summary>
-public sealed record ComposeLinkContextPayload(string PluginId, IReadOnlyDictionary<string, string> Params);
+public sealed record ComposeLinkContextPayload(string ComposerId, IReadOnlyDictionary<string, string> Params);

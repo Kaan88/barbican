@@ -141,7 +141,7 @@ public sealed class PluginComposerAccessTests
         public bool IsOpen { get { Assert.True(ui.HasThreadAccess); return _current is not null; } }
         public event EventHandler? OpenChanged;
         public void Replace(ComposerViewModel? next) { Assert.True(ui.HasThreadAccess); Volatile.Write(ref _current, next); OpenChanged?.Invoke(this, EventArgs.Empty); }
-        public Task OpenAsync(ComposeRequest request, CancellationToken ct) => throw new NotSupportedException();
+        public Task<ComposerViewModel?> OpenAsync(ComposeRequest request, CancellationToken ct) => throw new NotSupportedException();
         public Task OpenSeedAsync(ComposeSeed seed, CancellationToken ct) => throw new NotSupportedException();
         public Task<bool> TryCloseAsync(CancellationToken ct) => throw new NotSupportedException();
     }

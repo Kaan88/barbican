@@ -8,6 +8,7 @@ using Barbican.Core.Mailto;
 using Barbican.Core.Plugins.Hooks;
 using Barbican.Core.Plugins.Payloads;
 using Barbican.Presentation.Actions;
+using Barbican.Presentation.Common;
 using Barbican.Presentation.Dialogs;
 
 namespace Barbican.Presentation.Compose;
@@ -21,10 +22,12 @@ public sealed class MailtoRouter
     private readonly IDialogService? _dialogs;
     private readonly IToastService? _toasts;
     private readonly Func<string?>? _activeAccount;
+    private readonly IComposeLinkAddOns? _addOns;
     private readonly List<MailtoFields> _pending = [];
     private readonly Lock _gate = new();
 
-    public MailtoRouter(IComposerService composer, IAccountManager? accounts, IHookBus hooks, IDialogService? dialogs = null, IToastService? toasts = null, Func<string?>? activeAccount = null)
+    public MailtoRouter(IComposerService composer, IAccountManager? accounts, IHookBus hooks, IDialogService? dialogs = null,
+        IToastService? toasts = null, Func<string?>? activeAccount = null, IComposeLinkAddOns? addOns = null, IDispatcher? dispatcher = null)
     {
         ArgumentNullException.ThrowIfNull(composer);
         ArgumentNullException.ThrowIfNull(hooks);
@@ -34,9 +37,11 @@ public sealed class MailtoRouter
         _dialogs = dialogs;
         _toasts = toasts;
         _activeAccount = activeAccount;
+        _addOns = addOns;
         if (accounts is not null)
         {
-            accounts.ActiveChanged += (_, _) => _ = RetryPendingAsync(CancellationToken.None);
+            var ui = dispatcher ?? new InlineDispatcher();
+            accounts.ActiveChanged += (_, _) => ui.Post(() => _ = RetryPendingAsync(CancellationToken.None));
         }
     }
 
@@ -52,16 +57,18 @@ public sealed class MailtoRouter
         }
     }
 
-    /// <summary>A mailto: link to open. False when it was no link, a plugin stopped it, the user cancelled the account question, or it was kept for a sign-in.</summary>
+    /// <summary>Opens a mailto or desktop new-message link. Returns false if the request did not open a draft.</summary>
     public async Task<bool> HandleAsync(string url, CancellationToken ct)
     {
         ArgumentNullException.ThrowIfNull(url);
-        if (MailtoLink.Parse(url) is not { } link)
+        var mailto = MailtoLink.Parse(url);
+        if ((mailto ?? MailtoLink.ParseComposeUri(url)) is not { } link)
         {
             return false;
         }
 
-        if (!await _hooks.AllowAsync(HookNames.OnMailtoIntercept, () => new MailtoContextPayload(url, link.To, link.Cc, link.Bcc, link.Subject, link.Body), ct).ConfigureAwait(true))
+        if (mailto is not null && !await _hooks.AllowAsync(HookNames.OnMailtoIntercept,
+            () => new MailtoContextPayload(MailtoLink.WithoutAddOnParameters(url), link.To, link.Cc, link.Bcc, link.Subject, link.Body), ct).ConfigureAwait(true))
         {
             return false;
         }
@@ -121,14 +128,11 @@ public sealed class MailtoRouter
             Subject = link.Subject,
             Body = link.Body,
         };
-        await _composer.OpenAsync(new ComposeRequest(account, ComposeKind.New) { Prefill = prefill }, ct).ConfigureAwait(true);
-        if (link.Extra.Count > 0 && _composer.IsOpen)
-        {
-            // the host (M6b) hands each plugin its own x-<plugin id>-<name> parameters; with no plugin host the bus has no listeners
-            await _hooks.NotifyAsync(HookNames.OnComposeFromLink, new ComposeLinkContextPayload(string.Empty, link.Extra), ct).ConfigureAwait(true);
-        }
-
-        return _composer.IsOpen;
+        var draft = await _composer.OpenAsync(new ComposeRequest(account, ComposeKind.New) { Prefill = prefill }, ct).ConfigureAwait(true);
+        if (draft is null) return false;
+        if (link.Extra.Count > 0 && _addOns is not null && ReferenceEquals(_composer.Current, draft))
+            await _addOns.DeliverAsync(draft, link.Extra, ct).ConfigureAwait(true);
+        return true;
     }
 
     // one account: it; several: the question (the active one first); none: null

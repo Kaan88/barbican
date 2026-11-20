@@ -10,7 +10,7 @@ using Barbican.Presentation.Composition;
 
 namespace Barbican.App.Views.Compose;
 
-/// <summary>Listens for mailto hand-offs and routes the first link.</summary>
+/// <summary>Listens for compose link hand-offs and routes the first link.</summary>
 public sealed class MailtoStartup(IProfilePaths paths, MailtoRouter router, IDispatcher dispatcher) : IStartupTask, IDisposable
 {
     private SingleInstance? _instance;
@@ -23,7 +23,7 @@ public sealed class MailtoStartup(IProfilePaths paths, MailtoRouter router, IDis
             AppDomain.CurrentDomain.ProcessExit += (_, _) => Dispose();
         }
 
-        if (InstanceHandoff.MailtoArg(Environment.GetCommandLineArgs().Skip(1).ToArray()) is { } first)
+        if (InstanceHandoff.ComposeLinkArg(Environment.GetCommandLineArgs().Skip(1).ToArray()) is { } first)
         {
             _ = router.HandleAsync(first, cancellationToken);
         }

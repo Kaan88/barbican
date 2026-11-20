@@ -28,6 +28,7 @@ public static class ComposerRegistration
         services.AddSingleton<IDialogContent, ScheduleDialogContent>();
 #if WINDOWS
         services.AddSingleton<PluginComposerAccess>();
+        services.AddSingleton<IComposeLinkAddOns, Barbican.App.Plugins.PluginComposeLinks>();
         services.AddSingleton<Barbican.App.Plugins.PluginActionRegistration>();
         services.AddSingleton<IPluginApiMethod>(sp => sp.GetRequiredService<Barbican.App.Plugins.PluginActionRegistration>());
         services.AddSingleton<IPluginApiMethod>(sp => PluginComposerMethods.GetSnapshot(sp.GetRequiredService<PluginComposerAccess>()));

@@ -85,7 +85,9 @@ public static class M3PresentationRegistration
             sp.GetRequiredService<IHookBus>(),
             sp.GetService<IDialogService>(),
             sp.GetService<IToastService>(),
-            () => sp.GetService<IActiveMail>()?.AccountKey));
+            () => sp.GetService<IActiveMail>()?.AccountKey,
+            sp.GetService<IComposeLinkAddOns>(),
+            sp.GetService<IDispatcher>()));
 
         // the draft banner above a message in Drafts (Edit, Discard); its buttons run through the reader's banner actions
         services.TryAddSingleton(sp => new DraftBannerSource(sp.GetRequiredService<IComposerService>(), sp.GetRequiredService<IDraftService>(), sp.GetRequiredService<IActiveMail>(), sp.GetService<IToastService>()));

@@ -33,11 +33,11 @@ public sealed class ComposerService : IComposerService, IDisposable
     public ComposerViewModel? Current => Volatile.Read(ref _current);
 
     /// <inheritdoc />
-    public async Task OpenAsync(ComposeRequest request, CancellationToken ct)
+    public async Task<ComposerViewModel?> OpenAsync(ComposeRequest request, CancellationToken ct)
     {
         ArgumentNullException.ThrowIfNull(request);
-        if (!await AllowAsync(request, ct).ConfigureAwait(true)) return;
-        await ReplaceAsync(() => SeedAsync(request, ct), request.Kind, ct).ConfigureAwait(true);
+        if (!await AllowAsync(request, ct).ConfigureAwait(true)) return null;
+        return await ReplaceAsync(() => SeedAsync(request, ct), request.Kind, ct).ConfigureAwait(true);
     }
 
     private async Task<ComposeSeed?> SeedAsync(ComposeRequest request, CancellationToken ct)
@@ -64,7 +64,7 @@ public sealed class ComposerService : IComposerService, IDisposable
     public async Task OpenSeedAsync(ComposeSeed seed, CancellationToken ct)
     {
         ArgumentNullException.ThrowIfNull(seed);
-        await ReplaceAsync(() => Task.FromResult<ComposeSeed?>(seed), seed.Kind, ct).ConfigureAwait(true);
+        _ = await ReplaceAsync(() => Task.FromResult<ComposeSeed?>(seed), seed.Kind, ct).ConfigureAwait(true);
     }
 
     /// <inheritdoc />
@@ -118,15 +118,15 @@ public sealed class ComposerService : IComposerService, IDisposable
             ct).ConfigureAwait(true);
     }
 
-    private async Task ReplaceAsync(Func<Task<ComposeSeed?>> getSeed, ComposeKind kind, CancellationToken ct)
+    private async Task<ComposerViewModel?> ReplaceAsync(Func<Task<ComposeSeed?>> getSeed, ComposeKind kind, CancellationToken ct)
     {
         await _opening.WaitAsync(ct).ConfigureAwait(true);
         try
         {
-            if (_current is { } current && !await RequestCloseAsync(current).ConfigureAwait(true)) return;
+            if (_current is { } current && !await RequestCloseAsync(current).ConfigureAwait(true)) return null;
             ct.ThrowIfCancellationRequested();
             var seed = await getSeed().ConfigureAwait(true);
-            if (seed is null) return;
+            if (seed is null) return null;
             var composer = await CreateComposerAsync(seed, kind, null, ct).ConfigureAwait(true);
             if (ct.IsCancellationRequested)
             {
@@ -140,6 +140,7 @@ public sealed class ComposerService : IComposerService, IDisposable
             OpenChanged?.Invoke(this, EventArgs.Empty);
             _s.Hooks.Fire(HookNames.OnComposerOpen, () => new ComposerContextPayload(composer.Id, composer.AccountKey, kind.ToString(), composer.DraftId));
             _ = LoadSourcesAsync(composer);
+            return composer;
         }
         finally
         {

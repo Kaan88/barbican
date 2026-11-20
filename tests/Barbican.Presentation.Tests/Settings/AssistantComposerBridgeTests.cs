@@ -57,11 +57,11 @@ public sealed class AssistantComposerBridgeTests
         public bool IsOpen => Current is not null;
         public ComposerViewModel? Current { get; private set; } = original;
         public event EventHandler? OpenChanged { add { } remove { } }
-        public Task OpenAsync(ComposeRequest request, CancellationToken ct)
+        public Task<ComposerViewModel?> OpenAsync(ComposeRequest request, CancellationToken ct)
         {
             Assert.True(ui.HasThreadAccess);
             if (allow) Current = harness.Open(ComposerHarness.Seed("Original quotation", ComposeKind.Reply));
-            return Task.CompletedTask;
+            return Task.FromResult(allow ? Current : null);
         }
         public Task OpenSeedAsync(ComposeSeed seed, CancellationToken ct) => throw new NotSupportedException();
         public Task<bool> TryCloseAsync(CancellationToken ct) => Task.FromResult(allow);

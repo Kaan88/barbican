@@ -8,11 +8,11 @@ namespace Barbican.App.Composition;
 /// <summary>The launch-time half of the single-instance hand-off.</summary>
 public static class SingleInstanceStart
 {
-    /// <summary>True when the command line holds a mailto: link and a running instance of this profile took it (the caller exits without a window). A plain launch stays an independent instance.</summary>
+    /// <summary>True when an existing instance of this profile took a compose link from the command line.</summary>
     public static bool ForwardLink(IReadOnlyList<string> args)
     {
         ArgumentNullException.ThrowIfNull(args);
-        if (InstanceHandoff.MailtoArg(args) is not { } url)
+        if (InstanceHandoff.ComposeLinkArg(args) is not { } url)
         {
             return false;
         }
