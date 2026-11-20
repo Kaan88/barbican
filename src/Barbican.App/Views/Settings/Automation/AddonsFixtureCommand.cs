@@ -1,5 +1,6 @@
 #if AUTOMATION
 using System.IO.Compression;
+using System.Security.Cryptography;
 using System.Text;
 using Barbican.App.Settings;
 using Barbican.Automation;
@@ -21,15 +22,38 @@ internal sealed class AddonsFixtureCommand(IProfilePaths paths, ISettingsNavigat
             return "error requires a synthetic automation profile";
 
         var mode = args.Trim();
-        if (mode is not ("install" or "update")) return "error use install or update";
+        if (mode is not ("install" or "update" or "native")) return "error use install, update or native";
         if (!shell.TryActivate(AppId.Settings)) return "error Settings is unavailable";
 
         navigation.Open(SettingsPageIds.Addons);
         var page = pages.OfType<AddonsPageFactory>().Single();
-        using var archive = MakeArchive(string.Equals(mode, "update", StringComparison.Ordinal));
+        using var archive = string.Equals(mode, "native", StringComparison.Ordinal)
+            ? await MakeNativeArchiveAsync(cancellationToken).ConfigureAwait(true)
+            : MakeArchive(string.Equals(mode, "update", StringComparison.Ordinal));
         cancellationToken.ThrowIfCancellationRequested();
         await page.ReviewArchiveAsync(archive).ConfigureAwait(true);
         return "ok";
+    }
+
+    private static async Task<MemoryStream> MakeNativeArchiveAsync(CancellationToken ct)
+    {
+        // Use only the fixed bundled DLL as inert archive input. The review never activates this fixture.
+        const string library = "Barbican.Plugin.SpamScore.dll";
+        var path = Path.Combine(AppContext.BaseDirectory, "plugins", "spam-score", library);
+        var bytes = await File.ReadAllBytesAsync(path, ct).ConfigureAwait(false);
+        var digest = Convert.ToHexStringLower(SHA256.HashData(bytes));
+        var sidecar = $$"""
+            {"schemaVersion":1,"api":1,"id":"fixture-native","name":"Native Fixture","version":"1.0.0","description":"Synthetic review",
+             "mainAssembly":"{{library}}","hooks":["email.details"],"dependencies":{"{{library}}":"{{digest}}" } }
+            """;
+        var archive = new MemoryStream();
+        using (var zip = new ZipArchive(archive, ZipArchiveMode.Create, leaveOpen: true))
+        {
+            Write(zip, "native-plugin.json", sidecar);
+            Write(zip, library, bytes);
+        }
+        archive.Position = 0;
+        return archive;
     }
 
     private static MemoryStream MakeArchive(bool update)
@@ -47,12 +71,14 @@ internal sealed class AddonsFixtureCommand(IProfilePaths paths, ISettingsNavigat
         return archive;
     }
 
-    private static void Write(ZipArchive zip, string file, string contents)
+    private static void Write(ZipArchive zip, string file, string contents) => Write(zip, file, Encoding.UTF8.GetBytes(contents));
+
+    private static void Write(ZipArchive zip, string file, ReadOnlySpan<byte> contents)
     {
         var entry = zip.CreateEntry(file);
         entry.LastWriteTime = new DateTimeOffset(2000, 1, 1, 0, 0, 0, TimeSpan.Zero);
         using var output = entry.Open();
-        output.Write(Encoding.UTF8.GetBytes(contents));
+        output.Write(contents);
     }
 }
 #endif

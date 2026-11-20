@@ -2403,3 +2403,31 @@ walkthrough also passed package install, enable, disable and confirmed
 removal. The Windows Release build passed with zero warnings and errors.
 The active-account race tests use synthetic mail sessions. No real account
 was used.
+
+## Codex / Astra review of inert Windows native add-on import (2026-11-20)
+
+The ZIP inspector recognizes one exact native sidecar, validates its schema
+and declared hooks, and requires a complete flat DLL filename and SHA-256
+inventory. It rejects a dual JavaScript and native manifest and ZIP
+directories with payloads. The inspector hashes DLL bytes without parsing
+PE metadata. CLR compatibility and dependency binding remain activation
+requirements. [Microsoft's PE reader input guidance](https://learn.microsoft.com/en-us/dotnet/api/system.reflection.portableexecutable.pereader?view=net-10.0)
+
+Settings has separate native full-access consent. The authenticated package
+index records that decision for the exact archive and keeps the package
+disabled. Renewing review checks the fresh archive against the installed
+identity even when the loaded definition is cached. A changed archive
+requires a new decision. Native user-package activation remains unavailable.
+
+Astra approved inert inspection and disabled installation. The sentinel
+checks verify that the fixture never enters the process assembly list and
+that inspection, rejection, approval and reload produce no initializer,
+constructor or manifest activity. They also cover tampering, ambiguous
+manifests, malformed metadata and changed bytes during renewed review.
+
+Windows Automation passed 3,369 tests with four skips. The private
+Settings walkthrough canceled one native review, approved the next one,
+confirmed the imported package stayed disabled, and removed it. The
+existing hidden JavaScript package and storage probe passed. The M6b
+specification checker reports no remaining Red cases. Native activation,
+hook and slot integration, and the M6b portable remain open.

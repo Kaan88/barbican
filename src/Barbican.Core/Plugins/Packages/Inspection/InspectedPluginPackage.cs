@@ -3,7 +3,7 @@ using System.Collections.Immutable;
 
 namespace Barbican.Core.Plugins.Packages.Inspection;
 
-/// <summary>Validated inert JS package data. This carries no grant, signature verdict, or permission to run.</summary>
+/// <summary>Validated inert package data. This carries no grant, signature verdict, or permission to run.</summary>
 public sealed record InspectedPluginPackage(
     string Id,
     string Version,
@@ -14,4 +14,7 @@ public sealed record InspectedPluginPackage(
     string WholeArchiveSha256,
     string BundleHash,
     string ApprovalHash,
-    ImmutableDictionary<string, ImmutableArray<byte>> Resources);
+    ImmutableDictionary<string, ImmutableArray<byte>> Resources)
+{
+    public PluginRuntimeKind RuntimeKind { get; init; } = PluginRuntimeKind.JavaScript;
+}

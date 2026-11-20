@@ -10,7 +10,7 @@ using Barbican.Core.Jmap.Errors;
 
 namespace Barbican.Core.Plugins.Packages.Inspection;
 
-/// <summary>Inspects untrusted JavaScript plugin ZIPs without extracting files or executing code.</summary>
+/// <summary>Inspects plugin ZIPs without extracting files or executing code.</summary>
 public static class PluginPackageInspector
 {
     private const int ArchiveLimit = 5 * 1024 * 1024;
@@ -18,6 +18,8 @@ public static class PluginPackageInspector
     private const int TotalLimit = 40 * 1024 * 1024;
     private const int ManifestLimit = 512 * 1024;
     private const int EntriesLimit = 200;
+    private const string JavaScriptManifest = "manifest.json";
+    private const string NativeManifest = "native-plugin.json";
     private static readonly HashSet<string> Extensions = new([".js", ".mjs", ".css", ".json", ".png", ".svg", ".woff2", ".jpg", ".jpeg", ".webp"], StringComparer.OrdinalIgnoreCase);
 
     /// <summary>The host compatibility version is a truthful Bulwark API version, separate from the product version.</summary>
@@ -38,28 +40,17 @@ public static class PluginPackageInspector
             using var input = new MemoryStream(bytes, writable: false);
             using var zip = new ZipArchive(input, ZipArchiveMode.Read);
             if (zip.Entries.Count > EntriesLimit) return Fail("The archive has too many entries.");
-            var files = await ReadEntriesAsync(zip, ct).ConfigureAwait(false);
-            var root = RootOf(files.Keys);
+            var root = RootOf(zip.Entries.Where(e => !e.FullName.EndsWith('/')).Select(e => e.FullName));
+            var native = zip.Entries.Any(e => string.Equals(e.FullName, root + NativeManifest, StringComparison.Ordinal));
+            var files = await ReadEntriesAsync(zip, root, native, ct).ConfigureAwait(false);
             var normalized = files.ToImmutableDictionary(x => x.Key[root.Length..], x => x.Value, StringComparer.Ordinal);
-            if (!normalized.TryGetValue("manifest.json", out var manifestBytes) || manifestBytes.Length > ManifestLimit) return Fail("A bounded manifest.json is required.");
-            var manifestInput = manifestBytes.AsSpan();
-            if (manifestInput.StartsWith(Encoding.UTF8.Preamble)) manifestInput = manifestInput[Encoding.UTF8.Preamble.Length..];
-            // Bulwark TextDecoder replaces malformed UTF-8, while JSON escapes retain lone UTF-16 code units.
-            var parsed = JsJson.Parse(Encoding.UTF8.GetBytes(Encoding.UTF8.GetString(manifestInput))) as Dictionary<string, object?>;
-            if (parsed is null) return Fail("The manifest must be an object.");
-            var result = ManifestInspection.Validate(parsed, bulwarkCompatibilityVersion, privateOrigins);
-            if (!result.IsOk) return Result<InspectedPluginPackage>.Fail(result.Error!);
-            var manifest = result.Value!;
-            if (!normalized.TryGetValue(manifest.EntryPoint, out var codeBytes)) return Fail("The declared entrypoint is missing.");
-            var codeInput = codeBytes.AsSpan();
-            if (codeInput.StartsWith(Encoding.UTF8.Preamble)) codeInput = codeInput[Encoding.UTF8.Preamble.Length..];
-            var code = Encoding.UTF8.GetString(codeInput);
-            AddCodeWarnings(code, manifest.Warnings);
-            var canonical = JsJson.Canonical(manifest.Fields);
-            var bundleHash = Hash(Encoding.UTF8.GetBytes(code));
-            var approvalHash = Hash(Encoding.UTF8.GetBytes(canonical + "\n" + code));
-            return Result<InspectedPluginPackage>.Ok(new InspectedPluginPackage(manifest.Id, manifest.Version, manifest.EntryPoint,
-                canonical, manifest.Permissions.ToImmutableArray(), manifest.Warnings.ToImmutableArray(), Hash(bytes), bundleHash, approvalHash, normalized));
+            if (normalized.Keys.Contains(NativeManifest, StringComparer.OrdinalIgnoreCase))
+            {
+                if (!native || normalized.Keys.Contains(JavaScriptManifest, StringComparer.OrdinalIgnoreCase))
+                    return Fail("A native package requires one unambiguous native-plugin.json manifest.");
+                return NativePackageInspection.Inspect(normalized, Hash(bytes));
+            }
+            return InspectJavaScript(normalized, bulwarkCompatibilityVersion, privateOrigins, Hash(bytes));
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
         catch (Exception e) when (e is InvalidDataException or IOException or JsonException or FormatException or OverflowException or ArgumentException or NotSupportedException)
@@ -68,27 +59,67 @@ public static class PluginPackageInspector
         }
     }
 
-    private static async Task<Dictionary<string, ImmutableArray<byte>>> ReadEntriesAsync(ZipArchive zip, CancellationToken ct)
+    private static Result<InspectedPluginPackage> InspectJavaScript(ImmutableDictionary<string, ImmutableArray<byte>> normalized,
+        string compatibilityVersion, IReadOnlySet<string> privateOrigins, string archiveHash)
+    {
+        if (!normalized.TryGetValue(JavaScriptManifest, out var manifestBytes) || manifestBytes.Length > ManifestLimit) return Fail("A bounded manifest.json is required.");
+        var manifestInput = WithoutBom(manifestBytes);
+        // Bulwark TextDecoder replaces malformed UTF-8, while JSON escapes retain lone UTF-16 code units.
+        var parsed = JsJson.Parse(Encoding.UTF8.GetBytes(Encoding.UTF8.GetString(manifestInput))) as Dictionary<string, object?>;
+        if (parsed is null) return Fail("The manifest must be an object.");
+        var result = ManifestInspection.Validate(parsed, compatibilityVersion, privateOrigins);
+        if (!result.IsOk) return Result<InspectedPluginPackage>.Fail(result.Error!);
+        var manifest = result.Value!;
+        if (!normalized.TryGetValue(manifest.EntryPoint, out var codeBytes)) return Fail("The declared entrypoint is missing.");
+        var code = Encoding.UTF8.GetString(WithoutBom(codeBytes));
+        AddCodeWarnings(code, manifest.Warnings);
+        var canonical = JsJson.Canonical(manifest.Fields);
+        var bundleHash = Hash(Encoding.UTF8.GetBytes(code));
+        var approvalHash = Hash(Encoding.UTF8.GetBytes(canonical + "\n" + code));
+        return Result<InspectedPluginPackage>.Ok(new InspectedPluginPackage(manifest.Id, manifest.Version, manifest.EntryPoint,
+            canonical, manifest.Permissions.ToImmutableArray(), manifest.Warnings.ToImmutableArray(), archiveHash, bundleHash, approvalHash, normalized));
+    }
+
+    private static ReadOnlySpan<byte> WithoutBom(ImmutableArray<byte> bytes)
+    {
+        var input = bytes.AsSpan();
+        return input.StartsWith(Encoding.UTF8.Preamble) ? input[Encoding.UTF8.Preamble.Length..] : input;
+    }
+
+    private static async Task<Dictionary<string, ImmutableArray<byte>>> ReadEntriesAsync(ZipArchive zip, string root, bool native, CancellationToken ct)
     {
         var paths = new PackagePaths();
-        var root = RootOf(zip.Entries.Where(e => !e.FullName.EndsWith('/')).Select(e => e.FullName));
         var result = new Dictionary<string, ImmutableArray<byte>>(StringComparer.Ordinal);
         long total = 0;
         foreach (var entry in zip.Entries)
         {
             var name = entry.FullName;
             if (!SafePath(name) || !paths.Add(name, name.EndsWith('/')) || IsLink(entry)) throw new InvalidDataException();
-            if (name.EndsWith('/')) continue;
+            if (name.EndsWith('/'))
+            {
+                await RequireEmptyDirectoryAsync(entry, ct).ConfigureAwait(false);
+                continue;
+            }
             var ext = Path.GetExtension(name);
-            if (ext.Length > 0 && !Extensions.Contains(ext)) throw new InvalidDataException();
+            if (ext.Length > 0 && !Extensions.Contains(ext) && !(native && string.Equals(ext, ".dll", StringComparison.OrdinalIgnoreCase)))
+                throw new InvalidDataException();
+            var manifestLimit = string.Equals(name, root + (native ? NativeManifest : JavaScriptManifest), StringComparison.Ordinal)
+                ? ManifestLimit : EntryLimit;
             using var stream = await entry.OpenAsync(ct).ConfigureAwait(false);
-            var bytes = await ReadBoundedAsync(stream, (int)Math.Min(TotalLimit - total, string.Equals(name, root + "manifest.json", StringComparison.Ordinal) ? ManifestLimit : EntryLimit), ct).ConfigureAwait(false);
+            var bytes = await ReadBoundedAsync(stream, (int)Math.Min(TotalLimit - total, manifestLimit), ct).ConfigureAwait(false);
             if (Crc32.Compute(bytes) != entry.Crc32) throw new InvalidDataException();
             total += bytes.Length;
             if (total > TotalLimit) throw new InvalidDataException();
             result.Add(name, ImmutableArray.CreateRange(bytes));
         }
         return result;
+    }
+
+    private static async Task RequireEmptyDirectoryAsync(ZipArchiveEntry entry, CancellationToken ct)
+    {
+        if (entry.Length != 0 || entry.Crc32 != 0) throw new InvalidDataException();
+        using var content = await entry.OpenAsync(ct).ConfigureAwait(false);
+        if (await content.ReadAsync(new byte[1], ct).ConfigureAwait(false) != 0) throw new InvalidDataException();
     }
 
     private static bool IsLink(ZipArchiveEntry entry)

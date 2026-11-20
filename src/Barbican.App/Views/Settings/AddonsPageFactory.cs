@@ -91,6 +91,7 @@ internal sealed class AddonsPageFactory(PluginPackageHost packages, PluginBackgr
     {
         var running = runtimes.IsRunning(installation);
         var state = installation.Enabled ? running ? "Running" : "Enabled · Stopped" : "Disabled";
+        if (installation.Package.RuntimeKind == PluginRuntimeKind.Native) state += " · Native";
         if (installation.Error is not null) state += " · Needs attention";
         detail.Text = $"Version {installation.Package.Identity.Version} · {state}";
         if (start is not null) start.Visibility = running ? Visibility.Collapsed : Visibility.Visible;
@@ -166,7 +167,8 @@ internal sealed class AddonsPageFactory(PluginPackageHost packages, PluginBackgr
         var start = installation is { Enabled: true, Error: null }
             ? AddAction("Start", "start", enabled: true, remove: false)
             : null;
-        AddAction(installation.Enabled ? "Disable" : "Enable", "enable", enabled: !installation.Enabled, remove: false);
+        if (installation.Package.RuntimeKind != PluginRuntimeKind.Native || installation.Enabled)
+            AddAction(installation.Enabled ? "Disable" : "Enable", "enable", enabled: !installation.Enabled, remove: false);
         AddAction("Remove", "remove", enabled: false, remove: true);
         _rows.Add((installation, detail, start));
         UpdateRunningState(installation, detail, start);
@@ -306,6 +308,11 @@ internal sealed class AddonsPageFactory(PluginPackageHost packages, PluginBackgr
         var candidate = preview.Candidate;
         _reviewPanel.Children.Add(SetUiUi.Heading("Review add-on"));
         _reviewPanel.Children.Add(SetUiUi.Body($"{candidate.Identity.Id} · Version {candidate.Identity.Version}"));
+        if (candidate.RuntimeKind == PluginRuntimeKind.Native)
+        {
+            ShowNativeConsent(preview, _reviewPanel);
+            return;
+        }
         if (preview.Previous is { } previous)
         {
             _reviewPanel.Children.Add(SetUiUi.Body($"Update from version {previous.Package.Identity.Version}"));
@@ -323,6 +330,27 @@ internal sealed class AddonsPageFactory(PluginPackageHost packages, PluginBackgr
             return;
         }
         ShowConsent(preview, _reviewPanel);
+    }
+
+    private void ShowNativeConsent(PluginInstallPreview preview, StackPanel panel)
+    {
+        if (preview.Previous is { } previous)
+            panel.Children.Add(SetUiUi.Body($"Update from version {previous.Package.Identity.Version}"));
+        panel.Children.Add(SetUiUi.Heading("Native add-on with full access"));
+        panel.Children.Add(SetUiUi.Body("Native add-ons can access the same files and accounts as Barbican when enabled. This version installs the add-on disabled."));
+        var hooks = preview.Candidate.Manifest.GetProperty("hooks").EnumerateArray().Select(hook => hook.GetString()!);
+        panel.Children.Add(SetUiUi.Meta("Declared hooks: " + Describe(hooks)));
+        var consent = SetUiUi.Id(new CheckBox { Content = "I trust this native add-on." }, "set.addons.native.consent");
+        var install = SetUiUi.Pill("Install disabled", () =>
+        {
+            if (consent.IsChecked == true) SetUiUi.Run(() => InstallAsync(preview, [], approveNative: true));
+        }, "set.addons.install", primary: true);
+        install.IsEnabled = false;
+        consent.Checked += (_, _) => install.IsEnabled = true;
+        consent.Unchecked += (_, _) => install.IsEnabled = false;
+        panel.Children.Add(consent);
+        panel.Children.Add(install);
+        panel.Children.Add(SetUiUi.Pill("Cancel", () => SetUiUi.Run(CancelReviewAsync), "set.addons.cancel"));
     }
 
     private void ShowConsent(PluginInstallPreview preview, StackPanel panel)
@@ -396,7 +424,7 @@ internal sealed class AddonsPageFactory(PluginPackageHost packages, PluginBackgr
             ? $"{user} ({server.GetComponents(UriComponents.SchemeAndServer | UriComponents.Path, UriFormat.SafeUnescaped)})"
             : user;
 
-    private async Task InstallAsync(PluginInstallPreview preview, List<(string Key, CheckBox Choice)> choices)
+    private async Task InstallAsync(PluginInstallPreview preview, List<(string Key, CheckBox Choice)> choices, bool approveNative = false)
     {
         if (!_visible || _importing || _mutating || _loading || !ReferenceEquals(_review, preview) || _status is null) return;
         var generation = _reviewGeneration;
@@ -407,7 +435,8 @@ internal sealed class AddonsPageFactory(PluginPackageHost packages, PluginBackgr
         try
         {
             var decision = new PluginInstallDecision(preview.ReviewId, preview.Candidate.Identity,
-                preview.Candidate.RequestedPermissions, choices.Where(x => x.Choice.IsChecked == true).Select(x => x.Key));
+                preview.Candidate.RequestedPermissions, choices.Where(x => x.Choice.IsChecked == true).Select(x => x.Key),
+                approveNativeFullTrust: approveNative);
             var result = await packages.InstallAsync(decision, CancellationToken.None).ConfigureAwait(true);
             if (!IsCurrent(generation)) return;
             if (!result.IsOk || result.Value is null)
