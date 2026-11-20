@@ -2125,3 +2125,20 @@ pinned hashes. A rebuild matched the CSS byte-for-byte and the JavaScript
 after normalizing generated import filenames. The repository privacy scan
 flagged a generated chunk and required upstream notices, so the runtime
 bundle is still preserved in local staging with the notices intact.
+
+## Codex / Astra review of Windows plugin view and bootstrap inputs (2026-11-20)
+
+The Windows view factory reserves a new browser profile exclusively, checks
+the mount around native initialization, and queues teardown on the UI thread.
+Profile deletion waits for successful control close and confirmed browser
+exit. An unconfirmed exit leaves the reserved folder on disk. The init
+message projects verified code and approved grant fields, and parses the
+validated activation registrations. The current startup input omits the
+optional slot fill flag.
+
+The bootstrap verifier returns immutable bytes only after the exact eight
+files match pinned lengths and SHA-256 values. It requires a trusted root.
+The original local staging matches all eight pins. Astra approved these
+source changes. Windows Automation built with zero warnings or errors and
+passed 3,300 tests with four skips. Production registration, serving the
+bootstrap documents, and running an isolated add-on in WebView2 are pending.
