@@ -97,6 +97,7 @@ public sealed partial class ComposerView : UserControl
 #if WINDOWS
         RefreshClassification();
         WatchAddOnActions();
+        WatchProofreading();
 #endif
     }
 
@@ -107,6 +108,7 @@ public sealed partial class ComposerView : UserControl
 #if WINDOWS
         StopClassification();
         UnwatchAddOnActions();
+        UnwatchProofreading();
 #endif
     }
 
@@ -239,6 +241,7 @@ public sealed partial class ComposerView : UserControl
 
         if (_vm is not null)
         {
+            _vm.SetProofreadingWarningCount(0);
             _vm.PropertyChanged -= OnVmChanged;
             _vm.Attachments.CollectionChanged -= OnAttachmentsChanged;
             _vm.Dialog?.Complete(null);
@@ -247,6 +250,7 @@ public sealed partial class ComposerView : UserControl
         _vm = vm;
 #if WINDOWS
         RefreshAddOnActions();
+        BindProofreading(null);
 #endif
         _card = CardKind.None;
         if (vm is null)
@@ -404,8 +408,15 @@ public sealed partial class ComposerView : UserControl
         if (vm.Editor is { } editor && ComposerBodyHost.EditorFactory is { } make)
         {
             BodyHost.Content = make(editor);
+#if WINDOWS
+            BindProofreading(editor);
+#endif
             return;
         }
+
+#if WINDOWS
+        BindProofreading(null);
+#endif
 
         // no editor control yet: a plain text box stands in (not the shipped editor; the editor view replaces it through ComposerBodyHost.EditorFactory)
         var box = new TextBox

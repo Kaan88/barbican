@@ -3020,8 +3020,21 @@ hook checks passed. The extracted portable reported the candidate
 revision and reached shell-ready in 933.1 ms before exiting with code 0.
 [Candidate evidence](milestones/M6b-solo-parity.md#windows-checkpoint-at-3791df4)
 
-M6b remains open. The unchanged proofreading fixture reached Enabled ·
-Stopped because `composer.registerChecker` lacks a native adapter.
+At this revision, the unchanged proofreading fixture reached Enabled ·
+Stopped because `composer.registerChecker` lacked a native adapter.
 Generic dialogs, scoped mail-read results and denials, and the remaining
 production slot integrations still require implementation and executable
 evidence. [M6b API evidence and open methods](milestones/M6b-api-inventory.md#windows-execution-evidence-for-the-november-20-continuation)
+
+## Codex / Astra typing checker review
+
+GPT-6.2 Astra on High approved the source fixes for the typing-checker
+findings. Suggestion application holds the binding and registration
+fences through the edit. Pending signer teardown blocks draft disclosure.
+Policy refresh runs separately from typing, and a newly resolved denial
+invalidates queued disclosure even during overlapping reads. The host filters
+malformed annotations and verifies all contributing bindings before showing
+results. The queued provider withdrawal produced zero additional WebView
+posts. This was approval of the fixes under review. The integrated M6b
+candidate and portable still require final approval.
+[Windows checker evidence](milestones/M6b-solo-parity.md#typing-checker-on-windows)

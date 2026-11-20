@@ -10,8 +10,13 @@ namespace Barbican.App.Plugins.Sandbox;
 
 public sealed partial class PluginSandboxSession
 {
+#if AUTOMATION
+    internal static Action? BeforeSyntheticCheckerPost { get; set; }
+    internal static Action<PluginValue>? AfterSyntheticCheckerPost { get; set; }
+#endif
     internal async Task<Result<PluginValue>> InvokeHookAsync(string hookName, PluginValue arguments, TimeSpan budget,
-        CancellationToken ct, Func<Func<bool>, bool>? runWhileCurrent = null)
+        CancellationToken ct, Func<Func<bool>, bool>? runWhileCurrent = null, string? proofreadingAccount = null,
+        Func<Func<bool>, bool>? whileRegistered = null)
     {
         ct.ThrowIfCancellationRequested();
         if (arguments.Kind != PluginValueKind.Array || budget <= TimeSpan.Zero || budget > TimeSpan.FromMinutes(10) ||
@@ -30,17 +35,17 @@ public sealed partial class PluginSandboxSession
         try
         {
             var wire = EncodeHook(hookName, id, arguments);
-            if (wire is null || !await View.PostAsync((write, postToken) =>
-                new(delivery.TryPostAsync(Binding, _ => runWhileCurrent is null
-                    ? PostHook(id, wire, write, postToken)
-                    : runWhileCurrent(() => PostHook(id, wire, write, postToken)), postToken)), token).ConfigureAwait(false))
+            if (wire is null || !await View.PostAsync((write, postToken) => new(PostInvocationAsync(delivery, id, wire,
+                write, arguments, runWhileCurrent, proofreadingAccount, whileRegistered, postToken)), token).ConfigureAwait(false))
                 return HookUnavailable();
 
             var reply = await pending.WaitAsync(token).ConfigureAwait(false);
-            if (!await delivery.TryPostAsync(Binding, _ => CanReturnHook(token), token).ConfigureAwait(false))
+            if (!await (proofreadingAccount is null ? delivery.TryPostAsync(Binding, _ => CanReturnHook(token), token)
+                : delivery.TryPostProofreadingAsync(Binding, proofreadingAccount, () => CanReturnHook(token), token)).ConfigureAwait(false))
                 return HookUnavailable();
             ct.ThrowIfCancellationRequested();
             return InterpretHookReply(reply);
+
         }
         catch (OperationCanceledException) when (!ct.IsCancellationRequested)
         {
@@ -61,6 +66,26 @@ public sealed partial class PluginSandboxSession
         }
     }
 
+    private Task<bool> PostInvocationAsync(IPluginDeliveryAuthority delivery, string id, string wire, Action<string> write,
+        PluginValue arguments, Func<Func<bool>, bool>? runWhileCurrent, string? proofreadingAccount,
+        Func<Func<bool>, bool>? whileRegistered, CancellationToken ct)
+    {
+        bool NativePost()
+        {
+            var posted = PostHook(id, wire, write, whileRegistered, ct);
+#if AUTOMATION
+            if (posted && proofreadingAccount is not null) AfterSyntheticCheckerPost?.Invoke(arguments);
+#endif
+            return posted;
+        }
+        bool Post() => runWhileCurrent is null ? NativePost() : runWhileCurrent(NativePost);
+#if AUTOMATION
+        if (proofreadingAccount is not null) BeforeSyntheticCheckerPost?.Invoke();
+#endif
+        return proofreadingAccount is null ? delivery.TryPostAsync(Binding, _ => Post(), ct)
+            : delivery.TryPostProofreadingAsync(Binding, proofreadingAccount, Post, ct);
+    }
+
     private static string? EncodeHook(string hookName, string id, PluginValue arguments)
     {
         var builder = new PluginValueBuilder();
@@ -71,7 +96,7 @@ public sealed partial class PluginSandboxSession
             : null;
     }
 
-    private bool PostHook(string id, string wire, Action<string> write, CancellationToken ct)
+    private bool PostHook(string id, string wire, Action<string> write, Func<Func<bool>, bool>? whileRegistered, CancellationToken ct)
     {
         lock (_gate)
         {
@@ -79,9 +104,14 @@ public sealed partial class PluginSandboxSession
             var posted = false;
             return Binding.TryWriteWhileAlive(() =>
             {
-                if (!_hookReplies.TryMarkPosted(id)) return;
-                write(wire);
-                posted = true;
+                posted = whileRegistered is null ? TryWrite() : whileRegistered(TryWrite);
+
+                bool TryWrite()
+                {
+                    if (!_hookReplies.TryMarkPosted(id)) return false;
+                    write(wire);
+                    return true;
+                }
             }) && posted;
         }
     }

@@ -5,6 +5,7 @@ using Barbican.App.Motion;
 using Barbican.App.Shell;
 using Barbican.App.Theme;
 using Barbican.Core.Editor;
+using Barbican.Core.Plugins.Api.Composer;
 using Barbican.Editor.Layout;
 using Barbican.Editor.Layout.Input;
 using Barbican.Presentation.Editor;
@@ -25,6 +26,8 @@ public sealed partial class EditorView : UserControl
     private const double PadY = 6;
 
     private readonly EditorCanvas _canvas = new() { IsHitTestVisible = false };
+    private IReadOnlyList<PluginCheckIssue> _proofreadingIssues = [];
+    private bool _checkerHandlesSpelling;
     private readonly ThemeController _theme = ViewHost.Get<ThemeController>();
     private readonly ScrollViewer _scroll = new() { VerticalScrollBarVisibility = ScrollBarVisibility.Auto, HorizontalScrollMode = ScrollMode.Disabled, Background = null };
     private readonly Grid _spacer = new() { Background = new SolidColorBrush(Microsoft.UI.Colors.Transparent), AllowDrop = true };
@@ -305,11 +308,35 @@ public sealed partial class EditorView : UserControl
         {
             ClipTop = offset - (float)PadY,
             ClipBottom = offset + (float)_body.ActualHeight,
-            SpellMarks = (b, text) => _vm.Misspelled(b, text),
+            SpellMarks = _checkerHandlesSpelling ? null : (b, text) => _vm.Misspelled(b, text),
             SelectedImage = onImage ? focus : -1,
         };
         _layout.Paint(canvas, _session.Doc, _session.Sel, options);
+        PaintProofreading(canvas, _layout, _session.Doc);
         canvas.Restore();
+    }
+
+    private void PaintProofreading(SKCanvas canvas, DocLayout layout, Doc doc)
+    {
+        if (_proofreadingIssues.Count == 0) return;
+        using var underline = new SKPaint { IsAntialias = true, StrokeWidth = 1.5f };
+        foreach (var issue in _proofreadingIssues)
+        {
+            underline.Color = issue.Kind is "spelling" ? new SKColor(220, 65, 74) : new SKColor(51, 135, 216);
+            foreach (var rect in layout.SelectionRects(doc, new Sel(issue.Start, issue.End)))
+            {
+                var y = rect.Y + rect.Height - 1;
+                canvas.DrawLine(rect.X, y, rect.X + rect.Width, y, underline);
+            }
+        }
+    }
+
+    internal void ShowProofreading(IReadOnlyList<PluginCheckIssue> issues, bool checkerHandlesSpelling)
+    {
+        if (_proofreadingIssues.Count == 0 && issues.Count == 0 && _checkerHandlesSpelling == checkerHandlesSpelling) return;
+        _proofreadingIssues = issues;
+        _checkerHandlesSpelling = checkerHandlesSpelling;
+        _canvas.Redraw();
     }
 
     private void ScrollToCaret()

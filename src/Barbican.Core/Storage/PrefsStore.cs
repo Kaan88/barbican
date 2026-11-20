@@ -46,6 +46,13 @@ public sealed class PrefsStore : IPrefsStore, IPrefsEditor, IDisposable
     /// <inheritdoc/>
     public event EventHandler? Changed;
 
+    public bool TryRunWhileCurrent(Func<PrefsSnapshot, bool> issue)
+    {
+        ArgumentNullException.ThrowIfNull(issue);
+        _ = Current;
+        lock (_lock) return issue(_current!);
+    }
+
     /// <inheritdoc/>
     public PrefsSnapshot Current
     {

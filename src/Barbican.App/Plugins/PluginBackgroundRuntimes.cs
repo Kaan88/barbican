@@ -99,6 +99,7 @@ internal sealed partial class PluginBackgroundRuntimes(
         var token = operation.Token;
         try
         {
+            RunningChanged?.Invoke(this, EventArgs.Empty);
             if (await GetFactoryAsync(token).ConfigureAwait(false) is not { } factory) return Failed("Add-on startup is unavailable.");
             var current = await packages.FindAsync(package.Id, token).ConfigureAwait(false);
             if (current.IsOk && current.Value is { } item && item.Package.Identity == package &&

@@ -1,5 +1,6 @@
 using Barbican.Core.Common;
 using Barbican.Core.Jmap.Errors;
+using Barbican.Core.Plugins.Api.Composer;
 using Barbican.Core.Plugins.Protocol;
 using Barbican.Core.Plugins.Runtime;
 
@@ -29,6 +30,13 @@ internal sealed class PluginSandboxRuntimeInstance(PluginSandboxSession session,
 
     public Task<Result<PluginValue>> InvokeCallbackAsync(string callbackId, PluginValue arguments, TimeSpan budget, CancellationToken ct) =>
         UnavailableAsync<PluginValue>(ct);
+
+    public Task<Result<PluginValue>> InvokeCheckerAsync(PluginCheckerRegistration spec, PluginCheckerRegistry registry,
+        string accountKey, PluginValue arguments, Func<Func<bool>, bool> runWhileCurrent, CancellationToken ct) =>
+        ReferenceEquals(spec.Owner, Binding) && !spec.OnDemand && registry.Contains(spec)
+            ? session.InvokeHookAsync("checker:" + spec.Id, arguments, TimeSpan.FromSeconds(15), ct,
+                runWhileCurrent, accountKey, write => registry.TryRunWhileRegistered(spec, write))
+            : UnavailableAsync<PluginValue>(ct);
 
     public Task<Result<bool>> ShouldShowAsync(string slot, PluginValue context, CancellationToken ct) => UnavailableAsync<bool>(ct);
 

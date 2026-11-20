@@ -511,7 +511,19 @@ public sealed partial class PluginPackageManager : IPluginPackageManager, IPlugi
         return item.IsOk ? Result<PluginGrantSnapshot?>.Ok(item.Value?.Enabled == true ? item.Value.Grant : null) : Result<PluginGrantSnapshot?>.Fail(item.Error!);
     }
 
-    public async Task<bool> TryPostAsync(PluginRuntimeBinding binding, Func<PluginGrantSnapshot, bool> write, CancellationToken ct)
+    public Task<bool> TryPostAsync(PluginRuntimeBinding binding, Func<PluginGrantSnapshot, bool> write, CancellationToken ct) =>
+        TryPostAsync(binding, write, proofreadingAccount: null, ct);
+
+    public Task<bool> TryPostProofreadingAsync(PluginRuntimeBinding binding, string accountKey, Func<bool> write, CancellationToken ct)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(accountKey);
+        ArgumentNullException.ThrowIfNull(write);
+        return TryPostAsync(binding, grant => grant.Authorizes(binding.Package, binding.GrantGeneration, "compose:check", accountKey) && write(),
+            accountKey, ct);
+    }
+
+    private async Task<bool> TryPostAsync(PluginRuntimeBinding binding, Func<PluginGrantSnapshot, bool> write,
+        string? proofreadingAccount, CancellationToken ct)
     {
         ArgumentNullException.ThrowIfNull(binding);
         ArgumentNullException.ThrowIfNull(write);
@@ -527,6 +539,9 @@ public sealed partial class PluginPackageManager : IPluginPackageManager, IPlugi
             {
                 if (!HasAuthority || ct.IsCancellationRequested || !string.Equals(binding.Profile, _options.Profile, StringComparison.Ordinal)
                     || !loaded.Value!.Installations.TryGetValue(binding.Package.Id, out var item))
+                    return false;
+
+                if (proofreadingAccount is not null && MayHaveCryptoRuntime(loaded.Value.Index))
                     return false;
 
                 if (item.Package.Source == PluginPackageSource.Managed)
@@ -557,7 +572,18 @@ public sealed partial class PluginPackageManager : IPluginPackageManager, IPlugi
     }
 
     /// <summary>Runs one synchronous host operation while every contributing runtime retains its package authority.</summary>
-    public async Task<bool> TryRunWithGrantsAsync(IReadOnlyCollection<PluginRuntimeBinding> bindings, Func<bool> issue, CancellationToken ct)
+    public Task<bool> TryRunWithGrantsAsync(IReadOnlyCollection<PluginRuntimeBinding> bindings, Func<bool> issue, CancellationToken ct) =>
+        TryRunWithGrantsAsync(bindings, issue, proofreadingAccount: null, ct);
+
+    public Task<bool> TryPublishProofreadingAsync(IReadOnlyCollection<PluginRuntimeBinding> bindings, string accountKey,
+        Func<bool> issue, CancellationToken ct)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(accountKey);
+        return TryRunWithGrantsAsync(bindings, issue, accountKey, ct);
+    }
+
+    private async Task<bool> TryRunWithGrantsAsync(IReadOnlyCollection<PluginRuntimeBinding> bindings, Func<bool> issue,
+        string? proofreadingAccount, CancellationToken ct)
     {
         ArgumentNullException.ThrowIfNull(bindings);
         ArgumentNullException.ThrowIfNull(issue);
@@ -569,7 +595,8 @@ public sealed partial class PluginPackageManager : IPluginPackageManager, IPlugi
             if (!loaded.IsOk) return false;
             lock (_issuanceGate)
             {
-                if (!HasAuthority || ct.IsCancellationRequested) return false;
+                if (!HasAuthority || ct.IsCancellationRequested ||
+                    (proofreadingAccount is not null && MayHaveCryptoRuntime(loaded.Value!.Index))) return false;
                 foreach (var binding in bindings)
                 {
                     if (!binding.IsAlive || !string.Equals(binding.Profile, _options.Profile, StringComparison.Ordinal) ||
@@ -580,7 +607,9 @@ public sealed partial class PluginPackageManager : IPluginPackageManager, IPlugi
                         if (binding.Tier != PluginExecutionTier.Privileged) return false;
                     }
                     else if (!item.Enabled || item.Grant is not { Enabled: true } grant ||
-                        grant.Generation != binding.GrantGeneration || grant.Tier != binding.Tier) return false;
+                        grant.Generation != binding.GrantGeneration || grant.Tier != binding.Tier ||
+                        (proofreadingAccount is not null && !grant.Authorizes(binding.Package, binding.GrantGeneration, "compose:check", proofreadingAccount)))
+                        return false;
                 }
                 var managed = bindings.Where(binding => binding.Tier == PluginExecutionTier.Privileged).ToArray();
                 return lease.TryRunWhileHeld(() => TryRunWithManagedBindings(managed, 0,
@@ -589,6 +618,12 @@ public sealed partial class PluginPackageManager : IPluginPackageManager, IPlugi
         }
         finally { _gate.Release(); }
     }
+
+    // Native composer options cannot yet report signer intent. Include teardown failures since a
+    // disabled entry with cleanup pending can still have a running signer.
+    private bool MayHaveCryptoRuntime(Index index) => _managedStarts.Count > 0 || _managedRuntimes.Count > 0 ||
+        _managedRevoking.Count > 0 || index.Entries.Any(entry => entry.Permissions.Contains("crypto:full", StringComparer.Ordinal) &&
+            (entry.Enabled || entry.CleanupThrough is not null || _blocked.Contains(entry.Id)));
 
     public async Task<Result<Unit>> SetEnabledAsync(PluginPackageIdentity package, bool enabled, CancellationToken ct)
     {

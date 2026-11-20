@@ -216,6 +216,58 @@ public sealed class PluginPackageManagerAcceptanceTests
         finally { root.Delete(recursive: true); }
     }
 
+    [Fact]
+    public async Task ProofreadingBlocksWrongOwnersAndCryptoRuntimeUntilVerifiedCleanup()
+    {
+        var root = Directory.CreateTempSubdirectory("barbican-checker-authority-");
+        try
+        {
+            var rig = new PackageTestRig();
+            var paths = Barbican.Core.Storage.ProfilePaths.At(PackageTestRig.Profile, root.FullName, root.FullName);
+            await using var lease = Need(await new Barbican.Core.Plugins.Persistence.PluginProfileAuthorityLeaseFactory().AcquireAsync(paths, Ct));
+            using var manager = new PluginPackageManager(new(PackageTestRig.Profile, "1.21.2"), rig.Persistence, rig.Cleanup, rig.Time, lease);
+            using var check = PackageTestRig.ArchiveForId("checker-test", "export default 1", "compose:check");
+            var checkedReview = Need(await manager.InspectAsync(check, PluginPackageSource.LocalImport, Ct));
+            var checker = Need(await manager.InstallAsync(Decision(checkedReview, ["compose:check"], ["login-a"]), Ct)).Package.Identity;
+            _ = Need(await manager.SetEnabledAsync(checker, true, Ct));
+            var grant = Need(await manager.GetCurrentAsync(checker.Id, Ct))!;
+            await using var binding = Barbican.Core.Plugins.Runtime.PluginRuntimeBinding.Create(PackageTestRig.Profile, grant,
+                Barbican.Core.Plugins.Runtime.PluginFrameKind.Background);
+            var posts = 0;
+            bool Post() { posts++; return true; }
+            Assert.False(await manager.TryPostProofreadingAsync(binding, "login-b", Post, Ct));
+            Assert.True(await manager.TryPostProofreadingAsync(binding, "login-a", Post, Ct));
+
+            using var signing = PackageTestRig.ArchiveForId("signer-test", "export default 1", "crypto:full");
+            var signReview = Need(await manager.InspectAsync(signing, PluginPackageSource.LocalImport, Ct));
+            var signer = Need(await manager.InstallAsync(Decision(signReview, ["crypto:full"], ["login-a"]), Ct)).Package.Identity;
+            Assert.True((await manager.SetEnabledAsync(signer, true, Ct)).IsOk);
+            Assert.False(await manager.TryPostProofreadingAsync(binding, "login-a", Post, Ct));
+            var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            var finish = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            rig.Cleanup.Pending = true;
+            rig.Cleanup.OnRevoke = async () =>
+            {
+                entered.TrySetResult();
+                await finish.Task.WaitAsync(TimeSpan.FromSeconds(5), Ct);
+            };
+            var stopping = manager.SetEnabledAsync(signer, false, Ct);
+            try
+            {
+                await entered.Task.WaitAsync(TimeSpan.FromSeconds(5), Ct);
+                Assert.False(await manager.TryPostProofreadingAsync(binding, "login-a", Post, Ct));
+            }
+            finally { finish.TrySetResult(); }
+            Assert.False((await stopping).IsOk);
+            Assert.False(await manager.TryPublishProofreadingAsync([binding], "login-a", Post, Ct));
+            rig.Cleanup.Pending = false;
+            Assert.True((await manager.SetEnabledAsync(signer, false, Ct)).IsOk);
+            Assert.True(await manager.TryPostProofreadingAsync(binding, "login-a", Post, Ct));
+            Assert.Equal(2, posts);
+        }
+        finally { root.Delete(recursive: true); }
+    }
+
     private static async Task VerifyGrantRevocationAsync(string root)
     {
         var rig = new PackageTestRig();

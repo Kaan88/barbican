@@ -29,6 +29,7 @@ public static class ComposerAutomation
 
 #if WINDOWS
         Add(services, "compose-window", (_, args) => WindowAction?.Invoke(args.Trim()) ?? Task.FromResult("error no shell"));
+        services.AddSingleton<IAutomationCommand, ProofreadingProbeCommand>();
 #endif
         Add(services, "compose-edit", (sp, args) => Task.FromResult(Edit(sp, args)));
         Add(services, "compose-open", ComposeOpenAsync);

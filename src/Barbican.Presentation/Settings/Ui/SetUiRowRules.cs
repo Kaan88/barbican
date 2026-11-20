@@ -12,8 +12,11 @@ public static class SetUiRowRules
     // "Settings sync" over settingsSyncDisabled; settings-schema.json `invert`, a field the catalog record does not carry).
     private static readonly HashSet<string> InvertedKeys = new(["disableThreading", "settingsSyncDisabled"], StringComparer.Ordinal);
 
-    // The keyless select rows the shell already reads under a pref (Rust settings.rs kept the key in code, not in the schema): "Light or dark" is "theme" (light, dark, system).
-    private static readonly Dictionary<string, string> KeylessKeys = new(StringComparer.Ordinal) { ["S-keyless-025"] = "theme", ["S-keyless-049"] = "calendarViewMode" };
+    // Keep the schema's row IDs while binding controls without an embedded preference key.
+    private static readonly Dictionary<string, string> KeylessKeys = new(StringComparer.Ordinal)
+    {
+        ["S-keyless-025"] = "theme", ["S-keyless-040"] = "proofreading", ["S-keyless-049"] = "calendarViewMode",
+    };
 
     private static readonly Dictionary<string, string> KeylessDefaults = new(StringComparer.Ordinal) { ["S-keyless-025"] = "system", ["S-keyless-049"] = "month" };
 

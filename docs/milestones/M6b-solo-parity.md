@@ -317,15 +317,39 @@ provider during a second print left the count at one. Disable removed
 the contributed actions. Physical printing was outside the run.
 
 The `proofreading-checker` fixture installed disabled and became Enabled
-· Stopped after Enable. Its unchanged entrypoint calls
-`composer.registerChecker`, which still needs a native adapter and the
-composer's proofreading UI. The generic dialog and scoped mail-read
-APIs also remain open. [API evidence and open methods](M6b-api-inventory.md#windows-execution-evidence-for-the-november-20-continuation)
+· Stopped at the initial checkpoint. Its unchanged entrypoint calls
+`composer.registerChecker`. The later [typing checker replay](#typing-checker-on-windows)
+exercises that adapter in the Windows composer.
 
 Local logs and images are in `artifacts/auto/9223/` for the API probe
 and `artifacts/auto/9213/` for the proofreading fixture. The frame
 probe results are in `artifacts/auto/9211/stdout.txt` and
 `artifacts/auto/9212/stdout.txt`.
+
+## Typing checker on Windows
+
+The same pinned manifest and entrypoint reached Running in a private synthetic
+session. With verified organization policy and the Composing preference off,
+the editor made zero checker posts. Turning on the preference produced two
+issues for `dem Brief` and `teh` and matching 1280 × 720 light and dark captures.
+The request contained a checker-specific draft alias and only the declared
+request fields. The subject marker stayed out of the request. The projection
+tests also exercise signature and quoted-text exclusion and UTF-16 offsets.
+
+Send displayed the writing-issue warning. Going back kept the draft and the
+submission count stayed at zero. Selecting `den` in the issue menu corrected
+the draft and left one issue. Withdrawing policy after the next request was
+queued left the native post count unchanged and cleared the issues.
+See `artifacts/auto/9232/proofreading-checkpoint.txt` and the captures beside it.
+The first successful suggestion and queued-denial replay is also recorded
+in `artifacts/auto/9231/application-and-queued-denial.txt`.
+
+The Windows Automation suite passed 3,638 tests with four skips. The
+strict M6b catalogue and generated hooks checks passed.
+
+The current native path checks one bounded snapshot of authored text.
+Long-draft chunking, on-demand text and annotation exchange, checker action
+callbacks, direct issue navigation and per-checker controls remain open.
 
 ## Windows checkpoint at 3791df4
 

@@ -77,6 +77,13 @@ internal sealed class PluginPackageHost(IProfilePaths paths, ISecretStore secret
     internal Task<bool> TryPostAsync(PluginRuntimeBinding binding, Func<PluginGrantSnapshot, bool> write, CancellationToken ct) =>
         Volatile.Read(ref _manager) is { } manager ? manager.TryPostAsync(binding, write, ct) : Task.FromResult(false);
 
+    internal Task<bool> TryPostProofreadingAsync(PluginRuntimeBinding binding, string accountKey, Func<bool> issue, CancellationToken ct) =>
+        Volatile.Read(ref _manager) is { } manager ? manager.TryPostProofreadingAsync(binding, accountKey, issue, ct) : Task.FromResult(false);
+
+    internal Task<bool> TryPublishProofreadingAsync(IReadOnlyCollection<PluginRuntimeBinding> bindings, string accountKey,
+        Func<bool> issue, CancellationToken ct) =>
+        Volatile.Read(ref _manager) is { } manager ? manager.TryPublishProofreadingAsync(bindings, accountKey, issue, ct) : Task.FromResult(false);
+
     internal Task<bool> TryPostWithContinuationAsync(PluginRuntimeBinding binding,
         Func<PluginGrantSnapshot, Func<Func<bool>, bool>, bool> write, CancellationToken ct) =>
         Volatile.Read(ref _manager) is { } manager

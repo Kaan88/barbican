@@ -13,6 +13,7 @@ public sealed partial class ComposerViewModel
 {
     private bool _sending;
     private bool _sendFlowActive;
+    private int _proofreadingWarningCount;
     private ScheduleDialogViewModel? _schedule;
 
     /// <summary>A send is in flight (the buttons are off and the composer cannot be closed).</summary>
@@ -44,6 +45,9 @@ public sealed partial class ComposerViewModel
 
     /// <summary>Send, Ctrl+Enter. False when the checks stopped it or the send failed; true when the message went (the composer then closes).</summary>
     public Task<bool> SendAsync() => SendAtAsync(null);
+
+    /// <summary>Updates the advisory count from current checker results shown by the composer.</summary>
+    public void SetProofreadingWarningCount(int count) => _proofreadingWarningCount = Math.Max(0, count);
 
     internal Task<bool> SendInlineAsync(CancellationToken ct) => SendAtAsync(null, ct);
 
@@ -150,9 +154,11 @@ public sealed partial class ComposerViewModel
     private async Task<bool> ConfirmSendAsync(ComposeDraft draft)
     {
         var warnings = SendWarnings.Check(draft, _c.Settings, _ownDomains).Where(w => w.Kind != SendWarningKind.ExternalRecipients || _c.ConfirmExternalRecipients).ToList();
-        if (warnings.Count > 0)
+        var lines = warnings.SelectMany(WarningLines).ToList();
+        if (_proofreadingWarningCount > 0)
+            lines.Add(_proofreadingWarningCount == 1 ? "One writing issue is still open." : $"{_proofreadingWarningCount} writing issues are still open.");
+        if (lines.Count > 0)
         {
-            var lines = warnings.SelectMany(WarningLines).ToList();
             var answer = await AskAsync(new ComposerDialog(
                 "warnings",
                 "Before you send",

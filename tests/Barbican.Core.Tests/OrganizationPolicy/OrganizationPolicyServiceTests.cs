@@ -189,6 +189,56 @@ public sealed class OrganizationPolicyServiceTests
     }
 
     [Fact]
+    public async Task ProofreadingPolicyRefreshInvalidatesQueuedDisclosureUnderTheSameRoute()
+    {
+        using var rig = await Rig.CreateAsync();
+        var ct = TestContext.Current.CancellationToken;
+        var initial = (await rig.Service.ReadAsync(Key, ct)).Snapshot!;
+        Assert.True(initial.TryRunWhileProofreadingCurrent(static () => true));
+        _ = await rig.Service.ReadAsync(Key, ct);
+        Assert.True(initial.TryRunWhileProofreadingCurrent(static () => true));
+
+        rig.Handler.PolicyBody = """{"organisation":{},"scopes":[],"restrictions":{"proofreading":{"locked":true,"value":false}}}""";
+        var latest = (await rig.Service.ReadAsync(Key, ct)).Snapshot!;
+        Assert.False(initial.TryRunWhileProofreadingCurrent(static () => throw new InvalidOperationException("Stale proofreading snapshot.")));
+        Assert.True(initial.TryRunWhileCurrent(static () => true));
+        Assert.True(latest.TryRunWhileProofreadingCurrent(static () => true));
+        Assert.False(latest.Effective.Proofreading.Allows("mock", true, true));
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task ProofreadingAppliesCompletedDenialWhileAnotherReadIsPending(bool newerDenies)
+    {
+        using var rig = await Rig.CreateAsync();
+        var ct = TestContext.Current.CancellationToken;
+        const string deny = """{"organisation":{},"scopes":[],"restrictions":{"proofreading":{"locked":true,"value":false}}}""";
+        var initial = (await rig.Service.ReadAsync(Key, ct)).Snapshot!;
+        var first = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var second = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        rig.Handler.PolicyBody = newerDenies ? Policy : deny;
+        rig.Handler.PauseNext(first);
+        var older = rig.Service.ReadAsync(Key, ct);
+        await rig.Handler.Entered.Task.WaitAsync(TimeSpan.FromSeconds(5), ct);
+        rig.Handler.PolicyBody = newerDenies ? deny : Policy;
+        rig.Handler.PauseNext(second);
+        var newer = rig.Service.ReadAsync(Key, ct);
+        await rig.Handler.Entered.Task.WaitAsync(TimeSpan.FromSeconds(5), ct);
+
+        (newerDenies ? second : first).SetResult();
+        var denial = (await (newerDenies ? newer : older)).Snapshot!;
+        Assert.False(initial.TryRunWhileProofreadingCurrent(static () => throw new InvalidOperationException("Queued disclosure was released.")));
+        Assert.False(denial.Effective.Proofreading.Allows("mock", true, null));
+        Assert.True(denial.TryRunWhileProofreadingCurrent(static () => true));
+
+        (newerDenies ? first : second).SetResult();
+        var allow = (await (newerDenies ? older : newer)).Snapshot!;
+        Assert.Equal(!newerDenies, allow.TryRunWhileProofreadingCurrent(static () => true));
+        Assert.Equal(newerDenies, denial.TryRunWhileProofreadingCurrent(static () => true));
+    }
+
+    [Fact]
     public async Task Basic_enrollment_is_refused_before_policy_request()
     {
         using var rig = await Rig.CreateAsync();
@@ -467,6 +517,7 @@ public sealed class OrganizationPolicyServiceTests
 
     private sealed class Handler : HttpMessageHandler
     {
+        public string PolicyBody { get; set; } = Policy;
         public int Count { get; private set; }
         public string? Target { get; private set; }
         public string? Server { get; private set; }
@@ -476,6 +527,12 @@ public sealed class OrganizationPolicyServiceTests
         public bool IsPublic { get; set; }
         public TaskCompletionSource? Hold { get; set; }
         public TaskCompletionSource Entered { get; private set; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public void PauseNext(TaskCompletionSource release)
+        {
+            Entered = new(TaskCreationOptions.RunContinuationsAsynchronously);
+            Hold = release;
+        }
+
         protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
         {
             Count++;
@@ -483,8 +540,9 @@ public sealed class OrganizationPolicyServiceTests
             Server = request.Headers.GetValues("X-JMAP-Server-Url").Single();
             Scheme = request.Headers.Authorization?.Scheme;
             Token = request.Headers.Authorization?.Parameter;
+            var body = PolicyBody;
             if (Hold is { } hold) { Entered.TrySetResult(); await hold.Task.WaitAsync(cancellationToken); }
-            var reply = new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(Policy, Encoding.UTF8, "application/json") };
+            var reply = new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(body, Encoding.UTF8, "application/json") };
             reply.Headers.TryAddWithoutValidation("X-Bulwark-Policy-Domains", Domains);
             if (IsPublic) reply.Headers.TryAddWithoutValidation("X-Bulwark-Policy-Scope", "public");
             return reply;

@@ -175,7 +175,7 @@ S-keyless-036,keyless,accessibility,info,Asking before deleting several messages
 S-keyless-037,keyless,accessibility,info,Do not disturb,,,,SetUiRowsView,Accessibility cross-link opens its target Settings page or shortcuts help.
 S-keyless-038,keyless,accessibility,info,Sounds and the unread badge,,,,SetUiRowsView,Accessibility cross-link opens its target Settings page or shortcuts help.
 S-keyless-039,keyless,message_list,select,Message list order,,,,SetUiOrderEditor; MessageListOrder,"Presets and up to three ordered levels including tags; hidden sample exercised add, reorder and tag changes."
-S-keyless-040,keyless,composing,toggle,Check spelling and grammar while I type,,,,unavailable (proofreading control),no key: dropped by Rust settings.rs schema_rows
+S-keyless-040,keyless,composing,toggle,Check spelling and grammar while I type,,,,SetUiRowRules; ComposerView.Proofreading,"Persists proofreading. The composer also checks account policy and the add-on's current grant."
 S-keyless-041,keyless,vacation,info,Reply automatically,,,,SrvUiVacationPage; SrvUiVacationViewModel; VacationService,no key: dropped by Rust settings.rs schema_rows
 S-keyless-042,keyless,vacation,select,Reply to,,,,SrvUiVacationPage; SrvUiVacationViewModel; VacationService,no key: dropped by Rust settings.rs schema_rows
 S-keyless-043,keyless,vacation,text,From (optional),,,,SrvUiVacationPage; SrvUiVacationViewModel; VacationService,no key: dropped by Rust settings.rs schema_rows

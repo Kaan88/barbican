@@ -1,4 +1,5 @@
 // Mirrors: Bulwark lib/plugin-sandbox/protocol.ts:115-334 and runtime.tsx:368-407,646-666; the tagged v1 graph is a native transport adaptation.
+using System.Diagnostics.CodeAnalysis;
 using System.Text;
 using System.Text.Json;
 
@@ -25,6 +26,13 @@ public sealed class PluginValue
         if (Kind != PluginValueKind.Object) throw new InvalidOperationException("Not an object.");
         var index = Array.FindIndex(Node.Keys!, x => string.Equals(x, name, StringComparison.Ordinal));
         return index < 0 ? throw new KeyNotFoundException(name) : new(_nodes, Node.Links![index], _limits);
+    }
+    public bool TryGetProperty(string name, [NotNullWhen(true)] out PluginValue? value)
+    {
+        var index = Kind == PluginValueKind.Object
+            ? Array.FindIndex(Node.Keys!, key => string.Equals(key, name, StringComparison.Ordinal)) : -1;
+        value = index < 0 ? null : new(_nodes, Node.Links![index], _limits);
+        return value is not null;
     }
     public PluginValue Item(int index) => Kind is PluginValueKind.Array or PluginValueKind.Set ? new(_nodes, Node.Links![index], _limits) : throw new InvalidOperationException("Not an array or set.");
     public (PluginValue Key, PluginValue Value) MapEntry(int index) => Kind == PluginValueKind.Map ? (new(_nodes, Node.Links![index * 2], _limits), new(_nodes, Node.Links![(index * 2) + 1], _limits)) : throw new InvalidOperationException("Not a map.");

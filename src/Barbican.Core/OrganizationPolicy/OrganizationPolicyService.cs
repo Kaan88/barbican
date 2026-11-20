@@ -12,6 +12,10 @@ public sealed class OrganizationPolicyService(IAccountSessionSnapshots accounts,
     private readonly Lock _gate = new();
     private readonly Dictionary<string, RouteState> _routes = new(StringComparer.Ordinal);
 
+    public event EventHandler? ProofreadingPolicyChanged;
+
+    private void RaiseProofreadingPolicyChanged() => ProofreadingPolicyChanged?.Invoke(this, EventArgs.Empty);
+
     /// <summary>Registers a provider the host explicitly trusts for this login, until sign-out or replacement.</summary>
     public bool ConfigureProvider(string localAccountKey, Uri jmapServer, Uri policyOrigin)
     {
@@ -81,21 +85,24 @@ public sealed class OrganizationPolicyService(IAccountSessionSnapshots accounts,
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(localAccountKey);
         lock (_gate) _routes[localAccountKey] = new(Route: null);
+        ProofreadingPolicyChanged?.Invoke(this, EventArgs.Empty);
     }
 
     /// <summary>Disconnects only the exact selected login's provider.</summary>
     public bool RemoveProvider(AccountSessionSnapshot captured)
     {
         ArgumentNullException.ThrowIfNull(captured);
-        return captured.ActiveSelectionGeneration is not null && accounts.TryRunWhileCurrent([captured], () =>
+        var removed = captured.ActiveSelectionGeneration is not null && accounts.TryRunWhileCurrent([captured], () =>
         {
             lock (_gate)
             {
-                var removed = RouteFor(captured) is not null;
+                var hadRoute = RouteFor(captured) is not null;
                 _routes[captured.Session.Account.Key] = new(Route: null);
-                return removed;
+                return hadRoute;
             }
         });
+        if (removed) ProofreadingPolicyChanged?.Invoke(this, EventArgs.Empty);
+        return removed;
     }
 
     public async Task<OrganizationPolicyLookup> ReadAsync(string localAccountKey, CancellationToken ct)
@@ -164,29 +171,36 @@ public sealed class OrganizationPolicyService(IAccountSessionSnapshots accounts,
 
     private async Task<OrganizationPolicyLookup> ReadPolicyAsync(ReadContext read, CancellationToken ct)
     {
-        if (!read.Run(static () => true)) return Status(OrganizationPolicyTransportStatus.Stale);
+        if (!read.Begin()) return Status(OrganizationPolicyTransportStatus.Stale);
         var subject = await OrganizationPolicySubjectSource.ReadAsync(read.Client, read.Pinned, read.Run, ct).ConfigureAwait(false);
         if (!read.Run(static () => true)) return Status(OrganizationPolicyTransportStatus.Stale);
-        if (subject is null) return Status(OrganizationPolicyTransportStatus.Unavailable);
+        if (subject is null) return Refuse(OrganizationPolicyTransportStatus.Unavailable);
 
         var auth = await read.Client.Auth.GetAsync(ct).ConfigureAwait(false);
         if (!read.Run(static () => true)) return Status(OrganizationPolicyTransportStatus.Stale);
-        if (!auth.IsOk) return Status(OrganizationPolicyTransportStatus.Unavailable);
+        if (!auth.IsOk) return Refuse(OrganizationPolicyTransportStatus.Unavailable);
         if (auth.Value is not { Parameter: { } bearer } header || !string.Equals(header.Scheme, "Bearer", StringComparison.OrdinalIgnoreCase))
-            return Status(OrganizationPolicyTransportStatus.Unauthorized);
+            return Refuse(OrganizationPolicyTransportStatus.Unauthorized);
 
         var response = await transport.ReadAsync(read.Route.PolicyOrigin, read.Route.JmapServer, bearer, read.Run, ct).ConfigureAwait(false);
         if (!read.Run(static () => true)) return Status(OrganizationPolicyTransportStatus.Stale);
-        if (response.Status != OrganizationPolicyTransportStatus.Authoritative) return Status(response.Status);
-        if (response.Policy is not { } policy) return Status(OrganizationPolicyTransportStatus.Malformed);
+        if (response.Status != OrganizationPolicyTransportStatus.Authoritative) return Refuse(response.Status);
+        if (response.Policy is not { } policy) return Refuse(OrganizationPolicyTransportStatus.Malformed);
         if (!OrganizationPolicySnapshot.Covers(response.Domains, subject.Email) ||
             subject.Groups.Any(group => !OrganizationPolicySnapshot.Covers(response.Domains, group)))
-            return Status(OrganizationPolicyTransportStatus.Untrusted);
+            return Refuse(OrganizationPolicyTransportStatus.Untrusted);
 
         var parsed = OrganizationPolicyParser.Parse(policy);
-        if (!parsed.IsOk) return Status(OrganizationPolicyTransportStatus.Malformed);
-        var snapshot = new OrganizationPolicySnapshot(read.LocalAccountKey, parsed.Value!, subject, response.Domains, read.Run);
-        return read.Finish(ct) ? new(OrganizationPolicyTransportStatus.Authoritative, snapshot) : Status(OrganizationPolicyTransportStatus.Stale);
+        if (!parsed.IsOk) return Refuse(OrganizationPolicyTransportStatus.Malformed);
+        var snapshot = new OrganizationPolicySnapshot(read.LocalAccountKey, parsed.Value!, subject, response.Domains, read.Run, read.RunProofreading);
+        if (!read.Finish(snapshot.Effective.Proofreading, ct)) return Status(OrganizationPolicyTransportStatus.Stale);
+        return new(OrganizationPolicyTransportStatus.Authoritative, snapshot);
+
+        OrganizationPolicyLookup Refuse(OrganizationPolicyTransportStatus status)
+        {
+            read.Refuse();
+            return Status(status);
+        }
     }
 
     private static OrganizationPolicyLookup Status(OrganizationPolicyTransportStatus status) => new(status);
@@ -206,6 +220,10 @@ public sealed class OrganizationPolicyService(IAccountSessionSnapshots accounts,
         private readonly WeakReference<IAccountSession> _owner = new(owner);
         public Uri JmapServer { get; } = jmapServer;
         public Uri PolicyOrigin { get; } = policyOrigin;
+        public long LatestRead { get; set; }
+        public long LatestAppliedRead { get; set; }
+        public long ProofreadingRevision { get; set; }
+        public ProofreadingPolicy? Proofreading { get; set; }
         public bool BelongsTo(IAccountSession session) => _owner.TryGetTarget(out var owner) && ReferenceEquals(owner, session);
     }
     private sealed record RouteState(Route? Route);
@@ -223,17 +241,56 @@ public sealed class OrganizationPolicyService(IAccountSessionSnapshots accounts,
         AccountSessionSnapshot Captured, JmapClient Client, JmapSession Pinned, RouteState? PreviousRoute = null, bool IsVerification = false)
     {
         private bool _pending = IsVerification;
+        private long _readNumber;
+        private long _proofreadingRevision;
 
-        public bool Finish(CancellationToken ct) => Run(() =>
+        public bool Begin() => Run(() =>
         {
-            if (ct.IsCancellationRequested) return false;
-            if (_pending)
-            {
-                Service._routes[LocalAccountKey] = new(Route);
-                _pending = false;
-            }
+            _readNumber = ++Route.LatestRead;
             return true;
         });
+
+        public bool RunProofreading(Func<bool> issue) => Run(() =>
+            !_pending && _proofreadingRevision > 0 && _proofreadingRevision == Route.ProofreadingRevision && issue());
+
+        public void Refuse()
+        {
+            if (Run(() =>
+            {
+                if (_pending || _readNumber < Route.LatestAppliedRead) return false;
+                Route.LatestAppliedRead = _readNumber;
+                if (Route.Proofreading is null) return false;
+                Route.Proofreading = null;
+                Route.ProofreadingRevision++;
+                return true;
+            })) Service.RaiseProofreadingPolicyChanged();
+        }
+
+        public bool Finish(ProofreadingPolicy proofreading, CancellationToken ct)
+        {
+            var changed = false;
+            var current = Run(() =>
+            {
+                if (ct.IsCancellationRequested) return false;
+                if (_pending)
+                {
+                    Service._routes[LocalAccountKey] = new(Route);
+                    _pending = false;
+                }
+                if (_readNumber < Route.LatestAppliedRead) return true;
+                Route.LatestAppliedRead = _readNumber;
+                if (Route.Proofreading?.SameRules(proofreading) != true)
+                {
+                    Route.ProofreadingRevision++;
+                    Route.Proofreading = proofreading;
+                    changed = true;
+                }
+                _proofreadingRevision = Route.ProofreadingRevision;
+                return true;
+            });
+            if (changed) Service.RaiseProofreadingPolicyChanged();
+            return current;
+        }
 
         // Managed send and print already hold the account and client authority when they consult a policy.
         public bool Run(Func<bool> issue) => Service.RunForSession(Captured, Client, Pinned, () =>

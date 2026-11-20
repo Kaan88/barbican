@@ -23,13 +23,18 @@ public static class OrganizationPolicyResolver
         var noPrintSource = document.Global.NoPrint is null ? "default" : "global";
         var watermarkSource = document.Global.Watermark is null ? "default" : "global";
         var labelsSource = document.Global.Labels is null ? "default" : "global";
+        var proofreading = document.Global.Proofreading;
         foreach (var scope in matched)
         {
             if (scope.Values.NoPrint is { } p) { noPrint = p; noPrintSource = scope.Id; }
             if (scope.Values.Watermark is { } w) { watermark = w; watermarkSource = scope.Id; }
             if (scope.Values.Labels is { } l) { labels = l; labelsSource = scope.Id; }
+            proofreading = proofreading.Apply(scope.Values.Proofreading);
         }
-        return new(noPrint, watermark, labels, [.. matched.Select(scope => scope.Id)], noPrintSource, watermarkSource, labelsSource);
+        return new(noPrint, watermark, labels, [.. matched.Select(scope => scope.Id)], noPrintSource, watermarkSource, labelsSource)
+        {
+            Proofreading = proofreading,
+        };
     }
 
     public static EffectiveOrganizationPolicy ResolveForSender(OrganizationPolicyDocument document, OrganizationPolicySubject subject, string? senderEmail)

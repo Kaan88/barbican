@@ -2,7 +2,9 @@
 
 **Start in the C# milestone checkout.** The active branch is `codex/m6b-bulwark-ui`, in `<downloads>/wt-m6b-bulwark-ui`. A chat opened in `webmail-main/desktop` starts in the retired Rust reference. The older coordinator checkout at `<downloads>/barbican` holds unrelated local test deletions. Preserve them.
 
-Read [CLAUDE.md](../CLAUDE.md), then the [current M6b work list](milestones/M6b-plan.md#current-work). Use `git status --short --branch` in the milestone worktree before resuming. The Windows checkpoint at `3791df4` includes the managed activation work and the composer footer. The verification history records the [reviewed revision, portable and interaction evidence](milestones/M6b-solo-parity.md#windows-checkpoint-at-3791df4). The current work list records the compatibility gates that remain open. The local managed activation handoff, when present, describes the earlier pause.
+Read [CLAUDE.md](../CLAUDE.md), then the [current M6b work list](milestones/M6b-plan.md#current-work). Use `git status --short --branch` in the milestone worktree before resuming. The Windows checkpoint at `3791df4` includes managed activation and the composer footer. Its [verification history](milestones/M6b-solo-parity.md#windows-checkpoint-at-3791df4) records the reviewed portable. The branch subsequently verified [nested Settings](milestones/M6b-solo-parity.md#nested-settings-and-restart) and [typing proofreading](milestones/M6b-solo-parity.md#typing-checker-on-windows). The local managed activation handoff, when present, describes the earlier pause.
+
+At the current pause, `artifacts/m6b-paused/dialog-source/` holds the later buildable dialog files relative to the checkout root. The isolated Windows build and 11 focused tests passed. Resume with the private `addons-fixture dialog-probe` walkthrough. `artifacts/m6b-paused/scoped-mail.patch` is unverified transport and delivery fencing work for scoped mail reads. The M6b work list owns the remaining compatibility gates and the final integrated candidate review.
 
 ## Working in this checkout
 

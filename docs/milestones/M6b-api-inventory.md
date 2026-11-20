@@ -107,7 +107,7 @@ The unchanged fixture observed `onComposeFromLink`, `onBeforeEmailSend` and `onT
 
 ### Methods still requiring executable evidence
 
-The unchanged proofreading fixture reached Enabled · Stopped. Its activation calls `composer.registerChecker`, which has no native dispatcher registration. The PDF preview and print flows leave the generic dialog APIs open. The reader action carried the current email ID. Scoped reads such as `email.get`, `email.list` and `email.search` still need verified authorization and result evidence.
+The unchanged proofreading fixture now activates and receives typing checks under the current account's consent and policy. Registration, update, recheck and unregister are covered by the host registry and focused tests. [Typing checker walkthrough](M6b-solo-parity.md#typing-checker-on-windows) The PDF preview and print flows leave the generic dialog APIs open. The reader action carried the current email ID. Scoped reads such as `email.get`, `email.list` and `email.search` still need verified authorization and result evidence.
 
 | Owning surface | Open method names |
 |---|---|
@@ -117,7 +117,7 @@ The unchanged proofreading fixture reached Enabled · Stopped. Its activation ca
 | Settings and app shell | `app.describeSettings`, `app.getInfo`, `app.getSettings`, `app.searchSettings`, `app.setSettings`, `app.undoSettings` |
 | Calendar | `calendar.createEvent`, `calendar.deleteEvent`, `calendar.getEvent`, `calendar.getEvents`, `calendar.listCalendars`, `calendar.respond`, `calendar.undoDelete`, `calendar.updateEvent` |
 | Composer | `compose.open`, `compose.reply` |
-| Composer and proofreading | `composer.attach`, `composer.getBody`, `composer.getCheckText`, `composer.getSelection`, `composer.recheck`, `composer.registerChecker`, `composer.replaceBody`, `composer.replaceSelection`, `composer.setAnnotations`, `composer.unregisterChecker`, `composer.updateChecker` |
+| Composer and proofreading | `composer.attach`, `composer.getBody`, `composer.getCheckText`, `composer.getSelection`, `composer.replaceBody`, `composer.replaceSelection`, `composer.setAnnotations` |
 | Contacts | `contact.create`, `contact.delete`, `contact.get`, `contact.list`, `contact.search`, `contact.update` |
 | Account and cryptography | `crypto.createPublicKey`, `crypto.createWebAuthn`, `crypto.getEncryptionAtRest`, `crypto.getPublicKeyFromWKD`, `crypto.getPublicKeys`, `crypto.getWebAuthn`, `crypto.removePublicKey`, `crypto.setEncryptionAtRest` |
 | Composer and drafts | `drafts.create` |

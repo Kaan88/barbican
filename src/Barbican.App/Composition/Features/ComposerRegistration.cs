@@ -36,6 +36,12 @@ public static class ComposerRegistration
         services.AddSingleton<IPluginApiMethod>(sp => Barbican.Core.Plugins.Api.RawSend.PluginRawSendMethods.SubmitRaw(
             sp.GetRequiredService<Barbican.Core.Plugins.Api.RawSend.IPluginRawSendHost>()));
         services.AddSingleton<PluginComposerAccess>();
+        services.AddSingleton<PluginCheckerRegistry>();
+        for (var index = 0; index < 4; index++)
+        {
+            var method = index;
+            services.AddSingleton<IPluginApiMethod>(sp => sp.GetRequiredService<PluginCheckerRegistry>().Methods[method]);
+        }
         services.AddSingleton<IComposeLinkAddOns, Barbican.App.Plugins.PluginComposeLinks>();
         services.AddSingleton<Barbican.Core.Compose.IOutgoingAddOnHooks>(sp => new Barbican.App.Plugins.PluginOutgoingSendHooks(
             sp.GetRequiredService<Barbican.App.Plugins.PluginBackgroundRuntimes>(),

@@ -10,4 +10,7 @@ public interface IPrefsStore
 
     /// <summary>Raised after the values changed.</summary>
     event EventHandler? Changed;
+
+    /// <summary>Uses the current values while ordering a synchronous action against preference changes.</summary>
+    bool TryRunWhileCurrent(Func<PrefsSnapshot, bool> issue) => false;
 }

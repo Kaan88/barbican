@@ -109,8 +109,17 @@
               <ColumnDefinition Width="*" />
               <ColumnDefinition Width="Auto" />
             </Grid.ColumnDefinitions>
+            <Grid.RowDefinitions>
+              <RowDefinition Height="*" />
+              <RowDefinition Height="Auto" />
+            </Grid.RowDefinitions>
             <ContentPresenter x:Name="BodyHost" AutomationProperties.AutomationId="composer.body.host" />
             <Border x:Name="AssistantSlot" Grid.Column="1" Visibility="Collapsed" AutomationProperties.AutomationId="composer.assistant" AutomationProperties.Name="Assistant" />
+            <Button x:Name="ProofreadingButton" Grid.Row="1" HorizontalAlignment="Right" Margin="0,0,0,4" MinHeight="32"
+                    Style="{StaticResource Button.Action}" Visibility="Collapsed" AutomationProperties.AutomationId="composer.proofreading"
+                    AutomationProperties.Name="Proofreading">
+              <Button.Flyout><MenuFlyout x:Name="ProofreadingMenu" win:ShouldConstrainToRootBounds="True" /></Button.Flyout>
+            </Button>
           </Grid>
 
           <!-- footer -->

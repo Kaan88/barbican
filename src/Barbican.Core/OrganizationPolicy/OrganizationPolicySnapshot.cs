@@ -9,15 +9,17 @@ public sealed class OrganizationPolicySnapshot
     private readonly OrganizationPolicySubject _subject;
     private readonly IReadOnlyList<string> _domains;
     private readonly Func<Func<bool>, bool> _whileCurrent;
+    private readonly Func<Func<bool>, bool> _whileProofreadingCurrent;
 
     internal OrganizationPolicySnapshot(string accountKey, OrganizationPolicyDocument document, OrganizationPolicySubject subject,
-        IReadOnlyList<string> domains, Func<Func<bool>, bool> whileCurrent)
+        IReadOnlyList<string> domains, Func<Func<bool>, bool> whileCurrent, Func<Func<bool>, bool> whileProofreadingCurrent)
     {
         LocalAccountKey = accountKey;
         _document = document;
         _subject = subject;
         _domains = domains;
         _whileCurrent = whileCurrent;
+        _whileProofreadingCurrent = whileProofreadingCurrent;
         Effective = OrganizationPolicyResolver.Resolve(document, subject);
     }
 
@@ -36,6 +38,13 @@ public sealed class OrganizationPolicySnapshot
     {
         ArgumentNullException.ThrowIfNull(issue);
         return _whileCurrent(issue);
+    }
+
+    /// <summary>Issues a disclosure under the newest resolved read for this login and route.</summary>
+    public bool TryRunWhileProofreadingCurrent(Func<bool> issue)
+    {
+        ArgumentNullException.ThrowIfNull(issue);
+        return _whileProofreadingCurrent(issue);
     }
 
     internal static bool Covers(IReadOnlyList<string> domains, string address)
