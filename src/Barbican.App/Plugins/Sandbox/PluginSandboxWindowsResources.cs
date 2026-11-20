@@ -2,6 +2,7 @@
 using System.Collections.Immutable;
 using System.Runtime.InteropServices;
 using System.Text;
+using Barbican.Core.Plugins.Permissions;
 using Barbican.Core.Plugins.Runtime;
 using Microsoft.Web.WebView2.Core;
 using Windows.Storage.Streams;
@@ -11,7 +12,7 @@ namespace Barbican.App.Plugins.Sandbox;
 /// <summary>Serves only the preloaded add-on bootstrap documents and immutable assets.</summary>
 internal sealed class PluginSandboxWindowsResources(PluginRuntimeBinding binding) : IDisposable
 {
-    private const string CommonAssetHeaders = "Cache-Control: no-store\r\nX-Content-Type-Options: nosniff\r\nAccess-Control-Allow-Origin: *\r\n";
+    private const string CommonAssetHeaders = "Cache-Control: no-store\r\nX-Content-Type-Options: nosniff\r\n";
     private readonly Dictionary<string, Response> _assets = new(StringComparer.Ordinal);
     private readonly string _frameQuery = binding.Kind == PluginFrameKind.Slot ? "?frame=slot" : "";
     private Response? _host;
@@ -26,8 +27,8 @@ internal sealed class PluginSandboxWindowsResources(PluginRuntimeBinding binding
         var resources = new PluginSandboxWindowsResources(binding);
         try
         {
-            resources._host = await EncodeAsync(PluginSandboxDocuments.Host(binding.Kind), ct).ConfigureAwait(false);
-            resources._child = await EncodeAsync(PluginSandboxDocuments.Child(), ct).ConfigureAwait(false);
+            resources._host = await EncodeAsync(PluginSandboxDocuments.Host(binding.Kind, binding.Tier), ct).ConfigureAwait(false);
+            resources._child = await EncodeAsync(PluginSandboxDocuments.Child(binding.Tier), ct).ConfigureAwait(false);
             foreach (var (name, asset) in runtimeAssets)
             {
                 if (string.Equals(asset.Purpose, "manifest", StringComparison.Ordinal)) continue;
@@ -36,7 +37,7 @@ internal sealed class PluginSandboxWindowsResources(PluginRuntimeBinding binding
             }
             foreach (var (name, content) in hostScripts)
                 await resources.AddAsync(name, "text/javascript", content, ct).ConfigureAwait(false);
-            resources._policy = new(resources._assets.Keys.Select(path => (path, path.EndsWith(".css", StringComparison.Ordinal) ? "style" : "script")));
+            resources._policy = new(binding.Tier, resources._assets.Keys.Select(path => (path, path.EndsWith(".css", StringComparison.Ordinal) ? "style" : "script")));
             return resources;
         }
         catch
@@ -56,7 +57,10 @@ internal sealed class PluginSandboxWindowsResources(PluginRuntimeBinding binding
 
     private async Task AddAsync(string name, string type, ImmutableArray<byte> bytes, CancellationToken ct)
     {
-        var headers = "Content-Type: " + type + "; charset=utf-8\r\n" + CommonAssetHeaders;
+        var originHeaders = binding.Tier == PluginExecutionTier.Untrusted
+            ? "Access-Control-Allow-Origin: *\r\n"
+            : "Cross-Origin-Resource-Policy: same-origin\r\n";
+        var headers = "Content-Type: " + type + "; charset=utf-8\r\n" + CommonAssetHeaders + originHeaders;
         _assets.Add("/assets/" + name, await CreateResponseAsync(ImmutableCollectionsMarshal.AsArray(bytes)!, headers, ct).ConfigureAwait(false));
     }
 

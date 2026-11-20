@@ -32,9 +32,10 @@ test('host-selected privileged tier requires exact trusted origin and frame iden
   const r=rig({tier:'privileged',hostOrigin:'https://plugin.invalid'});
   await r.bridge.receive(r.event({type:'sandbox-ready'}, {origin:'null'}));
   await r.bridge.receive(r.event({type:'sandbox-ready'}, {origin:'https://other.invalid'}));
-  await r.bridge.receive(r.event({type:'sandbox-ready'}, {origin:'https://plugin.invalid',source:{}}));
-  assert.equal(r.native.length,0);
   await r.bridge.receive(r.event({type:'sandbox-ready'}, {origin:'https://plugin.invalid'}));
+  await r.bridge.receive(r.event({type:'sandbox-ready'}, {origin:'https://managed-plugin.invalid',source:{}}));
+  assert.equal(r.native.length,0);
+  await r.bridge.receive(r.event({type:'sandbox-ready'}, {origin:'https://managed-plugin.invalid'}));
   assert.equal(r.native.length,1);
 });
 test('only the first authenticated ready owns an activity MessagePort and teardown closes it', async () => {

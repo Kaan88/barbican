@@ -13,8 +13,8 @@ $lockSha = '006584D714160BB00842A688A5DC0254C82ABA15657B06D26102B85475E8BC75'
 $nodeSha = 'A619E2E09EB0D50EF4C733D678B4D22689D2AFEF138CD67FD3FA107B535F8819'
 $npmCliSha = '3CE7CBA6F5128DD5F54C98B6A5036B0F850496878CC2E21044B675FE3C594E3E'
 $pins = @(
-    @{ Name='manifest.json'; Size=172; Sha='D6FEE1ED99C3E67548D99B894AF0A5AAE7DB764E082750BB4D6A3454629CB7B9'; Token='"manifest.json"' },
-    @{ Name='runtime-7YZTQ2LX.js'; Size=34612; Sha='19661279909ED661AB3F5844EC096D225105E1FB531A6695A8C738FC1733F3A5'; Token='EntryScript' },
+    @{ Name='manifest.json'; Size=172; Sha='259B3861DB585BF9C9AB7EE08DF761BE930212168D3BC969AD5E92108992C73D'; Token='"manifest.json"' },
+    @{ Name='runtime-SCQLYMRU.js'; Size=34836; Sha='67BD5F7DB3B4C42FD233016387AECDF5CFC29F8F1544AC66A1FAEF78C6EACDA0'; Token='EntryScript' },
     @{ Name='kit-556dca3ab5af.css'; Size=34515; Sha='556DCA3AB5AF52E3882ED907D7C49FA3961E495AAD48DE67CFC3E33D2006184D'; Token='Style' },
     @{ Name='chunk-BWK7OKB3.js'; Size=8534; Sha='E3C6E952AF788637C143A8BDE4C23C178FB5A985D96FB69909FF3A9F0F1D15E4'; Token='"chunk-BWK7OKB3.js"' },
     @{ Name='chunk-DQG63ATX.js'; Size=1593; Sha='69409106994D2F4204CFEA8AD119B324B04FE62B1EC4E34ADB5077F16F34A92D'; Token='"chunk-DQG63ATX.js"' },
@@ -128,7 +128,7 @@ Require-Hash $npm $npmCliSha 'npm entrypoint'
 # Refuse to build against a stale or widened app inventory.
 $appPinsPath = Join-Path $PSScriptRoot '../../src/Barbican.App/Plugins/Sandbox/PluginSandboxBootstrapAssets.cs'
 $appPins = Get-Content -LiteralPath $appPinsPath -Raw
-if (-not $appPins.Contains('EntryScript = "runtime-7YZTQ2LX.js"') -or -not $appPins.Contains('Style = "kit-556dca3ab5af.css"')) { throw 'The app entrypoint pins differ.' }
+if (-not $appPins.Contains('EntryScript = "runtime-SCQLYMRU.js"') -or -not $appPins.Contains('Style = "kit-556dca3ab5af.css"')) { throw 'The app entrypoint pins differ.' }
 $pattern = 'new\((?<token>EntryScript|Style|"[^"]+"),\s*(?<size>\d+),\s*"(?<sha>[A-F0-9]{64})"'
 $matches = [regex]::Matches($appPins, $pattern)
 if ($matches.Count -ne $pins.Count) { throw 'The app inventory count differs.' }
@@ -173,6 +173,9 @@ Require-Hash (Join-Path $tree 'package-lock.json') $lockSha 'upstream lockfile'
 Require-Hash (Join-Path $tree 'package.json') '64F235C3F8AA53936B676C9C82F7FF265DCE7E25D4CF04C67BB226E43CF6B754' 'upstream package manifest'
 Require-Hash (Join-Path $tree 'scripts/build-plugin-sandbox.mjs') 'A6A4862B99613F962AD3EAA3AA63A86912FA9FF58E9EEC503026FB56C0638BE1' 'upstream build script'
 
+$runtimeSource = Join-Path $tree 'lib/plugin-sandbox/runtime.tsx'
+& (Join-Path $PSScriptRoot 'patch-runtime.ps1') -RuntimeFile $runtimeSource
+Require-Hash $runtimeSource 'B655D9DDABE5A123F63F8016B1F4640984CD24D566038FE42A922DEB76102013' 'patched runtime source'
 Invoke-PreparationTool 'npm clean install' $node @($npm, 'ci', '--ignore-scripts', '--no-audit', '--no-fund', '--cache', $cache) $tree
 Invoke-PreparationTool 'runtime build' $node @('scripts/build-plugin-sandbox.mjs') $tree
 $assets = Join-Path $tree 'public/plugin-sandbox-assets'

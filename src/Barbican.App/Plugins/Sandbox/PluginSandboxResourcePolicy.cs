@@ -5,9 +5,20 @@ namespace Barbican.App.Plugins.Sandbox;
 /// <summary>Closed isolated-origin policy. Asset paths must come from the host's verified bootstrap manifest.</summary>
 public sealed class PluginSandboxResourcePolicy
 {
+    internal const string HostOrigin = "https://plugin.invalid";
+    internal const string ManagedChildOrigin = "https://managed-plugin.invalid";
+    internal const string HostPath = "/host/index.html";
+    internal const string ChildPath = "/sandbox/index.html";
     private readonly Dictionary<string, string> _assets;
+    private readonly PluginExecutionTier _tier;
+
     public PluginSandboxResourcePolicy(IEnumerable<(string Path, string Purpose)>? bootstrapAssets = null)
+        : this(PluginExecutionTier.Untrusted, bootstrapAssets) { }
+
+    internal PluginSandboxResourcePolicy(PluginExecutionTier tier, IEnumerable<(string Path, string Purpose)>? bootstrapAssets = null)
     {
+        _tier = tier;
+        ChildOrigin = ChildOriginFor(tier);
         _assets = new Dictionary<string, string>(StringComparer.Ordinal);
         foreach (var (path, purpose) in bootstrapAssets ?? [])
         {
@@ -15,7 +26,7 @@ public sealed class PluginSandboxResourcePolicy
                 throw new ArgumentException("Invalid or duplicate bootstrap asset declaration.", nameof(bootstrapAssets));
         }
     }
-    public string SandboxFlags => FlagsFor(PluginExecutionTier.Untrusted);
+    public string SandboxFlags => FlagsFor(_tier);
     /// <summary>The tier is selected by the host only after verifying its authorization.</summary>
     public string FlagsFor(PluginExecutionTier hostSelectedTier) => hostSelectedTier switch
     {
@@ -25,24 +36,41 @@ public sealed class PluginSandboxResourcePolicy
     };
     internal const string ChildContentSecurityPolicy = "default-src 'none'; script-src 'self' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'none'; webrtc 'block'; frame-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'; worker-src blob:; frame-ancestors https://plugin.invalid";
     public string ContentSecurityPolicy => ChildContentSecurityPolicy;
+    internal string ChildOrigin { get; }
+
+    internal static string ChildOriginFor(PluginExecutionTier tier) => tier switch
+    {
+        PluginExecutionTier.Untrusted => HostOrigin,
+        PluginExecutionTier.Privileged => ManagedChildOrigin,
+        _ => throw new ArgumentOutOfRangeException(nameof(tier)),
+    };
+
+    internal static bool IsParentScript(string path) => path is "/assets/plugin-sandbox-host.js" or
+        "/assets/plugin-sandbox-parent.js" or "/assets/plugin-value-codec.js";
 
     /// <summary>Only known documents and exact verified bootstrap assets may be served. Network requests remain denied.</summary>
     public bool Allows(Uri uri, string purpose)
     {
         ArgumentNullException.ThrowIfNull(uri);
         // Check the original spelling before Uri canonicalizes dot segments, ports or escapes.
-        // Only the exact synthetic origin is routed by this policy.
-        if (!uri.IsAbsoluteUri || !uri.OriginalString.StartsWith("https://plugin.invalid/", StringComparison.Ordinal) ||
+        if (!uri.IsAbsoluteUri ||
             uri.OriginalString.Contains('%', StringComparison.Ordinal) || uri.OriginalString.Contains('\\', StringComparison.Ordinal) ||
             uri.OriginalString.Contains('#', StringComparison.Ordinal) || uri.OriginalString.Contains("/../", StringComparison.Ordinal) ||
             uri.OriginalString.Contains("/./", StringComparison.Ordinal)) return false;
         var path = uri.AbsolutePath;
-        if (!string.Equals(uri.OriginalString, "https://plugin.invalid" + path + uri.Query, StringComparison.Ordinal)) return false;
-        if (string.Equals(purpose, "top-navigation", StringComparison.Ordinal)) return string.Equals(path, "/host/index.html", StringComparison.Ordinal) && uri.Query.Length == 0;
-        // Only the untrusted frame route is supported until a host-selected privileged route is wired.
-        if (string.Equals(purpose, "frame-navigation", StringComparison.Ordinal)) return string.Equals(path, "/sandbox/index.html", StringComparison.Ordinal) && (uri.Query.Length == 0 || string.Equals(uri.Query, "?frame=slot", StringComparison.Ordinal));
-        return uri.Query.Length == 0 && _assets.TryGetValue(path, out var assetPurpose) && string.Equals(assetPurpose, purpose, StringComparison.Ordinal);
+        var query = uri.Query;
+        return purpose switch
+        {
+            "top-navigation" => path is HostPath && query.Length == 0 && HasOrigin(uri, HostOrigin),
+            "frame-navigation" => path is ChildPath && (query is "" or "?frame=slot") && HasOrigin(uri, ChildOrigin),
+            _ => query.Length == 0 && HasOrigin(uri, IsParentScript(path) ? HostOrigin : ChildOrigin) &&
+                _assets.TryGetValue(path, out var assetPurpose) && string.Equals(assetPurpose, purpose, StringComparison.Ordinal),
+        };
     }
+
+    private static bool HasOrigin(Uri uri, string origin) =>
+        string.Equals(uri.OriginalString, origin + uri.AbsolutePath + uri.Query, StringComparison.Ordinal);
+
     private static bool SafeAsset(string? path) => path is { Length: > 8 and <= 240 } && path.StartsWith("/assets/", StringComparison.Ordinal) &&
         path.AsSpan(8).IndexOfAnyExcept("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_.".AsSpan()) < 0 &&
         !path.Contains("..", StringComparison.Ordinal);

@@ -192,7 +192,7 @@ function Assert-Input([string]$Directory, [object[]]$Pins, [string[]]$Ignored = 
 function Assert-AppPins([object[]]$Pins) {
     $file = Join-Path $Root 'src/Barbican.App/Plugins/Sandbox/PluginSandboxBootstrapAssets.cs'
     $content = Get-Content -LiteralPath $file -Raw
-    if (-not $content.Contains('EntryScript = "runtime-7YZTQ2LX.js"') -or -not $content.Contains('Style = "kit-556dca3ab5af.css"')) { throw '[package-portable] app entrypoint pins differ' }
+    if (-not $content.Contains('EntryScript = "runtime-SCQLYMRU.js"') -or -not $content.Contains('Style = "kit-556dca3ab5af.css"')) { throw '[package-portable] app entrypoint pins differ' }
     $pattern = 'new\((?<token>EntryScript|Style|"[^"]+"),\s*(?<size>\d+),\s*"(?<sha>[A-F0-9]{64})"'
     $entries = [regex]::Matches($content, $pattern)
     if ($entries.Count -ne $Pins.Count) { throw '[package-portable] app inventory count differs' }
@@ -234,8 +234,8 @@ function New-VerifiedPortable([string]$Zip, [string]$OutDir) {
     if ($Rid -notmatch '^win-(x64|arm64)$') { throw '[package-portable] unsupported Windows RID' }
     if (Test-Path -LiteralPath $Zip) { throw '[package-portable] destination already exists' }
     $assets = @(
-        @{ Name='manifest.json'; Size=172; Sha='D6FEE1ED99C3E67548D99B894AF0A5AAE7DB764E082750BB4D6A3454629CB7B9'; Token='"manifest.json"' },
-        @{ Name='runtime-7YZTQ2LX.js'; Size=34612; Sha='19661279909ED661AB3F5844EC096D225105E1FB531A6695A8C738FC1733F3A5'; Token='EntryScript' },
+        @{ Name='manifest.json'; Size=172; Sha='259B3861DB585BF9C9AB7EE08DF761BE930212168D3BC969AD5E92108992C73D'; Token='"manifest.json"' },
+        @{ Name='runtime-SCQLYMRU.js'; Size=34836; Sha='67BD5F7DB3B4C42FD233016387AECDF5CFC29F8F1544AC66A1FAEF78C6EACDA0'; Token='EntryScript' },
         @{ Name='kit-556dca3ab5af.css'; Size=34515; Sha='556DCA3AB5AF52E3882ED907D7C49FA3961E495AAD48DE67CFC3E33D2006184D'; Token='Style' },
         @{ Name='chunk-BWK7OKB3.js'; Size=8534; Sha='E3C6E952AF788637C143A8BDE4C23C178FB5A985D96FB69909FF3A9F0F1D15E4'; Token='"chunk-BWK7OKB3.js"' },
         @{ Name='chunk-DQG63ATX.js'; Size=1593; Sha='69409106994D2F4204CFEA8AD119B324B04FE62B1EC4E34ADB5077F16F34A92D'; Token='"chunk-DQG63ATX.js"' },
@@ -265,7 +265,7 @@ function New-VerifiedPortable([string]$Zip, [string]$OutDir) {
     if (-not $baseName -or $baseName.Contains('/') -or $baseName.Contains('\')) { throw '[package-portable] invalid archive root' }
     $assetPrefix = "$baseName/Assets/plugin-sandbox-bootstrap/"
     $noticePrefix = "$baseName/THIRD-PARTY-NOTICES/plugin-runtime/"
-    $provenance = "Bulwark Webmail 1.21.2, commit 933bc18f517135e38245821c5cc1bc7117ce2d64.`nSource: https://github.com/bulwarkmail/webmail/tree/933bc18f517135e38245821c5cc1bc7117ce2d64`nLicense: AGPL-3.0-only; see bulwark--LICENSE and the accompanying dependency notices.`n"
+    $provenance = "Bulwark Webmail 1.21.2, commit 933bc18f517135e38245821c5cc1bc7117ce2d64.`nSource: https://github.com/bulwarkmail/webmail/tree/933bc18f517135e38245821c5cc1bc7117ce2d64`nBarbican applies a host-origin isolation patch to the sandbox runtime; see tools/plugin-runtime-build/patch-runtime.ps1.`nLicense: AGPL-3.0-only; see bulwark--LICENSE and the accompanying dependency notices.`n"
     $provenanceBytes = [Text.Encoding]::UTF8.GetBytes($provenance)
     $provenanceHash = [Security.Cryptography.SHA256]::Create()
     try { $provenanceSha = [BitConverter]::ToString($provenanceHash.ComputeHash($provenanceBytes)).Replace('-', '') }

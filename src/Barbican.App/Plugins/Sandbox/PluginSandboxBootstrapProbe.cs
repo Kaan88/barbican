@@ -81,15 +81,17 @@ internal static class PluginSandboxBootstrapProbe
         var slot = IsRequested("BARBICAN_BOOTSTRAP_CHECK_SLOT");
         var network = IsRequested("BARBICAN_BOOTSTRAP_CHECK_NETWORK");
         var package = IsRequested("BARBICAN_BOOTSTRAP_CHECK_PACKAGE");
-        var status = (slot, network, package) switch
+        var managed = IsRequested("BARBICAN_BOOTSTRAP_CHECK_MANAGED");
+        var status = (slot, network, package, managed) switch
         {
-            (true, false, false) => await PluginSandboxSlotProbe.RunAsync(queue, mount, paths, options, root, CancellationToken.None).ConfigureAwait(false),
-            (false, false, true) => await PluginSandboxPackageProbe.RunAsync(queue, mount, paths, options, root, CancellationToken.None).ConfigureAwait(false),
-            (false, _, false) => await RunAsync(queue, mount, paths, options, root, network, CancellationToken.None).ConfigureAwait(false),
+            (true, false, false, false) => await PluginSandboxSlotProbe.RunAsync(queue, mount, paths, options, root, CancellationToken.None).ConfigureAwait(false),
+            (false, false, true, false) => await PluginSandboxPackageProbe.RunAsync(queue, mount, paths, options, root, CancellationToken.None).ConfigureAwait(false),
+            (false, false, false, true) => await PluginSandboxManagedProbe.RunAsync(queue, mount, paths, options, root, CancellationToken.None).ConfigureAwait(false),
+            (false, _, false, false) => await RunAsync(queue, mount, paths, options, root, network, CancellationToken.None).ConfigureAwait(false),
             _ => "bootstrap refused",
         };
         Console.WriteLine(status);
-        Environment.Exit(status is "bootstrap ok" or "bootstrap network ok" or "bootstrap slot ok" or "package probe ok" ? 0 : 1);
+        Environment.Exit(status is "bootstrap ok" or "bootstrap network ok" or "bootstrap slot ok" or "package probe ok" or "bootstrap managed ok" ? 0 : 1);
     }
 
     private static bool IsRequested(string variable) =>

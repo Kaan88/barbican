@@ -4,6 +4,7 @@ import { createSandboxParent } from './plugin-sandbox-parent.js';
 import { decodePluginValue } from './plugin-value-codec.js';
 
 const origin = 'https://plugin.invalid';
+const managedOrigin = 'https://managed-plugin.invalid';
 const hostUrl = origin + '/host/index.html';
 const transportClosed = 'barbican-sandbox-transport-closed';
 const maxWireBytes = 40 * 1024 * 1024;
@@ -16,18 +17,21 @@ export function mountSandboxHost(host, document, webview, kind) {
   if (typeof webview?.postMessage !== 'function' || typeof webview.addEventListener !== 'function') {
     throw new Error('Sandbox host requires a native WebView');
   }
+  const declaredTier = document.body.dataset?.frameTier ?? '';
+  if (declaredTier !== '' && declaredTier !== 'untrusted' && declaredTier !== 'privileged') throw new Error('Invalid sandbox frame tier');
+  const tier = declaredTier === 'privileged' ? 'privileged' : 'untrusted';
 
   const frame = document.createElement('iframe');
-  frame.setAttribute('sandbox', 'allow-scripts allow-forms');
+  frame.setAttribute('sandbox', tier === 'privileged' ? 'allow-scripts allow-same-origin' : 'allow-scripts allow-forms');
   frame.setAttribute('referrerpolicy', 'no-referrer');
   frame.setAttribute('title', 'Add-on');
   frame.setAttribute('width', '100%');
   frame.setAttribute('height', '100%');
-  frame.src = origin + '/sandbox/index.html' + (kind === 'slot' ? '?frame=slot' : '');
+  frame.src = (tier === 'privileged' ? managedOrigin : origin) + '/sandbox/index.html' + (kind === 'slot' ? '?frame=slot' : '');
   document.body.appendChild(frame);
 
   const bridge = createSandboxParent({
-    frame, tier: 'untrusted', hostOrigin: origin,
+    frame, tier, hostOrigin: origin,
     postNative: wire => webview.postMessage(wire),
     onActivity: () => {}, onOverflow: fault,
     maxMessageBytes: maxWireBytes,

@@ -16,7 +16,7 @@ internal sealed class PluginSandboxWindowsView(WebView2 view, Panel mount, Plugi
     public object RootIdentity { get; } = view.CoreWebView2
         ?? throw new ArgumentException("The isolated WebView must be initialized.", nameof(view));
 
-    public Uri TrustedRoot { get; } = new("https://plugin.invalid/host/index.html");
+    public Uri TrustedRoot { get; } = new(PluginSandboxResourcePolicy.HostOrigin + PluginSandboxResourcePolicy.HostPath);
 
     /// <summary>Consumes the prepared resources before attaching any native handlers.</summary>
     public Task AttachGuardsAsync(PluginSandboxWindowsResources resources, Func<IDisposable> attach, CancellationToken ct)

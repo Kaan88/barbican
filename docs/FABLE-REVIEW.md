@@ -2941,3 +2941,35 @@ review with a different key returned a signature mismatch and preserved
 the installed row. The disabled row exposed no Enable action.
 Windows Release built without warnings or errors. The M6b specification
 gate and generated hook check passed. Astra approved this checkpoint.
+
+## Codex / Astra review of the Windows managed WebView transport (2026-11-20)
+
+The Windows host selects the frame's tier from its runtime binding. It
+serves a managed child at `https://managed-plugin.invalid` and keeps the
+native bridge on `https://plugin.invalid`. Fixed navigation routes,
+origin-specific assets and the parent message handler restrict which
+document can reach the bridge. The ordinary child retains its opaque
+origin. Connection and content policies limit both frame types.
+
+The runtime preparation script applies a checked source patch to the
+pinned Bulwark 1.21.2 release. The managed child reads its parent origin
+from one fixed marker in host-supplied HTML. The upstream archive and full
+dependency lock reproduced the original inventory. Two patched builds
+agreed, and a fresh run of the preparation script verified all eight
+patched assets. Only the runtime script and manifest hashes changed.
+
+On a private Windows desktop a synthetic managed background frame
+completed two hook round trips at the expected origin. It could not read
+the parent's document, and its direct native post reached no dispatcher.
+The ordinary opaque bootstrap passed separately with the same assets.
+JavaScript host, parent and network suites passed 50 checks. The legacy
+parent suite returned the same eight passes and 27 failures at the
+previous revision and with this patch.
+
+Windows Automation passed 3,610 tests with four skips. Windows Release
+built without warnings or errors. The M6b specification gate and generated
+hook check passed. Astra approved the transport checkpoint.
+
+This checkpoint verifies transport and background bootstrap. Runtime
+authorization for installed managed add-ons, a managed slot walkthrough,
+and an end-to-end composer send takeover remain open.

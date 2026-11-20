@@ -12,7 +12,7 @@ function events() {
   };
 }
 
-function setup(kind) {
+function setup(kind, tier = '') {
   const writes = [], childMessages = [], attributes = new Map();
   const host = { ...events(), location: { href: 'https://plugin.invalid/host/index.html' } };
   host.top = host;
@@ -27,7 +27,7 @@ function setup(kind) {
   const document = { createElement: name => {
     assert.equal(name, 'iframe');
     return frame;
-  }, body: { appendChild: element => assert.strictEqual(element, frame) } };
+  }, body: { dataset: { frameTier: tier }, appendChild: element => assert.strictEqual(element, frame) } };
   return { host, document, webview, child, frame, attributes, writes, childMessages,
     mount: () => mountSandboxHost(host, document, webview, kind), removed: () => removed };
 }
@@ -48,6 +48,30 @@ test('trusted host mounts only the fixed untrusted background and slot routes', 
   wrongUrl.host.location.href += '?slot=yes';
   assert.throws(wrongUrl.mount);
   assert.throws(setup('privileged').mount);
+});
+
+test('managed host uses only the fixed cross-origin frame and exact message origin', async () => {
+  for (const kind of ['background', 'slot']) {
+    const f = setup(kind, 'privileged');
+    f.mount();
+    assert.equal(f.attributes.get('sandbox'), 'allow-scripts allow-same-origin');
+    assert.equal(f.frame.src, 'https://managed-plugin.invalid/sandbox/index.html' + (kind === 'slot' ? '?frame=slot' : ''));
+    for (const event of [
+      { source: f.child, origin: 'null' },
+      { source: f.child, origin: 'https://plugin.invalid' },
+      { source: {}, origin: 'https://managed-plugin.invalid' },
+    ]) f.host.raise('message', { ...event, data: { type: 'sandbox-ready' }, ports: [] });
+    await turn();
+    assert.deepEqual(f.writes, []);
+    f.host.raise('message', { source: f.child, origin: 'https://managed-plugin.invalid', data: { type: 'sandbox-ready' }, ports: [] });
+    await turn();
+    assert.equal(f.writes.length, 1);
+    const wire = new TextDecoder().decode(await encodePluginValue({ type: 'init', payload: {} }));
+    f.webview.raise('message', { data: wire });
+    await turn();
+    assert.equal(f.childMessages[0][1], 'https://managed-plugin.invalid');
+  }
+  assert.throws(setup('slot', 'unknown').mount);
 });
 
 test('parent bridges string wire only for the selected frame and removes routes on pagehide', async () => {

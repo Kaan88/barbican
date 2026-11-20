@@ -1,4 +1,5 @@
 using Barbican.App.Plugins.Sandbox;
+using Barbican.Core.Plugins.Permissions;
 using Barbican.Core.Plugins.Runtime;
 
 namespace Barbican.Automation.Tests.Plugins;
@@ -50,5 +51,21 @@ public sealed class PluginSandboxDocumentsTests
         Assert.DoesNotContain("report-to", hostHeaders, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("webrtc=block; report-to=barbican-local-probe\r\n", childHeaders, StringComparison.Ordinal);
         Assert.DoesNotContain("Reporting-Endpoints", childHeaders, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void Privileged_documents_pin_both_origins_before_the_runtime_executes()
+    {
+        var (host, hostHeaders) = PluginSandboxDocuments.Host(PluginFrameKind.Slot, PluginExecutionTier.Privileged);
+        var (child, childHeaders) = PluginSandboxDocuments.Child(PluginExecutionTier.Privileged);
+        Assert.Contains("data-frame-tier=\"privileged\"", host, StringComparison.Ordinal);
+        Assert.Contains("frame-src https://managed-plugin.invalid/sandbox/index.html\r\n", hostHeaders, StringComparison.Ordinal);
+        Assert.Contains("Connection-Allowlist: (response-origin \"https://managed-plugin.invalid\"); redirects=block; webrtc=block", hostHeaders, StringComparison.Ordinal);
+        Assert.Contains("Origin-Agent-Cluster: ?1", hostHeaders, StringComparison.Ordinal);
+        Assert.Contains("name=\"barbican-parent-origin\" content=\"https://plugin.invalid\"", child, StringComparison.Ordinal);
+        Assert.DoesNotContain("plugin-sandbox-parent.js", child, StringComparison.Ordinal);
+        Assert.Contains("frame-ancestors https://plugin.invalid", childHeaders, StringComparison.Ordinal);
+        Assert.Contains("Origin-Agent-Cluster: ?1", childHeaders, StringComparison.Ordinal);
+        Assert.DoesNotContain("managed-plugin.invalid", childHeaders, StringComparison.Ordinal);
     }
 }

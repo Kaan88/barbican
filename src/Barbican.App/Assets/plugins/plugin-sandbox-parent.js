@@ -24,12 +24,11 @@ export function createSandboxParent({ frame, tier, hostOrigin, postNative, onAct
       !Number.isSafeInteger(maxPendingMessages) || maxPendingMessages < 1 ||
       !Number.isSafeInteger(maxPendingBytes) || maxPendingBytes < maxMessageBytes ||
       maxMessageBytes > Number.MAX_SAFE_INTEGER / 2) throw new TypeError('Invalid sandbox parent configuration');
-  let origin;
-  try { const parsed = new URL(hostOrigin); if (parsed.protocol !== 'https:' || parsed.origin !== hostOrigin) throw new Error(); origin = parsed.origin; }
+  try { const parsed = new URL(hostOrigin); if (parsed.origin !== 'https://plugin.invalid' || parsed.origin !== hostOrigin) throw new Error(); }
   catch { throw new TypeError('Invalid trusted origin'); }
   const target = frame.contentWindow;
-  const expectedOrigin = tier === 'untrusted' ? 'null' : origin;
-  const targetOrigin = tier === 'untrusted' ? '*' : origin;
+  const expectedOrigin = tier === 'untrusted' ? 'null' : 'https://managed-plugin.invalid';
+  const targetOrigin = tier === 'untrusted' ? '*' : expectedOrigin;
   const limits = { maxWireBytes: maxMessageBytes, maxBinaryBytes, maxStringBytes: maxMessageBytes * 2 };
   const text = new TextDecoder();
   let disposed = false, ready = false, readyPending = false, initialized = false, initPending = false, port = null;

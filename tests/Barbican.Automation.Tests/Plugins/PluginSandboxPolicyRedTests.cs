@@ -56,6 +56,24 @@ public sealed class PluginSandboxPolicyRedTests
         Assert.False(policy.Allows(new Uri("https://plugin.invalid/assets/%72untime-a1.js"), "script"));
     }
 
+    [Fact]
+    public void Privileged_parent_and_child_are_served_different_assets_on_different_origins()
+    {
+        const string host = "https://plugin.invalid";
+        const string child = "https://managed-plugin.invalid";
+        const string parentScript = "/assets/plugin-sandbox-parent.js";
+        const string runtime = "/assets/runtime-a1.js";
+        var policy = new PluginSandboxResourcePolicy(PluginExecutionTier.Privileged, [(parentScript, "script"), (runtime, "script")]);
+
+        Assert.True(policy.Allows(new Uri(host + parentScript), "script"));
+        Assert.True(policy.Allows(new Uri(child + runtime), "script"));
+        Assert.False(policy.Allows(new Uri(child + parentScript), "script"));
+        Assert.False(policy.Allows(new Uri(host + runtime), "script"));
+        Assert.False(policy.Allows(new Uri(child + "/host/index.html"), "top-navigation"));
+        Assert.False(policy.Allows(new Uri(child + runtime), "fetch"));
+        Assert.False(new PluginSandboxResourcePolicy().Allows(new Uri(child + "/sandbox/index.html"), "frame-navigation"));
+    }
+
     [Theory]
     [InlineData("https://plugin.invalid:443/host/index.html", "top-navigation")]
     [InlineData("https://plugin.invalid/host/%69ndex.html", "top-navigation")]

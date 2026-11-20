@@ -1,4 +1,5 @@
 using Barbican.App.Plugins.Sandbox;
+using Barbican.Core.Plugins.Permissions;
 using Barbican.Core.Plugins.Runtime;
 
 namespace Barbican.Automation.Tests.Plugins;
@@ -8,6 +9,24 @@ public sealed class PluginSandboxNavigationGateTests
     private const string Host = "https://plugin.invalid/host/index.html";
     private const string Background = "https://plugin.invalid/sandbox/index.html";
     private const string Slot = Background + "?frame=slot";
+    private const string Managed = "https://managed-plugin.invalid/sandbox/index.html";
+
+    [Theory]
+    [InlineData(PluginFrameKind.Background, Managed, Background)]
+    [InlineData(PluginFrameKind.Slot, Managed + "?frame=slot", Managed)]
+    public void Privileged_navigation_accepts_only_its_exact_cross_origin_child(PluginFrameKind kind, string allowed, string other)
+    {
+        var policy = new PluginSandboxResourcePolicy(PluginExecutionTier.Privileged);
+        var gate = new PluginSandboxNavigationGate(policy, kind);
+        Assert.True(gate.TryStart(Host, topLevel: true));
+        Assert.True(gate.TryStart(allowed, topLevel: false));
+        Assert.False(gate.TryStart(Host, topLevel: false));
+
+        var refused = new PluginSandboxNavigationGate(policy, kind);
+        Assert.True(refused.TryStart(Host, topLevel: true));
+        Assert.False(refused.TryStart(other, topLevel: false));
+        Assert.False(refused.TryStart(allowed, topLevel: false));
+    }
 
     [Theory]
     [InlineData(PluginFrameKind.Background, Background)]

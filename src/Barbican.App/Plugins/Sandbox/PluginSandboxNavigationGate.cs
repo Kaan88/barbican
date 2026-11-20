@@ -5,12 +5,12 @@ namespace Barbican.App.Plugins.Sandbox;
 /// <summary>Allows one trusted parent and one host-selected child navigation per WebView.</summary>
 internal sealed class PluginSandboxNavigationGate(PluginSandboxResourcePolicy policy, PluginFrameKind kind)
 {
-    private readonly string _frameUrl = kind switch
+    private readonly string _frameUrl = policy.ChildOrigin + PluginSandboxResourcePolicy.ChildPath + (kind switch
     {
-        PluginFrameKind.Background => "https://plugin.invalid/sandbox/index.html",
-        PluginFrameKind.Slot => "https://plugin.invalid/sandbox/index.html?frame=slot",
+        PluginFrameKind.Background => "",
+        PluginFrameKind.Slot => "?frame=slot",
         _ => throw new ArgumentOutOfRangeException(nameof(kind)),
-    };
+    });
     private bool _parentStarted;
     private bool _frameStarted;
     private bool _rejected;

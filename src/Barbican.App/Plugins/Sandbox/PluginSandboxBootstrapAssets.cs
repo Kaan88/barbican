@@ -6,16 +6,16 @@ namespace Barbican.App.Plugins.Sandbox;
 
 // The root is supplied by the trusted host, not by plugin content. The manifest
 // is just another pinned file and never supplies names or hashes to this verifier.
-// Bulwark 1.21.2 source revision 933bc18f517135e38245821c5cc1bc7117ce2d64.
+// Bulwark 1.21.2 source revision 933bc18f517135e38245821c5cc1bc7117ce2d64 with the audited host-origin isolation patch.
 internal static class PluginSandboxBootstrapAssets
 {
-    internal const string EntryScript = "runtime-7YZTQ2LX.js";
+    internal const string EntryScript = "runtime-SCQLYMRU.js";
     internal const string Style = "kit-556dca3ab5af.css";
 
     private static readonly ImmutableArray<AssetPin> Pins =
     [
-        new("manifest.json", 172, "D6FEE1ED99C3E67548D99B894AF0A5AAE7DB764E082750BB4D6A3454629CB7B9", "manifest"),
-        new(EntryScript, 34612, "19661279909ED661AB3F5844EC096D225105E1FB531A6695A8C738FC1733F3A5", "entry script"),
+        new("manifest.json", 172, "259B3861DB585BF9C9AB7EE08DF761BE930212168D3BC969AD5E92108992C73D", "manifest"),
+        new(EntryScript, 34836, "67BD5F7DB3B4C42FD233016387AECDF5CFC29F8F1544AC66A1FAEF78C6EACDA0", "entry script"),
         new(Style, 34515, "556DCA3AB5AF52E3882ED907D7C49FA3961E495AAD48DE67CFC3E33D2006184D", "stylesheet"),
         new("chunk-BWK7OKB3.js", 8534, "E3C6E952AF788637C143A8BDE4C23C178FB5A985D96FB69909FF3A9F0F1D15E4", "static preload"),
         new("chunk-DQG63ATX.js", 1593, "69409106994D2F4204CFEA8AD119B324B04FE62B1EC4E34ADB5077F16F34A92D", "static preload"),
