@@ -1,4 +1,5 @@
 using System.Net;
+using System.Security.Cryptography;
 using System.Text;
 using Barbican.Core.Accounts;
 using Barbican.Core.Auth;
@@ -85,6 +86,45 @@ public sealed class OrganizationPolicyServiceTests
         Assert.Equal(0, handler.Calls);
     }
 
+    [Fact]
+    public async Task ActivationRequiresExactApprovedOriginSignerAndCurrentOwnerBeforeAnyRequest()
+    {
+        using var rig = await Rig.CreateAsync();
+        var handler = new ManagedContextHandler();
+        using var source = new ManagedPluginSource(rig.Accounts, new ManagedPluginTransport(handler));
+        var ct = TestContext.Current.CancellationToken;
+        var digest = Convert.ToHexStringLower(SHA256.HashData(Convert.FromBase64String(ManagedKey)));
+        Task<Result<ManagedPluginCandidate>> FetchAsync(Uri origin, string signer) => source.AcquireForActivationAsync(
+            Key, origin, signer, "managed-probe", "1.21.2", static issue => issue(), ct);
+        Assert.False((await FetchAsync(PolicyOrigin, digest)).IsOk);
+        Assert.True(source.ApproveProvider(rig.Accounts.Active(), PolicyOrigin, ManagedKey));
+        Assert.False((await FetchAsync(new Uri("https://other.example.org/"), digest)).IsOk);
+        Assert.False((await FetchAsync(PolicyOrigin, new string('0', 64))).IsOk);
+        var old = rig.Accounts.Session;
+        rig.Accounts.Current = new Session(rig.Client, rig.Server);
+        Assert.False((await FetchAsync(PolicyOrigin, digest)).IsOk);
+        rig.Accounts.Current = old;
+        Assert.False((await source.AcquireForActivationAsync(Key, PolicyOrigin, digest, "managed-probe", "1.21.2", static _ => false, ct)).IsOk);
+        Assert.Equal(0, handler.Calls);
+    }
+
+    [Fact]
+    public async Task ActivationStopsAtRevokedRouteWhileContextRequestIsInFlight()
+    {
+        using var rig = await Rig.CreateAsync();
+        var handler = new ManagedContextHandler();
+        using var source = new ManagedPluginSource(rig.Accounts, new ManagedPluginTransport(handler));
+        var selection = rig.Accounts.Active();
+        Assert.True(source.ApproveProvider(selection, PolicyOrigin, ManagedKey));
+        var digest = Convert.ToHexStringLower(SHA256.HashData(Convert.FromBase64String(ManagedKey)));
+        var ct = TestContext.Current.CancellationToken;
+        var pending = source.AcquireForActivationAsync(Key, PolicyOrigin, digest, "managed-probe", "1.21.2", static issue => issue(), ct);
+        await handler.Entered.Task.WaitAsync(TimeSpan.FromSeconds(5), ct);
+        Assert.True(source.Disconnect(selection));
+        handler.Release.SetResult();
+        Assert.False((await pending).IsOk);
+        Assert.Equal(1, handler.Calls);
+    }
     private sealed class ManagedContextHandler : HttpMessageHandler
     {
         public int Calls { get; private set; }

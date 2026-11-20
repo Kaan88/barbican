@@ -2973,3 +2973,24 @@ hook check passed. Astra approved the transport checkpoint.
 This checkpoint verifies transport and background bootstrap. Runtime
 authorization for installed managed add-ons, a managed slot walkthrough,
 and an end-to-end composer send takeover remain open.
+
+## Codex / Astra review of the managed startup proof (2026-11-20)
+
+The package manager can request fresh verification for a previously
+approved managed installation. Before sending credentials, it checks
+the installed provider and signer against the route approved for the
+owning login. The package generation, profile lease and provider session
+fence each provider request. Reconstructed archive identity covers
+registry metadata as well as the signed code, so matching code alone
+cannot authorize a changed manifest.
+
+The proof releases the verified entrypoint only inside a synchronous
+host callback while the installation and provider are still current.
+Removal, replacement and loss of the provider or profile authority close
+the proof. A reinstall of identical bytes has a new generation and cannot
+restore a stale proof. Installed managed packages remain disabled until
+the Windows activation flow consumes this proof at the code handoff.
+
+Windows Automation passed 3,615 tests with four skips. Windows Release
+built without warnings or errors. The M6b specification gate and generated
+hook check passed. Astra approved the proof checkpoint.

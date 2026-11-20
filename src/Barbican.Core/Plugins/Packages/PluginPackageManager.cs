@@ -199,10 +199,12 @@ public sealed partial class PluginPackageManager : IPluginPackageManager, IPlugi
             if (!HasAuthority) return Failure<Loaded>("Plugin profile authority is unavailable.");
 
             var loaded = new Loaded(revision, index, installations);
+            _managedVerificationEntries.Clear();
             foreach (var entry in index.Entries)
             {
                 var identity = Identity(entry);
                 _issued[identity] = Math.Max(_issued.GetValueOrDefault(identity), entry.Generation);
+                if (entry.Managed is not null) _managedVerificationEntries.Add(entry.Id, entry);
             }
 
             if (_lease is not null) _cache = loaded;
@@ -219,6 +221,7 @@ public sealed partial class PluginPackageManager : IPluginPackageManager, IPlugi
         if (!HasGenerationCapacity(next)) return Failure<Unit>("The package generation limit has been reached.");
         var data = JsonSerializer.SerializeToUtf8Bytes(next, PackageIndexJsonContext.Default.Index);
         if (data.Length > 4 * 1024 * 1024) return Failure<Unit>("Package index exceeds the host limit.");
+        InvalidateChangedManagedEntries(previous.Index, next);
         var committed = await (authorize is null ? _store.CommitAsync(_options.Profile, previous.Revision, data, ct)
             : _store.CommitAsync(_options.Profile, previous.Revision, data, authorize, ct)).ConfigureAwait(false);
         if (!HasAuthority) return Failure<Unit>("Plugin profile authority is unavailable.");

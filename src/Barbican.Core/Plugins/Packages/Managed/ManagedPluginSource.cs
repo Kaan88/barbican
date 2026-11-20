@@ -1,4 +1,5 @@
 // Bulwark app/api/auth/stalwart-context/route.ts, app/api/plugins/route.ts and bundle-fetch.ts.
+using System.Security.Cryptography;
 using Barbican.Core.Accounts;
 using Barbican.Core.Auth;
 using Barbican.Core.Common;
@@ -88,6 +89,22 @@ public sealed class ManagedPluginSource : IDisposable
         return await FetchFromRouteAsync(route, owner, pluginId, compatibilityVersion, static issue => issue(), ct).ConfigureAwait(false);
     }
 
+    internal Task<Result<ManagedPluginCandidate>> AcquireForActivationAsync(string localAccountKey, Uri provider, string signerSha256,
+        string pluginId, string compatibilityVersion, Func<Func<bool>, bool> hostFence, CancellationToken ct)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(localAccountKey);
+        ArgumentNullException.ThrowIfNull(provider);
+        ArgumentNullException.ThrowIfNull(hostFence);
+        ct.ThrowIfCancellationRequested();
+        Route? route;
+        lock (_gate) route = _routes.GetValueOrDefault(localAccountKey);
+        if (route is null || !OrganizationPolicyService.IsProviderOrigin(provider) ||
+            !string.Equals(route.Origin.AbsoluteUri, provider.AbsoluteUri, StringComparison.Ordinal) ||
+            !string.Equals(Convert.ToHexStringLower(SHA256.HashData(Convert.FromBase64String(route.PinnedKey))), signerSha256, StringComparison.Ordinal) ||
+            _accounts.CaptureOwnerSession(localAccountKey).Value is not { } owner || !route.Owns(owner.Session))
+            return Task.FromResult(Refused());
+        return FetchFromRouteAsync(route, owner, pluginId, compatibilityVersion, hostFence, ct);
+    }
     private async Task<Result<ManagedPluginCandidate>> FetchFromRouteAsync(Route route, AccountSessionSnapshot owner, string pluginId,
         string compatibilityVersion, Func<Func<bool>, bool> hostFence, CancellationToken ct)
     {

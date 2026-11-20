@@ -1,4 +1,5 @@
 // Bulwark stores/plugin-store.ts managed sync and consent, with a host-verified provider route.
+using System.Text;
 using Barbican.Core.Accounts;
 using Barbican.Core.Common;
 using Barbican.Core.Jmap.Errors;
@@ -11,7 +12,79 @@ namespace Barbican.Core.Plugins.Packages;
 
 public sealed partial class PluginPackageManager
 {
+    private static readonly UTF8Encoding ManagedCodeEncoding = new(false, true);
+    private readonly Dictionary<string, Entry> _managedVerificationEntries = new(StringComparer.Ordinal);
     internal sealed record ManagedApproval(string Origin, string AccountKey, string SignerSha256, string BundleSha256);
+
+    /// <summary>Re-verifies the exact installed package through the previously approved provider session.</summary>
+    public Task<Result<ManagedPluginStartupProof>> VerifyManagedStartupAsync(PluginPackageIdentity package,
+        ManagedPluginSource source, CancellationToken ct)
+    {
+        ArgumentNullException.ThrowIfNull(source);
+        return VerifyManagedStartupAsync(package, (approval, fence) => source.AcquireForActivationAsync(approval.AccountKey,
+            new Uri(approval.Origin), approval.SignerSha256, package.Id, _options.BulwarkCompatibilityVersion, fence, ct), ct);
+    }
+
+    internal async Task<Result<ManagedPluginStartupProof>> VerifyManagedStartupAsync(PluginPackageIdentity package,
+        Func<ManagedApproval, Func<Func<bool>, bool>, Task<Result<ManagedPluginCandidate>>> acquire, CancellationToken ct)
+    {
+        ArgumentNullException.ThrowIfNull(package);
+        var installed = await FindManagedStartupEntryAsync(package, ct).ConfigureAwait(false);
+        if (!installed.IsOk) return Result<ManagedPluginStartupProof>.Fail(installed.Error!);
+        var entry = installed.Value!;
+        var approval = entry.Managed!;
+
+        bool Fence(Func<bool> issue) => RunManagedWhileHeld(() =>
+            !ct.IsCancellationRequested && IsCurrentManagedEntry(entry) && issue());
+
+        var fetched = await acquire(approval, Fence).ConfigureAwait(false);
+        ct.ThrowIfCancellationRequested();
+        if (!fetched.IsOk) return Result<ManagedPluginStartupProof>.Fail(fetched.Error!);
+        var candidate = fetched.Value!;
+        var inspection = candidate.Artifact.Inspection;
+        if (Approval(candidate) != approval || !string.Equals(inspection.Id, package.Id, StringComparison.Ordinal) ||
+            !string.Equals(inspection.Version, package.Version, StringComparison.Ordinal) ||
+            !string.Equals(inspection.WholeArchiveSha256, package.Sha256, StringComparison.Ordinal) ||
+            !inspection.Resources.TryGetValue(inspection.EntryPoint, out var code))
+            return Failure<ManagedPluginStartupProof>("The managed package has changed. Review the add-on again.");
+
+        bool WhileCurrent(Func<bool> issue) => RunManagedWhileHeld(() =>
+            IsCurrentManagedEntry(entry) && candidate.TryRunWhileCurrent(issue));
+
+        if (!Fence(() => candidate.TryRunWhileCurrent(static () => true)))
+            return Failure<ManagedPluginStartupProof>("Managed add-on approval is no longer current.");
+        return Result<ManagedPluginStartupProof>.Ok(new(package, entry.Generation, ManagedCodeEncoding.GetString(code.AsSpan()), WhileCurrent));
+    }
+
+    private async Task<Result<Entry>> FindManagedStartupEntryAsync(PluginPackageIdentity package, CancellationToken ct)
+    {
+        await _gate.WaitAsync(ct).ConfigureAwait(false);
+        try
+        {
+            var loaded = await LoadAsync(ct).ConfigureAwait(false);
+            if (!loaded.IsOk) return Result<Entry>.Fail(loaded.Error!);
+            var entry = loaded.Value!.Index.Entries.Find(item => string.Equals(item.Id, package.Id, StringComparison.Ordinal));
+            return entry is { Managed: not null, CleanupThrough: null } && Identity(entry) == package && !_blocked.Contains(package.Id)
+                ? Result<Entry>.Ok(entry)
+                : Failure<Entry>("The approved managed installation is unavailable or has changed.");
+        }
+        finally { _gate.Release(); }
+    }
+
+    // Protected by _issuanceGate, including when the native HTTP request actually starts.
+    private bool IsCurrentManagedEntry(Entry entry) => _managedVerificationEntries.TryGetValue(entry.Id, out var current) &&
+        SameManagedEntry(current, entry);
+
+    private static bool SameManagedEntry(Entry? current, Entry entry) => current is { Managed: not null, CleanupThrough: null } &&
+        current.Generation == entry.Generation && Identity(current) == Identity(entry) && current.Managed == entry.Managed;
+
+    private void InvalidateChangedManagedEntries(Index previous, Index next)
+    {
+        lock (_issuanceGate)
+            foreach (var entry in previous.Entries.Where(item => item.Managed is not null))
+                if (!SameManagedEntry(next.Entries.Find(item => string.Equals(item.Id, entry.Id, StringComparison.Ordinal)), entry))
+                    _managedVerificationEntries.Remove(entry.Id);
+    }
 
     /// <summary>Stages a managed package after the user has separately approved the provider, key and exact OAuth login.</summary>
     public async Task<Result<PluginInstallPreview>> ReviewManagedAsync(ManagedPluginSource source, AccountSessionSnapshot selected,

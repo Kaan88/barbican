@@ -2,6 +2,7 @@
 using System.Security.Cryptography;
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using Barbican.Core.Common;
 using Barbican.Core.Plugins.Packages;
 using Barbican.Core.Plugins.Packages.Managed;
 using Barbican.Core.Plugins.Permissions;
@@ -76,6 +77,65 @@ public sealed class ManagedPluginInstallationTests
         current = false;
         Assert.False((await manager.InstallAsync(Decision(preview, [Account], approved: true), Ct)).IsOk);
         Assert.Empty(Need(await manager.ListAsync(Ct)));
+    }
+
+    [Fact]
+    public async Task StartupProofMatchesExactArchiveAndOnlyReadsWhileProviderIsCurrent()
+    {
+        const string entrypoint = "exports.activate = () => 'approved';";
+        var rig = new PackageTestRig();
+        using var manager = rig.Manager();
+        var authorized = true;
+        var verified = await CandidateAsync(entrypoint, current: issue => authorized && issue());
+        var installed = await InstallManagedAsync(manager, verified);
+        var changedRegistry = await CandidateAsync(entrypoint, name: "Changed registry metadata");
+        var package = installed.Package.Identity;
+
+        Assert.False((await manager.VerifyManagedStartupAsync(package, (_, _) =>
+            Task.FromResult(Result<ManagedPluginCandidate>.Ok(changedRegistry)), Ct)).IsOk);
+        var proof = Need(await manager.VerifyManagedStartupAsync(package, (approval, fence) =>
+        {
+            Assert.Equal(verified.Artifact.SignerSha256, approval.SignerSha256, StringComparer.Ordinal);
+            Assert.Equal(Account, approval.AccountKey, StringComparer.Ordinal);
+            Assert.True(fence(static () => true));
+            return Task.FromResult(Result<ManagedPluginCandidate>.Ok(verified));
+        }, Ct));
+        Assert.Equal(package, proof.Package);
+        Assert.Equal(installed.Grant!.Generation, proof.InstalledGeneration);
+        Assert.True(proof.TryReadEntrypoint(code => string.Equals(entrypoint, code, StringComparison.Ordinal)));
+        authorized = false;
+        Assert.False(proof.TryReadEntrypoint(_ => throw new InvalidOperationException("Revoked proof released code.")));
+        Assert.Null(Need(await manager.GetCurrentAsync(Id, Ct)));
+    }
+
+    [Fact]
+    public async Task RemovingThePackageClosesBothExistingProofAndPendingRequestFence()
+    {
+        var rig = new PackageTestRig();
+        using var manager = rig.Manager();
+        var candidate = await CandidateAsync();
+        var installed = await InstallManagedAsync(manager, candidate);
+        var package = installed.Package.Identity;
+        var found = Result<ManagedPluginCandidate>.Ok(candidate);
+        var proof = Need(await manager.VerifyManagedStartupAsync(package, (_, _) => Task.FromResult(found), Ct));
+        var preparing = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var proceed = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var pending = manager.VerifyManagedStartupAsync(package, async (_, fence) =>
+        {
+            preparing.SetResult();
+            await proceed.Task.WaitAsync(Ct);
+            Assert.False(fence(static () => throw new InvalidOperationException("Removed package could make a request.")));
+            return found;
+        }, Ct);
+        await preparing.Task.WaitAsync(TimeSpan.FromSeconds(5), Ct);
+        Assert.True((await manager.UninstallAsync(package, Ct)).IsOk);
+        proceed.SetResult();
+        Assert.False((await pending).IsOk);
+        Assert.False(proof.TryReadEntrypoint(_ => throw new InvalidOperationException("Removed package released code.")));
+
+        var reinstalled = await InstallManagedAsync(manager, candidate);
+        Assert.Equal(package, reinstalled.Package.Identity);
+        Assert.False(proof.TryReadEntrypoint(_ => throw new InvalidOperationException("A new install restored the old proof.")));
     }
 
     [Fact]
@@ -155,13 +215,19 @@ public sealed class ManagedPluginInstallationTests
         new(preview.ReviewId, preview.Candidate.Identity, preview.Candidate.RequestedPermissions, accounts,
             preview.Candidate.RequestedHttpOrigins, approvePrivilegedJavaScript: approved);
 
+    private static async Task<PluginInstallation> InstallManagedAsync(PluginPackageManager manager, ManagedPluginCandidate candidate)
+    {
+        var preview = Need(await manager.ReviewManagedCandidateAsync(candidate, Ct));
+        return Need(await manager.InstallAsync(Decision(preview, [Account], approved: true), Ct));
+    }
+
     private static async Task<ManagedPluginCandidate> CandidateAsync(string codeText = "exports.activate = () => 1;", byte seed = 0,
-        Uri? origin = null, string account = Account, Func<Func<bool>, bool>? current = null)
+        Uri? origin = null, string account = Account, Func<Func<bool>, bool>? current = null, string name = "Managed probe")
     {
         var code = System.Text.Encoding.UTF8.GetBytes(codeText);
         var metadata = new JsonObject { ["plugins"] = new JsonArray(new JsonObject
         {
-            ["id"] = Id, ["name"] = "Managed probe", ["author"] = "Example", ["version"] = "1.0.0", ["type"] = "hook",
+            ["id"] = Id, ["name"] = name, ["author"] = "Example", ["version"] = "1.0.0", ["type"] = "hook",
             ["tier"] = "privileged", ["dev"] = false, ["entrypoint"] = "scripts/plugin.js", ["bundleHash"] = Convert.ToHexStringLower(SHA256.HashData(code)),
             ["permissions"] = new JsonArray("crypto:full", "email:raw-send"),
         }) };
