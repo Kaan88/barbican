@@ -170,3 +170,22 @@ in 11–18 ms. The large synthetic export took 185–241 ms; the list highlight
 appeared within 40 ms even on that message. These timings cover the local
 sample account in hidden Windows runs. They do not measure a live mail server
 or physical pointing-device input.
+
+## Windows verification at 06ad154
+
+The full Windows Automation solution built without warnings or errors.
+It passed 3,179 tests with zero failures and four skips. Three skips require
+a live JMAP account and one requires the Linux session bus.
+
+Hidden synthetic sample run 9073 captured the rendered five-message
+conversation in both Bulwark themes at 1280 × 720. It also captured new mail
+at 1280 × 720 with the folder sidebar and at 844 × 720 with the sidebar folded.
+The run used the saved default pane widths. The four captures are local
+under `artifacts/auto/9073/`; the runner closed the sample process.
+
+The extracted Windows x64 portable reported source revision
+`06ad154ae817814e8a83eeca06712e0cbcdb09b6`. Its isolated Release smoke
+reached shell-ready in 978 ms and exited 0. The archive SHA-256 is
+`1528786F81F2589CA9A0A49460077A5DE6E1E4E602FFA44D993E39F27A95F853`.
+The smoke report is local at `artifacts/auto/9071/release-smoke.json`.
+This verification covers the UI checkpoint. M6b plugin acceptance remains open.

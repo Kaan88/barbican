@@ -1997,3 +1997,19 @@ The provisional `PluginValue` storage seam needs source-compatible `JSON.stringi
   scenario is `tools/check-composer-window.py`. Normal interactive window
   placement and the OS file picker await hands-on review.
 - Follow-up to b79ef0c serializes replacement and undo/reopen at the leave guard. Concurrent open tests cover both routes. Hidden sample 9022 checked the minimum child (464 by 544 client pixels at scale 1), docked return, discard, and visible close confirmations. Native activation and monitor-to-monitor scaling await hands-on review.
+
+## Codex / Astra review of queued plugin delivery (2026-11-20)
+
+Astra withheld approval of the `86f47f4` / `30db863` candidate.
+The Windows sender has no production caller. The session checks grant and
+account state before the writer converts the encoded payload to text and posts
+it. The session lock leaves grant changes and account switches free to race
+the final native post. The fake transport tests change authority before the
+delivery callback starts.
+
+Approval requires a concrete adapter reached from the production factory,
+an ordering guarantee for account and grant invalidation through the real
+post, and deterministic coverage of an account switch, grant revocation
+and binding cancellation at that boundary. The reviewed commits were
+inspected in place. The Windows suite and portable smoke at `06ad154`
+cover the baseline before those commits.
