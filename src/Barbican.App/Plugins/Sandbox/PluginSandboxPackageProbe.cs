@@ -1,5 +1,6 @@
 #if AUTOMATION && WINDOWS
 using System.IO.Compression;
+using System.Net;
 using System.Text;
 using System.Text.Json;
 using Barbican.App.Composition;
@@ -26,15 +27,22 @@ internal static class PluginSandboxPackageProbe
 {
     private const string ProfilePrefix = "auto-wv-";
     private const string PackageId = "synthetic-lifecycle-probe";
+    private const string OtherPackageId = "synthetic-oauth-other";
     private const string ProbeHook = "onStorageProbe";
+    private const string OAuthProbeHook = "onOAuthProbe";
     private const string FirstLogin = "synthetic-login-a";
     private const string SecondLogin = "synthetic-login-b";
-    private const string Manifest = """{"id":"synthetic-lifecycle-probe","name":"Synthetic lifecycle probe","version":"1.0.0","author":"Example","type":"hook","permissions":["app:lifecycle"]}""";
+    private const string Manifest = """{"id":"synthetic-lifecycle-probe","name":"Synthetic lifecycle probe","version":"1.0.0","author":"Example","type":"hook","permissions":["app:lifecycle","http:fetch"]}""";
     private const string Code = """
         let host;
+        let responses = [];
         module.exports = {
           activate(api) { host = api; },
           hooks: {
+            onOAuthCallback: value => { responses.push(value); },
+            onOAuthProbe: async action => action === 'issue'
+              ? { state: await host.oauth.createState(), redirect: await host.oauth.getRedirectUri() }
+              : responses,
             onWindowFocus: async value => {
               if (value && typeof value === 'object' && !Array.isArray(value) && Object.keys(value).length === 0)
                 await host.storage.set('lifecycle-probe', 'focus');
@@ -79,7 +87,7 @@ internal static class PluginSandboxPackageProbe
             if (!factoryResult.IsOk || factoryResult.Value is not { } factory)
                 throw new InvalidOperationException("Synthetic factory unavailable.");
 
-            var request = await InstallAndEnableAsync(host, factory, options.Profile, budget.Token).ConfigureAwait(false);
+            var request = await InstallAndEnableAsync(host, factory, options.Profile, PackageId, budget.Token).ConfigureAwait(false);
             var started = await factory.StartAsync(request, budget.Token).ConfigureAwait(false);
             instance = started.Value;
             if (!started.IsOk || instance is not { } active || !active.Binding.IsAlive ||
@@ -88,10 +96,12 @@ internal static class PluginSandboxPackageProbe
                 throw new InvalidOperationException("Synthetic activation failed.");
             await hooks.NotifyAsync(HookNames.OnWindowFocus, new EmptyPayload(), budget.Token).ConfigureAwait(false);
             await VerifyStorageAsync(active, accounts, budget.Token).ConfigureAwait(false);
+            var lateCallback = await VerifyOAuthAsync(host, factory, active, options.Profile, budget.Token).ConfigureAwait(false);
 
             if (!(await host.SetEnabledAsync(request.Grant.Package, false, budget.Token).ConfigureAwait(false)).IsOk ||
                 active.Binding.IsAlive || hooks.HasHandlers(HookNames.OnWindowFocus))
                 throw new InvalidOperationException("Synthetic revocation failed.");
+            await ExpectOAuthCallbackAsync(lateCallback, HttpStatusCode.BadRequest, budget.Token).ConfigureAwait(false);
             await hooks.NotifyAsync(HookNames.OnWindowFocus, new EmptyPayload(), budget.Token).ConfigureAwait(false);
             if (!(await host.SetEnabledAsync(request.Grant.Package, true, budget.Token).ConfigureAwait(false)).IsOk)
                 throw new InvalidOperationException("Synthetic re-enable failed.");
@@ -104,6 +114,54 @@ internal static class PluginSandboxPackageProbe
 #pragma warning restore CA1031
         finally { cleaned = await CloseAsync(host, instance, hooks).ConfigureAwait(false); }
         return passed && cleaned ? "package probe ok" : "package probe failed";
+    }
+
+    private static async Task<Uri> VerifyOAuthAsync(PluginPackageHost host, IPluginRuntimeFactory factory,
+        IPluginRuntimeInstance owner, string profile, CancellationToken ct)
+    {
+        var request = await InstallAndEnableAsync(host, factory, profile, OtherPackageId, ct).ConfigureAwait(false);
+        var result = await factory.StartAsync(request, ct).ConfigureAwait(false);
+        if (!result.IsOk || result.Value is not { } other) throw new InvalidOperationException("Second add-on failed to start.");
+        await using var scope = other.ConfigureAwait(false);
+        var callback = await IssueOAuthCallbackAsync(owner, ct).ConfigureAwait(false);
+        await ExpectOAuthCallbackAsync(callback, HttpStatusCode.OK, ct).ConfigureAwait(false);
+        await ExpectOAuthCallbackAsync(callback, HttpStatusCode.BadRequest, ct).ConfigureAwait(false);
+        var observed = await OAuthProbeAsync(owner, "read", ct).ConfigureAwait(false);
+        var isolated = await OAuthProbeAsync(other, "read", ct).ConfigureAwait(false);
+        if (observed.Kind != PluginValueKind.Array || observed.Count != 1 || isolated.Kind != PluginValueKind.Array || isolated.Count != 0 ||
+            !string.Equals(observed.Item(0).Property("code").StringValue, "synthetic-grant", StringComparison.Ordinal))
+            throw new InvalidOperationException("Synthetic OAuth callback delivery was not isolated.");
+        if (!(await host.UninstallAsync(request.Grant.Package, ct).ConfigureAwait(false)).IsOk)
+            throw new InvalidOperationException("Second add-on removal failed.");
+        return await IssueOAuthCallbackAsync(owner, ct).ConfigureAwait(false);
+    }
+
+    private static async Task<Uri> IssueOAuthCallbackAsync(IPluginRuntimeInstance runtime, CancellationToken ct)
+    {
+        var issued = await OAuthProbeAsync(runtime, "issue", ct).ConfigureAwait(false);
+        var state = issued.Property("state").StringValue;
+        if (state.Length != 48 || !state.All(char.IsAsciiHexDigitLower) ||
+            !Uri.TryCreate(issued.Property("redirect").StringValue, UriKind.Absolute, out var redirect) ||
+            !string.Equals(redirect.Scheme, Uri.UriSchemeHttp, StringComparison.Ordinal) ||
+            !string.Equals(redirect.Host, "127.0.0.1", StringComparison.Ordinal) ||
+            !string.Equals(redirect.AbsolutePath, "/plugins/oauth/callback", StringComparison.Ordinal))
+            throw new InvalidOperationException("Synthetic OAuth redirect is unavailable.");
+        return new UriBuilder(redirect) { Query = "state=" + state + "&code=synthetic-grant" }.Uri;
+    }
+
+    private static async Task<PluginValue> OAuthProbeAsync(IPluginRuntimeInstance runtime, string action, CancellationToken ct)
+    {
+        var builder = new PluginValueBuilder();
+        var result = await runtime.InvokeHookAsync(OAuthProbeHook, builder.Build(builder.Array(builder.String(action))),
+            TimeSpan.FromSeconds(8), ct).ConfigureAwait(false);
+        return result.IsOk && result.Value is { } value ? value : throw new InvalidOperationException("Synthetic OAuth hook failed.");
+    }
+
+    private static async Task ExpectOAuthCallbackAsync(Uri uri, HttpStatusCode expected, CancellationToken ct)
+    {
+        using var client = new HttpClient(new HttpClientHandler { UseProxy = false, AllowAutoRedirect = false });
+        using var response = await client.GetAsync(uri, ct).ConfigureAwait(false);
+        if (response.StatusCode != expected) throw new InvalidOperationException("Synthetic OAuth browser reply was unexpected.");
     }
 
     private static async Task VerifyStorageAsync(IPluginRuntimeInstance active, ProbeAccounts accounts, CancellationToken ct)
@@ -193,14 +251,14 @@ internal static class PluginSandboxPackageProbe
     }
 
     private static async Task<PluginRuntimeStart> InstallAndEnableAsync(PluginPackageHost host, IPluginRuntimeFactory factory,
-        string profile, CancellationToken ct)
+        string profile, string id, CancellationToken ct)
     {
-        using var archive = CreateArchive();
+        using var archive = CreateArchive(id);
         var review = await host.InspectAsync(archive, ct).ConfigureAwait(false);
         if (!review.IsOk || review.Value is not { } preview ||
-            !string.Equals(preview.Candidate.Identity.Id, PackageId, StringComparison.Ordinal))
+            !string.Equals(preview.Candidate.Identity.Id, id, StringComparison.Ordinal))
             throw new InvalidOperationException("Synthetic inspection failed.");
-        var consent = new PluginInstallDecision(preview.ReviewId, preview.Candidate.Identity, ["app:lifecycle"], [FirstLogin, SecondLogin]);
+        var consent = new PluginInstallDecision(preview.ReviewId, preview.Candidate.Identity, ["app:lifecycle", "http:fetch"], [FirstLogin, SecondLogin]);
         var installed = await host.InstallAsync(consent, ct).ConfigureAwait(false);
         if (!installed.IsOk || installed.Value is not { Enabled: false, Grant: { Enabled: false } } disabled ||
             disabled.Package.Identity != preview.Candidate.Identity)
@@ -235,12 +293,12 @@ internal static class PluginSandboxPackageProbe
             value.Build(value.Object()), state);
     }
 
-    private static MemoryStream CreateArchive()
+    private static MemoryStream CreateArchive(string id)
     {
         var bytes = new MemoryStream();
         using (var zip = new ZipArchive(bytes, ZipArchiveMode.Create, leaveOpen: true))
         {
-            Write(zip, "manifest.json", Manifest);
+            Write(zip, "manifest.json", Manifest.Replace(PackageId, id, StringComparison.Ordinal));
             Write(zip, "index.js", Code);
         }
         bytes.Position = 0;

@@ -17,6 +17,7 @@ using System.Security.Cryptography;
 using System.Text;
 using Barbican.Core.Common;
 using Barbican.Core.Jmap.Errors;
+using Barbican.Core.Plugins.OAuth;
 
 namespace Barbican.Core.Auth;
 
@@ -30,6 +31,7 @@ public sealed class LoopbackListener : IDisposable
     public static readonly TimeSpan DefaultTimeout = TimeSpan.FromMinutes(5);
 
     private const int MaxRequest = 8192;
+    private const string PluginPath = "/plugins/oauth/callback";
     private static readonly TimeSpan ReadTimeout = TimeSpan.FromSeconds(5);
     private readonly TcpListener _listener;
     private int _refused;
@@ -46,6 +48,7 @@ public sealed class LoopbackListener : IDisposable
 
     /// <summary>The redirect URI to register and send.</summary>
     public Uri RedirectUri => new($"http://127.0.0.1:{Port.ToString(CultureInfo.InvariantCulture)}/callback");
+    internal Uri PluginRedirectUri => new($"http://127.0.0.1:{Port.ToString(CultureInfo.InvariantCulture)}{PluginPath}");
 
     /// <summary>Callbacks refused because their <c>state</c> was missing or wrong.</summary>
     public int Refused => Volatile.Read(ref _refused);
@@ -140,17 +143,53 @@ public sealed class LoopbackListener : IDisposable
 
     public void Dispose() => Close();
 
+    internal async Task ReceivePluginCallbacksAsync(PluginOAuthCallbacks callbacks, TimeProvider time, CancellationToken ct)
+    {
+        try
+        {
+            while (!ct.IsCancellationRequested)
+            {
+                using var socket = await _listener.AcceptTcpClientAsync(ct).ConfigureAwait(false);
+                using var stream = socket.GetStream();
+                var request = await ReadRequestLineAsync(stream, time, ct, requireComplete: true).ConfigureAwait(false);
+                var callback = ReadPluginCallback(request);
+                var delivered = callback is not null && await callbacks.DeliverAsync(callback, ct).ConfigureAwait(false);
+                await RespondAsync(stream, delivered ? 200 : 400, delivered ? "OK" : "Bad Request",
+                    delivered ? "Return to Barbican" : "Sign-in could not be completed",
+                    delivered ? "You can close this tab." : "Return to the add-on to start again.", ct).ConfigureAwait(false);
+            }
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested) { }
+        finally { Close(); }
+    }
+
+    internal static PluginOAuthCallback? ReadPluginCallback(string? request)
+    {
+        var parts = request?.Split(' ');
+        if (parts is not ["GET", var target, "HTTP/1.1" or "HTTP/1.0"] ||
+            !target.StartsWith(PluginPath + "?", StringComparison.Ordinal) || target.Contains('#', StringComparison.Ordinal))
+            return null;
+        var query = ReadQuery(target[(PluginPath.Length + 1)..], rejectDuplicates: true);
+        if (query is null || !query.TryGetValue("state", out var state)) return null;
+        return new(state, query.GetValueOrDefault("code"), query.GetValueOrDefault("error"), query.GetValueOrDefault("error_description"));
+    }
+
     /// <summary>The query of a request target, decoded (application/x-www-form-urlencoded rules); the first of a repeated key wins.</summary>
     public static IReadOnlyDictionary<string, string> ParseQuery(string query)
     {
         ArgumentNullException.ThrowIfNull(query);
+        return ReadQuery(query, rejectDuplicates: false)!;
+    }
+
+    internal static IReadOnlyDictionary<string, string>? ReadQuery(string query, bool rejectDuplicates)
+    {
         var q = new Dictionary<string, string>(StringComparer.Ordinal);
         foreach (var part in query.TrimStart('?').Split('&', StringSplitOptions.RemoveEmptyEntries))
         {
             var eq = part.IndexOf('=', StringComparison.Ordinal);
             var key = Decode(eq < 0 ? part : part[..eq]);
             var value = eq < 0 ? "" : Decode(part[(eq + 1)..]);
-            q.TryAdd(key, value);
+            if (!q.TryAdd(key, value) && rejectDuplicates) return null;
         }
 
         return q;
@@ -161,7 +200,7 @@ public sealed class LoopbackListener : IDisposable
     private static bool SameState(string? got, string expected) =>
         got is not null && CryptographicOperations.FixedTimeEquals(Encoding.UTF8.GetBytes(got), Encoding.UTF8.GetBytes(expected));
 
-    private static async Task<string?> ReadRequestLineAsync(NetworkStream stream, TimeProvider time, CancellationToken ct)
+    private static async Task<string?> ReadRequestLineAsync(NetworkStream stream, TimeProvider time, CancellationToken ct, bool requireComplete = false)
     {
         using var read = new CancellationTokenSource(ReadTimeout, time);
         using var linked = CancellationTokenSource.CreateLinkedTokenSource(ct, read.Token);
@@ -195,7 +234,7 @@ public sealed class LoopbackListener : IDisposable
 
         var text = Encoding.ASCII.GetString(buf, 0, n);
         var end = text.IndexOf("\r\n", StringComparison.Ordinal);
-        return end < 0 ? text : text[..end];
+        return end < 0 ? requireComplete ? null : text : text[..end];
     }
 
     private static async Task RespondAsync(NetworkStream stream, int status, string reason, string? title, string? message, CancellationToken ct)
@@ -204,7 +243,7 @@ public sealed class LoopbackListener : IDisposable
             ? ""
             : $"<!doctype html><meta charset=utf-8><title>{title}</title><body style=\"font-family:Segoe UI,sans-serif;background:#111;color:#eee;display:grid;place-items:center;height:90vh\"><div><h2 style=\"color:#db2d54\">{title}</h2><p>{message}</p></div>";
         var body = Encoding.UTF8.GetBytes(page);
-        var head = string.Create(CultureInfo.InvariantCulture, $"HTTP/1.1 {status} {reason}\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: {body.Length}\r\nCache-Control: no-store\r\nConnection: close\r\n\r\n");
+        var head = string.Create(CultureInfo.InvariantCulture, $"HTTP/1.1 {status} {reason}\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: {body.Length}\r\nCache-Control: no-store\r\nReferrer-Policy: no-referrer\r\nConnection: close\r\n\r\n");
         try
         {
             await stream.WriteAsync(Encoding.ASCII.GetBytes(head), ct).ConfigureAwait(false);

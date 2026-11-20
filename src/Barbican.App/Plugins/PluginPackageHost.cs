@@ -1,11 +1,13 @@
 // M6b: own the authenticated package store and profile lease together.
 using Barbican.Core.Accounts;
+using Barbican.Core.Auth;
 using Barbican.Core.Common;
 using Barbican.Core.Jmap.Errors;
 using Barbican.App.Plugins.Sandbox;
 using Barbican.Core.Plugins.Bridge;
 using Barbican.Core.Plugins.Hooks;
 using Barbican.Core.Plugins.Native;
+using Barbican.Core.Plugins.OAuth;
 using Barbican.Core.Plugins.Packages;
 using Barbican.Core.Plugins.Persistence;
 using Barbican.Core.Plugins.Runtime;
@@ -20,6 +22,9 @@ internal sealed class PluginPackageHost(IProfilePaths paths, ISecretStore secret
     private readonly SemaphoreSlim _gate = new(1, 1);
     private PluginPackageManager? _manager;
     private PluginRevocationCoordinator? _revocation;
+    private PluginOAuthCallbacks? _oauth;
+    private PluginOAuthRedirect? _oauthRedirect;
+    private Task? _oauthStop;
     private AuthenticatedPluginPackageStore? _store;
     private IPluginProfileAuthorityLease? _lease;
     private DirectoryInfo? _automationRoot;
@@ -112,12 +117,12 @@ internal sealed class PluginPackageHost(IProfilePaths paths, ISecretStore secret
     internal Task<Result<IPluginRuntimeFactory>> CreateSandboxFactoryAsync(
         IPluginSandboxWebViewFactory views, IPluginSandboxStartup startup, HookBus hooks,
         IPluginSessionSource sessions, IEnumerable<IPluginApiMethod> methods, CancellationToken ct, bool includeUserStorage = false) =>
-        CreateAddOnFactoryAsync(views, startup, hooks, sessions, methods, includeUserStorage, nativePlugins: null, ct);
+        CreateAddOnFactoryAsync(views, startup, hooks, sessions, methods, includeUserStorage, nativePlugins: null, oauthBrowser: null, ct);
 
     internal Task<Result<IPluginRuntimeFactory>> CreateAddOnFactoryAsync(
         IPluginSandboxWebViewFactory? views, IPluginSandboxStartup? startup, HookBus hooks,
         IPluginSessionSource sessions, IEnumerable<IPluginApiMethod> methods, bool includeUserStorage,
-        NativePlugins? nativePlugins, CancellationToken ct) =>
+        NativePlugins? nativePlugins, PluginOAuthBrowser? oauthBrowser, CancellationToken ct) =>
         WithManagerAsync(manager =>
         {
             // Lifecycle writes and runtime calls share the same leased authority and revocation coordinator.
@@ -127,12 +132,18 @@ internal sealed class PluginPackageHost(IProfilePaths paths, ISecretStore secret
                 var adapters = includeUserStorage
                     ? methods.Concat(PluginStorageMethods.For(new PluginScopedStorage(paths.Profile, manager, sessions, _store!)))
                     : methods;
-                var dispatcher = new PluginApiDispatcher(paths.Profile, adapters, manager, sessions, time);
-                sandbox = new PluginSandboxFactory(manager, manager, _revocation!, dispatcher, views, startup, hooks);
+                _oauth ??= new PluginOAuthCallbacks(manager, time);
+                _oauthRedirect ??= new PluginOAuthRedirect(_oauth, time);
+                var dispatcher = new PluginApiDispatcher(paths.Profile,
+                    adapters.Concat(PluginOAuthMethods.For(_oauth, _oauthRedirect, manager, oauthBrowser?.Launcher, oauthBrowser?.Confirm)),
+                    manager, sessions, time);
+                sandbox = new PluginSandboxFactory(manager, manager, _revocation!, dispatcher, views, startup, hooks, _oauth);
             }
             var native = nativePlugins?.CreatePackageFactory(manager, _revocation!);
             return Task.FromResult(Result<IPluginRuntimeFactory>.Ok(new PackageRuntimeFactory(sandbox, native)));
         }, ct);
+
+    internal sealed record PluginOAuthBrowser(IAuthorizationLauncher Launcher, Func<PluginRuntimeBinding, Uri, CancellationToken, Task<bool>> Confirm);
 
     private sealed class PackageRuntimeFactory(IPluginRuntimeFactory? sandbox, IPluginRuntimeFactory? native) : IPluginRuntimeFactory
     {
@@ -255,6 +266,7 @@ internal sealed class PluginPackageHost(IProfilePaths paths, ISecretStore secret
         if (_runtimeShutdown is not null) return;
         _closed = true;
         _manager?.Dispose();
+        _oauthStop = _oauthRedirect?.DisposeAsync().AsTask();
         _runtimeShutdown = StopRuntimesAsync();
     }
 
@@ -268,6 +280,9 @@ internal sealed class PluginPackageHost(IProfilePaths paths, ISecretStore secret
 #pragma warning restore VSTHRD003
         Volatile.Write(ref _cleanupNeedsRetry, !stopped.IsOk);
         if (!stopped.IsOk) return stopped;
+#pragma warning disable VSTHRD003 // The loopback listener's shutdown is independent of UI and package locks.
+        if (_oauthStop is { } oauthStop) await oauthStop.ConfigureAwait(false);
+#pragma warning restore VSTHRD003
         _store?.Dispose();
         if (_lease is { } lease) await lease.DisposeAsync().ConfigureAwait(false);
         if (_automationRoot is { } root)

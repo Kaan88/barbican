@@ -9,6 +9,7 @@ internal sealed class PluginSandboxStartupLifetime(PluginSandboxSession session)
     private IDisposable? _registration;
     private IPluginRuntimeInstance? _instance;
     private IDisposable? _observers;
+    private IDisposable? _oauthReceiver;
     private TaskCompletionSource? _activation;
     private TaskCompletionSource? _closeAttempt;
     private bool _closing;
@@ -39,12 +40,13 @@ internal sealed class PluginSandboxStartupLifetime(PluginSandboxSession session)
         }
     }
 
-    public bool FinishActivation(IPluginRuntimeInstance? instance, IDisposable? observers)
+    public bool FinishActivation(IPluginRuntimeInstance? instance, IDisposable? observers, IDisposable? oauthReceiver)
     {
         lock (_gate)
         {
             _instance = instance;
             _observers = observers;
+            _oauthReceiver = oauthReceiver;
             _activation!.SetResult();
             return !_closing && instance is not null && session.Binding.IsAlive
                 && ReferenceEquals(session.Binding, instance.Binding);
@@ -111,6 +113,8 @@ internal sealed class PluginSandboxStartupLifetime(PluginSandboxSession session)
             await activationFinished.ConfigureAwait(false);
             _observers?.Dispose();
             _observers = null;
+            _oauthReceiver?.Dispose();
+            _oauthReceiver = null;
             if (_instance is { } instance)
             {
                 await instance.DisposeAsync().ConfigureAwait(false);

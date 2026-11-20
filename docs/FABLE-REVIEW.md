@@ -2463,3 +2463,34 @@ reader, disabled it, verified the detail was gone on the next message,
 and confirmed removal. Windows Release built with zero warnings and errors
 and excludes the Automation fixture. The M6b specification checker passed
 and still reports the plug-in OAuth callback as unwired.
+
+## Codex / Astra review of Windows add-on OAuth delivery (2026-11-20)
+
+An add-on with an active `http:fetch` grant and a registered background
+callback can request a random, single-use state. The state selects the
+exact leased profile, approved package and grant generation. A valid
+provider response is projected into the registered JavaScript callback.
+The app drops expired, replayed, malformed and revoked flows and reports
+generic browser results. Add-on OAuth runs on its own loopback route, and
+account sign-in continues through the existing account OAuth flow.
+
+Windows uses an ephemeral IPv4 loopback redirect. Starting a newer flow
+renews the shared listener's idle deadline while each state keeps its own
+15-minute expiry. The host verifies the authorization-code request and
+S256 PKCE challenge, asks before opening the provider in the system browser,
+and rechecks the exact grant after consent. The user sees the add-on ID and
+provider host. Generic external-link routing and add-on token exchange
+through the full host HTTP API remain open.
+[RFC 8252 on desktop redirect URIs and PKCE](https://www.rfc-editor.org/rfc/rfc8252.html#section-7.3)
+
+Astra approved the browser authorization, state ownership and listener
+renewal changes after the review fixes.
+
+Windows Automation passed 3,383 tests with four skips. The private
+WebView2 package probe used the pinned Bulwark bootstrap and two installed
+synthetic add-ons. It verified JavaScript state and redirect creation,
+owner-only delivery from the real loopback listener, replay rejection,
+and refusal after disabling the owner. Browser launch approval used a
+synthetic launcher in the dispatcher tests. The separate private slot
+probe passed. Windows Release built with zero warnings and errors. The
+specification checker reports the M6b OAuth hook wired.

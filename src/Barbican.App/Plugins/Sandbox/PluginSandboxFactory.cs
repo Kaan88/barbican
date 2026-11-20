@@ -4,6 +4,7 @@ using Barbican.Core.Common;
 using Barbican.Core.Jmap.Errors;
 using Barbican.Core.Plugins.Bridge;
 using Barbican.Core.Plugins.Hooks;
+using Barbican.Core.Plugins.OAuth;
 using Barbican.Core.Plugins.Packages;
 using Barbican.Core.Plugins.Permissions;
 using Barbican.Core.Plugins.Runtime;
@@ -14,7 +15,7 @@ namespace Barbican.App.Plugins.Sandbox;
 /// <summary>Starts an isolated untrusted JavaScript runtime from current installed authority.</summary>
 public sealed class PluginSandboxFactory(IPluginPackageManager packages, IPluginAuthority authority,
     IPluginRevocationCoordinator revocation, IPluginApiDispatcher dispatcher, IPluginSandboxWebViewFactory views,
-    IPluginSandboxStartup? startup = null, HookBus? hooks = null) : IPluginRuntimeFactory
+    IPluginSandboxStartup? startup = null, HookBus? hooks = null, PluginOAuthCallbacks? oauth = null) : IPluginRuntimeFactory
 {
     private const int MaxEntrypointBytes = 20 * 1024 * 1024;
     private static readonly UTF8Encoding StrictUtf8 = new(false, true);
@@ -83,6 +84,7 @@ public sealed class PluginSandboxFactory(IPluginPackageManager packages, IPlugin
 
         IPluginRuntimeInstance? instance = null;
         PluginSandboxLifecycleHooks? observers = null;
+        IDisposable? oauthReceiver = null;
         bool accepted;
         try
         {
@@ -90,12 +92,15 @@ public sealed class PluginSandboxFactory(IPluginPackageManager packages, IPlugin
             if (result.IsOk)
             {
                 instance = result.Value;
-                if (hooks is not null && instance is not null && ReferenceEquals(session.Binding, instance.Binding) &&
-                    authority is IPluginDeliveryAuthority delivery)
-                    observers = await PluginSandboxLifecycleHooks.AttachAsync(hooks, instance, delivery, ct).ConfigureAwait(false);
+                if (instance is not null && ReferenceEquals(session.Binding, instance.Binding))
+                {
+                    if (hooks is not null && authority is IPluginDeliveryAuthority delivery)
+                        observers = await PluginSandboxLifecycleHooks.AttachAsync(hooks, instance, delivery, ct).ConfigureAwait(false);
+                    oauthReceiver = oauth?.Register(instance);
+                }
             }
         }
-        finally { accepted = lifetime.FinishActivation(instance, observers); }
+        finally { accepted = lifetime.FinishActivation(instance, observers, oauthReceiver); }
 
         return accepted ? instance : null;
     }
