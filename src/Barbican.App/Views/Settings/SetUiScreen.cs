@@ -32,6 +32,7 @@ internal sealed class SetUiScreen : Grid
     private readonly Button _back;
     private readonly Button _forward;
     private bool _listBuilt;
+    private string? _shownPage;
 
     public SetUiScreen(ISettingsNavigation navigation, IReadOnlyList<ISettingsPageFactory> factories)
     {
@@ -77,6 +78,11 @@ internal sealed class SetUiScreen : Grid
         Children.Add(_surface);
         AutomationProperties.SetAutomationId(this, "settings.screen");
 
+        _ = RegisterPropertyChangedCallback(VisibilityProperty, (_, _) =>
+        {
+            if (Visibility == Visibility.Collapsed && _shownPage is { } page)
+                FactoryOf(page).OnHidden();
+        });
         _navigation.Changed += (_, _) => Show();
         _vm.PropertyChanged += (_, e) =>
         {
@@ -212,6 +218,9 @@ internal sealed class SetUiScreen : Grid
     private void Show()
     {
         var id = _navigation.Current;
+        if (_shownPage is { } previous && !string.Equals(previous, id, StringComparison.Ordinal))
+            FactoryOf(previous).OnHidden();
+        _shownPage = id;
         var factory = FactoryOf(id);
         if (!_pages.ContainsKey(id))
         {
@@ -230,7 +239,7 @@ internal sealed class SetUiScreen : Grid
             Mark();
         }
 
-        factory.OnShown();
+        if (Visibility == Visibility.Visible) factory.OnShown();
         if (_navigation.Anchor is { } anchor)
         {
             factory.Reveal(anchor);

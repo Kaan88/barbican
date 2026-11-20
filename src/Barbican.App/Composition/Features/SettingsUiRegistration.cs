@@ -45,6 +45,7 @@ public static class SettingsUiRegistration
             services.Replace(ServiceDescriptor.Singleton<IAssistantSession, SampleAssistantSession>());
         }
 
+        services.AddSingleton<IAutomationCommand, AddonsFixtureCommand>();
         for (var i = 0; i < SetUiCommand.Count; i++)
         {
             var index = i;

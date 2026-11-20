@@ -193,6 +193,22 @@ public sealed class PluginPackageManagerAcceptanceTests
     }
 
     [Fact]
+    public async Task DiscardedReviewsCannotBeInstalledAndDoNotFillStaging()
+    {
+        var rig = new PackageTestRig();
+        using var manager = rig.Manager();
+        using var archive = PackageTestRig.Archive();
+        for (var i = 0; i < 12; i++)
+        {
+            archive.Position = 0;
+            var review = Need(await manager.InspectAsync(archive, PluginPackageSource.LocalImport, Ct));
+            await manager.DiscardReviewAsync(review.ReviewId, Ct);
+            Assert.False((await manager.InstallAsync(Decision(review, [], []), Ct)).IsOk);
+        }
+        Assert.Empty(Need(await manager.ListAsync(Ct)));
+    }
+
+    [Fact]
     public async Task AuthorityChangeObserverMayReadCurrentAuthoritySynchronously()
     {
         var rig = new PackageTestRig();

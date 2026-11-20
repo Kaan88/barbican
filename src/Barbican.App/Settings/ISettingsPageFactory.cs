@@ -15,6 +15,9 @@ public interface ISettingsPageFactory
     /// <summary>Called each time the page is shown (reload what the server may have changed). Runs on the UI thread; start data loads off it.</summary>
     void OnShown();
 
+    /// <summary>Called before navigation hides an existing page.</summary>
+    void OnHidden() { }
+
     /// <summary>Scrolls to or highlights a row or section (an anchor from <c>ISettingsNavigation</c> or from a search hit).</summary>
     void Reveal(string anchor);
 }

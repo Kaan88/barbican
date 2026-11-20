@@ -1,4 +1,5 @@
 // M6b: own the authenticated package store and profile lease together.
+using Barbican.Core.Accounts;
 using Barbican.Core.Common;
 using Barbican.Core.Jmap.Errors;
 using Barbican.Core.Plugins.Packages;
@@ -10,7 +11,7 @@ using Barbican.Platform.Plugins;
 
 namespace Barbican.App.Plugins;
 
-internal sealed class PluginPackageHost(IProfilePaths paths, ISecretStore secrets, TimeProvider time) : IAsyncDisposable
+internal sealed class PluginPackageHost(IProfilePaths paths, ISecretStore secrets, TimeProvider time, IAccountOverview accounts) : IAsyncDisposable
 {
     private readonly SemaphoreSlim _gate = new(1, 1);
     private PluginPackageManager? _manager;
@@ -19,18 +20,54 @@ internal sealed class PluginPackageHost(IProfilePaths paths, ISecretStore secret
     private DirectoryInfo? _automationRoot;
     private bool _closed;
 
-    public async Task<Result<IReadOnlyList<PluginInstallation>>> ListAsync(CancellationToken ct)
+    public Task<Result<IReadOnlyList<PluginInstallation>>> ListAsync(CancellationToken ct) =>
+        WithManagerAsync(manager => manager.ListAsync(ct), ct);
+
+    public IReadOnlyList<AccountStatus> AccountStatuses => accounts.Statuses;
+
+    public IReadOnlyList<AccountInfo> EligibleAccounts => [.. accounts.Statuses
+        .Where(status => status.IsConnected && !status.NeedsSignIn).Select(status => status.Account)];
+
+    public Task<Result<PluginInstallPreview>> InspectAsync(Stream archive, CancellationToken ct) =>
+        WithManagerAsync(manager => manager.InspectAsync(archive, PluginPackageSource.LocalImport, ct), ct);
+
+    public Task<Result<PluginInstallation>> InstallAsync(PluginInstallDecision decision, CancellationToken ct)
+    {
+        ArgumentNullException.ThrowIfNull(decision);
+        return WithManagerAsync(manager =>
+        {
+            var availableAccounts = EligibleAccounts.Select(account => account.Key).ToHashSet(StringComparer.Ordinal);
+            if (!decision.AccountKeys.IsSubsetOf(availableAccounts))
+            {
+                return Task.FromResult(Result<PluginInstallation>.Fail(
+                    new ValidationError("The selected mail accounts changed. Review the add-on again.")));
+            }
+            return manager.InstallAsync(decision, ct);
+        }, ct);
+    }
+
+    public async Task DiscardReviewAsync(string reviewId, CancellationToken ct)
     {
         await _gate.WaitAsync(ct).ConfigureAwait(false);
         try
         {
-            if (_closed)
-                return Result<IReadOnlyList<PluginInstallation>>.Fail(new ValidationError("The plugin package host is closed."));
+            if (!_closed && _manager is { } manager)
+                await manager.DiscardReviewAsync(reviewId, ct).ConfigureAwait(false);
+        }
+        finally { _gate.Release(); }
+    }
+
+    private async Task<Result<T>> WithManagerAsync<T>(Func<PluginPackageManager, Task<Result<T>>> action, CancellationToken ct)
+    {
+        await _gate.WaitAsync(ct).ConfigureAwait(false);
+        try
+        {
+            if (_closed) return Result<T>.Fail(new ValidationError("The plugin package host is closed."));
 
             var opened = await OpenAsync(ct).ConfigureAwait(false);
             return opened.IsOk
-                ? await opened.Value!.ListAsync(ct).ConfigureAwait(false)
-                : Result<IReadOnlyList<PluginInstallation>>.Fail(opened.Error!);
+                ? await action(opened.Value!).ConfigureAwait(false)
+                : Result<T>.Fail(opened.Error!);
         }
         finally { _gate.Release(); }
     }

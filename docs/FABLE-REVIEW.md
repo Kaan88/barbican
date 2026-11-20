@@ -2051,3 +2051,20 @@ empty state, captured it, and closed through the normal controller.
 Windows Automation passed 3,219 tests with four skips, zero failures and
 a clean build. Populated rows and Windows credential-store access were
 not exercised by the hidden sample.
+
+## Codex / Astra review of local ZIP installation (2026-11-20)
+
+Settings Add-ons now reviews local ZIP archives and requires consent to
+the exact staged package and selected connected accounts. Update review
+displays permission and account changes. Leaving the page or switching
+apps discards pending reviews. Approved installs and updates stay disabled.
+
+Astra approved the source after the navigation, consent, account eligibility
+and account label fixes. Windows Automation passed 3,220 with four skips
+and zero failures. The Automation and Release builds were clean. Hidden
+synthetic run 9087 refused installation before consent, discarded reviews
+on cancel and both navigation paths, showed an added permission, and listed
+versions 1.0.0 and 2.0.0 as disabled after their approved installs. The run
+had no connected mail account and supplied an inert fixture in place of the
+native file picker. Picker interaction and populated account selection
+remain unverified.

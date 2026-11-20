@@ -252,6 +252,14 @@ public sealed partial class PluginPackageManager : IPluginPackageManager, IPlugi
         finally { _gate.Release(); }
     }
 
+    public async Task DiscardReviewAsync(string reviewId, CancellationToken ct)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(reviewId);
+        await _gate.WaitAsync(ct).ConfigureAwait(false);
+        try { _reviews.Remove(reviewId); }
+        finally { _gate.Release(); }
+    }
+
     public async Task<Result<PluginInstallation>> InstallAsync(PluginInstallDecision decision, CancellationToken ct)
     {
         ArgumentNullException.ThrowIfNull(decision);
