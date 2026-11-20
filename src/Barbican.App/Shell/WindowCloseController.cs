@@ -1,5 +1,6 @@
 // Flush already-applied preferences before native or hidden-automation close.
 // Windows App SDK AppWindow.Closing is cancellable for system affordances; programmatic Close uses CloseAsync directly.
+using Barbican.App.Plugins;
 using Barbican.Core.Storage;
 using Barbican.Presentation.Actions;
 using Barbican.Presentation.Common;
@@ -7,7 +8,7 @@ using Barbican.Presentation.Common;
 namespace Barbican.App.Shell;
 
 /// <summary>Keeps the window alive until debounced preference writes have reached disk.</summary>
-public sealed class WindowCloseController(IPrefsEditor prefs, IDispatcher dispatcher, IToastService? toasts = null)
+internal sealed class WindowCloseController(IPrefsEditor prefs, IDispatcher dispatcher, PluginPackageHost packages, IToastService? toasts = null)
 {
     internal Func<Task<bool>>? BeforeClose { get; set; }
 
@@ -51,6 +52,7 @@ public sealed class WindowCloseController(IPrefsEditor prefs, IDispatcher dispat
 
             await prefs.FlushAsync(CancellationToken.None).ConfigureAwait(false);
             Trace("flush complete");
+            await packages.DisposeAsync().ConfigureAwait(false);
             // A synchronous UI post must own Close: do not await a UI continuation after it tears down the dispatcher.
             dispatcher.Post(() =>
             {

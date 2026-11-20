@@ -48,6 +48,6 @@ public sealed class SettingsNavigationTests
         Assert.Equal(ids.Order(StringComparer.Ordinal), SettingsNav.Pages.Select(p => p.Id).Order(StringComparer.Ordinal));
         Assert.Equal(SettingsNav.Pages.Count, SettingsNav.Pages.Select(p => p.Id).Distinct(StringComparer.Ordinal).Count());
         Assert.Equal(SettingsPageOwner.SrvUi, SettingsNav.Find(SettingsPageIds.Filters)!.Owner);
-        Assert.Equal(SettingsPageOwner.Later, SettingsNav.Find(SettingsPageIds.Addons)!.Owner);
+        Assert.Equal(SettingsPageOwner.Plugins, SettingsNav.Find(SettingsPageIds.Addons)!.Owner);
     }
 }

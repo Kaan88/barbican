@@ -37,10 +37,10 @@ public sealed class SetUiViewModelTests
     }
 
     [Fact]
-    public void Pages_of_Later_and_advanced_pages_hide_until_Show_advanced()
+    public void AddonsAreVisibleAndTroubleshootingRequiresAdvancedSettings()
     {
         var vm = Create();
-        Assert.DoesNotContain(vm.VisiblePages, p => string.Equals(p.Id, SettingsPageIds.Addons, StringComparison.Ordinal));
+        Assert.Contains(vm.VisiblePages, p => string.Equals(p.Id, SettingsPageIds.Addons, StringComparison.Ordinal));
         Assert.DoesNotContain(vm.VisiblePages, p => string.Equals(p.Id, SettingsPageIds.Troubleshooting, StringComparison.Ordinal));
         vm.ShowAdvanced = true;
         Assert.Contains(vm.VisiblePages, p => string.Equals(p.Id, SettingsPageIds.Troubleshooting, StringComparison.Ordinal));

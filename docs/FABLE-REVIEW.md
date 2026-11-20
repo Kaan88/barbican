@@ -2035,3 +2035,19 @@ four skips, zero failures, and a build with zero warnings or errors. Store
 tests used temporary folders and in-memory secrets. Production App and Add-ons
 composition, JavaScript activation, native user package loading, and signed
 managed acquisition remain outside this verification.
+
+## Codex / Astra review of the installed Add-ons view (2026-11-20)
+
+Settings now lists installed packages through the authenticated profile
+store. The view reports saved enabled status, with refresh and usable
+loading, empty and error states. Local installation and runtime actions
+are still pending.
+
+Astra approved the read-only list after the host held its lease through
+each listing and isolated each automation process's package files alongside
+its in-memory secret. Two hidden launches on ports 9081 and 9082 used the
+same synthetic profile. Both opened Add-ons, refreshed to the expected
+empty state, captured it, and closed through the normal controller.
+Windows Automation passed 3,219 tests with four skips, zero failures and
+a clean build. Populated rows and Windows credential-store access were
+not exercised by the hidden sample.

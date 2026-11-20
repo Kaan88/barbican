@@ -29,7 +29,7 @@ public static class SettingsNav
         new(SettingsPageIds.Calendar, "Calendar", "apps", SettingsPageOwner.SetUi, false, "calendar view hours week alerts share import subscribe tasks"),
         new(SettingsPageIds.Contacts, "Contacts", "apps", SettingsPageOwner.SetUi, false, "contacts address book import export sort directory"),
         new(SettingsPageIds.Files, "Files", "apps", SettingsPageOwner.SetUi, false, "files view sort thumbnails hidden download filenames"),
-        new(SettingsPageIds.Addons, "Add-ons", "apps", SettingsPageOwner.Later, false, "plugins add-ons"),
+        new(SettingsPageIds.Addons, "Add-ons", "apps", SettingsPageOwner.Plugins, false, "plugins add-ons"),
         new(SettingsPageIds.Backup, "Backup & import", "bottom", SettingsPageOwner.SetUi, false, "backup export import reset settings"),
         new(SettingsPageIds.Troubleshooting, "Troubleshooting", "bottom", SettingsPageOwner.SetUi, true, "debug logs devtools refresh cache"),
         new(SettingsPageIds.About, "About", "bottom", SettingsPageOwner.SetUi, false, "about version licence links"),

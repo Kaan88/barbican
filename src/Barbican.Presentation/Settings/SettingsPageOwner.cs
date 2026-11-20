@@ -11,6 +11,9 @@ public enum SettingsPageOwner
     /// <summary>Stream srv-ui: the pages that edit server-side objects (folders, filters, out of office, identities, templates, recover).</summary>
     SrvUi,
 
-    /// <summary>Not part of M6 (Add-ons: M6b).</summary>
+    /// <summary>Pages deferred to a later milestone.</summary>
     Later,
+
+    /// <summary>The installed add-ons page.</summary>
+    Plugins,
 }
