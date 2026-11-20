@@ -56,7 +56,7 @@
                     Style="{StaticResource Button.Primary}" Padding="18,0" MinHeight="{x:Bind Look.QuickTarget, Mode=OneWay}"
                     FontFamily="{x:Bind Look.AppBoldFont, Mode=OneWay}" FontSize="{x:Bind Look.BodyTextSize, Mode=OneWay}"
                     FocusVisualPrimaryThickness="{x:Bind Look.FocusThickness, Mode=OneWay}" CornerRadius="22" Click="OnFloatingComposeClick"
-                    Visibility="Collapsed" AutomationProperties.AutomationId="list.compose" AutomationProperties.Name="New message">
+                    Visibility="{x:Bind Look.FloatingComposeVisibility, Mode=OneWay}" AutomationProperties.AutomationId="list.compose" AutomationProperties.Name="New message">
               <StackPanel Orientation="Horizontal" Spacing="8"><controls:SIcon Kind="Pen" Size="18" /><TextBlock Text="New message" /></StackPanel>
             </Button>
           </Grid>

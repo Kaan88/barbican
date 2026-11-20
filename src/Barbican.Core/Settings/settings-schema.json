@@ -729,10 +729,6 @@
      "key": "composePlacement",
      "options": [
       [
-       "style",
-       "Follow workspace style"
-      ],
-      [
        "floating",
        "Floating"
       ],
@@ -745,14 +741,7 @@
        "Rail"
       ]
      ],
-     "default": "style"
-    },
-    {
-     "kind": "toggle",
-     "label": "Show mail summary tiles",
-     "desc": "Show calendar, flagged mail and task summaries above the reader in wide Bulwark and Bento windows.",
-     "key": "showMailSummaryTiles",
-     "default": false
+     "default": "floating"
     },
     {
      "kind": "toggle",

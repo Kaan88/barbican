@@ -20,9 +20,8 @@ public sealed class ShellLayoutTests
     [Fact]
     public void BentoShowsSummaryTilesWhenTheReaderIsWideEnough()
     {
-        Assert.False(ShellLayout.Compute(1400, false).SummaryTilesShown);
-        Assert.True(ShellLayout.Compute(1400, false, showSummaryTiles: true).SummaryTilesShown);
-        Assert.False(ShellLayout.Compute(960, false, showSummaryTiles: true).SummaryTilesShown);
+        Assert.True(ShellLayout.Compute(1400, false).SummaryTilesShown);
+        Assert.False(ShellLayout.Compute(960, false).SummaryTilesShown);
     }
 
     [Fact]
@@ -81,7 +80,6 @@ public sealed class ShellLayoutTests
     {
         var layout = ShellLayout.Compute(2013, ShellStyle.Bulwark);
         Assert.False(layout.SummaryTilesShown);
-        Assert.True(ShellLayout.Compute(2013, ShellStyle.Bulwark, showSummaryTiles: true).SummaryTilesShown);
         Assert.False(layout.ContextShown);
         Assert.Equal(2013 - 696, layout.ReaderWidth);
     }

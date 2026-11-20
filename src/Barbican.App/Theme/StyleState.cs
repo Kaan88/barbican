@@ -22,8 +22,7 @@ public sealed class StyleState : ObservableObject
     private double _windowWidth = 1400;
     private A11y _accessibility = new();
     private bool _showToolbarLabels = true;
-    private string _composePlacement = "style";
-    public bool ShowMailSummaryTiles { get; private set; }
+    private string _composePlacement = "floating";
     private bool _sidebarAccountSwitcher = true;
 
     public StyleState()
@@ -49,7 +48,7 @@ public sealed class StyleState : ObservableObject
     /// <summary>The window width the layout was computed for.</summary>
     public double WindowWidth => _windowWidth;
 
-    public ShellLayout Layout => ShellLayout.Compute(_windowWidth, Style, showSummaryTiles: ShowMailSummaryTiles);
+    public ShellLayout Layout => ShellLayout.Compute(_windowWidth, Style);
 
     /// <summary>Applies a style; true when it changed.</summary>
     public bool SetStyle(ShellStyle style)
@@ -88,12 +87,11 @@ public sealed class StyleState : ObservableObject
     }
 
     /// <summary>Updates typed dimensions when the shared accessibility settings change.</summary>
-    public void SetAccessibility(A11y accessibility, bool showToolbarLabels, string? composePlacement, bool sidebarAccountSwitcher = true, bool showMailSummaryTiles = false)
+    public void SetAccessibility(A11y accessibility, bool showToolbarLabels, string? composePlacement, bool sidebarAccountSwitcher = true)
     {
         ArgumentNullException.ThrowIfNull(accessibility);
-        var placement = composePlacement is null or "style" ? "style" : ComposePlacementRules.Normalize(composePlacement);
-        if (ShowMailSummaryTiles == showMailSummaryTiles && _accessibility == accessibility && _showToolbarLabels == showToolbarLabels && _sidebarAccountSwitcher == sidebarAccountSwitcher && string.Equals(_composePlacement, placement, StringComparison.Ordinal)) return;
-        ShowMailSummaryTiles = showMailSummaryTiles;
+        var placement = ComposePlacementRules.Normalize(composePlacement);
+        if (_accessibility == accessibility && _showToolbarLabels == showToolbarLabels && _sidebarAccountSwitcher == sidebarAccountSwitcher && string.Equals(_composePlacement, placement, StringComparison.Ordinal)) return;
         _sidebarAccountSwitcher = sidebarAccountSwitcher;
         _accessibility = accessibility;
         _showToolbarLabels = showToolbarLabels;
@@ -101,12 +99,10 @@ public sealed class StyleState : ObservableObject
         OnPropertyChanged(string.Empty);
     }
 
-    public string ComposePlacement => _composePlacement is "style"
-        ? IsBento ? "sidebar" : "floating"
-        : _composePlacement;
-    public Visibility FloatingComposeVisibility => string.Equals(ComposePlacement, "floating", StringComparison.Ordinal) || (string.Equals(ComposePlacement, "sidebar", StringComparison.Ordinal) && (!Layout.SidebarShown || _windowWidth < 700)) ? Visibility.Visible : Visibility.Collapsed;
-    public Visibility SidebarComposeVisibility => string.Equals(ComposePlacement, "sidebar", StringComparison.Ordinal) && Layout.SidebarShown ? Visibility.Visible : Visibility.Collapsed;
-    public Visibility RailComposeVisibility => string.Equals(ComposePlacement, "rail", StringComparison.Ordinal) ? Visibility.Visible : Visibility.Collapsed;
+    public string ComposePlacement => _composePlacement;
+    public Visibility FloatingComposeVisibility => string.Equals(_composePlacement, "floating", StringComparison.Ordinal) || (string.Equals(_composePlacement, "sidebar", StringComparison.Ordinal) && !Layout.SidebarShown) ? Visibility.Visible : Visibility.Collapsed;
+    public Visibility SidebarComposeVisibility => string.Equals(_composePlacement, "sidebar", StringComparison.Ordinal) && Layout.SidebarShown ? Visibility.Visible : Visibility.Collapsed;
+    public Visibility RailComposeVisibility => string.Equals(_composePlacement, "rail", StringComparison.Ordinal) ? Visibility.Visible : Visibility.Collapsed;
     public bool ShowToolbarLabels => _showToolbarLabels;
     public Visibility ToolbarLabelVisibility => _showToolbarLabels ? Visibility.Visible : Visibility.Collapsed;
     public Visibility ToolbarIconVisibility => IsBento || !_showToolbarLabels ? Visibility.Visible : Visibility.Collapsed;
@@ -226,7 +222,7 @@ public sealed class StyleState : ObservableObject
     public double ReaderActionHeight => IsBulwark ? Math.Max(32 * TextScale, MinimumTarget) : ActionButtonHeight;
 
     /// <summary>Reply all, Delete and More are icon-only pills in Bento so the six M1 actions fit the prototype's three-pill width.</summary>
-    public Visibility SecondaryLabelVisibility => Style == ShellStyle.Bento ? Visibility.Collapsed : ToolbarLabelVisibility;
+    public Visibility SecondaryLabelVisibility => ToolbarLabelVisibility;
 
     // rail
     public Thickness RailPadding => new(0, _m.RailPadTop, 0, _m.RailPadBottom);
