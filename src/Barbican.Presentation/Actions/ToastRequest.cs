@@ -5,6 +5,9 @@ namespace Barbican.Presentation.Actions;
 /// <summary>A toast to show: the text, whether it is an error, and an optional action button (Undo).</summary>
 public sealed record ToastRequest(string Message, bool IsError = false, string? ActionLabel = null, Func<CancellationToken, Task>? Action = null, TimeSpan? Duration = null)
 {
+    /// <summary>Persistent indeterminate progress, dismissed explicitly by its owner or the user.</summary>
+    public bool IsProgress { get; init; }
+
     /// <summary>Optional explicit severity; existing error requests retain their behavior.</summary>
     public ToastSeverity? Severity { get; init; }
 

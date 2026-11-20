@@ -103,6 +103,65 @@ public sealed class PluginToastMethodsTests
         Assert.Equal(new string('x', 298) + "…", shown!.Message, StringComparer.Ordinal);
     }
 
+    [Fact]
+    public async Task ProgressSharesBudgetAndDismissRemainsFreeAndIdempotent()
+    {
+        var shown = 0;
+        var dismissed = new List<string>();
+        var methods = PluginToastMethods.Create(TimeProvider.System,
+            (_, _, _) => { shown++; return Task.FromResult<PluginErrorCode?>(null); },
+            (toast, _, budget, _) => { if (!budget()) return Task.FromResult(new PluginToastProgressResult(null, PluginErrorCode.RateLimited)); shown++; Assert.Equal("working now", toast.Message, StringComparer.Ordinal); return Task.FromResult(new PluginToastProgressResult("handle", null)); },
+            (handle, _, _) => { dismissed.Add(handle); return Task.FromResult<PluginErrorCode?>(null); });
+        Assert.Equal(PluginToastMethods.FullMethodCount, methods.Count);
+        await using var binding = PluginRuntimeBinding.Create("auto-toast", Grant, PluginFrameKind.Background);
+        var context = new Context(binding);
+        var progress = methods.Single(method => string.Equals(method.Descriptor.Name, "toast.progress", StringComparison.Ordinal));
+        var dismiss = methods.Single(method => string.Equals(method.Descriptor.Name, "toast.dismiss", StringComparison.Ordinal));
+        var opened = await progress.InvokeAsync(context, Arguments("working\nnow"), Ct);
+        Assert.True(opened.IsSuccess);
+        Assert.Equal("handle", opened.Value!.StringValue, StringComparer.Ordinal);
+        for (var i = 0; i < 4; i++) Assert.True((await methods[0].InvokeAsync(context, Arguments("other"), Ct)).IsSuccess);
+        Assert.Equal(PluginErrorCode.RateLimited, (await progress.InvokeAsync(context, Arguments("again"), Ct)).Error);
+        Assert.True((await methods[1].InvokeAsync(context, Arguments("dropped"), Ct)).IsSuccess);
+        Assert.Equal(5, shown);
+        Assert.True((await dismiss.InvokeAsync(context, Arguments("handle"), Ct)).IsSuccess);
+        Assert.True((await dismiss.InvokeAsync(context, Arguments("handle"), Ct)).IsSuccess);
+        Assert.Equal(["handle", "handle"], dismissed, StringComparer.Ordinal);
+    }
+
+    [Fact]
+    public async Task DismissRequiresStringAndProgressPropagatesHostFailure()
+    {
+        var methods = PluginToastMethods.Create(TimeProvider.System,
+            (_, _, _) => Task.FromResult<PluginErrorCode?>(null),
+            (_, _, _, _) => Task.FromResult(new PluginToastProgressResult(null, PluginErrorCode.StaleContext)),
+            (_, _, _) => Task.FromResult<PluginErrorCode?>(null));
+        await using var binding = PluginRuntimeBinding.Create("auto-toast", Grant, PluginFrameKind.Background);
+        var builder = new PluginValueBuilder();
+        var noHandle = builder.Build(builder.Array(builder.Null()));
+        var dismiss = methods.Single(method => string.Equals(method.Descriptor.Name, "toast.dismiss", StringComparison.Ordinal));
+        Assert.Equal(PluginErrorCode.InvalidArguments, (await dismiss.InvokeAsync(new Context(binding), noHandle, Ct)).Error);
+        var progress = methods.Single(method => string.Equals(method.Descriptor.Name, "toast.progress", StringComparison.Ordinal));
+        Assert.Equal(PluginErrorCode.StaleContext, (await progress.InvokeAsync(new Context(binding), Arguments("x"), Ct)).Error);
+    }
+
+    [Fact]
+    public async Task HostRefusalBeforeBudgetDoesNotConsumeTheBurstAllowance()
+    {
+        var ordinary = 0;
+        var methods = PluginToastMethods.Create(TimeProvider.System,
+            (_, _, _) => { ordinary++; return Task.FromResult<PluginErrorCode?>(null); },
+            (_, _, _, _) => Task.FromResult(new PluginToastProgressResult(null, PluginErrorCode.Unavailable)),
+            (_, _, _) => Task.FromResult<PluginErrorCode?>(null));
+        await using var binding = PluginRuntimeBinding.Create("auto-toast", Grant, PluginFrameKind.Background);
+        var context = new Context(binding);
+        var progress = methods.Single(method => string.Equals(method.Descriptor.Name, "toast.progress", StringComparison.Ordinal));
+        for (var i = 0; i < 6; i++)
+            Assert.Equal(PluginErrorCode.Unavailable, (await progress.InvokeAsync(context, Arguments("x"), Ct)).Error);
+        for (var i = 0; i < 5; i++) Assert.True((await methods[0].InvokeAsync(context, Arguments("x"), Ct)).IsSuccess);
+        Assert.Equal(5, ordinary);
+    }
+
     private static PluginValue Arguments(string text)
     {
         var builder = new PluginValueBuilder();

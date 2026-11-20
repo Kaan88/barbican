@@ -8,13 +8,12 @@
     IsTabStop="False">
   <!-- The toasts (Bulwark stores/toast-store.ts): in the overlay layer, bottom centre, never a popup (ADR 0007). A toast appears in one frame and leaves when the timer says so;
        nothing animates (design/MOTION.md). The service holds them; Narrator hears each one through a notification event. -->
-  <ItemsControl ItemsSource="{x:Bind Toasts.Toasts}" HorizontalAlignment="Center" VerticalAlignment="Bottom" Margin="0,0,0,28" IsTabStop="False"
-                AutomationProperties.AutomationId="toast.host" AutomationProperties.Name="Notifications">
-    <ItemsControl.ItemTemplate>
-      <DataTemplate x:DataType="actions:ToastItem">
+  <UserControl.Resources>
+      <DataTemplate x:Key="ToastTemplate" x:DataType="actions:ToastItem">
         <Border Background="{StaticResource Popup}" BorderBrush="{StaticResource Line}" BorderThickness="1" CornerRadius="12" Padding="16,8,8,8" Margin="0,4,0,0"
                 AutomationProperties.AutomationId="toast" AutomationProperties.Name="{x:Bind AccessibleName}">
           <StackPanel Orientation="Horizontal" Spacing="12">
+            <ProgressRing IsActive="{x:Bind IsProgress}" Visibility="{x:Bind views:Fmt.Vis(IsProgress)}" Width="18" Height="18" VerticalAlignment="Center" AutomationProperties.Name="In progress" />
             <StackPanel VerticalAlignment="Center" MaxWidth="460" Spacing="2">
               <TextBlock Text="{x:Bind DisplaySource}" Visibility="{x:Bind views:Fmt.VisText(DisplaySource)}" FontSize="12" FontWeight="SemiBold" TextWrapping="Wrap" />
               <TextBlock Text="{x:Bind Message}" Foreground="{x:Bind local:ActionFmt.ToastText(Severity)}" FontSize="13" TextWrapping="Wrap" />
@@ -27,6 +26,11 @@
           </StackPanel>
         </Border>
       </DataTemplate>
-    </ItemsControl.ItemTemplate>
-  </ItemsControl>
+  </UserControl.Resources>
+  <StackPanel HorizontalAlignment="Center" VerticalAlignment="Bottom" Margin="0,0,0,28" AutomationProperties.AutomationId="toast.host" AutomationProperties.Name="Notifications">
+    <ScrollViewer MaxHeight="220" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+      <ItemsControl ItemsSource="{x:Bind Toasts.ProgressToasts}" ItemTemplate="{StaticResource ToastTemplate}" IsTabStop="False" />
+    </ScrollViewer>
+    <ItemsControl ItemsSource="{x:Bind Toasts.OrdinaryToasts}" ItemTemplate="{StaticResource ToastTemplate}" IsTabStop="False" />
+  </StackPanel>
 </UserControl>

@@ -1,6 +1,6 @@
 // Mirrors Bulwark lib/plugin-sandbox/host-api-toasts.ts and host-api-notify.ts oneLine.
-using System.Text;
 using System.Globalization;
+using System.Text;
 using Barbican.Core.Plugins.Bridge;
 using Barbican.Core.Plugins.Protocol;
 
@@ -9,17 +9,30 @@ namespace Barbican.Core.Plugins.Notifications;
 /// <summary>Ordinary add-on toasts with a shared per-package burst limit.</summary>
 public static class PluginToastMethods
 {
-    /// <summary>Creates the four methods sharing one limiter and the host's UI presenter.</summary>
+    /// <summary>Method count when both progress callbacks are supplied.</summary>
+    public const int FullMethodCount = 6;
+
+    /// <summary>Creates ordinary methods and, when both callbacks are supplied, progress and dismissal with a shared limiter.</summary>
     public static IReadOnlyList<IPluginApiMethod> Create(TimeProvider time,
-        Func<PluginToast, IPluginInvocationContext, CancellationToken, Task<PluginErrorCode?>> present)
+        Func<PluginToast, IPluginInvocationContext, CancellationToken, Task<PluginErrorCode?>> present,
+        Func<PluginToast, IPluginInvocationContext, Func<bool>, CancellationToken, Task<PluginToastProgressResult>>? progress = null,
+        Func<string, IPluginInvocationContext, CancellationToken, Task<PluginErrorCode?>>? dismiss = null)
     {
         ArgumentNullException.ThrowIfNull(time);
         ArgumentNullException.ThrowIfNull(present);
+        if (progress is not null) ArgumentNullException.ThrowIfNull(dismiss);
+        if (dismiss is not null) ArgumentNullException.ThrowIfNull(progress);
         var limiter = new Limiter(time);
-        return [new Method("toast.success", PluginToastKind.Success, limiter, present),
+        var methods = new List<IPluginApiMethod> { new Method("toast.success", PluginToastKind.Success, limiter, present),
             new Method("toast.error", PluginToastKind.Error, limiter, present),
             new Method("toast.info", PluginToastKind.Info, limiter, present),
-            new Method("toast.warning", PluginToastKind.Warning, limiter, present)];
+            new Method("toast.warning", PluginToastKind.Warning, limiter, present) };
+        if (progress is not null && dismiss is not null)
+        {
+            methods.Add(new ProgressMethod(limiter, progress));
+            methods.Add(new DismissMethod(dismiss));
+        }
+        return methods;
     }
 
     /// <summary>Sanitizes a trusted host-provided source label; the host supplies its own ID fallback.</summary>
@@ -70,22 +83,56 @@ public static class PluginToastMethods
             var error = await present(new PluginToast(kind, Clean(message, 300, 1200)), context, ct).ConfigureAwait(false);
             return error is { } denied ? PluginCallOutcome.Failed(denied) : PluginCallOutcome.Succeeded();
         }
+    }
 
-        private static string? Read(PluginValue args)
+    private static string? Read(PluginValue args)
+    {
+        if (args is not { Kind: PluginValueKind.Array }) return null;
+        if (args.Count == 0) return string.Empty;
+        var item = args.Item(0);
+        return item.Kind switch
         {
-            if (args is not { Kind: PluginValueKind.Array }) return null;
-            if (args.Count == 0) return string.Empty;
-            var item = args.Item(0);
-            return item.Kind switch
-            {
-                PluginValueKind.String => item.StringValue,
-                PluginValueKind.Null or PluginValueKind.Undefined => string.Empty,
-                PluginValueKind.Boolean => item.BooleanValue ? "true" : "false",
-                PluginValueKind.Number => Number(item.NumberText),
-                PluginValueKind.BigInt => item.NumberText,
-                _ => null,
-            };
+            PluginValueKind.String => item.StringValue,
+            PluginValueKind.Null or PluginValueKind.Undefined => string.Empty,
+            PluginValueKind.Boolean => item.BooleanValue ? "true" : "false",
+            PluginValueKind.Number => Number(item.NumberText),
+            PluginValueKind.BigInt => item.NumberText,
+            _ => null,
+        };
+    }
+
+    private sealed class ProgressMethod(Limiter limiter,
+        Func<PluginToast, IPluginInvocationContext, Func<bool>, CancellationToken, Task<PluginToastProgressResult>> present) : IPluginApiMethod
+    {
+        public PluginApiDescriptor Descriptor { get; } = new("toast.progress", [], TimeSpan.FromSeconds(30), mayMutate: true);
+        public PluginErrorCode? ValidateArguments(PluginValue arguments) => Read(arguments) is null ? PluginErrorCode.InvalidArguments : null;
+        public async Task<PluginCallOutcome> InvokeAsync(IPluginInvocationContext context, PluginValue arguments, CancellationToken ct)
+        {
+            if (Read(arguments) is not { } message) return PluginCallOutcome.Failed(PluginErrorCode.InvalidArguments);
+            if (!await context.CheckCurrentAsync(ct).ConfigureAwait(false)) return PluginCallOutcome.Failed(PluginErrorCode.StaleContext);
+            var attempted = 0;
+            bool TakeBudget() => Interlocked.Exchange(ref attempted, 1) == 0 && limiter.Take(context.Binding.Profile, context.Binding.Package.Id);
+            var result = await present(new PluginToast(PluginToastKind.Info, Clean(message, 300, 1200)), context, TakeBudget, ct).ConfigureAwait(false);
+            if (result.Error is { } error) return PluginCallOutcome.Failed(error);
+            if (string.IsNullOrEmpty(result.Handle)) return PluginCallOutcome.Failed(PluginErrorCode.Unavailable);
+            var builder = new PluginValueBuilder();
+            return PluginCallOutcome.Succeeded(builder.Build(builder.String(result.Handle)));
         }
+    }
+
+    private sealed class DismissMethod(Func<string, IPluginInvocationContext, CancellationToken, Task<PluginErrorCode?>> dismiss) : IPluginApiMethod
+    {
+        public PluginApiDescriptor Descriptor { get; } = new("toast.dismiss", [], TimeSpan.FromSeconds(30), mayMutate: true);
+        public PluginErrorCode? ValidateArguments(PluginValue arguments) => Handle(arguments) is null ? PluginErrorCode.InvalidArguments : null;
+        public async Task<PluginCallOutcome> InvokeAsync(IPluginInvocationContext context, PluginValue arguments, CancellationToken ct)
+        {
+            if (Handle(arguments) is not { } handle) return PluginCallOutcome.Failed(PluginErrorCode.InvalidArguments);
+            if (!await context.CheckCurrentAsync(ct).ConfigureAwait(false)) return PluginCallOutcome.Failed(PluginErrorCode.StaleContext);
+            var error = await dismiss(handle, context, ct).ConfigureAwait(false);
+            return error is { } denied ? PluginCallOutcome.Failed(denied) : PluginCallOutcome.Succeeded();
+        }
+        private static string? Handle(PluginValue args) => args is { Kind: PluginValueKind.Array, Count: > 0 } &&
+            args.Item(0) is { Kind: PluginValueKind.String } item ? item.StringValue : null;
     }
 
     // Uses the existing shortest-roundtrip normalization strategy from PluginStorageJson.

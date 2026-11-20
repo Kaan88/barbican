@@ -13,6 +13,8 @@ public sealed class ToastLastCommand(ToastService toasts) : IAutomationCommand
 
     public Task<string> RunAsync(string args, CancellationToken cancellationToken)
     {
+        if (string.Equals(args.Trim(), "progress", StringComparison.Ordinal))
+            return Task.FromResult($"ok {toasts.ProgressToasts.Count}");
         if (toasts.LastShown is not { } toast) return Task.FromResult("none");
         if (string.Equals(args.Trim(), "source", StringComparison.Ordinal))
             return Task.FromResult($"ok {toast.DisplaySource}|{toast.Severity}|{toast.Message}");

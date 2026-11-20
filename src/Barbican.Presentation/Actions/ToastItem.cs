@@ -18,8 +18,11 @@ public sealed record ToastItem(ToastHandle Handle, ToastRequest Request)
         string.IsNullOrWhiteSpace(Request.SourceId) || string.Equals(Source, Request.SourceId, StringComparison.Ordinal)
             ? "Add-on: " + Source : "Add-on: " + Source + " (" + Request.SourceId + ")";
 
-    /// <summary>The complete accessible name, including attribution.</summary>
-    public string AccessibleName => DisplaySource is { } source ? source + ": " + Message : Message;
+    /// <summary>Whether this toast represents ongoing work.</summary>
+    public bool IsProgress => Request.IsProgress;
+
+    /// <summary>The complete accessible name, including attribution and progress state.</summary>
+    public string AccessibleName => (DisplaySource is { } source ? source + ": " + Message : Message) + (IsProgress ? ", in progress" : string.Empty);
 
     /// <summary>The action button's label (Undo), or null.</summary>
     public string? ActionLabel => Request.ActionLabel;

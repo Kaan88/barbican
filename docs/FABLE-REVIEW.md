@@ -2735,3 +2735,20 @@ removed from the displayed message.
 
 The ordinary methods accept strings and primitive values. Complex
 objects and the persistent progress and dismiss methods remain open.
+
+## Codex / Astra review of Windows add-on progress notifications (2026-11-20)
+
+JavaScript add-ons can show persistent progress and dismiss it through
+an opaque handle assigned to the exact frame. An unknown or already
+closed handle has no effect. Closing a toast or ending its frame releases
+it. Progress shares the ordinary notification burst limit and allows up
+to five active progress notifications per add-on and 32 per window.
+Ordinary notifications and their actions remain visible outside the
+scrolling progress list.
+
+Astra approved the display, ownership and cleanup changes. The private
+Windows walkthrough used a synthetic add-on composer action to display
+attributed progress. It verified dismissal through the add-on, the
+native Close button, and disabling the add-on while progress remained
+visible. Windows Automation passed 3,468 tests with four skips, and
+Windows Release built with zero warnings and errors.

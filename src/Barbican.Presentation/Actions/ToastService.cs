@@ -41,11 +41,33 @@ public sealed class ToastService : IToastService, IDisposable
     /// <summary>A message was shown: the host raises a Narrator notification (RaiseNotificationEvent) with it.</summary>
     public event EventHandler<ToastAnnouncedEventArgs>? Announced;
 
+    /// <summary>A toast was removed, after the service lock has been released.</summary>
+    public event EventHandler<ToastDismissedEventArgs>? Dismissed;
+
     /// <summary>The toast shown last, even after it left the screen (the automation toast-last command).</summary>
     public ToastItem? LastShown { get; private set; }
 
     /// <summary>The toasts on screen, oldest first. Changed in place; the host binds to it.</summary>
     public BulkObservableCollection<ToastItem> Toasts { get; } = [];
+
+    /// <summary>Ordinary toasts shown outside the progress scroll area.</summary>
+    public BulkObservableCollection<ToastItem> OrdinaryToasts { get; } = [];
+
+    /// <summary>Persistent progress toasts shown in a separate scroll area.</summary>
+    public BulkObservableCollection<ToastItem> ProgressToasts { get; } = [];
+
+    /// <summary>Prepares ownership synchronously before a progress toast becomes observable. Must run on the dispatcher thread.</summary>
+    public ToastHandle ShowPrepared(ToastRequest toast, Action<ToastHandle> prepare)
+    {
+        ArgumentNullException.ThrowIfNull(toast);
+        ArgumentNullException.ThrowIfNull(prepare);
+        if (!_dispatcher.HasThreadAccess) throw new InvalidOperationException("Toast preparation requires the dispatcher thread.");
+        if (!toast.IsProgress) throw new ArgumentException("Prepared toasts must represent progress.", nameof(toast));
+        var handle = new ToastHandle(Interlocked.Increment(ref _next));
+        prepare(handle);
+        ShowCore(handle, toast);
+        return handle;
+    }
 
     /// <inheritdoc />
     public ToastHandle Show(ToastRequest toast)
@@ -69,27 +91,29 @@ public sealed class ToastService : IToastService, IDisposable
     private void ShowCore(ToastHandle newHandle, ToastRequest toast)
     {
         ToastItem item;
+        var removed = new List<ToastItem>();
         lock (_lock)
         {
             // Replace only the same message, severity, and attributed source.
-            var same = Toasts.FirstOrDefault(t => string.Equals(t.Message, toast.Message, StringComparison.Ordinal)
+            var same = toast.IsProgress ? null : Toasts.FirstOrDefault(t => !t.IsProgress && string.Equals(t.Message, toast.Message, StringComparison.Ordinal)
                 && t.Request.EffectiveSeverity == toast.EffectiveSeverity
                 && string.Equals(t.Request.Source, toast.Source, StringComparison.Ordinal)
                 && string.Equals(t.Request.SourceId, toast.SourceId, StringComparison.Ordinal));
             if (same is not null)
             {
-                DismissLocked(same.Handle);
+                if (DismissLocked(same.Handle) is { } replaced) removed.Add(replaced);
             }
 
             item = new ToastItem(newHandle, toast);
-            Toasts.Add(item);
             LastShown = item;
-            while (Toasts.Count > MaxVisible)
+            Toasts.Add(item);
+            if (Toasts.Contains(item)) (item.IsProgress ? ProgressToasts : OrdinaryToasts).Add(item);
+            while (Toasts.Count(t => !t.IsProgress) > MaxVisible)
             {
-                DismissLocked(Toasts[0].Handle);
+                if (DismissLocked(Toasts.First(t => !t.IsProgress).Handle) is { } evicted) removed.Add(evicted);
             }
 
-            if (DurationOf(toast) is { } after)
+            if (Toasts.Contains(item) && !toast.IsProgress && DurationOf(toast) is { } after)
             {
                 var handle = item.Handle;
                 // the collection is bound to the UI: a timer fires on a pool thread, the removal goes to the UI thread
@@ -97,6 +121,7 @@ public sealed class ToastService : IToastService, IDisposable
             }
         }
 
+        foreach (var dismissed in removed) Dismissed?.Invoke(this, new ToastDismissedEventArgs(dismissed));
         Announced?.Invoke(this, new ToastAnnouncedEventArgs(item));
     }
 
@@ -109,10 +134,12 @@ public sealed class ToastService : IToastService, IDisposable
             return;
         }
 
+        ToastItem? removed;
         lock (_lock)
         {
-            DismissLocked(handle);
+            removed = DismissLocked(handle);
         }
+        if (removed is not null) Dismissed?.Invoke(this, new ToastDismissedEventArgs(removed));
     }
 
     public void Dispose()
@@ -147,7 +174,7 @@ public sealed class ToastService : IToastService, IDisposable
         return setting > floor ? setting : floor;
     }
 
-    private void DismissLocked(ToastHandle handle)
+    private ToastItem? DismissLocked(ToastHandle handle)
     {
         if (_timers.Remove(handle.Id, out var timer))
         {
@@ -157,7 +184,11 @@ public sealed class ToastService : IToastService, IDisposable
         var at = Toasts.ToList().FindIndex(t => t.Handle == handle);
         if (at >= 0)
         {
+            var item = Toasts[at];
             Toasts.RemoveAt(at);
+            (item.IsProgress ? ProgressToasts : OrdinaryToasts).Remove(item);
+            return item;
         }
+        return null;
     }
 }

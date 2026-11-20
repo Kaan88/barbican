@@ -35,7 +35,7 @@ internal sealed class AddonsFixtureCommand(IProfilePaths paths, ISettingsNavigat
             var records = await packages.ReadSampleSendFixtureAsync(recordFixture, cancellationToken).ConfigureAwait(true);
             return records.IsOk ? records.Value! : "error unavailable sample records";
         }
-        if (mode is not ("install" or "update" or "native" or "origins" or "composer-probe" or "send-policy" or "send-observer" or "toast"))
+        if (mode is not ("install" or "update" or "native" or "origins" or "composer-probe" or "send-policy" or "send-observer" or "toast" or "progress-toast"))
             return "error unknown add-on fixture";
         if (!shell.TryActivate(AppId.Settings)) return "error Settings is unavailable";
 
@@ -106,6 +106,7 @@ internal sealed class AddonsFixtureCommand(IProfilePaths paths, ISettingsNavigat
                 "send-policy" => """{"id":"sample-send-policy","name":"Sample send policy","version":"1.0.0","author":"Example","type":"hook","permissions":["email:send"]}""",
                 "send-observer" => """{"id":"sample-send-observer","name":"Sample send observer","version":"1.0.0","author":"Example","type":"hook","permissions":["email:read"]}""",
                 "toast" => """{"id":"sample-toast","name":"Sample notification","version":"1.0.0","author":"Example","type":"hook","permissions":[]}""",
+                "progress-toast" => """{"id":"sample-progress","name":"Sample progress","version":"1.0.0","author":"Example","type":"hook","permissions":["ui:composer-toolbar"]}""",
                 _ => """{"id":"fixture-addon","name":"Fixture Add-on","version":"1.0.0","author":"Example","type":"hook","permissions":["email:read"]}""",
             };
             Write(zip, "manifest.json", manifest);
@@ -122,6 +123,7 @@ internal sealed class AddonsFixtureCommand(IProfilePaths paths, ISettingsNavigat
             {
                 "send-observer" => completionRecorder + "\nexports.hooks = { onAfterEmailSend: afterSend };",
                 "toast" => """exports.activate = api => api.toast.warning('Synthetic\nnotification\u202E.');""",
+                "progress-toast" => ProgressFixture,
                 "send-policy" => completionRecorder + "\n" + """
                 exports.hooks = {
                     onBeforeEmailSend(email) { if (email.subject === 'Synthetic veto') return false; },
@@ -139,6 +141,28 @@ internal sealed class AddonsFixtureCommand(IProfilePaths paths, ISettingsNavigat
         archive.Position = 0;
         return archive;
     }
+
+    private const string ProgressFixture = """
+        let api, handle;
+        exports.activate = async host => {
+            api = host;
+            await api.ui.setActions('composer-header-actions', [
+                { id: 'progress', label: 'Start synthetic progress', icon: 'clock' },
+                { id: 'dismiss', label: 'Dismiss synthetic progress', icon: 'check' },
+            ]);
+        };
+        exports.hooks = {
+            async onAction(event) {
+                if (event.actionId === 'progress') {
+                    handle = await api.toast.progress('Synthetic work in progress');
+                    await api.toast.dismiss('other-handle');
+                } else if (event.actionId === 'dismiss' && handle) {
+                    await api.toast.dismiss(handle);
+                    await api.toast.dismiss(handle);
+                }
+            },
+        };
+        """;
 
     private static void Write(ZipArchive zip, string file, string contents) => Write(zip, file, Encoding.UTF8.GetBytes(contents));
 

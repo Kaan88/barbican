@@ -108,6 +108,54 @@ public sealed class ToastServiceTests
     }
 
     [Fact]
+    public void Progress_persists_and_does_not_deduplicate_or_count_toward_ordinary_limit()
+    {
+        var (toasts, time) = Make();
+        var first = toasts.Show(new ToastRequest("Working", Duration: TimeSpan.FromSeconds(1)) { IsProgress = true });
+        var second = toasts.Show(new ToastRequest("Working") { IsProgress = true });
+        toasts.Show(new ToastRequest("a"));
+        toasts.Show(new ToastRequest("b"));
+        toasts.Show(new ToastRequest("c"));
+        toasts.Show(new ToastRequest("d"));
+        Assert.Equal(5, toasts.Toasts.Count);
+        Assert.Contains(toasts.Toasts, t => t.Handle == first && string.Equals(t.AccessibleName, "Working, in progress", StringComparison.Ordinal));
+        Assert.Contains(toasts.Toasts, t => t.Handle == second);
+        time.Advance(TimeSpan.FromMinutes(1));
+        Assert.Equal([first, second], toasts.Toasts.Select(t => t.Handle));
+    }
+
+    [Fact]
+    public void Prepared_progress_is_owned_before_announcement_can_dismiss_it()
+    {
+        var (toasts, _) = Make();
+        ToastHandle? owned = null;
+        ToastHandle? removed = null;
+        toasts.Dismissed += (_, e) => { Assert.Equal(owned, e.Toast.Handle); removed = e.Toast.Handle; };
+        toasts.Announced += (_, e) => toasts.Dismiss(e.Toast.Handle);
+        var handle = toasts.ShowPrepared(new ToastRequest("Working") { IsProgress = true }, h => owned = h);
+        Assert.Equal(handle, owned);
+        Assert.Equal(handle, removed);
+        Assert.Empty(toasts.Toasts);
+        Assert.Empty(toasts.ProgressToasts);
+    }
+
+    [Fact]
+    public void Dismissed_reports_only_removed_toasts_including_replacement_and_eviction()
+    {
+        var (toasts, _) = Make();
+        var removed = new List<ToastHandle>();
+        toasts.Dismissed += (_, e) => removed.Add(e.Toast.Handle);
+        var first = toasts.Show(new ToastRequest("a"));
+        var replacement = toasts.Show(new ToastRequest("a"));
+        var b = toasts.Show(new ToastRequest("b"));
+        toasts.Show(new ToastRequest("c"));
+        toasts.Show(new ToastRequest("d"));
+        toasts.Dismiss(b);
+        toasts.Dismiss(b);
+        Assert.Equal([first, replacement, b], removed);
+    }
+
+    [Fact]
     public void Every_toast_is_announced()
     {
         var (toasts, _) = Make();

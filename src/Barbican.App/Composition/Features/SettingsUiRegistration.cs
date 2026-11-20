@@ -9,6 +9,7 @@ using Barbican.App.Views.Dialogs;
 using Barbican.Core.Plugins.Bridge;
 #if WINDOWS
 using Barbican.Core.Accounts;
+using Barbican.Core.Plugins.Notifications;
 #endif
 using Barbican.Presentation.Composition;
 using Microsoft.Extensions.DependencyInjection;
@@ -38,8 +39,9 @@ public static class SettingsUiRegistration
 #if WINDOWS
         services.AddSingleton<IAccountSignOutCleanup>(sp => new PluginAccountSignOutCleanup(() => sp.GetRequiredService<PluginPackageHost>()));
         services.AddSingleton<Views.Plugins.PluginFilePresenter>();
+        services.AddSingleton<Views.Plugins.PluginProgressToasts>();
         services.AddSingleton<Views.Plugins.PluginToastPresenter>();
-        for (var toastMethod = 0; toastMethod < 4; toastMethod++)
+        for (var toastMethod = 0; toastMethod < PluginToastMethods.FullMethodCount; toastMethod++)
         {
             var method = toastMethod;
             services.AddSingleton<IPluginApiMethod>(sp => sp.GetRequiredService<Views.Plugins.PluginToastPresenter>().Methods[method]);
