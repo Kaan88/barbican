@@ -22,6 +22,7 @@ internal sealed class PluginPackageHost(IProfilePaths paths, ISecretStore secret
     private AuthenticatedPluginPackageStore? _store;
     private IPluginProfileAuthorityLease? _lease;
     private DirectoryInfo? _automationRoot;
+    private Task<Result<Unit>>? _shutdown;
     private bool _closed;
 
     public Task<Result<IReadOnlyList<PluginInstallation>>> ListAsync(CancellationToken ct) =>
@@ -131,20 +132,40 @@ internal sealed class PluginPackageHost(IProfilePaths paths, ISecretStore secret
 
     public async ValueTask DisposeAsync()
     {
+        var result = await ShutdownAsync().ConfigureAwait(false);
+        if (!result.IsOk) throw new InvalidOperationException(result.Error!.Message);
+    }
+
+    internal async Task<Result<Unit>> ShutdownAsync()
+    {
+        Task<Result<Unit>> shutdown;
         await _gate.WaitAsync(CancellationToken.None).ConfigureAwait(false);
         try
         {
-            if (_closed) return;
-            _closed = true;
-            _manager?.Dispose();
-            _store?.Dispose();
-            if (_lease is { } lease) await lease.DisposeAsync().ConfigureAwait(false);
-            if (_automationRoot is { } root)
+            if (_shutdown is null)
             {
-                try { await Task.Run(() => root.Delete(recursive: true), CancellationToken.None).ConfigureAwait(false); }
-                catch (Exception error) when (error is IOException or UnauthorizedAccessException) { }
+                _closed = true;
+                _shutdown = CloseAsync();
             }
+            shutdown = _shutdown;
         }
         finally { _gate.Release(); }
+        return await shutdown.ConfigureAwait(false);
+    }
+
+    private async Task<Result<Unit>> CloseAsync()
+    {
+        _manager?.Dispose();
+        var stopped = _revocation is { } revocation
+            ? await revocation.CloseAsync(CancellationToken.None).ConfigureAwait(false)
+            : Result<Unit>.Ok(default);
+        _store?.Dispose();
+        if (_lease is { } lease) await lease.DisposeAsync().ConfigureAwait(false);
+        if (_automationRoot is { } root)
+        {
+            try { await Task.Run(() => root.Delete(recursive: true), CancellationToken.None).ConfigureAwait(false); }
+            catch (Exception error) when (error is IOException or UnauthorizedAccessException) { }
+        }
+        return stopped;
     }
 }

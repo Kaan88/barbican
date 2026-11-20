@@ -71,6 +71,42 @@ public sealed class PluginRevocationTests
     }
 
     [Fact]
+    public async Task Profile_close_rejects_new_bindings_and_shares_inflight_teardown()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var coordinator = new PluginRevocationCoordinator("auto-revoke");
+        await using var first = Binding();
+        await using var second = Binding(2, 'b');
+        await using var late = Binding(3, 'c');
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var calls = 0;
+        using var a = coordinator.Track(first, async _ =>
+        {
+            Assert.False(second.IsAlive);
+            Interlocked.Increment(ref calls);
+            await release.Task.WaitAsync(ct);
+        }).Value!;
+        using var b = coordinator.Track(second, _ =>
+        {
+            Assert.False(first.IsAlive);
+            Interlocked.Increment(ref calls);
+            return ValueTask.CompletedTask;
+        }).Value!;
+
+        var closing = coordinator.CloseAsync(ct);
+        Assert.False(first.IsAlive);
+        Assert.False(second.IsAlive);
+        Assert.False(coordinator.Track(late, _ => ValueTask.CompletedTask).IsOk);
+        Assert.False(late.IsAlive);
+        var repeated = coordinator.CloseAsync(ct);
+        release.SetResult();
+
+        Assert.All(await Task.WhenAll(closing, repeated), result => Assert.True(result.IsOk));
+        Assert.Equal(2, calls);
+        Assert.Equal(0, coordinator.TrackedCount);
+    }
+
+    [Fact]
     public async Task RevocationDoesNotCloseNewerContentOrGeneration()
     {
         var coordinator = new PluginRevocationCoordinator("auto-revoke");

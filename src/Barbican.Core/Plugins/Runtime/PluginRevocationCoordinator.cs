@@ -16,6 +16,7 @@ public sealed class PluginRevocationCoordinator : IPluginRevocationCoordinator
     private readonly TimeProvider _time;
     private readonly TimeSpan _budget;
     private readonly int _maxResources;
+    private bool _closed;
 
     public PluginRevocationCoordinator(string profile, TimeProvider? time = null, TimeSpan? teardownBudget = null, int maxResources = 4096)
     {
@@ -38,7 +39,7 @@ public sealed class PluginRevocationCoordinator : IPluginRevocationCoordinator
         if (!string.Equals(binding.Profile, _profile, StringComparison.Ordinal)) return Refused<IDisposable>("Foreign plugin profile.");
         lock (_gate)
         {
-            var stale = !binding.IsAlive || (_revoked.TryGetValue(binding.Package, out var generation) && binding.GrantGeneration <= generation);
+            var stale = _closed || !binding.IsAlive || (_revoked.TryGetValue(binding.Package, out var generation) && binding.GrantGeneration <= generation);
             if (!stale)
             {
                 if (_entries.Count >= _maxResources) return Refused<IDisposable>("Plugin resource limit reached.");
@@ -51,11 +52,31 @@ public sealed class PluginRevocationCoordinator : IPluginRevocationCoordinator
         return Refused<IDisposable>("Plugin generation has been revoked.");
     }
 
-    public async Task<Result<Unit>> RevokeAsync(PluginPackageIdentity package, long throughGeneration, CancellationToken ct)
+    public Task<Result<Unit>> RevokeAsync(PluginPackageIdentity package, long throughGeneration, CancellationToken ct)
     {
         ArgumentNullException.ThrowIfNull(package);
         ArgumentOutOfRangeException.ThrowIfNegative(throughGeneration);
         var (entries, starts) = Prepare(package, throughGeneration);
+        return StopAsync(entries, starts, ct);
+    }
+
+    /// <summary>Closes intake and invalidates every binding before waiting for bounded teardown.</summary>
+    public Task<Result<Unit>> CloseAsync(CancellationToken ct)
+    {
+        Entry[] entries;
+        List<(Entry Entry, TaskCompletionSource<bool> Completion, CancellationTokenSource Cancellation)> starts;
+        lock (_gate)
+        {
+            _closed = true;
+            entries = [.. _entries.Values];
+            starts = PrepareTeardown(entries);
+        }
+        return StopAsync(entries, starts, ct);
+    }
+
+    private async Task<Result<Unit>> StopAsync(Entry[] entries,
+        List<(Entry Entry, TaskCompletionSource<bool> Completion, CancellationTokenSource Cancellation)> starts, CancellationToken ct)
+    {
         // Close synchronously before any cleanup await; cancellation only cancels the caller's wait, never this barrier.
         foreach (var (entry, completion, cancellation) in starts)
         {
@@ -80,21 +101,26 @@ public sealed class PluginRevocationCoordinator : IPluginRevocationCoordinator
             var cutoff = _revoked.TryGetValue(package, out var previous) ? Math.Max(previous, generation) : generation;
             _revoked[package] = cutoff;
             var entries = _entries.Values.Where(e => e.Binding.Package == package && e.Binding.GrantGeneration <= cutoff).ToArray();
-            // No callbacks, waits or native calls under this lock: only the fail-closed actor flags.
-            foreach (var entry in entries) entry.Binding.Invalidate();
-            var starts = new List<(Entry, TaskCompletionSource<bool>, CancellationTokenSource)>();
-            foreach (var entry in entries)
-            {
-                if (entry.Work is not null && (!entry.Work.IsCompleted || !entry.Failed)) continue;
-                var completion = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
-                var cancellation = new CancellationTokenSource();
-                entry.Work = completion.Task;
-                entry.Cancellation = cancellation;
-                entry.Failed = false;
-                starts.Add((entry, completion, cancellation));
-            }
-            return (entries, starts);
+            return (entries, PrepareTeardown(entries));
         }
+    }
+
+    private static List<(Entry, TaskCompletionSource<bool>, CancellationTokenSource)> PrepareTeardown(Entry[] entries)
+    {
+        // No callbacks, waits or native calls under the coordinator lock.
+        foreach (var entry in entries) entry.Binding.Invalidate();
+        var starts = new List<(Entry, TaskCompletionSource<bool>, CancellationTokenSource)>();
+        foreach (var entry in entries)
+        {
+            if (entry.Work is not null && (!entry.Work.IsCompleted || !entry.Failed)) continue;
+            var completion = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+            var cancellation = new CancellationTokenSource();
+            entry.Work = completion.Task;
+            entry.Cancellation = cancellation;
+            entry.Failed = false;
+            starts.Add((entry, completion, cancellation));
+        }
+        return starts;
     }
 
     private async Task CompleteAttemptAsync(Entry entry, TaskCompletionSource<bool> completion, CancellationTokenSource cancellation)

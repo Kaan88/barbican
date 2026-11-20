@@ -2270,3 +2270,18 @@ probe leaves production placement, focus, and resize routing to later tests.
 Astra approved both hidden probes and their cleanup. Windows Automation
 passed 3,315 tests on rerun with four skips. The preceding run had one
 failure whose identity was not retained.
+
+## Codex / Astra review of bounded Windows add-on shutdown (2026-11-20)
+
+Profile shutdown permanently closes runtime registration and invalidates
+all tracked bindings before it waits. Concurrent shutdown callers share
+the bounded teardown result. The package host releases its profile lease
+after that wait and reports unsuccessful cleanup. The window logs pending
+add-on teardown separately from preference flush failures.
+
+Astra approved the shutdown scope. A stalled synthetic runtime verified
+that both shutdown callers see failure, startup is refused, and the
+profile lease can be acquired again while delayed cleanup completes.
+Windows Automation passed 3,317 tests with four skips and zero failures.
+Both native probes passed again. Normal app composition started and closed
+successfully in a separate hidden sample profile.

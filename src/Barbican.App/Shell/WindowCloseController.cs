@@ -4,11 +4,13 @@ using Barbican.App.Plugins;
 using Barbican.Core.Storage;
 using Barbican.Presentation.Actions;
 using Barbican.Presentation.Common;
+using Microsoft.Extensions.Logging;
 
 namespace Barbican.App.Shell;
 
 /// <summary>Keeps the window alive until debounced preference writes have reached disk.</summary>
-internal sealed class WindowCloseController(IPrefsEditor prefs, IDispatcher dispatcher, PluginPackageHost packages, IToastService? toasts = null)
+internal sealed partial class WindowCloseController(IPrefsEditor prefs, IDispatcher dispatcher, PluginPackageHost packages,
+    ILogger<WindowCloseController> log, IToastService? toasts = null)
 {
     internal Func<Task<bool>>? BeforeClose { get; set; }
 
@@ -52,7 +54,8 @@ internal sealed class WindowCloseController(IPrefsEditor prefs, IDispatcher disp
 
             await prefs.FlushAsync(CancellationToken.None).ConfigureAwait(false);
             Trace("flush complete");
-            await packages.DisposeAsync().ConfigureAwait(false);
+            var stopped = await packages.ShutdownAsync().ConfigureAwait(false);
+            if (!stopped.IsOk) LogAddOnCleanupIncomplete(log);
             // A synchronous UI post must own Close: do not await a UI continuation after it tears down the dispatcher.
             dispatcher.Post(() =>
             {
@@ -74,6 +77,9 @@ internal sealed class WindowCloseController(IPrefsEditor prefs, IDispatcher disp
             });
         }
     }
+
+    [LoggerMessage(EventId = 811, Level = LogLevel.Warning, Message = "Add-on teardown was incomplete during window close.")]
+    private static partial void LogAddOnCleanupIncomplete(ILogger logger);
 
     [System.Diagnostics.Conditional("AUTOMATION")]
     private static void Trace(string stage)
