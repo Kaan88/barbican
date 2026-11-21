@@ -16,8 +16,6 @@ public sealed partial class RailView : UserControl
 {
     private readonly ShellViewModel _shell = ViewHost.Get<ShellViewModel>();
     private readonly IPrefsStore? _prefs = ViewHost.Find<IPrefsStore>();
-    private Button? _signOutAll;
-    private StackPanel? _signOutMenu;
 
     public RailView()
     {
@@ -45,7 +43,7 @@ public sealed partial class RailView : UserControl
         }
 
         Loaded += (_, _) => ApplyAccountLook();
-        BuildSignOutMenu();
+        StyleSignOutMenu();
         SyncActive();
         ApplyAccountLook();
     }
@@ -123,8 +121,8 @@ public sealed partial class RailView : UserControl
 
     private void OnSignOutFlyoutOpened(object? sender, object e)
     {
-        _signOutAll!.Visibility = Accounts.CanSignOutAll ? Visibility.Visible : Visibility.Collapsed;
-        Present(_signOutMenu?.Parent as FrameworkElement, Look.MenuRadius);
+        SignOutAll.Visibility = Accounts.CanSignOutAll ? Visibility.Visible : Visibility.Collapsed;
+        Present(SignOutMenu.Parent as FrameworkElement, Look.MenuRadius);
     }
 
     private static void Present(FrameworkElement? presenter, CornerRadius radius)
@@ -187,41 +185,14 @@ public sealed partial class RailView : UserControl
     private void OnAddAccountClick(object sender, RoutedEventArgs e) => Accounts.AddAccountCommand.Execute(null);
 
     // both sign-outs ask first (the command opens the confirmation); the menu closes at once
-    // the sign-out menu (navigation-rail.tsx:872-890): built here, a handler cannot be wired from XAML inside a Flyout
-    private void BuildSignOutMenu()
+    // the sign-out menu (navigation-rail.tsx:872-890) is declared in RailView.xaml (popup lint, ADR 0007); the item style and radius are applied here
+    private void StyleSignOutMenu()
     {
-        Button Item(string text, string id, RoutedEventHandler click)
+        foreach (var item in new[] { SignOutOne, SignOutAll })
         {
-            var item = new Button
-            {
-                Style = Look.MenuItemStyle,
-                HorizontalAlignment = HorizontalAlignment.Stretch,
-                HorizontalContentAlignment = HorizontalAlignment.Left,
-                Padding = new Thickness(8, 6, 8, 6),
-                CornerRadius = Look.MenuItemRadius,
-                Foreground = AppResources.Brush("Text"),
-                Content = new TextBlock { Text = text, FontSize = 13 },
-            };
-            Microsoft.UI.Xaml.Automation.AutomationProperties.SetAutomationId(item, id);
-            Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(item, text);
-            item.Click += click;
-            return item;
+            item.Style = Look.MenuItemStyle;
+            item.CornerRadius = Look.MenuItemRadius;
         }
-
-        _signOutAll = Item("Sign out of all accounts", "rail.accounts.signout.all", OnSignOutAll);
-        _signOutMenu = new StackPanel { Children = { Item("Sign out", "rail.accounts.signout.one", OnSignOutOne), _signOutAll } };
-        var flyout = new Flyout { Placement = Microsoft.UI.Xaml.Controls.Primitives.FlyoutPlacementMode.RightEdgeAlignedBottom, Content = _signOutMenu };
-#if WINDOWS
-        flyout.ShouldConstrainToRootBounds = true;
-#endif
-        var presenter = new Style(typeof(FlyoutPresenter));
-        presenter.Setters.Add(new Setter(PaddingProperty, new Thickness(4)));
-        presenter.Setters.Add(new Setter(BackgroundProperty, AppResources.Brush("Popup")));
-        presenter.Setters.Add(new Setter(Control.BorderBrushProperty, AppResources.Brush("Line")));
-        presenter.Setters.Add(new Setter(MinWidthProperty, 200.0));
-        flyout.FlyoutPresenterStyle = presenter;
-        flyout.Opened += OnSignOutFlyoutOpened;
-        SignOutButton.Flyout = flyout;
     }
 
     private void OnSignOutOne(object sender, RoutedEventArgs e)

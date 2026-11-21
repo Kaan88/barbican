@@ -3,7 +3,7 @@
 // In Bulwark the Templates and Options buttons open an anchored menu; Bento and Nordic keep their cards.
 
 using Barbican.Core.Compose;
-using Microsoft.UI.Xaml.Automation;
+using Microsoft.UI.Xaml.Controls.Primitives;
 
 namespace Barbican.App.Views.Compose;
 
@@ -11,33 +11,17 @@ public sealed partial class ComposerView
 {
     private bool Bulwark => _theme.Applied?.Bulwark == true;
 
-    private static MenuFlyout NewToolbarMenu()
-    {
-        var flyout = new MenuFlyout { Placement = Microsoft.UI.Xaml.Controls.Primitives.FlyoutPlacementMode.TopEdgeAlignedLeft };
-#if WINDOWS
-        flyout.ShouldConstrainToRootBounds = true;
-#endif
-        return flyout;
-    }
-
+    // The two menus are declared in ComposerView.xaml (Button.Flyout, ShouldConstrainToRootBounds) because the popup lint (ADR 0007) forbids code-created popups;
+    // the code only syncs the checked state and shows them.
     private void ShowTemplatesMenu()
     {
-        if (_vm is not { } vm)
+        if (_vm is not null)
         {
-            return;
+            TemplatesMenu.ShowAt(TemplatesButton);
         }
-
-        var menu = NewToolbarMenu();
-        var insert = new MenuFlyoutItem { Text = "Insert template", Icon = new FontIcon { Glyph = "" } };
-        AutomationProperties.SetAutomationId(insert, "composer.templates.insert");
-        insert.Click += (_, _) => _ = vm.OpenTemplatesAsync();
-        var save = new MenuFlyoutItem { Text = "Save as template", Icon = new FontIcon { Glyph = "" } };
-        AutomationProperties.SetAutomationId(save, "composer.templates.save");
-        save.Click += (_, _) => _ = vm.OpenTemplatesAsync();
-        menu.Items.Add(insert);
-        menu.Items.Add(save);
-        menu.ShowAt(TemplatesButton);
     }
+
+    private void OnTemplatesMenuItem(object sender, RoutedEventArgs e) => _ = _vm?.OpenTemplatesAsync();
 
     private void ShowOptionsMenu()
     {
@@ -46,26 +30,35 @@ public sealed partial class ComposerView
             return;
         }
 
-        var menu = NewToolbarMenu();
-        var plain = new ToggleMenuFlyoutItem { Text = "Plain text", IsChecked = vm.PlainText };
-        AutomationProperties.SetAutomationId(plain, "composer.options.plain");
-        plain.Click += (_, _) => vm.PlainText = plain.IsChecked;
-        var receipt = new ToggleMenuFlyoutItem { Text = "Request a read receipt", IsChecked = vm.ReadReceipt };
-        AutomationProperties.SetAutomationId(receipt, "composer.options.receipt");
-        receipt.Click += (_, _) => vm.ReadReceipt = receipt.IsChecked;
-        menu.Items.Add(plain);
-        menu.Items.Add(receipt);
-        menu.Items.Add(new MenuFlyoutSeparator());
-        menu.Items.Add(new MenuFlyoutItem { Text = "Priority", IsEnabled = false });
-        foreach (var p in new[] { MessagePriority.High, MessagePriority.Normal, MessagePriority.Low })
-        {
-            var value = p;
-            var item = new RadioMenuFlyoutItem { Text = p.ToString(), GroupName = "composer.priority", IsChecked = vm.Priority == p };
-            AutomationProperties.SetAutomationId(item, "composer.options.priority." + p.ToString().ToLowerInvariant());
-            item.Click += (_, _) => vm.Priority = value;
-            menu.Items.Add(item);
-        }
+        OptionsPlain.IsChecked = vm.PlainText;
+        OptionsReceipt.IsChecked = vm.ReadReceipt;
+        OptionsHigh.IsChecked = vm.Priority == MessagePriority.High;
+        OptionsNormal.IsChecked = vm.Priority == MessagePriority.Normal;
+        OptionsLow.IsChecked = vm.Priority == MessagePriority.Low;
+        OptionsMenu.ShowAt(OptionsButton);
+    }
 
-        menu.ShowAt(OptionsButton);
+    private void OnOptionsPlain(object sender, RoutedEventArgs e)
+    {
+        if (_vm is { } vm)
+        {
+            vm.PlainText = OptionsPlain.IsChecked;
+        }
+    }
+
+    private void OnOptionsReceipt(object sender, RoutedEventArgs e)
+    {
+        if (_vm is { } vm)
+        {
+            vm.ReadReceipt = OptionsReceipt.IsChecked;
+        }
+    }
+
+    private void OnOptionsPriority(object sender, RoutedEventArgs e)
+    {
+        if (_vm is { } vm)
+        {
+            vm.Priority = ReferenceEquals(sender, OptionsHigh) ? MessagePriority.High : ReferenceEquals(sender, OptionsLow) ? MessagePriority.Low : MessagePriority.Normal;
+        }
     }
 }

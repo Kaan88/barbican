@@ -136,9 +136,26 @@
               <StackPanel Orientation="Horizontal" Spacing="6"><controls:SIcon Kind="Clip" Size="15" /><TextBlock x:Name="AttachLabel" Text="Attach" /></StackPanel>
             </Button>
             <Button x:Name="TemplatesButton" Grid.Column="1" Style="{StaticResource Button.Action}" Height="36" CornerRadius="18" Click="OnTemplatesClick" AutomationProperties.AutomationId="composer.templates" AutomationProperties.Name="Templates">
+              <Button.Flyout>
+                <MenuFlyout x:Name="TemplatesMenu" win:ShouldConstrainToRootBounds="True" Placement="TopEdgeAlignedLeft">
+                  <MenuFlyoutItem Text="Insert template" Click="OnTemplatesMenuItem" AutomationProperties.AutomationId="composer.templates.insert"><MenuFlyoutItem.Icon><FontIcon Glyph="&#xE8A5;" /></MenuFlyoutItem.Icon></MenuFlyoutItem>
+                  <MenuFlyoutItem Text="Save as template" Click="OnTemplatesMenuItem" AutomationProperties.AutomationId="composer.templates.save"><MenuFlyoutItem.Icon><FontIcon Glyph="&#xE74E;" /></MenuFlyoutItem.Icon></MenuFlyoutItem>
+                </MenuFlyout>
+              </Button.Flyout>
               <StackPanel Orientation="Horizontal" Spacing="6"><controls:SIcon Kind="Tpl" Size="15" /><TextBlock x:Name="TemplatesLabel" Text="Templates" /><controls:SIcon x:Name="TemplatesChevron" Kind="ChevronDown" Size="14" Foreground="{StaticResource Faint}" VerticalAlignment="Center" /></StackPanel>
             </Button>
             <Button x:Name="OptionsButton" Grid.Column="3" Style="{StaticResource Button.Action}" Height="36" CornerRadius="18" Click="OnOptionsClick" AutomationProperties.AutomationId="composer.options" AutomationProperties.Name="Options">
+              <Button.Flyout>
+                <MenuFlyout x:Name="OptionsMenu" win:ShouldConstrainToRootBounds="True" Placement="TopEdgeAlignedLeft">
+                  <ToggleMenuFlyoutItem x:Name="OptionsPlain" Text="Plain text" Click="OnOptionsPlain" AutomationProperties.AutomationId="composer.options.plain" />
+                  <ToggleMenuFlyoutItem x:Name="OptionsReceipt" Text="Request a read receipt" Click="OnOptionsReceipt" AutomationProperties.AutomationId="composer.options.receipt" />
+                  <MenuFlyoutSeparator />
+                  <MenuFlyoutItem Text="Priority" IsEnabled="False" />
+                  <RadioMenuFlyoutItem x:Name="OptionsHigh" Text="High" GroupName="composer.priority" Click="OnOptionsPriority" AutomationProperties.AutomationId="composer.options.priority.high" />
+                  <RadioMenuFlyoutItem x:Name="OptionsNormal" Text="Normal" GroupName="composer.priority" Click="OnOptionsPriority" AutomationProperties.AutomationId="composer.options.priority.normal" />
+                  <RadioMenuFlyoutItem x:Name="OptionsLow" Text="Low" GroupName="composer.priority" Click="OnOptionsPriority" AutomationProperties.AutomationId="composer.options.priority.low" />
+                </MenuFlyout>
+              </Button.Flyout>
               <StackPanel Orientation="Horizontal" Spacing="6"><controls:SIcon Kind="Opt" Size="15" /><TextBlock x:Name="OptionsLabel" Text="Options" />
                 <Border x:Name="OptionsBadge" Visibility="Collapsed" MinWidth="16" Height="16" CornerRadius="8" Padding="4,0" Background="{StaticResource Accent}" VerticalAlignment="Center" AutomationProperties.AutomationId="composer.options.count">
                   <TextBlock x:Name="OptionsBadgeText" FontSize="10" FontWeight="SemiBold" Foreground="{StaticResource OnAccent}" HorizontalAlignment="Center" VerticalAlignment="Center" />
