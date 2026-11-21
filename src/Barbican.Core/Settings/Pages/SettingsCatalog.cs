@@ -14,7 +14,7 @@ public static class SettingsCatalog
     {
         "settingsSyncDisabled", "compactSharedMailboxes", "keepAppsLoaded", "mailLayout", "proInterface", "showSharedMailAccounts", "sidebarAccountSwitcher",
         "toolbarPosition", "rtlEditingSupport", "postExportAction", "dateLocale", "showOnboardingOnNewDevices", "listColumns", "swipeLeftAction", "swipeRightAction",
-        "notificationSoundChoice", "pushRelayUrl", "debugMode",
+        "pushRelayUrl", "debugMode",
     };
 
     // rows only a user who knows the server or the protocol needs (D-M6-A10): shown with "Show advanced settings"

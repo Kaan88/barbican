@@ -49,9 +49,9 @@ Feature work comes before further UI polish. Linux (M9) is deferred indefinitely
 | open | ML-01 | Scheduled-send chip in list rows | mail list | S | `src/Barbican.App/Views/List/MessageListView.xaml.cs`, `src/Barbican.Presentation/Mail/MessageRowViewModel.cs` | submission id on rows |
 | open | G-048 | Copy a message to another account | mail list | M | `src/Barbican.Presentation/Mail/MessageListViewModel.Actions.cs` | JMAP `Email/copy` |
 | open | G-042 | Folder export and import | mail list | M | `src/Barbican.Presentation/Unified/TransferCommands.cs` | mail-transfer service |
-| open | G-045, SH-08 | Notification centre, rail bell, share/calendar notifications | notifications | M | `src/Barbican.App/Views/Rail/RailView.xaml.cs`, `src/Barbican.Core/Sync/ICalendarPush.cs` | push events |
-| open | G-059 | OS notifications, badge runtime, sounds and push relay | notifications | L | `src/Barbican.App/Shell/ShellLifecycle.cs`, `src/Barbican.App/Views/Settings/SetUiRowsView.cs` | Windows App SDK |
-| open | G-041, SB-07 | Per-folder notification mute | notifications | S | `src/Barbican.App/Views/SettingsServer/SrvUiOrganizePage.cs` | notification routing |
+| partial | G-045, SH-08 | Notification centre, rail bell, share/calendar notifications | notifications | M | `src/Barbican.App/Views/Rail/RailView.xaml.cs`, `src/Barbican.Core/Sync/ICalendarPush.cs` | push events |
+| partial | G-059 | OS notifications, badge runtime, sounds and push relay | notifications | L | `src/Barbican.App/Shell/ShellLifecycle.cs`, `src/Barbican.App/Views/Settings/SetUiRowsView.cs` | Windows App SDK |
+| done | G-041, SB-07 | Per-folder notification mute | notifications | S | `src/Barbican.App/Views/SettingsServer/SrvUiOrganizePage.cs` | notification routing |
 | open | G-049 | Link-mismatch warning banner | reader | M | `src/Barbican.App/MailBody/BodyShell.cs`, `src/Barbican.Presentation/Reader/` | link scanner |
 | open | G-050 | Phishing report flow | reader | M | `src/Barbican.App/Views/Reader/ReaderView.xaml.cs`, `src/Barbican.Presentation/Reader/` | report endpoint |
 | open | G-051 | External-sender chip | reader | S | `src/Barbican.App/Views/Reader/ReaderView.xaml.cs`, `src/Barbican.Presentation/Reader/` | sender trust data |

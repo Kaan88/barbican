@@ -11,7 +11,8 @@
     xmlns:views="using:Barbican.App.Views"
     xmlns:accounts="using:Barbican.App.Views.Accounts"
     xmlns:theme="using:Barbican.App.Theme"
-    xmlns:acct="using:Barbican.Presentation.Accounts">
+    xmlns:acct="using:Barbican.Presentation.Accounts"
+    xmlns:notifications="using:Barbican.Presentation.Notifications">
   <!-- The app rail. Bulwark components/layout/navigation-rail.tsx:584-760,700-949: Search, Mail, Calendar, Contacts, Files at the top; Accessibility, Settings, a divider,
        Shortcuts, the storage ring and the account at the bottom; :640-668 an 18 px icon in a 40 px box, the active app in the primary tint, the unread pill or dot.
        (spec/layout/shell.md "Rail"; mockups BNMail nav / NordMail nav; prototype BuildRail): a tile in Bento, bare in Nordic. Inactive apps are bare icons
@@ -206,6 +207,66 @@
                 AutomationProperties.AutomationId="rail.shortcuts" AutomationProperties.Name="Keyboard shortcuts" motion:Tip.Text="Keyboard shortcuts (?)">
           <controls:SIcon Kind="Key" Size="{x:Bind Look.RailIcon, Mode=OneWay}" />
         </Button>
+
+        <!-- Bulwark notification bell (navigation-rail.tsx:799, notification-center.tsx:176-300): the bell with its red count and the panel beside it (22 rem wide, newest first, "Mark all as read", "Clear"). -->
+        <Grid HorizontalAlignment="Center">
+          <Button x:Name="BellButton" Style="{StaticResource Rail.Button}"
+                  Width="{x:Bind Look.RailButton, Mode=OneWay}" Height="{x:Bind Look.RailButton, Mode=OneWay}" CornerRadius="{x:Bind Look.RailButtonRadius, Mode=OneWay}"
+                  AutomationProperties.AutomationId="rail.bell" AutomationProperties.Name="{x:Bind Bell.BellLabel, Mode=OneWay}" motion:Tip.Text="Notifications">
+            <controls:SIcon Kind="Bell" Size="{x:Bind Look.RailIcon, Mode=OneWay}" />
+            <Button.Flyout>
+              <Flyout win:ShouldConstrainToRootBounds="True" Placement="RightEdgeAlignedBottom">
+                <Flyout.FlyoutPresenterStyle>
+                  <Style TargetType="FlyoutPresenter">
+                    <Setter Property="Padding" Value="0" />
+                    <Setter Property="Background" Value="{StaticResource Bg}" />
+                    <Setter Property="BorderBrush" Value="{StaticResource Line}" />
+                    <Setter Property="MinWidth" Value="352" />
+                    <Setter Property="MaxWidth" Value="352" />
+                    <Setter Property="MaxHeight" Value="512" />
+                  </Style>
+                </Flyout.FlyoutPresenterStyle>
+                <Grid RowDefinitions="Auto,*" AutomationProperties.AutomationId="notification-panel" AutomationProperties.Name="Notifications">
+                  <Grid Padding="12,4" MinHeight="48" ColumnDefinitions="*,Auto,Auto" ColumnSpacing="4" BorderBrush="{StaticResource Line}" BorderThickness="0,0,0,1">
+                    <TextBlock Text="Notifications" FontSize="14" FontWeight="SemiBold" Foreground="{StaticResource Text}" VerticalAlignment="Center" />
+                    <Button Grid.Column="1" Style="{StaticResource Rail.Button}" Padding="8,4" Click="OnBellMarkAllRead" IsEnabled="{x:Bind Bell.HasUnread, Mode=OneWay}"
+                            AutomationProperties.AutomationId="notification-panel.mark-all" AutomationProperties.Name="Mark all as read">
+                      <TextBlock Text="Mark all as read" FontSize="12" />
+                    </Button>
+                    <Button Grid.Column="2" Style="{StaticResource Rail.Button}" Padding="8,4" Click="OnBellClear" IsEnabled="{x:Bind views:Fmt.Not(Bell.IsEmpty), Mode=OneWay}"
+                            AutomationProperties.AutomationId="notification-panel.clear" AutomationProperties.Name="Clear">
+                      <TextBlock Text="Clear" FontSize="12" />
+                    </Button>
+                  </Grid>
+                  <TextBlock Grid.Row="1" Text="No notifications" FontSize="14" Foreground="{StaticResource Faint}" HorizontalAlignment="Center" Margin="16,32"
+                             Visibility="{x:Bind views:Fmt.Vis(Bell.IsEmpty), Mode=OneWay}" AutomationProperties.AutomationId="notification-panel.empty" />
+                  <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" Visibility="{x:Bind views:Fmt.VisNot(Bell.IsEmpty), Mode=OneWay}">
+                    <ItemsControl x:Name="BellList" ItemsSource="{x:Bind Bell.Rows}" AutomationProperties.AutomationId="notification-panel.list">
+                      <ItemsControl.ItemTemplate>
+                        <DataTemplate x:DataType="notifications:NotificationRow">
+                          <Button Style="{StaticResource Rail.Button}" HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch" Padding="12,8" Click="OnBellEntryClick" Tag="{x:Bind Id}"
+                                  AutomationProperties.AutomationId="notification-panel.entry" AutomationProperties.Name="{x:Bind Title}">
+                            <Grid ColumnDefinitions="*,Auto" RowDefinitions="Auto,Auto,Auto" ColumnSpacing="8">
+                              <TextBlock Text="{x:Bind Title}" FontSize="14" FontWeight="{x:Bind views:Fmt.Weight(Unread)}" Foreground="{StaticResource Text}" TextTrimming="CharacterEllipsis" />
+                              <TextBlock Grid.Column="1" Text="{x:Bind When}" FontSize="11" Foreground="{StaticResource Faint}" />
+                              <TextBlock Grid.Row="1" Grid.ColumnSpan="2" Text="{x:Bind Body}" FontSize="12" Foreground="{StaticResource Faint}" TextWrapping="Wrap" MaxLines="2" TextTrimming="CharacterEllipsis"
+                                         Visibility="{x:Bind views:Fmt.VisText(Body)}" />
+                              <TextBlock Grid.Row="2" Text="{x:Bind Source}" FontSize="11" Foreground="{StaticResource Faint}" />
+                            </Grid>
+                          </Button>
+                        </DataTemplate>
+                      </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                  </ScrollViewer>
+                </Grid>
+              </Flyout>
+            </Button.Flyout>
+          </Button>
+          <Border Background="#DC2626" CornerRadius="8" MinWidth="16" Height="16" Padding="4,0" HorizontalAlignment="Right" VerticalAlignment="Top" Margin="0,-2,-2,0" IsHitTestVisible="False"
+                  Visibility="{x:Bind views:Fmt.Vis(Bell.HasUnread), Mode=OneWay}" AutomationProperties.AutomationId="rail.bell.badge" AutomationProperties.Name="Unread notifications">
+            <TextBlock Text="{x:Bind Bell.BadgeText, Mode=OneWay}" FontSize="10" FontWeight="Bold" Foreground="White" VerticalAlignment="Center" HorizontalAlignment="Center" />
+          </Border>
+        </Grid>
 
         <!-- Bulwark storage button (navigation-rail.tsx:164-221): the ring with its percentage; the popover lists used, free and total. -->
         <Button x:Name="StorageButton" Style="{StaticResource Rail.Button}" Width="32" Height="32" CornerRadius="16" Padding="0" HorizontalAlignment="Center"

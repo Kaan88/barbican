@@ -350,6 +350,11 @@ public sealed class SetUiRowsView : StackPanel
                 if (!_updating)
                 {
                     SetUiUi.Run(() => _vm.SetValueAsync(row.Id, JsonValue.Create(row.Options[index].Value), CancellationToken.None));
+                    // notification-settings.tsx:457-461: choosing a tone plays it
+                    if (string.Equals(row.Key, "notificationSoundChoice", StringComparison.Ordinal) && row.Options[index].Value is string tone)
+                    {
+                        ViewHost.Find<Barbican.Core.Notifications.IDesktopNotifier>()?.PlaySound(tone);
+                    }
                 }
             }, id + ".select");
             _refresh[row.Id] = () => choice.Selected = IndexOf(Current(row));
@@ -612,11 +617,9 @@ public sealed class SetUiRowsView : StackPanel
     }
 
     private static string Note(SettingRow row, string desc) =>
-        row.Key is "emailNotificationSound" or "emailNotificationsEnabled" or "pushNotifyInboxOnly" or "unreadBadgeAllAccounts"
-            ? (desc.Length > 0 ? desc + " " : string.Empty) + "Windows email notifications and badges are not available yet. This setting is saved for future use."
-            : row.Status == SettingRowStatus.Unwired || string.Equals(row.Id, "S-keyless-059", StringComparison.Ordinal)
-                ? (desc.Length > 0 ? desc + " " : string.Empty) + "Not used by the app yet."
-                : desc;
+        row.Status == SettingRowStatus.Unwired || string.Equals(row.Id, "S-keyless-059", StringComparison.Ordinal)
+            ? (desc.Length > 0 ? desc + " " : string.Empty) + "Not used by the app yet."
+            : desc;
 
     private JsonNode? Current(SettingRow row) => _vm.RowsOf(_pageId).FirstOrDefault(x => string.Equals(x.Row.Id, row.Id, StringComparison.Ordinal))?.Value;
 
