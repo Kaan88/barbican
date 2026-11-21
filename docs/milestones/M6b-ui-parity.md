@@ -5,6 +5,8 @@ Bulwark is the default visual direction; see the current
 first, then the composer and other screens. The older theme studies remain on
 hold; retaining a saved legacy appearance must not change the new default.
 
+The area-by-area source gap ledger and work packages are in [bulwark-parity-gaps.md](bulwark-parity-gaps.md).
+
 The reference walkthrough and native parity fixes are required before M6b goes
 to Fable. This is a coverage ledger, not a completion report. Reference
 observations come from the signed-in throwaway account. Do not track mailbox
