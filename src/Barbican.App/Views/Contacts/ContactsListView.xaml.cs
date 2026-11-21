@@ -114,7 +114,7 @@ public sealed partial class ContactsListView : UserControl
             Search.BorderThickness = new Thickness(1);
             Search.ClearValue(Control.BackgroundProperty);
             SearchGlyph.Visibility = Visibility.Visible;
-            ClearSearch.CornerRadius = FilterToggle.CornerRadius = new CornerRadius(6);
+            ClearSearch.CornerRadius = FilterToggle.CornerRadius = _look.ButtonRadius;
         }
         else
         {

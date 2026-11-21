@@ -2,7 +2,6 @@
 
 using Barbican.Core.Mail.Model;
 using Barbican.Presentation.Mail;
-using Barbican.Presentation.Shell;
 using Microsoft.UI.Text;
 using Windows.UI;
 using Windows.UI.Text;
@@ -117,6 +116,9 @@ public static partial class Fmt
     /// <summary>Section headings: "FOLDERS" in Bento (tracked caps, prototype LABELS), "Folders" in Nordic.</summary>
     public static string SectionTitle(string title, bool bento) => bento ? title.ToUpperInvariant() : title;
 
+    /// <summary>The sidebar storage block: Bulwark has none (the quota lives on the rail ring, navigation-rail.tsx:164-221; SB-08), Bento and Nordic show the text.</summary>
+    public static Visibility VisStorageBlock(string? text, bool bulwark) => bulwark ? Visibility.Collapsed : VisText(text);
+
     /// <summary>The storage meter shows in Bento when the server reports a quota; Nordic shows the text only (prototype StorageText).</summary>
     public static Visibility VisStorageMeter(double fraction, bool bento) => bento && fraction >= 0 ? Visibility.Visible : Visibility.Collapsed;
 
@@ -169,10 +171,6 @@ public static partial class Fmt
     public static string FlaggedValue(bool has, int count) => !has || count == 0 ? "Nothing flagged" : count == 1 ? "1 message" : $"{count} messages";
 
     public static string TasksValue(bool hasTasks, int count) => !hasTasks ? "No tasks" : count switch { 0 => "All clear", 1 => "1 task", _ => $"{count} tasks" };
-
-    public static Brush RailBackground(AppId active, string app) => string.Equals(active.ToString(), app, StringComparison.Ordinal) ? Palette("Sel") : new SolidColorBrush(Color.FromArgb(0, 0, 0, 0));
-
-    public static Brush RailForeground(AppId active, string app) => Palette(string.Equals(active.ToString(), app, StringComparison.Ordinal) ? "SelText" : "Faint");
 
     public static Visibility VisBadge(string badge) => string.IsNullOrEmpty(badge) ? Visibility.Collapsed : Visibility.Visible;
 

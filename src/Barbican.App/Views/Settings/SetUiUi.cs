@@ -22,7 +22,8 @@ public static class SetUiUi
     /// <summary>Runs async work from an event handler: what it throws ends in an error toast, never in the dispatcher.</summary>
     public static void Run(Func<Task> work) => _ = GuardAsync(work);
 
-    public static TextBlock Body(string text) => new() { Text = Clean(text), Style = (Style)Application.Current.Resources["Text.Body"], TextWrapping = TextWrapping.Wrap };
+    /// <summary>Body text: Bulwark text-sm (14 px, globals.css:13-95; TH-05), Bento and Nordic keep 13.</summary>
+    public static TextBlock Body(string text) => new() { Text = Clean(text), Style = (Style)Application.Current.Resources["Text.Body"], FontSize = StyleState.Current.SetLabelSize, TextWrapping = TextWrapping.Wrap };
 
     public static TextBlock Meta(string text) => new() { Text = Clean(text), Style = (Style)Application.Current.Resources["Text.Meta"], TextWrapping = TextWrapping.Wrap };
 

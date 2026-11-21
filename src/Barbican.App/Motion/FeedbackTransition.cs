@@ -13,6 +13,7 @@ namespace Barbican.App.Motion;
 public static class FeedbackTransition
 {
     private static readonly List<WeakReference<DependencyObject>> Targets = [];
+    private static int pruneAt = 256;
 
     /// <summary>The kind of colour transition of an element.</summary>
     public static readonly DependencyProperty KindProperty = DependencyProperty.RegisterAttached(
@@ -54,6 +55,13 @@ public static class FeedbackTransition
         {
             Apply(d);
             return;
+        }
+
+        if (Targets.Count >= pruneAt)
+        {
+            // drop the references whose element is gone; the threshold doubles past the live count so a long run prunes in amortised O(1)
+            Targets.RemoveAll(static w => !w.TryGetTarget(out _));
+            pruneAt = Math.Max(256, Targets.Count * 2);
         }
 
         Targets.Add(new WeakReference<DependencyObject>(d));

@@ -95,6 +95,7 @@ public sealed partial class PaletteView : UserControl
         Card.Width = _bulwark ? 576 : 560;
         Card.Margin = new Thickness(0, _bulwark ? Math.Max(16, ActualHeight * 0.12) : 72, 0, 0);
         Card.CornerRadius = StyleState.Current.DialogRadius;
+        CardShadow.Apply(Card, CardDepth.ExtraLarge, Backdrop);
         SearchGlyph.Visibility = EscKey.Visibility = InputRule.Visibility = _bulwark ? Visibility.Visible : Visibility.Collapsed;
         if (_bulwark)
         {

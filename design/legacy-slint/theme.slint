@@ -253,7 +253,7 @@ export global Bulwark {
     out property <color> ring: more-contrast ? (dark ? #ffffff : #000000) : (dark ? #d4d4d4 : #2563eb);
 
     // semantic colours (globals.css:31-125)
-    out property <color> destructive: dark ? #ef4444 : #dc2626;
+    out property <color> destructive: more-contrast ? (dark ? #fca5a5 : #b91c1c) : (dark ? #ef4444 : #dc2626);
     out property <color> destructive-fg: dark ? #0a0a0a : #ffffff;
     out property <color> success: dark ? #16a34a : #22c55e;
     out property <color> success-fg: #ffffff;
@@ -267,7 +267,7 @@ export global Bulwark {
     out property <color> popover-fg: text;
     out property <color> accent-fill: dark ? #1e3a8a : #dbeafe;
     out property <color> accent-fill-fg: dark ? #dbeafe : #1e40af;
-    out property <color> unread: dark ? #60a5fa : #3b82f6;
+    out property <color> unread: more-contrast ? (dark ? #93c5fd : #1d4ed8) : (dark ? #60a5fa : #3b82f6);
     out property <color> chart-1: dark ? #60a5fa : #3b82f6;
     out property <color> chart-2: dark ? #4ade80 : #22c55e;
     out property <color> chart-3: dark ? #fbbf24 : #f59e0b;
@@ -293,7 +293,7 @@ export global Bulwark {
     out property <color> feedback-primary-hover: more-contrast ? (dark ? #93c5fde6 : #1d4ed8e6) : (dark ? #fafafae6 : #185aeae6);
     out property <color> feedback-primary-pressed: more-contrast ? (dark ? #93c5fdcc : #1d4ed8cc) : (dark ? #fafafacc : #185aeacc);
     // context-menu.tsx:726 hover:bg-destructive/10
-    out property <color> feedback-destructive-hover: dark ? #ef44441a : #dc26261a;
+    out property <color> feedback-destructive-hover: more-contrast ? (dark ? #fca5a51a : #b91c1c1a) : (dark ? #ef44441a : #dc26261a);
     out property <color> feedback-focus: ring;
 }
 

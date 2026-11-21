@@ -111,6 +111,7 @@ public sealed class ReminderPopupView : Grid
     {
         var missed = _popup.Missed;
         _scrim.Visibility = missed.Count == 0 ? Visibility.Collapsed : Visibility.Visible;
+        _scrim.Background = ViewHost.Get<StyleState>().ScrimBrush;
         if (missed.Count == 0)
         {
             _missedCard.Child = null;

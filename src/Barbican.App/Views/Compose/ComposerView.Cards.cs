@@ -76,6 +76,7 @@ public sealed partial class ComposerView
         // UI-SWEEP-1 C-03: a docked reply is short, so a tall card (Schedule, Templates) scrolls instead of being cut off
         Card.Child = content is null ? null : new ScrollViewer { Content = content, VerticalScrollBarVisibility = ScrollBarVisibility.Auto, HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled, HorizontalScrollMode = ScrollMode.Disabled };
         CardLayer.Visibility = content is null ? Visibility.Collapsed : Visibility.Visible;
+        CardLayer.Background = Look.ScrimBrush;
         if (content is not null)
         {
             Card.MaxWidth = content is FrameworkElement { Tag: "wide" } ? 560 : 460;
