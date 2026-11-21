@@ -67,6 +67,7 @@ public static class ComposerRegistration
         _ = services.AddContactsFilesAddOnApi();
         _ = services.AddRulesSettingsAddOnApi();
         _ = services.AddMailActionsAddOnApi();
+        _ = services.AddNavigationAddOnApi();
 #endif
 
         // a mailto: link clicked in a message opens the composer, never the OS handler (B-COMP-034); everything else keeps the reader's link check

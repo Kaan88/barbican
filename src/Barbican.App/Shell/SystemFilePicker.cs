@@ -54,6 +54,33 @@ public static class SystemFilePicker
         }
     }
 
+    /// <summary>
+    /// The save dialog of an add-on's ui.downloadFile: one file named by the user, starting from <paramref name="suggested"/>. Null when cancelled or when no dialog can open
+    /// (no window, no portal on a bare X11): nothing is chosen, nothing is written.
+    /// </summary>
+    public static async Task<string?> PickSaveFileAsync(string suggested, CancellationToken ct)
+    {
+        ArgumentNullException.ThrowIfNull(suggested);
+        if (ActiveWindow.Current is not { } window)
+        {
+            return null;
+        }
+
+        try
+        {
+            var extension = Path.GetExtension(suggested);
+            var picker = new FileSavePicker { SuggestedStartLocation = PickerLocationId.Downloads, SuggestedFileName = Path.GetFileNameWithoutExtension(suggested) };
+            picker.FileTypeChoices.Add(extension.Length > 1 ? extension[1..].ToUpperInvariant() + " file" : "File", [extension.Length > 1 ? extension : "."]);
+            Init(picker, window);
+            var file = await picker.PickSaveFileAsync().AsTask(ct).ConfigureAwait(true);
+            return file?.Path;
+        }
+        catch (Exception e) when (e is InvalidOperationException or NotSupportedException or System.Runtime.InteropServices.COMException)
+        {
+            return null;
+        }
+    }
+
     private static void Init(object picker, Window window)
     {
 #if WINDOWS

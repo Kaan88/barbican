@@ -12,9 +12,26 @@ public sealed class TransferPicks
 {
     private readonly ConcurrentQueue<IReadOnlyList<string>> _queued = new();
     private readonly Func<bool, string, CancellationToken, Task<IReadOnlyList<string>?>>? _platform;
+    private readonly Func<string, CancellationToken, Task<string?>>? _saveFile;
 
     /// <param name="platform">The platform picker: (save, suggested name) to the chosen paths, or null when cancelled; null when there is none.</param>
-    public TransferPicks(Func<bool, string, CancellationToken, Task<IReadOnlyList<string>?>>? platform = null) => _platform = platform;
+    /// <param name="saveFile">The platform save-file dialog for one file (an add-on's ui.downloadFile): the suggested name to the chosen path, or null when cancelled.</param>
+    public TransferPicks(Func<bool, string, CancellationToken, Task<IReadOnlyList<string>?>>? platform = null, Func<string, CancellationToken, Task<string?>>? saveFile = null)
+    {
+        _platform = platform;
+        _saveFile = saveFile;
+    }
+
+    /// <summary>Where to save one file (a save dialog suggesting <paramref name="suggested"/>), or null when cancelled; a queued answer is used first, so a hidden run never shows a dialog.</summary>
+    public Task<string?> SaveFileAsync(string suggested, CancellationToken ct)
+    {
+        if (_queued.TryDequeue(out var answer))
+        {
+            return Task.FromResult(answer.Count > 0 ? answer[0] : null);
+        }
+
+        return _saveFile is null ? Task.FromResult<string?>(null) : _saveFile(suggested, ct);
+    }
 
     /// <summary>The next pick answers <paramref name="paths"/> (hidden automation runs).</summary>
     public void Queue(params string[] paths) => _queued.Enqueue(paths);
