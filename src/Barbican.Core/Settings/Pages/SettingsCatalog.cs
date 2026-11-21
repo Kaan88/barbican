@@ -1,4 +1,4 @@
-// Mirrors: Rust settings.rs schema_rows (keyless rows kept: G-069); the embedded src/Barbican.Core/Settings/settings-schema.json (277 rows in 21 tabs: 74 sections and the 203 rows of spec/settings.csv less one key that two tabs share). Bulwark components/settings/settings-app.tsx (the tabs), settings-section.tsx (row kinds, `invert`). Contract from the M6 plan section 4.2; owner set-data.
+// Mirrors: Rust settings.rs schema_rows (keyless rows kept: G-069); the embedded src/Barbican.Core/Settings/settings-schema.json (280 rows in 21 tabs: 75 sections and the 204 rows of spec/settings.csv less one key that two tabs share). Bulwark components/settings/settings-app.tsx (the tabs), settings-section.tsx (row kinds, `invert`). Contract from the M6 plan section 4.2; owner set-data.
 // Decisions D-M6-A01 (ids), D-M6-A03 (unwired keys), D-M6-A10 (advanced rows).
 
 using System.Globalization;
@@ -12,9 +12,9 @@ public static class SettingsCatalog
     // keys nothing read in Rust (spec/settings.csv status `unwired`, D-M6-A03)
     private static readonly HashSet<string> UnwiredKeys = new(StringComparer.Ordinal)
     {
-        "settingsSyncDisabled", "compactSharedMailboxes", "keepAppsLoaded", "mailLayout", "proInterface", "showSharedMailAccounts", "sidebarAccountSwitcher",
+        "settingsSyncDisabled", "compactSharedMailboxes", "keepAppsLoaded", "proInterface", "showSharedMailAccounts", "sidebarAccountSwitcher",
         "toolbarPosition", "rtlEditingSupport", "postExportAction", "dateLocale", "showOnboardingOnNewDevices", "listColumns", "swipeLeftAction", "swipeRightAction",
-        "notificationSoundChoice", "pushRelayUrl", "debugMode",
+        "pushRelayUrl", "debugMode",
     };
 
     // rows only a user who knows the server or the protocol needs (D-M6-A10): shown with "Show advanced settings"
@@ -25,7 +25,7 @@ public static class SettingsCatalog
 
     private static readonly Lazy<(IReadOnlyList<SettingPage> Pages, IReadOnlyDictionary<string, SettingRow> Rows)> Parsed = new(Parse);
 
-    /// <summary>Every tab of the schema in order, each row with its spec id (S-key, or S-keyless-NNN in schema order), kind, options and default; keyless rows are kept (G-069). 21 tabs, 277 rows in all (74 of them section rows).</summary>
+    /// <summary>Every tab of the schema in order, each row with its spec id (S-key, or S-keyless-NNN in schema order), kind, options and default; keyless rows are kept (G-069). 21 tabs, 280 rows in all (75 of them section rows).</summary>
     public static IReadOnlyList<SettingPage> Pages() => Parsed.Value.Pages;
 
     /// <summary>The row with this spec id, or null.</summary>

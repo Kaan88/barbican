@@ -6,10 +6,12 @@ using Barbican.Core.Plugins.Runtime;
 
 namespace Barbican.App.Plugins.Sandbox;
 
-internal sealed class PluginSandboxRuntimeInstance(PluginSandboxSession session, PluginActivation activation) : IPluginRuntimeInstance, IPluginFencedHookRuntime
+internal sealed class PluginSandboxRuntimeInstance(PluginSandboxSession session, PluginActivation activation) : IPluginSlotFrameInstance, IPluginFencedHookRuntime
 {
     public PluginRuntimeBinding Binding => session.Binding;
     public PluginActivation Activation { get; } = activation;
+    public event EventHandler<PluginSlotSizeEventArgs>? SlotResized { add => session.SlotResized += value; remove => session.SlotResized -= value; }
+    public (double Height, double Width) LastSlotSize => session.LastSlotSize;
 
     public Task<Result<PluginValue>> InvokeHookAsync(string hookName, PluginValue arguments, TimeSpan budget, CancellationToken ct)
     {

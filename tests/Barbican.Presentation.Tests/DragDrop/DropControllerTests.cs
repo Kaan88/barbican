@@ -195,4 +195,23 @@ public sealed class DropControllerTests : IDisposable
         await Task.Delay(150, Ct);
         Assert.Equal([("sidebar", 260d), ("list", 0d)], resized);
     }
+
+    [Fact]
+    public async Task The_stacked_layouts_list_height_resizes_clamps_saves_on_commit_and_resets()
+    {
+        var path = Path.Combine(_dir, "panes.json");
+        Directory.CreateDirectory(_dir);
+        await File.WriteAllTextAsync(path, """{"sidebar": 220, "list": 300, "listHeight": 9000}""", Ct);
+        var panes = new PanesViewModel(path, new HookBus());
+        Assert.Equal(800f, panes.ListHeight);
+        panes.Resize(PanesViewModel.ListHeightColumn, 50f);
+        Assert.Equal(160f, panes.ListHeight);
+        panes.Resize(PanesViewModel.ListHeightColumn, 410f);
+        panes.Commit(PanesViewModel.ListHeightColumn);
+        Assert.Equal(300f, panes.ListWidth);
+        Assert.Equal("""{"sidebar":220,"list":300,"listHeight":410}""", await File.ReadAllTextAsync(path, Ct));
+        panes.Reset(PanesViewModel.ListHeightColumn);
+        Assert.Equal(0f, panes.ListHeight);
+        Assert.Equal("""{"sidebar":220,"list":300}""", await File.ReadAllTextAsync(path, Ct));
+    }
 }

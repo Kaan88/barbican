@@ -132,7 +132,14 @@
               <ColumnDefinition Width="*" />
               <ColumnDefinition Width="Auto" />
             </Grid.ColumnDefinitions>
-            <Button x:Name="AttachButton" Grid.Column="2" Style="{StaticResource Button.Action}" Height="36" CornerRadius="18" Click="OnAttachClick" AutomationProperties.AutomationId="composer.attach" AutomationProperties.Name="Attach files">
+            <Button x:Name="AttachButton" Grid.Column="2" Style="{StaticResource Button.Action}" Height="36" CornerRadius="18" AutomationProperties.AutomationId="composer.attach" AutomationProperties.Name="Attach">
+              <!-- Bulwark's desktop Attach is a toolbar menu (composer-toolbar-menu.tsx:34-66): the device upload, then the Files entry when the server has Files (email-composer.tsx:6450-6478). -->
+              <Button.Flyout>
+                <MenuFlyout x:Name="AttachMenu" win:ShouldConstrainToRootBounds="True" Placement="TopEdgeAlignedLeft">
+                  <MenuFlyoutItem Text="Upload from this device" Click="OnAttachFromDevice" AutomationProperties.AutomationId="composer.attach.device"><MenuFlyoutItem.Icon><FontIcon Glyph="&#xE898;" /></MenuFlyoutItem.Icon></MenuFlyoutItem>
+                  <MenuFlyoutItem x:Name="AttachFromFilesItem" Text="Attach from Files" Click="OnAttachFromFiles" AutomationProperties.AutomationId="composer.attach.files"><MenuFlyoutItem.Icon><FontIcon Glyph="&#xE8B7;" /></MenuFlyoutItem.Icon></MenuFlyoutItem>
+                </MenuFlyout>
+              </Button.Flyout>
               <StackPanel Orientation="Horizontal" Spacing="6"><controls:SIcon Kind="Clip" Size="15" /><TextBlock x:Name="AttachLabel" Text="Attach" /></StackPanel>
             </Button>
             <Button x:Name="TemplatesButton" Grid.Column="1" Style="{StaticResource Button.Action}" Height="36" CornerRadius="18" Click="OnTemplatesClick" AutomationProperties.AutomationId="composer.templates" AutomationProperties.Name="Templates">

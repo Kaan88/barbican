@@ -10,7 +10,7 @@ namespace Barbican.Core.Files;
 /// <summary>What the session says about file storage.</summary>
 internal static class FileAccounts
 {
-    public const string Capability = "urn:ietf:params:jmap:filenode";
+    public const string Capability = JmapCapabilities.FileNode;
 
     /// <summary>The user's own file account (the primary account of the capability, else the mail account).</summary>
     public static string Primary(JmapSession session) => session.AccountFor(Capability);

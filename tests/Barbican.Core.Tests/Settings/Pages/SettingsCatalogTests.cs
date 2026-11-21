@@ -1,4 +1,5 @@
-// Not Rust rows: B-SET-001 (schema driven pages), G-069 (keyless rows kept), spec/settings.csv (202 settings rows; the schema has 277 rows with its 74 section rows). M6 stream set-data.
+// Not Rust rows: B-SET-001 (schema driven pages), G-069 (keyless rows kept), spec/settings.csv (204 settings rows; the schema has 280 rows
+// with its 75 section rows). M6 stream set-data, G-053 (remote content), G-051 (external sender).
 
 using Barbican.Core.Settings.Pages;
 
@@ -12,7 +13,7 @@ public sealed class SettingsCatalogTests
         var pages = SettingsCatalog.Pages();
         Assert.Equal(21, pages.Count);
         var rows = pages.SelectMany(p => p.Rows).ToList();
-        Assert.Equal(277, rows.Count);
+        Assert.Equal(280, rows.Count);
         Assert.Equal(rows.Count, rows.Select(r => r.Id).Distinct(StringComparer.Ordinal).Count());
         Assert.All(rows, r => Assert.Equal(r.Kind == SettingRowKind.Section, r.Id.StartsWith("S-section-", StringComparison.Ordinal)));
     }

@@ -23,6 +23,7 @@ public sealed partial class RailView : UserControl
     {
         Rail = ViewHost.Get<RailViewModel>();
         Sidebar = ViewHost.Get<SidebarViewModel>();
+        Bell = ViewHost.Get<Barbican.Presentation.Notifications.NotificationCenterViewModel>();
         Accounts = ViewHost.Get<AccountsViewModel>();
         Look = ViewHost.Get<StyleState>();
         InitializeComponent();
@@ -57,9 +58,25 @@ public sealed partial class RailView : UserControl
 
     public SidebarViewModel Sidebar { get; }
 
+    public Barbican.Presentation.Notifications.NotificationCenterViewModel Bell { get; }
+
     public AccountsViewModel Accounts { get; }
 
     public StyleState Look { get; }
+
+    // notification-center.tsx:68-75 (mark all read, clear) and :54-59 (an entry is read when opened; a mail entry opens its message)
+    private void OnBellMarkAllRead(object sender, RoutedEventArgs e) => Bell.MarkAllRead();
+
+    private void OnBellClear(object sender, RoutedEventArgs e) => Bell.Clear();
+
+    private void OnBellEntryClick(object sender, RoutedEventArgs e)
+    {
+        if (sender is FrameworkElement { Tag: string id })
+        {
+            BellButton.Flyout?.Hide();
+            Bell.OpenEntry(id);
+        }
+    }
 
     private void OnComposeClick(object sender, RoutedEventArgs e) => Run(CommandIds.Compose);
 

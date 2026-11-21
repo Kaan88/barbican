@@ -12,6 +12,7 @@ using Barbican.Core.Calendar;
 using Barbican.Core.Contacts;
 using Barbican.Core.Mail.Avatars;
 using Barbican.Core.Mail.Archive;
+using Barbican.Core.Mail.Trust;
 using Barbican.Core.Sync;
 using Barbican.Presentation.Settings;
 using Barbican.Presentation.Shell;
@@ -34,6 +35,7 @@ public sealed class SetUiRowsView : StackPanel
     private readonly Dictionary<string, Action> _refresh = new(StringComparer.Ordinal);
     private readonly List<IDisposable> _childrenToDispose = [];
     private bool _updating;
+    private bool _mountainView;
     private long _accountVersion;
     private bool _archiveRunning;
     private TextBlock? _error;
@@ -53,6 +55,14 @@ public sealed class SetUiRowsView : StackPanel
                     if (_archiveStatus is not null) _archiveStatus.Text = string.Empty;
                     break;
                 case "Values":
+                    // Mountain View hides the mail layout row (and shows it again): that changes which rows exist
+                    if (SetUiRowRules.IsMountainView(_vm.ValueOf("interfaceLayout")) != _mountainView)
+                    {
+                        _mountainView = !_mountainView;
+                        Render();
+                        break;
+                    }
+
                     RefreshValues();
                     break;
                 case nameof(ISetUiViewModel.LastError):
@@ -84,6 +94,7 @@ public sealed class SetUiRowsView : StackPanel
     /// <summary>Redraws the rows (the page opened, or the filters changed).</summary>
     public void Render()
     {
+        _mountainView = SetUiRowRules.IsMountainView(_vm.ValueOf("interfaceLayout"));
         foreach (var child in _childrenToDispose) { child.Dispose(); }
         _childrenToDispose.Clear();
         Children.Clear();
@@ -272,6 +283,20 @@ public sealed class SetUiRowsView : StackPanel
             return SetUiUi.RowOf(row.Label, desc, SetUiUi.Pill("Reset", () => SetUiUi.Run(ResetAccessibilityAsync), id + ".button"), id);
         }
 
+        if (string.Equals(row.Key, "trustedSenders", StringComparison.Ordinal))
+        {
+            // Bulwark privacy-settings.tsx:118-129: the count ("None", "1 sender", "N senders") opens the list in the shared dialog host
+            var trust = ViewHost.Get<ITrustedSenders>();
+            var button = SetUiUi.Pill(TrustedSendersRules.CountText(trust.All.Count), () => SetUiUi.Run(async () =>
+            {
+                var model = new TrustedSendersViewModel(trust);
+                _ = await ViewHost.Get<IDialogService>().ShowAsync(new TrustedSendersDialogRequest(model), CancellationToken.None).ConfigureAwait(true);
+                _refresh[row.Id]?.Invoke();
+            }), id + ".button");
+            _refresh[row.Id] = () => button.Content = TrustedSendersRules.CountText(trust.All.Count);
+            return SetUiUi.RowOf(row.Label, desc, button, id);
+        }
+
         if (string.Equals(row.Id, "S-avatars.refresh", StringComparison.Ordinal))
         {
             return SetUiUi.RowOf(row.Label, desc, SetUiUi.Pill("Refresh", () => SetUiUi.Run(RefreshAvatarsAsync), id + ".button"), id);
@@ -350,6 +375,11 @@ public sealed class SetUiRowsView : StackPanel
                 if (!_updating)
                 {
                     SetUiUi.Run(() => _vm.SetValueAsync(row.Id, JsonValue.Create(row.Options[index].Value), CancellationToken.None));
+                    // notification-settings.tsx:457-461: choosing a tone plays it
+                    if (string.Equals(row.Key, "notificationSoundChoice", StringComparison.Ordinal) && row.Options[index].Value is string tone)
+                    {
+                        ViewHost.Find<Barbican.Core.Notifications.IDesktopNotifier>()?.PlaySound(tone);
+                    }
                 }
             }, id + ".select");
             _refresh[row.Id] = () => choice.Selected = IndexOf(Current(row));
@@ -612,11 +642,9 @@ public sealed class SetUiRowsView : StackPanel
     }
 
     private static string Note(SettingRow row, string desc) =>
-        row.Key is "emailNotificationSound" or "emailNotificationsEnabled" or "pushNotifyInboxOnly" or "unreadBadgeAllAccounts"
-            ? (desc.Length > 0 ? desc + " " : string.Empty) + "Windows email notifications and badges are not available yet. This setting is saved for future use."
-            : row.Status == SettingRowStatus.Unwired || string.Equals(row.Id, "S-keyless-059", StringComparison.Ordinal)
-                ? (desc.Length > 0 ? desc + " " : string.Empty) + "Not used by the app yet."
-                : desc;
+        row.Status == SettingRowStatus.Unwired || string.Equals(row.Id, "S-keyless-059", StringComparison.Ordinal)
+            ? (desc.Length > 0 ? desc + " " : string.Empty) + "Not used by the app yet."
+            : desc;
 
     private JsonNode? Current(SettingRow row) => _vm.RowsOf(_pageId).FirstOrDefault(x => string.Equals(x.Row.Id, row.Id, StringComparison.Ordinal))?.Value;
 

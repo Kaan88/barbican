@@ -53,6 +53,8 @@ public sealed class SampleFiles : IFileStore, IFileWriter, IFileTransfer
 
     public FileSnapshot? Snapshot(string accountKey) => new(accountKey, [.. _all], null, "s");
 
+    public bool Supports(string accountKey) => true;
+
     public Task<Result<FileSnapshot>> LoadAsync(string accountKey, CancellationToken ct) => Task.FromResult(Result<FileSnapshot>.Ok(Snapshot(accountKey)!));
 
     public Task<Result<Unit>> RefreshAsync(string accountKey, CancellationToken ct) => DoneAsync();

@@ -10,6 +10,7 @@
 using Barbican.App.Motion;
 using Barbican.App.Theme;
 using Barbican.Core.Accounts;
+using Barbican.Core.Layout;
 using Barbican.Presentation.Accounts;
 using Barbican.Presentation.Calendar.Grid;
 using Barbican.Presentation.Input;
@@ -216,12 +217,19 @@ public sealed partial class ShellPage : Page
         // Bulwark keeps the mailbox beside an in-page composer. Fold only when the
         // saved pane widths would leave too little room for the editor controls.
         var panes = SidebarRegion.Panes;
+        var reading = _look.IsBulwark && !_composing && !ReaderRegion.Reader.IsEmpty;
+        var phone = _look.IsBulwark && ShellLayout.IsPhone(layout.WindowWidth);
+        // SH-12: the mail layout. Only the Bulwark style has the three; Bento and Nordic keep the split. A phone has its own one-pane navigation below.
+        var mode = _look.IsBulwark && !phone ? _look.MailLayout : MailLayoutMode.Split;
+        var listWidth = panes.ListWidth > 0 ? panes.ListWidth : layout.ListWidth;
+        var tooNarrow = reading && layout.WindowWidth - _look.RailWidth - listWidth < 480;
+        var plan = MailLayoutRules.Plan(mode, _look.IsBulwark && (_composing || reading), tooNarrow);
+        // the list gives way to the open message in the focused layout and in a window too narrow for both (the back button returns)
+        var listHidden = !plan.ListShown;
+        var readerOnly = listHidden && reading;
         var editorSpace = layout.WindowWidth - _look.RailWidth
             - (panes.SidebarWidth > 0 ? panes.SidebarWidth : _look.SidebarWidth)
-            - (panes.ListWidth > 0 ? panes.ListWidth : layout.ListWidth);
-        var reading = _look.IsBulwark && !_composing && !ReaderRegion.Reader.IsEmpty;
-        var readerOnly = reading && layout.WindowWidth - _look.RailWidth - (panes.ListWidth > 0 ? panes.ListWidth : layout.ListWidth) < 480;
-        var phone = _look.IsBulwark && ShellLayout.IsPhone(layout.WindowWidth);
+            - (plan.ListShown && !plan.Stacked ? listWidth : 0);
         var composerOnly = phone && _composing;
         // the phone has no rail: the bottom tab bar takes its place (navigation-rail.tsx:390; mail-app.tsx:6432)
         RailRegion.Visibility = _composerMaximized || phone ? Visibility.Collapsed : Visibility.Visible;
@@ -234,15 +242,52 @@ public sealed partial class ShellPage : Page
         ApplyDrawer(phone, drawer);
         ReaderRegion.SetCompactNavigation(readerOnly && !fullscreen, phone);
         SidebarHandle.Visibility = phone ? Visibility.Collapsed : SidebarRegion.Visibility;
-        ListColumn.Visibility = hideMailPanes || readerOnly || composerOnly ? Visibility.Collapsed : Visibility.Visible;
-        ListRegion.SetCompactWidth(phone ? Math.Max(1, layout.WindowWidth) : null);
-        ReaderColumn.Visibility = phone && !reading && !_composing ? Visibility.Collapsed : Visibility.Visible;
-        ListHandle.Visibility = phone ? Visibility.Collapsed : ListColumn.Visibility;
+        ListColumn.Visibility = hideMailPanes || listHidden || composerOnly ? Visibility.Collapsed : Visibility.Visible;
+        ListRegion.SetCompactWidth(phone ? Math.Max(1, layout.WindowWidth) : plan.ListFillsPane ? double.NaN : null);
+        ReaderColumn.Visibility = (phone && !reading && !_composing) || (!phone && !plan.ReaderShown) ? Visibility.Collapsed : Visibility.Visible;
+        ListHandle.Visibility = phone || !plan.HasSplitter ? Visibility.Collapsed : ListColumn.Visibility;
+        PlaceMailPanes(plan, phone);
         ReaderRegion.SetFullscreen(fullscreen);
         _phoneBarWanted = phone && !reading && !_composing && !drawer;
         UpdatePhoneBar();
         UIElement? incoming = ReaderColumn.Visibility == Visibility.Visible ? ReaderColumn : ListColumn;
-        UpdateCompactTransition(phone ? incoming : null);
+        // the same short rise as the phone's, where an open message takes the list's place (the focused layout)
+        UpdateCompactTransition(phone || (mode == MailLayoutMode.Focus && !fullscreen && !_composing) ? incoming : null);
+    }
+
+    // SH-12: the grid cells of the list, its handle and the reading pane for the layout. Split: two columns over both rows. Focus: whichever shows takes the pane (the list spans the context
+    // column too). Horizontal: the list in the top row at its saved height, the reading pane under it; with nothing open the list fills both rows.
+    private void PlaceMailPanes(MailPanePlan plan, bool phone)
+    {
+        var stacked = plan.Stacked && !phone;
+        var stackedWithReader = stacked && plan.ReaderShown;
+        Grid.SetColumnSpan(ListColumn, stacked || plan.ListFillsPane ? 3 : 1);
+        Grid.SetRowSpan(ListColumn, stackedWithReader ? 1 : 2);
+        Grid.SetRow(ReaderColumn, stackedWithReader ? 1 : 0);
+        Grid.SetRowSpan(ReaderColumn, stackedWithReader ? 1 : 2);
+        Grid.SetColumn(ReaderColumn, stackedWithReader ? 0 : 1);
+        Grid.SetColumnSpan(ReaderColumn, stackedWithReader ? 3 : 1);
+        Grid.SetRowSpan(ListHandle, stacked ? 1 : 2);
+        Grid.SetRow(ListHandle, 0);
+        Grid.SetColumnSpan(ListHandle, stacked ? 3 : 1);
+        ListHandle.Horizontal = stacked;
+        ListHandle.Column = stacked ? PanesViewModel.ListHeightColumn : "email-list";
+        ListHandle.Target = stacked ? ListColumn : ListRegion;
+        _stackedListShown = stackedWithReader;
+        ApplyStackedHeight();
+    }
+
+    private bool _stackedListShown;
+
+    private void OnSurfaceSizeChanged(object sender, SizeChangedEventArgs e) => ApplyStackedHeight();
+
+    // the stacked list's height: the saved one, kept short enough that the reading pane keeps its minimum (mail-app.tsx:6543-6544)
+    private void ApplyStackedHeight()
+    {
+        var height = _stackedListShown
+            ? MailLayoutRules.StackedListHeight(SidebarRegion.Panes.ListHeight, SurfaceGrid.ActualHeight, PaneLimits.ListHeightMin, PaneLimits.ReaderHeightMin, PaneLimits.ListHeightShown)
+            : double.NaN;
+        if (!ListColumn.Height.Equals(height)) ListColumn.Height = height;
     }
 
     private UIElement? _compactPane;
@@ -464,6 +509,10 @@ public sealed partial class ShellPage : Page
         if (show && _shell?.ActivePluginPage is { } key)
         {
             _pluginPage?.Show(key, _shell.PluginPagePath);
+        }
+        else if (!show)
+        {
+            _pluginPage?.Hide();
         }
     }
 

@@ -36,4 +36,19 @@ public sealed class PanesFileTests : IDisposable
         Assert.Equal((0f, 0f), PanesFile.Load(path));
         Assert.Equal((0f, 0f), PanesFile.Load(Path.Combine(_dir, "missing.json")));
     }
+
+    [Fact]
+    public void The_stacked_layouts_list_height_is_saved_beside_the_widths_clamped_and_optional()
+    {
+        var path = Path.Combine(_dir, PanesFile.FileName);
+        PanesFile.Save(path, 220f, 360f, 410.4f);
+        Assert.Equal("""{"sidebar":220,"list":360,"listHeight":410}""", File.ReadAllText(path));
+        Assert.Equal(410f, PanesFile.LoadHeight(path));
+        Assert.Equal((220f, 360f), PanesFile.Load(path));
+        File.WriteAllText(path, """{"sidebar":220,"list":360,"listHeight":50}""");
+        Assert.Equal(PaneLimits.ListHeightMin, PanesFile.LoadHeight(path));
+        File.WriteAllText(path, """{"sidebar":220,"list":360,"listHeight":9000}""");
+        Assert.Equal(PaneLimits.ListHeightMax, PanesFile.LoadHeight(path));
+        Assert.Equal(0f, PanesFile.LoadHeight(Path.Combine(_dir, "missing.json")));
+    }
 }

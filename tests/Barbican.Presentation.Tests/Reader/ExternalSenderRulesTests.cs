@@ -31,16 +31,16 @@ public sealed class ExternalSenderRulesTests
     [Fact]
     public void A_domain_outside_the_identities_is_external_and_named_in_the_tooltip()
     {
-        var domains = ExternalSenderRules.ExternalSenderDomains(["dave@org-two.test"], Org);
-        Assert.Equal("org-two.test", Assert.Single(domains));
-        Assert.Equal("From org-two.test, outside your organisation", ExternalSenderRules.Tooltip(domains));
+        var domains = ExternalSenderRules.ExternalSenderDomains(["dave@partner.example"], Org);
+        Assert.Equal("partner.example", Assert.Single(domains));
+        Assert.Equal("From partner.example, outside your organisation", ExternalSenderRules.Tooltip(domains));
     }
 
     [Fact]
     public void Several_external_senders_name_each_domain_once()
     {
-        var domains = ExternalSenderRules.ExternalSenderDomains(["bob@evil.example", "eve@evil.example", "dave@org-two.test"], Org);
-        Assert.Equal("From evil.example, org-two.test, outside your organisation", ExternalSenderRules.Tooltip(domains));
+        var domains = ExternalSenderRules.ExternalSenderDomains(["bob@evil.example", "eve@evil.example", "dave@partner.example"], Org);
+        Assert.Equal("From evil.example, partner.example, outside your organisation", ExternalSenderRules.Tooltip(domains));
     }
 
     [Fact]
@@ -56,7 +56,7 @@ public sealed class ExternalSenderRulesTests
     {
         IReadOnlyList<string> none = ExternalSenderRules.InternalDomains([]);
         Assert.Empty(none);
-        Assert.Empty(ExternalSenderRules.ExternalSenderDomains(["dave@org-two.test"], none));
+        Assert.Empty(ExternalSenderRules.ExternalSenderDomains(["dave@partner.example"], none));
         // a domain without a dot is not a usable organisation domain (Bulwark DOMAIN_RE)
         Assert.Empty(ExternalSenderRules.InternalDomains(["alice@localhost"]));
     }
@@ -72,22 +72,22 @@ public sealed class ExternalSenderRulesTests
     [Fact]
     public void A_display_name_wrapper_and_a_trailing_dot_do_not_change_the_domain()
     {
-        Assert.Equal("org-two.test", ExternalSenderRules.AddressDomain("Dave <dave@org-two.test>"));
-        Assert.Equal("org-two.test", ExternalSenderRules.AddressDomain("dave@org-two.test."));
+        Assert.Equal("partner.example", ExternalSenderRules.AddressDomain("Dave <dave@partner.example>"));
+        Assert.Equal("partner.example", ExternalSenderRules.AddressDomain("dave@partner.example."));
     }
 
     [Fact]
     public void The_reader_header_shows_the_chip_for_an_external_sender()
     {
-        var snapshot = ReaderSnapshots.FromBody(Body("dave@org-two.test"), null, Options(label: true));
+        var snapshot = ReaderSnapshots.FromBody(Body("dave@partner.example"), null, Options(label: true));
 
-        Assert.Equal("From org-two.test, outside your organisation", snapshot.Header.ExternalSenderTooltip);
+        Assert.Equal("From partner.example, outside your organisation", snapshot.Header.ExternalSenderTooltip);
     }
 
     [Fact]
     public void The_reader_header_keeps_the_chip_away_when_the_setting_is_off_or_the_domain_is_ours()
     {
-        Assert.Empty(ReaderSnapshots.FromBody(Body("dave@org-two.test"), null, Options(label: false)).Header.ExternalSenderTooltip);
+        Assert.Empty(ReaderSnapshots.FromBody(Body("dave@partner.example"), null, Options(label: false)).Header.ExternalSenderTooltip);
         Assert.Empty(ReaderSnapshots.FromBody(Body("org-bob@example.org"), null, Options(label: true)).Header.ExternalSenderTooltip);
     }
 

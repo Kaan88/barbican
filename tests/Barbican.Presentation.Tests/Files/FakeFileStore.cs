@@ -20,6 +20,8 @@ internal sealed class FakeFileStore(IReadOnlyList<FileEntry> entries) : IFileSto
 
     public Task<Result<FileSnapshot>> LoadAsync(string accountKey, CancellationToken ct) => Task.FromResult(Result<FileSnapshot>.Ok(Snapshot(accountKey)!));
 
+    public bool Supports(string accountKey) => true;
+
     public FileSnapshot? Snapshot(string accountKey) => new(accountKey, Entries, null, "s");
 
     public Task<Result<Unit>> RefreshAsync(string accountKey, CancellationToken ct) => Task.FromResult(Result<Unit>.Ok(default));

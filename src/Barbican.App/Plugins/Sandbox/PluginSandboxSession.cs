@@ -1,4 +1,5 @@
 // Mirrors: Bulwark lib/plugin-sandbox/host-bridge.ts:427-477,740-771; native route events revoke before message acceptance.
+// callback-invoke mirrors host-bridge.ts:521-537: the frame calls a host function it was handed in its props by id; an id the host never issued answers an error, and nothing else is reachable that way.
 using System.Text;
 using Barbican.Core.Plugins.Bridge;
 using Barbican.Core.Plugins.Protocol;
@@ -7,7 +8,8 @@ using Barbican.Core.Plugins.Protocol.Messages;
 using Barbican.Core.Plugins.Runtime;
 namespace Barbican.App.Plugins.Sandbox;
 /// <summary>Native ingress gate; transport identities are supplied only by the native adapter.</summary>
-public sealed partial class PluginSandboxSession(PluginRuntimeBinding binding, IPluginSandboxWebView view, IPluginApiDispatcher dispatcher, IPluginAuthority authority) : IAsyncDisposable
+public sealed partial class PluginSandboxSession(PluginRuntimeBinding binding, IPluginSandboxWebView view, IPluginApiDispatcher dispatcher, IPluginAuthority authority,
+    PluginHostCallbacks? callbacks = null) : IAsyncDisposable
 {
     private static readonly PluginValueLimits WireLimits = new(MaxWireBytes:40 * 1024 * 1024, MaxBinaryBytes:25 * 1024 * 1024, MaxStringBytes:50 * 1024 * 1024);
     private static readonly PluginMessageLimits MessageLimits = new(MaxStringLength:25 * 1024 * 1024, MaxGraphStringLength:25 * 1024 * 1024, MaxGraphBinaryBytes:25 * 1024 * 1024);
@@ -19,6 +21,11 @@ public sealed partial class PluginSandboxSession(PluginRuntimeBinding binding, I
     private bool _ready, _initQueued, _initIssued, _disposed;
     private bool _activationFailed;
     private Task? _cleanup;
+    private double _slotHeight = -1, _slotWidth = -1;
+    /// <summary>Slot frames only: the sandbox measured its content (Bulwark runtime.tsx:1584 slot-resize). Raised on a background thread.</summary>
+    public event EventHandler<PluginSlotSizeEventArgs>? SlotResized;
+    /// <summary>The last size the slot reported, (-1, -1) until it reported one.</summary>
+    public (double Height, double Width) LastSlotSize { get { lock (_gate) return (_slotHeight, _slotWidth); } }
     public PluginRuntimeBinding Binding { get; } = binding;
     public IPluginSandboxWebView View { get; } = view;
     public IPluginApiDispatcher Dispatcher { get; } = dispatcher;
@@ -63,8 +70,26 @@ public sealed partial class PluginSandboxSession(PluginRuntimeBinding binding, I
             var id = value.Property("id").StringValue;
             lock (_gate) return Active && _hookReplies.TryComplete(Binding, id, value);
         }
+        if (string.Equals(type, "slot-resize", StringComparison.Ordinal)) return ReceiveSlotResize(value);
+        if (string.Equals(type, "callback-invoke", StringComparison.Ordinal)) return await DispatchCallbackAsync(value, ct).ConfigureAwait(false);
         if (!string.Equals(type,"api-request",StringComparison.Ordinal)) return false;
         return await DispatchRequestAsync(value,bytes.Length,ct).ConfigureAwait(false);
+    }
+    private bool ReceiveSlotResize(PluginValue value)
+    {
+        var height = double.Parse(value.Property("height").NumberText, System.Globalization.CultureInfo.InvariantCulture);
+        double? width = value.PropertyNames.Contains("width", StringComparer.Ordinal) && value.Property("width").Kind == PluginValueKind.Number
+            ? double.Parse(value.Property("width").NumberText, System.Globalization.CultureInfo.InvariantCulture) : null;
+        if (!double.IsFinite(height) || height < 0 || (width is { } w && (!double.IsFinite(w) || w < 0))) return false;
+        lock (_gate)
+        {
+            // Only a slot frame draws, and only after the host issued its init.
+            if (!Active || !_initIssued || Binding.Kind != PluginFrameKind.Slot) return false;
+            _slotHeight = height;
+            if (width is { } known) _slotWidth = known;
+        }
+        SlotResized?.Invoke(this, new PluginSlotSizeEventArgs(height, width));
+        return true;
     }
     /// <summary>Waits for authenticated readiness or cancellation of the caller or binding.</summary>
     public async Task WaitForReadyAsync(CancellationToken ct)
@@ -124,11 +149,61 @@ public sealed partial class PluginSandboxSession(PluginRuntimeBinding binding, I
         catch (OperationCanceledException) when (!Binding.IsAlive) { return false; }
         finally { lock (_gate) _requests.Remove(request.Id); }
     }
+    // Bulwark host-bridge.ts:521-537. The call answers like an api-request does (same ids budget, same authority check), but runs a function from this frame's own table.
+    private async Task<bool> DispatchCallbackAsync(PluginValue value, CancellationToken ct)
+    {
+        var id = value.Property("id").StringValue;
+        var callbackId = value.Property("callbackId").StringValue;
+        var arguments = value.Property("args");
+        var key = "callback:" + id;
+        lock (_gate)
+        {
+            if (!Active || !_ready || !_initIssued || _requests.Count >= 128 || !_requests.Add(key)) return false;
+        }
+
+        try
+        {
+            using var linked = CancellationTokenSource.CreateLinkedTokenSource(ct, Binding.Lifetime);
+            if (!await HasAuthorityAsync(linked.Token).ConfigureAwait(false)) return false;
+            var outcome = PluginCallOutcome.Failed(PluginErrorCode.UnknownMethod);
+            if (callbacks?.Find(callbackId) is { } handler)
+            {
+                try { outcome = PluginCallOutcome.Succeeded(await handler(arguments, linked.Token).ConfigureAwait(false)); }
+                catch (OperationCanceledException) when (linked.IsCancellationRequested) { return false; }
+#pragma warning disable CA1031 // A failing host callback answers the frame with a generic error, never its exception text.
+                catch (Exception error) when (error is not OutOfMemoryException and not StackOverflowException) { outcome = PluginCallOutcome.Failed(PluginErrorCode.Failed); }
+#pragma warning restore CA1031
+            }
+
+            return await View.PostAsync((write, token) => DeliverCallbackAsync(id, outcome, write, token), linked.Token).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (!Binding.IsAlive) { return false; }
+        finally { lock (_gate) _requests.Remove(key); }
+    }
+
+    private async ValueTask<bool> DeliverCallbackAsync(string id, PluginCallOutcome outcome, Action<string> write, CancellationToken ct)
+    {
+        if (Authority is not IPluginDeliveryAuthority delivery) return false;
+        string encoded;
+        try { encoded = Encoding.UTF8.GetString(EncodeResponse("callback-response", id, outcome)); }
+        catch (Exception error) when (error is FormatException or ArgumentException or InvalidOperationException)
+        {
+            // a result the wire cannot carry is a failed call, not a lost one
+            encoded = Encoding.UTF8.GetString(EncodeResponse("callback-response", id, PluginCallOutcome.Failed(PluginErrorCode.Failed)));
+        }
+
+        // The callback reads nothing of any account, so the live grant of this binding is all the delivery needs to be current.
+        return await delivery.TryPostAsync(Binding, _ =>
+        {
+            lock (_gate) return Active && !ct.IsCancellationRequested && Binding.TryWriteWhileAlive(() => write(encoded));
+        }, ct).ConfigureAwait(true);
+    }
+
     private async ValueTask<bool> DeliverResponseAsync(string id, PluginCallOutcome outcome, Action<string> write, CancellationToken ct)
     {
         if (Authority is not IPluginDeliveryAuthority delivery) return false;
-        var encoded = Encoding.UTF8.GetString(EncodeResponse(id, outcome));
-        var refused = outcome.IsSuccess ? Encoding.UTF8.GetString(EncodeResponse(id, outcome.RefuseDelivery())) : encoded;
+        var encoded = Encoding.UTF8.GetString(EncodeResponse("api-response", id, outcome));
+        var refused = outcome.IsSuccess ? Encoding.UTF8.GetString(EncodeResponse("api-response", id, outcome.RefuseDelivery())) : encoded;
         return await delivery.TryPostAsync(Binding, grant =>
         {
             lock (_gate)
@@ -153,13 +228,13 @@ public sealed partial class PluginSandboxSession(PluginRuntimeBinding binding, I
                 grant.Generation == Binding.GrantGeneration && grant.Tier == Binding.Tier;
         }
     }
-    private static byte[] EncodeResponse(string id, PluginCallOutcome outcome)
+    private static byte[] EncodeResponse(string type, string id, PluginCallOutcome outcome)
     {
         var response = new PluginValueBuilder();
         var result = outcome.IsSuccess ? response.Import(outcome.Value!) : response.String(outcome.ErrorMessage!);
         var fields = new List<(string, int)>
         {
-            ("type", response.String("api-response")), ("id", response.String(id)),
+            ("type", response.String(type)), ("id", response.String(id)),
             ("ok", response.Boolean(outcome.IsSuccess)), (outcome.IsSuccess ? "result" : "error", result),
         };
         if (outcome.ReconstructFetchBodyText) fields.Add(("decodeFetchBody", response.Boolean(true)));

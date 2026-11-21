@@ -6,9 +6,9 @@ using Microsoft.UI.Dispatching;
 
 namespace Barbican.App.Plugins.Sandbox;
 
-/// <summary>Creates each plugin WebView with its own browser data folder.</summary>
+/// <summary>Creates each plugin WebView with its own browser data folder. Background runtimes draw nothing and take no input; an interactive view is a visible slot frame.</summary>
 internal sealed class PluginSandboxWindowsViewFactory(
-    DispatcherQueue queue, Func<Panel> getMount, IProfilePaths profile, HiddenWindowOptions options) : IPluginSandboxWebViewFactory
+    DispatcherQueue queue, Func<Panel> getMount, IProfilePaths profile, HiddenWindowOptions options, bool interactive = false) : IPluginSandboxWebViewFactory
 {
     private readonly DispatcherQueueDispatcher _ui = new(queue);
 
@@ -18,12 +18,14 @@ internal sealed class PluginSandboxWindowsViewFactory(
             !Guid.TryParseExact(instanceProfile.AsSpan(7), "N", out _))
             throw new ArgumentException("A native plugin instance profile is required.", nameof(instanceProfile));
 
+        // Read before hopping to the UI queue: a slot start's mount flows with this call chain, not with the queue's callback.
+        var chosen = getMount();
         var folder = Path.Combine(profile.DataDir, "PluginWebView2", instanceProfile);
         PluginSandboxWindowsView? created = null;
         var temporaryProfile = new PluginSandboxTemporaryProfile(folder);
         try
         {
-            await _ui.InvokeAsync(async () => created = await CreateOnUiAsync(temporaryProfile, ct)).ConfigureAwait(false);
+            await _ui.InvokeAsync(async () => created = await CreateOnUiAsync(chosen, temporaryProfile, ct)).ConfigureAwait(false);
             return created!;
         }
         finally
@@ -32,15 +34,14 @@ internal sealed class PluginSandboxWindowsViewFactory(
         }
     }
 
-    private async Task<PluginSandboxWindowsView> CreateOnUiAsync(PluginSandboxTemporaryProfile temporaryProfile, CancellationToken ct)
+    private async Task<PluginSandboxWindowsView> CreateOnUiAsync(Panel mount, PluginSandboxTemporaryProfile temporaryProfile, CancellationToken ct)
     {
-        var mount = getMount();
         RequireMount(mount);
         temporaryProfile.Reserve();
         var environment = await WebViewEnvironment.CreateWindowsAsync(temporaryProfile.Folder, options.IsHidden, ct);
         RequireMount(mount);
 
-        var view = new WebView2 { IsHitTestVisible = false, IsTabStop = false };
+        var view = new WebView2 { IsHitTestVisible = interactive, IsTabStop = interactive };
         try
         {
             temporaryProfile.MarkBrowserStarting(environment);

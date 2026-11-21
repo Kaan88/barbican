@@ -104,6 +104,7 @@ public sealed class SetUiViewModel : ISetUiViewModel, IDisposable
 
         var visible = SetUiRowRules.Visible(page.Rows, _advanced).Select(r => r.Id).ToHashSet(StringComparer.Ordinal);
         var rows = new List<SetUiRow>(page.Rows.Count);
+        var mountainView = SetUiRowRules.IsMountainView(Stored("interfaceLayout"));
         foreach (var row in page.Rows)
         {
             var stored = SetUiRowRules.KeyOf(row) is { } k ? Stored(k) : null;
@@ -113,7 +114,7 @@ public sealed class SetUiViewModel : ISetUiViewModel, IDisposable
                 : string.Equals(row.Key, "messageListOrderScope", StringComparison.Ordinal)
                     ? JsonValue.Create(stored is JsonValue scope && scope.TryGetValue<string>(out var textScope) && string.Equals(textScope, "all", StringComparison.Ordinal))
                     : SetUiRowRules.FileField(row.Id) is not null ? SetUiRowRules.FileValue(row.Id, stored) : SetUiRowRules.EffectiveValue(row, stored);
-            rows.Add(new SetUiRow(row, value, text ?? string.Empty, visible.Contains(row.Id)));
+            rows.Add(new SetUiRow(row, value, text ?? string.Empty, visible.Contains(row.Id) && !SetUiRowRules.HiddenByInterfaceLayout(row, mountainView)));
         }
 
         return rows;

@@ -189,6 +189,9 @@ public sealed class ComposerService : IComposerService, IDisposable
             Toasts = _s.Toasts,
             Templates = _s.Templates,
             TemplatePickers = _s.TemplatePickers,
+            Files = _s.Files,
+            Dialogs = _s.Dialogs,
+            ShowHiddenFiles = _s.ShowHiddenFiles,
             Reopen = OpenSeedAsync,
             MentionsEnabled = _s.Prefs.Current.Bool("recipientMentionsEnabled", true),
             MentionAddsRecipientTo = _s.Prefs.Current.Str("mentionAddsRecipientTo", "to"),
@@ -197,6 +200,7 @@ public sealed class ComposerService : IComposerService, IDisposable
         return new ComposerViewModel(context, seed, identities)
         {
             IsDocked = ComposerDock.ShouldDock(settings.ReplyUnderMessage, kind == ComposeKind.New, _s.MessageOpen(), kind == ComposeKind.EditDraft),
+            FilesAvailable = _s.Files?.Supports(seed.AccountId) == true,
         };
     }
 

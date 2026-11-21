@@ -16,6 +16,21 @@ public static class PaneLimits
     public const float ListMin = 240f;
     public const float ListMax = 600f;
 
+    /// <summary>The list pane height of the stacked (horizontal) mail layout; 0 = none saved. Bulwark stores/ui-store.ts:16-18 EMAIL_LIST_HEIGHT_MIN / MAX (default 320).</summary>
+    public const float ListHeightDefault = 0f;
+
+    public const float ListHeightMin = 160f;
+    public const float ListHeightMax = 800f;
+
+    /// <summary>The height the stacked layout shows when none is saved (ui-store.ts:18 EMAIL_LIST_HEIGHT_DEFAULT).</summary>
+    public const float ListHeightShown = 320f;
+
+    /// <summary>The reading pane never gets shorter than this under the list (ui-store.ts:21 READING_PANE_MIN_HEIGHT).</summary>
+    public const float ReaderHeightMin = 240f;
+
+    /// <summary>Clamps a saved list height; a value that is not finite or not positive becomes the default.</summary>
+    public static float ClampHeight(float height) => float.IsFinite(height) && height > 0f ? Math.Clamp(height, ListHeightMin, ListHeightMax) : ListHeightDefault;
+
     /// <summary>Clamps both widths; a value that is not finite or not positive becomes the default.</summary>
     public static (float Side, float List) Clamp(float side, float list)
     {

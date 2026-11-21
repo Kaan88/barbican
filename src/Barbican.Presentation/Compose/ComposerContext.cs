@@ -31,6 +31,15 @@ public sealed record ComposerContext(
 
     public ITemplateStore? Templates { get; init; }
 
+    /// <summary>The file nodes of the signed-in logins, for "Attach from Files" (null: no Files data in this build).</summary>
+    public Barbican.Core.Files.IFileStore? Files { get; init; }
+
+    /// <summary>The shared dialog host, for the attach-from-Files picker (null: no dialogs, and the menu entry does nothing).</summary>
+    public Barbican.Presentation.Dialogs.IDialogService? Dialogs { get; init; }
+
+    /// <summary>The Files setting <c>showHiddenFiles</c>: dot names in the picker (Bulwark's picker reads it at open, file-picker-dialog.tsx:56).</summary>
+    public bool ShowHiddenFiles { get; init; }
+
     /// <summary>Creates the template picker view model of send-pipeline (null: the store is used directly).</summary>
     public Func<Pipeline.TemplatePickerViewModel>? TemplatePickers { get; init; }
 
