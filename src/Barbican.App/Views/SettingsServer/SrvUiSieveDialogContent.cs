@@ -1,4 +1,4 @@
-// Mirrors: Bulwark filter-settings.tsx (the generated Sieve script shown read-only), B-SIEVE-007. Draws SrvUiSieveRequest: the script in a monospace box nobody can type in. Owner srv-ui.
+// Mirrors: Bulwark filter-settings.tsx (the generated Sieve script shown read-only), B-SIEVE-007. Draws SrvUiSieveRequest: the script in a monospace box nobody can type in. Owner srv-ui. Dialog shell and footer: ui/dialog.tsx:131-134,181 through Views/Dialogs/DialogStyles.
 
 using Barbican.App.Theme;
 using Barbican.App.Views.Dialogs;

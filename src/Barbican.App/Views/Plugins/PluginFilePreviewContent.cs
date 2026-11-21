@@ -16,12 +16,12 @@ internal sealed class PluginFilePreviewContent : IDialogContent
     public UIElement Create(ActiveDialog dialog)
     {
         var request = (PluginFilePreviewRequest)dialog.Request;
-        var close = new Button { Content = "Close" };
+        var close = DialogStyles.FooterButton("Close", Barbican.Presentation.Compose.DialogTone.Plain, "plugin.file.close", () => { });
         AutomationProperties.SetAutomationId(close, "plugin.file.close");
         close.Click += (_, _) => dialog.Complete(true);
         var content = new StackPanel { Spacing = 12 };
         content.Children.Add(request.Preview);
-        content.Children.Add(close);
+        content.Children.Add(DialogStyles.Footer(close));
         return content;
     }
 }

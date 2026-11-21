@@ -1,4 +1,4 @@
-// Mirrors: Bulwark components/files/move-dialog.tsx: My files and every valid folder (not inside the moved items) as an indented list; a click answers.
+// Mirrors: Bulwark components/files/move-dialog.tsx: My files and every valid folder (not inside the moved items) as an indented list; a click answers. Footer: Cancel, folder-picker-dialog.tsx:146-159; shell ui/dialog.tsx:131-134,181 through Views/Dialogs/DialogStyles.
 
 using Microsoft.UI.Xaml.Automation;
 using Barbican.App.Views.Calendar;
@@ -38,8 +38,7 @@ public sealed class FileMoveDialogContent : IDialogContent
             list.Children.Add(Row(t.Folder.Name, t.Depth + 1, t.Folder.Key, "files.move." + t.Folder.Key));
         }
 
-        var cancel = new Button { Content = "Cancel", HorizontalAlignment = HorizontalAlignment.Right };
-        cancel.Click += (_, _) => dialog.Complete(null);
-        return new StackPanel { Spacing = 12, MinWidth = 340, Children = { new ScrollViewer { Content = list, MaxHeight = 320 }, cancel } };
+        var cancel = DialogStyles.FooterButton("Cancel", Barbican.Presentation.Compose.DialogTone.Plain, "files.move.cancel", () => dialog.Complete(null));
+        return new StackPanel { Spacing = 8, MinWidth = 340, Children = { new ScrollViewer { Content = list, MaxHeight = 320 }, DialogStyles.Footer(cancel) } };
     }
 }

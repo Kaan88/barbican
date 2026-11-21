@@ -1,7 +1,9 @@
 // Mirrors: Bulwark components/contacts/contact-merge-dialog.tsx (one set of duplicates at a time: the cards, what is kept, Merge), Rust pim-contacts.slint ContactDupes; I-362, B-CON-017..019, L-032. Draws ContactsMergeViewModel (its own Close and Merge).
+// Dialog shell: ui/dialog.tsx:131-134,181 through Views/Dialogs/DialogStyles; footer: the way back at the start (me-auto), Cancel, then Merge, focus on the action: contact-merge-dialog.tsx:185-197.
 
 using System.Globalization;
 using Barbican.Presentation.Compose;
+using DialogStyles = Barbican.App.Views.Dialogs.DialogStyles;
 using Barbican.Presentation.Contacts;
 using Barbican.Presentation.Dialogs;
 using Microsoft.UI.Xaml.Automation;
@@ -13,6 +15,8 @@ namespace Barbican.App.Views.Contacts;
 public sealed class ContactsMergeDialogContent : Barbican.App.Views.Dialogs.IDialogContent
 {
     public bool OwnButtons => true;
+
+    public Control? InitialFocus(UIElement content) => DialogStyles.TaggedFocus(content);
 
     public double MaxWidth => 520;
 
@@ -30,9 +34,9 @@ public sealed class ContactsMergeDialogContent : Barbican.App.Views.Dialogs.IDia
         var note = Body("The first card is kept (the most recently changed). What the others have and it lacks is added to it, then the others are deleted.");
         var error = ErrorLine(m.Error);
         var status = Body(m.Status);
-        var previous = Btn("Previous", DialogTone.Plain, "contacts.merge-dialog.prev", () => m.Index--);
-        var next = Btn("Next", DialogTone.Plain, "contacts.merge-dialog.next", () => m.Index++);
-        var merge = Btn("Merge these", DialogTone.Primary, "contacts.merge-dialog.ok", () => ContactsUi.Run(async () => _ = await m.MergeAsync(CancellationToken.None).ConfigureAwait(true)));
+        var previous = DialogStyles.FooterButton("Previous", DialogTone.Plain, "contacts.merge-dialog.prev", () => m.Index--);
+        var next = DialogStyles.FooterButton("Next", DialogTone.Plain, "contacts.merge-dialog.next", () => m.Index++);
+        var merge = DialogStyles.FooterButton("Merge these", DialogTone.Primary, "contacts.merge-dialog.ok", () => ContactsUi.Run(async () => _ = await m.MergeAsync(CancellationToken.None).ConfigureAwait(true)));
 
         void Refresh()
         {
@@ -55,7 +59,12 @@ public sealed class ContactsMergeDialogContent : Barbican.App.Views.Dialogs.IDia
         panel.Children.Add(note);
         panel.Children.Add(error);
         panel.Children.Add(status);
-        panel.Children.Add(Buttons(previous, next, Btn("Close", DialogTone.Plain, "contacts.merge-dialog.close", () => dialog.Complete(false)), merge));
+        // contact-merge-dialog.tsx:185-197: the way back at the start (me-auto), Cancel, then the action; here the way back is Previous and Next
+        var steps = new StackPanel { Orientation = Orientation.Horizontal, Spacing = DialogStyles.ButtonGap };
+        steps.Children.Add(previous);
+        steps.Children.Add(next);
+        panel.Children.Add(DialogStyles.Footer(steps, DialogStyles.FooterButton("Close", DialogTone.Plain, "contacts.merge-dialog.close", () => dialog.Complete(false)), merge));
+        panel.Tag = merge;
         m.PropertyChanged += (_, _) => panel.DispatcherQueue.TryEnqueue(Refresh);
         Refresh();
         AutomationProperties.SetName(panel, "Duplicate contacts");
