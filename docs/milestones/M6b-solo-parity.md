@@ -444,6 +444,31 @@ skips. The integrated branch at `2b97b82` passed 512 Core plugin tests and 127
 Presentation composer tests, and both heads built without warnings. The new
 dialogs were later driven hidden; see the next section.
 
+## Windows portable preview at 7445d74
+
+A progress preview, not M6b completion or reviewer approval. Source revision
+`7445d7473be09de4fe9926898785772c2b44e8d4` carries the Bulwark parity packages
+WP-0 to WP-14 (WP-6, WP-7, WP-10 and WP-11 in part; open items in the
+[gap ledger](bulwark-parity-gaps.md)), the account, identity, tag, template,
+calendar and task add-on methods, the AI assistant as a bundled native add-on,
+the popup-lint and build-race fixes.
+
+The Windows x64 ZIP is `Barbican-7445d7473be0-win-x64.zip` under
+`artifacts/portable/`. It is 147,404,054 bytes, with SHA-256
+`2423AFC8196810666840C0E3E023CC1AA9579DD1B3590EE0B7D88280F9478435`. The add-on
+runtime is the one prepared from the Bulwark 1.21.2 tag for the `2b97b82`
+preview; all eight runtime assets and nine notices matched their pins. The
+extracted Release app reports `0.1+7445d74…`, ships both bundled add-ons under
+`plugins/`, and its hidden smoke run reached shell-ready in 881.4 ms (first
+frame 633.2 ms), exit 0, with foreground window and cursor unchanged.
+
+Tests behind it: the full Windows suite at `e19cb5e` (code-identical to
+`7445d74`, which only adds a review-log note) passed 3,970 with four skips;
+the desktop, Automation and Release builds, `gen-tokens -Check`, `rules`,
+`spec-check` and `red-check` (0 red) were clean. Not checked: Linux (M9), real
+pointer and keyboard input, and visual comparison of every changed screen
+against a fresh Bulwark capture.
+
 ## Native add-on dialogs (hidden replay)
 
 Base revision `cd66846` plus the dialog replay commit on `m6b/dialog-replay`. Windows Automation build, port 9311, profile `auto-9311`,
