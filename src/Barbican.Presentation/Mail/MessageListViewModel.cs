@@ -1,11 +1,13 @@
 // Mirrors: M1-plan Ã‚§4.3 (Rows, Selected, Total, LoadMoreCommand, SearchText, unread-first Inbox section); Rust mail.rs (load_list :665, load_more :706,
-// sync :800, rebuild_list :556); spec B-SYNC-036/037, B-LST-014/016, I-119..I-156; Bulwark components/email/email-list.tsx. Owner mailcore.
+// sync :800, rebuild_list :556); spec B-SYNC-036/037, B-LST-014/016, I-119..I-156; Bulwark components/email/email-list.tsx, thread-list-item.tsx:562-564,924-931
+// (the scheduled-send chip of a message held in Sent, from EmailSubmission/query pending). Owner mailcore.
 //
 // Rules this class keeps: the list is never re-assigned (every refresh goes through ListSync); the old rows stay on screen until the new page is
 // ready (no blank, no Loading row above the list); a result that comes back after the user moved on is dropped (generation check); load more
 // anchors on the last loaded message; a push delta is one insert, not a reset.
 
 using System.Windows.Input;
+using Barbican.Core.Compose;
 using Barbican.Core.Mail.Lists;
 using Barbican.Core.Mail.Model;
 using Barbican.Core.Mail.Rules;
@@ -43,6 +45,8 @@ public sealed partial class MessageListViewModel : ObservableObject, IDisposable
     private readonly UnifiedInbox? _unified;
     private readonly IVerificationCodeFinder _codeFinder;
     private readonly IClipboardService? _clipboard;
+    private readonly IScheduledSends? _scheduled;
+    private IReadOnlyDictionary<string, DateTimeOffset> _scheduledAt = new Dictionary<string, DateTimeOffset>(StringComparer.Ordinal);
     private ITimer? _codeExpiry;
     private bool _disposed;
     private readonly LoadedList _loaded = new();
@@ -79,7 +83,8 @@ public sealed partial class MessageListViewModel : ObservableObject, IDisposable
         IDispatcher? dispatcher = null,
         UnifiedInbox? unified = null,
         IVerificationCodeFinder? codeFinder = null,
-        IClipboardService? clipboard = null)
+        IClipboardService? clipboard = null,
+        IEnumerable<IScheduledSends>? scheduled = null)
     {
         ArgumentNullException.ThrowIfNull(active);
         ArgumentNullException.ThrowIfNull(hub);
@@ -103,6 +108,8 @@ public sealed partial class MessageListViewModel : ObservableObject, IDisposable
         _unified = unified;
         _codeFinder = codeFinder ?? new VerificationCodeFinder();
         _clipboard = clipboard;
+        // the sequence holds the module's reader or nothing (the send pipeline registers it; mailcore alone must still resolve)
+        _scheduled = scheduled?.FirstOrDefault();
         LoadMoreCommand = new AsyncRelayCommand(LoadMoreAsync, () => CanLoadMore);
         _hub.EventReceived += OnSyncEvent;
         _active.Changed += OnAccountChanged;
@@ -641,6 +648,7 @@ public sealed partial class MessageListViewModel : ObservableObject, IDisposable
 
         var unreadFirst = IsUnreadFirst(query, ReadSettings());
         _pagingQuery = unreadFirst ? query with { HasKeyword = "$seen" } : null;
+        await RefreshScheduledAsync().ConfigureAwait(true);
         _loaded.Replace(page with { Items = items.Emails });
         _badges.Clear();
         Error = page.Warning;
@@ -694,7 +702,7 @@ public sealed partial class MessageListViewModel : ObservableObject, IDisposable
     private void RebuildRows()
     {
         var settings = ReadSettings();
-        var context = settings.RowContextAt(_time.GetUtcNow(), Barbican.Core.Settings.Pages.SettingDisplayTimeZone.Resolve(_prefs.Current.Str("timeZone", "auto"), _time.LocalTimeZone)) with { CodeFinder = _codeFinder };
+        var context = settings.RowContextAt(_time.GetUtcNow(), Barbican.Core.Settings.Pages.SettingDisplayTimeZone.Resolve(_prefs.Current.Str("timeZone", "auto"), _time.LocalTimeZone)) with { CodeFinder = _codeFinder, ScheduledSends = _scheduledAt };
         context = WithAccountMarkers(context);
         var searching = !string.IsNullOrWhiteSpace(_query?.SearchText);
         int? unreadFirst = settings.UnreadFirst && _role == MailboxRole.Inbox && !searching ? settings.UnreadSectionSize : null;
@@ -873,12 +881,48 @@ public sealed partial class MessageListViewModel : ObservableObject, IDisposable
 
     private async Task RebuildThenUpdateTotalAsync()
     {
+        await RefreshScheduledAsync().ConfigureAwait(true);
         RebuildRows();
         Total = _loaded.Total;
         if (_hooks.HasHandlers(HookNames.OnEmailListItemRender))
         {
             await ApplyBadgesAsync().ConfigureAwait(true);
         }
+    }
+
+    /// <summary>
+    /// The release times of the account's pending scheduled sends, by email id: the rows of the Sent folder then show Bulwark's scheduled chip in
+    /// the date's place (thread-list-item.tsx:924-931). A message the server no longer holds as pending (it went out, or its send was cancelled)
+    /// is gone from the next read, so its chip disappears when the rows are rebuilt. The read is extra: a failure leaves the dates.
+    /// </summary>
+    private async Task RefreshScheduledAsync()
+    {
+        if (_scheduled is null || _role != MailboxRole.Sent || _active.AccountKey is not { Length: > 0 } account)
+        {
+            _scheduledAt = new Dictionary<string, DateTimeOffset>(StringComparer.Ordinal);
+            return;
+        }
+
+        Core.Common.Result<IReadOnlyList<ScheduledMessage>> result;
+        try
+        {
+            result = await _scheduled.ListAsync(account, _cts?.Token ?? CancellationToken.None).ConfigureAwait(true);
+        }
+        catch (OperationCanceledException)
+        {
+            // the list moved on; the load that replaced this one reads again, so the rows keep what they had
+            return;
+        }
+
+        if (!result.IsOk || result.Value is null)
+        {
+            return;
+        }
+
+        _scheduledAt = result.Value
+            .Where(m => m.At != DateTimeOffset.MinValue)
+            .GroupBy(m => m.EmailId, StringComparer.Ordinal)
+            .ToDictionary(g => g.Key, g => g.First().At, StringComparer.Ordinal);
     }
 
     private void OnAccountChanged(object? sender, EventArgs e)
@@ -890,6 +934,7 @@ public sealed partial class MessageListViewModel : ObservableObject, IDisposable
         _query = null;
         _browseMailboxId = null;
         _pagingQuery = null;
+        _scheduledAt = new Dictionary<string, DateTimeOffset>(StringComparer.Ordinal);
         LastSync = ListSync.SyncBy(Rows, [], r => r.Key, (a, b) => a.SameAs(b));
         SetSelected(null);
         Total = 0;

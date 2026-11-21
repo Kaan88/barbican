@@ -1,5 +1,5 @@
 // Mirrors: Rust mail.rs ListPrefs :40 (groupListByDate, showPreview, dateFormat, timeFormat, showAttachmentChips, density, hideInlineImageAttachments)
-// and tag_color :84; Bulwark showTagChips (thread-list-item.tsx:901). Owner mailcore.
+// and tag_color :84; Bulwark showTagChips (thread-list-item.tsx:901), the scheduled-send chip (:562-564,924-931). Owner mailcore.
 
 namespace Barbican.Presentation.Mail;
 
@@ -43,4 +43,6 @@ public sealed record RowContext
     /// <summary>Resolves a merged row id to its display name and the signed-in account's palette index.</summary>
     public Func<string, (string Name, int Color)?>? AccountOfRow { get; init; }
 
+    /// <summary>Release times of the account's pending scheduled sends, by email id (Bulwark <c>email.scheduledSendAt</c>, :562-564); the row then shows the chip in the date's place (:924-931).</summary>
+    public IReadOnlyDictionary<string, DateTimeOffset>? ScheduledSends { get; init; }
 }
