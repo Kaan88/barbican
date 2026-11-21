@@ -67,6 +67,9 @@ internal sealed partial class AddonsPageFactory(PluginPackageHost packages, Plug
         _webRequests = SetUiUi.Id(new ToggleSwitch
         {
             IsOn = !PluginNetworkPolicy.IsBlocked(prefs),
+            OnContent = string.Empty,
+            OffContent = string.Empty,
+            MinWidth = 0,
             IsEnabled = !PluginNetworkPolicy.IsManaged,
         }, "set.addons.web-requests");
         AutomationProperties.SetName(_webRequests, "Allow add-on web requests");

@@ -11,6 +11,7 @@ internal abstract class SrvUiPage : Grid
 {
     private bool _pending;
     private string? _anchor;
+    private bool _loading;
 
     protected SrvUiPage(string id, string title, string subtitle)
     {
@@ -19,11 +20,14 @@ internal abstract class SrvUiPage : Grid
         Body.Children.Add(heading);
         Body.Children.Add(SrvUiKit.Dim(subtitle));
         var look = StyleState.Current;
+        void Fit() => Settings.SetUiUi.FitColumn(Body, look.IsBulwark, look.SetPageMaxWidth - (2 * look.SetPagePadding.Left), 2 * look.SetPagePadding.Left);
+        Body.Tag = (Action)Fit;
         void Frame()
         {
+            Fit();
             // settings-app.tsx:1188-1194: max-w-3xl mx-auto px-6 py-6 and no visible title in Bulwark; the older styles keep the left column with the title
             Body.Margin = look.IsBulwark ? look.SetPagePadding : new Thickness(28, 20, 28, 28);
-            Body.MaxWidth = look.IsBulwark ? look.SetPageMaxWidth : 820;
+            Body.MaxWidth = look.IsBulwark ? look.SetPageMaxWidth - (2 * look.SetPagePadding.Left) : 820;
             Body.HorizontalAlignment = look.SetPageAlignment;
             heading.Visibility = look.SetPageTitleVisibility;
         }
@@ -39,7 +43,7 @@ internal abstract class SrvUiPage : Grid
         };
         AutomationProperties.SetAutomationId(this, "srv.page." + id);
         AutomationProperties.SetName(this, title);
-        Children.Add(new ScrollViewer { Content = Body, VerticalScrollBarVisibility = ScrollBarVisibility.Auto });
+        Children.Add(Settings.SetUiUi.Scroll(Body));
     }
 
     /// <summary>The page's own content goes under the title and the subtitle.</summary>
@@ -59,7 +63,28 @@ internal abstract class SrvUiPage : Grid
     }
 
     /// <summary>Called each time the page is shown.</summary>
-    public void Shown() => SrvUiKit.Run(LoadAsync);
+    public void Shown()
+    {
+        _loading = true;
+        SrvUiKit.Run(async () =>
+        {
+            try
+            {
+                await LoadAsync().ConfigureAwait(true);
+            }
+            finally
+            {
+                // the rows drawn from the loaded data move what is below them: the anchor settles once that draw is done
+                if (!DispatcherQueue.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.Low, FinishReveal)) _loading = false;
+            }
+        });
+    }
+
+    private void FinishReveal()
+    {
+        _loading = false;
+        TryReveal();
+    }
 
     /// <summary>
     /// Scrolls to the element whose automation id is the anchor (or <see cref="AnchorId"/> of it). A page that has not drawn yet keeps the anchor and scrolls
@@ -81,8 +106,8 @@ internal abstract class SrvUiPage : Grid
             return;
         }
 
-        _anchor = null;
-        _ = found.DispatcherQueue.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.Low, found.StartBringIntoView);
+        if (!_loading) _anchor = null;
+        _ = found.DispatcherQueue.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.Low, () => found.StartBringIntoView(new Microsoft.UI.Xaml.BringIntoViewOptions { VerticalAlignmentRatio = 0, AnimationDesired = false }));
     }
 
     /// <summary>Redraws once, after the current event finished (many changes in a row draw once).</summary>

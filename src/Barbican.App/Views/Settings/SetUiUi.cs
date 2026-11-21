@@ -107,7 +107,33 @@ public static class SetUiUi
         return grid;
     }
 
-    public static ScrollViewer Scroll(UIElement content) => new() { Content = content, VerticalScrollBarVisibility = ScrollBarVisibility.Auto, HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled };
+    public static ScrollViewer Scroll(UIElement content)
+    {
+        var scroll = new ScrollViewer { Content = content, VerticalScrollBarVisibility = ScrollBarVisibility.Auto, HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled };
+        if (content is FrameworkElement { Tag: Action fit })
+        {
+            scroll.SizeChanged += (_, _) => fit();
+        }
+
+        return scroll;
+    }
+
+    /// <summary>
+    /// Sets the width of a page column to its widest line, or to the viewport when that is narrower. A column that is only capped by MaxWidth is arranged at the width
+    /// of its widest child when that child ignores the cap, which pushes a centred column off the middle.
+    /// </summary>
+    internal static void FitColumn(FrameworkElement column, bool bulwark, double max, double inset)
+    {
+        ArgumentNullException.ThrowIfNull(column);
+        var viewport = (column.Parent as FrameworkElement)?.ActualWidth ?? 0;
+        if (!bulwark || viewport <= 0)
+        {
+            column.ClearValue(FrameworkElement.WidthProperty);
+            return;
+        }
+
+        column.Width = Math.Max(0, Math.Min(max, viewport - inset));
+    }
 
     /// <summary>The body of a page: Bulwark's centred max-w-3xl column with no visible title (the nav names the page), Bento's titled left column. Follows a style switch.</summary>
     public static StackPanel Page(string title)
@@ -117,8 +143,11 @@ public static class SetUiUi
         var heading = Title(title);
         panel.Children.Add(heading);
         AutomationProperties.SetName(panel, title);
+        void Fit() => FitColumn(panel, look.IsBulwark, look.SetPageMaxWidth, 0);
+        panel.Tag = (Action)Fit;
         void Apply()
         {
+            Fit();
             panel.Padding = look.SetPagePadding;
             panel.MaxWidth = look.SetPageMaxWidth;
             panel.HorizontalAlignment = look.SetPageAlignment;

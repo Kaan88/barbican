@@ -23,8 +23,8 @@ public sealed partial class StyleState
     /// <summary>Bulwark names the page only in the nav (the h1 is for screen readers); Bento and Nordic keep the title.</summary>
     public Visibility SetPageTitleVisibility => IsBulwark ? Visibility.Collapsed : Visibility.Visible;
 
-    /// <summary>The page body is centred in Bulwark (mx-auto) and left-aligned in the older styles.</summary>
-    public HorizontalAlignment SetPageAlignment => IsBulwark ? HorizontalAlignment.Center : HorizontalAlignment.Left;
+    /// <summary>The page body is centred in Bulwark (mx-auto) and left-aligned in the older styles (a stretched column capped by its MaxWidth is centred).</summary>
+    public HorizontalAlignment SetPageAlignment => IsBulwark ? HorizontalAlignment.Stretch : HorizontalAlignment.Left;
 
     /// <summary>Section title: Bulwark text-lg (18) font-medium, Bento 15 bold.</summary>
     public double SetSectionSize => IsBulwark ? 18 : 15;
