@@ -69,6 +69,15 @@ public sealed class SetUiRowsView : StackPanel
                     break;
             }
         };
+        var look = StyleState.Current;
+        var style = look.Style;
+        look.PropertyChanged += (_, _) =>
+        {
+            // a style switch redraws the rows with the new look; other changes of the look do not (a redraw drops the focus of a field)
+            if (look.Style == style) return;
+            style = look.Style;
+            Render();
+        };
         Render();
     }
 
@@ -80,18 +89,39 @@ public sealed class SetUiRowsView : StackPanel
         Children.Clear();
         _byId.Clear();
         _refresh.Clear();
+        var hidden = 0;
+        FrameworkElement? previous = null;
         foreach (var r in _vm.RowsOf(_pageId))
         {
-            if (!r.Visible || !_include(r.Row))
+            if (!_include(r.Row))
             {
                 continue;
             }
 
+            if (!r.Visible)
+            {
+                if (r.Row.Advanced) hidden++;
+                continue;
+            }
+
             var element = Build(r);
+            if (r.Row.Kind == SettingRowKind.Section)
+            {
+                EndGroup(previous);
+                if (previous is null && element is StackPanel { Children: [TextBlock title, ..] }) title.Margin = new Thickness(0, 0, 0, 2);
+            }
+            else if (r.Row.Advanced)
+            {
+                AdvancedBadge(element);
+            }
+
             _byId[r.Row.Id] = element;
             Children.Add(element);
+            previous = element;
         }
 
+        EndGroup(previous);
+        if (hidden > 0 && !_vm.ShowAdvanced) Children.Add(HiddenNotice(hidden));
         _error = SetUiUi.Meta(_vm.LastError);
         _error.Foreground = AppResources.Brush("RoseFg");
         _error.Visibility = _vm.LastError.Length > 0 ? Visibility.Visible : Visibility.Collapsed;
@@ -101,6 +131,45 @@ public sealed class SetUiRowsView : StackPanel
         {
             _ = Reveal(anchor);
         }
+    }
+
+    /// <summary>The last row of a section has no rule under it (settings-section.tsx:343 last:border-0).</summary>
+    private static void EndGroup(FrameworkElement? last)
+    {
+        if (last is Grid { Padding.Top: > 0 } row) row.BorderThickness = new Thickness(0);
+    }
+
+    /// <summary>The small "Advanced" marker beside the label of a row that shows only with the switch on (settings-section.tsx:172-180).</summary>
+    private static void AdvancedBadge(FrameworkElement row)
+    {
+        if (row is not Grid { Children: [StackPanel { Children: [TextBlock label, ..] } left, ..] }) return;
+        var bulwark = StyleState.Current.IsBulwark;
+        var badge = new Border
+        {
+            CornerRadius = new CornerRadius(4),
+            Padding = new Thickness(6, 2, 6, 2),
+            VerticalAlignment = VerticalAlignment.Center,
+            Background = AppResources.Brush(bulwark ? "FeedbackSelected" : "Sel"),
+            Child = new TextBlock { Text = "Advanced", FontSize = 10, FontWeight = Microsoft.UI.Text.FontWeights.Medium, Foreground = AppResources.Brush(bulwark ? "FeedbackSelectedFg" : "SelText") },
+        };
+        left.Children.RemoveAt(0);
+        left.Children.Insert(0, new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6, Children = { label, badge } });
+    }
+
+    /// <summary>"N advanced settings are hidden on this page" with the link that turns the switch on (settings-section.tsx:136-153).</summary>
+    private Border HiddenNotice(int count)
+    {
+        var show = new Button { Content = "Show advanced settings", Style = (Style)Application.Current.Resources["Button.Icon"], Height = 24, Padding = new Thickness(8, 0, 8, 0), FontSize = 12, FontWeight = Microsoft.UI.Text.FontWeights.Medium, Foreground = AppResources.Brush("Accent") };
+        show.Click += (_, _) => _vm.ShowAdvanced = true;
+        _ = SetUiUi.Id(show, "set.hidden-advanced.show");
+        var grid = new Grid { ColumnSpacing = 8 };
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        grid.Children.Add(new TextBlock { Text = count == 1 ? "1 advanced setting is hidden on this page." : count.ToString(System.Globalization.CultureInfo.InvariantCulture) + " advanced settings are hidden on this page.", FontSize = 12, Foreground = AppResources.Brush("Dim"), VerticalAlignment = VerticalAlignment.Center, TextWrapping = TextWrapping.Wrap });
+        Grid.SetColumn(show, 1);
+        grid.Children.Add(show);
+        var notice = new Border { Margin = new Thickness(0, 24, 0, 0), Padding = new Thickness(12, 8, 12, 8), BorderThickness = new Thickness(1), BorderBrush = AppResources.Brush("Line"), Background = AppResources.Brush("Input"), CornerRadius = new CornerRadius(StyleState.Current.Metrics.ButtonRadius), Child = grid };
+        return SetUiUi.Id(notice, "set.hidden-advanced");
     }
 
     /// <summary>Scrolls to a row and marks it (a search hit or a cross-link).</summary>
@@ -169,9 +238,13 @@ public sealed class SetUiRowsView : StackPanel
             section.Children.Add(SetUiUi.Heading(row.Label));
             if (desc.Length > 0)
             {
-                section.Children.Add(SetUiUi.Meta(desc));
+                // settings-section.tsx:231-233: text-sm muted, mt-1; space-y-4 to the rows (the rows carry 12 px of their own)
+                var intro = SetUiUi.Meta(desc);
+                if (StyleState.Current.IsBulwark) intro.FontSize = 14;
+                section.Children.Add(intro);
             }
 
+            section.Margin = new Thickness(0, 0, 0, StyleState.Current.IsBulwark ? 4 : 0);
             AutomationProperties.SetAutomationId(section, id);
             return section;
         }

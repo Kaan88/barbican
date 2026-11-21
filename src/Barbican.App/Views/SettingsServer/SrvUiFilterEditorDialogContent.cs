@@ -71,8 +71,8 @@ public sealed class SrvUiFilterEditorDialogContent : IDialogContent
 
         host.Children.Add(SrvUiKit.Error(m.Error));
         host.Children.Add(Buttons(
-            Btn("Cancel", DialogTone.Plain, "srv.rule.cancel", m.Cancel),
-            Btn("Save rule", DialogTone.Primary, "srv.rule.save", () => SrvUiKit.Run(() => m.SaveAsync(CancellationToken.None)), !m.Saving)));
+            SrvUiKit.Foot("Cancel", DialogTone.Plain, "srv.rule.cancel", m.Cancel),
+            SrvUiKit.Foot("Save rule", DialogTone.Primary, "srv.rule.save", () => SrvUiKit.Run(() => m.SaveAsync(CancellationToken.None)), !m.Saving)));
     }
 
     private static StackPanel ConditionRow(SrvUiFilterEditorModel m, int index)
