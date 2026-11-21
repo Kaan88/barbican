@@ -1,7 +1,7 @@
 // Mirrors: Rust reminders.rs:19 STALE_MS, :21 MISSED_WINDOW_MS, :24 FETCH_AHEAD_MS, :27 fetch_ahead, :49 offset_ms, :53 offset_to_unit, :72 describe, :80 row_offset, :88 row_label, :95 alerts_label, :105 calendar_defaults,
 // :113 effective_alerts, :120 rows_of, :135 with_own_ids, :157 build_alerts_patch, :202 alert_key, :220 due_between, :273 when_label, :320 missed; RFC 8984 4.5.2 (Alert, OffsetTrigger, useDefaultAlerts);
-// Bulwark hooks/use-calendar-alerts.ts, lib/calendar-alerts.ts, components/calendar/alert-list-editor.tsx (formatAlertRowLabel, AlertSummary: "No reminders", "N other"). G-005: an event's own alerts are read from the event
-// (the fetch window is 8 days, 15 with long default alerts). Contract from the M4 plan section 4.1; owner cal-data.
+// Bulwark hooks/use-calendar-alerts.ts, lib/calendar-alerts.ts, components/calendar/alert-list-editor.tsx (formatAlertRowLabel, AlertSummary: "No reminders", "N other"). G-005: an event's own alerts are read from the event and fire
+// whatever the distance (the scheduler reads a year ahead, ReminderScheduler.OwnAlertHorizon). Contract from the M4 plan section 4.1; owner cal-data.
 
 using System.Globalization;
 using System.Text.Json.Nodes;
@@ -24,7 +24,7 @@ public static partial class ReminderRules
 
     private static readonly string[] ZeroOffsets = ["PT0S", "PT0M", "PT0H", "P0D", "P0W", "PT0D"];
 
-    /// <summary>The read-ahead window: 8 days, or the longest calendar default alert plus a day (15 days for a 14 day default).</summary>
+    /// <summary>The read-ahead window the calendar defaults ask for: 8 days, or the longest default alert plus a day (15 days for a 14 day default). An event's own alerts can be further off, so the scheduler reads <see cref="ReminderScheduler.OwnAlertHorizon"/> at least.</summary>
     public static long FetchAhead(IReadOnlyList<JsonNode> calendars)
     {
         ArgumentNullException.ThrowIfNull(calendars);

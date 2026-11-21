@@ -4,8 +4,10 @@ using Barbican.App.Shell;
 using Barbican.App.Views.Calendar.Editors;
 using Barbican.App.Views.Calendar.Reminders;
 using Barbican.App.Views.Calendar.Tasks;
+using Barbican.Presentation.Calendar.Editors.Dialogs;
 using Barbican.Presentation.Composition;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 
 namespace Barbican.App.Composition.Features;
 
@@ -20,6 +22,8 @@ public static class CalendarUiRegistration
         _ = services.AddBarbicanCalendarUiViewModels();
         // cal-views' calendar screen host places this one view over the grid (one child); it draws the editor cards and the questions
         services.AddSingleton<CalendarCardHost>();
+        // the .ics import and export ask through the platform pickers (a hidden run answers from its queue instead), G-004
+        services.Replace(ServiceDescriptor.Singleton<ICalendarFilePicker>(_ => new CalendarFilePicker(CalendarSystemPicker.OpenIcsAsync, CalendarSystemPicker.SaveTextAsync)));
         // the Tasks view and the capped sidebar list fill cal-views' two slots; the reminder stack and the missed dialog are one overlay (above the toasts, below the menus)
         services.AddSingleton<ISlotContent>(new SlotContent(SlotNames.CalendarTasks, () => new TasksListView()));
         services.AddSingleton<ISlotContent>(new SlotContent(SlotNames.CalendarSidebarTasks, () => new TasksSidebarView()));
