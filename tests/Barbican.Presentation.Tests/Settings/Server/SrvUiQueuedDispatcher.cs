@@ -52,6 +52,34 @@ internal sealed class SrvUiQueuedDispatcher : IDispatcher
         return completion.Task;
     }
 
+    /// <summary>Awaits the task while running queued work on the calling (test) thread, so UI-thread callbacks never overlap the test's own edits, as on the real UI thread.</summary>
+#pragma warning disable VSTHRD003 // the caller started the task; this only pumps while it runs
+    public async Task RunAsync(Task task)
+    {
+        ArgumentNullException.ThrowIfNull(task);
+        while (!task.IsCompleted)
+        {
+            Pump();
+            _ = await Task.WhenAny(task, Task.Delay(1)).ConfigureAwait(false);
+        }
+
+        await task.ConfigureAwait(false);
+    }
+
+    /// <summary>As <see cref="RunAsync(Task)"/>, returning the task's result.</summary>
+    public async Task<T> RunAsync<T>(Task<T> task)
+    {
+        ArgumentNullException.ThrowIfNull(task);
+        while (!task.IsCompleted)
+        {
+            Pump();
+            _ = await Task.WhenAny(task, Task.Delay(1)).ConfigureAwait(false);
+        }
+
+        return await task.ConfigureAwait(false);
+    }
+#pragma warning restore VSTHRD003
+
     public void Pump()
     {
         while (true)
