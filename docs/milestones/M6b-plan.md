@@ -27,6 +27,19 @@ Restart checklist:
 
 Earlier approvals cover only the revisions they name; they do not approve current HEAD or the milestone.
 
+**Progress since (November 21, later).** The paused dialog and scoped-mail work was rebuilt and merged, and the native dialog replay passes (`tools/dialog-probe-replay.py`). The AI assistant is now a bundled native add-on (D-M6b-08). The add-on API gained the account, identity, tag, template, calendar and task families. The Bulwark parity packages from the [gap ledger](bulwark-parity-gaps.md#5-work-packages-about-one-day-each-disjoint-ownership) merged so far are WP-0 to WP-7 and WP-9 (WP-6 and WP-7 in part); the ledger records each package's status and open items. The integration head `4f5bef9` passed its affected tests and both heads. Per the user, this session defers every Fable review to the final release.
+
+Coordinator follow-ups not yet owned by a package:
+
+- The `SpamScore.dll` CS2012 lock: the bundled add-on projects intermittently build twice in parallel (fix in progress on `m6b/plugin-build-race`).
+- `SrvUiViewModelTests.The_filters_page_lists_enables_and_deletes_a_rule` failed once in a worker run and passed on rerun; treat as flaky until explained.
+- `FeedbackTransition` keeps weak references until Reduce motion is toggled; prune them on unload.
+- Reader actions give add-ons 30 s (`ReaderView.AddOns.cs`); an add-on dialog left open longer is untested.
+- `calendar.respond` detects a hook stop from `InvitationService`'s message text; make it a typed result (recorded in the review log).
+- The `assistant` Settings nav entry is static and `set-ask` hardcodes its id; the composer bridge decoder caps strings at 256 KiB while the methods allow 512 KiB; the composer handle's `AttachAsync` has no test.
+- A hidden click on the attachments message threw a COMException once during the WP-6 light capture.
+- `showRailAccountList` is still listed as unwired in `SettingsCatalog.UnwiredKeys` and `spec/settings.csv` although the rail now reads it; the rail's storage Free row is derived from text until Presentation exposes the quota bytes.
+
 ### Working on a flow
 
 Managed activation is integrated at `3791df4`; do not restart its superseded draft. Use a separate clean worktree when independent UI work would conflict with an active compatibility change. The coordinator owns integration and assigns shared files to one worker. Pair a reviewer early with work that changes access or sending authority. Keep working on independent screens while feedback is pending.
