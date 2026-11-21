@@ -12,7 +12,7 @@ using Microsoft.UI.Xaml.Automation;
 namespace Barbican.App.Views.Contacts;
 
 /// <summary>The detail pane of the open contact.</summary>
-public sealed class ContactsDetailView : UserControl
+public sealed partial class ContactsDetailView : UserControl
 {
     private readonly ContactsViewModel _vm = ContactsUi.Model;
     private readonly StyleState _look = ViewHost.Get<StyleState>();
@@ -32,9 +32,18 @@ public sealed class ContactsDetailView : UserControl
     public void Render()
     {
         _body.Children.Clear();
+        var bw = _look.IsBulwark;
+        _body.Spacing = bw ? 0 : 14;
+        _body.Padding = bw ? new Thickness(0) : new Thickness(26, 24, 26, 24);
         if (_vm.OpenCard is not { } card)
         {
-            _body.Children.Add(EmptyState());
+            _body.Children.Add(bw ? BulwarkEmpty() : EmptyState());
+            return;
+        }
+
+        if (bw)
+        {
+            RenderBulwark(card);
             return;
         }
 

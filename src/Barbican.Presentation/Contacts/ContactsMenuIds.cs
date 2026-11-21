@@ -9,6 +9,7 @@ public static class ContactsMenuIds
     public const string Group = "MENU-GROUP";
     public const string Category = "MENU-CATEGORY";
     public const string Book = "MENU-BOOK";
+    public const string New = "MENU-CONTACTS-NEW";
     public const string ContactGroups = "MENU-CONTACT>groups";
     public const string ContactCategories = "MENU-CONTACT>categories";
     public const string GroupSend = "MENU-GROUP>send";

@@ -3,4 +3,4 @@
 namespace Barbican.Presentation.Contacts;
 
 /// <summary>One row of the contact list.</summary>
-public sealed record ContactsRow(string AccountKey, string Id, string DisplayName, string SortKey, string Letter, string Initials, string? Email, string? PhotoUri, bool IsGroup);
+public sealed record ContactsRow(string AccountKey, string Id, string DisplayName, string SortKey, string Letter, string Initials, string? Email, string? PhotoUri, bool IsGroup, string? Organization = null);

@@ -113,6 +113,9 @@ header; Show contacts; Rename category; —; danger Delete category (no confirma
 ## MENU-BOOK: an address book in the contacts sidebar [M5]
 header; New contact in this address book; Rename; Set as default [off: not default]; —; danger Delete address book [off: not default] (asks).
 
+## MENU-CONTACTS-NEW: the + button in the contacts sidebar header [M6b]
+New contact; New group; New address book; —; Import contacts (Bulwark contacts-sidebar.tsx:292-317).
+
 ## MENU-FILE: a file or folder in Files [M5]
 header (name); Open; Download (files only); — (when either of the next two shows); Share › (when the user may share); Star / Unstar (own folders only, not shared-in); —; Rename (F2); Duplicate; Move to ›; Cut (Ctrl+X); Copy (Ctrl+C); —; danger Delete (Del) (asks: "Move to trash", or "Delete for good" for shared items).
 - **Share ›**: Share read-only…; Share with edit rights…; then, when shared: —, header "Shared with", "Stop sharing with <name>" (+ " (edit)") per principal; names are resolved in the background.

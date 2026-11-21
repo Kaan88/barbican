@@ -30,10 +30,12 @@ public sealed class ContactsScreen : UserControl
     private readonly ContactsListView _list = new();
     private readonly ContactsDetailView _detail = new();
     private string? _loadedFor;
+    private Action<bool>? _formFinish;
 
     public ContactsScreen()
     {
         _current = this;
+        _vm.FormHost = ShowFormAsync;
         Build();
         _look.PropertyChanged += (_, _) => ApplyLook();
         _panes.PropertyChanged += (_, _) => ApplyLook();
@@ -60,6 +62,35 @@ public sealed class ContactsScreen : UserControl
             ContactsUi.Run(() => _vm.RefreshAsync(CancellationToken.None));
         }
     }
+
+    // CT-02 (contact-form.tsx:868-975): in the Bulwark style the form takes the detail pane while the Contacts app is on screen; it answers when it ends and the contact pane comes back
+#pragma warning disable MA0022, VSTHRD200 // a null task means "no pane here": the editors open the dialog instead
+    private Task<bool>? ShowFormAsync(ContactsFormModel model)
+    {
+        if (!_look.IsBulwark || Visibility != Visibility.Visible || XamlRoot is null || ViewHost.Get<ShellViewModel>().ActiveApp != AppId.Contacts)
+        {
+            return null; // no pane to show it in: the caller opens the dialog
+        }
+
+        _formFinish?.Invoke(false);
+        var done = new TaskCompletionSource<bool>();
+        void OnFinished(object? sender, ContactsDialogFinishedEventArgs e) => Finish(e.Done);
+        void Finish(bool saved)
+        {
+            model.Finished -= OnFinished;
+            _formFinish = null;
+            _detailTile.Child = _detail;
+            ApplyLook();
+            _ = done.TrySetResult(saved);
+        }
+
+        model.Finished += OnFinished;
+        _formFinish = Finish;
+        _detailTile.Child = new ContactsFormPanel(model, Finish, header: true);
+        ApplyLook();
+        return done.Task;
+    }
+#pragma warning restore MA0022, VSTHRD200
 
     /// <summary>Puts the cursor in the search field ("/").</summary>
     public void FocusSearch() => _ = _list.SearchBox.Focus(FocusState.Programmatic);
@@ -108,11 +139,13 @@ public sealed class ContactsScreen : UserControl
         _sidebar.Visibility = layout.SidebarShown ? Visibility.Visible : Visibility.Collapsed;
         _handle.Visibility = _sidebar.Visibility;
         _sidebar.Width = _panes.SidebarWidth > 0 ? _panes.SidebarWidth : _look.SidebarWidth;
-        var bento = _look.IsBento;
-        _surface.Background = bento ? null : _look.TileBrush;
-        _surface.BorderBrush = bento ? null : ContactsUi.Palette("Line");
-        _surface.BorderThickness = new Thickness(bento ? 0 : 1);
-        _surface.CornerRadius = bento ? new CornerRadius(0) : _look.PaneRadius;
+        // Bulwark (contacts-app.tsx:1461-1510): the list is 384 wide on the page background with a hairline after it, no tiles and no rounding
+        var bulwark = _look.IsBulwark;
+        var bento = _look.IsBento && !bulwark;
+        _surface.Background = bulwark ? _look.ListBrush : bento ? null : _look.TileBrush;
+        _surface.BorderBrush = bento || bulwark ? null : ContactsUi.Palette("Line");
+        _surface.BorderThickness = new Thickness(bento || bulwark ? 0 : 1);
+        _surface.CornerRadius = bento || bulwark ? new CornerRadius(0) : _look.PaneRadius;
         _content.ColumnSpacing = bento ? _look.Gap : 0;
         foreach (var tile in new[] { _listTile, _detailTile })
         {
@@ -122,14 +155,15 @@ public sealed class ContactsScreen : UserControl
             tile.CornerRadius = bento ? new CornerRadius(26) : new CornerRadius(0);
         }
 
-        _listTile.Padding = bento ? new Thickness(10, 18, 10, 0) : new Thickness(14, 20, 14, 0);
-        _listTile.Width = bento ? 330 : 340;
+        _listTile.Padding = bulwark ? new Thickness(0) : bento ? new Thickness(10, 18, 10, 0) : new Thickness(14, 20, 14, 0);
+        _listTile.Width = bulwark ? 384 : bento ? 330 : 340;
         _divider.Visibility = bento ? Visibility.Collapsed : Visibility.Visible;
         _divider.Background = ContactsUi.Palette("Line");
         // a narrow window shows the list only until a contact is open, then the detail alone
         var narrow = _look.WindowWidth > 0 && _look.WindowWidth < 900;
-        _detailTile.Visibility = narrow && _vm.OpenId is null ? Visibility.Collapsed : Visibility.Visible;
-        _listTile.Visibility = narrow && _vm.OpenId is not null ? Visibility.Collapsed : Visibility.Visible;
+        var detailOnly = _vm.OpenId is not null || _formFinish is not null;
+        _detailTile.Visibility = narrow && !detailOnly ? Visibility.Collapsed : Visibility.Visible;
+        _listTile.Visibility = narrow && detailOnly ? Visibility.Collapsed : Visibility.Visible;
         _divider.Visibility = bento || narrow ? Visibility.Collapsed : Visibility.Visible;
         if (narrow)
         {
