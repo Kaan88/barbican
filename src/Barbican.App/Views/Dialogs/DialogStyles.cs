@@ -60,6 +60,71 @@ internal static class DialogStyles
         return button;
     }
 
+    /// <summary>The same button with an enabled state (a footer whose action waits on the model).</summary>
+    public static Button FooterButton(string label, Barbican.Presentation.Compose.DialogTone tone, string id, Action click, bool enabled)
+    {
+        var button = FooterButton(label, tone, id, click);
+        button.IsEnabled = enabled;
+        return button;
+    }
+
+    /// <summary>The footer of a content that draws its own buttons (ui/dialog.tsx:132-134 gap-3, right aligned): an optional button at the start (Bulwark's me-auto: Back, Cancel of the upload conflict), then the others in the order given, the action last.</summary>
+    public static UIElement Footer(UIElement? start, params UIElement[] end)
+    {
+        ArgumentNullException.ThrowIfNull(end);
+        var row = new StackPanel { Orientation = Orientation.Horizontal, Spacing = ButtonGap, HorizontalAlignment = HorizontalAlignment.Right };
+        foreach (var button in end)
+        {
+            row.Children.Add(button);
+        }
+
+        var footer = new Grid { Margin = new Thickness(0, Bulwark ? 16 : 8, 0, 0) };
+        footer.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        footer.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        if (start is not null)
+        {
+            footer.Children.Add(start);
+        }
+
+        Grid.SetColumn(row, 1);
+        footer.Children.Add(row);
+        return footer;
+    }
+
+    /// <summary>The footer without a start button.</summary>
+    public static UIElement Footer(params UIElement[] buttons) => Footer(null, buttons);
+
+    /// <summary>The text under a title (ui/dialog.tsx:132 text-sm muted, mt-2; 14 in Bulwark, 13 in the older styles). Sits 8 px under the title inside a 12 px column.</summary>
+    public static TextBlock Description(string text) => new()
+    {
+        Text = text,
+        FontSize = Bulwark ? 14 : 13,
+        Foreground = AppResources.Brush(Bulwark ? "Dim" : "Body"),
+        TextWrapping = TextWrapping.Wrap,
+        Margin = new Thickness(0, Bulwark ? -4 : 0, 0, 0),
+    };
+
+    /// <summary>The 40 px round icon beside a dialog's title column (ui/dialog.tsx:152-160, confirm-dialog.tsx:143-170).</summary>
+    public static Border IconBadge(DialogIcon icon)
+    {
+        ArgumentNullException.ThrowIfNull(icon);
+        return new Border
+        {
+            Width = 40,
+            Height = 40,
+            CornerRadius = new CornerRadius(20),
+            VerticalAlignment = VerticalAlignment.Top,
+            Background = AppResources.Brush(icon.BackgroundKey),
+            Child = new Barbican.App.Controls.SIcon { Kind = icon.Kind, Size = 20, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center, Foreground = AppResources.Brush(icon.ForegroundKey) },
+        };
+    }
+
+    /// <summary>The icon of a destructive confirm (a warning triangle on a faint destructive circle).</summary>
+    public static DialogIcon DestructiveIcon { get; } = new("Alert", "Destructive", "FeedbackDestructiveHover");
+
+    /// <summary>For a content laid out with <see cref="Footer(UIElement?, UIElement[])"/>: the control kept in the panel's Tag takes the focus when the dialog opens.</summary>
+    public static Control? TaggedFocus(UIElement content) => (content as FrameworkElement)?.Tag as Control;
+
     /// <summary>The gap between footer buttons (Bulwark gap-3 for a dialog, 8 in the older styles).</summary>
     public static double ButtonGap => Bulwark ? 12 : 8;
 }

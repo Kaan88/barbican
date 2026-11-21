@@ -26,10 +26,10 @@ internal sealed class ConversationPrintDialog : IDialogContent
         var web = new WebView2 { Height = 360 };
         AutomationProperties.SetAutomationId(web, "reader.thread.print.preview." + body.Id);
         AutomationProperties.SetName(web, "Print preview for " + body.Subject);
-        var print = new Button { Content = "Print", IsEnabled = false };
+        var print = DialogStyles.FooterButton("Print", Barbican.Presentation.Compose.DialogTone.Primary, "reader.thread.print.confirm", () => { }, false);
         AutomationProperties.SetAutomationId(print, "reader.thread.print.confirm");
         AutomationProperties.SetName(print, "Print message");
-        var close = new Button { Content = "Close" };
+        var close = DialogStyles.FooterButton("Close", Barbican.Presentation.Compose.DialogTone.Plain, "reader.thread.print.close", () => { });
         AutomationProperties.SetAutomationId(close, "reader.thread.print.close");
         AutomationProperties.SetName(close, "Close print preview");
         var reader = ViewHost.Get<ReaderViewModel>();
@@ -65,10 +65,7 @@ internal sealed class ConversationPrintDialog : IDialogContent
         };
 #endif
         layout.Children.Add(web);
-        var buttons = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
-        buttons.Children.Add(close);
-        buttons.Children.Add(print);
-        layout.Children.Add(buttons);
+        layout.Children.Add(DialogStyles.Footer(close, print));
         return layout;
     }
 

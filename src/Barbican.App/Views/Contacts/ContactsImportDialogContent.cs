@@ -1,8 +1,10 @@
 // Mirrors: Bulwark components/contacts/contact-import-dialog.tsx (the file, a preview, the duplicates and a skip, the address book, progress), Rust contacts_x.rs import; I-361, B-CON-007, B-CON-008, L-031. Draws ContactsImportViewModel (its own Cancel and Import).
+// Dialog shell: ui/dialog.tsx:131-134,181 through Views/Dialogs/DialogStyles; footer Cancel then the action, size lg: contact-import-dialog.tsx:269-303.
 
 #pragma warning disable MA0051 // a dialog is built in one pass from the model
 using System.Globalization;
 using Barbican.Presentation.Compose;
+using DialogStyles = Barbican.App.Views.Dialogs.DialogStyles;
 using Barbican.Presentation.Contacts;
 using Barbican.Presentation.Dialogs;
 using Microsoft.UI.Xaml.Automation;
@@ -26,7 +28,7 @@ public sealed class ContactsImportDialogContent : Barbican.App.Views.Dialogs.IDi
         m.Finished += (_, e) => dialog.Complete(e.Done);
         var panel = Card("contacts.import-dialog", "Import contacts", 420);
         panel.Children.RemoveAt(0); // the dialog host shows the title
-        panel.Children.Add(Btn("Choose .vcf file", DialogTone.Plain, "contacts.import-dialog.pick", () => ContactsUi.Run(() => m.PickAsync(CancellationToken.None))));
+        panel.Children.Add(DialogStyles.FooterButton("Choose .vcf file", DialogTone.Plain, "contacts.import-dialog.pick", () => ContactsUi.Run(() => m.PickAsync(CancellationToken.None))));
         var status = Body(m.Status);
         panel.Children.Add(status);
         var list = new StackPanel { Spacing = 2 };
@@ -38,7 +40,7 @@ public sealed class ContactsImportDialogContent : Barbican.App.Views.Dialogs.IDi
             refresh();
         });
         var error = ErrorLine(m.Error);
-        var go = Btn("Import", DialogTone.Primary, "contacts.import-dialog.ok", () => ContactsUi.Run(async () => _ = await m.ImportAsync(CancellationToken.None).ConfigureAwait(true)));
+        var go = DialogStyles.FooterButton("Import", DialogTone.Primary, "contacts.import-dialog.ok", () => ContactsUi.Run(async () => _ = await m.ImportAsync(CancellationToken.None).ConfigureAwait(true)));
 
         void Refresh()
         {
@@ -70,7 +72,7 @@ public sealed class ContactsImportDialogContent : Barbican.App.Views.Dialogs.IDi
         books.Children.Add(Combo("contacts.import-dialog.book", choices.Select(b => b.Name), Math.Max(0, choices.FindIndex(b => string.Equals(b.Id, m.BookId, StringComparison.Ordinal))), i => m.BookId = choices[i].Id));
         panel.Children.Add(books);
         panel.Children.Add(error);
-        panel.Children.Add(Buttons(Btn("Cancel", DialogTone.Plain, "contacts.import-dialog.cancel", () => dialog.Complete(false)), go));
+        panel.Children.Add(DialogStyles.Footer(DialogStyles.FooterButton("Cancel", DialogTone.Plain, "contacts.import-dialog.cancel", () => dialog.Complete(false)), go));
         refresh = Refresh;
         m.PropertyChanged += (_, _) => panel.DispatcherQueue.TryEnqueue(Refresh);
         Refresh();

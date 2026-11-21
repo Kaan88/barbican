@@ -1,7 +1,9 @@
 // Mirrors: Bulwark components/contacts/contact-print*.tsx; G-010; D-M5-12. The in-window preview of ContactsPrintModel (pages on white paper in black ink, whatever the theme) with a Print button. The OS print path (Windows: the print dialog over these same pages) is built but never run by an agent
+// Dialog shell: ui/dialog.tsx:131-134,181 through Views/Dialogs/DialogStyles; footer Close then Print (the preview has no Bulwark dialog of its own: contact-print-views.tsx is the print markup).
 // or a test (printing never reaches a printer in a test); on the Linux head the button is greyed. It reuses the calendar's CalendarPrinter, which prints any list of pages.
 
 using Barbican.Presentation.Compose;
+using DialogStyles = Barbican.App.Views.Dialogs.DialogStyles;
 using Barbican.Presentation.Contacts;
 using Barbican.Presentation.Dialogs;
 using Microsoft.UI.Text;
@@ -24,6 +26,8 @@ public sealed class ContactsPrintDialogContent : Barbican.App.Views.Dialogs.IDia
 
     public bool OwnButtons => true;
 
+    public Control? InitialFocus(UIElement content) => DialogStyles.TaggedFocus(content);
+
     public double MaxWidth => 640;
 
     public bool CanDraw(object request) => request is ContactsPrintRequest;
@@ -41,8 +45,9 @@ public sealed class ContactsPrintDialogContent : Barbican.App.Views.Dialogs.IDia
         }
 
         panel.Children.Add(new ScrollViewer { Content = pages, MaxHeight = 520, VerticalScrollBarVisibility = ScrollBarVisibility.Auto });
-        var print = Btn("Print", DialogTone.Primary, "contacts.print.go", () => ContactsUi.Run(() => Calendar.CalendarPrinter.PrintAsync(document.Title, Sheets(document))), enabled: Calendar.CalendarPrinter.Available);
-        panel.Children.Add(Buttons(Btn("Close", DialogTone.Plain, "contacts.print.close", () => dialog.Complete(false)), print));
+        var print = DialogStyles.FooterButton("Print", DialogTone.Primary, "contacts.print.go", () => ContactsUi.Run(() => Calendar.CalendarPrinter.PrintAsync(document.Title, Sheets(document))), enabled: Calendar.CalendarPrinter.Available);
+        panel.Children.Add(DialogStyles.Footer(DialogStyles.FooterButton("Close", DialogTone.Plain, "contacts.print.close", () => dialog.Complete(false)), print));
+        panel.Tag = print;
         AutomationProperties.SetName(panel, "Print preview");
         return panel;
     }

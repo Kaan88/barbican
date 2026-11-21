@@ -1,4 +1,4 @@
-// Mirrors: Bulwark components/filters/filter-rule-modal.tsx (the rule form: name, match all or any, condition rows, action rows, "Don't apply later rules", spam opt-in, active period), Rust pim-filters.slint; I-432..I-434. Draws SrvUiFilterEditorRequest; the model owns the rules of the form.
+// Mirrors: Bulwark components/filters/filter-rule-modal.tsx (the rule form: name, match all or any, condition rows, action rows, "Don't apply later rules", spam opt-in, active period), Rust pim-filters.slint; I-432..I-434. Draws SrvUiFilterEditorRequest; the model owns the rules of the form. Dialog shell and footer: ui/dialog.tsx:131-134,181 through Views/Dialogs/DialogStyles.
 // No drop-down: a field, comparator or folder is a stepping button (ADR 0007); the period is typed as days. Owner srv-ui.
 
 using Barbican.App.Views.Dialogs;
@@ -70,7 +70,7 @@ public sealed class SrvUiFilterEditorDialogContent : IDialogContent
         }
 
         host.Children.Add(SrvUiKit.Error(m.Error));
-        host.Children.Add(Buttons(
+        host.Children.Add(Barbican.App.Views.Dialogs.DialogStyles.Footer(
             SrvUiKit.Foot("Cancel", DialogTone.Plain, "srv.rule.cancel", m.Cancel),
             SrvUiKit.Foot("Save rule", DialogTone.Primary, "srv.rule.save", () => SrvUiKit.Run(() => m.SaveAsync(CancellationToken.None)), !m.Saving)));
     }

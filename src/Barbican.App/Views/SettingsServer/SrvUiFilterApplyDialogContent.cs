@@ -1,11 +1,10 @@
-// Mirrors: Rust filters_x.rs run_rule :566 (scan, count, confirm, apply, result text), Bulwark filter-settings.tsx "Apply to existing mail"; T-097..T-099. Draws SrvUiFilterApplyRequest. Owner srv-ui.
+// Mirrors: Rust filters_x.rs run_rule :566 (scan, count, confirm, apply, result text), Bulwark filter-settings.tsx "Apply to existing mail"; T-097..T-099. Draws SrvUiFilterApplyRequest. Owner srv-ui. Dialog shell and footer: ui/dialog.tsx:131-134,181 through Views/Dialogs/DialogStyles.
 
 using Barbican.App.Views.Dialogs;
 using Barbican.Presentation.Compose;
 using Barbican.Presentation.Dialogs;
 using Barbican.Presentation.Settings.Server;
 using Microsoft.UI.Xaml.Automation;
-using static Barbican.App.Views.Calendar.Editors.CalendarCardKit;
 
 namespace Barbican.App.Views.SettingsServer;
 
@@ -44,10 +43,11 @@ public sealed class SrvUiFilterApplyDialogContent : IDialogContent
             host.Children.Add(new ProgressBar { IsIndeterminate = true, MinWidth = 300 });
         }
 
-        host.Children.Add(Buttons(
-            m.Phase == SrvUiApplyPhase.Ready
-                ? SrvUiKit.Foot("Apply", DialogTone.Primary, "srv.rule-apply.confirm", () => SrvUiKit.Run(() => m.ApplyAsync(CancellationToken.None)))
-                : SrvUiKit.Foot("Close", DialogTone.Primary, "srv.rule-apply.close", m.Close),
-            m.Phase == SrvUiApplyPhase.Ready ? SrvUiKit.Foot("Cancel", DialogTone.Plain, "srv.rule-apply.cancel", m.Close) : new Border()));
+        // Cancel first, the action last (ui/dialog.tsx:132-134); a finished or busy scan offers Close alone
+        host.Children.Add(m.Phase == SrvUiApplyPhase.Ready
+            ? Barbican.App.Views.Dialogs.DialogStyles.Footer(
+                SrvUiKit.Foot("Cancel", DialogTone.Plain, "srv.rule-apply.cancel", m.Close),
+                SrvUiKit.Foot("Apply", DialogTone.Primary, "srv.rule-apply.confirm", () => SrvUiKit.Run(() => m.ApplyAsync(CancellationToken.None))))
+            : Barbican.App.Views.Dialogs.DialogStyles.Footer(SrvUiKit.Foot("Close", DialogTone.Primary, "srv.rule-apply.close", m.Close)));
     }
 }

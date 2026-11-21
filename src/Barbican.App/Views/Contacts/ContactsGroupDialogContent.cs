@@ -1,6 +1,8 @@
 // Mirrors: Bulwark components/contacts/group-form.tsx (name, member search, a checkbox per contact), Rust contacts.rs groups; I-359, I-360. Draws ContactsGroupModel (its own Cancel and Save).
+// Dialog shell: ui/dialog.tsx:131-134,181 through Views/Dialogs/DialogStyles; footer Cancel (outline) then Save: contact-group-form.tsx:203-210.
 
 using Barbican.Presentation.Compose;
+using DialogStyles = Barbican.App.Views.Dialogs.DialogStyles;
 using Barbican.Presentation.Contacts;
 using Barbican.Presentation.Dialogs;
 using Microsoft.UI.Xaml.Automation;
@@ -55,9 +57,9 @@ public sealed class ContactsGroupDialogContent : Barbican.App.Views.Dialogs.IDia
         var error = ErrorLine(m.Error);
         m.PropertyChanged += (_, _) => panel.DispatcherQueue.TryEnqueue(() => SetError(error, m.Error));
         panel.Children.Add(error);
-        panel.Children.Add(Buttons(
-            Btn("Cancel", DialogTone.Plain, "contacts.group-form.cancel", () => dialog.Complete(false)),
-            Btn("Save", DialogTone.Primary, "contacts.group-form.save", () => ContactsUi.Run(() => m.SaveAsync(CancellationToken.None)))));
+        panel.Children.Add(DialogStyles.Footer(
+            DialogStyles.FooterButton("Cancel", DialogTone.Plain, "contacts.group-form.cancel", () => dialog.Complete(false)),
+            DialogStyles.FooterButton("Save", DialogTone.Primary, "contacts.group-form.save", () => ContactsUi.Run(() => m.SaveAsync(CancellationToken.None)))));
         AutomationProperties.SetName(panel, m.Heading);
         return panel;
     }

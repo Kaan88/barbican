@@ -1,6 +1,8 @@
 // Mirrors: Bulwark components/contacts/directory-browser.tsx (the server's accounts and groups, search, pick), the composer's directory button; I-368, I-369, B-CON-025, D-M5-13. Draws ContactsDirectoryModel; the answer is the ticked addresses joined with commas (its own Cancel and Add).
+// Dialog shell: ui/dialog.tsx:131-134,181 (rounded-lg shadow-xl card p-6, text-lg title, footer gap-3) through Views/Dialogs/DialogStyles (FooterButton, Footer); footer order Cancel then the action: directory-picker-dialog.tsx:153-160.
 
 using Barbican.Presentation.Compose;
+using DialogStyles = Barbican.App.Views.Dialogs.DialogStyles;
 using Barbican.Presentation.Contacts;
 using Barbican.Presentation.Dialogs;
 using Microsoft.UI.Xaml.Automation;
@@ -53,9 +55,9 @@ public sealed class ContactsDirectoryDialogContent : Barbican.App.Views.Dialogs.
         panel.Children.Add(new ScrollViewer { Content = list, MaxHeight = 300, VerticalScrollBarVisibility = ScrollBarVisibility.Auto });
         panel.Children.Add(error);
         panel.Children.Add(status);
-        panel.Children.Add(Buttons(
-            Btn("Cancel", DialogTone.Plain, "contacts.directory-dialog.cancel", () => dialog.Complete(null)),
-            Btn("Add", DialogTone.Primary, "contacts.directory-dialog.ok", () => dialog.Complete(m.Chosen.Length > 0 ? m.Chosen : null))));
+        panel.Children.Add(DialogStyles.Footer(
+            DialogStyles.FooterButton("Cancel", DialogTone.Plain, "contacts.directory-dialog.cancel", () => dialog.Complete(null)),
+            DialogStyles.FooterButton("Add", DialogTone.Primary, "contacts.directory-dialog.ok", () => dialog.Complete(m.Chosen.Length > 0 ? m.Chosen : null))));
         m.PropertyChanged += (_, _) => panel.DispatcherQueue.TryEnqueue(Fill);
         Fill();
         AutomationProperties.SetName(panel, "Directory");

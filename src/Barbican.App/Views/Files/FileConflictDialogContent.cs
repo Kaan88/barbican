@@ -1,8 +1,10 @@
-// Mirrors: Bulwark components/files/upload-conflict-dialog.tsx; G-016, D-M5-14: Keep both is the default (the primary button), Replace and Skip are the others, "Apply to all" repeats the answer for the rest of the upload.
+// Mirrors: Bulwark components/files/upload-conflict-dialog.tsx:33-60; G-016, D-M5-14. Alert dialog without a close X: Cancel at the start (ghost, sm:me-auto), then Skip, Replace and Keep both; "Apply to all" repeats the answer for the rest of the upload.
+// Barbican keeps Keep both as the primary button and the one that starts focused (G-016); Bulwark makes Replace primary (:40,:47). Shell, footer and spacing: ui/dialog.tsx:131-134,181 through Views/Dialogs/DialogStyles.
 
 using Microsoft.UI.Xaml.Automation;
 using Barbican.App.Views.Dialogs;
 using Barbican.Core.Files;
+using Barbican.Presentation.Compose;
 using Barbican.Presentation.Dialogs;
 using Barbican.Presentation.Files;
 
@@ -16,39 +18,33 @@ public sealed class FileConflictDialogContent : IDialogContent
     public bool OwnButtons => true;
 
     /// <inheritdoc />
+    public Control? InitialFocus(UIElement content) => DialogStyles.TaggedFocus(content);
+
+    /// <inheritdoc />
     public UIElement Create(ActiveDialog dialog)
     {
         ArgumentNullException.ThrowIfNull(dialog);
         var name = ((FileConflictDialogRequest)dialog.Request).Name;
         var all = new CheckBox { Content = "Apply to all" };
         AutomationProperties.SetAutomationId(all, "files.conflict.all");
-        Button Choice(string label, FileConflictChoice choice, string id, bool primary)
-        {
-            // the same pill the calendar and contacts dialogs use (a primary Button without a height was a flat bar, D-M5-I04)
-            var b = new Button { Content = label, MinWidth = 96, Height = 34, CornerRadius = new CornerRadius(17), FontSize = 13, Style = (Style)Application.Current.Resources[primary ? "Button.Primary" : "Button.Action"] };
-            AutomationProperties.SetAutomationId(b, id);
-            b.Click += (_, _) => dialog.Complete(new FileConflictAnswer(choice, all.IsChecked == true));
-            return b;
-        }
+        Button Choice(string label, FileConflictChoice choice, string id, DialogTone tone) =>
+            DialogStyles.FooterButton(label, tone, id, () => dialog.Complete(new FileConflictAnswer(choice, all.IsChecked == true)));
 
-        var buttons = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, HorizontalAlignment = HorizontalAlignment.Right };
-        buttons.Children.Add(Choice("Skip", FileConflictChoice.Skip, "files.conflict.skip", false));
-        buttons.Children.Add(Choice("Replace", FileConflictChoice.Replace, "files.conflict.replace", false));
-        buttons.Children.Add(Choice("Keep both", FileConflictChoice.KeepBoth, "files.conflict.keep-both", true));
-        var cancel = new Button { Content = "Cancel", MinWidth = 80, Height = 34, CornerRadius = new CornerRadius(17), FontSize = 13, Style = (Style)Application.Current.Resources["Button.Action"] };
-        AutomationProperties.SetAutomationId(cancel, "files.conflict.cancel");
-        cancel.Click += (_, _) => dialog.Complete(null);
-        buttons.Children.Insert(0, cancel);
-        return new StackPanel
+        var keepBoth = Choice("Keep both", FileConflictChoice.KeepBoth, "files.conflict.keep-both", DialogTone.Primary);
+        var cancel = DialogStyles.FooterButton("Cancel", DialogTone.Plain, "files.conflict.cancel", () => dialog.Complete(null));
+        var panel = new StackPanel
         {
-            Spacing = 14,
+            Spacing = 8,
             MinWidth = 380,
+            Tag = keepBoth,
             Children =
             {
-                new TextBlock { Text = "A file named \"" + name + "\" already exists here.", TextWrapping = TextWrapping.Wrap },
+                DialogStyles.Description("A file named \"" + name + "\" already exists here."),
                 all,
-                buttons,
+                DialogStyles.Footer(cancel, Choice("Skip", FileConflictChoice.Skip, "files.conflict.skip", DialogTone.Plain), Choice("Replace", FileConflictChoice.Replace, "files.conflict.replace", DialogTone.Plain), keepBoth),
             },
         };
+        AutomationProperties.SetAutomationId(panel, "files.conflict");
+        return panel;
     }
 }

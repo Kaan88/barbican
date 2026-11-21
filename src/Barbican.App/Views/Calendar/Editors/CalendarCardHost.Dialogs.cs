@@ -1,7 +1,9 @@
 // Mirrors: Bulwark components/calendar/{create-calendar-dialog,subscribe-dialog,import-events-dialog}.tsx; I-307, I-309, I-340.
+// Dialog shell and footer: ui/dialog.tsx:131-134,181 through Views/Dialogs/DialogStyles; footers Cancel then the action: create-calendar-modal.tsx:59-75, ical-subscription-modal.tsx:101-120, ical-import-modal.tsx:288-310.
 
 using System.Globalization;
 using Barbican.Presentation.Calendar.Editors.Dialogs;
+using Barbican.App.Views.Dialogs;
 using Barbican.Presentation.Compose;
 using static Barbican.App.Views.Calendar.Editors.CalendarCardKit;
 
@@ -18,9 +20,9 @@ public sealed partial class CalendarCardHost
         var error = ErrorLine(c.Error);
         c.PropertyChanged += (_, _) => DispatcherQueue.TryEnqueue(() => SetError(error, c.Error));
         panel.Children.Add(error);
-        panel.Children.Add(Buttons(
-            Btn("Cancel", DialogTone.Plain, "cal.create.cancel", c.Close),
-            Btn("Create", DialogTone.Primary, "cal.create.ok", () => Run(c.CreateAsync(CancellationToken.None)))));
+        panel.Children.Add(DialogStyles.Footer(
+            DialogStyles.FooterButton("Cancel", DialogTone.Plain, "cal.create.cancel", c.Close),
+            DialogStyles.FooterButton("Create", DialogTone.Primary, "cal.create.ok", () => Run(c.CreateAsync(CancellationToken.None)))));
         return panel;
     }
 
@@ -48,23 +50,25 @@ public sealed partial class CalendarCardHost
         panel.Children.Add(warning);
         panel.Children.Add(error);
         panel.Children.Add(status);
+        // the destructive way out at the start (me-auto), then Refresh now, Cancel and the action (ical-subscription-modal.tsx:101-120)
         var buttons = new List<UIElement>();
+        UIElement? start = null;
         if (s.IsEdit)
         {
-            buttons.Add(Btn("Unsubscribe", DialogTone.Danger, "cal.subscription.unsubscribe", () => Run(s.UnsubscribeAsync(CancellationToken.None))));
-            buttons.Add(Btn("Refresh now", DialogTone.Plain, "cal.subscription.refresh", () => Run(s.RefreshAsync(CancellationToken.None))));
+            start = DialogStyles.FooterButton("Unsubscribe", DialogTone.Danger, "cal.subscription.unsubscribe", () => Run(s.UnsubscribeAsync(CancellationToken.None)));
+            buttons.Add(DialogStyles.FooterButton("Refresh now", DialogTone.Plain, "cal.subscription.refresh", () => Run(s.RefreshAsync(CancellationToken.None))));
         }
 
-        buttons.Add(Btn("Cancel", DialogTone.Plain, "cal.subscription.cancel", s.Close));
-        buttons.Add(Btn(s.IsEdit ? "Save" : "Subscribe", DialogTone.Primary, "cal.subscription.save", () => Run(s.SaveAsync(CancellationToken.None))));
-        panel.Children.Add(Buttons([.. buttons]));
+        buttons.Add(DialogStyles.FooterButton("Cancel", DialogTone.Plain, "cal.subscription.cancel", s.Close));
+        buttons.Add(DialogStyles.FooterButton(s.IsEdit ? "Save" : "Subscribe", DialogTone.Primary, "cal.subscription.save", () => Run(s.SaveAsync(CancellationToken.None))));
+        panel.Children.Add(DialogStyles.Footer(start, [.. buttons]));
         return panel;
     }
 
     private StackPanel ImportCard(ImportViewModel m)
     {
         var panel = Card("cal.import", "Import events", 420);
-        panel.Children.Add(Btn("Choose .ics file", DialogTone.Plain, "cal.import.pick", () => Run(m.PickAsync(CancellationToken.None))));
+        panel.Children.Add(DialogStyles.FooterButton("Choose .ics file", DialogTone.Plain, "cal.import.pick", () => Run(m.PickAsync(CancellationToken.None))));
         var info = Body(m.FileName);
         panel.Children.Add(info);
         var calendars = m.Calendars.ToList();
@@ -92,9 +96,9 @@ public sealed partial class CalendarCardHost
         });
         panel.Children.Add(error);
         panel.Children.Add(status);
-        panel.Children.Add(Buttons(
-            Btn("Cancel", DialogTone.Plain, "cal.import.cancel", m.Close),
-            Btn("Import " + m.SelectedCount.ToString(CultureInfo.InvariantCulture), DialogTone.Primary, "cal.import.ok", () => Run(m.ImportAsync(CancellationToken.None)))));
+        panel.Children.Add(DialogStyles.Footer(
+            DialogStyles.FooterButton("Cancel", DialogTone.Plain, "cal.import.cancel", m.Close),
+            DialogStyles.FooterButton("Import " + m.SelectedCount.ToString(CultureInfo.InvariantCulture), DialogTone.Primary, "cal.import.ok", () => Run(m.ImportAsync(CancellationToken.None)))));
         return panel;
     }
 }

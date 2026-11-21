@@ -6,6 +6,7 @@
 using System.ComponentModel;
 using Barbican.App.Theme;
 using Barbican.App.Shell;
+using Barbican.App.Views.Dialogs;
 using Barbican.Presentation.Dialogs;
 using Barbican.Presentation.Settings;
 using Barbican.Presentation.Calendar.Editors;
@@ -27,6 +28,8 @@ public sealed partial class CalendarCardHost : Grid
     private readonly Border _questionScrim = new() { Background = new Microsoft.UI.Xaml.Media.SolidColorBrush(Windows.UI.Color.FromArgb(0x66, 0, 0, 0)), Visibility = Visibility.Collapsed };
     private readonly Border _question = new() { HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center, Padding = new Thickness(20), CornerRadius = new CornerRadius(16), MaxWidth = 460, Background = AppResources.Brush("Popup") };
     private INotifyPropertyChanged? _watched;
+    private ComposerDialog? _focusedQuestion;
+    private ComposerDialog? _shownQuestion;
 
     public CalendarCardHost(CalendarEditorHost host)
     {
@@ -93,6 +96,17 @@ public sealed partial class CalendarCardHost : Grid
         _question.Child = _host.Question is { } q2 ? QuestionCard(q2) : null;
         _questionScrim.Visibility = _host.Question is null ? Visibility.Collapsed : Visibility.Visible;
         _questionScrim.Background = ViewHost.Get<StyleState>().ScrimBrush;
+        if (!ReferenceEquals(_shownQuestion, _host.Question))
+        {
+            _shownQuestion = _host.Question;
+            if (_shownQuestion is not null)
+            {
+                // the entrance of every dialog (FM-04): the scrim fades in and the card pops in, with the shadow of the shared card
+                CardShadow.Apply(_question, CardDepth.ExtraLarge, _questionScrim);
+                Barbican.App.Motion.MotionRuntime.FadeIn(_questionScrim);
+                Barbican.App.Motion.PopIn.Run(_question, new Windows.Foundation.Point(0.5, 0.5));
+            }
+        }
     }
 
     /// <summary>Bulwark draws the event and task editors as a side sheet and every other card as a dialog; Bento and Nordic keep the centred card.</summary>
@@ -110,9 +124,10 @@ public sealed partial class CalendarCardHost : Grid
         _card.VerticalAlignment = sheet ? VerticalAlignment.Stretch : VerticalAlignment.Center;
         _card.Width = sheet ? 400 : double.NaN;
         _card.MaxWidth = sheet ? 400 : 560;
-        _card.Padding = new Thickness(sheet ? 16 : 20);
+        _card.Padding = new Thickness(sheet ? 16 : bulwark ? 24 : 20);
         _scrim.Padding = sheet ? new Thickness(0, look.CalToolbarHeight + 1, 0, 0) : new Thickness(0);
         _question.CornerRadius = bulwark ? look.DialogRadius : new CornerRadius(16);
+        _question.Padding = new Thickness(bulwark ? 24 : 20);
         _question.Background = AppResources.Brush(bulwark ? "Bg" : "Popup");
         _question.BorderBrush = AppResources.Brush("Line");
         _question.BorderThickness = bulwark ? new Thickness(1) : new Thickness(0);
@@ -142,10 +157,13 @@ public sealed partial class CalendarCardHost : Grid
         }
     }
 
+    // ui/dialog.tsx:131-134 (title, text mt-2, footer gap-3), confirm-dialog.tsx:143-170 (a destructive confirm: 40 px warning circle beside the text, solid destructive button),
+    // recurrence-scope-dialog.tsx:74-130 (Cancel first, the action last). The answer of every button, and Escape (CalendarEditorHost.Escape), are unchanged.
     private UIElement QuestionCard(ComposerDialog dialog)
     {
         var panel = CalendarCardKit.Card("cal.question." + dialog.Id, dialog.Title, 320);
-        panel.Children.Add(CalendarCardKit.Body(dialog.Message));
+        panel.Spacing = 12;
+        panel.Children.Add(DialogStyles.Description(dialog.Message));
         foreach (var line in dialog.Lines)
         {
             panel.Children.Add(CalendarCardKit.Body("•  " + line));
@@ -156,14 +174,46 @@ public sealed partial class CalendarCardHost : Grid
             panel.Children.Add(CalendarCardKit.Check("cal.question.notify", "Notify guests", _host.Notify, v => _host.Notify = v));
         }
 
-        var buttons = new List<UIElement>();
-        foreach (var choice in dialog.Choices)
+        var destructive = ViewHost.Get<StyleState>().IsBulwark && IsDestructive(dialog);
+        var buttons = new List<Button>();
+        foreach (var choice in OrderedChoices(dialog.Choices))
         {
             var id = choice.Id;
-            buttons.Add(CalendarCardKit.Btn(choice.Label, choice.Tone, "cal.question." + id, () => dialog.Complete(id)));
+            buttons.Add(DialogStyles.FooterButton(choice.Label, choice.Tone, "cal.question." + id, () => dialog.Complete(id)));
         }
 
-        panel.Children.Add(CalendarCardKit.Buttons([.. buttons]));
-        return panel;
+        panel.Children.Add(DialogStyles.Footer([.. buttons]));
+        // the safe button starts focused on a destructive question, the action otherwise (dialog.tsx initialFocus)
+        var focus = destructive ? buttons[0] : buttons[^1];
+        if (!ReferenceEquals(_focusedQuestion, dialog))
+        {
+            _focusedQuestion = dialog;
+            panel.Loaded += (_, _) => _ = focus.Focus(FocusState.Keyboard);
+        }
+
+        if (!destructive)
+        {
+            return panel;
+        }
+
+        var row = new Grid { ColumnSpacing = 16 };
+        row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        var icon = DialogStyles.IconBadge(DialogStyles.DestructiveIcon);
+        AutomationProperties.SetAutomationId(icon, "cal.question.icon");
+        row.Children.Add(icon);
+        Grid.SetColumn(panel, 1);
+        row.Children.Add(panel);
+        return row;
     }
+
+    // a question with a destructive answer is a destructive confirm, except discarding unsaved changes (Bulwark's close dialog has no icon either)
+    private static bool IsDestructive(ComposerDialog dialog) =>
+        !string.Equals(dialog.Id, "discard", StringComparison.Ordinal) && dialog.Choices.Any(c => c.Tone == DialogTone.Danger);
+
+    // Cancel (the way out) first, then the others as Bulwark orders them: outline, destructive, primary
+    private static IEnumerable<DialogChoice> OrderedChoices(IReadOnlyList<DialogChoice> choices) =>
+        choices.Where(IsWayOut).Concat(Barbican.App.Views.Dialogs.ComposerQuestionContent.Ordered([.. choices.Where(c => !IsWayOut(c))]));
+
+    private static bool IsWayOut(DialogChoice choice) => choice.Id is "cancel" or "no";
 }
