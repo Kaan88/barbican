@@ -1,6 +1,6 @@
 // Bulwark components/email/classification-label-picker.tsx; selection is revalidated by the send pipeline.
-using Barbican.Presentation.Compose;
 #if WINDOWS
+using Barbican.Presentation.Compose;
 using System.ComponentModel;
 using Barbican.App.Shell;
 using Barbican.Core.Accounts;
