@@ -39,6 +39,7 @@ internal sealed class AddonsFixtureCommand(IProfilePaths paths, ISettingsNavigat
             Barbican.App.Shell.ViewHost.Get<SampleAddOnAccount>().RevokeOwner();
             return "ok";
         }
+        if (mode.StartsWith("dialog-probe", StringComparison.Ordinal)) return await DialogProbeFixture.RunAsync(mode, packages, cancellationToken).ConfigureAwait(true);
 #endif
         var recordFixture = mode switch
         {
