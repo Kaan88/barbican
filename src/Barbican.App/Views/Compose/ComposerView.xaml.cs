@@ -1,4 +1,4 @@
-// Mirrors: Bulwark components/email/email-composer.tsx (layout, capture key handler :5509, Cc and Bcc toggles :6031-6056, status :5660); M3 plan section 6.4 step 2; I-234..I-239, I-246, I-249, I-253, I-257.
+// Mirrors: Bulwark components/email/email-composer.tsx (footer 6440-6700: ghost h-9 buttons rounded-md, options badge, Send split with border-e primary-foreground/20, ghost bin hover destructive; attachment cards :6290; drop overlay :5714; button.tsx:42, composer-toolbar-menu.tsx:44-61; layout, capture key handler :5509, Cc and Bcc toggles :6031-6056, status :5660); M3 plan section 6.4 step 2; I-234..I-239, I-246, I-249, I-253, I-257.
 // The composer pane. The data is ComposerViewModel (one per open composer, from IComposerService.Current); this draws it and routes the keys. The cards, the files and the key table are the other parts of this class.
 
 #pragma warning disable CA1859, CA1822 // the card builders return UIElement by design (one slot, many kinds)
@@ -141,8 +141,38 @@ public sealed partial class ComposerView : UserControl
         DiscardButton.Visibility = bulwark ? Visibility.Collapsed : Visibility.Visible;
         FooterDiscard.Visibility = bulwark ? Visibility.Visible : Visibility.Collapsed;
         ApplyFieldLayout(bulwark);
+        // email-composer.tsx:5714 drop overlay: bg-background/80 border-2 border-primary rounded-lg; dialogs rounded-lg (dialog.tsx) -> DialogRadius.
+        DropOverlay.CornerRadius = bulwark ? Look.DialogRadius : new CornerRadius(14);
+        DropOverlay.Background = bulwark ? AppResources.Brush("Bg") : AppResources.Brush("Sel");
+        DropOverlay.Opacity = bulwark ? 0.8 : 0.92;
+        Card.CornerRadius = bulwark ? Look.DialogRadius : new CornerRadius(16);
+        // email-composer.tsx:6270: the attachment strip sits in the same px-4 gutter as the ruled rows
+        AttachmentList.Margin = bulwark ? new Thickness(16, 8, 16, 2) : new Thickness(0, 8, 0, 0);
         BodyRow.Margin = bulwark ? new Thickness(12, 0, 12, 0) : new Thickness(0);
         ApplyFooterLayout(bulwark);
+    }
+
+    // composer-toolbar-menu.tsx:57-59: the count of options switched on, a primary pill (min-w-4 h-4 rounded-full text-[0.625rem]);
+    // email-composer.tsx:6560 counts plain text, read receipt, DSN, REQUIRETLS and a non-normal priority.
+    private void SyncOptionsBadge(ComposerViewModel vm)
+    {
+        var count = (vm.PlainText ? 1 : 0) + (vm.ReadReceipt ? 1 : 0) + (vm.Priority != MessagePriority.Normal ? 1 : 0);
+        OptionsBadge.Visibility = count > 0 && _theme.Applied?.Bulwark == true ? Visibility.Visible : Visibility.Collapsed;
+        OptionsBadgeText.Text = count.ToString(System.Globalization.CultureInfo.InvariantCulture);
+    }
+
+    // email-composer.tsx:6591-6600: the bin is a ghost button (muted text) that turns destructive on hover (hover:text-destructive hover:bg-destructive/10).
+    private void OnFooterDiscardEnter(object sender, PointerRoutedEventArgs e)
+    {
+        if (_theme.Applied?.Bulwark != true) return;
+        FooterDiscard.Foreground = AppResources.Brush("Destructive");
+        FooterDiscard.Background = AppResources.Brush("FeedbackDestructiveHover");
+    }
+
+    private void OnFooterDiscardExit(object sender, PointerRoutedEventArgs e)
+    {
+        FooterDiscard.ClearValue(Control.ForegroundProperty);
+        FooterDiscard.ClearValue(Control.BackgroundProperty);
     }
 
     private void ApplyFooterLayout(bool bulwark)
@@ -155,9 +185,18 @@ public sealed partial class ComposerView : UserControl
         Grid.SetColumn(TemplatesButton, 1);
         Grid.SetColumn(OptionsButton, bulwark ? 2 : 3);
         ApplyFooterTabOrder(bulwark);
-        SendButton.CornerRadius = bulwark ? new CornerRadius(6, 0, 0, 6) : new CornerRadius(18, 0, 0, 18);
-        SendArrow.CornerRadius = bulwark ? new CornerRadius(0, 6, 6, 0) : new CornerRadius(0, 18, 18, 0);
-        TemplatesButton.CornerRadius = AttachButton.CornerRadius = OptionsButton.CornerRadius = new CornerRadius(bulwark ? 6 : 18);
+        // button.tsx:42 rounded-md from StyleState (ButtonRadius), email-composer.tsx:6660-6680 rounded-e-none / rounded-s-none with a primary-foreground/20 divider; font-medium text-sm (button.tsx:42).
+        var r = Look.ButtonRadius.TopLeft;
+        SendButton.CornerRadius = bulwark ? new CornerRadius(r, 0, 0, r) : new CornerRadius(18, 0, 0, 18);
+        SendArrow.CornerRadius = bulwark ? new CornerRadius(0, r, r, 0) : new CornerRadius(0, 18, 18, 0);
+        SendPair.Spacing = bulwark ? 0 : 2;
+        SendDivider.Visibility = bulwark ? Visibility.Visible : Visibility.Collapsed;
+        SendButton.FontWeight = bulwark ? FontWeights.Medium : FontWeights.Bold;
+        SendButton.Padding = bulwark ? new Thickness(16, 0, 12, 0) : new Thickness(18, 0, 14, 0);
+        SendArrow.Width = bulwark ? 32 : 34;
+        FooterDiscard.CornerRadius = new CornerRadius(bulwark ? r : 6);
+        TemplatesButton.CornerRadius = AttachButton.CornerRadius = OptionsButton.CornerRadius = new CornerRadius(bulwark ? r : 18);
+        TemplatesChevron.Visibility = OptionsChevron.Visibility = bulwark ? Visibility.Visible : Visibility.Collapsed;
         foreach (var button in new[] { TemplatesButton, AttachButton, OptionsButton })
         {
             button.BorderThickness = new Thickness(bulwark ? 0 : 1);
@@ -207,6 +246,7 @@ public sealed partial class ComposerView : UserControl
         var bulwark = _theme.Applied?.Bulwark == true;
         var compact = bulwark && ActualWidth > 0 && ActualWidth < 640;
         TemplatesLabel.Visibility = AttachLabel.Visibility = OptionsLabel.Visibility = compact ? Visibility.Collapsed : Visibility.Visible;
+        TemplatesChevron.Visibility = OptionsChevron.Visibility = bulwark && !compact ? Visibility.Visible : Visibility.Collapsed;
         Footer.ColumnSpacing = compact ? 2 : 8;
         foreach (var button in new[] { TemplatesButton, AttachButton, OptionsButton })
         {
@@ -343,6 +383,7 @@ public sealed partial class ComposerView : UserControl
         StatusText.Text = vm.Status;
         SendButton.IsEnabled = vm.CanSend;
         SendArrow.IsEnabled = vm.CanSend;
+        SyncOptionsBadge(vm);
         if (!string.Equals(SubjectBox.Text, vm.Subject, StringComparison.Ordinal))
         {
             _syncing = true;
@@ -391,7 +432,7 @@ public sealed partial class ComposerView : UserControl
 
     private static Button Toggle(string text, string id, Action click)
     {
-        var button = new Button { Style = (Style)Application.Current.Resources["Button.Icon"], Height = 26, Padding = new Thickness(8, 0, 8, 0), CornerRadius = new CornerRadius(13), Content = new TextBlock { Text = text, FontSize = 12.5, Foreground = AppResources.Brush("Dim") } };
+        var button = new Button { Style = (Style)Application.Current.Resources["Button.Icon"], Height = 26, Padding = new Thickness(8, 0, 8, 0), CornerRadius = ComposerShape.Pill(26), Content = new TextBlock { Text = text, FontSize = 12.5, Foreground = AppResources.Brush("Dim") } };
         AutomationProperties.SetAutomationId(button, id);
         AutomationProperties.SetName(button, "Add " + text);
         button.Click += (_, _) => click();
@@ -464,9 +505,29 @@ public sealed partial class ComposerView : UserControl
 
     private void OnSendArrowClick(object sender, RoutedEventArgs e) => ShowPanel(CardKind.SendMenu);
 
-    private void OnTemplatesClick(object sender, RoutedEventArgs e) => _ = _vm?.OpenTemplatesAsync();
+    private void OnTemplatesClick(object sender, RoutedEventArgs e)
+    {
+        if (Bulwark)
+        {
+            ShowTemplatesMenu();
+        }
+        else
+        {
+            _ = _vm?.OpenTemplatesAsync();
+        }
+    }
 
-    private void OnOptionsClick(object sender, RoutedEventArgs e) => ShowPanel(CardKind.Options);
+    private void OnOptionsClick(object sender, RoutedEventArgs e)
+    {
+        if (Bulwark)
+        {
+            ShowOptionsMenu();
+        }
+        else
+        {
+            ShowPanel(CardKind.Options);
+        }
+    }
 
     private void OnFromClick(object sender, RoutedEventArgs e) => ShowPanel(CardKind.From);
 
@@ -576,14 +637,14 @@ public sealed partial class ComposerView : UserControl
     {
         var row = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6 };
         row.Children.Add(new Barbican.App.Controls.SIcon { Kind = "Clip", Size = 14, Foreground = AppResources.Brush("Dim") });
-        row.Children.Add(new TextBlock { Text = item.Name, FontSize = 12.5, Foreground = AppResources.Brush("Body"), MaxWidth = 220, TextTrimming = TextTrimming.CharacterEllipsis, VerticalAlignment = VerticalAlignment.Center });
+        row.Children.Add(new TextBlock { Text = item.Name, FontSize = _theme.Applied?.Bulwark == true ? 14 : 12.5, Foreground = AppResources.Brush("Body"), MaxWidth = 220, TextTrimming = TextTrimming.CharacterEllipsis, VerticalAlignment = VerticalAlignment.Center });
         row.Children.Add(new TextBlock { Text = item.IsUploading ? "Uploading" : item.SizeText, FontSize = 11.5, Foreground = AppResources.Brush("Faint"), VerticalAlignment = VerticalAlignment.Center });
         if (item.IsUploading)
         {
             row.Children.Add(new ProgressRing { IsActive = true, Width = 14, Height = 14, VerticalAlignment = VerticalAlignment.Center });
         }
 
-        var remove = new Button { Style = (Style)Application.Current.Resources["Button.Icon"], Width = 20, Height = 20, CornerRadius = new CornerRadius(10), Content = new Barbican.App.Controls.SIcon { Kind = "Close", Size = 10 } };
+        var remove = new Button { Style = (Style)Application.Current.Resources["Button.Icon"], Width = 20, Height = 20, CornerRadius = ComposerShape.Circle(20), Content = new Barbican.App.Controls.SIcon { Kind = "Close", Size = 10 } };
         AutomationProperties.SetAutomationId(remove, $"composer.attachment.{index}.remove");
         AutomationProperties.SetName(remove, (item.IsUploading ? "Cancel upload of " : "Remove ") + item.Name);
         remove.Click += (_, _) => _vm?.RemoveAttachment(item);
@@ -592,9 +653,10 @@ public sealed partial class ComposerView : UserControl
         {
             Background = AppResources.Brush("Chip"),
             BorderBrush = AppResources.Brush("Line"),
-            BorderThickness = new Thickness(1),
-            CornerRadius = new CornerRadius(13),
-            Height = 28,
+            // email-composer.tsx:6290: flex items-center gap-2 px-3 py-1.5 rounded-md text-sm, bg-muted and no border
+            BorderThickness = new Thickness(_theme.Applied?.Bulwark == true ? 0 : 1),
+            CornerRadius = ComposerShape.Pill(32),
+            Height = _theme.Applied?.Bulwark == true ? 32 : 28,
             Padding = new Thickness(10, 0, 4, 0),
             Margin = new Thickness(0, 0, 6, 6),
             Child = row,
