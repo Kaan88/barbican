@@ -41,6 +41,24 @@ public sealed class ShellLayoutTests
         }
     }
 
+    // Bulwark hooks/use-media-query.ts:12-33 (PHONE_BELOW = 600, classifyWidth: isMobile is width < 600), edge-drawer.tsx:63-66 (w-72, max-w-[85%])
+    [Theory]
+    [InlineData(599.5, true)]
+    [InlineData(600, false)]
+    [InlineData(844, false)]
+    [InlineData(360, true)]
+    public void ThePhoneLayoutBeginsBelowSixHundredPixels(double width, bool phone) => Assert.Equal(phone, ShellLayout.IsPhone(width));
+
+    [Theory]
+    [InlineData(1280, 288)]
+    [InlineData(599, 288)]
+    [InlineData(320, 272)]
+    public void TheFolderDrawerIsAtMostEightyFivePercentOfAWindow(double width, double drawer) => Assert.Equal(drawer, ShellLayout.DrawerWidthFor(width), 3);
+
+    [Fact]
+    public void TheBulwarkWindowIsNeverBlockedFromThePhoneWidth() =>
+        Assert.True(ShellLayout.PhoneBelow < ShellLayout.MinWidth, "the 960 px floor is the legacy styles' planning minimum; Bulwark's phone layout starts below 600 and no window minimum is enforced");
+
     [Theory]
     [InlineData(1560, false, true)]
     [InlineData(1400, false, false)]

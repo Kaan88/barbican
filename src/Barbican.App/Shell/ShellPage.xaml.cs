@@ -1,3 +1,6 @@
+// WP-10 (Bulwark 1.21.2): hooks/use-media-query.ts:12-33 (phone below 600 px), components/layout/navigation-rail.tsx:390-445 + mail-app.tsx:6395-6447 (bottom tab bar, one pane at a time),
+// layout/edge-drawer.tsx:36-66 + mail-app.tsx:6427-6447 (the folders as a drawer with a scrim), app/globals.css:615-660 and layout/window-controls-host.tsx (no title text row: the window's
+// controls only), layout/focus-rescue.tsx:1-30 (focus goes back to the list when what had it is gone), hooks/use-mail-status-announcements.ts:30-62 (folder and search status).
 // Mirrors: spec/layout/shell.md (regions, breakpoints); Bulwark hooks/use-keyboard-shortcuts.ts (shortcuts are ignored while typing in a field); M1-plan §6.4.
 // Fable review 2: R2-05 (no shortcut behind the sign-in screen; Enter and Space belong to a focused button, toggle, combo box or a list item
 // outside the message list, KeyGate); R2-01/R2-02 (the sign-in form shows for an account the server refused, with its server and login filled
@@ -42,6 +45,8 @@ public sealed partial class ShellPage : Page
     private bool _readerFullscreen;
     private bool _composerMaximized;
     private bool _compactFoldersOpen;
+    private bool _phoneBarWanted;
+    private bool _contextHidden;
     private Views.Calendar.CalendarScreen? _calendar;
     private readonly ShellViewModel? _shell;
     private readonly IReadOnlyList<IAppScreenFactory> _factories;
@@ -170,7 +175,9 @@ public sealed partial class ShellPage : Page
     {
         var layout = _look.Layout;
         var band = HasTitleBand;
-        TitleRow.Height = new GridLength(band ? _look.TitleBarHeight : 0);
+        // Bulwark's desktop window has no title text row, only the window's controls over the page (globals.css:615-640): the band shrinks to the caption buttons' height and says nothing
+        TitleRow.Height = new GridLength(band ? _look.IsBulwark ? CaptionHeight : _look.TitleBarHeight : 0);
+        TitleText.Visibility = _look.IsBulwark ? Visibility.Collapsed : Visibility.Visible;
         var pad = _look.WindowPadding;
         MailScreen.Padding = band ? pad : new Thickness(pad.Left, pad.Bottom, pad.Right, pad.Bottom);
         MailScreen.ColumnSpacing = _look.Gap;
@@ -184,11 +191,16 @@ public sealed partial class ShellPage : Page
         SurfaceGrid.ColumnSpacing = _look.Gap;
         ReaderColumn.RowSpacing = _look.Gap;
         GlanceRegion.Visibility = layout.SummaryTilesShown && _look.IsBento && !_composing ? Visibility.Visible : Visibility.Collapsed;
-        ContextRegion.Visibility = layout.ContextShown && !_composing ? Visibility.Visible : Visibility.Collapsed;
+        ApplyContext(layout);
+        // AX-02 (button.tsx:30-37): the frame's own buttons keep a 44 px hit area with large targets
+        CompactFolders.MinHeight = Math.Max(40, _look.MinimumTarget);
+        ContextToggle.Width = ContextToggle.Height = Math.Max(32, _look.MinimumTarget);
+        DockDisclosure.MinHeight = _look.MinimumTarget;
         ApplyDockLayout();
         if (_appliedNordic is { } before && before != _look.IsNordic)
         {
-            Rise.Run(MailScreen, MailShift, MotionRuntime.Scale.EnterMs);
+            // a decoration of Bento and Nordic only (FM-16): the Bulwark style has no rise on a style switch
+            Rise.Run(MailScreen, MailShift, _look.IsBulwark ? 0 : MotionRuntime.DecorationMs(MotionRuntime.Scale.EnterMs));
         }
 
         _appliedNordic = _look.IsNordic;
@@ -207,23 +219,27 @@ public sealed partial class ShellPage : Page
             - (panes.ListWidth > 0 ? panes.ListWidth : layout.ListWidth);
         var reading = _look.IsBulwark && !_composing && !ReaderRegion.Reader.IsEmpty;
         var readerOnly = reading && layout.WindowWidth - _look.RailWidth - (panes.ListWidth > 0 ? panes.ListWidth : layout.ListWidth) < 480;
-        var phone = _look.IsBulwark && layout.WindowWidth < 700;
+        var phone = _look.IsBulwark && ShellLayout.IsPhone(layout.WindowWidth);
         var composerOnly = phone && _composing;
-        RailRegion.Visibility = _composerMaximized || (phone && (reading || _composing)) ? Visibility.Collapsed : Visibility.Visible;
+        // the phone has no rail: the bottom tab bar takes its place (navigation-rail.tsx:390; mail-app.tsx:6432)
+        RailRegion.Visibility = _composerMaximized || phone ? Visibility.Collapsed : Visibility.Visible;
         if (!phone || reading || _composing) _compactFoldersOpen = false;
-        var foldersOnly = phone && _compactFoldersOpen;
+        var drawer = phone && _compactFoldersOpen;
         CompactFolders.Visibility = phone && !_composing && !reading ? Visibility.Visible : Visibility.Collapsed;
-        SidebarRegion.SetCompactBack(foldersOnly);
-        SidebarRegion.Visibility = (!phone || foldersOnly) && !composerOnly && layout.SidebarShown && !hideMailPanes
-            && ((!_composing && !reading) || (_look.IsBulwark && editorSpace >= 480)) ? Visibility.Visible : Visibility.Collapsed;
+        SidebarRegion.SetCompactBack(false);
+        var sidebarFits = (!_composing && !reading) || (_look.IsBulwark && editorSpace >= 480);
+        SidebarRegion.Visibility = layout.SidebarShown && !hideMailPanes && (phone ? drawer : sidebarFits) ? Visibility.Visible : Visibility.Collapsed;
+        ApplyDrawer(phone, drawer);
         ReaderRegion.SetCompactNavigation(readerOnly && !fullscreen, phone);
         SidebarHandle.Visibility = phone ? Visibility.Collapsed : SidebarRegion.Visibility;
-        ListColumn.Visibility = hideMailPanes || readerOnly || composerOnly || foldersOnly ? Visibility.Collapsed : Visibility.Visible;
-        ListRegion.SetCompactWidth(phone ? Math.Max(1, layout.WindowWidth - _look.RailWidth) : null);
+        ListColumn.Visibility = hideMailPanes || readerOnly || composerOnly ? Visibility.Collapsed : Visibility.Visible;
+        ListRegion.SetCompactWidth(phone ? Math.Max(1, layout.WindowWidth) : null);
         ReaderColumn.Visibility = phone && !reading && !_composing ? Visibility.Collapsed : Visibility.Visible;
         ListHandle.Visibility = phone ? Visibility.Collapsed : ListColumn.Visibility;
         ReaderRegion.SetFullscreen(fullscreen);
-        UIElement? incoming = foldersOnly ? SidebarRegion : ReaderColumn.Visibility == Visibility.Visible ? ReaderColumn : ListColumn;
+        _phoneBarWanted = phone && !reading && !_composing;
+        UpdatePhoneBar();
+        UIElement? incoming = ReaderColumn.Visibility == Visibility.Visible ? ReaderColumn : ListColumn;
         UpdateCompactTransition(phone ? incoming : null);
     }
 
@@ -246,6 +262,7 @@ public sealed partial class ShellPage : Page
 
     private void WireCompactNavigation()
     {
+        WireAccessibility();
         SidebarRegion.MessagesRequested += (_, _) => CloseCompactFolders();
         ListRegion.List.PropertyChanged += (_, e) =>
         {
@@ -418,6 +435,7 @@ public sealed partial class ShellPage : Page
         var calendar = !signedOut && _shell?.ActiveApp == AppId.Calendar && _shell.AvailableApps.Contains(AppId.Calendar);
         var other = signedOut || _shell is null || calendar ? null : _factories.FirstOrDefault(f => f.App == _shell.ActiveApp && _shell.AvailableApps.Contains(f.App));
         MailScreen.Visibility = signedOut || calendar || other is not null ? Visibility.Collapsed : Visibility.Visible;
+        UpdatePhoneBar();
         ShowCalendar(calendar);
         ShowAppScreen(other);
     }
@@ -546,6 +564,14 @@ public sealed partial class ShellPage : Page
 
     private void OnPreviewKeyDown(object sender, KeyRoutedEventArgs e)
     {
+        // the folder drawer closes with Escape (edge-drawer.tsx: useEdgeDrawer), and focus returns to its opener
+        if (_compactFoldersOpen && e.Key == Windows.System.VirtualKey.Escape)
+        {
+            CloseCompactFolders();
+            e.Handled = true;
+            return;
+        }
+
         if (_readerFullscreen && _look.IsBulwark && !_composing &&
             e.Key == Windows.System.VirtualKey.Escape && !IsTyping(e.OriginalSource))
         {
