@@ -427,6 +427,16 @@ Also matched: chips (`search-chips.tsx:78-110`, wrapping row, primary tint, X hi
 | FL-03 | Upload conflict dialog, move dialog, zip download, new text file, filename rules (G-016..019) | `files/file-picker-dialog.tsx` | `FileConflictDialogContent.cs`, `FileMoveDialogContent.cs` | feature | M | M10 |
 | FL-04 | Sidebar and row hover use hand-set backgrounds | `files/*` hover classes | `FilesListView.cs:146,273`, `FilesSidebarView.cs` | FM-02 | S | M10 |
 
+**WP-14 status (branch m6b/wp14-files, Bulwark style; Bento and Nordic keep their previous look):**
+
+| ID | Status | Note |
+|---|---|---|
+| FL-01 | closed for the header | h-14 header with a bottom border: breadcrumb (current folder semibold, the way up muted until hovered, chevron separators), Empty trash / Paste outline buttons, 224 px search, sort icon button opening the in-window sort menu `MENU-FILES-SORT` (Name, Modified, Size, Type, Ascending, Descending; command `files.sort`, `FilesSortRules`), list/grid radio group, Refresh, Details toggle (`ToggleButton.Icon`), selection bar (clear, "N selected", Open, Download, Rename, Move to, Cut, Copy, Delete in the destructive tint; Restore and Delete permanently in the trash) (`files-header.tsx:111-258,313-390,431-452`, `ui/toolbar.tsx:16-29`). Sidebar header: title and a plus icon button opening the New menu (`files-sidebar.tsx:287-311`). Not built: the crumb overflow menu, the tree button, the phone layout |
+| FL-02 | partly | list columns Name, Modified, Size (sortable header, arrow on the active column; the Type column is gone as in Bulwark), 40 px rows with a hairline, hover "more" button, starred folders; grid with Folders / Files headings, folder items and tiles with a muted thumbnail area; details panel with header, close button and muted preview area; empty states (empty folder with Upload files / New folder, no search results, empty trash, starred, recent, shared); preview overlay is full screen bg-black/80 with a background header (`file-views.tsx:170-367,414-492`, `file-details-panel.tsx:88-125`, `ui/empty-state.tsx`, `preview-shell.tsx:121-144`). No thumbnails of images, no row checkboxes, no folder-first section split in the list, no zoom easing (the zoom snaps) |
+| FL-03 | not in this package | dialogs are WP-8 (`Views/Dialogs`) |
+| FL-04 | closed | list rows, grid tiles and sidebar rows are `ListViewItem`s with `ListItem.Row` (shared hover, pressed and selected brushes); the hand-set `Paint()` backgrounds are gone. Sidebar: square 32 px rows, selected = `FeedbackSelected` / `FeedbackSelectedFg`, `StyleState.Files.cs` carries the radii and heights |
+| FM-02 | closed for files | as FL-04 |
+
 ### 4.11 Settings
 
 | ID | Gap | B | N | Impact | Size | MS |

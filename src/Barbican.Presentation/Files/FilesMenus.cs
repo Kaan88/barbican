@@ -11,7 +11,7 @@ namespace Barbican.Presentation.Files;
 public static class FilesMenus
 {
     /// <summary>How many providers <see cref="Create"/> returns.</summary>
-    public const int Count = 6;
+    public const int Count = 7;
 
     public static IReadOnlyList<IMenuProvider> Create(FilesActions a) =>
     [
@@ -21,6 +21,19 @@ public static class FilesMenus
         new DelegateMenuProvider(FilesMenuIds.Recent, c => Recent(c, a)),
         new DelegateMenuProvider(FilesMenuIds.Background, c => Background(c, a)),
         new DelegateMenuProvider(FilesMenuIds.MoveTo, c => MoveTo(c, a)),
+        new DelegateMenuProvider(FilesMenuIds.Sort, _ => Sort(a)),
+    ];
+
+    // Bulwark files-header.tsx:431-452: radio rows Name, Modified, Size; a separator; Ascending, Descending. Barbican keeps Type (a sort key since M5) after Size.
+    private static List<MenuItemSpec> Sort(FilesActions a) =>
+    [
+        Item(MenuGlyphs.Select, "Name", FilesCommandIds.Sort, argument: "name", check: a.View.SortKey == FilesSortKey.Name),
+        Item(MenuGlyphs.Select, "Modified", FilesCommandIds.Sort, argument: "modified", check: a.View.SortKey == FilesSortKey.Modified),
+        Item(MenuGlyphs.Select, "Size", FilesCommandIds.Sort, argument: "size", check: a.View.SortKey == FilesSortKey.Size),
+        Item(MenuGlyphs.Select, "Type", FilesCommandIds.Sort, argument: "type", check: a.View.SortKey == FilesSortKey.Type),
+        Sep(),
+        Item(MenuGlyphs.Select, "Ascending", FilesCommandIds.Sort, argument: "asc", check: !a.View.SortDescending),
+        Item(MenuGlyphs.Select, "Descending", FilesCommandIds.Sort, argument: "desc", check: a.View.SortDescending),
     ];
 
     /// <summary>The argument of a command about several keys: the keys, one per line.</summary>

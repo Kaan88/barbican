@@ -1,4 +1,5 @@
 // Mirrors: M5 plan section 6.4 (the Files app beside the Mail screen: rail | sidebar | toolbar and list | details panel; the screen is built once by FilesScreenFactory and only hidden after); Bulwark components/files/files-app.tsx; design Files restyle (B-FILE-017: a tile per region in Bento, one surface in Nordic).
+// Bulwark (WP-14): the sidebar and details panel sit on the shared secondary and background fills with a hairline between regions.
 // The preview modal sits over the whole screen; dialogs and menus use the window's own hosts (in-window, ADR 0007).
 
 using Barbican.App.Shell;
@@ -91,14 +92,23 @@ public sealed class FilesScreen : UserControl
 
     private void ApplyLook()
     {
-        var bento = _look.IsBento;
+        var bento = _look.IsBento && !_look.IsBulwark;
         foreach (var tile in new[] { _sidebarTile, _surface, _detailsTile })
         {
             tile.Background = bento ? _look.TileBrush : null;
-            tile.BorderBrush = bento ? Calendar.CalendarVisuals.Palette("Line") : null;
+            tile.BorderBrush = bento || _look.IsBulwark ? Calendar.CalendarVisuals.Palette("Line") : null;
             tile.BorderThickness = _look.PaneBorder;
             tile.CornerRadius = _look.PaneRadius;
             tile.Margin = bento ? new Thickness(4) : new Thickness(0);
+        }
+
+        // Bulwark: the sidebar is bg-secondary with a border on its right (files-sidebar.tsx:287), the details panel bg-background with a border on its left (file-details-panel.tsx:90)
+        if (_look.IsBulwark)
+        {
+            _sidebarTile.Background = FilesVisuals.Res("Side");
+            _sidebarTile.BorderThickness = new Thickness(0, 0, 1, 0);
+            _detailsTile.BorderThickness = new Thickness(1, 0, 0, 0);
+            _surface.BorderThickness = new Thickness(0);
         }
 
         _surface.Background = _look.SurfaceBrush;

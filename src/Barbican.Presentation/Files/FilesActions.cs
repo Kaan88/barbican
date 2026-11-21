@@ -47,11 +47,17 @@ public sealed class FilesActions
     /// <summary>A file the system opens (pdf, audio, video; D-M5-15): the screen downloads it to a temp folder and launches it.</summary>
     public event Action<FileEntry>? ExternalRequested;
 
+    /// <summary>The cut or copied set changed (the header's Paste button follows it).</summary>
+    public event Action? ClipboardChanged;
+
 #pragma warning restore MA0046
 
     public FilesViewModel View => _vm;
 
     public bool CanPaste => _clip.Count > 0;
+
+    /// <summary>How many items Paste would put here.</summary>
+    public int ClipboardCount => _clip.Count;
 
     public bool CanUndo => _undo is not null;
 
@@ -202,12 +208,14 @@ public sealed class FilesActions
     {
         _clip = [.. keys];
         _clipCut = true;
+        ClipboardChanged?.Invoke();
     }
 
     public void Copy(IReadOnlyList<string> keys)
     {
         _clip = [.. keys];
         _clipCut = false;
+        ClipboardChanged?.Invoke();
     }
 
     public async Task<Result<Unit>> PasteAsync(CancellationToken ct)
@@ -228,6 +236,7 @@ public sealed class FilesActions
         if (_clipCut)
         {
             _clip = [];
+            ClipboardChanged?.Invoke();
         }
 
         await _vm.RefreshAsync(ct).ConfigureAwait(true);

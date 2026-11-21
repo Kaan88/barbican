@@ -11,4 +11,7 @@ public static class FilesMenuIds
     public const string Recent = "MENU-FILE-RECENT";
     public const string Background = "MENU-FILES-BG";
     public const string MoveTo = "MENU-FILE>move";
+
+    /// <summary>The header's sort menu (files-header.tsx: Name, Modified, Size, then Ascending, Descending).</summary>
+    public const string Sort = "MENU-FILES-SORT";
 }
