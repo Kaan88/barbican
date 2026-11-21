@@ -148,6 +148,41 @@ public sealed partial class MailActionService
         return Result<Unit>.Ok(default);
     }
 
+    /// <summary>Marks every unread message of the account read, after asking (Bulwark mail-app.tsx:4756-4778, email-store.ts markAllMailboxesAsRead; the folders with unread messages one by one).</summary>
+    public async Task<Result<Unit>> MarkAllFoldersReadAsync(string accountKey, CancellationToken ct)
+    {
+        var writer = WriterFor(accountKey);
+        if (!writer.IsOk)
+        {
+            return Result<Unit>.Fail(writer.Error!);
+        }
+
+        if (!await confirmer.ConfirmAsync(new ConfirmRequest("Mark all folders as read", "Mark every unread message in your personal account as read?", "Mark all folders as read", Danger: false), ct).ConfigureAwait(true))
+        {
+            return Result<Unit>.Ok(default);
+        }
+
+        var total = 0;
+        foreach (var folder in folders.Tree.All.Where(m => m.UnreadEmails > 0))
+        {
+            var count = await writer.Value!.MarkMailboxReadAsync(folder.Id, false, ct).ConfigureAwait(true);
+            if (!count.IsOk)
+            {
+                return Result<Unit>.Fail(Failed(count.Error!));
+            }
+
+            total += count.Value;
+        }
+
+        if (list.MailboxId is not null)
+        {
+            await list.ReloadAsync().ConfigureAwait(true);
+        }
+
+        Notify(total == 0 ? "No unread messages" : $"Marked {Count(total, "1 message", "messages")} as read");
+        return Result<Unit>.Ok(default);
+    }
+
     /// <summary>Drops a folder on another: reorder next to it or nest inside it (<see cref="FolderDrop.Plan"/>); cycles and role folders are refused with a message.</summary>
     public async Task<Result<Unit>> MoveFolderAsync(string accountKey, string drag, string target, DropZone zone, CancellationToken ct)
     {

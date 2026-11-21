@@ -1,4 +1,4 @@
-// Mirrors: Rust mail.rs build_rows :463 (Mail struct of ui/app.slint); Bulwark components/email/thread-list-item.tsx:912-923,978-997 (status icons: starred, replied, forwarded, paperclip), :720-745 (selected row) (sender, subject, preview,
+// Mirrors: Rust mail.rs build_rows :463 (Mail struct of ui/app.slint); Bulwark components/email/thread-list-item.tsx:912-923,978-997 (status icons: pinned, starred, replied, forwarded, paperclip), :720-745 (selected row) (sender, subject, preview,
 // date, unread dot, star, attachment chips, thread count, tag dots); spec I-119..I-129. Owner mailcore.
 
 using Barbican.Core.Mail.Model;
@@ -41,6 +41,7 @@ public sealed class MessageRowViewModel : ListItemViewModel
         Flagged = summary.Keywords.Flagged;
         Answered = summary.Keywords.IsSet("$answered");
         Forwarded = summary.Keywords.IsSet("$forwarded");
+        Pinned = summary.Keywords.IsSet("$pinned");
         ThreadCount = Math.Max(summary.ThreadCount, 1);
         Tags = RowTag.Of(summary.Keywords, context.Tags);
         ShowTags = context.ShowTagChips && Tags.Count > 0;
@@ -136,6 +137,9 @@ public sealed class MessageRowViewModel : ListItemViewModel
     /// <summary>The message carries <c>$forwarded</c>: the row shows the forward icon (thread-list-item.tsx:986-993).</summary>
     public bool Forwarded { get; }
 
+    /// <summary>The message carries <c>$pinned</c>: the row shows the pin in the primary colour, first of the status icons (thread-list-item.tsx:503,912-923).</summary>
+    public bool Pinned { get; }
+
     /// <summary>Messages in the conversation; the row shows a count from 2.</summary>
     public int ThreadCount { get; }
 
@@ -163,6 +167,7 @@ public sealed class MessageRowViewModel : ListItemViewModel
         && r.Flagged == Flagged
         && r.Answered == Answered
         && r.Forwarded == Forwarded
+        && r.Pinned == Pinned
         && r.ThreadCount == ThreadCount
         && r.HasAttachment == HasAttachment
         && string.Equals(r.VerificationCode, VerificationCode, StringComparison.Ordinal)

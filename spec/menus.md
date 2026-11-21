@@ -66,9 +66,14 @@ Plain-text view only: Copy (Ctrl+C), Select all (Ctrl+A), —. Always: Copy mess
 Copy, then (only when an add-on contributes) —, and the add-ons' rows of the `reader-selection-menu` slot in their `order`. Opens on a right-click on selected text, anchored at the click; blank text opens nothing; Escape, a click outside or a pick closes it. Bulwark `components/email/reader-selection-menu.tsx:177-198`; there the menu replaces the browser's own only when an add-on put rows in it, so Copy stays. Barbican's body WebView has no browser menu, so the menu also opens with Copy alone. shell.js posts `sel:` (forced) then `ctx:X,Y`; `MailBodyView` converts the point to window coordinates. Add-on rows run `onAction` with surface `reader-selection-menu` and context `{ emailId, selection: { text } }` (both need `email:read`); the slot needs `ui:context-menu` or `ui:toolbar`.
 
 ## MENU-FOLDER: a mailbox in the sidebar, or a folder row on the Organize settings page [M2]
-header (folder name); Mark folder as read; —; New subfolder (not in Trash or Junk); Rename [off: not a role folder]; Rules ›; —; Import messages (.eml, .mbox)… [off: the account cannot write; not in Trash or Junk]; Export as mbox…; Export as .eml files… (a folder pick; both read only, so they stay on for a read-only account); Refresh;
-Trash or Junk only: —, danger Empty trash / Empty spam (asks); custom folders only: —, danger Delete folder (asks). Virtual folders (`__…`) have no menu.
-- **Order follows Bulwark 1.21.2** `components/layout/mailbox-context-menu.tsx:345-466` (SB-07 re-audit, WP-8). Not built (need commands or data): "Mark folder and subfolders as read" (folders with children), Share, Mute notifications, and the shared-account "New folder"; Bulwark has no header row and hides Rename for system folders (Barbican shows it disabled).
+header (the folder's path: "Work / Q4"); Mark folder as read [off: nothing unread]; Mark folder & subfolders as read (only when the folder has children) [off: nothing unread in the tree]; —;
+New subfolder (not in Trash or Junk) [off: the account cannot create one]; Rename (custom folders only; a server folder is never renamed) [off: `mayRename`]; Rules › (not in Trash, Junk, Sent or Drafts); —;
+Import messages (.eml, .mbox)… [off: the account cannot write; not in Trash or Junk]; Export as mbox…; Export as .eml files… (a folder pick; both read only, so they stay on for a read-only account) [off: the folder is empty]; Refresh;
+Trash or Junk only: —, danger Empty trash / Empty spam (asks) [off: the folder is empty or `mayRemoveItems` is off]; custom folders only: —, danger Delete folder (asks). Virtual folders (`__…`) have no menu.
+- **Order follows Bulwark 1.21.2** `components/layout/mailbox-context-menu.tsx:309-466` (SB-07 re-audit, WP-8). Still not built (need commands or data): Share, Mute notifications and the shared-account "New folder". Bulwark has no header row; Barbican keeps one and it names the path.
+
+## FOLDERS-HEADER: the folder-section menu in the sidebar [M2]
+Mark all folders as read (asks); —; New folder; Refresh. Bulwark `components/layout/sidebar.tsx:2455`, `mailbox-context-menu.tsx:251-282`.
 
 ## MENU-TAG: a tag in the sidebar [M2]
 Show messages; Mark all as read; —; New tag…; New tag inside… (only with nested tags and a valid child id); Rename…; Colour ›; danger Delete tag (asks; messages keep the keyword); —; Manage tags….
@@ -80,6 +85,12 @@ header "All inboxes"; Refresh. Bulwark `components/layout/mailbox-context-menu.t
 
 ## MENU-LIST: the list background [M2]
 Refresh; Mark folder as read; Select all (Ctrl+A).
+
+## MENU-LIST-ACTIONS: the list toolbar's folder-actions button [M2]
+Refresh; Sort ›; Group by date (checked while `groupListByDate` is on); —; Mark folder as read [off: nothing unread]; Mark all folders as read;
+Trash and Spam only: —, danger Empty trash / Empty spam (asks) [off: the folder is empty].
+- **Sort ›**: Newest first (the default), Oldest first, Unread first, Starred first, Sender (A–Z), Subject (A–Z), Largest first, each checked for the current order; a custom order made in Settings shows its own checked row at the end. A pick writes `messageListOrder`, and picked outside the Inbox it turns `messageListOrderScope` to "all" so it takes effect there.
+- Bulwark `components/email/mail-list-menus.tsx:84-254`, `mail-app.tsx:6672-6684`.
 
 ## MENU-EVENT: an event in the calendar [M4]
 When the user is a participant: Accept / Maybe / Decline, each shown only when it is not the current status, then —.

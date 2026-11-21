@@ -1,5 +1,7 @@
-// Mirrors: Bulwark components/email/selection-view.tsx (the bar's buttons run the same commands as keys and menus); spec I-138..I-142. Owner actions.
+// Mirrors: Bulwark components/email/selection-view.tsx (the bar's buttons run the same commands as keys and menus); spec I-138..I-142; components/email/email-list.tsx:1412-1425 (the count slides in from
+// the left and the buttons from the right while fading in, ML-08). Owner actions.
 
+using Barbican.App.Motion;
 using Barbican.App.Shell;
 using Barbican.App.Theme;
 using Barbican.Presentation.Commands;
@@ -11,6 +13,9 @@ namespace Barbican.App.Views.Actions;
 public sealed partial class SelectionBarView : UserControl
 {
     private readonly ICommandRegistry _commands;
+    private readonly TranslateTransform _countShift = new();
+    private readonly TranslateTransform _actionsShift = new();
+    private bool _shown;
 
     public SelectionBarView()
     {
@@ -18,8 +23,30 @@ public sealed partial class SelectionBarView : UserControl
         _commands = ViewHost.Get<ICommandRegistry>();
         Look = ViewHost.Get<StyleState>();
         InitializeComponent();
+        CountLabel.RenderTransform = _countShift;
+        BarActions.RenderTransform = _actionsShift;
         ApplyStyle();
         Look.PropertyChanged += (_, _) => ApplyStyle();
+        List.PropertyChanged += OnListChanged;
+    }
+
+    // the bar swaps in when the selection starts (not when it grows): fade in, 12 px from the left (count) and the right (buttons), the shared enter motion, nothing with reduce motion
+    private void OnListChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
+    {
+        if (!string.Equals(e.PropertyName, nameof(MessageListViewModel.HasChecked), StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        var now = List.HasChecked;
+        if (now && !_shown && Look.IsBulwark)
+        {
+            var ms = MotionRuntime.Scale.EnterMs;
+            Rise.Run(CountLabel, _countShift, ms, fromOpacity: 0, fromY: -12, horizontal: true);
+            Rise.Run(BarActions, _actionsShift, ms, fromOpacity: 0, fromY: 12, horizontal: true);
+        }
+
+        _shown = now;
     }
 
     public MessageListViewModel List { get; }

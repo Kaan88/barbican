@@ -217,6 +217,23 @@ public sealed class MailActionTests
     }
 
     [Fact]
+    public async Task Mark_all_folders_read_asks_first_and_then_clears_every_unread_message()
+    {
+        using var h = await ActionHarness.StartAsync();
+        await h.OpenAsync("inbox");
+        h.Confirmer.Answer = false;
+        Assert.True((await h.Actions.MarkAllFoldersReadAsync("acct", Ct)).IsOk);
+        Assert.Equal("Mark all folders as read", h.Confirmer.Asked[0].Title);
+        Assert.False(h.Confirmer.Asked[0].Danger);
+        Assert.NotEmpty(h.Server.Store.Query(new JsonObject { ["notKeyword"] = "$seen" }));
+
+        h.Confirmer.Answer = true;
+        Assert.True((await h.Actions.MarkAllFoldersReadAsync("acct", Ct)).IsOk);
+        Assert.Empty(h.Server.Store.Query(new JsonObject { ["notKeyword"] = "$seen" }));
+        Assert.All(h.List.Messages, r => Assert.False(r.Unread));
+    }
+
+    [Fact]
     public async Task A_folder_cannot_be_dropped_into_its_own_child_and_nothing_is_sent()
     {
         using var h = await ActionHarness.StartAsync();

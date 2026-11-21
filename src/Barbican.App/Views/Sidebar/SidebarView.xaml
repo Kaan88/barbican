@@ -42,7 +42,7 @@
               </Button>
             </Grid>
             <Grid Grid.Column="{x:Bind theme:StyleState.Current.FolderIconColumn, Mode=OneWay}" Margin="0,0,8,0">
-              <controls:SIcon Kind="{x:Bind views:Fmt.FolderIcon(Role)}" Foreground="{x:Bind local:SidebarFmt.IconBrush(ColorRgb, theme:StyleState.Current.IsBulwark), Mode=OneWay}" Size="16" Opacity="0.8" VerticalAlignment="Center"
+              <controls:SIcon Kind="{x:Bind views:Fmt.FolderIcon(Role)}" Foreground="{x:Bind local:SidebarFmt.IconBrush(ColorRgb, RoleTint, RoleCvdRgb, theme:StyleState.Current.IsBulwark), Mode=OneWay}" Size="16" Opacity="0.8" VerticalAlignment="Center"
                             Visibility="{x:Bind theme:StyleState.Current.FolderIconVisibility, Mode=OneWay}" />
             </Grid>
             <Grid Grid.Column="{x:Bind theme:StyleState.Current.FolderNameColumn, Mode=OneWay}">

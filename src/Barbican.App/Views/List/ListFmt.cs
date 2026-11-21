@@ -1,6 +1,6 @@
 // Mirrors: Bulwark components/email/thread-list-item.tsx:733-746 (selected row replaces the unread wash), :846-1010 (sender text-sm bold when unread, else font-medium text-muted-foreground;
 // subject font-semibold when unread, else text-foreground/90; date text-xs, semibold foreground when unread), :153-164 (unread dot beside the avatar),
-// :978-997 (replied / forwarded icons, an answered and forwarded message shows both). x:Bind functions of the message list; Bento and Nordic keep the shared Fmt rules.
+// :978-997 (replied / forwarded icons, an answered and forwarded message shows both), :912-923 (pinned), components/email/list-date-group-header.tsx:23-37 (foldable date header). x:Bind functions of the message list; Bento and Nordic keep the shared Fmt rules.
 
 using Microsoft.UI.Text;
 using Windows.UI.Text;
@@ -77,4 +77,52 @@ public static class ListFmt
 
     /// <summary>The starred icon: amber-400 fill in Bulwark (thread-list-item.tsx:980; the chart-3 amber of the palette), the prototypes' amber.</summary>
     public static Brush StarBrush(bool bulwark) => Fmt.Palette(bulwark ? "Chart3" : "AmberFg");
+
+    /// <summary>A foldable date header in Bulwark is a button; every other header is a caption (list-date-group-header.tsx:23-37).</summary>
+    public static Visibility FoldHeader(bool foldable, bool bulwark) => foldable && bulwark ? Visibility.Visible : Visibility.Collapsed;
+
+    public static Visibility PlainHeader(bool foldable, bool bulwark) => foldable && bulwark ? Visibility.Collapsed : Visibility.Visible;
+
+    /// <summary>px-2 around the fold button (its own ps-2 brings the chevron to 16); the captions keep the style's padding.</summary>
+    public static Thickness HeaderBoxPadding(bool foldable, bool bulwark) => foldable && bulwark ? new Thickness(8, 0, 8, 0) : Barbican.App.Theme.StyleState.Current.GroupHeaderBoxPadding;
+
+    /// <summary>The open group points down, a folded one right.</summary>
+    public static string Chevron(bool collapsed) => collapsed ? "ChevronRight" : "ChevronDown";
+
+    public static string FoldName(string title, bool collapsed) => (collapsed ? "Expand " : "Collapse ") + title;
+
+    /// <summary>A hover button's style: Bulwark's delete turns destructive on hover (email-hover-actions.tsx:51-56), the others and the prototypes keep the shared look.</summary>
+    public static Style StripButton(string id, bool bulwark) =>
+        (Style)Application.Current.Resources[bulwark ? (string.Equals(id, "delete", StringComparison.Ordinal) ? "Button.HoverAction.Destructive" : "Button.HoverAction") : "Button.Icon"];
+
+    /// <summary>The 32 px fade at the strip's start (email-hover-actions.tsx:343-351): a gradient from clear to the strip's base, Bulwark only.</summary>
+    public static Visibility StripFadeVis(bool bulwark) => bulwark ? Visibility.Visible : Visibility.Collapsed;
+
+    /// <summary>The fade's base layer, and the row's own colour over it.</summary>
+    public static Brush StripFadeBase(bool bulwark) => Fade(StripBase(bulwark));
+
+    public static Brush StripFadeFill(bool selected, bool bulwark) => Fade(StripFill(selected, bulwark));
+
+    /// <summary>A gradient from transparent to the colour of <paramref name="solid"/>, left to right (the mask-image of the fade).</summary>
+    public static Brush Fade(Brush solid)
+    {
+        if (solid is not SolidColorBrush plain)
+        {
+            return solid;
+        }
+
+        var clear = Windows.UI.Color.FromArgb(0, plain.Color.R, plain.Color.G, plain.Color.B);
+        var brush = new LinearGradientBrush { StartPoint = new Windows.Foundation.Point(0, 0), EndPoint = new Windows.Foundation.Point(1, 0) };
+        brush.GradientStops.Add(new GradientStop { Color = clear, Offset = 0 });
+        brush.GradientStops.Add(new GradientStop { Color = plain.Color, Offset = 1 });
+        return brush;
+    }
+
+    /// <summary>The verification code button of the prototypes (a plain button with the code).</summary>
+    public static Visibility CodeLegacyVis(bool shown, bool bulwark) => shown && !bulwark ? Visibility.Visible : Visibility.Collapsed;
+
+    /// <summary>Bulwark's verification code chip (verification-code-chip.tsx).</summary>
+    public static Visibility CodeChipVis(bool shown, bool bulwark) => shown && bulwark ? Visibility.Visible : Visibility.Collapsed;
+
+    public static string CodeTip(string? code) => string.IsNullOrEmpty(code) ? string.Empty : "Copy code " + code;
 }

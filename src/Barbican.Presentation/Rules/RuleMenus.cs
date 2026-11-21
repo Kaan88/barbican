@@ -89,7 +89,7 @@ public static class RuleMenus
         return
         [
             new DelegateMenuProvider(MenuIds.MailMore, c => [.. MailMenus.More(c), .. Section(c, hasJunk(c.Targets.Count > 0 ? c.Targets[0].AccountKey : null))]),
-            new DelegateMenuProvider(MenuIds.Folder, c => WithRules(FolderMenus.Folder(c, d))),
+            new DelegateMenuProvider(MenuIds.Folder, c => WithRules(c, FolderMenus.Folder(c, d))),
             new DelegateMenuProvider(MoveSender, c => FolderFlyout(c, d, CommandIds.RuleMoveSender)),
             new DelegateMenuProvider(MoveDomain, c => FolderFlyout(c, d, CommandIds.RuleMoveDomain)),
             new DelegateMenuProvider(MoveList, c => FolderFlyout(c, d, CommandIds.RuleMoveList)),
@@ -98,15 +98,22 @@ public static class RuleMenus
         ];
     }
 
-    private static IReadOnlyList<MenuItemSpec> WithRules(IReadOnlyList<MenuItemSpec> folder)
+    private static IReadOnlyList<MenuItemSpec> WithRules(MenuContext c, IReadOnlyList<MenuItemSpec> folder)
     {
-        if (folder.Count == 0)
+        // nothing arrives in Trash, Spam, Sent or Drafts, so no rule applies there (mailbox-context-menu.tsx:313-316, :376)
+        if (folder.Count == 0 || c.Mailbox?.Role?.ToLowerInvariant() is "trash" or "junk" or "sent" or "drafts")
         {
             return folder;
         }
 
-        // after "Rename" (Bulwark mailbox-context-menu.tsx:386-392 puts Rules between Rename and the import and export rows); a folder menu without that row gets it at the end
-        var at = folder.ToList().FindLastIndex(i => string.Equals(i.CommandId, CommandIds.RenameFolder, StringComparison.Ordinal));
+        // after "Rename", else after "New subfolder" (Bulwark mailbox-context-menu.tsx:386-392 puts Rules after Rename and Share, before the import and export rows); a menu without either gets it at the end
+        var list = folder.ToList();
+        var at = list.FindLastIndex(i => string.Equals(i.CommandId, CommandIds.RenameFolder, StringComparison.Ordinal));
+        if (at < 0)
+        {
+            at = list.FindLastIndex(i => string.Equals(i.CommandId, CommandIds.NewSubfolder, StringComparison.Ordinal));
+        }
+
         var rules = Sub(Icon, "Rules", FolderRules);
         return at < 0 ? [.. folder, rules] : [.. folder.Take(at + 1), rules, .. folder.Skip(at + 1)];
     }

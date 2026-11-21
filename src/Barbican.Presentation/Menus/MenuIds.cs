@@ -16,6 +16,7 @@ public static class MenuIds
     public const string Folder = "MENU-FOLDER";
     public const string Tag = "MENU-TAG";
     public const string List = "MENU-LIST";
+    public const string ListActions = "MENU-LIST-ACTIONS";
     public const string Account = "ACCOUNT";
     public const string FoldersHeader = "FOLDERS-HEADER";
     public const string UnifiedRow = "UNIFIED-ROW";
@@ -34,6 +35,7 @@ public static class MenuIds
     public const string MailTag = "MENU-MAIL>tag";
     public const string MailMore = "MENU-MAIL>more";
     public const string TagColour = "MENU-TAG>colour";
+    public const string ListSort = "MENU-LIST-ACTIONS>sort";
 
     public const string TaskDue = "MENU-TASK>due";
 

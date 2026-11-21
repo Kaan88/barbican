@@ -192,7 +192,8 @@ public sealed class MenuItemListTests
     public void Folder_menu_for_a_custom_folder_has_rename_and_a_confirmed_delete()
     {
         var rows = FolderMenus.Folder(Context(MenuIds.Folder, role: null, mailboxId: "work"), new FakeMenuData());
-        Assert.Equal(["# Work", "Mark folder as read", "—", "New subfolder", "Rename", "—", "Import messages (.eml, .mbox)…", "Export as mbox…", "Export as .eml files…", "Refresh", "—", "Delete folder"], Labels(rows));
+        Assert.Equal(["# Work", "Mark folder as read", "Mark folder & subfolders as read", "—", "New subfolder", "Rename", "—", "Import messages (.eml, .mbox)…", "Export as mbox…", "Export as .eml files…", "Refresh", "—", "Delete folder"], Labels(rows));
+        Assert.Equal("children", rows.Single(r => r.Label == "Mark folder & subfolders as read").Argument);
         Assert.True(rows.Single(r => r.Label == "Rename").Enabled);
         var delete = rows.Single(r => r.Label == "Delete folder");
         Assert.True(delete.Danger);
@@ -204,7 +205,8 @@ public sealed class MenuItemListTests
     {
         var data = new FakeMenuData();
         var inbox = FolderMenus.Folder(Context(MenuIds.Folder, mailboxId: "inbox"), data);
-        Assert.False(inbox.Single(r => r.Label == "Rename").Enabled);
+        // Bulwark hides Rename and Delete for the server's own folders (mailbox-context-menu.tsx:380)
+        Assert.DoesNotContain(inbox, r => r.CommandId == CommandIds.RenameFolder);
         Assert.DoesNotContain(inbox, r => r.Danger);
 
         var trash = FolderMenus.Folder(Context(MenuIds.Folder, role: "trash", mailboxId: "trash"), data);
@@ -252,7 +254,86 @@ public sealed class MenuItemListTests
     {
         var data = new FakeMenuData();
         Assert.Equal(["Refresh", "Mark folder as read", "Select all"], Labels(FolderMenus.List(Context(MenuIds.List), data)));
-        Assert.Equal(["Mark all as read", "New folder", "Refresh"], Labels(FolderMenus.FoldersHeader()));
+        Assert.Equal(["Mark all folders as read", "—", "New folder", "Refresh"], Labels(FolderMenus.FoldersHeader()));
+    }
+
+    [Fact]
+    public void Folder_menu_follows_Bulwark_for_trash_and_for_what_a_folder_holds()
+    {
+        // mailbox-context-menu.tsx:313-316,376,401,433,446: Trash has no subfolder, rename or import; empty folders cannot be exported or emptied; nothing unread turns Mark read off
+        var data = new FakeMenuData();
+        data.FolderList[data.FolderList.FindIndex(f => f.Id == "trash")] = new MenuFolder("trash", "Trash", MailboxRole.Trash, 0, MailboxRights.Full) { Unread = 0, Total = 0 };
+        var rows = FolderMenus.Folder(Context(MenuIds.Folder, role: "trash", mailboxId: "trash"), data);
+        Assert.Equal(["# Trash", "Mark folder as read", "—", "Export as mbox…", "Export as .eml files…", "Refresh", "—", "Empty trash"], Labels(rows));
+        Assert.False(rows.Single(r => r.Label == "Mark folder as read").Enabled);
+        Assert.False(rows.Single(r => r.Label == "Empty trash").Enabled);
+        Assert.False(rows.Single(r => r.Label == "Export as mbox…").Enabled);
+    }
+
+    [Fact]
+    public void The_tree_row_is_off_when_nothing_is_unread_below_and_the_header_names_the_path()
+    {
+        var data = new FakeMenuData();
+        data.FolderList[data.FolderList.FindIndex(f => f.Id == "work")] = new MenuFolder("work", "Work", MailboxRole.None, 0, MailboxRights.Full) { Unread = 2, Total = 9 };
+        data.FolderList[data.FolderList.FindIndex(f => f.Id == "q4")] = new MenuFolder("q4", "Q4", MailboxRole.None, 1, MailboxRights.Full) { Unread = 0, Total = 3 };
+        var work = FolderMenus.Folder(Context(MenuIds.Folder, role: null, mailboxId: "work"), data);
+        Assert.True(work.Single(r => r.Label == "Mark folder as read").Enabled);
+        Assert.True(work.Single(r => r.Label == "Mark folder & subfolders as read").Enabled);
+        var q4 = FolderMenus.Folder(Context(MenuIds.Folder, role: null, mailboxId: "q4"), data);
+        Assert.Equal("# Work / Q4", Labels(q4)[0]);
+        Assert.False(q4.Single(r => r.Label == "Mark folder as read").Enabled);
+        Assert.DoesNotContain("Mark folder & subfolders as read", Labels(q4));
+        data.FolderList[data.FolderList.FindIndex(f => f.Id == "work")] = new MenuFolder("work", "Work", MailboxRole.None, 0, MailboxRights.Full) { Unread = 0, Total = 9 };
+        Assert.False(FolderMenus.Folder(Context(MenuIds.Folder, role: null, mailboxId: "work"), data).Single(r => r.Label == "Mark folder & subfolders as read").Enabled);
+    }
+
+    [Fact]
+    public void The_list_folder_actions_are_Bulwarks_MailFolderMenu()
+    {
+        // mail-list-menus.tsx:141-254: Refresh, Sort, Group by date, —, Mark folder as read, Mark all folders as read, and in Trash and Spam —, Empty
+        var data = new FakeMenuData();
+        var inbox = FolderMenus.ListActions(Context(MenuIds.ListActions), data);
+        Assert.Equal(["Refresh", "Sort ›", "Group by date", "—", "Mark folder as read", "Mark all folders as read"], Labels(inbox));
+        Assert.False(inbox.Single(r => r.Label == "Group by date").Checked);
+        Assert.Equal(MenuIds.ListSort, inbox.Single(r => r.Label == "Sort").SubmenuId);
+        Assert.Equal(CommandIds.MarkAllFoldersRead, inbox[^1].CommandId);
+        data.GroupListByDate = true;
+        Assert.True(FolderMenus.ListActions(Context(MenuIds.ListActions), data).Single(r => r.Label == "Group by date").Checked);
+
+        var trash = FolderMenus.ListActions(Context(MenuIds.ListActions, role: "trash", mailboxId: "trash"), data);
+        Assert.Equal(["Refresh", "Sort ›", "Group by date", "—", "Mark folder as read", "Mark all folders as read", "—", "Empty trash"], Labels(trash));
+        Assert.True(trash[^1].Danger);
+        Assert.Equal("Delete all messages permanently", trash[^1].ConfirmLabel);
+        Assert.Equal("Empty spam", FolderMenus.ListActions(Context(MenuIds.ListActions, role: "junk", mailboxId: "junk"), data)[^1].Label);
+    }
+
+    [Fact]
+    public void The_sort_flyout_checks_the_current_order_and_shows_a_custom_one()
+    {
+        var data = new FakeMenuData();
+        var rows = FolderMenus.ListSort(Context(MenuIds.ListSort), data);
+        Assert.Equal(["Newest first", "Oldest first", "Unread first", "Starred first", "Sender (A–Z)", "Subject (A–Z)", "Largest first"], Labels(rows));
+        Assert.Equal("newest", rows.Single(r => r.Checked == true).Argument);
+        Assert.All(rows, r => Assert.Equal(CommandIds.SortList, r.CommandId));
+        data.SortKey = "unread";
+        Assert.Equal("unread", FolderMenus.ListSort(Context(MenuIds.ListSort), data).Single(r => r.Checked == true).Argument);
+        data.SortKey = null;
+        var custom = FolderMenus.ListSort(Context(MenuIds.ListSort), data);
+        Assert.Equal(["—", ListSortChoices.CustomLabel], Labels(custom.Skip(7)));
+        Assert.Equal(ListSortChoices.CustomLabel, custom.Single(r => r.Checked == true).Label);
+    }
+
+    [Fact]
+    public void A_stored_order_maps_to_a_sort_choice()
+    {
+        // sortChoiceFor (mail-list-menus.tsx:28-40): a trailing newest-first level is implicit, two real levels are custom
+        Assert.Equal("newest", ListSortChoices.KeyFor([]));
+        Assert.Equal("newest", ListSortChoices.KeyFor([new("receivedAt", "desc")]));
+        Assert.Equal("oldest", ListSortChoices.KeyFor([new("receivedAt", "asc")]));
+        Assert.Equal("unread", ListSortChoices.KeyFor([new("unread", "desc"), new("receivedAt", "desc")]));
+        Assert.Equal("sender", ListSortChoices.KeyFor([new("from", "asc")]));
+        Assert.Null(ListSortChoices.KeyFor([new("unread", "desc"), new("starred", "desc")]));
+        Assert.Null(ListSortChoices.KeyFor([new("sentAt", "desc")]));
     }
 
     [Fact]
@@ -283,6 +364,8 @@ public sealed class MenuItemListTests
         all.AddRange(FolderMenus.Folder(Context(MenuIds.Folder, role: null, mailboxId: "work"), data));
         all.AddRange(FolderMenus.FoldersHeader());
         all.AddRange(FolderMenus.List(Context(MenuIds.List), data));
+        all.AddRange(FolderMenus.ListActions(Context(MenuIds.ListActions), data));
+        all.AddRange(FolderMenus.ListSort(Context(MenuIds.ListSort), data));
         all.AddRange(TagMenus.Tag(Context(MenuIds.Tag, tag: "work"), data));
         all.AddRange(AccountMenus.Account(Context(MenuIds.Account, address: "acct")));
         Assert.All(all.Where(i => i.CommandId is { Length: > 0 }), i => Assert.Contains(i.CommandId!, known));

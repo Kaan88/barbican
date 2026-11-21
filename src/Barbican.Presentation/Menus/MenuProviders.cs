@@ -6,7 +6,7 @@ namespace Barbican.Presentation.Menus;
 public static class MenuProviders
 {
     /// <summary>How many providers <see cref="Create"/> returns (the registration adds one <see cref="IMenuProvider"/> per index).</summary>
-    public const int Count = 13;
+    public const int Count = 15;
 
     public static IReadOnlyList<IMenuProvider> Create(IMenuDataSource data)
     {
@@ -23,6 +23,8 @@ public static class MenuProviders
             new DelegateMenuProvider(MenuIds.Folder, c => FolderMenus.Folder(c, data)),
             new DelegateMenuProvider(MenuIds.FoldersHeader, _ => FolderMenus.FoldersHeader()),
             new DelegateMenuProvider(MenuIds.List, c => FolderMenus.List(c, data)),
+            new DelegateMenuProvider(MenuIds.ListActions, c => FolderMenus.ListActions(c, data)),
+            new DelegateMenuProvider(MenuIds.ListSort, c => FolderMenus.ListSort(c, data)),
             new DelegateMenuProvider(MenuIds.Tag, c => TagMenus.Tag(c, data)),
             new DelegateMenuProvider(MenuIds.TagColour, c => TagMenus.Colour(c, data)),
             new DelegateMenuProvider(MenuIds.Account, AccountMenus.Account),
