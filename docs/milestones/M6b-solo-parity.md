@@ -423,3 +423,41 @@ interaction logs are in `artifacts/auto/9242/`. The fixed fresh-profile
 captures and transcript are in `artifacts/auto/9245/`. The focused Windows
 Automation build completed with zero warnings and errors. Presentation
 passed 1,138 tests and the mail-page builder passed 16 tests.
+
+## Native add-on dialogs (hidden replay)
+
+Base revision `cd66846` plus the dialog replay commit on `m6b/dialog-replay`. Windows Automation build, port 9311, profile `auto-9311`,
+`BARBICAN_SAMPLE=1`, `BARBICAN_SAMPLE_ADDON_ACCOUNT=1`, `BARBICAN_SAMPLE_ORGANIZATION_POLICY=1`. Synthetic data only: the FakeJmap sample account and a
+synthetic add-on installed by `addons-fixture dialog-probe` (`src/Barbican.App/Views/Settings/Automation/DialogProbeFixture.cs`). No real input: reader
+actions are invoked through automation peers, and the dialog is answered through the form's own press, field and key methods, and the shell key router.
+
+Replay: start the Automation build with the variables above (`tools/auto-run.ps1 start -Port 9311`), then `python tools/dialog-probe-replay.py 9311`, then
+`tools/auto-run.ps1 stop -Port 9311`. The script runs `caption` first (the dialog host needs the active window; without it the call fails), sets
+`resize 1296 736` (1280 x 720 capture), and repeats the walkthrough in Bulwark dark and light.
+
+Result: 244 assertions passed, 0 failed (`artifacts/auto/9311/dialog-probe/results.json`, `replay-log.txt`). Resolved values reach the script as toasts
+from the add-on's own frame. Observed:
+
+- **Alert** resolves `undefined` by OK, Escape (shell key router) and Enter on the focused OK button. Title, "From the add-on <name>" line, two-line message.
+- **Confirm** resolves `true` by OK and Enter on the focused OK button, `false` by Cancel and Escape (focused control). Defaults `Confirm`/`Cancel`, title falls
+  back to the add-on name; custom labels `Proceed`/`Not now` are honoured.
+- **Danger confirm** starts with focus on Cancel. Enter on Cancel resolves `false`. Enter that does not come from a button is ignored and the dialog stays
+  open; OK resolves `true`, Cancel and Escape `false`.
+- **Prompt** (user name required, secret password required, optional note): focus starts in the first field; Send is disabled and refuses a press while a
+  required field is empty; Enter in an empty required field does not submit; filled resolves `{"user":...,"secret":...,"note":""}` (the password field is
+  masked on screen); Cancel and Escape resolve `null`; Enter in a field submits.
+- **Focus** returns to the control that was focused before the dialog after every close.
+- **Second concurrent dialog** from the same add-on fails with the Conflict message ("Data changed; reload before retrying."); the first dialog stays and resolves normally.
+- **Disabling the add-on while a dialog is open** closes the dialog, the runtime stops, and the dead frame reports nothing. The failing value cannot be read
+  from the dead frame; that outcome (stale-context failure) is covered by the Core tests.
+
+Limits of the method: key events are routed in process (XAML `KeyDown` itself is not raised; Enter on a focused button is simulated by invoking the button);
+the 20 per minute limit and the 30 s reader-action hook timeout are not exercised. Toasts from an add-on are limited to 5 per 10 s, so the script paces itself.
+Whole-window WGC captures go blank when the machine's display is idle or off; rerun while it is awake. Captures are local only
+(`artifacts/auto/9311/dialog-probe/{dark,light}-{alert,confirm,danger,prompt-empty,prompt-filled}.png`, 1280 x 720, synthetic data); none is committed.
+
+Bulwark comparison (`components/plugins/plugin-dialog-host.tsx`): the attribution now reads "From the add-on <name>" (Bulwark 117-160, "From the plugin"), `**bold**`
+runs in the message are drawn bold (44-72), field labels are semibold with a red required asterisk and 4/16 px spacing, the password note is a tinted box with
+Bulwark's wording (440-480). Not fixed: the puzzle icon beside the attribution, the 18 px title and 12 px button gap (shared dialog host styles are 16 px and 8 px),
+the solid destructive button (Barbican has no destructive token; the rose tint of other danger buttons is used), the per-dialog options menu with "Turn off <add-on>",
+and the `prompt`-as-own-window behaviour of Bulwark desktop.
