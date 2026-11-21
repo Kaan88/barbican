@@ -1,6 +1,6 @@
 # M6b runtime transport audit
 
-Codex / Terra High — source and SDK audit, not an implementation or a frozen contract. Reviewed against the local Bulwark sources and the currently resolved Windows SDK; no app build, live account, real input, or runtime security claim was made.
+Source and SDK audit, not an implementation or a frozen contract. Reviewed against the local Bulwark sources and the currently resolved Windows SDK; no app build, live account, real input, or runtime security claim was made.
 
 ## Reference protocol and trust boundary
 

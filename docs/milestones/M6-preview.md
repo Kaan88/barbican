@@ -1,6 +1,6 @@
 # M6 Windows portable preview
 
-Prepared by Codex / Sol on 2026-11-19 at source checkpoint `aa0e96b1007eeee85459392b82ce1aa4d4760908`. This is an interim test build, not M6 completion.
+Prepared on 2026-11-19 at source checkpoint `aa0e96b1007eeee85459392b82ce1aa4d4760908`. This is an interim test build, not M6 completion.
 
 - Artifact: `artifacts/portable/Barbican-M6-preview-aa0e96b-win-x64.zip` (149,366,518 bytes).
 - SHA-256: `C429B176AFEE6352612D3718293FFB4D51A114DBBC90FD7F44C4ABD215DA1C6F`.

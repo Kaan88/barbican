@@ -9,7 +9,7 @@ For the active branch, next actions and evidence, use [M6b current work](milesto
 - [x] Reconciled restart guidance and marked the older managed-activation draft handoff as historical. Paused dialog and scoped-mail work remains local and outside the committed implementation.
 - [ ] Finish remaining proofreading APIs, native dialogs, scoped mail reads and production slot evidence, then verify and review the integrated M6b candidate. M6b remains open; M7/M8/M10 follow and Linux/M9 stays deferred.
 
-Start with [CODEX-HANDOFF.md](CODEX-HANDOFF.md), which now serves either agent. The records below are historical, not current branch instructions.
+The records below are historical, not current branch instructions.
 
 ## Checkpoint history through November 19
 
@@ -23,7 +23,7 @@ Read the entries below as dated observations. The current work list supersedes t
   hidden smoke reached shell-ready in 836.3 ms, exit 0. Full ordinary Automation
   suite on source-equivalent `fe147d1`: 3114 passed, zero failed, four skipped;
   both heads compiled without warnings. See [portable evidence](../spec/feel/M6b/windows-preview.json).
-  This is a progress preview, not M6b completion or Astra approval.
+  This is a progress preview, not M6b completion or reviewer approval.
 - **Explicit Windows mail WebView environment:** integrated at `9166080`
   (`dd0c92c` in the verification worktree). The reader and smoke
   now pass explicit profile-scoped environments, check the actual folder before
@@ -59,7 +59,7 @@ Read the entries below as dated observations. The current work list supersedes t
   The checks are not atomic with concurrent authority changes.
   This work is not integrated or included in the preview.
 
-## Codex continuation (saved pre-resume checkpoint, 2026-11-19)
+## Continuation (saved pre-resume checkpoint, 2026-11-19)
 
 - **Resumed integration:** full-range JavaScript Date helper aa746ee passed 108 Node vectors; reviewed composer-only changes through a0a538c are integrated and the complete Core suite passed 1754/1754. Runtime host issuer/parent bridge and package lease/store/storage remain on worker branches for review; no production sandbox/186-method completion is claimed. The latest saved pause table below supersedes earlier checkpoint tables.
 
@@ -77,7 +77,7 @@ Latest user pause saves the resumed interval without integrating worker drafts. 
 | B packages (`wt-m6-set-data`, `codex/m6b-packages`) | `f37b0b5` | Inert native inspection d8118a6: 10 focused native cases, 39 JS inspector cases and 16 manager cases passed, zero warnings/errors. Native activation is test-first WIP: three Red acceptance cases reached the intended PortPending stub; no assembly executed and positive sentinel remains unproven. Resolve atomic launch/revocation barrier before implementation. Authenticated store, cache, lease and storage still require coordinator and production integration review. |
 | C mediation (`wt-m6b-protocol`, `codex/m6b-mediation`) | `6367077` | Preview/PDF draft saved for coordinator review: 21 focused fake-host cases plus two rate cases passed; rate RED markers removed after execution. Actual presenter/UI-thread lifetime and aggregate-policy checks, host-owned plugin name, transport budgets and production registration remain unfinished. HTML printing remains Unavailable pending isolated sanitizer/renderer/watermark. Hook fixes through 110193f await integration review. |
 
-Resume priorities: directly inspect current heads before integration; finish actual SDK/bootstrap and isolated native WebView wiring without process-global environment races. Add a host-only captured-account delivery fence so queued UI responses cannot expose a stale account after dispatch. Complete native launch/revocation coordination, package/store crash recovery, all required API/hook/slot surfaces and async-authority-compatible slot mutations. D UI/slots remains queued. M6b, M7, M8 and M10 each require an Astra review/fix cycle until explicit approval. The hidden UI walkthrough remains required; M9/Linux is excluded. M6 portable is already delivered. No real credential-store, native browser or printing proof is implied by simulated tests.
+Resume priorities: directly inspect current heads before integration; finish actual SDK/bootstrap and isolated native WebView wiring without process-global environment races. Add a host-only captured-account delivery fence so queued UI responses cannot expose a stale account after dispatch. Complete native launch/revocation coordination, package/store crash recovery, all required API/hook/slot surfaces and async-authority-compatible slot mutations. D UI/slots remains queued. M6b, M7, M8 and M10 each require a reviewer review/fix cycle until explicit approval. The hidden UI walkthrough remains required; M9/Linux is excluded. M6 portable is already delivered. No real credential-store, native browser or printing proof is implied by simulated tests.
 
 The integration checkpoint includes reviewed runtime RED baseline f1729fb plus composer/package baselines. Full combined red-check proved **57 expected PortPending failures, zero unexpected passes/wrong reasons** (runtime 26, packages 18, composer 13). Root's complete Core suite passed **1728/1728** on the preceding package/composer baseline. These tests prove intended missing entry points, not completed runtime behavior. The latest fully integrated ordinary Windows suite remains **3088 passed / four skipped** at 9647d85, followed by the passing singleton graph and encoding checks. New implementation drafts listed below are not integrated or claimed verified by those counts.
 
@@ -92,26 +92,26 @@ Resume review concerns: preserve reusable callbacks versus one-shot replies/mult
 
 - **M6b coordinator revocation foundation:** ten focused Core tests passed with no build warnings/errors. Revocation invalidates all affected bindings before cleanup, shares in-flight work, retains failures for retry and tolerates cancelled callers. Production grant/package/runtime wiring remains pending.
 
-- **M6b production test-first phase (base 9647d85):** Terra A `codex/m6b-runtime` in `wt-m6-a11y-quick`, B `codex/m6b-packages` in `wt-m6-set-data`, C `codex/m6b-mediation` in `wt-m6b-protocol`. C composer baseline68194dc is integrated and full red-check proves 13 expected pending failures/zero wrong reasons; implementation of those three adapters is released after direct review. Remaining C families/hooks and A/B checkpoints still follow source tests before implementation. Native metadata/staged-review/atomic-session defaults are D-M6b-02..04. D UI/slots is queued; all later milestone/Astra/UI requirements remain.
+- **M6b production test-first phase (base 9647d85):** stream A `codex/m6b-runtime` in `wt-m6-a11y-quick`, B `codex/m6b-packages` in `wt-m6-set-data`, C `codex/m6b-mediation` in `wt-m6b-protocol`. C composer baseline68194dc is integrated and full red-check proves 13 expected pending failures/zero wrong reasons; implementation of those three adapters is released after direct review. Remaining C families/hooks and A/B checkpoints still follow source tests before implementation. Native metadata/staged-review/atomic-session defaults are D-M6b-02..04. D UI/slots is queued; all later milestone/review/UI requirements remain.
 
 - **Active milestone branch `codex/m6b`:** reviewed/merged structured clone values and browser counterpart with bidirectional golden vectors, generation revocation, binary service seams, live dispatcher fences, atomic production account-session snapshots, all 29 directional schemas, and inert JS ZIP inspection. Latest full Windows suite passed 3088 / zero failures / four skips (3092 total), zero warnings/errors; Node parity/adversarial checks passed. Actual WebView authentication/lifecycle, package consent/persistence, complete API/hook/slot adapters and native mounts remain unfinished. M6 remains stable on `m6` with its verified portable.
 
 - **M6 Windows checkpoint delivered at `583b40d`:** full Automation -Writes suite 2,909 passed / zero failed / four skipped; both heads compiled without warnings. Fresh portable `Barbican-M6-583b40d-win-x64.zip` (149,444,021 bytes) was extracted and passed Release smoke with matching embedded source version. See [M6 report](milestones/M6.md) and `spec/feel/M6/windows-release.json` for checksum, coverage and unverified live/visual checks. Continue to M6b; the broader goal remains active.
 
-- **Earlier integration checkpoint `30f315b`:** archive action/anchors, live verification-code controls, tag row tint, bounded attachment activation, account/stale-result guards, accessibility quick panel/fonts, toolbar labels and all three Compose placements are integrated. Preferences flush before Windows close; three immediate-close restart cycles passed. Windows Automation passed 2,889 of 2,893 tests with four skips and zero failures; the spec gate reported 18/18, no duplicate or dangling catalogue IDs, current hook generation and zero Red markers. The later recovery, harness and final suite are recorded above. Sol reviewed the worker code and requested targeted fixes during integration.
+- **Earlier integration checkpoint `30f315b`:** archive action/anchors, live verification-code controls, tag row tint, bounded attachment activation, account/stale-result guards, accessibility quick panel/fonts, toolbar labels and all three Compose placements are integrated. Preferences flush before Windows close; three immediate-close restart cycles passed. Windows Automation passed 2,889 of 2,893 tests with four skips and zero failures; the spec gate reported 18/18, no duplicate or dangling catalogue IDs, current hook generation and zero Red markers. The later recovery, harness and final suite are recorded above. The coordinator reviewed the worker code and requested targeted fixes during integration.
 - **Preview delivered at the user’s request:** Windows portable `Barbican-M6-preview-aa0e96b-win-x64.zip` is ready (142.4 MiB). Full combined suite passed 2,833 with four skips; extracted Release smoke passed. See [preview evidence](milestones/M6-preview.md) for the exact checkpoint/hash. The restored preview archive has new compression metadata and the hash in the preview evidence identifies it. Time-zone consumers, vacation HTML/state/account guards and Sieve version/acknowledgement guards are implemented after that preview. Live verification remains explicitly incomplete in the M6 report; the fresh verified M6 portable above is now delivered.
 - **New close-pass evidence:** 92 nonuniform Settings captures across both existing styles and light/dark were visually inspected. Nested-tag create/rename/confirmed-delete restored the original isolated profile value and verified it on disk; real-service Backup export/import/confirmed-reset restored its original snapshot. No deliberate Sieve/vacation write verification was performed; earlier writable vacation loads were not proven mutation-free. WGC/private-desktop capture remains unproven; XAML captures are visual evidence.
 
 - **User-selected UI guidelines:** Bento Balanced, Nordic Focus and Studio; see `design/UI-GUIDELINES.md` and CLAUDE.md. Nordic Focus now means the integrated sender/context layout with a toggleable panel; the name remains Nordic Focus. The user corrected the third choice to Studio, with horizontal app navigation and a warm editorial workspace; Atlas remains exploratory. Modern WinUI 3 materials, subtle elevation and fluid feedback are requested with accessible platform fallbacks. No blanket production theme replacement has been applied.
 
-- Coordinator: Sol, checking subagent code during integration as requested by the user; the later independent whole-app reviewer is Astra. Keep the historical filename `docs/FABLE-REVIEW.md`, mark new entries as Codex, and record exact review scope and evidence.
+- The coordinator checks subagent code during integration, as requested by the user; an independent whole-app review follows. Record exact review scope and evidence in `docs/FABLE-REVIEW.md`.
 - The user explicitly authorized pushing milestone commits to `Kaan88/barbican`.
 - Set-data checkpoints through `a921d70` are merged; assistant tools, fake-only account writes, offline provider formats and history isolation have executed coverage. Shared mutation locking and async assistant configuration are merged as `38ddd24`; async history and repaired typed schema choices are merged as `b5ba4b7`.
-- Srv-data calendar lifecycle checkpoint `89ce45b` merged as `fe2118c`; ownership/lifecycle FakeJmap tests passed, with remaining policy/timezone/live limitations in the Astra log.
+- Srv-data calendar lifecycle checkpoint `89ce45b` merged as `fe2118c`; ownership/lifecycle FakeJmap tests passed, with remaining policy/timezone/live limitations in the review log.
 - Set-ui checkpoint `bd50e41` merged as `1d3b614`; the coordinator fixed the Security-page parenting failure and verified repeated hidden visits. Assistant configuration now uses its real service; the guarded composer adapter is implemented.
-- Srv-ui checkpoint `1332306` merged as `08331b8`. The same Terra worker is completing UI-keyless controls, catalogue reconciliation, sample real-service wiring and the close pass on port 8929. Narrow Luna High catalogue triage is complete.
+- Srv-ui checkpoint `1332306` merged as `08331b8`. The same worker is completing UI-keyless controls, catalogue reconciliation, sample real-service wiring and the close pass on port 8929. Narrow worker catalogue triage is complete.
 - Historical combined Windows run at `08331b8`: 2,709 passed, four live/Linux skips, zero failed. Subsequent assistant/account/provider checks are merged, including the coordinator calendar-rights regression (nine focused assistant cases passed). Remaining settings reconciliation/locking, complete hidden checks, live checks/cleanup, M6 report and portable zip are pending. Linux stays deferred to M9.
-- Active user goal: implement everything in the roadmap except Linux M9: finish M6 -> M6b -> M7 -> M8 -> M10, then work with Astra to fix issues until Astra is satisfied, then perform a UI walkthrough and fix look, feel and usability issues. This replaces the earlier stop-after-M10 scope; all privacy, build, account and publication rules remain in force. After M6 passes its final integration checks, produce and verify a fresh Windows portable zip as explicitly requested. The pause table below is historical evidence, not current status.
+- Active user goal: implement everything in the roadmap except Linux M9: finish M6 -> M6b -> M7 -> M8 -> M10, then work with the reviewer to fix issues until the reviewer is satisfied, then perform a UI walkthrough and fix look, feel and usability issues. This replaces the earlier stop-after-M10 scope; all privacy, build, account and publication rules remain in force. After M6 passes its final integration checks, produce and verify a fresh Windows portable zip as explicitly requested. The pause table below is historical evidence, not current status.
 
 ## Milestones
 | Milestone | Branch | State |
@@ -134,7 +134,7 @@ No live writes were left on the test account. No app or build process of the str
 | `m6-srv-ui` | 36efd7d | Rules, view models, six pages and 3 dialogs registered through ISettingsPageFactory, sample-fakes swap, srv-open/srv-dump automation; its 5 red green, Presentation tests 971 pass. Automation build never confirmed (stopped by the pause). Next: Automation build, hidden sample run (port 8922), screenshots, decisions, Fable notes, full test and `-Head win`. |
 
 ## How to resume
-1. One Terra agent per stream in its worktree, "continue from the last commit" (read the WIP subject, the stream's section of docs/milestones/M6-plan.md and this table); `$env:BARBICAN_BUILD_SLOTS = "3"` for every build.
+1. One Sonnet agent per stream in its worktree, "continue from the last commit" (read the WIP subject, the stream's section of docs/milestones/M6-plan.md and this table); `$env:BARBICAN_BUILD_SLOTS = "3"` for every build.
 2. Merge the four into `m6` (append-only conflicts in decisions.md / FABLE-REVIEW.md: keep both; status rows in spec CSVs: keep the side that marks the work done; composition counts are separate terms per stream), full test, then one close-pass agent (wire real services, live checks on the test account via `agent-ui`, M6.md, zip), then M6b.
 
 ## Handoff (2026-11-18)
@@ -145,7 +145,7 @@ M6 is paused mid-way (table above). Nothing is merged to `main` or tagged. Every
 
 **How the milestones were run (keep doing this).** Plan agent (contracts as stubs, FakeJmap arms, red tests, seam and
 composition-count terms in the plan commit, unique type and decision prefixes per stream, threaded in-memory fakes) -> one
-Terra agent per stream in `wt-m<n>-<key>` -> coordinator merges into `m<n>` and runs `tools/build.ps1 test` -> one Terra
+Sonnet agent per stream in `wt-m<n>-<key>` -> coordinator merges into `m<n>` and runs `tools/build.ps1 test` -> one Sonnet
 close-pass agent (wire real services, hidden sample run, live checks on the test account via profile `agent-ui`, report, zip).
 Every agent: `$env:BARBICAN_BUILD_SLOTS = "3"`; at most 5 agents alive.
 

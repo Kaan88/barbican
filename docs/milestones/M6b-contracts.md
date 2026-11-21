@@ -1,6 +1,6 @@
 # M6b coordinator contract preparation
 
-Codex / Sol, 2026-11-19. Read with M6b-plan.md and M6b-api-inventory.md. This prepares the shared implementation contract; it does not claim a working runtime. Production implementation starts after M6 closes and its final portable is verified. The coordinator must add compiling shared models and red acceptance tests before handing independent streams these contracts.
+2026-11-19. Read with M6b-plan.md and M6b-api-inventory.md. This prepares the shared implementation contract; it does not claim a working runtime. Production implementation starts after M6 closes and its final portable is verified. The coordinator must add compiling shared models and red acceptance tests before handing independent streams these contracts.
 
 ## Ownership and dependency order
 
@@ -63,7 +63,7 @@ Before independent streams start, complete the binary/value/stream ownership sea
 
 The shared seams use the normal host-internal Result type where appropriate; those JMAP error messages must not be forwarded to plugins. The plugin-facing outcome uses safe fixed errors; source-defined business error codes such as keystore:* still need a safe explicit representation before API contract freeze. Keystore is the OS certificate/smart-card API, not plugin key-value storage, and never exports private keys. Whole-package consent hash, upstream code-only bundleHash and canonical manifest-plus-code approvalHash are different values.
 
-## Structured-value seam integration (Codex)
+## Structured-value seam integration
 
 API request/outcome, method arguments, hook/callback/host messages, initialization props and slot data/projection now carry immutable `PluginValue` graphs rather than plain JSON. Successful absent results carry explicit Undefined; failures carry no data. The host configuration/manifest snapshots remain inert JSON. The versioned codec compacts projections to reachable nodes and copies binary data. Per-operation limits must explicitly support source file sizes; the conservative library defaults are not a compatibility claim. MessagePort activity stays browser-owned. Seven keystore business failures map to fixed exact source codes, never native exception text.
 

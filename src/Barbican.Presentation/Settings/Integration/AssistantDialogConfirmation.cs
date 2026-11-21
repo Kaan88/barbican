@@ -1,5 +1,5 @@
 // Mirrors: Rust agent.rs Host::confirm; B-AI-009; M6 plan D-7.
-// M6 Codex integration: pool-thread tool requests are marshalled to the in-window dialog.
+// M6 integration: pool-thread tool requests are marshalled to the in-window dialog.
 
 using Barbican.Core.Settings.Assistant;
 using Barbican.Presentation.Actions;

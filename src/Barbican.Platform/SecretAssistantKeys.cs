@@ -1,5 +1,5 @@
 // Mirrors: Rust ai.rs Config key storage; B-AI-002; ADR 0008 profile-scoped credentials.
-// M6 Codex integration: use the same secret entry as the assistant settings page.
+// M6 integration: use the same secret entry as the assistant settings page.
 
 using Barbican.Core.Settings.Assistant;
 

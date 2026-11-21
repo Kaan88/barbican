@@ -1,6 +1,6 @@
 # M6b host API and executable-policy inventory
 
-Codex — M6b foundation preparation. Source: local Bulwark v1.21.2. `<bulwark>` and `<csharp>` denote the respective source roots. This is an inventory and implementation contract, not an implemented host or a security review.
+M6b foundation preparation. Source: local Bulwark v1.21.2. `<bulwark>` and `<csharp>` denote the respective source roots. This is an inventory and implementation contract, not an implemented host or a security review.
 
 `spec/plugins/host-api.csv` enumerates 186 unique permission-table method names, matched to case labels in the corresponding dispatcher files; 17 are privileged-only. Four keystore calls and 27 assistant calls are included. Three assistant names also occur in the main table (`calendar.deleteEvent`, `vacation.get`, `vacation.set`); delegated dispatch takes precedence. `NO_STATIC_GATE` means the source table explicitly contains null, not that an unknown call is authorized. The C# references are family-level candidates, not evidence of a compatible bridge or complete method behavior. Methods without a verified adapter must fail closed.
 
@@ -103,7 +103,7 @@ Extraction confidence: all 186 literal permission entries matched case labels in
 
 The managed Windows sample rendered the `composer-header-actions` contribution. The unchanged API probe also invoked that slot and the `reader-actions` slot, including its compact overflow menu, and Disable removed the actions. The `sidebar-widget` bootstrap probe exercises renderer output in an isolated mount. Production evidence for the other catalogue slots remains open in the owning areas listed under [Slot projection](#slot-projection).
 
-The unchanged fixture observed `onComposeFromLink`, `onBeforeEmailSend` and `onTransformOutgoingEmail` and exercised `onAction` on both UI surfaces. The managed fixture exercised `onComposeSend`. `onAfterEmailSend` has [send-completion evidence](../FABLE-REVIEW.md#codex--astra-review-of-windows-send-completion-2026-11-20), and `onOAuthCallback` has [synthetic loopback tests](../../tests/Barbican.Core.Tests/Plugins/PluginOAuthCallbacksTests.cs). These six M6b hook call sites and the remaining hook catalogue are tracked in [hooks.csv](../../spec/plugins/hooks.csv).
+The unchanged fixture observed `onComposeFromLink`, `onBeforeEmailSend` and `onTransformOutgoingEmail` and exercised `onAction` on both UI surfaces. The managed fixture exercised `onComposeSend`. `onAfterEmailSend` has [send-completion evidence](../FABLE-REVIEW.md#review-of-windows-send-completion-2026-11-20), and `onOAuthCallback` has [synthetic loopback tests](../../tests/Barbican.Core.Tests/Plugins/PluginOAuthCallbacksTests.cs). These six M6b hook call sites and the remaining hook catalogue are tracked in [hooks.csv](../../spec/plugins/hooks.csv).
 
 ### Methods still requiring executable evidence
 

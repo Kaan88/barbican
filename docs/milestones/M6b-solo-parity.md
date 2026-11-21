@@ -2,9 +2,8 @@
 
 This is the chronological Windows verification record. The [active work list](M6b-plan.md#current-work) identifies what to do next. Earlier failures and restart steps below belong to the specified builds.
 
-The original pause is recorded below. Work resumed with one additional Astra reviewer/developer at the user�s request. Use the existing
-`wt-m6b-bulwark-ui` worktree, branch `codex/m6b-bulwark-ui`. In a new clone use
-that remote branch. This checkpoint follows `585056f`; find it with
+The original pause is recorded below. Work resumed with one additional reviewer/developer at the user's request. Work now continues on
+branch `m6b/bulwark-ui`. This checkpoint follows `585056f`; find it with
 `git log -1 -- docs/milestones/M6b-solo-parity.md`. The `barbican` coordinator
 worktree is older and has unrelated test deletions. Do not restore them, merge
 to main, or build from the old preview ZIP.
@@ -45,7 +44,7 @@ the PNGs came from ordinary **hidden** automation with WGC.
 ## First actions in the next harness
 
 1. Read `CLAUDE.md`, this file and [the earlier handoff](M6b-parity-handoff.md).
-   Check branch, status and upstream. Leave unrelated `.cortexkit/` alone.
+   Check branch, status and upstream.
 2. Port 8955 is stopped and the build server shut down. The Windows Automation
    suite finished on this source: **3150 passed, 2 failed, 4 skipped**. See
    `artifacts/auto/8955/final-test.log`. The view accessibility lint names five
@@ -66,7 +65,7 @@ the PNGs came from ordinary **hidden** automation with WGC.
    formatting toolbar, and reference actions missing from the reader. Compare
    focus, text scaling and high contrast. Structural conversation, quick-reply
    and pop-out gaps are tracked in the earlier handoff. No parity sign-off,
-   Astra approval, new portable or M7 start.
+   reviewer approval, new portable or M7 start.
 
 ## Solo verification after 084ff0f
 
@@ -383,8 +382,8 @@ The extracted Release assembly reported the candidate revision.
 The isolated smoke run reached shell-ready in 933.1 ms and exited 0.
 The report is `artifacts/auto/9226/smoke.json`.
 
-Astra approved the checkpoint. The M6b acceptance gate remains open.
-[Review decision](../FABLE-REVIEW.md#codex--astra-windows-checkpoint-at-3791df4)
+The reviewer approved the checkpoint. The M6b acceptance gate remains open.
+[Review decision](../FABLE-REVIEW.md#windows-checkpoint-at-3791df4)
 
 ## Nested Settings and restart
 

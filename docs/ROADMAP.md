@@ -7,7 +7,7 @@ change the plan: [adr/](adr/). The Rust-era roadmap is in [legacy/ROADMAP.md](le
 
 M6 delivered → M6b → M7 admin → M8 Windows integration and distribution → M10 parity and release polish → final UI walkthrough and fixes. M9 Linux is deferred. The implementation pause on November 20 occurred inside M6b. The [active work list](milestones/M6b-plan.md#current-work) is the restart point when implementation resumes.
 
-Astra approves each major milestone on the combined candidate. Supply a verified portable at major checkpoints and on user request. Record its exact source, checksum and extracted launch result. The [project rules](../CLAUDE.md#active-milestone-and-review) describe the checks during implementation.
+Fable approves each major milestone on the combined candidate. Supply a verified portable at major checkpoints and on user request. Record its exact source, checksum and extracted launch result. The [project rules](../CLAUDE.md#active-milestone-and-review) describe the checks during implementation.
 
 | Milestone | Scope (short) | Status |
 |---|---|---|
@@ -21,7 +21,7 @@ Astra approves each major milestone on the combined candidate. Supply a verified
 | M6b | Full plugin platform, sandbox, permissions, consent and Add-ons | Windows checkpoint/portable approved at `3791df4`, including managed session activation. Settings and typing-checker fixes landed through `bff8a91` (3,638 Automation tests passed, four skipped). Remaining proofreading APIs, dialogs, scoped reads, slot coverage and final integrated acceptance remain open |
 | M7 | Admin dashboard and management | Planned |
 | M8 | Windows desktop integration and distribution | Planned |
-| M10 | Parity sweep, UI polish and release readiness | Planned; followed by Astra fixes and a UI walkthrough |
+| M10 | Parity sweep, UI polish and release readiness | Planned; followed by Fable review fixes and a UI walkthrough |
 | M9 | Linux | Deferred until after this run |
 
 The [UI guidelines](../design/UI-GUIDELINES.md) identify the visual and motion references. The [walkthrough](milestones/M6b-ui-parity.md) records what has been seen in Bulwark. Branch pushes are authorized. Main merges, tags and release publication require separate authorization.

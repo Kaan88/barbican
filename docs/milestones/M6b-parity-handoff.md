@@ -2,8 +2,8 @@
 
 **Historical UI checkpoint, November 20.** Later verification is in the [Windows results](M6b-solo-parity.md#native-interaction-check). Use the [current work list](M6b-plan.md#current-work) when resuming. The following is the original pause record.
 The user reported that the preview theme does not match Bulwark.
-Treat visual and interaction parity as unfinished. **Astra has not approved
-parity.** Astra reviewed `6de166e` and requested changes; later fixes have not
+Treat visual and interaction parity as unfinished. **The reviewer has not approved
+parity.** The reviewer reviewed `6de166e` and requested changes; later fixes have not
 passed a re-review. Do not start M7.
 
 ## Where to resume
@@ -67,8 +67,8 @@ That proves startup, not parity; it is not the final M6b portable.
    close/save/discard across transitions.
 4. **Close the remaining walkthrough and review.** Record unchanged and
    missing behaviors against the source and live reference, including other
-   app surfaces. Submit the exact candidate revision to Astra with rendered
-   comparisons and interaction evidence. Fix and re-review until Astra
+   app surfaces. Submit the exact candidate revision to the reviewer with rendered
+   comparisons and interaction evidence. Fix and re-review until the reviewer
    explicitly approves, then build and smoke-test the final milestone
    portable from that approved revision. Pause before M7.
 

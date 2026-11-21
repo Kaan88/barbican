@@ -9,11 +9,12 @@ AGENTS.md points here; this file is the single source of the rules.
 
 ## Active milestone and review
 
-Both Codex and Claude use the [roadmap](docs/ROADMAP.md) to find the active milestone. Its work list owns the next actions and the evidence for each result. For M6b use [Current work](docs/milestones/M6b-plan.md#current-work). Codex-specific checkout and attribution details are in the [handoff](docs/CODEX-HANDOFF.md).
+The [roadmap](docs/ROADMAP.md) names the active milestone. Its work list owns the next actions and the evidence for each result. For M6b use [Current work](docs/milestones/M6b-plan.md#current-work), including its continuation state.
 
-- Sol coordinates, checks delegated diffs, and owns integration. Use Luna for simple tasks and Terra for routine implementation, subject to availability. Sol handles unusually large or risky changes. DeepSeek Flash can take suitable independent work within the same limits. Give each worker a user-visible outcome, owned files and a focused check. Independent work can continue while another flow needs a fix or reviewer.
-- During implementation, run the affected tests and exercise the changed path. Seek early independent review when decisions change who can access an account, run add-on code or send mail. Bring a working flow, its denied case and the relevant diff to that review.
-- At each major milestone the coordinator brings Astra the integrated candidate, full verification, visual comparisons for changed screens and open findings. Astra explicitly approves the final revision. For a finding, record the failing path, expected result, fix and retest together. Carry forward evidence for unaffected paths and rerun checks affected by the fix. A new requirement goes to its owning milestone unless it breaks the current acceptance criteria. If the same finding returns, the coordinator and reviewer reproduce it together against the agreed criterion before requesting another pass. If Astra is unavailable, keep the milestone open.
+- **Opus** (the main session) coordinates, checks every delegated diff and owns integration. It does unusually large or risky changes itself. Delegate simple, mechanical work to **Haiku** and routine implementation to **Sonnet** subagents. Give each worker a user-visible outcome, owned files and a focused check. Independent work can continue while another flow waits on a fix or review.
+- During implementation, run the affected tests and exercise the changed path. Ask for an early **Fable** review when a change decides who can access an account, run add-on code or send mail. Bring the working flow, its denied case and the relevant diff.
+- At each major milestone the coordinator brings Fable the integrated candidate, full verification, visual comparisons for changed screens and open findings. Fable explicitly approves the final revision; no passing suite substitutes for that. For a finding, record the failing path, expected result, fix and retest together. Carry forward evidence for unaffected paths and rerun checks the fix affects. A new requirement goes to its owning milestone unless it breaks the current acceptance criteria. If the same finding returns, reproduce it with the reviewer against the agreed criterion before asking for another pass. If Fable is unavailable, keep the milestone open.
+- Approvals recorded before the November 21 continuation came from an earlier reviewer and stay scoped to the revisions they name. They are not Fable approvals.
 
 ## UI references
 
@@ -51,8 +52,8 @@ Use [UI guidelines](design/UI-GUIDELINES.md) for appearance and motion. M6b uses
   Bulwark file:line and the Stalwart path for every JMAP behaviour, in the code's module header.
 - **Port the spec tests first** (PORT-PLAN.md §2.4), and update `spec/` status in the same commit
   as the code.
-- **Commit messages** say what changed and why. Codex uses accurate Codex attribution. For Claude-authored work use
-  `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>`.
+- **Commit messages** say what changed and why, and end with the trailer of the model that wrote the
+  change, e.g. `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>`.
 
 ## Build limits (the machine froze under parallel builds)
 - Build and test **only** through `tools/build.ps1` (Windows) and `tools/linux.ps1` (Linux VM).
@@ -143,6 +144,6 @@ Where things go:
   (DLLs, images) by hand, for example for home paths compiled into them.
 - Screenshots in the repo show sample data only (FakeJmap or fixtures), never a real mailbox.
 
-## Astra review log
+## Fable review log
 
-[The review log](docs/FABLE-REVIEW.md) holds decisions and outstanding findings. The coordinator records the candidate, reviewed scope, evidence, fixes and Astra's decision together. A worker can add a material risk or disagreement as soon as it arises. Routine passing checks belong with the flow they exercise.
+[The review log](docs/FABLE-REVIEW.md) holds decisions and outstanding findings. The coordinator records the candidate, reviewed scope, evidence, fixes and Fable's decision together. A worker can add a material risk or disagreement as soon as it arises. Routine passing checks belong with the flow they exercise.

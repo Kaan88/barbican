@@ -1,5 +1,5 @@
 // Mirrors: B-AI-001, B-AI-002, B-AI-006 (provider kind, base URL, model, language, action mode, memory, standing instructions; the API key lives in the credential store under ai-api-key, never in settings), D-M6-11, D-M6-B03.
-// Codex integration: the page reads and writes the same per-account IAssistantSettings used by AssistantSession.
+// Integration: the page reads and writes the same per-account IAssistantSettings used by AssistantSession.
 
 using System.Text.Json.Nodes;
 using Barbican.App.Shell;

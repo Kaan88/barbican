@@ -1,6 +1,6 @@
-# Implementation review log (Astra)
+# Implementation review log (Fable)
 
-Astra reviews the integrated candidate at each major milestone and can review a sensitive change early. Sol checks delegated work at integration. For the review cadence and completion criteria, see [the project rules](../CLAUDE.md#active-milestone-and-review) and the [milestone work list](milestones/M6b-plan.md#current-work).
+Fable reviews the integrated candidate at each major milestone and can review a sensitive change early. The coordinator (Opus) checks delegated work at integration. Approvals recorded before the November 21 continuation came from an earlier reviewer and are scoped to the revisions they name. For the review cadence and completion criteria, see [the project rules](../CLAUDE.md#active-milestone-and-review) and the [milestone work list](milestones/M6b-plan.md#current-work).
 
 Record the scope and candidate, the affected outcome, any reproduction and fix, the evidence examined and the reviewer's decision. Mark an approval's scope explicitly. The entries below are historical records of the revisions they name.
 
@@ -20,31 +20,31 @@ Record the scope and candidate, the affected outcome, any reproduction and fix, 
 
 ### Verification and approval boundaries
 
-- Latest recorded full Windows Automation result: **3,638 passed, zero failed, four skipped** for the typing-checker checkpoint. The local `artifacts/m6b-paused/windows-automation.log` retains this summary. Strict M6b catalogue and generated hooks checks were reported passing. These are carried evidence, not tests rerun during this documentation handoff.
+- Latest recorded full Windows Automation result: **3,638 passed, zero failed, four skipped** for the typing-checker checkpoint. The summary was kept in a machine-local log that is not in the repository. Strict M6b catalogue and generated hooks checks were reported passing. These are carried evidence, not tests rerun during this documentation handoff.
 - Last explicitly approved combined Windows code/portable checkpoint: **`3791df4`**, with 3,623 passing Automation tests and four skips, clean Release build, catalogue/hooks/tokens checks and extracted portable smoke. [Exact ZIP checksum and source](milestones/M6b-solo-parity.md#windows-checkpoint-at-3791df4). This portable predates the Settings and typing-checker commits.
-- Astra's later typing-checker approval covers the reviewed fixes; it does not approve the final M6b candidate. No new Claude or Astra approval is asserted by this packet. Linux remains deferred to M9.
+- The reviewer's later typing-checker approval covers the reviewed fixes; it does not approve the final M6b candidate. No new Claude or reviewer approval is asserted by this packet. Linux remains deferred to M9.
 
 ### Requested continuation review
 
-1. Read [the continuation guide](CODEX-HANDOFF.md) and [current work](milestones/M6b-plan.md#current-work). Review the net changes since `b459504`, prioritizing package/session authority, WebView delivery, policy and send fences, then the UI changes and evidence above.
+1. Read [current work and its continuation state](milestones/M6b-plan.md#current-work). Review the net changes since `b459504`, prioritizing package/session authority, WebView delivery, policy and send fences, then the UI changes and evidence above.
 2. Preserve the local paused drafts. `artifacts/m6b-paused/dialog-source/` is the later dialog source snapshot (reported isolated Windows build and 11 focused tests passed); `dialogs.patch` and `dialog-new-files/` are earlier snapshots. Compare against the current tree before restoring anything; do not apply both versions. Resume the private synthetic `addons-fixture dialog-probe` replay. Native dialog behavior is not yet accepted.
 3. `artifacts/m6b-paused/scoped-mail.patch` is unverified transport/delivery fencing work. Inspect it independently before applying, testing and exercising allowed/denied/stale-account mail-read results. These ignored artifacts are machine-local and are absent from a fresh clone.
-4. Complete the remaining proofreading methods, dialog flow, scoped reads and production slot mounts. Track each outcome in the current work list/API inventory. Then run the combined Windows suite and Release build, affected synthetic walkthroughs, catalogue/generator checks and a fresh extracted portable smoke; obtain explicit Astra approval before closing M6b or starting M7.
+4. Complete the remaining proofreading methods, dialog flow, scoped reads and production slot mounts. Track each outcome in the current work list/API inventory. Then run the combined Windows suite and Release build, affected synthetic walkthroughs, catalogue/generator checks and a fresh extracted portable smoke; obtain explicit Fable approval before closing M6b or starting M7.
 
-This documentation pass changes no application code. It preserves the existing `.cortexkit/` material and paused source artifacts. Main merges, tags and release publication remain separately authorized actions.
+This documentation pass changes no application code. Main merges, tags and release publication remain separately authorized actions.
 
-## M6b Bulwark rail and list (Terra)
+## M6b Bulwark rail and list
 
 - Review `src/Barbican.App/Theme/{StyleState,StyleMetrics}.cs` and `Views/{Rail/RailView,Sidebar/SidebarView,List/MessageListView,Search/SearchBoxView}.xaml` (uncommitted, based on `90a70f8`): the Bulwark rail and sidebar use their semantic palette rather than Bento tile, the unconfigured logo is absent, and list density and toolbar sizes follow upstream. Rail metrics also apply to non-mail screens in Bulwark; enlarged targets and legacy styles need visual verification. Configurable upstream logos and full icon parity are not implemented.
 - Windows Automation build passed; hidden synthetic WGC selected-message captures at 1424×884 client size in `artifacts/auto/8936/` show distinct light/dark modes and body rendering. List and reader starts measured 312 and 696 logical px; select-all measured 32×32. No live reference was used in this pass. Remaining visible differences include the Windows title band, Bento-like rounded selected rows, duplicate thread rows, toolbar/search icon and shape details, and reader styling outside this slice. Legacy, high-contrast, large-target, narrow and keyboard states were not visually verified.
 
-## M6b quick-reply handoff (Codex stream: m6b-quick-reply, worker: GPT-6.1 Terra)
+## M6b quick-reply handoff (stream: m6b-quick-reply)
 
 - Review `src/Barbican.Core/Compose/ComposeRequest.cs`, `ComposeSeeder.cs`, and `tests/Barbican.Core.Tests/Compose/ComposeSeederTests.cs` (uncommitted): reply-only text is imported as plain text before signature placement; UI ownership, account and message binding, draft lifecycle, and sending remain outside this stream. Synthetic Core tests do not verify the eventual UI handoff.
-- Composer visual pass (Codex, GPT-6.1 Terra; uncommitted, based on palette prerequisite): review `src/Barbican.App/Views/Compose/ComposerView.xaml` and `ComposerView.xaml.cs`. Bulwark uses flat header/field rows and a compact responsive footer while the same actions and legacy layouts remain; header window controls, additional Bulwark footer actions and compact dock field behavior are not implemented. Hidden synthetic Windows captures exercise new and docked reply plus Bento/Nordic previews; actual window transitions and live accounts were not tested.
-- Composer send availability (Codex, GPT-6.1 Terra; uncommitted): review `src/Barbican.Presentation/Compose/ComposerViewModel.Send.cs`, `ComposerViewModel.cs`, `RecipientFieldViewModel.cs`, and `src/Barbican.App/Views/Compose/ComposerView*.cs`. Bulwark enables on an expanded To entry, including uncommitted and invalid text, so validation remains reachable; Cc/Bcc alone do not enable it. A send attempt is guarded throughout warnings and validation against keyboard re-entry. Presentation tests and hidden synthetic Windows UIA checks cover controls and schedule-menu transitions, not live delivery.
+- Composer visual pass (uncommitted, based on palette prerequisite): review `src/Barbican.App/Views/Compose/ComposerView.xaml` and `ComposerView.xaml.cs`. Bulwark uses flat header/field rows and a compact responsive footer while the same actions and legacy layouts remain; header window controls, additional Bulwark footer actions and compact dock field behavior are not implemented. Hidden synthetic Windows captures exercise new and docked reply plus Bento/Nordic previews; actual window transitions and live accounts were not tested.
+- Composer send availability (uncommitted): review `src/Barbican.Presentation/Compose/ComposerViewModel.Send.cs`, `ComposerViewModel.cs`, `RecipientFieldViewModel.cs`, and `src/Barbican.App/Views/Compose/ComposerView*.cs`. Bulwark enables on an expanded To entry, including uncommitted and invalid text, so validation remains reachable; Cc/Bcc alone do not enable it. A send attempt is guarded throughout warnings and validation against keyboard re-entry. Presentation tests and hidden synthetic Windows UIA checks cover controls and schedule-menu transitions, not live delivery.
 
-## M6b shell (Codex, Terra)
+## M6b shell
 
 - Review the uncommitted mail shell slice based on palette prerequisite `e8b41fa`:
   `src/Barbican.App/Theme/{StyleMetrics,ShellLayout,StyleState,ThemeController}.cs`,
@@ -57,7 +57,7 @@ This documentation pass changes no application code. It preserves the existing `
   window, and Bento/Nordic transitions; actual pointer dragging and keyboard focus remain
   unverified. The title, list contents, and reader are not full Bulwark parity.
 
-## M6b adaptive reply dock (Terra)
+## M6b adaptive reply dock
 
 - Review the uncommitted `src/Barbican.App/Shell/{ReplyDockLayout.cs,ShellPage.xaml,ShellPage.xaml.cs}`
   changes based on `45df962`. Bulwark's 60% initial share and 700 px takeover threshold
@@ -1436,29 +1436,30 @@ launched; Linux unverified). Verdicts on the M2 verify items 1 to 6, 11, 12 and 
 - **`onSettingsSync` has its call site in import** (D-M6-A04): a deviation from the hook's catalogue meaning (settings sync between devices is not built).
 - **43 red tests were written against stub signatures**: where a stream finds a signature wrong it files a request; review that the red tests were not weakened to pass (compare `tests/` at the plan commit).
 
-## Codex — M6 coordination (parent)
+## M6 coordination (parent)
 
 - **Assistant service/UI integration:** review the adapter between the settings page and the real assistant configuration and credential store, confirmation dispatch to the in-window dialog, and coverage of the Rust tool set. The paused streams use separate settings stores and a partial tool set; passing pure tests alone does not prove the integrated behavior. Paths: `src/Barbican.Core/Settings/Assistant/`, `src/Barbican.App/Views/Settings/`, and the integration adapters added during the close pass. Integration commits and executed checks will be recorded as they land.
 - **Evidence at takeover:** stream branches started at `c2d9652` (set-data), `a1e88a6` (set-ui), `b87f023` (srv-data), and `36efd7d` (srv-ui); integration branch started at `450ec55`. Some WIP commits removed red markers before tests ran. Require executed tests and inspected hidden sample captures before accepting completion. Linux remains deferred to M9; account-security writes remain FakeJmap-only.
 ## set-data (M6, paused WIP)
 - Not compiling yet: AssistantJson.Push helper missing; analyzer fixes pending in AssistantClient, AssistantTools, SettingInfo. Review decisions D-M6-A (identity order key app.barbican.identityOrder, IAssistantKeys/Settings/Confirmation seams, edited FakeVacationAndSecurityArmsTests, FakeApi.cs, ReaderRegistration, ComposeSeeder).
 
-## Codex — M6 set-data (Terra High)
+## M6 set-data
 
 - Review `src/Barbican.Core/Settings/Assistant/AssistantSession.cs`, `AssistantLoop.cs` (based on `c2d9652`): account histories now use per-account gates for ask/clear and deletion in automatic mode requires confirmation. Check cancellation, tool confirmation coverage, and account isolation under concurrent calls.
 - Review `src/Barbican.Core/Settings/Assistant/AssistantTools.cs` and `SettingsDataRegistration.cs` (based on `c2d9652`): the Rust tool set is still incomplete; B-AI-008 is not proven. The Windows suite passed 2,642 tests with four live/Linux skips before subsequent tool work; no live write was performed.
 - Review `tests/Barbican.FakeJmap/FakeApi.IdentitySet.cs`, `FakeApi.AccountSecurity.cs`, shared routing and `src/Barbican.App/Composition/Features/ReaderRegistration.cs` from `c2d9652`: coordinator approved integration of shared edits; check fake semantics and security data redaction against Stalwart.
 - Review `spec/settings.csv` and `SettingsCatalog.cs` from `c2d9652`: rows labelled not ported have not yet all been reconciled against actual readers or marked inert.
 
-- **Sol coordinator code-check scope so far:** inspected set-data checkpoint `d1f137c`, including `AssistantLoop.cs`, `AssistantSession.cs`, `AssistantTools.cs`, `AssistantClient.cs`, `AssistantSettings.cs`, `IAssistantKeys.cs`, `SettingsDataRegistration.cs`, the shared FakeJmap routing changes and `ReaderRegistration.cs`. Findings: automatic destructive tools needed confirmation; tool coverage was partial; UI settings and the client's configuration/key stores were disconnected. The worker added confirmation and session serialization; remaining tool work is still in progress. This is targeted integration checking, not a claim that every changed line has been reviewed.
-- **Sol coordinator checks of UI/service seams:** inspected the paused set-ui assistant/security pages and srv-data `VacationService.cs`. Findings: credential deletion needed confirmation; background prefs updates reached older bound consumers without dispatch; vacation's calendar checkbox only saved a flag. The UI worker added confirmations, the server-data worker is implementing calendar lifecycle behavior, and the coordinator fixed background preference dispatch in `ShellViewModel`, `SidebarViewModel`, `MessageListViewModel` and `FilesViewModel`. Regression evidence: 963 Presentation tests pass; 44 Platform tests pass with one Linux-service skip. The real hidden Security page failure and all merged UI/service scenarios remain to verify.
-- **Integration bridge review for Astra:** `src/Barbican.Platform/SecretAssistantKeys.cs` shares the settings page's profile-scoped credential entry; `src/Barbican.Presentation/Settings/Integration/AssistantDialogConfirmation.cs` dispatches confirmation and declines without a dialog host. Tests cover credential read/write/delete, sanitized write failures, dispatched acceptance/refusal, cancellation before opening, and the missing-host fallback. The coordinator added these after merging `d1f137c` as `08fe6f5`; actual provider calls remain unproven.
-## Codex — M6 srv-data (Terra High)
+- **The coordinator code-check scope so far:** inspected set-data checkpoint `d1f137c`, including `AssistantLoop.cs`, `AssistantSession.cs`, `AssistantTools.cs`, `AssistantClient.cs`, `AssistantSettings.cs`, `IAssistantKeys.cs`, `SettingsDataRegistration.cs`, the shared FakeJmap routing changes and `ReaderRegistration.cs`. Findings: automatic destructive tools needed confirmation; tool coverage was partial; UI settings and the client's configuration/key stores were disconnected. The worker added confirmation and session serialization; remaining tool work is still in progress. This is targeted integration checking, not a claim that every changed line has been reviewed.
+- **Coordinator checks of UI/service seams:** inspected the paused set-ui assistant/security pages and srv-data `VacationService.cs`. Findings: credential deletion needed confirmation; background prefs updates reached older bound consumers without dispatch; vacation's calendar checkbox only saved a flag. The UI worker added confirmations, the server-data worker is implementing calendar lifecycle behavior, and the coordinator fixed background preference dispatch in `ShellViewModel`, `SidebarViewModel`, `MessageListViewModel` and `FilesViewModel`. Regression evidence: 963 Presentation tests pass; 44 Platform tests pass with one Linux-service skip. The real hidden Security page failure and all merged UI/service scenarios remain to verify.
+- **Integration bridge review for the reviewer:** `src/Barbican.Platform/SecretAssistantKeys.cs` shares the settings page's profile-scoped credential entry; `src/Barbican.Presentation/Settings/Integration/AssistantDialogConfirmation.cs` dispatches confirmation and declines without a dialog host. Tests cover credential read/write/delete, sanitized write failures, dispatched acceptance/refusal, cancellation before opening, and the missing-host fallback. The coordinator added these after merging `d1f137c` as `08fe6f5`; actual provider calls remain unproven.
+## M6 srv-data
+
 - **Calendar block** (`src/Barbican.Core/Settings/Vacation/VacationCalendar.cs`, `VacationService.cs`, after `856f4f9`): review event ownership, UTC time conversion, metadata failure and multi-device races against Bulwark `lib/vacation-calendar.ts`. FakeJmap covers creation, update, future removal, started-event shortening, deleted-block preservation on load and a manually moved event; live server behavior, all-day zones, metadata failures and deletion across process restarts remain unproven (D-M6-C06).
 - **Sieve and vacation writes** (`b87f023`, `src/Barbican.Core/Filters/Rules/FilterService.cs`, `src/Barbican.Core/Settings/Vacation/VacationService.cs`): inspect rollback, locked scripts, Sieve metadata and multi-step failure behavior against Bulwark and Stalwart; FakeJmap round trips do not prove real-server compatibility. Live checks are deferred to integration.
 - **Folder metadata and template updates** (`b87f023`, `src/Barbican.Core/Settings/Folders/FolderAdminMetadata.cs`, `src/Barbican.Core/Settings/Templates/TemplateAdmin.cs`): review concurrent writes and interoperability, including the Barbican-owned pin key (D-M6-C07).
 - **Hook payloads and threading** (`b87f023`, `src/Barbican.Core/Plugins/Payloads/`, `src/Barbican.Presentation/Compose/ComposerViewModel.Attachments.cs`): call-site tests establish names only; plugin payload compatibility and all event threads need deeper verification. The composer edit is shared with set-data.
-### Codex — M6 set-ui (Terra High)
+### M6 set-ui
 
 - Review the sample-only prefs adapter and theme threading in `src/Barbican.Presentation/Settings/Ui/SetUiPrefsValues.cs` and `src/Barbican.App/Composition/Features/SettingsUiRegistration.cs` (WIP `a1e88a6`): `Put` runs on the caller thread to avoid a shell redraw crash; this does not establish the D-M6-00 off-thread-write contract. Integrate the real data service and verify dispatcher handling.
 - Review `src/Barbican.App/Views/Settings/SetUiAssistantPage.cs` (`a1e88a6`): its temporary `ai.*` prefs and global secret name do not match set-data's per-account settings and key APIs; wire and retest at integration before claiming a working real assistant. A sample run returned an answer; opening Security raised a caught exception, displayed as "Settings: No installed components were detected." in SetUiUi.GuardAsync. The precise exception origin remains unproven; a temporary stack capture produced no file.
@@ -1467,35 +1468,37 @@ launched; Linux unverified). Verdicts on the M2 verify items 1 to 6, 11, 12 and 
 
 - Review `src/Barbican.App/Views/Settings/SetUiChoice.cs` and its call sites (this follow-up): in-window chips replace prohibited ComboBox popups; visual layout and keyboard accessibility need further verification.
 
-## Codex - M6 assistant tools checkpoint
+## M6 assistant tools checkpoint
 
 - Review `src/Barbican.Core/Settings/Assistant/AssistantTools.cs`, `AssistantLoop.cs`, `AssistantSession.cs`, `IAssistantComposer.cs`: new typed tool paths need integrated fake-server coverage for calendar, contacts, attachments, filter edits and send. Drafts require the coordinator's composer adapter; confirm reply prefill survives. Filter rules depend on the srv-data implementation; do not claim B-AI-008 complete until integrated. Core tests passed 1,426 on Windows, including fake-server tag and scripted composer/confirmation tests; Linux and live service behavior are unproven.
 
-## Codex - M6 Sol integration code checks (second pass)
+## M6 coordinator integration code checks (second pass)
 
-- **Checked server-data calendar step `89ce45b`:** compared `VacationCalendar.cs` and the `VacationService.cs` diff with `<bulwark>/lib/vacation-calendar.ts`, including ownership by marker/last-written times, update, future removal, started-block shortening, and externally deleted blocks. Inspected the four added FakeJmap lifecycle tests. UTC timed output, policy restrictions, metadata-write failures and shared calendars still need Astra's attention; tests do not prove those cases. Merged as `fe2118c`.
+- **Checked server-data calendar step `89ce45b`:** compared `VacationCalendar.cs` and the `VacationService.cs` diff with `<bulwark>/lib/vacation-calendar.ts`, including ownership by marker/last-written times, update, future removal, started-block shortening, and externally deleted blocks. Inspected the four added FakeJmap lifecycle tests. UTC timed output, policy restrictions, metadata-write failures and shared calendars still need the reviewer's attention; tests do not prove those cases. Merged as `fe2118c`.
 - **Checked assistant tool checkpoint `325dfcf`:** inspected the filter, calendar, contact, attachment, send/draft, confirmation and session paths. Requested fixes for omitted draft Cc/Bcc, writable account-scoped calendar selection and configured timezone; further service tests are in progress on the stream. B-AI-008 remains open until integrated execution evidence and the composer adapter pass. Merged as `6c37fa1`.
 - **Security UI failure fixed by the coordinator:** `SetUiSecurityPage.cs` recreated row containers around controls still parented to old rows on every refresh. Reusing the complete rows removes the WinUI parenting exception. The hidden sample run on port 8929 opened Security, Account, then Security again; the automation tree contained the TOTP, app-password and API-key controls, and the inspected sample capture is `docs/milestones/M6-screens/integration/security-refreshed.png`. No credential was entered or issued in this check.
 - **Assistant configuration and draft bridge:** the coordinator connected `SetUiAssistantPage.cs` to `IAssistantSettings` and `IAssistantKeys`, serializes field saves, and refreshes controls on account changes. `AssistantComposerBridge.cs` dispatches normal composer opening, detects a cancelled replacement, and applies reply prefills without sending or explicitly saving a draft. Its tests exercise dispatched opening and refusal, recipient fields and reply text, and the missing-host case. The complete Windows suite passed after these changes: 2,695 passed, four live/Linux skips, zero failed. Both Windows and desktop heads built on Windows; this is not Linux execution evidence.
 
-## Codex - M6 srv-ui (Terra High)
+## M6 srv-ui
+
 - Review the server pages, dialogs and view models introduced in 36efd7d (`src/Barbican.App/Views/SettingsServer/`, `src/Barbican.Presentation/Settings/Server/`): sample-only hidden checks cover rendering, not a real account, real pointer or IME. Verify each interaction and service error path after data integration.
 - Review threading in `SrvUiPageModel` and its six derived page view models: service results are dispatched before state mutation and discarded if the active account changed. The queued-dispatcher test covers filter load; real service events and overlapping same-account requests remain integration checks.
 - Review the selection and text-entry tradeoffs in `SrvUiKit`, `SrvUiVacationPage`, and `SrvUiTemplatesPage` (D-M6-D04/D05): cycling choices require repeated presses, dates are typed, template import/export is pasted text and HTML is edited as source. Validate accessibility and parity.
 - Requests to integrator: wire and test real data adapters and all six pages against merged services; inspect `spec/interactions.csv` and `spec/settings.csv` before claiming completion, as this stream has not asserted those rows. The plan's frozen settings seam is required to replace the stub screen.
 - The sample-only screenshots in docs/milestones/M6-screens/srv-ui/ show the six pages and three settled dialogs from the Automation build before the dispatcher changes; repeat them after integration. A retry of the apply capture shows the underlying page and dialog in WGC; XAML capture omits the overlay. Identity name retained focus and Sample UserABC after three successive type commands. Draft setters are plain properties, so those changes do not themselves invalidate the page; a later service reload can still replace an in-progress draft.
 
-- **Sol coordinator checks of srv-ui `1332306`:** inspected `SrvUiPageModel`, the filter/folder result paths, `SrvUiIdentitiesPage`, the settings-page factories and feature registration. The dispatched result helper drops a result for a different active account; same-account overlap/draft replacement still needs integration checks. Verified that identity draft setters are plain properties, so no per-keystroke PropertyChanged rebuild was established; the worker also exercised successive typing. Inspected synthetic identity, vacation and settled Apply captures.
+- **Coordinator checks of srv-ui `1332306`:** inspected `SrvUiPageModel`, the filter/folder result paths, `SrvUiIdentitiesPage`, the settings-page factories and feature registration. The dispatched result helper drops a result for a different active account; same-account overlap/draft replacement still needs integration checks. Verified that identity draft setters are plain properties, so no per-keystroke PropertyChanged rebuild was established; the worker also exercised successive typing. Inspected synthetic identity, vacation and settled Apply captures.
 
-## Codex - M6 set-data integration follow-up
+## M6 set-data integration follow-up
 
 - Review assistant tool changes after `325dfcf` in `src/Barbican.Core/Settings/Assistant/AssistantTools.cs`: account-filtered calendars, configured timezone, bounded attachment reads, filter rule validation and composer prefill. Fake-server tests cover ordinary paths; shared-account and task-only calendar selection remain limited because Stalwart does not expose supported components in Calendar/get (Bulwark `lib/jmap/client.ts:9075-9145`). The actual composer adapter and reply prefill need integrated UI verification.
 - Review `tests/Barbican.FakeJmap/FakeApi.AccountSecurity.cs`: the request log now redacts OTP URLs as well as codes and passwords. Fake-only account tests cover identities, password, TOTP and credentials, but are not proof of real Stalwart security-write compatibility.
 - Review `src/Barbican.Core/Settings/Pages/SettingsCatalog.cs`: the two mention and four filename preferences were removed from the inert list after checking their concrete readers; the UI owner is reconciling the remaining settings CSV.
 
-- **Sol code check of `5ec4e27` found a calendar-rights bug:** `AssistantTools.CreateEventAsync` tested mailbox right `mayAddItems`; calendars use `mayWriteAll` / `mayWriteOwn`. The coordinator corrected the filter and extended the FakeJmap calendar test with a read-only default and writable fallback. All nine assistant-tool integration cases passed on Windows after the correction.
+- **Code check of `5ec4e27` found a calendar-rights bug:** `AssistantTools.CreateEventAsync` tested mailbox right `mayAddItems`; calendars use `mayWriteAll` / `mayWriteOwn`. The coordinator corrected the filter and extended the FakeJmap calendar test with a read-only default and writable fallback. All nine assistant-tool integration cases passed on Windows after the correction.
 
-## Codex - M6 integration UI (Terra High)
+## M6 integration UI
+
 - Review the Files row mapping and serialized read-modify-write in `SetUiRowRules` and `SetUiViewModel`; `FilesSettings` consumes the values, but `ShowThumbnails` currently has no thumbnail-rendering consumer. The test covers defaults, simultaneous edits, and invalid choices, not live Files rendering.
 - Review accessibility reset in `SetUiRowsView`: it resets only keys exclusive to the accessibility page, skips shared keys, asks first, and stops on a refused write; it is sequential and can be partial if a plugin vetoes a later key. Cross-links navigate to target pages, with shortcut help using the existing command.
 - Review `AvatarService.RefreshAsync`: it clears in-memory and profile-local image cache, discards pre-refresh jobs by generation, then notifies owners to re-query; guarded HTTP and source preferences remain in effect. A disk error reports failure and may leave a partial clear. Review concurrency and cache-directory trust.
@@ -1506,88 +1509,90 @@ launched; Linux unverified). Verdicts on the M2 verify items 1 to 6, 11, 12 and 
 - Assistant tool results for GetVacation and ListFilters contain server-controlled strings; review their prompt boundary and injection resistance alongside the existing email-data wrapping. No separate review was run.
 - The hidden sweep reached 16 dark pages before Assistant initialization asserted on profile file IO on the UI thread; the data owner is fixing initialization. No screenshot after the crash is treated as evidence.
 
-- **Sol coordinator check of `f0ca62f`:** inspected account-generation guards and the delayed quota/secret tests, generic setting actions, avatar queue/generation behavior and cache clearing. Requested a separate disk-IO lock because the refresh lock was also used by UI `TryGet`/`Request`; the close worker is correcting that UI-stall risk. Same-account overlapping edits and incomplete cache purges remain review considerations.
+- **Coordinator check of `f0ca62f`:** inspected account-generation guards and the delayed quota/secret tests, generic setting actions, avatar queue/generation behavior and cache clearing. Requested a separate disk-IO lock because the refresh lock was also used by UI `TryGet`/`Request`; the close worker is correcting that UI-stall risk. Same-account overlapping edits and incomplete cache purges remain review considerations.
 
-## Codex - M6 settings concurrency (Terra High)
+## M6 settings concurrency
 
 - Review `src/Barbican.Core/Settings/Prefs/SettingWriteGate.cs`, `SettingValues.cs`, `SettingBackup.cs`, `AssistantSettings.cs` and `src/Barbican.Presentation/Settings/Integration/AssistantSettingsStartup.cs`: the shared gate coordinates the M6 service paths and exports, but does not make the two-file import crash-atomic or cover legacy direct `IPrefsEditor` writers. Interceptors run outside the gate and retry up to three times on changed prior values; notifications run after release and may arrive out of application order under concurrent writes. PrefsStore itself invokes its synchronous Changed event inside the write call; a handler that synchronously waits on another gated write can still deadlock. Tests cover controlled import, retry, production DI and slow profile loading, not those legacy/reentrant paths.
 
-## Codex - approved Atlas and native polish direction (Sol)
+## Approved Atlas and native polish direction
 
-- User approved Atlas alongside Bento Balanced and Nordic Focus and requested modern WinUI 3 polish. Review `design/UI-GUIDELINES.md`, `CLAUDE.md` and the approved Atlas reference images when assessing later adoption: horizontal deck keyboard/list semantics, small-window reader height, palette contrast, sender-panel toggling, material fallbacks and reduced-motion behavior need native implementation evidence. The gallery selection/labels were checked by Terra and the coordinator inspected the synthetic image; this documentation checkpoint does not implement a third production style or prove native material/performance behavior.
+- User approved Atlas alongside Bento Balanced and Nordic Focus and requested modern WinUI 3 polish. Review `design/UI-GUIDELINES.md`, `CLAUDE.md` and the approved Atlas reference images when assessing later adoption: horizontal deck keyboard/list semantics, small-window reader height, palette contrast, sender-panel toggling, material fallbacks and reduced-motion behavior need native implementation evidence. The gallery selection/labels were checked by a worker and the coordinator inspected the synthetic image; this documentation checkpoint does not implement a third production style or prove native material/performance behavior.
 
-## Codex - Studio selection correction (Sol)
+## Studio selection correction
 
 - The user corrected the preceding Atlas selection to Studio. Current approved directions are Bento Balanced, Nordic Focus and Studio; Atlas is exploratory. `design/UI-GUIDELINES.md`, `CLAUDE.md`, handoff/progress and the gallery now record the corrected selection. Apply the modern WinUI polish requirements to these approved directions; verify Studio top-navigation focus order, context toggle, adaptive layout, palette contrast and material fallbacks during implementation. The preceding Atlas approval entry is historical and superseded.
 
-## Codex - M6 assistant history loading (Terra High)
+## M6 assistant history loading
 
 - Review `src/Barbican.Core/Settings/Assistant/AssistantSession.cs` and `IAssistantSession.cs`: `History` is memory-only and returns empty before `InitializeHistoryAsync`; load, ask and clear serialize per account, with file I/O outside the cache lock. The UI must call initialization on account/page changes and observe `Changed`; close integration owns that wiring. Tests cover slow reads, saved history reopening and clear during an in-flight ask; cancellation and I/O failure paths deserve further review.
 
-## Codex - M6 settings schema corrections (Terra High)
+## M6 settings schema corrections
 
 - Review `src/Barbican.Core/Settings/settings-schema.json`, `Pages/SettingRules.cs`, and their tests (D-M6-A14): static options and typed numeric values follow Bulwark `lib/accessibility-settings.ts`, `lib/sub-addressing.ts`, `lib/proofreading/languages.ts`, `lib/message-list-order.ts`, `lib/notification-sound.ts`, `lib/unread-first.ts`, `lib/compose-placement.ts`, and `stores/settings-store.ts`. Dynamic identity and policy relay choices are intentionally empty until supplied by their owning UI. The composite account marker requires the UI to write two booleans; the validator rejects string labels to protect prefs. Custom delimiter and installed-checker language choices require UI integration; test and visually verify those interactions.
 
-- **Sol integration code check:** reviewed per-account history serialization, memory-only snapshot reads, async initialization, numeric select coercion, malformed-choice removal and their regression tests in `e945533` / `6ccd3ab`. UI initialization and dynamic/composite controls remain close-pass requirements; the stream Windows suite passed 2,737 with four skips, pending final merged-head verification.
+- **Integration code check:** reviewed per-account history serialization, memory-only snapshot reads, async initialization, numeric select coercion, malformed-choice removal and their regression tests in `e945533` / `6ccd3ab`. UI initialization and dynamic/composite controls remain close-pass requirements; the stream Windows suite passed 2,737 with four skips, pending final merged-head verification.
 
-## Codex - M6 server message ordering (Sol)
+## M6 server message ordering
 
 - Review `Core/Mail/Lists/MessageListOrder.cs`, `Mail/Service/ListSortResolver.cs`, `ListPageFetcher.cs`, `Sync/ListDeltaFetcher.cs`, `MailSync.cs`, and `Presentation/Mail/MessageListViewModel.cs`: configured levels apply to server queries, pages and deltas; keyword polarity is probed read-only per client/account/session, with a one-minute inconclusive retry delay and a visible unsupported-keyword fallback. Email/get rows are reordered by query ids. Nonchronological rows suppress date headers to keep stable row keys unique. Eight Core order tests, 14 MailSync tests, 23 MessageListViewModel tests and one live-pref/scope regression passed on Windows. Unified global merge/paging and the actual Settings editor are owned by the close follow-ups; final full-suite and hidden UI evidence remain required. Text comparison across servers approximates their collation, as Bulwark does.
 
-## Codex - M6 account markers (Terra High)
+## M6 account markers
 
 Implemented merged/virtual message-row account tint and dot from composite row source IDs, using the existing four-color account avatar palette. Bulwark `components/email/thread-list-item.tsx` lines 117-125 and 551-590 informed marker precedence; signed-in source username and shared-account name identify rows. The tint yields to checked-row feedback, and higher contrast uses a dot. Preferences rebuild existing rows. Paths: `src/Barbican.Presentation/Mail/{MailListSettings,MessageListViewModel,MessageRowViewModel,RowContext}.cs`, `src/Barbican.App/Views/{Fmt.cs,List/MessageListView.xaml}`, and `tests/Barbican.Presentation.Tests/Mail/AccountMarkerTests.cs`.
 
-Validation: focused tests 3 passed, full Presentation suite 996 passed, Windows Automation head compiled with zero warnings. This verifies XAML compilation, not visual contrast or screen-reader output on a real desktop. Four palette colors can collide; source color metadata is not available in the current account model. The fake integration exercises two own accounts; shared-account naming follows existing `SharedSectionViewModel.NameOf` but is not separately exercised here. Astra should review actual light/dark/high-contrast rendering and selection/checked feedback.
+Validation: focused tests 3 passed, full Presentation suite 996 passed, Windows Automation head compiled with zero warnings. This verifies XAML compilation, not visual contrast or screen-reader output on a real desktop. Four palette colors can collide; source color metadata is not available in the current account model. The fake integration exercises two own accounts; shared-account naming follows existing `SharedSectionViewModel.NameOf` but is not separately exercised here. The reviewer should review actual light/dark/high-contrast rendering and selection/checked feedback.
 
-- **Sol code check:** preserved configured-order reload and date-header guards during merge. The row container still named only the subject, overriding the richer child name for list-item accessibility; the coordinator changed `MessageListView.xaml.cs` to use `row.AccessibleName`. Actual screen-reader and visual marker checks remain close-pass evidence.
+- **Code check:** preserved configured-order reload and date-header guards during merge. The row container still named only the subject, overriding the richer child name for list-item accessibility; the coordinator changed `MessageListView.xaml.cs` to use `row.AccessibleName`. Actual screen-reader and visual marker checks remain close-pass evidence.
 
-## Codex - calendar hook catalogue reconciliation (Sol)
+## Calendar hook catalogue reconciliation
 
 - Eight M4 hooks remained pending in `spec/plugins/hooks.csv` despite concrete existing call sites in CalendarViewModel, EventEditorViewModel.Save and TasksViewModel. The coordinator inspected those sites and corrected the catalogue references. This records implementation sites, not proof that all eight were invoked during an end-to-end plugin run; M6b compatibility verification must exercise observer/transform payloads and permissions against these surfaces.
 
-## Codex - assistant model validation (Sol)
+## Assistant model validation
 
 - Provider switching can clear a recognized old default model. `AssistantClient` now rejects a blank model before key lookup or HTTP; five offline provider-client cases passed, including both providers with a blank model. Custom models remain the UI owner's responsibility to preserve when switching. No external provider was contacted.
 
-### Codex — M6 calendar identity and view
+### M6 calendar identity and view
 
 - Review the calendar participant identity service and FakeJmap arm in `src/Barbican.Core/Calendar/CalendarParticipantIdentities.cs` and `tests/Barbican.FakeJmap/FakeApi.ParticipantIdentity.cs` (this commit): the selected address comes from `ParticipantIdentity/get` and `onSuccessSetIsDefault`; Stalwart silently ignores an unknown id so the service re-reads. Live writes were not run. Confirm account capabilities, error behavior and changes against the server during integration.
 - Review `src/Barbican.Presentation/Calendar/Editors/EventEditorViewModel.Save.cs` and `.../Calendar/Grid/CalendarViewModel.cs` (this commit): new events use the active account's default organizer without changing an existing event's organizer; account switches abort an in-flight lookup; calendar view writes are serialized. UI integration with the settings selector and live account switching remain to be verified.
 
-- **Sol code check of `76ab5ac`:** inspected ParticipantIdentity/get/set and effective-default verification, persisted month/week/day/agenda selection, new-event organizer preservation, production factory injection and monotonic account-version guards. Requested the A-to-B-to-A guard, selected organizer name, and production-composition regression; worker implemented them. Core identity tests (2), EventEditor tests (7) and calendar Presentation tests (118) passed in a clean verification worktree. Final merged Windows suite, Settings selector and hidden UI verification remain required; no live organizer write is claimed.
+- **Code check of `76ab5ac`:** inspected ParticipantIdentity/get/set and effective-default verification, persisted month/week/day/agenda selection, new-event organizer preservation, production factory injection and monotonic account-version guards. Requested the A-to-B-to-A guard, selected organizer name, and production-composition regression; worker implemented them. Core identity tests (2), EventEditor tests (7) and calendar Presentation tests (118) passed in a clean verification worktree. Final merged Windows suite, Settings selector and hidden UI verification remain required; no live organizer write is claimed.
 
-## Codex - M6 unified ordering and paging (Terra High)
+## M6 unified ordering and paging
 
 Review `src/Barbican.Core/Mail/Unified/{UnifiedFetcher,UnifiedListSource,UnifiedSourcePage}.cs`, `tests/Barbican.Core.Tests/Mail/Unified/UnifiedInboxTests.cs`, and the `tests/Barbican.FakeJmap` sort fixture. The unified source requests each account's resolved server ordering, fills server-capped reads, merges using the common semantic comparator and returns at most one global page while advancing only emitted rows. A keyword refusal re-reads all accounts with a common value-only order and produces a visible warning; an ordering change during a later page requires a fresh list. Refresh retains failed-source rows and totals, updates positions, and expresses reordered existing rows as remove/reinsert deltas.
 
 Windows verification: Core suite 1494 passed before the final two added refresh regressions; final focused UnifiedInboxTests 13 passed. The fake implements sorting for test purposes and is not a full JMAP collation implementation. Cross-server text collation remains approximate, as noted in the shared order review; a partial source failure cannot establish the missing server's current global rank. A missing Email/get row fails that source explicitly rather than silently advancing an incorrect cursor. Review race behavior if multiple paging and refresh calls overlap; their network reads are not serialized.
 
 
-## Codex - M6 unified operation fencing follow-up (Terra High)
+## M6 unified operation fencing follow-up
 
 The earlier concurrent-read concern above is addressed in `UnifiedListSource`: an async operation gate serializes refresh and paging, and first-page requests and reset advance a generation that fences older responses before state can commit. Disposal waits to release the gate until in-flight and queued operations leave. `UnifiedInbox.Dispose` owns source disposal. `ListDelta.Warning` carries keyword fallback discovered on refresh; the Presentation handler must display it. Controlled delayed tests cover older first pages, refresh versus load-more, query switches during refresh, disposal with a waiter, and refusal during refresh. Windows focused verification: UnifiedInboxTests 18 passed; unified Presentation tests 23 passed. Cross-server collation and temporarily unavailable source rank remain limitations from the previous note.
 
-- **Sol code check:** reviewed global consumed-row cursors, capped-server window filling, common unsupported-keyword fallback, reordering deltas and missing-row failure behavior. Requested generation fencing/serialized operations with safe disposal and refresh warning propagation; `8946a5b` addresses those with controlled delayed tests. The coordinator wired `ListDelta.Warning` into the visible list status and added a Presentation regression. Worker focused Core unified tests (18) and Presentation unified tests (23) passed; final merged suite remains the integration gate.
+- **Code check:** reviewed global consumed-row cursors, capped-server window filling, common unsupported-keyword fallback, reordering deltas and missing-row failure behavior. Requested generation fencing/serialized operations with safe disposal and refresh warning propagation; `8946a5b` addresses those with controlled delayed tests. The coordinator wired `ListDelta.Warning` into the visible list status and added a Presentation regression. Worker focused Core unified tests (18) and Presentation unified tests (23) passed; final merged suite remains the integration gate.
 
-## Codex - M6 srv-ui (Terra High)
+## M6 srv-ui
+
 - Review the server pages, dialogs and view models introduced in 36efd7d (`src/Barbican.App/Views/SettingsServer/`, `src/Barbican.Presentation/Settings/Server/`): sample-only hidden checks cover rendering, not a real account, real pointer or IME. Verify each interaction and service error path after data integration.
 - Review threading in `SrvUiPageModel` and its six derived page view models: service results are dispatched before state mutation and discarded if the active account changed. The queued-dispatcher test covers filter load; real service events and overlapping same-account requests remain integration checks.
 - Review the selection and text-entry tradeoffs in `SrvUiKit`, `SrvUiVacationPage`, and `SrvUiTemplatesPage` (D-M6-D04/D05): cycling choices require repeated presses, dates are typed, template import/export is pasted text and HTML is edited as source. Validate accessibility and parity.
 - Requests to integrator: wire and test real data adapters and all six pages against merged services; inspect `spec/interactions.csv` and `spec/settings.csv` before claiming completion, as this stream has not asserted those rows. The plan's frozen settings seam is required to replace the stub screen.
 - The sample-only screenshots in docs/milestones/M6-screens/srv-ui/ show the six pages and three settled dialogs from the Automation build before the dispatcher changes; repeat them after integration. A retry of the apply capture shows the underlying page and dialog in WGC; XAML capture omits the overlay. Identity name retained focus and Sample UserABC after three successive type commands. Draft setters are plain properties, so those changes do not themselves invalidate the page; a later service reload can still replace an in-progress draft.
 
-- **Sol coordinator checks of srv-ui `1332306`:** inspected `SrvUiPageModel`, the filter/folder result paths, `SrvUiIdentitiesPage`, the settings-page factories and feature registration. The dispatched result helper drops a result for a different active account; same-account overlap/draft replacement still needs integration checks. Verified that identity draft setters are plain properties, so no per-keystroke PropertyChanged rebuild was established; the worker also exercised successive typing. Inspected synthetic identity, vacation and settled Apply captures.
+- **Coordinator checks of srv-ui `1332306`:** inspected `SrvUiPageModel`, the filter/folder result paths, `SrvUiIdentitiesPage`, the settings-page factories and feature registration. The dispatched result helper drops a result for a different active account; same-account overlap/draft replacement still needs integration checks. Verified that identity draft setters are plain properties, so no per-keystroke PropertyChanged rebuild was established; the worker also exercised successive typing. Inspected synthetic identity, vacation and settled Apply captures.
 
-## Codex - M6 set-data integration follow-up
+## M6 set-data integration follow-up
 
 - Review assistant tool changes after `325dfcf` in `src/Barbican.Core/Settings/Assistant/AssistantTools.cs`: account-filtered calendars, configured timezone, bounded attachment reads, filter rule validation and composer prefill. Fake-server tests cover ordinary paths; shared-account and task-only calendar selection remain limited because Stalwart does not expose supported components in Calendar/get (Bulwark `lib/jmap/client.ts:9075-9145`). The actual composer adapter and reply prefill need integrated UI verification.
 - Review `tests/Barbican.FakeJmap/FakeApi.AccountSecurity.cs`: the request log now redacts OTP URLs as well as codes and passwords. Fake-only account tests cover identities, password, TOTP and credentials, but are not proof of real Stalwart security-write compatibility.
 - Review `src/Barbican.Core/Settings/Pages/SettingsCatalog.cs`: the two mention and four filename preferences were removed from the inert list after checking their concrete readers; the UI owner is reconciling the remaining settings CSV.
 
-- **Sol code check of `5ec4e27` found a calendar-rights bug:** `AssistantTools.CreateEventAsync` tested mailbox right `mayAddItems`; calendars use `mayWriteAll` / `mayWriteOwn`. The coordinator corrected the filter and extended the FakeJmap calendar test with a read-only default and writable fallback. All nine assistant-tool integration cases passed on Windows after the correction.
+- **Code check of `5ec4e27` found a calendar-rights bug:** `AssistantTools.CreateEventAsync` tested mailbox right `mayAddItems`; calendars use `mayWriteAll` / `mayWriteOwn`. The coordinator corrected the filter and extended the FakeJmap calendar test with a read-only default and writable fallback. All nine assistant-tool integration cases passed on Windows after the correction.
 
-## Codex - M6 integration UI (Terra High)
+## M6 integration UI
+
 - Review the Files row mapping and serialized read-modify-write in `SetUiRowRules` and `SetUiViewModel`; `FilesSettings` consumes the values, but `ShowThumbnails` currently has no thumbnail-rendering consumer. The test covers defaults, simultaneous edits, and invalid choices, not live Files rendering.
 - Review accessibility reset in `SetUiRowsView`: it resets only keys exclusive to the accessibility page, skips shared keys, asks first, and stops on a refused write; it is sequential and can be partial if a plugin vetoes a later key. Cross-links navigate to target pages, with shortcut help using the existing command.
 - Review `AvatarService.RefreshAsync`: it clears in-memory and profile-local image cache, discards pre-refresh jobs by generation, then notifies owners to re-query; guarded HTTP and source preferences remain in effect. A disk error reports failure and may leave a partial clear. Review concurrency and cache-directory trust.
@@ -1598,149 +1603,149 @@ The earlier concurrent-read concern above is addressed in `UnifiedListSource`: a
 - Assistant tool results for GetVacation and ListFilters contain server-controlled strings; review their prompt boundary and injection resistance alongside the existing email-data wrapping. No separate review was run.
 - The hidden sweep reached 16 dark pages before Assistant initialization asserted on profile file IO on the UI thread; the data owner is fixing initialization. No screenshot after the crash is treated as evidence.
 - Remaining keyless rows for notification enablement, tour, language, protocol handlers, spellcheck are explicitly labeled unavailable in the generic view. Contacts import/export rows open Contacts rather than directly invoking the file workflows. These remain incomplete, not claimed as finished. Calendar working days use seven in-window toggles over calendarWorkingDays; concurrent day edits are serialized. Calendar view, organizer identity and message order are being connected to their respective service contracts.
-- Sol code check of `f0ca62f` found the avatar refresh lock could hold disk IO while `TryGet` waited. Follow-up separates the background-only disk lock from the short state lock, with disk-before-state lock ordering. The delayed-fetch regression verifies old work cannot repopulate the cache; a deliberately slow filesystem was not simulated.
+- the coordinator code check of `f0ca62f` found the avatar refresh lock could hold disk IO while `TryGet` waited. Follow-up separates the background-only disk lock from the short state lock, with disk-before-state lock ordering. The delayed-fetch regression verifies old work cannot repopulate the cache; a deliberately slow filesystem was not simulated.
 
-- **Sol coordinator check of `f0ca62f`:** inspected account-generation guards and the delayed quota/secret tests, generic setting actions, avatar queue/generation behavior and cache clearing. Requested a separate disk-IO lock because the refresh lock was also used by UI `TryGet`/`Request`; the close worker is correcting that UI-stall risk. Same-account overlapping edits and incomplete cache purges remain review considerations.
+- **Coordinator check of `f0ca62f`:** inspected account-generation guards and the delayed quota/secret tests, generic setting actions, avatar queue/generation behavior and cache clearing. Requested a separate disk-IO lock because the refresh lock was also used by UI `TryGet`/`Request`; the close worker is correcting that UI-stall risk. Same-account overlapping edits and incomplete cache purges remain review considerations.
 
-## Codex - M6 settings concurrency (Terra High)
+## M6 settings concurrency
 
 - Review `src/Barbican.Core/Settings/Prefs/SettingWriteGate.cs`, `SettingValues.cs`, `SettingBackup.cs`, `AssistantSettings.cs` and `src/Barbican.Presentation/Settings/Integration/AssistantSettingsStartup.cs`: the shared gate coordinates the M6 service paths and exports, but does not make the two-file import crash-atomic or cover legacy direct `IPrefsEditor` writers. Interceptors run outside the gate and retry up to three times on changed prior values; notifications run after release and may arrive out of application order under concurrent writes. PrefsStore itself invokes its synchronous Changed event inside the write call; a handler that synchronously waits on another gated write can still deadlock. Tests cover controlled import, retry, production DI and slow profile loading, not those legacy/reentrant paths.
 
-## Codex - approved Atlas and native polish direction (Sol)
+## Approved Atlas and native polish direction
 
-- User approved Atlas alongside Bento Balanced and Nordic Focus and requested modern WinUI 3 polish. Review `design/UI-GUIDELINES.md`, `CLAUDE.md` and the approved Atlas reference images when assessing later adoption: horizontal deck keyboard/list semantics, small-window reader height, palette contrast, sender-panel toggling, material fallbacks and reduced-motion behavior need native implementation evidence. The gallery selection/labels were checked by Terra and the coordinator inspected the synthetic image; this documentation checkpoint does not implement a third production style or prove native material/performance behavior.
+- User approved Atlas alongside Bento Balanced and Nordic Focus and requested modern WinUI 3 polish. Review `design/UI-GUIDELINES.md`, `CLAUDE.md` and the approved Atlas reference images when assessing later adoption: horizontal deck keyboard/list semantics, small-window reader height, palette contrast, sender-panel toggling, material fallbacks and reduced-motion behavior need native implementation evidence. The gallery selection/labels were checked by a worker and the coordinator inspected the synthetic image; this documentation checkpoint does not implement a third production style or prove native material/performance behavior.
 
-## Codex - Studio selection correction (Sol)
+## Studio selection correction
 
 - The user corrected the preceding Atlas selection to Studio. Current approved directions are Bento Balanced, Nordic Focus and Studio; Atlas is exploratory. `design/UI-GUIDELINES.md`, `CLAUDE.md`, handoff/progress and the gallery now record the corrected selection. Apply the modern WinUI polish requirements to these approved directions; verify Studio top-navigation focus order, context toggle, adaptive layout, palette contrast and material fallbacks during implementation. The preceding Atlas approval entry is historical and superseded.
 
-## Codex - M6 assistant history loading (Terra High)
+## M6 assistant history loading
 
 - Review `src/Barbican.Core/Settings/Assistant/AssistantSession.cs` and `IAssistantSession.cs`: `History` is memory-only and returns empty before `InitializeHistoryAsync`; load, ask and clear serialize per account, with file I/O outside the cache lock. The UI must call initialization on account/page changes and observe `Changed`; close integration owns that wiring. Tests cover slow reads, saved history reopening and clear during an in-flight ask; cancellation and I/O failure paths deserve further review.
 
-## Codex - M6 settings schema corrections (Terra High)
+## M6 settings schema corrections
 
 - Review `src/Barbican.Core/Settings/settings-schema.json`, `Pages/SettingRules.cs`, and their tests (D-M6-A14): static options and typed numeric values follow Bulwark `lib/accessibility-settings.ts`, `lib/sub-addressing.ts`, `lib/proofreading/languages.ts`, `lib/message-list-order.ts`, `lib/notification-sound.ts`, `lib/unread-first.ts`, `lib/compose-placement.ts`, and `stores/settings-store.ts`. Dynamic identity and policy relay choices are intentionally empty until supplied by their owning UI. The composite account marker requires the UI to write two booleans; the validator rejects string labels to protect prefs. Custom delimiter and installed-checker language choices require UI integration; test and visually verify those interactions.
 
-- **Sol integration code check:** reviewed per-account history serialization, memory-only snapshot reads, async initialization, numeric select coercion, malformed-choice removal and their regression tests in `e945533` / `6ccd3ab`. UI initialization and dynamic/composite controls remain close-pass requirements; the stream Windows suite passed 2,737 with four skips, pending final merged-head verification.
+- **Integration code check:** reviewed per-account history serialization, memory-only snapshot reads, async initialization, numeric select coercion, malformed-choice removal and their regression tests in `e945533` / `6ccd3ab`. UI initialization and dynamic/composite controls remain close-pass requirements; the stream Windows suite passed 2,737 with four skips, pending final merged-head verification.
 - The composite account marker writes `tintListRowsByAccount` and `showAccountDot` sequentially; a veto on the second write can leave a partial change and is surfaced as an error. Calendar start/end edits also use ordered writes and can be partial on a later refusal. Custom sub-address delimiters and writing-language tags use the shared validated service.
 - `SetUiOrderEditor` maps in-window presets and up to three ordered levels to the coordinator's `MessageListOrder` data contract. Review dynamic tag choices, duplicate prevention, queued writes, server-capability feedback and large-text layout. Organizer selection in `SetUiCalendarIdentityEditor` must be checked against the final real service and on account switches.
 
-## Codex - M6 server message ordering (Sol)
+## M6 server message ordering
 
 - Review `Core/Mail/Lists/MessageListOrder.cs`, `Mail/Service/ListSortResolver.cs`, `ListPageFetcher.cs`, `Sync/ListDeltaFetcher.cs`, `MailSync.cs`, and `Presentation/Mail/MessageListViewModel.cs`: configured levels apply to server queries, pages and deltas; keyword polarity is probed read-only per client/account/session, with a one-minute inconclusive retry delay and a visible unsupported-keyword fallback. Email/get rows are reordered by query ids. Nonchronological rows suppress date headers to keep stable row keys unique. Eight Core order tests, 14 MailSync tests, 23 MessageListViewModel tests and one live-pref/scope regression passed on Windows. Unified global merge/paging and the actual Settings editor are owned by the close follow-ups; final full-suite and hidden UI evidence remain required. Text comparison across servers approximates their collation, as Bulwark does.
 
-## Codex - M6 account markers (Terra High)
+## M6 account markers
 
 Implemented merged/virtual message-row account tint and dot from composite row source IDs, using the existing four-color account avatar palette. Bulwark `components/email/thread-list-item.tsx` lines 117-125 and 551-590 informed marker precedence; signed-in source username and shared-account name identify rows. The tint yields to checked-row feedback, and higher contrast uses a dot. Preferences rebuild existing rows. Paths: `src/Barbican.Presentation/Mail/{MailListSettings,MessageListViewModel,MessageRowViewModel,RowContext}.cs`, `src/Barbican.App/Views/{Fmt.cs,List/MessageListView.xaml}`, and `tests/Barbican.Presentation.Tests/Mail/AccountMarkerTests.cs`.
 
-Validation: focused tests 3 passed, full Presentation suite 996 passed, Windows Automation head compiled with zero warnings. This verifies XAML compilation, not visual contrast or screen-reader output on a real desktop. Four palette colors can collide; source color metadata is not available in the current account model. The fake integration exercises two own accounts; shared-account naming follows existing `SharedSectionViewModel.NameOf` but is not separately exercised here. Astra should review actual light/dark/high-contrast rendering and selection/checked feedback.
+Validation: focused tests 3 passed, full Presentation suite 996 passed, Windows Automation head compiled with zero warnings. This verifies XAML compilation, not visual contrast or screen-reader output on a real desktop. Four palette colors can collide; source color metadata is not available in the current account model. The fake integration exercises two own accounts; shared-account naming follows existing `SharedSectionViewModel.NameOf` but is not separately exercised here. The reviewer should review actual light/dark/high-contrast rendering and selection/checked feedback.
 
-- **Sol code check:** preserved configured-order reload and date-header guards during merge. The row container still named only the subject, overriding the richer child name for list-item accessibility; the coordinator changed `MessageListView.xaml.cs` to use `row.AccessibleName`. Actual screen-reader and visual marker checks remain close-pass evidence.
+- **Code check:** preserved configured-order reload and date-header guards during merge. The row container still named only the subject, overriding the richer child name for list-item accessibility; the coordinator changed `MessageListView.xaml.cs` to use `row.AccessibleName`. Actual screen-reader and visual marker checks remain close-pass evidence.
 
-## Codex - calendar hook catalogue reconciliation (Sol)
+## Calendar hook catalogue reconciliation
 
 - Eight M4 hooks remained pending in `spec/plugins/hooks.csv` despite concrete existing call sites in CalendarViewModel, EventEditorViewModel.Save and TasksViewModel. The coordinator inspected those sites and corrected the catalogue references. This records implementation sites, not proof that all eight were invoked during an end-to-end plugin run; M6b compatibility verification must exercise observer/transform payloads and permissions against these surfaces.
 
-## Codex - assistant model validation (Sol)
+## Assistant model validation
 
 - Provider switching can clear a recognized old default model. `AssistantClient` now rejects a blank model before key lookup or HTTP; five offline provider-client cases passed, including both providers with a blank model. Custom models remain the UI owner's responsibility to preserve when switching. No external provider was contacted.
 
-### Codex — M6 calendar identity and view
+### M6 calendar identity and view
 
 - Review the calendar participant identity service and FakeJmap arm in `src/Barbican.Core/Calendar/CalendarParticipantIdentities.cs` and `tests/Barbican.FakeJmap/FakeApi.ParticipantIdentity.cs` (this commit): the selected address comes from `ParticipantIdentity/get` and `onSuccessSetIsDefault`; Stalwart silently ignores an unknown id so the service re-reads. Live writes were not run. Confirm account capabilities, error behavior and changes against the server during integration.
 - Review `src/Barbican.Presentation/Calendar/Editors/EventEditorViewModel.Save.cs` and `.../Calendar/Grid/CalendarViewModel.cs` (this commit): new events use the active account's default organizer without changing an existing event's organizer; account switches abort an in-flight lookup; calendar view writes are serialized. UI integration with the settings selector and live account switching remain to be verified.
 
-- **Sol code check of `76ab5ac`:** inspected ParticipantIdentity/get/set and effective-default verification, persisted month/week/day/agenda selection, new-event organizer preservation, production factory injection and monotonic account-version guards. Requested the A-to-B-to-A guard, selected organizer name, and production-composition regression; worker implemented them. Core identity tests (2), EventEditor tests (7) and calendar Presentation tests (118) passed in a clean verification worktree. Final merged Windows suite, Settings selector and hidden UI verification remain required; no live organizer write is claimed.
+- **Code check of `76ab5ac`:** inspected ParticipantIdentity/get/set and effective-default verification, persisted month/week/day/agenda selection, new-event organizer preservation, production factory injection and monotonic account-version guards. Requested the A-to-B-to-A guard, selected organizer name, and production-composition regression; worker implemented them. Core identity tests (2), EventEditor tests (7) and calendar Presentation tests (118) passed in a clean verification worktree. Final merged Windows suite, Settings selector and hidden UI verification remain required; no live organizer write is claimed.
 
-## Codex - M6 srv-ui (Terra High)
+## M6 srv-ui
 
 - Account settings now exposes default and reorder through IAccountMaintenance and listens to IAccountOverview on the UI dispatcher while loaded. Test multiple accounts, failed saves, accessible control names and rapid reorder on a real account; the sample uses fake account services.
 - The M6 interaction inventory was reconciled with source evidence and explicit planned deferrals. Partial rows identify remaining behavior and verification, not complete feature parity. Settings reader references were updated only where concrete source reads were found.
 - Full Windows Automation suite on merged 992c68f plus this work passed 2772 tests with four skips; the earlier attempt with the VSTest Filter parameter ran no tests because it conflicts with the MTP trait filter. Final integrated-head tests and screenshots remain required.
 
-- **Sol integration code check of `f51af40`:** inspected compound calendar/marker writes, string scope validation, async assistant initialization/history and provider switching, order/organizer editor lifecycle, and account default/reorder notification wiring. Synthetic first-open Assistant and advanced order-editor captures were inspected. The avatar disk-lock correction is included. General/notification/OS features retain explicit later-milestone limitations; accessibility quick panel, archive reorganization and remaining preference-reader audit are being completed before M6 closure. No final combined build or real write is claimed by this merge.
+- **Integration code check of `f51af40`:** inspected compound calendar/marker writes, string scope validation, async assistant initialization/history and provider switching, order/organizer editor lifecycle, and account default/reorder notification wiring. Synthetic first-open Assistant and advanced order-editor captures were inspected. The avatar disk-lock correction is included. General/notification/OS features retain explicit later-milestone limitations; accessibility quick panel, archive reorganization and remaining preference-reader audit are being completed before M6 closure. No final combined build or real write is claimed by this merge.
 
-## Codex - M6 search preference consumers (Sol)
+## M6 search preference consumers
 
 - `MessageListViewModel` now consumes clearSearchOnFolderChange (default false) and searchDefaultScope (default all), following Bulwark defaults. Clearing a global search restores the browsing folder; explicit tag searches keep tag scope. `SearchListQueryShaper` uses GlobalMailFilter for all-folder searches so Trash/Junk are excluded unless explicitly requested. Queries are shaped before being stored/watched, preserving the same filter for initial page, paging and push deltas. Four new scope/preservation/watch regressions passed; the full Windows Presentation suite passed 1,016 tests. The prior folder-search test now explicitly selects the folder preference and retains its assertions. Final full-suite/hidden actual-service verification remain required.
 
-## Codex - M6 archive reorganization (Terra High)
+## M6 archive reorganization
 
 Review `src/Barbican.Core/Mail/Archive/{IArchiveReorganizer,ArchiveReorganizationReport,ArchiveReorganizer,ArchiveSnapshot}.cs`, settings registration, and `tests/Barbican.Core.Tests/Mail/ArchiveReorganizerTests.cs`. Bulwark `components/settings/message-list-settings.tsx:82-145` and `lib/jmap/client.ts:3204,4134` define root-only dated grouping, folder creation and move hooks. The service captures the requested account session, requires a stable complete paged snapshot before writing, respects object-set limits and reports known, unattempted and unknown outcomes. Single mode is a no-op; missing dates and plugin-vetoed groups are skipped. It uses the existing whole-mailbox-set move semantics.
 
 Nine fake-server tests pass on Windows: capped paging in year/month modes, existing folders, read-only, account isolation, folder/move veto, successful hook payloads, cancellation and later-chunk failure. No live writes performed. A transport failure or cancellation during a write can leave its server outcome unknown, explicitly reported; a remote mailbox can still change after the completed scan, so review retry/refresh messaging and confirmation in the UI. The Settings UI owns confirmation and report display.
 
 
-## Codex - M6 archive membership preservation (Terra High)
+## M6 archive membership preservation
 
 The archive reorganization now removes only the root Archive membership while adding the dated destination, preserving other mailbox labels. This deliberately differs from Bulwark `batchMoveEmails`, which replaces all mailbox IDs. The existing `JsonNodeExtensions.AsNumber` rejects negative and fractional totals before conversion; service-level tests pin refusal before any writes.
 
-## Codex - M6 archive UI and anchor follow-up (Terra High)
+## M6 archive UI and anchor follow-up
 
 - Review the archive action in SetUiRowsView: it captures account and account generation, confirms before writing, serializes repeated presses, requests mail and folder refresh, and retains detailed known/unknown outcomes in page text. Account changes suppress late results. The test profile opened and cancelled the confirmation; no real archive write was run. Verify the account generation against rapid switches and inspect lengthy partial-result accessibility.
 - A first-open anchor initially stayed at the top because the asynchronous Info refresh rebuilt the rows. RowsView reapplies the active anchor after rebuilding and waits for nonzero geometry, with stale requests detached on unload or navigation; the hidden cold archive-anchor capture now shows the requested row. Review rapid navigation and scroll restoration under I-397.
 - Full Windows Automation suite for 7c0c847 plus archive UI and anchor work passed 2796 tests with four skips; Windows and desktop heads built with zero warnings. Final milestone-merged tests remain required.
 
-- **Sol integration code check:** reviewed stable pre-write scan, captured account, chunk outcomes, plugin vetoes and partial/cancel reporting. Requested preservation of unrelated mailbox memberships; the follow-up implements it with regression coverage (12 archive tests). Inspected all six synthetic captures and corrected Backup tiles in both contact sheets to use a sample relative path. This checkpoint applies the reviewed source and corrected captures without importing the earlier path-bearing screenshot commit into m6 ancestry. Final merged verification and portable packaging remain pending.
+- **Integration code check:** reviewed stable pre-write scan, captured account, chunk outcomes, plugin vetoes and partial/cancel reporting. Requested preservation of unrelated mailbox memberships; the follow-up implements it with regression coverage (12 archive tests). Inspected all six synthetic captures and corrected Backup tiles in both contact sheets to use a sample relative path. This checkpoint applies the reviewed source and corrected captures without importing the earlier path-bearing screenshot commit into m6 ancestry. Final merged verification and portable packaging remain pending.
 
-## Codex — M6 preference persistence on close
+## M6 preference persistence on close
 
 - Review `src/Barbican.App/Shell/WindowCloseController.cs` and the optional automation close callback: native Windows close is cancelled until the debounced preference store flushes, then close is posted to the UI dispatcher. I/O failure leaves the window open with an error toast. This fixes changes lost when closing within the 300 ms debounce. Linux native close remains deferred to M9.
 - Windows Automation build passed. Three isolated synthetic immediate-write/close/restart cycles preserved false, true, then removal of `groupListByDate`; each process exited naturally in 5.0–5.2 seconds. The final preference was restored to absent and the owned process stopped. Hidden checks prove the programmatic route; the system close affordance was code-reviewed rather than driven with real input.
 - User-approved temporary `m6-srv-ui` history sanitization was verified: the remote now points to clean `bdfce6b`, excluding the earlier path-bearing screenshots from branch ancestry. This does not assert removal of unreachable server caches.
 
-## Codex - M6 verification-code preference (Terra High)
+## M6 verification-code preference
 
 Review `Presentation/Reader/VerificationCodeBannerSource.cs`, `Presentation/Mail/{ReaderViewModel,MessageListViewModel,MessageRowViewModel,RowContext,MailListSettings}.cs`, the production reader factory, and the list and body views. `showVerificationCodes` gates fresh reader and list codes; existing body loading remains unchanged. Chips expire automatically using the injected clock, with five minutes of future-clock slack, and list copying rechecks current row, setting, and age. Reader copying uses the injected clipboard service and rejects a stale banner. Synthetic tests cover preference toggles, late banners, DI, preview-hidden extraction, freshness and fake clipboard; no real clipboard or message data was used.
 
 Focused tests 3 passed after the expiry timer addition; the full Presentation suite passed 1019 before that addition. Windows Automation head built with zero warnings after the change. Review real keyboard/pointer routing and screen-reader interaction for the list button, and live themes; no real desktop input or visual evidence was taken.
 
 
-## Codex - M6 tag row tint (Terra High)
+## M6 tag row tint
 
 `tintListRowsByTag` now tints list rows from the first tag in the existing configured tag order, using the same accessibility-adjusted color as the tag chip; account tint takes precedence, and higher-contrast and checked rows suppress the subtle fill. The setting remains independent of tag-chip visibility. Bulwark `components/email/thread-list-item.tsx:573-590` defines precedence. Focused tests 3 passed and Windows Automation head compiled with zero warnings. Verify light, dark, selected and high-contrast appearance with a screen reader and real interaction during integrated visual review; no real desktop input was used.
 
 
-## Codex - M6 attachment activation preference (Terra High)
+## M6 attachment activation preference
 
 `mailAttachmentAction` is read at attachment command execution: default preview uses the existing image/text/eml dialog and plugin transform; download or an unsupported/oversized preview uses Save as, never an OS file association. Normal card activation uses the same registered command and captured `MailTarget.OfOpen`; right-click retains MENU-ATT, whose preference-aware command is labeled Open. Direct execution rejects a stale attachment. Review `Core/Mail/Attachments/IAttachmentSaver.cs`, `Presentation/Reader/{ReaderCommands,ReaderMenus}.cs`, `App/Views/Reader/{ReaderMenuOpener,ReaderView.xaml.cs}` and reader composition. Bulwark references: `components/email/email-viewer.tsx:3370-3450`, `reader-attachments.tsx`.
 
 Windows full Presentation suite passed 1027; Automation WinUI head built with zero warnings. Five synthetic tests cover live preference, explicit save, unsupported and oversized fallback, and unified shared-account targeting; no external network or clipboard was used. Native pointer/keyboard activation and actual dialog/failure toasts remain integrated UI checks. The pre-existing preview download limit is based on advertised attachment size; `AttachmentSaver` currently buffers the actual download without enforcing that limit during streaming, which needs a separate bounded-download review.
 
 
-## Codex - M6 bounded attachment preview (Terra High)
+## M6 bounded attachment preview
 
 The advertised-size-only risk in the preceding note is addressed in `Core/Mail/Attachments/AttachmentSaver.cs`: preview reads at most 12 MiB plus one byte before refusing, without buffering the rest, and disposes the source on success, refusal or cancellation. Explicit saves and raw-message downloads retain their previous behavior. Six focused AttachmentSaver tests passed on Windows, including synthetic underreported oversized content, cancellation and a small successful stream; no live endpoint or write was used.
 
-### Codex — M6 accessibility quick panel (Terra High)
+### M6 accessibility quick panel
 
-- **Implementation and risks for Astra:** the `app.accessibility` command now opens the in-window panel through the existing shortcut, palette and optional rail entry. Quick choices and seven reference presets write the shared settings service; the panel offers preset undo. `src/Barbican.App/Theme/StyleState.cs` updates selected common dimensions from the live accessibility model, including primary list/sidebar text, quick-panel controls, rail and compose target sizes, and native focus thickness; `ToolbarLabelVisibility`, `ToolbarIconVisibility`, `SecondaryLabelVisibility` and `ShowToolbarLabels` are provided for reader integration. Off retains a minimum native focus outline intentionally. This is not global text scaling. `docs/milestones/M6-accessibility-quick-evidence.md` lists every fixed-size XAML view discovered, preset effects without established native consumers, and the pending font packaging and focus verification. Reference font assets were found as WOFF2; native packaging remains a separate stage.
+- **Implementation and risks for the reviewer:** the `app.accessibility` command now opens the in-window panel through the existing shortcut, palette and optional rail entry. Quick choices and seven reference presets write the shared settings service; the panel offers preset undo. `src/Barbican.App/Theme/StyleState.cs` updates selected common dimensions from the live accessibility model, including primary list/sidebar text, quick-panel controls, rail and compose target sizes, and native focus thickness; `ToolbarLabelVisibility`, `ToolbarIconVisibility`, `SecondaryLabelVisibility` and `ShowToolbarLabels` are provided for reader integration. Off retains a minimum native focus outline intentionally. This is not global text scaling. `docs/milestones/M6-accessibility-quick-evidence.md` lists every fixed-size XAML view discovered, preset effects without established native consumers, and the pending font packaging and focus verification. Reference font assets were found as WOFF2; native packaging remains a separate stage.
 - **Evidence:** worktree based on `e28d4b2` plus this change: Windows Automation build passed; Core A11y tests 4/4 and production Menus composition/shortcut tests 2/2 passed. The isolated hidden sample verified shortcut/rail routing, contrast persistence, Motion preset and undo, Accessibility navigation, and constrained popup behavior. Normal and 1.5x captures were nonuniform and visually inspected. The non-activated hidden sample returned no focused XAML element and simulated Tab was unhandled; focus, trapping/restoration and a visible keyboard-focus screenshot are not established. No Linux/Uno, real-account write, real input or global scaling claim.
 
 - **Font-stage follow-up:** `src/Barbican.App/Assets/Fonts/` bundles unmodified native Atkinson Hyperlegible Next 2.001, Lexend 1.007 and OpenDyslexic 0.920 regular/bold, matching the Bulwark reference versions, with verbatim OFL notices and source/hash inventory. Windows Automation output included assets; the hidden sample visibly changed between all three families. Primary bold controls use OpenDyslexic Bold; dynamic-weight rows, unsupported-glyph fallback and Uno/Skia variable-font behavior still require proof. Privacy checking has a narrowly scoped exception for the upstream public author contact in the one mandatory license file; the same contact elsewhere is rejected and the hard private-pattern scan remains unchanged.
 
-## Codex - M6 reader stale-result guards (Terra High)
+## M6 reader stale-result guards
 
 Attachment commands now check the current active account along with the open message id, and recheck that account and the original body instance after an asynchronous preview read before presenting it. The production reader factory supplies the active account; an already-open preview's Save callback deliberately keeps its captured target. Late verification-code banners are revalidated against the current message and expiry before insertion. Synthetic tests cover colliding plain ids across accounts, delayed account or body changes, captured preview saves, and expiry before a late banner. AttachmentActionTests 9 passed, VerificationCodePreferencesTests 3 passed, and the Windows Automation head compiled with zero warnings. No real account write, network or clipboard was used.
 
-- **Codex close portability follow-up:** the full Automation solution build caught Windows-only approval state and a platform-dependent instance-method analyzer warning in `WindowCloseController`; both are now scoped explicitly. Both App targets compiled. The first combined test run passed 2,814 with four skips and exposed three headless composition failures from eager accessibility-dialog resolution, assigned for correction before the final rerun.
+- **Close portability follow-up:** the full Automation solution build caught Windows-only approval state and a platform-dependent instance-method analyzer warning in `WindowCloseController`; both are now scoped explicitly. Both App targets compiled. The first combined test run passed 2,814 with four skips and exposed three headless composition failures from eager accessibility-dialog resolution, assigned for correction before the final rerun.
 
-### Codex — M6 toolbar and Compose placement (Terra High)
+### M6 toolbar and Compose placement
 
 - `showToolbarLabels` now controls reader action text in both Bento and Nordic; icons remain visible when text is hidden, and simple mode forces labels as in the reference. `composePlacement` defaults unknown or unset values to floating over the list, with sidebar and rail alternatives; each surface runs `CommandIds.Compose` for the active account. The list viewport reserves space beneath its rows for the floating control. Reference: `<bulwark>/lib/compose-placement.ts`, `components/email/email-viewer.tsx:1808`, `components/layout/navigation-rail.tsx:289` and `components/layout/sidebar.tsx:1773`. Native mountain-view and Pro layouts are not implemented by this change.
 - A preset undo that encounters a settings-write failure now retains all un-restored entries for retry. The accessibility command now resolves its dialog adapter lazily: headless composition can build a registry, while invoking the command without an adapter still fails explicitly.
 - Evidence: full Presentation suite 1,019/1,019 passed; added headless missing-adapter regression 4/4 AppComposition tests passed; Automation Windows build succeeded. Hidden synthetic profile on port 8921 opened a new composer from each of the three locations, showed both toolbar states in both themes, and showed labels when simple mode was on. An initially obscured row was fixed by reserving the viewport; the final nonuniform capture was visually inspected. The sample preferences touched by this work were reset and the sample process stopped. Linux/Uno and actual keyboard focus remain unverified.
 
-## Codex - M6 Sieve state protection (Terra High)
+## M6 Sieve state protection
 
 `SieveScriptStore` retains the `SieveScript/get` state and sends it as `ifInState` with script creation, update and activation. A missing state allows viewing but refuses saving before upload; server `stateMismatch` remains a typed error. `IFilterService.SaveAsync` now requires the state from the caller's loaded `FilterState`; the Settings editor and assistant pass it, closing the interval before the service's fresh read as well as the read-to-set interval. The editor also refuses to reuse another account's loaded state. `SaveWithStateAsync` propagates `newState`; if a server omits it, the saved result has no version and the next save requires a reload.
 
 FakeJmap now advances script state on create/update/activation and rejects stale sets before mutation. Two-editor UI, stale-update/activation, and missing-state tests pass; Windows Core suite 1525 passed, Presentation suite 1031 passed before one additional focused two-editor test, and the Windows Automation head compiled with zero warnings. Vacation Sieve extras read and merge a fresh script and now use the same guard; its existing error reports that the auto-reply may already have been saved if extras fail. No live Sieve writes were run. Review server-specific `ifInState` and activation behavior when a safe restore workflow permits live validation.
 
-## Codex — M6 integration evidence and preview preparation (Sol)
+## M6 integration evidence and preview preparation
 
-- Direct code checks of the data/UI checkpoints found stale attachment results, lost preset-undo recovery values, eager headless dialog resolution, and missing Sieve optimistic concurrency. Worker fixes were independently reviewed before integration; further Sieve acknowledgement/modal-version checks remain underway. No separate Astra review has run.
+- Direct code checks of the data/UI checkpoints found stale attachment results, lost preset-undo recovery values, eager headless dialog resolution, and missing Sieve optimistic concurrency. Worker fixes were independently reviewed before integration; further Sieve acknowledgement/modal-version checks remain underway. No separate reviewer review has run.
 - The current integration UI produced 92 nonuniform native XAML captures: all 23 Settings pages in Bento and Nordic, light and dark. All four inspection sheets were visually checked, and Backup fields used a synthetic relative filename. WGC refused the private desktop with an argument error; these captures do not prove the WGC flicker gate. Captures are ignored under artifacts/m6-sweep-current.
 - L-044 on the authorized isolated agent profile created a parent and nested tag, renamed the child, confirmed both deletions, restored the original absent emailKeywords value and verified the persisted cleanup after natural close. No message keywords were changed. Text events needed a UI yield before invoking the next control.
 - The native Backup workflow was checked using real services on the isolated agent profile: export original settings, export false groupListByDate, change to true, import false, confirm reset, then import the original snapshot. The owned process was closed after restoration. Sample mode intentionally uses a no-op backup fake and was not counted as real-service evidence. No real-account screenshots or security writes were made.
@@ -1748,46 +1753,46 @@ FakeJmap now advances script state on create/update/activation and rejects stale
 
 - **Preview delivered:** see `docs/milestones/M6-preview.md` for immutable aa0e96b package hash and the 2,833-pass Windows suite. Release/no-automation checks and extracted-executable smoke passed. This is an interim preview, with final M6 and M10 visual work explicitly pending; no main merge, tag or GitHub release publication.
 
-## Codex - M6 Sieve acknowledgement and modal guards (Terra High)
+## M6 Sieve acknowledgement and modal guards
 
 `SieveScriptStore.SaveWithStateAsync` now requires the exact requested update ID or creation ID in the response, preserves matching `SetError`, and verifies the requested script is active at the acknowledged `newState` before reporting success. [RFC 9661 section 2.4](https://www.rfc-editor.org/rfc/rfc9661.html#section-2.4) says activation is conditional on all writes and invalid IDs may be ignored. If post-write verification fails or is cancelled, the result explicitly warns that the script may already have changed and asks for reload; vacation forwarding error wording also avoids claiming a confirmed failure. Fake tests cover an empty updated map plus refusal, unrelated acknowledgments for creation and update, and acknowledged but inactive scripts with no success notification.
 
 The filter modal captures the account that owns its loaded rules and their version when opened. Its save is refused if a background change notification reloads newer rules, or if the account changes, including a modal opened during an account transition. Focused FilterService tests 16 passed, FilterVersion tests 3 passed, and quick-rule tests 3 passed on Windows. No live Sieve writes were performed; post-write readback behavior should be checked against an actual server only after a safe restore workflow exists.
 
-## Codex — M6b contract preparation (Sol)
+## M6b contract preparation
 
 - Reviewed and integrated the 186-method/58-slot source inventory as `4fff9d4`; it identifies static and conditional checks without claiming executable authorization. `docs/milestones/M6b-contracts.md` records coordinator-owned package/grant/instance/RPC/API/slot seams, frame identity, native pre-load trust and unchanged fixture acceptance. Compiling contracts/red tests and complete transitive payload schemas remain required before production implementation. Microsoft frame/security documentation was checked for the proposed Windows identity boundary; the installed SDK still needs verification. No plugin runtime or security/compatibility test was executed by this documentation change.
 
-## Codex — M6 final settings consumer classification (Sol)
+## M6 final settings consumer classification
 
 - The remaining 25 missing read-by entries were audited: 19 are explicitly inert under D-M6-A03 and already labeled unused by SettingsCatalog/SetUiRowsView, two recipient-mention preferences are read by ComposerService, and four Windows notification/badge preferences store values for M8. The latter now say they are not active in the product UI; M8 must replace that label when its real consumers land. This reconciles evidence without claiming inert settings work or that already-open composer drafts update live.
 
-## Codex — M6 executable hook gate (Sol)
+## M6 executable hook gate
 
 - Added real-service execution cases in `tests/Barbican.Core.Tests/Settings/M6HookExecutionTests.cs`, real reply-seeding transform cases in `Compose/M6ComposeHookExecutionTests.cs`, and actual composer identity/template paths in `tests/Barbican.Presentation.Tests/Compose/M6ComposerHookExecutionTests.cs`. All 36 distinct M6 hook names are observed or transform a checked result across five passing cases (Core 4/4, Presentation 1/1). `spec/feel/M6/hooks-execution.json` maps every name to the executed case and hashes the tested files. This improves on the source-text call-site gate; it does not prove JS/native plugin bridge compatibility or permission projection, which are M6b obligations. Account security operations use FakeJmap only. Observer work is awaited with a bounded asynchronous wait because Fire queues it.
 
-## Codex — updated whole-roadmap goal (Sol)
+## Updated whole-roadmap goal
 
-- The user now requests all roadmap implementation except Linux M9, then an Astra review/fix loop until Astra is satisfied, then a UI walkthrough with look/feel/usability fixes. Current continuation/roadmap/progress instructions reflect the expanded scope. The brief stop preserved worker WIP and was immediately superseded by this new active goal; both UI workers resumed their exact files. This does not authorize main merges, tags, OS changes or real security writes beyond the standing rules.
+- The user now requests all roadmap implementation except Linux M9, then a review/fix loop until the reviewer is satisfied, then a UI walkthrough with look/feel/usability fixes. Current continuation/roadmap/progress instructions reflect the expanded scope. The brief stop preserved worker WIP and was immediately superseded by this new active goal; both UI workers resumed their exact files. This does not authorize main merges, tags, OS changes or real security writes beyond the standing rules.
 
-## Codex - M6 vacation concurrency and snapshot (Terra High)
+## M6 vacation concurrency and snapshot
 
 `VacationSettings.State` and `SieveState` carry the loaded VacationResponse and SieveScript versions. Saves reject missing or changed versions, use `ifInState` and exact singleton acknowledgement, and patch only changed fields. `IVacationService.LoadSnapshotAsync` does not reconcile the calendar; ordinary writable loads retain the source behavior in Bulwark `stores/vacation-store.ts:160` and `lib/vacation-calendar.ts:233-306`, while read-only loads never reconcile. The Settings editor must preserve the loaded versions and account identity.
 
 Stalwart 0.16.27 `crates/jmap/src/vacation/get.rs` and `set.rs` use the SieveScript collection for vacation state. For explicitly identified Stalwart clients on the same account, the acknowledged vacation state advances the expected Sieve state; a concurrent subsequent change produces a partial-result error. The managed script selector excludes the reserved `vacation` script, matching Bulwark `stores/filter-store.ts:422-429`. Fake tests cover vacation activation with existing filters, stale editors, post-write races, read-only loads, and non-reconciling snapshots. Windows Core: 1540 passed; Presentation: 1034 passed; no skips.
 
 The response and script updates are separate operations, so failures can leave partial changes; this is not crash-atomic. Calendar reconciliation remains source-backed and writable. No live writes or exact-restoration harness were run; restoration of raw dates, reserved scripts, activation and calendar events requires a reviewed conflict-safe procedure before live testing. Review the integrated Presentation version/account fencing and actual server behavior.
-## Codex - M6 srv-ui (Terra High)
+## M6 srv-ui
 
 - Vacation HTML source is editable independently of the plain-text part and can be cleared; saved edits are guarded against newer form changes and background reload. Review HTML safety, account switching and explicit page reload of an unsaved draft; source text is not a visual rich editor. Organization vacation templates are a policy library in Bulwark, not personal mail templates. The policy service is absent; the page says unavailable and M7 must integrate the actual library, placeholder filling and deputy validation. No real vacation write was run.
 - VacationHtmlServiceTests covers the real VacationService against FakeJmap for HTML/plain save, reload and clearing; SrvUiViewModelTests covers in-flight newer HTML edits. Hidden sample on port 8929 rendered the form and saved fake bodies; no live write was run.
 
-## Codex - M6 srv-ui (Terra High)
+## M6 srv-ui
 
 - Vacation forms now bind to the successfully loaded account and monotonic account generation; switch clears the old form, blocks saving until the new load succeeds and fences late A-to-B-to-A loads/saves. Save builds from the loaded record to retain upcoming server state tokens. A save already issued to its original account may finish there after a switch; its result is discarded. Delayed account-switch regressions cover both cases. Other server pages still require equivalent fencing (identities, templates, folders, filters and recovery).
-### Codex — M6 display time zone (Terra High)
+### M6 display time zone
 
-- **Implementation for Astra:** `SettingDisplayTimeZone` resolves configured IANA IDs using the platform zone database, with system-zone fallback for automatic or unavailable IDs. `TimeZonePickerContent` offers an in-window searchable zone list, marks unavailable entries, and writes through `ISettingValues`. Mail list and open-reader dates, calendar today/new-event defaults, compose scheduling and date labels, and contact date/print formatting now use the selected display zone. Existing calendar event zones and stored contact dates remain unchanged. UTC instants, timers and `TimeProvider` are unchanged. Reference: `<bulwark>/components/settings/time-zone-picker.tsx`, `<bulwark>/lib/time-zone-choices.ts`, and `<bulwark>/lib/timezone.ts`.
+- **Implementation for the reviewer:** `SettingDisplayTimeZone` resolves configured IANA IDs using the platform zone database, with system-zone fallback for automatic or unavailable IDs. `TimeZonePickerContent` offers an in-window searchable zone list, marks unavailable entries, and writes through `ISettingValues`. Mail list and open-reader dates, calendar today/new-event defaults, compose scheduling and date labels, and contact date/print formatting now use the selected display zone. Existing calendar event zones and stored contact dates remain unchanged. UTC instants, timers and `TimeProvider` are unchanged. Reference: `<bulwark>/components/settings/time-zone-picker.tsx`, `<bulwark>/lib/time-zone-choices.ts`, and `<bulwark>/lib/timezone.ts`.
 - **Risks and limitations:** review OS-specific IANA/Windows conversion and daylight-saving behavior on Uno and non-Windows platforms. For an automatic system zone that cannot be converted to IANA, new timed event and task editors now refuse to write and prompt the user to select a supported zone; a retry resolves the setting again. Existing event zones and date-only items remain intact. Search includes the reference abbreviation groups. The ability to navigate from a live editor to Settings and return without losing its entered fields needs an end-to-end walkthrough; tests establish model retention and retry only. Existing events retain their own zones. No real-account writes or OS time-zone changes were performed.
 - **Evidence:** Core suite 1509/1509 and Presentation suite 1028/1028 passed; Windows Automation build succeeded with zero warnings/errors. Hidden synthetic profile searched Berlin and persisted `Europe/Berlin`; an unknown `Future/City` displayed unavailable/system fallback. The picker screenshot was visually inspected, sample preference restored, and sample process stopped. Test platform was Windows; no cross-platform runtime or live server verification is claimed.
 - **Follow-up evidence:** custom unmappable-zone tests cover zero writes and successful retry for quick events, full events and tasks, plus all-day/date-only saves. Core 1510/1510 and Presentation 1035/1035 passed; the first Core run timed out in an unrelated fake-server push test and passed on rerun. Windows Automation build passed with zero warnings/errors. The hidden sample search `CEST` returned Berlin; the sample process was stopped. `TimeZonePickerContent` uses the injected clock and local zone; zone setting validation rejects control characters and values longer than 256 characters; queued reader updates are fenced after disposal. No live write, OS time-zone change or cross-platform runtime validation was performed.
@@ -1796,33 +1801,33 @@ The response and script updates are separate operations, so failures can leave p
 
 - **In-editor time-zone recovery:** each new timed quick event, full event and task offers a supported per-item zone picker; the full event also offers explicit floating time. The selection does not alter profile preferences, and quick-create More options carries its chosen zone to the full editor. Automation-only sample mode can opt into an unmappable synthetic clock. Hidden UI Automation exercised failed validation, picker selection and successful synthetic save for all three; all-day and floating creation also saved. Readback showed both event titles retained and the task appeared in the sample list. XAML captures `zone-recovery-xaml.png` and `zone-recovery-chosen.png` were nonuniform and inspected, showing the quick draft before and after selection. The XAML capture did not include the picker overlay, and WGC frames were uniform white, so visible picker layering is not proved. Presentation 1039/1039 passed; Windows Automation build passed before the final wording-only correction. No real input, OS zone changes or real writes.
 
-## Codex - M6 srv-ui (Terra High)
+## M6 srv-ui
 
 - SrvUiPageModel now tracks monotonic account generations and loaded-account stamps. Identity and template pages clear their drafts on switches, refuse writes until the current account load succeeds, and discard late results. Delete confirmations also capture generation and selected id; pasted template import text is cleared on switch. Controlled tests reject stale writes and confirmations including A-to-B-to-A. A request already issued may finish on its captured original account; its late UI result is discarded. Folder, filter and recover work remains in progress.
 
-## Codex - M6 srv-ui (Terra High)
+## M6 srv-ui
 
 - Folder settings load account-scoped mailbox snapshots from the captured session; writes require that snapshot and matching account generation, and success refreshes it. Colliding-ID and delayed A-to-B-to-A tests pass. The sidebar fallback is not used as a write source. Folder delete confirmations and unsent name fields are fenced on account switch. Vacation account switches now invalidate and clear the draft without automatically loading a hidden page: the visible page offers Reload and disables Save until a matching load succeeds, avoiding background calendar reconciliation. An explicitly opened/reloaded writable vacation page still uses the existing reconciliation behavior.
 
-## Codex - M6 srv-ui (Terra High)
+## M6 srv-ui
 
 - Filter rules and folder choices now load for a captured account/generation. Editors, scans, apply dialogs and delete confirmations retain that generation; A-to-B-to-A rejects stale work and an already-issued apply may finish only on its original account. Recovery now passes an explicit account into its source and rejects stale rendered row actions even for colliding ids. Controlled regressions cover stale scans/editors and recovery collisions. The previous test assumption that the new account never reloads before modal construction was replaced with deterministic generation tests. Review same-account overlapping reload ordering and actual server behavior; no real writes were run.
 
-## Codex - M6 srv-ui (Terra High)
+## M6 srv-ui
 
 - After integrating VacationSettings State and SieveState, SrvUiVacationAccountTests verifies the saved form retains both loaded tokens. The merged Windows Automation suite passed 2864 tests with four skips after removing an unused import from VacationHtmlServiceTests; both desktop and Windows heads built without warnings. Review the combined source on the final integration head.
 
-## Codex - M6 srv-ui (Terra High)
+## M6 srv-ui
 
 - Rendered folder, filter, identity, template and vacation controls now retain their account generation and reject callbacks from stale controls, including A-to-B-to-A switches. Selected-row actions also check the captured selection; already-issued operations remain bound to their original account. Vacation draft edits during a pending save remain allowed. Windows Automation head built with no warnings; Presentation tests passed 1054/1054. The five affected pages opened in an isolated hidden sample; this does not prove live-server behavior. Review callback fencing and cross-account service behavior on the integration head.
 
-## Codex / Sol - M6 Settings rendering evidence
+## M6 Settings rendering evidence
 
 - Review `spec/feel/M6/settings-rendering.json`: actual synthetic Mail-to-Settings transitions on 30f315b captured UI-thread cadence only (single run under shared build load). Peak frame gaps were 67.39 ms Bento and 31.47 ms Nordic; this is a follow-up performance observation for M10, not a regression verdict. WGC refused the private-desktop window, so L-053 flicker and idle rendering remain unverified. The owned synthetic process was stopped.
 
 
 
-## Codex - M6 filter write verification preparation (Terra High)
+## M6 filter write verification preparation
 
 Prepared, but did not register or execute, `FilterWriteCommand` under `AUTOMATION_WRITES` and Windows. Its captured-client backend uses the production `FilterService` (Rust `filters_x.rs:542,566`, `server_settings.rs:72`; Bulwark `stores/filter-store.ts`, `lib/filters/retroactive.ts`, `lib/jmap/client.ts:7533-7708`) and the existing `WriteTestGuard` and `WriteTestMessages`. Before writing it requires the actual writable and read-only lists, an automation profile, the same captured client and mail/Sieve account, exactly one active non-reserved script, a stable nonempty Sieve state, strict byte-roundtrippable UTF-8, no script transform/intercept hooks, a bounded complete mailbox snapshot, and a previously unused random token. A two-condition rule is applied only if the Inbox scan contains exactly the imported message and destination; the move is verified.
 
@@ -1833,46 +1838,46 @@ FakeJmap import now retains the synthetic sender and headers needed by scan and 
 
 Coordinator review tightened this preparation: only a whitespace-only original script or exactly `keep;` is accepted, excluding metadata, comments and any other external behavior. An unacknowledged script save now retains the message and folder as well as the journal, because the temporary rule may still be active. Unexpected exceptions after entering the runner, and journal-creation failures that might leave a marker, report incomplete cleanup and retain evidence. The created mailbox ID is also verified against the unique token-named mailbox before use. These restrictions may make an existing test account ineligible; the harness does not replace or create a script to make it eligible. The follow-up Automation suite passed 142 tests, including refusal of non-inert scripts, retention of all artifacts after an ambiguous script save, and refusal when the independently checked Inbox candidate count is not exactly one. The independent query also verifies that Email state remains equal to the scan state before and after the count, guarding against truncated scan pages.
 
-## Codex / Sol - M6 filter preflight registration
+## M6 filter preflight registration
 
 - Directly reviewed f1263b8 and 2d5cd81, including captured-session routing, exact synthetic plan, inert original script, conditional restoration, lost-acknowledgement artifact retention and encrypted persistent journal. Registered the command only for Windows AUTOMATION_WRITES; `filter-write-test preflight` performs captured-script eligibility reads without creating recovery material or making server writes. Registration is not evidence of live success. All existing account allow-list checks remain mandatory. Live prerequisites and cleanup must be recorded before claiming L-040.
 
-## Codex / Sol - M6 harness test compilation correction
+## M6 harness test compilation correction
 
 - The full write-enabled run compiled both app heads cleanly but caught an unconditional production write symbol in the new unit-test project (2907 passed, one failed, four skipped). The fixture now uses a distinct test-only symbol for linked non-UI helpers; the actual automation command remains gated by AUTOMATION_WRITES and WINDOWS. The existing invariant that only Directory.Build.props may define the production symbol is unchanged, and a new invariant prevents the fixture symbol being defined in production projects/build props. Repeat the complete suite before packaging.
 
-## Codex / Sol - M6 Windows checkpoint and fresh portable
+## M6 Windows checkpoint and fresh portable
 
-- Source 583b40d passed the full write-enabled Windows suite (2909 passed / 0 failed / 4 skipped), both heads compiled cleanly, final spec/generated checks passed, and the fresh portable was staged without old smoke/preview files, extracted and smoke-tested. Embedded version matches 583b40d; SHA/size/smoke evidence is in spec/feel/M6/windows-release.json and M6.md. The unit-test compile-boundary fix preserved production write gating. No live filter/vacation write or Bulwark readback is claimed. WGC/popup layering and final sample natural shutdown remain unproved (the sample required owned-process stop after close; earlier real-profile close cycles and final Release smoke are separate evidence). Carry those specific limits into final Astra/UI verification. The M6b preparation branch remains separate from this portable; the full roadmap goal is active. Also repaired the pre-existing unquoted comma in G-021 status while preserving its full text; the gap ledger now has consistent columns.
+- Source 583b40d passed the full write-enabled Windows suite (2909 passed / 0 failed / 4 skipped), both heads compiled cleanly, final spec/generated checks passed, and the fresh portable was staged without old smoke/preview files, extracted and smoke-tested. Embedded version matches 583b40d; SHA/size/smoke evidence is in spec/feel/M6/windows-release.json and M6.md. The unit-test compile-boundary fix preserved production write gating. No live filter/vacation write or Bulwark readback is claimed. WGC/popup layering and final sample natural shutdown remain unproved (the sample required owned-process stop after close; earlier real-profile close cycles and final Release smoke are separate evidence). Carry those specific limits into final reviewer/UI verification. The M6b preparation branch remains separate from this portable; the full roadmap goal is active. Also repaired the pre-existing unquoted comma in G-021 status while preserving its full text; the gap ledger now has consistent columns.
 
-## Codex / Sol - M6b isolated package/grant contract preparation
+## M6b isolated package/grant contract preparation
 
 - Added immutable content identity and grant snapshot models under Core/Plugins/Packages and Permissions, with four passing focused PluginBindingContractTests. They check changed bytes at unchanged id/version, generation/account mismatch, disabled grants, exact permission names, defensive collection copies and canonical/invalid hashes. The identity is not proof of package validation or a verified signature. The snapshot is not a live authority service: every broker use must obtain the current grant, and null account is only for a descriptor that is explicitly host-scoped, never a plugin-supplied account bypass. Plugin ids are opaque identifiers, not safe filesystem paths. No runtime, host API, consent UI or installation path is wired by this preparation. Runtime/RPC/API/slot seams and adverse acceptance tests remain to be frozen before independent implementation. This separate branch does not change the M6 portable source.
 
-## Codex / Sol - M6b account-context contract correction
+## M6b account-context contract correction
 
-- Reviewed the Terra source audit in M6b-account-routing.md and directly checked sessionClient, account projection and composer handle resolution. The earlier preparation text incorrectly suggested a permanently account-bound runtime. The reference resolves the default active session at call time; local login keys, shared JMAP account ids and host-owned composer handles have distinct routing. Corrected the preparation before interface freeze. New per-call generation/lifecycle fences are Barbican safety requirements, not claimed reference guarantees. Account-grant value semantics are local-login scoped; they do not authorize an arbitrary JMAP id. No production broker or compatibility result is claimed.
+- Reviewed the worker's source audit in M6b-account-routing.md and directly checked sessionClient, account projection and composer handle resolution. The earlier preparation text incorrectly suggested a permanently account-bound runtime. The reference resolves the default active session at call time; local login keys, shared JMAP account ids and host-owned composer handles have distinct routing. Corrected the preparation before interface freeze. New per-call generation/lifecycle fences are Barbican safety requirements, not claimed reference guarantees. Account-grant value semantics are local-login scoped; they do not authorize an arbitrary JMAP id. No production broker or compatibility result is claimed.
 
-## Codex / Sol - M6b compiled draft service seams
+## M6b compiled draft service seams
 
 - Added host-internal package/authority/runtime/API/slot contracts and execution tier tracking. Ten focused contract cases passed, build zero warnings/errors; the first invalid wildcard filter ran no tests and was corrected. Binding disposal caches a cancelled lifetime token, JSON values outlive source documents, consent/permission inputs are defensively copied, and request types contain no claimed authority. This is not a sandbox or 186-method implementation. Binary/stream ownership, activity-port mediation and executable adverse acceptance tests remain before interface freeze and independent streams. Package definitions/provenance/snapshots remain inert descriptions, never proofs authorizing load; factories must fetch current validated installation and grants. Imported source audits distinguish storage ID/login namespaces, upstream hash/signature semantics, keystore certificate operations and runtime SDK/structured-clone gaps. D-M6b-01 allows reference-compatible forms only with submission/navigation denial; actual native tests remain required. Safe source business errors such as keystore:* still need an explicit error representation. No app composition, live request or native key operation changed.
 
-## Codex / Sol: M6b revocation foundation
+## M6b revocation foundation
 
 - Review `PluginRevocationCoordinator` and `PluginRuntimeBinding` generation barriers, cleanup ownership and timeout/retry races. All matching bindings become unusable before any teardown callback; concurrent revocations share pending work, failed cleanup remains retryable, and cancellation only stops the caller wait. Ten focused Windows Core tests passed, including notification faults and detached failed registrations. This is host bookkeeping, not live grant authority or a completed package disable/uninstall path; production composition and native teardown remain unverified. A hung native resource must keep package deletion/update pending.
-### Codex — M6b structured-clone values (Terra High)
+### M6b structured-clone values
 
 - `Core/Plugins/Protocol` defines an immutable snapshot graph and bounded versioned tagged codec for JSON scalars, undefined, buffers, typed/DataView slices, Blob, Date, Map, Set, BigInt and Error, including graph references and cycles. Ordinary objects never act as control tags. Builder and decoder copy binary data; accessors return copies. Graph values are managed objects with no disposable handles: dropping all references permits collection, but does not guarantee secure memory erasure. MessagePort remains browser-owned and is not serialized here. No browser transport, permission mediation or runtime implementation is claimed.
 - The tagged string form carries lone UTF-16 surrogate code units as manually encoded UTF-16LE/base64; ordinary strings remain compact JSON. JSON import reads raw token escapes and JSON export escapes code units, preserving lone surrogates, pairs, NUL and keys. An app-side JavaScript codec must implement the same wire format and budgets before compatibility can be claimed. Functions, DOM and unmodeled structured-clone types require explicit rejection; do not pass arbitrary CLR objects. `ToJson` rejects undefined, opaque values, non-finite numbers and cycles, expands acyclic aliases only within its output budget.
-- **Evidence and risks for Astra:** full Core suite 1578/1578 passed. Adversarial tests cover shared buffer/view offsets, empty binary, mutable-input copies, cycles, aliases, collision-like ordinary keys, extended kinds, malformed references/IDs/ranges, size/depth limits and UTF-16 cases. Independently review the parser, complexity budget, JSON escape handling, graph and stream limits before security reliance; JavaScript/WebView interoperability, renderer memory pressure, host authentication and integration remain untested. No builds outside Core tests, OS changes, live accounts or real input.
+- **Evidence and risks for the reviewer:** full Core suite 1578/1578 passed. Adversarial tests cover shared buffer/view offsets, empty binary, mutable-input copies, cycles, aliases, collision-like ordinary keys, extended kinds, malformed references/IDs/ranges, size/depth limits and UTF-16 cases. Independently review the parser, complexity budget, JSON escape handling, graph and stream limits before security reliance; JavaScript/WebView interoperability, renderer memory pressure, host authentication and integration remain untested. No builds outside Core tests, OS changes, live accounts or real input.
 
 - **Projection follow-up:** encoding a child value now emits only its reachable graph with remapped references, retaining cycles and aliases; tests verify unrelated sibling text and binary are absent. A typed view's entire backing buffer is reachable through the view, so callers projecting sensitive byte ranges must construct a separate sliced buffer before encoding. A lower-bound preflight rejects large base64/text payloads that cannot fit a small wire cap before serialization. Library defaults (512 KiB binary, 1 MiB wire) are conservative only; runtime adapters must supply operation-specific budgets, including the reference's 25 MiB file operations and corresponding encoding overhead. Full Core suite 1580/1580 passed. One scoped method-length exception remains on the bounded JSON writer; the decoder, node validator and JSON reader were split into smaller helpers. Browser interop and security integration still need verification.
 
-## Codex / Sol: M6b structured values across service seams
+## M6b structured values across service seams
 
 - Directly reviewed helper projection compaction, immutable graph snapshots and bounded decoding before merging ea879bc. Replaced JSON-only bridge/runtime/slot payload seams with PluginValue, retaining explicit undefined versus null and binary buffer/view identity. Full merged Core suite 1590 passed, then 14 focused runtime contract cases passed with binary-copy/alias and exact keystore-code regressions. These are compiled contracts; production transport authentication, per-operation file limits, live authority and actual host adapters are still absent. Default codec caps must not silently constrain the source 25 MiB file APIs. Native key access/consent is not implemented by fixed business error codes. JavaScript parity, typed envelopes and full adverse acceptance remain required before contract freeze.
 
-## Codex / Sol: M6b live dispatcher fences
+## M6b live dispatcher fences
 
 - Added `PluginApiDispatcher` and internal `PluginInvocationContext`; 14 focused Windows Core cases passed with no warnings/errors. Dispatch authenticates the host profile/binding against fresh exact package/generation/tier authority, applies declared permission alternatives, captures local-login sessions once, rejects stale/ABA results, uses bounded caller deadlines and retains concurrency quotas for timed-out work until actual completion. Fixed native errors do not expose exceptions. Synchronous authority-change notifications close the mutation gate even between the last check and marking a write issued. An already-issued ambiguous write reports UnknownOutcome. These tests use inert fake sessions and adapter counters, not real backend operations or proof of all 186 API methods.
 - Later adapters must validate each schema/projection, resolve only host-delivered owner capabilities, call CheckCurrent immediately before MarkMutationIssued and actual mutation, and enforce backend read-only/state/revision rules. Authority implementations must publish changes and synchronous notifications coherently; runtime delivery must revalidate live authority too. Deadline cancellation cannot terminate arbitrary managed/native work; late work stays quota-accounted and cannot reopen its closed context. Real method registration/composition, resource handles, transport authentication, network/OAuth/keystore and complete fixture runs remain pending.
@@ -1880,9 +1885,9 @@ Coordinator review tightened this preparation: only a whitespace-only original s
 
 - Review `src/Barbican.Core/Plugins/Protocol/Messages/` and `tests/Barbican.Core.Tests/Plugins/Protocol/Messages/` against `lib/plugin-sandbox/protocol.ts:14-106,115-336` and its imported types. This stream is based on 13d3cb3; the 29 message variants are direction-checked. TypeScript structural extras are tolerated within graph budgets and never confer authority; graph and envelope limits are local operational policy and can reject otherwise source-valid large messages. Optional `undefined` is treated as absent. Slot membership is a snapshot of the source catalog and must be maintained alongside it. The validator does not verify message source, current grant, instance state, ownership of a ready activity port, nested API semantics, or hook result conversion; those remain separate integration gates. Graph budgets apply after decoding and cannot prevent pre-decoding allocation. Review finite-number and nonempty ID policies for compatibility with actual traffic.
 
-- Codex coordinator directly compared all directional variants and nested schemas with protocol.ts before integrating; 63 focused integration tests passed. Bounded unknown structural fields remain tolerated and ignored as authority, matching the reference TypeScript envelope shape. These are shape checks, not a state machine, authenticated frame binding or per-method validation. Operation-specific file/bundle limits must replace conservative defaults at the runtime boundary.
+- coordinator directly compared all directional variants and nested schemas with protocol.ts before integrating; 63 focused integration tests passed. Bounded unknown structural fields remain tolerated and ignored as authority, matching the reference TypeScript envelope shape. These are shape checks, not a state machine, authenticated frame binding or per-method validation. Operation-specific file/bundle limits must replace conservative defaults at the runtime boundary.
 
-## Codex - M6b inert JavaScript package inspection (Terra High)
+## M6b inert JavaScript package inspection
 
 `Core/Plugins/Packages/Inspection` reads a bounded ZIP into memory and returns an immutable validated-manifest JSON snapshot, permissions, warnings, normalized resource bytes, and three distinct SHA-256 values: original ZIP bytes, decoded JS bundle, and Bulwark canonical validated manifest plus JS. The explicitly supplied compatibility version is the Bulwark API compatibility level, not the Barbican product version. The overload accepting administrator private-origin policy copies the input; an HTTP credential origin is syntax-valid only for an exact supplied origin. This is not a grant, signature verdict, execution authority, or permission to make a network request; the later broker must independently apply current policy, consent, redirects and network protections. No JavaScript, native DLL, network endpoint or account is invoked by inspection.
 
@@ -1890,31 +1895,31 @@ The upstream source is `lib/extension-package.ts`, `lib/extension-origins.ts`, `
 
 Tests include the unchanged upstream API-probe manifest/JS packaged as a ZIP, version boundaries, nested roots, streaming data descriptors, path attacks, CRC corruption, decompression limits, schemas/credentials/origins and a Node-generated canonical hash fixture with lone UTF-16 surrogates plus 150 deterministic binary64 vectors. These vectors are useful differential evidence, not a proof over every floating-point/Unicode value; further cross-runtime fuzzing and archive interoperability review are warranted. Native package sidecars, trust/consent/persistence, runtime loading and all live network/keystore behavior remain future work.
 
-- Codex coordinator directly reviewed ZIP structure/path hardening, immutable resources, manifest normalization and upstream code/approval hashing before merging the inspector. Renamed the API probe case to IsInspected to avoid implying execution. Full integrated Windows suite: 3074 passed / zero failed / four skips (3078 total), zero build warnings/errors; `artifacts/m6b-foundation-full-windows-tests.log` is local evidence. Inspection is not signature verification, consent, installation, runtime activation or fixture operation compatibility.
+- coordinator directly reviewed ZIP structure/path hardening, immutable resources, manifest normalization and upstream code/approval hashing before merging the inspector. Renamed the API probe case to IsInspected to avoid implying execution. Full integrated Windows suite: 3074 passed / zero failed / four skips (3078 total), zero build warnings/errors; `artifacts/m6b-foundation-full-windows-tests.log` is local evidence. Inspection is not signature verification, consent, installation, runtime activation or fixture operation compatibility.
 
-## Codex / Sol: atomic production plugin session captures
+## Atomic production plugin session captures
 
 - `AccountManager` now exposes `IAccountSessionSnapshots` under its existing lock, with a selection generation incremented in both active-key assignment paths. `PluginSessionSource` adapts those host-only snapshots to dispatcher captures. This avoids deriving authority from asynchronously delivered account events. Thirty-one AccountManagerTests passed against FakeJmap, including new A-to-B-to-A, sign-out/recreated login and in-notification checks; zero warnings/errors. An initial unqualified method prefix ran zero tests; the corrected class suffix ran the full 31 cases. Explicit non-active owners remain valid through an unrelated active switch, but replaced/removed sessions are rejected by reference identity. Production DI/runtime consumption and exact shared JMAP resource routing remain pending; no real account was accessed.
-### Codex — M6b JavaScript value codec (Terra High)
+### M6b JavaScript value codec
 
 - `src/Barbican.App/Assets/plugins/plugin-value-codec.js` is a standalone browser ES module for the native v1 graph transport, not a frame runtime or authentication layer. Its async encoder snapshots the graph and mutable buffers before awaiting Blob bytes; decoder checks tags, identity/references, UTF-16, limits, view bounds and duplicate JSON fields before reconstructing values. `tools/tests/plugin-value-codec.test.mjs` and the two golden JSON fixtures are shared with `PluginValueParityTests`: JS-created bytes are read by C#, and a C#-verified graph is read by JS. Node adversarial checks cover getters, toJSON, prototype-key poisoning, cycles, shared backing, limits and mutation across Blob await. A view intentionally retains its whole backing buffer; projection must copy a slice when other bytes are private.
-- **Risk for Astra/coordinator:** browser JS cannot reliably detect a Proxy without triggering traps. Encode only authenticated structured-clone event values in a trusted parent realm with captured/controlled intrinsics, never arbitrary live plugin objects. Accessor properties and unsupported cloneable kinds including sparse arrays currently fail explicitly rather than coerce. On this Node runtime ordinary cloned Error objects expose an accessor-valued stack; the narrowly guarded built-in accessor follow-up below permits the observed intrinsic while continuing to reject arbitrary getters. Real WebView2 behavior is not established. No iframe, WebView2, capability boundary, DOM, live server, network or bootstrap integration is implemented or verified. The Node fixture is not a package signature canonicalization format.
+- **Risk for the reviewer/coordinator:** browser JS cannot reliably detect a Proxy without triggering traps. Encode only authenticated structured-clone event values in a trusted parent realm with captured/controlled intrinsics, never arbitrary live plugin objects. Accessor properties and unsupported cloneable kinds including sparse arrays currently fail explicitly rather than coerce. On this Node runtime ordinary cloned Error objects expose an accessor-valued stack; the narrowly guarded built-in accessor follow-up below permits the observed intrinsic while continuing to reject arbitrary getters. Real WebView2 behavior is not established. No iframe, WebView2, capability boundary, DOM, live server, network or bootstrap integration is implemented or verified. The Node fixture is not a package signature canonicalization format.
 - **Evidence:** `node tools/tests/plugin-value-codec.test.mjs` passed; full Core suite 1582/1582 passed, including two cross-language parity tests. Existing protocol C# files gained reference headers only. Linux and actual WebView2 runtime remain untested.
 
 - **Error/Date/Blob parity follow-up:** in a trusted parent realm initialized before plugin code, the JS codec accepts only the captured Error stack getter/setter identity while the captured formatter and Error prototype chain remain unchanged and name/message are data properties; arbitrary getters and modified stack formatters are rejected without invocation. Node tests exercise real structured-cloned Error and hostile accessors. This depends on realm provenance and captured intrinsics; a runtime with a different stack descriptor fails closed until measured. Native Date validation now rejects values JavaScript TimeClip would alter (fractional, infinite, out-of-range and negative-zero), and Blob MIME must already be browser-normalized printable lowercase ASCII. JS and Core parity tests exercise these boundaries. Node parity/adversarial checks passed and full Core suite 1591/1591 passed. No actual WebView2 frame or browser integration was run.
 
-- Codex coordinator reviewed the browser encoder/decoder, duplicate-key parser, prototype-safe reconstruction, mutable-buffer snapshot ordering and exact C#/JS golden comparisons, plus guarded intrinsic Error stack handling and Date/Blob parity corrections. Node checks passed on the merged tree; complete Windows suite passed 3088 / zero failed / four skips (3092 total), zero warnings/errors. Actual WebView2 clone/prototype/accessor behavior, frame binding and lifecycle are still unproved; generic live objects/Proxy are outside encoder input and authenticated structured-clone provenance is mandatory. No production runtime is implied by a passing Node codec.
+- coordinator reviewed the browser encoder/decoder, duplicate-key parser, prototype-safe reconstruction, mutable-buffer snapshot ordering and exact C#/JS golden comparisons, plus guarded intrinsic Error stack handling and Date/Blob parity corrections. Node checks passed on the merged tree; complete Windows suite passed 3088 / zero failed / four skips (3092 total), zero warnings/errors. Actual WebView2 clone/prototype/accessor behavior, frame binding and lifecycle are still unproved; generic live objects/Proxy are outside encoder input and authenticated structured-clone provenance is mandatory. No production runtime is implied by a passing Node codec.
 
-- Codex coordinator added IAccountSessionSnapshots as an alias of the existing AccountManager singleton in AccountsRegistration. The existing complete composition graph test resolves every service and explicitly proves snapshot/account-manager reference identity; passed with zero warnings/errors. Plugin runtime/package/API composition still waits for the real implementations; this alias alone does not activate plugins.
+- coordinator added IAccountSessionSnapshots as an alias of the existing AccountManager singleton in AccountsRegistration. The existing complete composition graph test resolves every service and explicitly proves snapshot/account-manager reference identity; passed with zero warnings/errors. Plugin runtime/package/API composition still waits for the real implementations; this alias alone does not activate plugins.
 
-- Codex coordinator fixed an invalid legacy-codepage byte introduced in PluginValueParityTests by writing the intended non-ASCII MIME test as an explicit Unicode escape in valid UTF-8 source. The required red-check source scanner now runs; all 11 parity cases passed with zero warnings/errors. The scanner previously failed before discovering red tests, so earlier targeted red execution is separate evidence.
+- coordinator fixed an invalid legacy-codepage byte introduced in PluginValueParityTests by writing the intended non-ASCII MIME test as an explicit Unicode escape in valid UTF-8 source. The required red-check source scanner now runs; all 11 parity cases passed with zero warnings/errors. The scanner previously failed before discovering red tests, so earlier targeted red execution is separate evidence.
 ## M6b composer mediation acceptance checkpoint
 
 - Review `src/Barbican.Core/Plugins/Api/Composer/` and `tests/Barbican.Core.Tests/Plugins/Api/ComposerMediationAcceptanceTests.cs` based on 9647d85. The three source-defined production factory seams are deliberately pending; the RED tests do not prove implementation. Assess binding-scoped host handle exposure, owner capture, revision and membership checks across awaits, pre/post-read 25 MiB limits, binary slicing, exact projection and subject sanitization. The host must supply an atomic editor revision guard where available; a client-side fence cannot retract a remote write. ReadOnlyMemory and list inputs remain host-owned until implementations explicitly snapshot them. Other API families, hooks and network/keystore are not covered by this checkpoint.
 
-- Codex coordinator directly reviewed the 13 composer production-factory acceptance cases in 68194dc (capability exposure/non-active owner, source fields, denied permissions/zero resolution, subject cleaning, forged IDs, 25 MiB before/after, zero bytes/slices and await-time handle/revision/membership/session changes). Full integrated red-check passed: 13 expected failures, zero unexpected passes or wrong reasons. The three methods remain PortPending here; C is released to implement this family while preserving the full 186-method/four-hook-kind scope and test-first sequence for remaining families. Requested DTO defensive snapshots and source attachment-metadata provenance tests before final implementation review.
+- coordinator directly reviewed the 13 composer production-factory acceptance cases in 68194dc (capability exposure/non-active owner, source fields, denied permissions/zero resolution, subject cleaning, forged IDs, 25 MiB before/after, zero bytes/slices and await-time handle/revision/membership/session changes). Full integrated red-check passed: 13 expected failures, zero unexpected passes or wrong reasons. The three methods remain PortPending here; C is released to implement this family while preserving the full 186-method/four-hook-kind scope and test-first sequence for remaining families. Requested DTO defensive snapshots and source attachment-metadata provenance tests before final implementation review.
 
-## Codex - M6b package lifecycle RED preparation (Terra High)
+## M6b package lifecycle RED preparation
 
 This checkpoint adds test-first `PluginPackageManager` and `PluginScopedStorage` production stubs plus host-owned `IPluginPackageStore` / `IPluginUserStorageStore` seams under `Core/Plugins/Storage` (namespace `Barbican.Core.Plugins.Persistence` avoids shadowing existing `Core.Storage` references). Every lifecycle/storage operation intentionally throws `PortPendingException`; no package manager, persistence adapter, authority implementation, native loader or UI is wired. The proposed authenticated package store exposes immutable owned index bytes and revision-checked atomic commits; its trusted implementation must authenticate with a host-held secret, snapshot input before its first await, read back durable state, and fail closed for missing/locked keys, corrupt indexes, ambiguous commits and content hash mismatches. Fake stores in these tests are not evidence of authentication in production.
 
@@ -1924,35 +1929,35 @@ The Barbican-native `native-plugin.json` format is a host proposal, not a Bulwar
 
 The provisional `PluginValue` storage seam needs source-compatible `JSON.stringify` conversion (including undefined, Date, cycles and nonfinite numbers) and UTF-16 quota accounting; transport graph codec JSON is not a substitute. Recheck trusted runtime binding and captured local-login generation before and after awaits and immediately before commits; a shared JMAP resource ID is not a storage namespace. The package store, native sidecar schema, crash consistency, secret-backed authenticator and integration registration remain for coordinator review before implementation.
 
-- Codex coordinator reviewed package baseline bae9758 before release: actual manager/store/scoped-storage seams, detached authenticated index contract, one-use staged consent, durable pending cleanup tests and isolated no-load native sentinel. Combined full red-check passed 31 expected failures (18 package plus 13 composer), no wrong reasons; complete Core suite passed 1728/1728 on the merged baseline with no warnings/errors. The worker contact timeout did not recur in this full run and remains historical evidence. Package implementation is released incrementally; manager drafts 88008eb/5fc604a are not integrated here because direct review required immediate binding invalidation even on durable-write failure, teardown outside the manager gate, prior-generation-bound reviews and preserving/refusing unverified privileged tier. Native positive loading, authenticated production persistence and exclusive profile authority still need their own actual evidence.
-### Codex — M6b runtime tests-first checkpoint (Terra High)
+- coordinator reviewed package baseline bae9758 before release: actual manager/store/scoped-storage seams, detached authenticated index contract, one-use staged consent, durable pending cleanup tests and isolated no-load native sentinel. Combined full red-check passed 31 expected failures (18 package plus 13 composer), no wrong reasons; complete Core suite passed 1728/1728 on the merged baseline with no warnings/errors. The worker contact timeout did not recur in this full run and remains historical evidence. Package implementation is released incrementally; manager drafts 88008eb/5fc604a are not integrated here because direct review required immediate binding invalidation even on durable-write failure, teardown outside the manager gate, prior-generation-bound reviews and preserving/refusing unverified privileged tier. Native positive loading, authenticated production persistence and exclusive profile authority still need their own actual evidence.
+### M6b runtime tests-first checkpoint
 
 - The intended production entry points in `src/Barbican.App/Plugins/Sandbox/` and `Assets/plugins/plugin-sandbox-parent.js` are explicit `PortPending` stubs, not a working or registered runtime. Automation.Tests links those same UI-free App files. Twenty-two individually marked native red facts cover package/grant revalidation, revocation-before-navigation and rollback, isolated profile naming, owner/route/direct-frame ingress, claimed identity, account dispatch, lifecycle barriers, resource policy and bounded owned calls. `tools/red-check.py` confirmed all 22 fail at their intended production `PortPending` entry points and none pass or fail for another reason; the existing non-red Automation suite passed 142/142. The size-cap case constructs a valid graph exceeding the native limit under explicitly larger encoder limits; malformed input has its own test. The navigation-order test uses a synthetic adapter and does not prove actual untrusted browser code cannot run. API ingress is tested only after authenticated ready and init issuance, without waiting for init-done. Thirty-three standalone Node cases against the real pending parent entry cover source message variants and frame/port/lifetime scenarios; all currently fail with `Port pending`. These are executable obligations, not evidence that any security or runtime behavior works.
 - Actual WinUI WebView2 adapter, isolated profile/resource routing, response lifecycle, package authority wiring, bootstrap build and UI/frame integration do not exist yet. Reference `scripts/build-plugin-sandbox.mjs` uses esbuild, React/ReactDOM, PostCSS/Tailwind and Tabler; the local reference checkout has its lockfile but no installed node_modules or generated sandbox assets. Implementation must copy reviewed source into the C# repo, install exact locked dependencies in a repo-owned build directory, record licenses and reproducibility, and leave the reference tree unchanged. Validate unchanged API-probe and proofreading fixtures plus a real slot through the production factory. Native direct-frame oversized payload allocation, actual WebView2 source/WindowProxy behavior, captured Error intrinsics, callback/stream quotas and all lifecycle/account races still require adverse hidden integration tests; the JS synthetic WindowProxy objects are unit-test doubles only. No Linux, real input, OS changes or live account writes were performed.
 
 - **Runtime red-test review follow-up:** `PluginSandboxOwnedCalls` now distinguishes reusable prop callback capabilities (replaced atomically and invalidated on disposal) from one-shot pending replies and streams that accept multiple chunks until end. Red cases cover sibling ownership and quotas. Parent bridge red cases separately require opaque `null` origin for host-selected untrusted frames and the exact trusted origin plus frame identity for host-selected privileged frames; message-claimed tier is not authority. Native policy reds also distinguish host-selected privileged flags from untrusted flags and reject the native-full-trust tier as a JavaScript sandbox. `tools/red-check.py` reports 26/26 expected PortPending failures and no other failures; 35/35 standalone Node cases report the pending parent bridge. Resource-policy string tests specify expected flags/CSP only: actual form, network, navigation and WebView2 behavior remain unimplemented and unverified.
 
-- Codex pause checkpoint: user paused the full goal. Reviewed runtime baseline f1729fb is integrated as intended RED tests only; combined verifier reports 57 expected failures/zero wrong reasons. Runtime/package/composer implementation drafts remain on their worker branches, with exact unverified local WIP recorded in PROGRESS.md. No new implementation or test run after pause; only preserving the already verified merge and handoff.
+- Pause checkpoint: user paused the full goal. Reviewed runtime baseline f1729fb is integrated as intended RED tests only; combined verifier reports 57 expected failures/zero wrong reasons. Runtime/package/composer implementation drafts remain on their worker branches, with exact unverified local WIP recorded in PROGRESS.md. No new implementation or test run after pause; only preserving the already verified merge and handoff.
 
-## Codex coordinator: full-range storage Date conversion
+## Coordinator: full-range storage Date conversion
 
 - Added PluginEcmaDate.Format for JavaScript Date.toJSON across the complete TimeClip range, including year zero, negative years and signed six-digit extended years. Tests were ported and executed first (two expected PortPending failures), then both passed against 108 deterministic native Node Date JSON vectors and invalid internal-time checks; build zero warnings/errors. Reproducible generator and golden vectors are under tools/tests. This helper closes the DateTimeOffset range gap but is not yet wired to the worker scoped serializer or proof of complete storage compatibility. User resumed the original full goal; the previous pause table is retained as a checkpoint.
 
-## Codex coordinator: first concrete composer adapters integrated
+## Coordinator: first concrete composer adapters integrated
 
 - Curated the reviewed composer-only changes through a0a538c from C, leaving unfinished hooks/preview drafts separate. Actual GetSnapshot/SetSubject/ReadAttachment adapters now enforce binding-exposed owner handles, source projection, revision/member/session guards, detached byte slices/metadata and 25 MiB cap; SetSubject requires a host-shared stable-ID/profile 60-per-minute limiter, source controls/bidi/JS whitespace cleaning and fixed business errors. Large draft output has explicit graph budgets. Full merged Core suite passed 1754/1754 with zero warnings/errors. Fake host-backend tests and native codec round trips do not prove real editor transactions, browser file limits, host DI or unchanged-fixture behavior; those remain required.
 
-## Codex coordinator: user-requested pause and pushed work
+## Coordinator: user-requested pause and pushed work
 
-- User paused and explicitly requested marking progress, committing and pushing. Integration remains reviewed composer source 5b2f33e with full Core 1754/1754; all worker branches saved/pushed clean at runtime9672f0c, packagesf6363b8 and mediationa8608ad. New native-inspection draft does not compile (three method-length diagnostics), final ingress regression run was interrupted, and presentation limiter remains unreviewed/Red despite two earlier focused passes. Exact limits and next actions are in PROGRESS.md. Bootstrap staging retains unresolved verbatim third-party license notices outside Git; no privacy exception, scan weakening, new test or implementation after pause. Agents reported no remaining owned app/build process. Full roadmap/Astra/UI objective remains paused and incomplete.
+- User paused and explicitly requested marking progress, committing and pushing. Integration remains reviewed composer source 5b2f33e with full Core 1754/1754; all worker branches saved/pushed clean at runtime9672f0c, packagesf6363b8 and mediationa8608ad. New native-inspection draft does not compile (three method-length diagnostics), final ingress regression run was interrupted, and presentation limiter remains unreviewed/Red despite two earlier focused passes. Exact limits and next actions are in PROGRESS.md. Bootstrap staging retains unresolved verbatim third-party license notices outside Git; no privacy exception, scan weakening, new test or implementation after pause. Agents reported no remaining owned app/build process. Full roadmap/review/UI objective remains paused and incomplete.
 
 
-## Codex - M6b coordinator public-license guard and pause
+## M6b coordinator public-license guard and pause
 
-- Sol directly inspected `tools/privacy-check.sh`, `tools/tests/privacy-public-license.test.py` and the verbatim `tools/plugin-runtime-build/third-party-licenses/clsx--license`. Required upstream public attribution is exempt only at that exact path with the reviewed LF-normalized SHA-256; changed bytes fail closed. Five isolated Git-fixture tests passed, including worktree and committed-revision scans and continued rejection at alternate paths or unrelated private data. No general email/domain exemption was added. Astra should check path/content binding and future dependency-license updates; this does not authorize publishing user data.
-- User pause preserves worker checkpoints c3982dc (Terra High runtime), f37b0b5 (Terra High packages) and 6367077 (Terra High mediation), separately from reviewed integration source 5b2f33e. No worker draft is integrated by this pause. See PROGRESS.md for evidence and limits, especially actual WebView isolation, stale queued-response delivery fences, native activation barrier, authenticated-store crash recovery and real preview/print host enforcement.
+- the coordinator directly inspected `tools/privacy-check.sh`, `tools/tests/privacy-public-license.test.py` and the verbatim `tools/plugin-runtime-build/third-party-licenses/clsx--license`. Required upstream public attribution is exempt only at that exact path with the reviewed LF-normalized SHA-256; changed bytes fail closed. Five isolated Git-fixture tests passed, including worktree and committed-revision scans and continued rejection at alternate paths or unrelated private data. No general email/domain exemption was added. The reviewer should check path/content binding and future dependency-license updates; this does not authorize publishing user data.
+- User pause preserves worker checkpoints c3982dc (worker runtime), f37b0b5 (worker packages) and 6367077 (worker mediation), separately from reviewed integration source 5b2f33e. No worker draft is integrated by this pause. See PROGRESS.md for evidence and limits, especially actual WebView isolation, stale queued-response delivery fences, native activation barrier, authenticated-store crash recovery and real preview/print host enforcement.
 
-## Codex / Sol — explicit Windows mail WebView environment
+## Explicit Windows mail WebView environment
 
 - Reader and smoke now pass an explicit profile directory and browser options to WebView2, and verify the selected directory before navigating. Hidden startup sets only the app profile, not a process-wide WebView2 directory. Four focused environment tests passed; the Windows App Automation project built without warnings; hidden `auto-8929` smoke reached shell-ready and exited 0, with its expected profile directory present. Review `Composition/WebViewEnvironment.cs`, `Composition/MailWebViewStartup.cs`, and both startup call sites. Actual plugin factory integration and two-environment browser isolation are not yet verified. The full Automation solution build hit a separate NativeSentinel configuration mismatch.
 
@@ -1995,14 +2000,14 @@ The provisional `PluginValue` storage seam needs source-compatible `JSON.stringi
 
 - Verify the composer maximize and restore path against email-composer.tsx lines 5140 and 5550. Both new and docked sample drafts retained their saved IDs and contents through the measured round trips. Native Escape routing is source-checked only.
 
-## M6b conversation cards (Codex)
+## M6b conversation cards
 
 - Review the independent body lifetime and unified owner routing in ConversationCardView, MessageLoader and ReaderViewModel. The selected message retains its original body shell. Secondary bodies use separate restricted shells, with external content blocked.
 - ConversationPrintDialog renders one card as text for printing. Hidden Windows sample verification stops at its preview. Shared-account replies need shared compose support. Card-specific Reply all, Forward, attachments, read marking and plugin body transformations remain open.
 
 - Follow-up: card Reply all and Forward inherit the same source login/server ID and restrictions as Reply. Read delay starts on body reveal. Native settings have no trusted per-account organisation device policy or managed-account signal (I-108, M10), so per-account noPrint remains unproven. Do not treat the print preview as managed-policy compliant.
 
-### M6b Windows composer window (Codex)
+### M6b Windows composer window
 
 - Review the native close guard and single-view transfer in
   `src/Barbican.App/Shell/ShellPage.ComposerWindow.cs` and
@@ -2011,9 +2016,9 @@ The provisional `PluginValue` storage seam needs source-compatible `JSON.stringi
   placement and the OS file picker await hands-on review.
 - Follow-up to b79ef0c serializes replacement and undo/reopen at the leave guard. Concurrent open tests cover both routes. Hidden sample 9022 checked the minimum child (464 by 544 client pixels at scale 1), docked return, discard, and visible close confirmations. Native activation and monitor-to-monitor scaling await hands-on review.
 
-## Codex / Astra review of queued plugin delivery (2026-11-20)
+## Review of queued plugin delivery (2026-11-20)
 
-Astra withheld approval of the `86f47f4` / `30db863` candidate.
+The reviewer withheld approval of the `86f47f4` / `30db863` candidate.
 The Windows sender has no production caller. The session checks grant and
 account state before the writer converts the encoded payload to text and posts
 it. The session lock leaves grant changes and account switches free to race
@@ -2027,7 +2032,7 @@ and binding cancellation at that boundary. The reviewed commits were
 inspected in place. The Windows suite and portable smoke at `06ad154`
 cover the baseline before those commits.
 
-## Codex / Astra review of local plugin package recovery (2026-11-20)
+## Review of local plugin package recovery (2026-11-20)
 
 Integrated the local package manager, profile lease and authenticated package
 store from the package stream through `ca662d0`. Fixed the installed-package
@@ -2042,21 +2047,21 @@ failed cleanup. Authority lookups do not trigger archive I/O for cleanup.
 Reinstalling the same hash cancels its retirement, and enabled packages retain
 enough generation capacity for durable disable after restart.
 
-Astra closed the findings above after re-review of these paths. The package
+The reviewer closed the findings above after re-review of these paths. The package
 acceptance class passed 26 tests. Windows Automation passed 3,219 tests with
 four skips, zero failures, and a build with zero warnings or errors. Store
 tests used temporary folders and in-memory secrets. Production App and Add-ons
 composition, JavaScript activation, native user package loading, and signed
 managed acquisition remain outside this verification.
 
-## Codex / Astra review of the installed Add-ons view (2026-11-20)
+## Review of the installed Add-ons view (2026-11-20)
 
 Settings now lists installed packages through the authenticated profile
 store. The view reports saved enabled status, with refresh and usable
 loading, empty and error states. Local installation and runtime actions
 are still pending.
 
-Astra approved the read-only list after the host held its lease through
+The reviewer approved the read-only list after the host held its lease through
 each listing and isolated each automation process's package files alongside
 its in-memory secret. Two hidden launches on ports 9081 and 9082 used the
 same synthetic profile. Both opened Add-ons, refreshed to the expected
@@ -2065,14 +2070,14 @@ Windows Automation passed 3,219 tests with four skips, zero failures and
 a clean build. Populated rows and Windows credential-store access were
 not exercised by the hidden sample.
 
-## Codex / Astra review of local ZIP installation (2026-11-20)
+## Review of local ZIP installation (2026-11-20)
 
 Settings Add-ons now reviews local ZIP archives and requires consent to
 the exact staged package and selected connected accounts. Update review
 displays permission and account changes. Leaving the page or switching
 apps discards pending reviews. Approved installs and updates stay disabled.
 
-Astra approved the source after the navigation, consent, account eligibility
+The reviewer approved the source after the navigation, consent, account eligibility
 and account label fixes. Windows Automation passed 3,220 with four skips
 and zero failures. The Automation and Release builds were clean. Hidden
 synthetic run 9087 refused installation before consent, discarded reviews
@@ -2082,28 +2087,28 @@ had no connected mail account and supplied an inert fixture in place of the
 native file picker. Picker interaction and populated account selection
 remain unverified.
 
-## Codex / Astra review of Windows bootstrap resource policy (2026-11-20)
+## Review of Windows bootstrap resource policy (2026-11-20)
 
 The isolated bootstrap policy accepts exact document routes and verified
-manifest assets for their declared resource purposes. Astra closed the flag
+manifest assets for their declared resource purposes. The reviewer closed the flag
 and cross-purpose findings. All 22 focused Windows Automation policy cases
 passed. The privileged document route remains unavailable. Native WebView
 wiring and enforcement are separate pending work.
 
-## Codex / Astra review of queued Windows plugin replies (2026-11-20)
+## Review of queued Windows plugin replies (2026-11-20)
 
 The synchronous post now stays inside the live package grant, held profile
 lease, captured account selection, and runtime binding. Serialization
 finishes before the write guards are held. Missing lease or revoked grant
 suppresses delivery. Stale account captures permit a value-free error only.
 
-Astra approved this ordering after the lease and lifetime fixes.
+The reviewer approved this ordering after the lease and lifetime fixes.
 The Windows Automation suite built cleanly and passed 3,269 tests with four
 skips and no failures. Coverage includes concurrent grant disable, account
 switch, lease release, binding close, and synthetic ingress. The production
 WebView factory and end-to-end browser enforcement remain pending.
 
-## Codex / Astra review of Windows sandbox startup and parent bridge (2026-11-20)
+## Review of Windows sandbox startup and parent bridge (2026-11-20)
 
 The startup seam loads the verified entry point and binds it to the current
 package grant. Revocation waits for canceled activation to unwind and disposes
@@ -2111,13 +2116,13 @@ any instance returned during teardown. A failed disposal of the activated
 instance can be retried. Queue saturation closes the parent transport and
 signals the native session to revoke the binding.
 
-Astra approved the startup lifetime and queue fixes within that scope. The
+The reviewer approved the startup lifetime and queue fixes within that scope. The
 Windows Automation build was clean and 3,281 tests passed with four skips
 and zero failures. All 46 JavaScript bridge tests passed. The Windows build
 contains the three bridge scripts. Production WebView activation, frame
 navigation enforcement, and end-to-end runtime verification are pending.
 
-## Codex / Astra review of Windows sandbox activation acknowledgements (2026-11-20)
+## Review of Windows sandbox activation acknowledgements (2026-11-20)
 
 The session accepts one authenticated initialization outcome after posting
 init. Initialization failure revokes the binding before any further ingress
@@ -2127,7 +2132,7 @@ uses the session's own WebView, handles navigation and renderer failures,
 denies popups, permissions and downloads, and requires revocation before
 detaching its event handlers.
 
-Astra approved the acknowledgement, navigation and event adapter changes
+The reviewer approved the acknowledgement, navigation and event adapter changes
 after review fixes. The Windows Automation build had zero warnings and
 errors, with 3,292 tests passed and four skipped. The adapter has no
 production registration yet. WebView creation, resource filtering, and
@@ -2139,7 +2144,7 @@ after normalizing generated import filenames. The repository privacy scan
 flagged a generated chunk and required upstream notices, so the runtime
 bundle is still preserved in local staging with the notices intact.
 
-## Codex / Astra review of Windows plugin view and bootstrap inputs (2026-11-20)
+## Review of Windows plugin view and bootstrap inputs (2026-11-20)
 
 The Windows view factory reserves a new browser profile exclusively, checks
 the mount around native initialization, and queues teardown on the UI thread.
@@ -2151,12 +2156,12 @@ optional slot fill flag.
 
 The bootstrap verifier returns immutable bytes only after the exact eight
 files match pinned lengths and SHA-256 values. It requires a trusted root.
-The original local staging matches all eight pins. Astra approved these
+The original local staging matches all eight pins. The reviewer approved these
 source changes. Windows Automation built with zero warnings or errors and
 passed 3,300 tests with four skips. Production registration, serving the
 bootstrap documents, and running an isolated add-on in WebView2 are pending.
 
-## Codex / Astra review of the Windows WebView2 startup proof (2026-11-20)
+## Review of the Windows WebView2 startup proof (2026-11-20)
 
 The Windows startup adapter prepares fixed parent and isolated child
 documents and immutable native response streams before navigation. Requests
@@ -2167,7 +2172,7 @@ top-level native core and exact source. WebView2 delivered a different
 managed sender wrapper in the hidden test, which explained the original
 readiness timeout.
 
-Astra approved the scope after the resource lifetime and sender changes.
+The reviewer approved the scope after the resource lifetime and sender changes.
 Windows Automation passed 3,303 tests, with four skips and zero failures.
 The exact source also passed a hidden synthetic background activation on
 WebView2 157.0.4341.60. The probe used the pinned local runtime, received the
@@ -2180,7 +2185,7 @@ and redirect restrictions are declared in the two document responses.
 Actual network isolation, hook invocation and visible slot behavior still
 require end-to-end verification.
 
-## Codex / Astra review of the Windows JavaScript hook round trip (2026-11-20)
+## Review of the Windows JavaScript hook round trip (2026-11-20)
 
 The runtime invokes a hook registered by its authenticated activation.
 Each frame has bounded pending requests with unique IDs, accepted only
@@ -2189,7 +2194,7 @@ posting arguments and before returning the result. Cancellation and session
 closure remove pending requests. Expected native failures return a generic
 transport error, and plugin error details stay inside the sandbox.
 
-Astra approved the transport scope after reviewing the failure handling.
+The reviewer approved the transport scope after reviewing the failure handling.
 Windows Automation passed 3,308 tests with four skips and zero failures.
 The hidden WebView2 probe delivered the synthetic argument to the registered
 hook, received the expected value, closed the session, and exited zero.
@@ -2204,7 +2209,7 @@ comment. The build script and license match. The reduced staging lock has
 different Tailwind CSS resolutions, so the existing bundle's tag-exact
 release provenance has not been established.
 
-## Codex / Astra review of the exact Bulwark runtime and WebRTC observation (2026-11-20)
+## Review of the exact Bulwark runtime and WebRTC observation (2026-11-20)
 
 The runtime verifier now pins the eight files built from the published
 Bulwark 1.21.2 release revision 933bc18f517135e38245821c5cc1bc7117ce2d64
@@ -2219,7 +2224,7 @@ hidden run observed the browser's enforced WebRTC restriction inside the
 opaque child on WebView2 157.0.4341.60. That run used a fresh profile, named
 a local reporting group with no destination, and passed only on the matching
 browser report. The original headers produced an inconclusive report check.
-Astra approved the scoped diagnostic and pins. Windows Automation passed
+The reviewer approved the scoped diagnostic and pins. Windows Automation passed
 3,309 tests with four skips and zero failures.
 [Chromium's WebRTC reporting implementation](https://chromium.googlesource.com/chromium/src/+/d82acd12a7d48882d45071d5dd96d3a5f25fb19d%5E%21/)
 
@@ -2229,7 +2234,7 @@ runtime. The icon chunk still triggers the privacy scanner. Production
 registration, portable packaging, independent-machine reproducibility,
 and broader network and slot behavior remain pending.
 
-## Codex / Astra review of Windows runtime preparation and lifecycle observers (2026-11-20)
+## Review of Windows runtime preparation and lifecycle observers (2026-11-20)
 
 The preparation script exports the pinned upstream Git revision to an
 exclusively created folder outside both checkouts. It uses isolated tool
@@ -2238,13 +2243,13 @@ verified Node and npm versions. It reproduces the Windows checkout's CRLF
 conversion and checks the eight filenames, byte lengths and hashes against
 the app inventory. The in-repo script passed an independent clean build
 with deliberately invalid ambient Node and npm settings, and rejected both
-an existing output directory and a destination inside a checkout. Astra
+an existing output directory and a destination inside a checkout. The reviewer
 approved the final script.
 
 The lifecycle adapter projects the five approved empty observer events
 to a live, untrusted background binding using Bulwark's implicit lifecycle
 permission. It uses a fixed empty object, checks the current grant, and
-detaches on binding closure. Astra approved the scoped adapter. Windows
+detaches on binding closure. The reviewer approved the scoped adapter. Windows
 Automation passed 3,314 tests with four skips and zero failures. The runtime
 owner still needs to attach the adapter once per activated binding.
 
@@ -2253,20 +2258,20 @@ pattern match in the locked public dependency source. The generated chunk
 and runtime notices remain in local staging. The repository privacy
 scanner and artifact distribution policy remain in force.
 
-## Codex / Astra review of shared Windows package authority (2026-11-20)
+## Review of shared Windows package authority (2026-11-20)
 
 The app package host now builds the sandbox factory with the same leased
 manager and revocation coordinator used for installed-package changes.
 The factory attaches the five safe lifecycle observers only for its own
 activated binding and gives their cleanup to the tracked startup lifetime.
 
-Astra approved the shared authority and observer ownership. The Windows
+The reviewer approved the shared authority and observer ownership. The Windows
 Automation suite passed 3,315 tests with four skips and zero failures.
 The focused case verifies allowed lifecycle delivery, exclusion of a mail
 hook and observer detachment after revocation. Live Windows package
 activation and production composition remain pending.
 
-## Codex / Astra review of Windows leased activation and slot rendering (2026-11-20)
+## Review of Windows leased activation and slot rendering (2026-11-20)
 
 Separate hidden Windows runs with fresh automation profiles passed using
 the exact Bulwark 1.21.2 runtime. The package probe used a fixed synthetic
@@ -2280,11 +2285,11 @@ The slot probe rendered a fixed synthetic component and checked its exact
 text and 123 by 37 CSS pixel bounds. The native query was confined to the
 captured child frame and required its exact URL and opaque origin. The
 probe leaves production placement, focus, and resize routing to later tests.
-Astra approved both hidden probes and their cleanup. Windows Automation
+The reviewer approved both hidden probes and their cleanup. Windows Automation
 passed 3,315 tests on rerun with four skips. The preceding run had one
 failure whose identity was not retained.
 
-## Codex / Astra review of bounded Windows add-on shutdown (2026-11-20)
+## Review of bounded Windows add-on shutdown (2026-11-20)
 
 Profile shutdown permanently closes runtime registration and invalidates
 all tracked bindings before it waits. Concurrent shutdown callers share
@@ -2292,14 +2297,14 @@ the bounded teardown result. The package host releases its profile lease
 after that wait and reports unsuccessful cleanup. The window logs pending
 add-on teardown separately from preference flush failures.
 
-Astra approved the shutdown scope. A stalled synthetic runtime verified
+The reviewer approved the shutdown scope. A stalled synthetic runtime verified
 that both shutdown callers see failure, startup is refused, and the
 profile lease can be acquired again while delayed cleanup completes.
 Windows Automation passed 3,317 tests with four skips and zero failures.
 Both native probes passed again. Normal app composition started and closed
 successfully in a separate hidden sample profile.
 
-## Codex / Astra review of optional Windows portable packaging (2026-11-20)
+## Review of optional Windows portable packaging (2026-11-20)
 
 The portable packager accepts a pair of optional directories for the
 eight app-pinned bootstrap files and the nine runtime license texts.
@@ -2309,7 +2314,7 @@ payload paths, verifies ZIP entry names and hashes, and refuses to replace
 an existing archive. The existing invocation still produces its original
 archive layout.
 
-Astra approved the local packaging change. Synthetic fixtures passed on
+The reviewer approved the local packaging change. Synthetic fixtures passed on
 Windows PowerShell 5.1.26100.9818 and PowerShell 7.6.9. They checked the
 ZIP layout and hashes, existing output, invalid or incomplete arguments,
 junctions, and rejection of output inside the source before directory
@@ -2317,7 +2322,7 @@ creation. Mapped drives, SUBST drives, concurrent output creation, and
 packaging a real application publish remain untested. No release archive
 was produced. Distribution still requires artifact privacy and notice review.
 
-## Codex / Astra review of Windows background add-on activation (2026-11-20)
+## Review of Windows background add-on activation (2026-11-20)
 
 The normal Windows shell restores enabled untrusted JavaScript add-ons
 using the packaged, hash-pinned runtime. The Add-ons page enables, starts,
@@ -2340,7 +2345,7 @@ kept one runtime active and blocked a second before tracking. Disabling
 the second took effect before it could activate, and the shutdown
 barrier invalidated the first before releasing the lease.
 
-Astra approved the final slice. Windows Automation passed 3,320 tests
+The reviewer approved the final slice. Windows Automation passed 3,320 tests
 with four skips and 48 Node checks passed. A private Windows walkthrough
 with the exact Bulwark 1.21.2 files used normal Settings composition to
 review and install a synthetic package disabled, enable it, observe it
@@ -2355,7 +2360,7 @@ The catalogue checker now reads the existing conversation loading label
 as UTF-8. It reports no duplicate or dangling IDs and still reports 12
 M6b Red cases, eight for packages and four for runtime.
 
-## Codex / Astra review of Windows add-on owned calls and scoped storage (2026-11-20)
+## Review of Windows add-on owned calls and scoped storage (2026-11-20)
 
 The runtime registry rejects reuse of retired callback, reply and stream
 identities. Externally supplied identities have bounded histories. Native
@@ -2373,7 +2378,7 @@ available for removal retry, including after the package host reopens.
 Same-namespace rollback by a locally privileged process is outside the
 user-data integrity claim.
 
-Astra approved both scopes after fixes. A hidden Windows package probe used
+The reviewer approved both scopes after fixes. A hidden Windows package probe used
 the production dispatcher and encrypted store with two fixed synthetic
 sessions and in-memory secrets. It exercised all four JavaScript storage
 calls, isolation across switches, retained data across a fresh runtime
@@ -2386,7 +2391,7 @@ representative JavaScript boundary values.
 The specification checker still reports two M6b Red cases for native
 package consent and inert discovery.
 
-## Codex / Astra review of Windows add-on storage at sign-out (2026-11-20)
+## Review of Windows add-on storage at sign-out (2026-11-20)
 
 The normal Windows shell now registers the four scoped storage methods.
 Fresh and restored logins receive storage access only if the app held
@@ -2403,7 +2408,7 @@ trees and full erasure can proceed independently of the add-on vault key
 and package index. A competing profile owner or a failed data erase
 leaves the account signed in and reports the failure.
 
-Astra approved the account lifetime, scoped mutation and erasure paths.
+The reviewer approved the account lifetime, scoped mutation and erasure paths.
 The synthetic regressions cover a stale in-memory login, a stale vault
 cache before restore, a remembered login absent from another window,
 queued sign-out across sign-in, and a staged write reaching publication
@@ -2417,7 +2422,7 @@ removal. The Windows Release build passed with zero warnings and errors.
 The active-account race tests use synthetic mail sessions. No real account
 was used.
 
-## Codex / Astra review of inert Windows native add-on import (2026-11-20)
+## Review of inert Windows native add-on import (2026-11-20)
 
 The ZIP inspector recognizes one exact native sidecar, validates its schema
 and declared hooks, and requires a complete flat DLL filename and SHA-256
@@ -2432,7 +2437,7 @@ disabled. Renewing review checks the fresh archive against the installed
 identity even when the loaded definition is cached. A changed archive
 requires a new decision. Native user-package activation remains unavailable.
 
-Astra approved inert inspection and disabled installation. The sentinel
+The reviewer approved inert inspection and disabled installation. The sentinel
 checks verify that the fixture never enters the process assembly list and
 that inspection, rejection, approval and reload produce no initializer,
 constructor or manifest activity. They also cover tampering, ambiguous
@@ -2445,7 +2450,7 @@ existing hidden JavaScript package and storage probe passed. The M6b
 specification checker reports no remaining Red cases. Native activation,
 hook and slot integration, and the M6b portable remain open.
 
-## Codex / Astra review of Windows native add-on activation (2026-11-20)
+## Review of Windows native add-on activation (2026-11-20)
 
 A separate Enable action starts an approved native add-on. The runtime
 reopens the authenticated package, checks the complete archive against the
@@ -2466,7 +2471,7 @@ initialization, admitted callbacks and their cancellation handlers before
 disposing the loaded plug-in. A timed-out hook returns to the caller while
 teardown continues to track the foreign work. The window and profile lease
 stay open when the shutdown cleanup budget expires, and closing again retries
-the cleanup. Astra reviewed the fixes for the reader deadline and lease
+the cleanup. The reviewer reviewed the fixes for the reader deadline and lease
 ownership races and approved the changes.
 
 Windows Automation passed 3,371 tests with four skips. The private
@@ -2477,7 +2482,7 @@ and confirmed removal. Windows Release built with zero warnings and errors
 and excludes the Automation fixture. The M6b specification checker passed
 and still reports the plug-in OAuth callback as unwired.
 
-## Codex / Astra review of Windows add-on OAuth delivery (2026-11-20)
+## Review of Windows add-on OAuth delivery (2026-11-20)
 
 An add-on with an active `http:fetch` grant and a registered background
 callback can request a random, single-use state. The state selects the
@@ -2496,7 +2501,7 @@ provider host. Generic external-link routing and add-on token exchange
 through the full host HTTP API remain open.
 [RFC 8252 on desktop redirect URIs and PKCE](https://www.rfc-editor.org/rfc/rfc8252.html#section-7.3)
 
-Astra approved the browser authorization, state ownership and listener
+The reviewer approved the browser authorization, state ownership and listener
 renewal changes after the review fixes.
 
 Windows Automation passed 3,383 tests with four skips. The private
@@ -2508,7 +2513,7 @@ synthetic launcher in the dispatcher tests. The separate private slot
 probe passed. Windows Release built with zero warnings and errors. The
 specification checker reports the M6b OAuth hook wired.
 
-## Codex / Astra review of Windows add-on website approval (2026-11-20)
+## Review of Windows add-on website approval (2026-11-20)
 
 Settings shows the HTTPS websites requested by a JavaScript add-on with
 `http:fetch` before asking for consent. Approval records the exact list
@@ -2523,14 +2528,14 @@ action opens its existing archive for review. Approval advances its grant
 generation and leaves the add-on disabled until the user enables it. The
 host HTTP request adapter and redirect checks are still open.
 
-Astra approved the review, legacy migration and projection changes.
+The reviewer approved the review, legacy migration and projection changes.
 Windows Automation passed 3,386 tests with four skips. The private
 Settings walkthrough verified exact and wildcard website display,
 cancel, explicit approval, disabled installation and removal. The
 private WebView2 OAuth probe continued to pass. Windows Release built
 with zero warnings and errors.
 
-## Codex / Astra review of Windows add-on HTTP fetch (2026-11-20)
+## Review of Windows add-on HTTP fetch (2026-11-20)
 
 Windows exposes `http.fetch` through the authenticated add-on API
 dispatcher. Settings starts with add-on web requests blocked. The profile
@@ -2560,9 +2565,9 @@ requires an exact canonical round trip. The corrected JavaScript bridge
 passed 49 checks. Windows Automation passed 3,405 tests with four skips.
 The private Settings walkthrough toggled the profile policy on and off.
 Windows Release built cleanly with the corrected decoder and excludes the
-synthetic transport. Astra approved the final transport and decoder changes.
+synthetic transport. The reviewer approved the final transport and decoder changes.
 
-## Codex / Astra review of Windows composer add-on actions (2026-11-20)
+## Review of Windows composer add-on actions (2026-11-20)
 
 The Windows composer mounts account-scoped add-on actions in its header
 and uses a constrained overflow menu when space is limited. A click
@@ -2577,7 +2582,7 @@ reopened drafts withhold imported body text from add-ons. Newly typed
 text remains available. Tests cover repeated subject values, stale draft
 handles, reopened content, and inline attachment isolation.
 
-Astra approved the composer, overflow menu and Windows Automation
+The reviewer approved the composer, overflow menu and Windows Automation
 account adapter. Windows Automation passed 3,409 tests with four skips,
 and Windows Release built with zero warnings and errors.
 The private desktop walkthrough reviewed and enabled the byte-for-byte
@@ -2590,7 +2595,7 @@ automation profile. Reader actions currently register during activation.
 Reader mounting, file preview, printing, send hooks and compose-link
 checks remain open.
 
-## Codex / Astra review of Windows reader actions and add-on preview (2026-11-20)
+## Review of Windows reader actions and add-on preview (2026-11-20)
 
 The reader mounts authorized add-on actions beside the message toolbar.
 A constrained menu holds the actions when the reader is narrow. The
@@ -2608,7 +2613,7 @@ presentation. Disabling the owner cancels the dialog. Windows codec
 availability governs raster support. Printing, download and full image
 behavior parity remain open.
 
-Astra approved the reader and preview changes after the dialog lifetime,
+The reviewer approved the reader and preview changes after the dialog lifetime,
 grant and byte allocation fixes. Windows Automation passed 3,416 tests
 with four skips. Windows Release built with zero warnings and errors.
 The unchanged Bulwark fixture opened `Akte 01-2026.pdf` through both the
@@ -2618,7 +2623,7 @@ window. Closing the preview and disabling the installed add-on both
 dismissed it. The private desktop capture command did not produce a
 screenshot.
 
-## Codex / Astra review of Windows compose links (2026-11-20)
+## Review of Windows compose links (2026-11-20)
 
 Windows routes `mailto:` links and the desktop `bulwark://new` target
 through the composer. The desktop target accepts add-on parameters and
@@ -2642,12 +2647,12 @@ composer API used by toolbar actions.
 The unchanged Bulwark fixture updated the synthetic draft after both the
 desktop second-launch handoff and the native mailto route. The first
 duplicate won in the desktop case, and a link carrying only an unknown
-add-on's parameter retained its original subject. Astra approved the
+add-on's parameter retained its original subject. The reviewer approved the
 delivery and startup wait. Windows Automation passed 3,422 tests with
 four skips and Windows Release built with zero warnings and errors.
 The Windows protocol association and Bulwark's browser URL remain open.
 
-## Codex / Astra review of Windows add-on send hooks (2026-11-20)
+## Review of Windows add-on send hooks (2026-11-20)
 
 Windows connects `onBeforeEmailSend` and `onTransformOutgoingEmail`
 to the normal send pipeline. Both require `email:send` for the sending
@@ -2674,7 +2679,7 @@ in-process JMAP server's Sent copy contained `akte-01-2026`, `$flagged`
 and the host's `$seen`. A separate fixture with only `email:send`
 changed the subject and could not add keywords. Its veto kept the draft
 open and produced no Sent copy. The ordinary Windows service graph
-started in a clean automation profile. Astra approved the checkpoint.
+started in a clean automation profile. The reviewer approved the checkpoint.
 Windows Automation passed 3,431 tests with four skips, and Windows
 Release built with zero warnings and errors.
 
@@ -2682,7 +2687,7 @@ Send checks derive external recipients from sending-account identity
 domains. Organization domains, attachment text excerpts, custom outgoing
 headers and JavaScript send takeover and completion hooks remain open.
 
-## Codex / Astra review of Windows send completion (2026-11-20)
+## Review of Windows send completion (2026-11-20)
 
 Windows delivers `onAfterEmailSend` to current JavaScript add-ons with
 `email:read` for the sending account. The payload uses the accepted email
@@ -2699,7 +2704,7 @@ cancel keeps the event pending until a status read resolves the outcome.
 Pending events and reconciliation timers are held in memory for the life of
 the app.
 
-Astra approved the delivery, reconciliation and automation changes.
+The reviewer approved the delivery, reconciliation and automation changes.
 Windows Automation passed 3,436 tests with four skips, and Release built
 with zero warnings and errors. The private Windows
 walkthrough used in-process JMAP and verified hold expiry, Send now, Undo,
@@ -2707,7 +2712,7 @@ the scheduled timestamp, observer failure isolation and the read grant.
 The synthetic send profile advertises `FUTURERELEASE` for these checks.
 JavaScript send takeover remains open.
 
-## Codex / Astra review of the raw JMAP submission service (2026-11-20)
+## Review of the raw JMAP submission service (2026-11-20)
 
 The Core service submits an RFC 822 message with its original bytes and
 an explicit envelope. It checks the From header against the selected
@@ -2720,7 +2725,7 @@ retained copy. A definite refusal triggers best-effort cleanup of the
 temporary draft. A lost or contradictory response returns an unknown
 outcome and preserves the server's state for reconciliation.
 
-Astra approved the Core and transport changes. Windows Automation passed
+The reviewer approved the Core and transport changes. Windows Automation passed
 3,449 tests with four skips. Windows Release built with zero warnings and
 errors. The synthetic tests cover exact bytes,
 explicit recipients, the server's implicit filing response, account
@@ -2730,7 +2735,7 @@ JavaScript raw send and compose takeover remain open. The host needs to
 apply the sending account's classification policy before exposing either
 capability.
 
-## Codex / Astra review of Windows add-on notifications (2026-11-20)
+## Review of Windows add-on notifications (2026-11-20)
 
 Windows JavaScript add-ons can display success, error, information and
 warning toasts through the existing notification host. The host labels
@@ -2739,7 +2744,7 @@ accessibility announcement. It revalidates the profile grant and live
 frame when displaying the toast. Each add-on shares a limit of five
 notifications per ten seconds across its frames and severities.
 
-Astra approved the changes. Windows Automation passed 3,462 tests with
+The reviewer approved the changes. Windows Automation passed 3,462 tests with
 four skips. Windows Release built with zero warnings and errors. A
 private Windows walkthrough attached the normal shell to its hidden
 window, installed and enabled a synthetic add-on without account grants,
@@ -2749,7 +2754,7 @@ removed from the displayed message.
 The ordinary methods accept strings and primitive values. Complex
 objects and the persistent progress and dismiss methods remain open.
 
-## Codex / Astra review of Windows add-on progress notifications (2026-11-20)
+## Review of Windows add-on progress notifications (2026-11-20)
 
 JavaScript add-ons can show persistent progress and dismiss it through
 an opaque handle assigned to the exact frame. An unknown or already
@@ -2759,14 +2764,14 @@ to five active progress notifications per add-on and 32 per window.
 Ordinary notifications and their actions remain visible outside the
 scrolling progress list.
 
-Astra approved the display, ownership and cleanup changes. The private
+The reviewer approved the display, ownership and cleanup changes. The private
 Windows walkthrough used a synthetic add-on composer action to display
 attributed progress. It verified dismissal through the add-on, the
 native Close button, and disabling the add-on while progress remained
 visible. Windows Automation passed 3,468 tests with four skips, and
 Windows Release built with zero warnings and errors.
 
-## Codex / Astra review of the organization-policy reader (2026-11-20)
+## Review of the organization-policy reader (2026-11-20)
 
 The Windows service graph registers a reader for an explicitly trusted
 Bulwark policy origin. That trust binds to one OAuth login and its exact
@@ -2782,7 +2787,7 @@ scopes. It discards a response if the provider or login changes while
 the request is pending. Public, malformed and uncovered responses yield
 no policy snapshot. Transport tests use a synthetic provider.
 
-Astra approved the reader and its authority checks. Windows Automation
+The reviewer approved the reader and its authority checks. Windows Automation
 passed 3,499 tests with four skips, and Windows Release built with zero
 warnings and errors. The new cases cover exact endpoint
 binding, public and uncovered responses, internationalized domains,
@@ -2791,7 +2796,7 @@ OAuth revocation and provider or login replacement during a read.
 Native provider enrollment and the add-on print and raw-send policy
 checks remain open.
 
-## Codex / Astra review of Windows policy-provider enrollment (2026-11-20)
+## Review of Windows policy-provider enrollment (2026-11-20)
 
 Windows Account settings can connect a policy provider for the current
 OAuth login. Consent names the canonical HTTPS origin and the selected
@@ -2800,7 +2805,7 @@ authoritative response and a final check of the login, account selection
 and previous route. Disconnect revokes the route for that login.
 Connections last for the current sign-in session.
 
-Astra approved the changes. The private Windows walkthrough used an
+The reviewer approved the changes. The private Windows walkthrough used an
 in-process OAuth account and policy endpoint to connect, read a print
 restriction, reject a replacement while keeping the previous provider,
 and disconnect. Windows Automation passed 3,512 tests with four skips.
@@ -2809,7 +2814,7 @@ Windows Release built with zero warnings and errors.
 The connection panel reports the provider's policy. Enforcement in
 add-on printing and raw sending remains open.
 
-## Codex / Astra review of policy-controlled Windows add-on printing (2026-11-20)
+## Review of policy-controlled Windows add-on printing (2026-11-20)
 
 Windows accepts HTML or PDF through `ui.print`. HTML is sanitized and
 converted in an offline WebView before entering the PDF page renderer.
@@ -2823,7 +2828,7 @@ dialog admission and again when supplying the source, preview or output
 pages. A print call reports success once the dialog is displayed. The
 window lease remains in place until the claimed print task ends.
 
-Astra approved the changes. The private Windows walkthrough inspected
+The reviewer approved the changes. The private Windows walkthrough inspected
 the prepared HTML and PDF page trees, including a contrasting watermark
 on each sample page. A second profile with verified no-print policy
 delivered zero pages. Revoking the provider after admission also
@@ -2832,7 +2837,7 @@ for the native dialog. Windows Automation passed 3,519 tests with four
 skips. Windows Release built with zero warnings and errors. Physical
 printer output remains unverified.
 
-## Codex / Astra review of Windows standalone raw sending (2026-11-20)
+## Review of Windows standalone raw sending (2026-11-20)
 
 Windows add-ons with an active-account `email:raw-send` grant can call
 `jmap.sendRaw` to keep a Sent copy or `jmap.submitRaw` to submit without
@@ -2853,7 +2858,7 @@ The standalone path takes up to 25 MiB of binary input and accepts
 scheduled timestamps with a time-zone offset. Composer takeover and
 composer-selected required labels remain open.
 
-Astra approved the source, including the upload and receipt guards.
+The reviewer approved the source, including the upload and receipt guards.
 Windows Automation passed 3,557 tests with four skips. Private Windows
 walkthroughs with an in-process server verified both SDK methods and
 their Sent-copy results, default classification, blind recipient
@@ -2862,7 +2867,7 @@ required-label policy and an unconnected provider each produced zero
 uploads and zero submissions. Windows Release built with zero warnings
 or errors.
 
-## Codex / Astra review of Windows composer classification and takeover (2026-11-20)
+## Review of Windows composer classification and takeover (2026-11-20)
 
 The Windows composer offers a classification picker under the verified
 policy for its sending login and effective From address. The send pipeline
@@ -2903,7 +2908,7 @@ original saved draft. A separate profile with an unprivileged
 uploads and zero submissions. Tests used an in-process policy provider
 and mail server.
 
-## Codex / Astra review of managed add-on acquisition (2026-11-20)
+## Review of managed add-on acquisition (2026-11-20)
 
 The managed acquisition service requires separate approval of an HTTPS
 provider and an Ed25519 public key for the exact signed-in OAuth account.
@@ -2926,7 +2931,7 @@ WebView startup remain open. The new path is exercised with synthetic
 HTTP and signing keys. Windows Automation passed 3,595 tests with four
 skips. Windows Release built without warnings or errors.
 
-## Codex / Astra review of managed add-on installation (2026-11-20)
+## Review of managed add-on installation (2026-11-20)
 
 Windows Add-ons accepts an administrator-provided HTTPS origin, public
 signing key and add-on ID. It shows the exact selected account and
@@ -2953,9 +2958,9 @@ list and disabled installation using the synthetic provider. A second
 review with a different key returned a signature mismatch and preserved
 the installed row. The disabled row exposed no Enable action.
 Windows Release built without warnings or errors. The M6b specification
-gate and generated hook check passed. Astra approved this checkpoint.
+gate and generated hook check passed. The reviewer approved this checkpoint.
 
-## Codex / Astra review of the Windows managed WebView transport (2026-11-20)
+## Review of the Windows managed WebView transport (2026-11-20)
 
 The Windows host selects the frame's tier from its runtime binding. It
 serves a managed child at `https://managed-plugin.invalid` and keeps the
@@ -2981,13 +2986,13 @@ previous revision and with this patch.
 
 Windows Automation passed 3,610 tests with four skips. Windows Release
 built without warnings or errors. The M6b specification gate and generated
-hook check passed. Astra approved the transport checkpoint.
+hook check passed. The reviewer approved the transport checkpoint.
 
 This checkpoint verifies transport and background bootstrap. Runtime
 authorization for installed managed add-ons, a managed slot walkthrough,
 and an end-to-end composer send takeover remain open.
 
-## Codex / Astra review of the managed startup proof (2026-11-20)
+## Review of the managed startup proof (2026-11-20)
 
 The package manager can request fresh verification for a previously
 approved managed installation. Before sending credentials, it checks
@@ -3006,9 +3011,9 @@ the Windows activation flow consumes this proof at the code handoff.
 
 Windows Automation passed 3,615 tests with four skips. Windows Release
 built without warnings or errors. The M6b specification gate and generated
-hook check passed. Astra approved the proof checkpoint.
+hook check passed. The reviewer approved the proof checkpoint.
 
-## Codex / Astra early review of managed activation (2026-11-20)
+## Early review of managed activation (2026-11-20)
 
 The activation grant exists for the current verified provider and
 account session. The authenticated installation stays disabled. The
@@ -3023,7 +3028,7 @@ installed archive govern WebView initialization and privileged delivery.
 
 A test with two contributing managed grants withdraws one and verifies
 the delivery callback is never called. The focused Windows Debug run
-passed 62 tests. GPT-6.2 Astra on High approved the three fixes after
+passed 62 tests. The reviewer approved the three fixes after
 reviewing the new source and the reported tests. This is the early
 authority review. The combined milestone acceptance is still open.
 
@@ -3032,15 +3037,15 @@ managed Disable and account loss, a composer action contribution, and
 the signed takeover with one in-scope submission. The fixture refused
 an out-of-scope recipient and kept the draft. [Walkthrough](milestones/M6b-solo-parity.md#managed-add-on-activation-and-takeover)
 
-## Codex / Astra Windows checkpoint at 3791df4
+## Windows checkpoint at 3791df4
 
-GPT-6.2 Astra on High explicitly approved revision
+The reviewer explicitly approved revision
 `3791df4143ad616727721464a032779c5bce2e40` as a Windows checkpoint.
-Astra inspected the source, the light and dark comparisons, compact footer,
+The reviewer inspected the source, the light and dark comparisons, compact footer,
 Discard confirmation, managed Running and revoked states, and the denied
 draft. It reviewed the keyboard and send transcripts, the after-ready
 refusal probe, and the Windows build and extraction logs. The three
-earlier authority findings stayed closed. Astra reported no new blocking
+earlier authority findings stayed closed. The reviewer reported no new blocking
 regression in this checkpoint.
 
 Windows Automation passed 3,623 tests with four skips. Release built
@@ -3055,9 +3060,9 @@ Generic dialogs, scoped mail-read results and denials, and the remaining
 production slot integrations still require implementation and executable
 evidence. [M6b API evidence and open methods](milestones/M6b-api-inventory.md#windows-execution-evidence-for-the-november-20-continuation)
 
-## Codex / Astra typing checker review
+## Typing checker review
 
-GPT-6.2 Astra on High approved the source fixes for the typing-checker
+The reviewer approved the source fixes for the typing-checker
 findings. Suggestion application holds the binding and registration
 fences through the edit. Pending signer teardown blocks draft disclosure.
 Policy refresh runs separately from typing, and a newly resolved denial

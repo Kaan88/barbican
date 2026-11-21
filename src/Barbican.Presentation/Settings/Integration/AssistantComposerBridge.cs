@@ -1,5 +1,5 @@
 // Mirrors: Rust agent.rs draft_email (open for review); B-AI-008; M3 composer leave guards.
-// Codex integration: pool-thread assistant tools enter the composer through its dispatcher.
+// Integration: pool-thread assistant tools enter the composer through its dispatcher.
 using Barbican.Core.Common;
 using Barbican.Core.Compose;
 using Barbican.Core.Compose.Recipients;

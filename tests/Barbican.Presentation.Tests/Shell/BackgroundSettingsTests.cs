@@ -1,4 +1,4 @@
-// M6 Codex integration regression: settings writes finish on the pool, while shell consumers bind to XAML.
+// M6 integration regression: settings writes finish on the pool, while shell consumers bind to XAML.
 using Barbican.Presentation.Tests.Support;
 
 namespace Barbican.Presentation.Tests.Shell;

@@ -6,7 +6,7 @@ first, then the composer and other screens. The older theme studies remain on
 hold; retaining a saved legacy appearance must not change the new default.
 
 The reference walkthrough and native parity fixes are required before M6b goes
-to Astra. This is a coverage ledger, not a completion report. Reference
+to Fable. This is a coverage ledger, not a completion report. Reference
 observations come from the signed-in throwaway account. Do not track mailbox
 contents, identifiers, credentials, or real-account screenshots.
 
@@ -26,7 +26,7 @@ remaining differences in typography, density, alignment, icons, backgrounds,
 separators, and control shapes. Confirm visible state before capture. Include
 the actual message body in reader comparisons; XAML-only captures leave the
 WebView blank and cannot verify that surface. Keep real-account captures local.
-Record interaction evidence separately and send both sets of evidence to Astra
+Record interaction evidence separately and send both sets of evidence to Fable
 on the exact revision proposed for approval.
 
 ### Native baseline after the preview
@@ -148,9 +148,9 @@ checking off inaccessible or untried controls.
   the setting currently controls only the reader. Avoid visual deduplication
   that would break paging and message-action ownership.
 
-## Astra review and follow-up
+## Review and follow-up
 
-Astra reviewed `6de166e` and requested changes. Approval remains open.
+The earlier reviewer reviewed `6de166e` and requested changes. Approval remains open.
 Priority gaps: expandable inbox conversations with correct paging and action
 targets; independently expandable reader cards with per-message actions and
 the older-message disclosure between the first and last visible headers;
