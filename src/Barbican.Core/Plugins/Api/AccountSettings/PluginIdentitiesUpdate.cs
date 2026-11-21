@@ -3,6 +3,7 @@
 // it is gated exactly as Bulwark gates it: identity:write, the identity must exist, the address can never change (a patch naming email is refused, the other fields only: PluginIdentityPatch), and the change goes through
 // IAccountIdentities.UpdateAsync, the service Settings > Identities saves through (AccountIdentityRules, the onBeforeIdentityChange intercept and onIdentityUpdate hooks, the same Identity/set, Stalwart crates/jmap/src/identity/set.rs).
 // The result names fields one by one: a server property Barbican does not model never reaches the add-on. Deviation: 20 changes a minute for each add-on (Bulwark has none).
+using Barbican.Core.Jmap.Errors;
 using Barbican.Core.Plugins.Api.Account;
 using Barbican.Core.Plugins.Api.Mail;
 using Barbican.Core.Plugins.Api.MailRules;
@@ -15,9 +16,6 @@ namespace Barbican.Core.Plugins.Api.AccountSettings;
 internal sealed class PluginIdentitiesUpdate(IAccountIdentities identities, IPluginMailRateLimiter limiter)
     : PluginScopedMethod("identities.update", "identity:write", mayMutate: true, limiter: limiter)
 {
-    // the failure text of an intercept hook in AccountIdentities
-    private const string StoppedByPlugin = "A plug-in stopped this change.";
-
     protected override string? RateKind => "identities.write";
 
     protected override int RateLimit => 20;
@@ -39,7 +37,7 @@ internal sealed class PluginIdentitiesUpdate(IAccountIdentities identities, IPlu
         var b = new PluginValueBuilder();
         if (!saved.IsOk)
         {
-            return string.Equals(saved.Error!.Message, StoppedByPlugin, StringComparison.Ordinal) ? Success(b, b.Null()) : PluginRulesAccess.Fail(saved.Error);
+            return saved.Error is HookStoppedError ? Success(b, b.Null()) : PluginRulesAccess.Fail(saved.Error);
         }
 
         return Success(b, Project(b, saved.Value!));

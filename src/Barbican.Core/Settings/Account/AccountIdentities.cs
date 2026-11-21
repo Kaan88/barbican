@@ -197,7 +197,7 @@ public sealed class AccountIdentities(IAccountManager accounts, IHookBus hooks) 
         var draft = new IdentityViewPayload(string.Empty, edit.Name ?? string.Empty, edit.Email ?? string.Empty, edit.ReplyTo, edit.Bcc, edit.TextSignature ?? string.Empty, edit.HtmlSignature ?? string.Empty);
         if (!await hooks.AllowAsync(HookNames.OnBeforeIdentityChange, () => new IdentityChangePayload(null, "create", draft), ct).ConfigureAwait(false))
         {
-            return Result<AccountIdentity>.Fail(new ValidationError("A plug-in stopped this change."));
+            return Result<AccountIdentity>.Fail(new HookStoppedError("A plug-in stopped this change."));
         }
 
         var args = new JsonObject { ["accountId"] = ctx.Value!.SubmissionAccount, ["create"] = new JsonObject { ["new"] = Body(edit, create: true) } };
@@ -243,7 +243,7 @@ public sealed class AccountIdentities(IAccountManager accounts, IHookBus hooks) 
         var next = new IdentityViewPayload(id, edit.Name ?? string.Empty, edit.Email ?? string.Empty, edit.ReplyTo, edit.Bcc, edit.TextSignature ?? string.Empty, edit.HtmlSignature ?? string.Empty);
         if (!await hooks.AllowAsync(HookNames.OnBeforeIdentityChange, () => new IdentityChangePayload(id, "update", next), ct).ConfigureAwait(false))
         {
-            return Result<AccountIdentity>.Fail(new ValidationError("A plug-in stopped this change."));
+            return Result<AccountIdentity>.Fail(new HookStoppedError("A plug-in stopped this change."));
         }
 
         var args = new JsonObject { ["accountId"] = ctx.Value!.SubmissionAccount, ["update"] = new JsonObject { [id] = Body(edit, create: false) } };
@@ -286,7 +286,7 @@ public sealed class AccountIdentities(IAccountManager accounts, IHookBus hooks) 
 
         if (!await hooks.AllowAsync(HookNames.OnBeforeIdentityChange, () => new IdentityChangePayload(id, "delete", null), ct).ConfigureAwait(false))
         {
-            return Result<Unit>.Fail(new ValidationError("A plug-in stopped this change."));
+            return Result<Unit>.Fail(new HookStoppedError("A plug-in stopped this change."));
         }
 
         var args = new JsonObject { ["accountId"] = ctx.Value!.SubmissionAccount, ["destroy"] = new JsonArray(id) };

@@ -100,7 +100,7 @@ public sealed class InvitationService(IAccountManager accounts, ICalendarStore s
         var eventId = known?.Str("id") ?? invitation.Str("id") ?? uid;
         if (!await hooks.AllowAsync(HookNames.OnBeforeEventRsvp, () => new RsvpHookPayload(eventId, status), ct).ConfigureAwait(false))
         {
-            return Result<string>.Fail(new ValidationError("A plugin stopped the answer."));
+            return Result<string>.Fail(new HookStoppedError("A plugin stopped the answer."));
         }
 
         var own = mine.Count > 0 ? mine : await CalendarJmap.OwnAddressesAsync(accounts, identities, accountKey, ct).ConfigureAwait(false);
