@@ -222,6 +222,18 @@ public sealed partial class ReaderView : UserControl
         }
     }
 
+    // Bulwark reader-attachments.tsx:200-210 always names the count; the snapshot summary (with the size) is empty while attachment cards are off.
+    public static string SummaryText(string summary, int count) =>
+        summary.Length > 0 ? summary : count == 1 ? "1 attachment" : count + " attachments";
+
+    public static string DownloadId(int index) => $"reader.attachment.{index}.download";
+
+    // The chip's download button (reader-attachments.tsx:200-208): saves the file with the same command the attachment menu uses.
+    private void OnAttachmentDownloadClick(object sender, RoutedEventArgs e)
+    {
+        if (sender is FrameworkElement { Tag: int index }) ViewHost.Get<ReaderMenuOpener>().SaveAttachment(index);
+    }
+
     // Bulwark reader-attachments.tsx:165: the chip takes the muted hover tint; the other styles keep their tile.
     private void OnAttachmentEnter(object sender, PointerRoutedEventArgs e)
     {

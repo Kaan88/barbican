@@ -41,4 +41,13 @@ public sealed class ReaderMenuOpener(IContextMenuService menus, ReaderViewModel 
         return true;
     }
 
+    /// <summary>Saves an attachment (the chip's download button, Bulwark reader-attachments.tsx:200).</summary>
+    public bool SaveAttachment(int index)
+    {
+        if (reader.Current.Body is not { } body || active.AccountKey is not { } key || !commands.TryGet(CommandIds.SaveAttachment, out var command)) return false;
+        var context = Barbican.Presentation.Reader.ReaderCommands.AttachmentContext(key, body, index);
+        if (!command.CanExecute(context)) return false;
+        runner.Start(command, context, toastFailure: true);
+        return true;
+    }
 }

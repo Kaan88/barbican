@@ -116,7 +116,7 @@
             </ItemsRepeater.Layout>
             <ItemsRepeater.ItemTemplate>
               <DataTemplate x:DataType="mail:RowTag">
-                <Border Height="22" MaxWidth="192" CornerRadius="11" Padding="8,0,2,0" BorderThickness="1" BorderBrush="{x:Bind views:Fmt.TagLine(Color)}" Background="{x:Bind views:Fmt.TagFill(Color)}"
+                <Border Height="22" MaxWidth="192" CornerRadius="{x:Bind theme:StyleState.Current.TagRadius, Mode=OneWay}" Padding="8,0,2,0" BorderThickness="1" BorderBrush="{x:Bind views:Fmt.TagLine(Color)}" Background="{x:Bind views:Fmt.TagFill(Color)}"
                         AutomationProperties.Name="{x:Bind Name}">
                   <StackPanel Orientation="Horizontal" Spacing="2">
                     <TextBlock Text="{x:Bind Name}" FontSize="11" FontWeight="Medium" Foreground="{StaticResource Text}" TextTrimming="CharacterEllipsis" VerticalAlignment="Center" MaxWidth="160" />
@@ -180,7 +180,7 @@
           </Border>
 
           <!-- details panel: from, to, date and the check of each authentication method (spec I-206) -->
-           <Border Grid.Row="4" x:Name="DetailsPanel" Visibility="Collapsed" CornerRadius="8" Padding="14,12" Background="{StaticResource Tile2}" BorderBrush="{StaticResource Line}" BorderThickness="1"
+           <Border Grid.Row="4" x:Name="DetailsPanel" Visibility="Collapsed" CornerRadius="{x:Bind Look.AttachmentRadius, Mode=OneWay}" Padding="14,12" Background="{StaticResource Tile2}" BorderBrush="{StaticResource Line}" BorderThickness="1"
                   AutomationProperties.AutomationId="reader.details" AutomationProperties.Name="Message details">
             <StackPanel Spacing="6">
               <TextBlock FontSize="12.5" Foreground="{StaticResource Dim}" TextWrapping="Wrap" IsTextSelectionEnabled="True">
@@ -219,19 +219,20 @@
                   <ItemsRepeater.ItemTemplate>
                      <DataTemplate x:DataType="mail:ConversationItem">
                        <StackPanel Spacing="4">
-                         <Button Style="{StaticResource Button.Action}" Click="OnShowOlderClick" MinHeight="32"
+                         <Button Style="{StaticResource Button.Action}" Click="OnShowOlderClick" MinHeight="32" FontSize="14" FontWeight="Medium" CornerRadius="{x:Bind theme:StyleState.Current.ButtonRadius, Mode=OneWay}"
                                  Content="{x:Bind OlderMessageDisclosure}"
                                  Visibility="{x:Bind views:Fmt.VisText(OlderMessageDisclosure)}"
                                  AutomationProperties.Name="{x:Bind OlderMessageDisclosure}" AutomationProperties.AutomationId="{x:Bind views:Fmt.ConversationDisclosureId(OlderMessageDisclosure)}" />
-                       <Button Style="{StaticResource Button.Action}" MinHeight="56" Padding="12,8" CornerRadius="6" HorizontalAlignment="Stretch"
+                       <Button Style="{StaticResource Button.Action}" MinHeight="56" Padding="12,8" CornerRadius="{x:Bind theme:StyleState.Current.AttachmentRadius, Mode=OneWay}" FontWeight="Normal" HorizontalAlignment="Stretch"
                                HorizontalContentAlignment="Stretch" Tag="{x:Bind Id}" Click="OnConversationHeaderClick"
                                AutomationProperties.AutomationId="{x:Bind views:Fmt.ConversationHeaderId(Id)}" AutomationProperties.Name="{x:Bind Sender}">
-                         <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="10">
+                         <Grid ColumnDefinitions="Auto,*,Auto,Auto" ColumnSpacing="10">
                            <Border Width="32" Height="32" CornerRadius="16" Background="{x:Bind views:Fmt.TintBg(TintIndex)}">
                              <TextBlock Text="{x:Bind Initials}" HorizontalAlignment="Center" VerticalAlignment="Center" Foreground="{x:Bind views:Fmt.TintFg(TintIndex)}" />
                            </Border>
-                           <TextBlock Grid.Column="1" Text="{x:Bind Sender}" FontSize="13" FontWeight="{x:Bind views:Fmt.Weight(Unread)}" Foreground="{StaticResource Body}" TextTrimming="CharacterEllipsis" VerticalAlignment="Center" />
-                           <TextBlock Grid.Column="2" Text="{x:Bind TimeLabel}" FontSize="12" Foreground="{StaticResource Faint}" VerticalAlignment="Center" />
+                           <TextBlock Grid.Column="1" Text="{x:Bind Sender}" FontSize="14" FontWeight="{x:Bind views:Fmt.Weight(Unread)}" Foreground="{StaticResource Text}" TextTrimming="CharacterEllipsis" VerticalAlignment="Center" />
+                           <TextBlock Grid.Column="2" Text="{x:Bind TimeLabel}" FontSize="12" Foreground="{StaticResource Dim}" VerticalAlignment="Center" />
+                           <controls:SIcon Grid.Column="3" Kind="ChevronDown" Size="20" Foreground="{StaticResource Dim}" VerticalAlignment="Center" />
                          </Grid>
                        </Button>
                        <reader:ConversationCardView DataContext="{x:Bind Expansion}" />
@@ -244,7 +245,10 @@
 
           <!-- attachment cards: a click or right-click opens MENU-ATT (save, download all, copy the name) -->
           <StackPanel Grid.Row="5" Spacing="6" Visibility="{x:Bind views:Fmt.VisCount(Reader.Attachments.Count), Mode=OneWay}" AutomationProperties.AutomationId="reader.attachments" AutomationProperties.Name="Attachments">
-            <TextBlock Text="{x:Bind Reader.AttachmentSummary, Mode=OneWay}" Style="{StaticResource Text.Label}" />
+            <StackPanel Orientation="Horizontal" Spacing="8" MinHeight="32">
+              <controls:SIcon Kind="Clip" Size="16" Foreground="{StaticResource Dim}" VerticalAlignment="Center" />
+              <TextBlock Text="{x:Bind reader:ReaderView.SummaryText(Reader.AttachmentSummary, Reader.Attachments.Count), Mode=OneWay}" FontSize="14" Foreground="{StaticResource Dim}" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" />
+            </StackPanel>
             <ItemsRepeater ItemsSource="{x:Bind Reader.Attachments}">
               <ItemsRepeater.Layout>
                 <StackLayout Orientation="Horizontal" Spacing="10" />
@@ -254,14 +258,18 @@
                   <Border MinWidth="190" Height="56" CornerRadius="{x:Bind theme:StyleState.Current.AttachmentRadius, Mode=OneWay}" Padding="8,6,4,6" Background="{x:Bind theme:StyleState.Current.AttachmentFill, Mode=OneWay}"
                           PointerEntered="OnAttachmentEnter" PointerExited="OnAttachmentLeave" BorderBrush="{StaticResource Line}" BorderThickness="{x:Bind theme:StyleState.Current.AttachmentBorder, Mode=OneWay}"
                           Tapped="OnAttachmentTapped" RightTapped="OnAttachmentRightTapped" AutomationProperties.AutomationId="{x:Bind views:Fmt.AttachmentId(Index)}" AutomationProperties.Name="{x:Bind Stem}">
-                    <Grid ColumnDefinitions="Auto,*" ColumnSpacing="10">
-                      <Border Width="40" Height="40" CornerRadius="10" Background="{StaticResource RoseBg}">
+                    <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="10">
+                      <Border Width="40" Height="40" CornerRadius="{x:Bind theme:StyleState.Current.AttachmentThumbRadius, Mode=OneWay}" Background="{StaticResource RoseBg}">
                         <TextBlock Text="{x:Bind views:Fmt.Badge(Kind)}" FontSize="10" FontWeight="ExtraBold" Foreground="{StaticResource RoseFg}" HorizontalAlignment="Center" VerticalAlignment="Center" />
                       </Border>
                       <StackPanel Grid.Column="1" VerticalAlignment="Center" MaxWidth="260">
                         <TextBlock Text="{x:Bind Stem}" FontSize="14" Foreground="{StaticResource Text}" TextTrimming="CharacterEllipsis" />
                         <TextBlock Text="{x:Bind Size}" Style="{StaticResource Text.Meta}" FontSize="12" />
                       </StackPanel>
+                      <Button Grid.Column="2" Style="{StaticResource Button.Icon}" Width="32" Height="32" CornerRadius="{x:Bind theme:StyleState.Current.ButtonRadius, Mode=OneWay}" Tag="{x:Bind Index}" Click="OnAttachmentDownloadClick"
+                              VerticalAlignment="Center" motion:Tip.Text="Download" AutomationProperties.Name="Download" AutomationProperties.AutomationId="{x:Bind reader:ReaderView.DownloadId(Index)}">
+                        <controls:SIcon Kind="Download" Size="16" />
+                      </Button>
                     </Grid>
                   </Border>
                 </DataTemplate>
@@ -271,11 +279,11 @@
 
           <!-- banners: the server cut the body short, or the message could not be loaded (retry) -->
           <StackPanel Grid.Row="6" Spacing="8">
-            <Border CornerRadius="14" Padding="14,10" Background="{StaticResource AmberBg}" Visibility="{x:Bind views:Fmt.VisBody(Reader.BodyState, 'truncated'), Mode=OneWay}"
+            <Border CornerRadius="{x:Bind Look.BannerRadius, Mode=OneWay}" Padding="14,10" Background="{StaticResource AmberBg}" Visibility="{x:Bind views:Fmt.VisBody(Reader.BodyState, 'truncated'), Mode=OneWay}"
                     AutomationProperties.AutomationId="reader.truncated" AutomationProperties.Name="Message cut short">
               <TextBlock Text="The server cut this message short." FontSize="12.5" Foreground="{StaticResource AmberFg}" />
             </Border>
-            <Border CornerRadius="14" Padding="14,10" Background="{StaticResource RoseBg}" Visibility="{x:Bind views:Fmt.VisBody(Reader.BodyState, 'failed'), Mode=OneWay}"
+            <Border CornerRadius="{x:Bind Look.BannerRadius, Mode=OneWay}" Padding="14,10" Background="{StaticResource RoseBg}" Visibility="{x:Bind views:Fmt.VisBody(Reader.BodyState, 'failed'), Mode=OneWay}"
                     AutomationProperties.AutomationId="reader.failed" AutomationProperties.Name="Message could not be loaded">
               <Grid ColumnDefinitions="*,Auto" ColumnSpacing="10">
                 <TextBlock Text="{x:Bind views:Fmt.FailedText(Reader.Error), Mode=OneWay}" FontSize="12.5" Foreground="{StaticResource RoseFg}" TextWrapping="Wrap" VerticalAlignment="Center" />
@@ -302,9 +310,9 @@
                         PlaceholderText="Write a reply…" FontSize="14"
                         AutomationProperties.AutomationId="reader.reply-text" AutomationProperties.Name="Quick reply text" />
                <StackPanel x:Name="QuickReplyActions" Visibility="Collapsed" Orientation="Horizontal" HorizontalAlignment="Right" Spacing="6">
-                 <Button Content="Cancel" Style="{StaticResource Button.Action}" Click="OnQuickReplyCancel" AutomationProperties.Name="Cancel quick reply" AutomationProperties.AutomationId="reader.reply.cancel" />
-                 <Button Content="Open full editor" Style="{StaticResource Button.Action}" Click="OnQuickReplyOpenEditor" AutomationProperties.Name="Open full editor" AutomationProperties.AutomationId="reader.reply.full" />
-                 <Button x:Name="QuickReplySend" Content="Send" Style="{StaticResource Button.Primary}" Click="OnQuickReplySend" AutomationProperties.Name="Send quick reply" AutomationProperties.AutomationId="reader.reply.send" />
+                 <Button Content="Cancel" Style="{x:Bind Look.QuickReplyGhostStyle, Mode=OneWay}" Height="32" Padding="12,0" CornerRadius="{x:Bind Look.ButtonRadius, Mode=OneWay}" Click="OnQuickReplyCancel" AutomationProperties.Name="Cancel quick reply" AutomationProperties.AutomationId="reader.reply.cancel" />
+                 <Button Content="Open full editor" Style="{x:Bind Look.QuickReplyGhostStyle, Mode=OneWay}" Height="32" Padding="12,0" CornerRadius="{x:Bind Look.ButtonRadius, Mode=OneWay}" Click="OnQuickReplyOpenEditor" AutomationProperties.Name="Open full editor" AutomationProperties.AutomationId="reader.reply.full" />
+                 <Button x:Name="QuickReplySend" Content="Send" Style="{StaticResource Button.Primary}" Height="32" Padding="16,0" FontSize="14" CornerRadius="{x:Bind Look.ButtonRadius, Mode=OneWay}" Click="OnQuickReplySend" AutomationProperties.Name="Send quick reply" AutomationProperties.AutomationId="reader.reply.send" />
                </StackPanel>
              </StackPanel>
              </Grid>
