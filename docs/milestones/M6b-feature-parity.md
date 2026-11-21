@@ -85,7 +85,7 @@ Feature work comes before further UI polish. Linux (M9) is deferred indefinitely
 | open | AX-04 | Live-region announcements beyond toasts | settings | S | `src/Barbican.App/Views/Actions/ToastHostView.xaml.cs`, `src/Barbican.App/Views/List/MessageListView.xaml.cs` | none |
 | open | S-debugMode | Detailed logging (debugMode) control | settings | S | `src/Barbican.Core/Storage/CrashLog.cs`, `src/Barbican.App/Views/Settings/SetUiRowsView.cs` | logging |
 | open | MX-04 | Customisable keyboard shortcuts | settings | M | `src/Barbican.App/Views/Shortcuts/ShortcutSheetView.xaml.cs`, `src/Barbican.Presentation/Commands/ShellCommands.cs` | none |
-| done (pending merge) | SH-12 | Mail layouts: split, focus, horizontal, Mountain View | shell | L | `src/Barbican.App/Shell/ShellPage.xaml.cs`, `src/Barbican.Presentation/Shell/MailLayoutRules.cs`, `src/Barbican.App/Theme/StyleState.cs` | settings |
+| done | SH-12 | Mail layouts: split, focus, horizontal, Mountain View | shell | L | `src/Barbican.App/Shell/ShellPage.xaml.cs`, `src/Barbican.Presentation/Shell/MailLayoutRules.cs`, `src/Barbican.App/Theme/StyleState.cs` | settings |
 | open | G-055, RD-12 | Message and composer pop-out windows | shell | L | `src/Barbican.App/Shell/ShellPage.ComposerWindow.cs`, `src/Barbican.App/Shell/ShellPage.xaml.cs` | multi-window |
 | open | SH-05 | Collapsible rail with labels | shell | M | `src/Barbican.App/Views/Rail/RailView.xaml.cs`, `src/Barbican.App/Theme/StyleState.cs` | none |
 | open | SB-02 | Fold sidebar to a 48 px icon column | shell | M | `src/Barbican.App/Views/Sidebar/SidebarView.xaml.cs`, `src/Barbican.App/Theme/ShellLayout.cs` | none |
