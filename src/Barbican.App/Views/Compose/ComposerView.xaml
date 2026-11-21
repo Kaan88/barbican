@@ -136,19 +136,26 @@
               <StackPanel Orientation="Horizontal" Spacing="6"><controls:SIcon Kind="Clip" Size="15" /><TextBlock x:Name="AttachLabel" Text="Attach" /></StackPanel>
             </Button>
             <Button x:Name="TemplatesButton" Grid.Column="1" Style="{StaticResource Button.Action}" Height="36" CornerRadius="18" Click="OnTemplatesClick" AutomationProperties.AutomationId="composer.templates" AutomationProperties.Name="Templates">
-              <StackPanel Orientation="Horizontal" Spacing="6"><controls:SIcon Kind="Tpl" Size="15" /><TextBlock x:Name="TemplatesLabel" Text="Templates" /></StackPanel>
+              <StackPanel Orientation="Horizontal" Spacing="6"><controls:SIcon Kind="Tpl" Size="15" /><TextBlock x:Name="TemplatesLabel" Text="Templates" /><controls:SIcon x:Name="TemplatesChevron" Kind="ChevronDown" Size="14" Foreground="{StaticResource Faint}" VerticalAlignment="Center" /></StackPanel>
             </Button>
             <Button x:Name="OptionsButton" Grid.Column="3" Style="{StaticResource Button.Action}" Height="36" CornerRadius="18" Click="OnOptionsClick" AutomationProperties.AutomationId="composer.options" AutomationProperties.Name="Options">
-              <StackPanel Orientation="Horizontal" Spacing="6"><controls:SIcon Kind="Opt" Size="15" /><TextBlock x:Name="OptionsLabel" Text="Options" /></StackPanel>
+              <StackPanel Orientation="Horizontal" Spacing="6"><controls:SIcon Kind="Opt" Size="15" /><TextBlock x:Name="OptionsLabel" Text="Options" />
+                <Border x:Name="OptionsBadge" Visibility="Collapsed" MinWidth="16" Height="16" CornerRadius="8" Padding="4,0" Background="{StaticResource Accent}" VerticalAlignment="Center" AutomationProperties.AutomationId="composer.options.count">
+                  <TextBlock x:Name="OptionsBadgeText" FontSize="10" FontWeight="SemiBold" Foreground="{StaticResource OnAccent}" HorizontalAlignment="Center" VerticalAlignment="Center" />
+                </Border>
+                <controls:SIcon x:Name="OptionsChevron" Kind="ChevronDown" Size="14" Foreground="{StaticResource Faint}" VerticalAlignment="Center" /></StackPanel>
             </Button>
             <StackPanel x:Name="SendGroup" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
-              <Button x:Name="FooterDiscard" Style="{StaticResource Button.Icon}" Width="36" Height="36" CornerRadius="6" Visibility="Collapsed" Click="OnDiscardClick" AutomationProperties.AutomationId="composer.footer.discard" AutomationProperties.Name="Discard draft">
+              <Button x:Name="FooterDiscard" Style="{StaticResource Button.Icon}" Width="36" Height="36" CornerRadius="6" Visibility="Collapsed" PointerEntered="OnFooterDiscardEnter" PointerExited="OnFooterDiscardExit" Click="OnDiscardClick" AutomationProperties.AutomationId="composer.footer.discard" AutomationProperties.Name="Discard draft">
                 <controls:SIcon Kind="Trash" Size="16" />
               </Button>
-              <StackPanel Orientation="Horizontal" Spacing="2" VerticalAlignment="Center">
+              <StackPanel x:Name="SendPair" Orientation="Horizontal" Spacing="2" VerticalAlignment="Center">
                 <Button x:Name="SendButton" Style="{StaticResource Button.Primary}" Height="36" CornerRadius="18,0,0,18" Padding="18,0,14,0" Click="OnSendClick" AutomationProperties.AutomationId="composer.send" AutomationProperties.Name="Send">
                   <StackPanel Orientation="Horizontal" Spacing="7"><controls:SIcon Kind="Send" Size="15" Foreground="{StaticResource OnAccent}" /><TextBlock Text="Send" /></StackPanel>
                 </Button>
+                <Border x:Name="SendDivider" Width="1" Height="36" Background="{StaticResource Accent}" Visibility="Collapsed">
+                  <Border Background="{StaticResource OnAccent}" Opacity="0.2" />
+                </Border>
                 <Button x:Name="SendArrow" Style="{StaticResource Button.Primary}" Height="36" Width="34" CornerRadius="0,18,18,0" Padding="0" Click="OnSendArrowClick" AutomationProperties.AutomationId="composer.send.arrow" AutomationProperties.Name="More send options">
                   <controls:SIcon Kind="ChevronDown" Size="14" Foreground="{StaticResource OnAccent}" />
                 </Button>

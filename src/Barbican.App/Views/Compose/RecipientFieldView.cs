@@ -1,4 +1,4 @@
-// Mirrors: Rust chips.rs + recipients.slint (chips with initials, invalid marking, the autocomplete list under the field); Bulwark components/email/email-composer.tsx RecipientInput (:7314-7762: create, Backspace arms, paste splits,
+// Mirrors (chip radius/size): Bulwark email-composer.tsx:7505 (px-2 py-0.5 rounded-md text-sm border), suggestions :6933 (rounded-md). Rust chips.rs + recipients.slint (chips with initials, invalid marking, the autocomplete list under the field); Bulwark components/email/email-composer.tsx RecipientInput (:7314-7762: create, Backspace arms, paste splits,
 // double click, chip menu MENU-ADDR, keyboard); I-246..I-249. One recipient field: label, chips, the input, and the suggestion list (a popup in the window, never an OS window). The data is RecipientFieldViewModel.
 
 #pragma warning disable CA1859, CA1822 // the card builders return UIElement by design (one slot, many kinds)
@@ -23,6 +23,7 @@ public sealed class RecipientFieldView : UserControl
     private readonly Grid _root = new() { ColumnSpacing = 10 };
     private readonly TextBlock _label = new() { VerticalAlignment = VerticalAlignment.Top, Width = 54, FontSize = 12.5, Margin = new Thickness(0, 6, 0, 0) };
     private readonly ChipPanel _panel = new();
+    private bool _bulwark;
     private readonly TextBox _input = new() { Style = (Style)Application.Current.Resources["TextBox.Bare"], FontSize = 13, MinHeight = 26, VerticalContentAlignment = VerticalAlignment.Center };
     private readonly ContentPresenter _trailing = new() { VerticalAlignment = VerticalAlignment.Top, Margin = new Thickness(0, 2, 0, 0) };
     private readonly StackPanel _list = new() { Spacing = 0 };
@@ -87,6 +88,9 @@ public sealed class RecipientFieldView : UserControl
     /// <summary>Applies the composer theme without changing recipient behavior.</summary>
     public void ApplyComposerStyle(bool bulwark)
     {
+        var changed = _bulwark != bulwark;
+        _bulwark = bulwark;
+        _listBox.CornerRadius = bulwark ? ViewHost.Get<StyleState>().ButtonRadius : new CornerRadius(10);
         _root.Padding = bulwark ? new Thickness(16, 10, 16, 10) : new Thickness(0);
         _root.ColumnSpacing = bulwark ? 8 : 10;
         _label.Width = bulwark ? 64 : 54;
@@ -94,6 +98,10 @@ public sealed class RecipientFieldView : UserControl
         _input.FontSize = bulwark ? 14 : 13;
         var label = _label.Text.TrimEnd(':');
         _label.Text = bulwark ? label + ":" : label;
+        if (changed && _field is not null)
+        {
+            Rebuild();
+        }
     }
 
     /// <summary>The input takes keyboard focus.</summary>
@@ -190,14 +198,15 @@ public sealed class RecipientFieldView : UserControl
         remove.Click += (_, _) => _field!.Remove(index);
         var row = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 5 };
         row.Children.Add(avatar);
-        row.Children.Add(new TextBlock { Text = chip.Label, FontSize = 12.5, Foreground = fg, VerticalAlignment = VerticalAlignment.Center, MaxWidth = 260, TextTrimming = TextTrimming.CharacterEllipsis });
+        row.Children.Add(new TextBlock { Text = chip.Label, FontSize = _bulwark ? 14 : 12.5, Foreground = fg, VerticalAlignment = VerticalAlignment.Center, MaxWidth = 260, TextTrimming = TextTrimming.CharacterEllipsis });
         row.Children.Add(remove);
         var box = new Border
         {
             Background = bg,
             BorderBrush = chip.Armed ? AppResources.Brush("Accent") : AppResources.Brush("Line"),
             BorderThickness = new Thickness(chip.Armed ? 2 : 1),
-            CornerRadius = new CornerRadius(13),
+            // email-composer.tsx:7505: inline-flex px-2 py-0.5 rounded-md text-sm border border-border
+            CornerRadius = _bulwark ? ViewHost.Get<StyleState>().ButtonRadius : new CornerRadius(13),
             Height = 26,
             Padding = new Thickness(3, 0, 3, 0),
             Child = row,
