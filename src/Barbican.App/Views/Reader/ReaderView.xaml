@@ -21,12 +21,12 @@
         <!-- nothing open -->
         <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="10" Visibility="{x:Bind views:Fmt.VisBody(Reader.BodyState, 'empty'), Mode=OneWay}"
                     AutomationProperties.AutomationId="reader.empty" AutomationProperties.Name="No message selected">
-          <StackPanel Visibility="{x:Bind Look.BulwarkOnly, Mode=OneWay}" Padding="24" HorizontalAlignment="Center">
-            <Border Width="80" Height="80" CornerRadius="40" HorizontalAlignment="Center" Background="{StaticResource Tile}">
-              <controls:SIcon Kind="Mail" Size="40" Foreground="{StaticResource Dim}" HorizontalAlignment="Center" VerticalAlignment="Center" />
+          <StackPanel Visibility="{x:Bind Look.BulwarkOnly, Mode=OneWay}" Padding="32" MaxWidth="384" HorizontalAlignment="Center">
+            <Border Width="56" Height="56" CornerRadius="28" HorizontalAlignment="Center" Background="{StaticResource Tile2}">
+              <controls:SIcon Kind="Mail" Size="28" Foreground="{StaticResource Dim}" HorizontalAlignment="Center" VerticalAlignment="Center" />
             </Border>
-            <TextBlock Text="No conversation selected" TextAlignment="Center" Margin="0,24,0,8" FontSize="20" FontWeight="SemiBold" Foreground="{StaticResource Text}" />
-            <TextBlock Text="Choose a conversation from the list to read it here" TextAlignment="Center" TextWrapping="Wrap" FontSize="16" Foreground="{StaticResource Dim}" />
+            <TextBlock Text="No conversation selected" TextAlignment="Center" Margin="0,16,0,4" FontSize="16" FontWeight="Medium" Foreground="{StaticResource Text}" />
+            <TextBlock Text="Choose a conversation from the list to read it here" TextAlignment="Center" TextWrapping="Wrap" FontSize="14" Foreground="{StaticResource Dim}" />
           </StackPanel>
           <Border Visibility="{x:Bind Look.LegacyMarkVisibility, Mode=OneWay}" Width="68" Height="68" CornerRadius="25" Background="{StaticResource Tile2}" BorderBrush="{StaticResource Line}" BorderThickness="1" HorizontalAlignment="Center">
             <Canvas Width="32" Height="32" HorizontalAlignment="Center" VerticalAlignment="Center">
@@ -251,16 +251,16 @@
               </ItemsRepeater.Layout>
               <ItemsRepeater.ItemTemplate>
                 <DataTemplate x:DataType="mail:AttachmentCard">
-                  <Border MinWidth="190" Height="56" CornerRadius="{x:Bind theme:StyleState.Current.CardRadius, Mode=OneWay}" Padding="10,6" Background="{StaticResource Tile2}"
-                          BorderBrush="{StaticResource Line}" BorderThickness="{x:Bind theme:StyleState.Current.CardBorder, Mode=OneWay}"
+                  <Border MinWidth="190" Height="56" CornerRadius="{x:Bind theme:StyleState.Current.AttachmentRadius, Mode=OneWay}" Padding="8,6,4,6" Background="{x:Bind theme:StyleState.Current.AttachmentFill, Mode=OneWay}"
+                          PointerEntered="OnAttachmentEnter" PointerExited="OnAttachmentLeave" BorderBrush="{StaticResource Line}" BorderThickness="{x:Bind theme:StyleState.Current.AttachmentBorder, Mode=OneWay}"
                           Tapped="OnAttachmentTapped" RightTapped="OnAttachmentRightTapped" AutomationProperties.AutomationId="{x:Bind views:Fmt.AttachmentId(Index)}" AutomationProperties.Name="{x:Bind Stem}">
                     <Grid ColumnDefinitions="Auto,*" ColumnSpacing="10">
                       <Border Width="40" Height="40" CornerRadius="10" Background="{StaticResource RoseBg}">
                         <TextBlock Text="{x:Bind views:Fmt.Badge(Kind)}" FontSize="10" FontWeight="ExtraBold" Foreground="{StaticResource RoseFg}" HorizontalAlignment="Center" VerticalAlignment="Center" />
                       </Border>
                       <StackPanel Grid.Column="1" VerticalAlignment="Center" MaxWidth="260">
-                        <TextBlock Text="{x:Bind Stem}" FontSize="13" FontWeight="SemiBold" Foreground="{StaticResource Text}" TextTrimming="CharacterEllipsis" />
-                        <TextBlock Text="{x:Bind Size}" Style="{StaticResource Text.Meta}" FontSize="11.5" />
+                        <TextBlock Text="{x:Bind Stem}" FontSize="14" Foreground="{StaticResource Text}" TextTrimming="CharacterEllipsis" />
+                        <TextBlock Text="{x:Bind Size}" Style="{StaticResource Text.Meta}" FontSize="12" />
                       </StackPanel>
                     </Grid>
                   </Border>

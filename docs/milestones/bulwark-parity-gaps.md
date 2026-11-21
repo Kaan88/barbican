@@ -468,3 +468,12 @@ By size: L 18, M 64, S 58.
 - Admin screens (M7) beyond the rail entry; print views beyond the calendar/contacts notes; the 24 settings pages one by one (ST-07).
 - Exact pixel metrics per screen: need paired native and live captures (see UI-GUIDELINES "visual change" rule).
 - Behaviour already catalogued in `spec/interactions.csv`, `spec/menus.md`, `spec/behaviours/shortcuts.md`, which were baselined on the Rust app: a Bulwark 1.21.2 diff of those three files is itself a gap (MX-02, MX-04).
+
+### 5.1 WP-6 status (branch m6b/wp6-reader, partial)
+
+| ID | Status | Note |
+|---|---|---|
+| FM-09 | closed | reader subject/sender rise (`ReaderView.xaml.cs`) and body cross-fade (`BodyShell.cs`) go through `MotionRuntime.DecorationMs`: instant in Bulwark, unchanged in Bento and Nordic |
+| RD-06 | partly | attachment chip: 8 px radius, 1 px border, `Tile` card fill, 14/12 px text, hover tint (`reader-attachments.tsx:165-181`); `StyleState.Reader.cs`. Preview/rename/save-to-files buttons on the chip not added |
+| RD-10 | closed | empty state: 56 px muted circle, 28 px icon, 16 medium title, 14 muted description, max 384 (`ui/empty-state.tsx:27-36`) |
+| RD-01, 02, 03, 04, 05, 07, 08, 09, 11 | open | not touched in this pass (toolbar already shows extra actions at wide widths via `ExtraActions`); conversation cards: the "Show N older messages" button and collapsed headers still use the square `Button.Action` look; quick-reply avatar exists |

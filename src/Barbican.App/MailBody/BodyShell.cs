@@ -448,7 +448,7 @@ public sealed partial class BodyShell : IBodyPresenter, IStartupTask, IDisposabl
         PaintHost(p.Page.Background);
         // the body cross-fades in on the view token, never while keys repeat (design/MOTION.md rules 2 and 4)
         var scale = Motion.MotionRuntime.Scale;
-        Command("reveal", seq, fadeMs: scale.Rapid ? 0 : scale.ViewMs);
+        Command("reveal", seq, fadeMs: scale.Rapid ? 0 : Motion.MotionRuntime.DecorationMs(scale.ViewMs));
         StateChanged?.Invoke(this, EventArgs.Empty);
         PageShown?.Invoke(this, EventArgs.Empty);
         p.Request.OnShown?.Invoke();

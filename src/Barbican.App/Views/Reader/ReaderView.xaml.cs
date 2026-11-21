@@ -1,3 +1,4 @@
+// Bulwark 1.21.2 components/email/email-viewer.tsx:5100-5260 (toolbar), reader-attachments.tsx:165 (chips), ui/empty-state.tsx:27-36 (empty state); FM-09: no switch animation in Bulwark.
 using Barbican.App.Motion;
 using Barbican.App.Shell;
 using Barbican.App.Theme;
@@ -186,7 +187,8 @@ public sealed partial class ReaderView : UserControl
     private void RiseHeader()
     {
         var scale = MotionRuntime.Scale;
-        var ms = scale.Rapid || string.IsNullOrEmpty(Reader.EmailId) ? 0 : scale.ViewMs;
+        // FM-09: Bulwark switches the message instantly (email-viewer.tsx has no enter transition); only Bento and Nordic rise
+        var ms = scale.Rapid || string.IsNullOrEmpty(Reader.EmailId) ? 0 : MotionRuntime.DecorationMs(scale.ViewMs);
         // Keep the compact Bulwark header legible on the first frame of a message switch.
         var opacity = Look.IsBulwark ? 1.0 : 0.55;
         var offset = Look.IsBulwark ? 2 : 6;
@@ -218,6 +220,17 @@ public sealed partial class ReaderView : UserControl
             Contacts.ContactsMailSurfaces.ShowPopover(SenderFlyout, SenderCard, anchor, Reader.Header.Email ?? string.Empty);
             e.Handled = true;
         }
+    }
+
+    // Bulwark reader-attachments.tsx:165: the chip takes the muted hover tint; the other styles keep their tile.
+    private void OnAttachmentEnter(object sender, PointerRoutedEventArgs e)
+    {
+        if (Look.IsBulwark && sender is Border chip) chip.Background = (Brush)Application.Current.Resources["FeedbackHover"];
+    }
+
+    private void OnAttachmentLeave(object sender, PointerRoutedEventArgs e)
+    {
+        if (sender is Border chip) chip.Background = Look.AttachmentFill;
     }
 
     // Activating opens or saves by preference; right-click still opens MENU-ATT.
