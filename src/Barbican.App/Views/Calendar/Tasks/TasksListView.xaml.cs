@@ -15,6 +15,7 @@ public sealed partial class TasksListView : UserControl
     private readonly TasksViewModel _vm = ViewHost.Get<TasksViewModel>();
     private readonly List<Button> _chips = [];
     private bool _syncingQuick;
+    private bool _bulwark;
 
     public TasksListView()
     {
@@ -50,12 +51,40 @@ public sealed partial class TasksListView : UserControl
     /// <summary>Redraws the filters, the quick-add hint, the day chip and the rows from the model in one pass.</summary>
     public void Render()
     {
+        var bulwark = CalendarVisuals.Bulwark;
+        var look = ViewHost.Get<Barbican.App.Theme.StyleState>();
+        ApplyLook(bulwark, look);
         var counts = _vm.Counts;
         for (var i = 0; i < _chips.Count; i++)
         {
             var n = i < counts.Count ? counts[i] : 0;
+            var on = i == _vm.Filter;
             _chips[i].Content = TasksViewModel.FilterNames[i] + " " + n;
-            _chips[i].Style = (Style)Application.Current.Resources[i == _vm.Filter ? "Button.Primary" : "Button.Action"];
+            if (bulwark)
+            {
+                // a bordered segment, the chosen one on the primary fill (task-toolbar.tsx:37-52)
+                _chips[i].Style = (Style)Application.Current.Resources["Button.Icon"];
+                _chips[i].Background = on ? CalendarVisuals.Palette("Accent") : null;
+                _chips[i].Foreground = CalendarVisuals.Palette(on ? "OnAccent" : "Dim");
+                _chips[i].BorderThickness = new Thickness(0, 0, i < _chips.Count - 1 ? 1 : 0, 0);
+                _chips[i].BorderBrush = CalendarVisuals.Palette("Line");
+                _chips[i].CornerRadius = new CornerRadius(0);
+                _chips[i].Height = 32;
+                _chips[i].FontSize = 12;
+                _chips[i].FontWeight = Microsoft.UI.Text.FontWeights.Medium;
+                _chips[i].Padding = new Thickness(12, 0, 12, 0);
+            }
+            else
+            {
+                _chips[i].Style = (Style)Application.Current.Resources[on ? "Button.Primary" : "Button.Action"];
+                _chips[i].ClearValue(Control.BackgroundProperty);
+                _chips[i].ClearValue(Control.ForegroundProperty);
+                _chips[i].BorderThickness = new Thickness(1);
+                _chips[i].Height = 30;
+                _chips[i].FontSize = 12.5;
+                _chips[i].CornerRadius = new CornerRadius(15);
+                _chips[i].Padding = new Thickness(12, 0, 12, 0);
+            }
         }
 
         if (!string.Equals(Quick.Text, _vm.Quick, StringComparison.Ordinal))
@@ -77,6 +106,39 @@ public sealed partial class TasksListView : UserControl
         List.ItemsSource = items;
         Empty.Visibility = items.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
     }
+
+    // the toolbar row, the quick-add row and the list rows follow the style (rebuilt only when it changes)
+    private void ApplyLook(bool bulwark, Barbican.App.Theme.StyleState look)
+    {
+        if (_bulwark != bulwark || List.ItemTemplate is null)
+        {
+            _bulwark = bulwark;
+            List.ItemTemplate = (DataTemplate)Resources[bulwark ? "Row.Bulwark" : "Row.Legacy"];
+            List.ItemContainerStyle = (Style)(bulwark ? Application.Current.Resources["ListItem.Row"] : Resources["Row.Legacy.Container"]);
+        }
+
+        Toolbar.Padding = bulwark ? new Thickness(16, 0, 16, 0) : new Thickness(0);
+        Toolbar.Height = bulwark ? look.CalToolbarHeight + 1 : double.NaN;
+        Toolbar.BorderBrush = CalendarVisuals.Palette("Line");
+        Toolbar.BorderThickness = bulwark ? new Thickness(0, 0, 0, 1) : new Thickness(0);
+        FilterBox.BorderBrush = CalendarVisuals.Palette("Line");
+        FilterBox.BorderThickness = bulwark ? new Thickness(1) : new Thickness(0);
+        FilterBox.CornerRadius = bulwark ? look.ButtonRadius : new CornerRadius(0);
+        FilterBox.VerticalAlignment = VerticalAlignment.Center;
+        Filters.Spacing = bulwark ? 0 : 6;
+        CreateButton.Visibility = bulwark ? Visibility.Visible : Visibility.Collapsed;
+        CreateButton.CornerRadius = look.ButtonRadius;
+        QuickBox.Padding = bulwark ? new Thickness(16, 0, 16, 8) : new Thickness(0);
+        QuickBox.BorderBrush = CalendarVisuals.Palette("Line");
+        QuickBox.BorderThickness = bulwark ? new Thickness(0, 0, 0, 1) : new Thickness(0);
+        DueRow.Margin = bulwark ? new Thickness(16, 0, 16, 0) : new Thickness(0);
+        Root.RowSpacing = bulwark ? 0 : 8;
+        DueRow.Visibility = bulwark && _vm.QuickDueLabel.Length == 0 && _vm.Day is null ? Visibility.Collapsed : Visibility.Visible;
+        AddButton.CornerRadius = bulwark ? look.ButtonRadius : new CornerRadius(16);
+    }
+
+    private void OnCreateTask(object sender, RoutedEventArgs e) =>
+        CalendarUi.Run(() => ViewHost.Get<Barbican.Presentation.Calendar.Editors.ICalendarEditors>().OpenNewTaskAsync(_vm.DefaultList(), null, CancellationToken.None));
 
     private void OnQuickChanged(object sender, TextChangedEventArgs e)
     {

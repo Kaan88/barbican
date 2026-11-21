@@ -6,7 +6,7 @@
 //   cal-nav today|prev|next|yyyy-MM-dd                    pages
 //   cal-dump [state|occurrences|layout|agenda|month]      the state as one line of JSON
 //   cal-drag move ID yyyy-MM-ddTHH:mm | resize ID yyyy-MM-ddTHH:mm | create START END [allday] | fail-next | writes
-//   cal-click event|open|slot|day|more|toggle|search|mini|allday|print|menu|select|retry|hover ...
+//   cal-click event|open|slot|day|more|toggle|search|mini|allday|print|menu|select|retry|hover|viewmenu|moremenu ...
 //   cal-bulk TASKS EVENTS                                 adds sample items (the L-027 probe), cal-perf VIEW times a view switch
 
 using System.Diagnostics;
@@ -187,6 +187,12 @@ public sealed class CalendarCommand(string name, Func<string[], CancellationToke
                 return "ok";
             case "more" when w.Length > 1 && TryDate(w[1], out var more):
                 vm.OpenDay(more);
+                return "ok";
+            case "viewmenu":
+                CalendarScreen.Current?.OpenToolbarMenu(viewMenu: true);
+                return "ok";
+            case "moremenu":
+                CalendarScreen.Current?.OpenToolbarMenu(viewMenu: false);
                 return "ok";
             case "toggle" when w.Length > 1:
                 vm.ToggleCalendar(w[1]);

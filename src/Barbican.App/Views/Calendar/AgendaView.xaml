@@ -8,31 +8,52 @@
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
     mc:Ignorable="not_win">
   <!-- The Agenda (Rust cal_extra.rs render_agenda; Bulwark calendar-agenda-view.tsx): 30 days from the anchor, a heading on the first row of each day, the time, a calendar dot or a task mark, the title, the place.
-       A ListView, so the thousands of tasks of L-027 are virtualised: only the rows on screen exist. -->
+       A ListView, so the thousands of tasks of L-027 are virtualised: only the rows on screen exist.
+       Bulwark (calendar-agenda-view.tsx:233-330): the date column (a 36 px circle with the day number, the weekday and month, Today or Tomorrow) then the time, a 9 px dot and the title with its place; a hairline closes each day.
+       The rows are the shared ListItem.Row (neutral hover, accent selection). -->
+  <UserControl.Resources>
+    <DataTemplate x:Key="Row.Bulwark" x:DataType="local:AgendaItem">
+      <Grid MinHeight="{x:Bind RowMinHeight}" Padding="16,6,16,6" ColumnSpacing="8" ColumnDefinitions="128,128,16,*"
+            Background="{x:Bind Background}" BorderBrush="{x:Bind RuleBrush}" BorderThickness="{x:Bind DayRule}">
+        <StackPanel Orientation="Horizontal" Spacing="8" Visibility="{x:Bind DateVisible}" VerticalAlignment="Top">
+          <Border Width="36" Height="36" CornerRadius="18" Background="{x:Bind DayCircle}">
+            <TextBlock Text="{x:Bind DayNumber}" FontSize="20" FontWeight="{x:Bind DayCircleWeight}" Foreground="{x:Bind DayCircleText}" HorizontalAlignment="Center" VerticalAlignment="Center" />
+          </Border>
+          <StackPanel VerticalAlignment="Center">
+            <TextBlock Text="{x:Bind DayName}" FontSize="11" FontWeight="Medium" Foreground="{x:Bind DayNameBrush}" />
+            <TextBlock Text="{x:Bind Relative}" Visibility="{x:Bind RelativeVisible}" FontSize="11" Foreground="{x:Bind DayNameBrush}" />
+          </StackPanel>
+        </StackPanel>
+        <TextBlock Grid.Column="1" Text="{x:Bind Time}" FontSize="14" Foreground="{x:Bind Muted}" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" />
+        <Ellipse Grid.Column="2" Width="9" Height="9" Fill="{x:Bind Dot}" Visibility="{x:Bind DotVisible}" VerticalAlignment="Center" />
+        <TextBlock Grid.Column="2" Text="{x:Bind TaskMark}" FontSize="13" Foreground="{x:Bind Muted}" Visibility="{x:Bind TaskMarkVisible}" VerticalAlignment="Center" />
+        <StackPanel Grid.Column="3" VerticalAlignment="Center">
+          <TextBlock Text="{x:Bind Title}" FontSize="14" FontWeight="Medium" Foreground="{x:Bind TitleBrush}" TextDecorations="{x:Bind TitleDecoration}" TextTrimming="CharacterEllipsis" />
+          <TextBlock Text="{x:Bind Location}" Visibility="{x:Bind LocationVisible}" FontSize="12" Foreground="{x:Bind Muted}" TextTrimming="CharacterEllipsis" />
+        </StackPanel>
+      </Grid>
+    </DataTemplate>
+    <DataTemplate x:Key="Row.Legacy" x:DataType="local:AgendaItem">
+      <Grid Height="36" Padding="6,0,8,0" ColumnSpacing="10" ColumnDefinitions="150,112,16,*,Auto" Background="{x:Bind Background}" CornerRadius="10">
+        <TextBlock Text="{x:Bind Header}" FontWeight="Bold" FontSize="13" Foreground="{x:Bind HeaderBrush}" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" />
+        <TextBlock Grid.Column="1" Text="{x:Bind Time}" FontSize="12.5" Foreground="{StaticResource Dim}" VerticalAlignment="Center" />
+        <Ellipse Grid.Column="2" Width="9" Height="9" Fill="{x:Bind Dot}" Visibility="{x:Bind DotVisible}" VerticalAlignment="Center" />
+        <TextBlock Grid.Column="2" Text="{x:Bind TaskMark}" FontSize="13" Foreground="{StaticResource Dim}" Visibility="{x:Bind TaskMarkVisible}" VerticalAlignment="Center" />
+        <TextBlock Grid.Column="3" Text="{x:Bind Title}" FontSize="13.5" Foreground="{x:Bind TitleBrush}" TextDecorations="{x:Bind TitleDecoration}" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" />
+        <TextBlock Grid.Column="4" Text="{x:Bind Location}" FontSize="12" Foreground="{StaticResource Faint}" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" MaxWidth="220" />
+      </Grid>
+    </DataTemplate>
+    <Style x:Key="Row.Legacy.Container" TargetType="ListViewItem">
+      <Setter Property="Padding" Value="0" />
+      <Setter Property="MinHeight" Value="0" />
+      <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+      <Setter Property="Margin" Value="0" />
+    </Style>
+  </UserControl.Resources>
   <ListView x:Name="List" SelectionMode="None" IsItemClickEnabled="True" ItemClick="OnItemClick" DoubleTapped="OnDoubleTapped" RightTapped="OnRightTapped"
             AutomationProperties.AutomationId="cal.agenda" AutomationProperties.Name="Agenda" Padding="0,4,0,8">
     <win:ListView.ItemContainerTransitions>
       <TransitionCollection />
     </win:ListView.ItemContainerTransitions>
-    <ListView.ItemContainerStyle>
-      <Style TargetType="ListViewItem">
-        <Setter Property="Padding" Value="0" />
-        <Setter Property="MinHeight" Value="0" />
-        <Setter Property="HorizontalContentAlignment" Value="Stretch" />
-        <Setter Property="Margin" Value="0" />
-      </Style>
-    </ListView.ItemContainerStyle>
-    <ListView.ItemTemplate>
-      <DataTemplate x:DataType="local:AgendaItem">
-        <Grid Height="36" Padding="6,0,8,0" ColumnSpacing="10" ColumnDefinitions="150,112,16,*,Auto" Background="{x:Bind Background}" CornerRadius="10">
-          <TextBlock Text="{x:Bind Header}" FontWeight="Bold" FontSize="13" Foreground="{x:Bind HeaderBrush}" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" />
-          <TextBlock Grid.Column="1" Text="{x:Bind Time}" FontSize="12.5" Foreground="{StaticResource Dim}" VerticalAlignment="Center" />
-          <Ellipse Grid.Column="2" Width="9" Height="9" Fill="{x:Bind Dot}" Visibility="{x:Bind DotVisible}" VerticalAlignment="Center" />
-          <TextBlock Grid.Column="2" Text="{x:Bind TaskMark}" FontSize="13" Foreground="{StaticResource Dim}" Visibility="{x:Bind TaskMarkVisible}" VerticalAlignment="Center" />
-          <TextBlock Grid.Column="3" Text="{x:Bind Title}" FontSize="13.5" Foreground="{x:Bind TitleBrush}" TextDecorations="{x:Bind TitleDecoration}" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" />
-          <TextBlock Grid.Column="4" Text="{x:Bind Location}" FontSize="12" Foreground="{StaticResource Faint}" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" MaxWidth="220" />
-        </Grid>
-      </DataTemplate>
-    </ListView.ItemTemplate>
   </ListView>
 </UserControl>

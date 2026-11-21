@@ -1,5 +1,7 @@
 // Mirrors: Rust calendar.rs:445-:620 render (day columns, all-day heads, timed events with lanes, 56 px hours, now line, past dimming, tinted cards), app.slint calendar grid; Bulwark components/calendar/calendar-week-view.tsx, calendar-day-view.tsx
 // (hour slots, the all-day strip with its three-row cap and show-more toggle, drag move, resize handles and drag-to-create, 15-minute steps), lib/calendar/event-drag-grab.ts; B-CAL-008, 009, 052, 056, 059; G-003; I-318, I-321..I-323.
+// Bulwark (calendar-week-view.tsx:520-566, 700, 835-852): a day head is the weekday (text-[0.6875rem] medium, primary on today) over a 40 px date circle (text-xl; today filled primary and semibold, the picked day on the accent), hour labels
+// text-[0.625rem] muted on the right of the gutter, hairlines between the hours at half strength, and the now line is the destructive colour: a 12 px dot and a 2 px rule. Chips and blocks are rounded-xs (event-card.tsx:470).
 // One pointer handler on the hour surface does the hit test itself (the cards draw but are not hit-testable), so a click, a double click, a right click, a move, a resize and a create all take the same road as the automation commands (CalendarUi, ICalendarGestures).
 
 using Microsoft.UI.Xaml.Automation;
@@ -20,7 +22,7 @@ public sealed class TimeGridView : UserControl
     private const double DragThreshold = 4;
 
     private readonly CalendarViewModel _vm = CalendarUi.Model;
-    private readonly Grid _head = new() { Height = 44 };
+    private readonly Grid _head = new() { Height = CalendarVisuals.Bulwark ? 76 : 44 };
     private readonly Grid _strip = new();
     private readonly Border _stripBox = new();
     private readonly ScrollViewer _scroll = new() { VerticalScrollBarVisibility = ScrollBarVisibility.Auto, HorizontalScrollMode = ScrollMode.Disabled, VerticalScrollMode = ScrollMode.Auto };
@@ -111,6 +113,8 @@ public sealed class TimeGridView : UserControl
 
     private void RenderHead()
     {
+        var bulwark = CalendarVisuals.Bulwark;
+        _head.Height = bulwark ? 76 : 44;
         var head = new Grid();
         head.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(Gutter) });
         var today = _vm.TodayDate;
@@ -120,27 +124,41 @@ public sealed class TimeGridView : UserControl
             head.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
             var day = _columns[i];
             var isToday = day == today;
-            var label = new StackPanel { HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center, Spacing = 1, Orientation = Orientation.Horizontal };
-            label.Children.Add(CalendarVisuals.Text(day.ToString("ddd", CultureInfo.InvariantCulture), 12, FontWeights.SemiBold, CalendarVisuals.Palette(isToday ? "Accent" : "Dim")));
+            var picked = bulwark && !isToday && day == _vm.Anchor;
+            var label = new StackPanel { HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center, Spacing = bulwark ? 2 : 1, Orientation = bulwark ? Orientation.Vertical : Orientation.Horizontal };
+            label.Children.Add(CalendarVisuals.Text(day.ToString("ddd", CultureInfo.InvariantCulture), bulwark ? 11 : 12, bulwark ? FontWeights.Medium : FontWeights.SemiBold, CalendarVisuals.Palette(isToday ? (bulwark ? "FeedbackActiveFg" : "Accent") : "Dim")));
+            if (bulwark && label.Children[0] is TextBlock weekday)
+            {
+                weekday.HorizontalAlignment = HorizontalAlignment.Center;
+                weekday.Foreground = isToday ? CalendarVisuals.Palette("Accent") : CalendarVisuals.Palette("Dim");
+            }
+
             var number = new Border
             {
-                Width = 26,
-                Height = 26,
-                CornerRadius = new CornerRadius(13),
-                Margin = new Thickness(6, 0, 0, 0),
-                Background = isToday ? CalendarVisuals.Palette("Accent") : null,
+                Width = bulwark ? 40 : 26,
+                Height = bulwark ? 40 : 26,
+                CornerRadius = new CornerRadius(bulwark ? 20 : 13),
+                Margin = bulwark ? new Thickness(0) : new Thickness(6, 0, 0, 0),
+                HorizontalAlignment = HorizontalAlignment.Center,
+                Background = isToday ? CalendarVisuals.Palette("Accent") : picked ? CalendarVisuals.Palette("FeedbackActiveHover") : null,
                 Child = new TextBlock
                 {
                     Text = day.Day.ToString(CultureInfo.InvariantCulture),
-                    FontSize = 13,
-                    FontWeight = isToday ? FontWeights.ExtraBold : FontWeights.SemiBold,
-                    Foreground = CalendarVisuals.Palette(isToday ? "OnAccent" : "Body"),
+                    FontSize = bulwark ? 20 : 13,
+                    FontWeight = bulwark ? (isToday ? FontWeights.SemiBold : FontWeights.Normal) : (isToday ? FontWeights.ExtraBold : FontWeights.SemiBold),
+                    Foreground = CalendarVisuals.Palette(isToday ? "OnAccent" : bulwark ? (picked ? "FeedbackActiveFg" : "Text") : "Body"),
                     HorizontalAlignment = HorizontalAlignment.Center,
                     VerticalAlignment = VerticalAlignment.Center,
                 },
             };
             label.Children.Add(number);
-            var button = new Button { Style = (Style)Application.Current.Resources["Button.Icon"], HorizontalAlignment = HorizontalAlignment.Stretch, VerticalAlignment = VerticalAlignment.Stretch, Content = label, CornerRadius = new CornerRadius(10), Tag = day };
+            var button = new Button { Style = (Style)Application.Current.Resources["Button.Icon"], HorizontalAlignment = HorizontalAlignment.Stretch, VerticalAlignment = VerticalAlignment.Stretch, Content = label, CornerRadius = bulwark ? new CornerRadius(0) : new CornerRadius(10), Tag = day };
+            if (bulwark)
+            {
+                button.BorderBrush = CalendarVisuals.Palette("Line");
+                button.BorderThickness = new Thickness(0, 0, i == n - 1 ? 0 : 1, 0);
+            }
+
             AutomationProperties.SetAutomationId(button, "cal.head." + day.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture));
             AutomationProperties.SetName(button, day.ToString("dddd d MMMM", CultureInfo.InvariantCulture));
             button.Click += (_, _) => _vm.OpenDay(day);
@@ -222,11 +240,11 @@ public sealed class TimeGridView : UserControl
             var toggle = new Button
             {
                 Style = (Style)Application.Current.Resources["Button.Icon"],
-                Content = CalendarVisuals.Text(_vm.AllDayExpanded ? "Less" : "+" + hidden.ToString(CultureInfo.InvariantCulture) + " more", 11, FontWeights.SemiBold, CalendarVisuals.Palette("Dim")),
+                Content = CalendarVisuals.Text(_vm.AllDayExpanded ? "Less" : "+" + hidden.ToString(CultureInfo.InvariantCulture) + " more", CalendarVisuals.Bulwark ? 10 : 11, CalendarVisuals.Bulwark ? FontWeights.Medium : FontWeights.SemiBold, CalendarVisuals.Palette("Dim")),
                 HorizontalAlignment = HorizontalAlignment.Stretch,
                 VerticalAlignment = VerticalAlignment.Top,
                 Height = 24,
-                CornerRadius = new CornerRadius(8),
+                CornerRadius = new CornerRadius(CalendarVisuals.Bulwark ? 4 : 8),
             };
             AutomationProperties.SetAutomationId(toggle, "cal.allday.toggle");
             AutomationProperties.SetName(toggle, _vm.AllDayExpanded ? "Show fewer all-day events" : "Show all all-day events");
@@ -256,18 +274,27 @@ public sealed class TimeGridView : UserControl
         var colW = (width - Gutter) / _columns.Count;
         var hours = settings.HourTo - settings.HourFrom;
         var line = CalendarVisuals.Palette("Line");
+        var bulwark = CalendarVisuals.Bulwark;
         var children = new List<UIElement>();
         for (var h = 0; h <= hours; h++)
         {
             var y = h * CalendarGridRules.HourPx;
-            var rule = new Border { Width = width - Gutter, Height = 1, Background = line, IsHitTestVisible = false };
+            // border-b border-border/50 (calendar-week-view.tsx:835)
+            var rule = new Border { Width = width - Gutter, Height = 1, Background = line, Opacity = bulwark ? 0.5 : 1, IsHitTestVisible = false };
             Canvas.SetLeft(rule, Gutter);
             Canvas.SetTop(rule, y);
             children.Add(rule);
             if (h < hours)
             {
-                var label = CalendarVisuals.Text(CalendarFormat.HourLabel(settings.HourFrom + h, settings.Core.TwelveHour), 11, FontWeights.Normal, CalendarVisuals.Palette("Faint"));
-                Canvas.SetLeft(label, 4);
+                var label = CalendarVisuals.Text(CalendarFormat.HourLabel(settings.HourFrom + h, settings.Core.TwelveHour), bulwark ? 10 : 11, FontWeights.Normal, CalendarVisuals.Palette(bulwark ? "Dim" : "Faint"));
+                if (bulwark)
+                {
+                    // text-end pe-2 (calendar-week-view.tsx:700)
+                    label.Width = Gutter - 8;
+                    label.TextAlignment = TextAlignment.Right;
+                }
+
+                Canvas.SetLeft(label, bulwark ? 0 : 4);
                 Canvas.SetTop(label, y + (h == 0 ? 2 : -8));
                 children.Add(label);
             }
@@ -301,7 +328,7 @@ public sealed class TimeGridView : UserControl
             if (laneW > (colW / box.Lanes) + 0.5)
             {
                 // a cascaded lane covers part of the one before it: a card of the tinted (translucent) kind gets an opaque ground so the titles do not show through each other (D-M5-I05)
-                var ground = new Border { Width = rect.Width, Height = rect.Height, CornerRadius = card.CornerRadius, Background = CalendarVisuals.Palette("Tile"), BorderBrush = CalendarVisuals.Palette("Line"), BorderThickness = new Thickness(1), IsHitTestVisible = false };
+                var ground = new Border { Width = rect.Width, Height = rect.Height, CornerRadius = card.CornerRadius, Background = CalendarVisuals.Palette(bulwark ? "Bg" : "Tile"), BorderBrush = CalendarVisuals.Palette("Line"), BorderThickness = new Thickness(1), IsHitTestVisible = false };
                 Canvas.SetLeft(ground, rect.X);
                 Canvas.SetTop(ground, rect.Y);
                 children.Add(ground);
@@ -317,13 +344,15 @@ public sealed class TimeGridView : UserControl
             var y = (minutes / 60.0 * CalendarGridRules.HourPx) - (settings.HourFrom * CalendarGridRules.HourPx);
             if (y >= 0 && y <= hours * CalendarGridRules.HourPx)
             {
-                var accent = CalendarVisuals.Palette("Accent");
+                // the destructive colour, a 12 px dot and a 2 px rule (calendar-week-view.tsx:844-848)
+                var accent = CalendarVisuals.Palette(bulwark ? "Destructive" : "Accent");
                 var nowLine = new Border { Width = colW, Height = 2, Background = accent, IsHitTestVisible = false };
                 Canvas.SetLeft(nowLine, Gutter + (todayIndex * colW));
                 Canvas.SetTop(nowLine, y - 1);
-                var dot = new Border { Width = 10, Height = 10, CornerRadius = new CornerRadius(5), Background = accent, IsHitTestVisible = false };
-                Canvas.SetLeft(dot, Gutter + (todayIndex * colW) - 5);
-                Canvas.SetTop(dot, y - 5);
+                var size = bulwark ? 12 : 10;
+                var dot = new Border { Width = size, Height = size, CornerRadius = new CornerRadius(size / 2.0), Background = accent, IsHitTestVisible = false };
+                Canvas.SetLeft(dot, Gutter + (todayIndex * colW) - (size / 2.0));
+                Canvas.SetTop(dot, y - (size / 2.0));
                 AutomationProperties.SetAutomationId(nowLine, "cal.now");
                 children.Add(nowLine);
                 children.Add(dot);

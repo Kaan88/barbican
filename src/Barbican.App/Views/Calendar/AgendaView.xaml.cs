@@ -9,6 +9,7 @@ namespace Barbican.App.Views.Calendar;
 public sealed partial class AgendaView : UserControl
 {
     private readonly CalendarViewModel _vm = CalendarUi.Model;
+    private bool _bulwark;
 
     public AgendaView()
     {
@@ -24,10 +25,22 @@ public sealed partial class AgendaView : UserControl
         var rows = AgendaRules.Rows(_vm.Occurrences, _vm.Range.From, _vm.Range.To, _vm.TodayDate, _vm.Settings.Core.TwelveHour);
         var colors = _vm.Calendars.ToDictionary(c => c.Id, c => c.Color, StringComparer.Ordinal);
         var items = new List<AgendaItem>(rows.Count);
-        foreach (var row in rows)
+        var tomorrow = _vm.TodayDate.AddDays(1);
+        for (var i = 0; i < rows.Count; i++)
         {
+            var row = rows[i];
             var color = row.CalendarId.Length > 0 && colors.TryGetValue(row.CalendarId, out var c) ? c : "#3b82f6";
-            items.Add(new AgendaItem(row, color, row.Id is not null && string.Equals(row.Id, _vm.SelectedId, StringComparison.Ordinal)));
+            var last = i == rows.Count - 1 || !string.IsNullOrEmpty(rows[i + 1].Header);
+            items.Add(new AgendaItem(row, color, row.Id is not null && string.Equals(row.Id, _vm.SelectedId, StringComparison.Ordinal), last, row.Day == tomorrow));
+        }
+
+        // Bulwark rows are the shared ListItem.Row with the date column; Bento and Nordic keep the rounded rows
+        var bulwark = CalendarVisuals.Bulwark;
+        if (_bulwark != bulwark || List.ItemTemplate is null)
+        {
+            _bulwark = bulwark;
+            List.ItemTemplate = (DataTemplate)Resources[bulwark ? "Row.Bulwark" : "Row.Legacy"];
+            List.ItemContainerStyle = (Style)(bulwark ? Application.Current.Resources["ListItem.Row"] : Resources["Row.Legacy.Container"]);
         }
 
         Rows = rows;

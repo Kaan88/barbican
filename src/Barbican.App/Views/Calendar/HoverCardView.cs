@@ -39,10 +39,14 @@ public sealed class HoverCardView : UserControl
     public void Show(EventDetail d)
     {
         ShownId = d.Id;
+        // Bulwark's popover is a rounded-lg card on the page ground (event-detail-popover.tsx:392); the others keep the 14 px card
+        var look = Barbican.App.Shell.ViewHost.Get<Barbican.App.Theme.StyleState>();
+        _box.CornerRadius = look.IsBulwark ? look.PopupRadius : new CornerRadius(14);
+        _box.Background = CalendarVisuals.Palette(look.IsBulwark ? "Bg" : "Popup");
         var stack = new StackPanel { Spacing = 3 };
         var dot = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 7 };
-        dot.Children.Add(new Border { Width = 10, Height = 10, CornerRadius = new CornerRadius(4), Background = CalendarVisuals.SolidBrush(d.CalendarColor), VerticalAlignment = VerticalAlignment.Center });
-        dot.Children.Add(CalendarVisuals.Text(d.Title, 13.5, FontWeights.Bold, CalendarVisuals.Palette("Text")));
+        dot.Children.Add(new Border { Width = look.IsBulwark ? 16 : 10, Height = look.IsBulwark ? 16 : 10, CornerRadius = new CornerRadius(4), Background = CalendarVisuals.SolidBrush(d.CalendarColor), VerticalAlignment = VerticalAlignment.Center });
+        dot.Children.Add(CalendarVisuals.Text(d.Title, look.IsBulwark ? 14 : 13.5, look.IsBulwark ? FontWeights.SemiBold : FontWeights.Bold, CalendarVisuals.Palette("Text")));
         stack.Children.Add(dot);
         stack.Children.Add(CalendarVisuals.Text(d.When, 12, FontWeights.Normal, CalendarVisuals.Palette("Body")));
         if (d.Location.Length > 0)

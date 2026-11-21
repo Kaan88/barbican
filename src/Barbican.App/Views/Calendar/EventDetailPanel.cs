@@ -1,4 +1,6 @@
 // Mirrors: Rust calendar.rs:1250 detail (the context panel beside the grid: title, when, where, repeats, guests with their answers), Bulwark components/calendar/event-detail-popover.tsx; design BNCalendar "Event details" aside (a tinted title card, facts, a divider, guests with avatars and their answer).
+// Bulwark (event-detail-popover.tsx:385-470): a flat card on the page ground with a hairline at its start: the actions (edit, close) in a row at the top, a 16 px square in the calendar colour beside the title (text-lg semibold), then the facts, each an icon
+// and text-sm (the clock and the time, the place, the guests with their answer at text-xs, the repeat, the calendar, the description in muted text).
 // I-331 (the detail panel beside the grid), B-CAL-054. Selecting shows it; opening (the editor) is cal-ui's: the Edit button calls CalendarViewModel.OpenAsync.
 
 using Microsoft.UI.Xaml.Automation;
@@ -32,18 +34,21 @@ public sealed class EventDetailPanel : UserControl
 
     public void Render()
     {
-        var bento = _look.IsBento;
-        _box.Background = _look.TileBrush;
+        var bulwark = _look.IsBulwark;
+        var bento = _look.IsBento && !bulwark;
+        Width = bulwark ? 320 : 280;
+        _box.Background = bulwark ? CalendarVisuals.Palette("Bg") : _look.TileBrush;
         _box.BorderBrush = CalendarVisuals.Palette("Line");
         _box.BorderThickness = bento ? new Thickness(1) : new Thickness(1, 0, 0, 0);
         _box.CornerRadius = bento ? _look.PaneRadius : new CornerRadius(0);
-        _box.Padding = new Thickness(18, 20, 18, 20);
+        _box.Padding = bulwark ? new Thickness(0, 8, 0, 12) : new Thickness(18, 20, 18, 20);
+        _stack.Spacing = bulwark ? 10 : 14;
         var detail = _vm.Detail;
         Visibility = detail is null ? Visibility.Collapsed : Visibility.Visible;
         var children = new List<UIElement>();
         if (detail is not null)
         {
-            children.AddRange(Build(detail));
+            children.AddRange(bulwark ? BuildBulwark(detail) : Build(detail));
         }
 
         _stack.Children.Clear();
@@ -51,6 +56,101 @@ public sealed class EventDetailPanel : UserControl
         {
             _stack.Children.Add(child);
         }
+    }
+
+    private IEnumerable<UIElement> BuildBulwark(EventDetail d)
+    {
+        // the actions at the top, to the end (event-detail-popover.tsx:416-458)
+        var actions = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 2, HorizontalAlignment = HorizontalAlignment.Right, Margin = new Thickness(0, 0, 8, 0) };
+        if (d.Kind != CalendarOccurrenceKind.Birthday)
+        {
+            var edit = Action("cal.detail.edit", d.Kind == CalendarOccurrenceKind.Task ? "Open task" : "Edit", "Pen");
+            edit.Click += (_, _) => CalendarUi.Open(d.Id);
+            actions.Children.Add(edit);
+        }
+
+        var close = Action("cal.detail.close", "Close", "Close");
+        close.Click += (_, _) => _vm.SelectOccurrence(null);
+        actions.Children.Add(close);
+        yield return actions;
+
+        var head = new Grid { Padding = new Thickness(16, 0, 16, 0), ColumnSpacing = 10, ColumnDefinitions = { new ColumnDefinition { Width = GridLength.Auto }, new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) } } };
+        head.Children.Add(new Border { Width = 16, Height = 16, CornerRadius = new CornerRadius(4), Margin = new Thickness(0, 4, 0, 0), VerticalAlignment = VerticalAlignment.Top, Background = CalendarVisuals.SolidBrush(d.CalendarColor) });
+        var title = CalendarVisuals.Text(d.Title, 18, FontWeights.SemiBold, CalendarVisuals.Palette(d.Done ? "Dim" : "Text"), trim: false);
+        title.TextWrapping = TextWrapping.Wrap;
+        title.TextDecorations = d.Done ? Windows.UI.Text.TextDecorations.Strikethrough : Windows.UI.Text.TextDecorations.None;
+        AutomationProperties.SetAutomationId(title, "cal.detail.title");
+        Grid.SetColumn(title, 1);
+        head.Children.Add(title);
+        yield return head;
+
+        yield return Fact("Clock", d.When, "Text");
+        if (d.Location.Length > 0)
+        {
+            yield return Fact("Drop", d.Location, "Text");
+        }
+
+        if (d.Guests.Count > 0)
+        {
+            var people = new StackPanel { Spacing = 2 };
+            people.Children.Add(CalendarVisuals.Text(d.Guests.Count + (d.Guests.Count == 1 ? " guest" : " guests"), 14, FontWeights.Normal, CalendarVisuals.Palette("Dim"), trim: false));
+            foreach (var g in d.Guests)
+            {
+                var line = new Grid { ColumnDefinitions = { new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) }, new ColumnDefinition { Width = GridLength.Auto } }, ColumnSpacing = 8 };
+                line.Children.Add(CalendarVisuals.Text(g.Name, 12, FontWeights.Normal, CalendarVisuals.Palette("Text")));
+                var status = CalendarVisuals.Text(g.Status, 10, FontWeights.Medium, CalendarVisuals.Palette(g.Status switch { "Accepted" => "Success", "Declined" => "Destructive", "No reply" => "Warning", _ => "Dim" }));
+                Grid.SetColumn(status, 1);
+                line.Children.Add(status);
+                AutomationProperties.SetName(line, g.Name + ", " + g.Status);
+                people.Children.Add(line);
+            }
+
+            yield return Fact("Users", people);
+        }
+
+        yield return Fact("Refresh", d.Repeats ? "Repeats" : "Repeats: never", "Text");
+        if (d.CalendarName.Length > 0)
+        {
+            yield return Fact("Cal", d.CalendarName, "Text");
+        }
+
+        if (d.Description.Length > 0)
+        {
+            var text = CalendarVisuals.Text(d.Description, 14, FontWeights.Normal, CalendarVisuals.Palette("Dim"), trim: false);
+            text.TextWrapping = TextWrapping.Wrap;
+            text.MaxLines = 3;
+            text.TextTrimming = TextTrimming.CharacterEllipsis;
+            yield return Fact("List", text);
+        }
+    }
+
+    private static Button Action(string id, string name, string icon)
+    {
+        var button = new Button { Style = (Style)Application.Current.Resources["Button.Icon"], Width = 32, Height = 32, CornerRadius = new CornerRadius(6), Content = CalendarVisuals.Icon(icon, 16, 2), Foreground = CalendarVisuals.Palette("Dim") };
+        AutomationProperties.SetAutomationId(button, id);
+        AutomationProperties.SetName(button, name);
+        return button;
+    }
+
+    /// <summary>One fact: a muted 16 px icon and the content (gap-2.5, px-4).</summary>
+    private static Grid Fact(string icon, UIElement content)
+    {
+        var grid = new Grid { Padding = new Thickness(16, 0, 16, 0), ColumnSpacing = 10, ColumnDefinitions = { new ColumnDefinition { Width = GridLength.Auto }, new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) } } };
+        var glyph = CalendarVisuals.Icon(icon, 16, 1.8);
+        glyph.Foreground = CalendarVisuals.Palette("Dim");
+        glyph.VerticalAlignment = VerticalAlignment.Top;
+        glyph.Margin = new Thickness(0, 2, 0, 0);
+        grid.Children.Add(glyph);
+        Grid.SetColumn((FrameworkElement)content, 1);
+        grid.Children.Add(content);
+        return grid;
+    }
+
+    private static Grid Fact(string icon, string text, string brush)
+    {
+        var block = CalendarVisuals.Text(text, 14, FontWeights.Normal, CalendarVisuals.Palette(brush), trim: false);
+        block.TextWrapping = TextWrapping.Wrap;
+        return Fact(icon, block);
     }
 
     private IEnumerable<UIElement> Build(EventDetail d)

@@ -52,6 +52,16 @@ internal static class CalendarUi
     public static void NewEvent(DateTime start, DateTime end, bool allDay) =>
         Run(() => ViewHost.Get<ICalendarEditors>().OpenNewEventAsync(new NewEventRequest(start, end, allDay), CancellationToken.None));
 
+    /// <summary>The full editor for a new event at the next hour of today, or at 09:00 of the day on show (the sidebar's New event, the toolbar's Create while the sidebar is hidden).</summary>
+    public static void NewEventNow()
+    {
+        var vm = Model;
+        var now = vm.Now();
+        var start = new DateTime(now.Year, now.Month, now.Day, now.Hour, 0, 0, DateTimeKind.Unspecified).AddHours(1);
+        var anchored = vm.Anchor == vm.TodayDate ? start : vm.Anchor.ToDateTime(new TimeOnly(9, 0));
+        NewEvent(anchored, anchored.AddHours(1), allDay: false);
+    }
+
     /// <summary>The menu of an occurrence, a slot or a calendar at window coordinates (MENU-EVENT, MENU-SLOT, MENU-CAL).</summary>
     public static void ShowMenu(string menuId, double x, double y, string? occurrenceId = null, DateTime? slot = null, bool allDay = false, string? calendarId = null)
     {
