@@ -64,6 +64,7 @@ public static class ComposerRegistration
         services.AddSingleton<IPluginApiMethod>(sp => PluginComposerMethods.GetSnapshot(sp.GetRequiredService<PluginComposerAccess>()));
         AddComposerAddOnApi(services);
         _ = services.AddCalendarAddOnApi();
+        _ = services.AddContactsFilesAddOnApi();
 #endif
 
         // a mailto: link clicked in a message opens the composer, never the OS handler (B-COMP-034); everything else keeps the reader's link check
