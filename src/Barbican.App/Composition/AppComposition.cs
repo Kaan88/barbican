@@ -67,6 +67,10 @@ public static class AppComposition
         services.AddBarbicanServerSettingsData();       // M6 srv-data: src/Barbican.Core/Filters/Rules/FilterDataRegistration.cs
         services.AddBarbicanSettingsUi();               // M6 set-ui: src/Barbican.App/Composition/Features/SettingsUiRegistration.cs
         services.AddBarbicanServerUi();                 // M6 srv-ui: src/Barbican.App/Composition/Features/SrvUiRegistration.cs
+#if WINDOWS && !AUTOMATION
+        services.AddSingleton<Barbican.Core.Notifications.IDesktopNotifier, Barbican.App.Shell.WindowsDesktopNotifier>();   // M6b notifications: taskbar badge, flash, tone (no registry, no package identity); automation keeps the recording null notifier
+#endif
+        services.AddBarbicanNotifications();            // M6b notifications: src/Barbican.Presentation/Composition/NotificationsPresentationRegistration.cs
 #if AUTOMATION
         services.AddBarbicanAutomation();   // F1:       src/Barbican.Automation/AutomationRegistration.cs
 #endif
