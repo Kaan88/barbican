@@ -200,6 +200,20 @@ FM-09/12/14/15/16, reduce motion applied to the overrides.
 
 Limits: a radius is read when a control's style is applied, so a text box created before a style switch keeps its radius until rebuilt. TextBox minimum height is 40 (`h-10`); a view that needs a denser field sets its own `MinHeight`. The text box border colour changes at once (the brush transition API covers only the background).
 
+### 3.7 WP-3 status (branch m6b/wp3-rail)
+
+| ID | Status | Note |
+|---|---|---|
+| SH-01 | partly | order is now Bulwark's: Search first, then Mail, Calendar, Contacts, Files; footer Accessibility, Settings, divider, Shortcuts, storage ring, account (`navigation-rail.tsx:584-760,700-949`). Bell, plugin pages, add-on apps and Admin do not exist yet (SH-08..10); sign-out is in the account popover and, with `showRailAccountList`, a rail menu |
+| SH-02 | closed | the five navigation buttons are `ToggleButton`s on the rail template: active = `FeedbackActive`/`FeedbackActiveFg` (Bulwark primary/10, primary), hover = `FeedbackHover` (muted) + `Text`, pressed one step stronger, 150 ms colour transition (`navigation-rail.tsx:640-652`). Settings is a nav toggle too |
+| SH-03 | closed | 18 px icon in the 40 px box, 4 px gap (`StyleState.RailIcon`; Bento/Nordic keep 20) |
+| SH-04 | closed | red-600 pill (16 px, 10 px bold) at -top-0.5 -end-0.5, or the 10 px red-500 dot for the "dot" unread style (`navigation-rail.tsx:659-668`) |
+| SH-06 | closed | the storage ring is a 32 px button (r 12, stroke 3, level colour success/warning/destructive at 70/90 %, percentage inside); its popover lists used, free and total and the bar (`navigation-rail.tsx:164-221`). Free is the total less the used share of `StorageText` (Presentation exposes the text, not the byte counts) |
+| SH-07 | partly | account circles, active ring, dimmed others, Add account and the Sign out menu behind `showRailAccountList` and not simple mode (`navigation-rail.tsx:790-890`). The setting is still `unwired` in `SettingsCatalog.UnwiredKeys` / `spec/settings.csv` (Core/spec, not WP-3's files): the view reads the pref, but the Settings page labels it "not used" until that row is flipped |
+| SH-09 | open | no Admin entry: admin is M7 (no `AppId.Admin`, no update-dot source) |
+| SH-10 | open | no plugin pages or add-on apps: needs the plugin host's page and sidebar-app registry (Presentation/Core) |
+| (popover) | closed | the account popover is Bulwark's card: 288 px, square rows px-3 py-2.5 with a 36 px avatar, check badge, amber star, primary unread text, border-t sections, Manage accounts row (`account-switcher.tsx:353-682`); rail account button is the 40 px button with a 32 px tinted avatar and the other-accounts dot (`:310-372`); flyouts use `PopInKind.Menu` (instant in Bulwark) and the shared radii |
+
 ## 4. Gap ledger by area
 
 Legend for each row: **B** = Bulwark, **N** = Barbican now.

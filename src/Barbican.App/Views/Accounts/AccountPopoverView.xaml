@@ -4,77 +4,96 @@
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:controls="using:Barbican.App.Controls"
     xmlns:views="using:Barbican.App.Views"
+    xmlns:theme="using:Barbican.App.Theme"
     xmlns:accounts="using:Barbican.Presentation.Accounts">
-  <!-- The account popover (spec/layout/shell.md "Rail": width 260, padding 6, rows 32 high, header 24 high), bound to Presentation's AccountsViewModel
-       (Fable review 2 R2-03; Bulwark components/layout/account-switcher.tsx:455-500): avatar, check on the active one, the default star with two or more
-       accounts, the inbox unread badge, and the server and error lines of an account in trouble. It lives in a Flyout constrained to the window. -->
-  <StackPanel Width="260" Padding="6" Spacing="2" AutomationProperties.AutomationId="account-popover" AutomationProperties.Name="Accounts" KeyDown="OnPopoverKeyDown">
-    <TextBlock Text="Accounts" Style="{StaticResource Text.Label}" Height="24" Padding="8,4,0,0" />
-    <ItemsControl ItemsSource="{x:Bind Model.Rows}" AutomationProperties.AutomationId="account-popover.rows" AutomationProperties.Name="Account list">
+  <!-- The account popover, bound to Presentation's AccountsViewModel (Fable review 2 R2-03). Bulwark components/layout/account-switcher.tsx:353-682: a 288 px card, rows
+       px-3 py-2.5 with a 36 px avatar, a check badge on the active one, the default star, the unread count as primary text, border-t between the list, Add account,
+       Manage accounts and the actions (rows px-3 py-2, 16 px icons, text-sm). Bento and Nordic keep the prototype's 260 px card with rounded rows
+       (spec/layout/shell.md "Rail"). It lives in a Flyout constrained to the window. -->
+  <StackPanel Width="{x:Bind Look.PopoverWidth, Mode=OneWay}" Padding="{x:Bind Look.PopoverPadding, Mode=OneWay}" Spacing="{x:Bind Look.PopoverSpacing, Mode=OneWay}"
+              AutomationProperties.AutomationId="account-popover" AutomationProperties.Name="Accounts" KeyDown="OnPopoverKeyDown">
+    <TextBlock Text="Accounts" Style="{StaticResource Text.Label}" Height="24" Padding="8,4,0,0" Visibility="{x:Bind Look.PopoverHeaderVisibility, Mode=OneWay}" />
+    <ItemsControl ItemsSource="{x:Bind Model.Rows}" Padding="0,4" AutomationProperties.AutomationId="account-popover.rows" AutomationProperties.Name="Account list">
       <ItemsControl.ItemTemplate>
         <DataTemplate x:DataType="accounts:AccountRowViewModel">
-          <Button Style="{StaticResource Button.Icon}" HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch" Padding="8,6" CornerRadius="9"
+          <Button Style="{StaticResource Button.Icon}" HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch"
+                  Loaded="OnRowLoaded" Background="{x:Bind theme:StyleState.AccountRowFill(IsActive), Mode=OneWay}"
                   Foreground="{StaticResource Text}" Click="OnRowClick" Tag="{x:Bind}" AutomationProperties.AutomationId="{x:Bind Key}"
                   AutomationProperties.Name="{x:Bind Title, Mode=OneWay}">
-            <Grid ColumnDefinitions="Auto,*,Auto,Auto" ColumnSpacing="10">
-              <Border Width="28" Height="28" CornerRadius="10" Background="{x:Bind views:Fmt.TintBg(TintIndex), Mode=OneWay}" VerticalAlignment="Center">
-                <TextBlock Text="{x:Bind Initials, Mode=OneWay}" FontSize="11" FontWeight="Bold" Foreground="{x:Bind views:Fmt.TintFg(TintIndex), Mode=OneWay}"
-                           HorizontalAlignment="Center" VerticalAlignment="Center" />
-              </Border>
+            <Grid ColumnDefinitions="Auto,*,Auto,Auto" ColumnSpacing="12">
+              <Grid VerticalAlignment="Top">
+                <Border Width="28" Height="28" CornerRadius="10"
+                        Background="{x:Bind views:Fmt.TintBg(TintIndex), Mode=OneWay}">
+                  <TextBlock Text="{x:Bind Initials, Mode=OneWay}" FontSize="12" FontWeight="Bold" Foreground="{x:Bind views:Fmt.TintFg(TintIndex), Mode=OneWay}"
+                             HorizontalAlignment="Center" VerticalAlignment="Center" />
+                </Border>
+                <!-- account-switcher.tsx:470: w-4 h-4 bg-primary, a 10 px check -->
+                <Border Width="16" Height="16" CornerRadius="8" Background="{StaticResource Accent}" HorizontalAlignment="Right" VerticalAlignment="Bottom" Margin="0,0,-2,-2"
+                        Visibility="{x:Bind views:Fmt.Vis(IsActive), Mode=OneWay}">
+                  <controls:SIcon Kind="Check" Size="10" StrokeWidth="3" Foreground="{StaticResource OnAccent}" HorizontalAlignment="Center" VerticalAlignment="Center" />
+                </Border>
+              </Grid>
               <StackPanel Grid.Column="1" VerticalAlignment="Center">
                 <StackPanel Orientation="Horizontal" Spacing="4">
-                  <TextBlock Text="{x:Bind Title, Mode=OneWay}" FontSize="13" FontWeight="SemiBold" Foreground="{StaticResource Text}" TextTrimming="CharacterEllipsis" />
+                  <TextBlock Text="{x:Bind Title, Mode=OneWay}" FontSize="13" FontWeight="Medium" Foreground="{StaticResource Text}" TextTrimming="CharacterEllipsis" />
                   <controls:SIcon Kind="Star" Size="12" Foreground="{StaticResource Accent}" VerticalAlignment="Center" Visibility="{x:Bind views:Fmt.Vis(ShowStar), Mode=OneWay}" />
                 </StackPanel>
-                <TextBlock Text="{x:Bind ServerLine, Mode=OneWay}" Style="{StaticResource Text.Meta}" FontSize="11.5" Visibility="{x:Bind views:Fmt.VisText(ServerLine), Mode=OneWay}" />
-                <TextBlock Text="{x:Bind Error, Mode=OneWay}" FontSize="11.5" Foreground="{StaticResource RoseFg}" TextWrapping="Wrap"
+                <TextBlock Text="{x:Bind ServerLine, Mode=OneWay}" Style="{StaticResource Text.Meta}" FontSize="12" Visibility="{x:Bind views:Fmt.VisText(ServerLine), Mode=OneWay}" />
+                <TextBlock Text="{x:Bind Error, Mode=OneWay}" FontSize="12" Foreground="{StaticResource Destructive}" TextWrapping="Wrap"
                            Visibility="{x:Bind views:Fmt.VisText(Error), Mode=OneWay}" />
               </StackPanel>
-              <Border Grid.Column="2" MinWidth="20" Height="18" Padding="6,0" CornerRadius="9" Background="{StaticResource Accent}" VerticalAlignment="Center"
+              <Border Grid.Column="2" MinWidth="20" Height="18" Padding="6,0" CornerRadius="9" Background="{StaticResource Accent}" VerticalAlignment="Top"
                       Visibility="{x:Bind views:Fmt.VisText(UnreadText), Mode=OneWay}">
-                <TextBlock Text="{x:Bind UnreadText, Mode=OneWay}" FontSize="11" FontWeight="SemiBold" Foreground="{StaticResource Ground}" HorizontalAlignment="Center" VerticalAlignment="Center" />
+                <TextBlock Text="{x:Bind UnreadText, Mode=OneWay}" FontSize="12" FontWeight="Medium" Foreground="{StaticResource Ground}" HorizontalAlignment="Center" VerticalAlignment="Center" />
               </Border>
-              <controls:SIcon Grid.Column="3" Kind="Check" Size="16" Foreground="{StaticResource Accent}" VerticalAlignment="Center" Visibility="{x:Bind views:Fmt.Vis(IsActive), Mode=OneWay}" />
             </Grid>
           </Button>
         </DataTemplate>
       </ItemsControl.ItemTemplate>
     </ItemsControl>
-    <TextBlock Text="{x:Bind Model.Message, Mode=OneWay}" Style="{StaticResource Text.Meta}" Foreground="{StaticResource RoseFg}" TextWrapping="Wrap" Padding="8,2"
+    <TextBlock Text="{x:Bind Model.Message, Mode=OneWay}" Style="{StaticResource Text.Meta}" Foreground="{StaticResource Destructive}" TextWrapping="Wrap" Padding="12,2"
                Visibility="{x:Bind views:Fmt.VisText(Model.Message), Mode=OneWay}" AutomationProperties.AutomationId="account-popover.error" AutomationProperties.Name="Account switch error" />
-    <Rectangle Height="1" Fill="{StaticResource Line}" Margin="0,4" />
-    <Button x:Name="AddButton" Style="{StaticResource Button.Icon}" HorizontalAlignment="Stretch" HorizontalContentAlignment="Left" Padding="8,8" CornerRadius="9"
-            Foreground="{StaticResource Body}" Click="OnAddClick" AutomationProperties.AutomationId="account-popover.add" AutomationProperties.Name="Add account">
-      <StackPanel Orientation="Horizontal" Spacing="10">
+    <Rectangle Height="1" Fill="{StaticResource Line}" Margin="{x:Bind Look.PopoverRuleMargin, Mode=OneWay}" />
+    <Button x:Name="AddButton" Style="{StaticResource Button.Icon}" HorizontalAlignment="Stretch" HorizontalContentAlignment="Left" Padding="{x:Bind Look.PopoverActionPadding, Mode=OneWay}"
+            CornerRadius="{x:Bind Look.PopoverRowRadius, Mode=OneWay}" Foreground="{StaticResource Text}" Click="OnAddClick" AutomationProperties.AutomationId="account-popover.add" AutomationProperties.Name="Add account">
+      <StackPanel Orientation="Horizontal" Spacing="8">
         <controls:SIcon Kind="Plus" Size="16" />
-        <TextBlock Text="Add account" FontSize="13" />
+        <TextBlock Text="Add account" FontSize="{x:Bind Look.PopoverTextSize, Mode=OneWay}" />
+      </StackPanel>
+    </Button>
+    <!-- Manage accounts (account-switcher.tsx:630-641) opens the Settings app. -->
+    <Button Style="{StaticResource Button.Icon}" HorizontalAlignment="Stretch" HorizontalContentAlignment="Left" Padding="{x:Bind Look.PopoverActionPadding, Mode=OneWay}"
+            CornerRadius="{x:Bind Look.PopoverRowRadius, Mode=OneWay}" Foreground="{StaticResource Text}" Click="OnManageClick" AutomationProperties.AutomationId="account-popover.manage" AutomationProperties.Name="Manage accounts">
+      <StackPanel Orientation="Horizontal" Spacing="8">
+        <controls:SIcon Kind="Settings" Size="16" />
+        <TextBlock Text="Manage accounts" FontSize="{x:Bind Look.PopoverTextSize, Mode=OneWay}" />
       </StackPanel>
     </Button>
     <!-- The actions of the account on screen (Bulwark account-switcher.tsx:645-681): Set as default (an account that is not the default, with two or more), Sign out of it, Sign out of all (two or more).
          Both sign-outs ask first. -->
-    <Rectangle Height="1" Fill="{StaticResource Line}" Margin="0,4" />
-    <Button Style="{StaticResource Button.Icon}" HorizontalAlignment="Stretch" HorizontalContentAlignment="Left" Padding="8,8" CornerRadius="9" Foreground="{StaticResource Body}"
-            Click="OnActionClick" Command="{x:Bind Model.SetDefaultCommand}" Visibility="{x:Bind views:Fmt.Vis(Model.CanSetDefault), Mode=OneWay}" AutomationProperties.AutomationId="account-popover.default"
+    <Rectangle Height="1" Fill="{StaticResource Line}" Margin="{x:Bind Look.PopoverRuleMargin, Mode=OneWay}" />
+    <Button Style="{StaticResource Button.Icon}" HorizontalAlignment="Stretch" HorizontalContentAlignment="Left" Padding="{x:Bind Look.PopoverActionPadding, Mode=OneWay}" CornerRadius="{x:Bind Look.PopoverRowRadius, Mode=OneWay}"
+            Foreground="{StaticResource Text}" Click="OnActionClick" Command="{x:Bind Model.SetDefaultCommand}" Visibility="{x:Bind views:Fmt.Vis(Model.CanSetDefault), Mode=OneWay}" AutomationProperties.AutomationId="account-popover.default"
             AutomationProperties.Name="Set as default">
-      <StackPanel Orientation="Horizontal" Spacing="10">
+      <StackPanel Orientation="Horizontal" Spacing="8">
         <controls:SIcon Kind="Star" Size="16" />
-        <TextBlock Text="Set as default" FontSize="13" />
+        <TextBlock Text="Set as default" FontSize="{x:Bind Look.PopoverTextSize, Mode=OneWay}" />
       </StackPanel>
     </Button>
-    <Button Style="{StaticResource Button.Icon}" HorizontalAlignment="Stretch" HorizontalContentAlignment="Left" Padding="8,8" CornerRadius="9" Foreground="{StaticResource Body}"
-            Click="OnActionClick" Command="{x:Bind Model.SignOutCommand}" Visibility="{x:Bind views:Fmt.Vis(Model.CanSignOut), Mode=OneWay}" AutomationProperties.AutomationId="account-popover.signout"
+    <Button Style="{StaticResource Button.Icon}" HorizontalAlignment="Stretch" HorizontalContentAlignment="Left" Padding="{x:Bind Look.PopoverActionPadding, Mode=OneWay}" CornerRadius="{x:Bind Look.PopoverRowRadius, Mode=OneWay}"
+            Foreground="{StaticResource Text}" Click="OnActionClick" Command="{x:Bind Model.SignOutCommand}" Visibility="{x:Bind views:Fmt.Vis(Model.CanSignOut), Mode=OneWay}" AutomationProperties.AutomationId="account-popover.signout"
             AutomationProperties.Name="{x:Bind Model.SignOutLabel, Mode=OneWay}">
-      <StackPanel Orientation="Horizontal" Spacing="10">
+      <StackPanel Orientation="Horizontal" Spacing="8">
         <controls:SIcon Kind="Back" Size="16" />
-        <TextBlock Text="{x:Bind Model.SignOutLabel, Mode=OneWay}" FontSize="13" TextTrimming="CharacterEllipsis" />
+        <TextBlock Text="{x:Bind Model.SignOutLabel, Mode=OneWay}" FontSize="{x:Bind Look.PopoverTextSize, Mode=OneWay}" TextTrimming="CharacterEllipsis" />
       </StackPanel>
     </Button>
-    <Button Style="{StaticResource Button.Icon}" HorizontalAlignment="Stretch" HorizontalContentAlignment="Left" Padding="8,8" CornerRadius="9" Foreground="{StaticResource Body}"
-            Click="OnActionClick" Command="{x:Bind Model.SignOutAllCommand}" Visibility="{x:Bind views:Fmt.Vis(Model.CanSignOutAll), Mode=OneWay}" AutomationProperties.AutomationId="account-popover.signout-all"
+    <Button Style="{StaticResource Button.Icon}" HorizontalAlignment="Stretch" HorizontalContentAlignment="Left" Padding="{x:Bind Look.PopoverActionPadding, Mode=OneWay}" CornerRadius="{x:Bind Look.PopoverRowRadius, Mode=OneWay}"
+            Foreground="{StaticResource Text}" Click="OnActionClick" Command="{x:Bind Model.SignOutAllCommand}" Visibility="{x:Bind views:Fmt.Vis(Model.CanSignOutAll), Mode=OneWay}" AutomationProperties.AutomationId="account-popover.signout-all"
             AutomationProperties.Name="Sign out of all accounts">
-      <StackPanel Orientation="Horizontal" Spacing="10">
+      <StackPanel Orientation="Horizontal" Spacing="8">
         <controls:SIcon Kind="Back" Size="16" />
-        <TextBlock Text="Sign out of all accounts" FontSize="13" />
+        <TextBlock Text="Sign out of all accounts" FontSize="{x:Bind Look.PopoverTextSize, Mode=OneWay}" />
       </StackPanel>
     </Button>
   </StackPanel>
