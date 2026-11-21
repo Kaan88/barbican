@@ -8,6 +8,16 @@ namespace Barbican.Presentation.Settings.Ui;
 /// <summary>The pure rules of how rows are shown.</summary>
 public static class SetUiRowRules
 {
+    /// <summary>Whether a stored <c>interfaceLayout</c> value is Mountain View.</summary>
+    public static bool IsMountainView(JsonNode? interfaceLayout) => interfaceLayout is JsonValue v && v.TryGetValue<string>(out var s) && string.Equals(s, "mountain-view", StringComparison.Ordinal);
+
+    /// <summary>The mail layout row is not offered under Mountain View, which always shows the list and then the conversation; the saved value stays and applies again under the default layout (layout-settings.tsx:76-77, SH-12).</summary>
+    public static bool HiddenByInterfaceLayout(SettingRow row, bool mountainView)
+    {
+        ArgumentNullException.ThrowIfNull(row);
+        return mountainView && string.Equals(row.Key, "mailLayout", StringComparison.Ordinal);
+    }
+
     // The two toggles of the schema that show the opposite of what the key stores ("Group messages by conversation" over disableThreading,
     // "Settings sync" over settingsSyncDisabled; settings-schema.json `invert`, a field the catalog record does not carry).
     private static readonly HashSet<string> InvertedKeys = new(["disableThreading", "settingsSyncDisabled"], StringComparer.Ordinal);

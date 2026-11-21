@@ -68,7 +68,14 @@ public sealed class ThemeController : IDisposable
 
     public void Dispose() => _shell.PropertyChanged -= OnShellChanged;
 
-    private void ApplyControlPreferences() => _style.SetAccessibility(_shell.Accessibility,
+    private void ApplyControlPreferences()
+    {
+        var prefs = _prefs.Current;
+        _style.SetMailLayout(prefs.Str("mailLayout", "split"), string.Equals(prefs.Str("interfaceLayout", "default"), "mountain-view", StringComparison.Ordinal), prefs.Bool("simpleMode", false));
+        ApplyAccessibility();
+    }
+
+    private void ApplyAccessibility() => _style.SetAccessibility(_shell.Accessibility,
         _prefs.Current.Bool("showToolbarLabels", true) || _prefs.Current.Bool("simpleMode", false),
         _prefs.Current.Str("composePlacement", "floating"), _prefs.Current.Bool("sidebarAccountSwitcher", true));
 

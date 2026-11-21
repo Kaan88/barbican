@@ -12,6 +12,18 @@ public sealed class SetUiRowRulesTests
         new(id, "p", kind, id, string.Empty, id, [.. options.Select(o => new SettingOption(o, o.ToUpperInvariant()))], def, SettingRowStatus.Wired, advanced, null);
 
     [Fact]
+    public void Mountain_View_hides_the_mail_layout_row_only()
+    {
+        SettingRow Keyed(string key) => R("S-" + key, SettingRowKind.Select) with { Key = key };
+        Assert.True(SetUiRowRules.HiddenByInterfaceLayout(Keyed("mailLayout"), mountainView: true));
+        Assert.False(SetUiRowRules.HiddenByInterfaceLayout(Keyed("mailLayout"), mountainView: false));
+        Assert.False(SetUiRowRules.HiddenByInterfaceLayout(Keyed("density"), mountainView: true));
+        Assert.True(SetUiRowRules.IsMountainView(JsonValue.Create("mountain-view")));
+        Assert.False(SetUiRowRules.IsMountainView(JsonValue.Create("default")));
+        Assert.False(SetUiRowRules.IsMountainView(null));
+    }
+
+    [Fact]
     public void Advanced_rows_hide_and_a_section_without_visible_rows_hides_with_them()
     {
         var rows = new[]

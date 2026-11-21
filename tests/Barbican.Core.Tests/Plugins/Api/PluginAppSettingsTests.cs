@@ -114,7 +114,7 @@ public sealed class PluginAppSettingsTests
     public async Task Describe_names_the_setting_its_page_the_values_and_whether_a_change_may_be_made()
     {
         var rig = await Rig.StartAsync("settings:read");
-        var out1 = (await rig.CallAsync("app.describeSettings", """[{"density":"compact","emailsPerPage":"25","pushRelayUrl":"x","nope":1,"confirmDelete":false,"mailLayout":"focus"}]""")).Value!;
+        var out1 = (await rig.CallAsync("app.describeSettings", """[{"density":"compact","emailsPerPage":"25","pushRelayUrl":"x","nope":1,"confirmDelete":false,"toolbarPosition":"top"}]""")).Value!;
         var density = out1.Property("density");
         Assert.Equal(["allowed", "current", "currentLabel", "key", "label", "next", "nextLabel", "options", "page", "pageLabel"], PluginApiRig.Keys(density), StringComparer.Ordinal);
         Assert.True(density.Property("allowed").BooleanValue);
@@ -130,7 +130,7 @@ public sealed class PluginAppSettingsTests
         Assert.Equal("", out1.Property("pushRelayUrl").Property("page").StringValue, StringComparer.Ordinal);
         Assert.Equal("unknown", out1.Property("nope").Property("reason").StringValue, StringComparer.Ordinal);
         Assert.Equal("bad_value", out1.Property("confirmDelete").Property("reason").StringValue, StringComparer.Ordinal);
-        Assert.Equal("unavailable", out1.Property("mailLayout").Property("reason").StringValue, StringComparer.Ordinal);
+        Assert.Equal("unavailable", out1.Property("toolbarPosition").Property("reason").StringValue, StringComparer.Ordinal);
         // the list form, a switch and its labels (disableThreading says the opposite of what it stores)
         var named = (await rig.CallAsync("app.describeSettings", """[["disableThreading","timeFormat","theme"]]""")).Value!;
         Assert.Equal("On", named.Property("disableThreading").Property("currentLabel").StringValue, StringComparer.Ordinal);
@@ -188,7 +188,7 @@ public sealed class PluginAppSettingsTests
             ("""{"pushRelayUrl":"https://x"}""", "not_allowed"), ("""{"externalContentPolicy":"always"}""", "not_allowed"), ("""{"sessionTimeout":0}""", "not_allowed"), ("""{"signatureDetails":"x"}""", "not_allowed"),
             ("""{"debugMode":true}""", "not_allowed"), ("""{"trustedSenders":"x"}""", "not_allowed"), ("""{"sidebarApps":"x"}""", "not_allowed"), ("""{"proofreading":true}""", "not_allowed"),
             ("""{"showAdvancedSettings":true}""", "unknown"), ("""{"isAdmin":true}""", "unknown"), ("""{"__proto__":1}""", "unknown"), ("""{"constructor":1}""", "unknown"), ("""{"locale":"de"}""", "unknown"),
-            ("""{"mailLayout":"focus"}""", "unavailable"), ("""{"swipeLeftAction":"delete"}""", "unavailable"),
+            ("""{"toolbarPosition":"top"}""", "unavailable"), ("""{"swipeLeftAction":"delete"}""", "unavailable"),
             ("""{"interfaceLayout":"zzz"}""", "bad_value"), ("""{"fontSize":5}""", "bad_value"), ("""{"emailsPerPage":"25"}""", "bad_value"), ("""{"emailsPerPage":26}""", "bad_value"), ("""{"density":null}""", "bad_value"),
             ("""{"density":["compact"]}""", "bad_value"), ("""{"density":{"a":1}}""", "bad_value"), ("""{"showPreview":"true"}""", "bad_value"), ("""{"showPreview":1}""", "bad_value"), ("""{"timeZone":"Not/AZone"}""", "bad_value"),
             ("""{"timeZone":"../etc"}""", "bad_value"), ("""{"timeZone":""}""", "bad_value"), ("""{"theme":"purple"}""", "bad_value"), ("""{"deleteAction":"permanent"}""", "bad_value"), ("""{"sendDelaySeconds":60}""", "bad_value"),

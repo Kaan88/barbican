@@ -20,7 +20,9 @@ public sealed class PaneHandle : ContentControl
 {
     private readonly PanesViewModel _panes;
     private double _startX;
+    private double _startY;
     private double _startWidth;
+    private bool _horizontal;
     private bool _dragging;
     private bool _over;
     private bool _focused;
@@ -64,11 +66,49 @@ public sealed class PaneHandle : ContentControl
     }
 
     /// <summary>The pane's width on screen, and the limits of it, for a screen reader (resize-handle.tsx:166-168 aria-valuenow/min/max).</summary>
-    internal double CurrentWidth => Target?.ActualWidth ?? 0;
+    internal double CurrentWidth => (_horizontal ? Target?.ActualHeight : Target?.ActualWidth) ?? 0;
 
-    internal double Minimum => string.Equals(Column, "sidebar", StringComparison.Ordinal) ? PaneLimits.SideMin : PaneLimits.ListMin;
+    internal double Minimum => _horizontal ? PaneLimits.ListHeightMin : string.Equals(Column, "sidebar", StringComparison.Ordinal) ? PaneLimits.SideMin : PaneLimits.ListMin;
 
-    internal double Maximum => string.Equals(Column, "sidebar", StringComparison.Ordinal) ? PaneLimits.SideMax : PaneLimits.ListMax;
+    internal double Maximum => _horizontal ? PaneLimits.ListHeightMax : string.Equals(Column, "sidebar", StringComparison.Ordinal) ? PaneLimits.SideMax : PaneLimits.ListMax;
+
+    /// <summary>The handle of the stacked mail layout: a bar along the bottom edge of the list that resizes its height (resize-handle.tsx orientation="horizontal"); the hook column is <see cref="PanesViewModel.ListHeightColumn"/>.</summary>
+    public bool Horizontal
+    {
+        get => _horizontal;
+        set
+        {
+            if (_horizontal == value) return;
+            _horizontal = value;
+            if (value)
+            {
+                Width = double.NaN;
+                Height = 12;
+                HorizontalAlignment = HorizontalAlignment.Stretch;
+                VerticalAlignment = VerticalAlignment.Bottom;
+                Margin = new Thickness(0, 0, 0, -6);
+                _line.Width = double.NaN;
+                _line.Height = 4;
+                _line.HorizontalAlignment = HorizontalAlignment.Stretch;
+                _line.VerticalAlignment = VerticalAlignment.Center;
+            }
+            else
+            {
+                Width = 12;
+                Height = double.NaN;
+                HorizontalAlignment = HorizontalAlignment.Right;
+                VerticalAlignment = VerticalAlignment.Stretch;
+                Margin = new Thickness(0, 0, -6, 0);
+                _line.Width = 4;
+                _line.Height = double.NaN;
+                _line.HorizontalAlignment = HorizontalAlignment.Center;
+                _line.VerticalAlignment = VerticalAlignment.Stretch;
+            }
+#if WINDOWS
+            ProtectedCursor = Microsoft.UI.Input.InputSystemCursor.Create(value ? Microsoft.UI.Input.InputSystemCursorShape.SizeNorthSouth : Microsoft.UI.Input.InputSystemCursorShape.SizeWestEast);
+#endif
+        }
+    }
 
     internal void ApplyWidth(double width)
     {
@@ -89,7 +129,8 @@ public sealed class PaneHandle : ContentControl
         _dragging = CapturePointer(e.Pointer);
         Tint();
         _startX = e.GetCurrentPoint(null).Position.X;
-        _startWidth = Target?.ActualWidth ?? 0;
+        _startY = e.GetCurrentPoint(null).Position.Y;
+        _startWidth = CurrentWidth;
         e.Handled = true;
     }
 
@@ -97,7 +138,8 @@ public sealed class PaneHandle : ContentControl
     {
         if (_dragging)
         {
-            _panes.Resize(Column, (float)(_startWidth + (e.GetCurrentPoint(null).Position.X - _startX)));
+            var at = e.GetCurrentPoint(null).Position;
+            _panes.Resize(Column, (float)(_startWidth + (_horizontal ? at.Y - _startY : at.X - _startX)));
         }
     }
 
@@ -116,8 +158,10 @@ public sealed class PaneHandle : ContentControl
     {
         var direction = e.Key switch
         {
-            global::Windows.System.VirtualKey.Left => -1,
-            global::Windows.System.VirtualKey.Right => 1,
+            global::Windows.System.VirtualKey.Left when !_horizontal => -1,
+            global::Windows.System.VirtualKey.Right when !_horizontal => 1,
+            global::Windows.System.VirtualKey.Up when _horizontal => -1,
+            global::Windows.System.VirtualKey.Down when _horizontal => 1,
             _ => 0,
         };
         if (direction == 0)
@@ -126,7 +170,7 @@ public sealed class PaneHandle : ContentControl
         }
 
         e.Handled = true;
-        _panes.Nudge(Column, (float)(Target?.ActualWidth ?? 0), direction);
+        _panes.Nudge(Column, (float)CurrentWidth, direction);
         _panes.Commit(Column);
     }
 }
