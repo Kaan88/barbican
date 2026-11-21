@@ -34,6 +34,7 @@ public sealed class SetUiRowsView : StackPanel
     private readonly Dictionary<string, Action> _refresh = new(StringComparer.Ordinal);
     private readonly List<IDisposable> _childrenToDispose = [];
     private bool _updating;
+    private bool _mountainView;
     private long _accountVersion;
     private bool _archiveRunning;
     private TextBlock? _error;
@@ -53,6 +54,14 @@ public sealed class SetUiRowsView : StackPanel
                     if (_archiveStatus is not null) _archiveStatus.Text = string.Empty;
                     break;
                 case "Values":
+                    // Mountain View hides the mail layout row (and shows it again): that changes which rows exist
+                    if (SetUiRowRules.IsMountainView(_vm.ValueOf("interfaceLayout")) != _mountainView)
+                    {
+                        _mountainView = !_mountainView;
+                        Render();
+                        break;
+                    }
+
                     RefreshValues();
                     break;
                 case nameof(ISetUiViewModel.LastError):
@@ -84,6 +93,7 @@ public sealed class SetUiRowsView : StackPanel
     /// <summary>Redraws the rows (the page opened, or the filters changed).</summary>
     public void Render()
     {
+        _mountainView = SetUiRowRules.IsMountainView(_vm.ValueOf("interfaceLayout"));
         foreach (var child in _childrenToDispose) { child.Dispose(); }
         _childrenToDispose.Clear();
         Children.Clear();

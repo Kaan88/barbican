@@ -24,6 +24,7 @@ public sealed partial class StyleState: ObservableObject
     private bool _showToolbarLabels = true;
     private string _composePlacement = "floating";
     private bool _sidebarAccountSwitcher = true;
+    private MailLayoutMode _mailLayout = MailLayoutMode.Split;
 
     public StyleState()
     {
@@ -99,6 +100,22 @@ public sealed partial class StyleState: ObservableObject
         OnPropertyChanged(string.Empty);
     }
 
+    /// <summary>The mail layout in force (SH-12; Bulwark effectiveMailLayout): the saved <c>mailLayout</c>, or focus under Mountain View and Simple mode.</summary>
+    public MailLayoutMode MailLayout => _mailLayout;
+
+    /// <summary>Applies the mail layout settings; raises a change only when the layout in force changed.</summary>
+    public void SetMailLayout(string? saved, bool mountainView, bool simpleMode)
+    {
+        var layout = MailLayoutRules.Effective(MailLayoutRules.Parse(saved), mountainView, simpleMode);
+        if (layout == _mailLayout)
+        {
+            return;
+        }
+
+        _mailLayout = layout;
+        OnPropertyChanged(nameof(MailLayout));
+    }
+
     public string ComposePlacement => _composePlacement;
     public Visibility FloatingComposeVisibility => string.Equals(_composePlacement, "floating", StringComparison.Ordinal) || (string.Equals(_composePlacement, "sidebar", StringComparison.Ordinal) && !Layout.SidebarShown) ? Visibility.Visible : Visibility.Collapsed;
     public Visibility SidebarComposeVisibility => string.Equals(_composePlacement, "sidebar", StringComparison.Ordinal) && Layout.SidebarShown ? Visibility.Visible : Visibility.Collapsed;
@@ -169,7 +186,13 @@ public sealed partial class StyleState: ObservableObject
     /// <summary>Nordic: the list's corners follow the surface's inner curve on the left, the sender panel's on the right.</summary>
     public CornerRadius ListRadius => IsBulwark ? new CornerRadius(0) : IsBento ? new CornerRadius(_m.PaneRadius) : new CornerRadius(_m.PaneRadius - 1, 0, 0, _m.PaneRadius - 1);
 
-    public Thickness ListBorder => IsBulwark ? new Thickness(0, 0, 1, 0) : PaneBorder;
+    // the seam of the list: its end edge beside the reading pane, its bottom edge above it (mail-app.tsx:6519-6522 border-e; the horizontal layout has none and a shadow, drawn here as the rule), none when it fills the pane
+    public Thickness ListBorder => !IsBulwark ? PaneBorder : _mailLayout switch
+    {
+        MailLayoutMode.Horizontal => new Thickness(0, 0, 0, 1),
+        MailLayoutMode.Focus => new Thickness(0),
+        _ => new Thickness(0, 0, 1, 0),
+    };
 
     public CornerRadius ContextRadius => IsBento ? new CornerRadius(_m.PaneRadius) : new CornerRadius(0, _m.PaneRadius - 1, _m.PaneRadius - 1, 0);
 

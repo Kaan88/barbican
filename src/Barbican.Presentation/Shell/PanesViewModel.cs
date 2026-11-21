@@ -21,6 +21,7 @@ public sealed class PanesViewModel : ObservableObject
     private readonly IHookBus _hooks;
     private float _side;
     private float _list;
+    private float _listHeight;
 
     public PanesViewModel(string panesFile, IHookBus hooks)
     {
@@ -29,6 +30,7 @@ public sealed class PanesViewModel : ObservableObject
         _path = panesFile;
         _hooks = hooks;
         (_side, _list) = PanesFile.Load(panesFile);
+        _listHeight = PanesFile.LoadHeight(panesFile);
     }
 
     /// <summary>The sidebar width in dips; 0 means the style's own width.</summary>
@@ -45,10 +47,26 @@ public sealed class PanesViewModel : ObservableObject
         private set => SetProperty(ref _list, value);
     }
 
-    /// <summary>A resize handle moved (the new width of the column under it).</summary>
+    /// <summary>The list pane height of the stacked (horizontal) mail layout in dips; 0 means the default (Bulwark ui-store.ts:18).</summary>
+    public float ListHeight
+    {
+        get => _listHeight;
+        private set => SetProperty(ref _listHeight, value);
+    }
+
+    /// <summary>The column name of the stacked layout's handle (the list's height).</summary>
+    public const string ListHeightColumn = "email-list-height";
+
+    /// <summary>A resize handle moved (the new width of the column under it; the height for <see cref="ListHeightColumn"/>).</summary>
     public void Resize(string column, float width)
     {
         ArgumentNullException.ThrowIfNull(column);
+        if (string.Equals(column, ListHeightColumn, StringComparison.Ordinal))
+        {
+            ListHeight = PaneLimits.ClampHeight(width);
+            return;
+        }
+
         var (side, list) = string.Equals(column, "sidebar", StringComparison.Ordinal) ? PaneLimits.Clamp(width, _list) : PaneLimits.Clamp(_side, width);
         SidebarWidth = side;
         ListWidth = list;
@@ -64,6 +82,10 @@ public sealed class PanesViewModel : ObservableObject
         {
             SidebarWidth = PaneLimits.SideDefault;
         }
+        else if (string.Equals(column, ListHeightColumn, StringComparison.Ordinal))
+        {
+            ListHeight = PaneLimits.ListHeightDefault;
+        }
         else
         {
             ListWidth = PaneLimits.ListDefault;
@@ -75,8 +97,8 @@ public sealed class PanesViewModel : ObservableObject
     /// <summary>The drag ended: saves panes.json and tells plugins (onColumnResize).</summary>
     public void Commit(string column)
     {
-        PanesFile.Save(_path, _side, _list);
-        var width = string.Equals(column, "sidebar", StringComparison.Ordinal) ? _side : _list;
+        PanesFile.Save(_path, _side, _list, _listHeight);
+        var width = string.Equals(column, "sidebar", StringComparison.Ordinal) ? _side : string.Equals(column, ListHeightColumn, StringComparison.Ordinal) ? _listHeight : _list;
         _hooks.Fire(HookNames.OnColumnResize, () => new ColumnResizePayload(column, width));
     }
 }

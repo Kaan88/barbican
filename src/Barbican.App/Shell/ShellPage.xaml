@@ -41,13 +41,18 @@
       </Grid.ColumnDefinitions>
       <rail:RailView x:Name="RailRegion" Grid.Column="0" TabIndex="1" />
       <Border x:Name="Surface" Grid.Column="2" TabIndex="4" AutomationProperties.AutomationId="surface" AutomationProperties.Name="Mail">
-        <Grid x:Name="SurfaceGrid">
+        <Grid x:Name="SurfaceGrid" SizeChanged="OnSurfaceSizeChanged">
+          <!-- SH-12: the rows exist for the horizontal (stacked) mail layout; the split and focused layouts span both (ShellPage.ApplyMailPanes) -->
+          <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+          </Grid.RowDefinitions>
           <Grid.ColumnDefinitions>
             <ColumnDefinition Width="Auto" />
             <ColumnDefinition Width="*" />
             <ColumnDefinition Width="Auto" />
           </Grid.ColumnDefinitions>
-          <Grid x:Name="ListColumn" Grid.Column="0" RowDefinitions="Auto,*">
+          <Grid x:Name="ListColumn" Grid.Column="0" Grid.RowSpan="2" RowDefinitions="Auto,*">
             <Grid.RenderTransform><TranslateTransform /></Grid.RenderTransform>
             <Button x:Name="CompactFolders" Grid.Row="0" Visibility="Collapsed" HorizontalAlignment="Left" Padding="12,4" MinHeight="40"
                     Style="{StaticResource Button.Icon}" Click="OnCompactFolders" AutomationProperties.AutomationId="list.folders" AutomationProperties.Name="Show folders">
@@ -62,8 +67,8 @@
               <StackPanel Orientation="Horizontal" Spacing="8"><controls:SIcon Kind="Pen" Size="18" /><TextBlock Text="New message" /></StackPanel>
             </Button>
           </Grid>
-          <actions:PaneHandle x:Name="ListHandle" Grid.Column="0" Column="email-list" Target="{x:Bind ListRegion}" AutomationProperties.AutomationId="pane.list" AutomationProperties.Name="Resize message list" />
-          <Grid x:Name="ReaderColumn" Grid.Column="1">
+          <actions:PaneHandle x:Name="ListHandle" Grid.Column="0" Grid.RowSpan="2" Column="email-list" Target="{x:Bind ListRegion}" AutomationProperties.AutomationId="pane.list" AutomationProperties.Name="Resize message list" />
+          <Grid x:Name="ReaderColumn" Grid.Column="1" Grid.RowSpan="2">
             <Grid.RenderTransform><TranslateTransform /></Grid.RenderTransform>
             <Grid.RowDefinitions>
               <RowDefinition Height="Auto" />
@@ -87,7 +92,7 @@
               <compose:ComposerView x:Name="ComposerRegion" Grid.Row="1" />
             </Grid>
           </Grid>
-          <context:ContextView x:Name="ContextRegion" Grid.Column="2" />
+          <context:ContextView x:Name="ContextRegion" Grid.Column="2" Grid.RowSpan="2" />
           <!-- Nordic Focus (design/UI-GUIDELINES.md): the sender panel is toggleable through this pressed/unpressed control; it takes no width of its own, so a hidden panel reserves nothing. -->
           <ToggleButton x:Name="ContextToggle" Grid.Column="1" Grid.ColumnSpan="2" HorizontalAlignment="Right" VerticalAlignment="Top" Margin="0,10,10,0" Width="32" Height="32" Padding="0"
                         Style="{StaticResource ToggleButton.Icon}" Visibility="Collapsed" Click="OnContextToggle" motion:Tip.Text="Sender panel"

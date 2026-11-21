@@ -12,7 +12,7 @@ public static class SettingsCatalog
     // keys nothing read in Rust (spec/settings.csv status `unwired`, D-M6-A03)
     private static readonly HashSet<string> UnwiredKeys = new(StringComparer.Ordinal)
     {
-        "settingsSyncDisabled", "compactSharedMailboxes", "keepAppsLoaded", "mailLayout", "proInterface", "showSharedMailAccounts", "sidebarAccountSwitcher",
+        "settingsSyncDisabled", "compactSharedMailboxes", "keepAppsLoaded", "proInterface", "showSharedMailAccounts", "sidebarAccountSwitcher",
         "toolbarPosition", "rtlEditingSupport", "postExportAction", "dateLocale", "showOnboardingOnNewDevices", "listColumns", "swipeLeftAction", "swipeRightAction",
         "pushRelayUrl", "debugMode",
     };

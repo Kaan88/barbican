@@ -71,9 +71,10 @@ public sealed partial class MessageListView : UserControl
     // The window width also raises StyleState changes; the containers are swapped only when the style really changed.
     private double? _compactWidth;
 
+    /// <summary>A fixed width (the phone: the window), <see cref="double.NaN"/> to fill the pane (the focused and stacked mail layouts), null for the saved or style width.</summary>
     internal void SetCompactWidth(double? width)
     {
-        if (_compactWidth == width) return;
+        if (Nullable.Equals(_compactWidth, width)) return;
         _compactWidth = width;
         ApplyStyle();
     }
@@ -81,7 +82,7 @@ public sealed partial class MessageListView : UserControl
     private void ApplyStyle()
     {
         var width = _compactWidth ?? (Panes.ListWidth > 0 ? Panes.ListWidth : Look.ListWidth);
-        if (Math.Abs(Pane.Width - width) > 0.01 || double.IsNaN(Pane.Width))
+        if (double.IsNaN(width) ? !double.IsNaN(Pane.Width) : double.IsNaN(Pane.Width) || Math.Abs(Pane.Width - width) > 0.01)
         {
             Pane.Width = width;
         }

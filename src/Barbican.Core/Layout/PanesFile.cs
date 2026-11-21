@@ -30,8 +30,26 @@ public static class PanesFile
         return (PaneLimits.SideDefault, PaneLimits.ListDefault);
     }
 
-    /// <summary>Writes the widths (clamped, rounded); a write that fails is ignored, as in Rust.</summary>
-    public static void Save(string path, float side, float list)
+    /// <summary>Reads the list height of the stacked mail layout (SH-12); 0 means none saved.</summary>
+    public static float LoadHeight(string path)
+    {
+        try
+        {
+            if (JsonNode.Parse(File.ReadAllText(path)) is JsonObject o)
+            {
+                return PaneLimits.ClampHeight(Read(o, "listHeight"));
+            }
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException or JsonException)
+        {
+            // no file or an unreadable one: none saved
+        }
+
+        return PaneLimits.ListHeightDefault;
+    }
+
+    /// <summary>Writes the widths (clamped, rounded) and the stacked layout's list height when one is saved; a write that fails is ignored, as in Rust.</summary>
+    public static void Save(string path, float side, float list, float listHeight = 0f)
     {
         var (s, l) = PaneLimits.Clamp(side, list);
         try
@@ -43,6 +61,11 @@ public static class PanesFile
             }
 
             var o = new JsonObject { ["sidebar"] = Math.Round(s, MidpointRounding.AwayFromZero), ["list"] = Math.Round(l, MidpointRounding.AwayFromZero) };
+            if (PaneLimits.ClampHeight(listHeight) is > 0f and var h)
+            {
+                o["listHeight"] = Math.Round(h, MidpointRounding.AwayFromZero);
+            }
+
             File.WriteAllText(path, o.ToJsonString());
         }
         catch (Exception e) when (e is IOException or UnauthorizedAccessException)

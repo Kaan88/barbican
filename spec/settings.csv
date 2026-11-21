@@ -36,7 +36,7 @@ S-enableUnifiedMailbox,wired,appearance,toggle,Unified mailbox,false,main.rs;uni
 S-includeGroupInUnified,wired,appearance,toggle,Include group inboxes,true,main.rs;unified.rs,src/main.rs:1013,"UnifiedSettings.From (Core/Mail/Unified; UnifiedInbox, UnifiedSectionViewModel)",
 S-interfaceLayout,wired,appearance,select,Interface layout,"""default""",mail.rs,src/mail.rs:584,MailListSettings,
 S-keepAppsLoaded,unwired,appearance,toggle,Keep apps loaded,false,,,inert (D-M6-A03): SettingsCatalog.UnwiredKeys; SetUiRowsView.Note,No native keep-apps-loaded lifecycle consumer exists. The UI labels this as not used.
-S-mailLayout,unwired,appearance,select,Mail layout,"""split""",,,inert (D-M6-A03): SettingsCatalog.UnwiredKeys; SetUiRowsView.Note,User-selectable alternate mail layouts are not implemented; current responsive layout is automatic. The UI labels this as not used.
+S-mailLayout,wired,appearance,select,Mail layout,"""split""",,,MailLayoutRules; StyleState.SetMailLayout; ShellPage.ApplyMailPanes,SH-12: split / focus / horizontal rearrange the mail screen (Bulwark style); Mountain View and Simple mode force focus without rewriting the saved value; the row hides under Mountain View.
 S-proInterface,unwired,appearance,toggle,Pro interface (experimental),false,,,inert (D-M6-A03): SettingsCatalog.UnwiredKeys; SetUiRowsView.Note,The Pro interface is not implemented. The UI labels this as not used.
 S-showFolderTotalCount,wired,appearance,toggle,Show total message count,true,mail.rs,src/mail.rs:118,FolderRowOptions,
 S-showRailAccountList,wired,appearance,toggle,Show account avatars on the navigation rail,false,,,RailView,Bulwark navigation-rail.tsx:790-870 account circles; Bulwark style only
