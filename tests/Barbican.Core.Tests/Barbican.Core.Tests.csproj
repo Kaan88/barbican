@@ -8,7 +8,7 @@
     <ProjectReference Include="../Barbican.FakeJmap/Barbican.FakeJmap.csproj" />
     <ProjectReference Include="Plugins/Packages/Fixtures/NativeSentinel/NativeSentinel.csproj" ReferenceOutputAssembly="false" Private="false" OutputItemType="NativeSentinelAssembly" />
     <!-- m2-plugins (T-206): the bundled spam-score plugin is built beside the tests, not referenced, and copied to <output>/plugins/spam-score/. -->
-    <ProjectReference Include="../../plugins/Barbican.Plugin.SpamScore/Barbican.Plugin.SpamScore.csproj" ReferenceOutputAssembly="false" Private="false" />
+    <ProjectReference Include="../../plugins/Barbican.Plugin.SpamScore/Barbican.Plugin.SpamScore.csproj" SkipGetTargetFrameworkProperties="true" GlobalPropertiesToRemove="TargetFramework;RuntimeIdentifier;SelfContained" ReferenceOutputAssembly="false" Private="false" />
     <PackageReference Include="Microsoft.Extensions.TimeProvider.Testing" />
     <PackageReference Include="Microsoft.Testing.Extensions.CodeCoverage" />
     <!-- M4 cal-data: the differential oracle of the recurrence tests (test-side only, D-M4-03). -->
