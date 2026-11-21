@@ -33,6 +33,7 @@ public static class CommandIds
 
     // ---- folder and tag actions (owner actions) ----
     public const string MarkFolderRead = "folder.mark-read";
+    public const string MarkAllFoldersRead = "folder.mark-all-read";
     public const string RefreshFolder = "folder.refresh";
     public const string NewFolder = "folder.new";
     public const string NewSubfolder = "folder.new-sub";
@@ -65,6 +66,8 @@ public static class CommandIds
     public const string ClearSelection = "list.clear";
     public const string ToggleSelect = "list.toggle-select";
     public const string RefreshList = "list.refresh";
+    public const string SortList = "list.sort";
+    public const string ToggleGroupByDate = "list.group-by-date";
 
     // ---- reader (owner reader) ----
     public const string Reply = "mail.reply";

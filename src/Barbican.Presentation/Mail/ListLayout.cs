@@ -1,5 +1,5 @@
 // Mirrors: Rust mail.rs build_rows :463 (headers), unread_first_size :582; Bulwark components/email/email-list.tsx:158,:355,:370 (unread-first
-// sections "Unread" / "Everything else"), lib/list-date-groups.ts (sectionThreadsByDate). Owner mailcore.
+// sections "Unread" / "Everything else"), lib/list-date-groups.ts (sectionThreadsByDate), email-list.tsx:421-466 (folded date groups drop their rows). Owner mailcore.
 
 using Barbican.Core.Mail.Grouping;
 using Barbican.Core.Mail.Model;
@@ -18,7 +18,9 @@ public static class ListLayout
         RowContext context,
         bool groupByDate,
         int? unreadFirst,
-        IReadOnlyDictionary<string, IReadOnlyList<string>>? badges = null)
+        IReadOnlyDictionary<string, IReadOnlyList<string>>? badges = null,
+        IReadOnlySet<string>? folded = null,
+        Func<string, bool>? keepVisible = null)
     {
         ArgumentNullException.ThrowIfNull(emails);
         ArgumentNullException.ThrowIfNull(context);
@@ -39,6 +41,7 @@ public static class ListLayout
         }
 
         ListDateGroup? last = null;
+        var collapsed = false;
         foreach (var email in emails)
         {
             if (groupByDate)
@@ -47,11 +50,17 @@ public static class ListLayout
                 if (last is null || last.Value != group)
                 {
                     last = group;
-                    rows.Add(new GroupHeaderViewModel(group.Label, $"hdr:{group.Kind}{group.Weekday}"));
+                    var key = $"hdr:{group.Kind}{group.Weekday}";
+                    collapsed = folded?.Contains(key) == true;
+                    rows.Add(new GroupHeaderViewModel(group.Label, key, foldable: true, collapsed));
                 }
             }
 
-            rows.Add(Row(email, context, badges));
+            // a folded group leaves its rows out; the open message and ticked ones stay, so a fold never hides what an action or the reader still holds
+            if (!collapsed || keepVisible?.Invoke(email.Id) == true)
+            {
+                rows.Add(Row(email, context, badges));
+            }
         }
 
         return rows;

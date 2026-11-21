@@ -8,7 +8,8 @@
     xmlns:list="using:Barbican.App.Views.List"
     xmlns:local="using:Barbican.App.Views.Actions">
   <!-- The selection bar (Bulwark components/email/selection-view.tsx, spec I-138..I-142; email-list.tsx:1412-1425): in the list's SelectionBarSlot, shown while at least one message is ticked.
-       It appears in one frame (no animation; Bulwark's 300 ms slide-in is not copied). Bulwark: an edge-to-edge bar, the accent wash at 30 % with a bottom rule, the count at the left (text-sm
+       Bulwark (:1412-1425): the count fades in sliding 12 px from the left and the buttons from the right (animate-in fade-in slide-in-from-left-3 / right-3), on the shared enter motion
+       (Motion.Enter with the enter curve instead of Bulwark's 300 ms: nothing animates over 200 ms here; no height tween, no exit). Bulwark: an edge-to-edge bar, the accent wash at 30 % with a bottom rule, the count at the left (text-sm
        medium) and 32 px icon buttons at the right (Archive, Delete, Read, Unread, Spam, Clear). Bento and Nordic: a card with the "All" chip, the count and Clear on the first line and the
        text chips on the second. The buttons are the same commands the keys and menus run (CommandSurface.SelectionBar). Then the "Select all N in this folder" banner. -->
   <StackPanel Spacing="{x:Bind list:ListFmt.BarSpacing(Look.IsBulwark), Mode=OneWay}" Visibility="{x:Bind views:Fmt.Vis(List.HasChecked), Mode=OneWay}" AutomationProperties.AutomationId="selection.bar" AutomationProperties.Name="Selection">
@@ -19,7 +20,7 @@
         <Grid x:Name="BarGrid" Padding="{x:Bind Look.SelectionBarPadding, Mode=OneWay}" RowSpacing="6" ColumnSpacing="10" RowDefinitions="Auto,Auto" ColumnDefinitions="Auto,*,Auto,Auto">
           <Button Style="{StaticResource Button.Chip}" Content="All" Click="OnToggleAll" Visibility="{x:Bind views:Fmt.VisNot(Look.IsBulwark), Mode=OneWay}"
                   AutomationProperties.AutomationId="selection.all" AutomationProperties.Name="Select all or none" />
-          <TextBlock Grid.Column="1" Text="{x:Bind list:ListFmt.CountText(List.SelectionLabel, List.SelectionCountLabel, Look.IsBulwark), Mode=OneWay}" FontSize="{x:Bind list:ListFmt.CountSize(Look.IsBulwark), Mode=OneWay}"
+          <TextBlock x:Name="CountLabel" Grid.Column="1" Text="{x:Bind list:ListFmt.CountText(List.SelectionLabel, List.SelectionCountLabel, Look.IsBulwark), Mode=OneWay}" FontSize="{x:Bind list:ListFmt.CountSize(Look.IsBulwark), Mode=OneWay}"
                      FontWeight="{x:Bind list:ListFmt.CountWeight(Look.IsBulwark), Mode=OneWay}" Foreground="{x:Bind list:ListFmt.CountBrush(Look.IsBulwark), Mode=OneWay}"
                      VerticalAlignment="Center" TextTrimming="CharacterEllipsis"
                      AutomationProperties.AutomationId="selection.count" AutomationProperties.Name="Selection count" />

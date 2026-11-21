@@ -155,9 +155,9 @@ public sealed partial class ShellPage
 
             var focused = FocusManager.GetFocusedElement(XamlRoot) as DependencyObject;
             var lost = focused is null || ReferenceEquals(focused, this) || !IsInside(focused, Root);
-            if (lost && ListColumn.Visibility == Visibility.Visible)
+            if (Barbican.Presentation.Shell.FocusRescue.ShouldReturnToList(_focusWasInList, lost, ListColumn.Visibility == Visibility.Visible))
             {
-                ListRegion.Focus(FocusState.Programmatic);
+                ListRegion.ReturnFocus();
             }
         });
     }

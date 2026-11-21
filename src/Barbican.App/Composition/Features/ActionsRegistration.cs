@@ -94,7 +94,9 @@ public static class ActionsRegistration
             sp.GetRequiredService<IMailWriterSource>(),
             sp.GetRequiredService<IMailboxDirectory>(),
             sp.GetRequiredService<IUndoService>(),
-            sp.GetService<Barbican.Presentation.Dialogs.IDialogService>()).ToDictionary(c => c.Id, StringComparer.Ordinal));
+            sp.GetService<Barbican.Presentation.Dialogs.IDialogService>(),
+            sp.GetService<Barbican.Core.Storage.IPrefsStore>(),
+            sp.GetService<Barbican.Core.Storage.IPrefsEditor>()).ToDictionary(c => c.Id, StringComparer.Ordinal));
         foreach (var id in ActionCommandSet.Ids)
         {
             var key = id;

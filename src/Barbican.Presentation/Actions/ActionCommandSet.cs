@@ -2,11 +2,15 @@
 // list navigation and selection, undo); Rust ctxmenu.rs pick :830, reader.rs pick :1084, shortcuts.rs tables; Bulwark lib/app-commands.ts, components/email/message-actions.ts. Owner actions.
 
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using Barbican.Core.Common;
+using Barbican.Core.Mail.Lists;
 using Barbican.Core.Mail.Model;
+using Barbican.Core.Storage;
 using Barbican.Presentation.Commands;
 using Barbican.Presentation.Dialogs;
 using Barbican.Presentation.Mail;
+using Barbican.Presentation.Menus;
 
 namespace Barbican.Presentation.Actions;
 
@@ -38,6 +42,7 @@ public static class ActionCommandSet
         CommandIds.ReportSpam,
         CommandIds.NotSpam,
         CommandIds.MarkFolderRead,
+        CommandIds.MarkAllFoldersRead,
         CommandIds.EmptyTrash,
         CommandIds.EmptySpam,
         CommandIds.NewFolder,
@@ -56,18 +61,20 @@ public static class ActionCommandSet
         CommandIds.ClearSelection,
         CommandIds.ToggleSelect,
         CommandIds.RefreshList,
+        CommandIds.SortList,
+        CommandIds.ToggleGroupByDate,
         CommandIds.Undo,
     ];
 
     /// <summary>Every command this stream owns.</summary>
-    public static IReadOnlyList<IAppCommand> Build(MailActionService actions, MessageListViewModel list, IMailWriterSource writers, IMailboxDirectory folders, IUndoService undo, IDialogService? dialogs = null)
+    public static IReadOnlyList<IAppCommand> Build(MailActionService actions, MessageListViewModel list, IMailWriterSource writers, IMailboxDirectory folders, IUndoService undo, IDialogService? dialogs = null, IPrefsStore? prefs = null, IPrefsEditor? prefsEditor = null)
     {
         ArgumentNullException.ThrowIfNull(actions);
         ArgumentNullException.ThrowIfNull(list);
         ArgumentNullException.ThrowIfNull(writers);
         ArgumentNullException.ThrowIfNull(folders);
         ArgumentNullException.ThrowIfNull(undo);
-        return [.. MailCommands(actions, list, writers), .. FolderCommands(actions, list, writers, folders, dialogs), .. ListCommands(list), Undo(undo)];
+        return [.. MailCommands(actions, list, writers), .. FolderCommands(actions, list, writers, folders, dialogs), .. ListCommands(list), .. ListViewCommands(list, prefs, prefsEditor), Undo(undo)];
     }
 
     /// <summary>The targets a command acts on: the ones the surface names, else the list's selection (all of the folder's when "select all" was taken).</summary>
@@ -117,6 +124,7 @@ public static class ActionCommandSet
             dir.Tree.All.FirstOrDefault(m => m.Role == role) is { } f && account is not null ? new MailboxRef(account, string.Empty, f.Id, MailboxRoleName(role)) : null;
         string? Account(CommandContext c) => c.AccountKey ?? c.Mailbox?.AccountKey ?? (list.Current.Count > 0 ? list.Current[0].AccountKey : null);
 
+        yield return new ActionCommand(CommandIds.MarkAllFoldersRead, c => Account(c) is { } k && w.CanWrite(k), (c, ct) => a.MarkAllFoldersReadAsync(Account(c)!, ct));
         yield return new ActionCommand(CommandIds.MarkFolderRead, c => Can(c, "maySetSeen"), (c, ct) => a.MarkFolderReadAsync(c.Mailbox!, string.Equals(c.Argument, "children", StringComparison.Ordinal), ct));
         yield return new ActionCommand(CommandIds.EmptyTrash, c => RoleRef(MailboxRole.Trash, Account(c)) is { } r && w.CanWrite(r.AccountKey), (c, ct) => a.EmptyFolderAsync(RoleRef(MailboxRole.Trash, Account(c))!, ct));
         yield return new ActionCommand(CommandIds.EmptySpam, c => RoleRef(MailboxRole.Junk, Account(c)) is { } r && w.CanWrite(r.AccountKey), (c, ct) => a.EmptyFolderAsync(RoleRef(MailboxRole.Junk, Account(c))!, ct));
@@ -175,6 +183,28 @@ public static class ActionCommandSet
         {
             await list.ReloadAsync().ConfigureAwait(true);
             return Done;
+        });
+    }
+
+    // the list's folder-actions menu: Sort and Group by date write the settings Settings shows (Bulwark mail-list-menus.tsx:50-60 applySortChoice, :111-126)
+    private static IEnumerable<IAppCommand> ListViewCommands(MessageListViewModel list, IPrefsStore? prefs, IPrefsEditor? editor)
+    {
+        yield return new ActionCommand(CommandIds.SortList, c => editor is not null && ListSortChoices.LevelsOf(c.Argument ?? string.Empty) is not null, (c, _) =>
+        {
+            var levels = ListSortChoices.LevelsOf(c.Argument ?? string.Empty)!;
+            editor!.Put("messageListOrder", MessageListOrder.ToJson(levels));
+            // the order applies to the Inbox only unless "apply to all folders" is on: picked in another folder it turns that on, or the pick would do nothing there
+            if (levels.Count > 0 && list.Role != MailboxRole.Inbox && string.Equals(prefs?.Current.Str("messageListOrderScope", "inbox"), "inbox", StringComparison.Ordinal))
+            {
+                editor.Put("messageListOrderScope", JsonValue.Create("all"));
+            }
+
+            return Task.FromResult(Done);
+        });
+        yield return new ActionCommand(CommandIds.ToggleGroupByDate, _ => editor is not null && prefs is not null, (_, _) =>
+        {
+            editor!.Put("groupListByDate", JsonValue.Create(!prefs!.Current.Bool("groupListByDate", false)));
+            return Task.FromResult(Done);
         });
     }
 

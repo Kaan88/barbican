@@ -28,6 +28,12 @@ internal sealed class FakeMenuData : IMenuDataSource
 
     public bool BodyIsPlainText { get; set; }
 
+    public bool GroupListByDate { get; set; }
+
+    public string? SortKey { get; set; } = ListSortChoices.NewestKey;
+
+    public string? ListSortKey(MailboxRole role) => SortKey;
+
     public IReadOnlyList<MenuFolder> Folders(string? accountKey) => FolderList;
 
     public MenuFolder? Folder(string? accountKey, string? mailboxId) => FolderList.Find(f => string.Equals(f.Id, mailboxId, StringComparison.Ordinal));

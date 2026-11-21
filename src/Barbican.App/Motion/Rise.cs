@@ -16,8 +16,8 @@ public static class Rise
 {
     private static readonly ConditionalWeakTable<UIElement, Storyboard> Running = new();
 
-    /// <summary>Plays the rise on <paramref name="element"/>, moving <paramref name="shift"/> (the element's own TranslateTransform).</summary>
-    public static void Run(UIElement element, TranslateTransform shift, double ms, double fromOpacity = 0.6, double fromY = 8)
+    /// <summary>Plays the rise on <paramref name="element"/>, moving <paramref name="shift"/> (the element's own TranslateTransform); with <paramref name="horizontal"/> the move is sideways and <paramref name="fromY"/> is the starting offset in x.</summary>
+    public static void Run(UIElement element, TranslateTransform shift, double ms, double fromOpacity = 0.6, double fromY = 8, bool horizontal = false)
     {
         ArgumentNullException.ThrowIfNull(element);
         ArgumentNullException.ThrowIfNull(shift);
@@ -34,7 +34,7 @@ public static class Rise
 
         var board = new Storyboard { FillBehavior = FillBehavior.Stop };
         board.Children.Add(Frames(element, "Opacity", fromOpacity, 1, ms));
-        board.Children.Add(Frames(shift, "Y", fromY, 0, ms));
+        board.Children.Add(Frames(shift, horizontal ? "X" : "Y", fromY, 0, ms));
         board.Completed += (_, _) =>
         {
             if (Running.TryGetValue(element, out var current) && ReferenceEquals(current, board))

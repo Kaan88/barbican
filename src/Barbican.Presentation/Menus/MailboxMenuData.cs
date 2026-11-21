@@ -1,6 +1,7 @@
 // Mirrors: Rust ctxmenu.rs submenu "move" :575 and mail.rs rebuild_folders :115 (the folder list a menu reads); Bulwark components/layout/mailbox-context-menu.tsx (myRights). The
 // mailbox tree of the active account is kept as it arrives (the start-up load, then the sync events), so a menu reads it when it opens without a request. Owner menus.
 
+using Barbican.Core.Mail.Lists;
 using Barbican.Core.Mail.Model;
 using Barbican.Core.Mail.Tags;
 using Barbican.Core.Settings.Accessibility;
@@ -41,6 +42,18 @@ public sealed class MailboxMenuData : IMenuDataSource, IStartupTask, IDisposable
     /// <inheritdoc />
     public bool ConfirmBulkDelete => _prefs.Current.Bool("confirmBulkDelete", true);
 
+    /// <inheritdoc />
+    public bool GroupListByDate => _prefs.Current.Bool("groupListByDate", false);
+
+    /// <inheritdoc />
+    public string? ListSortKey(MailboxRole role)
+    {
+        // the stored order applies to the Inbox only unless "apply to all folders" is on (ListSortResolver / MessageListViewModel.ConfiguredSort)
+        var prefs = _prefs.Current;
+        var applies = string.Equals(prefs.Str("messageListOrderScope", "inbox"), "all", StringComparison.Ordinal) || role == MailboxRole.Inbox;
+        return applies ? ListSortChoices.KeyFor(MessageListOrder.Parse(prefs.Values["messageListOrder"])) : ListSortChoices.NewestKey;
+    }
+
     public Task StartAsync(CancellationToken cancellationToken)
     {
         _hub.EventReceived += OnEvent;
@@ -72,7 +85,7 @@ public sealed class MailboxMenuData : IMenuDataSource, IStartupTask, IDisposable
 
         var byId = _tree.All.ToDictionary(m => m.Id, StringComparer.Ordinal);
         return FolderRows.Build(_tree, new HashSet<string>(StringComparer.Ordinal), new FolderRowOptions())
-            .Select(r => new MenuFolder(r.Id, r.Name, r.Role, r.Depth, byId.TryGetValue(r.Id, out var m) ? MailboxRights.From(m) : MailboxRights.Full))
+            .Select(r => new MenuFolder(r.Id, r.Name, r.Role, r.Depth, byId.TryGetValue(r.Id, out var m) ? MailboxRights.From(m) : MailboxRights.Full) { Unread = r.Unread, Total = r.Total })
             .ToList();
     }
 

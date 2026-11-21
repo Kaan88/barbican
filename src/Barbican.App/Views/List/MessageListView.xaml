@@ -21,11 +21,22 @@
       <Grid RowDefinitions="Auto,Auto,*">
         <Grid.Resources>
           <DataTemplate x:Key="HeaderTemplate" x:DataType="mail:GroupHeaderViewModel">
-            <!-- list-date-group-header.tsx:23-37: h-9 with a bottom rule, text-sm font-medium muted; the prototypes' 30 px bold 11.5 caption -->
-            <Grid Height="{x:Bind theme:StyleState.Current.GroupHeaderHeight, Mode=OneWay}" Padding="{x:Bind theme:StyleState.Current.GroupHeaderBoxPadding, Mode=OneWay}"
+            <!-- list-date-group-header.tsx:23-37: h-9 with a bottom rule and px-2; a date group is one toggle button (chevron, gap 8, text-sm font-medium muted, rounded-md, hover bg-muted) that folds it.
+                 The prototypes (and the unread-first sections) keep the 30 px bold 11.5 caption. -->
+            <Grid Height="{x:Bind theme:StyleState.Current.GroupHeaderHeight, Mode=OneWay}" Padding="{x:Bind local:ListFmt.HeaderBoxPadding(Foldable, theme:StyleState.Current.IsBulwark), Mode=OneWay}"
                   BorderBrush="{StaticResource Line}" BorderThickness="{x:Bind theme:StyleState.Current.GroupHeaderBorder, Mode=OneWay}" AutomationProperties.Name="{x:Bind Title}">
               <TextBlock Text="{x:Bind Title}" FontFamily="{x:Bind theme:StyleState.Current.AppFont, Mode=OneWay}" FontSize="{x:Bind theme:StyleState.Current.GroupHeaderSize, Mode=OneWay}"
-                         FontWeight="{x:Bind theme:StyleState.Current.GroupHeaderWeight, Mode=OneWay}" Foreground="{x:Bind theme:StyleState.Current.GroupHeaderBrush, Mode=OneWay}" VerticalAlignment="Center" />
+                         FontWeight="{x:Bind theme:StyleState.Current.GroupHeaderWeight, Mode=OneWay}" Foreground="{x:Bind theme:StyleState.Current.GroupHeaderBrush, Mode=OneWay}" VerticalAlignment="Center"
+                         Visibility="{x:Bind local:ListFmt.PlainHeader(Foldable, theme:StyleState.Current.IsBulwark), Mode=OneWay}" />
+              <Button Style="{StaticResource Button.Icon}" HorizontalAlignment="Left" VerticalAlignment="Center" Height="28" Padding="8,4,12,4" CornerRadius="6" Foreground="{x:Bind theme:StyleState.Current.GroupHeaderBrush, Mode=OneWay}"
+                      Visibility="{x:Bind local:ListFmt.FoldHeader(Foldable, theme:StyleState.Current.IsBulwark), Mode=OneWay}" Tag="{x:Bind Key}" Click="OnGroupToggle"
+                      AutomationProperties.AutomationId="list.group-toggle" AutomationProperties.Name="{x:Bind local:ListFmt.FoldName(Title, Collapsed)}">
+                <StackPanel Orientation="Horizontal" Spacing="8">
+                  <controls:SIcon Kind="{x:Bind local:ListFmt.Chevron(Collapsed), Mode=OneWay}" Size="16" VerticalAlignment="Center" />
+                  <TextBlock Text="{x:Bind Title}" FontFamily="{x:Bind theme:StyleState.Current.AppFont, Mode=OneWay}" FontSize="{x:Bind theme:StyleState.Current.GroupHeaderSize, Mode=OneWay}"
+                             FontWeight="{x:Bind theme:StyleState.Current.GroupHeaderWeight, Mode=OneWay}" TextTrimming="CharacterEllipsis" VerticalAlignment="Center" />
+                </StackPanel>
+              </Button>
             </Grid>
           </DataTemplate>
           <DataTemplate x:Key="MessageTemplate" x:DataType="mail:MessageRowViewModel">
@@ -73,8 +84,10 @@
                   <Border Grid.Column="2" CornerRadius="8" Padding="6,0" Margin="6,0,0,0" Background="{StaticResource Track}" Visibility="{x:Bind views:Fmt.VisMany(ThreadCount)}" VerticalAlignment="Center">
                     <TextBlock Text="{x:Bind views:Fmt.Thread(ThreadCount)}" FontSize="11" FontWeight="SemiBold" Foreground="{StaticResource Dim}" HorizontalAlignment="Center" VerticalAlignment="Center" />
                   </Border>
-                  <!-- status icons (thread-list-item.tsx:978-997): starred (filled amber), replied, forwarded, paperclip; w-3.5 and gap-1.5 in Bulwark -->
+                  <!-- status icons (thread-list-item.tsx:912-923,978-997): pinned (primary), starred (filled amber), replied, forwarded, paperclip; w-3.5 and gap-1.5 in Bulwark -->
                   <StackPanel Grid.Column="3" Orientation="Horizontal" Spacing="{x:Bind theme:StyleState.Current.StatusIconSpacing, Mode=OneWay}" Margin="6,0,0,0" VerticalAlignment="Center">
+                    <controls:SIcon Kind="Pin" Size="{x:Bind theme:StyleState.Current.StatusIconSize, Mode=OneWay}" Foreground="{StaticResource Accent}" Visibility="{x:Bind views:Fmt.Vis(Pinned)}"
+                                    AutomationProperties.AutomationId="row.pinned" AutomationProperties.Name="Pinned" />
                     <Viewbox Width="{x:Bind theme:StyleState.Current.StatusIconSize, Mode=OneWay}" Height="{x:Bind theme:StyleState.Current.StatusIconSize, Mode=OneWay}" Visibility="{x:Bind views:Fmt.Vis(Flagged)}"
                              IsHitTestVisible="False" AutomationProperties.AutomationId="row.starred" AutomationProperties.Name="Starred">
                       <Canvas Width="24" Height="24">
@@ -113,8 +126,17 @@
                 </Grid>
                 <TextBlock local:Snippet.Id="{x:Bind Id}" local:Snippet.Part="preview" local:Snippet.Plain="{x:Bind Preview}" FontFamily="{x:Bind theme:StyleState.Current.AppFont, Mode=OneWay}" FontSize="{x:Bind theme:StyleState.Current.PreviewSize, Mode=OneWay}" Foreground="{x:Bind theme:StyleState.Current.PreviewBrush, Mode=OneWay}"
                            TextTrimming="CharacterEllipsis" MaxLines="1" Margin="{x:Bind theme:StyleState.Current.PreviewMargin, Mode=OneWay}" />
-                <Button Content="{x:Bind VerificationCode}" Visibility="{x:Bind views:Fmt.Vis(ShowVerificationCode)}" Click="OnCopyVerificationCode"
+                <Button Content="{x:Bind VerificationCode}" Visibility="{x:Bind local:ListFmt.CodeLegacyVis(ShowVerificationCode, theme:StyleState.Current.IsBulwark), Mode=OneWay}" Click="OnCopyVerificationCode"
                         HorizontalAlignment="Left" Margin="0,4,0,0" Padding="8,2" AutomationProperties.Name="Copy verification code" AutomationProperties.AutomationId="row.copy-code" />
+                <!-- verification-code-chip.tsx:55-72, attachment-chips.tsx:63-64: rounded-md, 1 px border, px-2 py-0.5 text-xs, medium weight, the amber key icon 14 px, the code in mono with tracking-wide; hover bg-muted -->
+                <Button Style="{StaticResource Button.Icon}" Visibility="{x:Bind local:ListFmt.CodeChipVis(ShowVerificationCode, theme:StyleState.Current.IsBulwark), Mode=OneWay}" Click="OnCopyVerificationCode"
+                        HorizontalAlignment="Left" Margin="0,4,0,0" Padding="8,2" MinHeight="0" BorderBrush="{StaticResource Line}" BorderThickness="1" CornerRadius="6" Foreground="{StaticResource Text}"
+                        AutomationProperties.Name="Copy verification code" AutomationProperties.AutomationId="row.copy-code-chip" motion:Tip.Text="{x:Bind local:ListFmt.CodeTip(VerificationCode)}">
+                  <StackPanel Orientation="Horizontal" Spacing="6">
+                    <controls:SIcon Kind="Key" Size="14" Foreground="{StaticResource Chart3}" VerticalAlignment="Center" />
+                    <TextBlock Text="{x:Bind VerificationCode}" FontFamily="Consolas, Cascadia Mono, monospace" FontSize="12" FontWeight="Medium" CharacterSpacing="25" VerticalAlignment="Center" />
+                  </StackPanel>
+                </Button>
                 <ItemsRepeater ItemsSource="{x:Bind views:Fmt.Chips(AttachmentNames)}" Visibility="{x:Bind views:Fmt.VisChips(AttachmentNames.Count)}" Margin="0,4,0,0"
                                AutomationProperties.Name="Attachments">
                   <ItemsRepeater.Layout>
@@ -134,10 +156,16 @@
               </StackPanel>
               <!-- the hover strip (email-hover-actions.tsx:271-274,333-371): one frame in, no animation; real hover and keyboard focus show it, `hover-sim` drives it in automation.
                    Bulwark: flush with the row's end in the row's own colour (selected fill or hover), p-1.5 icon buttons with a 100 ms hover; the prototypes: a bordered card. -->
-              <Border Grid.ColumnSpan="2" HorizontalAlignment="Right" VerticalAlignment="{x:Bind theme:StyleState.Current.StripVertical, Mode=OneWay}" Margin="{x:Bind theme:StyleState.Current.StripMargin, Mode=OneWay}"
+              <!-- Bulwark (:343-351) fades the strip in over 32 px: a gradient of the base and of the row's own colour to the strip's left edge -->
+              <StackPanel Grid.ColumnSpan="2" Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="{x:Bind theme:StyleState.Current.StripVertical, Mode=OneWay}" Margin="{x:Bind theme:StyleState.Current.StripMargin, Mode=OneWay}"
+                          Visibility="{x:Bind views:Fmt.Vis(IsHovered), Mode=OneWay}" AutomationProperties.AutomationId="row.strip" AutomationProperties.Name="Message actions">
+              <Grid Width="32" Visibility="{x:Bind local:ListFmt.StripFadeVis(theme:StyleState.Current.IsBulwark), Mode=OneWay}" IsHitTestVisible="False">
+                <Border Background="{x:Bind local:ListFmt.StripFadeBase(theme:StyleState.Current.IsBulwark), Mode=OneWay}" />
+                <Border Background="{x:Bind local:ListFmt.StripFadeFill(IsSelected, theme:StyleState.Current.IsBulwark), Mode=OneWay}" />
+              </Grid>
+              <Border VerticalAlignment="Stretch"
                       CornerRadius="{x:Bind theme:StyleState.Current.StripRadius, Mode=OneWay}" Background="{x:Bind local:ListFmt.StripBase(theme:StyleState.Current.IsBulwark), Mode=OneWay}"
-                      BorderBrush="{StaticResource Line}" BorderThickness="{x:Bind theme:StyleState.Current.StripBorder, Mode=OneWay}"
-                      Visibility="{x:Bind views:Fmt.Vis(IsHovered), Mode=OneWay}" AutomationProperties.AutomationId="row.strip" AutomationProperties.Name="Message actions">
+                      BorderBrush="{StaticResource Line}" BorderThickness="{x:Bind theme:StyleState.Current.StripBorder, Mode=OneWay}">
                 <Grid Padding="{x:Bind theme:StyleState.Current.StripPadding, Mode=OneWay}" CornerRadius="{x:Bind theme:StyleState.Current.StripRadius, Mode=OneWay}" Background="{x:Bind local:ListFmt.StripFill(IsSelected, theme:StyleState.Current.IsBulwark), Mode=OneWay}">
                   <!-- the buttons come from MessageRowViewModel.Strip (HoverStrip: the hoverActions setting and the message state): icon buttons with a tooltip, as the prototype's row actions -->
                   <ItemsRepeater ItemsSource="{x:Bind Strip, Mode=OneWay}" VerticalAlignment="Center">
@@ -146,7 +174,7 @@
                     </ItemsRepeater.Layout>
                     <ItemsRepeater.ItemTemplate>
                       <DataTemplate x:DataType="mail:HoverButton">
-                        <Button Style="{x:Bind theme:StyleState.Current.StripButtonStyle}" Width="{x:Bind theme:StyleState.Current.StripButtonWidth}" Height="28" CornerRadius="{x:Bind theme:StyleState.Current.StripButtonRadius}"
+                        <Button Style="{x:Bind local:ListFmt.StripButton(Id, theme:StyleState.Current.IsBulwark)}" Width="{x:Bind theme:StyleState.Current.StripButtonWidth}" Height="28" CornerRadius="{x:Bind theme:StyleState.Current.StripButtonRadius}"
                                 Foreground="{x:Bind views:Fmt.StripBrush(Active)}" Tag="{x:Bind CommandId}" Click="OnStripClick"
                                 motion:Tip.Text="{x:Bind Tooltip}" AutomationProperties.AutomationId="{x:Bind views:Fmt.StripId(Id)}" AutomationProperties.Name="{x:Bind Tooltip}">
                           <controls:SIcon Kind="{x:Bind Icon}" Size="16" />
@@ -156,6 +184,7 @@
                   </ItemsRepeater>
                 </Grid>
               </Border>
+              </StackPanel>
             </Grid>
             </Grid>
           </DataTemplate>
@@ -199,6 +228,11 @@
         <StackPanel Grid.Row="1">
           <TextBlock Text="{x:Bind List.Error, Mode=OneWay}" Foreground="{StaticResource RoseFg}" FontSize="12" TextWrapping="Wrap" Margin="20,0,20,8"
                      Visibility="{x:Bind views:Fmt.VisText(List.Error), Mode=OneWay}" AutomationProperties.AutomationId="list.error" AutomationProperties.Name="List error" />
+          <!-- mail-app.tsx:6733-6737: the search results line, px-4 py-1.5 text-xs muted on bg-muted/20 with a bottom rule (Bulwark only) -->
+          <Grid x:Name="CountLine" Visibility="Collapsed" BorderBrush="{StaticResource Line}" BorderThickness="0,0,0,1" AutomationProperties.AutomationId="list.count" AutomationProperties.Name="Search results">
+            <Border Background="{StaticResource Track}" Opacity="0.2" IsHitTestVisible="False" />
+            <TextBlock x:Name="CountText" FontSize="12" Foreground="{StaticResource Dim}" Margin="16,6" TextTrimming="CharacterEllipsis" />
+          </Grid>
           <!-- M2 plan 3.3: the selection bar (stream actions) -->
           <ContentPresenter x:Name="SelectionBarSlot" />
         </StackPanel>

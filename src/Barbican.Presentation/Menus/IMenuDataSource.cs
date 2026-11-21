@@ -23,4 +23,10 @@ public interface IMenuDataSource
 
     /// <summary>The open message is shown as plain text (MENU-BODY offers Copy and Select all there).</summary>
     bool BodyIsPlainText { get; }
+
+    /// <summary>"Group by date" is on (Bulwark groupListByDate; the list's folder actions check it).</summary>
+    bool GroupListByDate => false;
+
+    /// <summary>The key of the sort choice the list runs in a folder of <paramref name="role"/> (<see cref="ListSortChoices"/>), or null for an order only Settings can make.</summary>
+    string? ListSortKey(Barbican.Core.Mail.Model.MailboxRole role) => ListSortChoices.NewestKey;
 }

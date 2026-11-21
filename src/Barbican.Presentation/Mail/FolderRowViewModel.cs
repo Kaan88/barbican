@@ -1,4 +1,4 @@
-// Mirrors: Rust mail.rs rebuild_folders :115 (Folder struct: id, name, icon, depth, unread, total, color, count, chevron, muted); spec I-038..I-046. Owner mailcore.
+// Mirrors: Bulwark components/layout/sidebar.tsx:263-284 (role tints from the chart tokens, the colour-blind palette swap); Rust mail.rs rebuild_folders :115 (Folder struct: id, name, icon, depth, unread, total, color, count, chevron, muted); spec I-038..I-046. Owner mailcore.
 
 using Barbican.Core.Mail.Model;
 
@@ -29,4 +29,11 @@ public sealed record FolderRowViewModel(
     string Count,
     int Chevron,
     bool Muted,
-    bool ChildUnread);
+    bool ChildUnread)
+{
+    /// <summary>The Bulwark role tint as a palette key (Chart1..Chart5, or Dim for Trash: sidebar.tsx:263-275 ROLE_ICON_COLOR); null for a plain icon or while the colour-blind palette is on (<see cref="RoleCvdRgb"/>).</summary>
+    public string? RoleTint { get; init; }
+
+    /// <summary>The colour-blind-safe role colour 0xRRGGBB (lib/cvd-palette.ts) while that palette is on; 0 otherwise.</summary>
+    public uint RoleCvdRgb { get; init; }
+}

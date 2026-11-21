@@ -2,6 +2,7 @@
 
 using Barbican.Presentation.Actions;
 using Barbican.Presentation.Commands;
+using Barbican.Presentation.Tests.Support;
 
 namespace Barbican.Presentation.Tests.Actions;
 
@@ -71,6 +72,30 @@ public sealed class ActionCommandTests
         Assert.True(rename.CanExecute(ctx));
         Assert.True(ActionCommandSet.HasRight(h.Sidebar, inbox, "mayRename"));
         Assert.True(ActionCommandSet.HasRight(h.Sidebar, "unknown-folder", "mayRename"));
+    }
+
+    [Fact]
+    public async Task The_list_menu_commands_write_the_sort_order_and_group_by_date_settings()
+    {
+        using var h = await ActionHarness.StartAsync();
+        await h.OpenAsync("inbox");
+        var editor = new RecordingPrefsEditor();
+        var registry = new CommandRegistry(ActionCommandSet.Build(h.Actions, h.List, h.Writers, h.Sidebar, h.Undo, null, h.Prefs, editor));
+        var ctx = new CommandContext(CommandSurface.ContextMenu, [], null, null, "acct");
+        Assert.True(registry.TryGet(CommandIds.SortList, out var sort));
+        Assert.False(sort.CanExecute(ctx));
+        Assert.False(sort.CanExecute(ctx with { Argument = "nonsense" }));
+        Assert.True(sort.CanExecute(ctx with { Argument = "unread" }));
+        await sort.ExecuteAsync(ctx with { Argument = "unread" }, Ct);
+        Assert.Equal("""[{"criterion":"unread","direction":"desc","tagId":null}]""", editor.Values["messageListOrder"]!.ToJsonString());
+        // the open folder is the Inbox, which the order always applies to: the scope stays
+        Assert.False(editor.Values.ContainsKey("messageListOrderScope"));
+        await sort.ExecuteAsync(ctx with { Argument = "newest" }, Ct);
+        Assert.Equal("[]", editor.Values["messageListOrder"]!.ToJsonString());
+
+        Assert.True(registry.TryGet(CommandIds.ToggleGroupByDate, out var group));
+        await group.ExecuteAsync(ctx, Ct);
+        Assert.True(editor.Values["groupListByDate"]!.GetValue<bool>());
     }
 
     [Fact]

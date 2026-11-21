@@ -148,7 +148,13 @@ public sealed partial class MessageListViewModel : ObservableObject, IDisposable
     public bool IsLoading
     {
         get => _isLoading;
-        private set => SetProperty(ref _isLoading, value);
+        private set
+        {
+            if (SetProperty(ref _isLoading, value))
+            {
+                OnPropertyChanged(nameof(SearchCountText));
+            }
+        }
     }
 
     /// <summary>An account is on screen without its session yet (no network at start, Fable review 2 R2-02): "Connecting…", not "No messages".</summary>
@@ -162,6 +168,7 @@ public sealed partial class MessageListViewModel : ObservableObject, IDisposable
         {
             if (SetProperty(ref _canLoadMore, value))
             {
+                OnPropertyChanged(nameof(SearchCountText));
                 (LoadMoreCommand as AsyncRelayCommand)?.NotifyCanExecuteChanged();
             }
         }
@@ -693,11 +700,13 @@ public sealed partial class MessageListViewModel : ObservableObject, IDisposable
         int? unreadFirst = settings.UnreadFirst && _role == MailboxRole.Inbox && !searching ? settings.UnreadSectionSize : null;
         // Date headers would repeat the same stable key when priority/text order crosses date groups.
         var chronological = _query?.Sort is not { } sort || sort.Count == 1 && sort[0] is { Property: "receivedAt", IsAscending: false };
-        var rows = ListLayout.Build(_loaded.Emails, context, settings.GroupByDate && chronological, unreadFirst, _badges);
+        ForgetFoldsOfOtherViews();
+        var rows = ListLayout.Build(_loaded.Emails, context, settings.GroupByDate && chronological, unreadFirst, _badges, _folded, id => string.Equals(id, _selectedId, StringComparison.Ordinal) || _checked.Contains(id));
         LastSync = ListSync.SyncBy(Rows, rows, r => r.Key, (a, b) => a.SameAs(b));
         KeepSelection();
         ApplyChecks();
         ScheduleCodeExpiry();
+        OnPropertyChanged(nameof(SearchCountText));
     }
 
     private void ScheduleCodeExpiry()

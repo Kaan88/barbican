@@ -52,6 +52,16 @@ public static class SidebarFmt
     /// <summary>A folder icon: the role colour when "colourful icons" is on, else the foreground (text-foreground/80).</summary>
     public static Brush IconBrush(uint rgb, bool bulwark) => bulwark && rgb == GreyIcon ? Fmt.Palette("Text") : Fmt.Rgb(rgb);
 
+    /// <summary>
+    /// A folder icon in the Bulwark style (sidebar.tsx:263-284): the chart token of its role (muted for Trash), the colour-blind-safe colour while that palette is on, else the text colour
+    /// (text-foreground/80 is the icon's own 0.8 opacity). The prototypes keep the role colour of the row.
+    /// </summary>
+    public static Brush IconBrush(uint rgb, string? roleTint, uint roleCvdRgb, bool bulwark) =>
+        !bulwark ? Fmt.Rgb(rgb)
+        : roleTint is { Length: > 0 } ? Fmt.Palette(roleTint)
+        : roleCvdRgb != 0 ? Fmt.Rgb(roleCvdRgb)
+        : Fmt.Palette("Text");
+
     /// <summary>The selected fill behind a tag row.</summary>
     public static Visibility VisSelected(bool selected) => selected ? Visibility.Visible : Visibility.Collapsed;
 

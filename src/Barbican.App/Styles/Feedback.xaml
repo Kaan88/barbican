@@ -370,6 +370,39 @@
     <Setter Property="UseSystemFocusVisuals" Value="True" />
   </Style>
 
+  <!-- The delete action of a row's hover strip (email-hover-actions.tsx:51-56: hover:text-destructive): the neutral hover fill, the icon turns destructive. -->
+  <ControlTemplate x:Key="Template.HoverAction.Destructive" TargetType="Button">
+    <Border x:Name="Box" fb:FeedbackTransition.Kind="Fast" Background="{TemplateBinding Background}" CornerRadius="{TemplateBinding CornerRadius}" Padding="{TemplateBinding Padding}">
+      <ContentPresenter x:Name="Content" Content="{TemplateBinding Content}" ContentTemplate="{TemplateBinding ContentTemplate}" Foreground="{TemplateBinding Foreground}"
+                        HorizontalContentAlignment="{TemplateBinding HorizontalContentAlignment}" VerticalContentAlignment="{TemplateBinding VerticalContentAlignment}" />
+      <VisualStateManager.VisualStateGroups>
+        <VisualStateGroup x:Name="CommonStates">
+          <VisualState x:Name="Normal" />
+          <VisualState x:Name="PointerOver">
+            <VisualState.Setters>
+              <Setter Target="Box.Background" Value="{StaticResource FeedbackHover}" />
+              <Setter Target="Content.Foreground" Value="{StaticResource Destructive}" />
+            </VisualState.Setters>
+          </VisualState>
+          <VisualState x:Name="Pressed">
+            <VisualState.Setters>
+              <Setter Target="Box.Background" Value="{StaticResource FeedbackPressed}" />
+              <Setter Target="Content.Foreground" Value="{StaticResource Destructive}" />
+            </VisualState.Setters>
+          </VisualState>
+          <VisualState x:Name="Disabled">
+            <VisualState.Setters>
+              <Setter Target="Box.Opacity" Value="{StaticResource Motion.DisabledOpacity}" />
+            </VisualState.Setters>
+          </VisualState>
+        </VisualStateGroup>
+      </VisualStateManager.VisualStateGroups>
+    </Border>
+  </ControlTemplate>
+  <Style x:Key="Button.HoverAction.Destructive" TargetType="Button" BasedOn="{StaticResource Button.HoverAction}">
+    <Setter Property="Template" Value="{StaticResource Template.HoverAction.Destructive}" />
+  </Style>
+
   <!-- The row style for agenda, tasks, contacts and files lists (the stock ListViewItem template has its own Windows hover, press and selection). -->
   <Style x:Key="ListItem.Row" TargetType="ListViewItem">
     <Setter Property="Template" Value="{StaticResource Template.ListItem.Row}" />

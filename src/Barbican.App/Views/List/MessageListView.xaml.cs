@@ -13,7 +13,7 @@ namespace Barbican.App.Views.List;
 
 // Mirrors: Bulwark components/email/email-list.tsx:1602-1650 (loading overlay at half opacity with a pill, skeleton on the first load, the empty state), ui/empty-state.tsx:29-45,
 // thread-list-item.tsx:733-746,790-806 (hover and selected row, avatar check), mail/mail-app.tsx:6627-6640 (select toggle, active while a selection exists); FM-12: the folder-change rise
-// is motion Bulwark does not have (MotionRuntime.DecorationMs).
+// is motion Bulwark does not have (MotionRuntime.DecorationMs); mail/mail-app.tsx:6733-6737 and email/search-result-count.tsx:14-31 (the search results line, SR-04).
 
 /// <summary>
 /// The message list. It shows <see cref="MessageListViewModel.Rows"/> and keeps the ListView's selection equal to <see cref="MessageListViewModel.Selected"/>
@@ -115,7 +115,7 @@ public sealed partial class MessageListView : UserControl
         var mailbox = id is null ? null : new MailboxRef(key, key, id, role == MailboxRole.None ? null : role.ToString().ToLowerInvariant());
         var at = button.TransformToVisual(null).TransformPoint(new Windows.Foundation.Point(0, button.ActualHeight));
         ViewHost.Get<IContextMenuService>().Show(
-            new MenuContext(MenuIds.List, [], mailbox, null, null, null, CommandSurface.ContextMenu),
+            new MenuContext(MenuIds.ListActions, [], mailbox, null, null, null, CommandSurface.ContextMenu),
             new MenuAnchor(at.X, at.Y, null));
     }
 
@@ -133,6 +133,7 @@ public sealed partial class MessageListView : UserControl
             case nameof(MessageListViewModel.IsLoading):
             case nameof(MessageListViewModel.IsConnecting):
             case nameof(MessageListViewModel.CanLoadMore):
+            case nameof(MessageListViewModel.SearchCountText):
                 UpdateEmpty();
                 CheckLoadMore();
                 break;
@@ -183,6 +184,10 @@ public sealed partial class MessageListView : UserControl
         EmptyState.VerticalAlignment = bulwark ? VerticalAlignment.Center : VerticalAlignment.Top;
         EmptyState.Margin = bulwark ? default : new Thickness(0, 44, 0, 0);
         EmptyState.Visibility = empty ? Visibility.Visible : Visibility.Collapsed;
+        // the results line (SR-04, mail-app.tsx:6733): only while a search shows and nothing loads
+        var count = bulwark ? List.SearchCountText : null;
+        CountText.Text = count ?? string.Empty;
+        CountLine.Visibility = count is null ? Visibility.Collapsed : Visibility.Visible;
         // a first page that is on its way: placeholder rows when nothing is shown yet, the old rows at half strength with a pill otherwise (Bulwark only)
         var loading = bulwark && List.IsLoading && !List.IsConnecting;
         LoadingSkeleton.Visibility = loading && List.Rows.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
@@ -321,10 +326,31 @@ public sealed partial class MessageListView : UserControl
         }
     }
 
+    /// <summary>The focus rescue's landing (AX-03, focus-rescue.tsx): the open row (the one that took the deleted row's place), else the list itself.</summary>
+    public void ReturnFocus()
+    {
+        if (Rows.SelectedItem is { } row && Rows.ContainerFromItem(row) is Control container && container.Focus(FocusState.Programmatic))
+        {
+            return;
+        }
+
+        Rows.Focus(FocusState.Programmatic);
+    }
+
+    // the date header's toggle folds or opens its group (ML-05, email-list.tsx:1315)
+    private void OnGroupToggle(object sender, RoutedEventArgs e)
+    {
+        if (sender is FrameworkElement { Tag: string key }) List.ToggleGroup(key);
+    }
+
 #pragma warning disable VSTHRD100 // XAML event handlers must return void; a failed action reports itself with a toast
     private void OnCopyVerificationCode(object sender, RoutedEventArgs e)
     {
-        if (sender is FrameworkElement { DataContext: MessageRowViewModel row }) List.CopyVerificationCode(row);
+        if (sender is FrameworkElement { DataContext: MessageRowViewModel row } && List.CopyVerificationCode(row))
+        {
+            // verification-code-chip.tsx:35-43: a success toast after the copy
+            _ = ViewHost.Find<Barbican.Presentation.Actions.IToastService>()?.Show(new Barbican.Presentation.Actions.ToastRequest("Code copied"));
+        }
     }
 
     private async void OnStripClick(object sender, RoutedEventArgs e)

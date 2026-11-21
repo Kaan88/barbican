@@ -112,7 +112,11 @@ public static class FolderRows
                 CountText(m.Role, m.UnreadEmails, m.TotalEmails, options.ShowTotals, options.UnreadStyle),
                 hasKids ? (closed ? 2 : 1) : 0,
                 !m.IsSubscribed,
-                hasKids && closed && UnreadBelow(m.Id, children)));
+                hasKids && closed && UnreadBelow(m.Id, children))
+            {
+                RoleTint = options.Colorful ? BulwarkTint(m.Role, options.Cvd) : null,
+                RoleCvdRgb = options.Colorful && options.Cvd ? BulwarkCvdColor(m.Role) : 0,
+            });
             if (!closed)
             {
                 Walk(m.Id, depth + 1, children, collapsed, output, options);
@@ -143,6 +147,30 @@ public static class FolderRows
         MailboxRole.Junk => "",
         MailboxRole.Trash => "",
         _ => "",
+    };
+
+    /// <summary>The palette key of a role's icon in the Bulwark style (sidebar.tsx:263-275): the chart tokens, muted for Trash; null for the roles without one (they take the text colour).</summary>
+    private static string? BulwarkTint(MailboxRole role, bool cvd) => role switch
+    {
+        MailboxRole.Trash => "Dim",
+        _ when cvd => null,
+        MailboxRole.Inbox => "Chart1",
+        MailboxRole.Sent => "Chart2",
+        MailboxRole.Drafts => "Chart5",
+        MailboxRole.Junk => "Chart4",
+        MailboxRole.Archive => "Chart3",
+        _ => null,
+    };
+
+    /// <summary>The colour-blind-safe colour of a role's icon (sidebar.tsx:264-269); 0 for a role without one.</summary>
+    private static uint BulwarkCvdColor(MailboxRole role) => role switch
+    {
+        MailboxRole.Inbox => 0x0072B2,
+        MailboxRole.Sent => 0x009E73,
+        MailboxRole.Drafts => 0xCC79A7,
+        MailboxRole.Junk => 0xD55E00,
+        MailboxRole.Archive => 0x56B4E9,
+        _ => 0,
     };
 
     private static uint RoleColor(MailboxRole role) => role switch
