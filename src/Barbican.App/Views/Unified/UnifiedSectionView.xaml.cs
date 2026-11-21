@@ -69,9 +69,12 @@ public sealed partial class UnifiedSectionView : UserControl
     {
         Visibility = _vm.IsVisible ? Visibility.Visible : Visibility.Collapsed;
         Badge.Text = _vm.Badge;
-        Row.Background = _vm.IsOpen ? Fmt.Palette("Sel") : new SolidColorBrush(Microsoft.UI.Colors.Transparent);
-        Row.Foreground = Fmt.Palette(_vm.IsOpen ? "SelText" : "Body");
-        Row.FontWeight = _vm.IsOpen ? Microsoft.UI.Text.FontWeights.SemiBold : Microsoft.UI.Text.FontWeights.Normal;
+        // the selection is the fill over the row (SidebarRows.xaml), so a hover does not replace it; Bulwark's selected name is semibold with the accent text (sidebar.tsx:503-533)
+        OpenFill.Visibility = _vm.IsOpen ? Visibility.Visible : Visibility.Collapsed;
+        var text = _vm.IsOpen ? Look.SbSelectedText : Fmt.Palette("Body");
+        RowName.Foreground = text;
+        RowIcon.Foreground = text;
+        RowName.FontWeight = _vm.IsOpen ? Microsoft.UI.Text.FontWeights.SemiBold : Microsoft.UI.Text.FontWeights.Normal;
         AccountRows.Visibility = _vm.IsVisible && _vm.ListsAccounts && AccountsModel.Rows.Count > 1 ? Visibility.Visible : Visibility.Collapsed;
     }
 }

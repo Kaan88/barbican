@@ -70,7 +70,13 @@ public sealed partial class SidebarView : UserControl
             Pane.Width = width;
         }
 
-        var style = Look.FolderItemStyle;
+        // Bulwark rows: the local square row with the accent selection and its 2 px bar (SidebarRows.xaml); the legacy rows keep the shared pill styles
+        var style = Look.IsBulwark ? (Style)Resources["ListItem.Sidebar.Bulwark"] : Look.FolderItemStyle;
+        if (TagRepeater.Layout is StackLayout tagLayout)
+        {
+            tagLayout.Spacing = Look.IsBulwark ? 0 : 2;
+        }
+
         if (!ReferenceEquals(FolderList.ItemContainerStyle, style))
         {
             FolderList.ItemContainerStyle = style;
@@ -164,6 +170,19 @@ public sealed partial class SidebarView : UserControl
 
     private async void OnNewTagClick(object sender, RoutedEventArgs e) => await RunAsync(CommandIds.NewTag);
 #pragma warning restore VSTHRD100
+
+    // the gears open Settings > Folders & tags (Bulwark sidebar.tsx:2430-2431 buildSettingsPath('organize', 'folders' | 'tags'))
+    private void OnFolderSettingsClick(object sender, RoutedEventArgs e) => OpenOrganize("folders");
+
+    private void OnTagSettingsClick(object sender, RoutedEventArgs e) => OpenOrganize("tags");
+
+    private static void OpenOrganize(string anchor)
+    {
+        if (ViewHost.Get<ShellViewModel>().TryActivate(AppId.Settings))
+        {
+            ViewHost.Get<Barbican.Presentation.Settings.ISettingsNavigation>().Open(Barbican.Presentation.Settings.SettingsPageIds.Organize, anchor);
+        }
+    }
 
     private void OnTagChevronClick(object sender, RoutedEventArgs e)
     {
