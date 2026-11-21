@@ -40,7 +40,8 @@ public static class ReaderRegistration
         });
         services.Replace(ServiceDescriptor.Singleton<ILinkRouter>(sp => sp.GetRequiredService<CheckedLinkRouter>()));
 
-        // the banner stack, in this order above the body
+        AddPhishingReport(services);
+        // the banner stack, in this order above the body (the reported-message banner is registered first, in AddPhishingReport)
         services.AddSingleton<IReaderBannerSource, InvitationBannerSource>();
         services.AddSingleton<IReaderBannerSource, ReceiptBannerSource>();
         services.AddSingleton<IReaderBannerSource, UnsubscribeBannerSource>();
@@ -84,6 +85,30 @@ public static class ReaderRegistration
 #endif
 #endif
         return services;
+    }
+
+    // "Report phishing" (G-050): the setup from the organisation policy, the report over the host raw submission, the question and the move to Junk
+    private static void AddPhishingReport(IServiceCollection services)
+    {
+        services.AddSingleton<Barbican.Presentation.Reader.IPhishingReportSetups>(sp => new Barbican.App.Views.Reader.OrganizationPhishingReportSetups(
+            sp.GetRequiredService<Barbican.Core.OrganizationPolicy.OrganizationPolicyService>(), sp.GetRequiredService<TimeProvider>()));
+        services.TryAddSingleton<Barbican.Core.Compose.RawMessageSender>();
+        services.AddSingleton<Barbican.Core.Mail.Safety.IPhishingReporter>(sp => new Barbican.Core.Mail.Safety.PhishingReporter(
+            sp.GetRequiredService<IAccountManager>(), sp.GetRequiredService<Barbican.Core.Compose.IIdentityService>(),
+            sp.GetRequiredService<Barbican.Core.Compose.RawMessageSender>(), sp.GetRequiredService<TimeProvider>()));
+        services.AddSingleton(sp => new Barbican.Presentation.Reader.PhishingReportFlow(
+            sp.GetRequiredService<Barbican.Presentation.Reader.IPhishingReportSetups>(), sp.GetRequiredService<Barbican.Core.Mail.Safety.IPhishingReporter>(),
+            sp.GetRequiredService<Barbican.Presentation.Actions.MailActionService>(), sp.GetRequiredService<Barbican.Presentation.Dialogs.IDialogService>(),
+            sp.GetRequiredService<Barbican.Presentation.Actions.IMailboxDirectory>(), sp.GetRequiredService<Barbican.Presentation.Actions.IToastService>()));
+        services.AddSingleton<IReaderBannerSource, PhishingMarkBannerSource>();
+        services.AddSingleton<Barbican.Presentation.Commands.IAppCommand>(sp =>
+        {
+            var flow = sp.GetRequiredService<Barbican.Presentation.Reader.PhishingReportFlow>();
+            return new Barbican.Presentation.Commands.DelegateAppCommand(
+                Barbican.Presentation.Commands.CommandIds.ReportPhishing,
+                c => flow.CanReport(c.Targets, c.Mailbox?.Role),
+                (c, ct) => flow.RunAsync(c.Targets, c.Mailbox?.Role, ct));
+        });
     }
 
     // the reader's More menu (MENU-READER), an attachment chip's menu (MENU-ATT) and the commands behind them

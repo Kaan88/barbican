@@ -32,6 +32,21 @@ public sealed class SampleActiveMail : IActiveMail, Barbican.Presentation.Action
 
     public SampleActiveMail(IHookBus hooks, TimeProvider time, Barbican.Core.Storage.IProfilePaths paths)
     {
+        // G-049/G-050: one synthetic message whose link text names one site while the address goes to another, for a hidden phishing-report run
+        if (Barbican.Core.Storage.ProfilePaths.IsAutomationProfile(Environment.GetEnvironmentVariable("BARBICAN_PROFILE")) &&
+            Environment.GetEnvironmentVariable("BARBICAN_SAMPLE_PHISHING_REPORT") is "1" or "arf")
+        {
+            _server.Store.Deliver(new FakeMail
+            {
+                Subject = "Verify your account now",
+                FromEmail = "support@bank.example.net",
+                FromName = "Bank Support",
+                ReceivedAt = new DateTimeOffset(2026, 11, 20, 9, 0, 0, TimeSpan.Zero),
+                Text = "Sign in at https://bank.example.org/account",
+                Html = "<p>Please <a href=\"https://evil.example.net/login\">https://bank.example.org/account</a> within 24 hours.</p><p><a href=\"https://example.com/help\">Help</a></p>",
+            });
+        }
+
         if (string.Equals(Environment.GetEnvironmentVariable("BARBICAN_SAMPLE_LONG_THREAD"), "1", StringComparison.Ordinal))
         {
             var parent = _server.Store.EmailIds().First(id => string.Equals((string?)_server.Store.Email(id)?["subject"], FakeSeed.ThreadSubject, StringComparison.Ordinal));

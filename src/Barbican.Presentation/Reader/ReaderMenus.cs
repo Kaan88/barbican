@@ -68,7 +68,7 @@ public static class ReaderMenus
 
     public static IEnumerable<MenuItemSpec> ToolbarActions(MenuContext context, IMenuDataSource data) =>
         MailMenus.Main(context, data).Where(r => r.SubmenuId is MenuIds.MailMove or MenuIds.MailTag ||
-            r.CommandId is CommandIds.MarkRead or CommandIds.MarkUnread or CommandIds.ReportSpam or CommandIds.NotSpam);
+            r.CommandId is CommandIds.MarkRead or CommandIds.MarkUnread or CommandIds.ReportSpam or CommandIds.NotSpam or CommandIds.ReportPhishing);
 
     /// <summary>The providers: MENU-READER and MENU-ATT over what is on screen now.</summary>
     public static IReadOnlyList<IMenuProvider> Providers(Func<EmailBody?> open, Func<string?, bool> hasJunk, IMenuDataSource? data = null)

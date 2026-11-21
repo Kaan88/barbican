@@ -34,6 +34,11 @@ internal sealed class FakeMenuData : IMenuDataSource
 
     public string? ListSortKey(MailboxRole role) => SortKey;
 
+    /// <summary>The accounts the admin set a phishing report address for.</summary>
+    public HashSet<string> PhishingAccounts { get; } = new(StringComparer.Ordinal);
+
+    public bool CanReportPhishing(string? accountKey) => accountKey is not null && PhishingAccounts.Contains(accountKey);
+
     public IReadOnlyList<MenuFolder> Folders(string? accountKey) => FolderList;
 
     public MenuFolder? Folder(string? accountKey, string? mailboxId) => FolderList.Find(f => string.Equals(f.Id, mailboxId, StringComparison.Ordinal));

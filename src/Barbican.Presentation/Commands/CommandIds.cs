@@ -28,6 +28,7 @@ public static class CommandIds
     public const string RemoveFromFolder = "mail.remove-from-folder";
     public const string ReportSpam = "mail.spam";
     public const string NotSpam = "mail.not-spam";
+    public const string ReportPhishing = "mail.report-phishing";
     public const string Undo = "mail.undo";
     public const string CopyToAccount = "mail.copy-to-account";
 

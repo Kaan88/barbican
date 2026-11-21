@@ -19,6 +19,7 @@ using Barbican.Core.Mail.AuthResults;
 using Barbican.Core.Mail.Body;
 using Barbican.Core.Mail.Body.Hooks;
 using Barbican.Core.Mail.Model;
+using Barbican.Core.Mail.Safety;
 using Barbican.Core.Plugins.Hooks;
 using Barbican.Core.Storage;
 using Barbican.Presentation.Common;
@@ -484,8 +485,15 @@ public sealed class MessageLoader : IMessageOpener, IConversationOpener, IDispos
         });
     }
 
+    // a message the user reported as phishing opens with its links turned off (Bulwark email-viewer.tsx:3310/3320 turnOffLinks); one place for every path to the page
+    private static MailContent LinksOff(EmailBody body, MailContent content) =>
+        PhishingLinks.IsMarked(body.Keywords) && content.Html is { } linked
+            ? content with { Html = PhishingLinks.TurnOff(linked, Reader.PhishingMarkBannerSource.LinkOffTitle, Reader.PhishingMarkBannerSource.LinkOffNote) }
+            : content;
+
     private void Show(string id, EmailBody body, ConversationThread? thread, ReaderSnapshot snapshot, MailContent content, bool blockRemote, long seq, PrefetchContext context)
     {
+        content = LinksOff(body, content);
         // onEmailContentRender fires once per opened message (Bulwark email-viewer.tsx:3937 contentRenderedForRef), not again when the
         // message on screen is opened again (Enter)
         var opened = false;

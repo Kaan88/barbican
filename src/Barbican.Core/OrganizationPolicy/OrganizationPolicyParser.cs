@@ -13,6 +13,8 @@ public static class OrganizationPolicyParser
     private static readonly Regex ScopeId = new("^[a-z0-9][a-z0-9-]{0,63}$", RegexOptions.CultureInvariant | RegexOptions.NonBacktracking | RegexOptions.ExplicitCapture);
     private static readonly Regex Domain = new("^(\\*\\.)?[a-z0-9]([a-z0-9-]*[a-z0-9])?(\\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$", RegexOptions.CultureInvariant | RegexOptions.NonBacktracking | RegexOptions.ExplicitCapture);
     private static readonly Regex Group = new("^[^\\s@]+@[a-z0-9]([a-z0-9-]*[a-z0-9])?(\\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$", RegexOptions.CultureInvariant | RegexOptions.NonBacktracking | RegexOptions.ExplicitCapture);
+    // lib/admin/organisation-policy.ts:303 EMAIL_RE: one @, no spaces or address punctuation, a dot in the domain
+    private static readonly Regex ReportAddress = new(@"^[^\s@<>""(),;:]+@[^\s@<>""(),;:]+\.[^\s@<>""(),;:]+$", RegexOptions.CultureInvariant | RegexOptions.NonBacktracking | RegexOptions.ExplicitCapture);
     private static readonly Regex Controls = new("[\\u0000-\\u001f\\u007f]+", RegexOptions.CultureInvariant | RegexOptions.NonBacktracking | RegexOptions.ExplicitCapture);
     private static readonly string[] ReservedPrefixes = ["content-", "list-", "resent-", "arc-"];
     private static readonly HashSet<string> Reserved = new(["from", "to", "cc", "bcc", "subject", "date", "message-id", "sender", "reply-to", "in-reply-to", "references", "mime-version", "received", "return-path", "dkim-signature", "authentication-results", "sio-label", "sio-label-history", "sensitivity", "x-bulwark-label", "auto-submitted", "precedence", "importance", "x-priority", "disposition-notification-to"], StringComparer.OrdinalIgnoreCase);
@@ -90,8 +92,27 @@ public static class OrganizationPolicyParser
         }
         ClassificationPolicy? labels = null;
         if (org.TryGetProperty("labels", out var raw)) labels = Labels(raw);
-        return new(noPrint, watermark, labels);
+        return new(noPrint, watermark, labels)
+        {
+            PhishingReportAddress = ReadReportAddress(org),
+            PhishingReportFormat = ReadReportFormat(org),
+        };
     }
+
+    // Bulwark organisation-policy.ts sanitiser: an address that is not one is dropped (inherits), never an error; "" turns reporting off.
+    private static string? ReadReportAddress(JsonElement org)
+    {
+        if (!org.TryGetProperty("phishingReport", out var section) || section.ValueKind != JsonValueKind.Object || !section.TryGetProperty("address", out var raw)
+            || raw.ValueKind != JsonValueKind.String || raw.GetString() is not { } text) return null;
+        var value = text.Trim().ToLowerInvariant();
+        if (value.Length == 0) return "";
+        return value.Length <= 320 && ReportAddress.IsMatch(value) && RecipientText.IsValidEmail(value) && !value.Any(char.IsControl) ? RecipientText.ToAsciiEmail(value).ToLowerInvariant() : null;
+    }
+
+    private static PhishingReportFormat? ReadReportFormat(JsonElement org) =>
+        org.TryGetProperty("phishingReport", out var section) && section.ValueKind == JsonValueKind.Object && section.TryGetProperty("format", out var raw) && raw.ValueKind == JsonValueKind.String
+            ? raw.GetString() switch { "forward" => PhishingReportFormat.Forward, "arf" => PhishingReportFormat.Arf, _ => null }
+            : null;
 
     private static ClassificationPolicy Labels(JsonElement raw)
     {
