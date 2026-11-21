@@ -69,7 +69,7 @@ public sealed class ComposeSeeder(IAccountManager accounts, IIdentityService ide
 
     private async Task<ComposeSeed> SeedNewAsync(ComposeRequest request, IReadOnlyList<ComposeIdentity> ids, ComposeContext ctx, ComposeSettings settings, CancellationToken ct)
     {
-        var chosen = Default(ids, ctx.Username);
+        var chosen = ComposeRules.DefaultIdentityIndex(ids, ctx.Username);
         var blocks = new List<Block> { Block.Para("") };
         var prefill = request.Prefill;
         if (prefill is { Body.Length: > 0 })
@@ -97,7 +97,7 @@ public sealed class ComposeSeeder(IAccountManager accounts, IIdentityService ide
         var forward = request.Kind is ComposeKind.Forward or ComposeKind.ForwardAsAttachment;
         var own = OwnAddresses(ids, ctx.Username);
         var choice = ReplyIdentity.Resolve([.. ids.Select(i => i.Identity)], ReplyFromOf(m, own, forward, settings), settings.AutoSelectReplyIdentity, settings.ReplyIdentityMatch, settings.SubAddressDelimiter);
-        var index = choice?.Index ?? Default(ids, ctx.Username);
+        var index = choice?.Index ?? ComposeRules.DefaultIdentityIndex(ids, ctx.Username);
         // onSelectReplyIdentity (M6 set-data, a transform): a plug-in may name another of the listed identities; the pick Barbican made is then dropped with its From override
         var picked = await hooks.ShapeAsync(HookNames.OnSelectReplyIdentity, new SelectReplyIdentityPayload([.. ids.Select(x => x.Identity.Id)], index is { } pi ? ids[pi].Identity.Id : null, m.Id), ct).ConfigureAwait(false);
         if (picked.IdentityId is { } wanted && !string.Equals(wanted, index is { } ci ? ids[ci].Identity.Id : null, StringComparison.Ordinal) && ids.ToList().FindIndex(x => string.Equals(x.Identity.Id, wanted, StringComparison.Ordinal)) is >= 0 and var at)
@@ -267,7 +267,7 @@ public sealed class ComposeSeeder(IAccountManager accounts, IIdentityService ide
             Bcc = Join(Or(m.Bcc)),
             Subject = m.Subject ?? "",
             Body = new Doc(blocks),
-            IdentityId = choice is null ? Default(ids, ctx.Username) is { } d ? ids[d].Identity.Id : null : ids[choice.Index].Identity.Id,
+            IdentityId = choice is null ? ComposeRules.DefaultIdentityIndex(ids, ctx.Username) is { } d ? ids[d].Identity.Id : null : ids[choice.Index].Identity.Id,
             FromOverride = choice?.Override,
             Attachments = attachments,
             DraftId = m.Id,
@@ -397,17 +397,6 @@ public sealed class ComposeSeeder(IAccountManager accounts, IIdentityService ide
 
     private static T? First<T>(IReadOnlyList<T>? list)
         where T : class => list is { Count: > 0 } ? list[0] : null;
-
-    private static int? Default(IReadOnlyList<ComposeIdentity> ids, string username)
-    {
-        if (ids.Count == 0)
-        {
-            return null;
-        }
-
-        var me = ids.ToList().FindIndex(i => string.Equals(i.Identity.Email.Trim(), username, StringComparison.OrdinalIgnoreCase));
-        return me >= 0 ? me : 0;
-    }
 
     private static List<string> OwnAddresses(IReadOnlyList<ComposeIdentity> ids, string username) =>
         [.. ids.Select(i => i.Identity.Email.Trim()).Append(username).Where(e => e.Contains('@', StringComparison.Ordinal)).Distinct(StringComparer.OrdinalIgnoreCase)];

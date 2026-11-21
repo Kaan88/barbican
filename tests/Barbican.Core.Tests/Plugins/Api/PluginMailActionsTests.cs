@@ -372,6 +372,18 @@ public sealed class PluginMailActionsTests
     }
 
     [Fact]
+    public async Task Drafts_create_saves_with_the_accounts_default_identity_not_the_first_listed()
+    {
+        // the From a new message starts on is the account's own address (ComposeRules.DefaultIdentityIndex), not the identity the server lists first
+        var rig = await PluginMailActionsRig.StartAsync(["email:write"], new FakeJmapOptions
+        {
+            Identities = [new FakeIdentity("i2", "Test Info", "info@example.net"), new FakeIdentity("i1", "Test User", "user@example.org")],
+        });
+        Assert.True((await rig.CallAsync("drafts.create", """[{"subject":"Hello"}]""")).IsSuccess);
+        Assert.Equal("i1", Assert.Single(rig.DraftService.Saved).IdentityId, StringComparer.Ordinal);
+    }
+
+    [Fact]
     public async Task Compose_inputs_are_checked_and_drafts_are_limited_to_ten_a_minute()
     {
         var rig = await PluginMailActionsRig.StartAsync(["email:write", "compose:open"]);
