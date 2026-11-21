@@ -91,12 +91,15 @@
   </ItemGroup>
   <Import Project="../../eng/Uno.WebView2Name.targets" />
 
+  <!-- CS2012 race: the plugin projects are also solution members, built with no TargetFramework global. A reference that sets
+       TargetFramework=net10.0 is a second project instance, compiled in parallel into the same obj folder. So every plugin
+       reference (here, Core.Tests, Assistant.Tests) skips the TFM negotiation and removes TargetFramework/RID, giving one instance. -->
   <!-- m2-unified (D-234): the bundled native spam-score plugin is built with the app, not referenced, and copied to <output>/plugins/spam-score/,
        where the plugin host loads it into its own load context. OutputItemType names the dll the reference built (any configuration and RID). -->
   <ItemGroup>
-    <ProjectReference Include="../../plugins/Barbican.Plugin.SpamScore/Barbican.Plugin.SpamScore.csproj" ReferenceOutputAssembly="false" Private="false" OutputItemType="BundledPlugin" SetTargetFramework="TargetFramework=net10.0" GlobalPropertiesToRemove="RuntimeIdentifier;SelfContained" />
+    <ProjectReference Include="../../plugins/Barbican.Plugin.SpamScore/Barbican.Plugin.SpamScore.csproj" ReferenceOutputAssembly="false" Private="false" OutputItemType="BundledPlugin" SkipGetTargetFrameworkProperties="true" GlobalPropertiesToRemove="TargetFramework;RuntimeIdentifier;SelfContained" />
     <!-- D-M6b-08: the AI assistant is a bundled native add-on too, in <output>/plugins/assistant/ (enabled unless the user turns it off in Settings, like spam-score). -->
-    <ProjectReference Include="../../plugins/Barbican.Plugin.Assistant/Barbican.Plugin.Assistant.csproj" ReferenceOutputAssembly="false" Private="false" OutputItemType="BundledAssistant" SetTargetFramework="TargetFramework=net10.0" GlobalPropertiesToRemove="RuntimeIdentifier;SelfContained" />
+    <ProjectReference Include="../../plugins/Barbican.Plugin.Assistant/Barbican.Plugin.Assistant.csproj" ReferenceOutputAssembly="false" Private="false" OutputItemType="BundledAssistant" SkipGetTargetFrameworkProperties="true" GlobalPropertiesToRemove="TargetFramework;RuntimeIdentifier;SelfContained" />
   </ItemGroup>
   <Target Name="CopyBundledPlugins" AfterTargets="Build">
     <Copy SourceFiles="@(BundledPlugin)" DestinationFolder="$(OutDir)plugins/spam-score" SkipUnchangedFiles="true" ContinueOnError="false" Condition="'@(BundledPlugin)' != ''" />
