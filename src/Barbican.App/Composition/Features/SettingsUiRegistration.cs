@@ -72,6 +72,7 @@ public static class SettingsUiRegistration
         services.AddSingleton<ISettingsPageFactory, AddonsPageFactory>();
         services.AddSingleton<IDialogContent, AccessibilityQuickContent>();
         services.AddSingleton<IDialogContent, TimeZonePickerContent>();
+        services.AddSingleton<IDialogContent, TrustedSendersDialogContent>();
 #if AUTOMATION
         if (string.Equals(Environment.GetEnvironmentVariable("BARBICAN_SAMPLE"), "1", StringComparison.Ordinal))
         {

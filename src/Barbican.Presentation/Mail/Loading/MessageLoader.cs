@@ -539,6 +539,7 @@ public sealed class MessageLoader : IMessageOpener, IConversationOpener, IDispos
             })
         {
             TrustedSender = _depth?.Trusted(body) ?? false,
+            SenderAddress = body.From.Count > 0 ? body.From[0].Email : null,
         };
         _presenter.Show(request);
     }

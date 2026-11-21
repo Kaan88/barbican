@@ -12,6 +12,7 @@ using Barbican.Core.Calendar;
 using Barbican.Core.Contacts;
 using Barbican.Core.Mail.Avatars;
 using Barbican.Core.Mail.Archive;
+using Barbican.Core.Mail.Trust;
 using Barbican.Core.Sync;
 using Barbican.Presentation.Settings;
 using Barbican.Presentation.Shell;
@@ -270,6 +271,20 @@ public sealed class SetUiRowsView : StackPanel
         if (string.Equals(row.Id, "S-a11y.reset", StringComparison.Ordinal))
         {
             return SetUiUi.RowOf(row.Label, desc, SetUiUi.Pill("Reset", () => SetUiUi.Run(ResetAccessibilityAsync), id + ".button"), id);
+        }
+
+        if (string.Equals(row.Key, "trustedSenders", StringComparison.Ordinal))
+        {
+            // Bulwark privacy-settings.tsx:118-129: the count ("None", "1 sender", "N senders") opens the list in the shared dialog host
+            var trust = ViewHost.Get<ITrustedSenders>();
+            var button = SetUiUi.Pill(TrustedSendersRules.CountText(trust.All.Count), () => SetUiUi.Run(async () =>
+            {
+                var model = new TrustedSendersViewModel(trust);
+                _ = await ViewHost.Get<IDialogService>().ShowAsync(new TrustedSendersDialogRequest(model), CancellationToken.None).ConfigureAwait(true);
+                _refresh[row.Id]?.Invoke();
+            }), id + ".button");
+            _refresh[row.Id] = () => button.Content = TrustedSendersRules.CountText(trust.All.Count);
+            return SetUiUi.RowOf(row.Label, desc, button, id);
         }
 
         if (string.Equals(row.Id, "S-avatars.refresh", StringComparison.Ordinal))

@@ -17,6 +17,9 @@ public sealed record BodyRequest(string EmailId, MailContent Content, bool Block
     /// <summary>The sender is trusted (I-209): remote content loads without asking (never when <see cref="BlockRemote"/>).</summary>
     public bool TrustedSender { get; init; }
 
+    /// <summary>The sender's first address, which "Always trust this sender" would add, or null (Bulwark email-viewer.tsx:6370-6388).</summary>
+    public string? SenderAddress { get; init; }
+
     /// <summary>The body of a fetched message as the reader shows it.</summary>
     public static MailContent ContentOf(EmailBody message)
     {

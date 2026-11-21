@@ -73,6 +73,8 @@ public sealed partial class BodyShell : IBodyPresenter, IStartupTask, IDisposabl
     private bool _slow;
     private bool _loaderLoading;
     private string? _allowRemoteFor;
+    private string? _trustedFor;
+    private RemoteContentPolicy _policy;
     private string? _formattedFor;
     private (bool AlwaysLight, string PlainTextFont, string MessageSpacing) _readingPreferences;
     private bool _disposed;
@@ -93,7 +95,9 @@ public sealed partial class BodyShell : IBodyPresenter, IStartupTask, IDisposabl
         _theme.CssApplied += OnThemeApplied;
         _theme.BodyTextScaleChanged += OnBodyTextScaleChanged;
         _readingPreferences = _appearance.ReadingPreferences();
+        _policy = RemoteContentRules.PolicyOf(prefs.Current);
         _prefs.Changed += OnReadingPreferencesChanged;
+        _prefs.Changed += OnRemotePolicyChanged;
     }
 
     /// <summary>The page on screen changed (banners: external content blocked, shown as plain text) or the loading state did.</summary>
@@ -123,8 +127,19 @@ public sealed partial class BodyShell : IBodyPresenter, IStartupTask, IDisposabl
     /// <summary>The loading bar is on (the loader's slow state or a slow page).</summary>
     public bool IsLoading => _loaderLoading || _slow;
 
-    /// <summary>The message on screen has remote content that is blocked and may be loaded ("Load external content").</summary>
-    public bool RemoteBlocked => _current is { } c && c.Page.HasRemoteContent && !c.Allow && !c.Request.BlockRemote;
+    /// <summary>The message on screen has remote content that is blocked and may be loaded ("Load images").</summary>
+    public bool RemoteBlocked => RemoteContent is not null;
+
+    /// <summary>
+    /// The blocked-remote-content notice of the message on screen: "External Content", the message and Bulwark's buttons (email-viewer.tsx:6343-6392),
+    /// or null. The setting is the user's <c>externalContentPolicy</c> (default "ask"); a trusted sender or "Always allow" loads it.
+    /// </summary>
+    public RemoteContentNotice? RemoteContent => _current is { } c
+        ? RemoteContentRules.Notice(c.Page.HasRemoteContent, c.Allow, c.Request.BlockRemote, _policy, TrustedNow(c.Request), c.Request.SenderAddress is not null)
+        : null;
+
+    /// <summary>The sender address "Always trust this sender" would trust, or null.</summary>
+    public string? SenderAddress => _current?.Request.SenderAddress;
 
     /// <summary>The message on screen is shown as plain text by the accessibility setting (it has HTML).</summary>
     public bool ShownAsPlainText => _current is { } c && c.Request.Content.Html is not null && _appearance.A11y.PlainView && !string.Equals(_formattedFor, c.Request.EmailId, StringComparison.Ordinal);
@@ -165,12 +180,17 @@ public sealed partial class BodyShell : IBodyPresenter, IStartupTask, IDisposabl
             _allowRemoteFor = null;
         }
 
+        if (!string.Equals(_trustedFor, request.EmailId, StringComparison.Ordinal))
+        {
+            _trustedFor = null;
+        }
+
         if (!string.Equals(_formattedFor, request.EmailId, StringComparison.Ordinal))
         {
             _formattedFor = null;
         }
 
-        var allow = !request.BlockRemote && (request.TrustedSender || string.Equals(_allowRemoteFor, request.EmailId, StringComparison.Ordinal));
+        var allow = !request.BlockRemote && RemoteContentRules.MayLoad(_policy, TrustedNow(request), string.Equals(_allowRemoteFor, request.EmailId, StringComparison.Ordinal));
         var plain = _appearance.A11y.PlainView && _formattedFor is null;
         var page = MailPageBuilder.Build(request.Content.BodyMarkup(plain), _appearance.Options(allow));
         Send(request, page, allow);
@@ -211,12 +231,31 @@ public sealed partial class BodyShell : IBodyPresenter, IStartupTask, IDisposabl
         StateChanged?.Invoke(this, EventArgs.Empty);
     }
 
-    /// <summary>"Load external content" for the message on screen (per message; spec I-209).</summary>
+    /// <summary>"Load images" for the message on screen (per message, ask mode only; spec I-209).</summary>
     public void LoadExternalContent()
     {
         if (_current is { } c && !c.Request.BlockRemote)
         {
+            if (_policy != RemoteContentPolicy.Ask)
+            {
+                // Bulwark has the Load button only in ask mode: "Always block" waits for trust (email-viewer.tsx:6359)
+                return;
+            }
+
             _allowRemoteFor = c.Request.EmailId;
+            Rerender();
+        }
+    }
+
+    /// <summary>
+    /// "Always trust this sender" was answered for the message on screen: the page is built again with its remote content, as Bulwark's live
+    /// <c>isSenderTrusted</c> does after the address is added to the trusted list (email-viewer.tsx:6372-6381).
+    /// </summary>
+    public void TrustSender()
+    {
+        if (_current is { } c && !c.Request.BlockRemote)
+        {
+            _trustedFor = c.Request.EmailId;
             Rerender();
         }
     }
@@ -244,6 +283,7 @@ public sealed partial class BodyShell : IBodyPresenter, IStartupTask, IDisposabl
         _theme.CssApplied -= OnThemeApplied;
         _theme.BodyTextScaleChanged -= OnBodyTextScaleChanged;
         _prefs.Changed -= OnReadingPreferencesChanged;
+        _prefs.Changed -= OnRemotePolicyChanged;
         _readyTimer?.Dispose();
         Power.Dispose();
     }
@@ -364,6 +404,10 @@ public sealed partial class BodyShell : IBodyPresenter, IStartupTask, IDisposabl
     // screen or the one loading); each page keeps its own permission, so the banner of the page on screen never reads the next page's.
     private bool RemoteAllowed => (_current?.Allow ?? false) || (_pending?.Allow ?? false);
 
+    // A sender trusted at load time, or trusted since with "Always trust this sender" for this message (Bulwark reads the store live)
+    private bool TrustedNow(BodyRequest request) =>
+        request.TrustedSender || string.Equals(_trustedFor, request.EmailId, StringComparison.Ordinal);
+
     private void Try(Action set)
     {
         try
@@ -482,6 +526,16 @@ public sealed partial class BodyShell : IBodyPresenter, IStartupTask, IDisposabl
         var reading = _appearance.ReadingPreferences();
         if (reading == _readingPreferences) return;
         _readingPreferences = reading;
+        Rerender();
+    });
+
+    // externalContentPolicy changed (Settings): the page on screen is built again with the new permission, as Bulwark recomputes its iframe
+    private void OnRemotePolicyChanged(object? sender, EventArgs e) => _dispatcher.Post(() =>
+    {
+        if (_disposed) return;
+        var policy = RemoteContentRules.PolicyOf(_prefs.Current);
+        if (policy == _policy) return;
+        _policy = policy;
         Rerender();
     });
 
