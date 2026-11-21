@@ -42,6 +42,16 @@ internal sealed class ComposeContext
         return session is null ? Result<ComposeContext>.Fail(new ValidationError("The account is not signed in.")) : Result<ComposeContext>.Ok(new ComposeContext(session));
     }
 
+    /// <summary>A context over a session the caller already holds (an add-on's captured login, never an account key the caller names).</summary>
+    public static ComposeContext FromSession(IAccountSession session)
+    {
+        ArgumentNullException.ThrowIfNull(session);
+        return new ComposeContext(session);
+    }
+
+    /// <summary>The sender identities of the submission account (what the From select lists).</summary>
+    public Task<Result<IReadOnlyList<ComposeIdentity>>> IdentitiesAsync(CancellationToken ct) => IdentityService.ListCapturedAsync(Client, SubmissionAccount, ct);
+
     /// <summary>The Drafts and Sent folders; <paramref name="fresh"/> re-reads them (after a refusal that may mean the folder changed).</summary>
     public async Task<Result<MailboxRoles>> RolesAsync(bool fresh, CancellationToken ct)
     {

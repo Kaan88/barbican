@@ -1,7 +1,7 @@
-// Mirrors: Bulwark lib/plugin-sandbox/host-api-compose.ts:143-167 doDraftsCreate (email:write, host-api.ts:354; the message object of compose.open; saved in the Drafts folder from the account's identity, without opening a composer;
-// at most 10 drafts a minute per add-on; resolves the draft's id) and lib/jmap/client.ts createDraft; Stalwart crates/jmap/src/email/set.rs (create with $draft). NOTHING IS SENT: the draft stays in Drafts for the user.
-// The save goes through the same draft service as the composer's own save (DraftService: identity chosen from the account's own identities, $draft keyword, Drafts folder, onBeforeDraftAutoSave and onDraftAutoSave hooks).
-// Deviation: Bulwark uses the user's preferred primary identity; Barbican's draft service takes the account's first identity when none is named (no add-on may name one).
+// Mirrors: Bulwark lib/plugin-sandbox/host-api-compose.ts:143-167 doDraftsCreate (email:write, host-api.ts:354; the message object of compose.open; saved in the Drafts folder from the session client's default identity, without opening a composer;
+// at most 10 drafts a minute per add-on; resolves the draft's id; the distinction from compose.open and compose.reply is M6b-account-routing.md:12, host-api-compose.ts:115-150) and lib/jmap/client.ts createDraft; Stalwart crates/jmap/src/email/set.rs (create with $draft). NOTHING IS SENT: the draft stays in Drafts for the user.
+// The save goes through the same draft service as the composer's own save (DraftService: $draft keyword, Drafts folder, onBeforeDraftAutoSave and onDraftAutoSave hooks) and names the From the composer starts a new message on
+// (ComposeRules.DefaultIdentityIndex: the account's own address among its identities, else the first in the user's order), as Bulwark's default identity; the add-on may not name one.
 using Barbican.Core.Compose;
 using Barbican.Core.Editor;
 using Barbican.Core.Plugins.Api.Mail;
@@ -21,11 +21,15 @@ internal sealed class PluginDraftsCreate(PluginMailActionHost host) : PluginMail
         if (Host.Drafts is not { } drafts) return Fail(PluginErrorCode.Unavailable);
         _ = PluginComposeInput.TryRead(PluginMailArgs.At(arguments, 0), out var message);
         if (!Within(context, "drafts", DraftsPerMinute)) return Fail(PluginErrorCode.RateLimited);
+        var session = capture!.Session;
+        var identities = await ComposeContext.FromSession(session).IdentitiesAsync(ct).ConfigureAwait(false);
+        if (!identities.IsOk) return Fail(Code(identities.Error));
+        if (ComposeRules.DefaultIdentityIndex(identities.Value!, session.Client.Session.Username) is not { } from) return Fail(PluginErrorCode.Failed);
         var draft = new ComposeDraft
         {
-            AccountId = capture!.LocalAccountKey,
+            AccountId = capture.LocalAccountKey,
             Kind = ComposeKind.New,
-            IdentityId = "",
+            IdentityId = identities.Value![from].Identity.Id,
             To = string.Join(", ", message.To),
             Cc = string.Join(", ", message.Cc),
             Bcc = string.Join(", ", message.Bcc),

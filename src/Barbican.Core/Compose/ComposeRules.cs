@@ -1,4 +1,5 @@
-// Mirrors: Rust compose.rs:48 is_blank, :191 delivery_addresses, :729 find_placeholders (+ is_fill_in :779); Bulwark lib/placeholder-check.ts findUnfilledPlaceholders, lib/email-composer-utils.ts deliveryAddresses; Bulwark components/email/email-composer.tsx.
+// Mirrors: Rust compose.rs:48 is_blank, :191 delivery_addresses, :729 find_placeholders (+ is_fill_in :779); Bulwark lib/placeholder-check.ts findUnfilledPlaceholders, lib/email-composer-utils.ts deliveryAddresses; Bulwark components/email/email-composer.tsx,
+// stores/identity-store.ts (a new message starts on the account's default identity).
 
 using System.Text;
 using Barbican.Core.Jmap.Submission;
@@ -117,6 +118,27 @@ public static class ComposeRules
 
         parts.Add(cur.ToString().Trim());
         return [.. parts.Where(p => p.Length > 0)];
+    }
+
+    /// <summary>The From a new message starts on: the account's own address (the login) among the identities, else the first in the user's order; null without identities.</summary>
+    public static int? DefaultIdentityIndex(IReadOnlyList<ComposeIdentity> identities, string username)
+    {
+        ArgumentNullException.ThrowIfNull(identities);
+        ArgumentNullException.ThrowIfNull(username);
+        if (identities.Count == 0)
+        {
+            return null;
+        }
+
+        for (var i = 0; i < identities.Count; i++)
+        {
+            if (string.Equals(identities[i].Identity.Email.Trim(), username, StringComparison.OrdinalIgnoreCase))
+            {
+                return i;
+            }
+        }
+
+        return 0;
     }
 
     /// <summary>Unfilled placeholders: template fields ({{ name }}, also in the subject), bracketed fill-ins ([TIME], [Your Name], [insert date here]), TODO-style markers, circle stand-ins; links and ordinary brackets are text.</summary>

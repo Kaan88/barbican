@@ -10,6 +10,7 @@ using Barbican.Core.Plugins.Api.MailActions;
 using Barbican.Core.Plugins.Api.MailTags;
 using Barbican.Core.Plugins.Hooks;
 using Barbican.Core.Plugins.Bridge;
+using Barbican.FakeJmap;
 using Microsoft.Extensions.Time.Testing;
 
 namespace Barbican.Core.Tests.Plugins.Api;
@@ -32,7 +33,7 @@ internal sealed class PluginMailActionsRig
 
     public FakePrefs Prefs { get; } = new();
 
-    public static async Task<PluginMailActionsRig> StartAsync(string[] permissions)
+    public static async Task<PluginMailActionsRig> StartAsync(string[] permissions, FakeJmapOptions? options = null)
     {
         var rig = new PluginMailActionsRig();
         rig.Api = await PluginApiRig.StartAsync(() =>
@@ -40,7 +41,7 @@ internal sealed class PluginMailActionsRig
             var host = new PluginMailActionHost(new Readers(), new Writers(rig), new PluginMailRateLimiter(rig.Time), new PluginTagDefinitions(rig.Prefs, rig.Prefs), rig.Time,
                 rig.Hooks, rig.Undo, rig.DraftService, rig.Compose);
             return PluginMailActionMethods.Create(host);
-        }, permissions);
+        }, permissions, options);
         return rig;
     }
 
