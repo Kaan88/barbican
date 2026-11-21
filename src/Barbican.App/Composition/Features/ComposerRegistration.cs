@@ -61,9 +61,7 @@ public static class ComposerRegistration
         services.AddSingleton<Barbican.App.Plugins.PluginActionRegistration>();
         services.AddSingleton<IPluginApiMethod>(sp => sp.GetRequiredService<Barbican.App.Plugins.PluginActionRegistration>());
         services.AddSingleton<IPluginApiMethod>(sp => PluginComposerMethods.GetSnapshot(sp.GetRequiredService<PluginComposerAccess>()));
-        services.AddSingleton<IPluginApiMethod>(sp => PluginComposerMethods.SetSubject(sp.GetRequiredService<PluginComposerAccess>(),
-            PluginComposerEditRateLimiter.Create(sp.GetRequiredService<TimeProvider>(), 10)));
-        services.AddSingleton<IPluginApiMethod>(sp => PluginComposerMethods.ReadAttachment(sp.GetRequiredService<PluginComposerAccess>()));
+        AddComposerAddOnApi(services);
 #endif
 
         // a mailto: link clicked in a message opens the composer, never the OS handler (B-COMP-034); everything else keeps the reader's link check
@@ -76,4 +74,30 @@ public static class ComposerRegistration
 #endif
         return services;
     }
+
+#if WINDOWS
+    private static void AddComposerAddOnApi(IServiceCollection services)
+    {
+        // one edit budget (60 a minute per add-on) across setSubject, replaceBody, replaceSelection and attach
+        services.AddSingleton<IPluginComposerEditRateLimiter>(sp => PluginComposerEditRateLimiter.Create(sp.GetRequiredService<TimeProvider>(), 128));
+        services.AddSingleton<PluginAnnotationStore>();
+        services.AddSingleton<IPluginApiMethod>(sp => PluginComposerMethods.SetSubject(sp.GetRequiredService<PluginComposerAccess>(),
+            sp.GetRequiredService<IPluginComposerEditRateLimiter>()));
+        services.AddSingleton<IPluginApiMethod>(sp => PluginComposerMethods.ReadAttachment(sp.GetRequiredService<PluginComposerAccess>()));
+        services.AddSingleton<IPluginApiMethod>(sp => PluginComposerEditMethods.GetBody(sp.GetRequiredService<PluginComposerAccess>()));
+        services.AddSingleton<IPluginApiMethod>(sp => PluginComposerEditMethods.GetSelection(sp.GetRequiredService<PluginComposerAccess>()));
+        services.AddSingleton<IPluginApiMethod>(sp => PluginComposerEditMethods.ReplaceBody(sp.GetRequiredService<PluginComposerAccess>(),
+            sp.GetRequiredService<IPluginComposerEditRateLimiter>()));
+        services.AddSingleton<IPluginApiMethod>(sp => PluginComposerEditMethods.ReplaceSelection(sp.GetRequiredService<PluginComposerAccess>(),
+            sp.GetRequiredService<IPluginComposerEditRateLimiter>()));
+        services.AddSingleton<IPluginApiMethod>(sp => PluginComposerEditMethods.Attach(sp.GetRequiredService<PluginComposerAccess>(),
+            sp.GetRequiredService<IPluginComposerEditRateLimiter>()));
+        // 60 check calls a minute per add-on (host-api-checker.ts:28)
+        IPluginComposerEditRateLimiter? checkBudget = null;
+        services.AddSingleton<IPluginApiMethod>(sp => PluginComposerCheckMethods.GetCheckText(sp.GetRequiredService<PluginComposerAccess>(),
+            sp.GetRequiredService<PluginCheckerRegistry>(), checkBudget ??= PluginComposerEditRateLimiter.Create(sp.GetRequiredService<TimeProvider>(), 128)));
+        services.AddSingleton<IPluginApiMethod>(sp => PluginComposerCheckMethods.SetAnnotations(sp.GetRequiredService<PluginComposerAccess>(),
+            sp.GetRequiredService<PluginCheckerRegistry>(), checkBudget ??= PluginComposerEditRateLimiter.Create(sp.GetRequiredService<TimeProvider>(), 128)));
+    }
+#endif
 }

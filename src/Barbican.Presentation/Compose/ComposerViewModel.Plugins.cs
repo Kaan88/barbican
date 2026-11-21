@@ -5,6 +5,7 @@ using Barbican.Core.Compose;
 using Barbican.Core.Compose.Recipients;
 using Barbican.Core.Editor;
 using Barbican.Core.Plugins.Api.Composer;
+using Barbican.Presentation.Editor;
 
 namespace Barbican.Presentation.Compose;
 
@@ -83,4 +84,84 @@ public sealed partial class ComposerViewModel
     }
 
     private static bool HasGeneratedText(Doc doc) => doc.Blocks.Any(block => block.Runs.Any(run => run.IsComposerContext));
+
+    // ---- add-on edits (composer.getBody / getSelection / replaceBody / replaceSelection / attach): the editor's own operations, one undo step each ----
+
+    private bool PluginOwnTextLost => (_pluginSeedQuoted || _pluginSeedGeneratedText) && !CurrentDoc().HasComposerProvenance;
+
+    private bool PluginEditable(string revision, out IEditorViewModel editor)
+    {
+        editor = Editor!;
+        return Editor is { SourceOpen: false } && !_closed && !IsSending && !PluginOwnTextLost &&
+            string.Equals(revision, PluginRevision, StringComparison.Ordinal);
+    }
+
+    private static IReadOnlyList<Block> PluginBlocks(IEditorSession session, PluginComposerContent content) =>
+        session.Plain ? DocHtml.ImportText(content.Text) : DocHtml.Import(content.Html);
+
+    internal PluginComposerBody PluginBody() =>
+        PluginOwnTextLost ? new(string.Empty, string.Empty) : PluginComposerOwnText.Read(CurrentDoc());
+
+    internal PluginComposerSelection PluginSelection()
+    {
+        if (Editor is not { SourceOpen: false } editor || PluginOwnTextLost || editor.Session.Sel.IsCollapsed) return new(string.Empty, string.Empty, true);
+        var blocks = editor.Session.SelectedBlocks();
+        return new(PluginComposerOwnText.Html(blocks), editor.Session.SelectedText(), false);
+    }
+
+    internal bool PluginReplaceBody(PluginComposerContent content, string revision)
+    {
+        if (!PluginEditable(revision, out var editor)) return false;
+        var blocks = PluginBlocks(editor.Session, content);
+        var from = PluginComposerOwnText.Range(editor.Session.Doc).From;
+        editor.Session.ReplaceDoc(PluginComposerOwnText.Replace(editor.Session.Doc, blocks), undo: true);
+        if (blocks.Count > 0)
+        {
+            var last = Math.Min(from + blocks.Count - 1, editor.Session.Doc.Blocks.Count - 1);
+            editor.Session.SetCaret(new Pos(last, editor.Session.Doc.Blocks[last].Length));
+        }
+        return true;
+    }
+
+    internal bool PluginReplaceSelection(PluginComposerContent content, bool below, string revision)
+    {
+        if (!PluginEditable(revision, out var editor)) return false;
+        var session = editor.Session;
+        var doc = session.Doc;
+        var selection = session.Sel;
+        // The signature, the reply header and the quote are never replaced or written into.
+        for (var index = selection.Start.B; index <= selection.End.B; index++)
+            if (PluginComposerOwnText.IsProtected(doc.Blocks[index])) return false;
+        var blocks = PluginBlocks(session, content);
+        if (!below)
+        {
+            IEnumerable<Block> images = selection.IsCollapsed ? Enumerable.Empty<Block>() : session.SelectedBlocks().Where(block => block.Kind is BlockKind.Image).Select(block => block.Clone());
+            session.InsertBlocks([.. blocks, .. images]);
+            return true;
+        }
+        var at = (doc.TableRange(selection.End.B) is { } table ? table.End : selection.End.B + 1);
+        var result = doc.Clone();
+        for (var index = 0; index < blocks.Count; index++) result.Blocks.Insert(at + index, blocks[index]);
+        session.ReplaceDoc(result, undo: true);
+        return true;
+    }
+
+    internal long PluginAttachmentTotal() =>
+        Attachments.Where(item => item.State == AttachmentState.Done).Sum(item => item.Attachment.Size) + _inline.Sum(item => item.Size);
+
+    internal int PluginAttachmentCount => Attachments.Count;
+
+    internal bool PluginAttach(DraftAttachment attachment, string revision)
+    {
+        if (_closed || IsSending || !string.Equals(revision, PluginRevision, StringComparison.Ordinal)) return false;
+        Attachments.Add(new AttachmentItem(attachment, AttachmentState.Done, null));
+        OnPropertyChanged(nameof(HasPendingUploads));
+        return true;
+    }
+
+    internal long PluginEditorVersion => Editor?.Session.Version ?? 0;
+
+    internal bool PluginCheckable => Editor is { SourceOpen: false };
+
+    internal Doc PluginCheckDoc => CurrentDoc();
 }

@@ -1,4 +1,7 @@
 using System.Runtime.CompilerServices;
+using Barbican.Core.Compose;
+using Barbican.Core.Plugins.Protocol;
+using Barbican.Core.Storage;
 using Barbican.Core.Plugins.Api.Composer;
 using Barbican.Core.Plugins.Bridge;
 using Barbican.Core.Plugins.Runtime;
@@ -15,11 +18,17 @@ public sealed class PluginComposerAccess : IPluginComposerAccess, IDisposable
     private readonly Lock _gate = new();
     private readonly ConditionalWeakTable<PluginRuntimeBinding, Handle> _exposures = new();
 
-    public PluginComposerAccess(IComposerService composer, IDispatcher dispatcher, IPluginSessionSource sessions)
+    private readonly PluginAnnotationStore? _annotations;
+    private readonly IPrefsStore? _prefs;
+
+    public PluginComposerAccess(IComposerService composer, IDispatcher dispatcher, IPluginSessionSource sessions,
+        PluginAnnotationStore? annotations = null, IPrefsStore? prefs = null)
     {
         _composer = composer;
         _dispatcher = dispatcher;
         _sessions = sessions;
+        _annotations = annotations;
+        _prefs = prefs;
         _composer.OpenChanged += OnOpenChanged;
     }
 
@@ -41,7 +50,7 @@ public sealed class PluginComposerAccess : IPluginComposerAccess, IDisposable
             if (!_exposures.TryGetValue(binding, out var old) || !old.Matches(current, owner))
             {
                 _exposures.Remove(binding);
-                _exposures.Add(binding, new Handle(_composer, current, binding, owner, _dispatcher, _sessions));
+                _exposures.Add(binding, new Handle(_composer, current, binding, owner, _dispatcher, _sessions, _annotations, _prefs));
             }
         }
         return binding.IsAlive && ReferenceEquals(_composer.Current, current);
@@ -59,7 +68,11 @@ public sealed class PluginComposerAccess : IPluginComposerAccess, IDisposable
 
     private void OnOpenChanged(object? sender, EventArgs args)
     {
-        lock (_gate) _exposures.Clear();
+        lock (_gate)
+        {
+            if (_annotations is not null) foreach (var pair in _exposures) _annotations.Forget(pair.Value.Id);
+            _exposures.Clear();
+        }
     }
 
     public void Dispose()
@@ -69,8 +82,9 @@ public sealed class PluginComposerAccess : IPluginComposerAccess, IDisposable
     }
 
     private sealed class Handle(IComposerService composer, ComposerViewModel draft, PluginRuntimeBinding binding,
-        PluginSessionCapture owner, IDispatcher dispatcher, IPluginSessionSource sessions) : IPluginComposerHandle
+        PluginSessionCapture owner, IDispatcher dispatcher, IPluginSessionSource sessions, PluginAnnotationStore? annotations, IPrefsStore? prefs) : IPluginComposerHandle
     {
+        private readonly Dictionary<string, PluginCheckRequest> _checks = new(StringComparer.Ordinal);
         internal ComposerViewModel Draft => draft;
         internal string Id => draft.Id;
         public string LocalAccountKey => draft.AccountKey;
@@ -117,6 +131,64 @@ public sealed class PluginComposerAccess : IPluginComposerAccess, IDisposable
                 return new(resource.Name, resource.Type, bytes);
             }
         }
+
+        public Task<PluginComposerBody> ReadBodyAsync(CancellationToken ct) => OnUiAsync(() =>
+        {
+            DemandCurrent();
+            return draft.PluginBody();
+        }, ct);
+
+        public Task<PluginComposerSelection> ReadSelectionAsync(CancellationToken ct) => OnUiAsync(() =>
+        {
+            DemandCurrent();
+            return draft.PluginSelection();
+        }, ct);
+
+        public Task<bool> ReplaceBodyAsync(PluginComposerContent content, string hostRevision, CancellationToken ct) => WriteAsync(() =>
+            draft.PluginReplaceBody(content, hostRevision), ct);
+
+        public Task<bool> ReplaceSelectionAsync(PluginComposerContent content, bool below, string hostRevision, CancellationToken ct) => WriteAsync(() =>
+            draft.PluginReplaceSelection(content, below, hostRevision), ct);
+
+        public Task<bool> AttachAsync(PluginComposerBlob blob, string hostRevision, CancellationToken ct) => WriteAsync(() =>
+        {
+            // The uploader's gates, for a blob that is already on the server: one file within maxSizeUpload, all files within maxSizeAttachmentsPerEmail.
+            if (!PluginAttachGate.Allows(owner.Session.Client.Session, draft.PluginAttachmentTotal(), draft.PluginAttachmentCount, blob.Size)) return false;
+            return draft.PluginAttach(new DraftAttachment { Name = blob.Name, Type = blob.Type, Size = blob.Size, BlobId = blob.BlobId }, hostRevision);
+        }, ct);
+
+        public Task<PluginCheckRequest?> BeginCheckAsync(PluginCheckerRegistration spec, CancellationToken ct) => OnUiAsync(() =>
+        {
+            DemandCurrent();
+            if (!draft.PluginCheckable) return null;
+            var language = prefs is null ? "en" : PluginCheckLanguage.Resolve(prefs.Current);
+            var request = PluginCheckRequest.Create(draft.PluginCheckDoc, draft.Id, language, draft.PluginEditorVersion);
+            if (request is null) return null;
+            _checks[spec.Id] = request;
+            return request;
+        }, ct);
+
+        public Task<int> SetAnnotationsAsync(PluginCheckerRegistration spec, string revision, PluginValue values, CancellationToken ct) => OnUiAsync(() =>
+        {
+            DemandCurrent();
+            if (annotations is null || !_checks.TryGetValue(spec.Id, out var request) ||
+                !string.Equals(request.Revision, revision, StringComparison.Ordinal) || request.DocVersion != draft.PluginEditorVersion) return 0;
+            var issues = request.Decode(values, spec.Kinds);
+            var kept = 0;
+            _ = sessions.TryRunWhileCurrent([owner], () => !ct.IsCancellationRequested && binding.TryWriteWhileAlive(() =>
+            {
+                annotations.Set(draft.Id, spec, request.DocVersion, issues);
+                kept = issues.Count;
+            }));
+            return kept;
+        }, ct);
+
+        private Task<bool> WriteAsync(Func<bool> edit, CancellationToken ct) => OnUiAsync(() =>
+        {
+            if (!IsOpen()) return false;
+            var done = false;
+            return sessions.TryRunWhileCurrent([owner], () => !ct.IsCancellationRequested && binding.TryWriteWhileAlive(() => done = edit())) && done;
+        }, ct);
 
         private static async Task<byte[]> ReadBoundedAsync(Stream stream, int limit, CancellationToken ct)
         {

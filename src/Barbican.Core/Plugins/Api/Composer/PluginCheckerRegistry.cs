@@ -34,6 +34,12 @@ public sealed partial class PluginCheckerRegistry
                 .OrderBy(entry => entry.Order).Select(entry => entry.Spec)];
     }
 
+    /// <summary>The checker this binding registered under <paramref name="id"/>, or null.</summary>
+    public PluginCheckerRegistration? Lookup(PluginRuntimeBinding binding, string id)
+    {
+        lock (_gate) return binding.IsAlive ? Find(binding, id) is { } entry ? entry.Spec : null : null;
+    }
+
     public bool Contains(PluginCheckerRegistration spec)
         => TryRunWhileRegistered(spec, static () => true);
 

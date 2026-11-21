@@ -15,22 +15,40 @@ public sealed class PluginCheckRequest
     private const char ObjectReplacement = '\uFFFC';
     private readonly Dictionary<string, Segment> _segments;
 
-    private PluginCheckRequest(string alias, string language, Dictionary<string, Segment> segments)
+    private PluginCheckRequest(string alias, string language, Dictionary<string, Segment> segments, long version)
     {
         _segments = segments;
+        Revision = Guid.NewGuid().ToString("N");
+        DocVersion = version;
+        Arguments = Build(alias, language, segments, wrap: true);
+        Request = Build(alias, language, segments, wrap: false);
+    }
+
+    /// <summary>The revision a plugin must echo in setAnnotations.</summary>
+    public string Revision { get; }
+
+    /// <summary>The editor version this text came from; results for another version are dropped.</summary>
+    public long DocVersion { get; }
+
+    /// <summary>The request object itself, as composer.getCheckText returns it.</summary>
+    public PluginValue Request { get; }
+
+    private PluginValue Build(string alias, string language, Dictionary<string, Segment> segments, bool wrap)
+    {
         var value = new PluginValueBuilder();
         var order = value.Array([.. segments.Keys.Select(value.String)]);
         var text = value.Array([.. segments.Select(pair =>
             value.Object(("id", value.String(pair.Key)), ("text", value.String(pair.Value.Text))))]);
-        Arguments = value.Build(value.Array(value.Object(("composerId", value.String(alias)),
-            ("revision", value.String(Guid.NewGuid().ToString("N"))), ("language", value.String(language)),
+        var request = value.Object(("composerId", value.String(alias)),
+            ("revision", value.String(Revision)), ("language", value.String(language)),
             ("full", value.Boolean(true)), ("order", order), ("segments", text),
-            ("objectReplacement", value.String(ObjectReplacement.ToString())))));
+            ("objectReplacement", value.String(ObjectReplacement.ToString())));
+        return value.Build(wrap ? value.Array(request) : request);
     }
 
     public PluginValue Arguments { get; }
 
-    public static PluginCheckRequest? Create(Doc doc, string alias, string language)
+    public static PluginCheckRequest? Create(Doc doc, string alias, string language, long version = 0)
     {
         if (!doc.HasComposerProvenance) return null;
         var segments = new Dictionary<string, Segment>(StringComparer.Ordinal);
@@ -69,7 +87,7 @@ public sealed class PluginCheckRequest
                 chars += text.Length;
             }
         }
-        return segments.Count == 0 ? null : new(alias, language, segments);
+        return segments.Count == 0 ? null : new(alias, language, segments, version);
     }
 
     public IReadOnlyList<PluginCheckIssue> Decode(PluginValue result, ImmutableArray<string> kinds)

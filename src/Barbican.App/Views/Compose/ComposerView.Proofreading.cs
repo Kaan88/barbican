@@ -24,6 +24,9 @@ namespace Barbican.App.Views.Compose;
 public sealed partial class ComposerView
 {
     private PluginCheckerRegistry? _checkers;
+    private PluginAnnotationStore? _annotationStore;
+    private IReadOnlyList<ProofreadingChoice> _typingChoices = [];
+    private string _typingStatus = "Proofreading";
     private PluginBackgroundRuntimes? _checkerRuntimes;
     private IPrefsStore? _checkerPrefs;
     private IAccountOverview? _checkerAccounts;
@@ -44,6 +47,8 @@ public sealed partial class ComposerView
     {
         if (_checkers is not null) return;
         _checkers = ViewHost.Get<PluginCheckerRegistry>();
+        _annotationStore = ViewHost.Find<PluginAnnotationStore>();
+        if (_annotationStore is not null) _annotationStore.Changed += OnAnnotationsChanged;
         _checkerRuntimes = ViewHost.Get<PluginBackgroundRuntimes>();
         _checkerPrefs = ViewHost.Get<IPrefsStore>();
         _checkerAccounts = ViewHost.Find<IAccountOverview>();
@@ -69,6 +74,8 @@ public sealed partial class ComposerView
         if (_checkers is null || _checkerRuntimes is null || _checkerPrefs is null || _checkerTimer is null ||
             _checkerPolicy is null || _checkerPolicyTimer is null) return;
         _checkers.Changed -= OnProofreadingRuntimeChanged;
+        if (_annotationStore is not null) _annotationStore.Changed -= OnAnnotationsChanged;
+        _annotationStore = null;
         _checkerRuntimes.RunningChanged -= OnProofreadingRuntimeChanged;
         _checkerPrefs.Changed -= OnProofreadingSettingsChanged;
         _checkerPolicy.ProofreadingPolicyChanged -= OnProofreadingPolicyChanged;
@@ -115,6 +122,14 @@ public sealed partial class ComposerView
 
     private void OnProofreadingTextChanged(object? sender, EventArgs args) => ScheduleProofreading();
 
+    // composer.setAnnotations from an on-demand checker: draw them beside whatever the typing checkers found
+    private void OnAnnotationsChanged(object? sender, EventArgs args) =>
+        _ = DispatcherQueue.TryEnqueue(() =>
+        {
+            StartProofreadingPolicyRefresh();
+            RenderProofreading(_typingChoices, _typingStatus);
+        });
+
     private void OnProofreadingSettingsChanged(object? sender, EventArgs args) =>
         _ = DispatcherQueue.TryEnqueue(ScheduleProofreading);
 
@@ -140,7 +155,7 @@ public sealed partial class ComposerView
     private void StartProofreadingPolicyRefresh()
     {
         if (_checkerPolicyTimer is not { } timer) return;
-        if (_checkerEditor is null || AvailableCheckers().Length == 0) { timer.Stop(); return; }
+        if (_checkerEditor is null || _checkers is not { } known || known.Current().Count == 0) { timer.Stop(); return; }
         if (!timer.IsRunning)
         {
             timer.Start();
@@ -254,12 +269,23 @@ public sealed partial class ComposerView
         }
     }
 
-    private static string ProofreadingLanguage(PrefsSnapshot prefs)
+    private static string ProofreadingLanguage(PrefsSnapshot prefs) => PluginCheckLanguage.Resolve(prefs);
+
+    private List<ProofreadingChoice> StoredProofreadingChoices(IReadOnlyList<ProofreadingChoice> typing)
     {
-        var language = prefs.Str("writingLanguage", "auto");
-        return string.Equals(language, "auto", StringComparison.Ordinal)
-            ? CultureInfo.CurrentCulture.Name is { Length: > 0 } configured ? configured : "en"
-            : language;
+        if (_annotationStore is not { } store || _vm is not { } draft || _checkerEditor is not { SourceOpen: false } editor || _checkers is not { } registry ||
+            _checkerPrefs is not { } prefs || _checkerPolicySnapshot is not { } snapshot || _checkerLifetime is not { } lifetime) return [];
+        var choices = new List<ProofreadingChoice>();
+        foreach (var (spec, issue) in store.Current(draft.Id, editor.Session.Version, registry))
+        {
+            if (choices.Count + typing.Count >= 300 || !Allows(prefs.Current, snapshot, spec) || !snapshot.TryRunWhileProofreadingCurrent(static () => true)) continue;
+            if (typing.Any(choice => issue.Start < choice.Issue.End && choice.Issue.Start < issue.End) ||
+                choices.Exists(choice => issue.Start < choice.Issue.End && choice.Issue.Start < issue.End)) continue;
+            bool UnderPolicy(Func<bool> run) => snapshot.TryRunWhileProofreadingCurrent(() =>
+                prefs.TryRunWhileCurrent(settings => Allows(settings, snapshot, spec) && run()));
+            choices.Add(new(issue, spec, replacement => ApplyProofreadingAsync(spec, issue, replacement, draft, editor, registry, UnderPolicy, lifetime.Token)));
+        }
+        return choices;
     }
 
     private string CheckerAlias(PluginCheckerRegistration spec)
@@ -348,6 +374,14 @@ public sealed partial class ComposerView
 
     private void RenderProofreading(IReadOnlyList<ProofreadingChoice> issues, string status)
     {
+        _typingChoices = issues;
+        _typingStatus = status;
+        var stored = StoredProofreadingChoices(issues);
+        if (stored.Count > 0)
+        {
+            issues = [.. issues, .. stored];
+            status = issues.Count == 1 ? "1 writing issue" : $"{issues.Count} writing issues";
+        }
         _vm?.SetProofreadingWarningCount(issues.Count(choice => choice.Spec.WarnBeforeSend));
         if (BodyHost.Content is EditorView editor)
         {
@@ -357,7 +391,7 @@ public sealed partial class ComposerView
         }
         ProofreadingMenu.Hide();
         ProofreadingMenu.Items.Clear();
-        ProofreadingButton.Visibility = _checkerEditor is not null && AvailableCheckers().Length > 0 ? Visibility.Visible : Visibility.Collapsed;
+        ProofreadingButton.Visibility = _checkerEditor is not null && (AvailableCheckers().Length > 0 || stored.Count > 0) ? Visibility.Visible : Visibility.Collapsed;
         ProofreadingButton.IsEnabled = issues.Count > 0;
         ProofreadingButton.Content = status;
         AutomationProperties.SetName(ProofreadingButton, status);
