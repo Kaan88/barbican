@@ -5,7 +5,7 @@ using Barbican.Core.Plugins.Api.Mail;
 namespace Barbican.Core.Plugins.Api.Navigation;
 
 /// <summary>The services the navigation add-on methods run on, and the state they share (one save dialog at a time).</summary>
-public sealed class PluginNavigationHost(IPluginMailReaders readers, IPluginMailRateLimiter limiter, IAppNavigator? navigator = null, IPluginViewRefresh? refresh = null, IPluginFileSaver? saver = null, Barbican.Core.Plugins.Pages.PluginPageRegistry? pages = null, IPluginPageOpener? pageOpener = null)
+public sealed class PluginNavigationHost(IPluginMailReaders readers, IPluginMailRateLimiter limiter, IAppNavigator? navigator = null, IPluginViewRefresh? refresh = null, IPluginFileSaver? saver = null, Barbican.Core.Plugins.Pages.PluginPageRegistry? pages = null, IPluginPageOpener? pageOpener = null, Barbican.Core.Plugins.Calendar.PluginDayLabelRegistry? dayLabels = null)
 {
     private int _saving;
 
@@ -22,6 +22,8 @@ public sealed class PluginNavigationHost(IPluginMailReaders readers, IPluginMail
     internal Barbican.Core.Plugins.Pages.PluginPageRegistry? Pages { get; } = pages;
 
     internal IPluginPageOpener? PageOpener { get; } = pageOpener;
+
+    internal Barbican.Core.Plugins.Calendar.PluginDayLabelRegistry? DayLabels { get; } = dayLabels;
 
     /// <summary>Takes the one save-dialog slot; false while another add-on call has the dialog open, so add-ons cannot stack dialogs.</summary>
     internal bool TryBeginSave() => Interlocked.CompareExchange(ref _saving, 1, 0) == 0;

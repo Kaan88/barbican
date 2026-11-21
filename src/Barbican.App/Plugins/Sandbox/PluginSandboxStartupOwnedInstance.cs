@@ -5,10 +5,12 @@ using Barbican.Core.Plugins.Api.Composer;
 using Barbican.Core.Plugins.Protocol;
 using Barbican.Core.Plugins.Runtime;
 namespace Barbican.App.Plugins.Sandbox;
-internal sealed class PluginSandboxStartupOwnedInstance(IPluginRuntimeInstance inner, PluginSandboxStartupLifetime lifetime) : IPluginRuntimeInstance, IPluginFencedHookRuntime
+internal sealed class PluginSandboxStartupOwnedInstance(IPluginRuntimeInstance inner, PluginSandboxStartupLifetime lifetime) : IPluginSlotFrameInstance, IPluginFencedHookRuntime
 {
     public PluginRuntimeBinding Binding => inner.Binding;
     public PluginActivation Activation => inner.Activation;
+    public event EventHandler<PluginSlotSizeEventArgs>? SlotResized { add { if (inner is IPluginSlotFrameInstance f) f.SlotResized += value; } remove { if (inner is IPluginSlotFrameInstance f) f.SlotResized -= value; } }
+    public (double Height, double Width) LastSlotSize => inner is IPluginSlotFrameInstance f ? f.LastSlotSize : (-1, -1);
     public Task<Result<PluginValue>> InvokeHookAsync(string hookName, PluginValue arguments, TimeSpan budget, CancellationToken ct) => inner.InvokeHookAsync(hookName, arguments, budget, ct);
     public Task<Result<PluginValue>> InvokeHookWhileCurrentAsync(string hookName, PluginValue arguments,
         TimeSpan budget, Func<Func<bool>, bool> runWhileCurrent, CancellationToken ct) =>

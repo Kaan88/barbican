@@ -32,6 +32,13 @@ public sealed partial class ShellPage
         var native = ViewHost.Get<NativePlugins>();
         var oauthBrowser = new PluginPackageHost.PluginOAuthBrowser(
             new BrowserAuthorizationLauncher(ViewHost.Get<IBrowserLauncher>()), ConfirmAddOnOAuthAsync);
+        if (hasBootstrap)
+        {
+            // Visible slot frames (add-on pages) take their own views, mounted by the screen that shows them, never the hidden mount.
+            var slotViews = new PluginSandboxWindowsViewFactory(DispatcherQueue, PluginSlotMount.Get, paths, options, interactive: true);
+            ViewHost.Get<PluginSlotFrames>().Initialize(
+                ct => packages.CreateAddOnFactoryAsync(slotViews, startup, hooks, sessions, methods, includeUserStorage: true, native, oauthBrowser, prefs, ct));
+        }
         _ = ViewHost.Get<PluginBackgroundRuntimes>().InitializeAsync(
             ct => packages.CreateAddOnFactoryAsync(views, startup, hooks, sessions, methods, includeUserStorage: true, native, oauthBrowser, prefs, ct),
             CancellationToken.None, javaScriptAvailable: hasBootstrap);

@@ -27,7 +27,8 @@ internal static class NavigationAddOnApiRegistration
         services.AddSingleton(sp => new PluginNavigationHost(sp.GetRequiredService<IPluginMailReaders>(), sp.GetRequiredService<IPluginMailRateLimiter>(),
             sp.GetRequiredService<Barbican.App.Plugins.PluginAppNavigator>(), sp.GetRequiredService<Barbican.App.Plugins.PluginAppNavigator>(),
             new Barbican.App.Plugins.PluginFileSaver(sp.GetRequiredService<TransferPicks>(), sp.GetRequiredService<IDispatcher>()),
-            sp.GetRequiredService<Barbican.Core.Plugins.Pages.PluginPageRegistry>(), sp.GetRequiredService<Barbican.App.Plugins.PluginPageOpener>()));
+            sp.GetRequiredService<Barbican.Core.Plugins.Pages.PluginPageRegistry>(), sp.GetRequiredService<Barbican.App.Plugins.PluginPageOpener>(),
+            sp.GetRequiredService<Barbican.Core.Plugins.Calendar.PluginDayLabelRegistry>()));
         services.AddSingleton(sp => new Barbican.App.Plugins.PluginPageOpener(sp.GetRequiredService<ShellViewModel>(), sp.GetRequiredService<Barbican.Core.Plugins.Pages.PluginPageRegistry>(), sp.GetRequiredService<IDispatcher>()));
         services.AddSingleton<PluginNavigationMethodSet>();
         for (var index = 0; index < PluginNavigationMethods.Count; index++)

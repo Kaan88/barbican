@@ -41,6 +41,7 @@ public static class PluginSandboxInitMessage
         if (request.Kind == PluginFrameKind.Slot)
         {
             payload.Add(("slot", b.String(request.Slot ?? throw new ArgumentException("Slot is required.", nameof(request)))));
+            if (request.Fill) payload.Add(("fill", b.Boolean(true)));
             payload.Add(("extraProps", b.Import(request.Props)));
             payload.Add(("theme", Json(request.HostState.Theme)));
         }

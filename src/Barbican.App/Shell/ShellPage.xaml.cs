@@ -465,6 +465,10 @@ public sealed partial class ShellPage : Page
         {
             _pluginPage?.Show(key, _shell.PluginPagePath);
         }
+        else if (!show)
+        {
+            _pluginPage?.Hide();
+        }
     }
 
     // M5 S0: an app of the rail other than Mail and Calendar shows the screen of the factory registered for it (built on the first visit, then only hidden)
