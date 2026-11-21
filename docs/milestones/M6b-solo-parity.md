@@ -423,3 +423,23 @@ interaction logs are in `artifacts/auto/9242/`. The fixed fresh-profile
 captures and transcript are in `artifacts/auto/9245/`. The focused Windows
 Automation build completed with zero warnings and errors. Presentation
 passed 1,138 tests and the mail-page builder passed 16 tests.
+
+## Windows portable preview at 2b97b82
+
+A progress preview, not M6b completion or reviewer approval. Source revision
+`2b97b824681092b4ab62c36a67701a00f9b8c2b9` adds the add-on dialogs, scoped mail
+reads and the remaining composer and proofreading methods to the `3791df4`
+checkpoint, plus the desktop-head build fix.
+
+The Windows x64 ZIP is `Barbican-2b97b8246810-win-x64.zip` under
+`artifacts/portable/`. It is 146,762,887 bytes, with SHA-256
+`B64FBA3648585FF1820EB4B1CF0B3CB40C5794501373EB4EB921144356582841`. The add-on
+runtime was rebuilt with `tools/plugin-runtime-build/prepare.ps1` from the
+Bulwark 1.21.2 tag (Node 26.11.1, npm 11.20.0); all eight runtime assets and
+nine notices matched their pins. The extracted Release app reported the source
+revision and the hidden smoke run reached shell-ready in 964.3 ms, exit 0.
+
+Tests behind it: the full Windows suite at `69f867c` passed 3,635 with four
+skips. The integrated branch at `2b97b82` passed 512 Core plugin tests and 127
+Presentation composer tests, and both heads built without warnings. The new
+dialogs have not yet been driven in a real window; that replay is in progress.

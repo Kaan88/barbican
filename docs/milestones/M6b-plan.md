@@ -16,7 +16,7 @@ The Windows milestone is open. Work continues on branch `m6b/bulwark-ui`, which 
 
 ### Continuation state (November 21)
 
-Claude resumed the milestone from a fresh clone. Committed implementation ends at `bff8a91`; the latest recorded Windows Automation suite passed 3,638 tests with four skips. The approved portable remains `3791df4`. The 77 commits from `b459504` (the last Claude-attributed revision) through `bff8a91` were written by a different agent and have not had a Fable review; the [continuation review packet](../FABLE-REVIEW.md#claude-continuation-review-packet-2026-11-20) lists them and their evidence.
+Claude resumed the milestone from a fresh clone. Committed implementation ends at `bff8a91`; the latest recorded Windows Automation suite passed 3,638 tests with four skips. The approved portable remains `3791df4`; a later progress preview is recorded at [`2b97b82`](M6b-solo-parity.md#windows-portable-preview-at-2b97b82). The 77 commits from `b459504` (the last Claude-attributed revision) through `bff8a91` were written by a different agent and have not had a Fable review; the [continuation review packet](../FABLE-REVIEW.md#claude-continuation-review-packet-2026-11-20) lists them and their evidence.
 
 Restart checklist:
 
