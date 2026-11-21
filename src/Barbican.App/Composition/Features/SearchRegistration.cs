@@ -6,6 +6,8 @@ using Barbican.App.Views.Search;
 #if AUTOMATION
 using Barbican.App.Views.Search.Automation;
 #endif
+using Barbican.Core.Contacts;
+using Barbican.Core.Files;
 using Barbican.Core.Mail.Lists;
 using Barbican.Core.Mail.Model;
 using Barbican.Core.Mail.Service;
@@ -13,7 +15,10 @@ using Barbican.Core.Plugins.Hooks;
 using Barbican.Core.Search;
 using Barbican.Core.Storage;
 using Barbican.Presentation.Actions;
+using Barbican.Presentation.Calendar.Grid;
 using Barbican.Presentation.Commands;
+using Barbican.Presentation.Contacts;
+using Barbican.Presentation.Files;
 using Barbican.Presentation.Mail;
 using Barbican.Presentation.Menus;
 using Barbican.Presentation.Palette;
@@ -47,7 +52,21 @@ public static class SearchRegistration
         services.TryAddSingleton(sp => new SearchSnippetSource(() => Active(sp).Client, login => sp.GetService<Barbican.Presentation.Unified.IUnifiedLogins>()?.ClientOf(login)));
         services.TryAddSingleton<ISnippetSource>(sp => sp.GetRequiredService<SearchSnippetSource>());
         services.Replace(ServiceDescriptor.Singleton<IListQueryShaper>(sp => new SearchListQueryShaper(() => Active(sp).Mailboxes, sp.GetRequiredService<SearchSnippetSource>())));
-        services.TryAddSingleton(sp => new SearchHitOpener(sp.GetRequiredService<MessageListViewModel>(), sp.GetRequiredService<SidebarViewModel>()));
+        // a hit of another app opens in it: the shell switches the app, the app's own view model shows the place (the services are optional: a head without that app opens nothing)
+        services.TryAddSingleton(sp => new SearchHitOpener(
+            sp.GetRequiredService<MessageListViewModel>(),
+            sp.GetRequiredService<SidebarViewModel>(),
+            sp.GetService<ShellViewModel>(),
+            sp.GetService<IContactsViewModel>(),
+            sp.GetService<ICalendarViewModel>(),
+            sp.GetService<IFilesViewModel>()));
+        // contacts, events and files of the active login come from their stores (sample stores in a hidden run)
+        services.TryAddSingleton<IGlobalSearchSources>(sp => new StoreSearchSources(
+            () => sp.GetRequiredService<IActiveMail>().AccountKey,
+            sp.GetService<IContactStore>(),
+            sp.GetService<ICalendarSource>(),
+            sp.GetService<IFileStore>(),
+            sp.GetRequiredService<TimeProvider>()));
         services.TryAddSingleton(sp => new SearchBoxModel(
             sp.GetRequiredService<MessageListViewModel>().SearchAsync,
             sp.GetRequiredService<SearchHistoryStore>(),
@@ -68,7 +87,8 @@ public static class SearchRegistration
                 sp.GetRequiredService<IActiveMail>(),
                 sp.GetRequiredService<IHookBus>(),
                 id => directory.Tree.All.FirstOrDefault(m => string.Equals(m.Id, id, StringComparison.Ordinal))?.Name ?? string.Empty,
-                () => list.MailboxId ?? string.Empty);
+                () => list.MailboxId ?? string.Empty,
+                sp.GetRequiredService<IGlobalSearchSources>());
         });
         foreach (var i in Enumerable.Range(0, 2))
         {

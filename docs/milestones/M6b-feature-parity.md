@@ -54,7 +54,7 @@ Feature work comes before further UI polish. Linux (M9) is deferred indefinitely
 | done | G-041, SB-07 | Per-folder notification mute | notifications | S | `src/Barbican.App/Views/SettingsServer/SrvUiOrganizePage.cs` | notification routing |
 | open | G-049 | Link-mismatch warning banner | reader | M | `src/Barbican.App/MailBody/BodyShell.cs`, `src/Barbican.Presentation/Reader/` | link scanner |
 | open | G-050 | Phishing report flow | reader | M | `src/Barbican.App/Views/Reader/ReaderView.xaml.cs`, `src/Barbican.Presentation/Reader/` | report endpoint |
-| done (pending merge) | G-051 | External-sender chip | reader | S | `src/Barbican.App/Views/Reader/ReaderView.xaml.cs`, `src/Barbican.Presentation/Reader/` | sender trust data |
+| done (7ba8630) | G-051 | External-sender chip | reader | S | `src/Barbican.App/Views/Reader/ReaderView.xaml.cs`, `src/Barbican.Presentation/Reader/` | sender trust data |
 | open | G-052 | BIMI verified badge (logo fetch exists) | reader | M | `src/Barbican.Core/Mail/Avatars/AvatarRules.cs`, `src/Barbican.App/Views/Reader/ReaderView.xaml.cs` | VMC validation |
 | open | G-053 | Trusted-sender dialog and remote-content policy (backend exists) | reader | M | `src/Barbican.Core/Mail/Trust/TrustedSenders.cs`, `src/Barbican.App/Views/Reader/ReaderMenuOpener.cs` | UI + policy setting |
 | open | RD-05 | Retention notice banner | reader | S | `src/Barbican.Presentation/Reader/ReceiptBannerSource.cs` | server retention data |
@@ -62,8 +62,8 @@ Feature work comes before further UI polish. Linux (M9) is deferred indefinitely
 | open | RD-11 | Reading mask overlay | reader | M | `src/Barbican.App/MailBody/BodyShell.cs`, `src/Barbican.Core/Settings/Accessibility/A11y.cs` | body JS |
 | open | RD-06 | Rename an attachment | reader | S | `src/Barbican.App/Views/Reader/ReaderView.xaml.cs` | attachment rename command |
 | open | G-056 | Fetch the full body when truncated | reader | M | `src/Barbican.Presentation/Mail/Loading/MessageLoader.cs`, `src/Barbican.Core/Mail/Model/EmailBody.cs` | body refetch |
-| done (pending merge) | SR-02 | Search filter "has words" and Size fields | search | S | `src/Barbican.App/Views/Search/SearchBoxView.xaml.cs`, `src/Barbican.Presentation/Search/SearchCommands.cs` | search operators |
-| open | SR-03 | Global search facets, scope chips, preview | search | L | `src/Barbican.App/Views/Palette/PaletteView.xaml.cs`, `src/Barbican.Presentation/Search/GlobalSearchPaletteProvider.cs` | search backend |
+| done (7ba8630) | SR-02 | Search filter "has words" and Size fields | search | S | `src/Barbican.App/Views/Search/SearchBoxView.xaml.cs`, `src/Barbican.Presentation/Search/SearchCommands.cs` | search operators |
+| done (pending merge) | SR-03 | Global search facets, scope chips, preview | search | L | `src/Barbican.App/Views/Palette/PaletteView.xaml.cs`, `src/Barbican.Presentation/Search/GlobalSearchPaletteProvider.cs` | search backend |
 | open | G-070 | Built-in themes, accent colours, custom themes | settings | L | `src/Barbican.App/Theme/StyleState.cs`, `src/Barbican.App/Views/Settings/SetUiScreenFactory.cs`, `design/legacy-slint/theme.slint` | theme compiler |
 | open | G-071 | Language selection and localisation | settings | L | `src/Barbican.Core/Settings/Pages/SettingsCatalog.cs`, `src/Barbican.App/Views/Settings/SetUiScreen.cs` | i18n service |
 | open | G-027, G-028, G-029 | Live password, TOTP, app-password and API-key writes | settings | L | `src/Barbican.Core/Settings/Account/AccountSecurity.cs`, `src/Barbican.App/Views/Settings/SetUiSecurityPage.cs` | server `x:*` support |

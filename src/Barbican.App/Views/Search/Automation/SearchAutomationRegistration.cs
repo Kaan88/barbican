@@ -56,8 +56,52 @@ public static class SearchAutomationRegistration
             var palette = sp.GetRequiredService<Barbican.Presentation.Palette.PaletteController>();
             await palette.OpenAsync(GlobalSearchPaletteProvider.ScopeName);
             await palette.SetTextAsync(args);
-            var rows = palette.Rows.Where(r => !r.IsHeader).Select(r => (r.Enabled ? string.Empty : "!") + r.Command!.Label).ToList();
-            return $"{rows.Count} rows: " + string.Join(" | ", rows.Take(8));
+            return Describe(palette);
+        });
+        // global-search-facet KEY: turns a scope chip on (all, mail, contacts, calendar, files); global-search-move N: moves the highlight N rows (negative: up); global-search-next / -prev: Ctrl+Right / Ctrl+Left;
+        // global-search-preview: the preview card of the highlighted row; global-search-open: Enter on the highlighted row
+        Add(services, "global-search-facet", async (sp, args) =>
+        {
+            var palette = sp.GetRequiredService<Barbican.Presentation.Palette.PaletteController>();
+            await palette.SetFacetAsync(args.Trim());
+            return Describe(palette);
+        });
+        Add(services, "global-search-next", async (sp, _) =>
+        {
+            var palette = sp.GetRequiredService<Barbican.Presentation.Palette.PaletteController>();
+            await palette.CycleFacetAsync(1);
+            return Describe(palette);
+        });
+        Add(services, "global-search-prev", async (sp, _) =>
+        {
+            var palette = sp.GetRequiredService<Barbican.Presentation.Palette.PaletteController>();
+            await palette.CycleFacetAsync(-1);
+            return Describe(palette);
+        });
+        Add(services, "global-search-move", (sp, args) =>
+        {
+            var palette = sp.GetRequiredService<Barbican.Presentation.Palette.PaletteController>();
+            var n = int.TryParse(args.Trim(), System.Globalization.NumberStyles.AllowLeadingSign, System.Globalization.CultureInfo.InvariantCulture, out var v) ? v : 1;
+            for (var i = 0; i < Math.Abs(n); i++)
+            {
+                palette.Move(Math.Sign(n));
+            }
+
+            return Task.FromResult(Describe(palette));
+        });
+        Add(services, "global-search-preview", (sp, _) =>
+        {
+            var preview = sp.GetRequiredService<Barbican.Presentation.Palette.PaletteController>().Preview;
+            return Task.FromResult(preview is null
+                ? "none"
+                : $"{preview.Kind}: {preview.Title} | {preview.Subtitle} | lines: " + string.Join(" ; ", preview.Lines.Select(l => l.Icon + "=" + l.Text))
+                  + " | snippet: " + string.Concat(preview.Snippet.Select(s => s.Marked ? "[[" + s.Text + "]]" : s.Text)) + " | open: " + preview.OpenLabel);
+        });
+        Add(services, "global-search-open", async (sp, _) =>
+        {
+            var palette = sp.GetRequiredService<Barbican.Presentation.Palette.PaletteController>();
+            var ran = await palette.EnterAsync();
+            return ran ? "ok" : "not run";
         });
         Add(services, "chips", (sp, _) =>
         {
@@ -114,6 +158,14 @@ public static class SearchAutomationRegistration
         return services;
     }
 #pragma warning restore MA0051
+
+    private static string Describe(Barbican.Presentation.Palette.PaletteController palette)
+    {
+        var rows = palette.Rows.Where(r => !r.IsHeader).Select(r => (r.Enabled ? string.Empty : "!") + r.Command!.Label).ToList();
+        var chips = string.Join(" ", palette.Facets.Select(f => $"{(f.Active ? "*" : string.Empty)}{f.Label}={f.Count}{(f.More ? "+" : string.Empty)}"));
+        var at = palette.Highlight >= 0 && palette.Highlight < palette.Rows.Count && palette.Rows[palette.Highlight].Command is { } c ? c.Label : "-";
+        return $"{rows.Count} rows [{chips}] highlight={at}: " + string.Join(" | ", rows.Take(8));
+    }
 
     private static void Add(IServiceCollection services, string name, Func<IServiceProvider, string, Task<string>> run) =>
         services.AddSingleton<IAutomationCommand>(sp => new LambdaAutomationCommand(name, args => run(sp, args)));
