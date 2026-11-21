@@ -128,6 +128,7 @@ S-avatars.refresh,wired,privacy,button,Refresh sender icons,null,main.rs,src/mai
 S-gravatarAvatars,wired,privacy,toggle,Gravatar photos,false,avatars.rs,src/avatars.rs:33,src/Barbican.App/Composition/Features/ReaderRegistration.cs,
 S-senderFavicons,wired,privacy,toggle,Sender pictures from the web,false,avatars.rs,src/avatars.rs:33,src/Barbican.App/Composition/Features/ReaderRegistration.cs,
 S-showAvatarsInJunk,wired,privacy,toggle,Show avatars in the Junk folder,false,avatars.rs,src/avatars.rs:33,src/Barbican.App/Composition/Features/ReaderRegistration.cs,
+S-externalSenderLabel,wired,privacy,toggle,Label external senders,true,,,MailListSettings,"Barbican-only row (G-051): Bulwark has no user setting; this stands in for the organisation policy externalMail.senderLabel (lib/admin/organisation-policy.ts:194), and only the identities' own domains count as internal."
 S-attachmentImagePreviewsEnabled,wired,reading,toggle,Show image previews in attachments,true,attachments.rs,src/attachments.rs:60,MailListSettings,
 S-emailAlwaysLightMode,wired,reading,toggle,Always show emails in light mode,false,main.rs,src/main.rs:233,BodyAppearance,
 S-hideInlineImageAttachments,wired,reading,toggle,Hide inline images from attachments,true,mail.rs;msgload.rs;reader.rs,src/mail.rs:73,MailListSettings,

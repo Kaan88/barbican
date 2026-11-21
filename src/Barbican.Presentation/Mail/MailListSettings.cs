@@ -59,6 +59,9 @@ public sealed record MailListSettings
 
     public bool TintListRowsByTag { get; init; }
 
+    /// <summary>The reader's "External" sender chip (G-051, pref externalSenderLabel; Bulwark's organisation externalMail.senderLabel, off by default as Bulwark, organisation-policy.ts:194; a user setting here because Barbican has no admin policy).</summary>
+    public bool ExternalSenderLabel { get; init; }
+
     /// <summary>Reads the settings (the defaults for anything not stored).</summary>
     public static MailListSettings Read(PrefsSnapshot prefs, SystemAccessibility system)
     {
@@ -88,6 +91,7 @@ public sealed record MailListSettings
             MoreContrast = A11y.From(prefs, system).MoreContrast,
             ShowVerificationCodes = prefs.Bool("showVerificationCodes", true),
             TintListRowsByTag = prefs.Bool("tintListRowsByTag", false),
+            ExternalSenderLabel = prefs.Bool("externalSenderLabel", false),
         };
     }
 
@@ -131,6 +135,7 @@ public sealed record MailListSettings
         Now = now,
         Zone = zone,
         Tags = LookupTags(),
+        ExternalSenderLabel = ExternalSenderLabel,
     };
 
     private static uint Tint(uint rgb, bool cvd) => cvd ? A11y.CvdColor(rgb) : rgb;

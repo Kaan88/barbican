@@ -1,5 +1,5 @@
-// Mirrors: Rust attachments.rs show :81 (attachmentImagePreviewsEnabled), mail.rs hideInlineImageAttachments; RFC 8601 §5 (ServerHost); R2-07 (pin, Sent/Drafts).
-// Owner mailcore.
+// Mirrors: Rust attachments.rs show :81 (attachmentImagePreviewsEnabled), mail.rs hideInlineImageAttachments; RFC 8601 §5 (ServerHost); R2-07 (pin, Sent/Drafts);
+// Bulwark external-sender-chip.tsx:120-125 (the External chip and its tooltip, G-051). Owner mailcore.
 
 namespace Barbican.Presentation.Mail;
 
@@ -25,4 +25,10 @@ public sealed record ReaderOptions
 
     /// <summary>Tag names, colours and order: the header shows the tags of the message (Bulwark email-viewer.tsx:5422).</summary>
     public TagLookup Tags { get; init; } = TagLookup.None;
+
+    /// <summary>The "External" sender chip is on (G-051; pref externalSenderLabel, Bulwark's externalMail.senderLabel).</summary>
+    public bool ExternalSenderLabel { get; init; }
+
+    /// <summary>The account's own domains (its identities'): a sender outside them gets the chip (ExternalSenderRules).</summary>
+    public IReadOnlyList<string> InternalDomains { get; init; } = [];
 }

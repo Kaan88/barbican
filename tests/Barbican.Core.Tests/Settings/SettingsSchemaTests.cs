@@ -29,9 +29,9 @@ public sealed class SettingsSchemaTests
         var tabs = doc.RootElement.GetProperty("tabs");
 
         Assert.Equal(21, tabs.GetArrayLength());
-        Assert.Equal(276, tabs.EnumerateArray().Sum(t => t.GetProperty("rows").GetArrayLength()));
+        Assert.Equal(277, tabs.EnumerateArray().Sum(t => t.GetProperty("rows").GetArrayLength()));
         Assert.Equal("account", tabs[0].GetProperty("id").GetString());
     }
 
-    private const string ReviewedSha256 = "96d649821ae721ebcf7ee6ac5d7119cc93c3d90732061a15ee78a3e0d2bfaa70";
+    private const string ReviewedSha256 = "2df853ef989ee15df484b9df78ed34af5b61c6acfe4c7148cc20600b18efa143";
 }
