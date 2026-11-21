@@ -36,8 +36,9 @@ Use [UI guidelines](design/UI-GUIDELINES.md) for appearance and motion. M6b uses
   `Mouse`/`Keyboard`, `SetCursorPos`, xdotool, focus stealing or real-window driving on the user's
   machine. Hidden in-app automation only, with your own port and profile (PORT-PLAN.md §4.4). The
   banned-API analyzer and `tools/build.ps1 rules` enforce this.
-- **`<readonly-account>` is read-only.** Writes (send, move, delete, flag, mark read, settings)
-  happen only on `<test-account>`, and every write test cleans up after itself.
+- **Live writes happen only on `<test-account>`**, and every write test cleans up after itself
+  (send, move, delete, flag, mark read, settings). Live reads also use `<test-account>`. A
+  `<readonly-account>` is optional; if `.local/accounts.md` maps one, never write to it.
 - **Never read `<admin-key-file>`** (path in .local/accounts.md), never copy anything from it, never
   use the admin API key yourself. Admin is tested read-only; the user enters the key in Settings.
 - **Never sign in, sign out or clear credentials of the Rust app**, and never touch its profile.
