@@ -56,7 +56,10 @@ public sealed class TimeZonePickerContent : IDialogContent
         panel.Children.Add(search);
         panel.Children.Add(status);
         panel.Children.Add(list);
-        panel.Children.Add(SetUiUi.Pill("Cancel", () => dialog.Complete(null), "timezone.cancel"));
+        var cancel = SetUiUi.Pill("Cancel", () => dialog.Complete(null), "timezone.cancel");
+        Dialogs.DialogStyles.Dress(cancel);
+        cancel.HorizontalAlignment = HorizontalAlignment.Right;
+        panel.Children.Add(cancel);
         SetUiUi.Run(async () =>
         {
             var now = _time.GetUtcNow();

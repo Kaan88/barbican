@@ -1,6 +1,10 @@
 // Installed package management with a separate live background-runtime status.
+// Layout (WP-11, AO-01): Bulwark components/settings/plugins-settings.tsx:101-190 (a "Plugins" section with its description, the install button with its hint, then one card per add-on:
+// plugins-settings.tsx:196-300, see SetUiAddonCard), addons-settings.tsx:13-22 (the page is these sections, space-y-8). The sidebar apps section (sidebar-apps-settings.tsx) has no counterpart here: Barbican
+// has no sidebar apps (SH-10). Behaviour (review, consent, enable, remove, runtime status) is unchanged.
 using Barbican.App.Settings;
 using Barbican.App.Shell;
+using Barbican.App.Theme;
 using Barbican.Presentation.Dialogs;
 using Barbican.Core.Accounts;
 using Barbican.Core.Common;
@@ -18,6 +22,8 @@ using Barbican.Presentation.Settings;
 using Microsoft.UI.Xaml.Automation;
 using Microsoft.UI.Xaml.Automation.Peers;
 
+#pragma warning disable MA0051 // a page is built top to bottom in one method, like its layout reads
+
 namespace Barbican.App.Views.Settings;
 
 /// <summary>Lists packages and reviews local archives before installation.</summary>
@@ -33,7 +39,8 @@ internal sealed partial class AddonsPageFactory(PluginPackageHost packages, Plug
     private bool _importing;
     private bool _mutating;
     private readonly List<Button> _actions = [];
-    private readonly List<(PluginInstallation Installation, TextBlock Detail, Button? Start, Button? Managed)> _rows = [];
+    private readonly List<ToggleSwitch> _toggles = [];
+    private readonly List<(PluginInstallation Installation, TextBlock Detail, Button? Start, ToggleSwitch? Managed)> _rows = [];
     private readonly HashSet<PluginPackageIdentity> _managedFailures = [];
     private StackPanel? _reviewPanel;
     private PluginInstallPreview? _review;
@@ -50,7 +57,13 @@ internal sealed partial class AddonsPageFactory(PluginPackageHost packages, Plug
             return _page;
         }
 
-        var panel = SetUiUi.Page("Installed add-ons");
+        var panel = SetUiUi.Page("Add-ons");
+        var heading = SetUiUi.Heading("Plugins");
+        heading.Margin = new Thickness(0, 0, 0, 2);
+        panel.Children.Add(heading);
+        var intro = SetUiUi.Meta("Add-ons add features to Barbican. Turn them on or off for your account, or install your own.");
+        if (StyleState.Current.IsBulwark) intro.FontSize = 14;
+        panel.Children.Add(intro);
         _webRequests = SetUiUi.Id(new ToggleSwitch
         {
             IsOn = !PluginNetworkPolicy.IsBlocked(prefs),
@@ -66,9 +79,13 @@ internal sealed partial class AddonsPageFactory(PluginPackageHost packages, Plug
         panel.Children.Add(SetUiUi.RowWithDescription("Allow add-on web requests",
             SetUiUi.Meta("JavaScript add-ons can contact websites you approved for them."), _webRequests, "set.addons.network"));
         _refresh = SetUiUi.Pill("Refresh", () => SetUiUi.Run(LoadAsync), "set.addons.refresh");
-        panel.Children.Add(_refresh);
         _import = SetUiUi.Pill("Import ZIP…", () => SetUiUi.Run(ImportAsync), "set.addons.import");
-        panel.Children.Add(_import);
+        // plugins-settings.tsx:131-153: the install button, then its hint, side by side
+        var installRow = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, Margin = new Thickness(0, 12, 0, 8) };
+        installRow.Children.Add(_import);
+        installRow.Children.Add(_refresh);
+        installRow.Children.Add(new TextBlock { Text = "Choose an add-on ZIP file.", FontSize = 12, Foreground = AppResources.Brush("Dim"), VerticalAlignment = VerticalAlignment.Center });
+        panel.Children.Add(installRow);
 #if WINDOWS
         AddManagedReviewControls(panel);
 #endif
@@ -114,13 +131,13 @@ internal sealed partial class AddonsPageFactory(PluginPackageHost packages, Plug
         _ = _list?.DispatcherQueue.TryEnqueue(() =>
         {
             if (!_visible) return;
-            foreach (var (installation, detail, start, managed) in _rows) UpdateRunningState(installation, detail, start, managed);
+            foreach (var (installation, detail, start, _) in _rows) UpdateRunningState(installation, detail, start);
             if (_review is null && !_importing && _rows.Any(row => row.Managed is not null))
                 SetUiUi.Run(LoadAsync);
         });
     }
 
-    private void UpdateRunningState(PluginInstallation installation, TextBlock detail, Button? start, Button? managed)
+    private void UpdateRunningState(PluginInstallation installation, TextBlock detail, Button? start)
     {
         var isManaged = installation.Package.Source == PluginPackageSource.Managed;
         var running = runtimes.IsRunning(installation);
@@ -139,17 +156,12 @@ internal sealed partial class AddonsPageFactory(PluginPackageHost packages, Plug
         else if (NeedsWebsiteReview(installation)) state += " · Review websites";
         detail.Text = $"Version {installation.Package.Identity.Version} · {state}";
         if (start is not null) start.Visibility = running ? Visibility.Collapsed : Visibility.Visible;
-        if (managed is not null)
-        {
-            var label = installation.Enabled ? "Disable" : _managedFailures.Contains(installation.Package.Identity) ? "Retry" : "Enable";
-            managed.Content = label;
-            AutomationProperties.SetName(managed, label + " " + installation.Package.Identity.Id);
-        }
     }
 
     private void SetActionsEnabled(bool enabled)
     {
         foreach (var action in _actions) action.IsEnabled = enabled;
+        foreach (var toggle in _toggles) toggle.IsEnabled = enabled && toggle.Tag is not "locked";
     }
 
     public void Reveal(string anchor)
@@ -169,6 +181,7 @@ internal sealed partial class AddonsPageFactory(PluginPackageHost packages, Plug
         _refresh.IsEnabled = false;
         if (_import is not null) _import.IsEnabled = false;
         _actions.Clear();
+        _toggles.Clear();
         _rows.Clear();
         _list.Children.Clear();
         _status.Text = "Loading installed add-ons…";
@@ -215,31 +228,60 @@ internal sealed partial class AddonsPageFactory(PluginPackageHost packages, Plug
         var identity = installation.Package.Identity;
         var detail = SetUiUi.Id(SetUiUi.Meta(string.Empty), "set.addons.state." + identity.Id);
         AutomationProperties.SetLiveSetting(detail, AutomationLiveSetting.Polite);
-        var actions = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6 };
         var managed = installation.Package.Source == PluginPackageSource.Managed;
-        Button? managedAction = null;
-#if WINDOWS
+        var details = new StackPanel { Spacing = 10 };
+
+        // plugins-settings.tsx:262-270: the switch turns the add-on on or off; a managed add-on can only be switched where its runtime exists
+        var toggle = SetUiUi.Id(new ToggleSwitch { IsOn = installation.Enabled, OnContent = string.Empty, OffContent = string.Empty, MinWidth = 0 },
+            managed ? $"set.addons.managed.toggle.{identity.Id}" : $"set.addons.enable.{identity.Id}");
+        AutomationProperties.SetName(toggle, "Turn " + identity.Id + " on or off");
+#if !WINDOWS
         if (managed)
         {
-            managedAction = SetUiUi.Pill("Enable", () => SetUiUi.Run(() => ChangeAsync(identity, !installation.Enabled, remove: false, managed: true)), $"set.addons.managed.toggle.{identity.Id}");
-            actions.Children.Add(managedAction);
-            _actions.Add(managedAction);
+            toggle.IsEnabled = false;
+            toggle.Tag = "locked";
         }
 #endif
+        var reverting = false;
+        toggle.Toggled += (_, _) =>
+        {
+            if (reverting || toggle.IsOn == installation.Enabled) return;
+            if (!_visible || _loading || _importing || _mutating || _review is not null)
+            {
+                // a change is already under way: the switch goes back to what the add-on is
+                reverting = true;
+                toggle.IsOn = installation.Enabled;
+                reverting = false;
+                return;
+            }
+
+            SetUiUi.Run(() => ChangeAsync(identity, toggle.IsOn, remove: false, managed: managed));
+        };
+        _toggles.Add(toggle);
+
+        // plugins-settings.tsx:274-285: what it can do, then the actions
+        details.Children.Add(SetUiUi.Label(managed ? "What it can do (approved by your administrator)" : "What it can do"));
+        details.Children.Add(SetUiUi.Meta(Describe(installation.Package.RequestedPermissions.OrderBy(x => x, StringComparer.Ordinal))));
+        var actions = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
         var start = !managed && installation is { Enabled: true, Error: null }
             ? AddAction("Start", "start", enabled: true, remove: false)
             : null;
-        if (!managed) AddAction(installation.Enabled ? "Disable" : "Enable", "enable", enabled: !installation.Enabled, remove: false);
-        AddAction("Remove", "remove", enabled: false, remove: true);
         if (!managed && NeedsWebsiteReview(installation))
         {
             var review = SetUiUi.Pill("Review websites", () => SetUiUi.Run(() => ReviewInstalledAsync(identity)), $"set.addons.review-websites.{identity.Id}");
             actions.Children.Add(review);
             _actions.Add(review);
         }
-        _rows.Add((installation, detail, start, managedAction));
-        UpdateRunningState(installation, detail, start, managedAction);
-        list.Children.Add(SetUiUi.RowWithDescription(identity.Id, detail, actions, "set.addons.item." + identity.Id));
+
+        var removeButton = AddAction("Remove", "remove", enabled: false, remove: true);
+        removeButton.Foreground = AppResources.Brush("Destructive");
+        details.Children.Add(actions);
+
+        _rows.Add((installation, detail, start, managed ? toggle : null));
+        UpdateRunningState(installation, detail, start);
+        var badges = new List<(string, SetUiAddonCard.BadgeKind)> { managed ? ("Managed", SetUiAddonCard.BadgeKind.Managed) : ("Yours", SetUiAddonCard.BadgeKind.Quiet) };
+        if (installation.Error is not null) badges.Insert(0, ("Problem", SetUiAddonCard.BadgeKind.Problem));
+        list.Children.Add(SetUiAddonCard.Build(identity.Id, string.Empty, detail, badges, toggle, details, "set.addons.item." + identity.Id, installation.Error is not null));
 
         Button AddAction(string label, string action, bool enabled, bool remove)
         {

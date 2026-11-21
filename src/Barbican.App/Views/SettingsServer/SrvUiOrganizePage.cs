@@ -44,6 +44,8 @@ internal sealed class SrvUiOrganizePage : SrvUiPage
         _tags.PropertyChanged += (_, _) => Invalidate();
     }
 
+    protected override string AnchorId(string anchor) => string.Equals(anchor, "folders", StringComparison.Ordinal) ? "srv.organize.folders" : anchor;
+
     protected override Task LoadAsync()
     {
         _tags.Refresh();

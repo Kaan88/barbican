@@ -1,4 +1,6 @@
-// Mirrors: M6 plan section 6.2 (the settings views); the controls the pages share: text, pill buttons, cards, the guarded async handler. Every popup is in-window (ADR 0007): dialogs go through IDialogService.
+// Mirrors: M6 plan section 6.2 (the settings views); the controls the pages share: text, buttons, rows, the guarded async handler. Every popup is in-window (ADR 0007): dialogs go through IDialogService.
+// Bulwark components/settings/settings-section.tsx:222-342 (section: h3 text-lg font-medium + text-sm muted description; row: py-3 border-b, label text-sm font-medium, description text-xs muted mt-1),
+// settings-app.tsx:1188-1194 (page max-w-3xl mx-auto px-6 py-6, the h1 is sr-only), ui/button.tsx:15-23 (sm h-9 px-3 text-sm font-medium). Sizes come from Theme/StyleState.Settings.cs; Bento and Nordic keep their own.
 
 using Barbican.App.Shell;
 using Barbican.App.Theme;
@@ -24,21 +26,46 @@ public static class SetUiUi
 
     public static TextBlock Meta(string text) => new() { Text = Clean(text), Style = (Style)Application.Current.Resources["Text.Meta"], TextWrapping = TextWrapping.Wrap };
 
-    public static TextBlock Heading(string text) => new()
+    /// <summary>A section's title: Bulwark text-lg font-medium with the space-y-8 gap above it, Bento 15 bold.</summary>
+    public static TextBlock Heading(string text)
     {
-        Text = Clean(text),
-        FontSize = 15,
-        FontWeight = Microsoft.UI.Text.FontWeights.Bold,
-        Foreground = AppResources.Brush("Text"),
-        Margin = new Thickness(0, 18, 0, 2),
-        TextWrapping = TextWrapping.Wrap,
-    };
+        var look = StyleState.Current;
+        return new TextBlock
+        {
+            Text = Clean(text),
+            FontSize = look.SetSectionSize,
+            FontWeight = look.SetSectionWeight,
+            Foreground = AppResources.Brush("Text"),
+            Margin = new Thickness(0, look.SetSectionGap, 0, 2),
+            TextWrapping = TextWrapping.Wrap,
+        };
+    }
+
+    /// <summary>A row's label: Bulwark text-sm font-medium in the foreground colour.</summary>
+    public static TextBlock Label(string text)
+    {
+        var look = StyleState.Current;
+        return new TextBlock { Text = Clean(text), FontSize = look.SetLabelSize, FontWeight = look.SetLabelWeight, Foreground = AppResources.Brush(look.SetLabelBrush), TextWrapping = TextWrapping.Wrap };
+    }
 
     public static TextBlock Title(string text) => new() { Text = text, FontSize = 22, FontWeight = Microsoft.UI.Text.FontWeights.Bold, Foreground = AppResources.Brush("Text") };
 
+    /// <summary>A button of a row: Bulwark's h-9 px-3 text-sm font-medium with the shape radius, or the older pill.</summary>
     public static Button Pill(string label, Action click, string id, bool primary = false)
     {
-        var b = new Button { Content = label, MinWidth = 80, Height = 32, CornerRadius = new CornerRadius(16), FontSize = 13, Style = (Style)Application.Current.Resources[primary ? "Button.Primary" : "Button.Action"] };
+        var look = StyleState.Current;
+        var b = new Button
+        {
+            Content = label,
+            MinWidth = look.SetButtonMinWidth,
+            Height = look.SetButtonHeight,
+            CornerRadius = look.SetButtonRadius,
+            FontSize = look.SetButtonSize,
+            FontWeight = look.SetButtonWeight,
+            Padding = look.SetButtonPadding,
+            HorizontalAlignment = HorizontalAlignment.Left,
+            Style = (Style)Application.Current.Resources[primary ? "Button.Primary" : "Button.Action"],
+        };
         AutomationProperties.SetAutomationId(b, id);
         b.Click += (_, _) => click();
         return b;
@@ -57,11 +84,12 @@ public static class SetUiUi
 
     internal static Grid RowWithDescription(string label, TextBlock? description, FrameworkElement? control, string id)
     {
-        var grid = new Grid { ColumnSpacing = 16, Padding = new Thickness(0, 8, 0, 8), BorderBrush = AppResources.Brush("Line"), BorderThickness = new Thickness(0, 0, 0, 1) };
+        var look = StyleState.Current;
+        var grid = new Grid { ColumnSpacing = 16, Padding = look.SetRowPadding, BorderBrush = AppResources.Brush("Line"), BorderThickness = new Thickness(0, 0, 0, 1) };
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-        var left = new StackPanel { Spacing = 2 };
-        left.Children.Add(Body(label));
+        var left = new StackPanel { Spacing = look.SetDescGap };
+        left.Children.Add(Label(label));
         if (description is not null)
         {
             left.Children.Add(description);
@@ -81,10 +109,34 @@ public static class SetUiUi
 
     public static ScrollViewer Scroll(UIElement content) => new() { Content = content, VerticalScrollBarVisibility = ScrollBarVisibility.Auto, HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled };
 
+    /// <summary>The body of a page: Bulwark's centred max-w-3xl column with no visible title (the nav names the page), Bento's titled left column. Follows a style switch.</summary>
     public static StackPanel Page(string title)
     {
-        var panel = new StackPanel { Spacing = 4, Padding = new Thickness(28, 20, 28, 28), MaxWidth = 760, HorizontalAlignment = HorizontalAlignment.Left };
-        panel.Children.Add(Title(title));
+        var look = StyleState.Current;
+        var panel = new StackPanel { Spacing = 4 };
+        var heading = Title(title);
+        panel.Children.Add(heading);
+        AutomationProperties.SetName(panel, title);
+        void Apply()
+        {
+            panel.Padding = look.SetPagePadding;
+            panel.MaxWidth = look.SetPageMaxWidth;
+            panel.HorizontalAlignment = look.SetPageAlignment;
+            heading.Visibility = look.SetPageTitleVisibility;
+        }
+
+        Apply();
+        var style = look.Style;
+        look.PropertyChanged += (_, _) =>
+        {
+            if (look.Style == style)
+            {
+                return;
+            }
+
+            style = look.Style;
+            Apply();
+        };
         return panel;
     }
 

@@ -46,8 +46,8 @@ public sealed class SrvUiFilterApplyDialogContent : IDialogContent
 
         host.Children.Add(Buttons(
             m.Phase == SrvUiApplyPhase.Ready
-                ? Btn("Apply", DialogTone.Primary, "srv.rule-apply.confirm", () => SrvUiKit.Run(() => m.ApplyAsync(CancellationToken.None)))
-                : Btn("Close", DialogTone.Primary, "srv.rule-apply.close", m.Close),
-            m.Phase == SrvUiApplyPhase.Ready ? Btn("Cancel", DialogTone.Plain, "srv.rule-apply.cancel", m.Close) : new Border()));
+                ? SrvUiKit.Foot("Apply", DialogTone.Primary, "srv.rule-apply.confirm", () => SrvUiKit.Run(() => m.ApplyAsync(CancellationToken.None)))
+                : SrvUiKit.Foot("Close", DialogTone.Primary, "srv.rule-apply.close", m.Close),
+            m.Phase == SrvUiApplyPhase.Ready ? SrvUiKit.Foot("Cancel", DialogTone.Plain, "srv.rule-apply.cancel", m.Close) : new Border()));
     }
 }
