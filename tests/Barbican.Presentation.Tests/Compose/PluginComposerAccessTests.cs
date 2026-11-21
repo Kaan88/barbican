@@ -1,3 +1,4 @@
+using System.Text.Json;
 using Barbican.Core.Accounts;
 using Barbican.Core.Common;
 using Barbican.Core.Compose;
@@ -144,9 +145,10 @@ public sealed class PluginComposerAccessTests
             new Block(new BlockKind.Quoted("<p>original</p>", "original", false, true)), Block.Para(""), Context("-- Alice")]),
     };
 
-    private static async Task<(IPluginComposerHandle Handle, PluginComposerAccess Access)> ExposeAsync(UiThread ui, ComposerViewModel draft, PluginAnnotationStore? store = null)
+    private static async Task<(IPluginComposerHandle Handle, PluginComposerAccess Access)> ExposeAsync(UiThread ui, ComposerViewModel draft,
+        PluginAnnotationStore? store = null, IJmapClient? client = null)
     {
-        var access = new PluginComposerAccess(new TestComposer(ui, draft), ui, new Sessions(), store);
+        var access = new PluginComposerAccess(new TestComposer(ui, draft), ui, new Sessions(client), store);
         var binding = Binding();
         Assert.True(access.Expose(binding, draft.Id, draft.AccountKey));
         await Task.CompletedTask;
@@ -242,6 +244,72 @@ public sealed class PluginComposerAccessTests
     }
 
     [Fact]
+    public async Task Attach_adds_the_blob_a_plugin_uploaded_as_a_finished_attachment()
+    {
+        using var ui = new UiThread();
+        using var draft = OpenRich(new ComposerHarness(), ReplySeed());
+        var (handle, access) = await ExposeAsync(ui, draft, client: new TestClient(MailSession(uploadLimit: 60, perMessageLimit: 100)));
+        using var _ = access;
+        var revision = (await handle.GetSnapshotAsync(Ct)).Revision;
+        Assert.True(await handle.AttachAsync(new PluginComposerBlob("blob-1", "report.pdf", "application/pdf", 40), revision, Ct));
+        var item = Assert.Single(draft.Attachments);
+        Assert.Equal("report.pdf", item.Name, StringComparer.Ordinal);
+        Assert.Equal("application/pdf", item.Attachment.Type, StringComparer.Ordinal);
+        Assert.Equal("blob-1", item.Attachment.BlobId, StringComparer.Ordinal);
+        Assert.Equal(40, item.Attachment.Size);
+        Assert.Equal(AttachmentState.Done, item.State);
+        Assert.False(draft.HasPendingUploads);
+        Assert.Empty(ui.Unhandled);
+    }
+
+    [Fact]
+    public async Task Attach_refuses_a_blob_over_the_upload_or_per_message_limit()
+    {
+        using var ui = new UiThread();
+        using var draft = OpenRich(new ComposerHarness(), ReplySeed() with
+        {
+            Attachments = [new DraftAttachment { Name = "kept.bin", Type = "application/octet-stream", Size = 50, BlobId = "blob-kept" }],
+        });
+        var (handle, access) = await ExposeAsync(ui, draft, client: new TestClient(MailSession(uploadLimit: 200, perMessageLimit: 100)));
+        using var _ = access;
+        var revision = (await handle.GetSnapshotAsync(Ct)).Revision;
+        Assert.False(await handle.AttachAsync(new PluginComposerBlob("blob-big", "big.bin", "application/octet-stream", 201), revision, Ct));
+        Assert.False(await handle.AttachAsync(new PluginComposerBlob("blob-60", "sixty.bin", "application/octet-stream", 60), revision, Ct));
+        Assert.Single(draft.Attachments);
+        Assert.True(await handle.AttachAsync(new PluginComposerBlob("blob-50", "fifty.bin", "application/octet-stream", 50), revision, Ct));
+        Assert.Equal(2, draft.Attachments.Count);
+    }
+
+    [Fact]
+    public async Task Attach_refuses_a_blob_once_the_composer_holds_two_hundred_attachments()
+    {
+        using var ui = new UiThread();
+        var seed = ReplySeed() with
+        {
+            Attachments = [.. Enumerable.Range(0, PluginAttachGate.MaxAttachments)
+                .Select(i => new DraftAttachment { Name = $"f{i}.bin", Type = "application/octet-stream", Size = 0, BlobId = $"blob-{i}" })],
+        };
+        using var draft = OpenRich(new ComposerHarness(), seed);
+        var (handle, access) = await ExposeAsync(ui, draft, client: new TestClient(MailSession(uploadLimit: 200, perMessageLimit: 100)));
+        using var _ = access;
+        var revision = (await handle.GetSnapshotAsync(Ct)).Revision;
+        Assert.False(await handle.AttachAsync(new PluginComposerBlob("blob-new", "new.bin", "application/octet-stream", 0), revision, Ct));
+        Assert.Equal(PluginAttachGate.MaxAttachments, draft.Attachments.Count);
+    }
+
+    [Fact]
+    public async Task Attach_with_a_stale_revision_adds_nothing()
+    {
+        using var ui = new UiThread();
+        using var draft = OpenRich(new ComposerHarness(), ReplySeed());
+        var (handle, access) = await ExposeAsync(ui, draft, client: new TestClient(MailSession(uploadLimit: 60, perMessageLimit: 100)));
+        using var _ = access;
+        Assert.False(await handle.AttachAsync(new PluginComposerBlob("blob-1", "a.pdf", "application/pdf", 10), "stale", Ct));
+        Assert.Empty(draft.Attachments);
+        Assert.Empty(ui.Unhandled);
+    }
+
+    [Fact]
     public async Task Annotations_apply_only_to_the_text_that_was_checked_and_go_with_the_composer()
     {
         using var ui = new UiThread();
@@ -270,6 +338,28 @@ public sealed class PluginComposerAccessTests
         new(harness.Context with { Editors = new EditorViewModelFactory(new EditorSessionFactory(), new NoSpellEngine(), new NoRewriteProvider()) },
             seed, ComposerHarness.Identities());
 
+    private static JmapSession MailSession(long uploadLimit, long perMessageLimit)
+    {
+        using var raw = JsonDocument.Parse(string.Concat(
+            "{\"accounts\":{\"acc\":{\"accountCapabilities\":{\"urn:ietf:params:jmap:mail\":{\"maxSizeAttachmentsPerEmail\":",
+            perMessageLimit.ToString(System.Globalization.CultureInfo.InvariantCulture), "}}}}}"));
+        return new JmapSession
+        {
+            Raw = raw.RootElement.Clone(),
+            Limits = new CoreLimits { MaxSizeUpload = uploadLimit },
+            PrimaryAccounts = new Dictionary<string, string>(StringComparer.Ordinal) { [JmapCapabilities.Mail] = "acc" },
+        };
+    }
+
+    private sealed class TestClient(JmapSession session) : IJmapClient
+    {
+        public JmapSession Session { get; } = session;
+        public bool IsReadOnly => false;
+        public Task<Result<JmapResponse>> SendAsync(JmapRequest request, CancellationToken ct) => throw new NotSupportedException();
+        public Task<Result<Stream>> DownloadAsync(string accountId, string blobId, string name, string type, CancellationToken ct) => throw new NotSupportedException();
+        public T? AccountCapability<T>(string accountId, string capability) where T : class => null;
+    }
+
     private sealed class TestComposer(UiThread ui, ComposerViewModel current) : IComposerService
     {
         private ComposerViewModel? _current = current;
@@ -282,9 +372,9 @@ public sealed class PluginComposerAccessTests
         public Task<bool> TryCloseAsync(CancellationToken ct) => throw new NotSupportedException();
     }
 
-    private sealed class Sessions : IPluginSessionSource
+    private sealed class Sessions(IJmapClient? client = null) : IPluginSessionSource
     {
-        private readonly IAccountSession _session = new Session();
+        private readonly IAccountSession _session = new Session(client);
         public Result<PluginSessionCapture> CaptureActive() => Result<PluginSessionCapture>.Ok(new(_session, 1));
         public Result<PluginSessionCapture> CaptureOwner(string localAccountKey) => Result<PluginSessionCapture>.Ok(new(_session, null));
         public bool IsCurrent(PluginSessionCapture capture) => ReferenceEquals(capture.Session, _session);
@@ -292,10 +382,10 @@ public sealed class PluginComposerAccessTests
             captures.All(IsCurrent) && write();
     }
 
-    private sealed class Session : IAccountSession
+    private sealed class Session(IJmapClient? client = null) : IAccountSession
     {
         public AccountInfo Account { get; } = new("acc", "sample@example.org", "https://jmap.example.org");
-        public IJmapClient Client => throw new NotSupportedException();
+        public IJmapClient Client => client ?? throw new NotSupportedException();
         public IMailService Mail => throw new NotSupportedException();
         public IMailSync Sync => throw new NotSupportedException();
     }

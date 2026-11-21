@@ -159,6 +159,19 @@ public sealed class ComposerEditAcceptanceTests
     }
 
     [Fact]
+    public async Task AttachPassesAnExplicitTypeAndRefusesANameOrTypeOverItsFieldLimit()
+    {
+        var access = new Access(); var attacher = Grant("email:blob-write");
+        var method = PluginComposerEditMethods.Attach(access, Limiter());
+        Assert.True((await CallAsync(method, attacher, access, "[\"host-handle\",{\"blobId\":\"B2\",\"name\":\"a.png\",\"type\":\"image/png\",\"size\":7}]")).Value!.BooleanValue);
+        Assert.Equal("attach|B2|a.png|image/png|7", Assert.Single(access.Handle.Calls), StringComparer.Ordinal);
+        var longName = new string('n', 256); var longType = new string('t', 256);
+        Assert.Equal(PluginErrorCode.InvalidArguments, (await CallAsync(method, attacher, access, $"[\"host-handle\",{{\"blobId\":\"B\",\"name\":\"{longName}\",\"size\":1}}]")).Error);
+        Assert.Equal(PluginErrorCode.InvalidArguments, (await CallAsync(method, attacher, access, $"[\"host-handle\",{{\"blobId\":\"B\",\"name\":\"a\",\"type\":\"{longType}\",\"size\":1}}]")).Error);
+        Assert.Single(access.Handle.Calls);
+    }
+
+    [Fact]
     public async Task EditsShareOneBudgetOfSixtyAMinuteAcrossMethodsAndRefusedCallsDoNotSpendIt()
     {
         var limiter = PluginComposerEditRateLimiter.Create(new FakeTimeProvider(), 10); var access = new Access();
