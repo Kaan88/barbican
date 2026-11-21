@@ -4,8 +4,8 @@ using Barbican.App.Views.Compose;
 using Barbican.App.Views.Dialogs;
 #if WINDOWS
 using Barbican.Core.Plugins.Api.Composer;
-#endif
 using Barbican.Core.Plugins.Bridge;
+#endif
 using Barbican.Core.Mail.Body;
 using Barbican.Presentation.Composition;
 using Barbican.Presentation.Compose;
