@@ -8,66 +8,95 @@
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
     mc:Ignorable="not_win"
     xmlns:controls="using:Barbican.App.Controls"
+    xmlns:local="using:Barbican.App.Views.Sidebar"
     xmlns:theme="using:Barbican.App.Theme"
     xmlns:views="using:Barbican.App.Views"
     xmlns:mail="using:Barbican.Presentation.Mail"
     xmlns:shell="using:Barbican.Presentation.Shell">
   <!-- The folders column (spec/layout/shell.md "Folders sidebar"; BNMail aside, NordMail aside; prototype FolderTile): New message, the folders, the tags, storage.
        Bento: the whole column is one tile; Nordic: it sits on the ground. Folders and tags come from SidebarViewModel (every refresh is a ListSync, so unchanged rows are not touched).
-       A folder row's name, icon and count take the row's foreground (Styles/Controls.xaml Template.FolderItem), so the selected row turns sel-text with no code.
+       Bulwark (WP-4, docs/milestones/bulwark-parity-gaps.md SB-01..06): sidebar.tsx:2684-2763 (head: switcher, Compose pill, one rule under both), :518-535 (rows), :750-850 (section headers).
+       Folder and tag rows share one hover, pressed and selected feedback (SidebarRows.xaml); the legacy styles keep their own look through StyleState.
        Bulwark reserves a leading disclosure slot. The legacy styles place the chevron after the name. -->
+  <UserControl.Resources>
+    <ResourceDictionary>
+      <ResourceDictionary.MergedDictionaries>
+        <ResourceDictionary Source="ms-appx:///Views/Sidebar/SidebarRows.xaml" />
+      </ResourceDictionary.MergedDictionaries>
+    </ResourceDictionary>
+  </UserControl.Resources>
   <Border x:Name="Pane" Background="{x:Bind Look.SidebarBrush, Mode=OneWay}" BorderBrush="{StaticResource Line}"
            BorderThickness="{x:Bind Look.SidebarBorder, Mode=OneWay}" CornerRadius="{x:Bind Look.SidebarRadius, Mode=OneWay}" Padding="{x:Bind Look.SidebarPadding, Mode=OneWay}">
   <Grid RowDefinitions="Auto,*,Auto" AutomationProperties.AutomationId="sidebar" AutomationProperties.Name="Folders">
     <Grid.Resources>
       <DataTemplate x:Key="FolderTemplate" x:DataType="mail:FolderRowViewModel">
-        <Grid Height="{x:Bind theme:StyleState.Current.FolderRowHeight, Mode=OneWay}" Padding="{x:Bind theme:StyleState.Current.FolderRowPadding, Mode=OneWay}"
+        <Grid Height="{x:Bind theme:StyleState.Current.SbRowHeight, Mode=OneWay}" Padding="{x:Bind theme:StyleState.Current.FolderRowPadding, Mode=OneWay}"
               Opacity="{x:Bind views:Fmt.MutedOpacity(Muted)}" ColumnSpacing="10" ColumnDefinitions="Auto,*,Auto">
           <Grid Grid.ColumnSpan="2" HorizontalAlignment="Left" VerticalAlignment="Center" ColumnDefinitions="Auto,Auto,Auto,Auto">
             <Border Width="{x:Bind views:Fmt.FolderIndent(Depth, theme:StyleState.Current.IsBulwark), Mode=OneWay}" />
             <Grid Grid.Column="{x:Bind theme:StyleState.Current.FolderDisclosureColumn, Mode=OneWay}" MinWidth="{x:Bind theme:StyleState.Current.FolderDisclosureSlot, Mode=OneWay}">
-              <Button Style="{StaticResource Button.Icon}" Width="{x:Bind theme:StyleState.Current.FolderChevronSize, Mode=OneWay}" Height="{x:Bind theme:StyleState.Current.FolderChevronSize, Mode=OneWay}" Margin="{x:Bind theme:StyleState.Current.FolderChevronMargin, Mode=OneWay}" CornerRadius="6" Foreground="{StaticResource Faint}" Click="OnChevronClick" Tag="{x:Bind Id}"
+              <Button Style="{StaticResource Button.Sidebar.Tool}" Width="{x:Bind theme:StyleState.Current.FolderChevronSize, Mode=OneWay}" Height="{x:Bind theme:StyleState.Current.FolderChevronSize, Mode=OneWay}" Margin="{x:Bind theme:StyleState.Current.FolderChevronMargin, Mode=OneWay}" CornerRadius="{x:Bind theme:StyleState.Current.SbChevronRadius, Mode=OneWay}" Click="OnChevronClick" Tag="{x:Bind Id}"
                     Visibility="{x:Bind views:Fmt.VisChevron(Chevron)}" AutomationProperties.AutomationId="{x:Bind views:Fmt.ChevronId(Id)}" AutomationProperties.Name="Expand or collapse"
                     IsTabStop="False" VerticalAlignment="Center">
-              <controls:SIcon Kind="{x:Bind views:Fmt.Chevron(Chevron)}" Size="11" StrokeWidth="2" />
+              <controls:SIcon Kind="{x:Bind views:Fmt.Chevron(Chevron)}" Size="{x:Bind theme:StyleState.Current.SbChevronIcon, Mode=OneWay}" StrokeWidth="2" />
               </Button>
             </Grid>
             <Grid Grid.Column="{x:Bind theme:StyleState.Current.FolderIconColumn, Mode=OneWay}" Margin="0,0,8,0">
-              <controls:SIcon Kind="{x:Bind views:Fmt.FolderIcon(Role)}" Foreground="{x:Bind views:Fmt.Rgb(ColorRgb)}" Size="16" Opacity="0.8" VerticalAlignment="Center"
+              <controls:SIcon Kind="{x:Bind views:Fmt.FolderIcon(Role)}" Foreground="{x:Bind local:SidebarFmt.IconBrush(ColorRgb, theme:StyleState.Current.IsBulwark), Mode=OneWay}" Size="16" Opacity="0.8" VerticalAlignment="Center"
                             Visibility="{x:Bind theme:StyleState.Current.FolderIconVisibility, Mode=OneWay}" />
             </Grid>
             <Grid Grid.Column="{x:Bind theme:StyleState.Current.FolderNameColumn, Mode=OneWay}">
-              <TextBlock Text="{x:Bind Name}" FontFamily="{x:Bind theme:StyleState.Current.AppFont, Mode=OneWay}" FontSize="{x:Bind theme:StyleState.Current.FolderNameSize, Mode=OneWay}" FontWeight="{x:Bind views:Fmt.FolderWeight(Unread)}"
-                       VerticalAlignment="Center" TextTrimming="CharacterEllipsis" />
+              <!-- Bulwark: the name inherits the row's weight (plain, semibold when selected: Template.Sidebar.FolderItem); the legacy rows bold an unread folder -->
+              <TextBlock Text="{x:Bind Name}" FontFamily="{x:Bind theme:StyleState.Current.AppFont, Mode=OneWay}" FontSize="{x:Bind theme:StyleState.Current.SbNameSize, Mode=OneWay}"
+                         Visibility="{x:Bind theme:StyleState.Current.BulwarkOnly, Mode=OneWay}" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" />
+              <TextBlock Text="{x:Bind Name}" FontFamily="{x:Bind theme:StyleState.Current.AppFont, Mode=OneWay}" FontSize="{x:Bind theme:StyleState.Current.SbNameSize, Mode=OneWay}" FontWeight="{x:Bind views:Fmt.FolderWeight(Unread)}"
+                         Visibility="{x:Bind theme:StyleState.Current.LegacyMarkVisibility, Mode=OneWay}" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" />
             </Grid>
           </Grid>
           <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
             <controls:SIcon Kind="Bell" Size="12" Opacity="0.6" VerticalAlignment="Center" Visibility="{x:Bind views:Fmt.Vis(Muted)}" AutomationProperties.Name="Not subscribed" />
-            <Ellipse Width="6" Height="6" Fill="{StaticResource Accent}" Visibility="{x:Bind views:Fmt.Vis(ChildUnread)}" AutomationProperties.Name="Unread below" VerticalAlignment="Center" />
-            <TextBlock Text="{x:Bind Count}" FontFamily="{x:Bind theme:StyleState.Current.AppFont, Mode=OneWay}" FontSize="{x:Bind theme:StyleState.Current.FolderCountSize, Mode=OneWay}" FontWeight="{x:Bind theme:StyleState.Current.FolderCountWeight, Mode=OneWay}"
-                       Opacity="0.62" VerticalAlignment="Center" />
+            <!-- legacy: one muted count -->
+            <TextBlock Text="{x:Bind Count}" FontFamily="{x:Bind theme:StyleState.Current.AppFont, Mode=OneWay}" FontSize="{x:Bind theme:StyleState.Current.SbCountSize, Mode=OneWay}" FontWeight="{x:Bind theme:StyleState.Current.FolderCountWeight, Mode=OneWay}"
+                       Visibility="{x:Bind theme:StyleState.Current.LegacyMarkVisibility, Mode=OneWay}" Opacity="0.62" VerticalAlignment="Center" />
+            <!-- Bulwark sidebar.tsx:286-345: the unread count semibold in the foreground, "/ total" muted, or an 8 px primary dot -->
+            <StackPanel Orientation="Horizontal" Spacing="4" VerticalAlignment="Center" Visibility="{x:Bind local:SidebarFmt.VisBulwarkCount(Count, theme:StyleState.Current.IsBulwark), Mode=OneWay}">
+              <TextBlock Text="{x:Bind local:SidebarFmt.CountHead(Count)}" FontFamily="{x:Bind theme:StyleState.Current.AppFont, Mode=OneWay}" FontSize="{x:Bind theme:StyleState.Current.SbCountSize, Mode=OneWay}"
+                         FontWeight="{x:Bind local:SidebarFmt.CountWeight(Unread)}" Foreground="{x:Bind local:SidebarFmt.CountBrush(Unread)}" VerticalAlignment="Center" />
+              <TextBlock Text="{x:Bind local:SidebarFmt.CountTail(Count)}" FontFamily="{x:Bind theme:StyleState.Current.AppFont, Mode=OneWay}" FontSize="{x:Bind theme:StyleState.Current.SbCountSize, Mode=OneWay}"
+                         Foreground="{StaticResource Dim}" Visibility="{x:Bind local:SidebarFmt.VisCountTail(Count)}" VerticalAlignment="Center" />
+              <Ellipse Width="8" Height="8" Fill="{StaticResource Accent}" Visibility="{x:Bind local:SidebarFmt.VisCountDot(Count)}" VerticalAlignment="Center" />
+            </StackPanel>
+            <Ellipse Width="6" Height="6" Fill="{StaticResource Accent}" Opacity="0.7" Visibility="{x:Bind views:Fmt.Vis(ChildUnread)}" AutomationProperties.Name="Unread below" VerticalAlignment="Center" />
           </StackPanel>
         </Grid>
       </DataTemplate>
-      <!-- A tag row (prototype labels): a squircle dot in the tag colour and the name. -->
+      <!-- A tag row is a folder row (Bulwark sidebar.tsx:1181 renders it with SidebarRow): the same height, hover, selection and bar. Layers: the hit surface (hover and pressed), the selected fill
+           (over the hover, so a selected row keeps its fill under the pointer), the dot and name (not hit-testable), the disclosure chevron. A click filters the list to the tag; a second click
+           goes back; the chevron folds the tags inside (nested tags); a drop target for dragged messages (M2 hotfix). -->
       <DataTemplate x:Key="TagTemplate" x:DataType="shell:TagRowViewModel">
-        <!-- a click filters the list to the tag; a second click on it goes back (Bulwark sidebar.tsx:1181); the chevron folds the tags inside (nested tags); the selected tag takes sel / sel-text like a folder; a drop target for dragged messages (M2 hotfix) -->
-        <Grid Background="{x:Bind views:Fmt.TagBg(Selected)}" CornerRadius="{x:Bind theme:StyleState.Current.TagRowRadius, Mode=OneWay}" ColumnDefinitions="*,Auto" AllowDrop="True" DragEnter="OnTagDragOver" DragOver="OnTagDragOver" DragLeave="OnTagDragLeave" Drop="OnTagDrop"
+        <Grid Height="{x:Bind theme:StyleState.Current.SbTagHeight, Mode=OneWay}" AllowDrop="True" DragEnter="OnTagDragOver" DragOver="OnTagDragOver" DragLeave="OnTagDragLeave" Drop="OnTagDrop"
               AutomationProperties.AutomationId="{x:Bind Id}" AutomationProperties.Name="{x:Bind Label}">
-          <Button Style="{StaticResource Button.Icon}" HorizontalAlignment="Stretch" HorizontalContentAlignment="Left" Tag="{x:Bind Id}" Click="OnTagClick" CornerRadius="{x:Bind theme:StyleState.Current.TagRowRadius, Mode=OneWay}"
-                  Foreground="{x:Bind views:Fmt.TagFg(Selected)}" AutomationProperties.AutomationId="{x:Bind views:Fmt.TagButtonId(Id)}" AutomationProperties.Name="{x:Bind Label}">
-            <Grid Padding="{x:Bind theme:StyleState.Current.TagRowPadding, Mode=OneWay}" ColumnSpacing="{x:Bind theme:StyleState.Current.TagSpacing, Mode=OneWay}" ColumnDefinitions="Auto,*">
-              <StackPanel Orientation="Horizontal">
-                <Border Width="{x:Bind views:Fmt.IndentPx(Depth)}" />
-                <Border Width="10" Height="10" CornerRadius="4" Background="{x:Bind views:Fmt.Rgb(ColorRgb)}" VerticalAlignment="Center" />
-              </StackPanel>
-              <TextBlock Grid.Column="1" Text="{x:Bind Label}" FontFamily="{x:Bind theme:StyleState.Current.AppFont, Mode=OneWay}" FontSize="{x:Bind theme:StyleState.Current.TagNameSize, Mode=OneWay}" TextTrimming="CharacterEllipsis" VerticalAlignment="Center" />
-            </Grid>
-          </Button>
-          <Button Grid.Column="1" Style="{StaticResource Button.Icon}" Width="22" Height="22" CornerRadius="6" Margin="0,0,8,0" Tag="{x:Bind Id}" Click="OnTagChevronClick" IsTabStop="False"
-                  Foreground="{x:Bind views:Fmt.TagFg(Selected)}" Visibility="{x:Bind views:Fmt.VisChevron(Chevron)}" AutomationProperties.AutomationId="{x:Bind views:Fmt.ChevronId(Id)}"
-                  AutomationProperties.Name="Expand or collapse">
-            <controls:SIcon Kind="{x:Bind views:Fmt.Chevron(Chevron)}" Size="11" StrokeWidth="2" />
+          <Button Style="{StaticResource Button.Sidebar.Row}" Tag="{x:Bind Id}" Click="OnTagClick" CornerRadius="{x:Bind theme:StyleState.Current.SbRowRadius, Mode=OneWay}"
+                  AutomationProperties.AutomationId="{x:Bind views:Fmt.TagButtonId(Id)}" AutomationProperties.Name="{x:Bind Label}" />
+          <Border IsHitTestVisible="False" Background="{x:Bind theme:StyleState.Current.SbSelectedFill, Mode=OneWay}" BorderBrush="{StaticResource Accent}" BorderThickness="{x:Bind theme:StyleState.Current.SbBarThickness, Mode=OneWay}"
+                  CornerRadius="{x:Bind theme:StyleState.Current.SbRowRadius, Mode=OneWay}" Visibility="{x:Bind local:SidebarFmt.VisSelected(Selected)}" />
+          <Grid IsHitTestVisible="False" Padding="{x:Bind theme:StyleState.Current.SbTagPadding, Mode=OneWay}" ColumnSpacing="{x:Bind theme:StyleState.Current.SbTagSpacing, Mode=OneWay}" ColumnDefinitions="Auto,*">
+            <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+              <Border Width="{x:Bind local:SidebarFmt.TagLead(Depth, theme:StyleState.Current.IsBulwark), Mode=OneWay}" />
+              <Grid Width="{x:Bind theme:StyleState.Current.SbTagDotBox, Mode=OneWay}" Height="{x:Bind theme:StyleState.Current.SbTagDotBox, Mode=OneWay}">
+                <Border Width="{x:Bind theme:StyleState.Current.SbTagDot, Mode=OneWay}" Height="{x:Bind theme:StyleState.Current.SbTagDot, Mode=OneWay}" CornerRadius="{x:Bind theme:StyleState.Current.SbTagDotRadius, Mode=OneWay}"
+                        Background="{x:Bind views:Fmt.Rgb(ColorRgb)}" HorizontalAlignment="Center" VerticalAlignment="Center" />
+              </Grid>
+            </StackPanel>
+            <TextBlock Grid.Column="1" Text="{x:Bind Label}" FontFamily="{x:Bind theme:StyleState.Current.AppFont, Mode=OneWay}" FontSize="{x:Bind theme:StyleState.Current.SbNameSize, Mode=OneWay}"
+                       Foreground="{x:Bind local:SidebarFmt.TagText(Selected, theme:StyleState.Current.IsBulwark), Mode=OneWay}" FontWeight="{x:Bind local:SidebarFmt.TagWeight(Selected, theme:StyleState.Current.IsBulwark), Mode=OneWay}" TextTrimming="CharacterEllipsis" VerticalAlignment="Center" />
+          </Grid>
+          <Button Style="{StaticResource Button.Sidebar.Tool}" Width="{x:Bind theme:StyleState.Current.SbTagChevronSize, Mode=OneWay}" Height="{x:Bind theme:StyleState.Current.SbTagChevronSize, Mode=OneWay}"
+                  CornerRadius="{x:Bind theme:StyleState.Current.SbChevronRadius, Mode=OneWay}" Margin="{x:Bind local:SidebarFmt.TagChevronMargin(Depth, theme:StyleState.Current.IsBulwark), Mode=OneWay}"
+                  HorizontalAlignment="{x:Bind local:SidebarFmt.TagChevronAlign(theme:StyleState.Current.IsBulwark), Mode=OneWay}" VerticalAlignment="Center" Tag="{x:Bind Id}" Click="OnTagChevronClick" IsTabStop="False"
+                  Foreground="{x:Bind local:SidebarFmt.TagText(Selected, theme:StyleState.Current.IsBulwark), Mode=OneWay}"
+                  Visibility="{x:Bind views:Fmt.VisChevron(Chevron)}" AutomationProperties.AutomationId="{x:Bind views:Fmt.ChevronId(Id)}" AutomationProperties.Name="Expand or collapse">
+            <controls:SIcon Kind="{x:Bind views:Fmt.Chevron(Chevron)}" Size="{x:Bind theme:StyleState.Current.SbChevronIcon, Mode=OneWay}" StrokeWidth="2" />
           </Button>
         </Grid>
       </DataTemplate>
@@ -79,7 +108,10 @@
             Padding="12,4" Click="OnCompactBack" AutomationProperties.Name="Back to messages" AutomationProperties.AutomationId="sidebar.back-to-list">
       <StackPanel Orientation="Horizontal" Spacing="8"><FontIcon Glyph="&#xE72B;" FontSize="16" /><TextBlock Text="Messages" /></StackPanel>
     </Button>
-    <Border Visibility="{x:Bind Look.SidebarSwitcherVisibility, Mode=OneWay}" BorderBrush="{StaticResource Line}" BorderThickness="0,0,0,1" Padding="8,0" Margin="0,0,0,8">
+    <!-- Bulwark sidebar.tsx:2684: one rule under the head, which holds the account switcher (h-14, px-2) and Compose (px-2 pb-2) -->
+    <Border BorderBrush="{StaticResource Line}" BorderThickness="{x:Bind local:SidebarFmt.HeadBorder(Look.IsBulwark, Look.SidebarSwitcherVisibility, Look.SidebarComposeVisibility), Mode=OneWay}">
+    <StackPanel>
+    <Border Visibility="{x:Bind Look.SidebarSwitcherVisibility, Mode=OneWay}" Padding="8,0">
       <Button x:Name="HeaderAccountButton" MinHeight="56" Style="{StaticResource Button.Icon}" HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch"
               Padding="8,0" AutomationProperties.AutomationId="sidebar.account" AutomationProperties.Name="Switch account">
         <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="10">
@@ -99,7 +131,7 @@
     <ContentPresenter x:Name="AccountHeaderSlot" />
     <!-- New message: runs the compose command (M3 composer-ui). -->
     <StackPanel Visibility="{x:Bind views:Fmt.VisNot(Look.IsBulwark), Mode=OneWay}">
-    <Button x:Name="ComposeButton" Visibility="{x:Bind Look.SidebarComposeVisibility, Mode=OneWay}" Style="{StaticResource Button.Primary}" FocusVisualPrimaryThickness="{x:Bind Look.FocusThickness, Mode=OneWay}" HorizontalAlignment="Stretch" Click="OnComposeClick"
+    <Button x:Name="ComposeButton" Visibility="{x:Bind Look.SidebarComposeVisibility, Mode=OneWay}" Style="{StaticResource Button.Primary}" HorizontalAlignment="Stretch" Click="OnComposeClick"
             Height="{x:Bind Look.ComposeHeight, Mode=OneWay}" CornerRadius="{x:Bind Look.ComposeRadius, Mode=OneWay}" Margin="{x:Bind Look.ComposeMargin, Mode=OneWay}"
             FontFamily="{x:Bind Look.AppBoldFont, Mode=OneWay}" FontSize="{x:Bind Look.ComposeFontSize, Mode=OneWay}"
             AutomationProperties.AutomationId="sidebar.compose" AutomationProperties.Name="Compose">
@@ -109,11 +141,11 @@
       </StackPanel>
     </Button>
     </StackPanel>
-    <!-- Bulwark sidebar.tsx:211-213,2728-2763: optional sidebar compose below the account header. -->
+    <!-- Bulwark sidebar.tsx:2728-2745: the optional sidebar Compose, a primary pill (h-9, rounded-full, px-3, gap-2, left aligned) under the account switcher or, without one, in the head row. -->
     <StackPanel Visibility="{x:Bind views:Fmt.Vis(Look.IsBulwark), Mode=OneWay}">
-      <Button x:Name="BulwarkComposeButton" Visibility="{x:Bind Look.SidebarComposeVisibility, Mode=OneWay}" Style="{StaticResource Button.Icon}" Background="{StaticResource Sel}" Foreground="{StaticResource SelText}"
-              FocusVisualPrimaryThickness="{x:Bind Look.FocusThickness, Mode=OneWay}" HorizontalAlignment="Stretch" HorizontalContentAlignment="Left"
-              MinHeight="{x:Bind Look.QuickTarget, Mode=OneWay}" CornerRadius="18" Padding="12,0" Margin="0,0,0,8" Click="OnComposeClick"
+      <Button x:Name="BulwarkComposeButton" Visibility="{x:Bind Look.SidebarComposeVisibility, Mode=OneWay}" Style="{StaticResource Button.Primary}" HorizontalAlignment="Stretch" HorizontalContentAlignment="Left"
+              Height="{x:Bind Look.QuickTarget, Mode=OneWay}" CornerRadius="{x:Bind Look.SbComposeRadius, Mode=OneWay}" Padding="12,0" FontWeight="Medium" FontSize="{x:Bind Look.SidebarHeaderSize, Mode=OneWay}"
+              Margin="{x:Bind local:SidebarFmt.ComposeMargin(Look.SidebarSwitcherVisibility), Mode=OneWay}" Click="OnComposeClick"
               AutomationProperties.AutomationId="sidebar.compose.bulwark" AutomationProperties.Name="Compose">
         <StackPanel Orientation="Horizontal" Spacing="8">
           <controls:SIcon Kind="Pen" Size="16" />
@@ -121,32 +153,37 @@
         </StackPanel>
       </Button>
     </StackPanel>
+    </StackPanel>
+    </Border>
     <ContentPresenter x:Name="UnifiedSectionSlot" />
     </StackPanel>
 
     <!-- Folders and tags scroll together (prototype: one ScrollViewer under New message). -->
     <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" HorizontalScrollMode="Disabled">
     <StackPanel>
-    <!-- Folders: the heading folds the list (I-019); the settings button is M2. -->
-    <Grid ColumnDefinitions="*,Auto,Auto" Padding="{x:Bind Look.FirstSectionHeaderPadding, Mode=OneWay}" AutomationProperties.AutomationId="sidebar.folders.header">
-      <Button Style="{StaticResource Button.Icon}" HorizontalAlignment="Left" Padding="0" Click="OnFoldersHeaderClick" Foreground="{x:Bind Look.SidebarHeaderBrush, Mode=OneWay}"
+    <!-- Folders: the heading folds the list (I-019). The whole header is the toggle (Bulwark sidebar.tsx:806-835: the row has the hover, the plus and gear sit on it); "+" creates a top-level
+         folder, the gear opens Settings > Folders & tags (sidebar.tsx:2430). -->
+    <Grid AutomationProperties.AutomationId="sidebar.folders.header">
+      <Button Style="{StaticResource Button.Sidebar.Row}" HorizontalAlignment="Stretch" HorizontalContentAlignment="Left" VerticalContentAlignment="Top" Padding="{x:Bind Look.SbFirstHeaderPadding, Mode=OneWay}"
+              CornerRadius="{x:Bind Look.SbHeaderRadius, Mode=OneWay}" Click="OnFoldersHeaderClick" Foreground="{x:Bind Look.SidebarHeaderBrush, Mode=OneWay}"
               AutomationProperties.AutomationId="sidebar.folders.toggle" AutomationProperties.Name="Folders section">
         <StackPanel Orientation="Horizontal" Spacing="6">
-          <controls:SIcon Kind="{x:Bind views:Fmt.ChevronOf(Sidebar.FoldersExpanded), Mode=OneWay}" Visibility="{x:Bind Look.BulwarkOnly, Mode=OneWay}" Size="14" StrokeWidth="2.2" VerticalAlignment="Center" Opacity="0.8" />
+          <controls:SIcon Kind="{x:Bind views:Fmt.ChevronOf(Sidebar.FoldersExpanded), Mode=OneWay}" Visibility="{x:Bind Look.BulwarkOnly, Mode=OneWay}" Foreground="{StaticResource Dim}" Size="14" StrokeWidth="2.2" VerticalAlignment="Center" />
           <TextBlock Text="{x:Bind views:Fmt.SectionTitle('Folders', Look.SidebarUppercaseHeaders), Mode=OneWay}" FontSize="{x:Bind Look.SidebarHeaderSize, Mode=OneWay}" FontWeight="{x:Bind Look.SidebarHeaderWeight, Mode=OneWay}"
                      CharacterSpacing="{x:Bind Look.SidebarHeaderSpacing, Mode=OneWay}" />
           <controls:SIcon Kind="{x:Bind views:Fmt.ChevronOf(Sidebar.FoldersExpanded), Mode=OneWay}" Visibility="{x:Bind Look.LegacyMarkVisibility, Mode=OneWay}" Size="10" StrokeWidth="2.2" VerticalAlignment="Center" Opacity="0.8" />
         </StackPanel>
       </Button>
-      <!-- "+" creates a top-level folder (Bulwark sidebar.tsx:848): the name is asked for in the prompt dialog -->
-      <Button Grid.Column="1" Style="{StaticResource Button.Icon}" Width="22" Height="22" CornerRadius="8" Foreground="{StaticResource Faint}" Margin="0,-4,0,-4" Click="OnNewFolderClick"
-              motion:Tip.Text="New folder" AutomationProperties.AutomationId="sidebar.folders.add" AutomationProperties.Name="New folder">
-        <controls:SIcon Kind="Plus" Size="13" StrokeWidth="2" />
-      </Button>
-      <Button Grid.Column="2" Style="{StaticResource Button.Icon}" Width="22" Height="22" CornerRadius="8" IsEnabled="False" Foreground="{StaticResource Faint}" Margin="0,-4,0,-4"
-              AutomationProperties.AutomationId="sidebar.folders.settings" AutomationProperties.Name="Folder settings">
-        <controls:SIcon Kind="Opt" Size="13" />
-      </Button>
+      <Grid ColumnDefinitions="*,Auto,Auto" Padding="{x:Bind Look.SbFirstHeaderPadding, Mode=OneWay}">
+        <Button Grid.Column="1" Style="{StaticResource Button.Sidebar.Tool}" Width="{x:Bind Look.SbToolSize, Mode=OneWay}" Height="{x:Bind Look.SbToolSize, Mode=OneWay}" CornerRadius="{x:Bind Look.SbToolRadius, Mode=OneWay}"
+                Margin="{x:Bind Look.SbToolMargin, Mode=OneWay}" Click="OnNewFolderClick" motion:Tip.Text="New folder" AutomationProperties.AutomationId="sidebar.folders.add" AutomationProperties.Name="New folder">
+          <controls:SIcon Kind="Plus" Size="14" StrokeWidth="2" />
+        </Button>
+        <Button Grid.Column="2" Style="{StaticResource Button.Sidebar.Tool}" Width="{x:Bind Look.SbToolSize, Mode=OneWay}" Height="{x:Bind Look.SbToolSize, Mode=OneWay}" CornerRadius="{x:Bind Look.SbToolRadius, Mode=OneWay}"
+                Margin="{x:Bind Look.SbToolMargin, Mode=OneWay}" Click="OnFolderSettingsClick" motion:Tip.Text="Folder settings" AutomationProperties.AutomationId="sidebar.folders.settings" AutomationProperties.Name="Folder settings">
+          <controls:SIcon Kind="{x:Bind Look.SbSettingsIcon, Mode=OneWay}" Size="14" />
+        </Button>
+      </Grid>
     </Grid>
     <!-- M2 hotfix: folders are drag sources (reorder, nest) and drop targets (messages move there, a folder lands before, after or inside); SidebarView.xaml.cs -->
     <ListView x:Name="FolderList" ContainerContentChanging="OnFolderContainerChanging" ItemsSource="{x:Bind Sidebar.Folders}" ItemTemplate="{StaticResource FolderTemplate}" SelectionMode="Single"
@@ -158,22 +195,29 @@
       </win:ListView.ItemContainerTransitions>
     </ListView>
 
-    <!-- Tags (the prototype's labels). Creating one is M2. -->
+    <!-- Tags (the prototype's labels). -->
     <StackPanel Visibility="{x:Bind views:Fmt.VisCount(Sidebar.Tags.Count), Mode=OneWay}">
-      <Grid ColumnDefinitions="*,Auto" Padding="{x:Bind Look.SectionHeaderPadding, Mode=OneWay}">
-        <Button Style="{StaticResource Button.Icon}" HorizontalAlignment="Left" Padding="0" Click="OnTagsHeaderClick" Foreground="{x:Bind Look.SidebarHeaderBrush, Mode=OneWay}"
+      <Grid>
+        <Button Style="{StaticResource Button.Sidebar.Row}" HorizontalAlignment="Stretch" HorizontalContentAlignment="Left" VerticalContentAlignment="Top" Padding="{x:Bind Look.SbHeaderPadding, Mode=OneWay}"
+                CornerRadius="{x:Bind Look.SbHeaderRadius, Mode=OneWay}" Click="OnTagsHeaderClick" Foreground="{x:Bind Look.SidebarHeaderBrush, Mode=OneWay}"
                 AutomationProperties.AutomationId="sidebar.tags.toggle" AutomationProperties.Name="Tags section">
           <StackPanel Orientation="Horizontal" Spacing="6">
-            <controls:SIcon Kind="{x:Bind views:Fmt.ChevronOf(Sidebar.TagsExpanded), Mode=OneWay}" Visibility="{x:Bind Look.BulwarkOnly, Mode=OneWay}" Size="14" StrokeWidth="2.2" VerticalAlignment="Center" Opacity="0.8" />
+            <controls:SIcon Kind="{x:Bind views:Fmt.ChevronOf(Sidebar.TagsExpanded), Mode=OneWay}" Visibility="{x:Bind Look.BulwarkOnly, Mode=OneWay}" Foreground="{StaticResource Dim}" Size="14" StrokeWidth="2.2" VerticalAlignment="Center" />
             <TextBlock Text="{x:Bind views:Fmt.SectionTitle('Tags', Look.SidebarUppercaseHeaders), Mode=OneWay}" FontSize="{x:Bind Look.SidebarHeaderSize, Mode=OneWay}" FontWeight="{x:Bind Look.SidebarHeaderWeight, Mode=OneWay}"
                        CharacterSpacing="{x:Bind Look.SidebarHeaderSpacing, Mode=OneWay}" />
             <controls:SIcon Kind="{x:Bind views:Fmt.ChevronOf(Sidebar.TagsExpanded), Mode=OneWay}" Visibility="{x:Bind Look.LegacyMarkVisibility, Mode=OneWay}" Size="10" StrokeWidth="2.2" VerticalAlignment="Center" Opacity="0.8" />
           </StackPanel>
         </Button>
-        <Button Grid.Column="1" Style="{StaticResource Button.Icon}" Width="22" Height="22" CornerRadius="8" Foreground="{StaticResource Faint}" Margin="0,-4,0,-4" Click="OnNewTagClick"
-                motion:Tip.Text="New tag" AutomationProperties.AutomationId="sidebar.tags.add" AutomationProperties.Name="New tag">
-          <controls:SIcon Kind="Plus" Size="13" StrokeWidth="2" />
-        </Button>
+        <Grid ColumnDefinitions="*,Auto,Auto" Padding="{x:Bind Look.SbHeaderPadding, Mode=OneWay}">
+          <Button Grid.Column="1" Style="{StaticResource Button.Sidebar.Tool}" Width="{x:Bind Look.SbToolSize, Mode=OneWay}" Height="{x:Bind Look.SbToolSize, Mode=OneWay}" CornerRadius="{x:Bind Look.SbToolRadius, Mode=OneWay}"
+                  Margin="{x:Bind Look.SbToolMargin, Mode=OneWay}" Click="OnNewTagClick" motion:Tip.Text="New tag" AutomationProperties.AutomationId="sidebar.tags.add" AutomationProperties.Name="New tag">
+            <controls:SIcon Kind="Plus" Size="14" StrokeWidth="2" />
+          </Button>
+          <Button Grid.Column="2" Style="{StaticResource Button.Sidebar.Tool}" Width="{x:Bind Look.SbToolSize, Mode=OneWay}" Height="{x:Bind Look.SbToolSize, Mode=OneWay}" CornerRadius="{x:Bind Look.SbToolRadius, Mode=OneWay}"
+                  Margin="{x:Bind Look.SbToolMargin, Mode=OneWay}" Click="OnTagSettingsClick" motion:Tip.Text="Tag settings" AutomationProperties.AutomationId="sidebar.tags.settings" AutomationProperties.Name="Tag settings">
+            <controls:SIcon Kind="{x:Bind Look.SbSettingsIcon, Mode=OneWay}" Size="14" />
+          </Button>
+        </Grid>
       </Grid>
       <ItemsRepeater x:Name="TagRepeater" ItemsSource="{x:Bind Sidebar.Tags}" ItemTemplate="{StaticResource TagTemplate}" Visibility="{x:Bind views:Fmt.Vis(Sidebar.TagsExpanded), Mode=OneWay}"
                      AutomationProperties.AutomationId="sidebar.tags" AutomationProperties.Name="Tag list">

@@ -3,25 +3,36 @@
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:controls="using:Barbican.App.Controls"
+    xmlns:theme="using:Barbican.App.Theme"
     xmlns:views="using:Barbican.App.Views"
     xmlns:accounts="using:Barbican.Presentation.Accounts">
+  <UserControl.Resources>
+    <ResourceDictionary>
+      <ResourceDictionary.MergedDictionaries>
+        <ResourceDictionary Source="ms-appx:///Views/Sidebar/SidebarRows.xaml" />
+      </ResourceDictionary.MergedDictionaries>
+    </ResourceDictionary>
+  </UserControl.Resources>
   <!-- The "All inboxes" row above the folders (Bulwark sidebar.tsx unified section; prototype folder row: the selected row takes sel / sel-text) and, under it, one row per signed-in account
        with its inbox unread (sidebar.tsx:2889): a click switches to that account. Both follow UnifiedSectionViewModel and AccountsViewModel; the section costs nothing while the setting is off. -->
   <StackPanel>
-    <Button x:Name="Row" Style="{StaticResource Button.Icon}" HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch" Click="OnClick"
-            Height="{x:Bind Look.FolderRowHeight, Mode=OneWay}" CornerRadius="{x:Bind Look.TagRowRadius, Mode=OneWay}"
-            AutomationProperties.AutomationId="sidebar-unified" AutomationProperties.Name="All inboxes">
-      <Grid Padding="{x:Bind Look.FolderRowPadding, Mode=OneWay}" ColumnSpacing="10" ColumnDefinitions="Auto,*,Auto">
-        <controls:SIcon Kind="Inbox" Size="18" Opacity="0.8" VerticalAlignment="Center" Visibility="{x:Bind Look.FolderIconVisibility, Mode=OneWay}" />
-        <TextBlock Grid.Column="1" Text="All inboxes" FontSize="{x:Bind Look.FolderNameSize, Mode=OneWay}" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" />
-        <TextBlock x:Name="Badge" Grid.Column="2" FontSize="{x:Bind Look.FolderCountSize, Mode=OneWay}" FontWeight="{x:Bind Look.FolderCountWeight, Mode=OneWay}" Opacity="0.62" VerticalAlignment="Center" />
+    <!-- one row like a folder row (SidebarRows.xaml): the button is the hit surface (hover, pressed), the fill above it is the selection, the content is not hit-testable -->
+    <Grid x:Name="RowHost" Height="{x:Bind Look.SbRowHeight, Mode=OneWay}">
+      <Button x:Name="Row" Style="{StaticResource Button.Sidebar.Row}" HorizontalAlignment="Stretch" Click="OnClick" CornerRadius="{x:Bind Look.SbRowRadius, Mode=OneWay}"
+              AutomationProperties.AutomationId="sidebar-unified" AutomationProperties.Name="All inboxes" />
+      <Border x:Name="OpenFill" IsHitTestVisible="False" Visibility="Collapsed" Background="{x:Bind Look.SbSelectedFill, Mode=OneWay}" BorderBrush="{StaticResource Accent}"
+              BorderThickness="{x:Bind Look.SbBarThickness, Mode=OneWay}" CornerRadius="{x:Bind Look.SbRowRadius, Mode=OneWay}" />
+      <Grid IsHitTestVisible="False" Padding="{x:Bind Look.FolderRowPadding, Mode=OneWay}" ColumnSpacing="10" ColumnDefinitions="Auto,*,Auto">
+        <controls:SIcon x:Name="RowIcon" Kind="Inbox" Foreground="{StaticResource Body}" Size="16" Opacity="0.8" VerticalAlignment="Center" Visibility="{x:Bind Look.FolderIconVisibility, Mode=OneWay}" />
+        <TextBlock x:Name="RowName" Grid.Column="1" Foreground="{StaticResource Body}" Text="All inboxes" FontSize="{x:Bind Look.SbNameSize, Mode=OneWay}" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" />
+        <TextBlock x:Name="Badge" Grid.Column="2" Foreground="{StaticResource Body}" FontSize="{x:Bind Look.SbCountSize, Mode=OneWay}" FontWeight="{x:Bind Look.FolderCountWeight, Mode=OneWay}" Opacity="0.62" VerticalAlignment="Center" />
       </Grid>
-    </Button>
+    </Grid>
     <ItemsControl x:Name="AccountRows" ItemsSource="{x:Bind AccountsModel.Rows}" Visibility="Collapsed" AutomationProperties.AutomationId="sidebar-unified.accounts"
                   AutomationProperties.Name="Accounts in All inboxes">
       <ItemsControl.ItemTemplate>
         <DataTemplate x:DataType="accounts:AccountRowViewModel">
-          <Button Style="{StaticResource Button.Icon}" HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch" Height="32" CornerRadius="10" Foreground="{StaticResource Dim}" Click="OnAccountClick"
+          <Button Style="{StaticResource Button.Sidebar.Row}" HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch" Height="32" CornerRadius="{x:Bind theme:StyleState.Current.SbAccountRowRadius, Mode=OneWay}" Foreground="{StaticResource Dim}" Click="OnAccountClick"
                   Tag="{x:Bind}" AutomationProperties.AutomationId="{x:Bind views:Fmt.UnifiedAccountId(Key)}" AutomationProperties.Name="{x:Bind Title, Mode=OneWay}">
             <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="8" Padding="22,0,10,0">
               <Border Width="20" Height="20" CornerRadius="7" Background="{x:Bind views:Fmt.TintBg(TintIndex), Mode=OneWay}" VerticalAlignment="Center">

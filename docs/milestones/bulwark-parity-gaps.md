@@ -387,6 +387,22 @@ Legend for each row: **B** = Bulwark, **N** = Barbican now.
 | AX-03 | Roving focus in list with j/k, focus rescue after delete/move, pane cycle | `layout/focus-rescue.tsx`, `pane-cycle.tsx`, `email/list-a11y.ts` | pane cycle (F6) present in presentation; focus rescue absent (grep) | keyboard users | M | M10 |
 | AX-04 | Live regions and status announcements | `ui/live-regions.tsx`, `use-mail-status-announcements.ts` | toast announces via UIA notification (`ToastHostView.xaml.cs:39-56`); list status none | screen readers | S | M10 |
 
+### 4.2a WP-4 status (branch m6b/wp4-sidebar)
+
+| ID | Status | Note |
+|---|---|---|
+| SB-01 | partly | head: one rule under the switcher and Compose (`sidebar.tsx:2684`), Compose is a primary pill (h-9, rounded-full, px-3, left aligned, medium weight, `Button.Primary` feedback) under the switcher or alone in the 56 px head row (`:2728-2745`). The collapse chevron is the fold feature: SB-02 (M10) |
+| SB-02 | open (M10) | no fold exists to put a chevron on |
+| SB-03 | closed | folder and tag rows are 28 px (a 20 px line + the default `--density-sidebar-py` 4 px; the only density Bulwark ships), 14 px names, 12 px counts (unread semibold foreground, `/ total` muted, an 8 px primary dot for the dot style), an unread folder is not bold, the selected one is semibold, the sub-unread dot follows the count (`sidebar.tsx:520,286-345,660-669`) |
+| SB-04 | partly | icons 16 px; a plain folder icon takes the text colour (`text-foreground/80`). Role colours from the chart tokens need `FolderRows.RoleColor` (Presentation/Mail, not WP-4) |
+| SB-05 | closed | tag rows are folder rows: same height, square band, neutral hover and pressed, accent-fill selection with the accent text, semibold and a 2 px primary bar (`sidebar.tsx:518-535,1181`); folders use `ListItem.Sidebar.Bulwark` (own template, `FeedbackHover/Pressed/Selected(Fg)`, 150 ms colour ease), tags and the all-inboxes row layer a hit surface, the selected fill and the content. Bento and Nordic keep the shared pill rows and `Sel`/`SelText` |
+| SB-06 | closed | the gear opens Settings > Folders & tags (`sidebar.tsx:2430-2431`); a tags gear next to the plus |
+| SB-07 | open | menus not re-audited (WP-8 owns menus) |
+| SB-08 | open (WP-15) | storage block unchanged |
+| SB-09 | open (M10) | unchanged |
+
+Section headers (`sidebar.tsx:806-835`): the whole row is the toggle with the neutral hover band, a muted leading chevron, 14 px semibold name, 24 px plus and gear with their own hover (`Button.Sidebar.Tool`). The shared-accounts header and rows take the folders' metrics. Local styles live in `Views/Sidebar/SidebarRows.xaml`; per-style values in `Theme/StyleState.Sidebar.cs`. Needs from other packages: none. Note for every package: a `Button` does not stretch by default (a content-less hit surface is 0 wide), set `HorizontalAlignment="Stretch"`.
+
 ## 5. Work packages (about one day each, disjoint ownership)
 
 Rule for shared files: `Theme/StyleState.cs`, `Views/Fmt.cs` and `Styles/Controls.xaml` are touched by many areas.
