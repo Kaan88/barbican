@@ -26,7 +26,7 @@ public sealed class UnifiedTrashRoleTests
     {
         using var h = await ActionHarness.StartAsync(prefs: """{"confirmBulkDelete": false}""");
         h.Confirmer.Answer = false;
-        var actions = new MailActionService(new OtherAccountWriters(h.Writers.WriterOf("acct")!, ownFolders), h.Sidebar, h.List, h.Bus, h.Undo, h.Toasts, h.Prefs, h.Confirmer, h.Active, h.Time);
+        var actions = new MailActionService(new OtherAccountWriters(h.Writers.WriterOf("acct")!, ownFolders), h.Sidebar, h.List, h.Bus, h.Undo, h.Toasts, h.Prefs, h.Confirmer, h.Active, h.Transfer, h.Time);
         var row = UnifiedRows.RowId("other@example.org", null, "m1");
         var target = new MailTarget("other@example.org", string.Empty, row, string.Empty, row, new Dictionary<string, bool>(StringComparer.Ordinal) { [mailboxOfRow(h)] = true }, new Keywords(new Dictionary<string, bool>(StringComparer.Ordinal)));
         await actions.DeleteAsync([target], Ct);

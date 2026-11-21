@@ -1,6 +1,7 @@
 // Mirrors: Rust ctxmenu.rs submenu "move" :575 and mail.rs rebuild_folders :115 (the folder list a menu reads); Bulwark components/layout/mailbox-context-menu.tsx (myRights). The
 // mailbox tree of the active account is kept as it arrives (the start-up load, then the sync events), so a menu reads it when it opens without a request. Owner menus.
 
+using Barbican.Core.Accounts;
 using Barbican.Core.Mail.Lists;
 using Barbican.Core.Mail.Model;
 using Barbican.Core.Mail.Tags;
@@ -18,23 +19,29 @@ public sealed class MailboxMenuData : IMenuDataSource, IStartupTask, IDisposable
     private readonly MailEventHub _hub;
     private readonly IPrefsStore _prefs;
     private readonly ISystemAccessibilitySource _system;
+    private readonly IAccountManager _accounts;
     private MailboxTree _tree = new([]);
     private string? _treeAccount;
 
-    public MailboxMenuData(IActiveMail active, MailEventHub hub, IPrefsStore prefs, ISystemAccessibilitySource system)
+    public MailboxMenuData(IActiveMail active, MailEventHub hub, IPrefsStore prefs, ISystemAccessibilitySource system, IAccountManager accounts)
     {
         ArgumentNullException.ThrowIfNull(active);
         ArgumentNullException.ThrowIfNull(hub);
         ArgumentNullException.ThrowIfNull(prefs);
         ArgumentNullException.ThrowIfNull(system);
+        ArgumentNullException.ThrowIfNull(accounts);
         _active = active;
         _hub = hub;
         _prefs = prefs;
         _system = system;
+        _accounts = accounts;
     }
 
     /// <summary>Whether the open message is plain text; the reader view sets it when it shows a message (default: HTML).</summary>
     public bool BodyIsPlainText { get; set; }
+
+    /// <inheritdoc />
+    public bool HasOtherAccounts => _accounts.Accounts.Count > 1;
 
     /// <inheritdoc />
     public bool NestedTags => _prefs.Current.Bool("nestedTags", false);

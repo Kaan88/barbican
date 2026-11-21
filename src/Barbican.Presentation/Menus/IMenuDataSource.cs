@@ -27,6 +27,9 @@ public interface IMenuDataSource
     /// <summary>"Group by date" is on (Bulwark groupListByDate; the list's folder actions check it).</summary>
     bool GroupListByDate => false;
 
+    /// <summary>Another signed-in account exists that a message can be copied into (Bulwark hooks/use-message-file-actions.ts:156-164).</summary>
+    bool HasOtherAccounts => false;
+
     /// <summary>The key of the sort choice the list runs in a folder of <paramref name="role"/> (<see cref="ListSortChoices"/>), or null for an order only Settings can make.</summary>
     string? ListSortKey(Barbican.Core.Mail.Model.MailboxRole role) => ListSortChoices.NewestKey;
 }

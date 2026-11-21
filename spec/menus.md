@@ -23,7 +23,7 @@ Target: the selection when the clicked row is in a multi-selection, else the row
 2. Scheduled view only, when the first message has a `submissionId`: Reschedule [off: N = 1], Cancel and edit [off: N = 1], danger Cancel send [off: N = 1], —
 3. Reply (R) [off: N = 1], Reply all (Shift+R) [off: N = 1], Forward (F) [off: N = 1], —
 4. In the Trash folder only: Restore [off: no `mayRemoveItems`], — (Bulwark `components/email/message-actions.ts:271-274`; the messages go back to where they came from, else the Inbox).
-   Archive (E), which in the Archive folder or any folder below it reads **Move to Inbox** (Bulwark `message-actions.ts:275-277`, `lib/archive-inbox.ts:10-28`; shown only when an Inbox exists); danger Delete (Del), which asks first when N > 1 and `confirmBulkDelete` is on (default on), and always asks when the selection hit the select-all cap of 10 000 (the dialog says the folder may hold more); Move to ›, —
+   Archive (E), which in the Archive folder or any folder below it reads **Move to Inbox** (Bulwark `message-actions.ts:275-277`, `lib/archive-inbox.ts:10-28`; shown only when an Inbox exists); danger Delete (Del), which asks first when N > 1 and `confirmBulkDelete` is on (default on), and always asks when the selection hit the select-all cap of 10 000 (the dialog says the folder may hold more); Move to ›; Copy to account (only with another signed-in account; see the note under Flyouts), —
 5. Mark as unread / Mark as read (U), by the first message's `$seen`; Unstar / Star (S), by `$flagged`; Tag ›, —
 6. Not spam (in the Junk folder) / Report spam (!), —
 7. More actions ›
@@ -32,6 +32,8 @@ Flyouts:
 - **Move to ›**: every folder except virtual ones (`__…`), the current one, Drafts, Sent and folders that take no new mail (`mayAddItems` false), indented by depth (Bulwark `lib/move-menu.ts:117`).
 - **Tag ›**: every tag with its colour, checked when the first message has `$label:<id>`; "No tags" (disabled) when there are none.
 - **More actions ›**: Open (Enter), Print, Download (.eml), View source, Forward as attachment, —, Copy sender address, Find emails from sender; all [off: N = 1].
+
+**Copy to account** (G-048) is a row that opens a dialog picker here, where Bulwark opens a submenu (Bulwark `components/email/message-actions.ts:288-290`, `:336`, `components/email/email-context-menu.tsx:371-379`). The picker lists every other signed-in account under its address, with the folders that take mail (no Drafts, no Sent, `mayAddItems` only: `lib/move-menu.ts:115-118`); picking one copies the messages there and leaves the originals, the list and the selection as they are, for one message and for a selection (Bulwark keeps the row in More actions for a selection, `message-actions.ts:493-500`; Barbican shows it in both). The copy keeps its tags and its date; inside one login it is an `Email/copy`, between two logins the raw message travels as a blob and an `Email/import` (`stores/email-store.ts:5601-5648`).
 
 ## MENU-THREAD: a message inside an open thread [M2]
 Open; Reply (R); Reply all (Shift+R); Forward (F); —; Mark as read / Mark as unread (U) by the row's unread state; Unstar / Star (S); —; Print; danger Delete (Del).
