@@ -2,7 +2,6 @@
 
 using Barbican.Core.Accounts;
 using Barbican.Core.Settings.Account;
-using Barbican.Core.Settings.Assistant;
 using Barbican.Core.Settings.Backup;
 using Barbican.Core.Settings.Pages;
 using Barbican.Presentation.Commands;
@@ -34,7 +33,6 @@ public static class SettingsUiPresentationRegistration
             sp.GetRequiredService<IAccountQuota>(),
             sp.GetRequiredService<ISetUiViewModel>(),
             sp.GetService<IDispatcher>()));
-        services.TryAddSingleton(sp => new SetUiAssistantViewModel(sp.GetRequiredService<IAssistantSession>(), sp.GetRequiredService<ISetUiViewModel>(), sp.GetService<IDispatcher>()));
         services.TryAddSingleton(sp => new SetUiBackupViewModel(sp.GetRequiredService<ISettingBackup>(), sp.GetService<IDialogService>()));
         services.TryAddSingleton<AccessibilityQuickModel>();
         services.TryAddSingleton(sp => new SetUiCommandSet(SetUiCommandFactory.Create(sp.GetRequiredService<ShellViewModel>(), sp.GetRequiredService<ISettingsNavigation>(), sp.GetRequiredService<ISetUiViewModel>(), () => sp.GetRequiredService<IDialogService>(), sp.GetRequiredService<AccessibilityQuickModel>())));

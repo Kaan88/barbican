@@ -18,6 +18,7 @@
   </Folder>
   <Folder Name="/plugins/">
     <Project Path="plugins/Barbican.Plugin.SpamScore/Barbican.Plugin.SpamScore.csproj" />
+    <Project Path="plugins/Barbican.Plugin.Assistant/Barbican.Plugin.Assistant.csproj" />
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/Barbican.Core.Tests/Barbican.Core.Tests.csproj" />
@@ -26,6 +27,7 @@
     <Project Path="tests/Barbican.FakeJmap/Barbican.FakeJmap.csproj" />
     <Project Path="tests/Barbican.Jmap.Live/Barbican.Jmap.Live.csproj" />
     <Project Path="tests/Barbican.Platform.Tests/Barbican.Platform.Tests.csproj" />
+    <Project Path="tests/Barbican.Plugin.Assistant.Tests/Barbican.Plugin.Assistant.Tests.csproj" />
     <Project Path="tests/Barbican.Automation.Tests/Barbican.Automation.Tests.csproj" />
     <Project Path="tests/Barbican.Build.Tests/Barbican.Build.Tests.csproj" />
   </Folder>

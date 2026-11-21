@@ -2,7 +2,7 @@
 using System.Text.Json.Nodes;
 using Barbican.Core.Plugins.Hooks;
 using Barbican.Core.Settings;
-using Barbican.Core.Settings.Assistant;
+using Barbican.Core.Plugins.Native.Host;
 using Barbican.Core.Settings.Backup;
 using Barbican.Core.Settings.Pages;
 using Barbican.Core.Storage;
@@ -28,10 +28,10 @@ public sealed class SettingWriteGateCompositionTests
             using var provider = services.BuildServiceProvider();
             var backup = provider.GetRequiredService<ISettingBackup>();
             var values = provider.GetRequiredService<ISettingValues>();
-            var assistant = provider.GetRequiredService<IAssistantSettings>();
+            var assistant = provider.GetRequiredService<IPluginHostServices>().SettingsOf("assistant");
             var import = backup.ImportAsync(JsonNode.Parse("""{"app":"barbican","settings":{"theme":"dark"},"desktop":{"other":"kept"}}""")!, TestContext.Current.CancellationToken);
             await prefs.Entered.Task.WaitAsync(TestContext.Current.CancellationToken);
-            var save = assistant.SaveAsync("a", AssistantSettings.Defaults with { Model = "new-model" }, TestContext.Current.CancellationToken);
+            var save = assistant.SetAsync("a", new Dictionary<string, string?>(StringComparer.Ordinal) { ["model"] = "new-model" }, TestContext.Current.CancellationToken);
             var set = values.SetAsync("density", JsonValue.Create("compact"), TestContext.Current.CancellationToken);
             var export = backup.ExportAsync(TestContext.Current.CancellationToken);
             Assert.False(save.IsCompleted);
@@ -39,7 +39,7 @@ public sealed class SettingWriteGateCompositionTests
             Assert.False(export.IsCompleted);
             prefs.Release.TrySetResult();
             Assert.True((await import).IsOk);
-            Assert.True((await save).IsOk);
+            await save;
             Assert.True((await set).IsOk);
             Assert.Equal("kept", (string?)(await export).Value!["desktop"]!["other"]);
         }

@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- The bundled AI assistant native add-on (decision D-M6b-08), the reference example for writing one: see README.md. References only the plugin API
+       (no Core, Presentation or UI types). The App project builds it and copies it to <output>/plugins/assistant/; its tests reference it directly. -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <RootNamespace>Barbican.Plugin.Assistant</RootNamespace>
+    <IsAotCompatible>true</IsAotCompatible>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../../src/Barbican.Plugins.Abstractions/Barbican.Plugins.Abstractions.csproj" />
+  </ItemGroup>
+</Project>

@@ -171,6 +171,10 @@ public sealed class NativePluginHost : INativePluginHost, IDisposable
         }
     }
 
+    /// <summary>The instance of an enabled plugin whose start finished without failing, or null.</summary>
+    internal IBarbicanPlugin? FindStarted(string id) =>
+        Snapshot().FirstOrDefault(p => p.AcceptsCalls && p.Info.Enabled && p.Ready.IsCompletedSuccessfully && string.Equals(p.Info.Id, id, StringComparison.Ordinal))?.Plugin;
+
     private LoadedPlugin[] Snapshot()
     {
         lock (_lifecycle) return [.. _loaded];
@@ -215,6 +219,7 @@ public sealed class NativePluginHost : INativePluginHost, IDisposable
         ct.ThrowIfCancellationRequested();
         if (!binding.IsAlive) throw new InvalidOperationException("Native add-on approval expired during startup.");
         var context = new PluginContext(string.Empty, Path.Combine(_options.DataRoot!, package.Id)) { Hooks = registered.Bridge };
+        if (_options.Services is { } services) context = services.Apply(context, package.Id);
         await registered.Plugin.InitializeAsync(context, ct).ConfigureAwait(false);
     }
 
@@ -494,6 +499,7 @@ public sealed class NativePluginHost : INativePluginHost, IDisposable
     {
         var data = Path.Combine(_options.DataRoot ?? Path.Combine(plugin.Info.Directory, ".data"), plugin.Info.Id);
         var context = new PluginContext(plugin.Info.Directory, data) { Hooks = plugin.Bridge };
+        if (_options.Services is { } services) context = services.Apply(context, plugin.Info.Id);
 
         // initialization gets the intercept budget: a plugin may read its own files first
         var (done, _) = await RunAsync(

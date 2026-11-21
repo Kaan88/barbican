@@ -12,7 +12,6 @@ public sealed class M6NamingTests
     [
         ("Barbican.Core.Settings.Pages", "set-data", ["Setting"]),
         ("Barbican.Core.Settings.Backup", "set-data", ["Setting"]),
-        ("Barbican.Core.Settings.Assistant", "set-data", ["Assistant"]),
         ("Barbican.Core.Settings.Account", "set-data", ["AccountIdentit", "AccountSecurity", "AccountQuota", "AccountAppPassword", "AccountApiKey", "AccountIssuedSecret", "AccountTotp"]),
         ("Barbican.Core.Filters.Rules", "srv-data", ["Filter"]),
         ("Barbican.Core.Settings.Vacation", "srv-data", ["Vacation"]),
