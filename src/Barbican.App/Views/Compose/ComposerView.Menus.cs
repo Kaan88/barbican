@@ -3,7 +3,6 @@
 // In Bulwark the Templates and Options buttons open an anchored menu; Bento and Nordic keep their cards.
 
 using Barbican.Core.Compose;
-using Microsoft.UI.Xaml.Controls.Primitives;
 
 namespace Barbican.App.Views.Compose;
 

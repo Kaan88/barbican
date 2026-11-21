@@ -24,25 +24,12 @@ internal sealed class PluginDialogContent : IDialogContent
 
     public UIElement Create(ActiveDialog dialog) => new Form((PluginDialogHostRequest)dialog.Request, dialog).Build();
 
-    // Bulwark PluginDialogMenu: a vertical-ellipsis button ("Options for <name>") whose menu has one destructive entry, "Turn off <name>"; it disables the add-on, which closes the dialog
-    public UIElement? CreateHeaderAction(ActiveDialog dialog)
+    // Bulwark PluginDialogMenu: a vertical-ellipsis button ("Options for <name>") whose menu has one destructive entry, "Turn off <name>"; it disables the add-on, which closes the dialog.
+    // The host's XAML declares the button and menu (DialogHostView.xaml).
+    public DialogHeaderMenu? CreateHeaderMenu(ActiveDialog dialog)
     {
         var host = (PluginDialogHostRequest)dialog.Request;
-        if (host.TurnOff is null)
-        {
-            return null;
-        }
-
-        var turnOff = new MenuFlyoutItem { Text = $"Turn off {host.Source}", Foreground = AppResources.Brush("Destructive") };
-        AutomationProperties.SetAutomationId(turnOff, "plugin.dialog.turn-off");
-        turnOff.Click += (_, _) => _ = TurnOffAsync(host, dialog);
-        var flyout = new MenuFlyout { ShouldConstrainToRootBounds = true, Placement = Microsoft.UI.Xaml.Controls.Primitives.FlyoutPlacementMode.BottomEdgeAlignedRight };
-        flyout.Items.Add(turnOff);
-        var icon = new Controls.SIcon { Kind = "More", Size = 20, RenderTransformOrigin = new Windows.Foundation.Point(0.5, 0.5), RenderTransform = new RotateTransform { Angle = 90 } };
-        var button = new Button { Style = (Style)Application.Current.Resources["Button.Icon"], Width = 32, Height = 32, CornerRadius = new CornerRadius(StyleState.Current.Metrics.ButtonRadius), Content = icon, Flyout = flyout };
-        AutomationProperties.SetAutomationId(button, "plugin.dialog.menu");
-        AutomationProperties.SetName(button, $"Options for {host.Source}");
-        return button;
+        return host.TurnOff is null ? null : new DialogHeaderMenu($"Options for {host.Source}", $"Turn off {host.Source}", () => TurnOffAsync(host, dialog));
     }
 
 #if AUTOMATION

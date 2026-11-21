@@ -4,6 +4,7 @@
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:win="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:controls="using:Barbican.App.Controls"
+    xmlns:local="using:Barbican.App.Views.Dialogs"
     xmlns:not_win="http://uno.ui/not_win"
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
     mc:Ignorable="not_win">
@@ -33,7 +34,7 @@
                   <ColumnDefinition Width="Auto" />
                 </Grid.ColumnDefinitions>
                 <TextBlock x:Name="TitleText" FontSize="16" FontWeight="SemiBold" Foreground="{StaticResource Text}" TextWrapping="Wrap" AutomationProperties.AutomationId="dialog.title" />
-                <ContentControl x:Name="HeaderAction" Grid.Column="1" VerticalAlignment="Top" IsTabStop="False" AutomationProperties.AutomationId="dialog.header-action" />
+                <local:DialogHeaderMenuView x:Name="HeaderMenu" Grid.Column="1" VerticalAlignment="Top" Visibility="Collapsed" />
               </Grid>
               <TextBlock x:Name="MessageText" FontSize="13" Foreground="{StaticResource Body}" TextWrapping="Wrap" AutomationProperties.AutomationId="dialog.message" />
               <TextBox x:Name="Field" Visibility="Collapsed" KeyDown="OnFieldKeyDown" AutomationProperties.AutomationId="dialog.field" AutomationProperties.Name="Name" />
