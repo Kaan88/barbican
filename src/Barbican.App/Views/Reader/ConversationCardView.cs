@@ -137,7 +137,14 @@ public sealed partial class ConversationCardView : UserControl
 
     private static Button Action(string label, string prefix, ConversationExpansion card, Action run)
     {
-        var button = new Button { Content = label };
+        // Bulwark thread-conversation-view.tsx:580-: outline buttons, h-8, text-sm, in the shared action style with the StyleState radius.
+        var button = new Button
+        {
+            Content = label,
+            Style = (Style)Application.Current.Resources["Button.Action"],
+            Height = 32, MinWidth = 72, Padding = new Thickness(12, 0, 12, 0), FontSize = 14, FontWeight = Microsoft.UI.Text.FontWeights.Medium,
+            CornerRadius = Barbican.App.Theme.StyleState.Current.ButtonRadius,
+        };
         AutomationProperties.SetName(button, label);
         AutomationProperties.SetAutomationId(button, prefix + card.EmailId);
         button.Click += (_, _) => { if (Owned(card)) run(); };

@@ -500,3 +500,20 @@ By size: L 18, M 64, S 58.
 - Admin screens (M7) beyond the rail entry; print views beyond the calendar/contacts notes; the 24 settings pages one by one (ST-07).
 - Exact pixel metrics per screen: need paired native and live captures (see UI-GUIDELINES "visual change" rule).
 - Behaviour already catalogued in `spec/interactions.csv`, `spec/menus.md`, `spec/behaviours/shortcuts.md`, which were baselined on the Rust app: a Bulwark 1.21.2 diff of those three files is itself a gap (MX-02, MX-04).
+
+### 5.1 WP-6 status (branch m6b/wp6-reader, partial)
+
+| ID | Status | Note |
+|---|---|---|
+| FM-09 | closed | reader subject/sender rise (`ReaderView.xaml.cs`) and body cross-fade (`BodyShell.cs`) go through `MotionRuntime.DecorationMs`: instant in Bulwark, unchanged in Bento and Nordic |
+| RD-06 | partly | attachment chip: 8 px radius, 1 px border, `Tile` card fill, 14/12 px text, hover tint (`reader-attachments.tsx:165-181`); `StyleState.Reader.cs`. Preview/rename/save-to-files buttons on the chip not added |
+| RD-10 | closed | empty state: 56 px muted circle, 28 px icon, 16 medium title, 14 muted description, max 384 (`ui/empty-state.tsx:27-36`) |
+| RD-01 | closed (verified by design) | toolbar: Reply, Reply all, Forward, Archive, Delete, then Move/tag/read/print through `ExtraActions` from the width where Bulwark's `data-overflow-priority` keeps them, the rest under More (`email-viewer.tsx:4917-5260`); not re-captured at a wide window |
+| RD-02 | closed | collapsed card: 8 px radius, chevron, 14 px sender, muted time; "Show N older messages" and per-card Reply / Reply all / Forward / Print use `Button.Action` with the `ButtonRadius` (`thread-conversation-view.tsx:468-590`). Unread start bar, preview line and card-level expand animation (Bulwark `duration-200`) not added |
+| RD-04, RD-09 | closed | details panel uses the chip radius; header band, 20 px subject and 56 px toolbar already matched; captured dark and light |
+| RD-06 | closed for the visible tile | heading with paperclip and count, always shown (the snapshot size summary stays empty while cards are off), chip download button (`attachment.save`); the hover-only save-to-files and rename buttons are not added: rename has no command in Core (`CommandIds` has no rename), save-to-files stays in MENU-ATT |
+| RD-07 | closed | quick reply Cancel and Open full editor are ghost (`Button.Icon`) in Bulwark, Send is the primary button, 32 px high, `ButtonRadius` (`email-viewer.tsx:6640-6680`); the Maximize2 / Reply glyphs and plugin actions row are not added |
+| Banners, tags | closed | `StyleState.BannerRadius` (6 Bulwark, 14 others), `TagRadius` (full pill, `tag-badge.tsx:23`) |
+| RD-05 | open, outside the owned set | link mismatch, phishing report, external-sender chip, BIMI, per-sender trust, retention, unsubscribe and read-receipt banners need Core services and settings (G-049..053) and a native surface in `MailBody/` JS (`Assets/mail/shell.js`, not owned) |
+| RD-08 | open, outside the owned set | the selection menu needs `Assets/mail/shell.js` (selection events) and a bridge message; the add-on slots `email.details` keep working |
+| RD-11 | open, outside the owned set | the reading mask is a line overlay inside the body WebView (needs `Assets/mail/shell.js`) driven by the A11y setting in Core |
