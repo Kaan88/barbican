@@ -36,16 +36,18 @@ public sealed class PluginDialogMethodsTests
         (request, _, _) => { seen?.Add(request); return Task.FromResult(outcome); };
 
     [Fact]
-    public void ThreeMethodsNeedNoPermissionAndHaveNoDeadline()
+    public void TheMethodsNeedNoPermissionAndHaveNoDeadline()
     {
         var methods = PluginDialogMethods.Create(TimeProvider.System, Answer(PluginDialogOutcome.Cancelled));
-        Assert.Equal(["ui.alert", "ui.confirm", "ui.prompt"], methods.Select(m => m.Descriptor.Name), StringComparer.Ordinal);
+        Assert.Equal(["ui.alert", "ui.confirm", "ui.prompt", "ui.openDialog"], methods.Select(m => m.Descriptor.Name), StringComparer.Ordinal);
+        Assert.Equal(PluginDialogMethods.MethodCount, methods.Count);
         Assert.All(methods, method =>
         {
             Assert.Empty(method.Descriptor.PermissionAlternatives);
             Assert.Equal(Timeout.InfiniteTimeSpan, method.Descriptor.Deadline);
-            Assert.Null(method.ValidateArguments(Args()));
         });
+        // ui.openDialog needs a slot name; the others read nothing as no options
+        Assert.All(methods.Take(3), method => Assert.Null(method.ValidateArguments(Args())));
     }
 
     [Fact]

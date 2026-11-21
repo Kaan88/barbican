@@ -49,7 +49,7 @@ public sealed class PluginSandboxFactory(IPluginPackageManager packages, IPlugin
         try
         {
             var view = await views.CreateAsync("plugin-" + Guid.NewGuid().ToString("N"), ct).ConfigureAwait(false);
-            var session = new PluginSandboxSession(binding, view, dispatcher, authority);
+            var session = new PluginSandboxSession(binding, view, dispatcher, authority, trusted.Callbacks);
             lifetime = new PluginSandboxStartupLifetime(session);
             if (await CurrentAsync(trusted, ct).ConfigureAwait(false) is null) return Fail();
 
@@ -158,7 +158,7 @@ public sealed class PluginSandboxFactory(IPluginPackageManager packages, IPlugin
             return null;
 
         // The activation request takes package metadata from the authenticated store.
-        return new PluginRuntimeStart(item, grant, request.Profile, request.Kind, request.Slot, request.Props, request.HostState, request.Fill);
+        return new PluginRuntimeStart(item, grant, request.Profile, request.Kind, request.Slot, request.Props, request.HostState, request.Fill, request.Callbacks);
     }
 
     private static Result<IPluginRuntimeInstance> Fail() =>

@@ -4,6 +4,7 @@
 using System.Text.Json;
 using Barbican.Core.Common;
 using Barbican.Core.Jmap.Errors;
+using Barbican.Core.Plugins.Bridge;
 using Barbican.Core.Plugins.Protocol;
 using Barbican.Core.Plugins.Runtime;
 using Barbican.App.Plugins.Sandbox;
@@ -25,9 +26,9 @@ internal sealed class PluginSlotFrames(PluginPackageHost packages, PluginBackgro
         background.ActivationOf(packageId) is { } activation && activation.Slots.FirstOrDefault(s => string.Equals(s.Name, slot, StringComparison.Ordinal)) is { } offer
             ? offer.Fill : null;
 
-    /// <summary>Starts the frame. <paramref name="mount"/> receives the WebView; <paramref name="permission"/> is the add-on permission the slot needs.</summary>
+    /// <summary>Starts the frame. <paramref name="mount"/> receives the WebView; <paramref name="permission"/> is the add-on permission the slot needs; <paramref name="callbacks"/> are the host functions the frame may call (callback-invoke, Bulwark host-bridge.ts:521).</summary>
     internal async Task<Result<IPluginSlotFrameInstance>> StartAsync(string packageId, string slot, string permission, PluginValue props,
-        Microsoft.UI.Xaml.Controls.Panel mount, JsonElement theme, CancellationToken ct)
+        Microsoft.UI.Xaml.Controls.Panel mount, JsonElement theme, CancellationToken ct, PluginHostCallbacks? callbacks = null)
     {
         ArgumentNullException.ThrowIfNull(mount);
         if (Offer(packageId, slot) is not { } fill) return Fail("The add-on does not offer this slot.");
@@ -39,7 +40,7 @@ internal sealed class PluginSlotFrames(PluginPackageHost packages, PluginBackgro
 #if WINDOWS
         PluginSlotMount.Set(mount);
 #endif
-        var result = await factory.StartAsync(background.SlotRequest(installation, slot, props, fill, theme), ct).ConfigureAwait(false);
+        var result = await factory.StartAsync(background.SlotRequest(installation, slot, props, fill, theme, callbacks), ct).ConfigureAwait(false);
         if (!result.IsOk) return Result<IPluginSlotFrameInstance>.Fail(result.Error!);
         if (result.Value is IPluginSlotFrameInstance frame) return Result<IPluginSlotFrameInstance>.Ok(frame);
         if (result.Value is { } other) await other.DisposeAsync().ConfigureAwait(false);

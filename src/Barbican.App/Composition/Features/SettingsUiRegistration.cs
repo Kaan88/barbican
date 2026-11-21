@@ -56,14 +56,7 @@ public static class SettingsUiRegistration
             var method = toastMethod;
             services.AddSingleton<IPluginApiMethod>(sp => sp.GetRequiredService<Views.Plugins.PluginToastPresenter>().Methods[method]);
         }
-        services.AddSingleton<IDialogContent, Views.Plugins.PluginFilePreviewContent>();
-        services.AddSingleton<IDialogContent, Views.Plugins.PluginDialogContent>();
-        services.AddSingleton<Views.Plugins.PluginDialogPresenter>();
-        for (var dialogMethod = 0; dialogMethod < PluginDialogMethods.MethodCount; dialogMethod++)
-        {
-            var method = dialogMethod;
-            services.AddSingleton<IPluginApiMethod>(sp => sp.GetRequiredService<Views.Plugins.PluginDialogPresenter>().Methods[method]);
-        }
+        AddAddOnDialogs(services);
         services.AddSingleton<IPluginApiMethod>(sp => new PluginOpenFile(sp.GetRequiredService<TimeProvider>(),
             sp.GetRequiredService<Views.Plugins.PluginFilePresenter>().ShowAsync));
 #endif
@@ -97,6 +90,21 @@ public static class SettingsUiRegistration
 #endif
         return services;
     }
+
+#if WINDOWS
+    private static void AddAddOnDialogs(IServiceCollection services)
+    {
+        services.AddSingleton<IDialogContent, Views.Plugins.PluginFilePreviewContent>();
+        services.AddSingleton<IDialogContent, Views.Plugins.PluginDialogContent>();
+        services.AddSingleton<IDialogContent, Views.Plugins.PluginSlotDialogContent>();
+        services.AddSingleton<Views.Plugins.PluginDialogPresenter>();
+        for (var dialogMethod = 0; dialogMethod < PluginDialogMethods.MethodCount; dialogMethod++)
+        {
+            var method = dialogMethod;
+            services.AddSingleton<IPluginApiMethod>(sp => sp.GetRequiredService<Views.Plugins.PluginDialogPresenter>().Methods[method]);
+        }
+    }
+#endif
 
 #if WINDOWS
     private static ManagedPluginSource CreateManagedPluginSource(IServiceProvider services)

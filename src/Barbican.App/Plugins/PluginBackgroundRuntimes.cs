@@ -279,8 +279,9 @@ internal sealed partial class PluginBackgroundRuntimes(
     }
 
     /// <summary>The slot-frame start of <paramref name="slot"/> for an installed add-on, with the host's current settings and theme (Bulwark runtime.tsx:1495-1603).</summary>
-    internal PluginRuntimeStart SlotRequest(PluginInstallation installation, string slot, PluginValue props, bool fill, JsonElement theme) =>
-        new(installation, installation.Grant!, paths.Profile, PluginFrameKind.Slot, slot, props, HostState(theme), fill);
+    internal PluginRuntimeStart SlotRequest(PluginInstallation installation, string slot, PluginValue props, bool fill, JsonElement theme,
+        Barbican.Core.Plugins.Bridge.PluginHostCallbacks? callbacks = null) =>
+        new(installation, installation.Grant!, paths.Profile, PluginFrameKind.Slot, slot, props, HostState(theme), fill, callbacks);
 
     /// <summary>The offers the add-on's running background instance made at activation, or null while it is not running.</summary>
     internal PluginActivation? ActivationOf(string packageId) =>

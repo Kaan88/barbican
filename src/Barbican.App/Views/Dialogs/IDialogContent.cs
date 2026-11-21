@@ -19,6 +19,9 @@ public interface IDialogContent
     /// <summary>M5 (additive, con-ui): the widest the card may be (a form or a picker needs more than the 440 of a question).</summary>
     double MaxWidth => 440;
 
+    /// <summary>Additive: the widest the card may be for this request, when the request asks for its own width (an add-on's custom dialog, Bulwark plugin-dialog-host.tsx:432); defaults to <see cref="MaxWidth"/>.</summary>
+    double MaxWidthOf(object request) => MaxWidth;
+
     /// <summary>CP-07 (additive): the control that takes the keyboard focus when a content with <see cref="OwnButtons"/> opens, or null for the first focusable one (Bulwark's initialFocus, dialog.tsx; a question starts on its safe button).</summary>
     Control? InitialFocus(UIElement content) => null;
 

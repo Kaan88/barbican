@@ -2,8 +2,10 @@
 // :903 event click, :941 "+N more", drag-range create, day number opens Day, roving keys), components/calendar/task-chip.tsx; I-314..I-320, B-CAL-055, B-CAL-059.
 // Bulwark (calendar-month-view.tsx:594-700): a header of text-xs medium muted weekday names over a hairline (py-2), a hairline between the cells and under each week, the days of the other months on bg-muted/30,
 // the date a 24 px circle in the middle of the cell (today filled primary and bold, the picked day tinted primary/15), and chips and "+N more" at text-xs medium with rounded-xs corners (event-card.tsx:343).
+// An add-on's day labels (ui.setDayLabels, plugin-day-label.tsx via calendar-month-view.tsx:696) sit right of the date in the cell head, text only, trimmed with an ellipsis; the hover title is the automation name.
 // One pointer handler on the grid does the hit test from the cell geometry, so a click, a double click, a right click, an event drag and a range drag all take the road of the automation commands (CalendarUi, ICalendarGestures).
 
+using Barbican.App.Shell;
 using Microsoft.UI.Xaml.Automation;
 using System.Globalization;
 using Barbican.Core.Calendar;
@@ -25,6 +27,7 @@ public sealed class MonthGridView : UserControl
     private const double DragThreshold = 4;
 
     private readonly CalendarViewModel _vm = CalendarUi.Model;
+    private readonly Barbican.Core.Plugins.Calendar.PluginDayLabelRegistry _dayLabels = ViewHost.Get<Barbican.Core.Plugins.Calendar.PluginDayLabelRegistry>();
     private readonly Canvas _canvas = new() { Background = new SolidColorBrush(Windows.UI.Color.FromArgb(0, 0, 0, 0)), IsTabStop = true, UseSystemFocusVisuals = false };
     private readonly List<(Rect Rect, string Id)> _items = [];
     private readonly List<(Rect Rect, DateOnly Day)> _more = [];
@@ -72,15 +75,35 @@ public sealed class MonthGridView : UserControl
             }
         };
         Content = _canvas;
+        Loaded += (_, _) => _dayLabels.Changed += OnDayLabelsChanged;
+        Unloaded += (_, _) => _dayLabels.Changed -= OnDayLabelsChanged;
         AutomationProperties.SetAutomationId(this, "cal.grid.month");
         AutomationProperties.SetAutomationId(_canvas, "cal.month");
         AutomationProperties.SetName(_canvas, "Month grid");
         _focus = _vm.Anchor;
     }
 
+    private void OnDayLabelsChanged(object? sender, EventArgs e) => DispatcherQueue.TryEnqueue(Render);
+
     public event EventHandler<HoverRequestedEventArgs>? HoverRequested;
 
     public event EventHandler? HoverCleared;
+
+    // Bulwark plugin-day-label.tsx: the texts of the day's labels joined by " · ", title (or text) and add-on name as the tooltip.
+    private void AddDayLabel(List<UIElement> children, DateOnly day, double left, double top, double right)
+    {
+        var labels = _dayLabels.On(day).Where(l => l.Label.Text is not null).ToList();
+        if (labels.Count == 0 || right - left < 12) return;
+        var text = CalendarVisuals.Text(string.Join(" · ", labels.Select(l => l.Label.Text)), 10, FontWeights.Normal, CalendarVisuals.Palette("Dim"));
+        text.TextTrimming = TextTrimming.CharacterEllipsis;
+        text.MaxWidth = right - left;
+        text.IsHitTestVisible = false;
+        AutomationProperties.SetAutomationId(text, "cal.cell.label." + day.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture));
+        AutomationProperties.SetName(text, string.Join("\n", labels.Select(l => (l.Label.Title ?? l.Label.Text) + " (" + l.PackageName + ")")));
+        Canvas.SetLeft(text, left);
+        Canvas.SetTop(text, top);
+        children.Add(text);
+    }
 
     private double Left => _vm.Settings.Core.ShowWeekNumbers ? WeekNumberWidth : 0;
 
@@ -180,6 +203,7 @@ public sealed class MonthGridView : UserControl
             Canvas.SetLeft(number, bulwark ? x + ((CellW - 24) / 2) : x + 4);
             Canvas.SetTop(number, y + 3);
             children.Add(number);
+            AddDayLabel(children, cell.Day, bulwark ? x + ((CellW - 24) / 2) + 28 : x + 32, y + 8, x + CellW - 3);
             if (bulwark && cell.Day.Day == 1)
             {
                 // the first of a month names it, left of the date (calendar-month-view.tsx:662)
