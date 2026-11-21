@@ -1,13 +1,13 @@
-// Mirrors: Bulwark components/email/email-composer.tsx close dialog :6916-6923, send-warnings-dialog.tsx, external-recipient-confirm.tsx, schedule-send-dialog.tsx, template-picker.tsx, the From list :5813 with the sub-address helper
+// Mirrors: Bulwark components/email/template-picker.tsx, the From list :5813 of email-composer.tsx with the sub-address helper
 // and "Edit sender", Options :6600-6680 (Plain text, Read receipt, Priority), the Send arrow :5722; I-235, I-240, I-241, I-243, I-244, I-255, I-256, I-257, I-258, I-259, I-260.
-// The cards of the composer pane: one at a time on the scrim of CardLayer, inside the pane (docked replies included), no OS window.
+// The cards of the composer pane: one at a time on the scrim of CardLayer, inside the pane (docked replies included), no OS window. The questions (leave, discard, send warnings, external recipients,
+// schedule send) are not cards any more: they are drawn by the shared dialog host (ComposerView.Questions.cs, CP-07).
 
 #pragma warning disable CA1859, CA1822 // the card builders return UIElement by design (one slot, many kinds)
 
 using Barbican.App.Theme;
 using Barbican.Core.Compose;
 using Barbican.Presentation.Compose;
-using Barbican.Presentation.Compose.Pipeline;
 using Microsoft.UI.Xaml.Automation;
 using Microsoft.UI.Xaml.Input;
 
@@ -33,14 +33,10 @@ public sealed partial class ComposerView
 
     private void OnScrimTapped(object sender, TappedRoutedEventArgs e)
     {
-        // a tap outside the card dismisses it (the same as Escape); a question needs its answer
-        if (_vm is { } vm && vm.Dialog is null)
+        // a tap outside the card dismisses it (the same as Escape)
+        if (_vm is { } vm)
         {
-            if (vm.Schedule is not null)
-            {
-                vm.CancelSchedule();
-            }
-            else if (vm.Templates is not null)
+            if (vm.Templates is not null)
             {
                 vm.CloseTemplates();
             }
@@ -55,22 +51,19 @@ public sealed partial class ComposerView
 
     private void RefreshCards()
     {
+        SyncQuestion();
         UIElement? content = null;
         if (_vm is { } vm)
         {
-            content = vm.Dialog is { } d
-                ? DialogCard(d)
-                : vm.Schedule is { } s
-                    ? ScheduleCard(s)
-                    : vm.Templates is { } t
-                        ? TemplatesCard(t)
-                        : _card switch
-                        {
-                            CardKind.From => FromCard(vm),
-                            CardKind.Options => OptionsCard(vm),
-                            CardKind.SendMenu => SendMenuCard(vm),
-                            _ => null,
-                        };
+            content = vm.Templates is { } t
+                ? TemplatesCard(t)
+                : _card switch
+                {
+                    CardKind.From => FromCard(vm),
+                    CardKind.Options => OptionsCard(vm),
+                    CardKind.SendMenu => SendMenuCard(vm),
+                    _ => null,
+                };
         }
 
         // UI-SWEEP-1 C-03: a docked reply is short, so a tall card (Schedule, Templates) scrolls instead of being cut off
@@ -81,31 +74,6 @@ public sealed partial class ComposerView
         {
             Card.MaxWidth = content is FrameworkElement { Tag: "wide" } ? 560 : 460;
         }
-    }
-
-    // ---- the questions -----------------------------------------------------------------------------------
-
-    private UIElement DialogCard(ComposerDialog dialog)
-    {
-        var panel = new StackPanel { Spacing = 10 };
-        panel.Children.Add(Heading(dialog.Title));
-        panel.Children.Add(Body(dialog.Message));
-        foreach (var line in dialog.Lines)
-        {
-            panel.Children.Add(Body("•  " + line, "composer.dialog.line"));
-        }
-
-        var buttons = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, HorizontalAlignment = HorizontalAlignment.Right, Margin = new Thickness(0, 8, 0, 0) };
-        foreach (var choice in dialog.Choices)
-        {
-            var id = choice.Id;
-            buttons.Children.Add(CardButton(choice.Label, choice.Tone, "composer.dialog." + id, () => _vm?.AnswerDialog(id)));
-        }
-
-        panel.Children.Add(buttons);
-        AutomationProperties.SetAutomationId(panel, "composer.dialog");
-        AutomationProperties.SetName(panel, dialog.Title);
-        return panel;
     }
 
     private UIElement SendMenuCard(ComposerViewModel vm)
@@ -127,51 +95,6 @@ public sealed partial class ComposerView
         schedule.IsEnabled = vm.CanSend;
         panel.Children.Add(schedule);
         AutomationProperties.SetAutomationId(panel, "composer.sendmenu");
-        return panel;
-    }
-
-    // ---- schedule ----------------------------------------------------------------------------------------
-
-    internal static StackPanel ScheduleCard(ScheduleDialogViewModel state)
-    {
-        var panel = new StackPanel { Spacing = 6, MinWidth = 320 };
-        panel.Children.Add(Heading(state.Title));
-        for (var i = 0; i < state.Presets.Count; i++)
-        {
-            var index = i;
-            var preset = state.Presets[i];
-            panel.Children.Add(CardButton($"{preset.Label}   {preset.When}", DialogTone.Plain, $"composer.schedule.preset.{i}", () => state.Choose(index), stretch: true));
-        }
-
-        panel.Children.Add(Body("Or pick a date and time"));
-        var date = new TextBox { PlaceholderText = "2026-11-20", Text = state.Date, FontSize = 13, MinWidth = 120 };
-        var time = new TextBox { PlaceholderText = "08:00", Text = state.Time, FontSize = 13, MinWidth = 90 };
-        AutomationProperties.SetAutomationId(date, "composer.schedule.date");
-        AutomationProperties.SetName(date, "Date");
-        AutomationProperties.SetAutomationId(time, "composer.schedule.time");
-        AutomationProperties.SetName(time, "Time");
-        date.TextChanged += (_, _) => state.Date = date.Text;
-        time.TextChanged += (_, _) => state.Time = time.Text;
-        var row = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
-        row.Children.Add(date);
-        row.Children.Add(time);
-        panel.Children.Add(row);
-        var error = new TextBlock { FontSize = 12.5, Foreground = AppResources.Brush("RoseFg"), TextWrapping = TextWrapping.Wrap, Text = state.Error, Visibility = state.Error.Length == 0 ? Visibility.Collapsed : Visibility.Visible };
-        AutomationProperties.SetAutomationId(error, "composer.schedule.error");
-        state.PropertyChanged += (_, args) =>
-        {
-            if (string.Equals(args.PropertyName, nameof(ScheduleDialogViewModel.Error), StringComparison.Ordinal))
-            {
-                error.Text = state.Error;
-                error.Visibility = state.Error.Length == 0 ? Visibility.Collapsed : Visibility.Visible;
-            }
-        };
-        panel.Children.Add(error);
-        var buttons = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, HorizontalAlignment = HorizontalAlignment.Right };
-        buttons.Children.Add(CardButton("Cancel", DialogTone.Plain, "composer.schedule.cancel", state.Cancel));
-        buttons.Children.Add(CardButton(state.ConfirmLabel, DialogTone.Primary, "composer.schedule.ok", () => state.ChooseTyped()));
-        panel.Children.Add(buttons);
-        AutomationProperties.SetAutomationId(panel, "composer.schedule");
         return panel;
     }
 

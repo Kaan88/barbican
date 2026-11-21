@@ -82,7 +82,7 @@ public sealed partial class EditorView : UserControl
         };
         AutomationProperties.SetAutomationId(_source, "editor.source");
         AutomationProperties.SetName(_source, "HTML source");
-        _toolbarBar = new Border { Child = _toolbar, BorderBrush = AppResources.Brush("Line"), BorderThickness = new Thickness(0, 0, 0, 1), Padding = new Thickness(4, 2, 4, 2) };
+        _toolbarBar = new Border { Child = _toolbar, BorderBrush = AppResources.Brush("Line"), BorderThickness = new Thickness(0, 0, 0, 1), Padding = new Thickness(12, 6, 12, 6) };
         _bubbleCard = new Border
         {
             Child = _bubble,

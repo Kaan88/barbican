@@ -38,7 +38,7 @@ public sealed partial class EditorView
         {
             _canvas.Width = _body.ActualWidth;
             _canvas.Height = _body.ActualHeight;
-            _toolbar.Fit(_body.ActualWidth - 8);
+            _toolbar.Fit(_body.ActualWidth - 32);
             Refresh(scrollToCaret: false);
         };
         _ime.TextChanged += OnImeTextChanged;

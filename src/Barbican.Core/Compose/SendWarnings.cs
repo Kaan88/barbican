@@ -36,9 +36,10 @@ public static class SendWarnings
         if (settings.AttachmentReminder && !draft.Attachments.Any(a => a.Cid is null))
         {
             var lower = written.Replace('\n', ' ').ToLowerInvariant();
-            if (AttachmentWords.Any(w => lower.Contains(w, StringComparison.Ordinal)))
+            // the word that was found goes along: Bulwark names it in the question (send-warnings-dialog.tsx:85)
+            if (AttachmentWords.FirstOrDefault(w => lower.Contains(w, StringComparison.Ordinal)) is { } word)
             {
-                warnings.Add(new SendWarning(SendWarningKind.MissingAttachment, []));
+                warnings.Add(new SendWarning(SendWarningKind.MissingAttachment, [word]));
             }
         }
 

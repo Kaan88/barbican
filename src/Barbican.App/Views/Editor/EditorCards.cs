@@ -1,4 +1,4 @@
-// Mirrors: Bulwark components/email/rich-text-editor.tsx (size menu FONT_SIZES :70 of font-size.ts, TEXT_COLORS :413, TableSizePicker 6 x 8 :406), link-dialog.tsx, image-url-dialog.tsx, image-alt-dialog,
+// Mirrors: Bulwark components/email/rich-text-editor.tsx (size menu FONT_SIZES :70 of font-size.ts, TEXT_COLORS :413, TableSizePicker 6 x 8 :406), image-alt-dialog (link-dialog.tsx and image-url-dialog.tsx are dialogs of the shared host, Views/Dialogs/EditorDialogContent.cs),
 // the link popover and recipient-mention.tsx (the list); each card is in-window, built in code, and closed by the host's scrim.
 
 using System.Globalization;
@@ -171,84 +171,6 @@ public static class EditorCards
         var stack = new StackPanel { Spacing = 6 };
         stack.Children.Add(grid);
         stack.Children.Add(label);
-        return EditorUi.Card(stack);
-    }
-
-    /// <summary>The link dialog: Text and Link, "Remove link" when editing, Save only with an address and no spaces (I-267).</summary>
-    public static FrameworkElement LinkDialog(string text, string href, Action<string, string> apply, Action? remove, Action cancel)
-    {
-        var textBox = EditorUi.Field("link.text", "Text", text);
-        var hrefBox = EditorUi.Field("link.href", "Link", href, "https://");
-        var error = new TextBlock { FontSize = 12, Foreground = AppResources.Brush("Accent"), Visibility = Visibility.Collapsed, TextWrapping = TextWrapping.Wrap };
-        AutomationProperties.SetAutomationId(error, "editor.link.error");
-        var save = EditorUi.Action("link.save", "Save", () => { }, primary: true);
-        void Validate()
-        {
-            var message = LinkValidator.LinkError(hrefBox.Text);
-            error.Text = message ?? string.Empty;
-            error.Visibility = message is null ? Visibility.Collapsed : Visibility.Visible;
-            save.IsEnabled = LinkValidator.CanSubmitLink(hrefBox.Text);
-        }
-
-        hrefBox.TextChanged += (_, _) => Validate();
-        save.Click += (_, _) =>
-        {
-            if (LinkValidator.CanSubmitLink(hrefBox.Text))
-            {
-                apply(textBox.Text, hrefBox.Text.Trim());
-            }
-        };
-        Validate();
-        var buttons = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, HorizontalAlignment = HorizontalAlignment.Right };
-        if (remove is not null)
-        {
-            buttons.Children.Add(EditorUi.Action("link.remove", "Remove link", remove));
-        }
-
-        buttons.Children.Add(EditorUi.Action("link.cancel", "Cancel", cancel));
-        buttons.Children.Add(save);
-        var stack = new StackPanel { Spacing = 8, MinWidth = 300 };
-        stack.Children.Add(EditorUi.Label(remove is null ? "Insert link" : "Edit link"));
-        stack.Children.Add(EditorUi.Label("Text", dim: true));
-        stack.Children.Add(textBox);
-        stack.Children.Add(EditorUi.Label("Link", dim: true));
-        stack.Children.Add(hrefBox);
-        stack.Children.Add(error);
-        stack.Children.Add(buttons);
-        return EditorUi.Card(stack);
-    }
-
-    /// <summary>The picture-from-address dialog (I-266): https only, with a description.</summary>
-    public static FrameworkElement ImageUrlDialog(Action<string, string> insert, Action cancel)
-    {
-        var address = EditorUi.Field("imageurl.src", "Address", string.Empty, "https://");
-        var alt = EditorUi.Field("imageurl.alt", "Description");
-        var error = new TextBlock { Text = LinkValidator.InvalidPicture, FontSize = 12, Foreground = AppResources.Brush("Accent"), Visibility = Visibility.Collapsed };
-        AutomationProperties.SetAutomationId(error, "editor.imageurl.error");
-        var ok = EditorUi.Action("imageurl.insert", "Insert", () => { }, primary: true);
-        ok.IsEnabled = false;
-        address.TextChanged += (_, _) => ok.IsEnabled = address.Text.Trim().Length > 0;
-        ok.Click += (_, _) =>
-        {
-            if (LinkValidator.PictureAddress(address.Text) is { } src)
-            {
-                insert(src, alt.Text.Trim());
-            }
-            else
-            {
-                error.Visibility = Visibility.Visible;
-            }
-        };
-        var buttons = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, HorizontalAlignment = HorizontalAlignment.Right };
-        buttons.Children.Add(EditorUi.Action("imageurl.cancel", "Cancel", cancel));
-        buttons.Children.Add(ok);
-        var stack = new StackPanel { Spacing = 8, MinWidth = 300 };
-        stack.Children.Add(EditorUi.Label("Picture from a web address"));
-        stack.Children.Add(address);
-        stack.Children.Add(EditorUi.Label("A picture stays on the web and the mail program loads it from there.", dim: true));
-        stack.Children.Add(alt);
-        stack.Children.Add(error);
-        stack.Children.Add(buttons);
         return EditorUi.Card(stack);
     }
 

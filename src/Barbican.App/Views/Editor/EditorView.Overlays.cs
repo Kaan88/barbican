@@ -269,7 +269,8 @@ public sealed partial class EditorView
 
     private Border OverflowCard()
     {
-        var stack = new StackPanel { Spacing = 2 };
+        // rich-text-editor.tsx:1480-1485: the buttons that did not fit wrap in a row, gap-0.5, max-w-[16rem]
+        var stack = new Barbican.App.Controls.WrapRow { Spacing = 2, MaxWidth = 256 };
         foreach (var item in _toolbar.Overflowing)
         {
             var b = _toolbar.CreateOverflowButton(item);
@@ -278,7 +279,6 @@ public sealed partial class EditorView
                 b.Click += (_, _) => CloseCard();
             }
 
-            b.HorizontalAlignment = HorizontalAlignment.Stretch;
             stack.Children.Add(b);
         }
 
@@ -419,42 +419,35 @@ public sealed partial class EditorView
             return;
         }
 
+        var session = _session;
         var url = _session.CurrentLink() ?? string.Empty;
         var text = _session.Sel.IsCollapsed
             ? (_session.LinkRange() is { } range ? _session.Doc.Blocks[range.Block].Text[range.Start..range.End] : string.Empty)
             : _session.SelectedText();
         ClosePopover();
         var editing = url.Length > 0;
-        var card = EditorCards.LinkDialog(
+        // CP-06: Insert link / Edit link is a dialog of the shared dialog host (link-dialog.tsx), no longer a card of the editor
+        _ = ShowDialogAsync(new LinkDialogRequest(
             text,
             url,
-            (t, href) =>
-            {
-                _session.SetLink(href, t);
-                CloseCard();
-            },
-            editing ? () =>
-            {
-                _session.SetLink(string.Empty, string.Empty);
-                CloseCard();
-            }
-            : null,
-            CloseCard);
-        CenterCard(card);
-        FocusFirstField(card);
+            (t, href) => session.SetLink(href, t),
+            editing ? () => session.SetLink(string.Empty, string.Empty) : null));
     }
 
-    private void OpenImageUrlDialog()
+    private void OpenImageUrlDialog() =>
+        _ = ShowDialogAsync(new ImageUrlDialogRequest((src, alt) => _session?.InsertImage(new ImageData { Src = src, Alt = alt, Name = alt })));
+
+    private async Task ShowDialogAsync(Barbican.Presentation.Dialogs.DialogRequest<bool> request)
     {
-        var card = EditorCards.ImageUrlDialog(
-            (src, alt) =>
-            {
-                _session?.InsertImage(new ImageData { Src = src, Alt = alt, Name = alt });
-                CloseCard();
-            },
-            CloseCard);
-        CenterCard(card);
-        FocusFirstField(card);
+        CloseCard();
+        try
+        {
+            _ = await Barbican.App.Views.Dialogs.DialogHostRouter.For(this).ShowAsync(request, CancellationToken.None).ConfigureAwait(true);
+        }
+        finally
+        {
+            FocusEditor();
+        }
     }
 
     private void OpenAltDialog()

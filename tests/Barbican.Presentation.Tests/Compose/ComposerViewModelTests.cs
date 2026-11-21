@@ -486,10 +486,14 @@ public sealed class ComposerViewModelTests
         c.FallbackBody = "see the attached file {{ name }}";
         var sending = c.SendAsync();
         Assert.Equal("warnings", await Next(c));
-        Assert.Equal(3, c.Dialog!.Lines.Count);
-        Assert.Contains(c.Dialog.Lines, l => l.Contains("subject", StringComparison.Ordinal));
-        Assert.Contains(c.Dialog.Lines, l => l.Contains("Placeholders", StringComparison.Ordinal));
-        Assert.Contains(c.Dialog.Lines, l => l.Contains("attachment", StringComparison.Ordinal));
+        // send-warnings-dialog.tsx:94-116: several warnings share one dialog, titled for the whole message, each a bullet
+        Assert.Equal("Send this message anyway?", c.Dialog!.Title);
+        Assert.Equal(3, c.Dialog.Lines.Count);
+        Assert.Contains(c.Dialog.Lines, l => l.Contains("No subject", StringComparison.Ordinal));
+        Assert.Contains(c.Dialog.Lines, l => l.Contains("Placeholder text", StringComparison.Ordinal));
+        Assert.Contains(c.Dialog.Lines, l => l.Contains("\"attached\"", StringComparison.Ordinal));
+        Assert.NotEmpty(c.Dialog.Chips);
+        Assert.Equal(["Back to editing", "Send anyway"], c.Dialog.Choices.Select(x => x.Label).Reverse());
         c.AnswerDialog("send");
         Assert.True(await sending);
         Assert.Single(h.Sender.Sent);
@@ -520,10 +524,13 @@ public sealed class ComposerViewModelTests
         s.To.Seed("ann@x.example");
         s.Subject = "Plans";
         var sending = s.SendAsync();
-        Assert.Equal("warnings", await Next(s));
-        Assert.Contains(s.Dialog!.Lines, l => l.Contains("ann@x.example", StringComparison.Ordinal));
+        // external-recipient-confirm.tsx: its own question, every address with its field
+        Assert.Equal("external", await Next(s));
+        Assert.Equal("Send outside your organisation?", s.Dialog!.Title);
+        Assert.Contains("To: ann@x.example", s.Dialog.Lines);
         s.AnswerDialog("cancel");
         Assert.False(await sending);
+        Assert.Empty(strict.Sender.Sent);
     }
 
     [Fact]
