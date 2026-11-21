@@ -25,8 +25,8 @@ Feature work comes before further UI polish. Linux (M9) is deferred indefinitely
 | open | G-086 | Organisation announcements and disclaimers | admin | M | `src/Barbican.Core/Settings/Pages/SettingsCatalog.cs`, `src/Barbican.App/Views/SignIn/SignInView.xaml.cs` | admin config source |
 | open | G-043 | Share calendars, address books and mail folders | calendar | M | `src/Barbican.Core/Calendar/CalendarStore.cs`, `src/Barbican.Core/Contacts/AddressBooks.cs`, `src/Barbican.App/Views/SettingsServer/SrvUiOrganizePage.cs` | JMAP shareWith/ACL |
 | open | CA-03 | Event editor date/time pickers and calendar select | calendar | M | `src/Barbican.App/Views/Calendar/Editors/CalendarCardKit.cs` | in-window picker |
-| open | G-004 | ICS import asks before keeping file alerts | calendar | S | `src/Barbican.App/Views/Calendar/Editors/CalendarCardHost.Dialogs.cs` | import flow |
-| open | G-005 | Event alerts more than 8 days ahead still fire | calendar | S | `src/Barbican.Core/Calendar/CalendarSettings.cs`, `src/Barbican.App/Views/Calendar/Reminders/ReminderPopupView.cs` | alert engine |
+| done (0382848) | G-004 | ICS import asks before keeping file alerts | calendar | S | `src/Barbican.App/Views/Calendar/Editors/CalendarCardHost.Dialogs.cs` | import flow |
+| done (0382848) | G-005 | Event alerts more than 8 days ahead still fire | calendar | S | `src/Barbican.Core/Calendar/CalendarSettings.cs`, `src/Barbican.App/Views/Calendar/Reminders/ReminderPopupView.cs` | alert engine |
 | open | G-076 | Attach from Files picker | composer | M | `src/Barbican.App/Views/Compose/ComposerView.Files.cs`, `src/Barbican.App/Views/Files/FilesScreen.cs` | Files service |
 | open | G-079 | Insert a link to a Files file | composer | S | `src/Barbican.App/Views/Editor/LinkDialogRequest.cs`, `src/Barbican.App/Views/Compose/ComposerView.Files.cs` | Files service |
 | open | CP-02 | Composer Tags menu (compose-time tags) | composer | M | `src/Barbican.App/Views/Compose/ComposerView.Menus.cs`, `src/Barbican.Presentation/Compose/ComposerViewModel.cs` | tag model |
