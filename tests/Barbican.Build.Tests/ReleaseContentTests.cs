@@ -119,7 +119,8 @@ public sealed class ReleaseContentTests
         foreach (var file in Directory.EnumerateFiles(TestRepo.Root, "*.*", SearchOption.AllDirectories)
                      .Where(f => (f.EndsWith(".csproj", StringComparison.Ordinal) || f.EndsWith(".props", StringComparison.Ordinal) || f.EndsWith(".targets", StringComparison.Ordinal))
                          && !f.Contains("/bin/", StringComparison.Ordinal) && !f.Contains("\\bin\\", StringComparison.Ordinal) && !f.Contains("/obj/", StringComparison.Ordinal) && !f.Contains("\\obj\\", StringComparison.Ordinal)
-                         && !f.Contains("node_modules", StringComparison.Ordinal) && !f.Contains("prototype", StringComparison.Ordinal) && !f.Contains("spikes", StringComparison.Ordinal))
+                         && !f.Contains("node_modules", StringComparison.Ordinal) && !f.Contains("prototype", StringComparison.Ordinal) && !f.Contains("spikes", StringComparison.Ordinal)
+                         && !f.Contains("/.claude/", StringComparison.Ordinal) && !f.Contains("\\.claude\\", StringComparison.Ordinal))
                      .Where(f => !string.Equals(Path.GetFullPath(f), Path.GetFullPath(TestRepo.PathOf("Directory.Build.props")), StringComparison.OrdinalIgnoreCase)))
         {
             Assert.DoesNotContain("AUTOMATION_WRITES", File.ReadAllText(file), StringComparison.Ordinal);

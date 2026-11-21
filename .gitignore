@@ -17,3 +17,6 @@ TestResults/
 # python
 __pycache__/
 *.pyc
+
+# agent worktrees and local agent state (separate checkouts; never part of this tree)
+.claude/
