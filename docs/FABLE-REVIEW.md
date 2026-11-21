@@ -3072,3 +3072,12 @@ results. The queued provider withdrawal produced zero additional WebView
 posts. This was approval of the fixes under review. The integrated M6b
 candidate and portable still require final approval.
 [Windows checker evidence](milestones/M6b-solo-parity.md#typing-checker-on-windows)
+
+## M6b scoped mail reads (m6b/scoped-mail)
+
+- Review `src/Barbican.Core/Plugins/Api/Mail/**` (`email.get/list/search/getThread/getThreadCount`, `mailboxes.list`, `jmap.getKeywords`): every method needs `email:read` for the captured login, results are built field by field (no model reflection), and the answer is dropped when authority or session changed. The grant is demanded again per call with the captured account key.
+- Judgement call: shared-account reads. Bulwark names a shared folder through its store; Barbican resolves an explicit `accountId` only against the captured session's non-personal mail accounts (`PluginMailRouting`) and only for get, thread and thread count. `email.list`/`email.search` cannot name a shared folder because `mailboxes.list` lists the own tree only. FakeJmap does not serve shared accounts, so the shared path has no positive test.
+- Deviation: `auth` (parsed Authentication-Results) is not part of the read view, because Barbican trusts the header only when its authserv-id is pinned (AuthServTrust). `source` omits the auth and spam sections and is cut at 2 MiB.
+- Deviation: `jmap.getKeywords` walks `Email/query` pages (up to 25,000 messages) through `IMailService.QueryAsync`; Bulwark's Keyword/get extension does not exist on Stalwart.
+- Uncertainty: `email.getThreadCount` reads the message with a one-byte body-value limit to find its thread id; check the Stalwart behaviour of `maxBodyValueBytes: 1`.
+- Model note: `EmailBody` list properties can be null after deserialization of a real FakeJmap message; the projection guards every list. The cause was not investigated.
