@@ -66,6 +66,7 @@ public static class ComposerRegistration
         _ = services.AddCalendarAddOnApi();
         _ = services.AddContactsFilesAddOnApi();
         _ = services.AddRulesSettingsAddOnApi();
+        _ = services.AddAppUserAddOnApi();
         _ = services.AddMailActionsAddOnApi();
         _ = services.AddNavigationAddOnApi();
 #endif
