@@ -34,6 +34,7 @@ public static class ActionCommandSet
         CommandIds.Untag,
         CommandIds.MoveTo,
         CommandIds.MoveToInbox,
+        CommandIds.CopyToAccount,
         CommandIds.Archive,
         CommandIds.Delete,
         CommandIds.DeleteForever,
@@ -74,7 +75,7 @@ public static class ActionCommandSet
         ArgumentNullException.ThrowIfNull(writers);
         ArgumentNullException.ThrowIfNull(folders);
         ArgumentNullException.ThrowIfNull(undo);
-        return [.. MailCommands(actions, list, writers), .. FolderCommands(actions, list, writers, folders, dialogs), .. ListCommands(list), .. ListViewCommands(list, prefs, prefsEditor), Undo(undo)];
+        return [.. MailCommands(actions, list, writers, dialogs), .. FolderCommands(actions, list, writers, folders, dialogs), .. ListCommands(list), .. ListViewCommands(list, prefs, prefsEditor), Undo(undo)];
     }
 
     /// <summary>The targets a command acts on: the ones the surface names, else the list's selection (all of the folder's when "select all" was taken).</summary>
@@ -92,7 +93,7 @@ public static class ActionCommandSet
     private static ActionCommand Mail(string id, MessageListViewModel list, IMailWriterSource writers, Func<IReadOnlyList<MailTarget>, bool>? when, Func<IReadOnlyList<MailTarget>, CommandContext, CancellationToken, Task<Result<Unit>>> run) =>
         new(id, c => Writable(c, list, writers, when), async (c, ct) => await run(await TargetsAsync(c, list, ct).ConfigureAwait(true), c, ct).ConfigureAwait(true));
 
-    private static IEnumerable<IAppCommand> MailCommands(MailActionService a, MessageListViewModel list, IMailWriterSource w)
+    private static IEnumerable<IAppCommand> MailCommands(MailActionService a, MessageListViewModel list, IMailWriterSource w, IDialogService? dialogs)
     {
         yield return Mail(CommandIds.MarkRead, list, w, null, (t, _, ct) => a.SetReadAsync(t, true, ct));
         yield return Mail(CommandIds.MarkUnread, list, w, null, (t, _, ct) => a.SetReadAsync(t, false, ct));
@@ -108,6 +109,31 @@ public static class ActionCommandSet
         yield return Mail(CommandIds.Untag, list, w, null, (t, c, ct) => c.Argument is { Length: > 0 } tag ? a.SetTagAsync(t, tag, false, ct) : Task.FromResult(Done));
         yield return Mail(CommandIds.MoveTo, list, w, null, (t, c, ct) => c.Argument is { Length: > 0 } to ? a.MoveAsync(t, to, ct) : Task.FromResult(Done));
         yield return Mail(CommandIds.MoveToInbox, list, w, _ => list.ArchiveMovesToInbox, (t, _, ct) => a.MoveToInboxAsync(t, ct));
+        // G-048: the other signed-in accounts' folders, picked in a dialog (Bulwark email-context-menu.tsx:288-290, :371-379)
+        yield return new ActionCommand(CommandIds.CopyToAccount, c => Known(c, list).Count > 0 || list.HasChecked, async (c, ct) =>
+        {
+            var targets = await TargetsAsync(c, list, ct).ConfigureAwait(true);
+            if (targets.Count == 0 || dialogs is null)
+            {
+                return Done;
+            }
+
+            var offered = await a.CopyTargetsAsync(targets[0].Login, ct).ConfigureAwait(true);
+            if (!offered.IsOk || offered.Value!.Count == 0)
+            {
+                return Done;
+            }
+
+            var answer = await dialogs.ShowAsync(new CopyToAccountDialogRequest(offered.Value), ct).ConfigureAwait(true);
+            if (answer is null)
+            {
+                return Done;
+            }
+
+            var folder = offered.Value.FirstOrDefault(x => string.Equals(x.AccountKey, answer.AccountKey, StringComparison.Ordinal))?
+                .Folders.FirstOrDefault(f => string.Equals(f.MailboxId, answer.MailboxId, StringComparison.Ordinal));
+            return await a.CopyToAccountAsync(targets, answer.AccountKey, answer.MailboxId, folder?.Name ?? "folder", ct).ConfigureAwait(true);
+        });
         yield return Mail(CommandIds.Archive, list, w, _ => list.Role != MailboxRole.Archive, (t, _, ct) => a.ArchiveAsync(t, ct));
         yield return Mail(CommandIds.Delete, list, w, null, (t, _, ct) => a.DeleteAsync(t, ct));
         yield return Mail(CommandIds.DeleteForever, list, w, null, (t, _, ct) => a.DeleteForeverAsync(t, ct));

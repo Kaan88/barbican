@@ -39,7 +39,8 @@ internal sealed class ActionHarness : IDisposable
         Toasts = new ToastService(Prefs, Time, dispatcher);
         Undo = new UndoService(Toasts);
         Confirmer = new ScriptedConfirmer();
-        Actions = new MailActionService(Writers, Sidebar, List, Bus, Undo, Toasts, Prefs, Confirmer, Active, Time);
+        Transfer = new RecordingTransfer();
+        Actions = new MailActionService(Writers, Sidebar, List, Bus, Undo, Toasts, Prefs, Confirmer, Active, Transfer, Time);
         List.Rows.CollectionChanged += (_, e) => Changes.Add(e.Action);
     }
 
@@ -70,6 +71,8 @@ internal sealed class ActionHarness : IDisposable
     public UndoService Undo { get; }
 
     public ScriptedConfirmer Confirmer { get; }
+
+    public RecordingTransfer Transfer { get; }
 
     public MailActionService Actions { get; }
 

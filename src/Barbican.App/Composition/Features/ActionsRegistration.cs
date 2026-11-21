@@ -39,6 +39,7 @@ public static class ActionsRegistration
         // writes
         services.TryAddSingleton<IMailWriterFactory, MailWriterFactory>();
         services.TryAddSingleton(WriterSource);
+        services.TryAddSingleton<IMailTransfer>(sp => new SessionMailTransfer(sp.GetRequiredService<IAccountManager>(), sp.GetRequiredService<IMailWriterFactory>()));
 
         // toasts and undo
         services.TryAddSingleton(sp => new ToastService(sp.GetRequiredService<IPrefsStore>(), sp.GetRequiredService<TimeProvider>(), sp.GetRequiredService<IDispatcher>()));
@@ -61,6 +62,7 @@ public static class ActionsRegistration
             sp.GetRequiredService<IPrefsStore>(),
             sp.GetRequiredService<IActionConfirmer>(),
             sp.GetRequiredService<IActiveMail>(),
+            sp.GetRequiredService<IMailTransfer>(),
             sp.GetRequiredService<TimeProvider>()));
 
         // the real mark-as-read of the reader, drag and drop, the panes
@@ -126,6 +128,8 @@ public static class ActionsRegistration
         // the toast host overlay and the selection bar slot
         services.AddSingleton<IShellOverlay, ToastOverlay>();
         services.AddSingleton<ISlotContent>(new SlotContent(SlotNames.ListSelectionBar, () => new SelectionBarView()));
+        // the copy picker (G-048): the other signed-in accounts' folders
+        services.AddSingleton<Barbican.App.Views.Dialogs.IDialogContent, Views.Actions.CopyToAccountDialogContent>();
 #if AUTOMATION
         services.AddSingleton<Barbican.Automation.IAutomationCommand, Views.Actions.Automation.ActCommand>();
         services.AddSingleton<Barbican.Automation.IAutomationCommand, Views.Actions.Automation.SelectCommand>();

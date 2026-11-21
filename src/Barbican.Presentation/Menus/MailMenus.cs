@@ -53,6 +53,12 @@ public static class MailMenus
             : Item(MenuGlyphs.Archive, "Archive", CommandIds.Archive, "E", enabled: rights.MayRemoveItems));
         items.Add(Danger(MenuGlyphs.Delete, "Delete", CommandIds.Delete, "Del", n > 1 && d.ConfirmBulkDelete ? BulkDeleteConfirm : null, enabled: rights.MayRemoveItems));
         items.Add(Sub(MenuGlyphs.Move, "Move to", MenuIds.MailMove, rights.MayRemoveItems));
+        if (d.HasOtherAccounts)
+        {
+            // Bulwark message-actions.ts:288-290 and :336: "Copy to account" follows "Move to"; the picker is a dialog here.
+            items.Add(Item(MenuGlyphs.Copy, "Copy to account", CommandIds.CopyToAccount));
+        }
+
         items.Add(Sep());
         items.Add(seen
             ? Item(MenuGlyphs.Unread, "Mark as unread", CommandIds.MarkUnread, "U", enabled: rights.MaySetSeen)

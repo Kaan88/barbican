@@ -47,7 +47,7 @@ Feature work comes before further UI polish. Linux (M9) is deferred indefinitely
 | open | G-073 | Hover tag picker on list rows | mail list | S | `src/Barbican.App/Views/List/MessageListView.xaml.cs`, `src/Barbican.Presentation/Mail/RowTag.cs` | tag model |
 | open | ML-04 | Row density setting actually resizes rows | mail list | S | `src/Barbican.App/Theme/StyleState.cs`, `src/Barbican.App/Views/List/MessageListView.xaml.cs` | density tokens |
 | open | ML-01 | Scheduled-send chip in list rows | mail list | S | `src/Barbican.App/Views/List/MessageListView.xaml.cs`, `src/Barbican.Presentation/Mail/MessageRowViewModel.cs` | submission id on rows |
-| open | G-048 | Copy a message to another account | mail list | M | `src/Barbican.Presentation/Mail/MessageListViewModel.Actions.cs` | JMAP `Email/copy` |
+| done (pending merge) | G-048 | Copy a message to another account | mail list | M | `src/Barbican.Presentation/Actions/MailActionService.Copy.cs`, `src/Barbican.Core/Mail/Write/CrossAccountCopy.cs` | JMAP `Email/copy` (one login) / `Email/import` (two logins) |
 | open | G-042 | Folder export and import | mail list | M | `src/Barbican.Presentation/Unified/TransferCommands.cs` | mail-transfer service |
 | partial | G-045, SH-08 | Notification centre, rail bell, share/calendar notifications | notifications | M | `src/Barbican.App/Views/Rail/RailView.xaml.cs`, `src/Barbican.Core/Sync/ICalendarPush.cs` | push events |
 | partial | G-059 | OS notifications, badge runtime, sounds and push relay | notifications | L | `src/Barbican.App/Shell/ShellLifecycle.cs`, `src/Barbican.App/Views/Settings/SetUiRowsView.cs` | Windows App SDK |

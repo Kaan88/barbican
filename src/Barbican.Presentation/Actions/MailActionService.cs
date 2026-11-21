@@ -28,6 +28,7 @@ public sealed partial class MailActionService(
     IPrefsStore prefs,
     IActionConfirmer confirmer,
     IActiveMail active,
+    IMailTransfer transfer,
     TimeProvider time)
 {
     private ActionSettings Settings => ActionSettings.Read(prefs.Current);

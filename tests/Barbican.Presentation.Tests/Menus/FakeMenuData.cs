@@ -28,6 +28,8 @@ internal sealed class FakeMenuData : IMenuDataSource
 
     public bool BodyIsPlainText { get; set; }
 
+    public bool HasOtherAccounts { get; set; }
+
     public bool GroupListByDate { get; set; }
 
     public string? SortKey { get; set; } = ListSortChoices.NewestKey;
