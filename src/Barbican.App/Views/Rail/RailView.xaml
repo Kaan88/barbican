@@ -9,13 +9,122 @@
     xmlns:controls="using:Barbican.App.Controls"
     xmlns:motion="using:Barbican.App.Motion"
     xmlns:views="using:Barbican.App.Views"
-    xmlns:accounts="using:Barbican.App.Views.Accounts">
-  <!-- The app rail (spec/layout/shell.md "Rail"; mockups BNMail nav / NordMail nav; prototype BuildRail): a tile in Bento, bare in Nordic. Inactive apps are bare icons
+    xmlns:accounts="using:Barbican.App.Views.Accounts"
+    xmlns:theme="using:Barbican.App.Theme"
+    xmlns:acct="using:Barbican.Presentation.Accounts">
+  <!-- The app rail. Bulwark components/layout/navigation-rail.tsx:584-760,700-949: Search, Mail, Calendar, Contacts, Files at the top; Accessibility, Settings, a divider,
+       Shortcuts, the storage ring and the account at the bottom; :640-668 an 18 px icon in a 40 px box, the active app in the primary tint, the unread pill or dot.
+       (spec/layout/shell.md "Rail"; mockups BNMail nav / NordMail nav; prototype BuildRail): a tile in Bento, bare in Nordic. Inactive apps are bare icons
        (no fill until hovered); apps that do not exist yet are shown and inert. -->
+  <UserControl.Resources>
+    <!-- navigation-rail.tsx:640-652: inactive text-muted-foreground, hover bg-muted + text-foreground (not the accent tint of a toolbar ghost button), pressed one step stronger,
+         active bg-primary/10 text-primary with no hover change of its own beyond the shared active step; all transition-colors duration-150 (kind Color). -->
+    <ControlTemplate x:Key="Template.Rail.Button" TargetType="Button">
+      <Border x:Name="Box" motion:FeedbackTransition.Kind="Color" Background="{TemplateBinding Background}" CornerRadius="{TemplateBinding CornerRadius}" Padding="{TemplateBinding Padding}">
+        <ContentPresenter x:Name="Content" Content="{TemplateBinding Content}" ContentTemplate="{TemplateBinding ContentTemplate}" Foreground="{TemplateBinding Foreground}"
+                          HorizontalContentAlignment="{TemplateBinding HorizontalContentAlignment}" VerticalContentAlignment="{TemplateBinding VerticalContentAlignment}" />
+        <VisualStateManager.VisualStateGroups>
+          <VisualStateGroup x:Name="CommonStates">
+            <VisualState x:Name="Normal" />
+            <VisualState x:Name="PointerOver">
+              <VisualState.Setters>
+                <Setter Target="Box.Background" Value="{StaticResource FeedbackHover}" />
+                <Setter Target="Content.Foreground" Value="{StaticResource Text}" />
+              </VisualState.Setters>
+            </VisualState>
+            <VisualState x:Name="Pressed">
+              <VisualState.Setters>
+                <Setter Target="Box.Background" Value="{StaticResource FeedbackPressed}" />
+                <Setter Target="Content.Foreground" Value="{StaticResource Text}" />
+              </VisualState.Setters>
+            </VisualState>
+            <VisualState x:Name="Disabled">
+              <VisualState.Setters>
+                <Setter Target="Box.Opacity" Value="{StaticResource Motion.DisabledOpacity}" />
+              </VisualState.Setters>
+            </VisualState>
+          </VisualStateGroup>
+        </VisualStateManager.VisualStateGroups>
+      </Border>
+    </ControlTemplate>
+    <ControlTemplate x:Key="Template.Rail.Toggle" TargetType="ToggleButton">
+      <Border x:Name="Box" motion:FeedbackTransition.Kind="Color" Background="{TemplateBinding Background}" CornerRadius="{TemplateBinding CornerRadius}" Padding="{TemplateBinding Padding}">
+        <ContentPresenter x:Name="Content" Content="{TemplateBinding Content}" ContentTemplate="{TemplateBinding ContentTemplate}" Foreground="{TemplateBinding Foreground}"
+                          HorizontalContentAlignment="{TemplateBinding HorizontalContentAlignment}" VerticalContentAlignment="{TemplateBinding VerticalContentAlignment}" />
+        <VisualStateManager.VisualStateGroups>
+          <VisualStateGroup x:Name="CommonStates">
+            <VisualState x:Name="Normal" />
+            <VisualState x:Name="PointerOver">
+              <VisualState.Setters>
+                <Setter Target="Box.Background" Value="{StaticResource FeedbackHover}" />
+                <Setter Target="Content.Foreground" Value="{StaticResource Text}" />
+              </VisualState.Setters>
+            </VisualState>
+            <VisualState x:Name="Pressed">
+              <VisualState.Setters>
+                <Setter Target="Box.Background" Value="{StaticResource FeedbackPressed}" />
+                <Setter Target="Content.Foreground" Value="{StaticResource Text}" />
+              </VisualState.Setters>
+            </VisualState>
+            <VisualState x:Name="Disabled">
+              <VisualState.Setters>
+                <Setter Target="Box.Opacity" Value="{StaticResource Motion.DisabledOpacity}" />
+              </VisualState.Setters>
+            </VisualState>
+            <VisualState x:Name="Checked">
+              <VisualState.Setters>
+                <Setter Target="Box.Background" Value="{StaticResource FeedbackActive}" />
+                <Setter Target="Content.Foreground" Value="{StaticResource FeedbackActiveFg}" />
+              </VisualState.Setters>
+            </VisualState>
+            <VisualState x:Name="CheckedPointerOver">
+              <VisualState.Setters>
+                <Setter Target="Box.Background" Value="{StaticResource FeedbackActiveHover}" />
+                <Setter Target="Content.Foreground" Value="{StaticResource FeedbackActiveFg}" />
+              </VisualState.Setters>
+            </VisualState>
+            <VisualState x:Name="CheckedPressed">
+              <VisualState.Setters>
+                <Setter Target="Box.Background" Value="{StaticResource FeedbackActivePressed}" />
+                <Setter Target="Content.Foreground" Value="{StaticResource FeedbackActiveFg}" />
+              </VisualState.Setters>
+            </VisualState>
+            <VisualState x:Name="CheckedDisabled">
+              <VisualState.Setters>
+                <Setter Target="Box.Background" Value="{StaticResource FeedbackActive}" />
+                <Setter Target="Content.Foreground" Value="{StaticResource FeedbackActiveFg}" />
+                <Setter Target="Box.Opacity" Value="{StaticResource Motion.DisabledOpacity}" />
+              </VisualState.Setters>
+            </VisualState>
+          </VisualStateGroup>
+        </VisualStateManager.VisualStateGroups>
+      </Border>
+    </ControlTemplate>
+    <Style x:Key="Rail.Button" TargetType="Button">
+      <Setter Property="Background" Value="Transparent" />
+      <Setter Property="Foreground" Value="{StaticResource Faint}" />
+      <Setter Property="BorderThickness" Value="0" />
+      <Setter Property="Padding" Value="0" />
+      <Setter Property="HorizontalContentAlignment" Value="Center" />
+      <Setter Property="VerticalContentAlignment" Value="Center" />
+      <Setter Property="UseSystemFocusVisuals" Value="True" />
+      <Setter Property="Template" Value="{StaticResource Template.Rail.Button}" />
+    </Style>
+    <Style x:Key="Rail.Toggle" TargetType="ToggleButton">
+      <Setter Property="Background" Value="Transparent" />
+      <Setter Property="Foreground" Value="{StaticResource Faint}" />
+      <Setter Property="BorderThickness" Value="0" />
+      <Setter Property="Padding" Value="0" />
+      <Setter Property="HorizontalContentAlignment" Value="Center" />
+      <Setter Property="VerticalContentAlignment" Value="Center" />
+      <Setter Property="UseSystemFocusVisuals" Value="True" />
+      <Setter Property="Template" Value="{StaticResource Template.Rail.Toggle}" />
+    </Style>
+  </UserControl.Resources>
   <Border x:Name="Pane" Background="{x:Bind Look.RailBrush, Mode=OneWay}" BorderBrush="{StaticResource Line}"
            BorderThickness="{x:Bind Look.RailBorder, Mode=OneWay}" CornerRadius="{x:Bind Look.RailRadius, Mode=OneWay}"
           Width="{x:Bind Look.RailWidth, Mode=OneWay}" Padding="{x:Bind Look.RailPadding, Mode=OneWay}">
-    <Grid RowDefinitions="Auto,Auto,*,Auto,Auto" AutomationProperties.AutomationId="rail" AutomationProperties.Name="Apps">
+    <Grid RowDefinitions="Auto,Auto,*,Auto" AutomationProperties.AutomationId="rail" AutomationProperties.Name="Apps">
       <!-- The mark: Bento the "B" squircle, Nordic the three bars (prototype BuildRail). -->
       <Grid Grid.Row="0" HorizontalAlignment="Center" Visibility="{x:Bind Look.LegacyMarkVisibility, Mode=OneWay}" AutomationProperties.AutomationId="rail.mark" AutomationProperties.Name="Barbican">
         <Border Width="40" Height="40" CornerRadius="13" Background="{StaticResource Accent}" Visibility="{x:Bind Look.BentoOnly, Mode=OneWay}">
@@ -31,95 +140,181 @@
       <StackPanel Grid.Row="1" Margin="{x:Bind Look.MarkGap, Mode=OneWay}" Spacing="{x:Bind Look.RailSpacing, Mode=OneWay}" HorizontalAlignment="Center">
         <Button x:Name="ComposeButton" Style="{StaticResource Button.Primary}" Click="OnComposeClick"
                 Width="{x:Bind Look.RailButton, Mode=OneWay}" Height="{x:Bind Look.RailButton, Mode=OneWay}" CornerRadius="{x:Bind Look.RailButtonRadius, Mode=OneWay}" Padding="0"
-                Visibility="{x:Bind Look.RailComposeVisibility, Mode=OneWay}" FocusVisualPrimaryThickness="{x:Bind Look.FocusThickness, Mode=OneWay}"
+                Visibility="{x:Bind Look.RailComposeVisibility, Mode=OneWay}"
                 AutomationProperties.AutomationId="rail.compose" AutomationProperties.Name="New message" motion:Tip.Text="New message">
-          <controls:SIcon Kind="Pen" Size="20" />
+          <controls:SIcon Kind="Pen" Size="{x:Bind Look.RailIcon, Mode=OneWay}" />
+        </Button>
+        <!-- Search first (navigation-rail.tsx:596-615): the global search palette (I-029). -->
+        <Button x:Name="SearchButton" Style="{StaticResource Rail.Button}" Click="OnSearchClick"
+                Width="{x:Bind Look.RailButton, Mode=OneWay}" Height="{x:Bind Look.RailButton, Mode=OneWay}" CornerRadius="{x:Bind Look.RailButtonRadius, Mode=OneWay}"
+                AutomationProperties.AutomationId="rail.search" AutomationProperties.Name="Search" motion:Tip.Text="Search">
+          <controls:SIcon Kind="Search" Size="{x:Bind Look.RailIcon, Mode=OneWay}" />
         </Button>
         <Grid>
-          <Button x:Name="MailButton" Style="{StaticResource Button.Icon}" FocusVisualPrimaryThickness="{x:Bind Look.FocusThickness, Mode=OneWay}" Click="OnMailClick"
+          <ToggleButton x:Name="MailButton" Style="{StaticResource Rail.Toggle}" Click="OnMailClick"
                   Width="{x:Bind Look.RailButton, Mode=OneWay}" Height="{x:Bind Look.RailButton, Mode=OneWay}" CornerRadius="{x:Bind Look.RailButtonRadius, Mode=OneWay}"
-                  Background="{x:Bind views:Fmt.RailBackground(Rail.ActiveApp, 'Mail'), Mode=OneWay}" Foreground="{x:Bind views:Fmt.RailForeground(Rail.ActiveApp, 'Mail'), Mode=OneWay}"
                   AutomationProperties.AutomationId="rail.mail" AutomationProperties.Name="Mail" motion:Tip.Text="Mail">
-            <controls:SIcon Kind="Mail" Size="20" />
-          </Button>
-          <Border Visibility="{x:Bind views:Fmt.VisBadge(Rail.MailBadge), Mode=OneWay}" Background="{StaticResource Accent}" CornerRadius="8" MinWidth="16" Height="16"
-                  HorizontalAlignment="Right" VerticalAlignment="Top" Margin="0,-2,-4,0" Padding="4,0" IsHitTestVisible="False"
+            <controls:SIcon Kind="Mail" Size="{x:Bind Look.RailIcon, Mode=OneWay}" />
+          </ToggleButton>
+          <!-- navigation-rail.tsx:659-668: a red-600 pill, 16 px high, 0.625rem bold; or with the dot style a 10 px red-500 dot. -->
+          <Border Visibility="{x:Bind theme:StyleState.RailPill(Rail.MailBadge), Mode=OneWay}" Background="{x:Bind Look.RailBadgeBrush, Mode=OneWay}" CornerRadius="8" MinWidth="16" Height="16"
+                  HorizontalAlignment="Right" VerticalAlignment="Top" Margin="{x:Bind Look.RailBadgeMargin, Mode=OneWay}" Padding="4,0" IsHitTestVisible="False"
                   AutomationProperties.AutomationId="rail.mail.badge" AutomationProperties.Name="Unread mail">
-            <TextBlock Text="{x:Bind Rail.MailBadge, Mode=OneWay}" FontSize="10" FontWeight="Bold" Foreground="{StaticResource OnAccent}" HorizontalAlignment="Center" VerticalAlignment="Center" />
+            <TextBlock Text="{x:Bind Rail.MailBadge, Mode=OneWay}" FontSize="10" FontWeight="Bold" Foreground="{x:Bind Look.RailBadgeForeground, Mode=OneWay}" HorizontalAlignment="Center" VerticalAlignment="Center" />
           </Border>
+          <Ellipse Visibility="{x:Bind theme:StyleState.RailDot(Rail.MailBadge), Mode=OneWay}" Fill="{x:Bind Look.RailDotBrush, Mode=OneWay}" Width="10" Height="10"
+                   HorizontalAlignment="Right" VerticalAlignment="Top" Margin="{x:Bind Look.RailDotMargin, Mode=OneWay}" IsHitTestVisible="False"
+                   AutomationProperties.AutomationId="rail.mail.dot" AutomationProperties.Name="Unread mail" />
         </Grid>
-        <Button x:Name="CalendarButton" Style="{StaticResource Button.Icon}" FocusVisualPrimaryThickness="{x:Bind Look.FocusThickness, Mode=OneWay}" Click="OnCalendarClick"
+        <ToggleButton x:Name="CalendarButton" Style="{StaticResource Rail.Toggle}" Click="OnCalendarClick"
                 Width="{x:Bind Look.RailButton, Mode=OneWay}" Height="{x:Bind Look.RailButton, Mode=OneWay}" CornerRadius="{x:Bind Look.RailButtonRadius, Mode=OneWay}"
-                Background="{x:Bind views:Fmt.RailBackground(Rail.ActiveApp, 'Calendar'), Mode=OneWay}" Foreground="{x:Bind views:Fmt.RailForeground(Rail.ActiveApp, 'Calendar'), Mode=OneWay}"
                 AutomationProperties.AutomationId="rail.calendar" AutomationProperties.Name="Calendar" motion:Tip.Text="Calendar">
-          <controls:SIcon Kind="Cal" Size="20" />
-        </Button>
-        <Button x:Name="ContactsButton" Style="{StaticResource Button.Icon}" FocusVisualPrimaryThickness="{x:Bind Look.FocusThickness, Mode=OneWay}" Click="OnContactsClick"
+          <controls:SIcon Kind="Cal" Size="{x:Bind Look.RailIcon, Mode=OneWay}" />
+        </ToggleButton>
+        <ToggleButton x:Name="ContactsButton" Style="{StaticResource Rail.Toggle}" Click="OnContactsClick"
                 Width="{x:Bind Look.RailButton, Mode=OneWay}" Height="{x:Bind Look.RailButton, Mode=OneWay}" CornerRadius="{x:Bind Look.RailButtonRadius, Mode=OneWay}"
-                Background="{x:Bind views:Fmt.RailBackground(Rail.ActiveApp, 'Contacts'), Mode=OneWay}" Foreground="{x:Bind views:Fmt.RailForeground(Rail.ActiveApp, 'Contacts'), Mode=OneWay}"
                 AutomationProperties.AutomationId="rail.contacts" AutomationProperties.Name="Contacts" motion:Tip.Text="Contacts">
-          <controls:SIcon Kind="Users" Size="20" />
-        </Button>
-        <Button x:Name="FilesButton" Style="{StaticResource Button.Icon}" FocusVisualPrimaryThickness="{x:Bind Look.FocusThickness, Mode=OneWay}" Click="OnFilesClick"
+          <controls:SIcon Kind="Users" Size="{x:Bind Look.RailIcon, Mode=OneWay}" />
+        </ToggleButton>
+        <ToggleButton x:Name="FilesButton" Style="{StaticResource Rail.Toggle}" Click="OnFilesClick"
                 Width="{x:Bind Look.RailButton, Mode=OneWay}" Height="{x:Bind Look.RailButton, Mode=OneWay}" CornerRadius="{x:Bind Look.RailButtonRadius, Mode=OneWay}"
-                Background="{x:Bind views:Fmt.RailBackground(Rail.ActiveApp, 'Files'), Mode=OneWay}" Foreground="{x:Bind views:Fmt.RailForeground(Rail.ActiveApp, 'Files'), Mode=OneWay}"
                 AutomationProperties.AutomationId="rail.files" AutomationProperties.Name="Files" motion:Tip.Text="Files">
-          <controls:SIcon Kind="Folder" Size="20" />
-        </Button>
+          <controls:SIcon Kind="Folder" Size="{x:Bind Look.RailIcon, Mode=OneWay}" />
+        </ToggleButton>
       </StackPanel>
 
-      <!-- Search and the shortcuts sheet (I-029, I-023) above the gear; the gear opens nothing in M1 (settings pages are M6). -->
-      <StackPanel Grid.Row="3" Spacing="2" HorizontalAlignment="Center" Margin="0,0,0,10">
-        <Button x:Name="SearchButton" Style="{StaticResource Button.Icon}" FocusVisualPrimaryThickness="{x:Bind Look.FocusThickness, Mode=OneWay}" Click="OnSearchClick"
+      <!-- The footer (navigation-rail.tsx:700-760, gap-2): Accessibility, Settings, a divider, the shortcuts sheet (I-023), the storage ring (a button with a popover
+           in Bulwark, a ring around the account button in Bento and Nordic) and the account. -->
+      <StackPanel Grid.Row="3" Spacing="{x:Bind Look.RailFooterSpacing, Mode=OneWay}" HorizontalAlignment="Center" Margin="{x:Bind Look.RailFooterMargin, Mode=OneWay}">
+        <Button x:Name="AccessibilityButton" Style="{StaticResource Rail.Button}" Click="OnAccessibilityClick"
                 Width="{x:Bind Look.RailButton, Mode=OneWay}" Height="{x:Bind Look.RailButton, Mode=OneWay}" CornerRadius="{x:Bind Look.RailButtonRadius, Mode=OneWay}"
-                Foreground="{StaticResource Faint}"
-                AutomationProperties.AutomationId="rail.search" AutomationProperties.Name="Search" motion:Tip.Text="Search">
-          <controls:SIcon Kind="Search" Size="20" />
-        </Button>
-        <Button x:Name="ShortcutsButton" Style="{StaticResource Button.Icon}" FocusVisualPrimaryThickness="{x:Bind Look.FocusThickness, Mode=OneWay}" Click="OnShortcutsClick"
-                Width="{x:Bind Look.RailButton, Mode=OneWay}" Height="{x:Bind Look.RailButton, Mode=OneWay}" CornerRadius="{x:Bind Look.RailButtonRadius, Mode=OneWay}"
-                Foreground="{StaticResource Faint}"
-                AutomationProperties.AutomationId="rail.shortcuts" AutomationProperties.Name="Keyboard shortcuts" motion:Tip.Text="Keyboard shortcuts (?)">
-          <controls:SIcon Kind="Key" Size="20" />
-        </Button>
-        <Button x:Name="AccessibilityButton" Style="{StaticResource Button.Icon}" FocusVisualPrimaryThickness="{x:Bind Look.FocusThickness, Mode=OneWay}" Click="OnAccessibilityClick"
-                Width="{x:Bind Look.RailButton, Mode=OneWay}" Height="{x:Bind Look.RailButton, Mode=OneWay}" CornerRadius="{x:Bind Look.RailButtonRadius, Mode=OneWay}"
-                Visibility="{x:Bind views:Fmt.Vis(Rail.ShowAccessibilityButton), Mode=OneWay}" Foreground="{StaticResource Faint}"
+                Visibility="{x:Bind views:Fmt.Vis(Rail.ShowAccessibilityButton), Mode=OneWay}"
                 AutomationProperties.AutomationId="rail.accessibility" AutomationProperties.Name="Accessibility options" motion:Tip.Text="Accessibility options (Alt + Shift + A)">
-          <TextBlock Text="A" FontWeight="Bold" FontSize="18" />
+          <TextBlock Text="A" FontWeight="Bold" FontSize="{x:Bind Look.RailIcon, Mode=OneWay}" />
         </Button>
-        <Button x:Name="SettingsButton" Style="{StaticResource Button.Icon}" FocusVisualPrimaryThickness="{x:Bind Look.FocusThickness, Mode=OneWay}" Click="OnSettingsClick"
+        <ToggleButton x:Name="SettingsButton" Style="{StaticResource Rail.Toggle}" Click="OnSettingsClick"
                 Width="{x:Bind Look.RailButton, Mode=OneWay}" Height="{x:Bind Look.RailButton, Mode=OneWay}" CornerRadius="{x:Bind Look.RailButtonRadius, Mode=OneWay}"
-                Foreground="{StaticResource Faint}"
                 AutomationProperties.AutomationId="rail.settings" AutomationProperties.Name="Settings" motion:Tip.Text="Settings">
-          <controls:SIcon Kind="Settings" Size="20" />
+          <controls:SIcon Kind="Settings" Size="{x:Bind Look.RailIcon, Mode=OneWay}" />
+        </ToggleButton>
+        <Rectangle Width="32" Height="1" HorizontalAlignment="Center" Fill="{x:Bind Look.RailDivider, Mode=OneWay}" Visibility="{x:Bind Look.BulwarkOnly, Mode=OneWay}" />
+        <Button x:Name="ShortcutsButton" Style="{StaticResource Rail.Button}" Click="OnShortcutsClick"
+                Width="{x:Bind Look.RailButton, Mode=OneWay}" Height="{x:Bind Look.RailButton, Mode=OneWay}" CornerRadius="{x:Bind Look.RailButtonRadius, Mode=OneWay}"
+                AutomationProperties.AutomationId="rail.shortcuts" AutomationProperties.Name="Keyboard shortcuts" motion:Tip.Text="Keyboard shortcuts (?)">
+          <controls:SIcon Kind="Key" Size="{x:Bind Look.RailIcon, Mode=OneWay}" />
         </Button>
-      </StackPanel>
 
-      <!-- The account button: initials in the tint, the storage ring around it, the account popover (constrained to the window) from it. -->
-      <Grid Grid.Row="4" HorizontalAlignment="Center">
-        <controls:StorageRing Fraction="{x:Bind Rail.StorageFraction, Mode=OneWay}" RingSize="46" HorizontalAlignment="Center" VerticalAlignment="Center"
-                              AutomationProperties.AutomationId="rail.storage-ring" AutomationProperties.Name="Storage used" />
-        <Button x:Name="AccountButton" Style="{StaticResource Button.Icon}" Width="{x:Bind Look.AccountSize, Mode=OneWay}" Height="{x:Bind Look.AccountSize, Mode=OneWay}"
-                CornerRadius="{x:Bind Look.AccountRadius, Mode=OneWay}" Background="{StaticResource Sel}" Foreground="{StaticResource SelText}"
-                AutomationProperties.AutomationId="rail.account" AutomationProperties.Name="Account" motion:Tip.Text="{x:Bind Rail.AccountLabel, Mode=OneWay}">
-          <TextBlock Text="{x:Bind Rail.AccountInitials, Mode=OneWay}" FontWeight="Bold" FontSize="13" />
+        <!-- Bulwark storage button (navigation-rail.tsx:164-221): the ring with its percentage; the popover lists used, free and total. -->
+        <Button x:Name="StorageButton" Style="{StaticResource Rail.Button}" Width="32" Height="32" CornerRadius="16" Padding="0" HorizontalAlignment="Center"
+                Visibility="{x:Bind theme:StyleState.StorageButton(Look.IsBulwark, Rail.StorageFraction), Mode=OneWay}"
+                AutomationProperties.AutomationId="rail.storage" AutomationProperties.Name="Storage" motion:Tip.Text="Storage">
+          <controls:StorageRing Fraction="{x:Bind Rail.StorageFraction, Mode=OneWay}" RingSize="32" Leveled="True"
+                                AutomationProperties.AutomationId="rail.storage-ring" AutomationProperties.Name="Storage used" />
           <Button.Flyout>
-            <Flyout win:ShouldConstrainToRootBounds="True" Placement="RightEdgeAlignedBottom" Opened="OnAccountFlyoutOpened">
+            <Flyout win:ShouldConstrainToRootBounds="True" Placement="RightEdgeAlignedBottom" Opened="OnStorageFlyoutOpened">
               <Flyout.FlyoutPresenterStyle>
                 <Style TargetType="FlyoutPresenter">
-                  <Setter Property="Padding" Value="0" />
-                  <Setter Property="Background" Value="{StaticResource Popup}" />
+                  <Setter Property="Padding" Value="12" />
+                  <Setter Property="Background" Value="{StaticResource Bg}" />
                   <Setter Property="BorderBrush" Value="{StaticResource Line}" />
-                  <Setter Property="CornerRadius" Value="14" />
-                  <Setter Property="MinWidth" Value="260" />
+                  <Setter Property="MinWidth" Value="208" />
+                  <Setter Property="MaxWidth" Value="208" />
                 </Style>
               </Flyout.FlyoutPresenterStyle>
-              <accounts:AccountPopoverView x:Name="Popover" />
+              <StackPanel AutomationProperties.AutomationId="storage-popover" AutomationProperties.Name="Storage">
+                <TextBlock Text="Storage" FontSize="12" FontWeight="SemiBold" Foreground="{StaticResource Text}" Margin="0,0,0,8" />
+                <Grid ColumnDefinitions="*,Auto" RowDefinitions="Auto,Auto,Auto" RowSpacing="6">
+                  <TextBlock Text="Used" FontSize="12" Foreground="{StaticResource Faint}" />
+                  <TextBlock Grid.Column="1" Text="{x:Bind theme:StyleState.QuotaUsed(Sidebar.StorageText), Mode=OneWay}" FontSize="12" FontWeight="Medium" Foreground="{StaticResource Text}" />
+                  <TextBlock Grid.Row="1" Text="Free" FontSize="12" Foreground="{StaticResource Faint}" />
+                  <TextBlock Grid.Row="1" Grid.Column="1" Text="{x:Bind theme:StyleState.QuotaFree(Sidebar.StorageText, Rail.StorageFraction), Mode=OneWay}" FontSize="12" FontWeight="Medium" Foreground="{StaticResource Text}" />
+                  <TextBlock Grid.Row="2" Text="Total" FontSize="12" Foreground="{StaticResource Faint}" />
+                  <TextBlock Grid.Row="2" Grid.Column="1" Text="{x:Bind theme:StyleState.QuotaTotal(Sidebar.StorageText), Mode=OneWay}" FontSize="12" FontWeight="Medium" Foreground="{StaticResource Text}" />
+                </Grid>
+                <Grid x:Name="StorageBar" Height="6" Margin="0,10,0,0" CornerRadius="3" Background="{StaticResource Track}" SizeChanged="OnStorageBarSizeChanged">
+                  <Border x:Name="StorageBarFill" HorizontalAlignment="Left" CornerRadius="3" />
+                </Grid>
+                <TextBlock Text="{x:Bind theme:StyleState.Percent(Rail.StorageFraction), Mode=OneWay}" FontSize="10" Foreground="{StaticResource Faint}" Margin="0,4,0,0" />
+              </StackPanel>
             </Flyout>
           </Button.Flyout>
         </Button>
-      </Grid>
+
+        <!-- The account: the rail variant of account-switcher.tsx:310-372 (a 40 px button with a 32 px avatar), or with showRailAccountList the circles of navigation-rail.tsx:790-870. -->
+        <Grid HorizontalAlignment="Center" Margin="{x:Bind Look.RailAccountMargin, Mode=OneWay}">
+          <Grid x:Name="AccountSingle">
+            <controls:StorageRing Fraction="{x:Bind Rail.StorageFraction, Mode=OneWay}" RingSize="46" HorizontalAlignment="Center" VerticalAlignment="Center"
+                                  Visibility="{x:Bind theme:StyleState.StorageAroundAccount(Look.IsBulwark), Mode=OneWay}"
+                                  AutomationProperties.AutomationId="rail.storage-ring.account" AutomationProperties.Name="Storage used" />
+            <Button x:Name="AccountButton" Style="{StaticResource Rail.Button}" Width="{x:Bind Look.AccountSize, Mode=OneWay}" Height="{x:Bind Look.AccountSize, Mode=OneWay}"
+                    CornerRadius="{x:Bind Look.AccountRadius, Mode=OneWay}" Background="{StaticResource Sel}" Foreground="{StaticResource SelText}"
+                    AutomationProperties.AutomationId="rail.account" AutomationProperties.Name="Account" motion:Tip.Text="{x:Bind Rail.AccountLabel, Mode=OneWay}">
+              <Grid>
+                <Border x:Name="AccountAvatar" HorizontalAlignment="Center" VerticalAlignment="Center">
+                  <TextBlock x:Name="AccountInitials" Text="{x:Bind Rail.AccountInitials, Mode=OneWay}" FontWeight="Bold" FontSize="13" HorizontalAlignment="Center" VerticalAlignment="Center" />
+                </Border>
+                <Ellipse x:Name="OthersDot" Width="10" Height="10" HorizontalAlignment="Right" VerticalAlignment="Top" Margin="0,2,2,0" Fill="{StaticResource Accent}"
+                         Stroke="{StaticResource Rail}" StrokeThickness="2" Visibility="Collapsed" IsHitTestVisible="False" AutomationProperties.AutomationId="rail.account.others-unread" />
+              </Grid>
+              <Button.Flyout>
+                <Flyout win:ShouldConstrainToRootBounds="True" Placement="RightEdgeAlignedBottom" Opened="OnAccountFlyoutOpened">
+                  <Flyout.FlyoutPresenterStyle>
+                    <Style TargetType="FlyoutPresenter">
+                      <Setter Property="Padding" Value="0" />
+                      <Setter Property="Background" Value="{StaticResource Bg}" />
+                      <Setter Property="BorderBrush" Value="{StaticResource Line}" />
+                      <Setter Property="MinWidth" Value="260" />
+                    </Style>
+                  </Flyout.FlyoutPresenterStyle>
+                  <accounts:AccountPopoverView x:Name="Popover" />
+                </Flyout>
+              </Button.Flyout>
+            </Button>
+          </Grid>
+
+          <StackPanel x:Name="AccountStack" Visibility="Collapsed" Spacing="12" HorizontalAlignment="Center" AutomationProperties.AutomationId="rail.accounts" AutomationProperties.Name="Accounts">
+            <Rectangle Width="32" Height="1" Fill="{x:Bind Look.RailDivider, Mode=OneWay}" HorizontalAlignment="Center" />
+            <ItemsControl ItemsSource="{x:Bind Accounts.Rows}" IsTabStop="False">
+              <ItemsControl.ItemsPanel>
+                <ItemsPanelTemplate>
+                  <StackPanel Spacing="12" />
+                </ItemsPanelTemplate>
+              </ItemsControl.ItemsPanel>
+              <ItemsControl.ItemTemplate>
+                <DataTemplate x:DataType="acct:AccountRowViewModel">
+                  <Grid Width="32" Height="32" HorizontalAlignment="Center">
+                    <Border Margin="-4" CornerRadius="20" BorderBrush="{StaticResource Accent}" BorderThickness="{x:Bind theme:StyleState.AccountRing(IsActive), Mode=OneWay}" IsHitTestVisible="False" />
+                    <Button Style="{StaticResource Rail.Button}" Width="32" Height="32" CornerRadius="16" Padding="0"
+                            Opacity="{x:Bind theme:StyleState.AccountDim(IsActive), Mode=OneWay}"
+                            Tag="{x:Bind}" Click="OnCircleClick" PointerEntered="OnCircleEntered" PointerExited="OnCircleExited"
+                            AutomationProperties.AutomationId="{x:Bind Key}" AutomationProperties.Name="{x:Bind Title, Mode=OneWay}" motion:Tip.Text="{x:Bind Title, Mode=OneWay}">
+                      <Border CornerRadius="16" Background="{x:Bind views:Fmt.TintBg(TintIndex), Mode=OneWay}">
+                        <TextBlock Text="{x:Bind Initials, Mode=OneWay}" FontSize="12" FontWeight="SemiBold" Foreground="{x:Bind views:Fmt.TintFg(TintIndex), Mode=OneWay}"
+                                   HorizontalAlignment="Center" VerticalAlignment="Center" />
+                      </Border>
+                    </Button>
+                    <Border Width="12" Height="12" CornerRadius="6" Background="{StaticResource Accent}" HorizontalAlignment="Right" VerticalAlignment="Bottom" Margin="0,0,-2,-2" IsHitTestVisible="False"
+                            Visibility="{x:Bind views:Fmt.Vis(IsActive), Mode=OneWay}">
+                      <controls:SIcon Kind="Check" Size="8" StrokeWidth="3" Foreground="{StaticResource OnAccent}" HorizontalAlignment="Center" VerticalAlignment="Center" />
+                    </Border>
+                  </Grid>
+                </DataTemplate>
+              </ItemsControl.ItemTemplate>
+            </ItemsControl>
+            <Grid Width="32" Height="32" HorizontalAlignment="Center">
+              <Ellipse Stroke="{StaticResource Faint}" StrokeThickness="1" StrokeDashArray="3,3" Opacity="0.5" IsHitTestVisible="False" />
+              <Button x:Name="AddAccountButton" Style="{StaticResource Rail.Button}" Width="32" Height="32" CornerRadius="16" Padding="0" Click="OnAddAccountClick"
+                      AutomationProperties.AutomationId="rail.accounts.add" AutomationProperties.Name="Add account" motion:Tip.Text="Add account">
+                <controls:SIcon Kind="Plus" Size="14" />
+              </Button>
+            </Grid>
+            <Button x:Name="SignOutButton" Style="{StaticResource Rail.Button}" Width="36" Height="36" CornerRadius="6" HorizontalAlignment="Center"
+                    AutomationProperties.AutomationId="rail.accounts.signout" AutomationProperties.Name="Sign out" motion:Tip.Text="Sign out">
+              <controls:SIcon Kind="Back" Size="16" />
+            </Button>
+          </StackPanel>
+        </Grid>
+      </StackPanel>
     </Grid>
   </Border>
 </UserControl>
