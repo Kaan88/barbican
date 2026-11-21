@@ -11,6 +11,10 @@ using Microsoft.UI.Xaml.Automation;
 
 namespace Barbican.App.Views.List;
 
+// Mirrors: Bulwark components/email/email-list.tsx:1602-1650 (loading overlay at half opacity with a pill, skeleton on the first load, the empty state), ui/empty-state.tsx:29-45,
+// thread-list-item.tsx:733-746,790-806 (hover and selected row, avatar check), mail/mail-app.tsx:6627-6640 (select toggle, active while a selection exists); FM-12: the folder-change rise
+// is motion Bulwark does not have (MotionRuntime.DecorationMs).
+
 /// <summary>
 /// The message list. It shows <see cref="MessageListViewModel.Rows"/> and keeps the ListView's selection equal to <see cref="MessageListViewModel.Selected"/>
 /// (a click selects through the ViewModel, a j/k move or a push delta moves the highlight), asks for the next page when fewer than 300 px remain below the viewport
@@ -35,9 +39,14 @@ public sealed partial class MessageListView : UserControl
         Look = ViewHost.Get<StyleState>();
         InitializeComponent();
         Rows.RenderTransform = _rowsShift;
+        SkeletonRows.ItemsSource = Enumerable.Range(0, 8).ToArray();
         Panes = ViewHost.Get<PanesViewModel>();
         ApplyStyle();
-        Look.PropertyChanged += (_, _) => ApplyStyle();
+        Look.PropertyChanged += (_, _) =>
+        {
+            ApplyStyle();
+            UpdateEmpty();
+        };
         Panes.PropertyChanged += (_, _) => ApplyStyle();
         List.PropertyChanged += OnListChanged;
         List.Rows.CollectionChanged += OnRowsChanged;
@@ -92,6 +101,8 @@ public sealed partial class MessageListView : UserControl
     {
         if (List.HasChecked) List.ClearChecked();
         else List.SelectAllLoaded();
+        // the toggle flipped itself on the click; it shows the selection, which an empty list did not make
+        SelectAllToggle.IsChecked = List.HasChecked;
     }
 
     private void OnFolderActions(object sender, RoutedEventArgs e)
@@ -118,6 +129,7 @@ public sealed partial class MessageListView : UserControl
             case nameof(MessageListViewModel.MailboxId):
                 _riseNext = true;
                 break;
+            case nameof(MessageListViewModel.SearchText):
             case nameof(MessageListViewModel.IsLoading):
             case nameof(MessageListViewModel.IsConnecting):
             case nameof(MessageListViewModel.CanLoadMore):
@@ -138,7 +150,7 @@ public sealed partial class MessageListView : UserControl
         {
             _riseNext = false;
             var scale = MotionRuntime.Scale;
-            Rise.Run(Rows, _rowsShift, scale.Rapid ? 0 : scale.EnterMs, fromOpacity: 0.5, fromY: 10);
+            Rise.Run(Rows, _rowsShift, scale.Rapid ? 0 : MotionRuntime.DecorationMs(scale.EnterMs), fromOpacity: 0.5, fromY: 10);
         }
 
         // the ListView drops its selection when the selected row is replaced or removed; put it back once the change is through
@@ -157,8 +169,24 @@ public sealed partial class MessageListView : UserControl
     // an account on screen without its session yet (no network at start, R2-02) says so instead of "No messages"
     private void UpdateEmpty()
     {
-        EmptyText.Text = List.IsConnecting ? "Connecting…" : "No messages";
-        EmptyText.Visibility = List.Rows.Count == 0 && !List.IsLoading ? Visibility.Visible : Visibility.Collapsed;
+        var empty = List.Rows.Count == 0 && !List.IsLoading;
+        var bulwark = Look.IsBulwark;
+        var searching = !string.IsNullOrWhiteSpace(List.SearchText);
+        // Bulwark: the empty-state component (no_emails / no_search_results with their one-line descriptions, locales/en/common.json:362-365); the prototypes keep their plain line
+        EmptyText.Text = List.IsConnecting ? "Connecting…" : bulwark ? (searching ? "No results found" : "No messages found") : "No messages";
+        EmptyHint.Text = List.IsConnecting ? string.Empty : searching ? "Try adjusting your search or filters" : "This mailbox is empty";
+        EmptyHint.Visibility = bulwark && !List.IsConnecting ? Visibility.Visible : Visibility.Collapsed;
+        EmptyBadge.Visibility = bulwark ? Visibility.Visible : Visibility.Collapsed;
+        EmptyText.FontSize = bulwark ? 16 : 13;
+        EmptyText.FontWeight = bulwark ? Microsoft.UI.Text.FontWeights.Medium : Microsoft.UI.Text.FontWeights.Normal;
+        EmptyText.Foreground = (Brush)Application.Current.Resources[bulwark ? "Text" : "Faint"];
+        EmptyState.VerticalAlignment = bulwark ? VerticalAlignment.Center : VerticalAlignment.Top;
+        EmptyState.Margin = bulwark ? default : new Thickness(0, 44, 0, 0);
+        EmptyState.Visibility = empty ? Visibility.Visible : Visibility.Collapsed;
+        // a first page that is on its way: placeholder rows when nothing is shown yet, the old rows at half strength with a pill otherwise (Bulwark only)
+        var loading = bulwark && List.IsLoading && !List.IsConnecting;
+        LoadingSkeleton.Visibility = loading && List.Rows.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
+        LoadingOverlay.Visibility = loading && List.Rows.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
     }
 
     private void SyncSelection()
@@ -237,6 +265,25 @@ public sealed partial class MessageListView : UserControl
         else
         {
             List.ToggleCheck(row);
+        }
+    }
+
+    // the hover hint of the selectable avatar (selectable-avatar.tsx:50-58): the check shows while the pointer is on the avatar; Bulwark only, one frame
+    private void OnAvatarEntered(object sender, Microsoft.UI.Xaml.Input.PointerRoutedEventArgs e) => SetAvatarHint(sender, Look.IsBulwark);
+
+    private void OnAvatarExited(object sender, Microsoft.UI.Xaml.Input.PointerRoutedEventArgs e) => SetAvatarHint(sender, false);
+
+    private static void SetAvatarHint(object sender, bool on)
+    {
+        if (sender is Border { Child: Grid grid })
+        {
+            foreach (var child in grid.Children)
+            {
+                if (child is Border { Tag: "hover-check" } hint)
+                {
+                    hint.Visibility = on ? Visibility.Visible : Visibility.Collapsed;
+                }
+            }
         }
     }
 

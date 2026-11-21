@@ -1,4 +1,4 @@
-// Mirrors: Rust mail.rs build_rows :463 (Mail struct of ui/app.slint); Bulwark components/email/thread-list-item.tsx (sender, subject, preview,
+// Mirrors: Rust mail.rs build_rows :463 (Mail struct of ui/app.slint); Bulwark components/email/thread-list-item.tsx:912-923,978-997 (status icons: starred, replied, forwarded, paperclip), :720-745 (selected row) (sender, subject, preview,
 // date, unread dot, star, attachment chips, thread count, tag dots); spec I-119..I-129. Owner mailcore.
 
 using Barbican.Core.Mail.Model;
@@ -11,6 +11,7 @@ public sealed class MessageRowViewModel : ListItemViewModel
 {
     private bool _isChecked;
     private bool _isHovered;
+    private bool _isSelected;
     private IReadOnlyList<HoverButton> _strip = [];
 
     public MessageRowViewModel(EmailSummary summary)
@@ -38,6 +39,8 @@ public sealed class MessageRowViewModel : ListItemViewModel
         TimeLabel = summary.ReceivedAt is { } at ? RowText.TimeLabel(at, context.Now, context.Zone, context.DateFormat, context.TwelveHour) : string.Empty;
         Unread = !summary.Keywords.Seen;
         Flagged = summary.Keywords.Flagged;
+        Answered = summary.Keywords.IsSet("$answered");
+        Forwarded = summary.Keywords.IsSet("$forwarded");
         ThreadCount = Math.Max(summary.ThreadCount, 1);
         Tags = RowTag.Of(summary.Keywords, context.Tags);
         ShowTags = context.ShowTagChips && Tags.Count > 0;
@@ -71,6 +74,13 @@ public sealed class MessageRowViewModel : ListItemViewModel
     {
         get => _isHovered;
         set => SetProperty(ref _isHovered, value);
+    }
+
+    /// <summary>The row is the open message (the list's highlight): the unread wash gives way to the selection fill, and the strip takes the selection colour (thread-list-item.tsx:731). The list sets it.</summary>
+    public bool IsSelected
+    {
+        get => _isSelected;
+        set => SetProperty(ref _isSelected, value);
     }
 
     /// <summary>The hover strip buttons; set by the list when the row becomes the hovered one (the state of the message and of the folder decide them), kept after.</summary>
@@ -120,6 +130,12 @@ public sealed class MessageRowViewModel : ListItemViewModel
 
     public bool Flagged { get; }
 
+    /// <summary>The message carries <c>$answered</c>: the row shows the reply icon (thread-list-item.tsx:978-985).</summary>
+    public bool Answered { get; }
+
+    /// <summary>The message carries <c>$forwarded</c>: the row shows the forward icon (thread-list-item.tsx:986-993).</summary>
+    public bool Forwarded { get; }
+
     /// <summary>Messages in the conversation; the row shows a count from 2.</summary>
     public int ThreadCount { get; }
 
@@ -145,6 +161,8 @@ public sealed class MessageRowViewModel : ListItemViewModel
         && string.Equals(r.TimeLabel, TimeLabel, StringComparison.Ordinal)
         && r.Unread == Unread
         && r.Flagged == Flagged
+        && r.Answered == Answered
+        && r.Forwarded == Forwarded
         && r.ThreadCount == ThreadCount
         && r.HasAttachment == HasAttachment
         && string.Equals(r.VerificationCode, VerificationCode, StringComparison.Ordinal)
