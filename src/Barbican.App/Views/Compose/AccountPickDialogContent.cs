@@ -1,6 +1,7 @@
 // Mirrors: Bulwark mail-app.tsx:7298 (the mailto account picker); I-283. Draws AccountPickRequest inside the card of the dialog host (IDialogContent): one button per account, the active one first; a click answers with the account key.
 
 using Barbican.App.Theme;
+using Barbican.App.Views.Compose;
 using Barbican.Presentation.Compose;
 using Barbican.Presentation.Dialogs;
 using Microsoft.UI.Xaml.Automation;
@@ -30,7 +31,7 @@ public sealed class AccountPickDialogContent : IDialogContent
                 HorizontalAlignment = HorizontalAlignment.Stretch,
                 HorizontalContentAlignment = HorizontalAlignment.Left,
                 Height = 38,
-                CornerRadius = new CornerRadius(12),
+                CornerRadius = ComposerShape.Row(12),
                 FontSize = 13,
             };
             AutomationProperties.SetAutomationId(button, "mailto.account." + account.User);
