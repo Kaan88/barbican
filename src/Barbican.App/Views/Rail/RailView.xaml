@@ -181,6 +181,9 @@
                 AutomationProperties.AutomationId="rail.files" AutomationProperties.Name="Files" motion:Tip.Text="Files">
           <controls:SIcon Kind="Folder" Size="{x:Bind Look.RailIcon, Mode=OneWay}" />
         </ToggleButton>
+        <!-- SH-10, plugin pages after the built-in apps (navigation-rail.tsx:459-512,700-720): one entry per page an add-on set with ui.setPages, the add-on's icon (the puzzle piece without one) at the
+             same size as the apps, active in the primary tint like them, the tooltip "title (add-on)". An add-on that is turned off or removed loses its entries. -->
+        <StackPanel x:Name="PluginPageList" Spacing="{x:Bind Look.RailSpacing, Mode=OneWay}" HorizontalAlignment="Center" AutomationProperties.AutomationId="rail.plugin-pages" />
       </StackPanel>
 
       <!-- The footer (navigation-rail.tsx:700-760, gap-2): Accessibility, Settings, a divider, the shortcuts sheet (I-023), the storage ring (a button with a popover

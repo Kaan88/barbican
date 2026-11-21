@@ -17,7 +17,7 @@ namespace Barbican.App.Plugins;
 
 /// <summary>Reconciles one background runtime per supported, enabled add-on.</summary>
 internal sealed partial class PluginBackgroundRuntimes(
-    PluginPackageHost packages, IProfilePaths paths, IPrefsStore prefs, ILogger<PluginBackgroundRuntimes> log) : IAsyncDisposable
+    PluginPackageHost packages, IProfilePaths paths, IPrefsStore prefs, ILogger<PluginBackgroundRuntimes> log, Barbican.Core.Plugins.Pages.PluginAddOnNames? names = null) : IAsyncDisposable
 {
     private readonly SemaphoreSlim _changes = new(1, 1);
     private readonly ConcurrentDictionary<string, SemaphoreSlim> _starts = new(StringComparer.Ordinal);
@@ -198,6 +198,7 @@ internal sealed partial class PluginBackgroundRuntimes(
     private async Task<bool> StartAsync(IPluginRuntimeFactory factory, PluginInstallation installation, CancellationToken ct)
     {
         var grant = installation.Grant!;
+        names?.Remember(grant.Package.Id, installation.Package.Manifest);
         var start = _starts.GetOrAdd(grant.Package.Id, _ => new SemaphoreSlim(1, 1));
         await start.WaitAsync(ct).ConfigureAwait(false);
         try

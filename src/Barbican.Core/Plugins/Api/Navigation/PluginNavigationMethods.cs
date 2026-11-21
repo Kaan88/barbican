@@ -1,5 +1,5 @@
 // Composition helper: the navigation, refresh and download adapters of one host, registered method by method in the app's container.
-// ui.openPage (needs ui.setPages, which is not offered), search.run, search.clear and tabs.* are not part of this set (see docs/milestones/M6b-api-inventory.md).
+// search.run, search.clear and tabs.* are not part of this set (see docs/milestones/M6b-api-inventory.md).
 using Barbican.Core.Plugins.Bridge;
 
 namespace Barbican.Core.Plugins.Api.Navigation;
@@ -8,7 +8,7 @@ namespace Barbican.Core.Plugins.Api.Navigation;
 public static class PluginNavigationMethods
 {
     /// <summary>How many methods <see cref="Create"/> returns.</summary>
-    public const int Count = 7;
+    public const int Count = 9;
 
     public static IReadOnlyList<IPluginApiMethod> Create(PluginNavigationHost host)
     {
@@ -17,7 +17,7 @@ public static class PluginNavigationMethods
         [
             new PluginUiOpenEmail(host), new PluginUiOpenCalendar(host), new PluginUiOpenTask(host),
             new PluginUiRefresh(host, PluginUiRefresh.Kind.RowBadges), new PluginUiRefresh(host, PluginUiRefresh.Kind.RerenderEmail), new PluginUiRefresh(host, PluginUiRefresh.Kind.RerenderFetchedEmails),
-            new PluginUiDownloadFile(host),
+            new PluginUiDownloadFile(host), new PluginUiSetPages(host), new PluginUiOpenPage(host),
         ];
     }
 }

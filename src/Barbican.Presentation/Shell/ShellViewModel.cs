@@ -29,6 +29,8 @@ public sealed class ShellViewModel : ObservableObject, IDisposable
     private string _windowTitle = "Barbican";
     private bool _sidebarOpen = true;
     private bool _sidebarCollapsed;
+    private string? _pluginPage;
+    private string _pluginPagePath = string.Empty;
 
     public ShellViewModel(IPrefsStore prefs, ISystemAccessibilitySource system, MotionState motion, IHookBus hooks, TimeProvider time, IDispatcher? dispatcher = null)
     {
@@ -107,6 +109,8 @@ public sealed class ShellViewModel : ObservableObject, IDisposable
             return false;
         }
 
+        // SH-10: choosing a built-in app of the rail leaves an add-on page (navigation-rail.tsx:459-512 clears the page when an app link is followed)
+        ClosePluginPage();
         if (app == _activeApp)
         {
             return true;
@@ -121,6 +125,43 @@ public sealed class ShellViewModel : ObservableObject, IDisposable
         _hooks.Fire(HookNames.OnSidebarAppClose, () => new SidebarAppPayload(Route(previous)));
         _hooks.Fire(HookNames.OnSidebarAppOpen, () => new SidebarAppPayload(Route(app)));
         return true;
+    }
+
+    /// <summary>The add-on page on screen as "package/page" (an app of the rail is not shown while it is set), or null.</summary>
+    public string? ActivePluginPage => _pluginPage;
+
+    /// <summary>The path below the add-on page that <c>ui.openPage</c> passed (no leading slash), empty without one.</summary>
+    public string PluginPagePath => _pluginPagePath;
+
+    /// <summary>Shows an add-on's page (Bulwark /apps/&lt;pluginId&gt;/&lt;pageId&gt;, use-plugin-pages.ts pluginPageHref); the caller has checked that the page exists.</summary>
+    public void OpenPluginPage(string key, string path)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(key);
+        ArgumentNullException.ThrowIfNull(path);
+        _pluginPagePath = path;
+        if (string.Equals(_pluginPage, key, StringComparison.Ordinal))
+        {
+            OnPropertyChanged(nameof(PluginPagePath));
+            return;
+        }
+
+        _pluginPage = key;
+        OnPropertyChanged(nameof(PluginPagePath));
+        OnPropertyChanged(nameof(ActivePluginPage));
+    }
+
+    /// <summary>Leaves the add-on page (an app of the rail was chosen, or the page's add-on is gone).</summary>
+    public void ClosePluginPage()
+    {
+        if (_pluginPage is null)
+        {
+            return;
+        }
+
+        _pluginPage = null;
+        _pluginPagePath = string.Empty;
+        OnPropertyChanged(nameof(PluginPagePath));
+        OnPropertyChanged(nameof(ActivePluginPage));
     }
 
     /// <summary>The OS is dark or light (the "system" theme follows it); the platform layer calls this.</summary>
