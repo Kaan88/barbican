@@ -5,7 +5,7 @@ change the plan: [adr/](adr/). The Rust-era roadmap is in [legacy/ROADMAP.md](le
 
 **Windows milestone order**
 
-M6 delivered → M6b → M7 admin → M8 Windows integration and distribution → M10 parity and release polish → final UI walkthrough and fixes. M9 Linux is deferred. The implementation pause on November 20 occurred inside M6b. The [active work list](milestones/M6b-plan.md#current-work) is the restart point when implementation resumes.
+M6 delivered → M6b → M7 admin → M8 Windows integration and distribution → M10 parity and release polish → final UI walkthrough and fixes. M9 Linux is deferred indefinitely (user decision 2026-11-21). The implementation pause on November 20 occurred inside M6b. The [active work list](milestones/M6b-plan.md#current-work) is the restart point when implementation resumes.
 
 Fable approves each major milestone on the combined candidate. Supply a verified portable at major checkpoints and on user request. Record its exact source, checksum and extracted launch result. The [project rules](../CLAUDE.md#active-milestone-and-review) describe the checks during implementation.
 
@@ -22,7 +22,9 @@ Fable approves each major milestone on the combined candidate. Supply a verified
 | M7 | Admin dashboard and management | Planned |
 | M8 | Windows desktop integration and distribution | Planned |
 | M10 | Parity sweep, UI polish and release readiness | Planned; followed by Fable review fixes and a UI walkthrough |
-| M9 | Linux | Deferred until after this run |
+| M9 | Linux | Deferred indefinitely (user decision 2026-11-21) |
+
+The current M6b work list is the [M6b feature parity backlog](milestones/M6b-feature-parity.md); feature closure comes before further UI polish.
 
 The [UI guidelines](../design/UI-GUIDELINES.md) identify the visual and motion references. The [walkthrough](milestones/M6b-ui-parity.md) records what has been seen in Bulwark. Branch pushes are authorized. Main merges, tags and release publication require separate authorization.
 
