@@ -74,14 +74,14 @@ internal sealed class PluginFilesGetText(IPluginFilesHost host) : PluginFilesMet
     }
 
     /// <summary>plain.ts:23-28: no NUL bytes in the first 4 KB (a UTF-16 byte order mark counts as text).</summary>
-    private static bool LooksLikeText(byte[] bytes)
+    internal static bool LooksLikeText(byte[] bytes)
     {
         if (bytes.Length >= 2 && ((bytes[0] == 0xFF && bytes[1] == 0xFE) || (bytes[0] == 0xFE && bytes[1] == 0xFF))) return true;
         return Array.IndexOf(bytes, (byte)0, 0, Math.Min(bytes.Length, 4096)) < 0;
     }
 
     /// <summary>plain.ts:10-21 decodeText: UTF-16 with a byte order mark, UTF-8 (the mark stripped), else Latin-1, which never fails.</summary>
-    private static string Decode(byte[] bytes)
+    internal static string Decode(byte[] bytes)
     {
         if (bytes.Length >= 2 && bytes[0] == 0xFF && bytes[1] == 0xFE) return Encoding.Unicode.GetString(bytes, 2, bytes.Length - 2);
         if (bytes.Length >= 2 && bytes[0] == 0xFE && bytes[1] == 0xFF) return Encoding.BigEndianUnicode.GetString(bytes, 2, bytes.Length - 2);
@@ -97,7 +97,7 @@ internal sealed class PluginFilesGetText(IPluginFilesHost host) : PluginFilesMet
     }
 
     /// <summary>index.ts:60-68 clipText: cut at maxChars, at a line or word end when one is near, never inside a surrogate pair.</summary>
-    private static (string Text, bool Truncated) Clip(string text, int maxChars)
+    internal static (string Text, bool Truncated) Clip(string text, int maxChars)
     {
         if (text.Length <= maxChars) return (text, false);
         var end = char.IsHighSurrogate(text[maxChars - 1]) ? maxChars - 1 : maxChars;
