@@ -183,6 +183,10 @@ public static class SampleComposeServices
     {
         public Task<Result<DraftAttachment>> UploadAsync(string accountId, AttachmentUpload upload, IReadOnlyList<DraftAttachment> existing, CancellationToken ct) =>
             Task.FromResult(Result<DraftAttachment>.Ok(new DraftAttachment { Name = upload.Name, Type = upload.Type, Size = upload.Data.Length, BlobId = "blob-" + upload.Name, Cid = upload.Cid }));
+
+        // a Files node is already a blob on the sample server: the same attachment, no upload
+        public Task<Result<DraftAttachment>> AttachExistingAsync(string accountId, DraftAttachment attachment, IReadOnlyList<DraftAttachment> existing, CancellationToken ct) =>
+            Task.FromResult(Result<DraftAttachment>.Ok(attachment));
     }
 
     private sealed class SampleTemplates : ITemplateStore

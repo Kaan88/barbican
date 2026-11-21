@@ -72,14 +72,60 @@ public sealed class AttachmentUploaderTests
     }
 
     [Fact]
-    public async Task A_plugin_can_offload_the_file_and_nothing_is_uploaded()
-    {
+    public async Task A_plugin_can_offload_the_file_and_nothing_is_uploaded()    {
         var rig = await PipelineRig.StartAsync();
         rig.Hooks.Transform<BlobUploadPayload>(HookNames.OnBeforeBlobUpload, (p, _) => ValueTask.FromResult(p with { BlobId = "offloaded-1" }));
         var r = await rig.Uploader.UploadAsync(PipelineRig.Account, new AttachmentUpload("far.bin", "application/octet-stream", new byte[] { 1, 2 }), [], Ct);
         Assert.True(r.IsOk, r.Error?.Message);
         Assert.Equal("offloaded-1", r.Value!.BlobId);
         Assert.Equal(0, Uploads(rig));
+    }
+
+    [Fact]
+    public async Task A_files_node_is_attached_by_blob_id_without_an_upload_under_the_same_gates()
+    {
+        var rig = await PipelineRig.StartAsync(PipelineRig.M3Options() with { MaxSizeUpload = 100, MaxSizeAttachmentsPerEmail = 150 });
+        var before = Uploads(rig);
+
+        var ok = await rig.Uploader.AttachExistingAsync(PipelineRig.Account, new DraftAttachment { Name = "doc.txt", Type = "text/plain", Size = 40, BlobId = "files-blob" }, [], Ct);
+        Assert.True(ok.IsOk, ok.Error?.Message);
+        Assert.Equal("files-blob", ok.Value!.BlobId);
+        Assert.Equal("text/plain", ok.Value.Type);
+        Assert.Equal(before, Uploads(rig));
+
+        var existing = new[] { new DraftAttachment { Name = "a", Size = 120, BlobId = "x" } };
+        var over = await rig.Uploader.AttachExistingAsync(PipelineRig.Account, new DraftAttachment { Name = "doc.txt", Size = 40, BlobId = "files-blob" }, existing, Ct);
+        Assert.False(over.IsOk);
+        Assert.Contains("per message", over.Error!.Message, StringComparison.Ordinal);
+
+        var tooBig = await rig.Uploader.AttachExistingAsync(PipelineRig.Account, new DraftAttachment { Name = "big.bin", Size = 101, BlobId = "files-blob" }, [], Ct);
+        Assert.False(tooBig.IsOk);
+        Assert.Contains("too large", tooBig.Error!.Message, StringComparison.Ordinal);
+
+        var noBlob = await rig.Uploader.AttachExistingAsync(PipelineRig.Account, new DraftAttachment { Name = "gone.txt", Size = 1 }, [], Ct);
+        Assert.False(noBlob.IsOk);
+        Assert.Equal(before, Uploads(rig));
+    }
+
+    [Fact]
+    public async Task Attaching_a_files_node_runs_the_two_attachment_hooks_around_its_blob_id()
+    {
+        var rig = await PipelineRig.StartAsync();
+        var after = new TaskCompletionSource<AttachmentUploadInfo>();
+        rig.Hooks.Observe<AttachmentUploadInfo>(HookNames.OnAfterAttachmentUpload, (p, _) =>
+        {
+            after.TrySetResult(p);
+            return ValueTask.CompletedTask;
+        });
+        var ok = await rig.Uploader.AttachExistingAsync(PipelineRig.Account, new DraftAttachment { Name = "note.txt", Type = "text/plain", Size = 5, BlobId = "node-blob" }, [], Ct);
+        Assert.True(ok.IsOk, ok.Error?.Message);
+        var told = await after.Task.WaitAsync(TimeSpan.FromSeconds(5), TimeProvider.System, Ct);
+        Assert.Equal("node-blob", told.BlobId);
+        Assert.Equal("note.txt", told.Name);
+
+        rig.Hooks.Intercept<AttachmentUploadInfo>(HookNames.OnBeforeAttachmentUpload, (p, _) => ValueTask.FromResult(!p.Name.EndsWith(".exe", StringComparison.Ordinal)));
+        var refused = await rig.Uploader.AttachExistingAsync(PipelineRig.Account, new DraftAttachment { Name = "bad.exe", Size = 1, BlobId = "node-blob" }, [], Ct);
+        Assert.False(refused.IsOk);
     }
 
     [Fact]

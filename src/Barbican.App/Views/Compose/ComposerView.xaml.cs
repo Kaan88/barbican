@@ -290,6 +290,7 @@ public sealed partial class ComposerView : UserControl
         }
 
         _vm = vm;
+        AttachFromFilesItem.Visibility = vm?.FilesAvailable == true ? Visibility.Visible : Visibility.Collapsed;
 #if WINDOWS
         RefreshAddOnActions();
         BindProofreading(null);

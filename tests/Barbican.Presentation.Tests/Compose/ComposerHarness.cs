@@ -16,13 +16,18 @@ namespace Barbican.Presentation.Tests.Compose;
 
 internal sealed class ComposerHarness
 {
-    public ComposerHarness(ComposeSettings? settings = null, HookBus? hooks = null)
+    public ComposerHarness(ComposeSettings? settings = null, HookBus? hooks = null, Barbican.Core.Files.IFileStore? files = null, Barbican.Presentation.Dialogs.IDialogService? dialogs = null, bool showHiddenFiles = false)
     {
         Time = new FakeTimeProvider(new DateTimeOffset(2026, 11, 18, 10, 0, 0, TimeSpan.Zero));
+        Files = files;
+        Dialogs = dialogs;
         Context = new ComposerContext(Drafts, Uploader, Sender, new NoEditor(), new Barbican.Core.Compose.Recipients.EmptyRecipientSources(), hooks ?? new HookBus(), Time, settings ?? new ComposeSettings())
         {
             Toasts = Toasts,
             Templates = Store,
+            Files = files,
+            Dialogs = dialogs,
+            ShowHiddenFiles = showHiddenFiles,
         };
     }
 
@@ -40,13 +45,17 @@ internal sealed class ComposerHarness
 
     public ComposerContext Context { get; }
 
+    public Barbican.Core.Files.IFileStore? Files { get; }
+
+    public Barbican.Presentation.Dialogs.IDialogService? Dialogs { get; }
+
     public static IReadOnlyList<ComposeIdentity> Identities() =>
     [
         new(new Identity("i1", "Me", "me@home.example"), string.Empty, string.Empty),
         new(new Identity("i2", "Work", "me@work.example"), string.Empty, string.Empty),
     ];
 
-    public ComposerViewModel Open(ComposeSeed? seed = null) => new(Context, seed ?? Seed(), Identities());
+    public ComposerViewModel Open(ComposeSeed? seed = null, bool filesAvailable = false) => new(Context, seed ?? Seed(), Identities()) { FilesAvailable = filesAvailable };
 
     public static ComposeSeed Seed(string body = "", ComposeKind kind = ComposeKind.New, string to = "", string subject = "", string? draftId = null, bool saved = false) => new()
     {
@@ -97,6 +106,12 @@ internal sealed class ComposerHarness
     {
         public TaskCompletionSource<Result<DraftAttachment>>? Hold { get; set; }
 
+        /// <summary>The Files nodes handed to <see cref="AttachExistingAsync"/> (a test sees the blob id path).</summary>
+        public List<DraftAttachment> AttachedExisting { get; } = [];
+
+        /// <summary>When set, every attach-existing call (a Files node) is refused with this message.</summary>
+        public string? RefuseExisting { get; set; }
+
         public Task<Result<DraftAttachment>> UploadAsync(string accountId, AttachmentUpload upload, IReadOnlyList<DraftAttachment> existing, CancellationToken ct)
         {
             if (Hold is { } h)
@@ -105,6 +120,14 @@ internal sealed class ComposerHarness
             }
 
             return Task.FromResult(Result<DraftAttachment>.Ok(new DraftAttachment { Name = upload.Name, Type = upload.Type, Size = upload.Data.Length, BlobId = "b-" + upload.Name }));
+        }
+
+        public Task<Result<DraftAttachment>> AttachExistingAsync(string accountId, DraftAttachment attachment, IReadOnlyList<DraftAttachment> existing, CancellationToken ct)
+        {
+            AttachedExisting.Add(attachment);
+            return Task.FromResult(RefuseExisting is { } why
+                ? Result<DraftAttachment>.Fail(new ValidationError(why))
+                : Result<DraftAttachment>.Ok(attachment));
         }
     }
 

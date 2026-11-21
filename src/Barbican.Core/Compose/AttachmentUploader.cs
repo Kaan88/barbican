@@ -60,6 +60,55 @@ public sealed class AttachmentUploader(IAccountManager accounts, IHookBus hooks)
         return Result<DraftAttachment>.Ok(new DraftAttachment { Name = upload.Name, Type = type, Size = size, BlobId = id, Cid = upload.Cid });
     }
 
+    // Bulwark components/email/email-composer.tsx:3182-3225: a Files node is already a blob on the server, so the picked files are attached by blob id with no download and no upload;
+    // the same intercept and the same per-message total apply (the account's maxSizeUpload is kept as the second gate the upload path has).
+    public Task<Result<DraftAttachment>> AttachExistingAsync(string accountId, DraftAttachment attachment, IReadOnlyList<DraftAttachment> existing, CancellationToken ct)
+    {
+        ArgumentNullException.ThrowIfNull(attachment);
+        ArgumentNullException.ThrowIfNull(existing);
+        return AttachExistingCoreAsync(accountId, attachment, existing, ct);
+    }
+
+    private async Task<Result<DraftAttachment>> AttachExistingCoreAsync(string accountId, DraftAttachment attachment, IReadOnlyList<DraftAttachment> existing, CancellationToken ct)
+    {
+        if (attachment.BlobId is not { Length: > 0 } blob)
+        {
+            return Fail($"{attachment.Name} is not stored on the server.");
+        }
+
+        var ctx = ComposeContext.For(accounts, accountId);
+        if (!ctx.IsOk)
+        {
+            return Result<DraftAttachment>.Fail(ctx.Error!);
+        }
+
+        var size = Math.Max(0, attachment.Size);
+        var type = string.IsNullOrWhiteSpace(attachment.Type) ? "application/octet-stream" : attachment.Type;
+        var limit = ctx.Value!.Client.Session.Limits.MaxSizeUpload;
+        if (size > limit)
+        {
+            return Fail($"{attachment.Name} is too large to attach (the server takes up to {Mb(limit)}).");
+        }
+
+        if (PerMessageCap(ctx.Value) is { } cap && existing.Sum(a => a.Size) + size > cap)
+        {
+            return Fail($"{attachment.Name} would make the message too large (the server takes up to {Mb(cap)} of attachments per message).");
+        }
+
+        var info = new AttachmentUploadInfo(attachment.Name, type, size);
+        if (!await hooks.AllowAsync(HookNames.OnBeforeAttachmentUpload, () => info, ct).ConfigureAwait(false))
+        {
+            return Fail($"A plugin refused {attachment.Name}.");
+        }
+
+        if (hooks.HasHandlers(HookNames.OnAfterAttachmentUpload))
+        {
+            hooks.Fire(HookNames.OnAfterAttachmentUpload, () => info with { BlobId = blob });
+        }
+
+        return Result<DraftAttachment>.Ok(attachment with { Type = type, Size = size });
+    }
+
     private static string Mb(long bytes) => (bytes / 1_000_000.0).ToString("0.#", CultureInfo.InvariantCulture) + " MB";
 
     private static Result<DraftAttachment> Fail(string text) => Result<DraftAttachment>.Fail(new ValidationError(text));
