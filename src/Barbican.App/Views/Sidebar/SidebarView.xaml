@@ -231,7 +231,7 @@
     </ScrollViewer>
 
     <!-- Storage (spec I-030): the text and, in Bento, the meter; the ring on the rail shows the same fraction. -->
-    <StackPanel Grid.Row="2" Spacing="8" Padding="{x:Bind Look.StoragePadding, Mode=OneWay}" Visibility="{x:Bind views:Fmt.VisText(Sidebar.StorageText), Mode=OneWay}"
+    <StackPanel Grid.Row="2" Spacing="8" Padding="{x:Bind Look.StoragePadding, Mode=OneWay}" Visibility="{x:Bind views:Fmt.VisStorageBlock(Sidebar.StorageText, Look.IsBulwark), Mode=OneWay}"
                 AutomationProperties.AutomationId="sidebar.storage" AutomationProperties.Name="Storage">
       <TextBlock Text="{x:Bind Sidebar.StorageText, Mode=OneWay}" Style="{StaticResource Text.Meta}" />
       <Grid x:Name="Meter" Height="5" Visibility="{x:Bind views:Fmt.VisStorageMeter(Sidebar.StorageFraction, Look.IsBento), Mode=OneWay}" SizeChanged="OnMeterSizeChanged">

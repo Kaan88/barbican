@@ -304,10 +304,10 @@
   <StaticResource x:Key="CheckBoxCheckGlyphForegroundIndeterminatePointerOver" ResourceKey="OnAccent" />
   <StaticResource x:Key="CheckBoxCheckGlyphForegroundIndeterminatePressed" ResourceKey="OnAccent" />
   <StaticResource x:Key="CheckBoxCheckGlyphForegroundIndeterminateDisabled" ResourceKey="Dim" />
-  <StaticResource x:Key="CheckBoxCheckGlyphForegroundUnchecked" ResourceKey="OnAccent" />
-  <StaticResource x:Key="CheckBoxCheckGlyphForegroundUncheckedPointerOver" ResourceKey="OnAccent" />
-  <StaticResource x:Key="CheckBoxCheckGlyphForegroundUncheckedPressed" ResourceKey="OnAccent" />
-  <StaticResource x:Key="CheckBoxCheckGlyphForegroundUncheckedDisabled" ResourceKey="Dim" />
+  <StaticResource x:Key="CheckBoxCheckGlyphForegroundUnchecked" ResourceKey="Fluent.Transparent" />
+  <StaticResource x:Key="CheckBoxCheckGlyphForegroundUncheckedPointerOver" ResourceKey="Fluent.Transparent" />
+  <StaticResource x:Key="CheckBoxCheckGlyphForegroundUncheckedPressed" ResourceKey="Fluent.Transparent" />
+  <StaticResource x:Key="CheckBoxCheckGlyphForegroundUncheckedDisabled" ResourceKey="Fluent.Transparent" />
 
   <!-- ===== RadioButton: same scheme, primary dot when selected ===== -->
   <StaticResource x:Key="RadioButtonForeground" ResourceKey="Text" />

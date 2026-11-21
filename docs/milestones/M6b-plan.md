@@ -32,12 +32,11 @@ Earlier approvals cover only the revisions they name; they do not approve curren
 Coordinator follow-ups not yet owned by a package:
 
 - `SrvUiViewModelTests.The_filters_page_lists_enables_and_deletes_a_rule` failed once in a worker run and passed on rerun; treat as flaky until explained.
-- `FeedbackTransition` keeps weak references until Reduce motion is toggled; prune them on unload.
 - Reader actions give add-ons 30 s (`ReaderView.AddOns.cs`); an add-on dialog left open longer is untested.
 - `calendar.respond` detects a hook stop from `InvitationService`'s message text; make it a typed result (recorded in the review log).
 - The `assistant` Settings nav entry is static and `set-ask` hardcodes its id; the composer bridge decoder caps strings at 256 KiB while the methods allow 512 KiB; the composer handle's `AttachAsync` has no test.
 - A hidden click on the attachments message threw a COMException once during the WP-6 light capture.
-- `showRailAccountList` is still listed as unwired in `SettingsCatalog.UnwiredKeys` and `spec/settings.csv` although the rail now reads it; the rail's storage Free row is derived from text until Presentation exposes the quota bytes.
+- The rail's storage Free row is derived from text until Presentation exposes the quota bytes.
 
 ### Working on a flow
 

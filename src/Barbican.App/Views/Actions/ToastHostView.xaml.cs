@@ -53,6 +53,7 @@ public sealed partial class ToastHostView : UserControl
         }
 
         card.CornerRadius = StyleState.Current.ToastRadius;
+        CardShadow.Apply(card, CardDepth.Large);
         var ms = MotionRuntime.Bulwark ? MotionRuntime.Scale.EnterMs : 0;
         if (ms <= 0)
         {

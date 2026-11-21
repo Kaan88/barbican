@@ -110,6 +110,7 @@ public sealed partial class DialogHostView : UserControl
         var bulwark = DialogStyles.Bulwark;
         Backdrop.Background = new SolidColorBrush(global::Windows.UI.Color.FromArgb(bulwark ? (byte)0x80 : (byte)0x66, 0, 0, 0));
         Card.CornerRadius = StyleState.Current.DialogRadius;
+        CardShadow.Apply(Card, CardDepth.ExtraLarge, Backdrop);
         Card.Padding = new Thickness(bulwark ? 24 : 20);
         TitleText.FontSize = bulwark ? 18 : 16;
         MessageText.FontSize = bulwark ? 14 : 13;

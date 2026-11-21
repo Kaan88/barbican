@@ -30,6 +30,9 @@ public sealed partial class StyleState
     /// <summary>The style of a menu row: the shared Button.MenuItem feedback (Styles/Feedback.xaml).</summary>
     public Style MenuItemStyle => (Style)Application.Current.Resources["Button.MenuItem"];
 
+    /// <summary>The scrim behind a modal card: Bulwark's black/50 (dialog.tsx:231), Bento and Nordic 40 % black. A new brush each call (it is set on the element that shows it).</summary>
+    public Brush ScrimBrush => new SolidColorBrush(global::Windows.UI.Color.FromArgb(IsBulwark ? (byte)0x80 : (byte)0x66, 0, 0, 0));
+
     /// <summary>The style of a destructive menu row.</summary>
     public Style DestructiveMenuItemStyle => (Style)Application.Current.Resources["Button.MenuItem.Destructive"];
 }

@@ -14,8 +14,8 @@ namespace Barbican.Presentation.Shell;
 /// <summary>The widths of the sidebar and the list pane.</summary>
 public sealed class PanesViewModel : ObservableObject
 {
-    /// <summary>The arrow-key step of a focused resize handle.</summary>
-    public const float KeyStep = 16f;
+    /// <summary>The arrow-key step of a focused resize handle: Bulwark resize-handle.tsx steps 10 px.</summary>
+    public const float KeyStep = 10f;
 
     private readonly string _path;
     private readonly IHookBus _hooks;

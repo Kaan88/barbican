@@ -107,7 +107,7 @@ public sealed partial class StyleState: ObservableObject
     public Visibility ToolbarLabelVisibility => _showToolbarLabels ? Visibility.Visible : Visibility.Collapsed;
     public Visibility ToolbarIconVisibility => IsBento || !_showToolbarLabels ? Visibility.Visible : Visibility.Collapsed;
     public double TextScale => _accessibility.FontScaleFactor;
-    public double BodyTextSize => 13 * TextScale;
+    public double BodyTextSize => (IsBulwark ? 14 : 13) * TextScale; // Bulwark text-sm (globals.css:13-95)
     public double MetaTextSize => 12 * TextScale;
     public double MinimumTarget => _accessibility.LargeTargets ? 44 : 0;
     public double QuickTarget => Math.Max(36 * TextScale, MinimumTarget);

@@ -92,6 +92,7 @@ public sealed partial class CalendarCardHost : Grid
         _scrim.Visibility = content is null ? Visibility.Collapsed : Visibility.Visible;
         _question.Child = _host.Question is { } q2 ? QuestionCard(q2) : null;
         _questionScrim.Visibility = _host.Question is null ? Visibility.Collapsed : Visibility.Visible;
+        _questionScrim.Background = ViewHost.Get<StyleState>().ScrimBrush;
     }
 
     /// <summary>Bulwark draws the event and task editors as a side sheet and every other card as a dialog; Bento and Nordic keep the centred card.</summary>
@@ -100,7 +101,7 @@ public sealed partial class CalendarCardHost : Grid
         var look = ViewHost.Get<StyleState>();
         var bulwark = look.IsBulwark;
         var sheet = bulwark && card is EventEditorViewModel or TaskEditorViewModel;
-        _scrim.Background = sheet ? null : new Microsoft.UI.Xaml.Media.SolidColorBrush(Windows.UI.Color.FromArgb(0x66, 0, 0, 0));
+        _scrim.Background = sheet ? null : look.ScrimBrush;
         _card.CornerRadius = sheet ? new CornerRadius(0) : bulwark ? look.DialogRadius : new CornerRadius(16);
         _card.Background = AppResources.Brush(bulwark ? "Bg" : "Popup");
         _card.BorderBrush = AppResources.Brush("Line");

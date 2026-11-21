@@ -174,6 +174,7 @@ public sealed partial class MenuHostView : UserControl
             CornerRadius = _bulwark ? StyleState.Current.MenuRadius : new CornerRadius(12),
             Child = stack,
         };
+        CardShadow.Apply(card, CardDepth.Large);
         Microsoft.UI.Xaml.Automation.AutomationProperties.SetAutomationId(card, inFlyout ? "menu.flyout" : "menu.card");
         Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(card, "Menu");
         return card;
