@@ -30,4 +30,7 @@ public static class FilesCommandIds
     public const string ToggleView = "files.toggle-view";
     public const string SelectAll = "files.select-all";
     public const string Details = "files.details";
+
+    /// <summary>Sets the sort: the argument is name, modified, size, type, asc or desc (Bulwark files-header.tsx sort menu).</summary>
+    public const string Sort = "files.sort";
 }

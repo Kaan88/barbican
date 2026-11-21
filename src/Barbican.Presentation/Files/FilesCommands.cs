@@ -9,7 +9,7 @@ namespace Barbican.Presentation.Files;
 /// <summary>Creates the Files commands.</summary>
 public static class FilesCommands
 {
-    public const int Count = 25;
+    public const int Count = 26;
 
     public static IReadOnlyList<IAppCommand> Create(FilesActions a)
     {
@@ -51,6 +51,7 @@ public static class FilesCommands
             Sync(FilesCommandIds.ToggleView, _ => a.View.ViewMode = a.View.ViewMode == FilesViewMode.List ? FilesViewMode.Grid : FilesViewMode.List),
             Sync(FilesCommandIds.SelectAll, _ => a.View.SelectAll()),
             Sync(FilesCommandIds.Details, _ => a.View.ShowDetails = !a.View.ShowDetails),
+            Sync(FilesCommandIds.Sort, c => FilesSortRules.Apply(a.View, c.Argument)),
         ];
     }
 }

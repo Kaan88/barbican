@@ -126,6 +126,9 @@ Favorites: header; Open; —; Unstar. Recent: header; Open; Show in folder; Down
 In the trash: danger Empty trash [off: the trash is not empty] (asks); Refresh. Elsewhere: New folder; Upload files; Upload folder; —; Paste (Ctrl+V) [off: something was cut or copied]; Refresh.
 The toolbar's Empty trash button opens the confirmation directly ("Delete everything in the trash").
 
+## MENU-FILES-SORT: the Files sort button [M6b, Bulwark files-header.tsx:431-452]
+Name; Modified; Size; Type (checked: the current key); —; Ascending; Descending (checked: the current direction). A new key starts ascending for Name and Type, descending for Modified and Size.
+
 ## MENU-RTE: the composer's editor [M3]
 When the caret is on a misspelt word: up to 5 suggestions ("No suggestions", disabled, when none); Add "<word>" to dictionary; Ignore; —.
 Cut (Ctrl+X) [off: selection]; Copy (Ctrl+C) [off: selection]; Paste (Ctrl+V); Paste as plain text (Ctrl+Shift+V); —; Select all (Ctrl+A); —; Format ›; Paragraph ›; Table › (in a table only); —;
