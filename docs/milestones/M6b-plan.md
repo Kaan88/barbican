@@ -32,7 +32,7 @@ Earlier approvals cover only the revisions they name; they do not approve curren
 Coordinator follow-ups not yet owned by a package:
 
 - Reader actions give add-ons 30 s (`ReaderView.AddOns.cs`); an add-on dialog left open longer is untested.
-- The `assistant` Settings nav entry is static and `set-ask` hardcodes its id; the composer bridge decoder caps strings at 256 KiB (`PluginValueLimits.MaxStringBytes` 262_144, two bytes per UTF-16 unit, so about 128 K characters) while `replaceBody`/`replaceSelection` allow 512 K characters; raising the shared default would exceed the 1 MiB wire cap for every add-on message, so it needs a composer-specific decode limit.
+- The `assistant` Settings nav entry is static and `set-ask` hardcodes its id; the add-on transport (`PluginSandboxSession.cs:12-13`) decodes with 40 MiB wire and 50 MiB string limits, so a 512 K-character `replaceBody` reaches the method (the 256 KiB `PluginValueLimits` default applies only to tests and embedders); hardening left open: no per-method argument budget (`PluginApiDescriptor` has no size field), so every method shares the 40 MiB ceiling, while Bulwark caps per method (`host-api-composer.ts:26`)
 - A hidden click on the attachments message threw a COMException once during the WP-6 light capture.
 - The rail's storage Free row is derived from text until Presentation exposes the quota bytes.
 - Add-on mail actions (`c1375e1`): `compose.open` passes HTML bodies as text and drops attachment references; the App adapters (`PluginComposeLauncher`, `PluginMailUndoHistory`) have no tests or hidden run. Still open in this family: `email.forward` (needs the send-approval pipeline), `email.getAttachmentImage` (JPEG/WebP decode), `search.*`, `tabs.*`.
