@@ -54,8 +54,7 @@ public sealed partial class ComposerView : UserControl
 
     internal event EventHandler? WindowRequested;
 #if AUTOMATION && WINDOWS
-    internal bool IsConfirmationVisible => _vm?.Dialog is not null && CardLayer.IsLoaded
-        && CardLayer.Visibility == Visibility.Visible && CardLayer.ActualHeight > 0;
+    internal bool IsConfirmationVisible => _vm?.Dialog is not null && _questionShown is not null && Barbican.App.Views.Dialogs.DialogHostRouter.For(this).IsOpen;
 #endif
     internal Window? DetachedWindow { get; private set; }
     internal bool CanChangeWindow => !_pickingAttachments && _vm is { IsClosed: false, IsSending: false, Dialog: null, Schedule: null, Templates: null } && _card == CardKind.None;
@@ -69,6 +68,7 @@ public sealed partial class ComposerView : UserControl
         AutomationProperties.SetName(WindowButton, label);
         Barbican.App.Motion.Tip.SetText(WindowButton, label);
         WindowGlyph.Glyph = window is null ? "\uE8A7" : "\uE72B";
+        UseWindowDialogs(window is not null);
         ApplyComposerLayout();
     }
 
@@ -94,6 +94,7 @@ public sealed partial class ComposerView : UserControl
         Look.PropertyChanged += OnLookChanged;
         ApplyComposerLayout();
         Attach(_service.Current);
+        SyncQuestion();
 #if WINDOWS
         RefreshClassification();
         WatchAddOnActions();
@@ -105,6 +106,7 @@ public sealed partial class ComposerView : UserControl
     {
         _theme.CssApplied -= OnThemeApplied;
         Look.PropertyChanged -= OnLookChanged;
+        CancelQuestion();
 #if WINDOWS
         StopClassification();
         UnwatchAddOnActions();
@@ -293,6 +295,7 @@ public sealed partial class ComposerView : UserControl
         BindProofreading(null);
 #endif
         _card = CardKind.None;
+        SyncQuestion();
         if (vm is null)
         {
 #if WINDOWS

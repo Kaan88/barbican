@@ -37,6 +37,29 @@ internal static class DialogStyles
         }
     }
 
+    /// <summary>A footer button of a content that draws its own buttons: Plain is the outline button, Primary the filled one, Danger the solid destructive one (red text on an outline in the older styles). Dressed like the host's own.</summary>
+    public static Button FooterButton(string label, Barbican.Presentation.Compose.DialogTone tone, string id, Action click)
+    {
+        ArgumentNullException.ThrowIfNull(click);
+        var style = tone switch
+        {
+            Barbican.Presentation.Compose.DialogTone.Primary => (Style)Application.Current.Resources["Button.Primary"],
+            Barbican.Presentation.Compose.DialogTone.Danger when Bulwark => Destructive,
+            _ => (Style)Application.Current.Resources["Button.Action"],
+        };
+        var button = new Button { Content = label, Style = style };
+        if (tone == Barbican.Presentation.Compose.DialogTone.Danger && !Bulwark)
+        {
+            button.Foreground = AppResources.Brush("RoseFg");
+        }
+
+        Dress(button);
+        Microsoft.UI.Xaml.Automation.AutomationProperties.SetAutomationId(button, id);
+        Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(button, label);
+        button.Click += (_, _) => click();
+        return button;
+    }
+
     /// <summary>The gap between footer buttons (Bulwark gap-3 for a dialog, 8 in the older styles).</summary>
     public static double ButtonGap => Bulwark ? 12 : 8;
 }

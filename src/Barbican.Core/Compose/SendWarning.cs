@@ -2,5 +2,5 @@
 
 namespace Barbican.Core.Compose;
 
-/// <summary>One warning with the items to show (the placeholders, the external addresses); empty for the other kinds.</summary>
+/// <summary>One warning with the items to show (the placeholders, the external addresses); the matched word of a missing attachment; empty for the others.</summary>
 public sealed record SendWarning(SendWarningKind Kind, IReadOnlyList<string> Items);

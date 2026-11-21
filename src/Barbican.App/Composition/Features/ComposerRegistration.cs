@@ -18,6 +18,15 @@ namespace Barbican.App.Composition.Features;
 /// <summary>The composer shell (M3 stream composer-ui).</summary>
 public static class ComposerRegistration
 {
+    // what the shared dialog host draws for the composer: the account pick, the schedule dialog, the questions (leave, discard, send warnings, external recipients; CP-07), the editor's link and picture dialogs (CP-06)
+    private static void AddDialogContents(IServiceCollection services)
+    {
+        services.AddSingleton<IDialogContent, AccountPickDialogContent>();
+        services.AddSingleton<IDialogContent, ScheduleDialogContent>();
+        services.AddSingleton<IDialogContent, ComposerQuestionContent>();
+        services.AddSingleton<IDialogContent, EditorDialogContent>();
+    }
+
     public static IServiceCollection AddBarbicanComposer(this IServiceCollection services)
     {
         ArgumentNullException.ThrowIfNull(services);
@@ -26,8 +35,7 @@ public static class ComposerRegistration
         services.AddSingleton<Barbican.Presentation.Compose.Pipeline.IScheduleDialogHost, ScheduleDialogHost>();
         // the editor control of editor-view is the composer body
         ComposerBodyHost.EditorFactory = vm => new Views.Editor.EditorView(vm);
-        services.AddSingleton<IDialogContent, AccountPickDialogContent>();
-        services.AddSingleton<IDialogContent, ScheduleDialogContent>();
+        AddDialogContents(services);
 #if WINDOWS
         services.AddSingleton<Barbican.Core.Compose.ComposerClassification>();
         services.AddSingleton<Barbican.App.Plugins.PluginComposeTakeovers>();

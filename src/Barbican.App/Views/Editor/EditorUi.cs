@@ -1,4 +1,6 @@
-// Mirrors: design tokens (Tokens.xaml palette; Controls.xaml Button.Icon, Button.Action, Button.Primary), PORT-PLAN 3.7 (one in-window popup surface, never a windowed popup). Owner editor-view.
+// Mirrors: design tokens (Tokens.xaml palette; Controls.xaml Button.Icon, Button.Action, Button.Primary), PORT-PLAN 3.7 (one in-window popup surface, never a windowed popup); Bulwark rich-text-editor.tsx:233-262 (ToolbarButton:
+// p-1.5 around a 16 px icon, rounded, hover:bg-accent, active bg-accent text-accent-foreground, transition-colors; Styles/Feedback.xaml Button.Icon carries the hover, pressed and transition), :397-399 (ToolbarSeparator
+// w-px h-5 bg-border mx-0.5). Owner editor-view.
 
 using Barbican.App.Controls;
 using Barbican.App.Theme;
@@ -41,27 +43,47 @@ public static class EditorUi
         return Make(id, label, tip, click);
     }
 
+    /// <summary>A toolbar button with a 16 px line icon (rich-text-editor.tsx:1127 w-4 h-4).</summary>
     public static Button IconButton(string id, string icon, string tip, Action click) =>
         Make(id, new SIcon { Kind = icon, Size = 16 }, tip, click);
 
+    /// <summary>One toolbar button: 28 px square (p-1.5 around a 16 px icon), 4 px radius, the shared icon-button feedback of Styles/Feedback.xaml for hover, pressed and the colour transition.</summary>
     public static Button Make(string id, object content, string tip, Action click)
     {
         var button = new Button
         {
+            Style = (Style)Application.Current.Resources["Button.Icon"],
             Content = content,
-            Padding = new Thickness(6, 4, 6, 4),
+            Padding = new Thickness(6),
             MinWidth = 28,
-            Height = 30,
-            Background = new SolidColorBrush(Microsoft.UI.Colors.Transparent),
-            BorderThickness = new Thickness(0),
+            Height = 28,
             Foreground = AppResources.Brush("Body"),
-            CornerRadius = new CornerRadius(6),
+            CornerRadius = new CornerRadius(4),
             IsTabStop = false,
         };
         AutomationProperties.SetAutomationId(button, "editor." + id);
         AutomationProperties.SetName(button, tip);
+        Barbican.App.Motion.Tip.SetText(button, tip);
         button.Click += (_, _) => click();
         return button;
+    }
+
+    /// <summary>The look of a toolbar toggle: on is bg-accent with text-accent-foreground (the shared hover tint), off is the plain icon button.</summary>
+    public static void SetActive(Button button, bool on)
+    {
+        ArgumentNullException.ThrowIfNull(button);
+        if (on)
+        {
+            button.Background = AppResources.Brush("FeedbackIconHover");
+            button.Foreground = AppResources.Brush("FeedbackIconHoverFg");
+        }
+        else
+        {
+            button.Background = new SolidColorBrush(Microsoft.UI.Colors.Transparent);
+            button.Foreground = AppResources.Brush("Body");
+        }
+
+        AutomationProperties.SetItemStatus(button, on ? "on" : "off");
     }
 
     /// <summary>A full-width row of a picker list (the size and block pickers).</summary>
@@ -116,8 +138,8 @@ public static class EditorUi
     public static Border Separator() => new()
     {
         Width = 1,
-        Height = 18,
-        Margin = new Thickness(4, 0, 4, 0),
+        Height = 20,
+        Margin = new Thickness(2, 0, 2, 0),
         Background = AppResources.Brush("Line"),
         VerticalAlignment = VerticalAlignment.Center,
     };

@@ -1,6 +1,9 @@
-// Mirrors: Bulwark components/email/rich-text-editor.tsx (the formatting toolbar: marks, size, colour, block, align, lists, link, image, table, clear, undo/redo, source, RTL; folds what does not fit into an
-// overflow menu :875; roving arrow keys and Alt+F10 :977), Rust compose toolbar; spec/menus.md. The same items are the floating bubble (marks and link) over a selection.
+// Mirrors: Bulwark components/email/rich-text-editor.tsx:1030-1480 (the formatting toolbar, in its order and grouping: font size | bold, italic, underline, strikethrough, text colour, highlight | heading 1, heading 2 |
+// bullet list, ordered list, quote, code block | align left, centre, right, text direction | link, picture, table | clear formatting | undo, redo; 16 px icons in 28 px buttons with 2 px gaps, a 1 x 20 separator between
+// the groups :397-399, px-3 py-1.5; what does not fit goes into an overflow popover that wraps :1465-1490; roving arrow keys and Alt+F10 :977), Rust compose toolbar; spec/menus.md. The same items are the floating
+// bubble (marks and link) over a selection. Barbican keeps three buttons Bulwark has no place for after Redo: inline code, horizontal rule and the HTML source (CP-06 in docs/milestones/bulwark-parity-gaps.md).
 
+using Barbican.App.Controls;
 using Barbican.Core.Editor;
 using Barbican.Presentation.Editor;
 using Microsoft.UI.Xaml.Automation;
@@ -11,7 +14,8 @@ namespace Barbican.App.Views.Editor;
 /// <summary>The formatting toolbar: fixed above the text, or the compact bubble near a selection.</summary>
 public sealed class EditorToolbarView : UserControl
 {
-    private const double OverflowWidth = 36;
+    private const double OverflowWidth = 30;
+    private const double SeparatorWidth = 5;
 
     private readonly bool _bubble;
     private readonly List<ToolbarItem> _items = [];
@@ -25,7 +29,7 @@ public sealed class EditorToolbarView : UserControl
     public EditorToolbarView(bool bubble)
     {
         _bubble = bubble;
-        _more = EditorUi.TextButton("overflow", "…", "More", () => PickerRequested?.Invoke("overflow", _more!));
+        _more = EditorUi.IconButton("overflow", "More", "More formatting", () => PickerRequested?.Invoke("overflow", _more!));
         var row = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 2 };
         row.Children.Add(_main);
         row.Children.Add(_more);
@@ -89,7 +93,7 @@ public sealed class EditorToolbarView : UserControl
         double Width(ToolbarItem item)
         {
             item.Live.Measure(new Windows.Foundation.Size(double.PositiveInfinity, 40));
-            return item.Live.DesiredSize.Width + 2 + (SeparatorBefore(item) ? 9 : 0);
+            return item.Live.DesiredSize.Width + 2 + (SeparatorBefore(item) ? SeparatorWidth : 0);
         }
 
         var total = _items.Sum(Width);
@@ -147,48 +151,84 @@ public sealed class EditorToolbarView : UserControl
     private void Build()
     {
         _items.Clear();
-        ToolbarItem Toggle(string id, string text, string tip, EditorCommand c, Func<ToolbarState, bool> on, bool bold = false, bool italic = false, bool underline = false, bool strike = false) =>
-            new(id, () => EditorUi.TextButton(id, text, tip, () => Run(c), bold, italic, underline, strike), (b, s) => Mark(b, on(s)));
-        ToolbarItem Drop(string id, string text, string tip, string kind, Func<ToolbarState, string>? label = null, Func<ToolbarState, bool>? on = null) =>
-            new(id, () => EditorUi.TextButton(id, text, tip, () => { }), (b, s) =>
-            {
-                b.Content = new TextBlock { Text = (label?.Invoke(s) ?? text), FontSize = 13, VerticalAlignment = VerticalAlignment.Center };
-                Mark(b, on?.Invoke(s) ?? false);
-            })
-            { Picker = kind };
-        _items.Add(Toggle("bold", "B", "Bold (Ctrl+B)", EditorCommand.Bold, s => s.Bold, bold: true));
-        _items.Add(Toggle("italic", "I", "Italic (Ctrl+I)", EditorCommand.Italic, s => s.Italic, italic: true));
-        _items.Add(Toggle("underline", "U", "Underline (Ctrl+U)", EditorCommand.Underline, s => s.Underline, underline: true));
-        _items.Add(Toggle("strike", "S", "Strikethrough (Ctrl+Shift+S)", EditorCommand.Strike, s => s.Strike, strike: true));
-        _items.Add(Toggle("code", "</>", "Inline code (Ctrl+E)", EditorCommand.Code, s => s.Code));
-        _items.Add(Toggle("highlight", "Hl", "Highlight (Ctrl+Shift+H)", EditorCommand.Highlight, s => s.Highlight));
+        ToolbarItem Icon(string id, string icon, string tip, EditorCommand c, Func<ToolbarState, bool>? on = null) =>
+            new(id, () => EditorUi.IconButton(id, icon, tip, () => Run(c)), (b, s) => Mark(b, on?.Invoke(s) ?? false));
+        ToolbarItem TextItem(string id, string text, string tip, EditorCommand c) =>
+            new(id, () => EditorUi.TextButton(id, text, tip, () => Run(c)), (b, s) => Mark(b, false));
+        ToolbarItem Pick(string id, string icon, string tip, string kind, Func<ToolbarState, bool>? on = null) =>
+            new(id, () => EditorUi.IconButton(id, icon, tip, () => { }), (b, s) => Mark(b, on?.Invoke(s) ?? false)) { Picker = kind };
+        // the first group: Bulwark's font size button shows two A's, or the chosen size (rich-text-editor.tsx:1068-1074)
         if (!_bubble)
         {
-            _items.Add(Drop("size", "14", "Text size", "size", s => (s.Size ?? EditorCommandRunner.NormalSize).ToString(System.Globalization.CultureInfo.InvariantCulture) + " ▾", s => s.Size is not null));
-            _items.Add(Drop("color", "A", "Text colour", "color", _ => "A ▾", s => s.Color is not null));
-            _items.Add(Drop("block", "Normal", "Paragraph style", "block", s => BlockLabel(s.Block) + " ▾"));
-            _items.Add(Toggle("bullet", "•", "Bulleted list (Ctrl+Shift+8)", EditorCommand.BulletList, s => s.Block is BlockKind.Bullet));
-            _items.Add(Toggle("numbered", "1.", "Numbered list (Ctrl+Shift+7)", EditorCommand.NumberedList, s => s.Block is BlockKind.Ordered));
-            _items.Add(Drop("align", "Left", "Alignment", "align", s => AlignLabel(s.Align) + " ▾"));
+            _items.Add(new ToolbarItem("size", () => EditorUi.Make("size", SizeGlyph(null), "Font size", () => { }), (b, s) =>
+            {
+                b.Content = SizeGlyph(s.Size);
+                Mark(b, s.Size is not null);
+            })
+            { Picker = "size" });
         }
 
-        _items.Add(Toggle("link", "Link", "Link (Ctrl+K)", EditorCommand.Link, s => s.Link is not null));
+        _items.Add(Icon("bold", "Bold", "Bold (Ctrl+B)", EditorCommand.Bold, s => s.Bold));
+        _items.Add(Icon("italic", "Italic", "Italic (Ctrl+I)", EditorCommand.Italic, s => s.Italic));
+        _items.Add(Icon("underline", "Underline", "Underline (Ctrl+U)", EditorCommand.Underline, s => s.Underline));
+        _items.Add(Icon("strike", "Strike", "Strikethrough (Ctrl+Shift+S)", EditorCommand.Strike, s => s.Strike));
+        if (_bubble)
+        {
+            _items.Add(Icon("code", "Code", "Inline code (Ctrl+E)", EditorCommand.Code, s => s.Code));
+        }
+        else
+        {
+            // the text colour icon takes the chosen colour (rich-text-editor.tsx:1165)
+            _items.Add(new ToolbarItem("color", () => EditorUi.IconButton("color", "TextColor", "Text colour", () => { }), (b, s) =>
+            {
+                Mark(b, false);
+                if (b.Content is SIcon icon)
+                {
+                    if (s.Color is { } hex && TryParseHex(hex, out var color))
+                    {
+                        icon.Foreground = new SolidColorBrush(color);
+                    }
+                    else
+                    {
+                        icon.ClearValue(Control.ForegroundProperty);
+                    }
+                }
+            })
+            { Picker = "color" });
+        }
+
+        _items.Add(Icon("highlight", "Highlight", "Highlight (Ctrl+Shift+H)", EditorCommand.Highlight, s => s.Highlight));
         if (!_bubble)
         {
-            _items.Add(Drop("image", "Image", "Insert image", "image"));
-            _items.Add(Drop("table", "Table", "Insert table", "table"));
-            _items.Add(Toggle("rule", "―", "Horizontal rule", EditorCommand.Rule, _ => false));
+            _items.Add(Icon("heading1", "Heading1", "Heading 1", EditorCommand.Heading1, s => s.Block is BlockKind.Heading { Level: 1 }));
+            _items.Add(Icon("heading2", "Heading2", "Heading 2", EditorCommand.Heading2, s => s.Block is BlockKind.Heading { Level: 2 }));
+            _items.Add(Icon("bullet", "List", "Bullet list (Ctrl+Shift+8)", EditorCommand.BulletList, s => s.Block is BlockKind.Bullet));
+            _items.Add(Icon("numbered", "ListOrdered", "Ordered list (Ctrl+Shift+7)", EditorCommand.NumberedList, s => s.Block is BlockKind.Ordered));
+            _items.Add(Icon("quote", "Quote", "Quote", EditorCommand.Quote, s => s.Block is BlockKind.Quote));
+            _items.Add(Icon("codeblock", "Code", "Code block", EditorCommand.CodeBlock, s => s.Block is BlockKind.CodeBlock));
+            _items.Add(Icon("alignleft", "AlignLeft", "Align left", EditorCommand.AlignLeft, s => s.Align == Align.Left));
+            _items.Add(Icon("aligncenter", "AlignCenter", "Align center", EditorCommand.AlignCenter, s => s.Align == Align.Center));
+            _items.Add(Icon("alignright", "AlignRight", "Align right", EditorCommand.AlignRight, s => s.Align == Align.Right));
             if (_rtl)
             {
-                _items.Add(Toggle("rtl", "RTL", "Right-to-left paragraph", EditorCommand.AlignRight, s => s.Align == Align.Right));
+                _items.Add(Icon("rtl", "TextDir", "Text direction (RTL/LTR)", EditorCommand.AlignRight, s => s.Align == Align.Right));
             }
         }
 
-        _items.Add(Toggle("clear", "Tx", "Clear formatting (Ctrl+\\)", EditorCommand.ClearFormat, _ => false));
+        _items.Add(Icon("link", "Link", "Link (Ctrl+K)", EditorCommand.Link, s => s.Link is not null));
+        if (!_bubble)
+        {
+            _items.Add(Pick("image", "Image", "Picture", "image"));
+            _items.Add(Pick("table", "Table", "Table", "table", s => s.InTable));
+        }
+
+        _items.Add(Icon("clear", "ClearFormat", "Clear formatting (Ctrl+\\)", EditorCommand.ClearFormat));
         if (!_bubble)
         {
             _items.Add(new ToolbarItem("undo", () => EditorUi.IconButton("undo", "Undo", "Undo (Ctrl+Z)", () => Run(EditorCommand.Undo)), (b, s) => b.IsEnabled = s.CanUndo));
             _items.Add(new ToolbarItem("redo", () => EditorUi.IconButton("redo", "Redo", "Redo (Ctrl+Y)", () => Run(EditorCommand.Redo)), (b, s) => b.IsEnabled = s.CanRedo));
+            _items.Add(Icon("code", "Code", "Inline code (Ctrl+E)", EditorCommand.Code, s => s.Code));
+            _items.Add(TextItem("rule", "―", "Horizontal rule", EditorCommand.Rule));
             _items.Add(new ToolbarItem("source", () => EditorUi.TextButton("source", "HTML", "Edit HTML source", () => Run(EditorCommand.ToggleSource)), (_, _) => { }));
         }
 
@@ -201,7 +241,36 @@ public sealed class EditorToolbarView : UserControl
     }
 #pragma warning restore MA0051
 
-    private bool SeparatorBefore(ToolbarItem item) => !_bubble && item.Id is "link" or "image" or "clear" or "undo" or "source" && _items.IndexOf(item) > 0;
+    // Bulwark's font size glyph: a large and a small A on one baseline, or the number once a size is chosen (rich-text-editor.tsx:1068-1074)
+    private static UIElement SizeGlyph(int? size)
+    {
+        if (size is { } px)
+        {
+            return new TextBlock { Text = px.ToString(System.Globalization.CultureInfo.InvariantCulture), FontSize = 12, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold, MinWidth = 24, TextAlignment = TextAlignment.Center, VerticalAlignment = VerticalAlignment.Center };
+        }
+
+        var glyph = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center, Height = 16 };
+        glyph.Children.Add(new TextBlock { Text = "A", FontSize = 14, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold, VerticalAlignment = VerticalAlignment.Bottom });
+        glyph.Children.Add(new TextBlock { Text = "A", FontSize = 9, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold, VerticalAlignment = VerticalAlignment.Bottom, Margin = new Thickness(0, 0, 0, 1) });
+        return glyph;
+    }
+
+    private static bool TryParseHex(string hex, out Windows.UI.Color color)
+    {
+        color = default;
+        if (hex.Length != 7 || hex[0] != '#' || !int.TryParse(hex.AsSpan(1), System.Globalization.NumberStyles.HexNumber, System.Globalization.CultureInfo.InvariantCulture, out var rgb))
+        {
+            return false;
+        }
+
+        color = Windows.UI.Color.FromArgb(255, (byte)(rgb >> 16), (byte)(rgb >> 8), (byte)rgb);
+        return true;
+    }
+
+    // a separator opens each group of Bulwark's toolbar (rich-text-editor.tsx:1118, 1241, 1261, 1299, 1344, 1437, 1447) and the Barbican extras
+    private static readonly HashSet<string> GroupStarts = new(StringComparer.Ordinal) { "bold", "heading1", "bullet", "alignleft", "link", "clear", "undo", "code" };
+
+    private bool SeparatorBefore(ToolbarItem item) => !_bubble && GroupStarts.Contains(item.Id) && _items.IndexOf(item) > 0;
 
     private void Rebuild()
     {
@@ -233,29 +302,7 @@ public sealed class EditorToolbarView : UserControl
         }
     }
 
-    private static void Mark(Button button, bool on)
-    {
-        button.Background = on ? Theme.AppResources.Brush("Chip") : new SolidColorBrush(Microsoft.UI.Colors.Transparent);
-        AutomationProperties.SetItemStatus(button, on ? "on" : "off");
-    }
-
-    private static string BlockLabel(BlockKind kind) => kind switch
-    {
-        BlockKind.Heading h => "Heading " + h.Level,
-        BlockKind.Quote => "Quote",
-        BlockKind.CodeBlock => "Code",
-        BlockKind.Bullet => "Bulleted",
-        BlockKind.Ordered => "Numbered",
-        _ => "Normal",
-    };
-
-    private static string AlignLabel(Align align) => align switch
-    {
-        Align.Center => "Center",
-        Align.Right => "Right",
-        Align.Justify => "Justify",
-        _ => "Left",
-    };
+    private static void Mark(Button button, bool on) => EditorUi.SetActive(button, on);
 
     private void OnKeyDown(object sender, KeyRoutedEventArgs e)
     {

@@ -1,4 +1,4 @@
-// Mirrors: Bulwark components/email/email-composer.tsx close dialog :6916-6923, send-warnings-dialog.tsx, external-recipient-confirm.tsx; I-235, I-259, I-260. The composer's own question
+// Mirrors: Bulwark components/email/email-composer.tsx close dialog :6854-6879, send-warnings-dialog.tsx, external-recipient-confirm.tsx; I-235, I-259, I-260. The composer's own question
 // (its buttons are the answer), shown inside the composer pane so it works for a docked reply too. Owner composer-ui.
 
 namespace Barbican.Presentation.Compose;
@@ -8,7 +8,7 @@ public sealed class ComposerDialog
 {
     private readonly TaskCompletionSource<string?> _answer = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
-    public ComposerDialog(string id, string title, string message, IReadOnlyList<DialogChoice> choices, IReadOnlyList<string>? lines = null)
+    public ComposerDialog(string id, string title, string message, IReadOnlyList<DialogChoice> choices, IReadOnlyList<string>? lines = null, IReadOnlyList<string>? chips = null)
     {
         ArgumentNullException.ThrowIfNull(id);
         ArgumentNullException.ThrowIfNull(title);
@@ -19,6 +19,7 @@ public sealed class ComposerDialog
         Message = message;
         Choices = choices;
         Lines = lines ?? [];
+        Chips = chips ?? [];
     }
 
     /// <summary>A stable name for automation and tests ("leave", "warnings", "discard", "pending-uploads").</summary>
@@ -30,6 +31,9 @@ public sealed class ComposerDialog
 
     /// <summary>Bullet lines under the message (the warnings, the external addresses, the placeholders).</summary>
     public IReadOnlyList<string> Lines { get; }
+
+    /// <summary>Short monospace tags under the text (the placeholders of send-warnings-dialog.tsx:50-61).</summary>
+    public IReadOnlyList<string> Chips { get; }
 
     public IReadOnlyList<DialogChoice> Choices { get; }
 

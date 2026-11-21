@@ -1,4 +1,4 @@
-// Mirrors: Bulwark components/email/email-composer.tsx close :5111 (Close and Esc ask), :6916-6923 (Cancel / Discard / Save draft), :6705 (Discard with a confirm); Rust compose.rs close and autosave.rs unedited
+// Mirrors: Bulwark components/email/email-composer.tsx close :5111 (Close and Esc ask), :6854-6879 (title, text and Cancel / Discard / Save of the close dialog; locales/en/common.json:1137-1138, 1048-1050), :6705 (Discard with a confirm); Rust compose.rs close and autosave.rs unedited
 // (a blank composer closes and leaves no draft, L-008, L-009; a reply that holds only its quote and signature is no reason to keep one, B-COMP-006); I-234, I-235, I-236.
 // The leave guard of ComposerViewModel.
 
@@ -70,9 +70,9 @@ public sealed partial class ComposerViewModel
         {
             var answer = await AskAsync(new ComposerDialog(
                 "discard",
-                "Discard this message?",
-                "The draft is deleted and cannot be brought back.",
-                [new DialogChoice("discard", "Discard", DialogTone.Danger), new DialogChoice("cancel", "Keep editing")])).ConfigureAwait(true);
+                "Discard draft?",
+                "The draft will be deleted.",
+                [new DialogChoice("discard", "Discard", DialogTone.Danger), new DialogChoice("cancel", "Cancel")])).ConfigureAwait(true);
             if (!string.Equals(answer, "discard", StringComparison.Ordinal))
             {
                 return false;
@@ -110,9 +110,9 @@ public sealed partial class ComposerViewModel
     {
         var answer = await AskAsync(new ComposerDialog(
             "leave",
-            "Save this draft?",
-            "You have changes that are not saved yet.",
-            [new DialogChoice("save", "Save draft", DialogTone.Primary), new DialogChoice("discard", "Discard", DialogTone.Danger), new DialogChoice("cancel", "Cancel")])).ConfigureAwait(true);
+            "Save or discard draft?",
+            "You have unsaved changes. Would you like to save this as a draft or discard it?",
+            [new DialogChoice("save", "Save", DialogTone.Primary), new DialogChoice("discard", "Discard", DialogTone.Danger), new DialogChoice("cancel", "Cancel")])).ConfigureAwait(true);
         switch (answer)
         {
             case "save":

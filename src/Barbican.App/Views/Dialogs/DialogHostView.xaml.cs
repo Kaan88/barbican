@@ -19,14 +19,23 @@ namespace Barbican.App.Views.Dialogs;
 /// <summary>Draws the dialog on screen.</summary>
 public sealed partial class DialogHostView : UserControl
 {
-    private readonly DialogService _dialogs = ViewHost.Get<DialogService>();
-    private readonly IBodyOverlayStrategy? _body = ViewHost.Find<IBodyOverlayStrategy>();
+    private readonly DialogService _dialogs;
+    private readonly IBodyOverlayStrategy? _body;
+    private IDialogContent? _factory;
     private ActiveDialog? _shown;
     private Control? _restoreFocus;
     private bool _covered;
 
     public DialogHostView()
+        : this(ViewHost.Get<DialogService>(), ViewHost.Find<IBodyOverlayStrategy>())
     {
+    }
+
+    /// <summary>A host over its own <see cref="DialogService"/>: the detached composer window has no shell overlay, so it carries one (<see cref="DialogHostRouter"/>).</summary>
+    internal DialogHostView(DialogService dialogs, IBodyOverlayStrategy? body)
+    {
+        _dialogs = dialogs;
+        _body = body;
         InitializeComponent();
         _dialogs.Changed += (_, _) => Render();
         SizeChanged += (_, _) => FitScrim();
@@ -51,12 +60,7 @@ public sealed partial class DialogHostView : UserControl
         MessageText.Visibility = Visibility.Collapsed;
         Field.Visibility = Visibility.Collapsed;
         CustomContent.Content = null;
-        HeaderMenu.Set(null);
-        Buttons.Visibility = Visibility.Visible;
-        Card.MaxWidth = 440;
-        OkButton.Content = "OK";
-        OkButton.Style = (Style)Application.Current.Resources["Button.Primary"];
-        WarnIcon.Visibility = Visibility.Collapsed;
+        ResetCard();
         ApplyLook();
         switch (dialog.Request)
         {
@@ -88,6 +92,21 @@ public sealed partial class DialogHostView : UserControl
         Show();
     }
 
+    // the card as a plain question: the stock buttons and the destructive icon, until a request or a content says otherwise
+    private void ResetCard()
+    {
+        _factory = null;
+        HeaderMenu.Set(null);
+        Buttons.Visibility = Visibility.Visible;
+        Card.MaxWidth = 440;
+        OkButton.Content = "OK";
+        OkButton.Style = (Style)Application.Current.Resources["Button.Primary"];
+        WarnIcon.Visibility = Visibility.Collapsed;
+        WarnGlyph.Kind = "Alert";
+        WarnGlyph.Foreground = AppResources.Brush("Destructive");
+        WarnIcon.Background = AppResources.Brush("FeedbackDestructiveHover");
+    }
+
     // an owner's own dialog: its content comes from an IDialogContent registered for the request type
     private void DrawCustom(ActiveDialog dialog)
     {
@@ -95,8 +114,17 @@ public sealed partial class DialogHostView : UserControl
         {
             if (factory.CanDraw(dialog.Request))
             {
+                _factory = factory;
                 CustomContent.Content = factory.Create(dialog);
                 HeaderMenu.Set(factory.CreateHeaderMenu(dialog));
+                if (factory.HeaderIcon(dialog) is { } icon)
+                {
+                    WarnGlyph.Kind = icon.Kind;
+                    WarnGlyph.Foreground = AppResources.Brush(icon.ForegroundKey);
+                    WarnIcon.Background = AppResources.Brush(icon.BackgroundKey);
+                    WarnIcon.Visibility = Visibility.Visible;
+                }
+
                 Buttons.Visibility = factory.OwnButtons ? Visibility.Collapsed : Visibility.Visible;
                 Card.MaxWidth = factory.MaxWidth;
                 break;
@@ -143,8 +171,10 @@ public sealed partial class DialogHostView : UserControl
                 _ = Field.Focus(FocusState.Programmatic);
                 Field.SelectAll();
             }
-            else if (Buttons.Visibility == Visibility.Collapsed && FocusManager.FindFirstFocusableElement(CustomContent) is Control custom)
+            else if (Buttons.Visibility == Visibility.Collapsed && CustomContent.Content is UIElement drawn
+                && (_factory?.InitialFocus(drawn) ?? FocusManager.FindFirstFocusableElement(CustomContent) as Control) is { } custom)
             {
+                // a content that draws its own buttons says where the focus starts (a text field, or the safe button of a question)
                 _ = custom.Focus(FocusState.Keyboard);
             }
             else

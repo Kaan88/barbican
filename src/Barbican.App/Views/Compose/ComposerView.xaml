@@ -8,7 +8,7 @@
   <!-- The composer pane (M3 plan 6.4; Bulwark components/email/email-composer.tsx): it takes the reader's place, or sits under the reader when it answers a message (ComposerDock).
        Laid out as the reader pane (same tile, hairline and radius from StyleState): the title row (what it is, the discard and close buttons), the header (From, To with the Cc and Bcc toggles, Cc, Bcc, Subject, the
        attachments), the body (the editor control, or a plain text box while no editor is registered) beside the assistant slot (M6), and the footer (Send with its arrow, Templates, Attach, Options, the save status).
-       Every question the composer asks (leave, warnings, schedule, templates, From, Options) is a card on the scrim of CardLayer, inside the pane, so it works docked and needs no OS window. -->
+       Templates, From, Options and the Send menu are cards on the scrim of CardLayer, inside the pane. The questions (leave, discard, send warnings, external recipients, schedule) are dialogs of the shared dialog host (ComposerView.Questions.cs, CP-07). -->
   <Grid x:Name="Host" AllowDrop="True" AutomationProperties.AutomationId="composer.host">
     <Border x:Name="Pane" BorderBrush="{StaticResource Line}"
             MinWidth="320" MinHeight="260" AutomationProperties.AutomationId="composer" AutomationProperties.Name="New message">
@@ -194,7 +194,7 @@
       </StackPanel>
     </Border>
 
-    <!-- the cards: dialogs, schedule, templates, From, Options -->
+    <!-- the cards: templates, From, Options, the Send menu -->
     <Grid x:Name="CardLayer" Visibility="Collapsed" Background="#66000000" AutomationProperties.AutomationId="composer.cards" Tapped="OnScrimTapped">
       <Border x:Name="Card" HorizontalAlignment="Center" VerticalAlignment="Center" MinWidth="320" MaxWidth="460" Margin="12" Padding="20" CornerRadius="16" Background="{StaticResource Popup}"
               BorderBrush="{StaticResource Line}" BorderThickness="1" Tapped="OnCardTapped" />

@@ -19,6 +19,12 @@ public interface IDialogContent
     /// <summary>M5 (additive, con-ui): the widest the card may be (a form or a picker needs more than the 440 of a question).</summary>
     double MaxWidth => 440;
 
+    /// <summary>CP-07 (additive): the control that takes the keyboard focus when a content with <see cref="OwnButtons"/> opens, or null for the first focusable one (Bulwark's initialFocus, dialog.tsx; a question starts on its safe button).</summary>
+    Control? InitialFocus(UIElement content) => null;
+
+    /// <summary>CP-07 (additive): a round icon beside the title and text (external-recipient-confirm.tsx:222-225), or null for none. The host draws it like the one of a destructive confirm.</summary>
+    DialogIcon? HeaderIcon(ActiveDialog dialog) => null;
+
     /// <summary>WP-8 (additive): the options menu at the end of the title row (the add-on dialog's, Bulwark plugin-dialog-host.tsx:583-621), or null. The host declares the button and its menu in XAML (popup lint, ADR 0007); this only supplies the texts and the action.</summary>
     DialogHeaderMenu? CreateHeaderMenu(ActiveDialog dialog) => null;
 }

@@ -95,7 +95,7 @@ public sealed partial class ComposerViewModel
                 Body = CurrentDoc().Clone(),
             };
             var revision = PluginRevision;
-            if (!await ConfirmSendAsync(draft).ConfigureAwait(true))
+            if (!await ConfirmSendAsync(draft, scheduledAt is not null).ConfigureAwait(true))
             {
                 return false;
             }
@@ -150,54 +150,138 @@ public sealed partial class ComposerViewModel
         return false;
     }
 
-    // the single dialog of Bulwark's send-warnings-dialog and external-recipient-confirm; the optional "send confirmation" setting asks even when nothing is wrong
-    private async Task<bool> ConfirmSendAsync(ComposeDraft draft)
+    // Bulwark's two questions before a send, asked in this order: send-warnings-dialog.tsx (one dialog for everything it found; a single warning keeps its own title and text) and
+    // external-recipient-confirm.tsx (every address outside the own domains, once per send); the optional "send confirmation" setting asks only when nothing else did.
+    // Every question must be answered with its go-ahead button: Escape, Back, a closed composer or any other answer sends nothing (the callers treat false as "not sent").
+    private async Task<bool> ConfirmSendAsync(ComposeDraft draft, bool scheduling)
     {
-        var warnings = SendWarnings.Check(draft, _c.Settings, _ownDomains).Where(w => w.Kind != SendWarningKind.ExternalRecipients || _c.ConfirmExternalRecipients).ToList();
-        var lines = warnings.SelectMany(WarningLines).ToList();
-        if (_proofreadingWarningCount > 0)
-            lines.Add(_proofreadingWarningCount == 1 ? "One writing issue is still open." : $"{_proofreadingWarningCount} writing issues are still open.");
-        if (lines.Count > 0)
+        var warnings = SendWarnings.Check(draft, _c.Settings, _ownDomains);
+        var general = warnings.Where(w => w.Kind != SendWarningKind.ExternalRecipients).ToList();
+        var external = _c.ConfirmExternalRecipients ? warnings.FirstOrDefault(w => w.Kind == SendWarningKind.ExternalRecipients) : null;
+        var asked = false;
+        if (general.Count > 0 || _proofreadingWarningCount > 0)
         {
-            var answer = await AskAsync(new ComposerDialog(
-                "warnings",
-                "Before you send",
-                "Check this before the message goes out.",
-                [new DialogChoice("send", "Send anyway", DialogTone.Primary), new DialogChoice("cancel", "Go back")],
-                lines)).ConfigureAwait(true);
-            return string.Equals(answer, "send", StringComparison.Ordinal);
+            asked = true;
+            if (!await AskWarningsAsync(general, scheduling).ConfigureAwait(true))
+            {
+                return false;
+            }
         }
 
-        if (_c.Settings.SendConfirmation)
+        if (external is not null)
+        {
+            asked = true;
+            if (!await AskExternalAsync(draft, external.Items, scheduling).ConfigureAwait(true))
+            {
+                return false;
+            }
+        }
+
+        if (!asked && _c.Settings.SendConfirmation)
         {
             var answer = await AskAsync(new ComposerDialog(
                 "confirm",
-                "Send this message?",
+                scheduling ? "Schedule this message?" : "Send this message?",
                 "It goes to " + string.Join(", ", RecipientText.Expand(RecipientText.ParseList(draft.To)).Select(r => r.Email).Take(3)) + ".",
-                [new DialogChoice("send", "Send", DialogTone.Primary), new DialogChoice("cancel", "Cancel")])).ConfigureAwait(true);
+                [new DialogChoice("send", scheduling ? "Schedule" : "Send", DialogTone.Primary), new DialogChoice("cancel", "Cancel")])).ConfigureAwait(true);
             return string.Equals(answer, "send", StringComparison.Ordinal);
         }
 
         return true;
     }
 
-    private static IEnumerable<string> WarningLines(SendWarning w)
+    // send-warnings-dialog.tsx:63-119 and the English texts of locales/en/common.json:1148-1170 (email_composer), :4272-4289 (compose_send), :7384-7389 (proofreading.send_warning)
+    private async Task<bool> AskWarningsAsync(List<SendWarning> general, bool scheduling)
     {
-        switch (w.Kind)
+        var proofreading = _proofreadingWarningCount;
+        var sendLabel = scheduling ? "Schedule anyway" : "Send anyway";
+        var question = general.Count + (proofreading > 0 ? 1 : 0) == 1
+            ? SingleWarning(general.FirstOrDefault(), proofreading, sendLabel)
+            : ManyWarnings(general, proofreading, scheduling, sendLabel);
+        var answer = await AskAsync(question).ConfigureAwait(true);
+        return string.Equals(answer, "send", StringComparison.Ordinal);
+    }
+
+    // one warning keeps its own title and text (send-warnings-dialog.tsx:69-92); null is the proofreading count on its own
+    private static ComposerDialog SingleWarning(SendWarning? only, int proofreading, string sendLabel)
+    {
+        var back = "Back to editing";
+        IReadOnlyList<string> chips = [];
+        string title;
+        string message;
+        switch (only?.Kind)
         {
             case SendWarningKind.EmptySubject:
-                yield return "The subject is empty.";
+                (title, message) = ("Send without a subject?", "This message has no subject. Send it anyway?");
                 break;
             case SendWarningKind.UnfilledPlaceholders:
-                yield return "Placeholders are still unfilled: " + string.Join(", ", w.Items);
+                (title, message) = ("Check placeholders?", "Your message has placeholder text that recipients will see. Do you want to edit it before sending?");
+                chips = only.Items;
                 break;
             case SendWarningKind.MissingAttachment:
-                yield return "The message mentions an attachment, but none is attached.";
+                (title, message) = ("Did you forget an attachment?", $"Your message mentions \"{string.Join(", ", only.Items)}\" but no file is attached. Send anyway?");
                 break;
             default:
-                yield return "Recipients outside your own domains: " + string.Join(", ", w.Items);
+                (title, message) = ("Send with open issues?", proofreading == 1 ? "1 spelling or grammar issue is still open in this message." : $"{proofreading} spelling or grammar issues are still open in this message.");
+                back = "Review";
                 break;
         }
+
+        return new ComposerDialog("warnings", title, message, [new DialogChoice("send", sendLabel, DialogTone.Primary), new DialogChoice("cancel", back)], null, chips);
+    }
+
+    // several warnings share one dialog, each a bullet (send-warnings-dialog.tsx:93-116)
+    private static ComposerDialog ManyWarnings(List<SendWarning> general, int proofreading, bool scheduling, string sendLabel)
+    {
+        IReadOnlyList<string> chips = [];
+        var lines = new List<string>();
+        foreach (var w in general)
+        {
+            switch (w.Kind)
+            {
+                case SendWarningKind.EmptySubject:
+                    lines.Add("No subject");
+                    break;
+                case SendWarningKind.UnfilledPlaceholders:
+                    lines.Add("Placeholder text that recipients will see:");
+                    chips = w.Items;
+                    break;
+                default:
+                    lines.Add($"Mentions \"{string.Join(", ", w.Items)}\", but no file is attached");
+                    break;
+            }
+        }
+
+        if (proofreading > 0)
+        {
+            lines.Add("Open spelling or grammar issues: " + proofreading.ToString(System.Globalization.CultureInfo.InvariantCulture));
+        }
+
+        return new ComposerDialog(
+            "warnings",
+            scheduling ? "Schedule this message anyway?" : "Send this message anyway?",
+            string.Empty,
+            [new DialogChoice("send", sendLabel, DialogTone.Primary), new DialogChoice("cancel", "Back to editing")],
+            lines,
+            chips);
+    }
+
+    // external-recipient-confirm.tsx:201-250 (title, count message, To/Cc/Bcc list, Back first and Send anyway second); the lines read "To: address"
+    private async Task<bool> AskExternalAsync(ComposeDraft draft, IReadOnlyList<string> addresses, bool scheduling)
+    {
+        string FieldOf(string address)
+        {
+            bool In(string list) => RecipientText.Expand(RecipientText.ParseList(list)).Any(r => string.Equals(r.Email, address, StringComparison.OrdinalIgnoreCase));
+            return In(draft.To) ? "To" : In(draft.Cc) ? "Cc" : "Bcc";
+        }
+
+        var answer = await AskAsync(new ComposerDialog(
+            "external",
+            "Send outside your organisation?",
+            addresses.Count == 1 ? "This recipient is outside your organisation. Send only if you mean to." : $"These {addresses.Count} recipients are outside your organisation. Send only if you mean to.",
+            [new DialogChoice("send", scheduling ? "Schedule anyway" : "Send anyway", DialogTone.Primary), new DialogChoice("cancel", "Back")],
+            [.. addresses.Select(a => FieldOf(a) + ": " + a)])).ConfigureAwait(true);
+        return string.Equals(answer, "send", StringComparison.Ordinal);
     }
 
     private async Task<bool> SubmitAsync(ComposeDraft draft, DateTimeOffset? scheduledAt, CancellationToken ct)
