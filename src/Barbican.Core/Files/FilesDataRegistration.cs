@@ -14,6 +14,7 @@ public static class FilesDataRegistration
         services.TryAddSingleton<IFileStore, FileStore>();
         services.TryAddSingleton<IFileWriter, FileWriter>();
         services.TryAddSingleton<IFileTransfer, FileTransfer>();
+        services.TryAddSingleton<IFileBlobSaver, FileBlobSaver>();
         return services;
     }
 }
