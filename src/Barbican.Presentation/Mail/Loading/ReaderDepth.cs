@@ -17,6 +17,8 @@ public sealed class ReaderDepth(AuthServPins? pins, IEnumerable<IReaderBannerSou
     private readonly Lock _lock = new();
     private readonly Dictionary<string, IReadOnlyDictionary<string, string>> _roles = new(StringComparer.Ordinal);
     private readonly HashSet<string> _loading = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, IReadOnlyList<string>> _domains = new(StringComparer.Ordinal);
+    private readonly HashSet<string> _loadingDomains = new(StringComparer.Ordinal);
 
     /// <summary>A banner source is registered (the open waits for the banners before the page is built).</summary>
     public bool HasBanners => _sources.Count > 0;
@@ -30,7 +32,42 @@ public sealed class ReaderDepth(AuthServPins? pins, IEnumerable<IReaderBannerSou
     {
         ArgumentNullException.ThrowIfNull(options);
         ArgumentNullException.ThrowIfNull(mail);
-        return options with { PinnedAuthServ = pins?.PinFor(accountKey), MailboxRoles = RolesFor(rolesKey ?? accountKey, mail) };
+        return options with
+        {
+            PinnedAuthServ = pins?.PinFor(accountKey),
+            MailboxRoles = RolesFor(rolesKey ?? accountKey, mail),
+            InternalDomains = DomainsFor(accountKey, mail),
+        };
+    }
+
+    /// <summary>The account's identity domains, already read at sign-in (MailShellStartup), so the first message's chip is decided before it opens.</summary>
+    public void SetIdentities(string accountKey, IEnumerable<string> emails)
+    {
+        ArgumentNullException.ThrowIfNull(accountKey);
+        var domains = ExternalSenderRules.InternalDomains(emails);
+        lock (_lock)
+        {
+            _domains[accountKey] = domains;
+        }
+    }
+
+    /// <summary>The identity domains known for the account; an unknown one starts loading them, and its messages get the chip from the next open on.</summary>
+    public IReadOnlyList<string> DomainsFor(string accountKey, IMailService mail)
+    {
+        lock (_lock)
+        {
+            if (_domains.TryGetValue(accountKey, out var known))
+            {
+                return known;
+            }
+
+            if (_loadingDomains.Add(accountKey))
+            {
+                _ = LoadDomainsAsync(accountKey, mail);
+            }
+
+            return [];
+        }
     }
 
     /// <summary>Pins the id the server's trace block was found under, the first time one is seen for the account.</summary>
@@ -151,6 +188,32 @@ public sealed class ReaderDepth(AuthServPins? pins, IEnumerable<IReaderBannerSou
             if (tree.IsOk)
             {
                 _roles[accountKey] = tree.Value!.All.Where(m => m.Role != MailboxRole.None).ToDictionary(m => m.Id, m => m.Role.ToString().ToLowerInvariant(), StringComparer.Ordinal);
+            }
+        }
+    }
+
+    private async Task LoadDomainsAsync(string accountKey, IMailService mail)
+    {
+        IReadOnlyList<string>? domains = null;
+        try
+        {
+            if (await mail.GetIdentitiesAsync(CancellationToken.None).ConfigureAwait(false) is { IsOk: true } ids)
+            {
+                domains = ExternalSenderRules.InternalDomains(ids.Value!.Select(i => i.Email));
+            }
+        }
+#pragma warning disable CA1031 // a server that cannot list its identities leaves nobody internal, and the next open asks again
+        catch (Exception)
+#pragma warning restore CA1031
+        {
+        }
+
+        lock (_lock)
+        {
+            _loadingDomains.Remove(accountKey);
+            if (domains is not null)
+            {
+                _domains[accountKey] = domains;
             }
         }
     }

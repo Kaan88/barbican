@@ -4,6 +4,7 @@
 using Barbican.Core.Mail.Model;
 using Barbican.Presentation.Composition;
 using Barbican.Presentation.Mail;
+using Barbican.Presentation.Mail.Loading;
 
 namespace Barbican.Presentation.Shell;
 
@@ -17,10 +18,11 @@ public sealed class MailShellStartup : IStartupTask, IDisposable
     private readonly GlanceTilesViewModel _glance;
     private readonly ShellViewModel _shell;
     private readonly TimeProvider _time;
+    private readonly ReaderDepth? _readerDepth;
     private ITimer? _interval;
     private CancellationTokenSource? _cts;
 
-    public MailShellStartup(IActiveMail active, SidebarViewModel sidebar, GlanceTilesViewModel glance, ShellViewModel shell, TimeProvider time)
+    public MailShellStartup(IActiveMail active, SidebarViewModel sidebar, GlanceTilesViewModel glance, ShellViewModel shell, TimeProvider time, ReaderDepth? readerDepth = null)
     {
         ArgumentNullException.ThrowIfNull(active);
         ArgumentNullException.ThrowIfNull(sidebar);
@@ -32,6 +34,7 @@ public sealed class MailShellStartup : IStartupTask, IDisposable
         _glance = glance;
         _shell = shell;
         _time = time;
+        _readerDepth = readerDepth;
     }
 
     public async Task StartAsync(CancellationToken cancellationToken)
@@ -73,7 +76,7 @@ public sealed class MailShellStartup : IStartupTask, IDisposable
         }
 
         _shell.NotifyReady(_active.AccountKey);
-        await Task.WhenAll(LoadIdentitiesAsync(mail, token), LoadQuotaAsync(mail, token), LoadFlaggedAsync(mail, token)).ConfigureAwait(true);
+        await Task.WhenAll(LoadIdentitiesAsync(mail, _active.AccountKey, token), LoadQuotaAsync(mail, token), LoadFlaggedAsync(mail, token)).ConfigureAwait(true);
     }
 
     public void Dispose()
@@ -90,12 +93,17 @@ public sealed class MailShellStartup : IStartupTask, IDisposable
         cts?.Dispose();
     }
 
-    private async Task LoadIdentitiesAsync(Core.Mail.IMailService mail, CancellationToken ct)
+    private async Task LoadIdentitiesAsync(Core.Mail.IMailService mail, string? accountKey, CancellationToken ct)
     {
         var r = await mail.GetIdentitiesAsync(ct).ConfigureAwait(true);
         if (r.IsOk && r.Value is { } identities && !ct.IsCancellationRequested)
         {
             _glance.SetIdentities(identities);
+            // G-051: the reader's External chip judges by these from the first message on (Bulwark loads the auth store's identities at sign-in)
+            if (accountKey is { } key)
+            {
+                _readerDepth?.SetIdentities(key, identities.Select(i => i.Email));
+            }
         }
     }
 

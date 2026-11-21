@@ -148,8 +148,20 @@
             </Border>
             <!-- Bento: From 14 semibold over the address and date; Nordic: "From to you · date" in one dim line -->
             <StackPanel Grid.Column="1" MinWidth="90" VerticalAlignment="Center" Visibility="{x:Bind Look.BentoOnly, Mode=OneWay}">
-              <TextBlock Text="{x:Bind Reader.Header.From, Mode=OneWay}" FontSize="14" FontWeight="SemiBold" Foreground="{StaticResource Text}" TextTrimming="CharacterEllipsis" Tapped="OnSenderTapped"
-                         AutomationProperties.AutomationId="reader.sender" AutomationProperties.Name="Sender" />
+              <Grid ColumnDefinitions="Auto,Auto" ColumnSpacing="6" HorizontalAlignment="Left">
+                <TextBlock Text="{x:Bind Reader.Header.From, Mode=OneWay}" FontSize="14" FontWeight="SemiBold" Foreground="{StaticResource Text}" TextTrimming="CharacterEllipsis" Tapped="OnSenderTapped"
+                           AutomationProperties.AutomationId="reader.sender" AutomationProperties.Name="Sender" />
+                <!-- Bulwark external-sender-chip.tsx:85-145: "External" beside the sender, the tooltip naming the sender domain (G-051) -->
+                <Border x:Name="ExternalSenderChip" Grid.Column="1" Height="20" Padding="5,0" CornerRadius="6" BorderThickness="1" VerticalAlignment="Center"
+                        BorderBrush="{StaticResource Warning}" Background="{StaticResource AmberBg}"
+                        Visibility="{x:Bind views:Fmt.VisText(Reader.Header.ExternalSenderTooltip), Mode=OneWay}"
+                        AutomationProperties.AutomationId="reader.external" AutomationProperties.Name="External sender">
+                  <StackPanel Orientation="Horizontal" Spacing="3">
+                    <controls:SIcon Kind="Building" Size="11" Foreground="{StaticResource AmberFg}" VerticalAlignment="Center" />
+                    <TextBlock Text="External" FontSize="10" FontWeight="Medium" Foreground="{StaticResource AmberFg}" VerticalAlignment="Center" />
+                  </StackPanel>
+                </Border>
+              </Grid>
               <TextBlock Text="{x:Bind views:Fmt.Angle(Reader.Header.Email), Mode=OneWay}" FontSize="12" Foreground="{StaticResource Dim}" TextTrimming="CharacterEllipsis" Visibility="{x:Bind Look.BulwarkOnly, Mode=OneWay}" />
               <TextBlock Text="{x:Bind views:Fmt.ToLine(Reader.Header.To), Mode=OneWay}" FontSize="12" Foreground="{StaticResource Dim}" TextTrimming="CharacterEllipsis" Visibility="{x:Bind Look.BulwarkOnly, Mode=OneWay}" />
               <TextBlock Visibility="{x:Bind views:Fmt.VisNot(Look.IsBulwark), Mode=OneWay}" FontSize="12.5" Foreground="{StaticResource Dim}" TextTrimming="CharacterEllipsis">

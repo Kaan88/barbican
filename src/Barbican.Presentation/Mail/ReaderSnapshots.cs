@@ -1,11 +1,12 @@
 // Mirrors: Rust msgload.rs prefill :175 (header from the list row), attachments.rs show :80, auth.rs; Bulwark components/email/email-viewer.tsx,
-// reader-attachments.tsx, lib/server-auth-status.ts; R2-07 (AuthTrace: the server's own trace block, pinned authserv-id). Owner reader (M2).
+// reader-attachments.tsx, external-sender-chip.tsx:120-125 (the External chip's tooltip, G-051), lib/server-auth-status.ts; R2-07 (AuthTrace: the server's own trace block, pinned authserv-id). Owner reader (M2).
 
 using System.Globalization;
 using Barbican.Core.Mail.Attachments;
 using Barbican.Core.Mail.AuthResults;
 using Barbican.Core.Mail.Model;
 using Barbican.Core.Mail.Rules;
+using Barbican.Presentation.Reader;
 
 namespace Barbican.Presentation.Mail;
 
@@ -112,6 +113,9 @@ public static class ReaderSnapshots
     {
         var first = from.Count > 0 ? from[0] : null;
         var name = !string.IsNullOrEmpty(first?.Name) ? first.Name : !string.IsNullOrEmpty(first?.Email) ? first.Email : "(unknown)";
+        var external = options.ExternalSenderLabel
+            ? ExternalSenderRules.ExternalSenderDomains(from.Select(a => a.Email), options.InternalDomains)
+            : Array.Empty<string>();
         var date = receivedAt is { } at
             ? TimeZoneInfo.ConvertTime(at, options.Zone).ToString(HeaderDate, CultureInfo.InvariantCulture)
             : string.Empty;
@@ -128,6 +132,7 @@ public static class ReaderSnapshots
             CompactDate = receivedAt is { } received
                 ? TimeZoneInfo.ConvertTime(received, options.Zone).ToString("MMM d, HH:mm", CultureInfo.InvariantCulture)
                 : string.Empty,
+            ExternalSenderTooltip = external.Count == 0 ? string.Empty : ExternalSenderRules.Tooltip(external),
         };
     }
 

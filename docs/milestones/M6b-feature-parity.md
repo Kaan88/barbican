@@ -54,7 +54,7 @@ Feature work comes before further UI polish. Linux (M9) is deferred indefinitely
 | done | G-041, SB-07 | Per-folder notification mute | notifications | S | `src/Barbican.App/Views/SettingsServer/SrvUiOrganizePage.cs` | notification routing |
 | open | G-049 | Link-mismatch warning banner | reader | M | `src/Barbican.App/MailBody/BodyShell.cs`, `src/Barbican.Presentation/Reader/` | link scanner |
 | open | G-050 | Phishing report flow | reader | M | `src/Barbican.App/Views/Reader/ReaderView.xaml.cs`, `src/Barbican.Presentation/Reader/` | report endpoint |
-| open | G-051 | External-sender chip | reader | S | `src/Barbican.App/Views/Reader/ReaderView.xaml.cs`, `src/Barbican.Presentation/Reader/` | sender trust data |
+| done (pending merge) | G-051 | External-sender chip | reader | S | `src/Barbican.App/Views/Reader/ReaderView.xaml.cs`, `src/Barbican.Presentation/Reader/` | sender trust data |
 | open | G-052 | BIMI verified badge (logo fetch exists) | reader | M | `src/Barbican.Core/Mail/Avatars/AvatarRules.cs`, `src/Barbican.App/Views/Reader/ReaderView.xaml.cs` | VMC validation |
 | open | G-053 | Trusted-sender dialog and remote-content policy (backend exists) | reader | M | `src/Barbican.Core/Mail/Trust/TrustedSenders.cs`, `src/Barbican.App/Views/Reader/ReaderMenuOpener.cs` | UI + policy setting |
 | open | RD-05 | Retention notice banner | reader | S | `src/Barbican.Presentation/Reader/ReceiptBannerSource.cs` | server retention data |

@@ -1,4 +1,4 @@
-// Bulwark 1.21.2 components/email/email-viewer.tsx:5100-5260 (toolbar), reader-attachments.tsx:165 (chips), ui/empty-state.tsx:27-36 (empty state); FM-09: no switch animation in Bulwark.
+// Bulwark 1.21.2 components/email/email-viewer.tsx:5100-5260 (toolbar), reader-attachments.tsx:165 (chips), external-sender-chip.tsx:123-145 (the External chip and its tooltip, G-051), ui/empty-state.tsx:27-36 (empty state); FM-09: no switch animation in Bulwark.
 using Barbican.App.Motion;
 using Barbican.App.Shell;
 using Barbican.App.Theme;
@@ -20,12 +20,18 @@ public sealed partial class ReaderView : UserControl
         Look = ViewHost.Get<StyleState>();
         InitializeComponent();
         InitializeQuickReply();
+        RefreshExternalSender();
 #if WINDOWS
         Loaded += (_, _) => WatchReaderAddOns();
         Unloaded += (_, _) => UnwatchReaderAddOns();
 #endif
         Reader.PropertyChanged += (_, e) =>
         {
+            if (e.PropertyName is nameof(ReaderViewModel.Current) or nameof(ReaderViewModel.Header))
+            {
+                RefreshExternalSender();
+            }
+
             if (e.PropertyName is nameof(ReaderViewModel.Current))
             {
                 RefreshExtraActions();
@@ -63,6 +69,14 @@ public sealed partial class ReaderView : UserControl
         ReaderBack.Visibility = showBack ? Visibility.Visible : Visibility.Collapsed;
         PhoneActions.Visibility = phone ? Visibility.Visible : Visibility.Collapsed;
         ActionReply.Visibility = ActionReplyAll.Visibility = ActionForward.Visibility = phone ? Visibility.Collapsed : Visibility.Visible;
+    }
+
+    // Bulwark external-sender-chip.tsx:123-125: the tooltip names the sender domain; the chip only exists while there is one (G-051).
+    private void RefreshExternalSender()
+    {
+        var tip = Reader.Header.ExternalSenderTooltip;
+        Tip.SetText(ExternalSenderChip, tip);
+        Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(ExternalSenderChip, tip.Length == 0 ? "External sender" : "External sender: " + tip);
     }
 
     private void OnBackClick(object sender, RoutedEventArgs e) => BackRequested?.Invoke(this, EventArgs.Empty);

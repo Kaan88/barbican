@@ -245,6 +245,13 @@
      "default": false
     },
     {
+     "kind": "toggle",
+     "label": "Label external senders",
+     "desc": "Shows an “External” chip next to the sender of mail from outside your organisation. The domains of your own addresses count as internal, and a domain covers its subdomains.",
+     "key": "externalSenderLabel",
+     "default": false
+    },
+    {
      "kind": "section",
      "label": "Notifications",
      "desc": ""
