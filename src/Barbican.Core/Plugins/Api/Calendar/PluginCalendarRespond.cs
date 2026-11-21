@@ -19,9 +19,6 @@ internal sealed class PluginCalendarRespond(IPluginCalendarHost host) : PluginCa
 {
     private static readonly string[] Statuses = ["accepted", "tentative", "declined"];
 
-    /// <summary>InvitationService.AnswerAsync's text when an onBeforeEventRsvp handler said no.</summary>
-    private const string StoppedText = "A plugin stopped the answer.";
-
     public override PluginErrorCode? ValidateArguments(PluginValue arguments) =>
         PluginMailArgs.IsId(PluginMailArgs.At(arguments, 0)) && PluginMailArgs.At(arguments, 1) is { Kind: PluginValueKind.String } status && Statuses.Contains(status.StringValue, StringComparer.Ordinal)
             ? null : PluginErrorCode.InvalidArguments;
@@ -49,7 +46,7 @@ internal sealed class PluginCalendarRespond(IPluginCalendarHost host) : PluginCa
         if (InvitationModel.IOrganize(known ?? invitation, own.Addresses) || InvitationModel.MyParticipant(known ?? invitation, own.Addresses) is null) return Fail(PluginErrorCode.Failed);
         if (!await call.BeginMutationAsync(ct).ConfigureAwait(false)) return Fail(PluginErrorCode.StaleContext);
         var answered = await Host.Invitations.AnswerAsync(call.AccountKey, invitation, [], status, ct).ConfigureAwait(false);
-        if (!answered.IsOk) return string.Equals(answered.Error?.Message, StoppedText, StringComparison.Ordinal) ? Null() : Fail(PluginErrorCode.Failed);
+        if (!answered.IsOk) return answered.Error is HookStoppedError ? Null() : Fail(PluginErrorCode.Failed);
         var organizer = invitation.Str("organizerCalendarAddress") ?? invitation.Child("replyTo").Str("imip");
         var b = new PluginValueBuilder();
         return Success(b, b.Object(

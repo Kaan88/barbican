@@ -1,4 +1,7 @@
 // Account settings services against FakeJmap; no live security writes.
+using Barbican.Core.Common;
+using Barbican.Core.Jmap.Errors;
+using Barbican.Core.Plugins.Hooks;
 using Barbican.Core.Settings.Account;
 using Barbican.Core.Tests.Contacts;
 using Barbican.FakeJmap;
@@ -31,6 +34,27 @@ public sealed class AccountServicesTests
         var deleted = await identities.DeleteAsync(key, id, Ct);
         Assert.True(deleted.IsOk, deleted.Error?.Message);
         Assert.DoesNotContain((await identities.ListAsync(key, Ct)).Value!, i => string.Equals(i.Id, id, StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task An_intercept_hook_stops_identity_changes_with_a_typed_error()
+    {
+        var rig = ContactRig.Create();
+        var (key, _, _) = await rig.AddAsync("user@example.org", null, new FakeJmapOptions { MetadataCapability = true });
+        var identities = new AccountIdentities(rig, rig.Hooks);
+        var created = await identities.CreateAsync(key, new AccountIdentityEdit("Alias", "alias@example.org", null, null, "signature", null), Ct);
+        Assert.True(created.IsOk, created.Error?.Message);
+        rig.Hooks.Stop(HookNames.OnBeforeIdentityChange);
+        AssertStopped(await identities.CreateAsync(key, new AccountIdentityEdit("Second", "second@example.org", null, null, null, null), Ct));
+        AssertStopped(await identities.UpdateAsync(key, created.Value!.Id, new AccountIdentityEdit("Updated", null, null, null, "changed", null), Ct));
+        AssertStopped(await identities.DeleteAsync(key, created.Value.Id, Ct));
+        Assert.Single((await identities.ListAsync(key, Ct)).Value!, i => string.Equals(i.Id, created.Value.Id, StringComparison.Ordinal));
+    }
+
+    private static void AssertStopped<T>(Result<T> result)
+    {
+        var error = Assert.IsType<HookStoppedError>(result.Error);
+        Assert.Equal("A plug-in stopped this change.", error.Message);
     }
 
     [Fact]

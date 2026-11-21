@@ -4,6 +4,7 @@
 using System.Text.Json.Nodes;
 using Barbican.Core.Calendar.Editing;
 using Barbican.Core.Calendar.Invitations;
+using Barbican.Core.Jmap.Errors;
 using Barbican.Core.Plugins.Hooks;
 using Barbican.Core.Tests.Calendar.Editing;
 
@@ -73,7 +74,10 @@ public sealed class InvitationServiceTests
         Assert.False(stranger.IsOk);
         using (rig.Hooks.Intercept<RsvpHookPayload>(HookNames.OnBeforeEventRsvp, (_, _) => ValueTask.FromResult(false)))
         {
-            Assert.False((await service.AnswerAsync(EditingRig.Account, Invite(), [EditingRig.Me], "accepted", Ct)).IsOk);
+            var stopped = await service.AnswerAsync(EditingRig.Account, Invite(), [EditingRig.Me], "accepted", Ct);
+            Assert.False(stopped.IsOk);
+            var error = Assert.IsType<HookStoppedError>(stopped.Error);
+            Assert.Equal("A plugin stopped the answer.", error.Message);
         }
 
         Assert.Empty(rig.Sets);
