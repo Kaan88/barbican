@@ -137,12 +137,15 @@ public static class UnifiedRegistration
                 {
                     Disabled = Disabled(prefs),
                     Bus = sp.GetService<HookBus>(),
+                    Services = sp.GetRequiredService<Barbican.Core.Plugins.Native.Host.IPluginHostServices>(),
                     Time = sp.GetRequiredService<TimeProvider>(),
                 },
                 () => prefs.Current.Bool(ShowCleanSpamKey, false));
         });
         services.Replace(ServiceDescriptor.Singleton<INativePluginHost>(sp => sp.GetRequiredService<NativePlugins>()));
         services.Replace(ServiceDescriptor.Singleton<IEmailDetailsSource>(sp => sp.GetRequiredService<NativePlugins>()));
+        services.TryAddSingleton<Barbican.Presentation.Settings.Addons.IAddonPageSource>(sp => new Barbican.Presentation.Settings.Addons.NativeAddonPageSource(
+            sp.GetRequiredService<NativePlugins>(), sp.GetRequiredService<Barbican.Core.Plugins.Native.Host.IPluginHostServices>()));
         services.AddSingleton<IStartupTask>(sp => new PluginStartup(sp.GetRequiredService<NativePlugins>()));
         services.AddSingleton<IReaderBannerSource>(sp => new PluginDetailsBannerSource(sp.GetRequiredService<NativePlugins>()));
     }

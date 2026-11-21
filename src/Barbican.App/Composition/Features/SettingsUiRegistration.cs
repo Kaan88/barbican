@@ -1,4 +1,4 @@
-// Mirrors: M6 plan section 4.9 (DI). Owner set-ui: the settings screen (registered as the IAppScreenFactory of the rail's Settings app), the generic rows, the account, security, assistant and backup pages, the assistant column.
+// Mirrors: M6 plan section 4.9 (DI). Owner set-ui: the settings screen (registered as the IAppScreenFactory of the rail's Settings app), the generic rows, the account, security, add-on (assistant) and backup pages, the add-on chat column.
 // A sample-data run (BARBICAN_SAMPLE=1, Automation build) swaps the data services for the Sample* fakes of Barbican.Presentation.Settings.Sample (D-M6-00); the settings values stay real (SettingValues over the run's own profile) so theme and style apply live.
 
 using Barbican.App.Plugins;
@@ -22,7 +22,7 @@ using Microsoft.Extensions.DependencyInjection.Extensions;
 using Barbican.App.Views.Settings.Automation;
 using Barbican.Automation;
 using Barbican.Core.Settings.Account;
-using Barbican.Core.Settings.Assistant;
+using Barbican.Presentation.Settings.Addons;
 using Barbican.Core.Settings.Backup;
 using Barbican.Core.Settings.Pages;
 using Barbican.Presentation.Settings.Sample;
@@ -72,7 +72,7 @@ public static class SettingsUiRegistration
             services.Replace(ServiceDescriptor.Singleton<IAccountSecurity, SampleAccountSecurity>());
             services.Replace(ServiceDescriptor.Singleton<IAccountQuota, SampleAccountQuota>());
             services.Replace(ServiceDescriptor.Singleton<IAccountIdentities, SampleAccountIdentities>());
-            services.Replace(ServiceDescriptor.Singleton<IAssistantSession, SampleAssistantSession>());
+            services.Replace(ServiceDescriptor.Singleton<IAddonPageSource, SampleAddonPageSource>());
         }
 
         services.AddSingleton<IAutomationCommand, AddonsFixtureCommand>();

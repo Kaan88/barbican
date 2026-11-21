@@ -2,7 +2,7 @@
 using System.Text.Json.Nodes;
 using Barbican.Core.Plugins.Hooks;
 using Barbican.Core.Plugins.Payloads;
-using Barbican.Core.Settings.Assistant;
+using Barbican.Core.Plugins.Native.Host;
 using Barbican.Core.Settings.Backup;
 using Barbican.Core.Settings.Pages;
 using Barbican.Core.Settings.Prefs;
@@ -25,12 +25,12 @@ public sealed class SettingConcurrencyTests
             var hooks = new HookBus();
             using var backup = new SettingBackup(prefs, prefs, paths, hooks, gate);
             using var values = new SettingValues(prefs, prefs, hooks, gate);
-            using var assistant = new AssistantSettings(paths, gate);
-            Assert.Equal(AssistantSettings.Defaults.Model, assistant.Config("account-a").Model);
+            using var assistant = new PluginSettingsStore(paths, "assistant", gate);
+            Assert.Null(assistant.Read("account-a", "model"));
             var document = JsonNode.Parse("""{"app":"barbican","settings":{"theme":"dark"},"desktop":{"other":"kept","assistant":{"account-a":{"model":"imported"}}}}""")!;
             var import = backup.ImportAsync(document, TestContext.Current.CancellationToken);
             await prefs.Entered.Task.WaitAsync(TestContext.Current.CancellationToken);
-            var save = assistant.SaveAsync("account-b", AssistantSettings.Defaults with { Model = "new-model" }, TestContext.Current.CancellationToken);
+            var save = assistant.SetAsync("account-b", new Dictionary<string, string?>(StringComparer.Ordinal) { ["model"] = "new-model" }, TestContext.Current.CancellationToken);
             var setting = values.SetAsync("density", JsonValue.Create("compact"), TestContext.Current.CancellationToken);
             var export = backup.ExportAsync(TestContext.Current.CancellationToken);
             Assert.False(save.IsCompleted);
@@ -38,18 +38,18 @@ public sealed class SettingConcurrencyTests
             Assert.False(export.IsCompleted);
             prefs.Release.TrySetResult();
             Assert.True((await import).IsOk);
-            Assert.True((await save).IsOk);
+            await save;
             Assert.True((await setting).IsOk);
             var snapshot = await export;
             Assert.True(snapshot.IsOk);
             Assert.Equal("dark", (string?)snapshot.Value!["settings"]!["theme"]);
             Assert.Equal("kept", (string?)snapshot.Value["desktop"]!["other"]);
-            Assert.Equal("imported", assistant.Config("account-a").Model);
-            Assert.Equal("new-model", assistant.Config("account-b").Model);
+            Assert.Equal("imported", assistant.Read("account-a", "model"));
+            Assert.Equal("new-model", assistant.Read("account-b", "model"));
             var disk = JsonNode.Parse(await File.ReadAllTextAsync(Path.Combine(paths.ConfigDir, "settings.json"), TestContext.Current.CancellationToken))!;
             Assert.Equal("kept", (string?)disk["other"]);
-            Assert.Equal("imported", (string?)disk["assistant"]!["account-a"]!["model"]);
-            Assert.Equal("new-model", (string?)disk["assistant"]!["account-b"]!["model"]);
+            Assert.Equal("imported", (string?)disk["addons"]!["assistant"]!["account-a"]!["model"]);
+            Assert.Equal("new-model", (string?)disk["addons"]!["assistant"]!["account-b"]!["model"]);
         }
         finally
         {

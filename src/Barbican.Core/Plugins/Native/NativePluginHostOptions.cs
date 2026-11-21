@@ -4,6 +4,7 @@
 // which never sets UserRoot: user packages enter through the verified archive and full-trust approval path.
 
 using Barbican.Core.Plugins.Hooks;
+using Barbican.Core.Plugins.Native.Host;
 
 namespace Barbican.Core.Plugins.Native;
 
@@ -38,6 +39,9 @@ public sealed record NativePluginHostOptions
 
     /// <summary>The app's hook bus; plugins that subscribe to catalogue hooks register here. Null: no catalogue hooks (tests of email.details).</summary>
     public HookBus? Bus { get; init; }
+
+    /// <summary>What the app offers an add-on beyond hooks: settings, secrets, HTTP, mail tools, dialogs (D-M6b-08). Null: none (tests).</summary>
+    public IPluginHostServices? Services { get; init; }
 
     /// <summary>The budget of one email.details call (the Rust hook had none; Bulwark's default 5 s).</summary>
     public TimeSpan DetailsBudget { get; init; } = HookPolicies.Default.Budget;

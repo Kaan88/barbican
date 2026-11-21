@@ -5,7 +5,7 @@
 //   set-advanced on|off      Show advanced settings
 //   set-set KEY VALUE        writes a pref through the settings values (null clears; true, false, a number or text)
 //   set-get KEY              reads a pref
-//   set-ask TEXT             asks the assistant column
+//   set-ask TEXT             asks the add-on chat column
 //   set-dump                 the state as one line of JSON
 
 using System.Text.Json.Nodes;
@@ -45,7 +45,7 @@ public sealed class SetUiCommand(string name, Func<string, CancellationToken, Ta
         var vm = sp.GetRequiredService<ISetUiViewModel>();
         var nav = sp.GetRequiredService<ISettingsNavigation>();
         var shell = sp.GetRequiredService<ShellViewModel>();
-        var assistant = sp.GetRequiredService<SetUiAssistantViewModel>();
+        AddonChatViewModel? addonChat = null;
 
         yield return new SetUiCommand("set-open", (a, _) =>
         {
@@ -90,8 +90,19 @@ public sealed class SetUiCommand(string name, Func<string, CancellationToken, Ta
         yield return new SetUiCommand("set-get", (a, _) => Task.FromResult(vm.ValueOf(a)?.ToJsonString() ?? "null"));
         yield return new SetUiCommand("set-ask", async (a, ct) =>
         {
-            await assistant.AskAsync(a, null, ct).ConfigureAwait(true);
-            return assistant.Error.Length == 0 ? "ok " + assistant.Messages.Count + " messages" : "error " + assistant.Error;
+            // the chat of the add-on whose page is SettingsPageIds.Assistant
+            if (addonChat is null && sp.GetRequiredService<IAddonPageSource>().Find(SettingsPageIds.Assistant)?.Chat is { } chat)
+            {
+                addonChat = new AddonChatViewModel(chat, vm, sp.GetService<IDispatcher>());
+            }
+
+            if (addonChat is null)
+            {
+                return "error the add-on has no chat (disabled or not started)";
+            }
+
+            await addonChat.AskAsync(a, null, ct).ConfigureAwait(true);
+            return addonChat.Error.Length == 0 ? "ok " + addonChat.Turns.Count + " messages" : "error " + addonChat.Error;
         });
         yield return new SetUiCommand("set-dump", (_, _) =>
         {

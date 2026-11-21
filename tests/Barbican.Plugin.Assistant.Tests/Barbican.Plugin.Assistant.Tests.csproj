@@ -1,0 +1,7 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- The AI assistant native add-on (decision D-M6b-08): the agent loop, provider client, prompts, history, session and settings, tested against fakes of the host services
+       (no host, no live provider). References the plugin project directly: it needs only Barbican.Plugins.Abstractions. -->
+  <ItemGroup>
+    <ProjectReference Include="../../plugins/Barbican.Plugin.Assistant/Barbican.Plugin.Assistant.csproj" />
+  </ItemGroup>
+</Project>

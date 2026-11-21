@@ -1,4 +1,4 @@
-// Mirrors: M6 plan section 3.2 (set-ui builds the pages it owns; the rest are the generic rows of the catalog, D-M6-B02). Which page is hand-built: Account, Password and sign-in, AI assistant, Backup and import; the others are rows.
+// Mirrors: M6 plan section 3.2 (set-ui builds the pages it owns; the rest are the generic rows of the catalog, D-M6-B02). Which page is hand-built: Account, Password and sign-in, the add-on page (the AI assistant add-on, D-M6b-08), Backup and import; the others are rows.
 
 using Barbican.Presentation.Settings;
 
@@ -12,7 +12,7 @@ public static class SetUiPages
     {
         SettingsPageIds.Account => SetUiAccountPage.Create(),
         SettingsPageIds.Security => SetUiSecurityPage.Create(),
-        SettingsPageIds.Assistant => SetUiAssistantPage.Create(),
+        SettingsPageIds.Assistant => SetUiAddonPage.Create(SettingsPageIds.Assistant, SettingsPageIds.Assistant),
         SettingsPageIds.Backup => SetUiBackupPage.Create(),
         _ => Generic(pageId),
     };

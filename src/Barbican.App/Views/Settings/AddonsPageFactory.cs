@@ -5,6 +5,7 @@ using Barbican.Presentation.Dialogs;
 using Barbican.Core.Accounts;
 using Barbican.Core.Common;
 using Barbican.Core.Plugins.Bridge;
+using Barbican.Core.Plugins.Native;
 using Barbican.Core.Plugins.Packages;
 using Barbican.Core.Plugins.Permissions;
 using Barbican.Core.Storage;
@@ -21,7 +22,7 @@ namespace Barbican.App.Views.Settings;
 
 /// <summary>Lists packages and reviews local archives before installation.</summary>
 internal sealed partial class AddonsPageFactory(PluginPackageHost packages, PluginBackgroundRuntimes runtimes,
-    IPrefsStore prefs, IPrefsEditor editor) : ISettingsPageFactory
+    IPrefsStore prefs, IPrefsEditor editor, NativePlugins native) : ISettingsPageFactory
 {
     private StackPanel? _list;
     private TextBlock? _status;
@@ -77,6 +78,8 @@ internal sealed partial class AddonsPageFactory(PluginPackageHost packages, Plug
         _status = SetUiUi.Id(SetUiUi.Meta("Loading installed add-ons…"), "set.addons.status");
         AutomationProperties.SetLiveSetting(_status, AutomationLiveSetting.Polite);
         panel.Children.Add(_status);
+        _bundled = SetUiUi.Id(new StackPanel { Spacing = 4 }, "set.addons.bundled");
+        panel.Children.Add(_bundled);
         _list = SetUiUi.Id(new StackPanel { Spacing = 4 }, "set.addons.list");
         panel.Children.Add(_list);
         _page = SetUiUi.Scroll(panel);
@@ -171,6 +174,8 @@ internal sealed partial class AddonsPageFactory(PluginPackageHost packages, Plug
         _status.Text = "Loading installed add-ons…";
         try
         {
+            await LoadBundledAsync().ConfigureAwait(true);
+            if (!IsCurrent(generation)) return;
             var result = await packages.ListAsync(CancellationToken.None).ConfigureAwait(true);
             if (!IsCurrent(generation)) return;
             if (!result.IsOk || result.Value is null)

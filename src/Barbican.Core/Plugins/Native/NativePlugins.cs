@@ -43,6 +43,17 @@ public sealed class NativePlugins : INativePluginHost, IEmailDetailsSource, IDis
     /// <inheritdoc />
     public IReadOnlyList<PluginInfo> Plugins => [.. (_loaded?.Plugins ?? []), .. ActiveArchives().SelectMany(runtime => runtime.Host.Plugins)];
 
+    /// <summary>
+    /// The running instance of an enabled add-on (bundled or approved package) once it started, or null (not loaded, disabled, still starting or failed to start).
+    /// The host draws the add-on's settings rows and chat panel from what the instance implements (<see cref="IPluginSettingsProvider"/>, <see cref="IPluginChatProvider"/>).
+    /// </summary>
+    public IBarbicanPlugin? Find(string id)
+    {
+        ArgumentNullException.ThrowIfNull(id);
+        var bundled = _loaded?.FindStarted(id);
+        return bundled ?? ActiveArchives().Select(runtime => runtime.Host.FindStarted(id)).FirstOrDefault(plugin => plugin is not null);
+    }
+
     /// <inheritdoc />
     public IReadOnlyList<string> LoadErrors => _loaded?.LoadErrors ?? [];
 
