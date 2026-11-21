@@ -5,6 +5,7 @@ using Barbican.Core.Mail.Model;
 using Barbican.Core.Plugins.Api.Mail;
 using Barbican.Core.Plugins.Api.Navigation;
 using Barbican.Core.Plugins.Bridge;
+using Barbican.Core.Plugins.Pages;
 using Microsoft.Extensions.Time.Testing;
 
 namespace Barbican.Core.Tests.Plugins.Api;
@@ -21,11 +22,15 @@ internal sealed class PluginNavigationRig
 
     public Saver Files { get; } = new();
 
+    public PluginPageRegistry Pages { get; } = new(id => string.Equals(id, "probe", StringComparison.Ordinal) ? "Probe add-on" : id);
+
+    public PageOpener PageNav { get; } = new();
+
     public static async Task<PluginNavigationRig> StartAsync(string[] permissions)
     {
         var rig = new PluginNavigationRig();
         rig.Api = await PluginApiRig.StartAsync(() =>
-            PluginNavigationMethods.Create(new PluginNavigationHost(new Readers(), new PluginMailRateLimiter(rig.Time), rig.Nav, rig.Views, rig.Files)), permissions);
+            PluginNavigationMethods.Create(new PluginNavigationHost(new Readers(), new PluginMailRateLimiter(rig.Time), rig.Nav, rig.Views, rig.Files, rig.Pages, rig.PageNav)), permissions);
         return rig;
     }
 
@@ -35,7 +40,7 @@ internal sealed class PluginNavigationRig
     public Task<PluginCallOutcome> CallAsync(string method, string args) => Api.CallAsync(method, args);
 
     /// <summary>The server was never reached, nothing was moved, redrawn or saved.</summary>
-    public bool Untouched => Api.F.Server.ApiCalls.Count == 0 && Nav.Emails.Count == 0 && Nav.Calendars.Count == 0 && Nav.Tasks.Count == 0 && Views.Calls.Count == 0 && Files.Saved.Count == 0 && Files.Asked.Count == 0;
+    public bool Untouched => Api.F.Server.ApiCalls.Count == 0 && Nav.Emails.Count == 0 && Nav.Calendars.Count == 0 && Nav.Tasks.Count == 0 && Views.Calls.Count == 0 && PageNav.Opened.Count == 0 && Pages.All.Count == 0 && Files.Saved.Count == 0 && Files.Asked.Count == 0;
 
     private sealed class Readers : IPluginMailReaders
     {
@@ -74,6 +79,19 @@ internal sealed class PluginNavigationRig
         {
             Tasks.Add((accountKey, taskId));
             OnMove?.Invoke();
+            return Task.FromResult(Answer);
+        }
+    }
+
+    internal sealed class PageOpener : IPluginPageOpener
+    {
+        public List<(string Package, string Page, string Path)> Opened { get; } = [];
+
+        public bool Answer { get; set; } = true;
+
+        public Task<bool> OpenPageAsync(string packageId, string pageId, string path, CancellationToken ct)
+        {
+            Opened.Add((packageId, pageId, path));
             return Task.FromResult(Answer);
         }
     }

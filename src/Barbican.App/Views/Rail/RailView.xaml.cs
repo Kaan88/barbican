@@ -8,6 +8,8 @@ using Barbican.Core.Storage;
 using Barbican.Presentation.Accounts;
 using Barbican.Presentation.Commands;
 using Barbican.Presentation.Shell;
+using Microsoft.UI.Xaml.Automation;
+using Microsoft.UI.Xaml.Controls.Primitives;
 
 namespace Barbican.App.Views.Rail;
 
@@ -30,9 +32,11 @@ public sealed partial class RailView : UserControl
         Accounts.Rows.CollectionChanged += (_, _) => ApplyAccountLook();
         Accounts.PropertyChanged += (_, _) => ApplyAccountLook();
         Sidebar.PropertyChanged += OnSidebarChanged;
+        Rail.PluginPages.CollectionChanged += (_, _) => BuildPluginPages();
+        Look.PropertyChanged += (_, _) => ResizePluginPages();
         Rail.PropertyChanged += (_, e) =>
         {
-            if (string.Equals(e.PropertyName, nameof(RailViewModel.ActiveApp), StringComparison.Ordinal))
+            if (string.Equals(e.PropertyName, nameof(RailViewModel.ActiveApp), StringComparison.Ordinal) || string.Equals(e.PropertyName, nameof(RailViewModel.HasActivePluginPage), StringComparison.Ordinal))
             {
                 SyncActive();
             }
@@ -44,6 +48,7 @@ public sealed partial class RailView : UserControl
 
         Loaded += (_, _) => ApplyAccountLook();
         StyleSignOutMenu();
+        BuildPluginPages();
         SyncActive();
         ApplyAccountLook();
     }
@@ -97,13 +102,69 @@ public sealed partial class RailView : UserControl
         SyncActive();
     }
 
+    // SH-10 (navigation-rail.tsx:459-512,700-720): one toggle per add-on page, built like the apps' (same size, style, icon size and in-window tooltip), checked while its page is on screen
+    private void BuildPluginPages()
+    {
+        PluginPageList.Children.Clear();
+        foreach (var item in Rail.PluginPages)
+        {
+            var button = new ToggleButton
+            {
+                Style = (Style)Resources["Rail.Toggle"],
+                Width = Look.RailButton,
+                Height = Look.RailButton,
+                CornerRadius = Look.RailButtonRadius,
+                Tag = item,
+                IsChecked = item.IsActive,
+                Content = new Controls.SIcon { Kind = item.IconKind, Size = Look.RailIcon },
+            };
+            button.Click += OnPluginPageClick;
+            AutomationProperties.SetAutomationId(button, "rail.plugin." + item.Key);
+            AutomationProperties.SetName(button, item.Title);
+            Tip.SetText(button, item.Tooltip);
+            item.PropertyChanged += (_, e) =>
+            {
+                if (string.Equals(e.PropertyName, nameof(PluginRailItem.IsActive), StringComparison.Ordinal))
+                {
+                    button.IsChecked = item.IsActive;
+                }
+            };
+            PluginPageList.Children.Add(button);
+        }
+    }
+
+    // the style (Bento, Nordic, Bulwark) changes the button, radius and icon sizes of every app: the page entries follow
+    private void ResizePluginPages()
+    {
+        foreach (var child in PluginPageList.Children)
+        {
+            if (child is ToggleButton { Content: Controls.SIcon icon } button)
+            {
+                button.Width = Look.RailButton;
+                button.Height = Look.RailButton;
+                button.CornerRadius = Look.RailButtonRadius;
+                icon.Size = Look.RailIcon;
+            }
+        }
+    }
+
+    private void OnPluginPageClick(object sender, RoutedEventArgs e)
+    {
+        if (sender is ToggleButton { Tag: PluginRailItem item } button)
+        {
+            Rail.OpenPluginPage(item);
+            button.IsChecked = item.IsActive;
+        }
+    }
+
     private void SyncActive()
     {
-        MailButton.IsChecked = Rail.ActiveApp == AppId.Mail;
-        CalendarButton.IsChecked = Rail.ActiveApp == AppId.Calendar;
-        ContactsButton.IsChecked = Rail.ActiveApp == AppId.Contacts;
-        FilesButton.IsChecked = Rail.ActiveApp == AppId.Files;
-        SettingsButton.IsChecked = Rail.ActiveApp == AppId.Settings;
+        var page = Rail.HasActivePluginPage;
+        MailButton.IsChecked = !page && Rail.ActiveApp == AppId.Mail;
+        CalendarButton.IsChecked = !page && Rail.ActiveApp == AppId.Calendar;
+        ContactsButton.IsChecked = !page && Rail.ActiveApp == AppId.Contacts;
+        FilesButton.IsChecked = !page && Rail.ActiveApp == AppId.Files;
+        SettingsButton.IsChecked = !page && Rail.ActiveApp == AppId.Settings;
     }
 
     // Flyouts are a Menu kind: Bulwark's popovers have no entrance animation (FM-14), and the radius is the shared one (navigation-rail.tsx:182 rounded-lg).

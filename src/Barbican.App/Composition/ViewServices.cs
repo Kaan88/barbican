@@ -72,6 +72,7 @@ public static class ViewServices
         services.AddSingleton<Barbican.Automation.IAutomationCommand, Shell.Automation.UiCommand>();
 #if WINDOWS
         services.AddSingleton<Barbican.Automation.IAutomationCommand, Shell.Automation.CaptionCommand>();
+        services.AddSingleton<Barbican.Automation.IAutomationCommand, Shell.Automation.PluginPagesCommand>();
 #endif
 #endif
         return services;

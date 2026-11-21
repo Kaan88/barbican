@@ -48,6 +48,7 @@ public sealed partial class ShellPage : Page
     private bool _phoneBarWanted;
     private bool _contextHidden;
     private Views.Calendar.CalendarScreen? _calendar;
+    private Views.Plugins.PluginPageScreen? _pluginPage;
     private readonly ShellViewModel? _shell;
     private readonly IReadOnlyList<IAppScreenFactory> _factories;
     private readonly Dictionary<AppId, UIElement> _appScreens = [];
@@ -434,9 +435,10 @@ public sealed partial class ShellPage : Page
 
         SignInRegion.Visibility = signedOut ? Visibility.Visible : Visibility.Collapsed;
         ApplyBandColour();
-        var calendar = !signedOut && _shell?.ActiveApp == AppId.Calendar && _shell.AvailableApps.Contains(AppId.Calendar);
-        var other = signedOut || _shell is null || calendar ? null : _factories.FirstOrDefault(f => f.App == _shell.ActiveApp && _shell.AvailableApps.Contains(f.App));
-        MailScreen.Visibility = signedOut || calendar || other is not null ? Visibility.Collapsed : Visibility.Visible;
+        var page = !signedOut && _shell?.ActivePluginPage is not null;
+        var calendar = !signedOut && !page && _shell?.ActiveApp == AppId.Calendar && _shell.AvailableApps.Contains(AppId.Calendar);
+        var other = signedOut || page || _shell is null || calendar ? null : _factories.FirstOrDefault(f => f.App == _shell.ActiveApp && _shell.AvailableApps.Contains(f.App));
+        MailScreen.Visibility = signedOut || page || calendar || other is not null ? Visibility.Collapsed : Visibility.Visible;
         if (_compactFoldersOpen && MailScreen.Visibility != Visibility.Visible)
         {
             // leaving the mail screen closes the folder drawer (it belongs to Mail)
@@ -446,6 +448,23 @@ public sealed partial class ShellPage : Page
         UpdatePhoneBar();
         ShowCalendar(calendar);
         ShowAppScreen(other);
+        ShowPluginPage(page);
+    }
+
+    // SH-10: an add-on page of the rail shows its own screen (built on the first visit, then only hidden), in place of every app
+    private void ShowPluginPage(bool show)
+    {
+        if (show && _pluginPage is null)
+        {
+            _pluginPage = new Views.Plugins.PluginPageScreen();
+            PluginPageHost.Children.Add(_pluginPage);
+        }
+
+        PluginPageHost.Visibility = show ? Visibility.Visible : Visibility.Collapsed;
+        if (show && _shell?.ActivePluginPage is { } key)
+        {
+            _pluginPage?.Show(key, _shell.PluginPagePath);
+        }
     }
 
     // M5 S0: an app of the rail other than Mail and Calendar shows the screen of the factory registered for it (built on the first visit, then only hidden)
@@ -514,7 +533,7 @@ public sealed partial class ShellPage : Page
 
         _shell.PropertyChanged += (_, e) =>
         {
-            if (string.Equals(e.PropertyName, nameof(ShellViewModel.ActiveApp), StringComparison.Ordinal))
+            if (string.Equals(e.PropertyName, nameof(ShellViewModel.ActiveApp), StringComparison.Ordinal) || string.Equals(e.PropertyName, nameof(ShellViewModel.ActivePluginPage), StringComparison.Ordinal) || string.Equals(e.PropertyName, nameof(ShellViewModel.PluginPagePath), StringComparison.Ordinal))
             {
                 ShowScreen();
             }
