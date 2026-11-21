@@ -10,7 +10,9 @@
 
 using System.Text.Json.Nodes;
 using Barbican.Automation;
+using Barbican.Presentation.Common;
 using Barbican.Presentation.Settings;
+using Barbican.Presentation.Settings.Addons;
 using Barbican.Presentation.Settings.Ui;
 using Barbican.Presentation.Shell;
 using Microsoft.Extensions.DependencyInjection;
