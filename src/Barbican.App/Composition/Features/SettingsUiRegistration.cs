@@ -9,6 +9,7 @@ using Barbican.App.Views.Dialogs;
 using Barbican.Core.Plugins.Bridge;
 #if WINDOWS
 using Barbican.Core.Accounts;
+using Barbican.Core.Plugins.Api.Dialogs;
 using Barbican.Core.Plugins.Notifications;
 using Barbican.Core.Plugins.Packages.Managed;
 #if AUTOMATION
@@ -56,6 +57,13 @@ public static class SettingsUiRegistration
             services.AddSingleton<IPluginApiMethod>(sp => sp.GetRequiredService<Views.Plugins.PluginToastPresenter>().Methods[method]);
         }
         services.AddSingleton<IDialogContent, Views.Plugins.PluginFilePreviewContent>();
+        services.AddSingleton<IDialogContent, Views.Plugins.PluginDialogContent>();
+        services.AddSingleton<Views.Plugins.PluginDialogPresenter>();
+        for (var dialogMethod = 0; dialogMethod < PluginDialogMethods.MethodCount; dialogMethod++)
+        {
+            var method = dialogMethod;
+            services.AddSingleton<IPluginApiMethod>(sp => sp.GetRequiredService<Views.Plugins.PluginDialogPresenter>().Methods[method]);
+        }
         services.AddSingleton<IPluginApiMethod>(sp => new PluginOpenFile(sp.GetRequiredService<TimeProvider>(),
             sp.GetRequiredService<Views.Plugins.PluginFilePresenter>().ShowAsync));
 #endif

@@ -3072,3 +3072,8 @@ results. The queued provider withdrawal produced zero additional WebView
 posts. This was approval of the fixes under review. The integrated M6b
 candidate and portable still require final approval.
 [Windows checker evidence](milestones/M6b-solo-parity.md#typing-checker-on-windows)
+
+## m6b/dialogs: ui.alert, ui.confirm, ui.prompt
+- Review `src/Barbican.Core/Plugins/Api/Dialogs/PluginDialogMethods.cs` against Bulwark `host-api.ts:2236-2290` and `host-dialog.ts`. Bulwark's methods take an options object (`{title, message, confirmLabel, cancelLabel, danger}`; prompt takes `fields` and returns a name-to-value map), not a bare message string; a bare string reads as no options, as in Bulwark. Deliberate differences: blank titles and labels fall back to the defaults, control and bidi characters are stripped (Bulwark only cuts), no `**bold` rendering, no per-dialog "turn off" menu, title shown at most 200 characters, a dialog queues behind a host dialog that is already open.
+- Stale handling is Barbican's: the open dialog re-checks `CheckCurrentAsync` every second and the binding lifetime closes it; the call then fails with `StaleContext` instead of Bulwark's cancel result.
+- The App presenter and content (`src/Barbican.App/Views/Plugins/PluginDialog*.cs`) compile on both heads but have not been exercised in a hidden Automation run: focus trap, Enter and Escape, and the reduced layout are unverified at runtime.
