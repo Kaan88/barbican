@@ -31,7 +31,6 @@ Earlier approvals cover only the revisions they name; they do not approve curren
 
 Coordinator follow-ups not yet owned by a package:
 
-- `SrvUiViewModelTests.The_filters_page_lists_enables_and_deletes_a_rule` failed once in a worker run and passed on rerun; treat as flaky until explained.
 - Reader actions give add-ons 30 s (`ReaderView.AddOns.cs`); an add-on dialog left open longer is untested.
 - `calendar.respond` detects a hook stop from `InvitationService`'s message text; make it a typed result (recorded in the review log).
 - The `assistant` Settings nav entry is static and `set-ask` hardcodes its id; the composer bridge decoder caps strings at 256 KiB while the methods allow 512 KiB; the composer handle's `AttachAsync` has no test.
