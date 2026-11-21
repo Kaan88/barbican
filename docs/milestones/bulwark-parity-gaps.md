@@ -186,6 +186,20 @@ FM-09/12/14/15/16, reduce motion applied to the overrides.
 - Motion Bulwark does not have, to switch off with `MotionRuntime.DecorationMs(ms)` (0 in the Bulwark style, unchanged in Bento and Nordic): list folder-change rise (`MessageListView.xaml.cs:141`, FM-12, WP-5), reader subject/sender rise and body cross-fade (`ReaderView.xaml.cs:193`, `BodyShell.cs:450`, FM-09, WP-6), shell rise on a style switch (`ShellPage.xaml.cs:191`, FM-16, WP-10). The compact-navigation rise (`ShellPage.xaml.cs:244`) stays (FM-10, FM-17).
 - Focus: set `UseSystemFocusVisuals="True"` on custom focusable elements and remove per-control `FocusVisualPrimaryThickness` bindings; the global ring supplies colour and width.
 - Do not edit `Styles/Controls.xaml` or `Styles/Feedback.xaml`; ask WP-1 or define a local style in your own `Styles/<Area>.xaml` that is `BasedOn` a shared one.
+### 3.6 WP-2 status (branch m6b/wp2-fluent)
+
+`Styles/FluentOverrides.xaml` (merged after `Controls.xaml` by `AppResources.EnsureStyles`) restyles the stock controls from the shared palette and `Feedback*` brushes; `Theme/FluentShape.cs` writes the two radii it needs (`Fluent.FieldRadius`, `Fluent.MenuRadius`) per style.
+
+| ID | Status | Note |
+|---|---|---|
+| FM-19 | closed for the named controls | ToggleSwitch (own 44x24 template), TextBox (own template, no clear button), PasswordBox, CheckBox, RadioButton, ScrollBar, ProgressBar, MenuFlyout presenter and rows, Expander: Bulwark colours, hover and focus (`input.tsx:13-18`, `settings-section.tsx:374-410`). ComboBox, Slider, DatePicker and other stock controls are not restyled |
+| FM-20 | closed | the accent resources are the primary brushes (WP-1); CheckBox, RadioButton, ProgressBar and the switch read `Accent` / `FeedbackPrimary*` directly |
+| FM-21 | closed for the restyled controls | the switch uses `ControlFastAnimationDuration` (follows `ColorMs`, 0 with reduce motion). The stock TextBox and PasswordBox border change is instant here; the ScrollBar expand/contract durations (`ScrollBarExpandDuration`, 100 ms) and the stock CheckBox/RadioButton storyboards stay the library's (all <= 167 ms, no overshoot) and do not follow reduce motion |
+| ST-03 | closed | 44x24 track, 16 px knob, 20 px travel on the 150 ms Tailwind curve, no hover/pressed (Bulwark has none), disabled opacity 0.5 |
+| TH-07 | closed | 8 px scroll bars, border-colour thumb, muted-foreground on hover, transparent track. The Fluent thin resting indicator (4 px) and the arrow buttons remain; the "native scrollbars" accessibility switch is not built |
+
+Limits: a radius is read when a control's style is applied, so a text box created before a style switch keeps its radius until rebuilt. TextBox minimum height is 40 (`h-10`); a view that needs a denser field sets its own `MinHeight`. The text box border colour changes at once (the brush transition API covers only the background).
+
 ## 4. Gap ledger by area
 
 Legend for each row: **B** = Bulwark, **N** = Barbican now.
