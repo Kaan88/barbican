@@ -65,6 +65,12 @@ public static class MailMenus
         items.Add(junk
             ? Item(MenuGlyphs.Spam, "Not spam", CommandIds.NotSpam, enabled: rights.MayRemoveItems)
             : Item(MenuGlyphs.Spam, "Report spam", CommandIds.ReportSpam, "!", enabled: rights.MayRemoveItems));
+        // Bulwark message-actions.ts:304-338: "Report phishing…" follows the spam row while the admin set an address for the account (hooks/use-phishing-report.ts)
+        if (d.CanReportPhishing(first.AccountKey) && !c.Targets.All(t => t.Keywords.IsSet("$phishing")))
+        {
+            items.Add(Item(MenuGlyphs.Spam, "Report phishing…", CommandIds.ReportPhishing));
+        }
+
         items.Add(Sep());
         items.Add(Sub(MenuGlyphs.More, "More actions", MenuIds.MailMore));
         return items;

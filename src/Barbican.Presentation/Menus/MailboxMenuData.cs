@@ -18,10 +18,11 @@ public sealed class MailboxMenuData : IMenuDataSource, IStartupTask, IDisposable
     private readonly MailEventHub _hub;
     private readonly IPrefsStore _prefs;
     private readonly ISystemAccessibilitySource _system;
+    private readonly Barbican.Presentation.Reader.IPhishingReportSetups? _phishing;
     private MailboxTree _tree = new([]);
     private string? _treeAccount;
 
-    public MailboxMenuData(IActiveMail active, MailEventHub hub, IPrefsStore prefs, ISystemAccessibilitySource system)
+    public MailboxMenuData(IActiveMail active, MailEventHub hub, IPrefsStore prefs, ISystemAccessibilitySource system, Barbican.Presentation.Reader.IPhishingReportSetups? phishing = null)
     {
         ArgumentNullException.ThrowIfNull(active);
         ArgumentNullException.ThrowIfNull(hub);
@@ -31,10 +32,14 @@ public sealed class MailboxMenuData : IMenuDataSource, IStartupTask, IDisposable
         _hub = hub;
         _prefs = prefs;
         _system = system;
+        _phishing = phishing;
     }
 
     /// <summary>Whether the open message is plain text; the reader view sets it when it shows a message (default: HTML).</summary>
     public bool BodyIsPlainText { get; set; }
+
+    /// <inheritdoc />
+    public bool CanReportPhishing(string? accountKey) => accountKey is not null && _phishing?.Cached(accountKey).IsOn == true;
 
     /// <inheritdoc />
     public bool NestedTags => _prefs.Current.Bool("nestedTags", false);

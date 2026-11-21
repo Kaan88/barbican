@@ -24,16 +24,22 @@ public static class OrganizationPolicyResolver
         var watermarkSource = document.Global.Watermark is null ? "default" : "global";
         var labelsSource = document.Global.Labels is null ? "default" : "global";
         var proofreading = document.Global.Proofreading;
+        var reportAddress = document.Global.PhishingReportAddress ?? string.Empty;
+        var reportFormat = document.Global.PhishingReportFormat ?? PhishingReportFormat.Forward;
         foreach (var scope in matched)
         {
             if (scope.Values.NoPrint is { } p) { noPrint = p; noPrintSource = scope.Id; }
             if (scope.Values.Watermark is { } w) { watermark = w; watermarkSource = scope.Id; }
             if (scope.Values.Labels is { } l) { labels = l; labelsSource = scope.Id; }
             proofreading = proofreading.Apply(scope.Values.Proofreading);
+            // a scope replaces the phishing report per leaf (Bulwark organisation-policy.ts: address and format each inherit)
+            if (scope.Values.PhishingReportAddress is { } address) reportAddress = address;
+            if (scope.Values.PhishingReportFormat is { } format) reportFormat = format;
         }
         return new(noPrint, watermark, labels, [.. matched.Select(scope => scope.Id)], noPrintSource, watermarkSource, labelsSource)
         {
             Proofreading = proofreading,
+            PhishingReport = reportAddress.Length == 0 ? PhishingReportPolicy.Off : new PhishingReportPolicy(reportAddress, reportFormat),
         };
     }
 

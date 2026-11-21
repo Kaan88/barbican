@@ -69,10 +69,20 @@ internal sealed class SamplePolicyFixture : IDisposable
                 (Environment.GetEnvironmentVariable("BARBICAN_SAMPLE_PRINT_POLICY") is "allow" or "watermark");
             var watermark = printing && string.Equals(Environment.GetEnvironmentVariable("BARBICAN_SAMPLE_PRINT_POLICY"), "watermark", StringComparison.Ordinal);
             var labels = SampleLabels(profile);
-            var json = "{\"organisation\":{\"devices\":{\"noPrint\":" + (printing ? "false" : "true") + ",\"watermark\":" + (watermark ? "true" : "false") + "}" + labels + "},\"scopes\":[]}";
+            var json = "{\"organisation\":{\"devices\":{\"noPrint\":" + (printing ? "false" : "true") + ",\"watermark\":" + (watermark ? "true" : "false") + "}" + labels + PhishingReport(profile) + "},\"scopes\":[]}";
             var response = new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(json, Encoding.UTF8, "application/json") };
             response.Headers.TryAddWithoutValidation("X-Bulwark-Policy-Domains", "example.org");
             return Task.FromResult(response);
+        }
+
+        // G-050: the admin's report address (a reserved example domain: nothing reaches a real mailbox) and format, in a synthetic phishing-report run only
+        private static string PhishingReport(string profile)
+        {
+            var mode = Environment.GetEnvironmentVariable("BARBICAN_SAMPLE_PHISHING_REPORT");
+            if (!ProfilePaths.IsAutomationProfile(profile) || !Enabled("BARBICAN_SAMPLE") || !Enabled("BARBICAN_SAMPLE_ADDON_ACCOUNT") ||
+                !Enabled("BARBICAN_SAMPLE_ORGANIZATION_POLICY") || mode is not ("1" or "arf"))
+                return string.Empty;
+            return ",\"phishingReport\":{\"address\":\"security@example.org\",\"format\":\"" + (mode is "arf" ? "arf" : "forward") + "\"}";
         }
 
         private static string SampleLabels(string profile)

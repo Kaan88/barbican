@@ -29,4 +29,7 @@ public interface IMenuDataSource
 
     /// <summary>The key of the sort choice the list runs in a folder of <paramref name="role"/> (<see cref="ListSortChoices"/>), or null for an order only Settings can make.</summary>
     string? ListSortKey(Barbican.Core.Mail.Model.MailboxRole role) => ListSortChoices.NewestKey;
+
+    /// <summary>"Report phishing" is set up for the account (the admin set an address, Bulwark hooks/use-phishing-report.ts); the row is left out otherwise.</summary>
+    bool CanReportPhishing(string? accountKey) => false;
 }
