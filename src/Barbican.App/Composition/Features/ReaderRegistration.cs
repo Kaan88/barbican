@@ -107,6 +107,19 @@ public static class ReaderRegistration
             services.AddSingleton<Barbican.Presentation.Commands.IAppCommand>(sp => sp.GetRequiredService<Barbican.Presentation.Reader.ReaderCommands>().Create()[index]);
         }
 
+        // RD-08: the menu on selected message text (MENU-SELECTION), Copy and the add-ons' rows; the add-on side exists where the add-on host does (Windows)
+#if WINDOWS
+        services.AddSingleton<Barbican.App.Plugins.ReaderSelectionAddOns>();
+        services.AddSingleton<IReaderSelectionAddOns>(sp => sp.GetRequiredService<Barbican.App.Plugins.ReaderSelectionAddOns>());
+#endif
+        services.AddSingleton<Barbican.Presentation.Menus.IMenuProvider>(sp => ReaderSelectionMenu.Provider(() => sp.GetService<IReaderSelectionAddOns>()));
+        foreach (var i in Enumerable.Range(0, 2))
+        {
+            var selection = i;
+            services.AddSingleton<Barbican.Presentation.Commands.IAppCommand>(sp =>
+                ReaderSelectionMenu.Commands(sp.GetRequiredService<Barbican.Presentation.Common.IClipboardService>(), () => sp.GetService<IReaderSelectionAddOns>())[selection]);
+        }
+
         foreach (var i in Enumerable.Range(0, 2))
         {
             var index = i;

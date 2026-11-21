@@ -18,7 +18,8 @@
 //   ready:N          document N is laid out and may be revealed
 //   key:FLAGS|KEY    a shortcut pressed while the page has focus (c=ctrl/meta, s=shift, a=alt)
 //   dirty            the visible page changed (scroll, resize, load, selection)
-//   ctx:X,Y          a right-click at page coordinates X,Y (the host opens its native menu)
+//   ctx:X,Y          a right-click at page coordinates X,Y (the host opens its native menu); a sel: with the current selection is posted just before it
+//   sel:TEXT         the selected text changed (debounced; at most 4000 characters; empty when it was cleared)
 //   link:URL         a link in a message was activated (the host checks the scheme and routes it)
 // The host validates every message (src/Barbican.Core/Mail/Body/ShellMessage.cs) and drops the rest.
 //
@@ -81,8 +82,17 @@
       post('key:' + (c ? 'c' : '') + (e.shiftKey ? 's' : '') + (a ? 'a' : '') + '|' + (k.length === 1 && c ? k.toLowerCase() : k));
     } catch (x) { }
   }
-  function ctx(e) {
-    try { e.preventDefault(); post('ctx:' + Math.round(e.clientX) + ',' + Math.round(e.clientY)); } catch (x) { }
+  // RD-08 (Bulwark reader-selection-menu.tsx:95-99): a right-click on selected text. The selection goes first (the debounce below is skipped) so the host
+  // has it when ctx arrives (sent even when unchanged: a dropped frame leaves no event, so the host's copy may be of an earlier message); the channel is ordered.
+  function ctxOf(d) {
+    return function (e) {
+      try {
+        e.preventDefault();
+        if (selT) { clearTimeout(selT); selT = 0; }
+        pubSel(d, true);
+        post('ctx:' + Math.round(e.clientX) + ',' + Math.round(e.clientY));
+      } catch (x) { }
+    };
   }
   // A primary or middle click (or Enter) on a link: the host gets the absolute URL, the frame stays.
   function link(e) {
@@ -98,21 +108,21 @@
   }
   // onTextSelectionChange (Bulwark plugin-hook-catalog.ts:328): the selected text, debounced, capped like the host (ShellMessage.MaxSelection)
   var selT = 0, selLast = '';
+  function pubSel(d, force) {
+    try {
+      var v = G(d, 'view'), t = v && v.getSelection ? String(v.getSelection()) : '';
+      if (t.length > 4000) t = t.slice(0, 4000);
+      if (force || t !== selLast) { selLast = t; post('sel:' + t); }
+    } catch (x) { }
+  }
   function sel(d) {
     return function () {
       if (selT) clearTimeout(selT);
-      selT = setTimeout(function () {
-        selT = 0;
-        try {
-          var v = G(d, 'view'), t = v && v.getSelection ? String(v.getSelection()) : '';
-          if (t.length > 4000) t = t.slice(0, 4000);
-          if (t !== selLast) { selLast = t; post('sel:' + t); }
-        } catch (x) { }
-      }, 300);
+      selT = setTimeout(function () { selT = 0; pubSel(d); }, 300);
     };
   }
   document.addEventListener('keydown', kd, true);
-  document.addEventListener('contextmenu', ctx, true);
+  document.addEventListener('contextmenu', ctxOf(document), true);
   function fix(d) {
     try {
       var a = Q(d, 'a,area,form');
@@ -123,7 +133,7 @@
         handled.add(d);
         var t = 0, p = function () { if (t) return; t = 1; requestAnimationFrame(function () { t = 0; post('dirty'); }); };
         on(d, 'keydown', kd, true);
-        on(d, 'contextmenu', ctx, true);
+        on(d, 'contextmenu', ctxOf(d), true);
         on(d, 'click', link, true);
         on(d, 'auxclick', link, true);
         on(d, 'scroll', p, true);

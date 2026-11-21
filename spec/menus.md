@@ -62,6 +62,9 @@ Then, when a rule subject exists (not for an opened .eml): —; header "Rules";
 Plain-text view only: Copy (Ctrl+C), Select all (Ctrl+A), —. Always: Copy message text; Reply (R); Print.
 (In the HTML body, the shell catches `contextmenu` and posts `ctx:X,Y`; the host opens this menu: `src/Barbican.App/Assets/mail/shell.js`, ADR 0005.)
 
+## MENU-SELECTION: selected text in the message body [RD-08]
+Copy, then (only when an add-on contributes) —, and the add-ons' rows of the `reader-selection-menu` slot in their `order`. Opens on a right-click on selected text, anchored at the click; blank text opens nothing; Escape, a click outside or a pick closes it. Bulwark `components/email/reader-selection-menu.tsx:177-198`; there the menu replaces the browser's own only when an add-on put rows in it, so Copy stays. Barbican's body WebView has no browser menu, so the menu also opens with Copy alone. shell.js posts `sel:` (forced) then `ctx:X,Y`; `MailBodyView` converts the point to window coordinates. Add-on rows run `onAction` with surface `reader-selection-menu` and context `{ emailId, selection: { text } }` (both need `email:read`); the slot needs `ui:context-menu` or `ui:toolbar`.
+
 ## MENU-FOLDER: a mailbox in the sidebar, or a folder row on the Organize settings page [M2]
 header (folder name); Mark folder as read; —; New subfolder (not in Trash or Junk); Rename [off: not a role folder]; Rules ›; —; Import messages (.eml, .mbox)… [off: the account cannot write; not in Trash or Junk]; Export as mbox…; Export as .eml files… (a folder pick; both read only, so they stay on for a read-only account); Refresh;
 Trash or Junk only: —, danger Empty trash / Empty spam (asks); custom folders only: —, danger Delete folder (asks). Virtual folders (`__…`) have no menu.

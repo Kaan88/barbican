@@ -12,6 +12,7 @@ public static class MenuIds
     public const string Attachment = "MENU-ATT";
     public const string Reader = "MENU-READER";
     public const string Body = "MENU-BODY";
+    public const string ReaderSelection = "MENU-SELECTION";
     public const string Folder = "MENU-FOLDER";
     public const string Tag = "MENU-TAG";
     public const string List = "MENU-LIST";

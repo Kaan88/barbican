@@ -9,7 +9,9 @@
 using Barbican.App.Shell;
 using Barbican.App.Theme;
 using Barbican.Core.Mail.Trust;
+using Barbican.Presentation.Commands;
 using Barbican.Presentation.Mail;
+using Barbican.Presentation.Menus;
 using Barbican.Presentation.Reader;
 using Microsoft.UI.Xaml.Automation;
 using Microsoft.UI.Xaml.Shapes;
@@ -180,18 +182,23 @@ public sealed partial class MailBodyView : UserControl
         _host.Children.Insert(0, view);
         // the shell outlives every view (it is one warm WebView2): a view that left the tree must not stay subscribed to it
         void OnState(object? sender, EventArgs e) => Sync(shell);
+        void OnContext(object? sender, BodyContextEventArgs e) => OpenSelectionMenu(shell, e.X, e.Y, e.Selection);
         shell.StateChanged += OnState;
+        shell.ContextRequested += OnContext;
         Unloaded += (_, _) =>
         {
             if (!IsLoaded)
             {
                 shell.StateChanged -= OnState;
+                shell.ContextRequested -= OnContext;
             }
         };
         Loaded += (_, _) =>
         {
             shell.StateChanged -= OnState;
             shell.StateChanged += OnState;
+            shell.ContextRequested -= OnContext;
+            shell.ContextRequested += OnContext;
             Sync(shell);
         };
         // a closed and re-created WebView (background release, D-WV-01) goes into the same place
@@ -209,6 +216,20 @@ public sealed partial class MailBodyView : UserControl
             }
         };
         Sync(shell);
+    }
+
+    // RD-08 (Bulwark reader-selection-menu.tsx:144-175, 38-58): a right-click on selected text opens the in-window selection menu at that point, converted from the
+    // page's coordinates to the window's (the frame fills the view). No selected text: nothing opens (MENU-BODY is I-215's).
+    private void OpenSelectionMenu(BodyShell shell, int x, int y, string text)
+    {
+        if (!IsLoaded || ReaderSelectionMenu.Usable(text) is not { } selected || ViewHost.Find<IContextMenuService>() is not { } menus || XamlRoot?.Content is not UIElement root)
+        {
+            return;
+        }
+
+        var at = shell.View.TransformToVisual(root).TransformPoint(new Windows.Foundation.Point(x, y));
+        var context = new MenuContext(MenuIds.ReaderSelection, [], null, null, null, null, CommandSurface.ContextMenu) { SelectionText = selected };
+        menus.Show(context, new MenuAnchor(at.X, at.Y, null));
     }
 
     private void Sync(BodyShell shell)

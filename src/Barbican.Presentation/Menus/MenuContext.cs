@@ -17,6 +17,9 @@ public sealed record MenuContext(
 {
     public bool IncludeReaderOverflow { get; init; }
 
+    /// <summary>RD-08: the text selected in the message body (MENU-SELECTION); <see langword="null"/> for every other menu.</summary>
+    public string? SelectionText { get; init; }
+
     /// <summary>M4 (additive, cal-views): what a calendar menu (MENU-EVENT, MENU-SLOT, MENU-TASK, MENU-CAL) was opened on.</summary>
     public Barbican.Presentation.Calendar.Grid.CalendarMenuTarget? Calendar { get; init; }
 
