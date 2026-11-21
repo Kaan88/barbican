@@ -1,6 +1,7 @@
 // Mirrors: Rust mail.rs build_rows :463 (Mail struct of ui/app.slint); Bulwark components/email/thread-list-item.tsx:912-923,978-997 (status icons: pinned, starred, replied, forwarded, paperclip), :720-745 (selected row) (sender, subject, preview,
-// date, unread dot, star, attachment chips, thread count, tag dots); spec I-119..I-129. Owner mailcore.
+// date, unread dot, star, attachment chips, thread count, tag dots), :562-564,924-931 (the scheduled-send chip replaces the date; lib/scheduled-send-label.ts); spec I-119..I-129. Owner mailcore.
 
+using Barbican.Core.Compose.Schedule;
 using Barbican.Core.Mail.Model;
 using Barbican.Core.Mail.Rules;
 
@@ -37,6 +38,9 @@ public sealed class MessageRowViewModel : ListItemViewModel
         Subject = string.IsNullOrWhiteSpace(summary.Subject) ? "(no subject)" : summary.Subject;
         Preview = context.ShowPreview ? RowText.CleanPreview(summary.Preview) : string.Empty;
         TimeLabel = summary.ReceivedAt is { } at ? RowText.TimeLabel(at, context.Now, context.Zone, context.DateFormat, context.TwelveHour) : string.Empty;
+        ScheduledLabel = context.ScheduledSends is { } sends && sends.TryGetValue(summary.Id, out var sendAt)
+            ? ScheduleRules.Label(sendAt, context.TwelveHour, context.Now, context.Zone)
+            : null;
         Unread = !summary.Keywords.Seen;
         Flagged = summary.Keywords.Flagged;
         Answered = summary.Keywords.IsSet("$answered");
@@ -127,6 +131,12 @@ public sealed class MessageRowViewModel : ListItemViewModel
 
     public string TimeLabel { get; }
 
+    /// <summary>The release time of a message held for a scheduled send, formatted as Bulwark's list chip (formatScheduledSendAt); null for every other row (thread-list-item.tsx:562-564).</summary>
+    public string? ScheduledLabel { get; }
+
+    /// <summary>The row draws the scheduled chip in place of the date (thread-list-item.tsx:924-931).</summary>
+    public bool ShowScheduledChip => ScheduledLabel is not null;
+
     public bool Unread { get; }
 
     public bool Flagged { get; }
@@ -163,6 +173,7 @@ public sealed class MessageRowViewModel : ListItemViewModel
         && string.Equals(r.Subject, Subject, StringComparison.Ordinal)
         && string.Equals(r.Preview, Preview, StringComparison.Ordinal)
         && string.Equals(r.TimeLabel, TimeLabel, StringComparison.Ordinal)
+        && string.Equals(r.ScheduledLabel, ScheduledLabel, StringComparison.Ordinal)
         && r.Unread == Unread
         && r.Flagged == Flagged
         && r.Answered == Answered

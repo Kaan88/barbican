@@ -102,7 +102,18 @@
                                     AutomationProperties.AutomationId="row.clip" AutomationProperties.Name="Has attachment" />
                   </StackPanel>
                   <TextBlock Grid.Column="4" Text="{x:Bind TimeLabel}" FontSize="12" Margin="6,0,0,0" FontWeight="{x:Bind local:ListFmt.TimeWeight(Unread, theme:StyleState.Current.IsNordic, theme:StyleState.Current.IsBulwark), Mode=OneWay}"
-                             Foreground="{x:Bind local:ListFmt.TimeBrush(Unread, theme:StyleState.Current.IsNordic, theme:StyleState.Current.IsBulwark), Mode=OneWay}" VerticalAlignment="Center" />
+                             Foreground="{x:Bind local:ListFmt.TimeBrush(Unread, theme:StyleState.Current.IsNordic, theme:StyleState.Current.IsBulwark), Mode=OneWay}" VerticalAlignment="Center"
+                             Visibility="{x:Bind local:ListFmt.DateLabel(ShowScheduledChip), Mode=OneWay}" />
+                  <!-- thread-list-item.tsx:924-931, lib/scheduled-send-label.ts: a scheduled message shows its release time in the date's place - a sky pill (bg-sky-500/10, border sky-500/20, text sky-700/300, rounded-full, px-2 py-0.5, text-xs medium, tabular figures) with the CalendarClock icon 12 px; the tooltip and the name are the label -->
+                  <Border Grid.Column="4" CornerRadius="99" Padding="8,2" Margin="6,0,0,0" VerticalAlignment="Center" BorderThickness="1"
+                          Background="{StaticResource SkyBg}" BorderBrush="{StaticResource SkyBg}"
+                          Visibility="{x:Bind local:ListFmt.ScheduledChip(ShowScheduledChip), Mode=OneWay}"
+                          motion:Tip.Text="{x:Bind ScheduledLabel}" AutomationProperties.AutomationId="row.scheduled" AutomationProperties.Name="{x:Bind ScheduledLabel}">
+                    <StackPanel Orientation="Horizontal" Spacing="4">
+                      <controls:SIcon Kind="CalClock" Size="12" Foreground="{StaticResource SkyFg}" VerticalAlignment="Center" />
+                      <TextBlock Text="{x:Bind ScheduledLabel}" FontSize="12" FontWeight="Medium" Foreground="{StaticResource SkyFg}" VerticalAlignment="Center" MaxWidth="176" TextTrimming="CharacterEllipsis" />
+                    </StackPanel>
+                  </Border>
                 </Grid>
                 <!-- the subject, and at its end the message's tags (Bulwark thread-list-item.tsx:1044 subject placement, tag-badge.tsx; showTagChips; M2 hotfix 2) -->
                 <Grid ColumnDefinitions="*,Auto" ColumnSpacing="6" Margin="{x:Bind theme:StyleState.Current.SubjectMargin, Mode=OneWay}">

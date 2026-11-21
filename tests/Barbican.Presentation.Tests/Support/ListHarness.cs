@@ -1,6 +1,7 @@
 // Wires the list, sidebar, shell and key router over fakes (no plugin host, inline dispatcher, a controllable clock). Owner mailcore.
 
 using System.Collections.Specialized;
+using Barbican.Core.Compose;
 using Barbican.Core.Plugins.Hooks;
 using Barbican.Core.Settings.Accessibility;
 using Barbican.Presentation.Common;
@@ -13,7 +14,7 @@ namespace Barbican.Presentation.Tests.Support;
 
 internal sealed class ListHarness : IDisposable
 {
-    public ListHarness(string prefs = "{}", IDispatcher? dispatcher = null)
+    public ListHarness(string prefs = "{}", IDispatcher? dispatcher = null, IScheduledSends? scheduled = null)
     {
         Time = new FakeTimeProvider(Mails.Now);
         Time.SetLocalTimeZone(TimeZoneInfo.Utc);
@@ -27,7 +28,7 @@ internal sealed class ListHarness : IDisposable
         Hub = new MailEventHub(Active, dispatcher);
         System = new NoSystemAccessibility();
         Motion = new MotionState(Time, dispatcher);
-        List = new MessageListViewModel(Active, Hub, Bus, Opener, Prefs, System, Motion, Time, dispatcher: dispatcher);
+        List = new MessageListViewModel(Active, Hub, Bus, Opener, Prefs, System, Motion, Time, dispatcher: dispatcher, scheduled: scheduled is null ? null : [scheduled]);
         Shell = new ShellViewModel(Prefs, System, Motion, Bus, Time, dispatcher);
         Sidebar = new SidebarViewModel(List, Hub, Prefs, System, Bus, dispatcher);
         Keys = new KeyRouter(List, Sidebar, Shell, Prefs, System, Bus, Time);

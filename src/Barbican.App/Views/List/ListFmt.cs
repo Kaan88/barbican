@@ -125,4 +125,10 @@ public static class ListFmt
     public static Visibility CodeChipVis(bool shown, bool bulwark) => shown && bulwark ? Visibility.Visible : Visibility.Collapsed;
 
     public static string CodeTip(string? code) => string.IsNullOrEmpty(code) ? string.Empty : "Copy code " + code;
+
+    /// <summary>Bulwark's scheduled-send chip (thread-list-item.tsx:924-931): the date's place while the message waits for its release time.</summary>
+    public static Visibility ScheduledChip(bool scheduled) => Fmt.Vis(scheduled);
+
+    /// <summary>The date itself, hidden while the scheduled chip takes its place.</summary>
+    public static Visibility DateLabel(bool scheduled) => Fmt.Vis(!scheduled);
 }
