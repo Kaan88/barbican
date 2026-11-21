@@ -4,7 +4,6 @@
 
 using Barbican.Core.Compose;
 using Microsoft.UI.Xaml.Automation;
-using Windows.Foundation;
 
 namespace Barbican.App.Views.Compose;
 
@@ -12,7 +11,7 @@ public sealed partial class ComposerView
 {
     private bool Bulwark => _theme.Applied?.Bulwark == true;
 
-    private MenuFlyout NewToolbarMenu()
+    private static MenuFlyout NewToolbarMenu()
     {
         var flyout = new MenuFlyout { Placement = Microsoft.UI.Xaml.Controls.Primitives.FlyoutPlacementMode.TopEdgeAlignedLeft };
 #if WINDOWS

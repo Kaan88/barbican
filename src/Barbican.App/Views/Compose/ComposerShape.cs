@@ -1,6 +1,7 @@
 // Mirrors: Bulwark ui/button.tsx:42 (rounded-md buttons), email-composer.tsx:7505 (chips), :6933 (suggestion list), avatars and remove buttons rounded-full.
 // Composer corner radii from StyleState: Bulwark reads the shared Shape tokens (ButtonRadius), Bento and Nordic keep their rounder look. Circles are half the side.
 
+using Barbican.App.Shell;
 using Barbican.App.Theme;
 
 namespace Barbican.App.Views.Compose;
