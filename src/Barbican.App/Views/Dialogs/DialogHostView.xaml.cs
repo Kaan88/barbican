@@ -126,7 +126,7 @@ public sealed partial class DialogHostView : UserControl
                 }
 
                 Buttons.Visibility = factory.OwnButtons ? Visibility.Collapsed : Visibility.Visible;
-                Card.MaxWidth = factory.MaxWidth;
+                Card.MaxWidth = factory.MaxWidthOf(dialog.Request);
                 break;
             }
         }

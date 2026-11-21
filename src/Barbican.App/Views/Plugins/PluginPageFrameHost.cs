@@ -2,8 +2,6 @@
 // Mirrors: Bulwark components/plugins/plugin-page-app.tsx (the add-on's `app-page` slot fills the content area, props { pageId, path }; `fill` offers take the whole area, others are as tall as their content, plugin-iframe-slot.tsx)
 // and runtime.tsx:1584 (the frame reports its content height). The frame is the add-on's own sandboxed runtime; this host only owns the panel it is drawn in and the size it gets.
 using Barbican.App.Shell;
-using System.Globalization;
-using System.Text.Json;
 using Barbican.App.Plugins;
 using Barbican.App.Plugins.Sandbox;
 using Barbican.App.Theme;
@@ -100,7 +98,7 @@ internal sealed class PluginPageFrameHost
         {
             var values = new PluginValueBuilder();
             var props = values.Build(values.Object(("pageId", values.String(pageId)), ("path", values.String(path))));
-            var result = await _frames.StartAsync(packageId, Slot, Permission, props, _mount, ThemeSnapshot(), budget.Token).ConfigureAwait(true);
+            var result = await _frames.StartAsync(packageId, Slot, Permission, props, _mount, PluginFrameTheme.Snapshot(_surface), budget.Token).ConfigureAwait(true);
             if (!result.IsOk || result.Value is not { } started)
             {
                 if (!budget.IsCancellationRequested) SetNote("This add-on page could not be opened.");
@@ -168,32 +166,6 @@ internal sealed class PluginPageFrameHost
     {
         _note.Text = text;
         _note.Visibility = Visibility.Visible;
-    }
-
-    /// <summary>Bulwark host-theme.ts snapshotHostTheme: whether dark mode is on, the font stack and the resolved colour tokens.</summary>
-    private JsonElement ThemeSnapshot()
-    {
-        static string Css(string key)
-        {
-            var c = AppResources.Brush(key).Color;
-            return c.A == 255
-                ? string.Create(CultureInfo.InvariantCulture, $"#{c.R:x2}{c.G:x2}{c.B:x2}")
-                : string.Create(CultureInfo.InvariantCulture, $"rgba({c.R},{c.G},{c.B},{c.A / 255.0:0.###})");
-        }
-
-        var vars = new Dictionary<string, string>(StringComparer.Ordinal);
-        foreach (var (token, key) in new[] { ("--color-background", "Bg"), ("--color-foreground", "Text"), ("--color-muted-foreground", "Faint"), ("--color-border", "Line"), ("--color-primary", "Accent") })
-        {
-            try { vars[token] = Css(key); }
-            catch (Exception ex) when (ex is KeyNotFoundException or InvalidCastException or NullReferenceException) { }
-        }
-
-        return JsonSerializer.SerializeToElement(new
-        {
-            dark = _surface.ActualTheme == ElementTheme.Dark,
-            fontFamily = "\"Segoe UI Variable\", \"Segoe UI\", sans-serif",
-            vars,
-        });
     }
 
     /// <summary>The look of the area the frame sits in.</summary>

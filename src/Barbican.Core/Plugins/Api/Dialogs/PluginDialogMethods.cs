@@ -1,16 +1,17 @@
 // Mirrors Bulwark lib/plugin-sandbox/host-api.ts:219-221 (no permission) and 2236-2290 (ui.confirm, ui.alert, ui.prompt: options object, text only where text is expected),
 // host-dialog.ts:56-155 (cut limits, one dialog per add-on, 20 per minute, both refused with an error) and runtime.tsx:800-816 (no timeout, results).
+// ui.openDialog shares the same limiter (host-dialog.ts enqueueDialog counts custom dialogs with the rest): see PluginOpenDialogMethod.
 using System.Globalization;
 using Barbican.Core.Plugins.Bridge;
 using Barbican.Core.Plugins.Protocol;
 
 namespace Barbican.Core.Plugins.Api.Dialogs;
 
-/// <summary>ui.alert, ui.confirm and ui.prompt: native dialogs attributed to the add-on by the host presenter.</summary>
+/// <summary>ui.alert, ui.confirm, ui.prompt and ui.openDialog: native dialogs attributed to the add-on by the host presenter.</summary>
 public static class PluginDialogMethods
 {
-    /// <summary>Methods created: alert, confirm, prompt.</summary>
-    public const int MethodCount = 3;
+    /// <summary>Methods created: alert, confirm, prompt, openDialog.</summary>
+    public const int MethodCount = 4;
 
     /// <summary>Bulwark MAX_DIALOGS_PER_MINUTE.</summary>
     public const int MaxPerMinute = 20;
@@ -20,14 +21,16 @@ public static class PluginDialogMethods
 
     /// <summary>Creates the three methods over one shared per-add-on limiter. <paramref name="present"/> draws the request and returns when it ends; it must end the dialog when its token is cancelled.</summary>
     public static IReadOnlyList<IPluginApiMethod> Create(TimeProvider time,
-        Func<PluginDialogRequest, IPluginInvocationContext, CancellationToken, Task<PluginDialogOutcome>> present)
+        Func<PluginDialogRequest, IPluginInvocationContext, CancellationToken, Task<PluginDialogOutcome>> present,
+        Func<PluginSlotDialogRequest, IPluginInvocationContext, CancellationToken, Task<PluginSlotDialogOutcome>>? presentSlot = null)
     {
         ArgumentNullException.ThrowIfNull(time);
         ArgumentNullException.ThrowIfNull(present);
         var gate = new Gate(time);
         return [new Method("ui.alert", PluginDialogKind.Alert, gate, time, present),
             new Method("ui.confirm", PluginDialogKind.Confirm, gate, time, present),
-            new Method("ui.prompt", PluginDialogKind.Prompt, gate, time, present)];
+            new Method("ui.prompt", PluginDialogKind.Prompt, gate, time, present),
+            new PluginOpenDialogMethod(gate, time, presentSlot)];
     }
 
     /// <summary>Applies Bulwark's defaults, text-only reads and limits to a call's first argument; anything that is not an object reads as no options.</summary>
@@ -80,7 +83,7 @@ public static class PluginDialogMethods
         _ => true,
     };
 
-    private sealed class Method(string name, PluginDialogKind kind, Gate gate, TimeProvider time,
+    internal sealed class Method(string name, PluginDialogKind kind, Gate gate, TimeProvider time,
         Func<PluginDialogRequest, IPluginInvocationContext, CancellationToken, Task<PluginDialogOutcome>> present) : IPluginApiMethod
     {
         // No permission and no deadline: the call waits for the user (Bulwark host-api.ts:219-221, runtime.tsx:803-816).
@@ -119,7 +122,7 @@ public static class PluginDialogMethods
             }
         }
 
-        private static async Task WatchAsync(IPluginInvocationContext context, CancellationTokenSource stop, Action markStale, TimeProvider time)
+        internal static async Task WatchAsync(IPluginInvocationContext context, CancellationTokenSource stop, Action markStale, TimeProvider time)
         {
             try
             {
@@ -154,7 +157,7 @@ public static class PluginDialogMethods
     }
 
     // One open dialog per add-on and 20 openings per minute (Bulwark host-dialog.ts:122-143); the open check comes first and a refusal is not counted.
-    private sealed class Gate(TimeProvider time)
+    internal sealed class Gate(TimeProvider time)
     {
         private readonly Lock _lock = new();
         private readonly Dictionary<(string Profile, string Plugin), (bool Open, Queue<long> Stamps)> _owners = [];

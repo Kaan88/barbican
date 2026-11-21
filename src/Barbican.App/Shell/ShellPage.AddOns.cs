@@ -17,7 +17,7 @@ public sealed partial class ShellPage
 {
     private void StartAddOnRuntimes()
     {
-        var bootstrap = Path.Combine(AppContext.BaseDirectory, "Assets", "plugin-sandbox-bootstrap");
+        var bootstrap = BootstrapRoot();
         var hasBootstrap = Directory.Exists(bootstrap);
 
         var packages = ViewHost.Get<PluginPackageHost>();
@@ -42,6 +42,18 @@ public sealed partial class ShellPage
         _ = ViewHost.Get<PluginBackgroundRuntimes>().InitializeAsync(
             ct => packages.CreateAddOnFactoryAsync(views, startup, hooks, sessions, methods, includeUserStorage: true, native, oauthBrowser, prefs, ct),
             CancellationToken.None, javaScriptAvailable: hasBootstrap);
+    }
+
+    // The pinned sandbox bootstrap is not part of the repository: the portable package carries it in Assets/plugin-sandbox-bootstrap (tools/package-portable.ps1 -BootstrapDirectory).
+    // An AUTOMATION build of a synthetic automation profile may take it from BARBICAN_BOOTSTRAP_DIR instead (an absolute folder, say the extracted pinned runtime), so a hidden run can draw add-on frames
+    // without copying those files into the build output. Every file is still checked against its pinned size and SHA-256 by PluginSandboxBootstrapAssets before anything runs.
+    private static string BootstrapRoot()
+    {
+#if AUTOMATION
+        var supplied = Environment.GetEnvironmentVariable("BARBICAN_BOOTSTRAP_DIR");
+        if (!string.IsNullOrEmpty(supplied) && Path.IsPathFullyQualified(supplied) && ProfilePaths.IsAutomationProfile(ViewHost.Get<IProfilePaths>().Profile)) return supplied;
+#endif
+        return Path.Combine(AppContext.BaseDirectory, "Assets", "plugin-sandbox-bootstrap");
     }
 
     private async Task<bool> ConfirmAddOnOAuthAsync(PluginRuntimeBinding binding, Uri provider, CancellationToken ct)
