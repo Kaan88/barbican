@@ -257,6 +257,22 @@ Legend for each row: **B** = Bulwark, **N** = Barbican now.
 | ML-13 | Right-click menu highlight outline while open (`[data-menu-opener]`) | `globals.css:1700` | verify in `ContextPointerRouter.cs` | small | S | M10 |
 | ML-14 | Account tint/dot, tag tint, verification-code copy in rows | `thread-list-item.tsx` (`resolvedRowTint`), `verification-code-chip.tsx` | present (`MessageListView.xaml:30-33,89-92`) | matched in principle (verify look) | S | M10 |
 
+**WP-5 status (branch m6b/wp5-list, Bulwark style; Bento and Nordic unchanged):**
+
+| ID | Status | Note |
+|---|---|---|
+| ML-01 | partly | starred (filled amber, 14 px), replied, forwarded (`$answered`, `$forwarded`, both when both), paperclip, gap 6 (`thread-list-item.tsx:978-997`). Pinned and the scheduled-send chip are not drawn (no `Pin` icon token, no `$pinned` model: ML-10) |
+| ML-02 | closed | Bulwark rows show the 40 px avatar with the unread dot 10 px to its left; the check shows on avatar hover and while ticked (instant, no `scale-110`). The gutter click area beside the avatar is not widened |
+| ML-03 | closed | hover and selected come from the row template (`FeedbackHover`/`FeedbackSelected`); the open row drops the unread wash (`MessageRowViewModel.IsSelected`); a ticked row has the accent wash at 40 % and the 2 px ring at 20 % |
+| ML-04 | open | density (M10) |
+| ML-05 | partly | h-9 header with bottom rule, text-sm medium muted. The fold chevron and folding are not implemented (folding would remove the open row from `Messages`) |
+| ML-06 | partly | strip flush with the row end in the row colour (selected fill or hover), 28 px `Button.HoverAction` buttons radius 6, 100 ms system hover. No 32 px gradient fade; destructive hover text and plugin actions not done |
+| ML-07 | closed | empty state component (56 px muted circle, title, description; search variant), first-load skeleton rows (static), loading over rows: half-strength dim with a pill, no fade |
+| ML-08 | partly | the bar is edge to edge under the toolbar (accent wash 30 %, bottom rule, `N conversations`/`N selected` at the left, 32 px icon buttons at the right) and appears in one frame; it stays a separate row below the header, it does not replace the toolbar. The select-all toolbar button is the shared `ToggleButton.Icon`, active while a selection exists. Move and Tag buttons are not in it |
+| ML-09, 10, 11, 12, 13 | open | M10 / needs the menu stream |
+| ML-14 | open | unchanged |
+| FM-12 | closed | the folder-change rise runs through `MotionRuntime.DecorationMs` (0 in Bulwark) |
+
 ### 4.4 Reader and conversation view
 
 | ID | Gap | B | N | Impact | Size | MS |

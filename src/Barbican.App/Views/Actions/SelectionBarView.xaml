@@ -2,30 +2,76 @@
     x:Class="Barbican.App.Views.Actions.SelectionBarView"
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:controls="using:Barbican.App.Controls"
+    xmlns:motion="using:Barbican.App.Motion"
     xmlns:views="using:Barbican.App.Views"
+    xmlns:list="using:Barbican.App.Views.List"
     xmlns:local="using:Barbican.App.Views.Actions">
-  <!-- The selection bar (Bulwark components/email/selection-view.tsx, spec I-138..I-142): in the list's SelectionBarSlot, shown while at least one message is ticked.
-       It appears in one frame (no animation). First line: select all or none, the count text "N selected . M unread", clear. Second line: the actions; they are the same commands the keys
-       and menus run (CommandSurface.SelectionBar). Then the "Select all N in this folder" banner. Move to and Tag open dialogs of the menus stream and are added with them. -->
-  <StackPanel Spacing="6" Visibility="{x:Bind views:Fmt.Vis(List.HasChecked), Mode=OneWay}" AutomationProperties.AutomationId="selection.bar" AutomationProperties.Name="Selection">
-    <Border Background="{StaticResource Track}" CornerRadius="10" Padding="10,6" Margin="12,0,12,0">
-      <StackPanel Spacing="6">
-        <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="10">
-          <Button Style="{StaticResource Button.Chip}" Content="All" Click="OnToggleAll" AutomationProperties.AutomationId="selection.all" AutomationProperties.Name="Select all or none" />
-          <TextBlock Grid.Column="1" Text="{x:Bind List.SelectionLabel, Mode=OneWay}" FontSize="12.5" Foreground="{StaticResource Dim}" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"
+  <!-- The selection bar (Bulwark components/email/selection-view.tsx, spec I-138..I-142; email-list.tsx:1412-1425): in the list's SelectionBarSlot, shown while at least one message is ticked.
+       It appears in one frame (no animation; Bulwark's 300 ms slide-in is not copied). Bulwark: an edge-to-edge bar, the accent wash at 30 % with a bottom rule, the count at the left (text-sm
+       medium) and 32 px icon buttons at the right (Archive, Delete, Read, Unread, Spam, Clear). Bento and Nordic: a card with the "All" chip, the count and Clear on the first line and the
+       text chips on the second. The buttons are the same commands the keys and menus run (CommandSurface.SelectionBar). Then the "Select all N in this folder" banner. -->
+  <StackPanel Spacing="{x:Bind list:ListFmt.BarSpacing(Look.IsBulwark), Mode=OneWay}" Visibility="{x:Bind views:Fmt.Vis(List.HasChecked), Mode=OneWay}" AutomationProperties.AutomationId="selection.bar" AutomationProperties.Name="Selection">
+    <Border Background="{x:Bind Look.SelectionBarBrush, Mode=OneWay}" BorderBrush="{StaticResource Line}" BorderThickness="{x:Bind Look.SelectionBarBorder, Mode=OneWay}"
+            CornerRadius="{x:Bind Look.SelectionBarRadius, Mode=OneWay}" Margin="{x:Bind Look.SelectionBarMargin, Mode=OneWay}">
+      <Grid>
+        <Border Background="{StaticResource Sel}" Opacity="0.3" IsHitTestVisible="False" Visibility="{x:Bind views:Fmt.Vis(Look.IsBulwark), Mode=OneWay}" />
+        <Grid x:Name="BarGrid" Padding="{x:Bind Look.SelectionBarPadding, Mode=OneWay}" RowSpacing="6" ColumnSpacing="10" RowDefinitions="Auto,Auto" ColumnDefinitions="Auto,*,Auto,Auto">
+          <Button Style="{StaticResource Button.Chip}" Content="All" Click="OnToggleAll" Visibility="{x:Bind views:Fmt.VisNot(Look.IsBulwark), Mode=OneWay}"
+                  AutomationProperties.AutomationId="selection.all" AutomationProperties.Name="Select all or none" />
+          <TextBlock Grid.Column="1" Text="{x:Bind list:ListFmt.CountText(List.SelectionLabel, List.SelectionCountLabel, Look.IsBulwark), Mode=OneWay}" FontSize="{x:Bind list:ListFmt.CountSize(Look.IsBulwark), Mode=OneWay}"
+                     FontWeight="{x:Bind list:ListFmt.CountWeight(Look.IsBulwark), Mode=OneWay}" Foreground="{x:Bind list:ListFmt.CountBrush(Look.IsBulwark), Mode=OneWay}"
+                     VerticalAlignment="Center" TextTrimming="CharacterEllipsis"
                      AutomationProperties.AutomationId="selection.count" AutomationProperties.Name="Selection count" />
-          <Button Grid.Column="2" Style="{StaticResource Button.Chip}" Content="Clear" Tag="list.clear" Click="OnCommand" AutomationProperties.AutomationId="selection.clear" AutomationProperties.Name="Clear selection" />
+          <Grid x:Name="BarActions" Grid.Row="1" Grid.ColumnSpan="4" ColumnDefinitions="*,*,*,*,*" ColumnSpacing="4">
+            <Button Style="{StaticResource Button.Chip}" Tag="mail.archive" Click="OnCommand" HorizontalAlignment="Stretch" Padding="4,0"
+                    motion:Tip.Text="Archive" AutomationProperties.AutomationId="selection.archive" AutomationProperties.Name="Archive">
+              <Grid>
+                <TextBlock Text="Archive" Visibility="{x:Bind views:Fmt.VisNot(Look.IsBulwark), Mode=OneWay}" />
+                <controls:SIcon Kind="Archive" Size="16" Visibility="{x:Bind views:Fmt.Vis(Look.IsBulwark), Mode=OneWay}" />
+              </Grid>
+            </Button>
+            <Button Grid.Column="1" Style="{StaticResource Button.Chip}" Tag="mail.delete" Click="OnCommand" HorizontalAlignment="Stretch" Padding="4,0"
+                    motion:Tip.Text="Delete" AutomationProperties.AutomationId="selection.delete" AutomationProperties.Name="Delete">
+              <Grid>
+                <TextBlock Text="Delete" Visibility="{x:Bind views:Fmt.VisNot(Look.IsBulwark), Mode=OneWay}" />
+                <controls:SIcon Kind="Trash" Size="16" Visibility="{x:Bind views:Fmt.Vis(Look.IsBulwark), Mode=OneWay}" />
+              </Grid>
+            </Button>
+            <Button Grid.Column="2" Style="{StaticResource Button.Chip}" Tag="mail.read" Click="OnCommand" HorizontalAlignment="Stretch" Padding="4,0"
+                    motion:Tip.Text="Mark as read" AutomationProperties.AutomationId="selection.read" AutomationProperties.Name="Read">
+              <Grid>
+                <TextBlock Text="Read" Visibility="{x:Bind views:Fmt.VisNot(Look.IsBulwark), Mode=OneWay}" />
+                <controls:SIcon Kind="Check" Size="16" Visibility="{x:Bind views:Fmt.Vis(Look.IsBulwark), Mode=OneWay}" />
+              </Grid>
+            </Button>
+            <Button Grid.Column="3" Style="{StaticResource Button.Chip}" Tag="mail.unread" Click="OnCommand" HorizontalAlignment="Stretch" Padding="4,0"
+                    motion:Tip.Text="Mark as unread" AutomationProperties.AutomationId="selection.unread" AutomationProperties.Name="Unread">
+              <Grid>
+                <TextBlock Text="Unread" Visibility="{x:Bind views:Fmt.VisNot(Look.IsBulwark), Mode=OneWay}" />
+                <controls:SIcon Kind="Mail" Size="16" Visibility="{x:Bind views:Fmt.Vis(Look.IsBulwark), Mode=OneWay}" />
+              </Grid>
+            </Button>
+            <Button Grid.Column="4" Style="{StaticResource Button.Chip}" Tag="mail.spam" Click="OnCommand" HorizontalAlignment="Stretch" Padding="4,0"
+                    motion:Tip.Text="Report spam" AutomationProperties.AutomationId="selection.spam" AutomationProperties.Name="Spam">
+              <Grid>
+                <TextBlock Text="Spam" Visibility="{x:Bind views:Fmt.VisNot(Look.IsBulwark), Mode=OneWay}" />
+                <controls:SIcon Kind="Alert" Size="16" Visibility="{x:Bind views:Fmt.Vis(Look.IsBulwark), Mode=OneWay}" />
+              </Grid>
+            </Button>
+          </Grid>
+          <Button x:Name="BarClear" Grid.Column="3" Style="{StaticResource Button.Chip}" Tag="list.clear" Click="OnCommand"
+                  motion:Tip.Text="Clear selection" AutomationProperties.AutomationId="selection.clear" AutomationProperties.Name="Clear selection">
+            <Grid>
+              <TextBlock Text="Clear" Visibility="{x:Bind views:Fmt.VisNot(Look.IsBulwark), Mode=OneWay}" />
+              <controls:SIcon Kind="Close" Size="16" Visibility="{x:Bind views:Fmt.Vis(Look.IsBulwark), Mode=OneWay}" />
+            </Grid>
+          </Button>
         </Grid>
-        <Grid ColumnDefinitions="*,*,*,*,*" ColumnSpacing="4">
-          <Button Style="{StaticResource Button.Chip}" Content="Archive" Tag="mail.archive" Click="OnCommand" HorizontalAlignment="Stretch" Padding="4,0" AutomationProperties.AutomationId="selection.archive" AutomationProperties.Name="Archive" />
-          <Button Grid.Column="1" Style="{StaticResource Button.Chip}" Content="Delete" Tag="mail.delete" Click="OnCommand" HorizontalAlignment="Stretch" Padding="4,0" AutomationProperties.AutomationId="selection.delete" AutomationProperties.Name="Delete" />
-          <Button Grid.Column="2" Style="{StaticResource Button.Chip}" Content="Read" Tag="mail.read" Click="OnCommand" HorizontalAlignment="Stretch" Padding="4,0" AutomationProperties.AutomationId="selection.read" AutomationProperties.Name="Read" />
-          <Button Grid.Column="3" Style="{StaticResource Button.Chip}" Content="Unread" Tag="mail.unread" Click="OnCommand" HorizontalAlignment="Stretch" Padding="4,0" AutomationProperties.AutomationId="selection.unread" AutomationProperties.Name="Unread" />
-          <Button Grid.Column="4" Style="{StaticResource Button.Chip}" Content="Spam" Tag="mail.spam" Click="OnCommand" HorizontalAlignment="Stretch" Padding="4,0" AutomationProperties.AutomationId="selection.spam" AutomationProperties.Name="Spam" />
-        </Grid>
-      </StackPanel>
+      </Grid>
     </Border>
-    <Border Background="{StaticResource Track}" CornerRadius="10" Padding="10,4" Margin="12,0,12,0" Visibility="{x:Bind views:Fmt.Vis(List.CanSelectAllInFolder), Mode=OneWay}"
+    <Border Background="{x:Bind Look.SelectionBarBrush, Mode=OneWay}" BorderBrush="{StaticResource Line}" BorderThickness="{x:Bind Look.SelectionBarBorder, Mode=OneWay}"
+            CornerRadius="{x:Bind Look.SelectionBarRadius, Mode=OneWay}" Padding="10,4" Margin="{x:Bind Look.SelectionBarMargin, Mode=OneWay}" Visibility="{x:Bind views:Fmt.Vis(List.CanSelectAllInFolder), Mode=OneWay}"
             AutomationProperties.AutomationId="selection.banner">
       <Button Style="{StaticResource Button.Chip}" Content="{x:Bind local:ActionFmt.SelectAllText(List.Total, List.ShowsConversations), Mode=OneWay}" Tag="list.select-all-folder" Click="OnCommand" AutomationProperties.AutomationId="selection.all-folder" AutomationProperties.Name="Select all messages in this folder" />
     </Border>

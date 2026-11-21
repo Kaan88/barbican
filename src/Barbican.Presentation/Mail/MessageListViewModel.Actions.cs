@@ -50,6 +50,17 @@ public sealed partial class MessageListViewModel : IListEditor, IMailSelection
         }
     }
 
+    /// <summary>The count alone, as the Bulwark batch bar words it: "N conversations" while the list groups threads, else "N selected" (email-list.tsx:1426-1428, locales/en/common.json:461).</summary>
+    public string SelectionCountLabel
+    {
+        get
+        {
+            var n = CheckedCount;
+            var noun = ShowsConversations ? (n == 1 ? "conversation" : "conversations") : "selected";
+            return string.Create(CultureInfo.InvariantCulture, $"{n} {noun}");
+        }
+    }
+
     /// <summary>The tri-state of the select-all toggle: 0 nothing ticked, 1 some, 2 every loaded message.</summary>
     public int SelectAllState
     {
@@ -372,6 +383,12 @@ public sealed partial class MessageListViewModel : IListEditor, IMailSelection
                 row.IsChecked = on;
             }
 
+            var selected = _selectedId is not null && string.Equals(row.Id, _selectedId, StringComparison.Ordinal);
+            if (row.IsSelected != selected)
+            {
+                row.IsSelected = selected;
+            }
+
             var hover = string.Equals(row.Id, _hoverId, StringComparison.Ordinal);
             if (row.IsHovered != hover)
             {
@@ -393,6 +410,7 @@ public sealed partial class MessageListViewModel : IListEditor, IMailSelection
         OnPropertyChanged(nameof(HasChecked));
         OnPropertyChanged(nameof(AllInFolder));
         OnPropertyChanged(nameof(SelectionLabel));
+        OnPropertyChanged(nameof(SelectionCountLabel));
         OnPropertyChanged(nameof(SelectAllState));
         OnPropertyChanged(nameof(CanSelectAllInFolder));
         Changed?.Invoke(this, EventArgs.Empty);
@@ -400,6 +418,7 @@ public sealed partial class MessageListViewModel : IListEditor, IMailSelection
 
     private void SelectedTouched()
     {
+        ApplyChecks();
         if (_checked.Count == 0)
         {
             Changed?.Invoke(this, EventArgs.Empty);
