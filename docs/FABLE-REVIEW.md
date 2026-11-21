@@ -3118,3 +3118,16 @@ candidate and portable still require final approval.
 ### Outstanding for the final Fable review: add-on calendar replies send mail (coordinator, November 21)
 
 `calendar.respond` (merged from `m6b/api-calendar`) sends an iTIP reply through `InvitationService`, so it sends mail on the user's behalf after a `calendar:respond` grant. Under CLAUDE.md this wants an early Fable review; this session defers every Fable review to the final release, so it is recorded here instead. Bring: the allowed and denied paths in `PluginCalendarRespondTests`, the participant pre-check, and the hook-stop detection, which matches `InvitationService`'s message text and should become a typed result.
+
+
+## M6b rules, settings and notification methods (m6b/api-rules-settings)
+
+- Review `src/Barbican.Core/Plugins/Api/MailRules/**` and `Api/AccountSettings/**` and `src/Barbican.App/Composition/Features/RulesSettingsAddOnApiRegistration.cs` (14 methods: `filters.list/create/undo`, `sieve.isSupported/getActiveScript/validateScript/regenerate`, `vacation.get/set`, `identities.update`, `accountData.get/set`, `plugin.getConfig`, `notifications.show`) against Bulwark `assistant/c.filters.ts`, `assistant/c.ts`, `host-api-settings.ts`, `host-api-account.ts`, `host-api-notify.ts`, `host-api.ts:196-217,302-356`. Tests: `PluginRulesMethodsTests`, `PluginAccountSettingsMethodsTests`.
+
+### Outstanding for the final Fable review: add-on auto-reply and sender identity changes (worker, November 21)
+
+- `vacation.set` (`vacation:write`) turns on an auto-reply that sends mail on the user's behalf. Gate as in Bulwark: refused (PermissionDenied, nothing written) while the out-of-office forwards mail or while that cannot be read; changes go through `IVacationService.SaveAsync` (VacationRules, `onBeforeVacationUpdate`). Judgement call: "cannot be read" is `SieveState is null` with Sieve advertised, because the service does not expose a forward-unknown flag; a hand-edited (locked) script is not detected as unknown. The reply period is whole UTC days; other moments are refused.
+- `identities.update` (`identity:write`) changes name, Reply-To and signatures of a sender identity (never the address) through `IAccountIdentities.UpdateAsync` (`onBeforeIdentityChange`). The "another add-on stopped it" result is recognised by the service's message text `A plug-in stopped this change.`, which is fragile and should become a typed result (same for vacation, which uses a reference-equal error). HTML signatures use `MailSanitizer`, not Bulwark's allowlist.
+- `filters.create` adds rules but refuses forward, redirect, reject, discard, keep; the shared-folder check needs `urn:ietf:params:jmap:mail:share` and was not exercised against a server. Undo removes the rule only while the script is still at the state its save produced.
+- `plugin.getConfig` has no administrator store behind it before M7 (always `{}`); `notifications.show` shows a toast only (no system notification, link or bell entry). `accountData.*` reaches only the login's own account.
+- Not exercised: the registration on the Windows head (builds on both heads, not run in a hidden Automation session), no live server.
