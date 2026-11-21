@@ -3072,3 +3072,12 @@ results. The queued provider withdrawal produced zero additional WebView
 posts. This was approval of the fixes under review. The integrated M6b
 candidate and portable still require final approval.
 [Windows checker evidence](milestones/M6b-solo-parity.md#typing-checker-on-windows)
+
+## Assistant as a bundled native add-on (m6b/assistant-addon, D-M6b-08)
+
+- **Host services reach every native add-on, imported ones included.** `NativePluginHostOptions.Services` fills `PluginContext` for bundled plug-ins and for approved archive packages alike (`src/Barbican.Core/Plugins/Native/NativePluginHost.cs`, `Host/PluginHostServices.cs`). The tools (`Host/HostTools.cs`) include `send_email`, `delete_messages`, `set_vacation`, `change_setting`; the confirmation before a write is enforced by the add-on (`AssistantLoop`), not by the host, so a hostile imported add-on could call them without asking. Native add-ons are already full trust, but review whether the tools and secrets should be offered to imported packages at all, or only after a separate consent line.
+- **Secrets.** `Platform/SecretPluginSecrets.cs` maps (`assistant`, `api-key`) to the old `ai-api-key` entry, other add-ons to `addon-secret/<id>/<name>`. Review the scoping (an add-on cannot name another's id; full-trust code can still read the store directly).
+- **Adopted legacy data.** `settings.json["assistant"]` (numbers and booleans read as text), `<data>/assistant/*.json` (copied, never moved) and the `ai-api-key` entry. Unverified against a real profile; covered by `PluginSettingsStoreTests`, `PluginHostServicesTests`, `SecretPluginSecretsTests` only.
+- **Settings page and nav.** The nav entry `assistant` (SettingsNav) is still static; the page (`App/Views/Settings/SetUiAddonPage.cs`) shows "turned off" when the add-on is not running. Bundled add-ons are listed in Settings > Add-ons (`AddonsPageFactory.Bundled.cs`) with Disable / Enable that applies at the next start; they cannot be uninstalled.
+- **Behaviour changes.** The system prompt names the account key instead of the JMAP username; the provider-switch default swap and text-row empty values are done through the generic rows (empty text is stored as an empty string).
+- **Not exercised.** No real provider, no live account; the chat and rows were checked against the sample add-on page and fakes.
