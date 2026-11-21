@@ -176,7 +176,7 @@
           <!-- Bulwark mail-app.tsx:6633-6690: select, search and folder actions share the top row. -->
           <Grid x:Name="Toolbar" ColumnDefinitions="Auto,*,Auto" ColumnSpacing="4">
             <!-- toolbar.tsx:16,29: a toolbar toggle, tinted while a selection exists (the shared ToggleButton.Icon active state), 32 px, rounded-md -->
-            <ToggleButton x:Name="SelectAllToggle" Style="{StaticResource ToggleButton.Icon}" Width="{x:Bind Look.ListToolbarButtonSize, Mode=OneWay}" Height="{x:Bind Look.ListToolbarButtonSize, Mode=OneWay}" CornerRadius="{x:Bind Look.ButtonRadius, Mode=OneWay}" Click="OnToolbarSelectAll"
+            <ToggleButton x:Name="SelectAllToggle" VerticalAlignment="Top" Style="{StaticResource ToggleButton.Icon}" Width="{x:Bind Look.ListToolbarButtonSize, Mode=OneWay}" Height="{x:Bind Look.ListToolbarButtonSize, Mode=OneWay}" CornerRadius="{x:Bind Look.ButtonRadius, Mode=OneWay}" Click="OnToolbarSelectAll"
                     IsChecked="{x:Bind List.HasChecked, Mode=OneWay}"
                     Visibility="{x:Bind views:Fmt.Vis(Look.IsBulwark), Mode=OneWay}" AutomationProperties.AutomationId="list.select-all"
                     AutomationProperties.Name="Select all or clear selection" motion:Tip.Text="Select all or clear selection">
@@ -186,8 +186,8 @@
                            Visibility="{x:Bind views:Fmt.Vis(List.HasChecked), Mode=OneWay}" HorizontalAlignment="Center" VerticalAlignment="Center" />
               </Grid>
             </ToggleButton>
-            <ContentPresenter Grid.Column="1" x:Name="SearchSlot" VerticalAlignment="Center" />
-            <Button Grid.Column="2" Style="{StaticResource Button.Icon}" Width="{x:Bind Look.ListToolbarButtonSize, Mode=OneWay}" Height="{x:Bind Look.ListToolbarButtonSize, Mode=OneWay}" CornerRadius="{x:Bind Look.ButtonRadius, Mode=OneWay}" Click="OnFolderActions"
+            <ContentPresenter Grid.Column="1" x:Name="SearchSlot" VerticalAlignment="Top" HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch" />
+            <Button Grid.Column="2" VerticalAlignment="Top" Style="{StaticResource Button.Icon}" Width="{x:Bind Look.ListToolbarButtonSize, Mode=OneWay}" Height="{x:Bind Look.ListToolbarButtonSize, Mode=OneWay}" CornerRadius="{x:Bind Look.ButtonRadius, Mode=OneWay}" Click="OnFolderActions"
                     Visibility="{x:Bind views:Fmt.Vis(Look.IsBulwark), Mode=OneWay}" AutomationProperties.AutomationId="list.folder-actions"
                     AutomationProperties.Name="Folder actions" motion:Tip.Text="Folder actions">
               <TextBlock Text="&#xE712;" FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" FontSize="16" />
