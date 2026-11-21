@@ -1,6 +1,7 @@
 // Mirrors: Bulwark components/ui/button.tsx (ghost and outline variants), ui/icon-button.tsx, ui/toolbar.tsx:16-29 (ToolbarButton: muted until hovered, tinted while active), ui/empty-state.tsx:25-39 (icon in a 56 px muted circle, 16 px title, 14 px muted line, actions 20 px below).
 // The shared Button.* / ToggleButton.* styles do the hover, press and active states (WP-1); this file only builds the controls the three Files views have in common. Shared tokens only, no motion of its own.
 
+using Barbican.App.Motion;
 using Barbican.App.Theme;
 using Barbican.App.Views.Calendar;
 using Microsoft.UI.Xaml.Automation;
@@ -81,7 +82,7 @@ internal static class FilesVisuals
     {
         AutomationProperties.SetAutomationId(o, id);
         AutomationProperties.SetName(o, name);
-        ToolTipService.SetToolTip(o, name);
+        Tip.SetText(o, name);
     }
 
     /// <summary>The empty state: icon in a muted circle, title, one line, actions (ui/empty-state.tsx).</summary>
