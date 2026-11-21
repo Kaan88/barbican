@@ -226,13 +226,31 @@ public sealed class SearchBoxModel : ObservableObject
         await SearchAsync().ConfigureAwait(true);
     }
 
-    /// <summary>The filter panel's value fields (after:, before:, in:): replaces the operator, or removes it for an empty value, and searches again live.</summary>
+    /// <summary>The filter panel's value fields (after:, before:, in:, body:, larger:, smaller:): replaces the operator, or removes it for an empty value, and searches again live.</summary>
     public async Task SetOperatorAsync(string key, string value)
     {
-        var rest = GlobalSearch.WithoutOperator(_text, key);
-        var v = value.Trim();
-        Text = v.Length == 0 ? rest : (rest.Length == 0 ? $"{key}:{v}" : $"{rest} {key}:{v}");
+        Text = WithOperator(_text, key, value);
         await SearchAsync().ConfigureAwait(true);
+    }
+
+    /// <summary>Several operators at once (a Size preset sets one bound and clears the other): one search, as Bulwark patches both fields together (search-filter-panel.tsx:180-199).</summary>
+    public async Task SetOperatorsAsync(params (string Key, string Value)[] values)
+    {
+        var text = _text;
+        foreach (var (key, value) in values)
+        {
+            text = WithOperator(text, key, value);
+        }
+
+        Text = text;
+        await SearchAsync().ConfigureAwait(true);
+    }
+
+    private static string WithOperator(string text, string key, string value)
+    {
+        var rest = GlobalSearch.WithoutOperator(text, key);
+        var v = value.Trim();
+        return v.Length == 0 ? rest : (rest.Length == 0 ? $"{key}:{v}" : $"{rest} {key}:{v}");
     }
 
     private void Changed()

@@ -17,7 +17,7 @@ Bulwark refs: `components/command-palette/command-palette.tsx`, `lib/command-reg
 | B-PAL-006 | "Search everything" runs one query over mail, contacts, calendar and files. Scope chips choose which kinds; five rows per kind; Enter opens the hit where it lives. | palette.rs header (lines 6-7); commit 8253677 | global-search-palette.tsx | pending (M2) |
 | B-PAL-007 | The default search scope follows searchDefaultScope. | commit 045855a | settings | pending (M2) |
 | B-PAL-008 | Review fix for the global-search folder choice (commit d16233d; see decisions.md). | commit d16233d | global-search-palette.tsx | pending (M2) |
-| B-PAL-009 | Query syntax: `from:`, `to:`, `subject:`, `has:attachment`, `is:`, `before:`, `after:`, `in:`, `account:`; quoted phrases; `word*` prefixes. Split as Bulwark's splitSearchText. | commit 8253677 (query-parser) | query-parser.ts | pending (M2) |
+| B-PAL-009 | Query syntax: `from:`, `to:`, `subject:`, `body:` ("Has the words"), `has:attachment`, `is:`, `before:`, `after:`, `larger:` / `smaller:` (KB), `in:`, `account:`; quoted phrases; `word*` prefixes. Split as Bulwark's splitSearchText. | commit 8253677 (query-parser) | query-parser.ts; search-utils.ts:174-267 | pending (M2) |
 | B-PAL-010 | Each operator and each filter-panel field appears as a removable chip in the search box. | commit 8253677 | search box | pending (M2) |
 | B-PAL-011 | Search filters: from, to, subject, body, dates, size, unread, starred, attachment. | commit 045855a | search filters | pending (M2) |
 | B-PAL-012 | Search history keeps the ten most recent searches, newest first. | commit 8253677 (search_history.rs) | recent searches | pending (M2) |

@@ -106,6 +106,38 @@ public sealed class SearchBoxModelTests
     }
 
     [Fact]
+    public async Task The_panel_sets_has_the_words_and_both_size_bounds_with_one_search_each()
+    {
+        var m = Model();
+        m.Edited("report");
+        await m.SetOperatorAsync("body", "\"q3 report\"");
+        Assert.Equal("report body:\"q3 report\"", m.Text);
+        Assert.Equal("q3 report", m.GetOperator("body"));
+        Assert.Equal(new SearchChip("body", "Body", "q3 report"), m.Chips[0]);
+
+        // a preset sets the minimum and clears the maximum in one search (search-filter-panel.tsx:184-199)
+        var before = _ran.Count;
+        await m.SetOperatorsAsync(("larger", "1024"), ("smaller", string.Empty));
+        Assert.Equal("report body:\"q3 report\" larger:1024", m.Text);
+        Assert.Equal(before + 1, _ran.Count);
+        Assert.Equal(["body", "larger"], m.Chips.Select(c => c.Key).ToArray());
+        Assert.Equal(2, m.FilterCount);
+
+        // both custom bounds: one search for the pair, and each chip is removable
+        before = _ran.Count;
+        await m.SetOperatorsAsync(("larger", "100"), ("smaller", "2048"));
+        Assert.Equal("report body:\"q3 report\" larger:100 smaller:2048", m.Text);
+        Assert.Equal(before + 1, _ran.Count);
+        Assert.Equal([new SearchChip("larger", "Larger than (KB)", "100 KB")], m.Chips.Where(c => string.Equals(c.Key, "larger", StringComparison.Ordinal)).ToArray());
+        await m.RemoveChipAsync("smaller");
+        Assert.Equal("report body:\"q3 report\" larger:100", m.Text);
+
+        // an empty value takes the operator out
+        await m.SetOperatorAsync("body", string.Empty);
+        Assert.Equal("report larger:100", m.Text);
+    }
+
+    [Fact]
     public void The_list_moving_the_text_updates_the_box_and_the_chips_without_a_search()
     {
         var m = Model();

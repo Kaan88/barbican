@@ -138,6 +138,61 @@ public sealed class GlobalSearchTests
     }
 
     [Fact]
+    public void Has_the_words_and_size_operators_mirror_bulwarks_filter_panel()
+    {
+        // search-filter-panel.tsx:137 (body), :200-226 (KB bounds); search-utils.ts:200-245
+        var p = GlobalSearch.Parse("body:\"q3 report\" larger:100 smaller:1.5");
+        Assert.Equal("q3 report", p.Mail.Body);
+        Assert.Equal("100", p.Mail.MinSizeKb);
+        Assert.Equal("1.5", p.Mail.MaxSizeKb);
+        Assert.Equal(string.Empty, p.Text);
+        Assert.True(p.HasOperators);
+
+        AssertJson(
+            """{"operator": "AND", "conditions": [{"body": "q3 report"}, {"minSize": 102400}, {"maxSize": 1536}]}""",
+            GlobalSearch.MailboxSearchFilter("body:\"q3 report\" larger:100 smaller:1.5", null, Roles));
+
+        AssertJson("""{"operator": "AND", "conditions": [{"inMailbox": "INBOX"}, {"body": "invoice"}]}""",
+            GlobalSearch.MailboxSearchFilter("body:invoice", "INBOX", Roles));
+    }
+
+    [Fact]
+    public void Size_bounds_are_kilobytes_and_only_real_numbers_count()
+    {
+        // sizeFilterBytes (search-utils.ts:98-102): empty, non-numeric and non-positive set no condition
+        Assert.Equal(1024L, GlobalSearch.SizeBytes("1"));
+        Assert.Equal(1536L, GlobalSearch.SizeBytes("1.5"));
+        Assert.Equal(2048L, GlobalSearch.SizeBytes(" 2 "));
+        Assert.Null(GlobalSearch.SizeBytes(null));
+        Assert.Null(GlobalSearch.SizeBytes(string.Empty));
+        Assert.Null(GlobalSearch.SizeBytes("0"));
+        Assert.Null(GlobalSearch.SizeBytes("-5"));
+        Assert.Null(GlobalSearch.SizeBytes("abc"));
+
+        // an invalid bound is not an operator: it stays free text and sets no condition (like an impossible date)
+        var p = GlobalSearch.Parse("larger:0 smaller:abc");
+        Assert.Null(p.Mail.MinSizeKb);
+        Assert.Null(p.Mail.MaxSizeKb);
+        Assert.Equal("larger:0 smaller:abc", p.Text);
+        Assert.False(p.HasOperators);
+        Assert.Empty(GlobalSearch.Chips(p));
+    }
+
+    [Fact]
+    public void Size_chips_are_bulwarks_kb_chips()
+    {
+        // search-chips.tsx:65-70: label size_min / size_max, value "<kb> KB"
+        var c = GlobalSearch.Chips(GlobalSearch.Parse("body:invoice larger:100 smaller:2048"));
+        Assert.Equal(["body", "larger", "smaller"], c.Select(x => x.Key).ToArray());
+        Assert.Equal(new SearchChip("body", "Body", "invoice"), c[0]);
+        Assert.Equal(new SearchChip("larger", "Larger than (KB)", "100 KB"), c[1]);
+        Assert.Equal(new SearchChip("smaller", "Smaller than (KB)", "2048 KB"), c[2]);
+
+        // removing the chip takes the operator out and keeps the words
+        Assert.Equal("invoice", GlobalSearch.WithoutOperator("invoice larger:100", "larger"));
+    }
+
+    [Fact]
     [RustTest("gsearch::snippets")]
     public void Snippets()
     {
