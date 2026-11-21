@@ -311,6 +311,28 @@
             <Button x:Name="SignOutButton" Style="{StaticResource Rail.Button}" Width="36" Height="36" CornerRadius="6" HorizontalAlignment="Center"
                     AutomationProperties.AutomationId="rail.accounts.signout" AutomationProperties.Name="Sign out" motion:Tip.Text="Sign out">
               <controls:SIcon Kind="Back" Size="16" />
+              <Button.Flyout>
+                <Flyout win:ShouldConstrainToRootBounds="True" Placement="RightEdgeAlignedBottom" Opened="OnSignOutFlyoutOpened">
+                  <Flyout.FlyoutPresenterStyle>
+                    <Style TargetType="FlyoutPresenter">
+                      <Setter Property="Padding" Value="4" />
+                      <Setter Property="Background" Value="{StaticResource Popup}" />
+                      <Setter Property="BorderBrush" Value="{StaticResource Line}" />
+                      <Setter Property="MinWidth" Value="200" />
+                    </Style>
+                  </Flyout.FlyoutPresenterStyle>
+                  <StackPanel x:Name="SignOutMenu">
+                    <Button x:Name="SignOutOne" HorizontalAlignment="Stretch" HorizontalContentAlignment="Left" Padding="8,6" Foreground="{StaticResource Text}" Click="OnSignOutOne"
+                            AutomationProperties.AutomationId="rail.accounts.signout.one" AutomationProperties.Name="Sign out">
+                      <TextBlock Text="Sign out" FontSize="13" />
+                    </Button>
+                    <Button x:Name="SignOutAll" HorizontalAlignment="Stretch" HorizontalContentAlignment="Left" Padding="8,6" Foreground="{StaticResource Text}" Click="OnSignOutAll"
+                            AutomationProperties.AutomationId="rail.accounts.signout.all" AutomationProperties.Name="Sign out of all accounts">
+                      <TextBlock Text="Sign out of all accounts" FontSize="13" />
+                    </Button>
+                  </StackPanel>
+                </Flyout>
+              </Button.Flyout>
             </Button>
           </StackPanel>
         </Grid>

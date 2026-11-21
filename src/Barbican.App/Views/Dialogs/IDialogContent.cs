@@ -19,6 +19,6 @@ public interface IDialogContent
     /// <summary>M5 (additive, con-ui): the widest the card may be (a form or a picker needs more than the 440 of a question).</summary>
     double MaxWidth => 440;
 
-    /// <summary>WP-8 (additive): a control at the end of the title row (the add-on dialog's options button, Bulwark plugin-dialog-host.tsx:583-621), or null.</summary>
-    UIElement? CreateHeaderAction(ActiveDialog dialog) => null;
+    /// <summary>WP-8 (additive): the options menu at the end of the title row (the add-on dialog's, Bulwark plugin-dialog-host.tsx:583-621), or null. The host declares the button and its menu in XAML (popup lint, ADR 0007); this only supplies the texts and the action.</summary>
+    DialogHeaderMenu? CreateHeaderMenu(ActiveDialog dialog) => null;
 }
