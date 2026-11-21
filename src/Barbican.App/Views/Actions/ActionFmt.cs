@@ -16,6 +16,25 @@ public static class ActionFmt
         _ => "Text",
     });
 
+    /// <summary>The status icon of a toast (Bulwark toast.tsx:92-97: check, info, triangle for a warning, circle for an error).</summary>
+    public static string ToastIcon(Barbican.Presentation.Actions.ToastSeverity severity) => severity switch
+    {
+        Barbican.Presentation.Actions.ToastSeverity.Success => "Check",
+        Barbican.Presentation.Actions.ToastSeverity.Info => "Info",
+        _ => "Alert",
+    };
+
+    /// <summary>Only errors and warnings carry colour; success and info stay neutral (toast.tsx:99-107).</summary>
+    public static Microsoft.UI.Xaml.Media.Brush ToastIconBrush(Barbican.Presentation.Actions.ToastSeverity severity) => Fmt.Palette(severity switch
+    {
+        Barbican.Presentation.Actions.ToastSeverity.Error => "RoseFg",
+        Barbican.Presentation.Actions.ToastSeverity.Warning => "AmberFg",
+        _ => "Dim",
+    });
+
+    /// <summary>Visible when <paramref name="hidden"/> is false.</summary>
+    public static Microsoft.UI.Xaml.Visibility NotVis(bool hidden) => hidden ? Microsoft.UI.Xaml.Visibility.Collapsed : Microsoft.UI.Xaml.Visibility.Visible;
+
     /// <summary>The banner button: "Select all N in this folder".</summary>
     public static string SelectAllText(int total, bool threaded) => threaded
         ? string.Create(CultureInfo.InvariantCulture, $"Select all messages in {total} conversations")

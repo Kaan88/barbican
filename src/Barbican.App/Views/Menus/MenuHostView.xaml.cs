@@ -1,3 +1,7 @@
+// Bulwark 1.21.2 reference (default theme): components/ui/context-menu.tsx:667 (panel bg-background rounded-md shadow-lg border, no entrance animation), :657-666 (row w-full px-3 py-1.5
+// text-sm gap-2, hover bg-muted with transition-colors duration-150, destructive hover bg-destructive/10 text-destructive), :710-713 (16 px icon, destructive icon red), :765-801 (check item:
+// the tick sits in the icon column), :737-743 (shortcut keycap: border, rounded, 11 px, muted), :746-749 (separator h-px my-1), :962 (submenu chevron 16 px muted). Bento and Nordic keep
+// the older look (12 px panel, 8 px rows, 13 px text).
 // Mirrors: spec/menus.md conventions; Rust ctxmenu.rs row_h :94 (30 px rows, 9 px separators, 24 px headers), fill :98, show :107, hover :134; design/MOTION.md PopIn (from the anchor
 // corner, Motion.enter, nothing waits); Bulwark lib/menu-placement.ts (the menu stays inside the window; a flyout opens beside its row or flips to the other side). ADR 0005 and 0007:
 // one constrained in-window Popup. The model is ContextMenuController (Presentation); this only draws it and forwards pointer input. Owner menus.
@@ -27,6 +31,7 @@ public sealed partial class MenuHostView : UserControl
     private Border? _rootCard;
     private Border? _flyCard;
     private bool _attached;
+    private bool _bulwark;
 
     public MenuHostView()
     {
@@ -71,6 +76,8 @@ public sealed partial class MenuHostView : UserControl
 
         Backdrop.Width = Math.Max(ActualWidth, 1);
         Backdrop.Height = Math.Max(ActualHeight, 1);
+        _bulwark = StyleState.Current.IsBulwark;
+        MenuLevel.RowHeight = _bulwark ? 32 : 30;
         if (!ReferenceEquals(_menu.Root, _rootLevel))
         {
             Layer.Children.Clear();
@@ -83,7 +90,7 @@ public sealed partial class MenuHostView : UserControl
             Canvas.SetTop(_rootCard, y);
             Layer.Children.Add(_rootCard);
             MenuPopup.IsOpen = true;
-            PopIn.Run(_rootCard, new Point(flippedX ? 1 : 0, flippedY ? 1 : 0));
+            PopIn.Run(_rootCard, new Point(flippedX ? 1 : 0, flippedY ? 1 : 0), PopInKind.Menu);
         }
 
         if (!ReferenceEquals(_menu.Flyout, _flyLevel))
@@ -109,7 +116,7 @@ public sealed partial class MenuHostView : UserControl
                 Canvas.SetLeft(_flyCard, Math.Max(EdgeMargin, x));
                 Canvas.SetTop(_flyCard, y);
                 Layer.Children.Add(_flyCard);
-                PopIn.Run(_flyCard, new Point(flip ? 1 : 0, 0));
+                PopIn.Run(_flyCard, new Point(flip ? 1 : 0, 0), PopInKind.Menu);
             }
         }
 
@@ -160,11 +167,11 @@ public sealed partial class MenuHostView : UserControl
         var card = new Border
         {
             Width = width,
-            Padding = new Thickness(CardPadding),
+            Padding = _bulwark ? new Thickness(0, CardPadding, 0, CardPadding) : new Thickness(CardPadding),
             Background = AppResources.Brush("Popup"),
             BorderBrush = AppResources.Brush("Line"),
             BorderThickness = new Thickness(1),
-            CornerRadius = new CornerRadius(12),
+            CornerRadius = _bulwark ? StyleState.Current.MenuRadius : new CornerRadius(12),
             Child = stack,
         };
         Microsoft.UI.Xaml.Automation.AutomationProperties.SetAutomationId(card, inFlyout ? "menu.flyout" : "menu.card");
@@ -172,52 +179,57 @@ public sealed partial class MenuHostView : UserControl
         return card;
     }
 
+    // a separator (Bulwark h-px my-1, full width) or a section header; null for a row that can be picked
+    private UIElement? StaticChild(MenuItemSpec item) => item.Kind switch
+    {
+        MenuItemKind.Separator => new Border { Height = 1, Background = AppResources.Brush("Line"), VerticalAlignment = VerticalAlignment.Center, Margin = _bulwark ? new Thickness(0) : new Thickness(6, 0, 6, 0) },
+        MenuItemKind.Header => new TextBlock { Text = item.Label, FontSize = 11, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold, Foreground = AppResources.Brush("Faint"), Margin = new Thickness(_bulwark ? 12 : 10, 0, 10, 0), VerticalAlignment = VerticalAlignment.Center, TextTrimming = TextTrimming.CharacterEllipsis },
+        _ => null,
+    };
+
+    private static readonly SolidColorBrush Clear = new(global::Windows.UI.Color.FromArgb(0, 0, 0, 0));
+
     private Border BuildRow(MenuItemSpec item, int index, bool inFlyout)
     {
-        var row = new Border { Height = MenuLevel.HeightOf(item), CornerRadius = new CornerRadius(8), Background = new SolidColorBrush(global::Windows.UI.Color.FromArgb(0, 0, 0, 0)) };
-        switch (item.Kind)
+        var row = new Border { Height = MenuLevel.HeightOf(item), CornerRadius = _bulwark ? StyleState.Current.MenuItemRadius : new CornerRadius(8), Background = Clear };
+        if (StaticChild(item) is { } fixedChild)
         {
-            case MenuItemKind.Separator:
-                row.Child = new Border { Height = 1, Background = AppResources.Brush("Line"), VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(6, 0, 6, 0) };
-                return row;
-            case MenuItemKind.Header:
-                row.Child = new TextBlock { Text = item.Label, FontSize = 11, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold, Foreground = AppResources.Brush("Faint"), Margin = new Thickness(10, 0, 10, 0), VerticalAlignment = VerticalAlignment.Center, TextTrimming = TextTrimming.CharacterEllipsis };
-                return row;
-            default:
-                break;
+            row.Child = fixedChild;
+            return row;
         }
 
-        var foreground = !item.Enabled ? AppResources.Brush("Faint") : item.Danger ? AppResources.Brush("RoseFg") : AppResources.Brush("Text");
-        var grid = new Grid { Margin = new Thickness(8 + item.Indent * 12, 0, 8, 0), ColumnSpacing = 8 };
-        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(16) });
+        FeedbackTransition.SetKind(row, FeedbackKind.Menu);
+        var danger = item.Danger && item.Enabled;
+        var foreground = !item.Enabled ? AppResources.Brush("Faint") : danger && !_bulwark ? AppResources.Brush("RoseFg") : AppResources.Brush("Text");
+        var hasIcon = !string.IsNullOrEmpty(item.Icon);
+        // Bulwark: a row without an icon has no icon column; a check item without one shows its tick there (context-menu.tsx:765-801)
+        var tickInIconColumn = _bulwark && !hasIcon && item.Checked is not null;
+        var grid = new Grid { Margin = new Thickness((_bulwark ? 12 : 8) + item.Indent * 12, 0, _bulwark ? 12 : 8, 0), ColumnSpacing = 8 };
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = _bulwark && !hasIcon && !tickInIconColumn ? new GridLength(0) : new GridLength(16) });
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-        grid.Children.Add(Icon(item, foreground));
-        var label = new TextBlock { Text = item.Label, FontSize = 13, Foreground = foreground, VerticalAlignment = VerticalAlignment.Center, TextTrimming = TextTrimming.CharacterEllipsis };
+        var parts = new RowParts();
+        if (tickInIconColumn)
+        {
+            if (item.Checked == true)
+            {
+                grid.Children.Add(new SIcon { Kind = "Check", Size = 16, Foreground = foreground, VerticalAlignment = VerticalAlignment.Center });
+            }
+        }
+        else if (hasIcon || !_bulwark)
+        {
+            grid.Children.Add(Icon(item, danger && _bulwark ? AppResources.Brush("Destructive") : foreground));
+        }
+
+        var label = new TextBlock { Text = item.Label, FontSize = _bulwark ? 14 : 13, Foreground = foreground, VerticalAlignment = VerticalAlignment.Center, TextTrimming = TextTrimming.CharacterEllipsis };
+        parts.Label = label;
         Grid.SetColumn(label, 1);
         grid.Children.Add(label);
-        if (item.Checked == true)
-        {
-            var check = new SIcon { Kind = "Check", Size = 13, Foreground = AppResources.Brush("Accent"), VerticalAlignment = VerticalAlignment.Center };
-            Grid.SetColumn(check, 2);
-            grid.Children.Add(check);
-        }
-        else if (!string.IsNullOrEmpty(item.Hint))
-        {
-            var hint = new TextBlock { Text = item.Hint, FontSize = 11, Foreground = AppResources.Brush("Faint"), VerticalAlignment = VerticalAlignment.Center };
-            Grid.SetColumn(hint, 2);
-            grid.Children.Add(hint);
-        }
-
-        if (item.Kind == MenuItemKind.Submenu)
-        {
-            var chevron = new SIcon { Kind = "ChevronRight", Size = 12, Foreground = AppResources.Brush("Faint"), VerticalAlignment = VerticalAlignment.Center };
-            Grid.SetColumn(chevron, 3);
-            grid.Children.Add(chevron);
-        }
+        AddTrailing(grid, item, tickInIconColumn, foreground);
 
         row.Child = grid;
+        row.Tag = parts;
         row.PointerEntered += (_, _) => _menu.Hover(index, inFlyout);
         row.Tapped += (_, e) =>
         {
@@ -227,6 +239,48 @@ public sealed partial class MenuHostView : UserControl
         Microsoft.UI.Xaml.Automation.AutomationProperties.SetAutomationId(row, (inFlyout ? "menu.flyout." : "menu.item.") + item.Label.Trim());
         Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(row, item.Label.Trim());
         return row;
+    }
+
+    // the end of a row: a tick (when it is not in the icon column), else the shortcut keycap; and the submenu chevron
+    private void AddTrailing(Grid grid, MenuItemSpec item, bool tickInIconColumn, Brush foreground)
+    {
+        if (item.Checked == true && !tickInIconColumn)
+        {
+            var check = new SIcon { Kind = "Check", Size = _bulwark ? 16 : 13, Foreground = _bulwark ? foreground : AppResources.Brush("Accent"), VerticalAlignment = VerticalAlignment.Center };
+            Grid.SetColumn(check, 2);
+            grid.Children.Add(check);
+        }
+        else if (!string.IsNullOrEmpty(item.Hint))
+        {
+            var hint = Keycap(item.Hint);
+            Grid.SetColumn(hint, 2);
+            grid.Children.Add(hint);
+        }
+
+        if (item.Kind == MenuItemKind.Submenu)
+        {
+            var chevron = new SIcon { Kind = "ChevronRight", Size = _bulwark ? 16 : 12, Foreground = AppResources.Brush(_bulwark ? "Dim" : "Faint"), VerticalAlignment = VerticalAlignment.Center };
+            Grid.SetColumn(chevron, 3);
+            grid.Children.Add(chevron);
+        }
+    }
+
+    // the shortcut at the end of a row: a bordered keycap in Bulwark (context-menu.tsx:737-743), plain muted text in the older styles
+    private FrameworkElement Keycap(string text) => _bulwark
+        ? new Border
+        {
+            BorderBrush = AppResources.Brush("Line"),
+            BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(4),
+            Padding = new Thickness(6, 0, 6, 0),
+            VerticalAlignment = VerticalAlignment.Center,
+            Child = new TextBlock { Text = text, FontSize = 11, Foreground = AppResources.Brush("Dim") },
+        }
+        : new TextBlock { Text = text, FontSize = 11, Foreground = AppResources.Brush("Faint"), VerticalAlignment = VerticalAlignment.Center };
+
+    private sealed class RowParts
+    {
+        public TextBlock? Label { get; set; }
     }
 
     private static UIElement Icon(MenuItemSpec item, Brush foreground)
@@ -246,11 +300,19 @@ public sealed partial class MenuHostView : UserControl
         return new SIcon { Kind = item.Icon ?? string.Empty, Size = 15, Foreground = foreground, VerticalAlignment = VerticalAlignment.Center };
     }
 
-    private static void Highlight(MenuLevel level, List<Border> rows)
+    // the highlighted row (pointer hover and keyboard land on the same one) takes the shared hover brush; in Bulwark a destructive row takes the destructive tint and text
+    // (context-menu.tsx:716-720)
+    private void Highlight(MenuLevel level, List<Border> rows)
     {
         for (var i = 0; i < rows.Count && i < level.Items.Count; i++)
         {
-            rows[i].Background = i == level.Highlight ? AppResources.Brush("Hover") : new SolidColorBrush(global::Windows.UI.Color.FromArgb(0, 0, 0, 0));
+            var on = i == level.Highlight;
+            var danger = level.Items[i] is { Danger: true, Enabled: true };
+            rows[i].Background = !on ? Clear : AppResources.Brush(!_bulwark ? "Hover" : danger ? "FeedbackDestructiveHover" : "FeedbackHover");
+            if (_bulwark && danger && rows[i].Tag is RowParts { Label: { } label })
+            {
+                label.Foreground = AppResources.Brush(on ? "Destructive" : "Text");
+            }
         }
     }
 }

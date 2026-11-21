@@ -40,7 +40,7 @@ internal sealed class PluginDialogPresenter
             manifest.TryGetProperty("name", out var value) && value.ValueKind == JsonValueKind.String ? value.GetString() : null, binding.Package.Id);
         var title = request.Title ?? name;
         if (title.Length > TitleDisplayLimit) title = title[..(char.IsHighSurrogate(title[TitleDisplayLimit - 1]) ? TitleDisplayLimit - 1 : TitleDisplayLimit)] + "…";
-        var hostRequest = new PluginDialogHostRequest(title, name, request);
+        var hostRequest = new PluginDialogHostRequest(title, name, request, () => _packages.SetEnabledAsync(binding.Package, false, CancellationToken.None));
 
         var outcome = PluginDialogOutcome.Failure(PluginErrorCode.Unavailable);
         await _dispatcher.InvokeAsync(async () =>

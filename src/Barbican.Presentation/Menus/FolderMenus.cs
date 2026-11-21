@@ -30,19 +30,30 @@ public static class FolderMenus
         var folder = d.Folder(c.Mailbox!.AccountKey, id);
         var role = folder?.Role ?? RoleOf(c.Mailbox.Role);
         var rights = folder?.Rights ?? MailboxRights.Full;
+        // Bulwark mailbox-context-menu.tsx:345-466 order: mark read, —, New subfolder and Import only outside Trash and Junk, Rename, (Rules ›), —, Import, Export, Refresh, —, the danger rows
+        var emptyable = role is MailboxRole.Trash or MailboxRole.Junk;
         var items = new List<MenuItemSpec>
         {
             Header(folder?.Name ?? string.Empty),
             Item(MenuGlyphs.Read, "Mark folder as read", CommandIds.MarkFolderRead, enabled: rights.MaySetSeen),
-            Item(MenuGlyphs.Refresh, "Refresh", CommandIds.RefreshFolder),
             Sep(),
-            Item(MenuGlyphs.NewFolder, "New subfolder", CommandIds.NewSubfolder, enabled: rights.MayCreateChild),
-            Item(MenuGlyphs.Rename, "Rename", CommandIds.RenameFolder, enabled: role == MailboxRole.None && rights.MayRename),
-            Item(MenuGlyphs.Upload, "Import messages (.eml, .mbox)…", CommandIds.ImportMessages, enabled: rights.MayAddItems),
-            Item(MenuGlyphs.Download, "Export as mbox…", CommandIds.ExportMbox),
-            Item(MenuGlyphs.Download, "Export as .eml files…", CommandIds.ExportEml),
         };
-        if (role is MailboxRole.Trash or MailboxRole.Junk)
+        if (!emptyable)
+        {
+            items.Add(Item(MenuGlyphs.NewFolder, "New subfolder", CommandIds.NewSubfolder, enabled: rights.MayCreateChild));
+        }
+
+        items.Add(Item(MenuGlyphs.Rename, "Rename", CommandIds.RenameFolder, enabled: role == MailboxRole.None && rights.MayRename));
+        items.Add(Sep());
+        if (!emptyable)
+        {
+            items.Add(Item(MenuGlyphs.Upload, "Import messages (.eml, .mbox)…", CommandIds.ImportMessages, enabled: rights.MayAddItems));
+        }
+
+        items.Add(Item(MenuGlyphs.Download, "Export as mbox…", CommandIds.ExportMbox));
+        items.Add(Item(MenuGlyphs.Download, "Export as .eml files…", CommandIds.ExportEml));
+        items.Add(Item(MenuGlyphs.Refresh, "Refresh", CommandIds.RefreshFolder));
+        if (emptyable)
         {
             items.Add(Sep());
             items.Add(Danger(MenuGlyphs.Delete, role == MailboxRole.Trash ? "Empty trash" : "Empty spam", role == MailboxRole.Trash ? CommandIds.EmptyTrash : CommandIds.EmptySpam, confirm: EmptyConfirm, enabled: rights.MayRemoveItems));

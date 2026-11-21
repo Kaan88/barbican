@@ -481,3 +481,7 @@ runs in the message are drawn bold (44-72), field labels are semibold with a red
 Bulwark's wording (440-480). Not fixed: the puzzle icon beside the attribution, the 18 px title and 12 px button gap (shared dialog host styles are 16 px and 8 px),
 the solid destructive button (Barbican has no destructive token; the rose tint of other danger buttons is used), the per-dialog options menu with "Turn off <add-on>",
 and the `prompt`-as-own-window behaviour of Bulwark desktop.
+
+
+WP-8 follow-up (m6b/wp8-dialogs): the puzzle icon, the 18 px title, the 12 px button gap, the solid destructive button and the "Options for <name>" menu with "Turn off <name>" are done
+(ledger `bulwark-parity-gaps.md` section 3.7); the replay still passes 244 of 244. Only the `prompt`-as-own-window behaviour of Bulwark desktop is left, by design (in-window host).

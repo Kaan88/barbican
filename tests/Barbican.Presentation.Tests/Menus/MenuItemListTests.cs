@@ -192,7 +192,7 @@ public sealed class MenuItemListTests
     public void Folder_menu_for_a_custom_folder_has_rename_and_a_confirmed_delete()
     {
         var rows = FolderMenus.Folder(Context(MenuIds.Folder, role: null, mailboxId: "work"), new FakeMenuData());
-        Assert.Equal(["# Work", "Mark folder as read", "Refresh", "—", "New subfolder", "Rename", "Import messages (.eml, .mbox)…", "Export as mbox…", "Export as .eml files…", "—", "Delete folder"], Labels(rows));
+        Assert.Equal(["# Work", "Mark folder as read", "—", "New subfolder", "Rename", "—", "Import messages (.eml, .mbox)…", "Export as mbox…", "Export as .eml files…", "Refresh", "—", "Delete folder"], Labels(rows));
         Assert.True(rows.Single(r => r.Label == "Rename").Enabled);
         var delete = rows.Single(r => r.Label == "Delete folder");
         Assert.True(delete.Danger);

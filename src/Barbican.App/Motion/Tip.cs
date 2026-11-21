@@ -1,3 +1,5 @@
+// Bulwark 1.21.2 reference (default theme): components/ui/icon-button.tsx (the label is the native `title` attribute: the OS tooltip appears after its delay with no animation), so in the Bulwark
+// style the bubble shows at once (MotionRuntime.DecorationMs, FM-15) with a small radius; Bento and Nordic keep the fade.
 // Mirrors: design/MOTION.md "Building blocks": Tip waits Motion.tip-delay, then fades in over Motion.enter, removed instantly when the pointer leaves;
 // docs/adr/0007 (ToolTip creates a windowed popup that can leave the window, so ToolTipService.ToolTip is denied in App XAML: PopupControls.Denied).
 
@@ -47,6 +49,25 @@ public static partial class Tip
         }
     }
 
+#if AUTOMATION
+    /// <summary>Shows the tip of <paramref name="target"/> at once, as the delay timer would (the hidden automation has no pointer); false when it has no text or the shell has no host yet.</summary>
+    public static bool ShowNow(FrameworkElement target)
+    {
+        ArgumentNullException.ThrowIfNull(target);
+        if (_host is not { } host || GetText(target) is not { Length: > 0 } text)
+        {
+            return false;
+        }
+
+        Hide();
+        Show(host, target, text);
+        return true;
+    }
+
+    /// <summary>Hides the tip.</summary>
+    public static void HideNow() => Hide();
+#endif
+
     private static void OnUnloaded(object sender, RoutedEventArgs e) => Hide();
 
     private static void OnEntered(object sender, PointerRoutedEventArgs e)
@@ -82,7 +103,7 @@ public static partial class Tip
                 Background = (Brush)Application.Current.Resources["Popup"],
                 BorderBrush = (Brush)Application.Current.Resources["Line"],
                 BorderThickness = new Thickness(1),
-                CornerRadius = new CornerRadius(8),
+                CornerRadius = new CornerRadius(MotionRuntime.Bulwark ? 4 : 8),
                 Padding = new Thickness(9, 4, 9, 5),
                 IsHitTestVisible = false,
                 Child = _label,
@@ -104,8 +125,16 @@ public static partial class Tip
         var y = onRail ? at.Y + (target.ActualHeight - size.Height) / 2 : at.Y + target.ActualHeight + 6;
         Canvas.SetLeft(_bubble, Math.Clamp(x, 4, Math.Max(4, host.ActualWidth - size.Width - 4)));
         Canvas.SetTop(_bubble, Math.Clamp(y, 4, Math.Max(4, host.ActualHeight - size.Height - 4)));
+        _bubble.CornerRadius = new CornerRadius(MotionRuntime.Bulwark ? 4 : 8);
         _bubble.Visibility = Visibility.Visible;
-        MotionRuntime.FadeIn(_bubble);
+        if (MotionRuntime.DecorationMs(MotionRuntime.Scale.EnterMs) > 0)
+        {
+            MotionRuntime.FadeIn(_bubble);
+        }
+        else
+        {
+            _bubble.Opacity = 1;
+        }
     }
 
     private static void Hide()

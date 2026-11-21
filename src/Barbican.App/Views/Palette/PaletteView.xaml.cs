@@ -1,3 +1,6 @@
+// Bulwark 1.21.2 reference (default theme): components/command-palette/command-palette.tsx:336 (scrim bg-black/50, card near the top at 12 vh), :344 (w-full max-w-xl rounded-lg border bg-background
+// shadow-xl), :350-369 (search icon, borderless 48 px input, Esc keycap, border-bottom), :391 (group label 11 px semibold muted), :404-418 (row mx-1 gap-2.5 rounded-md px-2.5 py-2 text-sm, active
+// bg-muted, 16 px muted icon, keycaps with border and muted fill). Bento and Nordic keep the older look.
 // Mirrors: Rust palette.rs open :246 / rebuild :269 / move_active :423 / enter :437; Bulwark components/command-palette (Ctrl+K opens, typing filters, arrows move, Enter runs, Esc closes,
 // Tab switches the scope); feel scenario palette_open (Ctrl+K, type, Esc). The model is PaletteController (Presentation); this draws it. Owner menus.
 
@@ -22,6 +25,7 @@ public sealed partial class PaletteView : UserControl
     private bool _open;
     private Control? _restoreFocus;
     private bool _syncing;
+    private bool _bulwark;
 
     public PaletteView()
     {
@@ -76,10 +80,39 @@ public sealed partial class PaletteView : UserControl
         Input.Text = string.Empty;
         _syncing = false;
         BuildTabs();
+        ApplyLook();
         PalettePopup.IsOpen = true;
         MotionRuntime.FadeIn(Backdrop);
         PopIn.Run(Card, new Point(0.5, 0));
         _ = DispatcherQueue.TryEnqueue(() => Input.Focus(FocusState.Programmatic));
+    }
+
+    // read at each open, so a style flip applies to the next palette
+    private void ApplyLook()
+    {
+        _bulwark = StyleState.Current.IsBulwark;
+        Backdrop.Background = new SolidColorBrush(global::Windows.UI.Color.FromArgb(_bulwark ? (byte)0x80 : (byte)0x44, 0, 0, 0));
+        Card.Width = _bulwark ? 576 : 560;
+        Card.Margin = new Thickness(0, _bulwark ? Math.Max(16, ActualHeight * 0.12) : 72, 0, 0);
+        Card.CornerRadius = StyleState.Current.DialogRadius;
+        SearchGlyph.Visibility = EscKey.Visibility = InputRule.Visibility = _bulwark ? Visibility.Visible : Visibility.Collapsed;
+        if (_bulwark)
+        {
+            Input.Style = (Style)Application.Current.Resources["TextBox.Bare"];
+            Input.Margin = new Thickness(0);
+            Input.Height = 48;
+            Input.FontSize = 14;
+            Input.VerticalContentAlignment = VerticalAlignment.Center;
+        }
+        else
+        {
+            Input.ClearValue(StyleProperty);
+            Input.ClearValue(HeightProperty);
+            Input.Margin = new Thickness(12);
+            Input.FontSize = 14;
+        }
+
+        Rows.Margin = new Thickness(_bulwark ? 4 : 6, _bulwark ? 4 : 0, _bulwark ? 4 : 6, 8);
     }
 
     private void Close()
@@ -133,7 +166,7 @@ public sealed partial class PaletteView : UserControl
             var row = rows[i];
             if (row.IsHeader)
             {
-                children.Add(new TextBlock { Text = row.Header, FontSize = 11, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold, Foreground = AppResources.Brush("Faint"), Margin = new Thickness(10, 10, 10, 4) });
+                children.Add(new TextBlock { Text = row.Header, FontSize = 11, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold, Foreground = AppResources.Brush("Faint"), Margin = _bulwark ? new Thickness(12, 8, 12, 4) : new Thickness(10, 10, 10, 4) });
                 continue;
             }
 
@@ -161,18 +194,29 @@ public sealed partial class PaletteView : UserControl
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(18) });
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-        grid.Children.Add(new SIcon { Kind = IconKey(command.Icon), Size = 16, Foreground = foreground, VerticalAlignment = VerticalAlignment.Center });
-        var label = new TextBlock { Text = command.Label, FontSize = 13, Foreground = foreground, VerticalAlignment = VerticalAlignment.Center, TextTrimming = TextTrimming.CharacterEllipsis };
+        grid.Children.Add(new SIcon { Kind = IconKey(command.Icon), Size = 16, Foreground = _bulwark && row.Enabled ? AppResources.Brush("Dim") : foreground, VerticalAlignment = VerticalAlignment.Center });
+        var label = new TextBlock { Text = command.Label, FontSize = _bulwark ? 14 : 13, Foreground = foreground, VerticalAlignment = VerticalAlignment.Center, TextTrimming = TextTrimming.CharacterEllipsis };
         Grid.SetColumn(label, 1);
         grid.Children.Add(label);
         if (command.Shortcut.Length > 0)
         {
-            var hint = new TextBlock { Text = command.Shortcut, FontSize = 11, Foreground = AppResources.Brush("Faint"), VerticalAlignment = VerticalAlignment.Center };
+            FrameworkElement hint = _bulwark
+                ? new Border
+                {
+                    BorderBrush = AppResources.Brush("Line"),
+                    BorderThickness = new Thickness(1),
+                    Background = AppResources.Brush("FeedbackHover"),
+                    CornerRadius = new CornerRadius(4),
+                    Padding = new Thickness(6, 2, 6, 2),
+                    VerticalAlignment = VerticalAlignment.Center,
+                    Child = new TextBlock { Text = command.Shortcut, FontSize = 10, FontFamily = new FontFamily("Consolas"), Foreground = AppResources.Brush("Dim") },
+                }
+                : new TextBlock { Text = command.Shortcut, FontSize = 11, Foreground = AppResources.Brush("Faint"), VerticalAlignment = VerticalAlignment.Center };
             Grid.SetColumn(hint, 2);
             grid.Children.Add(hint);
         }
 
-        var border = new Border { Height = 34, CornerRadius = new CornerRadius(8), Background = new SolidColorBrush(global::Windows.UI.Color.FromArgb(0, 0, 0, 0)), Child = grid };
+        var border = new Border { Height = _bulwark ? 36 : 34, CornerRadius = _bulwark ? new CornerRadius(StyleState.Current.Metrics.ButtonRadius) : new CornerRadius(8), Background = new SolidColorBrush(global::Windows.UI.Color.FromArgb(0, 0, 0, 0)), Child = grid };
         border.Tapped += (_, e) =>
         {
             e.Handled = true;
@@ -187,7 +231,7 @@ public sealed partial class PaletteView : UserControl
     {
         for (var i = 0; i < _commandRows.Count; i++)
         {
-            _commandRows[i].Background = _commandLines[i] == _palette.Highlight ? AppResources.Brush("Hover") : new SolidColorBrush(global::Windows.UI.Color.FromArgb(0, 0, 0, 0));
+            _commandRows[i].Background = _commandLines[i] == _palette.Highlight ? AppResources.Brush(_bulwark ? "FeedbackHover" : "Hover") : new SolidColorBrush(global::Windows.UI.Color.FromArgb(0, 0, 0, 0));
         }
     }
 
