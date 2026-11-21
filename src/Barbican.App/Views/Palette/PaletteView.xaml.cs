@@ -1,6 +1,8 @@
 // Bulwark 1.21.2 reference (default theme): components/command-palette/command-palette.tsx:336 (scrim bg-black/50, card near the top at 12 vh), :344 (w-full max-w-xl rounded-lg border bg-background
 // shadow-xl), :350-369 (search icon, borderless 48 px input, Esc keycap, border-bottom), :391 (group label 11 px semibold muted), :404-418 (row mx-1 gap-2.5 rounded-md px-2.5 py-2 text-sm, active
 // bg-muted, 16 px muted icon, keycaps with border and muted fill). Bento and Nordic keep the older look.
+// Search scope (SR-03): components/global-search/global-search-palette.tsx:215-225 + search-scope-chips.tsx:25-47 (scope chips under the input: rounded-full px-2 py-0.5 text-xs, the one on tinted primary), search-facets.tsx:60-78
+// (the count of each kind), search-preview.tsx:43-205 (the hit's card: 40 px kind chip, text-lg title, muted subtitle, rule, detail rows with 16 px muted icons, Open button) and palette-result-row.tsx (marked snippet).
 // Mirrors: Rust palette.rs open :246 / rebuild :269 / move_active :423 / enter :437; Bulwark components/command-palette (Ctrl+K opens, typing filters, arrows move, Enter runs, Esc closes,
 // Tab switches the scope); feel scenario palette_open (Ctrl+K, type, Esc). The model is PaletteController (Presentation); this draws it. Owner menus.
 
@@ -10,6 +12,7 @@ using Barbican.App.Shell;
 using Barbican.App.Theme;
 using Barbican.Presentation.Input;
 using Barbican.Presentation.Palette;
+using Microsoft.UI.Xaml.Documents;
 using Microsoft.UI.Xaml.Input;
 using Windows.Foundation;
 
@@ -26,6 +29,7 @@ public sealed partial class PaletteView : UserControl
     private Control? _restoreFocus;
     private bool _syncing;
     private bool _bulwark;
+    private PalettePreview? _previewShown;
 
     public PaletteView()
     {
@@ -68,6 +72,17 @@ public sealed partial class PaletteView : UserControl
         if (_open && string.Equals(property, nameof(PaletteController.Scope), StringComparison.Ordinal))
         {
             BuildTabs();
+            ApplyLayout();
+        }
+
+        if (_open && (property is null || string.Equals(property, nameof(PaletteController.Facets), StringComparison.Ordinal)))
+        {
+            BuildFacets();
+        }
+
+        if (_open && (property is null || string.Equals(property, nameof(PaletteController.Preview), StringComparison.Ordinal)))
+        {
+            BuildPreview();
         }
     }
 
@@ -81,6 +96,9 @@ public sealed partial class PaletteView : UserControl
         _syncing = false;
         BuildTabs();
         ApplyLook();
+        ApplyLayout();
+        BuildFacets();
+        BuildPreview();
         PalettePopup.IsOpen = true;
         MotionRuntime.FadeIn(Backdrop);
         PopIn.Run(Card, new Point(0.5, 0));
@@ -92,7 +110,7 @@ public sealed partial class PaletteView : UserControl
     {
         _bulwark = StyleState.Current.IsBulwark;
         Backdrop.Background = new SolidColorBrush(global::Windows.UI.Color.FromArgb(_bulwark ? (byte)0x80 : (byte)0x44, 0, 0, 0));
-        Card.Width = _bulwark ? 576 : 560;
+        Card.Width = CardWidth();
         Card.Margin = new Thickness(0, _bulwark ? Math.Max(16, ActualHeight * 0.12) : 72, 0, 0);
         Card.CornerRadius = StyleState.Current.DialogRadius;
         CardShadow.Apply(Card, CardDepth.ExtraLarge, Backdrop);
@@ -116,6 +134,209 @@ public sealed partial class PaletteView : UserControl
         Rows.Margin = new Thickness(_bulwark ? 4 : 6, _bulwark ? 4 : 0, _bulwark ? 4 : 6, 8);
     }
 
+    private double CardWidth() => _palette.HasPreviewPane ? Math.Clamp(ActualWidth - 32, 560, 920) : _bulwark ? 576 : 560;
+
+    // the Search scope makes room for the preview pane beside the rows (Bulwark's search tab: list and preview side by side); the other scopes keep the single column
+    private void ApplyLayout()
+    {
+        Card.Width = CardWidth();
+        Input.PlaceholderText = _palette.HasPreviewPane ? "Search mail, contacts, calendar and files" : "Type a command";
+        PreviewPane.Visibility = _palette.HasPreviewPane ? Visibility.Visible : Visibility.Collapsed;
+    }
+
+    // The scope chips (search-scope-chips.tsx:25-47): a rounded pill per kind with its count, the one that is on tinted; Ctrl+Left and Ctrl+Right move between them
+    private void BuildFacets()
+    {
+        Facets.Children.Clear();
+        var facets = _palette.Facets;
+        Facets.Visibility = facets.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
+        foreach (var facet in facets)
+        {
+            var text = new TextBlock { FontSize = 12, Foreground = facet.Active ? AppResources.Brush("SelText") : AppResources.Brush("Dim") };
+            text.Inlines.Add(new Run { Text = facet.Label, FontWeight = facet.Active ? Microsoft.UI.Text.FontWeights.Medium : Microsoft.UI.Text.FontWeights.Normal });
+            var count = facet.Count.ToString(System.Globalization.CultureInfo.InvariantCulture) + (facet.More ? "+" : string.Empty);
+            if (facet.Count > 0 || facet.Active)
+            {
+                text.Inlines.Add(new Run { Text = "  " + count, FontSize = 11 });
+            }
+
+            var chip = new Border
+            {
+                Padding = new Thickness(10, 2, 10, 2),
+                CornerRadius = new CornerRadius(12),
+                BorderThickness = new Thickness(1),
+                BorderBrush = facet.Active ? AppResources.Brush("Accent") : AppResources.Brush("Line"),
+                Background = facet.Active ? AppResources.Brush("Sel") : new SolidColorBrush(global::Windows.UI.Color.FromArgb(0, 0, 0, 0)),
+                Child = text,
+            };
+            var key = facet.Key;
+            chip.Tapped += (_, e) =>
+            {
+                e.Handled = true;
+                _ = _palette.SetFacetAsync(key);
+            };
+            Microsoft.UI.Xaml.Automation.AutomationProperties.SetAutomationId(chip, "palette.facet." + facet.Key);
+            Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(chip, facet.Label + ", " + count + (facet.Active ? ", on" : string.Empty));
+            Facets.Children.Add(chip);
+        }
+    }
+
+    // The preview of the highlighted hit (search-preview.tsx:43-205): a kind chip, the title (with a Recurring badge), where it is, a rule, the detail rows, the marked snippet and an Open button.
+    private void BuildPreview()
+    {
+        var preview = _palette.Preview;
+        if (ReferenceEquals(preview, _previewShown) && preview is not null)
+        {
+            return;
+        }
+
+        var sameHit = preview is not null && _previewShown is not null && string.Equals(_previewShown.Title, preview.Title, StringComparison.Ordinal) && _previewShown.Kind == preview.Kind;
+        _previewShown = preview;
+        PreviewBody.Children.Clear();
+        if (preview is null)
+        {
+            if (_palette.HasPreviewPane)
+            {
+                PreviewBody.Children.Add(new TextBlock
+                {
+                    Text = "Select a result to preview it",
+                    FontSize = 13,
+                    Foreground = AppResources.Brush("Dim"),
+                    TextAlignment = TextAlignment.Center,
+                    TextWrapping = TextWrapping.Wrap,
+                    Margin = new Thickness(0, 24, 0, 0),
+                });
+            }
+
+            return;
+        }
+
+        PreviewBody.Children.Add(PreviewHeader(preview));
+        PreviewBody.Children.Add(new Border { Height = 1, Background = AppResources.Brush("Line") });
+        AddPreviewLines(preview);
+        if (preview.Snippet.Count > 0)
+        {
+            PreviewBody.Children.Add(PreviewSnippet(preview));
+        }
+
+        PreviewBody.Children.Add(PreviewOpen(preview));
+        if (!sameHit)
+        {
+            // one short fade when another hit comes up (MOTION.md: nothing slides, nothing scales)
+            MotionRuntime.FadeIn(PreviewBody);
+        }
+    }
+
+    private static Grid PreviewHeader(PalettePreview preview)
+    {
+        var header = new Grid { ColumnSpacing = 12 };
+        header.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        header.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        var chip = new Border { Width = 40, Height = 40, CornerRadius = new CornerRadius(8), Background = AppResources.Brush("Chip"), VerticalAlignment = VerticalAlignment.Top };
+        chip.Child = new SIcon { Kind = KindIcon(preview.Kind), Size = 20, Foreground = AppResources.Brush("Dim"), HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center };
+        header.Children.Add(chip);
+        var titles = new StackPanel { Spacing = 2 };
+        var title = new TextBlock { Text = preview.Title, FontSize = 16, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold, Foreground = AppResources.Brush("Text"), TextWrapping = TextWrapping.Wrap };
+        Microsoft.UI.Xaml.Automation.AutomationProperties.SetAutomationId(title, "palette.preview.title");
+        titles.Children.Add(title);
+        if (preview.Badge.Length > 0)
+        {
+            titles.Children.Add(new Border
+            {
+                Padding = new Thickness(8, 1, 8, 1),
+                CornerRadius = new CornerRadius(10),
+                Background = AppResources.Brush("Chip"),
+                HorizontalAlignment = HorizontalAlignment.Left,
+                Child = new TextBlock { Text = preview.Badge, FontSize = 11, Foreground = AppResources.Brush("Dim") },
+            });
+        }
+
+        if (preview.Subtitle.Length > 0)
+        {
+            titles.Children.Add(new TextBlock { Text = preview.Subtitle, FontSize = 13, Foreground = AppResources.Brush("Dim"), TextWrapping = TextWrapping.Wrap });
+        }
+
+        Grid.SetColumn(titles, 1);
+        header.Children.Add(titles);
+        return header;
+    }
+
+    private void AddPreviewLines(PalettePreview preview)
+    {
+        foreach (var line in preview.Lines)
+        {
+            var row = new Grid { ColumnSpacing = 10 };
+            row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(16) });
+            row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            row.Children.Add(new SIcon { Kind = LineIcon(line.Icon), Size = 16, Foreground = AppResources.Brush("Dim"), VerticalAlignment = VerticalAlignment.Top, Margin = new Thickness(0, 2, 0, 0) });
+            var value = new TextBlock { Text = line.Text, FontSize = 13, Foreground = AppResources.Brush("Text"), TextWrapping = TextWrapping.Wrap };
+            Grid.SetColumn(value, 1);
+            row.Children.Add(value);
+            Microsoft.UI.Xaml.Automation.AutomationProperties.SetAutomationId(row, "palette.preview.line");
+            Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(row, line.Text);
+            PreviewBody.Children.Add(row);
+        }
+    }
+
+    private static TextBlock PreviewSnippet(PalettePreview preview)
+    {
+        var snippet = new TextBlock { FontSize = 13, Foreground = AppResources.Brush("Dim"), TextWrapping = TextWrapping.Wrap, MaxLines = 8, TextTrimming = TextTrimming.CharacterEllipsis };
+        foreach (var segment in preview.Snippet)
+        {
+            snippet.Inlines.Add(new Run
+            {
+                Text = segment.Text,
+                FontWeight = segment.Marked ? Microsoft.UI.Text.FontWeights.SemiBold : Microsoft.UI.Text.FontWeights.Normal,
+                Foreground = segment.Marked ? AppResources.Brush("Text") : AppResources.Brush("Dim"),
+            });
+        }
+
+        Microsoft.UI.Xaml.Automation.AutomationProperties.SetAutomationId(snippet, "palette.preview.snippet");
+        return snippet;
+    }
+
+    private Border PreviewOpen(PalettePreview preview)
+    {
+        var open = new Border
+        {
+            HorizontalAlignment = HorizontalAlignment.Left,
+            Padding = new Thickness(10, 6, 10, 6),
+            CornerRadius = new CornerRadius(StyleState.Current.Metrics.ButtonRadius),
+            BorderThickness = new Thickness(1),
+            BorderBrush = AppResources.Brush("Line"),
+            Child = new TextBlock { Text = preview.OpenLabel, FontSize = 12, FontWeight = Microsoft.UI.Text.FontWeights.Medium, Foreground = AppResources.Brush("Dim") },
+        };
+        open.Tapped += (_, e) =>
+        {
+            e.Handled = true;
+            _ = _palette.EnterAsync();
+        };
+        Microsoft.UI.Xaml.Automation.AutomationProperties.SetAutomationId(open, "palette.preview.open");
+        Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(open, preview.OpenLabel);
+        return open;
+    }
+
+    private static string KindIcon(Barbican.Core.Search.SearchScope kind) => kind switch
+    {
+        Barbican.Core.Search.SearchScope.Contacts => "Users",
+        Barbican.Core.Search.SearchScope.Calendar => "Cal",
+        Barbican.Core.Search.SearchScope.Files => "File",
+        _ => "Mail",
+    };
+
+    private static string LineIcon(string key) => key switch
+    {
+        "mail" => "Mail",
+        "clock" => "Clock",
+        "pin" => "Pin",
+        "people" => "Users",
+        "phone" => "Phone",
+        "building" => "Building",
+        "folder" => "Folder",
+        "drive" => "File",
+        _ => "AlignLeft",
+    };
+
     private void Close()
     {
         _open = false;
@@ -123,6 +344,7 @@ public sealed partial class PaletteView : UserControl
         _ = _restoreFocus?.Focus(FocusState.Programmatic);
         _restoreFocus = null;
         _rowsShown = null;
+        _previewShown = null;
     }
 
     private void FitBackdrop()
@@ -257,11 +479,16 @@ public sealed partial class PaletteView : UserControl
             global::Windows.System.VirtualKey.Up => "ArrowUp",
             global::Windows.System.VirtualKey.Enter => "Enter",
             global::Windows.System.VirtualKey.Tab => "Tab",
+            global::Windows.System.VirtualKey.Right when Ctrl() => "ArrowRight",
+            global::Windows.System.VirtualKey.Left when Ctrl() => "ArrowLeft",
             _ => null,
         };
-        if (name is not null && _palette.HandleKey(new KeyChord(name)))
+        if (name is not null && _palette.HandleKey(new KeyChord(name, Control: name is "ArrowRight" or "ArrowLeft")))
         {
             e.Handled = true;
         }
     }
+
+    private static bool Ctrl() =>
+        Microsoft.UI.Input.InputKeyboardSource.GetKeyStateForCurrentThread(global::Windows.System.VirtualKey.Control).HasFlag(global::Windows.UI.Core.CoreVirtualKeyStates.Down);
 }

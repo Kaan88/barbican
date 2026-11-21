@@ -19,6 +19,11 @@ public static class PaletteCommandMap
         _ => null,
     };
 
+    // a global search hit of a kind the app can open (a plugin's hit has no place to go)
+    private static bool IsOpenableHit(string id) =>
+        id.StartsWith("search-hit:mail:", StringComparison.Ordinal) || id.StartsWith("search-hit:contact:", StringComparison.Ordinal)
+        || id.StartsWith("search-hit:event:", StringComparison.Ordinal) || id.StartsWith("search-hit:file:", StringComparison.Ordinal);
+
     /// <summary>The command id and argument of a palette row; the id is null for a row nothing handles (calendar, contacts, files rows until their milestones).</summary>
     public static (string? CommandId, string? Argument) Resolve(PaletteCommand command, PaletteContext context)
     {
@@ -30,7 +35,7 @@ public static class PaletteCommandMap
             return (CommandIds.SwitchAccount, id["account:".Length..]);
         }
 
-        if (id.StartsWith("search-hit:mail:", StringComparison.Ordinal))
+        if (IsOpenableHit(id))
         {
             return (CommandIds.OpenSearchHit, id["search-hit:".Length..]);
         }

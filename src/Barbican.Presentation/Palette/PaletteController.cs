@@ -25,6 +25,7 @@ public sealed class PaletteController : ObservableObject, IModalSurface
     private int _highlight = -1;
     private bool _isOpen;
     private int _generation;
+    private PalettePreview? _preview;
 
     public PaletteController(ICommandRegistry registry, IPaletteContextSource source, IEnumerable<IPaletteProvider> providers, IToastService? toasts = null, CommandRunner? runner = null)
     {
@@ -55,6 +56,36 @@ public sealed class PaletteController : ObservableObject, IModalSurface
     /// <summary>The highlighted line, -1 for none.</summary>
     public int Highlight => _highlight;
 
+    /// <summary>The scope chips of the open scope's provider (global search: All, Mail, Contacts, Calendar, Files); empty for a scope without chips.</summary>
+    public IReadOnlyList<PaletteFacet> Facets => (ScopeProvider as IPaletteFacetProvider)?.Facets ?? [];
+
+    /// <summary>The preview of the highlighted row (the open scope's provider shows one); null for none.</summary>
+    public PalettePreview? Preview => _preview;
+
+    /// <summary>Whether the open scope previews its rows (the view makes room for the preview pane).</summary>
+    public bool HasPreviewPane => ScopeProvider is IPalettePreviewProvider;
+
+    private IPaletteProvider? ScopeProvider => _providers.FirstOrDefault(p => string.Equals(p.Scope, _scope, StringComparison.Ordinal));
+
+    /// <summary>Turns a scope chip on and shows only that kind; the highlight goes to the first row of what is left.</summary>
+    public async Task SetFacetAsync(string key)
+    {
+        if (ScopeProvider is IPaletteFacetProvider facets)
+        {
+            facets.SetFacet(key);
+            await RebuildAsync().ConfigureAwait(true);
+        }
+    }
+
+    /// <summary>The next (or previous) scope chip (Ctrl+Right, Ctrl+Left).</summary>
+    public async Task CycleFacetAsync(int delta)
+    {
+        if (ScopeProvider is IPaletteFacetProvider facets)
+        {
+            await SetFacetAsync(facets.NextFacetKey(delta)).ConfigureAwait(true);
+        }
+    }
+
     /// <summary>Opens the palette (Ctrl+K, k) with the context of now.</summary>
     public async Task OpenAsync(string? scope = null)
     {
@@ -75,6 +106,7 @@ public sealed class PaletteController : ObservableObject, IModalSurface
         IsOpen = false;
         _rows = [];
         _highlight = -1;
+        _preview = null;
         OnPropertyChanged(nameof(Rows));
     }
 
@@ -111,6 +143,7 @@ public sealed class PaletteController : ObservableObject, IModalSurface
             {
                 _highlight = at;
                 OnPropertyChanged(nameof(Highlight));
+                UpdatePreview();
                 return;
             }
         }
@@ -133,6 +166,12 @@ public sealed class PaletteController : ObservableObject, IModalSurface
         if (!IsOpen)
         {
             return false;
+        }
+
+        if (chord.Control && ScopeProvider is IPaletteFacetProvider && chord.Key.ToLowerInvariant() is "arrowright" or "right" or "arrowleft" or "left")
+        {
+            _ = CycleFacetAsync(chord.Key.EndsWith("ight", StringComparison.OrdinalIgnoreCase) ? 1 : -1);
+            return true;
         }
 
         switch (chord.Key.ToLowerInvariant())
@@ -196,6 +235,15 @@ public sealed class PaletteController : ObservableObject, IModalSurface
         OnPropertyChanged(nameof(Rows));
         OnPropertyChanged(nameof(Highlight));
         OnPropertyChanged(nameof(Scope));
+        OnPropertyChanged(nameof(Facets));
+        UpdatePreview();
+    }
+
+    private void UpdatePreview()
+    {
+        var row = _highlight >= 0 && _highlight < _rows.Count ? _rows[_highlight] : null;
+        _preview = row?.Command is { } command && ScopeProvider is IPalettePreviewProvider provider ? provider.PreviewFor(command) : null;
+        OnPropertyChanged(nameof(Preview));
     }
 
     private bool CanRun(PaletteCommand c)
