@@ -40,12 +40,14 @@ public sealed class CalendarScreen : UserControl
     private readonly HoverCardView _hover = new();
     private readonly SearchResultsView _results = new();
     private readonly MoreMenuView _more = new();
+    private readonly ViewMenuView _viewMenu = new();
     private readonly CalendarPrintView _print = new();
     private readonly Grid _content = new();
     private DispatcherTimerHandle? _hoverTimer;
     private (string Id, UIElement Source, Point At)? _pending;
     private DateTime _lastSwipe = DateTime.MinValue;
     private bool _loadedOnce;
+    private bool _sidebarCollapsed; // calendar-app.tsx:344, the burger in the toolbar hides the sidebar (Bulwark)
 
     private static CalendarScreen? _current;
 
@@ -116,7 +118,7 @@ public sealed class CalendarScreen : UserControl
         AutomationProperties.SetAutomationId(_handle, "pane.calendar-sidebar");
         _root.Children.Add(_handle);
 
-        var column = new Grid { RowSpacing = 8 };
+        var column = new Grid { RowSpacing = _look.IsBulwark ? 0 : 8 };
         column.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         column.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         column.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
@@ -161,6 +163,13 @@ public sealed class CalendarScreen : UserControl
         _more.RefreshRequested += (_, _) => CalendarUi.Run(() => _vm.LoadAsync(CancellationToken.None));
         _more.PrintRequested += (_, _) => _print.Show();
         _toolbar.MoreRequested += (_, e) => ShowMore(e.At);
+        _toolbar.SidebarToggled += (_, _) =>
+        {
+            _sidebarCollapsed = !_sidebarCollapsed;
+            ApplyLook();
+            Render();
+        };
+        _toolbar.ViewMenuRequested += (_, e) => ShowViewMenu(e.At);
         _timeGrid.HoverRequested += (_, e) => RequestHover(e.Occurrence, e.Source, e.At);
         _timeGrid.HoverCleared += (_, _) => ClearHover();
         _month.HoverRequested += (_, e) => RequestHover(e.Occurrence, e.Source, e.At);
@@ -175,6 +184,8 @@ public sealed class CalendarScreen : UserControl
         _overlay.Children.Add(_hover);
         _overlay.Children.Add(_results);
         _overlay.Children.Add(_more);
+        _overlay.Children.Add(_viewMenu);
+        _viewMenu.Picked += (_, _) => _viewMenu.Hide();
         Content = layers;
         AutomationProperties.SetAutomationId(this, "calendar");
         AutomationProperties.SetName(this, "Calendar");
@@ -192,15 +203,17 @@ public sealed class CalendarScreen : UserControl
         var pad = _look.WindowPadding;
         Padding = band ? pad : new Thickness(pad.Left, pad.Bottom, pad.Right, pad.Bottom);
         _root.ColumnSpacing = _look.Gap;
-        _sidebar.Visibility = layout.SidebarShown ? Visibility.Visible : Visibility.Collapsed;
+        var bulwark = _look.IsBulwark;
+        _sidebar.Visibility = layout.SidebarShown && !(bulwark && _sidebarCollapsed) ? Visibility.Visible : Visibility.Collapsed;
         _handle.Visibility = _sidebar.Visibility;
+        _toolbar.SidebarOpen = _sidebar.Visibility == Visibility.Visible;
         var width = _panes.SidebarWidth > 0 ? _panes.SidebarWidth : _look.SidebarWidth;
         _sidebar.Width = width;
-        _surface.Background = _look.TileBrush;
+        _surface.Background = _look.CalSurfaceBrush;
         _surface.BorderBrush = CalendarVisuals.Palette("Line");
-        _surface.BorderThickness = new Thickness(1);
-        _surface.CornerRadius = _look.IsBento ? new CornerRadius(26) : _look.PaneRadius;
-        _surface.Padding = new Thickness(20, 16, 20, 12);
+        _surface.BorderThickness = _look.CalSurfaceBorder;
+        _surface.CornerRadius = _look.CalSurfaceRadius;
+        _surface.Padding = _look.CalSurfacePadding;
         _detail.Visibility = _look.WindowWidth >= 1100 && _vm.Detail is not null ? Visibility.Visible : Visibility.Collapsed;
         _tasksFallback.Foreground = CalendarVisuals.Palette("Faint");
     }
@@ -268,14 +281,15 @@ public sealed class CalendarScreen : UserControl
         text.VerticalAlignment = VerticalAlignment.Center;
         AutomationProperties.SetAutomationId(text, "cal.error.text");
         row.Children.Add(text);
-        var retry = new Button { Style = (Style)Application.Current.Resources["Button.Action"], Content = "Retry", Height = 30, CornerRadius = new CornerRadius(10), FontSize = 12.5 };
+        var retry = new Button { Style = (Style)Application.Current.Resources["Button.Action"], Content = "Retry", Height = 30, CornerRadius = _look.CalButtonRadius(10), FontSize = 12.5 };
         AutomationProperties.SetAutomationId(retry, "cal.error.retry");
         retry.Click += (_, _) => CalendarUi.Run(() => _vm.LoadAsync(CancellationToken.None));
         Grid.SetColumn(retry, 1);
         row.Children.Add(retry);
         _notice.Child = row;
         _notice.Background = CalendarVisuals.Palette("RoseBg");
-        _notice.CornerRadius = new CornerRadius(12);
+        _notice.CornerRadius = _look.CalButtonRadius(12);
+        _notice.Margin = _look.IsBulwark ? new Thickness(12, 8, 12, 0) : new Thickness(0);
         _notice.Padding = new Thickness(12, 6, 8, 6);
         _notice.Visibility = Visibility.Visible;
         AutomationProperties.SetAutomationId(_notice, "cal.error");
@@ -293,8 +307,34 @@ public sealed class CalendarScreen : UserControl
         Canvas.SetTop(_results, at.Y);
     }
 
+    /// <summary>Opens the toolbar's view menu or its More menu (the hidden automation run has no pointer to press the buttons).</summary>
+    public void OpenToolbarMenu(bool viewMenu)
+    {
+        var anchor = viewMenu ? _toolbar.ViewMenuAnchor : _toolbar.MoreAnchor;
+        var at = anchor.TransformToVisual(null).TransformPoint(new Point(anchor.ActualWidth, anchor.ActualHeight));
+        if (viewMenu)
+        {
+            ShowViewMenu(at);
+        }
+        else
+        {
+            ShowMore(at);
+        }
+    }
+
+    private void ShowViewMenu(Point windowPoint)
+    {
+        var at = _overlay.TransformToVisual(null).TransformPoint(new Point(0, 0));
+        _more.Hide();
+        _viewMenu.Show();
+        _viewMenu.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
+        Canvas.SetLeft(_viewMenu, Math.Max(8, windowPoint.X - at.X - _viewMenu.DesiredSize.Width));
+        Canvas.SetTop(_viewMenu, windowPoint.Y - at.Y + 4);
+    }
+
     private void ShowMore(Point windowPoint)
     {
+        _viewMenu.Hide();
         var at = _overlay.TransformToVisual(null).TransformPoint(new Point(0, 0));
         _more.Show();
         _more.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
@@ -308,6 +348,11 @@ public sealed class CalendarScreen : UserControl
         if (_more.Visibility == Visibility.Visible && !IsOver(e.OriginalSource, _more))
         {
             _more.Hide();
+        }
+
+        if (_viewMenu.Visibility == Visibility.Visible && !IsOver(e.OriginalSource, _viewMenu))
+        {
+            _viewMenu.Hide();
         }
 
         if (_results.Visibility == Visibility.Visible && !IsOver(e.OriginalSource, _results) && !IsOver(e.OriginalSource, _toolbar.SearchBox))

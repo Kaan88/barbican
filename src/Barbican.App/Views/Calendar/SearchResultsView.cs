@@ -19,7 +19,8 @@ public sealed class SearchResultsView : UserControl
         _box.Background = CalendarVisuals.Palette("Popup");
         _box.BorderBrush = CalendarVisuals.Palette("Line");
         _box.BorderThickness = new Thickness(1);
-        _box.CornerRadius = new CornerRadius(14);
+        // Bulwark: the menu panel's corners (context-menu.tsx:667), rows are square bands with the neutral hover
+        _box.CornerRadius = CalendarVisuals.Bulwark ? Barbican.App.Shell.ViewHost.Get<Barbican.App.Theme.StyleState>().CalPopupRadius : new CornerRadius(14);
         _box.Padding = new Thickness(6);
         _box.Width = 300;
         Content = _box;
@@ -57,7 +58,7 @@ public sealed class SearchResultsView : UserControl
             var when = CalendarVisuals.Text(o.Start.ToString("d MMM yyyy", CultureInfo.InvariantCulture), 11.5, FontWeights.Normal, CalendarVisuals.Palette("Faint"));
             Grid.SetColumn(when, 2);
             row.Children.Add(when);
-            var button = new Button { Style = (Style)Application.Current.Resources["Button.Icon"], HorizontalAlignment = HorizontalAlignment.Stretch, HorizontalContentAlignment = HorizontalAlignment.Stretch, Padding = new Thickness(8, 6, 8, 6), CornerRadius = new CornerRadius(9), Content = row };
+            var button = new Button { Style = (Style)Application.Current.Resources["Button.Icon"], HorizontalAlignment = HorizontalAlignment.Stretch, HorizontalContentAlignment = HorizontalAlignment.Stretch, Padding = new Thickness(8, 6, 8, 6), CornerRadius = new CornerRadius(CalendarVisuals.Bulwark ? 0 : 9), Content = row };
             AutomationProperties.SetAutomationId(button, "cal.search.result." + o.Id);
             AutomationProperties.SetName(button, o.Title);
             var picked = o;

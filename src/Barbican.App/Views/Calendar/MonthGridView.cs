@@ -1,5 +1,7 @@
 // Mirrors: Rust calendar.rs:493-:512 (42 cells, 4 events then "+N more", time only with showTimeInMonthView, month_timed styles), app.slint month grid; Bulwark components/calendar/calendar-month-view.tsx (:638 cell click quick create, :645 right click and wheel,
 // :903 event click, :941 "+N more", drag-range create, day number opens Day, roving keys), components/calendar/task-chip.tsx; I-314..I-320, B-CAL-055, B-CAL-059.
+// Bulwark (calendar-month-view.tsx:594-700): a header of text-xs medium muted weekday names over a hairline (py-2), a hairline between the cells and under each week, the days of the other months on bg-muted/30,
+// the date a 24 px circle in the middle of the cell (today filled primary and bold, the picked day tinted primary/15), and chips and "+N more" at text-xs medium with rounded-xs corners (event-card.tsx:343).
 // One pointer handler on the grid does the hit test from the cell geometry, so a click, a double click, a right click, an event drag and a range drag all take the road of the automation commands (CalendarUi, ICalendarGestures).
 
 using Microsoft.UI.Xaml.Automation;
@@ -17,7 +19,7 @@ namespace Barbican.App.Views.Calendar;
 /// <summary>The Month grid: weekday heads, six rows of seven cells, items, "+N more".</summary>
 public sealed class MonthGridView : UserControl
 {
-    private const double HeadHeight = 28;
+    private static double HeadHeight => CalendarVisuals.Bulwark ? 32 : 28;
     private const double WeekNumberWidth = 30;
     private const double ItemHeight = 20;
     private const double DragThreshold = 4;
@@ -102,15 +104,23 @@ public sealed class MonthGridView : UserControl
         _items.Clear();
         _more.Clear();
         var line = CalendarVisuals.Palette("Line");
+        var bulwark = CalendarVisuals.Bulwark;
         var names = _vm.WeekdayNames(initials: false);
+        if (bulwark)
+        {
+            var rule = new Border { Width = _width, Height = 1, Background = line, IsHitTestVisible = false };
+            Canvas.SetTop(rule, HeadHeight - 1);
+            children.Add(rule);
+        }
+
         for (var i = 0; i < 7; i++)
         {
-            var head = CalendarVisuals.Text(names[i], 12, FontWeights.SemiBold, CalendarVisuals.Palette("Dim"));
+            var head = CalendarVisuals.Text(names[i], 12, bulwark ? FontWeights.Medium : FontWeights.SemiBold, CalendarVisuals.Palette("Dim"));
             head.HorizontalAlignment = HorizontalAlignment.Center;
             head.Width = CellW;
             head.TextAlignment = TextAlignment.Center;
             Canvas.SetLeft(head, Left + (i * CellW));
-            Canvas.SetTop(head, 6);
+            Canvas.SetTop(head, bulwark ? 7 : 6);
             children.Add(head);
         }
 
@@ -128,36 +138,56 @@ public sealed class MonthGridView : UserControl
                 Width = CellW,
                 Height = CellH,
                 BorderBrush = inFocus ? CalendarVisuals.Palette("Accent") : line,
-                BorderThickness = inFocus ? new Thickness(2) : new Thickness(0, 1, 1, 0),
-                Background = cell.Today ? CalendarVisuals.Palette("Tile2") : null,
+                BorderThickness = inFocus ? new Thickness(2) : bulwark ? new Thickness(0, 0, 1, 1) : new Thickness(0, 1, 1, 0),
+                Background = bulwark ? null : cell.Today ? CalendarVisuals.Palette("Tile2") : null,
                 IsHitTestVisible = false,
             };
+            if (bulwark && !cell.InMonth)
+            {
+                // !inMonth && "bg-muted/30" (calendar-month-view.tsx:652)
+                var dim = new Border { Width = CellW, Height = CellH, Background = CalendarVisuals.Palette("FeedbackHover"), Opacity = 0.3, IsHitTestVisible = false };
+                Canvas.SetLeft(dim, x);
+                Canvas.SetTop(dim, y);
+                children.Add(dim);
+            }
+
             AutomationProperties.SetAutomationId(box, "cal.cell." + cell.Day.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture));
             AutomationProperties.SetName(box, cell.Day.ToString("dddd d MMMM", CultureInfo.InvariantCulture));
             Canvas.SetLeft(box, x);
             Canvas.SetTop(box, y);
             children.Add(box);
 
+            var picked = bulwark && !cell.Today && cell.Day == _vm.Anchor;
             var number = new Border
             {
                 Width = 24,
                 Height = 24,
                 CornerRadius = new CornerRadius(12),
-                Background = cell.Today ? CalendarVisuals.Palette("Accent") : null,
+                Background = cell.Today ? CalendarVisuals.Palette("Accent") : picked ? CalendarVisuals.Palette("FeedbackActiveHover") : null,
                 IsHitTestVisible = false,
                 Child = new TextBlock
                 {
                     Text = cell.Day.Day.ToString(CultureInfo.InvariantCulture),
-                    FontSize = 12.5,
-                    FontWeight = cell.Today ? FontWeights.ExtraBold : FontWeights.SemiBold,
-                    Foreground = CalendarVisuals.Palette(cell.Today ? "OnAccent" : cell.InMonth ? "Body" : "MutedDay"),
+                    FontSize = bulwark ? 12 : 12.5,
+                    FontWeight = bulwark ? (cell.Today || picked ? FontWeights.Bold : cell.InMonth ? FontWeights.Medium : FontWeights.Normal) : (cell.Today ? FontWeights.ExtraBold : FontWeights.SemiBold),
+                    Foreground = bulwark
+                        ? CalendarVisuals.Palette(cell.Today ? "OnAccent" : picked ? "FeedbackActiveFg" : cell.InMonth ? "Text" : "Dim")
+                        : CalendarVisuals.Palette(cell.Today ? "OnAccent" : cell.InMonth ? "Body" : "MutedDay"),
                     HorizontalAlignment = HorizontalAlignment.Center,
                     VerticalAlignment = VerticalAlignment.Center,
                 },
             };
-            Canvas.SetLeft(number, x + 4);
+            Canvas.SetLeft(number, bulwark ? x + ((CellW - 24) / 2) : x + 4);
             Canvas.SetTop(number, y + 3);
             children.Add(number);
+            if (bulwark && cell.Day.Day == 1)
+            {
+                // the first of a month names it, left of the date (calendar-month-view.tsx:662)
+                var month = CalendarVisuals.Text(cell.Day.ToString("MMM", CultureInfo.InvariantCulture), 10, FontWeights.Medium, CalendarVisuals.Palette("Dim"));
+                Canvas.SetLeft(month, x + ((CellW - 24) / 2) - 26);
+                Canvas.SetTop(month, y + 8);
+                children.Add(month);
+            }
 
             var iy = y + 28;
             foreach (var item in cell.Items)
@@ -172,7 +202,7 @@ public sealed class MonthGridView : UserControl
 
             if (cell.More > 0)
             {
-                var more = CalendarVisuals.Text("+" + cell.More.ToString(CultureInfo.InvariantCulture) + " more", 11, FontWeights.SemiBold, CalendarVisuals.Palette("Dim"));
+                var more = CalendarVisuals.Text("+" + cell.More.ToString(CultureInfo.InvariantCulture) + " more", bulwark ? 12 : 11, bulwark ? FontWeights.Medium : FontWeights.SemiBold, CalendarVisuals.Palette("Dim"));
                 Canvas.SetLeft(more, x + 8);
                 Canvas.SetTop(more, iy + 1);
                 AutomationProperties.SetAutomationId(more, "cal.more." + cell.Day.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture));
@@ -238,17 +268,18 @@ public sealed class MonthGridView : UserControl
             row.Children.Add(new Border { Width = 7, Height = 7, CornerRadius = new CornerRadius(3.5), Background = CalendarVisuals.SolidBrush(hex), VerticalAlignment = VerticalAlignment.Center });
         }
 
-        row.Children.Add(CalendarVisuals.Text(text, 11.5, o.Kind == CalendarOccurrenceKind.Task ? FontWeights.Normal : FontWeights.SemiBold, bar ? fg : CalendarVisuals.Palette("Body")));
+        var bulwark = CalendarVisuals.Bulwark;
+        row.Children.Add(CalendarVisuals.Text(text, bulwark ? 12 : 11.5, o.Kind == CalendarOccurrenceKind.Task ? FontWeights.Normal : bulwark ? FontWeights.Medium : FontWeights.SemiBold, bar ? fg : CalendarVisuals.Palette(bulwark ? "Text" : "Body")));
         var chip = new Border
         {
             Width = rect.Width,
             Height = rect.Height,
-            CornerRadius = new CornerRadius(o.Kind == CalendarOccurrenceKind.Task ? 10 : 6),
+            CornerRadius = new CornerRadius(bulwark ? 2 : o.Kind == CalendarOccurrenceKind.Task ? 10 : 6),
             Padding = new Thickness(6, 0, 6, 0),
             Background = bar ? bg : null,
-            BorderBrush = selected ? fg : null,
+            BorderBrush = selected ? (bulwark ? CalendarVisuals.Palette("Accent") : fg) : null,
             BorderThickness = new Thickness(selected ? 2 : 0),
-            Opacity = dragging ? 0.35 : past ? 0.55 : 1,
+            Opacity = dragging ? 0.35 : past && !bulwark ? 0.55 : 1,
             Child = row,
             IsHitTestVisible = false,
         };

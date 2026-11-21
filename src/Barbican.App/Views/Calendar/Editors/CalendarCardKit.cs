@@ -1,4 +1,5 @@
 // Mirrors: Bulwark components/calendar/event-modal.tsx field layout (I-332..I-336); ADR 0007 (in-window only). Small builders shared by the calendar cards.
+// Bulwark (ui/button.tsx:42-55, ui/input.tsx:11-22, event-modal.tsx): buttons are h-9 with rounded-md corners and text-sm medium, fields h-10, the heading text-lg semibold; the legacy pills stay in Bento and Nordic. WP-12, CA-03.
 // Owner cal-ui. Dates and times are typed as text (yyyy-MM-dd, HH:mm) so no picker flyout can open a windowed popup.
 
 #pragma warning disable CA1859 // the builders return UIElement by design
@@ -12,7 +13,11 @@ namespace Barbican.App.Views.Calendar.Editors;
 /// <summary>Builders for the fields, combos and buttons of the calendar cards.</summary>
 internal static class CalendarCardKit
 {
-    public static TextBlock Heading(string text) => new() { Text = text, FontSize = 16, FontWeight = Microsoft.UI.Text.FontWeights.Bold, Foreground = AppResources.Brush("Text"), TextWrapping = TextWrapping.Wrap };
+    private static StyleState Look => Barbican.App.Shell.ViewHost.Get<StyleState>();
+
+    private static bool Bulwark => Look.IsBulwark;
+
+    public static TextBlock Heading(string text) => new() { Text = text, FontSize = Bulwark ? 18 : 16, FontWeight = Bulwark ? Microsoft.UI.Text.FontWeights.SemiBold : Microsoft.UI.Text.FontWeights.Bold, Foreground = AppResources.Brush("Text"), TextWrapping = TextWrapping.Wrap };
 
     public static TextBlock Label(string text) => new() { Text = text, FontSize = 12, Foreground = AppResources.Brush("Dim"), Margin = new Thickness(0, 4, 0, 0) };
 
@@ -33,7 +38,7 @@ internal static class CalendarCardKit
 
     public static TextBox Text(string id, string value, Action<string> set, bool multiline = false, string? placeholder = null)
     {
-        var box = new TextBox { Text = value, PlaceholderText = placeholder ?? string.Empty, AcceptsReturn = multiline, TextWrapping = multiline ? TextWrapping.Wrap : TextWrapping.NoWrap, MinHeight = multiline ? 72 : 0 };
+        var box = new TextBox { Text = value, PlaceholderText = placeholder ?? string.Empty, AcceptsReturn = multiline, TextWrapping = multiline ? TextWrapping.Wrap : TextWrapping.NoWrap, MinHeight = multiline ? 72 : Bulwark ? 40 : 0 };
         box.TextChanged += (_, _) => set(box.Text);
         AutomationProperties.SetAutomationId(box, id);
         return box;
@@ -64,7 +69,7 @@ internal static class CalendarCardKit
             }
 
             var index = i;
-            var chip = new Button { Content = names[i], Height = 30, CornerRadius = new CornerRadius(15), FontSize = 12.5, Padding = new Thickness(12, 0, 12, 0) };
+            var chip = new Button { Content = names[i], Height = Bulwark ? 32 : 30, CornerRadius = Bulwark ? Look.ButtonRadius : new CornerRadius(15), FontSize = Bulwark ? 13 : 12.5, Padding = new Thickness(12, 0, 12, 0) };
             AutomationProperties.SetAutomationId(chip, id + "." + i);
             AutomationProperties.SetName(chip, names[i]);
             chip.Click += (_, _) =>
@@ -93,7 +98,12 @@ internal static class CalendarCardKit
     public static Button Btn(string label, DialogTone tone, string id, Action click, bool enabled = true)
     {
         var style = tone == DialogTone.Primary ? "Button.Primary" : "Button.Action";
-        var button = new Button { Style = (Style)Application.Current.Resources[style], Content = label, Height = 34, CornerRadius = new CornerRadius(17), FontSize = 13, IsEnabled = enabled };
+        var button = new Button { Style = (Style)Application.Current.Resources[style], Content = label, Height = Bulwark ? 36 : 34, CornerRadius = Bulwark ? Look.ButtonRadius : new CornerRadius(17), FontSize = Bulwark ? 14 : 13, IsEnabled = enabled };
+        if (Bulwark)
+        {
+            button.FontWeight = Microsoft.UI.Text.FontWeights.Medium;
+        }
+
         if (tone == DialogTone.Danger)
         {
             button.Foreground = AppResources.Brush("RoseFg");
