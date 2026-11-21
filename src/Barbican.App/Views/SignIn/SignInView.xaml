@@ -7,19 +7,29 @@
   <!-- The sign-in screen (Bulwark components/auth/*; spec I-098..I-104), bound to Presentation's SignInViewModel (Fable review 2 R2-03): the
        server field or "Server: host" with Change once the lookup found it (I-098), the provider notice (I-101), login, password, the one-time code
        once the server asks, remember me, the browser (OAuth) route with Stop while it waits (I-103), and the status line. Enter in a field signs in. -->
-  <Grid Background="{StaticResource Ground}" AutomationProperties.AutomationId="signin" AutomationProperties.Name="Sign in">
-    <Border Width="400" MaxWidth="400" HorizontalAlignment="Center" VerticalAlignment="Center" Padding="28" Background="{StaticResource Tile}" BorderBrush="{StaticResource Line}"
-            BorderThickness="{x:Bind Look.PaneBorder, Mode=OneWay}" CornerRadius="{x:Bind Look.PaneRadius, Mode=OneWay}">
-      <StackPanel Spacing="12">
-        <StackPanel Orientation="Horizontal" Spacing="12">
-          <Canvas Width="32" Height="32">
-            <Rectangle Canvas.Left="3" Canvas.Top="12" Width="7" Height="19" RadiusX="3.5" RadiusY="3.5" Fill="{StaticResource Accent}" />
-            <Rectangle Canvas.Left="13.5" Canvas.Top="3" Width="7" Height="28" RadiusX="3.5" RadiusY="3.5" Fill="{StaticResource Accent}" Opacity="0.7" />
-            <Rectangle Canvas.Left="24" Canvas.Top="8" Width="7" Height="23" RadiusX="3.5" RadiusY="3.5" Fill="{StaticResource Accent}" Opacity="0.4" />
-          </Canvas>
-          <TextBlock Text="Sign in to Barbican" FontSize="20" FontWeight="Bold" Foreground="{StaticResource Text}" VerticalAlignment="Center" />
+  <!-- WP-10: Bulwark app/login.css + components/auth/login-frame.tsx (a backdrop on the sidebar colour with an 8 % wash of the primary colour from the top, a card of at most 400 px with a border,
+       a radius of 8 px and a soft shadow, 16 px of page padding), app/(main)/[locale]/login/page.tsx:1795-1818 (centred header: a 64 px logo, a 24 px semibold heading, a muted subtitle, then the
+       form in 32 px padding with 16 px between rows), :1672-1680 (full-width 40 px sign-in button with an icon), :1615-1618 (the "or" rule above the single sign-on button). The backdrop and card
+       shape of the legacy styles are applied by code-behind (SignInView.ApplyLook). -->
+  <Grid x:Name="Backdrop" Background="{StaticResource Ground}" AutomationProperties.AutomationId="signin" AutomationProperties.Name="Sign in">
+    <ScrollViewer x:Name="Scroller" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" HorizontalScrollMode="Disabled" VerticalScrollMode="Auto" IsTabStop="False" SizeChanged="OnScrollerSizeChanged">
+    <Grid x:Name="Stage">
+    <Border x:Name="Card" Width="400" HorizontalAlignment="Center" VerticalAlignment="Center" Margin="0,32" Padding="0" Background="{StaticResource Tile}" BorderBrush="{StaticResource Line}"
+            BorderThickness="1" CornerRadius="8">
+      <StackPanel>
+        <StackPanel Padding="32,40,32,24" Spacing="6" HorizontalAlignment="Stretch">
+          <Viewbox Width="64" Height="64" Margin="0,0,0,14" HorizontalAlignment="Center" AutomationProperties.AccessibilityView="Raw">
+            <Canvas Width="32" Height="32">
+              <Rectangle Canvas.Left="3" Canvas.Top="12" Width="7" Height="19" RadiusX="3.5" RadiusY="3.5" Fill="{StaticResource Accent}" />
+              <Rectangle Canvas.Left="13.5" Canvas.Top="3" Width="7" Height="28" RadiusX="3.5" RadiusY="3.5" Fill="{StaticResource Accent}" Opacity="0.7" />
+              <Rectangle Canvas.Left="24" Canvas.Top="8" Width="7" Height="23" RadiusX="3.5" RadiusY="3.5" Fill="{StaticResource Accent}" Opacity="0.4" />
+            </Canvas>
+          </Viewbox>
+          <TextBlock Text="Sign in" FontSize="24" FontWeight="SemiBold" Foreground="{StaticResource Text}" HorizontalAlignment="Center" TextAlignment="Center"
+                     AutomationProperties.HeadingLevel="Level1" AutomationProperties.AutomationId="signin.heading" />
+          <TextBlock Text="Your mail server speaks JMAP (Stalwart)." Style="{StaticResource Text.Meta}" HorizontalAlignment="Center" TextAlignment="Center" TextWrapping="Wrap" />
         </StackPanel>
-        <TextBlock Text="Your mail server speaks JMAP (Stalwart)." Style="{StaticResource Text.Meta}" />
+      <StackPanel Padding="32,0,32,32" Spacing="16">
 
         <TextBox x:Name="UserBox" Header="Login" PlaceholderText="you@example.com" Text="{x:Bind Model.User, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
                  CornerRadius="{x:Bind Look.FieldRadius, Mode=OneWay}" IsEnabled="{x:Bind views:Fmt.Not(Model.IsBusy), Mode=OneWay}" KeyDown="OnFieldKeyDown"
@@ -35,7 +45,7 @@
           <TextBlock VerticalAlignment="Center" FontSize="13" Foreground="{StaticResource Body}" TextTrimming="CharacterEllipsis">
             <Run Text="Server: " /><Run Text="{x:Bind Model.ServerLabel, Mode=OneWay}" FontWeight="SemiBold" />
           </TextBlock>
-          <Button Grid.Column="1" Style="{StaticResource Button.Action}" Height="30" CornerRadius="{x:Bind Look.ButtonRadius, Mode=OneWay}" Command="{x:Bind Model.ChangeServerCommand}"
+          <Button Grid.Column="1" Style="{StaticResource Button.Action}" MinHeight="30" CornerRadius="{x:Bind Look.ButtonRadius, Mode=OneWay}" Command="{x:Bind Model.ChangeServerCommand}"
                   AutomationProperties.AutomationId="signin.server-change" AutomationProperties.Name="Change server">
             <TextBlock Text="Change" />
           </Button>
@@ -51,23 +61,28 @@
                  AutomationProperties.AutomationId="signin.totp" AutomationProperties.Name="One-time code" />
         <CheckBox Content="Remember me" IsChecked="{x:Bind Model.Remember, Mode=TwoWay}" AutomationProperties.AutomationId="signin.remember" AutomationProperties.Name="Remember me" />
 
-        <Button x:Name="SignInButton" Style="{StaticResource Button.Primary}" HorizontalAlignment="Stretch" Height="44" CornerRadius="{x:Bind Look.ButtonRadius, Mode=OneWay}"
+        <Button x:Name="SignInButton" Style="{StaticResource Button.Primary}" HorizontalAlignment="Stretch" MinHeight="40" CornerRadius="{x:Bind Look.ButtonRadius, Mode=OneWay}"
                 Command="{x:Bind Model.SignInCommand}" AutomationProperties.AutomationId="signin.submit" AutomationProperties.Name="Sign in">
-          <TextBlock Text="Sign in" />
+          <StackPanel Orientation="Horizontal" Spacing="8"><controls:SIcon Kind="Key" Size="16" /><TextBlock Text="Sign in" FontWeight="SemiBold" /></StackPanel>
         </Button>
-        <Button x:Name="OAuthButton" Style="{StaticResource Button.Action}" HorizontalAlignment="Stretch" Height="40" CornerRadius="{x:Bind Look.ButtonRadius, Mode=OneWay}"
+        <Grid ColumnDefinitions="*,Auto,*" ColumnSpacing="12" AutomationProperties.AccessibilityView="Raw">
+          <Rectangle Height="1" Fill="{StaticResource Line}" VerticalAlignment="Center" />
+          <TextBlock Grid.Column="1" Text="or" FontSize="12" Foreground="{StaticResource Dim}" />
+          <Rectangle Grid.Column="2" Height="1" Fill="{StaticResource Line}" VerticalAlignment="Center" />
+        </Grid>
+        <Button x:Name="OAuthButton" Style="{StaticResource Button.Action}" HorizontalAlignment="Stretch" MinHeight="40" CornerRadius="{x:Bind Look.ButtonRadius, Mode=OneWay}"
                 Command="{x:Bind Model.OAuthSignInCommand}" AutomationProperties.AutomationId="signin.oauth" AutomationProperties.Name="Sign in with your browser">
           <StackPanel Orientation="Horizontal" Spacing="8">
             <controls:SIcon Kind="External" Size="14" />
             <TextBlock Text="Sign in with your browser" />
           </StackPanel>
         </Button>
-        <Button x:Name="StopButton" Style="{StaticResource Button.Action}" HorizontalAlignment="Stretch" Height="36" CornerRadius="{x:Bind Look.ButtonRadius, Mode=OneWay}"
+        <Button x:Name="StopButton" Style="{StaticResource Button.Action}" HorizontalAlignment="Stretch" MinHeight="36" CornerRadius="{x:Bind Look.ButtonRadius, Mode=OneWay}"
                 Command="{x:Bind Model.CancelCommand}" Visibility="{x:Bind views:Fmt.Vis(Model.IsBusy), Mode=OneWay}"
                 AutomationProperties.AutomationId="signin.stop" AutomationProperties.Name="Stop signing in">
           <TextBlock Text="Stop" />
         </Button>
-        <Button x:Name="CancelButton" Style="{StaticResource Button.Action}" HorizontalAlignment="Stretch" Height="36" CornerRadius="{x:Bind Look.ButtonRadius, Mode=OneWay}"
+        <Button x:Name="CancelButton" Style="{StaticResource Button.Action}" HorizontalAlignment="Stretch" MinHeight="36" CornerRadius="{x:Bind Look.ButtonRadius, Mode=OneWay}"
                 Command="{x:Bind Model.LeaveCommand}" Visibility="{x:Bind views:Fmt.Vis(Model.CanLeave), Mode=OneWay}"
                 AutomationProperties.AutomationId="signin.cancel" AutomationProperties.Name="Cancel">
           <TextBlock Text="Cancel" />
@@ -79,6 +94,9 @@
         <TextBlock x:Name="StatusText" Text="{x:Bind Model.Status, Mode=OneWay}" TextWrapping="Wrap" FontSize="12.5" Foreground="{StaticResource Dim}"
                    Visibility="{x:Bind views:Fmt.VisText(Model.Status), Mode=OneWay}" AutomationProperties.AutomationId="signin.status" AutomationProperties.Name="Sign-in status" />
       </StackPanel>
+      </StackPanel>
     </Border>
+    </Grid>
+    </ScrollViewer>
   </Grid>
 </UserControl>

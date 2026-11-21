@@ -3,7 +3,7 @@
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:views="using:Barbican.App.Views">
-  <!-- The Bento summary tiles above the reader (spec/layout/shell.md "summary tiles shown"; BNMail main): Today, Flagged, To do. Each reads what the account has; the calendar and
+  <!-- WP-10: Bulwark has no summary strip (mail-app.tsx lays out rail, folders, list and reader only), so this view is shown in Bento only and stays hidden in the default style. The Bento summary tiles above the reader (spec/layout/shell.md "summary tiles shown"; BNMail main): Today, Flagged, To do. Each reads what the account has; the calendar and
        task tiles say so until M4 gives them data (Rust glance.rs). Hidden in Nordic and below the reader-width breakpoint by the shell. -->
   <Grid ColumnSpacing="{x:Bind Look.Gap, Mode=OneWay}" ColumnDefinitions="*,*,*" AutomationProperties.AutomationId="glance" AutomationProperties.Name="Summary tiles">
     <Border Grid.Column="0" Background="{StaticResource RoseBg}" CornerRadius="{x:Bind Look.SummaryRadius, Mode=OneWay}" Padding="16,14"

@@ -11,16 +11,20 @@
       xmlns:actions="using:Barbican.App.Views.Actions"
       xmlns:compose="using:Barbican.App.Views.Compose"
     xmlns:controls="using:Barbican.App.Controls"
+      xmlns:motion="using:Barbican.App.Motion"
+      xmlns:shell="using:Barbican.App.Shell"
       Background="{StaticResource Ground}">
   <!-- Regions only (PORT-PLAN.md §3.2): the title band the window's content is extended into;
        rail | sidebar | surface, where the surface holds message list | (summary tiles over) reader | sender panel.
-       Bulwark's mail panes touch and use hairline seams (components/mail/mail-app.tsx); the legacy styles retain their tiles.
+       Tab order of the frame (TabIndex): rail, folders, folder handle, then the surface (list, reader, context): Bulwark's DOM order (mail-app.tsx), though the folders are declared after the surface
+       so the phone drawer draws above it. Bulwark's mail panes touch and use hairline seams (components/mail/mail-app.tsx); the legacy styles retain their tiles.
        The sign-in screen covers the regions when no account is active.
        The shape tokens are x:Double, which WinUI does not convert to Thickness, CornerRadius or GridLength, so the code-behind applies the typed values of StyleState. -->
   <Grid x:Name="Root" AutomationProperties.AutomationId="shell">
     <Grid.RowDefinitions>
       <RowDefinition x:Name="TitleRow" Height="38" />
       <RowDefinition Height="*" />
+      <RowDefinition x:Name="PhoneBarRow" Height="Auto" />
     </Grid.RowDefinitions>
     <!-- The title band: the drag area of the window (Window.SetTitleBar) and the caption buttons' ground. -->
     <Grid x:Name="TitleBand" Background="Transparent" AutomationProperties.AutomationId="titlebar" AutomationProperties.Name="Title bar">
@@ -35,13 +39,8 @@
         <ColumnDefinition Width="Auto" />
         <ColumnDefinition Width="*" />
       </Grid.ColumnDefinitions>
-      <rail:RailView x:Name="RailRegion" Grid.Column="0" />
-      <sidebar:SidebarView x:Name="SidebarRegion" Grid.Column="1">
-        <sidebar:SidebarView.RenderTransform><TranslateTransform /></sidebar:SidebarView.RenderTransform>
-      </sidebar:SidebarView>
-      <!-- M2 plan 6.1: the pane handles sit on the edge of the sidebar and of the list (in this grid, so no layout changes); widths: PanesViewModel -->
-      <actions:PaneHandle x:Name="SidebarHandle" Grid.Column="1" Column="sidebar" Target="{x:Bind SidebarRegion}" AutomationProperties.AutomationId="pane.sidebar" AutomationProperties.Name="Resize sidebar" />
-      <Border x:Name="Surface" Grid.Column="2" AutomationProperties.AutomationId="surface" AutomationProperties.Name="Mail">
+      <rail:RailView x:Name="RailRegion" Grid.Column="0" TabIndex="1" />
+      <Border x:Name="Surface" Grid.Column="2" TabIndex="4" AutomationProperties.AutomationId="surface" AutomationProperties.Name="Mail">
         <Grid x:Name="SurfaceGrid">
           <Grid.ColumnDefinitions>
             <ColumnDefinition Width="Auto" />
@@ -89,18 +88,34 @@
             </Grid>
           </Grid>
           <context:ContextView x:Name="ContextRegion" Grid.Column="2" />
+          <!-- Nordic Focus (design/UI-GUIDELINES.md): the sender panel is toggleable through this pressed/unpressed control; it takes no width of its own, so a hidden panel reserves nothing. -->
+          <ToggleButton x:Name="ContextToggle" Grid.Column="1" Grid.ColumnSpan="2" HorizontalAlignment="Right" VerticalAlignment="Top" Margin="0,10,10,0" Width="32" Height="32" Padding="0"
+                        Style="{StaticResource ToggleButton.Icon}" Visibility="Collapsed" Click="OnContextToggle" motion:Tip.Text="Sender panel"
+                        AutomationProperties.AutomationId="context.toggle" AutomationProperties.Name="Sender panel">
+            <controls:SIcon Kind="Users" Size="16" />
+          </ToggleButton>
         </Grid>
       </Border>
+      <!-- WP-10 (SH-11, edge-drawer.tsx:36-66): below the phone breakpoint the folders are a drawer from the window's start edge over the page, with the page dimmed behind it
+           (the scrim closes it); declared after the surface so both sit above it. In the desktop layouts the sidebar is the column it was. -->
+      <motion:Scrim x:Name="DrawerScrim" Grid.Column="0" Grid.ColumnSpan="3" Tapped="OnDrawerScrimTapped" AutomationProperties.AutomationId="shell.drawer-scrim" AutomationProperties.AccessibilityView="Raw" />
+      <sidebar:SidebarView x:Name="SidebarRegion" Grid.Column="1" TabIndex="2">
+        <sidebar:SidebarView.RenderTransform><TranslateTransform x:Name="DrawerShift" /></sidebar:SidebarView.RenderTransform>
+      </sidebar:SidebarView>
+      <!-- M2 plan 6.1: the pane handles sit on the edge of the sidebar and of the list (in this grid, so no layout changes); widths: PanesViewModel -->
+      <actions:PaneHandle x:Name="SidebarHandle" Grid.Column="1" TabIndex="3" Column="sidebar" Target="{x:Bind SidebarRegion}" AutomationProperties.AutomationId="pane.sidebar" AutomationProperties.Name="Resize sidebar" />
     </Grid>
+    <!-- WP-10 (SH-11, RS-01): the phone layout's bottom tab bar (navigation-rail.tsx:390-445), for the mail screen; the other app screens keep their rail. -->
+    <shell:PhoneTabBar x:Name="PhoneBar" Grid.Row="2" Visibility="Collapsed" />
     <!-- M4 cal-views: the Calendar app's screen (rail | calendar sidebar | surface | detail), built on the first visit and shown instead of the mail screen while the rail has Calendar open; the mail screen keeps its state while hidden. -->
     <Grid x:Name="CalendarHost" Grid.Row="1" Visibility="Collapsed" AutomationProperties.AutomationId="calendar.host" />
     <!-- M5 con-ui (S0, D-M5-07): the screens of the other rail apps (Contacts, Files), one child per registered IAppScreenFactory, built on the first visit and then only hidden. -->
     <Grid x:Name="AppHost" Grid.Row="1" Visibility="Collapsed" AutomationProperties.AutomationId="apps.host" />
     <!-- M2 plan 3.3: the in-window overlays (menus, dialogs, palette, toasts) are added here at start-up from the registered IShellOverlay, above the regions and below the sign-in screen. -->
-    <Grid x:Name="OverlayLayer" Grid.Row="1" AutomationProperties.AutomationId="overlay.layer" />
+    <Grid x:Name="OverlayLayer" Grid.Row="1" Grid.RowSpan="2" AutomationProperties.AutomationId="overlay.layer" />
     <signin:SignInView x:Name="SignInRegion" Grid.Row="1" Visibility="Collapsed" />
     <!-- in-window tooltips (motion:Tip) draw here; never a ToolTip popup (ADR 0007) -->
-    <Canvas x:Name="Overlay" Grid.RowSpan="2" IsHitTestVisible="False" />
+    <Canvas x:Name="Overlay" Grid.RowSpan="3" IsHitTestVisible="False" />
     <Grid x:Name="AddOnRuntimeMount" Grid.Row="1" Width="0" Height="0" Opacity="0"
           HorizontalAlignment="Left" VerticalAlignment="Top" IsHitTestVisible="False" />
   </Grid>

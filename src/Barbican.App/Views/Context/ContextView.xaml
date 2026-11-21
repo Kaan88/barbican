@@ -5,7 +5,7 @@
     xmlns:theme="using:Barbican.App.Theme"
     xmlns:views="using:Barbican.App.Views"
     xmlns:local="using:Barbican.App.Views.Context">
-  <!-- The sender panel beside the reader (prototype/winui/MainWindow.xaml ContextTile / NordContext): the open message's sender, the authentication verdict,
+  <!-- WP-10: Bulwark has no sender panel beside the reader; the panel belongs to Bento (always shown when there is room) and Nordic Focus (toggleable through the shell's ContextToggle, design/UI-GUIDELINES.md); hidden in the default style. The sender panel beside the reader (prototype/winui/MainWindow.xaml ContextTile / NordContext): the open message's sender, the authentication verdict,
        and the sender's other messages in the loaded list. Display only. Shown when the reader keeps at least StyleMetrics.ContextMinReader (ShellLayout.ContextShown);
        Bento: its own tile; Nordic: the right part of the surface behind a hairline. Nothing here animates. -->
   <Border Width="{x:Bind Look.ContextWidth, Mode=OneWay}" Background="{x:Bind Look.PaneBrush, Mode=OneWay}" BorderBrush="{StaticResource Line}" BorderThickness="{x:Bind Look.ContextBorder, Mode=OneWay}"
