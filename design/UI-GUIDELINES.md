@@ -1,10 +1,13 @@
 # Current UI guidelines
 
-**Bulwark is the main visual direction for Barbican.** Use the live walkthrough
-and the pinned upstream source together, as indexed in the
-[M6b UI parity notes](../docs/milestones/M6b-ui-parity.md). Start with the mail
-shell, inbox and reader, then carry the same palette and control styling into
-the composer, dialogs, settings, and other app views.
+**Barbican's default theme is a native clone of Bulwark webmail 1.21.2** (user
+decision, 2026-11-21). Design, feel, the placement of every control and the way
+each one works match Bulwark on every screen. The Bento and Nordic themes are
+built on top of this base: they restyle it and may rearrange it, but share its
+behaviour. Use the live walkthrough and the pinned upstream source together, as
+indexed in the [M6b UI parity notes](../docs/milestones/M6b-ui-parity.md).
+Start with the mail shell, inbox and reader, then carry the same palette and
+control styling into the composer, dialogs, settings, and other app views.
 
 Use native controls and semantic tokens. Match reference geometry and hierarchy
 at comparable viewport sizes, not a fixed pixel layout at every scale. Verify
@@ -12,7 +15,7 @@ light and dark modes, keyboard focus, high contrast, reduced motion, narrow
 layouts, and any changed commands. Keep screenshots that contain real-account
 data out of the repository; use synthetic native fixtures for review evidence.
 
-The original native WinUI mockup supplies the motion and interaction reference when opening mail, switching folders, returning to the list and reversing an in-flight transition. Use it to judge feedback, timing and focus. Preserve saved appearance choices. See the [verified interaction checkpoint](../docs/milestones/M6b-solo-parity.md#native-interaction-check) and [motion rules](MOTION.md).
+Bulwark's transitions and interaction timing are the reference for feel. Where Bulwark has no equivalent for a native-only interaction, the original native WinUI mockup supplies the motion and interaction reference when opening mail, switching folders, returning to the list and reversing an in-flight transition. Use it to judge feedback, timing and focus. Preserve saved appearance choices. See the [verified interaction checkpoint](../docs/milestones/M6b-solo-parity.md#native-interaction-check) and [motion rules](MOTION.md).
 
 For a visual change, use the same viewport in effective pixels, theme, text scale, pane widths and preferences on both sides. Record unavoidable fixture or platform differences. Compare one settled native render with its reference and exercise the controls that changed. Use a whole-window capture for WebView content. The [M6b work list](../docs/milestones/M6b-plan.md#current-work) names the first comparison.
 

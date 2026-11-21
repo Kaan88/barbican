@@ -18,7 +18,7 @@ The [roadmap](docs/ROADMAP.md) names the active milestone. Its work list owns th
 
 ## UI references
 
-Use [UI guidelines](design/UI-GUIDELINES.md) for appearance and motion. M6b uses Bulwark 1.21.2 for default appearance and behavior and the original native WinUI prototype for interaction feedback and transitions. The walkthrough with the designated throwaway reference account is indexed in the [UI ledger](docs/milestones/M6b-ui-parity.md). Reuse recorded observations and target missing states. Capture Barbican with hidden automation and synthetic mail. Keep real-account material out of Git.
+Use [UI guidelines](design/UI-GUIDELINES.md) for appearance and motion. **The default theme is a native clone of Bulwark 1.21.2:** design, feel, placement and behaviour match Bulwark on every screen; cite the Bulwark component file:line you matched. Bento and Nordic are built on top of that base. The original native WinUI prototype is the motion reference only where Bulwark has no equivalent. The walkthrough with the designated throwaway reference account is indexed in the [UI ledger](docs/milestones/M6b-ui-parity.md). Reuse recorded observations and target missing states. Capture Barbican with hidden automation and synthetic mail. Keep real-account material out of Git.
 
 ## Start of every session
 1. Read `.local/accounts.md` (gitignored, machine-local). It maps the placeholders used in this repo
