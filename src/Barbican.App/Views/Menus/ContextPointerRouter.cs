@@ -83,8 +83,9 @@ public sealed class ContextPointerRouter
                 var isAttachment = string.Equals(menuId, MenuIds.Attachment, StringComparison.Ordinal);
                 var attachmentIndex = isAttachment && int.TryParse(target, System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out var ai) ? ai : 0;
                 return ViewHost.Get<Barbican.App.Views.Reader.ReaderMenuOpener>().Open(menuId, isAttachment ? attachmentIndex : null, anchor) ? "ok" : "error no rows";
-            case MenuIds.Address:
-                context = Base(menuId) with { Address = target };
+            case MenuIds.Address or MenuIds.ReaderSelection:
+                // RD-08: for MENU-SELECTION the target is the selected text (the body's own right-click needs the real mouse)
+                context = Base(menuId) with { Address = target, SelectionText = string.Equals(menuId, MenuIds.ReaderSelection, StringComparison.Ordinal) ? target : null };
                 break;
             case MenuIds.Account:
                 context = Base(menuId) with { Address = target.Length > 0 ? target : _active.AccountKey };

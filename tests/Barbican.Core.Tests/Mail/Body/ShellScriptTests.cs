@@ -140,6 +140,17 @@ public sealed partial class ShellScriptTests
         }
     }
 
+    // RD-08 (Bulwark reader-selection-menu.tsx:95-99): the selection reaches the host, even when unchanged, before the right-click that asks for the menu
+    [Fact]
+    public void ARightClickSendsTheSelectionBeforeTheContextMessage()
+    {
+        var code = Code.Value;
+        Assert.Matches(@"function ctxOf\(d\)\s*\{\s*return function \(e\)\s*\{\s*try \{[\s\S]*?pubSel\(d, true\);\s*post\('ctx:'", code);
+        Assert.Contains("on(d, 'contextmenu', ctxOf(d), true);", code, StringComparison.Ordinal);
+        Assert.Contains("if (force || t !== selLast)", code, StringComparison.Ordinal);
+        Assert.Contains("if (t.length > 4000) t = t.slice(0, 4000);", code, StringComparison.Ordinal);
+    }
+
     [Fact]
     public void CommentStripperKeepsCodeAndDropsComments()
     {

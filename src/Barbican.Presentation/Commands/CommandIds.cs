@@ -138,6 +138,8 @@ public static class CommandIds
     // ---- the body (owner menus; the reader view runs them in the WebView) ----
     public const string BodyCopy = "body.copy";
     public const string BodySelectAll = "body.select-all";
+    public const string ReaderSelectionCopy = "reader.selection.copy";
+    public const string ReaderSelectionAddOn = "reader.selection.addon";
 
     // ---- later milestones, named so menus and the palette can list them disabled ----
     public const string Compose = "compose.new";

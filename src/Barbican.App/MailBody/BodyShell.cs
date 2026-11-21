@@ -67,6 +67,8 @@ public sealed partial class BodyShell : IBodyPresenter, IStartupTask, IDisposabl
     private long _docSeq;
     private (long Seq, BodyRequest Request, MailPage Page, bool Allow, bool Fallback)? _pending;
     private (BodyRequest Request, MailPage Page, bool Allow)? _current;
+    private string _selection = string.Empty;
+    private string _notifiedSelection = string.Empty;
     private ITimer? _readyTimer;
     private bool _slow;
     private bool _loaderLoading;
@@ -99,6 +101,9 @@ public sealed partial class BodyShell : IBodyPresenter, IStartupTask, IDisposabl
 
     /// <summary>The visible page was laid out, including after a change of appearance.</summary>
     public event EventHandler? PageShown;
+
+    /// <summary>RD-08: a right-click in the message body, at page coordinates (x, y), with the text selected there (empty when none). Raised on the UI thread; the host decides what it opens.</summary>
+    public event EventHandler<BodyContextEventArgs>? ContextRequested;
 
     /// <summary>The WebView the body view hosts (created on first use, on the UI thread).</summary>
     public WebView2 View => _view ??= CreateView();
@@ -532,15 +537,28 @@ public sealed partial class BodyShell : IBodyPresenter, IStartupTask, IDisposabl
             case ShellMessageKind.Key when m.Key is not null && ShellMessageParser.ParseKey(m.Key) is { } key:
                 _ = _keys.Value.Handle(ForwardedKeyChords.ToChord(key), KeySource.WebView);
                 break;
-            case ShellMessageKind.Selection when m.Text is not null && _current is { } shown && _hooks.HasHandlers(HookNames.OnTextSelectionChange):
-                _ = _hooks.NotifyAsync(HookNames.OnTextSelectionChange, new SelectionContext(shown.Request.EmailId, m.Text), CancellationToken.None).AsTask();
+            case ShellMessageKind.Selection when m.Text is not null:
+                _selection = m.Text;
+                // the shell sends the selection again before a context click: plugins hear a change once (Bulwark reader-selection-menu.tsx:80-90)
+                if (_current is { } shown && !string.Equals(_notifiedSelection, m.Text, StringComparison.Ordinal))
+                {
+                    _notifiedSelection = m.Text;
+                    if (_hooks.HasHandlers(HookNames.OnTextSelectionChange))
+                    {
+                        _ = _hooks.NotifyAsync(HookNames.OnTextSelectionChange, new SelectionContext(shown.Request.EmailId, m.Text), CancellationToken.None).AsTask();
+                    }
+                }
+
+                break;
+            case ShellMessageKind.Context when _current is not null:
+                ContextRequested?.Invoke(this, new BodyContextEventArgs(m.X, m.Y, _selection));
                 break;
             case ShellMessageKind.Link when m.Link is not null:
                 RoutedLinks++;
                 _links.Route(m.Link);
                 break;
             default:
-                // dirty: nothing to refresh (no capture under the view on Windows); ctx: the context menu is M2's
+                // dirty: nothing to refresh (no capture under the view on Windows); ctx without a message on screen: nothing to open
                 break;
         }
     }

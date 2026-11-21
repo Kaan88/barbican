@@ -12,6 +12,9 @@ namespace Barbican.App.Plugins;
 internal sealed class PluginActionRegistration : IPluginApiMethod
 {
     internal const string ComposerHeader = "composer-header-actions";
+
+    /// <summary>RD-08: rows in the menu on selected message text (Bulwark components/email/reader-selection-menu.tsx:21; permissions ui:context-menu or ui:toolbar, spec/plugins/slots.csv).</summary>
+    internal const string ReaderSelection = "reader-selection-menu";
     private readonly ConditionalWeakTable<PluginRuntimeBinding, Contributions> _actions = new();
     private readonly Lock _gate = new();
 
@@ -28,7 +31,9 @@ internal sealed class PluginActionRegistration : IPluginApiMethod
         var (slot, actions) = parsed;
         var binding = context.Binding;
         var permission = string.Equals(slot, ComposerHeader, StringComparison.Ordinal) ? "ui:composer-toolbar" : "ui:toolbar";
-        if (binding.Kind != PluginFrameKind.Background || !context.Demand(permission, null).IsOk ||
+        var allowed = binding.Kind == PluginFrameKind.Background && (context.Demand(permission, null).IsOk ||
+            (string.Equals(slot, ReaderSelection, StringComparison.Ordinal) && context.Demand("ui:context-menu", null).IsOk));
+        if (!allowed ||
             !await context.CheckCurrentAsync(ct).ConfigureAwait(false) ||
             !binding.TryWriteWhileAlive(() =>
             {
@@ -59,7 +64,7 @@ internal sealed class PluginActionRegistration : IPluginApiMethod
     private static (string Slot, PluginAction[] Actions)? Parse(PluginValue args)
     {
         if (args is not { Kind: PluginValueKind.Array, Count: 2 } ||
-            args.Item(0) is not { Kind: PluginValueKind.String, StringValue: ComposerHeader or "reader-actions" } slot ||
+            args.Item(0) is not { Kind: PluginValueKind.String, StringValue: ComposerHeader or "reader-actions" or ReaderSelection } slot ||
             args.Item(1) is not { Kind: PluginValueKind.Array, Count: <= 16 } array) return null;
         var actions = new List<PluginAction>();
         var ids = new HashSet<string>(StringComparer.Ordinal);
